@@ -1,0 +1,3 @@
+[0 0 1 1] left/top panel:section
+[0.0675 0.3867 0.225 0.0533] left/bottom text:sectionNumber "02"
+[0.0675 0.4467 0.825 0.2267] left/top text:sectionTitle "Cold-path latency, not the hot path, is what users feel"

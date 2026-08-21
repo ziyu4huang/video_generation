@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "../scripts/deck.ts";
 import { parseManifest, manifestFromIrPaths, resolveDeckOutput, DeckError } from "../lib/deck-build.ts";
-import { readZipText, count } from "./helpers/read-zip.ts";
+import { readZipText, count } from "../lib/read-zip.ts";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const PKG_ROOT = join(HERE, "..");

@@ -28,6 +28,7 @@ import {
   type DeckManifest,
   type Theme,
 } from "./deck-build.ts";
+import { lintDeck, storyline } from "./deck-lint.ts";
 import type { OpenBus } from "./open-announce.ts";
 
 export interface ExportPptxParams {
@@ -119,6 +120,10 @@ export async function archifyExportPptx(
     });
 
     const shapes = result.slides.reduce((a, s) => a + s.shapes + s.texts, 0);
+    // Advisory only — content notes never fail an export. They ride along in
+    // `details` so the agent sees them without a second tool call, alongside the
+    // storyline: the titles read in order ARE the deck's argument.
+    const notes = lintDeck(manifest);
     return {
       content: [
         {
@@ -137,10 +142,13 @@ export async function archifyExportPptx(
         bytes: result.bytes,
         slides: result.slides.map((s) => ({
           title: s.title,
+          layout: s.layout,
           diagramType: s.diagramType,
           shapes: s.shapes,
           texts: s.texts,
         })),
+        storyline: storyline(manifest),
+        ...(notes.length > 0 ? { lint: notes } : {}),
       },
     };
   } catch (e) {
@@ -157,6 +165,8 @@ export function makeExportPptxTool(events?: OpenBus) {
     description:
       "Export archify diagrams to a 16:9 .pptx as NATIVE, EDITABLE PowerPoint shapes (no screenshots). " +
       "Pass either `manifestPath` (a deck.config.json) or `irPaths` (one slide per IR). " +
+      "A manifest slide may set `layout` (title|section|bullets|split|diagram|statement) with " +
+      "`bullets`/`takeaway`/`source`/`statement`; a slide with `ir` and no `layout` is a diagram slide. " +
       "Optional `outputPath`, `theme` (light|dark) and `slidesDir`. " +
       "Also keeps the interactive slide HTML in <output>.slides/ and announces it to a webui Diagram pane. " +
       "Returns the absolute .pptx path.",
@@ -164,7 +174,7 @@ export function makeExportPptxTool(events?: OpenBus) {
       manifestPath: Type.Optional(
         Type.String({
           description:
-            "Path to a deck manifest JSON (absolute or cwd-relative): {output?, theme?, tag?, defaults?{font}, slides:[{ir,title,subtitle?}]}.",
+            "Path to a deck manifest JSON (absolute or cwd-relative): {output?, theme?, tag?, defaults?{font}, slides:[{title, layout?, ir?, bullets?, takeaway?, source?, statement?, subtitle?}]}.",
         })
       ),
       irPaths: Type.Optional(

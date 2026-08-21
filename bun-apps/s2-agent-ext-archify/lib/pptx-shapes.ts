@@ -29,7 +29,17 @@ import { flatten, themeBackground, toHex } from "./svg-theme.ts";
  */
 export interface SlideLike {
   addShape(type: string, opts: Record<string, unknown>): unknown;
-  addText(text: string, opts: Record<string, unknown>): unknown;
+  /**
+   * A run array is how ONE PowerPoint text box holds a multi-paragraph list
+   * (see `emit-pptx.ts`). This module only ever passes a plain string.
+   */
+  addText(text: string | TextRun[], opts: Record<string, unknown>): unknown;
+}
+
+/** One paragraph inside a multi-run text box. */
+export interface TextRun {
+  text: string;
+  options?: Record<string, unknown>;
 }
 
 /** Target rectangle on the slide, in inches. */

@@ -1,42 +1,64 @@
 /**
- * deck-build.ts — deck manifest → a PPTX of NATIVE shapes.
+ * deck-build.ts — deck manifest → a PPTX of NATIVE shapes + composed slide HTML.
  *
  * The shared core behind both `bun run deck` (scripts/deck.ts) and the
  * `archify_export_pptx` tool, so the CLI and the agent can never drift.
  *
+ * This module is an ORCHESTRATOR and nothing else. It resolves the manifest,
+ * asks `layouts.ts` where things go, hands the answer to the two emitters, and
+ * writes the results. It owns no geometry, no palette and no chrome — those
+ * moved to `layouts.ts` / `deck-theme.ts` when a slide stopped being "one
+ * diagram per page".
+ *
  * Pipeline, per slide:
  *
- *   IR .json --deliver--> .html --parseSvg--> SvgDoc --toShapeIR--> ShapeIR
- *            --addShapeIrToSlide--> native PowerPoint shapes
+ *   Slide --resolveLayout--> layout fn --> PlacedBlock[]
+ *                                             |
+ *          diagram blocks --deliver--> .html --parseSvg--> SvgDoc --toShapeIR--┐
+ *                                             |                                |
+ *                                             +--> emit-pptx (native shapes) <-+
+ *                                             +--> emit-html (composed page)
  *
  * `deliver` (not bare `render`) is deliberate: it validates the IR, renders,
  * checks the artifact and commits atomically, so a deck can never be built from
  * an artifact archify itself considers broken.
  *
- * **No browser is involved.** The previous implementation launched Playwright
- * chromium and screenshotted each `<svg>` into a slide image; slides were flat
- * pictures and the package carried a browser dependency for it. Both are gone.
+ * **No browser is involved.** Slides carry real PowerPoint shapes and text runs,
+ * never screenshots.
  */
 import PptxGenJS from "pptxgenjs";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { PALETTES, type Palette, type Theme } from "./deck-theme.ts";
+import { emitHtmlSlide, type DiagramEmbed } from "./emit-html.ts";
+import { emitPptxSlide, type SlideLike } from "./emit-pptx.ts";
+import { layoutFor } from "./layouts.ts";
 import { loadIrMeta } from "./load-ir.ts";
-import { addShapeIrToSlide, type SlideLike } from "./pptx-shapes.ts";
-import { formatShapeIR, toShapeIR, type ShapeIR, type Theme } from "./shape-ir.ts";
+import { formatShapeIR, toShapeIR, type ShapeIR } from "./shape-ir.ts";
+import {
+  normalizeBullets,
+  resolveLayout,
+  SLIDE_LAYOUTS,
+  type PlacedBlock,
+  type Slide,
+  type SlideLayout,
+} from "./slide-model.ts";
 import { parseSvg } from "./svg-model.ts";
 import { runArchify, VENDORED_BIN } from "./run.ts";
 import { announceDeck, type OpenBus } from "./open-announce.ts";
 import { generateThumbnails } from "./thumbnails.ts";
 
-export type { Theme };
+export type { Theme, Palette };
+/** Re-exported for consumers that imported it from here before the split. */
+export { PALETTES };
 
-export interface DeckSlide {
-  /** Path to the IR .json, absolute or relative to the manifest dir. */
-  ir: string;
-  title: string;
-  subtitle?: string;
-}
+/**
+ * One slide of a deck. `Slide` carries every layout's fields; a manifest written
+ * before layouts existed uses only `ir` / `title` / `subtitle` and still works,
+ * because a slide with `ir` and no `layout` IS a diagram slide (`resolveLayout`).
+ */
+export type DeckSlide = Slide;
 
 export interface DeckManifest {
   output?: string;
@@ -62,38 +84,6 @@ export class DeckError extends Error {
   }
 }
 
-interface Palette {
-  slideBg: string;
-  title: string;
-  accent: string;
-  subtitle: string;
-  tagBg: string;
-  tagBorder: string;
-}
-
-export const PALETTES: Record<Theme, Palette> = {
-  light: {
-    slideBg: "FFFFFF",
-    title: "0F2740",
-    accent: "2563EB",
-    subtitle: "6B7280",
-    tagBg: "EFF4FA",
-    tagBorder: "CBD5E1",
-  },
-  dark: {
-    slideBg: "0B1220",
-    title: "E2E8F0",
-    accent: "60A5FA",
-    subtitle: "94A3B8",
-    tagBg: "1E293B",
-    tagBorder: "334155",
-  },
-};
-
-/** Slide chrome geometry, in inches on a 13.333 x 7.5 stage. */
-const STAGE = { w: 13.333, h: 7.5 };
-const CONTENT = { x: 0.5, y: 1.18, w: 12.333, h: 5.7 };
-
 export interface BuildDeckParams {
   manifest: DeckManifest;
   /** Directory that `slide.ir` and `manifest.output` resolve against. */
@@ -117,8 +107,8 @@ export interface BuildDeckParams {
    * the .pptx is then the only artifact.
    *
    * Persisting is the default for both entry points, and it is not merely a
-   * side effect: those HTML files ARE the diagrams, full-fidelity and
-   * interactive. The .pptx is the flattened, portable view of the same thing.
+   * side effect: those HTML files ARE the slides, full-fidelity and (for
+   * diagrams) interactive. The .pptx is the flattened, portable view.
    */
   slidesDir?: string | null;
   /** Optional host event bus — a deck build announces `webui:deck` on it. */
@@ -136,9 +126,12 @@ export interface BuildDeckParams {
 export interface BuiltSlide {
   title: string;
   subtitle?: string;
-  /** The rendered HTML for this slide (inside the build's temp dir). */
+  /** The slide page: an archify artifact for `diagram`, else a composed page. */
   htmlPath: string;
-  irPath: string;
+  layout: SlideLayout;
+  /** Absolute IR path, when this slide has a diagram. */
+  irPath?: string;
+  /** The archify diagram type, or the layout name when there is no diagram. */
   diagramType: string;
   shapes: number;
   texts: number;
@@ -171,11 +164,28 @@ export function parseManifest(raw: string, source: string): DeckManifest {
     throw new DeckError("manifest missing non-empty `slides`");
   }
   m.slides.forEach((s, i) => {
-    if (!s || typeof s.ir !== "string" || s.ir === "") {
-      throw new DeckError(`slide ${i + 1}: missing \`ir\``);
-    }
+    const where = `slide ${i + 1}`;
+    if (!s || typeof s !== "object") throw new DeckError(`${where}: not an object`);
     if (typeof s.title !== "string" || s.title === "") {
-      throw new DeckError(`slide ${i + 1}: missing \`title\``);
+      throw new DeckError(`${where}: missing \`title\``);
+    }
+    if (s.layout !== undefined && !SLIDE_LAYOUTS.includes(s.layout)) {
+      throw new DeckError(
+        `${where}: unknown \`layout\` ${JSON.stringify(s.layout)} — ` +
+          `expected one of ${SLIDE_LAYOUTS.join(", ")}`
+      );
+    }
+    if (s.layout === undefined && typeof s.ir !== "string") {
+      throw new DeckError(
+        `${where}: needs either an \`ir\` (a diagram slide) or an explicit \`layout\` ` +
+          `(one of ${SLIDE_LAYOUTS.join(", ")}).`
+      );
+    }
+    if (s.ir !== undefined && (typeof s.ir !== "string" || s.ir === "")) {
+      throw new DeckError(`${where}: \`ir\` must be a non-empty string`);
+    }
+    if (s.ratio !== undefined && typeof s.ratio !== "number") {
+      throw new DeckError(`${where}: \`ratio\` must be a number`);
     }
   });
   if (m.theme !== undefined && m.theme !== "light" && m.theme !== "dark") {
@@ -239,49 +249,66 @@ async function deliverSlide(
   return type;
 }
 
-/** Draw the fixed slide chrome (tag, title, accent rule, subtitle, page number). */
-function addChrome(
-  slide: SlideLike & { background?: unknown },
-  opts: {
-    palette: Palette;
-    font: string;
-    tag: string;
-    title: string;
-    subtitle?: string;
-    index: number;
-    total: number;
+/**
+ * Resolve every diagram block on a slide: render its IR and convert to ShapeIR.
+ *
+ * The artifact's filename encodes decision D4. On a `diagram` slide the artifact
+ * IS `slide-N.html` — exactly what the pre-composition builder wrote and what a
+ * webui already serves. On a composed slide it is `slide-N.diagram.html`, a
+ * sibling the composed page iframes.
+ */
+async function resolveDiagrams(
+  blocks: PlacedBlock[],
+  index: number,
+  layout: SlideLayout,
+  work: string,
+  theme: Theme,
+  params: BuildDeckParams
+): Promise<{
+  diagrams: Map<string, ShapeIR>;
+  diagramSrc: Map<string, DiagramEmbed>;
+  artifactPath?: string;
+  diagramType?: string;
+}> {
+  const diagrams = new Map<string, ShapeIR>();
+  const diagramSrc = new Map<string, DiagramEmbed>();
+  let artifactPath: string | undefined;
+  let diagramType: string | undefined;
+
+  for (const block of blocks) {
+    if (block.content.kind !== "diagram") continue;
+    const irAbs = block.content.ir;
+    if (!(await Bun.file(irAbs).exists())) {
+      throw new DeckError(`slide ${index + 1}: IR not found: ${irAbs}`);
+    }
+    const file =
+      layout === "diagram" ? `slide-${index + 1}.html` : `slide-${index + 1}.diagram.html`;
+    const out = join(work, file);
+    diagramType = await deliverSlide(irAbs, out, index, params);
+    const doc = await parseSvg(await Bun.file(out).text());
+    const ir = toShapeIR(doc, theme);
+    diagrams.set(irAbs, ir);
+    diagramSrc.set(irAbs, {
+      file,
+      ...(ir.width > 0 && ir.height > 0 ? { aspect: ir.width / ir.height } : {}),
+    });
+    artifactPath = out;
+    if (params.emitShapeIrDir) {
+      await Bun.write(
+        join(params.emitShapeIrDir, `slide-${index + 1}.shape-ir.txt`),
+        formatShapeIR(ir)
+      );
+    }
   }
-): void {
-  const { palette: p, font } = opts;
-  slide.addShape("roundRect", {
-    x: 9.7, y: 0.28, w: 3.13, h: 0.4,
-    fill: { color: p.tagBg },
-    line: { color: p.tagBorder, width: 0.5 },
-  });
-  slide.addText(opts.tag, {
-    x: 9.7, y: 0.28, w: 3.13, h: 0.4,
-    fontFace: font, fontSize: 10, color: p.title, align: "center", valign: "middle",
-  });
-  slide.addText(opts.title, {
-    x: 0.5, y: 0.22, w: 9.0, h: 0.75,
-    fontFace: font, fontSize: 26, bold: true, color: p.title, valign: "middle",
-  });
-  slide.addShape("rect", {
-    x: 0.5, y: 1.02, w: CONTENT.w, h: 0.035,
-    fill: { color: p.accent },
-    line: { type: "none" },
-  });
-  slide.addText(opts.subtitle ?? "", {
-    x: 0.5, y: 7.0, w: 11.4, h: 0.4,
-    fontFace: font, fontSize: 11, color: p.subtitle, valign: "middle",
-  });
-  slide.addText(`${opts.index + 1} / ${opts.total}`, {
-    x: 11.9, y: 7.0, w: 0.94, h: 0.4,
-    fontFace: font, fontSize: 11, color: p.subtitle, align: "right", valign: "middle",
-  });
+  return {
+    diagrams,
+    diagramSrc,
+    ...(artifactPath ? { artifactPath } : {}),
+    ...(diagramType ? { diagramType } : {}),
+  };
 }
 
-/** Build the deck. Every slide is validated, rendered, and drawn as shapes. */
+/** Build the deck. Every slide is laid out, emitted twice, and counted. */
 export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   const { manifest } = params;
   const theme: Theme = params.theme ?? manifest.theme ?? "light";
@@ -297,49 +324,71 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   if (persist) mkdirSync(work, { recursive: true });
   try {
     const pptx = new PptxGenJS();
-    pptx.defineLayout({ name: "WIDE", width: STAGE.w, height: STAGE.h });
+    pptx.defineLayout({ name: "WIDE", width: 13.333, height: 7.5 });
     pptx.layout = "WIDE";
 
+    const total = manifest.slides.length;
     const built: BuiltSlide[] = [];
-    for (let i = 0; i < manifest.slides.length; i++) {
+
+    for (let i = 0; i < total; i++) {
       if (params.signal?.aborted) throw new DeckError("aborted");
-      const s = manifest.slides[i]!;
-      const irAbs = isAbsolute(s.ir) ? s.ir : resolve(params.manifestDir, s.ir);
-      if (!(await Bun.file(irAbs).exists())) {
-        throw new DeckError(`slide ${i + 1}: IR not found: ${irAbs}`);
-      }
+      const authored = manifest.slides[i]!;
+      const layout = resolveLayout(authored);
 
+      // Absolutize `ir` BEFORE layout so a diagram block's `ir` is the key both
+      // the ShapeIR map and the iframe src agree on.
+      const slide: Slide = {
+        ...authored,
+        ...(authored.ir
+          ? { ir: isAbsolute(authored.ir) ? authored.ir : resolve(params.manifestDir, authored.ir) }
+          : {}),
+        ...(authored.bullets ? { bullets: normalizeBullets(authored.bullets) } : {}),
+      };
+
+      const blocks = layoutFor(layout)(slide, { index: i, total, tag });
+      const { diagrams, diagramSrc, artifactPath, diagramType } = await resolveDiagrams(
+        blocks,
+        i,
+        layout,
+        work,
+        theme,
+        params
+      );
+
+      const pptxSlide = pptx.addSlide() as unknown as SlideLike & {
+        background?: unknown;
+        addNotes?: (t: string) => unknown;
+      };
+      pptxSlide.background = { color: palette.slideBg };
+      const placed = emitPptxSlide(pptxSlide, blocks, { palette, theme, font, diagrams });
+      if (slide.notes && typeof pptxSlide.addNotes === "function") pptxSlide.addNotes(slide.notes);
+
+      // D4: a `diagram` slide's page IS the archify artifact, untouched.
+      // Composed slides get their own page, with the artifact beside them.
       const htmlPath = join(work, `slide-${i + 1}.html`);
-      const diagramType = await deliverSlide(irAbs, htmlPath, i, params);
-
-      const doc = await parseSvg(await Bun.file(htmlPath).text());
-      const ir: ShapeIR = toShapeIR(doc, theme);
-      if (params.emitShapeIrDir) {
-        await Bun.write(join(params.emitShapeIrDir, `slide-${i + 1}.shape-ir.txt`), formatShapeIR(ir));
+      if (layout !== "diagram") {
+        await Bun.write(
+          htmlPath,
+          emitHtmlSlide(blocks, { palette, theme, font, title: slide.title, diagramSrc })
+        );
+      } else if (!artifactPath) {
+        throw new DeckError(
+          `slide ${i + 1}: layout "diagram" needs an \`ir\` — add one, or pick another layout.`
+        );
       }
-
-      const slide = pptx.addSlide() as unknown as SlideLike & { background?: unknown };
-      (slide as { background?: unknown }).background = { color: palette.slideBg };
-      addChrome(slide, {
-        palette, font, tag,
-        title: s.title,
-        ...(s.subtitle !== undefined ? { subtitle: s.subtitle } : {}),
-        index: i,
-        total: manifest.slides.length,
-      });
-      const placed = addShapeIrToSlide(slide, ir, CONTENT, { fontFace: font });
 
       built.push({
-        title: s.title,
-        ...(s.subtitle !== undefined ? { subtitle: s.subtitle } : {}),
+        title: slide.title,
+        ...(slide.subtitle !== undefined ? { subtitle: slide.subtitle } : {}),
         htmlPath,
-        irPath: irAbs,
-        diagramType,
+        layout,
+        ...(slide.ir ? { irPath: slide.ir } : {}),
+        diagramType: diagramType ?? layout,
         shapes: placed.shapes,
         texts: placed.texts,
       });
       progress(
-        `slide ${i + 1}/${manifest.slides.length} (${diagramType}) — ` +
+        `slide ${i + 1}/${total} (${diagramType ?? layout}) — ` +
           `${placed.shapes} shapes, ${placed.texts} text runs`
       );
     }

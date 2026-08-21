@@ -1,0 +1,9 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0213 0.675 0.0747] left/middle text:title "Cold-path latency, not the hot path, is what users feel"
+[0.0375 0.0933 0.925 0.04] left/middle text:takeaway "Cache the resolver and p99 halves"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source "Source: prod traces, 2026-07-01..07-30"
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "2 / 5"
+[0.0375 0.2 0.537 0.68] left/top diagram "/abs/slide.json"
+[0.6045 0.2 0.358 0.68] left/top bullets:bullet 0:"p99 is 4.2 s" 1:"of which 3.1 s is DNS" 0:"p50 is unchanged"

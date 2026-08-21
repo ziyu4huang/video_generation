@@ -1,0 +1,60 @@
+{
+  "output": "composed.pptx",
+  "theme": "light",
+  "tag": "archify · composed deck",
+  "defaults": { "font": "PingFang TC" },
+  "slides": [
+    {
+      "layout": "title",
+      "eyebrow": "SYSTEM ARCHITECTURE REVIEW",
+      "title": "散文寫的規格改不動、查不出、驗不了",
+      "subtitle": "把 SAS/MAS 規格 Itemize 成原子條目，讓每一條都可追溯、可驗證",
+      "date": "2026-08-21"
+    },
+    {
+      "layout": "section",
+      "sectionNumber": "01",
+      "title": "問題：一段壞散文"
+    },
+    {
+      "layout": "split",
+      "title": "散文之所以改不動，是因為一句話同時講了四件事",
+      "takeaway": "拆成原子 Item 後，每一條各自有唯一 ID 與驗證配對",
+      "source": "來源：COCKPIT-26 SAS 草稿 §3.2",
+      "ir": "../deck/ir/slide1.json",
+      "bullets": [
+        "改不動：改一條，不知道誰會跟著壞",
+        { "text": "沒有 ID，就沒有影響範圍", "level": 1 },
+        "查不出：評鑑要基線，散文給不出",
+        "驗不了：測試不知道該指向哪一條",
+        { "text": "V-model 兩翼無法配對", "level": 1 }
+      ]
+    },
+    {
+      "layout": "diagram",
+      "title": "整顆 SoC 怎麼切、誰接誰——這是 SAS 層要回答的唯一問題",
+      "subtitle": "MRD → NoC → {AUDIO APU, ISP}，外加共享記憶體與電源域",
+      "ir": "../deck/ir/slide2.json"
+    },
+    {
+      "layout": "bullets",
+      "title": "好 Item 的三個條件，缺一條就退回散文",
+      "takeaway": "原子、唯一編碼、雙向追溯——三者互相支撐",
+      "source": "來源：INCOSE Guide for Writing Requirements × ASPICE 4.0",
+      "bullets": [
+        "原子：一條 Item 只講一件事",
+        "唯一 ID：一經分配，永不修改",
+        { "text": "刪除也只標記 deprecated", "level": 1 },
+        "雙向追溯：向上掛來源，向下配對驗證",
+        { "text": "SYS.3 ↔ SYS.4，HWE.2 ↔ HWE.3", "level": 1 }
+      ]
+    },
+    {
+      "layout": "statement",
+      "title": "只驗一翼，會漏掉一整類問題",
+      "statement": "只驗一翼，會漏掉一整類問題",
+      "attribution": "— V-model 的兩翼必須成對出現",
+      "source": "來源：ASPICE 4.0 process reference model"
+    }
+  ]
+}
