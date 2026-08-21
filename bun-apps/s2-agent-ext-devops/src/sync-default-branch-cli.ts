@@ -31,19 +31,18 @@
  *   - exit 0 on success (incl. dry-run); exit 1 when the run aborted
  *     (dirty_tree / divergent / …); exit 2 on a usage error.
  */
-import path from "node:path";
 import { runSync, type SyncMode, DEFAULT_PRESERVE_PATHS } from "./sync-recipe.js";
 import { createBranchClient } from "./gh.js";
 import type { BranchClient } from "./branch-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+import { type CliResult, defaultRepoRoot, emit } from "./cli-common.js";
 
-export interface SyncCliResult {
-	exitCode: number;
-	/** Exactly what belongs on stdout (empty on a usage error / --help). */
-	stdout: string;
-	/** Diagnostics / usage — never mixed into stdout. */
-	stderr: string;
-}
+// This CLI predates src/cli-common.ts and used to carry its own copies of
+// defaultRepoRoot / the CliResult shape / the import.meta.main emit tail.
+// All three now come from cli-common (the shared contract home); re-exported
+// here so existing imports (tests, docs) stay stable.
+export { defaultRepoRoot };
+export type SyncCliResult = CliResult;
 
 export const SYNC_CLI_USAGE = [
 	"usage: sync-default-branch-cli.ts [--mode full|rebase|pull] [--dry-run] [--force]",
@@ -62,11 +61,6 @@ export const SYNC_CLI_USAGE = [
 	"  --preserve-strict   disable preserve entirely (preserve: [])",
 	"  --repo-root <path>  default: the repo this file lives in",
 ].join("\n");
-
-/** Repo root inferred from this file's location (`<root>/bun-apps/<pkg>/src/`). */
-export function defaultRepoRoot(): string {
-	return path.resolve(import.meta.dir, "..", "..", "..");
-}
 
 /**
  * Parsed argv. `preserve` follows the SyncOptions convention: undefined ⇒
@@ -157,8 +151,5 @@ export async function runSyncCli(
 }
 
 if (import.meta.main) {
-	const res = await runSyncCli(Bun.argv.slice(2));
-	if (res.stderr) process.stderr.write(`${res.stderr}\n`);
-	if (res.stdout) process.stdout.write(`${res.stdout}\n`);
-	process.exit(res.exitCode);
+	emit(await runSyncCli(Bun.argv.slice(2)));
 }

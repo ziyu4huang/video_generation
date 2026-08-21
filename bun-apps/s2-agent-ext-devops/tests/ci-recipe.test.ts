@@ -22,7 +22,9 @@ import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
 import { LOCAL_ONLY_AUDITS } from "../src/ci-gates.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "../src/changed-packages.js";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 const REPO = "/repo";
 const pkgDir = (name: string) => `${REPO}/bun-apps/${name}`;
@@ -905,28 +907,63 @@ describe("runLocalCi — link-breaker isolation (s2-agent runs sequential-first)
 		expect(idx("s2-agent")).toBeLessThan(idx("pkg-a"));
 	});
 
-	test("a heal spawn (relink dangling @repo links) runs between phases — only when s2-agent's suite ran", async () => {
-		const { fn, calls } = mkSpawn([verifyOk()]);
-		await runLocalCi({
-			repoRoot: REPO,
-			packages: ["pkg-a", "s2-agent"],
-			spawn: fn,
-			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" }, "s2-agent": { test: "bun test" } }),
-			readMatrix: async () => ({ "pkg-a": "bun test", "s2-agent": "bun test" }),
-			includeGates: false,
-		});
-		expect(calls.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(true);
+	test("the heal (relink dangling @repo links) repairs the workspace — only when s2-agent's suite ran", async () => {
+		// The heal is in-process fs (was a `bash -c` spawn), so the contract is
+		// asserted on REAL link state, not on a recorded spawn: a dangling
+		// @repo/* symlink is rewritten to bun's `../../<dir>` form, a healthy
+		// link is left alone, and none of it happens when s2-agent (the sole
+		// link-breaker) did not run.
+		const mkRepo = () => {
+			const tmp = mkdtempSync(join(tmpdir(), "ci-heal-test-"));
+			const repoDir = join(tmp, "bun-apps", "node_modules", "@repo");
+			mkdirSync(repoDir, { recursive: true });
+			// The real package dir the healed link points at (bun's own
+			// `../../<dir>` form resolves to bun-apps/<dir>).
+			mkdirSync(join(tmp, "bun-apps", "dangling-pkg"), { recursive: true });
+			// Dangling: the Bun-runtime rewrite form, pointing at a depth where
+			// nothing exists.
+			symlinkSync("../../bun-apps/does-not-exist", join(repoDir, "dangling-pkg"), "dir");
+			// Healthy: resolves to a real directory (the tmp root).
+			symlinkSync(tmp, join(repoDir, "live-pkg"), "dir");
+			return { tmp, repoDir };
+		};
+
+		const { fn } = mkSpawn([verifyOk()]);
+		const { tmp, repoDir } = mkRepo();
+		try {
+			await runLocalCi({
+				repoRoot: tmp,
+				packages: ["pkg-a", "s2-agent"],
+				spawn: fn,
+				readPkg: mkReadPkg({ "pkg-a": { test: "bun test" }, "s2-agent": { test: "bun test" } }),
+				readMatrix: async () => ({ "pkg-a": "bun test", "s2-agent": "bun test" }),
+				includeGates: false,
+			});
+			// Dangling link healed to bun's own relative form…
+			expect(readlinkSync(join(repoDir, "dangling-pkg"))).toBe("../../dangling-pkg");
+			// …and now resolves; the healthy link is untouched.
+			expect(existsSync(join(repoDir, "dangling-pkg"))).toBe(true);
+			expect(readlinkSync(join(repoDir, "live-pkg"))).toBe(tmp);
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
+
 		// …and NOT when s2-agent is absent (its suite is the sole link-breaker).
-		const { fn: fn2, calls: calls2 } = mkSpawn([verifyOk()]);
-		await runLocalCi({
-			repoRoot: REPO,
-			packages: ["pkg-a"],
-			spawn: fn2,
-			readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
-			readMatrix: async () => ({ "pkg-a": "bun test" }),
-			includeGates: false,
-		});
-		expect(calls2.some((c) => c.cmd === "bash" && c.args[0] === "-c" && c.args[2] === "heal-workspace-links")).toBe(false);
+		const { fn: fn2 } = mkSpawn([verifyOk()]);
+		const { tmp: tmp2, repoDir: repoDir2 } = mkRepo();
+		try {
+			await runLocalCi({
+				repoRoot: tmp2,
+				packages: ["pkg-a"],
+				spawn: fn2,
+				readPkg: mkReadPkg({ "pkg-a": { test: "bun test" } }),
+				readMatrix: async () => ({ "pkg-a": "bun test" }),
+				includeGates: false,
+			});
+			expect(readlinkSync(join(repoDir2, "dangling-pkg"))).toBe("../../bun-apps/does-not-exist");
+		} finally {
+			rmSync(tmp2, { recursive: true, force: true });
+		}
 	});
 });
 

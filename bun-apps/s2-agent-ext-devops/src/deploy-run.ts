@@ -75,7 +75,18 @@ export interface RunResult {
 	timedOut: boolean;
 }
 
-/** Spawn cmd+args at cwd, tee combined stdout+stderr to a log file, enforce a timeout. */
+/**
+ * Spawn cmd+args at cwd, tee combined stdout+stderr to a log file, enforce a timeout.
+ *
+ * NOT unified onto src/spawn.ts's SpawnFn — deliberately a separate
+ * implementation: the contracts differ (this one tees a combined
+ * stdout+stderr stream to a log file and resolves raw Buffers; SpawnFn returns
+ * stdout/stderr as separate strings). What they DO share is the group-kill
+ * discipline: on timeout the whole process group dies (`detached: true` +
+ * `kill(-pid)`), because killing only the direct child reaps e.g. `bash` and
+ * orphans whatever `run-test.sh` spawned beneath it — the same class of
+ * incident SpawnOptions.timeoutMs documents.
+ */
 export function runScript(opts: RunOpts): Promise<RunResult> {
 	const logDir = join(tmpdir(), "pi-deploy-ext-logs");
 	mkdirSync(logDir, { recursive: true });
@@ -87,11 +98,16 @@ export function runScript(opts: RunOpts): Promise<RunResult> {
 		const proc = spawn(opts.cmd, opts.args, {
 			cwd: opts.cwd,
 			env: opts.env ?? process.env,
+			detached: true,
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		const timer = setTimeout(() => {
 			timedOut = true;
-			proc.kill("SIGKILL");
+			try {
+				process.kill(-proc.pid!, "SIGKILL");
+			} catch {
+				proc.kill("SIGKILL"); // group gone or never formed — fall back to the child
+			}
 		}, opts.timeoutMs);
 		const onChunk = (b: Buffer) => {
 			chunks.push(b);

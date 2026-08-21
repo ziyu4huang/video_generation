@@ -1,76 +1,69 @@
 /**
- * createLiveSpawn's timeout is the ONE place this repo's "untested seam" rule is
- * worth breaking: the whole defect it fixes lives in process semantics, not in
- * orchestration, so a fake spawn cannot show it.
+ * spawn-timeout.test.ts — the group-kill contract of `createLiveSpawn`.
  *
- * RCA 2026-08-15: a `bun test --isolate` child outlived its parent and spun at
- * 100% CPU for six hours; every later devops run in that worktree hung. Two
- * facts made that possible, and each gets a test here:
- *
- *   1. Nothing capped a command's wall clock.
- *   2. Killing the direct child is NOT enough. Matrix rows run as
- *      `bash -c "<cmd>"`, so the thing that must die is the process GROUP —
- *      Bun.spawn's own `timeout` option reaps only `bash` and leaves the real
- *      workload orphaned, which is precisely how the six-hour orphan was born.
- *
- * These spawn real processes deliberately. Each one is bounded by its own
- * timeout and asserted dead afterwards, so the suite cannot itself leak one.
+ * The 6-hour `bun test --isolate` orphan (see SpawnOptions.timeoutMs) is the
+ * incident this guards against: on timeout the WHOLE process group must die,
+ * including grandchildren the direct child spawned. The timeout path used to
+ * wrap the child in `/usr/bin/perl -e 'setpgrp(0,0); exec …'` (macOS-only
+ * assumption); it now uses node:child_process `detached: true` + `kill(-pid)`,
+ * verified on macOS — this test re-verifies the contract on every platform it
+ * runs on. Skipped on Windows (no POSIX process groups).
  */
-import { test, expect, describe, afterEach } from "bun:test";
+import { describe, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createLiveSpawn, SPAWN_TIMEOUT_EXIT_CODE } from "../src/spawn.js";
 
-/** A marker unique per test process, so pgrep can never match a stray peer. */
-const MARK = `devops-spawn-timeout-${process.pid}`;
+const onWindows = process.platform === "win32";
 
-/** How many live processes still carry the marker. */
-function survivors(): number {
-	const p = Bun.spawnSync(["pgrep", "-f", MARK]);
-	return p.stdout
-		.toString()
-		.split("\n")
-		.filter((l) => l.trim().length > 0).length;
-}
+describe.skipIf(onWindows)("createLiveSpawn timeout group-kill", () => {
+	test("timeout kills the whole group — a grandchild does not survive", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "spawn-timeout-test-"));
+		const pidFile = join(dir, "grandchild.pid");
+		try {
+			const spawn = createLiveSpawn(dir);
+			// Child = bash (the group leader); grandchild = a detached-from-bash
+			// `sleep` that outlives bash itself. Same shape as
+			// `bash -c "bun test --isolate"` rows in the CI matrix.
+			const res = await spawn(
+				"bash",
+				[
+					"-c",
+					`sleep 60 & echo $! > "${pidFile}"; sleep 60`,
+				],
+				{ timeoutMs: 1500 },
+			);
+			expect(res.exitCode).toBe(SPAWN_TIMEOUT_EXIT_CODE);
+			expect(res.timedOut).toBe(true);
 
-afterEach(() => {
-	Bun.spawnSync(["pkill", "-9", "-f", MARK]);
-});
+			// Give the SIGKILL a beat to land, then the grandchild must be gone:
+			// signal 0 probes existence without sending a signal.
+			const grandchild = Number.parseInt(readFileSync(pidFile, "utf8").trim(), 10);
+			expect(Number.isFinite(grandchild)).toBe(true);
+			await Bun.sleep(500);
+			let alive = true;
+			try {
+				process.kill(grandchild, 0);
+			} catch {
+				alive = false;
+			}
+			expect(alive).toBe(false);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}, 15_000);
 
-// P2 (host-binary probe) under the test-portability audit — these spawn real
-// bash/perl/pgrep. Gated per .github/TEST-PORTABILITY.md. Note `run_local_ci`
-// deliberately does NOT export CI=true, so this suite still runs there — which
-// is the run that gates a merge in this repo.
-describe.skipIf(Boolean(process.env.CI))("createLiveSpawn — timeoutMs", () => {
-	test("no timeoutMs → unchanged: the command runs to completion", async () => {
-		const spawn = createLiveSpawn(process.cwd());
-		const r = await spawn("bash", ["-c", "echo hello"]);
-		expect(r.exitCode).toBe(0);
-		expect(r.stdout.trim()).toBe("hello");
+	test("no timeout → normal exit code, no timedOut flag", async () => {
+		const spawn = createLiveSpawn(tmpdir());
+		const res = await spawn("bash", ["-c", "exit 7"]);
+		expect(res.exitCode).toBe(7);
+		expect(res.timedOut).toBeUndefined();
 	});
 
-	test("a command inside the cap returns its own exit code, not 124", async () => {
-		const spawn = createLiveSpawn(process.cwd());
-		const r = await spawn("bash", ["-c", "exit 3"], { timeoutMs: 30_000 });
-		expect(r.exitCode).toBe(3);
-	});
-
-	test("an over-running command is killed and reported as 124", async () => {
-		const spawn = createLiveSpawn(process.cwd());
-		const t0 = Date.now();
-		const r = await spawn("bash", ["-c", `sleep 60 # ${MARK}`], { timeoutMs: 700 });
-		expect(r.exitCode).toBe(SPAWN_TIMEOUT_EXIT_CODE);
-		expect(r.stderr).toMatch(/KILLED after 700ms/);
-		// It must RESOLVE promptly, not merely report late — the original bug was
-		// an await that never returned.
-		expect(Date.now() - t0).toBeLessThan(15_000);
-	});
-
-	test("the whole process GROUP dies — a grandchild does not outlive the kill", async () => {
-		const spawn = createLiveSpawn(process.cwd());
-		// `bash -c "<grandchild> & wait"` reproduces a matrix row's shape: the
-		// direct child is bash, the workload is one level deeper.
-		const r = await spawn("bash", ["-c", `bash -c "sleep 60 # ${MARK}" & wait`], { timeoutMs: 700 });
-		expect(r.exitCode).toBe(SPAWN_TIMEOUT_EXIT_CODE);
-		await Bun.sleep(500); // let the SIGKILL land
-		expect(survivors()).toBe(0);
+	test("error path: missing command resolves (not rejects) with a non-zero exit", async () => {
+		const spawn = createLiveSpawn(tmpdir());
+		const res = await spawn("definitely-not-a-command-xyz", ["--version"], { timeoutMs: 5000 });
+		expect(res.exitCode).not.toBe(0);
 	});
 });

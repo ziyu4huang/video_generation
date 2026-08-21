@@ -81,10 +81,10 @@ export const PR_FINISH_CLI_USAGE = [
 	"  --repo-root <path>     default: the repo this file lives in",
 ].join("\n");
 
-/** Repo root inferred from this file's location (`<root>/bun-apps/<pkg>/src/`). */
-export function defaultRepoRoot(): string {
-	return path.resolve(import.meta.dir, "..", "..", "..");
-}
+// defaultRepoRoot is shared plumbing — single definition in src/cli-common.ts,
+// re-exported here for import stability.
+import { defaultRepoRoot } from "./cli-common.js";
+export { defaultRepoRoot };
 
 /** Parsed argv. */
 export interface ParsedPrFinishArgs {

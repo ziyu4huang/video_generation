@@ -215,6 +215,10 @@ export async function runMainHealth(opts: MainHealthOptions): Promise<MainHealth
 		// find tsc because that worktree has no deps installed. Counting those as
 		// "main is red" is how a health signal turns into noise nobody reads: the
 		// first live run reported 7 red packages, 5 of which were just uninstalled.
+		// Portability: `bun run` resolves package scripts through a shell on BOTH
+		// macOS and Linux, so 127 holds on every supported platform (a direct
+		// arg-array spawn of a missing binary would instead surface as spawn
+		// ENOENT — the matrix rows here are all `bun run`, never direct).
 		const TOOLCHAIN_MISSING = 127;
 		// Lint is checked for the same reason: `biome` is a package-local binary, so
 		// an uninstalled worktree fails it with 127 exactly as it fails tsc. A

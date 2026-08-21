@@ -70,12 +70,16 @@ export async function runVerify(
 	}
 
 	const argv = buildVerifyArgv(params);
+	// run-test.sh moved to s2-agent-ext-devops/scripts/ (it cds itself to
+	// the s2-agent package dir via PI_AGENT_DIR). Invoke as `bash <abs path>`
+	// rather than a `./run-test.sh` relative cmd: a relative cmd only resolves
+	// against cwd (POSIX exec semantics) and needs the exec bit set — bash with
+	// an absolute path works from any cwd on every POSIX checkout.
+	const scriptsDir = resolve(piAgentDir, "..", "s2-agent-ext-devops", "scripts");
 	const res = await run({
-		cmd: "./run-test.sh",
-		args: argv,
-		// run-test.sh moved to s2-agent-ext-devops/scripts/ (it cds itself to
-		// the s2-agent package dir via PI_AGENT_DIR).
-		cwd: resolve(piAgentDir, "..", "s2-agent-ext-devops", "scripts"),
+		cmd: "bash",
+		args: [resolve(scriptsDir, "run-test.sh"), ...argv],
+		cwd: scriptsDir,
 		timeoutMs: TIER_TIMEOUT_MS[tier],
 		logName: `pi-verify-${tier}`,
 	});

@@ -2,7 +2,7 @@
   "name": "@repo/s2-agent-ext-devops",
   "private": true,
   "version": "0.1.0",
-  "description": "DevOps tools \u2014 merge_pr_after_local_ci / show_pr_status: a robust, tool-based PR-merge lifecycle that replaces brittle agent-side bash polling loops. Wraps the gh CLI (poll checks \u2192 enable --auto \u2192 on BEHIND rebase+force-push \u2192 wait for MERGED), with structured JSON (no grep -c footguns).",
+  "description": "DevOps tools \u2014 the tool-based devops chain (sync_default_branch / prepare_feature_branch / run_local_ci / merge_pr_after_local_ci / verify_merge_landed / sweep_merged_branches / check_main_health / retrospect / next-goal): local-CI-gated squash merges with structured JSON outcomes, no agent-side bash polling loops.",
   "license": "MIT",
   "keywords": [
     "pi-package",
