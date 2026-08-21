@@ -1,0 +1,12 @@
+# Package-local bunfig — the ONLY thing set here is the preload; install
+# behavior stays owned by the workspace root bun-apps/bunfig.toml (nearest
+# bunfig wins per invocation directory, and installs run from bun-apps/).
+#
+# Preload scrubs a PI_PACKAGE_DIR inherited from a parent s2-agent session
+# before any module initializes — see scripts/scrub-session-env.preload.ts.
+# Listed twice on purpose: top-level `preload` covers `bun run`/`bun -e`,
+# `[test] preload` covers `bun test` (bun applies them independently).
+preload = ["./scripts/scrub-session-env.preload.ts"]
+
+[test]
+preload = ["./scripts/scrub-session-env.preload.ts"]

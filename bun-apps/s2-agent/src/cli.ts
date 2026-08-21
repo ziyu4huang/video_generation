@@ -22,6 +22,7 @@
  * Debug which patches ran:
  *   BUN_PI_DEBUG_PATCHES=1 bun ./s2-agent/src/cli.ts
  */
+import "./sh/scrub-inherited-package-dir.ts"; // FIRST — before any pi module init; see that file for why
 import { main } from "@earendil-works/pi-coding-agent";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor, removedFlagNotice } from "./doctor.ts";

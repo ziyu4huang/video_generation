@@ -14,6 +14,7 @@
  * Deleting <exeDir>/ext entirely is a supported state: the loader returns empty
  * arrays and pi starts with no extensions.
  */
+import "./sh/scrub-inherited-package-dir.ts"; // FIRST — must precede any pi module init
 import { main } from "@earendil-works/pi-coding-agent";
 import { dirname, join } from "node:path";
 import { applyPatches } from "./patches/index.ts";

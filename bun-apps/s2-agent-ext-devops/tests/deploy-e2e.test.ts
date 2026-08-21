@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../scripts/deploy.ts";
@@ -77,6 +77,22 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		const v = Bun.spawnSync([join(r.target, "s2-agent"), "--version"], { stdout: "pipe", stderr: "pipe" });
 		expect(v.exitCode).toBe(0);
 		expect(v.stdout.toString().trim()).toBe(r.version);
+
+		// pollution regression: a parent s2-agent exports its embedded-assets
+		// cache redirect (PI_PACKAGE_DIR) on the session environment; a child
+		// binary must still report ITS OWN deploy version. The poison dir is
+		// embedded-assets-shaped — the shape the entry's first-import scrub
+		// drops — and lives under the test's own tmp: no writes to real state.
+		const poisonDir = join(outRoot, "pkg-dir-poison", ".pi", "agent", "embedded-assets", "leak");
+		mkdirSync(poisonDir, { recursive: true });
+		writeFileSync(join(poisonDir, "package.json"), JSON.stringify({ version: "9.9.9+polluted" }));
+		const polluted = Bun.spawnSync([join(r.target, "s2-agent"), "--version"], {
+			stdout: "pipe",
+			stderr: "pipe",
+			env: { ...process.env, PI_PACKAGE_DIR: poisonDir },
+		});
+		expect(polluted.exitCode).toBe(0);
+		expect(polluted.stdout.toString().trim()).toBe(r.version);
 	}, 300_000);
 
 	test("the core still runs with ext/ deleted", () => {
