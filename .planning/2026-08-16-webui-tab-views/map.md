@@ -1,6 +1,8 @@
 # webui-tab-views
 
-Goal: replace the single Cards surface with semantic tabs. Transcript (agent stream, unchanged) + Report (static md/html reports by agent/skill) + Ask (questionnaire queue + answered history) + Events (general readonly cards, the old Cards tab) + Data (interactive HTML viewer rows + full-pane sandbox).
+## Destination
+
+Replace the single Cards surface with semantic tabs: Transcript (agent stream, unchanged) + Report (static md/html reports by agent/skill) + Ask (questionnaire queue + answered history) + Events (general readonly cards, the old Cards tab) + Data (interactive HTML viewer rows + full-pane sandbox).
 
 - Status: active
 - Decisions:

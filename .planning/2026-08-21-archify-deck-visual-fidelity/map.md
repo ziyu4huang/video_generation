@@ -1,5 +1,5 @@
 ---
-effort: archify-deck-visual-fidelity
+effort: 2026-08-21-archify-deck-visual-fidelity
 created: 2026-08-21
 last: 2026-08-21
 status: specified

@@ -1,6 +1,8 @@
 # webui-cards-ux2
 
-Goal: two user-reported card UX gaps + one correctness bug. (1) answered questionnaire cards must stay REVIEWABLE (read-only question+answers, click to expand) and answers must NOT be duplicated into the transcript/appendix. (2) NEW non-blocking cards: deferred drafts the user answers ANY time; once sent -> stamped sentAt, immutable, never re-sendable; the send injects into the main session like typed input (agent never blocked). (3) BUG: browser ask-card answer resolves the tool but the orchestrator receives `undefined` (answer lands in transcript echo but not in the tool result) — fix the round-trip.
+## Destination
+
+Close two user-reported card UX gaps + one correctness bug: (1) answered questionnaire cards stay REVIEWABLE (read-only question+answers, click to expand) with NO answer duplication into the transcript/appendix; (2) NEW non-blocking cards — deferred drafts the user answers ANY time, stamped sentAt on send, immutable, injected into the main session like typed input; (3) fix the browser ask-card answer round-trip where the orchestrator receives `undefined`.
 
 - Status: active
 - Effort summary: t01 answer round-trip fix + reviewable answered cards merged via PR #1539; t02 non-blocking draft cards shipped as 02a e0eb9dd1 (protocol `blocking?: boolean` flag, `CardSendExtra` + `validateCardSendExtra`, wiring onCommand TOP guard with first-send-wins JSONL + card_done broadcast + sendMessage seam injection, session_shutdown ledger reset, tests in nonblocking-cards.test.ts + protocol.test.ts, port-resolver env-isolation fix) and 02b shell commit 0db6695e (render-shell draft forms + draft badge + Send button + freezeDraftCard tombstone + APPEXEC_CARD_SEND twin, tests/nonblocking-shell.test.ts).

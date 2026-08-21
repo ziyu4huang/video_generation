@@ -1,5 +1,5 @@
 ---
-effort: archify-slide-composition
+effort: 2026-08-21-archify-slide-composition
 created: 2026-08-21
 last: 2026-08-21
 status: complete

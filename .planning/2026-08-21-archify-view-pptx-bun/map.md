@@ -1,5 +1,5 @@
 ---
-effort: archify-view-pptx-bun
+effort: 2026-08-21-archify-view-pptx-bun
 created: 2026-08-21
 last: 2026-08-21
 status: complete

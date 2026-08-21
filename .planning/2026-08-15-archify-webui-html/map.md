@@ -1,5 +1,5 @@
 ---
-effort: archify-webui-html
+effort: 2026-08-15-archify-webui-html
 created: 2026-08-15
 last: 2026-08-16
 status: active

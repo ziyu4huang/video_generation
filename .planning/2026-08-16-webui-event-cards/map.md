@@ -1,5 +1,9 @@
 # webui-event-cards — Effort Map
 
+## Destination
+
+Build the webui as the client-end interactive surface for card-type content: rich cards, viewers, panels — chat stays in the TUI. Ship the card frame contract + Cards tab, the interactive answer loop + JSONL decision log, TUI attention bell + deep links, the viewer sandbox, and the v1 pilot wiring (questionnaire + archify cards).
+
 - Status: done
 - Created: 2026-08-16
 - Design: approved 2026-08-16 (brainstorming — decisions in spec.md)

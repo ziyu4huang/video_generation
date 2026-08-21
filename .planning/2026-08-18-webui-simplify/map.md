@@ -1,5 +1,9 @@
 # webui-simplify — 2026-08-18
 
+## Destination
+
+Simplify webui per the user-approved spec (chat = minimal bar in Inbox; all three simplifications selected), executed as one effort with four sequenced PRs: PR1 chat restore (#1683), PR2 tab consolidation More (#1684), PR3 SSE→WS transport merge (#1685), PR4 JSONL store merge — plus the webui+tui mix-pattern catalog research.
+
 Status: active. Spec approved by user (chat = minimal bar in Inbox; all three
 simplifications selected). Execution structure A: one effort, four sequenced
 PRs.

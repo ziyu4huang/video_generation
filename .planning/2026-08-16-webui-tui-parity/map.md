@@ -1,10 +1,14 @@
 ---
-effort: webui-tui-parity
+effort: 2026-08-16-webui-tui-parity
 created: 2026-08-16
 last: 2026-08-16
 status: active
 ---
 # webui-tui-parity — ghost-dialog fix + TUI status in the shell
+
+## Destination
+
+Fix the ghost-dialog resolution gap (a resolved/failed questionnaire must tombstone the shell dialog so it never re-appears on refresh) and surface TUI session context in the browser shell: a `session_info` status line showing worktree path/branch so the user knows which session a tab is co-driving.
 
 ## Context
 Live demo (port 8799) exposed: (1) when a questionnaire resolves on ANY

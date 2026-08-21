@@ -1,5 +1,9 @@
 # webui-btw-branch — BTW tab + Data telemetry demo (+ full-bleed scrollbar fix)
 
+## Destination
+
+Answer the user asks of 2026-08-18 in the webui: (1) full-bleed scrollbar fix — panes span the viewport, the 1500px reading cap moves to the content layer; (2) a Data tab view scenario demo — what "Data" can serve; (3) a BTW-tab concept demo — use current content to start a branch chat question, ask_user-style.
+
 ## Why
 
 User asks (2026-08-18): (1) why is the Report tab scrollbar inset from the
