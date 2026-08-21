@@ -202,7 +202,17 @@ async function main() {
 
   const mean = (pick: (r: (typeof results)[number]) => number) =>
     results.length ? results.reduce((a, r) => a + pick(r), 0) / results.length : 0;
-  console.table(results.map((r) => ({ session: r.session, ...r.armA.metrics, ...r.armB.metrics })));
+  // Arm-prefixed columns: both arms share metric field names, so a plain double
+  // spread would let armB silently overwrite armA's values in the table.
+  const prefix = (p: "a" | "b", m: ArmMetrics) => ({
+    [`${p}SummaryTokens`]: m.summaryTokens,
+    [`${p}WallMs`]: m.wallMs,
+    [`${p}InputTokens`]: m.inputTokens,
+    [`${p}OutputTokens`]: m.outputTokens,
+    [`${p}Cost`]: m.cost,
+    [`${p}Compression`]: m.compressionRatio,
+  });
+  console.table(results.map((r) => ({ session: r.session, ...prefix("a", r.armA.metrics), ...prefix("b", r.armB.metrics) })));
   console.log("means:", {
     aCompression: mean((r) => r.armA.metrics.compressionRatio),
     bCompression: mean((r) => r.armB.metrics.compressionRatio),
