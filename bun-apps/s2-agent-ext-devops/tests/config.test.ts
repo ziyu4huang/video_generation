@@ -151,15 +151,15 @@ extensions:
 			"subagent",
 			"superpowers",
 			"task",
+			"ultracode",
 			"wayfind",
 			"web-access",
 			"webui",
-			"workflow",
 		]);
-		// subagent must load before workflow (registry population order).
+		// subagent must load before ultracode (registry population order).
 		const order = (name: string) =>
 			cfg.extensions.find((e) => e.name === name)!.order;
-		expect(order("subagent")).toBeLessThan(order("workflow"));
+		expect(order("subagent")).toBeLessThan(order("ultracode"));
 	});
 });
 
