@@ -114,10 +114,30 @@ baselined: 2026-07-26
 #   re-apply the pipeline v2 structure onto new upstream material only if it
 #   is still relevant, and record it here.
 
-fixtures-digest: sha256:f9c709bc314b2ca90fe9dc85107431bda1396b60e636002ff9fab79a2eed0c57
+fixtures-digest: sha256:f3064cecb1137341f26797d5895d02583e9d6607cc18b1d4025131a7ae703877
 
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
 #   2026-08-20 — develop-pipeline v2 task 5: dispatching-parallel-agents fully rewritten (workflow templates default, manual dispatch exception); see LOCAL-DIVERGENCES addendum 2026-08-20 (sha256:ee44613fa363…)
 #   2026-08-20 — tool renames 2026-08-20: workflow->run_workflow in dispatching-parallel-agents (docs/agents/extension-naming.md) (sha256:df9bf1995f2f…)
 #   2026-08-21 — pi-agent→s2-agent repo-wide rename (2026-08-21): skills reference repo paths (bun-apps/s2-agent-ext-*); content is otherwise byte-equal to upstream superpowers (sha256:f9c709bc314b…)
+#
+# LOCAL-DIVERGENCES addendum (2026-08-21, ticket 08 land — amended by effort
+#   2026-08-21-harness-streamline, phase S1):
+#     - verification-before-completion — DELETED (ratified ticket 04/08 of
+#       .planning/2026-08-16-simplefied-redesign-make-less-code-to-archive/:
+#       already default-excluded, probe showed ~zero behavior cost). Removed
+#       from SKILLS/PORTED_SKILLS + its fixture. Do NOT re-port on re-sync.
+#     - brainstorming companions — visual-companion.md + scripts/ (server.cjs,
+#       helper.js, frame-template.html, start/stop-server.sh) DELETED per the
+#       same ticket (ungated, −1,739 lines); spec-document-reviewer-prompt.md
+#       KEPT (amendment: wired as the spec-reviewer pass in S7). The SKILL.md's
+#       "visual companion" prose remains (byte-pinned body untouched) — treat
+#       it as describing an optional companion that no longer ships.
+#     - systematic-debugging — one sanctioned line edit: the Phase-3 "Verify
+#       Fix" checklist item `superpowers:verification-before-completion` pointer
+#       (would dangle + fail bun-apps/tests/skill-reference.test.ts after the
+#       deletion) became "Verify before claiming success — evidence first
+#       (tests green, no regressions), then the claim". Merge this edit onto
+#       any new upstream body on re-sync.
+#   2026-08-21 — ticket 08 land (amended): delete verification-before-completion skill + fixture; cut brainstorming visual-companion.md + scripts/ (-1,739); keep spec-document-reviewer-prompt.md; systematic-debugging pointer line divergence (sha256:f3064cecb113…)
