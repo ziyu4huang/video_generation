@@ -58,8 +58,6 @@ describe("s2-agent-ext-task extension contract", () => {
 		extensionFactory(pi as never);
 		const g = globalThis as Record<string, unknown>;
 		expect(typeof g.__piPlanPhases, "__piPlanPhases must be published").toBe("function");
-		expect(typeof g.__piPlanIncomplete, "__piPlanIncomplete must be published").toBe("function");
-		expect(typeof g.__piPlanSummary, "__piPlanSummary must be published").toBe("function");
 	});
 
 	test("every registered tool has a non-empty name/label/description", () => {

@@ -126,7 +126,7 @@ export const goalCompleteTool = defineTool({
 
 		// Plan A coordination seam: block goal_complete while the plan coordinator
 		// reports open phases. The goal's own summary audit can't see plan state; this
-		// closes the gap. Release valve: close the plan (→ __piPlanIncomplete returns
+		// closes the gap. Release valve: close the plan (→ the plan-incomplete gate returns
 		// false). Best-effort: if no plan coordinator is loaded or it errors, the
 		// gate is a no-op (goal_complete proceeds).
 		const planningReason = planningGateBlocking(ctx.cwd);

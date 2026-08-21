@@ -67,7 +67,6 @@ export function makeInspectTuiTool() {
       const seams = {
         __piGoalActive: goalActive,
         __piPlanPhases: hasPlan ? "[available]" : "(not loaded)",
-        __piPlanIncomplete: typeof g.__piPlanIncomplete === "function" ? "[available]" : "(not loaded)",
       };
 
       // ── Widget not loaded ────────────────────────────────────────

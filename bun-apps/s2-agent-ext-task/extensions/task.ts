@@ -42,7 +42,7 @@ import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
 import { registerResponseLanguage } from "../src/response-language/response-language.js";
 import { registerAskUserLanguage } from "../src/response-language/ask-user-language.js";
-import { getPlanPhases, getPlanSummary, isPlanIncomplete, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
+import { getPlanPhases, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// Self-gate: BUN_PI_TASK=0 disables the entire extension — it registers
@@ -60,16 +60,15 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// display-only. No plan coordinator or wayfind reads it.
 	(globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
 
-	// ── Plan coordination seams (ticket 09, tracer-bullet 2) ────────────
-	// Publish __piPlan* so wayfind's existing readers light up (chain.ts:58
-	// syncChainState closes [NN-slug] tickets; coordination.ts reads incomplete/
-	// summary). Graceful no-op pre-refresh: empty phases, not-incomplete, "".
-	// Mirror the __piGoalActive pattern (direct globalThis assignment).
+	// ── Plan coordination seam (ticket 09, tracer-bullet 2) ─────────────
+	// Publish __piPlanPhases so wayfind's reader lights up (chain.ts:58
+	// syncChainState closes [NN-slug] tickets). Graceful no-op pre-refresh:
+	// empty phases. Mirror the __piGoalActive pattern (direct globalThis
+	// assignment). (the plan-incomplete/summary keys were dead — no reader
+	// ever landed; removed 2026-08-21, decision D1.)
 	let latestCwd: string | undefined;
 	const g = globalThis as Record<string, unknown>;
 	g.__piPlanPhases = (cwd: string) => getPlanPhases(cwd);
-	g.__piPlanIncomplete = (cwd: string) => isPlanIncomplete(cwd);
-	g.__piPlanSummary = (cwd: string) => getPlanSummary(cwd);
 
 	// ── Ask-user tool (self-contained modal dialog) ──────────────────────
 	registerAskUser(pi);

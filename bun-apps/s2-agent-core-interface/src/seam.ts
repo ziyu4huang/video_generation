@@ -44,9 +44,7 @@ export interface SeamImplMap {
   __piCoreTaskStatusWidget: unknown;
   __piGoalActive: unknown;
   __piKickHeartbeat: unknown;
-  __piPlanIncomplete: unknown;
   __piPlanPhases: unknown;
-  __piPlanSummary: unknown;
   __piWayfindGrill: unknown;
   __piRateLimitState: unknown;
   /** Like __piRateLimitState, never published/read through publishSeam/readSeam
