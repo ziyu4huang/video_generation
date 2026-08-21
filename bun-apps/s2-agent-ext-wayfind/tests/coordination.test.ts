@@ -3,26 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { syncChainState } from "../src/chain.js";
-import { readPlanIncomplete, readPlanSummary } from "../src/coordination.js";
 import { readMap, writeMap, writeTicket } from "../src/map.js";
-
-describe("readPlanIncomplete / readPlanSummary (plan-coordinator seam)", () => {
-  it("graceful fallback when the plan coordinator is absent", () => {
-    delete (globalThis as Record<string, unknown>).__piPlanIncomplete;
-    delete (globalThis as Record<string, unknown>).__piPlanSummary;
-    expect(readPlanIncomplete("/any/cwd")).toBe(false);
-    expect(readPlanSummary("/any/cwd")).toBe("");
-  });
-
-  it("reads the published functions when present", () => {
-    (globalThis as Record<string, unknown>).__piPlanIncomplete = () => true;
-    (globalThis as Record<string, unknown>).__piPlanSummary = () => "2/4 phases";
-    expect(readPlanIncomplete("/any/cwd")).toBe(true);
-    expect(readPlanSummary("/any/cwd")).toBe("2/4 phases");
-    delete (globalThis as Record<string, unknown>).__piPlanIncomplete;
-    delete (globalThis as Record<string, unknown>).__piPlanSummary;
-  });
-});
 
 // ─── syncChainState (ADR-wayfind-0003 feedback half: close tickets whose phase completed) ──
 describe("syncChainState (ADR-wayfind-0003: close tickets whose phase completed)", () => {

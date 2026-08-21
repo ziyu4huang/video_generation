@@ -5,24 +5,12 @@
  * can import the canonical string — mirroring how the plan coordinator
  * (s2-agent-ext-task) centralizes its keys in its own constants module.
  * wayfind PUBLISHES `WAYFIND_GRILL_KEY` (read by hermes-memory); it only READS
- * the plan coordinator's `__piPlan*` keys below.
+ * the plan coordinator's `__piPlanPhases` key below (the plan-incomplete/summary keys were dead — no production reader ever landed; removed
+ * 2026-08-21, decision D1).
  */
 
 /** Package name, used for status-bar / notification prefixes. */
 export const PKG_NAME = "s2-agent-ext-wayfind";
-
-/**
- * globalThis key under which the plan coordinator publishes an
- * `(cwd: string) => boolean` telling wayfind whether a plan is incomplete.
- * Read-only on the wayfind side (graceful fallback → false when absent).
- */
-export const PLAN_INCOMPLETE_KEY = "__piPlanIncomplete";
-
-/**
- * globalThis key under which the plan coordinator publishes an
- * `(cwd: string) => string` returning a one-line plan summary. Read-only here.
- */
-export const PLAN_SUMMARY_KEY = "__piPlanSummary";
 
 /**
  * globalThis key under which the plan coordinator publishes an

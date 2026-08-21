@@ -92,8 +92,8 @@ export function isPiOwnedCompactionRetry(event: unknown, goalId: string) {
  * self-consume = internal-call, NOT globalThis). Returns an actionable reason
  * string when the active plan has incomplete phases, or undefined if no gate
  * applies (no plan, plan closed, or all phases complete). The coordinator
- * publishes `__piPlanIncomplete` on globalThis ONLY for wayfind — goal.ts calls
- * it directly here.
+ * (historical: the coordinator once published a plan-incomplete seam key for
+ * wayfind — dead, removed 2026-08-21 D1; this internal call is the live path.)
  */
 export function planningGateBlocking(cwd: string): string | undefined {
 	return isPlanIncomplete(cwd) ? "the plan still has incomplete phases" : undefined;
@@ -104,7 +104,7 @@ export function planningGateBlocking(cwd: string): string | undefined {
  * self-consume = internal-call, NOT globalThis). Surfaces the active plan's
  * phase progress so a goal-driven agent keeps roadmap visibility. Empty string
  * when goalState.latestCtx is unset or no plan is cached. The coordinator publishes
- * `__piPlanSummary` on globalThis ONLY for wayfind — goal.ts calls it directly.
+ * (historical: the plan-summary seam key was dead and removed 2026-08-21 D1.)
  */
 export function planProgressLineFromPeer(): string {
 	const cwd = (goalState.latestCtx as StatusContext | undefined)?.cwd;

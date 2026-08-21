@@ -5,9 +5,7 @@ export const SEAM_KEYS = {
   __piCoreTaskStatusWidget: { crossPackage: true },
   __piGoalActive:           { crossPackage: false },
   __piKickHeartbeat:        { crossPackage: false },
-  __piPlanIncomplete:       { crossPackage: true },
   __piPlanPhases:           { crossPackage: true },
-  __piPlanSummary:          { crossPackage: true },
   __piWayfindGrill:         { crossPackage: true },
   // __piToolGateStatus: the tool-gate LIVE-STATE seam (wayfinder ticket 06) —
   // tool-gate publishes a reader of its current session's effective gate state

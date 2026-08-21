@@ -4,8 +4,9 @@
  * wayfind has NO forward coordination seam: mutual-exclusion between a
  * grill/wayfinder session and /goal or /loop is user-initiated (run one driver
  * at a time). The published `__piWayfindGrill` sibling IS consumed (by
- * hermes-memory); the reverse reads here consume the plan coordinator's
- * `__piPlan*` keys (graceful fallback when absent).
+ * hermes-memory); the reverse seam is `__piPlanPhases` alone (read by
+ * chain.ts syncChainState — see constants.ts). The plan-incomplete/summary readers were DEAD (no production
+ * caller) and were removed 2026-08-21 with their publisher + registry entries (D1).
  *
  * Why globalThis and not an import? pi loads extensions via jiti, and module
  * identity across a jiti-loaded extension and a native `import()` from this
@@ -15,22 +16,8 @@
  * Graceful fallback: if either side is absent, the globals are undefined → false.
  */
 
-import { PLAN_INCOMPLETE_KEY, PLAN_SUMMARY_KEY, WAYFIND_GRILL_KEY } from "./constants.js";
+import { WAYFIND_GRILL_KEY } from "./constants.js";
 import type { RuntimeState } from "./state.js";
-
-/** Read whether the plan coordinator reports an incomplete plan in `cwd`.
- *  Graceful: false when no plan coordinator is present or has no plan. */
-export function readPlanIncomplete(cwd: string): boolean {
-  const fn = (globalThis as Record<string, unknown> | undefined)?.[PLAN_INCOMPLETE_KEY];
-  return typeof fn === "function" ? (fn as (cwd: string) => boolean)(cwd) : false;
-}
-
-/** Read the plan coordinator's one-line plan summary (for wayfind narration).
- *  Graceful: empty string when absent. */
-export function readPlanSummary(cwd: string): string {
-  const fn = (globalThis as Record<string, unknown> | undefined)?.[PLAN_SUMMARY_KEY];
-  return typeof fn === "function" ? (fn as (cwd: string) => string)(cwd) : "";
-}
 
 /** Publish the grill-specific active reader. Closure reads live RuntimeState. */
 export function publishWayfindGrill(state: RuntimeState): void {
