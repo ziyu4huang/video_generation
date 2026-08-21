@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeCoreHash, ensureCachedCore, linkCore } from "../scripts/lib/core-cache.ts";
+import { computeCoreHash, CORES_DIR, ensureCachedCore, linkCore, ORPHAN_GRACE_MS, pruneOrphanCores } from "../scripts/lib/core-cache.ts";
 
 /** A minimal fake s2-agent package: src/ tree with nested dirs. */
 function fakePiAgent(): string {
@@ -92,5 +92,76 @@ describe("ensureCachedCore", () => {
 			}),
 		).rejects.toThrow(/boom/);
 		expect(existsSync(join(outRoot, ".cores", "ab".repeat(32)))).toBe(false);
+	});
+});
+
+describe("pruneOrphanCores", () => {
+	/** An out root with a .cores/ entry per [hash, linkedIntoVersionDir] pair. */
+	function outRootWithCores(entries: Array<{ hash: string; linked: boolean; ageMs?: number }>): string {
+		const outRoot = mkdtempSync(join(tmpdir(), "core-gc-"));
+		mkdirSync(join(outRoot, CORES_DIR), { recursive: true });
+		for (const { hash, linked, ageMs } of entries) {
+			const file = join(outRoot, CORES_DIR, hash);
+			writeFileSync(file, `core-${hash}`);
+			if (linked) {
+				const versionDir = join(outRoot, `0.1.0+${hash}`);
+				mkdirSync(versionDir, { recursive: true });
+				linkSync(file, join(versionDir, "s2-agent"));
+			}
+			if (ageMs !== undefined) {
+				const when = new Date(Date.now() - ageMs);
+				utimesSync(file, when, when);
+			}
+		}
+		return outRoot;
+	}
+
+	const OLD = ORPHAN_GRACE_MS * 2;
+
+	test("collects an unreferenced core and keeps every linked one", () => {
+		const outRoot = outRootWithCores([
+			{ hash: "aaaa", linked: false, ageMs: OLD },
+			{ hash: "bbbb", linked: true, ageMs: OLD },
+		]);
+		const pruned = pruneOrphanCores(outRoot);
+		expect(pruned.map((p) => p.hash)).toEqual(["aaaa"]);
+		expect(pruned[0]!.bytes).toBeGreaterThan(0);
+		expect(existsSync(join(outRoot, CORES_DIR, "aaaa"))).toBe(false);
+		expect(existsSync(join(outRoot, CORES_DIR, "bbbb"))).toBe(true);
+		// The surviving core's version dir must still have its binary.
+		expect(existsSync(join(outRoot, "0.1.0+bbbb", "s2-agent"))).toBe(true);
+	});
+
+	test("a core becomes collectable only once its LAST version dir is gone", () => {
+		const outRoot = outRootWithCores([{ hash: "cccc", linked: true, ageMs: OLD }]);
+		expect(pruneOrphanCores(outRoot)).toEqual([]);
+
+		// Simulate pruneVersions dropping the one version dir that linked it.
+		rmSync(join(outRoot, "0.1.0+cccc"), { recursive: true, force: true });
+		expect(pruneOrphanCores(outRoot).map((p) => p.hash)).toEqual(["cccc"]);
+	});
+
+	test("a freshly written orphan is spared — it may be a deploy still in flight", () => {
+		// Exactly the ensureCachedCore→linkCore window: renamed into .cores, not
+		// yet hardlinked, so nlink is 1 while the deploy is still running.
+		const outRoot = outRootWithCores([{ hash: "dddd", linked: false }]);
+		expect(pruneOrphanCores(outRoot)).toEqual([]);
+		expect(existsSync(join(outRoot, CORES_DIR, "dddd"))).toBe(true);
+		// Past the grace period the same entry is collected.
+		expect(pruneOrphanCores(outRoot, { now: Date.now() + ORPHAN_GRACE_MS + 1 }).map((p) => p.hash)).toEqual(["dddd"]);
+	});
+
+	test("skips partial compiles and other dotfiles", () => {
+		const outRoot = outRootWithCores([]);
+		const tmp = join(outRoot, CORES_DIR, ".tmp-abc123-4242");
+		writeFileSync(tmp, "half a binary");
+		const when = new Date(Date.now() - OLD);
+		utimesSync(tmp, when, when);
+		expect(pruneOrphanCores(outRoot)).toEqual([]);
+		expect(existsSync(tmp)).toBe(true);
+	});
+
+	test("an out root with no .cores/ yet is a no-op, not a throw", () => {
+		expect(pruneOrphanCores(mkdtempSync(join(tmpdir(), "core-gc-empty-")))).toEqual([]);
 	});
 });

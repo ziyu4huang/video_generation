@@ -32,7 +32,7 @@ import { evaluateExtModule, EXT_DIR_SPEC } from "../../../s2-agent/src/sh/ext-lo
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
 import { isBuiltinSpecifier } from "../../../s2-agent/src/sh/host-modules.ts";
-import { vendorClosure } from "./vendor-closure.ts";
+import { isRuntimeDeadFile, vendorClosure } from "./vendor-closure.ts";
 import { walk } from "./fs.ts";
 import type { ShExtConfig } from "./config.ts";
 
@@ -314,13 +314,17 @@ export function scanUnroutableDynamicImports(code: string): string[] {
  * `dereference` matters: the workspace's isolated linker puts packages in a
  * global store reached through symlinks, and a symlinked deploy tree would
  * point back at the build machine — the exact failure vendoring exists to fix.
+ *
+ * "Verbatim" excludes what cannot run — sourcemaps and typings — on the same
+ * terms as copyPackageVerbatim, so the one-package and closure paths produce
+ * the same tree (see isRuntimeDeadFile).
  */
 export function vendorPackage(spec: string, outDir: string, resolveFrom: string): string {
 	const pkgJson = Bun.resolveSync(`${spec}/package.json`, resolveFrom);
 	const srcDir = resolve(pkgJson, "..");
 	const destDir = join(outDir, "node_modules", spec);
 	mkdirSync(resolve(destDir, ".."), { recursive: true });
-	cpSync(srcDir, destDir, { recursive: true, dereference: true });
+	cpSync(srcDir, destDir, { recursive: true, dereference: true, filter: (src) => !isRuntimeDeadFile(src) });
 	return destDir;
 }
 

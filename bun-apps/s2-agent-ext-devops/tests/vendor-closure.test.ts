@@ -16,7 +16,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectVendorClosure, vendorClosure } from "../scripts/lib/vendor-closure.ts";
+import { collectVendorClosure, isRuntimeDeadFile, vendorClosure } from "../scripts/lib/vendor-closure.ts";
 
 const dirs: string[] = [];
 function makeDir(): string {
@@ -35,6 +35,9 @@ interface PkgJson {
 	optionalDependencies?: Record<string, string>;
 	os?: string[];
 	cpu?: string[];
+	libc?: string[];
+	/** Extra files written into the package dir, as relative path → contents. */
+	files?: Record<string, string>;
 }
 
 /**
@@ -52,7 +55,12 @@ function fixtureWorkspace(pkgs: PkgJson[], roots: string[] = []): string {
 	const storeEntry = (pkg: PkgJson): string => {
 		const pkgDir = join(farm, ".bun", `${pkg.name}@${pkg.version}`, "node_modules", pkg.name);
 		mkdirSync(pkgDir, { recursive: true });
-		writeFileSync(join(pkgDir, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
+		const { files, ...manifest } = pkg;
+		writeFileSync(join(pkgDir, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+		for (const [rel, contents] of Object.entries(files ?? {})) {
+			mkdirSync(join(pkgDir, rel, ".."), { recursive: true });
+			writeFileSync(join(pkgDir, rel), contents);
+		}
 		return pkgDir;
 	};
 	const entries = new Map(pkgs.map((p) => [p.name, storeEntry(p)]));
@@ -123,6 +131,74 @@ describe("collectVendorClosure", () => {
 		expect(nodes[0]!.pruned).toContain("sharp-linux-x64");
 	});
 
+	test("an optional dep with mismatched libc is pruned; the matching one ships", () => {
+		// os/cpu are IDENTICAL on both — libc is the only thing separating them,
+		// which is exactly why @img/sharp-libvips-linuxmusl-x64 (~16MB) used to
+		// ride along on a glibc host.
+		const ws = fixtureWorkspace(
+			[
+				{
+					name: "root-pkg",
+					version: "1.0.0",
+					optionalDependencies: { "libvips-musl-x64": "*", "libvips-glibc-x64": "*" },
+				},
+				{ name: "libvips-musl-x64", version: "0.1.0", os: ["linux"], cpu: ["x64"], libc: ["musl"] },
+				{ name: "libvips-glibc-x64", version: "0.1.0", os: ["linux"], cpu: ["x64"], libc: ["glibc"] },
+			],
+			["root-pkg"],
+		);
+		const nodes = collectVendorClosure({
+			roots: ["root-pkg"],
+			resolveFrom: ws,
+			platform: "linux",
+			arch: "x64",
+			libc: "glibc",
+		});
+		expect(specNames(nodes)).toEqual(["libvips-glibc-x64", "root-pkg"]);
+		expect(nodes[0]!.pruned).toContain("libvips-musl-x64");
+	});
+
+	test("libc: null disables the filter — both variants ship", () => {
+		const ws = fixtureWorkspace(
+			[
+				{
+					name: "root-pkg",
+					version: "1.0.0",
+					optionalDependencies: { "libvips-musl-x64": "*", "libvips-glibc-x64": "*" },
+				},
+				{ name: "libvips-musl-x64", version: "0.1.0", os: ["linux"], cpu: ["x64"], libc: ["musl"] },
+				{ name: "libvips-glibc-x64", version: "0.1.0", os: ["linux"], cpu: ["x64"], libc: ["glibc"] },
+			],
+			["root-pkg"],
+		);
+		const nodes = collectVendorClosure({
+			roots: ["root-pkg"],
+			resolveFrom: ws,
+			platform: "linux",
+			arch: "x64",
+			libc: null,
+		});
+		expect(specNames(nodes)).toEqual(["libvips-glibc-x64", "libvips-musl-x64", "root-pkg"]);
+	});
+
+	test("a package with NO libc field ships on every host", () => {
+		const ws = fixtureWorkspace(
+			[
+				{ name: "root-pkg", version: "1.0.0", optionalDependencies: { "portable-dep": "*" } },
+				{ name: "portable-dep", version: "0.1.0", os: ["linux"], cpu: ["x64"] },
+			],
+			["root-pkg"],
+		);
+		const nodes = collectVendorClosure({
+			roots: ["root-pkg"],
+			resolveFrom: ws,
+			platform: "linux",
+			arch: "x64",
+			libc: "musl",
+		});
+		expect(specNames(nodes)).toEqual(["portable-dep", "root-pkg"]);
+	});
+
 	test("an unresolvable HARD dep throws — a half-shipped closure would dangle at runtime", () => {
 		const ws = fixtureWorkspace(
 			[{ name: "root-pkg", version: "1.0.0", dependencies: { "not-installed": "*" } }],
@@ -155,5 +231,83 @@ describe("vendorClosure", () => {
 		}
 		const manifest = JSON.parse(readFileSync(join(outDir, "node_modules", "root-pkg", "package.json"), "utf8"));
 		expect(manifest.name).toBe("root-pkg");
+	});
+
+	test("prunes sourcemaps and typings while keeping code, licenses and data", () => {
+		const ws = fixtureWorkspace(
+			[
+				{
+					name: "root-pkg",
+					version: "1.0.0",
+					files: {
+						"dist/index.js": "module.exports = 1;\n//# sourceMappingURL=index.js.map\n",
+						"dist/index.js.map": '{"version":3}',
+						"dist/index.d.ts": "export declare const x: number;",
+						"dist/index.d.ts.map": '{"version":3}',
+						"dist/index.mjs.map": '{"version":3}',
+						"dist/styles.css.map": '{"version":3}',
+						"dist/index.d.mts": "export declare const x: number;",
+						"LICENSE": "MIT",
+						"README.md": "# root-pkg",
+						// A .node binary and a data file must survive untouched.
+						"build/native.node": "\0binary",
+						"data/tiles.map.json": "{}",
+					},
+				},
+			],
+			["root-pkg"],
+		);
+		const outDir = makeDir();
+		vendorClosure({ roots: ["root-pkg"], resolveFrom: ws, outDir, platform: "darwin", arch: "arm64" });
+		const dir = join(outDir, "node_modules", "root-pkg");
+
+		for (const gone of [
+			"dist/index.js.map",
+			"dist/index.d.ts",
+			"dist/index.d.ts.map",
+			"dist/index.mjs.map",
+			"dist/styles.css.map",
+			"dist/index.d.mts",
+		]) {
+			expect(existsSync(join(dir, gone))).toBe(false);
+		}
+		for (const kept of ["dist/index.js", "LICENSE", "README.md", "build/native.node", "data/tiles.map.json"]) {
+			expect(existsSync(join(dir, kept))).toBe(true);
+		}
+		// The package must still be resolvable — gates 5c/5d read package.json.
+		expect(existsSync(join(dir, "package.json"))).toBe(true);
+	});
+});
+
+describe("isRuntimeDeadFile", () => {
+	test("matches sourcemaps and declaration files only", () => {
+		for (const dead of [
+			"a/index.js.map",
+			"a/index.mjs.map",
+			"a/index.cjs.map",
+			"a/index.ts.map",
+			"a/index.d.ts.map",
+			"a/styles.css.map",
+			"a/index.d.ts",
+			"a/index.d.mts",
+			"a/index.d.cts",
+		]) {
+			expect(isRuntimeDeadFile(dead)).toBe(true);
+		}
+		for (const live of [
+			"a/index.js",
+			"a/index.ts",
+			"a/native.node",
+			"a/LICENSE",
+			"a/README.md",
+			"a/package.json",
+			// Not a sourcemap: a data file that merely ends in ".map".
+			"a/world.map",
+			"a/tiles.map.json",
+			// A directory named like a map file must not be pruned wholesale.
+			"a/index.d.ts.map.d",
+		]) {
+			expect(isRuntimeDeadFile(live)).toBe(false);
+		}
 	});
 });
