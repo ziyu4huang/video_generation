@@ -105,8 +105,10 @@ being pursued:**
   `agent_end` — ~2,050 tok/session (`piToolMapping` ~765 tok +
   `piBoundaryOverrides` ~502 tok + `using-superpowers` body ~716 tok + intro
   ~62 tok), dominated by the non-skill `piToolMapping`+`piBoundaryOverrides`
-  (~1,267 tok). Trimming that is a separate effort, not skill-advertisement
-  shaping.
+  (~1,267 tok). ~~Trimming that is a separate effort, not skill-advertisement
+  shaping.~~ **EXECUTED 2026-08-21 as [ADR-0010](./0010-bootstrap-token-diet.md)**
+  (effort 2026-08-21-harness-streamline, phase S2): the two repo-owned sections
+  dieted to terse essentials + deferral pointers, ~2,050 → ~1,000 tok/session.
 
 ## Amendment: cost-model correction (2026-08-11)
 

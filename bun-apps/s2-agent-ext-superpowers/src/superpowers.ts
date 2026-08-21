@@ -310,29 +310,18 @@ function stripFrontmatter(content: string): string {
 function piToolMapping(): string {
   return `## Pi tool mapping
 
-Pi has native skills but does not expose Claude Code's \`Skill\` tool. When a Superpowers instruction says to invoke a skill, use Pi's native skill system instead: load the relevant \`SKILL.md\` with \`read\` when the skill applies, or let a human invoke \`/skill:name\` explicitly.
-
-Pi has no core subagent tool; this repo's \`spawn_subagent\` tool (s2-agent-ext-subagent; renamed from \`subagent\` 2026-08-20 — docs/agents/extension-naming.md) is an isolated-context child dispatch — \`spawn_subagent({ task, model?, capability?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType?, watchdog? })\`; the child has no access to this session's history, so pass a self-contained \`task\`. BEFORE any SDD implementer/fix dispatch, read \`references/pi-tools.md\` for the load-bearing directives (prefer \`tier\` over a raw model id; pass \`commitScope\` for scope-detection; pass \`watchdog:{l2:true}\` for adversarial review; use the \`run_workflow\` tool's \`parallel()\` for concurrent fan-out, since \`spawn_subagent\` is sequential). If no \`spawn_subagent\` tool is available, do the work in this session — never invent \`Task\` calls.`;
+Skills' dispatch actions map to THIS repo's tools. Full contract: references/pi-tools.md — read BEFORE any SDD/subagent dispatch:
+- Skills: load the relevant \`SKILL.md\` with \`read\`; humans invoke \`/skill:name\`.
+- Subagents: \`spawn_subagent\` (s2-agent-ext-subagent) — isolated context, self-contained \`task\`; prefer \`tier\` over a raw model id; \`commitScope\` + \`watchdog:{l2:true}\` on implementer/fix dispatches.
+- Concurrent fan-out: \`run_workflow\`'s \`parallel()\`, never ad-hoc multi-dispatch. No \`spawn_subagent\`? Work in-session — never invent \`Task\` calls.`;
 }
 
 function piBoundaryOverrides(): string {
   return `## Pipeline routing (this repo)
 
-Superpowers and Wayfind share the \`.planning/<effort>/\` layout. Two rules:
+Wayfind owns DECIDE/SYNTHESIZE (grilling, to-spec); Superpowers owns DESIGN/PLAN/EXECUTE (brainstorming → writing-plans → SDD). Check what's on disk: open decisions → DECIDE; grill settled → to-spec; requirement clear → brainstorming; spec exists, no plan → writing-plans; plan exists → execute. When in doubt, DECIDE first. Detail: references/pi-routing.md.
 
-**1. One canonical home.** Every artifact lives under \`.planning/<effort>/\`: specs → \`.planning/<effort>/spec.md\`, plans → \`.planning/<effort>/plan.md\`, the SDD workspace → \`.planning/<effort>/sdd/<plan-basename>/\` (briefs/reports/reviews + recovery ledger at \`.planning/<effort>/sdd/<plan-basename>/progress.md\`), brainstorm mockups → \`.planning/<effort>/brainstorm/\`. \`scripts/sdd-workspace PLAN_FILE\` resolves the plan's dir and honors \`PI_PLANNING_EFFORT\`. No-effort specs/plans land in \`.planning/specs/\`/\`.planning/plans/\`; \`.planning/\` is the sole artifact home — no artifact is ever written outside it (no-effort SDD → flat, gitignored \`.planning/sdd/\`).
-
-**2. Pick the pipeline by stage — check what's on disk first.**
-
-| Stage | Trigger (check disk) | Pipeline |
-|---|---|---|
-| DECIDE | no spec, decisions open / route foggy | Wayfind — grilling (or /wayfind) |
-| SYNTHESIZE | grill just settled; spec needed | Wayfind — to-spec (synthesize only) |
-| DESIGN | requirement clear, zero open decisions | Superpowers — brainstorming |
-| PLAN | spec exists, no plan | Superpowers — writing-plans |
-| EXECUTE | plan exists | Superpowers — executing-plans / SDD |
-
-Four of five stages are a disk check; only DECIDE-vs-DESIGN needs judgment. When in doubt, DECIDE first.`;
+\`.planning/<effort>/\` is the sole artifact home (spec/plan/sdd/brainstorm/) — nothing outside it.`;
 }
 
 function messageContainsBootstrap(message: unknown): boolean {

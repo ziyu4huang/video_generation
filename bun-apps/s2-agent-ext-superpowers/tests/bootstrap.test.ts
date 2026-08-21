@@ -146,81 +146,74 @@ describe("bootstrap payload assembly", () => {
     expect(payload).not.toContain("s2-agent-ext-workflow");
   });
 
-  it("Pi tool mapping names the subagent ext's 'subagent' tool + its documented params", () => {
+  it("Pi tool mapping is TERSE: essentials + deferral pointers, params live in the reference (ADR-0010)", () => {
     _resetBootstrapCacheForTests();
     const payload = getBootstrapContent() ?? "";
-    expect(payload).toContain("subagent");
-    // the documented call signature the agent is told to use
+    // the load-bearing tool directives stay inline (the agent must not need a
+    // read to avoid the known dispatch footguns)
+    expect(payload).toContain("spawn_subagent");
     expect(payload).toContain("task");
-    expect(payload).toMatch(/tier|tools|excludeTools|cwd|model/);
-    // prefer tier over raw model id (portable, user-tunable via /workflows-models)
     expect(payload).toContain("tier");
-    // capability: model-capability axis (e.g. 'vision') from the merged model-role resolver (#827)
-    expect(payload).toContain("capability?");
-    // commitScope: the SDD commit-hygiene guardrail (catches the git add -A sweep)
     expect(payload).toContain("commitScope");
-    // tokenBudget/spendBudget: per-agent spend cap (soft guidance — bounds runaway dispatches)
-    expect(payload).toContain("tokenBudget");
-    expect(payload).toContain("spendBudget");
-    // deferral: the terse bootstrap points at the canonical full doc
-    expect(payload).toContain("references/pi-tools.md");
-    // concurrent fan-out goes through the workflow tool's parallel(), not ad-hoc multi-dispatch
-    expect(payload).toContain("parallel()");
-    // watchdog:{l2:true} advisory adversarial-review guardrail (D2 MED-risk mitigation pin)
     expect(payload).toContain("watchdog");
+    expect(payload).toContain("parallel()");
+    // deferral: the terse bootstrap points at the canonical full docs
+    expect(payload).toContain("references/pi-tools.md");
+    expect(payload).toContain("BEFORE any SDD/subagent dispatch");
+    // full param signatures MOVED to the reference (progressive disclosure) —
+    // their presence is asserted in tests/references.test.ts, and their absence
+    // here is the token diet itself
+    expect(payload).not.toContain("capability?");
+    expect(payload).not.toContain("tokenBudget");
+    expect(payload).not.toContain("spendBudget");
   });
 
-  it("carries the Pipeline routing (2-rule boundary convergence, ADR-0004-safe)", () => {
+  it("carries the Pipeline routing (terse stage prose + deferral pointer, ADR-0010)", () => {
     _resetBootstrapCacheForTests();
     const payload = getBootstrapContent() ?? "";
     // new header (renamed from "Path & routing overrides")
     expect(payload).toContain("## Pipeline routing (this repo)");
     expect(payload).not.toContain("## Path & routing overrides");
-    // rule 1: one canonical home — the convergence specifics stay actionable
-    expect(payload).toContain("One canonical home");
-    expect(payload).toContain(".planning/<effort>/spec.md");
-    expect(payload).toContain(".planning/<effort>/plan.md");
-    expect(payload).toContain(".planning/<effort>/sdd/<plan-basename>/");
-    expect(payload).toContain(".planning/<effort>/sdd/<plan-basename>/progress.md");
-    expect(payload).toContain(".planning/<effort>/brainstorm/");
-    expect(payload).toContain("PI_PLANNING_EFFORT");
-    expect(payload).toContain("sdd-workspace PLAN_FILE");
-    // rule 2: stage table discriminator keyed on disk state
-    expect(payload).toContain("check what's on disk");
+    // stage discriminator stays inline (disk-check prose, all five stage words)
+    expect(payload).toContain("what's on disk");
     expect(payload).toContain("DECIDE");
     expect(payload).toContain("SYNTHESIZE");
     expect(payload).toContain("DESIGN");
     expect(payload).toContain("PLAN");
     expect(payload).toContain("EXECUTE");
     // the SYNTHESIZE/DESIGN partition: to-spec vs brainstorming no longer compete
+    // (also the routing-contract seam: wayfind greps src/superpowers.ts for these)
     expect(payload).toContain("to-spec");
+    expect(payload).toContain("grilling");
     expect(payload).toContain("brainstorming");
+    expect(payload).toContain("writing-plans");
+    // artifact-home essence stays inline; the full path table moved to the reference
+    expect(payload).toContain(".planning/<effort>/");
+    expect(payload).toContain("references/pi-routing.md");
+    expect(payload).not.toContain("PI_PLANNING_EFFORT");
+    expect(payload).not.toContain("sdd-workspace PLAN_FILE");
     // retired old structure must be gone
     expect(payload).not.toContain("Four runtime rules");
     expect(payload).not.toContain("can I write a plan right now");
     expect(payload).not.toContain("Artifact-home override");
     expect(payload).not.toContain("Entry-path routing");
     expect(payload).not.toContain("Visual-companion convergence");
-    // note: "SDD workspace" the bare topic word legitimately remains in rule 1;
-    // only the retired header phrase "SDD workspace override" must be gone
     expect(payload).not.toContain("SDD workspace override");
-    // ADR-0007 → ADR-0009: no-effort specs route to the flat .planning/specs/;
-    // the former alias symlinks under the retired upstream docs namespace are
-    // gone — .planning is the sole artifact home and the payload never names
-    // the dead namespace (asserted via joined segments, not a literal, so this
-    // file does not re-introduce the retired path string)
-    expect(payload).toContain(".planning/specs/");
     expect(payload).not.toContain("symlink");
     expect(payload).not.toContain(["docs", "superpowers"].join("/"));
     expect(payload).not.toContain("when an effort is active");
   });
 
-  it("routing section is meaningfully shorter than the old 3039 chars", () => {
+  it("TOKEN BUDGET RATCHET (ADR-0010): repo-owned sections ≤ 1,100 chars; total ≤ 5,900 chars", () => {
     _resetBootstrapCacheForTests();
     const payload = getBootstrapContent() ?? "";
-    const i = payload.indexOf("## Pipeline routing");
-    const section = i >= 0 ? payload.slice(i) : "";
-    expect(section.length).toBeLessThan(2000);
-    expect(section.length).toBeGreaterThan(800); // sanity: not accidentally empty
+    const i = payload.indexOf("## Pi tool mapping");
+    const r = payload.indexOf("## Pipeline routing");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(r).toBeGreaterThan(i);
+    const sections = payload.slice(i);
+    expect(sections.length, "piToolMapping + piBoundaryOverrides combined").toBeLessThan(1100);
+    expect(sections.length).toBeGreaterThan(300); // sanity: not accidentally gutted
+    expect(payload.length, "whole bootstrap (skill body is byte-pinned ~2.9k chars)").toBeLessThan(5900);
   });
 });
