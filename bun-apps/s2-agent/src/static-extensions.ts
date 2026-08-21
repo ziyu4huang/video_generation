@@ -104,6 +104,7 @@ import powerToolExtension from "../../s2-agent-ext-power-tool/extensions/power-t
 import webuiExtension from "../../s2-agent-ext-webui/extensions/webui.ts";
 import hyperframesExtension from "../../s2-agent-ext-hyperframes/extensions/hyperframes.ts";
 import archifyExtension from "../../s2-agent-ext-archify/extensions/archify.ts";
+import compactExtension from "../../s2-agent-ext-compact/extensions/compact.ts";
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
@@ -135,4 +136,5 @@ export const STATIC_EXTENSION_FACTORIES = [
 	// factory is a no-op that exists so the registration path stays uniform.
 	{ name: "s2-agent-ext-hyperframes", factory: hyperframesExtension },
 	{ name: "s2-agent-ext-archify", factory: archifyExtension },
+	{ name: "s2-agent-ext-compact", factory: compactExtension },
 ];

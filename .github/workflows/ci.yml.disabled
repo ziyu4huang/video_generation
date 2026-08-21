@@ -167,6 +167,10 @@ jobs:
           # (see that job's 13-extension list), so a break here ships straight
           # into the compiled binary. Plain `bun test`.
           - { package: s2-agent-ext-prompt-history, test-cmd: "bun test" }
+          # s2-agent-ext-compact: statically bundled (session_before_compact
+          # hook), same ship-straight-into-the-binary rationale as
+          # prompt-history above. Plain `bun test`.
+          - { package: s2-agent-ext-compact, test-cmd: "bun test" }
           # --isolate: classify-vlm/ask-io/vlm-ask-tool/pipeline mock.module()
           # sessions.ts + vision-inference.ts; without per-file process isolation
           # the stub leaks into sessions.test.ts / resolve-vision-llm.test.ts

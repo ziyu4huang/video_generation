@@ -290,4 +290,12 @@ extensions:
     deploy:
       order: 150
       copy: [vendored]
+  - name: compact
+    package: s2-agent-ext-compact
+    entry: extensions/compact.ts
+    load: static
+    # Pure code: imports only pi-coding-agent / pi-ai + node builtins.
+    # order 160 — 150 was taken by archify on main (#1783).
+    deploy:
+      order: 160
 lazyExtensions: {}
