@@ -43,7 +43,7 @@
  *   settles instead of being treated as a verdict.
  */
 import path from "node:path";
-import { runLocalCi, type CiOutcome } from "./ci-recipe.js";
+import { runLocalCi, summarizeCiFailures, type CiOutcome } from "./ci-recipe.js";
 import { createGhClient, createBranchClient } from "./gh.js";
 import type { GhClient } from "./recipe.js";
 import type { BranchClient } from "./branch-recipe.js";
@@ -434,7 +434,10 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			return abort("local_ci_failed", `local CI threw: ${errMsg(err)}`);
 		}
 		if (ci.overall !== "pass") {
-			return abort("local_ci_failed", `local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — fix before merging`);
+			return abort(
+				"local_ci_failed",
+				`local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — failing: ${summarizeCiFailures(ci)} — fix before merging`,
+			);
 		}
 		// ≤5-minute budget (house rule): advisory, never blocks the merge — but it
 		// must be LOUD, because a slow run_local_ci stops being used as a gate.

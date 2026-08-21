@@ -8,7 +8,7 @@
  * built/failed counts; runShDeploy returns a typed object, so that parser is
  * gone rather than ported.
  */
-import { runShDeploy, type DeployShOptions, type DeployShResult } from "../scripts/deploy.ts";
+import { DeployVersionExistsError, runShDeploy, type DeployShOptions, type DeployShResult } from "../scripts/deploy.ts";
 
 export interface DeployParams {
 	/** Replace an existing version dir. */
@@ -27,6 +27,10 @@ export interface DeployResult {
 	coreBytes?: number;
 	/** True when the core came from the content-addressed cache (no recompile). */
 	coreCached?: boolean;
+	/** True when nothing was deployed: the version dir already exists (re-deploy). */
+	noop?: boolean;
+	/** Human note for a noop result (e.g. the --force hint). */
+	message?: string;
 	currentUpdated?: boolean;
 	/** Version dirs removed by keep:N retention, oldest first. */
 	pruned?: string[];
@@ -69,6 +73,13 @@ export async function runDeploy(
 			pruned: r.pruned,
 		};
 	} catch (e) {
+		// A re-deploy of the current version is a no-op SUCCESS, not a failure:
+		// the version dirs are immutable and content-addressed by git sha, so an
+		// existing target means this exact tree state is already deployed. Map it
+		// here (tool surface) — deploy-cli.ts does the same for the CLI surface.
+		if (e instanceof DeployVersionExistsError) {
+			return { ok: true, noop: true, version: e.version, target: e.target, message: e.message };
+		}
 		return { ok: false, errorTail: e instanceof Error ? e.message : String(e) };
 	}
 }

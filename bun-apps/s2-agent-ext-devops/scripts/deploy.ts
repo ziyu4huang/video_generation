@@ -349,6 +349,23 @@ function verifyRelocatable(stageDir: string, outRoot: string, expected: string[]
 	}
 }
 
+/**
+ * Thrown when the target version dir already exists and --force was not
+ * passed. Carries the deploy identity so callers can classify a re-deploy of
+ * the current tree state as a NO-OP success (version dirs are immutable and
+ * content-addressed by git sha — same version, same content) instead of a
+ * failure that sends someone to diagnose a perfectly healthy deploy.
+ */
+export class DeployVersionExistsError extends Error {
+	constructor(
+		readonly version: string,
+		readonly target: string,
+	) {
+		super(`${target} already exists — pass --force to replace it`);
+		this.name = "DeployVersionExistsError";
+	}
+}
+
 export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShResult> {
 	const configPath = opts.configPath ? resolve(opts.configPath) : DEFAULT_CONFIG;
 	if (!existsSync(configPath)) throw new Error(`config not found: ${configPath}`);
@@ -371,7 +388,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 	// ── deploy (version dirs are immutable — the in-place ext rebuild is gone) ─
 	if (existsSync(target) && !opts.force) {
-		throw new Error(`${target} already exists — pass --force to replace it`);
+		throw new DeployVersionExistsError(version, target);
 	}
 	const stage = join(outRoot, `.staging-${version}`);
 	rmTree(stage);
