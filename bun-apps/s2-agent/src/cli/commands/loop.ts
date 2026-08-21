@@ -93,9 +93,11 @@ function row(label: string, drift: boolean, detail: string): string {
 	return `${drift ? "DRIFT" : "PASS"}  ${label}: ${detail}`;
 }
 
-function run(cwd: string, cmd: string[]): string {
+/** Spawn and capture BOTH streams: bun ≥1.4 routes `bun test` output (incl.
+ * the coverage table) to stderr, so a stdout-only capture sees nothing. */
+export function run(cwd: string, cmd: string[]): string {
 	const r = Bun.spawnSync(cmd, { cwd });
-	return r.stdout ? r.stdout.toString() : "";
+	return `${r.stdout ? r.stdout.toString() : ""}\n${r.stderr ? r.stderr.toString() : ""}`;
 }
 
 export async function loopStatus(repoRoot: string, args: string[]): Promise<number> {
@@ -124,7 +126,17 @@ export async function loopStatus(repoRoot: string, args: string[]): Promise<numb
 	const dupHit = skills.some((s) => s.path.includes("dispatch-budget-rebalance"));
 	lines.push(row("duplicate-scan", dupHit, dupHit ? "dispatch-budget-rebalance still present in skills/" : "no dispatch-budget-rebalance skill dir (merged)"));
 	// 4. schema-cost canary
-	const schema = run(repoRoot, ["bun", "bun-apps/s2-agent/src/cli.ts", "schema-cost"]);
+	// `schema-cost` is NOT a top-level CLI command — bare `cli.ts schema-cost`
+	// falls through to the pi LLM passthrough, and the canary then greps an LLM
+	// chat reply for 0 rows (the "0 = canary regression" DRIFT). The real
+	// surface is the tools-metrics mode.
+	const schema = run(repoRoot, [
+		"bun",
+		"bun-apps/s2-agent/src/cli.ts",
+		"cli",
+		"tools-metrics",
+		"--schema-cost",
+	]);
 	const canaryRows = (schema.match(/wayfind|superpowers/gi) ?? []).length;
 	lines.push(row("schema-cost-canary", canaryRows === 0, `${canaryRows} rows mention wayfind/superpowers (0 = canary regression)`));
 	// 5. wayfind coverage floor
