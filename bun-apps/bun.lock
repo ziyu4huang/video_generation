@@ -59,6 +59,7 @@
         "@repo/s2-agent-core-runtime": "workspace:*",
         "@repo/s2-agent-ext-archify": "workspace:*",
         "@repo/s2-agent-ext-btw": "workspace:*",
+        "@repo/s2-agent-ext-compact": "workspace:*",
         "@repo/s2-agent-ext-devops": "workspace:*",
         "@repo/s2-agent-ext-file2md": "workspace:*",
         "@repo/s2-agent-ext-flux2": "workspace:*",
