@@ -430,16 +430,17 @@ export const REGISTRY: ProviderEntry[] = [
   // Models/StyleTTS2/Kokoro/), so this port is CLI + bridge wiring, not a
   // from-scratch model port like MusicGen was. See
   // .planning/specs/2026-08-01-kokoro-tts-swift-native-port-design.md.
-  // optIn:true is load-bearing here, not decorative: BACKEND_RANK ranks
-  // native_swift above macos_native/cloud_http ACROSS tiers (not just within
-  // one), so without optIn this entry would unconditionally win every bare
-  // {capability:"tts"} call over say_tts/edge_tts, silently changing their
-  // existing default behavior — see selector.ts's header comment. Reachable
-  // today only via an explicit `provider:"kokoro"` hint. English (af_*/am_*)
-  // and Mandarin (zf_*/zm_*) voices verified (see swift/musicgen-director's
-  // KokoroTTSCLITests); other Kokoro-supported languages (es/fr/it/pt/hi/ja)
-  // deferred to edge-tts, which already covers them.
-  { name: "kokoro_tts", capability: "tts", provider: "kokoro", backend: "native_swift", invoke: "bun:kokoro-tts", configured: true, optIn: true, notes: "swift/musicgen-director's kokoro-tts binary (src/kokoro_tts_native.ts, via ensureBinary()) — local Kokoro-82M TTS via mlx-audio-swift's MLXAudioTTS product, zero Python. Genuinely offline (unlike edge_tts) and higher quality than say_tts, but NOT the default — optIn:true (see selector.ts). Reach it with an explicit provider:\"kokoro\" hint." },
+  // 2026-08-21: promoted to the DEFAULT bare-tts pick (optIn removed). The
+  // 2026-08-21 A/B (kokoro vs edge-tts vs say, en+zh) showed kokoro at latency
+  // parity (0.4-1.5s), fully offline, higher quality than say — and surfaced
+  // the g2p 510-token cap, fixed by sentence-boundary chunking + PCM concat in
+  // kokoro_tts_native.ts, plus a language-aware default voice (CJK-dominant →
+  // zf_xiaobei, else af_heart) so bare {capability:"tts"} calls with no voice
+  // work. English (af_*/am_*) and Mandarin (zf_*/zm_*) voices verified (see
+  // swift/musicgen-director's KokoroTTSCLITests); other Kokoro languages
+  // (es/fr/it/pt/hi/ja) still deferred to edge-tts. Runtime fallback chain
+  // lives in bridge.ts's selectAndGenerate: kokoro → edge-tts → say.
+  { name: "kokoro_tts", capability: "tts", provider: "kokoro", backend: "native_swift", invoke: "bun:kokoro-tts", configured: true, notes: "swift/musicgen-director's kokoro-tts binary (src/kokoro_tts_native.ts, via ensureBinary()) — local Kokoro-82M TTS via mlx-audio-swift's MLXAudioTTS product, zero Python. THE DEFAULT since 2026-08-21 (A/B-verified): genuinely offline (unlike edge_tts), higher quality than say_tts, long text auto-chunked under the g2p 510-token cap, voice defaults language-aware (zf_xiaobei/af_heart). Binary builds on first use (~155s once), then cached." },
 
   // Music — native Swift/MLX MusicGen (swift/musicgen-director), the score-track
   // source that compose-motion's amix pass mixes under the narration. Fully

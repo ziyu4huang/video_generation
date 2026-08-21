@@ -82,17 +82,12 @@ describe("selectProvider", () => {
     // piper is a GAP (never callable); the hint is ignored and falls back to the
     // probe-based ranking. On darwin that lands on the macOS `say` fallback
     // (macos_native, always callable, and ranked above edge_tts's cloud_http
-    // tier). On non-darwin CI runners say's probe is false (platform-gated),
-    // but edge_tts (cloud_http, needs no key) is pinned callable by this
-    // suite's beforeAll (_setRunPyRuntimeForTest(true)) — so it, not a throw,
-    // is what the ranking falls back to there.
-    if (process.platform === "darwin") {
-      const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
-      expect(e.provider).toBe("say");
-    } else {
-      const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
-      expect(e.provider).toBe("edge-tts");
-    }
+    // tier). 2026-08-21: kokoro (native_swift, optIn removed — A/B-promoted
+    // default) outranks both across tiers, so the bare fallback lands there
+    // on every platform; the runtime kokoro → edge-tts → say failure chain
+    // lives in bridge.ts's selectAndGenerate, not here.
+    const e = selectProvider("tts", { provider: "piper", env: NO_ENV });
+    expect(e.provider).toBe("kokoro");
   });
 
   it("cloud_http tts always resolves to edge-tts now (bun:tts-native has no run.py/venv dependency)", () => {
