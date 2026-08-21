@@ -1,4 +1,3 @@
-import { extractFileOps } from "./file-ops.ts";
 import type { Message } from "@earendil-works/pi-ai";
 
 export type SessionType = "implementation" | "debugging" | "review" | "discussion";

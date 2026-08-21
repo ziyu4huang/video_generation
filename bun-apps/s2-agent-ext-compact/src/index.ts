@@ -1,9 +1,8 @@
-import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-
-/** Self-gate: BUN_PI_COMPACT=0 disables the extension entirely. */
-const extension: ExtensionFactory = (pi) => {
-	if (process.env.BUN_PI_COMPACT === "0") return;
-	// TODO: subscribe to pi.on(...) / register tools.
-};
-
-export default extension;
+export { loadCompactConfig, type CompactConfig } from "./config.ts";
+export { extractFileOps, verifiedFilesBlock, allFiles, type FileOpsSummary } from "./file-ops.ts";
+export { inferSessionType, toolNamesIn, type SessionType } from "./session-type.ts";
+export { collectUserMessages, type CollectedUserMessage } from "./user-messages.ts";
+export { buildSystemPrompt, buildUserPrompt, extractSummary, SECTION_TITLES, type PromptInput } from "./prompt.ts";
+export { pickModel, parseModelSpec, type ModelApi, type ModelContext } from "./model.ts";
+export { summarizeCcStyle, type CcSummaryResult, type SummarizeRequest } from "./summarize.ts";
+export { createCompactExtension, type CompactExtDeps } from "../extensions/compact.ts";
