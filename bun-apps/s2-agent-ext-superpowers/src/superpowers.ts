@@ -140,6 +140,12 @@ export function resolveBootstrapSkillPath(fromUrl?: string): string {
  * the defaults. Set `PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0` to suppress the
  * defaults entirely (e.g. a probe fat-run that must load every skill).
  *
+ * Reset sugar (D5, 2026-08-21): a `!` token in the comma-list drops everything
+ * accumulated so far — the defaults AND earlier env tokens — so `"!,x"` means
+ * "defaults off, exclude exactly x". A bare `"!"` is a safe no-op reset (empty
+ * set → whole-dir advertisement, same representation as DEFAULTS=0 with no
+ * list). `..._DEFAULTS=0` keeps working unchanged.
+ *
  * Phase-3 skill-unload audit: any listed skill is dropped from the
  * `resources_discover` advertisement so pi never registers it, WITHOUT editing
  * the pinned `SKILL.md` (ADR-0004 — unregister ≠ edit). Pure + injectable so
@@ -148,12 +154,17 @@ export function resolveBootstrapSkillPath(fromUrl?: string): string {
 export function parseSkillExclude(env: Record<string, string | undefined> = process.env): Set<string> {
   // DEFAULT_SKILL_EXCLUDE applies unless explicitly suppressed (Phase-3 default-off).
   const defaultsOff = /^(0|false|no|off)$/i.test(env[DEFAULTS_DISABLE_ENV] ?? "");
-  const defaults = defaultsOff ? [] : DEFAULT_SKILL_EXCLUDE;
-  const fromEnv = (env[SKILL_EXCLUDE_ENV] ?? "")
+  const tokens = (env[SKILL_EXCLUDE_ENV] ?? "")
     .split(",")
     .map((token) => token.trim())
     .filter((token) => token.length > 0);
-  return new Set([...defaults, ...fromEnv]);
+  let entries: string[] = defaultsOff ? [] : [...DEFAULT_SKILL_EXCLUDE];
+  for (const token of tokens) {
+    if (token === "!")
+      entries = []; // reset sugar: drop everything accumulated so far
+    else entries.push(token);
+  }
+  return new Set(entries);
 }
 
 /** Immediate skill-dir names actually present under `skillsDir` (the keys the

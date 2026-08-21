@@ -18,6 +18,12 @@ Only the Pi extension wrapper (`src/`, `extensions/`, `tests/`, config) is this 
 
 No slash commands, no coordination globals — Superpowers is skill-driven, not command-driven (contrast with [`@repo/s2-agent-ext-wayfind`](../s2-agent-ext-wayfind)).
 
+## Env knobs
+
+- `BUN_PI_SUPERPOWERS=0` — full-disable the extension (no advertisement, no bootstrap).
+- `PI_SUPERPOWERS_SKILL_EXCLUDE` — comma-list of skill dir-names to unregister. A leading `!` token RESETS the accumulated set (drops the defaults): `"!,x"` = defaults-off + exclude exactly `x`; a bare `"!"` = safe no-op reset.
+- `PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS=0` — suppress the default exclude list (orthogonal to `!`).
+
 ## Related packages
 
 - [**wayfind**](../s2-agent-ext-wayfind/README.md) — decision-chain skills (grilling, wayfinder, domain-modeling) for the decompose-and-decide phase that precedes Superpowers' brainstorming→writing-plans flow.

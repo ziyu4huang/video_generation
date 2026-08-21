@@ -160,3 +160,13 @@ mechanics (`### Task N` + `Run:`/`Expected:` markers, tickets-runnable), and
 the spec/plan reviewer second pass (ADR-0010-era references, pi-routing.md)
 critiques artifacts before execution. Do not re-advertise or re-port the skill
 without re-litigating this record.
+
+## Amendment: `!` reset sugar in the exclude list (2026-08-21, decision D5)
+
+`PI_SUPERPOWERS_SKILL_EXCLUDE` now treats a `!` token as "drop everything
+accumulated so far" — the defaults AND earlier env tokens — so `"!,x"` reads
+"defaults off, exclude exactly x" without touching
+`PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS` (which keeps working, orthogonal). A
+bare `"!"` is a safe no-op reset (empty set → the whole-dir advertisement
+representation, identical to DEFAULTS=0 with no list). Purely additive: every
+previously-valid value parses to the same set it did before.
