@@ -74,3 +74,11 @@ awk -v n=N '/^```/{f=!f} !f&&/^#+[ \t]+Task[ \t]+[0-9]+/{t=($0~("^#+[ \t]+Task[ 
 Both keep the controller's context lean — the shell writes the file, only the path is handed to the subagent (the child `read`s it). The awk is the byte-identical script's logic inlined (validated BSD-awk-compatible on macOS).
 
 Either path is fine: `PI_PLANNING_EFFORT=<effort> sdd-workspace` prints `.planning/<effort>/sdd/` (and `task-brief`/`review-package` inherit the env), or use the inline forms above. The awk is BSD-awk-compatible on macOS.
+
+## Document-reviewer dispatches
+
+Spec/plan critic passes (see pi-routing.md "Reviewer second pass") are plain
+`spawn_subagent` dispatches: the task carries the artifact path + the template
+path (`skills/brainstorming/spec-document-reviewer-prompt.md` for specs,
+`skills/writing-plans/plan-document-reviewer-prompt.md` for plans); a read-only
+reviewer needs no `commitScope` (pass `[]` or omit), no `watchdog`.

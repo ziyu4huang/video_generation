@@ -147,3 +147,16 @@ targets duplicates a bootstrap body or lost Phase-3 auto-run behavior, so no
 new exclusion is warranted. Lookups for the deleted wayfind skill names are
 redirected by wayfind `ask-matt`'s one-release stub table (expires at wayfind
 `0.2.0` per its `docs/versioning.md`).
+
+## Amendment: verification-before-completion DELETED (2026-08-21, decision D4)
+
+Ticket 08 of the 2026-08-16 effort landed the ratified deletion of the
+`verification-before-completion` skill (dir + fixture + provenance entry); this
+ADR's `DEFAULT_SKILL_EXCLUDE` entry naming it is deliberately KEPT — an exclude
+entry for a skill that no longer ships is inert, and it documents the knob's
+history. The Plan-Execute-Verify "verify gate" role this skill carried is
+covered host-side: `s2-agent/src/cli/commands/pipeline-gate.ts` validates plan
+mechanics (`### Task N` + `Run:`/`Expected:` markers, tickets-runnable), and
+the spec/plan reviewer second pass (ADR-0010-era references, pi-routing.md)
+critiques artifacts before execution. Do not re-advertise or re-port the skill
+without re-litigating this record.
