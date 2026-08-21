@@ -28,29 +28,15 @@ import type { CiOutcome } from "./ci-recipe.js";
 import { runLocalCi } from "./ci-recipe.js";
 import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "./changed-packages.js";
 import type { CiGatesResult } from "./ci-gates.js";
-import type { PrState, MergeState, CheckTally } from "./pr-logic.js";
+import type { ForgeClient } from "./forge/types.js";
 
-/** Injectable gh/git operations. Real impl: src/gh.ts. Tests inject fakes. */
-export interface GhClient {
-	prStatus(n: number): Promise<{
-		state: PrState;
-		mergeState: MergeState;
-		baseRefName: string;
-		headRefName: string;
-		/** Check tally (used by the show_pr_status tool; the merge recipe ignores it). */
-		checks: CheckTally;
-		mergeSha?: string;
-		/** The head ref's SHA — what was merged. Lets verify_merge_landed tell a spent
-		 *  branch from one with commits pushed after the merge. */
-		headRefOid?: string;
-	}>;
-	/**
-	 * Direct (synchronous) merge — `gh pr merge` WITHOUT `--auto`. Used once the
-	 * run_local_ci gate is green + mergeState is CLEAN: the merge completes here, so
-	 * success IS the confirmation (no remote CI to poll). Throws on non-zero exit.
-	 */
-	mergeNow(n: number, strategy: "rebase" | "merge" | "squash", deleteBranch: boolean): Promise<void>;
-}
+/**
+ * Injectable forge/git operations. Historical name kept as an alias of the
+ * forge-agnostic `ForgeClient` (src/forge/types.ts) — real impls come from
+ * src/forge/select.ts (GitHub REST first, gh CLI fallback); tests inject
+ * fakes. Only the name is gh-flavored; the contract is forge-neutral.
+ */
+export type GhClient = ForgeClient;
 
 export interface RecipeOptions {
 	prNumber: number;

@@ -44,6 +44,22 @@ Every tool is **throw-free** (every refusal surfaces as a structured
 git invocations in `commands[]`, and honors `dryRun` (compute + show the plan,
 spawn zero mutations). Use `dryRun: true` to preview before mutating.
 
+## Forge backends (how PR/merge calls reach the host)
+
+The PR/merge tools talk to the git host through a **forge abstraction**
+(`src/forge/`): REST-first, gh-CLI fallback. Selection (`src/forge/select.ts`)
+is automatic per repo — you do not choose a backend:
+
+1. `GITHUB_TOKEN` / `GH_TOKEN` env → GitHub REST adapter.
+2. `gh auth token` (gh installed + authenticated) → GitHub REST adapter.
+3. gh on PATH (no token) → the gh-CLI adapter (historical behavior).
+4. None of the above → the tool aborts with remediation text.
+
+Gitea/Forgejo hosts are detected and **refused** for now — the Gitea adapter is
+a researched skeleton (`src/forge/gitea.ts` capability map), not implemented.
+Git operations (fetch/push/branch/worktree) never go through the forge layer;
+they stay native regardless of backend.
+
 ## The chain (run in order)
 
 ### 1. `prepare_feature_branch` — worktree-safe branch setup

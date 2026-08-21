@@ -94,8 +94,18 @@ distinct from the PR/merge keywords above.
 - `src/recipe.ts` / `src/branch-recipe.ts` / `src/ci-recipe.ts` / `src/sync-recipe.ts`
   / `src/retrospect-recipe.ts` / `src/prepare-recipe.ts` / `src/verify-merge-recipe.ts`
   — orchestration, I/O behind injectable clients (tested with fakes).
-- `src/gh.ts` — the real `GhClient` / `BranchClient` wrapping the `gh`/`git` CLI;
-  pure JSON/text parsers. `BranchClient.dirtyPaths(dir)` lists TRACKED dirty
+- `src/forge/` — the forge abstraction (git-host backends, REST-first):
+  `types.ts` (`ForgeClient` — the normalized PR/merge contract; `GhClient` in
+  recipe.ts is its alias), `rest.ts` (shared REST transport; errors embed the
+  response body; token never in output), `github-rest.ts` (GitHub REST adapter
+  + pure mappers), `gh-cli.ts` (gh-CLI fallback, the historical impl),
+  `select.ts` (backend selection: env token → `gh auth token` → gh on PATH →
+  abort; Gitea hosts refused), `gitea.ts` (capability-map skeleton, not
+  implemented).
+- `src/gh.ts` — `createBranchClient` (git ops — shared by every forge; git
+  never goes through a forge adapter) + pure JSON/text parsers (re-exports the
+  gh-client surface that moved to `src/forge/gh-cli.ts`).
+  `BranchClient.dirtyPaths(dir)` lists TRACKED dirty
   paths (repo-relative; excludes untracked/ignored) via `git status --porcelain=v1`;
   `isClean` remains for other recipes. `SyncClient` now `Pick`s `dirtyPaths`
   (not `isClean`) so the per-path preserve split runs on one query.
