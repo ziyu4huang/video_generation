@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { addShapeIrToSlide, type Box } from "../lib/pptx-shapes.ts";
+import { addShapeIrToSlide, labelWidthEms, type Box } from "../lib/pptx-shapes.ts";
+import { textEms } from "../lib/text-extent.ts";
 import { spySlide, type SpyCall } from "./helpers/spy-slide.ts";
 import type { ShapeIR, ShapeNode, Style } from "../lib/shape-ir.ts";
 
@@ -475,6 +476,72 @@ describe("text", () => {
       fontFace: "PingFang TC",
     });
     expect(slide.calls[1]!.opts["bold"]).toBe(false);
+  });
+});
+
+/**
+ * The width contract (P3 of archify-deck-visual-fidelity).
+ *
+ * `wrap: false` asks the renderer not to break the line, and PowerPoint obeys —
+ * but the deck also has to survive renderers that do not, so the reserved box
+ * must be at least as wide as the string actually sets. The old estimate was
+ * one Latin advance times `.length`, which is 0.837 em per character: right
+ * enough for Latin, 16 % short for every ideograph, and that shortfall is what
+ * broke the connector label `系統需求` into `系統需 / 求`.
+ *
+ * These assertions compute the expectation from `textEms()` — the same
+ * calibrated model `deck-lint` uses for titles — and never render anything
+ * (effort decision D1).
+ */
+describe("label width", () => {
+  /** Reserved width of a single label, in ems of its own font size. */
+  const reservedEms = (text: string, fontSize = 10): number => {
+    const slide = spySlide();
+    addShapeIrToSlide(
+      slide,
+      ir([{ kind: "text", x: 50, y: 50, text, anchor: "middle", fontSize, fontWeight: 400, style: BLACK }]),
+      BOX
+    );
+    // BOX is 10in over a 100-unit viewBox ⇒ 0.1 in/unit.
+    return (slide.calls[0]!.opts["w"] as number) / (fontSize * 0.1);
+  };
+
+  const FIXTURES = [
+    "Message bus", // pure Latin, lowercase-dominant
+    "AUDIO APU", // pure Latin, all caps — the worst bucket case (`M`, `A`)
+    "MMMM", // the single glyph the model under-estimates most
+    "系統需求", // pure CJK — the reported defect
+    "來源", // pure CJK, short enough to hit the 1-em floor question
+    "SYS.1/2 需求", // mixed
+    "≥ 2 GB/s 配額", // mixed with symbols and spaces
+    "PG_AUDIO · PG_CAM", // Latin with a CJK-adjacent separator
+  ];
+
+  test.each(FIXTURES)("reserves at least the estimated set width: %p", (text) => {
+    expect(reservedEms(text)).toBeGreaterThanOrEqual(textEms(text));
+  });
+
+  test("an ideograph is reserved a full em, not a Latin advance", () => {
+    // The regression itself: 4 ideographs used to get 3.35 em.
+    expect(reservedEms("系統需求")).toBeGreaterThanOrEqual(4);
+    expect(reservedEms("來源")).toBeGreaterThanOrEqual(2);
+  });
+
+  test("the estimate leaves headroom over the model, not just parity", () => {
+    // A model with ±1.7 % prose error and a −13 % worst-glyph miss cannot be
+    // used at parity; `labelWidthEms` is an upper bound by construction.
+    for (const t of FIXTURES) expect(labelWidthEms(t)).toBeGreaterThan(textEms(t));
+  });
+
+  test("an empty label still gets a box", () => {
+    expect(reservedEms("")).toBeGreaterThanOrEqual(1);
+  });
+
+  test("width scales with font size, not with character count", () => {
+    // Same character count, different scripts ⇒ different widths. The old
+    // formula could not tell these two apart.
+    expect(reservedEms("系統需求")).toBeGreaterThan(reservedEms("iiii"));
+    expect(reservedEms("ABCD", 20)).toBeCloseTo(reservedEms("ABCD", 10), 6);
   });
 });
 

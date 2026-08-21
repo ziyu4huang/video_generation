@@ -15,12 +15,13 @@
  * - `points` supports `moveTo` (multiple subpaths), `{close:true}`, and
  *   `curve: {type:'quadratic'|'cubic'|'arc'}` — a direct match for ShapeIR's
  *   `Seg` union, which is why arcs were pre-converted to cubics upstream.
- * - `rectRadius` is a **fraction 0–1** (emitted as `adj val = r*100000`), not a
- *   length. A rounded rect's SVG `rx` must be divided by the smaller side.
+ * - `rectRadius` is a **length in inches**, despite typings that read as a
+ *   fraction — see the `rect` case, where getting this backwards was P1.
  * - `line.width` is in POINTS (1 inch = 72 pt), while x/y/w/h are inches.
  */
 import { boundsOf, type Rgba, type Seg, type ShapeIR, type ShapeNode, type Style } from "./shape-ir.ts";
 import { flatten, themeBackground, toHex } from "./svg-theme.ts";
+import { textEms } from "./text-extent.ts";
 
 /**
  * The slide surface this module needs. Structural rather than pptxgenjs's own
@@ -65,6 +66,38 @@ export interface PlacementResult {
 }
 
 const EPS = 1e-6;
+
+/**
+ * Headroom on a diagram label's reserved width, as a multiple of its estimated
+ * set width.
+ *
+ * The estimate this replaces was `fontSize * 0.62 * text.length * 1.35`
+ * ≈ 0.837 em per character — one Latin advance applied to every script.
+ * Measured across the five slides of `examples/deck/` (2026-08-22, 137 labels):
+ * it over-reserves Latin and mixed labels by 1.07…1.68x and under-reserves
+ * EVERY pure-CJK label by exactly that 0.837, because a Han ideograph sets at a
+ * full em. 40 labels were under-reserved. `系統需求` was given 3.35 em for a
+ * 4.00 em string — 3.35 characters fit, which is precisely why it broke as
+ * `系統需 / 求` (P3 of archify-deck-visual-fidelity).
+ *
+ * `textEms()` answers the width question script-aware, calibrated against
+ * rendered ink. What it does not do is leave room for its own error: it is a
+ * four-bucket model and its worst measured miss is `M`, which sets at 0.90 em
+ * against a modelled 0.78 (−13 %). This factor covers that, turning a best
+ * guess into an upper bound — which is what `wrap: false` requires, since a
+ * renderer that ignores it breaks the line at the box edge instead.
+ */
+export const LABEL_WIDTH_SAFETY = 1.15;
+
+/**
+ * Reserved width for a diagram label, in ems of its own font size.
+ *
+ * Exported so the width contract can be asserted without a renderer and
+ * without restating the formula (`__tests__/pptx-mapper.test.ts`).
+ */
+export function labelWidthEms(text: string): number {
+  return Math.max(1, textEms(text)) * LABEL_WIDTH_SAFETY;
+}
 
 /** SVG dasharray → the nearest PowerPoint preset dash. */
 function dashType(dash: number[] | undefined): string | undefined {
@@ -375,13 +408,18 @@ export function addShapeIrToSlide(
       case "text": {
         // SVG `y` is the BASELINE; a PowerPoint text box is positioned by its
         // top edge. Centre a generous box on the visual middle of the glyphs
-        // (~0.35em above the baseline) and let valign do the rest — no glyph
-        // metrics are available here, so the box is deliberately roomy and
-        // wrapping is off so a mis-estimated width can never reflow to 2 lines.
+        // (~0.35em above the baseline) and let valign do the rest — vertical
+        // extent still has no model, so the box stays deliberately tall.
+        //
+        // `wrap: false` is kept: this path replays a diagram whose SVG already
+        // decided where every line breaks, so wrapping would reflow text the
+        // diagram positioned deliberately. But `wrap="none"` is not honoured by
+        // every OOXML renderer, so the width must be an upper bound anyway —
+        // see `labelWidthEms` above.
         const sizePt = node.fontSize * scale * 72;
         const boxH = len(node.fontSize * 1.8);
         const centerY = py(node.y - node.fontSize * 0.35);
-        const estWidth = len(node.fontSize * 0.62 * Math.max(1, node.text.length) * 1.35);
+        const estWidth = len(node.fontSize * labelWidthEms(node.text));
         const align = node.anchor === "middle" ? "center" : node.anchor === "end" ? "right" : "left";
         const x =
           node.anchor === "middle"
