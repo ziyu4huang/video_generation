@@ -157,4 +157,49 @@ describe("verifyVendoredClosure", () => {
 		const violations = verifyVendoredClosure(root);
 		expect(violations).toEqual([{ pkg: "nested-dep", missing: ["also-missing"] }]);
 	});
+
+	test("a dep the ext's manifest declares excluded is a deliberate absence, not a dangle", () => {
+		const root = makeDir();
+		const extDir = join(root, "ext", "hyperframes");
+		const nm = join(extDir, "node_modules");
+		mkdirSync(nm, { recursive: true });
+		writeFileSync(
+			join(extDir, "ext.json"),
+			JSON.stringify({ vendoredClosure: { excluded: ["@fontsource/*"] } }),
+		);
+		// producer declares the fonts (the exact shipped shape) but only the
+		// non-excluded dep actually dangles.
+		writePkg(nm, "producer", {
+			name: "producer",
+			dependencies: { "@fontsource/inter": "*", "@fontsource/montserrat": "*", puppeteer: "*" },
+		});
+		writePkg(nm, "puppeteer", { name: "puppeteer" });
+
+		const violations = verifyVendoredClosure(root);
+		expect(violations).toEqual([]);
+	});
+
+	test("one ext's exclusion cannot mask another ext's genuinely missing dep", () => {
+		const root = makeDir();
+		const hfDir = join(root, "ext", "hyperframes");
+		const ptDir = join(root, "ext", "power-tool");
+		mkdirSync(join(hfDir, "node_modules"), { recursive: true });
+		mkdirSync(join(ptDir, "node_modules"), { recursive: true });
+		writeFileSync(
+			join(hfDir, "ext.json"),
+			JSON.stringify({ vendoredClosure: { excluded: ["@fontsource/*"] } }),
+		);
+		writePkg(join(hfDir, "node_modules"), "producer", {
+			name: "producer",
+			dependencies: { "@fontsource/inter": "*" },
+		});
+		// Same dep name, OTHER extension, no exclusion declared there.
+		writePkg(join(ptDir, "node_modules"), "consumer", {
+			name: "consumer",
+			dependencies: { "@fontsource/inter": "*" },
+		});
+
+		const violations = verifyVendoredClosure(root);
+		expect(violations).toEqual([{ pkg: "consumer", missing: ["@fontsource/inter"] }]);
+	});
 });

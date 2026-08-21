@@ -20,6 +20,7 @@ export interface RegistryDeployBlock {
   copy: string[]; // default []
   vendor: string[]; // default []
   externals: string[]; // default []
+  vendorExclude: string[]; // default [] — closure deps deliberately not shipped
   enabled: boolean; // default true
 }
 export interface RegistryExt {
@@ -51,7 +52,7 @@ export interface Registry {
 const TOP_KEYS = new Set(["deploy", "hostApi", "hostModules", "extensions", "lazyExtensions"]);
 const DEPLOY_KEYS = new Set(["outRoot", "version", "freeze", "current", "keep"]);
 const EXT_KEYS = new Set(["name", "package", "entry", "load", "skills", "binarySkills", "version", "excludeReason", "deploy"]);
-const DEPLOY_BLOCK_KEYS = new Set(["order", "copy", "vendor", "externals", "enabled"]);
+const DEPLOY_BLOCK_KEYS = new Set(["order", "copy", "vendor", "externals", "vendorExclude", "enabled"]);
 
 function expandHome(p: string): string {
   if (p === "~") return homedir();
@@ -213,6 +214,7 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
       const copy = strArray("copy");
       const vendor = strArray("vendor");
       const externals = strArray("externals");
+      const vendorExclude = strArray("vendorExclude");
       // A package in both lists is a silent wrong-build class: vendored means
       // "shipped as a real directory", external means "not shipped" — the
       // build would honour whichever it reads last. (Carried over from the
@@ -223,11 +225,25 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
           `extensions[${i}] ("${name}") declares package(s) both vendored and external: ${overlap.join(", ")}`,
         );
       }
+      // Same contradiction one level down: vendorExclude drops CLOSURE deps, so
+      // a vendor root matching it asks to ship and drop the same package.
+      // Exact matches only — a `@scope/*` exclude against a root inside that
+      // scope is exactly the thing being ruled out, and patterns against
+      // patterns (`@scope/*` vs `@scope/*`) have no meaning.
+      const excludedRoots = vendor.filter(
+        (p) => vendorExclude.includes(p) || vendorExclude.some((e) => e.endsWith("/*") && p.startsWith(e.slice(0, -1))),
+      );
+      if (excludedRoots.length > 0) {
+        throw new Error(
+          `extensions[${i}] ("${name}") declares vendor root(s) that vendorExclude also drops: ${excludedRoots.join(", ")}`,
+        );
+      }
       deploy = {
         order: d.order,
         copy,
         vendor,
         externals,
+        vendorExclude,
         enabled,
       };
     } else if (ext.excludeReason === undefined) {

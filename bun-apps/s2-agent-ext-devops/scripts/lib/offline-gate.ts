@@ -17,7 +17,11 @@
  *   5d. verifyVendoredClosure — every vendored package's HARD deps resolve
  *       inside the tree. A dangling dep has no offline remediation: the
  *       skill-loader's answer would be an npm install, which the dist must
- *       never offer.
+ *       never offer. Deps an ext's manifest declares under
+ *       `vendoredClosure.excluded` (registry `vendorExclude:`) are exempt —
+ *       a deliberate absence is not a dangle — but only for packages under
+ *       THAT extension's dir; one ext's exclusion cannot mask another's
+ *       genuinely missing dep.
  *
  * Runs on the staged tree BEFORE rename/freeze/`current` swap, so a violation
  * never becomes the deployed version.
@@ -26,6 +30,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { scanForeignPaths } from "./ext-build.ts";
+import { matchesExclusion } from "./vendor-closure.ts";
 // The builtin list is the CORE's (same no-second-copy rule as ext-build.ts).
 import { isBuiltinSpecifier } from "../../../s2-agent/src/sh/host-modules.ts";
 
@@ -174,10 +179,33 @@ function depResolves(root: string, pkgDir: string, dep: string): boolean {
 	return false;
 }
 
+/**
+ * Per-extension vendorExclude patterns, keyed by the ext's dir under
+ * <root>/ext/. Collected from each ext.json's vendoredClosure.excluded — the
+ * build's own record of what it deliberately dropped — so the gate and the
+ * builder cannot disagree about what "excluded" means.
+ */
+function collectExclusions(root: string): Array<{ dir: string; patterns: string[] }> {
+	const out: Array<{ dir: string; patterns: string[] }> = [];
+	const extRoot = join(root, "ext");
+	if (!existsSync(extRoot)) return out;
+	for (const name of readdirSync(extRoot)) {
+		const manifestPath = join(extRoot, name, "ext.json");
+		if (!existsSync(manifestPath)) continue;
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+			vendoredClosure?: { excluded?: string[] };
+		};
+		const patterns = manifest.vendoredClosure?.excluded ?? [];
+		if (patterns.length > 0) out.push({ dir: join(extRoot, name), patterns });
+	}
+	return out;
+}
+
 /** 5d. Vendored packages whose HARD deps dangle: [{pkg, missing[]}]. */
 export function verifyVendoredClosure(root: string): Array<{ pkg: string; missing: string[] }> {
 	const rootAbs = resolve(root);
 	const violations = new Map<string, string[]>();
+	const exclusions = collectExclusions(rootAbs);
 
 	// Every dir named node_modules in the tree, top-level and nested.
 	const nodeModulesDirs: string[] = [];
@@ -197,8 +225,17 @@ export function verifyVendoredClosure(root: string): Array<{ pkg: string; missin
 			for (const candidate of candidates) {
 				if (!existsSync(join(candidate, "package.json"))) continue;
 				const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as PkgManifest;
+				// An exclusion is honoured only for packages under the extension
+				// that declared it — one ext's vendorExclude must not mask
+				// another ext's genuinely dangling dep.
+				const ownerExclusions = exclusions
+					.filter((e) => candidate.startsWith(`${e.dir}/`))
+					.flatMap((e) => e.patterns);
 				const missing = Object.keys(manifest.dependencies ?? {}).filter(
-					(dep) => !isBuiltinSpecifier(dep) && !depResolves(rootAbs, candidate, dep),
+					(dep) =>
+						!isBuiltinSpecifier(dep) &&
+						!depResolves(rootAbs, candidate, dep) &&
+						!matchesExclusion(dep, ownerExclusions),
 				);
 				if (missing.length > 0) {
 					const key = manifest.name ?? candidate;

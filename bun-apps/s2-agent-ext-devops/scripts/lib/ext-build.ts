@@ -467,9 +467,16 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// is declared by the extension that uses it, and s2-agent has no edge to it.
 	// The CLOSURE ships, not just the root — a half-shipped dependency tree
 	// dangles at runtime with no offline remediation (see vendor-closure.ts).
+	// `vendorExclude` drops closure deps the runtime never resolves; those land
+	// in the manifest below so Gate 5d honours the absence as deliberate.
 	const vendoredClosure =
 		opts.ext.vendor.length > 0
-			? vendorClosure({ roots: opts.ext.vendor, resolveFrom: pkgDir, outDir: opts.outDir })
+			? vendorClosure({
+					roots: opts.ext.vendor,
+					resolveFrom: pkgDir,
+					outDir: opts.outDir,
+					exclude: opts.ext.vendorExclude,
+				})
 			: [];
 
 	// ── Gate 4: no build-machine path may survive in the bundle ──────────────
@@ -522,6 +529,9 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 			count: vendoredClosure.length,
 			// Deps intentionally not shipped: not installed or wrong platform.
 			pruned: [...new Set(vendoredClosure.flatMap((n) => n.pruned))],
+			// Deps intentionally not shipped: registry vendorExclude — Gate 5d
+			// reads this list and treats each absence as deliberate.
+			excluded: [...new Set(vendoredClosure.flatMap((n) => n.excluded))],
 		},
 		builtAt: opts.builtAt,
 		sourceSha: opts.sourceSha,

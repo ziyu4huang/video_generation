@@ -212,6 +212,13 @@ extensions:
       # Frame capture needs a browser: run.sh exports PUPPETEER_EXECUTABLE_PATH
       # to system Chrome (none is bundled).
       vendor: ["@hyperframes/core", "@hyperframes/producer", "sharp"]
+      # producer DECLARES 11× @fontsource/* but never resolves them at runtime:
+      # its fonts are a base64 woff2 table embedded in the bundle itself
+      # (dist/services/fontData.generated.ts — fontDataUri() reads only that
+      # Map, zero @fontsource requires across producer/engine/core/skills).
+      # Vendored, the packages are ~22MB of weight no code path can reach.
+      # Recorded in ext.json vendoredClosure.excluded; Gate 5d honours it.
+      vendorExclude: ["@fontsource/*"]
   - name: s2-agent-ext-tool-gate
     package: s2-agent-ext-tool-gate
     entry: extensions/tool-gate.ts

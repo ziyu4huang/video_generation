@@ -45,7 +45,7 @@ describe("parseRegistry", () => {
     const r = parseRegistry(text, { bunAppsDir });
     expect(r.extensions).toHaveLength(2);
     expect(r.extensions[0]).toMatchObject({ name: "task", load: "static", skills: false, binarySkills: false });
-    expect(r.extensions[0]?.deploy).toEqual({ order: 10, copy: [], vendor: [], externals: [], enabled: true });
+    expect(r.extensions[0]?.deploy).toEqual({ order: 10, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true });
     expect(r.extensions[1]).toMatchObject({ load: "dynamic", excludeReason: expect.stringContaining("swift") });
     expect(r.hostApi).toBe(2);
   });
@@ -119,5 +119,26 @@ describe("parseRegistry", () => {
       '      order: 10\n      vendor: ["playwright-core"]\n      externals: ["playwright-core"]',
     );
     expect(() => parseRegistry(bad, { bunAppsDir })).toThrow(/both vendored and external.*playwright-core/);
+  });
+  test("vendorExclude parses through to the deploy block", () => {
+    const { text, bunAppsDir } = fixture();
+    const r = parseRegistry(
+      text.replace("      order: 10", '      order: 10\n      vendorExclude: ["@fontsource/*"]'),
+      { bunAppsDir },
+    );
+    expect(r.extensions[0]?.deploy?.vendorExclude).toEqual(["@fontsource/*"]);
+  });
+  test("a vendor root that vendorExclude also drops → throws (ship-and-drop contradiction)", () => {
+    const { text, bunAppsDir } = fixture();
+    for (const [exclude, label] of [
+      ['vendorExclude: ["@hyperframes/producer"]', "exact"],
+      ['vendorExclude: ["@hyperframes/*"]', "scope pattern"],
+    ] as const) {
+      const bad = text.replace(
+        "      order: 10",
+        `      order: 10\n      vendor: ["@hyperframes/producer"]\n      ${exclude}`,
+      );
+      expect(() => parseRegistry(bad, { bunAppsDir })).toThrow(/vendorExclude also drops.*@hyperframes\/producer/);
+    }
   });
 });

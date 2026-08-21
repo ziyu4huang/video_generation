@@ -31,6 +31,15 @@
  * and .d.ts typings. Neither is ever loaded by a runtime; both are pure weight
  * in a dist whose whole point is to be a self-contained tree you copy around.
  * See `isRuntimeDeadFile`.
+ *
+ * `exclude` (registry `vendorExclude:`) drops closure PACKAGES, not files:
+ * deps that are declared by a vendored package but never resolved at runtime.
+ * The shipped case is @hyperframes/producer's 11× @fontsource/* (~22MB) —
+ * producer serves fonts from a base64 table embedded in its own bundle
+ * (fontData.generated.ts) and requires no @fontsource path from disk, so the
+ * font packages are pure weight. Exclusions are recorded per node (not
+ * conflated with `pruned`) so ext.json can declare them and Gate 5d can honour
+ * them as deliberate absences instead of dangling deps.
  */
 import { cpSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -53,6 +62,14 @@ export interface VendorClosureOptions {
 	 * (`detectLibc`). `null` disables the filter — every libc variant ships.
 	 */
 	libc?: "glibc" | "musl" | null;
+	/**
+	 * Deps deliberately not shipped (registry `vendorExclude:`), as exact
+	 * package names or `<scope>/*` patterns — same shape as `externals`.
+	 * A matching dep is neither copied nor traversed, and lands in the
+	 * parent node's `excluded` (NOT `pruned`): an exclusion is a decision
+	 * the operator made, a prune is one the platform made.
+	 */
+	exclude?: string[];
 }
 
 export interface VendoredNode {
@@ -63,6 +80,8 @@ export interface VendoredNode {
 	srcDir: string;
 	/** Optional deps skipped and why ("name" for unresolvable, "name (os/cpu)" for platform). */
 	pruned: string[];
+	/** Deps dropped by `exclude` — recorded separately so Gate 5d can tell a deliberate absence from a dangling one. */
+	excluded: string[];
 }
 
 interface ResolvedPkg {
@@ -145,12 +164,37 @@ function platformMatches(values: string[] | undefined, actual: string): boolean 
 	return values.some((v) => !v.startsWith("!") && v === actual);
 }
 
+/**
+ * Does the package name match an exclude entry? Same semantics as
+ * matchesAllowed in ext-build.ts: exact, or `<prefix>/*` for every package
+ * under a scope (`@fontsource/*` → `@fontsource/inter`, `@fontsource/…`).
+ * Dep names in a package.json are always package roots, never subpaths.
+ */
+export function matchesExclusion(pkg: string, exclude: readonly string[]): boolean {
+	for (const entry of exclude) {
+		if (entry === pkg) return true;
+		if (entry.endsWith("/*") && pkg.startsWith(entry.slice(0, -1))) return true;
+	}
+	return false;
+}
+
 /** Resolve the full vendoring closure without copying anything. */
 export function collectVendorClosure(opts: VendorClosureOptions): VendoredNode[] {
 	const platform = opts.platform ?? process.platform;
 	const arch = opts.arch ?? process.arch;
 	// `undefined` means "not specified" → detect; an explicit `null` disables.
 	const libc = opts.libc !== undefined ? opts.libc : detectLibc(platform);
+	const exclude = opts.exclude ?? [];
+
+	// Excluding a ROOT is a registry contradiction — the entry asks to ship a
+	// package and drop it at once — and unlike an excluded DEP it would be
+	// silently dropped by Gate 5c's "vendored roots must ship" check only at
+	// deploy time. Fail at the shape's authority instead.
+	for (const root of opts.roots) {
+		if (matchesExclusion(root, exclude)) {
+			throw new Error(`vendorClosure: root "${root}" is also in exclude — remove it from vendor or vendorExclude`);
+		}
+	}
 
 	const nodes: VendoredNode[] = [];
 	const visited = new Set<string>();
@@ -168,12 +212,21 @@ export function collectVendorClosure(opts: VendorClosureOptions): VendoredNode[]
 		if (!pkg) throw new Error(`vendorClosure: cannot resolve "${spec}" from ${fromDir} — run \`bun install\` in bun-apps/`);
 
 		const pruned: string[] = [];
+		const excluded: string[] = [];
 		for (const dep of pkg.dependencies) {
 			if (isBuiltinSpecifier(dep)) continue;
+			if (matchesExclusion(dep, exclude)) {
+				excluded.push(dep);
+				continue;
+			}
 			work.push([dep, pkg.srcDir]);
 		}
 		for (const dep of pkg.optionalDependencies) {
 			if (isBuiltinSpecifier(dep)) continue;
+			if (matchesExclusion(dep, exclude)) {
+				excluded.push(dep);
+				continue;
+			}
 			const depPkg = readPkg(dep, pkg.srcDir);
 			if (!depPkg) {
 				pruned.push(dep);
@@ -190,7 +243,7 @@ export function collectVendorClosure(opts: VendorClosureOptions): VendoredNode[]
 			work.push([dep, pkg.srcDir]);
 		}
 
-		nodes.push({ spec: pkg.name, version: pkg.version, srcDir: pkg.srcDir, pruned });
+		nodes.push({ spec: pkg.name, version: pkg.version, srcDir: pkg.srcDir, pruned, excluded });
 	}
 	return nodes;
 }
