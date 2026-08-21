@@ -14,11 +14,14 @@
  * No exceptions escape `chatJson`. Module top level is inert: env is read
  * inside the call, never at import time.
  */
+import { loadModelTierConfig, resolveModelRole, type ModelTierConfig } from "@repo/s2-agent-core-runtime";
+
 /** Injectable options — every field defaulted; tests inject `_fetchImpl`. */
 export interface LmChatOptions {
 	/** Base URL; defaults to `LMSTUDIO_BASE_URL` env or `http://localhost:1234`. */
 	apiUrl?: string;
-	/** Model id; defaults to `PI_KG_LLM_MODEL` env or `"google/gemma-4-12b"`. */
+	/** Model id; defaults to `PI_KG_LLM_MODEL` env > central capabilities.vision
+	 *  (model-tiers.json) > local terminal default. */
 	model?: string;
 	/** Per-attempt timeout; default 30000ms. */
 	timeoutMs?: number;
@@ -55,7 +58,7 @@ async function postChat(
 			method: "POST",
 			headers: { "content-type": "application/json" },
 			body: JSON.stringify({
-				model: opts.model ?? defaultModel(),
+				model: opts.model ?? resolveKgModel(),
 				messages: [{ role: "user", content: prompt }],
 				max_tokens: maxTokens,
 				temperature: 0.3,
@@ -77,8 +80,23 @@ function lmStudioBase(): string {
 	return process.env.LMSTUDIO_BASE_URL ?? "http://localhost:1234";
 }
 
-function defaultModel(): string {
-	return process.env.PI_KG_LLM_MODEL ?? "google/gemma-4-12b";
+/**
+ * Model for local chat-JSON calls. Precedence: PI_KG_LLM_MODEL env >
+ * central capabilities.vision from ~/.pi/workflows/model-tiers.json (provider
+ * prefix stripped — this package talks to the local LM Studio
+ * OpenAI-compatible endpoint) > terminal local default. The terminal default
+ * stays because chatJson's contract is ALL-failures→null; model resolution
+ * must not throw.
+ */
+export function resolveKgModel(config: Parameters<typeof resolveModelRole>[1] = loadModelTierConfig()): string {
+	const env = process.env.PI_KG_LLM_MODEL;
+	if (env) return env;
+	const spec = resolveModelRole({ capability: "vision" }, config);
+	if (spec) {
+		const slash = spec.indexOf("/");
+		return slash === -1 ? spec : spec.slice(slash + 1);
+	}
+	return "google/gemma-4-12b";
 }
 
 /**

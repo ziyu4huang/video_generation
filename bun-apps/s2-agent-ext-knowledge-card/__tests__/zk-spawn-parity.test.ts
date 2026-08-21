@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import piKnowledgeCardExtension, {
 	__setZkSpawnForTest,
 	resolveDistillModel,
-	DISTILL_MODEL_DEFAULT,
 	ADD_TOOLS,
 	FIND_TOOLS,
 	UPDATE_TOOLS,
@@ -189,8 +188,15 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 		else process.env[ENV_KEY] = prev;
 	});
 
-	it("DISTILL_MODEL_DEFAULT is the local LM Studio gemma", () => {
-		assert.equal(DISTILL_MODEL_DEFAULT, "google/gemma-4-12b");
+	it("defaults to the central tiers.small slot when no env is set", () => {
+		delete process.env[ENV_KEY];
+		assert.equal(
+			resolveDistillModel(undefined, {
+				tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+				capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+			}),
+			"zai/glm-4.7",
+		);
 	});
 
 	it("returns the explicit arg when provided (wins over env + default)", () => {
@@ -203,9 +209,15 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 		assert.equal(resolveDistillModel(undefined), "env/override");
 	});
 
-	it("falls back to the hardcoded default when neither arg nor env set", () => {
+	it("falls back to the central tiers.small when neither arg nor env set", () => {
 		delete process.env[ENV_KEY];
-		assert.equal(resolveDistillModel(undefined), "google/gemma-4-12b");
+		assert.equal(
+			resolveDistillModel(undefined, {
+				tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+				capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+			}),
+			"zai/glm-4.7",
+		);
 	});
 
 	it("zk_card spawn receives the resolved default model when no explicit arg", async () => {
@@ -214,12 +226,12 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 			calls.push(opts);
 			return { output: "OK" };
 		});
-		delete process.env[ENV_KEY];
+		process.env[ENV_KEY] = "env/default-model";
 		const { pi, tools } = mkPi();
 		piKnowledgeCardExtension(pi);
 		const zkCard: any = tools.get("zk_card");
 		await zkCard.execute("id", { action: "check" }, undefined, undefined, CTX);
-		assert.equal(calls.at(-1)!.model, "google/gemma-4-12b");
+		assert.equal(calls.at(-1)!.model, "env/default-model");
 		__setZkSpawnForTest(null);
 	});
 });
