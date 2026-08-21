@@ -4,83 +4,57 @@ Guidance for Claude Code in this repository.
 
 ## Communication
 
-- **Reply language**: forced by `responseLanguage` in `~/.pi/agent/settings.json` (zh-TW), changeable live via `/response-language [tag]`. See `~/.pi/agent/AGENTS.md`.
-- **Written output**: English — docs, code comments, commits, file content.
+Reply language: force-controlled by `responseLanguage` in `~/.pi/agent/settings.json` (live via `/response-language [tag]`). Written artifacts always English: code, comments, commits, docs, config.
 
 ## Active stack
 
 - **MLX pipeline** — `python/mlx-movie-director/run.py` (Z-Image / Flux2 Klein / Lens / LTX-2.3 / SeedVR2, native MLX)
-- **Bun GUI** — `bun-apps/gui-movie-director` (`bun run dev`; per-worktree port via `bun run gui:port`)
-- **Embedding server** — `swift/embed-mlx-server` (Swift MLX, BGE-M3, OpenAI-compatible `/v1/embeddings`); installs a LaunchAgent holding port 8090 — if that port is busy or a stray embed process runs, check `scripts/embed-mlx-server-service.sh status` first.
+- **Bun GUI** — `bun-apps/gui-movie-director`: `( cd bun-apps/gui-movie-director && bun run dev )`; per-worktree port via `bun run gui:port`; kill stuck server `lsof -ti :<port> | xargs kill -9`; fresh clone `bash scripts/setup.sh`
+- **Embedding server** — `swift/embed-mlx-server` (Swift MLX, BGE-M3, OpenAI-compatible `/v1/embeddings`); LaunchAgent on port 8090 — busy port or stray embed process → `scripts/embed-mlx-server-service.sh status` first
+- **MLX models** — `mlx-models/` (override `MLX_MODELS_DIR` / `--models-dir`); external binary store `../video_generation__models/` lives outside the repo
 
 ## Repo mechanics
 
-- **Bun workspace**: root is `bun-apps/` (isolated linker + globalStore via `bun-apps/bunfig.toml`); `bun-apps/bun.lock` canonical. `bun install` from `bun-apps/` only; never commit `package-lock.json`; deps via `bun add` inside `bun-apps/`.
-- **Python**: `python/venv/bin/python python/mlx-movie-director/run.py <args>` from repo root only — never system `python3`/`python3.13`. Fresh clone: `bash scripts/setup-offline.sh` (or `uv venv python/venv --python 3.12 && uv pip install -r python/mlx-movie-director/requirements.txt`). Sibling forks `../mflux`, `../ltx-2-mlx` via `scripts/setup-repo-deps.sh`.
+- **Bun workspace**: root is `bun-apps/` (isolated linker + globalStore via `bun-apps/bunfig.toml`). `bun install` from `bun-apps/` ONLY; deps via `bun add` inside it; `bun-apps/bun.lock` canonical — never commit `package-lock.json`.
+- **Python**: `python/venv/bin/python` from repo root ONLY — never system `python3`/`python3.13`. Fresh clone: `bash scripts/setup-offline.sh` (or `uv venv python/venv --python 3.12 && uv pip install -r python/mlx-movie-director/requirements.txt`); sibling forks `../mflux`, `../ltx-2-mlx` via `scripts/setup-repo-deps.sh`.
 - **Shell**: never top-level `cd` — use `( cd <dir> && ... )`, `--cwd`/`-C`, or absolute paths.
 - **Platform**: Apple Silicon MPS only, SDPA (no CUDA attention); MLX dtypes `bfloat16` native, quantize `mlx-8bit` (default) or 4-bit; no FP8.
-- **GUI**: `( cd bun-apps/gui-movie-director && bun run dev )`; URL via `bun run --cwd bun-apps/gui-movie-director gui:port`; kill stuck server `lsof -ti :<port> | xargs kill -9`; fresh clone `bash scripts/setup.sh`.
 
 ## run.py
 
-`python/venv/bin/python python/mlx-movie-director/run.py <cmd>`:
-
-```
-image [t2i|angle|review|profile|controlnet|i2i|faceswap|swap|anime2real|quality|workflow|expansion|purify|restore]
-video [generate|review|compare|quality|restore|vbvr|relay|segment|t2i2v]
-caption <image>   replay <manifest>   upscale   check-model
-schema            schema-defaults
-```
-
-Self-test `--self-test [t2i:portrait]`; `--offline` for zero network egress.
+`python/venv/bin/python python/mlx-movie-director/run.py <cmd>` — `image …` / `video …` subcommand trees plus `caption`, `replay`, `upscale`, `check-model`, `schema`, `schema-defaults` (`--help` for the full tree). `--self-test [t2i:portrait]`; `--offline` = zero network egress.
 
 ## Testing
 
 ```bash
-( cd bun-apps/<pkg> && bun test )                                        # any bun-apps/*
-bun run --cwd bun-apps/gui-movie-director check:schema                  # validate vs run.py
-( cd bun-apps/s2-agent-ext-workflow && bun run test )
+( cd bun-apps/<pkg> && bun test )                          # any bun-apps/*
+bun run --cwd bun-apps/gui-movie-director check:schema     # validate vs run.py
 python/venv/bin/python -m pytest python/mlx-movie-director/app/tests [--run-gpu]
 ```
 
-**Per-package gates differ.** `s2-agent-ext-hermes-memory` `bun run check` = tsc; `s2-agent-ext-wayfind` `bun run check` = biome (tsc lives in `typecheck`, not under `check`/`test`) → for wayfind run **both** `bun run check && bun run typecheck && bun test`. Always run a package's canonical `bun run test` script (it may include `build`), not a hand-assembled subset. `local_ci` resolves both by script NAME per package (tsc: `typecheck` → `check`-if-tsc; biome: `check`-if-biome → `lint`-if-biome), so a package that renames them is silently skipped — `tests/lint-executor-coverage.test.ts` + `tests/extension-entry-typechecked.test.ts` block that.
+Always run a package's canonical `bun run test` (may include `build`), not a hand-assembled subset. Gates differ per package: `s2-agent-ext-wayfind` → `bun run check && bun run typecheck && bun test` (`check` = biome; tsc lives in `typecheck`); `s2-agent-ext-hermes-memory` `check` = tsc. `local_ci` resolves gates by script NAME per package — renamed scripts are silently skipped (blocked by `tests/lint-executor-coverage.test.ts` + `tests/extension-entry-typechecked.test.ts`).
 
 ## Subagent dispatch
 
-**Watchdog off for write-heavy implementer dispatches** (default: omit it) — on multi-session worktrees L1 commit-scope flags ancestor `origin/main` files as out-of-scope and L2 review returned zero actionable findings across the 10-impl SDD cycle; the independent reviewer subagent is the real quality gate. Reserve watchdog for read-only verification.
+Watchdog OFF (omit it) for write-heavy implementer dispatches — on multi-session worktrees L1 commit-scope flags ancestor `origin/main` files as out-of-scope, and the independent reviewer subagent is the real quality gate. Reserve watchdog for read-only verification.
 
-## Planning artifacts (standing rule)
+## Planning artifacts
 
-`.planning/` artifacts are durable, shared planning — MUST be committed and pushed to `origin/main`: effort folders (`.planning/<effort>/` incl. `map.md`, `spec.md`, `tickets/`, `plans/`, `brainstorm/`, `sdd/`), plus `.planning/specs/` and `.planning/plans/`. Never leave a new `.planning/<effort>/` untracked — `.gitignore` already encodes this. Carve-outs (do NOT commit): per-filename transient scratch (`task_plan.md`, `progress.md`, `findings.md`) and the flat no-effort `.planning/sdd/` fallback dir.
+`.planning/` is durable shared planning — MUST be committed and pushed to `origin/main`: effort folders (`.planning/<effort>/` incl. `map.md`, `spec.md`, `tickets/`, `plans/`, `brainstorm/`, `sdd/`) plus `.planning/specs/` and `.planning/plans/`; never leave a new `.planning/<effort>/` untracked (`.gitignore` encodes this). Do NOT commit: per-filename transient scratch (`task_plan.md`, `progress.md`, `findings.md`) and the flat no-effort `.planning/sdd/` fallback dir.
 
-## DevOps (standing rule)
+## DevOps
 
-All git sync / branch prep / rebase / PR merge / local CI / branch sweep / post-run review goes through the devops tool chain (`sync_default_branch`, `prepare_feature_branch`, `run_local_ci`, `merge_pr_after_local_ci`, `verify_merge_landed`, `sweep_merged_branches`, `run_devops_retrospect`) per `bun-apps/s2-agent-ext-devops/skills/devops-workflow/SKILL.md` — never hand-rolled raw-bash git/gh subagents for phases a devops tool owns. Plain `pi` sessions: CLI fallbacks under `bun-apps/s2-agent-ext-devops/src/*-cli.ts` (`sync-default-branch-cli`, `main-health-cli`, `sweep-merged-branches-cli`, `local-ci-cli`, `prepare-feature-branch-cli`, `verify-merge-cli`, `merge-pr-after-ci-cli`; all take `--help`, emit JSON, exit 0/1/2). Sync example (plain session): `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts`. "Is main itself green?" → `main-health-cli.ts` (`run_local_ci` is change-scoped). Prefer the s2-agent wrapper `bun bun-apps/s2-agent/src/cli.ts` (auto-loads run-dir extensions and skills).
-  - Self-improve drift report: `./s2-agent.sh cli loop status` (report-only: death rate, skill lines, duplicates, canary, coverage).
-
-## Key Directories
-
-```
-python/mlx-movie-director/    # ACTIVE — MLX pipeline
-mlx-models/                   # MLX model tree (override: MLX_MODELS_DIR / --models-dir)
-../video_generation__models/  # EXTERNAL binary store (outside repo)
-bun-apps/gui-movie-director/  # ACTIVE — Bun + React GUI
-```
+All git sync / branch prep / rebase / PR merge / local CI / branch sweep / post-run review goes through the devops tool chain per `bun-apps/s2-agent-ext-devops/skills/devops-workflow/SKILL.md` — never hand-rolled raw-bash git/gh subagents for phases a devops tool owns. Plain-session CLI fallbacks: `bun-apps/s2-agent-ext-devops/src/*-cli.ts` (sync-default-branch, prepare-feature-branch, local-ci, merge-pr-after-ci, verify-merge, sweep-merged-branches, main-health; all `--help`, JSON, exit 0/1/2) — prefer the s2-agent wrapper `bun bun-apps/s2-agent/src/cli.ts` (auto-loads run-dir extensions and skills). "Is main itself green?" → `main-health-cli.ts` (`run_local_ci` is change-scoped). Drift report: `./s2-agent.sh cli loop status`.
 
 ## Extension packages (s2-agent-ext-*)
 
-**Rename note**: s2-agent = renamed pi-agent (2026-08-21) — all 27 workspace
-packages were renamed; upstream `@earendil-works/pi-*` deps, `PI_*`/`BUN_PI_*`
-env names, and `~/.pi/agent` state dir are UNCHANGED by design; the devops tool
-names (`deploy_pi_agent_sh` etc.) keep their underscore form. Repo-root
-`./pi-agent.sh` remains as a deprecated compat alias for `./s2-agent.sh`.
+s2-agent = renamed pi-agent (2026-08-21; upstream `@earendil-works/pi-*` deps, `PI_*` env names, `~/.pi/agent` state dir, and `./pi-agent.sh` compat alias unchanged by design) — history: `docs/agents/extension-naming.md`.
 
-- **Scaffold a new package**: `bun bun-apps/s2-agent/src/cli.ts ext new <name>` (`--lib` for a `src/index.ts` lib face + shim entry; `--register dynamic|static|none`, default dynamic — static auto-runs `bun run regen:static`; add `--no-install` to skip `bun install`). Then implement — every convention below (entry path, self-gate, tsconfig include, scripts, peer pin) is baked into the output.
-One registered entry per folder: `extensions/<X>.ts` where `<X>` = folder minus `s2-agent-ext-` — never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts` as the registration entry.
-
-- **Lib entry stays separate**: src-entry (`main: "./src/index.ts"`) is the standard lib face (web-access uses root `index.ts`) — don't move it. If the registration entry has no in-file implementation (power-tool, hermes-memory), add a 1-line re-export shim `export { default } from "../src/index.ts";` at `extensions/<X>.ts`.
-- **Registration**: ONE entry in `bun-apps/s2-agent/s2-agent.registry.yaml` (`load: dynamic` or `load: static`), then `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for static) — `run-dir/manifest.json` is DERIVED (freshness-gated; never hand-edit); never register an extension as both static and dynamic (double-register).
-- **Schema-cost canary**: `bun-apps/s2-agent/src/cli/commands/schema-cost.ts` `discoverExtensionEntries()` derives from manifest.json — registered extensions measured automatically; only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
+- **Scaffold**: `bun bun-apps/s2-agent/src/cli.ts ext new <name>` (`--lib` lib face + shim; `--register dynamic|static|none`, default dynamic — static auto-runs `regen:static`; `--no-install` skips `bun install`). All conventions below are baked into the scaffold output.
+- **Entry**: ONE registered entry per folder — `extensions/<X>.ts` (`<X>` = folder minus `s2-agent-ext-`); never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts`.
+- **Lib entry stays separate**: `main: "./src/index.ts"` is the lib face (web-access uses root `index.ts`); if the registration entry has no in-file implementation (power-tool, hermes-memory), add shim `export { default } from "../src/index.ts";`.
+- **Registration**: ONE entry in `bun-apps/s2-agent/s2-agent.registry.yaml` (`load: dynamic` or `static` — never both), then `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for static). `run-dir/manifest.json` is DERIVED (freshness-gated — never hand-edit).
+- **Schema-cost canary**: `discoverExtensionEntries()` in `bun-apps/s2-agent/src/cli/commands/schema-cost.ts` derives from manifest.json — registered extensions are measured automatically; only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
 - **CLI subcommands**: `extensions/cli-subcommand.ts`, wired in `bun-apps/s2-agent/src/cli/extensions/registry.ts`.
 
 ## Vendor patches
@@ -90,4 +64,4 @@ ltx-2-mlx / mflux patches live in `python/mlx-movie-director/app/vendor_patches.
 ## Agent skills
 
 - **Issues**: GitHub Issues (`ziyu4huang/video_generation`) via `gh` — see `docs/agents/issue-tracker.md`.
-- **Domain docs**: each domain owns `CONTEXT.md` + `docs/adr/`; root `CONTEXT-MAP.md` lists contexts — see `docs/agents/domain.md`. Cite ADRs as `ADR-<context>-NNNN`, never bare numbers (contexts number independently — bare 0001 names seven documents). `bun-apps/docs/adr/INDEX.md` lists all; `bun run test:adr` (from `bun-apps/`) blocks unresolved citations.
+- **Domain docs**: each domain owns `CONTEXT.md` + `docs/adr/` (root `CONTEXT-MAP.md` lists contexts; see `docs/agents/domain.md`). Cite ADRs as `ADR-<context>-NNNN`, never bare numbers — contexts number independently. Index: `bun-apps/docs/adr/INDEX.md`; `bun run test:adr` (from `bun-apps/`) blocks unresolved citations.
