@@ -177,6 +177,14 @@ paths outside `expectedScope`), a branch checked out in >1 worktree, a dirty
 tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 "did anything look risky?" readout; its findings are advisory, never a gate.
 
+### 6. Close out — self-reflect + write the next goal
+
+**REQUIRED FINAL STEP:** after the chain completes, follow
+**self-reflect-next-goal** (same package, `skills/self-reflect-next-goal/`):
+write `output/next-goal-<ts>.md` recording what shipped (with verification
+evidence) and 3–5 ranked next goals, and prune the rolling history beyond 10.
+When starting the NEXT run, read the newest next-goal file before planning.
+
 ## When to use which tool
 
 | Situation | Tool |
