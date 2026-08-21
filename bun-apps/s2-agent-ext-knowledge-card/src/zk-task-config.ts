@@ -1,5 +1,7 @@
 /** ZK task configuration: source allowlists, model resolution, blend scoring (split from extensions/knowledge-card.ts — hermes-arch-13 wave 2). */
 
+import { loadModelTierConfig, resolveModelRole, type ModelTierConfig } from "@repo/s2-agent-core-runtime";
+
 // ---------------------------------------------------------------------------
 // Tool allowlists (per command) — exported so the CLI reuses the exact same
 // sets as this extension. Canonical form: string[] (natural TS). The zk_* call
@@ -43,16 +45,26 @@ export const RAG_TOOLS_THREE_WAY = [...RAG_TOOLS];
 // precedence:
 //   1. explicit `model` arg on the tool call  — highest (caller override)
 //   2. KC_SUBAGENT_MODEL env                   — per-session / global override
-//   3. DISTILL_MODEL_DEFAULT                   — google/gemma-4-12b
+//   3. central tiers.small (~/.pi/workflows/model-tiers.json — seeded by the
+//      s2-agent host / /models-preset; the "small" tier is the local/budget
+//      slot in every shipped preset)
+//   4. actionable throw (set tiers.small or KC_SUBAGENT_MODEL)
 //
-// The default is a LOCAL LM Studio model, deliberately: it keeps
-// knowledge-card's LLM spend off the cloud bill. The deterministic paths
-// (zk_ingest convergence, knowledge_query digest) use no model at all, so this
-// resolver only governs the two subagent-backed tools.
+// The deterministic paths (zk_ingest convergence, knowledge_query digest) use
+// no model at all, so this resolver only governs the two subagent-backed tools.
 // ---------------------------------------------------------------------------
-export const DISTILL_MODEL_DEFAULT = "google/gemma-4-12b";
-export function resolveDistillModel(explicit?: string): string {
-	return explicit ?? process.env.KC_SUBAGENT_MODEL ?? DISTILL_MODEL_DEFAULT;
+export function resolveDistillModel(
+	explicit?: string,
+	config: ModelTierConfig | null = loadModelTierConfig(),
+): string {
+	if (explicit) return explicit;
+	const env = process.env.KC_SUBAGENT_MODEL;
+	if (env) return env;
+	const spec = resolveModelRole({ tier: "small" }, config);
+	if (spec) return spec;
+	throw new Error(
+		"[knowledge-card] No distill model configured. Set model-tiers.json tiers.small (via /models-preset or /workflows-models) or export KC_SUBAGENT_MODEL.",
+	);
 }
 
 /** zk-ask retrieval blend mode.

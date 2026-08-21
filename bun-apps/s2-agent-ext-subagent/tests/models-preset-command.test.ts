@@ -70,7 +70,12 @@ describe("/models-preset", () => {
 
     expect(savedConfig).toEqual({
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: {
+        vision: "lm-studio/google/gemma-4-12b",
+        "vision-large": "lm-studio/google/gemma-4-12b",
+        "vision-medium": "lm-studio/google/gemma-4-12b",
+        "vision-small": "lm-studio/google/gemma-4-12b",
+      },
     });
     expect(calls.confirm).toHaveLength(1);
     expect(existsSync(`${configPath}.bak`)).toBe(true);
@@ -97,7 +102,12 @@ describe("/models-preset", () => {
         medium: "deepseek/deepseek-v4-flash",
         big: "deepseek/deepseek-v4-pro",
       },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: {
+        vision: "lm-studio/google/gemma-4-12b",
+        "vision-large": "lm-studio/google/gemma-4-12b",
+        "vision-medium": "lm-studio/google/gemma-4-12b",
+        "vision-small": "lm-studio/google/gemma-4-12b",
+      },
     });
     expect(calls.confirm).toHaveLength(0);
     expect(existsSync(`${configPath}.bak`)).toBe(false);
@@ -113,7 +123,12 @@ describe("/models-preset", () => {
         medium: "lm-studio/google/gemma-4-12b",
         big: "deepseek/deepseek-v4-flash",
       },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: {
+        vision: "lm-studio/google/gemma-4-12b",
+        "vision-large": "lm-studio/google/gemma-4-12b",
+        "vision-medium": "lm-studio/google/gemma-4-12b",
+        "vision-small": "lm-studio/google/gemma-4-12b",
+      },
     });
     expect(calls.confirm).toHaveLength(0);
     expect(calls.notify[0]?.level).toBe("info");

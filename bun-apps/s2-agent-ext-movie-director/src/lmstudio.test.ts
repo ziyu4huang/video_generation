@@ -9,19 +9,19 @@ describe("resolveDefaultModel", () => {
   it("prefers an already-loaded Gemma-4 variant", async () => {
     const fetchImpl = (async () =>
       respond({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-12b");
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("google/gemma-4-12b");
   });
 
   it("falls back to any already-loaded model when no preferred model is loaded", async () => {
     const fetchImpl = (async () => respond({ models: [{ key: "some/other-model", loaded_instances: [{}] }] })) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("some/other-model");
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("some/other-model");
   });
 
   it("falls back to the default model id when the server is unreachable", async () => {
     const fetchImpl = (async () => {
       throw new Error("ECONNREFUSED");
     }) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl)).toBe("google/gemma-4-12b");
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("google/gemma-4-12b");
   });
 });
 
@@ -80,5 +80,50 @@ describe("lmStudioJsonCall — fast-path + safety retry (mirrors story.py's _gem
     }) as unknown as typeof fetch;
 
     await expect(lmStudioJsonCall("prompt", (raw) => JSON.parse(raw), { _fetchImpl: fetchImpl })).rejects.toThrow();
+  });
+});
+
+// --- central vision slot (capabilities.vision from model-tiers.json) ---
+
+describe("resolveDefaultModel — central vision slot", () => {
+  const CFG = (vision: string) => ({
+    tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+    capabilities: { vision },
+  });
+
+  it("prefers the central capabilities.vision model over the hardcoded preferred list", async () => {
+    const fetchImpl = (async () =>
+      respond({
+        models: [
+          { key: "google/gemma-4-12b", loaded_instances: [{}] },
+          { key: "foo/bar-model", loaded_instances: [{}] },
+        ],
+      })) as unknown as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, CFG("lm-studio/foo/bar-model"))).toBe(
+      "foo/bar-model",
+    );
+  });
+
+  it("strips only the provider prefix from the central spec (inner slash survives)", async () => {
+    const fetchImpl = (async () =>
+      respond({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
+    expect(
+      await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, CFG("lm-studio/google/gemma-4-12b")),
+    ).toBe("google/gemma-4-12b");
+  });
+
+  it("terminal fallback returns the central model when nothing is loaded and the server is unreachable", async () => {
+    const fetchImpl = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, CFG("lm-studio/foo/bar-model"))).toBe(
+      "foo/bar-model",
+    );
+  });
+
+  it("null config keeps the legacy probe-only behavior", async () => {
+    const fetchImpl = (async () =>
+      respond({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("google/gemma-4-12b");
   });
 });

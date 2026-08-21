@@ -34,11 +34,12 @@
  *                                  (writer/recon via roleAwareDefaults) since
  *                                  2026-08-18; the old 5-min child-process
  *                                  runner timeout no longer applies.
- *   KC_SUBAGENT_MODEL              distill/CRUD/RAG subagent model (default
- *                                  google/gemma-4-12b — a LOCAL LM Studio
- *                                  model, keeps knowledge-card's LLM spend
- *                                  off the cloud bill; override per-call via
- *                                  the tool's `model` arg). Does NOT honor the
+ *   KC_SUBAGENT_MODEL              distill/CRUD/RAG subagent model (default:
+ *                                  central tiers.small from model-tiers.json —
+ *                                  typically a LOCAL LM Studio model, keeps
+ *                                  knowledge-card's LLM spend off the cloud
+ *                                  bill; override per-call via the tool's
+ *                                  `model` arg). Does NOT honor the
  *                                  sibling OB_SUBAGENT_MODEL (that one defaults
  *                                  to a cloud model); use KC_SUBAGENT_MODEL to
  *                                  override knowledge-card specifically.
@@ -374,7 +375,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			model: Type.Optional(
 				Type.String({
 					description:
-						"Override the subagent's model (provider/id[:thinking]). Default: google/gemma-4-12b (local LM Studio); override session-wide via KC_SUBAGENT_MODEL env. Mirrors the CLI --model flag.",
+						"Override the subagent's model (provider/id[:thinking]). Default: central tiers.small from model-tiers.json; override session-wide via KC_SUBAGENT_MODEL env. Mirrors the CLI --model flag.",
 				}),
 			),
 			exclude_tools: Type.Optional(
@@ -597,7 +598,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			model: Type.Optional(
 				Type.String({
 					description:
-						"Override the RAG subagent's model (provider/id[:thinking]). Default: google/gemma-4-12b (local LM Studio); override session-wide via KC_SUBAGENT_MODEL env. Mirrors the CLI --model flag.",
+						"Override the RAG subagent's model (provider/id[:thinking]). Default: central tiers.small from model-tiers.json; override session-wide via KC_SUBAGENT_MODEL env. Mirrors the CLI --model flag.",
 				}),
 			),
 			exclude_tools: Type.Optional(
@@ -1132,7 +1133,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	});
 }
 
-export { ADD_TOOLS, CHECK_TOOLS, DISTILL_MODEL_DEFAULT, DISTILL_TOOLS, FIND_TOOLS, RAG_TOOLS, RAG_TOOLS_THREE_WAY, ragToolsFor, rankBlendScore, REMOVE_TOOLS, resolveDistillModel, UPDATE_TOOLS } from "../src/zk-task-config.ts";
+export { ADD_TOOLS, CHECK_TOOLS, DISTILL_TOOLS, FIND_TOOLS, RAG_TOOLS, RAG_TOOLS_THREE_WAY, ragToolsFor, rankBlendScore, REMOVE_TOOLS, resolveDistillModel, UPDATE_TOOLS } from "../src/zk-task-config.ts";
 export type { BlendMode, BlendScoreParts } from "../src/zk-task-config.ts";
 export { buildAddTask, buildDistillTask, buildFindTask, buildRagTask, buildRemoveTask, buildUpdateTask, CHECK_TASK } from "../src/task-builders.ts";
 

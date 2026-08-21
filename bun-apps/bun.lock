@@ -318,6 +318,7 @@
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
         "@repo/s2-agent-core-interface": "workspace:*",
+        "@repo/s2-agent-core-runtime": "workspace:*",
         "ajv": "latest",
         "ajv-formats": "latest",
         "msedge-tts": "^2.0.7",

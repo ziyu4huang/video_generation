@@ -19,7 +19,9 @@ import { homeDir } from "./home.js";
  */
 export interface ModelTierConfig {
   tiers: Record<string, string>;
-  /** Capability → model-spec (e.g. { vision: "lmstudio/google/gemma-4-12b" }). Optional. */
+  /** Capability → model-spec (e.g. { vision: "lmstudio/google/gemma-4-12b" }). Optional.
+   * Supports tiered keys ("vision-large"/"vision-medium"/"vision-small") that
+   * fall back to the un-suffixed capability ("vision") when not set separately. */
   capabilities?: Record<string, string>;
 }
 
@@ -80,7 +82,16 @@ export function resolveModelRole(
   config: ModelTierConfig | null,
 ): string | undefined {
   if (!config) return undefined;
-  if (opts.capability) return config.capabilities?.[opts.capability];
+  if (opts.capability) {
+    const direct = config.capabilities?.[opts.capability];
+    if (direct) return direct;
+    // Tiered-capability fallback: "vision-large" → "vision" when the tiered
+    // key isn't configured separately. Single-slot configs keep working for
+    // every tier; an exact tiered key always wins.
+    const dash = opts.capability.lastIndexOf("-");
+    if (dash > 0) return config.capabilities?.[opts.capability.slice(0, dash)];
+    return undefined;
+  }
   if (opts.tier) return config.tiers[opts.tier];
   return undefined;
 }

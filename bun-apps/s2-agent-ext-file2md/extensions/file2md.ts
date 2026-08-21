@@ -290,10 +290,10 @@ export default function (pi: ExtensionAPI): void {
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { resolve, isAbsolute } = await import("node:path");
       const { askImage } = await import("../src/vlm/ask.ts");
-      const { resolveLLM } = await import("../src/sessions.ts");
+      const { resolveVisionLLM } = await import("../src/sessions.ts");
 
       const imageAbs = isAbsolute(params.image) ? params.image : resolve(process.cwd(), params.image);
-      const llm = resolveLLM({
+      const llm = resolveVisionLLM({
         model: params.model,
         provider: params.provider,
         thinking: params.thinking,

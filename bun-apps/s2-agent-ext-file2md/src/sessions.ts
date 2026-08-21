@@ -65,23 +65,28 @@ export function resolveLLM(opts: { provider?: string; model?: string; thinking?:
 }
 
 /**
- * Resolve the vision LLM from the unified model-tiers config (capabilities.vision),
- * falling back to PI_MODEL/PI_PROVIDER env (deprecated) when the capability is not
+ * Resolve the vision LLM from the unified model-tiers config — capabilities.vision,
+ * or capabilities.vision-large/medium/small when opts.tier is given (falling back
+ * to capabilities.vision when the tiered key isn't set) — falling back to
+ * PI_MODEL/PI_PROVIDER env (deprecated) when the capability is not
  * configured. Explicit opts (model/provider/thinking) always win. Uses resolveLLM
  * as the spec-string parser, so "provider/modelId[:thinking]" shorthand still works.
  * Throws (via resolveLLM) when neither config nor env is set (ticket 01 contract).
  */
-export function resolveVisionLLM(opts: { model?: string; provider?: string; thinking?: string } = {}): ResolvedLLM {
+export function resolveVisionLLM(
+  opts: { model?: string; provider?: string; thinking?: string; tier?: "large" | "medium" | "small" } = {},
+): ResolvedLLM {
   if (opts.model) {
     logModelDecision("file2md-vision", { branch: "explicit-model", spec: opts.model });
     return resolveLLM(opts);
   }
-  const spec = resolveModelRole({ capability: "vision" }, loadModelTierConfig());
+  const capability = opts.tier ? `vision-${opts.tier}` : "vision";
+  const spec = resolveModelRole({ capability }, loadModelTierConfig());
   if (spec) {
-    logModelDecision("file2md-vision", { branch: "capabilities.vision", spec });
+    logModelDecision("file2md-vision", { branch: `capabilities.${capability}`, spec });
     return resolveLLM({ ...opts, model: spec });
   }
-  // No capabilities.vision configured — resolveLLM falls through to the PI_MODEL
+  // No vision capability configured — resolveLLM falls through to the PI_MODEL
   // env escape hatch (deprecated, warns) or throws an actionable error (ticket 01).
   logModelDecision("file2md-vision", { branch: "env/throw", spec: process.env.PI_MODEL });
   return resolveLLM(opts);

@@ -64,3 +64,56 @@ test("resolveVisionLLM: PI_MODEL env is the deprecated escape hatch", () => {
     else process.env.PI_MODEL = modelBackup;
   }
 });
+
+// --- vision tier opt (vision-large/medium/small) ---
+
+test("resolveVisionLLM tier:'large' resolves capabilities.vision-large", () => {
+  const dir = mkdtempSync(join(tmpdir(), "f2m-tier-"));
+  const homeBackup = process.env.HOME;
+  process.env.HOME = dir;
+  saveModelTierConfig({
+    tiers: { small: "openai/x" },
+    capabilities: { vision: "lm-studio/google/gemma-4-12b", "vision-large": "lm-studio/google/gemma-4-27b" },
+  });
+  try {
+    const llm = resolveVisionLLM({ tier: "large" });
+    expect(llm.provider).toBe("lm-studio");
+    expect(llm.modelId).toBe("google/gemma-4-27b");
+  } finally {
+    process.env.HOME = homeBackup;
+  }
+});
+
+test("resolveVisionLLM tier falls back to capabilities.vision when tiered key absent", () => {
+  const dir = mkdtempSync(join(tmpdir(), "f2m-tier-fb-"));
+  const homeBackup = process.env.HOME;
+  process.env.HOME = dir;
+  saveModelTierConfig({
+    tiers: { small: "openai/x" },
+    capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+  });
+  try {
+    const llm = resolveVisionLLM({ tier: "small" });
+    expect(llm.modelId).toBe("google/gemma-4-12b");
+    expect(llm.provider).toBe("lm-studio");
+  } finally {
+    process.env.HOME = homeBackup;
+  }
+});
+
+test("resolveVisionLLM tier:'medium' explicit spec keeps thinking suffix parsing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "f2m-tier-th-"));
+  const homeBackup = process.env.HOME;
+  process.env.HOME = dir;
+  saveModelTierConfig({
+    tiers: { small: "openai/x" },
+    capabilities: { "vision-medium": "lm-studio/qwen-vl:high" },
+  });
+  try {
+    const llm = resolveVisionLLM({ tier: "medium" });
+    expect(llm.modelId).toBe("qwen-vl");
+    expect(llm.thinkingLevel).toBe("high");
+  } finally {
+    process.env.HOME = homeBackup;
+  }
+});

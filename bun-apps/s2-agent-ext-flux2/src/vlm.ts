@@ -23,7 +23,7 @@
  */
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { askImage, resolveLLM, type ResolvedLLM } from "@repo/s2-agent-ext-file2md";
+import { askImage, resolveVisionLLM, type ResolvedLLM } from "@repo/s2-agent-ext-file2md";
 
 let _lmStudioRegistry: Promise<ModelRegistry> | null = null;
 
@@ -56,9 +56,11 @@ async function lmStudioRegistry(): Promise<ModelRegistry> {
   return _lmStudioRegistry;
 }
 
-/** Default: lm-studio/google/gemma-4-12b (per pi-file2md's resolveLLM default). */
+/** Central vision slot: capabilities.vision from ~/.pi/workflows/model-tiers.json
+ *  (via file2md's resolveVisionLLM — explicit override > tier config > deprecated
+ *  PI_MODEL env > actionable throw). */
 export function resolveVlmLLM(modelOverride?: string): ResolvedLLM {
-  return resolveLLM(modelOverride ? { model: modelOverride } : {});
+  return resolveVisionLLM(modelOverride ? { model: modelOverride } : {});
 }
 
 export async function askAboutImage(

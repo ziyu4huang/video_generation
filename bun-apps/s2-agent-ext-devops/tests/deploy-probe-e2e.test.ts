@@ -194,18 +194,18 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
       widget: typeof (g.__piCoreTaskStatusWidget && g.__piCoreTaskStatusWidget.inspect),
       goalActive: typeof g.__piGoalActive,
       planPhases: typeof g.__piPlanPhases,
-      planIncomplete: typeof g.__piPlanIncomplete,
     }) + "\\n");
     process.exit(0);
   });
 };
 `,
 		);
+		// __piPlanIncomplete/__piPlanSummary were removed in #1765 (W5 ticket 05);
+		// __piPlanPhases stays (alive, /wayfind sync).
 		expect(payload(r, "[SEAMS]")).toEqual({
 			widget: "function",
 			goalActive: "function",
 			planPhases: "function",
-			planIncomplete: "function",
 		});
 	}, 120_000);
 
