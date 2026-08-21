@@ -2,7 +2,7 @@
 effort: 2026-08-21-archify-deck-visual-fidelity
 created: 2026-08-21
 last: 2026-08-22
-status: specified
+status: in-progress
 ---
 # archify-deck-visual-fidelity — what the deck actually looks like
 
@@ -30,6 +30,22 @@ no number is claimed for it anywhere in this effort.
 
 The suite is 401 passing, `ooxml-lint` reports 0 diagnostics on both example decks, and
 `deck-lint` passes. All four survived that.
+
+> **CORRECTED 2026-08-22 (ticket 01).** P1's attribution below is **wrong**, and the
+> correction is worth more than the original entry. The bursts are not a fill-semantics
+> problem at all: they are `<a:prstGeom prst="roundRect">` shapes carrying
+> `<a:gd name="adj" fmla="val 269169"/>`, where ECMA-376 caps that adjustment at **50000**.
+> Past the cap the preset's corner arcs self-intersect — that IS the burst. 43 out-of-range
+> values across the two example decks, worst 317450. Root cause is a unit error at the
+> library boundary: `rectRadius` is a LENGTH IN INCHES (`adj = rectRadius * 914400 * 100000 /
+> min(cx, cy)`), while pptxgenjs's typings say "values: 0.0 to 1.0" and archify passed a
+> fraction. Both fill fixes below were implemented and **each re-rendered pixel-identical**;
+> only the adjustment fix removed the bursts. The fill work is kept as a latent-correctness
+> fix, not as the P1 cure.
+>
+> Method note: the original entry reasoned from the XML to a cause and stopped. What found
+> the real cause was re-rendering after **each** fix and refusing to accept an unchanged
+> image as success.
 
 - **P1 — stroke-only icons fill in and render as star bursts.** Every node icon and all five
   legend swatches. Attribution **confirmed against the HTML twin**: in
@@ -65,7 +81,8 @@ moment it runs anywhere without one. Hence D1 below.
 ## Tickets
 
 Phase 1 — the defects, each with a renderer-free assertion
-- `tickets/01-icon-fill-semantics.md` — task, open — `<a:noFill/>` + `<a:path fill="none">`
+- `tickets/01-icon-fill-semantics.md` — task, **closed 2026-08-22** — the burst was an
+  out-of-range `roundRect` adjustment, NOT fill semantics; see its `## Resolution`
 - `tickets/02-title-overflow.md` — task, open — wrap budget vs chrome height
 - `tickets/03-node-text-advance.md` — task, open — CJK-aware advance, or a real text box
 - `tickets/04-split-diagram-fit.md` — task, open — establish attribution, then fit
@@ -92,22 +109,35 @@ Phase 2 — seeing it, portably
 
 ## Frontier
 
-`tickets/01-icon-fill-semantics.md` — P1 is the most visible defect, the diagnosis is the
-furthest along, and it carries the one open dependency question (whether `pptxgenjs@4.0.1`
-can express `<a:noFill/>` and a per-path `fill` attribute at all, or whether the emitter has
-to post-process the XML).
+`tickets/02-title-overflow.md` — P2. It is now the most visible remaining defect (the second
+line of composed slide 4's title is still struck through by the theme rule), it blocks
+nothing else, and it is the one whose *decision* is genuinely open: the prior effort chose a
+length lint over autofit on purpose, and this effort has evidence the calibration failed but
+not evidence the choice was wrong.
+
+Ticket 01 closed 2026-08-22. Its dependency question is answered in full in its
+`## Resolution`: `<a:noFill/>` is reachable by OMITTING `fill`; `<a:path fill="none">` is not
+reachable at all, so `lib/write-zip.ts` + `lib/ooxml-postprocess.ts` now exist. **Neither
+was the cause of the bursts** — see the Context correction below.
 
 ## Fog of war
 
-- **Whether `pptxgenjs` can express the fix.** `lib/pptx-shapes.ts:85` already returns
-  `{ fill: { type: "none" } }`, yet the emitted `<p:spPr>` contains **no fill element at
-  all** — not `<a:noFill/>`. Either the option name is wrong or the library drops it.
-  `pptxgenjs` is not installed in this worktree (isolated linker + globalStore), so this was
-  **not** verified. Ticket 01 resolves it first, because the answer decides whether the fix is
-  a one-line call change or an XML post-process.
-- **`<a:path fill="…">` reachability.** Independently of `<a:noFill/>`, DrawingML defaults
-  `<a:path>` to `fill="norm"`, so a stroke-only subpath is filled even on a no-fill shape.
-  Whether pptxgenjs exposes that attribute is unknown.
+- ~~**Whether `pptxgenjs` can express the fix.**~~ **RESOLVED 2026-08-22** — `<a:noFill/>`
+  yes (omit `fill`); `<a:path fill="none">` no (hardcoded template literal). Full probe table
+  in ticket 01's `## Resolution`.
+- **Whether the fill-semantics fix matters at all.** It was kept on correctness grounds — an
+  absent fill element means "inherit from the shape style" in DrawingML — but Quick Look
+  renders identically with and without it. **PowerPoint proper and LibreOffice are untested**,
+  so the claim that it prevents a latent defect is reasoned, not measured. If it is ever shown
+  to change nothing anywhere, `lib/write-zip.ts` + `lib/ooxml-postprocess.ts` are droppable as
+  YAGNI; the `<a:noFill/>` call-site fix stays regardless, being free.
+- **Other preset adjustments.** `shape-adjust-range` uses `0..50000`, which is right for every
+  preset archify currently emits (`roundRect` only). ECMA-376 gives each preset its own range,
+  and a future preset with a wider legal range would false-positive. Cheap to fix when it
+  happens; wrong to generalise speculatively now.
+- **P4 may not be `split`-specific.** The legacy deck's slide 3 — a full-width `diagram`
+  layout, not `split` — also renders its diagram low with a large empty band above. Ticket 04
+  should widen its attribution step to both layouts before proposing a fix.
 - **LibreOffice fidelity and cost** are entirely unmeasured — not installed here. It is
   possible its OOXML fidelity differs enough from Apple's that the two backends disagree on
   what a slide looks like. That would not break D1 (nothing gates on either) but it would

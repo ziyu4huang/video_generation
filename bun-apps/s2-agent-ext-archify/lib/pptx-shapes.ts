@@ -81,8 +81,24 @@ function paint(c: Rgba, ir: ShapeIR): string {
   return toHex(c.a >= 1 ? c : flatten(c, themeBackground(ir.theme)));
 }
 
+/**
+ * A no-fill shape is spelled by OMITTING `fill`, not by `fill: { type: "none" }`.
+ *
+ * This is counter-intuitive and was the cause of P1 (stroke-only icons rendering
+ * as star bursts). Measured against pptxgenjs@4.0.1, 2026-08-22 — the emitted
+ * `<p:spPr>` for each spelling:
+ *
+ *   fill: { type: "none" }            → NO fill element at all
+ *   fill: "none"                      → NO fill element (and a console warning)
+ *   fill: { color, transparency:100 } → NO fill element
+ *   fill omitted                      → `<a:noFill/>`          ← the one we need
+ *   fill: { type: "solid", color }    → `<a:solidFill>`
+ *
+ * DrawingML treats an ABSENT fill as "inherit from the shape style", not as
+ * "no fill", so the first three spellings all let the theme paint the icon.
+ */
 function fillOf(style: Style, ir: ShapeIR): Record<string, unknown> {
-  if (!style.fill) return { fill: { type: "none" } };
+  if (!style.fill) return {};
   const opacity = style.opacity ?? 1;
   const effective: Rgba = { ...style.fill, a: style.fill.a * opacity };
   return { fill: { color: paint(effective, ir) } };
@@ -211,17 +227,37 @@ export function addShapeIrToSlide(
 
     switch (node.kind) {
       case "rect": {
-        // rectRadius is a FRACTION of the smaller side, not a length.
-        const radius =
+        /**
+         * `rectRadius` is a LENGTH IN INCHES, not a fraction.
+         *
+         * pptxgenjs@4.0.1's typings say "values: 0.0 to 1.0", which reads as a
+         * fraction and is what this code used to pass. Its actual formula is
+         * unambiguous:
+         *
+         *   adj = round(rectRadius * 914400 * 100000 / min(cx, cy))
+         *
+         * — `rectRadius * EMU` is a length. Passing the fraction 0.222 for a
+         * 0.08 in legend swatch therefore asked for a 0.222 INCH corner radius
+         * and emitted `adj val="269169"`, where ECMA-376 caps `roundRect`'s adj
+         * at 50000 (50 %). An out-of-range adjustment makes the preset's corner
+         * arcs self-intersect, which is what rendered every small rounded rect
+         * as a star burst (P1 of archify-deck-visual-fidelity — 43 out-of-range
+         * values across the two example decks, worst 317450 = 6.3x the ceiling).
+         *
+         * Passing `fraction * min(w, h)` in inches makes the library's formula
+         * collapse back to `adj = fraction * 100000`, which is what was meant.
+         */
+        const radiusFraction =
           node.rx !== undefined && node.rx > 0
             ? Math.min(0.5, node.rx / Math.max(EPS, Math.min(node.w, node.h)))
             : 0;
-        slide.addShape(radius > 0 ? "roundRect" : "rect", {
+        const radiusInches = radiusFraction * Math.min(len(node.w), len(node.h));
+        slide.addShape(radiusFraction > 0 ? "roundRect" : "rect", {
           x: px(node.x),
           y: py(node.y),
           w: len(node.w),
           h: len(node.h),
-          ...(radius > 0 ? { rectRadius: Math.round(radius * 1000) / 1000 } : {}),
+          ...(radiusFraction > 0 ? { rectRadius: radiusInches } : {}),
           ...fillOf(style, ir),
           ...lineOf(style, ir, scale, minStrokePt),
         });

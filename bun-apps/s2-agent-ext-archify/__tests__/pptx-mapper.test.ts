@@ -58,26 +58,44 @@ describe("shape mapping", () => {
     expect(slide.calls[0]!.opts).toMatchObject({ x: 1, y: 2, w: 3, h: 4 });
   });
 
-  test("a rounded rect becomes roundRect with a FRACTIONAL radius", () => {
+  /**
+   * `rectRadius` is a LENGTH IN INCHES, not a fraction of the smaller side.
+   *
+   * Both of these tests previously asserted the fraction — the second even
+   * named the failure mode it was supposed to prevent ("a pill, not an invalid
+   * adjust") while passing on output that emitted `adj val="269169"`, five times
+   * ECMA-376's 50000 ceiling. They asserted what archify SENT; pptxgenjs's
+   * formula is `adj = rectRadius * 914400 * 100000 / min(cx, cy)`, so a
+   * fraction passed as inches is scaled by the shape's own size and explodes on
+   * small shapes. That is P1 of archify-deck-visual-fidelity.
+   *
+   * The invariant that actually matters is asserted on the emitted XML, by
+   * `ooxml-lint`'s `shape-adjust-range` rule — a unit test on the argument can
+   * never see the defect.
+   */
+  test("a rounded rect becomes roundRect with its radius in INCHES", () => {
     const slide = spySlide();
-    // rx 5 on a 40x20 rect ⇒ 5/20 = 0.25 of the smaller side.
+    // rx 5 on a 40x20 rect ⇒ 5/20 = 0.25 of the smaller side. The 100x100 IR
+    // maps into a 10x10 in box, so the smaller side is 20 * 0.1 = 2 in and the
+    // radius is 0.25 * 2 = 0.5 in.
     addShapeIrToSlide(
       slide,
       ir([{ kind: "rect", x: 0, y: 0, w: 40, h: 20, rx: 5, style: BLACK }]),
       BOX
     );
     expect(slide.calls[0]!.type).toBe("roundRect");
-    expect(slide.calls[0]!.opts["rectRadius"]).toBeCloseTo(0.25, 3);
+    expect(slide.calls[0]!.opts["rectRadius"]).toBeCloseTo(0.5, 3);
   });
 
-  test("rectRadius is clamped to 0.5 (a pill, not an invalid adjust)", () => {
+  test("an over-large rx clamps at half the smaller side (a pill, not a burst)", () => {
     const slide = spySlide();
     addShapeIrToSlide(
       slide,
       ir([{ kind: "rect", x: 0, y: 0, w: 40, h: 20, rx: 999, style: BLACK }]),
       BOX
     );
-    expect(slide.calls[0]!.opts["rectRadius"]).toBe(0.5);
+    // Clamped fraction 0.5 of a 2 in side ⇒ 1 in, i.e. adj = 50000 exactly.
+    expect(slide.calls[0]!.opts["rectRadius"]).toBeCloseTo(1.0, 3);
   });
 
   test("an ellipse is placed by its bounding box", () => {
@@ -306,14 +324,28 @@ describe("style", () => {
     expect((slide.calls[0]!.opts["fill"] as Record<string, unknown>)["color"]).toBe("808080");
   });
 
-  test("fill:none becomes an explicit no-fill", () => {
+  /**
+   * A no-fill shape OMITS `fill` — it does not pass `{ type: "none" }`.
+   *
+   * The previous spelling of this test asserted `toEqual({ type: "none" })`,
+   * which is what archify SENT and never what pptxgenjs EMITTED. Measured
+   * against pptxgenjs@4.0.1 (2026-08-22), `{ type: "none" }` produces no fill
+   * element at all in `<p:spPr>`, and DrawingML reads an absent fill as
+   * "inherit from the shape style" — so every stroke-only icon was painted by
+   * the theme. Omitting the key is what produces `<a:noFill/>`.
+   *
+   * This is P1 of `.planning/2026-08-21-archify-deck-visual-fidelity`. A test
+   * that asserts the argument rather than the artifact cannot catch it, which
+   * is why `ooxml-noFill` below asserts the emitted XML instead.
+   */
+  test("a fill-less shape omits `fill` so pptxgenjs emits <a:noFill/>", () => {
     const slide = spySlide();
     addShapeIrToSlide(
       slide,
       ir([{ kind: "rect", x: 0, y: 0, w: 10, h: 10, style: { fill: null } }]),
       BOX
     );
-    expect(slide.calls[0]!.opts["fill"]).toEqual({ type: "none" });
+    expect(slide.calls[0]!.opts).not.toHaveProperty("fill");
   });
 
   test("stroke width converts to points and honours a hairline floor", () => {

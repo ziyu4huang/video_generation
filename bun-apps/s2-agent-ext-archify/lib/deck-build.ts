@@ -47,6 +47,7 @@ import {
 import { parseSvg } from "./svg-model.ts";
 import { runArchify, VENDORED_BIN } from "./run.ts";
 import { announceDeck, type OpenBus } from "./open-announce.ts";
+import { patchPptxStrokeOnlyPaths } from "./ooxml-postprocess.ts";
 import { generateThumbnails } from "./thumbnails.ts";
 
 export type { Theme, Palette };
@@ -393,7 +394,13 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
       );
     }
 
-    const data = (await pptx.write({ outputType: "nodebuffer" })) as Uint8Array;
+    const written = (await pptx.write({ outputType: "nodebuffer" })) as Uint8Array;
+    // The one thing pptxgenjs cannot express: `<a:path fill="none">` on a
+    // stroke-only shape (P1). Without it every open subpath is closed and
+    // filled, and an outline icon renders as a star burst. See
+    // `lib/ooxml-postprocess.ts` for why this is a post-process and not a call
+    // option. A deck with no stroke-only geometry gets its bytes back unchanged.
+    const { bytes: data } = await patchPptxStrokeOnlyPaths(written);
     await Bun.write(params.outputPath, data);
 
     // One manifest, two surfaces: the same ordered slide set that just became a
