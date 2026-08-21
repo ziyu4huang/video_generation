@@ -64,14 +64,14 @@ export const __GATE_PROBES__ = {
 };
 
 export default function extension(pi: ExtensionAPI) {
-  // Self-gate: BUN_PI_WORKFLOW=0 disables the entire extension — it registers
+  // Self-gate: BUN_PI_ULTRACODE=0 disables the entire extension — it registers
   // nothing and publishes no seam. Mirrors prompt-history's
   // BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
   // (s2-agent.registry.yaml) shares one symmetric full-disable knob; enforced by
   // tests/extension-isolation-contract.test.ts. Safe: every cross-extension
   // consumer reads its seam defensively, so disabling degrades features,
   // never crashes.
-  if (process.env.BUN_PI_WORKFLOW === "0") return;
+  if (process.env.BUN_PI_ULTRACODE === "0") return;
   // Single manager/storage shared by the workflow tool and the /workflows command,
   // so background runs started by the tool are reachable from the command.
   const cwd = process.cwd();

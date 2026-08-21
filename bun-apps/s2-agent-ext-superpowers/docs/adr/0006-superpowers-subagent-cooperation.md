@@ -6,7 +6,7 @@
 
 This ADR records how `s2-agent-ext-superpowers` cooperates with the standalone
 `s2-agent-ext-subagent` package after the latter was extracted out of
-`s2-agent-ext-workflow` (see that package's ADR-0001). It exists because the two
+`s2-agent-ext-ultracode` (see that package's ADR-ultracode-0001). It exists because the two
 extensions interact, but **not** through a code dependency — the interaction is
 entirely at the instructional layer, which makes the rules for keeping that
 layer correct non-obvious.

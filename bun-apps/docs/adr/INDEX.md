@@ -140,7 +140,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 
 | ID | Decision | File |
 | --- | --- | --- |
-| `ADR-workflow-0001` | Pack runtime state is pack-local, never in `~/.pi` | [`s2-agent-ext-workflow/…/0001`](../../s2-agent-ext-workflow/docs/adr/0001-pack-local-state.md) |
-| `ADR-workflow-0002` | Pack identity is a path-resolved hash, version-INDEPENDENT | [`s2-agent-ext-workflow/…/0002`](../../s2-agent-ext-workflow/docs/adr/0002-pack-identity-path-hash.md) |
-| `ADR-workflow-0003` | Portable name-resolution tiers: cwd/bin rank ABOVE the repo tiers | [`s2-agent-ext-workflow/…/0003`](../../s2-agent-ext-workflow/docs/adr/0003-portable-name-resolution-tiers.md) |
-| `ADR-workflow-0004` | acorn is an irreducible runtime dependency (not replaceable by Bun/`node:vm`) | [`s2-agent-ext-workflow/…/0004`](../../s2-agent-ext-workflow/docs/adr/0004-acorn-is-irreducible.md) |
+| `ADR-ultracode-0001` | Pack runtime state is pack-local, never in `~/.pi` | [`s2-agent-ext-workflow/…/0001`](../../s2-agent-ext-ultracode/docs/adr/0001-pack-local-state.md) |
+| `ADR-ultracode-0002` | Pack identity is a path-resolved hash, version-INDEPENDENT | [`s2-agent-ext-workflow/…/0002`](../../s2-agent-ext-ultracode/docs/adr/0002-pack-identity-path-hash.md) |
+| `ADR-ultracode-0003` | Portable name-resolution tiers: cwd/bin rank ABOVE the repo tiers | [`s2-agent-ext-workflow/…/0003`](../../s2-agent-ext-ultracode/docs/adr/0003-portable-name-resolution-tiers.md) |
+| `ADR-ultracode-0004` | acorn is an irreducible runtime dependency (not replaceable by Bun/`node:vm`) | [`s2-agent-ext-workflow/…/0004`](../../s2-agent-ext-ultracode/docs/adr/0004-acorn-is-irreducible.md) |

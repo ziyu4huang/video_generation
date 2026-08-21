@@ -3,11 +3,11 @@
 # smoke-e2e.sh — the REAL end-to-end smoke for dynamic-workflows.
 #
 # Drives the full stack the way a user actually invokes it:
-#   s2-agent CLI  →  -e workflow (alias-resolved)  →  the `workflow` TOOL
+#   s2-agent CLI  →  -e ultracode (alias-resolved)  →  the `workflow` TOOL
 #   →  the model calls it with the smoke script  →  background:false inline result.
 #
 # This is the same path as:
-#   bun bun-apps/s2-agent/src/cli.ts -e workflow -p "<prompt>"
+#   bun bun-apps/s2-agent/src/cli.ts -e ultracode -p "<prompt>"
 # …but deterministic: it feeds a FIXED script (default samples/dynamic-workflow-
 # smoke01.js) instead of letting the model invent a 4-phase workflow, so the run
 # takes seconds, not minutes.
@@ -45,4 +45,4 @@ $WF_SCRIPT
 
 Return only the workflow result."
 
-exec bun "$CLI" -e workflow --model "$MODEL" -p "$PROMPT"
+exec bun "$CLI" -e ultracode --model "$MODEL" -p "$PROMPT"
