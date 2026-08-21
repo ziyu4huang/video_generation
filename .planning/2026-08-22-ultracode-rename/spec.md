@@ -35,4 +35,17 @@
 | bun-apps/tests contracts (125) | ✅ |
 | devops `bun test` (633, incl. ci-matrix) | ✅ |
 | bun.lock no-diff after `bun install` | ✅ |
-| devops deploy → s2-agent-sh (Gate 3 --ext-list) | ✅ 0.1.0+g142a4d3, 16 exts loaded, `workflow` present, ext/workflow/ in tree |
+| devops deploy → s2-agent-sh (Gate 3 --ext-list) | ✅ final: 0.1.0+g1f73488, 16 exts loaded, `ultracode` present, ext/ultracode/ in tree (interim 0.1.0+g142a4d3 verified with old short name before the registry-name follow-up) |
+| bun-apps/tests contracts (after name change) | ✅ 124/124 |
+| bun run test:adr | ✅ 19/19 |
+
+## Registry short-name follow-up (same branch, commit 1f7348852)
+
+Initial plan kept registry `name: workflow`; the dep-guard push hook caught
+that scanners derive the package dir as `s2-agent-ext-<name>` (tests/lib/
+registry-base-set.ts, isolation contract entry path, static-extensions-gen),
+so the short name moved to `ultracode` too — name ↔ package ↔ entry now all
+agree. Follow-on identities: ADR-workflow-NNNN → ADR-ultracode-NNNN,
+BUN_PI_WORKFLOW → BUN_PI_ULTRACODE, deploy tree ext/workflow → ext/ultracode.
+Kept unchanged regardless: tool names (run_workflow…), /workflows* commands,
+tool-gate family id `workflow` (independent of registry naming).
