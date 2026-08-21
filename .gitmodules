@@ -3,7 +3,7 @@
 	url = git@github.com:ziyu4huang/video_generation_asset.git
 [submodule "vaults_root/s2-agent-vault"]
 	path = vaults_root/s2-agent-vault
-	url = git@github.com:ziyu4huang/s2-agent-vault.git
+	url = git@github.com:ziyu4huang/pi-agent-vault.git
 [submodule "vaults_root/study-news"]
 	path = vaults_root/study-news
 	url = git@github.com:ziyu4huang/study-news.git
