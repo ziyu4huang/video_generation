@@ -1,6 +1,8 @@
 # webui-v2-cards-first
 
-Goal: finish the de-chat philosophy. Webui = Transcript (clean read-only log) + Cards (interactive surface). Remove everything that duplicates TUI or clutters: btw sidebar, views list panel, TURN dividers, meta panel.
+## Destination
+
+Finish the de-chat philosophy: webui = Transcript (clean read-only log) + Cards (interactive surface). Remove everything that duplicates TUI or clutters: btw sidebar, views list panel, TURN dividers, meta panel.
 
 - Status: done
 - Decisions:

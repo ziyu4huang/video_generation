@@ -1,6 +1,6 @@
 # power-browser-tool — effort map
 
-## Goal
+## Destination
 
 An in-process, headless-Chrome `browser` tool for power-tool. Primary consumer: webui
 debugging (drive the Bun GUI, inspect rendered state) plus general code-first browsing.

@@ -6,7 +6,9 @@ status: paused
 ---
 # zk spawn interactive result UI
 
-Interactive result UI for zk spawn — research + 2 interrupted impl rounds, nothing implemented yet.
+## Destination
+
+Interactive result UI for zk spawn — research + implementation (round 1/2 interrupted by token budget; resume from STATE-round2.md).
 
 > STATUS: paused — interrupted by token budget; resume from STATE-round2.md
 

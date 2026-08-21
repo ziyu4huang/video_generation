@@ -1,12 +1,12 @@
 ---
-effort: webui-view-notifications
+effort: 2026-08-16-webui-view-notifications
 created: 2026-08-16
 last: 2026-08-16
 status: specified
 ---
 # webui-view-notifications — notify the browser shell when an extension opens a view
 
-## Goal
+## Destination
 
 When any extension emits `webui:open` (e.g. archify render done), the user is notified BOTH in
 the terminal (exists: `ui.notify`) AND in every connected browser shell — via (1) a
