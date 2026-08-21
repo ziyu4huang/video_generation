@@ -594,7 +594,7 @@ describe("buildUserPrompt", () => {
     );
   });
   test("session-type directive rendered", () => {
-    expect(buildUserPrompt(base)).toContain("implementation");
+    expect(buildUserPrompt(base)).toContain("IMPLEMENTATION");
     expect(buildUserPrompt({ ...base, sessionType: "review" })).toContain("REVIEW");
   });
 });
@@ -809,13 +809,22 @@ describe("summarizeCcStyle", () => {
       seen = opts as Record<string, unknown>;
       return fakeComplete()();
     }) as never;
+    // floor(0.5 × 1000) = 500, but model.maxTokens = 100 caps it → 100.
     await summarizeCcStyle(
       { messages, reserveTokens: 1000, signal: new AbortController().signal },
       { ...model, maxTokens: 100 } as never,
       { apiKey: "k" },
       { maxTokensFactor: 0.5, complete: spy },
     );
-    expect(seen.maxTokens).toBe(50);
+    expect(seen.maxTokens).toBe(100);
+    // Without the model cap, the factor × reserveTokens floor wins → 500.
+    await summarizeCcStyle(
+      { messages, reserveTokens: 1000, signal: new AbortController().signal },
+      model,
+      { apiKey: "k" },
+      { maxTokensFactor: 0.5, complete: spy },
+    );
+    expect(seen.maxTokens).toBe(500);
   });
 });
 ```
