@@ -125,12 +125,13 @@ was the cause of the bursts** — see the Context correction below.
 - ~~**Whether `pptxgenjs` can express the fix.**~~ **RESOLVED 2026-08-22** — `<a:noFill/>`
   yes (omit `fill`); `<a:path fill="none">` no (hardcoded template literal). Full probe table
   in ticket 01's `## Resolution`.
-- **Whether the fill-semantics fix matters at all.** It was kept on correctness grounds — an
-  absent fill element means "inherit from the shape style" in DrawingML — but Quick Look
-  renders identically with and without it. **PowerPoint proper and LibreOffice are untested**,
-  so the claim that it prevents a latent defect is reasoned, not measured. If it is ever shown
-  to change nothing anywhere, `lib/write-zip.ts` + `lib/ooxml-postprocess.ts` are droppable as
-  YAGNI; the `<a:noFill/>` call-site fix stays regardless, being free.
+- ~~**Whether the fill-semantics fix matters at all.**~~ **RESOLVED 2026-08-22 — removed.**
+  The path-level half (`write-zip.ts` + `ooxml-postprocess.ts`) was built, measured
+  pixel-identical, and deleted. The decisive argument is structural, not renderer-dependent:
+  a `ShapeIR` node carries ONE style and emits ONE `<a:path>`, so a per-subpath fill differing
+  from the shape's fill is unreachable from archify's model. The `<a:noFill/>` call-site fix
+  stays. Full reasoning + the "how to post-process OOXML if you ever must" receipt are in
+  ticket 01's `## Resolution`.
 - **Other preset adjustments.** `shape-adjust-range` uses `0..50000`, which is right for every
   preset archify currently emits (`roundRect` only). ECMA-376 gives each preset its own range,
   and a future preset with a wider legal range would false-positive. Cheap to fix when it

@@ -162,12 +162,37 @@ slide4 +143 = 13 x     slide5 +88  =  8 x   total 50, nothing else
 `adj` out-of-range **0**, legacy still **5 slides / 388 native shapes**.
 Build cost 0.26 s -> 0.27 s (the zip rebuild is ~10 ms on a 302 KB deck).
 
-### Left open deliberately
+### The path-level half was built, measured, and REMOVED (decided 2026-08-22)
 
-The fill-semantics half is kept even though it was not the cause: an absent fill
-element genuinely means "inherit from the shape style" in DrawingML, so the old
-output was ambiguous and a different OOXML importer (PowerPoint proper, LibreOffice)
-may well paint it. **That has not been tested here** — only Quick Look was, and
-Quick Look showed no difference. If the user prefers to drop `write-zip.ts` +
-`ooxml-postprocess.ts` as YAGNI, only the path-level half goes; the `<a:noFill/>`
-call-site fix stays regardless.
+`lib/write-zip.ts` (STORE-only deterministic ZIP writer, + `readZipEntries`) and
+`lib/ooxml-postprocess.ts` (`<a:path fill="none">` scoped to `<a:noFill/>` shapes)
+were written, tested (19 tests, all green) and then **deleted**. Three
+independent lines closed the question, and the third is decisive:
+
+1. **Measured.** Composed slides 3 and 4 — the only two carrying patched paths —
+   rendered **pixel-identical** with 9/13 paths patched and with 0 patched. The
+   comparison was made in isolation after a control showed batch renders across
+   different directories are not comparable (the `.pptx` files differ by a
+   `docProps` timestamp, and a batch of six is not the deterministic condition;
+   two identical batch runs of the SAME files ARE byte-identical, and two
+   isolated renders of the two files ARE byte-identical).
+2. **Spec.** `ST_PathFillMode="norm"` means "fill using the shape's fill". Once
+   `<p:spPr>` carries `<a:noFill/>`, `norm` has nothing to fill with, so
+   `fill="none"` is redundant rather than merely undetectable.
+3. **Structural — the decisive one.** A `ShapeIR` node carries **one style** and
+   emits **one `<a:path>`**. A per-subpath fill that differs from the shape's
+   fill cannot arise from archify's model at all. The post-process could never
+   express anything the shape-level fill does not already say; it was
+   unreachable code with a zip rebuild attached.
+
+Kept instead, at zero cost: the `fillOf` call-site fix, which removes a genuine
+DrawingML ambiguity (an absent fill element means "inherit from the shape
+style"). Suite returned 424 -> 405 pass with the 19 tests for the removed
+modules; `examples/deck/` returned 303 KB -> 302 KB, and the composed deck's
+slide-4 render is byte-identical to the patched build.
+
+**If a future ticket needs OOXML post-processing**, this is the receipt for how:
+pptxgenjs writes all entries STORE (`compression: false` default), so a writer
+needs no deflate — header, bytes, central directory, EOCD, CRC-32 only. `jszip`
+does not resolve (bundled in the dist, not a package edge) and
+`Bun.Archive.write` emits a tar even for a `.zip` target.
