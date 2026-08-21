@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import { DEFAULT_SKILL_EXCLUDE, superpowersExtension } from "../src/index.js";
+import { DEFAULT_SKILL_EXCLUDE, parseSkillExclude, SKILL_EXCLUDE_ENV, superpowersExtension } from "../src/index.js";
 import { createMockPi } from "./helpers/mock-pi.js";
 import { allSkillDirNames } from "./helpers/skill-dirs.js";
 
@@ -141,6 +141,42 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
       (n) => n !== "test-driven-development" && n !== "systematic-debugging" && !DEFAULT_SKILLS.includes(n),
     );
     expect(advertised).toEqual(expected);
+  });
+
+  it("RESET SUGAR (D5): a leading '!' drops the defaults — exclude exactly what follows", async () => {
+    process.env[ENV_KEY] = "!,systematic-debugging";
+    delete process.env[DEFAULTS_KEY];
+    const pi = createMockPi();
+    superpowersExtension(pi);
+    const result = await pi.fire("resources_discover", { type: "resources_discover" });
+    const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
+    // defaults are GONE (using-superpowers is advertised), only the env-listed skill excluded
+    const expected = allSkillDirNames(skillsDir).filter((n) => n !== "systematic-debugging");
+    expect(advertised).toEqual(expected);
+    expect(advertised).toContain("using-superpowers");
+    expect(advertised).not.toContain("systematic-debugging");
+  });
+
+  it("RESET SUGAR (D5): '!' also drops earlier env tokens (mid-list reset)", () => {
+    const set = parseSkillExclude({ [SKILL_EXCLUDE_ENV]: "brainstorming,!,writing-plans" });
+    expect([...set]).toEqual(["writing-plans"]);
+  });
+
+  it("RESET SUGAR (D5): a bare '!' is a safe no-op reset (empty set → whole-dir representation)", async () => {
+    process.env[ENV_KEY] = "!";
+    delete process.env[DEFAULTS_KEY];
+    const pi = createMockPi();
+    superpowersExtension(pi);
+    const result = await pi.fire("resources_discover", { type: "resources_discover" });
+    expect(result.skillPaths).toHaveLength(1);
+    expect(basename(result.skillPaths[0])).toBe("skills");
+  });
+
+  it("RESET SUGAR (D5): DEFAULTS=0 path is unchanged by the sugar (orthogonal knobs)", () => {
+    expect([
+      ...parseSkillExclude({ PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS: "0", [SKILL_EXCLUDE_ENV]: "brainstorming" }),
+    ]).toEqual(["brainstorming"]);
+    expect([...parseSkillExclude({ PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS: "0" })]).toEqual([]);
   });
 
   it("with DEFAULTS=0: a non-matching exclude entry flips to individual dirs but advertises every real skill", async () => {
