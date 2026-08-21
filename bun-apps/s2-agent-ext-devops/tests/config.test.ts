@@ -141,6 +141,7 @@ extensions:
 		expect(cfg.extensions.map((e) => e.name).sort()).toEqual([
 			"archify",
 			"btw",
+			"compact",
 			"hermes-memory",
 			"hyperframes",
 			"knowledge-card",
