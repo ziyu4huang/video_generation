@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { superpowersExtension } from "../src/index.js";
+import { DEFAULT_SKILL_EXCLUDE, superpowersExtension } from "../src/index.js";
+import { createMockPi } from "./helpers/mock-pi.js";
+import { allSkillDirNames } from "./helpers/skill-dirs.js";
 
 /**
  * `PI_SUPERPOWERS_SKILL_EXCLUDE` knob + the Phase-3 default exclude.
@@ -28,33 +29,12 @@ import { superpowersExtension } from "../src/index.js";
  * the same in-memory mock used by bootstrap.test.ts.
  */
 
-type Handler = (event: any, ctx?: any) => any;
-
-function createMockPi(): ExtensionAPI & { handlers: Map<string, Handler>; fire: (e: string, ev?: any) => any } {
-  const handlers = new Map<string, Handler>();
-  const pi = {
-    on: (event: string, handler: Handler) => {
-      handlers.set(event, handler);
-    },
-    sendUserMessage: () => {},
-    registerCommand: () => {},
-  } as unknown as ExtensionAPI;
-  const fire = (event: string, ev: any = {}) => handlers.get(event)?.(ev);
-  return { ...pi, handlers, fire } as any;
-}
-
 const skillsDir = join(import.meta.dir, "..", "skills");
-
-/** All immediate skill subdirs of skills/ (the dir-names the exclude list keys on). */
-function allSkillDirNames(): string[] {
-  return readdirSync(skillsDir)
-    .filter((entry) => statSync(join(skillsDir, entry)).isDirectory())
-    .sort();
-}
 
 const ENV_KEY = "PI_SUPERPOWERS_SKILL_EXCLUDE";
 const DEFAULTS_KEY = "PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS";
-const DEFAULT_SKILLS = ["verification-before-completion", "using-superpowers"];
+// The REAL default exclude list (imported, not restated — ticket 02).
+const DEFAULT_SKILLS = [...DEFAULT_SKILL_EXCLUDE];
 const savedExclude = process.env[ENV_KEY];
 const savedDefaults = process.env[DEFAULTS_KEY];
 
@@ -78,7 +58,7 @@ describe("default exclude (Phase-3 clean-pass)", () => {
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
 
     // Every OTHER skill is advertised; the default-excluded one is gone.
-    const expected = allSkillDirNames().filter((n) => !DEFAULT_SKILLS.includes(n));
+    const expected = allSkillDirNames(skillsDir).filter((n) => !DEFAULT_SKILLS.includes(n));
     expect(advertised).toEqual(expected);
     for (const d of DEFAULT_SKILLS) expect(advertised).not.toContain(d);
 
@@ -128,7 +108,7 @@ describe("default exclude (Phase-3 clean-pass)", () => {
     // its exclude entry is deliberately KEPT — an entry naming a skill that no
     // longer ships is inert, so assert presence only for skills on disk.
     delete process.env[DEFAULTS_KEY];
-    const onDisk = allSkillDirNames();
+    const onDisk = allSkillDirNames(skillsDir);
     for (const d of DEFAULT_SKILLS.filter((n) => onDisk.includes(n))) {
       expect(existsSync(join(skillsDir, d, "SKILL.md"))).toBe(true);
     }
@@ -144,7 +124,9 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     superpowersExtension(pi);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
-    const expected = allSkillDirNames().filter((n) => n !== "test-driven-development" && !DEFAULT_SKILLS.includes(n));
+    const expected = allSkillDirNames(skillsDir).filter(
+      (n) => n !== "test-driven-development" && !DEFAULT_SKILLS.includes(n),
+    );
     expect(advertised).toEqual(expected);
   });
 
@@ -155,7 +137,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     superpowersExtension(pi);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
-    const expected = allSkillDirNames().filter(
+    const expected = allSkillDirNames(skillsDir).filter(
       (n) => n !== "test-driven-development" && n !== "systematic-debugging" && !DEFAULT_SKILLS.includes(n),
     );
     expect(advertised).toEqual(expected);
@@ -170,7 +152,7 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     // An all-miss exclude list still flips representation to individual dirs
     // (the knob is "set"), but every real skill is advertised (default off).
-    expect(advertised).toEqual(allSkillDirNames());
+    expect(advertised).toEqual(allSkillDirNames(skillsDir));
   });
 
   it("with DEFAULTS=0: omits the excluded skill and advertises every other skill — the default skill IS loaded (raw knob)", async () => {
@@ -180,12 +162,12 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     superpowersExtension(pi);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
-    const expected = allSkillDirNames().filter((n) => n !== "test-driven-development");
+    const expected = allSkillDirNames(skillsDir).filter((n) => n !== "test-driven-development");
     expect(advertised).toEqual(expected);
     // defaults suppressed → every default-excluded skill that still SHIPS is
     // loaded here (verification-before-completion no longer ships — ticket 08 —
     // so its kept exclude entry is inert by design)
-    const onDisk = allSkillDirNames();
+    const onDisk = allSkillDirNames(skillsDir);
     for (const d of DEFAULT_SKILLS.filter((n) => onDisk.includes(n))) expect(advertised).toContain(d);
   });
 });

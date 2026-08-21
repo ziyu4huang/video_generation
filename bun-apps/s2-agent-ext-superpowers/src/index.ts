@@ -21,6 +21,7 @@ export default function superpowersPiExtension(pi: ExtensionAPI): void {
 export {
   _resetBootstrapCacheForTests,
   BOOTSTRAP_MARKER,
+  DEFAULT_SKILL_EXCLUDE,
   getBootstrapContent,
   parseSkillExclude,
   resolveAdvertisedSkillPaths,

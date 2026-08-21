@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { EXPECTED_SKILLS } from "../scripts/skill-provenance.js";
+import { listSkillDirs } from "./helpers/skill-dirs.js";
 
 /**
  * Guards the skill-loading rules Pi's skill loader actually enforces, plus the
@@ -27,19 +28,7 @@ import { EXPECTED_SKILLS } from "../scripts/skill-provenance.js";
 
 const skillsDir = join(import.meta.dir, "..", "skills");
 
-function listSkillFiles(): { name: string; path: string }[] {
-  return readdirSync(skillsDir)
-    .filter((entry) => statSync(join(skillsDir, entry)).isDirectory())
-    .map((name) => ({ name, path: join(skillsDir, name, "SKILL.md") }))
-    .filter((entry) => {
-      try {
-        statSync(entry.path);
-        return true;
-      } catch {
-        return false;
-      }
-    });
-}
+const listSkillFiles = () => listSkillDirs(skillsDir);
 
 function parseFrontmatter(content: string): { raw: string; fields: Record<string, string> } {
   const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);

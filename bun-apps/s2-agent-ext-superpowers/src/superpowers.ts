@@ -118,7 +118,7 @@ export function resolveSkillsDir(fromUrl?: string): string {
     return join(extractDir, "s2-agent-ext-superpowers", "skills");
   }
   if (fromUrl !== undefined) {
-    // src/superpowers.ts → ../skills ; dist/superpowers.js → ../skills
+    // src/superpowers.ts → ../skills (jiti/source mode; there is no dist/ build)
     return resolve(dirname(fileURLToPath(fromUrl)), "..", "skills");
   }
   const extDir = shExtDir();

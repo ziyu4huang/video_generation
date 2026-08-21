@@ -57,3 +57,21 @@ Which ported skills are excluded from default discovery and why — unregister, 
 - ADR-superpowers-0006 — subagent cooperation contract
 - ADR-superpowers-0007 — unconditional artifact home (`.planning/<effort>/`)
 - ADR-superpowers-0008 — default skill-exclusion policy
+
+## Deploy asset resolution (documented, deliberately not consolidated — decision D3, 2026-08-21)
+
+Resolving a package's non-code assets (`skills/`, `procedures/`) from inside a
+running extension is solved per-package by the same three-mode ladder:
+
+1. `BUN_PI_EMBEDDED_EXTRACT_DIR` (compiled `--compile` binary: assets extracted next to the bundle),
+2. `require("#pi/ext-dir")` (sh deploy: the loader serves the deployed `ext/<name>/` dir; jiti/source: the package's `"#pi/ext-dir"` imports entry → package root),
+3. injected `fromUrl` (tests / callers with a valid module URL).
+
+This ladder is currently duplicated (intentionally similar, not shared) in:
+`src/superpowers.ts` here, `s2-agent-ext-wayfind/src/procedures.ts` +
+`src/sh-ext-dir.ts`, `s2-agent-ext-obsidian`, `s2-agent-ext-hermes-memory`, and
+the host side `s2-agent/src/sh/ext-loader.ts`. A future consolidation candidate
+is one `resolveBundledAssetDir()` in `@repo/s2-agent-core-interface` (the sole
+sanctioned cross-package import; already served to sh bundles) — deferred
+2026-08-21 (decision D3: document-only this round) because superpowers is
+deliberately dependency-free and the sh-deploy path is deploy-critical.
