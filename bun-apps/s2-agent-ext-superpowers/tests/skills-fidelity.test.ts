@@ -89,4 +89,23 @@ describe("skill fidelity (ADR-superpowers-0004) — upstream-ported SKILL.md byt
     // so a removed/reclassified skill would leave its old body pinned to nothing.
     expect(onDisk).toEqual([...PORTED_SKILLS].sort());
   });
+
+  it("declared divergences are REAL — each `divergence: <skill> | <marker>` row's marker survives in that SKILL.md", () => {
+    // The byte-pin alone cannot tell "sanctioned local divergence" from "whole
+    // body replaced": after a legitimate rebaseline, a naive upstream re-sync
+    // that dropped every local section would still match the new fixtures. The
+    // machine-readable divergence rows close that gap — each declared marker
+    // must occur in the live skill body. (Recorded via
+    // `rebaseline-upstream-skills.ts --divergence <skill>:<marker>`.)
+    const ref = readFileSync(refPath, "utf8");
+    const rows = [...ref.matchAll(/^divergence:[ \t]*(\S+)[ \t]*\|[ \t]*(.+)$/gm)];
+    expect(rows.length, "no divergence rows declared — seed the known ones via --divergence").toBeGreaterThan(0);
+    for (const [, skill, marker] of rows) {
+      const body = readFileSync(join(skillsDir, skill, "SKILL.md"), "utf8");
+      expect(
+        body.includes(marker),
+        `declared divergence marker for ${skill} is gone from its SKILL.md — a re-sync dropped a sanctioned local section (re-merge it, or retire the row deliberately)`,
+      ).toBe(true);
+    }
+  });
 });

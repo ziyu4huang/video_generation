@@ -116,6 +116,9 @@ baselined: 2026-07-26
 
 fixtures-digest: sha256:f3064cecb1137341f26797d5895d02583e9d6607cc18b1d4025131a7ae703877
 
+divergence: systematic-debugging | Verify before claiming success
+divergence: dispatching-parallel-agents | run_workflow
+
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
 #   2026-08-20 — develop-pipeline v2 task 5: dispatching-parallel-agents fully rewritten (workflow templates default, manual dispatch exception); see LOCAL-DIVERGENCES addendum 2026-08-20 (sha256:ee44613fa363…)
@@ -141,3 +144,4 @@ fixtures-digest: sha256:f3064cecb1137341f26797d5895d02583e9d6607cc18b1d4025131a7
 #       (tests green, no regressions), then the claim". Merge this edit onto
 #       any new upstream body on re-sync.
 #   2026-08-21 — ticket 08 land (amended): delete verification-before-completion skill + fixture; cut brainstorming visual-companion.md + scripts/ (-1,739); keep spec-document-reviewer-prompt.md; systematic-debugging pointer line divergence (sha256:f3064cecb113…)
+#   2026-08-21 — ticket 04 (2026-08-21-harness-streamline): seed machine-readable divergence rows for the known local divergences (sha256:f3064cecb113…)

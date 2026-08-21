@@ -20,12 +20,18 @@
  * is the only thing that carries WHY the bytes moved.
  *
  * Usage: bun scripts/rebaseline-upstream-skills.ts --note "<why the fixtures moved>"
+ *        [--divergence <skill>:<marker>]...   record a machine-readable local
+ *        divergence row: `divergence: <skill> | <marker>` — the marker is a
+ *        substring that MUST remain in that skill's SKILL.md (asserted by
+ *        tests/skills-fidelity.test.ts), so an upstream re-sync that drops a
+ *        sanctioned local section goes red even after a legitimate re-baseline.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { computeFixturesDigest, FIXTURES_DIGEST_KEY, PORTED_SKILLS } from "./skill-provenance.js";
 
 const LOG_HEADER = "# Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):";
+const DIVERGENCE_PREFIX = "divergence: ";
 
 function parseNote(argv: string[]): string | null {
   const i = argv.indexOf("--note");
@@ -33,6 +39,29 @@ function parseNote(argv: string[]): string | null {
   const value = argv[i + 1];
   if (value === undefined || value.startsWith("--") || value.trim() === "") return null;
   return value.trim();
+}
+
+/** Repeatable `--divergence <skill>:<marker>` → `["<skill> | <marker>", …]` rows. */
+function parseDivergences(argv: string[]): string[] {
+  const rows: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== "--divergence") continue;
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) continue;
+    const sep = value.indexOf(":");
+    if (sep <= 0) {
+      console.error(`✗ --divergence expects <skill>:<marker> (got "${value}")`);
+      process.exit(2);
+    }
+    const skill = value.slice(0, sep).trim();
+    const marker = value.slice(sep + 1).trim();
+    if (!PORTED_SKILLS.includes(skill)) {
+      console.error(`✗ --divergence skill "${skill}" is not a declared upstream skill`);
+      process.exit(2);
+    }
+    rows.push(`${skill} | ${marker}`);
+  }
+  return rows;
 }
 
 const note = parseNote(process.argv.slice(2));
@@ -81,6 +110,9 @@ if (!existsSync(refPath)) {
   process.exit(1);
 }
 
+// --divergence rows: dedup against what UPSTREAM.ref already carries, then
+// insert beside any existing divergence block (before the re-baseline log).
+const divergenceRows = parseDivergences(process.argv.slice(2));
 const digest = computeFixturesDigest(fixturesDir);
 const today = new Date().toLocaleDateString("sv-SE"); // YYYY-MM-DD, local — matches commit dates
 const digestLine = `${FIXTURES_DIGEST_KEY}: ${digest}`;
@@ -91,6 +123,24 @@ ref = digestPattern.test(ref)
   ? ref.replace(digestPattern, digestLine)
   : `${ref.replace(/\n*$/, "\n")}\n${digestLine}\n`;
 if (!ref.includes(LOG_HEADER)) ref = `${ref.replace(/\n*$/, "\n")}\n${LOG_HEADER}\n`;
+
+// Insert new divergence rows beside any existing block (just before the log),
+// deduped — a repeated --divergence is idempotent.
+const existingRows = new Set(
+  ref
+    .split("\n")
+    .filter((line) => line.startsWith(DIVERGENCE_PREFIX))
+    .map((line) => line.slice(DIVERGENCE_PREFIX.length).trim()),
+);
+const freshRows = divergenceRows.filter((row) => !existingRows.has(row));
+if (freshRows.length > 0) {
+  const block = freshRows.map((row) => `${DIVERGENCE_PREFIX}${row}\n`).join("");
+  const logIdx = ref.indexOf(LOG_HEADER);
+  ref =
+    logIdx >= 0 ? `${ref.slice(0, logIdx)}${block}\n${ref.slice(logIdx)}` : `${ref.replace(/\n*$/, "\n")}\n${block}`;
+  console.log(`✓ recorded ${freshRows.length} divergence row(s) (marker asserted by skills-fidelity.test.ts)`);
+}
+
 ref = `${ref.replace(/\n*$/, "\n")}#   ${today} — ${note} (${digest.slice(0, 19)}…)\n`;
 writeFileSync(refPath, ref);
 
