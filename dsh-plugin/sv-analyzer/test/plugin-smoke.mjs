@@ -135,6 +135,10 @@ assert(
   fileResult.design_units.find((u) => u.name === 'counter').ports.some((p) => p.name === 'clk' && p.direction === 'input'),
   'file input extracts port clk/input',
 )
+assert(
+  resolveCalls.length === 1 && resolveCalls[0].opts && resolveCalls[0].opts.cwd === undefined,
+  'fs.resolve gets no cwd when the session header has none (fallback branch)',
+)
 
 console.log('file input forwards the session cwd to fs.resolve')
 resolveCalls.length = 0

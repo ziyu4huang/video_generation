@@ -73,6 +73,18 @@ function renderAnalyze(value) {
   return text
 }
 
+// The compact arm measures what a compact-first render WOULD emit: compact
+// JSON under the same 256 KiB cap (compact, then hard truncate) — never an
+// unbounded string the tool itself cannot produce.
+function renderCompact(value) {
+  let text = JSON.stringify(value)
+  if (text.length > MAX_RENDER_CHARS) {
+    const cut = text.slice(0, MAX_RENDER_CHARS)
+    text = cut + `\n…[render truncated: showing ${cut.length} of ${text.length} chars …]`
+  }
+  return text
+}
+
 // --- run ---------------------------------------------------------------------
 
 const wasmPath = join(here, '..', 'plugin', 'wasm', 'sv-analyzer.wasm')
@@ -99,7 +111,7 @@ for (const fx of fixtures) {
   const analyzeMs = performance.now() - tA
   assert(res.ok, `${fx.name}: analyze ok`)
   const analyzeText = renderAnalyze(res.data)
-  const compactText = JSON.stringify(res.data)
+  const compactText = renderCompact(res.data)
 
   // correctness
   let correctness = 'n/a (no ground truth)'
@@ -166,6 +178,9 @@ having the model \`read\` the raw source, and where is the break-even?
 - **analyze arm**: the sv_analyze result rendered exactly as the tool's
   \`output.render\` does (pretty JSON, 256 KiB cap with compact-then-truncate
   fallback).
+- **compact arm**: compact JSON under the same 256 KiB cap (compact, then hard
+  truncate) — what a compact-first render would emit, never an unbounded
+  string the tool cannot produce.
 - Tokens are estimated as chars / ${TOKEN_DIVISOR} for both arms — an
   approximation, but the *ratio* between arms is estimator-independent.
 - Correctness: generated fixtures carry exact ground truth (counts baked into
@@ -210,7 +225,8 @@ if (big) {
 }
 const logicDense = rows.find((r) => r.name === 'i2c_bus')
 md += `- Code-shape dependence: the interface-heavy generated fixtures (many ports/signals, short bodies) lose at ${'`'}1.4–3.2x${'`'}; the logic-dense ${logicDense.name} (${logicDense.lines} lines, long always-block bodies the JSON omits) wins at ${ratio(logicDense)}x pretty / ${(logicDense.compactTokens / logicDense.readTokens).toFixed(2)}x compact. The JSON summarizes *structure* — it pays off exactly where structure is sparse relative to behavior.\n`
-md += `- Very large inputs: gen_xl (8.7k lines) caps at the 256 KiB render limit (pretty truncated to ${Math.min(rows.find((r) => r.name === 'gen_xl').analyzeTokens)} tok vs ${rows.find((r) => r.name === 'gen_xl').readTokens} tok read) — the cap is what keeps the tool competitive at scale, and it also bounds worst-case context absolutely, which raw read does not.\n`
+const xl = rows.find((r) => r.name === 'gen_xl')
+md += `- Very large inputs: gen_xl (8.7k lines) caps at the 256 KiB render limit (render truncated to ${xl.analyzeTokens} tok vs ${xl.readTokens} tok read) — the cap bounds worst-case context absolutely (raw read bounds nothing); at this size analyze still costs more tokens than read.\n`
 md += `- Render format matters more than file size: compact JSON is ~45–55% of pretty on every fixture. Switching ${'`'}output.render${'`'} to compact-first would shift every ratio down by ~2x.\n`
 md += `- Latency: analyze is warm ${Math.max(...rows.map((r) => r.analyzeMs)).toFixed(0)} ms worst case (8.7k-line fixture), cold start ${cell(globalThis.coldProbe.spawnMs + globalThis.coldProbe.firstCallMs)} ms — both trivial next to a model round-trip.\n`
 
@@ -326,6 +342,18 @@ const tableRows = rows
   )
   .join('')
 
+// Headline stats — ALL computed from rows so a re-run can never leave the
+// cards contradicting the table below them.
+const truthN = rows.filter((r) => r.correctness !== 'n/a (no ground truth)').length
+const exactN = rows.filter((r) => r.correctness === 'exact').length
+const worstWarmMs = Math.max(...rows.map((r) => r.analyzeMs))
+const compactRatio = (r) => r.compactTokens / r.readTokens
+const bestCompact = clean.reduce((a, b) => (compactRatio(b) < compactRatio(a) ? b : a))
+const worstCompact = clean.reduce((a, b) => (compactRatio(b) > compactRatio(a) ? b : a))
+const genPretty = clean.filter((r) => r.name.startsWith('gen_')).map((r) => +ratio(r))
+const genPrettyRange = `${Math.min(...genPretty).toFixed(1)}–${Math.max(...genPretty).toFixed(1)}x`
+const genXl = rows.find((r) => r.name === 'gen_xl')
+
 const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -390,10 +418,10 @@ const html = `<!DOCTYPE html>
 
   <h2>Headline</h2>
   <div class="cards">
-    ${card('extraction accuracy', '7 / 7 <span class="good">exact</span>', 'fixtures with ground truth: all counters match', 'acc')}
-    ${card('best case (i2c_bus, 293 ln)', '0.47x', 'compact JSON vs raw read — 53% context saved', 'win')}
-    ${card('worst case (counter, 44 ln)', '1.78x', 'compact JSON vs raw read — small interface files lose', 'lose')}
-    ${card('latency', cell(globalThis.coldProbe.spawnMs + globalThis.coldProbe.firstCallMs) + ' ms cold', 'worst warm parse 75 ms (8.7k lines) — negligible')}
+    ${card('extraction accuracy', `${exactN} / ${truthN} <span class="good">exact</span>`, 'fixtures with ground truth: all counters match', 'acc')}
+    ${card(`best case (${bestCompact.name}, ${bestCompact.lines} ln)`, `${compactRatio(bestCompact).toFixed(2)}x`, `compact JSON vs raw read — ${Math.round((1 - compactRatio(bestCompact)) * 100)}% context saved`, 'win')}
+    ${card(`worst case (${worstCompact.name}, ${worstCompact.lines} ln)`, `${compactRatio(worstCompact).toFixed(2)}x`, 'compact JSON vs raw read — small interface files lose', 'lose')}
+    ${card('latency', cell(globalThis.coldProbe.spawnMs + globalThis.coldProbe.firstCallMs) + ' ms cold', `worst warm parse ${cell(worstWarmMs)} ms (${(genXl.lines / 1000).toFixed(1)}k lines) — negligible`)}
   </div>
   <div class="note">The plugin is <b>not</b> universally cheaper than reading. It wins where code is <b>logic-dense</b> (long always-block bodies the summary omits) and loses where code is <b>interface-heavy</b> relative to its size. The render format is the dominant lever: compact JSON is ~45–55% of pretty on every fixture.</div>
 
@@ -427,10 +455,10 @@ const html = `<!DOCTYPE html>
 
   <h2>Findings &amp; recommendations</h2>
   <ul class="findings">
-    <li><b>Code shape decides it.</b> Interface-heavy generated fixtures (many ports/signals, short bodies) lose at 1.4–3.2x; logic-dense <span class="mono">i2c_bus</span> wins at 0.91x pretty / 0.47x compact. The JSON summarizes <i>structure</i> — it pays off exactly where structure is sparse relative to behavior.</li>
-    <li><b>The 256 KiB render cap is the real scalability win.</b> At 8.7k lines the payload is absolutely bounded (raw read bounds nothing), keeping the tool competitive at scale.</li>
+    <li><b>Code shape decides it.</b> Interface-heavy generated fixtures (many ports/signals, short bodies) lose at ${genPrettyRange}; logic-dense <span class="mono">${logicDense.name}</span> wins at ${ratio(logicDense)}x pretty / ${compactRatio(logicDense).toFixed(2)}x compact. The JSON summarizes <i>structure</i> — it pays off exactly where structure is sparse relative to behavior.</li>
+    <li><b>The 256 KiB render cap bounds absolute context.</b> At ${(genXl.lines / 1000).toFixed(1)}k lines the payload is absolutely bounded (raw read bounds nothing) — the cap does not make analyze cheaper than read at this size, it caps the worst case.</li>
     <li><b>Switch render to compact-first.</b> Compact JSON is ~45–55% of pretty on every fixture — a one-function change in <span class="mono">plugin/index.js</span> would roughly halve every ratio and move the break-even well below 100 lines.</li>
-    <li><b>Latency is a non-issue.</b> 25 ms cold, ≤75 ms warm worst case — both trivial next to any model round-trip.</li>
+    <li><b>Latency is a non-issue.</b> ${cell(globalThis.coldProbe.spawnMs + globalThis.coldProbe.firstCallMs)} ms cold, ≤${cell(worstWarmMs)} ms warm worst case — both trivial next to any model round-trip.</li>
   </ul>
 </div>
 </body>

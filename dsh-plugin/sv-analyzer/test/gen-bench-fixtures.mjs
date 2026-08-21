@@ -72,11 +72,11 @@ endmodule
 
 // Suite: name -> { moduleCount }. Module 0..N-1 each instance a leaf when i>0.
 const SUITES = [
-  { name: 'gen_xs', modules: 2 },      // ~45 lines
-  { name: 'gen_s', modules: 5 },       // ~105 lines
-  { name: 'gen_m', modules: 15 },      // ~310 lines
-  { name: 'gen_l', modules: 75 },      // ~1550 lines
-  { name: 'gen_xl', modules: 300 },    // ~6200 lines
+  { name: 'gen_xs', modules: 2 },      // ~70 lines (modules + instance wiring)
+  { name: 'gen_s', modules: 5 },       // ~160 lines
+  { name: 'gen_m', modules: 15 },      // ~450 lines
+  { name: 'gen_l', modules: 75 },      // ~2190 lines
+  { name: 'gen_xl', modules: 300 },    // ~8700 lines
 ]
 
 const manifest = []
