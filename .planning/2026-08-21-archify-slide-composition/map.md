@@ -129,3 +129,9 @@ pptxgenjs element-ordering choice in `ppt/presentation.xml`. Full write-up in
   `HTMLRewriter` parser choice (D2) and native-shape PPTX path are the foundation here.
   Its D2 write-up is **corrected, not overturned**, by this effort's finer A/B (see Context).
   Its fog entry on text metrics is the problem D2 here sidesteps.
+
+- **Followed-by**: `.planning/2026-08-21-archify-deck-visual-fidelity` — rendering this
+  effort's own `.pptx` through macOS's OOXML importer found four defects that this effort's
+  401 tests, 0-diagnostic OOXML gate and passing content lint all missed. One of them, a
+  clipped action title, is the live failure of the title-guard decision recorded in Fog of
+  war above; that decision is **not yet overturned**, but its calibration is now known wrong.
