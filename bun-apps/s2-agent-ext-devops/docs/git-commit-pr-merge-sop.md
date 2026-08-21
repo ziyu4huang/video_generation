@@ -72,7 +72,7 @@ git commit -m "..."                      # or write the body in an editor
 
 ### Verify before pushing
 Run the affected package's tests (uniform runner: `( cd bun-apps/<pkg> && bun test )`).
-Some packages need a build first — `s2-agent-ext-workflow` requires
+Some packages need a build first — `s2-agent-ext-ultracode` requires
 `bun run build && bun test` (tests import compiled `../src/*.js`).
 
 ---

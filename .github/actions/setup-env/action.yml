@@ -2,7 +2,7 @@ name: Setup Bun workspace
 description: |
   The shared job preamble every CI job needs AFTER checkout: setup Bun →
   (optional) setup Node → `bun install --frozen-lockfile` → build the one
-  compiled workspace dep (`s2-agent-ext-workflow`, whose `main` resolves a
+  compiled workspace dep (`s2-agent-ext-ultracode`, whose `main` resolves a
   gitignored `dist/`). Centralizes the Bun version + the build-first workspace
   pattern so a rename or version bump touches ONE place, not 5 job definitions.
   Also restores the Bun global install store (~/.bun/install/cache) from cache so
@@ -66,9 +66,9 @@ runs:
       run: bun install --frozen-lockfile
       shell: bash
 
-    # s2-agent-ext-workflow ships TS source; its main/exports point at compiled
+    # s2-agent-ext-ultracode ships TS source; its main/exports point at compiled
     # dist/index.js (gitignored). Importers resolve that dist/ — a fresh CI
     # checkout lacks it (locally it lingers), so build it. ~2.5 s.
-    - name: Build s2-agent-ext-workflow (workspace dep)
-      run: bun run --cwd bun-apps/s2-agent-ext-workflow build
+    - name: Build s2-agent-ext-ultracode (workspace dep)
+      run: bun run --cwd bun-apps/s2-agent-ext-ultracode build
       shell: bash

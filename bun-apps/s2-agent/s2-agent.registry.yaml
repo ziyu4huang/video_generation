@@ -149,8 +149,8 @@ extensions:
     deploy:
       order: 60
   - name: workflow
-    package: s2-agent-ext-workflow
-    entry: extensions/workflow.ts
+    package: s2-agent-ext-ultracode
+    entry: extensions/ultracode.ts
     load: static
     # Must load after subagent (registry population); acorn bundles inline.
     deploy:

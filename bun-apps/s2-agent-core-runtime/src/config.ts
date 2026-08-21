@@ -1,8 +1,8 @@
 /**
  * Configuration constants for s2-agent-ext-subagent (extracted from
- * s2-agent-ext-workflow/src/config.ts). Only symbols referenced by the moved
+ * s2-agent-ext-ultracode/src/config.ts). Only symbols referenced by the moved
  * modules live here; workflow-side constants (WORKFLOW_*, MAX_AGENT_*,
- * normalizeKeywordTriggerWord, DEFAULT_*) remain in s2-agent-ext-workflow.
+ * normalizeKeywordTriggerWord, DEFAULT_*) remain in s2-agent-ext-ultracode.
  */
 
 /** User-level model tiers config file, relative to the home directory. */
@@ -17,7 +17,7 @@ export const AGENTS_DIR = ".pi/agents";
 
 /**
  * Hard ceiling on parallel children in a `subagents` batch. Mirrors
- * s2-agent-ext-workflow's MAX_CONCURRENCY (kept local so this package stays
+ * s2-agent-ext-ultracode's MAX_CONCURRENCY (kept local so this package stays
  * independent of the workflow engine). Unbounded fan-out cascades into
  * provider rate limits (cf. ~50 RPM at Anthropic Tier 1).
  */
@@ -31,5 +31,5 @@ export const MAX_CONCURRENCY = 16;
 export const DEFAULT_BATCH_CONCURRENCY = 4;
 
 /** Hard ceiling on the number of tasks in one `subagents` batch. Mirrors
- *  s2-agent-ext-workflow's MAX_AGENTS_PER_RUN (kept local for package independence). */
+ *  s2-agent-ext-ultracode's MAX_AGENTS_PER_RUN (kept local for package independence). */
 export const MAX_BATCH_TASKS = 1000;

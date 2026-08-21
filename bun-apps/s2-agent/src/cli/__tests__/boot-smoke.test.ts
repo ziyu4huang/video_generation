@@ -56,7 +56,7 @@ function runCanary(): { exitCode: number | null; json: unknown; stderr: string }
 
 describe("boot-smoke canary", () => {
   beforeAll(() => {
-    // s2-agent-ext-workflow is src-entry since the 2026-08-15 src-entry migration
+    // s2-agent-ext-ultracode is src-entry since the 2026-08-15 src-entry migration
     // (ticket 04): package root resolves to src/index.ts, nothing to build.
     // (KC now imports obsidian.ts directly post-#558 — no obsidian bundle build
     // needed either.)

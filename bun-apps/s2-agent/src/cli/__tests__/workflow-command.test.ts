@@ -44,19 +44,19 @@ let fakeModel: string | undefined = undefined;
 let fakeModelSource: string = "pi-default";
 let capturing = false;
 
-// Direct source import bypasses the `@repo/s2-agent-ext-workflow` package-name
+// Direct source import bypasses the `@repo/s2-agent-ext-ultracode` package-name
 // mock (the source uses relative internal imports, so Bun never routes back
 // through the mocked specifier).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let realModulePromise: Promise<any> | null = null;
-function realModule(): Promise<typeof import("@repo/s2-agent-ext-workflow")> {
+function realModule(): Promise<typeof import("@repo/s2-agent-ext-ultracode")> {
 	if (!realModulePromise) {
-		realModulePromise = import("../../../../s2-agent-ext-workflow/src/index.ts");
+		realModulePromise = import("../../../../s2-agent-ext-ultracode/src/index.ts");
 	}
 	return realModulePromise;
 }
 
-mock.module("@repo/s2-agent-ext-workflow", () => ({
+mock.module("@repo/s2-agent-ext-ultracode", () => ({
 	runWorkflowScript: async (opts: { name: string; outDir?: string; [k: string]: unknown }) => {
 		if (capturing) {
 			capturedOutDir = opts.outDir;

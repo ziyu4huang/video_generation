@@ -11,7 +11,7 @@
  *     - s2-agent-ext-tool-gate needs `bun test && bun run qa` (the encoded QA
  *       verdict gate);
  *     - s2-agent-ext-knowledge-card needs its deliberate 3-phase ordering;
- *     - s2-agent-ext-workflow / s2-agent-ext-webui must BUILD first (their `main`
+ *     - s2-agent-ext-ultracode / s2-agent-ext-webui must BUILD first (their `main`
  *       resolves a gitignored dist/).
  *   So `run_local_ci` could report green on a package whose real CI command fails.
  *   The matrix is the specification; this makes it the source of truth for both

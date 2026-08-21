@@ -86,7 +86,7 @@ is markdown loaded on demand, not a TS handler.
   `run-dir/manifest.json`.
 
 - **Command spawning a workflow**:
-  `s2-agent-ext-workflow/src/builtin-commands.ts:40` —
+  `s2-agent-ext-ultracode/src/builtin-commands.ts:40` —
   `pi.registerCommand("deep-research", { description, handler: async (args,
   ctx) => { ...runWorkflow(...); pi.sendMessage(...) } })`, inside
   `registerBuiltinWorkflows(pi, opts)` (`:36`). Siblings `adversarial-review`

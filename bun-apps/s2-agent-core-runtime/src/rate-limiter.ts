@@ -1,7 +1,7 @@
 /**
  * Process-global, per-provider concurrency limiter — the SHARED outer cap that
  * BOTH `subagents`/`subagent` (this package) and `workflow` agent dispatch
- * (s2-agent-ext-workflow) acquire. Without it the two tools own DISJOINT
+ * (s2-agent-ext-ultracode) acquire. Without it the two tools own DISJOINT
  * limiters — `subagents`: a per-batch worker pool; `workflow`: a per-run-tree
  * counting semaphore — so their COMBINED provider dispatch blows past the
  * provider's rate limit and crashes. This single shared budget, keyed by
@@ -12,7 +12,7 @@
  * provider→limiter Map AND the config resolver. This GUARANTEES one limiter
  * instance per provider per process regardless of how the workspace linker
  * dedupes module records between s2-agent-ext-subagent and
- * s2-agent-ext-workflow: even if the two packages resolved to SEPARATE module
+ * s2-agent-ext-ultracode: even if the two packages resolved to SEPARATE module
  * instances (which would fork a module-level singleton into two), they still
  * read/write the SAME globalThis slot. The cross-package sharing test
  * (tests/rate-limiter-cross-pkg.test.ts) acquires-and-holds via the deep src
@@ -99,7 +99,7 @@ function createRateLimiter(provider: string, state: RateLimitState): RateLimiter
 /**
  * The single shared limiter for a provider (lazy-created, process-global via the
  * globalThis state). Callers in BOTH s2-agent-ext-subagent and
- * s2-agent-ext-workflow resolve the same instance for a given provider.
+ * s2-agent-ext-ultracode resolve the same instance for a given provider.
  */
 export function getGlobalRateLimiter(provider: string): RateLimiter {
   const state = getState();

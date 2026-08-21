@@ -6,7 +6,7 @@ import { findCommandToken } from "../dispatch.ts";
  * `workflow run/list` — the CLI command layer.
  *
  * The pack resolver + orchestration now live in the engine
- * (`@repo/s2-agent-ext-workflow` `workflow-pack.ts`) and are shared with the
+ * (`@repo/s2-agent-ext-ultracode` `workflow-pack.ts`) and are shared with the
  * `workflow` tool's `name` parameter; their tests live in the engine. This file
  * covers the CLI-only surface: `--args` JSON parsing and the `workflow` namespace
  * dispatch (reserved-token routing). End-to-end pack runs are exercised by the

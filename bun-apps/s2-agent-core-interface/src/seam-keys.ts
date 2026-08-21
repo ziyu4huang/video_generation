@@ -25,7 +25,7 @@ export const SEAM_KEYS = {
   __piHermesStaleCheck:     { crossPackage: true },
   // __piRateLimitState: the key LITERAL is owned solely in
   // s2-agent-core-runtime (rate-limiter.ts GLOBAL_KEY); subagent +
-  // s2-agent-ext-workflow share the budget through the exported
+  // s2-agent-ext-ultracode share the budget through the exported
   // getGlobalRateLimiter / setRateLimitCapResolver API — NO duplicated literal,
   // hence NO drift surface between packages. Per the seam-contract topology
   // (crossPackage:true requires the literal referenced by >=2 packages) this is

@@ -18,7 +18,7 @@ import { emptyParsed } from "../args.ts";
 import type { MemoryFile } from "./memory-to-vault-discover.ts";
 import { discoverMemoryFiles } from "./memory-to-vault-discover.ts";
 import { generateWorkflowScript } from "./memory-to-vault-script.ts";
-import { runWorkflow } from "@repo/s2-agent-ext-workflow";
+import { runWorkflow } from "@repo/s2-agent-ext-ultracode";
 import { WorkflowAgent } from "@repo/s2-agent-ext-subagent";
 import { healGraph, graphHealth } from "@repo/s2-agent-ext-knowledge-card/src/retrieve.ts";
 // Subpath import requires s2-agent-ext-obsidian's package.json `exports` map.

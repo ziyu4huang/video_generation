@@ -39,7 +39,7 @@ Group A — original "general productivity" set:
   s2-agent-ext-superpowers, s2-agent-ext-wayfind, s2-agent-ext-web-access
 Group B — migrated from dynamic `-e` (tool-providing):
   s2-agent-ext-obsidian, s2-agent-ext-btw, s2-agent-ext-file2md,
-  s2-agent-ext-subagent, s2-agent-ext-workflow, s2-agent-ext-knowledge-card,
+  s2-agent-ext-subagent, s2-agent-ext-ultracode, s2-agent-ext-knowledge-card,
   s2-agent-ext-power-tool
 ```
 

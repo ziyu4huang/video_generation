@@ -1,4 +1,4 @@
-// Shared agent-execution runtime for s2-agent-ext-subagent and s2-agent-ext-workflow.
+// Shared agent-execution runtime for s2-agent-ext-subagent and s2-agent-ext-ultracode.
 // Public surface mirrors the former subagent barrel (behavior-preserving sourcing)
 // plus internal-consumer symbols. WorkflowAgent is the back-compat alias for CoreAgent.
 //

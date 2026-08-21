@@ -98,7 +98,7 @@ import obsidianExtension from "../../s2-agent-ext-obsidian/extensions/obsidian.t
 import btwExtension from "../../s2-agent-ext-btw/extensions/btw.ts";
 import file2mdExtension from "../../s2-agent-ext-file2md/extensions/file2md.ts";
 import subagentExtension from "../../s2-agent-ext-subagent/extensions/subagent.ts";
-import workflowExtension from "../../s2-agent-ext-workflow/extensions/workflow.ts";
+import ultracodeExtension from "../../s2-agent-ext-ultracode/extensions/ultracode.ts";
 import knowledgeCardExtension from "../../s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import powerToolExtension from "../../s2-agent-ext-power-tool/extensions/power-tool.ts";
 import webuiExtension from "../../s2-agent-ext-webui/extensions/webui.ts";
@@ -122,7 +122,7 @@ export const STATIC_EXTENSION_FACTORIES = [
 	// 2026-08-20, docs/agents/extension-naming.md) + shared singletons; must
 	// load before workflow so workflow's /subagents viewer reads a populated registry.
 	{ name: "s2-agent-ext-subagent", factory: subagentExtension },
-	{ name: "s2-agent-ext-workflow", factory: workflowExtension },
+	{ name: "s2-agent-ext-ultracode", factory: ultracodeExtension },
 	{ name: "s2-agent-ext-knowledge-card", factory: knowledgeCardExtension },
 	// power-tool — always-on agent self-diagnostics suite (the inspect_* tools;
 	// roster in its own TOOL_FACTORIES, deliberately not restated here). Active,

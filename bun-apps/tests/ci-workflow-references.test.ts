@@ -412,7 +412,7 @@ describe("determinism-spotcheck — the workflow matrix and the script agree", (
 	test("the lists are non-empty and include the known flake-prone packages", () => {
 		const matrix = spotcheckMatrixPackages();
 		expect(matrix.length).toBeGreaterThanOrEqual(3);
-		expect(matrix).toContain("s2-agent-ext-workflow");
+		expect(matrix).toContain("s2-agent-ext-ultracode");
 	});
 });
 

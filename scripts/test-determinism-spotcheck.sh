@@ -34,7 +34,7 @@ emit() { printf '%s\n' "$*"; }
 # - s2-agent-ext-hermes-memory: now pure bun test (Bun-only; the former
 #   node:test-hang / tsx carve-out was retired when better-sqlite3/Node support
 #   was removed)
-# - s2-agent-ext-workflow: build-first; time/runtime fixtures
+# - s2-agent-ext-ultracode: build-first; time/runtime fixtures
 # - s2-agent-ext-obsidian: mtime/time tests (scoped to the portable extensions suite)
 # - s2-agent-ext-archify: one observed non-reproducible failure — the `examples`
 #   subcommand rendered 0 of the expected >=5 HTML files in a full-matrix run,
@@ -51,7 +51,7 @@ emit() { printf '%s\n' "$*"; }
 # asserts the two lists are identical, so the drift cannot go unnoticed.
 ENTRIES=(
 	"s2-agent-ext-hermes-memory	( cd bun-apps/s2-agent-ext-hermes-memory && bun test )"
-	"s2-agent-ext-workflow	( cd bun-apps/s2-agent-ext-workflow && bun run build && bun test )"
+	"s2-agent-ext-ultracode	( cd bun-apps/s2-agent-ext-ultracode && bun run build && bun test )"
 	"s2-agent-ext-obsidian	( cd bun-apps/s2-agent-ext-obsidian && bun test extensions/__tests__/ )"
 	"s2-agent-ext-archify	( cd bun-apps/s2-agent-ext-archify && bun test --isolate )"
 )

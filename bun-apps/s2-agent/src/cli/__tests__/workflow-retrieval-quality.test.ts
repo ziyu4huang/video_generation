@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { runWorkflowScript } from "@repo/s2-agent-ext-workflow";
+import { runWorkflowScript } from "@repo/s2-agent-ext-ultracode";
 
 /**
  * retrieval-quality-self-improve — harness-contract tests.

@@ -53,7 +53,7 @@ never bare numbers; bun-apps/docs/adr/INDEX.md lists all). This file is the inde
   suite: grilling + wayfinder settle decisions before any code is written.
 - bun-apps/s2-agent-ext-web-access — web access: 8 search providers behind one
   interface, content extraction, browser-curator fallback, SSRF protection.
-- bun-apps/s2-agent-ext-workflow — Claude Code-style dynamic workflows: JS
+- bun-apps/s2-agent-ext-ultracode — Claude Code-style dynamic workflows: JS
   orchestration fanning out parallel isolated subagents.
 - bun-apps/s2-agent-ext-zai-mcp — Z.ai MCP servers bridged into pi as normal pi
   tools (pi has no built-in MCP integration).

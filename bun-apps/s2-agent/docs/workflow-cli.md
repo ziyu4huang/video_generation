@@ -1,12 +1,12 @@
 # `s2-agent workflow` — headless engine runner
 
-`s2-agent workflow run <name>` runs a [s2-agent-ext-workflow][pdw] engine script
+`s2-agent workflow run <name>` runs a [s2-agent-ext-ultracode][pdw] engine script
 from the CLI, a shell script, or a hook — **headlessly**, without the VSCode
 workflow editor. It calls `runWorkflow()` directly, so the deterministic
 primitives (gate / retry / loopUntilDry / journaling / resume) are reachable
 outside the GUI.
 
-[pdw]: ../bun-apps/s2-agent-ext-workflow/
+[pdw]: ../bun-apps/s2-agent-ext-ultracode/
 
 This is a **non-agent** meta-command. It does NOT spin up an agent session the
 way `zk-extract` or `file2md` do. The engine's own `WorkflowAgent` calls
@@ -131,7 +131,7 @@ defaults the CLI merges under its flags.
 | `thinking` | optional | declared, **not yet wired** (the engine exposes no `thinking` key on this path) |
 | `howToRun` | optional | human-facing "how to run it" prose |
 | `kind` | optional | self-identification — `"workflow-pack"`; lets a pack folder self-describe the way a pi extension folder does (minimal alignment with pi's extension folder form) |
-| `engine` | optional | which engine runs the entry (e.g. `"s2-agent-ext-workflow"`) |
+| `engine` | optional | which engine runs the entry (e.g. `"s2-agent-ext-ultracode"`) |
 
 ### Resolution (dir-or-file)
 
@@ -175,7 +175,7 @@ This repo has TWO executors that share the workflow script *syntax*
 
 | Runtime | Where | Gates |
 |---------|-------|-------|
-| **s2-agent-ext-workflow engine** (`runWorkflow`) | `.pi/workflows/` + `bun-apps/<pkg>/workflows/` (named), or any path, run by `workflow run` or the VSCode editor | real deterministic gate / retry / loopUntilDry / journaling / resume |
+| **s2-agent-ext-ultracode engine** (`runWorkflow`) | `.pi/workflows/` + `bun-apps/<pkg>/workflows/` (named), or any path, run by `workflow run` or the VSCode editor | real deterministic gate / retry / loopUntilDry / journaling / resume |
 | Claude Code's `Workflow` tool | `.claude/workflows/*.js`, run interactively by Claude Code | best-effort `agent()`/`parallel()` — no deterministic gates |
 
 `workflow run` targets the **engine**. That is the whole point: deterministic

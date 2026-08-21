@@ -21,7 +21,7 @@
  *
  * This lives in bun-apps/s2-agent/workflows/ (the ENGINE dir) on purpose:
  * the deterministic gate/retry/pipeline primitives only exist in the
- * s2-agent-ext-workflow engine vm, NOT in Claude Code's Workflow tool. See
+ * s2-agent-ext-ultracode engine vm, NOT in Claude Code's Workflow tool. See
  * ../docs/workflow-cli.md (two-runtime boundary).
  *
  * INVOCATION

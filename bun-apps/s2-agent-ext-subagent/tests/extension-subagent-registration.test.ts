@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 /**
- * Moved from s2-agent-ext-workflow/tests/extension-subagent-registration.test.ts
+ * Moved from s2-agent-ext-ultracode/tests/extension-subagent-registration.test.ts
  * when the `subagent` + `subagent_runs` tools moved to THIS package (renamed
  * `spawn_subagent` + `list_subagent_runs` 2026-08-20 — docs/agents/extension-naming.md)
  * (s2-agent-ext-subagent). The factory under test is now

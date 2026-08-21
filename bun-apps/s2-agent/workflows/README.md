@@ -3,7 +3,7 @@
 Deterministic workflows runnable via `s2-agent cli workflow run <name>` — these live
 in the **engine dir** (`bun-apps/<pkg>/workflows/`) on purpose: the
 gate / retry / loopUntilDry / journaling / resume primitives only exist in the
-s2-agent-ext-workflow engine vm, NOT in Claude Code's `Workflow` tool. See
+s2-agent-ext-ultracode engine vm, NOT in Claude Code's `Workflow` tool. See
 `../docs/workflow-cli.md` (two-runtime boundary).
 
 ## Example workflow packs (folders + manifest.json)
@@ -89,7 +89,7 @@ A pack has **two entry paths** that share the SAME resolver (the engine's
         └───────────────────────────────────────┬───────────────────────────────────────────────────┘
                                                 │  runWorkflow(entry, { args, model, runsDir })
                                                 ▼
-        ┌──────────────── s2-agent-ext-workflow ENGINE VM (the only place gates live) ────────────────┐
+        ┌──────────────── s2-agent-ext-ultracode ENGINE VM (the only place gates live) ────────────────┐
         │   strict-parse entry  (acorn sourceType:module; Date.now/Math.random/new Date() THROW)     │
         │   expose globals →  agent() | parallel() | pipeline() | phase() | log()                     │
         │   deterministic primitives →  gate() / retry / loopUntilDry / journaling / resume           │

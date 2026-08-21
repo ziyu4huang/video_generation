@@ -54,7 +54,7 @@
     "@repo/s2-agent-ext-flux2": "workspace:*",
     "@repo/s2-agent-ext-krea2": "workspace:*",
     "@repo/s2-agent-ext-ltx": "workspace:*",
-    "@repo/s2-agent-ext-workflow": "workspace:*",
+    "@repo/s2-agent-ext-ultracode": "workspace:*",
     "typebox": "*"
   },
   "devDependencies": {

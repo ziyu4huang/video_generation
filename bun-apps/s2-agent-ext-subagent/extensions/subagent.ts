@@ -21,7 +21,7 @@ import { createSubagentsCommand } from "../src/subagents-command.js";
 /**
  * s2-agent-ext-subagent — owns the `subagent` + `subagent_runs` tools and the
  * shared in-flight registry / run-persistence singletons. Extracted from
- * s2-agent-ext-workflow so the subagent capability loads independently of the
+ * s2-agent-ext-ultracode so the subagent capability loads independently of the
  * workflow DSL. The `/subagents` viewer + command + below-editor progress widget
  * live here too (self-contained), reading the local in-flight singleton directly.
  *
@@ -148,7 +148,7 @@ export default function extension(pi: ExtensionAPI) {
   });
 
   // Force-activate on EVERY lifecycle hook that precedes a system-prompt rebuild.
-  // Mirrors s2-agent-ext-workflow's activateWorkflowTools: session_start alone is
+  // Mirrors s2-agent-ext-ultracode's activateWorkflowTools: session_start alone is
   // not enough — getSystemPromptOptions().selectedTools can lag setActiveTools(),
   // so before_agent_start bridges it per-turn. Without this the registered tools
   // would not reliably appear in the model's active toolset.

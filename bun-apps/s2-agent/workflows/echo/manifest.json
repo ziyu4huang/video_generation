@@ -3,6 +3,6 @@
   "description": "Trivial workflow-pack smoke test — one agent() that echoes its args. Proves folder → manifest.json → engine end-to-end.",
   "entry": "index.js",
   "kind": "workflow-pack",
-  "engine": "s2-agent-ext-workflow",
+  "engine": "s2-agent-ext-ultracode",
   "howToRun": "bun --cwd bun-apps/s2-agent src/cli.ts cli workflow run echo --dry-run   # then drop --dry-run with a --model"
 }

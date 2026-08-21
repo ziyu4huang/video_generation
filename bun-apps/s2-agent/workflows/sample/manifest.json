@@ -3,7 +3,7 @@
   "description": "Full-surface workflow-pack regression fixture — declares every manifest field (kind/engine/args/model/thinking/howToRun) and exercises the pipeline()/phase()/log() engine primitives that echo + args-demo don't cover. Hermetic: no bash, no writes, no network.",
   "entry": "index.js",
   "kind": "workflow-pack",
-  "engine": "s2-agent-ext-workflow",
+  "engine": "s2-agent-ext-ultracode",
   "args": { "items": ["alpha", "beta", "gamma"] },
   "model": "lm-studio/google/gemma-4-12b",
   "thinking": "low",

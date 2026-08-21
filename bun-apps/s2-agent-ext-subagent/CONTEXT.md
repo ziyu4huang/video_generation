@@ -1,6 +1,6 @@
 # s2-agent-ext-subagent
 
-The ubiquitous language of the isolated single-subagent dispatch subsystem — the `subagent` + `subagent_runs` tools, the `WorkflowAgent` runner, the `spawnSubagent` programmatic API, and the process-wide singletons that let a viewer observe in-flight and completed runs. Extracted from `s2-agent-ext-workflow` so the subagent capability loads independently of the workflow DSL and so peer extensions can depend on it without the workflow engine.
+The ubiquitous language of the isolated single-subagent dispatch subsystem — the `subagent` + `subagent_runs` tools, the `WorkflowAgent` runner, the `spawnSubagent` programmatic API, and the process-wide singletons that let a viewer observe in-flight and completed runs. Extracted from `s2-agent-ext-ultracode` so the subagent capability loads independently of the workflow DSL and so peer extensions can depend on it without the workflow engine.
 
 ## Language
 
@@ -89,4 +89,4 @@ _Avoid_: "container" (it is a git worktree, not an OS container).
 
 This package owns: the `subagent` + `subagent_runs` TOOLS, the `WorkflowAgent` runner, `spawnSubagent`, the singletons, agent-registry, model-tier, worktree, errors, history helpers, the SDD-report parser, **and (since PR #821 / [ADR-0002](docs/adr/0002-relocate-viewer-command-to-subagent.md)) the `/subagents` interactive TUI viewer + slash command + the progress widget**. The shared agent-row render helpers moved OUT in #1251 — they now live in `@repo/s2-agent-core-runtime` (`src/agent-row-display.ts`) and this package imports them.
 
-It does NOT own: the `workflow`/`workflow_control`/`workflow_help` tools or the workflow orchestration engine (those live in `s2-agent-ext-workflow`). The viewer/command originally stayed in workflow ([ADR-0001](docs/adr/0001-why-extracted.md)) due to a `display.ts ⟹ workflow.ts` cycle; #821 broke that cycle by extracting the generic render helpers into this package's `agent-row-display.ts`, so the viewer now imports only local code.
+It does NOT own: the `workflow`/`workflow_control`/`workflow_help` tools or the workflow orchestration engine (those live in `s2-agent-ext-ultracode`). The viewer/command originally stayed in workflow ([ADR-0001](docs/adr/0001-why-extracted.md)) due to a `display.ts ⟹ workflow.ts` cycle; #821 broke that cycle by extracting the generic render helpers into this package's `agent-row-display.ts`, so the viewer now imports only local code.

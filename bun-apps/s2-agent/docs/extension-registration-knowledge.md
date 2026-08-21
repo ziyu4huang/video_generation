@@ -63,6 +63,6 @@ If `selectedSet` is non-empty and a tool's name is not in it, the tool is report
 
 | File | Purpose |
 |------|---------|
-| `bun-apps/s2-agent-ext-workflow/extensions/workflow.ts` | Reference implementation with both hooks |
+| `bun-apps/s2-agent-ext-ultracode/extensions/ultracode.ts` | Reference implementation with both hooks |
 | `bun-apps/s2-agent-ext-power-tool/src/index.ts` | `inspect_extensions` implementation |
 | `bun-apps/s2-agent/run-dir/manifest.json` | Extension registry (`extensions` array + `lazyExtensions`) |

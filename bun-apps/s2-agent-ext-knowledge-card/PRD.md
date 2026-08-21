@@ -253,7 +253,7 @@ the zk_* subagent model, set `KC_SUBAGENT_MODEL` (or pass the tool's `model` arg
 
 - `@repo/s2-agent-ext-obsidian` (hard peer) — vault access, `runSubagentWithRetry`
   legacy path, `parseFrontmatter` / `validateZettelNote` / index/graph helpers.
-- `@repo/s2-agent-ext-workflow` (hard peer) — the **single spawn path** since ①
+- `@repo/s2-agent-ext-ultracode` (hard peer) — the **single spawn path** since ①
   (`createAgentSession` / `spawnSubagent`) and the host-fn registry for ②'s
   deterministic `call('zk.*')`.
 - `s2-agent` (reverse consumer) — hosts the `zk-extract` / `zk-card` /

@@ -105,10 +105,10 @@ describe("classifySize", () => {
 		expect(classifySize(Array.from({ length: 5 }, (_, i) => `bun-apps/s2-agent/src/f${i}.ts`), REPO_ROOT)).toBe("T2");
 	});
 	test("two packages = T2", () => {
-		expect(classifySize(["bun-apps/s2-agent/src/a.ts", "bun-apps/s2-agent-ext-workflow/src/b.ts"], REPO_ROOT)).toBe("T2");
+		expect(classifySize(["bun-apps/s2-agent/src/a.ts", "bun-apps/s2-agent-ext-ultracode/src/b.ts"], REPO_ROOT)).toBe("T2");
 	});
 	test("three packages = T3", () => {
-		expect(classifySize(["bun-apps/s2-agent/src/a.ts", "bun-apps/s2-agent-ext-workflow/src/b.ts", "bun-apps/s2-agent-ext-subagent/src/c.ts"], REPO_ROOT)).toBe("T3");
+		expect(classifySize(["bun-apps/s2-agent/src/a.ts", "bun-apps/s2-agent-ext-ultracode/src/b.ts", "bun-apps/s2-agent-ext-subagent/src/c.ts"], REPO_ROOT)).toBe("T3");
 	});
 	test("non-bun-apps paths don't inflate package count", () => {
 		expect(classifySize(["bun-apps/s2-agent/src/a.ts", "python/some/file.py", "scripts/deploy.sh"], REPO_ROOT)).toBe("T1");

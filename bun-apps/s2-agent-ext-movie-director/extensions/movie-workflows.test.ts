@@ -14,7 +14,7 @@ import { describe, test, expect } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseWorkflowScript, readManifest, resolveWorkflowScript, runWorkflowScript } from "@repo/s2-agent-ext-workflow";
+import { parseWorkflowScript, readManifest, resolveWorkflowScript, runWorkflowScript } from "@repo/s2-agent-ext-ultracode";
 import { buildMovieHostFnRegistry } from "../src/host-fns.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
