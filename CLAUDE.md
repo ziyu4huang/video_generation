@@ -17,7 +17,7 @@ Guidance for Claude Code in this repository.
 
 - **Bun workspace**: root is `bun-apps/` (isolated linker + globalStore via `bun-apps/bunfig.toml`); `bun-apps/bun.lock` canonical. `bun install` from `bun-apps/` only; never commit `package-lock.json`; deps via `bun add` inside `bun-apps/`.
 - **Python**: `python/venv/bin/python python/mlx-movie-director/run.py <args>` from repo root only — never system `python3`/`python3.13`. Fresh clone: `bash scripts/setup-offline.sh` (or `uv venv python/venv --python 3.12 && uv pip install -r python/mlx-movie-director/requirements.txt`). Sibling forks `../mflux`, `../ltx-2-mlx` via `scripts/setup-repo-deps.sh`.
-- **Shell**: never top-level `cd` (`no-cd-drift.sh` blocks it) — use `( cd <dir> && ... )`, `--cwd`/`-C`, or absolute paths.
+- **Shell**: never top-level `cd` — use `( cd <dir> && ... )`, `--cwd`/`-C`, or absolute paths.
 - **Platform**: Apple Silicon MPS only, SDPA (no CUDA attention); MLX dtypes `bfloat16` native, quantize `mlx-8bit` (default) or 4-bit; no FP8.
 - **GUI**: `( cd bun-apps/gui-movie-director && bun run dev )`; URL via `bun run --cwd bun-apps/gui-movie-director gui:port`; kill stuck server `lsof -ti :<port> | xargs kill -9`; fresh clone `bash scripts/setup.sh`.
 
