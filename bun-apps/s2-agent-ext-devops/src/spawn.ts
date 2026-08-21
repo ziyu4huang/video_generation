@@ -18,6 +18,8 @@
  * optional trailing parameter is backwards-compatible: a `(cmd, args) => …`
  * function is still assignable to `(cmd, args, options?) => …`.
  */
+import { spawn as nodeSpawn } from "node:child_process";
+
 export interface SpawnResult {
 	stdout: string;
 	stderr: string;
@@ -48,6 +50,14 @@ export interface SpawnOptions {
 	 * Bun.spawn's own `timeout` option. That is exactly how this repo accumulated
 	 * a `bun test --isolate` orphan that spun at 100% CPU for six hours and made
 	 * every later run in the same worktree hang.
+	 *
+	 * Group-kill portability (macOS + Linux): the timeout path spawns via
+	 * node:child_process with `detached: true`, which on both POSIX platforms
+	 * puts the child in its OWN process group as leader — `kill(-pid)` then
+	 * reaches the whole tree without any external helper. The former
+	 * `/usr/bin/perl -e 'setpgrp(0,0); exec …'` wrapper assumed macOS's base-system
+	 * perl; verified empirically under Bun (detached + group-kill + grandchild
+	 * death, 2026-08-22).
 	 */
 	timeoutMs?: number;
 }
@@ -60,59 +70,83 @@ export interface SpawnOptions {
 export type SpawnFn = (cmd: string, args: string[], options?: SpawnOptions) => Promise<SpawnResult>;
 
 /**
+ * Timeout-path spawn: node:child_process with `detached: true` so the child is
+ * its own process-group LEADER and `kill(-pid)` reaches the whole tree on both
+ * macOS and Linux (see SpawnOptions.timeoutMs for the rationale + the retired
+ * perl wrapper). Kept separate from the Bun.spawn fast path: Bun.spawn has no
+ * `detached` option, and only calls WITH a cap need group semantics.
+ */
+function spawnDetached(
+	cmd: string,
+	args: string[],
+	cwd: string,
+	timeoutMs: number,
+): Promise<SpawnResult & { timedOut: boolean }> {
+	return new Promise((resolveP) => {
+		const proc = nodeSpawn(cmd, args, {
+			cwd,
+			detached: true,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		let stdout = "";
+		let stderr = "";
+		let timedOut = false;
+		proc.stdout?.setEncoding("utf8");
+		proc.stderr?.setEncoding("utf8");
+		proc.stdout?.on("data", (d: string) => (stdout += d));
+		proc.stderr?.on("data", (d: string) => (stderr += d));
+		const timer = setTimeout(() => {
+			timedOut = true;
+			try {
+				process.kill(-proc.pid!, "SIGKILL");
+			} catch {
+				proc.kill("SIGKILL"); // group gone or never formed — fall back to the child
+			}
+		}, timeoutMs);
+		const finish = (exitCode: number) => {
+			clearTimeout(timer);
+			resolveP(
+				timedOut
+					? {
+							stdout,
+							stderr: `${stderr}\n[spawn] KILLED after ${timeoutMs}ms — command exceeded its timeout`,
+							exitCode: SPAWN_TIMEOUT_EXIT_CODE,
+							// Flag the timeout reason for callers (oneshot-smoke) that branch
+							// on it rather than on the exit code alone.
+							timedOut: true,
+						}
+					: { stdout, stderr, exitCode, timedOut: false },
+			);
+		};
+		proc.on("error", (err) => {
+			stderr += `\n[spawn] ${String(err)}`;
+			finish(-1);
+		});
+		proc.on("close", (code) => finish(code ?? -1));
+	});
+}
+
+/**
  * Live Bun.spawn adapter — the only untested seam (thin stdlib passthrough).
  * `cwd` is the default working directory; a caller may override it per call via
  * the third `options.cwd` argument.
  */
 export function createLiveSpawn(cwd: string): SpawnFn {
 	return async (cmd, args, options) => {
-		const timeoutMs = options?.timeoutMs;
-		// Without a cap, spawn exactly as before — one fewer moving part on the
+		// With a cap, take the detached/group-kill path (see spawnDetached).
+		// Without one, spawn exactly as before — one fewer moving part on the
 		// path every gh/git call takes.
-		const argv =
-			timeoutMs === undefined
-				? [cmd, ...args]
-				: // Make the child a process-group LEADER so `kill(-pid)` reaches the
-					// whole tree. macOS ships no `setsid(1)`; /usr/bin/perl is part of the
-					// base system and setpgrp(0,0) is one call.
-					["/usr/bin/perl", "-e", "setpgrp(0,0); exec @ARGV or die $!", "--", cmd, ...args];
-		const proc = Bun.spawn(argv, { cwd: options?.cwd ?? cwd, stdout: "pipe", stderr: "pipe" });
-
-		let timedOut = false;
-		const timer =
-			timeoutMs === undefined
-				? undefined
-				: setTimeout(() => {
-						timedOut = true;
-						try {
-							process.kill(-proc.pid, "SIGKILL");
-						} catch {
-							proc.kill(9); // group gone or never formed — fall back to the child
-						}
-					}, timeoutMs);
-
-		try {
-			// Reading to EOF is what makes a hung child hang the CALLER: these two
-			// awaits never resolve while any descendant holds the pipe open. The
-			// group-kill above is what closes them.
-			const [stdout, stderr] = await Promise.all([
-				Bun.readableStreamToText(proc.stdout),
-				Bun.readableStreamToText(proc.stderr),
-			]);
-			const exitCode = await proc.exited;
-			if (timedOut) {
-				return {
-					stdout,
-					stderr: `${stderr}\n[spawn] KILLED after ${timeoutMs}ms — command exceeded its timeout`,
-					exitCode: SPAWN_TIMEOUT_EXIT_CODE,
-					// Flag the timeout reason for callers (oneshot-smoke) that branch on
-					// it rather than on the exit code alone.
-					timedOut: true,
-				};
-			}
-			return { stdout, stderr, exitCode };
-		} finally {
-			if (timer !== undefined) clearTimeout(timer);
+		if (options?.timeoutMs !== undefined) {
+			return spawnDetached(cmd, args, options.cwd ?? cwd, options.timeoutMs);
 		}
+		const proc = Bun.spawn([cmd, ...args], { cwd: options?.cwd ?? cwd, stdout: "pipe", stderr: "pipe" });
+		// Reading to EOF is what makes a hung child hang the CALLER: these two
+		// awaits never resolve while any descendant holds the pipe open.
+		const [stdout, stderr] = await Promise.all([
+			Bun.readableStreamToText(proc.stdout),
+			Bun.readableStreamToText(proc.stderr),
+		]);
+		const exitCode = await proc.exited;
+		return { stdout, stderr, exitCode };
 	};
 }

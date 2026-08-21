@@ -36,7 +36,6 @@
  * live `@repo/*` graph) stays in computeChangedPackages. Nothing is reimplemented
  * here — the wrapper only parses argv, picks a repo root, and serializes.
  */
-import path from "node:path";
 import { computeChangedPackages } from "./changed-packages.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 
@@ -56,10 +55,10 @@ export const CHANGED_PACKAGES_CLI_USAGE = [
 	"Options: --repo-root <path>  (default: the repo this file lives in)",
 ].join("\n");
 
-/** Repo root inferred from this file's location (`<root>/bun-apps/<pkg>/src/`). */
-export function defaultRepoRoot(): string {
-	return path.resolve(import.meta.dir, "..", "..", "..");
-}
+// defaultRepoRoot is shared plumbing — single definition in src/cli-common.ts,
+// re-exported here for import stability.
+import { defaultRepoRoot } from "./cli-common.js";
+export { defaultRepoRoot };
 
 /**
  * Pure argv → result. `spawn` is injectable so tests never touch a real git repo;

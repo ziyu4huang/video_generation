@@ -30,6 +30,8 @@
  * — PI_AGENT_E2E bundle-mode assertions, only when the diff is
  * deploy-sensitive (see ci-deploy-gate.ts for the rationale).
  */
+import { lstatSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { join } from "node:path";
 import { SPAWN_TIMEOUT_EXIT_CODE, type SpawnFn } from "./spawn.js";
 import { runSchemaCostCheck } from "./schema-cost-check.js";
 import {
@@ -314,15 +316,33 @@ async function mapPool<T, R>(items: T[], limit: number, worker: (item: T) => Pro
  * s2-agent's ensure-extension-deps patch; left broken, the next package that
  * resolves a `@repo/*` import from the workspace root dies with ENOENT
  * (btw/movie-director typecheck exit 2, archify test exit 1 — all transient
- * victims of s2-agent's suite running concurrently). Best-effort: the spawn's
- * exit code is advisory, never a gate.
+ * victims of s2-agent's suite running concurrently). Best-effort: failures are
+ * advisory, never a gate. In-process fs (was a `bash -c` spawn — the one
+ * gratuitous shell dep in this recipe; fs calls are cross-platform where the
+ * shell loop was not).
  */
-async function healWorkspaceLinks(spawn: SpawnFn, repoRoot: string): Promise<void> {
-	const script =
-		'for d in "$1"/bun-apps/node_modules/@repo/*; do [ -L "$d" ] && [ ! -e "$d" ] || continue; ' +
-		'n="$(basename "$d")"; rm -f "$d"; ln -s "../../$n" "$d"; done';
+function healWorkspaceLinks(repoRoot: string): void {
 	try {
-		await spawn("bash", ["-c", script, "heal-workspace-links", repoRoot], { cwd: repoRoot });
+		const dir = join(repoRoot, "bun-apps", "node_modules", "@repo");
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const target = join(dir, entry.name);
+			let lstatOk = false;
+			try {
+				lstatOk = lstatSync(target).isSymbolicLink();
+			} catch {
+				continue;
+			}
+			if (!lstatOk) continue;
+			let exists = true;
+			try {
+				statSync(target);
+			} catch {
+				exists = false; // dangling — stat through the link fails
+			}
+			if (exists) continue;
+			rmSync(target, { force: true });
+			symlinkSync(`../../${entry.name}`, target, "dir");
+		}
 	} catch {
 		/* advisory only */
 	}
@@ -621,9 +641,9 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	// Heal any @repo/* workspace link the sequential phase left dangling (the
 	// Bun-runtime rewrite above) so the parallel phase resolves cleanly. Only
 	// needed when s2-agent's own suite ran — it is the sole link-breaker — which
-	// also keeps the heal spawn out of unrelated runs' spawn sequences.
+	// also keeps the heal out of unrelated runs.
 	if (plans.some((p) => p.name === "s2-agent")) {
-		await healWorkspaceLinks(spawn, opts.repoRoot);
+		healWorkspaceLinks(opts.repoRoot);
 	}
 	// 3c. Non-build rows, bounded parallelism.
 	await mapPool(
