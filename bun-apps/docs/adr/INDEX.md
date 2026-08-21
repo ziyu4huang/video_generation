@@ -95,6 +95,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 | `ADR-subagent-0003` | `SpawnSubagentResult` reports a failure union, not a subprocess exit | [`s2-agent-ext-subagent/…/0003`](../../s2-agent-ext-subagent/docs/adr/0003-failure-union-over-subprocess-vocabulary.md) |
 | `ADR-subagent-0004` | Global detach shortcut is `alt+s`, not `ctrl+b` (scoped in-viewer surface keeps `ctrl+b`) | [`s2-agent-ext-subagent/…/0004`](../../s2-agent-ext-subagent/docs/adr/0004-global-detach-shortcut-alt-s.md) |
 | `ADR-subagent-0005` | Dispatch budget architecture — tier ceilings, role envelopes, direct-call parity | [`s2-agent-ext-subagent/…/0005`](../../s2-agent-ext-subagent/docs/adr/0005-dispatch-budget-architecture.md) |
+| `ADR-subagent-0006` | `/models-preset` is a transient session switch; `~/.pi` stays built-in-pure | [`s2-agent-ext-subagent/…/0006`](../../s2-agent-ext-subagent/docs/adr/0006-models-preset-transient-session-switch.md) |
 
 ### superpowers
 

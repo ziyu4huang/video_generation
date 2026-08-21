@@ -111,10 +111,13 @@ export { resolveModelRole } from "./model-role-config.js";
 export type { ModelTierConfig } from "./model-tier-config.js";
 export {
   buildDefaultTierConfig,
+  getEffectiveModelTierConfig,
   getModelTierConfigPath,
+  getTransientModelTierConfig,
   loadModelTierConfig,
   resolveTierModel,
   saveModelTierConfig,
+  setTransientModelTierConfig,
   sortedTierNames,
 } from "./model-tier-config.js";
 export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";

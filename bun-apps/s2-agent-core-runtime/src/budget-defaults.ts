@@ -27,7 +27,7 @@
  * local (cost≡0 in every retained run), so a spend ceiling can never fire.
  */
 import type { ModelTierConfig } from "./model-tier-config.js";
-import { loadModelTierConfig } from "./model-tier-config.js";
+import { getEffectiveModelTierConfig } from "./model-tier-config.js";
 
 /**
  * p90-calibrated per-tier token ceilings (hard-abort). See module doc + the
@@ -106,12 +106,13 @@ function tierForModel(model: string | undefined, config: ModelTierConfig | null)
  * silently ignored (the previous step's value falls through).
  *
  * `config` is an optional param so tests can inject a fixture without touching disk;
- * production omits it and reads the user's `~/.pi/workflows/model-tiers.json`.
+ * production omits it and reads the effective config (transient session preset
+ * override ?? the user's `~/.pi/workflows/model-tiers.json`).
  */
 export function tierDefaultToken(
   tier: string | undefined,
   model?: string,
-  config: ModelTierConfig | null = loadModelTierConfig(),
+  config: ModelTierConfig | null = getEffectiveModelTierConfig(),
 ): number | undefined {
   // 0. hard disable → no budget (unbounded run).
   if (envFlagTrue(ENV_KEYS.disable)) return undefined;

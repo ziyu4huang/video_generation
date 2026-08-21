@@ -15,11 +15,14 @@ import type { ModelTierConfig } from "./model-role-config.js";
 
 export type { ModelTierConfig } from "./model-role-config.js";
 export {
+  getEffectiveModelTierConfig,
   getModelTierConfigPath,
+  getTransientModelTierConfig,
   loadModelTierConfig,
   resolveModelRole,
   resolveTierModel,
   saveModelTierConfig,
+  setTransientModelTierConfig,
   sortedTierNames,
 } from "./model-role-config.js";
 

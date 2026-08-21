@@ -30,7 +30,48 @@ export function getModelTierConfigPath(): string {
   return join(homeDir(), MODEL_TIERS_FILE);
 }
 
-/** Load the config from disk. Returns null if absent or unparseable. */
+/**
+ * TRANSIENT (session-scope) OVERRIDE — set by `/models-preset`, never by
+ * anything that persists. ADR-subagent-0006: presets are a SESSION switch
+ * (main model + tier/capability routing), not a config write. `~/.pi` stays
+ * built-in-pure — the only writer of model-tiers.json is the ensure-model-tiers
+ * startup seed of the built-in default.
+ *
+ * Process-scope on purpose: the TUI process (or any host that applied a preset)
+ * routes tiers by the override; child processes and fresh starts see nothing.
+ * The subagent extension clears it on `session_start` so switching or starting
+ * a session resets to file/built-in routing.
+ *
+ * RESOLUTION consumers (agent-model, agent, budget-defaults,
+ * spawn-subagent-subprocess) read through getEffectiveModelTierConfig(); FILE
+ * consumers (/workflows-models editor, file2md fallback) keep calling
+ * loadModelTierConfig() directly so the editor shows what a save would write.
+ */
+let transientConfig: ModelTierConfig | null = null;
+
+/** Set (or clear, with null) the transient session-scope tier config. */
+export function setTransientModelTierConfig(config: ModelTierConfig | null): void {
+  transientConfig = config;
+  logModelDecision("transient-config", { action: config ? "set" : "clear", ...(config ?? {}) });
+}
+
+/** Read the transient session-scope tier config (null when none applied). */
+export function getTransientModelTierConfig(): ModelTierConfig | null {
+  return transientConfig;
+}
+
+/**
+ * The config RESOLUTION should use: the transient override when one is active
+ * (a preset applied this session), else the on-disk file. Pure read — never
+ * writes, never seeds.
+ */
+export function getEffectiveModelTierConfig(): ModelTierConfig | null {
+  return transientConfig ?? loadModelTierConfig();
+}
+
+/** Load the config from disk. Returns null if absent or unparseable.
+ * FILE-ONLY by contract: this never reflects the transient override — callers
+ * that must resolve a tier/capability use getEffectiveModelTierConfig(). */
 export function loadModelTierConfig(configPath?: string): ModelTierConfig | null {
   const path = configPath ?? getModelTierConfigPath();
   if (!existsSync(path)) {

@@ -1,7 +1,11 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 // Moved to @repo/s2-agent-core-runtime (in-flight registry with the dispatch
 // layer; run persistence with the record layer).
-import { getSubagentInFlightRegistry, getSubagentRunPersistence } from "@repo/s2-agent-core-runtime";
+import {
+  getSubagentInFlightRegistry,
+  getSubagentRunPersistence,
+  setTransientModelTierConfig,
+} from "@repo/s2-agent-core-runtime";
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
   convertToBackground,
@@ -104,9 +108,10 @@ export default function extension(pi: ExtensionAPI) {
   // Self-contained: reads the local in-flight registry this extension owns.
   pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight: inFlight }));
 
-  // /models-preset — apply a named model-config preset (tiers + vision) to
-  // ~/.pi/workflows/model-tiers.json. The one-stop setup/switch command; pairs
-  // with /workflows-models (fine-edit). Preset templates live in src/presets.ts.
+  // /models-preset — TRANSIENTLY switch this session's model config: main
+  // model (pi.setModel) + subagent tier/vision routing (in-memory transient
+  // override). Never writes ~/.pi — ADR-subagent-0006. Preset templates live
+  // in src/presets.ts; pairs with /workflows-models (persisted fine-edit).
   registerModelsPresetCommand(pi);
 
   // alt+s (Task 06, rebound from ctrl+b) — GLOBAL detach: background the
@@ -167,6 +172,10 @@ export default function extension(pi: ExtensionAPI) {
 
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
     activateSubagentTools();
+    // A preset applied via /models-preset is SESSION-scope (ADR-subagent-0006):
+    // starting or switching a session resets tier routing to the file/built-in
+    // config. (Also covers the initial session — a no-op clear.)
+    setTransientModelTierConfig(null);
     // The always-on subagent-context box (aboveEditor widget + Ctrl-O
     // \x0f onTerminalInput byte-sniff) was retired in Task 04 of the CC-style
     // subagent TUI plan; its unique collapsed-view behavior (latestMessageLine

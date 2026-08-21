@@ -16,7 +16,12 @@
  */
 
 import { logModelDecision } from "./debug-models.js";
-import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTierNames } from "./model-tier-config.js";
+import {
+  getEffectiveModelTierConfig,
+  type ModelTierConfig,
+  resolveTierModel,
+  sortedTierNames,
+} from "./model-tier-config.js";
 
 /**
  * Resolve which concrete model spec a subagent should use. Precedence, most
@@ -39,7 +44,7 @@ import { loadModelTierConfig, type ModelTierConfig, resolveTierModel, sortedTier
 export function resolveAgentModelSpec(
   options: { model?: string; tier?: string },
   mainModel: string | undefined,
-  loadConfig: () => ModelTierConfig | null = loadModelTierConfig,
+  loadConfig: () => ModelTierConfig | null = getEffectiveModelTierConfig,
 ): string | undefined {
   if (options.model) {
     logModelDecision("resolve", { branch: "explicit-model", spec: options.model });
@@ -138,7 +143,7 @@ export function resolveScopedAgentModelSpec(
   options: { model?: string; tier?: string },
   mainModel: string | undefined,
   scopedSpecs: readonly string[] | undefined,
-  loadConfig: () => ModelTierConfig | null = loadModelTierConfig,
+  loadConfig: () => ModelTierConfig | null = getEffectiveModelTierConfig,
 ): { spec: string | undefined; clamped: boolean; requested?: string } {
   const resolved = resolveAgentModelSpec(options, mainModel, loadConfig);
   if (resolved === undefined) return { spec: undefined, clamped: false };
@@ -149,7 +154,7 @@ export function resolveScopedAgentModelSpec(
 
 /**
  * Fallback decision when an explicitly-requested model spec turns out to be
- * UNavailable. The caller's `tier` (→ active /models-preset) degrades BEFORE
+ * UNavailable. The caller's `tier` (→ active session preset) degrades BEFORE
  * the session default, so subagents follow the preset by default instead of
  * silently landing on an arbitrary session default. (Previously an explicit
  * model short-circuited the tier, then the tier was discarded on fallback.)

@@ -25,7 +25,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { loadModelTierConfig, resolveModelRole } from "./model-role-config.js";
+import { getEffectiveModelTierConfig, resolveModelRole } from "./model-role-config.js";
 import type { SpawnSubagentResult } from "./spawn-subagent.js";
 import type { SubagentInFlightRegistry } from "./subagent-in-flight.js";
 import { generateSubagentRunId, type SubagentRunPersistence } from "./subagent-run-persistence.js";
@@ -231,7 +231,7 @@ export async function spawnSubagentSubprocess(opts: SpawnSubagentSubprocessOptio
 
   // §2: resolve the model from config (no hardcodes). Precedence mirrors
   // spawnSubagent: model > capability > tier > mainModel.
-  const cfg = loadModelTierConfig();
+  const cfg = getEffectiveModelTierConfig();
   const tierSpec = opts.tier ? resolveModelRole({ tier: opts.tier }, cfg) : undefined;
   const capabilitySpec = opts.capability ? resolveModelRole({ capability: opts.capability }, cfg) : undefined;
   if (opts.capability && !capabilitySpec) {
