@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { buildDeck, type DeckManifest, type DeckResult } from "../lib/deck-build.ts";
 import { parseSvg } from "../lib/svg-model.ts";
 import { toShapeIR } from "../lib/shape-ir.ts";
-import { count, readZipText } from "./helpers/read-zip.ts";
+import { count, readZipText } from "../lib/read-zip.ts";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXAMPLES = join(PKG_ROOT, "vendored", "examples");

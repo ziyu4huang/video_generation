@@ -1,0 +1,7 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.9333 0.855 0.0533] left/middle text:source "Source: prod traces, 2026-07-01..07-30"
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "2 / 5"
+[0.105 0.28 0.7875 0.3733] center/middle text:statement "One resolver call is costing us three seconds"
+[0.4628 0.6867 0.075 0.0053] left/top rule
+[0.105 0.72 0.7875 0.0533] center/top text:attribution "— the trace, not an opinion"

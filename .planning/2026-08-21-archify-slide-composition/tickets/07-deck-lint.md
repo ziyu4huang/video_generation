@@ -2,7 +2,7 @@
 ticket: 07-deck-lint
 effort: archify-slide-composition
 type: task
-status: open
+status: closed
 created: 2026-08-21
 last: 2026-08-21
 blocks-on: [05]
@@ -30,3 +30,15 @@ Surfaced by `bun run deck --lint` and in the `archify_export_pptx` result `detai
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-archify && bun run typecheck && bun test )`
+
+## Result
+
+**closed 2026-08-21** — `lib/deck-lint.ts` + `__tests__/deck-lint.test.ts` (18 tests). Wired
+into `bun run deck --lint` and the tool's `details`.
+
+- Title length is counted with `Array.from`, not `.length`: "延遲" is 2 characters and 6 UTF-8
+  bytes, and a byte rule would call it a full sentence.
+- A title carrying sentence punctuation is taken at its word — verb detection across English
+  and Chinese is not a regex's job, and the rule defers to the author rather than guessing.
+- Covers and dividers are exempt from the action-title rule; they name a thing on purpose.
+- Advisory throughout: a build with notes still exits 0 and still writes the `.pptx`.

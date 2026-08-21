@@ -164,7 +164,11 @@ interface PlacedBlock {
 `bullets`, `ir`, `statement`, `eyebrow`, `date`, `ratio`, `notes`). Only `title` is
 required; `parseManifest` keeps validating it.
 
-### 4.2 `lib/layouts/*.ts` — six pure functions
+### 4.2 `lib/layouts.ts` — six pure functions
+
+> Built as ONE module rather than the `lib/layouts/` directory this section first named:
+> six ~20-line functions plus a shared `chrome()` read better together than as a directory
+> of stubs, and the shared helper has an obvious home.
 
 `(slide: Slide, ctx: LayoutCtx) => PlacedBlock[]`, `ctx = { index, total, tag }`. No module
 here imports pptxgenjs, HTML, or a colour.
@@ -248,6 +252,27 @@ and every one of the six layouts would otherwise be added inside it.
   deliberately broken XML for each of the seven rules.
 - **`Bun.XML` order receipt** — a test that pins the §2.5 finding, so a future bun release
   that fixes it is noticed rather than assumed.
+
+## §5.1 What the gates actually found
+
+Recorded here because each was a real defect the design did not predict:
+
+1. **The D3 lock failed on first run**, by exactly `algn="l"` on four chrome paragraphs per
+   slide — the OOXML default, spelled out. Counts alone would have passed. `emit-pptx.ts`
+   now omits `align` when it is `left`, and all five slides are byte-identical.
+2. **`ooxml-lint` produced 21 false positives** before calibration: 19 ZIP directory entries
+   (not parts) and 2 `<a:ext>` elements under `<a:extLst>`, which is `CT_OfficeArtExtension`
+   (uri) rather than `CT_PositiveSize2D` (cx/cy). Both are now tests.
+3. **The one-off XSD run found one real deviation** — `<p:notesMasterIdLst>` after
+   `<p:sldIdLst>` in `ppt/presentation.xml`, against CT_Presentation's sequence. Upstream,
+   deliberate (pptxgenjs comments that the correct position "causes warning in modern
+   powerpoint!"), byte-identical pre-refactor, and accepted by every consumer tested. Not
+   fixed and deliberately not a lint rule.
+4. **A `split` slide's iframe showed the artifact's whole page UI**, dark toolbar and
+   duplicate title, inside a 60 % column. Fixed with `?embed=1&theme=…` — the artifact's own
+   contract, read straight out of `vendored/assets/template.html`.
+5. **`generateThumbnails` waited for an `<svg>`**, which a composed slide never has, so every
+   composed slide would have burned the full 3 s timeout. It now accepts `.stage` too.
 
 ## §6 Gate
 

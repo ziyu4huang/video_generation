@@ -1,30 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { addShapeIrToSlide, type Box, type SlideLike } from "../lib/pptx-shapes.ts";
+import { addShapeIrToSlide, type Box } from "../lib/pptx-shapes.ts";
+import { spySlide, type SpyCall } from "./helpers/spy-slide.ts";
 import type { ShapeIR, ShapeNode, Style } from "../lib/shape-ir.ts";
-
-interface Call {
-  fn: "addShape" | "addText" | "addImage";
-  type?: string;
-  text?: string;
-  opts: Record<string, unknown>;
-}
-
-/** A spy slide. `addImage` exists so its absence can be asserted, not assumed. */
-function spySlide(): SlideLike & { calls: Call[]; addImage(o: Record<string, unknown>): void } {
-  const calls: Call[] = [];
-  return {
-    calls,
-    addShape(type, opts) {
-      calls.push({ fn: "addShape", type, opts });
-    },
-    addText(text, opts) {
-      calls.push({ fn: "addText", text, opts });
-    },
-    addImage(opts) {
-      calls.push({ fn: "addImage", opts });
-    },
-  };
-}
 
 const BLACK: Style = { fill: { r: 0, g: 0, b: 0, a: 1 } };
 const STROKE: Style = { stroke: { r: 17, g: 34, b: 51, a: 1 }, strokeWidth: 2, fill: null };

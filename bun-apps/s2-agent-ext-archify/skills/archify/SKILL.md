@@ -1,6 +1,6 @@
 ---
 name: archify
-description: Author typed-JSON-IR technical diagrams (architecture / workflow / sequence / data-flow / lifecycle) and render them to self-contained, validated HTML. Use archify_validate before archify_render; use archify_delta to review architecture changes. Accept Mermaid input or repository evidence when asked. Loads deep IR-authoring guidance on demand from the vendored SKILL.md + schemas.
+description: Author typed-JSON-IR technical diagrams (architecture / workflow / sequence / data-flow / lifecycle), render them to self-contained validated HTML, and compose them into a meeting deck (.pptx + slide HTML) with six slide layouts. Use archify_validate before archify_render; archify_delta to review architecture changes; archify_export_pptx to build a deck. Accept Mermaid input or repository evidence when asked. Loads deep IR-authoring guidance on demand from the vendored SKILL.md + schemas.
 ---
 
 # Archify (condensed)
@@ -44,6 +44,43 @@ See the worked architecture IR (3 components, 2 connections) — copy + edit it.
 3. For change review: **`archify_delta`** two architecture IR snapshots → before/delta/after HTML (architecture-only).
 
 **Validate before render. Never deliver unvalidated IR.**
+
+## Compose a deck (`archify_export_pptx`)
+
+A deck manifest turns IRs *and prose* into a 16:9 `.pptx` of native editable shapes plus
+browsable slide HTML. Six layouts:
+
+| `layout` | use it for | key fields |
+|---|---|---|
+| `title` | cover | `eyebrow`, `subtitle`, `date` |
+| `section` | chapter divider | `sectionNumber` |
+| `bullets` | one idea, ≤6 points, ≤2 levels | `bullets`, `takeaway` |
+| `split` | diagram + its points, **60/40** | `ir`, `bullets`, `ratio` |
+| `diagram` | full-width diagram | `ir` |
+| `statement` | one large claim | `statement`, `attribution` |
+
+```json
+{ "output": "deck.pptx", "theme": "light", "tag": "…", "defaults": { "font": "PingFang TC" },
+  "slides": [
+    { "layout": "title", "title": "…", "subtitle": "…", "date": "…" },
+    { "layout": "split", "title": "…", "takeaway": "…", "source": "…",
+      "ir": "flow.dataflow.json", "bullets": ["…", { "text": "…", "level": 1 }] }
+  ] }
+```
+
+### Writing rules (these are checked, advisorily)
+
+1. **`title` is an ACTION TITLE** — the takeaway as a complete claim ("Cold-path latency is
+   what users feel"), never a topic label ("Latency"). Read in order, the titles must BE the
+   argument; that is what the reviewer checks first.
+2. **One idea per slide.** More than 6 bullets, or nesting past level 1, means two slides.
+3. **`takeaway` is the "so what"**, `source` is the attribution. An exhibit without either is
+   hard to defend in the room.
+4. **Never write a colour into copy.** Same Cardinal Rule as the IR: semantic role in, theme
+   colour out.
+5. `split` defaults to 60/40, not 50/50. Leave `ratio` alone unless the diagram demands it.
+
+A slide with `ir` and no `layout` is a `diagram` slide — old manifests need no edit.
 
 ## On-demand depth (read these LOCAL vendored paths when needed)
 

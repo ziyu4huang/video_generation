@@ -4,7 +4,7 @@
 //
 //   bun run deck [manifest] [--theme light|dark] [--output out.pptx]
 //                [--slides-dir <dir> | --no-slides] [--thumbnails]
-//                [--emit-shape-ir <dir>]
+//                [--emit-shape-ir <dir>] [--lint]
 //
 // Thin CLI over lib/deck-build.ts, which both this and the `archify_export_pptx`
 // tool share so they can never drift.
@@ -17,6 +17,14 @@
 //     "defaults": { "font": "PingFang TC" },
 //     "slides": [ { "ir": "slide1.json", "title": "…", "subtitle": "…" } ]
 //   }
+//
+// A slide with `ir` and no `layout` is a diagram slide, so every manifest written
+// before layouts existed still builds unchanged. The six layouts are `title`,
+// `section`, `bullets`, `split`, `diagram` and `statement`; see the README.
+//
+// `--lint` additionally prints the title storyline (the deck's argument read from
+// the titles alone), the advisory content notes, and the OOXML structural
+// diagnostics for the file just written. It never changes the exit code.
 //
 // `ir` / `output` resolve relative to the manifest dir (portable manifest);
 // `--output` resolves relative to cwd. `defaults.scale` is accepted and ignored —
@@ -41,6 +49,9 @@ import {
   resolveDeckOutput,
   type Theme,
 } from "../lib/deck-build.ts";
+import { formatLintNotes, lintDeck, storyline } from "../lib/deck-lint.ts";
+import { formatDiagnostics, lintPptx } from "../lib/ooxml-lint.ts";
+import { readZipText } from "../lib/read-zip.ts";
 import { VENDORED_BIN } from "../lib/run.ts";
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -54,6 +65,8 @@ export interface DeckArgs {
   slidesDir?: string | null;
   /** Render a thumbnail per slide (costs a page load each). */
   thumbnails?: boolean;
+  /** Print storyline + advisory content notes + OOXML diagnostics. */
+  lint?: boolean;
 }
 
 export function parseArgs(argv: string[]): DeckArgs {
@@ -63,6 +76,7 @@ export function parseArgs(argv: string[]): DeckArgs {
   let emitShapeIr: string | undefined;
   let slidesDir: string | null | undefined;
   let thumbnails = false;
+  let lint = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === undefined) break;
@@ -90,6 +104,10 @@ export function parseArgs(argv: string[]): DeckArgs {
       thumbnails = true;
       continue;
     }
+    if (a === "--lint") {
+      lint = true;
+      continue;
+    }
     if (a.startsWith("--")) throw new Error(`Unknown flag: ${a}`);
     positional.push(a);
   }
@@ -103,6 +121,7 @@ export function parseArgs(argv: string[]): DeckArgs {
     ...(emitShapeIr ? { emitShapeIr } : {}),
     ...(slidesDir !== undefined ? { slidesDir } : {}),
     ...(thumbnails ? { thumbnails } : {}),
+    ...(lint ? { lint } : {}),
   };
 }
 
@@ -147,6 +166,24 @@ async function main(): Promise<void> {
       `${result.slides.length} slides, ${shapes} native shapes, theme=${result.theme})`
   );
   if (result.slidesDir) console.log(`slides  ${result.slidesDir}`);
+
+  if (args.lint) {
+    console.log("\nstoryline — read these alone; they are the deck's argument:");
+    console.log(storyline(manifest));
+
+    const notes = lintDeck(manifest);
+    console.log(
+      notes.length === 0 ? "\ncontent lint: clean" : `\ncontent lint (${notes.length}):\n${formatLintNotes(notes)}`
+    );
+
+    const parts = await readZipText(new Uint8Array(await Bun.file(outputPath).arrayBuffer()));
+    const diags = await lintPptx(parts);
+    console.log(
+      diags.length === 0
+        ? `ooxml lint: clean (${Object.keys(parts).length} parts)`
+        : `ooxml lint (${diags.length}):\n${formatDiagnostics(diags)}`
+    );
+  }
 }
 
 if (import.meta.main) {

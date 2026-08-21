@@ -87,10 +87,15 @@ export async function generateThumbnails(
         // Created lazily so a fully-cached deck never starts an engine at all.
         view ??= new Bun.WebView({ width: viewport.width, height: viewport.height });
         await view.navigate(`file://${htmlPath}`);
-        // The artifact paints its SVG on load; give the runtime a moment to
-        // settle rather than racing it, then capture whatever is there.
+        // Give the page a moment to settle rather than racing it, then capture
+        // whatever is there. Two ready signals, not one: a diagram artifact
+        // paints an `<svg>`, while a COMPOSED slide has none and would
+        // otherwise burn the full 3 s timeout on every page — which is most of
+        // a composed deck.
         await view.evaluate(
-          `(() => new Promise(r => { const t = Date.now(); const tick = () => (document.querySelector('svg') || Date.now() - t > 3000) ? r('ok') : setTimeout(tick, 50); tick(); }))()`
+          `(() => new Promise(r => { const t = Date.now();` +
+            ` const ready = () => document.querySelector('svg') || document.querySelector('.stage') || Date.now() - t > 3000;` +
+            ` const tick = () => ready() ? requestAnimationFrame(() => r('ok')) : setTimeout(tick, 50); tick(); }))()`
         );
         const shot = await view.screenshot();
         const bytes = new Uint8Array(await shot.arrayBuffer());

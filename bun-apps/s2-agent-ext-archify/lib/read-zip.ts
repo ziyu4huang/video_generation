@@ -1,5 +1,10 @@
 /**
- * read-zip.ts — a minimal, pure-Bun ZIP reader for inspecting `.pptx` output.
+ * read-zip.ts — a minimal, pure-Bun ZIP reader for `.pptx` output.
+ *
+ * Lives in `lib/` rather than `__tests__/helpers/` because `ooxml-lint.ts` is a
+ * shipped module and needs it: the acceptance tests and the validity gate must
+ * read a deck through exactly one reader, or they can disagree about what the
+ * file contains.
  *
  * `Bun.Archive` cannot do this: probed 2026-08-21 with raw bytes, a `Bun.file`,
  * and a path — all three answer `Unrecognized archive format` for a zip, while a
@@ -25,6 +30,14 @@ export async function readZipText(bytes: Uint8Array): Promise<Record<string, str
     const name = decoder.decode(bytes.subarray(i + 30, i + 30 + nameLen));
     const start = i + 30 + nameLen + extraLen;
     const data = bytes.subarray(start, start + compressedSize);
+    // A trailing "/" marks a DIRECTORY entry, not a part. It carries no bytes
+    // and is not listed in [Content_Types].xml, so returning it makes every
+    // consumer filter it out — including the validity gate, which would
+    // otherwise report each directory as an uninventoried part.
+    if (name.endsWith("/")) {
+      i = start + compressedSize;
+      continue;
+    }
     out[name] =
       method === 0
         ? decoder.decode(data)

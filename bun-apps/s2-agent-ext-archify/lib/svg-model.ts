@@ -9,16 +9,25 @@
  *
  * `Bun.XML.parse` is disqualified for this job, measured 2026-08-21 on bun 1.4.0:
  *
- *   1. It collapses children into a TAG-NAME-KEYED MAP, so document order across
- *      differing sibling tags is lost:
+ *   1. It collapses REPEATED sibling tags into one array, so their interleaving
+ *      with other tags is lost:
  *        parse('<svg><rect id=r1/><path id=p1/><rect id=r2/></svg>')
  *          -> {"svg":{"rect":[{"@id":"r1"},{"@id":"r2"}],"path":{"@id":"p1"}}}
  *      In SVG, document order IS paint order. Losing it means background plates
  *      cover nodes and labels get occluded. Four `preserveOrder`-style option
- *      spellings were probed; none exists.
+ *      spellings were probed; all are silently accepted no-ops.
+ *
+ *      Note the precise shape of the flaw, corrected 2026-08-21 (effort
+ *      archify-slide-composition): order across DISTINCT sibling tags DOES
+ *      survive, as object key insertion order. It is repetition that destroys
+ *      it. That distinction is why `lib/ooxml-lint.ts` can use `Bun.XML` for its
+ *      `spPr` child-sequence rule (all-distinct children) while still needing
+ *      `HTMLRewriter` for its path-segment rule — and why the disqualification
+ *      here stands unchanged: an SVG's siblings repeat constantly.
  *   2. archify emits HTML-style boolean attributes inside its SVG
  *      (`data-detail-anchor` on <text>, `data-legend-bridge` on <g>), which are
- *      not legal XML — it fails to parse the input at all.
+ *      not legal XML — it fails to parse the input at all. (OOXML has no such
+ *      problem, which is the other half of why the two modules differ.)
  *
  * HTMLRewriter is a STREAMING parser, so document order is a structural
  * guarantee rather than a promise. Measured on the committed 629 KB artifact

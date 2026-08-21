@@ -2,7 +2,7 @@
 ticket: 02-layouts
 effort: archify-slide-composition
 type: task
-status: open
+status: closed
 created: 2026-08-21
 last: 2026-08-21
 blocks-on: [01]
@@ -35,3 +35,18 @@ Six layouts: `title`, `section`, `bullets`, `split` (default `ratio` **0.6**), `
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-archify && bun run typecheck && bun test )`
+
+## Result
+
+**closed 2026-08-21** — `lib/layouts.ts` (ONE module, not the `lib/layouts/` directory the
+spec first named: six ~20-line functions plus a shared `chrome()` read better together, and
+the helper gets an obvious home). `__tests__/layouts.test.ts`, 27 tests.
+
+- Goldens for all six under `__tests__/fixtures/layouts/*.txt`, one line per block;
+  regenerate with `UPDATE_LAYOUT_GOLDENS=1 bun test`.
+- The `diagram` layout's seven blocks are asserted against the OLD builder's literal inch
+  coordinates, not a re-derivation — including the detail that the footer text run is emitted
+  even when there is no subtitle, because the old code wrote `opts.subtitle ?? ""`
+  unconditionally and the run count is part of the compatibility surface.
+- `chrome()` moves the title band only when a `takeaway` is present; with none, the output is
+  coordinate-for-coordinate what it was.

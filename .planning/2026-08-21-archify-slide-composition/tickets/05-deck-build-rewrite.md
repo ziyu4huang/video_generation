@@ -2,7 +2,7 @@
 ticket: 05-deck-build-rewrite
 effort: archify-slide-composition
 type: task
-status: open
+status: closed
 created: 2026-08-21
 last: 2026-08-21
 blocks-on: [02, 03, 04]
@@ -38,3 +38,22 @@ optional slide fields via the manifest only — **do not grow the tool's own sch
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-archify && bun run typecheck && bun test )`
+
+## Result
+
+**closed 2026-08-21** — `deck-build.ts` is now an orchestrator; `addChrome`, `PALETTES`,
+`STAGE`/`CONTENT` and the inline diagram call are gone from it.
+`__tests__/deck-composition.test.ts`, 20 tests.
+
+**The lock holds at the byte level, not merely at counts.** The legacy deck's five slide XML
+parts were captured before the refactor and compared after: all five **byte-identical**. The
+first comparison was not — see ticket 03's `algn="l"` fix, which counts alone would have
+missed.
+
+Shape/text counts moved `23/21…` → `25/25…` (+2 shapes, +4 texts per slide). Not a geometry
+change: the old counter returned only what `addShapeIrToSlide` placed and never counted the
+chrome. Same slide, honest total; the README's `358` is now `388`.
+
+`archify_export_pptx` gained no new required parameter — the layouts reach it through the
+manifest, so the schema-cost surface is unchanged. Its `details` now carry `layout` per slide,
+the title `storyline`, and any advisory `lint` notes.

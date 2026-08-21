@@ -2,7 +2,7 @@
 effort: archify-slide-composition
 created: 2026-08-21
 last: 2026-08-21
-status: in-progress
+status: complete
 ---
 # archify-slide-composition — diagram tool → presentation generator
 
@@ -53,22 +53,22 @@ bit-for-bit.
 ## Tickets
 
 Phase 1 — the seam
-- `tickets/01-slide-model-and-theme.md` — task — types + tokens + type scale
-- `tickets/02-layouts.md` — task — six pure `Slide → PlacedBlock[]` functions + goldens
+- `tickets/01-slide-model-and-theme.md` — task, **closed** — types + tokens + type scale
+- `tickets/02-layouts.md` — task, **closed** — six pure `Slide → PlacedBlock[]` fns + goldens
 
 Phase 2 — emitters
-- `tickets/03-emit-pptx.md` — task — blocks → native shapes / wrapping text boxes
-- `tickets/04-emit-html.md` — task — blocks → self-contained composed HTML
+- `tickets/03-emit-pptx.md` — task, **closed** — blocks → native shapes / wrapping text boxes
+- `tickets/04-emit-html.md` — task, **closed** — blocks → self-contained composed HTML
 
 Phase 3 — wiring
-- `tickets/05-deck-build-rewrite.md` — task — orchestrator, CLI, tool, **compat lock**
+- `tickets/05-deck-build-rewrite.md` — task, **closed** — orchestrator, CLI, tool, **compat lock**
 
 Phase 4 — validity
-- `tickets/06-ooxml-lint.md` — task — structural gate + `Bun.XML` order receipt
-- `tickets/07-deck-lint.md` — task — advisory storyline / one-idea-per-slide checks
+- `tickets/06-ooxml-lint.md` — task, **closed** — structural gate + `Bun.XML` order receipt
+- `tickets/07-deck-lint.md` — task, **closed** — advisory storyline / one-idea checks
 
 Phase 5 — surface
-- `tickets/08-docs-and-example.md` — task — README, SKILL, a composed example deck
+- `tickets/08-docs-and-example.md` — task, **closed** — README, SKILL, composed example deck
 
 ## Decisions
 
@@ -86,20 +86,42 @@ Recorded in full in `spec.md` §3 (D1–D7). The three that shaped the architect
 
 ## Frontier
 
-Phase 1 next.
+cleared — tickets 01-08 all closed 2026-08-21.
+
+Delivered: six slide layouts driving both a native-shape `.pptx` and composed slide HTML from
+one `PlacedBlock[]`; real wrapping PowerPoint text boxes for prose; an OOXML structural gate
+at 0 diagnostics on both example decks; advisory content lint + title storyline. Suite went
+**268 → 401 passing, 0 failing**.
+
+The compatibility claim is stronger than the spec asked for: the legacy deck's five slide XML
+parts are **byte-identical** to a pre-refactor capture, not merely count-equivalent. Getting
+there required one real fix — see `spec.md` §5.1.
+
+One-off ECMA-376 XSD validation: **36 parts valid, 2 invalid**, both the same upstream
+pptxgenjs element-ordering choice in `ppt/presentation.xml`. Full write-up in
+`bun-apps/s2-agent-ext-archify/receipts/archify-slide-composition-2026-08-21.md`.
 
 ## Fog of war
 
 - **`<iframe>` inside webui's `/files` CSP** (`sandbox allow-scripts allow-downloads`) is
-  unprobed for a *nested* same-directory document. Sandbox flags are inherited, so it should
-  render; if it does not, the fallback is inlining the artifact's `<svg>` + `<style>` into the
-  composed page, which trades interactivity for certainty. Only `split` is affected —
-  `diagram` slides do not go through the composed HTML path at all (D4).
+  still unprobed for a *nested* same-directory document. The `file://` case IS now verified
+  live in `Bun.WebView` (it renders), and sandbox flags are inherited, so it should hold; if
+  it does not, the fallback is inlining the artifact's `<svg>` + `<style>` into the composed
+  page, trading interactivity for certainty. Only `split` is affected — `diagram` slides do
+  not go through the composed HTML path at all (D4).
+- **`?embed=1` is a vendored-template contract, not a schema field.** It is read straight out
+  of `vendored/assets/template.html` and nothing pins it. A vendored archify re-sync that
+  renamed or dropped the param would silently restore the artifact's full page UI inside a
+  `split` column. Cheap guard if it ever bites: assert the string is present in the template.
 - **Full ECMA-376 XSD validation** is deliberately uncharted as a permanent gate (D5); the
   one-off receipt is the charted substitute.
 - **Text overflow on a composed slide** is now PowerPoint's problem rather than ours, but
   `fit: 'shrink'` shrinking a 16 pt body to 9 pt is a legibility failure the lint cannot see.
-  No metric for it without a layout engine.
+  No metric for it without a layout engine. Note the action title deliberately does NOT
+  autofit — chrome is fixed-size and guarded by `deck-lint`'s length rule instead, because a
+  title that silently shrinks is worse than one a linter complains about.
+- **`kpi` / `timeline` / `matrix` / `comparison`** are the charted-but-unbuilt second round.
+  Each needs its own geometry; none needs a change to the seam.
 
 ## Cross-effort links
 
