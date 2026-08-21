@@ -22,6 +22,7 @@ import { join } from "node:path";
 
 import { readEffortMeta } from "./lifecycle.js";
 import { readMap } from "./map.js";
+import { computeFrontier } from "./model.js";
 
 // ─── adopt most-recent active effort (bare /wayfind fallback) ────────────────
 
@@ -141,9 +142,11 @@ export function listEfforts(cwd: string): EffortListResult {
         closed: tickets.filter((t) => t.status === "closed").length,
         claimed: openTickets.filter((t) => t.claimed).length,
       };
-      const frontierSize = tickets.filter(
-        (t) => t.status === "open" && !t.claimed && (t.blocking ?? []).length === 0,
-      ).length;
+      // ONE frontier definition everywhere: computeFrontier (open + unclaimed +
+      // every blocker closed) — the hand-rolled `blocking.length === 0` filter
+      // this replaced disagreed with /wayfind status whenever a blocker had
+      // since closed (ticket 07 trim W4).
+      const frontierSize = computeFrontier(tickets).length;
       efforts.push({
         slug,
         status: meta?.status ?? "active",

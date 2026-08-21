@@ -101,14 +101,3 @@ export default function wayfindExtension(pi: ExtensionAPI): void {
     overlay.dispose();
   });
 }
-
-// Re-export pure helpers for downstream packages / tests.
-export { PKG_NAME } from "./constants.js";
-export { readPlanIncomplete, readPlanSummary } from "./coordination.js";
-export { buildGrillPriming, buildPlanSeed, parseGlossary } from "./grill.js";
-export { WayfindOverlay } from "./overlay.js";
-export {
-  createRuntimeState,
-  isGrillActive,
-  type RuntimeState,
-} from "./state.js";

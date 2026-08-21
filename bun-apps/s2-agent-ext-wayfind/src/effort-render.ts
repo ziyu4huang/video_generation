@@ -49,8 +49,13 @@ export function renderStatus(r: EffortStatusResult): string {
   if (r.frontier.length > 0) {
     lines.push("frontier:");
     for (const t of r.frontier) lines.push(`  ${t.id} ${t.title} [${t.type}]`);
+  } else if (r.open > 0) {
+    lines.push("frontier: (empty — all open tickets are blocked or claimed)");
   } else {
-    lines.push("frontier: (clear)");
+    lines.push("frontier: (clear — no open tickets; the way is found)");
+    if (r.closed > 0) {
+      lines.push("  → run `/wayfind done` for the closing ceremony (self-reflect + next-goal note)");
+    }
   }
   // Budget-bounded ticket inventory: id/title/status/blocking ONLY (no bodies).
   if (r.tickets.length > 0) {

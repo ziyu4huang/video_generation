@@ -3,20 +3,12 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { effortStatus } from "../src/effort-tool.js";
 import { completeEffort, readEffortMeta, setEffortStatus } from "../src/lifecycle.js";
 import { readMap, writeMap } from "../src/map.js";
 import { parseMapFrontmatter, today } from "../src/model.js";
-import type { StatusReport } from "../src/wayfinder.js";
-import {
-  addTicket,
-  chartMap,
-  claimNextTicket,
-  closeEffortReflection,
-  renderStatus,
-  resolveTicket,
-  slugify,
-  statusReport,
-} from "../src/wayfinder.js";
+import { chartMap, claimNextTicket, closeEffortReflection, slugify } from "../src/wayfinder.js";
+import { addTicket, resolveTicket } from "./helpers/effort-fixtures.js";
 
 const tempRoots: string[] = [];
 
@@ -88,9 +80,9 @@ describe("chartMap + ticket lifecycle", () => {
     expect(claimed?.claimed).toBe("session-A");
 
     // After claiming, the frontier excludes the claimed ticket.
-    const r = statusReport(cwd, "orders");
-    expect(r?.frontier.map((t) => t.id)).toEqual([]); // 01 claimed, 02 blocked
-    expect(r?.claimed).toBe(1);
+    const r = effortStatus(cwd, "orders");
+    expect(r.frontier.map((t) => t.id)).toEqual([]); // 01 claimed, 02 blocked
+    expect(r.claimed).toBe(1);
   });
 
   it("resolveTicket closes the ticket + appends to Decisions so far + unblocks dependents", () => {
@@ -110,10 +102,10 @@ describe("chartMap + ticket lifecycle", () => {
     expect(map?.decisions[0].link).toBe("tickets/01-pick-storage.md");
 
     // Dependent 02 is now unblocked → on the frontier.
-    const r = statusReport(cwd, "orders");
-    expect(r?.frontier.map((t) => t.id)).toEqual(["02"]);
-    expect(r?.open).toBe(1);
-    expect(r?.closed).toBe(1);
+    const r = effortStatus(cwd, "orders");
+    expect(r.frontier.map((t) => t.id)).toEqual(["02"]);
+    expect(r.open).toBe(1);
+    expect(r.closed).toBe(1);
   });
 
   it("claimNextTicket returns null when the frontier is empty", () => {
@@ -121,44 +113,6 @@ describe("chartMap + ticket lifecycle", () => {
     chartMap(cwd, "orders", "dest");
     addTicket(cwd, "orders", "blocked one", "?", "grilling", ["99"]); // blocker absent+open
     expect(claimNextTicket(cwd, "orders", "x")).toBeNull();
-  });
-});
-
-describe("renderStatus", () => {
-  it("renders counts + frontier titles", () => {
-    const cwd = makeCwd();
-    chartMap(cwd, "orders", "the orders spec");
-    addTicket(cwd, "orders", "Pick storage", "?", "grilling", []);
-    const r = statusReport(cwd, "orders");
-    if (!r) throw new Error("expected status report");
-    const out = renderStatus(r);
-    expect(out).toContain("[orders]");
-    expect(out).toContain("open 1");
-    expect(out).toContain("Pick storage");
-    expect(out).toContain("the orders spec");
-  });
-
-  it("reports a clear frontier when no open tickets remain (no nudge — nothing closed yet)", () => {
-    const cwd = makeCwd();
-    chartMap(cwd, "orders", "dest");
-    const r = statusReport(cwd, "orders");
-    if (!r) throw new Error("expected status report");
-    expect(renderStatus(r)).toContain("the way is found");
-    expect(renderStatus(r)).not.toContain("/wayfind done");
-  });
-
-  it("nudges /wayfind done when the frontier is clear AND tickets were closed", () => {
-    const r: StatusReport = {
-      effort: "e",
-      destination: "d",
-      open: 0,
-      closed: 1,
-      claimed: 0,
-      frontier: [],
-      fog: 0,
-    };
-    expect(renderStatus(r)).toContain("the way is found");
-    expect(renderStatus(r)).toContain("/wayfind done");
   });
 });
 

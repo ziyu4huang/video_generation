@@ -26,15 +26,8 @@ import { Type } from "typebox";
 import { emitWayfindView, enrichListStaleness, enrichStatusStaleness } from "./effort-enrich.js";
 import { listEfforts, searchEfforts } from "./effort-query.js";
 import { renderCreate, renderList, renderSearch, renderStatus, renderValidate } from "./effort-render.js";
-import { readMap, writeMap } from "./map.js";
-import {
-  computeFrontier,
-  type EffortMeta,
-  type TicketStatus,
-  today,
-  validateEffortMap,
-  type WayfindMap,
-} from "./model.js";
+import { readMap, writeFreshMap } from "./map.js";
+import { computeFrontier, type EffortMeta, type TicketStatus, validateEffortMap } from "./model.js";
 
 // Renderer re-exports (plan Task 10): the renderers live in effort-render.ts;
 // re-exported here so commands/wayfind-handlers.ts and tests keep resolving.
@@ -99,25 +92,8 @@ export function createEffort(cwd: string, input: EffortCreateInput): EffortCreat
   if (existing) {
     return { ok: false, existed: true, effort, path, meta: existing.meta ?? null };
   }
-  const meta: EffortMeta = {
-    effort,
-    created: today(),
-    last: today(),
-    status: "active",
-    ...(input.owner ? { owner: input.owner } : {}),
-  };
-  const map: WayfindMap = {
-    effort,
-    destination: destination.trim(),
-    notes: (input.notes ?? "").trim(),
-    decisions: [],
-    fog: [],
-    outOfScope: [],
-    tickets: [],
-    meta,
-  };
-  writeMap(cwd, map);
-  return { ok: true, existed: false, effort, path, meta };
+  const map = writeFreshMap(cwd, effort, destination, input.notes ?? "", input.owner);
+  return { ok: true, existed: false, effort, path, meta: map.meta ?? null };
 }
 
 // ─── validate ────────────────────────────────────────────────────────────────
