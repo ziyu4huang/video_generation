@@ -124,8 +124,15 @@ describe("default exclude (Phase-3 clean-pass)", () => {
   it("the default-excluded skills' pinned SKILL.md stay on disk byte-identical (ADR-0004 — unregister ≠ edit)", () => {
     // The knob must NOT touch files. This is a presence check here; the full
     // byte-equality pin lives in skills-fidelity.test.ts (which stays green).
+    // verification-before-completion was DELETED (ticket 08, 2026-08-21) while
+    // its exclude entry is deliberately KEPT — an entry naming a skill that no
+    // longer ships is inert, so assert presence only for skills on disk.
     delete process.env[DEFAULTS_KEY];
-    for (const d of DEFAULT_SKILLS) expect(existsSync(join(skillsDir, d, "SKILL.md"))).toBe(true);
+    const onDisk = allSkillDirNames();
+    for (const d of DEFAULT_SKILLS.filter((n) => onDisk.includes(n))) {
+      expect(existsSync(join(skillsDir, d, "SKILL.md"))).toBe(true);
+    }
+    expect(DEFAULT_SKILLS.filter((n) => !onDisk.includes(n))).toEqual(["verification-before-completion"]);
   });
 });
 
@@ -175,7 +182,10 @@ describe("explicit PI_SUPERPOWERS_SKILL_EXCLUDE knob", () => {
     const advertised = (result.skillPaths as string[]).map((p) => basename(p)).sort();
     const expected = allSkillDirNames().filter((n) => n !== "test-driven-development");
     expect(advertised).toEqual(expected);
-    // defaults suppressed → BOTH default skills are loaded here
-    for (const d of DEFAULT_SKILLS) expect(advertised).toContain(d);
+    // defaults suppressed → every default-excluded skill that still SHIPS is
+    // loaded here (verification-before-completion no longer ships — ticket 08 —
+    // so its kept exclude entry is inert by design)
+    const onDisk = allSkillDirNames();
+    for (const d of DEFAULT_SKILLS.filter((n) => onDisk.includes(n))) expect(advertised).toContain(d);
   });
 });

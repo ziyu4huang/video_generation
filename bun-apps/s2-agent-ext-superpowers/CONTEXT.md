@@ -7,7 +7,7 @@ The ubiquitous language of s2-agent-ext-superpowers — a Pi-native port of the 
 ### Package purpose
 
 **Superpowers port**:
-This package's product — the 14 upstream skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, requesting/receiving-code-review, verification-before-completion, finishing-a-development-branch, using-git-worktrees, dispatching-parallel-agents, writing-skills, using-superpowers), the 1 repo-owned one promoted from `.planning/knowledge` (dispatch-recovery, which absorbed dispatch-budget-rebalance's Calibration section in #1699), plus the Pi extension wrapper that discovers and injects them.
+This package's product — the 13 upstream skills (brainstorming, writing-plans, executing-plans, subagent-driven-development, test-driven-development, systematic-debugging, requesting/receiving-code-review, finishing-a-development-branch, using-git-worktrees, dispatching-parallel-agents, writing-skills, using-superpowers; verification-before-completion deleted 2026-08-21 per ticket 08 — do not re-port), the 1 repo-owned one promoted from `.planning/knowledge` (dispatch-recovery, which absorbed dispatch-budget-rebalance's Calibration section in #1699), plus the Pi extension wrapper that discovers and injects them.
 _Avoid_: our methodology (the ported bodies are upstream-derived, not repo-authored — but they are NOT bare-verbatim any more: see the LOCAL-DIVERGENCES record in UPSTREAM.ref)
 
 **Positive content pin** (ADR-superpowers-0004):

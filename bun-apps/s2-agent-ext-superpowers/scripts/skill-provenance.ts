@@ -52,7 +52,6 @@ export const SKILLS: readonly SkillRecord[] = [
   { name: "test-driven-development", provenance: "upstream" },
   { name: "using-git-worktrees", provenance: "upstream" },
   { name: "using-superpowers", provenance: "upstream" },
-  { name: "verification-before-completion", provenance: "upstream" },
   { name: "writing-plans", provenance: "upstream" },
   { name: "writing-skills", provenance: "upstream" },
 ];
