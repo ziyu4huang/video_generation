@@ -28,7 +28,7 @@ import powerToolDefault from "@repo/s2-agent-ext-power-tool/extensions/power-too
 // workflow is imported FIRST so it precedes subagent in capture order, keeping
 // the canonical signature-group id "run_workflow" first (the id every qa/probes.ts
 // entry + findGate keys off of) — see the comment at the CORPUS_EFF call site.
-import workflowDefault from "@repo/s2-agent-ext-workflow/extensions/workflow.ts";
+import workflowDefault from "@repo/s2-agent-ext-ultracode/extensions/ultracode.ts";
 import subagentDefault from "@repo/s2-agent-ext-subagent/extensions/subagent.ts";
 // tickets 03 + 05 (wired): devops registers merge_pr_after_local_ci + sweep_merged_branches
 // (both keyword-gated) and show_pr_status (an ungated companion — skipped by

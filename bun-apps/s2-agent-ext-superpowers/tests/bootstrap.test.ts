@@ -126,7 +126,7 @@ describe("bootstrap payload assembly", () => {
     expect(payload).toContain("## Pi tool mapping");
     // the subagent tool is owned by s2-agent-ext-subagent (extracted from workflow)
     expect(payload).toContain("s2-agent-ext-subagent");
-    expect(payload).not.toContain("s2-agent-ext-workflow");
+    expect(payload).not.toContain("s2-agent-ext-ultracode");
   });
 
   it("Pi tool mapping is TERSE: essentials + deferral pointers, params live in the reference (ADR-0010)", () => {

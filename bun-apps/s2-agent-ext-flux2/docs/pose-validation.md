@@ -153,7 +153,7 @@ Extend the file freely — every pose is just `{id, prompt, failure_modes, atoms
 The flux2/krea2 L2 workflow (`workflows/test-*-e2e.js`) Judge stage is now
 **pose-aware**. The upgrade described below is shipped (not hypothetical); the
 deterministic guard for it lives in
-`bun-apps/s2-agent-ext-workflow/tests/regression-ext-workflow-protection.test.ts`
+`bun-apps/s2-agent-ext-ultracode/tests/regression-ext-workflow-protection.test.ts`
 (`L2 workflow pose_dsg gating`).
 
 How it works:

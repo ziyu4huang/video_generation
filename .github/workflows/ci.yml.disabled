@@ -192,12 +192,12 @@ jobs:
           - { package: s2-agent-ext-knowledge-card, test-cmd: "bun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs" }
           - { package: s2-agent-ext-obsidian, test-cmd: "bun test extensions/__tests__/" }
           # ── special runners (see CLAUDE.md testing section) ──
-          # s2-agent-ext-workflow: src-entry package since the 2026-08-15
+          # s2-agent-ext-ultracode: src-entry package since the 2026-08-15
           # src-entry migration (ticket 04): root resolves to ./src/index.ts,
           # no build step; the generic canonical chain (check && test:unit) is
           # the gate — biome check passes clean (warnings only; the old
           # formatting-drift note is stale).
-          - { package: s2-agent-ext-workflow, test-cmd: "bun run test" }
+          - { package: s2-agent-ext-ultracode, test-cmd: "bun run test" }
           # s2-agent-ext-webui: 21 test files, never in the matrix — the largest
           # single uncovered suite in the repo. Src-entry package since the
           # 2026-08-15 src-entry migration (ticket 02, PR #1391): package root
@@ -244,7 +244,7 @@ jobs:
       # would.
       - uses: actions/checkout@v4
         if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
-      # Shared preamble (Bun + install + build s2-agent-ext-workflow). Every
+      # Shared preamble (Bun + install + build s2-agent-ext-ultracode). Every
       # matrix entry is now pure Bun (hermes-memory dropped its Node/tsx carve-out).
       - uses: ./.github/actions/setup-env
         if: "!cancelled() && (github.event_name == 'push' || needs.changed_packages.result != 'success' || fromJSON(needs.changed_packages.outputs.packages)[matrix.package] == true)"
@@ -701,7 +701,7 @@ jobs:
       matrix:
         package:
           - s2-agent-ext-hermes-memory
-          - s2-agent-ext-workflow
+          - s2-agent-ext-ultracode
           - s2-agent-ext-obsidian
           # Added after a full local-matrix run failed once ("examples re-renders
           # every bundled example IR to HTML" expected >=5, got 0) and then went

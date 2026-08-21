@@ -72,7 +72,7 @@ describe("readCiMatrix — against this repo's real workflow", () => {
 		expect(matrix["s2-agent-ext-tool-gate"]).toBe("bun test && bun run qa");
 		// src-entry since the 2026-08-15 migration (tickets 02/04): generic chain,
 		// no build prefix. Asserting these guards the rows against quiet re-widening.
-		expect(matrix["s2-agent-ext-workflow"]).toBe("bun run test");
+		expect(matrix["s2-agent-ext-ultracode"]).toBe("bun run test");
 		expect(matrix["s2-agent-ext-webui"]).toBe("bun test");
 		expect(matrix["s2-agent-ext-knowledge-card"]).toContain("--isolate");
 		expect(matrix["s2-agent-ext-knowledge-card"]).toContain("toolWiring.test.mjs");

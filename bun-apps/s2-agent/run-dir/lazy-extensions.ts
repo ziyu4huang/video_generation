@@ -12,7 +12,7 @@
  * the real factory file.
  *
  * HISTORY: this mechanism was originally created so heavy extensions could stay
- * OUT of manifest.json (zero cost on default sessions). s2-agent-ext-workflow
+ * OUT of manifest.json (zero cost on default sessions). s2-agent-ext-ultracode
  * was promoted to eager (default-enabled) on 2026-07-10 — it now lives in BOTH
  * manifest.extensions AND lazyExtensions. That is intentional and safe: the SDK
  * loader (core/extensions/loader.ts discoverAndLoadExtensions) dedups by resolved

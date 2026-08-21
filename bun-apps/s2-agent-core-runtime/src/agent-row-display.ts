@@ -1,7 +1,7 @@
 /**
  * Generic agent/subagent-row display helpers — the shared visual language for
  * live agent rows across the bottom task panel, the /workflows navigator, and
- * the /subagents viewer. Extracted from s2-agent-ext-workflow/src/display.ts so
+ * the /subagents viewer. Extracted from s2-agent-ext-ultracode/src/display.ts so
  * s2-agent-ext-subagent is self-contained for its TUI; workflow re-imports these
  * (it already depends on this package) for its own agent-row rendering.
  *

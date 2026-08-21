@@ -20,7 +20,7 @@
  * return) and exits 0 on completion (converged OR needsReview — both are
  * successful runs), non-zero only on a thrown/crashed workflow.
  */
-import { runWorkflow } from "../../s2-agent-ext-workflow/src/workflow.js";
+import { runWorkflow } from "../../s2-agent-ext-ultracode/src/workflow.js";
 import path from "node:path";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 

@@ -73,7 +73,7 @@ describe("staticExtensions ↔ STATIC_EXTENSION_FACTORIES", () => {
 		// above compares one source with itself — it can no longer catch a
 		// reorder. Assert the invariant against the manifest array directly.
 		const idx = (dir: string) => staticDirs.indexOf(dir);
-		expect(idx("s2-agent-ext-subagent")).toBeLessThan(idx("s2-agent-ext-workflow"));
+		expect(idx("s2-agent-ext-subagent")).toBeLessThan(idx("s2-agent-ext-ultracode"));
 	});
 
 	test("no package is registered both statically and dynamically", () => {

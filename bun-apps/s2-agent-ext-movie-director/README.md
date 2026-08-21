@@ -130,9 +130,9 @@ The `movie` tool's commands: `preflight`, `pipeline-list`, `pipeline-show`,
 `pre-compose`, `final-review`, `cost-estimate`, `cost-reserve`, `cost-reconcile`,
 `cost-snapshot`. See the tool description for the per-command options.
 
-## Workflow integration (`s2-agent-ext-workflow`)
+## Workflow integration (`s2-agent-ext-ultracode`)
 
-When loaded alongside `s2-agent-ext-workflow`, this extension also exposes the
+When loaded alongside `s2-agent-ext-ultracode`, this extension also exposes the
 20 `dispatch()` commands as **`movie.*` host-fns** callable from any workflow
 script via `call('movie.<command>', args)` (deterministic, zero-token,
 journaled), and registers **four saved workflow commands** that run the
@@ -147,12 +147,12 @@ pipeline as parallel, background-able, **journaled-resumable** workflows:
 
 ```bash
 # prerequisite: keep workflow dist in sync with src after workflow src changes
-( cd bun-apps/s2-agent-ext-workflow && bun run build )
+( cd bun-apps/s2-agent-ext-ultracode && bun run build )
 
 # load both extensions; the /commands + movie.* host-fns become available
 bun bun-apps/s2-agent/src/cli.ts \
   -e bun-apps/s2-agent-ext-movie-director \
-  -e bun-apps/s2-agent-ext-workflow \
+  -e bun-apps/s2-agent-ext-ultracode \
   -p "/produce-video concept='a 15s animated explainer about how tides work'"
 ```
 

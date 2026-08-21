@@ -25,7 +25,7 @@ function mkSubagentRecord(overrides: Partial<import("@repo/s2-agent-core-runtime
 	};
 }
 
-function mkPersistedRunState(overrides: Partial<import("@repo/s2-agent-ext-workflow").PersistedRunState>): import("@repo/s2-agent-ext-workflow").PersistedRunState {
+function mkPersistedRunState(overrides: Partial<import("@repo/s2-agent-ext-ultracode").PersistedRunState>): import("@repo/s2-agent-ext-ultracode").PersistedRunState {
 	return {
 		runId: "wf_test",
 		workflowName: "test-workflow",

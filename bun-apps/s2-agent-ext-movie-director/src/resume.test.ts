@@ -16,7 +16,7 @@
  * crashed run's partial media is overwritten on resume. No fix, no test.)
  */
 import { describe, test, expect } from "bun:test";
-import { WorkflowManager, createRunPersistence } from "@repo/s2-agent-ext-workflow";
+import { WorkflowManager, createRunPersistence } from "@repo/s2-agent-ext-ultracode";
 import {
   buildProbeRegistry,
   stubAgent,

@@ -2,7 +2,7 @@
   "name": "@repo/s2-agent-ext-subagent",
   "version": "0.1.0",
   "private": true,
-  "description": "Isolated single-subagent dispatch for Pi — spawnSubagent + WorkflowAgent runner + subagent/subagent_runs tools. Extracted from s2-agent-ext-workflow as a lower-dependency library.",
+  "description": "Isolated single-subagent dispatch for Pi — spawnSubagent + WorkflowAgent runner + subagent/subagent_runs tools. Extracted from s2-agent-ext-ultracode as a lower-dependency library.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

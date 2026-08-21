@@ -12,7 +12,7 @@ _Avoid_: tool-first, script-driven (the agent holds the control flow, not a pipe
 
 **Pipeline**:
 A manifest-defined chain of stages — `idea/research → proposal → script → scene_plan → assets → edit → compose → publish`. The shape of one production.
-_Avoid_: workflow (reserved for s2-agent-ext-workflow), job, DAG (a pipeline is a manifest-authored stage chain driven by the agent)
+_Avoid_: workflow (reserved for s2-agent-ext-ultracode), job, DAG (a pipeline is a manifest-authored stage chain driven by the agent)
 
 **Stage**:
 One step of a pipeline, producing a canonical artifact and gated by a checkpoint.
@@ -101,7 +101,7 @@ point of this loop — see `evaluate-lipsync`'s `movie_help` entry)
 ### Integration
 
 **`movie.*` host-fns**:
-When loaded alongside `s2-agent-ext-workflow`, the 20 `dispatch()` commands are exposed as `movie.<command>` callable from any workflow script via `call('movie.<command>', args)` — deterministic, zero-token, journaled.
+When loaded alongside `s2-agent-ext-ultracode`, the 20 `dispatch()` commands are exposed as `movie.<command>` callable from any workflow script via `call('movie.<command>', args)` — deterministic, zero-token, journaled.
 _Avoid_: workflow tools, bindings (they are deterministic host-functions inside the workflow vm)
 
 **Tool-scope guard**:

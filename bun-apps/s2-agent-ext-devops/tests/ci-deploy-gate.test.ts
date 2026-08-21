@@ -40,7 +40,7 @@ describe("shouldRunDeployE2e", () => {
 	test("no false positives from similar names", () => {
 		expect(shouldRunDeployE2e(["bun-apps/s2-agent/src/cli/sessions/shared.ts"])).toBe(false);
 		expect(shouldRunDeployE2e(["docs/s2-agent.sh.md"])).toBe(false);
-		expect(shouldRunDeployE2e(["bun-apps/s2-agent-ext-workflow/src/index.ts"])).toBe(false);
+		expect(shouldRunDeployE2e(["bun-apps/s2-agent-ext-ultracode/src/index.ts"])).toBe(false);
 	});
 	test("command constant pins the gated files", () => {
 		expect(DEPLOY_E2E_COMMAND).toBe("PI_AGENT_E2E=1 bun test src/__tests__/e2e-launcher.test.ts");

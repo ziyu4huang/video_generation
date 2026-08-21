@@ -103,7 +103,7 @@ becomes `{ "scored": false, "path": "...", "error": "<reason>", "needsReview": t
 NOT a missing array element. This is the workflow-layer defense against the engine's
 null→default silent-wrong-result pattern: a caller can never mistake "could not score"
 for "scored and passed", because `ok` is false and `needsReview` is true whenever any
-entry is `scored:false`. See `bun-apps/s2-agent-ext-workflow/tests/regression-rca.test.ts`
+entry is `scored:false`. See `bun-apps/s2-agent-ext-ultracode/tests/regression-rca.test.ts`
 (RCA#4/#7) for the engine-side root cause this guard exists to neutralize.
 
 ### Thresholds & the over-praise caveat

@@ -91,8 +91,8 @@ aggregator, not a hard install edge).
 | `s2-agent-ext-movie-director` | `s2-agent-ext-flux2` | `dependencies` |
 | `s2-agent-ext-movie-director` | `s2-agent-ext-krea2` | `dependencies` |
 | `s2-agent-ext-movie-director` | `s2-agent-ext-ltx` | `dependencies` |
-| `s2-agent-ext-movie-director` | `s2-agent-ext-workflow` | `dependencies` |
-| `s2-agent-ext-workflow` | `s2-agent-ext-subagent` | `dependencies` |
+| `s2-agent-ext-movie-director` | `s2-agent-ext-ultracode` | `dependencies` |
+| `s2-agent-ext-ultracode` | `s2-agent-ext-subagent` | `dependencies` |
 | `s2-agent-ext-wayfind` | `s2-agent-ext-task` | `dependencies` |
 | `s2-agent-ext-knowledge-card` | `s2-agent-ext-obsidian` | `peerDependencies` |
 | `s2-agent-ext-knowledge-card` | `s2-agent-ext-subagent` | `peerDependencies` |
@@ -136,7 +136,7 @@ runtime `dependencies`; `peers` = `peerDependencies` (host-provided).
 | `tool-gate` | — | — | pca, typebox | DYN | `extensions/tool-gate.ts` |
 | `wayfind` | ext-task | — | pca | STA | `extensions/wayfind.ts` |
 | `web-access` | — | @mozilla/readability, linkedom, p-limit, turndown, unpdf | ai, pca, tui, typebox | STA | `extensions/web-access.ts` (shim → root `index.ts`) |
-| `workflow` | subagent | acorn | pca, tui, typebox | STA | `extensions/workflow.ts` |
+| `workflow` | subagent | acorn | pca, tui, typebox | STA | `extensions/ultracode.ts` |
 | `zai-mcp` | — | @modelcontextprotocol/sdk | ai, core, pca, tui, typebox | DYN | `extensions/zai-mcp.ts` |
 
 Abbreviations: `ai`=pi-ai · `pca`=pi-coding-agent · `core`=pi-agent-core · `tui`=pi-tui.
@@ -226,7 +226,7 @@ the workspace; they are a subset, not the source of truth.
 `web-access`, `knowledge-card`, `obsidian`, `file2md` — plus the host
 `pi-agent-core`, `pi-ai`, `pi-coding-agent`, `typebox`. This pulls the broad
 extension set into the CLI's standalone bundle. The `postinstall` hook
-best-effort-builds `s2-agent-ext-workflow`'s dist if missing.
+best-effort-builds `s2-agent-ext-ultracode`'s dist if missing.
 
 ## 7. Observed debt (pre-simplification baseline, 2026-07-25)
 

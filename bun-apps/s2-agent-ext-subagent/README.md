@@ -1,6 +1,6 @@
 # @repo/s2-agent-ext-subagent
 
-Isolated single-subagent dispatch for [Pi](https://github.com/earendil-works/pi-coding-agent): the `subagent` and `subagent_runs` tools, the `WorkflowAgent` runner that drives a fresh in-memory Pi session per dispatch, the `spawnSubagent` programmatic API, and the process-wide singletons that let the `/subagents` viewer (now in this package, since PR #821) observe in-flight and completed runs. Extracted from `s2-agent-ext-workflow` as a lower-dependency library so peer extensions (`knowledge-card`, `wayfind`, `superpowers`, …) can `spawnSubagent` without dragging in the whole workflow DSL, and so the subagent tools load independently of the workflow engine.
+Isolated single-subagent dispatch for [Pi](https://github.com/earendil-works/pi-coding-agent): the `subagent` and `subagent_runs` tools, the `WorkflowAgent` runner that drives a fresh in-memory Pi session per dispatch, the `spawnSubagent` programmatic API, and the process-wide singletons that let the `/subagents` viewer (now in this package, since PR #821) observe in-flight and completed runs. Extracted from `s2-agent-ext-ultracode` as a lower-dependency library so peer extensions (`knowledge-card`, `wayfind`, `superpowers`, …) can `spawnSubagent` without dragging in the whole workflow DSL, and so the subagent tools load independently of the workflow engine.
 
 ## Public API surface
 
@@ -125,4 +125,4 @@ Recurring host/repo environment facts (macOS has no GNU `timeout`; never `git ad
 
 ## Upstream sync
 
-This package has **dual provenance**: the package body (33 src files) was extracted from `s2-agent-ext-workflow` (#789), while the 2 watchdog files (`src/watchdog/lsp-diagnostics.ts`, `src/watchdog/repo-diff.ts`) are a selective port from `nicobailon/pi-subagents`. The watchdog ports are documented in [`docs/upstream/pi-subagents.pin.md`](docs/upstream/pi-subagents.pin.md) — consult it before any upstream sync so those ports aren't lost again.
+This package has **dual provenance**: the package body (33 src files) was extracted from `s2-agent-ext-ultracode` (#789), while the 2 watchdog files (`src/watchdog/lsp-diagnostics.ts`, `src/watchdog/repo-diff.ts`) are a selective port from `nicobailon/pi-subagents`. The watchdog ports are documented in [`docs/upstream/pi-subagents.pin.md`](docs/upstream/pi-subagents.pin.md) — consult it before any upstream sync so those ports aren't lost again.

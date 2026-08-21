@@ -14,7 +14,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SubagentRunRecord } from "@repo/s2-agent-core-runtime";
-import type { PersistedRunState } from "@repo/s2-agent-ext-workflow";
+import type { PersistedRunState } from "@repo/s2-agent-ext-ultracode";
 
 export interface DispatchRecord {
 	effort: string;

@@ -4,13 +4,13 @@ import assert from "node:assert/strict";
  * CROSS-PACKAGE SHARING PROOF (wayfinder tickets 02+03 — make-or-break).
  *
  * The rate limiter MUST be a single shared budget across s2-agent-ext-subagent
- * (the `subagents`/`subagent` tools) and s2-agent-ext-workflow (the `agent()`
+ * (the `subagents`/`subagent` tools) and s2-agent-ext-ultracode (the `agent()`
  * dispatch). This test exercises the TWO distinct import paths the two packages
  * use in production:
  *
  *   - s2-agent-ext-subagent imports the shared runtime directly:
  *         import { ... } from "@repo/s2-agent-core-runtime"
- *   - s2-agent-ext-workflow imports the package root:
+ *   - s2-agent-ext-ultracode imports the package root:
  *         import { ... } from "@repo/s2-agent-ext-subagent"
  *
  * It acquires-and-HOLDS one slot via the src path, then proves the package-root
@@ -34,7 +34,7 @@ import {
 // PACKAGE-ROOT path - the core-runtime facade this barrel re-exports for peers
 // that do not declare core-runtime (see tests/barrel-surface.test.ts). Both
 // spellings must gate on ONE budget, or a facade consumer would silently get an
-// unbounded second limiter. (s2-agent-ext-workflow itself imports the symbol
+// unbounded second limiter. (s2-agent-ext-ultracode itself imports the symbol
 // from core-runtime directly; this path covers the facade consumers.)
 import {
   getGlobalRateLimiter as getViaPkgRoot,

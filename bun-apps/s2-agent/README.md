@@ -116,12 +116,12 @@ legacy deploy pipeline; it was empty).
 ### Lazy / opt-in extensions (`-e <alias>`)
 Everything registered above loads **every** session — fine for cheap,
 general-purpose extensions, wrong for heavy on-demand ones (e.g.
-`s2-agent-ext-workflow`'s `workflow` tool costs ~2.5k tok/req). Those live in a
+`s2-agent-ext-ultracode`'s `workflow` tool costs ~2.5k tok/req). Those live in a
 separate **lazy registry** — the `lazyExtensions` key of the same
 `s2-agent.registry.yaml` (carried verbatim into the derived
 `run-dir/manifest.json`):
 ```json
-{ "lazyExtensions": { "workflow": "s2-agent-ext-workflow/extensions/workflow.ts", … } }
+{ "lazyExtensions": { "workflow": "s2-agent-ext-ultracode/extensions/ultracode.ts", … } }
 ```
 A lazy entry costs **zero** context unless you ask for it by alias:
 ```bash

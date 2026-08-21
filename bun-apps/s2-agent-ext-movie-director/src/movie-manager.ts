@@ -14,8 +14,8 @@
  * is reconciled before the new run starts). Construction is cheap; movie
  * commands are foreground/blocking so there is no concurrency concern.
  */
-import type { WorkflowManager } from "@repo/s2-agent-ext-workflow";
-import { WorkflowManager as WM, createWebTools } from "@repo/s2-agent-ext-workflow";
+import type { WorkflowManager } from "@repo/s2-agent-ext-ultracode";
+import { WorkflowManager as WM, createWebTools } from "@repo/s2-agent-ext-ultracode";
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
 import { buildMovieHostFnRegistry } from "./host-fns.ts";
 

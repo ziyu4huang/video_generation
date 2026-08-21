@@ -60,7 +60,7 @@ Every gate family is declared in the shared `GATE_DEFS` registry by its **owning
 | krea2 | `krea2`, `krea2_help` | s2-agent-ext-krea2 | keywords (narrow) |
 | ltx | `ltx`, `ltx_help` | s2-agent-ext-ltx | keywords + noun∧verb |
 | file2md | `file2md`, `vision_ask` | s2-agent-ext-file2md | keywords + noun∧verb |
-| workflow | `workflow`, `workflow_help`, `workflow_control`, `subagent`, `subagents` | s2-agent-ext-workflow + s2-agent-ext-subagent (cross-package family) | keywords |
+| workflow | `workflow`, `workflow_help`, `workflow_control`, `subagent`, `subagents` | s2-agent-ext-ultracode + s2-agent-ext-subagent (cross-package family) | keywords |
 | collect_videos | `collect_videos`, `organize_vault_notes`, `import_memory_to_vault` | s2-agent-ext-research-tool | keywords |
 | arxiv | `arxiv_search`, `arxiv_fetch2md`, `arxiv_paper` | s2-agent-ext-research-tool | keywords + noun∧verb |
 | movie | `movie`, `movie_help` | s2-agent-ext-movie-director | keywords + noun∧verb |

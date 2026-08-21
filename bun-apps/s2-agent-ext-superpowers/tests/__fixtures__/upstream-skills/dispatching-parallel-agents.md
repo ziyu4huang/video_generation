@@ -12,18 +12,18 @@ templates run the deterministic part — gate, impl, verify, janitor, ledger —
 and you keep the judgement part: briefs, budgets, and red-verdict triage.
 
 - **T2/T3 execution** goes through `execute-plan`
-  (`bun-apps/s2-agent-ext-workflow/samples/execute-plan.js`):
+  (`bun-apps/s2-agent-ext-ultracode/samples/execute-plan.js`):
   gate → pipelined impl+verify per ticket → janitor → ledger report.
   One ticket flows impl → verify independently; no barrier between tickets.
 - **T1 execution** goes through `execute-t1`
-  (`bun-apps/s2-agent-ext-workflow/samples/execute-t1.js`):
+  (`bun-apps/s2-agent-ext-ultracode/samples/execute-t1.js`):
   one impl agent + one read-only verify agent, no phase overhead.
 
 Run a template through the `run_workflow` tool, or headless:
 
 ```bash
-bun bun-apps/s2-agent-ext-workflow/samples/run.ts \
-  bun-apps/s2-agent-ext-workflow/samples/execute-plan.js
+bun bun-apps/s2-agent-ext-ultracode/samples/run.ts \
+  bun-apps/s2-agent-ext-ultracode/samples/execute-plan.js
 ```
 
 Args shapes:

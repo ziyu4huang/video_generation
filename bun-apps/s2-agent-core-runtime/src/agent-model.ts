@@ -88,7 +88,7 @@ export function resolveAgentModelSpec(
  * - out of scope → warn-and-clamp, never a hard error.
  *
  * WHERE IT LIVES, AND WHY HERE
- *   This started life in s2-agent-ext-workflow, applied to `opts.model` inside
+ *   This started life in s2-agent-ext-ultracode, applied to `opts.model` inside
  *   workflow-runtime. That covered ONE dispatch path. `opts.tier` sets
  *   `modelSpec` to undefined at that layer on purpose (the tier resolves later),
  *   so the tier path — the path `modelRoutingGuideline` actively steers authors

@@ -53,7 +53,7 @@
     "@repo/s2-agent-ext-wayfind": "workspace:*",
     "@repo/s2-agent-ext-web-access": "workspace:*",
     "@repo/s2-agent-ext-webui": "workspace:*",
-    "@repo/s2-agent-ext-workflow": "workspace:*",
+    "@repo/s2-agent-ext-ultracode": "workspace:*",
     "@repo/s2-agent-ext-zai-mcp": "workspace:*",
     "typescript": "^7.0.2"
   }

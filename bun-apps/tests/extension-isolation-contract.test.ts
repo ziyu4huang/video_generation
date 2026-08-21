@@ -81,7 +81,7 @@ const LOAD_PROBE_SKIP: Record<string, string> = {
 	"s2-agent-ext-power-tool": "enabled path monkey-patches the SDK + reaches playwright-core",
 	"s2-agent-ext-web-access": "enabled path reads user config + registers background fetch state",
 	"s2-agent-ext-subagent": "enabled path touches the run-persistence store on disk",
-	"s2-agent-ext-workflow": "enabled path constructs workflow storage under cwd",
+	"s2-agent-ext-ultracode": "enabled path constructs workflow storage under cwd",
 	"s2-agent-ext-task": "enabled path restores loop/todo session state from disk",
 	"s2-agent-ext-btw": "enabled path registers TUI keybindings against a real host",
 };

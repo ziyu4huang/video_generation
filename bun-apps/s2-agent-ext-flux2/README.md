@@ -186,5 +186,5 @@ Since 2026-07-04 this signature includes an `unscored:N` token, so repeated
 judge flakes / 0-atom verdicts are caught as a plateau (previously the empty
 signature bypassed the guard — the most common hard-pose failure mode exhausted
 the full budget). Regression-tested in
-`s2-agent-ext-workflow/tests/regression-self-improve-loop.test.ts`.
+`s2-agent-ext-ultracode/tests/regression-self-improve-loop.test.ts`.
 

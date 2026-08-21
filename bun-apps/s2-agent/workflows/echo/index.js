@@ -1,7 +1,7 @@
 // echo — the simplest workflow pack.
 //
 // Proves the full path: a folder with manifest.json + an entry script, run via
-// `workflow run echo` through the s2-agent-ext-workflow engine. One agent()
+// `workflow run echo` through the s2-agent-ext-ultracode engine. One agent()
 // call; returns its `args` so a run is observable in the receipt.
 //
 // See ../README.md and ../../../docs/workflow-cli.md (workflow packs).

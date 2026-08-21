@@ -57,7 +57,7 @@
 #   depends on. `--gates --tsv` is the separate three-field form.
 #
 # BEHAVIOR
-#   - Sequential (parallel runs race s2-agent-ext-workflow's shared dist/).
+#   - Sequential (parallel runs race s2-agent-ext-ultracode's shared dist/).
 #   - Mirrors `fail-fast: false`: continues past failures, exits 1 if any failed.
 #   - A matrix package whose bun-apps/<pkg>/ directory is ABSENT is reported as a
 #     loud SKIP (dead row), never a silent pass — that is how s2-agent-ext-picker

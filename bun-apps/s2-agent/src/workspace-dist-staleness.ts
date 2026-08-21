@@ -1,7 +1,7 @@
 /**
  * workspace-dist-staleness — the dist-root predicate, kept as the tripwire.
  *
- * HISTORY (incident 2026-08-15): `@repo/s2-agent-ext-workflow`'s entry was
+ * HISTORY (incident 2026-08-15): `@repo/s2-agent-ext-ultracode`'s entry was
  * `./dist/index.js` — a gitignored, locally built artifact. cf6f1394 removed
  * `homeDir` from the s2-agent-ext-subagent barrel and updated workflow's SRC to
  * import it from core-runtime, but the local dist was not rebuilt. At the next

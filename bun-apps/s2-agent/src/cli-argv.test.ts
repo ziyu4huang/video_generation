@@ -112,7 +112,7 @@ describe("userExtensionPaths", () => {
 });
 
 describe("overriddenStaticExtensions", () => {
-	const NAMES = ["s2-agent-ext-hermes-memory", "s2-agent-ext-workflow"];
+	const NAMES = ["s2-agent-ext-hermes-memory", "s2-agent-ext-ultracode"];
 
 	test("a -e path inside a static package dir overrides that package", () => {
 		const argv = ["-e", "/repo/bun-apps/s2-agent-ext-hermes-memory/extensions/hermes-memory.ts"];
@@ -130,11 +130,11 @@ describe("overriddenStaticExtensions", () => {
 
 	test("multiple -e paths accumulate; windows separators work", () => {
 		const argv = [
-			"-e", "/a/s2-agent-ext-workflow/extensions/workflow.ts",
+			"-e", "/a/s2-agent-ext-ultracode/extensions/ultracode.ts",
 			"-e", "C:\\x\\s2-agent-ext-hermes-memory\\extensions\\hm.ts",
 		];
 		expect(overriddenStaticExtensions(argv, NAMES)).toEqual(
-			new Set(["s2-agent-ext-workflow", "s2-agent-ext-hermes-memory"]),
+			new Set(["s2-agent-ext-ultracode", "s2-agent-ext-hermes-memory"]),
 		);
 	});
 });

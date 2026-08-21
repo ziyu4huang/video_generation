@@ -99,7 +99,7 @@ opt-in. None runs ungated on a bare runner.
 |------|---------|-------------|
 | `s2-agent-ext-web-access/__tests__/adapter-availability.test.ts` | `testWithoutEnv` clears **all** provider keys in-body before the "unavailable" assertion; `CONFIG_PRESENT` skip when a real config exists | **fixed** — the #381 env-isolation fix (in-body clear) |
 | `s2-agent-ext-web-access/__tests__/zai.test.ts` | `beforeEach` sets `ZAI_API_KEY`; the "unavailable" assertion does `delete process.env.ZAI_API_KEY` **in-body** before asserting; `afterEach` restores | **fixed** — in-body clear pattern (portable unit test; flagged UNGATED by the script only because it needs no CI/env gate, which is correct) |
-| `s2-agent-ext-workflow/tests/usage-limit-integration.test.ts` | helper sets `DEEPSEEK_API_KEY` to a **faux dummy** for a registered faux provider; `try/finally` restores — never asserts "key unset" | **fixed** — save/restore + faux provider (portable; no real key, no unset assertion) |
+| `s2-agent-ext-ultracode/tests/usage-limit-integration.test.ts` | helper sets `DEEPSEEK_API_KEY` to a **faux dummy** for a registered faux provider; `try/finally` restores — never asserts "key unset" | **fixed** — save/restore + faux provider (portable; no real key, no unset assertion) |
 
 ### P4 — `process.env.OB_VAULT_*` — **42 hits, all `fixed`**
 
@@ -113,7 +113,7 @@ opt-in. None runs ungated on a bare runner.
 
 ## Thrust B — the four classes, retired
 
-1. **Unbuilt workspace dep.** `s2-agent-ext-workflow` is the **only** workspace
+1. **Unbuilt workspace dep.** `s2-agent-ext-ultracode` is the **only** workspace
    package whose `main`/`exports` point at compiled `dist/` (verified: every
    other `bun-apps/*` package's `main`/`exports` resolve TypeScript `src/`
    directly via Bun). Its sole importers at test time are
@@ -122,7 +122,7 @@ opt-in. None runs ungated on a bare runner.
    probe** confirms the class is contained: `rm -rf bun-apps/*/dist` → the 4
    `s2-agent` CLI workflow tests fail with `Cannot find module
    '@quintinshaw/pi-dynamic-workflows'`; re-running the CI build step
-   (`bun run --cwd bun-apps/s2-agent-ext-workflow build`) → all 248 pass. CI
+   (`bun run --cwd bun-apps/s2-agent-ext-ultracode build`) → all 248 pass. CI
    builds it in **every** job (see `ci.yml`). **No other unbuilt-dep surprises.**
 2. **Host-binary probe.** All 17 spawn/exec hits are `skip-guarded` (P2 table).
    `ffmpeg` is CI-installed for the one matrix entry that probes it. **None

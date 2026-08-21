@@ -4,7 +4,7 @@
  * replay: Phase 3.)
  */
 import { describe, test, expect } from "bun:test";
-import { WorkflowManager } from "@repo/s2-agent-ext-workflow";
+import { WorkflowManager } from "@repo/s2-agent-ext-ultracode";
 import { createMovieManager } from "./movie-manager.ts";
 
 describe("movie-manager: createMovieManager", () => {

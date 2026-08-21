@@ -81,7 +81,7 @@ closes it: generate → judge → on below-threshold, **reflect** (failed atoms 
 targeted prompt-expansion clause) → **retry**, bounded by `attempts`,
 seed-locked per attempt, best-so-far ranked **comparatively** by the per-atom
 matrix. It reuses the engine's existing `gate(thunk, validator, {attempts})`
-combinator (`s2-agent-ext-workflow/src/workflow.ts`); the validator is pure JS
+combinator (`s2-agent-ext-ultracode/src/workflow.ts`); the validator is pure JS
 over the judge result, so a weak driver model cannot break the multi-attempt
 control flow — only the per-attempt bash agents touch the model.
 
@@ -132,7 +132,7 @@ needsReview, summary }`.
 **never** git-applies, edits source, or merges. Auto-fix stays out of scope
 (goal §3).
 
-**Tests.** `bun-apps/s2-agent-ext-workflow/tests/regression-self-improve-loop.test.ts`
+**Tests.** `bun-apps/s2-agent-ext-ultracode/tests/regression-self-improve-loop.test.ts`
 pins the contract with a mocked judge (no GPU): fail→retry→converge,
 fail-forever→bounded exit, null-mid-loop silent-kill guard, determinism, and
 comparative best-so-far. Live GPU/VLM is the runner above (opt-in, last).

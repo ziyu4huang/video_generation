@@ -114,7 +114,7 @@ baselined: 2026-07-26
 #   re-apply the pipeline v2 structure onto new upstream material only if it
 #   is still relevant, and record it here.
 
-fixtures-digest: sha256:f3064cecb1137341f26797d5895d02583e9d6607cc18b1d4025131a7ae703877
+fixtures-digest: sha256:f6a1acca8ed4f99993e040439f4c9fa33ea45d39b0f69c32b64354b7892bf9e5
 
 divergence: systematic-debugging | Verify before claiming success
 divergence: dispatching-parallel-agents | run_workflow
@@ -145,3 +145,4 @@ divergence: dispatching-parallel-agents | run_workflow
 #       any new upstream body on re-sync.
 #   2026-08-21 — ticket 08 land (amended): delete verification-before-completion skill + fixture; cut brainstorming visual-companion.md + scripts/ (-1,739); keep spec-document-reviewer-prompt.md; systematic-debugging pointer line divergence (sha256:f3064cecb113…)
 #   2026-08-21 — ticket 04 (2026-08-21-harness-streamline): seed machine-readable divergence rows for the known local divergences (sha256:f3064cecb113…)
+#   2026-08-22 — 2026-08-22 — workflow→ultracode package rename (PR #1791): dispatching-parallel-agents references renamed repo sample paths (bun-apps/s2-agent-ext-ultracode/samples/*) (sha256:f6a1acca8ed4…)

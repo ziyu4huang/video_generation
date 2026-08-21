@@ -76,6 +76,7 @@ history table below. Do not rename casually.
 | 2026-08-20 | #1738 | `main_health` → `check_main_health` | legacy kept as gate keyword |
 | 2026-08-20 | #1738 | `local_ci` → `run_local_ci` | legacy kept as gate keyword |
 | 2026-08-20 | #1738 | `devops_retrospect` → `run_devops_retrospect` | legacy kept as gate keyword |
+| 2026-08-22 | (this branch) | pkg `s2-agent-ext-workflow` → `s2-agent-ext-ultracode` (entry file `extensions/workflow.ts` → `extensions/ultracode.ts`) | PACKAGE rename — aligns with Claude Code's "ultracode" arming keyword. Tool names (`run_workflow` etc.), registry label `name: workflow`, `/workflows*` commands, and gate family id `workflow` unchanged (Claude Code's tool is also named Workflow). `ultracode` added as a second default keyword trigger (`DEFAULT_KEYWORD_TRIGGER_WORDS`) |
 
 ### Rename checklist (from the #1738 experience)
 

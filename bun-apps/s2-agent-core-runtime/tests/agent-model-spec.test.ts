@@ -5,7 +5,7 @@ import { resolveAgentModelSpec } from "@repo/s2-agent-core-runtime";
 /**
  * Pins the unknown-tier console.warn emitted by resolveAgentModelSpec (agent.ts):
  * beyond naming the bad tier and the session-default fallback (asserted in
- * s2-agent-ext-workflow tests/agent.test.ts), the warning must also tell users
+ * s2-agent-ext-ultracode tests/agent.test.ts), the warning must also tell users
  * how to fix it — the /models-preset command that applies a full tier config.
  */
 test("resolveAgentModelSpec: unknown-tier warning points users to /models-preset", () => {

@@ -2,7 +2,7 @@
  * Session model scope must hold on EVERY dispatch path, not just `opts.model`.
  *
  * WHAT WENT WRONG WITHOUT THIS TEST
- *   Scope clamping originally lived in s2-agent-ext-workflow, applied to
+ *   Scope clamping originally lived in s2-agent-ext-ultracode, applied to
  *   `opts.model` inside workflow-runtime. That is the only branch where THAT
  *   layer holds a concrete spec: `opts.tier` deliberately leaves the spec
  *   undefined there so the tier resolves downstream, and the untagged

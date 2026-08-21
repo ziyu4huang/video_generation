@@ -1,10 +1,11 @@
 node_modules
 # pi project-local runtime state. s2-agent itself does NOT generate this
 # (run-dir/manifest npmExtensions is []; it loads extensions via absolute -e
-# paths, never <cwd>/.pi). The .pi/npm/ dir is written only by pi CORE's
-# DefaultPackageManager on an explicit project-scope `pi install` — ignore it
-# so a stray install while cwd is in-repo can't pollute git status. Tracked
-# hand-authored files (.pi/obsidian_config.json, .pi/agents/*.md) stay tracked.
+# paths, never <cwd>/.pi). The repo-local .pi/ dir was removed entirely
+# (2026-08-22): run-dir loading is manifest-driven and never required it.
+# These ignores are pure defense-in-depth: .pi/npm/ is written only by pi
+# CORE's DefaultPackageManager on an explicit project-scope `pi install`, and
+# the review dirs are stray reviewer artifacts — neither may pollute git status.
 .pi/agent/auth.json
 .pi/agent/trust.json
 **/.pi/npm/
@@ -18,7 +19,7 @@ node_modules
 # Bun monorepo SOP — bun.lock at the root is the single canonical lockfile.
 # Per-package npm lockfiles (package-lock.json) are NOT used here and must not
 # be committed; they drift from bun.lock and confuse tooling. (pi-hermes-memory
-# and s2-agent-ext-workflow shipped upstream npm lockfiles when vendored — removed.)
+# and s2-agent-ext-ultracode shipped upstream npm lockfiles when vendored — removed.)
 package-lock.json
 
 # Dev-tool state dirs (Ralph interview state machine, etc.) — transient, never
@@ -29,7 +30,7 @@ package-lock.json
 *.swp
 *.swo
 *~
-bun-apps/s2-agent-ext-workflow/docs/media/*.gif
+bun-apps/s2-agent-ext-ultracode/docs/media/*.gif
 .DS_Store
 .claude/workflows/history/
 .claude/workflows/*.operation-lessons.proposed.jsonl

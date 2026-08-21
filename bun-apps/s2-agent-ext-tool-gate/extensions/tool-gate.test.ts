@@ -13,7 +13,7 @@ import researchExtension from "@repo/s2-agent-ext-research-tool/extensions/resea
 // tickets 10 + 11 (rolled out TOGETHER over their single shared combined
 // workflow/subagent gating). Captured in workflow-FIRST order so "run_workflow"
 // leads the family's gate order (the gate id qa + matchIntent key off of).
-import workflowExtension from "@repo/s2-agent-ext-workflow/extensions/workflow.ts";
+import workflowExtension from "@repo/s2-agent-ext-ultracode/extensions/ultracode.ts";
 import subagentExtension from "@repo/s2-agent-ext-subagent/extensions/subagent.ts";
 
 // CORE_NAMES / CORE_SET / CORE_TOOLS_ARRAY now imported from the shared

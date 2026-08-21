@@ -1,8 +1,8 @@
 /**
- * `workflow run <name>` — headless runner for s2-agent-ext-workflow scripts.
+ * `workflow run <name>` — headless runner for s2-agent-ext-ultracode scripts.
  *
  * This is a NON-agent meta-command: it calls the engine's shared
- * `runWorkflowScript` DIRECTLY (from `@repo/s2-agent-ext-workflow`), bypassing
+ * `runWorkflowScript` DIRECTLY (from `@repo/s2-agent-ext-ultracode`), bypassing
  * the agent session pipeline that `commands/zk-*.ts` and the extension
  * sub-commands use. That is the whole point — the deterministic engine
  * (gate / retry / loopUntilDry / journaling / resume) is reachable from the
@@ -26,10 +26,10 @@ import { existsSync } from "node:fs";
 import type { ParsedArgs } from "../args.ts";
 import type { Command } from "../dispatch.ts";
 
-// `@repo/s2-agent-ext-workflow` is a workspace dependency. Import the shared
+// `@repo/s2-agent-ext-ultracode` is a workspace dependency. Import the shared
 // resolver + orchestration by name so the bundler treats them as externals
 // exactly like the other workspace deps (pi-obsidian, pi-file2md, …).
-import { runWorkflowScript, listWorkflows, findRepoRoot } from "@repo/s2-agent-ext-workflow";
+import { runWorkflowScript, listWorkflows, findRepoRoot } from "@repo/s2-agent-ext-ultracode";
 // pi-default model spec: reuse the SAME settings-read as `resolveLLMFromArgs`
 // (no second reader) and feed it through `resolveLLM` with NO provider/model
 // override so only user settings + the hardcoded fallback apply. The resulting
@@ -66,11 +66,11 @@ export function buildMainSpec(parsed: ParsedArgs): string | undefined {
 /** `workflow run <name> [options]`. */
 export const workflowRunCommand: Command = {
 	name: "run",
-	summary: "Run a s2-agent-ext-workflow script headlessly (deterministic engine).",
+	summary: "Run a s2-agent-ext-ultracode script headlessly (deterministic engine).",
 	details: `Usage: s2-agent cli workflow run <name> [options]
 
 Runs a workflow script through the deterministic engine (runWorkflow from
-@repo/s2-agent-ext-workflow) — the SAME engine the VSCode workflow editor and
+@repo/s2-agent-ext-ultracode) — the SAME engine the VSCode workflow editor and
 the interactive \`workflow\` tool use, but headlessly. The engine's gate / retry /
 loopUntilDry / journaling / resume primitives are therefore reachable from the
 CLI, a script, or a hook.

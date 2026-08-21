@@ -79,7 +79,7 @@ stderr) or NDJSON. Empty-turn retry recovers silent local-model failures
 | `file2md` | PDF/image → Obsidian markdown via LM Studio VLM |
 | `pipeline pdf-to-vault` | Multi-stage PDF pipeline |
 | `doctor` | Self-check: runtime, repo layout, run-dir manifest, MLX paths, Obsidian vault |
-| `workflow run` | Headless engine runner for s2-agent-ext-workflow scripts |
+| `workflow run` | Headless engine runner for s2-agent-ext-ultracode scripts |
 | `workflow list` | Enumerate available engine workflows |
 | (passthrough) | Any s2-agent subcommand in non-interactive mode |
 

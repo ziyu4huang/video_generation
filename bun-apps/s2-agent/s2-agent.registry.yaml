@@ -148,11 +148,12 @@ extensions:
     # Host-lib consumer: core-runtime + pi-ai + its own lib are all host modules.
     deploy:
       order: 60
-  - name: workflow
-    package: s2-agent-ext-workflow
-    entry: extensions/workflow.ts
+  - name: ultracode
+    package: s2-agent-ext-ultracode
+    entry: extensions/ultracode.ts
     load: static
     # Must load after subagent (registry population); acorn bundles inline.
+    # Short name = ultracode (was "workflow" pre-2026-08-22; see docs/agents/extension-naming.md).
     deploy:
       order: 70
   - name: knowledge-card

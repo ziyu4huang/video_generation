@@ -36,7 +36,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · s2-agent-ext-web-access", "test · gui-movie-director",
   "extension-contract", "regression gates",
   "test · s2-agent-ext-knowledge-card", "test · s2-agent-ext-hermes-memory",
-  "test · s2-agent-ext-workflow",
+  "test · s2-agent-ext-ultracode",
   "test · s2-agent-ext-btw", "test · s2-agent-ext-task",
   "test · s2-agent-ext-file2md", "test · s2-agent-ext-obsidian",
   "test · s2-agent-ext-research-tool",
@@ -162,11 +162,11 @@ old `scripts/ci-changed-packages.test.ts` went with the bash script.
 
 Two setup quirks the workflow handles, documented so they aren't "lost":
 
-- **Build `s2-agent-ext-workflow` before tests.** Its `main`/`exports` point at
+- **Build `s2-agent-ext-ultracode` before tests.** Its `main`/`exports` point at
   compiled `dist/index.js` — a gitignored artifact. Importers (`s2-agent` →
   `workflow.ts`, and anything loading the CLI, incl. the schema-cost command)
   resolve that `dist/`. A fresh checkout lacks it (locally it lingers from prior
-  builds), so every job runs `bun run --cwd bun-apps/s2-agent-ext-workflow build`
+  builds), so every job runs `bun run --cwd bun-apps/s2-agent-ext-ultracode build`
   after install (~2.5 s). The documented "builds first" workspace pattern.
 - **Install `ffmpeg` for `s2-agent-ext-movie-director`.** Its `preflight` test
   probes ffmpeg on PATH (the composition runtime). `ubuntu-latest` doesn't ship
@@ -189,7 +189,7 @@ s2-agent-ext-ltx, s2-agent-ext-movie-director, s2-agent-ext-power-tool,
 s2-agent-ext-btw, s2-agent-ext-task, s2-agent-ext-archify,
 s2-agent-ext-web-access, s2-agent-ext-file2md, gui-movie-director,
 s2-agent-ext-knowledge-card, s2-agent-ext-obsidian,
-s2-agent-ext-workflow, s2-agent-ext-hermes-memory,
+s2-agent-ext-ultracode, s2-agent-ext-hermes-memory,
 s2-agent-ext-research-tool, s2-agent-ext-zai-mcp,
 s2-agent-ext-wayfind, perf-harness,
 s2-agent-ext-tool-gate, s2-agent-ext-superpowers, s2-agent-ext-subagent,
@@ -286,7 +286,7 @@ These never run in CI; they're gated on explicit env vars:
   (`s2-agent-ext-zai-mcp` was previously miscategorized here too — it has no
   `package.json` `test` script, but `bun test` doesn't require one to discover
   `*.test.ts` files; it's now correctly in the matrix.)
-- **s2-agent-ext-workflow biome lint** — the package's `test` script chains
+- **s2-agent-ext-ultracode biome lint** — the package's `test` script chains
   `npm run check` (biome), which has pre-existing formatting drift. CI runs the
   CLAUDE.md canonical command `bun run build && bun test` instead (build +
   unit tests are the gate; the lint drift is a separate cleanup, out of scope for
@@ -308,7 +308,7 @@ parent produced the same failure and the same diagnostic counts), so **neither
 is a regression from the s2-agent-cli merge**. The rows are correct as written —
 the LINT is what needs fixing. Do not "fix CI" by downgrading these to
 `bun run build && bun run test:unit`; that would hide the drift the same way
-`s2-agent-ext-workflow`'s carve-out above already does.
+`s2-agent-ext-ultracode`'s carve-out above already does.
 - **Scheduled/nightly runs, coverage reporting, cross-repo CI** — follow-ups.
 
 ## Test-author portability guide
@@ -321,7 +321,7 @@ forward.
 
 | If your test… | …it will fail on CI because | Fix pattern |
 |---------------|----------------------------|-------------|
-| imports a workspace package whose `main`/`exports` point at compiled `dist/` (only `s2-agent-ext-workflow` today) | the `dist/` lingers locally from prior builds but is absent on a fresh checkout | ensure the CI build step covers it (the workflow already runs `bun run --cwd bun-apps/s2-agent-ext-workflow build` in every job); if you add a new compiled-`dist` workspace dep, add a build step for it |
+| imports a workspace package whose `main`/`exports` point at compiled `dist/` (only `s2-agent-ext-ultracode` today) | the `dist/` lingers locally from prior builds but is absent on a fresh checkout | ensure the CI build step covers it (the workflow already runs `bun run --cwd bun-apps/s2-agent-ext-ultracode build` in every job); if you add a new compiled-`dist` workspace dep, add a build step for it |
 | spawns/probes a non-bun binary (`ffmpeg`, `ffprobe`, a swift binary, `run.py`, the MLX venv) | the binary/path exists on your machine but not on the runner | `*.skipIf(process.env.CI)`, or gate behind an env-var opt-in (`MLX_E2E`/`PI_AGENT_E2E`/`PI_RUN_L2`); or install the binary in CI (as ffmpeg is) |
 | asserts an env var is **unset** while a sibling `beforeEach`/`withEnv` in the same `describe` **sets** it | the env-isolation differs (a `CONFIG_PRESENT` skip can hide the case locally) | clear the var **in-body** before the "unset" assertion (the `testWithoutEnv` helper in `adapter-availability.test.ts`) |
 | re-reads `process.env.X` across an `await` that mutates it (the `resolveVault`/`OB_VAULT` pattern) | async timing differs locally; a mid-async re-read picks up a stale/changed value | use a deterministic injection seam (`__setVaultResolverForTest`) or set the env **once** in `beforeAll` and rely on the module's closure cache |

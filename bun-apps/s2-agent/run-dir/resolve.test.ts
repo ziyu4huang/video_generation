@@ -253,8 +253,8 @@ describe("looksLikeAlias", () => {
 describe("resolveLazyExtension", () => {
 	const settings: LazySettings = {
 		lazyExtensions: {
-			workflow: "pkg-a/extensions/workflow.ts",
-			"dynamic-workflows": "pkg-a/extensions/workflow.ts",
+			workflow: "pkg-a/extensions/ultracode.ts",
+			"dynamic-workflows": "pkg-a/extensions/ultracode.ts",
 			flux2: "pkg-b/extensions/flux2.ts",
 		},
 	};
@@ -279,7 +279,7 @@ describe("resolveLazyExtension", () => {
 	test("exact key match (case-insensitive)", () => {
 		const base = setup();
 		const r = resolveLazyExtension("Workflow", settings, base, existsSync);
-		expect(r).toBe(join(base, "pkg-a/extensions/workflow.ts"));
+		expect(r).toBe(join(base, "pkg-a/extensions/ultracode.ts"));
 		const r2 = resolveLazyExtension("flux2", settings, base, existsSync);
 		expect(r2).toBe(join(base, "pkg-b/extensions/flux2.ts"));
 	});
@@ -345,7 +345,7 @@ describe("resolveLazyExtension", () => {
 		const base = resolve(join(import.meta.dir, "..", ".."));
 		// lazyExtensions is {} now; the directory-fallback arm looks for
 		// <base>/workflow/extensions/ which doesn't exist (the package dir is
-		// s2-agent-ext-workflow, not workflow) → undefined either way.
+		// s2-agent-ext-ultracode, not workflow) → undefined either way.
 		const r = resolveLazyExtension("workflow", manifest, base, existsSync);
 		expect(r).toBeUndefined();
 		// And the real manifest's lazyExtensions is empty (no aliases left).
@@ -388,7 +388,7 @@ describe("rewriteExtensionArgs", () => {
 
 describe("resolveLazyExtension — ENOTDIR hardening", () => {
 	const settings: LazySettings = {
-		lazyExtensions: { workflow: "pkg-a/extensions/workflow.ts" },
+		lazyExtensions: { workflow: "pkg-a/extensions/ultracode.ts" },
 	};
 
 	test("does not crash when <alias>/extensions exists as a FILE (not a dir)", () => {
@@ -412,7 +412,7 @@ describe("resolveLazyExtension — ENOTDIR hardening", () => {
 
 describe("resolveLazyExtension — undefined bunAppsDir", () => {
 	const settings: LazySettings = {
-		lazyExtensions: { workflow: "pkg-a/extensions/workflow.ts" },
+		lazyExtensions: { workflow: "pkg-a/extensions/ultracode.ts" },
 	};
 
 	test("skips the directory fallback when bunAppsDir is undefined (no crash, no fs)", () => {

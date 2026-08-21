@@ -26,7 +26,7 @@ import ltxExtension from "@repo/s2-agent-ext-ltx/extensions/ltx.ts";
 import movieExtension from "@repo/s2-agent-ext-movie-director/extensions/movie-director.ts";
 import researchExtension from "@repo/s2-agent-ext-research-tool/extensions/research-tool.ts";
 import subagentExtension from "@repo/s2-agent-ext-subagent/extensions/subagent.ts";
-import workflowExtension from "@repo/s2-agent-ext-workflow/extensions/workflow.ts";
+import workflowExtension from "@repo/s2-agent-ext-ultracode/extensions/ultracode.ts";
 // ticket 12 — zai-mcp registers tools DYNAMICALLY at session_start (names come
 // from each MCP server's listTools()), so its default factory registers NOTHING
 // at load. Import the REAL registration path (registerServerTools — the single
