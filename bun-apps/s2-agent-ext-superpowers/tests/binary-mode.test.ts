@@ -26,8 +26,8 @@ beforeEach(() => {
   savedEnv = process.env[ENV_KEY];
   // Suppress the Phase-3 default exclude so binary-mode tests assert pure dir
   // resolution (the whole extraction skills/ dir), decoupled from exclude policy.
-  savedDefaults = process.env["PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS"];
-  process.env["PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS"] = "0";
+  savedDefaults = process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS;
+  process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS = "0";
   extractDir = mkdtempSync(join(tmpdir(), "sp-extract-"));
   mkdirSync(join(extractDir, "s2-agent-ext-superpowers", "skills"), { recursive: true });
 });
@@ -35,8 +35,8 @@ beforeEach(() => {
 afterEach(() => {
   if (savedEnv === undefined) delete process.env[ENV_KEY];
   else process.env[ENV_KEY] = savedEnv;
-  if (savedDefaults === undefined) delete process.env["PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS"];
-  else process.env["PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS"] = savedDefaults;
+  if (savedDefaults === undefined) delete process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS;
+  else process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS = savedDefaults;
   rmSync(extractDir, { recursive: true, force: true });
 });
 

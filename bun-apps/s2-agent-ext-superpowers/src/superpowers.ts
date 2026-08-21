@@ -262,7 +262,7 @@ export function superpowersExtension(pi: ExtensionAPI, fromUrl?: string): void {
     if (!injectBootstrap) return;
     if (event.messages.some(messageContainsBootstrap)) return;
 
-    const bootstrap = getBootstrapContent();
+    const bootstrap = getBootstrapContent(fromUrl);
     if (!bootstrap) return;
 
     const bootstrapMessage = {

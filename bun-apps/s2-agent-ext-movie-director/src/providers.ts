@@ -302,6 +302,11 @@ function kokoroBinaryPresent(): boolean {
   }
   return kokoroBinaryCached;
 }
+
+/** Force the kokoro-binary probe result (tests inject a deterministic value). */
+export function _setKokoroBinaryForTest(v: boolean | undefined): void {
+  kokoroBinaryCached = v;
+}
 /**
  * Runtime availability for a provider. Authoritative: a provider is callable iff
  * this returns true. The static `configured` is the declarative baseline (which
@@ -375,12 +380,12 @@ export function probeConfigured(entry: ProviderEntry, env: Record<string, string
     case "bun:kokoro-tts":
       // callable iff the built kokoro-tts binary is on disk (mirrors
       // musicgen — auto-built by ensureBinary() on first real call, but
-      // absent on a fresh checkout until then). Note: since kokoro_tts is
-      // optIn:true, this probe result never affects selectProvider's bare
-      // "tts" fallback (optIn entries are excluded from that regardless of
-      // probe result) — it only matters for explicit provider:"kokoro"
-      // hints and rankedProviders' menu listing, both of which should
-      // honestly reflect whether the binary actually exists yet.
+      // absent on a fresh checkout until then). Note: since kokoro_tts's
+      // optIn was removed (2026-08-21, A/B-promoted to the tts default),
+      // this probe result DOES affect selectProvider's bare "tts" fallback
+      // (see the registry entry + selector.test.ts's soft-hint test) — an
+      // absent binary honestly downgrades the default to say/edge-tts until
+      // the first real call builds it.
       return entry.configured && kokoroBinaryPresent();
     case "mlx:runpy":
       // callable iff the MLX venv python AND run.py resolve (env-overridable via

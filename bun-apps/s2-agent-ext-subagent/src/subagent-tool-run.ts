@@ -14,7 +14,6 @@ import {
   deriveTaskLabel,
   generateSubagentRunId,
   parseSddReport,
-  roleAwareDefaults,
   type SpawnSubagentOptions,
   type SubagentFailure,
   type SubagentRunPersistence,

@@ -1,0 +1,14 @@
+# Package-local bunfig — the ONLY thing set here is the preload; install
+# behavior stays owned by the workspace root bun-apps/bunfig.toml.
+#
+# Preload scrubs a PI_PACKAGE_DIR inherited from a parent s2-agent session
+# before any module initializes — same leak + same narrow rule as
+# s2-agent/scripts/scrub-session-env.preload.ts (reused verbatim; the leak
+# breaks this package's pi-coding-agent-dependent tests too, 2026-08-21:
+# getAgentDir() honored the session's S2-AGENT branding instead of
+# PI_CODING_AGENT_DIR). Listed twice on purpose: top-level `preload` covers
+# `bun run`/`bun -e`, `[test] preload` covers `bun test`.
+preload = ["../s2-agent/scripts/scrub-session-env.preload.ts"]
+
+[test]
+preload = ["../s2-agent/scripts/scrub-session-env.preload.ts"]

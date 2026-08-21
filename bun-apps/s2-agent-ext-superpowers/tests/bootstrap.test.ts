@@ -23,7 +23,7 @@ import { createMockPi } from "./helpers/mock-pi.js";
 describe("superpowers extension wiring", () => {
   it("registers exactly the upstream event hooks", () => {
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const events = (pi as any).handlers.keys();
     expect([...events].sort()).toEqual(
       ["agent_end", "context", "resources_discover", "session_compact", "session_start"].sort(),
@@ -36,7 +36,7 @@ describe("superpowers extension wiring", () => {
     // resolution (the whole skills/ dir), decoupled from the exclude policy.
     process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS = "0";
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     const result = await pi.fire("resources_discover", { type: "resources_discover" });
     expect(result).toBeTruthy();
     expect(Array.isArray(result.skillPaths)).toBe(true);
@@ -52,7 +52,7 @@ describe("context bootstrap injection", () => {
   function setup() {
     _resetBootstrapCacheForTests();
     const pi = createMockPi();
-    superpowersExtension(pi);
+    superpowersExtension(pi, import.meta.url);
     return pi;
   }
 
@@ -118,7 +118,7 @@ describe("context bootstrap injection", () => {
 describe("bootstrap payload assembly", () => {
   it("getBootstrapContent returns non-null with marker + real skill body + Pi tool mapping", () => {
     _resetBootstrapCacheForTests();
-    const body = getBootstrapContent();
+    const body = getBootstrapContent(import.meta.url);
     expect(body).toBeTruthy();
     const payload = body ?? "";
     expect(payload).toContain(BOOTSTRAP_MARKER);
@@ -131,7 +131,7 @@ describe("bootstrap payload assembly", () => {
 
   it("Pi tool mapping is TERSE: essentials + deferral pointers, params live in the reference (ADR-0010)", () => {
     _resetBootstrapCacheForTests();
-    const payload = getBootstrapContent() ?? "";
+    const payload = getBootstrapContent(import.meta.url) ?? "";
     // the load-bearing tool directives stay inline (the agent must not need a
     // read to avoid the known dispatch footguns)
     expect(payload).toContain("spawn_subagent");
@@ -153,7 +153,7 @@ describe("bootstrap payload assembly", () => {
 
   it("carries the Pipeline routing (terse stage prose + deferral pointer, ADR-0010)", () => {
     _resetBootstrapCacheForTests();
-    const payload = getBootstrapContent() ?? "";
+    const payload = getBootstrapContent(import.meta.url) ?? "";
     // new header (renamed from "Path & routing overrides")
     expect(payload).toContain("## Pipeline routing (this repo)");
     expect(payload).not.toContain("## Path & routing overrides");
@@ -189,7 +189,7 @@ describe("bootstrap payload assembly", () => {
 
   it("TOKEN BUDGET RATCHET (ADR-0010): repo-owned sections ≤ 1,100 chars; total ≤ 5,900 chars", () => {
     _resetBootstrapCacheForTests();
-    const payload = getBootstrapContent() ?? "";
+    const payload = getBootstrapContent(import.meta.url) ?? "";
     const i = payload.indexOf("## Pi tool mapping");
     const r = payload.indexOf("## Pipeline routing");
     expect(i).toBeGreaterThanOrEqual(0);
