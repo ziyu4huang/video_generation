@@ -46,7 +46,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · s2-agent-ext-subagent",
   "test · s2-agent-core-interface", "test · s2-agent-core-runtime",
   "test · s2-agent-ext-devops", "test · s2-agent-ext-prompt-history",
-  "test · s2-agent-ext-webui"
+  "test · s2-agent-ext-webui", "test · s2-agent-ext-compact"
 ] } } /* …preserve existing review/admin settings in the full PUT body… */
 JSON
 ```
@@ -194,7 +194,8 @@ s2-agent-ext-research-tool, s2-agent-ext-zai-mcp,
 s2-agent-ext-wayfind, perf-harness,
 s2-agent-ext-tool-gate, s2-agent-ext-superpowers, s2-agent-ext-subagent,
 s2-agent-core-interface, s2-agent-core-runtime,
-s2-agent-ext-devops, s2-agent-ext-prompt-history, s2-agent-ext-webui
+s2-agent-ext-devops, s2-agent-ext-prompt-history, s2-agent-ext-webui,
+s2-agent-ext-compact
 ```
 
 Prefer `bash scripts/ci-local.sh --list` over this block: it prints the same set
