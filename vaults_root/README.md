@@ -9,7 +9,7 @@ Multi-vault 佈局的根目錄。每個子資料夾是一個獨立的 Obsidian v
 ```
 vaults_root/
 ├── README.md                  ← 本檔，本 repo 追蹤
-├── pi-agent-vault/            ← git submodule → ziyu4huang/pi-agent-vault.git
+├── s2-agent-vault/            ← git submodule → ziyu4huang/pi-agent-vault.git
 │   ├── Design/
 │   ├── Inbox/
 │   ├── Zettelkasten/
@@ -22,12 +22,12 @@ vaults_root/
 
 | 資料夾 | 來源 | pin（commit） | 說明 |
 |--------|------|---------------|------|
-| `pi-agent-vault/` | `git@github.com:ziyu4huang/pi-agent-vault.git` (submodule) | `53febc7`（origin/main latest, 2026-06-27） | pi-agent 專案的主力知識庫；`bun-apps/pi-obsidian` 增強計畫的學習來源與目標驗證場域 |
+| `s2-agent-vault/` | `git@github.com:ziyu4huang/pi-agent-vault.git` (submodule) | `53febc7`（origin/main latest, 2026-06-27） | pi-agent 專案的主力知識庫；`bun-apps/pi-obsidian` 增強計畫的學習來源與目標驗證場域 |
 | `study-news/` | `git@github.com:ziyu4huang/study-news.git` (submodule) | `2d436daf`（origin/main latest, 2026-07-05） | LLM + Zettelkasten 敏捷知識圖譜開源專案研究（private） |
 
 ## 為什麼是 submodule
 
-`pi-agent-vault` 是獨立 git repo，以 **submodule** 形式掛載。本 repo 只記錄
+`s2-agent-vault`（遠端 repo `pi-agent-vault`）是獨立 git repo，以 **submodule** 形式掛載。本 repo 只記錄
 其 **pin（commit SHA）**，不追蹤其內部檔案。換掛載點只改 `.gitmodules` 的
 `path`，**不會動到 pin 或子 repo 內容**——所以原本的 wiki-link 相對路徑、
 Obsidian 設定全部保留。
@@ -39,23 +39,23 @@ Obsidian 設定全部保留。
 
 ```bash
 # 絕對路徑（最明確）
-export OB_VAULT_PATH="$PWD/vaults_root/pi-agent-vault"
+export OB_VAULT_PATH="$PWD/vaults_root/s2-agent-vault"
 
 # 或 CLI flag
---vault "$PWD/vaults_root/pi-agent-vault"
---vault-dir vaults_root/pi-agent-vault
+--vault "$PWD/vaults_root/s2-agent-vault"
+--vault-dir vaults_root/s2-agent-vault
 ```
 
 ## 操作
 
 ```bash
 # 初始化 / 同步 submodule
-git submodule update --init --recursive vaults_root/pi-agent-vault
+git submodule update --init --recursive vaults_root/s2-agent-vault
 
 # 更新 pin 到子 repo 最新 commit
-git -C vaults_root/pi-agent-vault fetch origin
-git -C vaults_root/pi-agent-vault checkout origin/main
-git add vaults_root/pi-agent-vault   # 父 repo 記錄新 pin SHA
+git -C vaults_root/s2-agent-vault fetch origin
+git -C vaults_root/s2-agent-vault checkout origin/main
+git add vaults_root/s2-agent-vault   # 父 repo 記錄新 pin SHA
 ```
 
 ## 新增另一個 vault
