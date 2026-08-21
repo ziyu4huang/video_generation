@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-21-archify-deck-visual-fidelity
 created: 2026-08-21
-last: 2026-08-21
+last: 2026-08-22
 status: specified
 ---
 # archify-deck-visual-fidelity — what the deck actually looks like
@@ -129,3 +129,12 @@ to post-process the XML).
   is how P1–P4 were found at all.
 - **Shares-decision-with**: `.planning/2026-08-21-archify-view-pptx-bun` — its zero-browser
   posture is respected here; D1 narrows it from "no engine" to "no engine in a gate".
+
+- **Shares-decision-with**: `.planning/2026-08-22-archify-general-deck` — that effort adds
+  seven layout templates, **all of which set `chrome: true`** and therefore inherit P2's
+  unfixed fixed-height title band. Its D7 declines to absorb P1–P4 (they live in
+  `pptx-shapes.ts`, the diagram-replay path; its own work is in `emit-pptx.ts`'s text-box
+  path), and its D1 "the renderer sees, it never gates" is carried over verbatim. Neither
+  effort blocks the other in code, but **landing this effort's Phase 1 first is cheaper**:
+  P2's fix changes the chrome geometry all seven templates sit under, so doing it afterwards
+  means re-baselining seven geometry goldens.

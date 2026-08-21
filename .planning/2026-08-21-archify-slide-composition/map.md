@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-21-archify-slide-composition
 created: 2026-08-21
-last: 2026-08-21
+last: 2026-08-22
 status: complete
 ---
 # archify-slide-composition — diagram tool → presentation generator
@@ -135,3 +135,11 @@ pptxgenjs element-ordering choice in `ppt/presentation.xml`. Full write-up in
   401 tests, 0-diagnostic OOXML gate and passing content lint all missed. One of them, a
   clipped action title, is the live failure of the title-guard decision recorded in Fog of
   war above; that decision is **not yet overturned**, but its calibration is now known wrong.
+
+- **Followed-by**: `.planning/2026-08-22-archify-general-deck` — this effort's Fog-of-war
+  entry naming `kpi` / `timeline` / `matrix` / `comparison` as "the charted-but-unbuilt
+  second round … none needs a change to the seam" is that effort's charter. Its finding
+  **confirms and extends** the claim: none needs a change to the seam, and none needs to be
+  code either — they ship as data-driven `*.layout.json` templates over this effort's
+  `PlacedBlock` seam. The D3 byte-identity lock recorded here is what forces code layouts to
+  outrank templates in that effort's registry.
