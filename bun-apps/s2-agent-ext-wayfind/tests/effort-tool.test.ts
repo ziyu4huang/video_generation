@@ -28,13 +28,63 @@ import {
 } from "../src/effort-tool.js";
 import { readMap, writeTicket } from "../src/map.js";
 import type { EffortMeta } from "../src/model.js";
-import { addTicket, resolveTicket } from "../src/wayfinder.js";
+import { chartMap } from "../src/wayfinder.js";
+import { addTicket, resolveTicket } from "./helpers/effort-fixtures.js";
 
 const fresh = () => mkdtempSync(join(tmpdir(), "wf-effort-tool-"));
 const mapPath = (cwd: string, effort: string) => join(cwd, ".planning", effort, "map.md");
 
-// ─── createEffort ────────────────────────────────────────────────────────────
+// ─── renderStatus — the ONE status pipeline (W2 merge) ───────────────────────
+// Ported from tests/wayfinder.test.ts when statusReport/renderStatus were
+// deleted from src/wayfinder.ts: /wayfind status and the wayfind_effort tool
+// now share effortStatus + renderStatus, and the renderer carries the richer
+// empty-frontier hints the /wayfind path used to own.
 
+describe("renderStatus — unified status pipeline (W2)", () => {
+  it("renders counts + frontier titles", () => {
+    const cwd = fresh();
+    createEffort(cwd, { effort: "orders", destination: "the orders spec" });
+    addTicket(cwd, "orders", "Pick storage", "?", "grilling", []);
+    const out = renderStatus(effortStatus(cwd, "orders"));
+    expect(out).toContain("[orders]");
+    expect(out).toContain("open 1");
+    expect(out).toContain("Pick storage");
+    expect(out).toContain("the orders spec");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("reports 'all open tickets are blocked or claimed' when the frontier is empty but open tickets exist", () => {
+    const cwd = fresh();
+    createEffort(cwd, { effort: "orders", destination: "dest" });
+    addTicket(cwd, "orders", "API shape", "?", "grilling", ["01"]); // blocked by absent+open 01
+    const out = renderStatus(effortStatus(cwd, "orders"));
+    expect(out).toContain("frontier: (empty — all open tickets are blocked or claimed)");
+    expect(out).not.toContain("the way is found");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("reports a clear frontier when no open tickets remain (no nudge — nothing closed yet)", () => {
+    const cwd = fresh();
+    createEffort(cwd, { effort: "orders", destination: "dest" });
+    const out = renderStatus(effortStatus(cwd, "orders"));
+    expect(out).toContain("frontier: (clear — no open tickets; the way is found)");
+    expect(out).not.toContain("/wayfind done");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("nudges /wayfind done when the frontier is clear AND tickets were closed", () => {
+    const cwd = fresh();
+    createEffort(cwd, { effort: "orders", destination: "dest" });
+    addTicket(cwd, "orders", "Pick storage", "?", "grilling", []);
+    resolveTicket(cwd, "orders", "01", "sqlite for now");
+    const out = renderStatus(effortStatus(cwd, "orders"));
+    expect(out).toContain("the way is found");
+    expect(out).toContain("/wayfind done");
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+// ─── createEffort ────────────────────────────────────────────────────────────
 describe("createEffort", () => {
   it("writes map.md with a front-matter manifest (effort/created/last/status:active) + tickets dir", () => {
     const cwd = fresh();
@@ -82,6 +132,16 @@ describe("createEffort", () => {
     expect(onDisk).toContain("ORIGINAL");
     expect(onDisk).not.toContain("SHOULD NOT WIN");
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("chartMap on a fresh effort and createEffort write IDENTICAL map.md bytes (W3 unified scaffolder)", () => {
+    const cwdA = fresh();
+    const cwdB = fresh();
+    createEffort(cwdA, { effort: "unified", destination: "same destination", notes: "same notes" });
+    chartMap(cwdB, "unified", "same destination", "same notes");
+    expect(readFileSync(mapPath(cwdA, "unified"), "utf-8")).toBe(readFileSync(mapPath(cwdB, "unified"), "utf-8"));
+    rmSync(cwdA, { recursive: true, force: true });
+    rmSync(cwdB, { recursive: true, force: true });
   });
 });
 

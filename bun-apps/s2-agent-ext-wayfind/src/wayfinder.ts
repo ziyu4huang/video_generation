@@ -1,21 +1,22 @@
 /**
- * Wayfinder orchestration — chart a map, claim + resolve tickets on the frontier.
+ * Wayfinder orchestration — chart a map, claim tickets on the frontier, close out.
  *
  * The fs model lives in map.ts; this module is the workflow layer:
  *  - chartMap: scaffold a new effort (map.md + tickets dir) from a destination.
  *  - claimNextTicket: take the first frontier ticket, stamp a claim, return it.
- *  - resolveTicket: record a resolution, close the ticket, append to Decisions.
- *  - statusReport: a low-res summary (frontier + counts) for /wayfinder-status.
  *
  * Like the grill commands, the substantive interview/synthesis is delegated to
  * the agent; these functions provide the on-disk scaffolding the agent operates
- * against.
+ * against. (resolveTicket/addTicket moved to tests/helpers/effort-fixtures.ts —
+ * test-only, no production callers; statusReport/renderStatus were DELETED —
+ * the ONE status pipeline is effort-tool.ts effortStatus + effort-render.ts
+ * renderStatus, shared by /wayfind status and the wayfind_effort tool.)
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { completeEffort } from "./lifecycle.js";
-import { appendDecision, readMap, writeMap, writeTicket } from "./map.js";
+import { readMap, writeFreshMap, writeMap, writeTicket } from "./map.js";
 import { computeFrontier, type Ticket, today, type WayfindMap } from "./model.js";
 import { readStaleDecisions } from "./stale-seam.js";
 
@@ -67,7 +68,10 @@ export function nextTicketId(tickets: Ticket[]): string {
 }
 
 /** Scaffold a new effort: write map.md + create the tickets dir. Idempotent —
- *  re-running on an existing effort just rewrites map.md (preserves tickets).
+ *  re-running on an existing effort just rewrites map.md (preserves its
+ *  decisions + tickets + manifest, including legacy prose-only maps whose
+ *  meta=null keeps writeMap front-matter-free/byte-compatible). Fresh efforts
+ *  go through the ONE constructor, writeFreshMap (W3 unification).
  *  Returns the freshly-written map (with whatever tickets already exist). */
 export function chartMap(
   cwd: string,
@@ -77,19 +81,16 @@ export function chartMap(
   now: Date = new Date(),
 ): WayfindMap {
   const existing = readMap(cwd, effort);
+  if (!existing) return writeFreshMap(cwd, effort, destination, notes, undefined, now);
   const map: WayfindMap = {
     effort,
     destination: destination.trim(),
     notes: notes.trim(),
-    decisions: existing?.decisions ?? [],
+    decisions: existing.decisions,
     fog: [],
     outOfScope: [],
-    tickets: existing?.tickets ?? [],
-    // A freshly-charted effort gets an 'active' manifest so the status overlay
-    // renders the real status (not '(no manifest)'). Re-charting an existing
-    // effort preserves whatever manifest it already had — including legacy
-    // prose-only maps (meta=null), keeping writeMap byte-compatible.
-    meta: existing ? existing.meta : { effort, created: today(now), status: "active" },
+    tickets: existing.tickets,
+    meta: existing.meta,
   };
   writeMap(cwd, map);
   return map;
@@ -106,99 +107,6 @@ export function claimNextTicket(cwd: string, effort: string, claimLabel: string)
   next.claimed = claimLabel;
   writeTicket(cwd, effort, next);
   return next;
-}
-
-/** Resolve a ticket: record the resolution, close it, and append a one-line
- *  pointer to the map's Decisions so far. Returns the updated ticket, or null if
- *  the ticket id isn't found. */
-export function resolveTicket(
-  cwd: string,
-  effort: string,
-  ticketId: string,
-  resolution: string,
-  gist?: string,
-): Ticket | null {
-  const map = readMap(cwd, effort);
-  if (!map) return null;
-  const ticket = map.tickets.find((t) => t.id === ticketId);
-  if (!ticket) return null;
-  ticket.resolution = resolution.trim();
-  ticket.status = "closed";
-  ticket.claimed = undefined;
-  writeTicket(cwd, effort, ticket);
-  appendDecision(cwd, effort, {
-    title: ticket.title,
-    link: `tickets/${ticket.id}-${ticket.slug}.md`,
-    gist: (gist ?? resolution).split(/\r?\n/)[0].slice(0, 120),
-  });
-  return ticket;
-}
-
-/** Add a new ticket to an effort (create-then-wire). Returns the new ticket. */
-export function addTicket(
-  cwd: string,
-  effort: string,
-  title: string,
-  question: string,
-  type: Ticket["type"] = "grilling",
-  blocking: string[] = [],
-): Ticket {
-  const map = readMap(cwd, effort);
-  const id = nextTicketId(map?.tickets ?? []);
-  const slug = slugify(title);
-  const ticket: Ticket = { id, slug, title, question, type, blocking, status: "open" };
-  writeTicket(cwd, effort, ticket);
-  return ticket;
-}
-
-export interface StatusReport {
-  effort: string;
-  destination: string;
-  open: number;
-  closed: number;
-  claimed: number;
-  frontier: Ticket[];
-  fog: number;
-}
-
-/** A low-res summary of an effort for /wayfinder-status. */
-export function statusReport(cwd: string, effort: string): StatusReport | null {
-  const map = readMap(cwd, effort);
-  if (!map) return null;
-  const open = map.tickets.filter((t) => t.status === "open");
-  const closed = map.tickets.filter((t) => t.status === "closed");
-  const claimed = open.filter((t) => t.claimed);
-  return {
-    effort: map.effort,
-    destination: map.destination,
-    open: open.length,
-    closed: closed.length,
-    claimed: claimed.length,
-    frontier: computeFrontier(map.tickets),
-    fog: map.fog.length,
-  };
-}
-
-/** Render a StatusReport as a readable multi-line string for ctx.ui.notify. */
-export function renderStatus(r: StatusReport): string {
-  const lines = [
-    `[${r.effort}] open ${r.open} · closed ${r.closed} · claimed ${r.claimed} · fog ${r.fog}`,
-    `destination: ${r.destination || "(unset)"}`,
-  ];
-  if (r.frontier.length > 0) {
-    lines.push("frontier:");
-    for (const t of r.frontier) {
-      lines.push(`  ${t.id} ${t.title} [${t.type}]`);
-    }
-  } else if (r.open > 0) {
-    lines.push("frontier: (empty — all open tickets are blocked or claimed)");
-  } else {
-    lines.push("frontier: (clear — no open tickets; the way is found)");
-    if (r.closed > 0) {
-      lines.push("  → run `/wayfind done` for the closing ceremony (self-reflect + next-goal note)");
-    }
-  }
-  return lines.join("\n");
 }
 
 // ─── closing ceremony: /wayfind done ────────────────────────────────────────

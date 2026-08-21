@@ -10,8 +10,8 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { seedPlan, syncChainState } from "../chain.js";
 import { PKG_NAME } from "../constants.js";
 import { adoptMostRecentActiveEffort } from "../effort-query.js";
-import { renderValidate } from "../effort-render.js";
-import { validateEffort } from "../effort-tool.js";
+import { renderStatus, renderValidate } from "../effort-render.js";
+import { effortStatus, validateEffort } from "../effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "../freshness.js";
 import { readEffortMeta } from "../lifecycle.js";
 import type { WayfindOverlay } from "../overlay.js";
@@ -19,14 +19,7 @@ import { procedurePath } from "../procedures.js";
 import { writeWayfindStatusBar } from "../settings.js";
 import { getSessionId, type RuntimeState } from "../state.js";
 import { tidyNextGoals } from "../tidy-next-goals.js";
-import {
-  chartMap,
-  claimNextTicket,
-  closeEffortReflection,
-  effortSlug,
-  renderStatus,
-  statusReport,
-} from "../wayfinder.js";
+import { chartMap, claimNextTicket, closeEffortReflection, effortSlug } from "../wayfinder.js";
 import { renderWayfindHelp } from "./help.js";
 import { PLACEHOLDER_DESTINATIONS } from "./keywords.js";
 import { makeCommandHelpers } from "./shared.js";
@@ -148,8 +141,8 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
     const effort = resolveEffortOrWarn("status", args, ctx, sessionId);
     if (!effort) return;
     syncChainState(ctx.cwd, effort);
-    const r = statusReport(ctx.cwd, effort);
-    if (!r) {
+    const r = effortStatus(ctx.cwd, effort);
+    if (!r.ok) {
       ctx.ui.notify(`No map at .planning/${effort}/map.md`, "warning");
       return;
     }
@@ -235,9 +228,9 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
       syncChainState(ctx.cwd, effort);
       const claimed = claimNextTicket(ctx.cwd, effort, sessionId);
       if (!claimed) {
-        const r = statusReport(ctx.cwd, effort);
+        const r = effortStatus(ctx.cwd, effort);
         ctx.ui.notify(
-          r
+          r.ok
             ? `${renderStatus(r)}\nNo unclaimed frontier ticket — chart more or resolve claimed ones.`
             : `No map at .planning/${effort}/`,
           "info",

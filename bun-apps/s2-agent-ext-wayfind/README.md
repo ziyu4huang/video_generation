@@ -10,7 +10,7 @@ A **Pi-native** port of [Matt Pocock's decision-chain skill suite](https://githu
 
 | capability | implementation |
 |---|---|
-| 6 skills | grilling, grill-me, grill-me-with-docs (flagship), domain-modeling, to-spec, to-tickets |
+| 16 skills | core family: grilling, grill-me, grill-me-with-docs (flagship), domain-modeling, to-spec, to-tickets — plus ask-matt (router), codebase-design, handoff, improve-codebase-architecture, resolving-merge-conflicts, teach, to-questionnaire, triage, wait-what, wizard |
 | 2 dispatcher slash commands | `/grill [me\|docs\|done\|domain]` (`docs` is flagship), `/wayfind [<destination>\|status\|spec\|tickets\|seed\|sync\|done\|validate]` |
 | reverse seam | reads the plan coordinator's `globalThis.__piPlanPhases` to close tickets whose Task reported `completed` (ADR-wayfind-0003). **No forward coordination seam is published**: mutual-exclusion between a grill/wayfinder session and `/goal` or `/loop` is user-initiated — run one driver at a time |
 | continuous chain | `/grill docs → /wayfind spec → /wayfind tickets → /wayfind seed → execute the plan → /wayfind sync` — lossless handoffs + a closed feedback loop (ADR-wayfind-0003) |
@@ -52,6 +52,8 @@ wayfind ──► grill docs ──► wayfind tickets ──► the plan coordi
 | `/wayfind sync [effort]` | close wayfind tickets whose plan coordinator phase reported completed (the loop's feedback half) |
 | `/wayfind done [effort]` | closing ceremony: harvest the map into output/next-goal-<ts>.md + surface the next goal |
 | `/wayfind validate [effort]` | validate effort structure: tickets, frontmatter, blocking edges |
+| `/wayfind statusbar on\|off` | toggle the opt-in status-bar section (`🧭 wayfind │ …` on ext-task's shared widget; persisted in `~/.pi/agent/settings.json`) |
+| `/wayfind help` / `usage` | subcommand table + on-disk efforts ranked by recency |
 
 ## Reverse seam (plan coordinator → wayfind)
 
@@ -72,7 +74,7 @@ Both load the extension **and** the skills via the `pi` manifest in `package.jso
 ## Verify
 
 ```bash
-( cd bun-apps/s2-agent-ext-wayfind && bun test )   # 263 tests, 0 fail
+( cd bun-apps/s2-agent-ext-wayfind && bun run test )   # biome check + bun test (tests/)
 ```
 
 CSO skill rules + pure helpers (grill priming, plan-seed, glossary parse, map frontier computation, ticket lifecycle) are all unit-tested with no LLM, no network.

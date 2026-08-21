@@ -40,3 +40,7 @@ A landed, staged redesign of the wayfind / superpowers / subagent trio that keep
 - Cost-spec workstreams A/B (wayfinder batching prose + SDD levers) — remain with that spec for later execution.
 - TUI work outside the subagent package (webui, other extensions' widgets).
 - Persistent cost instrumentation / effort-cost telemetry (one-shot audits only, as before).
+
+## Cross-effort links
+
+- Shares-decision-with: 2026-08-21-harness-streamline — that effort executes this one's ratified-but-unlanded tickets 07 (wayfind src trims) and 08 (superpowers cuts, amended: KEEP spec-document-reviewer-prompt.md for wiring as the reviewer second pass) as its W1–W4 / S1 phases, and adds the bootstrap token diet + methodology wiring + housekeeping on top; ticket-09 closeout audit here reads BOTH efforts' Δ numbers.

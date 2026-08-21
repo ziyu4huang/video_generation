@@ -95,8 +95,37 @@ export function readMap(cwd: string, effort: string): WayfindMap | null {
   };
 }
 
-/** Write a brand-new map (map.md + tickets dir). Used by chartMap. Does not
- *  overwrite tickets — use resolveTicket / writeTicket for those. */
+/** The single fresh-map constructor (W3 unification): an empty map + the default
+ *  `active` manifest, written to disk. Both scaffolders — the tool's
+ *  `createEffort` (existence-guarded) and `/wayfind`'s `chartMap`
+ *  (preserve-rewrite on re-chart) — build on this, so a fresh effort's map.md
+ *  bytes can never diverge between the two entry points. `now` is injectable
+ *  for deterministic boundary tests. */
+export function writeFreshMap(
+  cwd: string,
+  effort: string,
+  destination: string,
+  notes = "",
+  owner?: string,
+  now: Date = new Date(),
+): WayfindMap {
+  const map: WayfindMap = {
+    effort,
+    destination: destination.trim(),
+    notes: notes.trim(),
+    decisions: [],
+    fog: [],
+    outOfScope: [],
+    tickets: [],
+    meta: { effort, created: today(now), last: today(now), status: "active", ...(owner ? { owner } : {}) },
+  };
+  writeMap(cwd, map);
+  return map;
+}
+
+/** Write a brand-new map (map.md + tickets dir). Used by chartMap +
+ *  writeFreshMap. Does not overwrite tickets — use writeTicket for those
+ *  (test-side resolve/add helpers live in tests/helpers/effort-fixtures.ts). */
 export function writeMap(cwd: string, map: WayfindMap): void {
   const dir = effortDir(cwd, map.effort);
   mkdirSync(join(dir, "tickets"), { recursive: true });
@@ -141,7 +170,8 @@ export function writeTicket(cwd: string, effort: string, t: Ticket): void {
   touchEffortManifest(cwd, effort);
 }
 
-/** Append a one-line pointer to the map's Decisions so far (used on resolve). */
+/** Append a one-line pointer to the map's Decisions so far (used when a ticket
+ *  is resolved — the test fixture + the agent's own resolve flow). */
 export function appendDecision(cwd: string, effort: string, decision: MapDecision): void {
   const mapPath = join(effortDir(cwd, effort), "map.md");
   if (!existsSync(mapPath)) return;

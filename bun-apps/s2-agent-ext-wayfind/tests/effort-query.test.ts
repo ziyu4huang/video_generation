@@ -287,7 +287,7 @@ describe("listEfforts", () => {
 
     // open: 01 + 03 ; closed: 02 ; claimed: 03 (open + claimed)
     expect(effA?.ticketCounts).toEqual({ open: 2, closed: 1, claimed: 1 });
-    // frontier = open && !claimed && no blockers -> only 01
+    // frontier = open && !claimed && all blockers closed -> only 01 (03 is claimed)
     expect(effA?.frontierSize).toBe(1);
     // seeded map has two fog bullets
     expect(effA?.fog).toBe(2);
@@ -311,6 +311,96 @@ describe("listEfforts", () => {
     expect(effB?.ticketCounts).toEqual({ open: 1, closed: 0, claimed: 0 });
     expect(effB?.frontierSize).toBe(1);
     expect(effB?.fog).toBe(0);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("frontierSize counts an open ticket whose blocker has CLOSED — computeFrontier parity (W4)", () => {
+    const cwd = fresh();
+    seedMap(
+      cwd,
+      "blocked",
+      [
+        "---",
+        "effort: blocked",
+        "status: active",
+        "last: 2026-08-21",
+        "---",
+        "",
+        "# Wayfinder map: blocked",
+        "",
+        "## Destination",
+        "",
+        "blocked goal",
+        "",
+        "## Notes",
+        "",
+        "notes",
+        "",
+        "## Decisions so far",
+        "",
+        "<!-- none yet -->",
+        "",
+        "## Not yet specified",
+        "",
+        "<!-- none -->",
+        "",
+        "## Out of scope",
+        "",
+        "<!-- none -->",
+        "",
+      ].join("\n"),
+    );
+    // 01 — closed (its blocking duty is discharged)
+    seedTicket(
+      cwd,
+      "blocked",
+      "01-first-decision.md",
+      [
+        "---",
+        "type: task",
+        "status: closed",
+        "---",
+        "",
+        "# 01 — First decision",
+        "",
+        "## Question",
+        "",
+        "Which first?",
+        "",
+        "## Resolution",
+        "",
+        "Settled.",
+        "",
+      ].join("\n"),
+    );
+    // 02 — open, unclaimed, blocked by 01 → ON the frontier now that 01 closed
+    seedTicket(
+      cwd,
+      "blocked",
+      "02-second-decision.md",
+      [
+        "---",
+        "type: task",
+        "status: open",
+        "blocking: 01",
+        "---",
+        "",
+        "# 02 — Second decision",
+        "",
+        "## Question",
+        "",
+        "Which second?",
+        "",
+      ].join("\n"),
+    );
+
+    const r = listEfforts(cwd);
+    expect(r.ok).toBe(true);
+    const eff = r.efforts.find((e) => e.slug === "blocked");
+    expect(eff?.ticketCounts).toEqual({ open: 1, closed: 1, claimed: 0 });
+    // The OLD hand-rolled filter (`blocking.length === 0`) reported 0 here,
+    // disagreeing with /wayfind status + computeFrontier. One definition now.
+    expect(eff?.frontierSize).toBe(1);
     rmSync(cwd, { recursive: true, force: true });
   });
 
