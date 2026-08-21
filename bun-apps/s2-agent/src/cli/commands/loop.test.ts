@@ -1,7 +1,7 @@
 import { describe, test } from "bun:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";
-import { broadDeathPct, parseCoverageFloor, parseRunsStats, scanSkills } from "./loop.ts";
+import { broadDeathPct, parseCoverageFloor, parseRunsStats, run, scanSkills } from "./loop.ts";
 
 describe("parseRunsStats", () => {
 	test("spec-format summary rows", () => {
@@ -59,5 +59,19 @@ describe("scanSkills", () => {
 		const skills = scanSkills(repoRoot);
 		assert.ok(skills.length > 0, `expected >0 skills, got ${skills.length}`);
 		assert.ok(skills.every((s) => s.path.endsWith("SKILL.md")));
+	});
+});
+
+describe("run", () => {
+	// bun ≥1.4 routes `bun test` output (incl. the coverage table) to STDERR —
+	// a stdout-only capture made wayfind-coverage-floor permanently DRIFT
+	// ("unparseable coverage output"). run() must capture both streams.
+	test("captures stderr output, not just stdout", () => {
+		const out = run(import.meta.dir, ["bun", "-e", "console.error(' src/a.ts | 50.00 |')"]);
+		assert.equal(parseCoverageFloor(out), 50);
+	});
+	test("captures stdout output", () => {
+		const out = run(import.meta.dir, ["bun", "-e", "console.log('total: 7')"]);
+		assert.deepEqual(parseRunsStats(out), { total: 7, done: 0, turns: 0, budget: 0 });
 	});
 });
