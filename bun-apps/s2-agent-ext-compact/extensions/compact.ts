@@ -53,6 +53,11 @@ export function createCompactExtension(deps: CompactExtDeps = {}): ExtensionFact
           { apiKey: auth.apiKey, headers: stringHeaders(auth.headers), env: auth.env },
           { maxTokensFactor: config.maxTokensFactor } satisfies SummarizeOptions,
         );
+        // Degenerate success (stopReason "stop" but empty/whitespace content) must
+        // not be adopted — fall through to the catch below and let the host compact.
+        if (!result.summary.trim()) {
+          throw new Error("empty summary from model");
+        }
 
         return {
           compaction: {

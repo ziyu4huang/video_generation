@@ -154,6 +154,9 @@ async function main() {
       undefined,
       undefined,
       previousSummary,
+      undefined, // thinkingLevel
+      undefined, // streamFn
+      auth.env, // env — parity with arm B (env-dependent providers)
     );
     const t1 = performance.now();
     const ccStyle = await summarizeCcStyle(

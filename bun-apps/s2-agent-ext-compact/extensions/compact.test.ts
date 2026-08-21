@@ -53,6 +53,18 @@ describe("compact extension hook", () => {
     expect(notifications[0]).toContain("falling back");
   });
 
+  test("empty/whitespace summary → undefined fallback + notify (built-in fallback)", async () => {
+    const summarize = (async () => ({
+      summary: "   ", usage: undefined, sessionType: "discussion",
+      fileOps: { read: [], written: [], edited: [] }, userMessages: [],
+    })) as never;
+    const notifications: string[] = [];
+    const [h] = run(createCompactExtension({ summarize, config: { enabled: true, modelOverrideSpec: undefined, maxTokensFactor: 0.8 } }));
+    const result = await h(event(), ctx({ ui: { notify: (m: string) => notifications.push(m) } }));
+    expect(result).toBeUndefined();
+    expect(notifications[0]).toContain("falling back");
+  });
+
   test("disabled config → no handler registered", () => {
     const handlers = run(createCompactExtension({ config: { enabled: false, modelOverrideSpec: undefined, maxTokensFactor: 0.8 } }));
     expect(handlers.length).toBe(0);
