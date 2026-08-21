@@ -83,8 +83,8 @@ describe("cross-extension grand-total schema-cost", () => {
     assertWithinBudget(total.tokens, {
       // `max` is the gate; `baseline` is documentation of the last conscious
       // measurement. max is deliberately UNCHANGED at 4576 — re-pinning the
-      // baseline must never quietly buy headroom. Headroom is now 294 tok
-      // (6.9%), down from 416 (10.0%) against the old 4160 baseline.
+      // baseline must never quietly buy headroom. Headroom is now ~290 tok
+      // (~6.3%), down from 416 (10.0%) against the old 4160 baseline.
       label: "cross-ext grand total (10 tools)",
       max: 4576,
       baseline: 4282,

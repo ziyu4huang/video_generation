@@ -4,7 +4,7 @@
  * and asserts a generous 5ms ceiling (baseline is sub-millisecond).
  */
 import { test, expect, describe } from "bun:test";
-import { benchLatency } from "../../../../perf-harness/src/index.ts";
+import { benchLatency } from "@repo/perf-harness";
 import { validateActionArgs } from "../../obsidian.ts";
 
 // Minimal schema resolver — obsidian_read's schema shape
