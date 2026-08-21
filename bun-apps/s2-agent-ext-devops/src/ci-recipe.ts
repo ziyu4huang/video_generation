@@ -101,6 +101,61 @@ export interface CiGateResult {
 	detail?: string;
 }
 
+/**
+ * Compact digest of a FAILED CiOutcome for abort/diagnostic messages.
+ *
+ * Why this exists: `merge_pr_after_local_ci` aborted with `local_ci_failed`
+ * naming only refs + elapsedMs — the caller then had to re-run the full local
+ * CI and hand-parse its JSON just to learn WHICH step failed (observed: one
+ * 2-minute re-run plus three ad-hoc parsers to reach "oneshot-smoke"). Every
+ * failure carries its name and a short detail tail here, so the abort message
+ * alone answers "what broke".
+ *
+ * Pure (no I/O) and total (an all-green outcome yields ""). Capped: at most
+ * 5 entries, then "+N more", so a broad failure stays one line-ish.
+ */
+export function summarizeCiFailures(ci: CiOutcome): string {
+	const parts: string[] = [];
+	if (ci.detectionError) parts.push(`change-detection: ${detailTail(ci.detectionError)}`);
+	if (ci.gateError) parts.push(`gate-suite: ${detailTail(ci.gateError)}`);
+	for (const g of ci.gates) {
+		if (g.exitCode === 0) continue;
+		// detail FIRST: it is the captured diagnostics (error + frames). note is
+		// a generic one-liner like "fail (fast probe: nonzero-exit)" — useful
+		// only when there is nothing richer.
+		parts.push(`${g.name} (gate): ${detailTail(g.detail ?? g.note)}`);
+	}
+	for (const p of ci.packages) {
+		const scripts = ["test", "typecheck", "lint"] as const;
+		for (const script of scripts) {
+			// `test` lacks `skipped` in CiPackageResult (typecheck/lint have it) —
+			// read through the common shape instead of the literal field type.
+			const r: { exitCode: number; skipped?: boolean; detail?: string } | undefined = p[script];
+			if (!r || r.skipped || r.exitCode === 0) continue;
+			parts.push(`${p.name}/${script}: ${detailTail(r.detail)}`);
+		}
+	}
+	const shown = parts.slice(0, 5);
+	const more = parts.length - shown.length;
+	return more > 0 ? `${shown.join(" | ")} (+${more} more)` : shown.join(" | ");
+}
+
+/** Last meaningful lines of a failure detail, bounded for inline abort use.
+ * Stack frames (`    at foo`) and editor code-context lines (`344 | if …`) are
+ * dropped FIRST — the actionable message (ENOENT/error:/Expected-Received)
+ * usually sits between them, so naive first+last picking loses it (observed
+ * on the oneshot-smoke gate detail). */
+function detailTail(s: string | undefined): string {
+	if (!s) return "exit != 0";
+	const lines = s
+		.split("\n")
+		.map((l) => l.trim())
+		.filter(Boolean)
+		.filter((l) => !l.startsWith("at ") && !/^\d+ \|/.test(l));
+	const picked = lines.slice(-2).join(" ⏎ ");
+	return picked.length > 240 ? `…${picked.slice(-240)}` : picked;
+}
+
 export interface CiOutcome {
 	overall: "pass" | "fail";
 	baseRef: string;

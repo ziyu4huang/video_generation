@@ -11,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseDeployShArgv } from "./deploy-sh-argv.ts";
-import { runShDeploy } from "../scripts/deploy.ts";
+import { DeployVersionExistsError, runShDeploy } from "../scripts/deploy.ts";
 import { parseShConfig } from "../scripts/lib/config.ts";
 import { listVersions } from "../scripts/lib/version.ts";
 
@@ -28,6 +28,8 @@ FLAGS
   --out <dir>       override outRoot from the config
   --version <str>   override the computed <pkgVersion>+g<sha> version
   --force           replace an existing version dir
+  (re-deploying the CURRENT version without --force is a no-op success:
+   { ok: true, noop: true } — same git sha means same content)
   --no-freeze       skip chmod a-w on the deployed tree (also bypasses the core cache)
   --no-current      do not repoint <outRoot>/current
   --list            list deployed versions and the current target
@@ -63,6 +65,13 @@ try {
 	console.log(JSON.stringify({ ok: true, ...result }, null, 2));
 	process.exit(0);
 } catch (e) {
+	// Same classification as deploy-tool.ts: an existing version dir is a
+	// no-op success (content-addressed by git sha), so scripts can distinguish
+	// "nothing to do" from a real failure without string-matching error text.
+	if (e instanceof DeployVersionExistsError) {
+		console.log(JSON.stringify({ ok: true, noop: true, version: e.version, target: e.target, message: e.message }, null, 2));
+		process.exit(0);
+	}
 	const message = e instanceof Error ? e.message : String(e);
 	console.log(JSON.stringify({ ok: false, error: message }, null, 2));
 	console.error(`✗ ${message}`);

@@ -6,6 +6,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { runDeploy } from "../src/deploy-tool.ts";
+import { DeployVersionExistsError } from "../scripts/deploy.ts";
 
 describe("runDeploy", () => {
 	test("maps params onto DeployShOptions and passes the cache/prune facts through", async () => {
@@ -74,5 +75,25 @@ describe("runDeploy", () => {
 		);
 		expect(r.ok).toBe(false);
 		expect(r.errorTail).toContain("host does not provide");
+	});
+
+	test("a re-deploy of an existing version is a NO-OP success, not a failure", async () => {
+		// The version dir is content-addressed by git sha — an existing target
+		// means the same tree state was already deployed. That is a no-op
+		// success (scripts must be able to distinguish it from a real failure:
+		// `ok:false` here previously sent callers to diagnose a healthy deploy).
+		const r = await runDeploy(
+			{},
+			{
+				deploy: async () => {
+					throw new DeployVersionExistsError("0.1.0+gabc1234", "/dist/s2-agent-sh/0.1.0+gabc1234");
+				},
+			},
+		);
+		expect(r.ok).toBe(true);
+		expect(r.noop).toBe(true);
+		expect(r.version).toBe("0.1.0+gabc1234");
+		expect(r.target).toBe("/dist/s2-agent-sh/0.1.0+gabc1234");
+		expect(r.message).toContain("--force");
 	});
 });

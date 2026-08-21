@@ -137,7 +137,30 @@ function ciPass(): CiOutcome {
 }
 
 function ciFail(): CiOutcome {
-	return { ...ciPass(), overall: "fail" };
+	return {
+		...ciPass(),
+		overall: "fail",
+		gates: [
+			{
+				name: "oneshot-smoke",
+				exitCode: 1,
+				note: "fail (fast probe: nonzero-exit)",
+				detail:
+					"344 | if (!BUILTIN_THEMES) {\nENOENT: no such file or directory, open '.../theme/dark.json'\n    at getBuiltinThemes",
+			},
+		],
+		packages: [
+			{
+				name: "s2-agent",
+				test: {
+					exitCode: 1,
+					source: "matrix",
+					command: "bun test && bun run typecheck",
+					detail: "(fail) resolveLLMFromArgs > settings.json defaults\nExpected: \"openai\" Received: \"zai\"",
+				},
+			},
+		],
+	};
 }
 
 /** Standard green deps: OPEN+CLEAN pre-merge, MERGED post-merge, CI pass.
@@ -238,6 +261,13 @@ describe("merge-pr-after-ci-cli — wrapper contract", () => {
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.aborted?.aborted).toBe(true);
 		expect(outcome.aborted.reason).toBe("local_ci_failed");
+		// Diagnosability contract: the abort must carry WHICH steps failed —
+		// naming only refs+elapsed forced callers to re-run the full local CI
+		// (and hand-parse its JSON) just to find the failing step (observed:
+		// a 2-minute re-run + three ad-hoc parsers to reach "oneshot-smoke").
+		expect(outcome.aborted.message).toContain("oneshot-smoke");
+		expect(outcome.aborted.message).toContain("s2-agent/test");
+		expect(outcome.aborted.message).toContain("ENOENT");
 		expect(ghParts.mergeCalls).toEqual([]);
 		expect(clientParts.calls).toEqual([]);
 	});
