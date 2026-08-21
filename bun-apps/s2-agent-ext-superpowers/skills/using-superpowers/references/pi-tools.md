@@ -6,13 +6,13 @@ Skills speak in actions ("dispatch a subagent", "create a todo", "read a file").
 
 | Action skills request | Pi equivalent |
 | --- | --- |
-| Dispatch a subagent (`Subagent (general-purpose):` template) | Use the `spawn_subagent` tool provided by `s2-agent-ext-subagent` — `spawn_subagent({ task, model?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType?, watchdog? })` |
+| Dispatch a subagent (`Subagent (general-purpose):` template) | Use the `spawn_subagent` tool provided by `s2-agent-ext-subagent` — `spawn_subagent({ task, model?, capability?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, agentType?, watchdog? })` |
 | Dispatch many subagents in parallel (`dispatching-parallel-agents`) | Use the `run_workflow` tool's `parallel()` — see "Parallel fan-out" below (the `spawn_subagent` tool is single-dispatch + sequential) |
 | Task tracking ("create a todo", "mark complete") | Use an installed todo/task tool if available, otherwise track tasks in the plan or `TODO.md` |
 
 ## Subagents
 
-Pi core does not ship a standard subagent tool. This repo's `s2-agent-ext-subagent` provides a `spawn_subagent` tool — a single-agent, isolated-context dispatch (`spawn_subagent({ task, model?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, schemaRepairAttempts?, agentType?, retryOnTransient?, watchdog? })`) backed by `spawnSubagent()`. It covers SDD's implementer/reviewer dispatch. (This is the LLM tool path. superpowers consumes it that way — it does NOT import `spawnSubagent` in code; see the "Public API" note below for the programmatic path other peer extensions use.)
+Pi core does not ship a standard subagent tool. This repo's `s2-agent-ext-subagent` provides a `spawn_subagent` tool — a single-agent, isolated-context dispatch (`spawn_subagent({ task, model?, capability?, tier?, tools?, excludeTools?, cwd?, commitScope?, tokenBudget?, spendBudget?, timeoutMs?, schema?, schemaRepairAttempts?, agentType?, retryOnTransient?, watchdog? })`) backed by `spawnSubagent()`. It covers SDD's implementer/reviewer dispatch. (This is the LLM tool path. superpowers consumes it that way — it does NOT import `spawnSubagent` in code; see the "Public API" note below for the programmatic path other peer extensions use.)
 
 **Single-dispatch + sequential.** The tool declares `executionMode: "sequential"`: if the model emits multiple tool calls in one turn (or a `spawn_subagent` call alongside others), pi serializes the whole batch (its rule: any sequential tool call in a turn ⇒ the batch runs serially). This ENFORCES that concurrent fan-out goes through the `run_workflow` tool (below) — a controller that wants concurrency must use `parallel()`, not ad-hoc multi-dispatch. (Safe for fan-out: the `run_workflow` tool's `parallel()`/`agent()` dispatch via a SEPARATE `createAgentSession()` path, so the `spawn_subagent` tool's sequential declaration does NOT throttle workflow runs.)
 
