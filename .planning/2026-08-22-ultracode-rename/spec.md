@@ -35,4 +35,4 @@
 | bun-apps/tests contracts (125) | ✅ |
 | devops `bun test` (633, incl. ci-matrix) | ✅ |
 | bun.lock no-diff after `bun install` | ✅ |
-| devops deploy → s2-agent-sh (Gate 3 --ext-list) | see below (filled after run) |
+| devops deploy → s2-agent-sh (Gate 3 --ext-list) | ✅ 0.1.0+g142a4d3, 16 exts loaded, `workflow` present, ext/workflow/ in tree |
