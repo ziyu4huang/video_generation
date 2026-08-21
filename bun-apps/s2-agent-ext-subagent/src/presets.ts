@@ -33,40 +33,52 @@ export interface ModelPreset {
  * preset's provider still needs its API key configured separately — runtime
  * auth is out of scope for preset validation.
  */
+
+/** Shared vision capability block: single local model across all vision tiers
+ *  (vision / vision-large / vision-medium / vision-small). Users can re-point
+ *  individual tiers later — resolveModelRole falls back to `vision` when a
+ *  tiered key isn't set, so this four-key shape is the discoverable default. */
+const LMSTUDIO_VISION_CAPS = {
+  vision: "lm-studio/google/gemma-4-12b",
+  "vision-large": "lm-studio/google/gemma-4-12b",
+  "vision-medium": "lm-studio/google/gemma-4-12b",
+  "vision-small": "lm-studio/google/gemma-4-12b",
+};
+
 export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "glm-lmstudio",
     label: "GLM (official) + LM Studio vision",
-    summary: "tiers: glm-4.7 / glm-5.3  ·  vision: lm-studio gemma-4-12b",
+    summary: "tiers: glm-4.7 / glm-5.3  ·  vision tiers (large/mid/small): lm-studio gemma-4-12b",
     config: {
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: { ...LMSTUDIO_VISION_CAPS },
     },
   },
   {
     id: "deepseek-pro",
     label: "DeepSeek pro (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / flash / pro  ·  vision: lm-studio gemma-4-12b",
+    summary: "tiers: gemma-4-12b / flash / pro  ·  vision tiers: lm-studio gemma-4-12b",
     config: {
       tiers: {
         small: "lm-studio/google/gemma-4-12b",
         medium: "deepseek/deepseek-v4-flash",
         big: "deepseek/deepseek-v4-pro",
       },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: { ...LMSTUDIO_VISION_CAPS },
     },
   },
   {
     id: "deepseek-flash",
     label: "DeepSeek flash (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision: lm-studio gemma-4-12b",
+    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision tiers: lm-studio gemma-4-12b",
     config: {
       tiers: {
         small: "lm-studio/google/gemma-4-12b",
         medium: "lm-studio/google/gemma-4-12b",
         big: "deepseek/deepseek-v4-flash",
       },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: { ...LMSTUDIO_VISION_CAPS },
     },
   },
 ];

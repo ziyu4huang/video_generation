@@ -73,4 +73,11 @@ describe("DEFAULT_MODEL_TIER_CONFIG — shape", () => {
     expect(typeof DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).toBe("string");
     expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision.length).toBeGreaterThan(0);
   });
+
+  test("capabilities includes tiered vision keys", () => {
+    for (const key of ["vision-large", "vision-medium", "vision-small"]) {
+      expect(typeof DEFAULT_MODEL_TIER_CONFIG.capabilities[key]).toBe("string");
+      expect(DEFAULT_MODEL_TIER_CONFIG.capabilities[key]!.length).toBeGreaterThan(0);
+    }
+  });
 });
