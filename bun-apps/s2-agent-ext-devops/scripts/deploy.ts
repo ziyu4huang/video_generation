@@ -26,8 +26,15 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { APP_NAME } from "./lib/app-name.ts";
-import { parseShConfig, type ShConfig } from "./lib/config.ts";
+import { excludedExtensions, parseShConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
+import {
+	collectModelFacts,
+	writeDeployReport,
+	writeOutRootIndex,
+	type GateRecord,
+	type ReportExtension,
+} from "./lib/deploy-report.ts";
 import {
 	scanBinaryForeignPaths,
 	scanSymlinkEscapes,
@@ -366,10 +373,34 @@ export class DeployVersionExistsError extends Error {
 	}
 }
 
+/**
+ * Time a gate and record it for the deploy report. A failing gate still gets
+ * its record (status "fail") before the throw propagates — in practice the
+ * report is then never written because the deploy aborts, but the recorder
+ * keeps pass/fail honest for any future use that renders earlier.
+ */
+function recordGate(
+	gates: GateRecord[],
+	id: string,
+	title: string,
+	scope: "per-ext" | "deploy",
+	run: () => void,
+): void {
+	const t0 = performance.now();
+	try {
+		run();
+		gates.push({ id, title, scope, status: "pass", ms: performance.now() - t0 });
+	} catch (e) {
+		gates.push({ id, title, scope, status: "fail", ms: performance.now() - t0 });
+		throw e;
+	}
+}
+
 export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShResult> {
 	const configPath = opts.configPath ? resolve(opts.configPath) : DEFAULT_CONFIG;
 	if (!existsSync(configPath)) throw new Error(`config not found: ${configPath}`);
-	const cfg = parseShConfig(readFileSync(configPath, "utf8"), { bunAppsDir: BUN_APPS_DIR });
+	const configText = readFileSync(configPath, "utf8");
+	const cfg = parseShConfig(configText, { bunAppsDir: BUN_APPS_DIR });
 	await assertHostContract(cfg);
 
 	const outRoot = opts.outRoot ? resolve(opts.outRoot) : cfg.outRoot;
@@ -395,6 +426,23 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 	mkdirSync(join(stage, "ext"), { recursive: true });
 
 	const built: Array<{ name: string; bytes: number }> = [];
+	// Gate rows for the report. Gates 1/1b/2/4 fire per extension inside
+	// buildExtPackage (via onGate) and are accumulated across the loop; 3/5/6
+	// are whole-deploy and recorded inline below.
+	const gates: GateRecord[] = [];
+	const EXT_GATE_TITLES: Record<string, string> = {
+		"1": "scanForeignSpecifiers",
+		"1b": "scanUnroutableDynamicImports",
+		"2": "loadProbe",
+		"4": "scanForeignPaths",
+	};
+	const extGateTotals = new Map<string, { ms: number; count: number }>();
+	const onGate = (id: string, ms: number) => {
+		const t = extGateTotals.get(id) ?? { ms: 0, count: 0 };
+		t.ms += ms;
+		t.count += 1;
+		extGateTotals.set(id, t);
+	};
 	try {
 		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, APP_NAME), { outRoot, freeze });
 
@@ -408,8 +456,20 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				hostModules: cfg.hostModules,
 				sourceSha,
 				builtAt,
+				onGate,
 			});
 			built.push({ name: r.name, bytes: r.bytes });
+		}
+		for (const [id, title] of Object.entries(EXT_GATE_TITLES)) {
+			const t = extGateTotals.get(id);
+			gates.push({
+				id,
+				title,
+				scope: "per-ext",
+				status: "pass",
+				ms: t?.ms,
+				note: t ? `verified for ${t.count} extension(s)` : "no extensions built",
+			});
 		}
 
 		writeFileSync(join(stage, "run.sh"), RUN_SH);
@@ -434,24 +494,68 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			`${JSON.stringify({ version, builtAt, sourceSha, bunVersion: Bun.version, configPath, config: cfg }, null, 2)}\n`,
 		);
 
-		verifyDualState(
-			stage,
-			enabled.map((e) => e.name),
-		);
+		recordGate(gates, "3", "verifyDualState", "deploy", () =>
+			verifyDualState(
+				stage,
+				enabled.map((e) => e.name),
+			));
 
 		// Gate 5 — BEFORE the rename/freeze/current swap, so a violation never
 		// becomes the deployed version. The binary scan keys off the FINAL
 		// version path: a baked `.staging-…` path is itself a violation (it
 		// sits under $HOME and would break relocatability).
-		verifyOfflineContainment(stage, { binary: join(stage, APP_NAME), finalTarget: target });
+		recordGate(gates, "5", "verifyOfflineContainment (5a symlinks · 5b binary paths · 5c completeness · 5d closure)", "deploy", () =>
+			verifyOfflineContainment(stage, { binary: join(stage, APP_NAME), finalTarget: target }));
 
 		// Gate 6 — behavioural relocatability: boot a clone of the staged tree
 		// from a different absolute path.
-		verifyRelocatable(
-			stage,
+		recordGate(gates, "6", "verifyRelocatable", "deploy", () =>
+			verifyRelocatable(
+				stage,
+				outRoot,
+				enabled.map((e) => e.name),
+			));
+
+		// ── deploy-report.html — after the gates, before the rename/freeze ──
+		// The report freezes the gate matrix, the included/excluded table, the
+		// vendored-closure stats and the baked provider catalog WITH the
+		// version it describes; freezeTree then makes it immutable like the
+		// rest of the tree. Closure facts come from the ext.json manifests the
+		// builder just wrote — the same source Gate 5d verified against.
+		const extensionsReport: ReportExtension[] = built.map((b) => {
+			const cfgExt = enabled.find((e) => e.name === b.name)!;
+			const manifest = JSON.parse(readFileSync(join(stage, "ext", b.name, "ext.json"), "utf8")) as {
+				vendoredClosure?: { count: number; pruned: string[]; excluded: string[] };
+			};
+			return {
+				name: cfgExt.name,
+				package: cfgExt.package,
+				order: cfgExt.order,
+				bytes: b.bytes,
+				skills: cfgExt.skills,
+				copy: cfgExt.copy,
+				vendor: cfgExt.vendor,
+				externals: cfgExt.externals,
+				vendorExclude: cfgExt.vendorExclude,
+				closure: manifest.vendoredClosure ?? { count: 0, pruned: [], excluded: [] },
+			};
+		});
+		writeDeployReport(stage, {
+			version,
+			builtAt,
+			sourceSha,
+			bunVersion: Bun.version,
+			configPath,
 			outRoot,
-			enabled.map((e) => e.name),
-		);
+			target,
+			freeze,
+			current: wantCurrent,
+			core: { bytes: coreBytes, cached: coreCached },
+			gates,
+			extensions: extensionsReport,
+			excluded: excludedExtensions(configText, { bunAppsDir: BUN_APPS_DIR }),
+			providers: collectModelFacts(),
+		});
 
 		if (existsSync(target)) rmTree(target);
 		renameSync(stage, target);
@@ -466,6 +570,9 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// core into an orphan, and the core just linked above is protected by its
 		// own link count either way.
 		const prunedCores = pruneOrphanCores(outRoot);
+		// The outRoot index lists what retention left behind — strictly after
+		// pruneVersions, so it never links a pruned version's report.
+		writeOutRootIndex(outRoot);
 		return { version, target, extensions: built, coreBytes, coreCached, currentUpdated, pruned, prunedCores };
 	} catch (e) {
 		rmTree(stage); // never leave a half-written deploy behind

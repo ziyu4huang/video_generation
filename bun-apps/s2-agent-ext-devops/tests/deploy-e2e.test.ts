@@ -64,6 +64,27 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(existsSync(join(r.target, "ext", "power-tool", "ext.json"))).toBe(true);
 		expect(readlinkSync(join(outRoot, "current"))).toBe(r.version);
 
+		// the per-deploy report: written after the gates, frozen with the tree,
+		// carrying the included/excluded table and the baked provider catalog
+		const reportPath = join(r.target, "deploy-report.html");
+		expect(existsSync(reportPath)).toBe(true);
+		const report = readFileSync(reportPath, "utf8");
+		expect(report).toContain(r.version);
+		for (const name of configuredNamesSorted) expect(report).toContain(name);
+		// excluded half, with a registry excludeReason verbatim
+		expect(report).toContain("s2-agent-ext-archify");
+		expect(report).toContain("excludeReason");
+		// baked provider/model layers
+		expect(report).toContain("lm-studio");
+		expect(report).toContain("glm-5.3");
+		// gate matrix rows for the whole-deploy gates
+		expect(report).toContain("verifyDualState");
+		expect(report).toContain("verifyRelocatable");
+		// and the outRoot index links to this version's report
+		const index = readFileSync(join(outRoot, "index.html"), "utf8");
+		expect(index).toContain(r.version);
+		expect(index).toContain(`${r.version}/deploy-report.html`);
+
 		// frozen: no write bits anywhere
 		expect(statSync(join(r.target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
 

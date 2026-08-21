@@ -60,6 +60,20 @@ export interface BuildExtOptions {
 	hostModules: readonly string[];
 	sourceSha: string;
 	builtAt: string;
+	/**
+	 * Per-gate timing callback, fired after each of Gates 1/1b/2/4 passes —
+	 * the deploy report's gate matrix. Only called on pass: a failed gate
+	 * throws and the deploy aborts before any report is written, so there is
+	 * no "fail" observation to report.
+	 */
+	onGate?: (id: string, ms: number) => void;
+}
+
+/** Time one gate body; report the duration to opts.onGate on pass. */
+function timedGate(opts: BuildExtOptions, id: string, run: () => void): void {
+	const t0 = performance.now();
+	run();
+	opts.onGate?.(id, performance.now() - t0);
 }
 
 export interface BuildExtResult {
@@ -437,13 +451,15 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	writeFileSync(cjsPath, built);
 
 	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
-	const foreign = scanForeignSpecifiers(built, allExternals);
-	if (foreign.length > 0) {
-		throw new Error(
-			`${opts.ext.name}: bundle references specifier(s) the host does not provide: ${foreign.join(", ")}. ` +
-				`Either add them to hostModules (and to src/sh/host-modules.ts) or make the bundler inline them.`,
-		);
-	}
+	timedGate(opts, "1", () => {
+		const foreign = scanForeignSpecifiers(built, allExternals);
+		if (foreign.length > 0) {
+			throw new Error(
+				`${opts.ext.name}: bundle references specifier(s) the host does not provide: ${foreign.join(", ")}. ` +
+					`Either add them to hostModules (and to src/sh/host-modules.ts) or make the bundler inline them.`,
+			);
+		}
+	});
 
 	// ── Gate 1b: no bare dynamic import may remain ───────────────────────────
 	// The rewrites above turn every ALLOWED dynamic import into a require; Gate 1
@@ -451,16 +467,18 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// native `import("<bare>")` therefore cannot resolve at runtime inside a
 	// compiled binary — this is exactly how /websearch shipped broken while all
 	// existing gates stayed green.
-	const unroutable = scanUnroutableDynamicImports(built);
-	if (unroutable.length > 0) {
-		throw new Error(
-			`${opts.ext.name}: bundle keeps native dynamic import(s) that cannot resolve inside the compiled binary: ${unroutable.join(", ")}. ` +
-				`Import the module statically (the cjs wrapper routes static imports through the injected require), or declare it as an external so the build rewrites it to require().`,
-		);
-	}
+	timedGate(opts, "1b", () => {
+		const unroutable = scanUnroutableDynamicImports(built);
+		if (unroutable.length > 0) {
+			throw new Error(
+				`${opts.ext.name}: bundle keeps native dynamic import(s) that cannot resolve inside the compiled binary: ${unroutable.join(", ")}. ` +
+					`Import the module statically (the cjs wrapper routes static imports through the injected require), or declare it as an external so the build rewrites it to require().`,
+			);
+		}
+	});
 
 	// ── Gate 2: it loads the way the runtime loads it ─────────────────────────
-	loadProbe(cjsPath, allExternals, PI_AGENT_DIR, opts.hostModules);
+	timedGate(opts, "2", () => loadProbe(cjsPath, allExternals, PI_AGENT_DIR, opts.hostModules));
 
 	// ── Vendored packages ────────────────────────────────────────────────────
 	// Resolved from the EXTENSION's package dir, not s2-agent's: a vendored dep
@@ -482,15 +500,17 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// ── Gate 4: no build-machine path may survive in the bundle ──────────────
 	// Runs after vendoring so the deploy-tree exemption covers what we just
 	// wrote.
-	const foreignPaths = scanForeignPaths(built, opts.deployRoot);
-	if (foreignPaths.length > 0) {
-		throw new Error(
-			`${opts.ext.name}: bundle bakes in build-machine path(s): ${foreignPaths.slice(0, 5).join(", ")}` +
-				`${foreignPaths.length > 5 ? ` (+${foreignPaths.length - 5} more)` : ""}. ` +
-				`The deploy tree must be relocatable — vendor the package (vendor:) instead of bundling it, ` +
-				`or reach the dependency by bare specifier so the host can serve it.`,
-		);
-	}
+	timedGate(opts, "4", () => {
+		const foreignPaths = scanForeignPaths(built, opts.deployRoot);
+		if (foreignPaths.length > 0) {
+			throw new Error(
+				`${opts.ext.name}: bundle bakes in build-machine path(s): ${foreignPaths.slice(0, 5).join(", ")}` +
+					`${foreignPaths.length > 5 ? ` (+${foreignPaths.length - 5} more)` : ""}. ` +
+					`The deploy tree must be relocatable — vendor the package (vendor:) instead of bundling it, ` +
+					`or reach the dependency by bare specifier so the host can serve it.`,
+			);
+		}
+	});
 
 	// ── Skills ───────────────────────────────────────────────────────────────
 	for (const rel of opts.ext.skills) {
