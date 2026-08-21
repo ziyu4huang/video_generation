@@ -29,3 +29,15 @@ gitignored `.planning/sdd/`).
 
 Four of five stages are a disk check; only DECIDE-vs-DESIGN needs judgment.
 When in doubt, DECIDE first.
+
+## Reviewer second pass (specs + plans)
+
+After writing a spec or a plan — and BEFORE execution — dispatch a reviewer
+subagent using the existing templates: specs →
+`skills/brainstorming/spec-document-reviewer-prompt.md`, plans →
+`skills/writing-plans/plan-document-reviewer-prompt.md`. The reviewer is an
+LLM-critic pass over the ARTIFACT (gaps, contradictions, unfalsifiable
+tasks); the host's `pipeline-gate` validates the plan's mechanical markers
+(`### Task N` + `Run:`/`Expected:`) — this composes with that gate, it does
+not replace it. Instruct the reviewer to flag only issues that would cause
+real problems downstream.

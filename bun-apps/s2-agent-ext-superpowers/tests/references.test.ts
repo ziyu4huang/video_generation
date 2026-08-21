@@ -66,6 +66,26 @@ describe("references/pi-routing.md carries the full routing detail the bootstrap
     expect(piRouting).toContain(".planning/plans/");
   });
 
+  it("wires the document-reviewer second pass (D2/S7 — templates exist + are pointed at)", () => {
+    for (const token of [
+      "spec-document-reviewer-prompt.md",
+      "plan-document-reviewer-prompt.md",
+      "BEFORE execution",
+      "pipeline-gate",
+    ]) {
+      expect(piRouting).toContain(token);
+    }
+    expect(piTools).toContain("spec-document-reviewer-prompt.md");
+    expect(piTools).toContain("plan-document-reviewer-prompt.md");
+    // the templates themselves exist on disk (unwired no-ops would be drift)
+    expect(existsSync(join(import.meta.dir, "..", "skills", "brainstorming", "spec-document-reviewer-prompt.md"))).toBe(
+      true,
+    );
+    expect(existsSync(join(import.meta.dir, "..", "skills", "writing-plans", "plan-document-reviewer-prompt.md"))).toBe(
+      true,
+    );
+  });
+
   it("keeps the full five-stage table with wayfind/superpowers skill names", () => {
     for (const token of [
       "DECIDE",
