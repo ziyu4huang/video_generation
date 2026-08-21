@@ -23,7 +23,7 @@ compiled from **Rust to WASM** (`wasm32-wasip1`).
 ## Layout
 
 ```
-dsh-sv-analyzer/
+dsh-plugin/sv-analyzer/
 ├── build.sh              # batch CLI: rust → wasm → tests → tarball
 ├── rust/                 # Rust crate (lib + wasm ABI entry + native CLI)
 │   ├── src/lib.rs        # analysis core (dialects, extraction, AST dump)

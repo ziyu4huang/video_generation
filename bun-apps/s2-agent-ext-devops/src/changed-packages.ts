@@ -111,14 +111,16 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
  *                      obeyed the rule ran everything (~12+ min observed).
  *   bun-apps/tests/ — workspace-root gate tests; they execute in the
  *                      regression-gates job (bun run test:dist / test:seam),
- *                      which run_local_ci runs REGARDLESS of package scoping.
- *   dsh-sv-analyzer/ — standalone top-level Rust/DSH plugin project with its
- *                      own cargo build + node tests; it neither imports nor
- *                      affects any bun-apps/<pkg> build or test.
+ *                      which local_ci runs REGARDLESS of package scoping.
+ *   dsh-plugin/sv-analyzer/ — standalone Rust/DSH plugin project under the
+ *                      top-level dsh-plugin/ host dir (own cargo build + node
+ *                      tests, zero npm deps, not part of the bun workspace);
+ *                      it neither imports nor affects any bun-apps/<pkg> build
+ *                      or test.
  * Anything else outside bun-apps/<pkg>/ still fails open (shared config,
  * scripts/, .github/, submodules — any of those CAN affect every package).
  */
-const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/", "dsh-sv-analyzer/"];
+const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/", "dsh-plugin/sv-analyzer/"];
 
 /**
  * Compute the changed-package map. Always returns a well-formed
