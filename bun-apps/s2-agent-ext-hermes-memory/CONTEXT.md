@@ -10,8 +10,8 @@ Consolidation, background-review fallback, correction-detector, and session-flus
 
 ### Retrieval-quality terms (LeanRAG-informed)
 
+- **Capture-only journal** — hermes's post-fold scope (2026-08-22, context-lifecycle D1): the session journal + auto-capture + convergence handoff. Recall routes through kcard `retrieveRecords` (knowledge-card ext); hermes runs no semantic/vector search of its own. SurrealDB stays the CRUD journal store of record.
 - **Redundancy-aware retrieval** — retrieval that collapses duplicates and de-emphasizes repeated evidence before assembly, so the context budget carries distinct information rather than repeats. (Selective port; ADR-0001, ticket 19.)
-- **Frequency-voted recall** — ranking retrieved cards by how many independent signals (semantic, lexical, entity-tag) reference them, not by a single signal alone.
 - **Exact-contentHash dedup** — collapsing cards that share an identical content hash within one result set. (Near-dup cosine collapse is a separate concern — ticket 17.)
 
 ### The five stores

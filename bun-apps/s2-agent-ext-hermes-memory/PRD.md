@@ -30,40 +30,23 @@ Persistent memory + session search + secret scanning for Pi. Stores categorized 
 pi install npm:pi-hermes-memory
 ```
 
-## Decision: Vector/search backend — SurrealDB primary, SQLite fallback (2026-08-09)
+## Decision: Vector path RETIRED — hermes folds to a capture-only journal (2026-08-22)
 
-Decision — Vector/search backend: SurrealDB PRIMARY, SQLite fallback (Round 2 grill; refines Ticket 04 Fork C; dated 2026-08-09).
+The two former decisions below (Vector/search backend 2026-08-09, Embed index build
+policy 2026-08-09) are SUPERSEDED. Measured 2026-08-19
+(`.planning/knowledge/hermes-recall-audit.md`): the `vectors` SurrealDB database was
+never created, so every armed semantic query served a zero-row lexical fallback —
+hit@1/3/5 = 0/20, MRR 0.000. The card_vectors HNSW side-table, its vector backfill,
+`searchSemantic`, and the knowledge_search semantic opt-in were deleted
+(context-lifecycle ticket 03 / D1 — `.planning/2026-08-22-context-lifecycle/`).
+Re-arming is rejected: it would duplicate kcard `retrieveRecords`' measured 1.00
+semantic blend (knowledge-card ext) — recall routes there, exclusively.
 
-- SurrealDB is the PRIMARY backend for the knowledge pipeline, carrying BOTH the CRUD store AND the vector (embed) index — HNSW, 768-dim, cosine distance.
-  Verified SurrealDB v3.2.3 (resident @127.0.0.1:8000):
-    DDL:  DEFINE INDEX <name> ON <table> FIELDS vec HNSW DIMENSION 768 DIST COSINE TYPE F32;
-    KNN:  SELECT id FROM <table> WHERE vec <|10,100|> [<768 floats>];   -- v3 REMOVED the old <|k|> operator; use 2-arg <|k,EF|> for HNSW or <|k,DIST|> for brute force.
-    Latency: HNSW p95 ~13 ms wall / ~2 ms server-side at 1,000 768-dim vectors. DISKANN also supported (DEFINE INDEX ... DISKANN DIMENSION 768 DIST COSINE TYPE F32;).
-- SQLite is the FALLBACK backend for NON-vector CRUD + FTS5 only, via the existing surreal->sqlite backend-factory.ts pattern. SQLite does NOT carry the vector index.
-  Reason: sqlite-vec is NOT loadable in Bun — bun:sqlite is compiled with SQLITE_OMIT_LOAD_EXTENSION ("This build of sqlite3 does not support dynamic extension loading"); better-sqlite3 (the only loadExtension-capable driver) crashes Bun (NAPI fatal panic). So when SurrealDB is down, semantic/vector search is unavailable (SQLite FTS only), NOT a JS cosine.
-- SUPERSEDES Ticket 04's "sqlite-vec FALLBACK" — sqlite-vec is dropped.
-- Embed model UNCHANGED this round: text-embedding-nomic-embed-text-v1.5 (768-dim) via LM Studio.
-- OPEN (not addressed this round): embed-bench shows nomic is fastest but bge-m3 has higher recall@1 (0.909 vs 0.864) — model pick may be revisited in a later fork.
-- RESOLVED 2026-08-22 (D3, effort `.planning/2026-08-22-context-lifecycle/` ticket 01): the
-  canonical model is now `text-embedding-bge-m3` on LM Studio :1234, resolved solely in
-  `@repo/s2-agent-core-interface` `resolveSemanticEmbedConfig` — the embed-bench recall@1
-  edge (0.909 vs 0.864) plus the Traditional-Chinese vault settled the fork in bge-m3's
-  favor. Eval re-baseline gate: ticket 07 (nomic = recorded fallback).
-
-## Decision: Embed index build policy — lazy + background backfill (2026-08-09)
-
-Decision — Embed index build policy: lazy + background backfill (Round 2 grill; refines Ticket 04 Fork B; dated 2026-08-09).
-
-The embed/vector index (SurrealDB HNSW, per the vector-backend decision recorded elsewhere in these files) is built LAZILY — not eagerly at ingest:
-
-- Lazy-first: ingest stays embed-free (matches the current 06b spine walk-and-ingest.ts [CRUD-mirror + heal only] AND zk's semantic.ts, which already computes embeds lazily on first semantic query, persisted to <vault>/.knowledge-semantic/<model>.json, brute-force in-memory cosine).
-- On-demand query embed: a query embeds the query string and searches; if HNSW is cold/partial for some cards, it brute-force cosine-searches the persisted local cache for the un-backfilled cards and merges; an async backfill is fired. Queries never block; semantic results return immediately.
-- Background backfill: a deferred INCREMENTAL backfill (reusing the existing session-backfill.ts pattern — setTimeout(0), inProgress-guarded, idempotent re-check, error-isolated, shutdown-drained) warms SurrealDB HNSW for new/changed cards. Triggers: after each ingest-walk, and on first cold query. Incremental only (deltas).
-- Delta-keyed invalidation (fixes zk's whole-cache-rebuild weakness): keyed by per-card content-hash + embed-model version — only new/changed cards re-embed.
-- Dedup at ingest: uses the existing pluggable DedupStrategy (FTS/hash) — no vector dependency at ingest. Vector-dedup becomes an optional depth-pass once HNSW warms.
-- Two-tier vector storage (mirrors backend-factory surreal-primary / sqlite-fallback): SurrealDB HNSW = fast path; zk's persisted JSON cache = complete-set brute-force cosine fallback when SurrealDB is down. Same nomic embedder feeds both (one embed system, two storage tiers) — patches the "vectors vanish when SurrealDB down" gap from the vector-backend decision.
-
-SUPERSEDES/REFINES Ticket 04 Fork B ("INGEST CARD-EMBED (stored) + QUERY EMBED"): the eager-at-ingest half is REPLACED by lazy+backfill; the query-embed half STANDS.
+What stands: SurrealDB remains the PRIMARY backend for the CRUD journal store
+(store of record for the capture journal — sqlite fallback unchanged); the bge-m3
+canonical-model resolution (D3) lives in `@repo/s2-agent-core-interface`
+`resolveSemanticEmbedConfig`; the LeanRAG hierarchy build keeps its LM Studio
+embedder injection.
 
 ## Cross-reference
 
