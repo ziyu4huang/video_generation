@@ -13,7 +13,14 @@
  *                      truth for the per-package quirks the bare form gets
  *                      wrong — see CLAUDE.md).
  *   full            — quick + extension-contract.test.ts re-asserted standalone.
- * *\n * NOTE — file2md's canonical `bun run test` is `bun test --isolate`;\n * the retired .sh ran a bare `bun test` and FAILED its quick tier (36\n * failures — the 12 mock-leak false failures) until --isolate was\n * added. The .ts runs the canonical form: 210 pass.\n
+ *                    The contract assertion is the .sh's SINGLE-FILE form
+ *                    ("bun test <file>"), by design: the canonical mandate
+ *                    covers the quick/full BASE runner only (see the
+ *                    runContract() comment).
+ *
+ * NOTE — file2md's canonical `bun run test` is `bun test --isolate`; the retired .sh ran a bare `bun test`
+ * and FAILED its quick tier (36 failures — the 12 mock-leak false failures) until --isolate was added.
+ * The .ts runs the canonical form: 210 pass.
  * USAGE (from anywhere):
  *   bun bun-apps/s2-agent-ext-file2md/run-test.ts              # = quick
  *   bun bun-apps/s2-agent-ext-file2md/run-test.ts full
@@ -95,7 +102,16 @@ function runQuick(): number {
 }
 
 function runContract(): number {
-  return runBun(["test", CONTRACT_TEST]);
+  // The .sh's single-file assertion, verbatim: "bun test <file>" — NOT through
+  // `bun run test`, which appends the path to the canonical script: for the
+  // scope-baked canonicals (knowledge-card, obsidian) bun unions the
+  // positionals and re-runs the whole package suite as the "contract" step.
+  // The canonical-`bun run test` mandate covers the quick/full BASE runner.
+  const r = spawnSync("bun", ["test", CONTRACT_TEST], {
+    cwd: SCRIPT_DIR,
+    stdio: ["ignore", logFd!, logFd!],
+  });
+  return r.status ?? 1;
 }
 
 // Run a named step, capture rc + elapsed, color the summary line, fold overall.

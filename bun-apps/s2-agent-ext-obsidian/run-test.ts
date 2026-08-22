@@ -13,7 +13,15 @@
  *                      truth for the per-package quirks the bare form gets
  *                      wrong — see CLAUDE.md).
  *   full            — quick + extension-contract.test.ts re-asserted standalone.
- * *\n * NOTE — obsidian's canonical `bun run test` is scoped to extensions/__tests__/\n * (the same scope the .sh used for quick), so quick is byte-identical to\n * the .sh's `bun test extensions/__tests__/`.\n
+ *                    The contract assertion is the .sh's SINGLE-FILE form
+ *                    ("bun test <file>"), by design: the canonical mandate
+ *                    covers the quick/full BASE runner only (see the
+ *                    runContract() comment).
+ *
+ * NOTE — obsidian's canonical `bun run test` is scoped to `bun test extensions/__tests__/` (the same scope the .sh
+ * used for quick), so quick is byte-identical to the .sh's form. Its standalone contract step therefore runs the
+ * BARE file (`bun test <file>`): forwarding the path through `bun run test` would union with the baked-in scope
+ * and re-run the whole suite as the 'contract' step (the finding this fix round closed).
  * USAGE (from anywhere):
  *   bun bun-apps/s2-agent-ext-obsidian/run-test.ts              # = quick
  *   bun bun-apps/s2-agent-ext-obsidian/run-test.ts full
@@ -51,27 +59,27 @@ let tier = "quick";
 let list = false;
 const extra: string[] = [];
 for (const arg of process.argv.slice(2)) {
-	if (arg === "-l" || arg === "--list") list = true;
-	else if (arg === "quick" || arg === "full") tier = arg;
-	else extra.push(arg);
+  if (arg === "-l" || arg === "--list") list = true;
+  else if (arg === "quick" || arg === "full") tier = arg;
+  else extra.push(arg);
 }
 
 function printList(): void {
-	process.stdout.write(
-		`${Y(`${PKG} run-test.sh — tiers`)}:\n` +
-			`  ${G("quick")}  bun test extensions/__tests__/ (this package's existing test command)  ${Y("[default]")}\n` +
-			`  ${G("full")}   quick + extension-contract.test.ts re-asserted standalone\n`,
-	);
+  process.stdout.write(
+    `${Y(`${PKG} run-test.sh — tiers`)}:\n` +
+      `  ${G("quick")}  bun test extensions/__tests__/ (this package's existing test command)  ${Y("[default]")}\n` +
+      `  ${G("full")}   quick + extension-contract.test.ts re-asserted standalone\n`,
+  );
 }
 
 if (list) {
-	printList();
-	process.exit(0);
+  printList();
+  process.exit(0);
 }
 
 if (tier !== "quick" && tier !== "full") {
-	console.error(`${R("error")}: unknown tier '${tier}' (want: quick|full)`);
-	process.exit(2);
+  console.error(`${R("error")}: unknown tier '${tier}' (want: quick|full)`);
+  process.exit(2);
 }
 
 // ── tier runners ──────────────────────────────────────────────────────────
@@ -83,60 +91,69 @@ let overall = 0;
 let logFd: number | null = null;
 
 function runBun(args: string[]): number {
-	const r = spawnSync("bun", ["run", "--silent", ...args], {
-		cwd: SCRIPT_DIR,
-		stdio: ["ignore", logFd!, logFd!],
-	});
-	return r.status ?? 1;
+  const r = spawnSync("bun", ["run", "--silent", ...args], {
+    cwd: SCRIPT_DIR,
+    stdio: ["ignore", logFd!, logFd!],
+  });
+  return r.status ?? 1;
 }
 
 function runQuick(): number {
-	return runBun(["test", ...extra]);
+  return runBun(["test", ...extra]);
 }
 
 function runContract(): number {
-	return runBun(["test", CONTRACT_TEST]);
+  // The .sh's single-file assertion, verbatim: "bun test <file>" — NOT through
+  // `bun run test`, which appends the path to the canonical script: for the
+  // scope-baked canonicals (knowledge-card, obsidian) bun unions the
+  // positionals and re-runs the whole package suite as the "contract" step.
+  // The canonical-`bun run test` mandate covers the quick/full BASE runner.
+  const r = spawnSync("bun", ["test", CONTRACT_TEST], {
+    cwd: SCRIPT_DIR,
+    stdio: ["ignore", logFd!, logFd!],
+  });
+  return r.status ?? 1;
 }
 
 // Run a named step, capture rc + elapsed, color the summary line, fold overall.
 function step(name: string, fn: () => number): void {
-	if (logFd !== null) closeSync(logFd);
-	logFd = openSync(LOG_PATH, "w");
-	const start = Date.now();
-	const rc = fn();
-	closeSync(logFd);
-	logFd = null;
-	const elapsed = Math.floor((Date.now() - start) / 1000);
-	if (rc === 0) {
-		console.log(`${G("✓")} ${name}  ${D(`(${elapsed}s)`)}`);
-	} else {
-		console.log(`${R("✗")} ${name}  ${D(`(${elapsed}s)`)}`);
-		overall = 1;
-		// Surface the tail of a failed step — exact
-		// `sed 's/^/      /' <log> | tail -n 25 >&2` semantics (a final newline
-		// terminates the last line; sed on an empty file emits nothing).
-		const log = readFileSync(LOG_PATH, "utf8");
-		if (log.length > 0) {
-			const endsNL = log.endsWith("\n");
-			const body = endsNL ? log.slice(0, -1) : log;
-			const lines = body.split("\n").slice(-25).map((l) => `      ${l}`);
-			process.stderr.write(`${lines.join("\n")}${endsNL ? "\n" : ""}`);
-		}
-	}
+  if (logFd !== null) closeSync(logFd);
+  logFd = openSync(LOG_PATH, "w");
+  const start = Date.now();
+  const rc = fn();
+  closeSync(logFd);
+  logFd = null;
+  const elapsed = Math.floor((Date.now() - start) / 1000);
+  if (rc === 0) {
+    console.log(`${G("✓")} ${name}  ${D(`(${elapsed}s)`)}`);
+  } else {
+    console.log(`${R("✗")} ${name}  ${D(`(${elapsed}s)`)}`);
+    overall = 1;
+    // Surface the tail of a failed step — exact
+    // `sed 's/^/      /' <log> | tail -n 25 >&2` semantics (a final newline
+    // terminates the last line; sed on an empty file emits nothing).
+    const log = readFileSync(LOG_PATH, "utf8");
+    if (log.length > 0) {
+      const endsNL = log.endsWith("\n");
+      const body = endsNL ? log.slice(0, -1) : log;
+      const lines = body.split("\n").slice(-25).map((l) => `      ${l}`);
+      process.stderr.write(`${lines.join("\n")}${endsNL ? "\n" : ""}`);
+    }
+  }
 }
 
 console.log(`${Y(`▶ ${PKG} run-test.sh — tier=${tier}`)}`);
 if (tier === "quick") {
-	step("quick", runQuick);
+  step("quick", runQuick);
 } else {
-	step("quick", runQuick);
-	step("contract (standalone)", runContract);
+  step("quick", runQuick);
+  step("contract (standalone)", runContract);
 }
 
 console.log("");
 if (overall === 0) {
-	console.log(`${G(`✓ tier=${tier} passed`)}`);
+  console.log(`${G(`✓ tier=${tier} passed`)}`);
 } else {
-	console.log(`${R(`✗ tier=${tier} had failures (see above)`)}`);
+  console.log(`${R(`✗ tier=${tier} had failures (see above)`)}`);
 }
 process.exit(overall);
