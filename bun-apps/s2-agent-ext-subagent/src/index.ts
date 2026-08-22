@@ -98,6 +98,16 @@ export {
   renderSubagentsResult,
   subagentsToolSchema,
 } from "./subagents-tool.js";
+// ── owned: shared team task board tools (ticket 03) ─────────────────────────
+export type { TaskToolsOptions } from "./task-tools.js";
+export {
+  createTaskTools,
+  TASK_BOARD_SESSION_ID,
+  taskCreateSchema,
+  taskGetSchema,
+  taskListSchema,
+  taskUpdateSchema,
+} from "./task-tools.js";
 // ── owned: two-layer edit-gated reviewer (ticket 02) ─────────────────────────
 export type {
   WatchdogFinding,

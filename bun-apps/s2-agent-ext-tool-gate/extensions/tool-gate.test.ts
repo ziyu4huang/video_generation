@@ -205,15 +205,17 @@ describe("matchIntent (S1)", () => {
     expect(matched.map((g) => g.names[0])).toEqual(["movie"]);
     expect(matched[0]!.names).toEqual(["movie", "movie_help"]);
   });
-  test("workflow intent → the 6-tool workflow/subagent family", () => {
+  test("workflow intent → the 10-tool workflow/subagent family", () => {
     // run_workflow/workflow_help/workflow_control/spawn_subagent/list_subagents/
     // send_message all reference the ONE "workflow" gate family (ticket 01,
     // declared in the workflow extension, referenced cross-package by subagent;
     // send_message joined 2026-08-22 — teams-parity ticket 02: a named-agent
-    // follow-up belongs to the exact sessions that can spawn one) →
-    // buildEffectiveGates groups all 6 into a single multi-name gate. Intent-mode
-    // fires the whole family; co-fire via updateSticky is preserved by the
-    // grouped names. (Names renamed 2026-08-20 — docs/agents/extension-naming.md.)
+    // follow-up belongs to the exact sessions that can spawn one; the 4 task_*
+    // board tools joined same-day ticket 03: the shared board belongs to the
+    // exact sessions that can coordinate agents) → buildEffectiveGates groups
+    // all 10 into a single multi-name gate. Intent-mode fires the whole family;
+    // co-fire via updateSticky is preserved by the grouped names. (Names
+    // renamed 2026-08-20 — docs/agents/extension-naming.md.)
     const matched = matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky());
     expect(matched.map((g) => g.names[0])).toEqual(["run_workflow"]);
     expect(matched[0]!.names).toEqual([
@@ -223,6 +225,10 @@ describe("matchIntent (S1)", () => {
       "spawn_subagent",
       "list_subagents",
       "send_message",
+      "task_create",
+      "task_get",
+      "task_list",
+      "task_update",
     ]);
   });
   test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {
