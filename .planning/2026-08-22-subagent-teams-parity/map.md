@@ -79,8 +79,12 @@ Phase 3 — teams vocabulary (P3)
   DENY per D6); two-stage shutdown; stop-by-name; detach refusal. Review
   findings fixed (M1 allowlist guard, M2 manual round-trip, m1/m2 shutdown)
   and merged APPROVE-WITH-FIXES
-- `tickets/05-team-addressing.md` — task — sibling addressing (parent-brokered) +
-  live roster
+- `tickets/05-team-addressing.md` — closed 2026-08-22 (PR #1834 → main
+  1d37ec7d) — parent-brokered sibling routing (selfName-stamped child
+  `send_message` instance; relay + deliver, both-see-it) + live team roster on
+  `list_subagent_runs list`; child protocol envelopes at teammates refused.
+  Reviewer APPROVE, 4 minors fixed pre-merge (running-branch race, relay
+  ordering, throwing steer, unpinned guards)
 
 Phase 4 — ultracode gaps (P4)
 - `tickets/06-manifest-model-tool-path.md` — task — `ExecOptions.mainModel` hook,
@@ -129,11 +133,12 @@ Phase 4 — ultracode gaps (P4)
 
 ## Frontier
 
-`tickets/05-team-addressing.md` — ticket 04 shipped the protocol layer on top
-of the already-live send_message surface; team addressing is next because it
-OWNS the two documented seams ticket 02 left open (child→sibling direct
-routing, nested-main→root) and needs no new stores — it re-routes the existing
-parent-brokered bus + registry.
+`tickets/06-manifest-model-tool-path.md` — the teams core (tickets 01-05) is
+whole: addressability, shared state, protocol, and team addressing are all
+merged and unit-pinned. Phase 4 starts with the smallest seam: `ExecOptions.
+mainModel` on `workflow-manager.ts`, a hook pre-charted at
+`workflow-tool.ts:439-441` ("see #630, OOS") with the precedence already
+decided (script > manifest > session).
 
 ## Fog of war
 
@@ -144,9 +149,15 @@ parent-brokered bus + registry.
   the awaited tool call resolves at exchange end; the steer only joins the queue
   (persistent-agent tests + ADR-subagent-0008).
 - Memory footprint of N live in-process sessions under the LRU cap — STILL unmeasured;
-  the TUI smoke of tickets 01-02 has not run in a live session (no live-session
-  environment during either ticket). First `name:` + `send_message` use should
+  the TUI smoke of tickets 01-05 has not run in a live session (no live-session
+  environment during any ticket). First `name:` + `send_message` use should
   confirm addressability, `/subagents` display, and rough memory.
+- Ticket 05 residual seams (documented non-fixes): sender identity is only as
+  trustworthy as the stamp — an unnamed one-shot child keeps the SHARED
+  send_message instance (no selfName), so its teammate sends behave like
+  parent sends (unbrokered); a named child cannot lie about its name, but a
+  nested child spawning its own named child registers into the same
+  process-global roster (roster shows all; relays all surface to the root).
 - Cron `lastMissed` surfacing (ticket 08 optional polish) — undecided.
 
 ## Cross-effort links
