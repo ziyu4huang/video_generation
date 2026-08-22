@@ -147,12 +147,18 @@ export function getBackgroundRunManager(): BackgroundRunManager {
  * Wire the singleton's deliverer to a pi-like sender. The notification string
  * is wrapped in a CustomMessage (`customType: "subagent-task-notification"`,
  * `display: true`) — sendMessage takes a message OBJECT, not a raw string
- * (same shape as ultracode's installResultDelivery). `followUp` delivery
- * queues the notification while the parent turn is busy and delivers it when
- * idle (the seam btw uses for handoff injection). Called once by the
- * extension entry at load. Best-effort: a host without sendMessage (or a
- * wiring-time throw) degrades to no-wake — results still land in
- * run-persistence, so list_subagent_runs keeps working.
+ * (same shape as ultracode's installResultDelivery).
+ *
+ * Wake semantics (agent-session sendCustomMessage): `deliverAs: "followUp"`
+ * routes the message into the RUNNING turn when the parent is streaming, and
+ * `triggerTurn: true` is what wakes an IDLE parent into a new turn — without
+ * it the message is merely appended and no turn runs, silently breaking the
+ * AUTO-WAKE promise for the exact case background dispatch targets. Sending
+ * both (streaming → followUp queue, idle → fresh turn) mirrors task-panel's
+ * installResultDelivery. Called once by the extension entry at load.
+ * Best-effort: a host without sendMessage (or a wiring-time throw) degrades
+ * to no-wake — results still land in run-persistence, so list_subagent_runs
+ * keeps working.
  */
 export function wireBackgroundDeliverer(
   pi: {
@@ -167,7 +173,7 @@ export function wireBackgroundDeliverer(
     manager.setDeliverer((msg) =>
       pi.sendMessage?.(
         { customType: "subagent-task-notification", content: msg, display: true },
-        { deliverAs: "followUp" },
+        { deliverAs: "followUp", triggerTurn: true },
       ),
     );
   } catch {

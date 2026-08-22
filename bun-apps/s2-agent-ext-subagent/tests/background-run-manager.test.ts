@@ -105,7 +105,9 @@ describe("BackgroundRunManager", () => {
     m.track(spec, Promise.resolve({ status: "done" }));
     await new Promise((r) => setTimeout(r, 10));
     expect(sent).toHaveLength(1);
-    expect(sent[0]?.opts).toEqual({ deliverAs: "followUp" });
+    // triggerTurn: true is REQUIRED for the idle-parent wake (followUp alone
+    // only routes into a RUNNING turn; idle parents get no new turn without it).
+    expect(sent[0]?.opts).toEqual({ deliverAs: "followUp", triggerTurn: true });
     expect(sent[0]?.msg.customType).toBe("subagent-task-notification");
     expect(sent[0]?.msg.content).toContain("<task-notification>");
   });
