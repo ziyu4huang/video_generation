@@ -2,6 +2,7 @@ import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type {
+  AgentDefinition,
   AgentUsage,
   RunView,
   SpawnSubagentOptions,
@@ -1764,4 +1765,213 @@ test("details-carrying isPartial render budgets identically (shared helper on bo
     assert.equal(lines.length, 4, "header + 2 rows + indicator");
     assert.equal(lines[3], "… +4 more");
   });
+});
+
+// ── ticket 07: per-task agentType on the batch tool (subagent-teams-parity 07/08) ──
+// Resolution mirrors the singular path (resolveAgentType + buildSpawnOptions
+// precedence): task field > agentType definition > ctx default, read-only
+// exclusion non-overridable, worktree-isolating types rejected, unknown types
+// fail the WHOLE batch before dispatch (a null slot cannot carry the
+// "available types" hint the caller needs).
+
+/** Minimal AgentDefinition factory (required fields: name/prompt/source). */
+function def(over: Partial<AgentDefinition> & { name: string }): AgentDefinition {
+  return { prompt: `You are ${over.name}.`, source: "project", ...over };
+}
+
+function fakeSpawnFullOpts() {
+  const calls: SpawnSubagentOptions[] = [];
+  return {
+    calls,
+    spawn: async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
+      calls.push(opts);
+      return ok(`out${calls.length - 1}`);
+    },
+  };
+}
+
+test("ticket 07: mergeReadOnlyExclusion binds agentDef tools/model/tier/prompt with singular precedence", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t" },
+    {
+      defaultCwd: "/repo",
+      activeTools: ["read", "grep"],
+      agentDef: def({
+        name: "researcher",
+        tools: ["read", "grep", "find"],
+        disallowedTools: ["web_search"],
+        model: "p/research-model",
+        tier: "small",
+        prompt: "Research carefully.",
+      }),
+    },
+  );
+  assert.deepEqual(opts.tools, ["read", "grep", "find"], "agentDef.tools sits between task.tools and activeTools");
+  for (const forbidden of READ_ONLY_EXCLUDED) assert.ok(opts.excludeTools?.includes(forbidden));
+  assert.ok(opts.excludeTools?.includes("web_search"), "agentDef.disallowedTools denied");
+  assert.equal(opts.model, "p/research-model");
+  assert.equal(opts.tier, "small");
+  assert.equal(opts.instructions, "Research carefully.");
+});
+
+test("ticket 07: explicit per-task tools/model/tier win over the agentType definition", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t", tools: ["read"], model: "p/explicit", tier: "big" },
+    {
+      defaultCwd: "/repo",
+      agentDef: def({ name: "researcher", tools: ["find"], model: "p/def-model", tier: "small" }),
+    },
+  );
+  assert.deepEqual(opts.tools, ["read"], "explicit task tools win");
+  assert.equal(opts.model, "p/explicit", "explicit task model wins");
+  assert.equal(opts.tier, "big", "explicit task tier wins");
+});
+
+test("ticket 07: read-only exclusion stays non-overridable via an agentType allowlist", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t" },
+    { defaultCwd: "/repo", agentDef: def({ name: "writer", tools: ["read", "edit", "write", "bash"] }) },
+  );
+  // The definition allowlists the write tools, but the union exclusion applies
+  // AFTER the allowlist (deny wins) — a batch child is read-only by construction.
+  for (const forbidden of READ_ONLY_EXCLUDED) assert.ok(opts.excludeTools?.includes(forbidden));
+});
+
+test("ticket 07: per-task agentType resolves and binds on the execute path", async () => {
+  const f = fakeSpawnFullOpts();
+  const registry = new Map<string, AgentDefinition>([
+    [
+      "researcher",
+      def({
+        name: "researcher",
+        tools: ["read", "grep"],
+        model: "p/research-model",
+        tier: "small",
+        prompt: "Be rigorous.",
+      }),
+    ],
+  ]);
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: registry });
+  const res = await tool.execute(
+    "call-agenttype",
+    { tasks: [{ task: "#0", agentType: "researcher" }, { task: "#1" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.dispatched, 2);
+  assert.deepEqual(f.calls[0]?.tools, ["read", "grep"], "typed child binds the definition's allowlist");
+  assert.equal(f.calls[0]?.model, "p/research-model");
+  assert.equal(f.calls[0]?.tier, "small");
+  assert.equal(f.calls[0]?.instructions, "Be rigorous.");
+  // Untyped sibling (calls[1]) keeps the pre-07 path: no instructions.
+  assert.equal(f.calls[1]?.instructions, undefined);
+  assert.equal(f.calls[1]?.model, undefined);
+});
+
+test("ticket 07: unknown agentType rejects the whole batch before dispatch, listing per-task indexes", async () => {
+  const f = fakeSpawnFullOpts();
+  const registry = new Map<string, AgentDefinition>([["researcher", def({ name: "researcher" })]]);
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: registry });
+  const res = await tool.execute(
+    "call-unknown-type",
+    {
+      tasks: [{ task: "#0" }, { task: "#1", agentType: "ghost" }, { task: "#2", agentType: "phantom" }],
+      concurrency: 1,
+    },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls.length, 0, "nothing dispatched on a rejected batch");
+  const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+  assert.match(text, /Batch rejected before dispatch/);
+  assert.match(text, /\[1\] unknown agentType "ghost"/, "per-task index listed");
+  assert.match(text, /\[2\] unknown agentType "phantom"/);
+  assert.match(text, /Available agentTypes: researcher/, "available types listed like the singular path");
+  assert.equal(res.details.dispatched, 0);
+  assert.deepEqual(res.details.results, []);
+});
+
+test("ticket 07: worktree-isolating agentType is rejected in batch with a clear message", async () => {
+  const f = fakeSpawnFullOpts();
+  const registry = new Map<string, AgentDefinition>([
+    ["isolated-implementer", def({ name: "isolated-implementer", isolation: "worktree" })],
+  ]);
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: registry });
+  const res = await tool.execute(
+    "call-worktree-type",
+    { tasks: [{ task: "#0", agentType: "isolated-implementer" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls.length, 0, "worktree-isolating type never dispatches");
+  const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+  assert.match(text, /\[0\] agentType "isolated-implementer" uses worktree isolation/);
+  assert.match(text, /spawn_subagent/, "message points at the singular tool");
+});
+
+test("ticket 07: empty registry reports no definitions found (singular-path message parity)", async () => {
+  const f = fakeSpawnFullOpts();
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: new Map() });
+  const res = await tool.execute(
+    "call-empty-registry",
+    { tasks: [{ task: "#0", agentType: "anyone" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  const text = res.content[0]?.type === "text" ? res.content[0].text : "";
+  assert.match(text, /No agentType definitions found/);
+});
+
+test("ticket 07 (review 4a): tier-default tokenBudget derives from the agentType definition's tier", async () => {
+  const f = fakeSpawnFullOpts();
+  const registry = new Map<string, AgentDefinition>([
+    // No task tokenBudget/tier/maxTurns: the folded tier "small" must drive the
+    // 500k default (H3 recon envelope off via explicit maxTurns).
+    ["cheap", def({ name: "cheap", tier: "small" })],
+  ]);
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: registry });
+  await tool.execute(
+    "call-tier-default",
+    { tasks: [{ task: "#0", agentType: "cheap", maxTurns: 6 }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls[0]?.tokenBudget, 500_000, "agentDef.tier 'small' → 500k tier default");
+});
+
+test("ticket 07 (review 4b): explicit per-task excludeTools override the definition's disallowedTools", () => {
+  const opts = mergeReadOnlyExclusion(
+    { task: "t", excludeTools: ["web_fetch"] },
+    { defaultCwd: "/repo", agentDef: def({ name: "researcher", disallowedTools: ["web_search"] }) },
+  );
+  assert.ok(opts.excludeTools?.includes("web_fetch"), "explicit exclusion survives");
+  assert.ok(
+    !opts.excludeTools?.includes("web_search"),
+    "definition's disallowedTools yields to the explicit per-task denylist",
+  );
+  for (const forbidden of READ_ONLY_EXCLUDED) assert.ok(opts.excludeTools?.includes(forbidden));
+});
+
+test("ticket 07 (review 4c): agentType allowlisting a required tool still skips via the read-only union", async () => {
+  // The definition allowlists `edit` and the task REQUIRES it — the read-only
+  // union denies edit after the allowlist, so the impossible-tools preflight
+  // skips the child (null slot) instead of dispatching a child that can never
+  // use its required tool.
+  const f = fakeSpawnFullOpts();
+  const registry = new Map<string, AgentDefinition>([["editor", def({ name: "editor", tools: ["read", "edit"] })]]);
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: registry });
+  const res = await tool.execute(
+    "call-required-edit",
+    { tasks: [{ task: "#0", agentType: "editor", requiredTools: ["edit"] }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(f.calls.length, 0, "child never dispatched — required tool denied by the read-only union");
+  assert.equal(res.details.results[0], null, "skipped child maps to a null slot");
 });
