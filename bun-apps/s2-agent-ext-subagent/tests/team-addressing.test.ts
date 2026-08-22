@@ -137,6 +137,46 @@ test("named child → idle teammate terminal failure: released from the roster, 
   );
 });
 
+test("running-branch race (review finding 1): target goes idle in the window — the full reply reaches BOTH sides", async () => {
+  const { tool, liveRegistry, toParent } = mkChild("researcher");
+  // Status says running, but send()'s own isStreaming check finds it idle and
+  // runs a whole exchange — the answer must not be silently dropped.
+  const { agent } = fakeAgent([{ output: "the raced reply" }], "running");
+  liveRegistry.register({ name: "writer", agentId: "call-w", agent, cwd: "/repo" });
+
+  const res = await tool.execute("t3b", { to: "writer", message: "pivot" }, NO_SIGNAL, undefined, NO_CTX);
+
+  assert.equal(toParent.length, 2, "relay AND reply both reach the parent");
+  assert.match(toParent[0], /pivot/);
+  assert.match(toParent[1], /the raced reply/);
+  assert.match(text(res), /the raced reply/, "the sender gets the answer directly");
+});
+
+test("running-branch throw (review finding 3): no relay published for an exchange that did not happen", async () => {
+  const { tool, liveRegistry, toParent } = mkChild("researcher");
+  const { agent } = fakeAgent([new Error("steer exploded")], "running");
+  liveRegistry.register({ name: "writer", agentId: "call-w", agent, cwd: "/repo" });
+
+  const res = await tool.execute("t3c", { to: "writer", message: "hi" }, NO_SIGNAL, undefined, NO_CTX);
+
+  assert.equal(toParent.length, 0, "the parent must not see a relay the sender is told never happened");
+  assert.match(text(res), /failed/);
+});
+
+test("idle-branch degrade guard (review finding 4): target flips to running before send — relay only, no reply relay", async () => {
+  const { tool, liveRegistry, toParent } = mkChild("researcher");
+  // Idle at the branch check, but send() steers into an exchange that started
+  // in between — nothing completed, so no reply may be relayed.
+  const { agent } = fakeAgent([{ output: "", steered: true }]);
+  liveRegistry.register({ name: "writer", agentId: "call-w", agent, cwd: "/repo" });
+
+  await tool.execute("t3d", { to: "writer", message: "go" }, NO_SIGNAL, undefined, NO_CTX);
+  await new Promise((r) => setTimeout(r, 10));
+
+  assert.equal(toParent.length, 1, "only the relay — a steered result is not a reply");
+  assert.match(toParent[0], /go/);
+});
+
 test("unknown teammate: roster error names the live agents", async () => {
   const { tool, liveRegistry } = mkChild("researcher");
   const { agent } = fakeAgent();

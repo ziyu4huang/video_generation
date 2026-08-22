@@ -452,30 +452,63 @@ export function createSendMessageTool(
               "Address a teammate by name, or 'main' for the parent session.",
           );
         }
-        const relayed = bus.publish(
-          { name: selfName },
-          formatSiblingRelayNotification(selfName, entry.name, params.message),
-        );
-        if (!relayed.ok) return textResult(`send_message to teammate "${entry.name}" failed: ${relayed.error}`);
+        // The relay must never describe an exchange that did not happen
+        // (review finding 2): it publishes only once delivery is assured. On
+        // the RUNNING branch that is after send() resolves (a throwing steer
+        // or a terminal death publishes nothing); on the IDLE branch send()
+        // starts the exchange synchronously, so the relay publishes up front
+        // and the reply/failure relay follows when it settles.
+        const publishRelay = () =>
+          bus.publish({ name: selfName }, formatSiblingRelayNotification(selfName, entry.name, params.message));
         const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
         if (entry.agent.status === "running") {
-          // Steer: joins the target's current exchange; no reply for this send.
-          const result = await entry.agent.send(params.message, { timeoutMs });
+          // The target LOOKED mid-flight — steer is the expected outcome. But
+          // LiveAgent.send re-checks isStreaming itself, and the target's
+          // exchange can complete in the window between the two checks: a
+          // non-steered result here is a FULL awaited exchange whose answer is
+          // in hand (review findings 1, 3). So: await with the caller's signal
+          // (the sender's turn-abort can cut the wait), catch a throwing
+          // steer, and on the race surface the answer to BOTH sides instead
+          // of silently dropping it.
+          let result: LiveAgentSendResult;
+          try {
+            result = await entry.agent.send(params.message, { timeoutMs, signal });
+          } catch {
+            return textResult(
+              `Delivery to teammate "${entry.name}" failed — the exchange threw. Nothing was relayed; re-send or check its state with list_subagent_runs.`,
+            );
+          }
+          publishRelay();
           if (result.failure && isTerminal(result.failure)) {
             liveRegistry.release(entry.name, "terminal");
             return textResult(
-              `Message not delivered: ${result.failure.message}. Teammate "${entry.name}" is terminated and off the live roster.`,
+              `Teammate "${entry.name}" ran out of lifetime on delivery (${result.failure.message}) — terminated and off the live roster. The parent saw the relay.`,
             );
           }
+          if (result.steered) {
+            return textResult(
+              `Delivered to teammate "${entry.name}" — it is mid-exchange, so the message steers into that run ` +
+                "(no separate reply for this send), and the parent session has been surfaced the relay.",
+            );
+          }
+          // The race window closed: the target went idle and this ran a whole
+          // exchange. Relay the answer to the parent (both-see-it) and hand
+          // it to the sender directly.
+          bus.publish(
+            { name: entry.name, agentId: entry.agentId },
+            formatSiblingReplyNotification(entry.name, selfName, result),
+          );
           return textResult(
-            `Delivered to teammate "${entry.name}" — it is mid-exchange, so the message steers into that run ` +
-              "(no separate reply for this send), and the parent session has been surfaced the relay.",
+            `Delivered to teammate "${entry.name}" — its exchange had just ended, so this ran a new one. ` +
+              `Reply: ${result.failure ? `${result.failure.kind}: ${result.failure.message}` : result.output || "(empty)"}`,
           );
         }
         // Idle teammate: a fresh fire-and-forget exchange. The reply is
         // relayed to the parent when it settles (capped preview) — the same
         // both-see-it rule. A terminal lifetime failure releases the agent,
         // mirroring the wait:false contract.
+        const relayed = publishRelay();
+        if (!relayed.ok) return textResult(`send_message to teammate "${entry.name}" failed: ${relayed.error}`);
         void entry.agent
           .send(params.message, { timeoutMs })
           .then((result) => {
