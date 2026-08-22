@@ -9,7 +9,7 @@
  * gone rather than ported.
  */
 import { DeployVersionExistsError, runShDeploy, type DeployShOptions, type DeployShResult } from "./deploy/run.ts";
-import { runDeployE2e, type DeployE2eOutcome } from "./deploy-e2e-recipe.js";
+import { runDeployE2e, resolveModelEndpoint, type DeployE2eOutcome } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn } from "./spawn.js";
 
 export interface DeployParams {
@@ -106,6 +106,9 @@ export async function runDeploy(
 
 /** Resolve + run the E2E seam; null only when the seam itself is absent. */
 async function runE2e(deps: DeployRunDeps, target: string): Promise<DeployE2eOutcome | null> {
-	const e2e = deps.e2e ?? ((versionDir: string) => runDeployE2e({ versionDir, spawn: createLiveSpawn(versionDir) }));
+	const e2e =
+		deps.e2e ??
+		((versionDir: string) =>
+			runDeployE2e({ versionDir, spawn: createLiveSpawn(versionDir), modelEndpoint: resolveModelEndpoint() }));
 	return e2e(target);
 }

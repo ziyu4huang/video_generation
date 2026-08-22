@@ -118,9 +118,14 @@ export interface SmokeClassification {
  */
 export const BOOT_HANG_DIAGNOSTIC = [
 	"BOOT HANG: the probe hit its wall-clock cap and was SIGKILLed.",
-	"Known root cause (2026-08-15 incident): static extension hermes-memory runs startup",
+	"Known root cause #1 (2026-08-15 incident): static extension hermes-memory runs startup",
 	"syncMarkdownMemories (70 HTTP round-trips into a wedged surrealdb backend) BEFORE any",
 	"model call, so the log freezes with CPU idle.",
+	"Known root cause #2 (2026-08-23, deploy-E2E probe): the model call is SLOW, not hung —",
+	"LM Studio with several large models resident (qwen 27b ×2 + gemma 12b + embedders)",
+	"took 31.7s for 10 tokens; the same one-shot completed in ~3–4 min uncapped. If the",
+	"endpoint answers a direct curl, unload the extra models in LM Studio and rerun",
+	"before hunting a wedge.",
 	"Mitigation for one-shot runs: add `-ne -ns -e <ext>` — suppress run-dir extensions/skills",
 	"AND static factories, then re-enable only the extension you need, e.g.",
 	"  bun bun-apps/s2-agent/src/cli.ts -p '<prompt>' -ne -ns -e bun-apps/s2-agent-ext-<X>/extensions/<X>.ts",

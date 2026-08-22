@@ -43,13 +43,56 @@ import { realpathSync } from "node:fs";
 import { classifyRun } from "./oneshot-smoke.js";
 import type { SpawnFn } from "./spawn.js";
 
-/** Wall-clock caps (ms). The model call gets LM-Studio-cold-start headroom. */
+/**
+ * Wall-clock caps (ms). Boot and ext-load stay TIGHT — neither places a model
+ * call, so anything past 60s really is a wedge. The model call gets contention
+ * headroom: measured 2026-08-23 on this machine, LM Studio with several large
+ * models resident (qwen 27b ×2 + gemma 12b + 3 embedders) generated 10 tokens
+ * in 31.7s and the same one-shot completed in ~3–4 min uncapped — a 120s cap
+ * turns that environment into a false FAIL, so the cap sits above the measured
+ * ceiling at 300s.
+ */
 export const BOOT_CAP_MS = 60_000;
 export const EXT_LIST_CAP_MS = 60_000;
-export const MODEL_CALL_CAP_MS = 120_000;
+export const MODEL_CALL_CAP_MS = 300_000;
+
+/** Default chat-endpoint base for the contention precheck (LM Studio). */
+export const DEFAULT_MODEL_ENDPOINT = "http://127.0.0.1:1234";
+
+/** Resolve the precheck endpoint: env override first (baseUrl alias included). */
+export function resolveModelEndpoint(env: Record<string, string | undefined> = process.env): string {
+	return env.LMSTUDIO_BASE_URL ?? DEFAULT_MODEL_ENDPOINT;
+}
+
+/** Model ids that are embedding servers, not chat models — never contention. */
+const EMBEDDING_ID_RE = /embed|bge/i;
+/** "27b" / "12b" in a model id, parsed as a parameter count. */
+const PARAMS_B_RE = /(\d+(?:\.\d+)?)\s*b\b/i;
+/** ≥ this many billion params counts as a LARGE chat model. */
+const LARGE_MODEL_MIN_B = 7;
+
+/**
+ * Contention precheck (pure): given `/v1/models` ids, warn when MORE THAN ONE
+ * large chat model is resident — the measured condition under which even a
+ * 300s model-call cap can be exceeded. Returns null when quiet.
+ */
+export function modelContentionWarning(modelIds: string[], capMs: number = MODEL_CALL_CAP_MS): string | null {
+	const large = modelIds.filter((id) => {
+		if (EMBEDDING_ID_RE.test(id)) return false;
+		const m = id.match(PARAMS_B_RE);
+		return m !== null && Number.parseFloat(m[1]) >= LARGE_MODEL_MIN_B;
+	});
+	if (large.length > 1) {
+		return `model endpoint lists ${large.length} large chat models resident (${large.join(", ")}) — generation may be slow enough to exceed even the ${Math.round(capMs / 1000)}s model-call cap; consider unloading the extras in LM Studio before deploying/probing`;
+	}
+	return null;
+}
 
 /** The one-shot prompt; the reply content is irrelevant, the round-trip is. */
 export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
+
+/** Fetch seam for the contention precheck — narrow so tests inject a plain fn. */
+export type ModelsFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
@@ -69,6 +112,8 @@ export interface DeployE2eOutcome {
 	version: string;
 	sourceSha: string;
 	probes: DeployE2eProbe[];
+	/** Non-fatal environment notes (e.g. multi-model contention on the endpoint). */
+	warnings: string[];
 	/** fail > skip > pass — any probe fail fails the run. */
 	verdict: ProbeVerdict;
 	note: string;
@@ -152,6 +197,16 @@ export interface DeployE2eOptions {
 	now?: () => number;
 	/** Skip the model-call probe (offline contexts; overall verdict can still pass). */
 	skipModelCall?: boolean;
+	/**
+	 * Chat-endpoint base for the contention precheck (GET `<endpoint>/v1/models`
+	 * before the model-call probe; a >1-large-model listing becomes a warning).
+	 * The recipe does NOT default this — callers (CLIs) pass `resolveModelEndpoint()`
+	 * so unit tests, which inject everything, never touch the network. `null` and
+	 * `undefined` both mean "no precheck".
+	 */
+	modelEndpoint?: string | null;
+	/** Injectable fetch for the precheck (default: global fetch). Just the surface used. */
+	fetchImpl?: ModelsFetch;
 }
 
 /**
@@ -238,6 +293,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	}
 
 	// ── model-call probe ────────────────────────────────────────────────────
+	const warnings: string[] = [];
 	let modelCallSkippedByCaller = false;
 	if (opts.skipModelCall) {
 		// Recorded as a skip probe for the report, but NOT allowed to degrade
@@ -245,6 +301,26 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		modelCallSkippedByCaller = true;
 		probes.push({ id: "model-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call)" });
 	} else {
+		// Contention precheck: >1 large chat model resident on the endpoint is
+		// the measured condition (2026-08-23) under which generation is slow
+		// enough to blow past even the 300s cap. Best-effort and bounded — a
+		// down/unreachable endpoint just yields no warning (the probe itself
+		// will classify whatever follows).
+		if (opts.modelEndpoint) {
+			try {
+				const res = await (opts.fetchImpl ?? fetch)(`${opts.modelEndpoint.replace(/\/+$/, "")}/v1/models`, {
+					signal: AbortSignal.timeout(3_000),
+				});
+				if (res.ok) {
+					const body = (await res.json()) as { data?: Array<{ id?: unknown }> };
+					const ids = Array.isArray(body?.data) ? body.data.map((m) => String(m?.id ?? "")) : [];
+					const w = modelContentionWarning(ids);
+					if (w) warnings.push(w);
+				}
+			} catch {
+				// endpoint down/unreachable — not this recipe's failure to report
+			}
+		}
 		const t0 = now();
 		const r = await opts.spawn("./run.sh", ["-p", DEPLOY_E2E_PROMPT, "--no-session"], {
 			cwd: opts.versionDir,
@@ -252,12 +328,22 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		});
 		const ms = now() - t0;
 		const c = classifyRun({ ...r, durationMs: ms });
+		// A timeout here is NOT automatically a hang: distinguish slow from hung
+		// in the note so the next reader unloads LM Studio models before hunting
+		// a surrealdb wedge (root cause #2 vs #1 in BOOT_HANG_DIAGNOSTIC).
+		const note =
+			c.reason === "timeout"
+				? `timeout after ${Math.round(MODEL_CALL_CAP_MS / 1000)}s — SLOW generation under model-endpoint contention is as likely as a hang; if a direct curl to the endpoint answers, unload the extra models and rerun`
+				: `${c.reason}${c.detail ? ` — ${firstLine(c.detail)}` : ""}`;
 		probes.push({
 			id: "model-call",
 			verdict: c.verdict,
 			ms,
-			note: `${c.reason}${c.detail ? ` — ${firstLine(c.detail)}` : ""}`,
-			detail: c.verdict === "fail" ? c.detail : undefined,
+			note,
+			detail:
+				c.verdict === "fail"
+					? [c.detail, ...warnings.map((w) => `Precheck: ${w}`)].filter(Boolean).join("\n")
+					: undefined,
 		});
 	}
 
@@ -269,6 +355,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		version,
 		sourceSha,
 		probes,
+		warnings,
 		verdict,
 		note: `${verdict} (${probes.map((p) => `${p.id}:${p.verdict}`).join(" ")})`,
 		durationMs: now() - startedAt,
@@ -285,6 +372,7 @@ function failFast(versionDir: string, message: string, startedAt: number, now: (
 		version: basename(versionDir),
 		sourceSha: "",
 		probes: [],
+		warnings: [],
 		verdict: "fail",
 		note: `fail (${message})`,
 		durationMs: now() - startedAt,
