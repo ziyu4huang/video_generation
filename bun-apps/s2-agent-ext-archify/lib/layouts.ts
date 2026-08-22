@@ -169,7 +169,11 @@ function splitLayout(slide: Slide, ctx: LayoutCtx): PlacedBlock[] {
   const rightW = usable - leftW;
   const blocks: PlacedBlock[] = [...chrome(slide, ctx)];
   if (slide.ir) {
-    blocks.push(at({ x: 0.5, y: top, w: leftW, h }, { kind: "diagram", ir: slide.ir }));
+    // Content fit (P4): a split column is narrow, so canvas dead margins waste
+    // a large share of it — on the shipped example, 42 % of the artifact's
+    // canvas width is empty and the visible diagram filled only 4.13 of 7.16
+    // inches. The `diagram` layout stays canvas-fit: its geometry is D3-locked.
+    blocks.push(at({ x: 0.5, y: top, w: leftW, h }, { kind: "diagram", ir: slide.ir, fit: "content" }));
   }
   blocks.push(
     at(

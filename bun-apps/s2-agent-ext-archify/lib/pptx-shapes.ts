@@ -56,6 +56,13 @@ export interface PptxShapeOptions {
   fontFace?: string;
   /** Floor for hairlines so thin strokes survive projection (points). */
   minStrokePt?: number;
+  /**
+   * Scale to the union of what the diagram paints instead of its canvas (P4:
+   * the vendored renderers emit canvases with dead margins, so centring the
+   * canvas parks the visible content small and off-centre). Default `false` —
+   * canvas fit — which the D3-locked `diagram` layout must keep.
+   */
+  fitContent?: boolean;
 }
 
 export interface PlacementResult {
@@ -185,11 +192,45 @@ function terminalDirection(segments: Seg[]): { x: number; y: number; angle: numb
 }
 
 /**
+ * Union of every node's `boundsOf` — the ink the diagram actually paints, as
+ * opposed to the canvas it was emitted on.
+ *
+ * A text node contributes only its anchor point: `boundsOf` has no model for a
+ * glyph's extent, and an anchor always sits on the label it belongs to, so the
+ * union is a tight-enough stand-in for content that is bounded by shapes on
+ * every side (which node labels are — they sit inside or beside their node).
+ */
+export function contentBoundsOf(ir: ShapeIR): { x: number; y: number; w: number; h: number } {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const n of ir.nodes) {
+    const b = boundsOf(n);
+    // A degenerate bbox is fine from a TEXT node — `boundsOf` gives a text
+    // only its anchor point, and that point is exactly what must participate.
+    // From any other kind it means the node paints nothing (e.g. a path of
+    // nothing but `Z`), and (0,0) would wrongly stretch the bounds to origin.
+    if (n.kind !== "text" && b.w === 0 && b.h === 0) continue;
+    x0 = Math.min(x0, b.x);
+    y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w);
+    y1 = Math.max(y1, b.y + b.h);
+  }
+  if (x0 === Infinity) return { x: 0, y: 0, w: 0, h: 0 };
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
  * Place a ShapeIR onto a slide as native shapes.
  *
  * One uniform scale with centering, so aspect ratio is never distorted — a
  * stretched architecture diagram reads as a rendering bug to anyone who has
  * seen the browser version.
+ *
+ * What is centred depends on `options.fitContent`: the canvas (default, and
+ * what the D3-locked `diagram` layout must keep) or the content bounds — see
+ * `contentBoundsOf`.
  */
 export function addShapeIrToSlide(
   slide: SlideLike,
@@ -200,12 +241,17 @@ export function addShapeIrToSlide(
   const fontFace = options.fontFace ?? "Arial";
   const minStrokePt = options.minStrokePt ?? 0.5;
 
-  const scale =
-    ir.width > 0 && ir.height > 0
-      ? Math.min(box.w / ir.width, box.h / ir.height)
-      : 0;
-  const offX = box.x + (box.w - ir.width * scale) / 2;
-  const offY = box.y + (box.h - ir.height * scale) / 2;
+  const cb = options.fitContent ? contentBoundsOf(ir) : null;
+  // Fall back to canvas fit when there is nothing to measure, so an empty
+  // diagram degrades to today's behaviour instead of a zero scale.
+  const fitW = cb && cb.w > 0 ? cb.w : ir.width;
+  const fitH = cb && cb.h > 0 ? cb.h : ir.height;
+  const fitX = cb && cb.w > 0 ? cb.x : 0;
+  const fitY = cb && cb.h > 0 ? cb.y : 0;
+
+  const scale = fitW > 0 && fitH > 0 ? Math.min(box.w / fitW, box.h / fitH) : 0;
+  const offX = box.x + (box.w - fitW * scale) / 2 - fitX * scale;
+  const offY = box.y + (box.h - fitH * scale) / 2 - fitY * scale;
   const px = (x: number) => offX + x * scale;
   const py = (y: number) => offY + y * scale;
   const len = (v: number) => v * scale;

@@ -81,9 +81,16 @@ The suite is 401 passing, `ooxml-lint` reports 0 diagnostics on both example dec
   Asian Ambiguous glyph gap in the model — measured and corrected same day
   (`receipts/archify-ambiguous-advance-2026-08-22.md`).
 - **P4 — a `split` slide's diagram sits small and low in its column.** Large dead space above
-  it. **Attribution not established** — it may be correct uniform-scale-and-centre applied to
-  an artifact bounding box that itself includes the legend row and empty canvas. Ticket 04
-  establishes attribution before proposing a fix.
+  it. **FIXED 2026-08-22 (ticket 04), on the composed path only.** Attribution was
+  established by measurement, not guesswork: the centring is exact (equal left/right
+  gaps), the emptiness is the artifact canvas — the vendored **dataflow** renderer emits a
+  1080-unit canvas and paints only ~58 % of its width (slide 1's artifact wastes 42 %);
+  the architecture canvas on slide 3 carries a 30 % dead top band. The fix is a
+  declarative `fit: "content"` on the diagram block, set by `splitLayout`, never by the
+  D3-locked `diagram` layout — legacy slide XML verified byte-identical after the change.
+  On the shipped example the split column's diagram went 4.13×2.25 in → 7.16×3.90 in
+  (**+73 % linear**). Scope chosen by the user over renegotiating D3. See ticket 04's
+  `## Result` for the full three-way measurement.
 
 ### The portability constraint
 
@@ -104,7 +111,9 @@ Phase 1 — the defects, each with a renderer-free assertion
   error severity; the chrome geometry is unchanged. See its `## Resolution`
 - `tickets/03-node-text-advance.md` — task, **closed 2026-08-22** — reservation routed
   through `textEms()` + 1.15 headroom, `wrap: false` kept; see its `## Resolution`
-- `tickets/04-split-diagram-fit.md` — task, open — establish attribution, then fit
+- `tickets/04-split-diagram-fit.md` — task, **closed 2026-08-22** — candidate 2 measured
+  and confirmed; content fit shipped on the composed path, canvas fit kept on the locked
+  path (byte-identical). See its `## Result` + `## Resolution`
 
 Phase 2 — seeing it, portably
 - `tickets/05-portable-render-seam.md` — task, open — `pptx → N images`, 3 backends, receipt
@@ -134,29 +143,18 @@ Phase 2 — seeing it, portably
 
 ## Frontier
 
-`tickets/04-split-diagram-fit.md` — P4. With P1–P3 closed it is the last defect, and the
-only one whose **attribution is not yet established**: the diagram may be correctly
-uniform-scaled-and-centred against an artifact bounding box that itself includes the legend
-row and empty canvas. The ticket's first move is measurement, not a fix — and its
-attribution step now covers three sightings, not one:
+`tickets/05-portable-render-seam.md` — the last open ticket. All four defects are closed;
+what the effort still owes is the reusable `pptx → N images` seam that made finding them
+cheap. Its first receipts are already owed two re-runs: ticket 03's by-eye verification
+was done with a scratch pipeline because the seam did not exist, and P4's single-slide
+render hit the same gap (the split-deck sighting needed a one-slide deck hand-built to
+get past Quick Look's slide-1-only limitation — exactly D2's split-into-N-decks route).
 
-- the original: a `split` slide's diagram sits small and low in its column;
-- the legacy deck's slide 3 (full-width `diagram`, not `split`) renders its diagram low
-  with a large empty band above — so the cause is probably not `split`-specific;
-- **slide 3's `DETAIL · ~64 個` overlaps `HWE.2` vertically** — seen in both the pre-P3 and
-  post-P3 renders, so pre-existing and NOT a P3 regression; it is plausibly the same
-  mis-scaled bounding box pushing content into occupied space, but that is exactly what the
-  attribution step must decide, not assume.
-
-Only after attribution does the ticket choose a fix. Ticket 05 (the portable render seam)
-follows: with three sightings to compare before/after, the case for a reusable
-`pptx → N images` seam is stronger than when the effort opened.
-
-All three closed tickets (01, 02, 03) share one post-mortem pattern: the root cause was a
-number crossing a library or format boundary in the wrong unit — a fraction where a length
-was wanted, a character count where an em was wanted, a Latin advance where an ideograph's
-was wanted. P4's attribution step should look for a fourth instance of the same shape
-before inventing a new one.
+The four closed tickets share one post-mortem pattern: a number crossing a boundary in
+the wrong unit (a fraction where a length was wanted, a character count where an em was
+wanted, a Latin advance where an ideograph's was wanted) — and P4 added a fourth shape of
+the same species: **a canvas measured where the ink was wanted**. Worth remembering when
+the next defect is attributed.
 
 ## Fog of war
 
@@ -174,11 +172,22 @@ before inventing a new one.
   preset archify currently emits (`roundRect` only). ECMA-376 gives each preset its own range,
   and a future preset with a wider legal range would false-positive. Cheap to fix when it
   happens; wrong to generalise speculatively now.
-- **P4 may not be `split`-specific.** The legacy deck's slide 3 — a full-width `diagram`
-  layout, not `split` — also renders its diagram low with a large empty band above, and its
-  `DETAIL · ~64 個` overlaps `HWE.2` vertically (present before AND after ticket 03's fix,
-  so pre-existing and not a P3 regression). Ticket 04's attribution step was widened
-  2026-08-22 to all three sightings before proposing a fix.
+- **P4 may not be `split`-specific.** **RESOLVED 2026-08-22** — it was not: the legacy
+  deck's slide 3 (`diagram`, full-width) showed the same low placement, and the cause was
+  the artifact canvases' dead regions in both layouts. The composed path now content-fits;
+  the legacy path deliberately keeps canvas fit (D3), so the legacy full-width emptiness
+  (1.92 in top band on slide 3, mostly inherent aspect mismatch — content aspect 3.65
+  against a 2.16 box) is **known and accepted**, not pending.
+- **`DETAIL · ~64 個` over `HWE.2` is upstream, unfixed.** Authored in the vendored
+  archify renderer's node-sublabel stack: baselines 5 SVG units apart for 9/7-unit type,
+  same x, no CSS hides the layers, the HTML twin collides identically. Fixing it means
+  the vendored renderer's label layout or the IR's label choices — the replay path
+  reflows nothing by design. Charted here so the next person does not re-attribute it
+  to the pptx mapper.
+- **The HTML twin still canvas-fits.** The composed page iframes the artifact at its
+  canvas aspect; the `.pptx` now crops dead margins. Acceptable asymmetry (the artifact
+  is authoritative in the browser) — revisit only if a composed page ever needs to match
+  the pptx framing exactly.
 - **LibreOffice fidelity and cost** are entirely unmeasured — not installed here. It is
   possible its OOXML fidelity differs enough from Apple's that the two backends disagree on
   what a slide looks like. That would not break D1 (nothing gates on either) but it would

@@ -45,8 +45,17 @@ export interface BulletItem {
 export type BlockContent =
   | { kind: "text"; role: Role; text: string }
   | { kind: "bullets"; role: Role; items: BulletItem[] }
-  /** A rendered archify diagram. `ir` is an absolute path to the IR .json. */
-  | { kind: "diagram"; ir: string }
+  /**
+   * A rendered archify diagram. `ir` is an absolute path to the IR .json.
+   *
+   * `fit: "content"` scales to the union of what the diagram actually paints,
+   * not to its canvas — the vendored renderers emit canvases with dead margins
+   * (a dataflow canvas can carry 42 % trailing emptiness), and centring a
+   * mostly-empty canvas parks the visible diagram small and off-centre
+   * (visual-fidelity P4). Omitted ⇒ canvas fit, which the D3-locked `diagram`
+   * layout must keep.
+   */
+  | { kind: "diagram"; ir: string; fit?: "content" }
   /** The accent rule under a slide title. */
   | { kind: "rule" }
   /** A flat plate: the tag chip's field, or a section divider's full bleed. */
@@ -200,7 +209,7 @@ export function formatBlocks(blocks: PlacedBlock[]): string {
           what = `bullets:${c.role} ${c.items.map((i) => `${i.level ?? 0}:${JSON.stringify(i.text)}`).join(" ")}`;
           break;
         case "diagram":
-          what = `diagram ${JSON.stringify(c.ir)}`;
+          what = `diagram ${JSON.stringify(c.ir)}${c.fit ? ` fit=${c.fit}` : ""}`;
           break;
         case "rule":
           what = "rule";

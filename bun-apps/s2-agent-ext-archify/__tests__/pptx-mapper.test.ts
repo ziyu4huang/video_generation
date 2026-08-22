@@ -51,6 +51,71 @@ describe("layout", () => {
   });
 });
 
+/**
+ * Content fit (P4 of archify-deck-visual-fidelity).
+ *
+ * The vendored renderers emit canvases with dead margins — a dataflow canvas
+ * can carry 42 % trailing width. Centring that canvas parks the visible
+ * diagram small and off-centre, which is what the split column showed. The
+ * default stays canvas fit: the D3 lock on the `diagram` layout is exactly
+ * "a pre-composition manifest builds to the same geometry".
+ */
+describe("content fit (P4)", () => {
+  /** One rect in the right half of a 100x100 canvas. */
+  const HALF = ir([{ kind: "rect", x: 50, y: 0, w: 50, h: 50, style: BLACK }], 100, 100);
+
+  test("default is canvas fit — the D3-locked path is unchanged", () => {
+    const slide = spySlide();
+    addShapeIrToSlide(slide, HALF, BOX);
+    // Canvas 100 wide → scale 0.1; the right-half rect lands at x 5, w 5.
+    expect(slide.calls[0]!.opts).toMatchObject({ x: 5, y: 0, w: 5, h: 5 });
+  });
+
+  test("fitContent crops the dead margin and fills the box", () => {
+    const slide = spySlide();
+    const r = addShapeIrToSlide(slide, HALF, BOX, { fitContent: true });
+    // Content is the 50x50 rect alone → scale 0.2, filling the box exactly.
+    expect(r.scale).toBeCloseTo(0.2, 10);
+    expect(slide.calls[0]!.opts).toMatchObject({ x: 0, y: 0, w: 10, h: 10 });
+  });
+
+  test("fitContent keeps the aspect ratio of the CONTENT", () => {
+    const slide = spySlide();
+    // Canvas 100x50; content 50x50 (left half). Content-fit scales to the
+    // square content, not the wide canvas: 10x10 on the slide.
+    addShapeIrToSlide(
+      slide,
+      ir([{ kind: "rect", x: 0, y: 0, w: 50, h: 50, style: BLACK }], 100, 50),
+      BOX,
+      { fitContent: true }
+    );
+    expect(slide.calls[0]!.opts).toMatchObject({ x: 0, y: 0, w: 10, h: 10 });
+  });
+
+  test("a text node contributes its anchor to the content bounds", () => {
+    const slide = spySlide();
+    addShapeIrToSlide(
+      slide,
+      ir([
+        { kind: "rect", x: 0, y: 0, w: 10, h: 10, style: BLACK },
+        { kind: "text", x: 90, y: 5, text: "label", anchor: "start", fontSize: 8, fontWeight: 400, style: BLACK },
+      ], 100, 100),
+      BOX,
+      { fitContent: true }
+    );
+    // Content is 0..90 wide (rect + text anchor) → scale 10/90; the rect
+    // itself lands at w 10/9 ≈ 1.11.
+    expect(slide.calls.find((c) => c.type === "rect")!.opts["w"]).toBeCloseTo(10 / 9, 10);
+  });
+
+  test("no measurable content degrades to canvas fit, not a zero scale", () => {
+    const slide = spySlide();
+    const r = addShapeIrToSlide(slide, ir([], 100, 100), BOX, { fitContent: true });
+    expect(r.scale).toBeCloseTo(0.1, 10);
+    expect(slide.calls).toEqual([]);
+  });
+});
+
 describe("shape mapping", () => {
   test("a plain rect becomes prstGeom rect", () => {
     const slide = spySlide();
