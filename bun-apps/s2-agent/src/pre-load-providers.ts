@@ -214,7 +214,7 @@ export const BUILTIN_MODEL_DEFAULT: BuiltinModelDefault = {
  * clobbers a user's live config. Kept as typed TS (not loose JSON) so the team's
  * preferred tier→model routing ships with the package and is version-controlled.
  *
- * NOTE: this bakes provider ids (zai/glm-*, lm-studio/gemma-*) into the shared
+ * NOTE: this bakes provider ids (zai/glm-*, lm-studio/qwen3.8-27b) into the shared
  * host package — appropriate for this repo where these are the standard
  * providers. The seed is idempotent + env-gated (BUN_PI_ENSURE_MODEL_TIERS=0 to
  * disable), so it never overwrites an existing file.
@@ -227,10 +227,10 @@ export interface ModelTierConfig {
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
 	tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
 	capabilities: {
-		vision: "lm-studio/google/gemma-4-12b",
-		"vision-large": "lm-studio/google/gemma-4-12b",
-		"vision-medium": "lm-studio/google/gemma-4-12b",
-		"vision-small": "lm-studio/google/gemma-4-12b",
+		vision: "lm-studio/qwen/qwen3.8-27b",
+		"vision-large": "lm-studio/qwen/qwen3.8-27b",
+		"vision-medium": "lm-studio/qwen/qwen3.8-27b",
+		"vision-small": "lm-studio/qwen/qwen3.8-27b",
 	},
 };
 
