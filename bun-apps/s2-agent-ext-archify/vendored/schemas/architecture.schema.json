@@ -33,6 +33,36 @@
           }
         },
         "views": { "$ref": "common.schema.json#/$defs/guidedViews" },
+        "legend": { "enum": [true, false, "variants"] },
+        "archetype": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "leftArm", "rightArm"],
+          "properties": {
+            "kind": { "const": "v-model" },
+            "leftArm": {
+              "type": "array",
+              "minItems": 2,
+              "items": { "$ref": "common.schema.json#/$defs/id" }
+            },
+            "rightArm": {
+              "type": "array",
+              "minItems": 2,
+              "items": { "$ref": "common.schema.json#/$defs/id" }
+            },
+            "gap": { "type": "number", "minimum": 8 },
+            "size": {
+              "type": "array",
+              "prefixItems": [
+                { "type": "number", "exclusiveMinimum": 0 },
+                { "type": "number", "exclusiveMinimum": 0 }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
         "viewBox": {
           "type": "array",
           "prefixItems": [
@@ -69,6 +99,7 @@
         "properties": {
           "id": { "$ref": "common.schema.json#/$defs/id" },
           "type": { "$ref": "common.schema.json#/$defs/componentType" },
+          "role": { "$ref": "common.schema.json#/$defs/role" },
           "label": { "type": "string", "minLength": 1 },
           "sublabel": { "type": "string" },
           "tag": { "type": "string" },
@@ -134,6 +165,7 @@
           "to": { "$ref": "common.schema.json#/$defs/id" },
           "label": { "type": "string" },
           "variant": { "$ref": "common.schema.json#/$defs/variant" },
+          "role": { "$ref": "common.schema.json#/$defs/role" },
           "fromSide": { "enum": ["left", "right", "top", "bottom"] },
           "toSide": { "enum": ["left", "right", "top", "bottom"] },
           "route": { "enum": ["auto", "straight", "orthogonal-h", "orthogonal-v"] },

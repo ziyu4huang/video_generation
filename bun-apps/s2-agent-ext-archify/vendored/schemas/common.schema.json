@@ -23,6 +23,9 @@
     "variant": {
       "enum": ["default", "emphasis", "security", "dashed"]
     },
+    "role": {
+      "enum": ["spec", "verify"]
+    },
     "guidedViews": {
       "type": "array",
       "maxItems": 5,

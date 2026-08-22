@@ -1,0 +1,28 @@
+{
+  "output": "vmodel-deck.pptx",
+  "theme": "light",
+  "tag": "archify · V-model archetype",
+  "defaults": { "font": "PingFang TC" },
+  "slides": [
+    {
+      "layout": "title",
+      "eyebrow": "ARCHIFY · V-MODEL ARCHETYPE · RECAST",
+      "title": "A chip is a system — model IC design with ASPICE 4.0",
+      "subtitle": "Nine processes as one V: the left arm breaks the spec down, the right arm verifies the implementation against it",
+      "date": "2026-08-22"
+    },
+    {
+      "layout": "diagram",
+      "title": "The V: break down the spec, verify against it",
+      "source": "ASPICE 4.0 PAM Annex C.1, Figure C.1",
+      "ir": "chip-vshape.architecture.json",
+      "views": "expand"
+    },
+    {
+      "layout": "statement",
+      "title": "The hierarchy is the process, not the document",
+      "statement": "The hierarchy is the process, not the document",
+      "attribution": "first principle"
+    }
+  ]
+}

@@ -114,6 +114,15 @@ export interface Slide {
   sectionNumber?: string;
   /** `split` — the diagram column's share of the content width. Default 0.6. */
   ratio?: number;
+  /**
+   * `diagram`/`split`. `"expand"` ⇒ the deck pipeline expands the IR's
+   * `meta.views` into this overview slide plus one guided build slide per
+   * view (title = view label, takeaway = view note, non-focus content
+   * dimmed in the pptx projection). The HTML artifact stays interactive.
+   */
+  views?: "expand";
+  /** Internal, set by views expansion: dim everything outside these node ids. */
+  viewFocus?: string[];
   /** Speaker notes; passed through to the PPTX, ignored by the HTML emitter. */
   notes?: string;
 }

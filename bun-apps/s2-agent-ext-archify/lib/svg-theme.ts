@@ -69,6 +69,10 @@ const DARK_VARS: Record<string, string> = {
   "lane-stroke": "#334155",
   arrow: "#64748b",
   "arrow-emphasis": "#34d399",
+  "role-spec-fill": "rgba(56, 189, 248, 0.16)",
+  "role-spec-stroke": "#38bdf8",
+  "role-verify-fill": "rgba(248, 113, 113, 0.15)",
+  "role-verify-stroke": "#f87171",
   "frontend-fill": "rgba(8, 51, 68, 0.4)",
   "frontend-stroke": "#22d3ee",
   "backend-fill": "rgba(6, 78, 59, 0.4)",
@@ -97,6 +101,10 @@ const LIGHT_VARS: Record<string, string> = {
   "lane-stroke": "#cbd5e1",
   arrow: "#94a3b8",
   "arrow-emphasis": "#059669",
+  "role-spec-fill": "rgba(14, 165, 233, 0.15)",
+  "role-spec-stroke": "#0369a1",
+  "role-verify-fill": "rgba(239, 68, 68, 0.12)",
+  "role-verify-stroke": "#b91c1c",
   "frontend-fill": "rgba(34, 211, 238, 0.15)",
   "frontend-stroke": "#0891b2",
   "backend-fill": "rgba(52, 211, 153, 0.18)",
@@ -223,6 +231,9 @@ export const CLASS_RULES: Record<string, ClassRule> = {
   "c-security": { fillVar: "security-fill", strokeVar: "security-stroke" },
   "c-messagebus": { fillVar: "messagebus-fill", strokeVar: "messagebus-stroke" },
   "c-external": { fillVar: "external-fill", strokeVar: "external-stroke" },
+  // domain-side roles — role wins the palette, type keeps its sigil
+  "c-role-spec": { fillVar: "role-spec-fill", strokeVar: "role-spec-stroke" },
+  "c-role-verify": { fillVar: "role-verify-fill", strokeVar: "role-verify-stroke" },
   // dashed boundary variants (template hard-codes c-region's fill)
   "c-security-group": { fillNone: true, strokeVar: "security-stroke", dash: [4, 4] },
   "c-region": { fillLiteral: "rgba(251, 191, 36, 0.05)", strokeVar: "cloud-stroke", dash: [8, 4] },
@@ -238,16 +249,24 @@ export const CLASS_RULES: Record<string, ClassRule> = {
   "t-security": { fillVar: "security-stroke" },
   "t-messagebus": { fillVar: "messagebus-stroke" },
   "t-external": { fillVar: "external-stroke" },
+  "t-role-spec": { fillVar: "role-spec-stroke" },
+  "t-role-verify": { fillVar: "role-verify-stroke" },
   // arrows
   "a-default": { strokeVar: "arrow", fillNone: true },
   "a-emphasis": { strokeVar: "arrow-emphasis", fillNone: true },
   "a-security": { strokeVar: "security-stroke", fillNone: true, dash: [5, 5] },
   "a-dashed": { strokeVar: "database-stroke", fillNone: true, dash: [4, 4] },
+  // role overlays repaint the stroke; the variant's dash survives (later
+  // class wins on stroke, a-* roles set nothing else)
+  "a-role-spec": { strokeVar: "role-spec-stroke" },
+  "a-role-verify": { strokeVar: "role-verify-stroke" },
   // arrowhead markers
   "m-default": { fillVar: "arrow" },
   "m-emphasis": { fillVar: "arrow-emphasis" },
   "m-security": { fillVar: "security-stroke" },
   "m-dashed": { fillVar: "database-stroke" },
+  "m-role-spec": { fillVar: "role-spec-stroke" },
+  "m-role-verify": { fillVar: "role-verify-stroke" },
   // sigils: `s-*` sets `color`, `sigil-fill` paints with `currentColor`
   "s-frontend": { colorVar: "frontend-stroke" },
   "s-backend": { colorVar: "backend-stroke" },

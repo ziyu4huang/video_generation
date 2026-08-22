@@ -1047,6 +1047,13 @@ export const arrowClassMap = {
   dashed: ['a-dashed', 'arrowhead-dashed']
 };
 
+// Domain-side roles overlay the type/variant palette (role wins the color,
+// variant keeps its dash/emphasis treatment). Orthogonal by design.
+export const roleFill = { spec: 'c-role-spec', verify: 'c-role-verify' };
+export const roleText = { spec: 't-role-spec', verify: 't-role-verify' };
+export const arrowRoleClass = { spec: 'a-role-spec', verify: 'a-role-verify' };
+export const arrowRoleMarker = { spec: 'arrowhead-role-spec', verify: 'arrowhead-role-verify' };
+
 // Label accent per edge variant. Workflow colors dashed (async trace) labels
 // like the trace store it points at; the other renderers use the bus color.
 export function variantAccent(variant, { dashed = 't-messagebus' } = {}) {

@@ -282,6 +282,14 @@ Architecture has the same read-schema-then-render loop as the other modes — pr
 
 Render: `node bin/archify.mjs render architecture <input>.json <output>.html`.
 
+### Connection vocabulary: two arrows, two meanings
+
+- **Solid (`variant: "default"` / `"emphasis"`)** — derivation or flow: the target exists because the source derives/specifies it.
+- **Dashed (`variant: "dashed"`, optionally `role: "verify"`)** — a verification pairing: a cross-reference that checks an implementation against a spec, not a data path. Point it AT the spec node.
+- `meta.legend: "variants"` opts a diagram that mixes ≥2 connection variants into a line-sample legend (solid sample = derivation, dashed sample = verification pairing); `meta.legend: false` suppresses the whole auto legend. Variant rows are opt-in so pre-existing decks render byte-identical.
+- `role` (`spec` / `verify`, on components and connections) paints domain sides through the theme — never encode a side by mis-picking `componentType`.
+- A literal V-model needs no hand-computed coordinates: declare `meta.archetype { kind: "v-model", leftArm: [...], rightArm: [...] }` and omit `pos`/`size` on arm components; the pre-pass places them (explicit `pos` always wins).
+
 ### Optional verified repository evidence
 
 For a public-repository architecture map, offer one explicit choice before adding source evidence: **plain portable map (default)** or **revision-verified source links**. Do not enable evidence silently, infer paths, or add it to workflow/sequence/dataflow/lifecycle diagrams. If the user already asked for a source-linked or evidence-backed map, that is sufficient consent; do not ask twice.
