@@ -11,7 +11,7 @@
  * depth cap (maxDepth 2 → 3 layers × 5 nodes).
  */
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildHierarchy } from "../src/hierarchy-build.ts";
@@ -202,5 +202,140 @@ describe("buildHierarchy", () => {
 		expect(loadedIds).toContain("card-entities"); // {type, name} entities parsed
 		expect(loadedIds.has("agg-L0-0")).toBe(false); // agg MOC skipped
 		expect(r.nodes.some((n) => n.entities.includes("ghost"))).toBe(false);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// (f) checkpoint version gate (ticket 06) — stale formats rebuild, not resume
+// ---------------------------------------------------------------------------
+
+describe("buildHierarchy checkpoint version gate", () => {
+	let staleKb: string;
+	beforeEach(() => {
+		staleKb = mkdtempSync(join(tmpdir(), "zk-hierstale-"));
+	});
+	afterAll(() => {
+		rmSync(staleKb, { recursive: true, force: true });
+	});
+
+	test("a v-less (v1) checkpoint on disk is IGNORED — the layer rebuilds", async () => {
+		// Simulate an in-flight checkpoint from BEFORE the ticket-06 format
+		// bump: same field shape, no `v` stamp.
+		writeFileSync(
+			join(staleKb, "hierarchy-layer-0.json"),
+			JSON.stringify({ nodes: [], llmCalls: 0, done: true }),
+		);
+		const r = await buildHierarchy({
+			kbDir: staleKb,
+			cards: [
+				{ id: "c1", text: "alpha body text", entities: ["a"] },
+				{ id: "c2", text: "alpha other text", entities: ["a"] },
+			],
+			embedFn: fakeEmbedFn,
+			summarizeFn: fakeSummarizeFn,
+			tokenBudget: 1_000_000,
+		});
+		expect(r.staleCheckpoints).toBe(1);
+		expect(r.resumed).toBe(false); // nothing resumed — the stale layer rebuilt
+		expect(r.nodes.length).toBeGreaterThan(0); // a real (rebuilt) tree
+		// the rewrite stamped the current version
+		const rewritten = JSON.parse(readFileSync(join(staleKb, "hierarchy-layer-0.json"), "utf8"));
+		expect(rewritten.v).toBe(2);
+	});
+
+	test("a current-version checkpoint still resumes (staleCheckpoints 0)", async () => {
+		const r1 = await buildHierarchy({
+			kbDir: staleKb,
+			cards: [
+				{ id: "c1", text: "alpha body text", entities: ["a"] },
+				{ id: "c2", text: "alpha other text", entities: ["a"] },
+			],
+			embedFn: fakeEmbedFn,
+			summarizeFn: fakeSummarizeFn,
+			tokenBudget: 1_000_000,
+		});
+		expect(r1.staleCheckpoints).toBe(0);
+		const r2 = await buildHierarchy({
+			kbDir: staleKb,
+			cards: [
+				{ id: "c1", text: "alpha body text", entities: ["a"] },
+				{ id: "c2", text: "alpha other text", entities: ["a"] },
+			],
+			embedFn: fakeEmbedFn,
+			summarizeFn: fakeSummarizeFn,
+			tokenBudget: 1_000_000,
+		});
+		expect(r2.resumed).toBe(true);
+		expect(r2.staleCheckpoints).toBe(0);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// (g) loader tags fallback (ticket 06) — pre-P8 vault cards carry only tags
+// ---------------------------------------------------------------------------
+
+describe("loadKbCards tags fallback", () => {
+	test("a tags-only card loads with tags (minus zettel) as entities; entities still win when present", async () => {
+		const kb = mkdtempSync(join(tmpdir(), "zk-hiertags-"));
+		try {
+			writeFileSync(
+				join(kb, "card-tags-only.md"),
+				["---", "id: card-tags-only", "tags: [zettel, flux2, mechanism]", "---", "alpha body text to cluster"].join("\n"),
+			);
+			writeFileSync(
+				join(kb, "card-typed.md"),
+				["---", "id: card-typed", "entities: [topic:mlx]", "tags: [zettel, gui]", "---", "alpha other text to cluster"].join("\n"),
+			);
+			const r = await buildHierarchy({
+				kbDir: kb,
+				embedFn: fakeEmbedFn,
+				summarizeFn: fakeSummarizeFn,
+				tokenBudget: 1_000_000,
+			});
+			expect(r.skipped).toBeUndefined();
+			const byTagEntities = r.nodes.some((n) => n.entities.includes("flux2") && n.entities.includes("mechanism"));
+			expect(byTagEntities).toBe(true);
+			// the `zettel` structural marker never leaks into an entity union
+			expect(r.nodes.some((n) => n.entities.includes("zettel"))).toBe(false);
+			// typed entities take precedence over tags for the same card
+			expect(r.nodes.some((n) => n.entities.includes("topic:mlx"))).toBe(true);
+		} finally {
+			rmSync(kb, { recursive: true, force: true });
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// (h) final materialization pass — resumed runs still re-render agg cards
+// ---------------------------------------------------------------------------
+
+describe("buildHierarchy final pass", () => {
+	test("a fully-resumed run re-writes agg cards when the renderer changed (filename links)", async () => {
+		const kb = mkdtempSync(join(tmpdir(), "zk-hierfinal-"));
+		try {
+			writeFileSync(
+				join(kb, "card-titled.md"),
+				["---", "id: 202405201000", "entities:", "  - mlx", "---", "alpha body text to cluster"].join("\n"),
+			);
+			const embed = (texts: string[]) => Promise.resolve(texts.map(() => [1, 0.1]));
+			const first = await buildHierarchy({ kbDir: kb, embedFn: embed, tokenBudget: 1_000_000 });
+			expect(first.resumed).toBe(false);
+			// child link must target the FILE stem, not the numeric id
+			const c = readFileSync(join(kb, "agg-L0-0.md"), "utf8");
+			expect(c).toContain("[[card-titled]]");
+			expect(c).not.toContain("[[202405201000]]");
+
+			// simulate a renderer change: leave a stale (still derived-kind) agg
+			// file on disk, then re-run — every layer resumes, but the FINAL
+			// pass restores the current rendering. (A NON-derived file here
+			// would be REFUSED by the T2 guard — that's its job.)
+			writeFileSync(join(kb, "agg-L0-0.md"), "---\nkind: derived-aggregation\n---\nstale rendering\n");
+			const second = await buildHierarchy({ kbDir: kb, embedFn: embed, tokenBudget: 1_000_000 });
+			expect(second.resumed).toBe(true);
+			const c2 = readFileSync(join(kb, "agg-L0-0.md"), "utf8");
+			expect(c2).toContain("[[card-titled]]");
+		} finally {
+			rmSync(kb, { recursive: true, force: true });
+		}
 	});
 });

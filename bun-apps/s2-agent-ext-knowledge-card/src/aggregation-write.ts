@@ -11,6 +11,7 @@
  *   created: "auto"
  *   tags: [zettel, derived-aggregation]
  *   kind: derived-aggregation
+ *   summary: "<clampSummary(summary)>" # L1 abstract (ticket 06), ≤256 chars
  *   parent: "agg:<l+1>:<i>" | null     # null at the tree root
  *   entities: [<first-seen union>]     # child entity union carried upward
  *   sources: [<contentHash union>]     # lineage union carried upward
@@ -19,9 +20,12 @@
  *   generated: true
  *   ---
  *
- * Body: summary (`## 摘要`) + child wikilinks (`## 子節點`) — cards link to
- * their slugified id, lower agg nodes to their `agg-L*` basename, so the
- * multi-level structure is walkable from any node in either direction.
+ * Body: FULL summary (`## 摘要`) + child wikilinks (`## 子節點`) — cards link
+ * to their slugified id, lower agg nodes to their `agg-L*` basename, so the
+ * multi-level structure is walkable from any node in either direction. The
+ * frontmatter `summary` is the clamped L1 retrieval surface (same 256-char
+ * budget as the card L0, card-format SUMMARY_MAX_CHARS); the body keeps the
+ * unclamped text (L2).
  *
  * T2 derived semantics — never supersede user cards: (a) an existing file
  * that is NOT `kind: derived-aggregation` (a user card squatting an agg
@@ -38,7 +42,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
-import { slugify, yamlScalar } from "./card-format.ts";
+import { clampSummary, slugify, yamlScalar } from "./card-format.ts";
 import type { AggregationNode } from "./hierarchy.ts";
 
 // ---------------------------------------------------------------------------
@@ -52,6 +56,11 @@ export interface WriteAggregationOptions {
 	nodes: AggregationNode[];
 	/** Compute-only pass: report would-be changes, write nothing. */
 	dryRun?: boolean;
+	/** card id → wikilink target basename (the file stem). The REAL vault
+	 *  names card files by title slug while ids are numeric — a child link
+	 *  rendered from the bare id resolves to nothing. Absent ⇒ the legacy
+	 *  slugify(id) fallback (tests / id-named folders). */
+	childTargets?: Map<string, string>;
 }
 
 export interface WriteAggregationResult {
@@ -76,9 +85,13 @@ export function aggBasename(nodeId: string): string {
 	return m ? `agg-L${m[1]}-${m[2]}` : slugify(nodeId);
 }
 
-/** Wikilink target for a child id: lower agg node → its basename, card →
- *  slugified id (the card filename convention from ingest). */
-export function childLinkTarget(childId: string): string {
+/** Wikilink target for a child id: the `childTargets` entry when the caller
+ *  supplied one (real vault: files are title-slugged, ids numeric), else
+ *  lower agg node → its basename, card → slugified id (the ingest
+ *  filename convention). */
+export function childLinkTarget(childId: string, childTargets?: Map<string, string>): string {
+	const mapped = childTargets?.get(childId);
+	if (mapped) return mapped;
 	return childId.startsWith("agg:") ? aggBasename(childId) : slugify(childId);
 }
 
@@ -105,7 +118,7 @@ export function isDerivedAggregation(content: string): boolean {
 
 /** Render one aggregation node as a complete markdown card (deterministic —
  *  no timestamps, so identical nodes always render byte-identically). */
-export function renderAggCard(node: AggregationNode, nodes: AggregationNode[]): string {
+export function renderAggCard(node: AggregationNode, nodes: AggregationNode[], childTargets?: Map<string, string>): string {
 	const base = aggBasename(node.id);
 	const parent = parentNodeId(node, nodes);
 	const lines: string[] = [
@@ -114,6 +127,7 @@ export function renderAggCard(node: AggregationNode, nodes: AggregationNode[]): 
 		'created: "auto"',
 		"tags: [zettel, derived-aggregation]",
 		"kind: derived-aggregation",
+		`summary: ${yamlScalar(clampSummary(node.summary))}`,
 		`parent: ${parent ? yamlScalar(parent) : "null"}`,
 		`entities: [${node.entities.map((e) => yamlScalar(e)).join(", ")}]`,
 		`sources: [${node.sources.map((s) => yamlScalar(s)).join(", ")}]`,
@@ -133,7 +147,7 @@ export function renderAggCard(node: AggregationNode, nodes: AggregationNode[]): 
 		"## 子節點",
 		"",
 	];
-	for (const child of node.parentOf) lines.push(`- [[${childLinkTarget(child)}]]`);
+	for (const child of node.parentOf) lines.push(`- [[${childLinkTarget(child, childTargets)}]]`);
 	lines.push("");
 	return lines.join("\n");
 }
@@ -151,7 +165,7 @@ export function writeAggregationMocs(opts: WriteAggregationOptions): WriteAggreg
 
 	// Deterministic write order (basename sort), independent of nodes order.
 	const desired = new Map<string, string>();
-	for (const node of opts.nodes) desired.set(`${aggBasename(node.id)}.md`, renderAggCard(node, opts.nodes));
+	for (const node of opts.nodes) desired.set(`${aggBasename(node.id)}.md`, renderAggCard(node, opts.nodes, opts.childTargets));
 	const sorted = [...desired.keys()].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
 	if (!opts.dryRun && sorted.length > 0) mkdirSync(opts.kbDir, { recursive: true });

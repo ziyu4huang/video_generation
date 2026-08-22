@@ -24,6 +24,7 @@ import {
 	buildLayer,
 	readCheckpoint,
 	writeCheckpoint,
+	HIERARCHY_CHECKPOINT_VERSION,
 	type AggregationNode,
 	type HierarchyCard,
 } from "./hierarchy.ts";
@@ -36,7 +37,7 @@ import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
 
 export interface HierarchyBuildOptions {
 	kbDir: string;
-	cards?: { id: string; text: string; entities: string[]; sources?: string[] }[];
+	cards?: { id: string; text: string; entities: string[]; sources?: string[]; file?: string }[];
 	embedFn(texts: string[]): Promise<number[][]>;
 	summarizeFn?: (clusterText: string, budget: number) => Promise<string>;
 	/** Test-only injection threaded into the default summarizer's chatJson
@@ -58,10 +59,16 @@ export interface HierarchyBuildResult {
 	llmCalls: number;
 	resumed: boolean;
 	skipped?: string;
+	/** Checkpoints found on disk whose format version predates
+	 * HIERARCHY_CHECKPOINT_VERSION — ignored (rebuilt, not resumed) so a
+	 * version change never half-matches. 0 when every hit resumed. */
+	staleCheckpoints: number;
 }
 
-/** One layer's checkpoint payload (D2 shape — mirrors hierarchy.test.ts). */
+/** One layer's checkpoint payload (D2 shape — mirrors hierarchy.test.ts).
+ *  `v` stamps HIERARCHY_CHECKPOINT_VERSION; a mismatch on read = rebuild. */
 interface LayerCheckpoint {
+	v?: number;
 	nodes: AggregationNode[];
 	llmCalls: number;
 	done: boolean;
@@ -139,7 +146,13 @@ async function loadKbCards(kbDir: string): Promise<HierarchyCard[]> {
 	for (const file of files) {
 		const raw = await readFile(join(kbDir, file), "utf8");
 		const { data, bodyStart } = parseFrontmatter(raw);
-		const entities = flattenList(data.entities);
+		// Entities: the typed frontmatter when the writer emitted it, else a
+		// TAGS fallback (ticket 06 real-vault enabler): the vault's pre-P8
+		// cards carry only `tags:`, and the structural `zettel` marker sits on
+		// every card — dropped so a cluster head never starts with it.
+		const entities = flattenList(data.entities).length
+			? flattenList(data.entities)
+			: flattenList(data.tags).filter((t) => t !== "zettel");
 		if (entities.length === 0) continue;
 		const id =
 			typeof data.id === "string" && data.id ? data.id : file.replace(/\.md$/, "");
@@ -150,6 +163,7 @@ async function loadKbCards(kbDir: string): Promise<HierarchyCard[]> {
 			sources: [id, ...flattenList(data.sources ?? data.contentHash)].filter(
 				(v, i, a) => v !== "" && a.indexOf(v) === i,
 			),
+			file: file.replace(/\.md$/, ""),
 		});
 	}
 	return cards;
@@ -165,8 +179,15 @@ async function loadKbCards(kbDir: string): Promise<HierarchyCard[]> {
 export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<HierarchyBuildResult> {
 	const cards = opts.cards ?? (await loadKbCards(opts.kbDir));
 	if (cards.length === 0 || cards.every((c) => c.entities.length === 0)) {
-		return { layers: 0, nodes: [], llmCalls: 0, resumed: false, skipped: "no-entities" };
+		return { layers: 0, nodes: [], llmCalls: 0, resumed: false, skipped: "no-entities", staleCheckpoints: 0 };
 	}
+	// card id → file stem: agg child wikilinks must target the FILENAME (the
+	// real vault title-slugs files while ids stay numeric — a bare-id link
+	// resolves to nothing). Explicit opts.cards without `file` keep the
+	// slugify(id) fallback in childLinkTarget.
+	const childTargets = new Map(
+		cards.filter((c) => c.file).map((c) => [c.id, c.file as string]),
+	);
 	const baseBudget = opts.tokenBudget ?? HIERARCHY_DEFAULTS.baseBudget;
 	const maxDepth = opts.maxDepth ?? HIERARCHY_DEFAULTS.maxDepth;
 	const threshold = opts.threshold ?? HIERARCHY_DEFAULTS.threshold;
@@ -174,10 +195,16 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 	const all: AggregationNode[] = [];
 	let llmCalls = 0;
 	let resumed = false;
+	let staleCheckpoints = 0;
 	let current: HierarchyCard[] = cards;
 	for (let depth = 0; depth <= maxDepth; depth++) {
-		const ckpt = (await readCheckpoint(opts.kbDir, depth)) as LayerCheckpoint | null;
-		if (ckpt && Array.isArray(ckpt.nodes)) {
+		const raw = (await readCheckpoint(opts.kbDir, depth)) as LayerCheckpoint | null;
+		// Version gate (ticket 06): a checkpoint written by an older format
+		// version does NOT resume — its summaries/rendering predate the current
+		// node shape, and resuming would half-match the tree. Rebuild instead.
+		const ckpt = raw && raw.v === HIERARCHY_CHECKPOINT_VERSION && Array.isArray(raw.nodes) ? raw : null;
+		if (raw && !ckpt) staleCheckpoints++;
+		if (ckpt) {
 			// D2 resume: this layer already completed on disk — skip the build
 			// (no embed / summarize cost) and climb from its checkpointed nodes.
 			resumed = true;
@@ -202,13 +229,25 @@ export async function buildHierarchy(opts: HierarchyBuildOptions): Promise<Hiera
 		// Materialize with the full accumulated set so parent links (and the
 		// stale-prune) see the complete tree; the final pass after the last
 		// layer leaves every agg card byte-correct.
-		writeAggregationMocs({ kbDir: opts.kbDir, nodes: [...all, ...r.nodes] });
-		await writeCheckpoint(opts.kbDir, depth, { nodes: r.nodes, llmCalls: r.llmCalls, done: r.done });
+		writeAggregationMocs({ kbDir: opts.kbDir, nodes: [...all, ...r.nodes], childTargets });
+		await writeCheckpoint(opts.kbDir, depth, {
+			v: HIERARCHY_CHECKPOINT_VERSION,
+			nodes: r.nodes,
+			llmCalls: r.llmCalls,
+			done: r.done,
+		});
 		all.push(...r.nodes);
 		llmCalls += r.llmCalls;
 		if (r.done) break;
 		current = r.nodes.map(nodeToCard);
 	}
 	const layers = new Set(all.map((n) => n.layer)).size;
-	return { layers, nodes: all, llmCalls, resumed };
+	// FINAL materialization pass over the complete node set — also on a fully
+	// resumed run (where the loop above never built a layer). Idempotent when
+	// nothing changed (byte-identical files are skipped), but it re-renders
+	// agg cards when the WRITER changed (e.g. the childTargets link fix) or a
+	// resumed checkpoint's renderer drifted — the tree on disk always matches
+	// the current renderer.
+	writeAggregationMocs({ kbDir: opts.kbDir, nodes: all, childTargets });
+	return { layers, nodes: all, llmCalls, resumed, staleCheckpoints };
 }

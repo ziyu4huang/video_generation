@@ -1,6 +1,6 @@
 # 06 — agg-node abstracts: L1 summaries on LeanRAG aggregation nodes
 
-- **Phase:** P1 · **Package:** `s2-agent-ext-knowledge-card` · **Status:** open
+- **Phase:** P1 · **Package:** `s2-agent-ext-knowledge-card` · **Status:** closed 2026-08-23 (agg `summary:` L1 + top-entity composition + checkpoint v2 + filename child links; first real build 326 nodes / 10 LLM calls; recall-audit unchanged 17/20; vault PR ziyu4huang/pi-agent-vault#21)
 
 ## Problem
 

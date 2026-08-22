@@ -14,8 +14,8 @@
  *     re-crosses the threshold after drift. No RNG anywhere.
  *   - D6: LLM token-budget gating — `summarizeFn` is called ONLY when a
  *     cluster's joined text exceeds `tokenBudget` (chars proxy); under budget
- *     the summary is a deterministic truncation. LLM tokens are spent only on
- *     genuinely-over-threshold clusters.
+ *     the summary is the deterministic top-entity composition (ticket 06).
+ *     LLM tokens are spent only on genuinely-over-threshold clusters.
  *
  * Checkpoints (D2) are per-layer JSON (`hierarchy-layer-N.json`) written
  * tmp+rename so a crashed batch build resumes at the last complete layer.
@@ -44,12 +44,16 @@ export interface ClusterOptions {
 }
 
 /** A card (or lower aggregation node) fed into `buildLayer`. `sources` is the
- *  contentHash lineage union carried upward into the node's frontmatter. */
+ *  contentHash lineage union carried upward into the node's frontmatter.
+ *  `file` is the on-disk basename stem — the loader fills it so agg child
+ *  wikilinks can target the FILENAME (real vault files are title-slugged
+ *  while ids are numeric; ticket 06). */
 export interface HierarchyCard {
 	id: string;
 	text: string;
 	entities: string[];
 	sources?: string[];
+	file?: string;
 }
 
 /** One aggregation level node — materializes later as a derived MOC card
@@ -186,23 +190,51 @@ export function cluster(items: ClusterItem[], opts: ClusterOptions = {}): string
 // buildLayer (D4 injection + D6 budget gating)
 // ---------------------------------------------------------------------------
 
-/** Deterministic under-budget summary: first 300 chars (+ "…" if cut). */
+/** Deterministic under-budget summary primitive: first 300 chars (+ "…" if
+ *  cut). Superseded as the node summary by composeSummary (ticket 06) but
+ *  kept exported — it is the text-clamp primitive tests pin directly. */
 export function truncateSummary(text: string): string {
 	const LIMIT = 300;
 	return text.length > LIMIT ? text.slice(0, LIMIT) + "…" : text;
+}
+
+/** Deterministic top-entity summary composition (ticket 06 — the L1 no-LLM
+ *  fallback): `<top entities>：` heads the cluster's lead text, clamped to
+ *  `limit` chars. Entity names are the most stable one-glance signal a
+ *  derived node has (a raw truncation starts mid-topic and reads as noise at
+ *  L1); the lead text keeps it grounded in the cluster's actual content.
+ *  Wikilinks are unwrapped (`[[x]]` → x) — a summary is TEXT, not a link
+ *  surface; propagating a card body's dead links into 4 agg summaries
+ *  measurably polluted graphHealth on the real vault (38 vs 34 baseline). */
+export function composeSummary(entities: string[], text: string, limit = 300): string {
+	const head = entities
+		.slice(0, 3)
+		.map((e) => e.trim())
+		.filter(Boolean)
+		.join("、");
+	const lead = text
+		.replace(/\[\[([^\]]+)\]\]/g, (_, inner: string) => inner.split("|").pop() ?? inner)
+		.replace(/\s+/g, " ")
+		.trim();
+	const prefix = head ? `${head}：` : "";
+	const room = limit - prefix.length;
+	const tail = room <= 0 ? "" : lead.length > room ? `${lead.slice(0, room - 1)}…` : lead;
+	const out = prefix + tail;
+	return out.length > limit ? out.slice(0, limit - 1) + "…" : out;
 }
 
 /**
  * Build one aggregation layer: embed → cluster → one node per cluster with
  * unioned entities/sources and a budget-gated summary (D6). `summarizeFn` is
  * invoked ONLY when the joined cluster text exceeds `tokenBudget`; under
- * budget the summary is the deterministic truncation. `done` = ≤4 nodes or
+ * budget the summary is the deterministic top-entity composition
+ * (composeSummary, ticket 06). `done` = ≤4 nodes or
  * `currentDepth ≥ maxDepth` — the caller stops the batch loop on it.
  *
  * Circuit-breaker (ticket 02): a summarizer stuck returning empty/null burns
  * one LLM call per cluster for nothing. After `summaryBreaker` (default 3)
  * CONSECUTIVE empty results the layer stops calling `summarizeFn` and every
- * remaining over-budget cluster degrades to the deterministic truncation —
+ * remaining over-budget cluster degrades to the deterministic composition —
  * an empty summary never propagates upward (layer N+1 pseudo-card text =
  * summary). A non-empty result resets the streak; `summaryBreakerTripped`
  * surfaces the trip on the result.
@@ -239,15 +271,15 @@ export async function buildLayer(input: BuildLayerInput): Promise<BuildLayerResu
 				emptyStreak = 0; // non-empty result resets the streak
 				summary = res;
 			} else {
-				// Empty/null result: degrade to the deterministic truncation so
+				// Empty/null result: degrade to the deterministic composition so
 				// no empty summary is pushed upward as the next layer's text.
 				emptyStreak++;
 				if (emptyStreak >= summaryBreaker) summaryBreakerTripped = true;
-				summary = truncateSummary(joined);
+				summary = composeSummary(entities, joined);
 			}
 		} else {
 			// Under budget, or the breaker already tripped — no LLM call.
-			summary = truncateSummary(joined);
+			summary = composeSummary(entities, joined);
 		}
 		nodes.push({
 			id: `agg:${depth}:${i}`,
@@ -265,6 +297,13 @@ export async function buildLayer(input: BuildLayerInput): Promise<BuildLayerResu
 // ---------------------------------------------------------------------------
 // Checkpoints (D2) — per-layer JSON, tmp+rename
 // ---------------------------------------------------------------------------
+
+/** Checkpoint payload format version. v2 (context-lifecycle ticket 06):
+ * node summaries switched from raw truncation to top-entity composition and
+ * agg cards now render `summary:` frontmatter — a v1 checkpoint on disk
+ * would resume HALF-matched (old summaries + new rendering), so the
+ * orchestrator treats a version mismatch as "no checkpoint" and rebuilds. */
+export const HIERARCHY_CHECKPOINT_VERSION = 2;
 
 function checkpointPath(dir: string, layer: number): string {
 	return join(dir, `hierarchy-layer-${layer}.json`);
