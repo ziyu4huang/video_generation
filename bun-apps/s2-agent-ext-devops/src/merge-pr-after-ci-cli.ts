@@ -62,7 +62,7 @@ export interface PrFinishCliResult {
 export const PR_FINISH_CLI_USAGE = [
 	"usage: merge-pr-after-ci-cli.ts <pr-number> [--dry-run] [--expected-scope <glob>]...",
 	"                         [--keep-branch] [--assume-ci-green <sha>]",
-	"                         [--repo-root <path>]",
+	"                         [--concurrency <n>] [--repo-root <path>]",
 	"",
 	"Finishes a PR: preflight (clean tree + pr status) → local-CI gate →",
 	"merge gates (OPEN + not-BEHIND + CLEAN, read from a FRESH pr status) →",
@@ -79,6 +79,8 @@ export const PR_FINISH_CLI_USAGE = [
 	"                         verified green; aborts unless it equals the PR's",
 	"                         current head oid (a retry shortcut, never a way",
 	"                         to merge something local CI has not seen)",
+	"  --concurrency <n>   max packages tested in parallel in the local-CI gate",
+	"                      (recipe default 4; lower on load-flaky machines)",
 	"  --repo-root <path>     default: the repo this file lives in",
 ].join("\n");
 
@@ -96,6 +98,8 @@ export interface ParsedPrFinishArgs {
 	repoRoot?: string;
 	/** Lowercased 40-hex head oid the caller already verified green, if given. */
 	assumeCiGreen?: string;
+	/** Max packages tested in parallel in the local-CI gate (recipe default 4). */
+	concurrency?: number;
 }
 
 /** A full 40-hex git object id (what `gh pr view --json headRefOid` returns).
@@ -111,6 +115,7 @@ export function parsePrFinishArgs(argv: string[]): { ok: true; args: ParsedPrFin
 	let keepBranch = false;
 	let repoRoot: string | undefined;
 	let assumeCiGreen: string | undefined;
+	let concurrency: number | undefined;
 
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
@@ -145,6 +150,13 @@ export function parsePrFinishArgs(argv: string[]): { ok: true; args: ParsedPrFin
 				return { ok: false, message: `--assume-ci-green needs a full 40-hex sha (got ${JSON.stringify(v)})` };
 			}
 			assumeCiGreen = sha;
+		} else if (a === "--concurrency") {
+			const v = argv[++i];
+			const n = Number.parseInt(v ?? "", 10);
+			if (!Number.isFinite(n) || n < 1) {
+				return { ok: false, message: "--concurrency needs a positive integer" };
+			}
+			concurrency = n;
 		} else if (a === "--repo-root") {
 			const v = argv[++i];
 			if (v === undefined) {
@@ -170,7 +182,7 @@ export function parsePrFinishArgs(argv: string[]): { ok: true; args: ParsedPrFin
 	if (pr === undefined) {
 		return { ok: false, message: "missing required <pr-number> (positional or --pr <n>)" };
 	}
-	return { ok: true, args: { pr, dryRun, expectedScope, keepBranch, repoRoot, assumeCiGreen } };
+	return { ok: true, args: { pr, dryRun, expectedScope, keepBranch, repoRoot, assumeCiGreen, concurrency } };
 }
 
 /** The structured outcome serialized on stdout. */
@@ -503,6 +515,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 				repoRoot,
 				baseRef: ciBase,
 				headRef: status.headRefName,
+				...(parsed.args.concurrency !== undefined ? { concurrency: parsed.args.concurrency } : {}),
 				spawn,
 				log: (line: string) => process.stderr.write(`${line}\n`),
 			});
