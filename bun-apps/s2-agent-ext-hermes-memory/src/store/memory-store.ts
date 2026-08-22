@@ -376,7 +376,7 @@ export class MemoryStore {
   //
   // proper-lockfile advisory lock on the .md source-of-truth, wrapping the
   // loadFromDisk → mutate → saveToDisk critical section so concurrent writers
-  // across PROCESSES (other live sessions, dedup.sh) serialize. The lockfile is
+  // across PROCESSES (other live sessions, dedup.ts) serialize. The lockfile is
   // a directory `<mdPath>.lock` whose mtime proves liveness; `stale` bounds how
   // long a crashed holder can block others. `retries` makes acquisition BLOCK
   // (poll) until the lock is free rather than failing fast — a writer waits for
