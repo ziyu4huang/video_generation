@@ -130,7 +130,11 @@ export function parsePrFinishArgs(argv: string[]): { ok: true; args: ParsedPrFin
 			if (v === undefined || v === "") {
 				return { ok: false, message: "--expected-scope needs a value" };
 			}
-			expectedScope.push(v);
+			// Comma-split to match verify-merge-cli's --scope syntax. The two
+			// flags diverged silently and a comma list passed here became ONE
+			// literal entry matching nothing — every file out-of-scope, a false
+			// CONTAMINATED on an intentional merge (PR #1808, 2026-08-22).
+			expectedScope.push(...v.split(",").map((s) => s.trim()).filter(Boolean));
 		} else if (a === "--assume-ci-green") {
 			const v = argv[++i];
 			if (v === undefined || v === "") {
