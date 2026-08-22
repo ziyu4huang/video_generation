@@ -105,13 +105,71 @@ describe("selectForgeClient — backend policy", () => {
 		expect((s as Error).message).toContain("gh auth login");
 	});
 
-	test("non-GitHub forge (gitea host) → refused with a pointer to the gitea skeleton", async () => {
-		const s = await selectForgeClient({ spawn: remoteOk("https://git.example-gitea.com/o/r.git"), env: { GITHUB_TOKEN: "t" } }).then(
+	test("gitea host + GITEA_TOKEN → gitea backend (GitHub tokens irrelevant)", async () => {
+		const s = await selectForgeClient({
+			spawn: remoteOk("https://git.example-gitea.com/o/r.git"),
+			env: { GITEA_TOKEN: "gt" },
+			// fetchFn-injected so the adapter is built but nothing is called.
+			fetchFn: (async () => new Response("{}")) as unknown as typeof fetch,
+		});
+		expect(s.backend).toBe("gitea");
+		expect(s.tokenKind).toBe("GITEA_TOKEN env");
+		expect(s.remoteName).toBe("origin");
+		expect(s.coords).toEqual({ host: "git.example-gitea.com", owner: "o", repo: "r" });
+	});
+
+	test("gitea host + NO token → aborts with GITEA_TOKEN remediation (no gh to harvest)", async () => {
+		const s = await selectForgeClient({ spawn: remoteOk("https://git.example-gitea.com/o/r.git"), env: {} }).then(
 			(r) => r,
 			(err: Error) => err,
 		);
 		expect(s).toBeInstanceOf(Error);
-		expect((s as Error).message).toContain("gitea.ts");
+		expect((s as Error).message).toContain("GITEA_TOKEN");
+	});
+
+	test("DEVOPS_FORGE=gitea forces the gitea adapter on a non-obvious host; without it → refused", async () => {
+		const env = { GITEA_TOKEN: "gt", DEVOPS_FORGE: "gitea" };
+		const s = await selectForgeClient({
+			spawn: remoteOk("http://localhost:3200/o/r.git"),
+			env,
+			fetchFn: (async () => new Response("{}")) as unknown as typeof fetch,
+		});
+		expect(s.backend).toBe("gitea");
+		const refused = await selectForgeClient({
+			spawn: remoteOk("https://git.acme.internal/o/r.git"),
+			env: { GITEA_TOKEN: "gt" },
+		}).then(
+			(r) => r,
+			(err: Error) => err,
+		);
+		expect(refused).toBeInstanceOf(Error);
+		expect((refused as Error).message).toContain("DEVOPS_FORGE=gitea");
+	});
+
+	test("GITEA_API_BASE overrides the api base (http instances)", async () => {
+		// The override rides through opts.apiBase into every request URL —
+		// assert via the adapter's first fetch (origin), not a real network.
+		let seenUrl = "";
+		const fetchFn = (async (input: RequestInfo | URL) => {
+			seenUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+			return new Response(JSON.stringify({ state: "open" }), { status: 200 });
+		}) as unknown as typeof fetch;
+		const s = await selectForgeClient({
+			spawn: remoteOk("http://localhost:3200/o/r.git"),
+			env: { GITEA_TOKEN: "gt", DEVOPS_FORGE: "gitea", GITEA_API_BASE: "http://localhost:3200/api/v1" },
+			fetchFn,
+		});
+		expect(s.backend).toBe("gitea");
+		await s.client.prStatus(1);
+		expect(seenUrl.startsWith("http://localhost:3200/api/v1/")).toBe(true);
+	});
+
+	test("github.com + GITEA_TOKEN still selects github-rest (forge follows the host, not env)", async () => {
+		const s = await selectForgeClient({
+			spawn: remoteOk("https://github.com/o/r.git"),
+			env: { GITHUB_TOKEN: "t", GITEA_TOKEN: "gt", DEVOPS_FORGE: "gitea" },
+		});
+		expect(s.backend).toBe("github-rest");
 	});
 
 	test("unparseable remote URL → throws", async () => {

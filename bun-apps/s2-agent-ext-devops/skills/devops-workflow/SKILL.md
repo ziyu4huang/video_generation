@@ -57,8 +57,13 @@ is automatic per repo — you do not choose a backend:
 3. gh on PATH (no token) → the gh-CLI adapter (historical behavior).
 4. None of the above → the tool aborts with remediation text.
 
-Gitea/Forgejo hosts are detected and **refused** for now — the Gitea adapter is
-a researched skeleton (`src/forge/gitea.ts` capability map), not implemented.
+Gitea/Forgejo hosts (recognized by naming, or forced with `DEVOPS_FORGE=gitea`
+for self-hosted names like `git.acme.internal`) select the **Gitea adapter** —
+which requires `GITEA_TOKEN` (a PAT from Settings → Applications; there is no
+gh-equivalent CLI to harvest one). `GITEA_API_BASE` overrides the API base
+(http instances). Note: Gitea has no mergeable-state ladder — a
+behind-but-mergeable PR reports CLEAN; the local-CI gate, not mergeState, is
+the correctness gate.
 Git operations (fetch/push/branch/worktree) never go through the forge layer;
 they stay native regardless of backend.
 
