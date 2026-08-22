@@ -20,6 +20,18 @@
  * through pi's own parser, so pi still validates them (e.g. a bad --thinking
  * level is rejected by pi, not silently accepted here).
  *
+ * MODEL GOVERNS PROVIDER ROUTING
+ * ------------------------------
+ * The bridges are NOT fully independent: whenever a --model token will exist
+ * in the final argv (user flag, `--model=` form, or a PI_MODEL/built-in
+ * splice), the --provider bridge stays silent. pi's resolveCliModel infers the
+ * provider from "provider/model" and fuzzy-matches bare ids across providers;
+ * an injected --provider defeats both paths and, on a catalog miss, silently
+ * fabricates a custom model id on the wrong endpoint (2026-08-22 incident:
+ * `--model lm-studio/qwen/qwen3.8-27b` + harnessed `PI_PROVIDER=zai` →
+ * zai 400 "modelCode: does not exist"). An explicit user --provider flag is of
+ * course never dropped.
+ *
  * BUILT-IN DEFAULTS (FILL-GAPS SEMANTICS)
  * ---------------------------------------
  * When neither the flag, nor the env var, nor a personal default in
@@ -67,15 +79,32 @@ export interface BridgeEntry {
 	 * (the personal default wins over the built-in). Optional so ad-hoc
 	 * bridges (tests) need not name one. */
 	setting?: string;
+	/** Flags whose presence in the final argv (user-typed OR spliced) suppress
+	 * THIS bridge. "--provider is suppressed by --model" because a model string
+	 * fully determines provider routing in pi's resolver — see the incident
+	 * note in the header. */
+	suppressedBy?: readonly string[];
 }
 
 /**
  * The three env overrides s2-agent-cli honors, bridged to the real pi TUI.
  * pi accepts all three long flags and the `provider/id:thinking` shorthand.
+ * --provider is suppressed by --model: pi's resolveCliModel infers the
+ * provider from "provider/model" and fuzzy-matches bare ids itself; an
+ * injected --provider would pin every lookup to one provider and, on a miss,
+ * silently fabricate a custom model id on the WRONG endpoint (incident
+ * 2026-08-22: `--model lm-studio/qwen/qwen3.8-27b` + spliced
+ * `--provider zai` → "not found for provider zai, using custom model id" →
+ * zai 400 "modelCode: does not exist").
  */
 export const BRIDGES: readonly BridgeEntry[] = [
 	{ env: "PI_MODEL", flag: "--model", setting: "defaultModel" },
-	{ env: "PI_PROVIDER", flag: "--provider", setting: "defaultProvider" },
+	{
+		env: "PI_PROVIDER",
+		flag: "--provider",
+		setting: "defaultProvider",
+		suppressedBy: ["--model"],
+	},
 	{ env: "PI_THINKING", flag: "--thinking", setting: "defaultThinkingLevel" },
 ];
 
@@ -100,6 +129,8 @@ function settingPresent(
  * personal settings + built-in defaults), without touching process.argv.
  * Returns a flat array (flag, value, flag, value, …). Per bridge:
  *   - skip when the flag is already present in argv (space or `=` form),
+ *   - skip when a suppressedBy flag is present (user-typed OR spliced — see
+ *     BRIDGES: notably a --model token suppresses the --provider bridge),
  *   - else splice the env value when the env var is set (non-empty),
  *   - else skip when the personal settings default is present (pi reads it),
  *   - else splice the built-in value when one is provided for the flag.
@@ -115,18 +146,31 @@ export function resolveEnvBridges(
 ): string[] {
 	const { settings, builtinByFlag } = opts;
 	const extra: string[] = [];
-	for (const { env: key, flag, setting } of bridges) {
-		const prefix = flag + "=";
+	const flagInArgv = (flag: string): boolean =>
 		// argv is scanned as-is; the flag can't appear in nodePath/scriptPath.
-		if (argv.some((a) => a === flag || a.startsWith(prefix))) continue;
+		argv.some((a) => a === flag || a.startsWith(flag + "="));
+	// Flags that will exist in the final argv: user-typed ones up front, then
+	// spliced ones as the loop adds them — so a PI_MODEL-spliced --model
+	// suppresses --provider exactly like a user-typed one would.
+	const present = new Set(bridges.filter((b) => flagInArgv(b.flag)).map((b) => b.flag));
+	for (const { env: key, flag, setting, suppressedBy } of bridges) {
+		if (flagInArgv(flag)) {
+			present.add(flag);
+			continue;
+		}
+		if (suppressedBy?.some((f) => present.has(f))) continue;
 		const val = env[key];
 		if (val) {
 			extra.push(flag, val);
+			present.add(flag);
 			continue;
 		}
 		if (setting && settingPresent(settings, setting)) continue;
 		const builtin = builtinByFlag?.[flag];
-		if (builtin) extra.push(flag, builtin);
+		if (builtin) {
+			extra.push(flag, builtin);
+			present.add(flag);
+		}
 	}
 	return extra;
 }

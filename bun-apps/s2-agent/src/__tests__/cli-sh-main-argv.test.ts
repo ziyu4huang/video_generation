@@ -115,8 +115,11 @@ describe("cli-sh main() argv — default-model-env splice must reach pi", () => 
 		const i = r.argv.indexOf("--model");
 		expect(i).toBeGreaterThanOrEqual(0);
 		expect(r.argv[i + 1]).toBe(BUILTIN_MODEL_DEFAULT.model);
-		const p = r.argv.indexOf("--provider");
-		expect(r.argv[p + 1]).toBe(BUILTIN_MODEL_DEFAULT.provider);
+		// --provider is NOT spliced when a --model token exists (incident
+		// 2026-08-22: the injected provider pinned lookup to zai and fabricated
+		// a bogus zai model id for `--model lm-studio/qwen/qwen3.8-27b` →
+		// zai 400). pi resolves bare "glm-5.3" to zai via unique exact match.
+		expect(r.argv).not.toContain("--provider");
 		const t = r.argv.indexOf("--thinking");
 		expect(r.argv[t + 1]).toBe(BUILTIN_MODEL_DEFAULT.thinking);
 		// User args survive alongside the splice.
