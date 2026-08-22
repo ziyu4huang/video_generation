@@ -282,3 +282,22 @@ describe("runPrepare — compose", () => {
 		expect(calls.length).toBe(3);
 	});
 });
+
+describe("runPrepare — non-origin remote (remoteName threading)", () => {
+	test("default base + force-push target follow the configured remote", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [{ worktree: REPO, branch: "feat/x" }],
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runPrepare({ client, spawn: fn, repoRoot: REPO, branch: "feat/x", rebase: true, forcePush: true, remoteName: "upstream" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.base).toBe("upstream/main");
+		expect(out.commands).toContain(`git -C "${REPO}" rebase upstream/main feat/x`);
+		expect(out.commands).toContain(`git -C "${REPO}" push --force-with-lease upstream feat/x`);
+		const pushCall = calls.find((c) => realArgs(c.args)[0] === "push");
+		expect(realArgs(pushCall!.args)).toEqual(["push", "--force-with-lease", "upstream", "feat/x"]);
+	});
+});

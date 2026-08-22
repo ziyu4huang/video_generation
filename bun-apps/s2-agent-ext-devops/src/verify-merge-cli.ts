@@ -41,7 +41,7 @@ export const VERIFY_MERGE_CLI_USAGE = [
 	"Options:",
 	"  --scope <a,b>       expected path prefixes; anything outside ALL of them",
 	"                      makes the verdict CONTAMINATED",
-	"  --fetch             allow one `git fetch origin <mergeSha>` when the merge",
+	"  --fetch             allow one `git fetch <remote> <mergeSha>` when the merge",
 	"                      commit is not local yet (the usual case right after a",
 	"                      merge). Without it such a run reports UNVERIFIED.",
 	"  --repo-root <path>  default: the repo this file lives in",
@@ -110,8 +110,18 @@ export async function runVerifyMergeCli(
 	const a = parsed.args;
 	const repoRoot = a.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
-	const gh = deps.gh ?? (await selectForgeClientCached({ spawn, repoRoot })).client;
-	const client = deps.client ?? createBranchClient(spawn);
+	// Selection resolves the remote name (DEVOPS_REMOTE > git config
+	// devops.remote > origin) — reuse it for the client + the allowed fetch.
+	let gh: GhClient;
+	let remoteName: string | undefined;
+	if (deps.gh) {
+		gh = deps.gh;
+	} else {
+		const forgeSel = await selectForgeClientCached({ spawn, repoRoot });
+		gh = forgeSel.client;
+		remoteName = forgeSel.remoteName;
+	}
+	const client = deps.client ?? createBranchClient(spawn, remoteName ?? "origin");
 
 	const outcome = await runVerifyMerge({
 		gh,
@@ -121,6 +131,7 @@ export async function runVerifyMergeCli(
 		pr: a.pr,
 		expectedScope: a.expectedScope,
 		allowFetch: a.allowFetch,
+		remoteName,
 	});
 	// Gate on CLEAN positively rather than excluding known-bad verdicts: the old
 	// `!== "CONTAMINATED"` form meant every verdict added later defaulted to

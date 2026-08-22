@@ -197,6 +197,19 @@ describe("parseRemoteBranches", () => {
 	test("empty → []", () => {
 		expect(parseRemoteBranches("")).toEqual([]);
 	});
+
+	test("non-origin remote: keeps <remote>/* branches, drops other remotes'", () => {
+		const out = ["  origin/main", "  upstream/main", "  upstream/feat/x", "  fork/other"].join("\n");
+		// The scoping that matters: under a non-origin remote the DEFAULT call
+		// silently saw nothing (regression guard for the sweep silent-drop bug).
+		expect(parseRemoteBranches(out)).toEqual(["main"]);
+		expect(parseRemoteBranches(out, "upstream")).toEqual(["main", "feat/x"]);
+	});
+
+	test("dotted remote names are escaped, not treated as regex wildcards", () => {
+		const out = ["  my.git.remote/main", "  myXgitXremote/trap"].join("\n");
+		expect(parseRemoteBranches(out, "my.git.remote")).toEqual(["main"]);
+	});
 });
 
 describe("parseWorktrees", () => {
@@ -409,6 +422,27 @@ describe("createBranchClient (glue)", () => {
 			{ match: (c, a) => c === "git" && a.includes("--delete"), result: { stdout: "", stderr: "remote rejected", exitCode: 1 } },
 		]);
 		await expect(createBranchClient(fn).deleteRemoteBranch("feat/x")).rejects.toThrow(/git push origin --delete feat\/x failed .*1.*remote rejected/);
+	});
+
+	test("remoteName scoping: defaultBranch/deleteRemoteBranch follow a non-origin remote", async () => {
+		const { fn, calls } = rec([
+			{ match: (c, a) => c === "git" && a.includes("symbolic-ref"), result: { stdout: "refs/remotes/upstream/main\n", stderr: "", exitCode: 0 } },
+			{ match: (c, a) => c === "git" && a.includes("--delete"), result: { stdout: "", stderr: "", exitCode: 0 } },
+		]);
+		const client = createBranchClient(fn, "upstream");
+		expect(await client.defaultBranch()).toBe("main");
+		await client.deleteRemoteBranch("feat/x");
+		expect(calls[0].args).toEqual(["symbolic-ref", "refs/remotes/upstream/HEAD"]);
+		expect(calls[1].args).toEqual(["push", "upstream", "--delete", "feat/x"]);
+	});
+
+	test("remoteName scoping: deleteRemoteBranch error names the configured remote", async () => {
+		const { fn } = rec([
+			{ match: (c, a) => c === "git" && a.includes("--delete"), result: { stdout: "", stderr: "remote rejected", exitCode: 1 } },
+		]);
+		await expect(createBranchClient(fn, "upstream").deleteRemoteBranch("feat/x")).rejects.toThrow(
+			/git push upstream --delete feat\/x failed/,
+		);
 	});
 
 	test("dirtyPaths issues git -C <dir> status --porcelain=v1", async () => {

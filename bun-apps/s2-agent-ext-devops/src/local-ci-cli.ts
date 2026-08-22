@@ -14,6 +14,7 @@
  */
 import { runLocalCi } from "./ci-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+import { resolveRemoteName } from "./remote.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, toStderr, usageError } from "./cli-common.js";
 
 export const LOCAL_CI_CLI_USAGE = [
@@ -28,7 +29,8 @@ export const LOCAL_CI_CLI_USAGE = [
 	"Exit 0 pass · 1 fail (incl. a detection error or an unreadable gate job) ·",
 	"2 usage error.",
 	"Options:",
-	"  --base <ref>        base to diff against (default origin/main)",
+	"  --base <ref>        base to diff against (default <remote>/main;",
+	"                      remote = DEVOPS_REMOTE > git config devops.remote > origin)",
 	"  --all               every bun-apps/* package, not just the changed ones",
 	"  --packages <a,b>    explicit package list; skips change detection",
 	"  --strict            also run the audits that have NO workflow step",
@@ -91,7 +93,7 @@ export function parseLocalCiArgs(
 
 export async function runLocalCiCli(
 	argv: string[],
-	deps: { spawn?: SpawnFn; repoRoot?: string } = {},
+	deps: { spawn?: SpawnFn; repoRoot?: string; remoteName?: string } = {},
 ): Promise<CliResult> {
 	const parsed = parseLocalCiArgs(argv);
 	if (!parsed.ok) {
@@ -111,6 +113,9 @@ export async function runLocalCiCli(
 			strict: a.strict,
 			includeGates: a.includeGates,
 			spawn,
+			// Resolved once (DEVOPS_REMOTE > git config devops.remote > origin —
+			// src/remote.ts); only drives the DEFAULT base ref.
+			remoteName: deps.remoteName ?? (await resolveRemoteName(spawn)),
 			// Imported, not spawned: without this the schema-cost banner corrupts
 			// the JSON on stdout.
 			log: toStderr,

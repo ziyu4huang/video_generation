@@ -136,6 +136,9 @@ export interface VerifyMergeOptions {
 	 * moves, no index or working-tree change.
 	 */
 	allowFetch?: boolean;
+	/** Remote name for the allowed fetch + `origin/<D>` ref (default `origin`;
+	 *  resolve via src/remote.ts and pass down). */
+	remoteName?: string;
 	signal?: AbortSignal;
 }
 
@@ -334,14 +337,15 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 		// merge the object is simply absent here (`fatal: bad object`). One
 		// targeted fetch of that single object fixes it; refs are untouched.
 		if (r.exitCode !== 0 && opts.allowFetch) {
+			const remote = opts.remoteName ?? "origin";
 			const f = await safe(
 				"fetch-merge-sha",
-				() => git(repoRoot, ["fetch", "origin", mergeSha]),
+				() => git(repoRoot, ["fetch", remote, mergeSha]),
 				{ stdout: "", stderr: "", exitCode: 1 },
 				warnings,
 			);
 			if (f.exitCode !== 0) {
-				warnings.push(`git fetch origin ${mergeSha} failed: ${trim(f.stderr || f.stdout)}`);
+				warnings.push(`git fetch ${remote} ${mergeSha} failed: ${trim(f.stderr || f.stdout)}`);
 			}
 			r = await showNumstat();
 		}

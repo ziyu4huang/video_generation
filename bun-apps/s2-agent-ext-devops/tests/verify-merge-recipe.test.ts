@@ -673,3 +673,35 @@ describe("unreadable merge (issue #1439)", () => {
 		expect(drift.inspected).toBe(true);
 	});
 });
+
+describe("runVerifyMerge — non-origin remote (remoteName threading)", () => {
+	test("allowFetch fetch targets the configured remote", async () => {
+		// First show fails (bad object), the one allowed fetch targets <remote>,
+		// second show succeeds with a numstat (counter-getter, mirrors the
+		// existing allowFetch test — fakeSpawn matches the FIRST entry, not in order).
+		let shows = 0;
+		const spawn = fakeSpawn([
+			{
+				match: isShow,
+				get result() {
+					shows++;
+					return shows === 1 ? SHOW_BAD_OBJECT : SHOW_IN_SCOPE;
+				},
+			} as never,
+		]);
+		const out = await runVerifyMerge({
+			gh: fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA }),
+			client: fakeClient({ defaultBranch: "main" }),
+			spawn: spawn.fn,
+			repoRoot: REPO,
+			pr: 1,
+			expectedScope: ["src/"],
+			allowFetch: true,
+			remoteName: "upstream",
+		});
+		expect(out.verdict).toBe("CLEAN");
+		const fetches = spawn.calls.filter((c) => isFetch(c.args));
+		expect(fetches.length).toBe(1);
+		expect(realArgs(fetches[0]!.args)).toEqual(["fetch", "upstream", SHA]);
+	});
+});

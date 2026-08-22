@@ -16,6 +16,8 @@ order** and **do NOT fall back to raw bash `git` / `gh`** for the parts they own
 (c) Plain `pi` session without the devops extension → CLI fallback: `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts` (same runSync orchestration; `--dry-run` supported; JSON on stdout).
 (d) Verify after: `git log --oneline -3 origin/main`.
 
+Remote name: every `origin/<ref>` ref and `git fetch/push origin` in the devops tools follows `DEVOPS_REMOTE` env > `git config devops.remote` > `origin` (src/remote.ts) — `origin/main` in this skill's prose means `<remote>/main` for the configured remote. Fork layouts (`origin` = personal mirror, `upstream` = the real forge) set one of the two and every tool follows.
+
 Note: tools activate on these keywords via owner-declared gating; `enable_tool` is the escape hatch when a gate hasn't fired.
 
 ## Why tools, not raw bash

@@ -35,6 +35,7 @@ import { runSync, type SyncMode, DEFAULT_PRESERVE_PATHS } from "./sync-recipe.js
 import { createBranchClient } from "./gh.js";
 import type { BranchClient } from "./branch-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+import { resolveRemoteName } from "./remote.js";
 import { type CliResult, defaultRepoRoot, emit } from "./cli-common.js";
 
 // This CLI predates src/cli-common.ts and used to carry its own copies of
@@ -130,7 +131,7 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
  */
 export async function runSyncCli(
 	argv: string[],
-	deps: { client?: BranchClient; spawn?: SpawnFn; repoRoot?: string } = {},
+	deps: { client?: BranchClient; spawn?: SpawnFn; repoRoot?: string; remoteName?: string } = {},
 ): Promise<SyncCliResult> {
 	const parsed = parseSyncArgs(argv);
 	if (!parsed.ok) {
@@ -144,9 +145,12 @@ export async function runSyncCli(
 	const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
-	const client = deps.client ?? createBranchClient(spawn);
+	// Remote name resolved ONCE here (DEVOPS_REMOTE > git config devops.remote >
+	// origin — src/remote.ts); recipes never resolve it themselves.
+	const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));
+	const client = deps.client ?? createBranchClient(spawn, remoteName);
 
-	const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun, force, preserve });
+	const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun, force, preserve, remoteName });
 	return { exitCode: outcome.aborted ? 1 : 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 }
 

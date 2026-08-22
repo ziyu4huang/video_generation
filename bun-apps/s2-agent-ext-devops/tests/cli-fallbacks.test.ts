@@ -191,7 +191,7 @@ describe("main-health-cli", () => {
 			aheadBehind: async () => ({ ahead: 0, behind: 0 }),
 			revParse: async () => "sha",
 		} as MainHealthClient;
-		const res = await runMainHealthCli([], { client, spawn: noSpawn, repoRoot: REPO });
+		const res = await runMainHealthCli([], { client, spawn: noSpawn, repoRoot: REPO, remoteName: "origin" });
 		expect(res.exitCode).toBe(1);
 		expect(JSON.parse(res.stdout).aborted).toBe("no-default-branch-worktree");
 	});

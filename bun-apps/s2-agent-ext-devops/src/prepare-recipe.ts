@@ -125,6 +125,9 @@ export interface PrepareOptions {
 	forcePush?: boolean;
 	/** Compute + record commands; spawn ZERO mutations. */
 	dryRun?: boolean;
+	/** Remote name for the default base ref + force-push target (default
+	 *  `origin`; resolve via src/remote.ts and pass down). */
+	remoteName?: string;
 	signal?: AbortSignal;
 }
 
@@ -176,7 +179,8 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 	const detectedDefault =
 		(await safe("defaultBranch", () => client.defaultBranch(), undefined, warnings)) ?? "main";
 	const branch = opts.branch ?? current;
-	const base = opts.base ?? `origin/${detectedDefault}`;
+	const remote = opts.remoteName ?? "origin";
+	const base = opts.base ?? `${remote}/${detectedDefault}`;
 
 	/** HEAD around the mutation sequence (see PrepareOutcome.head). */
 	const head: { from: string; to: string } = { from: "", to: "" };
@@ -276,14 +280,14 @@ export async function runPrepare(opts: PrepareOptions): Promise<PrepareOutcome> 
 
 	// --- 5. forcePush (ONLY when explicitly opted in) --------------------------
 	if (opts.forcePush) {
-		const p = await git(repoRoot, ["push", "--force-with-lease", "origin", branch]);
+		const p = await git(repoRoot, ["push", "--force-with-lease", remote, branch]);
 		steps.push({ step: "forcePush", ok: p.exitCode === 0 });
 		if (p.exitCode !== 0) {
-			warnings.push(`push --force-with-lease origin ${branch} failed: ${trim(p.stderr || p.stdout)}`);
+			warnings.push(`push --force-with-lease ${remote} ${branch} failed: ${trim(p.stderr || p.stdout)}`);
 			return outcome({
 				aborted: true,
 				reason: "force-push-failed",
-				message: `git push --force-with-lease origin ${branch} failed.`,
+				message: `git push --force-with-lease ${remote} ${branch} failed.`,
 				hint: "the remote tip may have moved; fetch + rebase, then re-run.",
 			});
 		}

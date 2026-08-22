@@ -132,3 +132,28 @@ describe("selectForgeClient — backend policy", () => {
 		expect((s as Error).message).toContain("origin remote");
 	});
 });
+
+describe("selectForgeClient — remoteName passthrough", () => {
+	test("SelectedForge.remoteName defaults to origin, honors DEVOPS_REMOTE", async () => {
+		const s1 = await selectForgeClient({ spawn: remoteOk("https://github.com/o/r.git"), env: { GITHUB_TOKEN: "t" } });
+		expect(s1.remoteName).toBe("origin");
+		const s2 = await selectForgeClient({
+			spawn: remoteOk("https://github.com/o/r.git"),
+			env: { GITHUB_TOKEN: "t", DEVOPS_REMOTE: "upstream" },
+		});
+		expect(s2.remoteName).toBe("upstream");
+	});
+
+	test("gh-cli fallback path also carries remoteName", async () => {
+		const s = await selectForgeClient({
+			spawn: fakeSpawn([
+				{ match: (c, a) => c === "git" && a[0] === "remote", result: ok("git@github.com:o/r.git\n") },
+				{ match: (c, a) => c === "gh" && a[0] === "auth", result: fail },
+				{ match: (c, a) => c === "gh" && a[0] === "--version", result: ok("gh version 2.0.0\n") },
+			]),
+			env: { DEVOPS_REMOTE: "upstream" },
+		});
+		expect(s.backend).toBe("gh-cli");
+		expect(s.remoteName).toBe("upstream");
+	});
+});

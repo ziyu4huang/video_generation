@@ -1257,3 +1257,21 @@ describe("runLocalCi — change-triggered deploy-e2e gate", () => {
 		expect(out.overall).toBe("pass");
 	});
 });
+
+describe("runLocalCi — base-ref default follows remoteName", () => {
+	test("default baseRef is <remoteName>/main when provided", async () => {
+		const { fn, calls } = mkSpawn([verifyOk("upstream/main")]);
+		const detect = mkDetect({});
+		await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			remoteName: "upstream",
+			detectChangedPackages: detect.fn,
+			readPkg: mkReadPkg({}),
+			includeGates: false,
+		});
+		const verify = calls.find((c) => c.args.includes("--verify"));
+		expect(verify?.args).toContain("upstream/main");
+		expect(detect.calls[0].baseRef).toBe("upstream/main");
+	});
+});

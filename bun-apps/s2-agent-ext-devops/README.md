@@ -69,8 +69,8 @@ The same footgun recurs in **branch cleanup**: `git branch --merged` is silently
   - `gitea.ts` — Gitea/Forgejo adapter SKELETON: researched capability map (merge `Do` styles, WIP-prefix drafts, combined-status checks, token auth), not implemented.
 - `src/branch-logic.ts` — **pure** branch classification (`classifyBranch`: signals → confidence + bucket). Fully unit-tested, no I/O.
 - `src/branch-recipe.ts` — `buildSweepPlan` / `executeSweep` / `runSweep`: the sweep orchestration, I/O behind an injectable `BranchClient` (tested with scripted fakes).
-- `src/remote.ts` — `resolveRemoteName` (`DEVOPS_REMOTE` env > `git config devops.remote` > `origin`); consumed by forge selection. Threading it through the recipes' `origin/main` refs is a tracked follow-up.
-- `src/gh.ts` — `createBranchClient` (git operations, shared by every forge — git never goes through a forge adapter; the PR listing lives on `ForgeClient.prList`) + pure parsers (`parseBranchVv`, …); re-exports the moved gh-client surface for import stability.
+- `src/remote.ts` — `resolveRemoteName` (`DEVOPS_REMOTE` env > `git config devops.remote` > `origin`); consumed by forge selection AND threaded through `createBranchClient(spawn, remoteName)` + every recipe's `remoteName` option, so all `git fetch/push` args and `<remote>/<branch>` tracking refs follow the configured remote.
+- `src/gh.ts` — `createBranchClient(spawn, remoteName?)` (git operations, shared by every forge — git never goes through a forge adapter; the PR listing lives on `ForgeClient.prList`; the remote-facing methods are scoped to `remoteName`) + pure parsers (`parseBranchVv`, …); re-exports the moved gh-client surface for import stability.
 - `extensions/devops.ts` — thin glue: registers the tools, wires the live `Bun.spawn` adapter + `selectForgeClientCached`.
 
 ## Install

@@ -65,6 +65,9 @@ export interface MainHealthOptions {
 	readGates?: (repoRoot: string) => Promise<CiGatesResult>;
 	/** Forwarded to runLocalCi — keeps the schema-cost banner off a JSON stdout. */
 	log?: (line: string) => void;
+	/** Remote name for the `origin/<D>` freshness refs + runLocalCi's default
+	 *  base (default `origin`; resolve via src/remote.ts and pass down). */
+	remoteName?: string;
 }
 
 export interface MainHealthOutcome {
@@ -109,6 +112,7 @@ export interface MainHealthOutcome {
 export async function runMainHealth(opts: MainHealthOptions): Promise<MainHealthOutcome> {
 	const t0 = Date.now();
 	const { client } = opts;
+	const remote = opts.remoteName ?? "origin";
 	const defaultBranch = (await client.defaultBranch()) || "main";
 
 	// 1. Find the worktree holding <D>. A detached worktree holds no branch, so
@@ -184,13 +188,13 @@ export async function runMainHealth(opts: MainHealthOptions): Promise<MainHealth
 		if (dirty.length > 0) {
 			warnings.push(
 				`${dirty.length} uncommitted change(s) in ${repoRoot} — this verdict is about that working tree, ` +
-					`not exactly origin/${defaultBranch}.`,
+					`not exactly ${remote}/${defaultBranch}.`,
 			);
 		}
-		const { behind } = await client.aheadBehind(`origin/${defaultBranch}`, defaultBranch);
+		const { behind } = await client.aheadBehind(`${remote}/${defaultBranch}`, defaultBranch);
 		if (behind > 0) {
 			warnings.push(
-				`'${defaultBranch}' is ${behind} commit(s) behind origin/${defaultBranch} — sync first for a current answer.`,
+				`'${defaultBranch}' is ${behind} commit(s) behind ${remote}/${defaultBranch} — sync first for a current answer.`,
 			);
 		}
 		// Resolve the BRANCH, not "HEAD": a ref name is repo-global, so this needs no
@@ -209,6 +213,9 @@ export async function runMainHealth(opts: MainHealthOptions): Promise<MainHealth
 			signal: opts.signal,
 			readGates: opts.readGates,
 			log: opts.log,
+			// `all: true` makes change detection moot, but the base-ref default
+			// still resolves — keep it on the configured remote.
+			remoteName: remote,
 		});
 
 		// Exit 127 is the shell's "command not found" — `bun run typecheck` could not

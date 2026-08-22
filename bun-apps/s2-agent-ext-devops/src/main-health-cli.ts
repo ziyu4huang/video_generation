@@ -15,6 +15,7 @@
 import { runMainHealth, type MainHealthClient } from "./main-health-recipe.js";
 import { createBranchClient } from "./gh.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+import { resolveRemoteName } from "./remote.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, toStderr, usageError } from "./cli-common.js";
 
 export const MAIN_HEALTH_CLI_USAGE = [
@@ -62,7 +63,7 @@ export function parseMainHealthArgs(
 
 export async function runMainHealthCli(
 	argv: string[],
-	deps: { client?: MainHealthClient; spawn?: SpawnFn; repoRoot?: string } = {},
+	deps: { client?: MainHealthClient; spawn?: SpawnFn; repoRoot?: string; remoteName?: string } = {},
 ): Promise<CliResult> {
 	const parsed = parseMainHealthArgs(argv);
 	if (!parsed.ok) {
@@ -71,11 +72,14 @@ export async function runMainHealthCli(
 	}
 	const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
-	const client = deps.client ?? createBranchClient(spawn);
+	// Remote name resolved ONCE here (DEVOPS_REMOTE > git config devops.remote >
+	// origin — src/remote.ts); the recipe never resolves it itself.
+	const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));
+	const client = deps.client ?? createBranchClient(spawn, remoteName);
 
 	// The schema-cost check is an IMPORT, not a spawn, so its banner would land
 	// on OUR stdout and corrupt the JSON payload. Send it to stderr.
-	const outcome = await runMainHealth({ client, spawn, log: toStderr });
+	const outcome = await runMainHealth({ client, spawn, log: toStderr, remoteName });
 	// `healthy` is already false on an abort, so this one check covers both.
 	return jsonResult(outcome.healthy ? 0 : 1, outcome);
 }

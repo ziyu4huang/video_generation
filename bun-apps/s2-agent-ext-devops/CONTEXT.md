@@ -103,11 +103,15 @@ distinct from the PR/merge keywords above.
   abort; Gitea hosts refused), `gitea.ts` (capability-map skeleton, not
   implemented).
 - `src/remote.ts` — `resolveRemoteName` (`DEVOPS_REMOTE` env >
-  `git config devops.remote` > `origin`); consumed by forge selection today,
-  recipes' `origin/main` refs are a tracked follow-up.
-- `src/gh.ts` — `createBranchClient` (git ops — shared by every forge; git
-  never goes through a forge adapter, and the PR listing lives on
-  `ForgeClient.prList`) + pure JSON/text parsers (re-exports the
+  `git config devops.remote` > `origin`); consumed by forge selection
+  (`SelectedForge.remoteName`) AND threaded through
+  `createBranchClient(spawn, remoteName)` + every recipe's `remoteName`
+  option — all `git fetch/push` args and `<remote>/<branch>` refs follow it.
+- `src/gh.ts` — `createBranchClient(spawn, remoteName?)` (git ops — shared by
+  every forge; git never goes through a forge adapter, and the PR listing
+  lives on `ForgeClient.prList`; the remote-facing methods
+  `remoteBranches`/`defaultBranch`/`deleteRemoteBranch` are scoped to
+  `remoteName`) + pure JSON/text parsers (re-exports the
   gh-client surface that moved to `src/forge/gh-cli.ts`).
   `BranchClient.dirtyPaths(dir)` lists TRACKED dirty
   paths (repo-relative; excludes untracked/ignored) via `git status --porcelain=v1`;

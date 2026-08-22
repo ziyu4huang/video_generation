@@ -783,3 +783,16 @@ describe("merge-pr-after-ci-cli — the missing-workflow-scope refusal is its ow
 		expect(isMissingWorkflowScope("Resource not accessible by integration")).toBe(false);
 	});
 });
+
+describe("merge-pr-after-ci-cli — non-origin remote (remoteName threading)", () => {
+	test("remoteName threads into the CI base probe + planned delete", async () => {
+		const g = greenDeps();
+		// fakeSpawn answers every probe exit 0 → the <remote>/<base> tracking
+		// ref "resolves" and becomes the run_local_ci base.
+		const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, remoteName: "upstream" });
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.commands.some((c: string) => c === "git push upstream --delete feature")).toBe(true);
+		expect(g.ciOpts[0]?.baseRef).toBe("upstream/main");
+	});
+});

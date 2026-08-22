@@ -58,6 +58,9 @@ export interface RecipeOptions {
 	 * fs-free — and so a fake repoRoot doesn't fail the merge on a gate-read error.
 	 */
 	readGates?: (repoRoot: string) => Promise<CiGatesResult>;
+	/** Remote name for the best-effort fetch + `origin/<ref>` CI refs (default
+	 *  `origin`; resolve via src/remote.ts and pass down). */
+	remoteName?: string;
 }
 
 export interface RecipeOutcome {
@@ -99,7 +102,7 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 	//    (a thrown rev-parse on the base, or a detectionError on the diff) and
 	//    we block fail-closed. Do NOT hard-fail the tool on the fetch itself.
 	try {
-		await spawn("git", ["fetch", "origin", status.baseRefName, status.headRefName], { cwd: repoRoot });
+		await spawn("git", ["fetch", opts.remoteName ?? "origin", status.baseRefName, status.headRefName], { cwd: repoRoot });
 	} catch {
 		/* best-effort — a throw here is unexpected (spawn returns a result, it
 		 * doesn't throw), but guard anyway so the tool never crashes on it. */
@@ -112,8 +115,8 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 	try {
 		ci = await runLocalCi({
 			repoRoot,
-			baseRef: `origin/${status.baseRefName}`,
-			headRef: `origin/${status.headRefName}`,
+			baseRef: `${opts.remoteName ?? "origin"}/${status.baseRefName}`,
+			headRef: `${opts.remoteName ?? "origin"}/${status.headRefName}`,
 			strict: false,
 			includeGates: true,
 			spawn,
