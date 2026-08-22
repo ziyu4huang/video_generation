@@ -1,6 +1,6 @@
 # Ticket 03 — shared-task-list
 
-status: open
+status: closed 2026-08-22 (PR #1824 → main 132a0622)
 
 ## Goal
 
