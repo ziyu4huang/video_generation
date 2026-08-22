@@ -2,11 +2,23 @@
  * pi_deploy now delegates to runShDeploy (a typed call), so there is no human
  * output left to scrape — the old parseDeployOutput regex suite is gone with
  * the pipeline it parsed. What remains worth testing is the params→options
- * mapping and the failure shaping.
+ * mapping and the failure shaping, plus the post-deploy E2E wiring (the seam
+ * is injected — the model-call probe must never run in unit tests).
  */
 import { describe, expect, test } from "bun:test";
 import { runDeploy } from "../src/deploy-tool.ts";
 import { DeployVersionExistsError } from "../scripts/deploy.ts";
+import type { DeployE2eOutcome } from "../src/deploy-e2e-recipe.js";
+
+const e2ePass = (verdict: DeployE2eOutcome["verdict"] = "pass"): DeployE2eOutcome => ({
+	versionDir: "/tmp/x/0.1.0+gabc1234",
+	version: "0.1.0+gabc1234",
+	sourceSha: "abc1234",
+	probes: [],
+	verdict,
+	note: `${verdict} (fake)`,
+	durationMs: 0,
+});
 
 describe("runDeploy", () => {
 	test("maps params onto DeployShOptions and passes the cache/prune facts through", async () => {
@@ -27,6 +39,7 @@ describe("runDeploy", () => {
 						prunedCores: [{ hash: "a".repeat(64), bytes: 89_523_400 }],
 					};
 				},
+				e2e: async () => e2ePass(),
 			},
 		);
 		expect(seen).toMatchObject({ force: true, freeze: false });
@@ -35,6 +48,7 @@ describe("runDeploy", () => {
 		expect(r.extensions).toEqual([{ name: "power-tool", bytes: 1000 }]);
 		expect(r.coreCached).toBe(true);
 		expect(r.pruned).toEqual(["0.1.0+gold0000"]);
+		expect(r.e2e?.verdict).toBe("pass");
 	});
 
 	test("omits every option the caller did not ask for", async () => {
@@ -59,6 +73,7 @@ describe("runDeploy", () => {
 						prunedCores: [],
 					};
 				},
+				e2e: async () => e2ePass(),
 			},
 		);
 		expect(Object.keys(seen)).toEqual([]);
@@ -88,6 +103,7 @@ describe("runDeploy", () => {
 				deploy: async () => {
 					throw new DeployVersionExistsError("0.1.0+gabc1234", "/dist/s2-agent-sh/0.1.0+gabc1234");
 				},
+				e2e: async () => e2ePass(),
 			},
 		);
 		expect(r.ok).toBe(true);
@@ -95,5 +111,42 @@ describe("runDeploy", () => {
 		expect(r.version).toBe("0.1.0+gabc1234");
 		expect(r.target).toBe("/dist/s2-agent-sh/0.1.0+gabc1234");
 		expect(r.message).toContain("--force");
+		expect(r.e2e?.verdict).toBe("pass");
+	});
+
+	test("a PASSING post-deploy E2E keeps ok true; a failing one flips it", async () => {
+		const deployOk = async () => ({
+			version: "v",
+			target: "/tmp/x/v",
+			extensions: [],
+			coreBytes: 0,
+			coreCached: false,
+			currentUpdated: true,
+			pruned: [],
+			prunedCores: [],
+		});
+		const good = await runDeploy({}, { deploy: deployOk, e2e: async () => e2ePass() });
+		expect(good.ok).toBe(true);
+		expect(good.e2e?.verdict).toBe("pass");
+
+		const bad = await runDeploy({}, { deploy: deployOk, e2e: async () => e2ePass("fail") });
+		expect(bad.ok).toBe(false);
+		expect(bad.e2e?.verdict).toBe("fail");
+	});
+
+	test("a provider-down E2E (SKIP) is not a deploy failure", async () => {
+		const deployOk = async () => ({
+			version: "v",
+			target: "/tmp/x/v",
+			extensions: [],
+			coreBytes: 0,
+			coreCached: false,
+			currentUpdated: true,
+			pruned: [],
+			prunedCores: [],
+		});
+		const r = await runDeploy({}, { deploy: deployOk, e2e: async () => e2ePass("skip") });
+		expect(r.ok).toBe(true);
+		expect(r.e2e?.verdict).toBe("skip");
 	});
 });

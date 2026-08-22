@@ -30,7 +30,8 @@
     "devops-sweep-merged-branches": "./src/sweep-merged-branches-cli.ts",
     "devops-local-ci": "./src/local-ci-cli.ts",
     "devops-prepare-feature-branch": "./src/prepare-feature-branch-cli.ts",
-    "devops-verify-merge": "./src/verify-merge-cli.ts"
+    "devops-verify-merge": "./src/verify-merge-cli.ts",
+    "devops-verify-deploy-e2e": "./src/verify-deploy-e2e-cli.ts"
   },
   "scripts": {
     "test": "bun test",
