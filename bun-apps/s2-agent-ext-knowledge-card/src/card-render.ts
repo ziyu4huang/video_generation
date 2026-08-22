@@ -1,5 +1,5 @@
 /** Pure markdown → zettel-card rendering (split from ingest.ts — hermes-arch-13). */
-import { yamlScalar, normTag } from "./card-format.ts";
+import { yamlScalar, normTag, clampSummary } from "./card-format.ts";
 import type { ExtractedEntity, Relation } from "@repo/s2-agent-core-interface";
 import type { CardOutcome, IngestOptions, KnowledgeRecord } from "./types.ts";
 export interface MarkdownFeatures {
@@ -147,6 +147,12 @@ export function renderCard(
 	};
 	if (rec.dimension !== null) fm.dimension = rec.dimension;
 
+	// Schema v2 (D4 / ticket 05): the L0 abstract. Written at ingest (resolved
+	// by ingestRecords — explicit > on-disk > deterministic > LLM-condensed) and
+	// by the backfill script on legacy cards. ADDITIVE: cards whose record has
+	// no summary and no body stay byte-identical to pre-v2.
+	if (rec.summary && rec.summary.trim()) fm.summary = clampSummary(rec.summary);
+
 	// Feature metadata (kg-improvement-plan P1): detect Obsidian callouts /
 	// tasks / embeds / code density in the body that becomes 核心想法, and
 	// carry them as ADDITIVE frontmatter keys. Written ONLY where the source
@@ -203,11 +209,32 @@ export function renderCard(
 			? links.map((l) => `- 相關：[[${l}]]`)
 			: ["- (no shared-tag neighbours yet)"];
 
+	// Schema v2 (D4 / ticket 05): the `experience` kind renders the
+	// Situation/Approach/Reflect section (OpenViking experiences pattern).
+	// Additive — placed AFTER 核心想法 so cardAnatomy's body extraction (and
+	// therefore wiki-match tokenisation + the 800-char embed window) is
+	// unchanged for non-experience cards, which never grow this section.
+	const sar =
+		rec.type === "experience"
+			? `
+## 情境 / 做法 / 反思
+
+### 情境
+${rec.experience?.situation?.trim() || "—"}
+
+### 做法
+${rec.experience?.approach?.trim() || "—"}
+
+### 反思
+${rec.experience?.reflection?.trim() || "—"}
+`
+			: "";
+
 	return `${fmText}# ${rec.title}
 
 ## 核心想法
 ${detail || "—"}
-
+${sar}
 ## 證據 / 脈絡
 ${evidenceLines.join("\n")}
 

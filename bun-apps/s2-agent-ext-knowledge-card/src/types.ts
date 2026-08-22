@@ -9,7 +9,7 @@ import type { Extractor } from "./extractor.ts";
  *  beyond the canonical 12 are tolerated and preserved in evidence only. */
 export interface KnowledgeRecord {
 	id: string;
-	type: string; // lever | avoid | pattern | gotcha | metric | false_positive
+	type: string; // lever | avoid | pattern | gotcha | metric | false_positive | experience (schema v2)
 	title: string;
 	detail: string;
 	tags: string[];
@@ -17,6 +17,18 @@ export interface KnowledgeRecord {
 	confidence: number;
 	status: string; // active | superseded | retired
 	superseded_by: string | null;
+	/** Schema v2 (D4) L0 abstract, ≤256 chars. When absent it is derived at
+	 *  ingest (deterministic first sentence; LLM condense only for long
+	 *  bodies) and stamped by scripts/backfill-summaries.mjs on old cards. */
+	summary?: string;
+	/** Structured Situation/Approach/Reflect payload for `type: "experience"`
+	 *  records (schema v2, OpenViking experiences pattern). Rendered as the
+	 *  `## 情境 / 做法 / 反思` section; absent parts render as "—". */
+	experience?: {
+		situation: string;
+		approach: string;
+		reflection: string;
+	};
 	/** Pre-extracted typed entities (SAG-style). If absent, entities are
 	 *  derived deterministically from `detail` via `extractEntities` when
 	 *  `linkWeighting === "idf"` (additive frontmatter; absent otherwise). */
@@ -84,11 +96,22 @@ export interface IngestOptions {
 	 *  `resolveExtractor` as the `LlmRelationExtractor` model override; env
 	 *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b"). */
 	kgLlmModel?: string;
+	/** Opt-in LLM condense for schema-v2 summaries (D4). Default OFF — the
+	 *  over-budget body then keeps its clamped deterministic first sentence
+	 *  (the package tier rule: the default ingest path is LLM-free, same shape
+	 *  as `kgLlm`). When ON, bodies over SUMMARY_BODY_BUDGET are condensed via
+	 *  the local chat endpoint (llm-chat.ts), best-effort, deterministic
+	 *  fallback on failure. Env fallback `PI_KG_SUMMARY_LLM=1`. */
+	summaryLlm?: boolean;
 	/** @internal Test seam: overrides the resolved extractor so tests can
 	 *  inject an `LlmRelationExtractor` with a canned `_fetchImpl` (no live
 	 *  LM Studio). Production callers leave this unset — the effective
 	 *  extractor is `resolveExtractor(kgLlm, …)` (Phase-2 T3). */
 	_extractor?: Extractor;
+	/** @internal Test seam: fetch override for the schema-v2 summary LLM
+	 *  condense (over-budget bodies only) so tests can count calls without a
+	 *  live LM Studio. Production callers leave this unset. */
+	_summaryFetch?: typeof fetch;
 }
 
 export type CardOutcome = "created" | "updated" | "unchanged";
