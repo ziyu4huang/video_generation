@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentRunOptions, AgentUsage, ModelTierConfig, SddReport } from "@repo/s2-agent-core-runtime";
 import {
   checkBudgetExhaustion,
+  lastAssistantText,
   listAvailableModelSpecs,
   resolveAgentModelSpec,
   WorkflowAgent,
@@ -14,7 +15,6 @@ import { runWorkflow } from "../src/workflow.js";
 // Private methods used for testing - cast to this type to access them without `any`
 type WorkflowAgentPrivates = {
   buildPrompt(prompt: string, options: AgentRunOptions<any>, structured: boolean): string;
-  lastAssistantText(messages: unknown[]): string;
   getTierConfig(): ModelTierConfig | null;
 };
 
@@ -272,7 +272,7 @@ test("lastAssistantText extracts last assistant text content", () => {
     { role: "user", content: [{ type: "text", text: "hello" }] },
     { role: "assistant", content: [{ type: "text", text: "hi there" }] },
   ];
-  const text: string = (agent as unknown as WorkflowAgentPrivates).lastAssistantText(messages);
+  const text: string = lastAssistantText(messages);
   assert.equal(text, "hi there");
 });
 
@@ -287,7 +287,7 @@ test("lastAssistantText joins multiple text parts", () => {
       ],
     },
   ];
-  const text: string = (agent as unknown as WorkflowAgentPrivates).lastAssistantText(messages);
+  const text: string = lastAssistantText(messages);
   assert.equal(text, "part1part2");
 });
 
@@ -302,20 +302,20 @@ test("lastAssistantText skips non-text content parts", () => {
       ],
     },
   ];
-  const text: string = (agent as unknown as WorkflowAgentPrivates).lastAssistantText(messages);
+  const text: string = lastAssistantText(messages);
   assert.equal(text, "result");
 });
 
 test("lastAssistantText returns empty string when no assistant text", () => {
   const agent = new WorkflowAgent({ cwd: "/tmp" });
-  const text: string = (agent as unknown as WorkflowAgentPrivates).lastAssistantText([]);
+  const text: string = lastAssistantText([]);
   assert.equal(text, "");
 });
 
 test("lastAssistantText returns empty for non-assistant messages", () => {
   const agent = new WorkflowAgent({ cwd: "/tmp" });
   const messages = [{ role: "user", content: [{ type: "text", text: "hello" }] }];
-  const text: string = (agent as unknown as WorkflowAgentPrivates).lastAssistantText(messages);
+  const text: string = lastAssistantText(messages);
   assert.equal(text, "");
 });
 
@@ -326,7 +326,7 @@ test("lastAssistantText picks the last assistant message, not first", () => {
     { role: "user", content: [{ type: "text", text: "more" }] },
     { role: "assistant", content: [{ type: "text", text: "final" }] },
   ];
-  const text: string = (agent as unknown as WorkflowAgentPrivates).lastAssistantText(messages);
+  const text: string = lastAssistantText(messages);
   assert.equal(text, "final");
 });
 

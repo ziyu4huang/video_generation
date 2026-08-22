@@ -97,6 +97,7 @@ Then add its row below. `bun run test:adr` fails until you do.
 | `ADR-subagent-0005` | Dispatch budget architecture — tier ceilings, role envelopes, direct-call parity | [`s2-agent-ext-subagent/…/0005`](../../s2-agent-ext-subagent/docs/adr/0005-dispatch-budget-architecture.md) |
 | `ADR-subagent-0006` | `/models-preset` is a transient session switch; `~/.pi` stays built-in-pure | [`s2-agent-ext-subagent/…/0006`](../../s2-agent-ext-subagent/docs/adr/0006-models-preset-transient-session-switch.md) |
 | `ADR-subagent-0007` | Background dispatch decouples the child run from the parent turn (no `parentSignal` fan-in) | [`s2-agent-ext-subagent/…/0007`](../../s2-agent-ext-subagent/docs/adr/0007-background-dispatch-turn-decoupling.md) |
+| `ADR-subagent-0008` | Named live agents retain in-process child sessions; budgets aggregate over the agent's lifetime | [`s2-agent-ext-subagent/…/0008`](../../s2-agent-ext-subagent/docs/adr/0008-named-live-agents.md) |
 
 ### superpowers
 

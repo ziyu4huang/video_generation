@@ -45,6 +45,15 @@ export interface SubagentRunRecord {
   toolCallId: string;
   /** Role label (params.agent), if provided. */
   agent?: string;
+  /**
+   * The named-live-agent handle (spawn_subagent `name`), when this run's
+   * dispatch opened one. Records stay write-once — one record per exchange,
+   * linked across exchanges by the agent's `agentId` (the first exchange's
+   * toolCallId), not mutated in place. Absent on one-shot dispatches.
+   */
+  agentName?: string;
+  /** The named agent's stable id, when this record belongs to one (see `agentName`). */
+  agentId?: string;
   /** Full task prompt — needed for replay context. */
   task: string;
   /** Resolved model (provider/id), or the requested display string. */

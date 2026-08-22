@@ -11,8 +11,14 @@
 // by reading this file, and a moved definition breaks the build at its new home
 // instead of silently continuing to work through a stale hop.
 
-export type { AgentRunOptions, AgentRunResult, WorkflowAgentOptions } from "./agent.js";
-export { CoreAgent, CoreAgent as WorkflowAgent } from "./agent.js";
+export type {
+  AgentRunOptions,
+  AgentRunResult,
+  AssembledSession,
+  SessionAssemblyOptions,
+  WorkflowAgentOptions,
+} from "./agent.js";
+export { CoreAgent, CoreAgent as WorkflowAgent, lastAssistantText } from "./agent.js";
 
 export type {
   AgentUsage,
@@ -107,6 +113,18 @@ export {
   packageBaseName,
 } from "./ext-deps.js";
 export { homeDir } from "./home.js";
+// Named persistent agents (agent-teams parity, ticket 01): the live-agent
+// registry (naming/roster/LRU/disposal) and the persistent-agent runner
+// (openLiveAgent / spawnLiveAgentFirstExchange over CoreAgent.assembleSession).
+export type { LiveAgentEntry, LiveAgentHandle } from "./live-agent-registry.js";
+export {
+  __resetLiveAgentRegistryForTests,
+  DEFAULT_MAX_LIVE,
+  getLiveAgentRegistry,
+  LiveAgentRegistry,
+  maxLiveFromEnv,
+  RESERVED_AGENT_NAMES,
+} from "./live-agent-registry.js";
 export { resolveModelRole } from "./model-role-config.js";
 export type { ModelTierConfig } from "./model-tier-config.js";
 export {
@@ -120,6 +138,8 @@ export {
   setTransientModelTierConfig,
   sortedTierNames,
 } from "./model-tier-config.js";
+export type { LiveAgentExchange, LiveAgentStatus, OpenLiveAgentOptions } from "./persistent-agent.js";
+export { LiveAgent, openLiveAgent, spawnLiveAgentFirstExchange } from "./persistent-agent.js";
 export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";
 export type { RateLimitCapResolver, RateLimiter } from "./rate-limiter.js";
 export {
