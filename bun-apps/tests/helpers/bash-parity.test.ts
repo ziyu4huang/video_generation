@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { normalizeRunOutput, stripAnsi, runScript } from "./bash-parity";
+import { assertParity, normalizeRunOutput, stripAnsi, runScript } from "./bash-parity";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("normalizeRunOutput", () => {
   test("strips ANSI, elapsed timings, tmp log paths, and package name", () => {
@@ -23,5 +26,19 @@ describe("runScript", () => {
     const r = runScript("bun", "-e", ["console.error('boom'); process.exit(1)"]);
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("boom");
+  });
+});
+
+describe("assertParity", () => {
+  test("normalized happy path passes; exit/stdout mismatch throw; errIncludes on raw stderr; pkgName substituted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "parity-ab-"));
+    const script = join(dir, "probe.ts");
+    // ANSI + elapsed + inline pkg name on stdout; "boom" on stderr; exit 1
+    writeFileSync(script, `console.log("\\x1b[32m✓ s2-agent-ext-btw  \\x1b[2m(12s)\\x1b[0m"); console.error("boom"); process.exit(1);`);
+    assertParity(script, [
+      { name: "pass", args: [], expectCode: 1, out: "✓ <pkg>  (Ns)", outIs: "normalized", pkgName: "s2-agent-ext-btw", errIncludes: ["boom"] },
+    ]);
+    expect(() => assertParity(script, [{ name: "x", args: [], expectCode: 0 }])).toThrow(/expected exit 0, got 1/);
+    expect(() => assertParity(script, [{ name: "x", args: [], expectCode: 1, out: "nope" }])).toThrow(/stdout mismatch/);
   });
 });
