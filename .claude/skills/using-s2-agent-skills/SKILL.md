@@ -1,6 +1,6 @@
 ---
 name: using-s2-agent-skills
-description: Use when a task matches a skill, script, or CLI already developed in this repo's s2-agent extension packages (bun-apps/s2-agent-ext-*), or when re-implementing devops / research / movie-director / wayfind / superpowers tooling that likely already exists — covers invoking them from claude-code directly and via ./s2-agent.sh (headless -p or interactive).
+description: Use when a task matches a skill, script, or CLI already developed in this repo's s2-agent extension packages (bun-apps/s2-agent-ext-*), or when re-implementing devops / research / movie-director / wayfind / superpowers tooling that likely already exists. Ext skills are Markdown docs under bun-apps/s2-agent-ext-*/skills/<name>/SKILL.md (READ them — not this harness's skill() entries; the name is the dir, never the package), located via list-ext-skills.ts resolve <name>. Covers invoking them from claude-code directly and via ./s2-agent.sh (headless -p or interactive).
 ---
 
 # Using s2-agent ext skills from claude-code
@@ -13,12 +13,44 @@ re-use them before writing a new workflow.
 ## Discovery (run first)
 
 ```bash
-bash .claude/skills/using-s2-agent-skills/list-ext-skills.sh skills   # all skills + descriptions
-bash .claude/skills/using-s2-agent-skills/list-ext-skills.sh cli      # headless CLI fallbacks
-bash .claude/skills/using-s2-agent-skills/list-ext-skills.sh scripts  # per-package scripts/
+bun .claude/skills/using-s2-agent-skills/list-ext-skills.ts skills   # all skills + descriptions
+bun .claude/skills/using-s2-agent-skills/list-ext-skills.ts cli      # headless CLI fallbacks
+bun .claude/skills/using-s2-agent-skills/list-ext-skills.ts scripts  # per-package scripts/
 ```
 
 Then READ the matching SKILL.md before acting — it encodes hard-won pitfalls.
+
+**Ext skills are Markdown docs, not this harness's `skill()` entries.** Only `using-s2-agent-skills`
+is loadable through the `skill()` tool here; every other ext skill is a file under
+`bun-apps/s2-agent-ext-<pkg>/skills/<name>/SKILL.md` that you `read` and follow in-session. To map a
+spoken name to its exact path — so you never guess, `find` around, or re-implement a package:
+
+```bash
+bun .claude/skills/using-s2-agent-skills/list-ext-skills.ts resolve <skill-name>   # prints the SKILL.md path
+```
+
+**The skill name is the directory under `skills/`, NOT the package.** `s2-agent-ext-superpowers` is a
+FAMILY, not a skill — it contains `brainstorming`, `writing-plans`, `writing-skills`,
+`test-driven-development`, `systematic-debugging`, `requesting-code-review`, `receiving-code-review`,
+`subagent-driven-development`, `executing-plans`, `using-git-worktrees`, `finishing-a-development-branch`,
+`using-superpowers`. So "superpowers brainstorm" → `resolve brainstorming` (read it, follow in-session);
+"superpowers" alone is not a skill. The generic "how do I use skills" entry is `using-superpowers`. The
+wayfind family routes on `ask-matt`.
+
+## Repo rules that OVERRIDE upstream skill defaults
+
+Upstream ext skills target a generic repo; this repo's `CLAUDE.md` supersedes several of their defaults.
+Follow CLAUDE.md first — these are the ones that bite:
+
+| Ext skill says… | This repo actually requires… |
+|---|---|
+| write specs/plans to `docs/<tool>/{specs,plans}` | **`.planning/` is the SOLE artifact home** — effort folder `YYYY-MM-DD-<effort>/` (`map.md` + `spec.md` + `tickets/`) or flat `.planning/specs/` + `.planning/plans/`. The `docs/superpowers/*` namespace is RETIRED (`ADR-superpowers-0009`) and guarded: writing there fails `artifact-leak.test.ts`. |
+| run `bun <script>.ts` anywhere | from the **repo root** (or `--cwd`/subshell) — never top-level `cd`; `bun install` from `bun-apps/` only |
+| use python3 | `python/venv/bin/python` from repo root — never system `python3` |
+| run `bun test` | a package's **canonical** `bun run test` (may include build/typecheck); devops `local_ci` resolves gates by script NAME and silently skips renamed scripts |
+| hand-roll git/PR/CI | via the devops skill + its `*-cli.ts` (`prepare-feature-branch`, `local-ci`, `merge-pr-after-ci`, `main-health`, …) — never raw-bash git/gh subagents |
+| context glossary / ADR | `CONTEXT.md` is a **ubiquitous-language glossary** (one `**Term**:` per concept + an `_Avoid_:` line); ADRs live in `<pkg>/docs/adr/` and are cited `ADR-<context>-NNNN` |
+| dispatch a subagent for writes | watchdog OFF for write-heavy implementers; the independent **reviewer subagent** is the real quality gate |
 
 ## Pick the runtime by what the skill references
 
@@ -37,6 +69,10 @@ Then READ the matching SKILL.md before acting — it encodes hard-won pitfalls.
 
 Verified working: `./s2-agent.sh --list-models` (offline smoke), `./s2-agent.sh -p "<short prompt>"`
 (replied with loaded skill names). Skills load via `bun-apps/s2-agent/s2-agent.registry.yaml` (`skills: true` per entry).
+
+`bun` is required to run most ext CLIs directly. If the consuming agent has no Bun on PATH (e.g. it
+runs on plain Node), delegate rather than shelling out: `./s2-agent.sh -p "<prompt that names the skill>"`
+resolves its own tree and self-heals its deps — not `bun bun-apps/…/script.ts`.
 
 ## Gotchas
 
