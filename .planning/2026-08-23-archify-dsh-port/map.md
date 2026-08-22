@@ -31,6 +31,12 @@ and follows the same bundle shape `dsh-plugin/sv-analyzer/` established (package
   (`lib/render.ts`, `validate.ts`, `delta.ts`) spawn the vendored `archify.mjs` through `node:child_process`
   and parse its `--json` receipt. The heavy work is the CLI, so they port by re-wiring only the tool hook
   (pi-agent `defineTool` + typebox → DSH `ctx.tools.register` + raw JSON Schema).
+- **The bundle is verified end-to-end on the DSH host (measured 2026-08-23).** `node
+  dsh-plugin/archify/test/plugin-smoke.mjs` passes; a real `archify_validate` through the tool under Bun
+  returns `ok:true`, 9 checks, `composition.summary.errors === 0`. `render` → `deliver --json` yields a
+  593 815 B HTML (sha256 `3f7634…`, 9/9 checks); `delta` → `compare` yields a 1.67 MB HTML + receipt
+  (28/28 checks). The bundle packs to a 301 kB tarball (60 files, 1.5 MB unpacked). DSH runs Node v26.7.0,
+  which type-strips the shipped `.ts` lib files.
 - **`export_pptx` is the Bun-heavy in-process half.** `lib/export-pptx.ts` runs `buildDeck`
   (`lib/deck-build.ts`) in-process; the Bun-only builtins it needs are `HTMLRewriter` (`svg-model.ts`),
   `Bun.XML` (`ooxml-lint.ts`), `Bun.file` / `Bun.write` (`deck-build.ts`), `Bun.spawn` / `Bun.which` /
@@ -39,7 +45,7 @@ and follows the same bundle shape `dsh-plugin/sv-analyzer/` established (package
 ## Tickets
 
 Phase 1 — core tools
-- `tickets/01-bundle-and-core-tools.md` — task, **open** — bundle scaffold + validate/render/delta on
+- `tickets/01-bundle-and-core-tools.md` — task, **done** — bundle scaffold + validate/render/delta on
   `ctx.tools`, Bun runtime resolution, vendored mirror, smoke.
 
 Phase 2 — deck
@@ -76,10 +82,10 @@ Phase 4 — surface
 
 ## Frontier
 
-Ticket `01` — the bundle scaffold + core tools. It is first because it establishes the bundle's shape
-(`dsh.bundle` → `cordis.patch.yml` → `ctx.tools.register`), the Bun runtime resolution, and the vendored
-mirror that every later ticket builds on; and it is independently verifiable (register the tools, then run a
-real `validate` through the CLI under Bun).
+Ticket `02` — the deck `export_pptx` tool as a Bun subprocess. Ticket 01 is done: the bundle shape, Bun
+runtime ladder, vendored mirror, and the three core tools are landed and verified. Ticket 02 builds on the
+same bundle — it adds a fourth tool that spawns `bun <lib/deck-cli.ts>` (running the s2-agent `buildDeck`
+verbatim) plus the deck lib copy and a deck smoke — and drops straight into the scaffold 01 established.
 
 ## Fog of war
 

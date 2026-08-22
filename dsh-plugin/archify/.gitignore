@@ -1,0 +1,10 @@
+# --- build / generated artifacts (never commit) ---
+
+# npm-packed plugin tarball
+dist/
+
+# Node
+node_modules/
+
+# Transient test output (rendered HTML / receipts written by the smoke test)
+test/.out/

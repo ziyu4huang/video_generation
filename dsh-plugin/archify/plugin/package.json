@@ -1,0 +1,36 @@
+{
+  "name": "dsh-archify",
+  "version": "0.1.0",
+  "description": "Typed-JSON-IR diagram tools for the DeepSeek Harness: archify_validate, archify_render, archify_delta. Self-contained bundle that runs the vendored archify CLI under Bun (architecture / workflow / sequence / dataflow / lifecycle diagrams → validated self-contained HTML).",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "node": ">=23.6"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "vendored/",
+    "cordis.patch.yml"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "cordis",
+    "plugin",
+    "archify",
+    "diagrams",
+    "architecture",
+    "visualization"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
