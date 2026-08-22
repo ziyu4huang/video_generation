@@ -18,7 +18,7 @@ export type PatchName =
 	| "default-model-env"
 	| "subagent-model-floor"
 	| "ensure-model-tiers"
-	| "ensure-models-store"
+	| "in-memory-models-store"
 	| "ensure-extension-deps"
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
@@ -78,14 +78,15 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // gate, never clobbers) + best-effort (write wrapped in try/catch). Disable
   // with BUN_PI_ENSURE_MODEL_TIERS=0.
   { name: "ensure-model-tiers", env: "BUN_PI_ENSURE_MODEL_TIERS", defaultValue: true },
-  // ensure-models-store: seeds ~/.pi/agent/models-store.json (pi core's
-  // FileModelsStore — the zai/deepseek/huggingface provider catalogs the
-  // built-in default zai/glm-5.3 resolves against) from the typed
-  // DEFAULT_MODELS_STORE in src/pre-load-providers.ts, IF the file is
-  // absent. Never clobbers a live/refreshed catalog; pi's own refresh flow
-  // keeps working on top of the seed. Self-contained (no @earendil-works
-  // import), so no ordering dependency. Disable with BUN_PI_ENSURE_MODELS_STORE=0.
-  { name: "ensure-models-store", env: "BUN_PI_ENSURE_MODELS_STORE", defaultValue: true },
+  // in-memory-models-store: forces ModelRuntime.create() to use an
+  // InMemoryModelsStore unless the caller passes one, so pi-ai catalog
+  // refresh NEVER persists to ~/.pi/agent/models-store.json. Replaces the
+  // retired ensure-models-store seed (pi 0.84.2's builtin catalog already
+  // ships zai/deepseek/huggingface — models.generated.js — so the file
+  // catalog is redundant). Wrap order vs pre-load-providers does not matter:
+  // each wrap passes options through, and the mutation lands before the real
+  // create() runs either way. Disable with BUN_PI_IN_MEMORY_MODELS_STORE=0.
+  { name: "in-memory-models-store", env: "BUN_PI_IN_MEMORY_MODELS_STORE", defaultValue: true },
   // ensure-extension-deps runs LAST among setup patches: it materializes the
   // repo-root node_modules symlinks that let Bun native-import every extension
   // graph (so try-native succeeds and jiti never transforms — see the patch
@@ -252,8 +253,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
       case "ensure-model-tiers":
         mod = await import("./ensure-model-tiers.ts");
         break;
-      case "ensure-models-store":
-        mod = await import("./ensure-models-store.ts");
+      case "in-memory-models-store":
+        mod = await import("./in-memory-models-store.ts");
+        break;
         break;
       case "ensure-extension-deps":
         mod = await import("./ensure-extension-deps.ts");

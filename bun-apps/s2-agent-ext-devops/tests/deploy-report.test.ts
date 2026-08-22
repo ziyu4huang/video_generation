@@ -69,12 +69,10 @@ describe("collectModelFacts — the baked-in provider/model layers of s2-agent",
 		expect(lm?.models.map((m) => m.id)).toContain("google/gemma-4-12b");
 	});
 
-	test("default model + models-store counts come from the real sources", () => {
+	test("default model facts come from the real sources", () => {
 		const facts = collectModelFacts();
 		expect(facts.defaultModel.provider).toBe("zai");
 		expect(facts.defaultModel.model).toBe("glm-5.3");
-		expect(Object.keys(facts.modelsStore).length).toBeGreaterThanOrEqual(3);
-		expect(facts.modelsStore["huggingface"]).toBeGreaterThan(10);
 	});
 });
 

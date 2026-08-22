@@ -14,8 +14,8 @@
  *      binaries / deliberate vendorExclude drops) from each ext.json;
  *   3. the gate matrix (which gate ran, per-ext or whole-deploy, duration);
  *   4. the BAKED-IN provider/model layers of the core being deployed — the
- *      PROVIDERS catalog, the models-store counts, and BUILTIN_MODEL_DEFAULT
- *      — imported from the real s2-agent sources, never re-declared here.
+ *      PROVIDERS catalog and BUILTIN_MODEL_DEFAULT — imported from the real
+ *      s2-agent sources, never re-declared here.
  *
  * collectModelFacts() imports source modules rather than parsing text: the
  * workspace import is typechecked by the repo's cross-package tsc gate, so a
@@ -24,11 +24,7 @@
  */
 import { existsSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  PROVIDERS,
-  DEFAULT_MODELS_STORE,
-  BUILTIN_MODEL_DEFAULT,
-} from "../../../../s2-agent/src/pre-load-providers.ts";
+import { PROVIDERS, BUILTIN_MODEL_DEFAULT } from "../../../../s2-agent/src/pre-load-providers.ts";
 
 // ─── Data shapes ──────────────────────────────────────────────────────────────
 
@@ -81,8 +77,6 @@ export interface CatalogProvider {
 export interface ModelFacts {
 	catalog: CatalogProvider[];
 	defaultModel: { provider: string; model: string; thinking: string; obsidianSubagentFloor: string };
-	/** provider id → number of catalog models in DEFAULT_MODELS_STORE. */
-	modelsStore: Record<string, number>;
 }
 
 export interface DeployReportData {
@@ -120,10 +114,6 @@ export function collectModelFacts(): ModelFacts {
 			maxTokens: m.maxTokens,
 		})),
 	}));
-	const modelsStore: Record<string, number> = {};
-	for (const [id, entry] of Object.entries(DEFAULT_MODELS_STORE)) {
-		modelsStore[id] = entry.models.length;
-	}
 	return {
 		catalog,
 		defaultModel: {
@@ -132,7 +122,6 @@ export function collectModelFacts(): ModelFacts {
 			thinking: BUILTIN_MODEL_DEFAULT.thinking,
 			obsidianSubagentFloor: BUILTIN_MODEL_DEFAULT.obsidianSubagentFloor,
 		},
-		modelsStore,
 	};
 }
 
@@ -203,26 +192,17 @@ function providerSection(facts: ModelFacts): string {
 				`<td>${esc(p.apiKey)}</td><td>${p.models.map((m) => `<code>${esc(m.id)}</code>`).join("<br>")}</td></tr>`,
 		)
 		.join("\n");
-	const storeRows = Object.entries(facts.modelsStore)
-		.map(([id, n]) => `<tr><td><code>${esc(id)}</code></td><td>${n}</td></tr>`)
-		.join("\n");
 	const d = facts.defaultModel;
 	return `
 <h2>Providers &amp; models — baked into this core</h2>
 <p class="meta">Source-level facts from <code>s2-agent/src/pre-load-providers.ts</code>
-(PROVIDERS catalog, models-store seed, and BUILTIN_MODEL_DEFAULT), as compiled into the deployed binary. User-side <code>~/.pi/agent</code> configuration is
+(PROVIDERS catalog and BUILTIN_MODEL_DEFAULT), as compiled into the deployed binary. User-side <code>~/.pi/agent</code> configuration is
 deliberately NOT reflected here — this section says what the artifact ships, not what one machine overlays on it.</p>
 
 <h3>Pre-load provider catalog (always registered)</h3>
 <table>
 <tr><th>provider</th><th>baseUrl</th><th>api</th><th>apiKey</th><th>models</th></tr>
 ${catalogRows}
-</table>
-
-<h3>Models-store seed (provider → catalog size)</h3>
-<table>
-<tr><th>provider</th><th>models</th></tr>
-${storeRows}
 </table>
 
 <h3>Built-in default model</h3>
