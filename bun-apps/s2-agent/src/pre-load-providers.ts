@@ -73,10 +73,11 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
     api: "openai-completions",
     apiKey: "lm-studio",
     compat: LM_STUDIO_COMPAT,
-    // The single local LM Studio model this repo targets. Previously the
-    // catalog listed several (gemma-4-26b/31b-qat, qwen3.6-27b-mtp,
-    // qwen3-vl-4b); they were consolidated to google/gemma-4-12b — see the
-    // "local model" convention across s2-agent-ext-*.
+    // The local LM Studio models this repo targets. Previously the catalog
+    // listed several (gemma-4-26b/31b-qat, qwen3.6-27b-mtp, qwen3-vl-4b); they
+    // were consolidated to google/gemma-4-12b — see the "local model"
+    // convention across s2-agent-ext-*. qwen/qwen3.8-27b shares the same
+    // server settings (same always-on reasoning + shared maxTokens budget).
     models: [
       {
         id: "google/gemma-4-12b",
@@ -94,6 +95,17 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         // 2026-08-22: output=16383, reasoning=5459, content="").
         // 65_536 keeps headroom for reasoning while staying inside the model's
         // real 262_144 context window.
+        maxTokens: 65_536,
+      },
+      {
+        id: "qwen/qwen3.8-27b",
+        name: "Qwen 3.8 27B (LM Studio)",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 200_000,
+        // Same server behavior as gemma-4-12b: LM Studio's MLX server serves
+        // Qwen 3.8 as an always-on reasoning model, so keep the same shared
+        // maxTokens budget headroom for reasoning + answer.
         maxTokens: 65_536,
       },
     ],
