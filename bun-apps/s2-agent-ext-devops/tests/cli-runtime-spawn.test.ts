@@ -142,9 +142,18 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 });
 
 describe.skipIf(!!process.env.CI)("s2-agent runtime: the wrapper still boots with this package wired in", () => {
-	test("bun bun-apps/s2-agent/src/cli.ts --help exits 0 (cheap boot, no model)", () => {
-		const r = run("bun", [join(REPO, "bun-apps/s2-agent/src/cli.ts"), "--help"], { cwd: REPO });
-		expect(r.code).toBe(0);
-		expect(r.stdout.toLowerCase()).toContain("usage");
-	});
+	test(
+		"bun bun-apps/s2-agent/src/cli.ts --help exits 0 (cheap boot, no model)",
+		() => {
+			const r = run("bun", [join(REPO, "bun-apps/s2-agent/src/cli.ts"), "--help"], { cwd: REPO });
+			expect(r.code).toBe(0);
+			expect(r.stdout.toLowerCase()).toContain("usage");
+		},
+		// Explicit 30s harness budget: bun's default per-test timeout is 5s,
+		// but this probe boots the whole s2-agent CLI (all static extensions
+		// imported) — ~3.2s in isolation, and local-ci runs packages in
+		// parallel, so 5s flakes under load. The intent is "wrapper boots",
+		// not a perf gate; the spawn's own 60s cap still bounds a hang.
+		30_000,
+	);
 });
