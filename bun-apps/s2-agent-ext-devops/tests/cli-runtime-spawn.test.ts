@@ -19,6 +19,11 @@
  * Bounded: every spawn gets a hard timeout so a hang fails a test in seconds
  * instead of stalling `bun test` (the bun-1.4 stderr note is why we read both
  * pipes, never stdout alone).
+ *
+ * PORTABILITY P2 (host-binary spawn): gated off CI via describe.skipIf, the
+ * same convention as s2-agent-ext-movie-director cli.test.ts and
+ * gui-movie-director check-runtime.test.ts — runs on every local `bun test`,
+ * skips on bare CI runners. See .github/TEST-PORTABILITY.md.
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -42,7 +47,7 @@ function run(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: numb
 	return { code: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
 
-describe("claude-code runtime: every bin CLI spawns and honors the shared contract", () => {
+describe.skipIf(!!process.env.CI)("claude-code runtime: every bin CLI spawns and honors the shared contract", () => {
 	for (const [name, rel] of Object.entries(BINS)) {
 		test(`${name} (${rel}): --help exits 0, usage on stderr, NOTHING on stdout`, () => {
 			const r = run("bun", [join(PKG, rel), "--help"], { cwd: REPO });
@@ -59,7 +64,7 @@ describe("claude-code runtime: every bin CLI spawns and honors the shared contra
 	});
 });
 
-describe("claude-code runtime: verify-deploy-e2e-cli end-to-end against a stub deploy", () => {
+describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli end-to-end against a stub deploy", () => {
 	// A stub run.sh that answers all three probes offline — this exercises the
 	// REAL CLI process: argv parse → deploy.json read → current resolve →
 	// three real child spawns → JSON serialization → exit code.
@@ -136,7 +141,7 @@ describe("claude-code runtime: verify-deploy-e2e-cli end-to-end against a stub d
 	});
 });
 
-describe("s2-agent runtime: the wrapper still boots with this package wired in", () => {
+describe.skipIf(!!process.env.CI)("s2-agent runtime: the wrapper still boots with this package wired in", () => {
 	test("bun bun-apps/s2-agent/src/cli.ts --help exits 0 (cheap boot, no model)", () => {
 		const r = run("bun", [join(REPO, "bun-apps/s2-agent/src/cli.ts"), "--help"], { cwd: REPO });
 		expect(r.code).toBe(0);
