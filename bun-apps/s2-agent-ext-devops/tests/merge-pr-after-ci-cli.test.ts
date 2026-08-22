@@ -822,3 +822,16 @@ describe("versionNudge — s2-agent version-bump advisory (pure)", () => {
 		expect(versionNudge(FILES, "not json", PKG("0.1.0"))).toBeNull();
 	});
 });
+
+describe("parsePrFinishArgs — --expected-scope comma syntax (PR #1808 lesson)", () => {
+	test("a comma list splits into entries, matching verify-merge-cli's --scope", () => {
+		const r = parsePrFinishArgs(["42", "--expected-scope", "a/b,c, d/e"]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.args.expectedScope).toEqual(["a/b", "c", "d/e"]);
+	});
+	test("repeatable flags still accumulate", () => {
+		const r = parsePrFinishArgs(["42", "--expected-scope", "a", "--expected-scope", "b,c"]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.args.expectedScope).toEqual(["a", "b", "c"]);
+	});
+});
