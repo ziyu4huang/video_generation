@@ -5,6 +5,7 @@ last: 2026-08-22
 status: active
 ---
 
+
 # subagent-teams-parity — close the remaining Claude Code subagent / agent-teams gaps
 
 ## Destination
@@ -66,8 +67,10 @@ Phase 1 — foundation (P1)
   351fc22e) — `send_message` tool, name/agentId routing, `to:"main"` broker bus
 
 Phase 2 — shared state (P2)
-- `tickets/03-shared-task-list.md` — task — `task_create/get/list/update` over a
-  session-scoped in-memory `TeamTaskStore`
+- `tickets/03-shared-task-list.md` — closed 2026-08-22 (PR #1824 → main
+  132a0622) — `task_create/get/list/update` over a session-scoped in-memory
+  `TeamTaskStore`; review findings fixed (atomic create-unwind, atomic update
+  edge rollback) and re-approved
 
 Phase 3 — teams vocabulary (P3)
 - `tickets/04-protocol-messages.md` — task — shutdown / plan-approval envelopes on
@@ -111,10 +114,11 @@ Phase 4 — ultracode gaps (P4)
 
 ## Frontier
 
-`tickets/03-shared-task-list.md` — tickets 01-02 shipped the addressability layer
-(registry + follow-up messaging); the shared task board is the next workable ticket
-because it needs only that layer plus a new in-memory store, no protocol machinery
-(tickets 04-05) or ultracode surfaces (tickets 06-08).
+`tickets/04-protocol-messages.md` — tickets 01-03 shipped the full shared-state
+layer (addressability + messaging + task board); protocol messages is the next
+workable ticket because it extends the ALREADY-shipped send_message surface
+(`type?` envelope + approve/feedback, plan-approval timeout → DENY per D6) with
+no new stores and no ultracode surfaces.
 
 ## Fog of war
 
