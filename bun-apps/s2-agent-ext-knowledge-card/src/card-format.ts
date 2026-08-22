@@ -67,6 +67,9 @@ export function readCardFrontmatterFields(content: string) {
 		status: (data.status ?? "active").trim(),
 		supersededBy: data.superseded_by,
 		confidence: typeof data.confidence === "number" ? data.confidence : 0,
+		/** `summary:` frontmatter (schema v2 L0 / ticket 05); "" when absent —
+		 *  the tier ladder's firstSentence fallback covers pre-v2 cards. */
+		summary: typeof data.summary === "string" ? data.summary.trim() : "",
 	};
 }
 

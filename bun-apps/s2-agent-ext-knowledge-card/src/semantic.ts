@@ -2,9 +2,11 @@
  * src/semantic.ts — OPT-IN semantic (embedding) recall for retrieveRecords.
  *
  * Network-bound: calls a local LM Studio embedding endpoint (canonical model
- * `text-embedding-bge-m3`, D3 effort 2026-08-22-context-lifecycle; the 1.00
- * blend below was measured under nomic — the bge-m3 re-baseline is ticket 07's
- * eval gate, with nomic as the recorded fallback).
+ * `text-embedding-bge-m3`, D3 effort 2026-08-22-context-lifecycle,
+ * RE-CONFIRMED 2026-08-23 by ticket 07's eval gate: the English eval set
+ * favors nomic 48/50 vs 47/50 hit@4, but the recall-audit battery regresses
+ * under nomic 15/20 vs 17/20 — receipt output/d3-reeval/; see core-interface
+ * embedding-leaf.ts).
  * retrieveRecords imports this module but invokes it ONLY when
  * `opts.semantic === true`; the default retrieval path stays deterministic +
  * offline (byte-identical baseline, drift-guard green). When LM Studio or the

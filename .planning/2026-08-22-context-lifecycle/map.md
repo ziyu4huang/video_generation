@@ -18,7 +18,7 @@ hotness decay) — with vault-mind retired, hermes folded to a capture-only jour
 harness committed as a script, and breaking changes in obsidian + knowledge-card explicitly
 on the table (D0) to get the better engine rather than preserve the old surfaces.
 
-## Context (measured 2026-08-19..22 on this machine)
+## Context (measured 2026-08-19..23 on this machine)
 
 - **Hermes recall is measured-dead.** Audit 2026-08-19
   (`.planning/knowledge/hermes-recall-audit.md`, runner `/tmp/hermes-audit/run-audit.ts` —
@@ -93,6 +93,19 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   hook-driven auto-recall/auto-capture; Situation/Approach/Reflect experiences with
   supersedes lineage. Its cloud intent-analysis/rerank/VLM are OUT (no-cloud rule) —
   deterministic-first substitutes or skipped.
+- **Tier ladder + D3 re-decision measured (ticket 07, 2026-08-23).** Tokens/card on the
+  real vault (258 cards over the 50-query set, receipt `output/tier-ladder/`): L0 65 tok
+  vs L2 178 tok avg → **↓63.3%** (target ≥40%). D3 eval gate cut both ways (probe
+  `scripts/d3-bge-m3-reeval.mjs`, receipts `output/d3-reeval/`, same-corpus A/B ×2):
+  English eval set nomic **48/50** vs bge-m3 **47/50** hit@4 — but the recall-audit
+  battery (the binding gate) regresses under nomic **15/20 vs 17/20 hit@5** (MRR 0.564 vs
+  0.688), and the prior embed-bench had bge-m3 recall@1 0.909 vs nomic 0.864. **D3 stays
+  bge-m3**; the 1-query English-set cost is accepted and recorded. Measurement trap: the
+  `SEMANTIC_EMBED_MODEL` env override does NOT reach `getCardEmbeddings` (module constant
+  wins unless `semanticModel` is passed per-call) — env-only "model controls" silently
+  run the default model. Harness drift-guard regen (D0): first-25 lexical 21/25 → 20/25 —
+  tickets-05/06 corpus drift, control-tested on origin/main (identical 20/25); ladder is
+  render-only, old-vs-new rankings byte-identical.
 
 ## Tickets
 
@@ -105,7 +118,7 @@ Phase P0 — infra unification & hermes triage
 Phase P1 — card schema v2 + tiered retrieval
 - `tickets/05-card-schema-v2.md` — task, **closed 2026-08-22** — summary L0 + experience kind + merge-op table shipped; real-vault backfill 1925/1925 active cards (vault PR #20), recall-audit unchanged (hit@5 17/20, MRR 0.688)
 - `tickets/06-agg-node-abstracts.md` — task, **closed 2026-08-23** — agg `summary:` L1 (frontmatter, ≤256) + deterministic top-entity composition (wikilinks unwrapped) + checkpoint v2 + filename child links; FIRST real build: 326 agg nodes / 4 layers / 10 LLM calls over 1921 cards (vault PR pi-agent-vault#21); recall-audit unchanged (hit@5 17/20, MRR 0.688), graphHealth deadLinks 34 == baseline
-- `tickets/07-tier-ladder-retrieval.md` — task, **open** — tier field + demote-not-truncate
+- `tickets/07-tier-ladder-retrieval.md` — task, **closed 2026-08-23** — `RetrievedCard.tier`+`tiers` (L0/L1/L2 pre-rendered, `src/tier-ladder.ts`), demote-not-truncate everywhere (digest, knowledge_query, zk.retrieve, buildRagTask Step 4); tokens/card ↓63.3% (65 vs 178 tok, receipt `output/tier-ladder/`); D3 re-confirmed bge-m3 (see Context); recall-audit unchanged (hit@5 17/20, MRR 0.688)
 
 Phase P2 — injection loop + ledger
 - `tickets/08-auto-recall-injector.md` — task, **open** — before_agent_start budgeted injection
@@ -149,12 +162,15 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/07-tier-ladder-retrieval.md` — ticket 06 closed 2026-08-23 (agg nodes carry `summary:`
-L1 frontmatter + top-entity composed deterministic fallback; checkpoint format v2; child
-wikilinks target file stems; the FIRST real hierarchy build materialized 326 agg nodes over
-the 1921-card vault, 10 LLM calls, graphHealth clean at baseline). Ticket 07 is next because
-the tier ladder (`RetrievedCard.tier` + per-tier pre-rendered text + demote-not-truncate) is
-the retrieval-side consumer of both shipped tiers: L0 on cards (05) and L1 on agg nodes (06).
+`tickets/08-auto-recall-injector.md` — ticket 07 closed 2026-08-23 (`RetrievedCard.tier` +
+`tiers` L0/L1/L2 pre-rendered text with demote-not-truncate across digest / knowledge_query
+/ zk.retrieve / buildRagTask; tokens/card ↓63.3%; D3 re-confirmed bge-m3 after a genuinely
+two-sided eval — English set favored nomic 48/50 vs 47/50, the binding recall-audit battery
+broke under nomic 15/20 vs 17/20). Ticket 08 is next because retrieval now HANDS the
+consumer a budgeted tier ladder, but nothing injects it: knowledge still reaches the prompt
+only if the model voluntarily calls a tool. The proven `before_agent_start` hook seam
+(ultracode, 0.98× warm cache) + ticket 07's `renderTier(tiers, tier, callerBudget)` is
+exactly the injector's context-assembly primitive.
 
 ## Fog of war
 

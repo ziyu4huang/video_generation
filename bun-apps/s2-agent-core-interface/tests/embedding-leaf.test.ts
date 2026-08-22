@@ -3,7 +3,8 @@
  * 2026-08-22-context-lifecycle ticket 01): the leaf is the ONE place embed
  * endpoint/model env overrides are read. Precedence:
  *   SEMANTIC_EMBED_MODEL / SEMANTIC_EMBED_BASE > legacy LMSTUDIO_BASE_URL
- *   (baseUrl only) > defaults (bge-m3 @ http://127.0.0.1:1234).
+ *   (baseUrl only) > defaults (bge-m3 @ http://127.0.0.1:1234 — D3
+ *   re-confirmed 2026-08-23 by ticket 07's eval gate; see embedding-leaf.ts).
  * Explicit-env injection (no process.env mutation, no test-order coupling).
  */
 import { describe, expect, test } from "bun:test";
@@ -13,7 +14,7 @@ import {
   resolveSemanticEmbedConfig,
 } from "../src/index.js";
 
-test("canonical defaults (D3): bge-m3 on LM Studio :1234", () => {
+test("canonical defaults (D3, re-confirmed by ticket 07's eval gate): bge-m3 on LM Studio :1234", () => {
   expect(SEMANTIC_MODEL_DEFAULT).toBe("text-embedding-bge-m3");
   expect(SEMANTIC_EMBED_BASE_DEFAULT).toBe("http://127.0.0.1:1234");
   const r = resolveSemanticEmbedConfig({});
