@@ -23,7 +23,7 @@ import type { BackgroundRunManager } from "./background-run-manager.js";
 
 const subagentRunsActionEnum = StringEnum(["list", "get", "wait", "stop"] as const, {
   description:
-    "Discriminator: 'list' recent runs, 'get' one by id, 'wait' block on a live run, 'stop' abort a live run.",
+    "Discriminator: 'list' recent runs, 'get' one by id, 'wait' block on a live run, 'stop' abort a live run or stop a named live agent (by name or agentId).",
 });
 
 const statusFilterEnum = StringEnum(["done", "failed", "timedout", "budget"] as const, {
@@ -35,7 +35,12 @@ const subagentRunsSchema = Type.Object({
   limit: Type.Optional(Type.Number({ description: "list: max runs to return (default 10)." })),
   status: Type.Optional(statusFilterEnum),
   cwd: Type.Optional(Type.String({ description: "list: scope to runs with this working directory." })),
-  id: Type.Optional(Type.String({ description: "get/wait/stop: run id (required for those actions)." })),
+  id: Type.Optional(
+    Type.String({
+      description:
+        "get/wait/stop: run id (required for those actions). stop also accepts a NAMED live agent's name or agentId.",
+    }),
+  ),
   includeHistory: Type.Optional(
     Type.Boolean({ description: "get: include the compact tool transcript (default false — can be large)." }),
   ),
@@ -52,6 +57,16 @@ export interface SubagentRunsToolOptions {
   inFlight?: SubagentInFlightRegistry;
   /** Background roster (forward-use: wait/stop telemetry). Omitted is fine. */
   background?: BackgroundRunManager;
+  /**
+   * Live-agent registry for stop-by-NAME (ticket 04): a named live agent is
+   * stoppable by `name`/`agentId` — the shutdown lever a child's
+   * shutdown_request notification points at. Structural (get/release) so tests
+   * can pass a minimal fake.
+   */
+  liveRegistry?: {
+    get(nameOrAgentId: string): { name: string; agentId: string } | undefined;
+    release(name: string, reason?: string): boolean;
+  };
 }
 
 function textResult(text: string) {
@@ -245,9 +260,29 @@ export function createSubagentRunsTool(
           if (!params.id) throw new Error("list_subagent_runs: action 'stop' requires id");
           if (!options.inFlight) return textResult("stop unavailable: no live-run registry in this host.");
           const v = options.inFlight.view(params.id);
+          // Stop-by-name (ticket 04): a NAMED live agent resolves by name or
+          // agentId — either to its live FIRST-exchange run (id = agentId), or,
+          // between exchanges, to the registry itself (a named agent parked on
+          // the roster has no in-flight entry at all).
+          if (!v && options.liveRegistry) {
+            const entry = options.liveRegistry.get(params.id);
+            if (entry) {
+              const firstExchange = options.inFlight.view(entry.agentId);
+              if (firstExchange && !isTerminalStatus(firstExchange.status)) {
+                options.inFlight.abort(entry.agentId);
+                return textResult(
+                  `stop requested for live agent "${entry.name}" (first-exchange run ${entry.agentId}) — it ends with status "aborted".`,
+                );
+              }
+              options.liveRegistry.release(entry.name, "user-stop");
+              return textResult(
+                `stopped live agent "${entry.name}" — session disposed and removed from the live roster. Run records survive, keyed by agentId ${entry.agentId}.`,
+              );
+            }
+          }
           if (!v)
             return textResult(
-              `unknown run "${params.id}" — not live in this session (registry). Completed runs: action 'list'.`,
+              `unknown run "${params.id}" — not live in this session (registry) and not a live agent name. Completed runs: action 'list'.`,
             );
           if (isTerminalStatus(v.status))
             return textResult(`run ${params.id} already finished (${v.status}); nothing to stop.`);

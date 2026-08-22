@@ -22,6 +22,7 @@ import {
 } from "@repo/s2-agent-core-runtime";
 import type { TSchema } from "typebox";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
+import { REQUEST_PLAN_APPROVAL_TOOL_NAME } from "./request-plan-approval-tool.js";
 import { formatSubagentLive, taskPreview } from "./subagent-tool-render.js";
 import { DEFAULT_TIMEOUT_MS, type SubagentSalvage, type SubagentToolDetails } from "./subagent-tool-schema.js";
 import type { computeBaseline, RepoBaseline } from "./watchdog/repo-diff.js";
@@ -426,8 +427,17 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
       .filter((s): s is string => Boolean(s))
       .join("\n\n") || undefined;
   const defaultActiveTools = deps.getActiveTools?.();
-  const effectiveTools = params.tools ?? agentDef?.tools ?? defaultActiveTools;
+  let effectiveTools = params.tools ?? agentDef?.tools ?? defaultActiveTools;
   const effectiveExcludeTools = params.excludeTools ?? agentDef?.disallowedTools;
+  // Protocol layer (ticket 04): a NAMED live agent carries the child-injected
+  // request_plan_approval tool. Its definition rides extensionTools (the
+  // extension entry appends it at session_start); this allowlist append is
+  // what survives applyToolPolicy — the default allowlist is the PARENT's
+  // active set, which deliberately does not name a child-only tool. An
+  // explicit excludeTools still strips it (deny wins in applyToolPolicy).
+  if (params.name && !effectiveTools?.includes(REQUEST_PLAN_APPROVAL_TOOL_NAME)) {
+    effectiveTools = [...(effectiveTools ?? []), REQUEST_PLAN_APPROVAL_TOOL_NAME];
+  }
   // H4: append the abort-safety footer to the SPAWNED task only — params.task
   // (persisted task / taskSignature circuit-breaker input) stays raw, so both
   // sides of the signature comparison keep seeing the identical string.

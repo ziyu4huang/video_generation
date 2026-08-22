@@ -14,12 +14,19 @@
  * exchange semantics (per-exchange timeoutMs, lifetime-aggregate guards).
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { LiveAgentRegistry, LiveAgentSendResult } from "@repo/s2-agent-core-runtime";
-import { getLiveAgentRegistry } from "@repo/s2-agent-core-runtime";
+import type { LiveAgentRegistry, LiveAgentSendResult, PendingProtocolMap } from "@repo/s2-agent-core-runtime";
+import { getLiveAgentRegistry, getPendingProtocolMap } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
 import { getBackgroundRunManager } from "./background-run-manager.js";
 import type { ParentMessageBus } from "./parent-message-bus.js";
 import { getParentMessageBus } from "./parent-message-bus.js";
+import {
+  DEFAULT_SHUTDOWN_GRACE_MS,
+  formatPlanApprovalRequestNotification,
+  formatShutdownRequestNotification,
+  isDetachedResumeHost,
+  SHUTDOWN_WRAP_UP_MESSAGE,
+} from "./protocol-format.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 
 export const sendMessageToolSchema = Type.Object({
@@ -27,7 +34,35 @@ export const sendMessageToolSchema = Type.Object({
     description:
       "Target: a live agent's `name` or `agentId` (from spawn_subagent `name`), or 'main' to address the ROOT session (a CHILD reporting up; a nested child's 'main' is the root, not its intermediate parent).",
   }),
-  message: Type.String({ description: "The message text. Self-contained — a follow-up exchange, not a new task." }),
+  message: Type.String({
+    description:
+      "The message text. Self-contained — a follow-up exchange, not a new task. With a protocol `type`, this carries the payload (e.g. the plan for plan_approval_request, the reason for shutdown_request).",
+  }),
+  type: Type.Optional(
+    Type.Union(
+      [
+        Type.Literal("shutdown_request"),
+        Type.Literal("shutdown_response"),
+        Type.Literal("plan_approval_request"),
+        Type.Literal("plan_approval_response"),
+      ],
+      {
+        description:
+          "Protocol envelope (ticket 04). shutdown_request: parent→child = two-stage stop (wrap-up turn, then grace-abort); child→main = notification (parent approves by stopping). plan_approval_response: parent→child resolves a pending request_plan_approval (approve:true|false, optional feedback). plan_approval_request: child→main notifies (for agents without the injected tool). shutdown_response: acknowledgment, either direction.",
+      },
+    ),
+  ),
+  approve: Type.Optional(
+    Type.Boolean({
+      description:
+        "plan_approval_response only: the verdict. true = approved, false = denied. Required for plan_approval_response.",
+    }),
+  ),
+  feedback: Type.Optional(
+    Type.String({
+      description: "Optional guidance returned with a plan_approval_response or a shutdown_response.",
+    }),
+  ),
   wait: Type.Optional(
     Type.Boolean({
       description:
@@ -35,7 +70,10 @@ export const sendMessageToolSchema = Type.Object({
     }),
   ),
   timeoutMs: Type.Optional(
-    Type.Number({ description: "Per-exchange wall-clock cap in ms for the awaited reply (default 15 min)." }),
+    Type.Number({
+      description:
+        "Per-exchange wall-clock cap in ms for the awaited reply (default 15 min); for shutdown_request, the grace window before the hard stop (default 60s).",
+    }),
   ),
   from: Type.Optional(
     Type.String({
@@ -50,8 +88,12 @@ export interface SendMessageToolOptions {
   liveRegistry?: LiveAgentRegistry;
   /** Child→parent bus for to:'main'. Defaults to the process singleton. */
   bus?: ParentMessageBus;
+  /** Pending-protocol map plan_approval_response resolves against. Defaults to the core-runtime singleton. */
+  pending?: PendingProtocolMap;
   /** Raw notification deliverer for wait:false replies (BackgroundRunManager.deliver). Defaults to the singleton. */
   background?: { deliver(message: string): void };
+  /** Injectable for tests (defaults to process.env — the detached-resume refusal reads it). */
+  env?: Record<string, string | undefined>;
 }
 
 function textResult(text: string) {
@@ -103,7 +145,176 @@ export function createSendMessageTool(
 ): ToolDefinition<typeof sendMessageToolSchema, undefined> {
   const liveRegistry = options.liveRegistry ?? getLiveAgentRegistry();
   const bus = options.bus ?? getParentMessageBus();
+  const pending = options.pending ?? getPendingProtocolMap();
   const background = options.background ?? getBackgroundRunManager();
+  const detached = isDetachedResumeHost(options.env);
+
+  /**
+   * Protocol envelopes (ticket 04). In-process only: a detached resume
+   * subprocess's parent lives in another OS process, so child-origin protocol
+   * messages refuse rather than talk to a bus nobody reads.
+   */
+  const executeProtocol = async (
+    params: {
+      to: string;
+      message: string;
+      type: "shutdown_request" | "shutdown_response" | "plan_approval_request" | "plan_approval_response";
+      approve?: boolean;
+      feedback?: string;
+      timeoutMs?: number;
+      from?: string;
+    },
+    signal: AbortSignal | undefined,
+  ) => {
+    const childOrigin = params.to === "main";
+    if (childOrigin && detached) {
+      return textResult(
+        `send_message ${params.type} to 'main' is unavailable in a detached resume subprocess — the parent session lives in another process. Finish your run and write the outcome to disk instead.`,
+      );
+    }
+    switch (params.type) {
+      case "plan_approval_response": {
+        if (params.approve === undefined) {
+          return textResult(
+            "plan_approval_response requires an explicit verdict: add approve: true|false (plus optional feedback).",
+          );
+        }
+        if (childOrigin) {
+          return textResult(
+            "plan_approval_response addresses the AGENT whose plan is pending (a child answers the parent, never the reverse). " +
+              'Use to: "<agent name>".',
+          );
+        }
+        const entry = liveRegistry.get(params.to);
+        const key = entry ? entry.name : params.to;
+        const responded = pending.respond(key, { approved: params.approve, feedback: params.feedback });
+        return responded
+          ? textResult(
+              `Verdict delivered to "${key}" — its pending request_plan_approval resolves ${params.approve ? "APPROVED" : "DENIED"}${params.feedback ? ` (feedback: ${params.feedback})` : ""}.`,
+            )
+          : textResult(
+              `No pending plan approval from "${key}". Pending: ${pending.pendingNames().join(", ") || "(none)"}. ` +
+                "The agent may have timed out (default-deny) or never asked.",
+            );
+      }
+      case "plan_approval_request": {
+        if (!childOrigin) {
+          return textResult(
+            "plan_approval_request is child→parent only. The parent asks a child to revise via a normal message, or waits for the child's own request_plan_approval tool call.",
+          );
+        }
+        const name = params.from?.trim() || "child";
+        const published = bus.publish({ name }, formatPlanApprovalRequestNotification({ name }, params.message));
+        if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
+        return textResult(
+          `Plan-approval request delivered to the parent session (from "${name}"). ` +
+            "It arrives as a follow-up; respond with send_message { to: '<name>', type: 'plan_approval_response', approve: true|false } — " +
+            "that response reaches you as your next message, so continue once you see it.",
+        );
+      }
+      case "shutdown_request": {
+        if (childOrigin) {
+          const name = params.from?.trim() || "child";
+          const published = bus.publish({ name }, formatShutdownRequestNotification({ name }, params.message));
+          if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
+          return textResult(
+            `Shutdown request delivered to the parent session (from "${name}") — notification only, the parent approves by stopping you. ` +
+              "Keep your state written to disk; expect either a wrap-up steer or a stop.",
+          );
+        }
+        return shutdownRequest(params, signal);
+      }
+      case "shutdown_response": {
+        const composed = [
+          "shutdown_response (acknowledgment):",
+          params.message,
+          params.feedback ? `Feedback note: ${params.feedback}` : undefined,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        if (childOrigin) {
+          const name = params.from?.trim() || "child";
+          const published = bus.publish({ name }, composed);
+          if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
+          return textResult(`Shutdown acknowledgment delivered to the parent session (from "${name}").`);
+        }
+        const entry = liveRegistry.get(params.to);
+        if (!entry) {
+          return textResult(
+            `No live agent "${params.to}". Live agents: ${liveRegistry.names().join(", ") || "(none)"}.`,
+          );
+        }
+        liveRegistry.touch(entry.name);
+        const result = await entry.agent.send(composed, { timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS, signal });
+        return textResult(
+          result.steered
+            ? `Delivered to "${entry.name}" — mid-exchange, so it steers into the current run.`
+            : result.failure
+              ? `Exchange with "${entry.name}" did not complete (${result.failure.kind}): ${result.failure.message}.`
+              : result.output || `("${entry.name}" returned an empty reply.)`,
+        );
+      }
+    }
+  };
+
+  /**
+   * Parent→child shutdown_request — two-stage, mirroring the budget guard's
+   * BUDGET_WRAP_UP_MESSAGE semantics (agent-budget.ts): stage 1 delivers the
+   * wrap-up notice (steer when mid-flight, final prompt when idle) bounded by
+   * the grace window; stage 2 stops the session (release disposes → aborts any
+   * in-flight exchange). One exchange per request: the same grace window caps
+   * both the prompt path and the backstop timer, so there is exactly one
+   * abort lever per shutdown.
+   */
+  const shutdownRequest = async (params: { to: string; timeoutMs?: number }, signal: AbortSignal | undefined) => {
+    const entry = liveRegistry.get(params.to);
+    if (!entry) {
+      return textResult(`No live agent "${params.to}". Live agents: ${liveRegistry.names().join(", ") || "(none)"}.`);
+    }
+    liveRegistry.touch(entry.name);
+    const graceMs = params.timeoutMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
+    // Stage 2 backstop — the ONLY abort for the steered case (send returned
+    // immediately; the running exchange would otherwise outlive the request).
+    // Cleared when the wrap-up exchange completes on its own first.
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => liveRegistry.release(entry.name, "shutdown-request");
+    if (signal?.aborted) {
+      stop();
+      return textResult(
+        `Shutdown of "${entry.name}" skipped — the calling turn aborted; the agent was stopped as part of teardown.`,
+      );
+    }
+    graceTimer = setTimeout(stop, graceMs);
+    try {
+      const result = await entry.agent.send(SHUTDOWN_WRAP_UP_MESSAGE, { timeoutMs: graceMs, label: "shutdown" });
+      // Steered: send returned immediately (the exchange is still running) —
+      // the grace timer stays armed as stage 2; stopping here would kill the
+      // wrap-up turn we just asked for.
+      if (result.steered) {
+        return textResult(
+          `Shutdown request delivered to "${entry.name}" — steered into its current exchange. It gets ${Math.round(graceMs / 1000)}s of grace to wrap up, then its session is stopped and removed from the live roster.`,
+        );
+      }
+      clearTimeout(graceTimer);
+      stop();
+      if (result.failure) {
+        return textResult(
+          `Shutdown of "${entry.name}": wrap-up exchange ended ${result.failure.kind} (${result.failure.message}); the session is stopped and off the live roster. Run records survive (agentId ${entry.agentId}).`,
+        );
+      }
+      return textResult(
+        `"${entry.name}" wrapped up and is stopped (removed from the live roster; records survive, keyed by agentId ${entry.agentId}).` +
+          (result.output ? ` Final pointer: ${result.output.slice(0, 500)}` : ""),
+      );
+    } catch {
+      clearTimeout(graceTimer);
+      stop();
+      return textResult(
+        `Shutdown of "${entry.name}": the wrap-up exchange threw; the session is stopped and off the live roster.`,
+      );
+    }
+  };
+
   return defineTool({
     name: "send_message",
     label: "SendMessage",
@@ -111,6 +322,7 @@ export function createSendMessageTool(
       "Send a follow-up message to a NAMED live agent (spawned with spawn_subagent `name`) and get its reply.",
       "A mid-flight agent is steered — the message joins its current exchange and returns 'delivered' without a separate reply.",
       "to:'main' routes a CHILD's message up to the ROOT session (a nested child does not address its intermediate parent until team addressing ships).",
+      "Protocol `type` envelopes (ticket 04): shutdown_request (parent→child two-stage stop; child→main notification), plan_approval_response (resolves a pending request_plan_approval), plan_approval_request / shutdown_response (child→main notifications).",
     ].join(" "),
     promptSnippet:
       "Follow up with a named live agent: send_message({ to: '<name|agentId>', message }) returns its reply; wait:false fires-and-forgets (reply lands as a <task-notification>); a mid-flight agent gets the message as a steer.",
@@ -124,6 +336,9 @@ export function createSendMessageTool(
     executionMode: "sequential",
     parameters: sendMessageToolSchema,
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
+      // Protocol envelopes (ticket 04) take the dedicated path before plain
+      // routing — a shutdown_request never re-prompts as an ordinary message.
+      if (params.type) return executeProtocol({ ...params, type: params.type }, signal);
       // Child→parent: the bus owns delivery (followUp + triggerTurn wake).
       if (params.to === "main") {
         const published = bus.publish({ name: params.from ?? "child" }, params.message);

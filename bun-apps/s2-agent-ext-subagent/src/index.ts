@@ -77,6 +77,24 @@ export {
   ParentMessageBus,
   wireParentMessageDeliverer,
 } from "./parent-message-bus.js";
+export {
+  DEFAULT_PLAN_APPROVAL_TIMEOUT_MS,
+  DEFAULT_SHUTDOWN_GRACE_MS,
+  formatPlanApprovalRequestNotification,
+  formatShutdownRequestNotification,
+  isDetachedResumeHost,
+  SHUTDOWN_WRAP_UP_MESSAGE,
+  SUBAGENT_DETACHED_RESUME_ENV,
+} from "./protocol-format.js";
+// ── owned: protocol-message layer (ticket 04) ───────────────────────────────
+// Presentation constants/formats + the detached-resume marker; the hold/
+// resolve RULES live in core-runtime's PendingProtocolMap (exported there).
+export type { RequestPlanApprovalToolOptions } from "./request-plan-approval-tool.js";
+export {
+  createRequestPlanApprovalTool,
+  REQUEST_PLAN_APPROVAL_TOOL_NAME,
+  requestPlanApprovalToolSchema,
+} from "./request-plan-approval-tool.js";
 // ── owned: send_message tool (named-agent follow-ups, ticket 02) ───────────
 export type { SendMessageToolOptions } from "./send-message-tool.js";
 export { createSendMessageTool, formatReplyNotification, sendMessageToolSchema } from "./send-message-tool.js";

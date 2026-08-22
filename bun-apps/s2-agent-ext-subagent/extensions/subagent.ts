@@ -3,6 +3,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 // layer; run persistence with the record layer).
 import {
   getLiveAgentRegistry,
+  getPendingProtocolMap,
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
   getTeamTaskStore,
@@ -11,6 +12,7 @@ import {
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
   convertToBackground,
+  createRequestPlanApprovalTool,
   createSendMessageTool,
   createSubagentRunsTool,
   createSubagentsTool,
@@ -20,6 +22,7 @@ import {
   GLOBAL_DETACH_KEY,
   getBackgroundRunManager,
   getParentMessageBus,
+  isDetachedResumeHost,
   makeProdDetachDeps,
   TASK_BOARD_SESSION_ID,
   wireBackgroundDeliverer,
@@ -70,7 +73,10 @@ export default function extension(pi: ExtensionAPI) {
   // Child→parent messaging (ticket 02): a child's send_message to:"main"
   // publishes through this process-singleton bus; its deliverer uses the SAME
   // followUp + triggerTurn wake seam as the background deliverer above.
-  wireParentMessageDeliverer(pi, getParentMessageBus());
+  // NOT wired in a detached resume subprocess (ticket 04): there is no parent
+  // in this process to wake — publish() returns its actionable error instead
+  // of self-delivering into a session nobody coordinates.
+  if (!isDetachedResumeHost()) wireParentMessageDeliverer(pi, getParentMessageBus());
 
   const subagentTool = createSubagentTool({
     cwd,
@@ -107,7 +113,14 @@ export default function extension(pi: ExtensionAPI) {
   }
   pi.registerTool(subagentTool);
 
-  const subagentRunsTool = createSubagentRunsTool({ persistence, inFlight, background: backgroundManager });
+  const subagentRunsTool = createSubagentRunsTool({
+    persistence,
+    inFlight,
+    background: backgroundManager,
+    // stop-by-name (ticket 04): a named live agent is stoppable by name — the
+    // lever a child's shutdown_request notification points at.
+    liveRegistry,
+  });
   pi.registerTool(subagentRunsTool);
 
   // subagents — the plural batch tool (fan-out wraps spawnSubagent).
@@ -153,6 +166,18 @@ export default function extension(pi: ExtensionAPI) {
   // parameter type — the same registration an individual factory would get.
   for (const tool of taskTools) pi.registerTool(tool as Parameters<typeof pi.registerTool>[0]);
   const teamTaskStore = getTeamTaskStore();
+
+  // request_plan_approval (ticket 04) — CHILD-injected only: never
+  // pi.registerTool'd (the parent never asks its own parent for approval, so
+  // it joins neither the active set nor the workflow gate family). Children
+  // receive the definition through the extensionTools holder below, and the
+  // named-dispatch path appends its name to the child allowlist
+  // (subagent-tool-run.ts) so applyToolPolicy keeps it.
+  const requestPlanApprovalTool = createRequestPlanApprovalTool({
+    bus: getParentMessageBus(),
+    pending: getPendingProtocolMap(),
+  });
+  const pendingProtocolMap = getPendingProtocolMap();
 
   // /subagents — list running + past subagent runs and view their output.
   // Self-contained: reads the local in-flight registry this extension owns.
@@ -240,7 +265,11 @@ export default function extension(pi: ExtensionAPI) {
     // Drill-down for the live trace stays `/subagents`.
     const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
     if (extTools?.length) {
-      extensionToolsHolder.current = extTools;
+      // request_plan_approval rides the bridge WITHOUT being registered (see
+      // its comment above) — appended here so every spawn child's
+      // extensionTools carry it alongside the registered tools. Same generic-
+      // variance cast as the registerTool loop above (one schema per def).
+      extensionToolsHolder.current = [...extTools, requestPlanApprovalTool as unknown as ToolDefinition];
     }
     mainModelHolder.current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
     scopedModelsHolder.current = (ctx.scopedModels ?? []).map((sm) => `${sm.model.provider}/${sm.model.id}`);
@@ -262,5 +291,9 @@ export default function extension(pi: ExtensionAPI) {
     // The team board dies with the session too (ticket 03): in-memory by
     // design, "*" scope — one parent session per process.
     teamTaskStore.drop(TASK_BOARD_SESSION_ID);
+    // Pending plan approvals die with the session as well (ticket 04): every
+    // held wait resolves default-deny instead of hanging on a parent that no
+    // longer exists.
+    pendingProtocolMap.clear();
   });
 }
