@@ -45,17 +45,17 @@ export interface ModelPreset {
  *  individual tiers later — resolveModelRole falls back to `vision` when a
  *  tiered key isn't set, so this four-key shape is the discoverable default. */
 const LMSTUDIO_VISION_CAPS = {
-  vision: "lm-studio/google/gemma-4-12b",
-  "vision-large": "lm-studio/google/gemma-4-12b",
-  "vision-medium": "lm-studio/google/gemma-4-12b",
-  "vision-small": "lm-studio/google/gemma-4-12b",
+  vision: "lm-studio/qwen/qwen3.8-27b",
+  "vision-large": "lm-studio/qwen/qwen3.8-27b",
+  "vision-medium": "lm-studio/qwen/qwen3.8-27b",
+  "vision-small": "lm-studio/qwen/qwen3.8-27b",
 };
 
 export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "glm-lmstudio",
     label: "GLM (official) + LM Studio vision",
-    summary: "tiers: glm-4.7 / glm-5.3  ·  vision tiers (large/mid/small): lm-studio gemma-4-12b",
+    summary: "tiers: glm-4.7 / glm-5.3  ·  vision tiers (large/mid/small): lm-studio qwen3.8-27b",
     config: {
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
       capabilities: { ...LMSTUDIO_VISION_CAPS },
@@ -64,7 +64,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek-pro",
     label: "DeepSeek pro (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / flash / pro  ·  vision tiers: lm-studio gemma-4-12b",
+    summary: "tiers: gemma-4-12b / flash / pro  ·  vision tiers: lm-studio qwen3.8-27b",
     config: {
       tiers: {
         small: "lm-studio/google/gemma-4-12b",
@@ -77,7 +77,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek-flash",
     label: "DeepSeek flash (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision tiers: lm-studio gemma-4-12b",
+    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision tiers: lm-studio qwen3.8-27b",
     config: {
       tiers: {
         small: "lm-studio/google/gemma-4-12b",
