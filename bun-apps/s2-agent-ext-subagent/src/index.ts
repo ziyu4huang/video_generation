@@ -41,6 +41,16 @@ export {
   spawnSubagent,
   WorkflowAgent,
 } from "@repo/s2-agent-core-runtime";
+// ── owned: background dispatch roster + task-notification delivery ───────────
+export {
+  BackgroundRunManager,
+  type BackgroundRunOutcome,
+  type BackgroundRunSpec,
+  type BackgroundRunStatus,
+  backgroundCap,
+  formatTaskNotification,
+  getBackgroundRunManager,
+} from "./background-run-manager.js";
 // ── owned: detach dispatch (Task 06) — alt+s global + ctrl+b in-viewer ─────
 export {
   DETACH_KEY_BYTE,
