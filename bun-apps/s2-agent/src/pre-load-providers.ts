@@ -84,7 +84,17 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         reasoning: true,
         input: ["text", "image"],
         contextWindow: 200_000,
-        maxTokens: 16_384,
+        // LM Studio's MLX server serves Gemma 4 as an always-on reasoning
+        // model: it ignores client-side thinking knobs (thinking:disabled,
+        // chat_template_kwargs, reasoning_effort, thinking_token_budget — all
+        // verified ignored on this server) and burns 2–10k tokens of
+        // reasoning_content before any content. maxTokens is a SHARED budget
+        // (reasoning + answer), so a small cap truncates the reply to an empty
+        // "length" stop — the "strange message" symptom (session
+        // 2026-08-22: output=16383, reasoning=5459, content="").
+        // 65_536 keeps headroom for reasoning while staying inside the model's
+        // real 262_144 context window.
+        maxTokens: 65_536,
       },
     ],
   },
