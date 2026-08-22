@@ -9,6 +9,10 @@ node_modules
 .pi/agent/auth.json
 .pi/agent/trust.json
 **/.pi/npm/
+# Repo-root .pi/worktrees/ — s2-agent runtime worktree scratch (run-* dirs);
+# transient, machine-local, and it blocks sync-default-branch's dirty_tree
+# untracked check while untracked.
+/.pi/
 
 # runtime artifacts — reviewer review reports (all context-dir variants:
 # core-task / ext-task / task)
