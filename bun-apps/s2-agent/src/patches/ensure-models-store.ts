@@ -8,7 +8,7 @@
  * FileModelsStore rooted at ~/.pi/agent/models-store.json (see
  * model-runtime.js: modelsStorePath ?? dirname(models.json)/models-store.json).
  * The zai / deepseek / huggingface providers this repo depends on (zai/glm-5.3
- * is the BUILT-IN default model — src/builtin-model-default.ts) exist ONLY as
+ * is the BUILT-IN default model — §2 of src/pre-load-providers.ts) exist ONLY as
  * store entries; without the file, a fresh ~/.pi has no zai provider at all
  * and every session falls back to whatever pi's builtin catalog happens to
  * offer. Materializing the curated catalog at startup makes the package's
@@ -18,7 +18,7 @@
  * ------------
  * At import time (run inside applyPatches()), if
  * ~/.pi/agent/models-store.json does NOT exist and the gate is enabled, write
- * DEFAULT_MODELS_STORE (from ../models-store-default.ts) to that path. It
+ * DEFAULT_MODELS_STORE (from ../pre-load-providers.ts §4) to that path. It
  * NEVER overwrites, mutates, or reads an existing file's contents — existence
  * alone is the gate. pi's own catalog refresh (which updates
  * checkedAt/etag/lastModified per provider) keeps working on top of the seed.
@@ -34,14 +34,14 @@
  * ORDERING
  * --------
  * Deliberately self-contained (node builtins + the local
- * models-store-default.ts only, NO @earendil-works import), so it has no
+ * pre-load-providers.ts only, NO @earendil-works import), so it has no
  * dependency on ensure-extension-deps' repo-root symlinks — same property as
  * ensure-model-tiers. Runs early in PATCH_TABLE.
  *
  * TESTABILITY
  * -----------
  * `buildModelsStoreJson()` and `shouldEnsureModelsStore()` in
- * ../models-store-default.ts are pure (serialization + decision only); the
+ * ../pre-load-providers.ts are pure (serialization + decision only); the
  * import-time side effect here is a thin wrapper. The real fs write to the
  * user's home is intentionally NOT tested (it would mutate the user's live
  * catalog).
@@ -53,7 +53,7 @@ import {
 	DEFAULT_MODELS_STORE,
 	buildModelsStoreJson,
 	shouldEnsureModelsStore,
-} from "../models-store-default.ts";
+} from "../pre-load-providers.ts";
 
 const MODELS_STORE_PATH = join(
 	homedir(),

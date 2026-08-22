@@ -105,7 +105,7 @@ const PIPELINES: Command[] = [
 /**
  * `workflow <sub>` — headless runner for s2-agent-ext-ultracode engine scripts.
  * NOT an agent command: calls `runWorkflow()` directly (deterministic gates).
- * See commands/workflow.ts + ../docs/workflow-cli.md.
+ * See commands/workflow.ts and `s2-agent cli workflow --help`.
  */
 const WORKFLOWS: Command[] = [workflowRunCommand, workflowListCommand];
 

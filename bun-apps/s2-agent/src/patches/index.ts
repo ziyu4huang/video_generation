@@ -71,9 +71,9 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // reads ~/.pi/workflows/model-tiers.json per-dispatch with NO env/cascade
   // fallback, so on a fresh machine it returns null and silently falls back to
   // the session model. This patch seeds that file at startup IF absent, from
-  // the typed DEFAULT_MODEL_TIER_CONFIG in src/model-tiers-default.ts (the
+  // the typed DEFAULT_MODEL_TIER_CONFIG in src/pre-load-providers.ts (the
   // glm-lmstudio mapping). Self-contained — imports only the local
-  // model-tiers-default.ts + node builtins (no @earendil-works import), so no
+  // pre-load-providers.ts + node builtins (no @earendil-works import), so no
   // ordering dependency on ensure-extension-deps. Idempotent (existence-only
   // gate, never clobbers) + best-effort (write wrapped in try/catch). Disable
   // with BUN_PI_ENSURE_MODEL_TIERS=0.
@@ -81,7 +81,7 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // ensure-models-store: seeds ~/.pi/agent/models-store.json (pi core's
   // FileModelsStore — the zai/deepseek/huggingface provider catalogs the
   // built-in default zai/glm-5.3 resolves against) from the typed
-  // DEFAULT_MODELS_STORE in src/models-store-default.ts, IF the file is
+  // DEFAULT_MODELS_STORE in src/pre-load-providers.ts, IF the file is
   // absent. Never clobbers a live/refreshed catalog; pi's own refresh flow
   // keeps working on top of the seed. Self-contained (no @earendil-works
   // import), so no ordering dependency. Disable with BUN_PI_ENSURE_MODELS_STORE=0.

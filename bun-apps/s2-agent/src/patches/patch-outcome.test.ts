@@ -32,7 +32,7 @@ function patchModules(): { name: string; source: string }[] {
 	return readdirSync(import.meta.dir)
 		.filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
 		.map((f) => f.slice(0, -".ts".length))
-		.filter((n) => n !== "index" && n !== "model-tiers-default")
+		.filter((n) => n !== "index")
 		.sort()
 		.map((name) => ({ name, source: readFileSync(join(import.meta.dir, `${name}.ts`), "utf8") }));
 }

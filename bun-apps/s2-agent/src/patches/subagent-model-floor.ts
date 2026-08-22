@@ -29,7 +29,8 @@
  * -----------
  * Mode-agnostic: a distill floor is useful in every mode. No-op when the env
  * var is already set; when the personal settings floor is absent the built-in
- * default floor (src/builtin-model-default.ts) fills the gap — zero ~/.pi
+ * default floor (BUILTIN_MODEL_DEFAULT in src/pre-load-providers.ts) fills the
+ * gap — zero ~/.pi
  * config required. Gated by `BUN_PI_SUBAGENT_MODEL_FLOOR` (default on) via
  * PATCH_TABLE.
  *
@@ -42,7 +43,7 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { BUILTIN_MODEL_DEFAULT } from "../builtin-model-default.ts";
+import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
 
 /**
  * Pure: given parsed settings + env, return the floor model id to inject (or

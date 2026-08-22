@@ -1,6 +1,12 @@
 /**
  * `zk-ask <question>` — Graph-enhanced RAG over the Zettelkasten vault.
  *
+ * INVARIANT (thin shells): the 5 `zk-*` commands (`src/cli/commands/zk-*.ts`)
+ * are thin shells over `s2-agent-ext-knowledge-card` — all logic (task
+ * builders, deterministic ingest/retrieve/merge) lives there; these commands
+ * only parse args + wire a single-turn agent run. CLI and extension never
+ * drift because they import the same builders.
+ *
  * Pipeline (single agent session):
  *   1. Seed retrieval  — 3-strategy search (same tools as zk-card find)
  *   2. Graph expansion — obsidian action:"search" graph:"neighbors" N-hop, per-seed cap

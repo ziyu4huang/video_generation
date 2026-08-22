@@ -24,7 +24,7 @@
  * ---------------------------------------
  * When neither the flag, nor the env var, nor a personal default in
  * ~/.pi/agent/settings.json is present, the package's built-in default
- * (src/builtin-model-default.ts — zai / glm-5.3 / high) is spliced instead,
+ * (src/pre-load-providers.ts — zai / glm-5.3 / high) is spliced instead,
  * so the TUI works with ZERO personal model config in ~/.pi. Precedence per
  * flag:
  *
@@ -56,7 +56,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { BUILTIN_MODEL_DEFAULT } from "../builtin-model-default.ts";
+import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
 
 export interface BridgeEntry {
 	/** env var to read (e.g. "PI_MODEL"). */

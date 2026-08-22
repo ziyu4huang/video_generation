@@ -286,7 +286,7 @@ Freezing costs nothing at runtime because **no per-user state was ever written t
   Phase 1b a cwd it cannot write to holds no project store at all, so running the binary from
   inside its own tree no longer tries to create `.agents/` in it.
 - The provider catalog is compiled into the core; model selection and API keys live in
-  `~/.pi/agent` or the env (`docs/provider-model-config.md`).
+  `~/.pi/agent` or the env (see src/pre-load-providers.ts).
 
 `run.sh` beside the binary pins `PI_CODING_AGENT_DIR` anyway, so per-user state can never resolve
 into the tree even if a caller's environment is unusual.

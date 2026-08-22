@@ -4,8 +4,8 @@
  * WHY THIS EXISTS
  * ---------------
  * The static-extension count had drifted independently in SIX places —
- * CONTEXT.md said 5, README said 10, deploy-single-binary.md said 10,
- * extension-dependency-tree.PRD.md said 12, PRD.md said 12, and
+ * CONTEXT.md said 5, README said 10, one deploy doc said 10,
+ * two PRDs said 12, and
  * .github/workflows/ci.yml.disabled asserted `len(statics) == 13` — while the
  * code had 14. Six independent drifts is the evidence that restating a number
  * in prose does not work; a seventh correction would not have been a fix.
@@ -118,7 +118,7 @@ describe("every manifest-referenced package exists on disk", () => {
 });
 
 describe("every registered extension is a declared workspace dependency", () => {
-	// docs/deploy-single-binary.md's "adding a static extension" procedure says
+	// The old deploy doc's "adding a static extension" procedure says
 	// to do BOTH the manifest and the package.json edge. Only the manifest half
 	// was being done.
 	const registered = [...new Set([...dynamicDirs, ...staticDirs])];
