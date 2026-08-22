@@ -81,11 +81,19 @@ export function isHdlSource(path: string): boolean {
 	return ALLOWED_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+/** Default truncation hint for sv_analyze results (include_ast can blow past the cap). */
+const HINT_ANALYZE = "analyze a smaller region or use sv_analyze without include_ast";
+
+/** sv_ast has no include_ast knob — point the model at the summarized view instead. */
+export const HINT_AST = "analyze a smaller region or use sv_analyze for a summarized design view";
+
 /**
  * Render a tool result as capped text: pretty JSON, compact JSON when over
- * the cap, then a hard truncate with an explicit notice.
+ * the cap, then a hard truncate with an explicit notice. The truncation hint
+ * is tool-specific: sv_ast must not be told to drop `include_ast` (it has no
+ * such parameter).
  */
-export function renderJson(value: unknown): string {
+export function renderJson(value: unknown, hint: string = HINT_ANALYZE): string {
 	let text = JSON.stringify(value, null, 2);
 	if (text.length > MAX_RENDER_CHARS) {
 		text = JSON.stringify(value); // compact before truncating hard
@@ -98,7 +106,7 @@ export function renderJson(value: unknown): string {
 		text =
 			cut +
 			`\n…[render truncated: showing ${cut.length} of ${text.length} chars; ` +
-			`analyze a smaller region or use sv_analyze without include_ast]`;
+			`${hint}]`;
 	}
 	return text;
 }

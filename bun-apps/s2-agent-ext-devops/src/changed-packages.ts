@@ -126,10 +126,11 @@ const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/"];
 /**
  * Changed-file aliases: a top-level tree that maps onto a bun-apps package.
  * `dsh-plugin/sv-analyzer/` is the standalone Rust/DSH-plugin host for the
- * sv-analyzer extension — its wasm binary ships (committed) inside
- * s2-agent-ext-sv-analyzer/wasm/, so a core change re-runs that package. If
- * the alias package is not discovered (stale checkout), the file fails open
- * like any other unmapped path — never a silent false-green.
+ * sv-analyzer extension — build.sh mirrors its wasm (gitignored, regenerated
+ * like the plugin's own plugin/wasm/) into s2-agent-ext-sv-analyzer/wasm/, so
+ * a core change re-runs that package. If the alias package is not discovered
+ * (stale checkout), the file fails open like any other unmapped path — never
+ * a silent false-green.
  */
 const CHANGED_FILE_ALIASES: Array<[prefix: string, pkg: string]> = [
 	["dsh-plugin/sv-analyzer/", "s2-agent-ext-sv-analyzer"],

@@ -22,6 +22,7 @@ import entry, { default as extFactory } from "../extensions/sv-analyzer.ts";
 import {
 	createAnalyzerService,
 	defaultWasmPath,
+	HINT_AST,
 	renderJson,
 	resolveCode,
 	shExtDir,
@@ -210,5 +211,16 @@ describe("source + render guards", () => {
 		const huge = renderJson({ big: "x".repeat(300_000) });
 		expect(huge.length).toBeLessThanOrEqual(256 * 1024 + 200);
 		expect(huge).toContain("render truncated");
+	});
+
+	it("renderJson: default hint tells sv_analyze callers to drop include_ast", () => {
+		const huge = renderJson({ big: "x".repeat(300_000) });
+		expect(huge).toContain("sv_analyze without include_ast");
+	});
+
+	it("renderJson: sv_ast hint never mentions include_ast (no such param there)", () => {
+		const huge = renderJson({ big: "x".repeat(300_000) }, HINT_AST);
+		expect(huge).toContain("sv_analyze for a summarized design view");
+		expect(huge).not.toContain("include_ast");
 	});
 });
