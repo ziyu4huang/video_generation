@@ -102,7 +102,7 @@ export function runtimeDependencyNames(pkg: PackageJsonWithDeps): string[] {
  * Returns missing dependency names, deduped.
  */
 export function probeMissingExtensionDeps(bunAppsDir: string | undefined): string[] {
-  if (mode === "binary") return [];
+  if (mode !== "source") return [];
   if (!bunAppsDir) return [];
   // Distinct extension dirs from the manifest (top path segment of each entry).
   const dirs = new Set<string>();

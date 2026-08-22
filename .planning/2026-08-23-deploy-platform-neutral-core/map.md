@@ -42,11 +42,18 @@ target swaps in a platform-appropriate bun without rebuilding anything else.
   `"mode": "source"` and FAILS the entry check (`not found: …/cli.ts`) — `doctor.ts`'s
   coarse binary/source split has no bucket for "bundled js run by bun"
   (`doctor.ts:517,524`).
-- **Embedded assets become sidecar files, and that is fine.** With the embed-mode manifest
-  generated (19 files), the same build emits `cli-sh.js` + **19 hashed asset files**
-  (themes, templates, `clankolas-*.png`, …), dir total **6.9 MB**; that tree boots 17/17
-  too. In `--compile` these were baked into the binary; now they must ship inside the
-  version dir (plain files — Gate 5a/5c/5d and Gate 6 apply as-is).
+- **Embedded assets become sidecar files — and then stop mattering.** With the embed-mode
+  manifest generated (19 files), the same build emits `cli-sh.js` + **19 hashed asset
+  files**, dir total **6.9 MB**, boots 17/17. But a second probe
+  (`/tmp/s2agent-cjs-spike/dist-layout/pkgdir-probe.js`) proved something better: bundled
+  pi resolves `getPackageDir()` by walking up from the bundle to the deploy
+  `package.json`, and then looks for assets at its **Node layout** —
+  `<deployDir>/dist/modes/interactive/{theme,assets}` and
+  `<deployDir>/dist/core/export-html` — all three `existsSync: true` in a simulated
+  deploy tree with NO env redirect. So the deploy copies those three pi dirs into the
+  version dir, the bundle builds against the **empty** manifest (single 6.18 MB file, no
+  sidecars), and the whole `~/.pi/agent/embedded-assets/` extraction mechanism is never
+  triggered in bundle mode (it dies with the compiled mode in ticket 03).
 - **Shipped bun**: `process.execPath` (bun 1.4.0) is 63,558,256 B. New core total
   6.2 + 63.5 ≈ **70 MB — within 1 MB of today's 71 MB compiled core**.
 - **This shape existed before.** The consolidation spec
@@ -59,9 +66,10 @@ target swaps in a platform-appropriate bun without rebuilding anything else.
 ## Tickets
 
 Phase 1 — the seam
-- `tickets/01-core-bundle-seam.md` — task, **open** — bundle-mode self-anchor in
-  `cli-sh.ts`, doctor's third mode, `buildCore` emits ESM bundle + sidecar assets,
-  core-cache generalized to multi-file
+- `tickets/01-core-bundle-seam.md` — task, **closed** (2026-08-23) — bundle-mode
+  self-anchor in `cli-sh.ts`, doctor's third mode, `buildCore` emits the ESM
+  bundle, pi assets copied at Node layout (scope revised mid-ticket: no
+  sidecars, no multi-file cache — see D5/D6)
 
 Phase 2 — runtime shipping
 - `tickets/02-ship-bun-and-launcher.md` — task, **open** — `.buns` content cache,
@@ -82,6 +90,11 @@ Recorded with rationale in `spec.md` §3 (D1–D6). The load-bearing three:
   (`import.meta.dir` when not compiled) so `bun s2-agent.js` boots correctly WITHOUT the
   launcher; measuring confirmed `import.meta.dir` survives bundling. `PI_AGENT_SH_EXT_DIR`
   stays as the operator override.
+- **D5/D6 revised 2026-08-23 (probe-driven)** — the core stays ONE file (`--outfile`,
+  empty asset manifest; `.cores` single-file shape unchanged, flags only) and assets ship
+  as plain copies at pi's Node layout (`dist/modes/interactive/{theme,assets}`,
+  `dist/core/export-html`) — no sidecars, no extraction, no
+  `~/.pi/agent/embedded-assets/` in bundle mode. See spec §3 D5/D6 for the probe.
 - **D3 — the platform-neutral claim is scoped to the bundle.** The shipped `bin/bun` is
   per-platform by design (copied from `process.execPath`); cross-platform use = swap that
   one file for the target platform's bun of the same version. No cross-compile, no
@@ -89,9 +102,10 @@ Recorded with rationale in `spec.md` §3 (D1–D6). The load-bearing three:
 
 ## Frontier
 
-Ticket 01 — everything else keys off the bundle booting and self-locating correctly; D2 is
-the only change inside `s2-agent` proper, so landing it first keeps 02/03 pure devops-ext
-work.
+Ticket 02 — the seam is proven (ticket 01 closed 2026-08-23: bundle boots bare,
+17/17, doctor honest, scratch deploy six-gates green). What the version dir
+still lacks is the runtime: `bin/bun` + the `s2-agent.sh` launcher that execs
+it. Ticket 03's e2e boots `run.sh`, so 02 must land first.
 
 ## Fog of war
 

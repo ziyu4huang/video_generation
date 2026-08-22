@@ -5,7 +5,8 @@
  * Differences from src/cli.ts (the source-mode entry):
  *   • It does NOT import src/static-extensions.ts. Zero extensions are
  *     compiled in; every extension is discovered at runtime under
- *     <exeDir>/ext/<name>/.
+ *     <deployDir>/ext/<name>/ — the dir holding this artifact (compiled
+ *     binary or bun-run bundle; see deployRoot below).
  *   • It disables the run-dir resource patch — sh mode owns extension and skill
  *     resolution end to end, and the run-dir resolver's repo-relative view has
  *     no meaning in a versioned deploy dir.
@@ -15,7 +16,8 @@
  */
 import "./sh/scrub-inherited-package-dir.ts"; // FIRST — must precede any pi module init
 import { main } from "@earendil-works/pi-coding-agent";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { deployRoot } from "./mode.ts";
 import { applyPatches } from "./patches/index.ts";
 import { isCliCommand, isDoctorCommand, isExtDoctorCommand, userSuppressFlags } from "./cli-argv.ts";
 import { runDoctor } from "./doctor.ts";
@@ -31,12 +33,14 @@ process.env.BUN_PI_LOAD_RUN_DIR ??= "0";
 const argv = process.argv.slice(2);
 
 /**
- * The deploy root is the directory holding this executable. In a compiled
- * binary process.execPath IS the deployed s2-agent; running this file from
- * source (`bun src/cli-sh.ts`) would point at bun's own directory instead, so
- * PI_AGENT_SH_EXT_DIR exists as an explicit override for source-mode debugging.
+ * The deploy root is the directory holding this artifact. In a compiled
+ * binary process.execPath IS the deployed s2-agent; in a bun-run bundle the
+ * entry's own import.meta.url IS the bundle's real path (deployRoot handles
+ * both). Running this file from source (`bun src/cli-sh.ts`) resolves to
+ * src/ — meaningless as a deploy root — so PI_AGENT_SH_EXT_DIR exists as an
+ * explicit override for source-mode debugging.
  */
-const deployDir = dirname(process.execPath);
+const deployDir = deployRoot(import.meta.url);
 const extRoot = process.env.PI_AGENT_SH_EXT_DIR ?? join(deployDir, "ext");
 
 const host = { hostApi: HOST_API, hostModules: HOST_MODULE_IDS };

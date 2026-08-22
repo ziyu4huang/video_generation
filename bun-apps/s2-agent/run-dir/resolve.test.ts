@@ -39,10 +39,11 @@ describe("detectMode", () => {
 		expect(detectMode("file://$bunfs/run-dir/x")).toBe("binary");
 	});
 
-	test("anything that is not the virtual-fs scheme is source", () => {
-		// The "bundle" answer this used to give belonged to a shipped s2-agent.js;
-		// nothing has produced one since #1740.
-		expect(detectMode("file:///opt/s2-agent/dist/s2-agent.js")).toBe("source");
+	test("a non-virtual .js URL is a bun-run bundle; .ts is source", () => {
+		// The sh deploy's core since 2026-08-23 is a shipped s2-agent.js run by
+		// bun — every bundled module's rewritten URL points at it.
+		expect(detectMode("file:///opt/s2-agent-sh/1.0.0/s2-agent.js")).toBe("bundle");
+		expect(detectMode("file:///repo/bun-apps/s2-agent/run-dir/resolve.ts")).toBe("source");
 	});
 
 	test("the real module URL (this test run) is source mode", () => {

@@ -52,6 +52,16 @@ describe("classifyMode", () => {
 		expect(classifyMode("source", { shDeploy: true })).toBe("source");
 		expect(classifyMode("source", { shDeploy: false })).toBe("source");
 	});
+	test("bundle beside a deploy.json is an sh deploy", () => {
+		// The sh deploy's core since 2026-08-23: a bun-run s2-agent.js, not a
+		// compiled exe. Same layout, same checks, honest mode label.
+		expect(classifyMode("bundle", { shDeploy: true })).toBe("sh");
+	});
+	test("a stray bundle without deploy.json falls to source checks", () => {
+		// A copied-alone s2-agent.js has no deploy layout to check against; the
+		// entry check still points at the bundle itself, so it reports honestly.
+		expect(classifyMode("bundle", { shDeploy: false })).toBe("source");
+	});
 	/**
 	 * The guard for the original drift. A hardcoded `produced` set cannot be it:
 	 * the drift ran the direction such a set is blind to — the deploy script SHED
@@ -79,12 +89,14 @@ describe("classifyMode", () => {
 		const deployShSource = readFileSync(DEPLOY_SH_TS, "utf8");
 
 		/** Modes something can actually put on disk today. */
-		const PRODUCED = new Set<DeployMode>(["source", "binary"]);
-		if (deployShSource.length > 0) PRODUCED.add("sh");
+		const PRODUCED = new Set<DeployMode>(["source", "binary", "sh"]);
+		// "binary" (compiled exe) is kept produced: retention still holds compiled
+		// version dirs on disk, and the plain compiled exe remains a supported pi
+		// artifact. The CURRENT sh core produces coarse "bundle" → "sh".
 
 		function reachableModes(): Set<DeployMode> {
 			const seen = new Set<DeployMode>();
-			for (const coarse of ["source", "binary"] as const) {
+			for (const coarse of ["source", "binary", "bundle"] as const) {
 				for (const shDeploy of [true, false]) {
 					seen.add(classifyMode(coarse, { shDeploy }));
 				}
@@ -95,6 +107,9 @@ describe("classifyMode", () => {
 		test("the deploy script is where this guard thinks it is", () => {
 			// Vacuity guard: an empty read would make PRODUCED lose "sh" silently.
 			expect(deployShSource).toContain("export async function runShDeploy");
+			// And the sh core it produces is a bun-run bundle (coarse "bundle"),
+			// not a compiled exe.
+			expect(deployShSource).toContain("--target=bun");
 		});
 
 		test("(a) every mode classifyMode returns is one a deploy produces", () => {

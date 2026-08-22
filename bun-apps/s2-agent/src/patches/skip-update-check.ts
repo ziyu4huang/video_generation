@@ -28,14 +28,14 @@ const mode = detectMode(url);
 /**
  * Pure decision: should the update-check skip be applied for this mode?
  *
- * Applied only to a shipped artifact — which, since the bundle mode was retired
- * in Phase 1b, means the compiled binary. Source mode (`bun src/cli.ts`) is
- * left alone so dev still sees upstream pi updates. Exported so the gating
- * logic is unit-testable without importing the module (which would fire the
- * side effect).
+ * Applied only to a shipped artifact: the compiled binary and the bun-run
+ * bundle (the sh deploy's core since 2026-08-23). Source mode
+ * (`bun src/cli.ts`) is left alone so dev still sees upstream pi updates.
+ * Exported so the gating logic is unit-testable without importing the module
+ * (which would fire the side effect).
  */
 export function shouldSkipUpdateCheck(mode: BundlerMode): boolean {
-  return mode === "binary";
+  return mode === "binary" || mode === "bundle";
 }
 
 const isShippedArtifact = shouldSkipUpdateCheck(mode);

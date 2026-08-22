@@ -55,38 +55,37 @@ describe("computeCoreHash", () => {
 });
 
 describe("ensureCachedCore", () => {
-	test("miss compiles once; hit skips the compile; linkers share the inode", async () => {
+	test("miss builds once; hit skips the build; linkers share the inode", async () => {
 		const outRoot = mkdtempSync(join(tmpdir(), "cores-out-"));
-		let compiles = 0;
-		const compile = async (outFile: string) => {
-			compiles++;
-			writeFileSync(outFile, "fake-core-binary");
-			chmodSync(outFile, 0o755);
+		let builds = 0;
+		const build = async (outFile: string) => {
+			builds++;
+			writeFileSync(outFile, "fake-core-bundle");
 		};
 
 		const hash = "deadbeef".repeat(8);
-		const first = await ensureCachedCore({ outRoot, hash, compile });
+		const first = await ensureCachedCore({ outRoot, hash, build });
 		expect(first.cached).toBe(false);
-		expect(compiles).toBe(1);
+		expect(builds).toBe(1);
 
-		const second = await ensureCachedCore({ outRoot, hash, compile });
+		const second = await ensureCachedCore({ outRoot, hash, build });
 		expect(second.cached).toBe(true);
-		expect(compiles).toBe(1); // the whole point
+		expect(builds).toBe(1); // the whole point
 
-		// a version dir's s2-agent is a hardlink: same inode, and deleting the
+		// a version dir's s2-agent.js is a hardlink: same inode, and deleting the
 		// version dir later never destroys the cache entry
-		linkCore(first.cacheFile, join(outRoot, "0.1.0-s2-agent"));
-		expect(statSync(join(outRoot, "0.1.0-s2-agent")).ino).toBe(statSync(first.cacheFile).ino);
+		linkCore(first.cacheFile, join(outRoot, "0.1.0-s2-agent.js"));
+		expect(statSync(join(outRoot, "0.1.0-s2-agent.js")).ino).toBe(statSync(first.cacheFile).ino);
 		expect(existsSync(first.cacheFile)).toBe(true);
 	});
 
-	test("a failed compile leaves no cache entry behind", async () => {
+	test("a failed build leaves no cache entry behind", async () => {
 		const outRoot = mkdtempSync(join(tmpdir(), "cores-out-"));
 		await expect(
 			ensureCachedCore({
 				outRoot,
 				hash: "ab".repeat(32),
-				compile: async () => {
+				build: async () => {
 					throw new Error("boom");
 				},
 			}),

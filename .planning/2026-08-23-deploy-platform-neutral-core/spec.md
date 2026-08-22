@@ -59,19 +59,29 @@ Context. Summary of what the spike proved and what it broke:
   every existing behavior: SCRIPT_DIR resolution, `JITI_FS_CACHE`, dashed
   `S2-AGENT_CODING_AGENT_DIR` via `env`, the system-Chrome probe — only the final `exec`
   line changes to `"$SCRIPT_DIR/bin/bun" "$SCRIPT_DIR/s2-agent.js"`.
-- **D5 — `.cores` generalizes from one file to a directory tree.** The bundle emit is
-  multi-file (`s2-agent.js` + 19 hashed assets), so `computeCoreHash` inputs gain the
-  `--target=bun` flag (output-affecting) and `ensureCachedCore`/`linkCore` hardlink every
-  file of the cached tree into the version dir (per-file hardlinks, like ext/ files). The
-  freeze/no-freeze inode caveat carries over unchanged.
-- **D6 — embedded assets ship as sidecar files, layout-preserving.** The hashed asset
-  names bun emits are content-derived and referenced by the bundle; the deploy stages the
-  whole outdir as `<stage>/assets/`-flat or beside the bundle (ticket 01 picks whichever
-  `import.meta`-relative resolution in the generated manifest actually reads — measured to
-  boot 17/17 with them in the same directory as the entry, so same-dir is the default).
-  Gate 5a/5c/5d and Gate 6 relocation cover them like any other tree file; the generated
-  embed manifest and the codegen reset (embed → empty) stay exactly as the compiled path
-  had them.
+- **D5 — the core stays ONE file; `.cores` is unchanged except its flags.** Revised
+  2026-08-23 after the dist-layout probe (see D6): the bundle builds against the EMPTY
+  asset manifest, so `bun build --outfile` emits a single `s2-agent.js` — no sidecars, no
+  multi-file cache. `computeCoreHash` inputs swap the flag set to
+  `["--target=bun", "--minify"]`; `ensureCachedCore`/`linkCore` keep their single-file
+  shape. (The original D5 — generalize `.cores` to a directory tree for hashed sidecar
+  assets — is void because D6 removed the sidecars entirely.)
+- **D6 — assets ship as plain copies at pi's NODE layout; no extraction, no cache.**
+  Revised 2026-08-23, replacing the original "sidecar files beside the bundle" design.
+  Probe (`/tmp/s2agent-cjs-spike/dist-layout/pkgdir-probe.js`, bundled with the same
+  `--target=bun` flags): with pi's `config.js` bundled, `getPackageDir()` walks up from
+  the bundle's dir to the deploy `package.json`, and `getThemesDir()` /
+  `getExportTemplateDir()` / the assets dir resolve to
+  `<deployDir>/dist/modes/interactive/{theme,assets}` and
+  `<deployDir>/dist/core/export-html` — all three verified `existsSync: true` from a
+  simulated deploy tree, with NO `PI_PACKAGE_DIR` and no env of any kind. So the deploy
+  simply COPIES those three directories out of the resolved pi package into the version
+  dir, the bundle builds against the empty manifest (no `with { type: "file" }` imports),
+  and the entire `~/.pi/agent/embedded-assets/` extraction mechanism (patch, cache dir,
+  GC, package.json mirror, `BUN_PI_EMBEDDED_EXTRACT_DIR`) is never triggered in bundle
+  mode — `extract-embedded-assets.ts` needs no change, and dies whole in ticket 03 when
+  the compiled mode is deleted. sh deploys pass `binarySkills: []` already, so no skill
+  path rides the extraction env var.
 
 ## 4. Explicitly out of scope
 
