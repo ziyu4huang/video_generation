@@ -68,6 +68,10 @@ test("task_create rejects cycles and empty subjects with actionable errors", asy
   const cyc = await run(by.get("task_create"), { subject: "c", blockedBy: ["2"], blocks: ["1"] });
   assert.match(cyc, /cycle/);
   assert.equal(store.list("*").length, 2);
+  // And no dangling edge from the half-created task on the survivors (the
+  // store's atomic-unwind contract, pinned here through the tool surface).
+  assert.deepEqual(store.get("*", "2")?.blockedBy, ["1"]);
+  assert.deepEqual(store.get("*", "2")?.blocks, []);
   const empty = await run(by.get("task_create"), { subject: "   " });
   assert.match(empty, /subject is required/);
 });

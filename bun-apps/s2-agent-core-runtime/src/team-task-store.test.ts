@@ -69,6 +69,28 @@ describe("TeamTaskStore — create/get/list", () => {
     expect(ok(s.create("*", { subject: "c" })).id).toBe("2");
   });
 
+  test("a partially-failed create leaves NO dangling edge on survivors, and id reuse re-attaches nothing (review Major 1)", () => {
+    const s = mk();
+    ok(s.create("*", { subject: "a" }));
+    // The blockedBy edge links first; the blocks edge then hits an unknown id.
+    // The unwind must remove the "1 blocks 2" edge too — a dangling "2" on
+    // task 1 would silently re-attach to whichever unrelated task reuses id 2.
+    const err = s.create("*", { subject: "b", blockedBy: ["1"], blocks: ["9"] });
+    expect(isTeamTaskError(err)).toBe(true);
+    expect((s.get("*", "1") as TeamTask).blocks).toEqual([]);
+    const reused = ok(s.create("*", { subject: "c" }));
+    expect(reused.id).toBe("2");
+    expect((s.get("*", "1") as TeamTask).blocks).toEqual([]);
+    expect(reused.blockedBy).toEqual([]);
+    // Same class of failure via the cycle branch: the blockedBy edge from the
+    // REJECTING side must not survive on the other task either.
+    ok(s.create("*", { subject: "d", blockedBy: ["1"] })); // #3
+    const cyc = s.create("*", { subject: "e", blockedBy: ["3"], blocks: ["1"] });
+    expect(isTeamTaskError(cyc)).toBe(true);
+    expect((s.get("*", "3") as TeamTask).blockedBy).toEqual(["1"]); // 3 still only depends on 1
+    expect((s.get("*", "3") as TeamTask).blocks).toEqual([]);
+  });
+
   test("get on an unknown board returns undefined; list returns []", () => {
     const s = mk();
     expect(s.get("nope", "1")).toBeUndefined();
@@ -131,6 +153,28 @@ describe("TeamTaskStore — dependency edges", () => {
     ok(s.create("*", { subject: "a" }));
     expect(isTeamTaskError(s.update("*", "1", { addBlockedBy: ["9"] }))).toBe(true);
     expect((s.get("*", "1") as TeamTask).blockedBy).toEqual([]);
+  });
+
+  test("failed edge edits are rolled back ATOMICALLY — earlier additions and all removals included (review Minor 2)", () => {
+    const s = mk();
+    ok(s.create("*", { subject: "a" }));
+    ok(s.create("*", { subject: "b" }));
+    // Mid-array failure: the valid "1" addition must not survive the "99" error.
+    expect(isTeamTaskError(s.update("*", "2", { addBlockedBy: ["1", "99"] }))).toBe(true);
+    expect((s.get("*", "2") as TeamTask).blockedBy).toEqual([]);
+    expect((s.get("*", "1") as TeamTask).blocks).toEqual([]);
+  });
+
+  test("a removal whose companion addition cycles rolls the removal back too (review Minor 2)", () => {
+    const s = mk();
+    ok(s.create("*", { subject: "a" }));
+    ok(s.create("*", { subject: "b", blockedBy: ["1"] })); // 2 depends on 1
+    ok(s.create("*", { subject: "c", blockedBy: ["2"] })); // 3 depends on 2
+    // "2 blockedBy 3" cycles (3 already depends on 2). The removal of "1" in
+    // the SAME update must be restored — "rejected" means nothing changed.
+    expect(isTeamTaskError(s.update("*", "2", { removeBlockedBy: ["1"], addBlockedBy: ["3"] }))).toBe(true);
+    expect((s.get("*", "2") as TeamTask).blockedBy).toEqual(["1"]);
+    expect((s.get("*", "1") as TeamTask).blocks).toEqual(["2"]);
   });
 });
 

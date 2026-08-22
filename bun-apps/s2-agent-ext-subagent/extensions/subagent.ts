@@ -133,9 +133,10 @@ export default function extension(pi: ExtensionAPI) {
   // send_message — follow-up messaging for named live agents (ticket 02):
   // parent-side routing over the live registry + child-side to:"main" over the
   // bus wired above. Reaches children automatically through the parent tools
-  // captured at session_start (extensionTools bridge). Registered LAST so the
-  // workflow gate family's grouped-names order (pinned by tool-gate tests)
-  // reads spawn → batch → follow-up.
+  // captured at session_start (extensionTools bridge). Registration order is
+  // load-bearing: the workflow gate family's grouped-names order (pinned by
+  // tool-gate tests) reads spawn → batch → follow-up → task_create/get/list/
+  // update (the task tools below register after this one).
   const sendMessageTool = createSendMessageTool({ liveRegistry, bus: getParentMessageBus() });
   pi.registerTool(sendMessageTool);
 

@@ -177,23 +177,28 @@ export class TeamTaskStore {
       updatedAt: now,
     };
     board.tasks.set(id, task);
-    // Edge inputs validated AFTER the task exists (they may reference it),
-    // but failures unwind the create entirely — no half-born task.
+    // Edge inputs validated AFTER the task exists (they may reference it), but
+    // failures unwind the create ENTIRELY — the unborn task AND every edge
+    // already linked in earlier iterations. Unwinding only the task would
+    // leave a dangling id on a survivor's blocks/blockedBy list, and the id is
+    // then reused, silently attaching that stale edge to an unrelated future
+    // task (review Major 1).
+    const appliedEdges: Array<[dependentId: string, blockerId: string]> = [];
+    const failCreate = (err: TeamTaskError): TeamTaskError => {
+      for (const [dependentId, blockerId] of appliedEdges) unlinkEdge(board, dependentId, blockerId);
+      board.tasks.delete(id);
+      board.nextId--; // the id was never born; reuse it (create is sync, no observer saw it)
+      return err;
+    };
     for (const blockerId of input.blockedBy ?? []) {
       const err = linkEdge(board, id, blockerId);
-      if (err) {
-        board.tasks.delete(id);
-        board.nextId--; // the id was never born; reuse it (create is sync, no observer saw it)
-        return err;
-      }
+      if (err) return failCreate(err);
+      appliedEdges.push([id, blockerId]);
     }
     for (const dependentId of input.blocks ?? []) {
       const err = linkEdge(board, dependentId, id);
-      if (err) {
-        board.tasks.delete(id);
-        board.nextId--;
-        return err;
-      }
+      if (err) return failCreate(err);
+      appliedEdges.push([dependentId, id]);
     }
     return task;
   }
@@ -219,18 +224,37 @@ export class TeamTaskStore {
     if (patch.owner !== undefined && patch.owner !== null && patch.owner.trim() === "") {
       return { error: 'owner must be a live agent name or "main", not an empty string' };
     }
-    // Edge REMOVALS first (they cannot cycle), then additions validated against
-    // the working graph. A failed addition leaves the removals applied — removals
-    // only ever widen the graph's legal state, so this is safe and predictable.
+    // Edge edits are ATOMIC: removals first (they cannot cycle), then additions
+    // validated against the working graph — and ANY failure restores the whole
+    // board's edge state from the snapshot below (review Minor 2). Without the
+    // restore, a failed addition strand applied removals/earlier additions and
+    // an LLM reading "rejected" believes nothing changed.
+    const edgeSnapshot = new Map<string, { blocks: string[]; blockedBy: string[] }>();
+    for (const [tid, t] of board.tasks) edgeSnapshot.set(tid, { blocks: [...t.blocks], blockedBy: [...t.blockedBy] });
+    const restoreEdges = () => {
+      for (const [tid, t] of board.tasks) {
+        const snap = edgeSnapshot.get(tid);
+        if (snap) {
+          t.blocks = snap.blocks;
+          t.blockedBy = snap.blockedBy;
+        }
+      }
+    };
     for (const blockerId of patch.removeBlockedBy ?? []) unlinkEdge(board, id, blockerId);
     for (const dependentId of patch.removeBlocks ?? []) unlinkEdge(board, dependentId, id);
     for (const blockerId of patch.addBlockedBy ?? []) {
       const err = linkEdge(board, id, blockerId);
-      if (err) return err;
+      if (err) {
+        restoreEdges();
+        return err;
+      }
     }
     for (const dependentId of patch.addBlocks ?? []) {
       const err = linkEdge(board, dependentId, id);
-      if (err) return err;
+      if (err) {
+        restoreEdges();
+        return err;
+      }
     }
     if (patch.subject !== undefined) task.subject = patch.subject.trim();
     if (patch.description !== undefined) task.description = patch.description;
