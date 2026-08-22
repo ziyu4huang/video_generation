@@ -1,0 +1,152 @@
+---
+effort: 2026-08-22-context-lifecycle
+created: 2026-08-22
+last: 2026-08-22
+status: open
+pipeline: wayfind→superpowers
+---
+# context-lifecycle — agent context-engineer pipeline rethink (learn from OpenViking)
+
+## Destination
+
+One measured, deterministic-first context lifecycle for s2-agent, OpenViking-patterned but
+local-model-shaped: capture (hermes journal + `zk_ingest`) → distill (state machine +
+gray-zone ExtractLoop dedup) → store (card schema v2 + LeanRAG agg tree) → retrieve (single
+path through kcard `retrieveRecords`, L0/L1/L2 tier ladder, hotness multiplier) → inject
+(`before_agent_start` auto-recall, budgeted, RecallLedger dedup) → feedback (usage ledger →
+hotness decay) — with vault-mind retired, hermes folded to a capture-only journal, every eval
+harness committed as a script, and breaking changes in obsidian + knowledge-card explicitly
+on the table (D0) to get the better engine rather than preserve the old surfaces.
+
+## Context (measured 2026-08-19..22 on this machine)
+
+- **Hermes recall is measured-dead.** Audit 2026-08-19
+  (`.planning/knowledge/hermes-recall-audit.md`, runner `/tmp/hermes-audit/run-audit.ts` —
+  still uncommitted): hit@1/3/5 = **0/20**, MRR 0.000. The `vectors` SurrealDB database was
+  never created, so every query serves the lexical fallback, which returns zero rows for
+  natural-language queries. Negatives pass vacuously. The 6-tool schema cost buys zero recall.
+- **Embedding endpoints disagree, and the audit misread one.** Live probe 2026-08-22:
+  `http://127.0.0.1:8090/v1/models` → 404 (this is what the audit saw) but
+  `POST :8090/v1/embeddings` is **ALIVE** and serves `mlx-community/bge-m3-mlx-8bit`.
+  `:1234` (LM Studio) simultaneously serves `text-embedding-bge-m3`,
+  `text-embedding-nomic-embed-text-v1.5`, `text-embedding-qwen3-embedding-0.6b` plus chat
+  models. BGE-M3 is therefore available on BOTH endpoints; nothing qualitative blocks D3.
+- **kcard's retrieval already works — measured arc.** `retrieveRecords` hit-rate@4:
+  0.48 → 0.80 (bodyMatch) → 0.84 (slugDom) → **1.00 (semantic blend over nomic via LM
+  Studio)**; `trySemanticBlend` gracefully falls back to lexical on embed failure. Known
+  retrieval weaknesses are documented in-repo: generic-tag noise (`pattern`=282 cards crowds
+  specific bridges), batch crowding (maxLinks=8 → 84 intra / 0 external edges), IDF promotion
+  gate unmet vs count baseline, graph dilution (three-way 67% < lexical 80% on the
+  controlled corpus).
+- **The use-side is the hole.** No auto-recall (knowledge reaches the prompt only if the
+  model voluntarily calls a zk tool; `stealth-trim.test.ts` pins no per-turn injection), no
+  usage signal, no decay. kcard PRD roadmap ③ (knowledge-aware priming) and ④ (learning
+  feedback loop) are both still "Planned".
+- **The injection mechanism is proven in-repo, not speculative.**
+  `s2-agent-ext-ultracode/extensions/ultracode.ts:149` does per-turn conditional
+  `before_agent_start` systemPrompt appends; cache-transition cost measured **0.98× warm**
+  on local LM Studio/MLX (cache-probe-workflow-local.mjs). The stealth-trim pin only covers
+  tool-schema `promptSnippet`/`promptGuidelines` — a hook-based injector keeps its letter.
+- **The embedder leaf is already single-sourced.**
+  `bun-apps/s2-agent-core-interface/src/embedding-leaf.ts` (`SEMANTIC_MODEL_DEFAULT`,
+  `defaultEmbedder`, `DefaultEmbedderOptions`, graceful-degrade) is THE shared leaf since
+  polish-L2 (2026-08-17). kcard's embedding cache `<vault>/.knowledge-semantic/<model>.json`
+  is keyed BY MODEL → switching canonical model is a new cache file, not a migration.
+- **OpenViking** (`/Users/huangziyu/proj/OpenViking`, Volcengine, AGPLv3, browsed 2026-08-22)
+  is the pattern donor: L0/L1/L2 tier ladder + per-category quotas + breadth-first-then-depth
+  budget with demote-not-truncate; RecallLedger cross-turn cooldown with the
+  "no_relevant records nothing" fix; `used()` → hotness
+  `sigmoid(log1p(active_count)) * exp(-ln2·age_days/half_life)` (7-day); ExtractLoop
+  (vector pre-filter → LLM dedup skip/create/merge → typed merge ops → memory_diff audit);
+  hook-driven auto-recall/auto-capture; Situation/Approach/Reflect experiences with
+  supersedes lineage. Its cloud intent-analysis/rerank/VLM are OUT (no-cloud rule) —
+  deterministic-first substitutes or skipped.
+
+## Tickets
+
+Phase P0 — infra unification & hermes triage
+- `tickets/01-canonical-embed-bge-m3.md` — task, **open** — one canonical embed endpoint/model
+- `tickets/02-vault-mind-retirement.md` — task, **open** — delete `semantic_search` + VAULT_MIND
+- `tickets/03-hermes-fold-capture-only.md` — task, **open** — retire dead recall surface (risky)
+- `tickets/04-recall-audit-script.md` — task, **open** — committed audit harness + post-fold baseline
+
+Phase P1 — card schema v2 + tiered retrieval
+- `tickets/05-card-schema-v2.md` — task, **open** — summary/experience/merge-ops, breaking (D0)
+- `tickets/06-agg-node-abstracts.md` — task, **open** — L1 abstracts on LeanRAG agg nodes
+- `tickets/07-tier-ladder-retrieval.md` — task, **open** — tier field + demote-not-truncate
+
+Phase P2 — injection loop + ledger
+- `tickets/08-auto-recall-injector.md` — task, **open** — before_agent_start budgeted injection
+- `tickets/09-recall-ledger.md` — task, **open** — session cooldown, no_relevant records nothing
+- `tickets/10-injection-probe-and-flip.md` — task, **open** — measure, then flip default ON (risky)
+
+Phase P3 — feedback + extraction upgrade
+- `tickets/11-usage-ledger-detection.md` — task, **open** — three provenance sources → usage jsonl
+- `tickets/12-hotness-scoring.md` — task, **open** — bounded hotness multiplier in retrieval
+- `tickets/13-extractloop-dedup.md` — task, **open** — vector pre-filter + gray-zone LLM dedup
+- `tickets/14-memory-diff-audit.md` — task, **open** — .distill-diff.json per converge run
+
+Phase P4 — eval harness + closeout
+- `tickets/15-retrieval-eval-harness.md` — task, **open** — one-command eval, bge-m3 vs nomic A/B
+- `tickets/16-injection-endtask-eval.md` — task, **open** — end-task accuracy, injection on/off
+- `tickets/17-docs-closeout.md` — task, **open** — CONTEXT/ADR/KNOWLEDGE-LAYER truth
+
+## Decisions
+
+Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
+
+- **D0 — breaking changes allowed (a lot) in obsidian + knowledge-card.** Card format, tool
+  surface, caches and pinned baselines may break; each break ships a one-shot migration or a
+  deliberate baseline regen citing D0. Hermes fold (D1) is also breaking. Without this the
+  engine design keeps accreting around the 2026-08-17 polish's "zero behavior change" fence.
+- **D1 — hermes folds to capture-only journal.** Recall routes through `knowledge_query`;
+  the never-armed vector path is deleted, not re-armed. Extends ADR-0001 (hub-owned
+  convergence) to recall. Justified by the 0/20 audit — a second retrieval path that returns
+  nothing is schema cost, not redundancy.
+- **D3 — canonical embedding = BGE-M3 on LM Studio :1234.** The vault is Traditional
+  Chinese; MiniLM-class CJK weakness is documented in-repo. Cache is model-keyed so the
+  switch is cheap; the eval gate (re-measured hit@4 ≥ nomic baseline, numbers in map) is the
+  safety net, with nomic as the recorded fallback.
+- **D5/D6 — tier ladder + budgeted auto-recall, deterministic-first.** No LLM intent
+  analysis, no local rerank in v1 (OpenViking's are cloud). The lexical trigger gate stands
+  in for intent analysis; the 350-tok cap, per-entry 2×-average-share rule, RecallLedger and
+  no_relevant-skip stand in for the context assembler.
+- **D8 — feedback re-ranks, never dominates.** Hotness enters `retrieveRecords` as a bounded
+  ≤±10% multiplier; the IDF-promotion lesson (a scoring change must beat the count baseline
+  on the eval set before it defaults) applies to it too.
+
+## Frontier
+
+`tickets/01-canonical-embed-bge-m3.md` — it is first because everything downstream measures
+against the canonical embedder: the hit@4 re-baseline (07), the gray-zone thresholds (13),
+and the A/B harness (15) all cite its numbers. It is also the smallest ticket and de-risks
+the D3 bet immediately.
+
+## Fog of war
+
+- Whether `before_agent_start` fires inside `spawnSubagent` child sessions (double-inject
+  risk) — one-line probe before ticket 08; the child-guard flag is designed regardless.
+- `turn_end` payload shape at the extension layer (assistant text surface unverified) —
+  ticket 11 opens with a probe; zk_card provenance works even if turn_end doesn't.
+- One-time re-embed burst when card `summary:` backfill touches every card (mtime
+  fingerprint) — measure in ticket 05, expected bounded by corpus size.
+- BGE-M3 vs nomic head-to-head on THIS vault never measured — D3 is reasoned (CJK), not yet
+  measured; ticket 15's A/B settles it and D3 flips back if the eval gate fails.
+- Hermes fold blast radius (tools/tests referencing the semantic surface) — census is ticket
+  03's first step, not charted here.
+- End-task effect of injection is unknown by construction — retrieval hit@k measures
+  retrieval, not task success; ticket 16 exists because this cannot be known in advance.
+- Charted-but-rejected: OpenViking sidecar files (`.abstract.md`/`.overview.md`) — new drift
+  surface vs D7 md-git-canonical (rejected in D5); cloud rerank/intent/VLM (no-cloud rule);
+  re-arming hermes `card_vectors` (D1 rationale).
+
+## Cross-effort links
+
+- **Builds-on**: `.planning/2026-08-16-leanrag-hierarchy-port` — its agg-L* tree + DI'd
+  summarizeFn/budget gates (D2/D4/D6) become the L1 tier of this effort's ladder; its D7
+  (md-git-canonical, derived regen-able) is why OpenViking sidecars were rejected here.
+- **Builds-on**: `.planning/2026-08-17-knowledge-pipeline-polish` — its L2 leaf-hoist
+  (`embedding-leaf.ts`) is the single point D3 changes; its "zero behavior change" fence is
+  exactly what D0 lifts for this effort.
+- **Builds-on**: `.planning/knowledge/hermes-recall-audit.md` — the measured 0/20 that
+  justifies D1; ticket 04 commits its runner so the number stays reproducible.

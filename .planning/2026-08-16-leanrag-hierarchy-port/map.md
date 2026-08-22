@@ -28,3 +28,9 @@ LeanRAG ① (semantic-aggregation hierarchy) + ② (LCA tree retrieval) ported o
 
 ## Tickets
 - (charted below)
+
+## Cross-effort links
+- **Built-on-by**: `.planning/2026-08-22-context-lifecycle` — its agg-L* tree + DI'd
+  summarizeFn/budget gates (D2/D4/D6 here) become that effort's L1 retrieval tier; its D7
+  (md-git-canonical, derived regen-able) is why that effort rejected OpenViking-style
+  `.abstract.md`/`.overview.md` sidecars in favor of frontmatter `summary:`.
