@@ -119,6 +119,10 @@ export interface ExecOptions {
   agentRetries?: number;
   /** Resolve a checkpoint() question with a human reply (only for UI-bearing runs). */
   confirm?: (promptText: string, options: unknown) => Promise<unknown>;
+  /** Per-run main model (provider/id) — `manifest.model` on the pack `name` path.
+   *  Overrides the manager-level session mainModel; a script's per-agent `model`
+   *  still wins inside the runtime. Precedence: script > manifest > session. */
+  mainModel?: string;
   /** Pack identity (decision 08); absent for inline scripts. Presence routes state to stateRoot. */
   packId?: string;
   /** Pack-local state root; when set, this run's persistence writes to <stateRoot>/runs. */
@@ -171,6 +175,7 @@ function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
     tokenBudget,
     concurrency,
     agentRetries,
+    mainModel,
     packId,
     stateRoot,
     intermediateDir,
@@ -183,6 +188,7 @@ function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
     tokenBudget,
     concurrency,
     agentRetries,
+    mainModel,
     packId,
     stateRoot,
     intermediateDir,
@@ -535,7 +541,9 @@ export class WorkflowManager extends EventEmitter {
         cwd: this.cwd,
         args,
         agent: this.agent,
-        mainModel: this.mainModel,
+        // Per-run manifest.model (exec.mainModel) outranks the session mainModel;
+        // a script's per-agent `model` still outranks both inside the runtime.
+        mainModel: exec.mainModel ?? this.mainModel,
         scopedModels: this.scopedModels,
         extensionTools: this.extensionTools,
         hostFns: this.hostFns,

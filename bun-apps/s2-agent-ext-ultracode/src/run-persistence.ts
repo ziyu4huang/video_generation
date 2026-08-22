@@ -43,6 +43,9 @@ export interface PersistedExecOptions {
   tokenBudget?: number | null;
   concurrency?: number;
   agentRetries?: number;
+  /** Per-run main model (manifest.model on the pack path); rehydrated by resume()
+   *  so a resumed run keeps the model it was started with. */
+  mainModel?: string;
   /** Pack identity (decision 08); absent for inline scripts. */
   packId?: string;
   /** Pack-local state root; routes resume() to the pack store (T5b). */

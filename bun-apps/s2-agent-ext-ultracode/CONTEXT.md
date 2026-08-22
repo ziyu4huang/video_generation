@@ -47,8 +47,8 @@ _Avoid_: ".claude/workflows" (that is Claude Code's Workflow-tool dir, not resol
 The `workflow` tool's optional pack selector — mutually exclusive with `script`
 (exactly one required). Resolves a pack via the shared resolver; the manifest's
 default `args` are shallow-merged under the caller's `args`. `manifest.model`
-is NOT applied on this path (the session's `mainModel` governs — per-run model
-is future work).
+threads into `ExecOptions.mainModel` (ticket 06): it outranks the session's
+`mainModel`, while a script's per-agent `model` still outranks it.
 _Avoid_: conflating with the inline `script` parameter; "loadSavedWorkflow"
 (that resolves saved single-file workflows from `/workflows`, a separate namespace)
 

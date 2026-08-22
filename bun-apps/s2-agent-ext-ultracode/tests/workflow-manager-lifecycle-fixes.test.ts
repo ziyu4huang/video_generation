@@ -95,7 +95,16 @@ test(
 const a = await agent('work', { label: 'a' })
 return { a }`;
 
-    const exec = { tokenBudget: 123456, maxAgents: 7, concurrency: 3, agentRetries: 2, agentTimeoutMs: null };
+    const exec = {
+      tokenBudget: 123456,
+      maxAgents: 7,
+      concurrency: 3,
+      agentRetries: 2,
+      agentTimeoutMs: null,
+      // Ticket 06: the per-run manifest model rides in the persisted exec and
+      // must survive the resume round-trip like every other cap.
+      mainModel: "manifest/declared-model",
+    };
     const { runId, promise } = manager.startInBackground(script, undefined, exec);
     promise.catch(() => {});
     await new Promise((r) => setTimeout(r, 20));
@@ -121,6 +130,9 @@ return { a }`;
     // The resumed executeRun re-captured and re-persisted the SAME caps —
     // proving resume() rehydrated them instead of resetting to defaults.
     assert.deepEqual(final?.exec, exec, "exec caps were dropped by resume()");
+    // Ticket 06: the resumed run's default agent resolves to the rehydrated
+    // manifest model (displayModel = modelSpec ?? rehydrated mainModel).
+    assert.equal(final?.agents?.[0]?.model, "manifest/declared-model", "resume dropped exec.mainModel");
     // Unblock the original run's hung agent so its teardown finishes.
     resolvers[0]?.("late");
   }),

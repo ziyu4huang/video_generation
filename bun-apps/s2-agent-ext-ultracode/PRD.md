@@ -71,8 +71,14 @@ pack resolver, manifest model, and the `runWorkflowScript` orchestration are
 exported from this package and consumed by the CLI (no resolver code lives in
 the CLI anymore).
 
-> `manifest.model` is applied on Path A (`--model` overrides it) but NOT on
-> Path B (the session's `mainModel` governs; per-run model is future work).
+> `manifest.model` is applied on BOTH paths — Path A via `--model` precedence
+> (flag > env > manifest > pi default), Path B via `ExecOptions.mainModel`
+> (ticket 06). Effective precedence on Path B: script per-agent `model` >
+> `manifest.model` > session `mainModel`; the result details label reports
+> `modelSource: "manifest"` vs `"session"` accordingly. Application is via the
+> runtime's main-model resolution, exactly as on Path A: a configured tier
+> default for untagged agents still applies, and the global rate limiter keys
+> off the governing model's provider.
 
 
 ## Install
