@@ -1,6 +1,7 @@
 # Blind eval — compact CC-style (arm B) vs built-in (arm A)
 
-Status: OPEN (follow-up #2 of PR #1787). Started 2026-08-22.
+Status: CLOSED 2026-08-23 — keep arm B (CC-style) as shipped default. Opened
+2026-08-22 (follow-up #2 of PR #1787).
 
 ## Question
 
@@ -72,6 +73,18 @@ that is hallucination pressure → the deferred verify/repair loop
 | 1 | 03 | pi 2026-07-10 | A: 9 | B: 10 | **B** | A recalled ~half the factSet paths; B near-all |
 | 1 | 04 | deploy 2026-07-18 | A: 10 | B: 10 | tie | |
 | 1 | 05 | memory 2026-07-13 | B: 10 | A: 10 | tie | B has stray `</summary>` artifact at EOF (cosmetic) |
+| 2 | 01 | ltx 2026-07-10 | B: 10 | A: 10 | **B** | forced choice: B's error-iteration + pending-state fidelity |
+| 2 | 02 | pi 2026-07-05 | B: 10 | A: 8 | **B** | A recalled only the last of 3 goals; ~half the factSet paths |
+| 2 | 03 | pi 2026-07-10 | B: 10 | A: 10 | **B** | forced choice: B's surgical next step for the failing-test hunt |
+| 2 | 04 | dsh 2026-08-22 | A: 9 | B: 10 | **B** | A missed dsh-specific paths (deploy-e2e-recipe, wasm-runner) |
+| 2 | 05 | deploy 2026-07-18 | B: 10 | A: 9 | **B** | A dropped a user request entirely (goal-todo bug report) |
+
+Batch 2 (2026-08-23 00:20, judge: Claude glm-5.3 different session, all pairs
+scored + forced-chosen before de-blinding; X=B in 4/5 pairs): **B 5/5 wins
+(3 strict, 2 via forced choice on 10/10 ties), 0 losses.** Recall criteria
+(1–3) strictly favor B in pairs 02/04/05 — A's failure modes this batch:
+whole-goal amnesia on multi-goal sessions (02), factSet path gaps on
+file-heavy sessions (04), dropped user request (05).
 
 Batch 1 (2026-08-22, judge: Claude glm-5.3 in-session, all pairs scored before
 de-blinding): **B wins-or-ties 5/5, 0 losses, 1 strict win.** Recall criteria
@@ -86,11 +99,28 @@ allowed") to break saturation.
 |---|---|---|---|---|---|
 | prior (2026-08-22 03:35, previews only — same 5 sessions) | 1613 | 3139 | 1.95 | 15.9 | 14.8 |
 | 1 (2026-08-22 08:11) | 1631 | 3410 | 2.09 | 15.9 | 14.5 |
+| 2 (2026-08-23 00:20) | 1451 | 2982 | 2.06 | 14.9 | 13.8 |
 
-### Interim read
+Cost side is stable across batches: B costs ~2× A's tokens and ~1 point of
+compression ratio — the price of the recall win above.
+
+### Interim read (after batch 1)
 
 Arm B default is supported so far (no losses; the only observed failure mode of
 arm A — path-recall drop on a file-heavy session — is exactly what the
 `<verified-files>` hint targets). Not yet closing: single judge, single batch,
 saturated scores. Close after at least one more batch (ideally a different
 judge/session) with the forced-choice tiebreaker added.
+
+### Final verdict (2026-08-23, after batch 2)
+
+**Keep arm B (CC-style) as the shipped default — decision rule satisfied.**
+Across 10 sessions (2 batches), B wins-or-ties 10/10 with 0 losses (batch 1:
+1 strict + 4 ties; batch 2: 5 wins incl. 3 strict). Recall criteria (1–3)
+favor B in both batches; every strict-loss case for A is a recall failure
+(paths, requests, whole goals), which is the exact failure mode compact
+summaries exist to prevent. Residual caveat: both batches judged by the same
+model family (glm-5.3), different sessions — if a future model swap changes
+summarization quality, re-open with one batch. The deferred verify/repair
+loop (`docs/UPSTREAM-LESSONS.md`) stays deferred: no hallucination pressure
+observed (criterion 4 at 2/2 on B in all 10 pairs).
