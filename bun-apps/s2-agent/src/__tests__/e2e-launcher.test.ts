@@ -77,8 +77,10 @@ describe.skipIf(!E2E_ENABLED)("symlink resolution", () => {
 	// syncMarkdownMemories 3545ms) — a default 5s per-test timeout kills the
 	// run before the 15s spawnSync timeout can even elapse. The test asserts
 	// symlink RESOLUTION, not boot speed; 30s keeps it far above real boots
-	// (measured ~4.6s) while still bounding a hang.
-	test("entry/mode resolve against the REAL script dir, not the symlink's dir", 30_000, () => {
+	// (measured ~4.6s) while still bounding a hang. The trailing-number timeout
+	// is honored by the bun runtime; the cast only silences the pinned
+	// bun-types' older jest-style signature (no trailing-timeout overload).
+	test("entry/mode resolve against the REAL script dir, not the symlink's dir", () => {
 		// bun-apps/s2-agent ships src/cli.ts, so real behavior here is
 		// "source (dev)". --list-models is a fast, offline,
 		// no-model-server-required subcommand — good for proving the launcher
@@ -111,7 +113,7 @@ describe.skipIf(!E2E_ENABLED)("symlink resolution", () => {
 		const realLinkDir = realpathSync(linkDir);
 		expect(result.stderr).toContain(`cwd=${realLinkDir}`);
 		expect(realLinkDir).not.toBe(REAL_PKG_DIR);
-	});
+	}, 30_000 as never);
 });
 
 describe("entry-mode detection", () => {
