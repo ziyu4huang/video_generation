@@ -188,13 +188,18 @@ mkdir -p /tmp/dedup-fixture && cd /tmp/dedup-fixture
 # crafted .md (per-target) with §-entries, plus a small sqlite DB with candidate rows —
 # build via the same SQL the old script uses (see its DBS=…/sqlite3 calls) or seed via
 # python/venv/bin/python sqlite3 module; MUST be non-destructive: always --db <fixture copy>.
-bash bun-apps/s2-agent-ext-hermes-memory/skills/pi-memory-bulk-dedup/dedup.sh --help            # → exit 0
-bash …/dedup.sh --target failure --db /tmp/dedup-fixture/db.sqlite --dry-run                    # → exit 0, BEFORE→AFTER counts
-bash …/dedup.sh --target failure --db /tmp/dedup-fixture/db.sqlite --commit --keep-backups 1    # → exit 0, on a COPY
-bash …/dedup.sh --target bogus-name --db /tmp/dedup-fixture/db.sqlite --dry-run                 # → exit 2, usage error
+# Fixtures MUST live under a literal /tmp/… path: goldens embed the fixture paths, and
+# macOS $TMPDIR diverges/rotates. The B/L case is dry-run-by-default: report-only until
+# --commit; there is NO --dry-run flag (the old script rejects it — pin that quirk).
+bash …/dedup.sh --help                                                                           # → exit 0
+bash …/dedup.sh --target failure --db /tmp/dedup-fixture/db.sqlite                               # → exit 0, report-only BEFORE→AFTER counts
+bash …/dedup.sh --target failure --db /tmp/dedup-fixture/db.sqlite --commit --keep-backups 1     # → exit 0, on a COPY
+bash …/dedup.sh --target failure --db /tmp/dedup-fixture/db.sqlite --prefix-len 40 --prune-stubs # → exit 0, flags A/B
+bash …/dedup.sh --target bogus-name --db /tmp/dedup-fixture/db.sqlite                            # → exit 2, "invalid --target 'bogus-name' (memory|user|failure)"
+bash …/dedup.sh --db /tmp/dedup-fixture/db.sqlite --dry-run                                      # → exit 2, "unknown arg: --dry-run (try --help)" (the quirk)
 ```
 
-Record each `(args → stdout, code)`, normalize (only if the output contains timings/paths that vary across runs — otherwise byte-exact), and paste the four cases into the test below. The `--commit` case must be run against **copies** of the fixture each time (destructive by design).
+Record each `(args → stdout, code)`, normalize (only if the output contains timings/paths that vary across runs — otherwise byte-exact), and paste the cases into the test below. The `--commit` case must be run against **copies** of the fixture each time (destructive by design). Hermeticity note: the parity test pins `ps`/`date` via PATH stubs so the captured goldens stay byte-stable; commit that harness behavior into the fixture helper.
 
 - [ ] **Step 2: Write the failing parity test**
 
@@ -202,7 +207,7 @@ Record each `(args → stdout, code)`, normalize (only if the output contains ti
 // bun-apps/s2-agent-ext-hermes-memory/tests/dedup-parity.test.ts
 // captured 2026-08-23 from dedup.sh@<sha before deletion> — normalize = none (output is static)
 import { test, expect } from "bun:test";
-import { assertParity } from "../../../tests/helpers/bash-parity"; // bun-apps/tests/helpers
+import { assertParity } from "../../tests/helpers/bash-parity"; // two levels up: pkg/tests -> bun-apps/tests/helpers
 import { mkdtempSync, writeFileSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -218,7 +223,7 @@ test("dedup.ts dry-run BEFORE→AFTER", () => { … out: DRYRUN_GOLDEN … });
 test("dedup.ts commit on a copy", () => { … out: COMMIT_GOLDEN … });
 test("dedup.ts bogus target exits 2", () => {
   assertParity(DEDUP, [
-    { name: "usage-error", args: ["--target","bogus-name","--db","/tmp/x.sqlite","--dry-run"], expectCode: 2, errIncludes: ["usage"] },
+    { name: "usage-error", args: ["--target","bogus-name","--db","/tmp/x.sqlite"], expectCode: 2, errIncludes: ["invalid --target 'bogus-name' (memory|user|failure)"] },
   ]);
 });
 ```
