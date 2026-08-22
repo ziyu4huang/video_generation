@@ -142,3 +142,22 @@ export function getBackgroundRunManager(): BackgroundRunManager {
   singleton ??= new BackgroundRunManager();
   return singleton;
 }
+
+/**
+ * Wire the singleton's deliverer to a pi-like sender: `followUp` delivery
+ * queues the notification while the parent turn is busy and delivers it when
+ * idle (the seam btw uses for handoff injection). Called once by the
+ * extension entry at load. Best-effort: a host without sendMessage (or a
+ * wiring-time throw) degrades to no-wake — results still land in
+ * run-persistence, so list_subagent_runs keeps working.
+ */
+export function wireBackgroundDeliverer(
+  pi: { sendMessage?: (msg: string, opts?: unknown) => void },
+  manager: BackgroundRunManager = getBackgroundRunManager(),
+): void {
+  try {
+    manager.setDeliverer((msg) => pi.sendMessage?.(msg, { deliverAs: "followUp" }));
+  } catch {
+    // best-effort only
+  }
+}

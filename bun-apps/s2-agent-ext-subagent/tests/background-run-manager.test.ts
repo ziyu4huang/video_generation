@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { BackgroundRunManager, backgroundCap, formatTaskNotification } from "../src/background-run-manager.js";
+import {
+  BackgroundRunManager,
+  backgroundCap,
+  formatTaskNotification,
+  wireBackgroundDeliverer,
+} from "../src/background-run-manager.js";
 
 const spec = { id: "run-1", agent: "reviewer", model: "m", taskPreview: "do a thing", startedAt: 1000 };
 
@@ -92,5 +97,21 @@ describe("BackgroundRunManager", () => {
     expect(m.claim("y").ok).toBe(false);
     m.release("x");
     expect(m.claim("z").ok).toBe(true, "released slot is claimable again");
+  });
+  test("wireBackgroundDeliverer routes completions through sendMessage with deliverAs followUp", async () => {
+    const sent: Array<{ msg: string; opts: unknown }> = [];
+    const m = new BackgroundRunManager();
+    wireBackgroundDeliverer({ sendMessage: (msg, opts) => sent.push({ msg, opts }) }, m);
+    m.track(spec, Promise.resolve({ status: "done" }));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.opts).toEqual({ deliverAs: "followUp" });
+    expect(sent[0]!.msg).toContain("<task-notification>");
+  });
+  test("wireBackgroundDeliverer degrades to no-wake on a host without sendMessage", async () => {
+    const m = new BackgroundRunManager();
+    wireBackgroundDeliverer({}, m); // no sendMessage — must not throw, must not wake
+    m.track(spec, Promise.resolve({ status: "done" }));
+    await new Promise((r) => setTimeout(r, 10)); // completing silently = pass
   });
 });

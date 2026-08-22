@@ -50,6 +50,7 @@ export {
   backgroundCap,
   formatTaskNotification,
   getBackgroundRunManager,
+  wireBackgroundDeliverer,
 } from "./background-run-manager.js";
 // ── owned: detach dispatch (Task 06) — alt+s global + ctrl+b in-viewer ─────
 export {
