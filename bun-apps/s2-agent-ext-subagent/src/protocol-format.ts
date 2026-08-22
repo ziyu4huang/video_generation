@@ -38,8 +38,35 @@ export function isDetachedResumeHost(env: Record<string, string | undefined> = p
   return Boolean(env[SUBAGENT_DETACHED_RESUME_ENV]);
 }
 
-/** Child→parent plan-approval request notification (the followUp the parent wakes to). */
+/**
+ * Child→parent plan-approval request notification (the followUp the parent
+ * wakes to). NOTE the reply instruction is a PLAIN send_message: this
+ * notification is the MANUAL path (send_message plan_approval_request, for
+ * agents without the injected tool), which creates NO pending hold — a
+ * plan_approval_response here would find nothing to resolve. The tool-based
+ * path (request_plan_approval) formats its own notification with the
+ * envelope-typed reply instruction.
+ */
 export function formatPlanApprovalRequestNotification(from: { name: string; agentId?: string }, plan: string): string {
+  return [
+    "<plan-approval-request>",
+    `Live agent "${from.name}"${from.agentId ? ` (agentId ${from.agentId})` : ""} requests approval before proceeding:`,
+    plan,
+    "",
+    `Reply with a plain send_message to "${from.name}" stating the verdict (e.g. "APPROVED — proceed" / "DENIED — because …"); the agent sees your reply as its next message. (plan_approval_response resolves the request_plan_approval TOOL's pending wait only — this manual request holds nothing.)`,
+    "</plan-approval-request>",
+  ].join("\n");
+}
+
+/**
+ * Tool-based plan-approval request notification: the reply IS the
+ * plan_approval_response envelope (it resolves the pending hold the tool
+ * created).
+ */
+export function formatToolPlanApprovalRequestNotification(
+  from: { name: string; agentId?: string },
+  plan: string,
+): string {
   return [
     "<plan-approval-request>",
     `Live agent "${from.name}"${from.agentId ? ` (agentId ${from.agentId})` : ""} requests approval before proceeding:`,

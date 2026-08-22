@@ -23,7 +23,7 @@ import { Type } from "typebox";
 import { getParentMessageBus, type ParentMessageBus } from "./parent-message-bus.js";
 import {
   DEFAULT_PLAN_APPROVAL_TIMEOUT_MS,
-  formatPlanApprovalRequestNotification,
+  formatToolPlanApprovalRequestNotification,
   isDetachedResumeHost,
 } from "./protocol-format.js";
 
@@ -88,7 +88,7 @@ export function createRequestPlanApprovalTool(
 
       // Publish BEFORE holding: a failed wake must not leave a pending entry
       // (the timeout would deny a request the parent never saw).
-      const published = bus.publish({ name }, formatPlanApprovalRequestNotification({ name }, params.plan));
+      const published = bus.publish({ name }, formatToolPlanApprovalRequestNotification({ name }, params.plan));
       if (!published.ok) {
         return textResult(
           `Plan approval unavailable: ${published.error} Proceed without approval, or surface the decision point in your reply.`,

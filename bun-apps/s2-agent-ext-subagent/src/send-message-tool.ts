@@ -208,8 +208,9 @@ export function createSendMessageTool(
         if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
         return textResult(
           `Plan-approval request delivered to the parent session (from "${name}"). ` +
-            "It arrives as a follow-up; respond with send_message { to: '<name>', type: 'plan_approval_response', approve: true|false } — " +
-            "that response reaches you as your next message, so continue once you see it.",
+            "It arrives as a follow-up; the parent replies with a PLAIN send_message stating the verdict, " +
+            "which reaches you as your next message — continue once you see it. " +
+            "(If you have the request_plan_approval tool, prefer it: it blocks for the verdict instead.)",
         );
       }
       case "shutdown_request": {
@@ -266,27 +267,41 @@ export function createSendMessageTool(
    * both the prompt path and the backstop timer, so there is exactly one
    * abort lever per shutdown.
    */
-  const shutdownRequest = async (params: { to: string; timeoutMs?: number }, signal: AbortSignal | undefined) => {
+  const shutdownRequest = async (
+    params: { to: string; message?: string; timeoutMs?: number },
+    signal: AbortSignal | undefined,
+  ) => {
     const entry = liveRegistry.get(params.to);
     if (!entry) {
       return textResult(`No live agent "${params.to}". Live agents: ${liveRegistry.names().join(", ") || "(none)"}.`);
     }
     liveRegistry.touch(entry.name);
     const graceMs = params.timeoutMs ?? DEFAULT_SHUTDOWN_GRACE_MS;
+    // The caller's stated reason rides the wrap-up notice (review m1) — the
+    // child's model sees WHY on its final turn, not just the generic text.
+    const notice = [
+      SHUTDOWN_WRAP_UP_MESSAGE,
+      params.message?.trim() ? `Shutdown reason from the parent: ${params.message.trim()}` : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     // Stage 2 backstop — the ONLY abort for the steered case (send returned
     // immediately; the running exchange would otherwise outlive the request).
     // Cleared when the wrap-up exchange completes on its own first.
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     const stop = () => liveRegistry.release(entry.name, "shutdown-request");
+    // A pre-aborted calling turn skips the shutdown ENTIRELY without touching
+    // the agent (review m2): a whole-turn Esc must not dispose a persistent
+    // named agent (turn-abort decoupling, ADR-subagent-0007) — the parent can
+    // re-issue the request in its next turn.
     if (signal?.aborted) {
-      stop();
       return textResult(
-        `Shutdown of "${entry.name}" skipped — the calling turn aborted; the agent was stopped as part of teardown.`,
+        `Shutdown of "${entry.name}" skipped — the calling turn aborted before delivery. The agent is untouched and still on the live roster; re-issue the request in a later turn.`,
       );
     }
     graceTimer = setTimeout(stop, graceMs);
     try {
-      const result = await entry.agent.send(SHUTDOWN_WRAP_UP_MESSAGE, { timeoutMs: graceMs, label: "shutdown" });
+      const result = await entry.agent.send(notice, { timeoutMs: graceMs, label: "shutdown" });
       // Steered: send returned immediately (the exchange is still running) —
       // the grace timer stays armed as stage 2; stopping here would kill the
       // wrap-up turn we just asked for.

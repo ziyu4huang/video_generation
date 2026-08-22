@@ -248,6 +248,41 @@ test("shutdown_request (mid-flight agent): steer returns immediately; the grace 
   assert.equal(liveRegistry.get("worker"), undefined);
 });
 
+test("shutdown_request: the caller's stated reason rides the wrap-up notice (m1)", async () => {
+  const { tool, liveRegistry } = mkTool();
+  const { agent, state } = fakeAgent([{ output: "saved" }]);
+  liveRegistry.register({ name: "worker", agentId: "c1", agent, cwd: "/repo" });
+  await tool.execute(
+    "t1",
+    { to: "worker", message: "budget repurposed — hand off now", type: "shutdown_request" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.match(state.sends[0]?.text ?? "", /FINAL turn/);
+  assert.match(state.sends[0]?.text ?? "", /Shutdown reason from the parent: budget repurposed/);
+});
+
+test("shutdown_request with a pre-aborted calling turn: the agent is untouched (m2)", async () => {
+  const { tool, liveRegistry } = mkTool();
+  const { agent, state } = fakeAgent();
+  liveRegistry.register({ name: "worker", agentId: "c1", agent, cwd: "/repo" });
+  const aborted = new AbortController();
+  aborted.abort();
+  const res = await tool.execute(
+    "t1",
+    { to: "worker", message: "", type: "shutdown_request" },
+    aborted.signal as never,
+    undefined,
+    NO_CTX,
+  );
+  assert.match(text(res), /skipped/);
+  assert.match(text(res), /untouched/);
+  assert.equal(state.sends.length, 0); // no wrap-up exchange started
+  assert.equal(state.disposed, 0); // NOT disposed (turn-abort decoupling)
+  assert.ok(liveRegistry.get("worker")); // still on the roster
+});
+
 test("shutdown_request: wrap-up failure still stops the agent (release is unconditional)", async () => {
   const { tool, liveRegistry } = mkTool();
   const { agent, state } = fakeAgent([new Error("model exploded")]);
@@ -300,8 +335,8 @@ test("child shutdown_request to 'main' is notification-only (the parent approves
   assert.match(delivered[0] ?? "", /action: 'stop'/);
 });
 
-test("child plan_approval_request to 'main' notifies and names the response envelope", async () => {
-  const { tool, delivered } = mkTool();
+test("child plan_approval_request to 'main' (manual path): notification asks for a PLAIN reply — no pending hold (M2)", async () => {
+  const { tool, delivered, pending } = mkTool();
   const res = await tool.execute(
     "t1",
     { to: "main", message: "1) read code 2) patch", type: "plan_approval_request", from: "researcher" },
@@ -309,9 +344,11 @@ test("child plan_approval_request to 'main' notifies and names the response enve
     undefined,
     NO_CTX,
   );
-  assert.match(text(res), /plan_approval_response/);
+  assert.match(text(res), /PLAIN send_message/);
   assert.match(delivered[0] ?? "", /<plan-approval-request>/);
   assert.match(delivered[0] ?? "", /"researcher"/);
+  assert.match(delivered[0] ?? "", /holds nothing/); // manual path creates no hold
+  assert.equal(pending.size, 0);
 });
 
 test("plan_approval_request parent→child is refused (child→parent only)", async () => {
@@ -430,7 +467,13 @@ test("stop by unknown name still reports the unknown-run error", async () => {
 
 // ── named-dispatch allowlist append ─────────────────────────────────────────
 
-function spawnOptsFor(params: Record<string, unknown>) {
+function spawnOptsFor(
+  params: Record<string, unknown>,
+  // "default" = the populated parent active set; "absent" = host WITHOUT a
+  // usable getActiveTools (passing undefined would just trigger the default).
+  activeTools: string[] | "default" | "absent" = "default",
+) {
+  const activeSet = activeTools === "default" ? ["read", "grep"] : activeTools === "absent" ? undefined : activeTools;
   const savedHints = process.env.PI_SUBAGENT_HINTS_FILE;
   process.env.PI_SUBAGENT_HINTS_FILE = "/nonexistent/pi-subagent-hints-absent.fixture.md";
   try {
@@ -452,7 +495,7 @@ function spawnOptsFor(params: Record<string, unknown>) {
       },
       { resolvedModel: undefined, fellBack: false, lastHistory: undefined, maxToolCallsSeen: 0 },
       {
-        getActiveTools: () => ["read", "grep"],
+        getActiveTools: () => activeSet,
         getExtensionTools: () => undefined,
         inFlight: undefined,
         persistence: undefined,
@@ -464,6 +507,18 @@ function spawnOptsFor(params: Record<string, unknown>) {
     else process.env.PI_SUBAGENT_HINTS_FILE = savedHints;
   }
 }
+
+test("M1 regression: absent active set (host without getActiveTools) does NOT become a one-tool allowlist", () => {
+  // effectiveTools undefined = NO restriction (applyToolPolicy filters
+  // nothing) — appending here would strip every other tool from the child.
+  const opts = spawnOptsFor({ name: "researcher" }, "absent");
+  assert.equal(opts.tools, undefined);
+});
+
+test("M1 regression: EMPTY active set stays empty (no restriction), never only-the-protocol-tool", () => {
+  const opts = spawnOptsFor({ name: "researcher" }, []);
+  assert.deepEqual(opts.tools, []);
+});
 
 test("named dispatch appends request_plan_approval to the allowlist (default parent active set)", () => {
   const opts = spawnOptsFor({ name: "researcher" });

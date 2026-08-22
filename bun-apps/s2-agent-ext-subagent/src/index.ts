@@ -82,6 +82,7 @@ export {
   DEFAULT_SHUTDOWN_GRACE_MS,
   formatPlanApprovalRequestNotification,
   formatShutdownRequestNotification,
+  formatToolPlanApprovalRequestNotification,
   isDetachedResumeHost,
   SHUTDOWN_WRAP_UP_MESSAGE,
   SUBAGENT_DETACHED_RESUME_ENV,

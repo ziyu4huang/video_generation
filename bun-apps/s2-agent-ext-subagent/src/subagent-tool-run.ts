@@ -435,8 +435,19 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
   // what survives applyToolPolicy — the default allowlist is the PARENT's
   // active set, which deliberately does not name a child-only tool. An
   // explicit excludeTools still strips it (deny wins in applyToolPolicy).
-  if (params.name && !effectiveTools?.includes(REQUEST_PLAN_APPROVAL_TOOL_NAME)) {
-    effectiveTools = [...(effectiveTools ?? []), REQUEST_PLAN_APPROVAL_TOOL_NAME];
+  //
+  // Append ONLY onto a NON-EMPTY allowlist (review M1): an absent or empty
+  // list means NO restriction (applyToolPolicy filters nothing when
+  // `allow` is empty), so the definition passes through unfiltered — and
+  // appending onto it would turn "no restriction" into "only this tool",
+  // stripping every other tool from the child.
+  if (
+    params.name &&
+    Array.isArray(effectiveTools) &&
+    effectiveTools.length > 0 &&
+    !effectiveTools.includes(REQUEST_PLAN_APPROVAL_TOOL_NAME)
+  ) {
+    effectiveTools = [...effectiveTools, REQUEST_PLAN_APPROVAL_TOOL_NAME];
   }
   // H4: append the abort-safety footer to the SPAWNED task only — params.task
   // (persisted task / taskSignature circuit-breaker input) stays raw, so both
