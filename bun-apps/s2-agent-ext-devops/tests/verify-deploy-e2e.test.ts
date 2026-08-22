@@ -10,7 +10,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseDeployJson, parseExtListPayload, runDeployE2e } from "../src/deploy-e2e-recipe.js";
+import { parseDeployJson, parseExtListPayload, resolveModelEndpoint, runDeployE2e, modelContentionWarning } from "../src/deploy-e2e-recipe.js";
 import { parseVerifyDeployE2eArgs, runVerifyDeployE2eCli } from "../src/verify-deploy-e2e-cli.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 
@@ -94,6 +94,33 @@ describe("parseExtListPayload (pure)", () => {
 	});
 });
 
+describe("contention precheck (pure)", () => {
+	test("modelContentionWarning: >1 large chat model warns and names them", () => {
+		const w = modelContentionWarning(["qwen3.8-27b", "gemma-4-12b", "text-embedding-bge-m3"]);
+		expect(w).toContain("qwen3.8-27b");
+		expect(w).toContain("gemma-4-12b");
+		// the embedder is excluded — it is not contention for the chat model
+		expect(w).not.toContain("bge-m3");
+	});
+	test("one large model (plus embedders) is quiet", () => {
+		expect(modelContentionWarning(["qwen3.8-27b", "text-embedding-bge-m3"])).toBeNull();
+		expect(modelContentionWarning(["qwen3.8-27b"])).toBeNull();
+	});
+	test("small models never count as large (≥7b threshold)", () => {
+		expect(modelContentionWarning(["foo-4b", "bar-2b"])).toBeNull();
+		expect(modelContentionWarning(["foo-7b", "bar-8b"])).not.toBeNull();
+	});
+	test("resolveModelEndpoint: env override wins, LM Studio default otherwise", () => {
+		expect(resolveModelEndpoint({ LMSTUDIO_BASE_URL: "http://x:9" })).toBe("http://x:9");
+		expect(resolveModelEndpoint({})).toBe("http://127.0.0.1:1234");
+	});
+});
+
+/** Fake fetch returning an OpenAI-style /v1/models body — the precheck seam. */
+function fakeModelsFetch(ids: string[]): (url: string, init?: RequestInit) => Promise<Response> {
+	return async () => new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 });
+}
+
 describe("runDeployE2e", () => {
 	test("all three probes pass on a healthy tree", async () => {
 		makeTree();
@@ -145,7 +172,67 @@ describe("runDeployE2e", () => {
 			spawn: fakeSpawn({ modelCall: { exitCode: 124, timedOut: true, stdout: "", stderr: "" } }),
 		});
 		expect(r.verdict).toBe("fail");
-		expect(r.probes.find((p) => p.id === "model-call")!.verdict).toBe("fail");
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("fail");
+		// slow-vs-hung: the note must not point straight at the surrealdb wedge
+		expect(mc.note).toContain("SLOW");
+		expect(mc.note).toContain("300s");
+		expect(mc.detail).toContain("BOOT HANG");
+	});
+
+	test("contention precheck: >1 large resident model lands in warnings and the fail detail", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ modelCall: { exitCode: 124, timedOut: true, stdout: "", stderr: "" } }),
+			modelEndpoint: "http://127.0.0.1:1234",
+			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "gemma-4-12b", "text-embedding-bge-m3"]),
+		});
+		expect(r.warnings.length).toBe(1);
+		expect(r.warnings[0]).toContain("qwen3.8-27b");
+		// the timeout detail carries the precheck context for the next reader
+		expect(r.probes.find((p) => p.id === "model-call")!.detail).toContain("Precheck:");
+	});
+
+	test("contention precheck: quiet endpoint → no warnings, verdict unaffected", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn(),
+			modelEndpoint: "http://127.0.0.1:1234",
+			fetchImpl: fakeModelsFetch(["qwen3.8-27b"]),
+		});
+		expect(r.verdict).toBe("pass");
+		expect(r.warnings).toEqual([]);
+	});
+
+	test("contention precheck: an unreachable endpoint is silent, never a failure", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn(),
+			modelEndpoint: "http://127.0.0.1:1",
+			fetchImpl: async () => {
+				throw new Error("connect ECONNREFUSED");
+			},
+		});
+		expect(r.verdict).toBe("pass");
+		expect(r.warnings).toEqual([]);
+	});
+
+	test("no modelEndpoint → no precheck fetch at all (hermetic default)", async () => {
+		makeTree();
+		let fetched = false;
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn(),
+			fetchImpl: async () => {
+				fetched = true;
+				return new Response("{}", { status: 200 });
+			},
+		});
+		expect(fetched).toBe(false);
+		expect(r.verdict).toBe("pass");
 	});
 
 	test("a corrupt deploy.json is a structured fail, not a throw", async () => {
@@ -212,6 +299,7 @@ describe("runVerifyDeployE2eCli", () => {
 		const res = await runVerifyDeployE2eCli(["--deploy-root", root], {
 			spawn: fakeSpawn(),
 			versionDir: undefined,
+			modelEndpoint: null, // hermetic: no real /v1/models fetch
 		});
 		expect(res.exitCode).toBe(0);
 		const payload = JSON.parse(res.stdout);
@@ -236,6 +324,7 @@ describe("runVerifyDeployE2eCli", () => {
 		makeTree();
 		const res = await runVerifyDeployE2eCli(["--deploy-root", root], {
 			spawn: fakeSpawn({ extList: { loaded: [] } }),
+			modelEndpoint: null,
 		});
 		expect(res.exitCode).toBe(1);
 	});

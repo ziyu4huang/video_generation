@@ -18,7 +18,7 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseShConfig } from "./deploy/lib/config.ts";
-import { runDeployE2e, resolveCurrentVersionDir } from "./deploy-e2e-recipe.js";
+import { runDeployE2e, resolveCurrentVersionDir, resolveModelEndpoint } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
@@ -27,8 +27,10 @@ export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"",
 	"Proves the DEPLOYED dist actually works: boots run.sh, checks every",
 	"deploy.json-enabled extension reports loaded, and places a real one-shot",
-	"model call through the deployed launcher. Bounded (60s/60s/120s caps); a",
-	"fast provider/auth failure is a SKIP, never a FAIL.",
+	"model call through the deployed launcher. Bounded (60s/60s/300s caps — the",
+	"model call gets multi-model-contention headroom); a fast provider/auth",
+	"failure is a SKIP, never a FAIL. Before the model call, the endpoint's",
+	"/v1/models is checked: >1 large resident chat model emits a `warnings` note",
 	"",
 	"Default deploy root: outRoot from bun-apps/s2-agent/s2-agent.registry.yaml",
 	"(the same value deploy-cli deploys into). `current` must exist and point at",
@@ -83,7 +85,7 @@ function defaultDeployRoot(): string {
 
 export async function runVerifyDeployE2eCli(
 	argv: string[],
-	deps: { spawn?: SpawnFn; deployRoot?: string; versionDir?: string } = {},
+	deps: { spawn?: SpawnFn; deployRoot?: string; versionDir?: string; modelEndpoint?: string | null } = {},
 ): Promise<CliResult> {
 	const parsed = parseVerifyDeployE2eArgs(argv);
 	if (!parsed.ok) {
@@ -104,6 +106,8 @@ export async function runVerifyDeployE2eCli(
 		versionDir,
 		spawn,
 		skipModelCall: parsed.args.skipModelCall,
+		// deps.modelEndpoint === null keeps unit tests hermetic (no fetch).
+		modelEndpoint: deps.modelEndpoint === undefined ? resolveModelEndpoint() : deps.modelEndpoint,
 	});
 	return jsonResult(outcome.verdict === "fail" ? 1 : 0, { deployRoot, ...outcome });
 }

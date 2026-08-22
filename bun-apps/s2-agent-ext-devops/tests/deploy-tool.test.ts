@@ -15,6 +15,7 @@ const e2ePass = (verdict: DeployE2eOutcome["verdict"] = "pass"): DeployE2eOutcom
 	version: "0.1.0+gabc1234",
 	sourceSha: "abc1234",
 	probes: [],
+	warnings: [],
 	verdict,
 	note: `${verdict} (fake)`,
 	durationMs: 0,
