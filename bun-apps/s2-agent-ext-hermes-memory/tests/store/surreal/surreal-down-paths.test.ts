@@ -4,7 +4,6 @@ import { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
 import { SurrealClient } from "../../../src/store/surreal/surreal-client.js";
 import { SurrealMemoryRepository } from "../../../src/store/surreal/surreal-memory-repo.js";
 import { SurrealSessionRepository } from "../../../src/store/surreal/surreal-session-repo.js";
-import { SurrealVectorStore } from "../../../src/store/surreal/vector-store.js";
 import { isSurrealUp } from "./_helpers.js";
 
 // hermes-arch 09 close-out: lock the CURRENT down-path contracts with fully
@@ -60,17 +59,6 @@ describe("SurrealDB down-path contracts (hermes-arch 09, offline stubs)", () => 
     );
   });
 
-  it("T3 vector-store upsert + knn reject with the failure marker", async () => {
-    const store = new SurrealVectorStore(deadClient(), "test", "test");
-    await assert.rejects(
-      store.upsertVectors([
-        { mdId: "md:probe", kind: "memory", modelVersion: "probe-v1", contentHash: "deadbeef", vec: [0.1, 0.2] },
-      ]),
-      /SurrealDB request failed/,
-    );
-    await assert.rejects(store.knn([0.1, 0.2], 3, 8), /SurrealDB request failed/);
-  });
-
   it("T4 graph heal is best-effort never-throw (resolves even with SurrealDB down)", async () => {
     const repo = new SurrealMemoryRepository(deadBackend());
     const normalized = await repo.normalizeLegacyMemoryIds();
@@ -86,9 +74,7 @@ describe("SurrealDB down-path contracts (hermes-arch 09, offline stubs)", () => 
     assert.ok(Date.now() - t0 < 3000, "canary must fail fast (<3s)");
   });
 
-  // T5 (knowledge warm-probe) intentionally OMITTED: the tool-layer seam is
-  // not importable-stubbable offline within the <=5-line budget. The
-  // search-layer down contract is already locked by semantic-search.test.ts
-  // ("NEVER throws — every dependency throwing resolves to []") and the
-  // tool-layer catch{} warm-probe is covered by inspection; see ticket 09.
+  // T3 (vector store) + T5 (knowledge warm-probe) retired 2026-08-22 with the
+  // card_vectors HNSW path (context-lifecycle ticket 03) — the store and its
+  // semantic-search layer no longer exist.
 });

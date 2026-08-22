@@ -13,10 +13,7 @@ import { splitMemoryEntries } from "./merge-union.js";
 import { parseMarkdownMemoryEntry } from "./store/memory-format.js";
 import { mirrorMemoryEntry, type MemoryCardKind } from "./store/memory-card-mirror.js";
 import { createCardStore, type CardStore } from "./store/card-store.js";
-import type { Card, CardKind } from "./store/card.js";
-import type { VectorStore } from "./store/surreal/vector-store.js";
-import type { Embedder } from "@repo/s2-agent-core-interface";
-import { scheduleVectorBackfill, vectorBackfillState } from "./handlers/vector-backfill.js";
+import type { Card } from "./store/card.js";
 import { fireHierarchyBuildBestEffort, type HierarchyDeps } from "./handlers/hierarchy-build.js";
 import {
   planningCardKindFromPath,
@@ -25,22 +22,6 @@ import {
   planningTicketId,
 } from "./store/planning-id.js";
 import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./store/planning-sync-state.js";
-
-/** Deps for the Phase B / T3 background vector backfill fired after the mirror
- *  steps. The caller (index.ts) closes over the live vectorStore/embedder/
- *  config; walkAndIngest owns the short-lived cardStore lifecycle. */
-export interface VectorBackfillDeps {
-  /** The HNSW vector side-table (warm-path target). */
-  vectorStore: Pick<VectorStore, "getStoredHashes" | "upsertVectors">;
-  /** Texts → vectors embedder (LM Studio default; injectable). */
-  embedder: Embedder;
-  /** Stable model-lineage tag (the delta-key component so a swap re-embeds). */
-  modelVersion: string;
-  /** Endpoint embedding model id passed to the embedder. */
-  embedModel: string;
-  /** Card kinds to embed (default: ["knowledge", "image"]). */
-  kinds?: CardKind[];
-}
 
 /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
 export interface WalkAndIngestOptions extends WalkOptions {
@@ -90,16 +71,9 @@ export interface WalkAndIngestOptions extends WalkOptions {
    *  (the full knowledge-ingest walk, where this opt is unset). Mirror (T3) +
    *  conflict-marker scan (T5) stay enabled in either mode. Default false. */
   partialWalk?: boolean;
-  /** Phase B / T3: best-effort background vector backfill fired after the mirror
-   *  steps. When set, walkAndIngest schedules a delta-keyed backfill of the
-   *  card_vectors HNSW index — never blocks ingest (fire-and-forget) and a throw
-   *  is error-isolated. The deferred task re-checks the staleness delta and
-   *  embeds only changed/new cards (unchanged cards are skipped). */
-  vectorBackfill?: VectorBackfillDeps;
   /** LeanRAG ① / ticket 04b-2: fire-and-forget multi-layer hierarchy build
-   *  fired after the vector-backfill block. Injected callables (D4); skips
-   *  silently when embeds are unavailable (same degradation class as the
-   *  vector cold path). */
+   *  fired after the mirror steps. Injected callables (D4); skips silently
+   *  when embeds are unavailable. */
   hierarchy?: HierarchyDeps;
   /** kp21 Tier-3: frontmatter fields where the DB row is authoritative
    *  (opt-in; default empty = md-canonical). For each listed field, the
@@ -289,18 +263,6 @@ export async function walkAndIngest(
   // compare skip on unchanged entries).
   const memoryMirrored = await mirrorMemoryToStore(opts.memoryDir);
 
-  // Phase B / T3: best-effort delta-keyed vector backfill. Fire-and-forget —
-  // never blocks ingest. The deferred task re-checks the staleness delta and
-  // embeds only changed/new cards (unchanged cards are skipped). A throw is
-  // error-isolated inside the handler (can't break ingest).
-  if (opts.vectorBackfill) {
-    try {
-      fireVectorBackfillBestEffort(opts.memoryDir, opts.vectorBackfill);
-    } catch {
-      // best-effort — never break ingest
-    }
-  }
-
   // LeanRAG ① / ticket 04b-2: best-effort hierarchy build. Fire-and-forget,
   // never awaited, error-isolated inside the handler (catch-all console.warn).
   // kbDir = <vaultPath>/<folder>; unset vaultPath (no seam / no vault) →
@@ -356,45 +318,6 @@ export async function walkAndIngest(
     skipped: walk.skipped,
     seamPresent: !!kp,
   };
-}
-
-/** Phase B / T3: fire-and-forget the delta-keyed vector backfill. Constructs a
- *  short-lived cardStore, schedules the deferred backfill against the module
- *  singleton state (so concurrent ingest runs coalesce onto one task), and
- *  closes the store after the task resolves. A throw can't escape (best-effort):
- *  ingest has already returned its receipt by the time the deferred task runs.
- *  Uses the real setTimeout (not injectable here) so the promise set by
- *  scheduleVectorBackfill is readable synchronously right after it returns. */
-function fireVectorBackfillBestEffort(memoryDir: string | undefined, deps: VectorBackfillDeps): void {
-  const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
-  const kinds = deps.kinds ?? (["knowledge", "image"] as CardKind[]);
-  void (async () => {
-    let store: CardStore | null = null;
-    try {
-      store = await createCardStore({ memoryDir: dir });
-      const scheduled = scheduleVectorBackfill(
-        store,
-        deps.vectorStore,
-        deps.embedder,
-        kinds,
-        deps.modelVersion,
-        deps.embedModel,
-      );
-      if (scheduled) {
-        // The singleton promise is set synchronously by scheduleVectorBackfill;
-        // chain the store close on its resolution. (Real setTimeout ⇒ the
-        // deferred task has not run yet at this synchronous read.)
-        const p = vectorBackfillState.promise;
-        if (p) p.finally(() => { void store?.close(); }).catch(() => {});
-        else await store.close();
-      } else {
-        // Coalesced onto an in-progress task → this store is unused; close it.
-        await store.close();
-      }
-    } catch {
-      await store?.close().catch(() => {});
-    }
-  })();
 }
 
 /** Mirror step 8 (Decision 4) + Tier-1 drift (kp21): read
