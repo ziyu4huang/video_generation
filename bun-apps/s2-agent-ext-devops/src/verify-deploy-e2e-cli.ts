@@ -17,7 +17,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { parseShConfig } from "../scripts/lib/config.ts";
+import { parseShConfig } from "./deploy/lib/config.ts";
 import { runDeployE2e, resolveCurrentVersionDir } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
