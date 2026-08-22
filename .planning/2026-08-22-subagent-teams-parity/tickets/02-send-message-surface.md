@@ -1,6 +1,32 @@
 # Ticket 02 — send-message-surface
 
-status: open
+status: in-review
+
+## Resolution (2026-08-22, branch feat/subagent-teams-parity-02-send-message)
+
+- NEW `src/send-message-tool.ts` — `send_message {to, message, wait?, timeoutMs?, from?}`:
+  resolves `to` name→agentId in the live registry; running → steer ("delivered", no separate
+  reply); idle → awaited re-prompt (default), or `wait:false` fire-and-forget whose reply lands
+  as a purpose-built `<task-notification>` (formatReplyNotification — inline reply, 4000-char
+  cap, NO list_subagent_runs pointer: follow-up exchanges persist nothing, so the generic
+  formatter's trailer would resolve to the first exchange's record). Terminal budget/turns
+  failure refuses the message and releases the agent (both wait paths).
+- NEW `src/parent-message-bus.ts` — process-singleton ParentMessageBus for `to:"main"`;
+  wireParentMessageDeliverer wires followUp+triggerTurn ONLY when the host has sendMessage
+  (an unwired bus returns an actionable error, never a silent no-op — review Major 1).
+  Child identity = self-declared `from` (in-process children share the tool instance; no
+  implicit session id exists).
+- core-runtime: `LiveAgentHandle.send(): Promise<LiveAgentSendResult>` (structural;
+  LiveAgentExchange satisfies it) — the routing seam. BackgroundRunManager gained raw
+  `deliver(message)`; `notify()` routes through it.
+- Registered in `extensions/subagent.ts` (+ activation family, bus wiring next to
+  wireBackgroundDeliverer); barrel exports the new owned surface; spawn `name` param
+  cross-links send_message; CONTEXT.md send_message term + a "seam ahead of its design"
+  note (child→sibling direct routing + nested-main→root; tickets 04-05 own these).
+- Independent reviewer pass (2 majors, 3 minors) — all addressed in cc59c4f0, re-review
+  requested. Tests: tests/send-message-tool.test.ts (16). Gates: subagent 599 pass,
+  core-runtime 409 pass, tsc ×3, biome, 26-pkg ext-entry typecheck green.
+- Not done here (deliberate): persistence of follow-up exchanges as run records; TUI smoke.
 
 ## Goal
 

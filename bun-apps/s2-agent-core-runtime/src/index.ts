@@ -116,7 +116,7 @@ export { homeDir } from "./home.js";
 // Named persistent agents (agent-teams parity, ticket 01): the live-agent
 // registry (naming/roster/LRU/disposal) and the persistent-agent runner
 // (openLiveAgent / spawnLiveAgentFirstExchange over CoreAgent.assembleSession).
-export type { LiveAgentEntry, LiveAgentHandle } from "./live-agent-registry.js";
+export type { LiveAgentEntry, LiveAgentHandle, LiveAgentSendResult } from "./live-agent-registry.js";
 export {
   __resetLiveAgentRegistryForTests,
   DEFAULT_MAX_LIVE,

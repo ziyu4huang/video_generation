@@ -21,6 +21,20 @@
 export const RESERVED_AGENT_NAMES: readonly string[] = ["main"];
 
 /**
+ * Minimal exchange outcome the routing layer (send_message, ticket 02) reads.
+ * LiveAgentExchange (persistent-agent.ts) satisfies this structurally — failure
+ * kinds widen to string — so the registry module keeps no import edge on the
+ * session-assembly layer.
+ */
+export interface LiveAgentSendResult {
+  output: string;
+  /** True when the text was steered into a mid-flight exchange (no reply yet). */
+  steered?: boolean;
+  /** Present when the exchange did not produce a reply (terminal kinds: budget/turns refuse further sends). */
+  failure?: { kind: string; message: string };
+}
+
+/**
  * The structural surface the registry needs from a live agent. Declared here
  * (not imported from persistent-agent.ts) so the registry module has no import
  * edge on the session-assembly layer — LiveAgent (persistent-agent.ts)
@@ -29,6 +43,12 @@ export const RESERVED_AGENT_NAMES: readonly string[] = ["main"];
 export interface LiveAgentHandle {
   /** "running" while an exchange is in flight, "idle" between exchanges. */
   readonly status: "running" | "idle";
+  /**
+   * One exchange: idle → prompt (await the reply), running → steer (queued
+   * into the current exchange, returns steered:true immediately). This is the
+   * seam send_message dispatches through (ticket 02).
+   */
+  send(text: string, opts?: { timeoutMs?: number; signal?: AbortSignal; label?: string }): Promise<LiveAgentSendResult>;
   /** Bump the LRU clock (called by the registry on every touchpoint). */
   touch(): void;
   /** Abort any in-flight exchange, dispose the session, free resources. Idempotent. */

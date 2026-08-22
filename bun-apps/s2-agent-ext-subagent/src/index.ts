@@ -69,6 +69,17 @@ export type {
   DetachOutcome,
 } from "./detach-run.js";
 export { convertToBackground, makeProdDetachDeps, spawnDetachedChild } from "./detach-run.js";
+// ── owned: child→parent message bus (send_message to:'main', ticket 02) ────
+export type { ParentMessageFrom } from "./parent-message-bus.js";
+export {
+  formatAgentMessage,
+  getParentMessageBus,
+  ParentMessageBus,
+  wireParentMessageDeliverer,
+} from "./parent-message-bus.js";
+// ── owned: send_message tool (named-agent follow-ups, ticket 02) ───────────
+export type { SendMessageToolOptions } from "./send-message-tool.js";
+export { createSendMessageTool, formatReplyNotification, sendMessageToolSchema } from "./send-message-tool.js";
 // ── owned: the LLM-facing tools ──────────────────────────────────────────────
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool } from "./subagent-runs-tool.js";

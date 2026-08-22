@@ -10,14 +10,17 @@ import {
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
 import {
   convertToBackground,
+  createSendMessageTool,
   createSubagentRunsTool,
   createSubagentsTool,
   createSubagentTool,
   dispatchCtrlB,
   GLOBAL_DETACH_KEY,
   getBackgroundRunManager,
+  getParentMessageBus,
   makeProdDetachDeps,
   wireBackgroundDeliverer,
+  wireParentMessageDeliverer,
 } from "../src/index.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
@@ -61,6 +64,10 @@ export default function extension(pi: ExtensionAPI) {
   // — best-effort; without it results still land in run-persistence.
   const backgroundManager = getBackgroundRunManager();
   wireBackgroundDeliverer(pi, backgroundManager);
+  // Child→parent messaging (ticket 02): a child's send_message to:"main"
+  // publishes through this process-singleton bus; its deliverer uses the SAME
+  // followUp + triggerTurn wake seam as the background deliverer above.
+  wireParentMessageDeliverer(pi, getParentMessageBus());
 
   const subagentTool = createSubagentTool({
     cwd,
@@ -120,6 +127,15 @@ export default function extension(pi: ExtensionAPI) {
   });
   pi.registerTool(subagentsTool);
 
+  // send_message — follow-up messaging for named live agents (ticket 02):
+  // parent-side routing over the live registry + child-side to:"main" over the
+  // bus wired above. Reaches children automatically through the parent tools
+  // captured at session_start (extensionTools bridge). Registered LAST so the
+  // workflow gate family's grouped-names order (pinned by tool-gate tests)
+  // reads spawn → batch → follow-up.
+  const sendMessageTool = createSendMessageTool({ liveRegistry, bus: getParentMessageBus() });
+  pi.registerTool(sendMessageTool);
+
   // /subagents — list running + past subagent runs and view their output.
   // Self-contained: reads the local in-flight registry this extension owns.
   pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight: inFlight }));
@@ -171,7 +187,7 @@ export default function extension(pi: ExtensionAPI) {
   const activateSubagentTools = () => {
     try {
       const active = pi.getActiveTools();
-      const missing = [subagentTool.name, subagentRunsTool.name, subagentsTool.name].filter(
+      const missing = [subagentTool.name, subagentRunsTool.name, subagentsTool.name, sendMessageTool.name].filter(
         (nm) => !Array.isArray(active) || !active.includes(nm),
       );
       if (missing.length) {

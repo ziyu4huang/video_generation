@@ -116,15 +116,36 @@ export class BackgroundRunManager {
         }),
       )
       .then((outcome) => {
-        try {
-          this.deliverer?.(formatTaskNotification(spec, outcome));
-        } catch {
-          // silent by design — the run is already persisted; no retry
-        }
+        this.notify(spec, outcome);
       })
       .finally(() => {
         this.runs.delete(spec.id);
       });
+  }
+
+  /**
+   * Deliver one task-notification WITHOUT a roster claim/track — the
+   * send_message `wait:false` completion path (ticket 02): the exchange is
+   * owned by the live agent, not a background slot. Best-effort and silent,
+   * same contract as track's delivery.
+   */
+  notify(spec: BackgroundRunSpec, outcome: BackgroundRunOutcome): void {
+    this.deliver(formatTaskNotification(spec, outcome));
+  }
+
+  /**
+   * Deliver a caller-formatted notification string through the same seam —
+   * for shapes that are NOT a background run completion (send_message
+   * replies), where formatTaskNotification's "Full output: list_subagent_runs
+   * get" pointer would resolve to the WRONG record (the first exchange's, by
+   * agentId — follow-up exchanges are not persisted). Best-effort, silent.
+   */
+  deliver(message: string): void {
+    try {
+      this.deliverer?.(message);
+    } catch {
+      // silent by design — no retry
+    }
   }
 
   runningIds(): string[] {

@@ -8,13 +8,14 @@ import {
   RESERVED_AGENT_NAMES,
 } from "../src/live-agent-registry.js";
 
-/** Minimal LiveAgentHandle double — the registry only reads status and calls dispose/touch. */
+/** Minimal LiveAgentHandle double — the registry only reads status and calls send/dispose/touch. */
 function fakeHandle(status: "running" | "idle" = "idle") {
   const state = { disposed: 0, touched: 0, status };
   const handle: LiveAgentHandle = {
     get status() {
       return state.status;
     },
+    send: async () => ({ output: "" }),
     touch: () => state.touched++,
     dispose: () => state.disposed++,
   };
