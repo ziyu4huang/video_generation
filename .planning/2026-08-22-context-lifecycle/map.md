@@ -57,6 +57,16 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   the semantic modes). kcard 4-tool total 2367 → 2019 tok, regression ceiling re-baselined
   ≤2220. Obsidian is hermetic again; zk-ask is lexical+graph only (the retired modes never
   won a regime — iter-6/7 receipts); `retrieval-quality-self-improve.js` retired with them.
+- **Post-fold recall measured (ticket 04, 2026-08-22).** Committed harness
+  `bun-apps/scripts/recall-audit.mjs` (+ battery JSON + CI-safe fixture test in hermes
+  `scripts/`, offline via `--test-embedder`). Live receipt 2026-08-22
+  (`output/recall-audit/receipt-2026-08-22T11-27-22-314Z.json`): journal arm (folded
+  exact-match) **0/20, MRR 0.000** — the audit baseline reproduced, journal is capture-only
+  by design; kcard arm (`retrieveRecords` bodyMatch+slugDom+semantic bge-m3, live,
+  semanticUsed=true, coverage 20/20) **hit@1 11/20 · hit@3 16/20 · hit@5 17/20 · MRR
+  0.688**. This is D1's after-proof: the same question class that scored 0.000 on the old
+  hermes recall path now answers 17/20 through kcard. Remaining 3 misses = documented
+  generic-tag crowding / twin-card dispersion (ticket 05+ territory).
 - **Hermes fold measured (ticket 03, 2026-08-22).** −4,142 net lines / 24 files;
   `knowledge_search` 208 → 171 tok, lexical/tags-only. Gates: hermes suite 1539 pass /
   0 fail, `run-test.sh` ✓, cross-package typecheck ✓, `test:adr` 19 pass. ADR-hermes-
@@ -80,7 +90,7 @@ Phase P0 — infra unification & hermes triage
 - `tickets/01-canonical-embed-bge-m3.md` — task, **closed 2026-08-22** — one canonical embed endpoint/model
 - `tickets/02-vault-mind-retirement.md` — task, **closed 2026-08-22** — delete `semantic_search` + VAULT_MIND
 - `tickets/03-hermes-fold-capture-only.md` — task, **closed 2026-08-22** — hermes folds to capture-only journal (SurrealDB = CRUD journal store of record, pre-decision)
-- `tickets/04-recall-audit-script.md` — task, **open** — committed audit harness + post-fold baseline
+- `tickets/04-recall-audit-script.md` — task, **closed 2026-08-22** — committed audit harness + post-fold baseline (kcard 17/20 hit@5, journal 0/20)
 
 Phase P1 — card schema v2 + tiered retrieval
 - `tickets/05-card-schema-v2.md` — task, **open** — summary/experience/merge-ops, breaking (D0)
@@ -129,11 +139,13 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/04-recall-audit-script.md` — tickets 01–03 closed 2026-08-22 (canonical embed;
-vault-mind retirement; hermes fold). Ticket 04 commits the audit harness that produced the
-0/20 receipt as a script and re-runs it post-fold — it is both the after-proof for ticket 03
-(hermes-journal questions answered via kcard retrieval) and the reproducible baseline every
-later retrieval change (tickets 05–07, 15) cites.
+`tickets/05-card-schema-v2.md` — P0 complete (tickets 01–04 closed 2026-08-22: canonical
+embed, vault-mind retirement, hermes fold, committed recall-audit harness with the post-fold
+after-proof — kcard hit@5 17/20 vs journal 0/20). Ticket 05 opens P1 (card schema v2:
+summary/experience/merge-ops, breaking under D0). It is first because every later retrieval
+change (tickets 06–07, 15) wants to cite the schema-v2 shape, and the committed
+`recall-audit.mjs` baseline now exists to score schema changes against (re-run the battery,
+compare hit@k to the 17/20 receipt).
 
 ## Fog of war
 

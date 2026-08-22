@@ -1,6 +1,11 @@
 # Hermes Recall Audit — Final Report
 
 - **Date:** 2026-08-19
+- **UPDATE 2026-08-22 (ticket 04):** the /tmp runner is now the committed harness
+  `bun-apps/scripts/recall-audit.mjs` (battery JSON + CI-safe fixture test alongside).
+  Post-fold re-run: journal arm 0/20 unchanged (capture-only by design); the SAME question
+  class through kcard `retrieveRecords` (semantic bge-m3 live) = hit@1 11/20, hit@3 16/20,
+  hit@5 17/20, MRR 0.688 — receipt `output/recall-audit/receipt-2026-08-22T11-27-22-314Z.json`.
 - **Scope:** recall quality of the hermes-memory query path, as actually served today
 - **Artifacts:** `/tmp/hermes-audit/run-audit.ts` (runner), `/tmp/hermes-audit/final-output.txt` (verbatim output), `/tmp/hermes-audit/parse-sim.ts` + `parse-sim-output.txt` (parser simulation), `/tmp/hermes-audit/audit-probe-run.txt` (probe run)
 - **No fixes were implemented** — this document records findings only.
