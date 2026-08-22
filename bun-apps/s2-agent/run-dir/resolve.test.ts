@@ -276,30 +276,23 @@ describe("resolveLazyExtension", () => {
 		return base;
 	}
 
-	test("exact key match (case-insensitive)", () => {
-		const base = setup();
-		const r = resolveLazyExtension("Workflow", settings, base, existsSync);
-		expect(r).toBe(join(base, "pkg-a/extensions/ultracode.ts"));
-		const r2 = resolveLazyExtension("flux2", settings, base, existsSync);
-		expect(r2).toBe(join(base, "pkg-b/extensions/flux2.ts"));
-	});
-
-	test("unique substring match", () => {
-		const base = setup();
-		// "workflows" is a substring of "dynamic-workflows" only (and also of
-		// "workflow" — so use a substring that hits exactly one key)
-		const r = resolveLazyExtension("flux", settings, base, existsSync);
-		expect(r).toBe(join(base, "pkg-b/extensions/flux2.ts"));
-	});
-
-	test("ambiguous substring → undefined (no guess)", () => {
+	test("non-empty alias registry → warn + fall through (resolver retired)", () => {
 		const base = setup();
 		const warns: string[] = [];
-		// "flow" is a substring of both "workflow" and "dynamic-workflows", and
-		// is NOT itself a key → ambiguous substring branch
-		const r = resolveLazyExtension("flow", settings, base, existsSync, (m) => warns.push(m));
+		// Exact/substring arms were removed with the retired resolver; a
+		// non-empty map must WARN (not silently strand) and defer to the
+		// directory fallback / SDK.
+		const r = resolveLazyExtension("Workflow", settings, base, existsSync, (m) => warns.push(m));
 		expect(r).toBeUndefined();
-		expect(warns.some((m) => /ambiguous/.test(m))).toBe(true);
+		expect(warns.some((m) => /retired/.test(m))).toBe(true);
+	});
+
+	test("empty alias registry → no warn, directory fallback still applies", () => {
+		const base = setup();
+		const warns: string[] = [];
+		const r = resolveLazyExtension("pkg-c", { lazyExtensions: {} }, base, existsSync, (m) => warns.push(m));
+		expect(r).toBe(join(base, "pkg-c", "extensions", "one.ts"));
+		expect(warns).toHaveLength(0);
 	});
 
 	test("non-alias input (path/scheme) → undefined, no fs", () => {
@@ -322,16 +315,6 @@ describe("resolveLazyExtension", () => {
 		expect(resolveLazyExtension("pkg-d", settings, base, existsSync)).toBeUndefined();
 		// pkg-e does not exist
 		expect(resolveLazyExtension("pkg-e", settings, base, existsSync)).toBeUndefined();
-	});
-
-	test("exact match target missing on disk → undefined + warn", () => {
-		const base = setup();
-		const warns: string[] = [];
-		// registry points at a path we never materialized
-		const bad: LazySettings = { lazyExtensions: { ghost: "pkg-z/extensions/nope.ts" } };
-		const r = resolveLazyExtension("ghost", bad, base, existsSync, (m) => warns.push(m));
-		expect(r).toBeUndefined();
-		expect(warns.length).toBeGreaterThan(0);
 	});
 
 	// workflow was migrated from a lazy alias to a STATIC extension

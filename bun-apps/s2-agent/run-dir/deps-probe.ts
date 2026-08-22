@@ -13,60 +13,22 @@
  */
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import manifest from "./manifest.json";
 import { mode, warn } from "./run-context.ts";
 
-// npm-sourced extensions ({ pkg, entry }) — manifest.json is the SINGLE source
-// of truth, so adding one is a one-file edit. `entry` is relative to each
-// package's root.
-// These are plain `dependencies` in package.json, resolved via the shared
-// node_modules tree (migrated off the old isolated .pi/npm/ tree).
-//
-// Deliberately NOT listed here:
-//  - @juicesharp/rpiv-todo: this user's ~/.pi/agent/settings.json already
-//    declares it as a global-scope package (loads for every pi invocation
-//    regardless of cwd), so it behaves like the "personal data" meant to stay
-//    at ~/.pi/. Baking a second copy here crashes with `Tool "todo" conflicts`
-//    against the user's own global load. Another clone without that global
-//    entry must add it to their own ~/.pi/agent/settings.json to get `todo`.
-//  - pi-lens: was in the old .pi/npm install set but never in the active
-//    .pi/settings.json packages list (installed-but-inert); intentionally
-//    dropped. Add it here + to package.json if ever needed.
-// The registry-derived manifest carries no `npmExtensions` (legacy field, empty
-// in its last years) — the constant below stays an empty list until the
-// machinery around it is retired.
-const NPM_EXTENSIONS: Array<{ pkg: string; entry: string }> = [];
+// npm-sourced extensions were retired with the manifest's `npmExtensions`
+// field (empty in its last years). What remains here probes the TRANSITIVE
+// bare-specifier deps of the workspace extensions the manifest DOES declare.
 
 // Set when an opt-in auto-install (`bun install`) completed successfully this
 // invocation. Bun's in-process module resolver does NOT re-scan node_modules
-// mid-process, so the freshly installed packages usually aren't visible to the
-// CURRENT resolveNpmExtensionPaths() — they load on the next invocation. This
-// flag lets emitMissingDepsGuide swap its "run bun install" advice for an
-// honest "installed — re-run" hint instead of redundantly guiding the fix it
-// just applied.
+// mid-process, so freshly installed packages usually aren't visible to the
+// CURRENT process — they load on the next invocation. This flag lets
+// emitMissingDepsGuide swap its "run bun install" advice for an honest
+// "installed — re-run" hint instead of redundantly guiding the fix it just
+// applied.
 let autoInstalled = false;
-
-/**
- * Sync probe of which declared npm extension packages currently fail to
- * resolve. Pure-ish (read-only fs via import.meta.resolve); used for the
- * opt-in auto-install trigger and the consolidated guide so neither depends on
- * the per-package warn side-effect. No-op outside source mode (bundle mode
- * reads baked paths; binary mode loads no extensions).
- */
-function probeMissingNpm(): string[] {
-  if (mode === "binary") return [];
-  const missing: string[] = [];
-  for (const { pkg } of NPM_EXTENSIONS) {
-    try {
-      import.meta.resolve(`${pkg}/package.json`);
-    } catch {
-      missing.push(pkg);
-    }
-  }
-  return missing;
-}
 
 /**
  * The dependency sections of a package.json that may be imported at runtime.
@@ -189,18 +151,13 @@ export function probeMissingExtensionDeps(bunAppsDir: string | undefined): strin
 }
 
 /**
- * Union of declared-npm + transitive-workspace missing extension packages — the
- * single signal both the opt-in auto-install and the consolidated guide use.
- * Deduped (a package can appear in both sources), manifest/npm order preserved.
- * Exported so run-dir/check-deps.ts can run the SAME detection pre-flight
- * (before bun boots) and install, so the loading process is fresh and sees deps.
+ * Union of transitive-workspace missing extension packages — the single signal
+ * both the opt-in auto-install and the consolidated guide use. Exported so
+ * run-dir/check-deps.ts can run the SAME detection pre-flight (before bun
+ * boots) and install, so the loading process is fresh and sees deps.
  */
 export function missingExtensionPackages(bunAppsDir: string | undefined): string[] {
-  const out: string[] = [];
-  for (const p of [...probeMissingNpm(), ...probeMissingExtensionDeps(bunAppsDir)]) {
-    if (!out.includes(p)) out.push(p);
-  }
-  return out;
+  return probeMissingExtensionDeps(bunAppsDir);
 }
 
 /**
@@ -288,30 +245,11 @@ export function emitMissingDepsGuide(bunAppsDir: string | undefined): void {
 }
 
 /**
- * Absolute entry paths for the declared npm extensions, resolved live.
- * Bundle mode used to return build-time-baked paths from run-dir-base.ts
- * instead; both went in Phase 1b.
- *
- * A package that fails to resolve is skipped with one terse line — the
- * consolidated guide (emitMissingDepsGuide) prints the exact fix once, so
- * repeating it per package is noise. The line is suppressed entirely once an
- * auto-install has run: the "re-run this command" hint already covers it and
- * the in-process resolver still cannot see the new install in THIS invocation.
- *
- * (An unread `missingNpm` accumulator used to be maintained here. Nothing ever
- * consumed it — the guide recomputes via probeMissingNpm() — so it was dropped
- * with the split rather than carried across into this module.)
+ * npm-sourced extensions no longer exist (the manifest's `npmExtensions` field
+ * was retired empty). Kept as an always-empty export because resolve.ts
+ * re-exports it and buildArgv() awaits it in the argv assembly — removing the
+ * call site is churn without payoff.
  */
 export async function resolveNpmExtensionPaths(): Promise<string[]> {
-  const paths: string[] = [];
-  for (const { pkg, entry } of NPM_EXTENSIONS) {
-    try {
-      const pkgJsonUrl = import.meta.resolve(`${pkg}/package.json`);
-      const pkgDir = dirname(fileURLToPath(pkgJsonUrl));
-      paths.push(join(pkgDir, entry));
-    } catch {
-      if (!autoInstalled) warn(`could not resolve npm package "${pkg}" — skipping`);
-    }
-  }
-  return paths;
+  return [];
 }

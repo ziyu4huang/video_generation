@@ -25,7 +25,7 @@
  * changed.
  */
 import { existsSync, readdirSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import manifest from "./manifest.json";
 import { mode, resolveBunAppsDir, warn } from "./run-context.ts";
 
@@ -55,10 +55,14 @@ export function looksLikeAlias(input: string): boolean {
  * to the SDK. Pure: all fs access is via the injected `exists`. Resolution order
  * (first hit wins):
  *   1. not a bare alias → undefined
- *   2. exact case-insensitive key match (existing file)
- *   3. unique case-insensitive substring match (≥2 → ambiguous, no guess)
- *   4. directory fallback: <bunAppsDir>/<alias>/extensions/ has exactly one .ts
- *   5. else undefined
+ *   2. non-empty alias registry → warn (retired resolver) + fall through
+ *   3. directory fallback: <bunAppsDir>/<alias>/extensions/ has exactly one .ts
+ *   4. else undefined
+ *
+ * The exact-key / substring match arms were removed (2026-08-22
+ * simplification): manifest.lazyExtensions has been `{}` since ultracode went
+ * eager, so they were dead. The registry (registry.ts) still PARSES alias maps,
+ * so a future re-add would silently strand without the warn below.
  */
 export function resolveLazyExtension(
   input: string,
@@ -69,33 +73,15 @@ export function resolveLazyExtension(
 ): string | undefined {
   if (!looksLikeAlias(input)) return undefined;
 
-  const toAbs = (v: string) => (isAbsolute(v) ? v : bunAppsDir ? join(bunAppsDir, v) : v);
   const lazy = s.lazyExtensions ?? {};
-
-  // 2. exact key match (case-insensitive)
-  const exactKey = Object.keys(lazy).find((k) => k.toLowerCase() === input.toLowerCase());
-  if (exactKey) {
-    const p = toAbs(lazy[exactKey]!);
-    if (exists(p)) return p;
-    warnFn?.(`lazy alias "${input}" → ${p} does not exist; leaving for SDK`);
-    return undefined;
+  if (Object.keys(lazy).length > 0) {
+    warnFn?.(
+      `lazyExtensions registry is non-empty (${Object.keys(lazy).join(", ")}) but ` +
+        `alias resolution was retired — register the extension eagerly instead`,
+    );
   }
 
-  // 3. substring match (input ⊆ key)
-  const lower = input.toLowerCase();
-  const substring = Object.keys(lazy).filter((k) => k.toLowerCase().includes(lower));
-  if (substring.length === 1) {
-    const p = toAbs(lazy[substring[0]!]!);
-    if (exists(p)) return p;
-    warnFn?.(`lazy alias "${input}" → ${p} does not exist; leaving for SDK`);
-    return undefined;
-  }
-  if (substring.length > 1) {
-    warnFn?.(`lazy alias "${input}" is ambiguous (matches ${substring.join(", ")}); leaving for SDK`);
-    return undefined;
-  }
-
-  // 4. directory fallback: <bunAppsDir>/<alias>/extensions/*.ts (exactly one)
+  // Directory fallback: <bunAppsDir>/<alias>/extensions/*.ts (exactly one)
   if (bunAppsDir) {
     const dir = join(bunAppsDir, input, "extensions");
     if (exists(dir)) {

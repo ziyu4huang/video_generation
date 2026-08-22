@@ -21,11 +21,23 @@ import { runJsonTask, runPrettyTask } from "./task-runner.ts";
 
 export interface RunAgentSessionOptions {
 	/** Resolved tool allowlist (caller applies the `parsed.tools ?? <default>` rule). */
-	tools: string[];
+	tools?: string[];
+	/**
+	 * Default tool allowlist — used when the caller did NOT pre-apply the
+	 * `parsed.tools ?? <default>` rule (e.g. zk-card's per-subcommand tool sets).
+	 * Mutually exclusive with an explicit `tools`.
+	 */
+	defaultTools?: string[];
 	/** The agent task string. */
 	task: string;
 	/** Label shown in pretty mode and the model log line. */
 	labelName: string;
+	/**
+	 * Prefixed log style: renders `[<labelPrefix>]  model: …  thinking: …`
+	 * instead of the plain two-space-aligned line. Used by commands whose
+	 * output is visually grouped under a subcommand tag (zk-card).
+	 */
+	labelPrefix?: string;
 	/** Optional inline extension factory to register (extension sub-commands only). */
 	factory?: unknown;
 	/** Multiple inline extension factories (e.g. the `agent` command injects several). */
@@ -37,6 +49,7 @@ export async function runAgentSession(
 	opts: RunAgentSessionOptions,
 ): Promise<void> {
 	const llm = await resolveLLMFromArgs(parsed);
+	const tools = opts.tools ?? parsed.tools ?? opts.defaultTools;
 	// Merge single `factory` + plural `factories` so both the extension
 	// sub-command path (single) and the `agent` command (several) work.
 	const allFactories = [
@@ -44,16 +57,22 @@ export async function runAgentSession(
 		...(opts.factory ? [opts.factory] : []),
 	];
 	const { session } = await createSharedSession(llm, {
-		tools: opts.tools,
+		tools,
 		excludeTools: applyDryRun(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
 		extraExtensionFactories: allFactories.length > 0 ? allFactories : undefined,
 	});
 
 	const label = modelLabel(session, llm);
-	console.error(
-		`model:  ${label}  [${llm.provider}/${llm.modelId}]  thinking: ${llm.thinkingLevel}`,
-	);
+	if (opts.labelPrefix) {
+		console.error(
+			`[${opts.labelPrefix}]  model: ${label}  thinking: ${llm.thinkingLevel}`,
+		);
+	} else {
+		console.error(
+			`model:  ${label}  [${llm.provider}/${llm.modelId}]  thinking: ${llm.thinkingLevel}`,
+		);
+	}
 	if (parsed.dryRun) {
 		console.error("[dry-run] vault writes suppressed — write tools excluded (agent can read + plan only)");
 	}

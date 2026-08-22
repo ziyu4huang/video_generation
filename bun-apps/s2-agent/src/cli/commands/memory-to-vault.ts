@@ -15,6 +15,7 @@ import { resolve, isAbsolute, join, relative, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ParsedArgs } from "../args.ts";
 import { emptyParsed } from "../args.ts";
+import { resolveVaultPathWalkUp } from "../vault-paths.ts";
 import type { MemoryFile } from "./memory-to-vault-discover.ts";
 import { discoverMemoryFiles } from "./memory-to-vault-discover.ts";
 import { generateWorkflowScript } from "./memory-to-vault-script.ts";
@@ -23,6 +24,7 @@ import { WorkflowAgent } from "@repo/s2-agent-ext-subagent";
 import { healGraph, graphHealth } from "@repo/s2-agent-ext-knowledge-card/src/retrieve.ts";
 // Subpath import requires s2-agent-ext-obsidian's package.json `exports` map.
 import obsidianExtension from "@repo/s2-agent-ext-obsidian/extensions/obsidian.ts";
+import { timestamp, iso, writePipelineJson, readPipelineJson } from "../pipeline-doc.ts";
 
 // ─── defaults ──────────────────────────────────────────────────────────────
 const DEFAULT_MEMORY_DIR = join(homedir(), ".pi", "agent", "pi-hermes-memory");
@@ -58,8 +60,6 @@ export interface MemoryPipelineDoc {
 	health?: { cardCount: number; deadLinks: number; mocOk: boolean };
 }
 
-const iso = () => new Date().toISOString();
-
 /**
  * The run's overall status, derived from what actually happened.
  *
@@ -75,17 +75,11 @@ export function resolveRunStatus(doc: MemoryPipelineDoc): "done" | "partial" {
 }
 
 export function writePipelineDoc(path: string, doc: MemoryPipelineDoc): void {
-	doc.updatedAt = iso();
-	writeFileSync(path, JSON.stringify(doc, null, 2) + "\n", "utf8");
+	writePipelineJson(path, doc);
 }
 
 export function readPipelineDoc(path: string): MemoryPipelineDoc | null {
-	if (!existsSync(path)) return null;
-	try {
-		return JSON.parse(readFileSync(path, "utf8")) as MemoryPipelineDoc;
-	} catch {
-		return null;
-	}
+	return readPipelineJson<MemoryPipelineDoc>(path);
 }
 
 /** Paths (from scope) that still need distilling: not done, or all if --force. */
@@ -112,26 +106,8 @@ export function findExistingRun(outRoot: string): string | null {
 }
 
 // ─── helpers ───────────────────────────────────────────────────────────────
-function timestamp(): string {
-	const d = new Date();
-	const p = (n: number) => String(n).padStart(2, "0");
-	return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
-
-function resolveVaultPath(parsed: ParsedArgs, cwd: string): string {
-	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
-	if (explicit) return isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
-	const dir = parsed.vaultDir ?? "vaults_root/s2-agent-vault";
-	let search = cwd;
-	for (let i = 0; i < 10; i++) {
-		const cand = join(search, dir);
-		if (existsSync(cand)) return cand;
-		const parent = resolve(search, "..");
-		if (parent === search) break;
-		search = parent;
-	}
-	return resolve(cwd, dir);
-}
+const resolveVaultPath = (parsed: ParsedArgs, cwd: string): string =>
+	resolveVaultPathWalkUp(parsed, cwd, { defaultDir: "vaults_root/s2-agent-vault" });
 
 /**
  * Capture an extension factory's *executable* tool definitions by running it

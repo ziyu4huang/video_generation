@@ -34,8 +34,6 @@
 import {
 	existsSync,
 	mkdirSync,
-	readFileSync,
-	writeFileSync,
 	readdirSync,
 	rmSync,
 	statSync,
@@ -47,18 +45,12 @@ import { file2mdCommand } from "./file2md.ts";
 import { zkExtractCommand } from "./zk-extract.ts";
 import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
 import { slugify, loadManifest, type DocLayout, layoutFor } from "@repo/s2-agent-ext-file2md";
+import { timestamp, iso, writePipelineJson, readPipelineJson } from "../pipeline-doc.ts";
 
 /** Defaults. */
 const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-12b";
 const DEFAULT_RETRIES = 3;
 const DEFAULT_RETRY_WAIT_SEC = 10;
-
-/** Compact timestamp: YYYYMMDD-HHMMSS (local). */
-function timestamp(): string {
-	const d = new Date();
-	const p = (n: number) => String(n).padStart(2, "0");
-	return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
-}
 
 // ─── pipeline.json schema ────────────────────────────────────────────────
 
@@ -112,29 +104,22 @@ interface PipelineDoc {
 
 // ─── helpers ─────────────────────────────────────────────────────────────
 
-const iso = () => new Date().toISOString();
-
 function writePipelineDoc(path: string, doc: PipelineDoc): void {
-	doc.updatedAt = iso();
-	writeFileSync(path, JSON.stringify(doc, null, 2) + "\n", "utf8");
+	writePipelineJson(path, doc);
 }
 
 export function readPipelineDoc(path: string): PipelineDoc | null {
-	if (!existsSync(path)) return null;
-	try {
-		const doc = JSON.parse(readFileSync(path, "utf8")) as PipelineDoc;
-		// Backward-compat (D5): migrate the legacy stage key "vlm-describe" →
-		// "file2md" so a pipeline.json written before the rename resumes cleanly.
-		// New runs write "file2md" directly.
-		const stages = doc.stages as unknown as { [k: string]: unknown };
-		if (stages["vlm-describe"] && !stages["file2md"]) {
-			stages["file2md"] = stages["vlm-describe"];
-			delete stages["vlm-describe"];
-		}
-		return doc;
-	} catch {
-		return null;
+	const doc = readPipelineJson<PipelineDoc>(path);
+	if (!doc) return doc;
+	// Backward-compat (D5): migrate the legacy stage key "vlm-describe" →
+	// "file2md" so a pipeline.json written before the rename resumes cleanly.
+	// New runs write "file2md" directly.
+	const stages = doc.stages as unknown as { [k: string]: unknown };
+	if (stages["vlm-describe"] && !stages["file2md"]) {
+		stages["file2md"] = stages["vlm-describe"];
+		delete stages["vlm-describe"];
 	}
+	return doc;
 }
 
 /**

@@ -13,8 +13,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
-import { applyVaultEnv, resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, applyDryRun, modelLabel } from "../sessions/shared.ts";
+import { applyVaultEnv } from "../sessions/passthrough.ts";
+import { runAgentSession } from "../sessions/run-agent-session.ts";
 import {
   ADD_TOOLS,
   CHECK_TASK,
@@ -27,7 +27,6 @@ import {
   buildRemoveTask,
   buildUpdateTask,
 } from "@repo/s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
-import { runJsonTask, runPrettyTask } from "../sessions/task-runner.ts";
 
 /** Resolve content from positional text or --file. */
 function resolveContent(positionals: string[], file: string | undefined, cwd: string, sub: string): string {
@@ -41,41 +40,20 @@ function resolveContent(positionals: string[], file: string | undefined, cwd: st
   return text;
 }
 
-/** Shared runner — same pattern as distill.ts. */
-async function runKnowledgeTask(
+/** Shared runner — the standard session tail with zk-card's prefixed log style. */
+function runKnowledgeTask(
   parsed: ParsedArgs,
   task: string,
   tools: string[],
   label: string,
 ): Promise<void> {
   applyVaultEnv(parsed);
-  const llm = await resolveLLMFromArgs(parsed);
-  const effectiveTools = parsed.tools ?? tools;
-
-  const { session } = await createSharedSession(llm, {
-    tools: effectiveTools,
-    excludeTools: applyDryRun(parsed),
-    appendSystemPrompt: parsed.appendSystemPrompt,
+  return runAgentSession(parsed, {
+    defaultTools: tools,
+    task,
+    labelName: `zk-card ${label}`,
+    labelPrefix: `zk-card ${label}`,
   });
-
-  const mLabel = modelLabel(session, llm);
-  console.error(`[zk-card ${label}]  model: ${mLabel}  thinking: ${llm.thinkingLevel}`);
-  if (parsed.dryRun) {
-    console.error("[dry-run] vault writes suppressed — write tools excluded (agent can read + plan only)");
-  }
-  console.error();
-
-  const printMode = parsed.mode === "json";
-
-  try {
-    if (printMode) {
-      await runJsonTask(session, task, parsed.verbose);
-    } else {
-      await runPrettyTask(session, task, `zk-card ${label}`, parsed.verbose);
-    }
-  } finally {
-    session.dispose();
-  }
 }
 
 const DETAILS = `Usage:

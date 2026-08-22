@@ -2,8 +2,7 @@
 /**
  * cli-sh.ts — the sh-mode entry point: a MINIMAL s2-agent core.
  *
- * Differences from src/cli.ts (which stays the entry for the four legacy
- * deploy modes and for source runs):
+ * Differences from src/cli.ts (the source-mode entry):
  *   • It does NOT import src/static-extensions.ts. Zero extensions are
  *     compiled in; every extension is discovered at runtime under
  *     <exeDir>/ext/<name>/.
