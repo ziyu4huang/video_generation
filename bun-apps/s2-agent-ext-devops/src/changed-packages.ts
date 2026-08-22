@@ -112,15 +112,28 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
  *   bun-apps/tests/ — workspace-root gate tests; they execute in the
  *                      regression-gates job (bun run test:dist / test:seam),
  *                      which local_ci runs REGARDLESS of package scoping.
- *   dsh-plugin/sv-analyzer/ — standalone Rust/DSH plugin project under the
- *                      top-level dsh-plugin/ host dir (own cargo build + node
- *                      tests, zero npm deps, not part of the bun workspace);
- *                      it neither imports nor affects any bun-apps/<pkg> build
- *                      or test.
  * Anything else outside bun-apps/<pkg>/ still fails open (shared config,
  * scripts/, .github/, submodules — any of those CAN affect every package).
+ *
+ * `dsh-plugin/sv-analyzer/` is NOT in this list: it is the Rust core of the
+ * s2-agent-ext-sv-analyzer extension (build.sh mirrors its wasm into the
+ * package's wasm/), so a core change must re-run that package's gates. It is
+ * aliased to `bun-apps/s2-agent-ext-sv-analyzer/` below — a first-class
+ * directlyTouched edge (with its reverse-dependents), never a fail-open.
  */
-const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/", "dsh-plugin/sv-analyzer/"];
+const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/"];
+
+/**
+ * Changed-file aliases: a top-level tree that maps onto a bun-apps package.
+ * `dsh-plugin/sv-analyzer/` is the standalone Rust/DSH-plugin host for the
+ * sv-analyzer extension — its wasm binary ships (committed) inside
+ * s2-agent-ext-sv-analyzer/wasm/, so a core change re-runs that package. If
+ * the alias package is not discovered (stale checkout), the file fails open
+ * like any other unmapped path — never a silent false-green.
+ */
+const CHANGED_FILE_ALIASES: Array<[prefix: string, pkg: string]> = [
+	["dsh-plugin/sv-analyzer/", "s2-agent-ext-sv-analyzer"],
+];
 
 /**
  * Compute the changed-package map. Always returns a well-formed
@@ -186,9 +199,19 @@ export async function computeChangedPackages(
 	const directlyTouched = new Set<string>();
 	for (const file of changedFiles) {
 		if (MATRIX_IRRELEVANT_PREFIXES.some((p) => file.startsWith(p))) continue;
+		// Alias a top-level tree onto its bun-apps package before matching (see
+		// CHANGED_FILE_ALIASES). When the alias package is missing from the
+		// workspace, the file falls through to the fail-open below.
+		let effective = file;
+		for (const [prefix, pkg] of CHANGED_FILE_ALIASES) {
+			if (file.startsWith(prefix)) {
+				effective = `bun-apps/${pkg}/${file.slice(prefix.length)}`;
+				break;
+			}
+		}
 		let matched = false;
 		for (const pkg of packages) {
-			if (file.startsWith(`bun-apps/${pkg}/`)) {
+			if (effective.startsWith(`bun-apps/${pkg}/`)) {
 				directlyTouched.add(pkg);
 				matched = true;
 				break;

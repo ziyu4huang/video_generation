@@ -1,15 +1,23 @@
 # dsh-sv-analyzer
 
-A **self-contained DeepSeek Harness (DSH) plugin** that analyzes
-Verilog / SystemVerilog source with [tree-sitter](https://tree-sitter.github.io/)
-compiled from **Rust to WASM** (`wasm32-wasip1`).
+A **self-contained Verilog / SystemVerilog analyzer** that serves **two hosts**
+from one Rust → WASM core ([tree-sitter](https://tree-sitter.github.io/)
+compiled to `wasm32-wasip1`):
+
+- **DeepSeek Harness (DSH) plugin** — this package (`plugin/`): `sv_analyze` /
+  `sv_ast` model tools registered on `ctx.tools`.
+- **s2-agent extension** — `bun-apps/s2-agent-ext-sv-analyzer/`: the SAME two
+  tools through the s2-agent extension API, shipping the SAME `.wasm`
+  (mirrored here by `build.sh`, gitignored there — a fresh clone runs
+  `build.sh` first to mirror it before deploy/test).
 
 - **Two grammars, one binary**: [tree-sitter-systemverilog](https://github.com/gmlarumbe/tree-sitter-systemverilog)
   (IEEE 1800-2023) with automatic fallback to [tree-sitter-verilog](https://github.com/tree-sitter/tree-sitter-verilog)
   for legacy code (`dialect: auto`).
 - **Zero runtime dependencies**: the plugin ships the `.wasm` inside the npm
   package and runs it with Node's built-in [WASI](https://nodejs.org/api/wasi.html)
-  (`node:wasi`). No native binaries, no wasmtime, no install-time build.
+  (`node:wasi`); the s2-agent extension runs the same binary through Bun's
+  `node:wasi`. No native binaries, no wasmtime, no install-time build.
 - **One fully-linked module**: the tree-sitter C library and both grammar
   parsers are linked *into* the Rust wasm (no `env` imports, no separate
   provider module). 40 MB unpacked, **1.6 MB in the tarball**.
@@ -25,6 +33,7 @@ compiled from **Rust to WASM** (`wasm32-wasip1`).
 ```
 dsh-plugin/sv-analyzer/
 ├── build.sh              # batch CLI: rust → wasm → tests → tarball
+│                         #   + mirrors the wasm into bun-apps/s2-agent-ext-sv-analyzer/wasm/
 ├── rust/                 # Rust crate (lib + wasm ABI entry + native CLI)
 │   ├── src/lib.rs        # analysis core (dialects, extraction, AST dump)
 │   ├── src/main.rs       # wasm32-wasip1 ABI exports (alloc/run/response_len/...)
@@ -40,6 +49,11 @@ dsh-plugin/sv-analyzer/
 ├── examples/counter.sv   # self-test fixture
 └── test/                 # wasm.mjs (end-to-end) + plugin-smoke.mjs (wiring)
 ```
+
+The s2-agent face lives at `bun-apps/s2-agent-ext-sv-analyzer/` (entry
+`extensions/sv-analyzer.ts`, registered `load: static` with `copy: [wasm]` in
+`s2-agent.registry.yaml`, so the devops deploy ships it like any other
+`s2-agent-ext-*` package).
 
 ## Requirements
 

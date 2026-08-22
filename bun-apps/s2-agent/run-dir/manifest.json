@@ -77,7 +77,8 @@
 		"s2-agent-ext-webui",
 		"s2-agent-ext-hyperframes",
 		"s2-agent-ext-archify",
-		"s2-agent-ext-compact"
+		"s2-agent-ext-compact",
+		"s2-agent-ext-sv-analyzer"
 	],
 	"lazyExtensions": {}
 }

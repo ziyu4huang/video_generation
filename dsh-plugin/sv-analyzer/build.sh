@@ -14,6 +14,14 @@
 #   4. plugin smoke tests (tool registration + execution)
 #   5. npm pack -> dist/dsh-sv-analyzer-<version>.tgz (fully self-contained)
 #
+# The freshly built wasm is ALSO mirrored into the s2-agent extension
+# bun-apps/s2-agent-ext-sv-analyzer/wasm/ (gitignored there, same policy as
+# this plugin's own plugin/wasm/ — a regenerated artifact, never committed),
+# so a fresh clone runs this build.sh first to mirror it before deploy/test.
+# If that package's wasm changes, re-run this build to re-mirror — the
+# extension's tests drive it and the devops changed-packages matrix maps
+# this whole tree onto that package.
+#
 # Optional:
 #   ./build.sh --install <profile>   also install the tarball into a dsh
 #                                    profile (needs pnpm + dsh on PATH);
@@ -32,6 +40,8 @@ TOOLCHAIN_DIR="$ROOT/toolchain"
 CC_WRAPPER="$TOOLCHAIN_DIR/zig-cc-wasi.sh"
 TARGET="wasm32-wasip1"
 VERSION="$(node -p "require('$PLUGIN_DIR/package.json').version")"
+# The s2-agent extension that mirrors this wasm (bun-apps/<pkg>/wasm/).
+S2_EXT_DIR="${ROOT%/dsh-plugin/sv-analyzer}/bun-apps/s2-agent-ext-sv-analyzer"
 
 say()  { printf '\033[1;34m[build]\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[build]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
@@ -115,6 +125,18 @@ step_wasm_tests() {
   node "$ROOT/test/wasm.mjs"
 }
 
+step_mirror_s2_ext() {
+  local dest="$S2_EXT_DIR/wasm/sv-analyzer.wasm"
+  if [[ -d "$S2_EXT_DIR" ]]; then
+    mkdir -p "$(dirname "$dest")"
+    cp "$WASM_OUT" "$dest"
+    say "   mirrored $WASM_OUT -> $dest"
+    say "   (gitignored there: a fresh clone runs this build.sh to mirror it before deploy/test)"
+  else
+    say "   (s2-agent extension not present at $S2_EXT_DIR — skipping mirror)"
+  fi
+}
+
 step_plugin_tests() {
   say "4/6 plugin smoke tests"
   node "$ROOT/test/plugin-smoke.mjs"
@@ -173,6 +195,7 @@ command -v node >/dev/null || fail "node not found on PATH"
 
 step_native_tests
 step_wasm_build
+step_mirror_s2_ext
 if [[ "$RUN_TESTS" == "1" ]]; then
   step_wasm_tests
   step_plugin_tests

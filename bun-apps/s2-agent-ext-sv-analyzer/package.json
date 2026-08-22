@@ -1,0 +1,48 @@
+{
+	"name": "@repo/s2-agent-ext-sv-analyzer",
+	"private": true,
+	"version": "0.1.0",
+	"description": "Pi extension: sv_analyze (design summary) + sv_ast (raw parse tree) for Verilog/SystemVerilog, powered by the same self-contained tree-sitter WASM (wasm32-wasip1) as the dsh-sv-analyzer DSH plugin — the Rust core in dsh-plugin/sv-analyzer/ is the single source of truth, and build.sh mirrors its wasm here.",
+	"license": "MIT",
+	"keywords": [
+		"pi-package",
+		"sv-analyzer",
+		"verilog",
+		"systemverilog",
+		"tree-sitter",
+		"wasm",
+		"wasi"
+	],
+	"type": "module",
+	"exports": {
+		"./extensions/*": "./extensions/*",
+		"./src/*": "./src/*",
+		"./src/*.js": "./src/*.ts"
+	},
+	"imports": {
+		"#pi/ext-dir": "./src/sh-ext-dir.ts"
+	},
+	"files": [
+		"extensions",
+		"src",
+		"wasm",
+		"README.md"
+	],
+	"pi": {
+		"extensions": [
+			"./extensions"
+		]
+	},
+	"scripts": {
+		"test": "bun test",
+		"typecheck": "tsc --noEmit"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "0.84.2",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "^6.0.3"
+	}
+}

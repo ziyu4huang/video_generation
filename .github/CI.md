@@ -44,6 +44,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · perf-harness",
   "test · s2-agent-ext-tool-gate", "test · s2-agent-ext-superpowers",
   "test · s2-agent-ext-subagent",
+  "test · s2-agent-ext-sv-analyzer",
   "test · s2-agent-core-interface", "test · s2-agent-core-runtime",
   "test · s2-agent-ext-devops", "test · s2-agent-ext-prompt-history",
   "test · s2-agent-ext-webui", "test · s2-agent-ext-compact"
