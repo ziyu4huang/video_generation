@@ -23,7 +23,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { createAnalyzerService, renderJson, type SvAnalyzerToolContext } from "../src/analyzer.ts";
+import { createAnalyzerService, HINT_AST, renderJson, type SvAnalyzerToolContext } from "../src/analyzer.ts";
 
 const DIALECT = Type.Union(
 	[
@@ -125,7 +125,7 @@ export default function (pi: ExtensionAPI): void {
 				signal,
 			);
 			return {
-				content: [{ type: "text", text: renderJson(data) }],
+				content: [{ type: "text", text: renderJson(data, HINT_AST) }],
 				details: data,
 			};
 		},
