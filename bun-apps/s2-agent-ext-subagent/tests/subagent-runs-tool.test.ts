@@ -1,6 +1,10 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import type { SubagentRunPersistence, SubagentRunRecord } from "@repo/s2-agent-core-runtime";
+import {
+  SubagentInFlightRegistry,
+  type SubagentRunPersistence,
+  type SubagentRunRecord,
+} from "@repo/s2-agent-core-runtime";
 import { createSubagentRunsTool } from "../src/subagent-runs-tool.js";
 
 function mkRecord(over: Partial<SubagentRunRecord> = {}): SubagentRunRecord {
@@ -200,4 +204,104 @@ test("get without id throws", async () => {
 test("createSubagentRunsTool → name 'list_subagent_runs'", () => {
   const tool = createSubagentRunsTool({ persistence: fakePersistence([]) });
   assert.equal(tool.name, "list_subagent_runs");
+});
+
+// ── wait/stop (Task 5) — live-run subcommands over the in-flight registry ─────
+
+/** Minimal live-run fixture in the registry (fields the tool reads: status + preview). */
+function startRun(registry: SubagentInFlightRegistry, id: string, abort?: () => void): void {
+  registry.start({ id, model: "m", taskPreview: `task ${id}`, workIntent: "w", startedAt: Date.now(), abort });
+}
+
+const LIVE_SIGNAL = () => new AbortController().signal;
+
+test("wait: blocks until terminal, then renders the persisted record", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  startRun(inFlight, "w1");
+  const persistence = fakePersistence([mkRecord({ id: "w1", output: "waited output" })]);
+  const tool = createSubagentRunsTool({ persistence, inFlight });
+  // flip to terminal shortly after wait starts (before the first 250ms poll wakes)
+  setTimeout(() => inFlight.markCompleted("w1", "done"), 30);
+  const res = await tool.execute(
+    "c1",
+    { action: "wait", id: "w1", timeoutMs: 2000 },
+    LIVE_SIGNAL(),
+    undefined,
+    undefined,
+  );
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /waited output/);
+  assert.match(text, /# subagent run w1/);
+});
+
+test("wait: timeout returns running status without error", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  startRun(inFlight, "w2");
+  const tool = createSubagentRunsTool({ persistence: fakePersistence([]), inFlight });
+  const res = await tool.execute(
+    "c2",
+    { action: "wait", id: "w2", timeoutMs: 50 },
+    LIVE_SIGNAL(),
+    undefined,
+    undefined,
+  );
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /still running/);
+  assert.match(text, /task w2/); // latest-action fallback = taskPreview
+});
+
+test("wait: eviction race (entry evicted before record lands) returns the soft miss, not 'No subagent run'", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  startRun(inFlight, "w3");
+  // dispatchChild's finally evicts the registry entry BEFORE persistence.save
+  // (watchdog review can sit between) — wait must remember it saw the entry
+  // live and report "record not written yet" instead of the hard miss.
+  setTimeout(() => inFlight.end("w3"), 30);
+  const tool = createSubagentRunsTool({ persistence: fakePersistence([]), inFlight });
+  const res = await tool.execute(
+    "c9",
+    { action: "wait", id: "w3", timeoutMs: 2000 },
+    LIVE_SIGNAL(),
+    undefined,
+    undefined,
+  );
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /no persisted record yet/);
+  assert.doesNotMatch(text, /No subagent run with id/);
+});
+
+test("wait: unknown id is a structured miss, not a throw", async () => {
+  const tool = createSubagentRunsTool({ persistence: fakePersistence([]), inFlight: new SubagentInFlightRegistry() });
+  const res = await tool.execute("c3", { action: "wait", id: "nope" }, LIVE_SIGNAL(), undefined, undefined);
+  assert.match((res.content[0] as { text: string }).text, /No subagent run with id "nope"/);
+});
+
+test("wait: without an in-flight registry reports unavailable instead of throwing", async () => {
+  const tool = createSubagentRunsTool({ persistence: fakePersistence([]) });
+  const res = await tool.execute("c6", { action: "wait", id: "any" }, LIVE_SIGNAL(), undefined, undefined);
+  assert.match((res.content[0] as { text: string }).text, /wait unavailable/);
+});
+
+test("stop: fires the registry abort lever; unknown/terminal ids return structured errors", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  let aborted = false;
+  startRun(inFlight, "s1", () => {
+    aborted = true;
+  });
+  const tool = createSubagentRunsTool({ persistence: fakePersistence([]), inFlight });
+  const ok = await tool.execute("c4", { action: "stop", id: "s1" }, NO_SIGNAL, undefined, undefined);
+  assert.equal(aborted, true, "registry abort lever fired");
+  assert.match((ok.content[0] as { text: string }).text, /stop requested for run s1/);
+  const gone = await tool.execute("c5", { action: "stop", id: "unknown" }, NO_SIGNAL, undefined, undefined);
+  assert.match((gone.content[0] as { text: string }).text, /unknown run "unknown"/);
+  // terminal run: nothing to stop
+  inFlight.markCompleted("s1", "done");
+  const done = await tool.execute("c7", { action: "stop", id: "s1" }, NO_SIGNAL, undefined, undefined);
+  assert.match((done.content[0] as { text: string }).text, /already finished/);
+});
+
+test("stop: without an in-flight registry reports unavailable instead of throwing", async () => {
+  const tool = createSubagentRunsTool({ persistence: fakePersistence([]) });
+  const res = await tool.execute("c8", { action: "stop", id: "any" }, NO_SIGNAL, undefined, undefined);
+  assert.match((res.content[0] as { text: string }).text, /stop unavailable/);
 });

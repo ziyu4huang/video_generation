@@ -10,6 +10,7 @@ import type {
   SubagentRunRecord,
 } from "@repo/s2-agent-core-runtime";
 import { SubagentInFlightRegistry } from "@repo/s2-agent-core-runtime";
+import { BackgroundRunManager } from "../src/background-run-manager.js";
 import { ComposerComponent } from "../src/composer-component.js";
 import type { GitScopeOps } from "../src/git-scope.js";
 import { createSubagentTool } from "../src/subagent-tool.js";
@@ -2539,4 +2540,117 @@ test("formatSubagentLive trace lines narrow at small width", () => {
   ];
   const out = formatSubagentLive(history, 1000, 0, 100, 20);
   assert.ok(out.includes(`→ Running: ${"c".repeat(19)}…`), "trace target narrowed to the width");
+});
+
+// ── background:true dispatch (background-from-birth runs) ──
+// The dispatch+finalize tail is handed to the BackgroundRunManager instead of
+// awaited: execute returns immediately (status "running"), the child keeps
+// running in-process decoupled from the parent turn signal, and completion
+// surfaces as a <task-notification> via the manager's deliverer.
+
+test("renderSubagentResult renders a '⌛ running' badge for a background dispatch's settled immediate return", () => {
+  const out = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "Subagent dispatched → background (run call-bg-1). Continue with other work…" }],
+      details: { taskPreview: "p", elapsedMs: 5, startedAt: 1000, status: "running" },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.match(out, /⌛ running/, "live background dispatch gets its own badge");
+  assert.ok(!out.includes("failed"), "a live background dispatch must NOT fall through to the ✗ failed badge");
+});
+
+test("background:true returns immediately with status 'running'; registry entry is background; parent abort does not kill the child", async () => {
+  const reg = new SubagentInFlightRegistry();
+  const manager = new BackgroundRunManager();
+  let releaseChild!: () => void;
+  const f = fakeSpawn(
+    () =>
+      new Promise<SpawnSubagentResult>((resolve) => {
+        releaseChild = () => resolve(ok("bg done"));
+      }),
+  );
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    inFlight: reg,
+    background: manager,
+    gitOps: fakeGitOps({ baseHead: "b1", postHead: "b1" }).ops,
+  });
+  const ac = new AbortController(); // the PARENT TURN signal
+  const resP = tool.execute("call-bg-1", { task: "bg work", background: true }, ac.signal, undefined, NO_CTX);
+  const res = await Promise.race([
+    resP,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("background:true must return before the child completes")), 500),
+    ),
+  ]);
+  assert.equal(res.details.status, "running");
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /call-bg-1/, "immediate return names the run id");
+  assert.match(text, /list_subagent_runs/, "points at the wait/stop commands");
+  // registry entry: background semantics (dispatchChild registers a few microtasks in)
+  for (let i = 0; i < 50 && !reg.view("call-bg-1"); i++) await Promise.resolve();
+  const v = reg.view("call-bg-1");
+  assert.ok(v, "registry entry exists while the background run is live");
+  assert.equal(v.foreground, false);
+  assert.equal(v.background, true);
+  assert.deepEqual(manager.runningIds(), ["call-bg-1"], "manager roster holds the run");
+  // parent turn abort must NOT reach the child (turn-abort decoupling)
+  ac.abort();
+  for (let i = 0; i < 20; i++) await Promise.resolve();
+  const childSig = f.calls[0]?.externalSignal;
+  assert.ok(childSig, "spawn received its per-child signal");
+  assert.equal(childSig.aborted, false, "parent abort does not fan into a background child");
+  assert.ok(reg.view("call-bg-1"), "entry stays live (not terminal) after parent abort");
+  releaseChild();
+  // The registry entry ends in dispatchChild's finally; the manager slot frees a
+  // few ticks later (track's then/finally chain) — pump both.
+  for (let i = 0; i < 200 && (reg.view("call-bg-1") || manager.runningIds().length > 0); i++) await Promise.resolve();
+  assert.equal(reg.view("call-bg-1"), undefined, "entry released when the background run completes");
+  assert.deepEqual(manager.runningIds(), [], "slot freed on completion");
+});
+
+test("background completion delivers a <task-notification> via the manager deliverer", async () => {
+  const manager = new BackgroundRunManager();
+  const delivered: string[] = [];
+  manager.setDeliverer((m) => delivered.push(m));
+  const usage = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, total: 3, cost: 0 };
+  const f = fakeSpawn(() => ok("all done", { usage }));
+  const tool = createSubagentTool({
+    spawn: f.spawn,
+    inFlight: new SubagentInFlightRegistry(),
+    background: manager,
+    gitOps: fakeGitOps({ baseHead: "b1", postHead: "b1" }).ops,
+  });
+  const res = await tool.execute("call-bg-2", { task: "notify me", background: true }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.status, "running");
+  for (let i = 0; i < 200 && delivered.length === 0; i++) await Promise.resolve();
+  assert.equal(delivered.length, 1);
+  const notification = delivered[0] ?? "";
+  assert.match(notification, /status: done/);
+  assert.match(notification, /call-bg-2/);
+  assert.match(notification, /all done/, "result preview carries the child output");
+});
+
+test("background at cap fails fast with the slot-limit message", async () => {
+  process.env.SUBAGENT_MAX_BACKGROUND = "1";
+  try {
+    const manager = new BackgroundRunManager();
+    assert.equal(manager.claim("occupied").ok, true);
+    const f = fakeSpawn(() => ok("x"));
+    const tool = createSubagentTool({
+      spawn: f.spawn,
+      inFlight: new SubagentInFlightRegistry(),
+      background: manager,
+      gitOps: fakeGitOps({ baseHead: "b1", postHead: "b1" }).ops,
+    });
+    const res = await tool.execute("call-bg-3", { task: "no slot", background: true }, NO_SIGNAL, undefined, NO_CTX);
+    assert.equal(res.details.status, "failed");
+    const text = (res.content[0] as { text: string }).text;
+    assert.match(text, /background slot limit reached/);
+    assert.equal(f.calls.length, 0, "no spawn happens when the cap rejects the dispatch");
+  } finally {
+    delete process.env.SUBAGENT_MAX_BACKGROUND;
+  }
 });

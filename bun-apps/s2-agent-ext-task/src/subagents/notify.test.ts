@@ -74,6 +74,24 @@ describe("SubagentNotify", () => {
 		expect(bells).toBe(1);
 	});
 
+	test("background-from-birth run's first appearance stamps dispatched → background", () => {
+		let bells = 0;
+		const notify = new SubagentNotify({ bell: () => bells++ });
+		notify.diff([], [fakeView({ id: "b1", background: true })]);
+		const lines = notify.take();
+		expect(lines).toEqual(["dispatched → background · researcher"]);
+		expect(bells).toBe(1);
+		// already-seen background run next tick: no second line
+		notify.diff([fakeView({ id: "b1", background: true })], [fakeView({ id: "b1", background: true })]);
+		expect(notify.take()).toEqual([]);
+	});
+
+	test("foreground first appearance stamps nothing", () => {
+		const notify = new SubagentNotify({ bell: () => {} });
+		notify.diff([], [fakeView({ id: "f1", foreground: true, background: undefined })]);
+		expect(notify.take()).toEqual([]);
+	});
+
 	test("no line when nothing changed", () => {
 		const notify = new SubagentNotify({ bell: () => {} });
 		const v = fakeView();

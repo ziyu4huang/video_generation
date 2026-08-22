@@ -65,6 +65,11 @@ export interface InFlightSubagent {
    *  with outcome "detached". The entry STAYS live (foreground flipped false)
    *  so the subagents section keeps showing it. */
   detached?: boolean;
+  /** True when the run was dispatched in the background from birth (spawn_subagent
+   *  `background:true`): in-process, never awaited by the parent turn, notification
+   *  on completion via the background-run manager. Distinct from `detached`
+   *  (mid-flight handoff to an OS subprocess). Implies foreground:false. */
+  background?: boolean;
   /** The FULL raw task prompt (untruncated — unlike taskPreview). Written at
    *  start() by dispatchChild so a mid-flight detach can flush a resumable
    *  manifest whose `task` is the real prompt, not an 80-char preview. */

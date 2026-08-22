@@ -14,7 +14,9 @@ import {
   createSubagentTool,
   dispatchCtrlB,
   GLOBAL_DETACH_KEY,
+  getBackgroundRunManager,
   makeProdDetachDeps,
+  wireBackgroundDeliverer,
 } from "../src/index.js";
 import { createSubagentsCommand } from "../src/subagents-command.js";
 
@@ -47,6 +49,12 @@ export default function extension(pi: ExtensionAPI) {
 
   const inFlight = getSubagentInFlightRegistry();
   const persistence = getSubagentRunPersistence();
+  // Background roster (spawn_subagent background:true) + its completion
+  // notifier. Wiring the deliverer here is the followUp wake seam: a finished
+  // background run queues a <task-notification> via pi.sendMessage(..., followUp)
+  // — best-effort; without it results still land in run-persistence.
+  const backgroundManager = getBackgroundRunManager();
+  wireBackgroundDeliverer(pi, backgroundManager);
 
   const subagentTool = createSubagentTool({
     cwd,
@@ -65,6 +73,7 @@ export default function extension(pi: ExtensionAPI) {
     },
     inFlight,
     persistence,
+    background: backgroundManager,
   });
 
   // Best-effort guard: warn if another extension already registered
@@ -81,7 +90,7 @@ export default function extension(pi: ExtensionAPI) {
   }
   pi.registerTool(subagentTool);
 
-  const subagentRunsTool = createSubagentRunsTool({ persistence });
+  const subagentRunsTool = createSubagentRunsTool({ persistence, inFlight, background: backgroundManager });
   pi.registerTool(subagentRunsTool);
 
   // subagents — the plural batch tool (fan-out wraps spawnSubagent).

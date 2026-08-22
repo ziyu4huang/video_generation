@@ -24,6 +24,7 @@ import {
   tierDefaultToken,
   type Worktree,
 } from "@repo/s2-agent-core-runtime";
+import { getBackgroundRunManager } from "./background-run-manager.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent, GuardedComponent } from "./composer-component.js";
 import { realGitOps } from "./git-scope.js";
@@ -177,197 +178,309 @@ export function createSubagentTool(
         }
       }
 
-      let worktree: Worktree | undefined;
-      let spawnCwd = runCwd;
-      if (agentDef?.isolation === "worktree") {
-        // toolCallId (not runId+callIndex) is fine here: this tool has no resume/journal
-        // semantics, unlike workflow.ts's agent() — see the determinism note on
-        // createWorktree() in worktree.ts.
-        worktree = await makeWorktree(runCwd, `subagent-${toolCallId}`);
-        if (worktree.isolated) spawnCwd = worktree.cwd;
-      }
+      const background = params.background === true;
+      const manager = options.background ?? getBackgroundRunManager();
 
-      // Opt-in two-layer watchdog (watchdog param): snapshot the repo state NOW so the
-      // post-spawn compute can tell whether the child edited anything. Captured on
-      // spawnCwd (the real tree or the worktree the child ran in). A throw / non-repo
-      // → undefined, which gates the post-spawn run entirely (no review, no summary).
-      const watchdog = captureWatchdogBaseline(spawnCwd, params.watchdog, computeBaseline);
-
-      const requestedModel = params.model ?? agentDef?.model;
-      const tier = params.tier ?? agentDef?.tier;
-      const capability = params.capability;
-      const mainModel = options.getMainModel?.();
-      const scopedModels = options.getScopedModels?.();
-      // Shown WHILE the subagent runs, before the resolved model is known.
-      const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
-
-      // 2026-08-15 hardening H3: role-aware dispatch bounds. Applied ONLY when
-      // the dispatch omits ALL of tokenBudget/maxTurns/timeoutMs (detected on
-      // the RAW params — timeoutMs is always defaulted downstream, so the check
-      // must run first). Role comes from the effective toolset (write tools ⇒
-      // writer); an unrestricted child reads as writer (bash is available).
-      // An explicit bound of ANY kind opts the whole envelope out, and
-      // SUBAGENT_TOKEN_BUDGET_DISABLE escapes entirely (same knob as the tier
-      // ceilings). Computed BEFORE buildSpawnOptions and written back into
-      // params so the spawn sees one coherent envelope; `bounds.notice` is
-      // surfaced into the result output + durable record below.
-      const effectiveAllowlist = params.tools ?? agentDef?.tools ?? options.getActiveTools?.();
-      const dispatchRole = hasWriteTools(effectiveAllowlist, params.excludeTools ?? agentDef?.disallowedTools)
-        ? "writer"
-        : "recon";
-      const explicitBounds =
-        params.tokenBudget !== undefined || params.maxTurns !== undefined || params.timeoutMs !== undefined;
-      const tierCeiling = tierDefaultToken(tier, requestedModel ?? mainModel);
-      const bounds = roleAwareDefaults(
-        { tokenBudget: params.tokenBudget, maxTurns: params.maxTurns, timeoutMs: params.timeoutMs },
-        dispatchRole,
-        tierCeiling,
-      );
-      if (bounds.applied) {
-        params.tokenBudget = bounds.tokenBudget;
-        params.maxTurns = bounds.maxTurns;
-        params.timeoutMs = bounds.timeoutMs;
-      }
-      // Budget-history cohort tag (2026-08-18 forward-fix): WHICH mechanism
-      // set this dispatch's envelope — role-aware default ("envelope-<role>"),
-      // explicit caller param ("explicit", captured pre-write-back), or tier
-      // ceilings only ("tier"; a disabled ceiling leaves the bare tag).
-      // Threads RunRecordCtx → durable record budget.source; absent on legacy
-      // records = unknown cohort.
-      const budgetCohort: SubagentToolDetails["budget"] = bounds.applied
-        ? {
-            source: `envelope-${dispatchRole}` as const,
-            tokenBudget: bounds.tokenBudget,
-            maxTurns: bounds.maxTurns,
-            timeoutMs: bounds.timeoutMs,
-          }
-        : explicitBounds
-          ? {
-              source: "explicit",
-              tokenBudget: params.tokenBudget,
-              maxTurns: params.maxTurns,
-              timeoutMs: params.timeoutMs,
-            }
-          : tierCeiling !== undefined
-            ? { source: "tier", tokenBudget: tierCeiling }
-            : { source: "tier" };
-
-      try {
-        const opts = buildSpawnOptions(
-          {
-            toolCallId,
-            t0,
-            params,
-            agentDef,
-            modelCtx: { requestedModel, tier, capability, mainModel, scopedModels },
-            spawnCwd,
-            // dispatchChild owns the child controller and overwrites this field;
-            // buildSpawnOptions still needs a signal-shaped value for its type.
-            childSignal: new AbortController().signal,
-          },
-          progress,
-          {
-            getActiveTools: options.getActiveTools,
-            getExtensionTools: options.getExtensionTools,
-            inFlight: options.inFlight,
-            persistence: options.persistence,
-            onUpdate,
-          },
-        );
-        // #03 impossible-tool preflight (ABORT, pre-spawn). Sits inside this try
-        // so the finally still tears down the worktree on abort.
-        const missing = missingRequiredTools(params.requiredTools, opts.tools, opts.excludeTools);
-        if (missing) {
-          return failEarly(
-            `preflight: task requires tools not in the child allowlist: ${missing.join(", ")}. ` +
-              `Add them to \`tools\` (or drop them from \`excludeTools\` / \`requiredTools\`).`,
-          );
+      // The dispatch+finalize tail, wrapped so the background branch can hand
+      // the WHOLE lifecycle (worktree alloc through persistence save) to the
+      // manager instead of awaiting it. Two deltas inside, everything else
+      // moved verbatim:
+      //   (a) the try/finally worktree teardown is INSIDE the closure — the
+      //       worktree must outlive the immediate background return;
+      //   (b) the dispatchChild request carries `background` and, when
+      //       background, NO parentSignal (turn-abort decoupling,
+      //       ADR-subagent-0007) and no onUpdate live-stream.
+      const runCompletion = async (): Promise<{
+        content: Array<{ type: "text"; text: string }>;
+        details: SubagentToolDetails;
+      }> => {
+        let worktree: Worktree | undefined;
+        let spawnCwd = runCwd;
+        if (agentDef?.isolation === "worktree") {
+          // toolCallId (not runId+callIndex) is fine here: this tool has no resume/journal
+          // semantics, unlike workflow.ts's agent() — see the determinism note on
+          // createWorktree() in worktree.ts.
+          worktree = await makeWorktree(runCwd, `subagent-${toolCallId}`);
+          if (worktree.isolated) spawnCwd = worktree.cwd;
         }
-        // The per-child pipeline — abort fan-in, in-flight lifecycle,
-        // resolved-model capture, the commit-scope audit and status derivation —
-        // is shared with the `subagents` batch tool (see child-dispatch.ts).
-        const outcome = await dispatchChild(
-          {
-            id: toolCallId,
-            startedAt: t0,
-            spawn: opts,
-            entry: {
-              agent: params.agent,
-              model: displayModelBeforeResolve,
-              taskPreview: taskPreview(params.task),
-              // Work-intent strip from the RAW task so the docked context box can
-              // surface it (ticket 04, finding 1 — taskPreview is already
-              // single-lined, so workIntentPreview can't strip its preamble).
-              workIntent: workIntentPreview(params.task),
-            },
-            // Audited even with no declared scope: this child holds raw `bash`,
-            // so an unset scope means "flag ANY commit" (#02 B1 default-on) —
-            // the recurring `git add -A` sweep signal.
-            scope: { declared: params.commitScope, runCwd, spawnCwd },
-            parentSignal: signal,
-          },
-          {
-            spawn,
-            inFlight: options.inFlight,
-            gitOps,
-            // The transcript is only needed when it will be persisted.
-            captureHistory: Boolean(options.persistence),
-            // Live progress line — only when the host actually gave us a sink.
-            onHistory: onUpdate
-              ? (history) => {
-                  progress.lastHistory = history;
-                  const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
-                  progress.maxToolCallsSeen = Math.max(progress.maxToolCallsSeen, toolCallsNow);
-                  onUpdate({
-                    content: [
-                      {
-                        type: "text" as const,
-                        text: formatSubagentLive(history, Date.now() - t0, progress.maxToolCallsSeen),
-                      },
-                    ],
-                    details: undefined as unknown as SubagentToolDetails,
-                  });
-                }
-              : undefined,
-          },
+
+        // Opt-in two-layer watchdog (watchdog param): snapshot the repo state NOW so the
+        // post-spawn compute can tell whether the child edited anything. Captured on
+        // spawnCwd (the real tree or the worktree the child ran in). A throw / non-repo
+        // → undefined, which gates the post-spawn run entirely (no review, no summary).
+        const watchdog = captureWatchdogBaseline(spawnCwd, params.watchdog, computeBaseline);
+
+        const requestedModel = params.model ?? agentDef?.model;
+        const tier = params.tier ?? agentDef?.tier;
+        const capability = params.capability;
+        const mainModel = options.getMainModel?.();
+        const scopedModels = options.getScopedModels?.();
+        // Shown WHILE the subagent runs, before the resolved model is known.
+        const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
+
+        // 2026-08-15 hardening H3: role-aware dispatch bounds. Applied ONLY when
+        // the dispatch omits ALL of tokenBudget/maxTurns/timeoutMs (detected on
+        // the RAW params — timeoutMs is always defaulted downstream, so the check
+        // must run first). Role comes from the effective toolset (write tools ⇒
+        // writer); an unrestricted child reads as writer (bash is available).
+        // An explicit bound of ANY kind opts the whole envelope out, and
+        // SUBAGENT_TOKEN_BUDGET_DISABLE escapes entirely (same knob as the tier
+        // ceilings). Computed BEFORE buildSpawnOptions and written back into
+        // params so the spawn sees one coherent envelope; `bounds.notice` is
+        // surfaced into the result output + durable record below.
+        const effectiveAllowlist = params.tools ?? agentDef?.tools ?? options.getActiveTools?.();
+        const dispatchRole = hasWriteTools(effectiveAllowlist, params.excludeTools ?? agentDef?.disallowedTools)
+          ? "writer"
+          : "recon";
+        const explicitBounds =
+          params.tokenBudget !== undefined || params.maxTurns !== undefined || params.timeoutMs !== undefined;
+        const tierCeiling = tierDefaultToken(tier, requestedModel ?? mainModel);
+        const bounds = roleAwareDefaults(
+          { tokenBudget: params.tokenBudget, maxTurns: params.maxTurns, timeoutMs: params.timeoutMs },
+          dispatchRole,
+          tierCeiling,
         );
-        const result = outcome.result;
-        const elapsedMs = outcome.elapsedMs;
-        progress.resolvedModel = outcome.model;
-        progress.fellBack = outcome.fellBack;
-        // Task 05: the run was detached to background mid-flight. The detached
-        // OS subprocess (spawned by convertToBackground) owns execution and the
-        // eventual completed-record write; the parent turn resumes WITHOUT
-        // killing anything and WITHOUT persisting here (persistence owns
-        // recovery via the detach manifest). The registry entry stays live for
-        // the subagents section.
-        if (outcome.status === "detached") {
-          const model = progress.resolvedModel ?? displayModelBeforeResolve;
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Subagent detached → background (run ${toolCallId}; still live in the status section / /subagents)`,
+        if (bounds.applied) {
+          params.tokenBudget = bounds.tokenBudget;
+          params.maxTurns = bounds.maxTurns;
+          params.timeoutMs = bounds.timeoutMs;
+        }
+        // Budget-history cohort tag (2026-08-18 forward-fix): WHICH mechanism
+        // set this dispatch's envelope — role-aware default ("envelope-<role>"),
+        // explicit caller param ("explicit", captured pre-write-back), or tier
+        // ceilings only ("tier"; a disabled ceiling leaves the bare tag).
+        // Threads RunRecordCtx → durable record budget.source; absent on legacy
+        // records = unknown cohort.
+        const budgetCohort: SubagentToolDetails["budget"] = bounds.applied
+          ? {
+              source: `envelope-${dispatchRole}` as const,
+              tokenBudget: bounds.tokenBudget,
+              maxTurns: bounds.maxTurns,
+              timeoutMs: bounds.timeoutMs,
+            }
+          : explicitBounds
+            ? {
+                source: "explicit",
+                tokenBudget: params.tokenBudget,
+                maxTurns: params.maxTurns,
+                timeoutMs: params.timeoutMs,
+              }
+            : tierCeiling !== undefined
+              ? { source: "tier", tokenBudget: tierCeiling }
+              : { source: "tier" };
+
+        try {
+          const opts = buildSpawnOptions(
+            {
+              toolCallId,
+              t0,
+              params,
+              agentDef,
+              modelCtx: { requestedModel, tier, capability, mainModel, scopedModels },
+              spawnCwd,
+              // dispatchChild owns the child controller and overwrites this field;
+              // buildSpawnOptions still needs a signal-shaped value for its type.
+              childSignal: new AbortController().signal,
+            },
+            progress,
+            {
+              getActiveTools: options.getActiveTools,
+              getExtensionTools: options.getExtensionTools,
+              inFlight: options.inFlight,
+              persistence: options.persistence,
+              onUpdate,
+            },
+          );
+          // #03 impossible-tool preflight (ABORT, pre-spawn). Sits inside this try
+          // so the finally still tears down the worktree on abort.
+          const missing = missingRequiredTools(params.requiredTools, opts.tools, opts.excludeTools);
+          if (missing) {
+            return failEarly(
+              `preflight: task requires tools not in the child allowlist: ${missing.join(", ")}. ` +
+                `Add them to \`tools\` (or drop them from \`excludeTools\` / \`requiredTools\`).`,
+            );
+          }
+          // The per-child pipeline — abort fan-in, in-flight lifecycle,
+          // resolved-model capture, the commit-scope audit and status derivation —
+          // is shared with the `subagents` batch tool (see child-dispatch.ts).
+          const outcome = await dispatchChild(
+            {
+              id: toolCallId,
+              startedAt: t0,
+              spawn: opts,
+              entry: {
+                agent: params.agent,
+                model: displayModelBeforeResolve,
+                taskPreview: taskPreview(params.task),
+                // Work-intent strip from the RAW task so the docked context box can
+                // surface it (ticket 04, finding 1 — taskPreview is already
+                // single-lined, so workIntentPreview can't strip its preamble).
+                workIntent: workIntentPreview(params.task),
               },
-            ],
-            details: {
+              // Audited even with no declared scope: this child holds raw `bash`,
+              // so an unset scope means "flag ANY commit" (#02 B1 default-on) —
+              // the recurring `git add -A` sweep signal.
+              scope: { declared: params.commitScope, runCwd, spawnCwd },
+              // background: NO parent signal — a whole-turn Esc must not kill a
+              // background run (turn-abort decoupling, ADR-subagent-0007).
+              parentSignal: background ? undefined : signal,
+              background,
+            },
+            {
+              spawn,
+              inFlight: options.inFlight,
+              gitOps,
+              // The transcript is only needed when it will be persisted.
+              captureHistory: Boolean(options.persistence),
+              // Live progress line — only when the host actually gave us a sink, and
+              // never for a background dispatch (its tool call has already resolved
+              // — there is no partial surface to stream onto).
+              onHistory:
+                onUpdate && !background
+                  ? (history) => {
+                      progress.lastHistory = history;
+                      const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
+                      progress.maxToolCallsSeen = Math.max(progress.maxToolCallsSeen, toolCallsNow);
+                      onUpdate({
+                        content: [
+                          {
+                            type: "text" as const,
+                            text: formatSubagentLive(history, Date.now() - t0, progress.maxToolCallsSeen),
+                          },
+                        ],
+                        details: undefined as unknown as SubagentToolDetails,
+                      });
+                    }
+                  : undefined,
+            },
+          );
+          const result = outcome.result;
+          const elapsedMs = outcome.elapsedMs;
+          progress.resolvedModel = outcome.model;
+          progress.fellBack = outcome.fellBack;
+          // Task 05: the run was detached to background mid-flight. The detached
+          // OS subprocess (spawned by convertToBackground) owns execution and the
+          // eventual completed-record write; the parent turn resumes WITHOUT
+          // killing anything and WITHOUT persisting here (persistence owns
+          // recovery via the detach manifest). The registry entry stays live for
+          // the subagents section.
+          if (outcome.status === "detached") {
+            const model = progress.resolvedModel ?? displayModelBeforeResolve;
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Subagent detached → background (run ${toolCallId}; still live in the status section / /subagents)`,
+                },
+              ],
+              details: {
+                agent: params.agent,
+                model,
+                taskPreview: taskPreview(params.task),
+                elapsedMs,
+                startedAt: t0,
+                status: "detached" as const,
+              },
+            };
+          }
+          if (outcome.userAborted) {
+            // Partial work is discarded (worktree) or left in-tree (real-tree);
+            // scope/watchdog review of a half-finished diff would be noise. The
+            // transcript, though, is exactly the "code done, unreported" case —
+            // salvage the child's last words + touched files (H2).
+            const model = progress.resolvedModel ?? displayModelBeforeResolve;
+            const salvage = extractSalvage(outcome.history ?? progress.lastHistory);
+            const abortedText = augmentOutputWithSalvage("Subagent aborted by user.", result.failure, true, salvage);
+            options.persistence?.save(
+              buildRunRecord(
+                {
+                  toolCallId,
+                  agent: params.agent,
+                  task: params.task,
+                  model,
+                  requestedModel,
+                  fellBack: progress.fellBack,
+                  tier,
+                  budgetCohort,
+                  runCwd,
+                  t0,
+                  elapsedMs,
+                },
+                {
+                  status: "aborted",
+                  output: abortedText,
+                  usage: result.usage,
+                  salvage,
+                  // Stamps the record as a background-from-birth completion
+                  // (stop lands here too — an aborted background run).
+                  background: background || undefined,
+                },
+              ),
+            );
+            return {
+              content: [{ type: "text" as const, text: abortedText }],
+              details: {
+                agent: params.agent,
+                model,
+                taskPreview: taskPreview(params.task),
+                elapsedMs,
+                startedAt: t0,
+                status: "aborted" as const,
+                usage: result.usage,
+                salvage,
+              },
+            };
+          }
+          // Commit-scope audit (detection only) — computed by dispatchChild, which
+          // swallows any git failure so the guard never fails a run.
+          const scopeCheck = outcome.scopeCheck;
+          let output = augmentOutputWithScopeViolation(formatSubagentResult(result), scopeCheck);
+          // H3: one-line notice when role-aware bounds were applied (output+record).
+          if (bounds.applied && bounds.notice) output += `\n${bounds.notice}`;
+          // H2: terminal-abort salvage — budget/turns/timedout only (a "done" run
+          // already carries its output; "failed" keeps its error head).
+          const terminalAbort =
+            result.failure?.kind === "budget" ||
+            result.failure?.kind === "turns" ||
+            result.failure?.kind === "timedout";
+          const salvage = terminalAbort ? extractSalvage(outcome.history ?? progress.lastHistory) : undefined;
+          output = augmentOutputWithSalvage(output, result.failure, false, salvage);
+          // Opt-in two-layer watchdog: run the review against the captured baseline.
+          // Soft gate — appends a summary line only when runWatchdog actually ran OR
+          // was edit-gated (no diff). A throw anywhere in the watchdog path is caught
+          // here so it can NEVER fail the run; in that case a `watchdog-error:` line
+          // is appended instead and watchdogResult stays undefined.
+          let watchdogResult: WatchdogResult | undefined;
+          if (watchdog?.baseline) {
+            const review = await runWatchdogReview(
+              runWatchdog,
+              watchdog.opts,
+              watchdog.baseline,
+              spawnCwd,
+              taskPreview(params.task),
+            );
+            if (review.result) watchdogResult = review.result;
+            if (review.outputAppend) output += review.outputAppend;
+          }
+          const model = progress.resolvedModel ?? displayModelBeforeResolve;
+          const details = buildDetails(
+            result,
+            { model, requestedModel, fellBack: progress.fellBack },
+            {
+              task: params.task,
               agent: params.agent,
-              model,
-              taskPreview: taskPreview(params.task),
               elapsedMs,
               startedAt: t0,
-              status: "detached" as const,
+              scopeCheck,
+              watchdog: watchdogResult,
+              salvage,
             },
-          };
-        }
-        if (outcome.userAborted) {
-          // Partial work is discarded (worktree) or left in-tree (real-tree);
-          // scope/watchdog review of a half-finished diff would be noise. The
-          // transcript, though, is exactly the "code done, unreported" case —
-          // salvage the child's last words + touched files (H2).
-          const model = progress.resolvedModel ?? displayModelBeforeResolve;
-          const salvage = extractSalvage(outcome.history ?? progress.lastHistory);
-          const abortedText = augmentOutputWithSalvage("Subagent aborted by user.", result.failure, true, salvage);
+          );
+          // Durable record for post-session replay (ticket 08). Write-once at
+          // completion; best-effort — save() swallows errors so this can never
+          // fail the run. Covers done/failed/timedout (spawnSubagent returns a
+          // result, never throws, on child failure); the pre-flight failEarly
+          // paths above do not persist (they are not real runs).
           options.persistence?.save(
             buildRunRecord(
               {
@@ -384,112 +497,78 @@ export function createSubagentTool(
                 elapsedMs,
               },
               {
-                status: "aborted",
-                output: abortedText,
-                usage: result.usage,
+                status: details.status,
+                usage: details.usage,
+                output,
+                error: result.failure?.message,
+                budget: details.budget,
+                turns: details.turns,
+                history: outcome.history,
+                report: details.report,
+                scopeCheck: details.scopeCheck,
+                watchdog: watchdogResult,
                 salvage,
+                // Stamps the record as a background-from-birth completion;
+                // omitted (undefined) on foreground records.
+                background: background || undefined,
               },
             ),
           );
-          return {
-            content: [{ type: "text" as const, text: abortedText }],
-            details: {
+          return { content: [{ type: "text" as const, text: output }], details };
+        } finally {
+          // dispatchChild owns the abort-listener cleanup and the in-flight
+          // release (both in its own finally, so they run on a throw too). The
+          // worktree is this tool's alone — the batch tool never allocates one.
+          if (worktree) await teardownWorktree(worktree);
+        }
+      };
+
+      if (background) {
+        const claim = manager.claim(toolCallId);
+        if (!claim.ok) return failEarly(claim.error);
+        try {
+          manager.track(
+            {
+              id: toolCallId,
               agent: params.agent,
-              model,
+              model: params.model ?? agentDef?.model ?? "default",
               taskPreview: taskPreview(params.task),
-              elapsedMs,
               startedAt: t0,
-              status: "aborted" as const,
-              usage: result.usage,
-              salvage,
             },
-          };
-        }
-        // Commit-scope audit (detection only) — computed by dispatchChild, which
-        // swallows any git failure so the guard never fails a run.
-        const scopeCheck = outcome.scopeCheck;
-        let output = augmentOutputWithScopeViolation(formatSubagentResult(result), scopeCheck);
-        // H3: one-line notice when role-aware bounds were applied (output+record).
-        if (bounds.applied && bounds.notice) output += `\n${bounds.notice}`;
-        // H2: terminal-abort salvage — budget/turns/timedout only (a "done" run
-        // already carries its output; "failed" keeps its error head).
-        const terminalAbort =
-          result.failure?.kind === "budget" || result.failure?.kind === "turns" || result.failure?.kind === "timedout";
-        const salvage = terminalAbort ? extractSalvage(outcome.history ?? progress.lastHistory) : undefined;
-        output = augmentOutputWithSalvage(output, result.failure, false, salvage);
-        // Opt-in two-layer watchdog: run the review against the captured baseline.
-        // Soft gate — appends a summary line only when runWatchdog actually ran OR
-        // was edit-gated (no diff). A throw anywhere in the watchdog path is caught
-        // here so it can NEVER fail the run; in that case a `watchdog-error:` line
-        // is appended instead and watchdogResult stays undefined.
-        let watchdogResult: WatchdogResult | undefined;
-        if (watchdog?.baseline) {
-          const review = await runWatchdogReview(
-            runWatchdog,
-            watchdog.opts,
-            watchdog.baseline,
-            spawnCwd,
-            taskPreview(params.task),
+            runCompletion().then((r) => ({
+              status: r.details.status,
+              output: r.content[0]?.type === "text" ? r.content[0].text : undefined,
+              usage: r.details.usage,
+            })),
           );
-          if (review.result) watchdogResult = review.result;
-          if (review.outputAppend) output += review.outputAppend;
+        } catch (err) {
+          // claim→track slot safety: a throw between a successful claim and
+          // track would leak the slot (cap permanently shrunk). Release and
+          // fail — no child was spawned, nothing else to unwind.
+          manager.release(toolCallId);
+          return failEarly(`background dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
         }
-        const model = progress.resolvedModel ?? displayModelBeforeResolve;
-        const details = buildDetails(
-          result,
-          { model, requestedModel, fellBack: progress.fellBack },
-          {
-            task: params.task,
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `Subagent dispatched → background (run ${toolCallId}). Continue with other work; a <task-notification> ` +
+                `follow-up will report completion. Block for the result with list_subagent_runs ` +
+                `{action:"wait", id:"${toolCallId}"}; stop with {action:"stop", id:"${toolCallId}"}.`,
+            },
+          ],
+          details: {
             agent: params.agent,
-            elapsedMs,
+            model: params.model ?? "default",
+            taskPreview: taskPreview(params.task),
+            elapsedMs: Date.now() - t0,
             startedAt: t0,
-            scopeCheck,
-            watchdog: watchdogResult,
-            salvage,
+            status: "running" as const,
           },
-        );
-        // Durable record for post-session replay (ticket 08). Write-once at
-        // completion; best-effort — save() swallows errors so this can never
-        // fail the run. Covers done/failed/timedout (spawnSubagent returns a
-        // result, never throws, on child failure); the pre-flight failEarly
-        // paths above do not persist (they are not real runs).
-        options.persistence?.save(
-          buildRunRecord(
-            {
-              toolCallId,
-              agent: params.agent,
-              task: params.task,
-              model,
-              requestedModel,
-              fellBack: progress.fellBack,
-              tier,
-              budgetCohort,
-              runCwd,
-              t0,
-              elapsedMs,
-            },
-            {
-              status: details.status,
-              usage: details.usage,
-              output,
-              error: result.failure?.message,
-              budget: details.budget,
-              turns: details.turns,
-              history: outcome.history,
-              report: details.report,
-              scopeCheck: details.scopeCheck,
-              watchdog: watchdogResult,
-              salvage,
-            },
-          ),
-        );
-        return { content: [{ type: "text" as const, text: output }], details };
-      } finally {
-        // dispatchChild owns the abort-listener cleanup and the in-flight
-        // release (both in its own finally, so they run on a throw too). The
-        // worktree is this tool's alone — the batch tool never allocates one.
-        if (worktree) await teardownWorktree(worktree);
+        };
       }
+      return runCompletion();
     },
     renderCall(args, theme, context) {
       const component =

@@ -169,6 +169,27 @@ test("start accepts an entry with no model (a workflow run aggregates agents acr
   assert.equal(v.latestAction, "preview_wf · Scan · 1/2 agents");
 });
 
+// ── background-from-birth dispatch (Task 1: registry background flag) ──
+
+test("background entry: foreground false, background true, bg badge", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "bg-1", model: "m", taskPreview: "t", startedAt: 0, background: true });
+  const v = reg.view("bg-1");
+  assert.ok(v);
+  assert.equal(v.foreground, false, "a background-from-birth run is never inline (foreground defaults false)");
+  assert.equal(v.background, true);
+  assert.equal(v.badgeText, "bg");
+});
+
+test("foreground entry unchanged: no background field, no bg badge", () => {
+  const reg = new SubagentInFlightRegistry();
+  reg.start({ id: "fg-1", model: "m", taskPreview: "t", startedAt: 0, foreground: true });
+  const v = reg.view("fg-1");
+  assert.ok(v);
+  assert.equal(v.background, undefined, "omitted background stays undefined (backward compatible)");
+  assert.equal(v.badgeText, undefined);
+});
+
 // ── markFallback (ticket 03: model-fallback display) ──
 
 test("markFallback sets requestedModel + fellBack without touching resolvedModel", () => {
