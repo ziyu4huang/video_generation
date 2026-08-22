@@ -168,8 +168,13 @@ After the merge: confirm the PR actually merged, inspect the merge commit's real
 file scope against an optional `expectedScope` (verdict CLEAN vs CONTAMINATED),
 and whether the feature branch is now **spent**. Pass the same `expectedScope`
 you intended the work to touch — a CONTAMINATED verdict means the merge pulled in
-out-of-scope paths. Replaces manual `git show` / `git branch --merged`
-verification.
+out-of-scope paths. **List EVERY touched root, including doc files** (CLAUDE.md,
+`docs/`, READMEs) — a code PR with an intentional one-line CLAUDE.md edit rode
+through as "CONTAMINATED" on PR #1802 because only the package dir was passed.
+On CONTAMINATED the tool/CLI now prints a `scope remedy:` warning with the exact
+corrected `--scope` list (current entries ∪ drifted paths) — copy-paste it into
+a `verify-merge-cli <pr> --scope …` re-run to re-adjudicate CLEAN. Replaces
+manual `git show` / `git branch --merged` verification.
 
 **`UNVERIFIED` is a fourth verdict, and it is not a pass.** It means the merge
 landed but its files could not be read, so the scope check never ran. Treat the
