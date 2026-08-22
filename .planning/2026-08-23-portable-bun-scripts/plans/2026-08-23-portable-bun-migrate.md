@@ -32,8 +32,8 @@
   - `stripAnsi(s: string): string`
   - `normalizeRunOutput(s: string, pkgName?: string): string` — strips ANSI, `\((\d+(\.\d+)?)s\)` elapsed, `/tmp/[\w-]+-runtest\.log` → `/tmp/<log>`, and the literal `pkgName` string (so the same launcher body normalizes across the 12 per-package copies).
   - `runScript(runner: "bun" | "bash", scriptPath: string, args: string[], opts?: { cwd?: string; env?: Record<string, string> }): { stdout: string; stderr: string; code: number }` — spawns `<runner> <scriptPath> …`; throws on nonzero exit **of the spawn itself** only (spawn failure, e.g. ENOENT), never on the child's exit code. (Adjudicated 2026-08-23: the brief's prose said 2-arg `scriptPath, args, opts` — a stale remnant; the Step-3 code, Step-1 test and `assertParity`'s internal call all agree on runner-first, which is the binding contract.)
-  - `GoldenCase = { name: string; args: string[]; cwd?: string; env?: Record<string, string>; expectCode?: number; out?: string; outIs: "exact" | "normalized"; errIncludes?: string[] }`
-  - `assertParity(newScriptPath: string, scriptArgs: string[], cases: GoldenCase[]): void` — runs each case against `bun newScriptPath`, normalizes per `outIs`, asserts `code` (default 0) and stdout golden; asserts `stderr` contains each `errIncludes` entry.
+  - `GoldenCase = { name: string; args: string[]; cwd?: string; env?: Record<string, string>; expectCode?: number; out?: string; outIs?: "exact" | "normalized"; pkgName?: string; errIncludes?: string[] }` — `c.pkgName` is passed to `normalizeRunOutput` when `outIs === "normalized"` (inline package-name substitution, needed by Task 9's 12-package goldens); `errIncludes` matches the RAW unnormalized stderr (stdout is the only normalized channel).
+  - `assertParity(newScriptPath: string, cases: GoldenCase[]): void` — runs each case against `bun newScriptPath`, normalizes per `outIs`, asserts `code` (default 0) and stdout golden; asserts `stderr` contains each `errIncludes` entry. (Adjudicated 2026-08-23: the earlier `scriptArgs`/`args` second parameter was dead code — each case carries its own `args` — and unreachable `pkgName`; both fixed in the contract before Tasks 2–12 consume it.)
 
 - [ ] **Step 1: Write the failing tests for the normalizer + runner**
 
@@ -64,6 +64,20 @@ describe("runScript", () => {
     const r = runScript("bun", "-e", ["console.error('boom'); process.exit(1)"]);
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("boom");
+  });
+});
+
+describe("assertParity", () => {
+  test("normalized happy path passes; exit/stdout mismatch throw; errIncludes on raw stderr; pkgName substituted", () => {
+    const dir = mkdtempSync(join(tmpdir(), "parity-ab-"));
+    const script = join(dir, "probe.ts");
+    // ANSI + elapsed + inline pkg name on stdout; "boom" on stderr; exit 1
+    writeFileSync(script, `console.log("\\x1b[32m✓ s2-agent-ext-btw  \\x1b[2m(12s)\\x1b[0m"); console.error("boom"); process.exit(1);`);
+    assertParity(script, [
+      { name: "pass", args: [], expectCode: 1, out: "✓ <pkg>  (Ns)", outIs: "normalized", pkgName: "s2-agent-ext-btw", errIncludes: ["boom"] },
+    ]);
+    expect(() => assertParity(script, [{ name: "x", args: [], expectCode: 0 }])).toThrow(/expected exit 0, got 1/);
+    expect(() => assertParity(script, [{ name: "x", args: [], expectCode: 1, out: "nope" }])).toThrow(/stdout mismatch/);
   });
 });
 ```
@@ -114,10 +128,11 @@ export type GoldenCase = {
   expectCode?: number;
   out?: string;
   outIs?: "exact" | "normalized";
-  errIncludes?: string[];
+  pkgName?: string; // substituted in normal-mode stdout via normalizeRunOutput
+  errIncludes?: string[]; // raw stderr (unnormalized)
 };
 
-export function assertParity(newScriptPath: string, args: string[], cases: GoldenCase[]): void {
+export function assertParity(newScriptPath: string, cases: GoldenCase[]): void {
   for (const c of cases) {
     const r = runScript("bun", newScriptPath, c.args, { cwd: c.cwd, env: c.env });
     const code = r.code;
@@ -125,7 +140,7 @@ export function assertParity(newScriptPath: string, args: string[], cases: Golde
       throw new Error(`${c.name}: expected exit ${c.expectCode ?? 0}, got ${code}\nstderr: ${r.stderr}`);
     }
     if (c.out !== undefined) {
-      const got = c.outIs === "normalized" ? normalizeRunOutput(r.stdout) : r.stdout;
+      const got = c.outIs === "normalized" ? normalizeRunOutput(r.stdout, c.pkgName) : r.stdout;
       if (got.trim() !== c.out.trim()) {
         throw new Error(`${c.name}: stdout mismatch\n--- expected ---\n${c.out}\n--- got ---\n${got}`);
       }
@@ -197,12 +212,12 @@ const DEDUP = "skills/pi-memory-bulk-dedup/dedup.ts";
 function fixture(): { dir: string; md: string; db: string } { /* create tmp prefix.memory.md with §-entries + seed db.sqlite from the capture script; return paths */ }
 
 test("dedup.ts help", () => {
-  assertParity(DEDUP, ["--help"], [{ name: "help", args: ["--help"], expectCode: 0, out: HELP_GOLDEN }]);
+  assertParity(DEDUP, [{ name: "help", args: ["--help"], expectCode: 0, out: HELP_GOLDEN }]);
 });
 test("dedup.ts dry-run BEFORE→AFTER", () => { … out: DRYRUN_GOLDEN … });
 test("dedup.ts commit on a copy", () => { … out: COMMIT_GOLDEN … });
 test("dedup.ts bogus target exits 2", () => {
-  assertParity(DEDUP, ["--target", "bogus-name", "--db", "/tmp/x.sqlite", "--dry-run"], [
+  assertParity(DEDUP, [
     { name: "usage-error", args: ["--target","bogus-name","--db","/tmp/x.sqlite","--dry-run"], expectCode: 2, errIncludes: ["usage"] },
   ]);
 });
@@ -256,7 +271,7 @@ git commit -m "feat(hermes-memory): dedup.ts — portable bun twin of dedup.sh (
 **Notes (from the old script, read 2026-08-23):** the smoke has NO flags. It must keep using `bunx playwright-cli` (NEVER `npx` — the exact npm collision guard) and print the two `ok:` lines + `playwright-cli skill smoke: PASS`; fail paths print `FAIL: …`, exit 1. Pinned version read from `node_modules/@playwright/cli/package.json`.
 
 - [ ] **Step 1: Capture goldens** — run old script in the power-tool package root: stdout = the 3 lines, exit 0. Record.
-- [ ] **Step 2: Write failing test** — `assertParity("skills/playwright-cli/scripts/smoke.ts", [], [{name:"smoke", args:[], cwd:"power-tool-root", expectCode:0, out:SMOKE_GOLDEN}])`; skip-if-deps-absent guard: `if (!existsSync("node_modules/@playwright/cli/package.json")) { test.skip }` — mirrors the old `|| fail "…run 'bun install'"`.
+- [ ] **Step 2: Write failing test** — `assertParity("skills/playwright-cli/scripts/smoke.ts", [{name:"smoke", args:[], cwd:"power-tool-root", expectCode:0, out:SMOKE_GOLDEN}])`; skip-if-deps-absent guard: `if (!existsSync("node_modules/@playwright/cli/package.json")) { test.skip }` — mirrors the old `|| fail "…run 'bun install'"`.
 - [ ] **Step 3: run — fail**; **Step 4: implement smoke.ts** (spawn `bunx playwright-cli --version` + `bunx playwright-cli list`; read pinned semver; same outputs/fail messages).
 - [ ] **Step 5: transient A/B diff** (run both scripts in power-tool root, diff = empty).
 - [ ] **Step 6: parity green → delete smoke.sh; Step 7: SKILL.md ref; Step 8: canonical gates + commit.**
@@ -357,7 +372,7 @@ git commit -m "feat(hermes-memory): dedup.ts — portable bun twin of dedup.sh (
 **Notes:** structure (read `s2-agent-ext-btw` + the devops one): identical `step()`/colors/flags (`-l|--list`, tier words, extras); tiers per package derived at capture time (btw = quick/full; others may differ — **capture from each old script's `case` line in Step 1**). Some packages need canonical-script caveats — e.g. file2md `--isolate` and obsidian scoped tests are encoded in the package's `bun run test` per the comments — keep `bun run test` (canonical) as the runner, never bare `bun test`.
 
 - [ ] **Step 1: capture goldens per package** — loop: `bash <pkg>/run-test.sh --list | normalize > bun-apps/tests/goldens/run-test-<pkg>.list`; record tiers + exit 2 case for unknown tier.
-- [ ] **Step 2: failing parity test** (`bun-apps/tests/run-test-launchers-parity.test.ts`): for each pkg: `assertParity(<pkg>/run-test.ts, ["--list"], { out: <golden file>, outIs: "normalized" })` + unknown-tier exit 2. Fails while no .ts exists.
+- [ ] **Step 2: failing parity test** (`bun-apps/tests/run-test-launchers-parity.test.ts`): for each pkg: `assertParity(<pkg>/run-test.ts, [{ name: "list-<pkg>", args: ["--list"], out: <golden file contents>, outIs: "normalized", pkgName: "<pkg>" }])` + unknown-tier exit 2. Fails while no .ts exists.
 - [ ] **Step 3: implement** — port ONE canonical shape (copy of Task 8's per-pkg subset): tier parse (`-l|--list`, tier names, extras forwarding), `step()` same colors, `/tmp/<pkg>-runtest.log`, canonical `bun run test` (NOT bare `bun test`), exit 0/1/2. Tailor the tier list per package (from Step 1 capture).
 - [ ] **Step 4: transient A/B** — for each pkg: old vs new on `--list` + unknown-tier (diff empty) and one real tier run (quick) normalized diff empty.
 - [ ] **Step 5: delete all 12 .sh; Step 6: gates + commit** (`bun test bun-apps/tests/run-test-launchers-parity.test.ts` + the devops gates for Task 8).
