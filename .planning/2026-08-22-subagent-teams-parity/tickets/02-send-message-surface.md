@@ -1,6 +1,7 @@
 # Ticket 02 — send-message-surface
 
-status: in-review
+status: closed
+closed: 2026-08-22 — PR #1818 merged (main 351fc22e), squash-titled "feat(subagent): send_message tool — named-agent follow-ups + parent bus (teams parity 02/08)". Merged through merge-pr-after-ci with local CI fully green in-branch (the first attempt caught a REAL gap — send_message missing owner-declared gating — fixed in-PR with the workflow gate family growing 5→6; no assume-ci-green needed). Independent reviewer subagent: 2 majors + 3 minors found, all fixed (cc59c4f0), re-review confirmed all RESOLVED ("ship it").
 
 ## Resolution (2026-08-22, branch feat/subagent-teams-parity-02-send-message)
 
