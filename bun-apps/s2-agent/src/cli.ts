@@ -160,8 +160,8 @@ const { STATIC_EXTENSION_FACTORIES } = await import("./static-extensions.ts");
 // directly — it does NOT re-read process.argv.
 //
 // `argv` was sliced BEFORE applyPatches(), so this reflects only what the USER
-// typed — the deploy modes' self-injected "-ne" (spliced during applyPatches)
-// can't turn the static factories off. Upstream pi never gates
+// typed — any self-injected tokens spliced during applyPatches can't turn the
+// static factories off. Upstream pi never gates
 // extensionFactories on -ne (resource-loader loads them unconditionally), so
 // this gate is what makes `s2-agent -ne` actually mean "no injected extensions".
 //

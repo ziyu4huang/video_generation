@@ -28,6 +28,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSy
 import { resolve, isAbsolute, join, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ParsedArgs } from "../args.ts";
+import { resolveVaultPathWalkUp } from "../vault-paths.ts";
 import { ingestRecords } from "@repo/s2-agent-ext-knowledge-card/src/ingest.ts";
 import { adaptHermesMarkdown } from "@repo/s2-agent-ext-knowledge-card/src/adapters.ts";
 import type { KnowledgeRecord, IngestSummary } from "@repo/s2-agent-ext-knowledge-card/src/types.ts";
@@ -38,28 +39,10 @@ const HERMES_FILES = ["MEMORY.md", "failures.md", "USER.md"];
 const STATE_FILENAME = ".vault-converge-state.json";
 const RECEIPT_DIR = "output/knowledge-pipeline";
 
-function resolveVaultPath(parsed: ParsedArgs, cwd: string): string {
-	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
-	if (explicit) {
-		const abs = isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
-		if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
-		return abs;
-	}
+const resolveVaultPath = (parsed: ParsedArgs, cwd: string): string =>
 	// Default: walk up from cwd to find vaults_root/s2-agent-vault (the shared
 	// convergence sink). Falls back to creating it relative to cwd.
-	const dir = parsed.vaultDir ?? "vaults_root/s2-agent-vault";
-	let search = cwd;
-	for (let i = 0; i < 10; i++) {
-		const candidate = join(search, dir);
-		if (existsSync(candidate)) return candidate;
-		const parent = resolve(search, "..");
-		if (parent === search) break;
-		search = parent;
-	}
-	const abs = resolve(cwd, dir);
-	mkdirSync(abs, { recursive: true });
-	return abs;
-}
+	resolveVaultPathWalkUp(parsed, cwd, { defaultDir: "vaults_root/s2-agent-vault", mkdirIfMissing: true });
 
 function resolveMemoryDir(parsed: ParsedArgs): string {
 	const dir = parsed.memoryDir ?? process.env.PI_HERMES_MEMORY_DIR ?? DEFAULT_MEMORY_DIR;

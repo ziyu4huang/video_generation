@@ -434,8 +434,11 @@ export function validateToolNames(
 /**
  * Best-effort read of the user settings file (~/.pi/agent/settings.json).
  * Non-fatal: returns undefined on any read/parse error or missing file.
+ * The single reader for this file in the CLI surface — passthrough's
+ * `readUserDefaults` wraps this (and patches keep their own copies because
+ * they must run before the CLI subtree ever loads).
  */
-function readUserSettings(): Record<string, unknown> | undefined {
+export function readUserSettings(): Record<string, unknown> | undefined {
 	try {
 		const settingsPath = join(getAgentDir(), "settings.json");
 		if (!existsSync(settingsPath)) return undefined;

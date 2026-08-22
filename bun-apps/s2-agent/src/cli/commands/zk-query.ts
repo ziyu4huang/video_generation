@@ -24,9 +24,10 @@
  *   --vault <path>         absolute vault path
  *   --vault-dir <name>     vault folder name under cwd (default vault)
  */
-import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
+import { resolveVaultPath } from "../vault-paths.ts";
 import {
 	retrieveRecords,
 	readActiveIds,
@@ -36,19 +37,6 @@ import {
 } from "@repo/s2-agent-ext-knowledge-card/src/retrieve.ts";
 import { coverageReport } from "@repo/s2-agent-ext-knowledge-card/src/ingest.ts";
 import { loadWatchlist, resolveSpecsToRecords } from "@repo/s2-agent-ext-knowledge-card/src/source-watchlist.ts";
-
-function resolveVaultPath(parsed: ParsedArgs, cwd: string): string {
-	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
-	if (explicit) {
-		const abs = isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
-		if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
-		return abs;
-	}
-	const dir = parsed.vaultDir ?? process.env.OB_VAULT_DIR ?? "vault";
-	const abs = resolve(cwd, dir);
-	if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
-	return abs;
-}
 
 export const zkQueryCommand = {
 	name: "zk-query",

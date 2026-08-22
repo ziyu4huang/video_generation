@@ -21,9 +21,10 @@
  *   --vault-dir <name>     vault folder name under cwd (default: vault)
  *   --model / --provider / --thinking / --tools / -p / --mode ...
  */
-import { existsSync, mkdirSync, statSync, readdirSync } from "node:fs";
+import { existsSync, statSync, readdirSync } from "node:fs";
 import { resolve, relative, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
+import { resolveVaultPath } from "../vault-paths.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
 import {
@@ -76,19 +77,10 @@ export function resolveInputs(inputs: string[], cwd: string): string[] {
 /**
  * Resolve the vault directory and ensure it exists.
  * Order: --vault (OB_VAULT_PATH) > <cwd>/<--vault-dir|vault> > OB_VAULT_PATH env.
+ * Shared implementation in vault-paths.ts (same body lived here, zk-ingest,
+ * and zk-query until T1 of the 2026-08-22 simplification).
  */
-export function resolveVault(parsed: ParsedArgs, cwd: string): string {
-	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
-	if (explicit) {
-		const abs = isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
-		if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
-		return abs;
-	}
-	const dir = parsed.vaultDir ?? process.env.OB_VAULT_DIR ?? "vault";
-	const abs = resolve(cwd, dir);
-	if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
-	return abs;
-}
+export const resolveVault = resolveVaultPath;
 
 export const zkExtractCommand = {
 	name: "zk-extract",

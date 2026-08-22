@@ -16,7 +16,7 @@
  *   json  — emit one NDJSON event per line (pi schema subset), consumed by the
  *           obsidian subagent parser which reads `message_end` assistant text.
  */
-import { resolveLLM, createSharedSession, applyDryRun, type ResolvedLLM } from "./shared.ts";
+import { resolveLLM, createSharedSession, applyDryRun, readUserSettings, type ResolvedLLM } from "./shared.ts";
 import { runJsonTask, runPrettyTask } from "./task-runner.ts";
 import type { ParsedArgs } from "../args.ts";
 import { resolve } from "node:path";
@@ -58,26 +58,15 @@ export function applyVaultEnv(parsed: ParsedArgs): void {
 
 /**
  * Read user default provider/model from ~/.pi/agent/settings.json (best-effort,
- * non-fatal). Extracted from `resolveLLMFromArgs` so the workflow command can
- * reuse the SAME settings-read when computing the pi-default model spec — no
- * second reader. Honors PI_CODING_AGENT_DIR (via getAgentDir) just like the
- * inline read did; returns undefined on any read/parse error or missing file.
- *
- * Preserves the original dynamic-`await import(...)` style so module-loading
- * behavior (binary vs source mode) is unchanged.
+ * non-fatal). Thin projection over sessions/shared.ts's `readUserSettings` —
+ * the single reader for that file in the CLI surface — so the workflow command
+ * and `resolveLLMFromArgs` see the SAME read. Returns undefined on any
+ * read/parse error or missing file.
  */
 export async function readUserDefaults(): Promise<{ provider?: string; model?: string } | undefined> {
-	try {
-		const { getAgentDir } = await import("@earendil-works/pi-coding-agent");
-		const { readFileSync, existsSync } = await import("node:fs");
-		const { join } = await import("node:path");
-		const settingsPath = join(getAgentDir(), "settings.json");
-		if (!existsSync(settingsPath)) return undefined;
-		const s = JSON.parse(readFileSync(settingsPath, "utf8"));
-		return { provider: s.defaultProvider, model: s.defaultModel };
-	} catch {
-		return undefined;
-	}
+	const s = readUserSettings() as { defaultProvider?: string; defaultModel?: string } | undefined;
+	if (!s) return undefined;
+	return { provider: s.defaultProvider, model: s.defaultModel };
 }
 
 /** Build the LLM target from parsed flags + user settings defaults. */

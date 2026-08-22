@@ -20,9 +20,10 @@
  *   --link-weighting <mode> count | idf (default count). IDF weights cross-links
  *                          by tag rarity (P8, SAG-inspired).
  */
-import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
+import { resolveVaultPath } from "../vault-paths.ts";
 import { ingestRecords, formatSummary } from "@repo/s2-agent-ext-knowledge-card/src/ingest.ts";
 import {
 	parseKnowledgeJsonl,
@@ -33,19 +34,6 @@ import {
 import type { KnowledgeRecord, SourceFamily } from "@repo/s2-agent-ext-knowledge-card/src/types.ts";
 
 const KNOWN_SOURCES = new Set<SourceFamily>(["workflow-jsonl", "hermes", "auto-memory", "generic"]);
-
-function resolveVaultPath(parsed: ParsedArgs, cwd: string): string {
-	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
-	if (explicit) {
-		const abs = isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
-		if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
-		return abs;
-	}
-	const dir = parsed.vaultDir ?? process.env.OB_VAULT_DIR ?? "vault";
-	const abs = resolve(cwd, dir);
-	if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
-	return abs;
-}
 
 export const zkIngestCommand = {
 	name: "zk-ingest",
