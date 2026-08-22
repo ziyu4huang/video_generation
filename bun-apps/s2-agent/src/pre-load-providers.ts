@@ -14,7 +14,11 @@
  * HOW TO ADD A PROVIDER
  * ---------------------
  * Add an entry to PROVIDERS below. Run `bun src/cli.ts --list-models` to verify.
- * No other file needs to change.
+ * No other file needs to change. Model-catalog changes follow the devops skill
+ * `s2-agent-model-catalog-update` (bun-apps/s2-agent-ext-devops/skills/) —
+ * commonly used for updating s2-agent's model settings in this file. Warning:
+ * registering under a provider id the baked catalog already has (deepseek, zai)
+ * REPLACES its baked model list — re-list every baked model or it vanishes.
  *
  * API KEY
  * -------
@@ -42,6 +46,14 @@ export type ApiKey = string | { env: string };
 interface Compat {
   supportsDeveloperRole?: boolean;
   supportsReasoningEffort?: boolean;
+  // openai-completions adapter knobs — the ones pi-ai's detectCompat() infers
+  // from provider id + baseUrl; pinned explicitly here so the extension
+  // registration is stable across pi-ai upgrades (see getCompat() / detectCompat()
+  // in pi-ai dist/api/openai-completions.js).
+  supportsStore?: boolean;
+  maxTokensField?: "max_tokens" | "max_completion_tokens";
+  requiresReasoningContentOnAssistantMessages?: boolean;
+  thinkingFormat?: "openai" | "deepseek" | "zai" | "qwen" | string;
 }
 
 interface ModelEntry {
@@ -53,6 +65,12 @@ interface ModelEntry {
   maxTokens: number;
   /** Per-model compat; merged ON TOP of the provider-level compat. */
   compat?: Compat;
+  /**
+   * pi effort level → provider-specific effort string (or null = level
+   * unsupported). Same shape as pi-ai's baked thinkingLevelMap; passed
+   * through unmodified by the extension-provider path.
+   */
+  thinkingLevelMap?: Record<string, string | null>;
 }
 
 interface ProviderEntry {
@@ -116,6 +134,83 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         // Qwen 3.8 as an always-on reasoning model, so keep the same shared
         // maxTokens budget headroom for reasoning + answer.
         maxTokens: 65_536,
+      },
+    ],
+  },
+
+  // DeepSeek's public API, OpenAI style. This REGISTERS OVER the baked pi-ai
+  // catalog provider "deepseek" (pi-ai@0.84.2 providers/data/deepseek.json
+  // ships only deepseek-v4-flash / deepseek-v4-pro): the extension-provider
+  // path REPLACES a provider's model list with the extension's (applyExtension
+  // → config.models.map), so every baked model is re-listed below — omitting
+  // one makes it vanish from `--list-models` and breaks the
+  // "deepseek/deepseek-v4-flash" refs (obsidianSubagentFloor,
+  // model-tiers.json seeds). Fields mirror the baked entries; detectCompat()
+  // would infer the same compat from provider id + baseUrl, but pinning it
+  // keeps the behavior stable across pi-ai upgrades.
+  //
+  // Measured 2026-08-23 (OpenAI-style /v1/chat/completions):
+  //   • deepseek-v4-flash-vision-exp → 200; the "...exp[1m]" alias → 400
+  //     ("supported API model names are deepseek-v4-pro, deepseek-v4-flash,
+  //     and deepseek-v4-flash-vision-exp") — [1m] exists only on the
+  //     Anthropic-compatible gateway at /anthropic/v1/messages, which pi
+  //     does not use for this endpoint. 1M context is the family default, so
+  //     the suffix carries no info here.
+  //   • thinking is ALWAYS ON: with max_tokens=8 the whole budget went to
+  //     reasoning (reasoning_content) and content came back empty with
+  //     finish_reason "length" — the same shared reason+answer budget that
+  //     motivated the 65_536 maxTokens cap on the LM Studio entries.
+  //     384_000 keeps the headroom the baked siblings use.
+  //   • reasoning_effort="high" is accepted (see scripts/claude-code-deepseek.sh
+  //     posture); the thinkingLevelMaps mirror the baked entries.
+  "deepseek": {
+    baseUrl: "https://api.deepseek.com",
+    api: "openai-completions",
+    // pi config-template form: resolved from the env by pi's own config
+    // machinery at request time, so the provider shows "not configured" when
+    // DEEPSEEK_API_KEY is unset. ({ env: ... } here would freeze the literal
+    // at registration and claim configured with an empty key.)
+    apiKey: "$DEEPSEEK_API_KEY",
+    compat: {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: true,
+      maxTokensField: "max_tokens",
+      requiresReasoningContentOnAssistantMessages: true,
+      thinkingFormat: "deepseek",
+    },
+    models: [
+      // The two baked entries re-listed verbatim (minus cost — the
+      // registration convention zeroes costs; see registerAllProviders).
+      {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 1_000_000,
+        maxTokens: 384_000,
+        thinkingLevelMap: { minimal: null, low: "low", medium: null, high: "high", max: "max" },
+      },
+      {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 1_000_000,
+        maxTokens: 384_000,
+        thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", max: "max" },
+      },
+      {
+        id: "deepseek-v4-flash-vision-exp",
+        name: "DeepSeek V4 Flash Vision EXP",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 1_000_000,
+        // Mirrors the baked siblings' headroom: reasoning shares the
+        // reason+answer budget (an 8-token probe returned EMPTY content with
+        // finish_reason "length"), so a small cap truncates the reply.
+        maxTokens: 384_000,
+        thinkingLevelMap: { minimal: null, low: "low", medium: null, high: "high", max: "max" },
       },
     ],
   },

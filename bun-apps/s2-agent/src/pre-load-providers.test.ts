@@ -88,6 +88,26 @@ describe("PROVIDERS config (contract)", () => {
       expect(m.input).toContain("image");
     }
   });
+
+  test("deepseek re-lists the baked family — extension registration REPLACES it", () => {
+    // registerProvider("deepseek", ...) replaces the pi-ai baked catalog list
+    // (applyExtension → config.models.map), so every model the runtime must
+    // keep — incl. the ones baked upstream (v4-flash, v4-pro) and referenced
+    // elsewhere (obsidianSubagentFloor "deepseek/deepseek-v4-flash") — must be
+    // enumerated HERE. Omitting one silently drops it from --list-models.
+    const ds = PROVIDERS["deepseek"];
+    expect(ds).toBeDefined();
+    const ids = ds.models.map((m) => m.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-v4-flash-vision-exp"]),
+    );
+    const vision = ds.models.find((m) => m.id === "deepseek-v4-flash-vision-exp");
+    expect(vision).toBeDefined();
+    expect(vision!.input).toContain("image");
+    expect(vision!.reasoning).toBe(true);
+    // OpenAI-style endpoint rejects the "[1m]" alias (400, measured 2026-08-23)
+    // — the plain id is the only registerable name on this provider.
+  });
 });
 
 describe("module purity (no ModelRuntime side effects)", () => {
