@@ -13,7 +13,7 @@
  *
  * Run via the REAL e2e path (drives s2-agent CLI + the workflow tool):
  *   PI_MODEL=google/gemma-4-12b \
- *     ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.sh \
+ *     bun ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts \
  *       bun-apps/s2-agent-ext-ultracode/samples/audit-run-dir-resolve.js
  *
  * (This file is a workflow SCRIPT: agent/phase/log/parallel are globals

@@ -42,14 +42,14 @@ If another Pi extension has already installed a custom editor component, s2-agen
 
 The prompt-driven path (above) asks the model to **write** the orchestration script each run — flexible, but slow and non-deterministic (a 4-phase analysis took ~11 min). When you already know the script (or want a fast, reproducible smoke test), feed a fixed `.js` file instead.
 
-### Recommended — full e2e via `smoke-e2e.sh`
+### Recommended — full e2e via `smoke-e2e.ts`
 
 This drives the **real** path — the same one a user invokes (`s2-agent -e workflow -p …`): the s2-agent CLI, `-e workflow` alias resolution, the `workflow` tool, and the model calling it. It just pins the script so the model relays a fixed smoke instead of inventing a 4-phase workflow:
 
 ```bash
 # default smoke (two parallel micro-agents, deterministic join, ~seconds)
 PI_MODEL=google/gemma-4-12b \
-  ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.sh
+  bun ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts
 ```
 
 Output (the model returns the workflow result inline, `background:false`):
@@ -61,12 +61,12 @@ Output (the model returns the workflow result inline, `background:false`):
 Run any workflow file:
 
 ```bash
-./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.sh path/to/your-workflow.js
+bun ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts path/to/your-workflow.js
 ```
 
 ### Fast library-level check via `run.ts`
 
-`samples/run.ts` calls `runWorkflow()` **directly** — no TUI, no CLI, no `workflow` tool, no model writing a script. Faster and fully deterministic, but it **bypasses** the CLI / argv parsing / extension loading / the tool itself, so it is NOT full e2e. Use it for a quick runtime check; use `smoke-e2e.sh` to validate the whole stack.
+`samples/run.ts` calls `runWorkflow()` **directly** — no TUI, no CLI, no `workflow` tool, no model writing a script. Faster and fully deterministic, but it **bypasses** the CLI / argv parsing / extension loading / the tool itself, so it is NOT full e2e. Use it for a quick runtime check; use `smoke-e2e.ts` to validate the whole stack.
 
 ```bash
 PI_MODEL=google/gemma-4-12b \

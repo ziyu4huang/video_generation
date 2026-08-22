@@ -6,7 +6,7 @@
  * workflow runtime against a real model, but it BYPASSES the s2-agent CLI /
  * argv parsing / extension loading / the workflow tool itself. For a TRUE
  * end-to-end smoke through the same path a user invokes
- * (`s2-agent -e workflow -p …`), use samples/smoke-e2e.sh instead.
+ * (`s2-agent -e workflow -p …`), use samples/smoke-e2e.ts instead.
  *
  * Usage (from repo root):
  *   bun bun-apps/s2-agent-ext-ultracode/samples/run.ts <script.js> [args-json]
