@@ -25,13 +25,15 @@ Author a typed-JSON-IR diagram, validate it, render it to a self-contained HTML 
 
 Shared vocabulary:
 - `componentType` ∈ {frontend, backend, database, cloud, security, messagebus, external}
-- `variant` ∈ {default, emphasis, security, dashed}
+- `variant` ∈ {default, emphasis, security, dashed} — VISUAL emphasis (line style / weight)
+- `role` ∈ {spec, verify} (components + connections) — DOMAIN side: `spec` derives the artifact, `verify` checks it. Role overlays the type palette (role wins the color, the type keeps its sigil) and composes with `variant` — a dashed verify crossbar is `role: "verify"` + `variant: "dashed"`. Never encode a side by mis-picking `componentType`.
 - `id` = `^[a-zA-Z][a-zA-Z0-9_-]*$`
 
 ## Layout essentials
 
 1. **Cardinal rule:** set semantic `type` + `variant` on components/connections — the renderer maps these to theme colors. **Never invent inline colors.**
-2. **Placement:** lay components left→right along the primary request path; group related ones with `boundaries`.
+2. **Placement:** lay components left→right along the primary request path; group related ones with `boundaries`. For a literal V (V-model: left arm derives downward to an apex, right arm verifies upward), declare `meta.archetype: { "kind": "v-model", "leftArm": [ids…], "rightArm": [ids…] }` and OMIT pos/size on arm components — the archetype pre-pass places them (explicit pos wins). Verify pairings are ordinary connections: `{ "route": "straight", "variant": "dashed", "role": "verify" }` from a right-arm node to its left-arm spec node.
+3. **Two arrows, two meanings:** solid = derivation/flow; dashed = verification pairing (point it at the spec node). `meta.legend: "variants"` charts a line-sample legend when an IR mixes ≥2 connection variants (opt-in — pre-existing decks render byte-identical); `meta.legend: false` suppresses the whole auto legend.
 
 ## Minimal example (architecture)
 

@@ -61,6 +61,13 @@
       --arrow: #64748b;
       --arrow-emphasis: #34d399;
 
+      /* Domain-side roles (spec derives, verify checks) — orthogonal to
+         componentType and to variant. Cardinal Rule input, theme output. */
+      --role-spec-fill:   rgba(56, 189, 248, 0.16);
+      --role-spec-stroke: #38bdf8;
+      --role-verify-fill:   rgba(248, 113, 113, 0.15);
+      --role-verify-stroke: #f87171;
+
       /* Opaque mask color used behind semi-transparent component fills
          so the arrows drawn underneath are properly hidden. */
       --mask: #0f172a;
@@ -102,6 +109,11 @@
 
       --arrow: #94a3b8;
       --arrow-emphasis: #059669;
+
+      --role-spec-fill:   rgba(14, 165, 233, 0.15);
+      --role-spec-stroke: #0369a1;
+      --role-verify-fill:   rgba(239, 68, 68, 0.12);
+      --role-verify-stroke: #b91c1c;
 
       --mask: #ffffff;
 
@@ -160,6 +172,10 @@
       --external-stroke: #a5b4c7;
       --arrow: #7890ad;
       --arrow-emphasis: #2dd4bf;
+      --role-spec-fill:   rgba(125, 211, 252, 0.13);
+      --role-spec-stroke: #7dd3fc;
+      --role-verify-fill:   rgba(253, 164, 175, 0.12);
+      --role-verify-stroke: #fda4af;
       --toolbar-bg: rgba(7, 16, 30, 0.86);
       --toolbar-border: #29415f;
       --toolbar-menu-bg: #07101e;
@@ -193,6 +209,10 @@
       --external-stroke: #607a8c;
       --arrow: #7b97aa;
       --arrow-emphasis: #0d9488;
+      --role-spec-fill:   rgba(7, 137, 161, 0.1);
+      --role-spec-stroke: #0789a1;
+      --role-verify-fill:   rgba(197, 58, 89, 0.1);
+      --role-verify-stroke: #c53a59;
     }
 
     /* ==========================================================
@@ -229,6 +249,10 @@
       --external-stroke: #a7cad9;
       --arrow: #78a3b7;
       --arrow-emphasis: #64dfc1;
+      --role-spec-fill:   rgba(102, 217, 239, 0.12);
+      --role-spec-stroke: #66d9ef;
+      --role-verify-fill:   rgba(255, 141, 161, 0.11);
+      --role-verify-stroke: #ff8da1;
       --toolbar-bg: rgba(7, 28, 45, 0.92);
       --toolbar-border: #34799a;
       --toolbar-text: #d8f3ff;
@@ -264,6 +288,10 @@
       --external-stroke: #506f7e;
       --arrow: #6d93a5;
       --arrow-emphasis: #087f69;
+      --role-spec-fill:   rgba(26, 157, 193, 0.1);
+      --role-spec-stroke: #1a9dc1;
+      --role-verify-fill:   rgba(199, 76, 104, 0.09);
+      --role-verify-stroke: #c74c68;
       --toolbar-bg: rgba(247, 252, 254, 0.94);
       --toolbar-border: #8ab5c5;
       --toolbar-text: #294f61;
@@ -2632,6 +2660,10 @@
         --lane-stroke: #cbd5e1;
         --arrow: #94a3b8;
         --arrow-emphasis: #059669;
+        --role-spec-fill:   rgba(14, 165, 233, 0.15);
+        --role-spec-stroke: #0369a1;
+        --role-verify-fill:   rgba(239, 68, 68, 0.12);
+        --role-verify-stroke: #b91c1c;
         --frontend-fill:    rgba(34, 211, 238, 0.15);
         --frontend-stroke:  #0891b2;
         --backend-fill:     rgba(52, 211, 153, 0.18);
@@ -3171,6 +3203,12 @@
     .c-messagebus { fill: var(--messagebus-fill); stroke: var(--messagebus-stroke); }
     .c-external   { fill: var(--external-fill);   stroke: var(--external-stroke); }
 
+    /* Domain-side roles — declared AFTER the type classes so an element
+       carrying both (role wins the palette, type stays for the sigil) reads
+       by its side, not its kind. */
+    .c-role-spec   { fill: var(--role-spec-fill);   stroke: var(--role-spec-stroke); }
+    .c-role-verify { fill: var(--role-verify-fill); stroke: var(--role-verify-stroke); }
+
     /* Text helpers */
     .t-primary { fill: var(--text); }
     .t-muted   { fill: var(--text-muted); }
@@ -3182,6 +3220,8 @@
     .t-security   { fill: var(--security-stroke); }
     .t-messagebus { fill: var(--messagebus-stroke); }
     .t-external   { fill: var(--external-stroke); }
+    .t-role-spec   { fill: var(--role-spec-stroke); }
+    .t-role-verify { fill: var(--role-verify-stroke); }
 
     /* Semantic Sigils are small authored role stamps, not icons from a brand
        pack and not viewer controls. Prefix selectors with svg so the canonical
@@ -3263,12 +3303,18 @@
     .a-emphasis  { stroke: var(--arrow-emphasis); fill: none; }
     .a-security  { stroke: var(--security-stroke); fill: none; stroke-dasharray: 5,5; }
     .a-dashed    { stroke: var(--database-stroke); fill: none; stroke-dasharray: 4,4; }
+    /* Role overlays — declared AFTER the variant classes: they repaint the
+       stroke while the variant keeps its dash/emphasis treatment. */
+    .a-role-spec   { stroke: var(--role-spec-stroke); }
+    .a-role-verify { stroke: var(--role-verify-stroke); }
 
     /* Arrowhead markers reference these */
     .m-default   { fill: var(--arrow); }
     .m-emphasis  { fill: var(--arrow-emphasis); }
     .m-security  { fill: var(--security-stroke); }
     .m-dashed    { fill: var(--database-stroke); }
+    .m-role-spec   { fill: var(--role-spec-stroke); }
+    .m-role-verify { fill: var(--role-verify-stroke); }
 
     /* Stable semantic exploration hooks emitted by every renderer. */
     svg [data-node-id] {
@@ -4134,6 +4180,12 @@
           </marker>
           <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
             <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <marker id="arrowhead-role-spec" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-role-spec" />
+          </marker>
+          <marker id="arrowhead-role-verify" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-role-verify" />
           </marker>
           <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
             <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>

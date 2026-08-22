@@ -46,6 +46,7 @@ import {
   type SlideLayout,
 } from "./slide-model.ts";
 import { parseSvg } from "./svg-model.ts";
+import { applyViewFocus, readComponentIds, readGuidedViews } from "./view-focus.ts";
 import { runArchify, VENDORED_BIN } from "./run.ts";
 import { announceDeck, type OpenBus } from "./open-announce.ts";
 import { generateThumbnails } from "./thumbnails.ts";
@@ -185,6 +186,14 @@ export function parseManifest(raw: string, source: string): DeckManifest {
     if (s.ir !== undefined && (typeof s.ir !== "string" || s.ir === "")) {
       throw new DeckError(`${where}: \`ir\` must be a non-empty string`);
     }
+    if (s.views !== undefined) {
+      if (s.views !== "expand") {
+        throw new DeckError(`${where}: \`views\` must be "expand" (the only mode)`);
+      }
+      if (typeof s.ir !== "string") {
+        throw new DeckError(`${where}: \`views: "expand"\` needs an \`ir\` whose meta.views exist`);
+      }
+    }
     if (s.ratio !== undefined && typeof s.ratio !== "number") {
       throw new DeckError(`${where}: \`ratio\` must be a number`);
     }
@@ -264,7 +273,8 @@ async function resolveDiagrams(
   layout: SlideLayout,
   work: string,
   theme: Theme,
-  params: BuildDeckParams
+  params: BuildDeckParams,
+  viewFocus?: string[]
 ): Promise<{
   diagrams: Map<string, ShapeIR>;
   diagramSrc: Map<string, DiagramEmbed>;
@@ -287,6 +297,10 @@ async function resolveDiagrams(
     const out = join(work, file);
     diagramType = await deliverSlide(irAbs, out, index, params);
     const doc = await parseSvg(await Bun.file(out).text());
+    // A guided build slide dims everything outside its view's focus — in the
+    // ShapeIR projection only; the on-disk artifact stays the interactive
+    // full-strength page (D4).
+    if (viewFocus) applyViewFocus(doc.nodes, viewFocus);
     const ir = toShapeIR(doc, theme);
     diagrams.set(irAbs, ir);
     diagramSrc.set(irAbs, {
@@ -309,6 +323,51 @@ async function resolveDiagrams(
   };
 }
 
+/**
+ * Expand `views: "expand"` slides: one overview slide (authored, untouched)
+ * plus one build slide per `meta.views` entry. Expansion runs BEFORE lint so
+ * the lint sees the final slide set (a view label that overflows the title
+ * band should block, not slip through as an expansion artifact).
+ */
+export function expandViews(manifest: DeckManifest, manifestDir: string): DeckSlide[] {
+  const out: DeckSlide[] = [];
+  manifest.slides.forEach((s, i) => {
+    if (s.views !== "expand") {
+      out.push(s);
+      return;
+    }
+    const irAbs = isAbsolute(s.ir!) ? s.ir! : resolve(manifestDir, s.ir!);
+    const views = readGuidedViews(irAbs, manifestDir);
+    if (views.length === 0) {
+      throw new DeckError(
+        `slide ${i + 1}: \`views: "expand"\` but the IR has no \`meta.views\` — author them first.`
+      );
+    }
+    const componentIds = readComponentIds(irAbs, manifestDir);
+    for (const v of views) {
+      const unknown = v.focus.filter((id) => !componentIds.has(id));
+      if (unknown.length > 0) {
+        throw new DeckError(
+          `slide ${i + 1}: guided view "${v.label}" focuses unknown node id(s) ${unknown.join(", ")} — fix meta.views.`
+        );
+      }
+    }
+    // Overview first (the full diagram), then one guided build per view.
+    const overview: DeckSlide = { ...s };
+    delete overview.views;
+    out.push(overview);
+    for (const v of views) {
+      out.push({
+        ...overview,
+        title: v.label,
+        ...(v.note !== undefined ? { takeaway: v.note } : {}),
+        viewFocus: v.focus,
+      });
+    }
+  });
+  return out;
+}
+
 /** Build the deck. Every slide is laid out, emitted twice, and counted. */
 export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   const { manifest } = params;
@@ -318,11 +377,13 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   const tag = manifest.tag ?? "archify deck";
   const progress = params.onProgress ?? (() => {});
 
+  const slides = expandViews(manifest, params.manifestDir);
+
   // Style notes ride along in the tool result; an `error` note does not. It
   // says the deck will come out visibly broken — today only a title too wide
   // for its band, which the accent rule strikes through — and writing that file
   // anyway just moves the discovery to whoever opens it. See `deck-lint.ts`.
-  const blocking = lintDeck(manifest).filter((n) => n.severity === "error");
+  const blocking = lintDeck({ slides }).filter((n) => n.severity === "error");
   if (blocking.length > 0) {
     throw new DeckError(
       `deck would render broken:\n` +
@@ -340,12 +401,12 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
     pptx.defineLayout({ name: "WIDE", width: 13.333, height: 7.5 });
     pptx.layout = "WIDE";
 
-    const total = manifest.slides.length;
+    const total = slides.length;
     const built: BuiltSlide[] = [];
 
     for (let i = 0; i < total; i++) {
       if (params.signal?.aborted) throw new DeckError("aborted");
-      const authored = manifest.slides[i]!;
+      const authored = slides[i]!;
       const layout = resolveLayout(authored);
 
       // Absolutize `ir` BEFORE layout so a diagram block's `ir` is the key both
@@ -365,7 +426,8 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
         layout,
         work,
         theme,
-        params
+        params,
+        slide.viewFocus
       );
 
       const pptxSlide = pptx.addSlide() as unknown as SlideLike & {

@@ -5,6 +5,7 @@ import { animateAttr, focusEdgeAttrs, focusNodeAttrs, focusNodeTitle, loadDiagra
 import { componentBox, boundaryBox, connectionPath } from '../shared/layout-report.mjs';
 import { throwDiagnosticProblems } from '../shared/diagnostics.mjs';
 import { gridLayout, resolveComponentPos, validateGridPlacement } from './grid.mjs';
+import { expandVModelArchetype } from './vmodel.mjs';
 import {
   asArray,
   isFinitePoint,
@@ -31,6 +32,10 @@ import {
   componentText,
   arrowClassMap,
   variantAccent,
+  roleFill,
+  roleText,
+  arrowRoleClass,
+  arrowRoleMarker,
 } from '../shared/geometry.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,6 +47,17 @@ const { diagram: arch, template, outPath, sourceEvidence } = loadDiagram({
   defaultExample: 'web-app.architecture.json',
   argv: cliArgs,
 });
+
+// Archetype expansion runs BEFORE measurement/validation: it fills absent
+// pos/size from declared arms, so downstream checks see a fully-placed free
+// layout and actionable archetype problems fail fast.
+const archetypeProblems = [];
+expandVModelArchetype(arch, archetypeProblems);
+if (archetypeProblems.length) {
+  throwDiagnosticProblems('Architecture archetype validation failed', archetypeProblems, {
+    subject: { diagramType: 'architecture' },
+  });
+}
 
 const grid = gridLayout(arch);
 
@@ -389,9 +405,11 @@ function renderBoundary(b, index) {
 
 function renderConnectionPath(conn, index) {
   const [cls, marker] = arrowClassMap[conn.variant || 'default'] || arrowClassMap.default;
+  const roleClass = conn.role ? ` ${arrowRoleClass[conn.role] || ''}`.trim() : '';
+  const markerId = conn.role ? (arrowRoleMarker[conn.role] || marker) : marker;
   const routed = pathFor(conn);
   const strokeWidth = conn.width || (conn.variant === 'emphasis' ? 1.8 : 1.5);
-  return `        <path ${focusEdgeAttrs(conn.from, conn.to, conn.label, index, conn.id)} data-composition-points="${routePointsValue(routed.points)}" d="${routed.d}" class="${cls}"${animateAttr(arch.meta, 'edge', index)} stroke-width="${strokeWidth}" marker-end="url(#${marker})"/>`;
+  return `        <path ${focusEdgeAttrs(conn.from, conn.to, conn.label, index, conn.id)} data-composition-points="${routePointsValue(routed.points)}" d="${routed.d}" class="${cls}${roleClass ? ` ${roleClass}` : ''}"${animateAttr(arch.meta, 'edge', index)} stroke-width="${strokeWidth}" marker-end="url(#${markerId})"/>`;
 }
 
 function renderConnectionLabel(conn, index) {
@@ -405,8 +423,8 @@ function renderConnectionLabel(conn, index) {
 }
 
 function renderComponent(c) {
-  const fill = componentFill[c.type] || 'c-external';
-  const accent = componentText[c.type] || 't-muted';
+  const fill = (c.role && roleFill[c.role]) || componentFill[c.type] || 'c-external';
+  const accent = (c.role && roleText[c.role]) || componentText[c.type] || 't-muted';
   const cx = c.cx;
   const hasSub = c.sublabel != null && c.sublabel !== '';
   const labelY = hasSub ? c.y + c.height / 2 - 2 : c.y + c.height / 2 + 4;
@@ -426,17 +444,40 @@ function renderComponent(c) {
         </g>`;
 }
 
-// Auto legend: one swatch per component type actually used, left to right.
+// Auto legend: one swatch per component type actually used, left to right,
+// plus one per domain-side role in use (spec derives / verify checks).
 const TYPE_LABELS = {
   frontend: 'Frontend', backend: 'Backend', database: 'Database', cloud: 'Cloud',
   security: 'Security', messagebus: 'Message bus', external: 'External',
 };
+const ROLE_LABELS = { spec: 'Spec side', verify: 'Verify side' };
+// The arrow dual-meaning convention: solid = derivation/flow, dashed =
+// verification pairing. Variant rows are OPT-IN (`meta.legend:
+// "variants"`) and require an actual mix — the inherited byte-for-byte
+// compatibility lock on pre-effort decks outranks a default-on decoder
+// ring (effort decision D7).
+const VARIANT_LABELS = { default: 'derives / flows', emphasis: 'emphasis', security: 'security', dashed: 'verifies (pairing)' };
 function renderLegend() {
+  if (arch.meta?.legend === false) return '';
   const used = [];
   const seen = new Set();
   for (const c of components.values()) {
     if (!seen.has(c.type)) { seen.add(c.type); used.push(c.type); }
   }
+  const rolesUsed = [];
+  const rolesSeen = new Set();
+  const allRoleHolders = [...components.values(), ...asArray(arch.connections)];
+  for (const item of allRoleHolders) {
+    if (item.role && !rolesSeen.has(item.role)) { rolesSeen.add(item.role); rolesUsed.push(item.role); }
+  }
+  const variantsUsed = [];
+  const variantsSeen = new Set();
+  for (const conn of asArray(arch.connections)) {
+    const v = conn.variant || 'default';
+    if (!variantsSeen.has(v)) { variantsSeen.add(v); variantsUsed.push(v); }
+  }
+  const chartVariants =
+    arch.meta?.legend === 'variants' && variantsUsed.length >= 2 ? variantsUsed : [];
   const y = legendY();
   let x = layout.margin;
   const parts = ['        <g data-legend-bridge>',
@@ -447,6 +488,21 @@ function renderLegend() {
     parts.push(`            <text x="${x + 20}" y="${y}" class="t-muted" font-size="8">${TYPE_LABELS[type] || type}</text>`);
     parts.push('          </g>');
     x += 30 + (textUnits(TYPE_LABELS[type] || type) * 5 + 34);
+  }
+  for (const role of rolesUsed) {
+    parts.push(`          <g data-legend-kind="role-${esc(role)}">`);
+    parts.push(`            <rect x="${x}" y="${y - 8}" width="14" height="9" rx="2" class="${roleFill[role]}" stroke-width="1"/>`);
+    parts.push(`            <text x="${x + 20}" y="${y}" class="${roleText[role]}" font-size="8">${ROLE_LABELS[role] || role}</text>`);
+    parts.push('          </g>');
+    x += 30 + (textUnits(ROLE_LABELS[role] || role) * 5 + 34);
+  }
+  for (const variant of chartVariants) {
+    const [cls] = arrowClassMap[variant] || arrowClassMap.default;
+    parts.push(`          <g data-legend-kind="variant-${esc(variant)}">`);
+    parts.push(`            <path d="M ${x} ${y - 4} h 18" class="${cls}" stroke-width="1.5"/>`);
+    parts.push(`            <text x="${x + 24}" y="${y}" class="t-muted" font-size="8">${VARIANT_LABELS[variant] || variant}</text>`);
+    parts.push('          </g>');
+    x += 44 + (textUnits(VARIANT_LABELS[variant] || variant) * 5 + 20);
   }
   parts.push('        </g>');
   return parts.join('\n');
