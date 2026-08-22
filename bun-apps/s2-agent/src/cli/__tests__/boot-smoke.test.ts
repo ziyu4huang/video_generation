@@ -63,6 +63,10 @@ describe("boot-smoke canary", () => {
     buildIfMissing("s2-agent-ext-subagent", "build", "dist/index.js");
   });
 
+  // Trailing timeouts (cast: pinned bun-types lack the overload; runtime
+  // honors it): each test spawns a REAL CLI boot, and hermes-memory's startup
+  // sync alone costs ~3.5s (perf.jsonl 2026-08-22) — measured boots ~4.6s,
+  // comfortably above bun's 5s default. 30s bounds a hang.
   test("CLI boots in source mode and the canary command exits 0 with valid JSON", () => {
     const { exitCode, json, stderr } = runCanary();
     expect(exitCode, `canary exited non-zero.\nstderr:\n${stderr}`).toBe(0);
@@ -71,7 +75,7 @@ describe("boot-smoke canary", () => {
     for (const key of ["toolsRanked", "errors", "builtinCount", "extensionCount", "totalTokens"]) {
       expect(obj).toHaveProperty(key);
     }
-  });
+  }, 30_000 as never);
 
   test("no new factory errors, tool-count at floor, 0 tool-name conflicts, expected sources present", () => {
     const { exitCode, json, stderr } = runCanary();
@@ -113,5 +117,5 @@ describe("boot-smoke canary", () => {
     expect(contractFails, `unexpected contract failures: ${contractFails.join(", ")}`).toEqual(
       [...(baseline.expectedContractFailures ?? [])].sort(),
     );
-  });
+  }, 30_000 as never);
 });
