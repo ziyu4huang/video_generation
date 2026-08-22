@@ -107,13 +107,6 @@ export default function extension(pi: ExtensionAPI) {
   const subagentRunsTool = createSubagentRunsTool({ persistence, inFlight, background: backgroundManager });
   pi.registerTool(subagentRunsTool);
 
-  // send_message — follow-up messaging for named live agents (ticket 02):
-  // parent-side routing over the live registry + child-side to:"main" over the
-  // bus wired above. Reaches children automatically through the parent tools
-  // captured at session_start (extensionTools bridge).
-  const sendMessageTool = createSendMessageTool({ liveRegistry, bus: getParentMessageBus() });
-  pi.registerTool(sendMessageTool);
-
   // subagents — the plural batch tool (fan-out wraps spawnSubagent).
   // Same options shape as subagentTool: parent tools + main model holders,
   // shared in-flight registry + run-persistence singletons.
@@ -133,6 +126,15 @@ export default function extension(pi: ExtensionAPI) {
     persistence,
   });
   pi.registerTool(subagentsTool);
+
+  // send_message — follow-up messaging for named live agents (ticket 02):
+  // parent-side routing over the live registry + child-side to:"main" over the
+  // bus wired above. Reaches children automatically through the parent tools
+  // captured at session_start (extensionTools bridge). Registered LAST so the
+  // workflow gate family's grouped-names order (pinned by tool-gate tests)
+  // reads spawn → batch → follow-up.
+  const sendMessageTool = createSendMessageTool({ liveRegistry, bus: getParentMessageBus() });
+  pi.registerTool(sendMessageTool);
 
   // /subagents — list running + past subagent runs and view their output.
   // Self-contained: reads the local in-flight registry this extension owns.

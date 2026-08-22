@@ -114,6 +114,10 @@ export function createSendMessageTool(
     ].join(" "),
     promptSnippet:
       "Follow up with a named live agent: send_message({ to: '<name|agentId>', message }) returns its reply; wait:false fires-and-forgets (reply lands as a <task-notification>); a mid-flight agent gets the message as a steer.",
+    // Owner-declared gating — the workflow family (GATE_DEFS["workflow"], workflow
+    // ext): a follow-up belongs to the exact sessions that can spawn a named agent
+    // (spawn_subagent carries the same reference form).
+    gating: { gate: "workflow" },
     // Sequential: LiveAgent is not thread-safe across concurrent exchanges (a
     // second send while one runs degrades to steer); serializing send_message
     // calls keeps one exchange at a time per agent — same rule as spawn_subagent.
