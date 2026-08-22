@@ -62,5 +62,5 @@ SUPERSEDES/REFINES Ticket 04 Fork B ("INGEST CARD-EMBED (stored) + QUERY EMBED")
 
 ## Cross-reference
 
-- [`../s2-agent/docs/knowledge-orchestration.md`](../s2-agent/docs/knowledge-orchestration.md) — 3-layer knowledge system
+- `bun-apps/KNOWLEDGE-LAYER.md` — 3-layer knowledge system map (the retired knowledge-orchestration.md's successor)
 - `bun-apps/s2-agent-ext-knowledge-card/` — convergence sink consuming this store

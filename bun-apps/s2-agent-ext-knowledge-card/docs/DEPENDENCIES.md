@@ -60,7 +60,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 > would ripple here. The `allowlists.test.mjs` cross-package guard catches
 > tool-name drift; the parser contract is guarded by ingest/retrieve tests
 > against real temp vaults. See
-> [`../../pi-obsidian/docs/KNOWLEDGE-LAYER.md`](../../pi-obsidian/docs/KNOWLEDGE-LAYER.md)
+> [`../../s2-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md`](../../s2-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md)
 > for the parser-contract surface this package depends on.
 
 ## REVERSE — who imports pi-knowledge-card
@@ -88,7 +88,7 @@ the INVARIANT header comment in [`../../s2-agent/src/cli/commands/zk-ask.ts`](..
 
 This is the **intentionally loose** coupling and the one most worth
 understanding. See
-[`../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md`](../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md)
+[`../../s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md`](../../s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md)
 for the full optional-peer + dynamic-import story.
 
 ```jsonc
@@ -131,9 +131,9 @@ for the full optional-peer + dynamic-import story.
 Every package in the knowledge layer carries a `docs/KNOWLEDGE-LAYER.md`
 describing **its own** role + coupling, all linking back here:
 
-- [`../../pi-obsidian/docs/KNOWLEDGE-LAYER.md`](../../pi-obsidian/docs/KNOWLEDGE-LAYER.md) — the HARD forward dep (parser + subagent contracts)
+- [`../../s2-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md`](../../s2-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) — the HARD forward dep (parser + subagent contracts)
 - [`../../s2-agent/src/cli/commands/zk-ask.ts`](../../s2-agent/src/cli/commands/zk-ask.ts) — the 5 `zk-*` thin shells (INVARIANT header comment; the package keeps no KNOWLEDGE-LAYER.md)
-- [`../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md`](../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md) — the SOFT optional-peer edge
+- [`../../s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md`](../../s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) — the SOFT optional-peer edge
 
 When you change a coupling, update the affected `KNOWLEDGE-LAYER.md` AND this
 file in the same PR — the symmetry is the contract.
