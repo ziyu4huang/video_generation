@@ -2,7 +2,7 @@
 effort: 2026-08-22-subagent-teams-parity
 created: 2026-08-22
 last: 2026-08-23
-status: active
+status: complete
 ---
 
 
@@ -99,8 +99,14 @@ Phase 4 — ultracode gaps (P4)
   non-overridable even via a definition allowlist. Reviewer APPROVE, 5 non-blocking
   (2 fixed pre-merge: persistence tier fold + 3 test pins; 2 recorded as fog below;
   1 = ticket amendment recording the whole-batch-vs-per-task reconciliation)
-- `tickets/08-workflow-cron.md` — task — `cron_create/list/delete`, session-live
-  firing, lease-guarded, 7-day recurring expiry
+- `tickets/08-workflow-cron.md` — closed 2026-08-23 (PR #1849 → main 0d0ff09e) —
+  `cron-scheduler.ts` pure 5-field cron math (Vixie month/DOW OR, local time) +
+  `cron-store.ts` durable definitions + `wx`-exclusive fire-record leases +
+  `cron_create/list/delete` + 30 s session-live loop; 7-day recurring expiry with
+  tick-time GC past the horizon; reviewer REQUEST_CHANGES → 7 findings fixed
+  pre-merge (1 blocking: dispatch-throw wedge) → APPROVE. Also fixed main's
+  red ultracode `check` (biome errors from #1809, change-scoped CI blind spot).
+  CLOSES THE EFFORT.
 
 ## Decisions
 
@@ -147,11 +153,9 @@ Phase 4 — ultracode gaps (P4)
 
 ## Frontier
 
-`tickets/08-workflow-cron.md` — the LAST ticket (07/08 closed 2026-08-23, PR
-#1845). `cron-scheduler.ts` pure 5-field cron next-fire math + `cron-store.ts`
-durable definitions + lease-claimed fire-records + `cron_create/list/delete`
-tools + a 30s session-live firing loop (spec §4 cron bullet, pre-approved;
-design unchanged since planning). Closes the effort.
+None — the effort is COMPLETE (tickets 01-08 all merged 2026-08-22..23; core
+team vocabulary 01-05, ultracode gaps 06-08). Successor candidates live in
+the fog items below and the latest `output/next-goal-*.md`.
 
 ## Fog of war
 
@@ -178,7 +182,19 @@ design unchanged since planning). Closes the effort.
   both `capability` and a tier shows a different display string on the two
   tools; and an empty-string `agentType: ""` is falsy → silently "no type" on
   BOTH paths (a `minLength: 1` schema guard would diverge them, so left as-is).
-- Cron `lastMissed` surfacing (ticket 08 optional polish) — undecided.
+- Cron `lastMissed` surfacing (ticket 08 optional polish) — undecided, dropped
+  with the effort closed (missed slots are skipped by design; a surface would
+  only show how many were skipped).
+- Ticket 08 review micro-nits (accepted, not fixed): (a) an unparseable
+  fire-record never yields a parseable `claimedAt`, so `gcFireRecords` skips it
+  forever — only a claim attempt on that exact slot sweeps it; (b) gc readdirs
+  + parses all in-window records every 30 s tick (~10k files max for a
+  per-minute definition) — fine in practice, shape noted.
+- Ticket 08 carried a drive-by: main's ultracode `bun run check` was RED before
+  this PR (two error-severity biome findings from #1809; change-scoped
+  local_ci never ran that package's `check`). Fixed in PR #1849's chore
+  commit. Systemic gap: a package's canonical gate only runs when a diff
+  touches it — a red gate can hide for many merges.
 
 ## Cross-effort links
 
