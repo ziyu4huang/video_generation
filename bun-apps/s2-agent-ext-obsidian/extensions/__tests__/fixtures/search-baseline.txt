@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-08-22T16:11
-Vault note count: 2327
+Generated: 2026-08-22T17:54
+Vault note count: 2653
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -220,7 +220,7 @@ Zettelkasten/knowledge-graph/Unified_Knowledge_Convergence.md:6: summary: 透過
 Zettelkasten/knowledge-graph/Unified_Knowledge_Convergence.md:12: - 透過將分散在各處的知識孤島（如 `.knowledge.jsonl`、Obsidian 庫、自動記憶檔案）匯聚成一個單一、可查詢且具備雙向連結的 Zettelkasten 圖譜，實現知識的全面整合。
 Zettelkasten/knowledge-graph/Unified_Knowledge_Convergence.md:15: - 將原本分散的 5 個知識池（包含多個工作流的 `.knowledge.jsonl`、Hermes、Obsidian vault、kcard vault、MEMORY.md）轉換為單一的知識圖譜。
 Zettelkasten/knowledge-graph/_archive/hermes-next-goal-naming-sop-ai-written-goal-notes-live-in-repo_root-output-not-..md:16: next-goal-naming SOP — AI-written goal notes live in `<REPO_ROOT>/output/` (NOT .output/, NOT bun-apps/pi-agent/goals/, NOT repo root, NOT the Obsidian vault — vault is knowledge/Zettelkasten only). Canonical filename: `next-goal-YYYYMMDD_HHMMSS.md` (8-digit date, UNDERSCORE separator, 6-digit time WITH seconds, local time; never dash, never omit seconds). Planning/goal docs belong in output/; keep only 10 newest. Enforce both rules via idempotent `bash scripts/tidy-next-goals.sh [KEEP=10]` (bash 3.2-safe, sorts by fixed-width name so lex order==recency). These are AI artifacts, gitignored under /output/.
-Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled.md:27: 2. **Tier 2 auto-follow** — the vault currently `open: true` in Obsidian app's `obsidian.json`.
+Zettelkasten/knowledge-graph/agg-L0-0.md:58: - [[Obsidian Tools Testing Gap]]
 
 ### tag-like inline token [SUBSTRING-DEFAULT]
 query="#tag"
