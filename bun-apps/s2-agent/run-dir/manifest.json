@@ -46,6 +46,7 @@
 		"s2-agent-ext-web-access/skills",
 		"s2-agent-ext-obsidian/skills",
 		"s2-agent-ext-btw/skills",
+		"s2-agent-ext-knowledge-card/skills",
 		"s2-agent-ext-power-tool/skills",
 		"s2-agent-ext-webui/skills",
 		"s2-agent-ext-hyperframes/skills",

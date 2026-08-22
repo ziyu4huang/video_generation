@@ -17,10 +17,21 @@ import { join, relative } from "node:path";
 /** JS/TS source file extensions that should NOT be embedded via type:file.
  *  These are JavaScript modules that pi imports as regular modules, and
  *  embedding them via type:file plus having them as module imports confuses
- *  Bun's bundler. template.js and vendor/*.js are client-side scripts read
- *  via readFileSync (safe to embed), but for simplicity we filter ALL .js/.ts
- *  files. Affects export-html/ JS modules and their sourcemaps/declarations. */
+ *  Bun's bundler. Affects export-html/ JS modules and their
+ *  sourcemaps/declarations. EXCEPTION: see isRuntimeReadClientScript. */
 const CODE_EXTS = new Set(["js", "mjs", "cjs", "ts", "mts", "cts"]);
+
+/** Client-side scripts pi reads at RUNTIME via readFileSync, not ES modules.
+ *  generateHtml() (pi-coding-agent dist/core/export-html/index.js) reads
+ *  template.js + vendor/marked.min.js + vendor/highlight.min.js from
+ *  getExportTemplateDir() — which in binary mode is the extraction cache this
+ *  manifest populates. Dropping them (the old blanket .js filter) made
+ *  binary-mode /export fail with ENOENT on template.js. index.js /
+ *  ansi-to-html.js / tool-renderer.js stay excluded: they are real ES modules
+ *  already bundled into the binary. */
+function isRuntimeReadClientScript(relRoot: string, rel: string): boolean {
+	return relRoot === "export-html" && (rel === "template.js" || rel.startsWith("vendor/"));
+}
 
 export interface EmbeddedAssetEntry {
   relPath: string;
@@ -42,8 +53,6 @@ function walkDir(dir: string, basePrefix: string): EmbeddedAssetEntry[] {
       if (st.isDirectory()) {
         collect(full);
       } else if (st.isFile()) {
-        const ext = name.split(".").pop()?.toLowerCase() ?? "";
-        if (CODE_EXTS.has(ext)) continue;
         entries.push({
           relPath: relative(basePrefix, full),
           absPath: full,
@@ -85,6 +94,11 @@ export function generateEmbeddedAssets(
   for (const { sourceDir, relRoot } of assetMap) {
     if (!existsSync(sourceDir)) continue;
     for (const entry of walkDir(sourceDir, sourceDir)) {
+      // Code-ext filter lives HERE (not in walkDir) because the runtime-read
+      // exception needs relRoot context. relPath uses "/" separators on all
+      // platforms (path.join replaced below), so startsWith("vendor/") is safe.
+      const ext = entry.relPath.split(".").pop()?.toLowerCase() ?? "";
+      if (CODE_EXTS.has(ext) && !isRuntimeReadClientScript(relRoot, entry.relPath)) continue;
       allFiles.push({
         relPath: join(relRoot, entry.relPath),
         absPath: entry.absPath,

@@ -160,6 +160,7 @@ extensions:
     package: s2-agent-ext-knowledge-card
     entry: extensions/knowledge-card.ts
     load: static
+    skills: true
     # Tier-1 knowledge hub (zk_card / zk_ask / zk_ingest / knowledge_query).
     # Imports obsidian's src/lib directly (NOT the extension entry — inlining
     # the entry would double-register GATE_DEFS and duplicate its bulk); the

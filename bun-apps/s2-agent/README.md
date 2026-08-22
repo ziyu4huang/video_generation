@@ -22,11 +22,13 @@ bun bun-apps/s2-agent/src/cli.ts --list-models     # baked providers appear alon
 ## Model config
 
 ALL baked model config lives in **`src/pre-load-providers.ts`** (pure, no side
-effects), in four sections: §1 `PROVIDERS` (extension-provider catalog, e.g.
+effects), in three sections: §1 `PROVIDERS` (extension-provider catalog, e.g.
 lm-studio), §2 `BUILTIN_MODEL_DEFAULT` (the default provider/model/thinking),
-§3 `DEFAULT_MODEL_TIER_CONFIG` (tier routing seed), §4 `DEFAULT_MODELS_STORE`
-(generated catalog seed for pi's models-store). Edit §1 to add a provider — no
-other file changes. No `~/.pi/agent/models.json` is read.
+§3 `DEFAULT_MODEL_TIER_CONFIG` (tier routing seed). Edit §1 to add a provider — no
+other file changes. No `~/.pi/agent/models.json` is read, and no
+`~/.pi/agent/models-store.json` is ever created (pi's builtin catalog covers
+zai/deepseek/huggingface; the in-memory-models-store patch keeps refresh
+in-memory).
 
 ## Patch toggles (`BUN_PI_*`)
 
@@ -38,7 +40,8 @@ authoritative env-var list). Highlights:
 | `BUN_PI_PRE_LOAD_PROVIDERS` | on | Inject the `PROVIDERS` catalog |
 | `BUN_PI_LOAD_RUN_DIR` | on | Splice `run-dir/` extensions/skills into argv (cwd-independent) |
 | `BUN_PI_DEFAULT_MODEL_ENV` | on | Bridge `PI_MODEL`/`PI_PROVIDER`/`PI_THINKING` env into TUI argv |
-| `BUN_PI_ENSURE_MODEL_TIERS` / `BUN_PI_ENSURE_MODELS_STORE` | on | Seed the §3/§4 configs on a fresh machine (never clobber) |
+| `BUN_PI_ENSURE_MODEL_TIERS` | on | Seed the §3 tier config on a fresh machine (never clobber) |
+| `BUN_PI_IN_MEMORY_MODELS_STORE` | on | Keep model catalogs in memory — never write `~/.pi/agent/models-store.json` |
 | `BUN_PI_DEBUG_PATCHES` | off | Print patch status on startup |
 
 To add a patch: create `src/patches/<name>.ts`, register it in
