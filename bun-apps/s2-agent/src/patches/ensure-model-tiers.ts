@@ -21,7 +21,7 @@
  * ------------
  * At import time (run inside applyPatches()), if
  * ~/.pi/workflows/model-tiers.json does NOT exist and the gate is enabled, write
- * the DEFAULT_MODEL_TIER_CONFIG (from ../model-tiers-default.ts — the
+ * the DEFAULT_MODEL_TIER_CONFIG (from ../pre-load-providers.ts §3 — the
 * glm-lmstudio preset: small=glm-4.7, medium/big=glm-5.3,
  * vision=lm-studio google/gemma-4-12b) to that path, creating the parent * directory as needed. It NEVER overwrites, mutates, or even reads an existing
  * file's contents — existence alone is the gate.
@@ -44,7 +44,7 @@
  * TESTABILITY
  * -----------
  * `buildModelTiersJson()` and `shouldEnsureModelTiers()` in
- * ../model-tiers-default.ts are pure (serialization + decision only); the
+ * ../pre-load-providers.ts are pure (serialization + decision only); the
  * import-time side effect here is a thin wrapper around them. The pure helpers
  * are unit-tested in ensure-model-tiers.test.ts; the real fs write to the user's
  * home is intentionally NOT tested (it would mutate the user's live config).
@@ -52,7 +52,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
-import { DEFAULT_MODEL_TIER_CONFIG, buildModelTiersJson, shouldEnsureModelTiers } from "../model-tiers-default.ts";
+import { DEFAULT_MODEL_TIER_CONFIG, buildModelTiersJson, shouldEnsureModelTiers } from "../pre-load-providers.ts";
 
 const MODEL_TIERS_PATH = join(homedir(), ".pi", "workflows", "model-tiers.json");
 

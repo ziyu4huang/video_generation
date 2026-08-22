@@ -296,7 +296,7 @@ s2-agent/
 │   └── (deploy.ts + lib/ moved to ../s2-agent-ext-devops/scripts/ — see #1305)
 └── src/
     ├── cli.ts                    # entry — `cli` argv intercept, then applyPatches() → main(argv)
-    ├── pre-load-providers.ts     # PROVIDERS config, pure, no side effects (edit this)
+    ├── pre-load-providers.ts     # ALL baked model config: PROVIDERS + BUILTIN_MODEL_DEFAULT + tier/store seeds (pure, edit this)
     ├── generated/                # build-time-baked constants (gitignored)
     ├── cli/                      # the non-interactive `s2-agent cli` namespace
     │   ├── dispatch.ts               # command table + meta/passthrough routing (runCli)

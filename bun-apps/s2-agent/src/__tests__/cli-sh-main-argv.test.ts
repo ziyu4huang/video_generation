@@ -27,7 +27,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATCH_TABLE } from "../patches/index.ts";
-import { BUILTIN_MODEL_DEFAULT } from "../builtin-model-default.ts";
+import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
 
 const PKG_ROOT = join(import.meta.dir, "..", "..");
 

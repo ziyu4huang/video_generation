@@ -48,7 +48,7 @@ import obsidianExtension, {
 import { registerAllProviders } from "../../pre-load-providers.ts";
 // Single-source built-in defaults (provider/model/thinking + obsidian floor) —
 // shared with the TUI argv-splice patch and the subagent floor patch.
-import { BUILTIN_MODEL_DEFAULT } from "../../builtin-model-default.ts";
+import { BUILTIN_MODEL_DEFAULT } from "../../pre-load-providers.ts";
 
 /** Allowed thinking levels (mirrors pi-agent-core). */
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -65,7 +65,7 @@ export function isThinkingLevel(v: string): v is ThinkingLevel {
 }
 
 /** Built-in fallback when nothing else is configured — single-sourced in
- * builtin-model-default.ts so the CLI path, the TUI argv splice, and the
+ * pre-load-providers.ts (§2) so the CLI path, the TUI argv splice, and the
  * obsidian floor all agree (thinking default: high). */
 const FALLBACK = {
 	provider: BUILTIN_MODEL_DEFAULT.provider,

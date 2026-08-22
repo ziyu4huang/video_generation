@@ -1,5 +1,5 @@
 /**
- * ensure-model-tiers — unit tests for the pure helpers in model-tiers-default.
+ * ensure-model-tiers — unit tests for the pure helpers in pre-load-providers.ts (§3).
  *
  * The import-time side effect (writing ~/.pi/workflows/model-tiers.json) is
  * intentionally NOT tested here; it would mutate the user's live config. We test
@@ -7,7 +7,7 @@
  * subagent-model-floor.test.ts split (pure helper vs import-time wrapper).
  */
 import { describe, expect, test } from "bun:test";
-// The pure helpers live in model-tiers-default.ts (no side effects); the patch
+// The pure helpers live in pre-load-providers.ts (no side effects); the patch
 // module (ensure-model-tiers.ts) only IMPORTS them. So we import the helpers
 // from where they are defined — same split as subagent-model-floor.test.ts,
 // which imports resolveSubagentFloor from the module that defines it.
@@ -15,7 +15,7 @@ import {
   DEFAULT_MODEL_TIER_CONFIG,
   buildModelTiersJson,
   shouldEnsureModelTiers,
-} from "../model-tiers-default.ts";
+} from "../pre-load-providers.ts";
 
 describe("buildModelTiersJson — serializes the default config", () => {
   test("contains the glm-lmstudio tier ids", () => {

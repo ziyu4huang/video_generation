@@ -24,9 +24,11 @@
  */
 import { existsSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PROVIDERS } from "../../../../s2-agent/src/pre-load-providers.ts";
-import { DEFAULT_MODELS_STORE } from "../../../../s2-agent/src/models-store-default.ts";
-import { BUILTIN_MODEL_DEFAULT } from "../../../../s2-agent/src/builtin-model-default.ts";
+import {
+  PROVIDERS,
+  DEFAULT_MODELS_STORE,
+  BUILTIN_MODEL_DEFAULT,
+} from "../../../../s2-agent/src/pre-load-providers.ts";
 
 // ─── Data shapes ──────────────────────────────────────────────────────────────
 
@@ -207,8 +209,8 @@ function providerSection(facts: ModelFacts): string {
 	const d = facts.defaultModel;
 	return `
 <h2>Providers &amp; models — baked into this core</h2>
-<p class="meta">Source-level facts from <code>s2-agent/src/pre-load-providers.ts</code>, <code>models-store-default.ts</code> and
-<code>builtin-model-default.ts</code>, as compiled into the deployed binary. User-side <code>~/.pi/agent</code> configuration is
+<p class="meta">Source-level facts from <code>s2-agent/src/pre-load-providers.ts</code>
+(PROVIDERS catalog, models-store seed, and BUILTIN_MODEL_DEFAULT), as compiled into the deployed binary. User-side <code>~/.pi/agent</code> configuration is
 deliberately NOT reflected here — this section says what the artifact ships, not what one machine overlays on it.</p>
 
 <h3>Pre-load provider catalog (always registered)</h3>

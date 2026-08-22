@@ -90,7 +90,7 @@ if [ "$MODE" = "l2" ]; then
   # (grep -q closes the pipe on first match; the producer dies on SIGPIPE and
   # pipefail turns 141 into the pipeline's status — a green run reported ✗).
   # ANTHROPIC_* overrides are scrubbed: the deploy's model defaults are z.ai
-  # GLM (builtin-model-default), but a wrapper/proxied environment exporting
+  # GLM (BUILTIN_MODEL_DEFAULT in src/pre-load-providers.ts), but a wrapper/proxied environment exporting
   # ANTHROPIC_BASE_URL/AUTH_TOKEN hijacks provider selection and the turn dies
   # with the proxy's 401 before any tool schema reaches a real provider.
   env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_MODEL \
