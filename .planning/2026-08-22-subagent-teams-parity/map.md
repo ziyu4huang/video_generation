@@ -92,7 +92,13 @@ Phase 4 — ultracode gaps (P4)
   persisted for resume; `modelSource` label manifest/session. Reviewer APPROVE,
   3 non-blocking findings fixed/recorded pre-merge (CONTEXT.md glossary, PRD
   tier-default nuance, D13)
-- `tickets/07-batch-agent-type.md` — task — per-task `agentType` on `list_subagents`
+- `tickets/07-batch-agent-type.md` — closed 2026-08-23 (PR #1845 → main f0e82bc7) —
+  per-task `agentType` on `list_subagents`: singular-parity resolution + binding
+  (task field > definition > ctx default; prompt via spawn instructions), whole-batch
+  failEarly for unknown and worktree-isolating types, read-only exclusion
+  non-overridable even via a definition allowlist. Reviewer APPROVE, 5 non-blocking
+  (2 fixed pre-merge: persistence tier fold + 3 test pins; 2 recorded as fog below;
+  1 = ticket amendment recording the whole-batch-vs-per-task reconciliation)
 - `tickets/08-workflow-cron.md` — task — `cron_create/list/delete`, session-live
   firing, lease-guarded, 7-day recurring expiry
 
@@ -141,13 +147,11 @@ Phase 4 — ultracode gaps (P4)
 
 ## Frontier
 
-`tickets/07-batch-agent-type.md` — ticket 06 closed Phase 4's smallest seam
-(`ExecOptions.mainModel`, PR #1841); the next workable ticket is per-task
-`agentType` on the batch tool: the singular path already resolves types via
-`resolveAgentType` (`agent-registry.ts:153`, mirrored at `subagent-tool.ts:
-138-149`), so the batch tool wires the same resolution per task plus
-unknown-type failEarly, with worktree-isolating types REJECTED in batch
-(spec §4, pre-approved).
+`tickets/08-workflow-cron.md` — the LAST ticket (07/08 closed 2026-08-23, PR
+#1845). `cron-scheduler.ts` pure 5-field cron next-fire math + `cron-store.ts`
+durable definitions + lease-claimed fire-records + `cron_create/list/delete`
+tools + a 30s session-live firing loop (spec §4 cron bullet, pre-approved;
+design unchanged since planning). Closes the effort.
 
 ## Fog of war
 
@@ -167,6 +171,13 @@ unknown-type failEarly, with worktree-isolating types REJECTED in batch
   parent sends (unbrokered); a named child cannot lie about its name, but a
   nested child spawning its own named child registers into the same
   process-global roster (roster shows all; relays all surface to the root).
+- Ticket 07 parity-ledger (review findings 3+5, pre-existing divergences kept
+  for parity, not fixed): the batch tool's display-model order is
+  model > tier > capability > mainModel while the singular
+  `resolveDisplayModel` is model > capability > tier > mainModel — a task with
+  both `capability` and a tier shows a different display string on the two
+  tools; and an empty-string `agentType: ""` is falsy → silently "no type" on
+  BOTH paths (a `minLength: 1` schema guard would diverge them, so left as-is).
 - Cron `lastMissed` surfacing (ticket 08 optional polish) — undecided.
 
 ## Cross-effort links
