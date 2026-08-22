@@ -32,7 +32,7 @@ import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 export const sendMessageToolSchema = Type.Object({
   to: Type.String({
     description:
-      "Target: a live agent's `name` or `agentId` (from spawn_subagent `name`), or 'main' to address the ROOT session (a CHILD reporting up; a nested child's 'main' is the root, not its intermediate parent).",
+      "Target: a live agent's `name` or `agentId` (from spawn_subagent `name`), or 'main' to address the ROOT session (a CHILD reporting up; a nested child's 'main' is the root, not its intermediate parent — the bus is process-global). From a named child, a teammate target is parent-brokered: delivered to the teammate AND surfaced to the parent.",
   }),
   message: Type.String({
     description:
@@ -94,6 +94,15 @@ export interface SendMessageToolOptions {
   background?: { deliver(message: string): void };
   /** Injectable for tests (defaults to process.env — the detached-resume refusal reads it). */
   env?: Record<string, string | undefined>;
+  /**
+   * Sender identity (team addressing, ticket 05): set on the per-child instance
+   * a NAMED child receives (buildSpawnOptions stamps it at spawn time). When
+   * set, this instance runs INSIDE that child: sibling targets route
+   * parent-brokered (never direct — spec §3), protocol envelopes aimed at
+   * teammates refuse, and `to:'main'` identity defaults to this name.
+   * Undefined = the parent's shared instance (unmodified ticket-02 behavior).
+   */
+  selfName?: string;
 }
 
 function textResult(text: string) {
@@ -140,6 +149,43 @@ export function formatReplyNotification(
   ].join("\n");
 }
 
+/**
+ * Preview cap for sibling relays surfaced to the parent (ticket 05). Tighter
+ * than a reply's — the parent did not ask for this traffic, it is observing
+ * team coordination — but generous enough that short handoffs read whole.
+ */
+const RELAY_CHARS = 2000;
+
+function relayPreview(message: string): string {
+  return message.length > RELAY_CHARS
+    ? `${message.slice(0, RELAY_CHARS)}\n[truncated relay — ask the sender to re-send the remainder]`
+    : message;
+}
+
+/**
+ * Ticket 05 — the parent-side surface of a brokered sibling send. The body the
+ * ParentMessageBus wraps (its deliverer adds the `<agent-message>` envelope):
+ * `from → to`, the capped message preview. The sender knows what it sent; the
+ * TARGET sees it as its next input; this is what lets the PARENT see the team
+ * talking — both sides see it, per spec §3.
+ */
+export function formatSiblingRelayNotification(from: string, to: string, message: string): string {
+  return [`Teammate relay "${from}" → "${to}":`, relayPreview(message)].join("\n");
+}
+
+/**
+ * Ticket 05 — a brokered exchange's reply, published to the parent when the
+ * target's fire-and-forget exchange settles. Same body shape as the relay so
+ * the parent reads ONE conversation, not two formats.
+ */
+export function formatSiblingReplyNotification(from: string, to: string, result: LiveAgentSendResult): string {
+  const body = result.failure ? `${result.failure.kind}: ${result.failure.message}` : result.output || "(no output)";
+  return [
+    `Teammate reply "${from}" → "${to}" (${result.failure ? result.failure.kind : "done"}):`,
+    relayPreview(body),
+  ].join("\n");
+}
+
 export function createSendMessageTool(
   options: SendMessageToolOptions = {},
 ): ToolDefinition<typeof sendMessageToolSchema, undefined> {
@@ -148,6 +194,11 @@ export function createSendMessageTool(
   const pending = options.pending ?? getPendingProtocolMap();
   const background = options.background ?? getBackgroundRunManager();
   const detached = isDetachedResumeHost(options.env);
+  // Named-child identity (ticket 05). The `from` a child publishes under
+  // defaults to it — self-declared `from` still wins for hosts that stamp
+  // nothing, so the ticket-02 surface is unchanged for unnamed children.
+  const selfName = options.selfName?.trim() || undefined;
+  const childIdentity = (declared?: string) => declared?.trim() || selfName || "child";
 
   /**
    * Protocol envelopes (ticket 04). In-process only: a detached resume
@@ -170,6 +221,16 @@ export function createSendMessageTool(
     if (childOrigin && detached) {
       return textResult(
         `send_message ${params.type} to 'main' is unavailable in a detached resume subprocess — the parent session lives in another process. Finish your run and write the outcome to disk instead.`,
+      );
+    }
+    // Team addressing (ticket 05): protocol envelopes are parent↔child only.
+    // A named child steering one at a TEAMMATE would command parent-grade
+    // levers — two-stage stop, verdict resolution — with no parent in the
+    // loop. Refused; teammate coordination is a plain brokered message.
+    if (selfName && !childOrigin) {
+      return textResult(
+        `send_message ${params.type} addresses the parent ('main') or is issued by it — never a teammate. ` +
+          "Address a teammate with a PLAIN send_message (the parent brokers and sees it); lifecycle and approvals stay with the parent.",
       );
     }
     switch (params.type) {
@@ -203,7 +264,7 @@ export function createSendMessageTool(
             "plan_approval_request is child→parent only. The parent asks a child to revise via a normal message, or waits for the child's own request_plan_approval tool call.",
           );
         }
-        const name = params.from?.trim() || "child";
+        const name = childIdentity(params.from);
         const published = bus.publish({ name }, formatPlanApprovalRequestNotification({ name }, params.message));
         if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
         return textResult(
@@ -215,7 +276,7 @@ export function createSendMessageTool(
       }
       case "shutdown_request": {
         if (childOrigin) {
-          const name = params.from?.trim() || "child";
+          const name = childIdentity(params.from);
           const published = bus.publish({ name }, formatShutdownRequestNotification({ name }, params.message));
           if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
           return textResult(
@@ -234,7 +295,7 @@ export function createSendMessageTool(
           .filter(Boolean)
           .join("\n");
         if (childOrigin) {
-          const name = params.from?.trim() || "child";
+          const name = childIdentity(params.from);
           const published = bus.publish({ name }, composed);
           if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
           return textResult(`Shutdown acknowledgment delivered to the parent session (from "${name}").`);
@@ -336,11 +397,12 @@ export function createSendMessageTool(
     description: [
       "Send a follow-up message to a NAMED live agent (spawned with spawn_subagent `name`) and get its reply.",
       "A mid-flight agent is steered — the message joins its current exchange and returns 'delivered' without a separate reply.",
-      "to:'main' routes a CHILD's message up to the ROOT session (a nested child does not address its intermediate parent until team addressing ships).",
+      "to:'main' routes a CHILD's message up to the ROOT session (a nested child's 'main' is the root, not its intermediate parent).",
+      "From inside a named child, a TEAMMATE target is parent-brokered: the message reaches the teammate AND is surfaced to the parent — no direct child→child channel (ticket 05).",
       "Protocol `type` envelopes (ticket 04): shutdown_request (parent→child two-stage stop; child→main notification), plan_approval_response (resolves a pending request_plan_approval), plan_approval_request / shutdown_response (child→main notifications).",
     ].join(" "),
     promptSnippet:
-      "Follow up with a named live agent: send_message({ to: '<name|agentId>', message }) returns its reply; wait:false fires-and-forgets (reply lands as a <task-notification>); a mid-flight agent gets the message as a steer.",
+      "Follow up with a named live agent: send_message({ to: '<name|agentId>', message }) returns its reply; wait:false fires-and-forgets (reply lands as a <task-notification>); a mid-flight agent gets the message as a steer. A named child messaging a teammate goes through the parent (both see it); list_subagent_runs 'list' shows the live team roster.",
     // Owner-declared gating — the workflow family (GATE_DEFS["workflow"], workflow
     // ext): a follow-up belongs to the exact sessions that can spawn a named agent
     // (spawn_subagent carries the same reference form).
@@ -355,11 +417,14 @@ export function createSendMessageTool(
       // routing — a shutdown_request never re-prompts as an ordinary message.
       if (params.type) return executeProtocol({ ...params, type: params.type }, signal);
       // Child→parent: the bus owns delivery (followUp + triggerTurn wake).
+      // A NAMED child's identity is its stamp (ticket 05) — `from` stays as the
+      // explicit override for hosts that never stamped an instance.
       if (params.to === "main") {
-        const published = bus.publish({ name: params.from ?? "child" }, params.message);
+        const name = childIdentity(params.from);
+        const published = bus.publish({ name }, params.message);
         if (!published.ok) return textResult(`send_message to main failed: ${published.error}`);
         return textResult(
-          `Delivered to the parent session${params.from ? ` (from "${params.from}")` : ""}. ` +
+          `Delivered to the parent session (from "${name}"). ` +
             "It arrives as a follow-up message; the parent answers in a later exchange — do not wait for a reply here.",
         );
       }
@@ -372,6 +437,65 @@ export function createSendMessageTool(
         );
       }
       liveRegistry.touch(entry.name);
+
+      // Team addressing (ticket 05) — a NAMED child addressing a TEAMMATE is
+      // parent-brokered; no direct child→child channel exists. The message is
+      // delivered into the target (steer when mid-flight, a fresh exchange
+      // when idle) AND relayed to the parent as a followUp — both sides see
+      // it, per spec §3. The sender never awaits the reply here: the target's
+      // answer surfaces to the parent the same way, and the target can reply
+      // to the sender by name (the same brokered path, symmetric).
+      if (selfName) {
+        if (entry.name === selfName) {
+          return textResult(
+            `"${selfName}" is YOU — a self-addressed send_message is a no-op. ` +
+              "Address a teammate by name, or 'main' for the parent session.",
+          );
+        }
+        const relayed = bus.publish(
+          { name: selfName },
+          formatSiblingRelayNotification(selfName, entry.name, params.message),
+        );
+        if (!relayed.ok) return textResult(`send_message to teammate "${entry.name}" failed: ${relayed.error}`);
+        const timeoutMs = params.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+        if (entry.agent.status === "running") {
+          // Steer: joins the target's current exchange; no reply for this send.
+          const result = await entry.agent.send(params.message, { timeoutMs });
+          if (result.failure && isTerminal(result.failure)) {
+            liveRegistry.release(entry.name, "terminal");
+            return textResult(
+              `Message not delivered: ${result.failure.message}. Teammate "${entry.name}" is terminated and off the live roster.`,
+            );
+          }
+          return textResult(
+            `Delivered to teammate "${entry.name}" — it is mid-exchange, so the message steers into that run ` +
+              "(no separate reply for this send), and the parent session has been surfaced the relay.",
+          );
+        }
+        // Idle teammate: a fresh fire-and-forget exchange. The reply is
+        // relayed to the parent when it settles (capped preview) — the same
+        // both-see-it rule. A terminal lifetime failure releases the agent,
+        // mirroring the wait:false contract.
+        void entry.agent
+          .send(params.message, { timeoutMs })
+          .then((result) => {
+            if (result.failure && isTerminal(result.failure)) liveRegistry.release(entry.name, "terminal");
+            if (!result.steered) {
+              bus.publish(
+                { name: entry.name, agentId: entry.agentId },
+                formatSiblingReplyNotification(entry.name, selfName, result),
+              );
+            }
+          })
+          .catch(() => {
+            // send() classifies instead of throwing; a throw here is a broken
+            // handle — nothing to relay, the roster still shows the agent.
+          });
+        return textResult(
+          `Delivered to teammate "${entry.name}" (a new exchange) and surfaced to the parent — both see it. ` +
+            `Its reply lands with the parent as a follow-up; "${entry.name}" can also reply straight to you by name.`,
+        );
+      }
 
       // Fire-and-forget (idle agent): start the exchange, return now, deliver
       // the reply as a task-notification when it settles. No parent signal —
