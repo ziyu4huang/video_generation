@@ -31,7 +31,7 @@
 - Produces:
   - `stripAnsi(s: string): string`
   - `normalizeRunOutput(s: string, pkgName?: string): string` — strips ANSI, `\((\d+(\.\d+)?)s\)` elapsed, `/tmp/[\w-]+-runtest\.log` → `/tmp/<log>`, and the literal `pkgName` string (so the same launcher body normalizes across the 12 per-package copies).
-  - `runScript(scriptPath: string, args: string[], opts?: { cwd?: string; env?: Record<string, string> }): { stdout: string; stderr: string; code: number }` — spawns `bun <scriptPath> …` (or `bash <scriptPath>` when `opts.bash` is true); throws on nonzero exit **of the spawn itself** only (spawn failure), never on the child's exit code.
+  - `runScript(runner: "bun" | "bash", scriptPath: string, args: string[], opts?: { cwd?: string; env?: Record<string, string> }): { stdout: string; stderr: string; code: number }` — spawns `<runner> <scriptPath> …`; throws on nonzero exit **of the spawn itself** only (spawn failure, e.g. ENOENT), never on the child's exit code. (Adjudicated 2026-08-23: the brief's prose said 2-arg `scriptPath, args, opts` — a stale remnant; the Step-3 code, Step-1 test and `assertParity`'s internal call all agree on runner-first, which is the binding contract.)
   - `GoldenCase = { name: string; args: string[]; cwd?: string; env?: Record<string, string>; expectCode?: number; out?: string; outIs: "exact" | "normalized"; errIncludes?: string[] }`
   - `assertParity(newScriptPath: string, scriptArgs: string[], cases: GoldenCase[]): void` — runs each case against `bun newScriptPath`, normalizes per `outIs`, asserts `code` (default 0) and stdout golden; asserts `stderr` contains each `errIncludes` entry.
 
@@ -61,7 +61,7 @@ describe("normalizeRunOutput", () => {
 
 describe("runScript", () => {
   test("returns child stdout/stderr/code; child exit 1 is not a throw", () => {
-    const r = runScript("bun", ["-e", "console.error('boom'); process.exit(1)"]);
+    const r = runScript("bun", "-e", ["console.error('boom'); process.exit(1)"]);
     expect(r.code).toBe(1);
     expect(r.stderr).toContain("boom");
   });
