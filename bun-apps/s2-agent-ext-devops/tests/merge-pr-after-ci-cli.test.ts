@@ -20,7 +20,7 @@
  * git / gh / network.
  */
 import { test, expect, describe } from "bun:test";
-import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE } from "../src/merge-pr-after-ci-cli.js";
+import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE, versionNudge } from "../src/merge-pr-after-ci-cli.js";
 import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
 import type { runLocalCi } from "../src/ci-recipe.js";
@@ -794,5 +794,31 @@ describe("merge-pr-after-ci-cli — non-origin remote (remoteName threading)", (
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.commands.some((c: string) => c === "git push upstream --delete feature")).toBe(true);
 		expect(g.ciOpts[0]?.baseRef).toBe("upstream/main");
+	});
+});
+
+describe("versionNudge — s2-agent version-bump advisory (pure)", () => {
+	const PKG = (v: string) => `{"name":"@repo/s2-agent","version":"${v}"}`;
+	const FILES = [{ path: "bun-apps/s2-agent/src/cli.ts" }];
+
+	test("s2-agent touched + version identical base→head → the nudge with the fix command", () => {
+		const w = versionNudge(FILES, PKG("0.1.0"), PKG("0.1.0"));
+		expect(w).toContain("version was not bumped");
+		expect(w).toContain("version-bump-cli.ts --package s2-agent");
+		expect(w).toContain("advisory");
+	});
+
+	test("version WAS bumped → no nudge (the happy path of the policy)", () => {
+		expect(versionNudge(FILES, PKG("0.1.1"), PKG("0.1.0"))).toBeNull();
+	});
+
+	test("no s2-agent file in the merge → no nudge", () => {
+		expect(versionNudge([{ path: "bun-apps/s2-agent-ext-devops/src/x.ts" }], PKG("0.1.0"), PKG("0.1.0"))).toBeNull();
+	});
+
+	test("unreadable inputs stay silent (advisory never manufactures noise)", () => {
+		expect(versionNudge(FILES, null, PKG("0.1.0"))).toBeNull();
+		expect(versionNudge(FILES, PKG("0.1.0"), null)).toBeNull();
+		expect(versionNudge(FILES, "not json", PKG("0.1.0"))).toBeNull();
 	});
 });

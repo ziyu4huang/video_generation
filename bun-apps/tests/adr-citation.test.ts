@@ -48,10 +48,13 @@ const BUN_APPS = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ROOT = resolve(BUN_APPS, ".."); // repo root — ADRs are cited from docs/ and .github/ too
 const INDEX_PATH = join(BUN_APPS, "docs", "adr", "INDEX.md");
 
-/** Never descend into these. */
+/** Never descend into these. `.pi` is runtime state (sessions, subagent
+ * worktrees) — a concurrent session's worktree duplicates every ADR file and
+ * red-flagged this guard on 2026-08-22 while its PR's own CI ran. */
 const SKIP_DIRS = new Set([
 	"node_modules", ".git", "venv", "dist", "build", "mlx-models",
 	"__fixtures__", "coverage", ".planning", "vaults_root", ".agents", "output",
+	".pi",
 ]);
 
 // ─── ADR discovery ──────────────────────────────────────────────────────────

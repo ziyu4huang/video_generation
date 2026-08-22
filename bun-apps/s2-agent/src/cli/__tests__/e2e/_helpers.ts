@@ -16,12 +16,23 @@
  * namespace error paths that `die()` before any model resolution.
  */
 import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // _helpers.ts lives at <pkg>/src/cli/__tests__/e2e/ → up FOUR levels to pkg root.
 const pkgDir = join(__dirname, "..", "..", "..", "..");
 const dec = new TextDecoder();
+
+/**
+ * The version `cli version` must print — read from package.json (the file
+ * version-bump-cli.ts edits), never a hardcoded literal: a literal pin goes
+ * stale the moment the version is bumped and turns every bump into a test
+ * chase. dispatch.ts's VERSION const is kept in lockstep by the same tool.
+ */
+const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as { version: string };
+export const VERSION: string = pkg.version;
+
 
 export interface CliResult {
 	exitCode: number;

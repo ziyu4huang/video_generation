@@ -54,7 +54,7 @@ import { printCompletions, completionsMeta } from "./commands/completions.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 /** A top-level agent/meta command. Exported for extensions/registry.ts. */
 export interface Command {

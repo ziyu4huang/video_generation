@@ -4,7 +4,7 @@
  * exercised paths short-circuit before any model call).
  */
 import { describe, expect, test } from "bun:test";
-import { runCli } from "./_helpers.ts";
+import { runCli, VERSION } from "./_helpers.ts";
 
 const NO_STACK = /\n\s+at\s\S/;
 
@@ -12,7 +12,7 @@ describe("misc — oneshot backward-compat alias", () => {
 	test("oneshot version → strips alias, prints version, exit 0", () => {
 		const r = runCli(["oneshot", "version"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		expect(r.stdout.trim()).toBe("s2-agent cli 0.1.0");
+		expect(r.stdout.trim()).toBe(`s2-agent cli ${VERSION}`);
 	});
 });
 
@@ -23,7 +23,7 @@ describe("misc — global flags before the sub-command", () => {
 	test("--model x version → dispatches version (not prompt), exit 0", () => {
 		const r = runCli(["--model", "x", "version"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		expect(r.stdout.trim()).toBe("s2-agent cli 0.1.0");
+		expect(r.stdout.trim()).toBe(`s2-agent cli ${VERSION}`);
 	});
 
 	test("--model x help → root help (passthrough help guard), exit 0", () => {

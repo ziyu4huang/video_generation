@@ -205,6 +205,58 @@ type PrStatusSnapshot = Awaited<ReturnType<GhClient["prStatus"]>>;
  * Anything else — CLEAN, BEHIND, DIRTY, BLOCKED — is a real answer and returns
  * immediately, so the common path costs exactly one `gh pr view`.
  */
+/**
+ * Pure decision for the version-bump advisory: warn iff the merge touched
+ * `bun-apps/s2-agent/**` AND package.json's version is identical base→head.
+ * Null on any unreadable input — an advisory must stay silent when its facts
+ * are missing, not manufacture noise. Exported for unit tests.
+ */
+export function versionNudge(
+	files: Array<{ path: string }>,
+	headPkgRaw: string | null,
+	basePkgRaw: string | null,
+): string | null {
+	if (!headPkgRaw || !basePkgRaw) return null;
+	const touched = files.filter((f) => f.path.startsWith("bun-apps/s2-agent/"));
+	if (touched.length === 0) return null;
+	let head: string | undefined;
+	let base: string | undefined;
+	try {
+		head = (JSON.parse(headPkgRaw) as { version?: string }).version;
+		base = (JSON.parse(basePkgRaw) as { version?: string }).version;
+	} catch {
+		return null;
+	}
+	if (!head || !base || head !== base) return null;
+	return (
+		`s2-agent changed (${touched.length} file(s)) but its version was not bumped (still ${head}). ` +
+		`Run \`bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-agent --patch\` ` +
+		`(or --minor / --major as judged) and include the bump in the PR — advisory, not a block. ` +
+		`Deploy version dirs render <pkgVersion>+g<sha>; an ever-frozen 0.1.0 prefix names nothing.`
+	);
+}
+
+/** Read the two package.json blobs for the nudge; null on any git failure. */
+async function computeVersionNudge(opts: {
+	spawn: (cmd: string, args: string[], o?: { cwd?: string }) => Promise<{ stdout: string; exitCode: number }>;
+	repoRoot: string;
+	files: Array<{ path: string }>;
+	mergeSha?: string;
+	baseRef: string;
+}): Promise<string | null> {
+	if (!opts.mergeSha) return null;
+	const showPkg = async (ref: string): Promise<string | null> => {
+		try {
+			const r = await opts.spawn("git", ["-C", opts.repoRoot, "show", `${ref}:bun-apps/s2-agent/package.json`]);
+			return r.exitCode === 0 ? r.stdout : null;
+		} catch {
+			return null;
+		}
+	};
+	const [headRaw, baseRaw] = await Promise.all([showPkg(opts.mergeSha), showPkg(opts.baseRef)]);
+	return versionNudge(opts.files, headRaw, baseRaw);
+}
+
 export async function settlePrStatus(
 	gh: GhClient,
 	pr: number,
@@ -604,6 +656,22 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		warnings.push(
 			`UNVERIFIED merge: PR #${pr} merged but its file scope could NOT be checked — treat the scope as unknown, not as clean.`,
 		);
+	}
+
+	// --- 5b. Advisory: s2-agent changed without a version bump. -------------
+	// Version policy (2026-08-22): bumps are MANUAL at PR finish via
+	// version-bump-cli.ts. This nudge fires when the merge touched
+	// bun-apps/s2-agent/** yet package.json's version is identical base→head.
+	// Advisory only (schema-cost precedent) — never blocks, never fails.
+	{
+		const nudge = await computeVersionNudge({
+			spawn,
+			repoRoot,
+			files: verify.files,
+			mergeSha: verify.mergeSha,
+			baseRef: `${remoteName}/${status.baseRefName}`,
+		});
+		if (nudge) warnings.push(nudge);
 	}
 
 	// --- 6. Cleanup: delete the spent head branch, prune (unless kept). ------

@@ -162,6 +162,17 @@ when green **and** the PR is CLEAN/mergeable. Blocks (no merge) on red CI,
 detection error, BEHIND, or a non-CLEAN mergeState. No remote CI, no polling.
 When it reports BEHIND, go back to step 1 (`prepare_feature_branch`).
 
+**Version bumps are manual, at PR finish** (2026-08-22 policy — supersedes the
+2026-08-07 "no release tooling" decision): when a PR touches
+`bun-apps/s2-agent/**`, run
+`bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-agent --patch`
+(`--minor` for user-visible / host-contract changes, `--major` for breaking)
+and commit the bump with the change it names. The tool syncs package.json +
+`dispatch.ts`'s VERSION const in lockstep; the e2e pins read package.json so
+they never chase. `merge_pr_after_local_ci` nudges (advisory, never blocks)
+when s2-agent changed without a bump — deploy version dirs render
+`<pkgVersion>+g<sha>`, and an ever-frozen `0.1.0` prefix names nothing.
+
 ### 4. `verify_merge_landed` — confirm scope + main advanced + branch spent
 
 After the merge: confirm the PR actually merged, inspect the merge commit's real
@@ -281,6 +292,7 @@ guessing at launch flags. When they are absent:
   bun bun-apps/s2-agent-ext-devops/src/verify-merge-cli.ts <pr> [--scope a,b]
   bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]
   bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call]
+  bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-agent [--patch|--minor|--major] [--dry-run]
   ```
 
   `verify-deploy-e2e-cli` proves the deployed dist works, not just that it
