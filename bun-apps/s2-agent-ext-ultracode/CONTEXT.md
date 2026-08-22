@@ -281,6 +281,24 @@ an enforced policy)
 A standing opt-in that auto-arms an exhaustive multi-agent workflow for every substantive message.
 _Avoid_: max mode, turbo (it is a per-message standing trigger, not a one-shot flag)
 
+### Scheduling
+
+**Cron schedule** (`cron_create` / `cron_list` / `cron_delete`):
+A durable definition pairing a 5-field cron expression (LOCAL time, no timezone math) with a workflow to fire. Firing is session-live only: a 30 s scheduler pass started at `session_start` and stopped at `session_shutdown` fires due slots via `WorkflowManager.startInBackground` — no daemon, missed slots are skipped, not replayed.
+_Avoid_: timer, heartbeat (it is a cron-expression schedule with durable definitions, not an in-memory interval)
+
+**One-shot** (`kind: "one-shot"`):
+A cron schedule that fires exactly once and deletes itself (fired once → definition gone).
+_Avoid_: delayed dispatch, reminder (it is the single-fire flavor of a cron schedule)
+
+**Recurring (7-day expiry)** (`kind: "recurring"`):
+A cron schedule that fires on every expression match and auto-expires 7 days after creation (map D8).
+_Avoid_: perpetual schedule, daemon cron (it deliberately expires; nothing fires forever)
+
+**Fire-record lease** (`claimFire`):
+The `(definition, due-minute)` slot guard: an exclusive-create record under the state root, so two concurrent live sessions racing on the same due slot — exactly one claims and dispatches, the loser skips (mirrors the run lease in `run-persistence.ts`, including dead-pid sweep).
+_Avoid_: lock file (it guards a fire slot, not a run), mutex
+
 ## Why ActivityRow is kept (2026-08-16 spike)
 
 Four production sites depend on it (workflow-ui navigator, task-panel per-phase, subagent-viewer running + completed). Snapshot rows lack `endedAt` (live elapsed can't freeze), and `renderRunRow` has no tokens segment / injectable badge. Revisit only if `renderRunRow` gains those (see `.planning/2026-08-15-snapshot-row-single-source/tickets/05` resolution).

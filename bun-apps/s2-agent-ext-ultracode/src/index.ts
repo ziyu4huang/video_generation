@@ -3,6 +3,14 @@ export type { AdversarialReviewConfig } from "./adversarial-review.js";
 export { generateAdversarialReviewWorkflow, generateMultiPerspectiveWorkflow } from "./adversarial-review.js";
 export { registerBuiltinWorkflows } from "./builtin-commands.js";
 export * from "./config.js";
+export type { CronDispatch, CronLoopHandle, CronScriptResolver, CronTickResult } from "./cron-loop.js";
+export { runCronTick, startCronSchedulerLoop } from "./cron-loop.js";
+export type { CronField, CronFields } from "./cron-scheduler.js";
+export { isValidCronExpression, nextFire, parseCronExpression } from "./cron-scheduler.js";
+export type { CronDefinition, CronFireRecord, CronStore } from "./cron-store.js";
+export { CRON_RECURRING_EXPIRY_MS, createCronStore } from "./cron-store.js";
+export type { CronToolsOptions } from "./cron-tools.js";
+export { createCronTools } from "./cron-tools.js";
 export type { DeepResearchConfig } from "./deep-research.js";
 export { generateCodebaseAuditWorkflow, generateDeepResearchWorkflow } from "./deep-research.js";
 export type {
