@@ -1,0 +1,226 @@
+{
+	"journal": [
+		{
+			"q": "task lifecycle status names why finished tasks never say completed",
+			"target": "b896eb49-99c6-4d0c-ae98-f446801da1b2"
+		},
+		{
+			"q": "where run projections get their glyphs and frozen elapsed time",
+			"target": "b896eb49-99c6-4d0c-ae98-f446801da1b2"
+		},
+		{
+			"q": "a repo check breaks on a pull request that only touches documentation",
+			"target": "749ef2b2-5347-4a57-909c-e78e11025375"
+		},
+		{
+			"q": "is bypassing verification hooks acceptable when unrelated checks fail",
+			"target": "749ef2b2-5347-4a57-909c-e78e11025375"
+		},
+		{
+			"q": "single place that splits fenced yaml and the test guarding it",
+			"target": "7738820c-39ed-408b-b593-c22084266b13"
+		},
+		{
+			"q": "why duplicate implementations reappear after a canonical leaf exists",
+			"target": "7738820c-39ed-408b-b593-c22084266b13"
+		},
+		{
+			"q": "where the wayfinder procedure document actually lives",
+			"target": "dc2ec7a8-51ad-4acd-8324-7ba9e0bfd18b"
+		},
+		{
+			"q": "how many skill definition files exist inside the wayfind extension",
+			"target": "dc2ec7a8-51ad-4acd-8324-7ba9e0bfd18b"
+		},
+		{
+			"q": "what happens to a standalone script after its logic moves into an extension",
+			"target": "f2baa43e-06b3-46ca-b252-c2b3b25fd9f6"
+		},
+		{
+			"q": "pitfalls when relocating directory trees that use relative imports",
+			"target": "f2baa43e-06b3-46ca-b252-c2b3b25fd9f6"
+		},
+		{
+			"q": "child agents burn their whole budget exploring how to structure dispatches",
+			"target": "540be258-dc14-4f67-953b-bfeee8951acb"
+		},
+		{
+			"q": "why force resetting the repository inside a child session is forbidden",
+			"target": "540be258-dc14-4f67-953b-bfeee8951acb"
+		},
+		{
+			"q": "a cleanup pass archived an effort folder that was still running",
+			"target": "fd401c04-84e1-4f2f-99e1-decc2fa5dec4"
+		},
+		{
+			"q": "how to list ongoing planning efforts without extension tools",
+			"target": "fd401c04-84e1-4f2f-99e1-decc2fa5dec4"
+		},
+		{
+			"q": "checking out the default branch in a secondary worktree fails",
+			"target": "4806129f-69c5-4a47-a691-83a3d7033604"
+		},
+		{
+			"q": "sibling agents moved the upstream default branch mid session",
+			"target": "4806129f-69c5-4a47-a691-83a3d7033604"
+		},
+		{
+			"q": "markdown database mirror keyed by identifier for memory cards",
+			"target": "dfdd1bf5-2d65-4a87-9dad-fcb9e860212c"
+		},
+		{
+			"q": "why surreal was picked over sqlite as the primary persistence backend",
+			"target": "dfdd1bf5-2d65-4a87-9dad-fcb9e860212c"
+		},
+		{
+			"q": "dozens of modified and deleted files appear before syncing is the churn real work",
+			"target": "68c5150a-c54e-4707-a98b-6c350b32503b"
+		},
+		{
+			"q": "how to prove working tree changes contain nothing unique before discarding them",
+			"target": "68c5150a-c54e-4707-a98b-6c350b32503b"
+		},
+		{
+			"q": "recipe for sourdough starter hydration ratios",
+			"negative": true
+		},
+		{
+			"q": "weekend train schedule from Lisbon to Porto",
+			"negative": true
+		}
+	],
+	"kcard": [
+		{
+			"q": "custom model subagents cannot find the pi executable what launcher script should spawn them",
+			"vaultTargets": [
+				"subagent-spawn-pitfall"
+			]
+		},
+		{
+			"q": "macos lacks a builtin command to cap a child process runtime how to guard against hangs",
+			"vaultTargets": [
+				"subagent-spawn-pitfall"
+			]
+		},
+		{
+			"q": "why should a linked worktree never check out the default branch directly",
+			"vaultTargets": [
+				"worktree-never-checkout-main"
+			]
+		},
+		{
+			"q": "two agents sharing one checkout what happens when both try to hold the default branch",
+			"vaultTargets": [
+				"worktree-never-checkout-main"
+			]
+		},
+		{
+			"q": "worktree branch deletion fails until you detach first in this merge routine",
+			"vaultTargets": [
+				"pr-merge-workflow-sop-requires-detach",
+				"gh-pr-merge-worktree-delete-branch"
+			]
+		},
+		{
+			"q": "the five step merge routine from format check through branch protection to worktree restore",
+			"vaultTargets": [
+				"pr-merge-workflow-sop-requires-detach",
+				"pr-merge-workflow-for-this-repo"
+			]
+		},
+		{
+			"q": "before reverting a dirty file prove it came from the workflow not a parallel session",
+			"vaultTargets": [
+				"verification-procedure-for-dirty",
+				"verify-dirty-file-source-before-revert"
+			]
+		},
+		{
+			"q": "journal fix tags and transcript edits as evidence a change is not the user's own work",
+			"vaultTargets": [
+				"verification-procedure-for-dirty",
+				"verify-dirty-file-source-before-revert"
+			]
+		},
+		{
+			"q": "which models were rebuilt at eight bit quantization and which one was retired instead",
+			"vaultTargets": [
+				"4-bit to 8-bit"
+			]
+		},
+		{
+			"q": "quantization upgrade summary for the dark beast generator and the seven billion upscaler",
+			"vaultTargets": [
+				"4-bit to 8-bit"
+			]
+		},
+		{
+			"q": "one module level collector gathers test results then decides single files or a unified report",
+			"vaultTargets": [
+				"accumulator_pattern"
+			]
+		},
+		{
+			"q": "tail guard mechanism choosing between separate outputs and a combined review report",
+			"vaultTargets": [
+				"accumulator_pattern"
+			]
+		},
+		{
+			"q": "deterministic tools form the test backbone only visual judgment needs a workflow layer",
+			"vaultTargets": [
+				"hybrid testing architecture"
+			]
+		},
+		{
+			"q": "keep semantic vision model checks out of the main bun test skeleton",
+			"vaultTargets": [
+				"hybrid testing architecture"
+			]
+		},
+		{
+			"q": "which text to image pipeline finally honored the guidance scale and became the biggest quality lever",
+			"vaultTargets": [
+				"zimage-cfg-wired"
+			]
+		},
+		{
+			"q": "biggest quality lever after wiring cfg guidance for the moody generator",
+			"vaultTargets": [
+				"zimage-cfg-wired"
+			]
+		},
+		{
+			"q": "purify edits should redraw the whole region instead of only retouching skin",
+			"vaultTargets": [
+				"purify-redraw-not-skin"
+			]
+		},
+		{
+			"q": "skin targeted edit runs out of memory at two times scale which lever avoids it",
+			"vaultTargets": [
+				"purify-redraw-not-skin"
+			]
+		},
+		{
+			"q": "vendor dependencies vanish after switching branches and the vae import fails",
+			"vaultTargets": [
+				"vendor-submodule-cleared"
+			]
+		},
+		{
+			"q": "no module named mflux after a worktree switch what has to be restored",
+			"vaultTargets": [
+				"vendor-submodule-cleared"
+			]
+		},
+		{
+			"q": "recipe for sourdough starter hydration ratios",
+			"negative": true
+		},
+		{
+			"q": "weekend train schedule from Lisbon to Porto",
+			"negative": true
+		}
+	]
+}
