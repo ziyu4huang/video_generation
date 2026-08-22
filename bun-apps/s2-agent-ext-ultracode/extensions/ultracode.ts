@@ -7,8 +7,11 @@ import { GATE_DEFS } from "@repo/s2-agent-core-interface";
 // singleton docstring in src/subagent-in-flight.ts).
 import { getSubagentInFlightRegistry, setRateLimitCapResolver } from "@repo/s2-agent-core-runtime";
 import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry.js";
+import type { CronLoopHandle } from "../src/index.js";
 import {
   buildWorkflowGuidelinesForTurn,
+  createCronStore,
+  createCronTools,
   createEffortState,
   createWorkflowControlTool,
   createWorkflowHelpTool,
@@ -25,9 +28,12 @@ import {
   registerEffortCommand,
   registerWorkflowCommands,
   registerWorkflowModelsCommand,
+  resolveWorkflowScript,
   saveWorkflowSettingsForCwd,
   shouldInjectFullWorkflowGuidelines,
+  startCronSchedulerLoop,
   WorkflowManager,
+  workflowProjectPaths,
 } from "../src/index.js";
 import { shellRunHostFn } from "../src/shell-host-fn.js";
 
@@ -38,7 +44,7 @@ import { shellRunHostFn } from "../src/shell-host-fn.js";
 // so buildEffectiveGates groups all five into ONE co-firing gate (names[0] ===
 // "workflow"). The former per-tool verbatim duplication across two packages is
 // gone — edit the family here, all five tools follow.
-GATE_DEFS["workflow"] = {
+GATE_DEFS.workflow = {
   id: "workflow",
   keywords: ["workflow", "pipeline", "orchestrate", "fan-out", "fan out", "parallel agent", "multi-step"],
   description: "Deterministic workflow orchestration + control",
@@ -136,6 +142,25 @@ export default function extension(pi: ExtensionAPI) {
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
 
+  // ── Workflow cron (ticket 08) ─────────────────────────────────────────
+  // Durable definitions under the ultracode state root (alongside runs/);
+  // firing is session-live only (map D8 — no daemon). The fire-record lease
+  // makes two concurrent live sessions race for one (id, due) slot instead of
+  // double-firing it.
+  const cronStore = createCronStore(workflowProjectPaths(cwd).rootDir);
+  // Same resolution chain a fire uses: packs/paths first, saved workflows second.
+  const resolveCronScript = (workflow: string): string | null => {
+    try {
+      return resolveWorkflowScript(workflow, { cwd })?.script ?? null;
+    } catch {
+      return storage.load(workflow)?.script ?? null;
+    }
+  };
+  for (const tool of createCronTools({ store: cronStore, resolveScript: resolveCronScript })) {
+    pi.registerTool(tool);
+  }
+  let cronLoop: CronLoopHandle | undefined;
+
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
   // are injected here, per-turn, by before_agent_start:
@@ -186,9 +211,14 @@ export default function extension(pi: ExtensionAPI) {
     // docs/agents/extension-naming.md) are activated by s2-agent-ext-subagent's
     // own before_agent_start + session_start hooks (same pattern as below); workflow
     // no longer touches their activation.
-    const missing = [workflowTool.name, workflowHelpTool.name, workflowControlTool.name].filter(
-      (nm) => !active.includes(nm),
-    );
+    const missing = [
+      workflowTool.name,
+      workflowHelpTool.name,
+      workflowControlTool.name,
+      "cron_create",
+      "cron_list",
+      "cron_delete",
+    ].filter((nm) => !active.includes(nm));
     if (missing.length) {
       pi.setActiveTools([...active, ...missing]);
     }
@@ -252,6 +282,18 @@ export default function extension(pi: ExtensionAPI) {
       });
       editorInstalled = true;
     }
+    // Session-live cron scheduler (ticket 08): first pass ~1 s after start,
+    // then every 30 s. `/reload` re-fires session_start — stop any prior loop
+    // so exactly one interval runs per session.
+    cronLoop?.stop();
+    cronLoop = startCronSchedulerLoop({ store: cronStore, dispatch: manager, resolveScript: resolveCronScript });
+  });
+
+  // Stop the cron loop when the session ends (ticket 08 / map D8): firing is
+  // session-live only — no daemon, no orphaned interval after shutdown.
+  pi.on("session_shutdown", () => {
+    cronLoop?.stop();
+    cronLoop = undefined;
   });
 
   // Track runtime model switches (e.g. /model, model cycling): future agent

@@ -19,7 +19,7 @@ const MAX_OUTPUT = 20000;
 const DEFAULT_TIMEOUT_MS = 30000;
 
 function truncate(str: string, max: number): string {
-  return str.length > max ? str.slice(0, max) + `\n[...truncated, was ${str.length} chars]` : str;
+  return str.length > max ? `${str.slice(0, max)}\n[...truncated, was ${str.length} chars]` : str;
 }
 
 /**
