@@ -33,12 +33,12 @@ describe("resolveEnvBridges — env → argv bridging", () => {
     ).toEqual(["--thinking", "high"]);
   });
 
-  test("all three set → spliced in BRIDGES order (model, provider, thinking)", () => {
+  test("all three set → --model suppresses --provider (model governs routing); thinking still spliced", () => {
     const out = resolveEnvBridges(
       [],
       E({ PI_MODEL: "m", PI_PROVIDER: "p", PI_THINKING: "t" }),
     );
-    expect(out).toEqual(["--model", "m", "--provider", "p", "--thinking", "t"]);
+    expect(out).toEqual(["--model", "m", "--thinking", "t"]);
   });
 
   test("provider/id:thinking shorthand passes through untouched (pi parses it)", () => {
@@ -61,13 +61,13 @@ describe("resolveEnvBridges — explicit flag wins (no double-splice)", () => {
     ).toEqual([]);
   });
 
-  test("--model present but PI_PROVIDER/PI_THINKING still splice", () => {
+  test("--model present → PI_PROVIDER suppressed (model governs routing); PI_THINKING still splices", () => {
     expect(
       resolveEnvBridges(
         ["--model", "x"],
         E({ PI_MODEL: "m", PI_PROVIDER: "p", PI_THINKING: "t" }),
       ),
-    ).toEqual(["--provider", "p", "--thinking", "t"]);
+    ).toEqual(["--thinking", "t"]);
   });
 
   test("prefix-similarity is safe (--mode does NOT suppress --model)", () => {
@@ -127,19 +127,19 @@ describe("resolveEnvBridges — built-in fill-gaps defaults", () => {
     "--thinking": "high",
   };
 
-  test("no flag, no env, no personal settings → splices all three built-ins", () => {
+  test("no flag, no env, no personal settings → splices --model + --thinking (model suppresses provider)", () => {
     expect(
       resolveEnvBridges(["-p", "hi"], {}, BRIDGES, {
         settings: {},
         builtinByFlag: BUILTIN,
       }),
-    ).toEqual(["--model", "glm-5.3", "--provider", "zai", "--thinking", "high"]);
+    ).toEqual(["--model", "glm-5.3", "--thinking", "high"]);
   });
 
-  test("settings absent entirely (undefined) → built-ins still splice", () => {
+  test("settings absent entirely (undefined) → --model + --thinking built-ins splice", () => {
     expect(
       resolveEnvBridges([], {}, BRIDGES, { builtinByFlag: BUILTIN }),
-    ).toEqual(["--model", "glm-5.3", "--provider", "zai", "--thinking", "high"]);
+    ).toEqual(["--model", "glm-5.3", "--thinking", "high"]);
   });
 
   test("personal settings defaults WIN over built-ins (fill-gaps, never override)", () => {
@@ -175,7 +175,7 @@ describe("resolveEnvBridges — built-in fill-gaps defaults", () => {
         settings: { defaultModel: "settings-m" },
         builtinByFlag: BUILTIN,
       }),
-    ).toEqual(["--model", "env-m", "--provider", "zai", "--thinking", "high"]);
+    ).toEqual(["--model", "env-m", "--thinking", "high"]);
   });
 
   test("explicit flag beats everything (built-in not double-spliced)", () => {
@@ -183,7 +183,7 @@ describe("resolveEnvBridges — built-in fill-gaps defaults", () => {
       resolveEnvBridges(["--model", "x"], {}, BRIDGES, {
         builtinByFlag: BUILTIN,
       }),
-    ).toEqual(["--provider", "zai", "--thinking", "high"]);
+    ).toEqual(["--thinking", "high"]);
   });
 
   test("blank-string personal default is treated as absent (built-in fills)", () => {
@@ -192,12 +192,82 @@ describe("resolveEnvBridges — built-in fill-gaps defaults", () => {
         settings: { defaultModel: "   " },
         builtinByFlag: BUILTIN,
       }),
-    ).toEqual(["--model", "glm-5.3", "--provider", "zai", "--thinking", "high"]);
+    ).toEqual(["--model", "glm-5.3", "--thinking", "high"]);
   });
 
   test("no builtinByFlag passed → legacy behavior (nothing spliced without env)", () => {
     // Backward-compat: callers that don't opt into built-ins see the old
     // env-only bridge semantics.
     expect(resolveEnvBridges(["-p", "hi"], {})).toEqual([]);
+  });
+});
+
+describe("resolveEnvBridges — --model governs provider routing", () => {
+  // Incident 2026-08-22 (deployed 0.1.1+g89ee4d8): `--model lm-studio/qwen/qwen3.8-27b`
+  // 400'd against zai. The pi harness exports PI_PROVIDER=zai to every child
+  // process, so the bridge spliced `--provider zai` alongside the user's --model;
+  // upstream resolveCliModel then skips slash-inference, misses the id in the zai
+  // catalog, and buildFallbackModel fabricates a bogus zai model id → zai 400.
+  // Fix: whenever a --model token will exist in the final argv (user flag, `=`
+  // form, or a PI_MODEL/bridge-spliced one), the --provider bridge stays silent.
+
+  const BUILTIN = {
+    "--model": "glm-5.3",
+    "--provider": "zai",
+    "--thinking": "high",
+  };
+
+  test("user --model provider/model + PI_PROVIDER env → NO --provider splice (incident)", () => {
+    expect(
+      resolveEnvBridges(
+        ["--model", "lm-studio/qwen/qwen3.8-27b", "-p", "hi"],
+        E({ PI_PROVIDER: "zai" }),
+      ),
+    ).toEqual([]);
+  });
+
+  test("user --model provider/model + built-in defaults → only --thinking splices", () => {
+    expect(
+      resolveEnvBridges(
+        ["--model", "lm-studio/qwen/qwen3.8-27b"],
+        {},
+        BRIDGES,
+        { settings: {}, builtinByFlag: BUILTIN },
+      ),
+    ).toEqual(["--thinking", "high"]);
+  });
+
+  test("PI_MODEL provider/model + PI_PROVIDER env → only --model splices", () => {
+    expect(
+      resolveEnvBridges(
+        [],
+        E({ PI_MODEL: "lm-studio/qwen/qwen3.8-27b", PI_PROVIDER: "zai" }),
+      ),
+    ).toEqual(["--model", "lm-studio/qwen/qwen3.8-27b"]);
+  });
+
+  test("= form --model=x also suppresses the --provider bridge", () => {
+    expect(
+      resolveEnvBridges(["--model=lm-studio/x"], E({ PI_PROVIDER: "zai" })),
+    ).toEqual([]);
+  });
+
+  test("--thinking is never suppressed by model routing", () => {
+    expect(
+      resolveEnvBridges(
+        ["--model", "lm-studio/x"],
+        E({ PI_THINKING: "low" }),
+      ),
+    ).toEqual(["--thinking", "low"]);
+  });
+
+  test("explicit user --provider flag still wins over everything", () => {
+    // A typed --provider must never be dropped — only INJECTED ones are.
+    expect(
+      resolveEnvBridges(
+        ["--model", "x", "--provider", "deepseek"],
+        E({ PI_PROVIDER: "zai" }),
+      ),
+    ).toEqual([]);
   });
 });
