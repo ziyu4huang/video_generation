@@ -1,6 +1,6 @@
 # 05 — card schema v2: summary L0 + experience kind + merge-op table
 
-- **Phase:** P1 · **Package:** `s2-agent-ext-knowledge-card` · **Status:** open · **Breaking (D0/D4)**
+- **Phase:** P1 · **Package:** `s2-agent-ext-knowledge-card` · **Status:** closed 2026-08-22 (main PR + vault PR pi-agent-vault#20) · **Breaking (D0/D4)**
 
 ## Problem
 

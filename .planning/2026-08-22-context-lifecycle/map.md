@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-22-context-lifecycle
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 status: open
 pipeline: wayfind→superpowers
 ---
@@ -57,6 +57,16 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   the semantic modes). kcard 4-tool total 2367 → 2019 tok, regression ceiling re-baselined
   ≤2220. Obsidian is hermetic again; zk-ask is lexical+graph only (the retired modes never
   won a regime — iter-6/7 receipts); `retrieval-quality-self-improve.js` retired with them.
+- **Schema v2 + backfill measured (ticket 05, 2026-08-22).** Backfill receipt
+  (`bun-apps/s2-agent-ext-knowledge-card/output/backfill-summaries/`): 2025 cards / 1925
+  active / **1925 stamped, 0 skipped** (81 legacy English-header notes covered by the
+  whole-body fallback). Vault diff verified summary-lines-only. Post-backfill recall-audit
+  (receipt `output/recall-audit/receipt-2026-08-22T12-41-42-688Z.json`): kcard hit@1 11/20 ·
+  hit@3 16/20 · hit@5 **17/20** · MRR 0.688 — identical to baseline; embed text is
+  title+tags+body-800 (frontmatter stripped) so `summary` cannot move ranking. Re-embed
+  burst = 1925 cards ≈ 2 min on bge-m3. graphHealth findings (34 deadLinks / 140 orphans /
+  MOC drift) pre-existing, untouched. obsidian `search-baseline.txt` regenerated (12 snippet
+  lines) — deliberate D0 refresh, 370/370 pass.
 - **Post-fold recall measured (ticket 04, 2026-08-22).** Committed harness
   `bun-apps/scripts/recall-audit.mjs` (+ battery JSON + CI-safe fixture test in hermes
   `scripts/`, offline via `--test-embedder`). Live receipt 2026-08-22
@@ -93,7 +103,7 @@ Phase P0 — infra unification & hermes triage
 - `tickets/04-recall-audit-script.md` — task, **closed 2026-08-22** — committed audit harness + post-fold baseline (kcard 17/20 hit@5, journal 0/20)
 
 Phase P1 — card schema v2 + tiered retrieval
-- `tickets/05-card-schema-v2.md` — task, **open** — summary/experience/merge-ops, breaking (D0)
+- `tickets/05-card-schema-v2.md` — task, **closed 2026-08-22** — summary L0 + experience kind + merge-op table shipped; real-vault backfill 1925/1925 active cards (vault PR #20), recall-audit unchanged (hit@5 17/20, MRR 0.688)
 - `tickets/06-agg-node-abstracts.md` — task, **open** — L1 abstracts on LeanRAG agg nodes
 - `tickets/07-tier-ladder-retrieval.md` — task, **open** — tier field + demote-not-truncate
 
@@ -139,13 +149,12 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/05-card-schema-v2.md` — P0 complete (tickets 01–04 closed 2026-08-22: canonical
-embed, vault-mind retirement, hermes fold, committed recall-audit harness with the post-fold
-after-proof — kcard hit@5 17/20 vs journal 0/20). Ticket 05 opens P1 (card schema v2:
-summary/experience/merge-ops, breaking under D0). It is first because every later retrieval
-change (tickets 06–07, 15) wants to cite the schema-v2 shape, and the committed
-`recall-audit.mjs` baseline now exists to score schema changes against (re-run the battery,
-compare hit@k to the 17/20 receipt).
+`tickets/06-agg-node-abstracts.md` — ticket 05 closed 2026-08-22 (schema v2 live: `summary`
+L0 stamped on every active card via backfill + ingest; `experience` kind with the SAR
+template; `MERGE_OPS` typed merge table consumed by wiki-merge). Ticket 06 is next because
+the L1 tier (agg-node `summary:` + leaf lead-section) builds directly on the L0 shape 05
+established, and the committed recall-audit baseline (17/20 hit@5) is the gate it scores
+against.
 
 ## Fog of war
 
@@ -153,8 +162,8 @@ compare hit@k to the 17/20 receipt).
   risk) — one-line probe before ticket 08; the child-guard flag is designed regardless.
 - `turn_end` payload shape at the extension layer (assistant text surface unverified) —
   ticket 11 opens with a probe; zk_card provenance works even if turn_end doesn't.
-- One-time re-embed burst when card `summary:` backfill touches every card (mtime
-  fingerprint) — measure in ticket 05, expected bounded by corpus size.
+- One-time re-embed burst when card `summary:` backfill touches every card — MEASURED in
+  ticket 05: 1925 cards, ~2 min rebuild, ranking byte-identical. Closed.
 - BGE-M3 vs nomic head-to-head: the hermes embed-bench already measured bge-m3 recall@1
   0.909 vs nomic 0.864 (hermes PRD; surfaced when ticket 01 landed) — supportive of D3 but
   on a different corpus; ticket 15's A/B on the real eval set is still the deciding receipt,
