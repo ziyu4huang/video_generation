@@ -1,6 +1,6 @@
 # Ticket 04 — protocol-messages
 
-status: open
+status: closed 2026-08-22 (PR #1829 → main 5e8eef5d; reviewer APPROVE-WITH-FIXES, both Majors + m1/m2 fixed pre-merge)
 
 ## Goal
 

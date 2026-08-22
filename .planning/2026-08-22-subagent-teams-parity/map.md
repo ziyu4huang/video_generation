@@ -73,8 +73,12 @@ Phase 2 — shared state (P2)
   edge rollback) and re-approved
 
 Phase 3 — teams vocabulary (P3)
-- `tickets/04-protocol-messages.md` — task — shutdown / plan-approval envelopes on
-  `send_message` (timeout → deny)
+- `tickets/04-protocol-messages.md` — closed 2026-08-22 (PR #1829 → main
+  5e8eef5d) — `send_message` type envelopes + child-injected
+  `request_plan_approval` over core-runtime's `PendingProtocolMap` (timeout →
+  DENY per D6); two-stage shutdown; stop-by-name; detach refusal. Review
+  findings fixed (M1 allowlist guard, M2 manual round-trip, m1/m2 shutdown)
+  and merged APPROVE-WITH-FIXES
 - `tickets/05-team-addressing.md` — task — sibling addressing (parent-brokered) +
   live roster
 
@@ -111,14 +115,25 @@ Phase 4 — ultracode gaps (P4)
   `s2-agent.registry.yaml` unchanged — no new ext for any ticket.
 - D10: Out of scope: fork-type subagents, remote isolation, ToolSearch/skills-in-child,
   cross-restart live-session resume, direct child→child channels, a cron daemon.
+- D11 (ticket 04): `request_plan_approval` is CHILD-INJECTED, never
+  parent-registered — the parent never asks its own parent for approval, so the
+  tool joins neither the active set nor the workflow gate family. Children get
+  it via the extensionTools bridge plus a named-dispatch allowlist append
+  (guarded: only onto a NON-EMPTY list — an absent/empty list means no
+  restriction, and appending there would strip every other tool; review M1).
+- D12 (ticket 04): the MANUAL `send_message plan_approval_request` path (agents
+  without the injected tool) holds NOTHING — its reply is a plain send_message;
+  the envelope-typed `plan_approval_response` resolves only the tool's pending
+  hold (review M2). Detached-resume subprocesses refuse every protocol surface
+  (`SUBAGENT_DETACHED_RESUME` env marker; the bus stays unwired there).
 
 ## Frontier
 
-`tickets/04-protocol-messages.md` — tickets 01-03 shipped the full shared-state
-layer (addressability + messaging + task board); protocol messages is the next
-workable ticket because it extends the ALREADY-shipped send_message surface
-(`type?` envelope + approve/feedback, plan-approval timeout → DENY per D6) with
-no new stores and no ultracode surfaces.
+`tickets/05-team-addressing.md` — ticket 04 shipped the protocol layer on top
+of the already-live send_message surface; team addressing is next because it
+OWNS the two documented seams ticket 02 left open (child→sibling direct
+routing, nested-main→root) and needs no new stores — it re-routes the existing
+parent-brokered bus + registry.
 
 ## Fog of war
 
