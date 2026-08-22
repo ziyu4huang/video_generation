@@ -2,7 +2,7 @@
  * src/extractor.ts — pluggable `Extractor` interface (LeanRAG ⑤) + the default
  * deterministic `DictionaryExtractor`.
  *
- * Deterministic-by-design (ADR-0001): the default ingest path is LLM-free. The
+ * Deterministic-by-design (tier rule): the default ingest path is LLM-free. The
  * dictionary extractor wraps the existing 8-type `extractEntities` and emits
  * entities only — no relations. Phase-2's `LlmRelationExtractor` (behind the
  * `kg.llm` gate) implements this same interface and also emits typed

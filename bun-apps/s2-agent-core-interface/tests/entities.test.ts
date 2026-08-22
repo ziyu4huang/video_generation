@@ -6,7 +6,7 @@
  * (ingest/retrieve ranking) and hermes-memory (query-side entityRecall) must
  * normalize entity names with the SAME function for "MLX" in prose to match
  * "mlx" in a card graph — and hermes is TIER-0, so it may not import the hub
- * (ADR-0001). A shared downward module makes that agreement structural rather
+ * (tier rule, bun-apps/tests/dep-guard.test.ts). A shared downward module makes that agreement structural rather
  * than a runtime coincidence.
  *
  * Coverage:
@@ -17,7 +17,7 @@
  *
  * The ingestRecords integration half stayed behind in knowledge-card
  * (__tests__/entities-ingest.test.ts): core-interface must not depend on the
- * hub, and importing ingest.ts here would be the very cycle ADR-0001 forbids.
+ * hub, and importing ingest.ts here would be the very cycle the tier rule forbids.
  */
 import { test, expect, describe } from "bun:test";
 import {

@@ -56,7 +56,7 @@ function existingCards(vaultPath: string): ExistingCard[] {
  *    partition was doc↔code drifted — the gate only knew the legacy prefix, so
  *    every auto-converged hermes card was killed as a "duplicate" and the
  *    curated upgrade path was dead-on-arrival for the live producer).
- *  - `pi-memory:*`    — legacy ids minted by the PRE-ADR-0001 hermes
+ *  - `pi-memory:*`    — legacy ids minted by the PRE-tier-rule hermes
  *    auto-converge (kept so older graph folders still upgrade). */
 const RAW_UPGRADE_PREFIXES = ["hermes:", "pi-memory:"];
 

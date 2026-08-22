@@ -41,7 +41,7 @@
  *
  * ── Why this lives in core-interface, not in knowledge-card ─────
  * It used to live at `s2-agent-ext-knowledge-card/src/entities.ts`. Two
- * packages need it, on opposite sides of the ADR-0001 tier boundary:
+ * packages need it, on opposite sides of the knowledge-layer tier boundary:
  *   - knowledge-card (TIER-1 hub) — ingest.ts (IDF-weighted cross-link
  *     computation + additive frontmatter) and retrieve.ts (IDF ranking, opt-in)
  *   - hermes-memory (TIER-0 foundation) — the query-side `entityRecall` signal

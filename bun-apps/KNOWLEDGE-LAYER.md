@@ -4,11 +4,11 @@
 > memory → knowledge layer. For depth, see each package's own docs (linked below).
 > Snapshot: 2026-07-14 · branch `docs/memory-ext-architecture-review`.
 >
-> ⚠ **CORRECTED 2026-07-18 (ADR-0001):** `s2-agent-ext-hermes-memory` is a
+> ⚠ **CORRECTED 2026-07-18 (tier rule):** `s2-agent-ext-hermes-memory` is a
 > **TIER-0 foundation** (raw memory I/O), NOT TIER-2. Its former auto-converge
 > created illegal upward edges (hermes→knowledge-card, hermes→obsidian); those
-> are removed — convergence ownership moves to the hub. See
-> [`docs/adr/0001-strict-downward-edges-knowledge-layer.md`](./docs/adr/0001-strict-downward-edges-knowledge-layer.md).
+> are removed — convergence ownership moves to the hub. The rule is enforced
+> structurally by [`tests/dep-guard.test.ts`](./tests/dep-guard.test.ts).
 >
 > This overview is a *distillation* of the detailed review at
 > `.planning/2026-07-14-memory-ext-architecture-review/findings.md` (every claim
@@ -22,7 +22,7 @@ TIER 0 — FOUNDATIONS (raw I/O; no upward edges allowed)
   s2-agent-ext-hermes-memory    memory I/O · store · search · session index · flush
         ▲                ▲
         │ hard import     │ hub reads hermes memory files at well-known path
-        │ (down edge ✓)   │ on session_shutdown (NO hermes→hub edge — see ADR-0001)
+        │ (down edge ✓)   │ on session_shutdown (NO hermes→hub edge — tier rule)
         └────────┬────────┘
                  ▼
 TIER 1 — CONVERGENCE HUB: s2-agent-ext-knowledge-card
@@ -65,7 +65,7 @@ anything hermes touched.
 | `failure` + `correction` + `insight` (high-value, curated) | **distill** | agent-triggered gate→enrich→converge | typed (`gotcha`/`lever`/…), id `distill:…` |
 
 - distill's gate treats a matching **raw active card** (id prefix `hermes:` — the
-  live hub adapter — or legacy `pi-memory:*` from the pre-ADR-0001 auto-converge)
+  live hub adapter — or legacy `pi-memory:*` from the pre-tier-rule auto-converge)
   as an **upgrade candidate**, not a duplicate: on converge it writes the curated
   card and flips the raw card to `status: superseded` + `superseded_by: <curated id>`.
   *(F3, corrected: the gate previously recognized only `pi-memory:*`, so cards

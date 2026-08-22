@@ -8,7 +8,7 @@ EXCEPT sanctioned pi-port glue (`using-superpowers/references/*.md`, #639). Afte
 structure-only `tests/skills.test.ts`), we guard the invariant with a **positive
 content pin**: `tests/skills-fidelity.test.ts` asserts each `SKILL.md` equals its
 committed baseline fixture under `tests/__fixtures__/upstream-skills/`. A pin was
-chosen over a denylist because the repo's own dep-guard (ADR-monorepo-0001) showed
+chosen over a denylist because the repo's own dep-guard (bun-apps/tests/dep-guard.test.ts) showed
 denylists/regex miss things; a pin catches all drift — convention injection,
 accidental edit, and upstream drift alike.
 

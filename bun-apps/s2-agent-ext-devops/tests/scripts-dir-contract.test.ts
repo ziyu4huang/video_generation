@@ -1,5 +1,5 @@
 /**
- * scripts-dir contract — every .ts directly under a s2-agent package's
+ * scripts-dir contract — every .ts/.mjs directly under a s2-agent package's
  * scripts/ dir is a RUNNABLE entry; libraries live in src/ (or scripts/lib/).
  *
  * Why: a pure-library .ts in scripts/ exits 0 silently when run —
@@ -11,7 +11,7 @@
  * This is a SNAPSHOT allowlist: adding a runnable entry to scripts/ requires
  * adding its path here (one line, deliberate). A library file added to
  * scripts/ fails with no allowlist escape — put it in src/ or scripts/lib/.
- * *.test.ts anywhere under scripts/ and the scripts/lib/ subtree are exempt.
+ * *.test.* anywhere under scripts/ and the scripts/lib/ subtree are exempt.
  */
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -28,10 +28,11 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-flux2/scripts/build-bundle.ts",
 	"bun-apps/s2-agent-ext-flux2/scripts/check-flags.ts",
 	"bun-apps/s2-agent-ext-flux2/scripts/self-improve-loop.driver.ts",
+	"bun-apps/s2-agent-ext-hermes-memory/scripts/pi-memory-merge.mjs",
+	"bun-apps/s2-agent-ext-knowledge-card/scripts/kcard-coverage-measure.mjs",
 	"bun-apps/s2-agent-ext-krea2/scripts/build-bundle.ts",
 	"bun-apps/s2-agent-ext-krea2/scripts/check-flags.ts",
 	"bun-apps/s2-agent-ext-krea2/scripts/e2e-smoke.ts",
-	"bun-apps/s2-agent-ext-krea2/scripts/probe-tool.ts",
 	"bun-apps/s2-agent-ext-ltx/scripts/build-bundle.ts",
 	"bun-apps/s2-agent-ext-ltx/scripts/check-flags.ts",
 	"bun-apps/s2-agent-ext-ltx/scripts/e2e-smoke.ts",
@@ -57,9 +58,14 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-movie-director/scripts/validate-data.ts",
 	"bun-apps/s2-agent-ext-movie-director/scripts/verify-tool-caption.ts",
 	"bun-apps/s2-agent-ext-movie-director/scripts/verify-tool-video.ts",
+	"bun-apps/s2-agent-ext-obsidian/scripts/backfill-zettel-frontmatter.mjs",
+	"bun-apps/s2-agent-ext-obsidian/scripts/bench-index-persistence.mjs",
+	"bun-apps/s2-agent-ext-obsidian/scripts/bench-trigram-search.mjs",
+	"bun-apps/s2-agent-ext-obsidian/scripts/measure-schema-tokens.mjs",
+	"bun-apps/s2-agent-ext-obsidian/scripts/validate-real-vault.mjs",
 	"bun-apps/s2-agent-ext-subagent/scripts/runs-stats.ts",
 	"bun-apps/s2-agent-ext-superpowers/scripts/rebaseline-upstream-skills.ts",
-	"bun-apps/s2-agent/scripts/generate-embedded-assets.ts",
+	"bun-apps/s2-agent-ext-wayfind/scripts/probe-ext.ts",
 	"bun-apps/s2-agent/scripts/regen-manifest.ts",
 	"bun-apps/s2-agent/scripts/regen-static-extensions.ts",
 	"bun-apps/s2-agent/scripts/scrub-session-env.preload.ts",
@@ -77,8 +83,9 @@ function topLevelScriptEntries(): string[] {
 			continue; // package has no scripts/ dir
 		}
 		for (const name of entries) {
-			// Top level only — scripts/lib/** and *.test.ts are exempt by contract.
-			if (!name.endsWith(".ts") || name.endsWith(".test.ts")) continue;
+			// Top level only — scripts/lib/** and *.test.* are exempt by contract.
+			// .sh needs no guard: a shell file with no shebang still errors loudly.
+			if (!(name.endsWith(".ts") || name.endsWith(".mjs")) || name.includes(".test.")) continue;
 			out.push(`bun-apps/${pkg}/scripts/${name}`);
 		}
 	}

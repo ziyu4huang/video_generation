@@ -18,8 +18,9 @@
     "./extensions/*": "./extensions/*"
   },
   "scripts": {
-    "test": "bun run check && bun run test:unit",
+    "test": "bun run check && bun run test:unit && bun run test:probe",
     "test:unit": "bun test",
+    "test:probe": "bun scripts/probe-ext.ts",
     "coverage": "bun test --coverage",
     "typecheck": "tsc --noEmit",
     "check": "biome check .",

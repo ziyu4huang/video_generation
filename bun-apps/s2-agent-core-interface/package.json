@@ -2,7 +2,7 @@
   "name": "@repo/s2-agent-core-interface",
   "private": true,
   "version": "0.1.0",
-  "description": "Cross-extension contracts below every extension: SEAM_KEYS registry + publishSeam/readSeam accessors + KnowledgePipeline interface, plus the deterministic entity primitives two ADR-0001 tiers must share by value.",
+  "description": "Cross-extension contracts below every extension: SEAM_KEYS registry + publishSeam/readSeam accessors + KnowledgePipeline interface, plus the deterministic entity primitives two knowledge-layer tiers must share by value.",
   "license": "MIT",
   "keywords": ["pi-package", "seam", "contracts", "types"],
   "type": "module",

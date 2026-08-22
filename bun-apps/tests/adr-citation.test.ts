@@ -14,19 +14,16 @@
  * five wayfind files and one superpowers file cite an "ADR-0001" that has never
  * existed in their context at all.
  *
- * The fix is a globally-unique ID per ADR, derived from its path, declared in
- * the ADR itself, and indexed in one place:
+ * The fix is a globally-unique ID per ADR, derived from its path and declared
+ * in the ADR itself:
  *
- *     bun-apps/docs/adr/0001-strict-downward-edges-...  →  ADR-monorepo-0001
  *     bun-apps/s2-agent/docs/adr/0001-extensions-...    →  ADR-s2-agent-0001
  *     bun-apps/s2-agent-ext-wayfind/docs/adr/0004-...   →  ADR-wayfind-0004
  *
  * Invariants:
  *  1. Every ADR file declares its canonical ID, and it matches its path.
  *  2. IDs are globally unique (guaranteed by 1, asserted independently).
- *  3. `bun-apps/docs/adr/INDEX.md` lists exactly the ADRs on disk — BOTH
- *     directions, so neither a new ADR nor a deleted one can drift past it.
- *  4. Every ADR citation in live source/docs is resolvable: qualified by ID, by
+ *  3. Every ADR citation in live source/docs is resolvable: qualified by ID, by
  *     markdown link, by context name, or resolving locally within the citing
  *     file's own context. A citation to a number the context does not own is a
  *     dangling reference and fails here.
@@ -46,7 +43,6 @@ import { fileURLToPath } from "node:url";
 
 const BUN_APPS = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ROOT = resolve(BUN_APPS, ".."); // repo root — ADRs are cited from docs/ and .github/ too
-const INDEX_PATH = join(BUN_APPS, "docs", "adr", "INDEX.md");
 
 /** Never descend into these. `.pi` is runtime state (sessions, subagent
  * worktrees) — a concurrent session's worktree duplicates every ADR file and
@@ -131,9 +127,8 @@ export function declaredId(source: string): string | null {
 /**
  * Pure: blank out inline code spans, preserving length so offsets still line up.
  *
- * The index documents the citation forms by EXAMPLE, and an example of a
- * markdown link is not a link. Without this, the index's own "how to cite" table
- * reads as a broken link to a file that was never meant to exist.
+ * A doc that shows citation forms by EXAMPLE must not have its examples read as
+ * real citations — an example of a markdown link is not a link.
  */
 export function stripInlineCode(md: string): string {
 	return md.replace(/(`+)(?:[\s\S]*?)\1/g, (m) => " ".repeat(m.length));
@@ -192,12 +187,10 @@ function scanCitations(): Citation[] {
 			// .github/workflows/ci.yml.disabled is the source ci-local.sh parses, so
 			// its comments are live documentation, not dead config.
 			if (!/\.(ts|tsx|js|mjs|md|ya?ml)(\.disabled)?$/.test(ent.name)) continue;
-			// Two files exist to TALK about bare numbers: the index enumerates every
-			// ADR, and this guard carries bare citations as test fixtures. Excluding
-			// them is not an allowlist for violations — no other file gets an
-			// exemption, and neither of these can hide one (the index is itself
-			// asserted against disk above).
-			if (p === INDEX_PATH || p === fileURLToPath(import.meta.url)) continue;
+			// This guard itself carries bare citations as deliberate test fixtures;
+			// excluding it is not an allowlist for violations — no other file gets
+			// an exemption.
+			if (p === fileURLToPath(import.meta.url)) continue;
 			let src: string;
 			try { src = readFileSync(p, "utf8"); } catch { continue; }
 			if (!src.includes("ADR")) continue;
@@ -218,7 +211,7 @@ describe("ADR identity + citation guard", () => {
 	it("discovery finds the known ADR contexts (guards the walker itself)", () => {
 		assert.ok(ADRS.length >= 25, `expected the repo's ADR set, found ${ADRS.length}`);
 		const slugs = new Set(ADRS.map((a) => a.slug));
-		for (const expected of ["monorepo", "s2-agent", "wayfind", "hermes-memory"]) {
+		for (const expected of ["s2-agent", "wayfind", "hermes-memory"]) {
 			assert.ok(slugs.has(expected), `context slug "${expected}" not discovered — walker is broken`);
 		}
 	});
@@ -238,26 +231,6 @@ describe("ADR identity + citation guard", () => {
 		for (const a of ADRS) seen.set(a.id, [...(seen.get(a.id) ?? []), a.path]);
 		const dupes = [...seen].filter(([, v]) => v.length > 1).map(([k, v]) => `  ${k}: ${v.join(", ")}`);
 		assert.deepEqual(dupes, [], dupes.length ? `duplicate ADR IDs:\n${dupes.join("\n")}` : "");
-	});
-
-	it("INDEX.md lists exactly the ADRs on disk (both directions)", () => {
-		assert.ok(existsSync(INDEX_PATH), `missing ADR index: ${relative(ROOT, INDEX_PATH)}`);
-		const index = readFileSync(INDEX_PATH, "utf8");
-		const listed = new Set([...index.matchAll(/`(ADR-[a-z0-9-]+-\d{4})`/g)].map((m) => m[1] as string));
-		const onDisk = new Set(ADRS.map((a) => a.id));
-
-		const missing = [...onDisk].filter((id) => !listed.has(id));
-		const stale = [...listed].filter((id) => !onDisk.has(id));
-		assert.deepEqual(missing, [], missing.length ? `ADRs missing from INDEX.md: ${missing.join(", ")}` : "");
-		assert.deepEqual(stale, [], stale.length ? `INDEX.md lists ADRs that no longer exist: ${stale.join(", ")}` : "");
-	});
-
-	it("INDEX.md points at files that exist", () => {
-		const index = stripInlineCode(readFileSync(INDEX_PATH, "utf8"));
-		const broken = [...index.matchAll(/\]\(([^)]+\.md)\)/g)]
-			.map((m) => m[1] as string)
-			.filter((rel) => !existsSync(resolve(dirname(INDEX_PATH), rel)));
-		assert.deepEqual(broken, [], broken.length ? `INDEX.md links to missing files: ${broken.join(", ")}` : "");
 	});
 
 	it("every ADR citation in live source/docs resolves to exactly one ADR", () => {

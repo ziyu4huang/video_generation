@@ -17,7 +17,7 @@ import {
  * structure-only skills.test.ts; it now fails HERE, in CI, loudly.
  *
  * Mechanism: positive content pin (not a denylist). The repo's own dep-guard
- * (ADR-monorepo-0001) showed denylists/regex miss things — a pin catches ALL drift:
+ * (bun-apps/tests/dep-guard.test.ts) showed denylists/regex miss things — a pin catches ALL drift:
  * convention injection, accidental edit, and upstream drift.
  *
  * The pin alone was not enough. Re-baselining is legitimate and routine, and

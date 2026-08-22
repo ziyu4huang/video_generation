@@ -42,7 +42,7 @@ describe("emitFile2mdKnowledge", () => {
   });
 });
 
-describe("ADR-0001 — no upward hub import", () => {
+describe("tier rule — no upward hub import", () => {
   test("file2md extension does not import knowledge-card", () => {
     const src = readFileSync(join(__dirname, "..", "extensions", "file2md.ts"), "utf8");
     expect(src).not.toContain("s2-agent-ext-knowledge-card");

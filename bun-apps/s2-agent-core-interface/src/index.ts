@@ -12,7 +12,7 @@ export type {
   HealOptions, HealReceipt, HierarchyBuildOptions, HierarchyBuildResult,
   EntityAugment,
 } from "./interfaces/knowledge-pipeline.js";
-// Deterministic entity primitives, shared BY VALUE across the ADR-0001 tier
+// Deterministic entity primitives, shared BY VALUE across the knowledge-layer tier
 // boundary (knowledge-card ranking ↔ hermes-memory entityRecall). See
 // ./entities.ts for why they live below both rather than in the hub.
 export {

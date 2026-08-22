@@ -66,13 +66,11 @@ Cite `ADR-<context>-NNNN`, derived from the path:
 
 ```
 src/ordering/docs/adr/0007-event-sourced-orders.md   →   ADR-ordering-0007
-docs/adr/0001-strict-downward-edges.md               →   ADR-monorepo-0001
+bun-apps/s2-agent-ext-wayfind/docs/adr/0004-...      →   ADR-wayfind-0004
 ```
 
-Each ADR declares that ID on its first line, and
-[`bun-apps/docs/adr/INDEX.md`](../../bun-apps/docs/adr/INDEX.md) lists all of
-them. A bare number is acceptable only *inside its own context*, where it
-resolves locally.
+Each ADR declares that ID on its first line. A bare number is acceptable only
+*inside its own context*, where it resolves locally.
 
 `bun run test:adr` (from `bun-apps/`) blocks on any citation that does not
 resolve to exactly one ADR — including a reference to a number the citing

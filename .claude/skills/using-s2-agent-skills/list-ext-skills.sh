@@ -20,6 +20,7 @@ case "$mode" in
     ;;
   cli)
     # headless CLI fallbacks — runnable from repo root via: bun <path> --help
+    ls bun-apps/s2-agent/src/cli.ts 2>/dev/null
     ls bun-apps/s2-agent-ext-*/src/*-cli.ts 2>/dev/null || echo "(none)"
     ;;
   scripts)
@@ -27,7 +28,7 @@ case "$mode" in
     for d in bun-apps/s2-agent-ext-*/scripts; do
       [ -d "$d" ] || continue
       echo "== $d"
-      ls "$d" | grep -v '^lib$' | sed 's/^/   /'
+      ls "$d" | grep -v '^lib$' | grep -v '\.test\.' | sed 's/^/   /'
     done
     ;;
   *)

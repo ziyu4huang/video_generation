@@ -14,7 +14,7 @@ description: |
 
 The `s2-agent-ext-knowledge-card` extension is the **TIER-1 convergence hub**:
 it builds on the TIER-0 `obsidian` foundation (vault I/O) to add duplicate-
-checked cards, graph-RAG, and deterministic convergence. Per ADR-0001 the
+checked cards, graph-RAG, and deterministic convergence. Per the tier rule the
 dependency edges point **DOWN only**, so this skill may reference both `zk_*`
 (its own tools) and `obsidian` (its foundation dependency) — but the obsidian
 foundation skill never references back up.

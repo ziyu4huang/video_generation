@@ -1,5 +1,5 @@
 /**
- * Monorepo dependency-hygiene guard (ADR-0001).
+ * Monorepo dependency-hygiene guard (knowledge-layer tier rules).
  *
  * Encodes the architectural invariants of the s2-agent-ext-* layer so the
  * hermes-class inversion (a TIER-0 foundation importing the TIER-1 hub) can
@@ -13,7 +13,7 @@
  *  2. Every @repo tsconfig `compilerOptions.types` entry is likewise declared
  *     — a type-only edge with no import statement is still a real dependency.
  *  3. No package imports itself via @repo/ (use relative imports).
- *  4. ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports
+ *  4. Tier rule: knowledge-layer TIER-0 (obsidian, hermes-memory) imports
  *     NOTHING from the TIER-1 hub (knowledge-card) — edges point down only.
  *  5. No extension imports the host (s2-agent) — the host is above all exts.
  *  6. The declared @repo dependency graph is acyclic.
@@ -118,7 +118,7 @@ function edges(pkg: string): Set<string> {
 	return new Set([...importedRepos(pkg), ...typesRepos(pkg)]);
 }
 
-describe("monorepo dependency hygiene guard (ADR-0001)", () => {
+describe("monorepo dependency hygiene guard (knowledge-layer tier rules)", () => {
 	it("every @repo import is declared in its package.json (no hidden coupling)", () => {
 		const violations: string[] = [];
 		for (const pkg of EXTS) {
@@ -146,7 +146,7 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		assert.deepEqual(violations, [], `self-imports: ${violations.join(", ")} (use relative imports instead)`);
 	});
 
-	it("ADR-0001: knowledge-layer TIER-0 (obsidian, hermes-memory) imports NOTHING from TIER-1 (knowledge-card)", () => {
+	it("tier rule: knowledge-layer TIER-0 (obsidian, hermes-memory) imports NOTHING from TIER-1 (knowledge-card)", () => {
 		// NO allowlist, deliberately. #1323 added a SANCTIONED_EDGES set for
 		// hermes→knowledge-card, reading ticket 20's "hermes→zk is the sanctioned
 		// spine direction" as covering this check. That sentence is about the
@@ -164,7 +164,7 @@ describe("monorepo dependency hygiene guard (ADR-0001)", () => {
 		const violations: string[] = [];
 		for (const pkg of TIER0) {
 			const upward = [...edges(pkg)].filter((t) => t === "s2-agent-ext-knowledge-card");
-			if (upward.length) violations.push(`  ${pkg} → ${upward.join(", ")} (upward edge; forbidden by ADR-0001)`);
+			if (upward.length) violations.push(`  ${pkg} → ${upward.join(", ")} (upward edge; forbidden by the tier rule)`);
 		}
 		assert.deepEqual(violations, [], violations.length ? "upward edges:\n" + violations.join("\n") : "");
 	});

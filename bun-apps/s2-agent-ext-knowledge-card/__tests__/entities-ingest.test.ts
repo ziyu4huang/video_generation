@@ -6,7 +6,7 @@
  * byte-identical to pre-P8 ingest.
  *
  * The pure extractEntities/computeIdf/scoreOverlap tests moved WITH the module
- * into core-interface (tests/entities.test.ts) — see ADR-0001. This half stays
+ * into core-interface (tests/entities.test.ts) — see the tier rule (bun-apps/tests/dep-guard.test.ts). This half stays
  * because it exercises the hub's ingest path, which core-interface may not
  * import.
  */
