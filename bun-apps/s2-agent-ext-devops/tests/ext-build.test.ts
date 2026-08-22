@@ -185,6 +185,53 @@ describe("buildExtPackage", () => {
 		).rejects.toThrow(/definitely-not-installed-pkg/);
 	}, 120_000);
 
+	// THE REGRESSION THIS LOCKS OUT (2026-08-22, post-#1806 regression scan):
+	// sv-analyzer's registry entry declares `copy: [wasm]` — a GITIGNORED,
+	// regenerated artifact mirrored by dsh-plugin/sv-analyzer/build.sh. The copy
+	// loop previously did a bare cpSync, so a deploy from any worktree that had
+	// not run build.sh (fresh clone, synced main) crashed with a raw
+	// "ENOENT: stat .../wasm" stack — and the Deploy-sh L1 e2e gate (which runs
+	// a real deploy in EVERY local CI, regardless of change scope) went red on
+	// it. A deploy must still FAIL on a missing declared copy dir (silently
+	// shipping a bundle without it ships a broken extension), but the error must
+	// name the artifact and the fix.
+	test("fails with an actionable message when a declared copy dir is missing", async () => {
+		const out = makeDir();
+		const pkgDir = join(out, "fake-ext");
+		mkdirSync(join(pkgDir, "extensions"), { recursive: true });
+		writeFileSync(
+			join(pkgDir, "package.json"),
+			JSON.stringify({ name: "fake-ext", version: "0.0.0", type: "module" }),
+		);
+		writeFileSync(
+			join(pkgDir, "extensions", "fake.ts"),
+			`export default () => {};`,
+		);
+		await expect(
+			buildExtPackage({
+				ext: {
+					name: "fake-ext",
+					package: "fake-ext",
+					entry: "extensions/fake.ts",
+					order: 1,
+					skills: [],
+					copy: ["wasm"],
+					enabled: true,
+					externals: [],
+					vendorExclude: [],
+					vendor: [],
+				},
+				bunAppsDir: out,
+				outDir: join(out, "built"),
+				deployRoot: out,
+				hostApi: 1,
+				hostModules: HOST_MODULES,
+				sourceSha: "deadbee",
+				builtAt: "2026-08-19T00:00:00Z",
+			}),
+		).rejects.toThrow(/copy dir 'wasm' not found.*build\.sh/);
+	}, 120_000);
+
 	// THE DEFECT THIS LOCKS OUT (2026-08-20, /websearch): web-access's
 	// resolveOpenAIAuth did `await import("@earendil-works/pi-ai/compat")` — a
 	// HOST module. Bun's --format=cjs turns static imports into require calls
