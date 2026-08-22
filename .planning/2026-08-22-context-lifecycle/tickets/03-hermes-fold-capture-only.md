@@ -45,3 +45,36 @@ duplicate kcard's measured 1.00 blend. D1: fold to capture-only.
 
 Canonical hermes gates + `bun run test:adr` + ticket 04's committed audit run as the
 after-proof (hermes-journal questions answered via kcard retrieval).
+
+## Resolution (in progress)
+
+**Pre-census (2026-08-22, post-PR-#1817):** grep `vector|semantic|card_vectors` across
+`s2-agent-ext-hermes-memory`:
+
+- **Delete whole-file (dead vector path / semantic wiring):**
+  `src/store/surreal/vector-store.ts` (VectorStore + createVectorStore),
+  `src/store/surreal/vector-store-helpers.ts`,
+  `src/store/semantic-search.ts` (searchSemantic/SemanticRelation),
+  `src/store/card-vectors-cache.ts`,
+  `src/handlers/vector-backfill.ts` + `src/handlers/vector-backfill.test.ts`,
+  `src/composition/knowledge-semantic.ts` (buildKnowledgeSemanticOpts — THE wiring that
+  was never armed: `vectors` DB never created because it gates on `config.surreal.endpoint`
+  and lazily on `semantic:true`, which the audit showed returns zero rows).
+- **Surgery (remove the semantic opt-in surface, keep the tool lexical-only):**
+  `src/tools/knowledge-search-tool.ts` (semantic param + semanticOpts + warm-HNSW re-rank
+  block; keep lexical/tags path + the `buildGraphRelationsFetcher`/`buildLexicalRecall`/
+  `buildEntityRecall` exports only if still referenced after knowledge-semantic.ts dies),
+  `src/composition/tools.ts` (buildKnowledgeSemanticOpts import + wiring),
+  `src/config.ts` (vectorTopK/vectorEf parsing),
+  `src/constants.ts` (Vector/semantic-search block, DEFAULT_VECTOR_TOP_K/EF),
+  `src/types.ts` (embedModel/embedModelTag/vectorTopK/vectorEf/semanticSurvivingK fields),
+  `src/store/surreal/schema.ts` (VECTOR_BOOTSTRAP_SQL + card_vectors bootstrap),
+  `src/store/surreal/surreal-backend.ts` / `surreal-client.ts` / `per-user-db.ts` (vector
+  DB plumbing only — CRUD journal store stays, pre-decision above).
+- **Incidental mentions (comment-word only, leave or reword opportunistically):**
+  `memory-store.ts:1027`, `merge-plan.ts` ("semantic constraints"), `grill-decision-tool.ts:98`,
+  `auto-consolidate.ts`, `memory-dedup.ts:18`, `repository.ts:88`, `constants.ts:394`.
+- **Docs:** CONTEXT.md / PRD.md / README.md / REJECTED.md vector/semantic sections;
+  `docs/adr/0001-leanrag-selective-port.md` rewrite (step 4).
+- **Tests touching the surface:** `card-store.test.ts`, `image-card-ingest.test.ts`
+  (vector refs), plus the deleted `vector-backfill.test.ts`.
