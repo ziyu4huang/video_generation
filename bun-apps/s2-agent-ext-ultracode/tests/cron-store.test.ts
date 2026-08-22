@@ -8,7 +8,7 @@
 
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CRON_RECURRING_EXPIRY_MS, createCronStore } from "../src/cron-store.js";
@@ -138,5 +138,26 @@ test(
     assert.equal(store.delete(a.id), true);
     assert.equal(store.delete(a.id), false);
     assert.equal(store.list().length, 1);
+  }),
+);
+
+test(
+  "gcFireRecords drops records past the 7-day horizon, keeps fresh ones",
+  withStateRoot((root) => {
+    const oldClock = new Date(2026, 7, 1, 9, 0, 0);
+    const old = createCronStore(root, { now: () => oldClock });
+    const defA = old.create({ cron: "* * * * *", workflow: "a", kind: "recurring" });
+    assert.ok(old.claimFire(defA.id, oldClock.getTime())); // claimed 3 weeks before "now"
+
+    const fresh = createCronStore(root);
+    const defB = fresh.create({ cron: "* * * * *", workflow: "b", kind: "recurring" });
+    assert.ok(fresh.claimFire(defB.id, Date.now()));
+
+    const now = new Date(2026, 7, 23, 9, 0, 0);
+    const removed = fresh.gcFireRecords(now);
+    assert.equal(removed, 1, "only the past-horizon record is removed");
+    const remaining = readdirSync(join(root, "cron", "fires")).filter((f) => f.endsWith(".json"));
+    assert.equal(remaining.length, 1);
+    assert.match(remaining[0] ?? "", new RegExp(`^${defB.id}-`));
   }),
 );

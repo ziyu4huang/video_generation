@@ -15,7 +15,7 @@
  * durable across sessions, but FIRING stays session-live (map D8 — no daemon).
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** Recurring definitions auto-expire 7 days after creation (map D8 / spec §4). */
@@ -78,6 +78,13 @@ export interface CronStore {
   markFired(id: string, at: string): void;
   /** Drop definitions whose expiresAt has passed. Returns the removed ids. */
   sweepExpired(now: Date): string[];
+  /**
+   * Delete fire-records older than the recurring-expiry horizon (their
+   * definitions have expired, so the slots can never be claimed again).
+   * Fire-records otherwise accumulate one file per (definition, due-minute)
+   * forever. Returns the number of records removed.
+   */
+  gcFireRecords(now: Date): number;
 }
 
 function generateId(now: Date): string {
@@ -117,9 +124,15 @@ export function createCronStore(stateRoot: string, opts: { now?: () => Date } = 
 
   const saveDefinitions = (defs: CronDefinition[]): void => {
     ensureDir();
+    // NOTE: read-modify-write across processes is deliberately unlocked — the
+    // double-fire guard is the fire-record lease, not this file; a lost
+    // concurrent write (e.g. a firedCount) degrades bookkeeping only. The
+    // pid-suffixed tmp keeps two concurrent savers from clobbering each
+    // other's tmp mid-rename.
     const json = JSON.stringify(defs, null, 2);
-    writeFileSync(`${definitionsPath}.tmp`, json);
-    renameSync(`${definitionsPath}.tmp`, definitionsPath);
+    const tmp = `${definitionsPath}.${process.pid}.tmp`;
+    writeFileSync(tmp, json);
+    renameSync(tmp, definitionsPath);
   };
 
   const fireRecordPath = (id: string, dueMs: number): string => join(firesDir, `${id}-${dueMs}.json`);
@@ -184,6 +197,11 @@ export function createCronStore(stateRoot: string, opts: { now?: () => Date } = 
           if ((err as { code?: string }).code !== "EEXIST") throw err;
           // Existing record: a live owner blocks us; a dead owner is stale —
           // sweep once and retry (the winner crashed after claiming).
+          // Known TOCTOU: between read and unlink a THIRD process can sweep +
+          // re-claim (fresh live pid), which this unlink then deletes — two
+          // owners for one slot. Requires a dead owner plus two interleaved
+          // sweepers in the same instant; accepted (records also GC after the
+          // 7-day horizon).
           const existing = readFireRecord(id, dueMs);
           if (existing && pidIsAlive(existing.pid)) return null;
           try {
@@ -227,6 +245,27 @@ export function createCronStore(stateRoot: string, opts: { now?: () => Date } = 
       if (expired.length)
         saveDefinitions(defs.filter((d) => !d.expiresAt || Date.parse(d.expiresAt) > nowDate.getTime()));
       return expired.map((d) => d.id);
+    },
+
+    gcFireRecords(nowDate: Date): number {
+      if (!existsSync(firesDir)) return 0;
+      let removed = 0;
+      const horizon = nowDate.getTime() - CRON_RECURRING_EXPIRY_MS;
+      for (const file of readdirSync(firesDir)) {
+        if (!file.endsWith(".json")) continue;
+        try {
+          const record = JSON.parse(readFileSync(join(firesDir, file), "utf8")) as CronFireRecord;
+          const claimedAt = Date.parse(record.claimedAt ?? "");
+          if (Number.isFinite(claimedAt) && claimedAt < horizon) {
+            unlinkSync(join(firesDir, file));
+            removed += 1;
+          }
+        } catch {
+          // Unreadable/unparseable record — leave it; it GCs once old, or a
+          // claim attempt sweeps it if its pid is dead.
+        }
+      }
+      return removed;
     },
   };
 }

@@ -51,6 +51,12 @@ function parseField(field: CronField, body: string): number[] {
       range = stepMatch[1];
       step = Number.parseInt(stepMatch[2], 10);
       if (step < 1) throw new Error(`cron: step must be >= 1 in ${field} field ("${part}")`);
+      // `5/2` (step on a single value) is rejected: Vixie rejects it too, and
+      // silently reading it as just {5} (or expanding 5,7,9,… like croniter)
+      // would be a third meaning. A step needs a span: `*` or an a-b range.
+      if (range !== "*" && !range.includes("-")) {
+        throw new Error(`cron: step needs a range in ${field} field ("${part}") — use "*/${step}" or "a-b/${step}"`);
+      }
     }
     let lo: number;
     let hi: number;

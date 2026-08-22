@@ -35,15 +35,21 @@ export interface CronTickResult {
   expired: string[];
 }
 
-/** One scheduler pass. Exported for tests — the loop itself just calls this. */
+/** One scheduler pass. Exported for tests — the loop itself just calls this.
+ *  `quarantined` (a loop-scoped Set) keeps the invalid-expression warning to
+ *  once per definition instead of once per 30 s tick. */
 export function runCronTick(
   store: CronStore,
   dispatch: CronDispatch,
   resolveScript: CronScriptResolver,
   now: Date,
   logger?: WorkflowLogger,
+  quarantined: Set<string> = new Set(),
 ): CronTickResult {
   const result: CronTickResult = { fired: [], lostClaims: [], failed: [], expired: store.sweepExpired(now) };
+  // Fire-records older than the recurring-expiry horizon can never guard a
+  // claimable slot again (their definitions have expired) — GC them.
+  store.gcFireRecords(now);
 
   for (const def of store.list()) {
     if (def.expiresAt && Date.parse(def.expiresAt) <= now.getTime()) continue; // swept above; guard races
@@ -52,9 +58,12 @@ export function runCronTick(
       fields = parseCronExpression(def.cron);
     } catch (err) {
       // A hand-edited definitions.json can hold garbage — quarantine, don't crash the loop.
-      logger?.warn(
-        `cron: definition ${def.id} has invalid expression "${def.cron}" (${(err as Error).message}); skipping`,
-      );
+      if (!quarantined.has(def.id)) {
+        quarantined.add(def.id);
+        logger?.warn(
+          `cron: definition ${def.id} has invalid expression "${def.cron}" (${(err as Error).message}); skipping until fixed`,
+        );
+      }
       continue;
     }
     // Anchor on the last fire (or creation) — missed slots before `now` fire at
@@ -77,7 +86,22 @@ export function runCronTick(
       logger?.warn(`cron: definition ${def.id}: workflow "${def.workflow}" unresolvable; fire recorded as failed`);
       continue;
     }
-    const { runId } = dispatch.startInBackground(script, def.args);
+    let runId: string;
+    try {
+      ({ runId } = dispatch.startInBackground(script, def.args));
+    } catch (err) {
+      // startInBackground throws synchronously on a script that fails to parse
+      // (e.g. Date.now() in a saved workflow — cron_create only resolved TEXT,
+      // never parsed) or on a run-lease failure. Record the failure and move
+      // the anchor, else the definition wedges: the claimed fire-record would
+      // carry our OWN live pid and block every later claim until session end.
+      const message = (err as Error).message;
+      store.completeFire(claim, { error: `dispatch failed: ${message}` });
+      store.markFired(def.id, now.toISOString());
+      result.failed.push(def.id);
+      logger?.warn(`cron: definition ${def.id}: dispatch failed (${message}); fire recorded as failed`);
+      continue;
+    }
     store.completeFire(claim, { runId });
     store.markFired(def.id, now.toISOString());
     result.fired.push({ id: def.id, dueMs: due.getTime(), runId });
@@ -100,9 +124,10 @@ export function startCronSchedulerLoop(options: {
   tickMs?: number;
 }): CronLoopHandle {
   const { store, dispatch, resolveScript, logger, tickMs = CRON_TICK_MS } = options;
+  const quarantined = new Set<string>();
   const tick = () => {
     try {
-      runCronTick(store, dispatch, resolveScript, new Date(), logger);
+      runCronTick(store, dispatch, resolveScript, new Date(), logger, quarantined);
     } catch (err) {
       // The loop must survive its own ticks — log and keep scheduling.
       logger?.warn(`cron: tick failed: ${(err as Error).message}`);

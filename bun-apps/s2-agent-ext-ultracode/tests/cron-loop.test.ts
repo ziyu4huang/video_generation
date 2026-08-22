@@ -138,13 +138,56 @@ test(
 );
 
 test(
-  "startCronSchedulerLoop: stop() clears the interval (loop lifecycle)",
-  withEnv(({ store, calls }) => {
+  "startCronSchedulerLoop: interval fires a due definition; stop() halts it",
+  withEnv(({ root, calls }) => {
+    // Due right away: created at 09:00 with a per-minute cron; the loop's
+    // tick uses the REAL clock, so the definition must already be due now.
+    const clockStore = createCronStore(root, { now: () => new Date(Date.now() - 60_000) });
+    clockStore.create({ cron: "* * * * *", workflow: "audit", kind: "recurring" });
+    const store = createCronStore(root);
     const dispatch = fakeDispatch(calls);
     const loop = startCronSchedulerLoop({ store, dispatch, resolveScript: () => SCRIPT, tickMs: 20 });
-    loop.stop();
-    // Nothing due anyway; the assertion is that stop() runs clean and nothing throws.
-    assert.equal(calls.length, 0);
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        const fired = calls.length;
+        assert.ok(fired >= 1, `the interval fired the due definition (got ${fired} dispatches)`);
+        loop.stop();
+        const atStop = calls.length;
+        setTimeout(() => {
+          assert.equal(calls.length, atStop, "no dispatches after stop()");
+          resolve();
+        }, 120);
+      }, 200);
+    });
+  }),
+);
+
+test(
+  "tick records a dispatch throw as failed — no wedge, later definitions still fire",
+  withEnv(({ root, store, calls }) => {
+    const clockStore = createCronStore(root, { now: () => new Date(2026, 7, 23, 9, 0, 0) });
+    const boom = clockStore.create({ cron: "*/15 * * * *", workflow: "boom", kind: "recurring" });
+    const fine = clockStore.create({ cron: "*/15 * * * *", workflow: "audit", kind: "recurring" });
+    // startInBackground throws synchronously for one workflow (e.g. its script
+    // fails to parse — cron_create resolved TEXT, never parsed it).
+    const throwingDispatch = {
+      startInBackground(script: string, args?: unknown) {
+        if (script.includes("boom-script")) throw new Error("script failed to parse");
+        return fakeDispatch(calls).startInBackground(script, args);
+      },
+    };
+    const resolver = (workflow: string) => (workflow === "boom" ? "boom-script" : SCRIPT);
+    const result = runCronTick(store, throwingDispatch, resolver, new Date(2026, 7, 23, 9, 15, 30));
+    assert.deepEqual(result.failed, [boom.id], "the throwing dispatch is recorded as failed");
+    assert.deepEqual(
+      result.fired.map((f) => f.id),
+      [fine.id],
+      "the NEXT definition still fires in the same tick",
+    );
+    // No wedge: markFired ran, so our own claim never blocks a later tick.
+    const tick2 = runCronTick(store, throwingDispatch, resolver, new Date(2026, 7, 23, 9, 15, 45));
+    assert.equal(tick2.failed.length, 0);
+    assert.equal(tick2.lostClaims.length, 0, "our own stale claim does not block the next tick (markFired ran)");
   }),
 );
 

@@ -81,6 +81,10 @@ test("parse: rejects wrong field count, ranges, and out-of-range values", () => 
   assert.throws(() => parseCronExpression("5-1 * * * *"), /reversed/);
   assert.throws(() => parseCronExpression("a * * * *"), /invalid minute/);
   assert.throws(() => parseCronExpression("*/0 * * * *"), /step/);
+  // Step on a single value is rejected (Vixie rejects it too) — a step needs
+  // a span: `*` or an a-b range.
+  assert.throws(() => parseCronExpression("5/2 * * * *"), /step needs a range/);
+  assert.equal(isValidCronExpression("5-40/10 * * * *"), true);
   assert.throws(() => parseCronExpression(""), /non-empty/);
 });
 
