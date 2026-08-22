@@ -35,10 +35,11 @@ export type GoldenCase = {
   expectCode?: number;
   out?: string;
   outIs?: "exact" | "normalized";
-  errIncludes?: string[];
+  pkgName?: string; // substituted in normal-mode stdout via normalizeRunOutput
+  errIncludes?: string[]; // raw stderr (unnormalized)
 };
 
-export function assertParity(newScriptPath: string, args: string[], cases: GoldenCase[]): void {
+export function assertParity(newScriptPath: string, cases: GoldenCase[]): void {
   for (const c of cases) {
     const r = runScript("bun", newScriptPath, c.args, { cwd: c.cwd, env: c.env });
     const code = r.code;
@@ -46,7 +47,7 @@ export function assertParity(newScriptPath: string, args: string[], cases: Golde
       throw new Error(`${c.name}: expected exit ${c.expectCode ?? 0}, got ${code}\nstderr: ${r.stderr}`);
     }
     if (c.out !== undefined) {
-      const got = c.outIs === "normalized" ? normalizeRunOutput(r.stdout) : r.stdout;
+      const got = c.outIs === "normalized" ? normalizeRunOutput(r.stdout, c.pkgName) : r.stdout;
       if (got.trim() !== c.out.trim()) {
         throw new Error(`${c.name}: stdout mismatch\n--- expected ---\n${c.out}\n--- got ---\n${got}`);
       }
