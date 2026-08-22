@@ -20,15 +20,34 @@
  * Idempotent: a `.extracted` marker file is written after successful extraction.
  * A killed/partial extraction retries on next launch.
  *
+ * GC: cache dirs are keyed by (asset manifest + Bun.version) — NOT deploy
+ * version — so every Bun upgrade or asset-set change orphans the previous
+ * hash dir forever. gcStaleExtractDirs() (below) deletes sibling dirs whose
+ * mtime is older than GC_MAX_AGE_MS. mtime is the freshness signal because
+ * the package.json mirror below rewrites (tmp+rename) on EVERY boot, which
+ * refreshes the live dir's mtime; an abandoned hash goes quietly stale.
+ * Age-based (not keep:N) so a hash still booted by an older dist deploy or an
+ * e2e run is never yanked out from under a concurrently-running binary.
+ *
  * Performance note: the hash is computed FROM the EMBEDDED_ASSETS array, which
  * is a static literal baked at build time (no I/O). The only I/O is:
  *   1) checking/writing the marker file (one existsSync + writeFileSync)
  *   2) extracting the blobs (one Bun.write per file, ~88 files / ~1.6 MB)
+ *   3) the GC scan (one readdirSync + one statSync per sibling — binary mode only)
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { isBunBinary } from "../mode.ts";
 
 // src/generated/embedded-assets.ts is build-time-generated + gitignored (same
@@ -96,6 +115,51 @@ function markExtracted(cacheDir: string): void {
   writeFileSync(join(cacheDir, MARKER_FILENAME), `extracted at ${new Date().toISOString()}\n`);
 }
 
+/** Delete sibling cache dirs untouched for longer than this. See file header. */
+export const GC_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Garbage-collect stale extraction cache dirs (binary-mode boot only).
+ *
+ * Deletes sibling directories of keepDir whose name looks like a manifest hash
+ * (12 lowercase hex — computeEmbeddedExtractDir's slice(0, 12)) AND whose mtime
+ * is older than maxAgeMs. Never touches keepDir itself, non-hash-shaped names,
+ * or plain files — anything unexpected in the cache root is left alone.
+ *
+ * Best-effort by construction: a missing parentDir returns [], and any per-entry
+ * failure (stat/rm) skips that entry — a cache cleanup must never kill boot.
+ * Returns the names removed (for tests + debug).
+ */
+export function gcStaleExtractDirs(
+  parentDir: string,
+  keepDir: string,
+  nowMs: number = Date.now(),
+  maxAgeMs: number = GC_MAX_AGE_MS,
+): string[] {
+  const keepName = basename(keepDir);
+  const removed: string[] = [];
+  let entries;
+  try {
+    entries = readdirSync(parentDir, { withFileTypes: true });
+  } catch {
+    return removed; // absent (or unreadable) cache root — nothing to collect
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === keepName) continue;
+    if (!/^[0-9a-f]{12}$/.test(entry.name)) continue;
+    try {
+      const mtimeMs = statSync(join(parentDir, entry.name)).mtimeMs;
+      if (nowMs - mtimeMs <= maxAgeMs) continue;
+      rmSync(join(parentDir, entry.name), { recursive: true, force: true });
+      removed.push(entry.name);
+    } catch {
+      // skip this entry; GC is advisory
+    }
+  }
+  return removed;
+}
+
 // ── Run at import time (this is a patch — runs during applyPatches()) ───────
 if (isBunBinary(import.meta.url) && EMBEDDED_ASSETS.length > 0) {
   const cacheDir = computeEmbeddedExtractDir();
@@ -136,4 +200,10 @@ if (isBunBinary(import.meta.url) && EMBEDDED_ASSETS.length > 0) {
   process.env.PI_PACKAGE_DIR ??= cacheDir!;
   // Also export the extract dir via env var so run-dir/resolve.ts can use it.
   process.env.BUN_PI_EMBEDDED_EXTRACT_DIR = cacheDir ?? "";
+  // GC stale sibling hash dirs. Runs AFTER the package.json mirror above: that
+  // tmp+rename is what refreshes THIS dir's mtime on every boot, and mtime is
+  // the freshness signal gcStaleExtractDirs keys on. (keepDir is also excluded
+  // by name, so the ordering is belt-and-braces, not load-bearing.) Never
+  // throws — see gcStaleExtractDirs.
+  gcStaleExtractDirs(dirname(cacheDir!), cacheDir!);
 }
