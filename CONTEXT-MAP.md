@@ -16,6 +16,9 @@ file is the index.
   providers, cwd-independent extensions) plus the non-interactive `s2-agent cli`.
   (s2-agent = renamed pi-agent, 2026-08-21; upstream deps still @earendil-works/pi-*;
   update flow unchanged; repo-root ./pi-agent.sh kept as deprecated compat alias.)
+- bun-apps/s2-agent-core-interface — the shared-contract package below every
+  s2-agent package: __pi* seam registry (SEAM_KEYS), knowledge-layer contracts
+  + hoisted L2 leaves (entities, embedding), GATE_DEFS gate declaration surface.
 - bun-apps/s2-agent-core-runtime — core runtime nouns: RunView projection,
   SubagentInFlightRegistry, ActivityStatus vocabulary.
 - bun-apps/s2-agent-ext-archify — typed-JSON-IR technical diagrams rendered to
@@ -60,6 +63,9 @@ file is the index.
   suite: grilling + wayfinder settle decisions before any code is written.
 - bun-apps/s2-agent-ext-web-access — web access: 8 search providers behind one
   interface, content extraction, browser-curator fallback, SSRF protection.
+- bun-apps/s2-agent-ext-webui — embedded loopback webui co-driving one
+  AgentSession with the TUI behind an agentic mutex; v3 pure HITL companion
+  (frame diet, ask cards, two-door reports, webui audit).
 - bun-apps/s2-agent-ext-ultracode — Claude Code-style dynamic workflows: JS
   orchestration fanning out parallel isolated subagents.
 - bun-apps/s2-agent-ext-zai-mcp — Z.ai MCP servers bridged into pi as normal pi
@@ -68,3 +74,13 @@ file is the index.
 ## DevOps
 - Git/branch/PR/merge phases: bun-apps/s2-agent-ext-devops (devops-workflow skill;
   CLI fallbacks in src/*-cli.ts).
+
+## No-domain decisions (CONTEXT.md deliberately absent, reviewed 2026-08-22)
+- bun-apps/s2-agent-ext-hyperframes — verbatim vendor carrier for the upstream
+  heygen-com/hyperframes skill family (factory is a no-op); the vocabulary
+  (frames, tracks, media ledger) belongs to upstream inside the vendored skills.
+- bun-apps/s2-agent-ext-prompt-history — single-purpose infra: a per-cwd
+  prompt-history jsonl cache (~90 src LOC); no concepts a glossary would pin.
+- bun-apps/s2-agent-ext-sv-analyzer — thin facade over the tree-sitter WASM /
+  Rust core in dsh-plugin/sv-analyzer (the single source of truth); the
+  SystemVerilog domain language belongs next to that core.

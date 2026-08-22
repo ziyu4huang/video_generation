@@ -10,17 +10,17 @@ The core is a **first-class, auditable gating contract** (wayfinder ticket 01): 
 
 ## Ubiquitous language
 
-| Term | Meaning |
-|---|---|
-| **GATE_DEFS** | The shared gate registry (`@repo/s2-agent-core-interface`) — each family declared ONCE by id (`{ id, keywords?, requires?, description }`). Populated by the owning extension at module load. |
-| **gate** | A co-firing family: one id, all sibling tools referencing it. `keywords` (triggers) + optional `requires` (noun∧verb co-occurrence) + `description`. |
-| **core** | Tools whose `gating: { core: true }` makes them always active — file I/O, memory, HITL interaction, diagnostics. Never gated. |
-| **sticky** | A per-session `Set<string>` accumulator (starts as a copy of core, keyed by `sessionManager.getSessionId()`). A fired gate adds its names; they **never leave**. |
-| **tracked** | `core ∪ all gate names` — the set tool-gate explicitly manages. Untracked tools are always active (fail-open). |
-| **fire** | A gate matches the prompt (keyword OR `requires` co-occurrence) → its names enter `sticky`. |
-| **dormant** | A gate whose tools are not yet all in `sticky` — hidden from the active set. |
-| **enable_tool** | The always-active escape-hatch tool: activates a dormant gate by `intent` / `name` / `list`. |
-| **miss_candidate** | A turn that fired no gate but has ≥1 dormant gate — the dormant-tool miss-rate signal (logged when telemetry is on). |
+| Term | Meaning | Avoid |
+|---|---|---|
+| **GATE_DEFS** | The shared gate registry (`@repo/s2-agent-core-interface`) — each family declared ONCE by id (`{ id, keywords?, requires?, description }`). Populated by the owning extension at module load. | gate config, GATES array (it is the id-referenced registry, not a local list) |
+| **gate** | A co-firing family: one id, all sibling tools referencing it. `keywords` (triggers) + optional `requires` (noun∧verb co-occurrence) + `description`. | filter, rule (it is a family of sibling tools, not a matcher) |
+| **core** | Tools whose `gating: { core: true }` makes them always active — file I/O, memory, HITL interaction, diagnostics. Never gated. | always-on set, default tools (core is a per-tool declaration, not a curated list) |
+| **sticky** | A per-session `Set<string>` accumulator (starts as a copy of core, keyed by `sessionManager.getSessionId()`). A fired gate adds its names; they **never leave**. | cache, enabled set (it is a monotone session accumulator, not a state to reset) |
+| **tracked** | `core ∪ all gate names` — the set tool-gate explicitly manages. Untracked tools are always active (fail-open). | all tools, registry (it is the managed subset; untracked ≠ hidden) |
+| **fire** | A gate matches the prompt (keyword OR `requires` co-occurrence) → its names enter `sticky`. | trigger, enable (it is the match→sticky event, not the general activation path) |
+| **dormant** | A gate whose tools are not yet all in `sticky` — hidden from the active set. | disabled, inactive (dormant is not-yet-fired, never user-disabled) |
+| **enable_tool** | The always-active escape-hatch tool: activates a dormant gate by `intent` / `name` / `list`. | ungate, toggle (it is the escape hatch for misses, not a manual override surface) |
+| **miss_candidate** | A turn that fired no gate but has ≥1 dormant gate — the dormant-tool miss-rate signal (logged when telemetry is on). | false negative, gap (it is a telemetry signal candidate, not a confirmed miss) |
 
 ## Architecture
 

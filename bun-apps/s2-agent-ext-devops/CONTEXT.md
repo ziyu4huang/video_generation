@@ -13,13 +13,18 @@ scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the
   typecheck+tests+gates over the PR's changed packages vs its base), then
   squash-merges when green + CLEAN. Blocks on red CI / detection error / BEHIND /
   non-CLEAN. No remote CI (disabled in this repo), no polling.
+  _Avoid_: auto-merge, ship tool (it is a CI-GATED merge that blocks on red /
+  BEHIND / non-CLEAN — never an unconditional merge)
 - **show_pr_status** — one-shot PR snapshot (state + mergeState + check tally). An
   ungated companion (always active).
+  _Avoid_: pr check, status poll (it is a one-shot snapshot — no remote CI, no polling)
 - **sweep_merged_branches** — classify + (dry-run by default) delete merged
   local/remote branches. Conservative: only `gh`-confirmed MERGED PRs are
   auto-deletable; uncertain cases go to a `review` bucket. A branch checked out
   in any worktree is never deleted, LOCAL OR REMOTE — the guard protects the
   person in that worktree (push target + upstream), not the checkout.
+  _Avoid_: branch cleanup, prune (it is a conservative classifier with a review
+  bucket — not a delete-what-looks-merged sweep)
 - **run_local_ci** — OFFLINE local CI: typecheck + tests scoped to changed packages
   vs `origin/main`, plus every step of the workflow's `regression-gates` job.
   Structured pass/fail; self-verify before `gh ship` (merge_pr_after_local_ci gates on
@@ -32,6 +37,8 @@ scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the
   `scripts/ci-local.sh` parses the same two blocks, so the runners cannot
   disagree. An unparseable gate job FAILS the run (`gateError`) rather than
   degrading to an empty, all-green gate set.
+  _Avoid_: run tests, pre-push check (it is change-scoped CI — package test
+  command AND gate suite both derived from the disabled workflow, never hand-copied)
 - **check_main_health** — "is the default branch green right now?" Runs the FULL
   matrix + the whole gate suite in the worktree that HOLDS the default branch
   (a suite runs against a working tree, not a ref, so running it elsewhere would
@@ -41,6 +48,8 @@ scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the
   Exists because `run_local_ci` is change-scoped and remote CI is disabled, so a
   branch avoiding a broken package merges green forever and nothing reports that
   main itself is red. Thin over `runLocalCi({all:true})` — no second engine.
+  _Avoid_: full CI, main check (it is the default-branch-in-its-worktree health
+  probe — the complement to change-scoped run_local_ci, not a bigger re-run)
 - **CLI fallbacks** (`src/*-cli.ts`, all in `bin`) — every owned phase is
   reachable from a non-pi session: `main-health-cli`, `sweep-merged-branches-cli`,
   `local-ci-cli`, `prepare-feature-branch-cli`, `verify-merge-cli`, plus the pre-existing
@@ -48,13 +57,19 @@ scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the
   `src/cli-common.ts`: JSON on stdout, diagnostics on stderr, exit 0/1/2. They
   parse argv and serialize — nothing else — so a wrapper cannot drift from its
   recipe's guards.
+  _Avoid_: scripts, thin wrappers (they are argv-parse + serialize ONLY — a
+  wrapper cannot re-implement or soften the recipe's guards)
 - **changed-packages CLI** (`src/changed-packages-cli.ts`) — the bash-callable
   wrapper the workflow's `changed_packages` job shells out to (`--all`, or
   `<baseRef> <headRef>` → one line of JSON). Deliberately a plain script entry,
   not an `extensions/cli-subcommand.ts`: that job runs before any `bun install`.
+  _Avoid_: cli subcommand (it is a pre-install plain script entry by design —
+  subcommand registration would assume an installed workspace)
 - **devops-merge-pr-after-ci bin** (`src/merge-pr-after-ci-cli.ts`) — bash-callable PR finish
   (preflight → local-CI gate → merge gates → squash-merge → verify_merge_landed →
   branch cleanup); the TS port of the deleted `scripts/pr-finish.sh`.
+  _Avoid_: pr-finish.sh, ship script (the bash script is DELETED — this bin is
+  the only PR-finish entry)
 - **sync_default_branch** — sync this worktree/repo to the latest default branch
   (full/rebase/pull; worktree-aware; aborts on divergent unless `force`).
   **Preserves auto-managed hot files**: the default advance aborts `dirty_tree`
@@ -63,9 +78,14 @@ scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the
   are stashed before the advance and restored after. Override via `preserve:`;
   `preserve: []` disables it (strict gate). Outcomes carry `preserved?:
   { paths, restored, conflict? }`.
+  _Avoid_: git pull, branch update (it is a worktree-aware sync with hot-file
+  preserve semantics — not a bare pull)
 - **run_devops_retrospect** — advisory post-run anomaly review (never blocks).
+  _Avoid_: audit, review gate (it advises only — nothing downstream blocks on it)
 - **prepare_feature_branch** — worktree-aware branch prepare (create / rebase /
   force-push-with-lease). Covers the BEHIND state.
+  _Avoid_: branch create, checkout helper (it covers the full BEHIND-state prep —
+  create AND rebase AND force-push-with-lease)
 - **verify_merge_landed** — post-merge verify (merge state + file scope CLEAN/CONTAMINATED
   + branch-spent). Reads the merge commit with `git show --numstat`, NOT `--stat`:
   `--stat` renders for a terminal and abbreviates long paths as `.../tail`, which
@@ -73,6 +93,8 @@ scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the
   CONTAMINATED. `branchSpent` keys off gh's `headRefOid` rather than ancestry,
   because a squash merge (this repo's convention) makes the head ref an ancestor
   of nothing.
+  _Avoid_: post-merge check (it is scope verification — CLEAN/CONTAMINATED file
+  scope + branch-spent, read via `--numstat` not `--stat`)
 
 ### Build & verify tools (absorbed from the former `s2-agent-ext-deploy`)
 Two thin tools that wrap the existing build/verify/deploy scripts. Each keeps
@@ -84,9 +106,13 @@ distinct from the PR/merge keywords above.
   → factory-verify → freeze). Params: `mode` (bundle|snapshot|standalone|exe,
   default bundle), `outDir` (path-guarded to `<repo>/dist/` or `$TMPDIR`),
   `noFreeze`.
+  _Avoid_: build script (it is the full deploy pipeline — codegen → bundle → ext
+  bundles → factory-verify → freeze — not a compile step)
 - **verify_pi_agent_deploy** — run a `run-test.sh` tier (quick|medium|high|readonly|full,
   default medium). `high` = the exact CI `deploy -- verify` job. Params:
   `tier`, `bail`.
+  _Avoid_: smoke test (it runs a `run-test.sh` TIER, where `high` is the exact
+  CI job — not an ad-hoc ping)
 
 ## Layout
 - `extensions/devops.ts` — registered entry; thin glue registering every tool.
