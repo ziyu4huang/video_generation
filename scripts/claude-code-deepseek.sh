@@ -34,9 +34,10 @@
 ########################################
 
 # Default values (only set if not already defined)
-: "${DEEPSEEK_MODEL_DEFAULT:="deepseek-v4-pro[1m]"}"
+# : "${DEEPSEEK_MODEL_DEFAULT:="deepseek-v4-pro[1m]"}"
+: "${DEEPSEEK_MODEL_DEFAULT:="deepseek-v4-flash-vision-exp[1m]"}"
 : "${DEEPSEEK_MODEL_REASONER:="deepseek-v4-pro[1m]"}"
-: "${DEEPSEEK_MODEL_AIR:="deepseek-v4-flash"}"
+: "${DEEPSEEK_MODEL_AIR:="deepseek-v4-flash-vision-exp[1m]"}"
 
 deepseek()
 {
