@@ -1,6 +1,6 @@
 /**
  * src/converge.ts — route a `pi:knowledge` bus emission to the deterministic
- * ingest sink. Owned by the HUB (ADR-0001): foundation extensions emit on the
+ * ingest sink. Owned by the HUB (tier rule): foundation extensions emit on the
  * bus without importing the hub; this module + the subscriber in
  * extensions/knowledge-card.ts are the sink side.
  *

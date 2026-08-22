@@ -3,7 +3,7 @@
 export type SourceFamily = "workflow-jsonl" | "hermes" | "auto-memory" | "generic";
 // Imported and re-exported, not redeclared: the same union used to be spelled
 // out both here and in knowledge-card's entities.ts. Now that entities.ts lives
-// in this package (ADR-0001 — see ../entities.ts), there is one definition.
+// in this package (tier rule — see ../entities.ts), there is one definition.
 // The import (not just a re-export) is required — the options types below
 // reference the name in their own declarations.
 import type { LinkWeighting } from "../entities.js";
@@ -36,7 +36,7 @@ export interface IngestOptions {
   vaultPath: string; source: SourceFamily; sourceLabel: string; folder?: string;
   mocPath?: string; dryRun?: boolean; maxLinks?: number; wikiAware?: boolean; linkWeighting?: LinkWeighting;
   /** Opt-in LLM typed-relation extraction (LeanRAG ⑤ Phase-2 / D4). Default OFF
-   *  (deterministic-by-design, ADR-0001). When true, zk's ingest gate selects
+   *  (deterministic-by-design, tier rule). When true, zk's ingest gate selects
    *  the LLM extractor (Phase-2) instead of the dictionary default; until then
    *  it's a graceful no-op (dictionary fallback). Carried from hermes's
    *  `MemoryConfig.kgLlm` (env fallback `PI_KG_LLM=1`). */

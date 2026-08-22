@@ -136,7 +136,7 @@ function collectTs(pkgDir: string): string[] {
  * registration entry (which would double-register GATE_DEFS and the fat tool)
  * — is pinned by dep-guard.test.ts's "lib face only" test, and duplicating it
  * here would mean two copies to keep in lockstep. dep-guard also owns the
- * downward-only ADR-monorepo-0001 invariant (obsidian/hermes import nothing
+ * downward-only tier-rule invariant (obsidian/hermes import nothing
  * from knowledge-card), which this table cannot express by construction —
  * every other (from, to) pair stays forbidden here.
  */

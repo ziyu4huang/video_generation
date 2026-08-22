@@ -75,7 +75,7 @@ export interface IngestOptions {
 	 *  merely-related ideas). */
 	wikiThreshold?: number;
 	/** Opt-in LLM typed-relation extraction (LeanRAG ⑤ Phase-2 / D4). Default
-	 *  OFF (deterministic-by-design, ADR-0001). When true, the ingest gate
+	 *  OFF (deterministic-by-design, tier rule). When true, the ingest gate
 	 *  selects the LLM extractor (Phase-2) instead of the dictionary default;
 	 *  until Phase-2 the flag is real + wired but turning it ON is a graceful
 	 *  no-op (dictionary fallback). Env fallback `PI_KG_LLM=1`. */

@@ -1,7 +1,8 @@
 # CONTEXT-MAP — domain contexts index
 
 Guidance: each domain owns its CONTEXT.md + docs/adr/ (ADR-<context>-NNNN style,
-never bare numbers; bun-apps/docs/adr/INDEX.md lists all). This file is the index.
+never bare numbers; `bun run test:adr` from bun-apps/ guards citations). This
+file is the index.
 
 ## Pipeline of record
 - Agent development pipeline (wayfind -> superpowers <=> workflow/subagents):
@@ -22,6 +23,9 @@ never bare numbers; bun-apps/docs/adr/INDEX.md lists all). This file is the inde
   shapes; zero-browser, zero-blip, byte-locked diagram slides.
 - bun-apps/s2-agent-ext-btw — BTW side-conversation modal for parallel Q&A
   without polluting main agent context.
+- bun-apps/s2-agent-ext-compact — Claude Code-style /compact: replaces the
+  summary content of the host's built-in compaction via session_before_compact;
+  cut point and failure handling stay with the host.
 - bun-apps/s2-agent-ext-devops — tool-based PR-merge/branch/local-CI lifecycle
   (structured JSON, no bash-polling loops); owns shared pipeline scripts.
 - bun-apps/s2-agent-ext-file2md — file→Markdown bridge: rasterize PDFs, describe

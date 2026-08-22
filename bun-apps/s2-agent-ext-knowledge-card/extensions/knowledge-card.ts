@@ -234,7 +234,7 @@ registerDeterministicHealthCheck(async (opts) => {
 // ---------------------------------------------------------------------------
 
 /**
- * ADR-0001: converge hermes-memory §-entries into the vault knowledge graph.
+ * tier rule: converge hermes-memory §-entries into the vault knowledge graph.
  * Owned by the HUB (not hermes) so hermes stays a pure TIER-0 foundation with
  * no upward dependency edge. Reads every `.md` in `hermesDir`, adapts via
  * `adaptHermesMarkdown`, ingests via `ingestRecords` (idempotent by canonical
@@ -294,7 +294,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		publishKnowledgePipeline({ collectInputFiles, ingestRecords, retrieveRecords, healGraph, buildHierarchy });
 	});
 
-	// ── Auto-converge hermes memory → graph on session_shutdown (ADR-0001) ──
+	// ── Auto-converge hermes memory → graph on session_shutdown (tier rule) ──
 	// Convergence ownership lives in the HUB, not in hermes. Hermes is a pure
 	// TIER-0 foundation; this handler PULLS its memory files at shutdown and
 	// converges them via convergeHermesMemory() — so there is NO hermes→hub
@@ -1106,7 +1106,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	__hostFnBus?.on("workflow:hostfn:v1:request", __registerZkHostFns);
 
 	// ── pi:knowledge sink — de-orphan the bus (file2md opt-in convergence) ──
-	// ADR-0001: the HUB owns convergence. Foundation extensions (file2md) emit
+	// tier rule: the HUB owns convergence. Foundation extensions (file2md) emit
 	// on the bus without importing the hub; this subscriber converges them.
 	// Best-effort: resolveVault/ingest failures are swallowed — a bus handler
 	// must never throw (mirrors src/emit.ts's swallow-on-failure contract).

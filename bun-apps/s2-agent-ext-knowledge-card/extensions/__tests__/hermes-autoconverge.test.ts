@@ -1,5 +1,5 @@
 /**
- * ADR-0001: hermes-memory convergence now lives in the HUB (knowledge-card),
+ * tier rule: hermes-memory convergence now lives in the HUB (knowledge-card),
  * NOT in hermes. Tests convergeHermesMemory() directly with explicit paths
  * (no resolveVault/env coupling — mirrors retrieve.bench.test.ts). Verifies
  * the behavior moved without losing the auto-converge, and that hermes needs
@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { convergeHermesMemory } from "../knowledge-card.ts";
 
-describe("ADR-0001 hub convergeHermesMemory", () => {
+describe("tier-rule hub convergeHermesMemory", () => {
 	let vault: string;
 	let hermesDir: string;
 

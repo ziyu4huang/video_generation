@@ -67,7 +67,7 @@ const _EXT_DIR: string | undefined = (() => {
 })();
 
 // ---------------------------------------------------------------------------
-// pi:knowledge opt-in emit (ADR-0001: NO hub import)
+// pi:knowledge opt-in emit (tier rule: NO hub import)
 // ---------------------------------------------------------------------------
 // When `knowledge:true`, file2md emits on the "pi:knowledge" bus so the
 // knowledge-card hub can converge the conversion into the shared graph. The
