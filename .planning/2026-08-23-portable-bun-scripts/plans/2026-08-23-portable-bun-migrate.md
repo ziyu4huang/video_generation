@@ -409,15 +409,15 @@ git commit -m "feat(hermes-memory): dedup.ts — portable bun twin of dedup.sh (
 - Modify: `bun-apps/s2-agent-ext-devops/src/deploy-argv.ts:5,19` (argv tail + comment)
 - Modify: `bun-apps/s2-agent/src/__tests__/e2e-harness.ts:11` + `e2e-launcher.test.ts:20` (comments + PI_AGENT_E2E contract text)
 - Modify: `bun-apps/s2-agent/src/doctor.ts:493` (hint → `./run-test.ts medium`)
+- **Also (Task 8's reviewer found by in-repo grep — extend the list):** `bun-apps/s2-agent-ext-devops/src/verify-tool.ts:81` (SPAWNS the path — the argv builder AND the spawn site both rename), `bun-apps/s2-agent-ext-devops/extensions/devops.ts:788-796` (tool surface), `devops-workflow/SKILL.md:243` (tier-reference table; § tier table + `ci-local.sh` mentions; keep `scripts/sync-repo.sh` as labeled history if it appears)
 - Modify: `ci-matrix.ts:18`, `ci-gates.ts:16`, `local-ci-cli.ts:7` (comments; + real invocation if Task 10 step 1 found one)
 - Modify: `bun-apps/tests/ci-workflow-references.test.ts` (shell-out target → `run-test.ts`; its guard contract: `--list-siblings` one-name-per-line)
-- Modify: `bun-apps/s2-agent-ext-devops/skills/devops-workflow/SKILL.md` (§ tier table, `ci-local.sh` mentions; keep `scripts/sync-repo.sh` as labeled history if it appears)
 
 **Notes:** the deployed-E2E auto-run (deploy-cli → verify-deploy-e2e) is the probe-level A/B; `verify_pi_agent_deploy` at `high`-tier is the argv+summary-parse A/B.
 
 - [ ] **Step 1: apply all renames above** (pure find-and-replace per file; grep after: `grep -rn "run-test\.sh\|ci-local\.sh" bun-apps/s2-agent/src bun-apps/s2-agent-ext-devops/src bun-apps/tests | grep -v node_modules` → only devops-workflow SKILL.md history text remains).
 - [ ] **Step 2: Unit gates** — `bun run --cwd bun-apps/s2-agent-ext-devops check` + `typecheck`; `bun run --cwd bun-apps/s2-agent test`; `bun test bun-apps/tests/ci-workflow-references.test.ts`.
-- [ ] **Step 3: Integration A/B** — `bun bun-apps/s2-agent-ext-devops/src/local-ci-cli.ts --dry-run` (diff vs Task 10's baseline = none); then `verify_pi_agent_deploy` via `bun bun-apps/s2-agent-ext-devops/src/verify-tool.ts --help`-shaped args at a tier (or the tool through the s2-agent bridge) — expected: same step summary shape; deploy-cli run → probes pass on `run-test.ts` existence.
+- [ ] **Step 3: Integration A/B** — `bun bun-apps/s2-agent-ext-devops/src/local-ci-cli.ts --dry-run` (diff vs Task 10's baseline = none); then `verify_pi_agent_deploy` via `bun bun-apps/s2-agent-ext-devops/src/verify-tool.ts --help`-shaped args at a tier (or the tool through the s2-agent bridge) — expected: same step summary shape; deploy-cli run → probes pass on `run-test.ts` existence. **Also run ONE live `medium` tier (`bun bun-apps/s2-agent-ext-devops/scripts/run-test.ts medium`, the RUN_TEST_LIVE opt-in path) — Task 8's reviewer flagged that `unit + patch e2e (medium)` (PI_AGENT_E2E=1) was never live-verified; a real medium run closes that gap (Task 8 parity covered it structurally only).**
 - [ ] **Step 4: commit.**
 
 ---
@@ -429,7 +429,7 @@ git commit -m "feat(hermes-memory): dedup.ts — portable bun twin of dedup.sh (
 - Test: the guard itself
 - Modify: any SKILL.md references missed by Tasks 2–10 (final `grep -rn '\.sh' bun-apps/s2-agent-ext-*/skills/*/SKILL.md` must return only documented exceptions)
 
-- [ ] **Step 1: failing guard test** — asserts (reading the docs, not running): no active SKILL.md under `bun-apps/s2-agent-ext-*/skills/*/` references `dedup.sh`, `run-test.sh`, `ci-local.sh`, `smoke.sh`, `find-polluter.sh`; ALLOWLIST = `wizard/template.sh` (D6) and `dsh-plugin/sv-analyzer/build.sh` (external, D6) — recorded with a comment citing `spec.md` D6/D7.
+- [ ] **Step 1: failing guard test** — asserts (reading the docs, not running): no active SKILL.md under `bun-apps/s2-agent-ext-*/skills/*/` references `dedup.sh`, `run-test.sh`, `ci-local.sh`, `smoke.sh`, `find-polluter.sh`; ALLOWLIST = `wizard/template.sh` (D6) and `dsh-plugin/sv-analyzer/build.sh` (external, D6) — recorded with a comment citing `spec.md` D6/D7. **Also guard the CODE surface** (Task 8's reviewer): no `run-test.sh`/`ci-local.sh` literal remains in `bun-apps/s2-agent-ext-devops/src/**` + `bun-apps/tests/ci-workflow-references.test.ts` + `bun-apps/s2-agent/src/doctor.ts` — a deploy probe (`deploy-run.ts existsSync`) or verify-tool spawn pointing at a deleted file is exactly the class this guard exists for.
 - [ ] **Step 2: fix any residual doc refs for real** (Tasks 2–11 should have caught them; this step is the honest sweep).
 - [ ] **Step 3: gates** — `bun test bun-apps/tests/no-bash-skills-guard.test.ts` green; full devops local CI on the PR; merge via devops chain; deploy + `verify-deploy-e2e`.
 - [ ] **Step 4: commit.**
