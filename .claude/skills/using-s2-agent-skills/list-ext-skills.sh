@@ -14,7 +14,20 @@ case "$mode" in
     for f in bun-apps/s2-agent-ext-*/skills/*/SKILL.md; do
       pkg=$(echo "$f" | cut -d/ -f2)
       skill=$(basename "$(dirname "$f")")
-      desc=$(awk '/^description:/{sub(/^description: *>? */,""); print; exit}' "$f")
+      desc=$(awk '
+        /^description:/ {
+          line = $0
+          sub(/^description:[ ]*>?[|]*/, "", line)
+          gsub(/^[ \t]+|[ \t]+$/, "", line)
+          if (line != "") { print line; exit }
+          block = 1; next
+        }
+        block && /^---$/ { exit }
+        block && NF {
+          gsub(/^[ \t]+|[ \t]+$/, "")
+          print; exit
+        }
+      ' "$f")
       printf '%s\t%s\t%s\n' "$skill" "$pkg" "${desc:-<no description>}"
     done | column -t -s $'\t' | sort
     ;;

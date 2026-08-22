@@ -22,7 +22,7 @@ describe("archify_delta", () => {
     expect(receipt).toBeTruthy();
     expect(receipt).toMatch(/\.receipt\.json$/);
     expect(await Bun.file(receipt!).exists()).toBe(true);
-  });
+  }, 30_000); // full vendored deliver pipeline (validate → render → check); ~6s warm, well over bun's 5s default
   it("rejects non-architecture types (archify compare is architecture-only)", async () => {
     const res = await archifyDelta({ basePath: base, headPath: head, type: "workflow" }, { cwd: "/tmp" });
     expect(res.isError).toBe(true);

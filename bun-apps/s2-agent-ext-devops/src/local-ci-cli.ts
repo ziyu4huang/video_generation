@@ -19,7 +19,7 @@ import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, toStd
 
 export const LOCAL_CI_CLI_USAGE = [
 	"usage: local-ci-cli.ts [--base <ref>] [--all] [--packages <a,b>] [--strict]",
-	"                       [--no-gates] [--repo-root <path>]",
+	"                       [--no-gates] [--concurrency <n>] [--repo-root <path>]",
 	"",
 	"Runs typecheck + lint + tests for the packages changed vs the base ref, plus every",
 	"step of the workflow's regression-gates job, and prints the structured",
@@ -35,6 +35,8 @@ export const LOCAL_CI_CLI_USAGE = [
 	"  --packages <a,b>    explicit package list; skips change detection",
 	"  --strict            also run the audits that have NO workflow step",
 	"  --no-gates          skip the gate suite entirely (packages only)",
+	"  --concurrency <n>   max packages tested in parallel (recipe default 4;",
+	"                      lower it on machines where heavy suites flake under load)",
 	"  --repo-root <path>  default: the repo this file lives in",
 ].join("\n");
 
@@ -44,6 +46,7 @@ export interface ParsedLocalCiArgs {
 	packages?: string[];
 	strict: boolean;
 	includeGates: boolean;
+	concurrency?: number;
 	repoRoot?: string;
 }
 
@@ -73,6 +76,11 @@ export function parseLocalCiArgs(
 				.filter(Boolean);
 			if (names.length === 0) return { ok: false, message: "--packages needs at least one package name" };
 			args.packages = names;
+		} else if (a === "--concurrency") {
+			const v = argv[++i];
+			const n = Number.parseInt(v ?? "", 10);
+			if (!Number.isFinite(n) || n < 1) return { ok: false, message: "--concurrency needs a positive integer" };
+			args.concurrency = n;
 		} else if (a === "--repo-root") {
 			const v = argv[++i];
 			if (v === undefined) return { ok: false, message: "--repo-root needs a value" };
@@ -112,6 +120,7 @@ export async function runLocalCiCli(
 			packages: a.packages,
 			strict: a.strict,
 			includeGates: a.includeGates,
+			...(a.concurrency !== undefined ? { concurrency: a.concurrency } : {}),
 			spawn,
 			// Resolved once (DEVOPS_REMOTE > git config devops.remote > origin —
 			// src/remote.ts); only drives the DEFAULT base ref.
