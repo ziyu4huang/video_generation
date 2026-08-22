@@ -27,6 +27,7 @@
  */
 export const DEPLOY_SENSITIVE_PATTERNS: readonly string[] = [
 	"bun-apps/s2-agent-ext-devops/scripts/",
+	"bun-apps/s2-agent-ext-devops/src/deploy/",
 	"bun-apps/s2-agent/run.sh",
 	"s2-agent.sh", // repo-root symlink to bun-apps/s2-agent/run.sh
 	"bun-apps/s2-agent/package.json", // update-pi.sh + deploy are declared here

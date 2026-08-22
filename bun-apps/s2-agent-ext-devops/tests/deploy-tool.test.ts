@@ -7,7 +7,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { runDeploy } from "../src/deploy-tool.ts";
-import { DeployVersionExistsError } from "../scripts/deploy.ts";
+import { DeployVersionExistsError } from "../src/deploy/run.ts";
 import type { DeployE2eOutcome } from "../src/deploy-e2e-recipe.js";
 
 const e2ePass = (verdict: DeployE2eOutcome["verdict"] = "pass"): DeployE2eOutcome => ({

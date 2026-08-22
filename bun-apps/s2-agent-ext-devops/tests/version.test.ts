@@ -13,8 +13,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_KEEP, computeVersion, listVersions, pruneVersions, resolveTargetDir, swapCurrent } from "../scripts/lib/version.ts";
-import { freezeTree, unfreezeTree } from "../scripts/lib/fs.ts";
+import { DEFAULT_KEEP, computeVersion, listVersions, pruneVersions, resolveTargetDir, swapCurrent } from "../src/deploy/lib/version.ts";
+import { freezeTree, unfreezeTree } from "../src/deploy/lib/fs.ts";
 
 const roots: string[] = [];
 function makeRoot(): string {

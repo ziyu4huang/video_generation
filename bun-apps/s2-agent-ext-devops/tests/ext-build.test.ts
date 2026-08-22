@@ -12,7 +12,7 @@ import {
 	scanForeignSpecifiers,
 	scanUnroutableDynamicImports,
 	vendorPackage,
-} from "../scripts/lib/ext-build.ts";
+} from "../src/deploy/lib/ext-build.ts";
 
 const BUN_APPS = join(import.meta.dir, "..", "..");
 const HOST_MODULES = [

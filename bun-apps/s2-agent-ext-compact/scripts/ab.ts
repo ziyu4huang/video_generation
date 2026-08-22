@@ -29,7 +29,7 @@ import {
   selectSessions,
   type ArmMetrics,
   type SessionCandidate,
-} from "./ab-metrics.ts";
+} from "./lib/ab-metrics.ts";
 
 function arg(name: string, fallback?: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);

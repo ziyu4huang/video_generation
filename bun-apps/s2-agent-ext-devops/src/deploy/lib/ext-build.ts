@@ -28,10 +28,10 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFil
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
-import { evaluateExtModule, EXT_DIR_SPEC } from "../../../s2-agent/src/sh/ext-loader.ts";
+import { evaluateExtModule, EXT_DIR_SPEC } from "../../../../s2-agent/src/sh/ext-loader.ts";
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
-import { isBuiltinSpecifier } from "../../../s2-agent/src/sh/host-modules.ts";
+import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
 import { isRuntimeDeadFile, vendorClosure } from "./vendor-closure.ts";
 import { walk } from "./fs.ts";
 import type { ShExtConfig } from "./config.ts";
@@ -42,7 +42,7 @@ import type { ShExtConfig } from "./config.ts";
  * node_modules, so resolving from there silently degrades every host module to
  * a stub and the probe stops proving anything.
  */
-const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "s2-agent");
+const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "..", "s2-agent");
 
 export interface BuildExtOptions {
 	ext: ShExtConfig;

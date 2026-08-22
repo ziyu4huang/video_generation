@@ -32,7 +32,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { scanForeignPaths } from "./ext-build.ts";
 import { matchesExclusion } from "./vendor-closure.ts";
 // The builtin list is the CORE's (same no-second-copy rule as ext-build.ts).
-import { isBuiltinSpecifier } from "../../../s2-agent/src/sh/host-modules.ts";
+import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
 
 /** Depth-first walk, never following symlinks (a link could escape the tree). */
 function walkLstat(dir: string, fn: (p: string) => void): void {

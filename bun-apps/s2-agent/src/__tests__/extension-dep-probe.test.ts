@@ -97,7 +97,7 @@ const NODE_MODULES_WALK =
  * asset import: a legitimate build-time use a code-shaped pattern flags
  * forever. Keep this list short and justified.
  */
-const BUILD_TIME_ALLOWLIST = new Set(["s2-agent-ext-devops/scripts/lib/offline-gate.ts"]);
+const BUILD_TIME_ALLOWLIST = new Set(["s2-agent-ext-devops/src/deploy/lib/offline-gate.ts"]);
 
 /** Strip line and block comments so prose never trips a code-shaped pattern. */
 function stripComments(src: string): string {

@@ -7,15 +7,17 @@ import { resolvePiAgentDir } from "../src/deploy-run.ts";
 /** Build a fake repo tree so resolvePiAgentDir's walk can be tested in isolation. */
 function fakeRepo(): string {
 	const root = mkdtempSync(join(tmpdir(), "deploy-ext-repo-"));
-	// mirror layout: scripts live in
-	// <root>/bun-apps/s2-agent-ext-devops/scripts/{deploy.ts,run-test.sh};
-	// the resolver returns the sibling <root>/bun-apps/s2-agent dir.
+	// mirror layout: deploy library in
+	// <root>/bun-apps/s2-agent-ext-devops/src/deploy/run.ts, runnable entries
+	// in scripts/run-test.sh; the resolver returns the sibling
+	// <root>/bun-apps/s2-agent dir.
 	const piAgent = join(root, "bun-apps", "s2-agent");
 	mkdirSync(piAgent, { recursive: true });
-	const devopsScripts = join(root, "bun-apps", "s2-agent-ext-devops", "scripts");
-	mkdirSync(devopsScripts, { recursive: true });
-	writeFileSync(join(devopsScripts, "deploy.ts"), "// fake");
-	writeFileSync(join(devopsScripts, "run-test.sh"), "# fake");
+	const devopsPkg = join(root, "bun-apps", "s2-agent-ext-devops");
+	mkdirSync(join(devopsPkg, "scripts"), { recursive: true });
+	writeFileSync(join(devopsPkg, "scripts", "run-test.sh"), "# fake");
+	mkdirSync(join(devopsPkg, "src", "deploy"), { recursive: true });
+	writeFileSync(join(devopsPkg, "src", "deploy", "run.ts"), "// fake");
 	// the deploy-run module now lives at
 	// <root>/bun-apps/s2-agent-ext-devops/src/deploy-run.ts
 	const extDir = join(root, "bun-apps", "s2-agent-ext-devops", "src");
@@ -35,7 +37,7 @@ describe("resolvePiAgentDir", () => {
 		const got = resolvePiAgentDir({ PI_AGENT_DIR: envPiAgent }, `file://${modFile}`);
 		expect(got).toBe(envPiAgent);
 	});
-	test("walk-up finds the sibling s2-agent dir next to s2-agent-ext-devops/scripts", () => {
+	test("walk-up finds the sibling s2-agent dir next to s2-agent-ext-devops/src/deploy", () => {
 		const modFile = fakeRepo();
 		const expected = join(modFile, "..", "..", "..", "s2-agent");
 		const got = resolvePiAgentDir({}, `file://${modFile}`);

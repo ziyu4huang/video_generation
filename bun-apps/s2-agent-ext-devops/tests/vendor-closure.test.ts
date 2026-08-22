@@ -16,7 +16,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { collectVendorClosure, isRuntimeDeadFile, vendorClosure } from "../scripts/lib/vendor-closure.ts";
+import { collectVendorClosure, isRuntimeDeadFile, vendorClosure } from "../src/deploy/lib/vendor-closure.ts";
 
 const dirs: string[] = [];
 function makeDir(): string {

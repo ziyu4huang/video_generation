@@ -9,6 +9,6 @@
  * S2_APP_NAME (artifact naming only — the workspace folder name and
  * piConfig.name must stay equal, or sibling-dir resolution breaks).
  */
-import pkg from "../../../s2-agent/package.json";
+import pkg from "../../../../s2-agent/package.json";
 
 export const APP_NAME: string = process.env.S2_APP_NAME ?? pkg.piConfig?.name ?? "s2-agent";

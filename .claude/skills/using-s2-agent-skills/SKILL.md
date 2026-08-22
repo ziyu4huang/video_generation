@@ -24,7 +24,7 @@ Then READ the matching SKILL.md before acting — it encodes hard-won pitfalls.
 
 | SKILL.md references… | How to run it |
 |---|---|
-| A shell script / `.ts` script path | claude-code direct: `bun bun-apps/s2-agent-ext-<pkg>/scripts/<script>.ts` (from repo root) |
+| A shell script / `.ts` script path | claude-code direct: `bun bun-apps/s2-agent-ext-<pkg>/scripts/<script>.ts` (from repo root). Every top-level `scripts/*.ts` is a RUNNABLE entry (guarded by `s2-agent-ext-devops/tests/scripts-dir-contract.test.ts`); libraries live in `src/` or `scripts/lib/` — running those directly exits 0 silently, so never treat a silent zero-output exit as success. Deploy entry is `bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts` (`scripts/deploy.ts` no longer exists). |
 | An extension **tool** (`sync_default_branch`, `collect_videos`, …) — tools only exist inside s2-agent | Either the CLI twin: `bun bun-apps/s2-agent-ext-<pkg>/src/<tool>-cli.ts --help` (devops has one per tool), or delegate to s2-agent headless (below) |
 | Pure methodology (superpowers, wayfind family) | Read the SKILL.md and follow it in-session — no process needed |
 

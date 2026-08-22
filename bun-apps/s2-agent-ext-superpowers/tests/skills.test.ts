@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { EXPECTED_SKILLS } from "../scripts/skill-provenance.js";
+import { EXPECTED_SKILLS } from "../scripts/lib/skill-provenance.js";
 import { listSkillDirs } from "./helpers/skill-dirs.js";
 
 /**
@@ -56,8 +56,8 @@ describe("skills suite (Pi loader rules)", () => {
     const names = skillFiles.map((s) => s.name).sort();
     expect(
       names,
-      "skills/ and scripts/skill-provenance.ts disagree. Adding or removing a skill DIRECTORY is only " +
-        "half the change — declare it (or drop it) in scripts/skill-provenance.ts, which is the single " +
+      "skills/ and scripts/lib/skill-provenance.ts disagree. Adding or removing a skill DIRECTORY is only " +
+        "half the change — declare it (or drop it) in scripts/lib/skill-provenance.ts, which is the single " +
         "source both this test and the fidelity pin derive from.",
     ).toEqual([...EXPECTED_SKILLS].sort());
   });
@@ -67,7 +67,7 @@ describe("skills suite (Pi loader rules)", () => {
     const all = readdirSync(skillsDir).filter((e) => statSync(join(skillsDir, e)).isDirectory());
     expect(
       all.sort(),
-      "a directory under skills/ is not declared in scripts/skill-provenance.ts (or vice versa)",
+      "a directory under skills/ is not declared in scripts/lib/skill-provenance.ts (or vice versa)",
     ).toEqual([...EXPECTED_SKILLS].sort());
   });
 

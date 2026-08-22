@@ -2,15 +2,15 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runShDeploy } from "../scripts/deploy.ts";
-import { parseShConfig } from "../scripts/lib/config.ts";
+import { runShDeploy } from "../src/deploy/run.ts";
+import { parseShConfig } from "../src/deploy/lib/config.ts";
 import {
 	scanBinaryForeignPaths,
 	scanSymlinkEscapes,
 	verifyVendoredClosure,
 	verifyVendoredCompleteness,
-} from "../scripts/lib/offline-gate.ts";
-import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/fs.ts";
+} from "../src/deploy/lib/offline-gate.ts";
+import { freezeTree, rmTree, unfreezeTree } from "../src/deploy/lib/fs.ts";
 import { HOST_API, HOST_MODULE_IDS } from "../../s2-agent/src/sh/host-modules.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";

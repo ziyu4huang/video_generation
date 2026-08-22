@@ -8,7 +8,7 @@
  * in-place rebuild); an extension-only change is an ordinary deploy, which the
  * core cache makes compile-free.
  */
-import type { DeployShOptions } from "../scripts/deploy.ts";
+import type { DeployShOptions } from "../src/deploy/run.ts";
 
 export type DeployShAction =
 	| { kind: "deploy"; options: DeployShOptions }

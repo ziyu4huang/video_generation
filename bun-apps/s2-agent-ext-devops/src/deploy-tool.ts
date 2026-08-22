@@ -2,13 +2,13 @@
  * deploy-tool.ts — deploy_pi_agent_sh: run the versioned sh deploy and shape its result
  * for the tool surface.
  *
- * The deploy itself is scripts/deploy.ts (single source of truth). This file
- * only maps params and shapes failures. It used to spawn scripts/deploy.ts and
+ * The deploy itself is src/deploy/run.ts (single source of truth). This file
+ * only maps params and shapes failures. It used to spawn the deploy as a subprocess and
  * scrape its human output with regexes for the bundle size and the ext-bundle
  * built/failed counts; runShDeploy returns a typed object, so that parser is
  * gone rather than ported.
  */
-import { DeployVersionExistsError, runShDeploy, type DeployShOptions, type DeployShResult } from "../scripts/deploy.ts";
+import { DeployVersionExistsError, runShDeploy, type DeployShOptions, type DeployShResult } from "./deploy/run.ts";
 import { runDeployE2e, type DeployE2eOutcome } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn } from "./spawn.js";
 

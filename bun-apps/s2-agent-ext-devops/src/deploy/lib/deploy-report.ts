@@ -24,9 +24,9 @@
  */
 import { existsSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { PROVIDERS } from "../../../s2-agent/src/pre-load-providers.ts";
-import { DEFAULT_MODELS_STORE } from "../../../s2-agent/src/models-store-default.ts";
-import { BUILTIN_MODEL_DEFAULT } from "../../../s2-agent/src/builtin-model-default.ts";
+import { PROVIDERS } from "../../../../s2-agent/src/pre-load-providers.ts";
+import { DEFAULT_MODELS_STORE } from "../../../../s2-agent/src/models-store-default.ts";
+import { BUILTIN_MODEL_DEFAULT } from "../../../../s2-agent/src/builtin-model-default.ts";
 
 // ─── Data shapes ──────────────────────────────────────────────────────────────
 

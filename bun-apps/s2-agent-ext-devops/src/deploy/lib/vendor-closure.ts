@@ -44,7 +44,7 @@
 import { cpSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 // The builtin list is the CORE's (same no-second-copy rule as ext-build.ts).
-import { isBuiltinSpecifier } from "../../../s2-agent/src/sh/host-modules.ts";
+import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
 
 export interface VendorClosureOptions {
 	/** Root package names (no subpaths, no version ranges). */

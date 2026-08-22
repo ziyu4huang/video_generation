@@ -720,7 +720,7 @@ export default function (pi: ExtensionAPI): void {
 	// deploy_pi_agent_sh + verify_pi_agent_deploy — absorbed from the former standalone deploy
 	// extension. Each tool keeps its OWN owner-declared gating keywords
 	// verbatim (NOT conflated with the devops PR/merge keywords above); the
-	// tools wrap scripts/deploy.ts + run-test.sh (single source of truth);
+	// tools wrap src/deploy/run.ts + scripts/run-test.sh (single source of truth);
 	// pi_verify resolves the source s2-agent dir at runtime (src/deploy-run.ts),
 	// while pi_deploy calls runShDeploy directly.
 	// ────────────────────────────────────────────────────────────────────
