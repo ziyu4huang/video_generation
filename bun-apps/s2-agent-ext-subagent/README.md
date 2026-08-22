@@ -1,6 +1,6 @@
 # @repo/s2-agent-ext-subagent
 
-Isolated single-subagent dispatch for [Pi](https://github.com/earendil-works/pi-coding-agent): the `subagent` and `subagent_runs` tools, the `WorkflowAgent` runner that drives a fresh in-memory Pi session per dispatch, the `spawnSubagent` programmatic API, and the process-wide singletons that let the `/subagents` viewer (now in this package, since PR #821) observe in-flight and completed runs. Extracted from `s2-agent-ext-ultracode` as a lower-dependency library so peer extensions (`knowledge-card`, `wayfind`, `superpowers`, …) can `spawnSubagent` without dragging in the whole workflow DSL, and so the subagent tools load independently of the workflow engine.
+Isolated single-subagent dispatch for [Pi](https://github.com/earendil-works/pi-coding-agent): the `subagent` and `list_subagent_runs` tools, the `WorkflowAgent` runner that drives a fresh in-memory Pi session per dispatch, the `spawnSubagent` programmatic API, and the process-wide singletons that let the `/subagents` viewer (now in this package, since PR #821) observe in-flight and completed runs. The `subagent` tool takes `background: true` for a dispatch that returns immediately (run id + `⌛ running`) and continues in-process, waking the parent with a `<task-notification>` follow-up on completion; a live background run is awaited via `list_subagent_runs {action:"wait"}` and stopped via `{action:"stop"}`. Extracted from `s2-agent-ext-ultracode` as a lower-dependency library so peer extensions (`knowledge-card`, `wayfind`, `superpowers`, …) can `spawnSubagent` without dragging in the whole workflow DSL, and so the subagent tools load independently of the workflow engine.
 
 ## Public API surface
 
@@ -43,8 +43,9 @@ those from there instead.
 | `spawnSubagent(opts)` | Public wrapper over `WorkflowAgent.run` for one isolated child run | You are peer-extension **code** that needs a subagent (e.g. `zk_card`/`zk_ask`). Returns `{ output, failure?, usage?, budgetWarning? }` — `failure` absent means success, and `failure.kind` (`failed`/`timedout`/`turns`/`budget`) is the run's status. |
 | `WorkflowAgent` | The LLM caller — a thin adapter over `createAgentSession()`. Owns no HTTP/provider path. | You need lower-level control than `spawnSubagent` (streaming history, budget hooks). |
 | `spawnSubagentSubprocess(opts)` | The isolated-**process** analog of `spawnSubagent` | You need a clean child `pi` process rather than an in-process session (obsidian distill/garden, tool-gate L2 A/B). |
-| `createSubagentTool` / `createSubagentsTool` / `createSubagentRunsTool` | The `subagent`, `subagents` + `subagent_runs` tool factories | You are an extension re-hosting these tools. The package's own extension already registers them; you normally do NOT call these. |
+| `createSubagentTool` / `createSubagentsTool` / `createSubagentRunsTool` | The `subagent`, `subagents` + `list_subagent_runs` tool factories | You are an extension re-hosting these tools. The package's own extension already registers them; you normally do NOT call these. |
 | `getSubagentInFlightRegistry()` / `getSubagentRunPersistence()` | Process-wide singletons | You are a viewer/command that must observe the SAME live + persisted runs the `subagent` tool writes. Any import path resolves to one instance — see [module identity](#module-identity--the-singletons). |
+| `getBackgroundRunManager()` / `wireBackgroundDeliverer(pi)` | The background roster (claim/track/release, `SUBAGENT_MAX_BACKGROUND` cap) + the followUp task-notification wake wiring | You host the tools yourself and want background dispatch + parent wake in your own host. The package's own extension entry calls `wireBackgroundDeliverer(pi)` at load. |
 | `runWatchdog(input)` | Opt-in two-layer (LSP + model) review of an implementer's final diff | You are gating a write-heavy dispatch. Soft gate — never auto-fails a run. |
 | `createWorktree` / `removeWorktree`, `WorkflowError` / `WorkflowErrorCode` | Worktree isolation + the typed error envelope | Import these from `@repo/s2-agent-core-runtime`; they are no longer re-exported here (nothing reached them through this barrel). |
 
@@ -116,6 +117,7 @@ The defaults are adjustable at runtime via environment variables (read at call t
 | `SUBAGENT_TOKEN_BUDGET_SMALL` / `_MEDIUM` / `_BIG` | Replace that tier's ceiling (positive integer; applies to whichever tier the dispatch resolved to). |
 | `SUBAGENT_TOKEN_BUDGET_MULTIPLIER` | Multiply the result after any absolute override (positive finite float). |
 | `SUBAGENT_MAX_TURNS` | Replace the role envelope's turn cap (positive integer; applies only when the envelope applies — explicit params still opt out entirely). |
+| `SUBAGENT_MAX_BACKGROUND` | Concurrent background-dispatch ceiling (default 4; at capacity a background dispatch fails fast instead of queueing — wait for or stop a running one, or raise the cap). |
 
 The final value is clamped to `Math.max(1, Math.floor(result))`. When the token budget is crossed the child gets a **graceful wrap-up turn** (part 2): a final-turn user message tells it to flush findings/state/artifacts to disk, exactly one more turn runs, and the next crossing aborts for real with `status:"budget"`. `spendBudget` stays a hard stop (no wrap-up) — it is a money valve; if both budgets cross at once, the hard abort wins.
 
