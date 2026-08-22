@@ -54,9 +54,15 @@ ends.
   merely unwanted, not stuck.
 - **In-process means session death kills runs silently.** Persistence writes
   at completion only, so a session that dies mid-run leaves no record and
-  delivers no notification; the slot dies with the process. This is the same
-  trade **Detached** exists to escape (ADR-0004's mid-flight handoff to an OS
-  subprocess) — a background run can still be detached later via `alt+s`.
+  delivers no notification; the slot dies with the process. The Task 05
+  **Detached** escape hatch (ADR-0004's mid-flight handoff to an OS
+  subprocess) does NOT apply here: `alt+s` / in-viewer `ctrl+b` select
+  foreground runs only (`ctrl-b.ts` `foregroundRunIds()` filters
+  `views({foreground: true})`, and background runs register
+  `foreground:false`; `convertToBackground` refuses already-background runs),
+  so a background run cannot be detached later. Its kill paths remain exactly
+  the three from Decision 2 — `list_subagent_runs` stop, the dock/viewer
+  abort lever, and the timeout/budget/turns fuse.
 - The cap fails fast rather than queueing (`SUBAGENT_MAX_BACKGROUND`, default
   4): an over-cap dispatch returns an error naming the running ids and the
   wait/stop levers, instead of accumulating invisible queued work.

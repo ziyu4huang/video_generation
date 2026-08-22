@@ -23,7 +23,7 @@ describe("formatTaskNotification", () => {
     expect(msg).toContain("run run-1");
     expect(msg).toContain("agent: reviewer");
     expect(msg).toContain("status: done");
-    expect(msg).toContain("usage: 100in / 200out ($0.01)");
+    expect(msg).toContain("usage: 100in / 200out ($0.010)"); // cost fixed to 3 decimals
     expect(msg).toContain("[truncated]");
     expect(msg.length).toBeLessThan(1200);
     expect(msg).toContain('subcommand "get", id "run-1"');

@@ -215,14 +215,20 @@ export function createSubagentRunsTool(
           const requested = params.timeoutMs ?? 30_000;
           const timeoutMs = Math.min(Math.max(0, requested), cap);
           const deadline = Date.now() + timeoutMs;
+          // Eviction-race memory (dispatchChild's finally evicts the registry
+          // entry BEFORE the persisted record lands — watchdog review can sit
+          // between): if an earlier poll saw this entry live, a vanished entry
+          // is "record not written yet", never "run never existed".
+          let sawLive = false;
           for (;;) {
             const v = options.inFlight.view(params.id);
+            if (v) sawLive = true;
             if (!v || isTerminalStatus(v.status)) {
               const record = persistence.load(params.id);
               if (record) return textResult(renderRun(record, false));
               return textResult(
-                v
-                  ? `run ${params.id}: ${v.status} (no persisted record yet — it should appear shortly; try 'get').`
+                v || sawLive
+                  ? `run ${params.id}: ${v ? v.status : "completing"} (no persisted record yet — it should appear shortly; try 'get').`
                   : `No subagent run with id "${params.id}".`,
               );
             }
@@ -247,7 +253,7 @@ export function createSubagentRunsTool(
             return textResult(`run ${params.id} already finished (${v.status}); nothing to stop.`);
           options.inFlight.abort(params.id);
           return textResult(
-            `stop requested for run ${params.id} — it ends with status "aborted"; a <task-notification> follow-up (background runs) or the run record confirms it.`,
+            `stop requested for run ${params.id} — it ends with status "aborted"; a <task-notification> follow-up (background runs only) or the run record confirms it.`,
           );
         }
         default:

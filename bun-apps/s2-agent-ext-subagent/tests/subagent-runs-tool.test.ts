@@ -250,6 +250,26 @@ test("wait: timeout returns running status without error", async () => {
   assert.match(text, /task w2/); // latest-action fallback = taskPreview
 });
 
+test("wait: eviction race (entry evicted before record lands) returns the soft miss, not 'No subagent run'", async () => {
+  const inFlight = new SubagentInFlightRegistry();
+  startRun(inFlight, "w3");
+  // dispatchChild's finally evicts the registry entry BEFORE persistence.save
+  // (watchdog review can sit between) — wait must remember it saw the entry
+  // live and report "record not written yet" instead of the hard miss.
+  setTimeout(() => inFlight.end("w3"), 30);
+  const tool = createSubagentRunsTool({ persistence: fakePersistence([]), inFlight });
+  const res = await tool.execute(
+    "c9",
+    { action: "wait", id: "w3", timeoutMs: 2000 },
+    LIVE_SIGNAL(),
+    undefined,
+    undefined,
+  );
+  const text = (res.content[0] as { text: string }).text;
+  assert.match(text, /no persisted record yet/);
+  assert.doesNotMatch(text, /No subagent run with id/);
+});
+
 test("wait: unknown id is a structured miss, not a throw", async () => {
   const tool = createSubagentRunsTool({ persistence: fakePersistence([]), inFlight: new SubagentInFlightRegistry() });
   const res = await tool.execute("c3", { action: "wait", id: "nope" }, LIVE_SIGNAL(), undefined, undefined);

@@ -24,10 +24,12 @@ export interface BackgroundRunSpec {
 }
 
 /**
- * `detached` is included because a background-from-birth run can still be
- * detached to an OS subprocess mid-flight (Task 05 Ctrl-B) — the tracked
- * in-process portion then resolves with that status and the notification
- * reports it as-is rather than coercing it.
+ * `detached` is DEFENSIVE-ONLY: structurally unreachable on the background
+ * path — the Task 05 detach (alt+s / in-viewer ctrl+b → convertToBackground)
+ * refuses already-background runs (ctrl-b.ts foregroundRunIds() filters
+ * views({foreground: true}), and background runs register foreground:false).
+ * The union member is kept so a future invariant break degrades to an
+ * as-is status report rather than a type hole.
  */
 export type BackgroundRunStatus =
   | "done"
@@ -54,7 +56,11 @@ export function formatTaskNotification(spec: BackgroundRunSpec, outcome: Backgro
       ? `${outcome.output.slice(0, PREVIEW_CHARS)}\n[truncated]`
       : outcome.output
     : "(no output)";
-  const usage = outcome.usage ? `${outcome.usage.input}in / ${outcome.usage.output}out ($${outcome.usage.cost})` : "—";
+  // cost fixed to 3 decimals — same precision as the render layer (raw floats
+  // like $0.0123456 read as noise in a notification line).
+  const usage = outcome.usage
+    ? `${outcome.usage.input}in / ${outcome.usage.output}out ($${outcome.usage.cost.toFixed(3)})`
+    : "—";
   return [
     "<task-notification>",
     `Background subagent run ${spec.id} completed.`,
