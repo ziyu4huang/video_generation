@@ -42,18 +42,6 @@ const ROOT = join(import.meta.dir, "..");
  * quietly stops guarding.
  */
 const ALLOWED: readonly { symbol: string; file: string; reason: string }[] = [
-  // ── forge Gitea adapter skeleton: intentionally unwired until implemented;
-  //    select.ts's refusal message points users at the capability map in this file
-  {
-    symbol: "GITEA_ADAPTER_STATUS",
-    file: "s2-agent-ext-devops/src/forge/gitea.ts",
-    reason: "skeleton status marker — the adapter is not implemented; consumed by the future Gitea implementation",
-  },
-  {
-    symbol: "createGiteaClient",
-    file: "s2-agent-ext-devops/src/forge/gitea.ts",
-    reason: "Gitea adapter skeleton constructor (throws not-implemented) — wired in the same PR that implements the adapter",
-  },
   // ── deliberate package public API, reached through `export *` in src/index.ts
   {
     symbol: "getStageSkill",

@@ -3,8 +3,8 @@
  *
  * A "forge" is a git hosting service (GitHub, Gitea/Forgejo, …). This module
  * defines the NORMALIZED surface the devops recipes consume; per-forge
- * adapters implement it (github-rest.ts, gh-cli.ts; gitea.ts is the
- * not-yet-implemented skeleton). Design follows Renovate's Platform split:
+ * adapters implement it (github-rest.ts, gh-cli.ts, gitea.ts). Design follows
+ * Renovate's Platform split:
  * PR/merge/check operations live behind this interface; ALL git operations
  * (fetch/push/branch/worktree) stay in BranchClient (src/gh.ts) — git is
  * forge-agnostic by nature and never goes through a forge adapter.
@@ -12,7 +12,8 @@
  * The normalized types are the ones pr-logic.ts already defines (PrState /
  * MergeState / CheckTally) — no parallel enum ladder. Adapters translate
  * forge-specific payloads into these (e.g. GitHub REST `mergeable_state`
- * values map onto MergeState; Gitea will map its combined-status instead).
+ * values map onto MergeState; Gitea maps its boolean `mergeable` + commit
+ * statuses instead).
  */
 import type { PrState, MergeState, CheckTally } from "../pr-logic.js";
 

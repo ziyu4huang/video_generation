@@ -12,8 +12,9 @@
  * Repo coordinates come from `git remote get-url <remote>` — the configured
  * remote (src/remote.ts), default `origin` — (owner/repo/host);
  * github.com → https://api.github.com, other GitHub hosts → GHES `…/api/v3`.
- * A non-GitHub host (Gitea/Forgejo) is detected and refused with a pointer to
- * the not-yet-implemented adapter — no silent wrong-API calls.
+ * A Gitea/Forgejo host (by naming heuristic, or forced with DEVOPS_FORGE=gitea)
+ * selects the Gitea adapter, which requires GITEA_TOKEN (no CLI to harvest
+ * one). Any other non-GitHub host is refused — no silent wrong-API calls.
  *
  * Registry+probe shape mirrors movie-director's provider registry: static
  * knowledge of the backends, runtime availability as the truth. The resolved
@@ -23,6 +24,7 @@
 import type { ForgeClient } from "./types.js";
 import { createGithubRestClient } from "./github-rest.js";
 import { createGhClient } from "./gh-cli.js";
+import { createGiteaClient, giteaDefaultApiBase } from "./gitea.js";
 import type { FetchFn } from "./rest.js";
 import type { SpawnFn } from "../spawn.js";
 import { createLiveSpawn } from "../spawn.js";
@@ -63,8 +65,8 @@ function isGithubHost(host: string): boolean {
 	return host === "github.com" || host.endsWith(".ghe.com");
 }
 
-/** Gitea/Forgejo hosts we recognize by common naming, for a clearer refusal
- *  message. Non-GitHub hosts that don't match still get the generic refusal. */
+/** Gitea/Forgejo hosts we recognize by common naming. Hosts that don't match
+ *  can still opt in via DEVOPS_FORGE=gitea; anything else gets refused. */
 function looksLikeGitea(host: string): boolean {
 	return host.includes("gitea") || host.includes("forgejo") || host.endsWith(".codeberg.org");
 }
@@ -82,7 +84,7 @@ export interface SelectForgeDeps {
 export interface SelectedForge {
 	client: ForgeClient;
 	/** Which backend won — surfaces in diagnostics. */
-	backend: "github-rest" | "gh-cli";
+	backend: "github-rest" | "gh-cli" | "gitea";
 	coords: ForgeCoords;
 	/** Where the token came from (diagnostics ONLY — never the token itself). */
 	tokenKind?: string;
@@ -115,10 +117,40 @@ export async function selectForgeClient(deps: SelectForgeDeps = {}): Promise<Sel
 		throw new Error(`forge selection: unparseable ${remoteName} remote URL: ${remote.stdout.trim()}`);
 	}
 	if (!isGithubHost(coords.host)) {
-		const hint = looksLikeGitea(coords.host)
-			? `Host "${coords.host}" looks like a Gitea/Forgejo instance — the Gitea adapter is not implemented yet (see src/forge/gitea.ts for the capability map).`
-			: `Host "${coords.host}" is not a known GitHub endpoint and no adapter exists for it yet.`;
-		throw new Error(`forge selection: unsupported forge. ${hint}`);
+		// Gitea/Forgejo: recognized by common host naming, or forced via
+		// DEVOPS_FORGE=gitea (self-hosted names like git.acme.internal or
+		// localhost:3200 don't match any heuristic).
+		if (looksLikeGitea(coords.host) || env.DEVOPS_FORGE === "gitea") {
+			const token = env.GITEA_TOKEN?.trim();
+			if (!token) {
+				throw new Error(
+					`forge selection: Gitea/Forgejo host "${coords.host}" needs a PAT — create one in Settings → Applications (repository read/write) and export GITEA_TOKEN. ` +
+						`There is no gh-equivalent CLI to harvest a token from.`,
+				);
+			}
+			// https by default (SSH remotes carry no scheme); GITEA_API_BASE
+			// overrides for http instances / non-standard prefixes.
+			const apiBase = env.GITEA_API_BASE?.trim() || giteaDefaultApiBase(coords.host);
+			return {
+				client: createGiteaClient({
+					host: coords.host,
+					owner: coords.owner,
+					repo: coords.repo,
+					token,
+					tokenKind: "GITEA_TOKEN env",
+					apiBase,
+					fetchFn: deps.fetchFn,
+				}),
+				backend: "gitea",
+				coords,
+				tokenKind: "GITEA_TOKEN env",
+				remoteName,
+			};
+		}
+		throw new Error(
+			`forge selection: unsupported forge. Host "${coords.host}" is not a known GitHub or Gitea endpoint. ` +
+				`Set DEVOPS_FORGE=gitea to force the Gitea adapter if it is one.`,
+		);
 	}
 
 	// 1) env tokens → REST

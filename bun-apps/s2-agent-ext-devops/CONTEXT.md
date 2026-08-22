@@ -99,9 +99,11 @@ distinct from the PR/merge keywords above.
   recipe.ts is its alias), `rest.ts` (shared REST transport; errors embed the
   response body; token never in output), `github-rest.ts` (GitHub REST adapter
   + pure mappers), `gh-cli.ts` (gh-CLI fallback, the historical impl),
-  `select.ts` (backend selection: env token → `gh auth token` → gh on PATH →
-  abort; Gitea hosts refused), `gitea.ts` (capability-map skeleton, not
-  implemented).
+  `select.ts` (backend selection: GitHub hosts — env token → `gh auth token`
+  → gh on PATH → abort; Gitea hosts — naming heuristic or `DEVOPS_FORGE=gitea`
+  — require `GITEA_TOKEN`), `gitea.ts` (Gitea/Forgejo REST adapter:
+  `token`-scheme auth, boolean `mergeable` mapping, commit-statuses checks,
+  `rebase-merge` style mapping).
 - `src/remote.ts` — `resolveRemoteName` (`DEVOPS_REMOTE` env >
   `git config devops.remote` > `origin`); consumed by forge selection
   (`SelectedForge.remoteName`) AND threaded through
