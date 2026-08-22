@@ -114,17 +114,27 @@ tree's handoff — sync or re-derive before executing it.
 
 The user's trigger phrase **"hands on next goal"** (or plain "hands on") means:
 execute the head of the queue end-to-end, this session — not just plan it.
+It starts from a synced tree, not whatever HEAD happens to be lying around.
 
-1. Read `output/LATEST-next-goal.md` (the symlink; fall back to the newest
+1. **Sync to the remote default branch first, rebase style**: `bun
+   bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`.
+   The queue head was written against main as of its session; main moves under
+   you between sessions. In a detached-HEAD worktree the CLI aborts
+   (`reason: "detached_head"` — it refuses to rebase a detached tree); that is
+   not a failure to skip: fetch and compare (`git fetch origin main && git
+   rev-list --count HEAD..origin/main`) — `0` means you are already at the tip
+   and may proceed, anything else means create/switch a branch from
+   `origin/main` via `prepare-feature-branch-cli` before executing.
+2. Read `output/LATEST-next-goal.md` (the symlink; fall back to the newest
    `next-goal-*.md` if it is missing). If the file says decisions are
    pre-approved / "do not re-litigate", honor that — execute, don't re-decide.
-2. Carry out its **Immediate steps** in order: branch prep via the devops
+3. Carry out its **Immediate steps** in order: branch prep via the devops
    chain, implementation, tests, canonical gates — exactly as written unless a
    step is factually impossible (then surface the blocker, don't improvise a
    different design).
-3. Stop only when every box in **Done when** is checked. Report honestly which
+4. Stop only when every box in **Done when** is checked. Report honestly which
    boxes are verified vs still open.
-4. Close out per the file's own instructions (usually: reviewer pass, PR via
+5. Close out per the file's own instructions (usually: reviewer pass, PR via
    the devops chain, ticket/map close-out), then WRITE the successor file
    (strict v2, validated) and re-point the `LATEST-next-goal.md` symlink at it.
 
@@ -162,3 +172,4 @@ stale pointer executes the wrong goal. The symlink lives in gitignored
 | Writing the file but not repointing `LATEST-next-goal.md` | Step 5 of WRITE — a stale pointer hands the next session the WRONG goal |
 | Skipping the validator/doctor | Steps 3 and 6 of WRITE — exit 0 or fix; never hand off an unvalidated file |
 | "Hands on" treated as "plan the goal" | It means EXECUTE through the done-when gate |
+| Executing the queue head from a stale tree | Step 1: sync-default-branch-cli `--mode rebase` first; detached HEAD → verify `HEAD..origin/main` is 0 before proceeding |
