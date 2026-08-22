@@ -31,6 +31,11 @@ const makeBus = () => {
   };
 };
 
+// Tests below run the real vendored deliver pipeline (validate → render →
+// check), ~6s warm — over bun's 5s default per-test timeout under load, so
+// each carries an explicit 30s budget.
+const VENDORED_PIPELINE_TIMEOUT = 30_000;
+
 describe("webui:open announce (archify_render)", () => {
   it("render success → open + present emits, webui:open, absolute path, basename view, meta.title", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "archify-open-render-"));
@@ -48,7 +53,7 @@ describe("webui:open announce (archify_render)", () => {
     const pres = bus.emitted.find((e) => e.ch === "webui:present")?.payload as { controls?: { takesInput?: boolean }[] };
     expect(pres?.controls?.length).toBe(2); // approve + tweak controls
     expect(pres?.controls?.[1]?.takesInput).toBe(true); // tweak takes input
-  });
+  }, VENDORED_PIPELINE_TIMEOUT);
 
   // NOTE: no tool-level "meta.title absent → diagramType fallback" case here —
   // meta.title is schema-required (vendored/schemas/architecture.schema.json),
@@ -82,7 +87,7 @@ describe("webui:open announce (archify_delta)", () => {
       title: "architecture-delta",
     });
     expect(String(payload.view).startsWith("compare-")).toBe(true);
-  });
+  }, VENDORED_PIPELINE_TIMEOUT);
 
   it("delta failure (non-architecture type) → 0 emits", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "archify-open-delta-bad-"));
@@ -105,7 +110,7 @@ describe("webui:open announce (bus robustness)", () => {
     expect(withBus.isError).toBeFalsy();
     // Identical input → identical text (embeds path, checks, sha prefix).
     expect(withBus.content).toEqual(res.content);
-  });
+  }, VENDORED_PIPELINE_TIMEOUT);
 
   it("throwing bus never breaks the render result", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "archify-open-throwing-"));
@@ -115,5 +120,5 @@ describe("webui:open announce (bus robustness)", () => {
     );
     expect(res.isError).toBeFalsy();
     expect((res.details as { path: string }).path).toBe(join(cwd, "mini.html"));
-  });
+  }, VENDORED_PIPELINE_TIMEOUT);
 });
