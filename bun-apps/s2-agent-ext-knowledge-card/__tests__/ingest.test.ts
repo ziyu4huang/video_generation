@@ -1007,10 +1007,13 @@ describe("ingestRecords — LLM relations write path (Phase-2 T3)", () => {
 		expect(prompt.startsWith(title)).toBe(true);
 		expect(prompt.length).toBeLessThanOrEqual(title.length + CAP + TRUNC_MARK.length);
 		expect(prompt).toContain("…(truncated)");
-		// the card md still applies its own (same-mechanism) truncation
+		// the card md still applies its own (same-mechanism) truncation.
+		// Schema v2: scoped to the 核心想法 BODY — the summary L0 abstract is a
+		// separate 256-char clamp, so the whole-card scan would false-positive.
 		const card = readFileSync(join(vault, FOLDER, "llm-cap.md"), "utf8");
 		expect(card).toContain("…(truncated)");
-		expect(card).not.toContain("x".repeat(CAP + 1));
+		const body = card.slice(card.indexOf("## 核心想法"));
+		expect(body).not.toContain("x".repeat(CAP + 1));
 		expect(validateZettelNote(card).ok).toBe(true);
 	});
 

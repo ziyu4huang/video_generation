@@ -26,6 +26,7 @@ export function buildDistillTask(
 		'Input files (pass as the `files` arg of action:"distill"):',
 		...rel,
 		"",
+		"Experience notes (schema v2): when an input records a lived debugging/fix session — a concrete situation, what was tried, what was learned — you MAY emit it as a note whose frontmatter record_type is `experience`, with the body structured as `## 情境 / 做法 / 反思` (Situation / Approach / Reflect subsections). Prefer `experience` over a generic `pattern` only when the reflective lineage (what worked, what failed first) is the value; plain facts stay in the existing types.",
 		'After the `obsidian` (action:"distill") call returns, briefly report the number of notes created in Traditional Chinese.',
 	].filter(Boolean);
 	return parts.join("\n");

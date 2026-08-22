@@ -17,6 +17,7 @@ import {
 	type Relation,
 } from "@repo/s2-agent-core-interface";
 import { chatJson, type LmChatOptions } from "./llm-chat.ts";
+import { clampSummary, SUMMARY_MAX_CHARS } from "./card-format.ts";
 
 export type { Relation } from "@repo/s2-agent-core-interface";
 
@@ -208,6 +209,64 @@ async function fallbackExtract(text: string): Promise<ExtractionResult> {
  *  `PI_KG_LLM_MODEL`); other chat-client fields stay defaulted. */
 export interface ResolveExtractorOptions {
 	kgLlmModel?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Summary L0 (schema v2 / D4) — deterministic first sentence + gated LLM condense
+// ---------------------------------------------------------------------------
+
+/** Bodies at or under this length skip the LLM condense entirely — their first
+ *  sentence is a faithful abstract AND the semantic layer already embeds this
+ *  window verbatim (semantic.ts embeds the first 800 chars of body prose), so
+ *  an LLM pass would buy nothing. Mirrors the leanrag-D6 budget-gating rule. */
+export const SUMMARY_BODY_BUDGET = 800;
+
+/** Deterministic first-sentence summary (schema v2 L0): strips markdown
+ *  decorations, takes prose up to the first sentence boundary (。．.!?？！；
+ *  or newline), clamped to the 256-char budget. Returns "" for empty input. */
+export function firstSentenceSummary(text: string): string {
+	const prose = text
+		.replace(/^---\n[\s\S]*?\n---/, "") // defensive: strip frontmatter if present
+		.replace(/```[\s\S]*?```/g, " ") // code fences are not abstract material
+		.replace(/^#{1,6}\s+/gm, "") // headings → prose
+		.replace(/^[-*]\s+/gm, "") // list markers → prose
+		.replace(/^>\s?\[!\w+\]\s*/gm, "") // callout markers → prose
+		.replace(/\s+/g, " ")
+		.trim();
+	if (!prose) return "";
+	const sentenceEnd = new RegExp(`^(.{1,${SUMMARY_MAX_CHARS}}?[。．.!?？！;；])(\\s|$)`);
+	const m = prose.match(sentenceEnd);
+	return clampSummary(m ? m[1]! : prose);
+}
+
+/** LLM condense for over-budget bodies (schema v2 L0, D4). Best-effort in the
+ *  extreme: chatJson never throws, and the caller falls back to the clamped
+ *  deterministic sentence when this returns null. */
+export async function condenseSummary(
+	text: string,
+	opts: LmChatOptions = {},
+): Promise<string | null> {
+	const parsed = await chatJson(
+		[
+			"Condense the following knowledge-card body into ONE Traditional-Chinese summary sentence (≤80 chars).",
+			'Reply with ONLY one JSON object: {"summary": string}. No prose.',
+			"Body:",
+			text.slice(0, 2000),
+		].join("\n"),
+		(raw: string) => {
+			let t = raw.trim().replace(/^```[a-zA-Z]*\s*/, "").replace(/\s*```$/, "");
+			const start = t.indexOf("{");
+			const end = t.lastIndexOf("}");
+			const obj = JSON.parse(
+				start >= 0 && end > start ? t.slice(start, end + 1) : t,
+			) as { summary?: unknown };
+			if (typeof obj.summary !== "string" || !obj.summary.trim())
+				throw new Error("no summary string");
+			return obj.summary;
+		},
+		opts,
+	);
+	return parsed === null ? null : clampSummary(parsed);
 }
 
 /**

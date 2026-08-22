@@ -52,7 +52,9 @@ import {
 import { tokeniseText, bestMatch } from "./similarity.ts";
 import {
 	buildMocContent,
+	clampSummary,
 	readCardMeta,
+	readCardSummary,
 	slugify,
 } from "./card-format.ts";
 import { cardTags, renderCard, truncateDetail } from "./card-render.ts";
@@ -63,7 +65,13 @@ import {
 	scoreOverlap,
 	type ExtractedEntity,
 } from "@repo/s2-agent-core-interface";
-import { resolveExtractor, type Relation } from "./extractor.ts";
+import {
+	condenseSummary,
+	firstSentenceSummary,
+	resolveExtractor,
+	SUMMARY_BODY_BUDGET,
+	type Relation,
+} from "./extractor.ts";
 import type {
 	CardOutcome,
 	CoverageByFamily,
@@ -199,6 +207,10 @@ export async function ingestRecords(
 	// to dictionary-equivalent output on any LLM failure (never-throws).
 	const kgLlm = opts.kgLlm ?? process.env.PI_KG_LLM === "1";
 	const kgLlmModel = opts.kgLlmModel ?? process.env.PI_KG_LLM_MODEL;
+	// Summary condense gate (schema v2 / D4): default OFF (tier rule — default
+	// ingest is LLM-free); over-budget bodies keep the clamped deterministic
+	// first sentence unless explicitly enabled here or via env.
+	const summaryLlm = opts.summaryLlm ?? process.env.PI_KG_SUMMARY_LLM === "1";
 	const folderAbs = join(opts.vaultPath, folder);
 
 	if (!existsSync(opts.vaultPath)) {
@@ -386,7 +398,7 @@ export async function ingestRecords(
 
 	// 4. Render + write each card (or report only, in dryRun).
 	for (const p of planned) {
-		const rec = p.rec;
+		let rec = p.rec;
 		const created =
 			extractDate(rec.evidence?.first_seen, rec.evidence?.extracted_at, rec.extracted_at) ||
 			"1970-01-01";
@@ -419,6 +431,38 @@ export async function ingestRecords(
 				? (rec.entities as ExtractedEntity[])
 				: (await extractor.extract(`${rec.title} ${rec.detail}`)).entities;
 		}
+
+		// Summary L0 (schema v2 / D4). Resolution order keeps re-ingest
+		// byte-stable: explicit rec.summary > the on-disk summary of the card
+		// being upserted (an LLM-condensed abstract is written ONCE, then
+		// reused — a temperature-0.3 condense must not churn the card) >
+		// deterministic first sentence. The LLM condense fires ONLY when the
+		// body exceeds SUMMARY_BODY_BUDGET (leanrag-D6 budget gate), condense is
+		// opted in (summaryLlm, tier rule), and no cheaper source exists; on
+		// failure it falls back to the clamped deterministic sentence — ingest
+		// never blocks on the LLM.
+		let summaryText: string | undefined;
+		if (rec.summary && rec.summary.trim()) {
+			summaryText = clampSummary(rec.summary);
+		} else if (existing.has(p.basename)) {
+			summaryText = readCardSummary(p.abs);
+		} else if (rec.detail.trim()) {
+			const deterministic = firstSentenceSummary(rec.detail);
+			if (rec.detail.length <= SUMMARY_BODY_BUDGET || dryRun || !summaryLlm) {
+				// Short body, a dry-run probe, or condense not opted in — the
+				// deterministic clamped sentence is the L0 abstract.
+				summaryText = deterministic;
+			} else {
+				// Over budget + opted in: LLM condense (D4 budget gate). Never
+				// blocks ingest — the clamped deterministic sentence is the
+				// failure floor.
+				const condensed = await condenseSummary(rec.detail, {
+					_fetchImpl: opts._summaryFetch,
+				});
+				summaryText = condensed ?? deterministic;
+			}
+		}
+		if (summaryText) rec = { ...rec, summary: summaryText };
 		const content = renderCard(
 			rec,
 			created,

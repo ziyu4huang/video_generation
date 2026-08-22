@@ -100,7 +100,7 @@ export function buildMocContent(cardsAbs: string[]): string {
 	}
 	for (const list of groups.values()) list.sort();
 
-	const order = ["gotcha", "avoid", "lever", "pattern", "metric", "false_positive", "other"];
+	const order = ["gotcha", "avoid", "lever", "pattern", "metric", "false_positive", "experience", "other"];
 	const present = order.filter((g) => groups.has(g)).concat(
 		[...groups.keys()].filter((g) => !order.includes(g)).sort(),
 	);
@@ -154,4 +154,84 @@ export function slugify(id: string): string {
 
 export function normTag(t: string): string {
 	return t.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+// ---------------------------------------------------------------------------
+// Schema v2 (context-lifecycle D4 / ticket 05) — summary L0 + merge-op table
+// ---------------------------------------------------------------------------
+
+/** Hard cap on the `summary` frontmatter value — the L0 abstract budget. */
+export const SUMMARY_MAX_CHARS = 256;
+
+/** Clamp a candidate summary to the L0 budget (ellipsis tail, no mid-word cut
+ *  when avoidable). Deterministic — used by both the ingest path and the
+ *  backfill script so the two agree byte-for-byte. */
+export function clampSummary(text: string): string {
+	const s = text.replace(/\s+/g, " ").trim();
+	if (s.length <= SUMMARY_MAX_CHARS) return s;
+	return `${s.slice(0, SUMMARY_MAX_CHARS - 1).replace(/\s+\S*$/, "")}…`;
+}
+
+/** Read a card file's `summary` frontmatter value (schema v2 L0 abstract),
+ *  undefined when absent/blank. */
+export function readCardSummary(absPath: string): string | undefined {
+	try {
+		const { data } = parseFrontmatter(readFileSync(absPath, "utf8"));
+		const s = typeof data.summary === "string" ? data.summary.trim() : "";
+		return s || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** Per-field merge semantics for card upserts (OpenViking merge_ops, as DATA
+ *  — consumed by wiki-match now and the ExtractLoop merge path, ticket 13).
+ *  Fields not listed keep the implicit first-wins policy of the caller. */
+export type MergeOp = "immutable" | "replace" | "sum" | "union";
+
+export const MERGE_OPS: Readonly<Record<string, MergeOp>> = {
+	id: "immutable",
+	created: "immutable",
+	summary: "replace",
+	// Counter-like feature keys (card-render P1) accumulate across merges.
+	open_task_count: "sum",
+	closed_task_count: "sum",
+	embed_count: "sum",
+	code_block_lines: "sum",
+	occurrences: "sum",
+	sources: "union",
+	entities: "union",
+	tags: "union",
+};
+
+/** Apply one field's merge op. Pure — both inputs are the already-parsed
+ *  frontmatter values (arrays for union, numbers for sum, strings otherwise).
+ *  Immutable ops return `current` unchanged (the caller's first-wins policy
+ *  is what enforces immutability; the table just declares it). */
+export function mergeField(
+	field: string,
+	current: unknown,
+	incoming: unknown,
+): unknown {
+	const op = MERGE_OPS[field];
+	switch (op) {
+		case "replace":
+			return typeof incoming === "string" && incoming.trim() ? incoming : current;
+		case "sum": {
+			if (typeof current === "number" && typeof incoming === "number")
+				return current + incoming;
+			return current; // type mismatch: keep canonical
+		}
+		case "union": {
+			if (Array.isArray(current) && Array.isArray(incoming)) {
+				const out = [...current];
+				for (const v of incoming) if (!out.includes(v)) out.push(v);
+				return out;
+			}
+			return current;
+		}
+		case "immutable":
+		default:
+			return current;
+	}
 }
