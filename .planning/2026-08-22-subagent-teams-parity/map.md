@@ -203,3 +203,7 @@ defaults become the per-agent-lifetime aggregates enforced by the persistent gua
 (D3); its "paused" fog items are untouched by this effort.
 Shares-decision-with: 2026-08-22-ultracode-rename — ticket 06/08 touch the package
 under its new name and entry convention (`extensions/ultracode.ts`).
+Superseded-in-part-by: 2026-08-23-subagent-cc-parity-2 — its D2 reopens our D10's
+fork exclusion (prompt-borne parent-transcript fork, feasible via pi's
+`buildContextEntries`); its ticket 01 clears our TUI-smoke/memory fog, ticket 07
+closes our display-model divergence fog.
