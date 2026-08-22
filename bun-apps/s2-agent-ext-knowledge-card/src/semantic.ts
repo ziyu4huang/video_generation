@@ -1,7 +1,10 @@
 /**
  * src/semantic.ts — OPT-IN semantic (embedding) recall for retrieveRecords.
  *
- * Network-bound: calls a local LM Studio embedding endpoint (nomic-embed-text).
+ * Network-bound: calls a local LM Studio embedding endpoint (canonical model
+ * `text-embedding-bge-m3`, D3 effort 2026-08-22-context-lifecycle; the 1.00
+ * blend below was measured under nomic — the bge-m3 re-baseline is ticket 07's
+ * eval gate, with nomic as the recorded fallback).
  * retrieveRecords imports this module but invokes it ONLY when
  * `opts.semantic === true`; the default retrieval path stays deterministic +
  * offline (byte-identical baseline, drift-guard green). When LM Studio or the
@@ -24,14 +27,15 @@ import { existsSync, readFileSync, readdirSync, statSync, writeFileSync, mkdirSy
 import { join } from "node:path";
 
 export const SEMANTIC_ALPHA_DEFAULT = 0.18;
-const LMSTUDIO_BASE = process.env.LMSTUDIO_BASE_URL ?? "http://localhost:1234";
 
 // L2 (2026-08-17-knowledge-pipeline-polish): the embedder/cosine leaf is hoisted
 // to @repo/s2-agent-core-interface. semantic.ts re-exports the leaf for its
 // internal consumers (retrieve, graph-health, tests) and keeps only the blend
-// engine + cache local.
+// engine + cache local. Endpoint+model resolution is ALSO the leaf's
+// (resolveSemanticEmbedConfig, D3) — the ONE place env overrides are read.
 import {
 	SEMANTIC_MODEL_DEFAULT,
+	resolveSemanticEmbedConfig,
 	type Embedder,
 	defaultEmbedder as makeDefaultEmbedder,
 	lmStudioAvailable as lmStudioAvailableAt,
@@ -40,10 +44,12 @@ import {
 
 export { cosine, SEMANTIC_MODEL_DEFAULT, type Embedder };
 
-export const defaultEmbedder: Embedder = makeDefaultEmbedder({ baseUrl: LMSTUDIO_BASE });
+const { baseUrl: EMBED_BASE } = resolveSemanticEmbedConfig();
+
+export const defaultEmbedder: Embedder = makeDefaultEmbedder({ baseUrl: EMBED_BASE });
 
 export const lmStudioAvailable = (model: string = SEMANTIC_MODEL_DEFAULT): Promise<boolean> =>
-	lmStudioAvailableAt(LMSTUDIO_BASE, model);
+	lmStudioAvailableAt(EMBED_BASE, model);
 
 
 export interface CardEmbeddings {

@@ -152,6 +152,6 @@ describe("scheduleVectorBackfill — es1 modelVersion lineage delta", () => {
   });
 
   it("es1 lineage bump is the default modelVersion", () => {
-    assert.equal(DEFAULT_EMBED_MODEL_VERSION, "nomic-embed-text-v1.5+es1");
+    assert.equal(DEFAULT_EMBED_MODEL_VERSION, "bge-m3+es1"); // D3 canonical swap (2026-08-22-context-lifecycle ticket 01)
   });
 });

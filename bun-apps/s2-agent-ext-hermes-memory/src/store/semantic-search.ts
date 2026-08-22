@@ -34,7 +34,7 @@ import type { KnowledgePipeline, RetrieveResult } from "@repo/s2-agent-core-inte
 import type { VectorStore, VectorKnnHit } from "./surreal/vector-store.js";
 import { embedQuery, type Embedder } from "@repo/s2-agent-core-interface";
 import { normalizeRelation } from "./relation-schema.js";
-import { DEFAULT_BOOST_WEIGHT } from "../constants.js";
+import { DEFAULT_BOOST_WEIGHT, DEFAULT_EMBED_MODEL } from "../constants.js";
 import { loadCardVectorsCache, cosineSimilarity } from "./card-vectors-cache.js";
 
 /** The card "kind" namespace. Mirrors zk's knowledge folder vs hermes memory. */
@@ -86,7 +86,7 @@ export interface SearchSemanticOptions {
   survivingK?: number;
   /** HNSW ef (default from config / 100). */
   ef?: number;
-  /** Embedding model id (default nomic-embed-text-v1.5). */
+  /** Embedding model id (default text-embedding-bge-m3, D3 2026-08-22). */
   model?: string;
   /** kp18 T5b (hermes-arch 10): memory dir holding `card-vectors-cache.json`.
    *  When set AND a query vector exists, the memory cold path tries local
@@ -302,7 +302,7 @@ export async function searchSemantic(opts: SearchSemanticOptions): Promise<Seman
     lexicalRecall, entityRecall, boostWeight,
   } = opts;
   const exclude = new Set(excludeIds ?? []);
-  const modelId = model ?? "text-embedding-nomic-embed-text-v1.5";
+  const modelId = model ?? DEFAULT_EMBED_MODEL; // canonical bge-m3 (D3, 2026-08-22)
   // Ticket 19 T3: survivingK caps the post-dedup returned list. Defaults to
   // topK when unset so existing behavior is UNCHANGED (a CAP not a refill).
   // Fix 2 (final review): clamp to avoid JS slice footgun (negative drops last).
