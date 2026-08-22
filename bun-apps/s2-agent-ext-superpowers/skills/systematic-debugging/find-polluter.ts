@@ -38,16 +38,20 @@ console.log(`🔍 Searching for test that creates: ${POLLUTION_CHECK}`);
 console.log(`Test pattern: ${TEST_PATTERN}`);
 console.log("");
 
-// Get list of test files (port of `find . -path "$TEST_PATTERN"`).
+// Get list of test files (port of `find . -path "$TEST_PATTERN" | sort`).
 const found = spawnSync("find", [".", "-path", TEST_PATTERN], {
   cwd: process.cwd(),
   encoding: "utf8",
 });
-if (found.error || found.status !== 0) {
-  // set -e: a failed find aborts the .sh with find's stderr shown
-  console.error(found.stderr ?? `find failed: ${found.error?.message ?? `exit ${found.status}`}`);
-  process.exit(found.status ?? 1);
-}
+// The .sh funnels find through a real pipeline with NO pipefail, so the
+// pipeline's status is sort's (always 0) and `set -e` never fires on a failing
+// find (e.g. Permission denied walking an unreadable dir, or find missing
+// entirely — bash's "command not found" line printed by the parent shell): the
+// failure shows up only as find's stderr on the terminal, and the loop carries
+// on with whatever partial output find did produce. Mirror that: forward
+// find's stderr byte-for-byte and keep going. Do NOT exit on nonzero status.
+if (found.error) process.stderr.write("find: command not found\n");
+else process.stderr.write(found.stderr ?? "");
 
 // Port of `TEST_FILES=$(find ... | sort)` + `for f in $TEST_FILES` word-splitting
 // (IFS whitespace — a name containing spaces breaks identically to the .sh).
