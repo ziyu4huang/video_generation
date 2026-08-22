@@ -17,7 +17,6 @@ import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent
 import type { LiveAgentRegistry, LiveAgentSendResult } from "@repo/s2-agent-core-runtime";
 import { getLiveAgentRegistry } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
-import type { BackgroundRunOutcome, BackgroundRunSpec } from "./background-run-manager.js";
 import { getBackgroundRunManager } from "./background-run-manager.js";
 import type { ParentMessageBus } from "./parent-message-bus.js";
 import { getParentMessageBus } from "./parent-message-bus.js";
@@ -26,7 +25,7 @@ import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 export const sendMessageToolSchema = Type.Object({
   to: Type.String({
     description:
-      "Target: a live agent's `name` or `agentId` (from spawn_subagent `name`), or 'main' to address the parent session (a CHILD reporting up).",
+      "Target: a live agent's `name` or `agentId` (from spawn_subagent `name`), or 'main' to address the ROOT session (a CHILD reporting up; a nested child's 'main' is the root, not its intermediate parent).",
   }),
   message: Type.String({ description: "The message text. Self-contained — a follow-up exchange, not a new task." }),
   wait: Type.Optional(
@@ -51,8 +50,8 @@ export interface SendMessageToolOptions {
   liveRegistry?: LiveAgentRegistry;
   /** Child→parent bus for to:'main'. Defaults to the process singleton. */
   bus?: ParentMessageBus;
-  /** Completion notifier for wait:false exchanges (the BackgroundRunManager deliverer). Defaults to the singleton. */
-  background?: { notify(spec: BackgroundRunSpec, outcome: BackgroundRunOutcome): void };
+  /** Raw notification deliverer for wait:false replies (BackgroundRunManager.deliver). Defaults to the singleton. */
+  background?: { deliver(message: string): void };
 }
 
 function textResult(text: string) {
@@ -64,11 +63,39 @@ function isTerminal(failure: NonNullable<LiveAgentSendResult["failure"]>): boole
   return failure.kind === "budget" || failure.kind === "turns";
 }
 
-/** Map an exchange outcome onto the task-notification status vocabulary. */
-function notificationOutcome(result: LiveAgentSendResult): BackgroundRunOutcome {
-  return result.failure
-    ? { status: result.failure.kind as BackgroundRunOutcome["status"], output: result.output || result.failure.message }
-    : { status: "done", output: result.output };
+/**
+ * Reply budget for the wait:false notification. Generous (the parent asked
+ * for this reply and has nowhere else to fetch it — follow-up exchanges are
+ * not persisted), but bounded so several landing together can't flood the
+ * parent context.
+ */
+const REPLY_CHARS = 4000;
+
+/**
+ * Purpose-built wait:false notification. NOT formatTaskNotification: that
+ * trailer's "Full output: list_subagent_runs get id <agentId>" points at the
+ * FIRST exchange's record (follow-up exchanges write no records), so reusing
+ * it would hand the parent the wrong output as if it were the reply. The
+ * reply is inlined instead; a truncation marker tells the parent to ask the
+ * agent to re-send the tail.
+ */
+export function formatReplyNotification(
+  spec: { name: string; agentId: string; model?: string },
+  result: LiveAgentSendResult,
+): string {
+  const body = result.failure ? `${result.failure.kind}: ${result.failure.message}` : result.output || "(no output)";
+  const preview =
+    body.length > REPLY_CHARS
+      ? `${body.slice(0, REPLY_CHARS)}\n[truncated — ask "${spec.name}" to re-send the remainder]`
+      : body;
+  return [
+    "<task-notification>",
+    `send_message reply from live agent "${spec.name}" (agentId ${spec.agentId}, model ${spec.model ?? "default"}).`,
+    `- status: ${result.failure ? result.failure.kind : "done"}`,
+    "- reply:",
+    preview,
+    "</task-notification>",
+  ].join("\n");
 }
 
 export function createSendMessageTool(
@@ -83,7 +110,7 @@ export function createSendMessageTool(
     description: [
       "Send a follow-up message to a NAMED live agent (spawned with spawn_subagent `name`) and get its reply.",
       "A mid-flight agent is steered — the message joins its current exchange and returns 'delivered' without a separate reply.",
-      "to:'main' routes a CHILD's message up to the parent session.",
+      "to:'main' routes a CHILD's message up to the ROOT session (a nested child does not address its intermediate parent until team addressing ships).",
     ].join(" "),
     promptSnippet:
       "Follow up with a named live agent: send_message({ to: '<name|agentId>', message }) returns its reply; wait:false fires-and-forgets (reply lands as a <task-notification>); a mid-flight agent gets the message as a steer.",
@@ -117,19 +144,17 @@ export function createSendMessageTool(
       // a turn abort must not kill an exchange nobody is waiting on (same
       // decoupling as background dispatch, ADR-subagent-0007).
       if (params.wait === false && entry.agent.status === "idle") {
-        const spec: BackgroundRunSpec = {
-          id: entry.agentId,
-          agent: entry.name,
-          model: entry.model ?? "default",
-          taskPreview: `send_message follow-up → ${entry.name}`,
-          startedAt: Date.now(),
-        };
+        const spec = { name: entry.name, agentId: entry.agentId, model: entry.model };
         void entry.agent
           .send(params.message, { timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS })
           .then((result) => {
+            // A terminal lifetime failure releases the agent here too — the
+            // awaited path's contract, applied on the unwatched branch (a
+            // dead agent left on the roster blocks its name and slot).
+            if (result.failure && isTerminal(result.failure)) liveRegistry.release(entry.name, "terminal");
             // A steer outcome means the agent went mid-flight between the
             // status check and send() — nothing completed, no notification.
-            if (!result.steered) background.notify(spec, notificationOutcome(result));
+            if (!result.steered) background.deliver(formatReplyNotification(spec, result));
           })
           .catch(() => {
             // send() classifies instead of throwing; a throw here is a broken

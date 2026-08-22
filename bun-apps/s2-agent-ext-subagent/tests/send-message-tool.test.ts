@@ -17,9 +17,8 @@ import {
   LiveAgentRegistry as LiveAgentRegistryClass,
   type LiveAgentSendResult,
 } from "@repo/s2-agent-core-runtime";
-import type { BackgroundRunOutcome, BackgroundRunSpec } from "../src/background-run-manager.js";
-import { ParentMessageBus } from "../src/parent-message-bus.js";
-import { createSendMessageTool } from "../src/send-message-tool.js";
+import { ParentMessageBus, wireParentMessageDeliverer } from "../src/parent-message-bus.js";
+import { createSendMessageTool, formatReplyNotification } from "../src/send-message-tool.js";
 import { READ_ONLY_EXCLUDED } from "../src/subagents-tool.js";
 
 const NO_SIGNAL = undefined as never;
@@ -54,13 +53,11 @@ function fakeAgent(script: Array<LiveAgentSendResult | Error> = [], status: "run
 function mkTool() {
   const liveRegistry: LiveAgentRegistry = new LiveAgentRegistryClass(4);
   const bus = new ParentMessageBus();
-  const notifications: Array<{ spec: BackgroundRunSpec; outcome: BackgroundRunOutcome }> = [];
+  const notifications: string[] = [];
   const tool = createSendMessageTool({
     liveRegistry,
     bus,
-    background: {
-      notify: (spec: BackgroundRunSpec, outcome: BackgroundRunOutcome) => notifications.push({ spec, outcome }),
-    },
+    background: { deliver: (message: string) => notifications.push(message) },
   });
   return { tool, liveRegistry, bus, notifications };
 }
@@ -117,10 +114,30 @@ test("wait:false returns immediately; the reply lands as a task-notification", a
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(notifications.length, 1);
   const n = notifications[0];
-  assert.equal(n.spec.id, "call-slow");
-  assert.equal(n.spec.agent, "slow");
-  assert.equal(n.outcome.status, "done");
-  assert.match(n.outcome.output ?? "", /late reply/);
+  assert.match(n, /<task-notification>/);
+  assert.match(n, /"slow"/);
+  assert.match(n, /agentId call-slow/);
+  assert.match(n, /status: done/);
+  assert.match(n, /late reply/);
+  // The notification must NOT point at list_subagent_runs "get" — that record
+  // is the FIRST exchange's output (follow-up exchanges persist nothing), so
+  // the pointer would resolve to the wrong content (review Major 2).
+  assert.ok(!n.includes("list_subagent_runs"));
+});
+
+test("wait:false terminal failure releases the agent AND notifies (review Minor 1)", async () => {
+  const { tool, liveRegistry, notifications } = mkTool();
+  const { agent, state } = fakeAgent([
+    { output: "", failure: { kind: "turns", message: "live agent lifetime turn cap reached (5 > 4)" } },
+  ]);
+  liveRegistry.register({ name: "chatty", agentId: "c", agent, cwd: "/repo" });
+  const res = await tool.execute("t5b", { to: "chatty", message: "hi", wait: false }, NO_SIGNAL, undefined, NO_CTX);
+  assert.match(text(res), /task-notification/);
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(liveRegistry.get("chatty"), undefined);
+  assert.equal(state.disposed, 1);
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0], /status: turns/);
 });
 
 test("wait:false on a running agent steers without a notification", async () => {
@@ -194,4 +211,40 @@ test("empty reply is surfaced honestly", async () => {
   liveRegistry.register({ name: "quiet", agentId: "c", agent, cwd: "/repo" });
   const res = await tool.execute("t11", { to: "quiet", message: "hi" }, NO_SIGNAL, undefined, NO_CTX);
   assert.match(text(res), /empty reply/);
+});
+
+test("wireParentMessageDeliverer: a host WITHOUT sendMessage leaves the bus unwired (review Major 1)", () => {
+  const bus = new ParentMessageBus();
+  wireParentMessageDeliverer({}, bus);
+  const published = bus.publish({ name: "child" }, "anyone there?");
+  // A wired no-op would return ok:true while the message goes nowhere — the
+  // child must get the actionable error instead.
+  if (published.ok) throw new Error("expected {ok:false} for an unwired host");
+  assert.match(published.error, /not wired/);
+});
+
+test("wireParentMessageDeliverer: sendMessage host gets a CustomMessage, followUp + triggerTurn", () => {
+  const bus = new ParentMessageBus();
+  const sent: Array<{ message: unknown; opts: unknown }> = [];
+  wireParentMessageDeliverer(
+    {
+      sendMessage: (message, opts) => sent.push({ message, opts }),
+    },
+    bus,
+  );
+  const published = bus.publish({ name: "researcher", agentId: "c1" }, "report");
+  assert.equal(published.ok, true);
+  assert.equal(sent.length, 1);
+  assert.equal((sent[0].message as { customType: string }).customType, "subagent-agent-message");
+  assert.equal((sent[0].message as { display: boolean }).display, true);
+  assert.deepEqual(sent[0].opts, { deliverAs: "followUp", triggerTurn: true });
+});
+
+test("formatReplyNotification truncates at 4000 chars with a re-ask hint, never a runs pointer", () => {
+  const short = formatReplyNotification({ name: "a", agentId: "c" }, { output: "short reply" });
+  assert.match(short, /short reply/);
+  assert.ok(!short.includes("list_subagent_runs"));
+  const long = formatReplyNotification({ name: "a", agentId: "c" }, { output: "x".repeat(5000) });
+  assert.match(long, /\[truncated — ask "a" to re-send the remainder\]/);
+  assert.ok(long.length < 5000);
 });

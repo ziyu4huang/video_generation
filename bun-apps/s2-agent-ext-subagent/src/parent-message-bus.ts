@@ -78,8 +78,13 @@ export function getParentMessageBus(): ParentMessageBus {
  * wrapped in a CustomMessage (`customType: "subagent-agent-message"`,
  * `display: true`) and sent followUp + triggerTurn — the one proven wake seam
  * (see wireBackgroundDeliverer for the full why; sendMessage takes a message
- * OBJECT, not a raw string). Best-effort: a host without sendMessage degrades
- * to publish() → {ok:false}.
+ * OBJECT, not a raw string).
+ *
+ * Unlike wireBackgroundDeliverer (where a silently-missing sendMessage is a
+ * tolerable no-wake degradation), this bus's contract is to REPORT delivery
+ * failure to the child: a host without sendMessage is left UNWIRED so
+ * publish() returns {ok:false} with an actionable error — never a wired no-op
+ * that claims delivery while the message goes nowhere.
  */
 export function wireParentMessageDeliverer(
   pi: {
@@ -90,6 +95,7 @@ export function wireParentMessageDeliverer(
   },
   bus: ParentMessageBus = getParentMessageBus(),
 ): void {
+  if (typeof pi?.sendMessage !== "function") return;
   try {
     bus.setDeliverer((msg) =>
       pi.sendMessage?.(

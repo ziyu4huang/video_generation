@@ -130,8 +130,19 @@ export class BackgroundRunManager {
    * same contract as track's delivery.
    */
   notify(spec: BackgroundRunSpec, outcome: BackgroundRunOutcome): void {
+    this.deliver(formatTaskNotification(spec, outcome));
+  }
+
+  /**
+   * Deliver a caller-formatted notification string through the same seam —
+   * for shapes that are NOT a background run completion (send_message
+   * replies), where formatTaskNotification's "Full output: list_subagent_runs
+   * get" pointer would resolve to the WRONG record (the first exchange's, by
+   * agentId — follow-up exchanges are not persisted). Best-effort, silent.
+   */
+  deliver(message: string): void {
     try {
-      this.deliverer?.(formatTaskNotification(spec, outcome));
+      this.deliverer?.(message);
     } catch {
       // silent by design — no retry
     }
