@@ -1,6 +1,6 @@
 # 03 — hermes folds to a capture-only journal
 
-- **Phase:** P0 · **Package:** `s2-agent-ext-hermes-memory` · **Status:** open · **Breaking (D0/D1) · RISKY (largest deletion)**
+- **Phase:** P0 · **Package:** `s2-agent-ext-hermes-memory` · **Status:** closed 2026-08-22 · **Breaking (D0/D1) · RISKY (largest deletion)**
 
 ## Problem
 
@@ -46,7 +46,7 @@ duplicate kcard's measured 1.00 blend. D1: fold to capture-only.
 Canonical hermes gates + `bun run test:adr` + ticket 04's committed audit run as the
 after-proof (hermes-journal questions answered via kcard retrieval).
 
-## Resolution (in progress)
+## Resolution
 
 **Pre-census (2026-08-22, post-PR-#1817):** grep `vector|semantic|card_vectors` across
 `s2-agent-ext-hermes-memory`:
@@ -78,3 +78,33 @@ after-proof (hermes-journal questions answered via kcard retrieval).
   `docs/adr/0001-leanrag-selective-port.md` rewrite (step 4).
 - **Tests touching the surface:** `card-store.test.ts`, `image-card-ingest.test.ts`
   (vector refs), plus the deleted `vector-backfill.test.ts`.
+
+**Outcome (2026-08-22):** landed as `refactor(hermes)!` + ADR docs commits on
+`feat/kcard-03-hermes-fold`. Final: −4,142 net lines / 24 files in the surgery commit.
+
+- Deleted exactly the census list (7 src files + their tests: `vector-store`,
+  `vector-store-helpers`, `semantic-search`, `card-vectors-cache`, `vector-backfill`(+test),
+  `knowledge-semantic`, plus `tests/store/semantic-search.test.ts`,
+  `tests/store/surreal/vector-store.test.ts`, `tests/walk-and-ingest-vector-backfill.test.ts`).
+- `knowledge_search` is lexical/tags-only: 263 → 186 tok (its `semantic` param + HNSW
+  re-rank + ticket-20 vote builders removed). Hierarchy embedder now pins
+  `SEMANTIC_MODEL_DEFAULT` (D3) instead of the removed `config.embedModel`.
+- SurrealDB CRUD journal store untouched (pre-decision honored); only vector plumbing
+  (`VECTOR_BOOTSTRAP_SQL`, per-user `vectors` DB) removed from the surreal layer.
+- ADR: new `docs/adr/0002-capture-only-journal.md` (ADR-hermes-memory-0002) supersedes the
+  vector-half of ADR-0001, citing D1 + the 0/20 audit; INDEX.md updated; ADR-0001
+  back-linked. CONTEXT/PRD/README/REJECTED/KNOWLEDGE-LAYER vector sections retired.
+- kcard seam: `knowledge-pipeline-seam.ts` comment updated (its `entityAugment` consumer
+  was the retired vector-backfill).
+- **Gates (all on the final tree):** hermes `bun run test` 1539 pass / 0 fail · hermes
+  `run-test.sh` ✓ · s2-agent cross-package typecheck exit 0 · `bun run test:adr` 19 pass.
+- **Schema cost (D0 baseline regen):** `knowledge_search` 208 → 171 tok; root baseline
+  refreshed to 22,529 tok / 74 tools via the canonical regen command — the +294 vs the
+  ticket-02 baseline is #1818's `send_message` (landed between the two baselines), not
+  this change; this change is net-negative on hermes rows.
+- DoD grep (`card_vectors|VectorStore|vectorTopK|semanticOpts|VECTOR_BOOTSTRAP_SQL|
+  searchSemantic|vector-backfill`) → zero code hits; remaining matches are historical
+  comments citing the retirement + ADR-0002.
+- Implementation dispatch: implementer fork died on a 429 usage limit mid-wrap-up
+  (docs uncommitted); parent session finished the docs commit, re-ran every gate
+  independently, and cherry-picked both commits onto the PR branch.

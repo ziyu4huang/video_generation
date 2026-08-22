@@ -1,4 +1,4 @@
-**ID:** `ADR-hermes-memory-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-hermes-memory-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID.
 
 # 0002 — Hermes folds to a capture-only journal; the vector path is deleted, not re-armed
 

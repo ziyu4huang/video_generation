@@ -57,6 +57,13 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   the semantic modes). kcard 4-tool total 2367 → 2019 tok, regression ceiling re-baselined
   ≤2220. Obsidian is hermetic again; zk-ask is lexical+graph only (the retired modes never
   won a regime — iter-6/7 receipts); `retrieval-quality-self-improve.js` retired with them.
+- **Hermes fold measured (ticket 03, 2026-08-22).** −4,142 net lines / 24 files;
+  `knowledge_search` 208 → 171 tok, lexical/tags-only. Gates: hermes suite 1539 pass /
+  0 fail, `run-test.sh` ✓, cross-package typecheck ✓, `test:adr` 19 pass. ADR-hermes-
+  memory-0002 supersedes the vector-half of ADR-0001. SurrealDB stays as the CRUD journal
+  store of record (owner-approved pre-decision). Root schema baseline re-baselined to
+  22,529 tok / 74 tools (the +294 vs ticket 02's 22,235 is #1818's `send_message`,
+  which landed between the two baselines).
 - **OpenViking** (`/Users/huangziyu/proj/OpenViking`, Volcengine, AGPLv3, browsed 2026-08-22)
   is the pattern donor: L0/L1/L2 tier ladder + per-category quotas + breadth-first-then-depth
   budget with demote-not-truncate; RecallLedger cross-turn cooldown with the
@@ -72,7 +79,7 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
 Phase P0 — infra unification & hermes triage
 - `tickets/01-canonical-embed-bge-m3.md` — task, **closed 2026-08-22** — one canonical embed endpoint/model
 - `tickets/02-vault-mind-retirement.md` — task, **closed 2026-08-22** — delete `semantic_search` + VAULT_MIND
-- `tickets/03-hermes-fold-capture-only.md` — task, **open** — retire dead recall surface (risky)
+- `tickets/03-hermes-fold-capture-only.md` — task, **closed 2026-08-22** — hermes folds to capture-only journal (SurrealDB = CRUD journal store of record, pre-decision)
 - `tickets/04-recall-audit-script.md` — task, **open** — committed audit harness + post-fold baseline
 
 Phase P1 — card schema v2 + tiered retrieval
@@ -122,11 +129,11 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/03-hermes-fold-capture-only.md` — tickets 01 (canonical embed) and 02
-(vault-mind retirement) closed 2026-08-22; the next workable ticket is 03 (hermes fold to
-capture-only journal): the P0 unification's last removal, justified by the measured 0/20
-recall audit, and its census step also sweeps the semantic-surface references ticket 02's
-kcard surgery touched from the other side.
+`tickets/04-recall-audit-script.md` — tickets 01–03 closed 2026-08-22 (canonical embed;
+vault-mind retirement; hermes fold). Ticket 04 commits the audit harness that produced the
+0/20 receipt as a script and re-runs it post-fold — it is both the after-proof for ticket 03
+(hermes-journal questions answered via kcard retrieval) and the reproducible baseline every
+later retrieval change (tickets 05–07, 15) cites.
 
 ## Fog of war
 

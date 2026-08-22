@@ -1,15 +1,15 @@
 {
-  "tools": 73,
-  "totalTokens": 22235,
+  "tools": 74,
+  "totalTokens": 22529,
   "builtinCount": 4,
-  "extensionCount": 69,
+  "extensionCount": 70,
   "errors": [],
   "toolsRanked": [
     {
       "name": "spawn_subagent",
-      "approxTokens": 1318,
+      "approxTokens": 1343,
       "descLen": 256,
-      "paramsLen": 5017,
+      "paramsLen": 5115,
       "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
@@ -267,6 +267,15 @@
       "schemaValid": true
     },
     {
+      "name": "send_message",
+      "approxTokens": 306,
+      "descLen": 368,
+      "paramsLen": 855,
+      "source": "subagent",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "edit",
       "approxTokens": 276,
       "descLen": 326,
@@ -375,15 +384,6 @@
       "schemaValid": true
     },
     {
-      "name": "knowledge_search",
-      "approxTokens": 208,
-      "descLen": 262,
-      "paramsLen": 568,
-      "source": "hermes-memory",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "browser",
       "approxTokens": 193,
       "descLen": 444,
@@ -407,6 +407,15 @@
       "descLen": 366,
       "paramsLen": 361,
       "source": "devops",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "knowledge_search",
+      "approxTokens": 171,
+      "descLen": 240,
+      "paramsLen": 444,
+      "source": "hermes-memory",
       "hasExecute": true,
       "schemaValid": true
     },
