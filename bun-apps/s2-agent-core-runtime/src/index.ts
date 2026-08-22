@@ -138,6 +138,16 @@ export {
   setTransientModelTierConfig,
   sortedTierNames,
 } from "./model-tier-config.js";
+// Pending plan-approval holds (agent-teams parity ticket 04): the map the
+// child-side request_plan_approval tool holds against and the parent-side
+// send_message plan_approval_response resolves — one process-wide instance,
+// same sharing contract as the stores above.
+export type { PendingProtocolTimer, PlanApprovalOutcome } from "./pending-protocol.js";
+export {
+  __resetPendingProtocolMapForTests,
+  getPendingProtocolMap,
+  PendingProtocolMap,
+} from "./pending-protocol.js";
 export type { LiveAgentExchange, LiveAgentStatus, OpenLiveAgentOptions } from "./persistent-agent.js";
 export { LiveAgent, openLiveAgent, spawnLiveAgentFirstExchange } from "./persistent-agent.js";
 export { lastAssistantError, throwIfProviderLimit } from "./provider-limit.js";

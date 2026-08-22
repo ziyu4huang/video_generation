@@ -30,6 +30,7 @@ import {
   isTerminalStatus,
   type SubagentRunPersistence,
 } from "@repo/s2-agent-core-runtime";
+import { SUBAGENT_DETACHED_RESUME_ENV } from "./protocol-format.js";
 
 // ---- Public surface (Task 06/08 consume exactly this) ----------------------
 
@@ -116,6 +117,7 @@ export function spawnDetachedChild(spec: DetachedSpawnSpec): DetachedChildHandle
     detached: true, // new process group — survives parent turn/session end
     stdio: "ignore",
     cwd: spec.cwd,
+    env: { ...process.env, [SUBAGENT_DETACHED_RESUME_ENV]: spec.id },
   });
   proc.unref(); // parent may exit; the event loop is NOT held
   return { pid: proc.pid, kill: () => proc.kill("SIGTERM") };
