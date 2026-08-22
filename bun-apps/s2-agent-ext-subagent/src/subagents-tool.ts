@@ -8,6 +8,8 @@
 import { defineTool, type Theme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import type {
+  AgentDefinition,
+  AgentRegistry,
   AgentUsage,
   BudgetExhaustion,
   RunView,
@@ -24,9 +26,12 @@ import {
   generateSubagentRunId,
   getGlobalRateLimiter,
   isTerminalStatus,
+  listAgentTypes,
+  loadAgentRegistry,
   MAX_BATCH_TASKS,
   MAX_CONCURRENCY,
   providerFromModelSpec,
+  resolveAgentType,
   roleAwareDefaults,
   type SubagentRunPersistence,
   shortModel,
@@ -46,11 +51,17 @@ import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */
 export const READ_ONLY_EXCLUDED = ["edit", "write", "bash"] as const;
 
-/** One task in a batch. Same shape as the singular tool, minus the mutating hooks
- *  (no agentType/worktree, no watchdog) that a read-only child cannot use. */
+/** One task in a batch. Same shape as the singular tool, minus the mutating
+ *  hooks (no worktree isolation, no watchdog) that a read-only child cannot
+ *  use. `agentType` IS supported (ticket 07): resolved via `resolveAgentType`
+ *  exactly as the singular path — but worktree-isolating definitions are
+ *  rejected up-front (the batch loop allocates no per-child worktrees). */
 export interface BatchTask {
   task: string;
   id?: string;
+  /** Named agentType (.pi/agents/*.md); binds tools/model/tier/prompt per the
+   *  definition. Explicit per-task `tools`/`model`/`tier` still win. */
+  agentType?: string;
   model?: string;
   tier?: string;
   capability?: string;
@@ -150,6 +161,8 @@ export interface SubagentsToolOptions {
   getActiveTools?: () => string[] | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
+  /** Injectable agent-type registry for tests (defaults to loadAgentRegistry(cwd)). */
+  agentRegistry?: AgentRegistry;
   inFlight?: SubagentInFlightRegistry;
   persistence?: SubagentRunPersistence;
 }
@@ -161,6 +174,12 @@ export const subagentsToolSchema = Type.Object({
         description: "Full self-contained prompt — the child has NO access to this session's history.",
       }),
       id: Type.Optional(Type.String({ description: "Optional caller tag echoed in the result for correlation." })),
+      agentType: Type.Optional(
+        Type.String({
+          description:
+            "Named agentType (.pi/agents/*.md) whose tools/model/tier/prompt bind to this child. Worktree-isolating types are rejected (batch children share the parent tree).",
+        }),
+      ),
       model: Type.Optional(
         Type.String({ description: "Model override `provider/model-id`; omit to inherit the session model." }),
       ),
@@ -223,7 +242,13 @@ export function clampConcurrency(n: number | undefined, max = MAX_CONCURRENCY): 
 
 /** Build the per-child spawn opts, folding in the non-overridable read-only exclusion.
  *  `ctx.activeTools` is the parent's gated active set — used as the per-task `tools`
- *  default when the task omits an explicit allowlist (optimization #1). */
+ *  default when the task omits an explicit allowlist (optimization #1).
+ *  `ctx.agentDef` (ticket 07) binds the resolved agentType exactly as the singular
+ *  path's buildSpawnOptions: explicit per-task `tools`/`excludeTools`/`model`/`tier`
+ *  win, the definition supplies the next fallback, and the definition's prompt
+ *  rides the spawn's `instructions` (the persisted task stays raw). The
+ *  read-only exclusion is applied LAST — a definition (or task) allowlisting
+ *  edit/write/bash is still denied (non-overridable). */
 export function mergeReadOnlyExclusion(
   task: BatchTask,
   ctx: {
@@ -234,9 +259,16 @@ export function mergeReadOnlyExclusion(
     activeTools?: string[];
     /** Run token for the abort-safety footer's log path (`<toolCallId>:<index>`). */
     logToken?: string;
+    /** Resolved agentType definition (ticket 07), when the task names one. */
+    agentDef?: AgentDefinition;
   },
 ): SpawnSubagentOptions {
-  const excludeTools = Array.from(new Set([...(task.excludeTools ?? []), ...READ_ONLY_EXCLUDED]));
+  const excludeTools = Array.from(
+    new Set([...(task.excludeTools ?? ctx.agentDef?.disallowedTools ?? []), ...READ_ONLY_EXCLUDED]),
+  );
+  // Ticket 07 singular-parity folds: task field > agentType definition > ctx default.
+  const model = task.model ?? ctx.agentDef?.model;
+  const tier = task.tier ?? ctx.agentDef?.tier;
   // H4: a batch child is read-only BY CONSTRUCTION (edit/write/bash always
   // denied below), so the write-tool footer gate is always false here — the
   // footer rides only on an explicit long turn cap (maxTurns > 10). Appended
@@ -252,12 +284,13 @@ export function mergeReadOnlyExclusion(
     cwd: task.cwd ?? ctx.defaultCwd,
     // Default to the parent's gated active set (not the full definition universe)
     // so a spawned child doesn't re-pay the ~18k tok/req schema baseline the
-    // parent gated down to ~10k. An explicit per-task `tools` always overrides.
+    // parent gated down to ~10k. An explicit per-task `tools` always overrides
+    // (ticket 07: a definition's `tools` sits between — task > agentType > active set).
     // See .planning/2026-08-08-fix-subagent-spawn-seam-tool-gate-core-task/ ticket 01.
-    tools: task.tools ?? ctx.activeTools,
+    tools: task.tools ?? ctx.agentDef?.tools ?? ctx.activeTools,
     excludeTools,
     timeoutMs: task.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    tokenBudget: task.tokenBudget ?? tierDefaultToken(task.tier, task.model ?? ctx.mainModel),
+    tokenBudget: task.tokenBudget ?? tierDefaultToken(tier, model ?? ctx.mainModel),
     spendBudget: task.spendBudget,
     maxTurns: task.maxTurns,
     // Batch children retried once on a transient failure all along (spawnSubagent
@@ -266,9 +299,10 @@ export function mergeReadOnlyExclusion(
     // can see and set on both tools, instead of one they can only read the source
     // to discover.
     retryOnTransient: task.retryOnTransient,
+    ...(ctx.agentDef?.prompt ? { instructions: ctx.agentDef.prompt } : {}),
   };
-  if (task.model) opts.model = task.model;
-  if (task.tier) opts.tier = task.tier;
+  if (model) opts.model = model;
+  if (tier) opts.tier = tier;
   if (task.capability) opts.capability = task.capability;
   if (ctx.mainModel) opts.mainModel = ctx.mainModel;
   if (ctx.scopedModels?.length) opts.scopedModels = ctx.scopedModels;
@@ -342,6 +376,53 @@ export function createSubagentsTool(
           details: { results: [], dispatched: 0, skipped: 0, elapsedMs: 0 } as SubagentsToolDetails,
         };
       }
+      // Ticket 07: per-task agentType, resolved via the SAME resolveAgentType as
+      // the singular path. Two batch-specific guardrails, both whole-batch
+      // failEarly BEFORE any dispatch: (a) an unknown type rejects the batch —
+      // a positional null slot cannot carry the "available types" hint the
+      // caller needs to fix the call; (b) a worktree-isolating type rejects the
+      // batch — the batch loop allocates no per-child worktrees, so honoring
+      // the definition would silently downgrade isolation. Errors list the
+      // offending task indexes so one bad task is findable in a large batch.
+      // The registry loads LAZILY — a batch with no typed task keeps the pre-07
+      // path free of the .pi/agents disk scan.
+      const agentRegistry = tasks.some((t) => t?.agentType)
+        ? (options.agentRegistry ?? loadAgentRegistry(defaultCwd))
+        : (options.agentRegistry ?? new Map<string, AgentDefinition>());
+      const agentDefs = new Map<number, AgentDefinition>();
+      const typeErrors: string[] = [];
+      for (let index = 0; index < tasks.length; index++) {
+        const task = tasks[index];
+        if (!task?.agentType) continue;
+        const def = resolveAgentType(task.agentType, agentRegistry);
+        if (!def) {
+          typeErrors.push(`[${index}] unknown agentType "${task.agentType}"`);
+          continue;
+        }
+        if (def.isolation === "worktree") {
+          typeErrors.push(
+            `[${index}] agentType "${task.agentType}" uses worktree isolation — unsupported in batch (use the singular spawn_subagent tool)`,
+          );
+          continue;
+        }
+        agentDefs.set(index, def);
+      }
+      if (typeErrors.length > 0) {
+        const known = listAgentTypes(agentRegistry).map((t) => t.name);
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text:
+                `Batch rejected before dispatch — agentType errors:\n${typeErrors.join("\n")}` +
+                (known.length
+                  ? `\nAvailable agentTypes: ${known.join(", ")}.`
+                  : "\nNo agentType definitions found (.pi/agents/*.md or ~/.pi/agents/*.md)."),
+            },
+          ],
+          details: { results: [], dispatched: 0, skipped: 0, elapsedMs: Date.now() - t0 } as SubagentsToolDetails,
+        };
+      }
       const concurrency = clampConcurrency(params.concurrency);
       const mainModel = options.getMainModel?.();
       const scopedModels = options.getScopedModels?.();
@@ -379,10 +460,16 @@ export function createSubagentsTool(
       const hasBatchBudget = params.tokenBudget !== undefined || params.spendBudget !== undefined;
 
       const runTask = async (task: BatchTask, index: number): Promise<void> => {
+        // Ticket 07: this task's resolved agentType definition (undefined when
+        // the task names none — the pre-07 path, byte-identical).
+        const agentDef = agentDefs.get(index);
         // Effective model string + task preview — computed up front so BOTH the
         // soft-gate skip branch and the normal dispatch branch can enrich the
         // result slot (deficit 4b: Completed-section display needs task/model).
-        const childModel = task.model ?? task.tier ?? task.capability ?? mainModel ?? "default";
+        // Ticket 07: the definition's model/tier sit between the task fields and
+        // the session fallbacks (singular parity).
+        const childModel =
+          task.model ?? agentDef?.model ?? task.tier ?? agentDef?.tier ?? task.capability ?? mainModel ?? "default";
         const preview = taskPreview(task.task);
         // Soft gate: once tripped, no NEW children start; in-flight ones finish.
         // `gateTripped` is set only together with `budgetExhaustion` (see the
@@ -413,7 +500,7 @@ export function createSubagentsTool(
         const reconBounds = roleAwareDefaults(
           { tokenBudget: task.tokenBudget, maxTurns: task.maxTurns, timeoutMs: task.timeoutMs },
           "recon",
-          tierDefaultToken(task.tier, task.model ?? mainModel),
+          tierDefaultToken(task.tier ?? agentDef?.tier, task.model ?? agentDef?.model ?? mainModel),
         );
         const effTask: BatchTask = reconBounds.applied
           ? {
@@ -430,6 +517,7 @@ export function createSubagentsTool(
           extensionTools,
           activeTools,
           logToken: `${toolCallId}:${index}`,
+          agentDef,
         });
         // #03 plural mirror: impossible-tool preflight. A child missing a
         // required tool is skipped (null slot) and warned — never dispatched.
@@ -601,11 +689,14 @@ export function createSubagentsTool(
             toolCallId,
             task: task.task,
             // Persist the ACTUAL model + audit fields when it fell back (mirrors
-            // the singular tool — ticket 04, finding 2).
+            // the singular tool — ticket 04, finding 2). Tier persists the FOLDED
+            // value (task.tier ?? agentDef.tier) like the singular path — the
+            // effective budget derives from it, so raw-undefined here would
+            // misattribute retrospective budget analysis (review finding 1).
             model: slotModel,
             requestedModel: slotRequestedModel,
             fellBack: slotFellBack,
-            tier: task.tier,
+            tier: task.tier ?? agentDef?.tier,
             cwd: childOpts.cwd ?? defaultCwd,
             status,
             error: result.failure?.message,

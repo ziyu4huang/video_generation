@@ -41,7 +41,7 @@ _Avoid_: `deliverAs: "followUp"` without `triggerTurn` (never wakes an idle pare
 **Child dispatch** (`dispatchChild`, `src/child-dispatch.ts`):
 The single place one isolated child run is DRIVEN. Owns the per-child abort controller and the parent-turn-signal fan-in, the in-flight registry lifecycle, capture of the ACTUAL resolved model (and any fallback), history streaming, the commit-scope audit, and the user-abort-vs-whole-turn-Esc distinction — which is why `aborted` is the one status not reachable from a spawn result's **Failure**. Both LLM-facing tools call it: the `subagent` tool once, the `subagents` tool once per batch child.
 
-The callers keep what genuinely differs — building the spawn REQUEST (agentType resolution, worktree isolation, the batch's non-overridable read-only exclusion), the watchdog, the circuit breaker, rendering, and persistence. **This module owns the run, not the request.**
+The callers keep what genuinely differs — building the spawn REQUEST (agentType resolution, worktree isolation — singular only; the batch's non-overridable read-only exclusion), the watchdog, the circuit breaker, rendering, and persistence. **This module owns the run, not the request.**
 
 It exists because the two tools previously each held a hand-maintained copy of that policy, kept aligned by ten "mirrors the singular tool" comments — and the copies drifted twice in ways the code itself records: the actual-model capture reached only the singular tool (a batch child that fell back rendered the REQUESTED model under a ✓ done badge), and the default-on commit-scope audit likewise.
 
@@ -118,7 +118,7 @@ _Avoid_: re-exporting a core-runtime symbol "for convenience" (the barrel reache
 ### Supporting concepts
 
 **Agent registry** (`loadAgentRegistry` / `AgentDefinition`):
-The `.pi/agents/*.md` definition store — name/description/tools/model/prompt/worktree-isolation per named agent type. Resolved via `agentType` on the `subagent` tool and `agent()`; explicit call-site `model`/`tools`/`excludeTools` override the binding. Bundled agents in a workflow pack register per-run with project > pack > user precedence.
+The `.pi/agents/*.md` definition store — name/description/tools/model/prompt/worktree-isolation per named agent type. Resolved via `agentType` on the `subagent` tool, `agent()`, and (per-task, ticket 07) the `subagents` batch tool; explicit call-site `model`/`tools`/`excludeTools` override the binding. Worktree-isolating types are rejected on the batch tool (read-only children share the parent tree). Bundled agents in a workflow pack register per-run with project > pack > user precedence.
 _Avoid_: conflating with the in-flight registry (the agent registry is definitions; the in-flight registry is running instances).
 
 **Model tier / model role** (`loadModelTierConfig` / `resolveTierModel` / `resolveModelRole`):
