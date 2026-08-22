@@ -24,13 +24,7 @@ import {
   DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
   DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
   DEFAULT_FAILURE_MODEL,
-  DEFAULT_EMBED_MODEL,
-  DEFAULT_EMBED_MODEL_VERSION,
   DEFAULT_LMSTUDIO_BASE_URL,
-  DEFAULT_VECTOR_TOP_K,
-  DEFAULT_VECTOR_EF,
-  DEFAULT_SURVIVING_K,
-  DEFAULT_BOOST_WEIGHT,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
@@ -111,22 +105,8 @@ const DEFAULT_CONFIG: MemoryConfig = {
   // falls back to sqlite (local file, no server) so the agent always boots.
   dbBackend: "surrealdb",
   failureModel: DEFAULT_FAILURE_MODEL,
-  // Vector / semantic search (ticket 14 phase A). The card_vectors HNSW side-
-  // table is independent of the CRUD backend (#06 lesson: registered here AND
-  // in the parse allowlist below from day one).
-  embedModel: DEFAULT_EMBED_MODEL,
-  embedModelVersion: DEFAULT_EMBED_MODEL_VERSION,
+  // LM Studio base URL (serves the hierarchy-build embedder + chat models).
   lmStudioBaseUrl: DEFAULT_LMSTUDIO_BASE_URL,
-  vectorTopK: DEFAULT_VECTOR_TOP_K,
-  vectorEf: DEFAULT_VECTOR_EF,
-  // survivingK (ticket 19 T3): caps the post-dedup returned list. Registered
-  // in DEFAULT_CONFIG AND the parse allowlist below (#06 config-gap lesson).
-  survivingK: DEFAULT_SURVIVING_K,
-  // boostWeight (ticket 20 T2): multi-signal frequency-vote dominance weight
-  // (PINNED: final = (signalCount - 1) * boostWeight + bestRankScore).
-  // Registered in DEFAULT_CONFIG AND the parse allowlist below (#06
-  // config-gap lesson). Default 1.0 (DEFAULT_BOOST_WEIGHT).
-  boostWeight: DEFAULT_BOOST_WEIGHT,
 };
 
 export const DEFAULT_CONFIG_PATH = path.join(
@@ -380,21 +360,7 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
         const trimmed = parsed.kgLlmModel.trim();
         if (trimmed.length > 0) config.kgLlmModel = trimmed;
       }
-      // Vector / semantic search (ticket 14 phase A): the #06 config-gap lesson —
-      // every knob is allowlisted here so a config-file value reaches the
-      // consumer. String knobs get a trim guard; numeric knobs via finite checks.
-      if (typeof parsed.embedModel === "string" && parsed.embedModel.trim()) config.embedModel = parsed.embedModel.trim();
-      if (typeof parsed.embedModelVersion === "string" && parsed.embedModelVersion.trim()) config.embedModelVersion = parsed.embedModelVersion.trim();
       if (typeof parsed.lmStudioBaseUrl === "string" && parsed.lmStudioBaseUrl.trim()) config.lmStudioBaseUrl = parsed.lmStudioBaseUrl.trim();
-      if (typeof parsed.vectorTopK === "number" && Number.isFinite(parsed.vectorTopK) && parsed.vectorTopK > 0) config.vectorTopK = Math.floor(parsed.vectorTopK);
-      if (typeof parsed.vectorEf === "number" && Number.isFinite(parsed.vectorEf) && parsed.vectorEf > 0) config.vectorEf = Math.floor(parsed.vectorEf);
-      // survivingK (ticket 19 T3): same >0 floor guard as vectorTopK. Invalid
-      // values (≤0 / non-number / null) silently keep the default.
-      if (typeof parsed.survivingK === "number" && Number.isFinite(parsed.survivingK) && parsed.survivingK > 0) config.survivingK = Math.floor(parsed.survivingK);
-      // boostWeight (ticket 20 T2): same finite >0 floor guard as survivingK
-      // but NOT Math.floor'd — it is a continuous weight, not a count. Invalid
-      // values (≤0 / non-number / null / NaN) silently keep the default.
-      if (typeof parsed.boostWeight === "number" && Number.isFinite(parsed.boostWeight) && parsed.boostWeight > 0) config.boostWeight = parsed.boostWeight;
       if (hasMemoryOverflowStrategy) {
         config.autoConsolidate = config.memoryOverflowStrategy === "auto-consolidate";
       } else if (hasLegacyAutoConsolidate) {

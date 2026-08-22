@@ -186,35 +186,11 @@ export interface MemoryConfig {
   /** Backoff (ms) between op-level lock retries. Default: 2000 */
   lockOpBackoffMs?: number;
 
-  // ─── Vector / semantic search (ticket 14 phase A / HNSW embed index) ──
-  // The card_vectors HNSW side-table is INDEPENDENT of the CRUD backend
-  // (sqlite-vec is not loadable under Bun — Decision 04 Fork C). These knobs
-  // configure the embedding model + KNN query. Registered in DEFAULT_CONFIG +
-  // the parse allowlist from day one (#06 config-gap lesson).
-  /** LM Studio embedding model id (the card_vectors index is keyed by
-   *  embedModelVersion so a swap re-embeds). Default: text-embedding-bge-m3. */
-  embedModel?: string;
-  /** Stable model-lineage tag in the card_vectors delta-key (distinct from
-   *  embedModel which is the endpoint id). Default: "bge-m3+es1". */
-  embedModelVersion?: string;
-  /** LM Studio base URL serving the embedding model. Default: http://127.0.0.1:1234. */
+  // ─── LM Studio (hierarchy-build embedder) ──
+  /** LM Studio base URL serving the hierarchy-build embedder.
+   *  Default: http://127.0.0.1:1234. (The card_vectors HNSW vector knobs were
+  *  retired 2026-08-22 with the vector path — context-lifecycle ticket 03.) */
   lmStudioBaseUrl?: string;
-  /** K for the HNSW KNN query (top-K nearest neighbors). Default: 10. */
-  vectorTopK?: number;
-  /** HNSW exploration factor (ef) for the KNN query. Default: 100. */
-  vectorEf?: number;
-  /** Cap on the post-dedup returned semantic-search list (ticket 19 T3 /
-   *  LeanRAG ③). Applied AFTER contentHash dedup on every return path of
-   *  `searchSemantic`. A CAP not a refill — the post-dedup shortfall below
-   *  topK is acceptable. Default: 10 (DEFAULT_SURVIVING_K). */
-  survivingK: number;
-  /** Dominance weight of the multi-signal frequency-vote re-rank (ticket 20 /
-   *  LeanRAG ③ vote half). PINNED formula: final = (signalCount - 1) *
-   *  boostWeight + bestRankScore — at the default 1.0 any 2-signal card
-   *  outranks any 1-signal card (rank score ≤ 1). Applied on the warm
-   * `searchSemantic` path only (fallbacks stay single-signal).
-   * Default: 1.0 (DEFAULT_BOOST_WEIGHT). */
-  boostWeight: number;
 }
 
 /** Trust/auditability marker for a memory entry. Markdown-resident only. */

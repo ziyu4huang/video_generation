@@ -79,42 +79,9 @@ export const DEFAULT_ERROR_CAPTURE_RATE_LIMIT = 5;
 export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
 export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
 
-// ─── Vector / semantic search (ticket 14 phase A / HNSW embed index) ──
-// The card_vectors HNSW side-table is a SEPARATE store from the CRUD backend
-// (sqlite-vec is not loadable under Bun — Decision 04 Fork C). These knobs
-// configure the embedding model + the KNN query. The #06 config-gap lesson is
-// baked in: all five are registered in DEFAULT_CONFIG AND the parse allowlist.
-/** Default embedding model served by LM Studio — the canonical bge-m3 pick
- *  (D3, effort 2026-08-22-context-lifecycle; Traditional-Chinese vault, the
- *  nomic default was MiniLM-class CJK-weak). Aliases zk's
- *  SEMANTIC_MODEL_DEFAULT so a shared index is drop-in compatible. */
-export const DEFAULT_EMBED_MODEL = "text-embedding-bge-m3";
-/** A short, stable model tag used as the delta-key on card_vectors rows so a
- *  model swap re-embeds (the old rows are left in place; missingMdIds surfaces
- *  the cold set for the new tag). Distinct from embedModel (which is the LM
- *  Studio endpoint id) — this is the human-readable lineage tag.
- *  es1 = entity-summary augmented embed lineage (seam entityAugment leaf):
- *  the bump re-embeds the corpus once with entity-summary augmented texts.
- *  bge3 = the D3 canonical-model swap (nomic → bge-m3). */
-export const DEFAULT_EMBED_MODEL_VERSION = "bge-m3+es1";
-/** Default LM Studio base URL (serves the embedding model + bge-m3 + qwen3). */
+// ─── LM Studio (hierarchy-build embedder) ──
+/** Default LM Studio base URL (serves the embedder + bge-m3 + qwen3). */
 export const DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234";
-/** Default K for the HNSW KNN query (top-K nearest neighbors). */
-export const DEFAULT_VECTOR_TOP_K = 10;
-/** Default HNSW exploration factor (ef) for the KNN query. Higher = more
- *  recall, slower; 100 is a sane warm default at our corpus scale. */
-export const DEFAULT_VECTOR_EF = 100;
-/** Default cap on the post-dedup returned semantic-search list (ticket 19 T3 /
- *  LeanRAG ③ redundancy-aware retrieval). Caps how many hits survive AFTER the
- *  contentHash dedup pass on every return path. A CAP not a refill — the
- *  post-dedup count-below-topK shortfall is acceptable behavior. Default 10. */
-export const DEFAULT_SURVIVING_K = 10;
-/** Default dominance weight of the multi-signal frequency-vote re-rank
- *  (ticket 20 / LeanRAG ③ vote half). PINNED formula: final = (signalCount - 1)
- *  * boostWeight + bestRankScore — an additive bonus per extra recall signal;
- *  at the default 1.0 any 2-signal card outranks any 1-signal card (rank
- *  score ≤ 1), and the knob tunes that dominance. Default 1.0. */
-export const DEFAULT_BOOST_WEIGHT = 1.0;
 
 // ─── Staleness audit ───
 // Entries whose "last edited" date is older than this are flagged as stale

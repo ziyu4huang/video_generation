@@ -20,10 +20,9 @@ import { registerKnowledgeIngestTool } from "../tools/knowledge-ingest-tool.js";
 import { publishStaleCheck } from "../stale-seam.js";
 import { resolveKnowledgeVaultPath } from "../knowledge-vault-path.js";
 import { registerIndexSessionsCommand } from "../handlers/index-sessions.js";
-import { buildKnowledgeSemanticOpts } from "./knowledge-semantic.js";
 import type { HermesCtx } from "./stores.js";
 import type { RecallSet } from "../handlers/worth-scoring.js";
-import { defaultEmbedder } from "@repo/s2-agent-core-interface";
+import { defaultEmbedder, SEMANTIC_MODEL_DEFAULT } from "@repo/s2-agent-core-interface";
 
 export function registerTools(
 	pi: ExtensionAPI,
@@ -45,11 +44,7 @@ export function registerTools(
 	// resolver, so a missing vault env does NOT crash session init (the resolver
 	// throws at call time and the tool surfaces a clear message). The mirror
 	// reuses the SAME SQLite DB the memory-cards use (the global memory dir). ──
-	registerKnowledgeSearchTool(
-		pi,
-		resolveKnowledgeVaultPath,
-		buildKnowledgeSemanticOpts(config, globalDir),
-	);
+	registerKnowledgeSearchTool(pi, resolveKnowledgeVaultPath);
 	registerKnowledgeIngestTool(pi, {
 		memoryDir: globalDir,
 		// ticket 04: seed the config-file value as the call-opts layer —
@@ -57,13 +52,13 @@ export function registerTools(
 		kgLlmModel: config.kgLlmModel,
 		// LeanRAG ① (ticket 04b-2): fire-and-forget hierarchy build post-ingest.
 		// embedFn fails fast when LM Studio is down — the handler's catch-all
-		// warns and skips (same degradation class as the vector cold path).
+		// warns and skips.
 		hierarchy: {
 			enabled: process.env.PI_HIERARCHY_DISABLED !== "1" && config.hierarchyEnabled !== false,
 			embedFn: async (texts: string[]) =>
 				defaultEmbedder({ baseUrl: config.lmStudioBaseUrl ?? "http://127.0.0.1:1234" })(
 					texts,
-					config.embedModel ?? "text-embedding-bge-m3",
+					SEMANTIC_MODEL_DEFAULT,
 				),
 		},
 	});

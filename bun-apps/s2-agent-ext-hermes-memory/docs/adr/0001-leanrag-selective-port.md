@@ -2,7 +2,7 @@
 
 # LeanRAG retrieval concepts are ported selectively; the aggregation hierarchy is deferred
 
-**Status:** accepted 2026-08-10 · superseded in part 2026-08-16 — ①② now ported (effort 2026-08-16-leanrag-hierarchy-port; user overturn)
+**Status:** accepted 2026-08-10 · superseded in part 2026-08-16 — ①② now ported (effort 2026-08-16-leanrag-hierarchy-port; user overturn) · vector-half superseded 2026-08-22 by `ADR-hermes-memory-0002` (the `searchSemantic`/HNSW path it rode on was never armed and is deleted)
 
 ## Decision (2026-08-10, as accepted)
 

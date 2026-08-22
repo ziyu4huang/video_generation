@@ -6,8 +6,9 @@ import { augmentEmbedText } from "./entity-summary.js";
  *
  *  es1 (entity-summary augmented embed lineage): the published surface is
  *  enriched with the OPTIONAL entityAugment leaf — the pure augmentEmbedText
- *  from entity-summary.ts — so seam consumers (hermes vector-backfill) can
- *  build entity-summary augmented embed texts without importing zk directly.
+ *  from entity-summary.ts — so seam consumers can build entity-summary
+ *  augmented embed texts without importing zk directly (the hermes
+ *  vector-backfill consumer was retired 2026-08-22, ADR-hermes-memory-0002).
  *  An impl that already carries its own entityAugment wins (no override). */
 export function publishKnowledgePipeline(impl: KnowledgePipeline): void {
   publishSeam("__piKnowledgePipeline", { ...impl, entityAugment: impl.entityAugment ?? { augmentEmbedText } });
