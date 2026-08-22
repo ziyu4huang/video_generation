@@ -4,7 +4,7 @@ export const meta = {
   phases: [{ title: "Run" }],
 };
 
-export default async function ({ agent, args, log }) {
+export default async function ({ agent, log }) {
   const out = await agent("Do the task.", { agentType: "worker" });
   log(out);
   return out;
