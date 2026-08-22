@@ -142,6 +142,11 @@ jobs:
           # of the ci-local.sh matrix run.
           - { package: s2-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: s2-agent-ext-superpowers, test-cmd: "bun run test" }
+          # sv-analyzer: the s2-agent face of dsh-plugin/sv-analyzer — its
+          # tests drive the wasm mirrored by that build.sh (wasm layers skip
+          # when absent: fresh clones run build.sh first), so a rust-core
+          # change re-runs this row via the devops alias mapping.
+          - { package: s2-agent-ext-sv-analyzer, test-cmd: "bun test" }
           - { package: s2-agent-ext-web-access, test-cmd: "bun test" }
           # s2-agent-core-interface: the cross-extension seam contract
           # (__piCoreTaskStatusWidget key + shape). 2 test files that had never

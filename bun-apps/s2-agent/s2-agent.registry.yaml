@@ -299,4 +299,18 @@ extensions:
     # order 160 — 150 was taken by archify on main (#1783).
     deploy:
       order: 160
+  - name: sv-analyzer
+    package: s2-agent-ext-sv-analyzer
+    entry: extensions/sv-analyzer.ts
+    load: static
+    # Verilog/SystemVerilog analyzer (sv_analyze / sv_ast) — the s2-agent face
+    # of the dsh-sv-analyzer plugin. Pure code: imports only pi-coding-agent +
+    # typebox + node builtins (node:wasi for the parser). wasm/ is the built
+    # tree-sitter binary, mirrored from dsh-plugin/sv-analyzer/build.sh and
+    # GITIGNORED (regenerated artifact, same policy as the plugin's own
+    # plugin/wasm/) — a fresh clone runs build.sh first to mirror it before
+    # deploy/test; resolved at runtime via require("#pi/ext-dir").
+    deploy:
+      order: 170
+      copy: [wasm]
 lazyExtensions: {}

@@ -83,6 +83,10 @@ const BUILTINS = new Set([
 	"dgram", "dns", "domain", "events", "fs", "http", "http2", "https", "module", "net",
 	"os", "path", "perf_hooks", "process", "punycode", "querystring", "readline", "repl",
 	"stream", "string_decoder", "sys", "timers", "tls", "tty", "url", "util", "v8", "vm",
+	// Bare form: bun's cjs output normalizes `node:wasi` → `wasi` (same as
+	// node:fs → fs), and the WASI instance is what the sv-analyzer extension
+	// runs its tree-sitter wasm through. Bun serves the bare specifier.
+	"wasi",
 	"worker_threads", "zlib",
 ]);
 

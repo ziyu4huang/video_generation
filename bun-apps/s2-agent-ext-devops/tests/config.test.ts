@@ -150,6 +150,7 @@ extensions:
 			"prompt-history",
 			"subagent",
 			"superpowers",
+			"sv-analyzer",
 			"task",
 			"ultracode",
 			"wayfind",

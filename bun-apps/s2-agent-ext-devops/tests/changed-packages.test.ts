@@ -203,7 +203,7 @@ describe("computeChangedPackages — fail-open semantics", () => {
 });
 
 describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-open)", () => {
-	// The ≤5-minute run_local_ci budget depends on scoping. Three path classes are
+	// The ≤5-minute run_local_ci budget depends on scoping. Two path classes are
 	// provably package-matrix-irrelevant and must NOT trip the rule-4 fail-open:
 	//   .planning/**     — docs-only artifacts the standing rule REQUIRES
 	//                      committing with every branch/PR; before this guard,
@@ -211,11 +211,10 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 	//   bun-apps/tests/**— workspace-root gate tests; they run in the
 	//                      regression-gates job (bun run test:dist), which
 	//                      local_ci executes regardless of package scoping.
-	//   dsh-plugin/sv-analyzer/** — standalone Rust/DSH plugin project under
-	//                      the top-level dsh-plugin/ host dir (own cargo/node
-	//                      build, not part of the bun workspace); cannot affect
-	//                      any bun-apps/<pkg>.
-	const PKGS = ["a", "b"];
+	// `dsh-plugin/sv-analyzer/**` is NOT irrelevant anymore: it is the Rust core
+	// of the s2-agent-ext-sv-analyzer extension (build.sh mirrors its wasm into
+	// the package's wasm/), so it aliases to that package — scoped, not fail-open.
+	const PKGS = ["a", "b", "s2-agent-ext-sv-analyzer"];
 
 	test(".planning/ docs only → all false (docs need no package matrix)", async () => {
 		const { fn } = mkSpawn({ diffStdout: ".planning/REVIEW-2026-08-15-s2-agent.md\n" });
@@ -226,7 +225,7 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 			discoverPackages: discover(PKGS),
 			readDeps: readDepsFrom({ a: [], b: ["a"] }),
 		});
-		expect(map).toEqual({ a: false, b: false });
+		expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": false });
 	});
 
 	test("package file + .planning/ doc → scoped to the package's reverse-deps, NOT all true", async () => {
@@ -238,7 +237,7 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 			discoverPackages: discover(PKGS),
 			readDeps: readDepsFrom({ a: [], b: ["a"] }),
 		});
-		expect(map).toEqual({ a: true, b: true }); // reverse-BFS, not fail-open
+		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": false }); // reverse-BFS, not fail-open
 	});
 
 	test("bun-apps/tests/ gate test only → all false (covered by regression-gates, not the matrix)", async () => {
@@ -250,31 +249,44 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 			discoverPackages: discover(PKGS),
 			readDeps: readDepsFrom({ a: [], b: ["a"] }),
 		});
-		expect(map).toEqual({ a: false, b: false });
+		expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": false });
 	});
 
-	test("dsh-plugin/sv-analyzer/ only → all false (standalone project, needs no package matrix)", async () => {
+	test("dsh-plugin/sv-analyzer/ only → scoped to s2-agent-ext-sv-analyzer (its wasm mirrors that package)", async () => {
 		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/plugin/index.js\n" });
 		const map = await computeChangedPackages({
 			repoRoot: REPO,
 			baseRef: "main",
 			spawn: fn,
 			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
+			readDeps: readDepsFrom({ a: [], b: ["a"], "s2-agent-ext-sv-analyzer": [] }),
 		});
-		expect(map).toEqual({ a: false, b: false });
+		expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": true });
 	});
 
-	test("package file + dsh-plugin/sv-analyzer/ file → scoped, NOT all true", async () => {
+	test("package file + dsh-plugin/sv-analyzer/ file → scoped to both packages, NOT all true", async () => {
 		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/rust/src/lib.rs\nbun-apps/a/x.ts\n" });
 		const map = await computeChangedPackages({
 			repoRoot: REPO,
 			baseRef: "main",
 			spawn: fn,
 			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom({ a: [], b: ["a"], "s2-agent-ext-sv-analyzer": [] }),
+		});
+		// a → a + b (reverse-BFS); sv-analyzer aliased → itself; NOT fail-open.
+		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": true });
+	});
+
+	test("dsh-plugin/sv-analyzer/ change when the alias package is ABSENT → fail open (never a silent false-green)", async () => {
+		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/rust/src/lib.rs\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(["a", "b"]), // stale workspace without the alias package
 			readDeps: readDepsFrom({ a: [], b: ["a"] }),
 		});
-		expect(map).toEqual({ a: true, b: true }); // reverse-BFS, not fail-open
+		expect(map).toEqual({ a: true, b: true }); // fail-open preserved
 	});
 
 	test("package file + bun-apps/tests/ file → scoped, NOT all true", async () => {
@@ -286,7 +298,7 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 			discoverPackages: discover(PKGS),
 			readDeps: readDepsFrom({ a: [], b: ["a"] }),
 		});
-		expect(map).toEqual({ a: true, b: true });
+		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": false });
 	});
 
 	test("everything else outside packages STILL fails open (shared config, .github/, submodules)", async () => {
@@ -300,7 +312,7 @@ describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-o
 			discoverPackages: discover(PKGS),
 			readDeps: readDepsFrom({ a: [], b: ["a"] }),
 		});
-		expect(map).toEqual({ a: true, b: true }); // fail-open preserved
+		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": true }); // fail-open preserved
 	});
 });
 

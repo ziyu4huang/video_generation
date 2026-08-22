@@ -105,6 +105,7 @@ import webuiExtension from "../../s2-agent-ext-webui/extensions/webui.ts";
 import hyperframesExtension from "../../s2-agent-ext-hyperframes/extensions/hyperframes.ts";
 import archifyExtension from "../../s2-agent-ext-archify/extensions/archify.ts";
 import compactExtension from "../../s2-agent-ext-compact/extensions/compact.ts";
+import svAnalyzerExtension from "../../s2-agent-ext-sv-analyzer/extensions/sv-analyzer.ts";
 
 export const STATIC_EXTENSION_FACTORIES = [
 	// Group A — original "general productivity" set
@@ -137,4 +138,5 @@ export const STATIC_EXTENSION_FACTORIES = [
 	{ name: "s2-agent-ext-hyperframes", factory: hyperframesExtension },
 	{ name: "s2-agent-ext-archify", factory: archifyExtension },
 	{ name: "s2-agent-ext-compact", factory: compactExtension },
+	{ name: "s2-agent-ext-sv-analyzer", factory: svAnalyzerExtension },
 ];
