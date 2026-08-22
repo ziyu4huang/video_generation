@@ -75,7 +75,10 @@ the CLI anymore).
 > (flag > env > manifest > pi default), Path B via `ExecOptions.mainModel`
 > (ticket 06). Effective precedence on Path B: script per-agent `model` >
 > `manifest.model` > session `mainModel`; the result details label reports
-> `modelSource: "manifest"` vs `"session"` accordingly.
+> `modelSource: "manifest"` vs `"session"` accordingly. Application is via the
+> runtime's main-model resolution, exactly as on Path A: a configured tier
+> default for untagged agents still applies, and the global rate limiter keys
+> off the governing model's provider.
 
 
 ## Install
