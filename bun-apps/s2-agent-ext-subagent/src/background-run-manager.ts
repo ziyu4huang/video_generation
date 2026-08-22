@@ -5,8 +5,8 @@
  * Division of labor: the in-flight registry owns OBSERVABLE state (dock, viewer,
  * notify lines); this manager owns POST-COMPLETION ACTION — formatting the
  * <task-notification> and delivering it to the parent via the extension's
- * cached `pi.sendMessage(msg, { deliverAs: "followUp" })` (queued while the
- * parent turn is busy, delivered when idle — the seam btw uses for handoffs).
+ * cached `pi.sendMessage(<CustomMessage>, { deliverAs: "followUp" })` (queued while
+ * the parent turn is busy, delivered when idle — the seam btw uses for handoffs).
  *
  * Delivery is best-effort and silent on failure (no retry, never throws into
  * the parent): the completed run is already in run-persistence, so the next
@@ -81,7 +81,7 @@ export class BackgroundRunManager {
   private runs = new Map<string, BackgroundRunSpec>();
   private deliverer: ((msg: string) => void) | undefined;
 
-  /** Wired by the extension entry: `(msg) => pi.sendMessage(msg, { deliverAs: "followUp" })`. Undefined = no wake (background still runs; results live in persistence). */
+  /** Wired by the extension entry via wireBackgroundDeliverer: wraps the notification string in a CustomMessage and sends it `deliverAs: "followUp"`. Undefined = no wake (background still runs; results live in persistence). */
   setDeliverer(fn: ((msg: string) => void) | undefined): void {
     this.deliverer = fn;
   }
@@ -144,7 +144,10 @@ export function getBackgroundRunManager(): BackgroundRunManager {
 }
 
 /**
- * Wire the singleton's deliverer to a pi-like sender: `followUp` delivery
+ * Wire the singleton's deliverer to a pi-like sender. The notification string
+ * is wrapped in a CustomMessage (`customType: "subagent-task-notification"`,
+ * `display: true`) — sendMessage takes a message OBJECT, not a raw string
+ * (same shape as ultracode's installResultDelivery). `followUp` delivery
  * queues the notification while the parent turn is busy and delivers it when
  * idle (the seam btw uses for handoff injection). Called once by the
  * extension entry at load. Best-effort: a host without sendMessage (or a
@@ -152,11 +155,21 @@ export function getBackgroundRunManager(): BackgroundRunManager {
  * run-persistence, so list_subagent_runs keeps working.
  */
 export function wireBackgroundDeliverer(
-  pi: { sendMessage?: (msg: string, opts?: unknown) => void },
+  pi: {
+    sendMessage?: (
+      message: { customType: string; content: string; display: boolean },
+      opts?: { deliverAs?: "followUp" | "nextTurn" | "steer"; triggerTurn?: boolean },
+    ) => void;
+  },
   manager: BackgroundRunManager = getBackgroundRunManager(),
 ): void {
   try {
-    manager.setDeliverer((msg) => pi.sendMessage?.(msg, { deliverAs: "followUp" }));
+    manager.setDeliverer((msg) =>
+      pi.sendMessage?.(
+        { customType: "subagent-task-notification", content: msg, display: true },
+        { deliverAs: "followUp" },
+      ),
+    );
   } catch {
     // best-effort only
   }

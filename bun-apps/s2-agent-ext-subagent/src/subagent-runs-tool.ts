@@ -12,11 +12,18 @@
 
 import { StringEnum } from "@earendil-works/pi-ai";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SubagentRunPersistence, SubagentRunRecord } from "@repo/s2-agent-core-runtime";
+import {
+  isTerminalStatus,
+  type SubagentInFlightRegistry,
+  type SubagentRunPersistence,
+  type SubagentRunRecord,
+} from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
+import type { BackgroundRunManager } from "./background-run-manager.js";
 
-const subagentRunsActionEnum = StringEnum(["list", "get"] as const, {
-  description: "Discriminator: 'list' recent runs or 'get' one run by id.",
+const subagentRunsActionEnum = StringEnum(["list", "get", "wait", "stop"] as const, {
+  description:
+    "Discriminator: 'list' recent runs, 'get' one by id, 'wait' block on a live run, 'stop' abort a live run.",
 });
 
 const statusFilterEnum = StringEnum(["done", "failed", "timedout", "budget"] as const, {
@@ -28,14 +35,23 @@ const subagentRunsSchema = Type.Object({
   limit: Type.Optional(Type.Number({ description: "list: max runs to return (default 10)." })),
   status: Type.Optional(statusFilterEnum),
   cwd: Type.Optional(Type.String({ description: "list: scope to runs with this working directory." })),
-  id: Type.Optional(Type.String({ description: "get: run id (required for action 'get')." })),
+  id: Type.Optional(Type.String({ description: "get/wait/stop: run id (required for those actions)." })),
   includeHistory: Type.Optional(
     Type.Boolean({ description: "get: include the compact tool transcript (default false — can be large)." }),
+  ),
+  timeoutMs: Type.Optional(
+    Type.Number({
+      description: "wait: max ms to block (default 30000, cap 300000). Timeout returns current status, never an error.",
+    }),
   ),
 });
 
 export interface SubagentRunsToolOptions {
   persistence: SubagentRunPersistence;
+  /** Live-run source for wait/stop. Omitted = wait/stop report unavailable. */
+  inFlight?: SubagentInFlightRegistry;
+  /** Background roster (forward-use: wait/stop telemetry). Omitted is fine. */
+  background?: BackgroundRunManager;
 }
 
 function textResult(text: string) {
@@ -168,11 +184,11 @@ export function createSubagentRunsTool(
     name: "list_subagent_runs",
     label: "SubagentRuns",
     description:
-      "Read back historical subagent-tool runs (cross-session, from ~/.pi/subagents/runs). action 'list' returns recent runs (newest-first; optional status/cwd filter, limit); action 'get' returns one run's full output + metadata by id (includeHistory for the compact transcript). Read-only — completed records, not live runs.",
+      "Read back subagent-tool runs (cross-session archive at ~/.pi/subagents/runs + this session's live registry). action 'list' returns recent runs (newest-first; optional status/cwd filter, limit); action 'get' returns one run's full output + metadata by id (includeHistory for the compact transcript); action 'wait' blocks on a LIVE run until terminal or timeoutMs (timeout returns current status, never an error); action 'stop' aborts a live run.",
     promptSnippet:
-      "Recall past subagent runs: list_subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, list_subagent_runs({ action: 'get', id }) for one run's output.",
+      "Recall past subagent runs: list_subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, list_subagent_runs({ action: 'get', id }) for one run's output; for a live/background run, list_subagent_runs({ action: 'wait', id [, timeoutMs] }) blocks until it finishes and list_subagent_runs({ action: 'stop', id }) aborts it.",
     parameters: subagentRunsSchema,
-    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+    async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       switch (params.action) {
         case "list": {
           let records = persistence.list();
@@ -191,6 +207,48 @@ export function createSubagentRunsTool(
           const record = persistence.load(params.id);
           if (!record) return textResult(`No subagent run with id "${params.id}".`);
           return textResult(renderRun(record, params.includeHistory === true));
+        }
+        case "wait": {
+          if (!params.id) throw new Error("list_subagent_runs: action 'wait' requires id");
+          if (!options.inFlight) return textResult("wait unavailable: no live-run registry in this host.");
+          const cap = 300_000;
+          const requested = params.timeoutMs ?? 30_000;
+          const timeoutMs = Math.min(Math.max(0, requested), cap);
+          const deadline = Date.now() + timeoutMs;
+          for (;;) {
+            const v = options.inFlight.view(params.id);
+            if (!v || isTerminalStatus(v.status)) {
+              const record = persistence.load(params.id);
+              if (record) return textResult(renderRun(record, false));
+              return textResult(
+                v
+                  ? `run ${params.id}: ${v.status} (no persisted record yet — it should appear shortly; try 'get').`
+                  : `No subagent run with id "${params.id}".`,
+              );
+            }
+            if (signal?.aborted) return textResult(`wait aborted; run ${params.id} still ${v.status}.`);
+            if (Date.now() >= deadline) {
+              return textResult(
+                `run ${params.id}: still running after ${Math.round(timeoutMs / 1000)}s (elapsed ${Math.round(v.elapsedMs / 1000)}s, latest: ${v.latestAction ?? v.taskPreview}). Wait again, follow live in /subagents, or stop it.`,
+              );
+            }
+            await new Promise((r) => setTimeout(r, 250));
+          }
+        }
+        case "stop": {
+          if (!params.id) throw new Error("list_subagent_runs: action 'stop' requires id");
+          if (!options.inFlight) return textResult("stop unavailable: no live-run registry in this host.");
+          const v = options.inFlight.view(params.id);
+          if (!v)
+            return textResult(
+              `unknown run "${params.id}" — not live in this session (registry). Completed runs: action 'list'.`,
+            );
+          if (isTerminalStatus(v.status))
+            return textResult(`run ${params.id} already finished (${v.status}); nothing to stop.`);
+          options.inFlight.abort(params.id);
+          return textResult(
+            `stop requested for run ${params.id} — it ends with status "aborted"; a <task-notification> follow-up (background runs) or the run record confirms it.`,
+          );
         }
         default:
           throw new Error(`list_subagent_runs: action "${params.action}" not implemented`);
