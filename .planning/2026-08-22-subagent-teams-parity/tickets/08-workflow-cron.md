@@ -1,6 +1,6 @@
 # Ticket 08 — workflow-cron
 
-status: open
+status: closed 2026-08-23 (PR #1849 → main 0d0ff09e)
 
 ## Goal
 
@@ -32,3 +32,21 @@ recurring, 7-day recurring auto-expire, session-live firing (map D8).
 
 ultracode `bun run test` green; smoke: create one-shot schedule firing a trivial
 workflow within the interval, lease prevents double-fire across two live sessions.
+
+## Close-out notes (2026-08-23)
+
+- Shipped as planned plus a `cron-loop.ts` module (tick logic separated from the
+  interval so fake-manager tests drive ticks directly). Fire-records are the
+  cross-session double-fire guard; recurring definitions auto-expire 7 days and
+  fire-records past that horizon are GC'd at tick time (review finding 3).
+- Review: REQUEST_CHANGES → 1 blocking fixed (synchronous `startInBackground`
+  throw on an unparseable script used to wedge the definition behind its own
+  live-pid claim; now recorded as failed + anchor moved, pinned by test) + 2
+  non-blocking + 4 nits addressed → APPROVE.
+- Live-LLM smoke NOT run (no live session; consistent with tickets 01-07). The
+  lease test simulates two live sessions with two store instances over one
+  state root.
+- Drive-by in the same PR: fixed main's red ultracode `bun run check`
+  (pre-existing biome errors from #1809) — see map fog items.
+- `5/2` (step on a single value) is rejected, matching Vixie; steps need a
+  span (`*/n` or `a-b/n`).
