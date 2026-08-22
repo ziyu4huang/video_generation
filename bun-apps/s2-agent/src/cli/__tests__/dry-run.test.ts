@@ -91,7 +91,7 @@ describe("dryRunRefusal — the half that actually enforces --dry-run", () => {
   });
 
   test("read actions still pass through under OB_DRY_RUN=1", () => {
-    for (const action of ["list", "read", "search", "semantic_search", "query", "open", "status"]) {
+    for (const action of ["list", "read", "search", "query", "open", "status"]) {
       expect(dryRunRefusal(action, ON)).toBeNull();
     }
   });

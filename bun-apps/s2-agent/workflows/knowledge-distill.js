@@ -64,7 +64,7 @@ const FOLDER = String(A.folder ?? "Zettelkasten/distill")
 const MAX_NOTES = Number(A.maxNotes ?? 16)
 const MIN_CARDS = Number(A.minCards ?? 10)
 // zk-extract spawns a distill subagent that makes many tool calls then writes
-// cards — same class of longer multi-tool pipeline as zk-ask --blend three-way.
+// cards — same class of longer multi-tool pipeline as zk-ask --depth 3.
 // --thinking low truncates it (subagent loops without emitting all cards); medium
 // is the proven-complete level. Tunable per-run via args.thinkingLevel.
 const THINKING = String(A.thinkingLevel ?? "medium")

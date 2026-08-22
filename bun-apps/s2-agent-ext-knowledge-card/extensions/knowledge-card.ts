@@ -135,9 +135,9 @@ import {
 	ADD_TOOLS,
 	CHECK_TOOLS,
 	FIND_TOOLS,
+	RAG_TOOLS,
 	REMOVE_TOOLS,
 	UPDATE_TOOLS,
-	ragToolsFor,
 	resolveDistillModel,
 } from "../src/zk-task-config.ts";
 import {
@@ -586,15 +586,6 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					description: "Restrict seed search to this vault folder.",
 				}),
 			),
-			blend: Type.Optional(
-				StringEnum(
-					["default", "three-way", "semantic-lexical"] as const,
-					{
-						description:
-							"Retrieval blend mode. 'default' = lexical (title/tags/body) + graph — the vault-wide default, kept as default PERMANENTLY (a DECISION, not a pending measurement): across iter-3→iter-7 the semantic blends never won a regime on this corpus — iter-7 receipt 2026-07-07T01-00-52 (English queries) lexical mean rel 0.770 vs semantic-lexical 0.466 (lexical wins 4/5); iter-6 receipt 2026-07-05T22-57-51 (zh-TW queries) 0.332 vs 0.100. RETIRED from the default READ path — diagnostic/opt-in only; do NOT re-measure on the current corpus/regime (a genuinely NEW regime — a 10× vault, or a different vault-mind embedding model — would legitimately re-open it). The graph layer (wiki-link expansion) is the structure signal that bridges concepts across languages better than semantic vectors. 'three-way' adds a semantic (vector) seed via `obsidian` action:\"semantic_search\" and rebalances the rank score to 0.4 semantic / 0.3 lexical / 0.3 graph. 'semantic-lexical' drops graph expansion entirely (0.55 semantic / 0.45 lexical, no link term). Both remain as explicit opt-in (`--blend`) for paraphrase / cross-lingual probes; both require a running vault-mind service and fall back gracefully. Default: 'default'.",
-					},
-				),
-			),
 			model: Type.Optional(
 				Type.String({
 					description:
@@ -620,13 +611,12 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				params.max_note_tokens ?? 2000,
 				params.no_refine ?? false,
 				params.folder,
-				params.blend ?? "default",
 			);
 			const zkAskEnv = roleAwareDirectCall("recon", task, `zk-ask-${Date.now()}`);
 			const { output, failure } = await zkSpawn({
 				cwd,
 				task: zkAskEnv.task,
-				tools: ragToolsFor(params.blend ?? "default"),
+				tools: [...RAG_TOOLS],
 				model: resolveDistillModel(params.model),
 				...(zkAskEnv.tokenBudget !== undefined ? { tokenBudget: zkAskEnv.tokenBudget, maxTurns: zkAskEnv.maxTurns, timeoutMs: zkAskEnv.timeoutMs } : {}),
 				excludeTools: params.exclude_tools,
@@ -1133,8 +1123,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	});
 }
 
-export { ADD_TOOLS, CHECK_TOOLS, DISTILL_TOOLS, FIND_TOOLS, RAG_TOOLS, RAG_TOOLS_THREE_WAY, ragToolsFor, rankBlendScore, REMOVE_TOOLS, resolveDistillModel, UPDATE_TOOLS } from "../src/zk-task-config.ts";
-export type { BlendMode, BlendScoreParts } from "../src/zk-task-config.ts";
+export { ADD_TOOLS, CHECK_TOOLS, DISTILL_TOOLS, FIND_TOOLS, RAG_TOOLS, REMOVE_TOOLS, resolveDistillModel, UPDATE_TOOLS } from "../src/zk-task-config.ts";
 export { buildAddTask, buildDistillTask, buildFindTask, buildRagTask, buildRemoveTask, buildUpdateTask, CHECK_TASK } from "../src/task-builders.ts";
 
 /**

@@ -1,7 +1,5 @@
 /** Pure zk task builders (split from extensions/knowledge-card.ts — hermes-arch-13 wave 2). */
 import { relative } from "node:path";
-import type { BlendMode } from "./zk-task-config.ts";
-
 
 // ---------------------------------------------------------------------------
 // Task builders — pure string templates, no I/O. Single source of truth:
@@ -164,13 +162,10 @@ export function buildRagTask(
 	maxNoteTokens: number = 2000,
 	noRefine: boolean = false,
 	folder?: string,
-	blend: BlendMode = "default",
 ): string {
-	const threeWay = blend === "three-way";
-	// semantic-lexical and three-way both seed with the vector tool; default is
-	// lexical-only. semantic-lexical drops graph expansion (Step 2) entirely.
-	const semanticEnabled = blend === "three-way" || blend === "semantic-lexical";
-	const graphEnabled = blend !== "semantic-lexical";
+	// Lexical + graph only. The semantic (vector) blend modes were removed with
+	// the vault-mind retirement (context-lifecycle ticket 02, D2) — semantic
+	// retrieval lives in knowledge_query / retrieveRecords.
 	const outputInstruction = retrieveOnly
 		? [
 				"## Step 5: Context output",
@@ -219,73 +214,33 @@ export function buildRagTask(
 		`Execute the graph-enhanced RAG pipeline below to answer the following question:`,
 		`<question>${query}</question>`,
 		"",
-		semanticEnabled
-			? [
-					`## Step 1: Seed retrieval (run all 4 strategies — ${blend} blend)`,
-					"Run all 4 strategies and integrate results to identify the top 3 seed note paths.",
-					"Track which mode(s) surfaced each seed — you will tag it in Step 3 provenance:",
-					'1. obsidian action:"search" matchMode:fuzzy fields:title — title lexical (lexical:title)',
-					'2. obsidian action:"search" matchMode:words fields:tags — tag lexical (lexical:tags)',
-					'3. obsidian action:"search" matchMode:words fields:body — body keyword (lexical:body)',
-					'4. obsidian action:"semantic_search" query:"<the question>" limit:8 similarity_threshold:0.3 — vector (semantic).',
-					'   If action:"semantic_search" returns isError (vault-mind unreachable), skip it',
-					"   and fall back to the 3 lexical strategies — never abort the pipeline.",
-					folderScope,
-					seedQualityGate,
-				]
-			: [
-					"## Step 1: Seed retrieval (run all 3 strategies)",
-					"Run all 3 strategies and integrate results to identify the top 3 seed note paths:",
-					'1. obsidian action:"search" matchMode:fuzzy fields:title — title similarity (highest priority)',
-					'2. obsidian action:"search" matchMode:words fields:tags — tag match',
-					'3. obsidian action:"search" matchMode:words fields:body — body keyword (lowest priority)',
-					folderScope,
-					seedQualityGate,
-				],
+		[
+			"## Step 1: Seed retrieval (run all 3 strategies)",
+			"Run all 3 strategies and integrate results to identify the top 3 seed note paths:",
+			'1. obsidian action:"search" matchMode:fuzzy fields:title — title similarity (highest priority)',
+			'2. obsidian action:"search" matchMode:words fields:tags — tag match',
+			'3. obsidian action:"search" matchMode:words fields:body — body keyword (lowest priority)',
+			folderScope,
+			seedQualityGate,
+		],
 		"",
-		graphEnabled
-			? [
-					"## Step 2: Graph expansion",
-					`For each seed note, run obsidian action:"search" graph:"neighbors" up to ${safeDepth} hop(s).`,
-					"",
-					"Constraints (must follow):",
-					progressiveDeepening,
-					`- Limit to ${maxNeighbors} neighbor nodes per seed per hop.`,
-					"- Merge all seed results and deduplicate to build the expanded node set.",
-				]
-			: [
-					"## Step 2: No graph expansion (semantic-lexical blend)",
-					"Skip wiki-link neighbor traversal entirely. Rank the Step 1 seed set directly —",
-					"the link_count popularity term is disabled in Step 3, so graph neighbors carry no",
-					"score and would only dilute the top-k. Proceed to Step 3 with the seed set as-is.",
-				],
+		[
+			"## Step 2: Graph expansion",
+			`For each seed note, run obsidian action:"search" graph:"neighbors" up to ${safeDepth} hop(s).`,
+			"",
+			"Constraints (must follow):",
+			progressiveDeepening,
+			`- Limit to ${maxNeighbors} neighbor nodes per seed per hop.`,
+			"- Merge all seed results and deduplicate to build the expanded node set.",
+		],
 		"",
 		"## Step 3: Cluster & rank",
 		`Score each note in the candidate set using the formula below, then select the top ${topK}:`,
 		"",
-		blend === "three-way"
-			? [
-					'  score = 0.4 × semantic   (cosine similarity from action:"semantic_search"; 0 if not surfaced by it)',
-					'        + 0.3 × lexical    (the search_score from action:"search"; use 0.5 if unavailable, -1 sentinel → 0)',
-					"        + 0.3 × link_count (number of [[wikilink]] occurrences in the note body)",
-					"",
-					"Provenance: for each selected note, record which mode(s) surfaced it —",
-					"  semantic, lexical:title, lexical:tags, lexical:body, and/or graph (neighbor).",
-					"  A note reached only as a graph neighbor of a semantic seed is tagged `semantic,graph`.",
-				]
-			: blend === "semantic-lexical"
-			? [
-					'  score = 0.55 × semantic  (cosine similarity from action:"semantic_search"; 0 if not surfaced by it)',
-					'        + 0.45 × lexical   (the search_score from action:"search"; use 0.5 if unavailable, -1 sentinel → 0)',
-					"        (NO link_count term — graph popularity is disabled in this blend)",
-					"",
-					"Provenance: for each selected note, record which mode(s) surfaced it —",
-					"  semantic, lexical:title, lexical:tags, lexical:body. There is no graph neighbor tag.",
-				]
-			: [
-					'  score = 0.7 × search_score  (the score field from action:"search"; use 0.5 if unavailable)',
-					"        + 0.3 × link_count    (number of [[wikilink]] occurrences in the note body)",
-				],
+		[
+			'  score = 0.7 × search_score  (the score field from action:"search"; use 0.5 if unavailable)',
+			"        + 0.3 × link_count    (number of [[wikilink]] occurrences in the note body)",
+		],
 		"",
 		`List notes in descending score order and confirm the top ${topK} paths.`,
 		"Group selected notes by tag (cluster).",
@@ -316,10 +271,6 @@ export function buildRagTask(
 		"",
 		"Append a reference list at the end:",
 		"**Reference notes:**",
-		semanticEnabled && retrieveOnly
-			? graphEnabled
-				? "- [[Note Title]] (path/to/note.md) [modes: semantic|lexical|graph] — one-line reason for inclusion"
-				: "- [[Note Title]] (path/to/note.md) [modes: semantic|lexical] — one-line reason for inclusion"
-			: "- [[Note Title]] (path/to/note.md) — one-line reason for inclusion",
+		"- [[Note Title]] (path/to/note.md) — one-line reason for inclusion",
 	].join("\n");
 }

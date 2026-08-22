@@ -19,7 +19,7 @@
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
-import { buildRagTask, ragToolsFor, type BlendMode } from "@repo/s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
+import { buildRagTask, RAG_TOOLS } from "@repo/s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 
 const DETAILS = `Ask a natural language question; returns a synthesized answer grounded in vault notes.
 
@@ -54,22 +54,6 @@ Options:
   --summarize            Summarize each tag cluster before generating
   --retrieve-only        Output assembled context only (no generation step)
   --no-refine            Skip seed quality gate (no query rewrite on poor seeds)
-  --blend <mode>         Retrieval blend: "default" (lexical+graph) | "three-way"
-                         (semantic+lexical+graph) | "semantic-lexical" (semantic+
-                         lexical, NO graph — isolates semantic from graph dilution).
-                         Semantic modes need vault-mind service. Default: default.
-                         Semantic modes tag each seed with source mode(s) under
-                         --retrieve-only.
-                         NOTE: "default" (lexical+graph) is the vault-wide default
-                         PERMANENTLY (a DECISION, not a pending measurement) — the
-                         semantic blends never won a regime across iter-3→iter-7
-                         (iter-7 receipt 2026-07-07T01-00-52, English: lexical mean
-                         rel 0.770 vs semantic-lexical 0.466, lexical wins 4/5; iter-6
-                         zh-TW: 0.332 vs 0.100). RETIRED from the default READ path —
-                         diagnostic/opt-in only; do NOT re-measure without a NEW
-                         corpus or regime (10× vault / different embedding model). The
-                         graph layer is the structure signal. Keep semantic blends as
-                         explicit opt-in for known paraphrase / cross-lingual probes.
   --folder <name>        Restrict seed search to folder (default: Zettelkasten)
   --vault <path>         Absolute path to the vault
   --vault-dir <name>     Vault folder name under cwd (default: vault)
@@ -104,16 +88,11 @@ export const zkAskCommand = {
     const maxNoteTokens = parsed.maxNoteTokens ?? 2000;
     const noRefine = !!parsed.noRefine;
     const folder = parsed.folder;
-    const blendRaw = String(parsed.blend ?? "default");
-    const blend: BlendMode =
-      blendRaw === "three-way" ? "three-way"
-      : blendRaw === "semantic-lexical" ? "semantic-lexical"
-      : "default";
 
-    const task = buildRagTask(query, depth, topK, summarize, retrieveOnly, maxNeighbors, maxNoteTokens, noRefine, folder, blend);
+    const task = buildRagTask(query, depth, topK, summarize, retrieveOnly, maxNeighbors, maxNoteTokens, noRefine, folder);
     applyVaultEnv(parsed);
     await runAgentSession(parsed, {
-      tools: parsed.tools ?? ragToolsFor(blend),
+      tools: parsed.tools ?? [...RAG_TOOLS],
       task,
       labelName: "zk-ask",
     });

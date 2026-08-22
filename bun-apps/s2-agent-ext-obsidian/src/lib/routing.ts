@@ -107,7 +107,7 @@ export function obsidianRoutingDescription(): string {
 	return (
 		"Vault I/O + search + knowledge workflows. One tool with an `action` parameter " +
 		"selecting the operation (list/read/create/append/append_section/search/" +
-		"semantic_search/query/move/rename/update_frontmatter/delete/invalidate/open/" +
+		"query/move/rename/update_frontmatter/delete/invalidate/open/" +
 		"distill/garden/status). All other parameters are action-specific. " +
 		"Per-action details → obsidian_help."
 	);
@@ -145,11 +145,6 @@ export function obsidianActionReferenceText(): string {
 		"  Full-text (substring/regex/words/fuzzy) + graph queries (backlinks/outgoing/orphans/",
 		"  dead-links/neighbors). Returns file:line snippets. #-prefixed query = tag search.",
 		"  Per-mode semantics → obsidian_search_help.",
-		"",
-		"semantic_search (vector similarity)",
-		"  Params: query (required), vault_name?, limit?, similarity_threshold?,",
-		"  include_tags?, exclude_tags?.",
-		"  Meaning-based retrieval via vault-mind ChromaDB. Gracefully errors if unreachable.",
 		"",
 		"query (metadata/tags/dates)",
 		"  Params: tags?, anyTags?, folder?, createdAfter?, createdBefore?, max?.",

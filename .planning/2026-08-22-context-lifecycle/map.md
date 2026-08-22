@@ -52,6 +52,11 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   `defaultEmbedder`, `DefaultEmbedderOptions`, graceful-degrade) is THE shared leaf since
   polish-L2 (2026-08-17). kcard's embedding cache `<vault>/.knowledge-semantic/<model>.json`
   is keyed BY MODEL → switching canonical model is a new cache file, not a migration.
+- **vault-mind retirement measured (ticket 02, 2026-08-22).** Agent schema 22568 → 22235
+  tok (−333; obsidian fat tool 156→148, zk_ask 762→437 after its `blend` param died with
+  the semantic modes). kcard 4-tool total 2367 → 2019 tok, regression ceiling re-baselined
+  ≤2220. Obsidian is hermetic again; zk-ask is lexical+graph only (the retired modes never
+  won a regime — iter-6/7 receipts); `retrieval-quality-self-improve.js` retired with them.
 - **OpenViking** (`/Users/huangziyu/proj/OpenViking`, Volcengine, AGPLv3, browsed 2026-08-22)
   is the pattern donor: L0/L1/L2 tier ladder + per-category quotas + breadth-first-then-depth
   budget with demote-not-truncate; RecallLedger cross-turn cooldown with the
@@ -66,7 +71,7 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
 
 Phase P0 — infra unification & hermes triage
 - `tickets/01-canonical-embed-bge-m3.md` — task, **closed 2026-08-22** — one canonical embed endpoint/model
-- `tickets/02-vault-mind-retirement.md` — task, **open** — delete `semantic_search` + VAULT_MIND
+- `tickets/02-vault-mind-retirement.md` — task, **closed 2026-08-22** — delete `semantic_search` + VAULT_MIND
 - `tickets/03-hermes-fold-capture-only.md` — task, **open** — retire dead recall surface (risky)
 - `tickets/04-recall-audit-script.md` — task, **open** — committed audit harness + post-fold baseline
 
@@ -117,10 +122,11 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/02-vault-mind-retirement.md` — ticket 01 (canonical embed) closed 2026-08-22;
-the next workable ticket is 02 because it is independent of hermes's fold (03) and removes
-a whole external service from the runtime path while shrinking the obsidian schema cost —
-the P0 unification completes fastest with it next.
+`tickets/03-hermes-fold-capture-only.md` — tickets 01 (canonical embed) and 02
+(vault-mind retirement) closed 2026-08-22; the next workable ticket is 03 (hermes fold to
+capture-only journal): the P0 unification's last removal, justified by the measured 0/20
+recall audit, and its census step also sweeps the semantic-surface references ticket 02's
+kcard surgery touched from the other side.
 
 ## Fog of war
 

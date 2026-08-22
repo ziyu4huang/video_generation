@@ -1,6 +1,6 @@
 # s2-agent-ext-obsidian
 
-The ubiquitous language of s2-agent-ext-obsidian — tools to read, write, search, and graph a project-local Obsidian vault, plus optional semantic (vector) search and subagent-driven distill/garden operations. Otherwise hermetic: filesystem only, no network except the opt-in semantic service.
+The ubiquitous language of s2-agent-ext-obsidian — tools to read, write, search, and graph a project-local Obsidian vault, plus subagent-driven distill/garden operations. Fully hermetic: filesystem only, no network.
 
 ## Language
 
@@ -25,12 +25,8 @@ _Avoid_: error, fallback (it is graceful fallthrough with a surfaced warning)
 ### Retrieval
 
 **Lexical search** (`obsidian_search`):
-The default full-text retrieval — substring / regex / words / fuzzy, plus field/folder filters, relevance/recency sort, context snippets, and graph queries. The hermetic path.
-_Avoid_: search, text search (distinguish from the semantic mode)
-
-**Semantic search** (`obsidian_semantic_search`):
-Optional meaning-based (vector) retrieval via an external vault-mind ChromaDB service — finds cards whose wording differs from the query but is conceptually on-point. The only `obsidian_*` tool that makes an HTTP call; returns a structured `isError` when absent so the agent falls back to lexical.
-_Avoid_: vector search, embedding search (name the capability, not the mechanism)
+The default — and, since the vault-mind retirement (2026-08-22), the only — full-text retrieval: substring / regex / words / fuzzy, plus field/folder filters, relevance/recency sort, context snippets, and graph queries. Semantic retrieval over knowledge cards lives in `s2-agent-ext-knowledge-card`'s `knowledge_query`, not here.
+_Avoid_: text search, semantic search (the vector mode is retired; name the lexical capability)
 
 **Trigram index** (C5):
 The substring pre-filter that backs `obsidian_search` substring mode only (regex/words/fuzzy are full-scan by design — a literal-substring pre-filter is sound; the others aren't).
