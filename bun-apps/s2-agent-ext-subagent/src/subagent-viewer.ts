@@ -51,7 +51,10 @@ export interface SubagentRun {
   agent?: string;
   model: string;
   taskPreview: string;
-  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted" | "detached";
+  /** "running" appears on a background dispatch's immediate-return transcript
+   *  entry (spawn_subagent background:true) — the run was live when the parent
+   *  turn moved on; completion lands in run-persistence, not the transcript. */
+  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted" | "detached" | "running";
   elapsedMs: number;
   /** Wall-clock dispatch start, epoch ms (for timestamp display); absent on legacy branch entries. */
   startedAt?: number;

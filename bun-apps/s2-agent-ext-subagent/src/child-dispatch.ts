@@ -104,7 +104,9 @@ export interface ChildDispatchDeps {
 
 export interface ChildDispatchOutcome {
   result: SpawnSubagentResult;
-  status: SubagentToolDetails["status"];
+  /** Never "running" — that status exists only on the background dispatch's
+   * immediate-return details; a completed dispatch is always terminal. */
+  status: Exclude<SubagentToolDetails["status"], "running">;
   /** True only for a per-child abort — a whole-turn Esc is NOT a user abort. */
   userAborted: boolean;
   /** The model that actually ran, else the requested display string. */

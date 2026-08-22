@@ -257,8 +257,9 @@ export interface RunRecordCtx {
 /** Per-path delta. Optional fields are omitted from the record when absent
  *  (matching the original literals' key sets; JSON-equivalent on serialize). */
 /** Durable-record statuses only — "detached" (Task 05) writes no completed
- * record in the parent, so the durable union excludes it. */
-export type DurableRunStatus = Exclude<SubagentToolDetails["status"], "detached">;
+ * record in the parent, and "running" (background dispatch) is the immediate
+ * return's status, not a completion — the durable union excludes both. */
+export type DurableRunStatus = Exclude<SubagentToolDetails["status"], "detached" | "running">;
 
 export interface RunRecordDelta {
   /** Durable-record statuses only — "detached" is excluded by design (Task 05):

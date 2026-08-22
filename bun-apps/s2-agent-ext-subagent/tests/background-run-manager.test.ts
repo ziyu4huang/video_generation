@@ -85,4 +85,12 @@ describe("BackgroundRunManager", () => {
     process.env.SUBAGENT_MAX_BACKGROUND = "not-a-number";
     expect(backgroundCap()).toBe(4);
   });
+  test("release frees a claimed slot without completion (claim→track failure path)", () => {
+    process.env.SUBAGENT_MAX_BACKGROUND = "1";
+    const m = new BackgroundRunManager();
+    expect(m.claim("x").ok).toBe(true);
+    expect(m.claim("y").ok).toBe(false);
+    m.release("x");
+    expect(m.claim("z").ok).toBe(true, "released slot is claimable again");
+  });
 });

@@ -23,7 +23,21 @@ export interface BackgroundRunSpec {
   startedAt: number;
 }
 
-export type BackgroundRunStatus = "done" | "failed" | "timedout" | "budget" | "turns" | "aborted" | "running";
+/**
+ * `detached` is included because a background-from-birth run can still be
+ * detached to an OS subprocess mid-flight (Task 05 Ctrl-B) — the tracked
+ * in-process portion then resolves with that status and the notification
+ * reports it as-is rather than coercing it.
+ */
+export type BackgroundRunStatus =
+  | "done"
+  | "failed"
+  | "timedout"
+  | "budget"
+  | "turns"
+  | "aborted"
+  | "detached"
+  | "running";
 
 export interface BackgroundRunOutcome {
   status: BackgroundRunStatus;
@@ -109,6 +123,16 @@ export class BackgroundRunManager {
 
   runningIds(): string[] {
     return [...this.runs.keys()];
+  }
+
+  /**
+   * Free a claimed slot WITHOUT a completion — the claim→track failure path in
+   * the tool's background branch only (anything throwing between a successful
+   * claim() and track() would otherwise leak the slot and permanently shrink
+   * the cap). Normal completions release via track's finally.
+   */
+  release(id: string): void {
+    this.runs.delete(id);
   }
 }
 

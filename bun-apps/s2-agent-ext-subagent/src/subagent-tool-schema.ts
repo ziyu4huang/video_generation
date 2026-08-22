@@ -19,6 +19,7 @@ import type {
 } from "@repo/s2-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
+import type { BackgroundRunManager } from "./background-run-manager.js";
 import type { GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 
@@ -56,7 +57,7 @@ export interface SubagentToolDetails {
    * sit beside it and were derivable from it; old records carrying them stay
    * valid (an extra key on a parsed object is inert).
    */
-  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted" | "detached";
+  status: "done" | "failed" | "timedout" | "budget" | "turns" | "aborted" | "detached" | "running";
   /** Real token/cost usage from the child session, when reported. */
   usage?: AgentUsage;
   /** Budget block — exhaustion fields on the abort path, `warning` on the completed ≥80% path (see {@link SubagentBudgetDetails}). */
@@ -227,6 +228,12 @@ export const subagentToolSchema = Type.Object({
         "Max repair re-prompts when the child returns prose instead of structured_output (default 2). Bump for models that emit structured output unreliably.",
     }),
   ),
+  background: Type.Optional(
+    Type.Boolean({
+      description:
+        "Dispatch to background: returns immediately with the run id; the run continues in-process and a <task-notification> follow-up message reports completion. Poll/block via list_subagent_runs action 'wait'; stop via action 'stop'.",
+    }),
+  ),
 });
 
 export interface SubagentToolOptions {
@@ -270,6 +277,8 @@ export interface SubagentToolOptions {
   persistence?: SubagentRunPersistence;
   /** Injectable git-scope ops for tests (defaults to realGitOps). */
   gitOps?: GitScopeOps;
+  /** Background roster/notification manager. Defaults to the module singleton. */
+  background?: BackgroundRunManager;
 }
 
 /** Minimal pre-flight check: a JSON-Schema-shaped object needs at least a `type` field. */
