@@ -62,9 +62,8 @@ Phase 1 — foundation (P1)
 - `tickets/01-live-agent-foundation.md` — closed 2026-08-22 (PR #1809 → main 6147264,
   closed by #1810) — live-agent registry + persistent agent runner + `name` param +
   doctrine rewrite + ADR-subagent-0008
-- `tickets/02-send-message-surface.md` — in-review 2026-08-22 (branch
-  feat/subagent-teams-parity-02-send-message) — `send_message` tool, name/agentId
-  routing, `to:"main"` broker bus
+- `tickets/02-send-message-surface.md` — closed 2026-08-22 (PR #1818 → main
+  351fc22e) — `send_message` tool, name/agentId routing, `to:"main"` broker bus
 
 Phase 2 — shared state (P2)
 - `tickets/03-shared-task-list.md` — task — `task_create/get/list/update` over a
