@@ -5,6 +5,7 @@
  * `diff(prev, next)` stamps AT MOST ONE pending line per tick (latest wins):
  *  - prev non-terminal → next terminal  → "✓ <actor> <status> · <elapsed>s · <latestAction>"
  *  - prev foreground:true → next foreground:false → "detached → background · <actor>"
+ *  - first appearance with background:true → "dispatched → background · <actor>"
  * The bell rings exactly once per stamped line. `take()` returns pending lines
  * and CLEARS them, so a line shows for exactly one render tick (fade rule).
  *
@@ -37,6 +38,8 @@ export class SubagentNotify {
 				line = `✓ ${n.actor} ${n.status} · ${secs}s${action}`;
 			} else if (p?.foreground === true && n.foreground === false) {
 				line = `detached → background · ${n.actor}`;
+			} else if (!p && n.background === true) {
+				line = `dispatched → background · ${n.actor}`;
 			}
 		}
 		if (line !== undefined) {
