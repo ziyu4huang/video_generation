@@ -63,6 +63,7 @@ function fakeSpawnLive(registry: LiveAgentRegistry) {
 function fakeHandle() {
   return {
     status: "idle" as const,
+    send: async () => ({ output: "" }),
     touch: () => {},
     dispose: () => {},
   };

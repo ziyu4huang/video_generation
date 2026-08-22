@@ -123,7 +123,7 @@ export const subagentToolSchema = Type.Object({
   name: Type.Optional(
     Type.String({
       description:
-        "Keep this agent LIVE after it reports back: its session survives completion so you can send follow-up messages later by this handle. Unique among live agents; 'main' reserved. Budgets apply over the agent's whole lifetime, not per dispatch. Incompatible with schema/worktree isolation; no transient retry.",
+        "Keep this agent LIVE after it reports back: its session survives completion so you can send follow-up messages later by this handle via send_message (steers a mid-flight agent, re-prompts an idle one; 'main' addresses the parent). Unique among live agents; 'main' reserved. Budgets apply over the agent's whole lifetime, not per dispatch. Incompatible with schema/worktree isolation; no transient retry.",
     }),
   ),
   agentType: Type.Optional(

@@ -116,15 +116,25 @@ export class BackgroundRunManager {
         }),
       )
       .then((outcome) => {
-        try {
-          this.deliverer?.(formatTaskNotification(spec, outcome));
-        } catch {
-          // silent by design — the run is already persisted; no retry
-        }
+        this.notify(spec, outcome);
       })
       .finally(() => {
         this.runs.delete(spec.id);
       });
+  }
+
+  /**
+   * Deliver one task-notification WITHOUT a roster claim/track — the
+   * send_message `wait:false` completion path (ticket 02): the exchange is
+   * owned by the live agent, not a background slot. Best-effort and silent,
+   * same contract as track's delivery.
+   */
+  notify(spec: BackgroundRunSpec, outcome: BackgroundRunOutcome): void {
+    try {
+      this.deliverer?.(formatTaskNotification(spec, outcome));
+    } catch {
+      // silent by design — no retry
+    }
   }
 
   runningIds(): string[] {
