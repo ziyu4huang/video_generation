@@ -5,6 +5,7 @@ import {
   getLiveAgentRegistry,
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
+  getTeamTaskStore,
   setTransientModelTierConfig,
 } from "@repo/s2-agent-core-runtime";
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
@@ -14,11 +15,13 @@ import {
   createSubagentRunsTool,
   createSubagentsTool,
   createSubagentTool,
+  createTaskTools,
   dispatchCtrlB,
   GLOBAL_DETACH_KEY,
   getBackgroundRunManager,
   getParentMessageBus,
   makeProdDetachDeps,
+  TASK_BOARD_SESSION_ID,
   wireBackgroundDeliverer,
   wireParentMessageDeliverer,
 } from "../src/index.js";
@@ -130,11 +133,26 @@ export default function extension(pi: ExtensionAPI) {
   // send_message — follow-up messaging for named live agents (ticket 02):
   // parent-side routing over the live registry + child-side to:"main" over the
   // bus wired above. Reaches children automatically through the parent tools
-  // captured at session_start (extensionTools bridge). Registered LAST so the
-  // workflow gate family's grouped-names order (pinned by tool-gate tests)
-  // reads spawn → batch → follow-up.
+  // captured at session_start (extensionTools bridge). Registration order is
+  // load-bearing: the workflow gate family's grouped-names order (pinned by
+  // tool-gate tests) reads spawn → batch → follow-up → task_create/get/list/
+  // update (the task tools below register after this one).
   const sendMessageTool = createSendMessageTool({ liveRegistry, bus: getParentMessageBus() });
   pi.registerTool(sendMessageTool);
+
+  // Shared team task board (ticket 03): task_create/get/list/update over the
+  // session-scoped in-memory TeamTaskStore. Thin adapters in src/task-tools.ts;
+  // every rule lives in core-runtime. They reach spawn children and workflow
+  // agents through the SAME extensionTools bridge captured at session_start
+  // (parent-side registration only, D9) — and read-only children keep them
+  // (task updates mutate the board, never the filesystem, so they stay out of
+  // READ_ONLY_EXCLUDED).
+  const taskTools = createTaskTools();
+  // registerTool is generic over ONE schema; the four per-schema defs cannot
+  // unify into a single inference, so pass each through registerTool's own
+  // parameter type — the same registration an individual factory would get.
+  for (const tool of taskTools) pi.registerTool(tool as Parameters<typeof pi.registerTool>[0]);
+  const teamTaskStore = getTeamTaskStore();
 
   // /subagents — list running + past subagent runs and view their output.
   // Self-contained: reads the local in-flight registry this extension owns.
@@ -187,9 +205,13 @@ export default function extension(pi: ExtensionAPI) {
   const activateSubagentTools = () => {
     try {
       const active = pi.getActiveTools();
-      const missing = [subagentTool.name, subagentRunsTool.name, subagentsTool.name, sendMessageTool.name].filter(
-        (nm) => !Array.isArray(active) || !active.includes(nm),
-      );
+      const missing = [
+        subagentTool.name,
+        subagentRunsTool.name,
+        subagentsTool.name,
+        sendMessageTool.name,
+        ...taskTools.map((t) => t.name),
+      ].filter((nm) => !Array.isArray(active) || !active.includes(nm));
       if (missing.length) {
         pi.setActiveTools([...(Array.isArray(active) ? active : []), ...missing]);
       }
@@ -208,6 +230,9 @@ export default function extension(pi: ExtensionAPI) {
     // starting or switching a session resets tier routing to the file/built-in
     // config. (Also covers the initial session — a no-op clear.)
     setTransientModelTierConfig(null);
+    // The team task board is session-scoped by design (ticket 03): a new
+    // session starts with an empty board, never the previous one's leftovers.
+    teamTaskStore.reset(TASK_BOARD_SESSION_ID);
     // The always-on subagent-context box (aboveEditor widget + Ctrl-O
     // \x0f onTerminalInput byte-sniff) was retired in Task 04 of the CC-style
     // subagent TUI plan; its unique collapsed-view behavior (latestMessageLine
@@ -234,5 +259,8 @@ export default function extension(pi: ExtensionAPI) {
   // parent session at a time.
   pi.on("session_shutdown", () => {
     liveRegistry.disposeFor("*");
+    // The team board dies with the session too (ticket 03): in-memory by
+    // design, "*" scope — one parent session per process.
+    teamTaskStore.drop(TASK_BOARD_SESSION_ID);
   });
 }

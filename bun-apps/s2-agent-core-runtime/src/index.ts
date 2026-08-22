@@ -219,6 +219,22 @@ export {
   subagentHomeDir,
   subagentRunsDir,
 } from "./subagent-run-persistence.js";
+// Session-scoped shared task board (agent-teams parity ticket 03): one
+// in-memory store per parent sessionId, shared by the parent, spawn children,
+// and workflow agents through this barrel (shared module identity).
+export type {
+  TeamTask,
+  TeamTaskCreateInput,
+  TeamTaskError,
+  TeamTaskStatus,
+  TeamTaskUpdatePatch,
+} from "./team-task-store.js";
+export {
+  __resetTeamTaskStoreForTests,
+  getTeamTaskStore,
+  isTeamTaskError,
+  TeamTaskStore,
+} from "./team-task-store.js";
 
 export type { ToolActionContext } from "./tool-action-label.js";
 export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";

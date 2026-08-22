@@ -1,6 +1,6 @@
 ---
 name: self-reflect-next-goal
-description: Use when a mutating session or goal arc is closing (PR merged, deploy shipped, milestone verified, session ending) or when planning the next piece of work and deciding what to pick up — the rolling next-goal files record what shipped and what comes next.
+description: Use when a mutating session or goal arc is closing (PR merged, deploy shipped, milestone verified, session ending), when planning the next piece of work, or when the user triggers "hands on (next goal)" — execute the rolling next-goal file's Immediate steps end-to-end through its done-when gate.
 ---
 
 # Self-Reflect + Next Goal
@@ -60,6 +60,35 @@ the symlink is missing (older checkout), fall back to the newest
 never active. Carry forward any still-open goal from the newest file into the
 new one you write — fold it into the ranked list, don't silently drop it.
 
+## EXECUTE ("hands on next goal")
+
+The user's trigger phrase **"hands on next goal"** (or plain "hands on") means:
+execute the head of the queue end-to-end, this session — not just plan it.
+
+1. Read `output/LATEST-next-goal.md` (the symlink; fall back to the newest
+   `next-goal-*.md` if it is missing). If the file says decisions are
+   pre-approved / "do not re-litigate", honor that — execute, don't re-decide.
+2. Carry out its **Immediate steps** in order: branch prep via the devops
+   chain, implementation, tests, canonical gates — exactly as written unless a
+   step is factually impossible (then surface the blocker, don't improvise a
+   different design).
+3. Stop only when every box in **Done when** is checked. Report honestly which
+   boxes are verified vs still open.
+4. Close out per the file's own instructions (usually: reviewer pass, PR via
+   the devops chain, ticket/map close-out), then WRITE the successor file and
+   re-point the `LATEST-next-goal.md` symlink at it.
+
+Not for: a "hands on" that names a DIFFERENT artifact (read what it points at
+instead). If `LATEST-next-goal.md` is absent or dangling, say so and ask before
+picking a goal yourself.
+
+## LATEST symlink
+
+`output/LATEST-next-goal.md` → the newest `next-goal-<ts>.md`. Re-point it
+(`ln -sf`) every time a new file is written — EXECUTE reads the symlink, so a
+stale pointer executes the wrong goal. The symlink lives in gitignored
+`output/`; it is a per-machine convenience, never committed.
+
 ## Honest reflection rules
 
 - Separate **verified** (deterministic or empirical evidence) from **argued**
@@ -78,3 +107,4 @@ new one you write — fold it into the ranked list, don't silently drop it.
 | Dropping an unfinished prior goal | Fold it into the new ranked list |
 | Off-pattern filename (`_` separator, ISO timestamp, made-up time) | Only `next-goal-YYYYMMDD-HHMMSS.md` from real `date` output sorts correctly |
 | Writing the file but not repointing `LATEST-next-goal.md` | Step 4 of WRITE — a stale pointer hands the next session the WRONG goal |
+| "Hands on" treated as "plan the goal" | It means EXECUTE through the done-when gate |
