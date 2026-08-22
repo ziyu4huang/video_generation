@@ -85,8 +85,10 @@ export async function extractWithGeminiWeb(
 	const activityId = activityMonitor.logStart({ type: "api", query: `gemini_web: ${url}` });
 
 	try {
+		// No explicit model: queryWithCookies resolves the central google tier
+		// via defaultGeminiWebModel() ("gemini-3-flash-preview" here was never a
+		// web-bucket id and was silently normalised away anyway).
 		const text = await queryWithCookies(EXTRACTION_PROMPT + url, cookies, {
-			model: "gemini-3-flash-preview",
 			signal,
 			timeoutMs: 60000,
 		});

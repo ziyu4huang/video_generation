@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { type CookieMap, getGoogleCookies } from "./chrome-cookies.ts";
+import { centralTierModelFor } from "./central-tier.ts";
 import { getChromeProfileFromConfig, isBrowserCookieAccessAllowed, normalizeChromeProfile } from "./gemini-web-config.ts";
 
 const GEMINI_APP_URL = "https://gemini.google.com/app";
@@ -23,6 +24,16 @@ const MODEL_HEADERS: Record<string, string> = {
 
 /** The header for the model every caller falls back to. */
 const DEFAULT_MODEL_HEADER = MODEL_HEADERS["gemini-2.5-flash"] as string;
+const DEFAULT_WEB_MODEL = "gemini-2.5-flash";
+
+/** Default Gemini Web model: the central tiers.medium id when it points at the
+ *  google family AND has a known web header bucket, else the historical
+ *  DEFAULT_WEB_MODEL. A non-google tier — or a google id without a web bucket —
+ *  must NOT silently become a Gemini Web model. */
+export function defaultGeminiWebModel(): string {
+	const central = centralTierModelFor(["google"]);
+	return central && MODEL_HEADERS[central] ? central : DEFAULT_WEB_MODEL;
+}
 
 const REQUIRED_COOKIES = ["__Secure-1PSID", "__Secure-1PSIDTS"];
 
@@ -79,7 +90,7 @@ export async function queryWithCookies(
 	cookieMap: CookieMap,
 	options: GeminiWebOptions = {},
 ): Promise<string> {
-	const model = options.model && MODEL_HEADERS[options.model] ? options.model : "gemini-2.5-flash";
+	const model = options.model && MODEL_HEADERS[options.model] ? options.model : defaultGeminiWebModel();
 	const timeoutMs = options.timeoutMs ?? 120000;
 
 	let fullPrompt = prompt;
@@ -89,8 +100,8 @@ export async function queryWithCookies(
 
 	const result = await runGeminiWebOnce(fullPrompt, cookieMap, model, options.files, timeoutMs, options.signal);
 
-	if (isModelUnavailable(result.errorCode) && model !== "gemini-2.5-flash") {
-		const fallback = await runGeminiWebOnce(fullPrompt, cookieMap, "gemini-2.5-flash", options.files, timeoutMs, options.signal);
+	if (isModelUnavailable(result.errorCode) && model !== DEFAULT_WEB_MODEL) {
+		const fallback = await runGeminiWebOnce(fullPrompt, cookieMap, DEFAULT_WEB_MODEL, options.files, timeoutMs, options.signal);
 		if (fallback.errorMessage) throw new Error(fallback.errorMessage);
 		if (!fallback.text) throw new Error("Gemini Web returned empty response (fallback model)");
 		return fallback.text;

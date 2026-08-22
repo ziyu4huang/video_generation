@@ -346,8 +346,10 @@ async function searchWithGeminiWeb(query: string, options: SearchOptions = {}): 
 	const activityId = activityMonitor.logStart({ type: "api", query });
 
 	try {
+		// No explicit model: queryWithCookies resolves the central google tier
+		// via defaultGeminiWebModel() ("gemini-3-flash-preview" here was never a
+		// web-bucket id and was silently normalised away anyway).
 		const text = await queryWithCookies(prompt, cookies, {
-			model: "gemini-3-flash-preview",
 			signal: options.signal,
 			timeoutMs: 60000,
 		});
