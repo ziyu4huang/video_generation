@@ -192,10 +192,10 @@ export interface MemoryConfig {
   // configure the embedding model + KNN query. Registered in DEFAULT_CONFIG +
   // the parse allowlist from day one (#06 config-gap lesson).
   /** LM Studio embedding model id (the card_vectors index is keyed by
-   *  embedModelVersion so a swap re-embeds). Default: nomic-embed-text-v1.5. */
+   *  embedModelVersion so a swap re-embeds). Default: text-embedding-bge-m3. */
   embedModel?: string;
   /** Stable model-lineage tag in the card_vectors delta-key (distinct from
-   *  embedModel which is the endpoint id). Default: "nomic-embed-text-v1.5". */
+   *  embedModel which is the endpoint id). Default: "bge-m3+es1". */
   embedModelVersion?: string;
   /** LM Studio base URL serving the embedding model. Default: http://127.0.0.1:1234. */
   lmStudioBaseUrl?: string;

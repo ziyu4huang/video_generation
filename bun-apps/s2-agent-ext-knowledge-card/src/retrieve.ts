@@ -131,7 +131,7 @@ export interface RetrieveOptions {
 	 *  slug IS the filename, so no extra file read. Default false = unchanged. */
 	slugDom?: boolean;
 	/** Opt-in semantic (embedding) blend (recall-regime-change-eval, 2026-07-12).
-	 *  When true AND a local embedding model (nomic-embed-text via LM Studio) is
+	 *  When true AND a local embedding model (canonical bge-m3 via LM Studio) is
 	 *  available, the lexical top-12 pool is UNION'd with a semantic top-12
 	 *  (cosine over precomputed card embeddings) and reranked by
 	 *  Î±Â·(lexical rank norm) + (1-Î±)Â·(cosine min-max norm). Bridges symptomâcause
@@ -148,7 +148,7 @@ export interface RetrieveOptions {
 	/** Blend weight Î± (lexical) in [0,1]; semantic weight = 1-Î±. Default 0.18
 	 *  (center of the measured 1.00 band). */
 	semanticAlpha?: number;
-	/** Embedding model id (default text-embedding-nomic-embed-text-v1.5). */
+	/** Embedding model id (default text-embedding-bge-m3, D3 2026-08-22). */
 	semanticModel?: string;
 	/** INTERNAL test hook: inject a deterministic embedder so the semantic blend
 	 *  can be unit-tested without a live LM Studio. When set, the availability

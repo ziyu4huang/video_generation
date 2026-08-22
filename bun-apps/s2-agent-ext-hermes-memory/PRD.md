@@ -44,6 +44,11 @@ Decision — Vector/search backend: SurrealDB PRIMARY, SQLite fallback (Round 2 
 - SUPERSEDES Ticket 04's "sqlite-vec FALLBACK" — sqlite-vec is dropped.
 - Embed model UNCHANGED this round: text-embedding-nomic-embed-text-v1.5 (768-dim) via LM Studio.
 - OPEN (not addressed this round): embed-bench shows nomic is fastest but bge-m3 has higher recall@1 (0.909 vs 0.864) — model pick may be revisited in a later fork.
+- RESOLVED 2026-08-22 (D3, effort `.planning/2026-08-22-context-lifecycle/` ticket 01): the
+  canonical model is now `text-embedding-bge-m3` on LM Studio :1234, resolved solely in
+  `@repo/s2-agent-core-interface` `resolveSemanticEmbedConfig` — the embed-bench recall@1
+  edge (0.909 vs 0.864) plus the Traditional-Chinese vault settled the fork in bge-m3's
+  favor. Eval re-baseline gate: ticket 07 (nomic = recorded fallback).
 
 ## Decision: Embed index build policy — lazy + background backfill (2026-08-09)
 

@@ -65,7 +65,7 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
 ## Tickets
 
 Phase P0 — infra unification & hermes triage
-- `tickets/01-canonical-embed-bge-m3.md` — task, **open** — one canonical embed endpoint/model
+- `tickets/01-canonical-embed-bge-m3.md` — task, **closed 2026-08-22** — one canonical embed endpoint/model
 - `tickets/02-vault-mind-retirement.md` — task, **open** — delete `semantic_search` + VAULT_MIND
 - `tickets/03-hermes-fold-capture-only.md` — task, **open** — retire dead recall surface (risky)
 - `tickets/04-recall-audit-script.md` — task, **open** — committed audit harness + post-fold baseline
@@ -117,10 +117,10 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/01-canonical-embed-bge-m3.md` — it is first because everything downstream measures
-against the canonical embedder: the hit@4 re-baseline (07), the gray-zone thresholds (13),
-and the A/B harness (15) all cite its numbers. It is also the smallest ticket and de-risks
-the D3 bet immediately.
+`tickets/02-vault-mind-retirement.md` — ticket 01 (canonical embed) closed 2026-08-22;
+the next workable ticket is 02 because it is independent of hermes's fold (03) and removes
+a whole external service from the runtime path while shrinking the obsidian schema cost —
+the P0 unification completes fastest with it next.
 
 ## Fog of war
 
@@ -130,8 +130,10 @@ the D3 bet immediately.
   ticket 11 opens with a probe; zk_card provenance works even if turn_end doesn't.
 - One-time re-embed burst when card `summary:` backfill touches every card (mtime
   fingerprint) — measure in ticket 05, expected bounded by corpus size.
-- BGE-M3 vs nomic head-to-head on THIS vault never measured — D3 is reasoned (CJK), not yet
-  measured; ticket 15's A/B settles it and D3 flips back if the eval gate fails.
+- BGE-M3 vs nomic head-to-head: the hermes embed-bench already measured bge-m3 recall@1
+  0.909 vs nomic 0.864 (hermes PRD; surfaced when ticket 01 landed) — supportive of D3 but
+  on a different corpus; ticket 15's A/B on the real eval set is still the deciding receipt,
+  and D3 flips back if ticket 07's gate fails.
 - Hermes fold blast radius (tools/tests referencing the semantic surface) — census is ticket
   03's first step, not charted here.
 - End-task effect of injection is unknown by construction — retrieval hit@k measures

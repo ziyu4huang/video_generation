@@ -23,7 +23,8 @@ export {
 // embedder/cosine/fence-split primitive shared across the knowledge layer,
 // replacing the deliberate mirrors in hermes-memory and zk.
 export {
-  SEMANTIC_MODEL_DEFAULT, type Embedder, type DefaultEmbedderOptions,
+  SEMANTIC_MODEL_DEFAULT, SEMANTIC_EMBED_BASE_DEFAULT, resolveSemanticEmbedConfig,
+  type Embedder, type DefaultEmbedderOptions,
   defaultEmbedder, lmStudioAvailable, type EmbedQueryOptions, embedQuery,
   cosine, splitFencedYaml,
 } from "./embedding-leaf.js";

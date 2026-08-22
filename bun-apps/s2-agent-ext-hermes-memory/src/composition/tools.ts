@@ -63,7 +63,7 @@ export function registerTools(
 			embedFn: async (texts: string[]) =>
 				defaultEmbedder({ baseUrl: config.lmStudioBaseUrl ?? "http://127.0.0.1:1234" })(
 					texts,
-					"text-embedding-nomic-embed-text-v1.5",
+					config.embedModel ?? "text-embedding-bge-m3",
 				),
 		},
 	});

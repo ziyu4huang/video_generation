@@ -10,7 +10,7 @@ Reply language: force-controlled by `responseLanguage` in `~/.pi/agent/settings.
 
 - **MLX pipeline** — `python/mlx-movie-director/run.py` (Z-Image / Flux2 Klein / Lens / LTX-2.3 / SeedVR2, native MLX)
 - **Bun GUI** — `bun-apps/gui-movie-director`: `( cd bun-apps/gui-movie-director && bun run dev )`; per-worktree port via `bun run gui:port`; kill stuck server `lsof -ti :<port> | xargs kill -9`; fresh clone `bash scripts/setup.sh`
-- **Embedding server** — `swift/embed-mlx-server` (Swift MLX, BGE-M3, OpenAI-compatible `/v1/embeddings`); LaunchAgent on port 8090 — busy port or stray embed process → `scripts/embed-mlx-server-service.sh status` first
+- **Embedding (knowledge layer)** — canonical = LM Studio `http://127.0.0.1:1234` model `text-embedding-bge-m3` (D3, `.planning/2026-08-22-context-lifecycle/`); resolved ONLY in `bun-apps/s2-agent-core-interface/src/embedding-leaf.ts` (`resolveSemanticEmbedConfig`; env overrides `SEMANTIC_EMBED_BASE`/`SEMANTIC_EMBED_MODEL`, legacy `LMSTUDIO_BASE_URL` baseUrl alias). Fallback endpoint: `swift/embed-mlx-server` BGE-M3 on :8090 (its `/v1/models` 404s but `/v1/embeddings` works); LaunchAgent — busy port or stray embed process → `scripts/embed-mlx-server-service.sh status` first
 - **MLX models** — `mlx-models/` (override `MLX_MODELS_DIR` / `--models-dir`); external binary store `../video_generation__models/` lives outside the repo
 
 ## Repo mechanics

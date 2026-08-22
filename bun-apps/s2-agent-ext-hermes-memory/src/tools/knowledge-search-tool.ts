@@ -49,7 +49,7 @@ export interface KnowledgeSemanticOpts {
   vectorStore?: () => VectorStore | undefined;
   /** Lazy embedder (returns undefined when LM Studio is unavailable). */
   embedder?: () => Embedder | undefined;
-  /** Embedding model id (default nomic-embed-text-v1.5). */
+  /** Embedding model id (default text-embedding-bge-m3, D3 2026-08-22). */
   model?: string;
   /** HNSW exploration factor (default from config / 100). */
   ef?: number;

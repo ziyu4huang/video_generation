@@ -84,16 +84,19 @@ export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
 // (sqlite-vec is not loadable under Bun — Decision 04 Fork C). These knobs
 // configure the embedding model + the KNN query. The #06 config-gap lesson is
 // baked in: all five are registered in DEFAULT_CONFIG AND the parse allowlist.
-/** Default embedding model served by LM Studio (nomic-embed-text-v1.5, 768-dim).
- *  Matches zk's SEMANTIC_MODEL_DEFAULT so a shared index is drop-in compatible. */
-export const DEFAULT_EMBED_MODEL = "text-embedding-nomic-embed-text-v1.5";
+/** Default embedding model served by LM Studio — the canonical bge-m3 pick
+ *  (D3, effort 2026-08-22-context-lifecycle; Traditional-Chinese vault, the
+ *  nomic default was MiniLM-class CJK-weak). Aliases zk's
+ *  SEMANTIC_MODEL_DEFAULT so a shared index is drop-in compatible. */
+export const DEFAULT_EMBED_MODEL = "text-embedding-bge-m3";
 /** A short, stable model tag used as the delta-key on card_vectors rows so a
  *  model swap re-embeds (the old rows are left in place; missingMdIds surfaces
  *  the cold set for the new tag). Distinct from embedModel (which is the LM
  *  Studio endpoint id) — this is the human-readable lineage tag.
  *  es1 = entity-summary augmented embed lineage (seam entityAugment leaf):
- *  the bump re-embeds the corpus once with entity-summary augmented texts. */
-export const DEFAULT_EMBED_MODEL_VERSION = "nomic-embed-text-v1.5+es1";
+ *  the bump re-embeds the corpus once with entity-summary augmented texts.
+ *  bge3 = the D3 canonical-model swap (nomic → bge-m3). */
+export const DEFAULT_EMBED_MODEL_VERSION = "bge-m3+es1";
 /** Default LM Studio base URL (serves the embedding model + bge-m3 + qwen3). */
 export const DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234";
 /** Default K for the HNSW KNN query (top-K nearest neighbors). */

@@ -9,8 +9,33 @@
  */
 import { parse as parseYaml } from "yaml";
 
-/** The default embedding model id served by LM Studio (768-dim). */
-export const SEMANTIC_MODEL_DEFAULT = "text-embedding-nomic-embed-text-v1.5";
+/** The canonical embedding model id served by LM Studio (D3, effort
+ *  2026-08-22-context-lifecycle): `text-embedding-bge-m3` — the vault is
+ *  Traditional Chinese and MiniLM-class models (the prior nomic default) are
+ *  CJK-weak. The kcard semantic cache is model-keyed, so the swap is a new
+ *  cache file, not a migration. Recorded fallback if the eval gate
+ *  (ticket 07) loses: `text-embedding-nomic-embed-text-v1.5`. */
+export const SEMANTIC_MODEL_DEFAULT = "text-embedding-bge-m3";
+
+/** Canonical embedding endpoint: LM Studio (also serves the local chat
+ *  models). The Swift `embed-mlx-server` on :8090 is the documented fallback
+ *  endpoint via `SEMANTIC_EMBED_BASE` (probe 2026-08-22: its `/v1/models` is
+ *  404 but `/v1/embeddings` works). */
+export const SEMANTIC_EMBED_BASE_DEFAULT = "http://127.0.0.1:1234";
+
+/** The single resolution point for which embedding endpoint + model the
+ *  knowledge layer uses (D3). Env precedence: `SEMANTIC_EMBED_MODEL` /
+ *  `SEMANTIC_EMBED_BASE` win; `LMSTUDIO_BASE_URL` is honored as a legacy
+ *  baseUrl alias (kcard read it before this leaf centralized resolution).
+ *  Never throws — a blank/unset env falls through to the defaults. */
+export function resolveSemanticEmbedConfig(env: Record<string, string | undefined> = process.env): {
+	baseUrl: string;
+	model: string;
+} {
+	const base = env.SEMANTIC_EMBED_BASE?.trim() || env.LMSTUDIO_BASE_URL?.trim() || SEMANTIC_EMBED_BASE_DEFAULT;
+	const model = env.SEMANTIC_EMBED_MODEL?.trim() || SEMANTIC_MODEL_DEFAULT;
+	return { baseUrl: base, model };
+}
 
 /** Injectable embedder: texts → vectors. Default hits LM Studio; tests pass a
  *  deterministic mock. */
