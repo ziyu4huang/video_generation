@@ -21,6 +21,11 @@
  *   - `--mode full|rebase|pull`  sync mode (default: full)
  *   - `--dry-run`                plan only: emit the exact git commands, zero
  *                                mutating spawns (read-only queries still run)
+ *   - `--branch <name|auto>`     rebase/pull only — detached-HEAD recovery:
+ *                                create (or attach) this branch at the current
+ *                                HEAD instead of aborting detached_head.
+ *                                `auto` derives the name from the worktree
+ *                                folder suffix (video_generation__x → x).
  *   - `--force`                  full-mode only: reset --hard (discards divergent
  *                                commits on the default branch — opt-in)
  *   - `--preserve <path>`        repeatable; overrides the default preserve list
@@ -47,7 +52,8 @@ export type SyncCliResult = CliResult;
 
 export const SYNC_CLI_USAGE = [
 	"usage: sync-default-branch-cli.ts [--mode full|rebase|pull] [--dry-run] [--force]",
-	"                    [--preserve <path>]... [--preserve-strict] [--repo-root <path>]",
+	"                    [--branch <name|auto>] [--preserve <path>]... [--preserve-strict]",
+	"                    [--repo-root <path>]",
 	"",
 	"Runs the sync_default_branch recipe (fetch → advance default branch / rebase / pull,",
 	"worktree-aware, submodule sync in full mode) and prints the structured",
@@ -56,6 +62,9 @@ export const SYNC_CLI_USAGE = [
 	"Options:",
 	"  --mode <m>          full (default) | rebase | pull",
 	"  --dry-run           emit the planned git commands, mutate nothing",
+	"  --branch <name>     rebase/pull + detached HEAD only: create/attach this",
+	"                      branch at the current HEAD instead of aborting",
+	"                      ('auto' derives it from the worktree folder suffix)",
 	"  --force             full-mode only: reset --hard (discards divergent commits)",
 	"  --preserve <path>   repeatable; preserve-listed dirty path (default:",
 	"                      " + DEFAULT_PRESERVE_PATHS.join(", ") + ")",
@@ -71,6 +80,7 @@ export interface ParsedSyncArgs {
 	mode: SyncMode;
 	dryRun: boolean;
 	force: boolean;
+	branch?: string;
 	preserve: string[] | undefined;
 	repoRoot?: string;
 }
@@ -80,6 +90,7 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 	let mode: SyncMode = "full";
 	let dryRun = false;
 	let force = false;
+	let branch: string | undefined;
 	let preserve: string[] | undefined = undefined;
 	let strict = false;
 	let repoRoot: string | undefined;
@@ -90,6 +101,12 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 			dryRun = true;
 		} else if (a === "--force") {
 			force = true;
+		} else if (a === "--branch") {
+			const v = argv[++i];
+			if (v === undefined || v === "") {
+				return { ok: false, message: "--branch needs a name value (or 'auto')" };
+			}
+			branch = v;
 		} else if (a === "--preserve-strict") {
 			strict = true;
 		} else if (a === "--mode") {
@@ -121,7 +138,7 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 
 	// --preserve-strict overrides any explicit --preserve (explicit [] semantics).
 	if (strict) preserve = [];
-	return { ok: true, args: { mode, dryRun, force, preserve, repoRoot } };
+	return { ok: true, args: { mode, dryRun, force, branch, preserve, repoRoot } };
 }
 
 /**
@@ -141,7 +158,7 @@ export async function runSyncCli(
 		}
 		return { exitCode: 2, stdout: "", stderr: `${parsed.message}\n${SYNC_CLI_USAGE}` };
 	}
-	const { mode, dryRun, force, preserve } = parsed.args;
+	const { mode, dryRun, force, branch, preserve } = parsed.args;
 	const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
@@ -150,7 +167,7 @@ export async function runSyncCli(
 	const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));
 	const client = deps.client ?? createBranchClient(spawn, remoteName);
 
-	const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun, force, preserve, remoteName });
+	const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun, force, branch, preserve, remoteName });
 	return { exitCode: outcome.aborted ? 1 : 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 }
 
