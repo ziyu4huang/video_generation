@@ -411,6 +411,9 @@ export function createSubagentTool(
                   output: abortedText,
                   usage: result.usage,
                   salvage,
+                  // Stamps the record as a background-from-birth completion
+                  // (stop lands here too — an aborted background run).
+                  background: background || undefined,
                 },
               ),
             );
@@ -505,6 +508,9 @@ export function createSubagentTool(
                 scopeCheck: details.scopeCheck,
                 watchdog: watchdogResult,
                 salvage,
+                // Stamps the record as a background-from-birth completion;
+                // omitted (undefined) on foreground records.
+                background: background || undefined,
               },
             ),
           );

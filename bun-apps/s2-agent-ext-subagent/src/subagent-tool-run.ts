@@ -277,6 +277,10 @@ export interface RunRecordDelta {
   scopeCheck?: SubagentScopeCheck;
   watchdog?: WatchdogResult;
   salvage?: SubagentSalvage;
+  /** True when the dispatch ran in the background from birth (spawn_subagent
+   *  `background:true`) — stamps the durable record's `background` field;
+   *  omitted on foreground records. */
+  background?: true;
 }
 
 /** Unifies the two persistence.save literals (aborted L897–914 + normal L994–1017). */
@@ -309,6 +313,7 @@ export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): Subage
   if (delta.scopeCheck !== undefined) rec.scopeCheck = delta.scopeCheck;
   if (delta.watchdog !== undefined) rec.watchdog = delta.watchdog;
   if (delta.salvage !== undefined) rec.salvage = delta.salvage;
+  if (delta.background !== undefined) rec.background = delta.background;
   return rec;
 }
 

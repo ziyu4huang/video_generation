@@ -204,6 +204,29 @@ test("buildRunRecord: normal path includes the extra fields", () => {
   assert.equal(rec.output, "ok");
 });
 
+test("buildRunRecord: background delta stamps background:true; omitted otherwise", () => {
+  const ctx = {
+    toolCallId: "call-1",
+    agent: "impl",
+    task: "do thing",
+    model: "m1",
+    requestedModel: undefined,
+    fellBack: false,
+    tier: undefined,
+    runCwd: "/r",
+    t0: 1_700_000_000_000,
+    elapsedMs: 100,
+  };
+  // background:true (a background-from-birth completion) lands on the record;
+  // a foreground delta omits the key entirely (backward-compatible: old
+  // records without it parse unchanged — optional field, no shim).
+  const bg = buildRunRecord(ctx, { status: "done", output: "ok", background: true });
+  assert.equal(bg.background, true);
+  assert.ok("background" in bg);
+  const fg = buildRunRecord(ctx, { status: "done", output: "ok" });
+  assert.equal("background" in fg, false, "foreground record omits the key (not just undefined)");
+});
+
 test("buildDetails: matches the original normal details shape", () => {
   const result = {
     usage: { input: 1 },

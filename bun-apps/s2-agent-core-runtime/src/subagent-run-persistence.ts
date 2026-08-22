@@ -109,6 +109,13 @@ export interface SubagentRunRecord {
    * without it parse unchanged.
    */
   salvage?: SubagentSalvage;
+  /**
+   * True when the dispatch ran in the background from birth (spawn_subagent
+   * `background:true`) — the record is the completion of an un-awaited run.
+   * Absent on foreground records; old records without it parse unchanged
+   * (optional field, no migration needed).
+   */
+  background?: true;
 }
 
 export type SubagentFsLayer = {
