@@ -322,7 +322,7 @@ Verify the skill resolves the pinned dep on this machine (hermetic — no browse
 launch):
 
 ```bash
-bash skills/playwright-cli/scripts/smoke.sh
+bun skills/playwright-cli/scripts/smoke.ts
 ```
 
 First-time setup inside a *target project* (the app under test, not this

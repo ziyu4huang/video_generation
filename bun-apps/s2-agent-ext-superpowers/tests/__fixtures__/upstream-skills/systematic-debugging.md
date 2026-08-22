@@ -265,8 +265,8 @@ loops against env vars so credentials stay in the environment.
 7. **Property / fuzz loop.** 1000 random inputs, watch for the failure mode.
 8. **Bisection harness.** Automate "boot at state X, check, repeat" for `git bisect run`.
 9. **Differential loop.** Same input through old vs new version; diff outputs.
-10. **HITL bash script.** Last resort — drive the human with
-    `scripts/hitl-loop.template.sh` so the loop stays structured.
+10. **HITL script.** Last resort — drive the human with
+    `scripts/hitl-loop.template.ts` so the loop stays structured.
 
 ### Tighten the loop
 

@@ -114,10 +114,22 @@ baselined: 2026-07-26
 #   re-apply the pipeline v2 structure onto new upstream material only if it
 #   is still relevant, and record it here.
 
-fixtures-digest: sha256:f6a1acca8ed4f99993e040439f4c9fa33ea45d39b0f69c32b64354b7892bf9e5
+# LOCAL-DIVERGENCES addendum (2026-08-23, portable-bun wave 2 task 5 of
+#   .planning/2026-08-23-portable-bun-scripts/): systematic-debugging ONE
+#   sanctioned reference edit — the HITL signal item now points at
+#   `scripts/hitl-loop.template.ts` because the .sh was converted to a Bun
+#   twin and deleted (same dir, same "copied, never executed" semantics; the
+#   template is a copy source for human-in-the-loop reproduction loops). An
+#   upstream re-sync must NOT restore the ../.sh path — re-apply the Bun twin
+#   reference onto any new upstream body, or accept upstream text and record it
+#   here. Divergence row: `systematic-debugging | scripts/hitl-loop.template.ts`.
+
+fixtures-digest: sha256:dcb561534ee2226fc35c9718b2b7b8323fb9cde8f4210281f81fe8d5580ddbae
 
 divergence: systematic-debugging | Verify before claiming success
 divergence: dispatching-parallel-agents | run_workflow
+
+divergence: systematic-debugging | scripts/hitl-loop.template.ts
 
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
@@ -146,3 +158,4 @@ divergence: dispatching-parallel-agents | run_workflow
 #   2026-08-21 — ticket 08 land (amended): delete verification-before-completion skill + fixture; cut brainstorming visual-companion.md + scripts/ (-1,739); keep spec-document-reviewer-prompt.md; systematic-debugging pointer line divergence (sha256:f3064cecb113…)
 #   2026-08-21 — ticket 04 (2026-08-21-harness-streamline): seed machine-readable divergence rows for the known local divergences (sha256:f3064cecb113…)
 #   2026-08-22 — 2026-08-22 — workflow→ultracode package rename (PR #1791): dispatching-parallel-agents references renamed repo sample paths (bun-apps/s2-agent-ext-ultracode/samples/*) (sha256:f6a1acca8ed4…)
+#   2026-08-23 — portable-bun wave 2 task 5: hitl-loop.template.sh deleted, SKILL.md HITL item now points at scripts/hitl-loop.template.ts (bun twin copy source) (sha256:dcb561534ee2…)

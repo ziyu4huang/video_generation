@@ -40,7 +40,7 @@ tests/                # skills / skills-fidelity / bootstrap / skill-exclude / b
 
 ## Upstream sync
 
-`scripts/update-superpowers.sh` syncs `skills/` from the **Claude plugin cache** (`~/.claude-glm/plugins/cache/...`) — the canonical release artifact matching what Claude Code users receive. The upstream git origin `obra/superpowers` (checked out at `../superpowers/` in this monorepo's parent) is **reference-only** — for reading upstream, never a sync source. Re-syncing is manual and guarded by `tests/skills-fidelity.test.ts` (ADR-0004); see `tests/__fixtures__/upstream-skills/UPSTREAM.ref` for provenance.
+`scripts/update-superpowers.ts` (bun) syncs `skills/` from the **Claude plugin cache** (`~/.claude-glm/plugins/cache/...`) — the canonical release artifact matching what Claude Code users receive. The upstream git origin `obra/superpowers` (checked out at `../superpowers/` in this monorepo's parent) is **reference-only** — for reading upstream, never a sync source. Re-syncing is manual and guarded by `tests/skills-fidelity.test.ts` (ADR-0004); see `tests/__fixtures__/upstream-skills/UPSTREAM.ref` for provenance.
 
 ## Develop
 
