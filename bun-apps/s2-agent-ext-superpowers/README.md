@@ -31,11 +31,11 @@ No slash commands, no coordination globals — Superpowers is skill-driven, not 
 ## Layout
 
 ```
-extensions/superpowers.ts   # thin Pi entry — delegates to src/index.ts
-src/index.ts          # default factory (re-export)
+extensions/superpowers.ts   # thin Pi entry — calls src/superpowers.ts directly
+src/index.ts          # named-export barrel (package main; for tests)
 src/superpowers.ts    # discovery + bootstrap logic (port of upstream .pi/extensions/superpowers.ts)
 skills/               # 14 skills: 13 pinned upstream ports + repo-native dispatch-recovery (assets — excluded from biome)
-tests/                # skills.test.ts (Pi-loader rules) + bootstrap.test.ts (wiring)
+tests/                # skills / skills-fidelity / bootstrap / skill-exclude / binary-mode / sdd-workspace / references / artifact-leak + entry self-gate
 ```
 
 ## Upstream sync

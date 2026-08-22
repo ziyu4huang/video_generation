@@ -129,3 +129,13 @@ drift to be cleaned on the next upstream re-sync:
   137 lines; `src/effort-tool.ts` 376 lines; no `src/architecture-render.ts`,
   no `vendor/`, no `architecture*` scripts in wayfind's `package.json`; greps
   for deleted skill names hit only `ask-matt`'s redirect table.
+
+## Amendments
+
+- **2026-08-22 — §3 re-export shims removed.** The transitional re-exports
+  (`effort-tool.ts` → `renderValidate`/`renderStatus`/`renderList`;
+  `commands.ts` → `endGrillForSession`/`renderWayfindHelp`/`resolveWayfindEffortId`)
+  existed so "importers and tests kept resolving" during the split. By removal
+  time every production importer already targeted the owning module; the shims'
+  last consumers were tests. Import sites updated; the module split itself is
+  unchanged.

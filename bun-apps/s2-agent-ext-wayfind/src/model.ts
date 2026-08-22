@@ -11,11 +11,6 @@ import { join } from "node:path";
 
 import { parseMapBody } from "./markdown.js";
 
-// Re-export so importers of model.ts (map.ts, tests, and this file's own
-// parseTicketFile) are unaffected by the parser's move to the fs-free
-// markdown.ts core. (architecture-deepening #2 — unify section parsers.)
-export { parseMapBody };
-
 export type TicketType = "research" | "prototype" | "grilling" | "task";
 export type TicketStatus = "open" | "closed";
 
@@ -299,7 +294,7 @@ export function validateEffortMap(map: WayfindMap, folderEffort?: string): { ok:
 // ─── pure helpers ────────────────────────────────────────────────────────────
 
 /** Today's date as `YYYY-MM-DD` in LOCAL time — the ONE source of truth for
- *  every wayfind date stamp (effort folder prefix via datePrefix, manifest
+ *  every wayfind date stamp (effort folder prefix via effortSlug, manifest
  *  `created`, and the `last:` touch). Local — not UTC — so "today's effort"
  *  tracks the user's own day, and the folder name + manifest `created` (both
  *  derived from this) can never diverge across the UTC day boundary. `now` is

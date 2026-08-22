@@ -1,6 +1,6 @@
 # s2-agent-ext-superpowers
 
-The ubiquitous language of s2-agent-ext-superpowers — a Pi-native port of the Superpowers (Primer Radiant) software-development methodology: 15 skills — 14 ported from upstream (byte-pinned, with sanctioned local divergences) and 1 repo-owned, wrapped in this package's own Pi extension (CSO skill discovery + `using-superpowers` bootstrap). This context records the port's own vocabulary — the pin/bootstrap model, pipeline stages, and artifact-home rules — not the upstream skill bodies (those are pinned, see ADR-superpowers-0004).
+The ubiquitous language of s2-agent-ext-superpowers — a Pi-native port of the Superpowers (Primer Radiant) software-development methodology: 14 skills — 13 ported from upstream (byte-pinned, with sanctioned local divergences) and 1 repo-owned, wrapped in this package's own Pi extension (CSO skill discovery + `using-superpowers` bootstrap). This context records the port's own vocabulary — the pin/bootstrap model, pipeline stages, and artifact-home rules — not the upstream skill bodies (those are pinned, see ADR-superpowers-0004).
 
 ## Language
 

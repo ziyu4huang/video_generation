@@ -20,8 +20,9 @@
  * helpers in help.ts, keyword tables in keywords.ts). This module owns only
  * routing: the two `pi.registerCommand` blocks, the ambiguous-phrase guard,
  * the banner logic, and the `--` force-chart escape — each guard lives once
- * here, never duplicated per-handler. Public surface re-exported below so
- * index.ts and tests keep importing from "./commands.js".
+ * here, never duplicated per-handler. No re-exports: import handlers and
+ * helpers from their own modules (the former re-export shims were removed
+ * 2026-08-22 — their last consumers were tests).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -32,9 +33,6 @@ import { NO_BANNER_KEYWORDS, WAYFIND_KEYWORDS } from "./commands/keywords.js";
 import { makeWayfindHandlers } from "./commands/wayfind-handlers.js";
 import type { WayfindOverlay } from "./overlay.js";
 import { getSessionId, type RuntimeState } from "./state.js";
-
-export { endGrillForSession } from "./commands/grill-handlers.js";
-export { renderWayfindHelp, resolveWayfindEffortId } from "./commands/help.js";
 
 export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay: WayfindOverlay): void {
   const grill = makeGrillHandlers(pi, state, overlay);
@@ -108,28 +106,28 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       }
       const [first, ...rest] = trimmed.split(/\s+/);
       const remainder = rest.join(" ");
-      if (first && WAYFIND_KEYWORDS.has(first)) {
-        switch (first) {
-          case "status":
-            return wayfind.status(remainder, ctx);
-          case "spec":
-            return wayfind.spec(remainder, ctx);
-          case "tickets":
-            return wayfind.tickets(remainder, ctx);
-          case "seed":
-            return wayfind.seed(remainder, ctx);
-          case "sync":
-            return wayfind.sync(remainder, ctx);
-          case "done":
-            return wayfind.done(remainder, ctx);
-          case "validate":
-            return wayfind.validate(remainder, ctx);
-          case "statusbar":
-            return wayfind.statusbar(remainder, ctx);
-          case "help":
-          case "usage":
-            return wayfind.help(remainder, ctx);
-        }
+      // Exhaustive over WAYFIND_KEYWORDS; any other first token falls through
+      // to chart (bare /wayfind included — `first` is "" there).
+      switch (first) {
+        case "status":
+          return wayfind.status(remainder, ctx);
+        case "spec":
+          return wayfind.spec(remainder, ctx);
+        case "tickets":
+          return wayfind.tickets(remainder, ctx);
+        case "seed":
+          return wayfind.seed(remainder, ctx);
+        case "sync":
+          return wayfind.sync(remainder, ctx);
+        case "done":
+          return wayfind.done(remainder, ctx);
+        case "validate":
+          return wayfind.validate(remainder, ctx);
+        case "statusbar":
+          return wayfind.statusbar(remainder, ctx);
+        case "help":
+        case "usage":
+          return wayfind.help(remainder, ctx);
       }
       return wayfind.chart(trimmed, ctx);
     },

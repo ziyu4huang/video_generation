@@ -4,24 +4,17 @@
  *  under `Resolution` / `Section` / `Notes`. Kept fs-free so it can be imported
  *  by both the fs-free model.ts and the import-light grill.ts. */
 
-/** Parse a `## Section`-delimited body into a map of section→text. Sections
- *  without a heading (preamble) land under key "". Body trimmed; last section
- *  wins on duplicate keys. (Verbatim body of the former model.ts parseMapBody.) */
-export function parseMapBody(md: string): Record<string, string> {
-  return parseSections(md);
-}
-
 /** Extract the body of a named `## Section` (text between this heading and the
  *  next `## ` or EOF). Returns "" when absent. Lenient: a suffixed heading
- *  like `## Decisions (draft)` resolves to `Decisions`. (Replaces grill.ts's
- *  former strict inline copy — strictness was incidental; no caller relied on
- *  it rejecting suffixed headings.) */
+ *  like `## Decisions (draft)` resolves to `Decisions`. */
 export function extractSection(md: string, heading: string): string {
-  return parseSections(md)[heading] ?? "";
+  return parseMapBody(md)[heading] ?? "";
 }
 
-/** Private core. Do not export. */
-function parseSections(md: string): Record<string, string> {
+/** Parse a `## Section`-delimited body into a map of section→text. Sections
+ *  without a heading (preamble) land under key "". Body trimmed; last section
+ *  wins on duplicate keys. */
+export function parseMapBody(md: string): Record<string, string> {
   const sections: Record<string, string> = {};
   const lines = md.split(/\r?\n/);
   let current = "";

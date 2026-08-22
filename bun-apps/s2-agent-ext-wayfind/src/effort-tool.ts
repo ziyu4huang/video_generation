@@ -29,9 +29,8 @@ import { renderCreate, renderList, renderSearch, renderStatus, renderValidate } 
 import { readMap, writeFreshMap } from "./map.js";
 import { computeFrontier, type EffortMeta, type TicketStatus, validateEffortMap } from "./model.js";
 
-// Renderer re-exports (plan Task 10): the renderers live in effort-render.ts;
-// re-exported here so commands/wayfind-handlers.ts and tests keep resolving.
-export { renderList, renderStatus, renderValidate } from "./effort-render.js";
+// Renderers live in effort-render.ts (ADR-wayfind-0007 §3); the re-export shim
+// that used to live here was removed 2026-08-22 — import from effort-render.js.
 
 // ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
 // wayfind_effort is planning-status inventory, on-demand (the reflective
