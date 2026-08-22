@@ -59,9 +59,11 @@ and session-live cron scheduling for workflows.
 ## Tickets
 
 Phase 1 — foundation (P1)
-- `tickets/01-live-agent-foundation.md` — task — live-agent registry + persistent
-  agent runner + `name` param + doctrine rewrite + ADR
-- `tickets/02-send-message-surface.md` — task — `send_message` tool, name/agentId
+- `tickets/01-live-agent-foundation.md` — closed 2026-08-22 (PR #1809 → main 6147264,
+  closed by #1810) — live-agent registry + persistent agent runner + `name` param +
+  doctrine rewrite + ADR-subagent-0008
+- `tickets/02-send-message-surface.md` — in-review 2026-08-22 (branch
+  feat/subagent-teams-parity-02-send-message) — `send_message` tool, name/agentId
   routing, `to:"main"` broker bus
 
 Phase 2 — shared state (P2)
@@ -110,19 +112,23 @@ Phase 4 — ultracode gaps (P4)
 
 ## Frontier
 
-`tickets/01-live-agent-foundation.md` first — every other ticket addresses or messages
-through the live-agent registry it creates, and it carries the CONTEXT.md doctrine
-rewrite that legitimizes the rest.
+`tickets/03-shared-task-list.md` — tickets 01-02 shipped the addressability layer
+(registry + follow-up messaging); the shared task board is the next workable ticket
+because it needs only that layer plus a new in-memory store, no protocol machinery
+(tickets 04-05) or ultracode surfaces (tickets 06-08).
 
 ## Fog of war
 
-- `steer()` semantics under a parent awaiting the same child's exchange (deadlock
-  surface — ticket 02 must test it, expected fine since loops are distinct).
-- Memory footprint of N live in-process sessions under the LRU cap — unmeasured until
-  ticket 01's smoke run.
-- Whether `steer()` to a running child whose dispatch is awaited inside `dispatchChild`
-  resolves the awaited tool call early or only at exchange end — ticket 01 tests pin
-  this.
+- ~~steer() deadlock surface under an awaiting parent~~ — resolved ticket 02:
+  in-process loops are distinct; send_message to a running agent steers and returns
+  immediately (tests/send-message-tool.test.ts t4, t6).
+- ~~whether steer() resolves the awaited dispatch early~~ — resolved ticket 01:
+  the awaited tool call resolves at exchange end; the steer only joins the queue
+  (persistent-agent tests + ADR-subagent-0008).
+- Memory footprint of N live in-process sessions under the LRU cap — STILL unmeasured;
+  the TUI smoke of tickets 01-02 has not run in a live session (no live-session
+  environment during either ticket). First `name:` + `send_message` use should
+  confirm addressability, `/subagents` display, and rough memory.
 - Cron `lastMissed` surfacing (ticket 08 optional polish) — undecided.
 
 ## Cross-effort links
