@@ -164,12 +164,14 @@ Tickets 01 and 02 are its prerequisites and should be worked as one unit with it
 
 ## Fog of war
 
-- **P2 (title overflow) is a shared, unfixed defect and it lands on all seven templates.**
-  Every shipped template sets `chrome: true`, inheriting the fixed-height title band that
-  `.planning/2026-08-21-archify-deck-visual-fidelity` measured being struck through by the
-  theme rule on composed slide 4. `deck-lint`'s length rule passed that slide, so the guard
-  is known-miscalibrated. This effort does **not** fix it (D7) and does not re-decide it.
-  Sequencing recommendation is in `spec.md` §6.
+- **P2 (title overflow) was a shared, unfixed defect landing on all seven templates —
+  FIXED 2026-08-22 by the visual-fidelity effort (ticket 02), before any template here was
+  built.** Every shipped template sets `chrome: true`, inheriting the fixed-height title
+  band; the fix left `TITLE_BAND` numerically unchanged and added a build gate: a template
+  sample deck carrying an over-budget title refuses to build, so author titles against
+  `textEms()` (see that effort's Frontier post-mortem — three root causes, all a number
+  crossing a boundary in the wrong unit). D7 stands: nothing was absorbed, P1–P3 all live
+  in `pptx-shapes.ts` and are closed.
 - **Whether `stack` + `repeat` alone reach `timeline`.** A timeline wants a connector rule
   spanning the full row *behind* evenly spaced stations — expressible as a sibling `box` in
   the parent region, but only if `repeat` cells and their parent can be addressed in the same
@@ -197,12 +199,13 @@ Tickets 01 and 02 are its prerequisites and should be worked as one unit with it
   naming `kpi`/`timeline`/`matrix`/`comparison` as the unbuilt second round is **this
   effort's charter**; its claim that "none needs a change to the seam" is **confirmed and
   extended** — none needs a change to the seam, and none needs to be code either.
-- **Shares-decision-with**: `.planning/2026-08-21-archify-deck-visual-fidelity` — its open
-  P2 (action title overflows fixed chrome) is inherited unfixed by all seven templates here
-  (D7). Its D1 "the renderer sees, it never gates" is respected: every gate added by this
-  effort is renderer-free. Neither effort blocks the other in code, but P2's fix changes the
-  chrome geometry all seven templates sit under, so landing that effort's Phase 1 first
-  avoids re-baselining seven goldens.
+- **Shares-decision-with**: `.planning/2026-08-21-archify-deck-visual-fidelity` — its P2
+  (action title overflows fixed chrome) once landed unfixed on all seven templates here;
+  **it was fixed 2026-08-22 (ticket 02) before any template here was built**, leaving the
+  chrome geometry unchanged and adding a title-wrap build gate the template library will
+  inherit. Its D1 "the renderer sees, it never gates" is respected: every gate added by
+  this effort is renderer-free. Neither effort blocks the other; its Phase 1 is now fully
+  closed (P1–P3), with only P4 attribution and the render seam (ticket 05) open.
 - **Shares-decision-with**: `.planning/2026-08-21-archify-view-pptx-bun` — its zero-browser
   and ShapeIR decisions stand unchanged; D5 here adds the first new drawing primitive since,
   and re-verified the zero-blip property against it rather than assuming it.

@@ -71,7 +71,15 @@ The suite is 401 passing, `ooxml-lint` reports 0 diagnostics on both example dec
 - **P3 — SVG node text clips and wraps wrongly.** `SYS.1/2 需求來源` renders clipped;
   the connector label `系統需求` breaks as `系統需 / 求`. This is the known `wrap: false` +
   `fontSize * 0.62 * length * 1.35` Latin advance estimate in `lib/pptx-shapes.ts`, now with
-  a picture attached.
+  a picture attached. **FIXED 2026-08-22 (ticket 03).** Measured across all 137 labels of
+  `examples/deck/`: the old formula over-reserved Latin/mixed 1.07–1.68× and under-reserved
+  **every** pure-CJK label at 0.837× — `系統需求` got 3.35 em for a 4.00 em string, which is
+  precisely why it broke at the third character. Reservation now routes through ticket 02's
+  `textEms()` + a 1.15 headroom (upper bound, because not every renderer honours
+  `wrap="none"`); `wrap: false` kept. Receipt:
+  `receipts/archify-node-text-advance-2026-08-22.md`. Closing it also surfaced the East
+  Asian Ambiguous glyph gap in the model — measured and corrected same day
+  (`receipts/archify-ambiguous-advance-2026-08-22.md`).
 - **P4 — a `split` slide's diagram sits small and low in its column.** Large dead space above
   it. **Attribution not established** — it may be correct uniform-scale-and-centre applied to
   an artifact bounding box that itself includes the legend row and empty canvas. Ticket 04
@@ -94,7 +102,8 @@ Phase 1 — the defects, each with a renderer-free assertion
   out-of-range `roundRect` adjustment, NOT fill semantics; see its `## Resolution`
 - `tickets/02-title-overflow.md` — task, **closed 2026-08-22** — wrap budget in ems, at
   error severity; the chrome geometry is unchanged. See its `## Resolution`
-- `tickets/03-node-text-advance.md` — task, open — CJK-aware advance, or a real text box
+- `tickets/03-node-text-advance.md` — task, **closed 2026-08-22** — reservation routed
+  through `textEms()` + 1.15 headroom, `wrap: false` kept; see its `## Resolution`
 - `tickets/04-split-diagram-fit.md` — task, open — establish attribution, then fit
 
 Phase 2 — seeing it, portably
@@ -125,20 +134,29 @@ Phase 2 — seeing it, portably
 
 ## Frontier
 
-`tickets/03-node-text-advance.md` — P3. With P1 and P2 closed it is the last defect whose
-*attribution is already established*: `lib/pptx-shapes.ts` places diagram labels with
-`wrap: false` and a `fontSize * 0.62 * length * 1.35` Latin advance estimate, and applies it
-to CJK. P4 still needs an attribution step before it can be worked, so P3 goes first.
+`tickets/04-split-diagram-fit.md` — P4. With P1–P3 closed it is the last defect, and the
+only one whose **attribution is not yet established**: the diagram may be correctly
+uniform-scaled-and-centred against an artifact bounding box that itself includes the legend
+row and empty canvas. The ticket's first move is measurement, not a fix — and its
+attribution step now covers three sightings, not one:
 
-P3 is also cheaper now than when it was written, because ticket 02 built the thing it needs:
-`lib/text-extent.ts` already answers "how wide does this string set" with CJK-aware buckets
-measured on this machine, and P3's estimate is the same question with a worse answer.
-Whether P3's remedy is to route through `textEms()` or to give node labels a real wrapping
-text box is still open — the second is a larger change to the D3-locked diagram path.
+- the original: a `split` slide's diagram sits small and low in its column;
+- the legacy deck's slide 3 (full-width `diagram`, not `split`) renders its diagram low
+  with a large empty band above — so the cause is probably not `split`-specific;
+- **slide 3's `DETAIL · ~64 個` overlaps `HWE.2` vertically** — seen in both the pre-P3 and
+  post-P3 renders, so pre-existing and NOT a P3 regression; it is plausibly the same
+  mis-scaled bounding box pushing content into occupied space, but that is exactly what the
+  attribution step must decide, not assume.
 
-Tickets 01 and 02 both closed 2026-08-22, and both root causes turned out to differ from
-what `spec.md` predicted in the same way: a number crossing a library or format boundary in
-the wrong unit.
+Only after attribution does the ticket choose a fix. Ticket 05 (the portable render seam)
+follows: with three sightings to compare before/after, the case for a reusable
+`pptx → N images` seam is stronger than when the effort opened.
+
+All three closed tickets (01, 02, 03) share one post-mortem pattern: the root cause was a
+number crossing a library or format boundary in the wrong unit — a fraction where a length
+was wanted, a character count where an em was wanted, a Latin advance where an ideograph's
+was wanted. P4's attribution step should look for a fourth instance of the same shape
+before inventing a new one.
 
 ## Fog of war
 
@@ -157,8 +175,10 @@ the wrong unit.
   and a future preset with a wider legal range would false-positive. Cheap to fix when it
   happens; wrong to generalise speculatively now.
 - **P4 may not be `split`-specific.** The legacy deck's slide 3 — a full-width `diagram`
-  layout, not `split` — also renders its diagram low with a large empty band above. Ticket 04
-  should widen its attribution step to both layouts before proposing a fix.
+  layout, not `split` — also renders its diagram low with a large empty band above, and its
+  `DETAIL · ~64 個` overlaps `HWE.2` vertically (present before AND after ticket 03's fix,
+  so pre-existing and not a P3 regression). Ticket 04's attribution step was widened
+  2026-08-22 to all three sightings before proposing a fix.
 - **LibreOffice fidelity and cost** are entirely unmeasured — not installed here. It is
   possible its OOXML fidelity differs enough from Apple's that the two backends disagree on
   what a slide looks like. That would not break D1 (nothing gates on either) but it would
