@@ -65,6 +65,13 @@ export interface ChildDispatchRequest {
    * scope means "flag any commit", which is the `git add -A` sweep signal.
    */
   scope?: { declared?: string[]; runCwd: string; spawnCwd: string };
+  /**
+   * Background-from-birth dispatch (spawn_subagent `background:true`): the registry
+   * entry registers foreground:false + background:true so the dock/notify/viewer
+   * pick it up, and the caller passes NO parentSignal (turn-abort decoupling —
+   * see ADR-subagent-0007). Foreground callers omit it; behavior unchanged.
+   */
+  background?: boolean;
   /** Parent turn signal; fanned into the child controller so a whole-turn Esc propagates. */
   parentSignal?: AbortSignal;
 }
@@ -174,8 +181,10 @@ export async function dispatchChild(
     batchId: entry.batchId,
     abort: () => childAc.abort(),
     // Rendered inline by the owning tool's own call/result line, so the
-    // above-editor context box excludes it (no duplication).
-    foreground: true,
+    // above-editor context box excludes it (no duplication). A background
+    // dispatch is NEVER inline — the dock owns its surface.
+    foreground: !request.background,
+    background: request.background,
   } as Parameters<SubagentInFlightRegistry["start"]>[0]);
   const onDetach = () => {
     detached = true;

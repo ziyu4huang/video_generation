@@ -295,6 +295,38 @@ describe("dispatchChild — dispatch gate", () => {
   });
 });
 
+describe("dispatchChild — background dispatch (Task 1)", () => {
+  it("background:true registers foreground:false + background:true on the in-flight entry", async () => {
+    const reg = fakeRegistry();
+    await dispatchChild(req({ background: true }), deps({ inFlight: reg as never }));
+    assert.equal(reg.entry?.foreground, false, "a background dispatch is never inline");
+    assert.equal(reg.entry?.background, true);
+  });
+
+  it("an omitted background keeps the foreground entry unchanged", async () => {
+    const reg = fakeRegistry();
+    await dispatchChild(req(), deps({ inFlight: reg as never }));
+    assert.equal(reg.entry?.foreground, true);
+    assert.equal(reg.entry?.background, undefined);
+  });
+
+  it("a background dispatch passes NO parentSignal yet spawn still gets a live externalSignal", async () => {
+    let childSignal: AbortSignal | undefined;
+    const outcome = await dispatchChild(
+      req({ background: true }),
+      deps({
+        spawn: async (o: SpawnSubagentOptions) => {
+          childSignal = o.externalSignal;
+          return OK;
+        },
+      }),
+    );
+    assert.equal(outcome.result.output, "out");
+    assert.ok(childSignal, "spawn received the per-child signal");
+    assert.equal(childSignal.aborted, false, "no parent signal to fan in — the child signal stays live");
+  });
+});
+
 describe("dispatchChild — detach to background (Task 05)", () => {
   /** Spawn that resolves `aborted` when its external signal fires — mirrors
    *  spawnSubagent's contract once dispatchChild aborts the in-process run. */

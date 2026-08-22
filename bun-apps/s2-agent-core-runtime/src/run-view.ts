@@ -20,6 +20,8 @@ export interface RunView {
   readonly foreground: boolean;
   /** True once the run was detached to background (Task 05). */
   readonly detached?: boolean;
+  /** True when dispatched in the background from birth (see InFlightSubagent.background). */
+  readonly background?: boolean;
   /** The full raw task prompt, when the registering tool supplied one (Task 05
    *  detach manifests). Absent on legacy entries — use taskPreview then. */
   readonly task?: string;
@@ -115,6 +117,7 @@ export function buildRunView(r: RunRecord, now: number): RunView {
     batchId: r.batchId,
     foreground: r.foreground ?? false,
     detached: r.detached,
+    background: r.background,
     task: r.task,
     status,
     actor: r.agent ?? "general-purpose",
@@ -125,7 +128,7 @@ export function buildRunView(r: RunRecord, now: number): RunView {
     latestAction,
     taskPreview: r.taskPreview,
     workIntent: r.workIntent,
-    badgeText: r.fellBack ? "fallback" : undefined,
+    badgeText: r.fellBack ? "fallback" : r.background ? "bg" : undefined,
     abortable: typeof r.abort === "function",
     history,
     startedAt: r.startedAt,
