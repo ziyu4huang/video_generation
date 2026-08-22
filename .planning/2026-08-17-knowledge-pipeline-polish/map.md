@@ -22,3 +22,9 @@ Land the four decided levers from the wayfind map (closed → ../done/2026-08-17
 
 ## Out of scope
 - Per spec: package merging/re-tiering, LOC targets, tool-surface changes, fat-file splits, behavior changes, new dependencies.
+
+## Cross-effort links
+- **Built-on-by**: `.planning/2026-08-22-context-lifecycle` — this effort's L2 leaf-hoist
+  (`s2-agent-core-interface/src/embedding-leaf.ts`) is the single point that effort's D3
+  (canonical BGE-M3) changes; its "zero behavior change" fence is exactly what that
+  effort's D0 (breaking changes allowed in obsidian + knowledge-card) lifts, by user call.
