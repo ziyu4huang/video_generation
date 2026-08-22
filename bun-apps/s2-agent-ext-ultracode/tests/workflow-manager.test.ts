@@ -223,6 +223,42 @@ return { a, b }`;
   }),
 );
 
+// Ticket 06 — ExecOptions.mainModel (manifest.model on the pack `name` path)
+// precedence matrix: script per-agent `model` > exec.mainModel > session mainModel.
+// The persisted agents[].model records displayModel (modelSpec ?? options.mainModel),
+// so a fake agent + the persisted run observes the resolved default per branch.
+test(
+  "ExecOptions.mainModel precedence: script model > exec.mainModel > session mainModel",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent(), mainModel: "session/main-model" });
+
+    // With exec.mainModel set (manifest.model): explicit script model still wins;
+    // the untagged agent resolves to the manifest model, and the persisted exec
+    // carries the field for resume().
+    const withManifest = `export const meta = { name: 'manifest_model', description: 'ticket 06' }
+const a = await agent('explore', { label: 'scan', model: 'openai/gpt-5-mini' })
+const b = await agent('reason', { label: 'judge' })
+return { a, b }`;
+    await manager.runSync(withManifest, undefined, { mainModel: "manifest/declared-model" });
+    let run = manager.listRuns().find((r) => r.workflowName === "manifest_model");
+    let byLabel = Object.fromEntries((run?.agents ?? []).map((a) => [a.label, a.model]));
+    assert.equal(byLabel.scan, "openai/gpt-5-mini", "script per-agent model beats exec.mainModel");
+    assert.equal(byLabel.judge, "manifest/declared-model", "exec.mainModel beats the session mainModel");
+    assert.equal(run?.exec?.mainModel, "manifest/declared-model", "exec.mainModel is persisted at start");
+
+    // Without exec.mainModel: the untagged agent falls back to the session model
+    // and the persisted exec omits the field.
+    const withoutManifest = `export const meta = { name: 'session_model', description: 'ticket 06 fallback' }
+const a = await agent('reason', { label: 'judge' })
+return { a }`;
+    await manager.runSync(withoutManifest);
+    run = manager.listRuns().find((r) => r.workflowName === "session_model");
+    byLabel = Object.fromEntries((run?.agents ?? []).map((a) => [a.label, a.model]));
+    assert.equal(byLabel.judge, "session/main-model", "session mainModel is the fallback");
+    assert.equal(run?.exec?.mainModel, undefined, "no mainModel persisted when none was set");
+  }),
+);
+
 test(
   "runSync persists recoverable agent error details for /workflows",
   withTempCwd(async (cwd) => {

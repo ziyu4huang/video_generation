@@ -437,11 +437,12 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       // Exactly one of `script` (inline JS) or `name` (installed pack) is allowed.
       // A pack is resolved to its entry script text here; manifest default args are
-      // shallow-merged under `params.args` (caller wins). manifest.model is NOT
-      // applied on this path — the session's mainModel governs (per-run model
-      // would need an ExecOptions.mainModel hook; see workflow-pack plan, OOS).
+      // shallow-merged under `params.args` (caller wins). manifest.model threads
+      // into ExecOptions.mainModel (ticket 06): it outranks the session mainModel,
+      // while a script's per-agent `model` still outranks it inside the runtime.
       let script: string;
       let mergedArgs = params.args;
+      let manifestModel: string | undefined;
       // T7: pack-local context (identity + state root + dirs + io) resolved once at
       // the tool layer and spread into both execution paths below. Undefined for
       // inline scripts → legacy cwd-scoped persistence (decision 13).
@@ -449,7 +450,10 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       if (params.name) {
         const resolved = resolveWorkflowPack(params.name, { cwd });
         script = resolved.script;
-        if (resolved.manifest) mergedArgs = mergeArgs(resolved.manifest.args, params.args);
+        if (resolved.manifest) {
+          mergedArgs = mergeArgs(resolved.manifest.args, params.args);
+          manifestModel = resolved.manifest.model;
+        }
         if (resolved.packDir) {
           packCtx = resolvePackRunContext({
             name: resolved.manifest?.name ?? params.name,
@@ -503,16 +507,22 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
         ? (promptText: string) => uiConfirm.call(uiCtx?.ui, "Workflow checkpoint", promptText)
         : undefined;
 
-      // Task 4 — Path B label: the model governing this run is the host session's
-      // mainModel (= pi default by construction), NOT manifest.model. ExtensionContext
-      // exposes it as `ctx.model: Model<any> | undefined` (see pi-coding-agent
-      // core/extensions/types.d.ts). We forward its id when observable so callers
-      // can see which model a background run inherits; the label `modelSource` is
-      // always emitted so Path B is distinguishable from Path A (cli `workflow run`).
-      // NB: this is a LABEL only — manifest.model stays OUT of the manager options
-      // (per-run model would need an ExecOptions.mainModel hook; see #630, OOS).
+      // Ticket 06 — Path B model label: manifest.model (when the pack declares
+      // one) governs this run and is reported as `modelSource: "manifest"`;
+      // otherwise the host session's mainModel governs. ExtensionContext exposes
+      // the session model as `ctx.model: Model<any> | undefined` (see
+      // pi-coding-agent core/extensions/types.d.ts). The governing spec is
+      // forwarded so callers can see which model a background run inherits; the
+      // label `modelSource` is always emitted so Path B is distinguishable from
+      // Path A (cli `workflow run`, whose --model flag outranks the manifest).
       const sessionModelId = (ctx as { model?: { id?: string } } | undefined)?.model?.id;
-      const modelLabel = sessionModelId ? { model: sessionModelId } : {};
+      const governingModel = manifestModel ?? sessionModelId;
+      const modelSource = manifestModel ? "manifest" : "session";
+      const modelLabel = governingModel ? { model: governingModel } : {};
+      // ExecOptions.mainModel is set only when the manifest declares a model, so
+      // inline scripts and model-less packs stay byte-identical to before (the
+      // manager falls back to its session mainModel).
+      const manifestModelExec = manifestModel ? { mainModel: manifestModel } : {};
 
       // Background execution is the default: return immediately so the turn ends
       // and the user isn't blocked. The result is delivered back into the
@@ -526,10 +536,11 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           agentTimeoutMs: params.agentTimeoutMs,
           tokenBudget: params.tokenBudget,
           ...packExec,
+          ...manifestModelExec,
         });
         return {
           content: [{ type: "text", text: backgroundStartedText(parsed.meta.name, runId) }],
-          details: { runId, background: true, modelSource: "session", ...modelLabel },
+          details: { runId, background: true, modelSource, ...modelLabel },
         };
       }
 
@@ -554,6 +565,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           agentTimeoutMs: params.agentTimeoutMs,
           tokenBudget: params.tokenBudget,
           ...packExec,
+          ...manifestModelExec,
           confirm,
           externalSignal: signal,
           onProgress(live) {
@@ -613,7 +625,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           durationMs: result.durationMs,
           tokenUsage: result.tokenUsage,
           runId: result.runId,
-          modelSource: "session",
+          modelSource,
           ...modelLabel,
         },
       };

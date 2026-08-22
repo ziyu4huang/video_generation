@@ -135,7 +135,11 @@ describe("workflow tool — `name` (pack resolution)", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("manifest.model is NOT applied on the `name` path (session mainModel governs)", async () => {
+  // Ticket 06 — manifest.model IS applied on the `name` path via
+  // ExecOptions.mainModel (it outranks the session mainModel; a script's
+  // per-agent `model` still outranks it inside the runtime). Precedence matrix:
+  // script > manifest > session.
+  test("manifest.model threads into ExecOptions.mainModel on the `name` path (background)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
     // Pack declares BOTH args AND a model in its manifest.
     const packDir = makePack(dir, "echo", {
@@ -146,7 +150,7 @@ describe("workflow tool — `name` (pack resolution)", () => {
       model: "manifest-declared/model",
     });
     // Capturing manager that records the FULL (script, args, options) triple —
-    // including the options object where a forwarded model would appear.
+    // including the options object where the forwarded model must appear.
     const calls: { script: string; args: unknown; options: unknown }[] = [];
     const manager = {
       startInBackground(script: string, args: unknown, options: unknown) {
@@ -180,29 +184,15 @@ describe("workflow tool — `name` (pack resolution)", () => {
     expect(calls).toHaveLength(1);
     // args ARE merged (sanity: the existing behavior still works).
     expect(calls[0]?.args).toEqual({ fromManifest: true, fromCaller: true });
-    // The options object handed to the manager MUST NOT carry a model sourced
-    // from the manifest. Assert no model-bearing key is present.
+    // Ticket 06: the manifest's model is handed to the manager as the run's
+    // mainModel (which outranks the session mainModel inside the manager).
     const opt = calls[0]?.options as Record<string, unknown>;
-    expect(opt).not.toHaveProperty("model");
-    expect(opt).not.toHaveProperty("mainModel");
+    expect(opt.mainModel).toBe("manifest-declared/model");
   });
 
-  // Task 4 — Path B (the `workflow` tool) labels its result `details` with
-  // `modelSource: "session"` on BOTH return paths (background + inline snapshot).
-  // Path B's model is the host session's mainModel (= pi default by construction);
-  // `ctx.model` exposes it to execute(). This is a LABEL only — manifest.model is
-  // still NOT applied (Task-2 guard re-asserted below).
-  test("Path B background result details label modelSource:'session' (manifest.model still NOT applied)", async () => {
+  test("a pack WITHOUT manifest.model omits ExecOptions.mainModel (session governs)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
-    // Pack declares BOTH args AND a model in its manifest.
-    const packDir = makePack(dir, "echo", {
-      name: "echo",
-      description: "d",
-      entry: "index.js",
-      args: { fromManifest: true },
-      model: "manifest-declared/model",
-    });
-    // Capturing manager that records the FULL (script, args, options) triple.
+    const packDir = makePack(dir, "echo", { name: "echo", description: "d", entry: "index.js" });
     const calls: { script: string; args: unknown; options: unknown }[] = [];
     const manager = {
       startInBackground(script: string, args: unknown, options: unknown) {
@@ -225,9 +215,91 @@ describe("workflow tool — `name` (pack resolution)", () => {
     };
     const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
 
-    // ctx.model exposes the host session's mainModel (see ExtensionContext.model
-    // in pi-coding-agent types.d.ts). A real session populates it; we pass a
-    // minimal stand-in to verify the value is threaded into the result details.
+    await tool.execute(
+      "call-no-model",
+      { name: packDir, background: true } as any,
+      undefined as any,
+      undefined as any,
+      {} as any,
+    );
+
+    // Model-less packs stay byte-identical to the pre-06 behavior: the manager
+    // falls back to its session mainModel, and the options carry no model key.
+    expect(calls).toHaveLength(1);
+    const opt = calls[0]?.options as Record<string, unknown>;
+    expect(opt).not.toHaveProperty("mainModel");
+    expect(opt).not.toHaveProperty("model");
+  });
+
+  test("an inline `script` (no pack) never carries ExecOptions.mainModel", async () => {
+    const { manager, calls } = recordingManager() as unknown as {
+      manager: any;
+      calls: { script: string; args: unknown; options?: unknown }[];
+    };
+    // recordingManager's startInBackground records (script, args) only; extend it
+    // inline here to also capture the options object.
+    const withOptions: { script: string; args: unknown; options: unknown }[] = [];
+    manager.startInBackground = (script: string, args: unknown, options: unknown) => {
+      withOptions.push({ script, args, options });
+      return { runId: "stub-run" };
+    };
+    const tool = createWorkflowTool({ manager });
+    const script =
+      "export const meta = { name: 'inline_demo', description: 'd', phases: [{ title: 'P' }] };\nconst r = await agent('task');\nreturn { r };\n";
+
+    await tool.execute(
+      "call-inline-model",
+      { script, background: true } as any,
+      undefined as any,
+      undefined as any,
+      {} as any,
+    );
+
+    expect(withOptions).toHaveLength(1);
+    const opt = withOptions[0]?.options as Record<string, unknown>;
+    expect(opt).not.toHaveProperty("mainModel");
+    expect(opt).not.toHaveProperty("model");
+    expect(calls).toHaveLength(0);
+  });
+
+  // Ticket 06 — Path B result `details` label the governing model: manifest.model
+  // when the pack declares one (`modelSource: "manifest"`), else the host
+  // session's mainModel (`modelSource: "session"`). `ctx.model` exposes the
+  // session model to execute() (see ExtensionContext.model in pi-coding-agent
+  // types.d.ts).
+  test("Path B background result details label modelSource:'manifest' when manifest.model is declared", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
+    const packDir = makePack(dir, "echo", {
+      name: "echo",
+      description: "d",
+      entry: "index.js",
+      args: { fromManifest: true },
+      model: "manifest-declared/model",
+    });
+    const calls: { script: string; args: unknown; options: unknown }[] = [];
+    const manager = {
+      startInBackground(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { runId: "stub-run" };
+      },
+      runSync(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return {
+          result: { ok: true },
+          meta: { name: "pack", description: "d" },
+          phases: ["P"],
+          logs: [],
+          agentCount: 1,
+          durationMs: 0,
+          runId: "stub-run",
+          tokenUsage: null,
+        };
+      },
+    };
+    const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
+
+    // ctx.model would report the SESSION model; the manifest model must win
+    // both in the label and in the options handed to the manager.
     const ctx = { model: { id: "session-main/model" } } as any;
 
     const result = await tool.execute(
@@ -238,24 +310,19 @@ describe("workflow tool — `name` (pack resolution)", () => {
       ctx,
     );
 
-    // Task 4 label: modelSource is "session" on the background return.
     const details = (result as { details: Record<string, unknown> }).details;
-    expect(details.modelSource).toBe("session");
-    // When ctx.model is observable, its id is forwarded as `model`.
-    expect(details.model).toBe("session-main/model");
+    expect(details.modelSource).toBe("manifest");
+    expect(details.model).toBe("manifest-declared/model");
     // runId + background flag still present (no regression on the existing shape).
     expect(details.runId).toBe("stub-run");
     expect(details.background).toBe(true);
 
-    // Task-2 guard (re-asserted): manifest.model is NOT applied — the options
-    // object handed to startInBackground carries no model-bearing key.
     expect(calls).toHaveLength(1);
     const opt = calls[0]?.options as Record<string, unknown>;
-    expect(opt).not.toHaveProperty("model");
-    expect(opt).not.toHaveProperty("mainModel");
+    expect(opt.mainModel).toBe("manifest-declared/model");
   });
 
-  test("Path B inline (background:false) snapshot details also label modelSource:'session'", async () => {
+  test("Path B inline (background:false) snapshot details also label modelSource:'manifest'", async () => {
     const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
     const packDir = makePack(dir, "echo", {
       name: "echo",
@@ -295,11 +362,52 @@ describe("workflow tool — `name` (pack resolution)", () => {
     );
 
     const details = (result as { details: Record<string, unknown> }).details;
+    expect(details.modelSource).toBe("manifest");
+    expect(details.model).toBe("manifest-declared/model");
+    // The inline path threads the manifest model into the manager too.
+    expect(calls).toHaveLength(1);
+    const opt = calls[0]?.options as Record<string, unknown>;
+    expect(opt.mainModel).toBe("manifest-declared/model");
+  });
+
+  test("Path B labels modelSource:'session' + session model id when the pack declares no model", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "wf-tool-"));
+    const packDir = makePack(dir, "echo", { name: "echo", description: "d", entry: "index.js" });
+    const calls: { script: string; args: unknown; options: unknown }[] = [];
+    const manager = {
+      startInBackground(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return { runId: "stub-run" };
+      },
+      runSync(script: string, args: unknown, options: unknown) {
+        calls.push({ script, args, options });
+        return {
+          result: { ok: true },
+          meta: { name: "pack", description: "d" },
+          phases: ["P"],
+          logs: [],
+          agentCount: 1,
+          durationMs: 0,
+          runId: "stub-run",
+          tokenUsage: null,
+        };
+      },
+    };
+    const tool = createWorkflowTool({ cwd: dir, manager: manager as any });
+    const ctx = { model: { id: "session-main/model" } } as any;
+
+    const result = await tool.execute(
+      "call-session-label",
+      { name: packDir, background: true } as any,
+      undefined as any,
+      undefined as any,
+      ctx,
+    );
+
+    const details = (result as { details: Record<string, unknown> }).details;
     expect(details.modelSource).toBe("session");
     expect(details.model).toBe("session-main/model");
-    // Task-2 guard holds on the inline path too.
     const opt = calls[0]?.options as Record<string, unknown>;
-    expect(opt).not.toHaveProperty("model");
     expect(opt).not.toHaveProperty("mainModel");
   });
 
