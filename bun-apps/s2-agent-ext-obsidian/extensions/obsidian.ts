@@ -99,7 +99,7 @@ export function dryRunRefusal(action: string, env?: NodeJS.ProcessEnv): string |
 	if (!WRITE_ACTION_SET.has(action)) return null;
 	return (
 		'[dry-run] refused obsidian action "' + action + '" — it writes to the vault. ' +
-		"Read-only actions (list, read, search, semantic_search, query, open, status) " +
+		"Read-only actions (list, read, search, query, open, status) " +
 		"are still available: gather context and report what you WOULD write."
 	);
 }
@@ -120,7 +120,7 @@ export function validateActionArgs(
 			ok: false,
 			errorText:
 				"Unknown obsidian action: " + action +
-				". Valid: list, read, create, append, append_section, search, semantic_search, query, move, rename, update_frontmatter, delete, invalidate, open, distill, garden, status",
+				". Valid: list, read, create, append, append_section, search, query, move, rename, update_frontmatter, delete, invalidate, open, distill, garden, status",
 		};
 	}
 	if (Value.Check(schema as ReturnType<typeof Type.Object>, args)) return { ok: true };
@@ -226,7 +226,6 @@ import {
 	listVaultCandidates,
 	loadCachedIndex,
 	makeSubagentProgressLogger,
-	maybeTriggerReindex,
 	moveNote,
 	mtimeConflict,
 	noteMtime,
@@ -925,150 +924,6 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
-	// ---- Tool: obsidian_semantic_search ------------------------------------
-	// Meaning-based (vector) retrieval over the vault via an external vault-mind
-	// (ChromaDB) service. Complements obsidian_search (lexical): it surfaces
-	// cards whose wording differs from the query but is conceptually on-point.
-	// Optional infrastructure: when VAULT_MIND_BASE_URL is unset or the service
-	// is unreachable, it returns a structured error (isError) so the agent can
-	// fall back to obsidian_search without a hard failure. See README §Semantic.
-	_capture.registerTool({
-		name: "obsidian_semantic_search",
-		label: "Obsidian Semantic Search",
-		promptSnippet:
-			"Meaning-based (vector) search across notes — finds cards lexical search misses",
-		description:
-			"Semantic (vector embedding) search over the vault via a vault-mind ChromaDB backend. " +
-			"Retrieves cards by MEANING rather than keyword match — use when obsidian_search returns nothing " +
-			"because the query is phrased differently from card titles/tags (e.g. 'gpu exploding on big images' " +
-			"→ finds the OOM/MemoryError-guard cards). Returns ranked chunks with similarity scores + metadata. " +
-			"Requires a running vault-mind service (VAULT_MIND_BASE_URL; default http://127.0.0.1:8000) with the " +
-			"vault indexed there. Gracefully errors (isError) if unreachable — fall back to obsidian_search.",
-		parameters: Type.Object({
-			query: Type.String({
-				description:
-					"Natural-language query. Phrasing need not match card vocabulary — semantic similarity is what ranks results.",
-			}),
-			vault_name: Type.Optional(
-				Type.String({
-					description:
-						"Indexed vault collection name. Default: the resolved vault's name.",
-				}),
-			),
-			limit: Type.Optional(
-				Type.Number({
-					description: "Max results (1-100). Default 10.",
-					minimum: 1,
-					maximum: 100,
-				}),
-			),
-			similarity_threshold: Type.Optional(
-				Type.Number({
-					description:
-						"Minimum cosine similarity (0-1). Default 0.3 — lowered from vault-mind's 0.4 to surface weak-but-relevant CJK/technical hits that a lightweight multilingual model ranks low.",
-					minimum: 0,
-					maximum: 1,
-				}),
-			),
-			include_tags: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "Only return chunks whose tags include all of these.",
-				}),
-			),
-			exclude_tags: Type.Optional(
-				Type.Array(Type.String(), {
-					description: "Exclude chunks whose tags include any of these.",
-				}),
-			),
-		}),
-		async execute(_id, params, _s, _u, ctx) {
-			// String-concat (not new URL(absPath, base)) so a base URL with a path
-			// prefix (e.g. http://host:9999/vm/) keeps /vm/api/search rather than
-			// having the prefix clobbered by the absolute "/api/search".
-			const baseUrl = (
-				process.env.VAULT_MIND_BASE_URL ?? "http://127.0.0.1:8000"
-			).replace(/\/+$/, "");
-			let vaultName = params.vault_name;
-			if (!vaultName) {
-				const v = await getVault(ctx.cwd);
-				vaultName = v.name;
-			}
-
-			const u = new URL(baseUrl + "/api/search");
-			u.searchParams.set("vault_name", vaultName);
-			u.searchParams.set("query", params.query);
-			u.searchParams.set("limit", String(params.limit ?? 10));
-			u.searchParams.set(
-				"similarity_threshold",
-				String(params.similarity_threshold ?? 0.3),
-			);
-			if (params.include_tags?.length)
-				u.searchParams.set("include_tags", params.include_tags.join(","));
-			if (params.exclude_tags?.length)
-				u.searchParams.set("exclude_tags", params.exclude_tags.join(","));
-
-			let resp: Response;
-			try {
-				resp = await fetch(u.toString(), { method: "GET" });
-			} catch (e) {
-				return toolError(
-					"IO_ERROR",
-					`vault-mind unreachable at ${baseUrl}: ${errMsg(e)}. Set VAULT_MIND_BASE_URL or fall back to obsidian_search (lexical).`,
-					{ vault: vaultName, query: params.query, baseUrl },
-				);
-			}
-			if (!resp.ok) {
-				return toolError(
-					"IO_ERROR",
-					`vault-mind /api/search returned HTTP ${resp.status} ${resp.statusText}.`,
-					{ vault: vaultName, query: params.query, baseUrl },
-				);
-			}
-
-			const json: any = await resp.json();
-			const data = json?.data ?? {};
-			const results: any[] = Array.isArray(data.results) ? data.results : [];
-
-			const text = results.length
-				? `${results.length} semantic result(s) for "${params.query}" (vault "${vaultName}", ${Math.round(
-						data.search_time_ms ?? 0,
-					)}ms):\n` +
-					results
-						.map((r, i) => {
-							const m = r.metadata ?? {};
-							const name =
-								m.file_name ??
-								(m.file_path ?? "").toString().split("/").pop() ??
-								(r.id ?? "?");
-							const score = Number(r.similarity_score ?? 0).toFixed(3);
-							const snip = (r.content ?? "")
-								.slice(0, 200)
-								.replace(/\s+/g, " ")
-								.trim();
-							return `${i + 1}. [${score}] ${name}\n   » ${snip}`;
-						})
-						.join("\n")
-				: `No semantic hits for "${params.query}" in vault "${vaultName}" (0 cards above threshold). Lower similarity_threshold, rephrase, or try obsidian_search.`;
-
-			return {
-				content: [{ type: "text", text }],
-				details: {
-					vault: vaultName,
-					query: params.query,
-					total_found: data.total_found ?? results.length,
-					search_time_ms: data.search_time_ms,
-					results: results.map((r) => ({
-						score: r.similarity_score,
-						file: r.metadata?.file_name ?? r.metadata?.file_path,
-						id: r.id,
-						tags: r.metadata?.searchable_tags,
-						snippet: (r.content ?? "").slice(0, 280),
-					})),
-				},
-			};
-		},
-	});
-
 	// ---- Tool: obsidian_move (B3.1/B3.2) -----------------------------------
 	_capture.registerTool({
 		name: "obsidian_move",
@@ -1564,13 +1419,9 @@ ${output.slice(-2000)}`,
 			const reportedNotes = Array.isArray(result?.notes) ? result.notes.map(String) : [];
 			let validation: { notes: NoteValidation[]; valid: number; invalid: number } | undefined;
 			let validationText = "";
-			// Resolved vault captured for the opt-in re-index hook below. Stays
-			// undefined when no notes were written or vault resolution failed.
-			let distillVault: ResolvedVault | undefined;
 			if (reportedNotes.length > 0) {
 				try {
 					const v = await getVault(ctx.cwd);
-					distillVault = v;
 					validation = await validateZettelNotes(v.path, reportedNotes);
 				} catch {
 					validation = undefined;
@@ -1607,13 +1458,6 @@ ${output.slice(-2000)}`,
 				} else if (validation && validation.valid > 0) {
 					validationText = `\n\n✓ Validation: all ${validation.valid} created note(s) pass the Zettelkasten schema check.`;
 				}
-			}
-			// Phase 2 / Task 18: opt-in semantic re-index of vault-mind after a
-			// successful distill run. Fire-and-forget (never awaited) and guarded by
-			// VAULT_MIND_AUTO_REINDEX — when off this is a pure no-op (zero HTTP),
-			// so distill behavior is unchanged. Failures only warn; never throw.
-			if (distillVault && reportedNotes.length > 0) {
-				void maybeTriggerReindex(distillVault.name, distillVault.path);
 			}
 			return {
 				content: [
@@ -2051,7 +1895,7 @@ ${output.slice(-2000)}`,
 		description: obsidianRoutingDescription(),
 		parameters: Type.Object({
 			action: Type.String({
-				description: "list,read,create,append,append_section,search,semantic_search,query,move,rename,update_frontmatter,delete,invalidate,open,distill,garden,status",
+				description: "list,read,create,append,append_section,search,query,move,rename,update_frontmatter,delete,invalidate,open,distill,garden,status",
 			}),
 			args: Type.Optional(Type.Record(Type.String(), Type.Any())),
 		}),

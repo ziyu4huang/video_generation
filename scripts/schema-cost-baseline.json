@@ -1,15 +1,15 @@
 {
-  "tools": 71,
-  "totalTokens": 21719,
+  "tools": 73,
+  "totalTokens": 22235,
   "builtinCount": 4,
-  "extensionCount": 67,
+  "extensionCount": 69,
   "errors": [],
   "toolsRanked": [
     {
       "name": "spawn_subagent",
-      "approxTokens": 1163,
+      "approxTokens": 1318,
       "descLen": 256,
-      "paramsLen": 4395,
+      "paramsLen": 5017,
       "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
@@ -19,15 +19,6 @@
       "approxTokens": 921,
       "descLen": 713,
       "paramsLen": 2969,
-      "source": "knowledge-card",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "zk_ask",
-      "approxTokens": 750,
-      "descLen": 330,
-      "paramsLen": 2669,
       "source": "knowledge-card",
       "hasExecute": true,
       "schemaValid": true
@@ -46,7 +37,7 @@
       "approxTokens": 683,
       "descLen": 390,
       "paramsLen": 2343,
-      "source": "workflow",
+      "source": "ultracode",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -78,6 +69,15 @@
       "schemaValid": true
     },
     {
+      "name": "fetch_content",
+      "approxTokens": 585,
+      "descLen": 647,
+      "paramsLen": 1692,
+      "source": "web-access",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "skill_manage",
       "approxTokens": 578,
       "descLen": 514,
@@ -92,15 +92,6 @@
       "descLen": 1190,
       "paramsLen": 1100,
       "source": "devops",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "fetch_content",
-      "approxTokens": 570,
-      "descLen": 647,
-      "paramsLen": 1634,
-      "source": "web-access",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -177,6 +168,15 @@
       "schemaValid": true
     },
     {
+      "name": "zk_ask",
+      "approxTokens": 425,
+      "descLen": 330,
+      "paramsLen": 1371,
+      "source": "knowledge-card",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "webui_present",
       "approxTokens": 406,
       "descLen": 752,
@@ -191,6 +191,15 @@
       "descLen": 554,
       "paramsLen": 1013,
       "source": "archify",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "run_local_ci",
+      "approxTokens": 383,
+      "descLen": 722,
+      "paramsLen": 809,
+      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -213,11 +222,11 @@
       "schemaValid": true
     },
     {
-      "name": "run_local_ci",
-      "approxTokens": 367,
-      "descLen": 722,
-      "paramsLen": 747,
-      "source": "devops",
+      "name": "list_subagent_runs",
+      "approxTokens": 340,
+      "descLen": 444,
+      "paramsLen": 917,
+      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -227,6 +236,15 @@
       "descLen": 767,
       "paramsLen": 533,
       "source": "power-tool",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "sv_analyze",
+      "approxTokens": 318,
+      "descLen": 434,
+      "paramsLen": 836,
+      "source": "sv-analyzer",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -267,15 +285,6 @@
       "schemaValid": true
     },
     {
-      "name": "list_subagent_runs",
-      "approxTokens": 255,
-      "descLen": 319,
-      "paramsLen": 700,
-      "source": "subagent",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "inspect_extensions",
       "approxTokens": 248,
       "descLen": 318,
@@ -290,6 +299,15 @@
       "descLen": 304,
       "paramsLen": 686,
       "source": "file2md",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "sv_ast",
+      "approxTokens": 245,
+      "descLen": 377,
+      "paramsLen": 604,
+      "source": "sv-analyzer",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -330,6 +348,15 @@
       "schemaValid": true
     },
     {
+      "name": "prepare_feature_branch",
+      "approxTokens": 225,
+      "descLen": 210,
+      "paramsLen": 691,
+      "source": "devops",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "movie",
       "approxTokens": 219,
       "descLen": 208,
@@ -344,15 +371,6 @@
       "descLen": 314,
       "paramsLen": 537,
       "source": "archify",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "prepare_feature_branch",
-      "approxTokens": 210,
-      "descLen": 210,
-      "paramsLen": 628,
-      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -415,7 +433,7 @@
       "approxTokens": 161,
       "descLen": 186,
       "paramsLen": 458,
-      "source": "workflow",
+      "source": "ultracode",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -438,15 +456,6 @@
       "schemaValid": true
     },
     {
-      "name": "obsidian",
-      "approxTokens": 156,
-      "descLen": 326,
-      "paramsLen": 298,
-      "source": "obsidian",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "read",
       "approxTokens": 152,
       "descLen": 303,
@@ -465,6 +474,15 @@
       "schemaValid": true
     },
     {
+      "name": "obsidian",
+      "approxTokens": 148,
+      "descLen": 310,
+      "paramsLen": 282,
+      "source": "obsidian",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "archify_delta",
       "approxTokens": 142,
       "descLen": 223,
@@ -478,7 +496,7 @@
       "approxTokens": 140,
       "descLen": 366,
       "paramsLen": 195,
-      "source": "workflow",
+      "source": "ultracode",
       "hasExecute": true,
       "schemaValid": true
     },

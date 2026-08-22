@@ -29,14 +29,6 @@ export const REMOVE_TOOLS = [...BASE_OBSIDIAN_TOOLS];
 export const CHECK_TOOLS = [...BASE_OBSIDIAN_TOOLS];
 export const RAG_TOOLS = [...BASE_OBSIDIAN_TOOLS];
 
-/** Three-way blend adds the vault-mind semantic (vector) seed via
- *  `obsidian` action:"semantic_search" — already covered by RAG_TOOLS since
- *  the fat `obsidian` tool dispatches every action, so this is currently
- *  identical to RAG_TOOLS. Kept as a separate export (rather than an alias)
- *  so a future need to gate the vault-mind-dependent action behind its own
- *  allowlist has a place to land without touching call sites. */
-export const RAG_TOOLS_THREE_WAY = [...RAG_TOOLS];
-
 // ---------------------------------------------------------------------------
 // Distill / subagent model resolution.
 //
@@ -67,65 +59,11 @@ export function resolveDistillModel(
 	);
 }
 
-/** zk-ask retrieval blend mode.
- *  - default        : lexical (title/tags/body) + graph neighbors.
- *  - three-way      : semantic + lexical + graph (graph can dilute — see below).
- *  - semantic-lexical: semantic + lexical, NO graph expansion. The graph term
- *    (`link_count`) is a popularity signal — it boosts heavily-linked cards
- *    regardless of query relevance, so off-topic graph neighbors dilute the
- *    three-way top-k on paraphrase / cross-lingual queries (measured iter-4).
- *    Dropping graph entirely isolates the semantic win; add it back via gating
- *    if concept-linking queries regress. */
-export type BlendMode = "default" | "three-way" | "semantic-lexical";
-
-/** Per-note retrieval signals used by the blend score. Any field may be
- *  undefined when a mode did not produce it; undefined contributes 0. */
-export interface BlendScoreParts {
-	/** Vector similarity (0-1) from obsidian_semantic_search. */
-	semantic?: number;
-	/** Lexical search_score (0-1) from obsidian_search (title/tags/body). */
-	lexical?: number;
-	/** Count of [[wikilink]] occurrences in the note body (graph signal). */
-	linkCount?: number;
-}
-
-/** Blend-score weights per mode. The default keeps the historical lexical+graph
- *  formula (0.7×lexical + 0.3×link) so existing behaviour is unchanged.
- *  three-way rebalances to 0.4 semantic / 0.3 lexical / 0.3 graph so the vector
- *  seed leads but cannot dominate — a card the graph strongly links still ranks
- *  even when both text modes miss it. */
-const BLEND_WEIGHTS: Record<BlendMode, { semantic: number; lexical: number; link: number }> = {
-	default: { semantic: 0.0, lexical: 0.7, link: 0.3 },
-	"three-way": { semantic: 0.4, lexical: 0.3, link: 0.3 },
-	// semantic-lexical: drop the link term entirely, rebalance so semantic still
-	// leads (it carries the paraphrase / cross-lingual signal lexical misses).
-	"semantic-lexical": { semantic: 0.55, lexical: 0.45, link: 0.0 },
-};
-
-/**
- * Pure, deterministic blend-score used by zk-ask's Step 3 ranking. Exported so
- * it can be unit-tested and re-used by the retrieval-quality loop. Undefined
- * signals contribute 0; negative inputs are clamped to 0 (a search_score of -1
- * sentinel from obsidian_search is treated as "no signal").
- */
-export function rankBlendScore(parts: BlendScoreParts, mode: BlendMode = "default"): number {
-	const w = BLEND_WEIGHTS[mode] ?? BLEND_WEIGHTS.default;
-	const clamp = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0);
-	return (
-		w.semantic * clamp(parts.semantic) +
-		w.lexical * clamp(parts.lexical) +
-		w.link * clamp(parts.linkCount)
-	);
-}
-
-/** Resolve the RAG tool allowlist for a blend mode. three-way and
- *  semantic-lexical both unlock the semantic vector tool; default keeps the
- *  lexical+graph set. */
-export function ragToolsFor(blend: BlendMode = "default"): string[] {
-	return blend === "three-way" || blend === "semantic-lexical"
-		? [...RAG_TOOLS_THREE_WAY]
-		: [...RAG_TOOLS];
-}
+// The semantic (vector) blend modes — `three-way` / `semantic-lexical`, seeded
+// via obsidian's vault-mind `semantic_search` action — were REMOVED with the
+// vault-mind retirement (context-lifecycle ticket 02, D2, 2026-08-22). zk-ask
+// is lexical+graph only; semantic retrieval lives in knowledge_query /
+// retrieveRecords (LM Studio embeddings via the shared embedding leaf).
 
 /** LeanRAG ① hierarchy defaults (ticket 06). Budget is a CHARS proxy — the per-layer schedule halves it each level (LeanRAG (max_depth−layer)×80 analog, chars-scaled), floor 1200. `summaryBreaker` (ticket 02) is the hang-mode circuit-breaker K: consecutive empty/null summarizeFn results tolerated per layer before further LLM summary requests are skipped. */
 export const HIERARCHY_DEFAULTS = {

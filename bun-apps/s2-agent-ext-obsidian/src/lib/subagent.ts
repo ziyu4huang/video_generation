@@ -332,43 +332,6 @@ export async function runObsidianSubagent(
 	return { ...res, result: parseStructuredResult(res.output) };
 }
 
-// ---- Opt-in semantic re-index hook (vault-mind) ---------------------------
-//
-// Fired after `obsidian_distill` writes notes so the vault-mind ChromaDB index
-// can be refreshed without a manual re-index step. Strictly opt-in via
-// VAULT_MIND_AUTO_REINDEX (default OFF — closed principle preserved): when the
-// env is unset/empty/"0"/"false"/"off"/"no" this issues ZERO HTTP and is a pure no-op.
-// Fire-and-forget by design: an internal try/catch guarantees it NEVER throws
-// into the distill caller or alters its tool result shape.
-
-const REINDEX_TIMEOUT_MS = 10_000;
-
-/** Fire-and-forget vault-mind re-index. Opt-in via VAULT_MIND_AUTO_REINDEX.
- *  Never throws — failures only warn. Honors README's /api/index force_reindex flow. */
-export async function maybeTriggerReindex(
-	vaultName: string,
-	vaultPath: string,
-	opts: { fetch?: typeof fetch; base?: string } = {},
-): Promise<void> {
-	const enabled = String(process.env.VAULT_MIND_AUTO_REINDEX ?? "").trim();
-	if (!enabled || ["0", "false", "off", "no", ""].includes(enabled.toLowerCase())) return;
-	const base = (opts.base ?? process.env.VAULT_MIND_BASE_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
-	const f = opts.fetch ?? globalThis.fetch;
-	try {
-		const ctrl = new AbortController();
-		const t = setTimeout(() => ctrl.abort(), REINDEX_TIMEOUT_MS);
-		await f(`${base}/api/index`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ vault_name: vaultName, vault_path: vaultPath, force_reindex: true }),
-			signal: ctrl.signal,
-		});
-		clearTimeout(t);
-	} catch (e) {
-		console.warn(`[obsidian] semantic re-index skipped: ${(e as Error).message}`);
-	}
-}
-
 // ---- Vault gardener subagent ---------------------------------------------
 
 /** System prompt for the vault gardener: audits & repairs knowledge-base health. */

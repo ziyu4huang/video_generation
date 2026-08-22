@@ -6,7 +6,7 @@ An agent needs durable, searchable knowledge storage that persists across sessio
 
 ## Solution
 
-Full Obsidian vault integration as a Pi package. 17 tools for vault CRUD, search (full-text + semantic), wiki-link management, graph queries, frontmatter editing, distill, garden health, and vault status. Three-tier vault resolution (explicit path → app-follow → fallback local vault). Auto-seeds fresh vaults with starter notes.
+Full Obsidian vault integration as a Pi package. 16 tools for vault CRUD, search (full-text), wiki-link management, graph queries, frontmatter editing, distill, garden health, and vault status. Three-tier vault resolution (explicit path → app-follow → fallback local vault). Auto-seeds fresh vaults with starter notes.
 
 ## Tools
 
@@ -18,7 +18,6 @@ Full Obsidian vault integration as a Pi package. 17 tools for vault CRUD, search
 | `obsidian_append` | Append text (creates if missing) |
 | `obsidian_append_section` | Insert under heading |
 | `obsidian_search` | Full-text: substring/regex/words/fuzzy + graph queries |
-| `obsidian_semantic_search` | Vector search via vault-mind ChromaDB |
 | `obsidian_query` | Index-only metadata (tags/folder/date) |
 | `obsidian_move` / `obsidian_rename` | Move/rename + rewrite wiki-links |
 | `obsidian_delete` | Delete + strip inbound links |
@@ -40,7 +39,6 @@ Full Obsidian vault integration as a Pi package. 17 tools for vault CRUD, search
 ## Key Dependencies
 
 - Obsidian app (optional — vault can be used without the app)
-- vault-mind service (optional — for semantic search)
 - Consumed by `s2-agent-ext-knowledge-card` (zk_* tools depend on vault access)
 - Consumed by `s2-agent` (zk-* commands import the obsidian factory)
 
