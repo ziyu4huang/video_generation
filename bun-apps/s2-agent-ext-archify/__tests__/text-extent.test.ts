@@ -52,6 +52,65 @@ describe("character classes", () => {
   });
 });
 
+/**
+ * The East Asian Ambiguous round (2026-08-22, second calibration pass).
+ *
+ * Every glyph the previous model silently classed `other` (0.6 em) was
+ * re-measured with a clean ink window — the window bounds proven first by
+ * reproducing the known calibration glyphs (一 1.001, M 0.900, i 0.270) before
+ * trusting any new number. Each row's interval is [span/16, span/15] em at
+ * 26 pt; the assertion is that the bucket the model assigns lands within
+ * ±20 % of the interval's midpoint. `↕ ▲ ◀` rendered blank (no ink) and are
+ * deliberately absent: an unmeasurable glyph stays `other` rather than
+ * being guessed either way.
+ */
+describe("calibration — East Asian Ambiguous math glyphs", () => {
+  /** [glyph, measured advance interval in ems] */
+  const MEASURED: ReadonlyArray<readonly [string, readonly [number, number]]> = [
+    ["≥", [0.779, 0.831]],
+    ["≤", [0.779, 0.831]],
+    ["≈", [0.779, 0.831]],
+    ["≠", [0.779, 0.831]],
+    ["×", [0.604, 0.645]],
+    ["÷", [0.604, 0.645]],
+    ["±", [0.604, 0.645]],
+    ["▶", [0.875, 0.934]],
+    ["↔", [0.95, 1.014]],
+    ["℃", [0.929, 0.991]],
+  ];
+
+  for (const [g, [lo, hi]] of MEASURED) {
+    test(`U+${g.codePointAt(0)!.toString(16)} ${g} → ${textEms(g)} em (measured ${lo}–${hi})`, () => {
+      const mid = (lo + hi) / 2;
+      expect(Math.abs(textEms(g) - mid) / mid).toBeLessThan(0.2);
+    });
+  }
+
+  test("↔ and ℃ are full width; ≥ ≤ ≈ ≠ ▶ are wide", () => {
+    // The near-em family splits at 0.9: ↔ (0.950–1.014) and ℃ (0.929–0.991)
+    // sit against the em, the ≥ family against the wide bucket (0.78).
+    expect(textEms("↔")).toBe(EM_ADVANCE.fullWidth);
+    expect(textEms("℃")).toBe(EM_ADVANCE.fullWidth);
+    for (const g of ["≥", "≤", "≈", "≠", "▶"]) {
+      expect(textEms(g)).toBe(EM_ADVANCE.wide);
+    }
+  });
+
+  test("an unmeasurable glyph stays in other rather than being guessed", () => {
+    // ↕ ▲ ◀ render blank through Quick Look — no ink, no number. Leaving them
+    // at 0.6 is a recorded unknown, not a claim about their width.
+    expect(textEms("↕")).toBe(EM_ADVANCE.other);
+  });
+
+  test("· and ° over-reserve in other — the safe direction, kept", () => {
+    // Measured 0.482–0.514 and 0.335–0.357 respectively. Both stay at 0.6:
+    // over-reserving can only warn early, never pass a wrapping title, and °
+    // is superscript-scale in any real title anyway.
+    expect(textEms("·")).toBe(EM_ADVANCE.other);
+    expect(textEms("°")).toBe(EM_ADVANCE.other);
+  });
+});
+
 describe("line capacity", () => {
   test("both of OOXML's default insets come off the box", () => {
     // 9.0 in box, 26 pt: (9.0 - 0.2) * 72 / 26.

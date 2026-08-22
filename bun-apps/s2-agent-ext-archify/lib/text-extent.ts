@@ -23,6 +23,12 @@
  *   `n` 0.58, `e` 0.58, `0` 0.60, `i` 0.27.
  * - Eleven mixed CJK/Latin prose titles of growing length agree with the
  *   buckets below to within **±1.7 %** of their measured extent.
+ * - A second round (same day, clean window — see the receipt) measured the
+ *   East Asian Ambiguous math glyphs a CJK face sets near an em: `≥ ≤ ≈ ≠`
+ *   0.779–0.831 em, `▶` 0.875–0.934, `↔` 0.950–1.014, `℃` 0.929–0.991 — all
+ *   previously `other` (0.6), an under-reserve of up to 0.4 em/char. `↕ ▲ ◀`
+ *   render blank in Quick Look and stay unclassified rather than guessed.
+ *   `× ÷ ±` measured 0.604–0.645 — `other` was already right.
  *
  * Quick Look breaks lines against the FULL box width, ignoring the right inset;
  * PowerPoint honours both insets (`lineCapacityEms` below). The budget is
@@ -42,7 +48,8 @@ export const EM_ADVANCE = {
   space: 0.29,
   /** `iljtIfr` and most punctuation: well under half an em. */
   narrow: 0.31,
-  /** Capitals and the wide lowercase pair `m` `w`. */
+  /** Capitals, the wide lowercase pair `m` `w`, and the near-em math symbols
+   * a CJK face sets wide (`≥ ≤ ≈ ≠ ▶`). */
   wide: 0.78,
   /** Everything else — lowercase Latin and digits. */
   other: 0.6,
@@ -63,13 +70,18 @@ export const TEXT_INSET_IN = 0.1;
  * `※`. Curly quotes are deliberately NOT here — they are equally at home in an
  * English title, where they are narrow, and guessing wrong there costs more
  * than the em it would win.
+ *
+ * `↔` joins the arrows at a measured 0.950–1.014 em; `↕` does not, because it
+ * renders blank in Quick Look (no ink to measure) and an unmeasured glyph is
+ * left to `other` rather than guessed. `℃` measured 0.929–0.991.
  */
 const FULL_WIDTH_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x1100, 0x115f], // Hangul Jamo
   [0x2014, 0x2015], // em dash, horizontal bar
   [0x2025, 0x2026], // two-dot leader, horizontal ellipsis
   [0x203b, 0x203b], // reference mark
-  [0x2190, 0x2193], // arrows
+  [0x2103, 0x2103], // degree celsius
+  [0x2190, 0x2194], // arrows incl. ↔ (↕ excluded — unmeasurable, see above)
   [0x2e80, 0x303e], // CJK radicals, Kangxi, CJK symbols and punctuation
   [0x3041, 0x33ff], // kana, bopomofo, compatibility
   [0x3400, 0x4dbf], // CJK Extension A
@@ -85,7 +97,11 @@ const FULL_WIDTH_RANGES: ReadonlyArray<readonly [number, number]> = [
 ];
 
 const NARROW = /[iljtIfr.,:;'"|!()[\]-]/;
-const WIDE = /[A-Zmw@%&]/;
+// The math-symbol tail measured 0.779–0.934 em in a CJK face (receipt,
+// 2026-08-22) — nearest bucket is `wide`, and the worst residual (▶, 0.154
+// em/char) cannot flip a verdict alone: the warn margin alone is worth
+// ~1.2 em at the shipped title band.
+const WIDE = /[A-Zmw@%&≥≤≈≠▶]/;
 
 /** Does a CJK face set this code point at one full em? */
 export function isFullWidth(codePoint: number): boolean {
