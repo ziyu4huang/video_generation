@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-22-subagent-teams-parity
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 status: active
 ---
 
@@ -87,8 +87,11 @@ Phase 3 — teams vocabulary (P3)
   ordering, throwing steer, unpinned guards)
 
 Phase 4 — ultracode gaps (P4)
-- `tickets/06-manifest-model-tool-path.md` — task — `ExecOptions.mainModel` hook,
-  precedence script > manifest > session
+- `tickets/06-manifest-model-tool-path.md` — closed 2026-08-23 (PR #1841 → main
+  895bfbd1) — `ExecOptions.mainModel` hook, precedence script > manifest > session;
+  persisted for resume; `modelSource` label manifest/session. Reviewer APPROVE,
+  3 non-blocking findings fixed/recorded pre-merge (CONTEXT.md glossary, PRD
+  tier-default nuance, D13)
 - `tickets/07-batch-agent-type.md` — task — per-task `agentType` on `list_subagents`
 - `tickets/08-workflow-cron.md` — task — `cron_create/list/delete`, session-live
   firing, lease-guarded, 7-day recurring expiry
@@ -130,15 +133,21 @@ Phase 4 — ultracode gaps (P4)
   the envelope-typed `plan_approval_response` resolves only the tool's pending
   hold (review M2). Detached-resume subprocesses refuse every protocol surface
   (`SUBAGENT_DETACHED_RESUME` env marker; the bus stays unwired there).
+- D13 (ticket 06): threading `ExecOptions.mainModel` re-keys the workflow global
+  rate limiter to the GOVERNING model's provider (`workflow.ts` `providerFromModelSpec`)
+  for pack runs that declare a model — semantically right (the run's agents draw
+  from that provider), accepted as Path-A-parity behavior; only observable on hosts
+  with per-provider rateLimits configured.
 
 ## Frontier
 
-`tickets/06-manifest-model-tool-path.md` — the teams core (tickets 01-05) is
-whole: addressability, shared state, protocol, and team addressing are all
-merged and unit-pinned. Phase 4 starts with the smallest seam: `ExecOptions.
-mainModel` on `workflow-manager.ts`, a hook pre-charted at
-`workflow-tool.ts:439-441` ("see #630, OOS") with the precedence already
-decided (script > manifest > session).
+`tickets/07-batch-agent-type.md` — ticket 06 closed Phase 4's smallest seam
+(`ExecOptions.mainModel`, PR #1841); the next workable ticket is per-task
+`agentType` on the batch tool: the singular path already resolves types via
+`resolveAgentType` (`agent-registry.ts:153`, mirrored at `subagent-tool.ts:
+138-149`), so the batch tool wires the same resolution per task plus
+unknown-type failEarly, with worktree-isolating types REJECTED in batch
+(spec §4, pre-approved).
 
 ## Fog of war
 

@@ -1,6 +1,6 @@
 # Ticket 06 — manifest-model-tool-path
 
-status: open
+status: closed 2026-08-23 (PR #1841 → main 895bfbd1)
 
 ## Goal
 
