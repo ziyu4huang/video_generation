@@ -4,7 +4,7 @@ DevOps tools for the pi coding agent — a **tool-based** PR-merge / branch /
 local-CI lifecycle that replaces brittle agent-side bash polling loops. All
 `gh`/`git` output is parsed as structured JSON (no `grep -c` footguns); the full
 recipes live in tested code (`src/`). The package also owns the shared pipeline
-scripts — `scripts/deploy.ts`, `scripts/run-test.sh`, `scripts/ci-local.sh`.
+scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the deploy library lives in `src/deploy/` (`run.ts` + `lib/`).
 
 ## Tools
 
@@ -80,7 +80,7 @@ its OWN owner-declared gating keywords (build/deploy/verify/bundle/dist),
 distinct from the PR/merge keywords above.
 
 - **deploy_pi_agent_sh** — build + deploy the s2-agent bundle + thin extension bundles.
-  Mirrors this package's `scripts/deploy.ts` (codegen → bundle → ext bundles
+  Mirrors this package's deploy library `src/deploy/run.ts` (codegen → bundle → ext bundles
   → factory-verify → freeze). Params: `mode` (bundle|snapshot|standalone|exe,
   default bundle), `outDir` (path-guarded to `<repo>/dist/` or `$TMPDIR`),
   `noFreeze`.

@@ -8,7 +8,7 @@
  *
  * What it does:
  *   - Copies each skills/<name>/SKILL.md → tests/__fixtures__/upstream-skills/<name>.md
- *     for every skill declared `upstream` in scripts/skill-provenance.ts, and
+ *     for every skill declared `upstream` in scripts/lib/skill-provenance.ts, and
  *     removes fixtures that no longer answer to a declared upstream skill.
  *   - Rewrites UPSTREAM.ref's `fixtures-digest:` to match what it just wrote,
  *     and appends the mandatory `--note` to the re-baseline log.
@@ -28,7 +28,7 @@
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { computeFixturesDigest, FIXTURES_DIGEST_KEY, PORTED_SKILLS } from "./skill-provenance.js";
+import { computeFixturesDigest, FIXTURES_DIGEST_KEY, PORTED_SKILLS } from "./lib/skill-provenance.js";
 
 const LOG_HEADER = "# Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):";
 const DIVERGENCE_PREFIX = "divergence: ";

@@ -73,9 +73,9 @@ describe("classifyMode", () => {
 	 * started all this.
 	 */
 	describe("doctor's mode set is pinned to what a deploy can produce", () => {
-		// Read, not imported: it is a script with top-level side effects. An ENOENT
-		// means it moved — loud, which is what a drift guard wants.
-		const DEPLOY_SH_TS = join(import.meta.dir, "..", "..", "s2-agent-ext-devops", "scripts", "deploy.ts");
+		// Read, not imported: it has side effects on import. An ENOENT means it
+		// moved — loud, which is what a drift guard wants.
+		const DEPLOY_SH_TS = join(import.meta.dir, "..", "..", "s2-agent-ext-devops", "src", "deploy", "run.ts");
 		const deployShSource = readFileSync(DEPLOY_SH_TS, "utf8");
 
 		/** Modes something can actually put on disk today. */

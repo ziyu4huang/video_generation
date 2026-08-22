@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { computeCoreHash, CORES_DIR, ensureCachedCore, linkCore, ORPHAN_GRACE_MS, pruneOrphanCores } from "../scripts/lib/core-cache.ts";
+import { computeCoreHash, CORES_DIR, ensureCachedCore, linkCore, ORPHAN_GRACE_MS, pruneOrphanCores } from "../src/deploy/lib/core-cache.ts";
 
 /** A minimal fake s2-agent package: src/ tree with nested dirs. */
 function fakePiAgent(): string {

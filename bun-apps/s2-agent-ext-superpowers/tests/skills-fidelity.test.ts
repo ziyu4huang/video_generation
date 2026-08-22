@@ -6,7 +6,7 @@ import {
   FIXTURES_DIGEST_KEY,
   PORTED_SKILLS,
   readFixturesDigest,
-} from "../scripts/skill-provenance.js";
+} from "../scripts/lib/skill-provenance.js";
 
 /**
  * Skill fidelity guard (ADR-superpowers-0004).
@@ -29,7 +29,7 @@ import {
  * UPSTREAM.ref. The `fixtures-digest` assertion below closes it — the record
  * now cannot go stale without going red.
  *
- * Which skills are pinned is derived from scripts/skill-provenance.ts, not
+ * Which skills are pinned is derived from scripts/lib/skill-provenance.ts, not
  * restated here: an `upstream` skill is pinned by declaration, so a new port
  * cannot ship unguarded by being forgotten in a second list.
  *

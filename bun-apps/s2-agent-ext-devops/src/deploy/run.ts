@@ -53,7 +53,7 @@ import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrph
 import { freezeTree, rmTree } from "./lib/fs.ts";
 import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 
-const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "s2-agent");
+const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "s2-agent");
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
 const REPO_ROOT = dirname(BUN_APPS_DIR);
 const DEFAULT_CONFIG = join(PI_AGENT_DIR, "s2-agent.registry.yaml");
@@ -94,7 +94,7 @@ function resolvePiPkgDir(): string {
 
 /** The config and the core must agree on the host contract, or every extension silently refuses to load. */
 async function assertHostContract(cfg: ShConfig): Promise<void> {
-	const { HOST_API, HOST_MODULE_IDS } = await import("../../s2-agent/src/sh/host-modules.ts");
+	const { HOST_API, HOST_MODULE_IDS } = await import("../../../s2-agent/src/sh/host-modules.ts");
 	if (cfg.hostApi !== HOST_API) {
 		throw new Error(`deploy-config hostApi ${cfg.hostApi} != core HOST_API ${HOST_API} (src/sh/host-modules.ts)`);
 	}

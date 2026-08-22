@@ -3,17 +3,17 @@
  * captured + logged output and a timeout.
  *
  * The devops scripts live ONLY in the source repo
- * (bun-apps/s2-agent-ext-devops/scripts/), never in a deployed tree. A
- * candidate bun-apps/ is valid only when its s2-agent-ext-devops/scripts/
- * holds them. So the tools are dev-time: they resolve the source dir
+ * (bun-apps/s2-agent-ext-devops/ — deploy library in src/deploy/, runnable
+ * entries in scripts/), never in a deployed tree. A
+ * candidate bun-apps/ is valid only when its s2-agent-ext-devops holds them. So the tools are dev-time: they resolve the source dir
  * (PI_AGENT_DIR env, else an upward walk for a sibling s2-agent/) and refuse
  * to spawn if it can't be found.
  *
- * The probe pair used to be deploy.ts + run-test.sh. deploy.ts went with the
- * four legacy deploy modes; deploy.ts is the deploy script now, and probing
- * for a file that no longer exists would make every resolve return null —
- * pi_verify would refuse to run with "could not locate the source s2-agent
- * dir", which reads like a broken checkout rather than a stale probe.
+ * The probe pair is src/deploy/run.ts + scripts/run-test.sh. It used to be
+ * scripts/deploy.ts + run-test.sh; whenever a probed file moves, EVERY probe
+ * must move with it or every resolve returns null — pi_verify would refuse to
+ * run with "could not locate the source s2-agent dir", which reads like a
+ * broken checkout rather than a stale probe.
  */
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
@@ -25,11 +25,13 @@ export interface ResolveOpts {
 	PI_AGENT_DIR?: string;
 }
 
-/** True when <bunApps>/s2-agent-ext-devops/scripts/ holds the devops scripts. */
+/** True when <bunApps>/s2-agent-ext-devops looks like the source package:
+ *  the deploy library in src/deploy/ plus the runnable scripts/ entries. */
 function hasDevopsScripts(bunAppsDir: string): boolean {
-	const scriptsDir = join(bunAppsDir, "s2-agent-ext-devops", "scripts");
+	const pkg = join(bunAppsDir, "s2-agent-ext-devops");
 	return (
-		existsSync(join(scriptsDir, "deploy.ts")) && existsSync(join(scriptsDir, "run-test.sh"))
+		existsSync(join(pkg, "src", "deploy", "run.ts")) &&
+		existsSync(join(pkg, "scripts", "run-test.sh"))
 	);
 }
 

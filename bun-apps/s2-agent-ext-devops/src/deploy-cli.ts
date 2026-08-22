@@ -11,9 +11,9 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseDeployShArgv } from "./deploy-sh-argv.ts";
-import { DeployVersionExistsError, runShDeploy } from "../scripts/deploy.ts";
-import { parseShConfig } from "../scripts/lib/config.ts";
-import { listVersions } from "../scripts/lib/version.ts";
+import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
+import { parseShConfig } from "./deploy/lib/config.ts";
+import { listVersions } from "./deploy/lib/version.ts";
 import { runDeployE2e } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn } from "./spawn.js";
 

@@ -20,7 +20,7 @@ import {
 	scanSymlinkEscapes,
 	verifyVendoredClosure,
 	verifyVendoredCompleteness,
-} from "../scripts/lib/offline-gate.ts";
+} from "../src/deploy/lib/offline-gate.ts";
 
 const dirs: string[] = [];
 function makeDir(): string {

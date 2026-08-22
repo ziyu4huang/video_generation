@@ -37,7 +37,7 @@ _Avoid_: optional extension, plugin (it is alias-gated, zero-cost-until-invoked)
 _Avoid_: alias mapping, shortcut
 
 **npmExtensions**:
-The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `run-dir/deps-probe.ts` (source) and `../s2-agent-ext-devops/scripts/lib/codegen.ts` (bundle).
+The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `run-dir/deps-probe.ts` (source) and `../s2-agent-ext-devops/src/deploy/lib/codegen.ts` (bundle).
 _Avoid_: deps list, package array
 
 **run-dir module split** (`run-dir/run-context.ts`):
@@ -51,7 +51,7 @@ The two that remain after the deploy consolidation (spec: `.planning/specs/2026-
 _Avoid_: dev/prod modes (these are packaging modes, not environments), "three modes" (bundle mode was collapsed in Phase 1b)
 
 **deploy (s2-agent-sh)**:
-THE deploy pipeline (`bun run deploy` → `../s2-agent-ext-devops/src/deploy-cli.ts` → `scripts/deploy.ts`): a versioned tree at `~/proj/dist/s2-agent-sh/<version>/` holding a minimal compiled core (entry `src/cli-sh.ts`, ZERO extensions inside) plus extension packages under `ext/<name>/` that the core discovers at runtime. Extensions are cjs bundles with pi's runtime `--external`; the core injects its own embedded modules through the bundle's `require` (`src/sh/host-modules.ts`), which is what keeps extension and host on ONE module instance. See `docs/deploy.md`.
+THE deploy pipeline (`bun run deploy` → `../s2-agent-ext-devops/src/deploy-cli.ts` → `src/deploy/run.ts`): a versioned tree at `~/proj/dist/s2-agent-sh/<version>/` holding a minimal compiled core (entry `src/cli-sh.ts`, ZERO extensions inside) plus extension packages under `ext/<name>/` that the core discovers at runtime. Extensions are cjs bundles with pi's runtime `--external`; the core injects its own embedded modules through the bundle's `require` (`src/sh/host-modules.ts`), which is what keeps extension and host on ONE module instance. See `docs/deploy.md`.
 _Avoid_: sh deploy as a separate thing (since the consolidation there is only one deploy), plugin dir (the contract is `ext.json` + host-injected require, not drop-in files)
 
 **Read-only deploy**:

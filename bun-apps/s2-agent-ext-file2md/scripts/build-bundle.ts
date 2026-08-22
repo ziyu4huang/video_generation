@@ -75,7 +75,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { findLeakedHomePaths } from "./verify-portability.ts";
+import { findLeakedHomePaths } from "./lib/verify-portability.ts";
 
 const APP_NAME = "pi-file2md";
 const ENTRY = "extensions/file2md.ts";

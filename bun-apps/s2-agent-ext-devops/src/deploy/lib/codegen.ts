@@ -1,9 +1,9 @@
-// scripts/lib/codegen.ts
+// src/deploy/lib/codegen.ts
 //
 // All progress output here goes to STDERR: the deploy CLIs promise stdout is
 // PURE JSON (deploy-cli.ts convention), and these stages run under them.
 import { existsSync, mkdirSync } from "node:fs";
-import { generateEmbeddedAssets } from "../../../s2-agent/scripts/generate-embedded-assets.ts";
+import { generateEmbeddedAssets } from "../../../../s2-agent/scripts/generate-embedded-assets.ts";
 
 export const GENERATED_DIR = "src/generated";
 

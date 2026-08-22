@@ -14,7 +14,7 @@ import {
 	parseRegistry,
 	type RegistryDeployBlock,
 	type RegistryExt,
-} from "../../../s2-agent/run-dir/registry.ts";
+} from "../../../../s2-agent/run-dir/registry.ts";
 
 export interface ShExtConfig {
 	name: string;

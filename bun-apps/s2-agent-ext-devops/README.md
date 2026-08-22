@@ -2,7 +2,7 @@
 
 DevOps tools for the pi coding agent — a **robust, tool-based PR-merge lifecycle** that replaces the brittle agent-side bash polling loops (the `gh pr checks | grep -c` footguns that silently mis-counted checks and wasted turns).
 
-> This package also owns the shared pipeline scripts: `scripts/deploy.ts`, `scripts/run-test.sh`, and `scripts/ci-local.sh` (the repo-root `scripts/ci-local.sh` is a thin wrapper into here). They moved here from `bun-apps/s2-agent/` / repo-root `scripts/`.
+> This package also owns the shared pipeline scripts: the deploy library `src/deploy/run.ts` (entry `src/deploy-cli.ts`), plus runnable `scripts/run-test.sh` and `scripts/ci-local.sh` (the repo-root `scripts/ci-local.sh` is a thin wrapper into here). They moved here from `bun-apps/s2-agent/` / repo-root `scripts/`.
 
 ## Tools
 
@@ -88,7 +88,7 @@ only orchestrate + parse.
 ### `deploy_pi_agent_sh`
 
 Build and deploy the s2-agent bundle + thin extension bundles (mirrors
-this package's `scripts/deploy.ts`: codegen → bundle s2-agent.js → thin ext
+this package src/deploy/run.ts (entry: src/deploy-cli.ts): codegen → bundle s2-agent.js → thin ext
 bundles → factory-verify → freeze). Params: `mode` (bundle|snapshot|standalone|exe,
 default bundle), `outDir` (path-guarded to `<repo>/dist/` or `$TMPDIR`),
 `noFreeze`. Returns mode, outDir, s2-agent.js size, ext-bundle built/failed

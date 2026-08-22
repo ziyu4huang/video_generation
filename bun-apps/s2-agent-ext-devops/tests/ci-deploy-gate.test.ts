@@ -35,6 +35,7 @@ describe("shouldRunDeployE2e", () => {
 		expect(shouldRunDeployE2e(["bun-apps/s2-agent/run.sh"])).toBe(true);
 		expect(shouldRunDeployE2e(["bun-apps/s2-agent/src/patches/index.ts"])).toBe(true);
 		expect(shouldRunDeployE2e(["bun-apps/s2-agent-ext-devops/scripts/deploy.ts"])).toBe(true);
+		expect(shouldRunDeployE2e(["bun-apps/s2-agent-ext-devops/src/deploy/run.ts"])).toBe(true);
 		expect(shouldRunDeployE2e(["s2-agent.sh"])).toBe(true);
 	});
 	test("no false positives from similar names", () => {

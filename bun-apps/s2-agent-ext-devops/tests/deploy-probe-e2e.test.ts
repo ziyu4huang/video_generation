@@ -24,9 +24,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runShDeploy } from "../scripts/deploy.ts";
-import { parseShConfig } from "../scripts/lib/config.ts";
-import { freezeTree, rmTree, unfreezeTree } from "../scripts/lib/fs.ts";
+import { runShDeploy } from "../src/deploy/run.ts";
+import { parseShConfig } from "../src/deploy/lib/config.ts";
+import { freezeTree, rmTree, unfreezeTree } from "../src/deploy/lib/fs.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
 const describeE2E = RUN ? describe : describe.skip;

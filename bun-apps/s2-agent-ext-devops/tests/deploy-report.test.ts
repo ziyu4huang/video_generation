@@ -19,8 +19,8 @@ import {
 	renderDeployReport,
 	renderOutRootIndex,
 	type DeployReportData,
-} from "../scripts/lib/deploy-report.ts";
-import { excludedExtensions } from "../scripts/lib/config.ts";
+} from "../src/deploy/lib/deploy-report.ts";
+import { excludedExtensions } from "../src/deploy/lib/config.ts";
 
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
 
