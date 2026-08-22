@@ -36,11 +36,30 @@ function arg(name: string, fallback?: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : fallback;
 }
 
+/**
+ * Blind-eval material: coin-flip the two summaries into anonymous X/Y slots.
+ * Pair files deliberately omit token counts and metrics — arm B is consistently
+ * longer, so lengths would de-anonymize; cost analysis happens after de-blinding
+ * via the report/key file.
+ */
+function coinFlipAssign(a: string, b: string): { x: string; y: string; xArm: "A" | "B" } {
+  return Math.random() < 0.5 ? { x: a, y: b, xArm: "A" } : { x: b, y: a, xArm: "B" };
+}
+
+function factSetBlock(f: SessionResult["factSet"]): string {
+  const list = (items: string[]) => (items.length ? items.map((s) => `- ${s}`).join("\n") : "- (none)");
+  return [
+    `Paths:\n${list(f.paths)}`,
+    `User requests:\n${list(f.userRequests)}`,
+    `Error strings:\n${list(f.errorStrings.slice(0, 10).map((s) => s.slice(0, 200)))}`,
+  ].join("\n\n");
+}
+
 interface SessionResult {
   session: string;
   tokensBefore: number;
-  armA: { metrics: ArmMetrics; summaryPreview: string };
-  armB: { metrics: ArmMetrics; summaryPreview: string; sessionType: CcSummaryResult["sessionType"] };
+  armA: { metrics: ArmMetrics; summary: string };
+  armB: { metrics: ArmMetrics; summary: string; sessionType: CcSummaryResult["sessionType"] };
   /** Deterministic ground truth both summaries should recall — input for later blind judging. */
   factSet: {
     paths: string[];
@@ -126,9 +145,11 @@ function buildArmInputs(entries: FileEntry[]): {
 async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) {
     console.log(
-      "Usage: bun run --cwd bun-apps/s2-agent-ext-compact ab [--session <path.jsonl>] [--n 5] [--model provider/id] [--out report.json]\n" +
+      "Usage: bun run --cwd bun-apps/s2-agent-ext-compact ab [--session <path.jsonl>] [--n 5] [--model provider/id] [--out report.json] [--blind-dir <dir>]\n" +
         "  Offline A/B replay: host built-in summarizer vs CC-style compact on real sessions.\n" +
-        "  Model defaults to the configured medium tier. Unknown args are ignored.",
+        "  Model defaults to the configured medium tier. Unknown args are ignored.\n" +
+        "  --blind-dir writes one anonymized X/Y pair file per session (fact set + both\n" +
+        "  summaries, coin-flipped) plus key.json for de-blinding after scoring.",
     );
     return;
   }
@@ -213,7 +234,7 @@ async function main() {
             wallMs: t1 - t0,
             usage: toMetricsUsage(builtIn.usage),
           }),
-          summaryPreview: builtIn.text.slice(0, 200),
+          summary: builtIn.text,
         },
         armB: {
           metrics: computeMetrics({
@@ -223,7 +244,7 @@ async function main() {
             wallMs: t2 - t1,
             usage: toMetricsUsage(ccStyle.usage),
           }),
-          summaryPreview: ccStyle.summary.slice(0, 200),
+          summary: ccStyle.summary,
           sessionType: ccStyle.sessionType,
         },
         // Fact set for later blind judging: deterministic ground truth both summaries should recall.
@@ -272,6 +293,42 @@ async function main() {
       JSON.stringify({ model: `${provider}/${id}`, results, skipped: skippedSessions, errors }, null, 2),
     );
     console.log(`wrote ${out}`);
+  }
+
+  const blindDir = arg("blind-dir");
+  if (blindDir) {
+    await mkdir(blindDir, { recursive: true });
+    const key: Array<{ pair: string; session: string; xArm: "A" | "B"; aTokens: number; bTokens: number }> = [];
+    for (const [i, r] of results.entries()) {
+      const pair = String(i + 1).padStart(2, "0");
+      const { x, y, xArm } = coinFlipAssign(r.armA.summary, r.armB.summary);
+      key.push({
+        pair,
+        session: r.session,
+        xArm,
+        aTokens: r.armA.metrics.summaryTokens,
+        bTokens: r.armB.metrics.summaryTokens,
+      });
+      const body = [
+        `# Pair ${pair} — blind eval (score before opening key.json)`,
+        "",
+        "## Fact set (deterministic ground truth both summaries should recall)",
+        "",
+        factSetBlock(r.factSet),
+        "",
+        "## Summary X",
+        "",
+        x,
+        "",
+        "## Summary Y",
+        "",
+        y,
+        "",
+      ].join("\n");
+      await Bun.file(join(blindDir, `${pair}-pair.md`)).write(body);
+    }
+    await Bun.file(join(blindDir, "key.json")).write(JSON.stringify(key, null, 2));
+    console.log(`wrote ${results.length} blind pairs + key.json to ${blindDir}`);
   }
 
   if (!results.length) {
