@@ -1,0 +1,37 @@
+[
+  {
+    "pair": "01",
+    "session": "--Users-huangziyu-proj-video_generation__ltx--/2026-07-10T08-45-10-084Z_019f4b33-be44-7969-8ca8-868eb93a346f.jsonl",
+    "xArm": "B",
+    "aTokens": 1485,
+    "bTokens": 2687
+  },
+  {
+    "pair": "02",
+    "session": "--Users-huangziyu-proj-video_generation__pi--/2026-07-05T22-25-03-621Z_019f3462-9485-7b2f-9617-188566c6b313.jsonl",
+    "xArm": "B",
+    "aTokens": 1390,
+    "bTokens": 3706
+  },
+  {
+    "pair": "03",
+    "session": "--Users-huangziyu-proj-video_generation__pi--/2026-07-10T03-46-33-111Z_019f4a22-5a17-7cea-92e3-1734e47e8a12.jsonl",
+    "xArm": "B",
+    "aTokens": 1091,
+    "bTokens": 2061
+  },
+  {
+    "pair": "04",
+    "session": "--Users-huangziyu-proj-video_generation__dsh--/2026-08-22T05-24-57-516Z_01a027ed-e62c-73ac-96bf-a5ddc44f0eb1.jsonl",
+    "xArm": "A",
+    "aTokens": 1886,
+    "bTokens": 3921
+  },
+  {
+    "pair": "05",
+    "session": "--Users-huangziyu-proj-video_generation__deploy--/2026-07-18T11-43-01-470Z_019f7509-735e-7ff6-bd61-f5c7c52df232.jsonl",
+    "xArm": "B",
+    "aTokens": 1404,
+    "bTokens": 2535
+  }
+]
