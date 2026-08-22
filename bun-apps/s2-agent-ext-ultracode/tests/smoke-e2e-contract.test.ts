@@ -12,7 +12,7 @@
 //      + the workflow script content verbatim (the whole point of the strict
 //      prompt is that the model cannot invent a 4-phase workflow)
 //   5. one-shot semantics: the CLI's exit code becomes the smoke's exit code
-//      (old: `exec bun …cli.ts …`; new: process.exit(spawnSync(…).status))
+//      (old: `exec bun …cli.ts …`; new: process.exit(child.status))
 //
 // The CLI hop is stubbed via SMOKE_E2E_CLI (test-only env override; defaults to
 // the real bun-apps/s2-agent/src/cli.ts): a fake cli that dumps its argv as
