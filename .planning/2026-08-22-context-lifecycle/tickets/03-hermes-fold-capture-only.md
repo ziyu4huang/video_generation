@@ -19,7 +19,14 @@ duplicate kcard's measured 1.00 blend. D1: fold to capture-only.
    search.
 3. Retire: semantic memory-search surface; dead vector path — `store/surreal/vector-store.ts`,
    `store/surreal/vector-store-helpers.ts`, `VECTOR_BOOTSTRAP_SQL`, `handlers/vector-backfill.ts`,
-   related config/env surface. SurrealDB stays for the crud journal store.
+   related config/env surface.
+   **Pre-decision (owner-approved 2026-08-22):** SurrealDB stays as the **store of record for
+   the capture-only journal** (crud store; PR #753 Phase 3 backend, SurrealQL v3.2.3 traps
+   already charted). It never enters the retrieval path — any vector surface in SurrealDB
+   would re-arm the exact role D1/D2 just retired and duplicate kcard's measured 1.00 blend.
+   Recall routes exclusively through kcard `retrieveRecords`. Future ledger upgrades
+   (ticket 09 RecallLedger, ticket 11 usage ledger) start as lightweight derived files;
+   SurrealDB is the natural upgrade position if volume ever demands it.
 4. Rewrite the hermes ADR that planned the vector path (supersedes; cite D1 + the 0/20
    audit). Recall questions route through `knowledge_query`.
 5. Update `bun-apps/s2-agent-ext-knowledge-card` docs that describe hermes recall
