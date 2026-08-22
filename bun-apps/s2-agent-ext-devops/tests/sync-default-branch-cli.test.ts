@@ -218,10 +218,19 @@ describe("sync-default-branch-cli — wrapper contract", () => {
 		const aborting = await runSyncCli([], deps);
 		expect(aborting.exitCode).toBe(1);
 		// explicit --preserve covers it → stashed across the advance, exit 0.
-		const ok = await runSyncCli(["--preserve", "hot/"], deps);
+		// The spawn fn feeds the park's pairing probe a TAGGED top stash entry
+		// so the restore pop runs (entry proven ours; popped by that SHA).
+		const ok = await runSyncCli(["--preserve", "hot/"], {
+			...deps,
+			spawn: (async (_cmd: string, args: string[]) =>
+				args.includes("stash") && args.includes("list")
+					? { stdout: `${sha("5")} On main: sync_default_branch preserve\n`, stderr: "", exitCode: 0 }
+					: { stdout: "", stderr: "", exitCode: 0 }) as SpawnFn,
+		});
 		expect(ok.exitCode).toBe(0);
 		const outcome = JSON.parse(ok.stdout);
 		expect(outcome.preserved).toEqual({ paths: ["hot/file.md"], restored: true });
+		expect(outcome.commands).toContain(`git -C "${REPO}" stash apply ${sha("5")}`);
 	});
 
 	test("--preserve-strict makes even the DEFAULT hot file abort", async () => {

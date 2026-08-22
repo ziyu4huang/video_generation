@@ -79,6 +79,15 @@ const SUBMODULE_STATUS: SpawnResult = {
 	exitCode: 0,
 };
 
+/** parkPreserve's pairing probe: the top stash entry right after a successful
+ *  preserve push — carries OUR tag, so it provably is the entry WE created. */
+const STASH_TOP: SpawnResult = { stdout: `${sha("5")} On main: sync_default_branch preserve\n`, stderr: "", exitCode: 0 };
+const isStashTopProbe = (a: string[]) => realArgs(a).join(" ") === "stash list --format=%H %gs -n 1";
+/** restorePreserve's drop-position probe: the full stash list; our parked
+ *  entry (sha "5") sits above a foreign one (sha "f"). */
+const STASH_INDEX: SpawnResult = { stdout: `${sha("5")}\n${sha("f")}\n`, stderr: "", exitCode: 0 };
+const isStashIndexProbe = (a: string[]) => realArgs(a).join(" ") === "stash list --format=%H";
+
 describe("runSync — full mode DEFAULT (current worktree holds the default branch)", () => {
 	test("(a) advances <D> in THIS worktree: fetch + merge --ff-only, NO reset, no checkout", async () => {
 		const client = fakeClient({
@@ -491,8 +500,9 @@ describe("runSync — preserve pop-conflict aftermath warning", () => {
 			revs: { "origin/main": sha("b"), main: sha("a") },
 		});
 		const { fn } = fakeSpawn([
+			{ match: isStashTopProbe, result: STASH_TOP },
 			{
-				match: (a) => realArgs(a).join(" ").startsWith("stash pop"),
+				match: (a) => realArgs(a).join(" ").startsWith("stash apply"),
 				result: {
 					stdout: "",
 					stderr: "CONFLICT (content): merge conflict in a.md\nCONFLICT (content): merge conflict in b.md",
@@ -525,7 +535,8 @@ describe("runSync — preserve pop-conflict aftermath warning", () => {
 			revs: { "origin/main": sha("b"), main: sha("a") },
 		});
 		const { fn } = fakeSpawn([
-			{ match: (a) => realArgs(a).join(" ").startsWith("stash pop"), result: { stdout: "", stderr: "error: could not restore untracked files", exitCode: 1 } },
+			{ match: isStashTopProbe, result: STASH_TOP },
+			{ match: (a) => realArgs(a).join(" ").startsWith("stash apply"), result: { stdout: "", stderr: "error: could not restore untracked files", exitCode: 1 } },
 			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
 		]);
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["a.md", "b.md"] });
@@ -620,7 +631,8 @@ describe("runSync — pre-flight warnings (unpushed commits)", () => {
 // safety gate for genuinely uncommitted work.
 describe("runSync — preserve hot files (stash before, restore after)", () => {
 	const STASH_PUSH = `git -C "${OTHER}" stash push -m sync_default_branch preserve -- .agents/memory/MEMORY.md`;
-	const STASH_POP = `git -C "${OTHER}" stash pop`;
+	// restore applies the tagged entry the park's OWN push created (pairing), by SHA.
+	const STASH_APPLY = `git -C "${OTHER}" stash apply ${sha("5")}`;
 
 	test("(a) preservable-only dirty (MEMORY.md) in the OTHER worktree → stash + advance + pop, NOT aborted", async () => {
 		const client = fakeClient({
@@ -634,6 +646,8 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 			revs: { "origin/main": sha("c"), main: sha("a") },
 		});
 		const { fn, calls } = fakeSpawn([
+			{ match: isStashTopProbe, result: STASH_TOP },
+			{ match: isStashIndexProbe, result: STASH_INDEX },
 			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
 		]);
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
@@ -643,13 +657,15 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		// the full park→advance→restore command sequence, targeting the OTHER worktree.
 		expect(out.commands).toContain(STASH_PUSH);
 		expect(out.commands).toContain(`git -C "${OTHER}" merge --ff-only origin/main`);
-		expect(out.commands).toContain(STASH_POP);
+		expect(out.commands).toContain(STASH_APPLY);
+		// applied cleanly → the parked entry is dropped at its CONTENT-matched position.
+		expect(out.commands).toContain(`git -C "${OTHER}" stash drop stash@{0}`);
 		expect(out.preserved).toEqual({ paths: [".agents/memory/MEMORY.md"], restored: true });
 		// submodule sync still runs after the advance.
 		expect(out.commands.some((c) => c.includes("submodule update"))).toBe(true);
-		// stash push + pop were actually spawned (non-dry), on the OTHER worktree.
+		// stash push + apply were actually spawned (non-dry), on the OTHER worktree.
 		expect(calls.some((c) => c.args.includes(OTHER) && c.args.includes("stash") && c.args.includes("push"))).toBe(true);
-		expect(calls.some((c) => c.args.includes(OTHER) && c.args.includes("stash") && c.args.includes("pop"))).toBe(true);
+		expect(calls.some((c) => c.args.includes(OTHER) && c.args.includes("stash") && c.args.includes("apply"))).toBe(true);
 	});
 
 	test("(b) dirty with BOTH MEMORY.md AND src/foo.ts (real present) → abort dirty_tree, no stash push", async () => {
@@ -684,6 +700,8 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 			revs: { "origin/main": sha("b"), main: sha("a") },
 		});
 		const { fn } = fakeSpawn([
+			{ match: isStashTopProbe, result: STASH_TOP },
+			{ match: isStashIndexProbe, result: STASH_INDEX },
 			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
 		]);
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["build/"] });
@@ -691,7 +709,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		expect(out.aborted).toBeUndefined();
 		expect(out.preserved).toEqual({ paths: ["build/out.json"], restored: true });
 		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_default_branch preserve -- build/out.json`);
-		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash apply ${sha("5")}`);
 	});
 
 	test("(c2) preserve: ['build/'] dirty README.md → abort dirty_tree (not preserved)", async () => {
@@ -724,7 +742,7 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		expect(out.commands.some((c) => c.includes("stash"))).toBe(false);
 	});
 
-	test("(e) stash pop conflict → restored:false + warn, stash KEPT (no drop)", async () => {
+	test("(e) stash apply conflict → restored:false + warn, stash KEPT (no drop)", async () => {
 		const client = fakeClient({
 			defaultBranch: "main",
 			current: "main",
@@ -733,7 +751,8 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 			revs: { "origin/main": sha("b"), main: sha("a") },
 		});
 		const { fn } = fakeSpawn([
-			{ match: (a) => realArgs(a).join(" ").startsWith("stash pop"), result: { stdout: "", stderr: "CONFLICT (content): Merge conflict in .agents/memory/MEMORY.md", exitCode: 1 } },
+			{ match: isStashTopProbe, result: STASH_TOP },
+			{ match: (a) => realArgs(a).join(" ").startsWith("stash apply"), result: { stdout: "", stderr: "CONFLICT (content): Merge conflict in .agents/memory/MEMORY.md", exitCode: 1 } },
 			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
 		]);
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
@@ -741,8 +760,8 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		expect(out.aborted).toBeUndefined(); // the advance itself succeeded
 		expect(out.preserved?.restored).toBe(false);
 		expect(out.preserved?.conflict).toMatch(/CONFLICT/);
-		expect(out.warnings.some((w) => /stash pop CONFLICTED/.test(w))).toBe(true);
-		// we KEEP the stash on conflict (never drop it).
+		expect(out.warnings.some((w) => /stash apply CONFLICTED/.test(w))).toBe(true);
+		// we KEEP the stash on apply conflict (never drop it).
 		expect(out.commands.some((c) => c.includes("stash drop"))).toBe(false);
 	});
 
@@ -776,13 +795,16 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
 			revs: { "origin/main": sha("r"), HEAD: sha("h") },
 		});
-		const { fn, calls } = fakeSpawn();
+		const { fn, calls } = fakeSpawn([
+			{ match: isStashTopProbe, result: STASH_TOP },
+			{ match: isStashIndexProbe, result: STASH_INDEX },
+		]);
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase" });
 
 		expect(out.aborted).toBeUndefined();
 		expect(out.commands).toContain(`git -C "${REPO}" stash push -m sync_default_branch preserve -- .agents/memory/MEMORY.md`);
 		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
-		expect(out.commands).toContain(`git -C "${REPO}" stash pop`);
+		expect(out.commands).toContain(`git -C "${REPO}" stash apply ${sha("5")}`);
 		expect(out.preserved).toEqual({ paths: [".agents/memory/MEMORY.md"], restored: true });
 		expect(calls.some((c) => c.args.includes("rebase"))).toBe(true);
 	});
@@ -810,7 +832,95 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 	});
 });
 
-// --- caller post-state (#1): what's checked out in the CALLING worktree after
+// --- push→pop pairing (2026-08-22 incident): `git stash push -- <gitlink>` ---
+// exits 0 while creating NO stash entry (git cannot stash a bare submodule
+// gitlink) — the old code then blind-popped stash@{0}, which in a
+// multi-session repo was ANOTHER session's day-old stash (applied onto the
+// tree as a phantom conflict in an unrelated file). The park must verify its
+// push created an entry and the restore must pop ONLY that entry (by SHA,
+// position-independent even if a concurrent session pushes on top).
+describe("runSync — preserve stash push→pop pairing (gitlink incident)", () => {
+	/** The incident's exact probe result: the push created nothing, so the top
+	 *  stash is a FOREIGN day-old entry (untagged by us). */
+	const FOREIGN_TOP: SpawnResult = { stdout: `${sha("f")} On main: s2-agent-rename-presync-20260821\n`, stderr: "", exitCode: 0 };
+
+	test("(i) ALL preserve paths are gitlinks → push creates NO entry (foreign stash on top) → NO pop, warning, advance proceeds", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: ["vaults_root/study-news"] }, // a bare gitlink change
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		const { fn, calls } = fakeSpawn([
+			{ match: isStashTopProbe, result: FOREIGN_TOP },
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", preserve: ["vaults_root/study-news"] });
+
+		expect(out.aborted).toBeUndefined(); // the advance itself proceeds
+		// CRITICAL: no restore pop — a blind pop could apply an unrelated stash.
+		expect(calls.some((c) => realArgs(c.args).join(" ").startsWith("stash pop"))).toBe(false);
+		expect(out.commands.some((c) => c.includes("stash pop"))).toBe(false);
+		// nothing was parked, so there is no preserve-restore result at all.
+		expect(out.preserved).toBeUndefined();
+		const w = out.warnings.join(" ");
+		expect(w).toContain("created NO stash entry");
+		expect(w).toContain("gitlink");
+		expect(w).toContain("SKIPPED");
+	});
+
+	test("(ii) rebase mode: same entry-less push → no pop (shared park/restore helpers)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/y",
+			worktrees: [{ worktree: REPO, branch: "feat/y" }],
+			dirty: { [REPO]: ["vaults_root/study-news"] },
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn([{ match: isStashTopProbe, result: FOREIGN_TOP }]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", preserve: ["vaults_root/study-news"] });
+
+		expect(out.aborted).toBeUndefined();
+		expect(calls.some((c) => realArgs(c.args).join(" ").startsWith("stash pop"))).toBe(false);
+		expect(out.preserved).toBeUndefined();
+		expect(out.warnings.some((w) => w.includes("created NO stash entry"))).toBe(true);
+	});
+
+	test("(iii) restore applies the tagged SHA (position-independent) + drops at content-matched position, foreign entry untouched", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a") },
+		});
+		// The top probe reports OUR entry (sha "5"); the index probe shows a
+		// concurrent session's stash (sha "f") pushed BELOW ours. Apply keys on
+		// the SHA (never positional); drop re-derives the position by content.
+		const { fn, calls } = fakeSpawn([
+			{ match: isStashTopProbe, result: STASH_TOP },
+			{ match: isStashIndexProbe, result: STASH_INDEX },
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: SUBMODULE_STATUS },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.preserved).toEqual({ paths: [".agents/memory/MEMORY.md"], restored: true });
+		// apply targets the tagged entry's SHA, not a positional stash@{0}.
+		const apply = calls.find((c) => realArgs(c.args).join(" ").startsWith("stash apply"));
+		expect(apply).toBeDefined();
+		expect(apply?.args).toContain(sha("5"));
+		expect(apply?.args).not.toContain("stash@{0}");
+		// drop resolves OUR entry's position from the list content — index 0
+		// here (ours on top), and can never name the foreign sha.
+		const drop = calls.find((c) => realArgs(c.args).join(" ").startsWith("stash drop"));
+		expect(drop?.args).toContain("stash@{0}");
+		expect(drop?.args).not.toContain(sha("f"));
+	});
+});
+
+// --- caller post-state (#1): what is checked out in the CALLING worktree after
 // the sync + how far behind origin/<D> it now is (warn when it lags — full
 // mode advances <D> only in the worktree that HOLDS it).
 describe("runSync — caller post-state", () => {
