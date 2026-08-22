@@ -82,7 +82,7 @@ The CLI shells. Each `zk-*` command imports the task builders / library directly
 **Contract:** the CLI is a thin shell — all logic lives in pi-knowledge-card.
 Renaming an exported builder breaks the CLI at build time (caught by
 `bun test` in s2-agent, 248 tests). See
-[`../../s2-agent/docs/KNOWLEDGE-LAYER.md`](../../s2-agent/docs/KNOWLEDGE-LAYER.md).
+the INVARIANT header comment in [`../../s2-agent/src/cli/commands/zk-ask.ts`](../../s2-agent/src/cli/commands/zk-ask.ts).
 
 ### 2. `pi-hermes-memory` — SOFT, runtime (`optional peer`)
 
@@ -132,7 +132,7 @@ Every package in the knowledge layer carries a `docs/KNOWLEDGE-LAYER.md`
 describing **its own** role + coupling, all linking back here:
 
 - [`../../pi-obsidian/docs/KNOWLEDGE-LAYER.md`](../../pi-obsidian/docs/KNOWLEDGE-LAYER.md) — the HARD forward dep (parser + subagent contracts)
-- [`../../s2-agent/docs/KNOWLEDGE-LAYER.md`](../../s2-agent/docs/KNOWLEDGE-LAYER.md) — the 5 `zk-*` thin shells
+- [`../../s2-agent/src/cli/commands/zk-ask.ts`](../../s2-agent/src/cli/commands/zk-ask.ts) — the 5 `zk-*` thin shells (INVARIANT header comment; the package keeps no KNOWLEDGE-LAYER.md)
 - [`../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md`](../../pi-hermes-memory/docs/KNOWLEDGE-LAYER.md) — the SOFT optional-peer edge
 
 When you change a coupling, update the affected `KNOWLEDGE-LAYER.md` AND this

@@ -7,7 +7,7 @@
  * sub-commands use. That is the whole point — the deterministic engine
  * (gate / retry / loopUntilDry / journaling / resume) is reachable from the
  * CLI, a script, or a hook, not only from the VSCode workflow editor or the
- * interactive `workflow` tool. See `../docs/workflow-cli.md`.
+ * interactive `workflow` tool. Usage reference: `s2-agent cli workflow --help`.
  *
  * The pack resolver + orchestration LIVE IN THE ENGINE (`workflow-pack.ts`) and
  * are shared with the `workflow` tool's `name` parameter (Path B). This CLI
