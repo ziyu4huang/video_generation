@@ -23,7 +23,7 @@
  *    (origin/HEAD → main / master / develop / release-v2 / fallback).
  */
 import { test, expect, describe } from "bun:test";
-import { runSync, type SyncClient } from "../src/sync-recipe.js";
+import { runSync, deriveWorktreeBranchName, type SyncClient } from "../src/sync-recipe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 
 const REPO = "/repo";
@@ -309,7 +309,172 @@ describe("runSync — pull mode", () => {
 		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase" });
 		expect(out.aborted?.reason).toBe("detached_head");
 		expect(out.aborted?.message).toMatch(/detached HEAD/);
+		// the abort now carries the recovery hint (branch option).
+		expect(out.aborted?.hint).toMatch(/branch/);
 		expect(out.advanced).toEqual([]);
+	});
+});
+
+describe("runSync — rebase/pull detached-HEAD branch recovery (`branch` option)", () => {
+	test("creates the named branch at HEAD, then rebases IT onto origin/<D>", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			worktrees: [{ worktree: REPO, detached: true }],
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", branch: "feat/wf" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" checkout -b feat/wf`);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
+		// the advance is attributed to the NEW branch, from the detached HEAD.
+		expect(out.advanced[0].branch).toBe("feat/wf");
+		expect(out.advanced[0].from).toBe(sha("h"));
+		expect(out.warnings.some((w) => /created branch 'feat\/wf'/.test(w))).toBe(true);
+	});
+
+	test("'auto' derives the branch name from the worktree folder suffix", async () => {
+		const WT = "/Users/x/proj/video_generation__memory";
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: WT, mode: "rebase", branch: "auto" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${WT}" checkout -b memory`);
+		expect(out.advanced[0].branch).toBe("memory");
+	});
+
+	test("ATTACHES an existing branch pointing at the EXACT HEAD (plain checkout, no -b)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			revs: { "origin/main": sha("r"), HEAD: sha("h"), "refs/heads/feat/wf": sha("h") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", branch: "feat/wf" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" checkout feat/wf`);
+		expect(out.commands.some((c) => c.includes("checkout -b"))).toBe(false);
+	});
+
+	test("aborts branch_exists when the name exists at a DIFFERENT commit (nothing moved)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			revs: { "origin/main": sha("r"), HEAD: sha("h"), "refs/heads/feat/wf": sha("o") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", branch: "feat/wf" });
+
+		expect(out.aborted?.reason).toBe("branch_exists");
+		expect(out.commands.some((c) => c.includes("checkout"))).toBe(false);
+		expect(calls.length).toBe(0);
+	});
+
+	test("aborts worktree_conflict when the name is checked out in ANOTHER worktree", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			worktrees: [
+				{ worktree: REPO, detached: true },
+				{ worktree: OTHER, branch: "feat/wf" },
+			],
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", branch: "feat/wf" });
+
+		expect(out.aborted?.reason).toBe("worktree_conflict");
+		expect(calls.length).toBe(0);
+	});
+
+	test("aborts branch_name_invalid when the name IS the default branch, or 'auto' slugs to empty", async () => {
+		const mk = () =>
+			fakeClient({ defaultBranch: "main", current: "HEAD", revs: { "origin/main": sha("r"), HEAD: sha("h") } });
+		const a = await runSync({ client: mk(), spawn: fakeSpawn().fn, repoRoot: REPO, mode: "rebase", branch: "main" });
+		expect(a.aborted?.reason).toBe("branch_name_invalid");
+
+		// a folder name that slugs to "" — unresolvable, never a silent default.
+		const b = await runSync({
+			client: mk(),
+			spawn: fakeSpawn().fn,
+			repoRoot: "/x/!!!",
+			mode: "rebase",
+			branch: "auto",
+		});
+		expect(b.aborted?.reason).toBe("branch_name_invalid");
+	});
+
+	test("branch is ignored (warned, never fatal) when the caller is already on a branch or in full mode", async () => {
+		const onBranch = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [{ worktree: REPO, branch: "feat/x" }],
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const out = await runSync({ client: onBranch, spawn: fakeSpawn().fn, repoRoot: REPO, mode: "rebase", branch: "feat/y" });
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands.some((c) => c.includes("checkout"))).toBe(false);
+		expect(out.warnings.some((w) => /branch option ignored/.test(w))).toBe(true);
+
+		const full = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			revs: { "origin/main": sha("r") },
+		});
+		const out2 = await runSync({ client: full, spawn: fakeSpawn().fn, repoRoot: REPO, mode: "full", branch: "feat/y" });
+		expect(out2.aborted).toBeUndefined();
+		expect(out2.warnings.some((w) => /branch option ignored in full mode/.test(w))).toBe(true);
+	});
+
+	test("dryRun RECORDS the checkout -b plan without spawning it", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", branch: "feat/wf", dryRun: true });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" checkout -b feat/wf`);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
+		expect(out.advanced[0].branch).toBe("feat/wf");
+		expect(calls.length).toBe(0);
+	});
+
+	test("a REAL dirty path aborts BEFORE any branch creation — aborting runs mutate nothing", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "HEAD",
+			dirty: { [REPO]: ["src/foo.ts"] }, // real (non-preserve) dirty path
+			revs: { "origin/main": sha("r"), HEAD: sha("h") },
+		});
+		const { fn, calls } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", branch: "feat/wf" });
+
+		expect(out.aborted?.reason).toBe("dirty_tree");
+		expect(out.commands.some((c) => c.includes("checkout"))).toBe(false);
+		expect(calls.length).toBe(0);
+	});
+});
+
+describe("deriveWorktreeBranchName — 'auto' name derivation", () => {
+	test("session-worktree suffix, bare folder, agent worktree, and slugification", () => {
+		expect(deriveWorktreeBranchName("/Users/x/proj/video_generation__memory")).toBe("memory");
+		expect(deriveWorktreeBranchName("/repo")).toBe("repo");
+		expect(deriveWorktreeBranchName("/repo/.claude/worktrees/agent-adcb08ef619f83c96")).toBe("agent-adcb08ef619f83c96");
+		expect(deriveWorktreeBranchName("/x/video_generation__My Branch!")).toBe("my-branch");
+		expect(deriveWorktreeBranchName("/x/proj__")).toBe("proj"); // trailing separator falls back to the stem
+		expect(deriveWorktreeBranchName("/x/!!!")).toBe(""); // unsluggable → caller aborts
+		expect(deriveWorktreeBranchName("/x/__Memory__")).toBe("memory");
 	});
 });
 

@@ -14,6 +14,8 @@ order** and **do NOT fall back to raw bash `git` / `gh`** for the parts they own
 (a) The user asks to sync/update the repo to the latest remote default branch in ANY phrasing: "sync to remote", "git sync", "update main", "get latest", "pull latest", "up to date".
 (b) Devops tools loaded → call `sync_default_branch` (default full mode; `dryRun:true` to preview).
 (c) Plain `pi` session without the devops extension → CLI fallback: `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts` (same runSync orchestration; `--dry-run` supported; JSON on stdout).
+
+Rebase/pull on a DETACHED worktree (session worktrees here routinely are — post-merge detach, fresh agent worktree) aborts `detached_head` by default; pass `--branch <name>` (or `--branch auto`, which derives the name from the worktree folder suffix: `video_generation__memory` → `memory`) to create the branch at the current HEAD and proceed. Guarded: never the default branch; an existing branch at a different commit aborts `branch_exists` (existing at the exact HEAD is attached, not recreated); a branch checked out in another worktree aborts `worktree_conflict`. The agent layer should pass a semantic name (ticket / next-goal slug) when it has one and reserve `auto` as the fallback — never let the tool name a branch after the work of a session it cannot see.
 (d) Verify after: `git log --oneline -3 origin/main`.
 
 Remote name: every `origin/<ref>` ref and `git fetch/push origin` in the devops tools follows `DEVOPS_REMOTE` env > `git config devops.remote` > `origin` (src/remote.ts) — `origin/main` in this skill's prose means `<remote>/main` for the configured remote. Fork layouts (`origin` = personal mirror, `upstream` = the real forge) set one of the two and every tool follows.

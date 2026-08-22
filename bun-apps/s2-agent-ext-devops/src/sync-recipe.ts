@@ -17,6 +17,19 @@
  *   - "pull":   fetch → merge origin/<D> into the current branch (a REAL merge,
  *               `--no-ff` so it never fast-forwards — per spec).
  *
+ * DETACHED-HEAD HARDENING (rebase/pull only — `branch` option): session
+ * worktrees in this repo routinely sit on a detached HEAD (post-merge detach,
+ * fresh agent worktree), where rebase/pull used to hard-abort `detached_head`.
+ * Pass `branch: "<name>"` (or `"auto"`, derived from the worktree folder
+ * suffix — `video_generation__memory` → `memory`) to instead create the branch
+ * at the CURRENT HEAD (preserving any commits already on the detached HEAD)
+ * and proceed with the rebase/pull. Guards, all pre-mutation: the resolved
+ * name must be non-empty and NOT the default branch; a branch of that name
+ * already existing at a DIFFERENT commit aborts `branch_exists` (existing at
+ * the exact HEAD is ATTACHED via plain `git checkout`, not recreated); a
+ * branch checked out in another worktree aborts `worktree_conflict` (git
+ * checkout would fatal). Without `branch`, the historical abort stands.
+ *
  * SAFETY (full-mode default-branch advance, hardening follow-up to PR #1066):
  * the DEFAULT is now `git merge --ff-only origin/<D>` — matching the original
  * bash `pull --ff-only` "never lose commits" guarantee. Since we already
@@ -204,6 +217,7 @@ export interface SyncAbort {
 	/** Machine reason — one of SYNC_ABORT_REASONS: "aborted_before_start" |
 	 *  "dirty_tree" | "unmerged_index" | "no_origin_ref" | "checkout_failed" |
 	 *  "preserve_failed" | "divergent" | "reset_failed" | "detached_head" |
+	 *  "branch_name_invalid" | "branch_exists" | "worktree_conflict" |
 	 *  "rebase_failed" | "merge_failed". */
 	reason: SyncAbortReason;
 	/** Human-readable summary (what happened + immediate remediation). */
@@ -229,6 +243,9 @@ export const SYNC_ABORT_REASONS = [
 	"divergent",
 	"reset_failed",
 	"detached_head",
+	"branch_name_invalid",
+	"branch_exists",
+	"worktree_conflict",
 	"rebase_failed",
 	"merge_failed",
 ] as const;
@@ -287,7 +304,32 @@ export interface SyncOptions {
 	/** Remote name for fetch targets + `<remote>/<D>` tracking refs (default
 	 *  `origin`; resolve via src/remote.ts and pass down — never resolved here). */
 	remoteName?: string;
+	/** rebase/pull ONLY — detached-HEAD recovery. When the calling worktree is
+	 * on a detached HEAD, instead of aborting `detached_head`, create this
+	 * branch at the current HEAD (or ATTACH it, when a branch of that name
+	 * already exists at the exact HEAD) and proceed with the rebase/pull. The
+	 * literal `"auto"` derives the name from the worktree folder suffix (see
+	 * deriveWorktreeBranchName). Guarded: never the default branch; an existing
+	 * branch at a DIFFERENT commit aborts `branch_exists`; a branch checked out
+	 * in another worktree aborts `worktree_conflict`. Ignored (warned) in full
+	 * mode or when the caller is already on a branch. */
+	branch?: string;
 	signal?: AbortSignal;
+}
+
+/** Derive a branch name from the calling worktree's folder name — the `auto`
+ *  resolution for the detached-HEAD `branch` option. Session worktrees here
+ *  are named `<repo>__<suffix>` (video_generation__memory → "memory"); a bare
+ *  folder name (".claude/worktrees/agent-x" → "agent-x") falls through to
+ *  itself. Slugified to [a-z0-9-]; may be "" (an unresolvable name the caller
+ *  must abort on, never a silent fallback to the default branch). */
+export function deriveWorktreeBranchName(repoRoot: string): string {
+	const base = (repoRoot.replace(/\/+$/, "").split("/").pop() ?? "").trim();
+	const suffix = base.includes("__") ? (base.split("__").filter(Boolean).pop() ?? "") : base;
+	return suffix
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "-")
+		.replace(/^-+|-+$/g, "");
 }
 
 /** Render a git invocation as a runnable, human-readable shell string. */
@@ -550,7 +592,18 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		return { aborted: true, reason: "unmerged_index", message: msg };
 	};
 
-	const current = await client.currentBranch();
+	let current = await client.currentBranch();
+	const detached = !current || current === "HEAD";
+	// `branch` is a rebase/pull-only concern: warn (never abort) when it cannot
+	// apply — full mode advances <D> elsewhere, and a caller already ON a branch
+	// has nothing to recover from.
+	if (opts.branch && (mode === "full" || !detached)) {
+		warnings.push(
+			mode === "full"
+				? `branch option ignored in full mode (full advances '${D}', not the calling worktree's branch).`
+				: `branch option ignored — calling worktree is already on '${current}'.`,
+		);
+	}
 
 	// --- 2. Pre-flight: unpushed-commit warnings (read-only; best-effort). ----
 	// A missing upstream (origin/<branch> not fetched) → aheadBehind returns 0.
@@ -701,11 +754,9 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	}
 
 	// --- REBASE / PULL (the current branch with origin/<D>) ------------------
-	if (!current || current === "HEAD") {
-		warnings.push("detached HEAD — cannot rebase/merge a detached worktree.");
-		return outcome({ aborted: true, reason: "detached_head", message: "detached HEAD; cannot advance a detached worktree" });
-	}
-	// Pre-flight (per-path preserve split): see full-mode for the rationale.
+	// Pre-flight FIRST (per-path preserve split; see full-mode for the
+	// rationale) so an aborting run has mutated NOTHING — including the
+	// detached-HEAD branch creation below.
 	const dirty = await client.dirtyPaths(repoRoot);
 	const preservable = dirty.filter((p) => isPreservable(p, preserve));
 	const real = dirty.filter((p) => !isPreservable(p, preserve));
@@ -728,6 +779,70 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	// way against a conflicted index).
 	const unmerged = await unmergedAbort(repoRoot);
 	if (unmerged) return outcome(unmerged);
+
+	if (detached) {
+		// Detached-HEAD recovery (opt-in via `branch`): session worktrees here
+		// routinely sit detached (post-merge detach, fresh agent worktree), where
+		// a bare rebase/pull cannot run. Without `branch` the historical abort
+		// stands; with it, create (or attach) the named branch AT THE CURRENT
+		// HEAD — preserving any commits already on the detached HEAD — then fall
+		// through to the normal flow, whose rebase/pull reconciles the tip.
+		if (!opts.branch) {
+			warnings.push("detached HEAD — cannot rebase/merge a detached worktree.");
+			return outcome({
+				aborted: true,
+				reason: "detached_head",
+				message: "detached HEAD; cannot advance a detached worktree",
+				hint: "pass branch:'<name>' (or 'auto' to derive one from the worktree folder) to create a branch at the current HEAD and proceed.",
+			});
+		}
+		const name = opts.branch === "auto" ? deriveWorktreeBranchName(repoRoot) : opts.branch;
+		// Guard 1 — resolvable + never the default branch (syncing <D> is full
+		// mode's job; a local <D> here would also collide with the worktree that
+		// holds it).
+		if (!name || name === D) {
+			return outcome({
+				aborted: true,
+				reason: "branch_name_invalid",
+				message: `resolved branch name '${name || ""}' is empty or is the default branch '${D}' — refusing to create it.`,
+				hint: "pass an explicit non-default branch name (branch:'auto' derives one from the worktree folder suffix).",
+			});
+		}
+		// Guard 2 — checked out in ANOTHER worktree: `git checkout` would fatal.
+		// Read-only, aborts regardless of dryRun (structural — nothing to plan).
+		const worktrees = await client.worktreeList();
+		if (worktrees.some((w) => w.branch === name && w.worktree !== repoRoot)) {
+			return outcome({
+				aborted: true,
+				reason: "worktree_conflict",
+				message: `branch '${name}' is already checked out in another worktree — refusing to check it out here.`,
+				hint: `git worktree list shows '${name}' elsewhere; pass a different branch name.`,
+			});
+		}
+		// Guard 3 — a branch of that name already existing at a DIFFERENT commit
+		// must never be silently moved (checkout -b would fatal; attaching would
+		// abandon the detached HEAD commits). Existing at the EXACT HEAD is safe:
+		// plain `git checkout <name>` attaches without moving anything.
+		const head = (await client.revParse("HEAD")) ?? "";
+		const existing = (await client.revParse(`refs/heads/${name}`)) ?? "";
+		if (existing && existing !== head) {
+			return outcome({
+				aborted: true,
+				reason: "branch_exists",
+				message: `branch '${name}' already exists at ${existing.slice(0, 12)}, which is not the current HEAD (${head.slice(0, 12)}).`,
+				hint: `pass a different branch name, or check out '${name}' deliberately if that is what you meant.`,
+			});
+		}
+		const co = existing
+			? await git(repoRoot, ["checkout", name])
+			: await git(repoRoot, ["checkout", "-b", name]);
+		if (!dry && co.exitCode !== 0) {
+			warnings.push(`git checkout ${existing ? "" : "-b "}${name} failed: ${trim(co.stderr || co.stdout)}`);
+			return outcome({ aborted: true, reason: "checkout_failed", message: `checkout ${existing ? "" : "-b "}${name} failed` });
+		}
+		current = name;
+		warnings.push(`detached HEAD — ${existing ? `attached existing branch` : `created branch`} '${name}' at HEAD (${head.slice(0, 12)}); proceeding with ${mode} mode.`);
+	}
 
 	await git(repoRoot, ["fetch", remote]);
 

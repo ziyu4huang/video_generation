@@ -559,7 +559,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "sync_default_branch",
 		label: "Sync this repo to latest default branch (TS port of sync-repo.sh)",
 		description:
-			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. By DEFAULT the advance uses `git merge --ff-only origin/<D>` — it REFUSES (aborts, reason 'divergent') when local <D> has divergent/unpushed commits, so it NEVER loses commits. Pass force:true to instead use `git reset --hard origin/<D>` (discards those divergent commits — explicit opt-in). 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Auto-managed hot files (default: .agents/memory/MEMORY.md) are stashed + restored across the advance instead of aborting; genuinely uncommitted work still aborts. Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
+			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. By DEFAULT the advance uses `git merge --ff-only origin/<D>` — it REFUSES (aborts, reason 'divergent') when local <D> has divergent/unpushed commits, so it NEVER loses commits. Pass force:true to instead use `git reset --hard origin/<D>` (discards those divergent commits — explicit opt-in). 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Auto-managed hot files (default: .agents/memory/MEMORY.md) are stashed + restored across the advance instead of aborting; genuinely uncommitted work still aborts. rebase/pull on a DETACHED HEAD aborts 'detached_head' unless branch is passed — then the named branch is created (or attached) at the current HEAD and the sync proceeds ('auto' derives the name from the worktree folder suffix). Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
 		gating: { gate: "sync_default_branch" }, // reference form (ticket 01) — family in GATE_DEFS
 		promptSnippet:
 			"Sync this repo to latest default branch. full (default): fetch + advance default branch via merge --ff-only (worktree-aware; aborts on divergent unless force:true → reset --hard) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
@@ -580,6 +580,12 @@ export default function (pi: ExtensionAPI): void {
 						"Paths (exact, or dir prefix ending in '/') whose uncommitted changes are auto-preserved across the advance (stashed before, restored after) instead of aborting dirty_tree. Default: ['.agents/memory/MEMORY.md'] (hermes auto-managed). Only the listed paths are preserved; ALL OTHER uncommitted tracked work still aborts dirty_tree. Pass [] to disable preserve entirely.",
 				}),
 			),
+			branch: Type.Optional(
+				Type.String({
+					description:
+						"rebase/pull only — detached-HEAD recovery. When the calling worktree is on a detached HEAD, create (or attach, when it already exists at the exact HEAD) this branch at the current HEAD instead of aborting 'detached_head', then proceed. 'auto' derives the name from the worktree folder suffix (video_generation__memory → 'memory'). Never resolves to the default branch; an existing branch at a different commit or a branch checked out elsewhere aborts.",
+				}),
+			),
 		}),
 		async execute(_id, params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
@@ -591,7 +597,7 @@ export default function (pi: ExtensionAPI): void {
 			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
 			const rawMode = params.mode as string | undefined;
 			const mode: SyncMode = rawMode === "rebase" || rawMode === "pull" ? rawMode : "full";
-			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, force: params.force === true, preserve: params.preserve as string[] | undefined, remoteName, signal });
+			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, force: params.force === true, branch: params.branch as string | undefined, preserve: params.preserve as string[] | undefined, remoteName, signal });
 			return { details: outcome, content: [{ type: "text" as const, text: formatSync(outcome) }] };
 		},
 	});

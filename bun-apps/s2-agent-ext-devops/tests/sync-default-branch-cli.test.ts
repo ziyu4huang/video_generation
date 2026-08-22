@@ -110,6 +110,19 @@ describe("parseSyncArgs — argv contract", () => {
 		if (r.ok) expect(r.args.preserve).toEqual([]);
 	});
 
+	test("--branch accepts a name or 'auto'; missing value is a usage error", () => {
+		const named = parseSyncArgs(["--mode", "rebase", "--branch", "feat/wf"]);
+		expect(named.ok).toBe(true);
+		if (named.ok) expect(named.args.branch).toBe("feat/wf");
+
+		const auto = parseSyncArgs(["--mode", "rebase", "--branch", "auto"]);
+		expect(auto.ok).toBe(true);
+		if (auto.ok) expect(auto.args.branch).toBe("auto");
+
+		expect(parseSyncArgs([]).ok && (parseSyncArgs([]) as { ok: true; args: { branch?: string } }).args.branch).toBeUndefined();
+		expect(parseSyncArgs(["--branch"]).ok).toBe(false); // missing value
+	});
+
 	test("unknown flags and positionals are usage errors", () => {
 		expect(parseSyncArgs(["--nope"]).ok).toBe(false);
 		expect(parseSyncArgs(["main"]).ok).toBe(false);
@@ -136,6 +149,24 @@ describe("sync-default-branch-cli — wrapper contract", () => {
 		expect(res.exitCode).toBe(0);
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.mode).toBe("rebase");
+	});
+
+	test("--mode rebase --branch <name> on a DETACHED worktree creates the branch and syncs", async () => {
+		const deps = {
+			client: fakeClient({
+				defaultBranch: "main",
+				current: "HEAD", // detached
+				revs: { "origin/main": sha("r"), HEAD: sha("h") },
+			}),
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+		};
+		const res = await runSyncCli(["--mode", "rebase", "--branch", "feat/wf"], deps);
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted).toBeUndefined();
+		expect(outcome.commands).toContain(`git -C "${REPO}" checkout -b feat/wf`);
+		expect(outcome.advanced[0].branch).toBe("feat/wf");
 	});
 
 	test("--dry-run exits 0, plans commands, never mutates (still exit 0 even dirty)", async () => {
