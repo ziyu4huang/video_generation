@@ -104,7 +104,7 @@ Phase P0 — infra unification & hermes triage
 
 Phase P1 — card schema v2 + tiered retrieval
 - `tickets/05-card-schema-v2.md` — task, **closed 2026-08-22** — summary L0 + experience kind + merge-op table shipped; real-vault backfill 1925/1925 active cards (vault PR #20), recall-audit unchanged (hit@5 17/20, MRR 0.688)
-- `tickets/06-agg-node-abstracts.md` — task, **open** — L1 abstracts on LeanRAG agg nodes
+- `tickets/06-agg-node-abstracts.md` — task, **closed 2026-08-23** — agg `summary:` L1 (frontmatter, ≤256) + deterministic top-entity composition (wikilinks unwrapped) + checkpoint v2 + filename child links; FIRST real build: 326 agg nodes / 4 layers / 10 LLM calls over 1921 cards (vault PR pi-agent-vault#21); recall-audit unchanged (hit@5 17/20, MRR 0.688), graphHealth deadLinks 34 == baseline
 - `tickets/07-tier-ladder-retrieval.md` — task, **open** — tier field + demote-not-truncate
 
 Phase P2 — injection loop + ledger
@@ -149,12 +149,12 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/06-agg-node-abstracts.md` — ticket 05 closed 2026-08-22 (schema v2 live: `summary`
-L0 stamped on every active card via backfill + ingest; `experience` kind with the SAR
-template; `MERGE_OPS` typed merge table consumed by wiki-merge). Ticket 06 is next because
-the L1 tier (agg-node `summary:` + leaf lead-section) builds directly on the L0 shape 05
-established, and the committed recall-audit baseline (17/20 hit@5) is the gate it scores
-against.
+`tickets/07-tier-ladder-retrieval.md` — ticket 06 closed 2026-08-23 (agg nodes carry `summary:`
+L1 frontmatter + top-entity composed deterministic fallback; checkpoint format v2; child
+wikilinks target file stems; the FIRST real hierarchy build materialized 326 agg nodes over
+the 1921-card vault, 10 LLM calls, graphHealth clean at baseline). Ticket 07 is next because
+the tier ladder (`RetrievedCard.tier` + per-tier pre-rendered text + demote-not-truncate) is
+the retrieval-side consumer of both shipped tiers: L0 on cards (05) and L1 on agg nodes (06).
 
 ## Fog of war
 

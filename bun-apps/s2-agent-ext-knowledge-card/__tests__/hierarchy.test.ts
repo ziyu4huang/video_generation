@@ -15,6 +15,7 @@ import { join } from "node:path";
 import {
 	buildLayer,
 	cluster,
+	composeSummary,
 	parentChain,
 	readCheckpoint,
 	truncateSummary,
@@ -131,7 +132,7 @@ function layerCards() {
 }
 
 describe("buildLayer", () => {
-	test("under budget → zero LLM calls, deterministic truncation summaries", async () => {
+	test("under budget → zero LLM calls, deterministic top-entity composition summaries", async () => {
 		summarizeCalls = 0;
 		const { nodes, llmCalls, done } = await buildLayer({
 			cards: layerCards(),
@@ -151,15 +152,17 @@ describe("buildLayer", () => {
 		expect(alpha.sources).toEqual(["h1", "h2", "h3"]);
 		expect(alpha.layer).toBe(0);
 		expect(alpha.clusterSize).toBe(2);
-		// joined alpha text = 310 chars > 300 → truncated at 300 + "…"
-		expect(alpha.summary.length).toBe(301);
+		// ticket 06: deterministic summary = top-entity composition, not a raw
+		// truncation — prefix "mlx、run.py、ltx：" + the normalized joined lead,
+		// clamped to 300.
+		expect(alpha.summary).toBe(composeSummary(["mlx", "run.py", "ltx"], [`${LONG} one`, `${LONG} two`].join("\n\n")));
+		expect(alpha.summary.length).toBe(300);
 		expect(alpha.summary.endsWith("…")).toBe(true);
-		expect(alpha.summary).toBe(truncateSummary([`${LONG} one`, `${LONG} two`].join("\n\n")));
-		// beta joined (22 chars ≤ 300) → verbatim
+		// beta joined (21 normalized chars ≤ room) → composition fits verbatim
 		expect(beta.id).toBe("agg:0:1");
 		expect(beta.parentOf).toEqual(["c-b1", "c-b2"]);
 		expect(beta.entities).toEqual(["gui", "tui"]);
-		expect(beta.summary).toBe("beta short\n\nbeta brief");
+		expect(beta.summary).toBe("gui、tui：beta short beta brief");
 	});
 
 	test("over budget → one LLM call per over-budget cluster", async () => {
@@ -186,7 +189,8 @@ describe("buildLayer", () => {
 		});
 		expect(llmCalls).toBe(1);
 		expect(nodes[0].summary).toBe("SUM(310)");
-		expect(nodes[1].summary).toBe("beta short\n\nbeta brief");
+		// beta under budget → deterministic composition (entity head + lead)
+		expect(nodes[1].summary).toBe("gui、tui：beta short beta brief");
 	});
 
 	test("empty cards → no nodes, no embed cost, done", async () => {
@@ -324,5 +328,33 @@ describe("parentChain", () => {
 
 	test("unknown id → empty chain", () => {
 		expect(parentChain("nope", treeNodes())).toEqual([]);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// (g) composeSummary — ticket 06 deterministic top-entity composition
+// ---------------------------------------------------------------------------
+
+describe("composeSummary", () => {
+	test("top-3 entity head + normalized lead, clamped to the limit", () => {
+		expect(composeSummary(["mlx", "run.py", "ltx"], "alpha one\n\nalpha two")).toBe("mlx、run.py、ltx：alpha one alpha two");
+		// >3 entities → only the first 3 head the summary
+		expect(composeSummary(["a", "b", "c", "d", "e"], "t")).toBe("a、b、c：t");
+		// lead over room → ellipsis tail at exactly the limit
+		const out = composeSummary(["e"], "x".repeat(400), 50);
+		expect(out.length).toBe(50);
+		expect(out.endsWith("…")).toBe(true);
+	});
+
+	test("no entities → bare lead (never an empty head)", () => {
+		expect(composeSummary([], "just the text")).toBe("just the text");
+		// blank entity names filtered out of the head
+		expect(composeSummary(["  ", "e"], "t")).toBe("e：t");
+	});
+
+	test("wikilinks are unwrapped — a summary is text, not a link surface", () => {
+		expect(composeSummary(["e"], "see [[pi-dynamic-workflows]] for details")).toBe("e：see pi-dynamic-workflows for details");
+		// display-form links keep their label
+		expect(composeSummary([], "[[target|label]] end")).toBe("label end");
 	});
 });

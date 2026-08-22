@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
 import {
 	writeAggregationMocs,
+	childLinkTarget,
 	type WriteAggregationResult,
 } from "../src/aggregation-write.ts";
 import { healGraph } from "../src/graph-health.ts";
@@ -163,5 +164,70 @@ describe("healGraph agg-prune (step 0)", () => {
 		const healed = await healGraph({ vaultPath: vault, folder: FOLDER, mocPath: MOC });
 		expect(healed.aggPruned).toEqual([]);
 		expect(readFileSync(join(kb, "agg-L9-9.md"), "utf8")).toBe(userContent);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// summary frontmatter (ticket 06) — the L1 abstract surface
+// ---------------------------------------------------------------------------
+
+describe("renderAggCard summary frontmatter", () => {
+	test("renders a clamped `summary:` line; body keeps the full text", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zk-aggsum-"));
+		try {
+			const long = "x".repeat(400);
+			const n = node("agg:0:0", 0, ["a-one", "a-two"], ["e1"], ["h:1"], 2);
+			n.summary = long;
+			writeAggregationMocs({ kbDir: dir, nodes: [n] });
+			const c = readFileSync(join(dir, "agg-L0-0.md"), "utf8");
+			// frontmatter summary = clampSummary(≤256); body keeps all 400 chars
+			const fm = c.slice(0, c.indexOf("\n---\n", 3));
+			expect(fm).toContain("summary: ");
+			expect(fm.length).toBeLessThan(300 + 200 /* other fm lines */);
+			expect(fm).not.toContain(long);
+			expect(c).toContain(long); // body ## 摘要 is unclamped (L2 surface)
+			// short summary round-trips verbatim in the frontmatter
+			const n2 = node("agg:0:1", 0, ["b-one"], ["e2"], ["h:2"], 1);
+			writeAggregationMocs({ kbDir: dir, nodes: [n, n2] });
+			const c2 = readFileSync(join(dir, "agg-L0-1.md"), "utf8");
+			expect(c2).toContain('summary: "summary of agg:0:1"');
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+});
+
+// ---------------------------------------------------------------------------
+// childTargets (ticket 06) — id → filename wikilink mapping
+// ---------------------------------------------------------------------------
+
+describe("childLinkTarget childTargets map", () => {
+	test("a mapped card id links its FILE stem, not the id; unmapped ids keep the legacy fallback", () => {
+		const map = new Map([["202405201000", "regional-導致-ghosting-與手部瑕疵的機制"]]);
+		expect(childLinkTarget("202405201000", map)).toBe("regional-導致-ghosting-與手部瑕疵的機制");
+		// unmapped card id → slugify(id); agg child → basename
+		expect(childLinkTarget("202405201999", map)).toBe(childLinkTarget("202405201999"));
+		expect(childLinkTarget("agg:1:0", map)).toBe("agg-L1-0");
+	});
+
+	test("writeAggregationMocs renders mapped child links into the agg card", () => {
+		const dir = mkdtempSync(join(tmpdir(), "zk-aggchild-"));
+		try {
+			const n = node("agg:0:0", 0, ["202405201000", "agg:1:0"], ["e1"], ["h:1"], 2);
+			writeAggregationMocs({
+				kbDir: dir,
+				nodes: [n, node("agg:1:0", 1, ["202405201001"], ["e2"], ["h:2"], 1)],
+				childTargets: new Map([
+					["202405201000", "the-first-card-file"],
+					["202405201001", "the-second-card-file"],
+				]),
+			});
+			const c = readFileSync(join(dir, "agg-L0-0.md"), "utf8");
+			expect(c).toContain("[[the-first-card-file]]");
+			expect(c).toContain("[[agg-L1-0]]");
+			expect(c).not.toContain("[[202405201000]]");
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
