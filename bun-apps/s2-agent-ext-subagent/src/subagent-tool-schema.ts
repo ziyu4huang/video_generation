@@ -7,6 +7,7 @@ import type {
   AgentRegistry,
   AgentUsage,
   createWorktree,
+  LiveAgentRegistry,
   removeWorktree,
   SddReport,
   SpawnSubagentOptions,
@@ -15,6 +16,7 @@ import type {
   SubagentInFlightRegistry,
   SubagentRunPersistence,
   SubagentSalvage,
+  spawnLiveAgentFirstExchange,
   TurnExhaustion,
 } from "@repo/s2-agent-core-runtime";
 import type { TSchema } from "typebox";
@@ -116,6 +118,12 @@ export const subagentToolSchema = Type.Object({
   agent: Type.Optional(
     Type.String({
       description: "Role label (e.g. 'reviewer'); forwarded as an instructions prefix, doesn't change tool selection.",
+    }),
+  ),
+  name: Type.Optional(
+    Type.String({
+      description:
+        "Keep this agent LIVE after it reports back: its session survives completion so you can send follow-up messages later by this handle. Unique among live agents; 'main' reserved. Budgets apply over the agent's whole lifetime, not per dispatch. Incompatible with schema/worktree isolation; no transient retry.",
     }),
   ),
   agentType: Type.Optional(
@@ -261,6 +269,14 @@ export interface SubagentToolOptions {
   getActiveTools?: () => string[] | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
+  /**
+   * Live-agent registry for named persistent agents (`name` param). Defaults
+   * to the core-runtime process singleton — the same instance the extension
+   * entry disposes on session_shutdown.
+   */
+  liveRegistry?: LiveAgentRegistry;
+  /** Injectable named-agent first-exchange runner for tests (defaults to spawnLiveAgentFirstExchange). */
+  spawnLive?: typeof spawnLiveAgentFirstExchange;
   /** Injectable agentType registry for tests (defaults to loadAgentRegistry(cwd) per call). */
   agentRegistry?: AgentRegistry;
   /** Injectable worktree creation for tests (defaults to the real createWorktree). */

@@ -252,6 +252,10 @@ export interface RunRecordCtx {
    *  merged into the record's budget block by buildRunRecord below; cohort
    *  fields never clobber the per-run exhaustion fields in RunRecordDelta. */
   budgetCohort?: SubagentToolDetails["budget"];
+  /** Named-live-agent handle (spawn_subagent `name`), when this dispatch opened one. */
+  agentName?: string;
+  /** The named agent's stable id (the first exchange's toolCallId), linking records across exchanges. */
+  agentId?: string;
 }
 
 /** Per-path delta. Optional fields are omitted from the record when absent
@@ -302,6 +306,8 @@ export function buildRunRecord(ctx: RunRecordCtx, delta: RunRecordDelta): Subage
     output: delta.output,
   };
   if (delta.error !== undefined) rec.error = delta.error;
+  if (ctx.agentName !== undefined) rec.agentName = ctx.agentName;
+  if (ctx.agentId !== undefined) rec.agentId = ctx.agentId;
   if (delta.budget !== undefined || ctx.budgetCohort !== undefined) {
     // Cohort tag (source + effective caps) coexists with the exhaustion
     // fields; spread order keeps delta's exhaustion keys authoritative.

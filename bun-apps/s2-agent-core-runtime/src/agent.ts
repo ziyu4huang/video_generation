@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import type { AssistantMessage, Model, TextContent } from "@earendil-works/pi-ai";
 import {
+  type AgentSession,
   type CreateAgentSessionOptions,
   createAgentSession,
   createCodingTools,
@@ -196,6 +197,59 @@ export type AgentRunResult<TSchemaDef extends TSchema | undefined> = TSchemaDef 
   ? Static<TSchemaDef>
   : string;
 
+/**
+ * Session-assembly inputs shared by {@link CoreAgent.run} (one-shot) and
+ * `openLiveAgent` (persistent-agent.ts, named live agents). Extracted verbatim
+ * from run() so the two paths CANNOT drift — the exact hand-alignment failure
+ * child-dispatch.ts:10-19 records. Field names mirror AgentRunOptions where the
+ * semantics are identical (cwd/tools/toolNames/model/tier/callbacks).
+ */
+export interface SessionAssemblyOptions {
+  /** Per-call working directory (e.g. a worktree) — coding tools rebind to it. */
+  cwd?: string;
+  /** Extra per-call tools appended after base + extension tools. */
+  tools?: ToolDefinition[];
+  /** Coding-tool allowlist (agentType `tools`). Undefined = all coding tools. */
+  toolNames?: string[];
+  /** Coding-tool denylist applied after the allowlist (agentType `disallowedTools`). */
+  disallowedToolNames?: string[];
+  /** Explicit model spec (provider/modelId or bare modelId). */
+  model?: string;
+  /** Model tier name — used only when `model` is unset. */
+  tier?: string;
+  /** Structured-output schema; presence adds the structured_output tool via `capture`. */
+  schema?: TSchema;
+  /** The capture object the structured_output tool writes into (required with `schema`). */
+  capture?: StructuredOutputCapture<any>;
+  onModelResolved?: (modelId: string) => void;
+  onModelFallback?: (requestedSpec: string) => void;
+}
+
+/** What {@link CoreAgent.assembleSession} hands back: a LIVE, unsubscribed session. */
+export interface AssembledSession {
+  session: AgentSession;
+  /** The effective working directory coding tools are bound to. */
+  runCwd: string;
+}
+
+/**
+ * Extract the last non-empty assistant text from a message list. Exported
+ * module-level (was a private CoreAgent method) so persistent-agent.ts reads
+ * exchange output through the SAME extraction run() uses.
+ */
+export function lastAssistantText(messages: unknown[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i] as Partial<AssistantMessage> | undefined;
+    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
+    const text = message.content
+      .filter((part): part is TextContent => part.type === "text")
+      .map((part) => part.text)
+      .join("");
+    if (text.trim()) return text;
+  }
+  return "";
+}
+
 export class CoreAgent {
   private readonly cwd: string;
   private readonly baseTools: ToolDefinition[];
@@ -260,20 +314,17 @@ export class CoreAgent {
     return registry.getAvailable().find((m) => m.id === spec) ?? registry.getAll().find((m) => m.id === spec);
   }
 
-  async run<TSchemaDef extends TSchema | undefined = undefined>(
-    prompt: string,
-    options: AgentRunOptions<TSchemaDef> = {},
-  ): Promise<AgentRunResult<TSchemaDef>> {
-    // Validate caller-supplied caps before any session is created, so a bad
-    // maxTurns never leaks an undisposed session.
-    if (options.maxTurns !== undefined && (!Number.isInteger(options.maxTurns) || options.maxTurns < 1)) {
-      throw new WorkflowError("maxTurns must be an integer >= 1", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
-        recoverable: false,
-        agentLabel: options.label,
-        details: { maxTurns: options.maxTurns },
-      });
-    }
-    const capture: StructuredOutputCapture<any> = { called: false, value: undefined };
+  /**
+   * Assemble a child session: per-call coding tools (bound to the per-call
+   * cwd), the agentType tool policy, base + extension tools, the optional
+   * structured_output tool, full model-spec resolution (explicit > tier >
+   * session default, with scope clamping and fallback warnings), and
+   * createAgentSession. Shared verbatim by run() and openLiveAgent()
+   * (persistent-agent.ts) — extracted so the one-shot and persistent paths
+   * cannot drift. The returned session is LIVE and unsubscribed: guards,
+   * history listeners, and disposal belong to the caller.
+   */
+  async assembleSession(options: SessionAssemblyOptions): Promise<AssembledSession> {
     // Per-call cwd (e.g. a worktree) needs coding tools bound to that directory,
     // since tools capture their cwd at construction and can't be relocated.
     const runCwd = options.cwd ?? this.cwd;
@@ -286,8 +337,10 @@ export class CoreAgent {
       options.disallowedToolNames,
     );
 
-    if (options.schema) {
-      customTools.push(createStructuredOutputTool({ schema: options.schema, capture }) as unknown as ToolDefinition);
+    if (options.schema && options.capture) {
+      customTools.push(
+        createStructuredOutputTool({ schema: options.schema, capture: options.capture }) as unknown as ToolDefinition,
+      );
     }
 
     // Resolve the model spec (explicit model > tier > session default). This
@@ -375,6 +428,36 @@ export class CoreAgent {
         options.onModelResolved?.(`${actualModel.provider}/${actualModel.id}`);
       }
     }
+
+    return { session, runCwd };
+  }
+
+  async run<TSchemaDef extends TSchema | undefined = undefined>(
+    prompt: string,
+    options: AgentRunOptions<TSchemaDef> = {},
+  ): Promise<AgentRunResult<TSchemaDef>> {
+    // Validate caller-supplied caps before any session is created, so a bad
+    // maxTurns never leaks an undisposed session.
+    if (options.maxTurns !== undefined && (!Number.isInteger(options.maxTurns) || options.maxTurns < 1)) {
+      throw new WorkflowError("maxTurns must be an integer >= 1", WorkflowErrorCode.SCRIPT_VALIDATION_ERROR, {
+        recoverable: false,
+        agentLabel: options.label,
+        details: { maxTurns: options.maxTurns },
+      });
+    }
+    const capture: StructuredOutputCapture<any> = { called: false, value: undefined };
+    const { session } = await this.assembleSession({
+      cwd: options.cwd,
+      tools: options.tools,
+      toolNames: options.toolNames,
+      disallowedToolNames: options.disallowedToolNames,
+      model: options.model,
+      tier: options.tier,
+      schema: options.schema,
+      capture,
+      onModelResolved: options.onModelResolved,
+      onModelFallback: options.onModelFallback,
+    });
 
     let removeAbortListener: (() => void) | undefined;
     let removeHistoryListener: (() => void) | undefined;
@@ -470,11 +553,11 @@ export class CoreAgent {
 
       if (options.schema) {
         return (await resolveStructuredOutput(session, capture, options.schema, options, (m) =>
-          this.lastAssistantText(m),
+          lastAssistantText(m),
         )) as AgentRunResult<TSchemaDef>;
       }
 
-      const text = this.lastAssistantText(session.messages);
+      const text = lastAssistantText(session.messages);
       if (!text.trim()) {
         throw new WorkflowError("Subagent produced no assistant output", WorkflowErrorCode.AGENT_EMPTY_OUTPUT, {
           recoverable: true,
@@ -545,18 +628,5 @@ export class CoreAgent {
     }
 
     return parts.join("\n\n");
-  }
-
-  private lastAssistantText(messages: unknown[]): string {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const message = messages[i] as Partial<AssistantMessage> | undefined;
-      if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-      const text = message.content
-        .filter((part): part is TextContent => part.type === "text")
-        .map((part) => part.text)
-        .join("");
-      if (text.trim()) return text;
-    }
-    return "";
   }
 }

@@ -187,9 +187,10 @@ interface ErrorClass {
  * precedence rule (budget > timeout > turns > failed) — it used to be mirrored
  * by a second precedence chain in `deriveSubagentStatus`, which is why that
  * helper no longer exists. `tests/failure-union.test.ts` pins one case per
- * branch, including the two detail-less ones.
+ * branch, including the two detail-less ones. Exported so persistent-agent.ts
+ * classifies live-agent exchanges through the SAME taxonomy.
  */
-function classifyError(e: unknown, signalAborted = false): ErrorClass {
+export function classifyError(e: unknown, signalAborted = false): ErrorClass {
   const message = e instanceof Error ? e.message : String(e);
   // Budget exhaustion is non-recoverable: retrying would re-exhaust the same
   // ceiling. Surfaced as its own kind so the caller can tell a capped run apart
@@ -297,20 +298,17 @@ export function deriveTaskLabel(task: string): string {
   return slug || "task";
 }
 
-export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
-  const runner =
-    opts.agent ??
-    new WorkflowAgent({
-      cwd: opts.cwd,
-      extensionTools: opts.extensionTools,
-      mainModel: opts.mainModel,
-      scopedModels: opts.scopedModels,
-      session: resolveSessionOverride(opts.session, opts.modelRuntime),
-    });
-  const retry = opts.retryOnTransient !== false;
-  // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall
-  // back to the live session model (not a stale medium tier). Explicit model or
-  // tier always wins; resolveAgentModelSpec in agent-model.ts handles the rest.
+/**
+ * Resolve a spawn's effective model inputs: the capability spec (warn + fall
+ * through when unconfigured) and the resulting effectiveModel per the
+ * model > capability > tier > mainModel precedence. Extracted from
+ * spawnSubagent so persistent-agent.ts (live agents) resolves the FIRST
+ * exchange through the identical chain — no hand-mirrored copy.
+ */
+export function resolveSpawnModelInputs(opts: SpawnSubagentOptions): {
+  capabilitySpec: string | undefined;
+  effectiveModel: string | undefined;
+} {
   // Resolve a capability (e.g. "vision") to a model-spec. Precedence:
   // explicit model > capability > tier > mainModel. An unconfigured capability
   // warns and falls through to tier/mainModel (mirrors agent-model.ts unknown-tier).
@@ -332,6 +330,24 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
     }
   }
   const effectiveModel = opts.model ?? capabilitySpec ?? (opts.tier ? undefined : opts.mainModel);
+  return { capabilitySpec, effectiveModel };
+}
+
+export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> {
+  const runner =
+    opts.agent ??
+    new WorkflowAgent({
+      cwd: opts.cwd,
+      extensionTools: opts.extensionTools,
+      mainModel: opts.mainModel,
+      scopedModels: opts.scopedModels,
+      session: resolveSessionOverride(opts.session, opts.modelRuntime),
+    });
+  const retry = opts.retryOnTransient !== false;
+  // Default-to-current-LLM: when the caller neither picks a model nor a tier, fall
+  // back to the live session model (not a stale medium tier). Explicit model or
+  // tier always wins; resolveAgentModelSpec in agent-model.ts handles the rest.
+  const { effectiveModel } = resolveSpawnModelInputs(opts);
 
   // Last-turn wrap-up nudge kill-switch: same escape-hatch shape as
   // SUBAGENT_TOKEN_BUDGET_DISABLE (read at call time, "1"/"true"

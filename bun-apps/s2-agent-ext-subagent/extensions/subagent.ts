@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-w
 // Moved to @repo/s2-agent-core-runtime (in-flight registry with the dispatch
 // layer; run persistence with the record layer).
 import {
+  getLiveAgentRegistry,
   getSubagentInFlightRegistry,
   getSubagentRunPersistence,
   setTransientModelTierConfig,
@@ -49,6 +50,11 @@ export default function extension(pi: ExtensionAPI) {
 
   const inFlight = getSubagentInFlightRegistry();
   const persistence = getSubagentRunPersistence();
+  // Named live agents (agent-teams parity, ticket 01): the process-singleton
+  // registry the spawn tool registers persistent sessions into. session_shutdown
+  // (quit/reload/new/resume/fork) disposes them all — they are in-process child
+  // sessions whose parent addressability ends with the session.
+  const liveRegistry = getLiveAgentRegistry();
   // Background roster (spawn_subagent background:true) + its completion
   // notifier. Wiring the deliverer here is the followUp wake seam: a finished
   // background run queues a <task-notification> via pi.sendMessage(..., followUp)
@@ -58,6 +64,7 @@ export default function extension(pi: ExtensionAPI) {
 
   const subagentTool = createSubagentTool({
     cwd,
+    liveRegistry,
     getExtensionTools: () => extensionToolsHolder.current,
     getMainModel: () => mainModelHolder.current,
     getScopedModels: () => scopedModelsHolder.current,
@@ -203,5 +210,13 @@ export default function extension(pi: ExtensionAPI) {
   // in-flight runs are not mutated.
   pi.on("model_select", (event) => {
     mainModelHolder.current = event.model ? `${event.model.provider}/${event.model.id}` : undefined;
+  });
+
+  // Named live agents die with the session that owns them (quit / reload / new /
+  // resume / fork all fire session_shutdown). disposeFor("*") because entries
+  // default to the unknown-owner scope — in this process there is exactly one
+  // parent session at a time.
+  pi.on("session_shutdown", () => {
+    liveRegistry.disposeFor("*");
   });
 }

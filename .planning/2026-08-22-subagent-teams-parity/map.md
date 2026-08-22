@@ -1,0 +1,134 @@
+---
+effort: 2026-08-22-subagent-teams-parity
+created: 2026-08-22
+last: 2026-08-22
+status: active
+---
+
+# subagent-teams-parity — close the remaining Claude Code subagent / agent-teams gaps
+
+## Destination
+
+`s2-agent-ext-subagent` gains Claude Code's agent-teams core: named live agents that
+survive completion and accept follow-up messages (`send_message`), a shared
+cross-agent task list, protocol messages (shutdown / plan-approval handshake), and
+parent-brokered teammate addressing — with the existing budget governance intact and
+now aggregated across an agent's whole lifetime. `s2-agent-ext-ultracode` closes its
+three small gaps: `manifest.model` on the tool path, `agentType` on the batch tool,
+and session-live cron scheduling for workflows.
+
+## Context (measured 2026-08-22 on this machine, verified file:line during planning)
+
+- **pi sessions are multi-turn reusable.**
+  `node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.d.ts`:
+  `prompt(text, options?)` (:355, second prompt after completion is ordinary use),
+  `steer(text)` (:371, queues while running), `isStreaming` (:291), `abort()` keeps the
+  session usable (:433), `dispose()` (:283), `getSessionStats()` cumulative over the
+  session lifetime (:615).
+- **The current run path is strictly one-shot.**
+  `bun-apps/s2-agent-core-runtime/src/agent.ts`: single `session.prompt` at :435,
+  `session.dispose()` in the `finally` at :523. 38 subagent test files depend on this
+  create/dispose contract.
+- **Budgets aggregate for free on a persistent session.**
+  `agent-budget.ts:99-109` polls cumulative `getSessionStats()`; the turn guard counts
+  `turn_end` events on the session. One session + one guard held for the agent's
+  lifetime = per-agent aggregate enforcement across re-prompts.
+- **The parent-wake seam is proven.** `background-run-manager.ts:160-182`:
+  `pi.sendMessage(msg, {deliverAs:"followUp", triggerTurn:true})` — `triggerTurn:true`
+  is what wakes an IDLE parent (PR #1800).
+- **Tool injection into children already exists.**
+  `WorkflowAgentOptions.extensionTools` (`agent.ts:41-47`); the subagent extension
+  captures parent tools at `session_start` (`extensions/subagent.ts:41-44`); the
+  ultracode manager threads the same (`workflow-manager.ts:154-158`). Registering once
+  in the parent reaches spawn children AND workflow `agent()` children.
+- **pi has NO custom-message handler API** (grep over `types.d.ts` is empty) → child→parent
+  messaging must be brokered through a process-singleton bus; there is no direct
+  child→child channel. Children are in-process (`agent.ts:43-46`).
+- **The no-resume doctrine is explicit.** subagent `CONTEXT.md:65`: "a subagent run is
+  a one-shot dispatch with NO resume semantics" — ticket 01 rewrites it.
+- **P4 seams pre-charted.** `workflow-tool.ts:439-441`/`:507-513` keeps
+  `manifest.model` out of exec options ("see #630, OOS"); `WorkflowManager.mainModel`
+  already exists (`workflow-manager.ts:323-325`). Batch tool has no `agentType`
+  (`subagents-tool.ts:50`); `resolveAgentType` at `agent-registry.ts:153`. No cron
+  anywhere in ultracode src (grep clean). No `send_message`/`task_*`/`cron_*` tool
+  names collide across exts.
+- **ext-task is NOT the task-list owner.** Its CONTEXT scopes it to `/goal`,
+  session-only todos, `ask_user_question` — permanent tracking lives in
+  wayfind/superpowers. The teams task list is a new ubiquitous-language term.
+
+## Tickets
+
+Phase 1 — foundation (P1)
+- `tickets/01-live-agent-foundation.md` — task — live-agent registry + persistent
+  agent runner + `name` param + doctrine rewrite + ADR
+- `tickets/02-send-message-surface.md` — task — `send_message` tool, name/agentId
+  routing, `to:"main"` broker bus
+
+Phase 2 — shared state (P2)
+- `tickets/03-shared-task-list.md` — task — `task_create/get/list/update` over a
+  session-scoped in-memory `TeamTaskStore`
+
+Phase 3 — teams vocabulary (P3)
+- `tickets/04-protocol-messages.md` — task — shutdown / plan-approval envelopes on
+  `send_message` (timeout → deny)
+- `tickets/05-team-addressing.md` — task — sibling addressing (parent-brokered) +
+  live roster
+
+Phase 4 — ultracode gaps (P4)
+- `tickets/06-manifest-model-tool-path.md` — task — `ExecOptions.mainModel` hook,
+  precedence script > manifest > session
+- `tickets/07-batch-agent-type.md` — task — per-task `agentType` on `list_subagents`
+- `tickets/08-workflow-cron.md` — task — `cron_create/list/delete`, session-live
+  firing, lease-guarded, 7-day recurring expiry
+
+## Decisions
+
+- D1: Registry and runner live in `@repo/s2-agent-core-runtime` (same reasoning as the
+  in-flight registry: ultracode + obsidian peers need them without ext→ext edges;
+  barrel facade rule covers re-exports).
+- D2: `CoreAgent.run`'s one-shot create/dispose contract is NOT modified — session
+  assembly is extracted into a shared helper used by both paths, so they cannot drift
+  (the hand-alignment failure mode `child-dispatch.ts:10-19` records).
+- D3: Budget/turn guards attach once at agent open and check cumulative session stats —
+  per-agent lifetime aggregation; `timeoutMs` applies per exchange.
+- D4: Eviction is env-capped LRU (`SUBAGENT_MAX_LIVE`, default 6, mirroring
+  `SUBAGENT_MAX_BACKGROUND=4`); `session_shutdown` disposes everything; durable run
+  records stay write-once, one per exchange, linked by `agentId`.
+- D5: Named agents are in-memory, scoped to the parent session — no cross-restart
+  live-session resume (the detach manifest path covers OS-subprocess persistence).
+- D6 (user): plan_approval timeout defaults to DENY (budget-safe; never block a
+  dispatch forever).
+- D7 (user): batch (`list_subagents`) does NOT gain `name` — persistent agents are
+  spawn_subagent-only.
+- D8 (user): cron definitions are durable but firing is session-live — no daemon; the
+  existing cross-process run leases guard against double-fire.
+- D9: Task list tools register in the subagent ext (existing `extensionTools` bridges
+  reach children and workflow agents with zero dispatch-path changes);
+  `s2-agent.registry.yaml` unchanged — no new ext for any ticket.
+- D10: Out of scope: fork-type subagents, remote isolation, ToolSearch/skills-in-child,
+  cross-restart live-session resume, direct child→child channels, a cron daemon.
+
+## Frontier
+
+`tickets/01-live-agent-foundation.md` first — every other ticket addresses or messages
+through the live-agent registry it creates, and it carries the CONTEXT.md doctrine
+rewrite that legitimizes the rest.
+
+## Fog of war
+
+- `steer()` semantics under a parent awaiting the same child's exchange (deadlock
+  surface — ticket 02 must test it, expected fine since loops are distinct).
+- Memory footprint of N live in-process sessions under the LRU cap — unmeasured until
+  ticket 01's smoke run.
+- Whether `steer()` to a running child whose dispatch is awaited inside `dispatchChild`
+  resolves the awaited tool call early or only at exchange end — ticket 01 tests pin
+  this.
+- Cron `lastMissed` surfacing (ticket 08 optional polish) — undecided.
+
+## Cross-effort links
+
+Builds-on: 2026-08-15-subagent-dynamic-budgets — its role-aware envelopes and tier
+defaults become the per-agent-lifetime aggregates enforced by the persistent guards
+(D3); its "paused" fog items are untouched by this effort.
+Shares-decision-with: 2026-08-22-ultracode-rename — ticket 06/08 touch the package
+under its new name and entry convention (`extensions/ultracode.ts`).

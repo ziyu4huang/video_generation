@@ -12,14 +12,17 @@
  */
 import { defineTool, getMarkdownTheme, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
+import type { SpawnSubagentOptions } from "@repo/s2-agent-core-runtime";
 import {
   type AgentDefinition,
   createWorktree,
+  getLiveAgentRegistry,
   listAgentTypes,
   loadAgentRegistry,
   removeWorktree,
   resolveAgentType,
   roleAwareDefaults,
+  spawnLiveAgentFirstExchange,
   spawnSubagent,
   tierDefaultToken,
   type Worktree,
@@ -74,6 +77,8 @@ export function createSubagentTool(
 ): ToolDefinition<typeof subagentToolSchema, SubagentToolDetails> {
   const defaultCwd = options.cwd ?? process.cwd();
   const spawn = options.spawn ?? spawnSubagent;
+  const liveRegistry = options.liveRegistry ?? getLiveAgentRegistry();
+  const spawnLive = options.spawnLive ?? spawnLiveAgentFirstExchange;
   const gitOps = options.gitOps ?? realGitOps;
   return defineTool({
     // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `subagent`
@@ -152,6 +157,37 @@ export function createSubagentTool(
 
       if (params.schema !== undefined && !isSchemaShaped(params.schema)) {
         return failEarly(`Invalid schema: expected a JSON-Schema-shaped object with a "type" field.`);
+      }
+
+      // Named live agents (`name` param, ticket 01): validate the invariants
+      // BEFORE any resource (worktree, session) is allocated. The live-agent
+      // runner re-checks the registry authoritatively at registration (race-safe).
+      if (params.name !== undefined) {
+        if (params.schema !== undefined) {
+          return failEarly(
+            "`name` + `schema` is not supported: a named agent is a persistent multi-turn session, " +
+              "structured output is a one-shot contract. Drop `name` or drop `schema`.",
+          );
+        }
+        if (agentDef?.isolation === "worktree") {
+          return failEarly(
+            "`name` + worktree isolation is not supported: the worktree is torn down when the first " +
+              "exchange returns, but the named agent's session must outlive it. Drop `name` or use a " +
+              "non-isolated agentType.",
+          );
+        }
+        if (liveRegistry.isNameTaken(params.name)) {
+          return failEarly(
+            liveRegistry.names().includes(params.name)
+              ? `a live agent named "${params.name}" already exists. Live agents: ${liveRegistry.names().join(", ") || "(none)"}.`
+              : `"${params.name}" is a reserved name (addresses the parent session).`,
+          );
+        }
+        if (!liveRegistry.hasCapacity()) {
+          return failEarly(
+            `live-agent cap reached and every agent is mid-exchange. Live agents: ${liveRegistry.names().join(", ") || "(none)"}.`,
+          );
+        }
       }
 
       // #04 retry-loop / runaway detector (circuit-break BEFORE spawn + BEFORE
@@ -303,6 +339,18 @@ export function createSubagentTool(
           // The per-child pipeline — abort fan-in, in-flight lifecycle,
           // resolved-model capture, the commit-scope audit and status derivation —
           // is shared with the `subagents` batch tool (see child-dispatch.ts).
+          // A named dispatch (`name`) routes through the live-agent runner: the
+          // first exchange runs on a session that is REGISTERED, not disposed,
+          // when it completes — same dispatch machinery, different spawn fn.
+          const dispatchSpawn = params.name
+            ? (o: SpawnSubagentOptions) =>
+                spawnLive(o, {
+                  name: params.name as string,
+                  agentId: toolCallId,
+                  agentType: params.agentType,
+                  registry: liveRegistry,
+                }).then((r) => r.result)
+            : spawn;
           const outcome = await dispatchChild(
             {
               id: toolCallId,
@@ -327,7 +375,7 @@ export function createSubagentTool(
               background,
             },
             {
-              spawn,
+              spawn: dispatchSpawn,
               inFlight: options.inFlight,
               gitOps,
               // The transcript is only needed when it will be persisted.
@@ -396,6 +444,8 @@ export function createSubagentTool(
                 {
                   toolCallId,
                   agent: params.agent,
+                  agentName: params.name,
+                  agentId: params.name ? toolCallId : undefined,
                   task: params.task,
                   model,
                   requestedModel,
@@ -445,6 +495,11 @@ export function createSubagentTool(
             result.failure?.kind === "timedout";
           const salvage = terminalAbort ? extractSalvage(outcome.history ?? progress.lastHistory) : undefined;
           output = augmentOutputWithSalvage(output, result.failure, false, salvage);
+          // Named agent (ticket 01): surface that the session stays live and
+          // addressable — the handle + agentId are what follow-up routing uses.
+          if (params.name && !result.failure) {
+            output += `\n\nNamed agent "${params.name}" is live (agentId ${toolCallId}); its session is retained for follow-up exchanges.`;
+          }
           // Opt-in two-layer watchdog: run the review against the captured baseline.
           // Soft gate — appends a summary line only when runWatchdog actually ran OR
           // was edit-gated (no diff). A throw anywhere in the watchdog path is caught
@@ -486,6 +541,8 @@ export function createSubagentTool(
               {
                 toolCallId,
                 agent: params.agent,
+                agentName: params.name,
+                agentId: params.name ? toolCallId : undefined,
                 task: params.task,
                 model,
                 requestedModel,
