@@ -1061,3 +1061,73 @@ describe("runSync — advanceTarget submodule ops", () => {
 		expect(out.warnings.some((w) => /submodule status failed at \/repo-main-wt/.test(w))).toBe(true);
 	});
 });
+
+describe("runSync — non-origin remote (remoteName threading)", () => {
+	test("full mode: fetch <remote> + merge --ff-only <remote>/<D>, advanced to its tip", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "upstream/main": sha("b"), main: sha("a") },
+			aheadBehind: { [`${sha("a")}..${sha("b")}`]: { ahead: 1, behind: 0 } },
+			subjects: ["feat: one"],
+		});
+		const { fn, calls } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: { stdout: "", stderr: "", exitCode: 0 } },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", remoteName: "upstream" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" fetch upstream`);
+		expect(out.commands).toContain(`git -C "${REPO}" merge --ff-only upstream/main`);
+		expect(out.commands.some((c) => c.includes("origin"))).toBe(false);
+		expect(out.advanced?.[0]?.to).toBe(sha("b"));
+		// The recording spawn saw fetch upstream — never fetch origin.
+		expect(calls.some((c) => c.args.join(" ").includes("fetch upstream"))).toBe(true);
+	});
+
+	test("full mode force:true: reset --hard <remote>/<D>", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "upstream/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn([
+			{ match: (a) => realArgs(a).join(" ").startsWith("submodule status"), result: { stdout: "", stderr: "", exitCode: 0 } },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", force: true, remoteName: "upstream" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" reset --hard upstream/main`);
+	});
+
+	test("missing <remote>/<D> → no_origin_ref abort naming the configured remote", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { main: sha("a") }, // no upstream/main
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "full", remoteName: "upstream" });
+
+		expect(out.aborted).toMatchObject({ reason: "no_origin_ref", message: "cannot resolve upstream/main" });
+		expect(out.warnings.some((w) => w.includes("is remote 'upstream' fetched?"))).toBe(true);
+	});
+
+	test("rebase mode: fetch <remote> + rebase onto <remote>/<D>", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [{ worktree: REPO, branch: "feat/x" }],
+			revs: { "upstream/main": sha("c"), HEAD: sha("a") },
+		});
+		const { fn } = fakeSpawn();
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "rebase", remoteName: "upstream" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands).toContain(`git -C "${REPO}" fetch upstream`);
+		expect(out.commands).toContain(`git -C "${REPO}" rebase upstream/main`);
+	});
+});

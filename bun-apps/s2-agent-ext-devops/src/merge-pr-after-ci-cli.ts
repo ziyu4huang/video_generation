@@ -238,6 +238,10 @@ export interface PrFinishDeps {
 	verify?: typeof runVerifyMerge;
 	/** Injectable so the UNKNOWN-poll path is testable without real waiting. */
 	sleep?: (ms: number) => Promise<void>;
+	/** Remote name for `origin/<base>` probes, the planned delete, and the
+	 *  post-merge detach fallback (default: the forge selection's resolution,
+	 *  else `origin`). */
+	remoteName?: string;
 }
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -341,8 +345,20 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	// Forge selection is recorded like every other spawn (gh auth token /
 	// gh --version probes show up in `commands`); tests inject deps.gh directly
 	// and never reach the selector.
-	const gh = deps.gh ?? (await selectForgeClientCached({ spawn, repoRoot })).client;
-	const client = deps.client ?? createBranchClient(spawn);
+	// The selection's resolved remote name (DEVOPS_REMOTE > git config
+	// devops.remote > origin) is reused everywhere below instead of
+	// re-resolving through the recording spawn (a second recorded probe).
+	let gh: GhClient;
+	let remoteName: string;
+	if (deps.gh) {
+		gh = deps.gh;
+		remoteName = deps.remoteName ?? "origin";
+	} else {
+		const forgeSel = await selectForgeClientCached({ spawn, repoRoot });
+		gh = forgeSel.client;
+		remoteName = deps.remoteName ?? forgeSel.remoteName;
+	}
+	const client = deps.client ?? createBranchClient(spawn, remoteName);
 	const runCi = deps.runCi ?? runLocalCi;
 	const verifyMerge = deps.verify ?? runVerifyMerge;
 	const sleep = deps.sleep ?? realSleep;
@@ -418,7 +434,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			// into the diff and over-scopes run_local_ci to the whole matrix (observed
 			// 318 s vs 69 s for the same branch). Fall back to the plain base name
 			// when the tracking ref doesn't resolve (fresh clone, no fetch yet).
-			const originBase = `origin/${status.baseRefName}`;
+			const originBase = `${remoteName}/${status.baseRefName}`;
 			const probe = await spawn("git", ["rev-parse", "--verify", "-q", originBase], { cwd: repoRoot });
 			const ciBase = probe.exitCode === 0 ? originBase : status.baseRefName;
 			// `log` MUST be forwarded, for the same reason `cwd` must (see the note on
@@ -507,7 +523,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		const planned = [`gh pr merge ${pr} --squash`];
 		if (!keepBranch && status.headRefName) {
 			planned.push(`git branch -D ${status.headRefName}`);
-			planned.push(`git push origin --delete ${status.headRefName}`);
+			planned.push(`git push ${remoteName} --delete ${status.headRefName}`);
 		}
 		if (!keepBranch) planned.push("git fetch --prune");
 		const outcome: PrFinishOutcome = {
@@ -544,7 +560,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	// default branch (possibly this cwd) is now behind until synced. Nudge the
 	// caller (matches sync_default_branch's own behind-default warning style).
 	warnings.push(
-		`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind origin/${status.baseRefName}; run sync_default_branch to catch up.`,
+		`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
 	);
 
 	// --- 5. Verify (read-only; CONTAMINATED warns, never rolls back). -------
@@ -554,7 +570,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		// not yet in the local object store — without the fetch this verification
 		// could not read a single file. (pr_finish already mutates; the fetch
 		// touches the object store only.)
-		verify = await verifyMerge({ gh, client, spawn, repoRoot, pr, expectedScope, allowFetch: true });
+		verify = await verifyMerge({ gh, client, spawn, repoRoot, pr, expectedScope, allowFetch: true, remoteName });
 	} catch (err) {
 		// This used to synthesize `verdict: "CLEAN"`. A total failure of the
 		// verification step reported itself as a verified-clean merge — the same
@@ -621,7 +637,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 					// local object store (it read the diff out of it, fetching first if
 					// needed). Fall back to `origin/<base>` only when verify could not
 					// inspect — there the sha may genuinely not be local.
-					const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `origin/${status.baseRefName}`;
+					const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `${remoteName}/${status.baseRefName}`;
 					try {
 						await client.detachHead(onto);
 						commands.push(`git -C "${repoRoot}" checkout --detach ${onto}`);

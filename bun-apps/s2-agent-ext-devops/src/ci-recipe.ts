@@ -196,8 +196,12 @@ export interface CiOutcome {
 
 export interface CiOptions {
 	repoRoot: string;
-	/** Base ref to diff against. Default "origin/main". Must already exist locally. */
+	/** Base ref to diff against. Default `<remoteName>/main` (remoteName
+	 *  defaults to `origin`). Must already exist locally. */
 	baseRef?: string;
+	/** Remote name for the default base ref (default `origin`; resolve via
+	 *  src/remote.ts and pass down). */
+	remoteName?: string;
 	/** Head ref. Default "HEAD". */
 	headRef?: string;
 	/** Explicit package list → skip change detection entirely. */
@@ -455,7 +459,7 @@ async function readPackageJson(pkgDir: string): Promise<{ scripts?: Record<strin
 export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	const now = opts.now ?? Date.now;
 	const t0 = now();
-	const baseRef = opts.baseRef ?? "origin/main";
+	const baseRef = opts.baseRef ?? `${opts.remoteName ?? "origin"}/main`;
 	const headRef = opts.headRef ?? "HEAD";
 	const spawn = opts.spawn;
 	const readPkg = opts.readPkg ?? readPackageJson;

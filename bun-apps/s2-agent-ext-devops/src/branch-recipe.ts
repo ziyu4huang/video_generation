@@ -15,7 +15,9 @@ import type { BranchKind, Confidence } from "./branch-logic.js";
 import type { ForgeClient } from "./forge/types.js";
 
 /**
- * Injectable branch/git operations. Real impl: src/gh.ts. Tests inject fakes.
+ * Injectable branch/git operations. Real impl: src/gh.ts
+ * `createBranchClient(spawn, remoteName)` — the remote-facing methods are
+ * scoped to that remote (src/remote.ts; default `origin`). Tests inject fakes.
  * Pure git — a PR listing is a FORGE query and lives on ForgeClient.prList
  * (see SweepClient below).
  */

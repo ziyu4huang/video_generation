@@ -117,8 +117,16 @@ export async function runSweepCli(
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
 	// Sweep needs the git surface + the forge PR listing (REST-first selection,
 	// same as every other forge consumer; tests inject deps.client directly).
-	const client =
-		deps.client ?? { ...createBranchClient(spawn), prList: (await selectForgeClientCached({ spawn, repoRoot })).client.prList };
+	// The selection's resolved remote name scopes the git surface — under a
+	// non-origin remote, defaultBranch/deleteRemoteBranch/remoteBranches MUST
+	// follow it or the sweep silently sees nothing.
+	let client: SweepClient;
+	if (deps.client) {
+		client = deps.client;
+	} else {
+		const sel = await selectForgeClientCached({ spawn, repoRoot });
+		client = { ...createBranchClient(spawn, sel.remoteName), prList: sel.client.prList };
+	}
 
 	const outcome = await runSweep({
 		client,

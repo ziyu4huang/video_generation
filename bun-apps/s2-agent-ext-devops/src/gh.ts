@@ -68,13 +68,23 @@ export function parseBranchVv(stdout: string): { name: string; goneRemote: boole
 	return out;
 }
 
-/** Parse `git branch -r` into remote branch names (strips `origin/`, drops `HEAD ->`). */
-export function parseRemoteBranches(stdout: string): string[] {
+/** Escape a literal string for embedding in a RegExp (remote names can
+ *  contain dots, e.g. `my.git.remote` — a bare interpolation would let `.` match
+ *  any char). */
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Parse `git branch -r` into remote branch names for ONE remote (strips the
+ *  `<remote>/` prefix, drops `HEAD ->`). Branches under other remotes are
+ *  dropped — callers pass the remote they care about (default `origin`). */
+export function parseRemoteBranches(stdout: string, remoteName = "origin"): string[] {
 	const out: string[] = [];
+	const re = new RegExp(`^${escapeRegExp(remoteName)}/(.+)$`);
 	for (const raw of stdout.split("\n")) {
 		const line = raw.replace(/\r$/, "").trim();
 		if (!line || line.includes("->")) continue;
-		const m = line.match(/^origin\/(.+)$/);
+		const m = line.match(re);
 		if (m) out.push(m[1]);
 	}
 	return out;
@@ -239,8 +249,12 @@ export function parseContained(stdout: string): Set<string> {
  * Build a `BranchClient` backed by a `SpawnFn` (the live Bun.spawn adapter in
  * src/spawn.ts `createLiveSpawn` sets the repo cwd; tests pass a recording fake).
  * All git/gh output is parsed as structured text/JSON — no grep footguns.
+ *
+ * `remoteName` scopes the remote-facing methods (remoteBranches, defaultBranch,
+ * deleteRemoteBranch) to one remote — resolve via src/remote.ts
+ * `resolveRemoteName`; default `origin`.
  */
-export function createBranchClient(spawn: SpawnFn): BranchClient {
+export function createBranchClient(spawn: SpawnFn, remoteName = "origin"): BranchClient {
 	return {
 		async branchVv() {
 			const r = await spawn("git", ["branch", "-vv"]);
@@ -248,7 +262,7 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 		},
 		async remoteBranches() {
 			const r = await spawn("git", ["branch", "-r"]);
-			return parseRemoteBranches(r.stdout);
+			return parseRemoteBranches(r.stdout, remoteName);
 		},
 		async worktrees() {
 			const r = await spawn("git", ["worktree", "list", "--porcelain"]);
@@ -265,9 +279,9 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			return parseContained(r.stdout);
 		},
 		async defaultBranch() {
-			const r = await spawn("git", ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+			const r = await spawn("git", ["symbolic-ref", `refs/remotes/${remoteName}/HEAD`]);
 			if (r.exitCode !== 0) return undefined;
-			const m = r.stdout.trim().match(/^refs\/remotes\/origin\/(.+)$/);
+			const m = r.stdout.trim().match(new RegExp(`^refs/remotes/${escapeRegExp(remoteName)}/(.+)$`));
 			return m ? m[1] : undefined;
 		},
 		async worktreeList() {
@@ -341,8 +355,8 @@ export function createBranchClient(spawn: SpawnFn): BranchClient {
 			if (r.exitCode !== 0) throw new Error(`git branch -D ${name} failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
 		},
 		async deleteRemoteBranch(name) {
-			const r = await spawn("git", ["push", "origin", "--delete", name]);
-			if (r.exitCode !== 0) throw new Error(`git push origin --delete ${name} failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
+			const r = await spawn("git", ["push", remoteName, "--delete", name]);
+			if (r.exitCode !== 0) throw new Error(`git push ${remoteName} --delete ${name} failed (exit ${r.exitCode}): ${(r.stderr || r.stdout).trim()}`);
 		},
 	};
 }

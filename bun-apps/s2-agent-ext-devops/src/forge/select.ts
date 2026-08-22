@@ -9,7 +9,8 @@
  * REST wins whenever a token exists because it is cross-platform, typed-error,
  * and scriptable — the gh CLI stays as the no-token convenience path.
  *
- * Repo coordinates come from `git remote get-url origin` (owner/repo/host);
+ * Repo coordinates come from `git remote get-url <remote>` — the configured
+ * remote (src/remote.ts), default `origin` — (owner/repo/host);
  * github.com → https://api.github.com, other GitHub hosts → GHES `…/api/v3`.
  * A non-GitHub host (Gitea/Forgejo) is detected and refused with a pointer to
  * the not-yet-implemented adapter — no silent wrong-API calls.
@@ -85,6 +86,10 @@ export interface SelectedForge {
 	coords: ForgeCoords;
 	/** Where the token came from (diagnostics ONLY — never the token itself). */
 	tokenKind?: string;
+	/** The resolved remote name (DEVOPS_REMOTE > git config devops.remote >
+	 *  origin) — callers building git refs (fetch/push/<remote>/<branch>) reuse
+	 *  this instead of re-resolving. */
+	remoteName: string;
 }
 
 /**
@@ -124,6 +129,7 @@ export async function selectForgeClient(deps: SelectForgeDeps = {}): Promise<Sel
 			backend: "github-rest",
 			coords,
 			tokenKind: "GITHUB_TOKEN env",
+			remoteName,
 		};
 	}
 
@@ -136,6 +142,7 @@ export async function selectForgeClient(deps: SelectForgeDeps = {}): Promise<Sel
 			backend: "github-rest",
 			coords,
 			tokenKind: "gh auth token",
+			remoteName,
 		};
 	}
 
@@ -143,7 +150,7 @@ export async function selectForgeClient(deps: SelectForgeDeps = {}): Promise<Sel
 	//    its calls will fail with gh's own actionable errors)
 	const probe = await spawn("gh", ["--version"]);
 	if (probe.exitCode === 0) {
-		return { client: createGhClient(spawn), backend: "gh-cli", coords };
+		return { client: createGhClient(spawn), backend: "gh-cli", coords, remoteName };
 	}
 
 	throw new Error(

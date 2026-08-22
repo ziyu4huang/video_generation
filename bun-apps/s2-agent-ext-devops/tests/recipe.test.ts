@@ -285,3 +285,20 @@ describe("runMergeRecipe — robustness", () => {
 		expect(calls.prStatus).toHaveLength(0); // short-circuited before the first gh call
 	});
 });
+
+describe("runMergeRecipe — non-origin remote (remoteName threading)", () => {
+	test("fetch targets + run_local_ci refs follow the configured remote", async () => {
+		const { client } = fakeGh([
+			{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+			{ state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "abc123def" },
+		]);
+		const detect = mkDetect({});
+		const { fn, calls: spawnCalls } = mkSpawn([]);
+		const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), remoteName: "upstream" });
+		expect(r.merged).toBe(true);
+		const fetchCall = spawnCalls.find((c) => c.cmd === "git" && c.args[0] === "fetch");
+		expect(fetchCall?.args).toEqual(["fetch", "upstream", "main", "feat-x"]);
+		expect(detect.calls[0].baseRef).toBe("upstream/main");
+		expect(detect.calls[0].headRef).toBe("upstream/feat-x");
+	});
+});

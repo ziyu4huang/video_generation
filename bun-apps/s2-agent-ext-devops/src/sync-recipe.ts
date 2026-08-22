@@ -5,7 +5,9 @@
  * devops" wayfinder map; the bash scripts are intentionally left in place for
  * ticket 03 to remove once this tool has replaced every consumer.
  *
- * Three modes (the only flags ticket 01 proved in use):
+ * Three modes (the only flags ticket 01 proved in use); `origin/<D>` below (and
+ * everywhere in this file) means `<remote>/<D>` for the configured remote
+ * (`remoteName` option, default `origin` — src/remote.ts):
  *   - "full"   (default): fetch → advance the DEFAULT branch (auto-detected via
  *               origin/HEAD) to origin/<D>, worktree-aware (advance it in the
  *               worktree that actually holds <D>; only check it out here when it
@@ -277,6 +279,9 @@ export interface SyncOptions {
 	 *  OTHER uncommitted tracked work still aborts dirty_tree. Pass `[]` to
 	 *  disable preserve entirely. */
 	preserve?: string[];
+	/** Remote name for fetch targets + `<remote>/<D>` tracking refs (default
+	 *  `origin`; resolve via src/remote.ts and pass down — never resolved here). */
+	remoteName?: string;
 	signal?: AbortSignal;
 }
 
@@ -302,6 +307,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const force = opts.force === true;
 	// Preserve list: undefined ⇒ default seed (hermes MEMORY.md); [] ⇒ disabled.
 	const preserve = opts.preserve === undefined ? DEFAULT_PRESERVE_PATHS : opts.preserve;
+	const remote = opts.remoteName ?? "origin";
 	const { client, spawn, repoRoot } = opts;
 	const commands: string[] = [];
 	const warnings: string[] = [];
@@ -327,7 +333,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	let D = await client.defaultBranch();
 	if (!D) {
 		D = "main";
-		warnings.push("could not detect default branch via origin/HEAD; falling back to 'main'.");
+		warnings.push(`could not detect default branch via ${remote}/HEAD; falling back to 'main'.`);
 	}
 	const outcome = (aborted?: SyncAbort): SyncOutcome => ({
 		mode,
@@ -356,7 +362,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const callerPostState = async (): Promise<SyncCaller> => {
 		const branch = await client.currentBranch();
 		const detached = !branch || branch === "HEAD";
-		const behindDefault = detached ? null : (await client.aheadBehind(`origin/${D}`, branch)).behind;
+		const behindDefault = detached ? null : (await client.aheadBehind(`${remote}/${D}`, branch)).behind;
 		if ((behindDefault ?? 0) > 0) {
 			warnings.push(
 				`calling worktree ${repoRoot} is ${behindDefault} commit(s) behind ${D} — full mode advances the default branch only in the worktree that holds it.`,
@@ -429,15 +435,15 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	// --- 2. Pre-flight: unpushed-commit warnings (read-only; best-effort). ----
 	// A missing upstream (origin/<branch> not fetched) → aheadBehind returns 0.
 	if (current && current !== "HEAD") {
-		const ab = await client.aheadBehind(`origin/${current}`, current);
-		if (ab.ahead > 0) warnings.push(`${current} is ${ab.ahead} commit(s) ahead of origin/${current} (unpushed).`);
+		const ab = await client.aheadBehind(`${remote}/${current}`, current);
+		if (ab.ahead > 0) warnings.push(`${current} is ${ab.ahead} commit(s) ahead of ${remote}/${current} (unpushed).`);
 	}
-	const dab = await client.aheadBehind(`origin/${D}`, D);
+	const dab = await client.aheadBehind(`${remote}/${D}`, D);
 	if (dab.ahead > 0) {
 		// In default full-mode these commits block the fast-forward (the recipe
 		// aborts below); under force:true they're discarded by reset --hard.
 		warnings.push(
-			`default branch '${D}' is ${dab.ahead} commit(s) ahead of origin/${D} (unpushed) — full mode's fast-forward will refuse them; force:true discards them via reset --hard.`,
+			`default branch '${D}' is ${dab.ahead} commit(s) ahead of ${remote}/${D} (unpushed) — full mode's fast-forward will refuse them; force:true discards them via reset --hard.`,
 		);
 	}
 
@@ -478,13 +484,13 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		if (unmerged) return outcome(unmerged);
 
 		// 4. Fetch (mutating; skipped under dryRun).
-		await git(repoRoot, ["fetch", "origin"]);
+		await git(repoRoot, ["fetch", remote]);
 
-		// 5. Resolve the target SHA (origin/<D> must exist post-fetch).
-		const to = await client.revParse(`origin/${D}`);
+		// 5. Resolve the target SHA (<remote>/<D> must exist post-fetch).
+		const to = await client.revParse(`${remote}/${D}`);
 		if (!to) {
-			warnings.push(`cannot resolve origin/${D} — is remote 'origin' fetched?`);
-			return outcome({ aborted: true, reason: "no_origin_ref", message: `cannot resolve origin/${D}` });
+			warnings.push(`cannot resolve ${remote}/${D} — is remote '${remote}' fetched?`);
+			return outcome({ aborted: true, reason: "no_origin_ref", message: `cannot resolve ${remote}/${D}` });
 		}
 
 		// 6. If <D> was free, check it out here first; then advance it.
@@ -512,15 +518,15 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		// The advance — the only mutating op that needs a clean tree.
 		let advanceAborted: SyncAbort | undefined;
 		if (force) {
-			// DESTRUCTIVE (opt-in): reset --hard origin/<D> — discards any
+			// DESTRUCTIVE (opt-in): reset --hard <remote>/<D> — discards any
 			// divergent/unpushed commits on <D>. Warned in the result.
-			const reset = await git(advanceTarget, ["reset", "--hard", `origin/${D}`]);
+			const reset = await git(advanceTarget, ["reset", "--hard", `${remote}/${D}`]);
 			if (reset.exitCode !== 0) {
 				warnings.push(`reset --hard failed: ${trim(reset.stderr || reset.stdout)}`);
-				advanceAborted = { aborted: true, reason: "reset_failed", message: `reset --hard origin/${D} failed` };
+				advanceAborted = { aborted: true, reason: "reset_failed", message: `reset --hard ${remote}/${D} failed` };
 			} else {
 				warnings.push(
-					`force:true — used 'git reset --hard origin/${D}', which discards any divergent/unpushed commits on '${D}'.`,
+					`force:true — used 'git reset --hard ${remote}/${D}', which discards any divergent/unpushed commits on '${D}'.`,
 				);
 			}
 		} else {
@@ -528,14 +534,14 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 			// pull's double-fetch. git REFUSES (exit non-zero) when local <D>
 			// has divergent/unpushed commits — so the fast-forward can NEVER
 			// lose a commit. On refusal, abort (after restoring the stash below).
-			const ff = await git(advanceTarget, ["merge", "--ff-only", `origin/${D}`]);
+			const ff = await git(advanceTarget, ["merge", "--ff-only", `${remote}/${D}`]);
 			if (ff.exitCode !== 0) {
 				advanceAborted = {
 					aborted: true,
 					reason: "divergent",
 					defaultBranch: D,
-					message: `default branch '${D}' has commits not on origin/${D}; refusing to fast-forward.`,
-					hint: `default branch '${D}' has commits not on origin/${D}; refusing to fast-forward. Re-run with force:true to reset --hard (discards those local commits).`,
+					message: `default branch '${D}' has commits not on ${remote}/${D}; refusing to fast-forward.`,
+					hint: `default branch '${D}' has commits not on ${remote}/${D}; refusing to fast-forward. Re-run with force:true to reset --hard (discards those local commits).`,
 				};
 			}
 		}
@@ -577,7 +583,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		const localD = (await client.revParse(D)) ?? "";
 		verification = { branch: D, local: localD, remote: to, ok: localD === to };
 		if (!dry && localD && !verification.ok) {
-			warnings.push(`verification: local '${D}' (${localD.slice(0, 12)}) != origin/${D} (${to.slice(0, 12)}).`);
+			warnings.push(`verification: local '${D}' (${localD.slice(0, 12)}) != ${remote}/${D} (${to.slice(0, 12)}).`);
 		}
 
 		// 9. Recursive submodule sync (full only): fetch each, advance every
@@ -622,12 +628,12 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	const unmerged = await unmergedAbort(repoRoot);
 	if (unmerged) return outcome(unmerged);
 
-	await git(repoRoot, ["fetch", "origin"]);
+	await git(repoRoot, ["fetch", remote]);
 
-	const remoteTip = await client.revParse(`origin/${D}`);
+	const remoteTip = await client.revParse(`${remote}/${D}`);
 	if (!remoteTip) {
-		warnings.push(`cannot resolve origin/${D} — is remote 'origin' fetched?`);
-		return outcome({ aborted: true, reason: "no_origin_ref", message: `cannot resolve origin/${D}` });
+		warnings.push(`cannot resolve ${remote}/${D} — is remote '${remote}' fetched?`);
+		return outcome({ aborted: true, reason: "no_origin_ref", message: `cannot resolve ${remote}/${D}` });
 	}
 	const from = (await client.revParse("HEAD")) ?? "";
 
@@ -644,17 +650,17 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	// The advance — the only mutating op that needs a clean tree.
 	let advanceAborted: SyncAbort | undefined;
 	if (mode === "rebase") {
-		const r = await git(repoRoot, ["rebase", `origin/${D}`]);
+		const r = await git(repoRoot, ["rebase", `${remote}/${D}`]);
 		if (r.exitCode !== 0) {
 			warnings.push(`rebase failed: ${trim(r.stderr || r.stdout)}`);
-			advanceAborted = { aborted: true, reason: "rebase_failed", message: `rebase onto origin/${D} failed (resolve conflicts, then re-run).` };
+			advanceAborted = { aborted: true, reason: "rebase_failed", message: `rebase onto ${remote}/${D} failed (resolve conflicts, then re-run).` };
 		}
 	} else {
 		// pull → real merge, never fast-forward (per spec: "merge instead of ff").
-		const r = await git(repoRoot, ["merge", "--no-edit", "--no-ff", `origin/${D}`]);
+		const r = await git(repoRoot, ["merge", "--no-edit", "--no-ff", `${remote}/${D}`]);
 		if (r.exitCode !== 0) {
 			warnings.push(`merge failed: ${trim(r.stderr || r.stdout)}`);
-			advanceAborted = { aborted: true, reason: "merge_failed", message: `merge origin/${D} failed (resolve conflicts, then re-run).` };
+			advanceAborted = { aborted: true, reason: "merge_failed", message: `merge ${remote}/${D} failed (resolve conflicts, then re-run).` };
 		}
 	}
 

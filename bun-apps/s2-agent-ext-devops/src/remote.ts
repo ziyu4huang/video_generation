@@ -9,13 +9,12 @@
  *   3. `"origin"` — the historical default and the right answer for this
  *      repo's own clones.
  *
- * SCOPE (deliberate, 2026-08-22): only the forge-selection path
- * (src/forge/select.ts's `git remote get-url <name>`) consumes this today.
- * The recipes' `origin/main` tracking refs, `push origin`, and
- * parseRemoteBranches's `origin/` prefix still hardcode `origin` — threading
- * the name through all ~13 files is real surface (sync_default_branch alone
- * has ~48 references) and deserves its own PR with its own regression run,
- * not a tail-end sweep. This module exists so that PR has one helper to call.
+ * Consumed by forge selection (src/forge/select.ts — `SelectedForge.remoteName`)
+ * AND threaded through `createBranchClient(spawn, remoteName)` + every
+ * recipe's `remoteName` option (default `origin`), so `git fetch/push` args
+ * and `<remote>/<branch>` tracking refs follow the configured remote
+ * everywhere. Callers resolve ONCE per invocation and pass the name down;
+ * recipes never resolve it themselves.
  */
 import type { SpawnFn } from "./spawn.js";
 

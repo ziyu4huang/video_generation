@@ -279,3 +279,41 @@ describe("sync-default-branch-cli — live entry point", () => {
 		expect(outcome.commands.some((c: string) => c.includes("fetch"))).toBe(true);
 	});
 });
+
+describe("runSyncCli — remote resolution (remoteName threading)", () => {
+	test("deps.remoteName threads into client + runSync (fetch <remote>, <remote>/<D> refs)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "upstream/main": sha("b"), main: sha("a") },
+		});
+		const { fn } = fakeSpawn();
+		const res = await runSyncCli(["--dry-run"], { client, spawn: fn, repoRoot: REPO, remoteName: "upstream" });
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" fetch upstream`)).toBe(true);
+		expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" merge --ff-only upstream/main`)).toBe(true);
+	});
+
+	test("git config devops.remote resolves through the spawn seam", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "main",
+			worktrees: [{ worktree: REPO, branch: "main" }],
+			revs: { "forgejo/main": sha("b"), main: sha("a") },
+		});
+		const calls: { cmd: string; args: string[] }[] = [];
+		const fn: SpawnFn = async (cmd, args) => {
+			calls.push({ cmd, args });
+			if (args.join(" ") === "config --get devops.remote") {
+				return { stdout: "forgejo\n", stderr: "", exitCode: 0 };
+			}
+			return { stdout: "", stderr: "", exitCode: 0 };
+		};
+		const res = await runSyncCli(["--dry-run"], { client, spawn: fn, repoRoot: REPO });
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" fetch forgejo`)).toBe(true);
+	});
+});

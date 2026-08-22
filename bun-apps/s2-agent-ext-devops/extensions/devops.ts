@@ -21,6 +21,7 @@ import { Type } from "typebox";
 import { GATE_DEFS } from "@repo/s2-agent-core-interface";
 import { createBranchClient } from "../src/gh.js";
 import { selectForgeClientCached } from "../src/forge/select.js";
+import { resolveRemoteName } from "../src/remote.js";
 import { createLiveSpawn } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
@@ -201,7 +202,7 @@ function formatSync(o: SyncOutcome): string {
 	}
 	if (o.verification) {
 		L.push(
-			`  verification: ${o.verification.local.slice(0, 7) || "?"} ${o.verification.ok ? "==" : "!="} ${o.verification.remote.slice(0, 7)} (${o.verification.branch} vs origin/${o.verification.branch}).`,
+			`  verification: ${o.verification.local.slice(0, 7) || "?"} ${o.verification.ok ? "==" : "!="} ${o.verification.remote.slice(0, 7)} (${o.verification.branch} vs its remote-tracking ${o.verification.branch}).`,
 		);
 	}
 	if (o.submodules.length) {
@@ -226,7 +227,7 @@ function formatSync(o: SyncOutcome): string {
 	}
 	if (o.caller) {
 		L.push(
-			`  caller: ${o.caller.detached ? "detached HEAD" : o.caller.branch} @ ${o.caller.worktree}${o.caller.behindDefault === null ? "" : `, ${o.caller.behindDefault} behind origin/${o.defaultBranch}`}.`,
+			`  caller: ${o.caller.detached ? "detached HEAD" : o.caller.branch} @ ${o.caller.worktree}${o.caller.behindDefault === null ? "" : `, ${o.caller.behindDefault} behind the remote default (${o.defaultBranch})`}.`,
 		);
 	}
 	if (o.preserved) {
@@ -394,7 +395,8 @@ export default function (pi: ExtensionAPI): void {
 			// process.cwd() if not in a git worktree.
 			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
 			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
-			const gh = (await selectForgeClientCached({ spawn, repoRoot })).client;
+			const forge = await selectForgeClientCached({ spawn, repoRoot });
+			const gh = forge.client;
 			const strategy = (params.strategy === "merge" || params.strategy === "rebase" ? params.strategy : "squash") as
 				| "rebase"
 				| "merge"
@@ -406,6 +408,7 @@ export default function (pi: ExtensionAPI): void {
 				gh,
 				spawn,
 				repoRoot,
+				remoteName: forge.remoteName,
 				signal,
 			});
 			const took = ` Took ${Math.round(outcome.elapsedMs / 1000)}s.`;
@@ -468,7 +471,10 @@ export default function (pi: ExtensionAPI): void {
 			const spawn = createLiveSpawn(process.cwd());
 			// Sweep needs the git surface + the forge PR listing.
 			const forge = await selectForgeClientCached({ spawn });
-			const client = { ...createBranchClient(spawn), prList: forge.client.prList };
+			// The selection's remote name scopes the git surface — under a
+			// non-origin remote, remoteBranches/defaultBranch/deleteRemoteBranch
+			// MUST follow it or the sweep silently sees nothing.
+			const client = { ...createBranchClient(spawn, forge.remoteName), prList: forge.client.prList };
 			const outcome = await runSweep({
 				client,
 				execute: params.execute === true,
@@ -493,7 +499,7 @@ export default function (pi: ExtensionAPI): void {
 			"Local CI: typecheck + tests for changed packages vs origin/main, plus repo gates. Structured pass/fail, offline. Self-verify before `gh ship`.",
 		parameters: Type.Object({
 			baseRef: Type.Optional(
-				Type.String({ description: "Base ref to diff against (default origin/main). Must exist locally — runLocalCi stays offline (never auto-fetches)." }),
+				Type.String({ description: "Base ref to diff against (default <remote>/main; remote = DEVOPS_REMOTE > git config devops.remote > origin). Must exist locally — runLocalCi stays offline (never auto-fetches)." }),
 			),
 			packages: Type.Optional(
 				Type.Array(Type.String(), { description: "Explicit package list (bun-apps/<name>); skips change detection entirely." }),
@@ -522,6 +528,9 @@ export default function (pi: ExtensionAPI): void {
 				strict: params.strict === true,
 				includeGates: params.includeGates === false ? false : true,
 				spawn,
+				// Only drives the DEFAULT base ref (DEVOPS_REMOTE > git config
+				// devops.remote > origin — src/remote.ts).
+				remoteName: await resolveRemoteName(spawn),
 				signal,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatCiOutcome(outcome) }] };
@@ -539,8 +548,9 @@ export default function (pi: ExtensionAPI): void {
 		parameters: Type.Object({}),
 		async execute(_id, _params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
-			const client = createBranchClient(spawn);
-			const outcome = await runMainHealth({ client, spawn, signal });
+			const remoteName = await resolveRemoteName(spawn);
+			const client = createBranchClient(spawn, remoteName);
+			const outcome = await runMainHealth({ client, spawn, remoteName, signal });
 			return { details: outcome, content: [{ type: "text" as const, text: formatMainHealth(outcome) }] };
 		},
 	});
@@ -573,14 +583,15 @@ export default function (pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
-			const client = createBranchClient(spawn);
+			const remoteName = await resolveRemoteName(spawn);
+			const client = createBranchClient(spawn, remoteName);
 			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
 			// process.cwd() if not in a git worktree (mirrors merge_pr_after_local_ci/run_local_ci).
 			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
 			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
 			const rawMode = params.mode as string | undefined;
 			const mode: SyncMode = rawMode === "rebase" || rawMode === "pull" ? rawMode : "full";
-			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, force: params.force === true, preserve: params.preserve as string[] | undefined, signal });
+			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, force: params.force === true, preserve: params.preserve as string[] | undefined, remoteName, signal });
 			return { details: outcome, content: [{ type: "text" as const, text: formatSync(outcome) }] };
 		},
 	});
@@ -628,7 +639,7 @@ export default function (pi: ExtensionAPI): void {
 			"Prepare a branch worktree-safely: create off base, rebase onto base, and/or force-push-with-lease. Covers the BEHIND state; throw-free aborts on conflicts. dryRun shows the plan.",
 		parameters: Type.Object({
 			branch: Type.Optional(Type.String({ description: "Target branch. Default: the current branch." })),
-			base: Type.Optional(Type.String({ description: "Rebase/create base. Default: origin/<defaultBranch>." })),
+			base: Type.Optional(Type.String({ description: "Rebase/create base. Default: <remote>/<defaultBranch> (remote = DEVOPS_REMOTE > git config devops.remote > origin)." })),
 			create: Type.Optional(Type.Boolean({ description: "Create the branch off `base` (git checkout -b)." })),
 			rebase: Type.Optional(Type.Boolean({ description: "Rebase the branch onto `base`." })),
 			forcePush: Type.Optional(
@@ -638,7 +649,8 @@ export default function (pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
-			const client = createBranchClient(spawn);
+			const remoteName = await resolveRemoteName(spawn);
+			const client = createBranchClient(spawn, remoteName);
 			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
 			// process.cwd() if not in a git worktree.
 			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
@@ -653,6 +665,7 @@ export default function (pi: ExtensionAPI): void {
 				rebase: params.rebase as boolean | undefined,
 				forcePush: params.forcePush as boolean | undefined,
 				dryRun: params.dryRun as boolean | undefined,
+				remoteName,
 				signal,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatPrepare(outcome) }] };
@@ -681,8 +694,9 @@ export default function (pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, signal) {
 			const spawn = createLiveSpawn(process.cwd());
-			const gh = (await selectForgeClientCached({ spawn })).client;
-			const client = createBranchClient(spawn);
+			const forge = await selectForgeClientCached({ spawn });
+			const gh = forge.client;
+			const client = createBranchClient(spawn, forge.remoteName);
 			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
 			// process.cwd() if not in a git worktree.
 			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
@@ -695,6 +709,7 @@ export default function (pi: ExtensionAPI): void {
 				pr: params.pr as number,
 				expectedScope: params.expectedScope as string[] | undefined,
 				allowFetch: params.allowFetch as boolean | undefined,
+				remoteName: forge.remoteName,
 				signal,
 			});
 			return { details: outcome, content: [{ type: "text" as const, text: formatVerifyMerge(outcome) }] };

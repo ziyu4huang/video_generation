@@ -16,6 +16,7 @@
 import { runPrepare, type PrepareClient } from "./prepare-recipe.js";
 import { createBranchClient } from "./gh.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+import { resolveRemoteName } from "./remote.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
 export const PREPARE_CLI_USAGE = [
@@ -33,7 +34,8 @@ export const PREPARE_CLI_USAGE = [
 	"rebase-conflict / force-push-failed) · 2 usage error.",
 	"Options:",
 	"  --branch <name>     target branch (default: the current branch)",
-	"  --base <ref>        rebase/create base (default: origin/<defaultBranch>)",
+	"  --base <ref>        rebase/create base (default: <remote>/<defaultBranch>;",
+	"                      remote = DEVOPS_REMOTE > git config devops.remote > origin)",
 	"  --create            create the branch off base (`git checkout -b`)",
 	"  --rebase            rebase the branch onto base",
 	"  --force-push        push with --force-with-lease (opt-in; default false)",
@@ -90,7 +92,7 @@ export function parsePrepareArgs(
 
 export async function runPrepareCli(
 	argv: string[],
-	deps: { client?: PrepareClient; spawn?: SpawnFn; repoRoot?: string } = {},
+	deps: { client?: PrepareClient; spawn?: SpawnFn; repoRoot?: string; remoteName?: string } = {},
 ): Promise<CliResult> {
 	const parsed = parsePrepareArgs(argv);
 	if (!parsed.ok) {
@@ -100,7 +102,10 @@ export async function runPrepareCli(
 	const a = parsed.args;
 	const repoRoot = a.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
-	const client = deps.client ?? createBranchClient(spawn);
+	// Remote name resolved ONCE here (DEVOPS_REMOTE > git config devops.remote >
+	// origin — src/remote.ts); the recipe never resolves it itself.
+	const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));
+	const client = deps.client ?? createBranchClient(spawn, remoteName);
 
 	const outcome = await runPrepare({
 		client,
@@ -112,6 +117,7 @@ export async function runPrepareCli(
 		rebase: a.rebase,
 		forcePush: a.forcePush,
 		dryRun: a.dryRun,
+		remoteName,
 	});
 	return jsonResult(outcome.aborted ? 1 : 0, outcome);
 }

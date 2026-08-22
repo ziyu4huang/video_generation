@@ -393,3 +393,11 @@ describe("runMainHealth — temp-worktree fallback (all-detached multi-worktree 
 		expect(out.message).toContain("main");
 	});
 });
+
+describe("runMainHealth — non-origin remote (remoteName threading)", () => {
+	test("freshness refs + runCi base follow the configured remote", async () => {
+		const out = await runMainHealth({ client: fakeClient({ behind: 3 }), spawn: noSpawn, runCi: mkCi(greenCi()).fn, remoteName: "upstream" });
+		expect(out.healthy).toBe(true); // still ran; the caveat is a warning
+		expect(out.warnings.join(" ")).toMatch(/3 commit\(s\) behind upstream\/main/);
+	});
+});
