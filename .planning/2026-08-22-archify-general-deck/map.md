@@ -204,10 +204,12 @@ Tickets 01 and 02 are its prerequisites and should be worked as one unit with it
   **it was fixed 2026-08-22 (ticket 02) before any template here was built**, leaving the
   chrome geometry unchanged and adding a title-wrap build gate the template library will
   inherit. Its D1 "the renderer sees, it never gates" is respected: every gate added by
-  this effort is renderer-free. Neither effort blocks the other; its Phase 1 is fully
-  closed (P1–P4, 2026-08-22) — only the portable render seam (ticket 05) remains. Its P4
-  shipped `fit: "content"` on the diagram block, the same declarative seam this effort's
-  templates will use to opt a template's diagram out of canvas fit.
+  this effort is renderer-free. Neither effort blocks the other; the effort is fully
+  closed (P1–P4 + the `deck render` seam, tickets 01–05, 2026-08-22) — its
+  `bun run deck render` command is the cheap by-eye check this effort's template
+  sample decks will use. Its P4 shipped `fit: "content"` on the diagram block, the
+  same declarative seam this effort's templates will use to opt a template's diagram
+  out of canvas fit.
 - **Shares-decision-with**: `.planning/2026-08-21-archify-view-pptx-bun` — its zero-browser
   and ShapeIR decisions stand unchanged; D5 here adds the first new drawing primitive since,
   and re-verified the zero-blip property against it rather than assuming it.

@@ -5,6 +5,13 @@
 //   bun run deck [manifest] [--theme light|dark] [--output out.pptx]
 //                [--slides-dir <dir> | --no-slides] [--thumbnails]
 //                [--emit-shape-ir <dir>] [--lint]
+//   bun run deck render <manifest> [--out <dir>] [--size <px>]
+//                [--theme light|dark] [--output out.pptx]
+//
+// `render` builds the deck and pictures every slide as slide-N.png through the
+// first available backend (quicklook on darwin, libreoffice elsewhere). It is
+// an on-demand command for human eyes, never a build gate; with no backend it
+// exits non-zero naming what it looked for. See lib/deck-render.ts.
 //
 // Thin CLI over lib/deck-build.ts, which both this and the `archify_export_pptx`
 // tool share so they can never drift.
@@ -51,6 +58,7 @@ import {
   resolveDeckOutput,
   type Theme,
 } from "../lib/deck-build.ts";
+import { defaultRendersDir, pickRenderer, rendererStatus } from "../lib/deck-render.ts";
 import { formatLintNotes, lintDeck, storyline } from "../lib/deck-lint.ts";
 import { formatDiagnostics, lintPptx } from "../lib/ooxml-lint.ts";
 import { readZipText } from "../lib/read-zip.ts";
@@ -132,8 +140,86 @@ function fail(msg: string): never {
   process.exit(1);
 }
 
+export interface RenderArgs extends DeckArgs {
+  /** Where the slide-N.png images go. Default: `<output>.renders/`. */
+  rendersDir?: string;
+  /** Longest image edge in px. Default 1600. */
+  size?: number;
+}
+
+/** `deck render <config> [--out <dir>] [--size <px>] [--theme …] [--output …]` */
+export function parseRenderArgs(argv: string[]): RenderArgs {
+  if (argv[0] === undefined || argv[0].startsWith("--")) {
+    throw new Error("render needs a <config> positional (the deck manifest)");
+  }
+  const rest = [...argv];
+  const config = rest.shift()!;
+  const outIdx = rest.indexOf("--out");
+  let rendersDir: string | undefined;
+  if (outIdx !== -1) {
+    rendersDir = rest[outIdx + 1];
+    if (rendersDir === undefined) throw new Error("--out needs a directory");
+    rest.splice(outIdx, 2);
+  }
+  const sizeIdx = rest.indexOf("--size");
+  let size: number | undefined;
+  if (sizeIdx !== -1) {
+    const raw = rest[sizeIdx + 1];
+    const parsed = raw === undefined ? NaN : Number(raw);
+    if (!Number.isInteger(parsed) || parsed <= 0 || parsed > 8192) {
+      throw new Error(`--size must be a positive integer ≤ 8192, got "${raw}"`);
+    }
+    size = parsed;
+    rest.splice(sizeIdx, 2);
+  }
+  return { ...parseArgs([config, ...rest]), ...(rendersDir ? { rendersDir } : {}), ...(size ? { size } : {}) };
+}
+
+/**
+ * `deck render` — build the deck, then picture every slide as slide-N.png.
+ *
+ * The seam is D1's "on-demand command": the renderer SEES, it never gates.
+ * No backend on this machine is a named, non-zero exit — never a stack trace,
+ * never a silent success.
+ */
+async function runRender(args: RenderArgs): Promise<void> {
+  const cwd = process.cwd();
+  const renderer = pickRenderer();
+  if (!renderer) {
+    const looked = rendererStatus()
+      .map((r) => `  ${r.id}: needs ${r.looksFor.join(" + ")} — not found here`)
+      .join("\n");
+    fail(`no render backend on this machine\n${looked}`);
+  }
+
+  const { manifest, manifestDir } = await loadManifestFile(args.manifest, cwd);
+  const outputPath = resolveDeckOutput(manifest, manifestDir, cwd, args.output);
+  const result = await buildDeck({
+    manifest,
+    manifestDir,
+    outputPath,
+    cwd: PKG_ROOT,
+    ...(args.theme ? { theme: args.theme } : {}),
+    slidesDir: null, // rendering pictures the .pptx; the HTML pages are not kept
+    onProgress: (m) => console.log(m),
+  });
+  const outDir = args.rendersDir
+    ? resolve(cwd, args.rendersDir)
+    : defaultRendersDir(result.output);
+  const images = await renderer.renderSlides(result.output, outDir, args.size ? { size: args.size } : undefined);
+  console.log(
+    `rendered ${images.length} slides via ${renderer.id} → ${outDir} ` +
+      `(backend: ${renderer.id}, os: ${process.platform})`
+  );
+  for (const img of images) console.log(`  ${img}`);
+}
+
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv[0] === "render") {
+    return runRender(parseRenderArgs(argv.slice(1)));
+  }
+  const args = parseArgs(argv);
   const cwd = process.cwd();
 
   if (!(await Bun.file(VENDORED_BIN).exists())) {

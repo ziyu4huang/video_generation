@@ -2,7 +2,7 @@
 effort: 2026-08-21-archify-deck-visual-fidelity
 created: 2026-08-21
 last: 2026-08-22
-status: in-progress
+status: complete
 ---
 # archify-deck-visual-fidelity — what the deck actually looks like
 
@@ -116,7 +116,9 @@ Phase 1 — the defects, each with a renderer-free assertion
   path (byte-identical). See its `## Result` + `## Resolution`
 
 Phase 2 — seeing it, portably
-- `tickets/05-portable-render-seam.md` — task, open — `pptx → N images`, 3 backends, receipt
+- `tickets/05-portable-render-seam.md` — task, **closed 2026-08-22** — `deck render`
+  shipped (quicklook measured 826 ms / 6 slides end-to-end; libreoffice implemented,
+  unmeasured); receipt + both owed re-runs paid. See its `## Result`
 
 ## Decisions
 
@@ -143,12 +145,16 @@ Phase 2 — seeing it, portably
 
 ## Frontier
 
-`tickets/05-portable-render-seam.md` — the last open ticket. All four defects are closed;
-what the effort still owes is the reusable `pptx → N images` seam that made finding them
-cheap. Its first receipts are already owed two re-runs: ticket 03's by-eye verification
-was done with a scratch pipeline because the seam did not exist, and P4's single-slide
-render hit the same gap (the split-deck sighting needed a one-slide deck hand-built to
-get past Quick Look's slide-1-only limitation — exactly D2's split-into-N-decks route).
+cleared — tickets 01–05 all closed 2026-08-22. Phase 1 fixed all four defects with
+renderer-free assertions; Phase 2 shipped `deck render` (`lib/deck-render.ts`) and paid
+both owed receipt re-runs (P3, P4) through the seam itself. Receipt:
+`bun-apps/s2-agent-ext-archify/receipts/archify-portable-render-seam-2026-08-22.md`.
+
+One route deviation from the ticket sketch, measured before shipping: the quicklook
+backend rotates `<p:sldIdLst>` per copy instead of rebuilding one-slide decks —
+`renderSlides(pptx)` has no manifest (D2), a rebuild pictures a different file than the
+one on disk, and `qlmanage` was measured to honour `sldIdLst` order. Full reasoning in
+ticket 05's `## Resolution notes`.
 
 The four closed tickets share one post-mortem pattern: a number crossing a boundary in
 the wrong unit (a fraction where a length was wanted, a character count where an em was

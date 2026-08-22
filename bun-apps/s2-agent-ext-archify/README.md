@@ -40,7 +40,13 @@ Two entry points over one core (`lib/deck-build.ts`), so the CLI and the agent c
 ```bash
 bun run deck [manifest] [--theme light|dark] [--output out.pptx]
              [--slides-dir <dir> | --no-slides] [--emit-shape-ir <dir>]
+bun run deck render <manifest> [--out <dir>] [--size <px>]
 ```
+
+`deck render` pictures every slide as `slide-N.png` through the first available
+backend (Quick Look on macOS, LibreOffice elsewhere) — an on-demand command for
+human eyes, never a build gate; with no backend it exits non-zero naming what it
+looked for (`lib/deck-render.ts`).
 
 …and the registered **`archify_export_pptx`** tool (`{manifestPath | irPaths, outputPath?,
 theme?, slidesDir?}`).
