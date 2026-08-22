@@ -238,6 +238,21 @@ export function parseShowStat(stdout: string): ShowStat {
 }
 
 /**
+ * The CONTAMINATED remedy line: the corrected `--scope`/`expectedScope` list
+ * (current entries ∪ out-of-scope paths, first-seen order) plus how to use it.
+ * Pure — exported for unit tests and for callers that render it standalone.
+ */
+export function scopeRemedyWarning(expectedScope: string[], outOfScopePaths: string[]): string {
+	const corrected = [...new Set([...expectedScope, ...outOfScopePaths])];
+	return (
+		`scope remedy: if the out-of-scope file(s) are INTENTIONAL, the corrected scope is ` +
+		`--scope ${corrected.join(",")} — re-run verify-merge-cli <pr> with it (or pass the same ` +
+		`expectedScope to verify_merge_landed) to re-adjudicate CLEAN. Doc files (CLAUDE.md, docs/) ` +
+		`ride along with code PRs: list every touched root up front, not just the package.`
+	);
+}
+
+/**
  * Run the verify-merge recipe. Never throws — a `gh.prStatus` failure surfaces
  * as `warnings[]` + a structured `aborted`; a failed `git show` becomes a
  * warning + an empty file list (best-effort). The verdict is always populated.
@@ -376,6 +391,13 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 	}
 
 	// --- 5. Verdict. -----------------------------------------------------------
+
+	// Scope-drift remedy (2026-08-22, PR #1802 lesson): a CONTAMINATED verdict
+	// is usually not a rogue merge — the caller forgot a touched file ROOT in
+	// expectedScope (that merge: `bun-apps/s2-agent-ext-devops` passed, the
+	// intentional one-line CLAUDE.md edit wasn't). Print the exact corrected
+	// scope so the fix is a copy-paste re-verify, not warning archaeology.
+	// Doc files are the systematic case — they ride along with code PRs.
 	// `inspected` is checked FIRST and CLEAN is no longer the else-branch: an
 	// unreadable merge must never be reported as a checked-and-fine merge
 	// (issue #1439). CONTAMINATED still outranks nothing here — it can only be
@@ -388,6 +410,7 @@ export async function runVerifyMerge(opts: VerifyMergeOptions): Promise<VerifyMe
 		);
 	} else if (opts.expectedScope && opts.expectedScope.length > 0 && outOfScope.length > 0) {
 		verdict = "CONTAMINATED";
+		warnings.push(scopeRemedyWarning(opts.expectedScope, outOfScope.map((f) => f.path)));
 	} else {
 		verdict = "CLEAN";
 	}

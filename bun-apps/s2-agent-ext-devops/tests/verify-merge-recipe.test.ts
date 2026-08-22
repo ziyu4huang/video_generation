@@ -13,7 +13,7 @@
  *  (g) gh.prStatus throws → warnings + aborted.
  */
 import { test, expect, describe } from "bun:test";
-import { runVerifyMerge, parseShowStat, type VerifyMergeClient } from "../src/verify-merge-recipe.js";
+import { runVerifyMerge, parseShowStat, scopeRemedyWarning, type VerifyMergeClient } from "../src/verify-merge-recipe.js";
 import type { GhClient } from "../src/recipe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 
@@ -130,7 +130,7 @@ describe("runVerifyMerge — verdicts", () => {
 		expect(out.commands.some((c) => c.includes("show --numstat"))).toBe(true);
 	});
 
-	test("(b) merged + a file outside expectedScope → CONTAMINATED + outOfScope lists it", async () => {
+	test("(b) merged + a file outside expectedScope → CONTAMINATED + outOfScope lists it + the remedy warning carries the corrected scope", async () => {
 		const gh = fakeGh({ state: "MERGED", headRefName: "feat/x", mergeSha: SHA });
 		const client = fakeClient({ defaultBranch: "main" });
 		const { fn } = fakeSpawn([{ match: (a) => realArgs(a)[0] === "show", result: SHOW_DRIFT }]);
@@ -139,6 +139,15 @@ describe("runVerifyMerge — verdicts", () => {
 		expect(out.verdict).toBe("CONTAMINATED");
 		expect(out.outOfScope.map((f) => f.path)).toEqual(["docs/b.md"]);
 		expect(out.files.map((f) => f.path)).toEqual(["src/a.ts", "docs/b.md"]);
+		// Scope-drift remedy (2026-08-22 lesson): the warning must teach the
+		// exact corrected scope — current entries ∪ the drifted paths — so the
+		// fix is a copy-paste re-verify, not warning archaeology. Rendered by
+		// every surface (verify_merge_landed tool, verify-merge-cli,
+		// merge-pr-after-ci-cli) since all three consume these warnings.
+		const remedy = out.warnings.find((w) => w.startsWith("scope remedy:"));
+		expect(remedy).toBeDefined();
+		expect(remedy).toContain("--scope src/,docs/b.md");
+		expect(remedy).toContain("verify-merge-cli");
 	});
 
 	test("(c) not merged (state OPEN) → NOT-MERGED, no file inspection", async () => {
@@ -200,6 +209,24 @@ describe("parseShowStat — unit (numstat)", () => {
 	test("a path containing spaces survives (tab is the only separator)", () => {
 		const parsed = parseShowStat("1\t0\tdocs/my notes.md\n");
 		expect(parsed.files[0].path).toBe("docs/my notes.md");
+	});
+});
+
+describe("scopeRemedyWarning — unit (the PR #1802 lesson, hardened)", () => {
+	test("corrected scope = expectedScope ∪ drifted paths, deduped, first-seen order", () => {
+		const w = scopeRemedyWarning(["bun-apps/s2-agent-ext-devops"], ["CLAUDE.md"]);
+		expect(w).toContain("--scope bun-apps/s2-agent-ext-devops,CLAUDE.md");
+		expect(w).toContain("verify-merge-cli");
+		expect(w).toContain("verify_merge_landed");
+	});
+
+	test("duplicate entries within either list are collapsed", () => {
+		const w = scopeRemedyWarning(["x", "x"], ["y", "y"]);
+		expect(w).toContain("--scope x,y");
+	});
+
+	test("the doc-file reminder rides along (the systematic case)", () => {
+		expect(scopeRemedyWarning(["x"], ["CLAUDE.md"])).toContain("Doc files");
 	});
 });
 
