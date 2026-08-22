@@ -8,7 +8,7 @@
  * under PI_SKIP_MODELS_JSON=1 — see findings.md §D).
  */
 import { describe, expect, test } from "bun:test";
-import { runCli } from "./_helpers.ts";
+import { runCli, VERSION } from "./_helpers.ts";
 
 /** A thrown/uncaught error would dump a stack frame ("    at …") to stderr. */
 const NO_STACK = /\n\s+at\s\S/;
@@ -18,7 +18,7 @@ describe("meta — version", () => {
 		test(`${argv.join(" ")} → exact version string, exit 0`, () => {
 			const r = runCli([...argv]);
 			expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-			expect(r.stdout.trim()).toBe("s2-agent cli 0.1.0");
+			expect(r.stdout.trim()).toBe(`s2-agent cli ${VERSION}`);
 			expect(r.stderr).not.toMatch(NO_STACK);
 		});
 	}

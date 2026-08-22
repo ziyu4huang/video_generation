@@ -203,6 +203,14 @@ async function buildCore(
 	}
 }
 
+/**
+ * The binary's agent-dir env var, derived EXACTLY like upstream config.js:
+ * `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`. For "s2-agent" the name
+ * contains a DASH — legal in env maps and via `env(1)` at exec time, illegal
+ * as a bash `export` target (why run.sh passes it with `env`, not `export`).
+ */
+const AGENT_DIR_ENV = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
+
 const RUN_SH = `#!/usr/bin/env bash
 # run.sh — launcher for a s2-agent-sh deploy.
 #
@@ -219,7 +227,14 @@ SCRIPT_DIR="\$(cd -P "\$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
 
 # The deploy tree is chmod a-w; keep every per-user write under ~/.pi/agent.
 export JITI_FS_CACHE="\${JITI_FS_CACHE:-0}"
-export PI_CODING_AGENT_DIR="\${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}"
+# The binary derives its agent-dir env var from piConfig.name — for this
+# deploy that is ${AGENT_DIR_ENV} (the DASH is real: upstream builds
+# \`\${APP_NAME.toUpperCase()}_CODING_AGENT_DIR\`). Plain PI_CODING_AGENT_DIR is
+# IGNORED by the binary, so exporting it (as this script did before 2026-08-22)
+# was inert: the per-user default held only by ~/.pi/agent coincidence. bash
+# cannot \`export\` a dashed name — \`env\` at exec time can. PI_CODING_AGENT_DIR
+# stays as the operator-facing input for backwards compatibility.
+_agent_dir="\${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}"
 
 # Offline dist: no browser is bundled. The vendored puppeteer (hyperframes
 # frame capture) launches SYSTEM Chrome — the same machine dependency
@@ -237,7 +252,7 @@ if [ -z "\${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
   done
 fi
 
-exec "\$SCRIPT_DIR/${APP_NAME}" "\$@"
+exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$SCRIPT_DIR/${APP_NAME}" "\$@"
 `;
 
 interface ExtListPayload {

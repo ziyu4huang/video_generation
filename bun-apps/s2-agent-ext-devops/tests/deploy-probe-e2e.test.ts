@@ -21,8 +21,8 @@
  * ~13 MB of vendored playwright-core).
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../src/deploy/run.ts";
 import { parseShConfig } from "../src/deploy/lib/config.ts";
@@ -34,21 +34,64 @@ const describeE2E = RUN ? describe : describe.skip;
 const outRoot = mkdtempSync(join(tmpdir(), "sh-probe-"));
 /** Per-user state must never land in the operator's real ~/.pi during a test. */
 const piHome = join(outRoot, "pi-home");
-let target = "";
-let binary = "";
 
 // Expected loaded set is DERIVED from s2-agent.registry.yaml, not hardcoded:
 // #1713 added hyperframes as a third configured extension and every hardcoded
 // ["power-tool","task"] / count-2 assertion here went stale the moment it
 // merged. The registry is the source of truth for what a deploy must load.
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
+
+// AGENT-DIR ISOLATION (2026-08-22 fix): the binary derives its agent-dir env
+// var from piConfig.name — upstream builds `${APP_NAME.toUpperCase()}_CODING
+// _AGENT_DIR` — so with name "s2-agent" it reads `S2-AGENT_CODING_AGENT_DIR`
+// (DASH included) and IGNORES plain `PI_CODING_AGENT_DIR`. Every spawn in
+// this suite used to set only the inert PI_* name, so probe `-p hi` runs
+// wrote 30 throwaway prompt-history dirs into the operator's REAL ~/.pi/agent.
+// Derive the name from s2-agent's package.json (the same file the rename
+// reads) so a future rename cannot silently break isolation again.
+const S2_AGENT_NAME = (
+	JSON.parse(readFileSync(join(BUN_APPS_DIR, "s2-agent", "package.json"), "utf8")) as {
+		piConfig: { name: string };
+	}
+).piConfig.name;
+const agentDirEnv: Record<string, string> = {
+	PI_CODING_AGENT_DIR: piHome,
+	[`${S2_AGENT_NAME.toUpperCase()}_CODING_AGENT_DIR`]: piHome,
+};
+
+let target = "";
+let binary = "";
+
 const shConfig = parseShConfig(
 	readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registry.yaml"), "utf8"),
 	{ bunAppsDir: BUN_APPS_DIR },
 );
 const configuredNames = shConfig.extensions.map((e) => e.name).sort();
 
-afterAll(() => rmTree(outRoot));
+// ZERO-Real-~/.pi-pollution guard (2026-08-22): the suite's whole point is
+// that per-user writes land under piHome. Snapshot the operator's REAL
+// prompt-history dir before the run; afterAll fails the suite if the probe
+// created so much as one directory there — the exact defect that accumulated
+// 30 junk dirs before the agentDirEnv fix.
+const realHistoryRoot = join(
+	process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"),
+	"prompt-history",
+);
+const realHistoryBefore: string[] = existsSync(realHistoryRoot)
+	? readdirSync(realHistoryRoot).sort()
+	: [];
+
+afterAll(() => {
+	const after = existsSync(realHistoryRoot) ? readdirSync(realHistoryRoot).sort() : [];
+	const added = after.filter((d) => !realHistoryBefore.includes(d));
+	// Only NEW dirs are a defect: a concurrent real session may legitimately
+	// add one while this suite runs.
+	expect(
+		added,
+		`probe leaked per-user writes into the REAL ${realHistoryRoot} — agent-dir isolation broken`,
+	).toEqual([]);
+	rmTree(outRoot);
+});
 
 interface Run {
 	stdout: string;
@@ -64,7 +107,7 @@ interface Run {
 async function run(argv: string[], opts: { cwd?: string; env?: Record<string, string> } = {}): Promise<Run> {
 	const proc = Bun.spawn([binary, ...argv], {
 		cwd: opts.cwd ?? target,
-		env: { ...process.env, PI_CODING_AGENT_DIR: piHome, ...opts.env },
+		env: { ...process.env, ...agentDirEnv, ...opts.env },
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -223,7 +266,7 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		// per-user state dir before exec. Asserting existsSync proves none of that.
 		const proc = Bun.spawn(["bash", join(target, "run.sh"), "--ext-list"], {
 			cwd: target,
-			env: { ...process.env, PI_CODING_AGENT_DIR: piHome },
+			env: { ...process.env, ...agentDirEnv },
 			stdout: "pipe",
 			stderr: "pipe",
 		});
@@ -389,7 +432,7 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		// run.sh --ext-list: every extension loads with networking denied.
 		const boot = Bun.spawn(["sandbox-exec", "-p", DENY_NETWORK_SBPL, "bash", join(target, "run.sh"), "--ext-list"], {
 			cwd: target,
-			env: { ...process.env, PI_CODING_AGENT_DIR: piHome },
+			env: { ...process.env, ...agentDirEnv },
 			stdout: "pipe",
 			stderr: "pipe",
 		});
@@ -419,7 +462,7 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 			["sandbox-exec", "-p", DENY_NETWORK_SBPL, binary, "-e", probePath, "-p", "hi"],
 			{
 				cwd: target,
-				env: { ...process.env, PI_CODING_AGENT_DIR: piHome },
+				env: { ...process.env, ...agentDirEnv },
 				stdout: "pipe",
 				stderr: "pipe",
 			},
@@ -484,7 +527,7 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		);
 		const proc = Bun.spawn(["bun", driverPath, "--", loader], {
 			cwd: join(target, "ext", "hyperframes"),
-			env: { ...process.env, PI_CODING_AGENT_DIR: piHome },
+			env: { ...process.env, ...agentDirEnv },
 			stdout: "pipe",
 			stderr: "pipe",
 		});

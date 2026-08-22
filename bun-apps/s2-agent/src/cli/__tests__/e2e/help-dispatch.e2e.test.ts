@@ -13,16 +13,16 @@
  * command's details)`.
  */
 import { describe, expect, test } from "bun:test";
-import { runCli } from "./_helpers.ts";
+import { runCli, VERSION } from "./_helpers.ts";
 
 describe("help <target> — never executes the target", () => {
 	// ── RED (bug) cases: these must NOT run the meta command ──────────────
 	test("help version does NOT execute the version command", () => {
 		const r = runCli(["help", "version"]);
 		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-		// the `version` command prints EXACTLY "s2-agent cli 0.1.0"; help must
-		// instead surface root help (banner "v0.1.0" + a Usage: block).
-		expect(r.stdout.trim()).not.toBe("s2-agent cli 0.1.0");
+		// the `version` command prints EXACTLY `s2-agent cli ${VERSION}`; help must
+		// instead surface root help (banner `v${VERSION}` + a Usage: block).
+		expect(r.stdout.trim()).not.toBe(`s2-agent cli ${VERSION}`);
 		expect(r.stdout).toContain("Usage:");
 	});
 

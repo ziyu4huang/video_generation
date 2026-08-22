@@ -1,13 +1,15 @@
 import { describe, expect, test, beforeEach } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
 	HISTORY_CAP,
 	projectKey,
 	historyFilePath,
 	readHistory,
 	recordPrompt,
+	historyFileName,
+	SCHEMA_VERSION,
 } from "./history-store.ts";
 
 let agentDir: string;
@@ -75,5 +77,29 @@ describe("recordPrompt + readHistory", () => {
 
 	test("readHistory returns [] when file missing or corrupt", () => {
 		expect(readHistory("/tmp/never", agentDir)).toEqual([]);
+	});
+});
+
+describe("cache-compat policy (SCHEMA_VERSION, 2026-08-22)", () => {
+	test("v1 filename is byte-stable `history.jsonl` — compatible releases never move it", () => {
+		expect(historyFileName(SCHEMA_VERSION)).toBe("history.jsonl");
+		expect(historyFilePath("/proj/x", "/agent")).toBe(
+			join("/agent", "prompt-history", projectKey("/proj/x"), "history.jsonl"),
+		);
+	});
+
+	test("an INCOMPATIBLE schema bump changes the FILENAME only — same directory, old file untouched", () => {
+		expect(historyFileName(2)).toBe("history.v2.jsonl");
+		expect(historyFileName(3)).toBe("history.v3.jsonl");
+		const v1 = historyFilePath("/proj/x", "/agent");
+		const v2 = join("/agent", "prompt-history", projectKey("/proj/x"), historyFileName(2));
+		expect(dirname(v2)).toBe(dirname(v1)); // directory = project identity, never versioned
+	});
+
+	test("the path is version-blind by design: no extension/schema version input exists", () => {
+		// projectKey + historyFilePath take ONLY cwd — there is no version
+		// parameter to pass, which IS the compat guarantee (x.y.* shares the cache).
+		expect(projectKey.length).toBe(1);
+		expect(historyFilePath("/a", "/m").startsWith("/m/prompt-history/")).toBe(true);
 	});
 });
