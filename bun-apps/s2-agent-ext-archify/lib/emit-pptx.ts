@@ -11,8 +11,9 @@
  * `fit: "shrink"` is applied to the content roles only. Chrome — tag chip,
  * action title, footer, page number — keeps the pre-composition builder's exact
  * options, which is what makes a `diagram` slide's XML byte-identical to what
- * that builder produced (effort decision D3). Title overflow is caught by
- * `deck-lint.ts`'s length rule instead of by silently shrinking type.
+ * that builder produced (effort decision D3). Title overflow is caught ahead of
+ * the build by `deck-lint.ts`'s wrap budget instead of by silently shrinking
+ * type: a title that quietly gets smaller is a defect the author never sees.
  */
 import {
   bulletSizePt,
@@ -165,9 +166,13 @@ export function emitPptxSlide(
               "the orchestrator must resolve every diagram block before emitting."
           );
         }
-        // The existing ShapeIR path, unchanged. Confining a diagram to a 60 %
-        // column is a different `box`, not different code.
-        const placed = addShapeIrToSlide(slide, ir, box, { fontFace: ctx.font });
+        // The existing ShapeIR path. Confining a diagram to a 60 % column is a
+        // different `box`, not different code; `fit: "content"` (P4) is the
+        // layout opting out of canvas fit — the `diagram` layout never does.
+        const placed = addShapeIrToSlide(slide, ir, box, {
+          fontFace: ctx.font,
+          ...(content.fit === "content" ? { fitContent: true } : {}),
+        });
         shapes += placed.shapes;
         texts += placed.texts;
         break;

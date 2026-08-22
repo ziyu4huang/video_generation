@@ -50,8 +50,32 @@ describe("action titles", () => {
     expect(lint({ layout: "section", title: "Findings" })).toEqual([]);
   });
 
-  test("an over-long title is flagged, because the title band does not autofit", () => {
-    expect(lint({ ...CLEAN, title: "x".repeat(120) })).toContain("title-too-long");
+  test("a title too wide for its band is an ERROR, not a style note", () => {
+    // The band has no autofit and the accent rule sits below it at a fixed y,
+    // so line two is struck through. `buildDeck` refuses this severity.
+    const notes = lintDeck({ slides: [{ ...CLEAN, title: "一".repeat(30) }] });
+    const note = notes.find((n) => n.code === "title-overflows");
+    expect(note?.severity).toBe("error");
+  });
+
+  test("a title just inside the budget only warns — the estimate has error bars", () => {
+    // 24 ideographs = 24 em against a 24.37 em budget: inside the band, but
+    // inside the margin too. Saying "fits" there would be a claim the model
+    // cannot support.
+    const notes = lintDeck({ slides: [{ ...CLEAN, title: "一".repeat(24) }] });
+    expect(notes.find((n) => n.code === "title-overflows")?.severity).toBe("warn");
+  });
+
+  test("a comfortably short title says nothing at all", () => {
+    expect(lint({ ...CLEAN, title: "一".repeat(20) })).not.toContain("title-overflows");
+  });
+
+  test("a statement slide's title is exempt — its band is never drawn", () => {
+    // `statement` calls chrome() with `title: false`; the statement IS the
+    // title. Checking the unused string would be a warning about nothing.
+    expect(
+      lint({ layout: "statement", title: "一".repeat(40), statement: "一".repeat(40) })
+    ).not.toContain("title-overflows");
   });
 });
 

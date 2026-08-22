@@ -56,6 +56,7 @@ export interface OoxmlDiagnostic {
     | "sppr-order"
     | "custgeom-order"
     | "font-size-range"
+    | "shape-adjust-range"
     | "path-no-moveto";
   message: string;
 }
@@ -68,6 +69,22 @@ const EMU_MAX = 27273042316900;
 /** ST_TextFontSize, in hundredths of a point. */
 const SZ_MIN = 100;
 const SZ_MAX = 400000;
+
+/**
+ * A preset geometry's adjustment value is a percentage in hundred-thousandths.
+ * ECMA-376 gives each preset its own range, but every shape archify emits takes
+ * a 0..50000 corner/inset adjustment (`roundRect` caps at 50 % of the smaller
+ * side), and NO preset accepts a negative one.
+ *
+ * This rule exists because an out-of-range adjustment is invisible to every
+ * other check here — it is well-formed XML, in a correctly-ordered `spPr`, with
+ * valid EMU — and yet it makes the preset's corner arcs self-intersect and
+ * renders the shape as a star burst. That was P1 of
+ * `.planning/2026-08-21-archify-deck-visual-fidelity`: 43 out-of-range values
+ * across the two example decks, worst 317450, and a green suite throughout.
+ */
+const ADJ_MIN = 0;
+const ADJ_MAX = 50000;
 
 /** CT_ShapeProperties element sequence. Unlisted children are ignored. */
 const SPPR_ORDER: Record<string, number> = {
@@ -308,6 +325,22 @@ function lintDrawingML(part: string, xml: string, out: OoxmlDiagnostic[]): void 
             message: `<${tag}> ${n}=${got.value} exceeds the ST_Coordinate range`,
           });
         }
+      }
+      return;
+    }
+    if (tag === "a:gd" && parent === "a:avLst") {
+      const value = /^val\s+(-?\d+)$/.exec(String(node["@fmla"] ?? ""))?.[1];
+      if (value === undefined) return;
+      const n = Number(value);
+      if (!Number.isInteger(n) || n < ADJ_MIN || n > ADJ_MAX) {
+        out.push({
+          part,
+          code: "shape-adjust-range",
+          message:
+            `<a:gd name=${JSON.stringify(String(node["@name"] ?? "?"))}> fmla="val ${n}" ` +
+            `outside the [${ADJ_MIN}, ${ADJ_MAX}] adjustment range — a preset's ` +
+            `corner arcs self-intersect past it and the shape renders as a burst`,
+        });
       }
       return;
     }

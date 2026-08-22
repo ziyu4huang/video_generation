@@ -19,6 +19,7 @@
  */
 import {
   CONTENT,
+  TITLE_BAND,
   type Role,
 } from "./deck-theme.ts";
 import {
@@ -71,9 +72,13 @@ function chrome(slide: Slide, ctx: LayoutCtx, opts: { title?: boolean } = {}): P
 
   if (withTitle) {
     blocks.push(
-      hasTakeaway
-        ? text({ x: 0.5, y: 0.16, w: 9.0, h: 0.56 }, "title", slide.title, "left", "middle")
-        : text({ x: 0.5, y: 0.22, w: 9.0, h: 0.75 }, "title", slide.title, "left", "middle")
+      text(
+        hasTakeaway ? TITLE_BAND.withTakeaway : TITLE_BAND.alone,
+        "title",
+        slide.title,
+        "left",
+        "middle"
+      )
     );
     if (hasTakeaway) {
       blocks.push(
@@ -164,7 +169,11 @@ function splitLayout(slide: Slide, ctx: LayoutCtx): PlacedBlock[] {
   const rightW = usable - leftW;
   const blocks: PlacedBlock[] = [...chrome(slide, ctx)];
   if (slide.ir) {
-    blocks.push(at({ x: 0.5, y: top, w: leftW, h }, { kind: "diagram", ir: slide.ir }));
+    // Content fit (P4): a split column is narrow, so canvas dead margins waste
+    // a large share of it — on the shipped example, 42 % of the artifact's
+    // canvas width is empty and the visible diagram filled only 4.13 of 7.16
+    // inches. The `diagram` layout stays canvas-fit: its geometry is D3-locked.
+    blocks.push(at({ x: 0.5, y: top, w: leftW, h }, { kind: "diagram", ir: slide.ir, fit: "content" }));
   }
   blocks.push(
     at(

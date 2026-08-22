@@ -2,9 +2,9 @@
 ticket: 05-portable-render-seam
 effort: archify-deck-visual-fidelity
 type: task
-status: open
+status: closed
 created: 2026-08-21
-last: 2026-08-21
+last: 2026-08-22
 depends: [01]
 ---
 # 05 — `pptx → N images`, portably, as a tool and never as a gate
@@ -59,3 +59,43 @@ Then `deck render <config> [--out <dir>]`, wired the same way `deck` already is.
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-archify && bun run typecheck && bun test )`
+
+## Result (2026-08-22)
+
+All acceptance items shipped on darwin, in one branch with the Phase 1 fixes:
+
+- `lib/deck-render.ts` — `DeckRenderer` (`QUICKLOOK` / `LIBREOFFICE`), `pickRenderer()`,
+  `rendererStatus()` (the named-reason companion). `bun run deck render <cfg>
+  [--out] [--size]` wired in `scripts/deck.ts`.
+- **darwin, one call**: 6 images from the composed example (`slide-1..6.png`),
+  826 ms including the zip repacks; legacy example 5 images.
+- **no backend**: PATH stripped → `pickRenderer()` null; CLI exits 1 printing
+  `quicklook: needs darwin + qlmanage — not found here` / `libreoffice: needs
+  soffice + pdftoppm — not found here`. No stack trace. Pinned renderer-free in
+  `__tests__/deck-render.test.ts` (12 tests; no test spawns a backend — D1).
+- `no-browser-deps.test.ts` untouched and green (system binaries were never its
+  subject). Suite 477 pass / 21 skip / 0 fail; typecheck clean.
+- Receipt: `receipts/archify-portable-render-seam-2026-08-22.md` — all four
+  defects before/after, exact commands, backend + OS, both owed re-runs paid
+  (P3: `拉近看 →` arrow restored; P4: column fill ~50 % → ~100 %).
+- Spec §6 hand-rolled recipe deleted in favour of the command.
+
+## Resolution notes
+
+- **Route deviation, measured first**: the quicklook backend does NOT rebuild
+  one-slide decks from a manifest — `renderSlides(pptx, outDir)` has no
+  manifest (D2), a rebuild would picture a different file than the one on disk,
+  and `qlmanage` was measured to honour `<p:sldIdLst>` order (not lowest id,
+  not part-name order). Each copy rotates the target slide to the front;
+  every part stays byte-as-built.
+- **Zip handling is shell-free** like `read-zip.ts`: a ~100-line STORED-entry
+  repacker (`repackZipEntry` + `crc32`, PKZIP vector-pinned). Data-descriptor
+  zips are refused by name, not mis-read.
+- **`Bun.which` takes an explicit `{ PATH }`**: the optionless form snapshots
+  startup PATH and ignores later env changes, which would have made the probe
+  untestable (`onPath()` helper).
+- **LibreOffice remains unmeasured** (not installed here); no number claimed.
+- **Quick Look cannot picture P2-class defects** (it breaks lines against the
+  full box width, ignoring `rIns`) — charted in the map fog since P2; the
+  receipt repeats it so the next person does not trust a one-line quicklook
+  image over a wrap-budget refusal.

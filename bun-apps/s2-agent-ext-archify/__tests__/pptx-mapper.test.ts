@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { addShapeIrToSlide, type Box } from "../lib/pptx-shapes.ts";
+import { addShapeIrToSlide, labelWidthEms, type Box } from "../lib/pptx-shapes.ts";
+import { textEms } from "../lib/text-extent.ts";
 import { spySlide, type SpyCall } from "./helpers/spy-slide.ts";
 import type { ShapeIR, ShapeNode, Style } from "../lib/shape-ir.ts";
 
@@ -50,6 +51,71 @@ describe("layout", () => {
   });
 });
 
+/**
+ * Content fit (P4 of archify-deck-visual-fidelity).
+ *
+ * The vendored renderers emit canvases with dead margins — a dataflow canvas
+ * can carry 42 % trailing width. Centring that canvas parks the visible
+ * diagram small and off-centre, which is what the split column showed. The
+ * default stays canvas fit: the D3 lock on the `diagram` layout is exactly
+ * "a pre-composition manifest builds to the same geometry".
+ */
+describe("content fit (P4)", () => {
+  /** One rect in the right half of a 100x100 canvas. */
+  const HALF = ir([{ kind: "rect", x: 50, y: 0, w: 50, h: 50, style: BLACK }], 100, 100);
+
+  test("default is canvas fit — the D3-locked path is unchanged", () => {
+    const slide = spySlide();
+    addShapeIrToSlide(slide, HALF, BOX);
+    // Canvas 100 wide → scale 0.1; the right-half rect lands at x 5, w 5.
+    expect(slide.calls[0]!.opts).toMatchObject({ x: 5, y: 0, w: 5, h: 5 });
+  });
+
+  test("fitContent crops the dead margin and fills the box", () => {
+    const slide = spySlide();
+    const r = addShapeIrToSlide(slide, HALF, BOX, { fitContent: true });
+    // Content is the 50x50 rect alone → scale 0.2, filling the box exactly.
+    expect(r.scale).toBeCloseTo(0.2, 10);
+    expect(slide.calls[0]!.opts).toMatchObject({ x: 0, y: 0, w: 10, h: 10 });
+  });
+
+  test("fitContent keeps the aspect ratio of the CONTENT", () => {
+    const slide = spySlide();
+    // Canvas 100x50; content 50x50 (left half). Content-fit scales to the
+    // square content, not the wide canvas: 10x10 on the slide.
+    addShapeIrToSlide(
+      slide,
+      ir([{ kind: "rect", x: 0, y: 0, w: 50, h: 50, style: BLACK }], 100, 50),
+      BOX,
+      { fitContent: true }
+    );
+    expect(slide.calls[0]!.opts).toMatchObject({ x: 0, y: 0, w: 10, h: 10 });
+  });
+
+  test("a text node contributes its anchor to the content bounds", () => {
+    const slide = spySlide();
+    addShapeIrToSlide(
+      slide,
+      ir([
+        { kind: "rect", x: 0, y: 0, w: 10, h: 10, style: BLACK },
+        { kind: "text", x: 90, y: 5, text: "label", anchor: "start", fontSize: 8, fontWeight: 400, style: BLACK },
+      ], 100, 100),
+      BOX,
+      { fitContent: true }
+    );
+    // Content is 0..90 wide (rect + text anchor) → scale 10/90; the rect
+    // itself lands at w 10/9 ≈ 1.11.
+    expect(slide.calls.find((c) => c.type === "rect")!.opts["w"]).toBeCloseTo(10 / 9, 10);
+  });
+
+  test("no measurable content degrades to canvas fit, not a zero scale", () => {
+    const slide = spySlide();
+    const r = addShapeIrToSlide(slide, ir([], 100, 100), BOX, { fitContent: true });
+    expect(r.scale).toBeCloseTo(0.1, 10);
+    expect(slide.calls).toEqual([]);
+  });
+});
+
 describe("shape mapping", () => {
   test("a plain rect becomes prstGeom rect", () => {
     const slide = spySlide();
@@ -58,26 +124,44 @@ describe("shape mapping", () => {
     expect(slide.calls[0]!.opts).toMatchObject({ x: 1, y: 2, w: 3, h: 4 });
   });
 
-  test("a rounded rect becomes roundRect with a FRACTIONAL radius", () => {
+  /**
+   * `rectRadius` is a LENGTH IN INCHES, not a fraction of the smaller side.
+   *
+   * Both of these tests previously asserted the fraction — the second even
+   * named the failure mode it was supposed to prevent ("a pill, not an invalid
+   * adjust") while passing on output that emitted `adj val="269169"`, five times
+   * ECMA-376's 50000 ceiling. They asserted what archify SENT; pptxgenjs's
+   * formula is `adj = rectRadius * 914400 * 100000 / min(cx, cy)`, so a
+   * fraction passed as inches is scaled by the shape's own size and explodes on
+   * small shapes. That is P1 of archify-deck-visual-fidelity.
+   *
+   * The invariant that actually matters is asserted on the emitted XML, by
+   * `ooxml-lint`'s `shape-adjust-range` rule — a unit test on the argument can
+   * never see the defect.
+   */
+  test("a rounded rect becomes roundRect with its radius in INCHES", () => {
     const slide = spySlide();
-    // rx 5 on a 40x20 rect ⇒ 5/20 = 0.25 of the smaller side.
+    // rx 5 on a 40x20 rect ⇒ 5/20 = 0.25 of the smaller side. The 100x100 IR
+    // maps into a 10x10 in box, so the smaller side is 20 * 0.1 = 2 in and the
+    // radius is 0.25 * 2 = 0.5 in.
     addShapeIrToSlide(
       slide,
       ir([{ kind: "rect", x: 0, y: 0, w: 40, h: 20, rx: 5, style: BLACK }]),
       BOX
     );
     expect(slide.calls[0]!.type).toBe("roundRect");
-    expect(slide.calls[0]!.opts["rectRadius"]).toBeCloseTo(0.25, 3);
+    expect(slide.calls[0]!.opts["rectRadius"]).toBeCloseTo(0.5, 3);
   });
 
-  test("rectRadius is clamped to 0.5 (a pill, not an invalid adjust)", () => {
+  test("an over-large rx clamps at half the smaller side (a pill, not a burst)", () => {
     const slide = spySlide();
     addShapeIrToSlide(
       slide,
       ir([{ kind: "rect", x: 0, y: 0, w: 40, h: 20, rx: 999, style: BLACK }]),
       BOX
     );
-    expect(slide.calls[0]!.opts["rectRadius"]).toBe(0.5);
+    // Clamped fraction 0.5 of a 2 in side ⇒ 1 in, i.e. adj = 50000 exactly.
+    expect(slide.calls[0]!.opts["rectRadius"]).toBeCloseTo(1.0, 3);
   });
 
   test("an ellipse is placed by its bounding box", () => {
@@ -306,14 +390,28 @@ describe("style", () => {
     expect((slide.calls[0]!.opts["fill"] as Record<string, unknown>)["color"]).toBe("808080");
   });
 
-  test("fill:none becomes an explicit no-fill", () => {
+  /**
+   * A no-fill shape OMITS `fill` — it does not pass `{ type: "none" }`.
+   *
+   * The previous spelling of this test asserted `toEqual({ type: "none" })`,
+   * which is what archify SENT and never what pptxgenjs EMITTED. Measured
+   * against pptxgenjs@4.0.1 (2026-08-22), `{ type: "none" }` produces no fill
+   * element at all in `<p:spPr>`, and DrawingML reads an absent fill as
+   * "inherit from the shape style" — so every stroke-only icon was painted by
+   * the theme. Omitting the key is what produces `<a:noFill/>`.
+   *
+   * This is P1 of `.planning/2026-08-21-archify-deck-visual-fidelity`. A test
+   * that asserts the argument rather than the artifact cannot catch it, which
+   * is why `ooxml-noFill` below asserts the emitted XML instead.
+   */
+  test("a fill-less shape omits `fill` so pptxgenjs emits <a:noFill/>", () => {
     const slide = spySlide();
     addShapeIrToSlide(
       slide,
       ir([{ kind: "rect", x: 0, y: 0, w: 10, h: 10, style: { fill: null } }]),
       BOX
     );
-    expect(slide.calls[0]!.opts["fill"]).toEqual({ type: "none" });
+    expect(slide.calls[0]!.opts).not.toHaveProperty("fill");
   });
 
   test("stroke width converts to points and honours a hairline floor", () => {
@@ -443,6 +541,72 @@ describe("text", () => {
       fontFace: "PingFang TC",
     });
     expect(slide.calls[1]!.opts["bold"]).toBe(false);
+  });
+});
+
+/**
+ * The width contract (P3 of archify-deck-visual-fidelity).
+ *
+ * `wrap: false` asks the renderer not to break the line, and PowerPoint obeys —
+ * but the deck also has to survive renderers that do not, so the reserved box
+ * must be at least as wide as the string actually sets. The old estimate was
+ * one Latin advance times `.length`, which is 0.837 em per character: right
+ * enough for Latin, 16 % short for every ideograph, and that shortfall is what
+ * broke the connector label `系統需求` into `系統需 / 求`.
+ *
+ * These assertions compute the expectation from `textEms()` — the same
+ * calibrated model `deck-lint` uses for titles — and never render anything
+ * (effort decision D1).
+ */
+describe("label width", () => {
+  /** Reserved width of a single label, in ems of its own font size. */
+  const reservedEms = (text: string, fontSize = 10): number => {
+    const slide = spySlide();
+    addShapeIrToSlide(
+      slide,
+      ir([{ kind: "text", x: 50, y: 50, text, anchor: "middle", fontSize, fontWeight: 400, style: BLACK }]),
+      BOX
+    );
+    // BOX is 10in over a 100-unit viewBox ⇒ 0.1 in/unit.
+    return (slide.calls[0]!.opts["w"] as number) / (fontSize * 0.1);
+  };
+
+  const FIXTURES = [
+    "Message bus", // pure Latin, lowercase-dominant
+    "AUDIO APU", // pure Latin, all caps — the worst bucket case (`M`, `A`)
+    "MMMM", // the single glyph the model under-estimates most
+    "系統需求", // pure CJK — the reported defect
+    "來源", // pure CJK, short enough to hit the 1-em floor question
+    "SYS.1/2 需求", // mixed
+    "≥ 2 GB/s 配額", // mixed with symbols and spaces
+    "PG_AUDIO · PG_CAM", // Latin with a CJK-adjacent separator
+  ];
+
+  test.each(FIXTURES)("reserves at least the estimated set width: %p", (text) => {
+    expect(reservedEms(text)).toBeGreaterThanOrEqual(textEms(text));
+  });
+
+  test("an ideograph is reserved a full em, not a Latin advance", () => {
+    // The regression itself: 4 ideographs used to get 3.35 em.
+    expect(reservedEms("系統需求")).toBeGreaterThanOrEqual(4);
+    expect(reservedEms("來源")).toBeGreaterThanOrEqual(2);
+  });
+
+  test("the estimate leaves headroom over the model, not just parity", () => {
+    // A model with ±1.7 % prose error and a −13 % worst-glyph miss cannot be
+    // used at parity; `labelWidthEms` is an upper bound by construction.
+    for (const t of FIXTURES) expect(labelWidthEms(t)).toBeGreaterThan(textEms(t));
+  });
+
+  test("an empty label still gets a box", () => {
+    expect(reservedEms("")).toBeGreaterThanOrEqual(1);
+  });
+
+  test("width scales with font size, not with character count", () => {
+    // Same character count, different scripts ⇒ different widths. The old
+    // formula could not tell these two apart.
+    expect(reservedEms("系統需求")).toBeGreaterThan(reservedEms("iiii"));
+    expect(reservedEms("ABCD", 20)).toBeCloseTo(reservedEms("ABCD", 10), 6);
   });
 });
 

@@ -17,6 +17,9 @@ never bare numbers; bun-apps/docs/adr/INDEX.md lists all). This file is the inde
   update flow unchanged; repo-root ./pi-agent.sh kept as deprecated compat alias.)
 - bun-apps/s2-agent-core-runtime — core runtime nouns: RunView projection,
   SubagentInFlightRegistry, ActivityStatus vocabulary.
+- bun-apps/s2-agent-ext-archify — typed-JSON-IR technical diagrams rendered to
+  self-contained HTML, composed into meeting decks of NATIVE editable PowerPoint
+  shapes; zero-browser, zero-blip, byte-locked diagram slides.
 - bun-apps/s2-agent-ext-btw — BTW side-conversation modal for parallel Q&A
   without polluting main agent context.
 - bun-apps/s2-agent-ext-devops — tool-based PR-merge/branch/local-CI lifecycle

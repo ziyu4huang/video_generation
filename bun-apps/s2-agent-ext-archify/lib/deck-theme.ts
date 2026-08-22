@@ -28,6 +28,25 @@ export const STAGE = { w: 13.333, h: 7.5 } as const;
  */
 export const CONTENT = { x: 0.5, y: 1.18, w: 12.333, h: 5.7 } as const;
 
+/**
+ * The action-title band, in inches — the one box on a content slide that cannot
+ * absorb an overflow.
+ *
+ * Both shapes are the pre-composition builder's numbers, unchanged (effort
+ * decision D3): with a `takeaway` the title gives up height to it. They live
+ * here rather than inline in `layouts.ts` because `deck-lint.ts` has to predict
+ * a wrap against the same width and font size the layout draws with, and two
+ * copies of a number are two numbers.
+ *
+ * The accent rule sits at y = 1.02 in. A second line of 26 pt type, centred in
+ * either band, crosses it — which is the defect this constant exists to let the
+ * linter see coming.
+ */
+export const TITLE_BAND = {
+  withTakeaway: { x: 0.5, y: 0.16, w: 9.0, h: 0.56 },
+  alone: { x: 0.5, y: 0.22, w: 9.0, h: 0.75 },
+} as const;
+
 export interface Palette {
   // ── the original six: frozen, see rule 1 above ────────────────────────────
   slideBg: string;

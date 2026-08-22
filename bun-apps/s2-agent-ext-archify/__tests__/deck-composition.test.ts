@@ -104,6 +104,19 @@ describe("D3 — a pre-composition manifest builds unchanged", () => {
     expect(xml).toContain('<a:off x="10881360" y="6400800"/><a:ext cx="859536" cy="365760"/>');
   });
 
+  test("the diagram layout keeps canvas fit — P4 left the locked path alone", () => {
+    // Slide 3's artifact paints only 66% of its 462-unit canvas height, with a
+    // 140-unit dead band on top. Canvas fit (width-limited) puts the first
+    // diagram ink at 3.10in; content fit would lift it to ~2.5in. Pinning the
+    // canvas-fit number is what lets P4's content fit ship without
+    // renegotiating D3.
+    const xml = built.parts["ppt/slides/slide3.xml"]!;
+    const ys = [...xml.matchAll(/<a:off x="\d+" y="(\d+)"/g)]
+      .map((m) => Number(m[1]) / 914400)
+      .filter((y) => y > 2 && y < 7);
+    expect(Math.min(...ys)).toBeCloseTo(3.1, 1);
+  });
+
   test("composition added no `algn=\"l\"` paragraphs", () => {
     // "left" is the OOXML default, so emitting it changes nothing visually —
     // but it rewrites every chrome paragraph on every slide, and that is how
@@ -189,13 +202,77 @@ describe("a composed deck", () => {
     }
   });
 
+  test("the split column fits the diagram's CONTENT, not its canvas (P4)", () => {
+    // Slide 3's artifact (the deck's slide1.json, dataflow) paints only 58% of
+    // its 1080-unit canvas — the renderer emits trailing dead width. Canvas
+    // fit parked the visible diagram at 4.13 of the 7.16in column; content
+    // fit must reach the column's right edge.
+    const xml = built.parts["ppt/slides/slide3.xml"]!;
+    // The diagram column only: chrome sits above y=1.5 or at y=7, the bullets
+    // column starts at x=8.06.
+    const offs = [...xml.matchAll(/<a:off x="(\d+)" y="(\d+)"/g)]
+      .map((m) => [Number(m[1]) / 914400, Number(m[2]) / 914400] as const)
+      .filter(([x, y]) => x <= 7.7 && y > 1.5 && y < 6.7);
+    expect(offs.length, "diagram shapes in the column").toBeGreaterThan(10);
+    const maxX = Math.max(...offs.map(([x]) => x));
+    const minX = Math.min(...offs.map(([x]) => x));
+    // Column spans x 0.5…7.66in. Content fit: reach within 0.3in of the right
+    // edge (canvas fit reached only ~4.7in) and start at the left edge.
+    expect(maxX).toBeGreaterThan(7.3);
+    expect(minX).toBeLessThan(0.8);
+    // And the diagram is vertically centred in the column (y 1.5…6.6).
+    const ys = offs.map(([, y]) => y);
+    const topGap = Math.min(...ys) - 1.5;
+    const bottomGap = 6.6 - Math.max(...ys);
+    expect(Math.abs(topGap - bottomGap)).toBeLessThan(0.35);
+  });
+
   test("passes every OOXML structural rule", async () => {
     expect(formatDiagnostics(await lintPptx(built.parts))).toBe("");
   });
 
-  test("passes the advisory content lint", async () => {
+  test("passes the content lint", async () => {
     const { manifest } = await loadManifestFile(COMPOSED_MANIFEST, PKG_ROOT);
     expect(lintDeck(manifest)).toEqual([]);
+  });
+});
+
+describe("a deck that would render broken is refused", () => {
+  const overflowing = {
+    output: "o.pptx",
+    slides: [{ layout: "bullets" as const, title: "一".repeat(30), bullets: ["a"] }],
+  };
+
+  test("buildDeck throws rather than writing a clipped title", async () => {
+    // The action-title band has no autofit and the accent rule sits below it at
+    // a fixed y, so a second line is struck through. Writing the file anyway
+    // just moves the discovery to whoever opens it.
+    await expect(
+      buildDeck({
+        manifest: overflowing,
+        manifestDir: PKG_ROOT,
+        outputPath: join(workDir, "refused.pptx"),
+        cwd: PKG_ROOT,
+        slidesDir: null,
+      })
+    ).rejects.toThrow(/would render broken[\s\S]*title-overflows/);
+  });
+
+  test("no file is left behind", async () => {
+    expect(existsSync(join(workDir, "refused.pptx"))).toBe(false);
+  });
+
+  test("a warn-severity note does NOT block", async () => {
+    // Only `error` blocks. A title-is-a-label note is a style opinion and a
+    // style opinion that refuses to build teaches people to disable the linter.
+    const result = await buildDeck({
+      manifest: { output: "o.pptx", slides: [{ layout: "bullets" as const, title: "延遲", bullets: ["a"] }] },
+      manifestDir: PKG_ROOT,
+      outputPath: join(workDir, "warned.pptx"),
+      cwd: PKG_ROOT,
+      slidesDir: null,
+    });
+    expect(result.slides).toHaveLength(1);
   });
 });
 

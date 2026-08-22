@@ -15,12 +15,13 @@
  * - `points` supports `moveTo` (multiple subpaths), `{close:true}`, and
  *   `curve: {type:'quadratic'|'cubic'|'arc'}` — a direct match for ShapeIR's
  *   `Seg` union, which is why arcs were pre-converted to cubics upstream.
- * - `rectRadius` is a **fraction 0–1** (emitted as `adj val = r*100000`), not a
- *   length. A rounded rect's SVG `rx` must be divided by the smaller side.
+ * - `rectRadius` is a **length in inches**, despite typings that read as a
+ *   fraction — see the `rect` case, where getting this backwards was P1.
  * - `line.width` is in POINTS (1 inch = 72 pt), while x/y/w/h are inches.
  */
 import { boundsOf, type Rgba, type Seg, type ShapeIR, type ShapeNode, type Style } from "./shape-ir.ts";
 import { flatten, themeBackground, toHex } from "./svg-theme.ts";
+import { textEms } from "./text-extent.ts";
 
 /**
  * The slide surface this module needs. Structural rather than pptxgenjs's own
@@ -55,6 +56,13 @@ export interface PptxShapeOptions {
   fontFace?: string;
   /** Floor for hairlines so thin strokes survive projection (points). */
   minStrokePt?: number;
+  /**
+   * Scale to the union of what the diagram paints instead of its canvas (P4:
+   * the vendored renderers emit canvases with dead margins, so centring the
+   * canvas parks the visible content small and off-centre). Default `false` —
+   * canvas fit — which the D3-locked `diagram` layout must keep.
+   */
+  fitContent?: boolean;
 }
 
 export interface PlacementResult {
@@ -65,6 +73,38 @@ export interface PlacementResult {
 }
 
 const EPS = 1e-6;
+
+/**
+ * Headroom on a diagram label's reserved width, as a multiple of its estimated
+ * set width.
+ *
+ * The estimate this replaces was `fontSize * 0.62 * text.length * 1.35`
+ * ≈ 0.837 em per character — one Latin advance applied to every script.
+ * Measured across the five slides of `examples/deck/` (2026-08-22, 137 labels):
+ * it over-reserves Latin and mixed labels by 1.07…1.68x and under-reserves
+ * EVERY pure-CJK label by exactly that 0.837, because a Han ideograph sets at a
+ * full em. 40 labels were under-reserved. `系統需求` was given 3.35 em for a
+ * 4.00 em string — 3.35 characters fit, which is precisely why it broke as
+ * `系統需 / 求` (P3 of archify-deck-visual-fidelity).
+ *
+ * `textEms()` answers the width question script-aware, calibrated against
+ * rendered ink. What it does not do is leave room for its own error: it is a
+ * four-bucket model and its worst measured miss is `M`, which sets at 0.90 em
+ * against a modelled 0.78 (−13 %). This factor covers that, turning a best
+ * guess into an upper bound — which is what `wrap: false` requires, since a
+ * renderer that ignores it breaks the line at the box edge instead.
+ */
+export const LABEL_WIDTH_SAFETY = 1.15;
+
+/**
+ * Reserved width for a diagram label, in ems of its own font size.
+ *
+ * Exported so the width contract can be asserted without a renderer and
+ * without restating the formula (`__tests__/pptx-mapper.test.ts`).
+ */
+export function labelWidthEms(text: string): number {
+  return Math.max(1, textEms(text)) * LABEL_WIDTH_SAFETY;
+}
 
 /** SVG dasharray → the nearest PowerPoint preset dash. */
 function dashType(dash: number[] | undefined): string | undefined {
@@ -81,8 +121,24 @@ function paint(c: Rgba, ir: ShapeIR): string {
   return toHex(c.a >= 1 ? c : flatten(c, themeBackground(ir.theme)));
 }
 
+/**
+ * A no-fill shape is spelled by OMITTING `fill`, not by `fill: { type: "none" }`.
+ *
+ * This is counter-intuitive and was the cause of P1 (stroke-only icons rendering
+ * as star bursts). Measured against pptxgenjs@4.0.1, 2026-08-22 — the emitted
+ * `<p:spPr>` for each spelling:
+ *
+ *   fill: { type: "none" }            → NO fill element at all
+ *   fill: "none"                      → NO fill element (and a console warning)
+ *   fill: { color, transparency:100 } → NO fill element
+ *   fill omitted                      → `<a:noFill/>`          ← the one we need
+ *   fill: { type: "solid", color }    → `<a:solidFill>`
+ *
+ * DrawingML treats an ABSENT fill as "inherit from the shape style", not as
+ * "no fill", so the first three spellings all let the theme paint the icon.
+ */
 function fillOf(style: Style, ir: ShapeIR): Record<string, unknown> {
-  if (!style.fill) return { fill: { type: "none" } };
+  if (!style.fill) return {};
   const opacity = style.opacity ?? 1;
   const effective: Rgba = { ...style.fill, a: style.fill.a * opacity };
   return { fill: { color: paint(effective, ir) } };
@@ -136,11 +192,45 @@ function terminalDirection(segments: Seg[]): { x: number; y: number; angle: numb
 }
 
 /**
+ * Union of every node's `boundsOf` — the ink the diagram actually paints, as
+ * opposed to the canvas it was emitted on.
+ *
+ * A text node contributes only its anchor point: `boundsOf` has no model for a
+ * glyph's extent, and an anchor always sits on the label it belongs to, so the
+ * union is a tight-enough stand-in for content that is bounded by shapes on
+ * every side (which node labels are — they sit inside or beside their node).
+ */
+export function contentBoundsOf(ir: ShapeIR): { x: number; y: number; w: number; h: number } {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const n of ir.nodes) {
+    const b = boundsOf(n);
+    // A degenerate bbox is fine from a TEXT node — `boundsOf` gives a text
+    // only its anchor point, and that point is exactly what must participate.
+    // From any other kind it means the node paints nothing (e.g. a path of
+    // nothing but `Z`), and (0,0) would wrongly stretch the bounds to origin.
+    if (n.kind !== "text" && b.w === 0 && b.h === 0) continue;
+    x0 = Math.min(x0, b.x);
+    y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w);
+    y1 = Math.max(y1, b.y + b.h);
+  }
+  if (x0 === Infinity) return { x: 0, y: 0, w: 0, h: 0 };
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+/**
  * Place a ShapeIR onto a slide as native shapes.
  *
  * One uniform scale with centering, so aspect ratio is never distorted — a
  * stretched architecture diagram reads as a rendering bug to anyone who has
  * seen the browser version.
+ *
+ * What is centred depends on `options.fitContent`: the canvas (default, and
+ * what the D3-locked `diagram` layout must keep) or the content bounds — see
+ * `contentBoundsOf`.
  */
 export function addShapeIrToSlide(
   slide: SlideLike,
@@ -151,12 +241,17 @@ export function addShapeIrToSlide(
   const fontFace = options.fontFace ?? "Arial";
   const minStrokePt = options.minStrokePt ?? 0.5;
 
-  const scale =
-    ir.width > 0 && ir.height > 0
-      ? Math.min(box.w / ir.width, box.h / ir.height)
-      : 0;
-  const offX = box.x + (box.w - ir.width * scale) / 2;
-  const offY = box.y + (box.h - ir.height * scale) / 2;
+  const cb = options.fitContent ? contentBoundsOf(ir) : null;
+  // Fall back to canvas fit when there is nothing to measure, so an empty
+  // diagram degrades to today's behaviour instead of a zero scale.
+  const fitW = cb && cb.w > 0 ? cb.w : ir.width;
+  const fitH = cb && cb.h > 0 ? cb.h : ir.height;
+  const fitX = cb && cb.w > 0 ? cb.x : 0;
+  const fitY = cb && cb.h > 0 ? cb.y : 0;
+
+  const scale = fitW > 0 && fitH > 0 ? Math.min(box.w / fitW, box.h / fitH) : 0;
+  const offX = box.x + (box.w - fitW * scale) / 2 - fitX * scale;
+  const offY = box.y + (box.h - fitH * scale) / 2 - fitY * scale;
   const px = (x: number) => offX + x * scale;
   const py = (y: number) => offY + y * scale;
   const len = (v: number) => v * scale;
@@ -211,17 +306,37 @@ export function addShapeIrToSlide(
 
     switch (node.kind) {
       case "rect": {
-        // rectRadius is a FRACTION of the smaller side, not a length.
-        const radius =
+        /**
+         * `rectRadius` is a LENGTH IN INCHES, not a fraction.
+         *
+         * pptxgenjs@4.0.1's typings say "values: 0.0 to 1.0", which reads as a
+         * fraction and is what this code used to pass. Its actual formula is
+         * unambiguous:
+         *
+         *   adj = round(rectRadius * 914400 * 100000 / min(cx, cy))
+         *
+         * — `rectRadius * EMU` is a length. Passing the fraction 0.222 for a
+         * 0.08 in legend swatch therefore asked for a 0.222 INCH corner radius
+         * and emitted `adj val="269169"`, where ECMA-376 caps `roundRect`'s adj
+         * at 50000 (50 %). An out-of-range adjustment makes the preset's corner
+         * arcs self-intersect, which is what rendered every small rounded rect
+         * as a star burst (P1 of archify-deck-visual-fidelity — 43 out-of-range
+         * values across the two example decks, worst 317450 = 6.3x the ceiling).
+         *
+         * Passing `fraction * min(w, h)` in inches makes the library's formula
+         * collapse back to `adj = fraction * 100000`, which is what was meant.
+         */
+        const radiusFraction =
           node.rx !== undefined && node.rx > 0
             ? Math.min(0.5, node.rx / Math.max(EPS, Math.min(node.w, node.h)))
             : 0;
-        slide.addShape(radius > 0 ? "roundRect" : "rect", {
+        const radiusInches = radiusFraction * Math.min(len(node.w), len(node.h));
+        slide.addShape(radiusFraction > 0 ? "roundRect" : "rect", {
           x: px(node.x),
           y: py(node.y),
           w: len(node.w),
           h: len(node.h),
-          ...(radius > 0 ? { rectRadius: Math.round(radius * 1000) / 1000 } : {}),
+          ...(radiusFraction > 0 ? { rectRadius: radiusInches } : {}),
           ...fillOf(style, ir),
           ...lineOf(style, ir, scale, minStrokePt),
         });
@@ -339,13 +454,18 @@ export function addShapeIrToSlide(
       case "text": {
         // SVG `y` is the BASELINE; a PowerPoint text box is positioned by its
         // top edge. Centre a generous box on the visual middle of the glyphs
-        // (~0.35em above the baseline) and let valign do the rest — no glyph
-        // metrics are available here, so the box is deliberately roomy and
-        // wrapping is off so a mis-estimated width can never reflow to 2 lines.
+        // (~0.35em above the baseline) and let valign do the rest — vertical
+        // extent still has no model, so the box stays deliberately tall.
+        //
+        // `wrap: false` is kept: this path replays a diagram whose SVG already
+        // decided where every line breaks, so wrapping would reflow text the
+        // diagram positioned deliberately. But `wrap="none"` is not honoured by
+        // every OOXML renderer, so the width must be an upper bound anyway —
+        // see `labelWidthEms` above.
         const sizePt = node.fontSize * scale * 72;
         const boxH = len(node.fontSize * 1.8);
         const centerY = py(node.y - node.fontSize * 0.35);
-        const estWidth = len(node.fontSize * 0.62 * Math.max(1, node.text.length) * 1.35);
+        const estWidth = len(node.fontSize * labelWidthEms(node.text));
         const align = node.anchor === "middle" ? "center" : node.anchor === "end" ? "right" : "left";
         const x =
           node.anchor === "middle"

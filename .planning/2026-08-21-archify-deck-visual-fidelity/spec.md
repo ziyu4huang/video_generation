@@ -185,13 +185,20 @@ for months". That is the reason for D1.
 
 ## §6 Reproducing the probe
 
+**Shipped 2026-08-22 (ticket 05) — the hand-rolled recipe below is retired.**
+One command now builds the deck and pictures every slide:
+
 ```bash
 cd bun-apps/s2-agent-ext-archify
-# 1. split the composed example into one-slide decks, absolutising `ir` paths
-#    (relative paths break once the config moves out of examples/deck-composed/)
-# 2. build each:      bun scripts/deck.ts <cfg-N.json>
-# 3. render all six:  qlmanage -t -s 1600 -o <outdir> <dir>/slide-*.pptx
-# 4. HTML twin:       Bun.WebView 1600x900 over file://…/composed.slides/slide-4.html
+bun run deck render examples/deck-composed/deck.config.json [--out <dir>] [--size <px>]
 ```
 
-Ticket 05 turns steps 1–3 into `deck render` so this stops being a hand-rolled recipe.
+Backend is picked automatically (`quicklook` on darwin, `libreoffice` where
+`soffice` + `pdftoppm` are on PATH); with neither it exits non-zero naming what
+it looked for. Every image is `slide-N.png` in deck order. See
+`lib/deck-render.ts` and the receipt
+`receipts/archify-portable-render-seam-2026-08-22.md` — including the measured
+deviation from this section's original sketch (slide-order rotation of the real
+file, not a rebuild; §2.5's split-into-N-decks route is realised as N rotated
+copies because `renderSlides(pptx)` deliberately has no manifest). The HTML-twin
+step stays manual by design (D4: a `diagram` slide's page IS the artifact).

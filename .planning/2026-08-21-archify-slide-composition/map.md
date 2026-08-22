@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-21-archify-slide-composition
 created: 2026-08-21
-last: 2026-08-21
+last: 2026-08-22
 status: complete
 ---
 # archify-slide-composition — diagram tool → presentation generator
@@ -120,6 +120,14 @@ pptxgenjs element-ordering choice in `ppt/presentation.xml`. Full write-up in
   No metric for it without a layout engine. Note the action title deliberately does NOT
   autofit — chrome is fixed-size and guarded by `deck-lint`'s length rule instead, because a
   title that silently shrinks is worse than one a linter complains about.
+  **Resolved 2026-08-22** (`archify-deck-visual-fidelity` ticket 02): the decision holds, the
+  90-character length rule does not. A character count cannot see a box width, a type size,
+  or the difference between `一` and `i`, and it passed the title that came out clipped. It
+  is replaced by a wrap budget in ems (`lib/text-extent.ts`, calibrated against rendered ink
+  to ±1.7 %) that fails the build rather than warning. The "no metric without a layout
+  engine" claim above was too strong for THIS case: the title band needs only a one-line
+  fits/does-not answer, which a bucketed advance estimate can give. It remains true for the
+  body-copy case that entry opens with.
 - **`kpi` / `timeline` / `matrix` / `comparison`** are the charted-but-unbuilt second round.
   Each needs its own geometry; none needs a change to the seam.
 
@@ -134,4 +142,14 @@ pptxgenjs element-ordering choice in `ppt/presentation.xml`. Full write-up in
   effort's own `.pptx` through macOS's OOXML importer found four defects that this effort's
   401 tests, 0-diagnostic OOXML gate and passing content lint all missed. One of them, a
   clipped action title, is the live failure of the title-guard decision recorded in Fog of
-  war above; that decision is **not yet overturned**, but its calibration is now known wrong.
+  war above. **Settled 2026-08-22**: the decision is upheld — a lint, not autofit — and its
+  calibration replaced by a measured wrap budget. Seven of the eight real content-slide
+  titles fit the existing band, so the band was not the problem.
+
+- **Followed-by**: `.planning/2026-08-22-archify-general-deck` — this effort's Fog-of-war
+  entry naming `kpi` / `timeline` / `matrix` / `comparison` as "the charted-but-unbuilt
+  second round … none needs a change to the seam" is that effort's charter. Its finding
+  **confirms and extends** the claim: none needs a change to the seam, and none needs to be
+  code either — they ship as data-driven `*.layout.json` templates over this effort's
+  `PlacedBlock` seam. The D3 byte-identity lock recorded here is what forces code layouts to
+  outrank templates in that effort's registry.

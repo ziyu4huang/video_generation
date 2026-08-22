@@ -40,7 +40,13 @@ Two entry points over one core (`lib/deck-build.ts`), so the CLI and the agent c
 ```bash
 bun run deck [manifest] [--theme light|dark] [--output out.pptx]
              [--slides-dir <dir> | --no-slides] [--emit-shape-ir <dir>]
+bun run deck render <manifest> [--out <dir>] [--size <px>]
 ```
+
+`deck render` pictures every slide as `slide-N.png` through the first available
+backend (Quick Look on macOS, LibreOffice elsewhere) — an on-demand command for
+human eyes, never a build gate; with no backend it exits non-zero naming what it
+looked for (`lib/deck-render.ts`).
 
 …and the registered **`archify_export_pptx`** tool (`{manifestPath | irPaths, outputPath?,
 theme?, slidesDir?}`).
@@ -94,6 +100,12 @@ takeaway as a complete claim, not a topic label — because stacked action title
 a deck be read from the titles alone. `bun run deck --lint` prints exactly that stack, plus
 advisory notes (label-ish title, >6 bullets, nesting past level 1, a literal `#rrggbb` in
 copy) and the OOXML diagnostics for the file just written. It never changes the exit code.
+
+One content rule is **not** advisory. A title wider than its band wraps onto a second line,
+and the accent rule sits at a fixed `y` — so line two comes out struck through and clipped.
+`lib/text-extent.ts` predicts that wrap from the band width and the type size without
+measuring a glyph or opening a renderer (buckets calibrated against rendered ink, accurate to
+±2 %), and `buildDeck` refuses to write a deck that trips it. Everything else stays a note.
 
 **Canonical example:** `examples/deck-composed/` exercises all six —
 `bun run deck examples/deck-composed/deck.config.json --lint`.
