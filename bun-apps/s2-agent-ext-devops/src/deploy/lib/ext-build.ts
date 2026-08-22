@@ -520,9 +520,20 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 
 	// ── Copied data dirs ─────────────────────────────────────────────────────
 	// Same verbatim copy as skills, but NOT forwarded as --skill by the loader —
-	// runtime data the extension reads relative to its own directory.
+	// runtime data the extension reads relative to its own directory. Copy dirs
+	// may be REGENERATED build artifacts (gitignored, e.g. sv-analyzer's wasm/)
+	// that a fresh clone must mirror first — a missing dir must fail the deploy
+	// loudly (silently shipping a bundle without a declared copy dir ships a
+	// broken extension), but with a message that names the fix, not a raw ENOENT.
 	for (const rel of opts.ext.copy) {
-		cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
+		const src = resolve(pkgDir, rel);
+		if (!existsSync(src)) {
+			throw new Error(
+				`${opts.ext.name}: copy dir '${rel}' not found at ${src} — mirror the built artifact first ` +
+					`(e.g. run dsh-plugin/sv-analyzer/build.sh to mirror wasm/sv-analyzer.wasm), then deploy again`,
+			);
+		}
+		cpSync(src, join(opts.outDir, rel), { recursive: true, dereference: true });
 		patchOfflinePackageLoadersUnder(join(opts.outDir, rel));
 	}
 
