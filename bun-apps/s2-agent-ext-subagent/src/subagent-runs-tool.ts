@@ -20,6 +20,7 @@ import {
 } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
 import type { BackgroundRunManager } from "./background-run-manager.js";
+import { formatRelativeTime } from "./time-format.js";
 
 const subagentRunsActionEnum = StringEnum(["list", "get", "wait", "stop"] as const, {
   description:
@@ -60,11 +61,21 @@ export interface SubagentRunsToolOptions {
   /**
    * Live-agent registry for stop-by-NAME (ticket 04): a named live agent is
    * stoppable by `name`/`agentId` — the shutdown lever a child's
-   * shutdown_request notification points at. Structural (get/release) so tests
-   * can pass a minimal fake.
+   * shutdown_request notification points at. Also the roster source for the
+   * `list` action's `live` section (ticket 05). Structural (get/release) so
+   * tests can pass a minimal fake.
    */
   liveRegistry?: {
-    get(nameOrAgentId: string): { name: string; agentId: string } | undefined;
+    names(): string[];
+    get(nameOrAgentId: string):
+      | {
+          name: string;
+          agentId: string;
+          model?: string;
+          lastTouchedAt: number;
+          agent: { status: "running" | "idle" };
+        }
+      | undefined;
     release(name: string, reason?: string): boolean;
   };
 }
@@ -161,6 +172,42 @@ function renderRunsList(
   return lines.join("\n");
 }
 
+/**
+ * Ticket 05 — the live TEAM ROSTER section appended to `list`. Names, status,
+ * model, agentId, and recency for every named agent on the live registry: the
+ * discoverability surface for `send_message` `to:` and team addressing.
+ * `nowMs` injectable so tests are deterministic.
+ */
+export function renderLiveRoster(
+  registry:
+    | {
+        names(): string[];
+        get(nameOrAgentId: string):
+          | {
+              name: string;
+              agentId: string;
+              model?: string;
+              lastTouchedAt: number;
+              agent: { status: "running" | "idle" };
+            }
+          | undefined;
+      }
+    | undefined,
+  nowMs: number = Date.now(),
+): string | undefined {
+  if (!registry) return undefined;
+  const names = registry.names();
+  if (!names.length) {
+    return "Live named agents (team roster): none — spawn one with spawn_subagent `name` to make it addressable.";
+  }
+  const lines = names.map((name) => {
+    const e = registry.get(name);
+    if (!e) return `- ${name}  (leaving the roster)`;
+    return `- ${e.name}  [${e.agent.status}]  ${e.model ?? "default"}  ·  agentId=${e.agentId}  ·  last active ${formatRelativeTime(e.lastTouchedAt, nowMs)}`;
+  });
+  return ["Live named agents (team roster) — addressable via send_message `to`:", ...lines].join("\n");
+}
+
 function renderRun(record: SubagentRunRecord, includeHistory: boolean): string {
   const lines = [
     `# subagent run ${record.id}`,
@@ -199,7 +246,7 @@ export function createSubagentRunsTool(
     name: "list_subagent_runs",
     label: "SubagentRuns",
     description:
-      "Read back subagent-tool runs (cross-session archive at ~/.pi/subagents/runs + this session's live registry). action 'list' returns recent runs (newest-first; optional status/cwd filter, limit); action 'get' returns one run's full output + metadata by id (includeHistory for the compact transcript); action 'wait' blocks on a LIVE run until terminal or timeoutMs (timeout returns current status, never an error); action 'stop' aborts a live run.",
+      "Read back subagent-tool runs (cross-session archive at ~/.pi/subagents/runs + this session's live registry). action 'list' returns recent runs (newest-first; optional status/cwd filter, limit) plus the LIVE team roster — named agents addressable via send_message (name, status, model, agentId); action 'get' returns one run's full output + metadata by id (includeHistory for the compact transcript); action 'wait' blocks on a LIVE run until terminal or timeoutMs (timeout returns current status, never an error); action 'stop' aborts a live run.",
     promptSnippet:
       "Recall past subagent runs: list_subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, list_subagent_runs({ action: 'get', id }) for one run's output; for a live/background run, list_subagent_runs({ action: 'wait', id [, timeoutMs] }) blocks until it finishes and list_subagent_runs({ action: 'stop', id }) aborts it.",
     parameters: subagentRunsSchema,
@@ -213,9 +260,11 @@ export function createSubagentRunsTool(
             typeof params.limit === "number" && Number.isFinite(params.limit)
               ? Math.max(0, Math.floor(params.limit))
               : 10;
-          return textResult(
-            renderRunsList(records.slice(0, limit), records, { status: params.status, cwd: params.cwd }),
-          );
+          const archive = renderRunsList(records.slice(0, limit), records, { status: params.status, cwd: params.cwd });
+          // Ticket 05: the live team roster rides along with the archive —
+          // one call shows who is addressable AND what ran.
+          const roster = renderLiveRoster(options.liveRegistry);
+          return textResult(roster ? `${archive}\n\n${roster}` : archive);
         }
         case "get": {
           if (!params.id) throw new Error("list_subagent_runs: action 'get' requires id");

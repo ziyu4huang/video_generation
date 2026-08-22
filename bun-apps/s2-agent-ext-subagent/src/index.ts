@@ -98,10 +98,16 @@ export {
 } from "./request-plan-approval-tool.js";
 // ── owned: send_message tool (named-agent follow-ups, ticket 02) ───────────
 export type { SendMessageToolOptions } from "./send-message-tool.js";
-export { createSendMessageTool, formatReplyNotification, sendMessageToolSchema } from "./send-message-tool.js";
+export {
+  createSendMessageTool,
+  formatReplyNotification,
+  formatSiblingRelayNotification,
+  formatSiblingReplyNotification,
+  sendMessageToolSchema,
+} from "./send-message-tool.js";
 // ── owned: the LLM-facing tools ──────────────────────────────────────────────
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
-export { createSubagentRunsTool } from "./subagent-runs-tool.js";
+export { createSubagentRunsTool, renderLiveRoster } from "./subagent-runs-tool.js";
 export { createSubagentTool } from "./subagent-tool.js";
 export type { SubagentToolDetails, SubagentToolOptions } from "./subagent-tool-schema.js";
 export type {

@@ -23,6 +23,7 @@ import {
 import type { TSchema } from "typebox";
 import type { computeScopeCheck, GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
 import { REQUEST_PLAN_APPROVAL_TOOL_NAME } from "./request-plan-approval-tool.js";
+import { createSendMessageTool } from "./send-message-tool.js";
 import { formatSubagentLive, taskPreview } from "./subagent-tool-render.js";
 import { DEFAULT_TIMEOUT_MS, type SubagentSalvage, type SubagentToolDetails } from "./subagent-tool-schema.js";
 import type { computeBaseline, RepoBaseline } from "./watchdog/repo-diff.js";
@@ -408,6 +409,12 @@ export interface SpawnCtx {
 export interface SpawnDeps {
   getActiveTools?: () => string[] | undefined;
   getExtensionTools?: () => unknown[] | undefined;
+  /**
+   * Ticket 05: builds a named child's selfName-stamped send_message
+   * replacement. Injectable so tests assert the WIRING (the right def swapped
+   * in, others untouched) without touching the process-singleton bus.
+   */
+  makeChildSendTool?: (selfName: string) => unknown;
   inFlight?:
     | {
         updateModel?: (id: string, m: string) => void;
@@ -463,6 +470,22 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
   })
     ? `${withHints}${abortSafetyFooter(abortSafetyLogPath(toolCallId))}`
     : withHints;
+  // Team addressing (ticket 05): a NAMED child gets its own send_message
+  // instance stamped with its name — the stamp is what turns the child's
+  // sibling sends into parent-brokered relays (and defaults its to:'main'
+  // identity). Same tool NAME, so the allowlist / applyToolPolicy surface is
+  // unchanged. An unnamed one-shot child keeps the shared parent instance:
+  // no roster identity, so no brokering semantics to inherit. A host whose
+  // extensionTools carry no send_message definition maps nothing across —
+  // the stamp would have nothing to replace.
+  let extensionTools = deps.getExtensionTools?.();
+  if (params.name && Array.isArray(extensionTools)) {
+    const makeChildSendTool = deps.makeChildSendTool ?? ((n: string) => createSendMessageTool({ selfName: n }));
+    const stamped = makeChildSendTool(params.name as string);
+    extensionTools = extensionTools.map((t) =>
+      t && typeof t === "object" && (t as { name?: string }).name === "send_message" ? stamped : t,
+    );
+  }
   return {
     task,
     // H1: real per-task label (was a hardcoded "zk-spawn" leaking into every
@@ -477,7 +500,7 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
     scopedModels: modelCtx.scopedModels,
     cwd: spawnCwd,
     instructions,
-    extensionTools: deps.getExtensionTools?.(),
+    extensionTools,
     externalSignal: childSignal,
     timeoutMs: params.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     // #01 tier-calibrated hard-abort default. An explicit tokenBudget always
