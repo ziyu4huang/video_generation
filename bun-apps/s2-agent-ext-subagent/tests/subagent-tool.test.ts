@@ -2548,6 +2548,19 @@ test("formatSubagentLive trace lines narrow at small width", () => {
 // running in-process decoupled from the parent turn signal, and completion
 // surfaces as a <task-notification> via the manager's deliverer.
 
+test("renderSubagentResult renders a '⌛ running' badge for a background dispatch's settled immediate return", () => {
+  const out = renderSubagentResult(
+    {
+      content: [{ type: "text", text: "Subagent dispatched → background (run call-bg-1). Continue with other work…" }],
+      details: { taskPreview: "p", elapsedMs: 5, startedAt: 1000, status: "running" },
+    },
+    { expanded: false },
+    T,
+  );
+  assert.match(out, /⌛ running/, "live background dispatch gets its own badge");
+  assert.ok(!out.includes("failed"), "a live background dispatch must NOT fall through to the ✗ failed badge");
+});
+
 test("background:true returns immediately with status 'running'; registry entry is background; parent abort does not kill the child", async () => {
   const reg = new SubagentInFlightRegistry();
   const manager = new BackgroundRunManager();

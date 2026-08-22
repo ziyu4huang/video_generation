@@ -130,7 +130,9 @@ function settledHeaderRow(d: SubagentToolDetails, theme: Theme, opts?: { modelSe
               ? theme.fg("dim", "⊘ aborted")
               : d.status === "detached"
                 ? theme.fg("dim", "→ background") // Task 05: run handed off to a detached subprocess
-                : theme.fg("error", "✗ failed");
+                : d.status === "running"
+                  ? theme.fg("muted", "⌛ running") // background:true immediate return — live, the parent turn moved on
+                  : theme.fg("error", "✗ failed");
   const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
   // SDD self-report tag (ticket 04): separate axis from process status. A run
   // can be process-done yet self-report BLOCKED — tint the actionable ones so
