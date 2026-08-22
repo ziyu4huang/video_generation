@@ -9,6 +9,8 @@
  * gone rather than ported.
  */
 import { DeployVersionExistsError, runShDeploy, type DeployShOptions, type DeployShResult } from "../scripts/deploy.ts";
+import { runDeployE2e, type DeployE2eOutcome } from "./deploy-e2e-recipe.js";
+import { createLiveSpawn } from "./spawn.js";
 
 export interface DeployParams {
 	/** Replace an existing version dir. */
@@ -34,11 +36,24 @@ export interface DeployResult {
 	currentUpdated?: boolean;
 	/** Version dirs removed by keep:N retention, oldest first. */
 	pruned?: string[];
+	/**
+	 * Post-deploy E2E against the FINAL tree (boot + ext-load + model call;
+	 * provider-down = SKIP). The six build gates verify the staged tree — this
+	 * is what proves the deployed dist actually works. Present whenever the
+	 * deploy (or noop) succeeded and `target` exists; ok flips to false if it
+	 * fails.
+	 */
+	e2e?: DeployE2eOutcome;
 	errorTail?: string;
 }
 
 export interface DeployRunDeps {
 	deploy?: (opts: DeployShOptions) => Promise<DeployShResult>;
+	/**
+	 * Post-deploy E2E seam. Default: the real runDeployE2e with a live spawn.
+	 * Tests inject a fake — the model-call probe must never run in unit tests.
+	 */
+	e2e?: (versionDir: string) => Promise<DeployE2eOutcome>;
 }
 
 /**
@@ -62,8 +77,11 @@ export async function runDeploy(
 
 	try {
 		const r = await deploy(options);
+		// Post-deploy E2E (2026-08-22): the six build gates verified the STAGED
+		// tree; this proves the FINAL tree works. Never throws — a fail flips ok.
+		const e2e = (await runE2e(deps, r.target)) ?? undefined;
 		return {
-			ok: true,
+			ok: e2e ? e2e.verdict !== "fail" : true,
 			version: r.version,
 			target: r.target,
 			extensions: r.extensions,
@@ -71,6 +89,7 @@ export async function runDeploy(
 			coreCached: r.coreCached,
 			currentUpdated: r.currentUpdated,
 			pruned: r.pruned,
+			e2e,
 		};
 	} catch (e) {
 		// A re-deploy of the current version is a no-op SUCCESS, not a failure:
@@ -78,8 +97,15 @@ export async function runDeploy(
 		// existing target means this exact tree state is already deployed. Map it
 		// here (tool surface) — deploy-cli.ts does the same for the CLI surface.
 		if (e instanceof DeployVersionExistsError) {
-			return { ok: true, noop: true, version: e.version, target: e.target, message: e.message };
+			const e2e = (await runE2e(deps, e.target)) ?? undefined;
+			return { ok: e2e ? e2e.verdict !== "fail" : true, noop: true, version: e.version, target: e.target, message: e.message, e2e };
 		}
 		return { ok: false, errorTail: e instanceof Error ? e.message : String(e) };
 	}
+}
+
+/** Resolve + run the E2E seam; null only when the seam itself is absent. */
+async function runE2e(deps: DeployRunDeps, target: string): Promise<DeployE2eOutcome | null> {
+	const e2e = deps.e2e ?? ((versionDir: string) => runDeployE2e({ versionDir, spawn: createLiveSpawn(versionDir) }));
+	return e2e(target);
 }

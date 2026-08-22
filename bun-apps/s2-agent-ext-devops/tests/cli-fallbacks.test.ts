@@ -21,6 +21,7 @@ import { parseLocalCiArgs } from "../src/local-ci-cli.js";
 import { parseMainHealthArgs, runMainHealthCli } from "../src/main-health-cli.js";
 import { parsePrepareArgs } from "../src/prepare-feature-branch-cli.js";
 import { parseVerifyMergeArgs, runVerifyMergeCli } from "../src/verify-merge-cli.js";
+import { parseVerifyDeployE2eArgs } from "../src/verify-deploy-e2e-cli.js";
 import type { BranchClient, SweepClient } from "../src/branch-recipe.js";
 import type { MainHealthClient } from "../src/main-health-recipe.js";
 import { runSchemaCostCheck } from "../src/schema-cost-check.js";
@@ -40,6 +41,7 @@ describe("shared CLI contract", () => {
 		["local-ci", parseLocalCiArgs],
 		["main-health", parseMainHealthArgs],
 		["verify-merge", parseVerifyMergeArgs],
+		["verify-deploy-e2e", parseVerifyDeployE2eArgs],
 	] as const;
 
 	for (const [name, parse] of clis) {

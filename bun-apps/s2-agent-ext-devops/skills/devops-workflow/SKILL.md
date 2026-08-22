@@ -224,6 +224,7 @@ When starting the NEXT run, read the newest next-goal file before planning.
 | Build + deploy the s2-agent bundle + thin ext bundles (runs `s2-agent-ext-devops/scripts/deploy.ts`) | `deploy_pi_agent_sh` |
 | Run a s2-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `verify_pi_agent_deploy` |
 | Deploy the versioned sh core + ext set (Pipeline B, registry `s2-agent.registry.yaml`) | `deploy` — `bun run --cwd bun-apps/s2-agent deploy` (CLI: `bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]`) |
+| "Does the DEPLOYED dist actually work?" (boot + ext-load + model call against `<outRoot>/current`) | `bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts` (runs automatically after every deploy too) |
 
 ### `sweep_merged_branches` — the worktree guard covers remotes too
 
@@ -274,7 +275,18 @@ guessing at launch flags. When they are absent:
   bun bun-apps/s2-agent-ext-devops/src/prepare-feature-branch-cli.ts --rebase [--force-push]
   bun bun-apps/s2-agent-ext-devops/src/verify-merge-cli.ts <pr> [--scope a,b]
   bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]
+  bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call]
   ```
+
+  `verify-deploy-e2e-cli` proves the deployed dist works, not just that it
+  built: three bounded probes (60s/60s/120s caps) against the version dir
+  `current` points at — `run.sh --help` boot, `--ext-list` vs deploy.json's
+  enabled extensions, and a real `-p` one-shot model call. A fast
+  provider/auth failure is a SKIP (boot still proved), a timeout or missing
+  extension is a FAIL. `deploy-cli.ts` runs the same E2E automatically after
+  every deploy (fresh or noop); the standalone CLI is for post-hoc checks of
+  an existing `~/proj/dist/s2-agent-sh`. Do NOT probe interactive
+  subcommands (bare `auth` opens a TUI and blocks forever without a TTY).
 
   They are THIN wrappers: argv in, JSON out, all logic in the recipe, and the
   same `createLiveSpawn` + `createBranchClient` surface `extensions/devops.ts`
