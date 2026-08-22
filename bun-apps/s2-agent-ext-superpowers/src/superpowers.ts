@@ -168,8 +168,9 @@ export function parseSkillExclude(env: Record<string, string | undefined> = proc
 }
 
 /** Immediate skill-dir names actually present under `skillsDir` (the keys the
- *  exclude list is matched against). Sorted for stable output. Never throws. */
-function listSkillDirNames(skillsDir: string): string[] {
+ *  exclude list is matched against). Sorted for stable output. Never throws.
+ *  Exported for tests/helpers/skill-dirs.ts (one walker, not two). */
+export function listSkillDirNames(skillsDir: string): string[] {
   let entries: string[];
   try {
     entries = readdirSync(skillsDir);
@@ -215,8 +216,9 @@ export function resolveAdvertisedSkillPaths(skillsDir: string, exclude: Set<stri
 }
 
 /**
- * Register the Superpowers Pi extension. The default export of `src/index.ts`
- * (and the thin `extensions/index.ts` wrapper) calls this.
+ * Register the Superpowers Pi extension. Called directly by the thin
+ * `extensions/superpowers.ts` entry (and re-exported via the `src/index.ts`
+ * barrel for tests).
  */
 export function superpowersExtension(pi: ExtensionAPI, fromUrl?: string): void {
   // Self-gate: BUN_PI_SUPERPOWERS=0 disables the entire extension — no skill

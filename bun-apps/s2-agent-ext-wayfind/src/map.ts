@@ -15,12 +15,12 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { parseMapBody } from "./markdown.js";
 import {
   effortDir,
   type MapDecision,
   parseBulletList,
   parseDecisionLine,
-  parseMapBody,
   parseMapFrontmatter,
   parseTicketFile,
   serializeMapFrontmatter,

@@ -29,7 +29,7 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
 
   async function handleChainSync(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = resolveEffortOrWarn("sync", args, ctx, sessionId);
+    const effort = resolveEffortOrWarn(args, ctx, sessionId);
     if (!effort) return;
     const r = syncChainState(ctx.cwd, effort);
     if (r.closed.length > 0) {
@@ -44,7 +44,7 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
 
   async function handleWayfindDone(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = resolveEffortOrWarn("done", args, ctx, sessionId);
+    const effort = resolveEffortOrWarn(args, ctx, sessionId);
     if (!effort) return;
     const r = await closeEffortReflection(ctx.cwd, effort);
     if ("refused" in r) {
@@ -73,7 +73,7 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
 
   async function handleWayfindSeed(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = resolveEffortOrWarn("seed", args, ctx, sessionId);
+    const effort = resolveEffortOrWarn(args, ctx, sessionId);
     if (!effort) return;
     const outcome = seedPlan(ctx.cwd, { effort });
     if (!outcome) {
@@ -131,14 +131,14 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
 
   async function handleWayfindValidate(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = resolveEffortOrWarn("validate", args, ctx, sessionId);
+    const effort = resolveEffortOrWarn(args, ctx, sessionId);
     if (!effort) return;
     ctx.ui.notify(renderValidate(validateEffort(ctx.cwd, effort)), "info");
   }
 
   async function handleWayfinderStatus(args: string, ctx: ExtensionCommandContext): Promise<void> {
     const sessionId = getSessionId(ctx);
-    const effort = resolveEffortOrWarn("status", args, ctx, sessionId);
+    const effort = resolveEffortOrWarn(args, ctx, sessionId);
     if (!effort) return;
     syncChainState(ctx.cwd, effort);
     const r = effortStatus(ctx.cwd, effort);

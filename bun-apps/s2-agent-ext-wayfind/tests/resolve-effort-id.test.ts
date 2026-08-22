@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { resolveWayfindEffortId } from "../src/commands.js";
+import { resolveWayfindEffortId } from "../src/commands/help.js";
 import { effortSlug } from "../src/wayfinder.js";
 
 // resolveWayfindEffortId mirrors the /wayfind dispatcher's parsing so the banner

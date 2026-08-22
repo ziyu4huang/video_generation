@@ -7,7 +7,16 @@
 
 import { appendDecision, readMap, writeTicket } from "../../src/map.js";
 import type { Ticket } from "../../src/model.js";
-import { nextTicketId, slugify } from "../../src/wayfinder.js";
+import { slugify } from "../../src/wayfinder.js";
+
+/** Next zero-padded ticket id for an effort (max existing + 1, or "01").
+ *  Fixture-local: agents write tickets in production (per procedures/
+ *  wayfinder.md), so numbering only ever happens in tests. */
+function nextTicketId(tickets: Ticket[]): string {
+  if (tickets.length === 0) return "01";
+  const max = tickets.reduce((m, t) => Math.max(m, Number(t.id) || 0), 0);
+  return String(max + 1).padStart(2, "0");
+}
 
 /** Resolve a ticket: record the resolution, close it, and append a one-line
  *  pointer to the map's Decisions so far. Returns the updated ticket, or null if

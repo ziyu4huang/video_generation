@@ -3,10 +3,10 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readMap, writeMap } from "../src/map.js";
+import { parseMapBody } from "../src/markdown.js";
 import {
   computeFrontier,
   parseDecisionLine,
-  parseMapBody,
   parseTicketFile,
   serializeTicket,
   type Ticket,

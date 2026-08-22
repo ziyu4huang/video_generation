@@ -28,12 +28,7 @@ export function makeCommandHelpers(pi: ExtensionAPI, state: RuntimeState) {
    *  explicit arg wins, else fall back to the session's active effort. If
    *  neither resolves, notify the full usage overview (subcommands + efforts
    *  on disk) and return undefined. */
-  function resolveEffortOrWarn(
-    _command: string,
-    args: string,
-    ctx: ExtensionCommandContext,
-    sessionId: string,
-  ): string | undefined {
+  function resolveEffortOrWarn(args: string, ctx: ExtensionCommandContext, sessionId: string): string | undefined {
     const effort = args.trim() || state.activeEffortBySession.get(sessionId);
     if (!effort) {
       // No effort resolvable — notify the full usage overview (subcommands +

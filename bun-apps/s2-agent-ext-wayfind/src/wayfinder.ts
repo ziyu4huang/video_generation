@@ -43,28 +43,15 @@ export function slugify(text: string): string {
   return s || "effort";
 }
 
-/** Today's date as `YYYY-MM-DD` (local) — used to prefix effort ids so they
- *  sort chronologically under .planning/. Delegates to `today()` (map.ts) so the
- *  effort folder prefix and the manifest `created` share ONE source and can
- *  never disagree across the UTC boundary. `now` is injectable for deterministic
- *  boundary tests. */
-function datePrefix(now: Date = new Date()): string {
-  return today(now);
-}
-
 /** Effort id for a free-text destination: `YYYY-MM-DD-<slug>` (the unified
- *  .planning/ convention). Use this for effort folder names; use `slugify`
- *  (bare) for ticket slugs, which carry their own NN- prefix. `now` is injectable
- *  for deterministic boundary tests (defaults to the wall clock). */
+ *  .planning/ convention; the date prefix is `today()` from model.ts so the
+ *  effort folder prefix and the manifest `created` share ONE source and can
+ *  never disagree across the UTC boundary). Use this for effort folder names;
+ *  use `slugify` (bare) for ticket slugs, which carry their own NN- prefix.
+ *  `now` is injectable for deterministic boundary tests (defaults to the wall
+ *  clock). */
 export function effortSlug(text: string, now: Date = new Date()): string {
-  return `${datePrefix(now)}-${slugify(text)}`;
-}
-
-/** Next zero-padded ticket id for an effort (max existing + 1, or "01"). */
-export function nextTicketId(tickets: Ticket[]): string {
-  if (tickets.length === 0) return "01";
-  const max = tickets.reduce((m, t) => Math.max(m, Number(t.id) || 0), 0);
-  return String(max + 1).padStart(2, "0");
+  return `${today(now)}-${slugify(text)}`;
 }
 
 /** Scaffold a new effort: write map.md + create the tickets dir. Idempotent —

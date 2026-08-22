@@ -16,7 +16,8 @@
  */
 
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import { endGrillForSession, registerCommands } from "./commands.js";
+import { endGrillForSession } from "./commands/grill-handlers.js";
+import { registerCommands } from "./commands.js";
 import { makeWayfindEffortTool } from "./effort-tool.js";
 import { WayfindOverlay } from "./overlay.js";
 import { readWayfindStatusBar } from "./settings.js";
