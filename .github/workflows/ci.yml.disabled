@@ -476,6 +476,17 @@ jobs:
         working-directory: bun-apps
         run: bun run test:skills-ref
 
+      # Skill frontmatter guard (blocks). A SKILL.md whose frontmatter throws
+      # pi's YAML parser never registers — pi reports it as a "[Skill
+      # conflicts]" startup WARNING, so no other gate goes red, not even the
+      # deploy E2E boot probe (2026-08-23: s2-agent-model-catalog-update
+      # shipped broken to the dist this way, `Triggers: "…"` inside an
+      # unquoted description). Runs every package's skills through pi's own
+      # parseFrontmatter before anything can deploy them.
+      - name: Skill frontmatter guard (blocks)
+        working-directory: bun-apps
+        run: bun run test:skill-frontmatter
+
       # Dead-export guard (blocks). An exported value that nothing in the
       # workspace references is misinformation: it tells a reader a code path
       # exists. Sweep 2026-08-19 found 42, including a `clearSession` whose doc

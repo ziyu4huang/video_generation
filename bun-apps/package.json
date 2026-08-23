@@ -13,6 +13,7 @@
     "test:base-set": "bun test tests/registry-base-set.test.ts",
     "test:adr": "bun test tests/adr-citation.test.ts",
     "test:skills-ref": "bun test tests/skill-reference.test.ts",
+    "test:skill-frontmatter": "bun test tests/skill-frontmatter.test.ts",
     "test:dead-export": "bun test tests/dead-export.test.ts",
     "test:seam": "bun test tests/seam-contract.test.ts",
     "test:routing": "bun test tests/routing-contract.test.ts",

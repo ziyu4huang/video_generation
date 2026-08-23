@@ -1,6 +1,6 @@
 ---
 name: s2-agent-model-catalog-update
-description: Use when adding, changing, or debugging a model or provider in s2-agent's baked model catalog — the PROVIDERS entries in bun-apps/s2-agent/src/pre-load-providers.ts, registered at runtime on top of pi-ai's baked catalog. Commonly used for updating s2-agent's model settings in bun-apps/s2-agent/src/pre-load-providers.ts. Triggers: "add <provider> model", "model not in --list-models", "provider not configured", "model id rejected with 400", "thinking/vision flags wrong in --list-models", "vision model", "model ids with [1m]/suffix aliases", "deploy then check --list-models". NOT for: per-machine personal overrides (use ~/.pi/agent/models.json instead — see Alternative).
+description: Use when adding, changing, or debugging a model or provider in s2-agent's baked model catalog — the PROVIDERS entries in bun-apps/s2-agent/src/pre-load-providers.ts, registered at runtime on top of pi-ai's baked catalog. Triggers include "add <provider> model", "model not in --list-models", "provider not configured", "model id rejected with 400", "thinking/vision flags wrong in --list-models", "vision model", "model ids with [1m]/suffix aliases", "deploy then check --list-models". Not for per-machine personal overrides (use ~/.pi/agent/models.json instead — see Alternative).
 ---
 
 # Updating s2-agent's Model Catalog
