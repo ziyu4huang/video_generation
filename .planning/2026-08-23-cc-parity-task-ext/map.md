@@ -58,16 +58,16 @@ loses its dead coupling to the old loop.
 ## Tickets
 
 Phase 1 — ask_user_question parity
-- `tickets/01-ask-user-cc-parity.md` — task, **open** — schema + description + TUI alignment
+- `tickets/01-ask-user-cc-parity.md` — task, **closed** — schema + description + TUI alignment
 
 Phase 2 — wizard Bun port
-- `tickets/02-wizard-bun-template.md` — task, **open** — template.sh → template.ts + SKILL.md rewrite
+- `tickets/02-wizard-bun-template.md` — task, **closed** — template.sh → template.ts + SKILL.md rewrite
 
 Phase 3 — /loop replacement
-- `tickets/03-loop-cc-scheduler.md` — task, **open** — timer scheduler replaces process loop; goal decoupled
+- `tickets/03-loop-cc-scheduler.md` — task, **closed** — timer scheduler replaces process loop; goal decoupled
 
 Phase 4 — /goal surface parity
-- `tickets/04-goal-surface-parity.md` — task, **open** — CC command aliases + no-arg status; machinery untouched
+- `tickets/04-goal-surface-parity.md` — task, **closed** — CC command aliases + no-arg status; machinery untouched
 
 ## Decisions
 
@@ -84,9 +84,9 @@ D1–D7 in `spec.md` §3. The shape-givers:
 
 ## Frontier
 
-`tickets/01-ask-user-cc-parity.md` — it is self-contained, touches no other subsystem,
-and its schema changes unblock the TUI work in the same ticket. Tickets 02/03 are
-independent of it and of each other.
+All four tickets closed 2026-08-23 (SDD plan tasks 1-7). Remaining: independent
+review of Tasks 4-7 (deferred past a 429 subagent-pool cutoff, resumes after
+16:05 local) → whole-branch final review → merge + version bump.
 
 ## Fog of war
 
