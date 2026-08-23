@@ -81,8 +81,10 @@ describe("runToolGateFireProbe", () => {
 		const entry = join(outDir, "noop.ts");
 		writeFileSync(entry, "export default (_api: unknown) => {};\n");
 		const cjsPath = join(outDir, "ext.cjs");
+		// process.execPath = the running bun — CI-safe (portability P2: never a
+		// host-binary probe; same pattern as tests/deploy-probe-e2e.test.ts).
 		const proc = Bun.spawnSync(
-			["bun", "build", entry, "--target=bun", "--format=cjs", "--minify", `--outfile=${cjsPath}`],
+			[process.execPath, "build", entry, "--target=bun", "--format=cjs", "--minify", `--outfile=${cjsPath}`],
 			{ cwd: outDir },
 		);
 		expect(proc.exitCode).toBe(0);
