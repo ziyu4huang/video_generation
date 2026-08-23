@@ -36,7 +36,7 @@ not symlinked. `.planning/` is the sole artifact home.
   never at an alias.
 - The task-coordinator legacy fallback reads `.planning/plans` directly
   (commit a79d09ac), not through the former alias.
-- The audit docket moved to `.planning/audit/`
+- The audit docket moved to `.planning/done/2026-07-18-workflow-pack-audit/` (re-homed from `.planning/audit/` in the 2026-08-23 planning-tree sweep)
   (`2026-07-18-workflow-pack-finding-docket.md`).
 - The leak guard keeps guarding the dead path:
   `tests/artifact-leak.test.ts` enumerates `git ls-files` under the retired

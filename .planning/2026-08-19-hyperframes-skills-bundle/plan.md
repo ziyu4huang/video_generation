@@ -66,7 +66,7 @@ Then `( cd bun-apps && bun install )`.
 
 ### 6. Process / DevOps
 
-- Planning artifacts: commit under `.planning/hyperframes-skills-bundle/` (spec.md + this plan) per standing rule.
+- Planning artifacts: commit under `.planning/2026-08-19-hyperframes-skills-bundle/` (spec.md + this plan) per standing rule.
 - Branch prep, local CI, PR, merge via the devops tool chain (`prepare_branch` / `local_ci` / `await_pr_merge`) — never hand-rolled git/gh phases. local_ci must stay ≤5 min.
 
 ## Verification (end-to-end)
