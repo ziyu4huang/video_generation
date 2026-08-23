@@ -1,6 +1,15 @@
 export { preview } from "@repo/s2-agent-core-runtime";
 export type { AdversarialReviewConfig } from "./adversarial-review.js";
 export { generateAdversarialReviewWorkflow, generateMultiPerspectiveWorkflow } from "./adversarial-review.js";
+export type { TokenBudgetSource } from "./budget-directive.js";
+export {
+  budgetDirectivePrompt,
+  consumeBudgetDirective,
+  parseBudgetDirective,
+  peekBudgetDirective,
+  resetBudgetDirective,
+  setBudgetDirective,
+} from "./budget-directive.js";
 export { registerBuiltinWorkflows } from "./builtin-commands.js";
 export * from "./config.js";
 export type { CronDispatch, CronLoopHandle, CronScriptResolver, CronTickResult } from "./cron-loop.js";

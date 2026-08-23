@@ -1,10 +1,11 @@
-import { beforeAll, describe, it } from "bun:test";
+import { afterEach, beforeAll, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import type { ExtensionAPI, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { type Terminal, type TUI, TuiMainScreen } from "@earendil-works/pi-tui";
+import { peekBudgetDirective, resetBudgetDirective } from "../src/budget-directive.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1223,5 +1224,60 @@ describe("registerWorkflowProgressCommands", () => {
 
     await cmd.handler("0", {});
     assert.match(sent.at(-1)?.content ?? "", /Invalid value/);
+  });
+});
+
+// Ticket 05 — budget directives at the input-transform seam: an ARMED message
+// carrying "+500k" sets the session holder and appends the directive block to
+// the transformed prompt; an armed message WITHOUT one clears a stale value;
+// a non-armed message never touches the holder.
+describe("installWorkflowEditor budget directives", () => {
+  afterEach(() => {
+    resetBudgetDirective();
+  });
+
+  function captureInputHandler(mod: typeof import("../src/workflow-editor.js")) {
+    const captured: Array<{ event: string; handler: (...args: unknown[]) => unknown }> = [];
+    const pi = {
+      on: (event: string, handler: (...args: unknown[]) => unknown) => {
+        captured.push({ event, handler });
+      },
+      getActiveTools: () => [],
+      setActiveTools: () => {},
+    } as unknown as ExtensionAPI;
+    const ui = { setEditorComponent: () => {} } as unknown as ExtensionUIContext;
+    mod.installWorkflowEditor(pi, ui, undefined, testSettingsOptions());
+    const inputHandler = captured.find((h) => h.event === "input")?.handler;
+    assert.ok(inputHandler, "input handler should be registered");
+    return inputHandler as (event: { source?: string; text?: string }) => { action?: string; text?: string };
+  }
+
+  it("an armed message with +1m sets the holder and appends the directive to the transform", async () => {
+    const mod = await load();
+    const inputHandler = captureInputHandler(mod);
+    const result = inputHandler({ source: "interactive", text: "audit this workflow +1m" });
+    assert.equal(result.action, "transform");
+    assert.match(result.text ?? "", /\[budget directive\]/);
+    assert.match(result.text ?? "", /1,000,000/);
+    assert.equal(peekBudgetDirective(), 1_000_000);
+  });
+
+  it("an armed message without a directive clears a stale holder value", async () => {
+    const mod = await load();
+    const inputHandler = captureInputHandler(mod);
+    inputHandler({ source: "interactive", text: "audit this workflow +500k" });
+    assert.equal(peekBudgetDirective(), 500_000);
+    const second = inputHandler({ source: "interactive", text: "now this workflow, no number" });
+    assert.equal(second.action, "transform");
+    assert.equal(peekBudgetDirective(), undefined, "armed message without a directive clears the holder");
+    assert.doesNotMatch(second.text ?? "", /\[budget directive\]/);
+  });
+
+  it("a non-armed message with +500k never touches the holder", async () => {
+    const mod = await load();
+    const inputHandler = captureInputHandler(mod);
+    const result = inputHandler({ source: "interactive", text: "please spend +500k tokens" });
+    assert.equal(result.action, "continue");
+    assert.equal(peekBudgetDirective(), undefined);
   });
 });

@@ -179,15 +179,35 @@ export interface RoleAwareDefaults {
  * in `p`. `tierCeiling` (the tierDefaultToken value for the dispatch's model)
  * caps the recon tokenBudget so a recon default never exceeds the
  * p90-calibrated tier policy.
+ *
+ * `opts.persistent` (cc-parity-2 ticket 05, F2): the dispatch opens a NAMED
+ * live agent, whose tokenBudget/maxTurns/timeoutMs are AGENT-LIFETIME
+ * ceilings checked against cumulative stats after every exchange — the
+ * per-dispatch role envelope is not a lifetime calibration (the recon 120k
+ * tripped at 164k on two trivial big-context exchanges: each exchange re-bills
+ * the whole fixed context). The lifetime token default becomes the tier
+ * ceiling instead (500k/1.2M/1.5M, itself p90-calibrated per dispatch and so
+ * comfortably loose as a lifetime bound), and no default maxTurns/timeoutMs is
+ * applied — a live agent lives until disposed. Explicit params still opt out
+ * entirely (checked above), and `SUBAGENT_TOKEN_BUDGET_DISABLE` still escapes.
  */
 export function roleAwareDefaults(
   p: { tokenBudget?: number; maxTurns?: number; timeoutMs?: number },
   role: DispatchRole,
   tierCeiling?: number,
+  opts: { persistent?: boolean } = {},
 ): RoleAwareDefaults {
   if (envFlagTrue(ENV_KEYS.disable)) return { applied: false };
   if (p.tokenBudget !== undefined || p.maxTurns !== undefined || p.timeoutMs !== undefined) {
     return { applied: false };
+  }
+  if (opts.persistent) {
+    return {
+      applied: true,
+      tokenBudget: tierCeiling,
+      notice:
+        "bounds: live-agent lifetime default applied (tier ceiling; no default turn/timeout cap) — pass tokenBudget/maxTurns/timeoutMs to override",
+    };
   }
   const bounds = ROLE_AWARE_DISPATCH_BOUNDS[role];
   // #02 SUBAGENT_MAX_TURNS: global turn-cap valve over the role envelope —

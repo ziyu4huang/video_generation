@@ -9,6 +9,7 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/s2-agent-core-runtime";
 import { preview, WorkflowError, WorkflowErrorCode } from "@repo/s2-agent-core-runtime";
+import type { TokenBudgetSource } from "./budget-directive.js";
 import { agentCounts, type WorkflowSnapshot } from "./display.js";
 import type { HostFnRegistry } from "./host-fn-registry.js";
 import { mirrorIntermediate } from "./pack-run-context.js";
@@ -113,6 +114,13 @@ export interface ExecOptions {
   onProgress?: (snapshot: WorkflowSnapshot) => void;
   /** Hard token budget for this run; once spent reaches it, agent() throws. */
   tokenBudget?: number | null;
+  /**
+   * Which mechanism set the effective run-wide ceiling (ticket 05): "directive"
+   * = user `+500k` only, "model" = model-passed tokenBudget only, "merged" =
+   * both (effective = max). Set at executeRun entry; persisted so resume and
+   * the display keep the label.
+   */
+  tokenBudgetSource?: TokenBudgetSource;
   /** Max concurrent agents for this execution. */
   concurrency?: number;
   /** Retry attempts after recoverable agent failures for this execution. */
@@ -165,6 +173,13 @@ export interface WorkflowManagerOptions {
    * subagent/subagents runs. Per-WORKFLOW granularity (one entry per run). Optional so tests/hosts that don't care about the box stay unaffected.
    */
   inFlight?: SubagentInFlightRegistry;
+  /**
+   * Read-and-clear the pending user budget directive (ticket 05 / map D6),
+   * parsed by the workflows-mode input hook. Called ONCE at run entry; the
+   * extension wires consumeBudgetDirective() from budget-directive.ts, tests
+   * inject a fake. undefined = no directive armed for this run.
+   */
+  consumeBudgetDirective?: () => number | undefined;
 }
 
 /** Project the serializable caps out of ExecOptions (drops signals/callbacks). */
@@ -173,6 +188,7 @@ function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
     maxAgents,
     agentTimeoutMs,
     tokenBudget,
+    tokenBudgetSource,
     concurrency,
     agentRetries,
     mainModel,
@@ -186,6 +202,7 @@ function toPersistedExec(exec: ExecOptions): PersistedExecOptions {
     maxAgents,
     agentTimeoutMs,
     tokenBudget,
+    tokenBudgetSource,
     concurrency,
     agentRetries,
     mainModel,
@@ -246,6 +263,8 @@ export class WorkflowManager extends EventEmitter {
   /** Shared in-flight registry (decision 03 = b2); undefined in hosts that don't
    *  surface the subagent-context box. Late-bindable via setInFlight(). */
   private inFlight?: SubagentInFlightRegistry;
+  /** Read-and-clear access to the session's pending budget directive (ticket 05). */
+  private consumeBudgetDirective?: () => number | undefined;
 
   constructor(options: WorkflowManagerOptions = {}) {
     super();
@@ -260,6 +279,7 @@ export class WorkflowManager extends EventEmitter {
     this.defaultAgentRetries = options.defaultAgentRetries ?? 0;
     this.extensionTools = options.extensionTools ?? [];
     this.inFlight = options.inFlight;
+    this.consumeBudgetDirective = options.consumeBudgetDirective;
     this.persistence = createRunPersistence(this.cwd);
     this.recoverStaleRuns();
   }
@@ -485,6 +505,32 @@ export class WorkflowManager extends EventEmitter {
     };
   }
 
+  /**
+   * Fold the session's pending budget directive into this run's exec caps
+   * (ticket 05 / map D6). Consumes the directive (read-and-clear — one
+   * directive binds exactly one run), raises the effective run-wide ceiling to
+   * max(directive, model-passed tokenBudget), and labels the source. Called at
+   * executeRun entry — the single chokepoint every path (sync, background,
+   * resume, cron) flows through. A resume re-enters with an empty holder; its
+   * rehydrated exec already carries the effective ceiling + source, both kept.
+   * Note the start paths' INITIAL persist writes the raw caps (it happens
+     before this runs); the record converges on the first persistRun event.
+   */
+  private applyBudgetDirective(exec: ExecOptions): void {
+    const directive = this.consumeBudgetDirective?.();
+    if (directive === undefined) {
+      // No directive armed: label a model-passed budget; keep an existing
+      // (rehydrated-from-disk) label untouched so resume keeps its source.
+      if (exec.tokenBudgetSource === undefined) {
+        exec.tokenBudgetSource = exec.tokenBudget != null ? "model" : undefined;
+      }
+      return;
+    }
+    const modelBudget = exec.tokenBudget ?? null;
+    exec.tokenBudget = Math.max(directive, modelBudget ?? 0);
+    exec.tokenBudgetSource = modelBudget != null ? "merged" : "directive";
+  }
+
   private async executeRun(
     managed: ManagedRun,
     script: string,
@@ -501,6 +547,10 @@ export class WorkflowManager extends EventEmitter {
     // runSync → foreground:true (excluded from the box, rendered inline by the
     // workflow tool's own component — no duplication with Surface A).
     this.registerInFlight(managed);
+    // Budget directive (ticket 05): consume + fold BEFORE any caps are read, so
+    // the destructure below and managed.exec capture both see the effective
+    // ceiling. Mutates exec in place — the same object the start paths persist.
+    this.applyBudgetDirective(exec);
     const {
       resumeJournal,
       maxAgents,
@@ -524,6 +574,11 @@ export class WorkflowManager extends EventEmitter {
     // (Start paths set this before their initial persist; this re-capture covers
     // resume(), whose fresh ManagedRun is built without exec.)
     managed.exec = toPersistedExec(exec);
+    // Surface the effective ceiling + its source on the live snapshot (the
+    // progress panel / tool display render them; persistedToSnapshot mirrors
+    // both for resumed runs).
+    managed.snapshot.tokenBudget = exec.tokenBudget ?? undefined;
+    managed.snapshot.tokenBudgetSource = exec.tokenBudgetSource;
     const progress = () => {
       onProgress?.(managed.snapshot);
       // Refresh the registry entry's preview (phase / k-of-N agents) on every

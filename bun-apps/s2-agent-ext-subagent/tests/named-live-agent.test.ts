@@ -178,3 +178,33 @@ test("an exhausted live-agent cap fails pre-flight (all agents mid-exchange)", a
   assert.match((res.content[0] as { text: string }).text, /cap reached/);
   assert.equal(saved.length, 0); // pre-flight — not a real run, nothing persisted
 });
+
+// cc-parity-2 ticket 05 / F2 — a named dispatch's ceilings are AGENT-LIFETIME
+// caps, so the recon/writer per-dispatch envelope must NOT become the lifetime
+// default: the tier ceiling does (medium fallback 1.2M here — no tier config in
+// the test env), and the durable record is tagged cohort "tier".
+test("named dispatch lifetime budget defaults to the tier ceiling, not the role envelope (F2)", async () => {
+  const { tool, saved, liveCalls } = mkTool();
+  const res = await tool.execute(
+    "call-f2",
+    { task: "long-lived research", name: "scout" },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.status, "done");
+  assert.equal(liveCalls.length, 1);
+  const spawn = liveCalls[0] as { tokenBudget?: number; maxTurns?: number };
+  assert.equal(spawn.tokenBudget, 1_200_000, "lifetime token default = medium tier ceiling (not recon 120k)");
+  assert.equal(spawn.maxTurns, undefined, "no lifetime turn default for a persistent agent");
+  assert.equal(saved[0].budget?.source, "tier", "cohort tagged tier (live-agent lifetime default)");
+  assert.equal(saved[0].budget?.tokenBudget, 1_200_000);
+});
+
+test("unnamed dispatch keeps the per-dispatch role envelope (no F2 behavior change)", async () => {
+  const { tool, saved } = mkTool({ spawn: async () => ok("one-shot output") });
+  const res = await tool.execute("call-f2b", { task: "plain task" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.status, "done");
+  assert.equal(typeof saved[0].budget?.source, "string");
+  assert.notEqual(saved[0].budget?.source, "tier", "one-shot default stays envelope-*/tier via the envelope path");
+});

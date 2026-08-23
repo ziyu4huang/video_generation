@@ -237,3 +237,29 @@ test("roleAwareDefaults: explicit params opt out regardless of env", () => {
   assert.equal(d.applied, false);
   assert.equal(d.maxTurns, undefined);
 });
+
+// cc-parity-2 ticket 05 / F2 — persistent (named live-agent) dispatches: the
+// per-dispatch role envelope is NOT a lifetime calibration, so the lifetime
+// token default becomes the tier ceiling and no turn/timeout default applies.
+test("roleAwareDefaults persistent: tier ceiling replaces the role envelope, no turn/timeout caps", () => {
+  const d = roleAwareDefaults({}, "recon", 1_200_000, { persistent: true });
+  assert.equal(d.applied, true);
+  assert.equal(d.tokenBudget, 1_200_000, "lifetime token default = tier ceiling (not recon 120k)");
+  assert.equal(d.maxTurns, undefined, "no default lifetime turn cap");
+  assert.equal(d.timeoutMs, undefined, "no default lifetime timeout");
+  assert.match(d.notice ?? "", /live-agent lifetime/);
+});
+
+test("roleAwareDefaults persistent: role is irrelevant (writer too) and undefined ceiling stays unset", () => {
+  const writer = roleAwareDefaults({}, "writer", 500_000, { persistent: true });
+  assert.equal(writer.tokenBudget, 500_000, "writer tier ceiling, not the 400k envelope");
+  const noCeiling = roleAwareDefaults({}, "recon", undefined, { persistent: true });
+  assert.equal(noCeiling.applied, true);
+  assert.equal(noCeiling.tokenBudget, undefined, "no tier ceiling resolvable → no token default");
+});
+
+test("roleAwareDefaults persistent: explicit bounds and the disable knob still win", () => {
+  assert.equal(roleAwareDefaults({ tokenBudget: 5 }, "recon", 1_200_000, { persistent: true }).applied, false);
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+  assert.equal(roleAwareDefaults({}, "recon", 1_200_000, { persistent: true }).applied, false);
+});

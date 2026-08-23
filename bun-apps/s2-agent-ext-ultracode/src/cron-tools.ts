@@ -80,7 +80,7 @@ export function createCronTools(options: CronToolsOptions): ToolDefinition[] {
     name: "cron_create",
     label: "CronCreate",
     description:
-      "Schedule a workflow to fire on a 5-field cron expression (local time). One-shot fires once then deletes itself; recurring fires on every match and auto-expires after 7 days. Firing happens only while a session is live — no daemon.",
+      "Schedule a workflow to fire on a 5-field cron expression (local time). One-shot fires once then deletes itself; recurring fires on every match and auto-expires after 7 days. Firing happens only while a session is live — no daemon. A fired run's budget comes from the workflow tool call inside the script — user '+500k'-style budget directives bind only the interactive message that armed them, never a cron fire.",
     // Owner-declared gating — joins the shared workflow family gate (see
     // GATE_DEFS["workflow"] in extensions/ultracode.ts); co-fires with
     // run_workflow / workflow_help / workflow_control.

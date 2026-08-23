@@ -1,6 +1,6 @@
 # Ticket 05 — "+500k" budget directives (binding run-wide ceiling)
 
-Status: open · Phase 3 (ultracode-only; independent of Phase 2)
+Status: done (2026-08-23) · Phase 3 (ultracode-only; independent of Phase 2)
 
 ## Scope
 

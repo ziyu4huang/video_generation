@@ -23,6 +23,7 @@ import {
   type ExtensionUIContext,
 } from "@earendil-works/pi-coding-agent";
 import type { EditorTheme, TUI } from "@earendil-works/pi-tui";
+import { budgetDirectivePrompt, parseBudgetDirective, setBudgetDirective } from "./budget-directive.js";
 import { DEFAULT_KEYWORD_TRIGGER_WORD, DEFAULT_KEYWORD_TRIGGER_WORDS, normalizeKeywordTriggerWord } from "./config.js";
 import { type EffortState, effortDirective, isSubstantive } from "./effort-command.js";
 import {
@@ -514,7 +515,21 @@ export function installWorkflowEditor(
     } catch {
       // Tool restriction is best-effort; the directive still forces the workflow.
     }
-    const extra = byEffort && effort ? effortDirective(effort.level) : undefined;
+    // Budget directive (ticket 05 / map D6): parse `+500k`-style directives from
+    // the RAW armed text. The holder holds ONLY the latest armed message's value
+    // — set(undefined) on an armed message without a directive clears any stale
+    // one, so a directive never leaks into a later armed message. The manager
+    // consumes it (read-and-clear) at run entry; non-armed messages never reach
+    // this line, so they can't set the holder either.
+    const directive = parseBudgetDirective(event.text);
+    setBudgetDirective(directive);
+    const extraParts: string[] = [];
+    if (byEffort && effort) {
+      const effortText = effortDirective(effort.level);
+      if (effortText !== undefined) extraParts.push(effortText);
+    }
+    if (directive !== undefined) extraParts.push(budgetDirectivePrompt(directive));
+    const extra = extraParts.length ? extraParts.join("\n\n") : undefined;
     return { action: "transform", text: buildForcedWorkflowPrompt(event.text, extra) } as const;
   });
 
