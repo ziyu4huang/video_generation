@@ -2,7 +2,7 @@
 ticket: 04-goal-surface-parity
 effort: cc-parity-task-ext
 type: task
-status: open
+status: closed
 created: 2026-08-23
 last: 2026-08-23
 ---
@@ -45,3 +45,14 @@ Measured gap 2026-08-23 (`src/goal/commands.ts`, CC docs `code.claude.com/docs/e
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-task && bun run typecheck && bun test )`
+
+## Result
+
+**closed 2026-08-23** — clear aliases off/reset/none/cancel added (stop already existed) to `parseCommand`'s clear branch with trailing-args usage errors; `GOAL_ARGUMENT_COMPLETIONS` clear row documents the aliases.
+
+Measured corrections to the ticket's premise:
+- No-arg `/goal` ALREADY returned `{ kind: "show" }` (commands.ts `tokens.length === 0` branch) — no change needed; pinned by a new test.
+- The 4,000-char cap lives in `validateObjective` (the lifecycle gate), not parseCommand — already CC-exact; pinned by a new boundary test (4001 rejected / 4000 accepted).
+- Verdict display naming SKIPPED as the ticket allowed: approved/disapproved/impossible is the auditor's XML-marker prompt protocol (`<approved/>` markers parsed into fields, auditor.ts:107-110) — load-bearing beyond display; renaming display strings alone would fork the vocabulary without buying parity (s2-agent's auditor ≈ CC's small-model evaluator, different protocol by design, D5).
+
+Gate: tsc clean; 41/41 commands tests; full package 869 pass / 0 fail.

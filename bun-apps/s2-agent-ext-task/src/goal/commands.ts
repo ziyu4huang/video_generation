@@ -50,7 +50,7 @@ export const MAX_OBJECTIVE_LENGTH = 4_000;
 export const GOAL_ARGUMENT_COMPLETIONS: readonly GoalArgumentCompletion[] = [
 	{ value: "pause", label: "pause", description: "Pause the active goal" },
 	{ value: "resume", label: "resume", description: "Resume a paused or budget-limited goal" },
-	{ value: "clear", label: "clear", description: "Clear the current goal" },
+	{ value: "clear", label: "clear", description: "Clear the current goal (stop|off|reset|none|cancel also work)" },
 	{ value: "edit", label: "edit", description: "Edit the current goal objective" },
 	{ value: "status", label: "status", description: "Show the current goal" },
 	{ value: "--tokens ", label: "--tokens", description: "Set a token budget before the goal" },
@@ -91,7 +91,9 @@ export function parseCommand(args: string): CommandResult | string {
 	const [first, ...rest] = tokens;
 	if (first === "pause") return rest.length === 0 ? { kind: "pause" } : "Usage: /goal pause";
 	if (first === "resume") return rest.length === 0 ? { kind: "resume" } : "Usage: /goal resume";
-	if (first === "clear" || first === "stop") return rest.length === 0 ? { kind: "clear" } : "Usage: /goal clear";
+	// CC /goal surface parity (ticket 04): clear aliases stop/off/reset/none/cancel.
+	const CLEAR_ALIASES = new Set(["clear", "stop", "off", "reset", "none", "cancel"]);
+	if (CLEAR_ALIASES.has(first)) return rest.length === 0 ? { kind: "clear" } : "Usage: /goal clear";
 	if (first === "status") return rest.length === 0 ? { kind: "show" } : "Usage: /goal status";
 	if (first === "audit") return rest.length === 0 ? { kind: "audit" } : "Usage: /goal audit";
 	if (first === "review") {
