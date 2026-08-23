@@ -27,7 +27,7 @@ Measured 2026-08-23 in this worktree unless noted.
 ### Phase A — foundation seams
 
 - [x] 01 — SurrealDB client ownership (CLOSED 2026-08-23 — D4–D8: client+tests+`SURREAL_DEFAULTS` extract into core-interface with injectable `onRoundTrip`; embedded-service stance (no env leaf); kcard db = `context_db` in per-user ns; hermes default backend flips to SurrealDB (sqlite = backup); embedding config centralized in `pre-load-providers.ts` via seam; detail in ticket)
-- [ ] 02 — SurrealDB index schema for kcard: cards + directory/agg nodes as record links, embeddings, relations, hotness counters (grilling, blocked by 01)
+- [x] 02 — SurrealDB index schema for kcard (CLOSED 2026-08-23 — D9–D14: single `card` table keyed by md filename stem + HNSW/FTS; `vec`+`embed_model` columns; plain `relation` table; append-only `usage` = RecallLedger store with replayed aggregates; content-hash fingerprint full shadow rebuild; D14 = every build ticket ships A/B-vs-baseline + independent reviewer; detail in ticket)
 - [x] 03 — SurrealDB v3 vector/FTS capability probe (CLOSED 2026-08-23 — HNSW 1024-dim COSINE PASS, MTREE absent, KNN = `<|k,ef|>` only, recursion must be client-side BFS, FTS AND-only, rebuild not reader-transparent; detail in ticket)
 
 ### Phase B — capability build-out
@@ -53,10 +53,12 @@ Measured 2026-08-23 in this worktree unless noted.
 - **D6 — kcard index = database `context_db` inside per-user namespace `user_<id>`** (ticket 01): user discriminator stays at the ns layer (per-user-db.ts tenancy rationale); hermes `memory` unchanged. Reason: same-user memory + context index adjacent under one ns; sanitization reused, not duplicated.
 - **D7 — hermes default backend flips to SurrealDB; sqlite = permanent backup/escape hatch** (ticket 01, user — resolves leanrag-simplify D1 vs `backend-factory.ts` sqlite default): accepted losses = corruption recovery + `getDb` seams; NO auto-migration of existing sqlite data. Reason: user decision; SurrealDB is the strategic store (D2 here, knowledge-pipeline D04).
 - **D8 — embedding config centralized in `s2-agent/src/pre-load-providers.ts`** (ticket 01, user directive): `EMBEDDING_CONFIG` § (base derived from the lm-studio provider entry, model bge-m3), host publishes via `publishSeam` at startup, `embedding-leaf.ts` order seam → env → defaults. Reason: one file for all baked model config, without breaking the extensions-cannot-import-host layering; model choice (context-lifecycle D3) unchanged.
+- **D9 — one `card` table (leaves + agg, `is_leaf`, record key = md filename stem) + FTS(title,summary) + HNSW** (ticket 02): single table = single HNSW + one-hop KNN; md↔db 1:1. **D10 — `vec` + `embed_model` columns on `card`**: model-swap A/B via shadow rebuild, not dual-model storage. **D11 — plain `relation(s,rel,o)` table, no `RELATE`**: no graph-walk consumers in v1; hermes `tagged` precedent. **D12 — `usage` append-only table IS the RecallLedger store; aggregates replayed onto `card` after rebuild**: usage has no md counterpart — md stays canonical for content, usage data survives rebuilds. **D13 — content-hash fingerprint full shadow rebuild + swap**: no intermediate states; unchanged vectors reused from the model-keyed cache. Reason (D9–D13): MVP — everything measured cheap enough to prefer the simplest consistent shape.
+- **D14 — every build ticket ships an A/B test against the measured baseline + an independent reviewer subagent** (ticket 02, user): A/B formalized as the ticket 09 recall-audit gate (17/20 baseline); reviewer = the quality gate per repo dispatch discipline.
 
 ## Frontier
 
-Ticket 02 (SurrealDB index schema for kcard) — unblocked by ticket 01's D4–D6 (client home, `SURREAL_DEFAULTS`, `context_db` naming) plus ticket 03's probe facts (schemaless vec field, `<|k,ef|>`, client-side BFS, shadow rebuild). It owns the schema for cards + directory/agg nodes as record links, embeddings, relations, and hotness counters inside `user_<ns>/context_db`.
+Ticket 04 (typed memory model) — now that 01/02/03 are closed, 04/05/07 are all unblocked; 04 goes first because 06 (session extraction) is blocked by it. It maps OpenViking memory types onto kcard card kinds + the D9 schema's `kind` field. Tickets 05 (FS read surface, prototype) and 07 (hierarchical retrieval) can proceed in parallel once 04 claims its lane; D14 governs all build work (A/B vs baseline + independent reviewer).
 
 ## Fog of war
 
