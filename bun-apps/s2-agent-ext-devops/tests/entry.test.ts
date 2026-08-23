@@ -30,6 +30,21 @@ function fakePi() {
 }
 
 	describe("devops extension entry", () => {
+		test("BUN_PI_DEVOPS=0 registers NOTHING (the disable knob every shipped extension exposes)", () => {
+			// The isolation-contract DISABLE probe sets this env per base-set
+			// entry; the knob lives on the entry's first line.
+			const saved = process.env.BUN_PI_DEVOPS;
+			process.env.BUN_PI_DEVOPS = "0";
+			try {
+				const pi = fakePi();
+				(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);
+				expect(pi.tools).toHaveLength(0);
+			} finally {
+				if (saved === undefined) delete process.env.BUN_PI_DEVOPS;
+				else process.env.BUN_PI_DEVOPS = saved;
+			}
+		});
+
 		test("registers every devops tool, and nothing else", () => {
 			const pi = fakePi();
 			(entry as (api: { registerTool: (t: unknown) => void }) => void)(pi.api as never);

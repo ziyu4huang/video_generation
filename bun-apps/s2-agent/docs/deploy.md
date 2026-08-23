@@ -319,9 +319,10 @@ The dist runs with zero network and zero package installation — enforced, not 
 
 ## Limits
 
-- **Base set (2026-08-20, "portable full-featured" profile): 14 extensions** — `task`,
-  `prompt-history`, `superpowers`, `wayfind`, `hermes-memory`, `subagent`, `workflow`, `btw`,
-  `web-access`, `power-tool`, `webui`, `hyperframes`, `obsidian`, `knowledge-card`. The earlier
+- **Deploy set (2026-08-23): 18 extensions** — `task`, `prompt-history`, `superpowers`,
+  `wayfind`, `hermes-memory`, `subagent`, `ultracode` (was `workflow` pre-2026-08-22), `btw`,
+  `web-access`, `power-tool`, `webui`, `hyperframes`, `obsidian`, `knowledge-card`, `archify`,
+  `compact`, `sv-analyzer`, and `devops` (joined 2026-08-23, below). The earlier
   named blockers turned out to be stale on measurement: hermes-memory's sqlite is `bun:sqlite` (a
   builtin the host require serves), webui's HTML shell is a single inline string constant (no
   static assets), and the superpowers skills tree copies through the same path hyperframes
@@ -335,13 +336,23 @@ The dist runs with zero network and zero package installation — enforced, not 
   extension entry — inlining the entry would double-register GATE_DEFS and duplicate its bulk.
   obsidian seeds a fresh vault on a portable machine from `vault-template/` (shipped via
   `copy:`, located through `require("#pi/ext-dir")`).
+- **`devops` ships with a fail-closed split** (2026-08-23, reversing the original repo-internal
+  exclusion): the git/PR tool family (`sync_default_branch`, `prepare_feature_branch`,
+  `sweep_merged_branches`, `verify_merge_landed`, `show_pr_status`, `run_devops_retrospect`) is
+  repo-agnostic; the repo-bound tools (`run_local_ci` / `check_main_health` — they read the
+  TARGET repo's workflow matrix and `bun-apps/` layout — and `deploy_pi_agent_sh` /
+  `verify_pi_agent_deploy`, which resolve the SOURCE repo at runtime) fail closed with
+  remediation text outside this repo's layout, never a false green. `deploy_pi_agent_sh` spawns
+  the repo-side `src/deploy-cli.ts` rather than importing the pipeline — the pipeline's
+  module-scope `import.meta` paths would be folded by the bundler into build-machine paths,
+  which the relocatability gate rejects.
 - **Excluded, with reasons**:
   `file2md` (v2 is bun-only — pdfjs text + vendored dsh-cowork office + pdfium wasm + tesseract
   wasm OCR with an optional local vision tier — but stays out of the portable core by size/scope
   policy; its package structure is deploy-ready, see `ADR-file2md-0001`), the director/MCP
-  wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool`,
-  `archify` — bound to this machine's swift CLIs and services), and repo-internal tooling
-  (`devops`, `tool-gate`). All stay available through the legacy source/run-dir modes.
+  wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool` — bound to
+  this machine's swift CLIs and services), and repo-internal tooling
+  (`tool-gate`). All stay available through the legacy source/run-dir modes.
 - **Host modules**: `@earendil-works/pi-ai` (+`/compat`) — already compiled in via pi-coding-agent,
   served for identity stability; `@repo/s2-agent-core-interface` — GATE_DEFS is a shared mutable
   registry (obsidian, knowledge-card and wayfind all register gate families at module scope), so

@@ -375,6 +375,7 @@ export const VERIFY_MERGE_PROBES = {
 };
 
 export default function (pi: ExtensionAPI): void {
+	if (process.env.BUN_PI_DEVOPS === "0") return;
 	pi.registerTool({
 		name: "merge_pr_after_local_ci",
 		label: "Gate a GitHub PR on run_local_ci, then squash-merge",
@@ -726,9 +727,11 @@ export default function (pi: ExtensionAPI): void {
 	// deploy_pi_agent_sh + verify_pi_agent_deploy — absorbed from the former standalone deploy
 	// extension. Each tool keeps its OWN owner-declared gating keywords
 	// verbatim (NOT conflated with the devops PR/merge keywords above); the
-	// tools wrap src/deploy/run.ts + scripts/run-test.ts (single source of truth);
-	// pi_verify resolves the source s2-agent dir at runtime (src/deploy-run.ts),
-	// while pi_deploy calls runShDeploy directly.
+	// tools wrap src/deploy/run.ts + scripts/run-test.ts (single source of
+	// truth) by SPAWNING them (src/deploy-run.ts resolves the source s2-agent
+	// dir at runtime and fails closed outside the source repo) — importing the
+	// pipeline here would fold its module-scope import.meta paths into the
+	// shipped bundle, which the deploy relocatability gate rejects.
 	// ────────────────────────────────────────────────────────────────────
 	pi.registerTool({
 		name: "deploy_pi_agent_sh",

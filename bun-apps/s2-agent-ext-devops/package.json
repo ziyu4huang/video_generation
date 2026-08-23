@@ -12,6 +12,9 @@
     "pr-merge"
   ],
   "type": "module",
+  "imports": {
+    "#pi/ext-dir": "./src/sh-ext-dir.ts"
+  },
   "files": [
     "extensions",
     "src",

@@ -21,8 +21,9 @@
 # Base-set profile (2026-08-20, "portable full-featured agent"): memory, skills,
 # subagent/workflow, web-access, and the knowledge layer (obsidian +
 # knowledge-card) ship in the box. Everything machine-bound (swift director
-# CLIs, LM Studio, mupdf) or repo-internal (devops, tool-gate) stays out — see
-# docs/deploy.md "Limits" for the exclusion rationale.
+# CLIs, LM Studio, mupdf) or repo-internal (tool-gate) stays out — see
+# docs/deploy.md "Limits" for the exclusion rationale. devops joined the
+# deploy set 2026-08-23 (on-this-machine stance; repo-bound tools fail closed).
 #
 # Entry order: the `load: static` entries first, in staticExtensions[] order
 # (the order regen:static imports them — subagent MUST precede workflow), then
@@ -228,13 +229,21 @@ extensions:
     load: dynamic
     version: "0.1.0"
     excludeReason: repo-internal tooling
-  - name: s2-agent-ext-devops
+  - name: devops
     package: s2-agent-ext-devops
     entry: extensions/devops.ts
     load: dynamic
     skills: true
     version: "0.1.0"
-    excludeReason: repo-internal tooling
+    # Ships for on-this-machine use (2026-08-23): the git/PR tool family
+    # (sync/prepare/sweep/verify-merge/retrospect/show_pr_status) is portable
+    # to any git repo; the repo-bound tools (run_local_ci / check_main_health /
+    # deploy_pi_agent_sh / verify_pi_agent_deploy) FAIL CLOSED with remediation
+    # text outside this repo's source layout. deploy_pi_agent_sh spawns the
+    # repo-side CLI (never imports the pipeline — its module-scope
+    # import.meta paths would bake build-machine paths into the bundle).
+    deploy:
+      order: 180
   - name: s2-agent-ext-flux2
     package: s2-agent-ext-flux2
     entry: extensions/flux2.ts
