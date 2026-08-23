@@ -17,11 +17,13 @@ import {
   type AgentDefinition,
   createWorktree,
   getLiveAgentRegistry,
+  isForkChild,
   listAgentTypes,
   loadAgentRegistry,
   removeWorktree,
   resolveAgentType,
   roleAwareDefaults,
+  runAsForkChild,
   spawnLiveAgentFirstExchange,
   spawnSubagent,
   tierDefaultToken,
@@ -87,7 +89,7 @@ export function createSubagentTool(
     label: "Subagent",
     description: [
       "Dispatch a single subagent with an ISOLATED context to do a focused task and report back.",
-      "The subagent does NOT inherit this session's history — pass a self-contained `task` prompt.",
+      "The subagent does NOT inherit this session's history — pass a self-contained `task` prompt — unless `fork: true`, which prepends the parent transcript as context-only background context.",
       "Returns the subagent's output, plus an exit/timed-out status in `details`.",
     ].join(" "),
     // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
@@ -138,6 +140,37 @@ export function createSubagentTool(
           status: "failed",
         },
       });
+
+      // Fork invariants (ticket 02, map D3) — validated BEFORE any resource
+      // (worktree, registry slot, session) is allocated. A fork is a one-shot
+      // untyped background child; it cannot be named, typed, or forked again.
+      if (params.fork) {
+        if (params.name !== undefined) {
+          return failEarly(
+            "`fork` + `name` is not supported: a fork is a one-shot child with the parent conversation as " +
+              "context, not a persistent session. Drop `fork` or drop `name`.",
+          );
+        }
+        if (params.agentType !== undefined) {
+          return failEarly(
+            "`fork` + `agentType` is not supported: a fork is untyped (CC semantics) — it inherits the parent " +
+              "conversation instead of an agent def. Drop `fork` or drop `agentType`.",
+          );
+        }
+        if (isForkChild()) {
+          return failEarly(
+            "cannot fork from a fork child: the parent conversation is already inherited as this session's " +
+              "context (fork chains are one deep — map D3). Dispatch a regular subagent with a self-contained " +
+              "`task` instead.",
+          );
+        }
+        if (!options.getParentTranscript) {
+          return failEarly(
+            "fork is unavailable in this host: no parent-session transcript source was captured at " +
+              "session_start (detached-resume hosts have no parent conversation to inherit).",
+          );
+        }
+      }
 
       let agentDef: AgentDefinition | undefined;
       if (params.agentType) {
@@ -214,7 +247,9 @@ export function createSubagentTool(
         }
       }
 
-      const background = params.background === true;
+      // fork implies background DEFAULT true (CC behavior; ticket 02) — an
+      // explicit background param still wins (false forces foreground).
+      const background = params.background !== undefined ? params.background === true : params.fork === true;
       const manager = options.background ?? getBackgroundRunManager();
 
       // The dispatch+finalize tail, wrapped so the background branch can hand
@@ -251,6 +286,13 @@ export function createSubagentTool(
         const capability = params.capability;
         const mainModel = options.getMainModel?.();
         const scopedModels = options.getScopedModels?.();
+        // Fork transcript (ticket 02): rendered HERE, once, pre-spawn — the
+        // getter reads the sessionManager captured at session_start. undefined
+        // getter was already rejected pre-flight above; undefined RENDER means
+        // the parent conversation held no projectable text (fork of an empty
+        // session runs without the block — accurate, not a silent degrade). A
+        // throw inside the getter surfaces as this dispatch's failure.
+        const forkTranscript = params.fork ? options.getParentTranscript?.() : undefined;
         // Shown WHILE the subagent runs, before the resolved model is known.
         const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
 
@@ -314,6 +356,7 @@ export function createSubagentTool(
               agentDef,
               modelCtx: { requestedModel, tier, capability, mainModel, scopedModels },
               spawnCwd,
+              forkTranscript,
               // dispatchChild owns the child controller and overwrites this field;
               // buildSpawnOptions still needs a signal-shaped value for its type.
               childSignal: new AbortController().signal,
@@ -350,7 +393,15 @@ export function createSubagentTool(
                   agentType: params.agentType,
                   registry: liveRegistry,
                 }).then((r) => r.result)
-            : spawn;
+            : params.fork
+              ? // No-fork-recursion (ticket 02): the fork child's ENTIRE lifetime
+                // runs inside the ambient fork-child scope, so the spawn_subagent
+                // definition the child received via the extensionTools bridge
+                // (this same closure) observes isForkChild() and rejects any
+                // nested fork. Depth-inherited: a grandchild spawned from the
+                // fork child is inside the scope too.
+                (o: SpawnSubagentOptions) => runAsForkChild(() => spawn(o))
+              : spawn;
           const outcome = await dispatchChild(
             {
               id: toolCallId,

@@ -3,6 +3,8 @@ import { readAllToolDefinitions } from "@repo/s2-agent-core-interface";
 // Moved to @repo/s2-agent-core-runtime (in-flight registry with the dispatch
 // layer; run persistence with the record layer).
 import {
+  buildForkTranscript,
+  forkTranscriptCap,
   getLiveAgentRegistry,
   getPendingProtocolMap,
   getSubagentInFlightRegistry,
@@ -73,6 +75,12 @@ export default function extension(pi: ExtensionAPI) {
   // Session model scope (--models / enabledModels). Snapshotted at session_start
   // like mainModelHolder; empty means the full catalog, i.e. no clamping.
   const scopedModelsHolder: { current: readonly string[] | undefined } = { current: undefined };
+  // Parent session manager (fork, cc-parity-2 ticket 02): captured at
+  // session_start so a `fork: true` dispatch can project the live conversation
+  // (compaction-aware, char-capped) into the child's prompt. Held lazily — a
+  // host that never fires session_start leaves it unset and fork fails
+  // pre-flight instead of silently inheriting nothing.
+  const sessionManagerHolder: { current: ExtensionContext["sessionManager"] | undefined } = { current: undefined };
 
   const inFlight = getSubagentInFlightRegistry();
   const persistence = getSubagentRunPersistence();
@@ -101,6 +109,15 @@ export default function extension(pi: ExtensionAPI) {
     getExtensionTools: readExtensionTools,
     getMainModel: () => mainModelHolder.current,
     getScopedModels: () => scopedModelsHolder.current,
+    // Fork transcript getter (ticket 02): renders the live parent conversation
+    // on demand. undefined = no sessionManager captured (fork then fails
+    // pre-flight in the tool — never a silent empty inheritance). A projection
+    // throw propagates to the dispatch and fails it with the real error.
+    getParentTranscript: () => {
+      const sm = sessionManagerHolder.current;
+      if (!sm) return undefined;
+      return buildForkTranscript(sm.getEntries(), sm.getLeafId(), forkTranscriptCap());
+    },
     // Parent's gated active set, read lazily at spawn time so a child inherits
     // the freshest ~24-tool gated set (optimization #1), not the full ~55-tool
     // universe. Best-effort: getActiveTools may be unavailable in some hosts.
@@ -284,6 +301,7 @@ export default function extension(pi: ExtensionAPI) {
     // re-reads (the request_plan_approval append rides inside it).
     extensionToolsHolder.current = undefined;
     readExtensionTools();
+    sessionManagerHolder.current = ctx.sessionManager;
     mainModelHolder.current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
     scopedModelsHolder.current = (ctx.scopedModels ?? []).map((sm) => `${sm.model.provider}/${sm.model.id}`);
   });

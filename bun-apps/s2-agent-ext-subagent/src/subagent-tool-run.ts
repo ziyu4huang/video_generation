@@ -394,6 +394,8 @@ export interface SpawnCtx {
     retryOnTransient?: boolean;
     schema?: unknown;
     schemaRepairAttempts?: number;
+    /** fork: true — the dispatch inherits the parent transcript (ticket 02). */
+    fork?: boolean;
   };
   agentDef?: { tools?: string[]; disallowedTools?: string[]; prompt?: string };
   modelCtx: {
@@ -405,6 +407,13 @@ export interface SpawnCtx {
   };
   spawnCwd: string;
   childSignal: AbortSignal;
+  /**
+   * The rendered fork context block (ticket 02), when this dispatch is a fork
+   * AND the parent conversation held projectable text. Composes FIRST — before
+   * the agent-prompt, and ahead of the task's env-hints and abort-safety
+   * footer (which keeps the last word, per the composition discipline below).
+   */
+  forkTranscript?: string;
 }
 export interface SpawnDeps {
   getActiveTools?: () => string[] | undefined;
@@ -429,8 +438,15 @@ export interface SpawnDeps {
 
 export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: SpawnDeps): SpawnSubagentOptions {
   const { params, agentDef, modelCtx, spawnCwd, childSignal, t0, toolCallId } = ctx;
+  // Composition order (ticket 02): fork transcript block FIRST, then the
+  // agent-prompt — the whole instructions prefix precedes the task, whose own
+  // tail order (env-hints before abort-safety, abort-safety last) is unchanged.
   const instructions =
-    [ctx.params.agent ? `You are the ${ctx.params.agent} for this task.` : undefined, agentDef?.prompt]
+    [
+      ctx.forkTranscript,
+      ctx.params.agent ? `You are the ${ctx.params.agent} for this task.` : undefined,
+      agentDef?.prompt,
+    ]
       .filter((s): s is string => Boolean(s))
       .join("\n\n") || undefined;
   const defaultActiveTools = deps.getActiveTools?.();

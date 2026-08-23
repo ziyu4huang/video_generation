@@ -32,7 +32,7 @@ frontmatter `permissionMode` / `maxTurns` / `skills` / `effort` | `tools`/`disal
 `isolation: worktree` | `createWorktree` per dispatch (singular tool only) | aligned | —
 built-in Explore / Plan / general-purpose types | none shipped — user files only | gap | 03
 subagent startup context (CLAUDE.md hierarchy + git status + sibling roster) | CLAUDE.md hierarchy via pi resource-loader; no git status, no roster | partial | 04
-fork mode (inherit full parent conversation) | none (teams-parity D10 excluded it) | gap | 02
+fork mode (inherit full parent conversation) | `fork: true` on `spawn_subagent`: compaction-aware transcript block (24k-char default cap, `SUBAGENT_FORK_TRANSCRIPT_CAP` env, oldest-first truncation), background by default, one level deep (ambient fork-child scope rejects nested forks) | aligned with a deliberate divergence (§3) | 02
 Agent-tool `name` param (addressable agent) | `name` on `spawn_subagent` → LiveAgent registry | aligned | —
 follow-up messaging to live agents | `send_message` (steer when running, re-prompt when idle) | aligned | —
 protocol envelopes `shutdown_request` / `plan_approval_request(_response)` | same envelope names, one `type`-union tool; timeout → DENY | aligned (verified live 2026-08-23, ticket 01 round 3; the child-side tool injection had been silently dead since pi 0.84.2 — fixed the same ticket via `readAllToolDefinitions`; live semantics: the child default-denies after its 5s window, so the parent must answer within it) | —
@@ -71,8 +71,13 @@ cron jitter / one-shot catch-up on session resume | no jitter; missed one-shots 
   child crash still takes the process.
 - **Fork = prompt-borne transcript, not session continuation (D2).** pi's
   `createAgentSession` has no `initialMessages`; a fork child gets the parent
-  transcript as a compacted instructions-prefix block with a char cap. CC forks
-  inherit the live conversation object.
+  transcript (`buildForkTranscript`: compaction-aware, user/assistant text +
+  latest compaction summary only, 24k-char default cap with oldest-first
+  truncation) as a `## Parent conversation (context only, do not continue it)`
+  instructions-prefix block. CC forks inherit the live conversation object.
+  Shipped ticket 02: background by default, no `name`/`agentType`, one level
+  deep (nested forks rejected via the ambient fork-child scope), and a missing
+  transcript source fails pre-flight rather than inheriting nothing silently.
 - **Parent-brokered sibling messaging.** No direct child→child channel (pi has
   no custom-message handler API); siblings route through the parent with relay
   notifications. CC teams message via per-agent mailboxes.
