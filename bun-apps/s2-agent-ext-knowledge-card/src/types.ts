@@ -108,6 +108,12 @@ export interface IngestOptions {
 	 *  LM Studio). Production callers leave this unset — the effective
 	 *  extractor is `resolveExtractor(kgLlm, …)` (Phase-2 T3). */
 	_extractor?: Extractor;
+	/** ticket 08 fold-back (D40): after the writes land, schedule the
+	 *  fingerprint-gated SurrealDB card-index rebuild (fire-and-forget,
+	 *  coalesced, non-fatal on any failure). Default FALSE — production
+	 *  callers (zk_ingest tools/CLI, extract loop) opt in, tests stay
+	 *  hermetic (a rebuild touches the live Surreal service). */
+	indexRebuild?: boolean;
 	/** @internal Test seam: fetch override for the schema-v2 summary LLM
 	 *  condense (over-budget bodies only) so tests can count calls without a
 	 *  live LM Studio. Production callers leave this unset. */

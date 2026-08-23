@@ -375,6 +375,11 @@ export interface ExtractOptions {
 	dryRun?: boolean;
 	/** Chat timeout per attempt (llm-chat.ts pass-through). */
 	timeoutMs?: number;
+	/** ticket 08 fold-back (D40): after the loop's writes land, schedule the
+	 *  fingerprint-gated SurrealDB card-index rebuild (forwarded to the
+	 *  internal ingestRecords + markSuperseded calls). Default FALSE —
+	 *  production trigger sites opt in. */
+	indexRebuild?: boolean;
 	/** Test seam: inject the extractor (default = chatJson via llm-chat.ts). */
 	_llm?: (prompt: string) => Promise<RawExtractItem[] | null>;
 }
@@ -503,6 +508,7 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 				source: "hermes", // the loop's source IS the hermes journal (D28); the extract origin rides the label
 				sourceLabel: `extract:${opts.trigger ?? "on-demand"}`,
 				wikiAware: false,
+				indexRebuild: opts.indexRebuild,
 			});
 			writes = summary.cards.map((c) => ({ cardId: c.id, path: c.path, outcome: c.status }));
 		} catch (e) {
@@ -515,7 +521,7 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 	// Mechanism B: supersede raw upgrade cards (idempotent per card).
 	const superseded: ExtractResult["superseded"] = [];
 	for (const plan of supersedePlan) {
-		const res = markSuperseded(plan.rawCardId, plan.byCardId, opts.vaultPath);
+		const res = markSuperseded(plan.rawCardId, plan.byCardId, opts.vaultPath, { indexRebuild: opts.indexRebuild });
 		superseded.push({ ...plan, found: res.found, updated: res.updated });
 	}
 

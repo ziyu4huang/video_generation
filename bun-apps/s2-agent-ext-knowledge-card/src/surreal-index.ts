@@ -320,7 +320,13 @@ async function insertBatches(client: SurrealClient, table: string, rows: CardInd
 const TABLE_DEFS = [
 	"DEFINE TABLE IF NOT EXISTS relation SCHEMALESS;",
 	"DEFINE TABLE IF NOT EXISTS usage SCHEMALESS;",
+	// ticket 08 (D38): the RecallLedger GROUP BY feed needs a stem index
+	// (`SELECT stem, count() AS n, max(ts) AS last_use FROM usage GROUP BY stem`).
+	"DEFINE INDEX IF NOT EXISTS usage_stem ON TABLE usage COLUMNS stem;",
 ];
+
+/** Default convergence folder (identical to retrieve/ingest defaults). */
+const GRAPH_FOLDER = "Zettelkasten/knowledge-graph";
 
 /** Table + plain indexes — everything EXCEPT the analyzer/FTS/HNSW search
  *  defs. The swap creates `card` with THESE ONLY, bulk-inserts the shadow
@@ -388,6 +394,107 @@ export interface IndexStatus {
 	fingerprint: string | null;
 	cardCount: number;
 	embedModel: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Usage ledger (RecallLedger, D12/D38) — ticket 08's writer + live reader.
+// ---------------------------------------------------------------------------
+
+/**
+ * Append a retrieve access to the `usage` ledger (D12: append-only, no md
+ * counterpart — this is the hotness feed's durable store; D38: aggregates are
+ * read-computed at query time, never replayed onto `card`).
+ *
+ * The writer is self-sufficient: it ensures the table + stem index exist
+ * (idempotent DEFINEs) so a fresh install can log before the first index
+ * rebuild. Batch-stemmed, 24/query (the /sql 1 MiB cap headroom precedent).
+ */
+export async function logUsage(
+	client: SurrealClient,
+	stems: string[],
+	ts = Date.now(),
+): Promise<void> {
+	// Kill-switch (KCARD_* knob family): test/script runs that exercise the
+	// retrieve boundary with the production opts (tool-handler tests, spawned
+	// CLI) never write into the real ledger.
+	if (process.env.KCARD_USAGE_LOG === "0") return;
+	if (stems.length === 0) return;
+	await client.query(
+		[
+			"DEFINE TABLE IF NOT EXISTS usage SCHEMALESS;",
+			"DEFINE INDEX IF NOT EXISTS usage_stem ON TABLE usage COLUMNS stem;",
+			...stems.map((s) => `INSERT INTO usage (stem, ts, kind) VALUES (${JSON.stringify(s)}, ${ts}, "retrieve");`),
+		].join("\n"),
+	);
+}
+
+/** Live per-stem usage aggregates (D38): count + most-recent access, one
+ *  GROUP BY. Returns entries in no particular order; callers use rankWithHotness. */
+export async function usageStats(
+	client: SurrealClient,
+): Promise<Map<string, { count: number; lastUseMs: number | null }>> {
+	const rows = await client.query<Array<{ stem: string; n: number; last_use: number | null }> | null>(
+		"SELECT stem, count() AS n, math::max(ts) AS last_use FROM usage GROUP BY stem;",
+	);
+	const out = new Map<string, { count: number; lastUseMs: number | null }>();
+	for (const r of rows ?? []) {
+		if (!r || typeof r.stem !== "string" || typeof r.n !== "number") continue;
+		out.set(r.stem, { count: r.n, lastUseMs: typeof r.last_use === "number" ? r.last_use : null });
+	}
+	return out;
+}
+
+// ---------------------------------------------------------------------------
+// Post-write rebuild trigger (ticket 08 fold-back, D40)
+// ---------------------------------------------------------------------------
+
+/**
+ * Coalesced fire-and-forget rebuild after card writes — the production path
+ * for `rebuildCardIndex` (until this, only the eval script rebuilt, so the
+ * D36 freshness gate flipped back to flat after every ingest).
+ *
+ * Fingerprint-gated: an unchanged vault skips in ~ms (rebuildCardIndex), and
+ * concurrent triggers coalesce onto one in-flight rebuild. Failure is
+ * NON-fatal by design — the index stays stale and the freshness gate serves
+ * the flat path (the graceful-degrade contract, never a raised error in a
+ * write path). Callers opt in with `indexRebuild: true` so unit tests stay
+ * hermetic (ingest tests would otherwise hit the live Surreal service).
+ */
+let pendingRebuild: Promise<RebuildResult | null> | null = null;
+export function scheduleCardRebuild(args: {
+	vaultPath: string;
+	folder?: string;
+	model?: string;
+}): Promise<RebuildResult | null> {
+	// Global kill-switch (BUN_PI_* knob family — symmetric with the ext's own
+	// BUN_PI_KNOWLEDGE_CARD=0): test/script runs that exercise the write path
+	// but must NOT touch the live index set this (e2e-orchestration does).
+	if (process.env.KCARD_INDEX_REBUILD === "0") return Promise.resolve(null);
+	if (!pendingRebuild) {
+		pendingRebuild = (async () => {
+			try {
+				// Long timeout: a real rebuild embeds + bulk-inserts the whole
+				// vault (~minutes on a cold embed cache); the client default
+				// 10s would abort mid-swap and leave a partial index (recorded
+				// fog — the freshness gate still degrades to flat).
+				const client = makeContextClient({ requestTimeoutMs: 180_000 });
+				return await rebuildCardIndex({
+					client,
+					vaultPath: args.vaultPath,
+					folder: args.folder ?? GRAPH_FOLDER,
+					model: args.model ?? resolveCardEmbedModel(),
+				});
+			} catch (e) {
+				console.warn(
+					`[kcard] post-write index rebuild failed: ${e instanceof Error ? e.message : String(e)} — index stays stale, the freshness gate serves flat`,
+				);
+				return null;
+			} finally {
+				pendingRebuild = null;
+			}
+		})();
+	}
+	return pendingRebuild;
 }
 
 export async function indexStatus(client: SurrealClient): Promise<IndexStatus> {

@@ -127,6 +127,11 @@ beforeEach(async () => {
 	savedVaultEnv = process.env.OB_VAULT_PATH;
 	process.env.OB_VAULT_PATH = vault;
 	mkdirSync(join(vault, "Tags"), { recursive: true });
+	// ticket 08 D40 kill-switch: the zk_ingest tool handler opts into the
+	// post-write index rebuild — this suite must never touch the live
+	// SurrealDB index from a temp vault. Same for the usage-ledger echo.
+	process.env.KCARD_INDEX_REBUILD = "0";
+	process.env.KCARD_USAGE_LOG = "0";
 });
 
 afterEach(async () => {

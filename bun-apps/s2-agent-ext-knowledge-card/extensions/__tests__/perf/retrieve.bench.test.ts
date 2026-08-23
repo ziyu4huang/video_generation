@@ -26,7 +26,10 @@ afterAll(() => rmSync(vault, { recursive: true, force: true }));
 
 describe("knowledge-card retrieve latency", () => {
   test("retrieveRecords(tags) p95 < 50ms", async () => {
-    const opts: RetrieveOptions = { vaultPath: vault, tags: ["bench"] };
+    // hotness:false — the bench pins the PURE-CPU retrieval path; the ticket 08
+    // default-on fold adds a live Surreal usage read (~10-30ms) that belongs to
+    // the store layer, not the CPU path this bench measures.
+    const opts: RetrieveOptions = { vaultPath: vault, tags: ["bench"], hotness: false };
     const result = await benchLatency("retrieveRecords(tags=[bench])", () =>
       Promise.resolve(retrieveRecords(opts)),
     );

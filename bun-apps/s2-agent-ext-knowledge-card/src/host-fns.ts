@@ -82,6 +82,10 @@ export function buildRetrieveOptions(args: ZkRetrieveArgs, vaultPath: string): R
     queryText: args.query ?? "",
     includeTrace: args.trace === true,
     type: args.type,
+    // ticket 08 D38: the served cards are real accesses — echo them into the
+    // usage ledger (the hotness feed). Production boundary of the retrieve
+    // path; bare library callers (eval harness, unit tests) stay off.
+    usageLog: true,
   };
 }
 

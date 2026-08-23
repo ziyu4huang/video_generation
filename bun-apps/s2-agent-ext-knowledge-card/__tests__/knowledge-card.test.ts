@@ -1,4 +1,9 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+
+// ticket 08 D38 kill-switch: the knowledge_query tool opt-in echoes served
+// cards into the usage ledger — this suite never writes the real ledger from
+// a temp vault.
+process.env.KCARD_USAGE_LOG = "0";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

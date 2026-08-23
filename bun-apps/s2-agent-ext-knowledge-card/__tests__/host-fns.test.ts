@@ -1,5 +1,10 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
+
+// ticket 08 D38 kill-switch: zkRetrieve opts into the usage ledger (the
+// production boundary) — this suite never writes the real ledger from a
+// temp vault.
+process.env.KCARD_USAGE_LOG = "0";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

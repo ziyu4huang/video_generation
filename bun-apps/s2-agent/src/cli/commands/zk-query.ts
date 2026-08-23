@@ -161,6 +161,8 @@ Examples:
 			tags,
 			excludeIds,
 			topK,
+			// ticket 08 D38: the CLI retrieve is a production access path.
+			usageLog: true,
 		});
 
 		if (parsed.json || parsed.mode === "json") {

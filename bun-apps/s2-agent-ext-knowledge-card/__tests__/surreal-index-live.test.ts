@@ -17,7 +17,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SurrealClient, SURREAL_DEFAULTS } from "@repo/s2-agent-core-interface";
-import { rebuildCardIndex, indexStatus, makeContextClient } from "../src/surreal-index.ts";
+import { rebuildCardIndex, indexStatus, makeContextClient, logUsage, usageStats } from "../src/surreal-index.ts";
+import { retrieveRecords } from "../src/retrieve.ts";
 import { hierarchicalRetrieve } from "../src/hierarchical-retrieval.ts";
 import type { Embedder } from "../src/semantic.ts";
 
@@ -244,5 +245,75 @@ localDescribe("kcard SurrealDB index (live)", () => {
 		expect(res.ok).toBe(true);
 		expect(res.trace!.semanticLane).toBe(false);
 		expect(res.cards.map((c) => c.stem)).toContain("leaf-x");
+	});
+});
+
+localDescribe("kcard usage ledger + hotness fold (ticket 08, live)", () => {
+	// Shares the module-level vault/ns/client (the helper fixtures above) —
+	// each test gets a fresh throwaway ns from the beforeEach below.
+	beforeEach(() => {
+		vault = mkdtempSync(join(tmpdir(), "kcard-hot-live-"));
+		mkdirSync(join(vault, FOLDER), { recursive: true });
+		nonce += 1;
+		ns = `kcard_hot_${process.pid}_${nonce}`;
+		client = makeContextClient({ namespace: ns, database: "context_db" });
+	});
+	afterEach(async () => {
+		rmSync(vault, { recursive: true, force: true });
+		try {
+			await client.query(`REMOVE NAMESPACE ${client.namespace};`);
+		} catch {
+			// already gone
+		}
+	});
+
+	test("logUsage → usageStats round trip; live ledges feed the D37 fold through retrieveRecords", async () => {
+		// NOTE the fm: the D27 hier lane HYDRATES through the flat md-read path,
+		// which needs a non-empty (id + tags) frontmatter — the raw-body
+		// `leaf()` fixtures below would hydrate to nothing.
+		leaf("leaf-a", "quantized lora noise", "body about quantization noise in lora adapters", { id: "leaf-a", tags: "[quantization]" });
+		leaf("leaf-b", "face swap pipeline", "body about face swap compositing from source video", { id: "leaf-b", tags: "[face]" });
+		await rebuildCardIndex({ client, vaultPath: vault, folder: FOLDER, embedder: hashEmbedder() });
+
+		// Writer round trip (the same rows recordUsage appends in production).
+		const ts = Date.now() - 86_400_000; // 1d ago — deterministic-ish
+		await logUsage(client, ["leaf-a", "leaf-a", "leaf-b"], ts);
+		const stats = await usageStats(client);
+		expect(stats.get("leaf-a")).toEqual({ count: 2, lastUseMs: ts });
+		expect(stats.get("leaf-b")).toEqual({ count: 1, lastUseMs: ts });
+
+		// End-to-end: retrieveRecords with the LIVE hierarchy + the LIVE ledger
+		// aggregates injected through the test seam (the throwaway-ns client).
+		const r = await retrieveRecords({
+			vaultPath: vault,
+			folder: FOLDER,
+			tags: ["quantization"],
+			queryText: "quantized lora noise",
+			topK: 4,
+			semantic: true,
+			_testEmbedder: hashEmbedder(),
+			_hierClient: client,
+			_usageStats: stats,
+			includeTrace: true,
+		});
+		expect(r.trace?.hierUsed).toBe(true);
+		expect(r.trace?.hotnessUsed).toBe(true);
+		// leaf-a accessed twice (freq 3/4) + anchor = the freshly-written mtime
+		// (D39 max(mtime, last_use) → decay ≈ 1) → h ≈ 0.75 — boosted; leaf-b
+		// once → freq 2/3 — lower. Provenance proves the fold.
+		const a = r.trace?.cards.find((c) => c.id === "leaf-a");
+		const b = r.trace?.cards.find((c) => c.id === "leaf-b");
+		expect(a).toBeDefined();
+		expect(b).toBeDefined();
+		expect(a!.hotness).toBeGreaterThan(0.7);
+		expect(a!.hotness).toBeCloseTo(0.75, 1);
+		expect(b!.hotness).toBeCloseTo(2 / 3, 1);
+		expect(b!.hotness).toBeLessThan(a!.hotness!);
+		// D37 bound (unit-pinned in hotness.test.ts): every folded score stays
+		// within ±10% of its pre-fold value — re-assert via h: factor = 1+β(2h−1).
+		expect(a!.score).toBeGreaterThan(0);
+		const factor = 1 + 0.1 * (2 * a!.hotness! - 1);
+		expect(factor).toBeGreaterThanOrEqual(0.9);
+		expect(factor).toBeLessThanOrEqual(1.1);
 	});
 });

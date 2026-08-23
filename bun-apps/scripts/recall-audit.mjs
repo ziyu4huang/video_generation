@@ -59,6 +59,13 @@ const { values: args } = parseArgs({
 		"surreal-namespace": { type: "string" },
 		semantic: { type: "string", default: "on" },
 		"test-embedder": { type: "boolean", default: false },
+		// ticket 08: --hotness on measures the kcard arm with the D37 bounded
+		// fold armed (and --warmup n real accesses playing through the ledger
+		// first — the honest "usage feed" for the A/B). Default off: the arm
+		// pins hotness:false explicitly, so a KCARD_HOTNESS_DEFAULT flip in
+		// the environment never leaks into a "baseline" receipt.
+		hotness: { type: "string", default: "off" },
+		warmup: { type: "string", default: "1" },
 		receipt: { type: "string" },
 		help: { type: "boolean", default: false },
 	},
@@ -76,6 +83,10 @@ if (args.help) {
   --surreal-namespace <n> default: per-user derivation (tests isolate a throwaway ns)
   --semantic on|off       kcard semantic blend (default on; graceful lexical fallback)
   --test-embedder         deterministic hashing embedder (offline/CI; skips availability check)
+  --hotness on|off        kcard D37 bounded fold on the measured arm (default off;
+                          off pins hotness:false — env flip never leaks into a baseline)
+  --warmup <n>            with --hotness on: n rounds of battery accesses played through
+                          the usage ledger BEFORE measuring (the honest feed; default 1)
   --receipt <path>        JSON receipt path (default output/recall-audit/receipt-<ts>.json)`);
 	process.exit(0);
 }
@@ -181,7 +192,7 @@ const receipt = {
 // ── arm 1: hermes journal (SurrealDB, SELECT-only) ─────────────────────────
 
 if (ARMS.has("journal")) {
-	const { SurrealClient } = await import("../s2-agent-ext-hermes-memory/src/store/surreal/surreal-client.ts");
+	const { SurrealClient } = await import("@repo/s2-agent-core-interface");
 	const { derivePerUserNamespace } = await import("../s2-agent-ext-hermes-memory/src/store/surreal/per-user-db.ts");
 	const client = new SurrealClient({
 		endpoint: args["surreal-endpoint"],
@@ -215,6 +226,27 @@ if (ARMS.has("journal")) {
 	}
 }
 
+let cardIndexShared = null;
+async function ensureCardIndex() {
+	if (cardIndexShared) return cardIndexShared;
+	if (!args.vault) {
+		console.error("kcard-hier / kcard-flat-vector arms require --vault <path>");
+		process.exit(2);
+	}
+	const { makeContextClient, rebuildCardIndex } = await import("../s2-agent-ext-knowledge-card/src/surreal-index.ts");
+	const client = makeContextClient({
+		endpoint: args["surreal-endpoint"],
+		...(args["surreal-namespace"] ? { namespace: args["surreal-namespace"] } : {}),
+		requestTimeoutMs: 60_000,
+	});
+	// --test-embedder wires the SAME deterministic hashing embedder into the
+	// Surreal arms (offline/CI fixture runs) as into the kcard arm.
+	const testEmb = args["test-embedder"] ? { embedder: makeTestEmbedder() } : {};
+	const build = await rebuildCardIndex({ client, vaultPath: args.vault, folder: args.folder, ...testEmb });
+	cardIndexShared = { client, build, testEmbedder: testEmb.embedder ?? null };
+	return cardIndexShared;
+}
+
 // ── arm 2: kcard retrieveRecords (vault convergence folder) ────────────────
 
 if (ARMS.has("kcard")) {
@@ -238,6 +270,53 @@ if (ARMS.has("kcard")) {
 		e._absent = !files.some((n) => targets.some((t) => n.toLowerCase().includes(t)));
 	}
 
+	// ticket 08 A/B surface (D38): --hotness on plays `--warmup` rounds of the
+	// battery through the real usage writer FIRST (honest accesses), then
+	// measures the kcard arm with the D37 bounded fold armed against the
+	// aggregates. Reads + writes go through a namespace-scoped client so the
+	// A/B never touches the real ledger (pass --surreal-namespace for a
+	// throwaway ns — same isolation as the hier arms).
+	const hotnessOn = args.hotness === "on";
+	const warmupN = hotnessOn ? Math.max(0, Number(args.warmup ?? "1")) : 0;
+	const usrClient = hotnessOn ? (await import("../s2-agent-ext-knowledge-card/src/surreal-index.ts")) : null;
+	let hotnessStats = new Map();
+	if (hotnessOn) {
+		const { makeContextClient, logUsage, usageStats } = usrClient;
+		const ucl = makeContextClient({
+			endpoint: args["surreal-endpoint"],
+			...(args["surreal-namespace"] ? { namespace: args["surreal-namespace"] } : {}),
+			requestTimeoutMs: 60_000,
+		});
+		if (warmupN > 0) {
+			for (let w = 0; w < warmupN; w++) {
+				for (const e of battery.kcard ?? []) {
+					const res = await retrieveRecords({
+						vaultPath: args.vault,
+						folder: args.folder,
+						tags: tokenize(e.q),
+						queryText: e.q,
+						topK: K,
+						bodyMatch: true,
+						slugDom: true,
+						semantic: SEMANTIC,
+						includeTrace: true,
+						hotness: false,
+						usageLog: false,
+						...(args["test-embedder"] ? { _testEmbedder: makeTestEmbedder() } : {}),
+						// D36 default lane: keep the same index (and throwaway ns)
+						// the hier arms / the A/B use — hermetic in CI, and
+						// apples-to-apples when a namespace is named for a
+						// bounded-A/B (OFF vs ON must share ONE index).
+						...(args["test-embedder"] || hotnessOn || args["surreal-namespace"] ? { _hierClient: (await ensureCardIndex()).client } : {}),
+					});
+					const stems = (res.trace?.cards ?? []).map((c) => c.path.split("/").pop()).filter(Boolean);
+					if (stems.length > 0) await logUsage(ucl, stems);
+				}
+			}
+		}
+		hotnessStats = await usageStats(ucl);
+	}
+
 	let semanticUsedOnce = false;
 	const scored = await scoreArm(battery.kcard ?? [], async (q) => {
 		const result = await retrieveRecords({
@@ -250,7 +329,12 @@ if (ARMS.has("kcard")) {
 			slugDom: true,
 			semantic: SEMANTIC,
 			includeTrace: true,
+			// Explicit pin — the measurement must not ride an env default flip.
+			hotness: hotnessOn,
+			usageLog: false,
+			...(hotnessOn ? { _usageStats: hotnessStats } : {}),
 			...(args["test-embedder"] ? { _testEmbedder: makeTestEmbedder() } : {}),
+			...(args["test-embedder"] || hotnessOn || args["surreal-namespace"] ? { _hierClient: (await ensureCardIndex()).client } : {}),
 		});
 		if (result.trace?.semanticUsed) semanticUsedOnce = true;
 		// Rank key = "card-id :: path" so target matching can hit either side.
@@ -268,6 +352,9 @@ if (ARMS.has("kcard")) {
 			absentQueries: (battery.kcard ?? []).filter((e) => !e.negative && e._absent).map((e) => e.q),
 		},
 		semanticUsed: semanticUsedOnce,
+		hotness: hotnessOn
+			? { on: true, warmupRounds: warmupN, feedStems: [...hotnessStats.keys()].length }
+			: { on: false },
 		...scored,
 		metricsTargetPresent: metricsTargetPresent(scored),
 	};
@@ -279,26 +366,7 @@ if (ARMS.has("kcard")) {
 // The two Surreal arms share ONE index build (memoized — the fingerprint skip
 // makes a warm rebuild cheap, but the first build embeds the whole folder).
 
-let cardIndexShared = null;
-async function ensureCardIndex() {
-	if (cardIndexShared) return cardIndexShared;
-	if (!args.vault) {
-		console.error("kcard-hier / kcard-flat-vector arms require --vault <path>");
-		process.exit(2);
-	}
-	const { makeContextClient, rebuildCardIndex } = await import("../s2-agent-ext-knowledge-card/src/surreal-index.ts");
-	const client = makeContextClient({
-		endpoint: args["surreal-endpoint"],
-		...(args["surreal-namespace"] ? { namespace: args["surreal-namespace"] } : {}),
-		requestTimeoutMs: 60_000,
-	});
-	// --test-embedder wires the SAME deterministic hashing embedder into the
-	// Surreal arms (offline/CI fixture runs) as into the kcard arm.
-	const testEmb = args["test-embedder"] ? { embedder: makeTestEmbedder() } : {};
-	const build = await rebuildCardIndex({ client, vaultPath: args.vault, folder: args.folder, ...testEmb });
-	cardIndexShared = { client, build, testEmbedder: testEmb.embedder ?? null };
-	return cardIndexShared;
-}
+
 
 const hierTargetMatch = (id, e) => {
 	const targets = (e.vaultTargets ?? []).map((t) => t.toLowerCase());

@@ -134,6 +134,8 @@ Examples:
 			folder: parsed.folder,
 			dryRun: parsed.dryRun === true,
 			linkWeighting: parsed.linkWeighting === "idf" ? "idf" : "count",
+			// ticket 08 fold-back (D40): post-write index rebuild.
+			indexRebuild: true,
 		});
 		summary.parseErrors.push(...parseErrors);
 		console.log(formatSummary(summary));

@@ -18,6 +18,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
+import { scheduleCardRebuild } from "./surreal-index.ts";
 import { yamlScalar } from "./card-format.ts";
 
 const GRAPH_FOLDER = "Zettelkasten/knowledge-graph";
@@ -31,17 +32,25 @@ export interface SupersedeResult {
 	path?: string;
 }
 
+/** ticket 08 fold-back (D40): post-write index-rebuild opt-in (see
+ *  IngestOptions.indexRebuild — production callers only). */
+export interface SupersedeOptions {
+	indexRebuild?: boolean;
+}
+
 /**
  * Mark the card with `cardId` as superseded by `supersededById`.
  *
  * @param cardId          the raw card id to retire (e.g. `pi-memory:failure:<hash>`).
  * @param supersededById  the curated card id that replaces it (e.g. `distill:<slug>`).
  * @param vaultPath       the Obsidian vault root.
+ * @param opts            ticket 08 D40 post-write rebuild opt-in.
  */
 export function markSuperseded(
 	cardId: string,
 	supersededById: string,
 	vaultPath: string,
+	opts?: SupersedeOptions,
 ): SupersedeResult {
 	const dir = join(vaultPath, GRAPH_FOLDER);
 	if (!existsSync(dir)) return { found: false, updated: false };
@@ -73,5 +82,11 @@ export function markSuperseded(
 
 	const out = `---\n${fm}\n---` + raw.slice(fmMatch[0].length);
 	writeFileSync(targetPath, out);
+	// ticket 08 fold-back (D40): in-place supersede edits keep the md count
+	// stable (the D36 freshness gate's count check is blind to them) — an
+	// opt-in post-write rebuild closes that bounded-fog gap.
+	if (opts?.indexRebuild === true) {
+		scheduleCardRebuild({ vaultPath });
+	}
 	return { found: true, updated: true, path: targetPath };
 }

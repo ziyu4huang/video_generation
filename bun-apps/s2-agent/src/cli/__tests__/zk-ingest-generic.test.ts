@@ -22,6 +22,10 @@ import { join } from "node:path";
 import { zkIngestCommand } from "../commands/zk-ingest.ts";
 import type { ParsedArgs } from "../args.ts";
 
+// ticket 08 D40 kill-switch: the CLI opts into the post-write index rebuild —
+// this suite never touches the live SurrealDB index from a temp vault.
+process.env.KCARD_INDEX_REBUILD = "0";
+
 let vault: string;
 let mdFile: string;
 

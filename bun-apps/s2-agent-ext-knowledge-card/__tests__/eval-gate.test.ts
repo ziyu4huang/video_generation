@@ -137,6 +137,14 @@ liveDescribe("recall-audit three arms (fixture corpus, temp Surreal ns)", () => 
 	test("all three arms run, report metrics, and the body/stem lanes retrieve their targets", () => {
 		// import.meta.dir = <pkg>/__tests__ → ../../.. = bun-apps/scripts.
 		const script = join(import.meta.dir, "..", "..", "scripts", "recall-audit.mjs");
+		// Scratch the KCARD_* overrides: bun workers run test files
+		// sequentially in one process, so a sibling file's module-top
+		// `KCARD_USAGE_LOG=0` (tool-boundary suites) would otherwise leak into
+		// this subprocess and silently disable exactly what this fixture pins.
+		const env = { ...process.env };
+		delete env.KCARD_USAGE_LOG;
+		delete env.KCARD_INDEX_REBUILD;
+		delete env.KCARD_HOTNESS_DEFAULT;
 		const proc = spawnSync(
 			"bun",
 			[
@@ -147,8 +155,12 @@ liveDescribe("recall-audit three arms (fixture corpus, temp Surreal ns)", () => 
 				"--receipt", receiptFile,
 				"--surreal-namespace", ns,
 				"--test-embedder",
+				// ticket 08: pin the D37 fold code path in CI (warmup plays the
+				// battery through the throwaway-ns usage ledger first).
+				"--hotness", "on",
+				"--warmup", "1",
 			],
-			{ encoding: "utf8", timeout: 120_000 },
+			{ encoding: "utf8", timeout: 120_000, env },
 		);
 		expect(proc.status).toBe(0);
 		const receipt = JSON.parse(readFileSync(receiptFile, "utf8"));
@@ -160,5 +172,8 @@ liveDescribe("recall-audit three arms (fixture corpus, temp Surreal ns)", () => 
 		// Body lane end-to-end: the body-only token query must hit in hier.
 		const bodyQuery = receipt["kcard-hier"].perQuery.find((p: { q: string }) => p.q.includes("zephyr"));
 		expect(bodyQuery.rank).toBe(1);
+		// ticket 08: the kcard arm measured with the fold armed + a fed ledger.
+		expect(receipt.kcard.hotness).toEqual({ on: true, warmupRounds: 1, feedStems: expect.any(Number) });
+		expect(receipt.kcard.hotness.feedStems).toBeGreaterThan(0);
 	}, 180_000);
 });
