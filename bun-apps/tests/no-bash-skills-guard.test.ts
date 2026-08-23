@@ -213,8 +213,11 @@ function shTokens(content: string, path: string): { term: string; line: number }
 /** Live-script resolution: repo-root/bun-apps-relative, plus the D7 core run.sh. */
 function resolvesOnDisk(token: string): boolean {
   if (token.includes("/")) return existsSync(resolve(REPO_ROOT, token)) || existsSync(resolve(BUN_APPS, token));
-  // D7 (spec.md): `run.sh` is the s2-agent core bootstrap and stays bash.
-  return token === "run.sh" && existsSync(join(BUN_APPS, "s2-agent", "run.sh"));
+  // Bare token: a top-level launcher (s2-agent.sh — a tracked repo-root symlink
+  // kept live by the deploy effort) resolves against the repo root, so
+  // existence is the test. D7 (spec.md) remains: `run.sh` is the s2-agent core
+  // bootstrap and only exists at bun-apps/s2-agent/run.sh, not at the root.
+  return existsSync(resolve(REPO_ROOT, token)) || (token === "run.sh" && existsSync(join(BUN_APPS, "s2-agent", "run.sh")));
 }
 
 function isD6(token: string, docPath: string): boolean {
@@ -468,6 +471,13 @@ describe("negative controls — the scanners detect what they must", () => {
   test("a live-script doc mention is accepted", () => {
     const hits = scanDocsSurface([
       { ...VIRTUAL_DOC, content: "# Example\n\nUse `scripts/ci-file-size-guard.sh`…\n" },
+    ]);
+    expect(hits).toEqual([]);
+  });
+
+  test("a bare root launcher (s2-agent.sh) doc mention is accepted", () => {
+    const hits = scanDocsSurface([
+      { ...VIRTUAL_DOC, content: "# Example\n\n`current` points at — s2-agent.sh --help boot…\n" },
     ]);
     expect(hits).toEqual([]);
   });
