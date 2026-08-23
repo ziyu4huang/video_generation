@@ -139,7 +139,7 @@ jobs:
           # Was KNOWN RED through 2026-08-12 (useTemplate drift in
           # src/__tests__/settings.test.ts from #1228). Fixed — the lint was
           # fixed rather than the row weakened, as that note demanded. Green as
-          # of the ci-local.sh matrix run.
+          # of the ci-local.sh matrix run (pre-port).
           - { package: s2-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: s2-agent-ext-superpowers, test-cmd: "bun run test" }
           # sv-analyzer: the s2-agent face of dsh-plugin/sv-analyzer — its
@@ -217,7 +217,7 @@ jobs:
           # (noUnusedVariables in src/subagents-command.ts from #1013,
           # noNonNullAssertion in tests/install-subagent-context-widget.test.ts
           # from #1078). Fixed — the lint was fixed rather than the row
-          # weakened. Green as of the ci-local.sh matrix run.
+          # weakened. Green as of the ci-local.sh matrix run (pre-port).
           - { package: s2-agent-ext-subagent, test-cmd: "bun run test" }
           # s2-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
           # uses bun:sqlite via the BunCompatDatabase shim in src/store/db.ts;
@@ -548,7 +548,7 @@ jobs:
       # s2-agent-core-runtime was created by #1251 and never got a row).
       # Asserts: every matrix row names a real package, every path this workflow
       # shells out to resolves, and every bun-apps/* package has a matrix row.
-      # Reads the matrix through scripts/ci-local.sh --tsv — the ONE parser — so
+      # Reads the matrix through scripts/ci-local.ts --tsv — the ONE parser — so
       # no second copy of the matrix can drift.
       - name: CI-workflow reference guard (matrix ↔ tree, blocks)
         working-directory: bun-apps

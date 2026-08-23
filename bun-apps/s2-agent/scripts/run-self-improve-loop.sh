@@ -10,7 +10,7 @@
 # runWorkflow DIRECTLY via self-improve-loop.driver.ts: synchronous, no router
 # fragility, result returned in full.
 #
-# OPT-IN: spends real GPU + VLM tokens. NOT wired into run-test.sh / CI.
+# OPT-IN: spends real GPU + VLM tokens. NOT wired into run-test.ts / CI.
 #
 # USAGE
 #   bash bun-apps/s2-agent/scripts/run-self-improve-loop.sh              # default = first pose

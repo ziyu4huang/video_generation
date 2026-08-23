@@ -34,7 +34,7 @@ bun-apps/s2-agent/run.sh -e workflow -p \
 ```
 
 Opt-in — it spends LLM tokens and is non-deterministic, so it is NOT part of CI's
-`run-test.sh`.
+`run-test.ts`.
 
 ## Why the workflow drives the CLI, not the `flux2` tool
 

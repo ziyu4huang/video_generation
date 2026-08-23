@@ -726,7 +726,7 @@ export default function (pi: ExtensionAPI): void {
 	// deploy_pi_agent_sh + verify_pi_agent_deploy — absorbed from the former standalone deploy
 	// extension. Each tool keeps its OWN owner-declared gating keywords
 	// verbatim (NOT conflated with the devops PR/merge keywords above); the
-	// tools wrap src/deploy/run.ts + scripts/run-test.sh (single source of truth);
+	// tools wrap src/deploy/run.ts + scripts/run-test.ts (single source of truth);
 	// pi_verify resolves the source s2-agent dir at runtime (src/deploy-run.ts),
 	// while pi_deploy calls runShDeploy directly.
 	// ────────────────────────────────────────────────────────────────────
@@ -785,15 +785,15 @@ export default function (pi: ExtensionAPI): void {
 		name: "verify_pi_agent_deploy",
 		// Owner-declared gating — mirrored from deploy_pi_agent_sh (same hardcoded gate).
 		gating: { gate: "deploy_pi_agent_sh" }, // reference form (ticket 01) — shared family (deploy_pi_agent_sh + verify_pi_agent_deploy)
-		label: "Verify s2-agent (run-test.sh tier)",
+		label: "Verify s2-agent (run-test.ts tier)",
 		description:
-			"Run a s2-agent run-test.sh tier (quick|medium|full; default medium) and report per-step pass/fail. " +
+			"Run a s2-agent run-test.ts tier (quick|medium|full; default medium) and report per-step pass/fail. " +
 			"full = medium plus the live local-LLM smoke and the sibling-package baseline. Returns steps, exit code, and a log path.",
 		parameters: Type.Object({
 			tier: Type.Optional(
 				StringEnum(
 					["quick", "medium", "full"] as const,
-					{ description: "run-test.sh tier. Default: medium.", default: "medium" },
+					{ description: "run-test.ts tier. Default: medium.", default: "medium" },
 				),
 			),
 			bail: Type.Optional(Type.Boolean({ description: "Stop on first failure (--bail). Default: false.", default: false })),

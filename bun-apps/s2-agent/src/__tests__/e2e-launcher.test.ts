@@ -17,7 +17,7 @@
  * does. They inherited a cost gate for a cost they do not have.
  *
  * What that inheritance cost, measured: PI_AGENT_E2E=1 is set only by
- * run-test.sh at the `medium`+ tiers, which only the `deploy-verify` job runs
+ * run-test.ts at the `medium`+ tiers, which only the `deploy-verify` job runs
  * — a job in `ci.yml.disabled` (GitHub Actions does not run in this repo) and
  * conditional on changed deploy paths besides. `run_local_ci`, the only CI that
  * executes here, derives its gate list from the `regression-gates` job alone

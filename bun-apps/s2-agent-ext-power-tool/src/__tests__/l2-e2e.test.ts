@@ -166,7 +166,7 @@ function invokeTool(prompt: string, timeoutMs = 120_000): { exitCode: number; st
 const l2Enabled = process.env.PI_RUN_L2 === "1" && process.env.PI_SKIP_L2 !== "1";
 
 // PI_REQUIRE_L2=1 turns a blocked L2 test into a hard failure instead of a
-// skip — used by run-test.sh's `full` tier so a down LM Studio/vault-mind
+// skip — used by run-test.ts's `full` tier so a down LM Studio/vault-mind
 // fails the run rather than silently passing via skip.
 const requireL2 = process.env.PI_REQUIRE_L2 === "1";
 

@@ -13,7 +13,7 @@
  *
  * WHY A DEDICATED GATE (PI_AGENT_E2E_IMAGE=1)
  *   This spends LLM tokens and minutes (loads a 9B model per generation). It is
- *   deliberately NOT part of PI_AGENT_E2E / run-test.sh / CI. Opt in via
+ *   deliberately NOT part of PI_AGENT_E2E / run-test.ts / CI. Opt in via
  *   `bash bun-apps/s2-agent/scripts/run-image-agent-e2e.sh`. A flaky model reply
  *   must never fail a build.
  *
@@ -180,7 +180,7 @@ describe.skipIf(!IMAGE_E2E_ENABLED)("e2e: image agent — real model drives flux
 // Always-on no-op when the gate is off, so `bun test` reports the skip reason
 // instead of looking like the file doesn't exist.
 describe.skipIf(IMAGE_E2E_ENABLED)("e2e: image agent (set PI_AGENT_E2E_IMAGE=1 to enable)", () => {
-  test("opt-in only — never runs in CI / run-test.sh", () => {
+  test("opt-in only — never runs in CI / run-test.ts", () => {
     expect(IMAGE_E2E_ENABLED).toBe(false);
   });
 });

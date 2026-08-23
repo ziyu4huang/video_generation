@@ -2,7 +2,7 @@
  * deploy-argv.ts — PURE param→argv mapping for the verify tool.
  *
  * Isolated from spawning so the flag/positional ordering is unit-tested without
- * running a multi-minute suite. run-test.sh takes the tier as its first
+ * running a multi-minute suite. run-test.ts takes the tier as its first
  * positional + optional forwarded flags (--bail).
  *
  * The deploy half (DeployMode / buildDeployArgv) went with the four legacy
@@ -16,7 +16,7 @@ export interface VerifyParams {
 	bail?: boolean;
 }
 
-/** Build the argv tail for `./run-test.sh` (NOT including the script path). */
+/** Build the argv tail for `run-test.ts` (NOT including the script path). */
 export function buildVerifyArgv(params: VerifyParams = {}): string[] {
 	const argv: string[] = [params.tier ?? "medium"];
 	if (params.bail) argv.push("--bail");

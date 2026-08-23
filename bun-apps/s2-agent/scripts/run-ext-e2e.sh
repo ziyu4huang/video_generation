@@ -4,7 +4,7 @@
 #
 # Discovers bun-apps/s2-agent-ext-*/workflows/test-*-e2e.js and runs each via the
 # s2-agent `workflow` tool. OPT-IN: this spends LLM tokens and is non-deterministic,
-# so it is deliberately NOT wired into run-test.sh / CI. See PRD.md (L2 layer).
+# so it is deliberately NOT wired into run-test.ts / CI. See PRD.md (L2 layer).
 #
 # WHY A SEPARATE RUNNER
 #   The `workflow` tool takes a `script` STRING (no file-path param), so each

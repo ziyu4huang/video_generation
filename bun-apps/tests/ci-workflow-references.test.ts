@@ -21,14 +21,14 @@
  *      cannot be invisible to CI.
  *   4. The `determinism-spotcheck` matrix and the package list inside
  *      scripts/test-determinism-spotcheck.sh name the same real packages.
- *   5. run-test.sh's `full`-tier sibling list names real packages.
+ *   5. run-test.ts's `full`-tier sibling list names real packages.
  *   6. Every `--flag` a shell script passes to deploy.ts is one deploy.ts knows.
  *
  * WHY 4-6 EXIST (shell scripts, not the workflow)
  *   The same rot lives in shell. Three confirmed instances, none of which the
  *   workflow scanner above can see, because the reference is a bare NAME rather
  *   than a path:
- *     - run-test.sh's `full` tier looped over `pi-obsidian` / `pi-knowledge-card`
+ *     - run-test.ts's `full` tier looped over `pi-obsidian` / `pi-knowledge-card`
  *       — directories that have never existed — and a skip-if-absent branch
  *       swallowed both, so a 3-package baseline tested 1 and reported green.
  *     - (historical) verify-deploy.sh step 5 called `deploy.ts --verify --writable`; deploy.ts
@@ -43,17 +43,19 @@
  *       never runs (matrix-only) or exits 2 (script-only).
  *
  * ONE PARSER, NOT TWO
- *   The matrix is read by shelling out to `scripts/ci-local.sh --tsv` — the local
- *   runner's OWN parse of the workflow. This file deliberately carries no copy of
- *   the matrix and no second matrix parser: a second hand-maintained copy is the
- *   exact failure mode being guarded against. A side effect worth having: this
- *   also proves ci-local.sh's parser still works, and assertion 0 below cross-
- *   checks its row count against an independent YAML parse of the same file, so
- *   a parser that silently starts dropping rows is caught too.
+ *   The matrix is read by shelling out to `bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --tsv`
+ *   — the local runner's OWN parse of the workflow. This file deliberately
+ *   carries no copy of the matrix and no second matrix parser: a second
+ *   hand-maintained copy is the exact failure mode being guarded against. A
+ *   side effect worth having: this also proves ci-local.ts's parser still
+ *   works, and assertion 0 below cross-checks its row count against an
+ *   independent YAML parse of the same file, so a parser that silently starts
+ *   dropping rows is caught too.
  *
- * PORTABILITY-GUARDED: this test spawns `bash` to run a committed repo script
- * (scripts/ci-local.sh). bash + a committed script are present on every CI runner
- * and dev machine — not a machine-coupled host-binary probe.
+ * PORTABILITY-GUARDED: this test spawns `bun` to run a committed repo script
+ * (bun-apps/s2-agent-ext-devops/scripts/ci-local.ts). bun + a committed script
+ * are present on every CI runner and dev machine — not a machine-coupled
+ * host-binary probe.
  *
  * Run: bun run test:ci-workflow   (from bun-apps/)
  */
@@ -65,20 +67,20 @@ import { join, resolve } from "node:path";
 const BUN_APPS = resolve(import.meta.dir, "..");
 const REPO_ROOT = resolve(BUN_APPS, "..");
 const WORKFLOW = join(REPO_ROOT, ".github", "workflows", "ci.yml.disabled");
-const CI_LOCAL = join(REPO_ROOT, "scripts", "ci-local.sh");
+const CI_LOCAL = join(BUN_APPS, "s2-agent-ext-devops", "scripts", "ci-local.ts");
 const SPOTCHECK = join(REPO_ROOT, "scripts", "test-determinism-spotcheck.sh");
-const RUN_TEST = join(BUN_APPS, "s2-agent-ext-devops", "scripts", "run-test.sh");
+const RUN_TEST = join(BUN_APPS, "s2-agent-ext-devops", "scripts", "run-test.ts");
 
 interface MatrixRow {
 	pkg: string;
 	cmd: string;
 }
 
-/** The matrix, via ci-local.sh's parser — the single source of truth. */
+/** The matrix, via ci-local.ts's parser — the single source of truth. */
 function readMatrix(): MatrixRow[] {
-	const r = spawnSync("bash", [CI_LOCAL, "--tsv"], { encoding: "utf8" });
+	const r = spawnSync("bun", [CI_LOCAL, "--tsv"], { encoding: "utf8" });
 	if (r.status !== 0) {
-		throw new Error(`ci-local.sh --tsv exited ${r.status}: ${(r.stderr ?? "").trim()}`);
+		throw new Error(`ci-local.ts --tsv exited ${r.status}: ${(r.stderr ?? "").trim()}`);
 	}
 	return (r.stdout ?? "")
 		.split("\n")
@@ -135,7 +137,7 @@ function cleanToken(t: string): string {
 
 /**
  * Script paths a single command genuinely INVOKES. Only two positions count:
- * the command word itself (`./run-test.sh high`) and the arguments of a known
+ * the command word itself (`./run-test.ts high`) and the arguments of a known
  * interpreter (`bash scripts/x.sh`, `bun test scripts/x.test.ts`). A filename
  * merely MENTIONED inside an `echo`/comment is prose, not a reference — e.g.
  * compile-verify's `echo "expected resolve.ts to emit …"`.
@@ -205,7 +207,7 @@ function localActionReferences(): Reference[] {
 }
 
 describe("ci.yml.disabled — parser agreement", () => {
-	test("ci-local.sh --tsv parses the same number of rows as a raw YAML parse", () => {
+	test("ci-local.ts --tsv parses the same number of rows as a raw YAML parse", () => {
 		const include = WORKFLOW_DOC.jobs?.tests?.strategy?.matrix?.include;
 		expect(Array.isArray(include)).toBe(true);
 		expect(readMatrix().length).toBe(include.length);
@@ -234,13 +236,13 @@ describe("ci.yml.disabled — every referenced path resolves", () => {
 	test("the scanner actually finds the workflow's script references", () => {
 		const found = scriptReferences().map((r) => r.raw);
 		expect(found.length).toBeGreaterThanOrEqual(8);
-		// run-test.sh used to be pinned here. Its ONLY reference was the
-		// deploy-verify job, which ran run-test.sh's `high` + `readonly` tiers;
-		// that job was deleted with the four legacy deploy modes it built. So
-		// run-test.sh is now referenced by NO workflow job — it is a local /
-		// pi_verify tool only. That is a statement of fact, not a gap to fill:
-		// the job never executed here anyway (GitHub Actions is disabled in this
-		// repo, and local_ci reads regression-gates alone).
+		// run-test.sh used to be pinned here (the pre-Bun-port name). Its ONLY
+		// reference was the deploy-verify job, which ran run-test.sh's `high` +
+		// `readonly` tiers; that job was deleted with the four legacy deploy
+		// modes it built. So run-test.ts is now referenced by NO workflow job —
+		// it is a local / pi_verify tool only. That is a statement of fact, not
+		// a gap to fill: the job never executed here anyway (GitHub Actions is
+		// disabled in this repo, and local_ci reads regression-gates alone).
 		for (const expected of [
 			"bun-apps/s2-agent-ext-devops/src/changed-packages-cli.ts",
 			"scripts/ci-file-size-guard.sh",
@@ -308,11 +310,11 @@ function spotcheckMatrixPackages(): string[] {
 	return pkgs as string[];
 }
 
-/** run-test.sh's `full`-tier sibling list, obtained by executing it. */
+/** run-test.ts's `full`-tier sibling list, obtained by executing it. */
 function runTestSiblings(): string[] {
-	const r = spawnSync("bash", [RUN_TEST, "--list-siblings"], { encoding: "utf8" });
+	const r = spawnSync("bun", [RUN_TEST, "--list-siblings"], { encoding: "utf8" });
 	if (r.status !== 0) {
-		throw new Error(`run-test.sh --list-siblings exited ${r.status}: ${(r.stderr ?? "").trim()}`);
+		throw new Error(`run-test.ts --list-siblings exited ${r.status}: ${(r.stderr ?? "").trim()}`);
 	}
 	return (r.stdout ?? "").split("\n").map((l) => l.trim()).filter((l) => l !== "");
 }
@@ -345,7 +347,8 @@ interface HookRef {
  * dead path is BOTH invisible and load-bearing: nothing imports them, nothing
  * tests them, and the failure surfaces as "your push mysteriously did nothing"
  * or "your push is mysteriously blocked". pre-push now delegates the whole
- * regression-gates job to scripts/ci-local.sh, so that path has to stay real.
+ * regression-gates job to bun-apps/s2-agent-ext-devops/scripts/ci-local.ts, so
+ * that path has to stay real.
  */
 function hookReferences(): HookRef[] {
 	const dir = join(REPO_ROOT, ".githooks");
@@ -374,8 +377,8 @@ describe(".githooks — every script a hook shells out to exists", () => {
 			`BROKEN HOOK REFERENCE(S): ${detail.join("; ")} — a git hook shells out to a path that ` +
 				"does not exist. Nothing imports or tests a hook, so this rots invisibly and then " +
 				"surfaces as a push that mysteriously does nothing (or is mysteriously blocked). " +
-				"pre-push delegates the whole regression-gates job to scripts/ci-local.sh; if that " +
-				"script moves, repoint the hook.",
+				"pre-push delegates the whole regression-gates job to " +
+				"bun-apps/s2-agent-ext-devops/scripts/ci-local.ts; if that script moves, repoint the hook.",
 		).toEqual([]);
 	});
 
@@ -383,7 +386,7 @@ describe(".githooks — every script a hook shells out to exists", () => {
 	// that matched nothing, would pass the assertion above forever.
 	test("the scanner finds the hooks' real references", () => {
 		const found = hookReferences().map((r) => r.raw);
-		expect(found).toContain("scripts/ci-local.sh");
+		expect(found).toContain("bun-apps/s2-agent-ext-devops/scripts/ci-local.ts");
 		expect(found).toContain("scripts/test-portability-audit.sh");
 	});
 });
@@ -416,13 +419,13 @@ describe("determinism-spotcheck — the workflow matrix and the script agree", (
 	});
 });
 
-describe("run-test.sh — the `full`-tier sibling list names real packages", () => {
+describe("run-test.ts — the `full`-tier sibling list names real packages", () => {
 	test("every sibling resolves to bun-apps/<pkg>/package.json (the pi-obsidian class)", () => {
 		const siblings = runTestSiblings();
 		const dead = siblings.filter((p) => !existsSync(join(BUN_APPS, p, "package.json")));
 		expect(
 			dead,
-			`DEAD SIBLING PACKAGE(S) in bun-apps/s2-agent-ext-devops/scripts/run-test.sh SIBLING_PKGS: ${dead.join(", ")} — ` +
+			`DEAD SIBLING PACKAGE(S) in bun-apps/s2-agent-ext-devops/scripts/run-test.ts SIBLING_PKGS: ${dead.join(", ")} — ` +
 				"the `full` tier loops over bare package NAMES, so nothing typechecks them. This list " +
 				"read `pi-obsidian` / `pi-knowledge-card` (the real dirs are `s2-agent-ext-*`) and a " +
 				"skip-if-absent branch swallowed both, so a 3-package baseline silently tested 1 while " +

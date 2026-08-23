@@ -8,7 +8,7 @@
 # probe (e2e-extensions) and the L2 judgment workflow (run-ext-e2e.sh).
 #
 # OPT-IN. Spends LLM tokens + minutes (loads a 9B model). Deliberately NOT wired
-# into run-test.sh / CI — a flaky model reply must never fail a build.
+# into run-test.ts / CI — a flaky model reply must never fail a build.
 #
 # USAGE
 #   bash bun-apps/s2-agent/scripts/run-image-agent-e2e.sh

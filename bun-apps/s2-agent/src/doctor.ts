@@ -500,7 +500,7 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 		label,
 		status: "fail",
 		detail: `total=${total} matched=0 — NO run-dir extension tools registered`,
-		hint: "silent load failure (the slice-bug class): verify cli.ts passes process.argv.slice(2) to main() AFTER applyPatches(), then re-run `./run-test.sh medium`.",
+		hint: "silent load failure (the slice-bug class): verify cli.ts passes process.argv.slice(2) to main() AFTER applyPatches(), then re-run `./run-test.ts medium`.",
 	};
 }
 

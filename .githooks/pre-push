@@ -16,7 +16,7 @@
 #   months. The whole job takes ~6s. There is no reason to run a thirteenth of it.
 #   (Original ticket: wayfinder 2026-07-30-self-reflection-to-fix-these-error 01.)
 #
-# EXIT-CODE CONTRACT (ci-local.sh --gates)
+# EXIT-CODE CONTRACT (bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates)
 #   0  every gate passed                          → push proceeds
 #   4  python3 has no PyYAML on this machine      → WARN and fall back to the
 #                                                   single audit this hook ran
@@ -26,23 +26,28 @@
 #   *  a gate failed, or the workflow would not   → BLOCK
 #      parse
 #
-#   The 4 is why ci-local.sh propagates that code instead of collapsing it into
+#   The 4 is why the old ci-local.sh propagated that code instead of collapsing it into
 #   its generic failure exit: an environment problem and a real gate failure must
 #   never be indistinguishable here. Getting that backwards in the lenient
 #   direction would wave every genuine failure through.
+#   The PyYAML hole is DEAD with the Bun port — ci-local.ts parses the workflow
+#   with Bun.YAML, so exit code 4 can no longer occur. The warn branch below is
+#   kept verbatim for contract stability, but it is structurally unreachable.
 
 # Drain the proposed-refs list git sends on stdin: the gates audit the whole
 # tree, not the pushed refs.
 cat >/dev/null
 
 echo "→ CI regression-gates (13 steps, ~6s)…"
-bash scripts/ci-local.sh --gates
+bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates
 code=$?
 
 if [ $code -eq 0 ]; then
 	exit 0
 fi
 
+# DEAD branch (kept for contract stability): Bun.YAML made exit 4 structurally
+# unreachable — see the "PyYAML hole is DEAD" note in the header.
 if [ $code -eq 4 ]; then
 	echo "· pre-push: python3 has no PyYAML — cannot parse the workflow." >&2
 	echo "  Falling back to the test-portability audit alone (12 gates NOT run)." >&2
@@ -61,6 +66,6 @@ echo "" >&2
 echo "✗ pre-push blocked: a CI regression gate failed (see the output above)." >&2
 echo "  These are the guards that catch cross-package drift — a dead CI matrix" >&2
 echo "  row, a package script that cannot run, a seam whose two sides disagree." >&2
-echo "  Reproduce and iterate with:  bash scripts/ci-local.sh --gates" >&2
+echo "  Reproduce and iterate with:  bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates" >&2
 echo "  Bypass (and please say so in the PR):  git push --no-verify" >&2
 exit 1

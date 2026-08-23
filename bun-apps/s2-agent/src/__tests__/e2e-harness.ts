@@ -8,7 +8,7 @@
  * in s2-agent-ext-devops/tests/deploy-probe-e2e.test.ts, which calls
  * runShDeploy directly rather than through a shared build cache.
  *
- * `bun-apps/s2-agent-ext-devops/scripts/run-test.sh` sets PI_AGENT_E2E=1 for
+ * `bun-apps/s2-agent-ext-devops/scripts/run-test.ts` sets PI_AGENT_E2E=1 for
  * the tiers that run these.
  */
 import { dirname } from "node:path";

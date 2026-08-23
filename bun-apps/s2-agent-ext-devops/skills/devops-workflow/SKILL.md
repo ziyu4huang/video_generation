@@ -160,9 +160,9 @@ name. Read-only: it never checks out, syncs, or mutates.
   the same reason). The branch still counts as unverified: an unrun check is not
   evidence of health. Fix with `bun install` from that worktree's `bun-apps/`.
 
-It is STRICTER than `ci-local.sh`, which runs only each matrix row's `test-cmd`
+It is STRICTER than `ci-local.ts`, which runs only each matrix row's `test-cmd`
 and no typechecks or lints at all. Expect `main_health` to surface typecheck and
-biome failures that `ci-local.sh` reports as green.
+biome failures that `ci-local.ts` reports as green.
 
 Run it before starting work, and when a merge you did not expect to matter looks
 suspicious. Do NOT gate `merge_pr_after_local_ci` on it: your PR is not responsible for a
@@ -251,7 +251,7 @@ When starting the NEXT run, read the newest next-goal file before planning.
 | "Is `main` itself green?" (full matrix + gates, read-only) | `check_main_health` |
 | Classify + clean up merged local/remote branches | `sweep_merged_branches` |
 | Build + deploy the s2-agent bundle + thin ext bundles (runs `s2-agent-ext-devops/src/deploy/run.ts` via `src/deploy-cli.ts`) | `deploy_pi_agent_sh` |
-| Run a s2-agent `run-test.sh` tier (quick/medium/high/readonly/full) to self-verify | `verify_pi_agent_deploy` |
+| Run a s2-agent `run-test.ts` tier (quick/medium/full) to self-verify | `verify_pi_agent_deploy` |
 | Deploy the versioned sh core + ext set (Pipeline B, registry `s2-agent.registry.yaml`) | `deploy` — `bun run --cwd bun-apps/s2-agent deploy` (CLI: `bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]`) |
 | "Does the DEPLOYED dist actually work?" (boot + ext-load + model call against `<outRoot>/current`) | `bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts` (runs automatically after every deploy too) |
 

@@ -2,7 +2,7 @@
 
 DevOps tools for the pi coding agent — a **robust, tool-based PR-merge lifecycle** that replaces the brittle agent-side bash polling loops (the `gh pr checks | grep -c` footguns that silently mis-counted checks and wasted turns).
 
-> This package also owns the shared pipeline scripts: the deploy library `src/deploy/run.ts` (entry `src/deploy-cli.ts`), plus runnable `scripts/run-test.sh` and `scripts/ci-local.sh` (the repo-root `scripts/ci-local.sh` is a thin wrapper into here). They moved here from `bun-apps/s2-agent/` / repo-root `scripts/`.
+> This package also owns the shared pipeline scripts: the deploy library `src/deploy/run.ts` (entry `src/deploy-cli.ts`), plus runnable `scripts/run-test.ts` and `scripts/ci-local.ts` (the repo-root `scripts/ci-local.sh` was a thin wrapper into here — retired with the Bun port). They moved here from `bun-apps/s2-agent/` / repo-root `scripts/`.
 
 ## Tools
 
@@ -96,13 +96,13 @@ counts, exit code, and a log path.
 
 ### `verify_pi_agent_deploy`
 
-Run a `run-test.sh` tier (quick|medium|high|readonly|full, default medium) and
-report per-step pass/fail. `high` = the exact CI `deploy -- verify` job.
-Params: `tier`, `bail`. Returns steps, exit code, and a log path.
+Run a `run-test.ts` tier (quick|medium|full, default medium) and report
+per-step pass/fail. Params: `tier`, `bail`. Returns steps, exit code, and a log
+path.
 
 Both resolve the source dirs at runtime (`PI_AGENT_DIR` env or an upward walk
 to the sibling `s2-agent/` / `s2-agent-ext-devops/scripts/` pair) and refuse to
-spawn if unreachable — `deploy.ts` / `run-test.sh` exist only in the source
+spawn if unreachable — `deploy.ts` / `run-test.ts` exist only in the source
 repo, never in a deployed bundle. `deploy.ts` still requires
 `cwd == bun-apps/s2-agent` (see its `assertCorrectCwd`); the tools spawn it that way.
 

@@ -8,7 +8,7 @@
  *     that guard shells out to it, so the output must stay decoration-free:
  *     no colors, no headers, no totals, exactly two fields per line.
  *   - `--gates --tsv` (three-field form) + `--gates --list`: the pre-push-hook
- *     contract (the hook runs `scripts/ci-local.sh --gates`; the exit-code
+ *     contract (the hook runs `bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates`; the exit-code
  *     contract 0/4/1 is documented in .githooks/pre-push).
  *   - `--list`, `-h`/`--help`: the eyeball surfaces.
  *   - usage errors: `--only` w/o value, unknown flag, `--only <pkg>` that is

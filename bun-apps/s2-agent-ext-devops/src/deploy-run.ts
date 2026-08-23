@@ -9,11 +9,11 @@
  * (PI_AGENT_DIR env, else an upward walk for a sibling s2-agent/) and refuse
  * to spawn if it can't be found.
  *
- * The probe pair is src/deploy/run.ts + scripts/run-test.sh. It used to be
- * scripts/deploy.ts + run-test.sh; whenever a probed file moves, EVERY probe
- * must move with it or every resolve returns null — pi_verify would refuse to
- * run with "could not locate the source s2-agent dir", which reads like a
- * broken checkout rather than a stale probe.
+ * The probe pair is src/deploy/run.ts + scripts/run-test.ts. It used to be
+ * scripts/deploy.ts + run-test.sh (the pre-Bun-port name); whenever a probed
+ * file moves, EVERY probe must move with it or every resolve returns null —
+ * pi_verify would refuse to run with "could not locate the source s2-agent
+ * dir", which reads like a broken checkout rather than a stale probe.
  */
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
@@ -31,14 +31,14 @@ function hasDevopsScripts(bunAppsDir: string): boolean {
 	const pkg = join(bunAppsDir, "s2-agent-ext-devops");
 	return (
 		existsSync(join(pkg, "src", "deploy", "run.ts")) &&
-		existsSync(join(pkg, "scripts", "run-test.sh"))
+		existsSync(join(pkg, "scripts", "run-test.ts"))
 	);
 }
 
 /** Find the source bun-apps/s2-agent dir, or null if unreachable.
  *
  *  The devops SCRIPTS live in the sibling s2-agent-ext-devops package
- *  (scripts/); the returned dir is still s2-agent's — run-test.sh drives that
+ *  (scripts/); the returned dir is still s2-agent's — run-test.ts drives that
  *  package, and tools derive the ext-devops scripts dir from it. */
 export function resolvePiAgentDir(
 	env: ResolveOpts = (process.env as unknown as ResolveOpts),
@@ -86,7 +86,7 @@ export interface RunResult {
  * stdout/stderr as separate strings). What they DO share is the group-kill
  * discipline: on timeout the whole process group dies (`detached: true` +
  * `kill(-pid)`), because killing only the direct child reaps e.g. `bash` and
- * orphans whatever `run-test.sh` spawned beneath it — the same class of
+ * orphans whatever `run-test.ts` spawned beneath it — the same class of
  * incident SpawnOptions.timeoutMs documents.
  */
 export function runScript(opts: RunOpts): Promise<RunResult> {
