@@ -6,7 +6,7 @@
  * extensions → no devops tools) to run instead of hand-rolled git, so what is
  * pinned here is the WRAPPER'S CONTRACT, not sync logic (that lives in
  * tests/sync-recipe.test.ts):
- *  - argv parsing: --mode/--dry-run/--force/--preserve/--preserve-strict,
+ *  - argv parsing: --mode/--dry-run/--force/--preserve/--preserve-strict/--timeout-ms,
  *  - stdout is the structured SyncOutcome as JSON (parseable, mode round-trips),
  *  - aborts (dirty_tree, divergent) map to exit 1 — never exit 0,
  *  - usage errors exit 2, --help exits 0 with usage on stderr.
@@ -17,7 +17,7 @@
 import { test, expect, describe } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { runSyncCli, parseSyncArgs, SYNC_CLI_USAGE, defaultRepoRoot } from "../src/sync-default-branch-cli.js";
+import { runSyncCli, parseSyncArgs, SYNC_CLI_USAGE, SYNC_DEFAULT_TIMEOUT_MS, defaultRepoRoot } from "../src/sync-default-branch-cli.js";
 import { DEFAULT_PRESERVE_PATHS } from "../src/sync-recipe.js";
 import type { SyncClient } from "../src/sync-recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
@@ -49,10 +49,10 @@ function fakeClient(s: {
 }
 
 /** Quiet-success recording SpawnFn (sync-default-branch-cli only supplies it to runSync). */
-function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[] }[] } {
-	const calls: { cmd: string; args: string[] }[] = [];
-	const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
-		calls.push({ cmd, args });
+function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[]; opts?: { timeoutMs?: number } }[] } {
+	const calls: { cmd: string; args: string[]; opts?: { timeoutMs?: number } }[] = [];
+	const fn: SpawnFn = async (cmd, args, opts): Promise<SpawnResult> => {
+		calls.push({ cmd, args, opts: opts as { timeoutMs?: number } | undefined });
 		return { stdout: "", stderr: "", exitCode: 0 };
 	};
 	return { fn, calls };
@@ -123,6 +123,17 @@ describe("parseSyncArgs — argv contract", () => {
 		expect(parseSyncArgs(["--branch"]).ok).toBe(false); // missing value
 	});
 
+	test("--timeout-ms accepts a positive integer; junk is a usage error", () => {
+		const r = parseSyncArgs(["--timeout-ms", "15000"]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.args.timeoutMs).toBe(15000);
+		expect(parseSyncArgs([]).ok && (parseSyncArgs([]) as { ok: true; args: { timeoutMs?: number } }).args.timeoutMs).toBeUndefined();
+
+		for (const bad of [["--timeout-ms"], ["--timeout-ms", "0"], ["--timeout-ms", "-5"], ["--timeout-ms", "abc"], ["--timeout-ms", "1.5"]]) {
+			expect(parseSyncArgs(bad).ok).toBe(false);
+		}
+	});
+
 	test("unknown flags and positionals are usage errors", () => {
 		expect(parseSyncArgs(["--nope"]).ok).toBe(false);
 		expect(parseSyncArgs(["main"]).ok).toBe(false);
@@ -131,6 +142,26 @@ describe("parseSyncArgs — argv contract", () => {
 });
 
 describe("sync-default-branch-cli — wrapper contract", () => {
+	test("every git call carries the default timeout cap (withDefaultTimeout seam)", async () => {
+		// The 2026-08-24 incident: an unbounded `git fetch` over a stalled SSH
+		// transport hung the whole CLI for 11+ minutes. The wrapper now bounds
+		// EVERY spawn — the recipe's git() calls AND the client's — via one
+		// withDefaultTimeout wrap, so each recorded call must carry a cap.
+		const rec = fakeSpawn();
+		const res = await runSyncCli([], { ...cleanDeps(), spawn: rec.fn, remoteName: "origin" });
+		expect(res.exitCode).toBe(0);
+		expect(rec.calls.length).toBeGreaterThan(0);
+		for (const c of rec.calls) expect(c.opts?.timeoutMs).toBe(SYNC_DEFAULT_TIMEOUT_MS);
+	});
+
+	test("--timeout-ms threads a caller-chosen cap onto every git call", async () => {
+		const rec = fakeSpawn();
+		const res = await runSyncCli(["--timeout-ms", "1234"], { ...cleanDeps(), spawn: rec.fn, remoteName: "origin" });
+		expect(res.exitCode).toBe(0);
+		expect(rec.calls.length).toBeGreaterThan(0);
+		for (const c of rec.calls) expect(c.opts?.timeoutMs).toBe(1234);
+	});
+
 	test("clean run exits 0 with the structured SyncOutcome as JSON on stdout", async () => {
 		const res = await runSyncCli([], cleanDeps());
 		expect(res.exitCode).toBe(0);

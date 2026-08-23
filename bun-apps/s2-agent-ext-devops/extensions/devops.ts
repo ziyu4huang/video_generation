@@ -22,7 +22,8 @@ import { GATE_DEFS } from "@repo/s2-agent-core-interface";
 import { createBranchClient } from "../src/gh.js";
 import { selectForgeClientCached } from "../src/forge/select.js";
 import { resolveRemoteName } from "../src/remote.js";
-import { createLiveSpawn } from "../src/spawn.js";
+import { createLiveSpawn, withDefaultTimeout } from "../src/spawn.js";
+import { SYNC_DEFAULT_TIMEOUT_MS } from "../src/sync-recipe.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
@@ -589,7 +590,10 @@ export default function (pi: ExtensionAPI): void {
 			),
 		}),
 		async execute(_id, params, signal) {
-			const spawn = createLiveSpawn(process.cwd());
+			// Bounded like the headless CLI: every git call (incl. the client's
+			// fetch) inherits SYNC_DEFAULT_TIMEOUT_MS, so a stalled SSH transport
+			// kills the command instead of hanging the tool forever.
+			const spawn = withDefaultTimeout(createLiveSpawn(process.cwd()), SYNC_DEFAULT_TIMEOUT_MS);
 			const remoteName = await resolveRemoteName(spawn);
 			const client = createBranchClient(spawn, remoteName);
 			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
