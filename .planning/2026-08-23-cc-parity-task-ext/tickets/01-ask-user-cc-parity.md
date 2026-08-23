@@ -2,7 +2,7 @@
 ticket: 01-ask-user-cc-parity
 effort: cc-parity-task-ext
 type: task
-status: open
+status: closed
 created: 2026-08-23
 last: 2026-08-23
 ---
@@ -42,3 +42,16 @@ against `ask_user_question` and gets CC-equivalent answers back.
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-task && bun run typecheck && bun test )`
+
+## Result
+
+Shipped across three commits:
+
+- `d7a5501a` — schema: `MAX_HEADER_LENGTH` 12, `recommended` field deleted, `RECOMMENDED_SUFFIX`/`hasRecommendedSuffix` exported from `tool/types.ts`, `preview_on_multiselect` + `too_many_recommended` (suffix-count form) validation, CC-phrased field descriptions.
+- `868b05cd` — tool description / `DEFAULT_PROMPT_SNIPPET` / `DEFAULT_PROMPT_GUIDELINES` rewritten to CC semantics (usage notes, "(Recommended)" suffix rule, preview paragraph, plan-mode paragraph).
+- `7be565dd` — view layer: `buildItemsForQuestion` derives `recommended` from the label suffix; `WrappingSelect` and `MultiSelectView` render ⭐ and strip the suffix from display only (stored label — and therefore the answer string — keeps it, CC parity); `PreviewBlockRenderer` renders preview content monospace-verbatim (hard-clip at width, no re-wrap) so ASCII mockups and code keep their shape.
+
+Deliberately not built: full markdown rendering of previews (CC renders markdown in the monospace box; we keep verbatim lines). Noted as out of scope here — the box layout is side-by-side and verbatim lines cover the dominant use (mockups, code, config).
+
+Gate: `bun run typecheck` clean; `bun test` 880 pass / 0 fail (64 files), including `recommended-marker.test.ts` rewritten to the suffix form (4 tests) and the ask-user subtree 275 pass. Preview-text assertions in existing tests (cards-ux2-roundtrip et al.) already asserted authored lines and needed no migration.
+
