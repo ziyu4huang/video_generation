@@ -61,14 +61,18 @@ Measured 2026-08-23 in this worktree unless noted.
       raw tessdata_fast `.traineddata` vendored, worker_threads gone.
   **(CLOSED 2026-08-23 — PR #1920 `19abde98`, verdict CLEAN, branchSpent:
   true. 209 tests +6, smoke-proven both paths, gates 27/27.)**
-- [ ] 05 — ship file2md in the s2-agent deploy tree + OCR e2e vs the deployed
+- [x] 05 — ship file2md in the s2-agent deploy tree + OCR e2e vs the deployed
       dist (user-directed 2026-08-23: ensure the wasm is the correct package
       and works in s2-agent-sh; e2e must catch a broken asset layout).
-      Blockers: 04.
+  **(CLOSED 2026-08-23 — PR #1922 `48a3c93d` CLEAN/spent; PR #1923 s2-agent
+  bump → 0.5.1. Deployed `0.5.1+g2f38d39`, e2e pass incl. file2md-ocr:pass
+  (deployed bundle OCR'd the fixture). Flip side-effects resolved: locators
+  specifier-based, wrapper resolve, base-set seams (core-runtime migration +
+  BUN_PI_FILE2MD=0), facade rows dropped.)**
 
-**Execution order:** 04 → 05 → 01 → 02 → 03 (04 shipped first — engine
-mechanism; 05 next — deploy inclusion + OCR e2e per user directive; then the
-smart ladder 01 → 02 → 03 on a deployed engine.)
+**Execution order:** 04 → 05 → 01 → 02 → 03 — 04 shipped (#1920) and 05 shipped
+(#1922, +0.5.1 via #1923): the engine is in the deployed tree with OCR e2e.
+Next: 01 (ladder skeleton) → 02 → 03.
 
 ## Decisions
 
