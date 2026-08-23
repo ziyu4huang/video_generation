@@ -105,8 +105,11 @@ Phase 3 — ultracode parity (parallel with Phase 2)
   (`budget-directive.ts`), session-held read-and-clear, enforced as
   `max(directive, tokenBudget)` at every WorkflowManager run entry with a
   persisted `tokenBudgetSource` label; F2 folded (D10)
-- `tickets/06-loop-dynamic-pacing.md` — open — `/loop` command +
-  `schedule_wakeup` self-pacing
+- `tickets/06-loop-dynamic-pacing.md` — done (2026-08-23) — `/loop`
+  (30s|5m|1h|default 10m fixed · dynamic · off) + `schedule_wakeup` (60–3600s
+  loud clamp, reason, stop); in-memory session-live registry (D7), fire cap 50,
+  followUp fire seam pinned end-to-end with a real AgentSession over the faux
+  transport (S5 fog closed)
 
 Phase 4 — ledger hygiene
 - `tickets/07-parity-ledger-reconciliations.md` — open — batch/singular
@@ -175,15 +178,18 @@ Phase 4 — ledger hygiene
 
 ## Frontier
 
-Ticket 06 (`/loop` + `schedule_wakeup`, D7) is the next workable ticket —
-tickets 04 and 05 both closed 2026-08-23. Ticket 05 shipped the binding budget
-directive (parse at the input transform, session-held read-and-clear,
+Ticket 07 (ledger hygiene — batch/singular display-model precedence,
+`agentType` minLength, spec sign-off) is the next workable ticket and closes
+Phase 4. Tickets 05 and 06 both closed 2026-08-23: 05 shipped the binding
+budget directive (parse at the input transform, session-held read-and-clear,
 `max(directive, tokenBudget)` at every WorkflowManager run entry,
 `tokenBudgetSource` persisted + rendered; cron fires excluded) and folded F2
-(D10: live-agent lifetime default = tier ceiling, no default turn/timeout cap).
-Ticket 06 must first test the `sendUserMessage(followUp)` interleave with a
-fake session (S5, fog below) before trusting it live; ticket 07 (ledger
-hygiene) remains last.
+(D10: live-agent lifetime default = tier ceiling); 06 shipped `/loop` +
+`schedule_wakeup` (in-memory session-live registry per D7, fire cap 50,
+followUp fire seam pinned by a faux-transport AgentSession test — S5 fog
+closed). After 07, the effort's remaining open surface is the live-smoke
+family (fork builtin types, startup block, budget directive, wakeup loop —
+one headless dispatch each).
 
 ## Fog of war
 
@@ -219,8 +225,13 @@ hygiene) remains last.
   budget-guard check's zero-import invariant for a case the tier ceiling
   already covers).
 - Whether `sendUserMessage(followUp)` fired from the wakeup tick interleaves
-  safely with an in-flight streaming turn (S5; ticket 06 must test with a fake
-  session before trusting it live).
+  safely with an in-flight streaming turn — RESOLVED 2026-08-23 (ticket 06): a
+  real `createAgentSession` over the faux transport with turn one held open
+  mid-stream pins the full contract (no throw, exactly one queued followUp,
+  stream completes undisturbed, queue drains as exactly one next turn; idle
+  fire triggers directly) — `tests/wakeup-interleave.test.ts`. A LIVE-model
+  wakeup loop (real pacing behavior, cache-window economics) stays unmeasured,
+  same family as the other live-smoke gaps.
 - Fork transcript token cost on long parent sessions — RESOLVED BY DESIGN
   (ticket 02): the 24k-char default cap (`SUBAGENT_FORK_TRANSCRIPT_CAP`) is a
   hard bound (~6k tokens), truncating oldest-first; real-model fork QUALITY

@@ -49,7 +49,7 @@ budget directives ("+500k" → `budget.total` hard ceiling) | parsed at the work
 "ultracode" arming keyword | `DEFAULT_KEYWORD_TRIGGER_WORDS = ["workflow","ultracode"]` | aligned | —
 CronCreate 5-field cron, 7-day recurring expiry, session-live firing, missed fires skipped | `cron_create/list/delete` + session-live 30s loop, same contract | aligned | —
 cron jitter / one-shot catch-up on session resume | no jitter; missed one-shots skipped by design | divergent | —
-`/loop [interval] <prompt>` + dynamic self-pacing (`ScheduleWakeup` 60–3600s clamp, reason, stop) | none | gap | 06
+`/loop [interval] <prompt>` + dynamic self-pacing (`ScheduleWakeup` 60–3600s clamp, reason, stop) | `/loop [30s\|5m\|1h\|default 10m] <prompt>` (fixed cadence), `/loop dynamic <prompt>` (model-paced), `/loop off`; `schedule_wakeup` tool (delaySeconds clamped 60–3600 with a loud message, required reason, optional stop, cache-window-aware pacing guidance) re-fires the ORIGINAL prompt + a loop footer (id, fire N/cap, last reason) into the session via `sendUserMessage(followUp)` — queued while a turn streams, drained as the next turn (pinned end-to-end with a real AgentSession over a faux transport, `tests/wakeup-interleave.test.ts`); in-memory session-live registry (map D7 — never in the durable cron store, no daemon), max 1 pending wakeup per loop id, fire cap 50/loop with an auto-stop notification | aligned (s2 adds the fire cap + the footer's fixed/dynamic split) | 06
 
 "aligned+" = aligned with a strictly-additional s2 capability (see §4).
 

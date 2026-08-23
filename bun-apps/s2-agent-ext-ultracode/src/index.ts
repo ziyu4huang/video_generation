@@ -47,6 +47,8 @@ export {
 } from "./effort-command.js";
 export type { WorkflowLogger, WorkflowLoggerOptions } from "./logger.js";
 export { createWorkflowLogger } from "./logger.js";
+export type { LoopCommand, LoopCommandOptions } from "./loop-command.js";
+export { parseLoopArgs, registerLoopCommand } from "./loop-command.js";
 export type { ModelRoute, ModelRoutingConfig } from "./model-routing.js";
 export { parseModelRoutingFromMeta, resolveModelForPhase } from "./model-routing.js";
 export type { PersistedRunState, RunPersistence, RunStatus } from "./run-persistence.js";
@@ -63,6 +65,26 @@ export {
   redeliverPendingResults,
   type TaskPanelOptions,
 } from "./task-panel.js";
+export type {
+  WakeupEntry,
+  WakeupFire,
+  WakeupLoopHandle,
+  WakeupNotify,
+  WakeupTickResult,
+} from "./wakeup-registry.js";
+export {
+  buildWakeupFooter,
+  runWakeupTick,
+  startWakeupLoop,
+  WAKEUP_DEFAULT_DELAY_S,
+  WAKEUP_FIRE_CAP,
+  WAKEUP_MAX_DELAY_S,
+  WAKEUP_MIN_DELAY_S,
+  WAKEUP_TICK_MS,
+  WakeupRegistry,
+} from "./wakeup-registry.js";
+export type { ScheduleWakeupOptions } from "./wakeup-tools.js";
+export { clampDelaySeconds, createScheduleWakeupTool } from "./wakeup-tools.js";
 export { createWebFetchTool, createWebSearchTool, createWebTools } from "./web-tools.js";
 export type {
   AgentOptions,
