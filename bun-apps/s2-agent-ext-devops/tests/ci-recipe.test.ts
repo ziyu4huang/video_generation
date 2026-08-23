@@ -465,6 +465,53 @@ describe("runLocalCi — gates come from the workflow, not a hand-written list",
 		expect(out.packages.find((p) => p.name === "pkg-plain")?.typecheck?.skipped).toBeUndefined();
 	});
 
+	test("extension packages' typecheck is left to the typecheck:ext gate when gates run", async () => {
+		// Same tsc, same package, twice in one run = the measured ~250 s of
+		// duplicated checking this dedup removes. The gate executor is the
+		// authoritative copy (it also covers the --strict/no-diff packages).
+		const tmp = mkdtempSync(join(tmpdir(), "ci-recipe-ext-"));
+		try {
+			// A REAL extensions/ entry — the predicate reads the tree, like the
+			// gate executor's own discovery does. The recipe builds package dirs
+			// as <repoRoot>/bun-apps/<name>, so the fixture must live there.
+			mkdirSync(join(tmp, "bun-apps", "pkg-ext", "extensions"), { recursive: true });
+			await Bun.write(join(tmp, "bun-apps", "pkg-ext", "extensions", "x.ts"), "export {};");
+			const { fn, calls } = mkSpawn([verifyOk()]);
+			const out = await runLocalCi({
+				repoRoot: tmp,
+				spawn: fn,
+				detectChangedPackages: mkDetect({ "pkg-ext": true, "pkg-lib": true }).fn,
+				readPkg: mkReadPkg({
+					"pkg-ext": { typecheck: "tsc --noEmit", test: "bun test" },
+					"pkg-lib": { typecheck: "tsc --noEmit", test: "bun test" },
+				}),
+				readGates: fakeGates(),
+			});
+			expect(out.packages.find((p) => p.name === "pkg-ext")?.typecheck).toEqual({
+				exitCode: -1,
+				skipped: true,
+				note: "covered by the typecheck:ext gate",
+			});
+			// A non-extension package keeps its own phase-3a typecheck.
+			expect(out.packages.find((p) => p.name === "pkg-lib")?.typecheck?.skipped).toBeUndefined();
+			expect(calls.filter((c) => c.cwd.endsWith("pkg-lib") && c.args[1] === "typecheck")).toHaveLength(1);
+
+			// With gates OFF the dedup must NOT apply — there is no gate to cover it.
+			const { fn: fn2, calls: calls2 } = mkSpawn([verifyOk()]);
+			const out2 = await runLocalCi({
+				repoRoot: tmp,
+				spawn: fn2,
+				detectChangedPackages: mkDetect({ "pkg-ext": true }).fn,
+				readPkg: mkReadPkg({ "pkg-ext": { typecheck: "tsc --noEmit", test: "bun test" } }),
+				includeGates: false,
+			});
+			expect(out2.packages.find((p) => p.name === "pkg-ext")?.typecheck?.skipped).toBeUndefined();
+			expect(calls2.filter((c) => c.cwd.endsWith("pkg-ext") && c.args[1] === "typecheck")).toHaveLength(1);
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
 	test("any gate failing → overall fail", async () => {
 		const { fn } = mkSpawn([
 			verifyOk(),

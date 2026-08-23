@@ -363,6 +363,31 @@ function healWorkspaceLinks(repoRoot: string): void {
 	}
 }
 
+/**
+ * Does the `typecheck:ext` gate (bun-apps/scripts/ext-entry-typecheck.ts)
+ * typecheck this package? Mirrors that script's discovery rule on purpose:
+ * a `extensions/` dir holding a non-test non-declaration `.ts`, plus a script
+ * whose command line invokes tsc. If the two rules ever drift, the GUARD
+ * (tests/extension-entry-typechecked.test.ts) fails first — a package the
+ * guard finds but this predicate misses simply keeps its phase-3a typecheck
+ * (duplicate work, never lost coverage); the reverse direction cannot happen
+ * because the gate executor's rule is the authoritative one.
+ */
+function coveredByExtTypecheckGate(pkgDir: string, scripts: Record<string, string>): boolean {
+	try {
+		const extDir = join(pkgDir, "extensions");
+		const entries = readdirSync(extDir);
+		const hasEntry = entries.some(
+			(f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && !f.endsWith(".d.ts"),
+		);
+		if (!hasEntry) return false;
+	} catch {
+		return false; // no extensions/ dir → not an extension package
+	}
+	const tscCmd = /(^|[\s&|;(])(?:bunx\s+|npx\s+)?tsc(\s|$)/;
+	return Object.values(scripts).some((cmd) => tscCmd.test(cmd));
+}
+
 /** A gate's invocation: how to spawn it + whether its failure fails `overall`. */
 interface GateSpec {
 	/** Bare filename under scripts/ (e.g. "ci-file-size-guard.sh"). */
@@ -607,13 +632,20 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	);
 
 	// 3a. Parallel typechecks + lints. Precedence for tsc: scripts.typecheck >
-	//     scripts.check (only if it runs tsc) > skipped — with ONE dedupe rule:
-	//     when the package's resolved TEST command already runs typecheck/tsc
-	//     (s2-agent and gui-movie-director's matrix rows are
+	//     scripts.check (only if it runs tsc) > skipped — with TWO dedupe rules:
+	//     (i) when the package's resolved TEST command already runs
+	//     typecheck/tsc (s2-agent and gui-movie-director's matrix rows are
 	//     `<test> && bun run typecheck`), the separate phase-3a spawn would
 	//     typecheck the same tree a second time back-to-back. The row is the
 	//     source of truth for what CI runs, so its coverage is identical; the
 	//     phase spawn is the redundant copy and is the one skipped.
+	//     (ii) when the gate suite runs, every extension package is ALREADY
+	//     typechecked by the `typecheck:ext` gate (bun-apps/scripts/
+	//     ext-entry-typecheck.ts — same script preference, same command), so a
+	//     phase-3a spawn for the same package is the same tsc a second time IN
+	//     THE SAME RUN. Measured 2026-08-23: the duplicated ext-package tsc's
+	//     summed ~250 s of pure re-checking. Skipped here, reported by the gate;
+	//     a type error still fails the run there.
 	//
 	//     This phase runs `concurrency + 2` wide: every spawn here is read-only
 	//     (tsc --noEmit / biome check), so extra width can only cost CPU, never
@@ -643,9 +675,17 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		const cmdText =
 			typeof matrixCmd === "string" ? matrixCmd : typeof scripts.test === "string" ? scripts.test : null;
 		const rowTypechecks = cmdText !== null && /\btypecheck\b|\btsc\b/.test(cmdText);
+		// Rule (ii): the typecheck:ext gate covers this package iff the gate
+		// suite is running AND the package matches the gate executor's own
+		// discovery rule (extensions/ entry + a tsc-invoking script). The rule
+		// is duplicated here deliberately (same call-signature as the guard
+		// script's) — see coveredByExtTypecheckGate.
+		const gateCoversTypecheck = includeGates && !gateError && coveredByExtTypecheckGate(pkgDir, scripts);
 		const t0 = now();
 		if (rowTypechecks) {
 			result.typecheck = { exitCode: -1, skipped: true, note: "covered by the test command itself" };
+		} else if (gateCoversTypecheck) {
+			result.typecheck = { exitCode: -1, skipped: true, note: "covered by the typecheck:ext gate" };
 		} else if (typeof scripts.typecheck === "string") {
 			const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
 			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
