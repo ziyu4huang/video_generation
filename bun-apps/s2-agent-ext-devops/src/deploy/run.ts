@@ -228,7 +228,10 @@ const S2_AGENT_SH = `#!/usr/bin/env bash
 #
 # The core beside this script is a bun-run ESM bundle (s2-agent.js) executed
 # by the deploy's OWN bun at ./bin/bun — same version that built it, so the
-# tree is self-contained (Gate 5) with no bun on PATH. PLATFORM CONTRACT: the
+# tree is self-contained (Gate 5) with no bun on PATH. Children spawned
+# inside the session inherit that same bun too: the resolved bun's dir is
+# prepended to PATH below, so shells and "bun ..." subprocesses resolve it,
+# never a system bun. PLATFORM CONTRACT: the
 # bundle is platform-neutral; bin/bun is this platform's. To relocate the
 # deploy to another OS/arch, replace bin/bun with that platform's bun of the
 # SAME Bun.version (or point S2_AGENT_BUN at one) — nothing else changes.
@@ -268,7 +271,14 @@ if [ -z "\${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
   done
 fi
 
-exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\${S2_AGENT_BUN:-\$SCRIPT_DIR/bin/bun}" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
+# Self-containment for CHILDREN: the exec below runs the deploy's own bun
+# directly, but anything the session spawns later (agent shells, tools that
+# Bun.spawn(["bun", ...]), self-heal installs) resolves "bun" via PATH —
+# prepend the resolved bun's dir so they get the SAME bun, not a system one.
+_bun="\${S2_AGENT_BUN:-\$SCRIPT_DIR/bin/bun}"
+export PATH="\$(cd "\$(dirname "\$_bun")" && pwd):\$PATH"
+
+exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
 `;
 
 /**
