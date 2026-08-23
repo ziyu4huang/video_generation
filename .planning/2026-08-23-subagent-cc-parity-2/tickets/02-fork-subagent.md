@@ -1,6 +1,13 @@
 # Ticket 02 — fork subagents (prompt-borne parent-context inheritance)
 
-Status: open · Phase 2 (after 01) · SUPERSEDES teams-parity D10 (via map D2/D3)
+Status: done (2026-08-23) · Phase 2 (after 01) · SUPERSEDES teams-parity D10 (via map D2/D3)
+
+Implementation note — the no-fork-recursion flag travels as an AMBIENT
+AsyncLocalStorage scope (`runAsForkChild`/`isForkChild`, core-runtime
+fork-transcript.ts), not through SpawnSubagentOptions: the bridged
+spawn_subagent definition the child receives is the parent's closure, so there
+is no per-child options object it could read. The scope wraps the fork child's
+entire spawn, so grandchildren inherit it too.
 
 ## Scope
 

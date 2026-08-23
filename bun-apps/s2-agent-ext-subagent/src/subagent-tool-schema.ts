@@ -132,6 +132,12 @@ export const subagentToolSchema = Type.Object({
         "Named agent def (.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation. Explicit model/tools/excludeTools here override the binding.",
     }),
   ),
+  fork: Type.Optional(
+    Type.Boolean({
+      description:
+        "Inherit THIS session's conversation as context (Claude Code fork semantics): the parent transcript (compaction-aware, char-capped) is prepended to the child's prompt as a context-only block. Background by default; the `task` is still the child's job. Not combinable with `name` or `agentType`; a fork child cannot fork again. Divergence: prompt-borne transcript, not a session continuation.",
+    }),
+  ),
   task: Type.String({
     description:
       "Full self-contained prompt — the child has NO access to this session's history (include goal, context, constraints, return format).",
@@ -267,6 +273,15 @@ export interface SubagentToolOptions {
    * ticket 01 (optimization #1). The caller's explicit `tools` always overrides.
    */
   getActiveTools?: () => string[] | undefined;
+  /**
+   * Render the parent conversation as a fork context block (cc-parity-2
+   * ticket 02). Reads the sessionManager captured at session_start and
+   * projects it through buildForkTranscript (compaction-aware, char-capped).
+   * Returns undefined when no sessionManager was captured (detached-resume
+   * hosts) — a `fork: true` dispatch then fails pre-flight; it never silently
+   * degrades to an empty transcript. Throws surface the projection error.
+   */
+  getParentTranscript?: () => string | undefined;
   /** Injectable spawn for tests (defaults to the real spawnSubagent). */
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /**

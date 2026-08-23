@@ -113,6 +113,17 @@ export {
   missingExtDeps,
   packageBaseName,
 } from "./ext-deps.js";
+// Fork (cc-parity-2 ticket 02): prompt-borne parent-transcript projection +
+// the ambient fork-child scope backing the no-fork-recursion guard.
+export {
+  buildForkTranscript,
+  DEFAULT_FORK_TRANSCRIPT_CAP,
+  FORK_TRANSCRIPT_HEADER,
+  forkTranscriptCap,
+  isForkChild,
+  projectTranscriptTurns,
+  runAsForkChild,
+} from "./fork-transcript.js";
 export { homeDir } from "./home.js";
 // Named persistent agents (agent-teams parity, ticket 01): the live-agent
 // registry (naming/roster/LRU/disposal) and the persistent-agent runner

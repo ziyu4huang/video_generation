@@ -83,8 +83,9 @@ Phase 1 — validation (gates the rest)
   harness + TWO seam fixes (session-model injection; extension-tools bridge)
 
 Phase 2 — CC subagent parity (after 01)
-- `tickets/02-fork-subagent.md` — open — `fork: true` prompt-borne parent-context
-  inheritance; supersedes teams-parity D10
+- `tickets/02-fork-subagent.md` — done (2026-08-23) — `fork: true` prompt-borne
+  parent-context inheritance (`buildForkTranscript`, 24k-char cap, ambient
+  fork-child scope for no-recursion); supersedes teams-parity D10
 - `tickets/03-builtin-readonly-types.md` — open — `explore`/`plan` built-in
   fallback agent types (lowest-precedence tier)
 - `tickets/04-startup-context.md` — open — git-status + sibling-roster startup
@@ -143,12 +144,13 @@ Phase 4 — ledger hygiene
 
 ## Frontier
 
-Ticket 02 (fork) — ticket 01 closed 2026-08-23 with the gates it owned
-satisfied: addressability/roster/protocol verified live (6/6 smoke steps), the
-memory curve recorded (session objects ≈ noise → the fork transcript cap, D2,
-should bound TRANSCRIPT size), and both seam defects found on the way fixed.
-Tickets 03/04 follow 02; 05/06 were independent all along and remain parallel.
-F2 (live-agent default budget too tight) rides ticket 05.
+Ticket 03 (built-in read-only types) — ticket 02 closed 2026-08-23: `fork: true`
+ships with the pure projection unit-tested (compaction, cap, truncation) and
+the tool contract pinned (rejections, background-default, composition order);
+the fork transcript cost is bounded BY DESIGN (24k-char cap ≈ 6k tokens, env
+`SUBAGENT_FORK_TRANSCRIPT_CAP`) — no live smoke yet, so real-model fork quality
+is unmeasured. Ticket 04 reuses 02's transcript composer. 05/06 remain
+parallel; F2 rides 05.
 
 ## Fog of war
 
@@ -183,9 +185,11 @@ F2 (live-agent default budget too tight) rides ticket 05.
 - Whether `sendUserMessage(followUp)` fired from the wakeup tick interleaves
   safely with an in-flight streaming turn (S5; ticket 06 must test with a fake
   session before trusting it live).
-- Fork transcript token cost on long parent sessions — session objects are
-  now measured cheap (above), so the fork cap (D2) should bound TRANSCRIPT
-  size, the dominant term; exact per-char cost still to measure in ticket 02.
+- Fork transcript token cost on long parent sessions — RESOLVED BY DESIGN
+  (ticket 02): the 24k-char default cap (`SUBAGENT_FORK_TRANSCRIPT_CAP`) is a
+  hard bound (~6k tokens), truncating oldest-first; real-model fork QUALITY
+  (does the child actually use the inherited context well?) is still
+  unmeasured — no live fork smoke has run.
 - Whether the `explore` built-in should skip the CLAUDE.md hierarchy like CC's
   Explore does (a per-call `resourceLoader` override is feasible via
   `WorkflowAgentOptions.session`) — decide in ticket 03/04 from measurements;
