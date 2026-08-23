@@ -11,8 +11,14 @@ import { LABELS_BY_KIND, RESERVED_LABEL_SET, ROW_INTENT_META } from "../state/ro
 export const MAX_QUESTIONS = 4;
 export const MIN_OPTIONS = 2;
 export const MAX_OPTIONS = 4;
-export const MAX_HEADER_LENGTH = 16;
-export const MAX_LABEL_LENGTH = 60;
+export const MAX_HEADER_LENGTH = 12;
+
+/** CC convention: the recommended option carries this label suffix and sits first. */
+export const RECOMMENDED_SUFFIX = " (Recommended)";
+
+export function hasRecommendedSuffix(label: string): boolean {
+	return label.endsWith(RECOMMENDED_SUFFIX);
+}
 
 /**
  * User-facing labels for the three runtime sentinel rows, keyed by their
@@ -37,8 +43,8 @@ export type ReservedLabel = (typeof RESERVED_LABELS)[number];
 
 export const OptionSchema = Type.Object({
 	label: Type.String({
-		maxLength: MAX_LABEL_LENGTH,
-		description: `MAX ${MAX_LABEL_LENGTH} CHARACTERS — hard limit, requests over the limit are rejected. The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.`,
+		description:
+			"The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.",
 	}),
 	description: Type.String({
 		description:
@@ -47,13 +53,7 @@ export const OptionSchema = Type.Object({
 	preview: Type.Optional(
 		Type.String({
 			description:
-				"Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons.",
-		}),
-	),
-	recommended: Type.Optional(
-		Type.Boolean({
-			description:
-				'Set true on the option you recommend (at most one per question). The UI renders a ⭐ prefix on its title — a stable, consistent marker. Prefer this over adding "(Recommended)" text to the label.',
+				"Optional preview content, rendered as markdown in a monospace box next to the options (side-by-side layout). Use for ASCII mockups of UI layouts or components, code snippets, diagrams, graphs, or configuration examples. Only supported for single-select questions.",
 		}),
 	),
 });
@@ -65,7 +65,7 @@ export const QuestionSchema = Type.Object({
 	}),
 	header: Type.String({
 		maxLength: MAX_HEADER_LENGTH,
-		description: `MAX ${MAX_HEADER_LENGTH} CHARACTERS — hard limit. Very short chip/tag shown next to the question. Examples: "Auth method", "Library".`,
+		description: `Very short label displayed as a chip/tag next to the question. Max ${MAX_HEADER_LENGTH} characters. Examples: "Auth method", "Library".`,
 	}),
 	options: Type.Array(OptionSchema, {
 		minItems: MIN_OPTIONS,
@@ -77,7 +77,7 @@ export const QuestionSchema = Type.Object({
 		Type.Boolean({
 			default: false,
 			description:
-				"Set to true to allow the user to select multiple options instead of just one.",
+				"Set to true to allow the user to select multiple options instead of just one. Use for questions where multiple answers are valid; phrase the question accordingly. Do not use for mutually exclusive choices.",
 		}),
 	),
 });
@@ -118,7 +118,9 @@ export type QuestionnaireError =
 	| "duplicate_question"
 	| "duplicate_option_label"
 	| "reserved_label"
-	| "too_many_recommended";
+	| "too_many_recommended"
+	| "preview_on_multiselect"
+	| "header_too_long";
 
 export interface QuestionnaireResult {
 	answers: QuestionAnswer[];
