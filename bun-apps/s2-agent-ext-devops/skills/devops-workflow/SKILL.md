@@ -71,6 +71,17 @@ they stay native regardless of backend.
 
 ## The chain (run in order)
 
+### 0. Sync check — ALWAYS first, no exceptions
+
+Before ANY step below (and before executing a next-goal queue head), verify
+the tree is at the remote default branch's tip:
+`bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`
+(detached worktree → `--branch <slug>` per the trigger map above; or fetch and
+count `git rev-list --count HEAD..origin/main` — `0` = already at tip). Work is
+written against main as of its session; main moves between sessions. Starting
+the chain from a stale tree rebases, CI-gates, or merges against the wrong
+base — this check is not optional and not implicit in later steps.
+
 ### 1. `prepare_feature_branch` — worktree-safe branch setup
 
 Create a branch off the base, rebase it onto the base, and/or force-push-with-

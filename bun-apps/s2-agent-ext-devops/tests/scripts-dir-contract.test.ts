@@ -67,6 +67,7 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/runs-stats.ts",
 	"bun-apps/s2-agent-ext-superpowers/scripts/rebaseline-upstream-skills.ts",
+	"bun-apps/s2-agent-ext-superpowers/scripts/update-superpowers.ts",
 	"bun-apps/s2-agent-ext-wayfind/scripts/probe-ext.ts",
 	"bun-apps/s2-agent/scripts/regen-manifest.ts",
 	"bun-apps/s2-agent/scripts/regen-static-extensions.ts",
