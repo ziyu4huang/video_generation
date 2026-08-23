@@ -154,9 +154,9 @@ export default function (pi: ExtensionAPI): void {
         }),
       ),
       mode: Type.Optional(
-        StringEnum(["auto", "text", "ocr", "vlm"] as const, {
+        StringEnum(["auto", "text", "ocr", "vlm", "smart"] as const, {
           description:
-            "Pipeline mode: auto (default, text layer + OCR for scans) | text (text layer only) | ocr (force OCR on thin pages) | vlm (vision-LLM describes thin pages; OCR degrades).",
+            "Pipeline mode: auto (default, text layer + OCR for scans) | text (text layer only) | ocr (force OCR on thin pages) | vlm (vision-LLM describes thin pages; OCR degrades) | smart (adaptive: text → OCR when thin → vision-enhanced figure pages; skip notice when no vision server).",
         }),
       ),
       pages: Type.Optional(

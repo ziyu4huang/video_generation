@@ -18,6 +18,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { readDocument } from "../vendored/dsh-cowork-core@0.1.0/src/read/index.ts";
 import { renderMarkdown } from "../vendored/dsh-cowork-core@0.1.0/src/render/markdown.ts";
+import { FIGURE_SKIP_NOTICE, type FigureRecord, isScanFigure, isTextFigure } from "./core/figure.ts";
 import { openPdf, type PdfHandle } from "./core/pdf-text.ts";
 import { detectKind } from "./core/sniff.ts";
 import {
@@ -89,8 +90,8 @@ export function parsePageSpec(spec: string, total: number): Set<number> {
 /** v2 mode validation, with v1's same throw semantics. `auto` converges on `ocr`. */
 export function parseMode(mode: string | undefined): File2mdMode {
   const m = (mode ?? "auto") as File2mdMode;
-  if (m !== "auto" && m !== "text" && m !== "ocr" && m !== "vlm") {
-    throw new Error(`Invalid mode "${mode}". Valid: auto, text, ocr, vlm.`);
+  if (m !== "auto" && m !== "text" && m !== "ocr" && m !== "vlm" && m !== "smart") {
+    throw new Error(`Invalid mode "${mode}". Valid: auto, text, ocr, vlm, smart.`);
   }
   return m === "auto" ? "ocr" : m;
 }
@@ -103,6 +104,8 @@ interface PageRecord {
   png?: Uint8Array;
   pngW?: number;
   pngH?: number;
+  /** Smart-mode figure detection record (manifests as `figure` on the page). */
+  figure?: FigureRecord;
 }
 
 /**
@@ -130,10 +133,18 @@ export async function runFile2mdPipeline(opts: File2mdPipelineOptions): Promise<
 
   // Vision is resolved eagerly ONLY for mode vlm (text/ocr are VLM-free —
   // resolveVisionLLM throws when no vision capability / PI_MODEL is set,
-  // exactly the users v1 text mode exists for).
+  // exactly the users v1 text mode exists for). Smart resolves softly (D4):
+  // no vision server → one warning line per run, figure pages flag and
+  // continue — a page never fails because enhancement did not.
   let llm: ResolvedLLM | undefined;
   if (mode === "vlm") {
     llm = resolveVisionLLM({ model: opts.model, provider: opts.provider, thinking: opts.thinking });
+  } else if (mode === "smart") {
+    try {
+      llm = resolveVisionLLM({ model: opts.model, provider: opts.provider, thinking: opts.thinking });
+    } catch {
+      console.error("  smart: vision unavailable — figure pages flagged, enhancement skipped");
+    }
   }
 
   console.error("file2md (v2)");
@@ -277,6 +288,10 @@ async function runPdf(args: RunDocumentArgs, _layout: DocLayout, slug: string): 
       writeFileSync(realLayout.mdAbs(pageNo), pageNoteMd(inputName, pageNo, pageCount, profile, record), "utf8");
       mp.status = "done" as PageStatus;
       delete mp.error;
+      // Smart-mode figure record: present when detected, absent otherwise
+      // (additive — old readers ignore it; non-smart runs never write it).
+      if (record.figure) mp.figure = record.figure;
+      else delete mp.figure;
       writeManifest(realLayout, manifest);
       args.emit?.({
         type: "page",
@@ -346,6 +361,17 @@ async function extractPdfPage(
 ): Promise<PageRecord> {
   const text = (await pdf.getText(pageNo)).trim();
   if (text.length >= OCR_TEXT_MIN_CHARS || mode === "text") {
+    // smart: a usable text page is checked for the caption-only-figure shape
+    // before stopping (D2) — prose pages never fit the band, and a figure
+    // page with no enhancement (ticket 01) just flags + notices.
+    if (mode === "smart" && isTextFigure(text)) {
+      return {
+        page: pageNo,
+        body: `${text}\n\n${FIGURE_SKIP_NOTICE}\n`,
+        provenance: "text",
+        figure: { detected: true, enhanced: false },
+      };
+    }
     return { page: pageNo, body: text, provenance: "text" };
   }
   const rendered = await rasterPage(args.bytes, pageNo, scale);
@@ -391,9 +417,19 @@ async function extractPdfPage(
       await safeUnlink(pngOut);
     }
   }
-  // OCR path (mode ocr, or vlm-fallback).
+  // OCR path (mode ocr, vlm-fallback, or smart's scan step).
   const ocrRes = await ocrSession.recognize(rendered.bmp).catch(() => undefined);
   if (ocrRes) {
+    // smart: the OCR-length band decides the scan-page figure flag (D2) — the
+    // figure check runs only on real OCR text, never on the degrade bodies.
+    if (mode === "smart" && isScanFigure(ocrRes.text)) {
+      return {
+        page: pageNo,
+        body: `${ocrRes.text}\n\n${FIGURE_SKIP_NOTICE}\n`,
+        provenance: "ocr",
+        figure: { detected: true, enhanced: false },
+      };
+    }
     return { page: pageNo, body: ocrRes.text, provenance: "ocr" };
   }
   return { page: pageNo, body: `> no text layer on page ${pageNo} (OCR unavailable).\n`, provenance: "ocr" };

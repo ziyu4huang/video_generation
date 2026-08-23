@@ -28,16 +28,20 @@ Pipeline (per input):
   2. extract text                      [pdfjs text layer / bounded office windows]
   3. thin pages → pdfium raster → OCR (vendored tesseract wasm, offline)
   4. mode vlm: vision-LLM describes images/scans (LM Studio, optional)
+  5. mode smart: adaptive per page — text when usable, OCR when thin,
+     figure pages vision-enhanced (skip notice when no vision server)
 
 Options:
   --out <dir>          output root (default: ./vlm-out)
   --scale <n>          page raster scale for OCR/vision (default 2 ≈ 144dpi)
   --type <profile>     force a profile, skip the VLM classifier
                        (paper|slides|poster|diagram|image)
-  --extract <mode>     pipeline mode (default auto):
+  --extract <mode>     pipeline mode (default auto; auto|text|ocr|vlm|smart):
                        auto/text  text layer only, no OCR/vision
                        ocr        text layer + OCR for scanned pages
                        vlm        vision-LLM describes scans; OCR degrades
+                       smart      text → OCR when thin → figure pages
+                                  vision-enhanced (skip notice w/o server)
   --note <style>       VLM page-note style: summary|verbatim|hybrid (default hybrid)
   --lang <lang>        OCR language: en|chi_sim|en+chi_sim (default en)
   --pages <spec>       only process these pages, e.g. "1,3-5" (1-indexed)
@@ -51,6 +55,7 @@ Options:
 Examples:
   s2-agent cli file2md paper.pdf
   s2-agent cli file2md scan.jpg --extract vlm --scale 3 --pages 1-4
+  s2-agent cli file2md spec.pdf --extract smart --scale 3
   s2-agent cli file2md workbook.xlsx --out ./notes`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
