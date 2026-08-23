@@ -117,10 +117,28 @@ describe("fs-surface (md fallback lane)", () => {
 		expect(l1.entries[0]!.text.length).toBeGreaterThanOrEqual(l0.entries[0]!.text.length);
 	});
 
-	test("tree returns the agg roots (or an empty-but-ok tree)", async () => {
+	test("tree walks the agg hierarchy on the md lane (reviewer F2: leaf parents inverted, agg ids normalized)", async () => {
 		await seed();
+		// Hand-write a 3-node agg chain the ingest path does not produce:
+		// agg-L1-0 (parent agg:0:0 id form) → agg-L0-0 → leaf-alpha.
+		const { writeFileSync, mkdirSync } = await import("node:fs");
+		mkdirSync(join(vault, FOLDER), { recursive: true });
+		writeFileSync(
+			join(vault, FOLDER, "agg-L0-0.md"),
+			"---\nid: agg:0:0\nkind: derived-aggregation\nlayer: 0\nstatus: active\n---\n# Agg L0\n\n## 子節點\n- [[test-alpha]]\n",
+		);
+		writeFileSync(
+			join(vault, FOLDER, "agg-L1-0.md"),
+			"---\nid: agg:1:0\nkind: derived-aggregation\nparent: agg:0:0\nlayer: 1\nstatus: active\n---\n# Agg L1\n",
+		);
 		const r = await fsTree({ vaultPath: vault, client: downClient });
 		expect(r.ok).toBe(true);
+		const paths = r.entries.map((e) => e.path);
+		// The L0 root renders, its leaf child inverts under it, and the L1
+		// child's `parent: agg:0:0` id form resolves to the L0 stem.
+		expect(paths).toContain(`${FOLDER}/agg-L0-0`);
+		expect(paths).toContain(`${FOLDER}/test-alpha`);
+		expect(paths).toContain(`${FOLDER}/agg-L1-0`);
 	});
 });
 
@@ -129,21 +147,40 @@ describe("fs-surface (md fallback lane)", () => {
 
 const embedder = (async (texts: string[]) => texts.map(() => [1, 0, 0, 0])) as unknown as import("../src/semantic.ts").Embedder;
 
+/** Wrap an inner fake with the freshness-gate answers (indexStatus + count).
+ *  The gate (reviewer F1/F5 fix) requires: index present, embed_model match,
+ *  cardCount === md file count. `stale` forces a count mismatch. */
+function freshClient(inner: (sql: string) => Promise<unknown>, opts: { stale?: boolean; model?: string; mdCount?: number } = {}): SurrealClient {
+	return fakeClient(async <T>(sql: string) => {
+		if (sql.includes("index_meta")) {
+			return [{ fingerprint: "test-fp", embed_model: opts.model ?? "text-embedding-bge-m3" }] as unknown as T;
+		}
+		if (sql.includes("SELECT VALUE count()")) {
+			const md = opts.mdCount ?? readdirSync(join(vault, FOLDER)).filter((n) => n.endsWith(".md")).length;
+			return [{ count: opts.stale ? md + 1 : md }] as unknown as T;
+		}
+		return (await inner(sql)) as T;
+	});
+}
+
+import { resolveCardEmbedModel } from "../src/semantic.ts";
+import { readdirSync } from "node:fs";
+
 describe("retrieveRecords D27 default switch (D36)", () => {
 	test("hier-first hydrates leaf cards through the md path (RetrieveResult shape preserved)", async () => {
 		await seed();
-		const client = fakeClient(async <T>(sql: string) => {
+		const client = freshClient(async (sql: string) => {
 			if (sql.includes("<|")) {
 				// KNN lane: seed the alpha card (leaf) + a fake agg.
 				return [
 					{ stem: "test-alpha", path: `${FOLDER}/test-alpha`, title: "Alpha gotcha", kind: "gotcha", is_leaf: true, parent: "agg-x", summary: "", sim: 0.9 },
-				] as unknown as T;
+				];
 			}
 			if (sql.includes("@@")) {
-				return [] as unknown as T; // no FTS hits
+				return []; // no FTS hits
 			}
-			return [] as unknown as T; // parent/stem expansion: none
-		});
+			return []; // parent/stem expansion: none
+		}, { model: resolveCardEmbedModel(undefined) });
 		const r = await retrieveRecords({
 			vaultPath: vault,
 			tags: ["argparse"],
@@ -230,15 +267,15 @@ describe("retrieveRecords D27 default switch (D36)", () => {
 
 	test("stale index stems fail hydration and are counted excluded, not surfaced", async () => {
 		await seed();
-		const client = fakeClient(async <T>(sql: string) => {
+		const client = freshClient(async (sql: string) => {
 			if (sql.includes("<|")) {
 				return [
 					{ stem: "gone-card", path: `${FOLDER}/gone-card`, title: "Gone", kind: "gotcha", is_leaf: true, parent: null, summary: "", sim: 0.9 },
 					{ stem: "test-alpha", path: `${FOLDER}/test-alpha`, title: "Alpha gotcha", kind: "gotcha", is_leaf: true, parent: null, summary: "", sim: 0.8 },
-				] as unknown as T;
+				];
 			}
-			return [] as unknown as T;
-		});
+			return [];
+		}, { model: resolveCardEmbedModel(undefined) });
 		const r = await retrieveRecords({
 			vaultPath: vault,
 			tags: ["argparse"],
@@ -271,14 +308,14 @@ describe("retrieveRecords D27 default switch (D36)", () => {
 
 	test("trace source is 'hierarchical' on the hier lane", async () => {
 		await seed();
-		const client = fakeClient(async <T>(sql: string) => {
+		const client = freshClient(async (sql: string) => {
 			if (sql.includes("<|")) {
 				return [
 					{ stem: "test-alpha", path: `${FOLDER}/test-alpha`, title: "Alpha gotcha", kind: "gotcha", is_leaf: true, parent: null, summary: "", sim: 0.9 },
-				] as unknown as T;
+				];
 			}
-			return [] as unknown as T;
-		});
+			return [];
+		}, { model: resolveCardEmbedModel(undefined) });
 		const r = await retrieveRecords({
 			vaultPath: vault,
 			tags: ["argparse"],
@@ -289,5 +326,51 @@ describe("retrieveRecords D27 default switch (D36)", () => {
 			_testEmbedder: embedder,
 		});
 		expect(r.trace?.cards[0]!.source).toBe("hierarchical");
+		expect(r.trace?.hierUsed).toBe(true);
+	});
+
+	test("freshness gate (reviewer F1): card-count mismatch falls back to flat", async () => {
+		await seed();
+		let knnSeen = false;
+		const client = freshClient(async (sql: string) => {
+			if (sql.includes("<|")) {
+				knnSeen = true;
+				return [{ stem: "test-alpha", path: `${FOLDER}/test-alpha`, title: "Alpha gotcha", kind: "gotcha", is_leaf: true, parent: null, summary: "", sim: 0.9 }];
+			}
+			return [];
+		}, { stale: true, model: resolveCardEmbedModel(undefined) });
+		const r = await retrieveRecords({
+			vaultPath: vault,
+			tags: ["argparse"],
+			queryText: "argparse flags",
+			semantic: true,
+			_hierClient: client,
+			_testEmbedder: embedder,
+		});
+		// stale index (count mismatch) → the KNN lane is never consulted, flat answers
+		expect(knnSeen).toBe(false);
+		expect(r.cards.some((c) => c.id === "test:alpha")).toBe(true);
+	});
+
+	test("freshness gate (reviewer F5): embed-model mismatch falls back to flat", async () => {
+		await seed();
+		let knnSeen = false;
+		const client = freshClient(async (sql: string) => {
+			if (sql.includes("<|")) {
+				knnSeen = true;
+				return [{ stem: "test-alpha", path: `${FOLDER}/test-alpha`, title: "Alpha gotcha", kind: "gotcha", is_leaf: true, parent: null, summary: "", sim: 0.9 }];
+			}
+			return [];
+		}, { model: "a-different-model" });
+		const r = await retrieveRecords({
+			vaultPath: vault,
+			tags: ["argparse"],
+			queryText: "argparse flags",
+			semantic: true,
+			_hierClient: client,
+			_testEmbedder: embedder,
+		});
+		expect(knnSeen).toBe(false);
+		expect(r.cards.some((c) => c.id === "test:alpha")).toBe(true);
 	});
 });

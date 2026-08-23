@@ -83,8 +83,9 @@ describe("cross-extension grand-total schema-cost", () => {
     assertWithinBudget(total.tokens, {
       // `max` is the gate; `baseline` is documentation of the last conscious
       // measurement. Re-measured 2026-08-23: 4282 → 4645 (kcard zk_fs tool
-      // +432 tok — the D32 FS read surface; plus ticket 06's zk_ingest extract
-      // option which had kept the old gate green by ~69 tok of headroom).
+      // +432 tok — the D32 FS read surface; knowledge_query `type` param
+      // +58 tok — D18; plus ticket 06's zk_ingest extract option which had
+      // kept the old gate green by ~69 tok of headroom).
       // max = 4645 × 1.10 — fresh measurement, never quiet headroom.
       label: "cross-ext grand total (11 tools)",
       max: 5110,

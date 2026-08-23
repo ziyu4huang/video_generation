@@ -1189,7 +1189,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				description: "D18 typed filter — exact leaf type (gotcha|avoid|lever|pattern|metric|false_positive|experience|event|case|preference).",
 			})),
 			depth: Type.Optional(Type.Number({ description: "tree: max depth (1–4, default 2).", default: 2 })),
-			limit: Type.Optional(Type.Number({ description: "Max entries (default 50 ls / 30 find / 20 grep).", default: 50 })),
+			limit: Type.Optional(Type.Number({ description: "Max entries (per-op default: ls 50 / find 30 / grep 20).", default: 50 })),
 			tier: Type.Optional(Type.Union([Type.Literal("abstract"), Type.Literal("overview"), Type.Literal("full")], {
 				description: "Render tier: 'abstract' (L0, DEFAULT) | 'overview' (L1) | 'full' (L2).",
 				default: "abstract",

@@ -81,6 +81,9 @@ interface MdRow {
 	layer: number | null;
 	parent: string | null;
 	kind: string;
+	/** Agg-only: child stems from the `## 子節點` wikilinks (md lane's
+	 *  parent-inversion input, mirroring surreal-index.ts). */
+	children?: string[];
 }
 
 function parseMdRow(folderAbs: string, folder: string, name: string): MdRow | null {
@@ -99,6 +102,24 @@ function parseMdRow(folderAbs: string, folder: string, name: string): MdRow | nu
 	if (fm.status === "retired" || fm.status === "superseded") return null;
 	const isAgg = isDerivedAggregation(raw);
 	const stem = name.slice(0, -3);
+	// Agg child stems: the `## 子節點` section's [[wikilinks]] ONLY
+	// (aggregation-write.ts's downward-edge contract, mirrored from
+	// surreal-index.ts's aggChildStems — scanning the whole body would invert
+	// a prose wikilink into a spurious parent edge).
+	let children: string[] | undefined;
+	if (isAgg) {
+		// NOTE: search the RAW content, not cardAnatomy's body — that body is
+		// only the `## 核心想法` section; agg cards carry `## 子節點` outside it.
+		const section = raw.indexOf("## 子節點");
+		if (section !== -1) {
+			const rest = raw.slice(section);
+			const next = rest.slice(1).search(/^## /m);
+			const scope = next === -1 ? rest : rest.slice(0, next + 1);
+			children = [...scope.matchAll(/\[\[([^\]]+)\]\]/g)]
+				.map((m) => (m[1] ?? "").split("|").pop()?.trim())
+				.filter((t): t is string => Boolean(t));
+		}
+	}
 	return {
 		stem,
 		path: `${folder}/${stem}`,
@@ -110,6 +131,7 @@ function parseMdRow(folderAbs: string, folder: string, name: string): MdRow | nu
 		kind: isAgg
 			? "derived-aggregation"
 			: typeof fm.type === "string" ? fm.type : (typeof fm.record_type === "string" ? fm.record_type : "pattern"),
+		children,
 	};
 }
 
@@ -157,6 +179,24 @@ async function allRows(opts: FsSurfaceOptions, folder: string): Promise<{ rows: 
 		const r = parseMdRow(folderAbs, folder, name);
 		if (r) rows.push(r);
 	}
+	// Reviewer F2: mirror the index lane's parent normalization — (a) an agg's
+	// `parent:` frontmatter carries the `agg:<l>:<i>` id, not the stem; (b) a
+	// leaf's ONLY upward edge is the inversion of its parent agg's `## 子節點`
+	// wikilinks (surreal-index.ts does both for the index rows).
+	const byStem = new Map(rows.map((r) => [r.stem, r]));
+	for (const r of rows) {
+		if (r.parent) {
+			const m = /^agg:(\d+):(\d+)$/.exec(r.parent);
+			if (m) r.parent = `agg-L${m[1]}-${m[2]}`;
+		}
+	}
+	for (const r of rows) {
+		if (r.is_leaf) continue;
+		for (const child of r.children ?? []) {
+			const c = byStem.get(child);
+			if (c && c.is_leaf && c.parent === null) c.parent = r.stem;
+		}
+	}
 	return { rows, lane: "md" };
 }
 
@@ -202,8 +242,10 @@ export async function fsLs(args: FsSurfaceOptions & { path?: string; limit?: num
 	const { rows, lane } = await allRows(args, folder);
 
 	if (path === "" || path === ".") {
-		// Root: the virtual type dir + a stem window of leaf cards.
-		const leaves = rows.filter((r) => r.is_leaf);
+		// Root: the virtual type dir + a stem window of leaf cards
+		// (stem-sorted first — reviewer nit: slicing an UNSORTED readdir/index
+		// order makes "which 50 appear" undefined).
+		const leaves = rows.filter((r) => r.is_leaf).sort((a, b) => (a.stem < b.stem ? -1 : 1));
 		const entries: FsEntry[] = [
 			{ path: "type/", title: `virtual type dirs (${CARD_KINDS.length} kinds)`, kind: "virtual", text: `type/<kind> — D18 virtual type directories over frontmatter type`, tier },
 			...leaves.slice(0, limit).map((r) => toEntry(r, args, tier)),
@@ -211,7 +253,7 @@ export async function fsLs(args: FsSurfaceOptions & { path?: string; limit?: num
 		return { op: "ls", ok: true, entries, lane, scanned: leaves.length };
 	}
 
-	const typeMatch = /^type\/([a-z_]+)\/?$/.exec(path);
+	const typeMatch = /^type\/([a-z_-]+)\/?$/.exec(path);
 	if (typeMatch) {
 		const kind = typeMatch[1]!;
 		if (!CARD_KINDS.includes(kind)) {
