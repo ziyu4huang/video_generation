@@ -104,7 +104,7 @@ Phase 1 — the template seam
 - `tickets/03-bullets-equivalence.md` — task, **done** 2026-08-23 — **the vocabulary's acceptance bar** (equivalence passed first full run; no gap)
 
 Phase 2 — the agent surface
-- `tickets/04-deck-lint-tool.md` — task, open — `archify_deck_lint`: catalog + renderless lint
+- `tickets/04-deck-lint-tool.md` — task, **done** 2026-08-23 — `archify_deck_lint`: catalog + renderless lint
 
 Phase 2.5 — output packaging (added 2026-08-23)
 - `tickets/11-self-contained-output.md` — task, **in progress** — one-folder contract + spread advisory landed 2026-08-23; example-conformance test still owed
@@ -165,16 +165,17 @@ Recorded in full in `spec.md` §3. The load-bearing ones:
 
 ## Frontier
 
-`tickets/04-deck-lint-tool.md` — the agent surface. Phase 1 closed 2026-08-23: tickets
-01+02+03 landed as one unit (shared `lib/blocks.ts` constructors, `lib/layout-template.ts`
-resolver, `lib/layout-registry.ts` three-tier precedence, `roleOf` refactor in both
-emitters). Ticket 03's equivalence **passed on the first full run — zero vocabulary gap**,
-so the Fog-of-war question "is the vocabulary sufficient?" is answered YES for a layout
-designed before it existed; ticket 01's timeline walk also resolved EXPRESSIBLE (rule-first
-sibling + repeat, pinned as `layout-template.test.ts` "timeline vocabulary verdict").
-Ticket 04 is next because the seven shipped templates of ticket 06 need the catalog +
-renderless lint to be authorable by an agent at all, and its slot validation is what makes
-template errors legible. Suite went 505 → 544 passing, 0 failing.
+`tickets/05-table-primitive.md` — Phase 2 continues with the table drawing primitive
+(both emitters must learn it; that is the "Drawing primitive" cost CONTEXT.md warns about),
+then ticket 06's seven shipped templates can be authored against the now-live catalog +
+`archify_deck_lint`. Ticket 04 landed 2026-08-23: `archify_deck_lint` (catalog mode /
+renderless manifest check / storyline return, runArchify-spy proven, schema-cost canary +
+248 tok). Phases closed: ticket 11 (one-folder contract, example-conformance test still
+owed), tickets 01+02+03 as one unit (shared `lib/blocks.ts`, `lib/layout-template.ts`
+resolver, `lib/layout-registry.ts` three-tier precedence, `roleOf` refactor). Ticket 03's
+equivalence passed on the first full run — zero vocabulary gap; timeline verdict EXPRESSIBLE,
+pinned as `layout-template.test.ts` "timeline vocabulary verdict". Suite 505 → 579 passing,
+0 failing.
 
 ## Fog of war
 

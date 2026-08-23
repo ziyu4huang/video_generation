@@ -3,6 +3,7 @@ import { validateTool } from "../lib/validate.ts";
 import { makeRenderTool } from "../lib/render.ts";
 import { makeDeltaTool } from "../lib/delta.ts";
 import { makeExportPptxTool } from "../lib/export-pptx.ts";
+import { deckLintTool } from "../lib/deck-lint-tool.ts";
 import type { OpenBus } from "../lib/open-announce.ts";
 
 const extension: ExtensionFactory = (pi) => {
@@ -23,6 +24,8 @@ const extension: ExtensionFactory = (pi) => {
   pi.registerTool(makeDeltaTool(events));
   // Native-shape PPTX export (no browser, nothing rasterized).
   pi.registerTool(makeExportPptxTool(events));
+  // Renderless deck check + layout catalog (D9) — no bus, nothing to announce.
+  pi.registerTool(deckLintTool);
 };
 
 export default extension;

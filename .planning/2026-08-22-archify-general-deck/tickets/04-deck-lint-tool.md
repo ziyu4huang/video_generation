@@ -2,9 +2,9 @@
 ticket: 04-deck-lint-tool
 effort: archify-general-deck
 type: task
-status: open
+status: done
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocked-by: [02]
 ---
 # 04 — `archify_deck_lint`: the catalog and the renderless check
