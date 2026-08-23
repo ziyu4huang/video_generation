@@ -42,6 +42,25 @@ Measured 2026-08-23 in this worktree unless noted.
   pdf-lib fixtures (`__tests__/helpers/docs.ts`: `textPdf`, `scannedPdf`) and only the
   wasm/worker pair (`raster/pdf.ts`, `ocr/ocr.ts`) stubbed. Package canonical test:
   203 pass / 0 fail (2026-08-23).
+- **Real-VLM validation (measured 2026-08-24, this session)**: bounded `--extract smart`
+  over the USB4 CLEAN spec live with LM Studio `qwen/qwen3.8-27b`.
+  - **Detector: 74 of 839 pages (8.8%) are caption-band figure pages** (`figure.detected:
+    true`; full-doc run 1). The byte window (31 < 900B + 56 in 900-1300B) over-predicts;
+    the detector lands on 74.
+  - **10-page sample run (scale 2, pages 57,112,268,327,395,552,603,695,767,789)**:
+    8/8 completed pages enhanced: true, 0 page failures, 0 skip notices; pages 767/789
+    in flight at measurement time. Non-figure pages (spot-check 15, 200) stay
+    `provenance: text`, no `figure` record, no `enhanced`.
+  - **Latency**: 58 s raw vision inference (direct curl, 1190×1682 PNG); through the
+    spawnSubagent seam ≈ 4–15 min/page (agent-loop turns at ~60 s each; always-on
+    reasoning 27B). The recon 5-min envelope ABORTS long calls (page 57 failed as
+    "Subagent was aborted" with caps applied); `SUBAGENT_TOKEN_BUDGET_DISABLE=1`
+    unblocks the live ladder (used for the sample run).
+  - **figureHint quality (5 human-reads: p57, p112, p268, p327, p395): WORTH THE
+    WORDING** — each description names the figure, states type/purpose, enumerates
+    components (incl. block positions), reads labels/legends/arrows, and adds
+    domain detail (signal alphas, LFSR taps, topology IDs). Nits: page header/footer
+    context lines, occasional length (1–2 KB).
 
 ## Tickets
 
@@ -148,8 +167,18 @@ corpus-validated.
 
 ## Fog of war
 
-- **Real-VLM smart run unmeasured** — the E2E mocks the LLM; a live LM Studio pass over the
-  USB4 31 figure pages is the validation still owed (ranked next goal).
+- **Full-corpus smart run not yet completed** — the single-page latency (≈4–15 min/page
+  through the spawnSubagent seam) makes an 839-page run a multi-hour job; the bounded
+  sample validated the ladder live (see Context), the full run remains the successor
+  queue head.
+- **Vision-call abort envelope vs local-VLM latency** — the recon 5-min timeout
+  (`budget-defaults.ts` recon) aborts long enhance calls ("Subagent was aborted");
+  measured 2026-08-24 on page 57 before `SUBAGENT_TOKEN_BUDGET_DISABLE=1`. A product
+  fix (per-call timeout scaling, or a smart-mode-specific envelope) is an open decision.
+- **raster→PNG fix landed outside the effort queue** — `rasterPage` now exposes raw
+  `bgra` (24-bit BMP was being fed to the 4-channel PNG encoder; the E2E stubs had
+  lied about the shape). Shipped as a follow-up commit with the validation run;
+  red-test in `__tests__/raster.test.ts` (pixel-exact IDAT scanline).
 - **tesseract-wasm image-input path under Bun unproven** (ticket 04 spike is the crux): the
   engine consumes decoded images (ImageBitmap/ImageData-world); our raster produces
   BMP/BGRA — plumbing round-trip must be demonstrated before the swap is real. The

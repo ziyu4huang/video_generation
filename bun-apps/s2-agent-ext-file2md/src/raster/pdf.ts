@@ -25,6 +25,8 @@ export function loadPdfium(): Promise<PDFiumLibrary | undefined> {
 export interface RasterPageBmp {
   /** BMP bytes (24-bit, tesseract-grade). */
   bmp: Uint8Array;
+  /** Raw BGRA pixels (4 bytes/px, top-down) — the PNG/VLM encode source. */
+  bgra: Uint8Array;
   width: number;
   height: number;
 }
@@ -37,7 +39,7 @@ export async function rasterPage(pdf: Uint8Array, page: number, scale: number): 
     const doc = await lib.loadDocument(pdf);
     const pdfPage = doc.getPage(page - 1);
     const { width, height, data } = await pdfPage.render({ scale });
-    return { bmp: bgraToBmp(data, width, height), width, height };
+    return { bmp: bgraToBmp(data, width, height), bgra: data, width, height };
   } catch {
     return undefined;
   }

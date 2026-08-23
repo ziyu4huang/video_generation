@@ -28,7 +28,7 @@ const visionReply = { ok: true as boolean, output: "A diagram of the adaptive eq
 mock.module("../src/raster/pdf.ts", () => ({
   rasterPage: async () => {
     calls.raster++;
-    return { bmp: new Uint8Array(8 * 8 * 4), width: 8, height: 8 };
+    return { bmp: new Uint8Array(8 * 8 * 4), bgra: new Uint8Array(8 * 8 * 4), width: 8, height: 8 };
   },
 }));
 

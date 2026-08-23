@@ -25,17 +25,34 @@ Each provider entry carries a `baseUrl`, an **`api`** (the adapter selector), an
       "api": "openai-completions",          // ← selects the pi-ai adapter
       "apiKey": "lm-studio",                 // dummy; LM Studio ignores it
       "models": [
-        { "id": "google/gemma-4-12b" },  // ← the built-in DEFAULT_MODEL
-        { "id": "google/gemma-4-12b" }
+        { "id": "qwen/qwen3.8-27b" },      // ← the working vision model
+        { "id": "google/gemma-4-12b" }     // registered but NOT VLM-usable (see below)
       ]
     }
   }
 }
 ```
 
-That single entry is what makes `vision_ask` work out of the box: the built-in
-default target (`lm-studio/google/gemma-4-12b`) resolves against this
-provider, which is served by your local LM Studio on `:1234`.
+That single entry is what makes `vision_ask` and `--extract smart/vlm` work:
+the configured target (`capabilities.vision` in `~/.pi/workflows/model-tiers.json`
+→ `lm-studio/qwen/qwen3.8-27b`) resolves against this provider, which is served
+by your local LM Studio on `:1234`.
+
+> **Why not gemma-4-12b?** The default target on this machine is the 27B qwen
+> because loading gemma FAILS on the VLM path — measured 2026-08-24 with
+> `lms load google/gemma-4-12b`: *"The mlx-vlm batched vision path does not
+> support KV cache quantization yet."* Registering it costs nothing; selecting
+> it for vision costs a load-time failure.
+
+> **CLI-path registration is mandatory.** The `cli <command>` namespace
+> deliberately does NOT inherit the TUI's baked provider catalog
+> (`bun-apps/s2-agent/src/cli.ts` intercepts before `applyPatches()`; see
+> docs/adr/0001). So without `~/.pi/agent/models.json` on disk, a
+> `s2-agent cli file2md … --extract smart` run resolves the configured
+> `lm-studio/…` model as **unavailable** — every figure page degrades to the
+> skip notice. Symptom (measured 2026-08-24): `[subagent] requested model
+> "lm-studio/qwen/qwen3.8-27b" unavailable; no tier given; using session
+> default` + `figure vision output rejected … — skip notice`.
 
 ## 2. The `api` field is the adapter selector
 
