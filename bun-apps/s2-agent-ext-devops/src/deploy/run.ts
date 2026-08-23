@@ -2,11 +2,17 @@
  * deploy.ts — orchestrator for the s2-agent-sh deploy.
  *
  * Produces <outRoot>/<version>/ containing:
- *   s2-agent      minimal compiled core (zero extensions inside), hardlinked
- *                 from <outRoot>/.cores/<hash> when frozen (Phase 3 §a)
- *   run.sh        thin launcher
+ *   s2-agent.js   minimal core as a bun-run ESM bundle (zero extensions
+ *                 inside), hardlinked from <outRoot>/.cores/<hash> when
+ *                 frozen (Phase 3 §a; artifact switched from a `--compile`
+ *                 Mach-O to a `--target=bun` bundle 2026-08-23 —
+ *                 deploy-platform-neutral-core ticket 01)
+ *   dist/…        pi's theme/assets/export-html dirs copied at their Node
+ *                 layout, where bundled pi resolves them from the deploy dir
+ *   run.sh        thin launcher (execs the shipped bun + bundle from
+ *                 ticket 02; still names the old compiled target until then)
  *   deploy.json   provenance
- *   package.json  deploy version — pi reads its version from next to the exe
+ *   package.json  deploy version — pi reads its version from beside the core
  *   ext/<name>/   independently built extension packages
  *
  * Everything is staged in <outRoot>/.staging-<version> and only renamed into
@@ -109,26 +115,33 @@ async function assertHostContract(cfg: ShConfig): Promise<void> {
 }
 
 /**
- * Produce the version dir's `s2-agent` core (Phase 3 §a).
+ * Produce the version dir's `s2-agent.js` core — a bun-run ESM bundle, NOT a
+ * compiled binary (2026-08-23, deploy-platform-neutral-core ticket 01).
+ *
+ * The bundle builds against the EMPTY asset manifest: pi's theme/assets/
+ * export-html dirs ship as plain copies at their Node layout inside the
+ * version dir (stagePiAssets below), where bundled pi resolves them by
+ * walking up from the bundle to the deploy package.json — no
+ * `with { type: "file" }` imports, no hashed sidecars, no
+ * ~/.pi/agent/embedded-assets extraction.
  *
  * Frozen deploys go through the content-addressed cache: hash the build
- * inputs (the src/ tree as it sits AFTER the embedded-assets codegen, the
- * resolved pi-coding-agent version, Bun.version, entry, flags), reuse
- * <outRoot>/.cores/<hash> on hit, compile-and-cache on miss, and HARDLINK
- * the entry into the version dir. A no-freeze deploy bypasses the cache
- * entirely (hardlinks share an inode; a writable cached core would re-mode
- * every frozen version sharing it) and compiles a plain private copy.
+ * inputs (the src/ tree, the resolved pi-coding-agent version, Bun.version,
+ * entry, flags), reuse <outRoot>/.cores/<hash> on hit, bundle-and-cache on
+ * miss, and HARDLINK the entry into the version dir. A no-freeze deploy
+ * bypasses the cache entirely (hardlinks share an inode; a writable cached
+ * core would re-mode every frozen version sharing it) and builds a plain
+ * private copy.
  */
 async function buildCore(
 	outFile: string,
 	opts: { outRoot: string; freeze: boolean },
 ): Promise<{ bytes: number; cached: boolean }> {
 	const piPkgDir = resolvePiPkgDir();
-	// Embed pi's own theme/assets/export-html so the binary needs no repo on the
-	// target machine. Two sibling stages used to run here — pi-pkg-dir.ts and an
-	// EMPTY run-dir-base.ts — writing constants only the retired "bundle" mode
-	// ever read. Phase 1b removed the readers, so these writers went too;
-	// resolvePiPkgDir() is still needed, as an ARGUMENT to the asset embedder.
+	// Force the EMPTY asset manifest before building. The bundle never reads
+	// the embed form; forcing also normalizes a stale embed-mode manifest left
+	// behind by an interrupted compiled deploy of the old pipeline (which
+	// would silently emit hashed sidecar assets this layout cannot resolve).
 	//
 	// codegen.ts writes to the CWD-relative "src/generated" and derives
 	// BUN_APPS_DIR from process.cwd() (it was written for `bun run deploy` from
@@ -136,21 +149,19 @@ async function buildCore(
 	// generated files into the caller's directory — observed polluting the repo
 	// root — so pin the cwd here and restore it after.
 	const prevCwd = process.cwd();
-	const withPinnedCwd = (embed: boolean) => {
-		process.chdir(PI_AGENT_DIR);
-		try {
-			stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], embed);
-		} finally {
-			process.chdir(prevCwd);
-		}
-	};
+	process.chdir(PI_AGENT_DIR);
+	try {
+		stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], false);
+	} finally {
+		process.chdir(prevCwd);
+	}
 
-	const compile = async (target: string): Promise<number> => {
+	const bundle = async (target: string): Promise<number> => {
 		const entry = join(PI_AGENT_DIR, "src", "cli-sh.ts");
 		// bun's build report is human progress. deploy-cli promises stdout is
 		// PURE JSON, and "inherit" here put the child's report on the same stdout
 		// as the final JSON payload — so pipe it and re-emit on stderr.
-		const p = Bun.spawn(["bun", "build", "--compile", entry, `--outfile=${target}`, "--minify"], {
+		const p = Bun.spawn(["bun", "build", entry, `--outfile=${target}`, "--target=bun", "--minify"], {
 			cwd: PI_AGENT_DIR,
 			stdout: "pipe",
 			stderr: "inherit",
@@ -162,44 +173,49 @@ async function buildCore(
 			});
 		const code = await p.exited;
 		await report;
-		if (code !== 0) throw new Error("bun build --compile failed for src/cli-sh.ts");
-		chmodSync(target, 0o755);
+		if (code !== 0) throw new Error("bun build --target=bun failed for src/cli-sh.ts");
 		return Bun.file(target).size;
 	};
 
-	withPinnedCwd(true);
-	try {
-		if (opts.freeze) {
-			const piPkgVersion = (JSON.parse(readFileSync(join(piPkgDir, "package.json"), "utf8")) as { version: string })
-				.version;
-			const hash = computeCoreHash({
-				piAgentDir: PI_AGENT_DIR,
-				piPkgVersion,
-				bunVersion: Bun.version,
-				entry: "src/cli-sh.ts",
-				flags: ["--minify"],
-			});
-			const core = await ensureCachedCore({
-				outRoot: opts.outRoot,
-				hash,
-				compile: async (target) => {
-					await compile(target);
-				},
-			});
-			linkCore(core.cacheFile, outFile);
-			return { bytes: core.bytes, cached: core.cached };
-		}
-		const bytes = await compile(outFile);
-		return { bytes, cached: false };
-	} finally {
-		// Reset the embedded-asset manifest to its empty form now that the
-		// binary has been compiled (or the cache made compiling unnecessary).
-		// The embedMode file imports .png/.map assets with
-		// `with { type: "file" }`, which `tsc --noEmit` cannot resolve —
-		// leaving it in place turns the repo's own typecheck gate red after
-		// every deploy. The binary already carries the embedded copies, so
-		// this only affects the working tree.
-		withPinnedCwd(false);
+	if (opts.freeze) {
+		const piPkgVersion = (JSON.parse(readFileSync(join(piPkgDir, "package.json"), "utf8")) as { version: string })
+			.version;
+		const hash = computeCoreHash({
+			piAgentDir: PI_AGENT_DIR,
+			piPkgVersion,
+			bunVersion: Bun.version,
+			entry: "src/cli-sh.ts",
+			flags: ["--target=bun", "--minify"],
+		});
+		const core = await ensureCachedCore({
+			outRoot: opts.outRoot,
+			hash,
+			build: async (target) => {
+				await bundle(target);
+			},
+		});
+		linkCore(core.cacheFile, outFile);
+		return { bytes: core.bytes, cached: core.cached };
+	}
+	const bytes = await bundle(outFile);
+	return { bytes, cached: false };
+}
+
+/**
+ * Copy pi's shipped asset dirs into the version dir at their NODE layout
+ * (`dist/modes/interactive/{theme,assets}`, `dist/core/export-html`).
+ * Probe-verified (2026-08-23, effort map Context): bundled pi resolves
+ * getPackageDir() by walking up from the bundle to the deploy package.json,
+ * then reads these exact relpaths — zero env redirects, nothing written
+ * under ~/.pi. Plain copies, so Gates 5a/5c/5d and Gate 6 relocation cover
+ * them like every other tree file.
+ */
+function stagePiAssets(stageDir: string): void {
+	const piPkgDir = resolvePiPkgDir();
+	for (const rel of ["dist/modes/interactive/theme", "dist/modes/interactive/assets", "dist/core/export-html"]) {
+		const src = join(piPkgDir, rel);
+		if (!existsSync(src)) throw new Error(`pi asset dir not found: ${src}`);
+		cpSync(src, join(stageDir, rel), { recursive: true });
 	}
 }
 
@@ -214,8 +230,11 @@ const AGENT_DIR_ENV = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 const RUN_SH = `#!/usr/bin/env bash
 # run.sh — launcher for a s2-agent-sh deploy.
 #
-# The binary beside this script is self-contained: it discovers extensions from
-# ./ext/<name>/ at runtime and runs normally when that directory is absent.
+# The core beside this script is a bun-run ESM bundle (s2-agent.js): it needs
+# a bun to execute it. INTERIM (ticket 01): the ambient bun from PATH, or
+# \$S2_AGENT_BUN as an explicit override — ticket 02 ships the deploy's own
+# copy at ./bin/bun and execs that instead. The bundle discovers extensions
+# from ./ext/<name>/ at runtime and runs normally when that directory is absent.
 set -euo pipefail
 SOURCE="\${BASH_SOURCE[0]}"
 while [ -L "\$SOURCE" ]; do
@@ -252,7 +271,7 @@ if [ -z "\${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
   done
 fi
 
-exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$SCRIPT_DIR/${APP_NAME}" "\$@"
+exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\${S2_AGENT_BUN:-bun}" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
 `;
 
 interface ExtListPayload {
@@ -261,19 +280,28 @@ interface ExtListPayload {
 	skipped: Array<{ name: string; reason: string }>;
 }
 
-/** Run the binary's --ext-list diagnostic and return the parsed payload. */
-function extListOf(binary: string): ExtListPayload {
-	const p = Bun.spawnSync([binary, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
+/**
+ * Run the core's --ext-list diagnostic and return the parsed payload. The
+ * core is a bun-run bundle: the deploy CLI's own bun (process.execPath —
+ * the same runtime that built it) executes the staged s2-agent.js. The
+ * shipped `bin/bun` + launcher arrive with ticket 02; until then this
+ * spawn shape is the gates' only boot path.
+ */
+function extListOf(coreJs: string): ExtListPayload {
+	const p = Bun.spawnSync([process.execPath, coreJs, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
 	if (p.exitCode !== 0) {
 		throw new Error(`--ext-list exited ${p.exitCode}: ${p.stderr.toString()}`);
 	}
 	return JSON.parse(p.stdout.toString()) as ExtListPayload;
 }
 
+/** The version dir's core artifact: a bun-run ESM bundle, not a Mach-O. */
+const CORE_FILENAME = `${APP_NAME}.js`;
+
 /** Gate 3: extensions load; with ext/ moved aside the core still exits 0 with none. */
 function verifyDualState(stageDir: string, expected: string[]): void {
-	const binary = join(stageDir, APP_NAME);
-	const withExt = extListOf(binary);
+	const core = join(stageDir, CORE_FILENAME);
+	const withExt = extListOf(core);
 	const missing = expected.filter((n) => !withExt.loaded.includes(n));
 	if (missing.length > 0) {
 		throw new Error(
@@ -285,7 +313,7 @@ function verifyDualState(stageDir: string, expected: string[]): void {
 	const parked = join(stageDir, ".ext-parked");
 	renameSync(extDir, parked);
 	try {
-		const without = extListOf(binary);
+		const without = extListOf(core);
 		if (without.loadedCount !== 0) {
 			throw new Error(`smoke: core loaded ${without.loadedCount} extension(s) with ext/ removed`);
 		}
@@ -358,7 +386,7 @@ function verifyRelocatable(stageDir: string, outRoot: string, expected: string[]
 	const clone = Bun.spawnSync(["cp", "-cR", stageDir, copy], { stdout: "pipe", stderr: "pipe" });
 	if (clone.exitCode !== 0) cpSync(stageDir, copy, { recursive: true });
 	try {
-		const there = extListOf(join(copy, "s2-agent"));
+		const there = extListOf(join(copy, CORE_FILENAME));
 		const missing = expected.filter((n) => !there.loaded.includes(n));
 		if (there.loadedCount !== expected.length || missing.length > 0) {
 			throw new Error(
@@ -459,7 +487,8 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		extGateTotals.set(id, t);
 	};
 	try {
-		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, APP_NAME), { outRoot, freeze });
+		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, CORE_FILENAME), { outRoot, freeze });
+		stagePiAssets(stage);
 
 		for (const ext of enabled) {
 			const r = await buildExtPackage({
@@ -519,8 +548,8 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// becomes the deployed version. The binary scan keys off the FINAL
 		// version path: a baked `.staging-…` path is itself a violation (it
 		// sits under $HOME and would break relocatability).
-		recordGate(gates, "5", "verifyOfflineContainment (5a symlinks · 5b binary paths · 5c completeness · 5d closure)", "deploy", () =>
-			verifyOfflineContainment(stage, { binary: join(stage, APP_NAME), finalTarget: target }));
+		recordGate(gates, "5", "verifyOfflineContainment (5a symlinks · 5b core paths · 5c completeness · 5d closure)", "deploy", () =>
+			verifyOfflineContainment(stage, { binary: join(stage, CORE_FILENAME), finalTarget: target }));
 
 		// Gate 6 — behavioural relocatability: boot a clone of the staged tree
 		// from a different absolute path.

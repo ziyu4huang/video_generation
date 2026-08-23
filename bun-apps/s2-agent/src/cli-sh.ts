@@ -5,7 +5,8 @@
  * Differences from src/cli.ts (the source-mode entry):
  *   • It does NOT import src/static-extensions.ts. Zero extensions are
  *     compiled in; every extension is discovered at runtime under
- *     <exeDir>/ext/<name>/.
+ *     <deployDir>/ext/<name>/ — the dir holding this artifact (compiled
+ *     binary or bun-run bundle; see deployRoot below).
  *   • It disables the run-dir resource patch — sh mode owns extension and skill
  *     resolution end to end, and the run-dir resolver's repo-relative view has
  *     no meaning in a versioned deploy dir.
@@ -15,13 +16,15 @@
  */
 import "./sh/scrub-inherited-package-dir.ts"; // FIRST — must precede any pi module init
 import { main } from "@earendil-works/pi-coding-agent";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { detectMode, deployRoot } from "./mode.ts";
 import { applyPatches } from "./patches/index.ts";
 import { isCliCommand, isDoctorCommand, isExtDoctorCommand, userSuppressFlags } from "./cli-argv.ts";
 import { runDoctor } from "./doctor.ts";
 import { HOST_API, HOST_MODULE_IDS, hostRequire } from "./sh/host-modules.ts";
-import { loadExtensions, type LoadResult } from "./sh/ext-loader.ts";
+import { loadExtensions, type LoadedExtension, type LoadResult } from "./sh/ext-loader.ts";
 import { formatExtList } from "./sh/ext-list.ts";
+import { extractAdHocExtensionArgs, loadAdHocExtensions } from "./sh/adhoc-extensions.ts";
 
 // sh mode resolves its own extensions and skills; the run-dir patch would
 // splice build-machine repo paths that do not exist in a deployed tree.
@@ -31,12 +34,14 @@ process.env.BUN_PI_LOAD_RUN_DIR ??= "0";
 const argv = process.argv.slice(2);
 
 /**
- * The deploy root is the directory holding this executable. In a compiled
- * binary process.execPath IS the deployed s2-agent; running this file from
- * source (`bun src/cli-sh.ts`) would point at bun's own directory instead, so
- * PI_AGENT_SH_EXT_DIR exists as an explicit override for source-mode debugging.
+ * The deploy root is the directory holding this artifact. In a compiled
+ * binary process.execPath IS the deployed s2-agent; in a bun-run bundle the
+ * entry's own import.meta.url IS the bundle's real path (deployRoot handles
+ * both). Running this file from source (`bun src/cli-sh.ts`) resolves to
+ * src/ — meaningless as a deploy root — so PI_AGENT_SH_EXT_DIR exists as an
+ * explicit override for source-mode debugging.
  */
-const deployDir = dirname(process.execPath);
+const deployDir = deployRoot(import.meta.url);
 const extRoot = process.env.PI_AGENT_SH_EXT_DIR ?? join(deployDir, "ext");
 
 const host = { hostApi: HOST_API, hostModules: HOST_MODULE_IDS };
@@ -85,6 +90,26 @@ if (isExtDoctorCommand(argv) || isCliCommand(argv)) {
 	process.exit(2);
 }
 
+// BUNDLE MODE ONLY — intercept `-e <file>` / `--extension <file>` before pi's
+// loader sees them. pi's jiti cannot resolve bare host specifiers from a
+// single-file bundle (no node_modules beside it, no $bunfs graph — the
+// compiled binary's freebie), so the sh core loads these files itself with
+// the host registry as virtualModules and strips the flags from process.argv
+// (BEFORE applyPatches splices the default model, so the re-slice below stays
+// the single source of main()'s argv). See sh/adhoc-extensions.ts.
+const adHoc: LoadedExtension[] = [];
+if (detectMode(import.meta.url) === "bundle" && !suppressed) {
+	const { passthrough, files } = extractAdHocExtensionArgs(process.argv.slice(2));
+	if (files.length > 0) {
+		const r = await loadAdHocExtensions(files);
+		for (const f of r.factories) adHoc.push({ name: f.path, factory: f.factory });
+		for (const s of r.skipped) {
+			console.error(`[s2-agent-sh] skipped -e extension "${s.path}": ${s.reason}`);
+		}
+		process.argv = [process.argv[0]!, process.argv[1]!, ...passthrough];
+	}
+}
+
 await applyPatches();
 
 // Re-slice AFTER patches, same as src/cli.ts does at its own main() call: the
@@ -103,5 +128,5 @@ const mainArgv = process.argv.slice(2);
 for (const p of loaded.skillPaths) mainArgv.push("--skill", p);
 
 await main(mainArgv, {
-	extensionFactories: loaded.factories,
+	extensionFactories: [...loaded.factories, ...adHoc],
 });

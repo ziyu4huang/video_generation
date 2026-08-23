@@ -131,11 +131,11 @@ export function rewriteExtensionArgs(
 
 /**
  * Orchestrator: resolve bunAppsDir (source/bundle) and rewrite `-e <alias>`
- * values in `argv` in place. No-op in binary mode (no repo bun-apps/ to resolve
+ * values in `argv` in place. No-op outside source mode (no repo bun-apps/ to resolve
  * against) — mirrors resolveRunDirArgv's guard.
  */
 export async function rewriteArgvLazyExtensions(argv: string[]): Promise<void> {
-  if (mode === "binary") return;
+  if (mode !== "source") return;
   const bunAppsDir = await resolveBunAppsDir();
   const before = argv.slice();
   const debug = process.env.BUN_PI_DEBUG_RUN_DIR === "1";

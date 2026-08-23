@@ -31,23 +31,25 @@ describe("detectMode", () => {
 		expect(detectMode("file://$bunfs/src/patches/x.ts")).toBe("binary");
 	});
 
-	test("anything that is not the virtual-fs scheme is source", () => {
-		// This is the whole rule now. While "bundle" existed, a URL outside a
-		// caller's own directory marker was classified as a shipped s2-agent.js;
-		// nothing produces one since #1740, so an unrecognised path is a source
-		// checkout rather than a third thing.
+	test("a .ts module URL outside the virtual scheme is source", () => {
 		expect(detectMode("file:///repo/bun-apps/s2-agent/run-dir/resolve.ts")).toBe("source");
 		expect(detectMode("file:///repo/bun-apps/s2-agent/src/patches/skip-update-check.ts")).toBe("source");
-		expect(detectMode("file:///opt/s2-agent/dist/s2-agent.js")).toBe("source");
 	});
 
-	test("the return type is exactly the two modes", () => {
+	test("a non-virtual .js URL is a bun-run bundle", () => {
+		// The sh deploy's core: one minified .js whose dir is the deploy root.
+		// Every bundled module's rewritten import.meta.url points at it, so the
+		// extension alone separates it from a source boot (always .ts).
+		expect(detectMode("file:///opt/s2-agent-sh/1.0.0/s2-agent.js")).toBe("bundle");
+	});
+
+	test("the return type is exactly the three modes", () => {
 		const modes = new Set<BundlerMode>([
 			detectMode("file://$bunfs/x"),
-			detectMode("file:///r/run-dir/x"),
+			detectMode("file:///r/run-dir/x.ts"),
 			detectMode("file:///opt/x.js"),
 		]);
-		expect(modes).toEqual(new Set(["binary", "source"]));
+		expect(modes).toEqual(new Set(["binary", "bundle", "source"]));
 	});
 
 	test("this test file's own URL is source", () => {
@@ -64,5 +66,9 @@ describe("the patches consume detectMode correctly", () => {
 
 	test("skip-update-check inside the compiled binary → binary (force-skip)", () => {
 		expect(detectMode("file://$bunfs/root/src/patches/skip-update-check.ts")).toBe("binary");
+	});
+
+	test("skip-update-check inside the shipped bundle → bundle (force-skip)", () => {
+		expect(detectMode("file:///opt/s2-agent-sh/1.0.0/s2-agent.js")).toBe("bundle");
 	});
 });

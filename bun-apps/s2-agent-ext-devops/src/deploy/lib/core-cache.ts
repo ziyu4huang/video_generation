@@ -72,14 +72,14 @@ export interface CachedCore {
 }
 
 /**
- * Return the cache entry for `hash`, compiling it on miss via `compile`.
- * The compile lands at a temp path first and is renamed into place, so a
- * failed compile never poisons the cache with a partial binary.
+ * Return the cache entry for `hash`, building it on miss via `build`. The
+ * artifact lands at a temp path first and is renamed into place, so a failed
+ * build never poisons the cache with a partial core.
  */
 export async function ensureCachedCore(opts: {
 	outRoot: string;
 	hash: string;
-	compile: (outFile: string) => Promise<void>;
+	build: (outFile: string) => Promise<void>;
 }): Promise<CachedCore> {
 	const dir = join(opts.outRoot, CORES_DIR);
 	const cacheFile = join(dir, opts.hash);
@@ -88,13 +88,13 @@ export async function ensureCachedCore(opts: {
 	}
 	mkdirSync(dir, { recursive: true });
 	const tmp = join(dir, `.tmp-${opts.hash.slice(0, 12)}-${process.pid}`);
-	await opts.compile(tmp);
+	await opts.build(tmp);
 	chmodSync(tmp, 0o755);
 	renameSync(tmp, cacheFile);
 	return { cacheFile, cached: false, bytes: statSync(cacheFile).size };
 }
 
-/** Hardlink the cached core into a version dir as its `s2-agent`. */
+/** Hardlink the cached core into a version dir (its `s2-agent.js` since the bundle switch). */
 export function linkCore(cacheFile: string, binaryPath: string): void {
 	linkSync(cacheFile, binaryPath);
 }

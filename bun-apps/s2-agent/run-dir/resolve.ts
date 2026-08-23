@@ -101,7 +101,7 @@ async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
   // before this runs. Resolve them against that dir, falling back to
   // dirname(process.execPath) (the exe's own dir), mirroring how
   // getThemesDir()/getAssetsDir() resolve shipped assets in binary mode.
-  if (mode === "binary") {
+  if (mode !== "source") {
     // --compile-embed mode: extract-embedded-assets patch sets BUN_PI_EMBEDDED_EXTRACT_DIR
     // before this runs (during applyPatches). Use that dir for skill resolution.
     const embedDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;

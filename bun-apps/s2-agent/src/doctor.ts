@@ -75,6 +75,13 @@ export interface LayoutMarkers {
 
 export function classifyMode(coarse: BundlerMode, markers: LayoutMarkers): DeployMode {
 	if (coarse === "binary") return markers.shDeploy ? "sh" : "binary";
+	// A bun-run bundle with a deploy.json beside it is an sh deploy — the same
+	// layout and the same checks as the compiled-binary sh core. A bundle
+	// WITHOUT deploy.json (a stray copied s2-agent.js) falls through to the
+	// "source" checks: coarse file layout, but the entry check below still
+	// points at the bundle itself, so it reports honestly instead of failing
+	// on a cli.ts that does not exist.
+	if (coarse === "bundle") return markers.shDeploy ? "sh" : "source";
 	return "source";
 }
 
@@ -90,6 +97,9 @@ export interface DoctorContext {
 	 */
 	deployDir: string;
 	entryPath: string;
+	/** True when the core artifact is a bun-run `.js` bundle (not a compiled
+	 * exe): the smoke check must spawn `bun <entry>`, not `<entry>` directly. */
+	bundleCore: boolean;
 	bunVersion: string;
 	exists: (p: string) => boolean;
 	/** Is a dep present under <selfDir>/node_modules? (dir existence — NOT
@@ -384,7 +394,7 @@ export async function defaultSmokeSpawn(args: {
 	const timeoutMs = args.timeoutMs ?? 30_000;
 	const cmd = args.exeDirect
 		? [args.entry, "-e", args.probe, "-p", "hi"]
-		: ["bun", args.entry, "-e", args.probe, "-p", "hi"];
+		: [process.execPath, args.entry, "-e", args.probe, "-p", "hi"];
 	const proc = Bun.spawn(cmd, {
 		cwd: args.cwd,
 		env: args.env,
@@ -456,7 +466,7 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 					cwd,
 					env,
 					timeoutMs: opts.timeoutMs,
-					exeDirect: compiled,
+					exeDirect: compiled && !ctx.bundleCore,
 				});
 	} finally {
 		try {
@@ -510,20 +520,26 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 	// passes instead of always failing against a s2-agent.js that never ships
 	// in this mode (a pre-existing gap: this branch was never binary-mode-aware
 	// before the compiled binary shipped real extensions worth doctoring).
+	// A bun-run bundle IS its own entry file too — every bundled module's
+	// rewritten URL points at the one shipped s2-agent.js, so fileURLToPath
+	// gives the real entry and selfDir gives the real deploy dir (no $bunfs
+	// indirection to work around).
 	// A `--snapshot` deploy shipping raw .ts also lands on "source", which
 	// matches a --snapshot deploy (it ships raw .ts under src/), mirroring the
 	// old coarseFromUrl's `.endsWith(".ts")` rule.
 	const coarse = detectMode(moduleUrl);
-	const entryPath = coarse === "binary" ? process.execPath : join(selfDir, "cli.ts");
+	const entryPath =
+		coarse === "binary" ? process.execPath : coarse === "bundle" ? fileURLToPath(moduleUrl) : join(selfDir, "cli.ts");
 	// Annotated (not inferred) so an unused marker is a tsc error rather than an
 	// excess property TypeScript silently tolerates on a variable. `.deploy-portable`
 	// and `packages/` were still probed here after their modes were removed
 	// precisely because an inferred object type made the leftovers invisible.
 	// In a compiled binary selfDir is inside $bunfs; only the executable's own
-	// directory names anything on the real filesystem.
+	// directory names anything on the real filesystem. In a bundle selfDir IS
+	// the deploy dir already.
 	const deployDir = coarse === "binary" ? dirname(process.execPath) : selfDir;
 	const markers: LayoutMarkers = {
-		shDeploy: coarse === "binary" && existsSync(join(deployDir, "deploy.json")),
+		shDeploy: (coarse === "binary" || coarse === "bundle") && existsSync(join(deployDir, "deploy.json")),
 	};
 	const mode = classifyMode(coarse, markers);
 	return {
@@ -531,6 +547,7 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 		selfDir,
 		deployDir,
 		entryPath,
+		bundleCore: coarse === "bundle",
 		bunVersion: process.versions.bun ?? "unknown",
 		exists: existsSync,
 		depInstalled: (spec) => existsSync(join(selfDir, "node_modules", spec)),
