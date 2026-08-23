@@ -1,0 +1,118 @@
+# Review package: d7a5501a..868b05cd
+
+## Commits
+868b05cd feat(task): ask_user_question tool description rewritten to CC semantics
+
+## Files changed
+ .../ask-user/__tests__/cc-parity-schema.test.ts    | 11 ++++++++++
+ .../src/ask-user/ask-user-question.ts              | 24 ++++++++++------------
+ 2 files changed, 22 insertions(+), 13 deletions(-)
+
+## Diff
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/cc-parity-schema.test.ts b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/cc-parity-schema.test.ts
+index 1d42a471..c78761c0 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/cc-parity-schema.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/cc-parity-schema.test.ts
+@@ -1,19 +1,20 @@
+ /** CC-parity schema — header 12, suffix-based recommended, preview single-select. */
+ import { test, expect, describe } from "bun:test";
+ import { validateQuestionnaire } from "../tool/validate-questionnaire.js";
+ import {
+ 	MAX_HEADER_LENGTH,
+ 	RECOMMENDED_SUFFIX,
+ 	hasRecommendedSuffix,
+ 	type QuestionParams,
+ } from "../tool/types.js";
++import { DEFAULT_PROMPT_SNIPPET, DEFAULT_PROMPT_GUIDELINES } from "../ask-user-question.js";
+ 
+ function params(questions: unknown[]): QuestionParams {
+ 	return { questions } as unknown as QuestionParams;
+ }
+ 
+ describe("CC parity schema", () => {
+ 	test("header over 12 chars is rejected", () => {
+ 		const r = validateQuestionnaire(
+ 			params([{ question: "q?", header: "13-char header", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] }]),
+ 		);
+@@ -78,10 +79,20 @@ describe("CC parity schema", () => {
+ 		if (!r.ok) expect(r.error).toBe("too_many_recommended");
+ 	});
+ 
+ 	test("hasRecommendedSuffix matches only the exact CC suffix", () => {
+ 		expect(hasRecommendedSuffix(`A${RECOMMENDED_SUFFIX}`)).toBe(true);
+ 		expect(hasRecommendedSuffix("A (recommended)")).toBe(false);
+ 		expect(hasRecommendedSuffix("A (Recommended) ")).toBe(false);
+ 		expect(hasRecommendedSuffix("A")).toBe(false);
+ 	});
+ });
++
++describe("CC-parity tool description", () => {
++	test("guidelines teach the CC recommended convention and plan-mode rule", () => {
++		const all = DEFAULT_PROMPT_GUIDELINES.join("\n");
++		expect(all).toContain("(Recommended)");
++		expect(all).toContain("first");
++		expect(DEFAULT_PROMPT_GUIDELINES.some((g) => g.toLowerCase().includes("plan"))).toBe(true);
++		expect(all).not.toContain("recommended: true");
++	});
++});
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts b/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts
+index f61f7706..14e59ba2 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts
+@@ -64,45 +64,43 @@ export function buildItemsForQuestion(question: QuestionData): WrappingSelectIte
+ 		label: o.label,
+ 		description: o.description,
+ 		recommended: o.recommended,
+ 	}));
+ 	for (const kind of sentinelsToAppend(question)) {
+ 		items.push({ kind, label: displayLabel(kind) });
+ 	}
+ 	return items;
+ }
+ 
+-export const DEFAULT_PROMPT_SNIPPET = `Ask the user up to ${MAX_QUESTIONS} structured questions (${MIN_OPTIONS}-${MAX_OPTIONS} options each) when requirements are ambiguous`;
++export const DEFAULT_PROMPT_SNIPPET = `Ask the user 1-4 structured questions (2-4 options each) when requirements are ambiguous or a decision is needed`;
++
+ export const DEFAULT_PROMPT_GUIDELINES: string[] = [
+ 	`Use when ambiguous (up to ${MAX_QUESTIONS} questions, ${MIN_OPTIONS}-${MAX_OPTIONS} options each). Each option needs a concise label + description. User can type a custom answer or Esc to quit.`,
+-	"Batch all questions in one call (don't stack). Use multiSelect for multi-answer; preview for side-by-side comparisons.",
++	"Mark your recommended option by suffixing its label with \"(Recommended)\" and placing it first — at most one per question. Never add any other recommended marker.",
++	"multiSelect only when several answers are valid; preview only on single-select questions (markdown, monospace box, side-by-side).",
++	"Batch all questions in one call (don't stack). In planning work, clarify BEFORE presenting a plan; never ask \"is the plan ready\" with this tool.",
+ ];
+ 
+ export function registerAskUserQuestionTool(pi: ExtensionAPI): void {
+ 	const guidance = validateGuidanceFields(loadConfig().guidance);
+ 	pi.registerTool({
+ 		name: ASK_USER_QUESTION_TOOL_NAME,
+ 		gating: { core: true },
+ 		label: "Ask User Question",
+-		description: `Ask the user one or more structured questions during execution. Use when you need to:
+-1. Gather user preferences or requirements
+-2. Clarify ambiguous instructions
+-3. Get decisions on implementation choices as you work
+-4. Offer choices to the user about what direction to take
++		description: `Ask the user 1-4 structured questions to clarify requirements or get decisions. Each question has a short header, 2-4 options (label + description), and the user can always type a custom answer or press Esc to abandon.
+ 
+ Usage notes:
+-- Users will always be able to type a custom answer ("Type something." row is appended automatically to every question) or press Esc to abandon the questionnaire. Do NOT author "Other" / "Type something." labels yourself — duplicates are rejected at runtime.
+-- Use multiSelect: true to allow multiple answers to be selected for a question.
+-- If you recommend a specific option, set 'recommended: true' on it (at most one per question); the UI renders a ⭐ prefix on its title — a stable, consistent marker. Prefer placing it first in the list for prominence, but do NOT add "(Recommended)" text to the label.
+-
+-Preview feature:
+-Use the optional \`preview\` field on options when presenting concrete artifacts that users need to visually compare.`,
++- Users will always be able to type a custom answer ("Type something." row is appended automatically to every question). Do NOT author "Other" / "Type something." labels yourself — duplicates are rejected at runtime.
++- If you recommend a specific option, add "(Recommended)" to the end of its label and place it first in the list. At most one per question.
++- Use multiSelect: true ONLY when multiple answers are valid; phrase the question accordingly. Do not use it for mutually exclusive choices.
++- Preview feature: use the optional \`preview\` field on options when presenting concrete artifacts the user needs to visually compare — mockups, code snippets, diagram variations, config examples. Previews render as markdown in a monospace box with a side-by-side layout, and are only supported for single-select questions.
++- Clarify requirements BEFORE finalizing a plan; when a plan-approval flow exists, ask clarifying questions before presenting the plan, and never use this tool to ask "is the plan ready" — that is the plan-approval flow's job.`,
+ 		promptSnippet: guidance.promptSnippet ?? DEFAULT_PROMPT_SNIPPET,
+ 		promptGuidelines: guidance.promptGuidelines ?? DEFAULT_PROMPT_GUIDELINES,
+ 		parameters: QuestionParamsSchema,
+ 
+ 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+ 			const typed = params as unknown as QuestionParams;
+ 			if (!ctx.hasUI) return buildToolResult(ERROR_NO_UI, { answers: [], cancelled: true, error: "no_ui" });
+ 
+ 			const validation = validateQuestionnaire(typed);
+ 			if (!validation.ok) {

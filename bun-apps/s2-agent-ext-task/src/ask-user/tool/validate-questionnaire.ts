@@ -4,10 +4,11 @@
  */
 import {
 	MAX_QUESTIONS,
-	MAX_LABEL_LENGTH,
+	MAX_HEADER_LENGTH,
 	MIN_OPTIONS,
 	MAX_OPTIONS,
 	RESERVED_LABELS,
+	hasRecommendedSuffix,
 	type QuestionParams,
 	type QuestionnaireError,
 } from "./types.js";
@@ -51,12 +52,29 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult 
 			};
 		}
 
-		const recommendedCount = opts.filter((o) => o.recommended === true).length;
+		// header guard: unvalidated runtime payloads may omit it
+		if (q.header && q.header.length > MAX_HEADER_LENGTH) {
+			return {
+				ok: false,
+				message: `Error: question ${qi + 1} header exceeds ${MAX_HEADER_LENGTH} characters.`,
+				error: "header_too_long",
+			};
+		}
+
+		const recommendedCount = opts.filter((o) => o.label && hasRecommendedSuffix(o.label)).length;
 		if (recommendedCount > 1) {
 			return {
 				ok: false,
-				message: `Error: question ${qi + 1} has ${recommendedCount} recommended options (at most one allowed).`,
+				message: `Error: question ${qi + 1} has ${recommendedCount} options labeled "(Recommended)" (at most one allowed).`,
 				error: "too_many_recommended",
+			};
+		}
+
+		if (q.multiSelect === true && opts.some((o) => typeof o.preview === "string" && o.preview.length > 0)) {
+			return {
+				ok: false,
+				message: `Error: question ${qi + 1} is multiSelect but has a preview — previews are only supported for single-select questions.`,
+				error: "preview_on_multiselect",
 			};
 		}
 
@@ -69,14 +87,6 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult 
 					error: "empty_options",
 				};
 			}
-			if (opt.label.length > MAX_LABEL_LENGTH) {
-				return {
-					ok: false,
-					message: `Error: question ${qi + 1}, option ${oi + 1} label exceeds ${MAX_LABEL_LENGTH} characters.`,
-					error: "empty_options",
-				};
-			}
-
 			const key = `${qi}:${opt.label.toLowerCase().trim()}`;
 			if (seenLabels.has(key)) {
 				return {

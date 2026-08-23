@@ -282,7 +282,7 @@ describe("completeGoalArguments", () => {
 		expect(all.map((i) => i.description)).toEqual([
 			"Pause the active goal",
 			"Resume a paused or budget-limited goal",
-			"Clear the current goal",
+			"Clear the current goal (stop|off|reset|none|cancel also work)",
 			"Edit the current goal objective",
 			"Show the current goal",
 			"Set a token budget before the goal",

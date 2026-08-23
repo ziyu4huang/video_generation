@@ -23,7 +23,6 @@ import {
 	persistGoalState,
 	shouldHonorPersistedStatus,
 } from "./persistence.js";
-import { isLoopActive, refireLoopContinuation } from "../loop/loop.js";
 import {
 	HEARTBEAT_INTERVAL_MS,
 	shouldHeartbeatRefire,
@@ -113,7 +112,7 @@ export function stopHeartbeatTimer() {
  * continuationPending guard prevents duplicate continuations within one tick window.
  */
 export function syncHeartbeatTimer() {
-	const shouldRun = goalState.activeGoal?.status === "active" || isLoopActive();
+	const shouldRun = goalState.activeGoal?.status === "active";
 	if (shouldRun && !goalState.heartbeatTimer) {
 		goalState.heartbeatTimer = setInterval(() => {
 			const ctx = goalState.latestCtx as StatusContext | undefined;
@@ -126,9 +125,7 @@ export function syncHeartbeatTimer() {
 					msSinceActivity: Date.now() - goalState.lastActivityAt,
 				})
 			) {
-				if (isLoopActive()) {
-					void refireLoopContinuation((goalState.extensionApi as ExtensionAPI), ctx as StatusContext);
-				} else if (goalState.activeGoal?.status === "active") {
+				if (goalState.activeGoal?.status === "active") {
 					const persisted = loadGoalStateFromSession(ctx.sessionManager);
 					if (shouldHonorPersistedStatus(goalState.activeGoal, persisted.goal)) {
 						goalState.activeGoal = persisted.goal;

@@ -4,6 +4,7 @@
  */
 import type { Component } from "@earendil-works/pi-tui";
 import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { RECOMMENDED_SUFFIX } from "../../tool/types.js";
 import { renderInlineInputRow } from "./inline-input.js";
 
 export type WrappingSelectItem =
@@ -163,10 +164,17 @@ export class WrappingSelect implements Component {
 		}
 
 		const isConfirmed = index === this.confirmedIndex;
-		const star = item.kind === "option" && item.recommended ? "⭐ " : "";
+		const isRec = item.kind === "option" && item.recommended === true;
+		const star = isRec ? "⭐ " : "";
+		// Display strips the CC "(Recommended)" suffix; the stored label (and
+		// therefore the answer string) keeps it.
+		const displayLabel =
+			isRec && item.label.endsWith(RECOMMENDED_SUFFIX)
+				? item.label.slice(0, item.label.length - RECOMMENDED_SUFFIX.length)
+				: item.label;
 		const baseLabel = isConfirmed
-			? `${this.confirmedLabelOverride ?? item.label}${WrappingSelect.CONFIRMED_MARK}`
-			: item.label;
+			? `${this.confirmedLabelOverride ?? displayLabel}${WrappingSelect.CONFIRMED_MARK}`
+			: displayLabel;
 		const label = `${star}${baseLabel}`;
 		const applySelectedStyle = isActive || isConfirmed;
 

@@ -1,34 +1,34 @@
-import { test, expect } from "bun:test";
+/** Loop persistence — session-store round-trip of ActiveLoop. */
+import { test, expect, describe } from "bun:test";
 import { persistLoop, clearPersistedLoop, loadLoopFromSession, LOOP_STATE_ENTRY_TYPE } from "../loop-persistence.js";
-import { createLoop, __resetLoopState } from "../loop-state.js";
+import type { ActiveLoop } from "../loop-commands.js";
 
-test("persistLoop appends a loop-state entry (cloned)", () => {
-	const calls: any[] = [];
-	const api = { appendEntry: (t: string, d: unknown) => calls.push({ t, d }) };
-	const loop = createLoop({ target: "t", mode: "metricless" });
-	persistLoop(api as any, loop);
-	expect(calls[0].t).toBe(LOOP_STATE_ENTRY_TYPE);
-	expect((calls[0].d as any).loop.id).toBe(loop.id);
-	// clone: mutating the original after persist must not affect the stored copy
-	loop.iteration = 99;
-	expect((calls[0].d as any).loop.iteration).toBe(0);
-});
+const loop: ActiveLoop = { id: "L1", prompt: "p", intervalMs: 300_000, startedAt: 1, nextFireAt: 2, iteration: 3 };
 
-test("clearPersistedLoop writes { loop: null }", () => {
-	const calls: any[] = [];
-	clearPersistedLoop({ appendEntry: (_t: string, d: unknown) => calls.push(d) } as any);
-	expect(calls[0]).toEqual({ loop: null });
-});
+function fakeSession(entries: unknown[] = []) {
+	return {
+		appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
+		getBranch: () => entries,
+	};
+}
 
-test("loadLoopFromSession recovers an active loop from the branch", () => {
-	const loop = createLoop({ target: "t", mode: "metric" });
-	const sm = { getBranch: () => [{ type: "custom", customType: LOOP_STATE_ENTRY_TYPE, data: { loop } }] };
-	__resetLoopState();
-	const got = loadLoopFromSession(sm);
-	expect(got?.id).toBe(loop.id);
-});
-
-test("loadLoopFromSession skips a stopped loop", () => {
-	const sm = { getBranch: () => [{ type: "custom", customType: LOOP_STATE_ENTRY_TYPE, data: { loop: { ...createLoop({ target: "t", mode: "metricless" }), active: false } } }] };
-	expect(loadLoopFromSession(sm)).toBeUndefined();
+describe("loop persistence", () => {
+	test("round-trip", () => {
+		const sm = fakeSession();
+		persistLoop(sm as never, loop);
+		expect(loadLoopFromSession(sm)).toEqual(loop);
+	});
+	test("clear writes a null tombstone that loads as undefined", () => {
+		const sm = fakeSession();
+		persistLoop(sm as never, loop);
+		clearPersistedLoop(sm as never);
+		expect(loadLoopFromSession(sm)).toBeUndefined();
+	});
+	test("non-loop entries are ignored", () => {
+		const sm = fakeSession([{ customType: "other", data: { loop: "x" } }]);
+		expect(loadLoopFromSession(sm)).toBeUndefined();
+	});
+	test("entry type name unchanged from the old loop", () => {
+		expect(LOOP_STATE_ENTRY_TYPE).toBe("loop-state");
+	});
 });

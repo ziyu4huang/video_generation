@@ -1,18 +1,17 @@
 /**
- * recommended-marker — the stable recommendation style for ask_user_question.
- *
- * A `recommended?: boolean` field on options is rendered by the view as a ⭐
- * prefix on the option title (display-only). The stored label stays clean so
- * the answer string never carries the marker. At most one recommended option
- * per question is allowed (validated).
+ * recommended marker, CC convention — the model suffixes the label with
+ * "(Recommended)"; the view renders ⭐ and strips the suffix from DISPLAY only.
+ * The stored label (and therefore the answer string) keeps the suffix, matching
+ * Claude Code, where the answer carries the label as authored.
  */
 import { test, expect, describe } from "bun:test";
 import { validateQuestionnaire } from "../tool/validate-questionnaire.js";
 import { buildItemsForQuestion } from "../ask-user-question.js";
 import { WrappingSelect } from "../view/components/wrapping-select.js";
-import type { QuestionData, QuestionParams } from "../tool/types.js";
+import { MultiSelectView } from "../view/components/multi-select-view.js";
+import { PreviewBlockRenderer } from "../view/components/preview/preview-block-renderer.js";
+import { RECOMMENDED_SUFFIX, type QuestionData, type QuestionParams } from "../tool/types.js";
 
-// Minimal theme: pass strings through so render() output is assertion-friendly.
 const theme = new Proxy(
 	{},
 	{
@@ -23,78 +22,71 @@ const theme = new Proxy(
 	},
 ) as never;
 
-function q(
-	opts: Array<{ label: string; description?: string; recommended?: boolean }>,
-): QuestionData {
-	return { question: "q?", header: "hdr", options: opts as never } as never;
+function q(labels: string[]): QuestionData {
+	return { question: "q?", header: "hdr", options: labels.map((l) => ({ label: l, description: "d" })) } as never;
 }
-
 function params(data: QuestionData): QuestionParams {
 	return { questions: [data] } as unknown as QuestionParams;
 }
 
-describe("recommended marker", () => {
-	test("validation rejects more than one recommended option per question", () => {
-		const r = validateQuestionnaire(
-			params(
-				q([
-					{ label: "a", description: "d", recommended: true },
-					{ label: "b", description: "d", recommended: true },
-				]),
-			),
-		);
+describe("recommended marker (CC suffix convention)", () => {
+	test("validation rejects two suffixed labels", () => {
+		const r = validateQuestionnaire(params(q([`A${RECOMMENDED_SUFFIX}`, `B${RECOMMENDED_SUFFIX}`])));
 		expect(r.ok).toBe(false);
 		if (!r.ok) expect(r.error).toBe("too_many_recommended");
 	});
 
-	test("validation accepts at most one recommended option", () => {
-		const r = validateQuestionnaire(
-			params(
-				q([
-					{ label: "a", description: "d", recommended: true },
-					{ label: "b", description: "d" },
-				]),
-			),
-		);
-		expect(r.ok).toBe(true);
-	});
-
-	test("buildItemsForQuestion carries recommended onto the option item", () => {
-		const items = buildItemsForQuestion(
-			q([
-				{ label: "Alpha", description: "d", recommended: true },
-				{ label: "Beta", description: "d" },
-			]),
-		);
+	test("buildItemsForQuestion derives recommended from the suffix", () => {
+		const items = buildItemsForQuestion(q([`Alpha${RECOMMENDED_SUFFIX}`, "Beta"]));
 		expect((items[0] as { recommended?: boolean }).recommended).toBe(true);
 		expect((items[1] as { recommended?: boolean }).recommended).toBeUndefined();
 	});
 
-	test("WrappingSelect renders a ⭐ prefix on the recommended option (display-only)", () => {
-		const items = buildItemsForQuestion(
-			q([
-				{ label: "Alpha", description: "d", recommended: true },
-				{ label: "Beta", description: "d" },
-			]),
-		);
+	test("WrappingSelect renders ⭐ and strips the suffix from display", () => {
+		const items = buildItemsForQuestion(q([`Alpha${RECOMMENDED_SUFFIX}`, "Beta"]));
 		const ws = new WrappingSelect(items, 8, theme);
 		ws.setSelectedIndex(0);
 		const out = ws.render(80).join("\n");
 		expect(out).toContain("⭐");
 		expect(out).toContain("Alpha");
-		// stored label stays clean → the answer string stays clean
-		expect(items[0].label).toBe("Alpha");
+		expect(out).not.toContain("(Recommended)");
+		// stored label keeps the suffix → answer parity with CC
+		expect(items[0].label).toBe(`Alpha${RECOMMENDED_SUFFIX}`);
 	});
 
-	test("non-recommended options render no star", () => {
-		const items = buildItemsForQuestion(
-			q([
-				{ label: "Alpha", description: "d" },
-				{ label: "Beta", description: "d" },
-			]),
-		);
+	test("unsuffixed options render no star", () => {
+		const items = buildItemsForQuestion(q(["Alpha", "Beta"]));
 		const ws = new WrappingSelect(items, 8, theme);
 		ws.setSelectedIndex(0);
 		expect(ws.render(80).join("\n")).not.toContain("⭐");
+	});
+
+	test("MultiSelectView renders ⭐ and strips the suffix from display", () => {
+		const view = new MultiSelectView(theme, q([`Alpha${RECOMMENDED_SUFFIX}`, "Beta"]));
+		view.setProps({
+			rows: [
+				{ checked: false, active: true },
+				{ checked: false, active: false },
+			],
+			other: { active: false, inputMode: false, inputBuffer: "", inputCursorOffset: undefined },
+			nextActive: false,
+			nextLabel: "Next",
+		});
+		const out = view.render(80).join("\n");
+		expect(out).toContain("⭐");
+		expect(out).toContain("Alpha");
+		expect(out).not.toContain("(Recommended)");
+	});
+
+	test("preview header strips the recommended suffix (display label)", () => {
+		const question = {
+			question: "q?",
+			header: "hdr",
+			options: [{ label: `Alpha${RECOMMENDED_SUFFIX}`, preview: "line1\nline2" }],
+		} as never as QuestionData;
+		const renderer = new PreviewBlockRenderer({ question, theme, markdownTheme: {} });
+		const out = renderer.render(0, 80).join("\n");
+		expect(out).toContain("Preview: Alpha");
+		expect(out).not.toContain("(Recommended)");
 	});
 });

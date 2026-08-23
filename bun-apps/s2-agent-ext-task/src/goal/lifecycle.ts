@@ -23,7 +23,6 @@ import {
 import { clearPersistedGoal, loadReviewerEntries } from "./persistence.js";
 import { goalSummary } from "./prompts.js";
 import { validateObjective } from "./commands.js";
-import { isLoopActive } from "../loop/loop.js";
 import { cancelQuotaRetry } from "./quota-retry.js";
 import { clearList, goalToListItem } from "./list.js";
 import type { AssistantMessageLike } from "./overflow.js";
@@ -51,10 +50,6 @@ export async function startGoal(
 	ctx: StatusContext,
 	audit?: GoalAuditOptions,
 ) {
-	if (isLoopActive()) {
-		ctx.ui.notify("A loop is active. Run /loop stop before starting a goal.", "warning");
-		return;
-	}
 	const validationError = validateObjective(objective);
 	if (validationError) {
 		ctx.ui.notify(validationError, "warning");

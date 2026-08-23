@@ -221,3 +221,26 @@ describe("parseListCommand", () => {
 		expect(parseListCommand("list frobnicate")).toEqual({ kind: "show" });
 	});
 });
+
+// ─── CC surface parity (ticket 04) ────────────────────────────────────────────
+
+describe("CC surface parity", () => {
+	test("no args shows status instead of usage", () => {
+		expect(parseCommand("")).toEqual({ kind: "show" });
+		expect(parseCommand("   ")).toEqual({ kind: "show" });
+	});
+	test("CC clear aliases all clear", () => {
+		for (const alias of ["clear", "stop", "off", "reset", "none", "cancel"]) {
+			const r = parseCommand(alias);
+			expect(r).toEqual({ kind: "clear" });
+		}
+	});
+	test("alias with trailing args is a usage error", () => {
+		expect(typeof parseCommand("cancel now")).toBe("string");
+		expect(typeof parseCommand("off x")).toBe("string");
+	});
+	test("condition still capped at 4000 (validateObjective, the lifecycle gate)", () => {
+		expect(typeof validateObjective("x".repeat(4001))).toBe("string");
+		expect(validateObjective("x".repeat(4000))).toBeUndefined();
+	});
+});

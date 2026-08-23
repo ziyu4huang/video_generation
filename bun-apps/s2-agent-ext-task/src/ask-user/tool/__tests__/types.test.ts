@@ -16,7 +16,6 @@ import { Value } from "typebox/value";
 import {
 	isQuestionnaireResult,
 	MAX_HEADER_LENGTH,
-	MAX_LABEL_LENGTH,
 	MAX_OPTIONS,
 	MAX_QUESTIONS,
 	MIN_OPTIONS,
@@ -136,20 +135,6 @@ describe("QuestionSchema — option/preview/multiSelect/header shape", () => {
 	test("rejects a header longer than MAX_HEADER_LENGTH chars", () => {
 		const tooLong = "x".repeat(MAX_HEADER_LENGTH + 1);
 		expect(Value.Check(QuestionsSchema, [makeQuestion({ header: tooLong })])).toBe(false);
-	});
-
-	test("rejects a label longer than MAX_LABEL_LENGTH (60) chars", () => {
-		const tooLong = "x".repeat(MAX_LABEL_LENGTH + 1);
-		expect(
-			Value.Check(QuestionsSchema, [
-				makeQuestion({
-					options: [
-						{ label: tooLong, description: "a" },
-						{ label: "B", description: "b" },
-					],
-				}),
-			]),
-		).toBe(false);
 	});
 
 	test("rejects question with missing 'question' text", () => {
@@ -296,8 +281,7 @@ describe("schema constants + RESERVED_LABELS", () => {
 	test("exports the expected schema constants", () => {
 		expect(MIN_OPTIONS).toBe(2);
 		expect(MAX_OPTIONS).toBe(4);
-		expect(MAX_HEADER_LENGTH).toBe(16);
-		expect(MAX_LABEL_LENGTH).toBe(60);
+		expect(MAX_HEADER_LENGTH).toBe(12);
 	});
 
 	test("RESERVED_LABELS includes the Pi sentinels + CC's 'Other'", () => {

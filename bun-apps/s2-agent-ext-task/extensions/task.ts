@@ -31,7 +31,6 @@ import { createSubagentsSection } from "../src/subagents/subagents-section.js";
 import goal, { isGoalActive } from "../src/goal/goal.js";
 import { registerLoop, restoreLoopFromSession } from "../src/loop/loop.js";
 import { LoopOverlay } from "../src/loop/overlay.js";
-import { setLoopRenderSid, __resetLoopState } from "../src/loop/loop-state.js";
 import { GoalOverlay } from "../src/goal/overlay.js";
 import { registerTodoTool, registerTodosCommand } from "../src/todo/todo";
 import { TodoOverlay } from "../src/todo/overlay";
@@ -98,7 +97,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	const loopOverlay = new LoopOverlay();
 	registerLoop(pi, loopOverlay);
 	loopOverlay.setRefresh(() => statusWidget.update());
-	// Loop is mutually exclusive with goal, so it shares order 0 — only one is ever non-empty.
+	// Recurring /loop runs independently of goal (CC runs /goal and /loop
+	// concurrently) — order 0 shared is fine, an inactive section renders [].
 	statusWidget.addSection({ id: "loop", order: 0, render: (t, w) => loopOverlay.render(t, w) });
 
 	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w), inspect: () => todoOverlay.inspect() });
@@ -126,10 +126,7 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		replaceState(EMPTY_STATE);
 		latestCwd = ctx.cwd;
 		refreshPlan(ctx.cwd); // parse + cache the active effort's plan (for the plan coordinator; NOT for todo seeding)
-		// Capture the same parent/display session id for the loop-state renderSid
-		// bucket — no-arg getLoopState() in ctx-less/display sites reads this —
-		// BEFORE restoring any persisted loop into that bucket. Optimization #3 / #16.
-		setLoopRenderSid((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId() ?? "");
+		// Recover a persisted recurring loop (CC-style /loop) for this session.
 		restoreLoopFromSession((ctx as { sessionManager?: unknown }).sessionManager, loopOverlay);
 		if (ctx.hasUI) {
 			statusWidget.setUICtx(ctx.ui);
@@ -158,9 +155,10 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		// doesn't inherit stale parent todos. (Children key their own buckets;
 		// their own session_shutdown — if any — cleans those.)
 		__resetState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
-		// Drop this session's loop-state bucket too (mirrors the todo cleanup above).
-		__resetLoopState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
 		goalOverlay.dispose();
+		// The /loop scheduler is deliberately NOT stopped here: it is process-
+		// lifetime state with nothing per-session to clean (its timer dies with
+		// the process), so loop teardown is just the overlay.
 		loopOverlay.dispose();
 		todoOverlay.dispose();
 		subagentsHandle.dispose();
