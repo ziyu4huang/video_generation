@@ -112,6 +112,14 @@ extraction mechanism) once the first green real deploy proves the new layout.
 
 ## Fog of war
 
+- **merge_pr_after_local_ci env-only s2-agent/test failure (2026-08-23, ticket 02).**
+  Both in-merge local_ci runs failed `s2-agent/test` with a tail-only diagnostic
+  ("s2-agent cli 0.2.5 ⏎ s2-agent cli 0.2.5" — no failing-test name, no summary
+  lines, i.e. output consistent with a killed run), while the SAME sha passed
+  `local-ci-cli --concurrency 1` AND a direct `runLocalCi` call with the merge's
+  exact params. Merged on `--assume-ci-green` with both green receipts. Unresolved:
+  what the merge's recording-spawn environment changes; if it recurs on ticket 03,
+  instrument the step runner (capture full step output, not the tail).
 - **Upstream mode detection beyond doctor.** Only `doctor` was probed for
   bun-run-bundle confusion; pi's own internals may branch on compiled-vs-source elsewhere
   (e.g. `scrub-inherited-package-dir.ts` assumptions). Ticket 01 sweeps for
