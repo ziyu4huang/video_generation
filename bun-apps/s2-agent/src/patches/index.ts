@@ -21,6 +21,7 @@ export type PatchName =
 	| "ensure-extension-deps"
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
+	| "colliding-command-dispatch"
 	| "footer-extension-status-notify"
 	| "force-response-language"
 	| "editor-history-restore"
@@ -96,6 +97,17 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // so ExtensionRuntime gets getAllToolDefinitions(): ToolDefinition[] for passing
   // full tool definitions (with execute) to WorkflowAgent child sessions.
   { name: "ext-api-get-all-tool-definitions", env: "BUN_PI_EXT_API_GET_ALL_TOOL_DEFS", defaultValue: true },
+  // colliding-command-dispatch: patches ExtensionRunner.prototype.getCommand so
+  // a command name registered by MULTIPLE extensions still resolves by its
+  // plain name (upstream suffixes colliding registrations to name:1/name:2,
+  // leaving getCommand("name") undefined — and prompt()'s slash dispatch then
+  // falls through, sending the literal "/cmd …" text to the model; measured
+  // 2026-08-23, headless-dispatch-hang ticket 03/B4, the repo's `loop` pair).
+  // Fallback is deterministic first-registration; the palette is unaffected
+  // (it lists resolveRegisteredCommands() directly). Must run after
+  // ensure-extension-deps (imports @earendil-works/pi-coding-agent). Disable
+  // with BUN_PI_COLLIDING_COMMAND_DISPATCH=0.
+  { name: "colliding-command-dispatch", env: "BUN_PI_COLLIDING_COMMAND_DISPATCH", defaultValue: true },
   // force-response-language: wraps AgentSession.prototype._installAgentNextTurnRefresh
   // to PREPEND a forced reply-language block (from responseLanguage in
   // ~/.pi/agent/settings.json) to every TURN's system prompt (per-turn, not
@@ -257,6 +269,9 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "ext-api-get-all-tool-definitions":
         mod = await import("./ext-api-get-all-tool-definitions.ts");
+        break;
+      case "colliding-command-dispatch":
+        mod = await import("./colliding-command-dispatch.ts");
         break;
       case "force-response-language":
         mod = await import("./force-response-language.ts");

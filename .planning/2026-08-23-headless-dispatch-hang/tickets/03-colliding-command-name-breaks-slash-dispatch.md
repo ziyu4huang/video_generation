@@ -1,6 +1,45 @@
 # Ticket 03 — colliding command name `loop` breaks slash dispatch via `prompt()`
 
-Status: open
+Status: done (2026-08-23 evening; fix approach 1 — patched dispatch fallback)
+
+## Close-out (2026-08-23 evening)
+
+- **Fix = candidate 1 (patched fallback), at the `getCommand` layer rather
+  than `_tryExecuteExtensionCommand`**: new patch
+  `bun-apps/s2-agent/src/patches/colliding-command-dispatch.ts` wraps
+  `ExtensionRunner.prototype.getCommand` so a plain-name miss retries
+  `name:1` (deterministic first registration in extension-load order).
+  Choosing `getCommand` over the session method fixes EVERY plain-name lookup
+  (prompt() dispatch and any other consumer), needs no private AgentSession
+  access (`ExtensionRunner` is exported), and leaves the palette untouched
+  (it lists `resolveRegisteredCommands()` directly). Env gate
+  `BUN_PI_COLLIDING_COMMAND_DISPATCH=0` to disable; registry entry +
+  `PATCH_TABLE` coverage test updated in the same PR.
+- **Ownership (map D5)**: plain `/loop` = ext-task's user-facing scheduler
+  (first static registration); ultracode's subagent-side /loop stays
+  explicitly addressable as `/loop:2`. To keep `/loop dynamic …` from
+  silently scheduling a 10m loop whose PROMPT is "dynamic …" under ext-task,
+  `parseLoopCommand` now guards the `dynamic`/`off` first words with a
+  pointer to `/loop:2` (mirrors ultracode's own bare-dynamic guard).
+- **Tests**: `src/patches/colliding-command-dispatch.test.ts` (6 cases:
+  fallback resolves loop:1, explicit suffixes still address each, no-collision
+  unchanged, misses without a `:1` sibling stay misses, explicit-suffix miss
+  does not fall back) + ext-task parser guard cases in
+  `src/loop/__tests__/loop-commands.test.ts`.
+- **Live smoke re-run (post-fix, scratch project, headless `-p`)**:
+  - `/loop status` → dispatched to ext-task's handler; exit 0 in ~28s; NO
+    transcript written (zero model turns — pre-fix the same shape produced a
+    user-message transcript and a 300s watchdog kill).
+  - `/loop:2 dynamic monitor the smoke goal` → dispatched to ultracode's
+    handler, loop registered, session-live by design (D7), bounded exit 0,
+    zero model turns.
+  - `/loop dynamic monitor the smoke goal` (plain + ultracode keyword) →
+    ext-task guard message (no mis-schedule), zero model turns, exit 0.
+- Gates: s2-agent `CI=true bun run test` 1051 tests / 0 fail + `typecheck`
+  exit 0; ext-task `CI=true bun run test` 881 tests / 0 fail + `typecheck`
+  exit 0.
+
+## Problem (historical)
 
 ## Problem (found by the 2026-08-23 evening `/loop dynamic` live smoke)
 
@@ -63,13 +102,14 @@ headless `-p` breakage is confirmed either way.
 
 ## Done when
 
-- [ ] Fix approach chosen (1/2/3) and implemented; a test pins that a prompt
+- [x] Fix approach chosen (1/2/3) and implemented; a test pins that a prompt
       beginning `/loop ` dispatches to a real command handler (faux-session
       style, or a unit test of the patched dispatch), NOT to the model.
-- [ ] The `/loop dynamic` live smoke re-run PASSes end-to-end headless:
-      `-p '/loop dynamic <prompt>'` executes the command (no model turn for
-      the command itself), registers the loop, and the run exits bounded.
-- [ ] cc-parity-2 spec §9 `/loop` row updated with the final outcome; this
+- [x] The `/loop dynamic` live smoke re-run PASSes end-to-end headless:
+      `/loop status` and `/loop:2 dynamic <prompt>` both dispatched with ZERO
+      model turns and bounded exits (post-fix, measured above); plain
+      `/loop dynamic` hits the guard pointer instead of mis-scheduling.
+- [x] cc-parity-2 spec §9 `/loop` row updated with the final outcome; this
       ticket linked.
 
 ## Bounds

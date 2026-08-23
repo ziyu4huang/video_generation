@@ -2,7 +2,7 @@
 effort: 2026-08-23-headless-dispatch-hang
 created: 2026-08-23
 last: 2026-08-23
-status: active
+status: complete
 ---
 
 # map — headless dispatch hang + arming gaps (live-smoke 2026-08-23 findings)
@@ -84,13 +84,17 @@ The original cc-parity-2 §9 "BLOCKED (B1)" row for `/loop` dynamic is this
 defect plus B1. The `schedule_wakeup` TOOL half is healthy headless (model
 called it, correct no-active-loop text, clean exit 0); single-name command
 dispatch verified fine in a faux control. Repo's only collision (scanned all
-ext `registerCommand` names).
+ext `registerCommand` names). **FIXED same evening (ticket 03 close-out):
+`colliding-command-dispatch` patch + ext-task parser guard; live re-run
+PASS.**
 
 **Live-smoke surface results** (recorded in
 `.planning/2026-08-23-subagent-cc-parity-2/spec.md` §9): fork PASS, built-in
 explore/plan PASS (read-only tools verified live, count cross-checked),
-startup-context PASS (child reported the correct branch name), budget directive
-measured-negative (B2), /loop dynamic BLOCKED by B1.
+startup-context PASS (child reported the correct branch name), budget
+directive RE-DIAGNOSED + parity pinned (B2, ticket 02), /loop dynamic
+SPLIT then FIXED (tool half PASS; command half B4, ticket 03 — post-fix
+smoke PASS).
 
 ## Tickets
 
@@ -106,10 +110,11 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
   (runs `mt5q0urv-9hdejl` merged / `mt5pwx3c-30sjnp` model) and pinned by
   `tests/headless-arming-parity.test.ts`; spec §2 + §9 rows corrected in the
   same PR
-- [ ] `tickets/03-colliding-command-name-breaks-slash-dispatch.md` — B4: the
-  `loop` name collision (ext-task + ext-ultracode) makes `getCommand("loop")`
-  miss so headless `/loop …` falls to the model; choose fix (patch fallback /
-  rename / upstream), pin with a test, re-run the live smoke (frontier)
+- [x] `tickets/03-colliding-command-name-breaks-slash-dispatch.md` — B4 FIXED
+  (patched `getCommand` fallback to `name:1`, `colliding-command-dispatch`
+  patch + 6 unit tests; ext-task parser guards `dynamic`/`off` with a
+  `/loop:2` pointer); live smoke re-run PASS (zero model turns, bounded
+  exits — `/loop status`, `/loop:2 dynamic`, plain `/loop dynamic` guard)
 
 ## Decisions
 
@@ -128,13 +133,23 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
   test (faux AgentSession over the print-mode call shape) + spec §2/§9
   corrections rather than a guard change. Corollary: live arming-by-keyword
   requires the trigger enabled (per-project or global) — mode-independent.
+- **D4 — B4 fixed at the `getCommand` layer, not `_tryExecuteExtensionCommand`
+  (ticket 03).** Wrapping `ExtensionRunner.prototype.getCommand` (exported
+  class, no private session access) fixes every plain-name lookup at once and
+  leaves the palette untouched; a session-method wrap would have covered only
+  prompt() dispatch and reached into a private member.
+- **D5 — plain `/loop` belongs to ext-task's user-facing scheduler (ticket
+  03).** First static registration wins the plain name via the fallback;
+  ultracode's subagent-side /loop stays explicitly addressable as `/loop:2`.
+  ext-task's parser guards the `dynamic`/`off` first words with a pointer to
+  `/loop:2` so the plain name cannot silently mis-schedule.
 
 ## Frontier
 
-Ticket 03 (B4 colliding command name). Small and self-contained: pick the fix
-approach, implement + test, re-run the `/loop dynamic` live smoke. B1's
-root-cause chase stays event-driven (recurrence prints the
-`[print-idle-watchdog]` diagnostic).
+Queue drained — all three tickets closed (t01 bounded, t02 verify+pin, t03
+fixed + smoke PASS). Effort complete; residual B1-recurrence capture is
+event-driven (a `[print-idle-watchdog]` stderr line resumes the root-cause
+chase).
 
 ## Fog of war
 
