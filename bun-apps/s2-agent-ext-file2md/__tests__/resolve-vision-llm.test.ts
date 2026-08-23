@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { saveModelTierConfig } from "@repo/s2-agent-ext-subagent";
+import { saveModelTierConfig } from "@repo/s2-agent-core-runtime";
 import { resolveVisionLLM } from "../src/sessions.ts";
 
 test("resolveVisionLLM reads capabilities.vision", () => {

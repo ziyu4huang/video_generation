@@ -104,6 +104,9 @@ export const __GATE_PROBES__ = {
 // ---------------------------------------------------------------------------
 
 export default function (pi: ExtensionAPI): void {
+  // Self-gate: BUN_PI_FILE2MD=0 disables the entire extension — the portable
+  // base-set contract (every registered extension honors its disable env).
+  if (process.env.BUN_PI_FILE2MD === "0") return;
   pi.on("session_start", async (_event, ctx) => {
     const missing = missingExtDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
     if (missing.length > 0) {

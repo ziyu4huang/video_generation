@@ -18,7 +18,7 @@
  *  - neither → capability "vision" (unified capabilities.vision config).
  */
 import { ModelRegistry, type ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { roleAwareDirectCall, spawnSubagent } from "@repo/s2-agent-ext-subagent";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/s2-agent-core-runtime";
 import type { ResolvedLLM } from "../sessions.js";
 
 export interface VisionInferenceResult {
