@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "One cold path through the resolver platform",
+    "subtitle": "Users → edge → resolver core → cache → DB, with async events and one upstream branch",
+    "output": "system-inventory.architecture.html",
+    "quality_profile": "standard",
+    "legend": "variants",
+    "views": [
+      { "id": "request-path", "label": "Cold request path", "focus": ["users", "gw", "resolver", "cache", "db"], "note": "The happy path a cold start walks. Cache hit skips the DB row entirely." },
+      { "id": "events", "label": "Async events", "focus": ["gw", "bus", "resolver", "cache"], "note": "Events are off the request path — async invalidation keeps the cache honest." }
+    ]
+  },
+  "components": [
+    { "id": "users", "type": "external", "label": "Users", "sublabel": "cold start", "pos": [40, 300], "size": [140, 64] },
+    { "id": "gw", "type": "frontend", "label": "Edge gateway", "sublabel": "TLS · routing", "pos": [260, 300], "size": [180, 64], "tag": "entry" },
+    { "id": "resolver", "type": "backend", "label": "Resolver core", "sublabel": "cold path executor", "pos": [500, 300], "size": [200, 64] },
+    { "id": "cache", "type": "database", "label": "Resolved cache", "sublabel": "TTL 5 min", "pos": [760, 300], "size": [180, 64] },
+    { "id": "db", "type": "database", "label": "Postgres", "sublabel": "source of truth", "pos": [510, 470], "size": [180, 64] },
+    { "id": "bus", "type": "messagebus", "label": "Event bus", "sublabel": "async invalidation", "pos": [260, 520], "size": [180, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Resolver platform", "wraps": ["gw", "resolver", "cache", "db", "bus"] },
+    { "kind": "security-group", "label": "Data tier", "wraps": ["cache", "db"] }
+  ],
+  "connections": [
+    { "id": "users-gw", "from": "users", "to": "gw", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "gw-resolver", "from": "gw", "to": "resolver" },
+    { "id": "resolver-cache", "from": "resolver", "to": "cache", "label": "lookup", "variant": "emphasis", "route": "straight" },
+    { "id": "resolver-db", "from": "resolver", "to": "db", "label": "SQL", "labelAt": [600, 378], "fromSide": "bottom", "toSide": "top" },
+    { "id": "gw-bus", "from": "gw", "to": "bus", "label": "events", "labelAt": [350, 378], "variant": "dashed" },
+    { "id": "bus-resolver", "from": "bus", "to": "resolver", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "The main path", "items": ["Users → gateway → resolver → cache (hit) or DB (miss)", "Cache miss is the only time the DB row is touched", "Events arrive async — they never block the request"] },
+    { "dot": "rose", "title": "Copy this pattern", "items": ["One entry point, one executor, two stores", "Side branches connect up/down from the nearest main-path node", "Boundaries: platform (region) vs data (security group)"] }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Feature rollout: canary is a state, not a phase",
+    "subtitle": "Planned → in progress → canary; canary alone decides live or dropped",
+    "output": "feature-state.lifecycle.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "main", "label": "Lifecycle phases" },
+    { "id": "waiting", "label": "Interruptions" },
+    { "id": "terminal", "label": "Terminal exits" }
+  ],
+  "states": [
+    { "id": "planned", "type": "start", "label": "Planned", "sublabel": "scoped · SLO attached", "lane": "main", "col": 0, "step": "01" },
+    { "id": "active", "type": "active", "label": "In progress", "sublabel": "dev + test", "lane": "main", "col": 2, "step": "02" },
+    { "id": "canary", "type": "waiting", "label": "Canary", "sublabel": "10 % traffic", "lane": "waiting", "col": 0 },
+    { "id": "live", "type": "success", "label": "Live", "sublabel": "100 % rollout", "lane": "terminal", "col": 0, "step": "03" },
+    { "id": "dropped", "type": "failure", "label": "Dropped", "sublabel": "error budget burned", "lane": "terminal", "col": 2 }
+  ],
+  "transitions": [
+    { "id": "t1", "from": "planned", "to": "active", "variant": "emphasis" },
+    { "id": "t2", "from": "active", "to": "canary", "label": "ready", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t3", "from": "canary", "to": "live", "label": "pass", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t4", "from": "canary", "to": "dropped", "label": "fail", "variant": "dashed", "fromSide": "right", "toSide": "top" },
+    { "id": "t5", "from": "live", "to": "dropped", "label": "rollback", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Why canary is a state", "items": ["Canary is a real waiting state — the SLA clock runs there", "Only canary may fan out to terminal", "Planned features have no terminal edge — nothing dies at planning"] }
+  ]
+}

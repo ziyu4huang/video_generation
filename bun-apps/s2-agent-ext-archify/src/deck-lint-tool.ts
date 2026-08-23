@@ -5,7 +5,8 @@
  * told FIRST, with zero rendering. Two input shapes:
  *
  *   - no `manifest` → the layout catalog: every code layout and every
- *     discovered template with its `description`, `slots` and source path.
+ *     discovered template with its `description`, `slots` and source path,
+ *     plus the deck skeletons and the copy-adapt IR library.
  *     This is the discovery surface (D9) — the agent asks, never guesses.
  *   - with `manifest` (path or inline object) → parse, validate each slide's
  *     fields against its layout's slots, check every `ir` exists, then the
@@ -170,6 +171,39 @@ export function discoverDeckSkeletons(opts: DeckSkeletonOpts = {}): DeckSkeleton
   return out;
 }
 
+/**
+ * One entry of the shipped copy-adapt IR library
+ * (`examples/ir-library/library.catalog.json`) — the same typed index the
+ * `ir-library` gate test pins. The library is package data: there is no user
+ * tier, and a missing file (deploy omitted examples/) silently yields [].
+ */
+export interface IrLibraryEntry {
+  path: string;
+  diagram_type: string;
+  title: string;
+  description: string;
+  archetype: string;
+  pairing: string[];
+  tier: string;
+}
+
+/**
+ * Load the shipped IR library catalog. `shippedRoot` overrides the package root
+ * (mirroring the skeleton-discovery `shippedDir` seam) so tests never have to
+ * drop files into the package to prove discovery.
+ */
+export function loadIrLibrary(shippedRoot?: string): IrLibraryEntry[] {
+  const root = shippedRoot ?? pkgRoot();
+  if (!root) return [];
+  try {
+    const text = readFileSync(join(root, "examples", "ir-library", "library.catalog.json"), "utf8");
+    const parsed = JSON.parse(text) as { entries: IrLibraryEntry[] };
+    return Array.isArray(parsed.entries) ? parsed.entries : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Pure entry point (tested directly; the tool wrapper only adapts the SDK shape). */
 export async function archifyDeckLint(params: DeckLintParams, ctx: DeckLintCtx): Promise<ToolResult> {
   try {
@@ -183,6 +217,7 @@ export async function archifyDeckLint(params: DeckLintParams, ctx: DeckLintCtx):
     if (params.manifest === undefined) {
       const catalog = loadRegistry({ manifestDir: root, env: ctx.env }).catalog();
       const decks = discoverDeckSkeletons({ root, env: ctx.env });
+      const irLibrary = loadIrLibrary();
       const text =
         `Available layouts (${catalog.length}) — six code layouts first, then templates ` +
         `from $ARCHIFY_TEMPLATES, <baseDir>/templates/ and the shipped tier:\n` +
@@ -192,10 +227,25 @@ export async function archifyDeckLint(params: DeckLintParams, ctx: DeckLintCtx):
         (decks.length > 0
           ? `\n\nDeck skeletons (${decks.length}) — ready-to-fill outlines in the outline dialect:\n` +
             decks.map((d) => `${d.name} — ${d.description}\n  source: ${d.source}`).join("\n")
+          : "") +
+        (irLibrary.length > 0
+          ? `\n\nIR library (${irLibrary.length}) — validated, render-ready diagrams to copy-adapt (see the ` +
+            `flagship deck at examples/ir-library/decks/library.config.json):\n` +
+            irLibrary
+              .map(
+                (e) =>
+                  `${e.diagram_type} · ${e.title}\n  pair with: ${e.pairing.join(", ")}\n  source: examples/ir-library/${e.path}`
+              )
+              .join("\n")
           : "");
       return {
         content: [{ type: "text", text }],
-        details: { count: catalog.length, layouts: catalog, ...(decks.length ? { decks } : {}) },
+        details: {
+          count: catalog.length,
+          layouts: catalog,
+          ...(decks.length ? { decks } : {}),
+          ...(irLibrary.length ? { irLibrary } : {}),
+        },
       };
     }
 
@@ -268,8 +318,8 @@ export const deckLintTool = defineTool({
   label: "Archify Deck Lint",
   description:
     "Lint an archify deck WITHOUT building it — no rendering, no .pptx. With no arguments, returns the layout " +
-    "catalog: every code layout and discovered template (plus the deck skeletons under templates/decks/) with " +
-    "its description, slots and source path; ask this " +
+    "catalog: every code layout and discovered template (plus the deck skeletons under templates/decks/ and the " +
+    "copy-adapt IR library under examples/ir-library/) with its description, slots and source path; ask this " +
     "before guessing a layout name. With `manifest` (a deck.config.json path, or the manifest object itself for " +
     "an unwritten draft, anchored at `baseDir`), validates every slide's fields against its layout's slots, " +
     "checks each `ir` exists, applies the content lint (action titles, bullet budget, inline colour) and returns " +

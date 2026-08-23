@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "The V: from product ask to service design, verified both ways",
+    "subtitle": "Five spec levels on the left arm; four verify levels check the right arm against the left",
+    "output": "req-chain.architecture.html",
+    "quality_profile": "standard",
+    "legend": "variants",
+    "archetype": {
+      "kind": "v-model",
+      "leftArm": ["ask", "mrd", "sys", "arch", "svc", "design"],
+      "rightArm": ["dver", "sver", "aver", "sysv"],
+      "size": [220, 52]
+    },
+    "views": [
+      { "id": "spec-arm", "label": "Spec — left arm", "focus": ["ask", "mrd", "sys", "arch", "svc", "design"], "note": "Each level derives from the one above: product ask → MRD → system reqs → architecture → service spec → design." },
+      { "id": "verify-arm", "label": "Verify — right arm", "focus": ["dver", "sver", "aver", "sysv"], "note": "Each right-arm level checks what its left-arm partner promised: design, service reqs, architecture, the whole system." },
+      { "id": "pairings", "label": "Pairings", "focus": ["sys", "arch", "svc", "design", "sysv", "aver", "sver", "dver"], "note": "The dashed crossbars are the verification pairings — the evidence a reviewer asks for." }
+    ]
+  },
+  "components": [
+    { "id": "ask", "type": "external", "role": "spec", "label": "Product ask", "sublabel": "customer input", "tag": "input" },
+    { "id": "mrd", "type": "frontend", "role": "spec", "label": "MRD", "sublabel": "market reqs" },
+    { "id": "sys", "type": "frontend", "role": "spec", "label": "System reqs", "sublabel": "p99 · SLO" },
+    { "id": "arch", "type": "frontend", "role": "spec", "label": "Architecture", "sublabel": "allocation" },
+    { "id": "svc", "type": "backend", "role": "spec", "label": "Service spec", "sublabel": "what each service owns" },
+    { "id": "design", "type": "backend", "role": "spec", "label": "Design", "sublabel": "how it is built — RTL of ops", "tag": "apex" },
+    { "id": "dver", "type": "security", "role": "verify", "label": "Design verify", "sublabel": "matches the design" },
+    { "id": "sver", "type": "security", "role": "verify", "label": "Service verify", "sublabel": "matches service specs" },
+    { "id": "aver", "type": "cloud", "role": "verify", "label": "Arch verify", "sublabel": "matches architecture" },
+    { "id": "sysv", "type": "cloud", "role": "verify", "label": "System verify", "sublabel": "matches system reqs" }
+  ],
+  "connections": [
+    { "id": "ask-mrd", "from": "ask", "to": "mrd" },
+    { "id": "mrd-sys", "from": "mrd", "to": "sys" },
+    { "id": "sys-arch", "from": "sys", "to": "arch" },
+    { "id": "arch-svc", "from": "arch", "to": "svc", "label": "decompose →" },
+    { "id": "svc-design", "from": "svc", "to": "design" },
+    { "id": "design-dver", "from": "design", "to": "dver", "label": "built", "variant": "emphasis" },
+    { "id": "dver-sver", "from": "dver", "to": "sver" },
+    { "id": "sver-aver", "from": "sver", "to": "aver" },
+    { "id": "aver-sysv", "from": "aver", "to": "sysv" },
+    { "id": "sver-svc", "from": "sver", "to": "svc", "label": "verify vs service spec", "variant": "dashed", "role": "verify", "route": "straight", "labelAt": [538, 586] },
+    { "id": "aver-arch", "from": "aver", "to": "arch", "label": "verify vs architecture", "variant": "dashed", "role": "verify", "route": "straight" },
+    { "id": "sysv-sys", "from": "sysv", "to": "sys", "label": "verify vs system reqs", "variant": "dashed", "role": "verify", "route": "straight" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Left arm — derive", "items": ["Ask is input, not a process — itemized, IDs stable", "Each level derives from exactly the one above", "No skipping, no double parents", "The architecture level is where services fork off"] },
+    { "dot": "cyan", "title": "Right arm — verify", "items": ["Design verify: does the implementation match the design?", "Service verify: does it match the service spec?", "Arch / system verify: the whole story up to the SLO", "Pairings are the evidence a reviewer asks for"] },
+    { "dot": "rose", "title": "The V's turning point", "items": ["Design is the apex — the spec made real", "A green verify arm is not ship-ready; the V continues up"] }
+  ]
+}

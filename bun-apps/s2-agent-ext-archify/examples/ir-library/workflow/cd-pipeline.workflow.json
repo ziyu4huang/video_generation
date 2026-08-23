@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "CD pipeline: PR to prod in four phases, fail goes back to build",
+    "subtitle": "Build → test → quality gate → stage → prod; any gate failure reworks in the build phase",
+    "output": "cd-pipeline.workflow.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "dev", "label": "Developer" },
+    { "id": "ci", "label": "CI" },
+    { "id": "prod", "label": "Production" },
+    { "id": "xcp", "label": "Exceptions", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "build", "label": "Build", "fromCol": 0, "toCol": 2 },
+    { "id": "test", "label": "Test", "fromCol": 2, "toCol": 4 },
+    { "id": "gate", "label": "Gate", "fromCol": 4, "toCol": 5 }
+  ],
+  "mainPath": ["pr", "build", "test", "gate", "stage", "ship"],
+  "nodes": [
+    { "id": "pr", "lane": "dev", "col": 0, "type": "frontend", "label": "Open PR", "sublabel": "feature branch" },
+    { "id": "build", "lane": "ci", "col": 0, "type": "backend", "label": "Build", "sublabel": "lint + unit", "tag": "blocking" },
+    { "id": "test", "lane": "ci", "col": 2, "type": "backend", "label": "Test", "sublabel": "integration" },
+    { "id": "gate", "lane": "ci", "col": 4, "type": "security", "label": "Quality gate", "sublabel": "SLO + security checks" },
+    { "id": "stage", "lane": "prod", "col": 4, "type": "cloud", "label": "Stage", "sublabel": "canary 10 %" },
+    { "id": "ship", "lane": "dev", "col": 5, "type": "cloud", "label": "Ship", "sublabel": "full rollout" },
+    { "id": "rollback", "lane": "xcp", "col": 3, "type": "security", "label": "Rollback", "sublabel": "gate-fail · incident", "tag": "exception" }
+  ],
+  "edges": [
+    { "id": "pr-build", "from": "pr", "to": "build", "label": "webhook", "variant": "emphasis" },
+    { "id": "build-test", "from": "build", "to": "test", "label": "green" },
+    { "id": "test-gate", "from": "test", "to": "gate", "label": "pass" },
+    { "id": "gate-stage", "from": "gate", "to": "stage", "label": "approved", "route": "drop", "fromSide": "bottom", "toSide": "top" },
+    { "id": "stage-ship", "from": "stage", "to": "ship", "label": "healthy", "variant": "emphasis", "fromSide": "right", "toSide": "left", "via": [[671, 260]] },
+    { "id": "stage-rollback", "from": "stage", "to": "rollback", "label": "error budget", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "rollback-build", "from": "rollback", "to": "build", "label": "rework", "variant": "dashed", "route": "return-left" }
+  ],
+  "cards": []
+}

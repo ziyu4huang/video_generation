@@ -1,0 +1,200 @@
+{
+  "output": "library.pptx",
+  "theme": "light",
+  "tag": "archify · IR library flagship deck",
+  "defaults": { "font": "PingFang TC" },
+  "slides": [
+    {
+      "layout": "title",
+      "eyebrow": "ARCHIFY IR LIBRARY",
+      "title": "Cold start is a systems story — tell it with one library",
+      "subtitle": "Twelve validated IRs, seven rich templates, one argument: 4.2 s → 1.8 s",
+      "date": "2026-08-23"
+    },
+    {
+      "layout": "diagram",
+      "title": "One cold path decides the platform story",
+      "takeaway": "Every other slide states what this inventory arrives at",
+      "source": "Source: system-inventory.architecture.json",
+      "ir": "../architecture/system-inventory.architecture.json"
+    },
+    {
+      "layout": "kpi-row",
+      "title": "Cold-start p99 halves, and users stay",
+      "takeaway": "Resolver cache first; the rest waits",
+      "source": "Source: baseline benchmark, 2026-07",
+      "kpis": [
+        { "value": "4.2 s", "label": "Cold-start p99", "note": "drops to 1.8 s after cache" },
+        { "value": "38 %", "label": "Cache hit rate", "note": "measured week 4" },
+        { "value": "17 ms", "label": "Hot-path latency" }
+      ]
+    },
+    {
+      "layout": "split",
+      "title": "Three services, one gateway, only one is hot",
+      "takeaway": "The domain seams are the load-bearing boundaries",
+      "source": "Source: service-topology.architecture.json",
+      "ir": "../architecture/service-topology.architecture.json",
+      "bullets": [
+        "Resolver: sync, hot, owns the cache",
+        "Image service: sync, cold, owns blobs",
+        "Notifier: async, decoupled by the queue",
+        "One store per domain — the seams are copy-ready"
+      ]
+    },
+    {
+      "layout": "table",
+      "title": "The resolver owns eighty percent of the budget",
+      "takeaway": "The resolver is the only path worth cutting first",
+      "source": "Source: production sampling, 2026-07",
+      "columns": ["Service", "p99", "p50"],
+      "rows": [
+        ["Resolver", "4.2 s", "1.8 s"],
+        ["Image service", "210 ms", "180 ms"],
+        ["Notifier", "95 ms", "88 ms"]
+      ],
+      "note": "Production sampling, July 2026"
+    },
+    {
+      "layout": "diagram",
+      "title": "Traces are how we know the cold path is real",
+      "takeaway": "Spans batched, never blocking — the trace is evidence",
+      "source": "Source: trace-pipeline.dataflow.json",
+      "ir": "../dataflow/trace-pipeline.dataflow.json"
+    },
+    {
+      "layout": "compare",
+      "title": "Self-built beats managed by year two",
+      "source": "Source: three-year total cost model",
+      "sides": [
+        {
+          "heading": "Self-built",
+          "bullets": ["p99 4.2 s → 1.8 s", "12 hours/month ops", "Data stays inside"]
+        },
+        {
+          "heading": "Managed service",
+          "bullets": ["Zero ops, price 2.3×", "Legal review for egress", "Contract renegotiation in year 2"]
+        }
+      ]
+    },
+    {
+      "layout": "diagram",
+      "title": "One hop in the chain owns the p99",
+      "takeaway": "Miss + SQL; the row is the only cold source",
+      "source": "Source: request-lifecycle.sequence.json",
+      "ir": "../sequence/request-lifecycle.sequence.json"
+    },
+    {
+      "layout": "split",
+      "title": "The second request is the reward",
+      "takeaway": "Write-back is what turns the first request into the second",
+      "source": "Source: cold-path-walk.sequence.json",
+      "ir": "../sequence/cold-path-walk.sequence.json",
+      "bullets": [
+        "First request: miss, SQL, store",
+        "Second request: cache only",
+        "38 % never reach the cache",
+        "The pen drop is measurable, not hoped for"
+      ]
+    },
+    {
+      "layout": "timeline",
+      "title": "Q2 is the only hard gate",
+      "source": "Source: migration plan v2",
+      "milestones": [
+        { "date": "Q1", "label": "Requirements frozen", "note": "RFQ answered" },
+        { "date": "Q2", "label": "Architecture ratified" },
+        { "date": "Q3", "label": "Production proof", "note": "PPAP sample" },
+        { "date": "Q4", "label": "SOP published" }
+      ]
+    },
+    {
+      "layout": "split",
+      "title": "Every spec pairs with a verify",
+      "takeaway": "Dashed crossbars are the evidence a reviewer asks for",
+      "source": "Source: req-chain.architecture.json",
+      "ir": "../architecture/req-chain.architecture.json",
+      "bullets": [
+        "Ask → MRD → system reqs → architecture → service spec → design",
+        "Every verify arrow points at its spec",
+        "Design is the apex — the V continues up",
+        "Copy for any requirements chain"
+      ]
+    },
+    {
+      "layout": "diagram",
+      "title": "Canary is a state, not a phase",
+      "takeaway": "Only canary may fan out to terminal",
+      "source": "Source: feature-state.lifecycle.json",
+      "ir": "../lifecycle/feature-state.lifecycle.json"
+    },
+    {
+      "layout": "diagram",
+      "title": "Releases earn their keep in gating",
+      "takeaway": "Failed is a real terminal state — the honest outcome",
+      "source": "Source: release-states.lifecycle.json",
+      "ir": "../lifecycle/release-states.lifecycle.json"
+    },
+    {
+      "layout": "diagram",
+      "title": "Approval is two reviewers, one gate",
+      "takeaway": "Rejected changes go back cleanly, not to a side pocket",
+      "source": "Source: change-approval.workflow.json",
+      "ir": "../workflow/change-approval.workflow.json"
+    },
+    {
+      "layout": "diagram",
+      "title": "Pipeline gates quality; resolver owns latency",
+      "takeaway": "Every gate failure reworks in build phase",
+      "source": "Source: cd-pipeline.workflow.json",
+      "ir": "../workflow/cd-pipeline.workflow.json"
+    },
+    {
+      "layout": "diagram",
+      "title": "Incidents close only on evidence",
+      "takeaway": "The exception lane is the honest one",
+      "source": "Source: incident-response.workflow.json",
+      "ir": "../workflow/incident-response.workflow.json"
+    },
+    {
+      "layout": "diagram",
+      "title": "One PII fence at the ingest boundary",
+      "takeaway": "Classification happens at the source, once",
+      "source": "Source: etl-pipeline.dataflow.json",
+      "ir": "../dataflow/etl-pipeline.dataflow.json"
+    },
+    {
+      "layout": "quote",
+      "title": "One quote anchors the argument",
+      "source": "Source: A. Turing Award lecture, 1993",
+      "quote": "Any architecture problem can be solved with one more layer of indirection — except the problem of too many layers.",
+      "attribution": "Butler Lampson",
+      "role": "Turing Award, 1993"
+    },
+    {
+      "layout": "agenda",
+      "title": "Today's decision: cache first, or migrate",
+      "source": "Source: review board agenda",
+      "items": [
+        { "title": "Where the 4.2 s goes", "note": "10 min" },
+        { "title": "Cache design review", "note": "15 min" },
+        { "title": "Migration plan", "note": "20 min" },
+        { "title": "Decision and next steps" }
+      ]
+    },
+    {
+      "layout": "statement",
+      "title": "The cold path is a budget, not a bug report",
+      "statement": "The cold path is a budget, not a bug report",
+      "attribution": "— measured, not guessed",
+      "source": "Source: baseline benchmark × production sampling"
+    },
+    {
+      "layout": "end",
+      "title": "Copy the deck, keep the argument",
+      "headline": "Copy the deck, keep the argument",
+      "contact": "archify@team.example",
+      "source": "The IR library is under examples/ir-library/ — deck_lint lists it"
+    }
+  ]
+}

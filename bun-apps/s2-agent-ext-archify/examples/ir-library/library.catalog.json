@@ -1,0 +1,139 @@
+{
+  "entries": [
+    {
+      "path": "architecture/system-inventory.architecture.json",
+      "diagram_type": "architecture",
+      "title": "One cold path through the resolver platform",
+      "description": "Users → edge → resolver core → cache → DB, plus an async bus. Copy for any boxed system inventory.",
+      "archetype": "system-inventory",
+      "pairing": ["kpi-row", "split"],
+      "tier": "generic"
+    },
+    {
+      "path": "architecture/service-topology.architecture.json",
+      "diagram_type": "architecture",
+      "title": "Three services, three domains — separator seams per team",
+      "description": "Gateway fans to resolver / image / notifier; each domain owns one store; queue decouples the notifier.",
+      "archetype": "distributed-system",
+      "pairing": ["table", "compare"],
+      "tier": "generic"
+    },
+    {
+      "path": "architecture/req-chain.architecture.json",
+      "diagram_type": "architecture",
+      "title": "The V: from product ask to service design, verified both ways",
+      "description": "Spec chain left arm, verify arm right, dashed crossbars. Copy for any requirements chain.",
+      "archetype": "v-model",
+      "pairing": ["statement", "timeline"],
+      "tier": "generic"
+    },
+    {
+      "path": "workflow/change-approval.workflow.json",
+      "diagram_type": "workflow",
+      "title": "Change approval: two reviewer lanes, one security gate, a rejection loop",
+      "description": "Parallel review in lanes, security gate, rework loop. Copy for any approval story.",
+      "archetype": "parallel-approval",
+      "pairing": ["agenda", "table"],
+      "tier": "generic"
+    },
+    {
+      "path": "workflow/cd-pipeline.workflow.json",
+      "diagram_type": "workflow",
+      "title": "CD pipeline: PR to prod in four phases, fail goes back to build",
+      "description": "Phases + main path + exception lane with rollback. Copy for any CI/CD story.",
+      "archetype": "cd",
+      "pairing": ["timeline", "kpi-row"],
+      "tier": "generic"
+    },
+    {
+      "path": "workflow/incident-response.workflow.json",
+      "diagram_type": "workflow",
+      "title": "Incident response: triage fast, mitigate, then verify before recover",
+      "description": "On-call and bridge lanes with an exception lane for missing-evidence gaps.",
+      "archetype": "incident-response",
+      "pairing": ["quote", "kpi-row"],
+      "tier": "generic"
+    },
+    {
+      "path": "sequence/request-lifecycle.sequence.json",
+      "diagram_type": "sequence",
+      "title": "One request through the resolver: cache miss makes the DB the story",
+      "description": "Five participants, three segments, return messages. Copy for any request lifecycle.",
+      "archetype": "request-lifecycle",
+      "pairing": ["split", "statement"],
+      "tier": "generic"
+    },
+    {
+      "path": "sequence/cold-path-walk.sequence.json",
+      "diagram_type": "sequence",
+      "title": "Walking the cold path: fill the cache, then the pen drops",
+      "description": "Miss + SQL + write-back, then the warm request. Copy for before/after timing stories.",
+      "archetype": "before-after",
+      "pairing": ["kpi-row", "compare"],
+      "tier": "generic"
+    },
+    {
+      "path": "dataflow/trace-pipeline.dataflow.json",
+      "diagram_type": "dataflow",
+      "title": "Trace pipeline: spans to dashboards, batched in the middle",
+      "description": "Produce → Collect → Analyze with async spans. Copy for any telemetry story.",
+      "archetype": "telemetry",
+      "pairing": ["kpi-row", "split"],
+      "tier": "generic"
+    },
+    {
+      "path": "dataflow/etl-pipeline.dataflow.json",
+      "diagram_type": "dataflow",
+      "title": "Event ETL: clickstream to lake, one PII fence at the ingest boundary",
+      "description": "Source classification, batch to lake, two consumers. Copy for any lineage story.",
+      "archetype": "etl",
+      "pairing": ["table", "split"],
+      "tier": "generic"
+    },
+    {
+      "path": "lifecycle/feature-state.lifecycle.json",
+      "diagram_type": "lifecycle",
+      "title": "Feature rollout: canary is a state, not a phase",
+      "description": "Main, waiting, terminal lanes. Copy for any rollout state machine.",
+      "archetype": "rollout",
+      "pairing": ["timeline", "statement"],
+      "tier": "generic"
+    },
+    {
+      "path": "lifecycle/release-states.lifecycle.json",
+      "diagram_type": "lifecycle",
+      "title": "Release train states: gating is where a release earns its keep",
+      "description": "Queued → gating → verify; pass to shipped or fail to Failed. Copy for any release model.",
+      "archetype": "release",
+      "pairing": ["timeline", "kpi-row"],
+      "tier": "generic"
+    },
+    {
+      "path": "tiers/chip-scope.architecture.json",
+      "diagram_type": "architecture",
+      "title": "In-scope chip, out-of-scope product — the 4.0 landscape",
+      "description": "Real delivered deck IR: nine assessed processes on the automotive IC. Flip to chip/ASPICE decks.",
+      "archetype": "flagship-domain",
+      "pairing": ["split", "diagram"],
+      "tier": "flagship-domain"
+    },
+    {
+      "path": "tiers/chip-vmodel.dataflow.json",
+      "diagram_type": "dataflow",
+      "title": "Chip V-model dataflow — spec to verification flow",
+      "description": "Real delivered deck IR: the V-model as dataflow. Flip to verification-chain decks.",
+      "archetype": "flagship-domain",
+      "pairing": ["statement", "split"],
+      "tier": "flagship-domain"
+    },
+    {
+      "path": "tiers/tapeout-cycle.sequence.json",
+      "diagram_type": "sequence",
+      "title": "Tapeout cycle sequence — engineer to sign-off",
+      "description": "Real delivered deck IR: the tapeout cycle as a sequence. Flip to sign-off decks.",
+      "archetype": "flagship-domain",
+      "pairing": ["timeline", "split"],
+      "tier": "flagship-domain"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "One tape-out cycle across four teams",
+    "subtitle": "OEM to qualified silicon: the HWE and SYS process roles in temporal order",
+    "output": "tapeout-cycle.sequence.html",
+    "viewBox": [920, 820],
+    "animation": "trace",
+    "quality_profile": "standard",
+    "views": [
+      { "id": "requirements", "label": "Requirements", "focus": ["oem", "sys", "hwe"], "note": "Elicitation, the chip specification, and the hardware requirements it spawns." },
+      { "id": "design-verify", "label": "Design · Verify", "focus": ["hwe", "ver"], "note": "SoC architecture drives RTL; block coverage, then full-chip verification." },
+      { "id": "release", "label": "Release", "focus": ["ver", "sil", "sys", "oem"], "note": "Tape-out, silicon bring-up, qualification, and the change-request loop." }
+    ]
+  },
+  "participants": [
+    { "id": "oem", "type": "external", "label": "OEM", "sublabel": "whole product" },
+    { "id": "sys", "type": "frontend", "label": "Sys Eng", "sublabel": "SYS.1–5" },
+    { "id": "hwe", "type": "backend", "label": "HW Eng", "sublabel": "HWE.1–4" },
+    { "id": "ver", "type": "security", "label": "Verif Eng", "sublabel": "HWE.3/4" },
+    { "id": "sil", "type": "cloud", "label": "Silicon", "sublabel": "foundry · bring-up" }
+  ],
+  "segments": [
+    { "from": 158, "to": 316, "label": "Requirements — SYS.1/2 · HWE.1" },
+    { "from": 322, "to": 452, "label": "Design — SYS.3 · HWE.2" },
+    { "from": 458, "to": 522, "label": "Verify — HWE.3/4" },
+    { "from": 526, "to": 678, "label": "Integrate · Release — SYS.4/5" }
+  ],
+  "messages": [
+    { "id": "m-req", "from": "oem", "to": "sys", "y": 170, "label": "application profile · AEC grade · ASIL", "variant": "emphasis" },
+    { "id": "m-req-ok", "from": "sys", "to": "oem", "y": 208, "label": "agreed stakeholder reqs", "variant": "return" },
+    { "id": "m-spec", "from": "sys", "to": "hwe", "y": 246, "label": "chip specification", "variant": "emphasis" },
+    { "id": "m-hwreq", "from": "sys", "to": "hwe", "y": 284, "label": "hardware requirements" },
+    { "id": "m-arch", "from": "sys", "to": "hwe", "y": 330, "label": "SoC architecture", "variant": "emphasis" },
+    { "id": "m-block", "from": "hwe", "to": "ver", "y": 368, "label": "block design" },
+    { "id": "m-block-ok", "from": "ver", "to": "hwe", "y": 406, "label": "block coverage ok", "variant": "return" },
+    { "id": "m-rtl", "from": "hwe", "to": "ver", "y": 444, "label": "full-chip RTL + DFT", "variant": "emphasis" },
+    { "id": "m-chipver", "from": "ver", "to": "sys", "y": 482, "label": "sim + emulation vs spec", "variant": "return" },
+    { "id": "m-tapeout", "from": "ver", "to": "sil", "y": 530, "label": "tape-out", "variant": "emphasis" },
+    { "id": "m-silicon", "from": "sil", "to": "ver", "y": 572, "label": "silicon · bring-up data", "variant": "return" },
+    { "id": "m-intver", "from": "ver", "to": "sys", "y": 610, "label": "integrated chip verified", "variant": "return" },
+    { "id": "m-release", "from": "sys", "to": "oem", "y": 646, "label": "qualified chip (AEC-Q100)", "variant": "emphasis" },
+    { "id": "m-cr", "from": "oem", "to": "sys", "y": 674, "label": "change request (SUP.10)", "variant": "dashed" }
+  ],
+  "activations": [
+    { "participant": "sys", "from": 166, "to": 682, "type": "frontend" },
+    { "participant": "hwe", "from": 242, "to": 494, "type": "backend" },
+    { "participant": "ver", "from": 364, "to": 622, "type": "security" },
+    { "participant": "sil", "from": 526, "to": 584, "type": "cloud" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Spec handoff", "items": ["OEM expectations enter at SYS.1 elicitation", "The chip specification is the spine of the cycle", "Hardware requirements inherit the system requirements"] },
+    { "dot": "cyan", "title": "Verification", "items": ["Block verification mirrors the design — HWE.3", "Full-chip verification mirrors the spec — HWE.4", "Emulation closes what simulation cannot"] },
+    { "dot": "rose", "title": "Release & change", "items": ["Tape-out and bring-up live in SYS.4", "Qualification evidence ends at SYS.5", "Late changes loop back through SUP.10"] }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "In-scope chip, out-of-scope product — the 4.0 landscape",
+    "subtitle": "Nine assessed processes for the automotive IC, six supporting, and the validation boundary",
+    "output": "chip-scope.architecture.html",
+    "visual_preset": "classic",
+    "quality_profile": "standard",
+    "viewBox": [1320, 800],
+    "views": [
+      { "id": "chip-scope", "label": "In scope — the chip", "focus": ["s1", "s2", "h1", "s3", "h2", "h3", "h4", "s5", "s4"], "note": "The nine 4.0 processes assessed on the automotive IC — SYS runs the chip, HWE runs the hardware inside it." },
+      { "id": "supporting", "label": "Supporting", "focus": ["m3", "m5", "q1", "c8", "p9", "r10"], "note": "Project, risk, QA, configuration, and change control carry the evidence for every in-scope process." },
+      { "id": "out-of-scope", "label": "Out of scope", "focus": ["v1", "veh"], "note": "Validation needs the end user — that is the vehicle's job, outside the chip vendor's boundary." }
+    ]
+  },
+  "components": [
+    { "id": "oem", "type": "external", "label": "OEM / Customer", "sublabel": "whole product · end user", "pos": [30, 260], "size": [150, 80] },
+
+    { "id": "s1", "type": "frontend", "label": "SYS.1", "sublabel": "Requirements Elicitation", "pos": [290, 50], "size": [190, 58] },
+    { "id": "s2", "type": "frontend", "label": "SYS.2", "sublabel": "System Requirements Analysis", "pos": [510, 50], "size": [190, 58] },
+    { "id": "h1", "type": "frontend", "label": "HWE.1", "sublabel": "Hardware Requirements Analysis", "pos": [730, 50], "size": [190, 58] },
+    { "id": "s3", "type": "backend", "label": "SYS.3", "sublabel": "System Architectural Design", "pos": [290, 145], "size": [190, 58] },
+    { "id": "h2", "type": "backend", "label": "HWE.2", "sublabel": "Hardware Design — RTL · DFT", "pos": [510, 145], "size": [190, 58] },
+    { "id": "h3", "type": "security", "label": "HWE.3", "sublabel": "Verification vs HW Design", "pos": [290, 240], "size": [190, 58] },
+    { "id": "h4", "type": "security", "label": "HWE.4", "sublabel": "Verification vs HW Req", "pos": [510, 240], "size": [190, 58] },
+    { "id": "s5", "type": "security", "label": "SYS.5", "sublabel": "System Verification", "pos": [730, 240], "size": [190, 58] },
+    { "id": "s4", "type": "cloud", "label": "SYS.4", "sublabel": "Integration + Integration Verif.", "pos": [510, 335], "size": [190, 58] },
+
+    { "id": "m3", "type": "backend", "label": "MAN.3", "sublabel": "Project Management", "pos": [1000, 50], "size": [130, 58] },
+    { "id": "m5", "type": "backend", "label": "MAN.5", "sublabel": "Risk Management", "pos": [1150, 50], "size": [130, 58] },
+    { "id": "q1", "type": "backend", "label": "SUP.1", "sublabel": "Quality Assurance", "pos": [1000, 145], "size": [130, 58] },
+    { "id": "c8", "type": "backend", "label": "SUP.8", "sublabel": "Configuration Management", "pos": [1150, 145], "size": [130, 58] },
+    { "id": "p9", "type": "backend", "label": "SUP.9", "sublabel": "Problem Resolution", "pos": [1000, 240], "size": [130, 58] },
+    { "id": "r10", "type": "backend", "label": "SUP.10", "sublabel": "Change Request Mgmt", "pos": [1150, 240], "size": [130, 58] },
+
+    { "id": "v1", "type": "external", "label": "VAL.1", "sublabel": "Validation — end user", "pos": [1000, 500], "size": [120, 58], "tag": "out of scope" },
+    { "id": "veh", "type": "external", "label": "Vehicle", "sublabel": "whole product", "pos": [1165, 500], "size": [110, 58], "tag": "out of scope" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "IN SCOPE — the automotive IC chip (a SYS.x 'system')", "wraps": ["s1", "s2", "h1", "s3", "h2", "h3", "h4", "s5", "s4"] },
+    { "kind": "region", "label": "Supporting processes", "wraps": ["m3", "m5", "q1", "c8", "p9", "r10"] },
+    { "kind": "region", "label": "OUT OF SCOPE — whole product", "wraps": ["v1", "veh"] }
+  ],
+  "connections": [
+    { "id": "oem-s1", "from": "oem", "to": "s1", "label": "stakeholder needs", "variant": "emphasis", "via": [[180, 300], [220, 300], [220, 79], [290, 79]], "labelAt": [185, 190] },
+    { "id": "s1-s2", "from": "s1", "to": "s2", "label": "agreed reqs", "labelAt": [495, 122] },
+    { "id": "s2-h1", "from": "s2", "to": "h1", "label": "chip spec → HW reqs", "labelAt": [715, 122] },
+    { "id": "s2-s3", "from": "s2", "to": "s3", "label": "system reqs", "via": [[610, 108], [610, 126], [380, 126], [380, 145]], "labelAt": [495, 118] },
+    { "id": "s3-h2", "from": "s3", "to": "h2", "label": "SoC architecture", "labelAt": [495, 217] },
+    { "id": "h1-h2", "from": "h1", "to": "h2", "label": "hw requirements", "via": [[845, 108], [845, 136], [620, 136], [620, 145]], "labelAt": [730, 128] },
+    { "id": "h1-h4", "from": "h1", "to": "h4", "label": "hw reqs + measures", "via": [[880, 108], [880, 224], [610, 224], [610, 240]], "labelAt": [748, 214] },
+    { "id": "h2-h3", "from": "h2", "to": "h3", "label": "design + measures", "via": [[560, 203], [560, 220], [380, 220], [380, 240]], "labelAt": [468, 217] },
+    { "id": "h3-h4", "from": "h3", "to": "h4", "label": "block results", "labelAt": [495, 312] },
+    { "id": "h4-s5", "from": "h4", "to": "s5", "label": "chip verified", "labelAt": [715, 312] },
+    { "id": "h4-s4", "from": "h4", "to": "s4", "label": "integrated HW", "via": [[540, 298], [540, 335]], "labelAt": [545, 316], "labelDx": 42 },
+    { "id": "s4-s5", "from": "s4", "to": "s5", "label": "integrated chip", "via": [[655, 335], [655, 318], [800, 318], [800, 298]], "labelAt": [838, 314] },
+    { "id": "s5-v1", "from": "s5", "to": "v1", "label": "continues at product level", "variant": "dashed", "via": [[920, 269], [960, 269], [960, 529], [1000, 529]], "labelAt": [970, 380], "labelDx": 75 },
+    { "id": "v1-veh", "from": "v1", "to": "veh", "label": "intended use", "variant": "dashed", "labelAt": [1142, 496] },
+    { "id": "c8-s2", "from": "c8", "to": "s2", "label": "baselines · config", "variant": "dashed", "via": [[1280, 174], [1315, 174], [1315, 2], [605, 2], [605, 50]], "labelAt": [900, 12] }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "In scope — the chip", "items": ["SYS.1–5 run the chip as ASPICE's 'system'", "HWE.1–4 cover the hardware inside it: requirements, design, verification", "Nine processes — all from the 4.0 PAM, none invented"] },
+    { "dot": "cyan", "title": "Supporting", "items": ["MAN.3 / MAN.5 run the project and its risks", "SUP.1 QA, SUP.8 CM, SUP.9/10 carry the evidence", "Baselines and change control gate every arrow"] },
+    { "dot": "rose", "title": "Out of scope", "items": ["VAL.1 validation needs the end user — that is the vehicle's job", "The chip vendor's evidence ends at SYS.5", "Qualified silicon ships; whole-product acceptance is the customer's scope"] }
+  ]
+}

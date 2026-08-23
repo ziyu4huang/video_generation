@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Eight processes read as the classic V-model",
+    "subtitle": "Specify, design, verify, integrate, release — the SYS and HWE processes at chip scale",
+    "output": "chip-vmodel.dataflow.html",
+    "visual_preset": "signal-flow",
+    "quality_profile": "standard",
+    "viewBox": [1280, 560],
+    "views": [
+      { "id": "left-v", "label": "Specify · Design", "focus": ["s1", "s2", "h1", "s3", "h2"], "note": "Down the V: from the OEM ask to the chip specification, SoC architecture, and RTL design." },
+      { "id": "right-v", "label": "Verify · Release", "focus": ["h3", "h4", "s4", "s5"], "note": "Up the V: block and chip verification, system integration, and qualification." }
+    ]
+  },
+  "stages": [
+    { "label": "Elicit" },
+    { "label": "Specify" },
+    { "label": "Design" },
+    { "label": "Verify" },
+    { "label": "Integrate · Release" }
+  ],
+  "nodes": [
+    { "id": "s1", "type": "frontend", "label": "SYS.1", "sublabel": "Requirements Elicitation", "stage": 0, "row": 0, "width": 150, "height": 50, "tag": "OEM asks" },
+    { "id": "s2", "type": "frontend", "label": "SYS.2", "sublabel": "System Requirements Analysis", "stage": 1, "row": 0, "width": 150, "height": 50, "tag": "chip spec" },
+    { "id": "h1", "type": "frontend", "label": "HWE.1", "sublabel": "Hardware Requirements Analysis", "stage": 1, "row": 1, "width": 150, "height": 50 },
+    { "id": "s3", "type": "backend", "label": "SYS.3", "sublabel": "System Architectural Design", "stage": 2, "row": 0, "width": 150, "height": 50, "tag": "SoC arch" },
+    { "id": "h2", "type": "backend", "label": "HWE.2", "sublabel": "Hardware Design — RTL · DFT", "stage": 2, "row": 1, "width": 150, "height": 50 },
+    { "id": "h3", "type": "security", "label": "HWE.3", "sublabel": "Verification vs HW Design", "stage": 3, "row": 1, "width": 150, "height": 50, "tag": "block level" },
+    { "id": "h4", "type": "security", "label": "HWE.4", "sublabel": "Verification vs HW Req", "stage": 3, "row": 0, "width": 150, "height": 50 },
+    { "id": "s4", "type": "cloud", "label": "SYS.4", "sublabel": "Integration + Integration Verif.", "stage": 4, "row": 0, "width": 160, "height": 50, "tag": "bring-up" },
+    { "id": "s5", "type": "security", "label": "SYS.5", "sublabel": "System Verification", "stage": 4, "row": 1, "width": 150, "height": 50, "tag": "AEC-Q100" }
+  ],
+  "flows": [
+    { "id": "f-s1-s2", "from": "s1", "to": "s2", "label": "stakeholder reqs", "variant": "emphasis", "route": "straight", "labelAt": [178, 198] },
+    { "id": "f-s2-h1", "from": "s2", "to": "h1", "label": "spec → HW reqs", "route": "vertical-channel", "labelAt": [352, 208], "labelDx": 14 },
+    { "id": "f-s2-s3", "from": "s2", "to": "s3", "label": "chip requirements", "route": "straight", "labelAt": [423, 192] },
+    { "id": "f-s3-h2", "from": "s3", "to": "h2", "label": "arch → HW design", "route": "vertical-channel", "labelAt": [560, 208] },
+    { "id": "f-h1-h2", "from": "h1", "to": "h2", "label": "hw reqs", "route": "straight" },
+    { "id": "f-h2-h3", "from": "h2", "to": "h3", "label": "design under verification", "route": "straight", "labelAt": [638, 306] },
+    { "id": "f-h3-h4", "from": "h3", "to": "h4", "label": "block results", "route": "vertical-channel" },
+    { "id": "f-h4-s4", "from": "h4", "to": "s4", "label": "verified hardware", "variant": "emphasis", "route": "straight", "labelAt": [850, 192] },
+    { "id": "f-s4-s5", "from": "s4", "to": "s5", "label": "integrated chip", "route": "vertical-channel", "labelAt": [1010, 208], "labelDx": 20 }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Down the V — specify · design", "items": ["SYS.1–2 turn OEM expectations into the chip specification", "SYS.3 sets the SoC architecture; HWE.2 builds RTL and DFT", "HWE.1 derives the hardware requirements the design must meet"] },
+    { "dot": "cyan", "title": "Up the V — verify · release", "items": ["HWE.3 verifies the design; HWE.4 verifies against the hardware requirements", "SYS.4 integrates and verifies; SYS.5 confirms the whole chip", "4.0's 'verification' replaces the old 'testing' everywhere"] },
+    { "dot": "rose", "title": "The chip boundary", "items": ["Everything inside the V is the chip — ASPICE's 'system'", "The apex is the design itself, the V's turning point", "Nothing in this V-model needs the whole product"] }
+  ]
+}
