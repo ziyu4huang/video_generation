@@ -27,7 +27,7 @@
  * against the local service or skip when it is down, hermes _helpers pattern).
  */
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
 import {
@@ -429,13 +429,4 @@ export async function rebuildCardIndex(args: {
 		embedModel: built.embedModel,
 		elapsedMs: Date.now() - started,
 	};
-}
-
-/** mtime probe retained for diagnostics (not part of the fingerprint). */
-export function folderMtime(vaultPath: string, folder: string): number | null {
-	try {
-		return statSync(join(vaultPath, folder)).mtimeMs;
-	} catch {
-		return null;
-	}
 }
