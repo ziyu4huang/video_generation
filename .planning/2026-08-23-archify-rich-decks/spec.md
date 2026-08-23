@@ -224,10 +224,20 @@ heavy import — and mmdc shell-out). Zero new deps, line-numbered errors, deter
 
 #### 7.1.3 Deterministic placement rules (minimal coordinates; renderer defaults do the rest)
 
-- workflow: subgraphs → `lanes` (declaration order); node `col` = flow index within lane
-  (direction-aware); `mainPath` = topological walk from the entry (no incoming edge); diamond
-  `{}` → `type: security` + `tag: "decision"` (only schema-supported decision semantic); `-.->`
-  → `variant: dashed`; link text → edge `label` (sparingly, as the doc says).
+- workflow: subgraphs → `lanes` (declaration order); node `col` = longest-path depth mapped
+  through the well-spaced `[0,1,3,5]` column subset of the vendored grid (`colXs 88/220/300/
+  430/500/625`, 92px nodes — adjacent 1↔2 and 3↔4 columns overlap; the skipped middle
+  columns are routing channels). Direction (TB/TD/LR/BT) is accepted and normalized to LR:
+  per the vendored doc the layering judgment belongs to the copy-adapt step (D7), so the
+  converter owns only the mechanical topology; the direction of the drawing is that
+  judgment. `mainPath` = walk from the entry (no non-back incoming edge) along first-out
+  edges to the sink (branches stay out, like change-approval); diamond `{}` → `type: security`
+  + `tag: "decision"` (only schema-supported decision semantic); `-.->` → `variant: dashed`;
+  link text → edge `label` (sparingly, as the doc says). Routing trims (2nd+ fan-out edge
+  adjacent→`drop` / deeper→`bottom-channel` when the run clears the legend band, back edges
+  →`return-left`) plus convert-time bound errors for shapes the vendor auto-router cannot
+  clear (same-lane skip edges, cross-lane same-column intermediates, shared-row loops) —
+  derived from the vendored renderer's own geometry constants.
 - architecture: components from nodes; subgraphs → `boundaries` (`kind: region`, `wraps`);
   **no `pos`/`size`** — grid layout default places.
 - dataflow: subgraphs → `stages` (declaration order); node `stage` = subgraph index, `row` =

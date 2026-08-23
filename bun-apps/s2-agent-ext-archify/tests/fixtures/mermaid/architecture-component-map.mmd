@@ -2,11 +2,11 @@ flowchart TB
   subgraph resolver_bounded["Resolver domain"]
     gw["API gateway"]
     resolver["Resolver"]
-    cache[("Resolved cache")]
+    cache(["Resolved cache"])
   end
   subgraph media["Media domain"]
     image["Image service"]
-    store[("Blob store")]
+    store(["Blob store"])
   end
   gw --> resolver
   resolver --> cache

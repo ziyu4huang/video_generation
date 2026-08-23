@@ -99,15 +99,26 @@ describe("convertMermaid — structural mapping", () => {
     expect(ir.mainPath).toEqual(["gate", "parse", "resolve", "serve"]);
   });
 
-  it("architecture: grid mode, components from nodes, boundaries from subgraphs", () => {
+  it("architecture: grid mode, components from nodes (labels intact), boundaries from subgraphs", () => {
     const ir = convert("architecture-component-map.mmd", { type: "architecture" });
     expect((ir.layout as { mode: string }).mode).toBe("grid");
-    const components = ir.components as Array<{ id: string; row: number; col: number }>;
+    const components = ir.components as Array<{ id: string; row: number; col: number; label: string }>;
     expect(components).toHaveLength(6);
     expect(components.every((c) => Number.isInteger(c.row) && Number.isInteger(c.col))).toBe(true);
+    // Stadium labels must NOT leak their brackets (M1): `cache[("Resolved cache")]`.
+    expect(components.find((c) => c.id === "cache")?.label).toBe("Resolved cache");
     const boundaries = ir.boundaries as Array<{ label: string; wraps: string[] }>;
     expect(boundaries.map((b) => b.label)).toEqual(["Resolver domain", "Media domain"]);
     expect(boundaries[0]!.wraps).toContain("resolver");
+  });
+
+  it("flowchart shapes: stadium and quoted labels keep their text, no stray brackets", () => {
+    const ir = convertMermaid('flowchart LR\n  a([Stadium text]) --> b([Rounded])\n', { title: "shapes", type: "workflow" });
+    const nodes = ir.nodes as Array<{ id: string; label: string }>;
+    expect(nodes.find((n) => n.id === "a")?.label).toBe("Stadium text");
+    expect(nodes.find((n) => n.id === "b")?.label).toBe("Rounded");
+    const round = convertMermaid('flowchart LR\n  a["has ] bracket"] --> b["ok"]\n', { title: "quoted", type: "workflow" });
+    expect((round.nodes as Array<{ id: string; label: string }>).find((n) => n.id === "a")!.label).toBe("has ] bracket");
   });
 
   it("dataflow: subgraph → stage flows with edge labels, default `to <target>`", () => {
@@ -115,14 +126,15 @@ describe("convertMermaid — structural mapping", () => {
     expect(ir.stages).toEqual([{ label: "Sources" }, { label: "Ingest" }, { label: "Store" }]);
     const flows = ir.flows as Array<{ from: string; to: string; label: string }>;
     expect(flows.find((f) => f.from === "web")?.label).toBe("clickstream");
-    // An unlabeled edge must still carry a (schema-required) flow label.
+    // An unlabeled edge must still carry a (schema-required) flow label — the
+    // target's readable label, not the sanitized id (m9).
     const unlabeled = convertMermaid(
       'flowchart LR\n  subgraph a["A"]\n    x["X"]\n  end\n  subgraph b["B"]\n    y["Y"]\n  end\n  x --> y\n',
       { type: "dataflow", title: "unlabeled" },
     );
     const f = (unlabeled.flows as Array<{ to: string; label: string }>)[0]!;
-    expect(f.label).toBe(`to ${f.to}`);
     expect(f.to).toBe("y");
+    expect(f.label).toBe("to Y");
   });
 
   it("sequence: participants order, messages y, return variant, rect segments, viewBox", () => {
@@ -149,17 +161,20 @@ describe("convertMermaid — structural mapping", () => {
 
   it("lifecycle: [*] entry → start type; exits → terminal lane success/failure; keyword lanes", () => {
     const ir = convert("lifecycle-feature.mmd");
-    const states = ir.states as Array<{ label: string; type: string; lane: string }>;
+    const states = ir.states as Array<{ label: string; type: string; lane: string; sublabel?: string }>;
     const lanes = ir.lanes as Array<{ id: string }>;
     expect(states.find((s) => s.label === "planned")?.type).toBe("start");
     expect(states.find((s) => s.label === "live")?.type).toBe("success");
     expect(states.find((s) => s.label === "live")?.lane).toBe("terminal");
     expect(states.find((s) => s.label === "dropped")?.type).toBe("failure");
     expect(lanes.map((l) => l.id)).toEqual(["main", "waiting", "terminal"]);
+    // Entry/exit transition labels are carried onto sublabel, not dropped (m3).
+    expect(states.find((s) => s.label === "planned")?.sublabel).toBe("scope");
     const kw = convert("lifecycle-keywords.mmd");
-    const kwStates = kw.states as Array<{ label: string; type: string; lane: string }>;
+    const kwStates = kw.states as Array<{ label: string; type: string; lane: string; sublabel?: string }>;
     expect(kwStates.find((s) => s.label === "canary")?.lane).toBe("waiting");
     expect(kwStates.find((s) => s.label === "failure")?.type).toBe("failure");
+    expect(kwStates.find((s) => s.label === "planning")?.sublabel).toBe("kickoff");
   });
 });
 
@@ -202,6 +217,30 @@ describe("convertMermaid — bound errors name the line", () => {
     });
   }
 
+  it("routing bounds: same-lane skip edge errors (no automatic route clears it)", () => {
+    expect(() => convertMermaid("flowchart LR\n  a[\"A\"] --> b[\"B\"]\n  b --> c[\"C\"]\n  a -->|skip| c\n")).toThrow("skips an intermediate node in the same lane");
+  });
+  it("routing bounds: shared-row loop back edge errors (exception lane needed)", () => {
+    expect(() => convertMermaid("flowchart LR\n  a[\"A\"] --> b[\"B\"]\n  b --> c[\"C\"]\n  c --> a\n")).toThrow("loop source alone in its own subgraph");
+  });
+  it("routing bounds: cross-lane first edge through an intermediate-lane node errors", () => {
+    const src =
+      'flowchart LR\n  subgraph a["A"]\n    a0["A0"] --> b["B"]\n  end\n  subgraph m["M"]\n    x["X"]\n  end\n  subgraph c["C"]\n    y["Y"]\n  end\n  a0 --> x\n  b --> y\n';
+    expect(() => convertMermaid(src)).toThrow("runs through a node in an intermediate lane");
+  });
+  it("rendering bounds: 5-stage dataflow, 5-deep architecture chain, 4-state lane error loudly", () => {
+    const stages = Array.from({ length: 5 }, (_, i) => `  subgraph s${i}[\"S${i}\"]\n    n${i}[\"N${i}\"]\n  end`).join("\n");
+    expect(() => convertMermaid(`flowchart LR\n${stages}\n`, { type: "dataflow" })).toThrow("4 stages");
+    const chain = Array.from({ length: 5 }, (_, i) => `  n${i + 1}[\"N${i + 1}\"] --> n${i + 2}[\"N${i + 2}\"]`).join("\n");
+    expect(() => convertMermaid(`flowchart LR\n  n1[\"N1\"]\n${chain}\n`, { type: "architecture" })).toThrow("4 columns");
+    const holds = Array.from({ length: 4 }, (_, i) => `  hold${i} --> s${i + 1}`).join("\n");
+    expect(() => convertMermaid(`stateDiagram-v2\n  [*] --> hold0\n  ${holds}\n`)).toThrow("3 columns");
+  });
+  it("sequence bounds: self-message and empty rect are convert-time errors", () => {
+    expect(() => convertMermaid("sequenceDiagram\n  A->>A: ping\n")).toThrow("spans 0px");
+    expect(() => convertMermaid("sequenceDiagram\n  participant a as A\n  participant b as B\n  rect empty\n  end\n  a->>b: hi\n")).toThrow("empty `rect`");
+  });
+
   it("rejects other mermaid dialects with a clear error", () => {
     expect(() => convertMermaid("classDiagram\n  A --> B\n")).toThrow(/classDiagram.*not supported/);
     expect(() => detectMermaidDialect("gantt\n  task a\n")).toThrow(/gantt.*not supported/);
@@ -224,6 +263,12 @@ describe("semantic tables", () => {
     expect(semanticComponentType("Web app")).toBe("frontend");
     expect(semanticComponentType("End user")).toBe("external");
     expect(semanticComponentType("Resolver")).toBe("backend");
+  });
+  it("whole-word matching: embedded keywords do not mis-type", () => {
+    expect(semanticComponentType("Context store")).toBe("database"); // not external via "ext"
+    expect(semanticComponentType("Section leader")).toBe("backend"); // not security via "sec"
+    expect(semanticComponentType("Architect dashboard")).toBe("frontend"); // dashboard, not external
+    expect(semanticComponentType("Restart worker")).toBe("backend"); // not start via "restart"
   });
   it("lifecycle types from names", () => {
     expect(semanticStateType("Canary")).toBe("waiting");
@@ -274,11 +319,12 @@ describe("mermaid:convert CLI contract (exit codes)", () => {
     return { status: await p.exited, stdout: await new Response(p.stdout).text(), stderr: await new Response(p.stderr).text() };
   }
   const pkgFixtures = "bun-apps/s2-agent-ext-archify/tests/fixtures/mermaid";
-  it("exit 0 on a valid conversion (+ VALID line)", async () => {
+  it("exit 0 on a valid conversion — stdout is pure JSON, status on stderr", async () => {
     const r = await runCli([join(pkgFixtures, "workflow-chain.mmd")]);
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("VALID");
-    expect(r.stdout).toContain('"diagram_type": "workflow"');
+    const ir = JSON.parse(r.stdout) as { diagram_type: string };
+    expect(ir.diagram_type).toBe("workflow");
+    expect(r.stderr).toContain("VALID");
   });
   it("exit 1 on unbounded syntax with line number", async () => {
     const r = await runCli([join(pkgFixtures, "errors", "sequence-alt.mmd")]);
@@ -290,9 +336,16 @@ describe("mermaid:convert CLI contract (exit codes)", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("usage:");
   });
-  it("exit 0 on --no-validate (conversion only, gate skipped)", async () => {
+  it("exit 0 on --no-validate (conversion only, gate skipped, status on stderr)", async () => {
     const r = await runCli([join(pkgFixtures, "workflow-chain.mmd"), "--no-validate"]);
     expect(r.status).toBe(0);
-    expect(r.stdout).toContain("NOT validated");
+    expect(JSON.parse(r.stdout)).toHaveProperty("diagram_type", "workflow");
+    expect(r.stderr).toContain("NOT validated");
+  });
+  it("--help exits 0 and documents the unbounded-syntax bound", async () => {
+    const r = await runCli(["--help"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("SYNTAX NOT SUPPORTED");
+    expect(r.stdout).toContain("alt/loop/opt/par/break");
   });
 });

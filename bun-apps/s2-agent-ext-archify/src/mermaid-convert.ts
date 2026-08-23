@@ -41,19 +41,24 @@ export class MermaidConvertError extends Error {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-const MESSAGE_BUS_RE = /queue|bus|broker|kafka|pubsub|amqp|mq\b|sink/i;
-const SECURITY_RE = /auth|secu?|firewall|credential|vault|pii|permission|iam\b/i;
-const DATABASE_RE = /db\b|database|store|cache|postgres|redis|sql|mongo|lake/i;
-const FRONTEND_RE = /ui\b|web\b|front|browser|gateway|edge|dashboard/i;
-const EXTERNAL_RE = /user|client|customer|ext\b|partner/i;
+// Whole-word (both-side \b) keyword tables — an embedded match on "context" →
+// "ext" or "section" → "sec" silently mis-types common words, and the type
+// renders in every diagram. The word lists ARE the approved §7.1.4 table.
+const MESSAGE_BUS_RE = /\b(?:queue|bus|broker|kafka|pubsub|amqp|mq|sink)\b/i;
+const SECURITY_RE = /\b(?:auth|security?|firewall|credential|vault|pii|permission|iam)\b/i;
+const DATABASE_RE = /\b(?:db|database|store|cache|postgres|redis|sql|mongo|lake)\b/i;
+const FRONTEND_RE = /\b(?:ui|web|frontend|browser|gateway|edge|dashboard)\b/i;
+const EXTERNAL_RE = /\b(?:user|client|customer|external|ext|partner)\b/i;
 
+// State stems with common suffix forms (started / waiting / dropped …) — but
+// always word-bounded: "restart"/"second" never match.
 const STATE_TYPE_RE: Array<[string, RegExp]> = [
-  ["start", /start$|planned|scheduled|init|begin/i],
-  ["waiting", /wait|canary|review|pending|staged|queue|hold|gate/i],
-  ["success", /success|live|done|pass|complete|shipped|released|deployed/i],
-  ["failure", /fail|error|abort|drop|reject|rollback|stopped|dead|denied/i],
-  ["neutral", /neutral|manual|unknown/i],
-  ["external", /external|partner|customer|third/i],
+  ["start", /\b(?:start|planned|scheduled|init|begin)(?:ed|ing|s)?\b/i],
+  ["waiting", /\b(?:wait|canary|review|pending|staged|queue|hold|gate)(?:ing|ed|s)?\b/i],
+  ["success", /\b(?:success|live|done|pass|complete|ship|release|deploy)(?:ed|ing|s|ped)?\b/i],
+  ["failure", /\b(?:fail|error|abort|drop|reject|rollback|stop|dead|deny)(?:ed|ing|s|ure|ped)?\b/i],
+  ["neutral", /\b(?:neutral|manual|unknown)\b/i],
+  ["external", /\b(?:external|partner|customer|third)\b/i],
 ];
 
 /**
@@ -79,10 +84,21 @@ export function semanticStateType(text: string): string {
   return "active";
 }
 
-/** Rough text width the vendored checker uses: ~6.8px per unit (CJK ×2). */
+/**
+ * Text width in "units" the vendored checker measures (~6.8px per unit, CJK
+ * and fullwidth ×2). Mirrors vendored/renderers/shared/utils.mjs FULLWIDTH_RE —
+ * full-width punctuation/letters, Hangul, Jamo, emoji, CJK ext B all count 2,
+ * so a label the converter thinks fits does not silently pass the checker.
+ */
+const FULLWIDTH_RE = new RegExp(
+  "[ᄀ-ᅟ〈-〉⺀-꓏가-힣豈-﫿" +
+    "︐-︙︰-﹯！-｠￠-￦\u{16FE0}-\u{18DFF}" +
+    "\u{1AFF0}-\u{1AFFF}\u{1B000}-\u{1B2FF}\u{1F000}-\u{1FAFF}\u{20000}-\u{3FFFD}]",
+  "u",
+);
 function textUnits(text: string): number {
   let units = 0;
-  for (const ch of text) units += /[⺀-鿿豈-﫿]/.test(ch) ? 2 : 1;
+  for (const ch of text) units += FULLWIDTH_RE.test(ch) ? 2 : 1;
   return units;
 }
 
@@ -225,6 +241,10 @@ interface LifecycleAst {
   transitions: Array<{ from: string; to: string; label: string | null }>;
   startEntries: Set<string>; // `[*] --> X`
   startExits: Set<string>; // `X --> [*]`
+  /** `[*] --> X: label` — the label explains the entry; carried to sublabel. */
+  entryLabels: Map<string, string>;
+  /** `X --> [*]: label` — same for exits. */
+  exitLabels: Map<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +254,43 @@ interface LifecycleAst {
 const FLOW_SOLID = "-->";
 const FLOW_DOTTED = "-.->";
 const FLOW_THICK = "==>";
+
+/**
+ * Find the closing index of a shape block opened at `open` — quote-aware: a
+ * `"…"`/backtick label containing the closer (`A["has ] bracket"]`) is not
+ * truncated; shapes close on the closing bracket OUTSIDE any quoted run.
+ */
+function findShapeClose(source: string, openIndex: number, close: string, lineNo: number): { content: string; end: number } {
+  let j = openIndex + 1;
+  let content = "";
+  let inQuote: string | null = null;
+  while (j < source.length) {
+    const ch = source[j]!;
+    if (inQuote) {
+      content += ch;
+      if (ch === "\\") {
+        content += source[j + 1] ?? "";
+        j += 2;
+        continue;
+      }
+      if (ch === inQuote) inQuote = null;
+      j += 1;
+      continue;
+    }
+    if (ch === '"' || ch === "`") {
+      inQuote = ch;
+      content += ch;
+      j += 1;
+      continue;
+    }
+    if (ch === close) {
+      return { content, end: j + 1 };
+    }
+    content += ch;
+    j += 1;
+  }
+  throw new MermaidConvertError(`unterminated ${source[openIndex]}…${close} shape`, lineNo);
+}
 
 /** Read a node token at i: id [+ shape-block] [+ :::class]. */
 function readFlowNodeToken(source: string, start: number, lineNo: number): [FlowNode, number] {
@@ -247,30 +304,23 @@ function readFlowNodeToken(source: string, start: number, lineNo: number): [Flow
 
   let shape: FlowNode["shape"] = null;
   let label: string | null = null;
-  const open = source[i];
-  if (open === "[" || open === "(" || open === "{") {
-    const close = open === "[" ? "]" : open === "(" ? ")" : "}";
-    let content = "";
-    let j = i + 1;
-    while (j < source.length && source[j] !== close) {
-      content += source[j]!;
-      j += 1;
-    }
-    if (j >= source.length) throw new MermaidConvertError(`unterminated ${open}…${close} shape`, lineNo);
-    i = j + 1;
-    shape = open === "{" ? "diamond" : open === "[" ? "box" : "round";
-    label = unquote(content);
-  } else if (source.startsWith("[(", i)) {
-    let j = i + 2;
-    let content = "";
-    while (j < source.length && !(source[j] === ")" && source[j + 1] === "]")) {
-      content += source[j]!;
-      j += 1;
-    }
-    if (j >= source.length) throw new MermaidConvertError("unterminated [(`…`)] stadium shape", lineNo);
-    i = j + 2;
+  if (source.startsWith("([", i)) {
+    // Stadium `A([text])` (mermaid 11) — checked FIRST: `(` alone is a round
+    // node otherwise. The closing pair is `]` then `)`.
+    const { content, end } = findShapeClose(source, i + 1, "]", lineNo);
+    if (source[end] !== ")") throw new MermaidConvertError("unterminated ([…]) stadium shape (expected `])`)", lineNo);
+    i = end + 1;
     shape = "stadium";
     label = unquote(content);
+  } else {
+    const open = source[i];
+    if (open === "[" || open === "(" || open === "{") {
+      const close = open === "[" ? "]" : open === "(" ? ")" : "}";
+      const { content, end } = findShapeClose(source, i, close, lineNo);
+      i = end;
+      shape = open === "{" ? "diamond" : open === "[" ? "box" : "round";
+      label = unquote(content);
+    }
   }
 
   const classes: string[] = [];
@@ -293,13 +343,30 @@ function readFlowNodeToken(source: string, start: number, lineNo: number): [Flow
 function readFlowOp(source: string, start: number, lineNo: number): [string, string | null, number] {
   const s = source.slice(start);
   if (s.startsWith(FLOW_SOLID) || s.startsWith(FLOW_DOTTED) || s.startsWith(FLOW_THICK)) {
-    // Longest-marker check drives the variant; all three take `|label|`.
+    // Longest-marker check drives the variant; all three take `|label|`
+    // (quote-aware: a `|` inside a quoted label is not a terminator).
     const variant = s.startsWith(FLOW_DOTTED) ? "dashed" : s.startsWith(FLOW_THICK) ? "emphasis" : "default";
     const len = s.startsWith(FLOW_DOTTED) ? FLOW_DOTTED.length : s.startsWith(FLOW_THICK) ? FLOW_THICK.length : FLOW_SOLID.length;
     let end = start + len;
     let label: string | null = null;
     if (source[end] === "|") {
-      const pipeEnd = source.indexOf("|", end + 1);
+      let pipeEnd = -1;
+      let inQuote: string | null = null;
+      for (let j = end + 1; j < source.length; j++) {
+        const ch = source[j]!;
+        if (inQuote) {
+          if (ch === inQuote) inQuote = null;
+          continue;
+        }
+        if (ch === '"' || ch === "`") {
+          inQuote = ch;
+          continue;
+        }
+        if (ch === "|") {
+          pipeEnd = j;
+          break;
+        }
+      }
       if (pipeEnd === -1) throw new MermaidConvertError("unterminated |label|", lineNo);
       label = source.slice(end + 1, pipeEnd);
       end = pipeEnd + 1;
@@ -350,6 +417,12 @@ function parseFlowchart(source: string): FlowchartAst {
     const dirMatch = /^direction\s+(TB|TD|LR|RL|BT)\b/i.exec(line);
     if (dirMatch) {
       const d = dirMatch[1]!.toUpperCase();
+      // All directions are accepted; the converter always lays out left-to-
+      // right (workflowLevels cols = depth). Per the vendored doc the layering
+      // judgment ("you choose grouping, lane order") belongs to the copy-adapt
+      // step AFTER conversion (D7) — a TB mermaid's IR keeps its topology and
+      // the layering choice is the copy-adapt judgment, exactly as the doc
+      // prescribes for the human-conversion path.
       ast.direction = d === "TB" || d === "TD" || d === "BT" ? "TB" : "LR";
       continue;
     }
@@ -500,19 +573,25 @@ function parseSequence(source: string): SequenceAst {
       continue;
     }
     if (/^note\s/i.test(line)) {
-      const m = /^note(?:\s+(?:right\s+of|left\s+of|over))?\s+([A-Za-z0-9_,]+)\s*:\s*(.*)$/i.exec(line);
+      // `Note over A, B: text` — spaces after commas are standard mermaid.
+      const m = /^note(?:\s+(?:right\s+of|left\s+of|over))?\s+([A-Za-z0-9_]+(?:,\s*[A-Za-z0-9_]+)*)\s*:\s*(.*)$/i.exec(line);
       if (!m) throw new MermaidConvertError("`Note` needs `Note over A: text` / `Note right of A:`", l + 1);
       pendingNote = m[2]!.trim();
       continue;
     }
     if (/^rect\b/i.test(line)) {
       if (openRect) throw new MermaidConvertError("nested `rect` blocks are unbounded", l + 1);
-      const label = unquote(line.slice("rect".length).trim());
+      // mermaid's `rect rgb(200,200,255)` is a color argument, not a title.
+      const rest = line.slice("rect".length).trim();
+      const label = /^rgb\s*\(/i.test(rest) ? null : unquote(rest);
       openRect = { label: label || `Stage ${ast.rects.length + 1}`, fromMsg: ast.messages.length };
       continue;
     }
     if (line === "end") {
       if (openRect) {
+        if (ast.messages.length - 1 < openRect.fromMsg) {
+          throw new MermaidConvertError("an empty `rect` block yields an invalid segment — put at least one message inside", l + 1);
+        }
         ast.rects.push({ label: openRect.label, fromMsg: openRect.fromMsg, toMsg: ast.messages.length - 1 });
         openRect = null;
         continue;
@@ -553,6 +632,9 @@ function parseSequence(source: string): SequenceAst {
     if (op === "--x" || op === "->") {
       throw new MermaidConvertError(`sequence variant "${op}" is unbounded — supported: ->> (message), -->> (return)`, l + 1);
     }
+    if (fromId === toId) {
+      throw new MermaidConvertError(`self-message "${fromId}->>${fromId}" spans 0px — the sequence grammar needs two participants`, l + 1);
+    }
     ensureParticipant(fromId);
     ensureParticipant(toId);
     // In mermaid the message reads left-to-right: A->>B means A sends to B.
@@ -591,7 +673,14 @@ const STATE_TRANS_RE = /^(\[\]|\*)\s*(?:\[\*\]\s*-->\s*([A-Za-z0-9_-]+)|([A-Za-z
 const STATE_PLAIN_TRANS_RE = /^([A-Za-z0-9_-]+)\s*-->\s*([A-Za-z0-9_-]+)\s*:?\s*(.*)$/;
 
 function parseLifecycle(source: string): LifecycleAst {
-  const ast: LifecycleAst = { states: new Map(), transitions: [], startEntries: new Set(), startExits: new Set() };
+  const ast: LifecycleAst = {
+    states: new Map(),
+    transitions: [],
+    startEntries: new Set(),
+    startExits: new Set(),
+    entryLabels: new Map(),
+    exitLabels: new Map(),
+  };
   const lines = source.split("\n");
 
   for (let l = 0; l < lines.length; l++) {
@@ -608,12 +697,14 @@ function parseLifecycle(source: string): LifecycleAst {
       ast.states.set(id, { id, label: decl[1] ?? id });
       continue;
     }
-    // `[*] --> X` entry, `X --> [*]` exit.
+    // `[*] --> X` entry (label carried), `X --> [*]` exit (label carried).
     const bracket = /^\[\*\]\s*-->\s*([A-Za-z0-9_-]+)\s*:?\s*(.*)$/.exec(line);
     if (bracket) {
       const id = bracket[1]!;
       if (!ast.states.has(id)) ast.states.set(id, { id, label: id });
       ast.startEntries.add(id);
+      const tLabel = bracket[2]!.trim();
+      if (tLabel !== "") ast.entryLabels.set(id, tLabel);
       continue;
     }
     const bracketExit = /^([A-Za-z0-9_-]+)\s*-->\s*\[\*\]\s*:?\s*(.*)$/.exec(line);
@@ -621,6 +712,8 @@ function parseLifecycle(source: string): LifecycleAst {
       const id = bracketExit[1]!;
       if (!ast.states.has(id)) ast.states.set(id, { id, label: id });
       ast.startExits.add(id);
+      const tLabel = bracketExit[2]!.trim();
+      if (tLabel !== "") ast.exitLabels.set(id, tLabel);
       continue;
     }
     const trans = STATE_TRANS_RE.exec(line);
@@ -800,25 +893,111 @@ function toWorkflowIr(ast: FlowchartAst, options: ConvertOptions, title: string)
     nodes.push(entry);
   }
 
-  // Deterministic routing trims (the vendored auto router cannot be trusted to
-  // clear its own clean-flow checks on branched shapes):
-  // - a node's 2nd+ outgoing edge → `bottom-channel` (runs below every lane,
-  //   so it cannot slice through intermediate-lane nodes);
-  // - a back edge → `return-left` around the margin, like the library's
-  //   change-approval `reject-open`.
+  // Deterministic routing trims — bounded to shapes they provably survive the
+  // checker's clean-flow/legend checks; anything beyond is a convert-time error
+  // (M2: the auto router slices through nodes on branched shapes):
+  // - a node's 2nd+ outgoing edge: ADJACENT-lane target → `drop` (the mid-gap,
+  //   clean); deeper target → `bottom-channel` only when the run's x-window
+  //   misses the legend text (x ~140–210), else error;
+  // - a back edge → `return-left` like the library's `reject-open`;
+  // - same-lane skip edge (topology jumps over an intermediate same-lane node)
+  //   → error (no automatic route clears it);
+  // - cross-lane edge whose from/to share a column while an intermediate lane
+  //   holds a node at that column → error.
+  const laneIndexOf = new Map<string, number>();
+  lanes.forEach((l, i) => laneIndexOf.set(l.id, i));
+  const laneOfNode = new Map<string, string>();
+  for (const [id, node] of ast.nodes) {
+    laneOfNode.set(id, node.subgraph !== null ? laneIds.get(node.subgraph.toString())! : laneIds.get("main")!);
+  }
+  const colXs = [88, 220, 300, 430, 500, 625]; // vendored render layout, ported for bound checks
+  const laneIndexList = [...laneIndexOf.entries()];
   const outIndex = new Map<string, number>();
   const edges = ast.edges.map((e, i) => {
     const entry: Record<string, unknown> = { id: `e${i + 1}`, from: nodeIds.get(e.from) ?? e.from, to: nodeIds.get(e.to) ?? e.to };
     if (e.label) entry.label = e.label;
     if (e.variant !== "default") entry.variant = e.variant;
+    const fromLane = laneOfNode.get(e.from)!;
+    const toLane = laneOfNode.get(e.to)!;
+    const laneIdx = (id: string): number => laneIndexOf.get(id) ?? 0;
+    const lo = Math.min(laneIdx(fromLane), laneIdx(toLane));
+    const hi = Math.max(laneIdx(fromLane), laneIdx(toLane));
     if (back.has(`${e.from}->${e.to}`)) {
+      // The from-side horizontal runs at the source row's y through its own
+      // lane; a shared row would slice same-lane siblings (M2c).
+      const siblings = [...ast.nodes.values()].filter(
+        (n) => laneOfNode.get(n.id) === fromLane && n.id !== e.from && n.id !== e.to,
+      );
+      if (siblings.length > 0) {
+        throw new MermaidConvertError(
+          `back edge "${e.from}" -> "${e.to}" would slice same-lane nodes — put the loop source alone in its own subgraph (exception lane)`,
+        );
+      }
       entry.route = "return-left";
       entry.fromSide = "left";
       entry.toSide = "left";
+    } else if (fromLane === toLane) {
+      // Same-lane skip: another node's column strictly between the endpoints.
+      const cFrom = colOf.get(e.from) ?? 0;
+      const cTo = colOf.get(e.to) ?? 0;
+      const between = [...ast.nodes.values()].some((n) => {
+        if (laneOfNode.get(n.id) !== fromLane || n.id === e.from || n.id === e.to) return false;
+        const c = colOf.get(n.id) ?? 0;
+        return (c > cFrom && c < cTo) || (c < cFrom && c > cTo);
+      });
+      if (between) {
+        throw new MermaidConvertError(
+          `edge "${e.from}" -> "${e.to}" skips an intermediate node in the same lane — an automatic route cannot clear it; insert the intermediate step or split lanes`,
+        );
+      }
     } else {
       const idx = outIndex.get(e.from) ?? 0;
       outIndex.set(e.from, idx + 1);
-      if (idx >= 1) entry.route = "bottom-channel";
+      if (idx >= 1) {
+        // 2nd+ outgoing edge: the auto mid-gap route would slice intermediate
+        // lanes, so route explicitly — adjacent target: the mid-gap `drop` is
+        // clean; deeper target: `bottom-channel` (only when the run misses the
+        // legend text band, else error).
+        if (lo + 1 === hi) {
+          entry.route = "drop";
+        } else {
+          // Legend text band measured at lastLaneBottom+14..34, x ~140–210 —
+          // constants are the vendored render geometry (laneY 52, laneH 104,
+          // laneGap 20, nodeH 52, nodeY = laneTop + 30 + 11, colXs above).
+          const laneTopC = (i: number): number => 52 + i * 124;
+          const nodeBottomC = (i: number): number => laneTopC(i) + 30 + 11 + 52;
+          const channelY = Math.max(nodeBottomC(laneIdx(fromLane)), nodeBottomC(laneIdx(toLane))) + 32;
+          const lastLaneBottom = 32 + lanes.length * 124;
+          const inLegendBand = channelY > lastLaneBottom + 12 && channelY < lastLaneBottom + 36;
+          const cxLo = Math.min(colXs[colOf.get(e.from) ?? 0]!, colXs[colOf.get(e.to) ?? 0]!);
+          const cxHi = Math.max(colXs[colOf.get(e.from) ?? 0]!, colXs[colOf.get(e.to) ?? 0]!);
+          if (inLegendBand && cxLo < 210 && cxHi > 140) {
+            throw new MermaidConvertError(
+              `edge "${e.from}" -> "${e.to}" cannot be routed (2nd fan-out across ${hi - lo} lanes; the bottom channel would cross the legend) — split the branches into adjacent lanes or add an intermediate step`,
+            );
+          }
+          entry.route = "bottom-channel";
+        }
+      } else if (hi - lo >= 2) {
+        // First-out edge keeps the checker's auto mid-gap route — its
+        // horizontal runs inside the intermediate lanes' y-bands, so ANY node
+        // there whose column rect overlaps the run's x-window gets sliced
+        // (M2-reviewer shapes; the checker rejects post hoc, we bound eagerly).
+        const cxOf = (id: string): number => colXs[colOf.get(id) ?? 0]!;
+        const runLo = Math.min(cxOf(e.from), cxOf(e.to)) - 46;
+        const runHi = Math.max(cxOf(e.from), cxOf(e.to)) + 46;
+        const hit = [...ast.nodes.values()].some((n) => {
+          const ni = laneIndexOf.get(laneOfNode.get(n.id) ?? "") ?? 0;
+          if (ni <= lo || ni >= hi) return false;
+          const nc = cxOf(n.id);
+          return nc - 46 < runHi && nc + 46 > runLo;
+        });
+        if (hit) {
+          throw new MermaidConvertError(
+            `edge "${e.from}" -> "${e.to}" runs through a node in an intermediate lane — shift an endpoint's column or split the diagram into adjacent lanes`,
+          );
+        }
+      }
     }
     return entry;
   });
@@ -845,9 +1024,14 @@ function toArchitectureIr(ast: FlowchartAst, options: ConvertOptions, title: str
   // Grid mode requires row/col per component — grid placement is the renderer's
   // answer to "no coordinates" (free placement would need hand-authored pos).
   // Cols by the same longest-path layering as workflows (shape order); rows by
-  // declaration order within a column.
+  // declaration order within a column. The vendored grid DEFAULT_GRID cols=4
+  // (col 0..3) — deeper chains are a convert-time bound error (M3b).
   const back = findBackEdges(ast);
   const level = workflowLevels(ast, back);
+  const maxCol = Math.max(...[...level.values()], 0);
+  if (maxCol > 3) {
+    throw new MermaidConvertError(`architecture flow depth ${maxCol + 1} exceeds the vendored grid's 4 columns (0–3) — shorten the chain`);
+  }
   const rowByCol = new Map<number, number>();
   const components = [...ast.nodes.values()].map((node) => {
     const id = sanitizeId(node.id, used);
@@ -888,7 +1072,9 @@ function toDataflowIr(ast: FlowchartAst, options: ConvertOptions, title: string)
   if (ast.subgraphs.length < 2) {
     throw new MermaidConvertError("dataflow needs ≥2 subgraph stages (convention: subgraph → stage)");
   }
-  if (ast.subgraphs.length > 5) throw new MermaidConvertError(`dataflow supports 5 stages max, got ${ast.subgraphs.length}`);
+  // The vendored renderer's default viewBox fits 4 stages; the schema's 5 max
+  // is not reachable without hand-set viewBox (M3a).
+  if (ast.subgraphs.length > 4) throw new MermaidConvertError(`dataflow conversion supports 4 stages (the vendored default viewBox fits 4), got ${ast.subgraphs.length}`);
   const stageOfNode = new Map<string, number>();
   const rowOfNode = new Map<string, number>();
   ast.subgraphs.forEach((sub, s) => {
@@ -901,15 +1087,18 @@ function toDataflowIr(ast: FlowchartAst, options: ConvertOptions, title: string)
   if (offStage) {
     throw new MermaidConvertError(`node "${offStage}" is outside every subgraph — a dataflow needs each node in a stage`);
   }
+  const labelOf = new Map<string, string>();
   const used = new Set<string>();
   const nodeIds = new Map<string, string>();
   const nodes = [...ast.nodes.values()].map((node) => {
     const id = sanitizeId(node.id, used);
     nodeIds.set(node.id, id);
+    const label = node.label ?? node.id;
+    labelOf.set(id, label);
     return {
       id,
       type: flowNodeType(node, ast.classHints, ast.classDefs),
-      label: node.label ?? node.id,
+      label,
       stage: stageOfNode.get(node.id) ?? 0,
       row: rowOfNode.get(node.id) ?? 0,
     };
@@ -920,7 +1109,9 @@ function toDataflowIr(ast: FlowchartAst, options: ConvertOptions, title: string)
       id: `f${i + 1}`,
       from: nodeIds.get(e.from) ?? e.from,
       to: target,
-      label: e.label ?? `to ${target}`,
+      // Schema-required flow label: edge label, else "to <target LABEL>" (the
+      // readable name, not the sanitized id — m9).
+      label: e.label ?? `to ${labelOf.get(e.to) ?? target}`,
     };
     if (e.variant !== "default") entry.variant = e.variant;
     return entry;
@@ -992,15 +1183,9 @@ function toLifecycleIr(ast: LifecycleAst, options: ConvertOptions, title: string
   const used = new Set<string>();
 
   const laneFor = (id: string): string => {
-    const decl = ast.states.get(id)!;
-    if (ast.startExits.has(id)) {
-      const t = semanticStateType(decl.label);
-      return t === "failure" || t === "dropped" ? "terminal" : "terminal";
-    }
+    if (ast.startExits.has(id)) return "terminal";
     if (ast.startEntries.has(id)) return "main";
-    const t = semanticStateType(decl.label);
-    if (t === "waiting") return "waiting";
-    return "main";
+    return semanticStateType(ast.states.get(id)!.label) === "waiting" ? "waiting" : "main";
   };
 
   for (const id of ast.states.keys()) {
@@ -1012,8 +1197,10 @@ function toLifecycleIr(ast: LifecycleAst, options: ConvertOptions, title: string
     laneCounters.set(lane, counter + 1);
     colOf.set(id, counter);
   }
+  // The renderer event band holds 3 columns (col 0–2) — the exemplar uses 0/2
+  // for rooms; a 4th state in a lane clamps and fails confusingly (M3c).
   for (const [lane, count] of laneCounters) {
-    if (count > 5) throw new MermaidConvertError(`lifecycle lane "${lane}" holds ${count} states, schema caps at 5 (col 0–4)`);
+    if (count > 3) throw new MermaidConvertError(`lifecycle lane "${lane}" holds ${count} states — the renderer band caps at 3 columns`);
   }
 
   const lanes: Array<{ id: string; label: string }> = [{ id: "main", label: "Lifecycle phases" }];
@@ -1027,7 +1214,21 @@ function toLifecycleIr(ast: LifecycleAst, options: ConvertOptions, title: string
       : ast.startExits.has(id)
         ? (semanticStateType(decl.label) === "failure" ? "failure" : "success")
         : semanticStateType(decl.label);
-    return { id: stateIds.get(id)!, type: t, label: decl.label, lane: laneOf.get(id)!, col: colOf.get(id)! };
+    // Entry/exit transition labels explain the boundary — carried to sublabel
+    // (the transitions themselves have no [*] endpoint to label).
+    const carried = ast.startEntries.has(id)
+      ? ast.entryLabels.get(id)
+      : ast.startExits.has(id)
+        ? ast.exitLabels.get(id)
+        : undefined;
+    return {
+      id: stateIds.get(id)!,
+      type: t,
+      label: decl.label,
+      lane: laneOf.get(id)!,
+      col: colOf.get(id)!,
+      ...(carried ? { sublabel: carried } : {}),
+    };
   });
   const transitions = ast.transitions.map((tr, i) => {
     const entry: Record<string, unknown> = { id: `t${i + 1}`, from: stateIds.get(tr.from) ?? tr.from, to: stateIds.get(tr.to) ?? tr.to };
@@ -1076,12 +1277,13 @@ export function applyLabelFixes(
   ir: Record<string, unknown>,
   fixes: Array<{ label: string; at: [number, number] }>,
 ): Record<string, unknown> {
+  let out: Record<string, unknown> = ir;
+  let applied = 0;
   const sheets: Array<Record<string, unknown>[]> = [];
   for (const key of ["edges", "flows", "transitions", "connections"]) {
     const list = ir[key];
     if (Array.isArray(list)) sheets.push(list as Record<string, unknown>[]);
   }
-  let applied = 0;
   for (const fix of fixes) {
     let matches: Array<Record<string, unknown>> = [];
     for (const sheet of sheets) {
@@ -1090,11 +1292,28 @@ export function applyLabelFixes(
       }
     }
     if (matches.length === 1) {
-      matches[0]!.labelAt = fix.at;
+      // Clone on first mutation only — never mutate the caller's IR.
+      if (applied === 0) {
+        out = structuredClone(ir);
+      }
+      // Re-derive the sheets against the clone so the fix lands there.
+      const clonedSheets: Array<Record<string, unknown>[]> = [];
+      for (const key of ["edges", "flows", "transitions", "connections"]) {
+        const list = out[key];
+        if (Array.isArray(list)) clonedSheets.push(list as Record<string, unknown>[]);
+      }
+      for (const sheet of clonedSheets) {
+        for (const item of sheet) {
+          if (item.label === fix.label) {
+            item.labelAt = fix.at;
+            break;
+          }
+        }
+      }
       applied += 1;
     }
   }
-  return applied > 0 ? structuredClone(ir) : ir;
+  return out;
 }
 
 /**

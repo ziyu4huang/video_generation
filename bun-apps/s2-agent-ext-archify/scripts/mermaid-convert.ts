@@ -38,6 +38,42 @@ export interface MermaidConvertArgs {
   noValidate?: boolean;
 }
 
+export function printVersion(): string {
+  return "archify mermaid→IR converter — convert + validate in one call (ticket 20)";
+}
+
+export function helpText(): string {
+  return `Usage: bun run mermaid:convert <input.mmd> [--type workflow|architecture|dataflow]
+                                          [--out <ir.json>] [--no-validate]
+
+Converts a bounded mermaid subset to an archify IR, then validates it with the vendored
+archify CLI in the same call (the valid-IR-out contract). The IR JSON goes to stdout (or to
+--out, which also sets meta.output); status lines go to stderr.
+
+  --type workflow|architecture|dataflow   target for flowchart input (default: workflow;
+                                          sequenceDiagram → sequence, stateDiagram → lifecycle
+                                          auto-detect — --type on those is an error)
+  --out <file>                            write the IR file (adds meta.output = <stem>.html)
+  --no-validate                           convert only, skip the vendored validate gate
+
+Exit codes: 0 converted+valid · 1 conversion/validation failure · 2 usage error.
+
+Dialect bound (v1) — supported: flowchart/graph direction + node aliases with shapes
+[] / () / {} / [()], links --> / -.-> / ==> / -- text --> / -. text .-> / |label| pipes,
+subgraphs (1 level), classDef / style / class / :::class; sequence participant/actor,
+messages ->> / -->>, |+|−| activation shorthand, Note over/right of/left of, rect blocks,
+activate/deactivate; state state "Label" as X, [*] entry/exit, A --> B: label.
+
+SYNTAX NOT SUPPORTED — a hard error with the source line, never a silent drop:
+sequence alt/loop/opt/par/break blocks, -)>/--x variants, state composites (state X {...})
+and forks, flowchart && node links, nested subgraphs, same-lane skip edges, cycles crossing
+same-column intermediate lanes, cross-lane fan-out that the vendored router cannot clear.
+
+Dropped as styling per the vendored doc ("Drop Mermaid styling"): linkStyle, classDef names
+with no semantic signal, %%{init} blocks, and the flowchart direction is normalized to
+left-to-right (layering is the copy-adapt judgment, D7).`;
+}
+
 export function parseArgs(argv: string[]): MermaidConvertArgs {
   const positional: string[] = [];
   let type: ConverterTarget | undefined;
@@ -46,6 +82,10 @@ export function parseArgs(argv: string[]): MermaidConvertArgs {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === undefined) break;
+    if (a === "--help" || a === "-h") {
+      process.stdout.write(`${printVersion()}\n\n${helpText()}\n`);
+      process.exit(0);
+    }
     if (a === "--type") {
       const v = argv[++i];
       if (v !== "workflow" && v !== "architecture" && v !== "dataflow") {
@@ -155,7 +195,7 @@ async function main(): Promise<void> {
 
   if (args.noValidate) {
     emit(args, ir, diagramType, stem);
-    console.log(`converted (NOT validated) — ${diagramType} · ${stem}`);
+    console.error(`converted (NOT validated) — ${diagramType} · ${stem}`);
     process.exit(0);
   }
 
@@ -170,16 +210,18 @@ async function main(): Promise<void> {
     fail(`conversion failed validation:\n${finalVerdict.text}`);
   }
   emit(args, finalIr, diagramType, stem);
-  console.log(`mermaid → ${diagramType}: ${finalVerdict.text}`);
+  console.error(`mermaid → ${diagramType}: ${finalVerdict.text}`);
   process.exit(0);
 }
 
+/** stdout carries THE IR JSON (pipe-clean for `| jq` / `> dir`); all status
+ * lines go to stderr. */
 function emit(args: MermaidConvertArgs, ir: Record<string, unknown>, diagramType: string, stem: string): void {
   const json = JSON.stringify(ir, null, 2);
   if (args.out) {
     const outPath = resolve(args.out);
     Bun.write(outPath, `${json}\n`);
-    console.log(`ir      ${outPath}`);
+    console.error(`ir      ${outPath}`);
   } else {
     console.log(json);
   }
