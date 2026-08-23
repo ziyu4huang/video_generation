@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
-import { SurrealClient } from "../../../src/store/surreal/surreal-client.js";
+import { SurrealClient, type SurrealFetch } from "@repo/s2-agent-core-interface";
 import { SurrealMemoryRepository } from "../../../src/store/surreal/surreal-memory-repo.js";
 import { SurrealSessionRepository } from "../../../src/store/surreal/surreal-session-repo.js";
 import { isSurrealUp } from "./_helpers.js";

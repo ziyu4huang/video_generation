@@ -52,6 +52,10 @@ export interface SeamImplMap {
    *  duplicated literal (ADR-wayfind-0004). Typed `unknown` and present here only so
    *  SeamImplMap stays total over SeamKey. */
   __piHermesStaleCheck: unknown;
+  /** Baked embedding endpoint+model published by the HOST (kcard-parity D8) —
+   *  shape mirrors EMBEDDING_CONFIG in s2-agent src/pre-load-providers.ts §4.
+   *  Read by resolveSemanticEmbedConfig as its first tier. */
+  __piEmbeddingConfig: { base: string; model: string };
 }
 
 declare global {

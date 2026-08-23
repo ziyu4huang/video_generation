@@ -32,6 +32,16 @@ export const SEAM_KEYS = {
   // intra-package → crossPackage:false, exempt from the NO SELF-ONLY SEAMS
   // invariant.
   __piRateLimitState:       { crossPackage: false },
+  // __piEmbeddingConfig: the host (s2-agent) publishes the baked embedding
+  // endpoint+model (EMBEDDING_CONFIG, src/pre-load-providers.ts §4;
+  // kcard-parity D8, ticket 01) at startup via the pre-load-providers patch;
+  // embedding-leaf.ts resolveSemanticEmbedConfig reads it as the FIRST
+  // resolution tier (seam → env → built-in defaults). crossPackage:false per
+  // the __piRateLimitState precedent: the publisher (host s2-agent) is
+  // outside the seam-contract scanner's package set (s2-agent-(ext|core)-*),
+  // so the ≥2-packages rule cannot observe both sides — exempt rather than
+  // lie about the real cross-package topology.
+  __piEmbeddingConfig:      { crossPackage: false },
 } as const;
 
 export type SeamKey = keyof typeof SEAM_KEYS;

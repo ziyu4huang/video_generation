@@ -32,7 +32,17 @@
  * would suffice — see ../pre-load-providers.ts's header for why.
  */
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { registerAllProviders } from "../pre-load-providers.ts";
+import { publishSeam } from "@repo/s2-agent-core-interface";
+import { EMBEDDING_CONFIG, registerAllProviders } from "../pre-load-providers.ts";
+
+// Also publish the baked embedding endpoint+model (kcard-parity D8, ticket 01)
+// on the __piEmbeddingConfig seam. This patch is the host's sanctioned
+// startup side-effect site; the EMBEDDING_CONFIG module stays side-effect-free
+// by design. One env gate for both: disabling BUN_PI_PRE_LOAD_PROVIDERS drops
+// the host-baked provider catalog AND the embedding seam, and
+// embedding-leaf.ts falls through to env → built-in defaults. Unconditional
+// (globalThis assignment cannot fail) — no patchApplied claim needed.
+publishSeam("__piEmbeddingConfig", { base: EMBEDDING_CONFIG.base, model: EMBEDDING_CONFIG.model });
 
 // Capture the real factory before any other patch can touch it.
 type CreateFn = typeof ModelRuntime.create;

@@ -20,6 +20,10 @@ export {
   extractEntities, normEntity, computeIdf, scoreOverlap,
   type EntityType, type ExtractedEntity, type Relation,
 } from "./entities.js";
+// SurrealDB v3 /sql HTTP client (kcard-parity D4, ticket 01): shared by
+// hermes-memory (backend) and knowledge-card (context_db index) with zero
+// consumer coupling — perf attribution is the injectable onRoundTrip hook.
+export { SurrealClient, SURREAL_DEFAULTS, type SurrealClientOptions } from "./surreal-client.js";
 // Hoisted L2 leaf (effort 2026-08-17-knowledge-pipeline-polish): the ONE
 // embedder/cosine/fence-split primitive shared across the knowledge layer,
 // replacing the deliberate mirrors in hermes-memory and zk.
