@@ -136,6 +136,21 @@ IRs with the 7 rich template results into one coherent argument. Copies are edit
 re-authors — swap the values, keep the shapes. `tests/ir-library.test.ts` pins every cataloged
 IR to validate + render and the flagship deck to 0 fatal lint / 0 blips.
 
+### Mermaid → IR converter
+
+When you have mermaid for a diagram, don't hand-write the IR —
+`bun run mermaid:convert <input.mmd> [--type workflow|architecture|dataflow] [--out <ir.json>]`
+translates the documented mermaid subset (`flowchart`/`graph`, `sequenceDiagram`,
+`stateDiagram`) into a validated IR **in one call**: convert → vendored `validate` → exit 0
+only when the real gate passes. `flowchart` defaults to `workflow`; `--type architecture|dataflow`
+switches (dataflow convention D8: subgraph = stage, flow labels = edge labels or
+`to <target>`); `sequenceDiagram` → `sequence` and `stateDiagram` → `lifecycle` auto-detect.
+Recognized-but-unbounded mermaid syntax is a **hard error naming the line**, never a silent
+drop — a half-converted IR is valid-but-wrong, the worst copy-adapt outcome. Style-only
+constructs (`linkStyle`, unmatched `classDef`, `%%{init}`) are dropped per the vendored doc's
+"Drop Mermaid styling". The IR goes to stdout (or `--out`, which also sets `meta.output`);
+exit codes: 0 converted+valid, 1 conversion/validation failure, 2 usage error.
+
 ### The outline door
 
 A deck that is mostly prose plus a few templates can be authored as Markdown instead of

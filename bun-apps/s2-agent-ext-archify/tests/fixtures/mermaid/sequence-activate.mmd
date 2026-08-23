@@ -1,0 +1,9 @@
+sequenceDiagram
+  participant u as User
+  participant s as Resolver service
+  u->>s: search "cold query"
+  activate s
+  s->>u: results now
+  deactivate s
+  u->>+s: refresh
+  s-->>-u: 200

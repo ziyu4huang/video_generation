@@ -66,7 +66,7 @@ Ask the catalog first — never guess a layout name.
 - Copy-adapt IR source (validated examples per diagram type + flagship deck) → `examples/ir-library/library.catalog.json` (listed by `archify_deck_lint`)
 - Layout craft / design system / self-review / delivery gate → `vendored/SKILL.md` (§ Layout principles, § Architecture Mode).
 - Per-mode deep vocabulary (workflow/sequence/dataflow/lifecycle) → `vendored/SKILL.md` (§ Renderer Modes + each mode's section).
-- Mermaid input → `vendored/SKILL.md` (§ Mermaid as an Input Dialect).
+- Mermaid input → `vendored/SKILL.md` (§ Mermaid as an Input Dialect); or convert mechanically with `bun run mermaid:convert <file.mmd> [--type workflow|architecture|dataflow]` — convert + validate in one call, unbounded syntax errors the line, style dropped.
 - Map real code (repository evidence) → `vendored/SKILL.md` (§ Optional verified repository evidence).
 - Full field vocabulary per type → `vendored/schemas/<type>.schema.json` + `vendored/schemas/common.schema.json`.
 

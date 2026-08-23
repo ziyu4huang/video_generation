@@ -1,0 +1,8 @@
+flowchart LR
+  subgraph prod["Producers"]
+    clicks["Clicks"]
+  end
+  subgraph sink["Sink"]
+    lake["Lake"]
+  end
+  clicks -->|append| lake

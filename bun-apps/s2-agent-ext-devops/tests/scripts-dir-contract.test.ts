@@ -22,6 +22,7 @@ const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
 /** Allowed runnable entries, repo-relative. Sorted. Extend deliberately. */
 const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-archify/scripts/deck.ts",
+	"bun-apps/s2-agent-ext-archify/scripts/mermaid-convert.ts",
 	"bun-apps/s2-agent-ext-archify/scripts/vendor-mermaid.ts",
 	"bun-apps/s2-agent-ext-compact/scripts/ab.ts",
 	"bun-apps/s2-agent-ext-file2md/scripts/build-bundle.ts",
