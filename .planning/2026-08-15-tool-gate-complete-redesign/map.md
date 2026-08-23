@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-15-tool-gate-complete-redesign
 created: 2026-08-15
-last: 2026-08-15
+last: 2026-08-23
 status: active
 ---
 
@@ -37,6 +37,58 @@ One line: **replace the fragile contract + bloated core + dead docs, and prove-o
 - **Live L2 measurement** — `qa --l2 --model X` is armed but never run (no model in this env). Graduates if the mechanism re-evaluation (ticket 00) needs live signal beyond the deterministic corpus.
 - **Semantic/embedding matcher prototype** — only if ticket 00's research shows keyword matching is the binding constraint; until then it stays fog.
 - **`enable_tool` overhead reduction** (243 tok) — graduates only if ticket 00/01 changes the escape-hatch surface.
+
+## 2026-08-23 — deploy base-set schema-cost measured (fog resolved)
+
+Original fog (raised by the same-day review): "deploy 基礎集 schema-cost 實測 — how much gating could
+still save on the dist" — the review had argued the exclusion's savings rationale on inference; this
+replaces it with a runtime measurement.
+
+**Method (deterministic, offline).** Runtime probe against `~/proj/dist/s2-agent-sh/current`
+(`0.4.0+ged38fe1`, sourceSha `ed38fe10` = origin/main tip, 18 extensions, tool-gate absent): an
+import-free `-e` extension fires on `session_start`, dumps `pi.getAllTools()` ToolInfo[] (69 tools)
++ `pi.getAllToolDefinitions()` defs via the `__s2GetAllToolDefinitions__` global bridge (62 defs,
+with `gating`), exits before any provider call. Then the production pipeline over the dump:
+`injectBuiltinCore` + `buildEffectiveGates` (all 21 referenced gate ids resolve — no fail-open gaps)
++ `estimateToolCost` ((desc+params)/4). Same-day full-tree reference: `bun run qa` report
+(`output/tool-gate-qa-report.md`, 2026-08-23 11:28z).
+
+**Measured.**
+- Dist off baseline: **21,531 tok/req** (69 tools; 19 core:true · 13 untracked · 37 gated across
+  21 families).
+- Dist session-start saving if tool-gate shipped: **12,637 tok/req gross (58.7%)**; net − enable_tool
+  (309) = **12,328 (57.3%)**; ON at start = 9,203.
+- Full tree (same day): off 25,789 · saved 17,057 (66.1%) · net 16,744. The dist carries **74.1%**
+  (12,637/17,057) of the full-tree gross.
+- Excluded-heavy share (file2md 833 · collect_videos 698 · krea2 685 · flux2 672 · arxiv_search 661
+  · ltx 569 · movie 302) = **4,420 tok (25.9%)** — 12,637 + 4,420 = 17,057 exact.
+- Top dist families: **workflow 5,553** (44% of dist gross — fully in-dist); zk_ingest 921;
+  sync_default_branch 753; skill_manage 578; wayfind_effort 557; power_browser 518; zk_ask 445;
+  run_local_ci 383; zk_card 380; sweep_merged_branches 376; knowledge_query 347.
+
+**Implication for the exclusion decision (not yet decided).** The review's first rationale — "the
+heavy domain tools it would gate are not in the dist, so gating recovers little" — is **refuted**:
+the dist's gate-managed mass is core infrastructure (ultracode/subagent workflow ×14, devops ×10,
+knowledge-card ×6, obsidian ×2, power_browser ×2, hermes skill_manage, wayfind_effort,
+get_search_content), and 74% of the full-tree savings survives there; only 25.9% (4,420 tok) is
+unreachable by exclusion. The policy "trigger" ("if the dist grows fat around heavy extensions") has
+already passed (devops joined 2026-08-23; the gate-managed set IS the base set). What remains live
+for the reversal decision: (1) QA portability — the recall corpus + gate-recall probes are repo-time
+artifacts (owning extensions), a dist-shipped matcher would ship without its harness (mitigated
+today: 0 task-breaking gates, enable_tool escape, fail-open for untracked — but the review's
+argument remains the standing risk); (2) the 309-tok enable_tool overhead the dist would gain;
+(3) policy naming ("repo-internal tooling" vs measured claim, cf. devops's own reversal #1911).
+
+**Fog left.**
+- Live L2 (--model) measurement on the dist — whether the 58.7% survives real prompts.
+- Whether the dist-shipped matcher's recall can be guaranteed without the repo corpus (probe
+  portability / deploy-side gate).
+- Re-check trigger: "dist growth" is no longer the right trigger — any future base-set change
+  should re-run this recipe (below).
+
+**Recipe (rerun for the next dist).** `-e` probe dumping `__s2GetAllToolDefinitions__` on
+`session_start` → `injectBuiltinCore` + `buildEffectiveGates` + `estimateToolCost` over the dump
+(the exact pipeline in `qa/_explore-dist-schema-cost.ts` — scratch, deleted after this record).
 
 ## Out of scope
 
