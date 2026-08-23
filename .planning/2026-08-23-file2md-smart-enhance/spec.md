@@ -60,6 +60,18 @@ flag — a page never fails because enhancement did not run. Existing modes are 
   OCR. Prose pages never rasterize.
 - **Concurrency.** Figure vision calls run under the existing per-document pool
   (`PI_VLM_CONCURRENCY`), same as vlm mode.
+- **OCR engine (D6, user-added).** The OCR layer swaps from `tesseract.js`
+  (worker-based) to the standalone [robertknight/tesseract-wasm](https://github.com/robertknight/tesseract-wasm)
+  engine (`tesseract-wasm`, BSD-2-Clause, in-process low-level `OCREngine` — no
+  worker_threads, no runtime network). Public surface (`OcrSession`,
+  `OcrResult`, `normalizeOcrLang`, `imageDims`) and the
+  degrade-`undefined`-and-notice contract are preserved — hermes-memory
+  consumes `OcrResult`. Lang data becomes raw tessdata_fast `.traineddata`
+  (eng/chi_sim) vendored beside the package under the existing
+  symlink-to-external-store convention (git-hook binary rule). `tesseract.js`
+  is removed. A recorded spike proves the Bun image-input path
+  (BMP/BGRA → engine) before the swap lands; the engine swap completes before
+  smart mode's scan-figure band is tuned (sequenced first).
 - **CLI/extension surface.** The mode enum, help text, and the extension tool's mode
   parameter gain `smart`; no other tool/CLI surface changes.
 - **Degrade notice (D4).** No server, or vision failure: append
@@ -91,6 +103,10 @@ flag — a page never fails because enhancement did not run. Existing modes are 
 - A figure detector that distinguishes vector diagrams from photos or screenshots.
 - Re-running a live LM Studio validation pass over the USB4 figure pages (follow-up goal).
 - Any change to `vlm` mode semantics or the vision-tier resolution leaf itself.
+- Deploy `copy:`/`vendor:` entries for the OCR wasm trio (tesseract-core.wasm + fallback +
+  worker) — a deploy-flip follow-up (same class as the pdfium note in ADR-0001).
+- Building tesseract-wasm from source (upstream prebuilt dist) and OCR accuracy benchmarking
+  (old vs new engine deviation on real scans is a fog item of this effort, not a gate).
 
 ## Further Notes
 

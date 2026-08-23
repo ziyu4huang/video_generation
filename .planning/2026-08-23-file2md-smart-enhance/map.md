@@ -54,7 +54,17 @@ Measured 2026-08-23 in this worktree unless noted.
       scan-page OCR-band path, guard degrade, concurrency. Blockers: 01.
 - [ ] 03 — E2E suite hardening + docs + CLI surface. Blockers: 01, 02.
 
-**Execution order:** 01 → 02 → 03 (every edge is a hard `blocking:` edge — no choice pairs)
+### Phase B — OCR engine (independent; user-added 2026-08-23)
+
+- [ ] 04 — swap OCR engine: tesseract.js → tesseract-wasm (robertknight, npm
+      `tesseract-wasm` 0.11.0, BSD-2-Clause) — in-process low-level `OCREngine`,
+      raw tessdata_fast `.traineddata` vendored, worker_threads gone.
+      Blockers: none.
+
+**Execution order:** 04 → 01 → 02 → 03 (04 is independent of 01–03 — no
+blocking edges; sequenced FIRST as the engine foundation so smart mode's
+scan-figure band is tuned against settled real OCR output. Choice pair:
+04 vs 01–03 — user picks the slot; 01 → 02 → 03 stays hard.)
 
 ## Decisions
 
@@ -78,16 +88,42 @@ Measured 2026-08-23 in this worktree unless noted.
   A page never fails because enhancement did not. `vlm` mode keeps its hard resolve.
 - **D5 — thresholds are named constants in the tested module** (`src/core/figure.ts`), pinned
   by the smart-mode E2E fixtures so a drift is a red test, not a silent behavior change.
+- **D6 — OCR engine is the standalone tesseract-wasm (robertknight), in-process, no
+  worker_threads** (user-added 2026-08-23; upstream npm `tesseract-wasm` 0.11.0, BSD-2-Clause,
+  "JS/WebAssembly build of the Tesseract OCR engine for use in browsers and Node"). Adopted for
+  the ADR-0001-documented Bun fragility (tesseract.js node workers use `worker_threads`; the
+  in-process low-level `OCREngine` removes the fallback concern entirely) and the raw
+  `.traineddata` story (no gunzip cache). `OcrSession`/`OcrResult` public contract is preserved
+  (hermes-memory consumes `OcrResult`); degrade-to-`undefined`-and-notice preserved. Lang data
+  = tessdata_fast `eng`/`chi_sim` `.traineddata`, vendored beside the package under the
+  existing symlink-to-external-store convention. `tesseract.js` becomes a removed dependency.
+  Sequential dependency: smart mode's scan-figure band (01/02) is tuned against the settled
+  engine — 04 runs first (chosen slot).
 
 ## Frontier
 
-Ticket 01 (`tickets/01-smart-mode-plumbing.md`) — no blockers; the ladder skeleton with
-degrade-notice behavior is demoable on its own and unblocks 02's vision path.
+Ticket 04 (`tickets/04-tesseract-wasm-ocr-engine.md`) — user-added and sequenced first; the
+engine swap is the riskiest unknown (Bun + wasm image-input spike is the crux) and the
+foundation everything else's scan-path sits on. Its own spike is demoable before any smart
+code. Then ticket 01 (no blockers; ladder skeleton with degrade-notice unblocks 02).
 
 ## Fog of war
 
 - **Real-VLM smart run unmeasured** — the E2E mocks the LLM; a live LM Studio pass over the
   USB4 31 figure pages is the validation still owed (ranked next goal).
+- **tesseract-wasm image-input path under Bun unproven** (ticket 04 spike is the crux): the
+  engine consumes decoded images (ImageBitmap/ImageData-world); our raster produces
+  BMP/BGRA — plumbing round-trip must be demonstrated before the swap is real. The
+  `OCRClient` high-level worker path is browser-oriented; the in-process low-level `OCREngine`
+  is the intended Bun path, but its exact input shape is the spike deliverable.
+- **Engine quality delta unmeasured** — tesseract.js fast models vs tesseract-wasm tessdata_fast
+  on real scans: same fast-model family in principle, but tokenization/whitespace may differ;
+  the smart scan-figure band (≤200 chars) is calibrated on the settled engine via 04's
+  sequencing (fog item), not on the old engine's output.
+- **Lang asset re-fetch required** — `.traineddata.gz` → raw `.traineddata` (tessdata_fast)
+  via the external-store symlink; eng/chi_sim sizes re-measured (old gz budget ~4.4 MB).
+- **Deploy `copy:`/`vendor:` entries for the wasm trio** (tesseract-core.wasm + fallback +
+  worker) remain a deploy-flip follow-up — same class as the pdfium note in ADR-0001.
 - **Thresholds tuned on one corpus** (USB4 CLEAN spec). Other doc shapes (papers, slides,
   posters) may need band adjustments — visible as fixture updates, not silent drift.
 - **Scan-figure OCR band (≤200 chars) is a hypothesis** — no measured scan-figure corpus yet.
