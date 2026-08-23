@@ -86,8 +86,10 @@ Phase 2 — CC subagent parity (after 01)
 - `tickets/02-fork-subagent.md` — done (2026-08-23) — `fork: true` prompt-borne
   parent-context inheritance (`buildForkTranscript`, 24k-char cap, ambient
   fork-child scope for no-recursion); supersedes teams-parity D10
-- `tickets/03-builtin-readonly-types.md` — open — `explore`/`plan` built-in
-  fallback agent types (lowest-precedence tier)
+- `tickets/03-builtin-readonly-types.md` — done (2026-08-23) — `explore`/`plan`
+  built-ins as the lowest-precedence code-only tier; read-only via the
+  `createReadOnlyTools` allowlist + explicit denylist; user files shadow
+  completely
 - `tickets/04-startup-context.md` — open — git-status + sibling-roster startup
   block (after 02; reuses its transcript composer)
 
@@ -144,13 +146,15 @@ Phase 4 — ledger hygiene
 
 ## Frontier
 
-Ticket 03 (built-in read-only types) — ticket 02 closed 2026-08-23: `fork: true`
-ships with the pure projection unit-tested (compaction, cap, truncation) and
-the tool contract pinned (rejections, background-default, composition order);
-the fork transcript cost is bounded BY DESIGN (24k-char cap ≈ 6k tokens, env
-`SUBAGENT_FORK_TRANSCRIPT_CAP`) — no live smoke yet, so real-model fork quality
-is unmeasured. Ticket 04 reuses 02's transcript composer. 05/06 remain
-parallel; F2 rides 05.
+Ticket 04 (startup context) — ticket 03 closed 2026-08-23: `explore`/`plan`
+built-ins ship as the code-only lowest-precedence tier (project > pack > user >
+builtin), read-only via the `createReadOnlyTools` allowlist + explicit
+`edit/write/bash` denylist; the NOT-taken stronger alternative (base-tools
+override via `createReadOnlyTools` in `assembleSession`) stays on the table
+only if a future ticket needs tool-INSTANCE substitution — the name allowlist
+already pins behavior today. Ticket 04 reuses 02's transcript composer; the
+explore-skips-CLAUDE.md divergence is settled as accepted (spec §3). 05/06
+remain parallel; F2 rides 05.
 
 ## Fog of war
 
@@ -191,9 +195,9 @@ parallel; F2 rides 05.
   (does the child actually use the inherited context well?) is still
   unmeasured — no live fork smoke has run.
 - Whether the `explore` built-in should skip the CLAUDE.md hierarchy like CC's
-  Explore does (a per-call `resourceLoader` override is feasible via
-  `WorkflowAgentOptions.session`) — decide in ticket 03/04 from measurements;
-  otherwise record as accepted divergence.
+  Explore does — RESOLVED 2026-08-23 (ticket 03) as an ACCEPTED DIVERGENCE
+  (spec §3): built-ins keep the full resource-loader hierarchy; no
+  `resourceLoader` override shipped. Revisit only on a measured bloat signal.
 - (carried from teams-parity ticket 07) batch-vs-singular display-model
   precedence divergence and empty-string `agentType` — closed by ticket 07.
 - (carried) unnamed one-shot children keep the shared `send_message` instance;

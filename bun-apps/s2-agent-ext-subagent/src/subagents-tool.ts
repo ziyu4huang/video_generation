@@ -177,7 +177,7 @@ export const subagentsToolSchema = Type.Object({
       agentType: Type.Optional(
         Type.String({
           description:
-            "Named agentType (.pi/agents/*.md) whose tools/model/tier/prompt bind to this child. Worktree-isolating types are rejected (batch children share the parent tree).",
+            "Named agentType (.pi/agents/*.md) whose tools/model/tier/prompt bind to this child. Built-in read-only types 'explore'/'plan' are always available and sit under any user file of the same name. Worktree-isolating types are rejected (batch children share the parent tree).",
         }),
       ),
       model: Type.Optional(

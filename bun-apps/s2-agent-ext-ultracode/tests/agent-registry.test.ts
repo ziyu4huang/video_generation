@@ -93,19 +93,24 @@ describe("loadAgentRegistry", () => {
     writeDef(userDir, "researcher.md", "---\nname: researcher\n---\nuser-only researcher");
 
     const reg = loadAgentRegistry(root, { projectDir, userDir });
-    assert.equal(reg.size, 2);
+    // 2 file defs + 2 built-ins (ticket 03: built-ins fill names the scans missed).
+    assert.equal(reg.size, 4);
     assert.equal(reg.get("reviewer")?.model, "project/model", "project def wins");
     assert.equal(reg.get("reviewer")?.source, "project");
     assert.equal(reg.get("researcher")?.source, "user");
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("returns an empty registry when no dirs exist", () => {
+  it("returns only the built-in tier when no dirs exist", () => {
     const reg = loadAgentRegistry("/nonexistent", {
       projectDir: "/nonexistent/a",
       userDir: "/nonexistent/b",
     });
-    assert.equal(reg.size, 0);
+    // Ticket 03: built-ins are the lowest-precedence fallback — with no user
+    // files the registry is exactly the built-in tier (never empty anymore).
+    assert.equal(reg.size, 2);
+    assert.equal(reg.get("explore")?.source, "builtin");
+    assert.equal(reg.get("plan")?.source, "builtin");
   });
 
   it("skips non-.md files and survives an unreadable file", () => {
@@ -114,7 +119,8 @@ describe("loadAgentRegistry", () => {
     writeDef(projectDir, "ok.md", "---\nname: ok\n---\nbody");
     writeDef(projectDir, "notes.txt", "ignored");
     const reg = loadAgentRegistry(root, { projectDir, userDir: join(root, "none") });
-    assert.deepEqual([...reg.keys()], ["ok"]);
+    // File-scan keys first, then the built-in tier (ticket 03) appended last.
+    assert.deepEqual([...reg.keys()], ["ok", "explore", "plan"]);
     rmSync(root, { recursive: true, force: true });
   });
 });

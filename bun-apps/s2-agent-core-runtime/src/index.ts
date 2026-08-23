@@ -80,7 +80,6 @@ export {
   latestMessageLine,
   STREAMING_EXPANDED_TAIL,
 } from "./agent-trace-display.js";
-
 export type { TurnExhaustion, TurnGuard, TurnSessionSurface } from "./agent-turns.js";
 export {
   createTurnGuard,
@@ -88,10 +87,10 @@ export {
   isTurnStartObservation,
   turnExhaustionError,
 } from "./agent-turns.js";
-
 export { listAvailableModelSpecs } from "./available-models.js";
 export type { DispatchRole } from "./budget-defaults.js";
 export { ROLE_AWARE_DISPATCH_BOUNDS, roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
+export { BUILTIN_AGENT_DEFS } from "./builtin-agents.js";
 
 export { AGENTS_DIR, DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY, MODEL_TIERS_FILE } from "./config.js";
 export { debugModelsEnabled, logModelDecision } from "./debug-models.js";

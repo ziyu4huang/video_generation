@@ -30,7 +30,7 @@ CC feature | s2 equivalent | status | ticket
 `.claude/agents/*.md` definition files (frontmatter name/description/tools/model) | `.pi/agents/*.md` (`agent-registry.ts`), CC-compatible incl. comma-separated tool lists | aligned | —
 frontmatter `permissionMode` / `maxTurns` / `skills` / `effort` | `tools`/`disallowedTools`/`model`/`tier` only | partial | —
 `isolation: worktree` | `createWorktree` per dispatch (singular tool only) | aligned | —
-built-in Explore / Plan / general-purpose types | none shipped — user files only | gap | 03
+built-in Explore / Plan / general-purpose types | `explore`/`plan` built-ins (`builtin-agents.ts`, ticket 03): code-only lowest-precedence tier (project > pack > user > builtin), read-only via the `createReadOnlyTools` allowlist (read/grep/find/ls) + explicit `edit`/`write`/`bash` denylist, any user file shadows completely; general-purpose deliberately NOT shipped (the default no-agentType dispatch already is it) | aligned with a deliberate divergence (§3) | 03
 subagent startup context (CLAUDE.md hierarchy + git status + sibling roster) | CLAUDE.md hierarchy via pi resource-loader; no git status, no roster | partial | 04
 fork mode (inherit full parent conversation) | `fork: true` on `spawn_subagent`: compaction-aware transcript block (24k-char default cap, `SUBAGENT_FORK_TRANSCRIPT_CAP` env, oldest-first truncation), background by default, one level deep (ambient fork-child scope rejects nested forks) | aligned with a deliberate divergence (§3) | 02
 Agent-tool `name` param (addressable agent) | `name` on `spawn_subagent` → LiveAgent registry | aligned | —
@@ -78,6 +78,13 @@ cron jitter / one-shot catch-up on session resume | no jitter; missed one-shots 
   Shipped ticket 02: background by default, no `name`/`agentType`, one level
   deep (nested forks rejected via the ambient fork-child scope), and a missing
   transcript source fails pre-flight rather than inheriting nothing silently.
+- **Built-in read-only types keep the full CLAUDE.md hierarchy (ticket 03).**
+  CC's Explore skips repo context files for lean prompts; our `explore`/`plan`
+  built-ins ride the standard resource-loader (CLAUDE.md/AGENTS.md inherited
+  like any child). No per-call `resourceLoader` override was shipped — the
+  read-only allowlist is the safety boundary, and repo context helps rather
+  than hurts local exploration. Revisit only if a measurement shows bloat
+  (fog item tracked in the map).
 - **Parent-brokered sibling messaging.** No direct child→child channel (pi has
   no custom-message handler API); siblings route through the parent with relay
   notifications. CC teams message via per-agent mailboxes.
