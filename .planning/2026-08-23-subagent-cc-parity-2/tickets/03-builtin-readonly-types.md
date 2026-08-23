@@ -1,7 +1,37 @@
 # Ticket 03 — built-in read-only agent types (explore / plan)
 
-Status: open · Phase 2 (parallel with 02; only collision is
-`subagent-tool-schema.ts` guideline text — sequence or rebase)
+Status: done (2026-08-23) · Phase 2
+
+## Ship log (2026-08-23)
+
+- `bun-apps/s2-agent-core-runtime/src/builtin-agents.ts` — `BUILTIN_AGENT_DEFS`
+  (`explore`, `plan`), `source: "builtin"`; folded into `loadAgentRegistry` as
+  the LAST tier after the project/pack/user scans (first-wins above → any file
+  shadows completely, no merge). Union widened in `agent-registry.ts`; barrel
+  exports `BUILTIN_AGENT_DEFS`.
+- **Read-only-ness (approach #4 decision): allowlist = pi's actual
+  `createReadOnlyTools` set** (`read`/`grep`/`find`/`ls`, measured in pi
+  0.84.2 dist/core/tools/index.js) PLUS an explicit `disallowedTools:
+  [edit,write,bash]` mirror of `READ_ONLY_EXCLUDED`. This is tighter than the
+  ticket's denylist default at the same diff size, and pins the allowlist to
+  the enumerated read-only names the Risks section asked for. The NOT-taken
+  alternative (base-tools override via `createReadOnlyTools` in
+  `assembleSession`) is recorded in map Frontier.
+- Discoverability: singular `agentType` description (kept under the 240-char
+  schema-weight gate) + batch per-task `agentType` description both mention
+  `explore`/`plan`; `listAgentTypes` picks them up for free, so the
+  unknown-agentType "Available:" hint now lists them.
+- Tests: core-runtime `tests/builtin-agents.test.ts` (defs shape, real
+  `applyToolPolicy` pass, builtin-fallthrough, complete user shadowing,
+  `request_plan_approval` vocabulary disjointness) + ext-subagent batch
+  execute-path tests (built-in resolution through `mergeReadOnlyExclusion`,
+  user-file shadowing on the batch path). Three ext-ultracode
+  `agent-registry.test.ts` expectations updated for the new contract (registry
+  never empty; size +2; builtin keys appended last).
+- Gates: core-runtime 452, ext-subagent 678, ext-ultracode 1134 — all green.
+- Accepted divergence recorded in spec §3: built-ins keep the full CLAUDE.md
+  hierarchy (CC's Explore skips repo context files); no `resourceLoader`
+  override shipped.
 
 ## Scope
 

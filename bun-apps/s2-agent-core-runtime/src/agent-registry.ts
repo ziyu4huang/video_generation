@@ -19,6 +19,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+import { BUILTIN_AGENT_DEFS } from "./builtin-agents.js";
 import { AGENTS_DIR } from "./config.js";
 import { homeDir } from "./home.js";
 
@@ -39,8 +40,8 @@ export interface AgentDefinition {
   isolation?: "worktree";
   /** Markdown body, prepended to the subagent's task as role guidance. */
   prompt: string;
-  /** Where the definition was loaded from. Precedence: project > pack > user. */
-  source: "project" | "pack" | "user";
+  /** Where the definition was loaded from. Precedence: project > pack > user > builtin. */
+  source: "project" | "pack" | "user" | "builtin";
 }
 
 export type AgentRegistry = Map<string, AgentDefinition>;
@@ -122,6 +123,7 @@ function readDefsFromDir(dir: string, source: "project" | "pack" | "user"): Agen
  * Load the agent registry once for a run. Scans the project dir then the user
  * dir; the FIRST definition for a name wins (project > user, then filename
  * order), so a name collision is resolved deterministically and silently.
+ * Built-in types (ticket 03) fill only the names the scans missed.
  *
  * `opts` overrides the scanned directories (used by tests).
  */
@@ -145,6 +147,12 @@ export function loadAgentRegistry(
     for (const def of readDefsFromDir(userDir, "user")) {
       if (def.name && !registry.has(def.name)) registry.set(def.name, def);
     }
+  }
+  // Built-ins are the LOWEST-precedence tier (ticket 03, map D4): they fill a
+  // name only when no directory scan defined it — a user/project file with the
+  // same name shadows the built-in COMPLETELY (first-wins above, no merge).
+  for (const def of BUILTIN_AGENT_DEFS) {
+    if (!registry.has(def.name)) registry.set(def.name, def);
   }
   return registry;
 }

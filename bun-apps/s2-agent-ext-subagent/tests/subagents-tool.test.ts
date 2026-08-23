@@ -12,6 +12,7 @@ import type {
 } from "@repo/s2-agent-core-runtime";
 import {
   DEFAULT_BATCH_CONCURRENCY,
+  loadAgentRegistry,
   MAX_BATCH_TASKS,
   MAX_CONCURRENCY,
   SubagentInFlightRegistry,
@@ -1974,4 +1975,58 @@ test("ticket 07 (review 4c): agentType allowlisting a required tool still skips 
   );
   assert.equal(f.calls.length, 0, "child never dispatched — required tool denied by the read-only union");
   assert.equal(res.details.results[0], null, "skipped child maps to a null slot");
+});
+
+// ── ticket 03 (cc-parity-2): built-in read-only agent types (explore/plan) ──
+// Built-ins ride the SAME resolution path as user files: loadAgentRegistry
+// folds BUILTIN_AGENT_DEFS in as the lowest-precedence tier, so a batch task
+// naming agentType "explore"/"plan" binds with zero user setup and stays
+// inside the non-overridable READ_ONLY_EXCLUDED read-only notion.
+
+test("ticket 03: batch resolves agentType 'explore' from the built-in tier and stays read-only", async () => {
+  const f = fakeSpawnFullOpts();
+  // A registry loaded from nonexistent dirs = the built-in tier only — exactly
+  // what a fresh machine with no .pi/agents sees.
+  const registry = loadAgentRegistry("/nonexistent-cwd", {
+    projectDir: "/nonexistent-project",
+    userDir: "/nonexistent-user",
+  });
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: registry });
+  const res = await tool.execute(
+    "call-builtin-explore",
+    { tasks: [{ task: "#0", agentType: "explore" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.equal(res.details.dispatched, 1, "built-in type resolves — not rejected as unknown");
+  assert.deepEqual(f.calls[0]?.tools, ["read", "grep", "find", "ls"], "built-in allowlist binds");
+  for (const forbidden of READ_ONLY_EXCLUDED) {
+    assert.ok(f.calls[0]?.excludeTools?.includes(forbidden), `${forbidden} denied (union exclusion)`);
+  }
+  assert.match(
+    String(f.calls[0]?.instructions ?? ""),
+    /read-only exploration agent/,
+    "built-in prompt rides instructions",
+  );
+});
+
+test("ticket 03: a user 'explore' file shadows the built-in on the batch execute path", async () => {
+  const f = fakeSpawnFullOpts();
+  const registry = new Map<string, AgentDefinition>(
+    // What loadAgentRegistry yields for a user explore.md: the project/user def
+    // REPLACES the built-in wholesale (no merge) — core-runtime test pins the
+    // registry side; this pins the batch binding side.
+    [["explore", def({ name: "explore", tools: ["read"], prompt: "My own explorer." })]],
+  );
+  const tool = createSubagentsTool({ cwd: "/repo", spawn: f.spawn, agentRegistry: registry });
+  await tool.execute(
+    "call-shadowed-explore",
+    { tasks: [{ task: "#0", agentType: "explore" }], concurrency: 1 },
+    NO_SIGNAL,
+    undefined,
+    NO_CTX,
+  );
+  assert.deepEqual(f.calls[0]?.tools, ["read"], "shadowing file's allowlist wins");
+  assert.equal(f.calls[0]?.instructions, "My own explorer.", "shadowing file's prompt wins");
 });
