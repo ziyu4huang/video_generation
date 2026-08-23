@@ -70,13 +70,24 @@ PR #1884), or not skill-worthy (`goal-loop-deadlock`,
 `controller-no-bash-sdd-via-subagents`, `child-merge-resolution-verification`,
 `dispatch-cost-audit`).
 
-Remaining **candidates** (ranked writing-skills promotion queue):
+Remaining **candidates** (ranked writing-skills promotion queue): none — the
+final two were consumed 2026-08-23 ("hands on" session; see memory for verdicts):
 
-1. `probe-extension-introspection.md` — unique offline session-surface probing method.
-2. `pi-reviewer-scope-bounding.md` — A/B-tested bounded review-dispatch shape.
+- `probe-extension-introspection.md` → **promoted** as repo-owned skill
+  `s2-agent-ext-superpowers/skills/probe-extension-introspection/`. RED baseline
+  (2026-08-23) confirmed no built-in offline session-surface inspector exists and
+  the default answer required hand-reconstructing pi-core's loader.
+- `pi-reviewer-scope-bounding.md` → **rejected** as a standalone skill. The RED
+  baseline confirmed open-ended review over-reads, but the bounding discipline
+  already exists in `subagent-driven-development`'s Scoped Re-Review prompt
+  (bounded scope, out-of-scope observations, efficiency nudge) and review
+  dispatch is owned by `requesting-code-review`. The concern is folded into the
+  existing review skills, not a new skill. Verdict recorded as memory.
 
 Consumed 2026-08-23: `deterministic-edit-dispatch.md` → promoted as repo-owned
 skill `s2-agent-ext-superpowers/skills/deterministic-edit-dispatch/`.
+
+The candidate bridge is now empty (0 candidates); durable records below remain.
 
 The following are **NOT candidates and are exempt from deletion-on-promotion**
 — they are durable cross-effort records that happen to live here:

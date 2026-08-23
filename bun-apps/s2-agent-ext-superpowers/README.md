@@ -4,7 +4,7 @@ Pi-native port of [Superpowers](https://github.com/primeradiant/superpowers) —
 
 This package ships Superpowers as a **Layer-3 Pi extension**:
 
-- **15 skills**: 13 ported from upstream v6.2.0 — byte-pinned against committed fixtures **with sanctioned local divergences** (truth = `tests/__fixtures__/upstream-skills/UPSTREAM.ref` + `CONTEXT.md`) — + 2 repo-native (`dispatch-recovery`, `deterministic-edit-dispatch`). `verification-before-completion` was deleted 2026-08-21 (ticket 08; do not re-port).
+- **16 skills**: 13 ported from upstream v6.2.0 — byte-pinned against committed fixtures **with sanctioned local divergences** (truth = `tests/__fixtures__/upstream-skills/UPSTREAM.ref` + `CONTEXT.md`) — + 3 repo-native (`dispatch-recovery`, `deterministic-edit-dispatch`, `probe-extension-introspection`). `verification-before-completion` was deleted 2026-08-21 (ticket 08; do not re-port).
 - A `using-superpowers` **bootstrap** that Pi injects into context once per session/compaction (until the first `agent_end`), so the agent treats Superpowers as already-loaded instead of re-reading the skill — a Pi-port of upstream `.pi/extensions/superpowers.ts`.
 
 Only the Pi extension wrapper (`src/`, `extensions/`, `tests/`, config) is this package's own code. Ported skill bodies are pin-guarded (ADR-0004): local edits are a deliberate, logged act (rebaseline + UPSTREAM.ref divergence row), never a casual reformat (the `skills` dir is excluded from biome for that reason).
@@ -34,7 +34,7 @@ No slash commands, no coordination globals — Superpowers is skill-driven, not 
 extensions/superpowers.ts   # thin Pi entry — calls src/superpowers.ts directly
 src/index.ts          # named-export barrel (package main; for tests)
 src/superpowers.ts    # discovery + bootstrap logic (port of upstream .pi/extensions/superpowers.ts)
-skills/               # 15 skills: 13 pinned upstream ports + repo-native dispatch-recovery, deterministic-edit-dispatch (assets — excluded from biome)
+skills/               # 16 skills: 13 pinned upstream ports + repo-native dispatch-recovery, deterministic-edit-dispatch, probe-extension-introspection (assets — excluded from biome)
 tests/                # skills / skills-fidelity / bootstrap / skill-exclude / binary-mode / sdd-workspace / references / artifact-leak + entry self-gate
 ```
 
