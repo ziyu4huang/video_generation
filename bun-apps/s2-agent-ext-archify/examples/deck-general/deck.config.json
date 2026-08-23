@@ -1,0 +1,129 @@
+{
+  "output": "deck-general.pptx",
+  "theme": "light",
+  "tag": "archify · 七張資料版型總覽",
+  "defaults": { "font": "PingFang TC" },
+  "slides": [
+    {
+      "layout": "title",
+      "eyebrow": "ARCHIFY GENERAL DECK",
+      "title": "七張資料版型，一組樣板一次看盡",
+      "subtitle": "議程／方案對比／結尾／關鍵指標／引文／表格／時間軸，加上既有 code layouts",
+      "date": "2026-08-23"
+    },
+    {
+      "layout": "diagram",
+      "title": "先看整顆 SoC 怎麼切、誰接誰，決策才有立足點",
+      "subtitle": "MRD → NoC → {AUDIO APU, ISP}，外加共享記憶體與電源域",
+      "ir": "../deck/ir/slide2.json"
+    },
+    {
+      "layout": "kpi-row",
+      "title": "移行後量測顯示冷啟動 p99 減半，使用者才留得住",
+      "takeaway": "先做解析器快取，其餘延後",
+      "source": "來源：基準測試，2026-07",
+      "kpis": [
+        { "value": "4.2 s", "label": "冷啟動 p99", "note": "快取後降至 1.8 s" },
+        { "value": "38%", "label": "快取命中率", "note": "上線四週量測" },
+        { "value": "17 ms", "label": "熱路徑延遲" }
+      ]
+    },
+    {
+      "layout": "compare",
+      "title": "自建解析器在第二年反超託管服務的成本線",
+      "source": "來源：自建 vs 託管三年總成本模型",
+      "sides": [
+        {
+          "heading": "自建解析器",
+          "bullets": ["p99 由 4.2 s 壓到 1.8 s", "維運成本每月增加 12 小時", "資料不出內網"]
+        },
+        {
+          "heading": "採用託管服務",
+          "bullets": ["零維運，但單價高 2.3 倍", "資料出境需法務審查", "第二年合約重議"]
+        }
+      ]
+    },
+    {
+      "layout": "timeline",
+      "title": "四個季度走完解析器移行，Q2 是唯一硬關卡",
+      "source": "來源：移行計畫書 v2",
+      "milestones": [
+        { "date": "Q1", "label": "需求凍結", "note": "RFQ 回覆完成" },
+        { "date": "Q2", "label": "架構定案" },
+        { "date": "Q3", "label": "量產驗證", "note": "PPAP 送件" },
+        { "date": "Q4", "label": "SOP 發布" }
+      ]
+    },
+    {
+      "layout": "table",
+      "title": "三條關鍵路徑中，解析器獨占八成時間預算",
+      "takeaway": "解析器是唯一值得先動刀的路徑",
+      "source": "來源：生產環境抽樣，2026-07",
+      "columns": ["服務", "p99", "p50"],
+      "rows": [
+        ["解析器", "4.2 s", "1.8 s"],
+        ["影像服務", "210 ms", "180 ms"],
+        ["通知佇列", "95 ms", "88 ms"]
+      ],
+      "note": "資料期間：2026 年 7 月，生產環境抽樣"
+    },
+    {
+      "layout": "quote",
+      "title": "一句引文，立住整個方案的論證起點",
+      "source": "來源：圖靈獎演講，1993",
+      "quote": "任何架構問題都能用多加一層間接層解決——除了間接層太多的問題。",
+      "attribution": "巴特勒·蘭普森",
+      "role": "圖靈獎得主，1993"
+    },
+    {
+      "layout": "split",
+      "title": "一頁看盡：規格鏈與驗證配對如何接合",
+      "takeaway": "MRD → SAS → MAS → RDS，每一條 Item 都有配對",
+      "source": "來源：COCKPIT-26 SAS 草稿 §3.2",
+      "ir": "../deck/ir/slide5.json",
+      "bullets": [
+        "一條 Item 只講一件事",
+        "唯一 ID 一經分配，永不修改",
+        { "text": "刪除也只標記 deprecated", "level": 1 },
+        "雙向追溯：向上掛來源，向下配對驗證"
+      ]
+    },
+    {
+      "layout": "bullets",
+      "title": "好 Item 的三個條件，缺一條就退回散文",
+      "takeaway": "原子、唯一編碼、雙向追溯——三者互相支撐",
+      "source": "來源：INCOSE Guide for Writing Requirements × ASPICE 4.0",
+      "bullets": [
+        "原子：一條 Item 只講一件事",
+        "唯一 ID：一經分配，永不修改",
+        { "text": "刪除也只標記 deprecated", "level": 1 },
+        "雙向追溯：向上掛來源，向下配對驗證"
+      ]
+    },
+    {
+      "layout": "agenda",
+      "title": "今天只決策一件事：解析器自建或採購",
+      "source": "來源：評鑑委員會議程",
+      "items": [
+        { "title": "現況與痛點", "note": "10 分鐘" },
+        { "title": "解析器基準測試", "note": "15 分鐘" },
+        { "title": "移行計畫", "note": "20 分鐘" },
+        { "title": "決策與下一步" }
+      ]
+    },
+    {
+      "layout": "statement",
+      "title": "只驗一翼，會漏掉一整類問題",
+      "statement": "只驗一翼，會漏掉一整類問題",
+      "attribution": "— V-model 的兩翼必須成對出現",
+      "source": "來源：ASPICE 4.0 process reference model"
+    },
+    {
+      "layout": "end",
+      "title": "謝謝——帶上問題來",
+      "headline": "謝謝——帶上問題來",
+      "contact": "archify@team.example",
+      "source": "「請帶著問題來」——專案室內規"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 effort: 2026-08-22-archify-general-deck
 created: 2026-08-22
 last: 2026-08-23
-status: specified
+status: active
 ---
 # archify-general-deck — architecture-diagram tool → general slide generator
 
@@ -107,12 +107,12 @@ Phase 2 — the agent surface
 - `tickets/04-deck-lint-tool.md` — task, **done** 2026-08-23 — `archify_deck_lint`: catalog + renderless lint
 
 Phase 2.5 — output packaging (added 2026-08-23)
-- `tickets/11-self-contained-output.md` — task, **in progress** — one-folder contract + spread advisory landed 2026-08-23; example-conformance test still owed
+- `tickets/11-self-contained-output.md` — task, **done** 2026-08-23 — one-folder contract + spread advisory; shipped-examples conformance pinned in `tests/deck-composition.test.ts`
 
 Phase 3 — the library
 - `tickets/05-table-primitive.md` — task, **done** 2026-08-23 — `BlockContent.kind: "table"`, both emitters
 - `tickets/06-template-library.md` — task, **done** 2026-08-23 — the seven shipped templates + goldens (zero `.ts` changes needed; no vocabulary gap)
-- `tickets/07-example-deck-general.md` — task, open — `examples/deck-general/` + gates
+- `tickets/07-example-deck-general.md` — task, **done** 2026-08-23 — 12-slide proof deck + out-of-repo template gate
 
 Phase 4 — authoring ergonomics
 - `tickets/08-outline-markdown.md` — task, open — Markdown outline → manifest
@@ -165,18 +165,21 @@ Recorded in full in `spec.md` §3. The load-bearing ones:
 
 ## Frontier
 
-`tickets/07-example-deck-general.md` — the proof deck. Phase 2 closed 2026-08-23: ticket
-05 landed `table` as the effort's one new drawing primitive in both emitters (`autoPage:
-false` explicit + asserted; over-long table stays ONE slide; `<a:blip>` still 0;
-`too-many-table-rows` lint advisory at 12 body rows), and ticket 06 shipped all seven
-templates + CJK goldens with **zero `.ts` changes** — the vocabulary held. The role-name
-collision case from Fog of war is now pinned by test (per-slide resolution, no leakage).
-Suite 505 → 605 passing, 0 failing. Ticket 07 builds a real general-purpose deck through
-the new surface; tickets 08–10 (Markdown outline, scaffolds, docs/skill split) follow.
+`tickets/08-outline-markdown.md` — Markdown outline → manifest. Ticket 07 shipped the
+proof deck 2026-08-23: `examples/deck-general/` exercises all seven templates beside the
+code layouts — content lint clean, ooxml lint clean, one folder. To make that possible
+the build path now dispatches through the registry (`registry.render` + `roleOf` into
+both emitters; D3 byte-identity untouched — legacy deck still 5 slides / 388 native
+shapes), and gate 5 is pinned: a template dropped into `$ARCHIFY_TEMPLATES` from outside
+the repo appears in `catalog()` and renders in a built deck. The condensed skill points
+at `examples/minimal.architecture.json` and the three sample decks, and states the
+ask-the-catalog-first rule (D9). Suite 604 pass / 21 skip / 0 fail. Tickets 09 (deck
+scaffolds) and 10 (docs/skill split) follow.
 
-Earlier phases, closed: ticket 11 (one-folder contract; example-conformance test owed),
-01+02+03 (template seam; bullets-equivalence first-run pass, timeline EXPRESSIBLE), 04
-(`archify_deck_lint`; canary +248 tok).
+Earlier phases, closed: ticket 11 (one-folder contract; shipped-example conformance
+pinned 2026-08-23), 01+02+03 (template seam; bullets-equivalence first-run pass,
+timeline EXPRESSIBLE), 04 (`archify_deck_lint`; canary +248 tok), 05 (`table`
+primitive), 06 (seven shipped templates + CJK goldens).
 
 ## Fog of war
 

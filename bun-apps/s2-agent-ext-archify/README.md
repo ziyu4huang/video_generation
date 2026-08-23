@@ -14,7 +14,7 @@ snapshot under `vendored/`. No dependency on the upstream source after vendor-co
 ## `webui:open` announce (webui-optional)
 
 A successful `archify_render` / `archify_delta` emits `webui:open` on the host event bus
-(`lib/open-announce.ts`) — `{ path, view, title }` where `view` is the output basename
+(`src/open-announce.ts`) — `{ path, view, title }` where `view` is the output basename
 sans `.html` (delta: `compare-<basename>`) and `title` is `ir.meta.title ?? diagramType`.
 When the s2-agent-ext-webui is present and the output lives under its configured
 `WEBUI_FILE_ROOTS`, this surfaces a clickable `/files` URL in the TUI. Fully optional: no
@@ -35,7 +35,7 @@ text runs**, not screenshots: boxes are `rect`/`roundRect`, routed connectors ar
 freeforms with real quadratic/cubic curves, straight runs stay single `line` shapes with
 native arrowheads, and every label is an editable text run. **No browser is involved.**
 
-Two entry points over one core (`lib/deck-build.ts`), so the CLI and the agent cannot drift:
+Two entry points over one core (`src/deck-build.ts`), so the CLI and the agent cannot drift:
 
 ```bash
 bun run deck [manifest] [--theme light|dark] [--output out.pptx]
@@ -46,7 +46,7 @@ bun run deck render <manifest> [--out <dir>] [--size <px>]
 `deck render` pictures every slide as `slide-N.png` through the first available
 backend (Quick Look on macOS, LibreOffice elsewhere) — an on-demand command for
 human eyes, never a build gate; with no backend it exits non-zero naming what it
-looked for (`lib/deck-render.ts`).
+looked for (`src/deck-render.ts`).
 
 …and the registered **`archify_export_pptx`** tool (`{manifestPath | irPaths, outputPath?,
 theme?, slidesDir?}`).
@@ -103,18 +103,22 @@ copy) and the OOXML diagnostics for the file just written. It never changes the 
 
 One content rule is **not** advisory. A title wider than its band wraps onto a second line,
 and the accent rule sits at a fixed `y` — so line two comes out struck through and clipped.
-`lib/text-extent.ts` predicts that wrap from the band width and the type size without
+`src/text-extent.ts` predicts that wrap from the band width and the type size without
 measuring a glyph or opening a renderer (buckets calibrated against rendered ink, accurate to
 ±2 %), and `buildDeck` refuses to write a deck that trips it. Everything else stays a note.
 
 **Canonical example:** `examples/deck-composed/` exercises all six —
 `bun run deck examples/deck-composed/deck.config.json --lint`.
 
+**Library proof deck:** `examples/deck-general/` exercises every shipped
+`*.layout.json` template next to the code layouts —
+`bun run deck examples/deck-general/deck.config.json --lint`.
+
 ## Text is a real text box
 
-`lib/pptx-shapes.ts` places diagram labels at fixed coordinates with `wrap: false`: the
+`src/pptx-shapes.ts` places diagram labels at fixed coordinates with `wrap: false`: the
 renderer already chose those line breaks. Composed slides are the opposite problem, so
-`lib/emit-pptx.ts` emits genuine PowerPoint text boxes that wrap and autofit — which is what
+`src/emit-pptx.ts` emits genuine PowerPoint text boxes that wrap and autofit — which is what
 makes a CJK deck usable at all.
 
 Neither emitter measures text, and that is the design, not a shortcut: this package has no
@@ -138,7 +142,7 @@ artifact's own documented contract, which drops its toolbar and matches the deck
 
 ## OOXML validity
 
-`lib/ooxml-lint.ts` checks a built `.pptx` structurally: `[Content_Types].xml` covers every
+`src/ooxml-lint.ts` checks a built `.pptx` structurally: `[Content_Types].xml` covers every
 part, every `r:id` resolves in its `.rels`, EMU coordinates are integers in range, `p:spPr`
 and `a:custGeom` children follow their schema sequences, `a:rPr/@sz` is inside
 ST_TextFontSize, and every `a:path` opens with `a:moveTo`. Both example decks: **0
@@ -171,7 +175,7 @@ title.
 
 ### The acceptance contract
 
-`__tests__/pptx-shapes.test.ts` builds all five diagram types and reads the `.pptx` back with
+`tests/pptx-shapes.test.ts` builds all five diagram types and reads the `.pptx` back with
 a pure-Bun ZIP reader, asserting per slide that **`<a:blip>` count is 0** — a blip is an image
 reference, so zero of them means nothing was rasterized. That is the one property a
 regression back to screenshots cannot fake. (`Bun.Archive` cannot read zip — probed
@@ -184,9 +188,9 @@ IR .json --deliver--> .html --parseSvg--> SvgDoc --toShapeIR--> ShapeIR --> pptx
           (validated)      (HTMLRewriter)        (+ svg-theme)
 ```
 
-`ShapeIR` (`lib/shape-ir.ts`) is a format-neutral, paint-ordered shape list with transforms
+`ShapeIR` (`src/shape-ir.ts`) is a format-neutral, paint-ordered shape list with transforms
 applied and styles resolved — the seam any future exporter (PDF, Keynote, Figma) attaches to.
-`lib/svg-model.ts` explains why `HTMLRewriter` and not `Bun.XML`. Re-measured 2026-08-21 on
+`src/svg-model.ts` explains why `HTMLRewriter` and not `Bun.XML`. Re-measured 2026-08-21 on
 bun 1.4.0, the picture is sharper than "Bun.XML loses order":
 
 | | `Bun.XML.parse` | `HTMLRewriter` |
@@ -200,7 +204,7 @@ segment folded into the 2nd's array. Four `preserveOrder`-style spellings are si
 accepted no-ops. SVG siblings repeat constantly, so `HTMLRewriter` stays; OOXML's `spPr`
 children are all distinct, so `ooxml-lint` uses the faster parser there and streams only the
 path-segment rule. Golden fixtures for all five diagram types live in
-`__tests__/fixtures/shape-ir/`; regenerate with `UPDATE_SHAPE_IR_GOLDENS=1 bun test`.
+`tests/fixtures/shape-ir/`; regenerate with `UPDATE_SHAPE_IR_GOLDENS=1 bun test`.
 
 ## Browsers
 
@@ -208,7 +212,7 @@ Neither this package nor `s2-agent-ext-webui` downloads a browser. The two tests
 real rendering engine — the SVG-arc ground-truth check and the mermaid paint-check — use
 **`Bun.WebView`** (Bun 1.4): system WebKit on macOS, nothing to install, ~350 ms cold.
 
-`__tests__/no-browser-deps.test.ts` keeps it that way, but only for what actually matters:
+`tests/no-browser-deps.test.ts` keeps it that way, but only for what actually matters:
 packages that **bundle a browser download** (`playwright`, `@playwright/test`, `puppeteer`)
 are banned here, while `playwright-core` / `puppeteer-core` are explicitly ALLOWED — Bun 1.4
 runs Playwright natively and those builds drive an already-installed Chrome over CDP with no

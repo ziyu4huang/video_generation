@@ -1,10 +1,10 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
-import { validateTool } from "../lib/validate.ts";
-import { makeRenderTool } from "../lib/render.ts";
-import { makeDeltaTool } from "../lib/delta.ts";
-import { makeExportPptxTool } from "../lib/export-pptx.ts";
-import { deckLintTool } from "../lib/deck-lint-tool.ts";
-import type { OpenBus } from "../lib/open-announce.ts";
+import { validateTool } from "../src/validate.ts";
+import { makeRenderTool } from "../src/render.ts";
+import { makeDeltaTool } from "../src/delta.ts";
+import { makeExportPptxTool } from "../src/export-pptx.ts";
+import { deckLintTool } from "../src/deck-lint-tool.ts";
+import type { OpenBus } from "../src/open-announce.ts";
 
 const extension: ExtensionFactory = (pi) => {
   // Self-gate: BUN_PI_ARCHIFY=0 disables the entire extension — it registers

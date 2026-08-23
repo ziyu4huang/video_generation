@@ -50,7 +50,7 @@
 // serves; the .pptx is the flattened, portable view of the same set.
 //
 // No browser is involved: slides carry real PowerPoint shapes and text runs, not
-// screenshots. `__tests__/pptx-shapes.test.ts` asserts zero `<a:blip>` in the
+// screenshots. `tests/pptx-shapes.test.ts` asserts zero `<a:blip>` in the
 // slide XML, which is the property a regression to images cannot fake.
 //
 import { dirname, resolve } from "node:path";
@@ -62,12 +62,12 @@ import {
   resolveDeckInput,
   resolveDeckOutput,
   type Theme,
-} from "../lib/deck-build.ts";
-import { defaultRendersDir, pickRenderer, rendererStatus } from "../lib/deck-render.ts";
-import { formatLintNotes, lintDeck, storyline } from "../lib/deck-lint.ts";
-import { formatDiagnostics, lintPptx } from "../lib/ooxml-lint.ts";
-import { readZipText } from "../lib/read-zip.ts";
-import { VENDORED_BIN } from "../lib/run.ts";
+} from "../src/deck-build.ts";
+import { defaultRendersDir, pickRenderer, rendererStatus } from "../src/deck-render.ts";
+import { formatLintNotes, lintDeck, storyline } from "../src/deck-lint.ts";
+import { formatDiagnostics, lintPptx } from "../src/ooxml-lint.ts";
+import { readZipText } from "../src/read-zip.ts";
+import { VENDORED_BIN } from "../src/run.ts";
 
 const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 

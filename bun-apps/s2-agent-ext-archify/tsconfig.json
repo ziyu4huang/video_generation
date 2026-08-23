@@ -18,5 +18,5 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["lib/**/*.ts", "extensions/**/*.ts", "__tests__/**/*.ts"]
+  "include": ["src/**/*.ts", "extensions/**/*.ts", "tests/**/*.ts"]
 }

@@ -1,7 +1,7 @@
 # Ticket 11 — Self-contained output folder
 
 **Phase:** 2.5 — output packaging (added 2026-08-23, from the ~/proj/output audit)
-**Status:** open
+**Status:** done
 **Blocks:** none. **Blocked by:** none (independent of the template seam).
 **Builds-on decision:** D9.
 
