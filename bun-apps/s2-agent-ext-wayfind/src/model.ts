@@ -146,6 +146,37 @@ export function parseBulletList(section: string): string[] {
     .filter((l) => l !== "" && !l.startsWith("<!--"));
 }
 
+/**
+ * Read the effort's chosen ticket order from a map.md `## Tickets` section body.
+ *
+ * The `**Execution order:**` line (to-tickets' confirm-gate record) is
+ * PARSER-INERT by design: `readMap` derives tickets from the `tickets/` dir and
+ * never mutates status/order from this line. But the `self-reflect-next-goal`
+ * queue-mode reads it as prose to decide the queue head. This is the pure,
+ * fs-free reader for that prose so the contract is testable (and a blank /
+ * malformed line degrades to `[]` → the caller falls back to the Frontier,
+ * never throws).
+ *
+ * Accepts the bare (`Execution order:`) and bold (`**Execution order:**`)
+ * forms plus a trailing parenthetical, e.g.
+ *   `**Execution order:** 08 → 09 → 10 (…, no choice exists)`
+ *   `Execution order: 08 -> 09 -> 10`
+ * Returns the ordered ticket ids as bare strings; `[]` when the line is absent,
+ * blank, or unparseable.
+ */
+export function parseExecutionOrder(ticketsSection: string): string[] {
+  const line = ticketsSection.split(/\r?\n/).find((l) => /^\s*\*{0,2}Execution order:\*{0,2}\s*/.test(l));
+  if (!line) return [];
+  const after = line.replace(/^\s*\*{0,2}Execution order:\*{0,2}\s*/, "");
+  // Drop a trailing parenthetical (a reason / "no choice exists" note).
+  const paren = after.indexOf("(");
+  const core = paren >= 0 ? after.slice(0, paren) : after;
+  return core
+    .split(/\s*(?:→|->|,|\s+)\s*/)
+    .map((s) => s.trim())
+    .filter((s) => /^\d+$/.test(s));
+}
+
 /** Parse a ticket file's frontmatter + body into a Ticket. `id`/`slug` come from
  *  the filename, passed in. */
 export function parseTicketFile(content: string, id: string, slug: string): Ticket {
