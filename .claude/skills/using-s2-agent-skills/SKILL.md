@@ -1,6 +1,6 @@
 ---
 name: using-s2-agent-skills
-description: Use when a task matches a skill, script, or CLI already developed in this repo's s2-agent extension packages (bun-apps/s2-agent-ext-*), or when re-implementing devops / research / movie-director / wayfind / superpowers tooling that likely already exists. Ext skills are Markdown docs under bun-apps/s2-agent-ext-*/skills/<name>/SKILL.md (READ them — not this harness's skill() entries; the name is the dir, never the package), located via list-ext-skills.ts resolve <name>. Covers invoking them from claude-code directly and via ./s2-agent.sh (headless -p or interactive).
+description: Use when a task matches a skill, script, or CLI already developed in this repo's s2-agent extension packages (bun-apps/s2-agent-ext-*), or when re-implementing devops / research / movie-director / wayfind / superpowers tooling that likely already exists. Trigger situations — git sync/branch/PR/merge/CI (devops-workflow + *-cli.ts); an arc CLOSING ("done", "hands off", session ending, PR merged, milestone verified): read self-reflect-next-goal and WRITE the successor next-goal file BEFORE reporting; "hands on" / "hands on next goal": EXECUTE the queue head; multi-ticket efforts (.planning tickets, frontier, seed, spec): route via wayfind (ask-matt / to-spec / to-tickets) then executing-plans; new features (brainstorming); bugs/flakes (systematic-debugging). Ext skills are Markdown docs under bun-apps/s2-agent-ext-*/skills/<name>/SKILL.md (READ them — not this harness's skill() entries; the name is the dir, never the package), located via list-ext-skills.ts resolve <name>. Covers invoking them from claude-code directly and via ./s2-agent.sh (headless -p or interactive).
 ---
 
 # Using s2-agent ext skills from claude-code
@@ -19,6 +19,26 @@ bun .claude/skills/using-s2-agent-skills/list-ext-skills.ts scripts  # per-packa
 ```
 
 Then READ the matching SKILL.md before acting — it encodes hard-won pitfalls.
+
+## Route-first gates (the trigger layer)
+
+Ext-skill descriptions cannot auto-fire in this harness (only this skill is `skill()`-invocable
+here), so the gates below ARE the trigger layer — CLAUDE.md points here. On ANY of these
+situations, READ + follow the named ext SKILL.md first; never hand-roll a substitute.
+
+| Gate | Keywords / situation | Read + follow |
+|---|---|---|
+| **Hands-off** | "done", "that's it", session ending/stopping, PR merged, milestone verified, task finished — ANY arc close-out | `self-reflect-next-goal` **WRITE**: write a validator-passing successor `output/next-goal-<ts>.md` (strict v2), re-point `LATEST-next-goal.md`, then report. Reporting done WITHOUT the successor file is the #1 violation — it silently drops the carry. |
+| **Hands-on** | "hands on", "hands on next goal", "do the next goal" | `self-reflect-next-goal` **EXECUTE**: sync the tree, run the queue head end-to-end through its Done-when gate; at a ticket boundary write the successor. |
+| **Git** | sync/update main, branch, rebase, PR, squash-merge, CI/typecheck before merge, verify scope | `devops-workflow` + its `*-cli.ts` (throw-free, JSON, exit 0/1/2; never raw-bash `git`/`gh`); "is main green?" → `main-health-cli.ts`. |
+| **Tickets/effort** | `.planning/<effort>` work, tickets, frontier, `/wayfind seed`, spec, multi-ticket build | wayfind family — route via `ask-matt` when unsure; `to-spec` then `to-tickets` (**Execution order confirm-gate** after seed — present order, ask confirm-or-rechoose, record the map's `Execution order` line) → `executing-plans` per queue head. |
+| **Idea/feature** | "I want to build X", new feature, behavior change | `brainstorming` → `writing-plans` (artifacts to `.planning/`); methodology routing: `using-superpowers`. |
+| **Bug** | bug, flaky test, regression, unexpected behavior | `systematic-debugging` — reproduction loop BEFORE proposing fixes. |
+| **Domain words** | fuzzy term, glossary, hard-to-reverse decision | `domain-modeling` — `CONTEXT.md` + ADRs (`ADR-<context>-NNNN`). |
+
+Rule of thumb: assume the repo already has the machinery — verify with `resolve <name>` before
+writing anything new. If you catch yourself composing a git workflow, a `.planning` artifact
+shape, or a session handoff from scratch — STOP, resolve, read, follow.
 
 **Ext skills are Markdown docs, not this harness's `skill()` entries.** Only `using-s2-agent-skills`
 is loadable through the `skill()` tool here; every other ext skill is a file under
@@ -85,6 +105,8 @@ resolves its own tree and self-heals its deps — not `bun bun-apps/…/script.t
 
 ## Common mistakes
 
+- Closing a goal arc and reporting "done" WITHOUT writing the successor next-goal file — hands-off gate: write strict-v2, validate, re-point `LATEST-next-goal.md`, THEN report. The file is the carry; a bare "done" drops it.
 - Re-implementing a git/PR/CI workflow by hand instead of `bun-apps/s2-agent-ext-devops/skills/devops-workflow/SKILL.md` + its CLIs.
+- Starting a multi-ticket effort without the to-tickets **Execution order confirm-gate** — after seed: present the order (blockers marked no-choice, choice pairs marked), ask confirm-or-rechoose, record the map's `Execution order` line.
 - Invoking an extension tool name in claude-code as if it were a command — tools exist only inside s2-agent; use the CLI twin or the `-p` bridge.
 - Skimming the SKILL.md: each one's Pitfalls section records real past failures (quota, scope-verification false-positives, …).

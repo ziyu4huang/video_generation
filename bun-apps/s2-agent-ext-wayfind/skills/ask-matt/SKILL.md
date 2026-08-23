@@ -47,6 +47,8 @@ The route most work travels. You have an idea and want it built.
 
 3. **Branch — is this a multi-session build?**
    - **Yes** → the **to-spec** skill (turn the thread into a spec), then **to-tickets** to split it into tracer-bullet tickets, each declaring its **blocking edges**. That's one file per ticket under `.planning/<effort>/tickets/`, worked blockers-first; any ticket whose blockers are done can be grabbed — kick off the superpowers **executing-plans** skill per ticket, handing off / starting a fresh session between each one. Each ticket is self-contained, so the last one's context is disposable.
+     - **Confirm the execution order first** (to-tickets' confirm-gate): after `/wayfind seed`, the agent presents the suggested order, marks hard `blocking:` edges (no choice) and choice pairs, and asks confirm-or-rechoose. The choice is recorded as the `Execution order` line in the effort map.
+     - **Between tickets the carry is the devops next-goal file**: each ticket boundary writes the successor (Immediate steps = the next ticket in the chosen order), and "hands on next goal" resumes the queue head — the loop ends with an effort close-out when the queue drains. Not the handoff skill (that's for harness/directory switches); next-goal is the effort's loop.
    - **No** → the superpowers **executing-plans** skill right here, in the same session.
 
    How executing-plans builds each ticket (TDD slices, code review) is superpowers methodology — methodology routing lives in superpowers:using-superpowers; do not re-add here.

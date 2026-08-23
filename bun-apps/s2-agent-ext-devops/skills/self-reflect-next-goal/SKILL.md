@@ -1,6 +1,6 @@
 ---
 name: self-reflect-next-goal
-description: Use when a mutating session or goal arc is closing (PR merged, deploy shipped, milestone verified, session ending), when planning the next piece of work, or when the user triggers "hands on (next goal)" — execute the rolling next-goal file's Immediate steps end-to-end through its done-when gate.
+description: Use when a mutating session or goal arc is closing (PR merged, deploy shipped, milestone verified, session ending), when planning the next piece of work, when a ticket queue of a `.planning/<effort>/` effort needs its next head carried (queue mode), or when the user triggers "hands on (next goal)" — execute the rolling next-goal file's Immediate steps end-to-end through its done-when gate.
 ---
 
 # Self-Reflect + Next Goal
@@ -104,6 +104,28 @@ write the successor instead). `Ranked next goals` needs 3–5 numbered entries.
 7. `output/` is gitignored scratch — never commit these files. Durable plans
    belong in `.planning/`; this file is the session-to-session handoff.
 
+### Ticket-queue mode (effort ticket queues)
+
+When the goal is a ticket of a `.planning/<effort>/` queue, the file is the loop's carry and
+the fixed shape gets queue semantics:
+
+- `Immediate steps` = the **next ticket** in the effort's chosen `Execution order` (the
+  `**Execution order:**` line under `map.md` `## Tickets`); when no choice was recorded, the
+  ticket the map's `## Frontier` names.
+- `Done when` = that **ticket's acceptance criteria** (evidence-checkable), not goal prose.
+- `Ranked next goals` = the remaining queue in the chosen order, then the effort close-out
+  (map status: complete), then any fold-back/audit items — still 3–5 entries, even when the
+  queue alone has fewer (the close-out + carry-over items pad it).
+- **Boundary discipline:** after ANY verified + merged ticket in a multi-ticket effort,
+  supersede the file even mid-session — `LATEST-next-goal.md` must always name the queue head,
+  never yesterday's ticket.
+- **Termination:** when the queue is empty, the successor's head = the effort close-out; the
+  loop ENDS there. Never write a self-perpetuating goal — an all-done queue is a closed
+  record, not the seed of new work.
+- **Overridden blockers:** if the user chose an order that contradicts a ticket's `blocking:`
+  edge, keep the choice but flag the dependency in `Honest gaps` — don't silently break the
+  queue.
+
 ## READ (on planning)
 
 Read `output/LATEST-next-goal.md` — the stable pointer to the newest file. If
@@ -113,6 +135,11 @@ any still-open goal from the newest file into the new one you write — fold it
 into the ranked list, don't silently drop it. Mind the `file:` field: if its
 absolute path is a DIFFERENT worktree than yours, you are reading another
 tree's handoff — sync or re-derive before executing it.
+
+**Queue drift rule:** when the file's `Ranked next goals` mirrors a ticket queue, the ranking
+must match the effort's user-chosen `Execution order` line (`## Tickets` in
+`.planning/<effort>/map.md`) — on disagreement, surface the drift (present both, ask which
+governs) rather than silently picking one.
 
 ## EXECUTE ("hands on next goal")
 
@@ -141,6 +168,15 @@ It starts from a synced tree, not whatever HEAD happens to be lying around.
 5. Close out per the file's own instructions (usually: reviewer pass, PR via
    the devops chain, ticket/map close-out), then WRITE the successor file
    (strict v2, validated) and re-point the `LATEST-next-goal.md` symlink at it.
+
+**Ticket-queue heads** (Immediate steps naming a ticket of an effort queue): after the gate
+step, execute the head end-to-end through its Done-when gate, then per WRITE's boundary
+discipline write the successor headed at the next ticket — and either continue in-session
+while the session is still fresh or stop at the boundary (the successor is the next "hands
+on"). The loop repeats; it STOPS when the successor's head is the effort close-out (queue
+drained). The effort's chosen `Execution order` (map.md line) is the authority for what "next"
+means, not the file's own wording — drift gets surfaced (READ's drift rule), never silently
+picked.
 
 Not for: a "hands on" that names a DIFFERENT artifact (read what it points at
 instead). If `LATEST-next-goal.md` is absent or dangling, say so and ask before
@@ -178,3 +214,5 @@ stale pointer executes the wrong goal. The symlink lives in gitignored
 | Skipping the validator/doctor | Steps 3 and 6 of WRITE — exit 0 or fix; never hand off an unvalidated file |
 | "Hands on" treated as "plan the goal" | It means EXECUTE through the done-when gate |
 | Executing the queue head from a stale tree | Step 1: sync-default-branch-cli `--mode rebase` first; detached HEAD → verify `HEAD..origin/main` is 0 before proceeding |
+| New session invents a fresh goal when a queue head exists | Boundary discipline: the successor's `Immediate steps` name the NEXT ticket of the effort's chosen `Execution order` — never an unlinked goal while the queue holds tickets |
+| The loop never ends (every successor invents new work) | Queue-drain termination: empty queue → successor head = effort close-out (map status: complete), the loop STOPS |

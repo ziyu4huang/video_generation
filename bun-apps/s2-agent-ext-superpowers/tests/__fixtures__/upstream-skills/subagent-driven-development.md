@@ -233,6 +233,15 @@ Final review clean + fixes merged → delete THIS plan's workspace (`rm -rf
 <workspace>`); git history is the record. Sibling directories belong to other
 plans; leave them alone. Then superpowers:finishing-a-development-branch.
 
+**Ticket-queue linkage (effort tickets only):** when the plan was seeded from a
+`.planning/<effort>/tickets/` queue and tickets remain in the chosen `Execution order`, the
+close-out's next-goal file (devops `self-reflect-next-goal`, strict v2) carries the queue —
+`Immediate steps` = the next ticket, `Ranked next goals` = the remaining queue + effort
+close-out. The ledger in `<workspace>/progress.md` stays the intra-session recovery
+(survives compaction within the plan); the next-goal file is the inter-session recovery when
+the queue outlives this session. Keep the "never pause between tasks" principle intact —
+within one plan, no new pauses.
+
 ## Rationalizations
 
 | Excuse | Reality |
