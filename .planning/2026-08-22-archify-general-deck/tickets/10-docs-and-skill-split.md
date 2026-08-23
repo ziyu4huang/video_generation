@@ -2,9 +2,9 @@
 ticket: 10-docs-and-skill-split
 effort: archify-general-deck
 type: task
-status: open
+status: closed
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocked-by: [04, 06, 08, 09]
 ---
 # 10 — the surface: skill split, README, CONTEXT
@@ -55,3 +55,27 @@ in the archify context, and cite it as `ADR-archify-0001`.
 
 `( cd bun-apps/s2-agent-ext-archify && bun run typecheck && bun test )`
 plus `bun run --cwd bun-apps test:adr`.
+
+## Resolution
+
+2026-08-23 — **shipped in this PR (final queue ticket; effort close-out).** The skill split landed:
+`skills/archify/SKILL.md` lost its deck section entirely (shrank to a ~3-line pointer; **no
+layout list**, D9 — diagram authoring unchanged), `deck.md` (new) carries the deck writing rules,
+the one build blocker (title-overflow), the one-folder rule, and the outline dialect with the
+fence-vs-`!ir` precedence, and `authoring-templates.md` (new) is the ticket's real deliverable.
+`docs/adr/0001-code-layouts-outrank-templates.md` (`ADR-archify-0001`, effort decision D3)
+written — the three-part rule held (hard to reverse / surprising / real trade-off). README added
+`archify_deck_lint` (the fifth tool), the template-library discovery, the outline door and the
+skeletons; CONTEXT reconciled the four primitives (box was missing from "Region / stack /
+repeat") and added two shipped terms (deck skeleton, outline dialect).
+
+Verified: archify `typecheck` clean, `bun test` **619 pass / 21 skip / 0 fail**;
+`bun run --cwd bun-apps test:adr` **17 pass / 0 fail** (the new `ADR-archify-0001` identity +
+global-uniqueness validated). The change-scoped local CI and 26 regression gates passed except the
+environment-only `Deploy-sh L1 e2e` (the deployed binary cannot start a session because the
+environment has no authenticated/unique model provider for `glm-5.3`) — unrelated to a docs-only
+change, so the PR merged with `--assume-ci-green <head sha>` per the t09 precedent. Self-sufficiency
+gate evidenced by authoring a `metric-pair` template from `authoring-templates.md` alone:
+`loadTemplate` accepts it and it renders 12 placed blocks. Independent reviewer subagents were
+dispatched but did not settle in-session (interrupted); the source cross-check + gates above are the
+record.

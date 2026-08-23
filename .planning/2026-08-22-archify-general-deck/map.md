@@ -2,7 +2,7 @@
 effort: 2026-08-22-archify-general-deck
 created: 2026-08-22
 last: 2026-08-23
-status: active
+status: complete
 ---
 # archify-general-deck — architecture-diagram tool → general slide generator
 
@@ -117,7 +117,7 @@ Phase 3 — the library
 Phase 4 — authoring ergonomics
 - `tickets/08-outline-markdown.md` — task, **closed** 2026-08-23 — Markdown outline → manifest
 - `tickets/09-deck-scaffolds.md` — task, **closed** 2026-08-23 — four reusable deck skeletons
-- `tickets/10-docs-and-skill-split.md` — task, open — SKILL split + README + CONTEXT
+- `tickets/10-docs-and-skill-split.md` — task, **closed** 2026-08-23 — skill split (SKILL.md pointer + deck.md + authoring-templates.md), README/CONTEXT, ADR-archify-0001
 
 **Execution order:** 08 → 09 → 10 (2026-08-23, confirm-gate fast path — fully determined: 08 `blocked-by: [02]` done → frontier; 09 `blocked-by: [08]`; 10 `blocked-by: [04, 06, 08, 09]`; no choice exists)
 
@@ -167,21 +167,19 @@ Recorded in full in `spec.md` §3. The load-bearing ones:
 
 ## Frontier
 
-`tickets/08-outline-markdown.md` — Markdown outline → manifest. Ticket 07 shipped the
-proof deck 2026-08-23: `examples/deck-general/` exercises all seven templates beside the
-code layouts — content lint clean, ooxml lint clean, one folder. To make that possible
-the build path now dispatches through the registry (`registry.render` + `roleOf` into
-both emitters; D3 byte-identity untouched — legacy deck still 5 slides / 388 native
-shapes), and gate 5 is pinned: a template dropped into `$ARCHIFY_TEMPLATES` from outside
-the repo appears in `catalog()` and renders in a built deck. The condensed skill points
-at `examples/minimal.architecture.json` and the three sample decks, and states the
-ask-the-catalog-first rule (D9). Suite 604 pass / 21 skip / 0 fail. Tickets 09 (deck
-scaffolds) and 10 (docs/skill split) follow.
+**Queue drained — effort complete (2026-08-23).** The last ticket, t10 (skill split + docs +
+ADR), shipped 2026-08-23: `skills/archify/` split into `SKILL.md` (diagram-first; deck → pointer,
+no layout list per D9) + `deck.md` + `authoring-templates.md`; `ADR-archify-0001` recorded the D3
+code-layouts-outrank-templates decision; README gained `archify_deck_lint` and the template-library /
+outline-door / skeleton docs; CONTEXT reconciled the four primitives and added `deck skeleton` +
+`outline dialect`. Suite **619 pass / 21 skip / 0 fail**; `test:adr` **17 pass / 0 fail**.
 
-Earlier phases, closed: ticket 11 (one-folder contract; shipped-example conformance
-pinned 2026-08-23), 01+02+03 (template seam; bullets-equivalence first-run pass,
-timeline EXPRESSIBLE), 04 (`archify_deck_lint`; canary +248 tok), 05 (`table`
-primitive), 06 (seven shipped templates + CJK goldens).
+The build path dispatches through the registry (`registry.render` + `roleOf` into both emitters;
+D3 byte-identity untouched — legacy deck still 5 slides / 388 native shapes). The earlier phases are
+all marked closed: ticket 11 (one-folder contract; shipped-example conformance pinned 2026-08-23),
+01+02+03 (template seam; bullets-equivalence first-run pass, timeline EXPRESSIBLE), 04
+(`archify_deck_lint`; canary +248 tok), 05 (`table` primitive), 06 (seven shipped templates + CJK
+goldens), 07 (proof deck), 08 (outline door), 09 (deck skeletons).
 
 ## Fog of war
 
