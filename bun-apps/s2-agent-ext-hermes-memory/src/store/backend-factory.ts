@@ -26,8 +26,11 @@ export async function createSqliteBackend(memoryDir: string): Promise<SqliteBack
 
 /**
  * Build the backend bundle (Backend + MemoryRepository + SessionRepository +
- * CardStore) selected by `config.dbBackend` (default `'sqlite'`). The SurrealDB
- * backend targets a local SurrealDB v3 server and is opt-in via `'surrealdb'`.
+ * CardStore) selected by `config.dbBackend` (default `'surrealdb'` — kcard-parity
+ * D7 flip, 2026-08-23: SurrealDB is the strategic store; sqlite stays as the
+ * permanent backup/escape hatch via explicit `dbBackend: "sqlite"` and as the
+ * automatic fallback in createBackendBundleWithFallback). The SurrealDB backend
+ * targets a local SurrealDB v3 server (embedded-service stance, D5).
  * kp13 Wave A: every bundle carries a cardStore on the SAME backend (sqlite:
  * sharing this bundle's backend handle; surrealdb: over this bundle's
  * SurrealMemoryRepository).
@@ -36,7 +39,7 @@ export async function createBackendBundle(
   config: MemoryConfig,
   memoryDir: string,
 ): Promise<BackendBundle> {
-  switch (config.dbBackend ?? "sqlite") {
+  switch (config.dbBackend ?? "surrealdb") {
     case "sqlite": {
       const backend = await createSqliteBackend(memoryDir);
       return {
@@ -104,7 +107,7 @@ export async function createBackendBundleWithFallback(
     const bundle = await createBackendBundle(config, memoryDir);
     return { bundle, fellBackTo: null };
   } catch (err) {
-    if ((config.dbBackend ?? "sqlite") === "sqlite") throw err; // sqlite IS the floor
+    if ((config.dbBackend ?? "surrealdb") === "sqlite") throw err; // sqlite IS the floor
     const bundle = await createBackendBundle({ ...config, dbBackend: "sqlite" }, memoryDir);
     return { bundle, fellBackTo: "sqlite" };
   }

@@ -1,12 +1,14 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   SEMANTIC_MODEL_DEFAULT,
   defaultEmbedder,
   embedQuery,
   cosine,
   splitFencedYaml,
+  resolveSemanticEmbedConfig,
   type FetchLike,
 } from "../embedding-leaf.js";
+import { publishSeam } from "../seam.js";
 
 describe("splitFencedYaml", () => {
   test("valid fence parses data and returns body", () => {
@@ -83,5 +85,35 @@ describe("defaultEmbedder", () => {
     });
     const embed = defaultEmbedder({ baseUrl: "http://127.0.0.1:1234", fetch: mockFetch });
     await expect(embed(["x"], SEMANTIC_MODEL_DEFAULT)).rejects.toThrow("HTTP 500");
+  });
+});
+
+describe("resolveSemanticEmbedConfig (D8 order: seam → env → defaults)", () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)["__piEmbeddingConfig"];
+  });
+
+  test("unpublished seam + no env → built-in defaults", () => {
+    const r = resolveSemanticEmbedConfig({});
+    expect(r.baseUrl).toBe("http://127.0.0.1:1234");
+    expect(r.model).toBe("text-embedding-bge-m3");
+  });
+
+  test("env wins when the seam is unpublished (override tier for host-less runs)", () => {
+    const r = resolveSemanticEmbedConfig({ SEMANTIC_EMBED_BASE: "http://127.0.0.1:8090", SEMANTIC_EMBED_MODEL: "nomic" });
+    expect(r.baseUrl).toBe("http://127.0.0.1:8090");
+    expect(r.model).toBe("nomic");
+  });
+
+  test("published seam wins over env — the host's baked config governs", () => {
+    publishSeam("__piEmbeddingConfig", { base: "http://localhost:1234", model: "text-embedding-bge-m3" });
+    const r = resolveSemanticEmbedConfig({ SEMANTIC_EMBED_BASE: "http://127.0.0.1:8090", SEMANTIC_EMBED_MODEL: "nomic" });
+    expect(r.baseUrl).toBe("http://localhost:1234");
+    expect(r.model).toBe("text-embedding-bge-m3");
+  });
+
+  test("blank env falls through; legacy LMSTUDIO_BASE_URL alias still honored", () => {
+    const r = resolveSemanticEmbedConfig({ SEMANTIC_EMBED_BASE: "  ", LMSTUDIO_BASE_URL: "http://127.0.0.1:1235" });
+    expect(r.baseUrl).toBe("http://127.0.0.1:1235");
   });
 });

@@ -2,6 +2,12 @@
  * SurrealClient — minimal HTTP client for a SurrealDB v3 server's /sql
  * endpoint. No external dependency: uses the global `fetch`.
  *
+ * Moved from s2-agent-ext-hermes-memory (kcard-parity D4, ticket 01): both
+ * hermes-memory and knowledge-card need a client; core-interface already
+ * hosts shared runtime infra (`embedding-leaf.ts`, `seam.ts`). The hermes
+ * `bumpRoundTrips` perf hook became the injectable `onRoundTrip` option so
+ * the client carries zero consumer coupling.
+ *
  * Variable binding is done by prepending `LET $name = <json>;` statements
  * (JSON.stringify is a valid SurrealQL subset for string/number/bool/null/
  * object/array). The caller passes a final SQL statement; query() returns
@@ -13,9 +19,30 @@
  * Transient retry (connection failure / 5xx / 429) lives here so repository
  * methods just call client.query() and inherit retry. There is no corruption
  * layer — a server has no file-corruption semantics.
+ *
+ * D5 stance: SurrealDB is an embedded local service, not a standalone
+ * server — SURREAL_DEFAULTS is a fixed constant, deliberately with NO
+ * env-override leaf. Only flexibility: the injectable `fetch` (tests) and
+ * constructor options.
  */
 
-import { bumpRoundTrips } from "../../perf.js";
+/** Structural fetch contract — deliberately NOT `typeof fetch`, for the same
+ *  reason as embedding-leaf's FetchLike: this file is compiled by consumers
+ *  whose tsconfigs run DOM-less (lib:["ESNext"] `Response` lacks
+ *  ok/status/text/json — ext-entry typecheck broke on krea2/ltx/zai-mcp).
+ *  The real global fetch satisfies this shape at runtime; default references
+ *  are cast through `unknown` so no program needs DOM types to check us. */
+export interface SurrealFetchResponse {
+  ok: boolean;
+  status: number;
+  json(): Promise<unknown>;
+  text(): Promise<string>;
+}
+
+export type SurrealFetch = (
+  url: string,
+  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+) => Promise<SurrealFetchResponse>;
 
 export interface SurrealClientOptions {
   endpoint: string;       // e.g. http://127.0.0.1:8000
@@ -23,7 +50,7 @@ export interface SurrealClientOptions {
   database: string;       // e.g. memory
   username: string;       // e.g. root
   password: string;       // e.g. root
-  fetch?: typeof fetch;   // injectable for tests
+  fetch?: SurrealFetch;   // injectable for tests
   maxAttempts?: number;   // default 3
   backoffMs?: number;     // default 100
   /** Per-request hard timeout (ms). A hung SurrealDB round-trip would otherwise
@@ -31,24 +58,39 @@ export interface SurrealClientOptions {
    *  a clear error and is NOT retried — a stuck server would just multiply the
    *  bound. Default 10000 (a normal round-trip is ~10–50ms). */
   requestTimeoutMs?: number;
+  /** Called once per HTTP round-trip, before the request is sent. Injected by
+   *  consumers that attribute round-trips to a perf op (hermes: bumpRoundTrips).
+   *  Must not throw — a throwing hook would fail the query itself. */
+  onRoundTrip?: () => void;
 }
+
+/** Fixed local-service defaults (D5): endpoint + root credentials shared by
+ *  every consumer. Namespace/database are per-consumer (hermes: per-user ns +
+ *  `memory`; kcard: per-user ns + `context_db`) and are NOT part of this. */
+export const SURREAL_DEFAULTS = {
+  endpoint: "http://127.0.0.1:8000",
+  username: "root",
+  password: "root",
+} as const;
 
 type StatementResult =
   | { status: "OK"; result: unknown }
   | { status: string; result: unknown };
 
 export class SurrealClient {
-  private readonly fetchFn: typeof fetch;
+  private readonly fetchFn: SurrealFetch;
   private readonly maxAttempts: number;
   private readonly backoffMs: number;
   private readonly requestTimeoutMs: number;
   private readonly auth: string;
+  private readonly onRoundTrip: (() => void) | undefined;
 
   constructor(private readonly opts: SurrealClientOptions) {
-    this.fetchFn = opts.fetch ?? fetch;
+    this.fetchFn = opts.fetch ?? (fetch as unknown as SurrealFetch);
     this.maxAttempts = opts.maxAttempts ?? 3;
     this.backoffMs = opts.backoffMs ?? 100;
     this.requestTimeoutMs = opts.requestTimeoutMs ?? 10000;
+    this.onRoundTrip = opts.onRoundTrip;
     this.auth = "Basic " + btoa(`${opts.username}:${opts.password}`);
   }
 
@@ -59,7 +101,7 @@ export class SurrealClient {
    * early failing statement does NOT halt later ones.
    */
   async query<T = unknown[]>(sql: string, params: Record<string, unknown> = {}): Promise<T> {
-    bumpRoundTrips(); // attribute one HTTP round-trip to the active perf op (no-op outside any timed())
+    this.onRoundTrip?.(); // attribute one HTTP round-trip to the consumer's perf op
     const body = this.buildBody(sql, params);
     const statements = await this.send<StatementResult[]>(body);
     if (statements.length === 0) return [] as unknown as T;
@@ -69,7 +111,7 @@ export class SurrealClient {
         throw new Error(`SurrealDB error: ${detail}`);
       }
     }
-    return statements[statements.length - 1].result as T;
+    return statements.at(-1)!.result as T;
   }
 
   private buildBody(sql: string, params: Record<string, unknown>): string {
@@ -86,7 +128,7 @@ export class SurrealClient {
   private async send<T>(body: string): Promise<T> {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= this.maxAttempts; attempt++) {
-      let res: Response;
+      let res: SurrealFetchResponse;
       try {
         res = await this.fetchFn(`${this.opts.endpoint}/sql`, {
           method: "POST",

@@ -1,15 +1,16 @@
 import type { Backend } from "../repository.js";
 import type { SurrealConnection } from "../../types.js";
-import { SurrealClient } from "./surreal-client.js";
+import { SurrealClient, SURREAL_DEFAULTS } from "@repo/s2-agent-core-interface";
+import { bumpRoundTrips } from "../../perf.js";
 import { SURREAL_BOOTSTRAP_SQL } from "./schema.js";
 import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./per-user-db.js";
 
+// Client + endpoint/credential defaults live in core-interface (kcard-parity
+// D4/D5); the per-user namespace + database name are hermes-owned.
 const DEFAULTS: SurrealConnection = {
-  endpoint: "http://127.0.0.1:8000",
+  ...SURREAL_DEFAULTS,
   namespace: derivePerUserNamespace(),
   database: DEFAULT_SURREAL_DATABASE,
-  username: "root",
-  password: "root",
 };
 
 /**
@@ -32,6 +33,7 @@ export class SurrealBackend implements Backend {
       database: merged.database,
       username: merged.username,
       password: merged.password,
+      onRoundTrip: bumpRoundTrips, // perf attribution (was a hard import inside the client pre-D4)
     });
   }
 

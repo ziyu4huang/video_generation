@@ -62,7 +62,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import { SurrealClient } from "../src/store/surreal/surreal-client.ts";
+import { SurrealClient } from "@repo/s2-agent-core-interface";
 
 // ---------------------------------------------------------------------------
 // Config

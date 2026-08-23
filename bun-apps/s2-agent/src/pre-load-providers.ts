@@ -82,6 +82,10 @@ interface ProviderEntry {
   models: ModelEntry[];
 }
 
+// Canonical embedding model id (D3: bge-m3) — owned by core-interface's
+// embedding leaf; imported so the id lives in exactly one place (§4 below).
+import { SEMANTIC_MODEL_DEFAULT } from "@repo/s2-agent-core-interface";
+
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 // LM Studio runs locally with a fake key; both compat flags are off for every
@@ -343,3 +347,25 @@ export function buildModelTiersJson(config: ModelTierConfig = DEFAULT_MODEL_TIER
 export function shouldEnsureModelTiers(opts: { fileExists: boolean; enabled: boolean }): boolean {
 	return opts.enabled && !opts.fileExists;
 }
+
+// ─── §4 Embedding config (knowledge layer) ────────────────────────────────
+
+/** Baked embedding endpoint + model for the knowledge layer (kcard-parity D8,
+ *  ticket 01): ONE place for all baked model config. `base` is DERIVED from
+ *  the lm-studio PROVIDERS entry (strip the /v1 suffix) — no second copy of
+ *  the endpoint; `model` re-exports core-interface's SEMANTIC_MODEL_DEFAULT
+ *  (D3: bge-m3) so the id lives in exactly one place. Published at startup by
+ *  the pre-load-providers patch via publishSeam("__piEmbeddingConfig", …);
+ *  embedding-leaf.ts resolveSemanticEmbedConfig resolution order = seam → env
+ *  (SEMANTIC_EMBED_* / LMSTUDIO_BASE_URL) → built-in defaults. Pure data —
+ *  publishing happens in the side-effecting patch file, per this module's
+ *  side-effect-free-by-design header. */
+export interface EmbeddingConfig {
+	base: string;
+	model: string;
+}
+
+export const EMBEDDING_CONFIG: EmbeddingConfig = {
+	base: PROVIDERS["lm-studio"]!.baseUrl.replace(/\/v1$/, ""),
+	model: SEMANTIC_MODEL_DEFAULT,
+};
