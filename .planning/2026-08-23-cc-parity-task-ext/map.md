@@ -104,8 +104,9 @@ review of Tasks 4-7 (deferred past a 429 subagent-pool cutoff, resumes after
   whether s2-agent's command registry can be invoked programmatically from an
   extension is unprobed. Ticket 03 ships prompt targets; slash targets follow if the
   probe succeeds.
-- **Label hard limit** — CC has none; we keep a widened guardrail so TUI wrap tests
-  stay meaningful. Exact number decided in ticket 01 against the wrap tests.
+- **Label hard limit** — CC has none; ticket 01 shipped full parity (the 60-char
+  rejection was removed and NO guardrail replaced it) — long labels simply wrap
+  in the TUI.
 
 ## Cross-effort links
 
