@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Change approval: two reviewer lanes, one security gate, a rejection loop",
+    "subtitle": "Open → parallel review → security gate → ship; conflicts go back to the author",
+    "output": "change-approval.workflow.html",
+    "quality_profile": "standard",
+    "views": [
+      { "id": "happy", "label": "Happy path", "focus": ["open", "r1", "sec", "ship"], "note": "One of the two reviewers approves, security clears the change, the release ships." }
+    ]
+  },
+  "lanes": [
+    { "id": "dev", "label": "Developer" },
+    { "id": "ra", "label": "Reviewer A" },
+    { "id": "rb", "label": "Reviewer B" },
+    { "id": "xcp", "label": "Exceptions", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "Intake", "fromCol": 0, "toCol": 1 },
+    { "id": "approve", "label": "Approve", "fromCol": 1, "toCol": 3 },
+    { "id": "ship", "label": "Ship", "fromCol": 3, "toCol": 5 }
+  ],
+  "mainPath": ["open", "r1", "sec", "ship"],
+  "nodes": [
+    { "id": "open", "lane": "dev", "col": 0, "type": "frontend", "label": "Open change", "sublabel": "feature branch" },
+    { "id": "r1", "lane": "ra", "col": 1, "type": "backend", "label": "Review A", "sublabel": "code owner" },
+    { "id": "r2", "lane": "rb", "col": 1, "type": "backend", "label": "Review B", "sublabel": "second pair" },
+    { "id": "sec", "lane": "ra", "col": 3, "type": "security", "label": "Security gate", "sublabel": "policy · secrets" },
+    { "id": "ship", "lane": "dev", "col": 5, "type": "cloud", "label": "Ship", "sublabel": "release train" },
+    { "id": "reject", "lane": "xcp", "col": 1, "type": "security", "label": "Rejected", "sublabel": "conflicts · fail", "tag": "exception" }
+  ],
+  "edges": [
+    { "id": "open-r1", "from": "open", "to": "r1", "label": "request review", "route": "drop" },
+    { "id": "open-r2", "from": "open", "to": "r2", "variant": "emphasis", "fromSide": "bottom", "toSide": "left", "via": [[134, 352]] },
+    { "id": "r1-sec", "from": "r1", "to": "sec", "label": "approve" },
+    { "id": "r2-sec", "from": "r2", "to": "sec", "label": "approve", "route": "drop" },
+    { "id": "sec-ship", "from": "sec", "to": "ship", "label": "clear", "variant": "emphasis", "route": "drop" },
+    { "id": "sec-reject", "from": "sec", "to": "reject", "label": "fail", "variant": "security", "fromSide": "bottom", "toSide": "right", "via": [[476, 493]] },
+    { "id": "reject-open", "from": "reject", "to": "open", "label": "rework", "variant": "dashed", "route": "return-left" }
+  ],
+  "cards": []
+}

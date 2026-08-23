@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Trace pipeline: spans to dashboards, batched in the middle",
+    "subtitle": "Produce → Collect → Analyze; spans are shuffled as one batch, never line-by-line",
+    "output": "trace-pipeline.dataflow.html",
+    "quality_profile": "standard"
+  },
+  "stages": [
+    { "label": "Produce" },
+    { "label": "Collect" },
+    { "label": "Analyze" }
+  ],
+  "nodes": [
+    { "id": "app", "type": "frontend", "label": "Web app", "stage": 0, "row": 0, "sublabel": "spans" },
+    { "id": "agent", "type": "backend", "label": "Collector", "stage": 1, "row": 0, "sublabel": "batch every 5 s", "tag": "async" },
+    { "id": "queue", "type": "messagebus", "label": "Event queue", "stage": 1, "row": 1 },
+    { "id": "store", "type": "database", "label": "Event store", "stage": 2, "row": 0, "tag": "cold" },
+    { "id": "dash", "type": "frontend", "label": "Dashboards", "stage": 2, "row": 1 }
+  ],
+  "flows": [
+    { "id": "f1", "from": "app", "to": "agent", "label": "spans", "variant": "dashed" },
+    { "id": "f2", "from": "agent", "to": "queue", "label": "batch", "variant": "emphasis" },
+    { "id": "f3", "from": "queue", "to": "store", "label": "write" },
+    { "id": "f4", "from": "store", "to": "dash", "label": "queries" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Batch is the design", "items": ["Spans leave the app async — never blocking", "Collector buffers: 38 % hit / 62 % miss is a dashboard answer", "Every flow label is an asset name, not a verb"] }
+  ]
+}

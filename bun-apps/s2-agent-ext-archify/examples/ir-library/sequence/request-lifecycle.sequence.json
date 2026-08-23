@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "One request through the resolver: cache miss makes the DB the story",
+    "subtitle": "GET /resolve — gateway forwards, cache misses, Postgres answers, the response comes back",
+    "output": "request-lifecycle.sequence.html",
+    "quality_profile": "standard",
+    "views": [
+      { "id": "cold", "label": "Cold path", "focus": ["client", "gw", "resolver", "cache", "db"], "note": "The request that pays the full 4.2 s: lookup miss, SQL read, row returned." }
+    ]
+  },
+  "participants": [
+    { "id": "client", "type": "frontend", "label": "Client", "sublabel": "browser" },
+    { "id": "gw", "type": "frontend", "label": "Gateway", "sublabel": "edge" },
+    { "id": "resolver", "type": "backend", "label": "Resolver", "sublabel": "cold path" },
+    { "id": "cache", "type": "database", "label": "Cache", "sublabel": "TTL 5 min" },
+    { "id": "db", "type": "database", "label": "Postgres", "sublabel": "source of truth" }
+  ],
+  "segments": [
+    { "from": 160, "to": 340, "label": "01 / LOOKUP" },
+    { "from": 340, "to": 580, "label": "02 / SOURCE" },
+    { "from": 580, "to": 660, "label": "03 / RESPOND" }
+  ],
+  "messages": [
+    { "id": "m1", "from": "client", "to": "gw", "y": 200, "label": "GET /resolve", "variant": "emphasis" },
+    { "id": "m2", "from": "gw", "to": "resolver", "y": 260, "label": "forward" },
+    { "id": "m3", "from": "resolver", "to": "cache", "y": 320, "label": "lookup miss" },
+    { "id": "m4", "from": "cache", "to": "resolver", "y": 380, "label": "miss", "variant": "return" },
+    { "id": "m5", "from": "resolver", "to": "db", "y": 440, "label": "SELECT" },
+    { "id": "m6", "from": "db", "to": "resolver", "y": 500, "label": "row", "variant": "return" },
+    { "id": "m7", "from": "resolver", "to": "gw", "y": 560, "label": "resolved · 38 ms", "variant": "return" },
+    { "id": "m8", "from": "gw", "to": "client", "y": 620, "label": "200 JSON", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "resolver", "from": 190, "to": 620, "type": "backend" },
+    { "participant": "cache", "from": 300, "to": 340, "type": "database" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Where the 4.2 s goes", "items": ["Cache miss → the resolver waits on SQL", "Return arrows are the resets — one hop at a time", "The DB row is the only cold source; write-back fixes the next request"] },
+    { "dot": "rose", "title": "Copy this pattern", "items": ["One request, every hop a message", "<8 participants, shorter labels win", "Segments name the story phases, not the calls"] }
+  ]
+}

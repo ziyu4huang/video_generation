@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Three services, three domains — the resolver is the hot one",
+    "subtitle": "Gateway fans to resolver / image / notifier; each domain owns one store; the queue decouples the notifier",
+    "output": "service-topology.architecture.html",
+    "quality_profile": "standard",
+    "legend": "variants",
+    "views": [
+      { "id": "request-paths", "label": "Request paths", "focus": ["web", "gw", "resolver", "image", "queue", "notifier"], "note": "Show how one request fans out: resolver and image are sync, the notifier is async via the queue." },
+      { "id": "store-access", "label": "Store access", "focus": ["resolver", "cache", "image", "store"], "note": "Each service touches exactly one store — the seams are the copy-ready boundaries." }
+    ]
+  },
+  "components": [
+    { "id": "web", "type": "frontend", "label": "Web app", "sublabel": "session UI", "pos": [40, 64], "size": [150, 64] },
+    { "id": "gw", "type": "frontend", "label": "API gateway", "sublabel": "auth · routing", "pos": [270, 64], "size": [190, 64] },
+    { "id": "resolver", "type": "backend", "label": "Resolver", "sublabel": "parser · lookup", "pos": [530, 64], "size": [200, 64], "tag": "cold path" },
+    { "id": "cache", "type": "database", "label": "Resolved cache", "sublabel": "p99 4.2 s → 1.8 s", "pos": [800, 64], "size": [180, 64] },
+    { "id": "image", "type": "backend", "label": "Image service", "sublabel": "render · encode", "pos": [530, 280], "size": [200, 64] },
+    { "id": "store", "type": "database", "label": "Blob store", "sublabel": "object storage", "pos": [800, 280], "size": [180, 64] },
+    { "id": "queue", "type": "messagebus", "label": "Task queue", "sublabel": "async jobs", "pos": [270, 500], "size": [190, 64] },
+    { "id": "notifier", "type": "backend", "label": "Notifier", "sublabel": "fan-out worker", "pos": [530, 500], "size": [200, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Resolver domain", "wraps": ["resolver", "cache"] },
+    { "kind": "region", "label": "Media domain", "wraps": ["image", "store"] },
+    { "kind": "security-group", "label": "Data stores", "wraps": ["cache", "store"] }
+  ],
+  "connections": [
+    { "id": "web-gw", "from": "web", "to": "gw", "label": "HTTPS", "variant": "emphasis" },
+    { "id": "gw-resolver", "from": "gw", "to": "resolver", "label": "bypass cache", "variant": "emphasis" },
+    { "id": "gw-image", "from": "gw", "to": "image" },
+    { "id": "gw-queue", "from": "gw", "to": "queue", "label": "tasks", "labelAt": [365, 152], "variant": "dashed" },
+    { "id": "queue-notifier", "from": "queue", "to": "notifier", "variant": "dashed", "route": "straight" },
+    { "id": "resolver-cache", "from": "resolver", "to": "cache", "label": "lookup", "variant": "emphasis" },
+    { "id": "image-store", "from": "image", "to": "store", "label": "blobs" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Domain seams", "items": ["Resolver domain: sync, hot", "Media domain: sync, cold", "Notify domain: async via queue — the only decoupled one"] },
+    { "dot": "cyan", "title": "Copy this pattern", "items": ["One gateway, one queue, three domains", "Each domain owns exactly one store", "Boundaries are the deployment units"] }
+  ]
+}

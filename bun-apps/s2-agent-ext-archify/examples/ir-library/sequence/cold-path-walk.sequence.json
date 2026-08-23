@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Walking the cold path: fill the cache, then the pen drops",
+    "subtitle": "First request: miss + SQL + write-back. Second request: one cache hop.",
+    "output": "cold-path-walk.sequence.html",
+    "quality_profile": "standard"
+  },
+  "participants": [
+    { "id": "client", "type": "frontend", "label": "Client", "sublabel": "session" },
+    { "id": "resolver", "type": "backend", "label": "Resolver", "sublabel": "cold path" },
+    { "id": "cache", "type": "database", "label": "Cache", "sublabel": "TTL 5 min" },
+    { "id": "db", "type": "database", "label": "Postgres", "sublabel": "source of truth" }
+  ],
+  "segments": [
+    { "from": 160, "to": 330, "label": "01 / FILL" },
+    { "from": 350, "to": 490, "label": "02 / MEMBER" },
+    { "from": 510, "to": 665, "label": "03 / PAID" }
+  ],
+  "messages": [
+    { "id": "w1", "from": "client", "to": "resolver", "y": 200, "label": "GET / (cold)", "variant": "emphasis" },
+    { "id": "w2", "from": "resolver", "to": "cache", "y": 260, "label": "lookup" },
+    { "id": "w3", "from": "cache", "to": "resolver", "y": 300, "label": "miss", "variant": "return" },
+    { "id": "w4", "from": "resolver", "to": "db", "y": 380, "label": "SELECT" },
+    { "id": "w5", "from": "db", "to": "resolver", "y": 440, "label": "row", "variant": "return" },
+    { "id": "w6", "from": "resolver", "to": "cache", "y": 480, "label": "write-back", "variant": "emphasis" },
+    { "id": "w7", "from": "resolver", "to": "client", "y": 560, "label": "200 · 4.2 s", "variant": "return" },
+    { "id": "w8", "from": "client", "to": "resolver", "y": 620, "label": "GET / (warm)", "variant": "emphasis" },
+    { "id": "w9", "from": "resolver", "to": "client", "y": 660, "label": "200 · 130 ms", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "resolver", "from": 180, "to": 600, "type": "backend" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "The pen drop", "items": ["First request: 4.2 s — miss, SQL, store", "Second request: 130 ms — cache only", "38 % of requests still never hit the cache"] }
+  ]
+}

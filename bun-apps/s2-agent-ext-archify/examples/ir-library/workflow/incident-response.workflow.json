@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Incident response: triage fast, mitigate, then verify before recover",
+    "subtitle": "Alert → triage → mitigate; verify recovery before closing; severity decides the bridge",
+    "output": "incident-response.workflow.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "oncall", "label": "On-call" },
+    { "id": "bridge", "label": "Bridge" },
+    { "id": "xcp", "label": "Exceptions", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "detect", "label": "Detect", "fromCol": 0, "toCol": 1 },
+    { "id": "triage", "label": "Triage", "fromCol": 1, "toCol": 3 },
+    { "id": "recover", "label": "Recover", "fromCol": 3, "toCol": 5 }
+  ],
+  "groups": [
+    { "id": "mitigation", "label": "Mitigation", "lane": "bridge", "fromCol": 1, "toCol": 3, "variant": "emphasis" }
+  ],
+  "mainPath": ["alert", "triage", "mitigate", "verify", "recover"],
+  "nodes": [
+    { "id": "alert", "lane": "oncall", "col": 0, "type": "frontend", "label": "Alert", "sublabel": "p95 breach" },
+    { "id": "triage", "lane": "oncall", "col": 1, "type": "backend", "label": "Triage", "sublabel": "severity · owner" },
+    { "id": "escalate", "lane": "bridge", "col": 1, "type": "security", "label": "Escalate", "sublabel": "sev-1 page" },
+    { "id": "mitigate", "lane": "bridge", "col": 3, "type": "backend", "label": "Mitigate", "sublabel": "hotfix · rollback" },
+    { "id": "verify", "lane": "bridge", "col": 5, "type": "backend", "label": "Verify", "sublabel": "recovery evidence" },
+    { "id": "recover", "lane": "oncall", "col": 5, "type": "cloud", "label": "Recover", "sublabel": "close incident" },
+    { "id": "gap", "lane": "xcp", "col": 4, "type": "security", "label": "No verify", "sublabel": "missing evidence", "tag": "exception" }
+  ],
+  "edges": [
+    { "id": "alert-triage", "from": "alert", "to": "triage", "label": "auto" },
+    { "id": "triage-escalate", "from": "triage", "to": "escalate", "label": "sev-1", "fromSide": "bottom", "toSide": "top" },
+    { "id": "triage-mitigate", "from": "triage", "to": "mitigate", "label": "sev-2", "variant": "emphasis" },
+    { "id": "mitigate-verify", "from": "mitigate", "to": "verify", "label": "fix in prod" },
+    { "id": "verify-recover", "from": "verify", "to": "recover", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "id": "verify-gap", "from": "verify", "to": "gap", "label": "skipped", "variant": "security", "fromSide": "bottom", "toSide": "top" },
+    { "id": "gap-recover", "from": "gap", "to": "recover", "variant": "dashed", "route": "up-channel", "fromSide": "top", "toSide": "bottom" }
+  ],
+  "cards": []
+}

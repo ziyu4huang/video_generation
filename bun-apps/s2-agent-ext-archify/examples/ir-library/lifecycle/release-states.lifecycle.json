@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "Release train states: gating is where a release earns its keep",
+    "subtitle": "Queued → gating → verifying; checks pass to shipped, or the error budget fails the release",
+    "output": "release-states.lifecycle.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    { "id": "main", "label": "Lifecycle phases" },
+    { "id": "waiting", "label": "Interruptions" },
+    { "id": "terminal", "label": "Terminal exits" }
+  ],
+  "states": [
+    { "id": "queued", "type": "start", "label": "Queued", "sublabel": "release candidate", "lane": "main", "col": 0, "step": "01" },
+    { "id": "gating", "type": "active", "label": "Gating", "sublabel": "SLO + security checks", "lane": "main", "col": 2, "step": "02" },
+    { "id": "verify", "type": "waiting", "label": "Verifying", "sublabel": "canary evidence", "lane": "waiting", "col": 0 },
+    { "id": "shipped", "type": "success", "label": "Shipped", "sublabel": "full rollout", "lane": "terminal", "col": 0, "step": "03" },
+    { "id": "failed", "type": "failure", "label": "Failed", "sublabel": "gate refused", "lane": "terminal", "col": 2 }
+  ],
+  "transitions": [
+    { "id": "t1", "from": "queued", "to": "gating", "variant": "emphasis" },
+    { "id": "t2", "from": "gating", "to": "verify", "label": "checks", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t3", "from": "verify", "to": "shipped", "label": "pass", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "id": "t4", "from": "verify", "to": "failed", "label": "fail", "variant": "dashed", "fromSide": "right", "toSide": "top" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Gating is the busy state", "items": ["Every release the gate has ever refused, ends in Failed", "Shipping needs evidence — verify is a state, not a checkbox", "Terminal lanes show two outcomes so the story is honest"] }
+  ]
+}

@@ -49,6 +49,9 @@ Phase 1 — copy-adapt IR library (this session)
 - `tickets/10-ir-library.md` — task, **open** — ~15 validated IRs + catalog + flagship deck + gate
 - `tickets/11-docs-and-discovery.md` — task, **open** — lint catalog reporting, README/SKILL/docs index
 
+**Execution order:** 10 → 11 (fully forced: 11 `blocking: 10`)
+
+
 Phase 2 — authoring-flow tooling
 - `tickets/20-mermaid-converter.md` — task, **open** — mermaid → validated IR console step
 

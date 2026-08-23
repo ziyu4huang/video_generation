@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Event ETL: clickstream to lake, one PII fence at the ingest boundary",
+    "subtitle": "Sources → Ingest → Store → Serve; PII-touch events are classified at the edge, not the lake",
+    "output": "etl-pipeline.dataflow.html",
+    "quality_profile": "standard"
+  },
+  "stages": [
+    { "label": "Sources" },
+    { "label": "Ingest" },
+    { "label": "Store" },
+    { "label": "Serve" }
+  ],
+  "nodes": [
+    { "id": "click", "type": "frontend", "label": "Web app", "stage": 0, "row": 0, "sublabel": "clickstream" },
+    { "id": "logs", "type": "backend", "label": "Service logs", "stage": 0, "row": 1 },
+    { "id": "kafka", "type": "messagebus", "label": "Kafka", "stage": 1, "row": 0, "sublabel": "accepted events", "tag": "PII fence" },
+    { "id": "lake", "type": "database", "label": "Parquet lake", "stage": 2, "row": 0, "sublabel": "daily partition" },
+    { "id": "dash", "type": "frontend", "label": "Dashboards", "stage": 3, "row": 0 },
+    { "id": "models", "type": "backend", "label": "Batch models", "stage": 3, "row": 1, "sublabel": "nightly feature build" }
+  ],
+  "flows": [
+    { "id": "f1", "from": "click", "to": "kafka", "label": "clickstream", "classification": "PII touch", "variant": "security" },
+    { "id": "f2", "from": "logs", "to": "kafka", "label": "logs", "variant": "dashed" },
+    { "id": "f3", "from": "kafka", "to": "lake", "label": "batch", "variant": "emphasis" },
+    { "id": "f4", "from": "lake", "to": "dash", "label": "queries" },
+    { "id": "f5", "from": "lake", "to": "models", "label": "features", "variant": "dashed" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "The fence", "items": ["PII classification happens at the source, once", "The lake never receives raw credentials — it sees the classification", "Two sinks from one lake: interactive (dash) and batch (models)"] }
+  ]
+}
