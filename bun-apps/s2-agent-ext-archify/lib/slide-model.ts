@@ -42,9 +42,15 @@ export interface BulletItem {
   level?: number;
 }
 
+/**
+ * What goes inside a placed block. `role` is a `string`, not `Role`: layout
+ * templates declare their own role names, and `Role` widens here — the emitter
+ * boundary — only. Code layouts keep the narrow union via `layouts.ts`'s
+ * private `text()` wrapper.
+ */
 export type BlockContent =
-  | { kind: "text"; role: Role; text: string }
-  | { kind: "bullets"; role: Role; items: BulletItem[] }
+  | { kind: "text"; role: string; text: string }
+  | { kind: "bullets"; role: string; items: BulletItem[] }
   /**
    * A rendered archify diagram. `ir` is an absolute path to the IR .json.
    *

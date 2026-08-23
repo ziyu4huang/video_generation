@@ -99,15 +99,15 @@ the set of available layouts is knowable only by reading `SKILL.md`.
 ## Tickets
 
 Phase 1 — the template seam
-- `tickets/01-template-schema-and-resolver.md` — task, open — schema + `region/stack/repeat/box` resolver
-- `tickets/02-layout-registry.md` — task, open — search path, precedence, role merging
-- `tickets/03-bullets-equivalence.md` — task, open — **the vocabulary's acceptance bar**
+- `tickets/01-template-schema-and-resolver.md` — task, **done** 2026-08-23 — schema + `region/stack/repeat/box` resolver
+- `tickets/02-layout-registry.md` — task, **done** 2026-08-23 — search path, precedence, role merging
+- `tickets/03-bullets-equivalence.md` — task, **done** 2026-08-23 — **the vocabulary's acceptance bar** (equivalence passed first full run; no gap)
 
 Phase 2 — the agent surface
 - `tickets/04-deck-lint-tool.md` — task, open — `archify_deck_lint`: catalog + renderless lint
 
 Phase 2.5 — output packaging (added 2026-08-23)
-- `tickets/11-self-contained-output.md` — task, open — one-folder deliverable contract + spread advisory (D9)
+- `tickets/11-self-contained-output.md` — task, **in progress** — one-folder contract + spread advisory landed 2026-08-23; example-conformance test still owed
 
 Phase 3 — the library
 - `tickets/05-table-primitive.md` — task, open — `BlockContent.kind: "table"`, both emitters
@@ -165,18 +165,16 @@ Recorded in full in `spec.md` §3. The load-bearing ones:
 
 ## Frontier
 
-`tickets/11-self-contained-output.md` first — it is independent of the template seam,
-small, and answers a standing user requirement ("one deliverable = one folder") observed
-in every deck under ~/proj/output. Then the unit below.
-
-`tickets/03-bullets-equivalence.md` — **write this test before ticket 01's resolver is
-finished**, not after. It reconstructs the shipped `bullets` layout purely in template
-vocabulary and asserts `formatBlocks()` output is line-for-line identical to the code layout.
-It is the only check that answers "is this vocabulary actually sufficient, or is it merely
-sufficient for the seven templates I happened to pick?" — and a vocabulary gap found here is
-cheap, while the same gap found at ticket 06 invalidates seven files.
-
-Tickets 01 and 02 are its prerequisites and should be worked as one unit with it.
+`tickets/04-deck-lint-tool.md` — the agent surface. Phase 1 closed 2026-08-23: tickets
+01+02+03 landed as one unit (shared `lib/blocks.ts` constructors, `lib/layout-template.ts`
+resolver, `lib/layout-registry.ts` three-tier precedence, `roleOf` refactor in both
+emitters). Ticket 03's equivalence **passed on the first full run — zero vocabulary gap**,
+so the Fog-of-war question "is the vocabulary sufficient?" is answered YES for a layout
+designed before it existed; ticket 01's timeline walk also resolved EXPRESSIBLE (rule-first
+sibling + repeat, pinned as `layout-template.test.ts` "timeline vocabulary verdict").
+Ticket 04 is next because the seven shipped templates of ticket 06 need the catalog +
+renderless lint to be authorable by an agent at all, and its slot validation is what makes
+template errors legible. Suite went 505 → 544 passing, 0 failing.
 
 ## Fog of war
 

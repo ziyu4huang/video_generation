@@ -36,7 +36,13 @@
  *
  *     --pt: calc(100cqw / 960);   font-size: calc(var(--pt) * 26);
  */
-import { bulletSizePt, TYPE_SCALE, type Palette, type Role, type Theme } from "./deck-theme.ts";
+import {
+  bulletSizePt,
+  builtinRoleOf,
+  type Palette,
+  type Theme,
+  type TypeSpec,
+} from "./deck-theme.ts";
 import type { PlacedBlock } from "./slide-model.ts";
 
 export interface EmitHtmlCtx {
@@ -51,6 +57,11 @@ export interface EmitHtmlCtx {
    * framed area rather than a broken frame.
    */
   diagramSrc: Map<string, DiagramEmbed>;
+  /**
+   * Role → type spec, `{ ...TYPE_SCALE, ...template.roles }` when the slide's
+   * layout is a template. Omitted ⇒ the builtin scale (§4.5).
+   */
+  roleOf?: (role: string) => TypeSpec;
 }
 
 export interface DiagramEmbed {
@@ -84,8 +95,8 @@ function place(b: PlacedBlock): string {
 
 const JUSTIFY: Record<string, string> = { top: "flex-start", middle: "center", bottom: "flex-end" };
 
-function typeCss(role: Role, palette: Palette): string {
-  const spec = TYPE_SCALE[role];
+function typeCss(role: string, palette: Palette, roleOf: (role: string) => TypeSpec): string {
+  const spec = roleOf(role);
   const parts = [
     `font-size:calc(var(--pt) * ${spec.sizePt})`,
     `color:#${palette[spec.color]}`,
@@ -99,6 +110,7 @@ function typeCss(role: Role, palette: Palette): string {
 /** Render the blocks of ONE composed slide into a standalone page. */
 export function emitHtmlSlide(blocks: PlacedBlock[], ctx: EmitHtmlCtx): string {
   const p = ctx.palette;
+  const roleOf = ctx.roleOf ?? builtinRoleOf;
   const body: string[] = [];
 
   for (const block of blocks) {
@@ -123,7 +135,8 @@ export function emitHtmlSlide(blocks: PlacedBlock[], ctx: EmitHtmlCtx): string {
         body.push(
           `<div class="b tx" style="${place(block)};justify-content:${justify};text-align:${align};${typeCss(
             c.role,
-            p
+            p,
+            roleOf
           )}"><span>${esc(c.text)}</span></div>`
         );
         break;
@@ -141,7 +154,7 @@ export function emitHtmlSlide(blocks: PlacedBlock[], ctx: EmitHtmlCtx): string {
           .join("");
         body.push(
           `<div class="b tx" style="${place(block)};justify-content:${justify}">` +
-            `<ul style="line-height:${TYPE_SCALE.bullet.lineSpacing ?? 1.35}">${items}</ul></div>`
+            `<ul style="line-height:${roleOf("bullet").lineSpacing ?? 1.35}">${items}</ul></div>`
         );
         break;
       }

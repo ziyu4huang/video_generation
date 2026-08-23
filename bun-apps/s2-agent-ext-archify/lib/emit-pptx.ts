@@ -17,10 +17,12 @@
  */
 import {
   bulletSizePt,
+  builtinRoleOf,
   TYPE_SCALE,
   type Palette,
   type Role,
   type Theme,
+  type TypeSpec,
 } from "./deck-theme.ts";
 import { addShapeIrToSlide, type Box, type SlideLike } from "./pptx-shapes.ts";
 import type { ShapeIR } from "./shape-ir.ts";
@@ -38,6 +40,12 @@ export interface EmitPptxCtx {
    * against a spy slide.
    */
   diagrams: Map<string, ShapeIR>;
+  /**
+   * Role → type spec, `{ ...TYPE_SCALE, ...template.roles }` when the slide's
+   * layout is a template. Omitted ⇒ the builtin scale, which is what keeps
+   * code-layout output unchanged (§4.5).
+   */
+  roleOf?: (role: string) => TypeSpec;
 }
 
 export interface EmitResult {
@@ -59,8 +67,8 @@ const AUTOFIT_ROLES: ReadonlySet<Role> = new Set<Role>([
   "statement",
 ]);
 
-function textOptions(role: Role, ctx: EmitPptxCtx): Record<string, unknown> {
-  const spec = TYPE_SCALE[role];
+function textOptions(role: string, ctx: EmitPptxCtx): Record<string, unknown> {
+  const spec = ctx.roleOf ? ctx.roleOf(role) : builtinRoleOf(role);
   return {
     fontFace: ctx.font,
     fontSize: spec.sizePt,
@@ -68,7 +76,7 @@ function textOptions(role: Role, ctx: EmitPptxCtx): Record<string, unknown> {
     ...(spec.bold ? { bold: true } : {}),
     ...(spec.tracking !== undefined ? { charSpacing: spec.tracking } : {}),
     ...(spec.lineSpacing !== undefined ? { lineSpacingMultiple: spec.lineSpacing } : {}),
-    ...(AUTOFIT_ROLES.has(role) ? { fit: "shrink" } : {}),
+    ...((spec.autofit ?? AUTOFIT_ROLES.has(role as Role)) ? { fit: "shrink" } : {}),
   };
 }
 

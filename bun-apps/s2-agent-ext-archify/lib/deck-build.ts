@@ -35,6 +35,7 @@ import { PALETTES, type Palette, type Theme } from "./deck-theme.ts";
 import { emitHtmlSlide, type DiagramEmbed } from "./emit-html.ts";
 import { emitPptxSlide, type SlideLike } from "./emit-pptx.ts";
 import { layoutFor } from "./layouts.ts";
+import { loadRegistry } from "./layout-registry.ts";
 import { loadIrMeta } from "./load-ir.ts";
 import { formatShapeIR, toShapeIR, type ShapeIR } from "./shape-ir.ts";
 import {
@@ -148,8 +149,14 @@ export interface DeckResult {
   slidesDir?: string;
 }
 
+/** The slice of the registry manifest validation needs. */
+export interface LayoutNames {
+  has(name: string): boolean;
+  names(): string[];
+}
+
 /** Parse + shape-check a manifest. Throws `DeckError` with a printable message. */
-export function parseManifest(raw: string, source: string): DeckManifest {
+export function parseManifest(raw: string, source: string, registry?: LayoutNames): DeckManifest {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -165,22 +172,23 @@ export function parseManifest(raw: string, source: string): DeckManifest {
   if (!Array.isArray(m.slides) || m.slides.length === 0) {
     throw new DeckError("manifest missing non-empty `slides`");
   }
+  const available: readonly string[] = registry ? registry.names() : SLIDE_LAYOUTS;
   m.slides.forEach((s, i) => {
     const where = `slide ${i + 1}`;
     if (!s || typeof s !== "object") throw new DeckError(`${where}: not an object`);
     if (typeof s.title !== "string" || s.title === "") {
       throw new DeckError(`${where}: missing \`title\``);
     }
-    if (s.layout !== undefined && !SLIDE_LAYOUTS.includes(s.layout)) {
+    if (s.layout !== undefined && !available.includes(s.layout)) {
       throw new DeckError(
         `${where}: unknown \`layout\` ${JSON.stringify(s.layout)} — ` +
-          `expected one of ${SLIDE_LAYOUTS.join(", ")}`
+          `expected one of ${available.join(", ")}`
       );
     }
     if (s.layout === undefined && typeof s.ir !== "string") {
       throw new DeckError(
         `${where}: needs either an \`ir\` (a diagram slide) or an explicit \`layout\` ` +
-          `(one of ${SLIDE_LAYOUTS.join(", ")}).`
+          `(one of ${available.join(", ")}).`
       );
     }
     if (s.ir !== undefined && (typeof s.ir !== "string" || s.ir === "")) {
@@ -507,12 +515,17 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
 /** Resolve a manifest path + its output path the way both entry points expect. */
 export async function loadManifestFile(
   manifestPath: string,
-  cwd: string
+  cwd: string,
+  registry?: LayoutNames
 ): Promise<{ manifest: DeckManifest; manifestDir: string; manifestAbs: string }> {
   const manifestAbs = isAbsolute(manifestPath) ? manifestPath : resolve(cwd, manifestPath);
   const file = Bun.file(manifestAbs);
   if (!(await file.exists())) throw new DeckError(`manifest not found: ${manifestAbs}`);
-  const manifest = parseManifest(await file.text(), manifestAbs);
+  // No registry supplied ⇒ build one scoped to the manifest, so its
+  // `<manifestDir>/templates` tier and any $ARCHIFY_TEMPLATES the caller set
+  // are on the search path when `layout:` values are validated.
+  const reg = registry ?? loadRegistry({ manifestDir: dirname(manifestAbs) });
+  const manifest = parseManifest(await file.text(), manifestAbs, reg);
   return { manifest, manifestDir: dirname(manifestAbs), manifestAbs };
 }
 

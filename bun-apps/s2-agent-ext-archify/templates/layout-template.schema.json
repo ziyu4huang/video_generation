@@ -1,0 +1,184 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "layout-template.schema.json",
+  "title": "Archify layout template",
+  "description": "A *.layout.json defines one slide layout as data: slots, roles and geometry. Four primitives only — region | stack | repeat | box. All arithmetic lives in the resolver; a template file must never contain a number that depends on a count.",
+  "type": "object",
+  "required": ["name", "description", "body"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "The layout: value a manifest slide uses. Must not name one of the six code layouts."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the catalog shows the agent. The agent reads THIS."
+    },
+    "chrome": {
+      "description": "Wear the shared frame (tag chip, action title, accent rule, footer, page number)? Default true.",
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "properties": { "title": { "const": false } }
+        }
+      ]
+    },
+    "slots": {
+      "type": "object",
+      "description": "Named holes this template declares and a slide fills.",
+      "additionalProperties": { "$ref": "#/$defs/slot" }
+    },
+    "roles": {
+      "type": "object",
+      "description": "Role overrides merged over the builtin type scale. color must be an existing Palette key.",
+      "additionalProperties": { "$ref": "#/$defs/role" }
+    },
+    "body": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rootNode" }
+    }
+  },
+  "$defs": {
+    "slot": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["text", "array"] },
+        "of": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Array slots only: item fields a from-token may name; trailing ? marks optional."
+        },
+        "min": { "type": "integer", "minimum": 1 },
+        "max": { "type": "integer", "minimum": 1 },
+        "required": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sizePt": { "type": "number", "exclusiveMinimum": 0 },
+        "bold": { "type": "boolean" },
+        "color": {
+          "type": "string",
+          "description": "A Palette key, never a literal colour.",
+          "enum": [
+            "slideBg", "title", "accent", "subtitle", "tagBg", "tagBorder",
+            "body", "muted", "statement", "panelBg", "panelBorder",
+            "sectionBg", "sectionFg"
+          ]
+        },
+        "tracking": { "type": "number" },
+        "lineSpacing": { "type": "number" },
+        "autofit": { "type": "boolean", "description": "Opt long text into fit: shrink." }
+      }
+    },
+    "binding": {
+      "type": "string",
+      "description": "Literal text with enumerated {tokens}: {field}, {slide.<key>}, {index0}, {index1}. No arithmetic, ever."
+    },
+    "boxSpec": {
+      "oneOf": [
+        { "const": "fill" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inset"],
+          "properties": {
+            "inset": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 4,
+              "maxItems": 4,
+              "description": "[left, top, right, bottom] in inches"
+            }
+          }
+        }
+      ]
+    },
+    "content": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["text", "bullets", "diagram", "rule", "panel"] },
+        "role": { "type": "string" },
+        "from": { "$ref": "#/$defs/binding" },
+        "tone": { "enum": ["tag", "section"] }
+      }
+    },
+    "rootNode": {
+      "type": "object",
+      "description": "A root node binds one of the two regions, then applies exactly one primitive.",
+      "required": ["region"],
+      "properties": {
+        "region": {
+          "enum": ["content", "full"],
+          "description": "content = the takeaway-aware well (y 1.4 / 1.5 with a takeaway); full = the whole stage. CONTENT is deliberately NOT a region (D3 lock)."
+        }
+      },
+      "allOf": [{ "$ref": "#/$defs/primitive" }]
+    },
+    "scopeNode": {
+      "type": "object",
+      "description": "A node inside an already-resolved scope: exactly one of stack | repeat | box.",
+      "allOf": [{ "$ref": "#/$defs/primitive" }]
+    },
+    "primitive": {
+      "description": "Exactly one of stack | repeat | box. Deliberately tolerant of extra keys: a rootNode carries `region` beside the primitive, and JSON Schema's allOf cannot tighten additionalProperties through a $ref. The resolver is the authority on unknown keys.",
+      "oneOf": [
+        {
+          "required": ["stack"],
+          "properties": {
+            "stack": {
+              "type": "object",
+              "required": ["dir", "weights", "gap"],
+              "additionalProperties": false,
+              "properties": {
+                "dir": { "enum": ["row", "col"], "description": "col = columns side by side; row = rows stacked." },
+                "weights": { "type": "array", "minItems": 2, "items": { "type": "number", "exclusiveMinimum": 0 } },
+                "gap": { "type": "number", "minimum": 0, "description": "Inches between cells." }
+              }
+            },
+            "children": { "type": "array", "items": { "$ref": "#/$defs/scopeNode" } }
+          }
+        },
+        {
+          "required": ["repeat"],
+          "properties": {
+            "repeat": {
+              "type": "object",
+              "required": ["over", "flow", "gap"],
+              "additionalProperties": false,
+              "properties": {
+                "over": { "type": "string", "description": "An array slot declared in slots." },
+                "flow": { "enum": ["row", "col"] },
+                "gap": { "type": "number", "minimum": 0 },
+                "max": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "cell": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/scopeNode" } }
+          }
+        },
+        {
+          "required": ["box", "content"],
+          "properties": {
+            "box": { "$ref": "#/$defs/boxSpec" },
+            "content": { "$ref": "#/$defs/content" },
+            "align": { "enum": ["left", "center", "right"] },
+            "valign": { "enum": ["top", "middle", "bottom"] }
+          }
+        }
+      ]
+    }
+  }
+}
