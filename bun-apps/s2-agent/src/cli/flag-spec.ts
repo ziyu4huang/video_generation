@@ -18,7 +18,7 @@
  * = add ONE row to the relevant owner group below.
  *
  * Flags whose handling doesn't fit the uniform table shape (--verbose repeatable,
- * --mode enum, --tools CSV, --append-system-prompt file-or-text, --dpi range,
+ * --mode enum, --tools CSV, --append-system-prompt file-or-text, --scale range,
  * -e/--extension, --help, --version, the `--` separator) stay INLINE in the
  * parse loop in args.ts.
  */
@@ -36,7 +36,7 @@ export type NumericField =
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
-	| "extract"
+	| "extract" | "note" | "lang"
 	| "vlmModel" | "source" | "sourceLabel"
 	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend"
 	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
@@ -123,7 +123,9 @@ const VLM_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--out", field: "out" }, // shared: file2md, pdf-to-vault
 	{ flag: "--type", field: "type" }, // shared
 	{ flag: "--pages", field: "pages" }, // shared
-	{ flag: "--extract", field: "extract" }, // file2md (vlm|text|hybrid)
+	{ flag: "--extract", field: "extract" }, // file2md (auto|text|ocr|vlm)
+	{ flag: "--note", field: "note" }, // file2md (summary|verbatim|hybrid)
+	{ flag: "--lang", field: "lang" }, // file2md (en|chi_sim|en+chi_sim)
 ];
 
 // ── pdf-to-vault — stage-1 model ────────────────────────────────────────────

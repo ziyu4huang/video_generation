@@ -42,7 +42,7 @@
  *
  * Standard-shape flags (value, numeric, boolean) are declared in tables below —
  * adding one is a single row. Special-shape flags (--verbose with its repeatable
- * + peek-numeric forms, --mode enum, --tools CSV, --dpi 1–4096 range,
+ * + peek-numeric forms, --mode enum, --tools CSV, --scale 0.1–16 range, --note enum, --lang,
  * --append-system-prompt file-or-text, -e/--extension ignored-with-value) stay
  * inline because their handling doesn't fit a uniform pattern.
  */
@@ -75,14 +75,18 @@ export interface ParsedArgs {
 	maxNotes?: number;
 	/** file2md: output root dir (default: ./vlm-out) */
 	out?: string;
-	/** file2md: rasterization DPI for PDFs (default 150) */
-	dpi?: number;
+	/** file2md: raster scale factor for OCR/vision page images (default 2 ≈ 144 dpi) */
+	scale?: number;
 	/** file2md: force a doc profile, skipping the VLM classifier */
 	type?: string;
 	/** file2md: only process these pages (1-indexed, e.g. "1,3-5") */
 	pages?: string;
-	/** file2md: extraction strategy vlm|text|hybrid (default vlm). */
+	/** file2md: pipeline mode auto|text|ocr|vlm (default auto). */
 	extract?: string;
+	/** file2md: VLM page-note style summary|verbatim|hybrid (default hybrid). */
+	note?: string;
+	/** file2md: OCR language + note hint (en | chi_sim | en+chi_sim; default en). */
+	lang?: string;
 	/** pdf-to-vault pipeline: stage 1 (vlm) model — the ONLY stage-specific
 	 *  model. Stage 2 (distill) reuses the global --model passthrough. */
 	vlmModel?: string;
@@ -290,7 +294,7 @@ function parseNumericFlag(
 // parsePiArgs imports the merged tables + field-name unions and stays the
 // single public parser. Adding a standard flag = one row in flag-spec.ts.
 // Special-shape flags (--verbose repeatable, --mode enum, --tools CSV,
-// --append-system-prompt, --dpi, -e, --help, --version, `--`) stay inline below.
+// --append-system-prompt, --scale, -e, --help, --version, `--`) stay inline below.
 import {
 	VALUE_FLAGS,
 	NUMERIC_FLAGS,
@@ -396,25 +400,21 @@ export function parsePiArgs(
 		}
 		if (numHandled) continue;
 
-		// --dpi (numeric; must be a positive integer — it feeds rasterization, so a
-		// bad value would either silently fall back (Number("abc")||150) or produce a
-		// broken render (negative/zero DPI → opaque per-page "unknown error")). 4096
-		// is already enormous (a letter page → ~50k px); unique 1–4096 range, so it
-		// stays inline rather than joining NUMERIC_FLAGS.
+		// --scale (numeric; positive float — it feeds pdfium rasterization for
+		// OCR/vision page images. A bad value would silently fall back or produce
+		// a broken render; 1 = ~72dpi, 2 (default) ≈ 144dpi, 4 = 288dpi (OCR ~
+		// usable to 300dpi for small print). Cap at 16 — beyond that a letter page
+		// exceeds 20k px and buys nothing.
 		{
-			const d = take("--dpi");
+			const d = take("--scale");
 			if (d !== undefined) {
 				const n = Number(d);
-				// enforce INTEGER too: the comment + error message both say "positive
-				// integer", but a range-only guard let fractional values (e.g. 1.5) slip
-				// through to rasterization (`-density`), which is nonsensical. Caught by
-				// the offline e2e arg-validation suite.
-				if (!Number.isFinite(n) || n <= 0 || n > 4096 || !Number.isInteger(n)) {
+				if (!Number.isFinite(n) || n <= 0 || n > 16) {
 					throw new Error(
-						`Invalid --dpi "${d}" — use a positive integer between 1 and 4096 (e.g. 150).`,
+						`Invalid --scale "${d}" — use a positive number between 0.1 and 16 (e.g. 2 for ~144dpi).`,
 					);
 				}
-				out.dpi = n;
+				out.scale = n;
 				i++;
 				continue;
 			}

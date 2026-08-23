@@ -336,8 +336,10 @@ The dist runs with zero network and zero package installation — enforced, not 
   obsidian seeds a fresh vault on a portable machine from `vault-template/` (shipped via
   `copy:`, located through `require("#pi/ext-dir")`).
 - **Excluded, with reasons**:
-  `file2md` (mupdf native/wasm + a hard LM Studio localhost dependency — not portable), the
-  director/MCP wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool`,
+  `file2md` (v2 is bun-only — pdfjs text + vendored dsh-cowork office + pdfium wasm + tesseract
+  wasm OCR with an optional local vision tier — but stays out of the portable core by size/scope
+  policy; its package structure is deploy-ready, see `ADR-file2md-0001`), the director/MCP
+  wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool`,
   `archify` — bound to this machine's swift CLIs and services), and repo-internal tooling
   (`devops`, `tool-gate`). All stay available through the legacy source/run-dir modes.
 - **Host modules**: `@earendil-works/pi-ai` (+`/compat`) — already compiled in via pi-coding-agent,

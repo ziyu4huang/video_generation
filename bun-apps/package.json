@@ -27,5 +27,8 @@
     "test:isolation": "bun test tests/extension-isolation-contract.test.ts",
     "test:lint-coverage": "bun test tests/lint-executor-coverage.test.ts",
     "typecheck:ext": "bun scripts/ext-entry-typecheck.ts"
+  },
+  "dependencies": {
+    "pdfium-wasm": "^0.0.2"
   }
 }

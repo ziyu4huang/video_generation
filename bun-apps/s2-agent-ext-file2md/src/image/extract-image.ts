@@ -1,14 +1,14 @@
 // src/image/extract-image.ts — image input branch (ticket 07 #3): OCR via the
-// one-shot Swift Vision CLI, optional describe via the shared VLM seam
-// (askImage → lm-studio google/gemma-4-12b), merged into ONE atomic
-// kind=image vault-md card. Graceful degradation (decision #5): VLM failure
-// → OCR-only card + stderr warning; both stages failing → throw.
+// vendored tesseract-wasm layer (v2), optional describe via the shared VLM
+// seam (askImage → vision tier), merged into ONE atomic kind=image vault-md
+// card. Graceful degradation (decision #5): VLM failure → OCR-only card +
+// stderr warning; both stages failing → throw.
 
 import { readFileSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
+import { type OcrResult, ocrImageFile } from "../ocr/ocr.ts";
 import { askImage } from "../vlm/ask.js";
 import { buildImageCardMarkdown, imageCardId, mergeImageContent, sha256Hex } from "./image-card.js";
-import { type OcrResult, runVisionOcr } from "./ocr.js";
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"]);
 
@@ -40,7 +40,7 @@ export async function askImageDescribe(imagePath: string): Promise<DescribeResul
 }
 
 export interface ExtractImageOpts {
-  /** OCR stage — default runVisionOcr (Swift Vision CLI via Bun.spawn). */
+  /** OCR stage — default ocrImageFile (vendored tesseract-wasm, bun-only). */
   ocr?: (imagePath: string) => Promise<OcrResult | undefined>;
   /** Describe stage — default askImageDescribe (askImage → lm-studio gemma). */
   describe?: (imagePath: string) => Promise<DescribeResult>;
@@ -58,7 +58,7 @@ export interface ExtractImageResult {
 
 export async function extractImageCard(imagePath: string, opts: ExtractImageOpts = {}): Promise<ExtractImageResult> {
   const abs = isAbsolute(imagePath) ? imagePath : resolve(imagePath);
-  const ocr = opts.ocr ?? runVisionOcr;
+  const ocr = opts.ocr ?? ocrImageFile;
   const describe = opts.describe ?? askImageDescribe;
   const created = (opts.now ?? (() => new Date().toISOString().slice(0, 10)))();
   const warnings: string[] = [];

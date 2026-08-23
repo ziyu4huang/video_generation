@@ -1,3 +1,27 @@
+# file2md v2 architecture — bun-only, text-first
+
+v1's machine-bound chain (mupdf text, macOS PDFKit/pdf2image raster, Swift Vision
+OCR, mandatory LM Studio) is gone. v2 conversion of one file:
+
+```
+input bytes
+  ├─ detectKind()          MECHANICAL  magic bytes + zip family + ipynb/text peek  [src/core/sniff.ts]
+  ├─ pdf: openPdf()        pure TS pdfjs text layer, lazy per page                [src/core/pdf-text.ts]
+  │        │ page text < 8 chars → scan
+  │        ├─ rasterPage() pdfium wasm → BGRA → BMP/PNG (pure encoders)           [src/raster/]
+  │        │        │ mode ocr | auto → tesseract wasm OCR (lang data vendored)  [src/ocr/ocr.ts]
+  │        │        │ mode vlm    → explainPage() vision-LLM (optional, degrade to OCR)
+  │        │        └ profile classify (mode vlm, page 1)                        [src/vlm/classify-vlm.ts]
+  ├─ image: OCR + optional vision describe; source copied as page-001.png
+  ├─ docx/xlsx/pptx/ipynb: readDocument() vendored dsh-cowork-core windows      [vendored/]
+  └─ text: passthrough / csv→table / html→markdown-lite, capped with notice
+  ⇒ manifest.json + pages/*.md (+<slug>.md)                                       [src/vlm/manifest.ts]
+```
+
+Two rails, one seam: **extraction is deterministic pure-TS**; **OCR/vision are
+opt-in layering** behind modes `text|ocr|vlm`, every failure degrades to an
+explicit `> notice` or a per-page provenance marker — nothing silently drops.
+
 # `vision_ask` architecture — call chain & image transport
 
 This document traces a single `vision_ask(image, question)` invocation from the

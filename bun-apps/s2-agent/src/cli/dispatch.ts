@@ -201,7 +201,7 @@ Examples:
   s2-agent cli agent "read package.json and explain"   # free-form agentic task
   s2-agent cli agent --tools read,bash "summarize"     # curated toolset
   s2-agent cli file2md paper.pdf
-  s2-agent cli file2md scan.jpg --type image --dpi 200
+  s2-agent cli file2md scan.jpg --type image --extract ocr
   s2-agent cli zk-extract notes.md --folder Zettelkasten
   s2-agent cli zk-extract ./inbox/ --max-notes 20
   s2-agent cli pipeline pdf-to-vault paper.pdf

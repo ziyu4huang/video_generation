@@ -136,7 +136,13 @@ extensions:
     package: s2-agent-ext-file2md
     entry: extensions/file2md.ts
     load: static
-    excludeReason: mupdf native/wasm + a hard LM Studio localhost dependency — not portable
+    skills: true
+    # v2 is bun-only (pdfjs text + vendored dsh-cowork office + pdfium wasm +
+    # tesseract wasm OCR) with an optional local vision tier. It stays OUT of
+    # the portable tree by size/scope policy, not because it is machine-bound
+    # anymore — structure is deploy-ready (deploy.flip = asset copy fields +
+    # vendor: for the wasm __dirname locators), see ADR-file2md-0001.
+    excludeReason: vendored OCR assets + optional local vision layer — kept out of the portable core by scope policy (deploy-ready structure)
   - name: subagent
     package: s2-agent-ext-subagent
     entry: extensions/subagent.ts

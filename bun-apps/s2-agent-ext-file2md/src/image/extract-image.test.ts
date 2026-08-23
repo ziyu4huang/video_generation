@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
+import type { OcrResult } from "../ocr/ocr.ts";
 import { extractImageCard, isImageFile } from "./extract-image.js";
 import { imageCardId, mergeImageContent, sha256Hex } from "./image-card.js";
-import type { OcrResult } from "./ocr.js";
 
 const OCR_OK: OcrResult = { text: "HELLO 123", width: 800, height: 200, format: "png" };
 

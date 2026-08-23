@@ -26,7 +26,7 @@ const inferenceCalls: {
   modelRuntime?: any;
 }[] = [];
 
-mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
+mock.module(`${import.meta.dirname}/../src/vlm/vision-inference.ts`, () => ({
   runVisionInference: async (opts: any) => {
     inferenceCalls.push(opts);
     if (nextError !== undefined) return { output: "", ok: false, error: nextError };
@@ -37,7 +37,7 @@ mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
 // resolveVisionLLM/resolveLLM are de-hardcoded (ticket 01: throw when unconfigured).
 // I/O test for the vision-inference seam — stub the resolver to a stable target
 // (realm-safe: this realm already mocks vision-inference).
-mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
+mock.module(`${import.meta.dirname}/../src/sessions.ts`, () => ({
   resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b", thinkingLevel: "off" }),
   resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
     provider: opts.provider ?? "lm-studio",

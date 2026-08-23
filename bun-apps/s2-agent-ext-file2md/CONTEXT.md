@@ -1,57 +1,57 @@
 # s2-agent-ext-file2md
 
-The ubiquitous language of s2-agent-ext-file2md — a file→Markdown bridge that gives a pure-text agent eyes. PDFs are rasterized page by page, each page is described by a local vision-LLM subagent, and the pages are stitched into one `.md` dropped into a project-local vault. The agent never has to "see" the file.
+The ubiquitous language of s2-agent-ext-file2md — a file→Markdown bridge that gives a pure-text agent eyes, entirely bun-only and local. Every document kind resolves to a bounded structured read which renders to Markdown; OCR (vendored tesseract wasm) and vision (optional local VLM) layer on top.
 
 ## Language
 
 ### The bridge
 
 **file2md**:
-The file→Markdown bridge (`<files...>` → Markdown) — the pi tool and CLI entry point.
-_Avoid_: converter, parser, OCR (it is a VLM-described Markdown bridge, not a text extractor)
+The file→Markdown bridge (`<files...>` → Markdown) — the pi tool + CLI entry point; reads PDF/image/docx/xlsx/pptx/ipynb/text and writes per-page markdown + manifest + index note.
+_Avoid_: converter, OCR-tool (it is a multi-format markdown bridge; OCR is only one layer)
 
 **Pure-text agent**:
-The design intent — the consuming agent is text-only; file2md gives it eyes so it never has to "see" a binary file. The reason the bridge exists.
-_Avoid_: text agent, blind agent (it is the text-only consumer the bridge serves)
+The design intent — the consuming agent is text-only; file2md gives it eyes so it never has to "see" a binary file.
+_Avoid_: text agent, blind agent
 
-### The pipeline
+### The pipeline (v2 modes)
 
-**Rasterize**:
-PDFs are converted to page images (one per page) before description. Images skip this step.
-_Avoid_: render, convert (it is PDF→page-image rasterization specifically)
+**Mode**:
+`auto|text|ocr|vlm` — selects how far the per-page extraction goes: text layer only, + OCR for thin pages, or + vision-LLM description (OCR degrade). `auto` converges on `ocr`.
+_Avoid_: strategy, feature (a mode is the pipeline's extraction depth)
 
-**Per-page description**:
-Each page image is described by the vision-LLM subagent independently — the unit of VLM work.
-_Avoid_: summary, OCR (it is a VLM page description, not text extraction or summarization)
+**Text layer**:
+A PDF's embedded text via pdfjs-dist (pure TS) — the cheap, faithful path for born-digital documents. Below `OCR_TEXT_MIN_CHARS` (8) a page counts as a scan.
+_Avoid_: OCR (OCR is the raster→text path, not text-layer extraction)
 
-**Stitch**:
-The per-page descriptions are assembled into one `.md` with frontmatter + per-page sections, then dropped into a project-local vault.
-_Avoid_: merge, concatenate (it is structured assembly with frontmatter + sections)
+**Provenance**:
+Per-page frontmatter marker `provenance: text|ocr|vision` stating which path produced the page body — the reader can always tell OCR text from true text.
+_Avoid_: source, extractor (it is a per-page extraction method marker)
 
-**Resumable pipeline**:
-Per-page VLM output is cached, and transient errors (429 / network) are retried — so an interrupted run resumes from the last cached page instead of restarting.
-_Avoid_: cache, checkpoint (it is a cached + retrying pipeline, not a store)
+**Bounded window**:
+The dsh-cowork-core read contract: caps (20 pages / 200 rows / 20 slides / 200 cells / 256 KB) + an explicit `> Truncated:` notice. Silent truncation is the cardinal sin.
+_Avoid_: preview, snippet (a window is a bounded, addressed read)
 
-### The vision model
+### The layers
 
-**Vision-LLM subagent** (VLM):
-The local LM Studio vision model that describes each page. Its resolution (`resolveLLM` / `resolveModel`) is forked from s2-agent's shared helpers.
-_Avoid_: vision API, OCR engine (it is a local vision-LLM subagent, not a service or extractor)
+**Raster**: 
+pdfium (vendored wasm) renders a PDF page to raw BGRA; our pure-TS encoders (`src/raster/{bmp,png}.ts`) turn it into BMP (OCR) or PNG (vision). No PDFKit/pdf2image/ghostscript — that is the v1 machine-bound chain (gone).
+_Avoid_: render (it is specifically PDF-page rasterization for OCR/vision)
 
-**Shared VLM subagent**:
-file2md's VLM subagent is reused by flux2 and ltx (scenePipeline VLM verification, etc.) — one shared local-vision client across packages, not a per-package one.
-_Avoid_: VLM client, vision tool (it is the shared subagent downstream packages call)
+**OCR**:
+Vendored tesseract-wasm (eng/chi_sim lang data beside the package) — offline, no network, no Swift Vision CLI. Degrades to `undefined`-and-notice on failure.
+_Avoid_: Vision framework, OCR service
 
-### Text extraction strategies
+**Vision-LLM subagent** (VLM, optional):
+The local LM Studio vision model reached through the shared model-tier config — describes thin pages under `mode: vlm`. Its resolution (`resolveVisionLLM`) is the centralized vision-tier resolver shared with flux2/ltx.
+_Avoid_: vision API (it is a local optional layer, not a requirement)
 
-**Text-layer extraction**:
-Direct text extraction from PDF's embedded text layer using mupdf — the `--extract text` path. Fast, pure-text, but loses figures and visual content.
-_Avoid_: OCR, text dump (it is native PDF text-layer extraction, not image-to-text OCR)
+### Office / notebook reads
 
-**Text-as-prior**:
-Feeding extracted text into the VLM as a prior context so it describes figures and renders equations without re-describing the already-captured body text — used by the `--extract hybrid` path on figure-bearing pages.
-_Avoid_: VLM-only, full describe (it is text-prior-augmented figure description, not a fresh page description)
+**DSH Cowork core**:
+A vendored snapshot of `@dsh-cowork/core` v0.1.0 (MIT, the user's own project) under `vendored/` — sniff-by-magic + zip-family, zip-bomb/macro rejection, bounded windows with stable cell-ref/shape-id addresses, markdown rendering. Vendored per the ext-archify precedent; never edited.
+_Avoid_: the upstream dependency (pinned snapshot by design)
 
-**Figure-bearing page**:
-A page identified via a text-density heuristic (low character count per area) as likely containing figures/diagrams — the route to VLM in `--extract hybrid` mode.
-_Avoid_: pdfimages, image list (it is a heuristic detection applied during hybrid extraction, not a separate image-extraction step)
+**Vault layout**:
+`output/<slug>/` — `manifest.json` (resumability, page statuses) + `pages/page-NNN.md` (+ `.png` when rasterized) + `<slug>.md` index note. PDF/image conversions keep it; office/text writes the converted markdown as `<slug>.md` directly.
+_Avoid_: export, dist (it is per-document conversion output, not a build artifact)
