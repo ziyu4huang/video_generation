@@ -243,7 +243,7 @@ export function renderDeployReport(data: DeployReportData): string {
 <tr><td>version</td><td><code>${esc(data.version)}</code></td></tr>
 <tr><td>built at</td><td>${esc(data.builtAt)}</td></tr>
 <tr><td>source sha</td><td><code>${esc(data.sourceSha)}</code></td></tr>
-<tr><td>launcher</td><td>${esc(data.target)}/${esc(APP_NAME)}.sh (run.sh = deprecated shim)</td></tr>
+<tr><td>launcher</td><td>${esc(data.target)}/${esc(APP_NAME)}.sh</td></tr>
 <tr><td>config</td><td><code>${esc(data.configPath)}</code></td></tr>
 <tr><td>bun</td><td>${esc(data.bunVersion)}</td></tr>
 <tr><td>core</td><td>${fmtBytes(data.core.bytes)} ${data.core.cached ? "(cached hardlink)" : "(fresh bundle)"} — bun-run ESM bundle</td></tr>

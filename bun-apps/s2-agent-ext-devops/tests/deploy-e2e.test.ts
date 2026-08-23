@@ -55,9 +55,10 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(r.currentUpdated).toBe(true);
 
 		expect(existsSync(join(r.target, CORE_FILENAME))).toBe(true);
-		expect(existsSync(join(r.target, "run.sh"))).toBe(true);
-		// ticket 02: the launcher is s2-agent.sh; run.sh is a deprecated shim;
-		// the runtime ships as bin/bun, hardlinked from .buns (same inode).
+		// ticket 05: run.sh is GONE — the deprecated shim was dropped after
+		// its grace period; the launcher is s2-agent.sh and the runtime ships
+		// as bin/bun, hardlinked from .buns (same inode).
+		expect(existsSync(join(r.target, "run.sh"))).toBe(false);
 		expect(existsSync(join(r.target, "s2-agent.sh"))).toBe(true);
 		// self-containment for children: the launcher must prepend the resolved
 		// bun's dir to PATH so session-spawned `bun ...` resolves the deploy's
