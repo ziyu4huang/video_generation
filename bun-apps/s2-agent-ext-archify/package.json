@@ -12,22 +12,23 @@
     "visualization"
   ],
   "type": "module",
+  "main": "./src/index.ts",
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "deck": "bun scripts/deck.ts",
-    "architecture:render": "bun run lib/architecture-render.ts",
+    "architecture:render": "bun run src/architecture-render.ts",
     "architecture:vendor": "bun run scripts/vendor-mermaid.ts",
-    "architecture:css": "bunx @tailwindcss/cli -i lib/architecture.css -o vendored/tailwind.css --minify"
+    "architecture:css": "bunx @tailwindcss/cli -i src/architecture.css -o vendored/tailwind.css --minify"
   },
   "exports": {
     "./extensions/*": "./extensions/*",
-    "./lib/*": "./lib/*",
+    "./src/*": "./src/*",
     "./vendored/*": "./vendored/*"
   },
   "files": [
     "extensions",
-    "lib",
+    "src",
     "vendored",
     "skills",
     "README.md"
@@ -45,7 +46,7 @@
     "pptxgenjs": "4.0.1"
   },
   "imports": {
-    "#pi/ext-dir": "./lib/sh-ext-dir.ts"
+    "#pi/ext-dir": "./src/sh-ext-dir.ts"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "0.84.2",
