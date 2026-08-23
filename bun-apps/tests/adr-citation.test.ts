@@ -184,7 +184,7 @@ function scanCitations(): Citation[] {
 				continue;
 			}
 			// `.yml.disabled` is deliberately included: the regression-gates job in
-			// .github/workflows/ci.yml.disabled is the source ci-local.sh parses, so
+			// .github/workflows/ci.yml.disabled is the source ci-local.ts parses, so
 			// its comments are live documentation, not dead config.
 			if (!/\.(ts|tsx|js|mjs|md|ya?ml)(\.disabled)?$/.test(ent.name)) continue;
 			// This guard itself carries bare citations as deliberate test fixtures;

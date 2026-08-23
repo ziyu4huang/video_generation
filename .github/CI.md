@@ -26,7 +26,7 @@ protection rule too** so it stays required:
 # re-assert the 30 required checks on main (run after any check-rename)
 # = every `package:` in ci.yml's `tests` matrix, prefixed "test · ", plus the
 #   two always-run named jobs. Regenerate rather than hand-edit:
-#     bash scripts/ci-local.sh --list
+#     bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --list
 gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   --input - <<'JSON'
 { "required_status_checks": { "strict": true, "contexts": [
@@ -56,7 +56,7 @@ JSON
 > even though 3 of them (`tool-gate`, `superpowers`, `subagent`) were already
 > matrix rows — the list was hand-maintained and drifted. `test · s2-agent-ext-picker`
 > was also listed in the matrix for a package directory that does not exist; that
-> row is gone. Re-derive from `bash scripts/ci-local.sh --list` after any matrix
+> row is gone. Re-derive from `bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --list` after any matrix
 > edit instead of appending by hand.
 
 > The full PUT replaces the entire protection rule — include the existing
@@ -86,7 +86,7 @@ JSON
 | **test · `<package>`** (matrix of 28) | Each `bun-apps/*` package's test suite — one row per workspace package, i.e. complete coverage. Only the packages `changed packages` marks affected actually execute on a PR; push-to-main always runs all 28 | **blocks** |
 | **extension-contract** | The 5 extension-protocol tests (factory loads, wires up, no conflicts, valid schema, handler present) — a named, visible check, not buried in the s2-agent run | **blocks** |
 | **deploy --verify** | Builds s2-agent, bundles the 9 extensions, boots the deployed artifact from a foreign cwd, probes `getAllTools` for 0 conflicts | **blocks** |
-| **regression gates** | 13 steps. Blocking: 2 MB file-size guard (twin of `.githooks/pre-commit`), lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide), dep-direction (ADR-monorepo-0001), cross-extension seam contract, cross-extension routing contract, config-field parity, package-script runnability, CI-workflow references, the portability-audit regression test, PR-finish decision tests (now `bun-apps/s2-agent-ext-devops/tests/merge-pr-after-ci-cli.test.ts`, the `devops-merge-pr-after-ci` bin), and the test-portability audit — now `--strict`, see [TEST-PORTABILITY.md](TEST-PORTABILITY.md). Warn-only: schema-cost (>5%) and the test-determinism audit. Enumerate the live list with `bash scripts/ci-local.sh --gates --list`; `.githooks/pre-push` runs the whole job. | all **block** except schema-cost + determinism-audit (**warn only**) |
+| **regression gates** | 26 steps. Blocking: 2 MB file-size guard (twin of `.githooks/pre-commit`), lockfile duplicate-version guard (the `@earendil-works/*` family must resolve to one version workspace-wide), dep-direction (ADR-monorepo-0001), cross-extension seam contract, cross-extension routing contract, config-field parity, package-script runnability, CI-workflow references, no-bash-skills guard (the deleted `.sh` tool names in skill docs + code surfaces — portable-bun seal), the portability-audit regression test, PR-finish decision tests (now `bun-apps/s2-agent-ext-devops/tests/merge-pr-after-ci-cli.test.ts`, the `devops-merge-pr-after-ci` bin), and the test-portability audit — now `--strict`, see [TEST-PORTABILITY.md](TEST-PORTABILITY.md). Warn-only: schema-cost (>5%) and the test-determinism audit. Enumerate the live list with `bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates --list`; `.githooks/pre-push` runs the whole job. | all **block** except schema-cost + determinism-audit (**warn only**) |
 
 The test matrix gives a **native per-package check row** in the PR UI — a broken
 package goes red by name. `fail-fast: false` so every package reports even when
@@ -199,7 +199,7 @@ s2-agent-ext-devops, s2-agent-ext-prompt-history, s2-agent-ext-webui,
 s2-agent-ext-compact
 ```
 
-Prefer `bash scripts/ci-local.sh --list` over this block: it prints the same set
+Prefer `bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --list` over this block: it prints the same set
 parsed straight out of `ci.yml.disabled`, so it cannot drift.
 
 **Added 2026-08-12 — 52 test files that had never run in CI:**
@@ -374,15 +374,15 @@ this is the cheat-sheet for the four cross-RUN failure classes.
 CI uses `CI=true` to trigger the machine-coupled skips. Since Actions is
 currently disabled, this is the ONLY way the matrix gets exercised at all.
 
-**Use `scripts/ci-local.sh`** — it parses the `tests` matrix out of
-`ci.yml.disabled` at runtime (it does not carry its own copy of the package
-list), so it cannot drift from the workflow:
+**Use `bun-apps/s2-agent-ext-devops/scripts/ci-local.ts`** — it parses the
+`tests` matrix out of `ci.yml.disabled` at runtime (it does not carry its own
+copy of the package list), so it cannot drift from the workflow:
 
 ```bash
-bash scripts/ci-local.sh --list                       # print the parsed matrix, run nothing
-bash scripts/ci-local.sh                              # run every matrix entry, CI=true
-bash scripts/ci-local.sh --only s2-agent-ext-webui    # one (or a comma-separated subset)
-bash scripts/ci-local.sh --gates                      # the regression-gates job instead (~6s)
+bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --list                       # print the parsed matrix, run nothing
+bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts                              # run every matrix entry, CI=true
+bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --only s2-agent-ext-webui    # one (or a comma-separated subset)
+bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates                      # the regression-gates job instead (~6s)
 ```
 
 It mirrors `fail-fast: false` (continues past failures, exits non-zero if any
@@ -447,7 +447,7 @@ every worktree at one checkout's copy.
 | Hook | Runs | Bypass |
 |---|---|---|
 | `pre-commit` | 2 MB file-size guard | `git commit --no-verify` |
-| `pre-push` | the whole `regression-gates` job via `ci-local.sh --gates` (~6s) | `git push --no-verify` |
+| `pre-push` | the whole `regression-gates` job via `ci-local.ts --gates` (~6s) | `git push --no-verify` |
 
 The CI file-size guard is the remote twin of `pre-commit` — it catches a
 bypassed local hook so a large blob can't land via PR.

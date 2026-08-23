@@ -72,6 +72,14 @@ surface). It forces the golden-capture protocol (§5 of spec) to be good enough 
 mechanical 12× tier-launcher conversion; and its own SKILL.md touch proves the doc-sweep pattern
 used by ticket 02.
 
+## Frontier
+
+**Closed 2026-08-23** — all 3 waves merged (#1857/#1858/#1861), 20 scripts converted, guard sealed.
+Tracked follow-up: **#1862** — port the upstream bisection fix into `find-polluter.ts` (inert as documented:
+`find . -path 'src/**/*.test.ts'` never matches; upstream obra/superpowers has the `./`-strip + `**/`-collapse fix).
+Also open (deferred Minor, triaged): dedup.ts SQL-error-path divergence (uncatchd SQLiteError vs old `|| true`),
+`docs/agents/learnings.md:38` stale dedup.sh mention, blank-line history-label relaxation in the seal guard.
+
 ## Fog of war
 
 - **`local-ci-cli` vs `ci-local.sh` relationship** read from comments (`local-ci-cli.ts:7`

@@ -139,7 +139,7 @@ jobs:
           # Was KNOWN RED through 2026-08-12 (useTemplate drift in
           # src/__tests__/settings.test.ts from #1228). Fixed — the lint was
           # fixed rather than the row weakened, as that note demanded. Green as
-          # of the ci-local.sh matrix run.
+          # of the ci-local.sh matrix run (pre-port).
           - { package: s2-agent-ext-wayfind, test-cmd: "bun run test" }
           - { package: s2-agent-ext-superpowers, test-cmd: "bun run test" }
           # sv-analyzer: the s2-agent face of dsh-plugin/sv-analyzer — its
@@ -217,7 +217,7 @@ jobs:
           # (noUnusedVariables in src/subagents-command.ts from #1013,
           # noNonNullAssertion in tests/install-subagent-context-widget.test.ts
           # from #1078). Fixed — the lint was fixed rather than the row
-          # weakened. Green as of the ci-local.sh matrix run.
+          # weakened. Green as of the ci-local.sh matrix run (pre-port).
           - { package: s2-agent-ext-subagent, test-cmd: "bun run test" }
           # s2-agent-ext-hermes-memory: pure `bun test` (Bun-only package —
           # uses bun:sqlite via the BunCompatDatabase shim in src/store/db.ts;
@@ -548,11 +548,24 @@ jobs:
       # s2-agent-core-runtime was created by #1251 and never got a row).
       # Asserts: every matrix row names a real package, every path this workflow
       # shells out to resolves, and every bun-apps/* package has a matrix row.
-      # Reads the matrix through scripts/ci-local.sh --tsv — the ONE parser — so
-      # no second copy of the matrix can drift.
+      # Reads the matrix through bun-apps/s2-agent-ext-devops/scripts/ci-local.ts
+      # --tsv — the ONE parser — so no second copy of the matrix can drift.
       - name: CI-workflow reference guard (matrix ↔ tree, blocks)
         working-directory: bun-apps
         run: bun run test:ci-workflow
+
+      # No-bash-skills guard (blocks). The seal of the portable-bun migration:
+      # the five skill-facing bash tools (dedup.sh / run-test.sh / ci-local.sh /
+      # smoke.sh / find-polluter.sh) became .ts twins and their .sh were deleted,
+      # and a reference to a deleted .sh has no executor inside a SKILL doc or a
+      # comment — nothing compiles or runs it, so it rots until a probe/spawn
+      # returns ENOENT. Asserts: no active SKILL.md and none of the deploy-probe /
+      # verify-spawn code surfaces still name a deleted launcher outside a
+      # history-labeled comment (D6 exceptions: wizard/template.sh,
+      # dsh-plugin/sv-analyzer/build.sh — spec.md D6).
+      - name: No-bash-skills guard (deleted launchers, blocks)
+        working-directory: bun-apps
+        run: bun run test:no-bash-skills
 
       # Package-script runnability guard (blocks). The same rot class as the
       # step above, hosted in package.json instead of this file: a script that

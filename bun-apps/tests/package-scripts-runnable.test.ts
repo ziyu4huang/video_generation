@@ -6,7 +6,7 @@
  *   host: a package.json script that nobody executes. Nothing typechecks a
  *   script body, so a script can name a binary the package cannot resolve and
  *   sit there looking like a gate for months. Both confirmed instances were
- *   found the day scripts/ci-local.sh first ran the whole matrix:
+ *   found the day the pre-port scripts/ci-local.sh first ran the whole matrix:
  *
  *     - perf-harness's `check` was `tsc --noEmit` with NO devDependencies at
  *       all. Under the workspace's isolated linker a package resolves only what

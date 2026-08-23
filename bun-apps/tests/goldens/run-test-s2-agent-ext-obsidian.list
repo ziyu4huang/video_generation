@@ -1,0 +1,3 @@
+<pkg> run-test.sh — tiers:
+  quick  bun test extensions/__tests__/ (this package's existing test command)  [default]
+  full   quick + extension-contract.test.ts re-asserted standalone

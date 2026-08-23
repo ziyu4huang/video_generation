@@ -82,7 +82,7 @@ export const MUST_FIRE: Probe[] = [
 	// zai-mcp (keyword only — incl. "z.ai" after the fix)
 	{ gate: "zai_web_search_web_search_prime", prompt: "use zai search for this", note: 'keyword "zai search"' },
 	{ gate: "zai_web_search_web_search_prime", prompt: "read this webpage with Z.ai's reader endpoint", note: 'keyword "z.ai" (fix closed the blind gap)' },
-	// deploy_pi_agent_sh (upstream gate — wraps deploy.ts + run-test.sh)
+	// deploy_pi_agent_sh (upstream gate — wraps deploy.ts + run-test.ts)
 	{ gate: "deploy_pi_agent_sh", prompt: "build and deploy the s2-agent bundle", note: "requires: noun bundle ∧ verb build/deploy" },
 	{ gate: "deploy_pi_agent_sh", prompt: "部署 s2-agent 建置", note: "requires: noun s2-agent ∧ verb 部署/建置" },
 	// arxiv (keyword arxiv OR requires noun∧verb)

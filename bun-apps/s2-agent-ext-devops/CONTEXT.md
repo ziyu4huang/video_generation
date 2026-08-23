@@ -4,7 +4,7 @@ DevOps tools for the pi coding agent — a **tool-based** PR-merge / branch /
 local-CI lifecycle that replaces brittle agent-side bash polling loops. All
 `gh`/`git` output is parsed as structured JSON (no `grep -c` footguns); the full
 recipes live in tested code (`src/`). The package also owns the shared pipeline
-scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the deploy library lives in `src/deploy/` (`run.ts` + `lib/`).
+scripts — `scripts/run-test.ts`, `scripts/ci-local.ts` (runnable entries); the deploy library lives in `src/deploy/` (`run.ts` + `lib/`).
 
 ## Tools
 
@@ -34,7 +34,7 @@ scripts — `scripts/run-test.sh`, `scripts/ci-local.sh` (runnable entries); the
   (`src/ci-gates.ts`). Matrix rows run via `bash -c` — so `--isolate`,
   `&& bun run qa`, and build-first rows are honored exactly as remote CI would;
   only packages with NO matrix row fall back to the generic `bun run test`.
-  `scripts/ci-local.sh` parses the same two blocks, so the runners cannot
+  `scripts/ci-local.ts` parses the same two blocks, so the runners cannot
   disagree. An unparseable gate job FAILS the run (`gateError`) rather than
   degrading to an empty, all-green gate set.
   _Avoid_: run tests, pre-push check (it is change-scoped CI — package test
@@ -108,11 +108,10 @@ distinct from the PR/merge keywords above.
   `noFreeze`.
   _Avoid_: build script (it is the full deploy pipeline — codegen → bundle → ext
   bundles → factory-verify → freeze — not a compile step)
-- **verify_pi_agent_deploy** — run a `run-test.sh` tier (quick|medium|high|readonly|full,
-  default medium). `high` = the exact CI `deploy -- verify` job. Params:
-  `tier`, `bail`.
-  _Avoid_: smoke test (it runs a `run-test.sh` TIER, where `high` is the exact
-  CI job — not an ad-hoc ping)
+- **verify_pi_agent_deploy** — run a `run-test.ts` tier (quick|medium|full,
+  default medium). Params: `tier`, `bail`.
+  _Avoid_: smoke test (it runs a `run-test.ts` TIER — the real suite, not an
+  ad-hoc ping)
 
 ## Layout
 - `extensions/devops.ts` — registered entry; thin glue registering every tool.
@@ -156,7 +155,7 @@ distinct from the PR/merge keywords above.
 ## Invariants
 - The branch/merge/CI recipes are tested end to end with scripted fakes; no I/O
   in the pure decision modules.
-- For deploy_pi_agent_sh/verify_pi_agent_deploy: `deploy.ts` and `run-test.sh` are the single source of
+- For deploy_pi_agent_sh/verify_pi_agent_deploy: `deploy.ts` and `run-test.ts` are the single source of
   truth — no deploy logic is duplicated. Scripts exist only in the **source
   repo**; the tools resolve that dir and refuse to spawn if unreachable (never a
   wrong-cwd spawn). Set `PI_AGENT_DIR` to override. No top-level `cd`; spawn uses

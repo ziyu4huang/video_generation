@@ -9,13 +9,13 @@ function fakeRepo(): string {
 	const root = mkdtempSync(join(tmpdir(), "deploy-ext-repo-"));
 	// mirror layout: deploy library in
 	// <root>/bun-apps/s2-agent-ext-devops/src/deploy/run.ts, runnable entries
-	// in scripts/run-test.sh; the resolver returns the sibling
+	// in scripts/run-test.ts; the resolver returns the sibling
 	// <root>/bun-apps/s2-agent dir.
 	const piAgent = join(root, "bun-apps", "s2-agent");
 	mkdirSync(piAgent, { recursive: true });
 	const devopsPkg = join(root, "bun-apps", "s2-agent-ext-devops");
 	mkdirSync(join(devopsPkg, "scripts"), { recursive: true });
-	writeFileSync(join(devopsPkg, "scripts", "run-test.sh"), "# fake");
+	writeFileSync(join(devopsPkg, "scripts", "run-test.ts"), "# fake");
 	mkdirSync(join(devopsPkg, "src", "deploy"), { recursive: true });
 	writeFileSync(join(devopsPkg, "src", "deploy", "run.ts"), "// fake");
 	// the deploy-run module now lives at

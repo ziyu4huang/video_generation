@@ -1,6 +1,6 @@
 /**
- * verify-tool.ts — verify_pi_agent_deploy: build argv, run run-test.sh at a chosen tier,
- * parse its step summary. run-test.sh stays the single source of truth.
+ * verify-tool.ts — verify_pi_agent_deploy: build argv, run run-test.ts at a chosen tier,
+ * parse its step summary. run-test.ts stays the single source of truth.
  */
 import { buildVerifyArgv, type VerifyParams, type VerifyTier } from "./deploy-argv.ts";
 import { resolvePiAgentDir, runScript, tailOutput } from "./deploy-run.ts";
@@ -46,7 +46,7 @@ export interface VerifyRunDeps {
 	run?: typeof runScript;
 }
 
-/** Run run-test.sh at the chosen tier. Failures are { ok:false }, never throws. */
+/** Run run-test.ts at the chosen tier. Failures are { ok:false }, never throws. */
 export async function runVerify(
 	params: VerifyParams,
 	deps: VerifyRunDeps = {},
@@ -64,21 +64,21 @@ export async function runVerify(
 			exitCode: -1,
 			logPath: "",
 			errorTail:
-				"Could not locate the source s2-agent dir (s2-agent-ext-devops/scripts/run-test.sh not found). " +
+				"Could not locate the source s2-agent dir (s2-agent-ext-devops/scripts/run-test.ts not found). " +
 				"Run s2-agent from the repo, or set PI_AGENT_DIR=<repo>/bun-apps/s2-agent.",
 		};
 	}
 
 	const argv = buildVerifyArgv(params);
-	// run-test.sh moved to s2-agent-ext-devops/scripts/ (it cds itself to
-	// the s2-agent package dir via PI_AGENT_DIR). Invoke as `bash <abs path>`
-	// rather than a `./run-test.sh` relative cmd: a relative cmd only resolves
-	// against cwd (POSIX exec semantics) and needs the exec bit set — bash with
-	// an absolute path works from any cwd on every POSIX checkout.
+	// run-test.ts lives in s2-agent-ext-devops/scripts/ (it resolves the
+	// s2-agent package dir itself via PI_AGENT_DIR). Invoke as `bun <abs path>`
+	// rather than a `./run-test.ts` relative cmd: a relative cmd only resolves
+	// against cwd (POSIX exec semantics), and `bun` with an absolute path works
+	// from any cwd on every checkout.
 	const scriptsDir = resolve(piAgentDir, "..", "s2-agent-ext-devops", "scripts");
 	const res = await run({
-		cmd: "bash",
-		args: [resolve(scriptsDir, "run-test.sh"), ...argv],
+		cmd: "bun",
+		args: [resolve(scriptsDir, "run-test.ts"), ...argv],
 		cwd: scriptsDir,
 		timeoutMs: TIER_TIMEOUT_MS[tier],
 		logName: `pi-verify-${tier}`,

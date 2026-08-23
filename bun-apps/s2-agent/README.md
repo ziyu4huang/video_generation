@@ -70,7 +70,7 @@ local CI, PR merge): `s2-agent-ext-devops/skills/devops-workflow/SKILL.md`.
 
 ```bash
 ( cd bun-apps/s2-agent && bun test )                # quick tier (plain unit)
-../s2-agent-ext-devops/scripts/run-test.sh medium   # + build + patch e2e (default); --list for tiers
+bun ../s2-agent-ext-devops/scripts/run-test.ts medium   # + the s2-agent suite incl. launcher e2e (default); --list for tiers
 ```
 
 ## Layout

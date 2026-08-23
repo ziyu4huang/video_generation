@@ -122,12 +122,12 @@ via `page.waitForEvent("download")` with `acceptDownloads: true`.
 ## Testing
 
 ```bash
-./run-test.sh                  # medium (default): unit + typecheck
-./run-test.sh quick            # unit only, no typecheck
-./run-test.sh high             # + PI_RUN_L2=1 (blocked services SKIP)
-./run-test.sh readonly         # PI_RUN_L2=1, l2-e2e.test.ts only (skip allowed)
-./run-test.sh full             # + PI_REQUIRE_L2=1 (blocked services FAIL, not skip)
-./run-test.sh --list           # print the tier table
+bun ./run-test.ts                  # medium (default): unit + typecheck
+bun ./run-test.ts quick            # unit only, no typecheck
+bun ./run-test.ts high             # + PI_RUN_L2=1 (blocked services SKIP)
+bun ./run-test.ts readonly         # PI_RUN_L2=1, l2-e2e.test.ts only (skip allowed)
+bun ./run-test.ts full             # + PI_REQUIRE_L2=1 (blocked services FAIL, not skip)
+bun ./run-test.ts --list           # print the tier table
 ```
 
 `high`/`full` spawn the real `s2-agent` CLI and call a real LM Studio model

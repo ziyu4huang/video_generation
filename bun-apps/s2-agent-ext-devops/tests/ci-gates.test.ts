@@ -11,7 +11,7 @@
  *   run_local_ci, a PR that broke any of those structural guards merged green.
  *   Two of the hand-written entries (check-workflow-patterns.mjs,
  *   verify-skills.ts) are in NO workflow step at all — drift in both
- *   directions, which is exactly what scripts/ci-local.sh's "NO COPY OF THE
+ *   directions, which is exactly what bun-apps/s2-agent-ext-devops/scripts/ci-local.ts's "NO COPY OF THE
  *   MATRIX" rule exists to prevent. This module applies that same rule to the
  *   gates.
  *

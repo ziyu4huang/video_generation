@@ -889,7 +889,7 @@ describe("runLocalCi — the CI matrix is the source of truth for test commands"
 // and test rows are split so BUILD rows (matrix commands containing `build`) run
 // SEQUENTIALLY FIRST — serializing every dist write — before the non-build rows
 // run with bounded parallelism (no dist writes in flight during the parallel
-// phase → the ci-local.sh "parallel runs race workflow's shared dist/" hazard is
+// phase → the ci-local.ts "parallel runs race workflow's shared dist/" hazard is
 // eliminated by construction).
 
 describe("runLocalCi — ≤5-min budget (hard rule)", () => {

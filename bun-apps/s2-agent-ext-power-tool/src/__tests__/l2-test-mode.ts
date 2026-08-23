@@ -4,7 +4,7 @@
  *   - "skip" — blocked (L2 disabled, or a required service is down) and not
  *              required to fail — registers as bun:test's test.skip().
  *   - "fail" — blocked AND PI_REQUIRE_L2=1 (and L2 itself is enabled) — used
- *              by run-test.sh's `full` tier so a down service fails the run
+ *              by run-test.ts's `full` tier so a down service fails the run
  *              instead of silently skipping.
  * Extracted so this branching can be unit-tested without spawning the real
  * CLI or probing LM Studio / vault-mind.

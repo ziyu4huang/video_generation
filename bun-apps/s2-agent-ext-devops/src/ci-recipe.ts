@@ -22,7 +22,7 @@
  * — otherwise `bun run test` would stand in for `bun test --isolate`, `bun test &&
  * bun run qa`, or a build-first row, and run_local_ci could report green on a package
  * whose real CI command fails. Packages with no matrix row keep the generic
- * derivation. scripts/ci-local.sh parses the same matrix block, so the two local
+ * derivation. bun-apps/s2-agent-ext-devops/scripts/ci-local.ts parses the same matrix block, so the two local
  * runners cannot disagree about what a package's command is.
  *
  * One gate is hand-added beside the workflow-derived set beyond
@@ -617,7 +617,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//    parallel work starts, so everything after it can share one overlap
 	//    window with the gate pool:
 	//    (a) SEQUENTIAL-FIRST: build-bearing test rows (matrix/`test` commands
-	//        containing `build` — they write shared dist/ trees, and ci-local.sh
+	//        containing `build` — they write shared dist/ trees, and ci-local.ts
 	//        documented that parallel runs race them) and s2-agent's own suite
 	//        (the one repo package whose test run makes the Bun runtime rewrite
 	//        bun-apps/node_modules/@repo/* symlinks; running it alone means no
@@ -728,8 +728,9 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//        nothing (-1, counts as pass). A matrix row is run through `bash -c`
 	//        because the rows are shell COMMANDS, not single argv vectors
 	//        (`bun test && bun run qa`, knowledge-card's 3-phase chain,
-	//        `bun run build && bun test`) — the same way scripts/ci-local.sh
-	//        executes them. NB: ci-local.sh additionally exports CI=true;
+	//        `bun run build && bun test`) — the same way
+	//        bun-apps/s2-agent-ext-devops/scripts/ci-local.ts
+	//        executes them. NB: ci-local.ts additionally exports CI=true;
 	//        run_local_ci deliberately does not, preserving its own pre-existing
 	//        behavior — locally the machine-coupled tests SHOULD run, that's the point.
 	interface TestPlan {

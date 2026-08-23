@@ -1,0 +1,12 @@
+<pkg> run-test.sh — effort tiers:
+
+  quick    ~1s     unit only, no typecheck
+  medium   ~5s     + typecheck (tsc --noEmit)  [default]
+  high     varies  + PI_RUN_L2=1 (blocked services SKIP)
+  readonly varies  PI_RUN_L2=1, l2-e2e.test.ts ONLY (skip allowed)
+  full     varies  quick + medium + PI_RUN_L2=1 PI_REQUIRE_L2=1 (blocked services FAIL)
+
+Env gates l2-e2e.test.ts reads:
+  PI_RUN_L2=1      enable L2 (spawns real CLI + real LM Studio model)  (high+)
+  PI_REQUIRE_L2=1  blocked services FAIL instead of SKIP               (full)
+  PI_L2_MODEL      override the LM Studio model (default: google/gemma-4-12b)
