@@ -70,6 +70,11 @@ export interface CardIndexRow {
 	path: string;
 	title: string;
 	summary: string;
+	/** Plain md body text (frontmatter-stripped), truncated — the lexical
+	 *  lane's recall depth (ticket 09 D23 tuning: title+summary alone left
+	 *  hier's FTS blind to body-level token matches that flat's bodyMatch
+	 *  scores, a measured 2-query gap on the 20-question battery). */
+	body: string;
 	is_leaf: boolean;
 	/** Agg layer (0 = first aggregation above leaves); null for leaves. */
 	layer: number | null;
@@ -103,6 +108,15 @@ export interface BuildRowsResult {
 function sha256(text: string): string {
 	return createHash("sha256").update(text, "utf8").digest("hex");
 }
+
+/** Index row-shape version — salted into the rebuild fingerprint so a schema
+ *  change forces exactly one rebuild of unchanged contents. v2 adds the
+ *  `body` column (ticket 09 D23 body lane). */
+const INDEX_SCHEMA_VERSION = "v2-body";
+
+/** Truncation cap for the indexed body text: keeps a body row ≤ ~3 KB so the
+ *  24-row /sql batch (~8–10 KB/vector row) stays well inside the 1 MiB cap. */
+const INDEX_BODY_CHARS = 3000;
 
 /** sha256-based record key: stable per stem, always a legal bare identifier. */
 export function cardRecordKey(stem: string): string {
@@ -215,6 +229,7 @@ export async function buildCardRows(args: {
 					path: `${args.folder}/${stem}`,
 					title: readTitle(content),
 					summary: typeof data.summary === "string" ? data.summary.trim() : "",
+					body: content.slice(bodyStart).trim().slice(0, INDEX_BODY_CHARS),
 					is_leaf: !isAgg,
 					layer: isAgg && data.layer !== undefined && data.layer !== null && Number.isFinite(layerNum) ? layerNum : null,
 					parent,
@@ -246,9 +261,11 @@ export async function buildCardRows(args: {
 	}
 
 	// Fingerprint: sorted stem:contentHash (mtime-free — unreliable after git
-	// checkout, D13).
+	// checkout, D13), salted with the index SCHEMA version so a row-shape
+	// change (e.g. the body column) forces exactly one rebuild of otherwise
+	// unchanged contents.
 	const fingerprint = sha256(
-		raws.map((r) => `${r.row.stem}:${r.contentHash}`).sort().join("\n"),
+		`schema:${INDEX_SCHEMA_VERSION}\n` + raws.map((r) => `${r.row.stem}:${r.contentHash}`).sort().join("\n"),
 	);
 	const dim = raws.find((r) => r.row.vec)?.row.vec?.length ?? 0;
 	return {
@@ -283,7 +300,7 @@ function createStmt(table: string, row: CardIndexRow): string {
 	const key = cardRecordKey(row.stem);
 	const v = (x: unknown) => JSON.stringify(x ?? null);
 	const vec = (row.vec ?? []).map((x) => Math.round(x * 1e6) / 1e6);
-	return `CREATE ${key.replace("card:", `${table}:`)} SET stem = ${v(row.stem)}, path = ${v(row.path)}, title = ${v(row.title)}, summary = ${v(row.summary)}, is_leaf = ${row.is_leaf}, layer = ${row.layer ?? null}, parent = ${v(row.parent)}, entities = ${JSON.stringify(row.entities)}, kind = ${v(row.kind)}, vec = ${JSON.stringify(row.vec ? vec : null)}, embed_model = ${v(row.embed_model)};`;
+	return `CREATE ${key.replace("card:", `${table}:`)} SET stem = ${v(row.stem)}, path = ${v(row.path)}, title = ${v(row.title)}, summary = ${v(row.summary)}, body = ${v(row.body)}, is_leaf = ${row.is_leaf}, layer = ${row.layer ?? null}, parent = ${v(row.parent)}, entities = ${JSON.stringify(row.entities)}, kind = ${v(row.kind)}, vec = ${JSON.stringify(row.vec ? vec : null)}, embed_model = ${v(row.embed_model)};`;
 }
 
 /** /sql body cap (HTTP 413 above it, measured): rounded 1024-dim vectors run
@@ -305,17 +322,31 @@ const TABLE_DEFS = [
 	"DEFINE TABLE IF NOT EXISTS usage SCHEMALESS;",
 ];
 
-function cardIndexDefs(dim: number): string[] {
-	const defs = [
+/** Table + plain indexes — everything EXCEPT the analyzer/FTS/HNSW search
+ *  defs. The swap creates `card` with THESE ONLY, bulk-inserts the shadow
+ *  copy (no search-index maintenance per row), then applies
+ *  `cardSearchDefs` so each search index is built server-side in one pass —
+ *  with the body FTS lane (ticket 09 D23) the pre-indexed swap's
+ *  `INSERT INTO card SELECT * FROM card_shadow` grew past the client's 10s
+ *  per-request bound (measured timeout on the 2351-card vault). */
+function cardTableDefs(): string[] {
+	return [
 		"DEFINE TABLE IF NOT EXISTS card SCHEMALESS;",
+		"DEFINE INDEX IF NOT EXISTS card_stem ON TABLE card COLUMNS stem;",
+		"DEFINE INDEX IF NOT EXISTS card_parent ON TABLE card COLUMNS parent;",
+		"DEFINE INDEX IF NOT EXISTS card_is_leaf ON TABLE card COLUMNS is_leaf;",
+	];
+}
+
+/** Analyzer + FTS + HNSW defs — applied AFTER the bulk insert lands. */
+function cardSearchDefs(dim: number): string[] {
+	const defs = [
 		"DEFINE ANALYZER IF NOT EXISTS kcard_en TOKENIZERS class FILTERS snowball(english);",
 		// v3.2.3 FULLTEXT indexes are single-column (ticket 02 specced
 		// `FIELDS title, summary` — parse error, amended here): one per lane.
 		"DEFINE INDEX IF NOT EXISTS card_fts_title ON TABLE card COLUMNS title FULLTEXT ANALYZER kcard_en;",
 		"DEFINE INDEX IF NOT EXISTS card_fts_summary ON TABLE card COLUMNS summary FULLTEXT ANALYZER kcard_en;",
-		"DEFINE INDEX IF NOT EXISTS card_stem ON TABLE card COLUMNS stem;",
-		"DEFINE INDEX IF NOT EXISTS card_parent ON TABLE card COLUMNS parent;",
-		"DEFINE INDEX IF NOT EXISTS card_is_leaf ON TABLE card COLUMNS is_leaf;",
+		"DEFINE INDEX IF NOT EXISTS card_fts_body ON TABLE card COLUMNS body FULLTEXT ANALYZER kcard_en;",
 	];
 	if (dim > 0) {
 		defs.push(
@@ -430,8 +461,13 @@ export async function rebuildCardIndex(args: {
 
 	// Swap (only after every shadow batch landed).
 	await args.client.query("REMOVE TABLE IF EXISTS card;");
-	await args.client.query(cardIndexDefs(built.dim).join("\n"));
+	await args.client.query(cardTableDefs().join("\n"));
 	await args.client.query("INSERT INTO card SELECT * FROM card_shadow;");
+	// Search indexes AFTER the bulk copy (see cardTableDefs docblock) — each
+	// DEFINE builds server-side in one pass instead of per-row maintenance.
+	for (const stmt of cardSearchDefs(built.dim)) {
+		await args.client.query(stmt);
+	}
 	await args.client.query(
 		[
 			"REMOVE TABLE IF EXISTS index_meta;",

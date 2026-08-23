@@ -14,6 +14,10 @@
  *   arm "kcard" — the SAME questions through kcard `retrieveRecords`
  *     (bodyMatch + slugDom + semantic blend; graceful lexical fallback when no
  *     embedder is reachable, recorded in the receipt via trace.semanticUsed).
+ *   arm "kcard-hier" — hierarchical retrieval over the SurrealDB `card` index
+ *     (kcard-parity ticket 07): KNN + per-token FTS seeds, γ-propagation BFS.
+ *   arm "kcard-flat-vector" — pure KNN over the same index, leaves only, no
+ *     FTS lane, no blend (kcard-parity ticket 09 D23 ablation arm).
  *
  * Battery: graded queries (2 per target + negative controls) per arm, defined
  * in `recall-audit-battery.json` next to this script. Journal-arm targets are
@@ -52,6 +56,7 @@ const { values: args } = parseArgs({
 		arm: { type: "string", default: "journal,kcard" },
 		"surreal-endpoint": { type: "string", default: "http://127.0.0.1:8000" },
 		"surreal-database": { type: "string", default: "memory" },
+		"surreal-namespace": { type: "string" },
 		semantic: { type: "string", default: "on" },
 		"test-embedder": { type: "boolean", default: false },
 		receipt: { type: "string" },
@@ -65,9 +70,10 @@ if (args.help) {
   --vault <path>          vault root for the kcard arm (required when kcard arm is on)
   --folder <rel>          convergence folder (default Zettelkasten/knowledge-graph)
   --k <n>                 retrieval depth (default 5)
-  --arm <a,b>             journal,kcard (default both)
+  --arm <a,b>             journal,kcard,kcard-hier,kcard-flat-vector (default journal,kcard)
   --surreal-endpoint <u>  default http://127.0.0.1:8000
   --surreal-database <d>  default memory
+  --surreal-namespace <n> default: per-user derivation (tests isolate a throwaway ns)
   --semantic on|off       kcard semantic blend (default on; graceful lexical fallback)
   --test-embedder         deterministic hashing embedder (offline/CI; skips availability check)
   --receipt <path>        JSON receipt path (default output/recall-audit/receipt-<ts>.json)`);
@@ -169,6 +175,7 @@ const receipt = {
 	journal: null,
 	kcard: null,
 	"kcard-hier": null,
+	"kcard-flat-vector": null,
 };
 
 // ── arm 1: hermes journal (SurrealDB, SELECT-only) ─────────────────────────
@@ -267,31 +274,53 @@ if (ARMS.has("kcard")) {
 }
 
 // ── arm 3: kcard hierarchical retrieval (SurrealDB card index, ticket 07) ──
+// ── arm 4: kcard flat vector-only (pure KNN over the same index, ticket 09 D23) ──
+//
+// The two Surreal arms share ONE index build (memoized — the fingerprint skip
+// makes a warm rebuild cheap, but the first build embeds the whole folder).
 
-if (ARMS.has("kcard-hier")) {
+let cardIndexShared = null;
+async function ensureCardIndex() {
+	if (cardIndexShared) return cardIndexShared;
 	if (!args.vault) {
-		console.error("kcard-hier arm requires --vault <path>");
+		console.error("kcard-hier / kcard-flat-vector arms require --vault <path>");
 		process.exit(2);
 	}
 	const { makeContextClient, rebuildCardIndex } = await import("../s2-agent-ext-knowledge-card/src/surreal-index.ts");
+	const client = makeContextClient({
+		endpoint: args["surreal-endpoint"],
+		...(args["surreal-namespace"] ? { namespace: args["surreal-namespace"] } : {}),
+		requestTimeoutMs: 60_000,
+	});
+	// --test-embedder wires the SAME deterministic hashing embedder into the
+	// Surreal arms (offline/CI fixture runs) as into the kcard arm.
+	const testEmb = args["test-embedder"] ? { embedder: makeTestEmbedder() } : {};
+	const build = await rebuildCardIndex({ client, vaultPath: args.vault, folder: args.folder, ...testEmb });
+	cardIndexShared = { client, build, testEmbedder: testEmb.embedder ?? null };
+	return cardIndexShared;
+}
+
+const hierTargetMatch = (id, e) => {
+	const targets = (e.vaultTargets ?? []).map((t) => t.toLowerCase());
+	return targets.some((t) => id.toLowerCase().includes(t));
+};
+
+if (ARMS.has("kcard-hier")) {
 	const { hierarchicalRetrieve } = await import("../s2-agent-ext-knowledge-card/src/hierarchical-retrieval.ts");
-	const client = makeContextClient({ endpoint: args["surreal-endpoint"] });
 	try {
-		const build = await rebuildCardIndex({ client, vaultPath: args.vault, folder: args.folder });
+		const { client, build, testEmbedder } = await ensureCardIndex();
 		let semanticLaneUsed = false;
 		const scored = await scoreArm(battery.kcard ?? [], async (q) => {
 			const res = await hierarchicalRetrieve(client, {
 				query: q,
 				topK: K,
 				includeTrace: true,
+				...(testEmbedder ? { embedder: testEmbedder } : {}),
 			});
 			if (res.trace?.semanticLane) semanticLaneUsed = true;
 			// Rank key mirrors the kcard arm: "stem :: path" (stem ≈ card id lane).
 			return res.cards.map((c) => `${c.stem} :: ${c.path}`);
-		}, (id, e) => {
-			const targets = (e.vaultTargets ?? []).map((t) => t.toLowerCase());
-			return targets.some((t) => id.toLowerCase().includes(t));
-		});
+		}, hierTargetMatch);
 		receipt["kcard-hier"] = {
 			available: true,
 			index: { skipped: build.skipped, inserted: build.inserted, leaves: build.leafCount, aggs: build.aggCount, dim: build.dim, embedModel: build.embedModel, elapsedMs: build.elapsedMs },
@@ -301,6 +330,37 @@ if (ARMS.has("kcard-hier")) {
 		};
 	} catch (err) {
 		receipt["kcard-hier"] = { available: false, error: String(err?.message ?? err) };
+	}
+}
+
+if (ARMS.has("kcard-flat-vector")) {
+	// D23 ablation arm: the semantic lane ALONE — one KNN over `card`, leaves
+	// only, cosine order. No FTS lane, no α blend, no γ propagation. Isolates
+	// "what does the hierarchy + lexical blend add over raw vectors".
+	const { embedQuery } = await import("../s2-agent-ext-knowledge-card/src/semantic.ts");
+	try {
+		const { client, build, testEmbedder } = await ensureCardIndex();
+		const scored = await scoreArm(battery.kcard ?? [], async (q) => {
+			const qv = await embedQuery(q, undefined, testEmbedder ?? undefined);
+			if (!qv) return [];
+			// KNN fetch is widened (K + agg headroom) then filtered to leaves
+			// client-side — the KNN operator is not mixed with extra WHERE terms.
+			const rows = await client.query(
+				`SELECT stem, path, is_leaf FROM card WHERE vec <|${K + 20},100|> $qv;`,
+				{ qv },
+			);
+			return (rows ?? [])
+				.filter((r) => r.is_leaf)
+				.map((r) => `${r.stem} :: ${r.path}`);
+		}, hierTargetMatch);
+		receipt["kcard-flat-vector"] = {
+			available: true,
+			index: { skipped: build.skipped, inserted: build.inserted, leaves: build.leafCount, aggs: build.aggCount, dim: build.dim, embedModel: build.embedModel, elapsedMs: build.elapsedMs },
+			...scored,
+			metricsTargetPresent: metricsTargetPresent(scored),
+		};
+	} catch (err) {
+		receipt["kcard-flat-vector"] = { available: false, error: String(err?.message ?? err) };
 	}
 }
 
@@ -326,5 +386,9 @@ if (receipt["kcard-hier"]) {
 		`kcard-hier: ${h.available ? fmt(h.metrics) : `UNAVAILABLE (${h.error})`}` +
 		(h.available ? ` [index leaves=${h.index.leaves} aggs=${h.index.aggs} dim=${h.index.dim} model=${h.index.embedModel} semanticUsed=${h.semanticUsed}]` : ""),
 	);
+}
+if (receipt["kcard-flat-vector"]) {
+	const f = receipt["kcard-flat-vector"];
+	console.log(`kcard-flat-vector: ${f.available ? fmt(f.metrics) : `UNAVAILABLE (${f.error})`}`);
 }
 console.log(`receipt: ${receiptPath}`);

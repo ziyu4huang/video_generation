@@ -10,12 +10,19 @@ import {
 	hierTokenize,
 	blendSeedScores,
 	propagateScores,
+	stemTokenOverlap,
+	STEM_LANE_THRESHOLD,
+	SLUG_BETA,
 } from "../src/hierarchical-retrieval.ts";
 
 describe("hierTokenize", () => {
-	test("lowercase split, dedup, ≥2 chars, capped at 8", () => {
-		expect(hierTokenize("The the flux2 seed! a of")).toEqual(["the", "flux2", "seed", "of"]);
-		expect(hierTokenize("one two three four five six seven eight nine ten").length).toBe(8);
+	test("lowercase split, dedup, ≥2 chars, capped at 8, stop-words dropped (ticket 09 D23)", () => {
+		// "the"/"of" are stop-words — a stop-word token FTS-matched ~1600 of
+		// 2351 cards and its lexRank boost was pure noise (measured 2-query
+		// hit@5 gap on the recall-audit battery).
+		expect(hierTokenize("The the flux2 seed! a of")).toEqual(["flux2", "seed"]);
+		expect(hierTokenize("aa bb cc dd ee ff gg hh ii jj").length).toBe(8);
+		expect(hierTokenize("purify edits redraw whole region instead skin areas also").length).toBe(8);
 	});
 });
 
@@ -43,6 +50,46 @@ describe("blendSeedScores (α=0.18, mirrors the retrieveRecords blend)", () => {
 		const a = blendSeedScores([...pool]);
 		const b = blendSeedScores([...pool].reverse());
 		for (const p of pool) expect(a.get(p.stem)).toBe(b.get(p.stem));
+	});
+	test("absolute stem-lane term lifts a filename-naming card over a marginally closer vector (ticket 09 D23)", () => {
+		// The measured failure mode this pins: rank-based lexRankNorm cannot
+		// separate two top-of-pool cards (~1.0 vs 0.999), so a marginally
+		// higher cos won; the β·min(ov,3)/3 term must be ABSOLUTE to flip it.
+		// (The filler card keeps minMaxNorm from stretching the tiny cos gap
+		// to the full range — with only two cards it would, and the test
+		// would measure the normalizer, not the slug term.)
+		const s = blendSeedScores([
+			{ stem: "purify-redraw-not-skin-lever", lex: 0.5, cos: 0.6424, slugOv: 3 },
+			{ stem: "chinese-titled-card", lex: 0.375, cos: 0.6482, slugOv: 0 },
+			{ stem: "filler-card", lex: 0, cos: 0.55 },
+		]);
+		expect(s.get("purify-redraw-not-skin-lever")!).toBeGreaterThan(s.get("chinese-titled-card")!);
+	});
+	test("slugOv below STEM_LANE_THRESHOLD is gated off at the call site; β term scales with overlap", () => {
+		const base = blendSeedScores([{ stem: "a", lex: 0, cos: 0.5 }], 0.18, 0);
+		const ov3 = blendSeedScores([{ stem: "a", lex: 0, cos: 0.5, slugOv: 3 }], 0.18, SLUG_BETA);
+		const ov2 = blendSeedScores([{ stem: "a", lex: 0, cos: 0.5, slugOv: 2 }], 0.18, SLUG_BETA);
+		expect(ov3.get("a")! - base.get("a")!).toBeCloseTo(SLUG_BETA, 6);
+		expect(ov2.get("a")! - base.get("a")!).toBeCloseTo((SLUG_BETA * 2) / 3, 6);
+	});
+});
+
+describe("stemTokenOverlap (ticket 09 D23 stem lane)", () => {
+	test("counts query tokens present in stem tokens; namespace junk never counts", () => {
+		const tokens = hierTokenize("purify edits should redraw the whole region instead of only skin areas");
+		expect(stemTokenOverlap("auto-memory-purify-redraw-not-skin-lever-seedvr2-2x-oom", tokens)).toBe(3);
+		// auto/memory are STEM_STOP; pr/merge style namespace prefixes carry no topic signal
+		expect(stemTokenOverlap("auto-memory-something-else-entirely", tokens)).toBe(0);
+	});
+	test("CJK stems get zero overlap against English tokens (the F8 lane gap is lexical-lane-only)", () => {
+		expect(stemTokenOverlap("中文標題卡片", hierTokenize("purify redraw skin"))).toBe(0);
+	});
+	test("threshold sanity: a two-topic stem overlap is counted exactly (gating happens at the call site)", () => {
+		// worktree + branch = 2 (deletion≠delete — no stemming on this lane);
+		// below STEM_LANE_THRESHOLD=3, so this card is NOT slug-boosted live —
+		// the measured flood guard (crowd cards on generic tokens, t2→t5
+		// receipts: five-step regressed 2→4 at threshold 2).
+		expect(stemTokenOverlap("vg-gh-pr-merge-worktree-delete-branch", hierTokenize("worktree branch deletion fails until you detach first in this repo"))).toBe(2);
 	});
 });
 
