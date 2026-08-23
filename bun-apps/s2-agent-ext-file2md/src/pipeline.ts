@@ -331,7 +331,7 @@ async function classifyPdfProfile(
   try {
     const rendered = await rasterPage(bytes, 1, scale);
     if (!rendered) return "paper";
-    const png = bgraToPng(rendered.bmp, rendered.width, rendered.height);
+    const png = bgraToPng(rendered.bgra, rendered.width, rendered.height);
     const tmp = joinTempPng(1);
     writeFileSync(tmp, png);
     try {
@@ -389,7 +389,7 @@ async function extractPdfPage(
     };
   }
   if (mode === "vlm" && args.llm) {
-    const pngBytes = bgraToPng(rendered.bmp, rendered.width, rendered.height);
+    const pngBytes = bgraToPng(rendered.bgra, rendered.width, rendered.height);
     const pngOut = joinTempPng(pageNo);
     writeFileSync(pngOut, pngBytes);
     try {
@@ -470,11 +470,11 @@ async function enhanceFigure(
   slug: string,
   pageNo: number,
   pageCount: number,
-  rendered: { bmp: Uint8Array; width: number; height: number },
+  rendered: { bmp: Uint8Array; bgra: Uint8Array; width: number; height: number },
   originalBody: string,
   provenance: "text" | "ocr",
 ): Promise<PageRecord> {
-  const pngBytes = bgraToPng(rendered.bmp, rendered.width, rendered.height);
+  const pngBytes = bgraToPng(rendered.bgra, rendered.width, rendered.height);
   const pngOut = joinTempPng(pageNo);
   writeFileSync(pngOut, pngBytes);
   try {

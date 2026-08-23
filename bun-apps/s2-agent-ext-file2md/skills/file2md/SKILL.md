@@ -10,8 +10,9 @@ converts to editable Markdown that lands under an output dir; nothing is sent
 to a network service. Use the bundled runtime, not ad-hoc scripting:
 
 ```bash
-# dev form (repo root):
-bun bun-apps/s2-agent/src/cli.ts file2md ./paper.pdf --out ./vlm-out
+# dev form (repo root): the `cli` namespace token is required — a bare
+# `cli.ts file2md …` falls through to pi's own parser ("Unknown options").
+bun bun-apps/s2-agent/src/cli.ts cli file2md ./paper.pdf --out ./vlm-out
 # deployed s2-agent:
 s2-agent cli file2md ./paper.pdf --extract vlm
 # smart: adaptive ladder with figure-page vision enhancement:

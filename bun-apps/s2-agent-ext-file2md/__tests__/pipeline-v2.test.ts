@@ -18,8 +18,20 @@ const calls = { raster: 0, ocr: 0 };
 mock.module("../src/raster/pdf.ts", () => ({
   rasterPage: async () => {
     calls.raster++;
-    return { bmp: new Uint8Array(8 * 8 * 4), width: 8, height: 8 };
+    return { bmp: new Uint8Array(8 * 8 * 4), bgra: new Uint8Array(8 * 8 * 4), width: 8, height: 8 };
   },
+}));
+
+// The vlm path's profile classifier calls the vision leaf with a REAL
+// LM Studio roundtrip (measured 2026-08-24: a single qwen 27B pass on this
+// fixture page scales with the machine's queue — a 5s-capped suite test must
+// never depend on it). Mock the seam identically to smart-mode.test.ts so the
+// mode gates stay offline-deterministic.
+mock.module("../src/sessions.ts", () => ({
+  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "mock-vlm", thinkingLevel: "off" as const }),
+}));
+mock.module("../src/vlm/vision-inference.ts", () => ({
+  runVisionInference: async () => ({ output: "paper", ok: true }),
 }));
 
 mock.module("../src/ocr/ocr.ts", () => ({
