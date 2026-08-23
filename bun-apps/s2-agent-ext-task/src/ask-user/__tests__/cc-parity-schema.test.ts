@@ -7,6 +7,7 @@ import {
 	hasRecommendedSuffix,
 	type QuestionParams,
 } from "../tool/types.js";
+import { DEFAULT_PROMPT_SNIPPET, DEFAULT_PROMPT_GUIDELINES } from "../ask-user-question.js";
 
 function params(questions: unknown[]): QuestionParams {
 	return { questions } as unknown as QuestionParams;
@@ -83,5 +84,15 @@ describe("CC parity schema", () => {
 		expect(hasRecommendedSuffix("A (recommended)")).toBe(false);
 		expect(hasRecommendedSuffix("A (Recommended) ")).toBe(false);
 		expect(hasRecommendedSuffix("A")).toBe(false);
+	});
+});
+
+describe("CC-parity tool description", () => {
+	test("guidelines teach the CC recommended convention and plan-mode rule", () => {
+		const all = DEFAULT_PROMPT_GUIDELINES.join("\n");
+		expect(all).toContain("(Recommended)");
+		expect(all).toContain("first");
+		expect(DEFAULT_PROMPT_GUIDELINES.some((g) => g.toLowerCase().includes("plan"))).toBe(true);
+		expect(all).not.toContain("recommended: true");
 	});
 });
