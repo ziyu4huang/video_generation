@@ -54,6 +54,30 @@ This directory is **not** a wayfinder effort. It is never enumerated as one
 (efforts are accessed by explicit name only). The wayfinder closing ceremony
 (`/wayfind done`) must never harvest or sweep it.
 
+## Directory triage (2026-08-23 purification)
+
+The original charter above ("candidates only, never grows") drifted: durable
+records landed here too. Triage of the current 18 notes, so the charter matches
+reality. **Candidates** still follow the consume-on-promotion lifecycle:
+
+child-merge-resolution-verification · controller-no-bash-sdd-via-subagents ·
+deterministic-edit-dispatch · devops-sync-default-branch · dispatch-budget-rebalance ·
+dispatch-cost-audit · goal-loop-deadlock · pi-reviewer-scope-bounding ·
+probe-extension-introspection · subagent-dispatch-budget-protocol ·
+subagent-dispatch-hardening · wayfind-done-by-hand · webui-log-debugging
+
+The following are **NOT candidates and are exempt from deletion-on-promotion**
+— they are durable cross-effort records that happen to live here:
+
+- `hermes-recall-audit.md` — final audit report (finished deliverable).
+- `goal-loop-completion-mechanics.md`, `webui-tui-mix-patterns.md`,
+  `upstream-provenance.md` — durable references/catalogs, not procedures awaiting a skill.
+- `leanrag-hierarchy-port-followup.md` — effort seed already CONSUMED: the effort exists at
+  `.planning/2026-08-16-leanrag-hierarchy-port/`; kept only as provenance.
+
+Rule going forward: finished reports and durable references should live in their owning
+effort folder or the repo docs — do not park them here.
+
 ## Design provenance
 
 See the wayfinder effort

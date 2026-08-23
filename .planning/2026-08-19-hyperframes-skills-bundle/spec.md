@@ -2,7 +2,7 @@
 
 **Effort**: `hyperframes-skills-bundle`
 **Date**: 2026-08-19
-**Status**: implementing
+**Status**: shipped (#1713, 2026-08-19; see `map.md`)
 
 ## Problem
 
@@ -34,7 +34,7 @@ The pi harness auto-discovers skills from ambient user-level directories (`~/.pi
 - [ ] All gates GREEN: package test+typecheck, pi-agent manifest-consistency+typecheck, devops sh-config, bun-apps shared gates (skills-ref, dead-export, ext-entry)
 - [ ] Sh deploy build produces `ext/hyperframes/skills/` with all 8
 - [ ] Fresh pi session: 8 skills from repo paths, zero `~/.pi`/`~/.agents` skills
-- [ ] PR merged via devops chain; `.planning/hyperframes-skills-bundle/` committed
+- [ ] PR merged via devops chain; `.planning/2026-08-19-hyperframes-skills-bundle/` committed
 
 ## Risks
 
