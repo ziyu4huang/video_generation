@@ -28,6 +28,7 @@ function ctx(over: Partial<DoctorContext> & { mode: DoctorContext["mode"] }): Do
 		selfDir: "/out",
 		deployDir: "/out",
 		entryPath: "/out/s2-agent.js",
+		bundleCore: true,
 		bunVersion: "1.0.0",
 		exists: () => true,
 		depInstalled: () => true,

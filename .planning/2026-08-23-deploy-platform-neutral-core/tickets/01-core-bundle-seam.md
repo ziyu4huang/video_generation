@@ -35,8 +35,26 @@ closed: 2026-08-23 — implemented on feat/deploy-platform-neutral-core.
 - Verified end to end: scratch `runShDeploy` to `/tmp/t01-outroot` — six gates
   green, 17 extensions, single-file 6.18 MB core + 1.1 MB `dist/` assets, cache
   hit on re-run, frozen-tree bare boot 17/17, `--version` correct. Full suites:
-  s2-agent `bun run test` (1055) + `typecheck` green; s2-agent-ext-devops
-  `bun run test` (824) green.
+  s2-agent `bun run test` (1062) + `typecheck` green; s2-agent-ext-devops
+  `bun run test` incl. `PI_AGENT_E2E=1` (823) green.
+- **L1 e2e surfaced a real bundle-mode gap, fixed in-ticket**: pi's own `-e
+  <file>` loader cannot resolve bare host specifiers from a single-file bundle
+  (no `$bunfs` graph, no node_modules beside the bundle) — every `-e` probe in
+  deploy-probe-e2e failed. Fix: `cli-sh` intercepts existing-file `-e`/
+  `--extension` args in bundle mode, loads them via `Bun.build` (runtime
+  bundler; relatives inlined, host ids external) + `evaluateExtModule`/
+  `extRequire` — the same evaluation path a deployed ext.cjs uses, host-module
+  members identity-preserved. NOT jiti: measured bun 1.4 quirk (see below).
+  `doctor --smoke` spawns `[bun, entry]` for a bundle core (`bundleCore`
+  context field); `run.sh` execs `${S2_AGENT_BUN:-bun} s2-agent.js` as the
+  interim launcher until ticket 02 ships `bin/bun`.
+- **bun 1.4 quirk charted** (drives the adhoc design): a process can natively
+  `import()` a freshly-written tmp `.ts` roughly ONCE; afterwards new tmp
+  `.ts` imports fail ("Cannot find module … from ''"). Creating a jiti
+  instance (any options) or a multi-module `Bun.build` burns the shot early;
+  preexisting files always keep importing fine. Deployed core unaffected
+  (everything bundled); the known consumer is the repo CLI's schema-cost
+  (tests now isolate the sibling-import case in a subprocess).
 
 ## Goal
 

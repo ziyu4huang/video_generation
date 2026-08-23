@@ -105,7 +105,7 @@ interface Run {
  * between a red test and a wedged CI run.
  */
 async function run(argv: string[], opts: { cwd?: string; env?: Record<string, string> } = {}): Promise<Run> {
-	const proc = Bun.spawn([binary, ...argv], {
+	const proc = Bun.spawn([process.execPath, binary, ...argv], {
 		cwd: opts.cwd ?? target,
 		env: { ...process.env, ...agentDirEnv, ...opts.env },
 		stdout: "pipe",
@@ -153,7 +153,8 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 	beforeAll(async () => {
 		const r = await runShDeploy({ outRoot, force: true });
 		target = r.target;
-		binary = join(target, "s2-agent");
+		// bun-run bundle: booted through this test process own bun (ticket 02 ships bin/bun).
+		binary = join(target, "s2-agent.js");
 	}, 300_000);
 
 	test("every expected tool and command is registered, and comes from a deployed extension", async () => {

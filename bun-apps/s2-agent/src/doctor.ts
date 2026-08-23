@@ -97,6 +97,9 @@ export interface DoctorContext {
 	 */
 	deployDir: string;
 	entryPath: string;
+	/** True when the core artifact is a bun-run `.js` bundle (not a compiled
+	 * exe): the smoke check must spawn `bun <entry>`, not `<entry>` directly. */
+	bundleCore: boolean;
 	bunVersion: string;
 	exists: (p: string) => boolean;
 	/** Is a dep present under <selfDir>/node_modules? (dir existence — NOT
@@ -391,7 +394,7 @@ export async function defaultSmokeSpawn(args: {
 	const timeoutMs = args.timeoutMs ?? 30_000;
 	const cmd = args.exeDirect
 		? [args.entry, "-e", args.probe, "-p", "hi"]
-		: ["bun", args.entry, "-e", args.probe, "-p", "hi"];
+		: [process.execPath, args.entry, "-e", args.probe, "-p", "hi"];
 	const proc = Bun.spawn(cmd, {
 		cwd: args.cwd,
 		env: args.env,
@@ -463,7 +466,7 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 					cwd,
 					env,
 					timeoutMs: opts.timeoutMs,
-					exeDirect: compiled,
+					exeDirect: compiled && !ctx.bundleCore,
 				});
 	} finally {
 		try {
@@ -544,6 +547,7 @@ export function realContext(moduleUrl: string, env: Record<string, string | unde
 		selfDir,
 		deployDir,
 		entryPath,
+		bundleCore: coarse === "bundle",
 		bunVersion: process.versions.bun ?? "unknown",
 		exists: existsSync,
 		depInstalled: (spec) => existsSync(join(selfDir, "node_modules", spec)),

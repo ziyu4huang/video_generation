@@ -36,8 +36,12 @@ const shConfig = parseShConfig(
 const configuredNames = shConfig.extensions.map((e) => e.name);
 const configuredNamesSorted = [...configuredNames].sort();
 
-function extList(binary: string) {
-	const p = Bun.spawnSync([binary, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
+// The core is a bun-run bundle: every boot goes through the test runner bun
+// (same runtime that built it) until ticket 02 ships bin/bun + the launcher.
+const CORE_FILENAME = "s2-agent.js";
+
+function extList(core: string) {
+	const p = Bun.spawnSync([process.execPath, core, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
 	return { exitCode: p.exitCode, payload: JSON.parse(p.stdout.toString()) };
 }
 
@@ -47,7 +51,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(r.extensions.map((e) => e.name).sort()).toEqual(configuredNamesSorted);
 		expect(r.currentUpdated).toBe(true);
 
-		expect(existsSync(join(r.target, "s2-agent"))).toBe(true);
+		expect(existsSync(join(r.target, CORE_FILENAME))).toBe(true);
 		expect(existsSync(join(r.target, "run.sh"))).toBe(true);
 		expect(existsSync(join(r.target, "deploy.json"))).toBe(true);
 		// pi reads its version from <packageDir>/package.json, and in compiled-
@@ -90,13 +94,13 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(statSync(join(r.target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
 
 		// state 1: extensions load, in config order
-		const withExt = extList(join(r.target, "s2-agent"));
+		const withExt = extList(join(r.target, CORE_FILENAME));
 		expect(withExt.exitCode).toBe(0);
 		expect(withExt.payload.loaded).toEqual(configuredNames);
 		expect(withExt.payload.skipped).toEqual([]);
 
 		// the binary reports the deploy version, not the "0.0.0" fallback
-		const v = Bun.spawnSync([join(r.target, "s2-agent"), "--version"], { stdout: "pipe", stderr: "pipe" });
+		const v = Bun.spawnSync([process.execPath, join(r.target, CORE_FILENAME), "--version"], { stdout: "pipe", stderr: "pipe" });
 		expect(v.exitCode).toBe(0);
 		expect(v.stdout.toString().trim()).toBe(r.version);
 
@@ -108,7 +112,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		const poisonDir = join(outRoot, "pkg-dir-poison", ".pi", "agent", "embedded-assets", "leak");
 		mkdirSync(poisonDir, { recursive: true });
 		writeFileSync(join(poisonDir, "package.json"), JSON.stringify({ version: "9.9.9+polluted" }));
-		const polluted = Bun.spawnSync([join(r.target, "s2-agent"), "--version"], {
+		const polluted = Bun.spawnSync([process.execPath, join(r.target, CORE_FILENAME), "--version"], {
 			stdout: "pipe",
 			stderr: "pipe",
 			env: { ...process.env, PI_PACKAGE_DIR: poisonDir },
@@ -125,7 +129,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		unfreezeTree(target);
 		renameSync(join(target, "ext"), parked);
 		try {
-			const without = extList(join(target, "s2-agent"));
+			const without = extList(join(target, CORE_FILENAME));
 			expect(without.exitCode).toBe(0);
 			expect(without.payload.loadedCount).toBe(0);
 		} finally {
@@ -150,7 +154,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(scanSymlinkEscapes(target), "symlink(s) escape the deploy tree").toEqual([]);
 		expect(verifyVendoredCompleteness(target), "declared vendor package(s) missing").toEqual([]);
 		expect(verifyVendoredClosure(target), "vendored package(s) with dangling hard deps").toEqual([]);
-		expect(scanBinaryForeignPaths(join(target, "s2-agent"), target).foreign, "binary bakes build-machine path(s)").toEqual([]);
+		expect(scanBinaryForeignPaths(join(target, CORE_FILENAME), target).foreign, "core bakes build-machine path(s)").toEqual([]);
 	}, 60_000);
 
 	// vendorExclude (registry) must actually reach the tree: the excluded
@@ -208,8 +212,8 @@ describeE2E("core cache + keep:N retention", () => {
 		const b = await deploy("e2e-cache-b");
 		expect(b.coreCached).toBe(true); // hit: no recompile
 		// the two version dirs hardlink ONE cached core — same inode
-		expect(statSync(join(keepRoot, "e2e-cache-a", "s2-agent")).ino).toBe(
-			statSync(join(keepRoot, "e2e-cache-b", "s2-agent")).ino,
+		expect(statSync(join(keepRoot, "e2e-cache-a", CORE_FILENAME)).ino).toBe(
+			statSync(join(keepRoot, "e2e-cache-b", CORE_FILENAME)).ino,
 		);
 	}, 300_000);
 
@@ -225,6 +229,6 @@ describeE2E("core cache + keep:N retention", () => {
 		expect(readlinkSync(join(keepRoot, "current"))).toBe("e2e-cache-d");
 		// the pruned dirs' core links are gone but the cache entry survived
 		// every prune — d still boots through it.
-		expect(extList(join(keepRoot, "e2e-cache-d", "s2-agent")).payload.loadedCount).toBe(0);
+		expect(extList(join(keepRoot, "e2e-cache-d", CORE_FILENAME)).payload.loadedCount).toBe(0);
 	}, 300_000);
 });

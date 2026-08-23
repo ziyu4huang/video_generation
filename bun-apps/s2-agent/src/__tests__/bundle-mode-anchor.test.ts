@@ -21,7 +21,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MODE_TS = resolve(HERE, "..", "mode.ts");
 
 describe("a bun-run bundle anchors on its own directory", () => {
-	test("detectMode → bundle, deployRoot → bundle dir (no env)", () => {
+	// skipIf(CI) per TEST-PORTABILITY: the probe shells out to `bun build` and
+	// boots the artifact — a real-toolchain behavior probe, not a portable unit.
+	test.skipIf(process.env.CI === "true" || process.env.CI === "1")("detectMode → bundle, deployRoot → bundle dir (no env)", () => {
 		const outDir = mkdtempSync(join(tmpdir(), "s2-bundle-anchor-"));
 		// The probe must live inside the package (a tmp-dir entry cannot resolve
 		// ../mode.ts across project roots), so it is written beside mode.ts and

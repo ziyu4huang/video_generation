@@ -230,8 +230,11 @@ const AGENT_DIR_ENV = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 const RUN_SH = `#!/usr/bin/env bash
 # run.sh — launcher for a s2-agent-sh deploy.
 #
-# The binary beside this script is self-contained: it discovers extensions from
-# ./ext/<name>/ at runtime and runs normally when that directory is absent.
+# The core beside this script is a bun-run ESM bundle (s2-agent.js): it needs
+# a bun to execute it. INTERIM (ticket 01): the ambient bun from PATH, or
+# \$S2_AGENT_BUN as an explicit override — ticket 02 ships the deploy's own
+# copy at ./bin/bun and execs that instead. The bundle discovers extensions
+# from ./ext/<name>/ at runtime and runs normally when that directory is absent.
 set -euo pipefail
 SOURCE="\${BASH_SOURCE[0]}"
 while [ -L "\$SOURCE" ]; do
@@ -268,7 +271,7 @@ if [ -z "\${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
   done
 fi
 
-exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$SCRIPT_DIR/${APP_NAME}" "\$@"
+exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\${S2_AGENT_BUN:-bun}" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
 `;
 
 interface ExtListPayload {
