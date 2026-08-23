@@ -317,7 +317,9 @@ describe("applyLabelFixes", () => {
   });
 });
 
-describe("mermaid:convert CLI contract (exit codes)", () => {
+// Local-machine only (portability P2: Bun.spawn of `bun` is a host-binary
+// coupling — same gate as the movie-director CLI integration suite).
+describe.skipIf(!!process.env.CI)("mermaid:convert CLI contract (exit codes)", () => {
   const script = resolve(import.meta.dir, "..", "scripts", "mermaid-convert.ts");
   async function runCli(args: string[]): Promise<{ status: number; stdout: string; stderr: string }> {
     const p = Bun.spawn(["bun", script, ...args], {
