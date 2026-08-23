@@ -127,6 +127,7 @@ import {
 } from "@repo/s2-agent-core-runtime";
 import { runGate } from "../src/distill/gate.ts";
 import { runConverge } from "../src/distill/converge.ts";
+import { runExtraction, readHermesJournal } from "../src/extract.ts";
 import { onKnowledge } from "../src/emit.ts";
 import { convergeKnowledgeEmission } from "../src/converge.ts";
 import { readState } from "../src/distill/state.ts";
@@ -312,7 +313,23 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			const vaultPath = (await resolveVault(cwd)).path;
 			const hermesDir =
 				process.env.OB_HERMES_MEMORY_DIR ?? join(homedir(), ".pi", "agent", "pi-hermes-memory");
+			// Raw lane (unchanged): hermes:* cards — cheap, deterministic.
 			await convergeHermesMemory(vaultPath, hermesDir);
+			// Extract lane (D31): the session-commit → extraction loop over
+			// FRESH entries only (cursor-advanced). Best-effort like the raw
+			// lane: bounded timeout (a slow local model must not hold shutdown
+			// open long), silent fail — a failed run simply does not advance
+			// the cursor and retries at the next commit.
+			if (process.env.OB_KNOWLEDGE_EXTRACT === "0") return;
+			const entries = readHermesJournal(hermesDir);
+			if (entries.length > 0) {
+				await runExtraction({
+					vaultPath,
+					entries,
+					trigger: "shutdown",
+					timeoutMs: 25_000,
+				});
+			}
 		} catch {
 			// Silent fail — best-effort; never block shutdown.
 		}
@@ -680,14 +697,17 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		].join(" "),
 		parameters: Type.Object({
 			action: Type.Optional(
-				StringEnum(["gate", "converge", "status"] as const, {
+				StringEnum(["gate", "converge", "status", "extract"] as const, {
 						description:
 							"Distill pipeline action (absent = deterministic ingest, the default). " +
 							"'gate' filters raw hermes-memory entries (dedup/stale/malformed) and returns " +
 							"survivors for in-context enrichment (read-only). 'converge' writes enriched " +
 							"notes via the ingest path, supersedes the raw hermes/pi-memory card, and adjusts the " +
 							"adaptive threshold. 'status' reports the current threshold + run history. " +
-							"Workflow: status → gate → enrich survivors in your reasoning → converge.",
+							"'extract' runs the ticket-06 session-extraction loop end-to-end: gate → deterministic " +
+							"classify → single local LLM call (typed cards + dedup votes; add_only forced for events) → " +
+							"converge → supersede raw cards → audit diff under output/kcard-extract/ (fresh entries only, " +
+							"cursor in .extract-state.json). Workflow: status → gate → enrich survivors in your reasoning → converge.",
 					},
 				),
 			),
@@ -772,8 +792,8 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		}),
 		async execute(_id, params, _signal, _u, ctx) {
 			// ── distill pipeline actions (folded from s2-agent-ext-distill) ──
-			const action = params.action as "gate" | "converge" | "status" | undefined;
-			if (action === "gate" || action === "converge" || action === "status") {
+			const action = params.action as "gate" | "converge" | "status" | "extract" | undefined;
+			if (action === "gate" || action === "converge" || action === "status" || action === "extract") {
 				let vaultPath: string;
 				try {
 					vaultPath = params.vault ?? (await resolveVault(ctx.cwd)).path;
@@ -806,6 +826,30 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						],
 						isError: false,
 						details: null,
+					};
+				}
+
+				if (action === "extract") {
+					if (process.env.OB_KNOWLEDGE_EXTRACT === "0") {
+						return {
+							content: [{ type: "text", text: "zk_ingest extract disabled (OB_KNOWLEDGE_EXTRACT=0)." }],
+							isError: false,
+							details: null,
+						};
+					}
+					const hermesDir =
+						process.env.OB_HERMES_MEMORY_DIR ?? join(homedir(), ".pi", "agent", "pi-hermes-memory");
+					const entries = (params.entries?.length ? params.entries : readHermesJournal(hermesDir)) as MemoryEntry[];
+					const result = await runExtraction({
+						vaultPath,
+						entries,
+						trigger: "on-demand",
+						dryRun: Boolean(params.dry_run),
+					});
+					return {
+						content: [{ type: "text", text: JSON.stringify(result) }],
+						isError: false,
+						details: { diffFile: result.diffFile },
 					};
 				}
 
