@@ -1,8 +1,8 @@
 /**
  * raster/bmp.ts — pure-TS BGRA → 24-bit BMP encoder (no deps, no zlib).
  *
- * pdfium renders pages as BGRA pixel buffers; tesseract.js decodes
- * PNG/JPEG/BMP but not raw pixels, so pages cross the gap as BMP —
+ * pdfium renders pages as BGRA pixel buffers; the OCR engine consumes
+ * raw RGBA (decoded in src/raster/rgba.ts), so pages cross the gap as BMP —
  * the simplest encodable raster format (no CRC, no deflate).
  */
 

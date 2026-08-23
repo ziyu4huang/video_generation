@@ -1,17 +1,21 @@
+/// <reference path="./tesseract-wasm.d.ts" />
 /**
- * ocr/ocr.ts — local OCR via vendored tesseract-wasm (bun-only, offline).
+ * ocr/ocr.ts — local OCR via tesseract-wasm (robertknight, bun-only, offline).
  *
- * Replaces v1's macOS-Vision Swift CLI (`src/image/ocr.ts`). Lang data
- * (eng/chi_sim) is vendored under `vendored/ocr-assets/lang` and the wasm
- * core ships inside the tesseract.js-core npm package — zero native code,
- * zero network. Every failure degrades to `undefined` with an explicit
- * stderr note (never throws), mirroring v1's degrade-not-fail contract.
+ * Replaces v1's macOS-Vision Swift CLI and v2's tesseract.js worker: the
+ * in-process low-level `OCREngine` (no worker_threads, no runtime network —
+ * the wasm core + lang data come off disk). Lang data (eng/chi_sim,
+ * tessdata_fast) is vendored beside the package as raw `.traineddata`
+ * symlinks into the external binary store. Every failure degrades to
+ * `undefined` with an explicit stderr note (never throws), mirroring v1's
+ * degrade-not-fail contract. Heremes-memory consumes `OcrResult`.
  */
-import { mkdirSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createWorker, type Worker } from "tesseract.js";
+import { createOCREngine, type OCREngine } from "tesseract-wasm";
+import { decodeImageToRgba } from "../image/decode-image.ts";
 import { rasterPage } from "../raster/pdf.ts";
 
 /** One OCR run's result — same shape as v1's swift-OCR contract (hermes-memory consumes this type). */
@@ -27,8 +31,26 @@ const PKG_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 /** Engine-default language dir — vendored asset, resolved beside the package. */
 export const DEFAULT_LANG_PATH = join(PKG_ROOT, "vendored", "ocr-assets", "lang");
 
-/** Where gunzipped traineddata settles (temp — never pollutes the vendored tree). */
-const CACHE_PATH = join(tmpdir(), "file2md-ocr-cache");
+/**
+ * The wasm core's path in the npm package dist. Resolved here — NOT via the
+ * package's `node` subpath, which is the worker_threads adapter we
+ * deliberately do not use.
+ */
+const WASM_BINARY_PATH = fileURLToPath(
+  new URL("../../node_modules/tesseract-wasm/dist/tesseract-core.wasm", import.meta.url),
+);
+
+/** Read the wasm core off disk (cached per process). Degrades cleanly on failure. */
+async function loadWasmBinary(): Promise<Uint8Array | undefined> {
+  try {
+    return new Uint8Array(await readFile(WASM_BINARY_PATH));
+  } catch {
+    return undefined;
+  }
+}
+
+/** wasm binary cache (1.8 MB fs read — load once per process). */
+let wasmBinaryCache: Uint8Array | undefined;
 
 /** Normalize "en+chi_sim" etc.; only ship what we vendored. */
 export function normalizeOcrLang(lang: string | undefined): string {
@@ -44,45 +66,56 @@ export function normalizeOcrLang(lang: string | undefined): string {
 }
 
 /**
- * Reusable per-document OCR session: one worker, many pages, then terminate.
- * Capable of PNG/JPEG/BMP buffers only — raw pdfium pages cross as BMP.
+ * Reusable per-document OCR session: one engine, many pages, then terminate.
+ * Capable of PNG/JPEG/BMP buffers — raw pages cross as BMP via the raster
+ * layer, everything else via the image decoders (`decodeImageToRgba`).
  */
 export class OcrSession {
-  private worker: Worker | undefined;
+  private engine: OCREngine | undefined;
   private lang: string;
   private langPath: string;
   constructor(lang: string, langPath = DEFAULT_LANG_PATH) {
-    // The worker requests `lang.traineddata.gz` verbatim — normalize aliases
+    // Engine models are raw `lang.traineddata` files — normalize aliases
     // here so a caller passing "en" gets the vendored "eng" file, not ENOENT.
     this.lang = normalizeOcrLang(lang);
     this.langPath = langPath;
   }
 
   async init(): Promise<boolean> {
-    if (this.worker !== undefined) return true;
+    if (this.engine !== undefined) return true;
     try {
-      mkdirSync(CACHE_PATH, { recursive: true });
-      this.worker = await createWorker(this.lang, 1, {
-        langPath: this.langPath,
-        cachePath: CACHE_PATH,
-      });
+      if (wasmBinaryCache === undefined) {
+        wasmBinaryCache = await loadWasmBinary();
+        if (wasmBinaryCache === undefined) throw new Error(`wasm core not found at ${WASM_BINARY_PATH}`);
+      }
+      const engine = await createOCREngine({ wasmBinary: wasmBinaryCache });
+      // Load one raw `.traineddata` per lang part ("eng+chi_sim" → 2 loads).
+      let loaded = false;
+      for (const part of this.lang.split("+")) {
+        const model = readFileSync(join(this.langPath, `${part}.traineddata`));
+        engine.loadModel(model);
+        loaded = true;
+      }
+      if (!loaded) throw new Error(`no model loaded for "${this.lang}"`);
+      this.engine = engine;
       return true;
     } catch (e) {
-      process.stderr.write(`[file2md] tesseract worker init failed: ${e instanceof Error ? e.message : String(e)}\n`);
-      this.worker = undefined;
+      process.stderr.write(`[file2md] tesseract-wasm init failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      this.engine = undefined;
       return false;
     }
   }
 
-  /** OCR one encoded image buffer (PNG/JPEG/BMP). */
+  /** OCR one encoded image (PNG/JPEG/BMP) → RGBA → sync engine. */
   async recognize(data: Uint8Array): Promise<OcrResult | undefined> {
-    if (this.worker === undefined && !(await this.init())) return undefined;
+    if (this.engine === undefined && !(await this.init())) return undefined;
     try {
-      const { data: res } = await this.worker!.recognize(Buffer.from(data));
-      const text = (res.text ?? "").trim();
+      const img = decodeImageToRgba(data);
+      if (img === undefined) return undefined;
+      this.engine?.loadImage(img);
+      const text = (this.engine?.getText() ?? "").trim();
       if (text === "") return undefined;
-      const dims = imageDims(data);
-      return { text, width: dims?.width ?? 0, height: dims?.height ?? 0, format: "ocr" };
+      return { text, width: img.width, height: img.height, format: "ocr" };
     } catch (e) {
       process.stderr.write(`[file2md] OCR failed: ${e instanceof Error ? e.message : String(e)}\n`);
       return undefined;
@@ -97,9 +130,13 @@ export class OcrSession {
   }
 
   async terminate(): Promise<void> {
-    if (this.worker !== undefined) {
-      await this.worker.terminate().catch(() => undefined);
-      this.worker = undefined;
+    if (this.engine !== undefined) {
+      try {
+        this.engine.destroy();
+      } catch {
+        /* best-effort */
+      }
+      this.engine = undefined;
     }
   }
 }
@@ -140,13 +177,22 @@ export function imageDims(data: Uint8Array): { width: number; height: number } |
         continue;
       }
       const marker = data[o + 1]!;
-      if (marker >= 0xc0 && marker <= 0xc3) {
+      // Skip standalone markers.
+      if (marker >= 0xd0 && marker <= 0xd7) {
+        o += 2;
+        continue;
+      }
+      if (marker === 0xff) {
+        o++;
+        continue;
+      }
+      const len = dv.getUint16(o + 2, false);
+      if ((marker === 0xc0 || marker === 0xc2) && data.length >= o + 9) {
         return { width: dv.getUint16(o + 7, false), height: dv.getUint16(o + 5, false) };
       }
-      const segLen = dv.getUint16(o + 2, false);
-      if (segLen < 2) return undefined;
-      o += 2 + segLen;
+      o += 2 + len;
     }
+    return undefined;
   }
   return undefined;
 }

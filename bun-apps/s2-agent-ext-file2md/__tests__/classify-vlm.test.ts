@@ -21,7 +21,7 @@ let nextOutput = "";
 let nextError: string | undefined;
 const inferenceCalls: { task: string; images: any[]; llm: any }[] = [];
 
-mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
+mock.module(`${import.meta.dirname}/../src/vlm/vision-inference.ts`, () => ({
   runVisionInference: async (opts: any) => {
     inferenceCalls.push(opts);
     if (nextError !== undefined) return { output: "", ok: false, error: nextError };
@@ -33,7 +33,7 @@ mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
 // These are I/O tests for the vision-inference seam, not model-resolution tests,
 // so stub the resolver to a stable target. Realm-safe (this realm already mocks
 // vision-inference; both the code under test and the test's import see this stub).
-mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
+mock.module(`${import.meta.dirname}/../src/sessions.ts`, () => ({
   resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b", thinkingLevel: "off" }),
   resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
     provider: opts.provider ?? "lm-studio",
@@ -135,9 +135,9 @@ describe("classifyProfileViaVlm — I/O (mocked vision-inference)", () => {
     reset({ output: "diagram" });
     await classifyProfileViaVlm(imgPath, "image/png");
     expect(inferenceCalls).toHaveLength(1);
-    expect(inferenceCalls[0]!.images).toHaveLength(1);
-    expect(inferenceCalls[0]!.images[0]!.mimeType).toBe("image/png");
-    expect(inferenceCalls[0]!.task.includes("只輸出一個 profile 代碼")).toBe(true);
+    expect(inferenceCalls[0]?.images).toHaveLength(1);
+    expect(inferenceCalls[0]?.images[0]?.mimeType).toBe("image/png");
+    expect(inferenceCalls[0]?.task.includes("只輸出一個 profile 代碼")).toBe(true);
   });
 
   test("llmOverride is forwarded verbatim (resolveVisionLLM NOT called)", async () => {
@@ -149,8 +149,8 @@ describe("classifyProfileViaVlm — I/O (mocked vision-inference)", () => {
     };
     await classifyProfileViaVlm(imgPath, "image/jpeg", explicit);
     expect(inferenceCalls).toHaveLength(1);
-    expect(inferenceCalls[0]!.llm).toBe(explicit);
-    expect(inferenceCalls[0]!.llm.provider).toBe("anthropic");
+    expect(inferenceCalls[0]?.llm).toBe(explicit);
+    expect(inferenceCalls[0]?.llm.provider).toBe("anthropic");
   });
 
   test("no override → resolveVisionLLM() default target is used", async () => {
@@ -159,7 +159,7 @@ describe("classifyProfileViaVlm — I/O (mocked vision-inference)", () => {
     expect(inferenceCalls).toHaveLength(1);
     // The source calls runVisionInference with resolveVisionLLM(); assert the
     // captured llm equals the REAL default target (env-robust, no hardcoded model).
-    expect(inferenceCalls[0]!.llm).toEqual(resolveVisionLLM());
+    expect(inferenceCalls[0]?.llm).toEqual(resolveVisionLLM());
   });
 
   test("inference error propagates (classifier does not swallow model errors)", async () => {

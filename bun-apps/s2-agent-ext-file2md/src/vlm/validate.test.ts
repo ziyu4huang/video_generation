@@ -33,7 +33,7 @@ describe("validatePageMarkdown — pass", () => {
   });
 
   test("extra frontmatter keys and a long body are fine", () => {
-    const md = GOOD.replace("clear the floor.", "clear the floor. " + "x".repeat(500));
+    const md = GOOD.replace("clear the floor.", `clear the floor. ${"x".repeat(500)}`);
     expect(validatePageMarkdown(md, { page: 1, kind: "paper" }).ok).toBe(true);
   });
 

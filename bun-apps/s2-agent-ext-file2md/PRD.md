@@ -45,7 +45,7 @@ input (pdf|image|docx|xlsx|pptx|ipynb|text)
 
 - **R1 — bun-only**: no native npm, no Swift/PDFKit/pdf2image, no postinstall
   downloads. Verified by package deps (exceljs, jszip, mammoth, pdfjs-dist,
-  tesseract.js, @hyzyla/pdfium, pdf-lib — pure JS/wasm).
+  tesseract-wasm, pngjs, jpeg-js, @hyzyla/pdfium, pdf-lib — pure JS/wasm).
 - **R2 — offline**: OCR lang data + wasm cores in-package; no network at any
   conversion step. `mode: vlm` is the sole optional server touch.
 - **R3 — bounded**: 64 MiB input, zip-bomb/macro guards, 20-page/200-row/

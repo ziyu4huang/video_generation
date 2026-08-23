@@ -94,7 +94,7 @@ describe("runVisionInference — empty-output guard (completed but no text)", ()
       images: [{ type: "image", data: "x", mimeType: "image/png" }],
       llm: { provider: "lm-studio", modelId: "qwen/qwen3.8-27b", thinkingLevel: "off" },
     });
-    expect(spawnCalls[0]!.model).toBe("lm-studio/qwen/qwen3.8-27b");
+    expect(spawnCalls[0]?.model).toBe("lm-studio/qwen/qwen3.8-27b");
   });
 
   test("no llm → spawnSubagent resolves via the vision capability key", async () => {
@@ -103,7 +103,7 @@ describe("runVisionInference — empty-output guard (completed but no text)", ()
       task: "describe",
       images: [{ type: "image", data: "x", mimeType: "image/png" }],
     });
-    expect(spawnCalls[0]!.capability).toBe("vision");
+    expect(spawnCalls[0]?.capability).toBe("vision");
   });
 
   test("child failure → ok:false, error forwarded (empty NOT marked)", async () => {

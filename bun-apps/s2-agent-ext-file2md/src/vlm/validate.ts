@@ -65,12 +65,12 @@ export function validatePageMarkdown(md: string, opts: ValidateOpts): Validation
   const lines = text.split(/\r?\n/);
 
   // 1. opening delimiter
-  if (lines[0]!.trim() !== "---") return fail("missing opening frontmatter delimiter (---)");
+  if (lines[0]?.trim() !== "---") return fail("missing opening frontmatter delimiter (---)");
 
   // 2. closing delimiter (the next `---` on its own line)
   let closer = -1;
   for (let i = 1; i < lines.length; i++) {
-    if (lines[i]!.trim() === "---") {
+    if (lines[i]?.trim() === "---") {
       closer = i;
       break;
     }
