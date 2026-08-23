@@ -256,6 +256,8 @@ export interface CiOptions {
 		repoRoot: string;
 		spawn: SpawnFn;
 		now: () => number;
+		/** Contention-precheck fetch (live caller passes the real fetch; tests inject). */
+		modelsFetch?: ((url: string, init?: RequestInit) => Promise<Response>) | null;
 	}) => Promise<OneshotSmokeResult | null>;
 	/**
 	 * Where the schema-cost check's human-readable block goes. Default stdout via
@@ -862,6 +864,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 				repoRoot: opts.repoRoot,
 				spawn,
 				now,
+				// Live contention precheck: one local GET before the probes, so a
+				// timeout under multi-model load is a documented skip, not a false
+				// FAIL (unit tests keep the injected fake and stay network-free).
+				modelsFetch: fetch,
 			});
 			if (smoke) {
 				gates.push({
