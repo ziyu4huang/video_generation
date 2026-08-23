@@ -237,7 +237,8 @@ extensions:
     # gross / 12,328 net (57.3%) saved at session start on the real dist.
     # Fail-open for untracked tools + the enable_tool escape hatch hold the
     # 0 task-breaking posture; the recall corpus/gate-recall probes stay
-    # repo-side (ships without its QA harness — the standing caveat).
+    # repo-side. The deploy e2e `tool-gate-fire` probe smoke-gates the shipped
+    # matcher (session-start gating + keyword firing + enable_tool + disable env).
     deploy:
       order: 190
   - name: devops

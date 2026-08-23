@@ -11,19 +11,24 @@
  * suites (tests/deploy-e2e.test.ts, tests/deploy-probe-e2e.test.ts,
  * s2-agent run-test tiers) are PI_AGENT_E2E-gated and never run in CI, so in
  * practice the live dist goes unverified between manual runs. This recipe is
- * the cheap, always-runnable layer: three bounded probes against a deployed
+ * the cheap, always-runnable layer: bounded probes against a deployed
  * version dir, spawn-injectable, provider-tolerant.
  *
- * THE THREE PROBES
- *   boot       `s2-agent.sh --help` — the core boots from the frozen tree.
- *   ext-load   `s2-agent.sh --ext-list` — every extension enabled in
- *              deploy.json reports loaded (same contract as deploy Gate 3,
- *              but against the FINAL tree).
- *   model-call `s2-agent.sh -p 'Reply with exactly: ok' --no-session` — a real
- *              one-shot model call through the deployed launcher. A FAST
- *              provider/auth failure (≤10s, provider-smelling output) is a
- *              SKIP, never a FAIL — the hang detector must not fail on
- *              missing credentials (semantics lifted from oneshot-smoke).
+ * THE PROBES
+ *   boot           `s2-agent.sh --help` — the core boots from the frozen tree.
+ *   ext-load       `s2-agent.sh --ext-list` — every extension enabled in
+ *                  deploy.json reports loaded (same contract as deploy Gate 3,
+ *                  but against the FINAL tree).
+ *   model-call     `s2-agent.sh -p 'Reply with exactly: ok' --no-session` — a
+ *                  real one-shot model call through the deployed launcher. A
+ *                  FAST provider/auth failure (≤10s, provider-smelling output)
+ *                  is a SKIP, never a FAIL — the hang detector must not fail on
+ *                  missing credentials (semantics lifted from oneshot-smoke).
+ *   file2md-ocr    executes the DEPLOYED file2md bundle's OCR on a fixture —
+ *                  no model; proves the shipped wasm/lang assets resolve.
+ *   tool-gate-fire executes the DEPLOYED tool-gate bundle's matcher on a
+ *                  fixture gate family — no model; proves the shipped bytes
+ *                  gate at session start and fire on a keyword prompt.
  *
  * INTERACTIVE SUBCOMMANDS ARE DELIBERATELY NOT PROBED
  *   `s2-agent auth` with no subcommand opens an interactive TUI and blocks
@@ -42,6 +47,7 @@ import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { executeExtTool } from "./deploy/lib/ext-build.js";
+import { runToolGateFireProbe } from "./tool-gate-fire-probe.js";
 import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
 import { classifyRun } from "./oneshot-smoke.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
@@ -71,7 +77,7 @@ export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
 export interface DeployE2eProbe {
-	id: "boot" | "ext-load" | "model-call" | "file2md-ocr";
+	id: "boot" | "ext-load" | "model-call" | "file2md-ocr" | "tool-gate-fire";
 	verdict: ProbeVerdict;
 	ms: number;
 	note: string;
@@ -369,12 +375,51 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		probes.push({ id: "file2md-ocr", verdict: ocrVerdict, ms: now() - t0, note: ocrNote, detail: ocrDetail });
 	}
 
+	// ── tool-gate-fire probe ─────────────────────────────────────────────────
+	// The shipped matcher's recall is the reversal's standing portability
+	// caveat: the dist carries tool-gate WITHOUT its repo-side recall corpus /
+	// gate-recall probes. This probe executes the DEPLOYED ext/tool-gate
+	// bundle (runtime loader, host modules served for real — no model, no
+	// agent loop) and drives a session_start → before_agent_start cycle over a
+	// fixture gate family: gated OFF at start, fires on a keyword prompt,
+	// enable_tool registered, BUN_PI_TOOL_GATE=0 guards. The full corpus still
+	// stays repo-side — this is the smoke layer.
+	if (!enabled.includes("tool-gate")) {
+		probes.push({ id: "tool-gate-fire", verdict: "skip", ms: 0, note: "tool-gate not in deploy set" });
+	} else {
+		const t0 = now();
+		let tgNote = "";
+		let tgDetail: string | undefined;
+		let tgVerdict: ProbeVerdict = "fail";
+		try {
+			const extJson = JSON.parse(
+				readFileSync(join(opts.versionDir, "ext", "tool-gate", "ext.json"), "utf8"),
+			) as {
+				hostModules?: string[];
+				vendored?: string[];
+				runtimeExternals?: string[];
+			};
+			const r = await runToolGateFireProbe(
+				join(opts.versionDir, "ext", "tool-gate", "ext.cjs"),
+				[...(extJson.hostModules ?? []), ...(extJson.vendored ?? []), ...(extJson.runtimeExternals ?? [])],
+			);
+			tgVerdict = r.ok ? "pass" : "fail";
+			tgNote = r.ok ? "deployed matcher gates + fires (offline, no model)" : r.note;
+			tgDetail = r.detail;
+		} catch (e) {
+			tgNote = `execution failed: ${e instanceof Error ? e.message : String(e)}`;
+			tgDetail = tgNote;
+		}
+		probes.push({ id: "tool-gate-fire", verdict: tgVerdict, ms: now() - t0, note: tgNote, detail: tgDetail });
+	}
+
 	const verdict = worst(
 		probes
 			.filter((p) => {
 				if (modelCallSkippedByCaller && p.id === "model-call") return false;
 				// Not-applicable skips are inconclusive, not a degraded verdict.
 				if (p.id === "file2md-ocr" && p.verdict === "skip") return false;
+				if (p.id === "tool-gate-fire" && p.verdict === "skip") return false;
 				return true;
 			})
 			.map((p) => p.verdict),

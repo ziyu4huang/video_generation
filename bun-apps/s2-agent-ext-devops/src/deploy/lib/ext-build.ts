@@ -200,21 +200,28 @@ export function loadProbe(
 	}
 }
 
+export interface ExtBundle {
+	/** The module exports object evaluated with the runtime loader contract. */
+	exports: Record<string, unknown>;
+	/** The deployed ext dir the bundle was evaluated against (#pi/ext-dir). */
+	extDir: string;
+}
+
 /**
- * Evaluate a deployed ext.cjs bundle the way the runtime loader does and
- * execute ONE of its registered tools — no model, no agent loop. This is what
- * the file2md OCR e2e probe uses: the deployed bundle's own pipeline runs
- * against the deployed assets resolved via `#pi/ext-dir` (vendored wasm +
- * copied lang data), so a broken asset layout fails here instead of on a user
- * machine.
+ * Evaluate a deployed ext.cjs bundle the way the runtime loader does — the
+ * shared preamble of `executeExtTool` and the tool-gate fire probe, so the two
+ * can never disagree about host identity, require semantics, or the
+ * `#pi/ext-dir` serving.
+ *
+ * Host modules resolve from the build machine's workspace (never from the
+ * deploy tree — that tree has no node_modules and every host module would
+ * silently degrade to a stub and the probe would stop proving anything).
  */
-export async function executeExtTool(
+export async function evaluateExtBundle(
 	cjsPath: string,
-	toolName: string,
-	params: Record<string, unknown>,
 	hostModules: readonly string[],
 	opts: { resolveFrom?: string } = {},
-): Promise<unknown> {
+): Promise<ExtBundle> {
 	const code = readFileSync(cjsPath, "utf8");
 	const extDir = join(cjsPath, "..");
 	const resolveFrom = opts.resolveFrom ?? PI_AGENT_DIR;
@@ -243,6 +250,25 @@ export async function executeExtTool(
 	if (typeof exports.default !== "function") {
 		throw new Error(`${cjsPath}: bundle has no callable default export`);
 	}
+	return { exports: exports as Record<string, unknown>, extDir };
+}
+
+/**
+ * Evaluate a deployed ext.cjs bundle the way the runtime loader does and
+ * execute ONE of its registered tools — no model, no agent loop. This is what
+ * the file2md OCR e2e probe uses: the deployed bundle's own pipeline runs
+ * against the deployed assets resolved via `#pi/ext-dir` (vendored wasm +
+ * copied lang data), so a broken asset layout fails here instead of on a user
+ * machine.
+ */
+export async function executeExtTool(
+	cjsPath: string,
+	toolName: string,
+	params: Record<string, unknown>,
+	hostModules: readonly string[],
+	opts: { resolveFrom?: string } = {},
+): Promise<unknown> {
+	const { exports } = await evaluateExtBundle(cjsPath, hostModules, opts);
 	const tools: Array<{ name: string; execute: (...a: unknown[]) => unknown }> = [];
 	(exports.default as (api: unknown) => void)({
 		on: () => undefined,
