@@ -20,6 +20,19 @@
  *     hermes sync. Runs only when a boot input's hash changed, the last canary
  *     is >24h old, or force.
  *
+ * CONTENTION PRECHECK (2026-08-23, lifted from deploy-e2e's measured lesson)
+ *   Both probes place a REAL model call through the default provider, so their
+ *   wall-clock caps cannot tell SLOW GENERATION from a hang when the model
+ *   endpoint is loaded (measured: LM Studio with several large chat models
+ *   resident → 31.7s for 10 tokens, ~3–4 min uncapped — the 2026-08-23
+ *   full-matrix red was exactly a fast-probe timeout under that load, not a
+ *   tree defect). Before probing, GET `<model endpoint>/v1/models`: when MORE
+ *   THAN ONE large chat model is resident, a probe timeout is reclassified
+ *   skip (slow-generation-contention) carrying the unload-the-extras warning —
+ *   the gate then reflects the TREE, not the machine's load. When the endpoint
+ *   is quiet — or the precheck is off/unreachable — a timeout stays a FAIL:
+ *   that is precisely the hang this gate exists to catch.
+ *
  * ADAPTIVE, NOT ALWAYS-ON
  *   A boot probe costs real seconds, so the gate keeps a tiny state file
  *   (default bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json,
@@ -44,6 +57,7 @@
  *     flag, so the env var is the wired-in override.
  */
 import { mkdir } from "node:fs/promises";
+import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
 import type { SpawnFn } from "./spawn.js";
 
 export const ONESHOT_SMOKE_GATE_NAME = "oneshot-smoke";
@@ -105,7 +119,10 @@ export interface SmokeRun {
 
 export interface SmokeClassification {
 	verdict: SmokeVerdict;
-	/** Stable machine reason: ok | provider-unavailable | timeout | nonzero-exit | empty-stdout. */
+	/**
+	 * Stable machine reason: ok | provider-unavailable | timeout | nonzero-exit |
+	 * empty-stdout | slow-generation-contention.
+	 */
 	reason: string;
 	/** Human-readable detail; on FAIL carries the diagnostic/tail. */
 	detail?: string;
@@ -132,9 +149,24 @@ export const BOOT_HANG_DIAGNOSTIC = [
 	"Full incident + recipe: docs/agents/learnings.md (s2-agent one-shot boot hang).",
 ].join("\n");
 
-/** Classify one probe outcome. Pure — no spawns, no clock, no filesystem. */
-export function classifyRun(run: SmokeRun): SmokeClassification {
+/**
+ * Classify one probe outcome. Pure — no spawns, no clock, no filesystem.
+ * `slowGenerationContention` carries the contention precheck's warning: when
+ * set, a timeout is ambiguous (slow generation vs hang) and downgrades to
+ * skip — the environment, not the tree, is the suspect.
+ */
+export function classifyRun(
+	run: SmokeRun,
+	opts: { slowGenerationContention?: string } = {},
+): SmokeClassification {
 	if (run.timedOut) {
+		if (opts.slowGenerationContention) {
+			return {
+				verdict: "skip",
+				reason: "slow-generation-contention",
+				detail: `${opts.slowGenerationContention}\n${BOOT_HANG_DIAGNOSTIC}`,
+			};
+		}
 		return { verdict: "fail", reason: "timeout", detail: BOOT_HANG_DIAGNOSTIC };
 	}
 	if (run.exitCode === 0) {
@@ -221,6 +253,13 @@ export interface OneshotSmokeOptions {
 	/** Env to read DEVOPS_ONESHOT_SMOKE from (default process.env). */
 	env?: Record<string, string | undefined>;
 	force?: boolean;
+	/**
+	 * Contention-precheck fetch (GET `<model endpoint>/v1/models`). Omitted/null
+	 * = precheck off — the default so unit tests and standalone runs stay
+	 * network-free; ci-recipe passes the real fetch. Precheck failures (fetch
+	 * throw / non-OK) are silent: no evidence → no excuse, timeouts still FAIL.
+	 */
+	modelsFetch?: ModelsFetch | null;
 }
 
 class InputError extends Error {}
@@ -308,6 +347,25 @@ export async function runOneshotSmoke(opts: OneshotSmokeOptions): Promise<Onesho
 			};
 		}
 
+		// Contention precheck (see header): decides whether a later timeout is
+		// SLOW GENERATION (skip, environment) or a HANG (fail, tree).
+		let contention: string | null = null;
+		if (opts.modelsFetch) {
+			try {
+				const res = await opts.modelsFetch(`${resolveModelEndpoint(env)}/v1/models`);
+				if (res.ok) {
+					const body = (await res.json()) as { data?: Array<{ id?: string }> };
+					contention = modelContentionWarning(
+						(body.data ?? []).map((m) => m.id ?? ""),
+						FAST_CAP_MS,
+					);
+				}
+			} catch {
+				// Precheck endpoint down = no contention evidence; timeouts FAIL.
+			}
+		}
+		const contentionCtx = contention ? { slowGenerationContention: contention } : {};
+
 		const cli = `${opts.repoRoot}/${PI_AGENT_CLI}`;
 		const parts: string[] = [];
 		let next = state ? { ...state } : null;
@@ -320,9 +378,22 @@ export async function runOneshotSmoke(opts: OneshotSmokeOptions): Promise<Onesho
 				timeoutMs: FAST_CAP_MS,
 			});
 			const fastMs = now() - t0;
-			const c = classifyRun({ ...r, durationMs: fastMs });
+			const c = classifyRun({ ...r, durationMs: fastMs }, contentionCtx);
 			if (c.verdict === "fail") {
 				return failResult("fast", c, plan, now() - startedAt);
+			}
+			if (c.reason === "slow-generation-contention") {
+				// A contention-timeout proves nothing about the boot (no reply, no
+				// error was seen) — run no canary under the same load, write no
+				// state, and let the next run re-probe once the extras unload.
+				return {
+					exitCode: 0,
+					verdict: "skip",
+					mode: plan.mode,
+					note: `skip (fast ${c.reason} ${fmtMs(fastMs)}; canary not run under contention)`,
+					detail: c.detail,
+					durationMs: now() - startedAt,
+				};
 			}
 			parts.push(c.verdict === "pass" ? `fast ${fmtMs(fastMs)}` : `fast ${c.reason} ${fmtMs(fastMs)}`);
 			// A fast pass OR a fast provider-skip both prove the boot completed.
@@ -344,7 +415,7 @@ export async function runOneshotSmoke(opts: OneshotSmokeOptions): Promise<Onesho
 				timeoutMs: CANARY_CAP_MS,
 			});
 			const canaryMs = now() - t0;
-			const c = classifyRun({ ...r, durationMs: canaryMs });
+			const c = classifyRun({ ...r, durationMs: canaryMs }, contentionCtx);
 			if (c.verdict === "fail") {
 				return failResult("canary", c, plan, now() - startedAt);
 			}
@@ -359,7 +430,11 @@ export async function runOneshotSmoke(opts: OneshotSmokeOptions): Promise<Onesho
 
 		if (next) await writeState(statePath, next);
 
-		const verdict: SmokeVerdict = parts.every((p) => !p.includes("provider-unavailable")) ? "pass" : "skip";
+		const verdict: SmokeVerdict = parts.every(
+			(p) => !p.includes("provider-unavailable") && !p.includes("slow-generation-contention"),
+		)
+			? "pass"
+			: "skip";
 		return {
 			exitCode: 0,
 			verdict,

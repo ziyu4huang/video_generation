@@ -149,6 +149,17 @@ Phase 4 — ledger hygiene
 - D9: Ticket 01's smoke findings (pass or fail) land in this map's Fog of war
   resolution, and the memory numbers land in spec.md §3 as s2-only evidence
   (in-process children vs CC's process-per-child).
+- D10 (2026-08-23, oneshot-smoke red): FIX, not gate-skip. The full-matrix
+  red was a fast-probe TIMEOUT under model-endpoint load (LM Studio with >1
+  large chat model resident — deploy-e2e's measured 31.7s/10-token condition),
+  not a tree defect; the "deepseek leg" premise was void (no deepseek hop in
+  the probe, and the key works — ticket 01 F3). Resolution: port deploy-e2e's
+  contention precheck into oneshot-smoke (`src/model-endpoint.ts`, extracted
+  to break the import cycle). Probe timeout + diagnosed contention →
+  skip(slow-generation-contention), no canary, no state write; quiet endpoint
+  (or precheck off/unreachable) → timeout stays FAIL. The gate reflects the
+  TREE; the environment says itself out loud in the gate row. Recorded per
+  next-goal-20260823-103123 Immediate step 3.
 
 ## Frontier
 

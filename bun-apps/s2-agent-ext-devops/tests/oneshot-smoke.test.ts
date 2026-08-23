@@ -407,3 +407,120 @@ describe("runOneshotSmoke — runner via fake SpawnFn + fake repo", () => {
 		expect(CANARY_TTL_MS).toBe(24 * HOUR);
 	});
 });
+
+/**
+ * Contention precheck fakes — plain objects cast to Response (no network).
+ * "contentious" = >1 large chat model resident (the measured slow-generation
+ * condition); "quiet" = one large model + embedders (LM Studio's normal state).
+ */
+function mkModelsFetch(state: "contentious" | "quiet" | "error" | "not-ok") {
+	const calls: string[] = [];
+	const fn = async (url: string): Promise<Response> => {
+		calls.push(url);
+		if (state === "error") throw new Error("endpoint down");
+		if (state === "not-ok") return { ok: false, json: async () => ({}) } as unknown as Response;
+		const ids =
+			state === "contentious"
+				? [{ id: "qwen3.8-27b" }, { id: "gemma-4-12b" }, { id: "text-embedding-bge-m3" }]
+				: [{ id: "qwen3.8-27b" }, { id: "text-embedding-bge-m3" }];
+		return { ok: true, json: async () => ({ data: ids }) } as unknown as Response;
+	};
+	return { fn: fn as (url: string, init?: RequestInit) => Promise<Response>, calls };
+}
+
+describe("contention precheck — timeout under model-endpoint load is a SKIP, not a false FAIL", () => {
+	const timeout = (): SpawnResult => ({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
+
+	test("classifyRun: timeout + contention warning → skip, detail carries warning AND the hang recipe", () => {
+		const c = classifyRun(
+			{ ...timeout(), durationMs: 90_000 },
+			{ slowGenerationContention: "model endpoint lists 2 large chat models resident" },
+		);
+		expect(c.verdict).toBe("skip");
+		expect(c.reason).toBe("slow-generation-contention");
+		expect(c.detail).toContain("2 large chat models resident");
+		expect(c.detail).toContain("syncMarkdownMemories"); // recipe still attached
+	});
+
+	test("contentious endpoint + fast timeout → skip, exit 0, NO canary, NO state written", async () => {
+		const repo = mkFakeRepo();
+		const clock = mkClock();
+		const fetch = mkModelsFetch("contentious");
+		const { fn, calls } = mkSpawn([timeout()]);
+		const r = await runOneshotSmoke({ repoRoot: repo, spawn: fn, now: clock.now, env: {}, modelsFetch: fetch.fn });
+		expect(r?.exitCode).toBe(0);
+		expect(r?.verdict).toBe("skip");
+		expect(r?.note).toContain("slow-generation-contention");
+		expect(r?.note).toContain("canary not run under contention");
+		expect(r?.detail).toContain("large chat models resident");
+		expect(fetch.calls).toHaveLength(1); // precheck hit the endpoint once
+		expect(calls).toHaveLength(1); // fast probe only
+		expect(existsSync(join(repo, "bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json"))).toBe(false);
+		rmRepo(repo);
+	});
+
+	test("quiet endpoint + fast timeout → STILL FAIL — the gate's teeth stay where load cannot explain a hang", async () => {
+		const repo = mkFakeRepo();
+		const clock = mkClock();
+		const fetch = mkModelsFetch("quiet");
+		const { fn, calls } = mkSpawn([timeout()]);
+		const r = await runOneshotSmoke({ repoRoot: repo, spawn: fn, now: clock.now, env: {}, modelsFetch: fetch.fn });
+		expect(r?.exitCode).toBe(1);
+		expect(r?.verdict).toBe("fail");
+		expect(r?.note).toContain("fast probe: timeout");
+		expect(calls).toHaveLength(1);
+		rmRepo(repo);
+	});
+
+	test("precheck fetch throws / non-OK → no contention evidence → timeout FAILs (no excuse)", async () => {
+		for (const state of ["error", "not-ok"] as const) {
+			const repo = mkFakeRepo();
+			const clock = mkClock();
+			const fetch = mkModelsFetch(state);
+			const { fn } = mkSpawn([timeout()]);
+			const r = await runOneshotSmoke({ repoRoot: repo, spawn: fn, now: clock.now, env: {}, modelsFetch: fetch.fn });
+			expect(r?.exitCode).toBe(1);
+			expect(r?.verdict).toBe("fail");
+			rmRepo(repo);
+		}
+	});
+
+	test("fast PASS + canary timeout under contention → verdict skip, canary ts NOT refreshed", async () => {
+		const repo = mkFakeRepo();
+		const clock = mkClock();
+		const fetch = mkModelsFetch("contentious");
+		const { fn, calls } = mkSpawn([
+			{ stdout: "ok\n", stderr: "", exitCode: 0 }, // fast passes
+			timeout(), // canary times out under the same load
+		]);
+		const r = await runOneshotSmoke({ repoRoot: repo, spawn: fn, now: clock.now, env: {}, modelsFetch: fetch.fn });
+		expect(r?.exitCode).toBe(0);
+		expect(r?.verdict).toBe("skip");
+		expect(r?.note).toContain("canary slow-generation-contention");
+		expect(calls).toHaveLength(2);
+		const state = await readState(join(repo, "bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json"));
+		expect(state?.lastPassTs).toBeGreaterThan(T0 - 1); // fast pass cached
+		expect(state?.lastCanaryTs).toBe(0); // contention skip never refreshes the canary
+		rmRepo(repo);
+	});
+
+	test("cached pass → ZERO fetches (the precheck never runs on the cheap path)", async () => {
+		const repo = mkFakeRepo();
+		const clock = mkClock();
+		const hash = await computeInputHash(repo);
+		await writeState(join(repo, "bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json"), {
+			version: STATE_VERSION,
+			inputHash: hash,
+			lastPassTs: T0 - 1 * HOUR,
+			lastCanaryTs: T0 - 1 * HOUR,
+			lastDurationMs: 4103,
+		});
+		const fetch = mkModelsFetch("contentious");
+		const { fn, calls } = mkSpawn([timeout()]);
+		const r = await runOneshotSmoke({ repoRoot: repo, spawn: fn, now: clock.now, env: {}, modelsFetch: fetch.fn });
+		expect(r?.mode).toBe("skip-cached");
+		expect(fetch.calls).toHaveLength(0);
+		expect(calls).toHaveLength(0);
+		rmRepo(repo);
+	});
+});

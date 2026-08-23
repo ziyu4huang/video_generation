@@ -41,7 +41,13 @@ import { readFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { realpathSync } from "node:fs";
 import { classifyRun } from "./oneshot-smoke.js";
+import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
 import type { SpawnFn } from "./spawn.js";
+
+// Re-exported for compatibility: these moved to src/model-endpoint.ts
+// (2026-08-23) so oneshot-smoke can share them without an import cycle.
+export { DEFAULT_MODEL_ENDPOINT, modelContentionWarning, resolveModelEndpoint } from "./model-endpoint.js";
+export type { ModelsFetch } from "./model-endpoint.js";
 
 /**
  * Wall-clock caps (ms). Boot and ext-load stay TIGHT — neither places a model
@@ -56,43 +62,8 @@ export const BOOT_CAP_MS = 60_000;
 export const EXT_LIST_CAP_MS = 60_000;
 export const MODEL_CALL_CAP_MS = 300_000;
 
-/** Default chat-endpoint base for the contention precheck (LM Studio). */
-export const DEFAULT_MODEL_ENDPOINT = "http://127.0.0.1:1234";
-
-/** Resolve the precheck endpoint: env override first (baseUrl alias included). */
-export function resolveModelEndpoint(env: Record<string, string | undefined> = process.env): string {
-	return env.LMSTUDIO_BASE_URL ?? DEFAULT_MODEL_ENDPOINT;
-}
-
-/** Model ids that are embedding servers, not chat models — never contention. */
-const EMBEDDING_ID_RE = /embed|bge/i;
-/** "27b" / "12b" in a model id, parsed as a parameter count. */
-const PARAMS_B_RE = /(\d+(?:\.\d+)?)\s*b\b/i;
-/** ≥ this many billion params counts as a LARGE chat model. */
-const LARGE_MODEL_MIN_B = 7;
-
-/**
- * Contention precheck (pure): given `/v1/models` ids, warn when MORE THAN ONE
- * large chat model is resident — the measured condition under which even a
- * 300s model-call cap can be exceeded. Returns null when quiet.
- */
-export function modelContentionWarning(modelIds: string[], capMs: number = MODEL_CALL_CAP_MS): string | null {
-	const large = modelIds.filter((id) => {
-		if (EMBEDDING_ID_RE.test(id)) return false;
-		const m = id.match(PARAMS_B_RE);
-		return m !== null && Number.parseFloat(m[1]) >= LARGE_MODEL_MIN_B;
-	});
-	if (large.length > 1) {
-		return `model endpoint lists ${large.length} large chat models resident (${large.join(", ")}) — generation may be slow enough to exceed even the ${Math.round(capMs / 1000)}s model-call cap; consider unloading the extras in LM Studio before deploying/probing`;
-	}
-	return null;
-}
-
 /** The one-shot prompt; the reply content is irrelevant, the round-trip is. */
 export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
-
-/** Fetch seam for the contention precheck — narrow so tests inject a plain fn. */
-export type ModelsFetch = (url: string, init?: RequestInit) => Promise<Response>;
 
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
