@@ -36,8 +36,19 @@
  *        bun-apps/s2-agent-ext-devops/src/**        (deploy probes, raises)
  *        bun-apps/tests/ci-workflow-references.test.ts
  *        bun-apps/s2-agent/src/doctor.ts            (hint text spawns/verifies)
+ *        bun-apps/s2-agent-ext-devops/extensions/devops.ts
+ *                                                    (tool-registration surface —
+ *                                                    what agents READ for a tool's
+ *                                                    description)
+ *        bun-apps/s2-agent-ext-devops/CONTEXT.md    (agent-loaded context)
  *      A mention on a CODE line (or an unlabeled comment) is a violation: that
- *      is the deploy-probe/verify-tool-spawn class.
+ *      is the deploy-probe/verify-tool-spawn class. In the two agent-facing
+ *      surfaces above, devops.ts code lines (incl. tool-description strings)
+ *      follow that same rule (its comments keep the history-label relief),
+ *      while devops' CONTEXT.md is scanned STRICT — there even a
+ *      history-labeled mention is a violation: prose has no comment-vs-code
+ *      distinction, a labeled alias still seeds agent lookups, and the
+ *      `**Term**` glossary shape collides with the comment heuristic anyway.
  *
  * THE HISTORY EXEMPTION (comments only), and its one documented relaxation
  *   A comment line that mentions a deleted name is allowed ONLY inside a
@@ -68,9 +79,11 @@
  *     changed-packages-cli}.test.ts etc. carry "captured from <name>.sh@<sha>"
  *     provenance and golden text that VERBATIM contains the old names — that is
  *     the .sh→.ts parity evidence (D3), frozen by design.
- *   - README.md / CONTEXT.md history prose is outside the active-skill docs
- *     surface this guard seals (package-internal, and each mention labels
- *     itself retired).
+ *   - README.md / CONTEXT.md history prose of OTHER packages (outside devops,
+ *     whose own CONTEXT.md + extensions/devops.ts ARE sealed above — they are
+ *     agent-facing: the tool description is what agents read and CONTEXT.md is
+ *     loaded into agent context, so a deleted name there rots exactly like a
+ *     SKILL.md mention). Each remaining mention labels itself retired.
  *
  * The guard is a static read of the repo tree (no spawn, no env) — fully
  * portable, still meaningful in CI. Its real-assertion integrity is proven by
@@ -91,6 +104,16 @@ import { dirname, join, resolve } from "node:path";
 
 const BUN_APPS = resolve(import.meta.dir, "..");
 const REPO_ROOT = resolve(BUN_APPS, "..");
+
+/** One scanned code-surface file. `strict` = prose surface (CONTEXT.md):
+ * no comment-vs-code detection — ANY mention is a violation, because prose
+ * lines ``**Term**``-style collide with the JSDoc-bullet heuristic and the
+ * reader cannot see whether a label was "comment history" or agent context. */
+interface CodeSurfaceFile {
+  path: string;
+  content: string;
+  strict?: boolean;
+}
 
 /** The five skill tools whose .sh was deleted after its .ts twin shipped. */
 const BANNED_TOOLS = ["dedup.sh", "run-test.sh", "ci-local.sh", "smoke.sh", "find-polluter.sh"] as const;
@@ -146,8 +169,21 @@ function codeSurfaceFiles(): { path: string; content: string }[] {
     ...tsFilesUnder(join(BUN_APPS, "s2-agent-ext-devops", "src")),
     join(BUN_APPS, "tests", "ci-workflow-references.test.ts"),
     join(BUN_APPS, "s2-agent", "src", "doctor.ts"),
+    // Agent-facing surfaces (w3 final review): the tool-registration surface is
+    // what agents actually READ for a tool's description, and devops' CONTEXT.md
+    // is agent-loaded context (and its glossary _Avoid_ lines name aliases) — a
+    // deleted name in either has the same ENOENT-following risk as a SKILL.md
+    // mention, unlike src/** comments that merely tell the story. Both are
+    // mention-free today; a bare mention in the agent-read TEXT (description
+    // strings, glossary prose) is a violation regardless of history labeling —
+    // a labeled alias still seeds tool lookups in agent context.
+    join(BUN_APPS, "s2-agent-ext-devops", "extensions", "devops.ts"),
+    { path: join(BUN_APPS, "s2-agent-ext-devops", "CONTEXT.md"), strict: true },
   ];
-  return files.map((path) => ({ path, content: readFileSync(path, "utf8") }));
+  return files.map((path) => {
+    if (typeof path === "string") return { path, content: readFileSync(path, "utf8") };
+    return { ...path, content: readFileSync(path.path, "utf8") };
+  });
 }
 
 interface Hit {
@@ -264,16 +300,17 @@ function commentBlocks(lines: string[]): { start: number; text: string }[] {
 /**
  * Code-surface rule (assertion 3): a banned name on a code line is always a
  * violation; on a comment line it is allowed only inside a history-labeled
- * comment block.
+ * comment block. A `strict` file (CONTEXT.md — prose, no comment-vs-code
+ * distinction) treats EVERY line as code: any mention is a violation.
  */
-export function scanCodeSurface(files: { path: string; content: string }[]): Hit[] {
+export function scanCodeSurface(files: CodeSurfaceFile[]): Hit[] {
   const hits: Hit[] = [];
   for (const file of files) {
     const lines = file.content.split("\n");
     const blocks = commentBlocks(lines);
     lines.forEach((line, i) => {
       if (!BANNED_TOOLS.some((b) => line.includes(b))) return;
-      const { isComment } = commentPart(line);
+      const { isComment } = file.strict ? { isComment: false } : commentPart(line);
       if (!isComment) {
         hits.push({
           file: file.path,
@@ -326,6 +363,8 @@ describe("code surface — no live reference to a deleted launcher", () => {
     expect(files.length).toBeGreaterThan(10);
     expect(files.some((f) => f.path.endsWith("src/deploy-run.ts"))).toBe(true);
     expect(files.some((f) => f.path.endsWith("src/doctor.ts"))).toBe(true);
+    expect(files.some((f) => f.path.endsWith("extensions/devops.ts"))).toBe(true);
+    expect(files.some((f) => f.path.endsWith("s2-agent-ext-devops/CONTEXT.md"))).toBe(true);
   });
 
   test("no deleted bash name outside a history-labeled comment (deploy-probe class)", () => {
@@ -359,6 +398,33 @@ describe("negative controls — the scanners detect what they must", () => {
     expect(hits).toHaveLength(1);
     expect(hits[0]!.term).toBe("run-test.sh");
     expect(hits[0]!.note).toContain("CODE line");
+  });
+
+  test("a planted run-test.sh in a virtual devops tool description is detected (agent-read surface)", () => {
+    const hits = scanCodeSurface([
+      {
+        path: "/virtual/s2-agent-ext-devops/extensions/devops.ts",
+        content: `description: "Run run-test.sh medium to verify what the tiers do.",\n`,
+      },
+    ]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.term).toBe("run-test.sh");
+    expect(hits[0]!.note).toContain("CODE line");
+  });
+
+  test("a planted run-test.sh in a virtual devops CONTEXT.md glossary is detected (agent-loaded surface, strict)", () => {
+    const hits = scanCodeSurface([
+      { path: "/virtual/s2-agent-ext-devops/CONTEXT.md", strict: true, content: "**run-test.sh**: the deleted bash tool.\n" },
+    ]);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.term).toBe("run-test.sh");
+    expect(hits[0]!.note).toContain("CODE line");
+    // Strict also kills the label escape hatch — a labeled mention is still
+    // agent-loaded context a reader acts on.
+    const labeled = scanCodeSurface([
+      { path: "/virtual/s2-agent-ext-devops/CONTEXT.md", strict: true, content: "run-test.sh used to be the launcher (retired).\n" },
+    ]);
+    expect(labeled, "strict CONTEXT.md must catch even a history-labeled mention").toHaveLength(1);
   });
 
   test("a planted UNLABELED comment mention is detected", () => {

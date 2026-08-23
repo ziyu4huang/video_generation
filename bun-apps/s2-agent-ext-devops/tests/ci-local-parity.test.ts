@@ -70,11 +70,13 @@
  *     "bash scripts/ci-local.sh …"                → "bun …scripts/ci-local.ts …"
  *   Everything else is byte-identical, and the golden below is DERIVED from
  *   the old script's captured header by those same substitutions, so a doc
- *   drift away from the ported text fails. (Carried-over stale history,
- *   deliberately not refreshed here — the doc sweeps are Task 11/12's honest
- *   sweep: the header's "(bun-apps/s2-agent/run-test.sh high + readonly)"
- *   non-coverage line names a file Task 8 deleted. Noted, not fixed, to keep
- *   the port 1:1.)
+ *   drift away from the ported text fails. One deliberate refresh over the
+ *   two substitutions (w3 final review): the non-coverage line
+ *   "(bun-apps/s2-agent/run-test.sh high + readonly)" named a file Task 8
+ *   deleted — it now reads "(bun-apps/s2-agent-ext-devops/scripts/run-test.ts
+ *   full — the high/readonly tiers are GONE)" in BOTH the script and the
+ *   golden, per run-test.ts's own header ("The `high` and `readonly` tiers are
+ *   GONE").
  *
  *   Color note: all captured outputs are NON-TTY (spawn pipes) — the .sh
  *   disables colors when stdout isn't a TTY ([ -t 1 ]), so these goldens
@@ -313,7 +315,7 @@ const HELP_GOLDEN = [
 	"#",
 	"# WHAT IT DOES **NOT** COVER — a green run here is NOT a green CI:",
 	"#   - extension-contract      (bun test src/__tests__/extension-contract.test.ts)",
-	"#   - deploy-verify           (bun-apps/s2-agent/run-test.sh high + readonly)",
+	"#   - deploy-verify           (bun-apps/s2-agent-ext-devops/scripts/run-test.ts full — the high/readonly tiers are GONE)",
 	"#   - compile-verify          (bun run deploy:exe + binary smokes)",
 	"#   - clean-launch-self-heal  (clean-checkout check-deps.ts self-heal)",
 	"#   - determinism-spotcheck   (3x the flake-prone subset; run it directly via",

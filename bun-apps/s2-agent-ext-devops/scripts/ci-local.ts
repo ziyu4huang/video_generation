@@ -75,7 +75,7 @@ const HELP = [
 	"#",
 	"# WHAT IT DOES **NOT** COVER — a green run here is NOT a green CI:",
 	"#   - extension-contract      (bun test src/__tests__/extension-contract.test.ts)",
-	"#   - deploy-verify           (bun-apps/s2-agent/run-test.sh high + readonly)",
+	"#   - deploy-verify           (bun-apps/s2-agent-ext-devops/scripts/run-test.ts full — the high/readonly tiers are GONE)",
 	"#   - compile-verify          (bun run deploy:exe + binary smokes)",
 	"#   - clean-launch-self-heal  (clean-checkout check-deps.ts self-heal)",
 	"#   - determinism-spotcheck   (3x the flake-prone subset; run it directly via",
