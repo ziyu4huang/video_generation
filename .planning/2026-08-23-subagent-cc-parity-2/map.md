@@ -38,11 +38,14 @@ Claude-Code-vs-s2 parity ledger — every parity ticket updates its tables in-PR
 - **S3 — Startup context: children already inherit the CLAUDE.md hierarchy.**
   pi's `DefaultResourceLoader` loads `AGENTS.override.md, AGENTS.md, CLAUDE.md`
   candidates walking ancestors per cwd with worktree-shadowing handling
-  (`dist/core/resource-loader.js:31-80`). The real gaps are a git-status
-  snapshot and the sibling roster (`LiveAgentRegistry` is a process singleton
-  in core-runtime). Footer composition order discipline lives at
-  `subagent-tool-run.ts:459-463` (env-hints BEFORE abort-safety; abort-safety
-  keeps the last word).
+  (`dist/core/resource-loader.js:31-80`). **MEASURED 2026-08-23 (ticket 04):**
+  a faux-transport `spawnSubagent` child's system prompt contains BOTH the
+  spawn-cwd CLAUDE.md AND the ancestor's (`tests/startup-context.test.ts`) —
+  the claim is a standing pin, not an assumption. The remaining gaps (git
+  snapshot, sibling roster from the process-singleton `LiveAgentRegistry`)
+  closed by ticket 04. Footer composition order discipline lives at
+  `subagent-tool-run.ts` (env-hints BEFORE abort-safety; abort-safety keeps
+  the last word; startup-context prefixes them all).
 - **S4 — Budget directive: the forced-prompt transform is the parse point.**
   `workflow-editor.ts:518` returns `{action:"transform",
   text: buildForcedWorkflowPrompt(event.text, extra)}` on armed input;
@@ -90,8 +93,11 @@ Phase 2 — CC subagent parity (after 01)
   built-ins as the lowest-precedence code-only tier; read-only via the
   `createReadOnlyTools` allowlist + explicit denylist; user files shadow
   completely
-- `tickets/04-startup-context.md` — open — git-status + sibling-roster startup
-  block (after 02; reuses its transcript composer)
+- `tickets/04-startup-context.md` — done (2026-08-23) — spawn-time git
+  snapshot + sibling roster as a task PREFIX block (`context:
+  "full"|"minimal"|"none"`; singular full / batch minimal with ONE shared
+  snapshot per call); resource-loader CLAUDE.md inheritance measured and
+  pinned (faux-transport system-prompt test)
 
 Phase 3 — ultracode parity (parallel with Phase 2)
 - `tickets/05-budget-directive.md` — open — `+500k`-style binding token
@@ -146,15 +152,16 @@ Phase 4 — ledger hygiene
 
 ## Frontier
 
-Ticket 04 (startup context) — ticket 03 closed 2026-08-23: `explore`/`plan`
-built-ins ship as the code-only lowest-precedence tier (project > pack > user >
-builtin), read-only via the `createReadOnlyTools` allowlist + explicit
-`edit/write/bash` denylist; the NOT-taken stronger alternative (base-tools
-override via `createReadOnlyTools` in `assembleSession`) stays on the table
-only if a future ticket needs tool-INSTANCE substitution — the name allowlist
-already pins behavior today. Ticket 04 reuses 02's transcript composer; the
-explore-skips-CLAUDE.md divergence is settled as accepted (spec §3). 05/06
-remain parallel; F2 rides 05.
+Tickets 05/06 (parallel, Phase 3) — ticket 04 closed 2026-08-23: children get
+CC's startup-context block as a task PREFIX (git branch/HEAD/porcelain
+snapshot + sibling roster, composed before env-hints and abort-safety; singular
+default `full`, batch default `minimal` sharing ONE snapshot per call). The
+resource-loader inheritance it builds on is now MEASURED (faux-transport
+system-prompt pin: root + ancestor CLAUDE.md both present) rather than assumed.
+Ticket 05 (budget directive, map D6) is the next workable ticket — the
+`workflow-editor.ts:518` transform seam is the parse point and F2 (live-agent
+default tokenBudget 120k too tight) rides it; ticket 06 (`/loop` +
+`schedule_wakeup`, D7) is independent.
 
 ## Fog of war
 

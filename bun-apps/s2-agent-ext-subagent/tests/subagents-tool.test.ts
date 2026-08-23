@@ -88,6 +88,60 @@ test("mergeReadOnlyExclusion forwards retryOnTransient so a batch caller can tur
   assert.equal(mergeReadOnlyExclusion({ task: "t" }, { defaultCwd: "/repo" }).retryOnTransient, undefined);
 });
 
+test("ticket 04: ONE shared git snapshot prefixes every batch child's task; context 'none' skips capture", async () => {
+  const calls: SpawnSubagentOptions[] = [];
+  const spawn = async (opts: SpawnSubagentOptions) => {
+    calls.push(opts);
+    return ok("ok");
+  };
+  let snapshotCalls = 0;
+  const gitSnapshotOps = {
+    async snapshot(cwd: string) {
+      snapshotCalls++;
+      assert.equal(cwd, "/r");
+      return { branch: "## main...origin/main", head: "abc123 last commit", statusLines: ["M src/a.ts"] };
+    },
+  };
+  const tool = createSubagentsTool({ spawn: spawn as never, cwd: "/r", gitSnapshotOps: gitSnapshotOps as never });
+  await tool.execute(
+    "batch-ctx",
+    { tasks: [{ task: "a" }, { task: "b" }, { task: "c" }] } as never,
+    undefined as never,
+    undefined,
+    { cwd: "/r" } as never,
+  );
+  // ONE snapshot for the whole batch (map D5) — not one per child.
+  assert.equal(snapshotCalls, 1);
+  // Every child's task prefixes the IDENTICAL block (shared spawn-time state).
+  const prefixes = calls.map((o) => (o.task as string).split("\n\n")[0]);
+  assert.equal(new Set(prefixes).size, 1, "all children share one block");
+  assert.match(prefixes[0] as string, /Startup context/);
+  assert.match(prefixes[0] as string, /## main\.\.\.origin\/main/);
+  assert.match(prefixes[0] as string, /HEAD: abc123 last commit/);
+  // Batch default is MINIMAL: no porcelain body.
+  for (const [i, o] of calls.entries()) {
+    assert.doesNotMatch(o.task as string, /M src\/a\.ts/);
+    // The raw task survives after the block (each child keeps its own input).
+    assert.ok((o.task as string).includes(`\n\n${["a", "b", "c"][i]}`), `task ${i} keeps its raw input`);
+  }
+
+  // context "none": no snapshot, no block — spawned task byte-identical to input.
+  calls.length = 0;
+  snapshotCalls = 0;
+  await tool.execute(
+    "batch-ctx-none",
+    { tasks: [{ task: "x" }], context: "none" } as never,
+    undefined as never,
+    undefined,
+    { cwd: "/r" } as never,
+  );
+  assert.equal(snapshotCalls, 0);
+  // No startup block; the abort-safety footer may still ride (pre-existing
+  // recon-envelope behavior, not this ticket's concern).
+  assert.ok((calls[0]?.task as string).startsWith("x"));
+  assert.doesNotMatch(calls[0]?.task as string, /Startup context/);
+});
+
 test("#01 plural mirror: per-child tier default applied when tokenBudget omitted", async () => {
   const calls: SpawnSubagentOptions[] = [];
   const spawn = async (opts: SpawnSubagentOptions) => {

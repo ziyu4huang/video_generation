@@ -1,5 +1,6 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
+import { rmSync, writeFileSync } from "node:fs";
 import type { AgentHistoryEntry, SubagentFailure } from "@repo/s2-agent-core-runtime";
 import type { GitScopeOps, SubagentScopeCheck } from "../src/git-scope.js";
 import {
@@ -304,6 +305,69 @@ test("buildSpawnOptions: forwards params + wires callbacks that mutate progress"
   assert.equal(progress.fellBack, true);
   if (savedHints === undefined) delete process.env.PI_SUBAGENT_HINTS_FILE;
   else process.env.PI_SUBAGENT_HINTS_FILE = savedHints;
+});
+
+test("buildSpawnOptions: startup-context prefixes the task, BEFORE env-hints and abort-safety (ticket 04 order pin)", async () => {
+  // Hints footer ON: point the env at a fixture that EXISTS, so the composed
+  // task carries all three additions and the ORDER is observable.
+  const hintsPath = "/tmp/pi-subagent-hints-startup-order.fixture.md";
+  writeFileSync(hintsPath, "hint-body");
+  const savedHints = process.env.PI_SUBAGENT_HINTS_FILE;
+  process.env.PI_SUBAGENT_HINTS_FILE = hintsPath;
+  const progress: RunProgress = {
+    resolvedModel: undefined,
+    fellBack: false,
+    lastHistory: undefined,
+    maxToolCallsSeen: 0,
+  };
+  try {
+    const mk = (startupContext?: string) =>
+      buildSpawnOptions(
+        {
+          toolCallId: "call-1",
+          t0: 1_700_000_000_000,
+          params: { task: "t", tools: ["edit"] },
+          modelCtx: {
+            requestedModel: undefined,
+            tier: undefined,
+            capability: undefined,
+            mainModel: undefined,
+            displayModelBeforeResolve: "m",
+          },
+          spawnCwd: "/r",
+          childSignal: new AbortController().signal,
+          startupContext,
+        } as never,
+        progress,
+        {
+          getActiveTools: () => undefined,
+          getExtensionTools: () => undefined,
+          inFlight: undefined,
+          persistence: undefined,
+          onUpdate: undefined,
+        },
+      );
+    // No block → unchanged composition (startup-context never REQUIRED).
+    const bare = mk() as { task: string };
+    assert.equal(bare.task.startsWith("t"), true);
+    assert.match(bare.task, /hint-body/);
+    assert.match(bare.task, /abort-safety/);
+    // With the block: [startup-context] → task → [env-hints] → [abort-safety].
+    const block = "## Startup context (snapshot)\n(/repo)\n## feature";
+    const composed = mk(block) as { task: string };
+    const iBlock = composed.task.indexOf(block);
+    const iTask = composed.task.indexOf("t", iBlock + block.length);
+    const iHints = composed.task.indexOf("hint-body");
+    const iFooter = composed.task.indexOf("abort-safety");
+    assert.ok(iBlock === 0, "startup-context block must be the task PREFIX");
+    assert.ok(iTask > iBlock, "raw task follows the block");
+    assert.ok(iHints > iTask, "env-hints compose after the task");
+    assert.ok(iFooter > iHints, "abort-safety keeps the last word");
+  } finally {
+    if (savedHints === undefined) delete process.env.PI_SUBAGENT_HINTS_FILE;
+    else process.env.PI_SUBAGENT_HINTS_FILE = savedHints;
+    rmSync(hintsPath, { force: true });
+  }
 });
 
 test("buildSpawnOptions: forwards params.maxTurns; omitted → undefined (no default injected)", async () => {

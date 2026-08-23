@@ -414,6 +414,14 @@ export interface SpawnCtx {
    * footer (which keeps the last word, per the composition discipline below).
    */
   forkTranscript?: string;
+  /**
+   * The rendered startup-context block (ticket 04): spawn-time git snapshot +
+   * sibling roster. Prefixed to the SPAWNED task only (params.task, the
+   * persisted task / taskSignature circuit-breaker input, stays raw) — same
+   * discipline as the abort-safety footer. Order inside the task string:
+   * [startup-context] → task → [env-hints] → [abort-safety].
+   */
+  startupContext?: string;
 }
 export interface SpawnDeps {
   getActiveTools?: () => string[] | undefined;
@@ -475,10 +483,12 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
   // H4: append the abort-safety footer to the SPAWNED task only — params.task
   // (persisted task / taskSignature circuit-breaker input) stays raw, so both
   // sides of the signature comparison keep seeing the identical string.
-  // Env-hints footer composes BEFORE abort-safety (working context first,
-  // abort-safety keeps the last word); it is unconditional — file presence is
-  // its own switch and never gates on the footer/write-tools heuristic.
-  const withHints = appendEnvHints(params.task);
+  // Startup-context block (ticket 04) PREFIXES the spawned task — before
+  // env-hints and abort-safety (working context first, abort-safety keeps the
+  // last word); env-hints is unconditional — file presence is its own switch
+  // and never gates on the footer/write-tools heuristic.
+  const taskBody = ctx.startupContext ? `${ctx.startupContext}\n\n${params.task}` : params.task;
+  const withHints = appendEnvHints(taskBody);
   const task = shouldInjectFooter({
     tools: effectiveTools,
     excludeTools: effectiveExcludeTools,

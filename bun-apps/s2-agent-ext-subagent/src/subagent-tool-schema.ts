@@ -22,7 +22,8 @@ import type {
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import type { BackgroundRunManager } from "./background-run-manager.js";
-import type { GitScopeOps, SubagentScopeCheck } from "./git-scope.js";
+import type { GitScopeOps, GitSnapshotOps, SubagentScopeCheck } from "./git-scope.js";
+import type { RosterRow } from "./startup-context.js";
 import type { WatchdogResult } from "./watchdog/types.js";
 
 /**
@@ -142,6 +143,12 @@ export const subagentToolSchema = Type.Object({
     description:
       "Full self-contained prompt — the child has NO access to this session's history (include goal, context, constraints, return format).",
   }),
+  context: Type.Optional(
+    Type.Union([Type.Literal("full"), Type.Literal("minimal"), Type.Literal("none")], {
+      description:
+        "Startup-context block prefixed to the spawned task (the CLAUDE.md hierarchy is inherited regardless): 'full' = git branch/HEAD/status snapshot + sibling roster (default); 'minimal' = branch + HEAD only; 'none' = no block.",
+    }),
+  ),
   model: Type.Optional(
     Type.String({
       description:
@@ -308,6 +315,19 @@ export interface SubagentToolOptions {
   persistence?: SubagentRunPersistence;
   /** Injectable git-scope ops for tests (defaults to realGitOps). */
   gitOps?: GitScopeOps;
+  /**
+   * Injectable spawn-time git snapshot ops for the startup-context block
+   * (ticket 04). Defaults to realGitSnapshotOps — two git subprocesses per
+   * dispatch, best-effort (non-repo cwd → undefined → the block loses its git
+   * section; never fails the run).
+   */
+  gitSnapshotOps?: GitSnapshotOps;
+  /**
+   * Injectable sibling-roster source for the startup-context block (ticket
+   * 04). Defaults to buildSiblingRoster(liveRegistry, options.inFlight) —
+   * named live agents first, then non-terminal one-shot runs, capped rows.
+   */
+  getSiblingRoster?: () => RosterRow[];
   /** Background roster/notification manager. Defaults to the module singleton. */
   background?: BackgroundRunManager;
 }
