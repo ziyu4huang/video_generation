@@ -94,6 +94,17 @@ export class SurrealClient {
     this.auth = "Basic " + btoa(`${opts.username}:${opts.password}`);
   }
 
+  /** The bound namespace/database (kcard-parity ticket 07: consumers like the
+   *  kcard index bootstrap `DEFINE NAMESPACE/DATABASE IF NOT EXISTS` against
+   *  their own binding — v3 does not lazily create them). */
+  get namespace(): string {
+    return this.opts.namespace;
+  }
+
+  get database(): string {
+    return this.opts.database;
+  }
+
   /**
    * Run SQL with optional params; return the last statement's result.
    * Throws on the FIRST non-OK statement in the batch — SurrealDB's /sql

@@ -46,12 +46,31 @@ import {
 
 export { cosine, SEMANTIC_MODEL_DEFAULT, type Embedder };
 
-const { baseUrl: EMBED_BASE } = resolveSemanticEmbedConfig();
+// D22 (kcard-parity ticket 07): config resolution is PER CALL, never captured
+// at module load. The old shape (`const { baseUrl } = resolveSemanticEmbedConfig()`
+// + a const embedder) froze the baseUrl at import time and DROPPED the model
+// half of the resolution entirely — `SEMANTIC_EMBED_MODEL` and the
+// `__piEmbeddingConfig` seam could never reach getCardEmbeddings/embedQuery,
+// so an env-only "model control" run was silently single-model (memory:
+// semantic-embed-model-env-override-trap; cost 4 debug rounds in ticket 07's
+// D14 A/B). Lazy resolution also fixes seam TIMING: this module may load
+// before the host publishes the seam, and a load-time capture would pin the
+// pre-publish fallback for the process lifetime.
+export const defaultEmbedder: Embedder = (texts, model) => {
+	const cfg = resolveSemanticEmbedConfig();
+	return makeDefaultEmbedder({ baseUrl: cfg.baseUrl })(texts, model || cfg.model);
+};
 
-export const defaultEmbedder: Embedder = makeDefaultEmbedder({ baseUrl: EMBED_BASE });
+export const lmStudioAvailable = (model?: string): Promise<boolean> => {
+	const cfg = resolveSemanticEmbedConfig();
+	return lmStudioAvailableAt(cfg.baseUrl, model || cfg.model);
+};
 
-export const lmStudioAvailable = (model: string = SEMANTIC_MODEL_DEFAULT): Promise<boolean> =>
-	lmStudioAvailableAt(EMBED_BASE, model);
+/** Resolve the effective model for a cards-side call (seam → env → default),
+ *  used wherever a caller omitted the per-call model arg. */
+export function resolveCardEmbedModel(model?: string): string {
+	return model || resolveSemanticEmbedConfig().model;
+}
 
 
 export interface CardEmbeddings {
@@ -87,9 +106,10 @@ function cachePath(vaultPath: string, model: string): string {
 export async function getCardEmbeddings(
 	vaultPath: string,
 	folder: string,
-	model: string,
+	model?: string,
 	embedder: Embedder = defaultEmbedder,
 ): Promise<CardEmbeddings | null> {
+	model = resolveCardEmbedModel(model);
 	const folderAbs = join(vaultPath, folder);
 	if (!existsSync(folderAbs)) return null;
 	const names = readdirSync(folderAbs).filter((n) => n.endsWith(".md")).sort();
@@ -140,9 +160,10 @@ export async function getCardEmbeddings(
 /** Embed a single query string. Returns null on failure (caller falls back). */
 export async function embedQuery(
 	text: string,
-	model: string = SEMANTIC_MODEL_DEFAULT,
+	model?: string,
 	embedder: Embedder = defaultEmbedder,
 ): Promise<number[] | null> {
+	model = resolveCardEmbedModel(model);
 	try {
 		const vs = await embedder([text], model);
 		return vs[0] ?? null;

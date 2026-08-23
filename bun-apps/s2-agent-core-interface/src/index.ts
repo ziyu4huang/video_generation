@@ -24,6 +24,9 @@ export {
 // hermes-memory (backend) and knowledge-card (context_db index) with zero
 // consumer coupling — perf attribution is the injectable onRoundTrip hook.
 export { SurrealClient, SURREAL_DEFAULTS, type SurrealClientOptions } from "./surreal-client.js";
+// Per-user namespace naming (kcard-parity D4, ticket 07 build): hermes
+// re-exports these; kcard imports them for its context_db namespace (D6).
+export { derivePerUserNamespace, sanitizeUsername, currentUsername } from "./per-user-namespace.js";
 // Hoisted L2 leaf (effort 2026-08-17-knowledge-pipeline-polish): the ONE
 // embedder/cosine/fence-split primitive shared across the knowledge layer,
 // replacing the deliberate mirrors in hermes-memory and zk.

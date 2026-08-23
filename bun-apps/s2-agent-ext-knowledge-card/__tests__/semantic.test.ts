@@ -117,6 +117,32 @@ describe("getCardEmbeddings", () => {
 		await getCardEmbeddings(vault, FOLDER, SEMANTIC_MODEL_DEFAULT, mock);
 		expect(calls).toBe(2);
 	});
+
+	// D22 (kcard-parity ticket 07): the seam trap. Before the fix, the model
+	// half of resolveSemanticEmbedConfig never reached getCardEmbeddings —
+	// an env-only model override ran silently single-model (memory:
+	// semantic-embed-model-env-override-trap, 4 debug rounds in the D14 A/B).
+	test("SEMANTIC_EMBED_MODEL reaches the omitted-model default (per-call resolution, D22)", async () => {
+		await ingestRecords([rec({ id: "test:alpha", title: "Alpha" })], { vaultPath: vault, folder: FOLDER, source: "workflow-jsonl", sourceLabel: "t" });
+		const prevModel = process.env.SEMANTIC_EMBED_MODEL;
+		try {
+			process.env.SEMANTIC_EMBED_MODEL = "env-override-model";
+			const seen: string[] = [];
+			const mock: Embedder = async (texts, model) => { seen.push(model); return texts.map(() => [1, 0]); };
+			const emb = await getCardEmbeddings(vault, FOLDER, undefined, mock); // model OMITTED
+			expect(emb!.model).toBe("env-override-model");
+			expect(seen.every((m) => m === "env-override-model")).toBe(true);
+			// cache is keyed under the resolved (env) model, not the default
+			expect(existsSync(join(vault, ".knowledge-semantic", "env-override-model.json"))).toBe(true);
+			// embedQuery's omitted-model default resolves the same way
+			await embedQuery("q", undefined, mock);
+			expect(seen).toContain("env-override-model");
+			expect(seen.every((m) => m === "env-override-model")).toBe(true);
+		} finally {
+			if (prevModel === undefined) delete process.env.SEMANTIC_EMBED_MODEL;
+			else process.env.SEMANTIC_EMBED_MODEL = prevModel;
+		}
+	});
 });
 
 describe("embedQuery fallback", () => {
