@@ -8,7 +8,7 @@ layouts emitted as both a native-shape `.pptx` and browsable slide HTML.
 Vendors archify@2.12.0 (MIT, https://github.com/tt-a1i/archify) as a pinned local
 snapshot under `vendored/`. No dependency on the upstream source after vendor-copy.
 
-**Tools:** `archify_render`, `archify_validate`, `archify_delta`, `archify_export_pptx`.
+**Tools:** `archify_render`, `archify_validate`, `archify_delta`, `archify_export_pptx`, `archify_deck_lint`.
 **Skill:** `archify` (condensed; loads vendored depth on demand).
 
 ## `webui:open` announce (webui-optional)
@@ -113,6 +113,24 @@ measuring a glyph or opening a renderer (buckets calibrated against rendered ink
 **Library proof deck:** `examples/deck-general/` exercises every shipped
 `*.layout.json` template next to the code layouts —
 `bun run deck examples/deck-general/deck.config.json --lint`.
+
+### Layout templates — a layout dropped in, not coded in
+
+The six above are code. More layouts arrive as **data** — a `*.layout.json` on the search path
+(whose precedence is code → `$ARCHIFY_TEMPLATES` → `<manifestDir>/templates/` → packaged tier)
+adds a layout with zero `.ts` change. The discovery surface is `archify_deck_lint` with **no
+arguments**: it lists every layout (code + template) and every ready-to-fill deck skeleton
+(`templates/decks/*.outline.md`) with its description, slots and source path. Ask it before
+guessing a layout name — the set is data and can change under you. How to author a template:
+`skills/archify/authoring-templates.md`.
+
+### The outline door
+
+A deck that is mostly prose plus a few templates can be authored as Markdown instead of
+manifest JSON — `archify_export_pptx` takes `outline`/`outlinePath`, `bun run deck <file>.md
+--outline` reads it. Markers cover the six code layouts (`#`, `## NN`, `###`, `^`, `~`, `-`,
+`!ir`); a layout template always arrives through a fenced `:::<name>` JSON payload. The dialect
+is documented in `skills/archify/deck.md`.
 
 ## Text is a real text box
 

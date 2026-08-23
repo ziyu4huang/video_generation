@@ -145,11 +145,12 @@ A named hole a template declares and a slide fills (`kpis[]`, `columns`, `left.b
 Slots are what `archify_deck_lint` reports back so the agent knows what a template wants.
 _Avoid_: field, prop, variable (it is a declared, validated input of one template)
 
-**Region / stack / repeat**:
-The three geometry primitives a template composes with — a named area (`content`, `full`),
-a weighted split of an area into rows or columns, and an iteration over an array slot into
-equal cells. **Arithmetic lives in the resolver, never in the template file**; there are no
-expression strings, so a template stays JSON-Schema-validatable.
+**Region / stack / repeat / box**:
+The four primitives a template composes with — a root node binds a named area (`content`,
+`full`), then exactly one of a weighted split into rows/columns, an iteration over an array
+slot into equal cells, or a box that draws a content block in a cell. **Arithmetic lives in the
+resolver, never in the template file**; there are no expression strings, so a template stays
+JSON-Schema-validatable.
 _Avoid_: grid, flex, container (borrowed CSS names imply behaviour these do not have)
 
 **Drawing primitive**:
@@ -157,6 +158,21 @@ A `BlockContent.kind` — what an emitter knows how to draw (`text`, `bullets`, 
 `rule`, `panel`, `table`). Templates recombine primitives; **adding a primitive is a `.ts`
 change in both emitters.** Templates solve arrangement, not new ways to draw.
 _Avoid_: content type, block type (the name has to carry "the emitters must both learn it")
+
+**Deck skeleton**:
+A ready-to-fill deck under `templates/decks/*.outline.md`, authored in the outline dialect and
+reported beside the layouts by `archify_deck_lint` (its `description` is the first `#` H1 after
+frontmatter). It is a finished shape, not a piece — an agent that asks "what can I make?" gets
+both the layouts and some complete decks to imitate.
+_Avoid_: template, example (a *skeleton* ships as an outline; an *example deck* ships as a
+manifest + IRs)
+
+**Outline dialect**:
+The Markdown markers that turn an outline into a deck manifest (`#`/`## NN`/`###`, `^`, `~`,
+`-`, `!ir`, and a fenced `:::<name>` JSON payload for a layout template). The fenced payload is
+the only route to a template; its explicit layout always wins over the `!ir`
+split-vs-diagram inference. Sugar covers the six code layouts only.
+_Avoid_: outline, markdown deck (the dialect is the marker set, not a file format)
 
 ### The guarantees
 

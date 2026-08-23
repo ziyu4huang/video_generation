@@ -1,6 +1,6 @@
 ---
 name: archify
-description: Author typed-JSON-IR technical diagrams (architecture / workflow / sequence / data-flow / lifecycle), render them to self-contained validated HTML, and compose them into a meeting deck (.pptx + slide HTML) with six slide layouts. Use archify_validate before archify_render; archify_delta to review architecture changes; archify_export_pptx to build a deck. Accept Mermaid input or repository evidence when asked. Loads deep IR-authoring guidance on demand from the vendored SKILL.md + schemas.
+description: Author typed-JSON-IR technical diagrams (architecture / workflow / sequence / data-flow / lifecycle), render them to self-contained validated HTML, and compose them into a meeting deck (.pptx + slide HTML) via a discoverable layout library. Use archify_validate before archify_render; archify_delta to review architecture changes; archify_deck_lint to ask what layouts exist and to check a deck without building it; archify_export_pptx to build a deck. Accept Mermaid input or repository evidence when asked. Loads deep IR-authoring guidance on demand from the vendored SKILL.md + schemas.
 ---
 
 # Archify (condensed)
@@ -49,66 +49,17 @@ connections reference component `id`s via `from`/`to`.
 
 **Validate before render. Never deliver unvalidated IR.**
 
-## Compose a deck (`archify_export_pptx`)
+## Compose a deck
 
 A deck manifest turns IRs *and prose* into a 16:9 `.pptx` of native editable shapes plus
-browsable slide HTML. Six layouts:
+browsable slide HTML. The layout set is **discoverable, never hardcoded here**: the six code
+layouts plus any `*.layout.json` template on the search path (see `authoring-templates.md`).
+Ask the catalog first — never guess a layout name.
 
-| `layout` | use it for | key fields |
-|---|---|---|
-| `title` | cover | `eyebrow`, `subtitle`, `date` |
-| `section` | chapter divider | `sectionNumber` |
-| `bullets` | one idea, ≤6 points, ≤2 levels | `bullets`, `takeaway` |
-| `split` | diagram + its points, **60/40** | `ir`, `bullets`, `ratio` |
-| `diagram` | full-width diagram | `ir` |
-| `statement` | one large claim | `statement`, `attribution` |
-
-```json
-{ "output": "deck.pptx", "theme": "light", "tag": "…", "defaults": { "font": "PingFang TC" },
-  "slides": [
-    { "layout": "title", "title": "…", "subtitle": "…", "date": "…" },
-    { "layout": "split", "title": "…", "takeaway": "…", "source": "…",
-      "ir": "flow.dataflow.json", "bullets": ["…", { "text": "…", "level": 1 }] }
-  ] }
-```
-
-These six are code layouts; more layouts arrive as data (`*.layout.json`) on the
-search path, so never guess a layout name — ask the catalog first:
-`archify_deck_lint` with no arguments lists everything available.
-
-### Sample decks (imitate these)
-
-- `bun run deck examples/deck-composed/deck.config.json --lint` — the canonical
-  showcase: one slide per code layout, IR + prose composed, zero lint notes.
-- `bun run deck examples/deck-general/deck.config.json --lint` — the library
-  proof deck: every shipped `*.layout.json` template next to the code layouts,
-  content- and ooxml-lint clean.
-- `bun run deck examples/deck/deck.config.json` — the legacy baseline (5 slides,
-  388 native shapes); it rebuilds unchanged and is the compatibility canary.
-
-### Output layout — one deliverable = one folder
-
-Keep every artifact of one deck inside a single named project folder: the
-`deck.config.json`, the IR `.json` files, the exported `.pptx`, its `*.slides/`
-HTML, and every rendered diagram HTML. Concretely: put `deck.config.json` in the
-project folder and leave manifest-relative paths (`"output": "deck.pptx"`,
-`"ir": "ir/flow.json"`) alone — do NOT pass an absolute `outputPath` that points
-outside it. The export tool warns (advisory) when the output leaves the manifest
-folder; treat that warning as a defect to fix, not a note to ignore.
-
-### Writing rules (these are checked, advisorily)
-
-1. **`title` is an ACTION TITLE** — the takeaway as a complete claim ("Cold-path latency is
-   what users feel"), never a topic label ("Latency"). Read in order, the titles must BE the
-   argument; that is what the reviewer checks first.
-2. **One idea per slide.** More than 6 bullets, or nesting past level 1, means two slides.
-3. **`takeaway` is the "so what"**, `source` is the attribution. An exhibit without either is
-   hard to defend in the room.
-4. **Never write a colour into copy.** Same Cardinal Rule as the IR: semantic role in, theme
-   colour out.
-5. `split` defaults to 60/40, not 50/50. Leave `ratio` alone unless the diagram demands it.
-
-A slide with `ir` and no `layout` is a `diagram` slide — old manifests need no edit.
+> **Ask, then build:** `archify_deck_lint` with no arguments lists every layout (code +
+> template) and every deck skeleton with its description and slots. Then `archify_export_pptx`
+> builds the deck. Full deck-writing rules, the Markdown outline dialect, and the sample decks
+> live in **`deck.md`**. How to write a new `*.layout.json` → **`authoring-templates.md`**.
 
 ## On-demand depth (read these LOCAL vendored paths when needed)
 
