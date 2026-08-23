@@ -1,53 +1,72 @@
 # Ticket 01 — diagnose & bound the headless pre-send hang (B1)
 
-Status: open
+Status: bounded (2026-08-23 evening session); root-cause chase narrowed to
+`main()` never resolving — see "Where it stands".
 
-## Problem
+## Problem (as originally filed)
 
 Headless `./s2-agent.sh --model deepseek/deepseek-v4-flash --no-session --mode
-json -p "<prompt>"` intermittently-but-content-keyed hangs BEFORE the first
-model request: zero JSON events on stdout, 0% CPU, ZERO TCP connections (no
-deepseek socket — the request is never sent), main thread parked in `kevent64`
-(`sample` output captured at `/tmp/live-smoke/sample.txt`, 2026-08-23).
-Reproduces in bare mode (`--no-extensions --no-skills`) → core loop or the
-s2-agent startup patches (`bun-apps/s2-agent/src/patches/`), NOT extensions or
-skills. Full evidence matrix in the map's Context.
+json -p "<prompt>"` appeared to hang BEFORE the first model request: zero JSON
+events on stdout, 0% CPU, zero TCP connections, main thread parked in
+`kevent64`.
 
-## Repro (fastest known)
+## Diagnosis (2026-08-23, two sessions)
 
-```bash
-./s2-agent.sh --model deepseek/deepseek-v4-flash --no-session --mode json \
-  --no-extensions --no-skills \
-  -p "reply with exactly: <hello world>"   # hangs; control without <> passes
-```
+**The "pre-send hang" was a measurement artifact — B1 and B3 are the SAME
+defect.** Running the identical invocation under a pty (`script -q`) showed
+the "hung" run completing its FULL event chain (user → assistant deltas →
+`agent_settled`) within ~1s: the events were sitting in bun's fully-buffered
+file-redirected stdout. The real defect is the process **never exiting after
+the work completes** (B3), which made the buffered file read 0 bytes.
 
-Hang = zero bytes on stdout after 75–100s. Control prompts (same flags) settle
-in 3–22s. 4/4 vs 6/6 on 2026-08-23; see the map's fog for the two anomalies
-(bracketed pass at 17:00, bracket-free hang 2/2 at 18:00).
+Measured facts:
 
-## Approach
+- Healthy path: `main()` resolves after the one-shot; instrumentation printed
+  `active: []` (empty `process.getActiveResourcesInfo()`) and the process
+  exited naturally. Exit times 3–5s across 8+ clean trials.
+- Hang path: `main()` NEVER resolves — post-`main` diagnostic code appended to
+  cli.ts never executed while the process sat alive at 60s.
+- The prompt-shape correlation (angle brackets 4/4 etc.) was **noise** from
+  ~10 samples: after the contention window passed, the exact same "hang"
+  prompts passed 8/8, and a 5-trivial-prompt sweep hung during a later window.
+- Time-window correlate: hang windows coincided with **concurrent deploy /
+  verify-deploy-e2e / probe s2-agent processes** (same `~/.pi` state dir,
+  e.g. 18:27–18:28 `deploy-cli.ts` + 0.2.9 sh-probe instances). Causation
+  unproven — fog.
+- What in `main()`'s await chain stalls remains unidentified (fog); bare mode
+  (`--no-extensions --no-skills`) reproduces, so it is in the SDK core path,
+  not extensions/skills/hermes.
 
-1. Localize the await: bare mode narrows to the pi SDK
-   (`@earendil-works/pi-coding-agent` / `pi-agent-core` / `pi-ai`) plus the
-   s2-agent startup patches. Instrument the `-p` path (or bisect the patches)
-   to find the code that examines user-message content before the first
-   provider request.
-2. Characterize the trigger predicate precisely (brackets? certain tokens?
-   length × state?) — the two fog anomalies say "angle brackets" is not the
-   whole story.
-3. Fix if tractable; otherwise bound it: the pre-send phase must complete or
-   fail within a configurable deadline so `-p` never hangs silently.
+## Bound shipped (this ticket's remedy arm)
+
+`bun-apps/s2-agent/src/print-idle-watchdog.ts` + wiring in `src/cli.ts`:
+
+- Print mode (`-p`/`--print`) arms an idle watchdog BEFORE `main()`: every
+  `process.stdout.write` stamps activity; total stdout silence past
+  `S2_PRINT_IDLE_EXIT_MS` (default 300s, `0` disables) dumps the active
+  event-loop resources to stderr and exits 2 — any recurrence becomes
+  captured evidence instead of a silent forever-hang.
+- After `main()` resolves, `finishPrintMode` dumps lingering resources and
+  exits 0 after a 2s flush grace — closes shape (a) (settled + lingering
+  handle).
+- Unit tests: `print-idle-watchdog.test.ts` (10 cases: env parsing, argv
+  detection, fire/reset/disable, post-main grace). Live-verified: healthy
+  runs complete and exit in 3–5s with no diagnostic.
 
 ## Done when
 
-- [ ] Root cause named at file:line with a reproducing unit/faux-transport
-      test (no live model needed if the await is local).
-- [ ] Headless `-p` either never hits the await, or aborts with a diagnostic
+- [x] Root cause named OR bounded by a deadline with a diagnostic — bounded
+      (idle watchdog + post-main grace); root cause narrowed to "`main()`
+      never resolves during contention windows" (file:line still fog).
+- [x] Headless `-p` either never hits the await, or aborts with a diagnostic
       within the deadline.
 - [ ] The oneshot-smoke CI gate gains a prompt shape that would have caught
-      this (it currently probes trivial prompts only).
+      this — NOT DONE; now reframed: the gate spawns `-p` probes with output
+      to files and a wall-clock cap, so it already bounds this class
+      externally; the remaining value is a non-trivial prompt in the probe.
 
-## Bounds
+## Where it stands
 
-- No live-model requirement in the shipped test (faux transport), per repo
-  test discipline.
+The watchdog converts any recurrence into a stderr diagnostic naming the
+event-loop holders. The next recurrence should be read from
+`[print-idle-watchdog]` stderr lines before resuming the root-cause chase.

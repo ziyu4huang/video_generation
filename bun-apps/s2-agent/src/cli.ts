@@ -24,6 +24,12 @@
  */
 import "./sh/scrub-inherited-package-dir.ts"; // FIRST — before any pi module init; see that file for why
 import { main } from "@earendil-works/pi-coding-agent";
+import {
+	armPrintIdleWatchdog,
+	finishPrintMode,
+	isPrintModeArgv,
+	printIdleExitMsFromEnv,
+} from "./print-idle-watchdog.ts";
 import { applyPatches } from "./patches/index.ts";
 import { runDoctor, removedFlagNotice } from "./doctor.ts";
 import {
@@ -195,6 +201,50 @@ for (let i = 0; i < process.argv.length - 2; i++) {
 	if (a.startsWith("--webui-port=")) continue;
 	mainArgv.push(a);
 }
+// Print-mode idle watchdog (.planning/2026-08-23-headless-dispatch-hang ticket 01):
+// a finished-but-never-exiting `-p` run idles at 0% CPU with the event stream
+// stuck in the stdout buffer, looking like a pre-send hang. In print mode,
+// stamp every stdout write and bound total stdout silence (default 5 min,
+// S2_PRINT_IDLE_EXIT_MS, 0=off): on fire, dump the resources holding the loop
+// and exit 2. After main() resolves, exit 0 after a flush grace so a lingering
+// handle cannot wedge an already-complete run (interactive runs write to
+// stdout continuously and are never idle-long enough to fire).
+const printMode = isPrintModeArgv(process.argv.slice(2));
+let stdoutLastWriteAt = Date.now();
+if (printMode) {
+	const originalWrite = process.stdout.write.bind(process.stdout);
+	process.stdout.write = ((
+		chunk: string | Uint8Array,
+		...rest: unknown[]
+	): boolean => {
+		stdoutLastWriteAt = Date.now();
+		return (originalWrite as (c: string | Uint8Array, ...r: unknown[]) => boolean)(
+			chunk,
+			...rest,
+		);
+	}) as typeof process.stdout.write;
+	armPrintIdleWatchdog(printIdleExitMsFromEnv(), {
+		lastWrite: () => stdoutLastWriteAt,
+		now: () => Date.now(),
+		setInterval: (fn, ms) => {
+			const timer = setInterval(fn, ms);
+			timer.unref?.(); // the watchdog must never itself keep the loop alive
+			return () => clearInterval(timer);
+		},
+		log: (line) => console.error(line),
+		exit: (code) => process.exit(code),
+	});
+}
 await main(mainArgv, {
 	extensionFactories: factories,
 });
+if (printMode) {
+	finishPrintMode(2_000, {
+		log: (line) => console.error(line),
+		exit: (code) => process.exit(code),
+		setTimeout: (fn, ms) => {
+			const timer = setTimeout(fn, ms);
+			timer.unref?.();
+		},
+	});
+}
