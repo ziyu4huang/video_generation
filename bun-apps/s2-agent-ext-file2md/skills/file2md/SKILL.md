@@ -14,6 +14,8 @@ to a network service. Use the bundled runtime, not ad-hoc scripting:
 bun bun-apps/s2-agent/src/cli.ts file2md ./paper.pdf --out ./vlm-out
 # deployed s2-agent:
 s2-agent cli file2md ./paper.pdf --extract vlm
+# smart: adaptive ladder with figure-page vision enhancement:
+s2-agent cli file2md ./spec.pdf --extract smart --scale 3
 # as an agent tool (this extension's registered tool — same name):
 ./s2-agent.sh -p "file2md ./paper.pdf --extract vlm"
 ```
@@ -30,6 +32,36 @@ macOS toolchain, no native npm binaries, no LM Studio requirement.
 | `text` | text layer only (never OCR/vision) |
 | `ocr` / `auto` | text layer + OCR for thin pages |
 | `vlm` | vision-LLM (local, tier-configured) describes thin pages; OCR is the degrade |
+| `smart` | adaptive ladder per page: text when usable → OCR when thin → figure pages vision-enhanced (skip notice when no vision server) |
+
+## Smart mode — the adaptive ladder (`--extract smart`)
+
+Per page, `smart` climbs only as far as the page needs (thresholds are named
+constants in `src/core/figure.ts` — a drift is a red test):
+
+1. **Text layer** — usable text (≥ `OCR_TEXT_MIN_CHARS`) is used as-is; no rasterization.
+2. **OCR** — a thin page (below the text-layer floor) is rasterized and OCR'd exactly as `ocr` mode.
+3. **Figure detection** — a **figure page** is a text page whose body is caption-only
+   (`Figure N-x.` caption AND body ≤ `FIGURE_MAX_BODY_CHARS` = 1300 — prose pages never
+   fit the band, so small inline figures are excluded by construction) or a scan page
+   whose OCR output ≤ `FIGURE_OCR_MAX_CHARS` = 200 chars (labels-only).
+4. **Vision enhancement** — a detected figure page gets ONE vision-describe call
+   (figure-hint prompt variant); the description is **appended** as a
+   `## Figure (vision)` section after the untouched original body (never replaces it),
+   frontmatter gains `enhanced: vision`, the manifest page record gains
+   `figure: { detected: true, enhanced: true }` (additive — schema stays v1).
+
+Degrade semantics — a page never fails because enhancement did not (D4):
+
+- No vision server → one warning line per run; each figure page carries
+  `> Figure detected — vision enhancement skipped (no vision server).` with `enhanced: false`.
+- Vision call fails / returns empty → the same skip notice, `enhanced: false`, no stored
+  page PNG.
+
+Resumability: a done page (status `done` + its page md exists) is **never re-processed** —
+re-running `smart` over a finished output re-uses it as-is, including an `enhanced: false`
+flag from a no-server run. To re-enhance a page, delete the output dir (or the page
+md/png pair) and re-run. `--pages 1,3-5` filters the ladder identically to the other modes.
 
 ## Supported inputs
 
@@ -59,9 +91,11 @@ macOS toolchain, no native npm binaries, no LM Studio requirement.
 - **Caption-only figure pages aren't captured by the text layer.** A born-digital
   spec page whose body is a bare `Figure N-x. …` caption (e.g. `< 900 bytes`) has a
   real text layer — so `mode: vlm`/`ocr` never fire on it — but the diagram itself
-  is a vector drawing the text layer cannot read. Such a page is a caption-only
-  figure page; describe it with `--extract vlm --pages <list>` (or `--type image`)
-  if the diagram matters. Do NOT assume a text-layer page captures its figures.
+  is a vector drawing the text layer cannot read. Such a page is a figure page;
+  `--extract smart` detects and vision-enhances it automatically (see the ladder
+  above), or describe a one-off with `--extract vlm --pages <list>` if the diagram
+  matters and you want the manual path. Do NOT assume a text-layer page captures
+  its figures.
 
 ## Truth rules
 
@@ -79,5 +113,6 @@ macOS toolchain, no native npm binaries, no LM Studio requirement.
 - Capped/truncated content carries an explicit notice.
 - OCR-derived text is marked (page frontmatter `provenance: ocr|text|vision`).
 - Caption-only figure pages are flagged in the response (the diagram is not in
-  the text layer; note which pages to re-run with `--extract vlm`).
+  the text layer; `--extract smart` enhances them automatically — with any other
+  mode, note which pages to re-run with `--extract smart`).
 - Losses stated in the final response; link to the output directory.
