@@ -64,6 +64,7 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-obsidian/scripts/bench-trigram-search.mjs",
 	"bun-apps/s2-agent-ext-obsidian/scripts/measure-schema-tokens.mjs",
 	"bun-apps/s2-agent-ext-obsidian/scripts/validate-real-vault.mjs",
+	"bun-apps/s2-agent-ext-devops/scripts/ci-local.ts",
 	"bun-apps/s2-agent-ext-devops/scripts/run-test.ts",
 	"bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/runs-stats.ts",

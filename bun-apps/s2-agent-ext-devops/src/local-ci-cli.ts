@@ -4,7 +4,7 @@
  *
  * `bun bun-apps/s2-agent-ext-devops/src/local-ci-cli.ts [--all] [--strict]`
  *
- * Not a second runner: `scripts/ci-local.sh` executes the workflow's matrix and
+ * Not a second runner: `scripts/ci-local.ts` executes the workflow's matrix and
  * gate job directly, while this is the change-SCOPED gate `merge_pr_after_local_ci` uses
  * — typecheck + tests for the packages touched vs the base ref, plus the whole
  * regression-gates suite. Both derive their commands from the same workflow, so

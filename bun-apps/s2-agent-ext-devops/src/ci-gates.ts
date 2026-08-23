@@ -13,7 +13,7 @@
  *   entries pointed the other way: check-workflow-patterns.mjs and
  *   verify-skills.ts are in no workflow step at all.
  *
- *   scripts/ci-local.sh states the rule this module applies: the runner carries
+ *   scripts/ci-local.ts states the rule this module applies: the runner carries
  *   NO copy of the spec, it parses it. src/ci-matrix.ts already does that for
  *   the `tests` matrix; this closes the same hole for the gates.
  *
