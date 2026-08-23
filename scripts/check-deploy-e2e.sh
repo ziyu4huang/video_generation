@@ -33,6 +33,55 @@ set -euo pipefail
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 PKG_DIR="$REPO_ROOT/bun-apps/s2-agent-ext-devops"
 
+# ── Hermetic model/provider resolution (the deploy env-gate) ──────────────────
+# The probe suites spawn the DEPLOYED binary with an ISOLATED PI_CODING_AGENT_DIR
+# (a temp piHome) and a bare { ...process.env } inherited from THIS shell, so the
+# real ~/.pi/agent/auth.json is never consulted. Two things must both hold for the
+# real-session tests (doctor --smoke, session-start, the sandboxed session) to
+# actually start:
+#   1. ZAI_API_KEY must be in the invoking env. A fresh CI bash / non-interactive
+#      shell does NOT source ~/.zshrc, so the key is absent, no zai auth is
+#      configured, and the resolver reports "No matching provider is authenticated".
+#   2. The model must be provider-qualified. The package built-in default
+#      (src/pre-load-providers.ts: zai/glm-5.3) splices the BARE `glm-5.3` into
+#      pi's resolver, which fuzzy-matches it across opencode-go / zai-coding-cn /
+#      zai → "Model 'glm-5.3' is ambiguous across providers". PI_MODEL=zai/glm-5.3
+#      qualifies it; a qualified --model also suppresses the --provider bridge
+#      (model governs provider routing).
+# Resolve the key from the shell rc files (mirroring scripts/claude-desktop-glm.sh)
+# and qualify with fill-gaps semantics — an operator's own PI_MODEL/PI_PROVIDER or
+# an exported ZAI_API_KEY always wins, so this stays a default not an override.
+resolve_gate_api_key() {
+	if [[ -n "${ZAI_API_KEY:-}" ]]; then
+		printf '%s' "$ZAI_API_KEY"
+		return 0
+	fi
+	local rc found=""
+	for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+		[[ -r "$rc" ]] || continue
+		found="$(grep -E '^[[:space:]]*export[[:space:]]+ZAI_API_KEY=' "$rc" 2>/dev/null \
+			| tail -1 \
+			| sed -E 's/^[^=]*=//; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/' \
+			|| true)"
+		if [[ -n "$found" ]]; then
+			printf '%s' "$found"
+			return 0
+		fi
+	done
+	return 1
+}
+
+if ! GATE_ZAI_API_KEY="$(resolve_gate_api_key)"; then
+	echo "FAIL: no ZAI_API_KEY in env or shell rc (~/.zshrc, ~/.bashrc, ...)." >&2
+	echo "      The deploy-probe suite starts real sessions; it needs an authenticated provider." >&2
+	echo "      Export ZAI_API_KEY (or add `export ZAI_API_KEY=…` to ~/.zshrc) and re-run." >&2
+	exit 1
+fi
+export ZAI_API_KEY="$GATE_ZAI_API_KEY"
+# Fill-gaps qualification: only default when the operator hasn't chosen a model.
+export PI_MODEL="${PI_MODEL:-zai/glm-5.3}"
+export PI_PROVIDER="${PI_PROVIDER:-zai}"
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
