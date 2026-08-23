@@ -265,9 +265,15 @@ describe("monorepo dependency hygiene guard (knowledge-layer tier rules)", () =>
 				else if (e.name.endsWith(".ts")) files.push(p);
 			}
 		};
-		walk(join(TG, "src"));
-		walk(join(TG, "extensions"));
-		walk(join(TG, "qa"));
+		// Scope = the package's RUNTIME surfaces only (src/ + extensions/), the
+		// same surfaces the knowledge-card pin walks: the shipped bundle follows
+		// extensions/tool-gate.ts, so a qa/-only entry import (qa/evaluate.ts
+		// loads the real power-tool factory for the ON/OFF compares) can never
+		// reach the dist. tool-gate keeps no src/ dir — guard each walk.
+		for (const sub of ["src", "extensions"]) {
+			const dir = join(TG, sub);
+			if (existsSync(dir)) walk(dir);
+		}
 		const bad: string[] = [];
 		const spec = /["']@repo\/s2-agent-ext-power-tool(\/[^"']*)?["']/g;
 		for (const f of files) {
