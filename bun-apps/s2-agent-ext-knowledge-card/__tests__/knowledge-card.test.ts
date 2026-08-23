@@ -627,12 +627,13 @@ describe("zk_card execute validation", () => {
 });
 
 describe("tool registration", () => {
-	test("registers exactly zk_card, zk_ask, zk_ingest, knowledge_query", () => {
+	test("registers exactly zk_card, zk_ask, zk_ingest, knowledge_query, zk_fs", () => {
 		const tools = loadTools();
 		expect(Object.keys(tools).sort()).toEqual([
 			"knowledge_query",
 			"zk_ask",
 			"zk_card",
+			"zk_fs",
 			"zk_ingest",
 		]);
 	});

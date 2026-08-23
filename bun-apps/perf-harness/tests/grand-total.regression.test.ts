@@ -61,35 +61,37 @@ function captureAll(): Record<string, any> {
 }
 
 describe("cross-extension grand-total schema-cost", () => {
-  test("10 tools registered across 3 extensions", () => {
+  test("11 tools registered across 3 extensions", () => {
     const tools = captureAll();
     expect(Object.keys(tools).sort()).toEqual(
       [
         // `search` renamed to `search_memory` 2026-08-20 — docs/agents/extension-naming.md
         "memory", "search_memory", "skill_manage", "skill_manage_help",
         "obsidian", "obsidian_help",
-        "zk_ingest", "zk_ask", "zk_card", "knowledge_query",
+        "zk_ingest", "zk_ask", "zk_card", "zk_fs", "knowledge_query",
       ].sort(),
     );
   });
 
-  test("grand total within budget (baseline re-measured 2026-08-17 after the #1556 search unification)", () => {
+  test("grand total within budget (baseline re-measured 2026-08-23 — zk_fs FS-browse tool, kcard ticket 05)", () => {
     const tools = captureAll();
     const { perTool, total } = estimateTotalSchemaTokens(tools);
-    console.log("\n  === AGENT TOOL SURFACE (10 tools) ===");
+    console.log("\n  === AGENT TOOL SURFACE (11 tools) ===");
     for (const t of perTool) console.log(`  ${t.name.padEnd(26)} ${String(t.tokens).padStart(5)} tok`);
     console.log(`  ${"GRAND TOTAL".padEnd(26)} ${String(total.tokens).padStart(5)} tok`);
 
     assertWithinBudget(total.tokens, {
       // `max` is the gate; `baseline` is documentation of the last conscious
-      // measurement. max is deliberately UNCHANGED at 4576 — re-pinning the
-      // baseline must never quietly buy headroom. Headroom is now ~290 tok
-      // (~6.3%), down from 416 (10.0%) against the old 4160 baseline.
-      label: "cross-ext grand total (10 tools)",
-      max: 4576,
-      baseline: 4282,
-      measuredAt: "2026-08-17",
-      commit: "b800f979",
+      // measurement. Re-measured 2026-08-23: 4282 → 4645 (kcard zk_fs tool
+      // +432 tok — the D32 FS read surface; knowledge_query `type` param
+      // +58 tok — D18; plus ticket 06's zk_ingest extract option which had
+      // kept the old gate green by ~69 tok of headroom).
+      // max = 4645 × 1.10 — fresh measurement, never quiet headroom.
+      label: "cross-ext grand total (11 tools)",
+      max: 5110,
+      baseline: 4645,
+      measuredAt: "2026-08-23",
+      commit: "main",
     });
   });
 });

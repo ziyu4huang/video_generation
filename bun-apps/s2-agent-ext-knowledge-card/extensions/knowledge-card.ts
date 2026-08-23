@@ -106,6 +106,15 @@ GATE_DEFS["knowledge_query"] = {
   },
   description: "Query the Zettelkasten knowledge graph by tags or question",
 };
+GATE_DEFS["zk_fs"] = {
+  id: "zk_fs",
+  keywords: ["zk fs", "list cards", "card tree", "knowledge grep", "card filesystem", "列出卡片", "瀏覽知識卡"],
+  requires: {
+    nouns: ["cards", "card", "knowledge", "卡片", "知識卡"],
+    verbs: ["list", "browse", "tree", "grep", "stat", "列出", "瀏覽"],
+  },
+  description: "Deterministic FS-style browse over the knowledge vault (ls/tree/find/grep/stat)",
+};
 import type { KnowledgeRecord, SourceFamily } from "../src/types.ts";
 import {
 	retrieveRecords,
@@ -128,6 +137,7 @@ import {
 import { runGate } from "../src/distill/gate.ts";
 import { runConverge } from "../src/distill/converge.ts";
 import { runExtraction, readHermesJournal } from "../src/extract.ts";
+import { fsLs, fsTree, fsFind, fsGrep, fsStat } from "../src/fs-surface.ts";
 import { onKnowledge } from "../src/emit.ts";
 import { convergeKnowledgeEmission } from "../src/converge.ts";
 import { readState } from "../src/distill/state.ts";
@@ -1051,6 +1061,12 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					"instead of truncating.",
 				default: "abstract",
 			})),
+			type: Type.Optional(Type.String({
+				description:
+					"D18 typed filter (ticket 05): exact leaf type — gotcha|avoid|lever|pattern|" +
+					"metric|false_positive|experience|event|case|preference. Deterministic " +
+					"caller-passed filter (no intent analysis).",
+			})),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			let vaultPath: string;
@@ -1115,6 +1131,9 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				queryText: query,
 				// Phase C observability: opt-in per-card provenance trace in `details`.
 				includeTrace,
+				// D18 typed filter (ticket 05): exact leaf-type match, hier `kind` /
+				// flat frontmatter lanes alike.
+				type: params.type,
 			};
 
 			const result = await retrieveRecords(opts);
@@ -1136,6 +1155,85 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				content: [{ type: "text" as const, text: lines.join("\n") }],
 				details: result,
 			};
+		},
+	});
+
+	// ── zk_fs — OpenViking-style virtual-FS read surface (ticket 05, D32–D35) ─
+	// Deterministic browse ops over the knowledge folder, tier-ladder rendered.
+	// One tool + op param (zk_card's action-param precedent — schema-cost
+	// discipline); vault-relative paths are the URIs (D33); `type/<kind>` is the
+	// D18 virtual type namespace; ZERO LLM tokens per op (D5/D6).
+	pi.registerTool({
+		name: "zk_fs",
+		label: "Knowledge FS Browse",
+		gating: { gate: "zk_fs" },
+		description:
+			"BROWSE the knowledge vault like a filesystem instead of querying it: " +
+			"ls (list a dir — '' root, or 'type/<kind>' for the virtual type directory), " +
+			"tree (agg hierarchy, depth-capped), find (glob/substring over card stems), " +
+			"grep (token search over titles/summaries/bodies), stat (one card). " +
+			"Deterministic, zero LLM. Entries render tier-ladder L0 by default; pass " +
+			"tier:'overview'|'full' to promote (demote-not-truncate). Paths are " +
+			"vault-relative (e.g. 'Zettelkasten/knowledge-graph/<stem>').",
+		parameters: Type.Object({
+			op: Type.Union(
+				[Type.Literal("ls"), Type.Literal("tree"), Type.Literal("find"), Type.Literal("grep"), Type.Literal("stat")],
+				{ description: "Browse operation." },
+			),
+			path: Type.Optional(Type.String({
+				description: "ls/stat target path (vault-relative). ls: '' = root, 'type/<kind>' = virtual type dir. Default ''.",
+			})),
+			pattern: Type.Optional(Type.String({ description: "find: glob over stems ('*' wildcard) or bare substring." })),
+			query: Type.Optional(Type.String({ description: "grep: token query — FTS conjunction over title/summary/body." })),
+			type: Type.Optional(Type.String({
+				description: "D18 typed filter — exact leaf type (gotcha|avoid|lever|pattern|metric|false_positive|experience|event|case|preference).",
+			})),
+			depth: Type.Optional(Type.Number({ description: "tree: max depth (1–4, default 2).", default: 2 })),
+			limit: Type.Optional(Type.Number({ description: "Max entries (per-op default: ls 50 / find 30 / grep 20).", default: 50 })),
+			tier: Type.Optional(Type.Union([Type.Literal("abstract"), Type.Literal("overview"), Type.Literal("full")], {
+				description: "Render tier: 'abstract' (L0, DEFAULT) | 'overview' (L1) | 'full' (L2).",
+				default: "abstract",
+			})),
+		}),
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			let vaultPath: string;
+			try {
+				vaultPath = await resolveKnowledgeVault(ctx.cwd);
+			} catch (e) {
+				return {
+					content: [{ type: "text" as const, text: `zk_fs: vault resolution failed: ${(e as Error).message}` }],
+					isError: true,
+					details: { code: "vault_resolution_failed" },
+				};
+			}
+			const opts = { vaultPath, folder: "Zettelkasten/knowledge-graph", tier: params.tier ?? "abstract" };
+			let result: import("../src/fs-surface.ts").FsResult;
+			switch (params.op) {
+				case "ls":
+					result = await fsLs({ ...opts, path: params.path ?? "", limit: params.limit });
+					break;
+				case "tree":
+					result = await fsTree({ ...opts, type: params.type, depth: params.depth });
+					break;
+				case "find":
+					result = await fsFind({ ...opts, pattern: params.pattern ?? "", type: params.type, limit: params.limit });
+					break;
+				case "grep":
+					result = await fsGrep({ ...opts, query: params.query ?? "", type: params.type, limit: params.limit });
+					break;
+				case "stat":
+					result = await fsStat({ ...opts, path: params.path ?? "" });
+					break;
+			}
+			if (!result.ok) {
+				return { content: [{ type: "text" as const, text: `zk_fs ${params.op}: ${result.reason ?? "failed"}` }], details: result };
+			}
+			const lines = [
+				`zk_fs ${params.op} (lane: ${result.lane}, considered ${result.scanned})`,
+				"",
+				...result.entries.map((e) => `- ${e.path} [${e.kind}] (${e.tier}) ${e.text.replace(/\n/g, " ")}`),
+			];
+			return { content: [{ type: "text" as const, text: lines.join("\n") }], details: result };
 		},
 	});
 
@@ -1229,6 +1327,17 @@ export const __GATE_PROBES__ = [
 			"query the knowledge graph for lora cards",
 			"search the knowledge cards matching argparse",
 			"查卡片 matching the tag lora",
+		],
+	},
+	{
+		gate: "zk_fs",
+		recallFloor: 0,
+		adversarial: [],
+		controls: [
+			"list the cards in the knowledge vault",
+			"grep the knowledge cards for lora",
+			"show the card tree of the zettelkasten",
+			"browse the type directory of event cards",
 		],
 	},
 ];

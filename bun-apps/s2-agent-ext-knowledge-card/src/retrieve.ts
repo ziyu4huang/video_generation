@@ -75,7 +75,10 @@ export interface RetrievedCard {
 	tags: string[];
 	/** Shared-tag count with the query (the ranking score before the callout boost). */
 	sharedTags: number;
-	/** Tree-expansion marker: derived aggregation evidence, appended post-ranking. */
+	/** Tree-expansion marker. TWO lanes set it: the flat path's post-ranking
+	 *  agg-evidence cards (appended after the ranked list, count-excluded) and
+	 *  the hier lane's ranked leaf cards whose score arrived via directory
+	 *  propagation rather than their own seed (D27 switch, ticket 05). */
 	viaTree?: boolean;
 	/** Vault-relative card path. */
 	path: string;
@@ -184,6 +187,19 @@ export interface RetrieveOptions {
 	 *  false = the result is byte-identical to omitting it (no trace computation,
 	 *  drift-guard stays green). */
 	includeTrace?: boolean;
+	/** D18 typed filter (ticket 05 flat-side completion): leaf `type` (frontmatter
+	 *  `type`, fallback `record_type`) must match exactly. Mirrors
+	 *  HierarchicalOptions.type — the hier lane filters on index `kind`, the flat
+	 *  lane on the md frontmatter. Omit for all kinds. */
+	type?: string;
+	/** D27 default switch override (ticket 05 D36): the default is hier-first
+	 *  when `semantic && queryText` (escape-hatch env KCARD_HIER_DEFAULT=0);
+	 *  `hier: false` forces the flat path; `hier: true` attempts hier even with
+	 *  `semantic: false`. */
+	hier?: boolean;
+	/** INTERNAL test hook: inject a SurrealClient so the hier-first lane can be
+	 *  unit-tested without a live SurrealDB. Never set in production. */
+	_hierClient?: import("@repo/s2-agent-core-interface").SurrealClient;
 }
 
 export interface RetrieveResult {
@@ -214,6 +230,10 @@ export interface RetrieveTrace {
 	};
 	/** True only when the semantic blend actually ran (false = off OR fell back). */
 	semanticUsed: boolean;
+	/** True when the D27 hier-first lane answered (ticket 05 D36). On that lane
+	 *  bodyMatch/slugDom/linkWeighting are inert, `scanned` is the seed pool
+	 *  (not the vault total) and `excluded` counts hydration failures. */
+	hierUsed?: boolean;
 	/** Candidate-pool size before the top-K cut (|scored|, lexical stage). */
 	candidatePool: number;
 	/** Total vault cards scanned in the convergence folder. */
@@ -228,8 +248,10 @@ export interface RetrieveTrace {
 		sharedTags: number;
 		/** Whether the card carries a callout (the +0.5 boost source). */
 		hasCallouts: boolean;
-		/** How the card entered the result set. */
-		source: "lexical" | "semantic" | "both";
+		/** How the card entered the result set. "hierarchical" = the D27
+		 *  default-switch lane (ticket 05 D36 — score is the hier blend +
+		 *  propagation score, not sharedTags). */
+		source: "lexical" | "semantic" | "both" | "hierarchical";
 	}>;
 }
 
@@ -363,6 +385,42 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		return { count: 0, cards: [], digest: "", folder, scanned: 0, excluded: 0 };
 	}
 
+	// D27 default switch (ticket 05 D36): hier-first when the semantic lane is
+	// on and a query exists — authorized by the D25 gate (hier 17/20 hit@5,
+	// MRR 0.700 vs flat 17/20 + 0.688). The hier lane's leaf cards HYDRATE
+	// through the flat md-read path (buildRetrievedCard) so the
+	// RetrieveResult/digest/tier contract every consumer pins is preserved
+	// byte-shape. Any hier failure (Surreal down, no seeds, zero hydrated,
+	// STALE index — the freshness gate) falls through to the unchanged flat
+	// path below. Escape hatches: opts.hier === false, or KCARD_HIER_DEFAULT=0.
+	// Test hygiene (reviewer F3): a unit test injecting an embedder but NO
+	// hier client is testing the flat/semantic path — never attempt live
+	// Surreal from it (production never sets _testEmbedder).
+	const hierOn = (opts.hier ?? (semantic && process.env.KCARD_HIER_DEFAULT !== "0"))
+		&& Boolean(opts.queryText)
+		&& !(opts._testEmbedder && !opts._hierClient);
+	if (hierOn) {
+		const hier = await tryHierarchicalDefault({
+			client: opts._hierClient,
+			vaultPath: opts.vaultPath,
+			folder,
+			queryText: opts.queryText!,
+			topK,
+			type: opts.type,
+			model: semanticModel,
+			embedder: opts._testEmbedder,
+			tier,
+			maxDetailChars,
+			queryTags,
+			excludeIds,
+			excludeSlugs,
+			origTags: opts.tags,
+			includeTrace,
+			optsSnapshot: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
+		});
+		if (hier) return hier;
+	}
+
 	// IDF pre-scan (only when linkWeighting === "idf"): collect every card's tag
 	// set so the IDF table spans the full folder. The default "count" mode skips
 	// this entirely â no behaviour change for the pinned baseline.
@@ -430,7 +488,13 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			continue;
 		}
 		const title = extractTitle(content);
-		const type = typeof fields.recordType === "string" ? fields.recordType : "pattern";
+		// D15 discriminator: frontmatter `type` first (typed cards, D16/D18),
+		// record_type fallback — mirrors the index `kind` derivation.
+		const type = typeof fields.type === "string" && fields.type
+			? fields.type
+			: typeof fields.recordType === "string" ? fields.recordType : "pattern";
+		// D18 typed filter (ticket 05 flat side): exact leaf-type match.
+		if (opts.type && type !== opts.type) continue;
 		const source = typeof fields.source === "string" ? fields.source : "unknown";
 		// Tier ladder (ticket 07): pre-render L0/L1/L2, then render the
 		// requested tier under the caller's budget — overflow DEMOTES a tier
@@ -561,6 +625,120 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 						sharedTags: c.sharedTags,
 						hasCallouts: c.hasCallouts,
 						source: "lexical" as const,
+					})),
+			  }
+			: undefined,
+	};
+}
+
+/** D27 default-switch lane (ticket 05 D36): hierarchicalRetrieve first, its
+ *  leaf cards hydrated through the flat md-read path so the returned
+ *  RetrieveResult is shape-identical to the flat one (same RetrievedCard
+ *  fields, same formatDigest rendering). Returns null on ANY hier failure —
+ *  the caller falls through to the flat path.
+ *
+ *  FRESHNESS GATE (reviewer F1/F5): the lane only serves when the index is
+ *  fresh — md file count === index card count AND index embed_model === the
+ *  resolved model. A count/model mismatch (post-snapshot ingest, removal,
+ *  model swap) falls back to flat, so the hier default is never BLIND to new
+ *  cards. In-place EDITS of existing cards keep the count stable and can
+ *  still rank stale FTS text until the next explicit rebuild — bounded fog,
+ *  rebuild automation is the recorded fold-back. NOTE on this lane:
+ *  `scanned` reports the hier seed pool (NOT the vault total the flat lane
+ *  reports) and `excluded` counts hydration failures (NOT caller-owned
+ *  cards); bodyMatch/slugDom/linkWeighting are inert when hier answers —
+ *  the trace's `hierUsed: true` marks the lane so callers can tell. */
+async function tryHierarchicalDefault(args: {
+	client?: import("@repo/s2-agent-core-interface").SurrealClient;
+	vaultPath: string;
+	folder: string;
+	queryText: string;
+	topK: number;
+	type?: string;
+	model: string;
+	embedder?: Embedder;
+	tier: Tier;
+	maxDetailChars: number | undefined;
+	queryTags: Set<string>;
+	excludeIds: Set<string>;
+	excludeSlugs: Set<string>;
+	origTags: string[];
+	includeTrace: boolean;
+	optsSnapshot: { bodyMatch: boolean; slugDom: boolean; semantic: boolean; topK: number; semanticAlpha?: number };
+}): Promise<RetrieveResult | null> {
+	const { hierarchicalRetrieve } = await import("./hierarchical-retrieval.ts");
+	const { makeContextClient, indexStatus } = await import("./surreal-index.ts");
+	let client: import("@repo/s2-agent-core-interface").SurrealClient;
+	try {
+		client = args.client ?? makeContextClient();
+	} catch {
+		return null;
+	}
+	// Freshness gate (F1/F5): md count vs index count + embed-model match.
+	// Cheap: one readdirSync + one status query.
+	try {
+		const status = await indexStatus(client);
+		if (!status.present) return null;
+		if (status.embedModel !== args.model) return null;
+		const mdCount = readdirSync(join(args.vaultPath, args.folder)).filter((n) => n.endsWith(".md")).length;
+		if (status.cardCount !== mdCount) return null;
+	} catch {
+		return null;
+	}
+	let res: Awaited<ReturnType<typeof hierarchicalRetrieve>>;
+	try {
+		res = await hierarchicalRetrieve(client, {
+			query: args.queryText,
+			topK: args.topK,
+			type: args.type,
+			model: args.model,
+			embedder: args.embedder,
+			includeTrace: args.includeTrace,
+		});
+	} catch {
+		return null;
+	}
+	if (!res.ok || res.cards.length === 0) return null;
+
+	const hydrated: (RetrievedCard & { _score: number; hierScore: number })[] = [];
+	let excluded = 0;
+	for (const h of res.cards) {
+		const built = buildRetrievedCard(
+			args.vaultPath, args.folder, h.path, args.tier, args.maxDetailChars,
+			args.queryTags, args.excludeIds, args.excludeSlugs,
+		);
+		if (!built) {
+			excluded++;
+			continue;
+		}
+		// Hier cards can be typed via frontmatter `type` (D15) — hydrate the
+		// discriminator from the md (the md is canonical for RENDERING, D2).
+		hydrated.push({ ...built, viaTree: h.viaTree || undefined, _score: 0, hierScore: h.score });
+	}
+	if (hydrated.length === 0) return null;
+
+	const top = hydrated.map(({ _score, hierScore, ...rest }) => rest);
+	return {
+		count: top.length,
+		cards: top,
+		digest: formatDigest(top, args.origTags),
+		folder: args.folder,
+		scanned: res.trace?.seedPool ?? res.cards.length,
+		excluded,
+		trace: args.includeTrace
+			? {
+					options: args.optsSnapshot,
+					semanticUsed: res.trace?.semanticLane ?? true,
+					hierUsed: true,
+					candidatePool: res.cards.length,
+					scanned: res.trace?.seedPool ?? res.cards.length,
+					cards: hydrated.map((c) => ({
+						id: c.id,
+						path: c.path,
+						score: c.hierScore,
+						sharedTags: c.sharedTags,
+						hasCallouts: c.hasCallouts,
+						source: "hierarchical" as const,
 					})),
 			  }
 			: undefined,
@@ -730,7 +908,10 @@ function buildRetrievedCard(
 	return {
 		id: meta.source_id ?? cardSlug,
 		title,
-		type: typeof fields.recordType === "string" ? fields.recordType : "pattern",
+		// D15 discriminator: frontmatter `type` first (mirrors index `kind`).
+		type: typeof fields.type === "string" && fields.type
+			? fields.type
+			: typeof fields.recordType === "string" ? fields.recordType : "pattern",
 		detail: rendered.text,
 		tier: rendered.tier,
 		tiers,

@@ -1,12 +1,13 @@
 /**
  * schema-cost.regression.test.ts — pins the total schema-token cost of
- * knowledge-card's 4 tools. Baseline measured 2026-08-22 on main (post
+ * knowledge-card's 5 tools. Baseline measured 2026-08-22 on main (post
  * vault-mind retirement, context-lifecycle ticket 02): zk_ask's `blend` param
  * (the semantic-blend modes died with vault-mind) dropped it 2367 → 2019 tok.
  * Measured 2026-08-23 (ticket 06, extract action): zk_ingest's `action` enum
- * + description gained the `extract` option → 2019 → 2221 tok (the +1 token
- * over the old +10% headroom; the extract option carries the whole loop's
- * contract). Prior baselines: 2367 tok 2026-07-18 at ca0e4c58 (distill fold
+ * + description gained the `extract` option → 2019 → 2221 tok. Measured
+ * 2026-08-23 (ticket 05, FS read surface): the new `zk_fs` tool (op
+ * ls/tree/find/grep/stat, D32 one-tool-many-actions) → 2221 → 2711 tok.
+ * Prior baselines: 2367 tok 2026-07-18 at ca0e4c58 (distill fold
  * into zk_ingest); 1927 tok at 2b3f987c (2026-07-13).
  * Uses the main default-export factory (needs pi.events for host-fn bus,
  * which createCapturePi provides).
@@ -16,23 +17,23 @@ import { captureTools, estimateTotalSchemaTokens, assertWithinBudget } from "@re
 import kcardFactory from "../../knowledge-card.ts";
 
 describe("knowledge-card schema-cost regression", () => {
-  test("4 tools registered", () => {
+  test("5 tools registered", () => {
     const tools = captureTools(kcardFactory);
     expect(Object.keys(tools).sort()).toEqual(
-      ["knowledge_query", "zk_ask", "zk_card", "zk_ingest"].sort(),
+      ["knowledge_query", "zk_ask", "zk_card", "zk_fs", "zk_ingest"].sort(),
     );
   });
 
-  test("total schema ≤ 2443 tokens (baseline 2221, +10% headroom)", () => {
+  test("total schema ≤ 2982 tokens (baseline 2711, +10% headroom)", () => {
     const tools = captureTools(kcardFactory);
     const { perTool, total } = estimateTotalSchemaTokens(tools);
     for (const t of perTool) console.log(`  ${t.name.padEnd(26)} ${String(t.tokens).padStart(5)} tok`);
     console.log(`  ${"TOTAL".padEnd(26)} ${String(total.tokens).padStart(5)} tok`);
 
     assertWithinBudget(total.tokens, {
-      label: "knowledge-card schema (4 tools)",
-      max: 2443, // 2221 × 1.10 — fresh measurement 2026-08-23 (extract action)
-      baseline: 2221,
+      label: "knowledge-card schema (5 tools)",
+      max: 2982, // 2711 × 1.10 — fresh measurement 2026-08-23 (zk_fs tool)
+      baseline: 2711,
       measuredAt: "2026-08-23",
       commit: "main",
     });
