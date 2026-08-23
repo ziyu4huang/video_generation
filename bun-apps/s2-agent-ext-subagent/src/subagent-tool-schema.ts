@@ -129,8 +129,9 @@ export const subagentToolSchema = Type.Object({
   ),
   agentType: Type.Optional(
     Type.String({
+      minLength: 1,
       description:
-        "Named agent def (.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation; built-in read-only types 'explore'/'plan' need no setup, user files shadow them. Explicit model/tools/excludeTools here override the binding.",
+        "Named agent def (.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation; built-in 'explore'/'plan' need no setup, user files shadow them. Explicit model/tools/excludeTools override the binding. Empty string is invalid.",
     }),
   ),
   fork: Type.Optional(
