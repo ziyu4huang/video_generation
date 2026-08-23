@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readMap, writeMap } from "../src/map.js";
@@ -7,6 +7,7 @@ import { parseMapBody } from "../src/markdown.js";
 import {
   computeFrontier,
   parseDecisionLine,
+  parseExecutionOrder,
   parseTicketFile,
   serializeTicket,
   type Ticket,
@@ -367,6 +368,141 @@ describe("readMap / writeMap: empty-fog placeholder must not count as a real fog
     expect(back?.fog.length).toBe(1);
     expect(back?.outOfScope).toEqual(["a durability bridge"]);
     expect(back?.outOfScope.length).toBe(1);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+});
+
+describe("map.md `## Tickets`: the `Execution order:` line is parser-inert (queue-mode fixture)", () => {
+  // The to-tickets confirm-gate records the chosen order as one
+  // `**Execution order:** 08 → 09 → 10 (…, no choice exists)` line inside the
+  // effort's `## Tickets` section. `readMap` derives tickets from the
+  // `tickets/` dir and must NOT read this line as a ticket, must NOT reorder
+  // or mutate ticket status from it, and must never throw on it (well-formed
+  // or blank/malformed). The `self-reflect-next-goal` queue-mode reads the
+  // line as prose to pick the queue head; `parseExecutionOrder` is the pure
+  // reader, degrading to `[]` (→ Frontier fallback) on a blank/malformed line.
+
+  const fresh = () => mkdtempSync(join(tmpdir(), "wf-map-order-"));
+
+  const mkTicketsDir = (cwd: string, effort: string): string => {
+    const dir = join(cwd, ".planning", effort, "tickets");
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  };
+
+  it("readMap ignores the Execution order line for ticket status/ordering", () => {
+    const cwd = fresh();
+    const effort = "order-eff";
+    const ticketsDir = mkTicketsDir(cwd, effort);
+    for (const [id, title] of [
+      ["08", "frontier-a"],
+      ["09", "frontier-b"],
+      ["10", "frontier-c"],
+    ] as const) {
+      writeFileSync(
+        join(ticketsDir, `${id}-${title}.md`),
+        ["---", "type: task", "status: open", "---", "", `# ${title}`, "", "## Question", "", "q?"].join("\n"),
+      );
+    }
+    // A live map whose `## Tickets` section carries the recorded order.
+    const map = [
+      "---",
+      "effort: order-eff",
+      "created: 2026-08-23",
+      "last: 2026-08-23",
+      "status: active",
+      "---",
+      "",
+      "# order-eff",
+      "",
+      "## Destination",
+      "",
+      "ship it",
+      "",
+      "## Tickets",
+      "",
+      "**Execution order:** 09 → 10 → 08 (…, no choice exists)",
+      "",
+      "## Notes",
+      "",
+      "ok",
+      "",
+    ].join("\n");
+    writeFileSync(join(cwd, ".planning", effort, "map.md"), map);
+
+    const m = readMap(cwd, effort);
+    expect(m).not.toBeNull();
+    // Tickets come from the dir, in ascending-id order — NOT the line's order.
+    expect(m?.tickets.map((t) => t.id)).toEqual(["08", "09", "10"]);
+    // No status mutation: all remain open regardless of the line.
+    expect(m?.tickets.every((t) => t.status === "open")).toBe(true);
+    expect(m?.tickets.length).toBe(3);
+    rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it("parseExecutionOrder reads the chosen order from the bold line, dropping the parenthetical", () => {
+    expect(parseExecutionOrder("**Execution order:** 09 → 10 → 08 (…, no choice exists)")).toEqual(["09", "10", "08"]);
+    // bare form + ASCII arrow
+    expect(parseExecutionOrder("Execution order: 08 -> 09 -> 10")).toEqual(["08", "09", "10"]);
+    // whitespace around the arrow
+    expect(parseExecutionOrder("**Execution order:**  08  →  09  →  10")).toEqual(["08", "09", "10"]);
+  });
+
+  it("a blank / malformed Execution order line degrades to `[]` (Frontier fallback), not a throw", () => {
+    // absent line entirely
+    expect(parseExecutionOrder("## Tickets\n\n- tickets/01-x.md\n")).toEqual([]);
+    // header with no value
+    expect(parseExecutionOrder("**Execution order:**")).toEqual([]);
+    // header with only a parenthetical (no ids)
+    expect(parseExecutionOrder("**Execution order:** (no choice exists)")).toEqual([]);
+    // malformed: non-arrow separators, empty core
+    expect(parseExecutionOrder("**Execution order:** -- , --")).toEqual([]);
+  });
+
+  it("an effort map with a blank Execution order line still reads + reports the Frontier", () => {
+    const cwd = fresh();
+    const effort = "frontier-fallback";
+    const ticketsDir = mkTicketsDir(cwd, effort);
+    // 01 is a blocker, 02 waits on it (so the frontier is only 01 until 01 closes).
+    writeFileSync(
+      join(ticketsDir, "01-a.md"),
+      ["---", "type: task", "status: open", "---", "", "# a", "", "## Question", "", "q?"].join("\n"),
+    );
+    writeFileSync(
+      join(ticketsDir, "02-b.md"),
+      ["---", "type: task", "blocking: 01", "status: open", "---", "", "# b", "", "## Question", "", "q?"].join("\n"),
+    );
+    const map = [
+      "---",
+      "effort: frontier-fallback",
+      "created: 2026-08-23",
+      "last: 2026-08-23",
+      "status: active",
+      "---",
+      "",
+      "# frontier-fallback",
+      "",
+      "## Destination",
+      "",
+      "ship it",
+      "",
+      "## Tickets",
+      "",
+      "**Execution order:** (no choice exists)",
+      "",
+      "## Frontier",
+      "",
+      "01",
+      "",
+    ].join("\n");
+    writeFileSync(join(cwd, ".planning", effort, "map.md"), map);
+
+    const m = readMap(cwd, effort);
+    expect(m).not.toBeNull();
+    // A blank order line (no ids recorded) → no chosen order → the queue head
+    // falls back to the Frontier, never throwing.
+    expect(parseExecutionOrder("**Execution order:** (no choice exists)")).toEqual([]);
+    expect(computeFrontier(m?.tickets ?? []).map((t) => t.id)).toEqual(["01"]);
     rmSync(cwd, { recursive: true, force: true });
   });
 });
