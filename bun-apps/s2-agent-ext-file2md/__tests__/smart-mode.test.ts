@@ -71,7 +71,7 @@ mock.module("../src/vlm/vision-inference.ts", () => ({
 }));
 
 const { parseMode, runFile2mdPipeline } = await import("../src/pipeline.ts");
-const { captionFigurePdf, prosePdf, scannedPdf, textPdf } = await import("./helpers/docs.ts");
+const { captionFigurePdf, mixedProseFigurePdf, prosePdf, scannedPdf, textPdf } = await import("./helpers/docs.ts");
 const { FIGURE_HINT } = await import("../src/vlm/agents.ts");
 
 let tmp: string;
@@ -279,5 +279,84 @@ describe("smart — vision enhancement on figure pages (ticket 02)", () => {
     const manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
     expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: false });
     expect(manifest.pages[0].status).toBe("done");
+  });
+});
+
+describe("smart — resume + --pages interaction (ticket 03)", () => {
+  test("resume: an enhanced page is never re-rasterized or re-described", async () => {
+    visionState.available = true;
+    const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    expect(visionCalls.calls).toBe(1);
+    expect(calls.raster).toBe(1);
+    const before = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
+
+    // Second run over the same output: the done page is skipped wholesale —
+    // no re-raster, no re-OCR, no second vision call (call-counter assertions).
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    expect(calls.raster).toBe(1);
+    expect(calls.ocr).toBe(0);
+    expect(visionCalls.calls).toBe(1);
+    const after = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
+    expect(after).toBe(before); // untouched byte-for-byte
+    expect(after.match(/## Figure \(vision\)/)).toHaveLength(1);
+    const manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: true });
+    expect(manifest.pages[0].status).toBe("done");
+  });
+
+  test("resume: a flag-only page (no server) is not retroactively enhanced when a server appears later", async () => {
+    const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
+    // Pass 1: no vision server → flagged, not enhanced.
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    expect(visionCalls.calls).toBe(0);
+    let manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: false });
+    // Pass 2: server now available — but the page is DONE; resume must not redo it.
+    visionState.available = true;
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    expect(visionCalls.calls).toBe(0);
+    expect(calls.raster).toBe(0);
+    manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: false });
+    expect(manifest.pages[0].status).toBe("done");
+    const md = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
+    expect(md).not.toContain("## Figure (vision)");
+  });
+
+  test("--pages selects only the figure page (page 1 untouched, pending)", async () => {
+    visionState.available = true;
+    const pdf = await writeFixture("mixed.pdf", await mixedProseFigurePdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", pages: "2" });
+    // Only page 2 (figure) ran enhancement — one vision call, page 1 untouched.
+    expect(visionCalls.calls).toBe(1);
+    expect(calls.raster).toBe(1);
+    expect(calls.ocr).toBe(0);
+    expect(existsSync(join(tmp, "mixed", "pages", "page-001.md"))).toBe(false);
+    const fig = readFileSync(join(tmp, "mixed", "pages", "page-002.md"), "utf8");
+    expect(fig).toContain("## Figure (vision)");
+    expect(existsSync(join(tmp, "mixed", "pages", "page-002.png"))).toBe(true);
+    const manifest = JSON.parse(readFileSync(join(tmp, "mixed", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].status).toBe("pending");
+    expect(manifest.pages[0].figure).toBeUndefined();
+    expect(manifest.pages[1].status).toBe("done");
+    expect(manifest.pages[1].figure).toEqual({ detected: true, enhanced: true });
+  });
+
+  test("--pages excludes the figure page (no vision calls, figure page pending)", async () => {
+    visionState.available = true;
+    const pdf = await writeFixture("mixed.pdf", await mixedProseFigurePdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", pages: "1" });
+    expect(visionCalls.calls).toBe(0);
+    expect(calls.raster).toBe(0);
+    expect(calls.ocr).toBe(0);
+    const prose = readFileSync(join(tmp, "mixed", "pages", "page-001.md"), "utf8");
+    expect(prose).toContain("provenance: text");
+    expect(prose).toContain("shown in Figure 3-4.");
+    expect(existsSync(join(tmp, "mixed", "pages", "page-002.md"))).toBe(false);
+    const manifest = JSON.parse(readFileSync(join(tmp, "mixed", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].status).toBe("done");
+    expect(manifest.pages[0].figure).toBeUndefined();
+    expect(manifest.pages[1].status).toBe("pending");
   });
 });

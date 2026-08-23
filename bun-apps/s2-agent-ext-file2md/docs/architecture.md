@@ -11,6 +11,8 @@ input bytes
   │        ├─ rasterPage() pdfium wasm → BGRA → BMP/PNG (pure encoders)           [src/raster/]
   │        │        │ mode ocr | auto → tesseract wasm OCR (lang data vendored)  [src/ocr/ocr.ts]
   │        │        │ mode vlm    → explainPage() vision-LLM (optional, degrade to OCR)
+  │        │        │ mode smart  → figure page? → vision enhance (append
+  │        │        │               ## Figure (vision); flag w/o server)         [src/core/figure.ts]
   │        │        └ profile classify (mode vlm, page 1)                        [src/vlm/classify-vlm.ts]
   ├─ image: OCR + optional vision describe; source copied as page-001.png
   ├─ docx/xlsx/pptx/ipynb: readDocument() vendored dsh-cowork-core windows      [vendored/]
@@ -22,15 +24,20 @@ Two rails, one seam: **extraction is deterministic pure-TS**; **OCR/vision are
 opt-in layering** behind modes `text|ocr|vlm`, every failure degrades to an
 explicit `> notice` or a per-page provenance marker — nothing silently drops.
 
-**Caption-only figure pages are a real gap.** The OCR/vision trigger is strictly
-`page text < 8 chars` (`OCR_TEXT_MIN_CHARS`). A born-digital spec whose page body is
-a bare `Figure N-x. …` caption (e.g. a figure page with only its caption in the text
-layer) has a *complete* text layer, so `mode: vlm`/`ocr` never fires on it — yet the
-diagram itself is a vector drawing the text layer cannot read. Measured on the
-839-page USB4 spec: 100% `provenance: text`, so vlm never runs; ~31 pages are
-caption-only. To describe such a page, opt in with `--extract vlm --pages <list>`.
-Detected as a caption-only page from a thin body (< ~900 bytes) whose text is a
-`Figure N-x. …` line.
+**Caption-only figure pages are a real gap — closed by `smart` mode.** The OCR/vision
+trigger in `ocr`/`auto`/`vlm` is strictly `page text < 8 chars` (`OCR_TEXT_MIN_CHARS`).
+A born-digital spec whose page body is a bare `Figure N-x. …` caption (e.g. a figure
+page with only its caption in the text layer) has a *complete* text layer, so
+`mode: vlm`/`ocr` never fires on it — yet the diagram itself is a vector drawing the
+text layer cannot read. Measured on the 839-page USB4 spec: 100% `provenance: text`,
+so vlm never runs; ~31 pages are caption-only. **The ladder**: `--extract smart`
+detects such pages (text page: `Figure N-x.` caption AND body ≤ `FIGURE_MAX_BODY_CHARS`
+= 1300; scan page: OCR output ≤ `FIGURE_OCR_MAX_CHARS` = 200 — named constants in
+`src/core/figure.ts`, pinned by the smart-mode E2E fixtures) and appends a
+vision-LLM description as `## Figure (vision)` after the untouched body (D3: append,
+never replace; `enhanced: vision` frontmatter + additive manifest `figure` record).
+No vision server → flag + skip notice, never a failure (D4). `--extract vlm
+--pages <list>` remains the manual one-off path for the same pages.
 
 # `vision_ask` architecture — call chain & image transport
 

@@ -17,8 +17,20 @@ _Avoid_: text agent, blind agent
 ### The pipeline (v2 modes)
 
 **Mode**:
-`auto|text|ocr|vlm` — selects how far the per-page extraction goes: text layer only, + OCR for thin pages, or + vision-LLM description (OCR degrade). `auto` converges on `ocr`.
+`auto|text|ocr|vlm|smart` — selects how far the per-page extraction goes: text layer only, + OCR for thin pages, or + vision-LLM description (OCR degrade), or the adaptive smart ladder. `auto` converges on `ocr`.
 _Avoid_: strategy, feature (a mode is the pipeline's extraction depth)
+
+**Smart mode**:
+The adaptive ladder (`mode: smart`, explicit — never a default): text layer when usable → OCR only when thin → figure pages vision-enhanced (description appended, never replaces) → skip notice when no server. `auto`/`ocr`/`vlm`/`text` are untouched by it.
+_Avoid_: auto-enhance, vision-by-default (smart is an operator-opted mode; `auto` still converges on `ocr`)
+
+**Figure page**:
+A page whose readable payload is captions/labels only — a text page with a `Figure N-x.` caption AND body ≤ 1300 chars, or a scan page whose OCR output ≤ 200 chars. The diagram itself is not in the text/OCR text, hence the enhancement visit.
+_Avoid_: image page, diagram page (it is a per-page detection class, not an input type)
+
+**Enhance ladder**:
+The smart-mode per-page progression text → OCR → figure detection → vision enhancement — each step only when the previous one cannot deliver.
+_Avoid_: multi-pass, retry chain (it is one deterministic per-page order, not retries)
 
 **Text layer**:
 A PDF's embedded text via pdfjs-dist (pure TS) — the cheap, faithful path for born-digital documents. Below `OCR_TEXT_MIN_CHARS` (8) a page counts as a scan.
