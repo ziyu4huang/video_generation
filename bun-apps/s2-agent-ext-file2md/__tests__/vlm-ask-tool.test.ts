@@ -23,7 +23,7 @@ const inferenceCalls: {
   systemPrompt?: string;
 }[] = [];
 
-mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
+mock.module(`${import.meta.dirname}/../src/vlm/vision-inference.ts`, () => ({
   runVisionInference: async (opts: any) => {
     inferenceCalls.push(opts);
     if (nextError !== null) return { output: "", ok: false, error: nextError };
@@ -35,7 +35,7 @@ mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
 // This exercises the ask tool's vision-inference wiring, not model resolution —
 // stub the resolver to a stable lm-studio target (realm-safe: this realm already
 // mocks vision-inference).
-mock.module(import.meta.dirname + "/../src/sessions.ts", () => ({
+mock.module(`${import.meta.dirname}/../src/sessions.ts`, () => ({
   resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b", thinkingLevel: "off" }),
   resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
     provider: opts.provider ?? "lm-studio",
@@ -103,8 +103,8 @@ describe("vision_ask tool", () => {
       undefined,
       undefined,
     );
-    expect(inferenceCalls[0]!.task).toBe("count the people");
-    expect(inferenceCalls[0]!.images).toHaveLength(1);
+    expect(inferenceCalls[0]?.task).toBe("count the people");
+    expect(inferenceCalls[0]?.images).toHaveLength(1);
   });
 
   test("resolves a relative image path against cwd", async () => {
@@ -136,14 +136,14 @@ describe("vision_ask tool", () => {
       undefined,
       undefined,
     );
-    expect(inferenceCalls[0]!.systemPrompt).toBe("answer in one line");
+    expect(inferenceCalls[0]?.systemPrompt).toBe("answer in one line");
   });
 
   test("default model resolves via resolveVisionLLM (lm-studio, thinking off)", async () => {
     reset();
     await tools.vision_ask.execute("t5", { image: pngAbs, question: "q" }, undefined, undefined, undefined);
-    expect(inferenceCalls[0]!.llm.provider).toBe("lm-studio");
-    expect(inferenceCalls[0]!.llm.thinkingLevel).toBe("off");
+    expect(inferenceCalls[0]?.llm.provider).toBe("lm-studio");
+    expect(inferenceCalls[0]?.llm.thinkingLevel).toBe("off");
   });
 
   test("error path: inference failure → isError:true with the message", async () => {

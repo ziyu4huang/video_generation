@@ -12,7 +12,7 @@ import { type ResolvedLLM, resolveVisionLLM } from "../sessions.ts";
 import { ALL_PROFILES, type DocProfile } from "./classify.ts";
 import { runVisionInference } from "./vision-inference.js";
 
-const CLASSIFY_SYSTEM = `你是一個文件類型分類器。你會收到一張文件的第一頁圖片。
+const _CLASSIFY_SYSTEM = `你是一個文件類型分類器。你會收到一張文件的第一頁圖片。
 請只判斷這份文件屬於下列哪一種 profile，並「只」輸出該 profile 的英文代碼（小寫），不要任何其他文字：
 
 - paper   ：學術論文 / 研究報告（含標題、作者、摘要、章節、參考文獻的典型論文版面）

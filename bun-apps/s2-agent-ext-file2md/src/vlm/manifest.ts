@@ -143,7 +143,7 @@ export function createManifest(opts: {
 /** Persist a manifest to disk. */
 export function writeManifest(layout: DocLayout, manifest: Manifest): void {
   manifest.updatedAt = new Date().toISOString();
-  writeFileSync(layout.manifestPath, JSON.stringify(manifest, null, 2) + "\n", "utf8");
+  writeFileSync(layout.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
 /** Load a manifest if present (for resumability), else null. */

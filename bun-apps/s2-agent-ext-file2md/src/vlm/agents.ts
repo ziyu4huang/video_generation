@@ -58,7 +58,6 @@ function modePhrase(mode: ExplainMode): string {
       return "忠實謄寫（盡可能逐字保留原文，僅做格式化、不濃縮）";
     case "summary":
       return "摘要整理（濃縮重點）";
-    case "hybrid":
     default:
       return "整理與摘要";
   }
@@ -180,7 +179,7 @@ export function normalizeFrontmatter(md: string, known: { page: number; kind: st
   const kv = /^\s*[\w.-]+\s*:\s*.+/;
   const fm: string[] = [];
   let i = 0;
-  while (i < lines.length && lines[i]!.trim() !== "" && kv.test(lines[i]!)) {
+  while (i < lines.length && lines[i]?.trim() !== "" && kv.test(lines[i]!)) {
     fm.push(lines[i]!);
     i++;
   }
@@ -188,7 +187,7 @@ export function normalizeFrontmatter(md: string, known: { page: number; kind: st
 
   // Skip a redundant closing delimiter the VLM placed right after the fields.
   let j = i;
-  if (lines[j] !== undefined && lines[j]!.trim() === "---") j++;
+  if (lines[j] !== undefined && lines[j]?.trim() === "---") j++;
 
   const body = override(fm.join("\n"));
   const remainder = lines.slice(j).join("\n");

@@ -70,5 +70,5 @@ export function buildImageCardMarkdown(input: ImageCardInput): string {
     "## 核心想法",
     mergeImageContent(input.ocrText, input.visionDescription),
   ];
-  return fm.concat(body).join("\n") + "\n";
+  return `${fm.concat(body).join("\n")}\n`;
 }

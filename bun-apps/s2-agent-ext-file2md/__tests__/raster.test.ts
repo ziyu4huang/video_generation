@@ -50,10 +50,10 @@ describe("pdfium wasm raster (real, offline)", () => {
     expect(lib).toBeDefined();
     const page = await rasterPage(pdf, 1, 2);
     expect(page).toBeDefined();
-    expect(page!.width).toBeGreaterThan(0);
-    expect(page!.height).toBeGreaterThan(0);
-    const bmpDims = imageDims(page!.bmp);
-    expect(bmpDims).toEqual({ width: page!.width, height: page!.height });
+    expect(page?.width).toBeGreaterThan(0);
+    expect(page?.height).toBeGreaterThan(0);
+    const bmpDims = imageDims(page?.bmp);
+    expect(bmpDims).toEqual({ width: page?.width, height: page?.height });
   }, 30_000);
 
   test("rasterPage is stable across repeated calls (singleton reuse)", async () => {

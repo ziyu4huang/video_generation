@@ -139,7 +139,7 @@ export async function runFile2mdPipeline(opts: File2mdPipelineOptions): Promise<
   console.error("file2md (v2)");
   console.error(`  out:   ${displayPath(outRoot)}`);
   console.error(`  mode:  ${mode}`);
-  if (mode === "vlm") console.error(`  model: ${llm!.provider}/${llm!.modelId}`);
+  if (mode === "vlm") console.error(`  model: ${llm?.provider}/${llm?.modelId}`);
   console.error(`  scale: ${scale}  lang: ${lang}`);
   console.error();
 
@@ -221,7 +221,7 @@ async function runDocument(args: RunDocumentArgs): Promise<void> {
 // PDF
 // ---------------------------------------------------------------------------
 
-async function runPdf(args: RunDocumentArgs, layout: DocLayout, slug: string): Promise<void> {
+async function runPdf(args: RunDocumentArgs, _layout: DocLayout, slug: string): Promise<void> {
   const { inputAbs, inputName, bytes, outRoot, mode, note, scale, lang, pages, forcedType } = args;
   const pdf = await openPdf(bytes);
   try {
@@ -305,7 +305,7 @@ async function runPdf(args: RunDocumentArgs, layout: DocLayout, slug: string): P
 /** Page-1 vision classification (vlm mode only); degrades to "paper". */
 async function classifyPdfProfile(
   bytes: Uint8Array,
-  pageCount: number,
+  _pageCount: number,
   llm: ResolvedLLM,
   scale: number,
 ): Promise<DocProfile> {
@@ -579,7 +579,7 @@ export function htmlToMarkdown(html: string): string {
   body = body
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<\/?(h1|h2|h3|h4|h5|h6)[^>]*>/gi, (cap, tag) => `\n${"#".repeat(+(tag[1] ?? "1"))} `)
+    .replace(/<\/?(h1|h2|h3|h4|h5|h6)[^>]*>/gi, (_cap, tag) => `\n${"#".repeat(+(tag[1] ?? "1"))} `)
     .replace(/<\/(li)>/gi, "\n")
     .replace(/<li[^>]*>/gi, "- ")
     .replace(/<(p|div|tr|td)\b[^>]*>/gi, "\n")
@@ -649,7 +649,7 @@ function writeIndexNote(layout: DocLayout, manifest: Manifest, profile: DocProfi
     const status = pg.status === "done" ? "✅" : pg.status === "error" ? "❌" : "⬜";
     lines.push(`- ${status} [[${manifest.slug}-${mdBase?.replace(/\.md$/, "")} | page ${pg.page}]]`);
   }
-  writeFileSync(layout.indexNotePath, lines.join("\n") + "\n", "utf8");
+  writeFileSync(layout.indexNotePath, `${lines.join("\n")}\n`, "utf8");
 }
 
 /** Temp file for VLM-bound page images (never lands in the vault layout). */

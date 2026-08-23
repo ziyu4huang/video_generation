@@ -81,56 +81,56 @@ describe("askImage — I/O (mocked vision-inference)", () => {
   test("passes the question verbatim as the inference task", async () => {
     reset({ output: "x" });
     await askImage(pngPath, "what color is the sky?");
-    expect(inferenceCalls[0]!.task).toBe("what color is the sky?");
+    expect(inferenceCalls[0]?.task).toBe("what color is the sky?");
   });
 
   test("attaches exactly one image", async () => {
     reset({ output: "x" });
     await askImage(pngPath, "q");
-    expect(inferenceCalls[0]!.images).toHaveLength(1);
+    expect(inferenceCalls[0]?.images).toHaveLength(1);
   });
 
   test("mime defaults via guessImageMimeType for .jpg", async () => {
     reset({ output: "x" });
     await askImage(jpgPath, "q");
-    expect(inferenceCalls[0]!.images[0]!.mimeType).toBe("image/jpeg");
+    expect(inferenceCalls[0]?.images[0]?.mimeType).toBe("image/jpeg");
   });
 
   test("explicit mimeType opt overrides the extension guess", async () => {
     reset({ output: "x" });
     await askImage(pngPath, "q", { mimeType: "image/webp" });
-    expect(inferenceCalls[0]!.images[0]!.mimeType).toBe("image/webp");
+    expect(inferenceCalls[0]?.images[0]?.mimeType).toBe("image/webp");
   });
 
   test("systemPrompt is forwarded as a string (not wrapped in an array)", async () => {
     reset({ output: "x" });
     await askImage(pngPath, "q", { systemPrompt: "answer in one line" });
-    expect(inferenceCalls[0]!.systemPrompt).toBe("answer in one line");
+    expect(inferenceCalls[0]?.systemPrompt).toBe("answer in one line");
   });
 
   test("no systemPrompt → undefined (no empty string)", async () => {
     reset({ output: "x" });
     await askImage(pngPath, "q");
-    expect(inferenceCalls[0]!.systemPrompt).toBeUndefined();
+    expect(inferenceCalls[0]?.systemPrompt).toBeUndefined();
   });
 
   test("agentDir is forwarded to runVisionInference", async () => {
     reset({ output: "x" });
     await askImage(pngPath, "q", { agentDir: "/proj/.pi/agent" });
-    expect(inferenceCalls[0]!.agentDir).toBe("/proj/.pi/agent");
+    expect(inferenceCalls[0]?.agentDir).toBe("/proj/.pi/agent");
   });
 
   test("explicit llm override is used as-is (no resolveVisionLLM defaulting)", async () => {
     reset({ output: "x" });
     const llm = { provider: "zai", modelId: "glm-vlm", thinkingLevel: "off" as const };
     await askImage(pngPath, "q", { llm });
-    expect(inferenceCalls[0]!.llm).toBe(llm);
+    expect(inferenceCalls[0]?.llm).toBe(llm);
   });
 
   test("no llm → resolveVisionLLM() default target", async () => {
     reset({ output: "x" });
     await askImage(pngPath, "q");
-    expect(inferenceCalls[0]!.llm).toEqual(resolveVisionLLM());
+    expect(inferenceCalls[0]?.llm).toEqual(resolveVisionLLM());
   });
 
   test("inference error is swallowed into ok:false + error (no throw)", async () => {

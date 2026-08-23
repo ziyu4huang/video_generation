@@ -1,25 +1,4 @@
-/**
- * pi-file2md — file→Markdown bridge for text-only agents (v2, bun-only).
- *
- * Registers the `file2md` tool: converts PDF / image / docx / xlsx / pptx /
- * ipynb / text files to structured Markdown a pure-text agent can read —
- * text-first (pdfjs text layer, vendored dsh-cowork-core for office), with
- * vendored tesseract-wasm OCR for scans and an OPTIONAL vision layer (LM
- * Studio via the model tier config; `mode: vlm` when a server is present).
- *
- * Pipeline (same as the `s2-agent cli file2md` command):
- *   1. Sniff kind (content beats extension).      [local, magic bytes]
- *   2. Extract text (pdf text layer / office windows / passthrough).
- *   3. Thin pages → pdfium raster → OCR (always) / vision (mode vlm).
- *   4. Write pages/*.md + manifest.json + <slug>.md index note.
- *
- * Env:
- *   PI_MODEL             Override model (deprecated; tier config wins)
- *   PI_VLM_CONCURRENCY   Max concurrent VLM page extractions (default 1)
- */
-
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -32,7 +11,7 @@ import { Type } from "typebox";
 // `gating: { gate: "file2md" }` so buildEffectiveGates groups them into one
 // co-firing family gate (names[0] === "file2md"). The former per-tool verbatim
 // duplication is gone — edit the family here, both tools follow.
-GATE_DEFS["file2md"] = {
+GATE_DEFS.file2md = {
   id: "file2md",
   keywords: [
     "file2md",

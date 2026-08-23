@@ -31,8 +31,14 @@ const PKG_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 /** Engine-default language dir — vendored asset, resolved beside the package. */
 export const DEFAULT_LANG_PATH = join(PKG_ROOT, "vendored", "ocr-assets", "lang");
 
-/** The wasm core's path in the npm package dist (resolved here, not via the package's `node` subpath — that entry is the worker_threads adapter we deliberately do not use). */
-const WASM_BINARY_PATH = fileURLToPath(new URL("../../node_modules/tesseract-wasm/dist/tesseract-core.wasm", import.meta.url));
+/**
+ * The wasm core's path in the npm package dist. Resolved here — NOT via the
+ * package's `node` subpath, which is the worker_threads adapter we
+ * deliberately do not use.
+ */
+const WASM_BINARY_PATH = fileURLToPath(
+  new URL("../../node_modules/tesseract-wasm/dist/tesseract-core.wasm", import.meta.url),
+);
 
 /** Read the wasm core off disk (cached per process). Degrades cleanly on failure. */
 async function loadWasmBinary(): Promise<Uint8Array | undefined> {
@@ -78,9 +84,11 @@ export class OcrSession {
   async init(): Promise<boolean> {
     if (this.engine !== undefined) return true;
     try {
-      const wasm = (wasmBinaryCache ??= await loadWasmBinary());
-      if (wasm === undefined) throw new Error(`wasm core not found at ${WASM_BINARY_PATH}`);
-      const engine = await createOCREngine({ wasmBinary: wasm });
+      if (wasmBinaryCache === undefined) {
+        wasmBinaryCache = await loadWasmBinary();
+        if (wasmBinaryCache === undefined) throw new Error(`wasm core not found at ${WASM_BINARY_PATH}`);
+      }
+      const engine = await createOCREngine({ wasmBinary: wasmBinaryCache });
       // Load one raw `.traineddata` per lang part ("eng+chi_sim" → 2 loads).
       let loaded = false;
       for (const part of this.lang.split("+")) {
@@ -104,8 +112,8 @@ export class OcrSession {
     try {
       const img = decodeImageToRgba(data);
       if (img === undefined) return undefined;
-      this.engine!.loadImage(img);
-      const text = (this.engine!.getText() ?? "").trim();
+      this.engine?.loadImage(img);
+      const text = (this.engine?.getText() ?? "").trim();
       if (text === "") return undefined;
       return { text, width: img.width, height: img.height, format: "ocr" };
     } catch (e) {

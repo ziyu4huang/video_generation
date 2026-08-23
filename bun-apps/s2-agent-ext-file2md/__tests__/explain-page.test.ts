@@ -24,7 +24,7 @@ const inferenceCalls: {
   systemPrompt?: string;
 }[] = [];
 
-mock.module(import.meta.dirname + "/../src/vlm/vision-inference.ts", () => ({
+mock.module(`${import.meta.dirname}/../src/vlm/vision-inference.ts`, () => ({
   runVisionInference: async (opts: any) => {
     inferenceCalls.push(opts);
     if (nextError !== undefined) return { output: "", ok: false, error: nextError };
@@ -106,16 +106,16 @@ describe("explainPage — I/O (mocked vision-inference)", () => {
   test("profile selects the system prompt (forwarded as systemPrompt string)", async () => {
     reset({ output: "x" });
     await explainPage(LLM, "slides", page());
-    const sys = inferenceCalls[0]!.systemPrompt;
+    const sys = inferenceCalls[0]?.systemPrompt;
     expect(typeof sys).toBe("string");
     // slides-specific marker
-    expect(sys!.includes("kind 欄位固定為 slides")).toBe(true);
+    expect(sys?.includes("kind 欄位固定為 slides")).toBe(true);
   });
 
   test("task receives the page user message (slug + embed line + page no)", async () => {
     reset({ output: "x" });
     await explainPage(LLM, "image", page());
-    const text = inferenceCalls[0]!.task;
+    const text = inferenceCalls[0]?.task;
     expect(text.includes("my-doc")).toBe(true);
     expect(text.includes("第 1 頁")).toBe(true);
     expect(text.includes("共 5 頁")).toBe(true);
@@ -125,8 +125,8 @@ describe("explainPage — I/O (mocked vision-inference)", () => {
   test("attaches exactly one image with the given mime type", async () => {
     reset({ output: "x" });
     await explainPage(LLM, "image", page());
-    expect(inferenceCalls[0]!.images).toHaveLength(1);
-    expect(inferenceCalls[0]!.images[0]!.mimeType).toBe("image/png");
+    expect(inferenceCalls[0]?.images).toHaveLength(1);
+    expect(inferenceCalls[0]?.images[0]?.mimeType).toBe("image/png");
   });
 
   test("inference error is swallowed into ok:false + empty markdown (no throw)", async () => {
@@ -140,6 +140,6 @@ describe("explainPage — I/O (mocked vision-inference)", () => {
   test("llm is forwarded verbatim to runVisionInference", async () => {
     reset({ output: "x" });
     await explainPage(LLM, "paper", page());
-    expect(inferenceCalls[0]!.llm).toBe(LLM);
+    expect(inferenceCalls[0]?.llm).toBe(LLM);
   });
 });
