@@ -99,6 +99,16 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
     expect(r.content[0]!.text).toContain("Deck skeletons (4)");
   });
 
+  test("the catalog also lists the copy-adapt IR library (t11)", async () => {
+    const r = await archifyDeckLint({}, { cwd: PKG_ROOT });
+    const irLibrary = r.details["irLibrary"] as { path: string; diagram_type: string; pairing: string[]; tier: string }[];
+    expect(irLibrary.length).toBeGreaterThanOrEqual(15);
+    expect(irLibrary[0]!.diagram_type).toBe("architecture");
+    expect(irLibrary.some((e) => e.tier === "flagship-domain")).toBe(true);
+    expect(r.content[0]!.text).toContain("IR library (15)");
+    expect(r.content[0]!.text).toContain("pair with: kpi-row, split");
+  });
+
   test("no arguments lists the six code layouts plus every discovered template", async () => {
     const user = tempDir();
     writeKpiTemplate(user);

@@ -46,8 +46,8 @@ Build speed is a non-target (it is already 0.15 s); speed means tokens and autho
 ## Tickets
 
 Phase 1 — copy-adapt IR library (this session)
-- `tickets/10-ir-library.md` — task, **open** — ~15 validated IRs + catalog + flagship deck + gate
-- `tickets/11-docs-and-discovery.md` — task, **open** — lint catalog reporting, README/SKILL/docs index
+- `tickets/10-ir-library.md` — task, **closed** — 15 validated IRs + catalog + flagship deck + gate
+- `tickets/11-docs-and-discovery.md` — task, **closed** — lint catalog reporting, README/SKILL/docs index
 
 **Execution order:** 10 → 11 (fully forced: 11 `blocking: 10`)
 

@@ -20,8 +20,19 @@ change (schema-cost canary rule). Docs: README + `skills/archify/deck.md` pointe
 
 ## Acceptance
 
-- [ ] `archify_deck_lint` (no manifest) output includes an IR-library section listing every
-      cataloged IR with type, title, description, pairing and path.
-- [ ] Manifest-mode lint behavior unchanged (same diagnostics, same exit semantics).
-- [ ] README / deck.md / SKILL.md updated with the library pointer.
-- [ ] `bun run test` green; no schema-cost canary regression (no new tool entries).
+- [x] `archify_deck_lint` (no manifest) output includes an IR-library section listing every
+      cataloged IR with type, title, description, pairing and path (details.irLibrary).
+- [x] Manifest-mode lint behavior unchanged (same diagnostics, same exit semantics; the
+      existing 18 deck-lint tests still pass).
+- [x] README / deck.md / SKILL.md updated with the library pointer.
+- [x] `bun run test` green (670 pass / 21 skip / 0 fail); no new tool entries (schema-cost
+      canary unaffected).
+
+## Resolution
+
+Shipped on `archify-rich-decks-ir-library` (PR pending): `loadIrLibrary()` +
+`IrLibraryEntry` in `src/deck-lint-tool.ts` (missing-file-safe, mirroring the skeleton
+`shippedDir` seam), the IR-library section in the no-args catalog surface (text +
+`details.irLibrary`), tool description updated, docs pointers in README / deck.md / SKILL.md,
+and the discovery test pinned (D9 describe).
+closed: 2026-08-23 (implemented)

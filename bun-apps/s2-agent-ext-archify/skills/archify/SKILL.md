@@ -63,6 +63,7 @@ Ask the catalog first — never guess a layout name.
 
 ## On-demand depth (read these LOCAL vendored paths when needed)
 
+- Copy-adapt IR source (validated examples per diagram type + flagship deck) → `examples/ir-library/library.catalog.json` (listed by `archify_deck_lint`)
 - Layout craft / design system / self-review / delivery gate → `vendored/SKILL.md` (§ Layout principles, § Architecture Mode).
 - Per-mode deep vocabulary (workflow/sequence/dataflow/lifecycle) → `vendored/SKILL.md` (§ Renderer Modes + each mode's section).
 - Mermaid input → `vendored/SKILL.md` (§ Mermaid as an Input Dialect).

@@ -10,10 +10,17 @@ Two tools only — one to discover, one to build:
 
 1. **`archify_deck_lint`** — with **no arguments** it lists everything available: every layout
    (the six code layouts first, then every `*.layout.json` template from the search path) with
-   its `description`, `slots`, and `source` path, plus every ready-to-fill **deck skeleton**.
+   its `description`, `slots`, and `source` path, plus every ready-to-fill **deck skeleton**
+   and the copy-adapt **IR library** (`examples/ir-library/`): per IR its `diagram_type`,
+   `title`, `description`, suggested `pairing`, and path.
    This is the discovery surface: **ask it before guessing a layout name.** The set is data —
    someone may have dropped a template on the search path yesterday — so a hardcoded list is
    wrong the moment it happens, and *being wrong there is worse than being absent*.
+   - The IR library is the "copy-adapt" path: 12 validated generic archetype IRs (5 diagram
+     types × 2–3) + 3 harvest-tier real chip IRs, each already through `deliver`, plus the
+     flagships deck `examples/ir-library/decks/library.config.json` showing them woven with
+     the 7 rich templates. When a slide needs a diagram, pick a cataloged IR and adapt it —
+     do not author from schema memory.
    - With a `manifest` (path, or the object itself for an unwritten draft) it validates each
      slide's fields against its layout's slots, stats every `ir`, runs the content lint, and
      returns the **storyline** — all with **zero rendering**. Run it before ever building.

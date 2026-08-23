@@ -119,10 +119,22 @@ measuring a glyph or opening a renderer (buckets calibrated against rendered ink
 The six above are code. More layouts arrive as **data** — a `*.layout.json` on the search path
 (whose precedence is code → `$ARCHIFY_TEMPLATES` → `<manifestDir>/templates/` → packaged tier)
 adds a layout with zero `.ts` change. The discovery surface is `archify_deck_lint` with **no
-arguments**: it lists every layout (code + template) and every ready-to-fill deck skeleton
-(`templates/decks/*.outline.md`) with its description, slots and source path. Ask it before
-guessing a layout name — the set is data and can change under you. How to author a template:
+arguments**: it lists every layout (code + template), every ready-to-fill deck skeleton
+(`templates/decks/*.outline.md`) and the copy-adapt **IR library** (`examples/ir-library/`) with
+its description, slots and source path. Ask it before guessing a layout name — the set is data
+and can change under you. How to author a template:
 `skills/archify/authoring-templates.md`.
+
+### Copy-adapt IR library
+
+It already illustrated the answer to "which IR do I copy?" — `examples/ir-library/` ships a
+catalog of **validated, render-ready IRs** (12 generic archetypes across all five diagram types
+plus 3 harvest-tier real chip IRs), each with a typed index entry (`library.catalog.json`:
+`diagram_type`, `title`, `description`, `archetype`, suggested `pairing`, `tier`) and a
+**flagship deck** (`examples/ir-library/decks/library.config.json`, 21 slides) that weaves the
+IRs with the 7 rich template results into one coherent argument. Copies are edits, not
+re-authors — swap the values, keep the shapes. `tests/ir-library.test.ts` pins every cataloged
+IR to validate + render and the flagship deck to 0 fatal lint / 0 blips.
 
 ### The outline door
 
