@@ -155,10 +155,14 @@ export function createLiveSpawn(cwd: string): SpawnFn {
  * Wrap a SpawnFn so every call that does NOT set its own `timeoutMs` inherits
  * `defaultMs` (an explicit per-call value always wins). This is the adoption
  * seam for the git/gh clients, whose calls pass NO options at all — an
- * unbounded `git fetch` over a stalled SSH transport then hangs the whole CLI
- * for as long as the network stays silent (measured 2026-08-24:
- * `sync-default-branch` sat 11+ minutes before the operator killed it; the
- * same fetch completed in 2.5s once the stall cleared). Wrap the spawn BEFORE
+ * unbounded `git fetch` over a stalled SSH transport would then hang the whole
+ * CLI for as long as the network stays silent. (RCA correction 2026-08-24: the
+ * 11-minute `sync-default-branch` stall that motivated this wrap was NOT such
+ * a fetch — the operator invoked the devops tool through the s2-agent TUI
+ * wrapper, whose parser treats an unknown bare token as a PROMPT and starts an
+ * agent session that waits on a model. The cap stands anyway: unbounded
+ * network spawns are the same hazard class ci-recipe already caps, and the
+ * same morning a healthy `git fetch origin` ran 2.5s.) Wrap the spawn BEFORE
  * handing it to both the recipe and `createBranchClient` — both issue bare
  * `spawn(cmd, args)` calls, so one wrap covers the entire tool surface.
  */

@@ -88,11 +88,14 @@ export const DEFAULT_PRESERVE_PATHS = [".agents/memory/MEMORY.md"];
 /**
  * Per-command wall-clock cap for every git call a sync issues (fetch, stash,
  * ff-only advance, submodule update …), injected via withDefaultTimeout at the
- * CLI/tool wiring seams. The 2026-08-24 incident: a stalled SSH transport held
- * an unbounded `git fetch` (and with it the whole `sync-default-branch` run)
- * for 11+ minutes until the operator killed it. 5 minutes is generous for any
- * single command (a healthy fetch lands in seconds) while keeping the tool's
- * worst case finite and self-reporting.
+ * CLI/tool wiring seams. Motivated by the 2026-08-24 11-minute
+ * `sync-default-branch` stall — which the RCA later attributed to a WRONG
+ * INVOCATION (the s2-agent TUI wrapper treats an unknown bare token as a
+ * prompt and starts a model-waiting agent session), not to a hung fetch — so
+ * this is defense-in-depth for the hazard class, not the fix for that incident:
+ * unbounded network spawns are exactly what ci-recipe already caps everywhere
+ * else. 5 minutes is generous for any single command (a healthy fetch lands in
+ * seconds) while keeping the tool's worst case finite and self-reporting.
  *
  * Lives HERE — not in sync-default-branch-cli.ts — because extensions/devops.ts
  * must import it too, and importing the CLI module from the extension drags its
