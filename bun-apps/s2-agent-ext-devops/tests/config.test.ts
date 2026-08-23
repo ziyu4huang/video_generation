@@ -154,6 +154,7 @@ extensions:
 			"superpowers",
 			"sv-analyzer",
 			"task",
+			"tool-gate",
 			"ultracode",
 			"wayfind",
 			"web-access",

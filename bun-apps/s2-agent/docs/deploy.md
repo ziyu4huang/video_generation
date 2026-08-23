@@ -351,8 +351,10 @@ The dist runs with zero network and zero package installation — enforced, not 
   shipping it saves **12,637 gross / 12,328 net (57.3%)** per request at session start (dist
   baseline 21,531; `enable_tool` costs −309). Fail-open for untracked tools plus the
   `enable_tool` escape hatch hold the 0 task-breaking posture; its recall corpus and gate-recall
-  probes stay repo-side — this ships without its QA harness, the standing portability caveat (a
-  real `--model` run on the dist remains fog).
+  probes stay repo-side — this ships without its full QA harness. The deploy e2e
+  `tool-gate-fire` probe smoke-gates the shipped matcher instead: it executes the DEPLOYED
+  bundle and proves session-start gating, keyword firing, `enable_tool`, and the
+  `BUN_PI_TOOL_GATE=0` disable-env guard (a real `--model` run on the dist remains fog).
 - **Excluded, with reasons**:
   `file2md` (v2 is bun-only — pdfjs text + vendored dsh-cowork office + pdfium wasm + tesseract
   wasm OCR with an optional local vision tier — but stays out of the portable core by size/scope

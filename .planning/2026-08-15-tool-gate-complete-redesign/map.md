@@ -97,8 +97,15 @@ wayfind_effort 557 · power_browser 518 · zk_ask 445 · run_local_ci 383 — en
 
 **Fog left.**
 - Live L2 (--model) measurement on the dist — whether the 58.7% survives real prompts.
-- Whether the dist-shipped matcher's recall can be guaranteed without the repo corpus (probe
-  portability / deploy-side gate).
+- Whether the dist-shipped matcher's recall can be guaranteed without the repo corpus —
+  **partially resolved 2026-08-23**: the deploy e2e gained a `tool-gate-fire` probe
+  (`bun-apps/s2-agent-ext-devops/src/tool-gate-fire-probe.ts`) that executes the DEPLOYED
+  ext/tool-gate bundle (runtime loader, host modules served for real, no model) and drives
+  session_start → before_agent_start over a fixture gate family: gated OFF at start, fires on a
+  keyword prompt, `enable_tool` registered, `BUN_PI_TOOL_GATE=0` guard live. It runs after
+  every deploy (deploy-e2e-recipe, `verify-deploy-e2e`; same pattern/layer as `file2md-ocr`).
+  The FULL recall corpus / gate-recall probes remain repo-side — the probe guarantees the
+  shipped bytes match+gate, not corpus coverage; a deploy-side corpus port is still if-wanted.
 - Re-check trigger: "dist growth" is no longer the right trigger — any future base-set change
   should re-run this recipe (below).
 
