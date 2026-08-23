@@ -147,6 +147,9 @@ export async function runFile2mdPipeline(opts: File2mdPipelineOptions): Promise<
     const inputAbs = isAbsolute(input) ? input : resolve(cwd, input);
     console.error(`▶ ${displayPath(inputAbs)}`);
     const inputName = basename(inputAbs);
+    // Missing inputs fail with the CLI's Input-not-found convention, not a raw
+    // ENOENT from readFileSync (e2e asserts the message; zk-* commands do the same).
+    if (!existsSync(inputAbs)) throw new Error(`Input not found: ${displayPath(inputAbs)} (resolved: ${inputAbs})`);
     const bytes = new Uint8Array(readFileSync(inputAbs));
     checkInputData(bytes, caps);
     const sniffed = await detectKind(bytes, inputName);

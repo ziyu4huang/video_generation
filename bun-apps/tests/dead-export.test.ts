@@ -104,6 +104,21 @@ const ALLOWED: readonly { symbol: string; file: string; reason: string }[] = [
       "that the wiring never supplies, and this formatter is never called. Deleting it would erase " +
       "the evidence of the missing last mile — the fix is to wire it, not to drop it.",
   },
+  // ── vendored upstream snapshot, exports kept for upstream parity
+  {
+    symbol: "FORMATS",
+    file: "s2-agent-ext-file2md/vendored/dsh-cowork-core@0.1.0/src/types.ts",
+    reason:
+      "upstream @dsh-cowork/core@0.1.0 public API in the pinned vendored snapshot " +
+      "(ADR-file2md-0001); pruning upstream exports would diverge from the upstream source.",
+  },
+  {
+    symbol: "readIpynbSources",
+    file: "s2-agent-ext-file2md/vendored/dsh-cowork-core@0.1.0/src/write/ipynb.ts",
+    reason:
+      "upstream @dsh-cowork/core@0.1.0 writer module API in the pinned vendored snapshot " +
+      "(ADR-file2md-0001); file2md vendors the whole snapshot, writer side unused.",
+  },
 ];
 
 /** Every non-test TypeScript source under the s2-agent packages. */
