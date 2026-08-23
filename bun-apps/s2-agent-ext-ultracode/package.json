@@ -15,7 +15,7 @@
     "./extensions/*": "./extensions/*"
   },
   "scripts": {
-    "test": "bun run check && bun run test:unit",
+    "test": "bun run check && bun run typecheck && bun run test:unit",
     "test:unit": "bun test",
     "check": "biome check .",
     "typecheck": "tsc --noEmit",
