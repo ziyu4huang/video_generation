@@ -41,6 +41,8 @@ export interface PromptOpts {
   lang?: string;
   /** Processing mode (default "hybrid"). */
   mode?: ExplainMode;
+  /** Smart-mode figure-describe variant (default off): description-only output. */
+  figure?: boolean;
 }
 
 /** Human label for a language code. */
@@ -99,6 +101,32 @@ kind: paper
 關鍵：frontmatter 必須用第二個 --- 關閉；圖片嵌入一律 ![[檔名]]，不可加角括號 <>。`;
 }
 
+/**
+ * Smart-mode figure-describe hint (ticket 02): appended to the per-page user
+ * message when `explainPage` runs the figure variant. Exported so the E2E can
+ * assert the hint variant actually reached the vision call.
+ */
+export const FIGURE_HINT =
+  "這是一頁以圖為主的頁面（圖表 / 流程圖 / 架構圖 / 示意圖）：請著重描述該圖形 — 類型、結構、標籤、節點與箭頭方向、數據要點；圖上文字與座標數值盡量保留原文。";
+
+/**
+ * Smart-mode figure-describe system prompt (ticket 02): description-only
+ * output — no frontmatter, no embed, no envelope — so the description can be
+ * appended verbatim under `## Figure (vision)` (D3). Per-profile transcription
+ * rules deliberately do NOT apply here: they demand the page-note envelope the
+ * figure variant must not emit.
+ */
+function figureSystemPrompt(lang: string): string {
+  return `你是一個專門描述文檔中的圖形（圖表、流程圖、架構圖、示意圖、照片）的 VLM 助理。
+
+共同規則：
+- 輸出語言：${langLabel(lang)}。
+- 輸出「純 Markdown」正文：不要程式碼區塊包裹、不要任何前置說明文字。
+- 不要 YAML frontmatter、不要 ![[...]] 圖片嵌入行 —— 只輸出描述本身。
+- 忠於原圖：不捏造圖中沒有的內容；標籤、節點、座標數值盡量保留原文；模糊處標註「（模糊不可讀）」。
+- 描述重點：圖形的類型與目的、整體結構、主要標籤與節點、箭頭 / 關連方向、數據與座標要點。`;
+}
+
 /** Per-profile intro line. */
 const PROFILE_INTRO: Record<DocProfile, string> = {
   paper: "你是一個專門把學術論文 PDF 頁面轉成結構化 Obsidian 筆記的 VLM 助理。",
@@ -132,6 +160,7 @@ const PROFILE_RULES: Record<DocProfile, string> = {
 export function systemPromptFor(profile: DocProfile, opts: PromptOpts = {}): string {
   const lang = opts.lang ?? "zh-TW";
   const mode = opts.mode ?? "hybrid";
+  if (opts.figure) return figureSystemPrompt(lang);
   const intro = PROFILE_INTRO[profile] ?? PROFILE_INTRO.image;
   const rules = PROFILE_RULES[profile] ?? PROFILE_RULES.image;
   return `${intro}\n\n${commonRules(lang, mode)}\n${rules}`;
@@ -202,7 +231,19 @@ export function pageUserMessage(opts: {
   pageCount: number;
   /** Optional cross-page context line (S1). Omitted on page 1 / single-image docs. */
   priorContext?: string;
+  /** Smart-mode figure-describe variant (ticket 02): figure hint, no embed line. */
+  figure?: boolean;
 }): string {
+  if (opts.figure) {
+    return [
+      `文件 slug：${opts.docSlug}`,
+      `這是第 ${opts.page} 頁（共 ${opts.pageCount} 頁）。`,
+      "",
+      FIGURE_HINT,
+      "",
+      "請依系統提示，只輸出描述本頁圖形的 markdown 正文。",
+    ].join("\n");
+  }
   const lines = [
     `文件 slug：${opts.docSlug}`,
     `這是第 ${opts.page} 頁（共 ${opts.pageCount} 頁）。`,
@@ -249,6 +290,8 @@ export async function explainPage(
     lang?: string;
     /** Processing mode (T3, default hybrid). */
     mode?: ExplainMode;
+    /** Smart-mode figure-describe variant (ticket 02): figureHint + description-only output. */
+    figure?: boolean;
   },
 ): Promise<ExplainResult> {
   const image = readImageContent(page.imageAbs, page.mimeType);
@@ -258,13 +301,14 @@ export async function explainPage(
     pngLinkName: page.pngLinkName,
     pageCount: page.pageCount,
     priorContext: page.priorContext,
+    figure: page.figure,
   });
 
   const { output, ok, error } = await runVisionInference({
     task: userMsg,
     images: [image],
     llm,
-    systemPrompt: systemPromptFor(profile, { lang: page.lang, mode: page.mode }),
+    systemPrompt: systemPromptFor(profile, { lang: page.lang, mode: page.mode, figure: page.figure }),
     emptyIsError: true,
   });
 

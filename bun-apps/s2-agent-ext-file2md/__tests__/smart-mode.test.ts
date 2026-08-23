@@ -18,6 +18,13 @@ const calls = { raster: 0, ocr: 0 };
 const ocrState = { text: "OCR TEXT 42" };
 const visionState = { available: false };
 
+// Ticket 02: the vision-inference seam is mocked with a call counter + task
+// capture so the E2E can (a) prove the figureHint variant reached the call,
+// (b) count LLM invocations across pages, (c) script the success / #1913-empty /
+// rejection outcomes deterministically.
+const visionCalls = { calls: 0, lastTask: "", lastImages: [] as unknown[], lastSystemPrompt: "" };
+const visionReply = { ok: true as boolean, output: "A diagram of the adaptive equalization chain.", error: "" };
+
 mock.module("../src/raster/pdf.ts", () => ({
   rasterPage: async () => {
     calls.raster++;
@@ -52,8 +59,20 @@ mock.module("../src/sessions.ts", () => ({
   },
 }));
 
+mock.module("../src/vlm/vision-inference.ts", () => ({
+  runVisionInference: async (opts: { task: string; images: unknown[]; systemPrompt?: string }) => {
+    visionCalls.calls++;
+    visionCalls.lastTask = opts.task;
+    visionCalls.lastImages = opts.images;
+    visionCalls.lastSystemPrompt = opts.systemPrompt ?? "";
+    if (visionReply.ok) return { output: visionReply.output, ok: true };
+    return { output: "", ok: false, error: visionReply.error };
+  },
+}));
+
 const { parseMode, runFile2mdPipeline } = await import("../src/pipeline.ts");
 const { captionFigurePdf, prosePdf, scannedPdf, textPdf } = await import("./helpers/docs.ts");
+const { FIGURE_HINT } = await import("../src/vlm/agents.ts");
 
 let tmp: string;
 beforeEach(async () => {
@@ -62,6 +81,13 @@ beforeEach(async () => {
   calls.ocr = 0;
   ocrState.text = "OCR TEXT 42";
   visionState.available = false;
+  visionCalls.calls = 0;
+  visionCalls.lastTask = "";
+  visionCalls.lastImages = [];
+  visionCalls.lastSystemPrompt = "";
+  visionReply.ok = true;
+  visionReply.output = "A diagram of the adaptive equalization chain.";
+  visionReply.error = "";
 });
 afterEach(async () => {
   await rm(tmp, { recursive: true, force: true });
@@ -90,6 +116,7 @@ describe("smart — text-page ladder", () => {
     // (no enhancement to run) and a usable text page never OCRs.
     expect(calls.raster).toBe(0);
     expect(calls.ocr).toBe(0);
+    expect(visionCalls.calls).toBe(0);
     const md = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
     expect(md).toContain("Figure 3-4. Adaptive equalization functional diagram.");
     expect(md).toContain(FIGURE_SKIP_NOTICE);
@@ -149,5 +176,108 @@ describe("smart — scan-page ladder", () => {
     expect(md).toContain("provenance: ocr");
     const manifest = JSON.parse(readFileSync(join(tmp, "scan", "manifest.json"), "utf8"));
     expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: false });
+  });
+});
+
+describe("smart — vision enhancement on figure pages (ticket 02)", () => {
+  test("text figure page + vision: figureHint variant, description appended, manifest enhanced", async () => {
+    visionState.available = true;
+    const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    // Enhancement runs: exactly one raster, one vision call carrying the hint.
+    expect(visionCalls.calls).toBe(1);
+    expect(visionCalls.lastTask).toContain(FIGURE_HINT);
+    expect(visionCalls.lastImages).toHaveLength(1);
+    expect(calls.raster).toBe(1);
+    expect(calls.ocr).toBe(0);
+    const md = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
+    // Untouched original body FIRST, then the appended vision section (D3).
+    expect(md.indexOf("Figure 3-4. Adaptive equalization functional diagram.")).toBeLessThan(
+      md.indexOf("## Figure (vision)"),
+    );
+    expect(md).toContain("## Figure (vision)");
+    expect(md).toContain("A diagram of the adaptive equalization chain.");
+    expect(md).toContain("enhanced: vision");
+    expect(md).not.toContain(FIGURE_SKIP_NOTICE);
+    // The one rasterization is stored as the page image.
+    expect(existsSync(join(tmp, "fig", "pages", "page-001.png"))).toBe(true);
+    const manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: true });
+  });
+
+  test("scan figure page + short OCR: vision called, description appended to the OCR body", async () => {
+    visionState.available = true;
+    ocrState.text = "FIG 5-1. EYE DIAGRAM"; // 21 chars ≤ 200 band
+    const pdf = await writeFixture("scan.pdf", await scannedPdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    expect(calls.raster).toBe(1); // OCR's raster is reused for enhancement — once
+    expect(calls.ocr).toBe(1);
+    expect(visionCalls.calls).toBe(1);
+    expect(visionCalls.lastTask).toContain(FIGURE_HINT);
+    const md = readFileSync(join(tmp, "scan", "pages", "page-001.md"), "utf8");
+    expect(md.indexOf("FIG 5-1. EYE DIAGRAM")).toBeLessThan(md.indexOf("## Figure (vision)"));
+    expect(md).toContain("## Figure (vision)");
+    expect(md).toContain("A diagram of the adaptive equalization chain.");
+    expect(md).toContain("provenance: ocr");
+    expect(md).toContain("enhanced: vision");
+    expect(md).not.toContain(FIGURE_SKIP_NOTICE);
+    const manifest = JSON.parse(readFileSync(join(tmp, "scan", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: true });
+  });
+
+  test("scan page + long OCR: band fails, vision never called", async () => {
+    visionState.available = true;
+    ocrState.text = "SIMPLE OCR LINE ".repeat(20); // 340 chars > 200
+    const pdf = await writeFixture("scan.pdf", await scannedPdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    expect(visionCalls.calls).toBe(0);
+    const md = readFileSync(join(tmp, "scan", "pages", "page-001.md"), "utf8");
+    expect(md).toContain(ocrState.text);
+    expect(md).not.toContain("## Figure (vision)");
+    expect(md).not.toContain(FIGURE_SKIP_NOTICE);
+  });
+
+  test("empty/rejected vision output degrades: skip notice, enhanced false, page still done", async () => {
+    visionState.available = true;
+    visionReply.ok = false;
+    visionReply.error = "vision model completed with no output text (possible reasoning/token-budget truncation)";
+    const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    // ok:false is a RETURN, not a throw → withRetry no-ops → exactly one call.
+    expect(visionCalls.calls).toBe(1);
+    expect(calls.raster).toBe(1); // the attempt still rasterized exactly once
+    const md = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
+    expect(md).toContain("Figure 3-4. Adaptive equalization functional diagram.");
+    expect(md).toContain(FIGURE_SKIP_NOTICE);
+    expect(md).not.toContain("## Figure (vision)");
+    expect(md).not.toContain("enhanced: vision");
+    // Degrade stores no page png — enhanced:false record only.
+    expect(existsSync(join(tmp, "fig", "pages", "page-001.png"))).toBe(false);
+    const manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: false });
+    expect(manifest.pages[0].status).toBe("done");
+  });
+
+  test("prose and plain text pages never invoke the vision LLM", async () => {
+    visionState.available = true;
+    const prose = await writeFixture("prose.pdf", await prosePdf());
+    const paper = await writeFixture("paper.pdf", await textPdf());
+    await runFile2mdPipeline({ inputs: [prose, paper], outRoot: tmp, mode: "smart" });
+    expect(visionCalls.calls).toBe(0);
+    expect(calls.raster).toBe(0);
+    expect(calls.ocr).toBe(0);
+  });
+
+  test("soft resolve: leaf throwing → llm-undefined, run continues VLM-free (D4)", async () => {
+    // visionState.available = false (beforeEach default): the mock leaf throws
+    // → smart catches → llm stays undefined; pages flag + notice, never fail.
+    const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    expect(visionCalls.calls).toBe(0);
+    const md = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
+    expect(md).toContain(FIGURE_SKIP_NOTICE);
+    const manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
+    expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: false });
+    expect(manifest.pages[0].status).toBe("done");
   });
 });

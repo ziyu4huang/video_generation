@@ -106,6 +106,8 @@ interface PageRecord {
   pngH?: number;
   /** Smart-mode figure detection record (manifests as `figure` on the page). */
   figure?: FigureRecord;
+  /** Frontmatter `enhanced:` flag — set when a vision figure description appended. */
+  enhanced?: "vision";
 }
 
 /**
@@ -271,7 +273,9 @@ async function runPdf(args: RunDocumentArgs, _layout: DocLayout, slug: string): 
     manifest.profile = profile;
     writeManifest(realLayout, manifest);
 
-    const concurrency = mode === "vlm" ? Math.max(1, args.concurrency) : 1;
+    // Vision calls (vlm pages, or smart figure enhancement when a server is
+    // resolved) run under the per-document pool; VLM-free runs stay serial.
+    const concurrency = mode === "vlm" || (mode === "smart" && args.llm) ? Math.max(1, args.concurrency) : 1;
     const ocrSession = new OcrSession(lang);
     const processPage = async (pageNo: number) => {
       const mp = manifest.pages[pageNo - 1]!;
@@ -365,12 +369,14 @@ async function extractPdfPage(
     // before stopping (D2) — prose pages never fit the band, and a figure
     // page with no enhancement (ticket 01) just flags + notices.
     if (mode === "smart" && isTextFigure(text)) {
-      return {
-        page: pageNo,
-        body: `${text}\n\n${FIGURE_SKIP_NOTICE}\n`,
-        provenance: "text",
-        figure: { detected: true, enhanced: false },
-      };
+      // No vision server → ticket-01 flag+notice with zero rasterization.
+      // With a server the enhancement is attempted (ticket 02): rasterize
+      // ONCE — the vision call needs the image — then degrade on failure.
+      const llm = args.llm;
+      if (!llm) return figureSkipRecord(pageNo, text, "text");
+      const rendered = await rasterPage(args.bytes, pageNo, scale);
+      if (!rendered) return figureSkipRecord(pageNo, text, "text");
+      return await enhanceFigure(llm, args, profile, slug, pageNo, pageCount, rendered, text, "text");
     }
     return { page: pageNo, body: text, provenance: "text" };
   }
@@ -423,16 +429,93 @@ async function extractPdfPage(
     // smart: the OCR-length band decides the scan-page figure flag (D2) — the
     // figure check runs only on real OCR text, never on the degrade bodies.
     if (mode === "smart" && isScanFigure(ocrRes.text)) {
-      return {
-        page: pageNo,
-        body: `${ocrRes.text}\n\n${FIGURE_SKIP_NOTICE}\n`,
-        provenance: "ocr",
-        figure: { detected: true, enhanced: false },
-      };
+      // Band hit — a scan-shaped figure: describe via vision when a server is
+      // resolved, else the ticket-01 flag+notice (the raster for OCR is reused,
+      // so the page rasterizes exactly once).
+      const llm = args.llm;
+      if (!llm) return figureSkipRecord(pageNo, ocrRes.text, "ocr");
+      return await enhanceFigure(llm, args, profile, slug, pageNo, pageCount, rendered, ocrRes.text, "ocr");
     }
     return { page: pageNo, body: ocrRes.text, provenance: "ocr" };
   }
   return { page: pageNo, body: `> no text layer on page ${pageNo} (OCR unavailable).\n`, provenance: "ocr" };
+}
+
+/** Ticket-01 shape: figure flag + skip notice, no enhancement (no server or degrade). */
+function figureSkipRecord(pageNo: number, originalBody: string, provenance: "text" | "ocr"): PageRecord {
+  return {
+    page: pageNo,
+    body: `${originalBody}\n\n${FIGURE_SKIP_NOTICE}\n`,
+    provenance,
+    figure: { detected: true, enhanced: false },
+  };
+}
+
+/**
+ * Smart-mode figure enhancement (ticket 02, D3/D4): the already-rasterized page
+ * image goes to the vision LLM with the figureHint prompt variant. Success: the
+ * description appends as `## Figure (vision)` after the untouched body, the png
+ * is stored, frontmatter gains `enhanced: vision` (pageNoteMd), the manifest
+ * figure record flips `enhanced: true`. Failure — network error, retry
+ * exhaustion, or the #1913 empty-output guard rejecting the result — degrades
+ * to the ticket-01 skip notice with `enhanced: false` and NO stored png: a page
+ * never fails because enhancement did not. Callers narrow `args.llm` before
+ * invoking. Deliberately NOT gated by validatePageMarkdown (the description is
+ * a body fragment, not a page note — no frontmatter/embed by design).
+ */
+async function enhanceFigure(
+  llm: ResolvedLLM,
+  args: RunDocumentArgs,
+  profile: DocProfile,
+  slug: string,
+  pageNo: number,
+  pageCount: number,
+  rendered: { bmp: Uint8Array; width: number; height: number },
+  originalBody: string,
+  provenance: "text" | "ocr",
+): Promise<PageRecord> {
+  const pngBytes = bgraToPng(rendered.bmp, rendered.width, rendered.height);
+  const pngOut = joinTempPng(pageNo);
+  writeFileSync(pngOut, pngBytes);
+  try {
+    // Mirrors the vlm degrade shape (withRetry + same rejection logs). The
+    // #1913 guard returns ok:false rather than throwing, so a rejected output
+    // is exactly ONE call — no retry storm on a deterministic no-text outcome.
+    const explained = await withRetry(() =>
+      explainPage(llm, profile, {
+        imageAbs: pngOut,
+        mimeType: "image/png",
+        pngLinkName: `${pageLabel(pageNo, pageCount)}.png`,
+        docSlug: slug,
+        pageNo,
+        pageCount,
+        lang: args.lang,
+        mode: args.note as ExplainMode,
+        figure: true,
+      }),
+    );
+    const description = explained.markdown.trim();
+    if (explained.ok && description !== "") {
+      return {
+        page: pageNo,
+        body: `${originalBody}\n\n## Figure (vision)\n\n${description}\n`,
+        provenance,
+        png: pngBytes,
+        pngW: rendered.width,
+        pngH: rendered.height,
+        figure: { detected: true, enhanced: true },
+        enhanced: "vision",
+      };
+    }
+    console.error(
+      `  [${pageNo}] figure vision output rejected (${explained.error ?? "validation failed"}) — skip notice`,
+    );
+  } catch (e) {
+    console.error(`  [${pageNo}] figure vision failed (${e instanceof Error ? e.message : e}) — skip notice`);
+  } finally {
+    await safeUnlink(pngOut);
+  }
+  return figureSkipRecord(pageNo, originalBody, provenance);
 }
 
 // ---------------------------------------------------------------------------
@@ -654,6 +737,7 @@ function pageNoteMd(
     `kind: page`,
     `profile: ${profile}`,
     `provenance: ${rec.provenance}`,
+    ...(rec.enhanced ? [`enhanced: ${rec.enhanced}`] : []),
     ...(rec.pngW !== undefined ? [`width: ${rec.pngW}`] : []),
     ...(rec.pngH !== undefined ? [`height: ${rec.pngH}`] : []),
   ];
