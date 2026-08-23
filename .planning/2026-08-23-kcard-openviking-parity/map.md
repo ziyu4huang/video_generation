@@ -26,7 +26,7 @@ Measured 2026-08-23 in this worktree unless noted.
 
 ### Phase A — foundation seams
 
-- [ ] 01 — SurrealDB client ownership: extract hermes `surreal-client.ts` vs import vs copy (grilling)
+- [x] 01 — SurrealDB client ownership (CLOSED 2026-08-23 — D4–D8: client+tests+`SURREAL_DEFAULTS` extract into core-interface with injectable `onRoundTrip`; embedded-service stance (no env leaf); kcard db = `context_db` in per-user ns; hermes default backend flips to SurrealDB (sqlite = backup); embedding config centralized in `pre-load-providers.ts` via seam; detail in ticket)
 - [ ] 02 — SurrealDB index schema for kcard: cards + directory/agg nodes as record links, embeddings, relations, hotness counters (grilling, blocked by 01)
 - [x] 03 — SurrealDB v3 vector/FTS capability probe (CLOSED 2026-08-23 — HNSW 1024-dim COSINE PASS, MTREE absent, KNN = `<|k,ef|>` only, recursion must be client-side BFS, FTS AND-only, rebuild not reader-transparent; detail in ticket)
 
@@ -48,17 +48,20 @@ Measured 2026-08-23 in this worktree unless noted.
 - **D1 — scope = OpenViking Core-5, nothing more.** Typed memory model, FS-style read surface, session-commit→memory extraction, hierarchical retrieval, bounded hotness. VikingBot, Web Studio, encryption, privacy configs, multi-tenancy, ovpack, watch management, cloud rerank/intent/VLM are out of scope — peripheral to this stack (s2-agent already is the agent framework; single-user local deployment). Reason: the capability inventory's 20/80 judgment; also honors the no-cloud rule and D5/D6.
 - **D2 — SurrealDB is a derived, rebuildable index; vault md stays sole canonical.** Everything in SurrealDB (embeddings, hierarchy links, relations, hotness counters) regenerates from md; gitignored, hash-gated regen — same pattern as the existing model-keyed semantic JSON cache. Reason: consistent with D7 (md-git-canonical, sidecars already rejected) and knowledge-pipeline D05 tier classification; zero migration risk for 1925 cards.
 - **D3 — Builds-on context-lifecycle; efforts stay independent.** This effort cites context-lifecycle D0/D3/D5/D6/D8 rather than re-deciding; its open tickets 08–17 stay there (ticket 08's auto-recall injector is the downstream consumer of this effort's retrieval surface, via the `__piKnowledgePipeline` seam). Back-link added to both maps.
+- **D4 — SurrealClient → `@repo/s2-agent-core-interface`** (ticket 01, option 1): both consumers already depend on it — zero new dependency edges; `bumpRoundTrips` becomes an injectable `onRoundTrip` hook. Move set = client + unit tests + `SURREAL_DEFAULTS` const ONLY; per-user naming helpers move when ticket 02's build needs them. Reason: hermes/kcard stay decoupled (no drift-copy, no direct cross-import), and core-interface already hosts runtime leaves (`embedding-leaf.ts` precedent).
+- **D5 — SurrealDB treated as an embedded local service** (ticket 01, user): fixed `127.0.0.1:8000` constant, no env-override leaf, no config-resolution layer; injectable `fetch` for tests is the only flexibility. Reason: MVP slimness — it is part of the local stack, not a standalone server.
+- **D6 — kcard index = database `context_db` inside per-user namespace `user_<id>`** (ticket 01): user discriminator stays at the ns layer (per-user-db.ts tenancy rationale); hermes `memory` unchanged. Reason: same-user memory + context index adjacent under one ns; sanitization reused, not duplicated.
+- **D7 — hermes default backend flips to SurrealDB; sqlite = permanent backup/escape hatch** (ticket 01, user — resolves leanrag-simplify D1 vs `backend-factory.ts` sqlite default): accepted losses = corruption recovery + `getDb` seams; NO auto-migration of existing sqlite data. Reason: user decision; SurrealDB is the strategic store (D2 here, knowledge-pipeline D04).
+- **D8 — embedding config centralized in `s2-agent/src/pre-load-providers.ts`** (ticket 01, user directive): `EMBEDDING_CONFIG` § (base derived from the lm-studio provider entry, model bge-m3), host publishes via `publishSeam` at startup, `embedding-leaf.ts` order seam → env → defaults. Reason: one file for all baked model config, without breaking the extensions-cannot-import-host layering; model choice (context-lifecycle D3) unchanged.
 
 ## Frontier
 
-Ticket 01 (SurrealDB client ownership) — the only open unblocked ticket now that ticket 03 closed; it is HITL grilling and everything in Phase B lands on the seam it decides. Ticket 03's probe facts (schemaless vec field, `<|k,ef|>`, client-side BFS, shadow rebuild) feed directly into its discussion.
+Ticket 02 (SurrealDB index schema for kcard) — unblocked by ticket 01's D4–D6 (client home, `SURREAL_DEFAULTS`, `context_db` naming) plus ticket 03's probe facts (schemaless vec field, `<|k,ef|>`, client-side BFS, shadow rebuild). It owns the schema for cards + directory/agg nodes as record links, embeddings, relations, and hotness counters inside `user_<ns>/context_db`.
 
 ## Fog of war
 
 - Rebuild/backfill strategy for 1925 cards + embeddings at index first-build (kp04 background-backfill-queue precedent may apply).
-- Per-user namespacing: does kcard's index adopt hermes's `user_<id>` scheme, or one shared namespace?
 - Tool-surface impact: does the FS read surface absorb/reshape `zk_ask`/`knowledge_query` (tool-gating contract + hermes seam consumers must be consulted)?
-- hermes backend-default ambiguity (leanrag-simplify D1 says SurrealDB default; `backend-factory.ts` defaults sqlite) — flag when ticket 01 touches that file.
 - Whether OpenViking's intent-analysis-free constraint (D5/D6) survives contact with multi-type memory (typed queries in OpenViking come from the intent analyzer) — decide inside ticket 07.
 - Scale trigger from knowledge-pipeline D03 (>5k rels / >2k cards — already at 1925 cards) may force relation-index decisions earlier.
 
@@ -66,4 +69,4 @@ Ticket 01 (SurrealDB client ownership) — the only open unblocked ticket now th
 
 - `Builds-on: 2026-08-22-context-lifecycle` — D0 breaking scope, D3 embed canonical, D5/D6 deterministic retrieval, D8 bounded feedback; its ticket 08 auto-recall consumes our retrieval surface.
 - `Builds-on: 2026-08-08-knowledge-pipeline` — D04 chose SurrealDB as the vector store; D05 tier classification is what D2 here instantiates for kcard.
-- `Shares-decision-with: 2026-08-16-hermes-leanrag-simplify` — D1 SurrealDB-vs-sqlite default tension resurfaces in ticket 01's client-ownership discussion.
+- `Shares-decision-with: 2026-08-16-hermes-leanrag-simplify` — D1 SurrealDB-vs-sqlite default tension resolved here: this effort's D7 (ticket 01, 2026-08-23) executes the flip leanrag D1 specified; sqlite stays its backup.
