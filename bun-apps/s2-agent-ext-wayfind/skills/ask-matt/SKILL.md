@@ -92,6 +92,8 @@ A **phase** is a chunk of work inside a session — the grilling, the implementa
 - **Subagent** — dispatch a subagent with a tightly-scoped task and get a report back.
 - **handoff + fresh** — compact this context with the handoff skill and continue in a fresh session. The **default**, at the bottom of the tree rather than the first reach.
 
+**Wayfind-effort override**: if the session is ending while the active effort still has OPEN tickets, the phase-boundary choice is not free — run `/wayfind handoff [effort]` (the strict-v2 next-goal contract, validator-passing) so the tickets are carried, then layer this tree's portability options on top if you also need a conversational handoff. A session never just stops with open wayfind tickets.
+
 Read [PHASE-BOUNDARIES.md](PHASE-BOUNDARIES.md) for the ordered tree — the five questions, the reasoning behind each branch, and why the primary-source cost makes **Continue** the one to rule out first. Make the decision **at** a boundary; mid-phase, continue or split the rest into subagents.
 
 ## Standalone

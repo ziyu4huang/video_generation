@@ -13,6 +13,7 @@
  *   /wayfind seed [effort]     — seed a task_plan.md from tickets/decisions (was /plan-seed)
  *   /wayfind sync [effort]     — close tickets whose plan phase completed (was /chain-sync)
  *   /wayfind done [effort]     — closing ceremony: harvest the map into output/next-goal-<ts>.md
+ *   /wayfind handoff [effort]  — session ending with OPEN tickets: write the strict-v2 next-goal handoff
  *   /wayfind help               — usage overview: subcommand table + efforts on disk (alias: usage)
  *
  * Each subcommand's logic lives in its own handler module under ./commands/
@@ -61,7 +62,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
 
   pi.registerCommand("wayfind", {
     description:
-      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'validate'/'done' [effort]; 'help' (usage overview); '-- <destination>' force-charts a name that starts with a reserved keyword",
+      "Wayfinder family: '<destination>' (chart a map) or no args (work next ticket); 'status'/'spec'/'tickets'/'seed'/'sync'/'done'/'handoff'/'validate' [effort]; 'help' (usage overview); '-- <destination>' force-charts a name that starts with a reserved keyword",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       // Always banner the wayfind id (effort slug) for this invocation — one
@@ -97,7 +98,7 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
         const destination = trimmed.slice(2).trim();
         if (!destination) {
           ctx.ui.notify(
-            "Usage: /wayfind -- <destination>  (force-chart a name that starts with a reserved keyword like status/spec/tickets/seed/sync/done/validate)",
+            "Usage: /wayfind -- <destination>  (force-chart a name that starts with a reserved keyword like status/spec/tickets/seed/sync/done/handoff/validate)",
             "warning",
           );
           return;
@@ -121,6 +122,8 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
           return wayfind.sync(remainder, ctx);
         case "done":
           return wayfind.done(remainder, ctx);
+        case "handoff":
+          return wayfind.handoff(remainder, ctx);
         case "validate":
           return wayfind.validate(remainder, ctx);
         case "statusbar":

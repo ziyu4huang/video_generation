@@ -88,12 +88,13 @@ export function tidyNextGoals(effortDir: string, keepN = 10): TidyResult {
   }
 
   // ── Phase 2: keep only the N newest ────────────────────────────────────────
-  // Re-read after renames; lexicographic DESC on the fixed-width names ==
-  // newest-first (matches bash `find … | sort -r`). Drop the KEEP newest, unlink
-  // the rest (`tail -n +$((KEEP+1))`).
+  // Re-read after renames; sort by the digits-only stamp DESC == newest-first.
+  // Digits-only (not raw lexicographic) because both separators are canonical
+  // since 2026-08-23 ('-' < '_' would misorder same-stamp cross-separator ties).
   const names = listNextGoalFiles(outDir);
   if (names.length > keepN) {
-    names.sort((a, b) => (a > b ? -1 : a < b ? 1 : 0)); // descending
+    const stamp = (n: string) => n.replace(/\D/g, "");
+    names.sort((a, b) => (stamp(b) > stamp(a) ? 1 : stamp(b) < stamp(a) ? -1 : 0)); // newest first
     for (const base of names.slice(keepN)) {
       unlinkSync(join(outDir, base));
       result.removed += 1;

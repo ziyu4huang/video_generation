@@ -23,6 +23,7 @@ export type WayfindState =
   | "seed"
   | "domain-modeling"
   | "sync"
+  | "handoff"
   | "done";
 
 const STATE_EMOJI: Record<WayfindState, string> = {
@@ -35,6 +36,7 @@ const STATE_EMOJI: Record<WayfindState, string> = {
   seed: "🌱",
   "domain-modeling": "🧩",
   sync: "🔗",
+  handoff: "🤝",
   done: "✅",
 };
 
