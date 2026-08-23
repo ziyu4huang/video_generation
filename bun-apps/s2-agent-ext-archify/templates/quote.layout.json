@@ -1,6 +1,6 @@
 {
   "name": "quote",
-  "description": "Somebody ELSE's words, attributed: a centred quotation over a short rule, with the speaker's name and optional role beneath. For YOUR OWN claim use `statement`, never this — a quote without attribution is plagiarism, not emphasis.",
+  "description": "Somebody ELSE's words, attributed: a centred quotation over a short rule, with the speaker's name and optional role beneath. The slide title and takeaway are suppressed here — the quotation slots are the slide. For YOUR OWN claim use `statement`, never this — a quote without attribution is plagiarism, not emphasis.",
   "chrome": {
     "title": false
   },

@@ -87,6 +87,18 @@ describe("archify_deck_lint — renderless guarantee", () => {
 });
 
 describe("archify_deck_lint — catalog discovery (D9)", () => {
+  test("the catalog also lists the shipped deck skeletons", async () => {
+    const r = await archifyDeckLint({}, { cwd: PKG_ROOT });
+    const decks = r.details["decks"] as { name: string }[];
+    expect(decks.map((d) => d.name).sort()).toEqual([
+      "incident-review",
+      "product-proposal",
+      "project-kickoff",
+      "technical-review",
+    ]);
+    expect(r.content[0]!.text).toContain("Deck skeletons (4)");
+  });
+
   test("no arguments lists the six code layouts plus every discovered template", async () => {
     const user = tempDir();
     writeKpiTemplate(user);

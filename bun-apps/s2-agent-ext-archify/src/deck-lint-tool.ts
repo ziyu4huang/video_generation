@@ -16,11 +16,11 @@
  */
 import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import { DeckError, loadManifestFile, parseManifest, type DeckManifest } from "./deck-build.ts";
 import { formatLintNotes, lintDeck, storyline } from "./deck-lint.ts";
-import { loadRegistry, type CatalogEntry } from "./layout-registry.ts";
+import { loadRegistry, pkgRoot, type CatalogEntry } from "./layout-registry.ts";
 import type { SlotSpec } from "./layout-template.ts";
 
 export interface DeckLintParams {
@@ -104,6 +104,41 @@ function slotProblems(
   return out;
 }
 
+/** A ready-to-fill deck skeleton: the file stem plus its first `#` title. */
+export interface DeckSkeleton {
+  name: string;
+  description: string;
+  source: string;
+}
+
+/**
+ * Outlines from `templates/decks/` — user tier first (`<root>/templates/decks/`),
+ * then the shipped tier; first hit wins and shadowed names are dropped, the
+ * same precedence as the layout tiers.
+ */
+export function discoverDeckSkeletons(root: string): DeckSkeleton[] {
+  const dirs = [join(root, "templates", "decks")];
+  const shipped = pkgRoot();
+  if (shipped) dirs.push(join(shipped, "templates", "decks"));
+  const out: DeckSkeleton[] = [];
+  const seen = new Set<string>();
+  for (const dir of dirs) {
+    if (!existsSync(dir)) continue;
+    for (const f of readdirSync(dir).filter((x) => x.endsWith(".outline.md")).sort()) {
+      const name = f.replace(/\.outline\.md$/, "");
+      if (seen.has(name)) continue;
+      seen.add(name);
+      // The description is the first `#` H1 AFTER the frontmatter block — a
+      // frontmatter `# comment` (legal in the outline dialect) must not hijack it.
+      const text = readFileSync(join(dir, f), "utf8");
+      const body = text.startsWith("---") ? text.slice(text.indexOf("\n---", 3) + 4) : text;
+      const h1 = /^#\s+(.+)$/m.exec(body);
+      out.push({ name, description: h1 ? h1[1]!.trim() : "", source: join(dir, f) });
+    }
+  }
+  return out;
+}
+
 /** Pure entry point (tested directly; the tool wrapper only adapts the SDK shape). */
 export async function archifyDeckLint(params: DeckLintParams, ctx: DeckLintCtx): Promise<ToolResult> {
   try {
@@ -116,15 +151,20 @@ export async function archifyDeckLint(params: DeckLintParams, ctx: DeckLintCtx):
     // ── discovery surface (D9): no manifest → the catalog ────────────────────
     if (params.manifest === undefined) {
       const catalog = loadRegistry({ manifestDir: root, env: ctx.env }).catalog();
+      const decks = discoverDeckSkeletons(root);
       const text =
         `Available layouts (${catalog.length}) — six code layouts first, then templates ` +
         `from $ARCHIFY_TEMPLATES, <baseDir>/templates/ and the shipped tier:\n` +
         catalog
           .map((c) => `${c.name} — ${c.description}\n  slots: ${formatSlots(c.slots)}\n  source: ${c.source}`)
-          .join("\n");
+          .join("\n") +
+        (decks.length > 0
+          ? `\n\nDeck skeletons (${decks.length}) — ready-to-fill outlines in the outline dialect:\n` +
+            decks.map((d) => `${d.name} — ${d.description}\n  source: ${d.source}`).join("\n")
+          : "");
       return {
         content: [{ type: "text", text }],
-        details: { count: catalog.length, layouts: catalog },
+        details: { count: catalog.length, layouts: catalog, ...(decks.length ? { decks } : {}) },
       };
     }
 
@@ -194,7 +234,8 @@ export const deckLintTool = defineTool({
   label: "Archify Deck Lint",
   description:
     "Lint an archify deck WITHOUT building it — no rendering, no .pptx. With no arguments, returns the layout " +
-    "catalog: every code layout and discovered template with its description, slots and source path; ask this " +
+    "catalog: every code layout and discovered template (plus the deck skeletons under templates/decks/) with " +
+    "its description, slots and source path; ask this " +
     "before guessing a layout name. With `manifest` (a deck.config.json path, or the manifest object itself for " +
     "an unwritten draft, anchored at `baseDir`), validates every slide's fields against its layout's slots, " +
     "checks each `ir` exists, applies the content lint (action titles, bullet budget, inline colour) and returns " +

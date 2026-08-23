@@ -74,6 +74,12 @@ describe("parseOutline — marker dialect (ticket 08 acceptance 1)", () => {
   });
 });
 
+test("a bullets-only content slide resolves to the `bullets` layout", () => {
+  const m = parseOutline(["### Points make the case", "- one point", "- a second point", "^ the takeaway"].join("\n"), work);
+  expect(m.slides[0]!.layout).toBe("bullets");
+  expect(resolveLayout(m.slides[0]!)).toBe("bullets");
+});
+
 test("section numbers are not capped at two digits", () => {
   const m = parseOutline("## 100 Big\n", work);
   expect(m.slides[0]).toEqual({ layout: "section", title: "Big", sectionNumber: "100" });

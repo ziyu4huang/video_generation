@@ -20,7 +20,7 @@
   "body": [
     {
       "region": "content",
-      "box": { "inset": [0.3, 2.6, 0.3, 2.44] },
+      "box": { "inset": [0.3, 2.6, 0.3, 2.39] },
       "content": { "kind": "rule" }
     },
     {

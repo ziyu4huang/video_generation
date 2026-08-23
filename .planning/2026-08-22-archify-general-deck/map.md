@@ -116,7 +116,7 @@ Phase 3 — the library
 
 Phase 4 — authoring ergonomics
 - `tickets/08-outline-markdown.md` — task, **closed** 2026-08-23 — Markdown outline → manifest
-- `tickets/09-deck-scaffolds.md` — task, open — four reusable deck skeletons
+- `tickets/09-deck-scaffolds.md` — task, **closed** 2026-08-23 — four reusable deck skeletons
 - `tickets/10-docs-and-skill-split.md` — task, open — SKILL split + README + CONTEXT
 
 **Execution order:** 08 → 09 → 10 (2026-08-23, confirm-gate fast path — fully determined: 08 `blocked-by: [02]` done → frontier; 09 `blocked-by: [08]`; 10 `blocked-by: [04, 06, 08, 09]`; no choice exists)
