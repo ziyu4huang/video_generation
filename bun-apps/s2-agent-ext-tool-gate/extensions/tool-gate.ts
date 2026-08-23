@@ -429,6 +429,10 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   // --l2` to run identical tasks ON vs OFF. Cheap to respect early: the whole
   // gate (effectiveCore/sticky) is bypassed.
   if (process.env.TOOL_GATE_DISABLE === "1") return;
+  // Disable-env contract (portable base set, test:isolation HONORS DISABLE ENV):
+  // BUN_PI_TOOL_GATE=0 registers nothing — same convention as task/devops
+  // (BUN_PI_TASK=0 / BUN_PI_DEVOPS=0).
+  if (process.env.BUN_PI_TOOL_GATE === "0") return;
 
   type DiscoveredTool = { name: string; description?: string; parameters?: unknown; gating?: Gating };
   const getDiscovered = (): DiscoveredTool[] => {

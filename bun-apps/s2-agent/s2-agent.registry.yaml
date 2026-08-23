@@ -21,9 +21,10 @@
 # Base-set profile (2026-08-20, "portable full-featured agent"): memory, skills,
 # subagent/workflow, web-access, and the knowledge layer (obsidian +
 # knowledge-card) ship in the box. Everything machine-bound (swift director
-# CLIs, LM Studio, mupdf) or repo-internal (tool-gate) stays out — see
-# docs/deploy.md "Limits" for the exclusion rationale. devops joined the
-# deploy set 2026-08-23 (on-this-machine stance; repo-bound tools fail closed).
+# CLIs, LM Studio, mupdf) stays out — see docs/deploy.md "Limits" for the
+# exclusion rationale. devops joined the deploy set 2026-08-23
+# (on-this-machine stance; repo-bound tools fail closed) and tool-gate joined
+# the same day (measured reversal; see its own comment below).
 #
 # Entry order: the `load: static` entries first, in staticExtensions[] order
 # (the order regen:static imports them — subagent MUST precede workflow), then
@@ -223,12 +224,19 @@ extensions:
       # Vendored, the packages are ~22MB of weight no code path can reach.
       # Recorded in ext.json vendoredClosure.excluded; Gate 5d honours it.
       vendorExclude: ["@fontsource/*"]
-  - name: s2-agent-ext-tool-gate
+  - name: tool-gate
     package: s2-agent-ext-tool-gate
     entry: extensions/tool-gate.ts
     load: dynamic
     version: "0.1.0"
-    excludeReason: repo-internal tooling
+    # Shipped 2026-08-23 (measured reversal of the repo-internal exclusion):
+    # the dist carries 74% of the full-tree gate-managed schema mass — 12,637
+    # gross / 12,328 net (57.3%) saved at session start on the real dist.
+    # Fail-open for untracked tools + the enable_tool escape hatch hold the
+    # 0 task-breaking posture; the recall corpus/gate-recall probes stay
+    # repo-side (ships without its QA harness — the standing caveat).
+    deploy:
+      order: 190
   - name: devops
     package: s2-agent-ext-devops
     entry: extensions/devops.ts

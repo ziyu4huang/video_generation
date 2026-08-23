@@ -2,7 +2,7 @@
 	"$generated": "from s2-agent.registry.yaml by regen:manifest — do not edit",
 	"extensions": [
 		{
-			"name": "s2-agent-ext-tool-gate",
+			"name": "tool-gate",
 			"entry": "s2-agent-ext-tool-gate/extensions/tool-gate.ts",
 			"version": "0.1.0"
 		},
