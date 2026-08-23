@@ -12,8 +12,9 @@ function normalize(s: string): string {
 	return s.toLowerCase().replace(/[^\w\s]/g, "").replace(/\s+/g, " ").trim();
 }
 
-/** Token-based Jaccard similarity (cheap fuzzy match). */
-function similarity(a: string, b: string): number {
+/** Token-based Jaccard similarity (cheap fuzzy match). Exported so the
+ *  extract loop's ambiguity band uses the SAME signal as the gate. */
+export function similarity(a: string, b: string): number {
 	const ta = new Set(normalize(a).split(" ").filter((w) => w.length > 2));
 	const tb = new Set(normalize(b).split(" ").filter((w) => w.length > 2));
 	if (ta.size === 0 || tb.size === 0) return 0;
@@ -23,27 +24,34 @@ function similarity(a: string, b: string): number {
 }
 
 /** An existing graph card with the frontmatter fields the gate needs to
- *  distinguish a raw hermes card (upgrade candidate) from a curated one. */
-interface ExistingCard {
+ *  distinguish a raw hermes card (upgrade candidate) from a curated one.
+ *  `recordType` is the frontmatter `record_type` (D15) — used by the extract
+ *  loop's ambiguity evidence (ticket 06). */
+export interface ExistingCard {
 	id: string;
 	status: string;
 	body: string;
+	/** Frontmatter `record_type` ("" when absent) — the D15 typed discriminator. */
+	recordType: string;
 }
 
 /** Scan existing graph cards WITH frontmatter (id + status) so the gate can
  *  distinguish a raw hermes card (upgrade candidate) from a curated one.
- *  Replaces the old body-only scan — mechanism B (C1 fix). */
-function existingCards(vaultPath: string): ExistingCard[] {
+ *  Replaces the old body-only scan — mechanism B (C1 fix). Exported (ticket
+ *  06) so the extract loop reuses the SAME card-index; the gate's dedup
+ *  semantics stay the single source. */
+export function scanGraphCards(vaultPath: string): ExistingCard[] {
 	const dir = join(vaultPath, "Zettelkasten", "knowledge-graph");
 	if (!existsSync(dir)) return [];
 	return readdirSync(dir)
 		.filter((f) => f.endsWith(".md"))
 		.map((f) => {
 			const raw = readFileSync(join(dir, f), "utf-8");
-			const { id, status } = readCardFrontmatterFields(raw);
+			const { id, status, recordType } = readCardFrontmatterFields(raw);
 			return {
 				id: typeof id === "string" ? id : "",
 				status,
+				recordType: typeof recordType === "string" ? recordType : "",
 				body: raw.replace(/^---\n[\s\S]*?\n---\n/, ""),
 			};
 		});
@@ -65,7 +73,7 @@ function isRawUpgradeCard(id: string, status: string): boolean {
 }
 
 export function runGate(entries: MemoryEntry[], vaultPath: string): GateResult {
-	const cards = existingCards(vaultPath);
+	const cards = scanGraphCards(vaultPath);
 	const survivors: Survivor[] = [];
 	const killed: KilledEntry[] = [];
 	const seenContents: string[] = [];
