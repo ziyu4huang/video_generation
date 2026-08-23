@@ -26,7 +26,24 @@ export interface VisionInferenceResult {
   output: string;
   ok: boolean;
   error?: string;
+  /**
+   * True when the child COMPLETED (no failure) but produced no output text.
+   * On an always-on-reasoning VLM (e.g. LM Studio's Qwen3.8 MLX) the reasoning
+   * burn can consume the whole output budget and yield an empty `content` with
+   * no failure — a silent empty page. Callers that treat empty as unusable can
+   * set `emptyIsError` to surface it as `ok:false` instead of `ok:true + ""`.
+   */
+  empty?: boolean;
 }
+
+/**
+ * A vision model returning no text at all after completing. Distinguishes the
+ * always-on-reasoning truncation footgun (reasoning burned the whole budget →
+ * empty content, no failure) from a genuine retriable error. Kept out of the
+ * throw path so callers (and the ask-io suite's "empty output is still ok:true"
+ * contract for a *legitimately* empty reply) can opt in explicitly.
+ */
+export const MIN_VISION_OUTPUT_CHARS = 1;
 
 /** Convert a parsed ResolvedLLM into a "provider/modelId[:thinking]" spec string. */
 function llmToSpec(llm: ResolvedLLM): string {
@@ -51,6 +68,13 @@ export async function runVisionInference(opts: {
   systemPrompt?: string;
   agentDir?: string;
   modelRuntime?: ModelRuntime;
+  /**
+   * Treat a completed-and-empty output as `ok:false` instead of `ok:true + ""`.
+   * Default false (a vision model may legitimately answer with no text). Set
+   * true for surfaces where an empty reply is unusable — e.g. a page whose
+   * body would then silently be blank due to the reasoning-burn truncation.
+   */
+  emptyIsError?: boolean;
 }): Promise<VisionInferenceResult> {
   let modelSpec: string | undefined;
   let capability: string | undefined;
@@ -97,9 +121,25 @@ export async function runVisionInference(opts: {
       ...(capability ? { capability } : {}),
       ...(Object.keys(sessionOverride).length ? { session: sessionOverride } : {}),
     });
+    const trimmed = (result.output ?? "").trim();
+    const empty = !result.failure && trimmed.length < MIN_VISION_OUTPUT_CHARS;
+    if (empty && opts.emptyIsError) {
+      // Completed but no text — the classic silent-empty page. The VM completed
+      // (no failure) yet returned nothing: on an always-on-reasoning VLM this is
+      // the reasoning-burn-truncated-output case most of the time. Surface it
+      // explicitly so the caller degrades (OCR fallback / clear message) rather
+      // than quietly writing a blank page as if it were valid.
+      return {
+        output: "",
+        ok: false,
+        empty: true,
+        error: "vision model completed with no output text (possible reasoning/token-budget truncation)",
+      };
+    }
     return {
-      output: (result.output ?? "").trim(),
+      output: trimmed,
       ok: !result.failure,
+      ...(empty ? { empty: true } : {}),
       ...(result.failure ? { error: result.failure.message } : {}),
     };
   } catch (e: any) {

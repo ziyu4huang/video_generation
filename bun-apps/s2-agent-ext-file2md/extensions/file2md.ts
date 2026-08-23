@@ -302,6 +302,7 @@ export default function (pi: ExtensionAPI): void {
       const r = await askImage(imageAbs, params.question, {
         systemPrompt: params.systemPrompt,
         llm,
+        emptyIsError: true,
       });
 
       if (!r.ok) {
