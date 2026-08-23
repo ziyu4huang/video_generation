@@ -59,6 +59,12 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		// ticket 02: the launcher is s2-agent.sh; run.sh is a deprecated shim;
 		// the runtime ships as bin/bun, hardlinked from .buns (same inode).
 		expect(existsSync(join(r.target, "s2-agent.sh"))).toBe(true);
+		// self-containment for children: the launcher must prepend the resolved
+		// bun's dir to PATH so session-spawned `bun ...` resolves the deploy's
+		// own bun, never a system one (ticket 04).
+		const launcher = readFileSync(join(r.target, "s2-agent.sh"), "utf8");
+		expect(launcher).toContain('_bun="${S2_AGENT_BUN:-$SCRIPT_DIR/bin/bun}"');
+		expect(launcher).toContain('export PATH="$(cd "$(dirname "$_bun")" && pwd):$PATH"');
 		const shippedBun = join(r.target, "bin", "bun");
 		expect(existsSync(shippedBun)).toBe(true);
 		expect(statSync(shippedBun).mode & 0o111).not.toBe(0); // executable

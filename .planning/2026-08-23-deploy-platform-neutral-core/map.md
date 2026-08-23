@@ -83,6 +83,12 @@ Phase 3 — proof
   `binarySkills` key deleted; real-outRoot deploy `0.2.5+gb7b7719` green end
   to end incl. post-deploy E2E and old-compiled-dirs-still-boot
 
+Phase 4 — operator follow-up (same day)
+- `tickets/04-launcher-path-self-containment.md` — task, **closed** (2026-08-23) —
+  launcher prepends the resolved bun's dir to PATH so session-spawned children
+  (`Bun.spawn(["bun",…])`, shells, self-heal) resolve the deploy's own bun,
+  never a system one; `S2_AGENT_BUN` override stays honored by PATH too
+
 ## Decisions
 
 Recorded with rationale in `spec.md` §3 (D1–D6). The load-bearing three:
@@ -108,8 +114,9 @@ Recorded with rationale in `spec.md` §3 (D1–D6). The load-bearing three:
 None — the effort is closed (2026-08-23). All three tickets merged; the
 deployed dist at `~/proj/dist/s2-agent-sh/current` is a bun-run ESM bundle +
 shipped `bin/bun` + `s2-agent.sh` launcher, verified by a live deploy with
-post-deploy E2E green and old compiled version dirs still booting. Natural
-follow-ups (not this effort): drop the deprecated `run.sh` shim after a
+post-deploy E2E green and old compiled version dirs still booting. Ticket 04
+(same-day operator follow-up: launcher PATH self-containment) also closed.
+Natural follow-ups (not this effort): drop the deprecated `run.sh` shim after a
 grace period; reword the remaining historical `--compile`/`$bunfs` comments
 in s2-agent/src on their next touch (they document still-true constraints).
 
