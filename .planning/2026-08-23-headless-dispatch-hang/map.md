@@ -2,7 +2,7 @@
 effort: 2026-08-23-headless-dispatch-hang
 created: 2026-08-23
 last: 2026-08-23
-status: active
+status: complete
 ---
 
 # map — headless dispatch hang + arming gaps (live-smoke 2026-08-23 findings)
@@ -53,13 +53,21 @@ payload, 0.2–1.9s), LM Studio :1234 embeddings (30–50ms), surrealdb simple
 queries (µs–ms), 429 rate limiting (12-burst all 200). SDK-retry-backoff was
 considered and dropped: no sockets at all during bare-mode hangs.
 
-**B2 — workflows arming + budget directive are interactive-only.**
-`workflow-editor.ts:502` returns early unless `event.source === "interactive"`,
-so a headless `-p` message containing `ultracode +500k …` never arms workflows
-mode and the directive is never parsed. Measured: run `mt5msv81-dq40xz`
-(persisted at `~/.pi/workflows/projects/video_generation__subagent-7b9ba1837451/runs/`)
-completed with NO `tokenBudget`/`tokenBudgetSource` field, and the model called
-`run_workflow` as an ordinary tool instead of the forced-workflow turn.
+**B2 — workflows arming + budget directive are interactive-only.** ~~The
+`workflow-editor.ts:497` source guard blocks headless.~~ **RE-DIAGNOSED
+2026-08-23 evening (ticket 02, done): the guard does NOT block print mode** —
+upstream print-mode `prompt()` passes no `source` and `AgentSession.prompt`
+defaults the input event to `"interactive"`, so the arming transform runs
+headless. The smoke's negative (run `mt5msv81-dq40xz`, no
+`tokenBudgetSource`) was caused by `keywordTriggerEnabled: false` in this
+machine's global `~/.pi/workflows/settings.json` — keyword arming off
+EVERYWHERE, interactive included. A/B measured live in a scratch project:
+trigger on → forced-workflow preamble in the headless transcript, run
+`mt5q0urv-9hdejl` persists `tokenBudget: 500000, tokenBudgetSource: "merged"`;
+trigger off → raw message, run `mt5pwx3c-30sjnp` persists `"model"` (the model
+improvised the budget from the raw text). Parity pinned deterministically by
+`s2-agent-ext-ultracode/tests/headless-arming-parity.test.ts` (faux
+AgentSession + the exact print-mode call shape).
 
 **B3 — post-settle linger (possibly B1-adjacent).** One run (plain foreground
 spawn, full stack) completed the full event chain through `agent_settled` and
@@ -79,8 +87,13 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
   print-idle watchdog shipped (stdout-idle deadline + post-main grace exit);
   root cause narrowed to "`main()` never resolves under contention windows"
   (file:line still fog)
-- [ ] `tickets/02-headless-arming-budget-directive.md` — B2: decide
-  interactive-only vs headless support; implement or document the divergence (frontier)
+- [x] `tickets/02-headless-arming-budget-directive.md` — B2 RESOLVED as
+  "verify + pin": the interactive-only premise was wrong (print-mode input
+  events default to source "interactive"); the smoke negative was the
+  machine's `keywordTriggerEnabled: false`. Headless parity measured live
+  (runs `mt5q0urv-9hdejl` merged / `mt5pwx3c-30sjnp` model) and pinned by
+  `tests/headless-arming-parity.test.ts`; spec §2 + §9 rows corrected in the
+  same PR
 
 ## Decisions
 
@@ -89,13 +102,23 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
   code PR. All three findings (B1/B2/B3) landed here, not as drive-by fixes.
 - **D2 — B1 is the effort's only blocker-class item.** B2 has a cheap
   workaround (don't rely on directives headless), B3 is unreproduced.
+  (D2's premise about B2's workaround aged out — B2 turned out not to be a
+  headless gap at all; see D3.)
+- **D3 — B2 resolved as verify + pin, not extend (ticket 02).** The
+  interactive-only reading was a misdiagnosis: the SDK's print-mode `prompt()`
+  defaults the input event to source "interactive", so the workflow-editor
+  guard never blocked headless; the smoke's measured negative was this
+  machine's `keywordTriggerEnabled: false`. Shipped a deterministic parity
+  test (faux AgentSession over the print-mode call shape) + spec §2/§9
+  corrections rather than a guard change. Corollary: live arming-by-keyword
+  requires the trigger enabled (per-project or global) — mode-independent.
 
 ## Frontier
 
-Ticket 02 (B2 headless arming + budget directive). B1 is bounded (watchdog
-shipped); its root-cause chase resumes only when a recurrence prints the
-`[print-idle-watchdog]` diagnostic. B2 is a small, self-contained decision +
-one spec row.
+Queue drained — both tickets closed. Next: effort close-out (flip map
+`status: complete`, fold residual B1-recurrence capture into the next-goal
+ranked list: resume the root-cause chase only when a `[print-idle-watchdog]`
+line appears in stderr).
 
 ## Fog of war
 
