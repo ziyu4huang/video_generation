@@ -46,6 +46,7 @@ export const SKILLS: readonly SkillRecord[] = [
   { name: "dispatching-parallel-agents", provenance: "upstream" },
   { name: "executing-plans", provenance: "upstream" },
   { name: "finishing-a-development-branch", provenance: "upstream" },
+  { name: "probe-extension-introspection", provenance: "repo-owned" },
   { name: "receiving-code-review", provenance: "upstream" },
   { name: "requesting-code-review", provenance: "upstream" },
   { name: "subagent-driven-development", provenance: "upstream" },
