@@ -20,13 +20,21 @@ Measured 2026-08-23 (17:00–18:10 local) on this machine, during the cc-parity-
 live-smoke batch (queue head of `output/next-goal-2026-08-23-152030.md`), model
 `deepseek/deepseek-v4-flash`, this worktree at 452513a9.
 
-**B1 — headless pre-send hang (blocker-class).** With `--no-session --mode
-json -p <prompt>`, the process intermittently-but-content-keyed hangs BEFORE the
-first model request: zero JSON events, 0% CPU, zero TCP connections (lsof,
-repeated sampling — no deepseek connection exists, so the request is never
-sent), main thread in `kevent64` (sample). Reproduces in BARE mode
-(`--no-extensions --no-skills`) → the blocker is in the core pi loop or the
-s2-agent startup patches, not extensions/skills. Evidence matrix:
+**B1 — headless pre-send hang (blocker-class).** ~~pre-send hang~~ **CORRECTED
+2026-08-23 evening: B1 and B3 are the SAME defect — a finished-but-never-exiting
+`-p` run.** The "zero events before the first request" reading was an artifact
+of bun's fully-buffered file-redirected stdout: the same "hung" invocation under
+a pty completed its full event chain to `agent_settled` in ~1s. The prompt-shape
+correlation (angle brackets 4/4) was noise from ~10 samples — the same prompts
+passed 8/8 after the contention window. What remains true: healthy runs resolve
+`main()` with an EMPTY active-resource list and exit in 3–5s; hang runs never
+resolve `main()` (post-main instrumentation never executed); hang windows
+coincided with concurrent deploy/E2E/probe s2-agent processes sharing `~/.pi`.
+**Bounded** the same evening: `bun-apps/s2-agent/src/print-idle-watchdog.ts`
+(print-mode stdout-idle deadline, default 300s, dumps active event-loop
+resources + exit 2; post-`main()` grace exit 0 closes the lingering-handle
+shape). Ticket 01 carries the full write-up. Original matrix kept for the
+record:
 
 | Prompt | Mode | Outcome |
 |---|---|---|
@@ -67,10 +75,12 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
 ## Tickets
 
 ### Phase 1 — diagnose
-- [ ] `tickets/01-diagnose-preturn-hang.md` — B1: localize the content-keyed
-  pre-send await in the core loop; fix or bound it (active)
+- [x] `tickets/01-diagnose-preturn-hang.md` — B1=B3 corrected + BOUNDED:
+  print-idle watchdog shipped (stdout-idle deadline + post-main grace exit);
+  root cause narrowed to "`main()` never resolves under contention windows"
+  (file:line still fog)
 - [ ] `tickets/02-headless-arming-budget-directive.md` — B2: decide
-  interactive-only vs headless support; implement or document the divergence
+  interactive-only vs headless support; implement or document the divergence (frontier)
 
 ## Decisions
 
@@ -82,20 +92,20 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
 
 ## Frontier
 
-Ticket 01 (B1 diagnosis). It is first because it blocks headless dispatch
-reliability — the exact lane the cc-parity-2 live smoke, the oneshot-smoke CI
-gate (trivial prompts only, which is why it never caught this), and the deploy
-E2E all depend on, and it blocks the /loop-dynamic surface measurement.
+Ticket 02 (B2 headless arming + budget directive). B1 is bounded (watchdog
+shipped); its root-cause chase resumes only when a recurrence prints the
+`[print-idle-watchdog]` diagnostic. B2 is a small, self-contained decision +
+one spec row.
 
 ## Fog of war
 
-- B1's exact trigger predicate: angle brackets correlate 4/4, but the
-  bracket-free schedule_wakeup prompt hung 2/2 and a bracketed prompt passed at
-  17:00 — there is a time/state component not yet identified.
-- B1's mechanism: 0% CPU + zero sockets + kevent64 = an await on a
-  timer/event that never fires. Where in the core loop is unknown.
-- B3's relationship to B1 (same await class post-turn?) is unknown.
-- Whether the pi SDK (0.84.2) or s2-agent's startup patches own the bug.
+- B1's trigger predicate: CONTENT-INDEPENDENT (bracket correlation was sample
+  noise); time-windowed, correlating with concurrent deploy/E2E/probe
+  s2-agent processes sharing ~/.pi — causation unproven.
+- B1's mechanism: `main()` never resolves (instrumented post-main code never
+  ran during a hang); WHERE in main's await chain is unknown — the watchdog's
+  stderr dump on the next recurrence is the designed capture path.
+- Whether the pi SDK (0.84.2) or s2-agent's startup patches own the stall.
 
 ## Cross-effort links
 
