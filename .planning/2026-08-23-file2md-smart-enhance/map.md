@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-23-file2md-smart-enhance
 created: 2026-08-23
-last: 2026-08-23
+last: 2026-08-24
 status: active
 ---
 
@@ -55,8 +55,13 @@ Measured 2026-08-23 in this worktree unless noted.
   local_ci 10 packages + 28 gates green; s2-agent bumped 0.5.1 → 0.5.2 via
   PR #1931. Detector fixture note: pdfjs clips one long text object at the page
   width, prose fixtures draw in ≤85-char lines.)**
-- [ ] 02 — vision enhance on figure pages — figureHint prompt, append `## Figure (vision)`,
+- [x] 02 — vision enhance on figure pages — figureHint prompt, append `## Figure (vision)`,
       scan-page OCR-band path, guard degrade, concurrency. Blockers: 01.
+  **(CLOSED 2026-08-24 — PR #1935 `fb1d7ccf`, verdict CLEAN, branchSpent:
+  true. 227 tests +6 (hint reception, append order, scan short/long OCR,
+  guard degrade, prose zero-call, soft-resolve); tsc clean, biome 0 errors
+  (45 pre-existing warnings), local_ci 10 packages green, schema-cost
+  +2.65%.)**
 - [ ] 03 — E2E suite hardening + docs + CLI surface. Blockers: 01, 02.
 
 ### Phase B — OCR engine (independent; user-added 2026-08-23)
@@ -76,9 +81,10 @@ Measured 2026-08-23 in this worktree unless noted.
   BUN_PI_FILE2MD=0), facade rows dropped.)**
 
 **Execution order:** 04 → 05 → 01 → 02 → 03 — 04 shipped (#1920), 05 shipped
-(#1922, +0.5.1 via #1923) and 01 shipped (#1928, +0.5.2 via #1931): the
-engine is in the deployed tree with OCR e2e; smart mode's skeleton is in.
-Next: 02 (vision enhance on figure pages) → 03.
+(#1922, +0.5.1 via #1923), 01 shipped (#1928, +0.5.2 via #1931) and 02
+shipped (#1935): the engine is in the deployed tree with OCR e2e, smart
+mode's skeleton is in, figure pages now enhance via vision. Next: 03
+(E2E hardening + docs + CLI surface) — the queue head.
 
 ## Decisions
 
@@ -122,10 +128,9 @@ Next: 02 (vision enhance on figure pages) → 03.
 
 ## Frontier
 
-Ticket 05 (`tickets/05-deploy-file2md-wasm-e2e.md`) — the deploy flip + OCR e2e against the
-deployed s2-agent-sh tree (user-directed; registry already names the flip shape: `deploy.flip
-= copy/vendor fields` at `deploy/run.ts:630-631`). Then ticket 01 (no blockers; ladder
-skeleton with degrade-notice unblocks 02).
+Ticket 03 (`tickets/03-e2e-suite-docs.md`) — the last queue ticket: smart-mode
+E2E branch coverage (resume-no-redo, `--pages`), SKILL.md + CONTEXT.md + docs,
+CLI help surface. Its close-out ends the effort (map status: complete).
 
 ## Fog of war
 
