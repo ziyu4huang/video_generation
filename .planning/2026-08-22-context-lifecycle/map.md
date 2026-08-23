@@ -202,3 +202,7 @@ exactly the injector's context-assembly primitive.
   exactly what D0 lifts for this effort.
 - **Builds-on**: `.planning/knowledge/hermes-recall-audit.md` — the measured 0/20 that
   justifies D1; ticket 04 commits its runner so the number stays reproducible.
+- **Feeds**: `.planning/2026-08-23-kcard-openviking-parity` — that effort builds kcard's
+  OpenViking-parity retrieval (SurrealDB derived index, hierarchical search, hotness); it cites
+  this effort's D0/D3/D5/D6/D8 rather than re-deciding, and this effort's ticket 08 auto-recall
+  injector is its downstream consumer via the `__piKnowledgePipeline` seam.
