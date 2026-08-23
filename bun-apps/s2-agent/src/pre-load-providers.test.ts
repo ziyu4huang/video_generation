@@ -6,6 +6,7 @@ import {
   resolveApiKey,
   registerAllProviders,
   BUILTIN_MODEL_DEFAULT,
+  DEFAULT_MODEL_TIER_CONFIG,
 } from "./pre-load-providers.ts";
 
 describe("resolveApiKey", () => {
@@ -87,6 +88,35 @@ describe("PROVIDERS config (contract)", () => {
     for (const m of lm.models) {
       expect(m.input).toContain("image");
     }
+  });
+
+  test("lm-studio registers a non-reasoning VLM sibling pre-wire (ticket 02)", () => {
+    // `reasoning:false` is host metadata (pi treats it as non-reasoning); it does
+    // NOT stop the LM Studio MLX server burning reasoning (which ignores client
+    // thinking knobs). The sibling is the SELECTION target for capabilities.vision
+    // once a genuinely no-thinking vision model is loaded under that id — until
+    // then the working always-on-reasoning qwen stays the default. Catalog-only.
+    const lm = PROVIDERS["lm-studio"];
+    const siblings = lm.models.filter((m) => m.input.includes("image"));
+    expect(siblings.length).toBeGreaterThanOrEqual(3);
+    const nothink = siblings.find((m) => m.reasoning === false);
+    expect(nothink).toBeDefined();
+    expect(nothink!.id).toBe("qwen/qwen3.8-27b-nothink");
+    expect(nothink!.input).toEqual(expect.arrayContaining(["image"]));
+    // At least one always-on-reasoning multimodal default remains, so the
+    // working vision path is not unregistered by the sibling addition.
+    const anyReasoning = siblings.some((m) => m.reasoning === true);
+    expect(anyReasoning).toBe(true);
+  });
+
+  test("capabilities.vision keeps the working reasoning default until the non-reasoning VLM is loaded", () => {
+    expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).toBe("lm-studio/qwen/qwen3.8-27b");
+    // The catalog sibling is present and non-reasoning, but the default does NOT
+    // point at it (that id is not a loadable server model yet — the server 400s
+    // an unknown model-id).
+    const nothink = PROVIDERS["lm-studio"].models.find((m) => m.reasoning === false);
+    expect(nothink).toBeDefined();
+    expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).not.toContain(nothink!.id);
   });
 
   test("deepseek re-lists the baked family — extension registration REPLACES it", () => {

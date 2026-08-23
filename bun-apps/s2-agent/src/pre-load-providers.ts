@@ -139,6 +139,22 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         // maxTokens budget headroom for reasoning + answer.
         maxTokens: 65_536,
       },
+      {
+        // Non-reasoning VLM target. PRE-WIRE (2026-08-23, file2md-vision-extraction
+        // ticket 02): a `reasoning:false` sibling id does NOT tell the LM Studio
+        // MLX server to stop reasoning — the pi-ai adapter only emits a disable
+        // signal inside branches gated on this flag (and the server ignores the
+        // client knob anyway; see map Context). So this entry is the SELECTION
+        // target for `capabilities.vision` the moment a genuinely non-reasoning
+        // vision model is loaded under this id; until then it never resolves.
+        // Keep `qwen/qwen3.8-27b` as the working fallback.
+        id: "qwen/qwen3.8-27b-nothink",
+        name: "Qwen 3.8 27B (non-reasoning, LM Studio)",
+        reasoning: false,
+        input: ["text", "image"],
+        contextWindow: 200_000,
+        maxTokens: 65_536,
+      },
     ],
   },
 
@@ -330,6 +346,14 @@ export interface ModelTierConfig {
 
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
 	tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+	// `capabilities.vision` keeps the WORKING always-on-reasoning qwen default.
+	// The non-reasoning sibling id (`lm-studio/qwen/qwen3.8-27b-nothink`) is
+	// registered in the catalog above but is NOT selectable until a genuinely
+	// no-thinking vision model is actually loaded under that id (the server
+	// ignores client thinking knobs, so a `reasoning:false` id alone doesn't
+	// stop the burn — see the file2md-vision-extraction effort, ticket 02, and
+	// the sibling entry's comment). Flip this to the sibling id only once that
+	// model is loadable; the server 400s an unknown model-id today.
 	capabilities: {
 		vision: "lm-studio/qwen/qwen3.8-27b",
 		"vision-large": "lm-studio/qwen/qwen3.8-27b",

@@ -22,6 +22,16 @@ Two rails, one seam: **extraction is deterministic pure-TS**; **OCR/vision are
 opt-in layering** behind modes `text|ocr|vlm`, every failure degrades to an
 explicit `> notice` or a per-page provenance marker — nothing silently drops.
 
+**Caption-only figure pages are a real gap.** The OCR/vision trigger is strictly
+`page text < 8 chars` (`OCR_TEXT_MIN_CHARS`). A born-digital spec whose page body is
+a bare `Figure N-x. …` caption (e.g. a figure page with only its caption in the text
+layer) has a *complete* text layer, so `mode: vlm`/`ocr` never fires on it — yet the
+diagram itself is a vector drawing the text layer cannot read. Measured on the
+839-page USB4 spec: 100% `provenance: text`, so vlm never runs; ~31 pages are
+caption-only. To describe such a page, opt in with `--extract vlm --pages <list>`.
+Detected as a caption-only page from a thin body (< ~900 bytes) whose text is a
+`Figure N-x. …` line.
+
 # `vision_ask` architecture — call chain & image transport
 
 This document traces a single `vision_ask(image, question)` invocation from the

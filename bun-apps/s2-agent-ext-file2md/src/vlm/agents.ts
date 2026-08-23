@@ -266,6 +266,7 @@ export async function explainPage(
     images: [image],
     llm,
     systemPrompt: systemPromptFor(profile, { lang: page.lang, mode: page.mode }),
+    emptyIsError: true,
   });
 
   return ok

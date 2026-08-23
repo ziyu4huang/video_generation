@@ -18,6 +18,8 @@ export interface AskImageResult {
   reply: string;
   ok: boolean;
   error?: string;
+  /** True when the model completed but produced no text (reasoning truncation). */
+  empty?: boolean;
 }
 
 /** Best-effort mime type from a file extension (flux2/most tools only ever emit PNG). */
@@ -64,20 +66,23 @@ export async function askImage(
     llm?: ResolvedLLM;
     agentDir?: string;
     modelRuntime?: ModelRuntime;
+    /** Treat a completed but empty reply as `ok:false` (see runVisionInference). */
+    emptyIsError?: boolean;
   } = {},
 ): Promise<AskImageResult> {
   const llm = opts.llm ?? resolveVisionLLM();
   const mimeType = opts.mimeType ?? guessImageMimeType(imagePath);
   const image = readImage(imagePath, mimeType);
 
-  const { output, ok, error } = await runVisionInference({
+  const { output, ok, error, empty } = await runVisionInference({
     task: question,
     images: [image],
     llm,
     ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
     ...(opts.agentDir ? { agentDir: opts.agentDir } : {}),
     ...(opts.modelRuntime ? { modelRuntime: opts.modelRuntime } : {}),
+    ...(opts.emptyIsError ? { emptyIsError: true } : {}),
   });
 
-  return ok ? { reply: output, ok: true } : { reply: "", ok: false, error };
+  return ok ? { reply: output, ok: true } : { reply: "", ok: false, ...(empty ? { empty: true } : {}), error };
 }

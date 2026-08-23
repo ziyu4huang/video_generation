@@ -56,6 +56,12 @@ macOS toolchain, no native npm binaries, no LM Studio requirement.
   cut — never claim you read the whole document when the window was capped.
 - OCR runs on ≤ 20 pages per PDF; a page with < 8 chars of text layer counts
   as a scan.
+- **Caption-only figure pages aren't captured by the text layer.** A born-digital
+  spec page whose body is a bare `Figure N-x. …` caption (e.g. `< 900 bytes`) has a
+  real text layer — so `mode: vlm`/`ocr` never fire on it — but the diagram itself
+  is a vector drawing the text layer cannot read. Such a page is a caption-only
+  figure page; describe it with `--extract vlm --pages <list>` (or `--type image`)
+  if the diagram matters. Do NOT assume a text-layer page captures its figures.
 
 ## Truth rules
 
@@ -72,4 +78,6 @@ macOS toolchain, no native npm binaries, no LM Studio requirement.
 - Every page/metadata file exists; manifest.json records statuses.
 - Capped/truncated content carries an explicit notice.
 - OCR-derived text is marked (page frontmatter `provenance: ocr|text|vision`).
+- Caption-only figure pages are flagged in the response (the diagram is not in
+  the text layer; note which pages to re-run with `--extract vlm`).
 - Losses stated in the final response; link to the output directory.
