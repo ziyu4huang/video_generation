@@ -17,7 +17,7 @@ let nextOutput = "";
 let nextFailure: { message: string } | undefined;
 const spawnCalls: { task: string; images: unknown[]; model?: string; capability?: string }[] = [];
 
-mock.module("@repo/s2-agent-ext-subagent", () => ({
+mock.module("@repo/s2-agent-core-runtime", () => ({
   roleAwareDirectCall: () => ({ task: "recon-task" }),
   spawnSubagent: async (opts: any) => {
     spawnCalls.push(opts);

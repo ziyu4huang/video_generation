@@ -168,7 +168,8 @@ describe("excludedExtensions — the not-shipped half of the registry", () => {
 		// projection works on the real file, not pinning the exact set. Note
 		// dynamic entries carry package-style names in the registry verbatim.
 		expect(names).toContain("s2-agent-ext-movie-director");
-		expect(names).toContain("file2md");
+		// file2md flipped into the deploy set with ticket 05 (smart-enhance).
+		expect(names).not.toContain("file2md");
 		expect(names).not.toContain("task");
 		expect(names).not.toContain("hyperframes");
 		for (const e of excluded) expect(e.reason.length).toBeGreaterThan(0);

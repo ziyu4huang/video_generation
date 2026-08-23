@@ -1,6 +1,7 @@
 import * as assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { normalizeWatchdogParam, resolveModelRole, runWatchdog } from "../src/index.js";
+import { resolveModelRole } from "@repo/s2-agent-core-runtime";
+import { normalizeWatchdogParam, runWatchdog } from "../src/index.js";
 
 describe("watchdog public API + review capability", () => {
   it("re-exports runWatchdog + normalizeWatchdogParam", () => {

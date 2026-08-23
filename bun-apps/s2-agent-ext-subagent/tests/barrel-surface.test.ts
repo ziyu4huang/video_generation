@@ -41,20 +41,12 @@ const CORE = "@repo/s2-agent-core-runtime";
  */
 const FACADE_SYMBOLS: Record<string, string> = {
   WorkflowAgent: "s2-agent/src/cli/commands/memory-to-vault.ts",
-  loadModelTierConfig: "s2-agent-ext-file2md/src/sessions.ts",
-  resolveModelRole: "s2-agent-ext-file2md/src/sessions.ts",
-  logModelDecision: "s2-agent-ext-file2md/src/sessions.ts",
-  saveModelTierConfig: "s2-agent-ext-file2md/__tests__/resolve-vision-llm.test.ts",
-  // Dispatch MOVED to core-runtime (2026-08-20) — it used to be owned here, and
-  // hermes-memory/task importing it made an ext→ext runtime edge that the sh
-  // deploy papered over with a host-module entry. hermes-memory and task now
-  // declare core-runtime and import it directly; obsidian and knowledge-card
-  // followed (both ship in the portable base set, which forbids ext→ext edges).
-  // file2md remains the one peer that still legitimately reaches the dispatch
-  // layer through this barrel (it does not declare core-runtime and does not
-  // ship in the base set).
-  spawnSubagent: "s2-agent-ext-file2md/src/vlm/vision-inference.ts",
-  roleAwareDirectCall: "s2-agent-ext-file2md/src/vlm/vision-inference.ts",
+  // file2md WAS the last peer reaching the model-tier/dispatch layer through
+  // this barrel (it did not declare core-runtime and did not ship in the base
+  // set). Ticket 05 flipped it INTO the portable base set: it now declares
+  // core-runtime and imports the model-tier + dispatch symbols directly —
+  // the forbidden ext→ext edge is gone, so the facade rows AND the re-exports
+  // were dropped with it (2026-08-23).
   // The cross-package module-identity guard asserts the package-root path and the
   // core-runtime path land on ONE limiter instance; it needs both spellings.
   getGlobalRateLimiter: "s2-agent-ext-subagent/tests/rate-limiter-cross-pkg.test.ts",

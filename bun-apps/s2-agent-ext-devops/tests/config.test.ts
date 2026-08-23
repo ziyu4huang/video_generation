@@ -143,6 +143,7 @@ extensions:
 			"btw",
 			"compact",
 			"devops",
+			"file2md",
 			"hermes-memory",
 			"hyperframes",
 			"knowledge-card",

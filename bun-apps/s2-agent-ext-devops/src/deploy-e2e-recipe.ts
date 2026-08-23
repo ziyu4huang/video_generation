@@ -37,9 +37,12 @@
  *   spawn surface is the shared `SpawnFn`; tests inject a recording fake and
  *   never place a real model call.
  */
+import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { realpathSync } from "node:fs";
+import { executeExtTool } from "./deploy/lib/ext-build.js";
+import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
 import { classifyRun } from "./oneshot-smoke.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
 import type { SpawnFn } from "./spawn.js";
@@ -68,7 +71,7 @@ export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
 export interface DeployE2eProbe {
-	id: "boot" | "ext-load" | "model-call";
+	id: "boot" | "ext-load" | "model-call" | "file2md-ocr";
 	verdict: ProbeVerdict;
 	ms: number;
 	note: string;
@@ -320,8 +323,61 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		});
 	}
 
+	// ── file2md-ocr probe ───────────────────────────────────────────────────
+	// A REAL OCR run through the DEPLOYED bundle and the deployed vendored
+	// assets — no model, no agent loop (executeExtTool evaluates ext.cjs with
+	// the runtime loader; `#pi/ext-dir` serves the deployed ext dir so the
+	// wasm + copied traineddata resolve inside the frozen tree). A broken
+	// asset layout fails here, not on a user machine.
+	if (!enabled.includes("file2md")) {
+		probes.push({ id: "file2md-ocr", verdict: "skip", ms: 0, note: "file2md not in deploy set" });
+	} else {
+		const t0 = now();
+		let ocrDetail: string | undefined;
+		let ocrVerdict: ProbeVerdict = "fail";
+		let ocrNote = "";
+		const workDir = mkdtempSync(join(tmpdir(), "f2md-e2e-"));
+		const fixturePath = join(workDir, "f2md-e2e.png");
+		const outDir = join(workDir, "out");
+		try {
+			writeFileSync(fixturePath, Buffer.from(F2MD_E2E_OCR_B64, "base64"));
+			const extJson = JSON.parse(
+				readFileSync(join(opts.versionDir, "ext", "file2md", "ext.json"), "utf8"),
+			) as {
+				hostModules?: string[];
+				vendored?: string[];
+				runtimeExternals?: string[];
+			};
+			await executeExtTool(
+				join(opts.versionDir, "ext", "file2md", "ext.cjs"),
+				"file2md",
+				{ input: fixturePath, out: outDir, mode: "ocr", lang: "en" },
+				[...(extJson.hostModules ?? []), ...(extJson.vendored ?? []), ...(extJson.runtimeExternals ?? [])],
+			);
+			const pageMd = readFileSync(join(outDir, "f2md-e2e", "pages", "page-001.md"), "utf8");
+			if (pageMd.includes("FILE2MD E2E OCR") && pageMd.includes("provenance: ocr")) {
+				ocrVerdict = "pass";
+				ocrNote = "deployed bundle OCR'd the fixture (provenance: ocr)";
+			} else {
+				ocrNote = "OCR ran but the page md lacks the fixture text or provenance";
+				ocrDetail = pageMd.slice(0, 500);
+			}
+		} catch (e) {
+			ocrNote = `execution failed: ${e instanceof Error ? e.message : String(e)}`;
+			ocrDetail = `${ocrNote}\n(expected page: ${join(outDir, "f2md-e2e", "pages", "page-001.md")})`;
+		}
+		probes.push({ id: "file2md-ocr", verdict: ocrVerdict, ms: now() - t0, note: ocrNote, detail: ocrDetail });
+	}
+
 	const verdict = worst(
-		probes.filter((p) => !(modelCallSkippedByCaller && p.id === "model-call")).map((p) => p.verdict),
+		probes
+			.filter((p) => {
+				if (modelCallSkippedByCaller && p.id === "model-call") return false;
+				// Not-applicable skips are inconclusive, not a degraded verdict.
+				if (p.id === "file2md-ocr" && p.verdict === "skip") return false;
+				return true;
+			})
+			.map((p) => p.verdict),
 	);
 	return {
 		versionDir: opts.versionDir,

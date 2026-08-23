@@ -140,11 +140,14 @@ extensions:
     load: static
     skills: true
     # v2 is bun-only (pdfjs text + vendored dsh-cowork office + pdfium wasm +
-    # tesseract wasm OCR) with an optional local vision tier. It stays OUT of
-    # the portable tree by size/scope policy, not because it is machine-bound
-    # anymore — structure is deploy-ready (deploy.flip = asset copy fields +
-    # vendor: for the wasm __dirname locators), see ADR-file2md-0001.
-    excludeReason: vendored OCR assets + optional local vision layer — kept out of the portable core by scope policy (deploy-ready structure)
+    # tesseract-wasm OCR) with an optional local vision tier (LM Studio at
+    # runtime, never shipped). OCR assets ride the deploy: copy/vendor fields:
+    # the vendored lang data is copied (symlink-dereferenced) and the wasm core
+    # ships verbatim under node_modules/tesseract-wasm (ADR-file2md-0001).
+    deploy:
+      order: 85
+      copy: [vendored/ocr-assets]
+      vendor: [tesseract-wasm, pdfjs-dist, "@hyzyla/pdfium"]
   - name: subagent
     package: s2-agent-ext-subagent
     entry: extensions/subagent.ts

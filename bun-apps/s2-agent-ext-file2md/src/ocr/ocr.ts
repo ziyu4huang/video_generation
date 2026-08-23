@@ -12,8 +12,7 @@
  */
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { createOCREngine, type OCREngine } from "tesseract-wasm";
 import { decodeImageToRgba } from "../image/decode-image.ts";
 import { rasterPage } from "../raster/pdf.ts";
@@ -26,24 +25,56 @@ export interface OcrResult {
   format: string;
 }
 
-const PKG_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+/**
+ * Resolve the package root WITHOUT `import.meta.url` — the deploy bundle is
+ * compiled to ext.cjs where import.meta bakes the build-machine path (the
+ * ADR-file2md-0001 relocatability rule). Two specifier-based anchors:
+ *   1. Deploy tree: `require("#pi/ext-dir")` — served by the loader's
+ *      injected require (s2-agent/src/sh/ext-loader.ts) as the ext dir.
+ *   2. Dev tree: the workspace self-link via bun's global `require`.
+ */
+function resolvePackageRoot(): string | undefined {
+  try {
+    return require("#pi/ext-dir") as string;
+  } catch {
+    /* dev tree — fall through */
+  }
+  // Non-literal specifier: a literal would be inlined to the build-machine
+  // path by the bundler (the exact bake the detector guards).
+  const SELF = "@repo/s2-agent-ext-file2md/package.json";
+  try {
+    return dirname(require.resolve(SELF));
+  } catch {
+    return undefined;
+  }
+}
 
-/** Engine-default language dir — vendored asset, resolved beside the package. */
-export const DEFAULT_LANG_PATH = join(PKG_ROOT, "vendored", "ocr-assets", "lang");
+const PKG_ROOT = resolvePackageRoot();
+
+/** Engine-default language dir — vendored assets beside the package (deploy: copy). */
+export const DEFAULT_LANG_PATH = PKG_ROOT ? join(PKG_ROOT, "vendored", "ocr-assets", "lang") : "";
 
 /**
- * The wasm core's path in the npm package dist. Resolved here — NOT via the
- * package's `node` subpath, which is the worker_threads adapter we
- * deliberately do not use.
+ * The wasm core's path in the vendored tesseract-wasm package. Resolved by
+ * specifier — dev: workspace node_modules; deploy: the vendored copy at
+ * `<extDir>/node_modules/tesseract-wasm/` — NOT the package's `node` subpath,
+ * which is the worker_threads adapter we deliberately do not use.
  */
-const WASM_BINARY_PATH = fileURLToPath(
-  new URL("../../node_modules/tesseract-wasm/dist/tesseract-core.wasm", import.meta.url),
-);
+function wasmBinaryPath(): string | undefined {
+  try {
+    const pkg = dirname(require.resolve("tesseract-wasm/package.json"));
+    return join(pkg, "dist", "tesseract-core.wasm");
+  } catch {
+    return undefined;
+  }
+}
 
 /** Read the wasm core off disk (cached per process). Degrades cleanly on failure. */
 async function loadWasmBinary(): Promise<Uint8Array | undefined> {
+  const path = wasmBinaryPath();
+  if (path === undefined) return undefined;
   try {
-    return new Uint8Array(await readFile(WASM_BINARY_PATH));
+    return new Uint8Array(await readFile(path));
   } catch {
     return undefined;
   }
@@ -86,7 +117,7 @@ export class OcrSession {
     try {
       if (wasmBinaryCache === undefined) {
         wasmBinaryCache = await loadWasmBinary();
-        if (wasmBinaryCache === undefined) throw new Error(`wasm core not found at ${WASM_BINARY_PATH}`);
+        if (wasmBinaryCache === undefined) throw new Error("tesseract-wasm core not found (vendored package missing)");
       }
       const engine = await createOCREngine({ wasmBinary: wasmBinaryCache });
       // Load one raw `.traineddata` per lang part ("eng+chi_sim" → 2 loads).

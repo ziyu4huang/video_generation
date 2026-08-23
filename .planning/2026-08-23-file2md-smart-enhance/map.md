@@ -56,15 +56,19 @@ Measured 2026-08-23 in this worktree unless noted.
 
 ### Phase B — OCR engine (independent; user-added 2026-08-23)
 
-- [ ] 04 — swap OCR engine: tesseract.js → tesseract-wasm (robertknight, npm
+- [x] 04 — swap OCR engine: tesseract.js → tesseract-wasm (robertknight, npm
       `tesseract-wasm` 0.11.0, BSD-2-Clause) — in-process low-level `OCREngine`,
       raw tessdata_fast `.traineddata` vendored, worker_threads gone.
-      Blockers: none.
+  **(CLOSED 2026-08-23 — PR #1920 `19abde98`, verdict CLEAN, branchSpent:
+  true. 209 tests +6, smoke-proven both paths, gates 27/27.)**
+- [ ] 05 — ship file2md in the s2-agent deploy tree + OCR e2e vs the deployed
+      dist (user-directed 2026-08-23: ensure the wasm is the correct package
+      and works in s2-agent-sh; e2e must catch a broken asset layout).
+      Blockers: 04.
 
-**Execution order:** 04 → 01 → 02 → 03 (04 is independent of 01–03 — no
-blocking edges; sequenced FIRST as the engine foundation so smart mode's
-scan-figure band is tuned against settled real OCR output. Choice pair:
-04 vs 01–03 — user picks the slot; 01 → 02 → 03 stays hard.)
+**Execution order:** 04 → 05 → 01 → 02 → 03 (04 shipped first — engine
+mechanism; 05 next — deploy inclusion + OCR e2e per user directive; then the
+smart ladder 01 → 02 → 03 on a deployed engine.)
 
 ## Decisions
 
@@ -98,14 +102,20 @@ scan-figure band is tuned against settled real OCR output. Choice pair:
   = tessdata_fast `eng`/`chi_sim` `.traineddata`, vendored beside the package under the
   existing symlink-to-external-store convention. `tesseract.js` becomes a removed dependency.
   Sequential dependency: smart mode's scan-figure band (01/02) is tuned against the settled
-  engine — 04 runs first (chosen slot).
+  engine — 04 runs first (chosen slot). D6 is SHIPPED (PR #1920).
+- **D7 — file2md ships in the s2-agent-sh deploy tree with its OCR assets, and the deployed
+  binary gets an OCR e2e (user-directed 2026-08-23).** The registry's `excludeReason` flips to
+  a `deploy:` block with `copy:`/`vendor:` entries carrying `dist/tesseract-core.wasm` + the
+  vendored `.traineddata`; the e2e proof is a probe against the deployed dist (`cli file2md`
+  on an OCR fixture), not repo-tree inspection. Wasm/asset layout regressions must fail the
+  probe.
 
 ## Frontier
 
-Ticket 04 (`tickets/04-tesseract-wasm-ocr-engine.md`) — user-added and sequenced first; the
-engine swap is the riskiest unknown (Bun + wasm image-input spike is the crux) and the
-foundation everything else's scan-path sits on. Its own spike is demoable before any smart
-code. Then ticket 01 (no blockers; ladder skeleton with degrade-notice unblocks 02).
+Ticket 05 (`tickets/05-deploy-file2md-wasm-e2e.md`) — the deploy flip + OCR e2e against the
+deployed s2-agent-sh tree (user-directed; registry already names the flip shape: `deploy.flip
+= copy/vendor fields` at `deploy/run.ts:630-631`). Then ticket 01 (no blockers; ladder
+skeleton with degrade-notice unblocks 02).
 
 ## Fog of war
 

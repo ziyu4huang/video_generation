@@ -7,7 +7,7 @@
  *    lm-studio configured per the project CLAUDE.md
  */
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { loadModelTierConfig, logModelDecision, resolveModelRole } from "@repo/s2-agent-ext-subagent";
+import { loadModelTierConfig, logModelDecision, resolveModelRole } from "@repo/s2-agent-core-runtime";
 
 // createSharedSession + resolveModel live in ./session-factory.ts so tests can
 // mock the factory without clobbering resolveLLM below. Re-exported here for
