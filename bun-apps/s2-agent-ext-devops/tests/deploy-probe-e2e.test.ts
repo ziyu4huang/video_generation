@@ -262,10 +262,10 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		expect(JSON.parse(r.stdout).skipped).toEqual([]);
 	}, 60_000);
 
-	test("run.sh is executed, not merely present", async () => {
+	test("s2-agent.sh is executed, not merely present", async () => {
 		// It sets `set -euo pipefail`, resolves its own symlink, and exports the
 		// per-user state dir before exec. Asserting existsSync proves none of that.
-		const proc = Bun.spawn(["bash", join(target, "run.sh"), "--ext-list"], {
+		const proc = Bun.spawn(["bash", join(target, "s2-agent.sh"), "--ext-list"], {
 			cwd: target,
 			env: { ...process.env, ...agentDirEnv },
 			stdout: "pipe",
@@ -394,7 +394,7 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 	// this for the bundle and snapshot modes. The contract is not mode-specific:
 	// a deploy is an IMMUTABLE artifact and every per-user write belongs under
 	// PI_CODING_AGENT_DIR. What would break it — a patch that caches into the
-	// deploy dir, run.sh losing its JITI_FS_CACHE=0 export, an extension
+	// deploy dir, the launcher losing its JITI_FS_CACHE=0 export, an extension
 	// resolving a writable path relative to its own dir — is exactly what the
 	// sh pipeline's ext-local resolution makes newly possible, so the assertion
 	// belongs here now rather than nowhere.
@@ -430,8 +430,8 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		const pf = Bun.spawnSync(["sandbox-exec", "-p", DENY_NETWORK_SBPL, "/usr/bin/true"]);
 		expect(pf.exitCode, "sandbox-exec pre-flight failed (missing or profile rejected)").toBe(0);
 
-		// run.sh --ext-list: every extension loads with networking denied.
-		const boot = Bun.spawn(["sandbox-exec", "-p", DENY_NETWORK_SBPL, "bash", join(target, "run.sh"), "--ext-list"], {
+		// s2-agent.sh --ext-list: every extension loads with networking denied.
+		const boot = Bun.spawn(["sandbox-exec", "-p", DENY_NETWORK_SBPL, "bash", join(target, "s2-agent.sh"), "--ext-list"], {
 			cwd: target,
 			env: { ...process.env, ...agentDirEnv },
 			stdout: "pipe",

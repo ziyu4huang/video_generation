@@ -25,8 +25,8 @@ import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./c
 export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"usage: verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call]",
 	"",
-	"Proves the DEPLOYED dist actually works: boots s2-agent.sh (the launcher;",
-	"run.sh is its deprecated shim), checks every deploy.json-enabled extension",
+	"Proves the DEPLOYED dist actually works: boots s2-agent.sh (the launcher),",
+	"checks every deploy.json-enabled extension",
 	"reports loaded, and places a real one-shot model call through the deployed",
 	"launcher. Bounded (60s/60s/300s caps — the",
 	"model call gets multi-model-contention headroom); a fast provider/auth",

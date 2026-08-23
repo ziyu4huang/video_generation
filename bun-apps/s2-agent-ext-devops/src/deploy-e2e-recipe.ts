@@ -221,8 +221,8 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 
 	// Tree preconditions: deploy.json readable (it also supplies the expected
 	// extension set) and the launcher present. Both are structured FAILs, not
-	// throws. The launcher is s2-agent.sh (run.sh is the deprecated shim into
-	// it — probed implicitly, never directly).
+	// throws. The launcher is s2-agent.sh (the run.sh shim was dropped in
+	// ticket 05).
 	let enabled: string[] = [];
 	let version = basename(opts.versionDir);
 	let sourceSha = "";

@@ -11,8 +11,7 @@
  *                 layout, where bundled pi resolves them from the deploy dir
  *   bin/bun       the shipped bun runtime, hardlinked from
  *                 <outRoot>/.buns/<hash> (ticket 02) — the launcher execs it
- *   s2-agent.sh   the launcher (execs bin/bun on s2-agent.js; run.sh is a
- *                 deprecated one-line shim into it)
+ *   s2-agent.sh   the launcher (execs bin/bun on s2-agent.js)
  *   deploy.json   provenance
  *   package.json  deploy version — pi reads its version from beside the core
  *   ext/<name>/   independently built extension packages
@@ -213,15 +212,16 @@ function stagePiAssets(stageDir: string): void {
  * The binary's agent-dir env var, derived EXACTLY like upstream config.js:
  * `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`. For "s2-agent" the name
  * contains a DASH — legal in env maps and via `env(1)` at exec time, illegal
- * as a bash `export` target (why run.sh passes it with `env`, not `export`).
+ * as a bash `export` target (why the launcher passes it with `env`, not
+ * `export`).
  */
 const AGENT_DIR_ENV = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 
 /**
  * The launcher, as `s2-agent.sh`: execs the SHIPPED bun (./bin/bun, the
  * deploy's own copy — S2_AGENT_BUN still overrides, which is also the
- * documented cross-platform swap) on the core bundle. Every behavior of the
- * old run.sh is preserved verbatim below the exec-line change.
+ * documented cross-platform swap) on the core bundle. The old run.sh shim
+ * was dropped 2026-08-23 (ticket 05) after its deprecation grace period.
  */
 const S2_AGENT_SH = `#!/usr/bin/env bash
 # s2-agent.sh — launcher for a s2-agent-sh deploy.
@@ -281,23 +281,7 @@ export PATH="\$(cd "\$(dirname "\$_bun")" && pwd):\$PATH"
 exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
 `;
 
-/**
- * run.sh stays as a deprecation shim (ticket 02): one exec into s2-agent.sh,
- * so existing muscle memory and any external reference keeps working. Drop in
- * a later effort.
- */
-const RUN_SH = `#!/usr/bin/env bash
-# run.sh — DEPRECATED shim: the launcher is s2-agent.sh (same directory).
-set -euo pipefail
-SOURCE="\${BASH_SOURCE[0]}"
-while [ -L "\$SOURCE" ]; do
-  DIR="\$(cd -P "\$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
-  SOURCE="\$(readlink "\$SOURCE")"
-  [[ \$SOURCE != /* ]] && SOURCE="\$DIR/\$SOURCE"
-done
-SCRIPT_DIR="\$(cd -P "\$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
-exec "\$SCRIPT_DIR/${APP_NAME}.sh" "\$@"
-`;
+
 
 interface ExtListPayload {
 	loadedCount: number;
@@ -556,8 +540,6 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 		writeFileSync(join(stage, `${APP_NAME}.sh`), S2_AGENT_SH);
 		chmodSync(join(stage, `${APP_NAME}.sh`), 0o755);
-		writeFileSync(join(stage, "run.sh"), RUN_SH);
-		chmodSync(join(stage, "run.sh"), 0o755);
 		// pi resolves its version AND branding from <packageDir>/package.json,
 		// and in compiled-binary mode packageDir = dirname(execPath) = this
 		// version dir. Without this file VERSION falls back to "0.0.0", and

@@ -88,6 +88,10 @@ Phase 4 — operator follow-up (same day)
   launcher prepends the resolved bun's dir to PATH so session-spawned children
   (`Bun.spawn(["bun",…])`, shells, self-heal) resolve the deploy's own bun,
   never a system one; `S2_AGENT_BUN` override stays honored by PATH too
+- `tickets/05-drop-run-sh-shim.md` — task, **closed** (2026-08-23) —
+  operator ended the shim's grace period the same day; `RUN_SH` deleted from
+  staging, e2e asserts absence, probes boot `s2-agent.sh` directly; repo-side
+  dev `bun-apps/s2-agent/run.sh` untouched
 
 ## Decisions
 
@@ -114,11 +118,11 @@ Recorded with rationale in `spec.md` §3 (D1–D6). The load-bearing three:
 None — the effort is closed (2026-08-23). All three tickets merged; the
 deployed dist at `~/proj/dist/s2-agent-sh/current` is a bun-run ESM bundle +
 shipped `bin/bun` + `s2-agent.sh` launcher, verified by a live deploy with
-post-deploy E2E green and old compiled version dirs still booting. Ticket 04
-(same-day operator follow-up: launcher PATH self-containment) also closed.
-Natural follow-ups (not this effort): drop the deprecated `run.sh` shim after a
-grace period; reword the remaining historical `--compile`/`$bunfs` comments
-in s2-agent/src on their next touch (they document still-true constraints).
+post-deploy E2E green and old compiled version dirs still booting. Tickets 04
+(launcher PATH self-containment) and 05 (run.sh shim dropped — grace period
+ended by the operator the same day) also closed. Remaining natural follow-up:
+reword the historical `--compile`/`$bunfs` comments in s2-agent/src on their
+next touch (they document still-true constraints).
 
 ## Fog of war
 
