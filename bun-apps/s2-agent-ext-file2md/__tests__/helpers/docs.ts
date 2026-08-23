@@ -46,6 +46,39 @@ export async function scannedPdf(): Promise<Uint8Array> {
   return new Uint8Array(await doc.save());
 }
 
+/** One-page PDF whose text layer is a caption-only figure page ("Figure N-x." + short body). */
+export async function captionFigurePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595, 842]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  page.drawText("Figure 3-4. Adaptive equalization functional diagram.", { x: 60, y: 760, size: 14, font });
+  return new Uint8Array(await doc.save());
+}
+
+/**
+ * One-page PDF whose text layer is LONG prose (above the figure band) with an
+ * incidental `Figure 3-4.` mention — prose must never be figure-flagged.
+ * Drawn in short lines: pdfjs clips a single long text object at the page's
+ * visible width (~104 chars at 12pt), which would falsify the band.
+ */
+export async function prosePdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([595, 842]);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  // The incidental mention ends before the 85-char chunk boundary — pdfjs
+  // inserts a line break between text objects, so a caption straddling two
+  // chunks would come out split ("Figure 3\n-4.") and falsify the fixture.
+  const first = "This page explains the module architecture. The result is shown in Figure 3-4.";
+  const rest =
+    " The remaining prose covers the topology in depth, the transmit equalization settings, " +
+    "the measured eye diagrams, and the lane arrangement across the four sub-modes.";
+  const body = (first + rest + "x".repeat(1500 - first.length - rest.length)).match(/.{1,85}/g) ?? [];
+  body.forEach((line, i) => {
+    page.drawText(line, { x: 60, y: 760 - i * 12, size: 12, font });
+  });
+  return new Uint8Array(await doc.save());
+}
+
 /** One-sheet workbook with rows A/B/C + a formula in C5. */
 export async function workbookXlsx(): Promise<Uint8Array> {
   const wb = new ExcelJS.Workbook();

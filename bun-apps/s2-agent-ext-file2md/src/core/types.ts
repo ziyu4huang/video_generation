@@ -11,7 +11,7 @@
 export type FileKind = "pdf" | "image" | "docx" | "xlsx" | "pptx" | "ipynb" | "text";
 
 /** Which extraction levels the pipeline runs (replaces v1's extract strategies). */
-export type File2mdMode = "auto" | "text" | "ocr" | "vlm";
+export type File2mdMode = "auto" | "text" | "ocr" | "vlm" | "smart";
 
 /** VLM page-note style (v1 `mode`; renamed so `mode` can mean the pipeline). */
 export type PageNoteStyle = "summary" | "verbatim" | "hybrid";

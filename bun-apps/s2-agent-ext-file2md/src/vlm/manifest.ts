@@ -12,6 +12,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, join } from "node:path";
+import type { FigureRecord } from "../core/figure.ts";
 
 export type PageStatus = "pending" | "in_progress" | "done" | "error";
 
@@ -23,6 +24,8 @@ export interface ManifestPage {
   /** Markdown filename relative to the doc output dir (e.g. "pages/page-001.md"). */
   md: string | null;
   status: PageStatus;
+  /** Smart-mode figure detection record (additive — old readers ignore it). */
+  figure?: FigureRecord;
   /** Last error message when status === "error". */
   error?: string;
 }
