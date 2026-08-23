@@ -54,12 +54,14 @@ Phase 1 — copy-adapt IR library (this session)
 
 
 Phase 2 — authoring-flow tooling
-- `tickets/20-mermaid-converter.md` — task, **open** — mermaid → IR converter: all 5 schemas, convert+validate one call (design spec.md §7.1)
+- `tickets/20-mermaid-converter.md` — task, **closed** — mermaid → IR converter: all 5 schemas, convert+validate one call (design spec.md §7.1; PR #1943)
 
-**Execution order:** 20 (single ticket, fully forced)
+**Execution order:** 20 (single ticket, fully forced — closed 2026-08-24)
 
 Phase 3 — richer templates
 - `tickets/30-ir-slot-in-templates.md` — task, **open** — `ir`-capable drawing primitive in layout templates + 2–3 new rich templates
+
+**Execution order:** 30 (single ticket, fully forced; design-first)
 
 Phase 4 — quality fidelity sweep
 - `tickets/40-quality-sweep.md` — task, **open** — re-run the visual-fidelity gates against the library + benchmark deck
@@ -96,10 +98,11 @@ Phase 4 — quality fidelity sweep
 
 ## Frontier
 
-`tickets/20-mermaid-converter.md` — the mermaid → IR converter (design: spec.md §7.1).
-First because its only blockers (10/11, the validated library + discovery surface it
-targets) are closed, and the design + ticket 20 are decided (2026-08-24) awaiting
-execution through the valid-IR-out gate.
+`tickets/30-ir-slot-in-templates.md` — the `ir`-capable drawing primitive in layout
+templates + 2–3 new rich templates. First because its phase-1/2 blockers (10/11, 20 — the
+library + converter whose output the slot consumes) are closed, and it is the riskiest
+remaining work (both emitters + the D3 byte-identity lock), so it gets its own design pass
+first (spec.md §7.2) — same as phase 2: design → to-tickets → execute.
 
 ## Fog of war
 
