@@ -64,8 +64,6 @@ export type { ModelsFetch } from "./model-endpoint.js";
 export const BOOT_CAP_MS = 60_000;
 export const EXT_LIST_CAP_MS = 60_000;
 export const MODEL_CALL_CAP_MS = 300_000;
-/** The file2md OCR probe: deployed bundle + vendored wasm + copied lang data. */
-export const FILE2MD_OCR_CAP_MS = 120_000;
 
 /** The one-shot prompt; the reply content is irrelevant, the round-trip is. */
 export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
