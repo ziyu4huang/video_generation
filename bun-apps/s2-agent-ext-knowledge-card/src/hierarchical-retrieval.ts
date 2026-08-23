@@ -252,46 +252,60 @@ export async function hierarchicalRetrieve(
 		]),
 	);
 
-	// Adjacency for expansion: children of every seeded agg node, discovered
-	// per node (`WHERE parent = $stem`, D20 per-level lane). Children outside
-	// the seed pool get their metadata in ONE batched `stem IN $missing` query
-	// (never per-child N+1).
+	// Adjacency for expansion (D20, reviewer F1 fix): level-batched BFS from
+	// every seeded agg node — ONE `WHERE parent IN $stems` query per LEVEL,
+	// repeated to maxSweeps, so propagation reaches through UNSEEDED
+	// intermediate aggs (a seeded L2 whose L1 children never matched the query
+	// still surfaces the subtree below them). Children outside the seed pool
+	// get their metadata in ONE batched `stem IN $missing` query per level.
 	const childrenOf = new Map<string, string[]>();
-	const missingMeta = new Set<string>();
 	let childQueries = 0;
-	for (const [stem, r] of rowsByStem) {
-		if (r.is_leaf) continue;
+	let frontier = [...rowsByStem.values()].filter((r) => !r.is_leaf).map((r) => r.stem);
+	const seenAgg = new Set(frontier);
+	for (let depth = 0; depth < maxSweeps && frontier.length > 0; depth++) {
+		let kidsByParent: Array<{ stem: string; parent: string | null; is_leaf: boolean }> = [];
 		try {
-			const kids = await client.query<{ stem: string; is_leaf: boolean }[]>(
-				"SELECT stem, is_leaf FROM card WHERE parent = $stem;",
-				{ stem },
+			kidsByParent = await client.query<Array<{ stem: string; parent: string | null; is_leaf: boolean }>>(
+				"SELECT stem, parent, is_leaf FROM card WHERE parent IN $stems;",
+				{ stems: [...frontier].sort() },
 			);
 			childQueries++;
-			if (kids && kids.length > 0) childrenOf.set(stem, kids.map((k) => k.stem));
-			for (const k of kids ?? []) {
-				if (!rowsByStem.has(k.stem)) missingMeta.add(k.stem);
-			}
 		} catch {
-			// expansion lane unavailable for this node — skip
+			break; // expansion lane unavailable — evaluate what we already have
 		}
-	}
-	if (missingMeta.size > 0) {
-		try {
-			const rows = await client.query<SeedRow[]>(
-				"SELECT stem, path, title, kind, is_leaf, parent, summary FROM card WHERE stem IN $stems;",
-				{ stems: [...missingMeta].sort() },
-			);
-			for (const r of rows ?? []) {
-				byStem.set(r.stem, r);
-				rowsByStem.set(r.stem, { stem: r.stem, is_leaf: r.is_leaf, seed: 0 });
+		const missingMeta = new Set<string>();
+		for (const k of kidsByParent ?? []) {
+			const list = childrenOf.get(k.parent as string) ?? [];
+			list.push(k.stem);
+			childrenOf.set(k.parent as string, list);
+			if (!rowsByStem.has(k.stem)) missingMeta.add(k.stem);
+		}
+		if (missingMeta.size > 0) {
+			try {
+				const rows = await client.query<SeedRow[]>(
+					"SELECT stem, path, title, kind, is_leaf, parent, summary FROM card WHERE stem IN $stems;",
+					{ stems: [...missingMeta].sort() },
+				);
+				for (const r of rows ?? []) {
+					byStem.set(r.stem, r);
+					rowsByStem.set(r.stem, { stem: r.stem, is_leaf: r.is_leaf, seed: 0 });
+				}
+			} catch {
+				// metadata fetch failed — stubs below keep them propagatable
+				for (const stem of missingMeta) {
+					if (!rowsByStem.has(stem)) rowsByStem.set(stem, { stem, is_leaf: true, seed: 0 });
+				}
 			}
-		} catch {
-			// metadata fetch failed — those children keep seed 0 and still
-			// propagate (rowsByStem stubs below guarantee adjacency targets)
 		}
-		for (const stem of missingMeta) {
-			if (!rowsByStem.has(stem)) rowsByStem.set(stem, { stem, is_leaf: true, seed: 0 });
+		const next: string[] = [];
+		for (const k of kidsByParent ?? []) {
+			const row = rowsByStem.get(k.stem);
+			if (row && !row.is_leaf && !seenAgg.has(k.stem)) {
+				seenAgg.add(k.stem);
+				next.push(k.stem);
+			}
 		}
+		frontier = next.sort();
 	}
 
 	const seededAgg = [...rowsByStem.values()].filter((r) => !r.is_leaf).length;

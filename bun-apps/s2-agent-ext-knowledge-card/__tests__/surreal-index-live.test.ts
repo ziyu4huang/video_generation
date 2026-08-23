@@ -186,6 +186,48 @@ localDescribe("kcard SurrealDB index (live)", () => {
 		expect(none.cards).toEqual([]);
 	});
 
+	test("propagation reaches through UNSEEDED intermediate aggs (reviewer F1 pin)", async () => {
+		// Only the L2 root matches the query ("uniquerootword" appears in its
+		// title/summary alone); L1/L0/leaf never seed. The leaf must still
+		// surface — via three levels of γ-decayed propagation, viaTree=true.
+		leaf("leaf-deep", "unrelated vocabulary entirely", "body with no query overlap at all");
+		agg("agg-L0-0", ["leaf-deep"], { layer: 0, topic: "unrelated subtopic", parent: '"agg:1:0"' });
+		agg("agg-L1-0", ["agg-L0-0"], { layer: 1, topic: "unrelated mid", parent: '"agg:2:0"' });
+		agg("agg-L2-0", ["agg-L1-0"], { layer: 2, topic: "uniquerootword family root", parent: "null" });
+		await rebuildCardIndex({ client, vaultPath: vault, folder: FOLDER, embedder: hashEmbedder() });
+
+		const res = await hierarchicalRetrieve(client, {
+			query: "uniquerootword family root",
+			topK: 5,
+			seedTopN: 1, // KNN returns ONLY the nearest card (the L2 root)
+			embedder: hashEmbedder(),
+			includeTrace: true,
+		});
+		expect(res.ok).toBe(true);
+		const deep = res.cards.find((c) => c.stem === "leaf-deep");
+		expect(deep).toBeDefined();
+		expect(deep!.viaTree).toBe(true);
+		expect(res.trace!.sweeps).toBeGreaterThanOrEqual(3);
+	});
+
+	test("embed-model change forces a rebuild (reviewer F2 pin — D10 model-swap A/B)", async () => {
+		leaf("leaf-a", "quantized lora noise", "body about quantization noise in lora adapters");
+		agg("agg-L0-0", ["leaf-a"], { layer: 0, topic: "quantization" });
+		const r1 = await rebuildCardIndex({ client, vaultPath: vault, folder: FOLDER, model: "model-a", embedder: hashEmbedder() });
+		expect(r1.skipped).toBe(false);
+		const s1 = await indexStatus(client);
+		expect(s1.embedModel).toBe("model-a");
+		// Same content, DIFFERENT model → must NOT skip (old code skipped and
+		// silently kept model-a vectors).
+		const r2 = await rebuildCardIndex({ client, vaultPath: vault, folder: FOLDER, model: "model-b", embedder: hashEmbedder() });
+		expect(r2.skipped).toBe(false);
+		const s2 = await indexStatus(client);
+		expect(s2.embedModel).toBe("model-b");
+		// Same content + same model → skip.
+		const r3 = await rebuildCardIndex({ client, vaultPath: vault, folder: FOLDER, model: "model-b", embedder: hashEmbedder() });
+		expect(r3.skipped).toBe(true);
+	});
+
 	test("hierarchicalRetrieve: FTS-only when the embedder is down (lexical lane holds)", async () => {
 		leaf("leaf-x", "rareword xyzzy title", "body mentioning rareword");
 		agg("agg-L0-0", ["leaf-x"], { layer: 0, topic: "rareword cluster" });

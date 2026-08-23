@@ -131,11 +131,20 @@ function flattenList(value: unknown): string[] {
 	return out;
 }
 
-/** Stems of an agg card's children: the `[[target]]` wikilinks in its body
- *  (the `## 子節點` section is the downward edge list — aggregation-write). */
+/** Stems of an agg card's children: the `[[target]]` wikilinks in its
+ *  `## 子節點` section ONLY (that section is the downward edge list —
+ *  aggregation-write; reviewer F5: scanning the whole body would invert a
+ *  wikilink that merely appears in the `## 摘要` prose into a spurious
+ *  parent edge). */
 function aggChildStems(content: string, bodyStart: number): string[] {
+	const body = content.slice(bodyStart);
+	const section = body.indexOf("## 子節點");
+	if (section === -1) return [];
+	const rest = body.slice(section);
+	const nextSection = rest.slice(1).search(/^## /m);
+	const scope = nextSection === -1 ? rest : rest.slice(0, nextSection + 1);
 	const stems: string[] = [];
-	for (const m of content.slice(bodyStart).matchAll(/\[\[([^\]]+)\]\]/g)) {
+	for (const m of scope.matchAll(/\[\[([^\]]+)\]\]/g)) {
 		const target = (m[1] ?? "").split("|").pop()?.trim();
 		if (target) stems.push(target);
 	}
@@ -274,7 +283,7 @@ function createStmt(table: string, row: CardIndexRow): string {
 	const key = cardRecordKey(row.stem);
 	const v = (x: unknown) => JSON.stringify(x ?? null);
 	const vec = (row.vec ?? []).map((x) => Math.round(x * 1e6) / 1e6);
-	return `CREATE ${key.replace("card:", `${table}:`)} SET stem = ${v(row.stem)}, path = ${v(row.path)}, title = ${v(row.title)}, summary = ${v(row.summary)}, is_leaf = ${row.is_leaf}, layer = ${row.layer ?? null}, parent = ${v(row.parent)}, entities = ${JSON.stringify(row.entities)}, kind = ${v(row.kind)}, vec = ${JSON.stringify(vec)}, embed_model = ${v(row.embed_model)};`;
+	return `CREATE ${key.replace("card:", `${table}:`)} SET stem = ${v(row.stem)}, path = ${v(row.path)}, title = ${v(row.title)}, summary = ${v(row.summary)}, is_leaf = ${row.is_leaf}, layer = ${row.layer ?? null}, parent = ${v(row.parent)}, entities = ${JSON.stringify(row.entities)}, kind = ${v(row.kind)}, vec = ${JSON.stringify(row.vec ? vec : null)}, embed_model = ${v(row.embed_model)};`;
 }
 
 /** /sql body cap (HTTP 413 above it, measured): rounded 1024-dim vectors run
@@ -390,7 +399,19 @@ export async function rebuildCardIndex(args: {
 	if (built.rows.length === 0) throw new Error("no indexable cards found");
 
 	const status = await indexStatus(args.client);
-	if (status.present && status.fingerprint === built.fingerprint) {
+	// Skip conditions (reviewer F2/F3 fixes): the fingerprint is content-only,
+	// so an EMBED-MODEL change must independently force a rebuild (D10
+	// model-swap A/B — otherwise a model flip silently keeps the old model's
+	// vectors, exactly the silent-single-model trap D22 closed); and a zero
+	// row count with a stamped fingerprint (crash inside the swap, after the
+	// re-DEFINE but before the INSERT completed) must NOT skip — the live
+	// table is empty and would stay pinned empty until content changes.
+	if (
+		status.present
+		&& status.fingerprint === built.fingerprint
+		&& status.embedModel === built.embedModel
+		&& status.cardCount > 0
+	) {
 		return {
 			skipped: true,
 			fingerprint: built.fingerprint,
