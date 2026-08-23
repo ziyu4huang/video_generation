@@ -68,6 +68,7 @@ ltx-2-mlx / mflux patches live in `python/mlx-movie-director/app/vendor_patches.
 
 ## Agent skills
 
+- **Ext skills routing (front door)**: `.claude/skills/using-s2-agent-skills/` — ~50 repo skills + headless CLIs under `bun-apps/s2-agent-ext-*` are read-in-session docs (NOT `skill()` entries in this harness), and that skill's **Route-first gates** are the trigger layer that ext descriptions cannot provide here: hands-off (ANY arc close-out MUST write the successor `output/next-goal-<ts>.md` before reporting done), hands-on (execute the queue head), git/PR/CI (devops-workflow + `*-cli.ts`, never raw bash), tickets/efforts (wayfind + executing-plans), ideas (brainstorming). Consult it before those workflows — never hand-roll a substitute.
 - **Issues**: GitHub Issues (`ziyu4huang/video_generation`) via `gh` — see `docs/agents/issue-tracker.md`.
 - **Domain docs**: each domain owns `CONTEXT.md` + `docs/adr/` (root `CONTEXT-MAP.md` lists contexts; see `docs/agents/domain.md`). Cite ADRs as `ADR-<context>-NNNN`, never bare numbers — contexts number independently. `bun run test:adr` (from `bun-apps/`) blocks unresolved citations.
   - **`CONTEXT.md` is a ubiquitous-language glossary, not prose docs**: one `**Term**:` per concept with a tight definition and an `_Avoid_:` line naming the synonyms NOT to use. Reference specimen: `bun-apps/s2-agent-ext-wayfind/CONTEXT.md`. A package that owns a domain but has no `CONTEXT.md` is not yet a context — add the file AND its `CONTEXT-MAP.md` entry together.

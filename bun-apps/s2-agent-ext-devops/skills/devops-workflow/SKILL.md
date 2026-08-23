@@ -236,6 +236,11 @@ tree, or an unexpected ahead+behind / far-behind divergence. Run it last for a
 write `output/next-goal-<ts>.md` recording what shipped (with verification
 evidence) and 3–5 ranked next goals, and prune the rolling history beyond 10.
 When starting the NEXT run, read the newest next-goal file before planning.
+**Ticket-queue close-out:** when the merged PR closed a ticket of a
+`.planning/<effort>/` queue, the successor's `Immediate steps` head is the NEXT
+ticket in the effort's chosen `Execution order` (see `self-reflect-next-goal`
+queue mode) — not a freshly invented goal; when the queue is empty, the head is
+the effort close-out (map status: complete).
 
 ## When to use which tool
 

@@ -24,7 +24,8 @@ Load plan, review critically, execute all tasks, report when complete.
 2. Read plan file
 3. Review critically - identify any questions or concerns about the plan
 4. If concerns: Raise them with your human partner before starting
-5. If no concerns: Create todos for the plan items and proceed
+5. **Ticket-order checkpoint** — if the plan came from an effort ticket queue (`.planning/<effort>/tickets/` + task_plan.md phases): present the execution order — the map's `**Execution order:**` line when a choice was already made, else the ticket-number order (to-tickets numbers blockers-first; the seed's phase order when a task_plan.md exists) — and ask confirm-or-rechoose before creating todos. A single open ticket, or a queue fully forced by `blocking:` edges, is a one-line confirm, not a full prompt. After confirmation, record the chosen order — the confirmed suggested order OR a re-chosen one — as the map's `Execution order` line the same session: the choice is the durable record, not only the deviations.
+6. If no concerns and the order is confirmed: Create todos for the plan items and proceed
 
 ### Step 2: Execute Tasks
 
@@ -37,6 +38,9 @@ For each task:
 ### Step 3: Complete Development
 
 After all tasks complete and verified:
+- **Queue boundary (effort ticket queues only)** — if this plan was one ticket of a multi-ticket effort, write the successor next-goal file BEFORE closing out (devops `self-reflect-next-goal` strict v2 WRITE): `Immediate steps` = the next ticket in the chosen `Execution order`, `Done when` = its acceptance, `Ranked next goals` = the remaining queue + effort close-out. Validate + re-point `output/LATEST-next-goal.md`. This is the loop's carry — the file names the queue head even when the session stops here.
+- **Continue or stop** — if the session is still fresh (smart-zone margin remaining) proceed to the next queue head in this same session (repeat the ticket-order line only when the next ticket's order was not user-chosen); if not, stop at the boundary — the successor file is the "hands on next goal" trigger.
+- **Queue drained** — when no ticket remains in the chosen order, the successor's head = effort close-out (`map.md` status: complete), loop ends. Never write a self-perpetuating next goal.
 - Announce: "I'm using the finishing-a-development-branch skill to complete this work."
 - **REQUIRED SUB-SKILL:** Use superpowers:finishing-a-development-branch
 - Follow that skill to verify tests, present options, execute choice

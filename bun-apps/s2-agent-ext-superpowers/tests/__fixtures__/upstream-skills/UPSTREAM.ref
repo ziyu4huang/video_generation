@@ -124,12 +124,16 @@ baselined: 2026-07-26
 #   reference onto any new upstream body, or accept upstream text and record it
 #   here. Divergence row: `systematic-debugging | scripts/hitl-loop.template.ts`.
 
-fixtures-digest: sha256:dcb561534ee2226fc35c9718b2b7b8323fb9cde8f4210281f81fe8d5580ddbae
+fixtures-digest: sha256:9e47b0c5e1f852b4708c714bd78c46cd48b42fefafa859caf3d14a10ea1ee270
 
 divergence: systematic-debugging | Verify before claiming success
 divergence: dispatching-parallel-agents | run_workflow
 
 divergence: systematic-debugging | scripts/hitl-loop.template.ts
+
+divergence: executing-plans | Ticket-order checkpoint
+divergence: executing-plans | Queue boundary (effort ticket queues only)
+divergence: subagent-driven-development | Ticket-queue linkage
 
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
@@ -159,3 +163,5 @@ divergence: systematic-debugging | scripts/hitl-loop.template.ts
 #   2026-08-21 — ticket 04 (2026-08-21-harness-streamline): seed machine-readable divergence rows for the known local divergences (sha256:f3064cecb113…)
 #   2026-08-22 — 2026-08-22 — workflow→ultracode package rename (PR #1791): dispatching-parallel-agents references renamed repo sample paths (bun-apps/s2-agent-ext-ultracode/samples/*) (sha256:f6a1acca8ed4…)
 #   2026-08-23 — portable-bun wave 2 task 5: hitl-loop.template.sh deleted, SKILL.md HITL item now points at scripts/hitl-loop.template.ts (bun twin copy source) (sha256:dcb561534ee2…)
+#   2026-08-23 — ticket-execution-loop effort: sanctioned local divergence — ticket-order confirm gate (executing-plans) + ticket-queue next-goal linkage (subagent-driven-development); see .planning/2026-08-23-ticket-execution-loop (sha256:40bfbeb925fa…)
+#   2026-08-23 — ticket-execution-loop effort: wording fix — record confirmed (not just re-chosen) execution order; ticket-number fallback for phase order; see .planning/2026-08-23-ticket-execution-loop (sha256:9e47b0c5e1f8…)
