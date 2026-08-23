@@ -47,7 +47,7 @@
     },
     "s2-agent": {
       "name": "@repo/s2-agent",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "bin": {
         "s2-agent": "src/cli.ts",
       },
@@ -186,7 +186,6 @@
         "devops-prepare-feature-branch": "./src/prepare-feature-branch-cli.ts",
         "devops-verify-merge": "./src/verify-merge-cli.ts",
         "devops-verify-deploy-e2e": "./src/verify-deploy-e2e-cli.ts",
-        "devops-bump-version": "./src/version-bump-cli.ts",
       },
       "dependencies": {
         "@earendil-works/pi-ai": "0.84.2",
@@ -427,6 +426,7 @@
       "name": "@repo/s2-agent-ext-subagent",
       "version": "0.1.0",
       "dependencies": {
+        "@repo/s2-agent-core-interface": "workspace:*",
         "@repo/s2-agent-core-runtime": "workspace:*",
       },
       "devDependencies": {
@@ -434,7 +434,6 @@
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "@earendil-works/pi-tui": "0.84.2",
-        "@repo/s2-agent-core-interface": "workspace:*",
         "@types/bun": "^1.3.14",
         "tsx": "^4.23.4",
         "typebox": "^1.3.7",

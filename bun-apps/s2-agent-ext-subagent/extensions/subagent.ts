@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { readAllToolDefinitions } from "@repo/s2-agent-core-interface";
 // Moved to @repo/s2-agent-core-runtime (in-flight registry with the dispatch
 // layer; run persistence with the record layer).
 import {
@@ -52,6 +53,22 @@ export default function extension(pi: ExtensionAPI) {
   if (process.env.BUN_PI_SUBAGENT === "0") return;
   const cwd = process.cwd();
   const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
+  // Lazy read of the parent tool definitions. The session_start snapshot
+  // below is the primary capture, but it is one-shot and the api-level
+  // getAllToolDefinitions has been dead since pi 0.84.2 (fixed-shape
+  // ExtensionAPI — see readAllToolDefinitions in core-interface); reading
+  // lazily AT SPAWN TIME when the holder is still empty heals both orderings
+  // and re-captures after a session switch. Once captured it caches.
+  const readExtensionTools = (): ToolDefinition[] | undefined => {
+    if (extensionToolsHolder.current?.length) return extensionToolsHolder.current;
+    const extTools = readAllToolDefinitions(pi);
+    if (extTools?.length) {
+      // request_plan_approval rides the bridge WITHOUT being registered — see
+      // the session_start capture below for the append rationale.
+      extensionToolsHolder.current = [...extTools, requestPlanApprovalTool as unknown as ToolDefinition];
+    }
+    return extensionToolsHolder.current;
+  };
   const mainModelHolder: { current: string | undefined } = { current: undefined };
   // Session model scope (--models / enabledModels). Snapshotted at session_start
   // like mainModelHolder; empty means the full catalog, i.e. no clamping.
@@ -81,7 +98,7 @@ export default function extension(pi: ExtensionAPI) {
   const subagentTool = createSubagentTool({
     cwd,
     liveRegistry,
-    getExtensionTools: () => extensionToolsHolder.current,
+    getExtensionTools: readExtensionTools,
     getMainModel: () => mainModelHolder.current,
     getScopedModels: () => scopedModelsHolder.current,
     // Parent's gated active set, read lazily at spawn time so a child inherits
@@ -128,7 +145,7 @@ export default function extension(pi: ExtensionAPI) {
   // shared in-flight registry + run-persistence singletons.
   const subagentsTool = createSubagentsTool({
     cwd,
-    getExtensionTools: () => extensionToolsHolder.current,
+    getExtensionTools: readExtensionTools,
     getMainModel: () => mainModelHolder.current,
     getScopedModels: () => scopedModelsHolder.current,
     getActiveTools: () => {
@@ -263,14 +280,10 @@ export default function extension(pi: ExtensionAPI) {
     // subagent TUI plan; its unique collapsed-view behavior (latestMessageLine
     // beneath each row) now lives in ext-task's `subagents` status section.
     // Drill-down for the live trace stays `/subagents`.
-    const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
-    if (extTools?.length) {
-      // request_plan_approval rides the bridge WITHOUT being registered (see
-      // its comment above) — appended here so every spawn child's
-      // extensionTools carry it alongside the registered tools. Same generic-
-      // variance cast as the registerTool loop above (one schema per def).
-      extensionToolsHolder.current = [...extTools, requestPlanApprovalTool as unknown as ToolDefinition];
-    }
+    // Fresh session → fresh capture: clear the cache so readExtensionTools()
+    // re-reads (the request_plan_approval append rides inside it).
+    extensionToolsHolder.current = undefined;
+    readExtensionTools();
     mainModelHolder.current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
     scopedModelsHolder.current = (ctx.scopedModels ?? []).map((sm) => `${sm.model.provider}/${sm.model.id}`);
   });

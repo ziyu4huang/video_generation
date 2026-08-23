@@ -15,7 +15,7 @@ import {
 import type { Static, TSchema } from "typebox";
 import { type AgentUsage, createBudgetGuard } from "./agent-budget.js";
 import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js";
-import { resolveFallbackModel, resolveScopedAgentModelSpec } from "./agent-model.js";
+import { resolveFallbackModel, resolveScopedAgentModelSpec, sessionModelInjectionWins } from "./agent-model.js";
 import { applyToolPolicy } from "./agent-registry.js";
 import { createTurnGuard, createWrapUpNudgeQueue, turnExhaustionError } from "./agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
@@ -352,11 +352,17 @@ export class CoreAgent {
     // the tier and untagged-default paths are covered, not just opts.model
     // (which was the only one the workflow layer could see). Warn-and-clamp,
     // never a hard error; an empty scope is the full catalog.
+    // EXCEPT: a caller-injected session model (session: {model}) is explicit
+    // intent and bypasses resolution entirely — otherwise the untagged
+    // default-medium branch resolves a tier model through the REAL registry
+    // and silently overrides the injection (see sessionModelInjectionWins).
     const {
       spec: modelSpec,
       clamped,
       requested,
-    } = resolveScopedAgentModelSpec(options, this.mainModel, this.scopedModels, () => this.getTierConfig());
+    } = sessionModelInjectionWins(options, this.sessionOptions)
+      ? { spec: undefined, clamped: false, requested: undefined }
+      : resolveScopedAgentModelSpec(options, this.mainModel, this.scopedModels, () => this.getTierConfig());
     if (clamped) {
       console.warn(
         `[subagent] model "${requested}" is outside this session's model scope — clamped to "${modelSpec}". Scope comes from --models / enabledModels; widen it or retag the agent.`,

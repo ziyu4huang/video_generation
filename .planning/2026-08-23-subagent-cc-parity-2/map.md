@@ -63,6 +63,11 @@ Claude-Code-vs-s2 parity ledger — every parity ticket updates its tables in-PR
   (`subagent-runs-tool.ts`); protocol handshake covered unit-level only
   (`tests/protocol-messages.test.ts`). No `process.memoryUsage` probe exists
   anywhere in core-runtime/subagent src or tests (grep clean 2026-08-23).
+  **Measured 2026-08-23 (ticket 01):** the probe now exists
+  (`s2-agent-ext-subagent/tests/memory-live-agents.test.ts`, `S2_MEM_PROBE=1`);
+  K=1..6 live sessions cost ≈0.1–0.2MB marginal RSS each (+0.8MB at the cap),
+  post-eviction RSS flat — session objects are noise, transcript size is the
+  real lever (numbers + scope in spec §3 and the ticket's memory log).
 - **Prior-effort facts carried:** dispatch choke point `child-dispatch.ts:124`;
   LRU cap `SUBAGENT_MAX_LIVE=6`; `parent-message-bus.ts` is the only
   child→parent channel (pi has no custom-message handler API); prior fog
@@ -73,8 +78,9 @@ Claude-Code-vs-s2 parity ledger — every parity ticket updates its tables in-PR
 ## Tickets
 
 Phase 1 — validation (gates the rest)
-- `tickets/01-live-session-validation.md` — open — live-TUI smoke of
-  teams-parity 01–05 surfaces + K=0..6 live-agent memory harness
+- `tickets/01-live-session-validation.md` — done (2026-08-23) — live smoke
+  (6/6 headless steps; /subagents viewer row stays TUI-manual) + memory
+  harness + TWO seam fixes (session-model injection; extension-tools bridge)
 
 Phase 2 — CC subagent parity (after 01)
 - `tickets/02-fork-subagent.md` — open — `fork: true` prompt-borne parent-context
@@ -137,19 +143,49 @@ Phase 4 — ledger hygiene
 
 ## Frontier
 
-Ticket 01 — it gates Phase 2 and produces the memory/size numbers that size the
-fork transcript cap (D2) and validate the LRU default. Tickets 05/06 are
-independent (ultracode-only) and may proceed in parallel with 01 if capacity
-allows; they touch no file 01 observes.
+Ticket 02 (fork) — ticket 01 closed 2026-08-23 with the gates it owned
+satisfied: addressability/roster/protocol verified live (6/6 smoke steps), the
+memory curve recorded (session objects ≈ noise → the fork transcript cap, D2,
+should bound TRANSCRIPT size), and both seam defects found on the way fixed.
+Tickets 03/04 follow 02; 05/06 were independent all along and remain parallel.
+F2 (live-agent default budget too tight) rides ticket 05.
 
 ## Fog of war
 
+- **Memory of N live in-process sessions — RESOLVED 2026-08-23 (ticket 01):**
+  ≈0.1–0.2MB marginal RSS per session (faux transport, session objects only),
+  +0.8MB at the LRU cap of 6; LRU eviction returns the object to GC without
+  shrinking process RSS. Carried prior fog ("teams-parity 01–05 never
+  validated in a live TUI session" / "memory unmeasured") — the memory half is
+  closed; the TUI-smoke half landed with ticket 01 (see its smoke log; the
+  `/subagents` viewer row itself remains TUI-manual by design).
+- **NEW seam defect found + fixed by the ticket-01 harness:** on
+  tier-configured machines the untagged default-medium tier resolved through
+  the REAL ModelRegistry and silently overrode caller-injected
+  `session: {model}` (faux transports AND file2md-style vision-model
+  injection) — fixed by `sessionModelInjectionWins` (core-runtime
+  agent-model.ts); injection wins whenever no per-call model/tier is given.
+- **SECOND defect found + fixed by the ticket-01 smoke (the bigger one):**
+  since pi 0.84.2, `createExtensionAPI` returns a fixed-shape delegation
+  object, so the ext-api-get-all-tool-definitions patch's runtime method is
+  invisible on `pi` — EVERY spawned child (subagent named + one-shot,
+  run_workflow children, zk_* children) silently lost all parent extension
+  tools. Fixed via a globalThis bridge in the patch +
+  `readAllToolDefinitions()` in core-interface, with lazy re-capture in
+  ext-subagent / ext-ultracode / ext-knowledge-card. Unit tests never caught
+  it because they inject `getExtensionTools` fakes — the live smoke is the
+  only guard; a regression tripwire is still missing (fog below).
+- **Budget fog (F2): the default live-agent lifetime tokenBudget (120k) is
+  too tight for big-context children** — a named deepseek child burned 164k
+  on two trivial exchanges and was terminated mid-conversation; with
+  `tokenBudget: 2000000` all six smoke steps pass. Decision needed (raise the
+  live-agent default vs count non-cache tokens only) — folds into ticket 05.
 - Whether `sendUserMessage(followUp)` fired from the wakeup tick interleaves
   safely with an in-flight streaming turn (S5; ticket 06 must test with a fake
   session before trusting it live).
-- Fork transcript token cost on long parent sessions — unresolved until 01
-  measures real session sizes; mitigation is the compaction-aware projection +
-  oldest-first char cap.
+- Fork transcript token cost on long parent sessions — session objects are
+  now measured cheap (above), so the fork cap (D2) should bound TRANSCRIPT
+  size, the dominant term; exact per-char cost still to measure in ticket 02.
 - Whether the `explore` built-in should skip the CLAUDE.md hierarchy like CC's
   Explore does (a per-call `resourceLoader` override is feasible via
   `WorkflowAgentOptions.session`) — decide in ticket 03/04 from measurements;

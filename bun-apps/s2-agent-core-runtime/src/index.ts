@@ -44,6 +44,7 @@ export {
   resolveAgentModelSpec,
   resolveFallbackModel,
   resolveScopedAgentModelSpec,
+  sessionModelInjectionWins,
 } from "./agent-model.js";
 export type { AgentDefinition, AgentRegistry } from "./agent-registry.js";
 export {

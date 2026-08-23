@@ -33,7 +33,8 @@
  * Env gate: BUN_PI_EXT_API_GET_ALL_TOOL_DEFS (default on). Reversible.
  */
 
-import { ExtensionRunner } from "@earendil-works/pi-coding-agent";
+import { ExtensionRunner, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { ALL_TOOL_DEFINITIONS_GLOBAL } from "@repo/s2-agent-core-interface";
 
 // ── Module-scoped flag: apply once ──────────────────────────────────────────
 let applied = false;
@@ -61,14 +62,11 @@ export function applyGetAllToolDefinitionsPatch(): boolean {
     const runtime = (this as unknown as { runtime: Record<string, unknown> }).runtime;
     if (!runtime) return;
 
-    // Only set if not already provided (upstream fix landed).
-    if (typeof runtime.getAllToolDefinitions === "function") return;
-
     const self = this as unknown as {
       assertActive: () => void;
       getAllRegisteredTools: () => Array<{ definition: unknown }>;
     };
-    runtime.getAllToolDefinitions = () => {
+    const readDefinitions = (): unknown[] => {
       try {
         self.assertActive();
       } catch {
@@ -76,6 +74,22 @@ export function applyGetAllToolDefinitionsPatch(): boolean {
       }
       return self.getAllRegisteredTools().map((t) => t.definition);
     };
+
+    // globalThis bridge (pi 0.84.2+): createExtensionAPI returns a FIXED-SHAPE
+    // delegation object that never spreads the runtime, so a method set on
+    // `runtime` below is INVISIBLE on the `pi` object extensions hold — the
+    // api-shape change silently broke every `pi.getAllToolDefinitions?.()`
+    // capture and spawned children lost all parent extension tools (found by
+    // the cc-parity-2 ticket-01 live smoke, 2026-08-23). Extensions read this
+    // well-known key through
+    // @repo/s2-agent-core-interface's readAllToolDefinitions(). Latest runner
+    // wins — a process hosts one parent session at a time.
+    (globalThis as unknown as Record<string, unknown>)[ALL_TOOL_DEFINITIONS_GLOBAL] = readDefinitions;
+
+    // Only set if not already provided (upstream fix landed).
+    if (typeof runtime.getAllToolDefinitions === "function") return;
+
+    runtime.getAllToolDefinitions = readDefinitions as () => ToolDefinition[];
   };
 
   applied = true;

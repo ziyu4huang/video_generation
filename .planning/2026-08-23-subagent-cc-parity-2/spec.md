@@ -35,7 +35,7 @@ subagent startup context (CLAUDE.md hierarchy + git status + sibling roster) | C
 fork mode (inherit full parent conversation) | none (teams-parity D10 excluded it) | gap | 02
 Agent-tool `name` param (addressable agent) | `name` on `spawn_subagent` → LiveAgent registry | aligned | —
 follow-up messaging to live agents | `send_message` (steer when running, re-prompt when idle) | aligned | —
-protocol envelopes `shutdown_request` / `plan_approval_request(_response)` | same envelope names, one `type`-union tool; timeout → DENY | aligned | —
+protocol envelopes `shutdown_request` / `plan_approval_request(_response)` | same envelope names, one `type`-union tool; timeout → DENY | aligned (verified live 2026-08-23, ticket 01 round 3; the child-side tool injection had been silently dead since pi 0.84.2 — fixed the same ticket via `readAllToolDefinitions`; live semantics: the child default-denies after its 5s window, so the parent must answer within it) | —
 shared team task list | `TeamTaskStore` + `task_*` tools (session-scoped) | aligned | —
 background execution | `background: true` (cap `SUBAGENT_MAX_BACKGROUND=4`, fail-fast) | aligned | —
 per-invocation model override | `model`/`tier`/`capability` (precedence model > capability > tier > mainModel) | aligned | —
@@ -57,8 +57,18 @@ cron jitter / one-shot catch-up on session resume | no jitter; missed one-shots 
 
 - **In-process children vs CC's process isolation.** Children are in-process
   Pi sessions (`WorkflowAgent` over `createAgentSession`), not OS subprocesses.
-  Cheaper spawn, shared rate-limiter/registry singletons; the cost (memory of N
-  live sessions, no fault isolation) is measured by ticket 01 and recorded here.
+  Cheaper spawn, shared rate-limiter/registry singletons. Measured 2026-08-23
+  (ticket 01 harness, `S2_MEM_PROBE=1 bun test
+  tests/memory-live-agents.test.ts` in ext-subagent, faux transport so the
+  numbers bound SESSION-OBJECT overhead only — tools, settings, subscriptions,
+  one short transcript): K=1..6 live named agents cost ≈0.1–0.2MB marginal RSS
+  each (+0.8MB total at the LRU cap of 6, on a ~151MB bun-test baseline);
+  post-LRU-eviction RSS is flat while heapUsed holds steady — eviction frees
+  the session object into GC, not the process footprint. Conclusion: at N=6
+  the SESSION OBJECTS are noise; the real memory lever at scale is transcript
+  size (real-model exchanges), which is what the fork transcript cap (D2,
+  ticket 02) must bound. Fault isolation remains a standing divergence — a
+  child crash still takes the process.
 - **Fork = prompt-borne transcript, not session continuation (D2).** pi's
   `createAgentSession` has no `initialMessages`; a fork child gets the parent
   transcript as a compacted instructions-prefix block with a char cap. CC forks

@@ -139,6 +139,27 @@ export function clampModelToScope(
  * applies); the session's own model is already inside its scope, so there is
  * nothing to clamp in that case.
  */
+/**
+ * Whether the caller-injected session model (`session: { model }` on the
+ * WorkflowAgent/openLiveAgent seam) should WIN over model-spec resolution.
+ *
+ * Why this exists: on a machine with a model-tiers config, an untagged spawn
+ * resolves the default-medium tier (branch 3 above) through the REAL
+ * ModelRegistry — and `assembleSession` then passes that resolved model to
+ * createAgentSession, which OVERRIDES the session-override spread. The
+ * injected model is explicit caller intent (a faux transport in tests;
+ * file2md-style vision-model injection in production) and must not be silently
+ * defeated by the untagged default heuristic. An explicit per-call
+ * `options.model`/`options.tier` still wins over the injection — it is the
+ * MORE specific choice at the call site.
+ */
+export function sessionModelInjectionWins(
+  options: { model?: string; tier?: string },
+  sessionOptions: { model?: unknown } | undefined,
+): boolean {
+  return !options.model && !options.tier && Boolean(sessionOptions?.model);
+}
+
 export function resolveScopedAgentModelSpec(
   options: { model?: string; tier?: string },
   mainModel: string | undefined,
