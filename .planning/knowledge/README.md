@@ -58,13 +58,23 @@ This directory is **not** a wayfinder effort. It is never enumerated as one
 
 The original charter above ("candidates only, never grows") drifted: durable
 records landed here too. Triage of the current 18 notes, so the charter matches
-reality. **Candidates** still follow the consume-on-promotion lifecycle:
+reality. **Candidates** still follow the consume-on-promotion lifecycle.
 
-child-merge-resolution-verification · controller-no-bash-sdd-via-subagents ·
-deterministic-edit-dispatch · devops-sync-default-branch · dispatch-budget-rebalance ·
-dispatch-cost-audit · goal-loop-deadlock · pi-reviewer-scope-bounding ·
-probe-extension-introspection · subagent-dispatch-budget-protocol ·
-subagent-dispatch-hardening · wayfind-done-by-hand · webui-log-debugging
+**Triage executed 2026-08-23 ("hands on" session)** — 10 of 13 candidates
+consumed with recorded verdicts (see session memory for the full list):
+rejected as duplicates of shipped skills/code (`devops-sync-default-branch`,
+`subagent-dispatch-budget-protocol`, `subagent-dispatch-hardening`,
+`webui-log-debugging`), absorbed/superseded (`dispatch-budget-rebalance` →
+dispatch-recovery Calibration; `wayfind-done-by-hand` → `/wayfind handoff`
+PR #1884), or not skill-worthy (`goal-loop-deadlock`,
+`controller-no-bash-sdd-via-subagents`, `child-merge-resolution-verification`,
+`dispatch-cost-audit`).
+
+Remaining **candidates** (ranked writing-skills promotion queue):
+
+1. `deterministic-edit-dispatch.md` — RED+GREEN confirmed; READY for promotion.
+2. `probe-extension-introspection.md` — unique offline session-surface probing method.
+3. `pi-reviewer-scope-bounding.md` — A/B-tested bounded review-dispatch shape.
 
 The following are **NOT candidates and are exempt from deletion-on-promotion**
 — they are durable cross-effort records that happen to live here:
