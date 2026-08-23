@@ -279,12 +279,15 @@ export function parseOutline(md: string, baseDir: string): DeckManifest {
     );
   }
 
-  // `!ir` picks split vs diagram from the presence of bullets — decided at
-  // slide close so marker ORDER within a slide does not matter, matching
-  // `resolveLayout`'s inference (`ir` alone ⇒ diagram).
+  // The authoring inference mirrors resolveLayout's ladder, decided at slide
+  // close so marker ORDER within a slide does not matter: `!ir` + bullets ⇒
+  // split, `!ir` alone ⇒ diagram (layout stays unset), bullets alone ⇒ bullets.
   for (const s of slides) {
-    if (s.ir !== undefined && s.layout === undefined && (s.bullets?.length ?? 0) > 0) {
-      s.layout = "split";
+    if (s.layout !== undefined) continue;
+    if (s.ir !== undefined) {
+      if ((s.bullets?.length ?? 0) > 0) s.layout = "split";
+    } else if ((s.bullets?.length ?? 0) > 0) {
+      s.layout = "bullets";
     }
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "end",
-  "description": "The closing slide: a full-bleed dark panel with a centred closing headline and an optional contact line under it. Divider-class — no chrome, so the title band and page number are absent by design.",
+  "description": "The closing slide: a full-bleed dark panel with a centred closing headline and an optional contact line under it. Divider-class — no chrome, so the title band, page number, takeaway and source are absent by design.",
   "chrome": false,
   "slots": {
     "headline": {

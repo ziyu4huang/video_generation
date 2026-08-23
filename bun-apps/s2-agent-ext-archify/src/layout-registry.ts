@@ -68,7 +68,7 @@ const ROLE_FALLBACK: TypeSpec = { sizePt: 16, color: "body", lineSpacing: 1.3 };
  * → undefined; callers skip the shipped tier instead of throwing — tests
  * always inject shippedDir explicitly.
  */
-function pkgRoot(): string | undefined {
+export function pkgRoot(): string | undefined {
   try {
     if (typeof require === "function") {
       const mod = require("#pi/ext-dir") as { default?: unknown } | string;
