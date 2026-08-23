@@ -1,8 +1,44 @@
 # Ticket 03 — gates-and-e2e
 
-status: open
+status: closed (2026-08-23)
 
 blocked-by: `01-core-bundle-seam.md`, `02-ship-bun-and-launcher.md`.
+
+## Resolution (2026-08-23)
+
+- Gates 3/6 + `extListOf` boot `<tree>/bin/bun <tree>/s2-agent.js` (never the
+  CLI's own bun); Gate 6 keeps its different-absolute-path clone semantics,
+  the copied `bin/bun` relocating trivially.
+- Gate 5b scans BOTH `s2-agent.js` (plain text) and `bin/bun`; the pristine
+  bun produced ZERO foreign hits on the real deploy (its embedded build
+  strings are CI-runner paths, not under this machine's `$HOME` or repo), so
+  the allowlist table gained no new rows — the existing
+  `~/.bun/install/cache/` row stays as documented defense with a reworded,
+  bun-accurate reason.
+- `verify-deploy-e2e` / `deploy-cli` boot `<outRoot>/current/s2-agent.sh`
+  (run.sh = deprecated shim, probed only implicitly); help/docs strings
+  updated (recipe header, CLI usage, SKILL.md, app-name/deploy-report copy).
+- Compiled remnant DELETED: mode.ts "binary" mode (`$bunfs` arms) and its
+  consumers (doctor DeployMode/classifyMode/realContext/smoke exeDirect,
+  ext-doctor binaryMode, skip-update-check binary gate, run-dir resolve's
+  binary branch), the whole embedded-assets mechanism (extract-embedded-assets
+  patch + generate-embedded-assets codegen + devops codegen.ts +
+  src/generated/), and the now-inert `binarySkills` registry/manifest key
+  (5 registry lines, emitter field, manifest regenerated). `grep -- --compile
+  bun-apps/s2-agent-ext-devops/src` → clean. scrub-inherited-package-dir.ts
+  KEPT: retention still holds compiled dirs whose frozen binaries leak
+  PI_PACKAGE_DIR (measured: `0.2.5+gb69d3e3/s2-agent --ext-list` → 17/17).
+- **Live proof (real outRoot `~/proj/dist/s2-agent-sh`)**: deploy
+  `0.2.5+gb7b7719` — six gates green, `current` flipped, core 6,182,446 B
+  (fresh build, not cached), runtime bun 1.4.0/darwin/arm64 63,558,256 B,
+  retention pruned `0.2.2+g52abe6d` + collected the last 71,175,794 B compiled
+  `.cores` entry. Auto post-deploy E2E: boot 5.6 s / ext-load 17 ext / model-
+  call 121.6 s — all pass (contention warning: qwen 27b + gemma 12b resident).
+  Standalone `verify-deploy-e2e-cli.ts` → exit 0 (boot 5.7 s / ext-load 0.5 s
+  / model-call 244.2 s, all pass). Old compiled version dirs boot untouched.
+  NOTE: the version label carries the pre-change HEAD sha (b7b7719) because
+  the tree was deployed from the working tree pre-commit; the merged code
+  gets its own version dir on the next deploy (0.2.6 line).
 
 ## Goal
 

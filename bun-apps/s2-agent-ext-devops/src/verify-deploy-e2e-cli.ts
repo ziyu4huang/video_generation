@@ -7,7 +7,7 @@
  * Runs the three bounded probes (boot / ext-load / model-call) against the
  * version dir a deploy root's `current` points at, and prints the structured
  * outcome as JSON on stdout. Read-only for the repo; the probes spawn the
- * DEPLOYED run.sh only. This is the post-deploy step the devops chain was
+ * DEPLOYED s2-agent.sh launcher only. This is the post-deploy step the devops chain was
  * missing: the deploy gates verify the staged tree, nothing re-verified the
  * final frozen `current` — and the deeper E2E suites are PI_AGENT_E2E-gated,
  * so they never run in CI.
@@ -25,9 +25,10 @@ import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./c
 export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"usage: verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call]",
 	"",
-	"Proves the DEPLOYED dist actually works: boots run.sh, checks every",
-	"deploy.json-enabled extension reports loaded, and places a real one-shot",
-	"model call through the deployed launcher. Bounded (60s/60s/300s caps — the",
+	"Proves the DEPLOYED dist actually works: boots s2-agent.sh (the launcher;",
+	"run.sh is its deprecated shim), checks every deploy.json-enabled extension",
+	"reports loaded, and places a real one-shot model call through the deployed",
+	"launcher. Bounded (60s/60s/300s caps — the",
 	"model call gets multi-model-contention headroom); a fast provider/auth",
 	"failure is a SKIP, never a FAIL. Before the model call, the endpoint's",
 	"/v1/models is checked: >1 large resident chat model emits a `warnings` note",

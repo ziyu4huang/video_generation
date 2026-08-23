@@ -14,7 +14,6 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseManifestEntries } from "../run-dir/manifest-types.ts";
-import { isBunBinary } from "./mode.ts";
 // NOTE: static-extensions.ts is imported DYNAMICALLY inside runExtDoctor(),
 // below the ensure-extension-deps await — see the comment there. A top-level
 // import is hoisted, and `ext doctor` is one of cli.ts's PRE-patch intercepts,
@@ -88,17 +87,11 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 	// snapshot deploy. Keep this import below the ensure-extension-deps await.
 	const { STATIC_EXTENSION_FACTORIES } = await import("./static-extensions.ts");
 
-	// Compiled-binary mode (`bun build --compile`): manifest.json is NOT embedded
-	// in the $bunfs virtual FS, so readFileSync(MANIFEST_PATH) throws ENOENT. The
-	// manifest's relative .ts paths don't exist in a binary either (a user's own
-	// `-e` .ts paths DO load — upstream 0.80.10+ jiti binary path — but those
-	// aren't this doctor's concern). Fall back to checking ONLY the statically-bundled factories
-	// (STATIC_EXTENSION_FACTORIES below) — which is exactly the set that matters
-	// for verifying a compiled binary ships its tools. binaryMode is detected from
-	// the module URL (mode.ts's isBunBinary), NOT inferred from the manifest read
-	// failing below — a read failure (ENOENT, EACCES, bad JSON) is a genuine
-	// problem and must not silently masquerade as "compiled binary".
-	const binaryMode = isBunBinary(import.meta.url);
+	// A compiled-binary branch (manifest.json unreadable inside the $bunfs
+	// virtual FS → static factories only) used to live here; it went with the
+	// compiled core (deploy-platform-neutral-core ticket 03, 2026-08-23). A
+	// manifest read failure (ENOENT, EACCES, bad JSON) is now always a genuine
+	// problem to surface, never a mode to mask it as.
 	let manifest: { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
 	try {
 		manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
@@ -237,7 +230,7 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 		process.stdout.write(JSON.stringify({ ok, entries: results, conflicts }) + "\n");
 	} else {
 		const G = "\x1b[32m", R = "\x1b[31m", Y = "\x1b[33m", D = "\x1b[2m", B = "\x1b[1m", RST = "\x1b[0m";
-		process.stdout.write(`\n${B}s2-agent ext doctor${RST}  (${results.length} extensions)${binaryMode ? `${D}  [compiled binary — static factories only, manifest.json not in \$bunfs]${RST}` : ""}\n\n`);
+		process.stdout.write(`\n${B}s2-agent ext doctor${RST}  (${results.length} extensions)\n\n`);
 		for (const r of results) {
 			const badge = r.status === "OK" ? `${G}OK   ${RST}` : r.status === "DYNAMIC" ? `${Y}DYN  ${RST}` : `${R}FAIL ${RST}`;
 			const meta = [r.version].filter(Boolean).join(" · ");

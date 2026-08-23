@@ -11,7 +11,7 @@ function fakePiAgent(): string {
 	mkdirSync(join(dir, "src", "generated"), { recursive: true });
 	writeFileSync(join(dir, "src", "cli-sh.ts"), "export {};");
 	writeFileSync(join(dir, "src", "sh", "host-modules.ts"), "export const HOST_API = 2;");
-	writeFileSync(join(dir, "src", "generated", "embedded-assets.ts"), "export const EMBEDDED_ASSETS = [];");
+	writeFileSync(join(dir, "src", "generated", "a-generated-file.ts"), "export const A = [];");
 	return dir;
 }
 
@@ -43,8 +43,8 @@ describe("computeCoreHash", () => {
 		writeFileSync(join(srcChange, "src", "sh", "host-modules.ts"), "export const HOST_API = 3;");
 		expect(computeCoreHash(inputs(srcChange))).not.toBe(h0);
 
-		const genChange = fakePiAgent(); // the codegen output is part of the compiled src tree
-		writeFileSync(join(genChange, "src", "generated", "embedded-assets.ts"), "export const EMBEDDED_ASSETS = [1];");
+		const genChange = fakePiAgent(); // any file under src/ is a build input
+		writeFileSync(join(genChange, "src", "generated", "a-generated-file.ts"), "export const A = [1];");
 		expect(computeCoreHash(inputs(genChange))).not.toBe(h0);
 
 		expect(computeCoreHash({ ...inputs(base), piPkgVersion: "0.85.0" })).not.toBe(h0);

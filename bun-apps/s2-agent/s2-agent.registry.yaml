@@ -73,7 +73,6 @@ extensions:
     entry: extensions/hermes-memory.ts
     load: static
     skills: true
-    binarySkills: true
     # sqlite is bun:sqlite (a builtin, no native vendoring); scripts/ holds the
     # git merge-driver resolved via require("#pi/ext-dir").
     deploy:
@@ -84,7 +83,6 @@ extensions:
     entry: extensions/superpowers.ts
     load: static
     skills: true
-    binarySkills: true
     # Code + skills tree (52 files / ~450K). Skills resolve at runtime through
     # require("#pi/ext-dir") — bun's cjs output folds import.meta.url into a
     # build-machine path, which the relocatability gate rejects.
@@ -95,7 +93,6 @@ extensions:
     entry: extensions/wayfind.ts
     load: static
     skills: true
-    binarySkills: true
     # procedures/ holds the wayfinder data file (NOT a skill — pi would
     # auto-register it as /skill:<name>); copied beside the bundle and read
     # through require("#pi/ext-dir") at runtime.
@@ -107,7 +104,6 @@ extensions:
     entry: extensions/web-access.ts
     load: static
     skills: true
-    binarySkills: true
     # Largest bundle (~880K: readability/linkedom/turndown etc. inline). unpdf
     # is VENDORED, not bundled: its ESM uses import.meta.resolve, whose syntax
     # is invalid inside the loader's cjs eval — as a real directory it loads as
@@ -203,7 +199,6 @@ extensions:
     entry: extensions/hyperframes.ts
     load: static
     skills: true
-    binarySkills: true
     # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
     # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
     deploy:

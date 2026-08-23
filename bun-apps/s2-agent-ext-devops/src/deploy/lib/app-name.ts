@@ -4,8 +4,8 @@
  * s2-agent = renamed s2-agent (2026-08-21); upstream deps still
  * @earendil-works/pi-*; update flow unchanged (update-pi.sh).
  *
- * The compiled binary, the deployed run.sh's exec target, and every artifact
- * path derived from them use APP_NAME. Override at build time with
+ * The core bundle, the deployed s2-agent.sh launcher's exec target, and every
+ * artifact path derived from them use APP_NAME. Override at build time with
  * S2_APP_NAME (artifact naming only — the workspace folder name and
  * piConfig.name must stay equal, or sibling-dir resolution breaks).
  */

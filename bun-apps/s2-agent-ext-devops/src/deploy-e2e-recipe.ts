@@ -7,7 +7,7 @@
  * rename/freeze/`current` swap: `--ext-list` boots, extensions load, the tree
  * is offline-contained and relocatable. Nothing after the swap re-boots the
  * FINAL frozen tree, and nothing anywhere places a model call through the
- * deployed `run.sh` — the invocation a human actually uses. The deeper E2E
+ * deployed `s2-agent.sh` launcher — the invocation a human actually uses. The deeper E2E
  * suites (tests/deploy-e2e.test.ts, tests/deploy-probe-e2e.test.ts,
  * s2-agent run-test tiers) are PI_AGENT_E2E-gated and never run in CI, so in
  * practice the live dist goes unverified between manual runs. This recipe is
@@ -15,11 +15,11 @@
  * version dir, spawn-injectable, provider-tolerant.
  *
  * THE THREE PROBES
- *   boot       `run.sh --help` — the binary boots from the frozen tree.
- *   ext-load   `run.sh --ext-list` — every extension enabled in deploy.json
- *              reports loaded (same contract as deploy Gate 3, but against
- *              the FINAL tree).
- *   model-call `run.sh -p 'Reply with exactly: ok' --no-session` — a real
+ *   boot       `s2-agent.sh --help` — the core boots from the frozen tree.
+ *   ext-load   `s2-agent.sh --ext-list` — every extension enabled in
+ *              deploy.json reports loaded (same contract as deploy Gate 3,
+ *              but against the FINAL tree).
+ *   model-call `s2-agent.sh -p 'Reply with exactly: ok' --no-session` — a real
  *              one-shot model call through the deployed launcher. A FAST
  *              provider/auth failure (≤10s, provider-smelling output) is a
  *              SKIP, never a FAIL — the hang detector must not fail on
@@ -220,7 +220,9 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	const probes: DeployE2eProbe[] = [];
 
 	// Tree preconditions: deploy.json readable (it also supplies the expected
-	// extension set) and run.sh present. Both are structured FAILs, not throws.
+	// extension set) and the launcher present. Both are structured FAILs, not
+	// throws. The launcher is s2-agent.sh (run.sh is the deprecated shim into
+	// it — probed implicitly, never directly).
 	let enabled: string[] = [];
 	let version = basename(opts.versionDir);
 	let sourceSha = "";
@@ -233,14 +235,14 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	} catch (e) {
 		return failFast(opts.versionDir, `deploy.json unreadable: ${(e as Error).message}`, startedAt, now);
 	}
-	if (!(await Bun.file(join(opts.versionDir, "run.sh")).exists())) {
-		return failFast(opts.versionDir, "run.sh missing from the version dir", startedAt, now);
+	if (!(await Bun.file(join(opts.versionDir, "s2-agent.sh")).exists())) {
+		return failFast(opts.versionDir, "s2-agent.sh missing from the version dir", startedAt, now);
 	}
 
 	// ── boot probe ──────────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn("./run.sh", ["--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
+		const r = await opts.spawn("./s2-agent.sh", ["--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
 		const ms = now() - t0;
 		probes.push(
 			r.exitCode === 0 && !r.timedOut
@@ -258,7 +260,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	// ── ext-load probe ──────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn("./run.sh", ["--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
+		const r = await opts.spawn("./s2-agent.sh", ["--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
 		const ms = now() - t0;
 		if (r.timedOut || r.exitCode !== 0) {
 			probes.push({
@@ -322,7 +324,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			}
 		}
 		const t0 = now();
-		const r = await opts.spawn("./run.sh", ["-p", DEPLOY_E2E_PROMPT, "--no-session"], {
+		const r = await opts.spawn("./s2-agent.sh", ["-p", DEPLOY_E2E_PROMPT, "--no-session"], {
 			cwd: opts.versionDir,
 			timeoutMs: MODEL_CALL_CAP_MS,
 		});

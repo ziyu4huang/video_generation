@@ -15,9 +15,9 @@
  *
  * MODE GATING
  * -----------
- * Applied only to shipped artifacts (bundle .js + compiled binary). Source mode
+ * Applied only to the shipped artifact (the bundle .js). Source mode
  * (`bun src/cli.ts`) is left alone so dev still sees upstream pi updates.
- * Detection mirrors set-package-dir: import.meta.url reveals how this module
+ * Detection mirrors mode.ts: import.meta.url reveals how this module
  * was loaded.
  */
 import { detectMode, type BundlerMode } from "../mode.ts";
@@ -28,14 +28,14 @@ const mode = detectMode(url);
 /**
  * Pure decision: should the update-check skip be applied for this mode?
  *
- * Applied only to a shipped artifact: the compiled binary and the bun-run
- * bundle (the sh deploy's core since 2026-08-23). Source mode
- * (`bun src/cli.ts`) is left alone so dev still sees upstream pi updates.
- * Exported so the gating logic is unit-testable without importing the module
- * (which would fire the side effect).
+ * Applied only to the shipped artifact: the bun-run bundle (the sh deploy's
+ * core since 2026-08-23). Source mode (`bun src/cli.ts`) is left alone so dev
+ * still sees upstream pi updates. Exported so the gating logic is
+ * unit-testable without importing the module (which would fire the side
+ * effect).
  */
 export function shouldSkipUpdateCheck(mode: BundlerMode): boolean {
-  return mode === "binary" || mode === "bundle";
+  return mode === "bundle";
 }
 
 const isShippedArtifact = shouldSkipUpdateCheck(mode);

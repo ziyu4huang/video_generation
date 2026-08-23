@@ -199,7 +199,7 @@ function providerSection(facts: ModelFacts): string {
 	return `
 <h2>Providers &amp; models — baked into this core</h2>
 <p class="meta">Source-level facts from <code>s2-agent/src/pre-load-providers.ts</code>
-(PROVIDERS catalog and BUILTIN_MODEL_DEFAULT), as compiled into the deployed binary. User-side <code>~/.pi/agent</code> configuration is
+(PROVIDERS catalog and BUILTIN_MODEL_DEFAULT), as baked into the deployed core bundle. User-side <code>~/.pi/agent</code> configuration is
 deliberately NOT reflected here — this section says what the artifact ships, not what one machine overlays on it.</p>
 
 <h3>Pre-load provider catalog (always registered)</h3>

@@ -54,29 +54,27 @@ export function isFailing(r: CheckResult): boolean {
  * The lesson is written down rather than re-learned: a mode belongs here only
  * while something can produce it.
  */
-export type DeployMode = "source" | "binary" | "sh";
+export type DeployMode = "source" | "sh";
 
 /**
  * Classify the deploy mode from coarse mode + the layout markers. Pure.
  *
- * One marker left, and it is the one that matters: a compiled binary is either
- * an sh deploy or a plain exe, and only `deploy.json` tells them apart.
+ * One marker left, and it is the one that matters: a bundle core is either an
+ * sh deploy or a stray copy, and only `deploy.json` tells them apart.
  */
 export interface LayoutMarkers {
 	/**
-	 * A s2-agent-sh deploy: `deploy.json` beside the executable. `ext/` alone is
-	 * not the marker — deleting it is a SUPPORTED state (the core boots with no
-	 * extensions), and a deploy that lost its extensions must still be
-	 * recognisable as an sh deploy or doctor reports the wrong mode exactly when
-	 * something is wrong.
+	 * A s2-agent-sh deploy: `deploy.json` beside the core bundle. `ext/` alone
+	 * is not the marker — deleting it is a SUPPORTED state (the core boots with
+	 * no extensions), and a deploy that lost its extensions must still be
+	 * recognisable as an sh deploy or doctor reports the wrong mode exactly
+	 * when something is wrong.
 	 */
 	shDeploy: boolean;
 }
 
 export function classifyMode(coarse: BundlerMode, markers: LayoutMarkers): DeployMode {
-	if (coarse === "binary") return markers.shDeploy ? "sh" : "binary";
-	// A bun-run bundle with a deploy.json beside it is an sh deploy — the same
-	// layout and the same checks as the compiled-binary sh core. A bundle
+	// A bun-run bundle with a deploy.json beside it is an sh deploy. A bundle
 	// WITHOUT deploy.json (a stray copied s2-agent.js) falls through to the
 	// "source" checks: coarse file layout, but the entry check below still
 	// points at the bundle itself, so it reports honestly instead of failing
@@ -90,10 +88,10 @@ export interface DoctorContext {
 	mode: DeployMode;
 	selfDir: string;
 	/**
-	 * The directory the DEPLOY lives in. Same as selfDir everywhere except a
-	 * compiled binary, where selfDir points inside bun's virtual fs ($bunfs) and
-	 * only process.execPath's dir names anything on the real filesystem — which
-	 * is where an sh deploy keeps ext/ and deploy.json.
+	 * The directory the DEPLOY lives in — where an sh deploy keeps ext/ and
+	 * deploy.json. Same as selfDir in every mode that exists (a bundle's
+	 * selfDir IS the deploy dir); kept a separate field so sh-mode checks
+	 * state what they read rather than leaning on the coincidence.
 	 */
 	deployDir: string;
 	entryPath: string;
@@ -145,11 +143,10 @@ export function checkEntry(ctx: DoctorContext): CheckResult {
 /**
  * extension set — complete for the mode.
  *
- * Only the sh deploy has a tree to count: source loads from bun-apps/ and the
- * binary carries static factories, so for both there is nothing on disk that
- * being wrong would show up here. The `bundle` branch that counted
- * `ext-bundles/*.js` — and the `release` one that read `packages/` before it —
- * went with the layouts they described.
+ * Only the sh deploy has a tree to count: source loads from bun-apps/, so
+ * there is nothing on disk that being wrong would show up here. The `bundle`
+ * branch that counted `ext-bundles/*.js` — and the `release` one that read
+ * `packages/` before it — went with the layouts they described.
  */
 export function checkExtensions(ctx: DoctorContext): CheckResult {
 	if (ctx.mode === "sh") return checkShExtensions(ctx);
@@ -157,7 +154,7 @@ export function checkExtensions(ctx: DoctorContext): CheckResult {
 		id: "extensions",
 		label: "extension set",
 		status: "info",
-		detail: `${ctx.mode} mode loads extensions from source/baked paths`,
+		detail: `${ctx.mode} mode loads extensions from source paths`,
 	};
 }
 
@@ -212,7 +209,7 @@ export function checkShExtensions(ctx: DoctorContext): CheckResult {
 /**
  * host-deps — can pi's loader resolve typebox/@earendil-works/* from the entry?
  *
- * Informational in every mode that exists: source and binary resolve their own
+ * Informational in every mode that exists: source resolves its own
  * deps from the pi-coding-agent loader in node_modules, and an sh deploy's
  * extensions are served by the host registry (host-modules.ts), which the
  * deploy hard-fails on rather than discovering here.
@@ -335,10 +332,7 @@ export function removedFlagNotice(argv: readonly string[]): string | null {
  * The marker the smoke probe greps tool sourceInfo.path for, per mode.
  * Pure (no fs).
  *  - source:  the bun-apps dir (selfDir is .../s2-agent/src → ../.. = bun-apps)
- *  - binary:  "<inline:" — static-factory tools report sourceInfo.path
- *             "<inline:<pkg-name>>"; the probe itself loading via -e also
- *             proves the upstream jiti binary path works (0.80.10+).
- *  - sh:      also "<inline:". sh loads each ext.cjs off disk but hands the
+ *  - sh:      "<inline:". sh loads each ext.cjs off disk but hands the
  *             factories to main({extensionFactories}), and pi labels a factory
  *             it did not resolve itself as inline — measured
  *             `{"path":"<inline:power-tool>","source":"inline"}` against a real
@@ -346,7 +340,7 @@ export function removedFlagNotice(argv: readonly string[]): string | null {
  *             is written down rather than left to look like a copy-paste.
  */
 export function smokeMarker(mode: DeployMode, selfDir: string): string {
-	if (mode === "binary" || mode === "sh") return "<inline:";
+	if (mode === "sh") return "<inline:";
 	return resolve(selfDir, "..", ".."); // source
 }
 
@@ -388,13 +382,9 @@ export async function defaultSmokeSpawn(args: {
 	cwd: string;
 	env: Record<string, string | undefined>;
 	timeoutMs?: number;
-	/** Binary mode: `entry` IS the compiled exe — spawn it directly, not `bun <entry>`. */
-	exeDirect?: boolean;
 }): Promise<{ stderr: string; code: number | null }> {
 	const timeoutMs = args.timeoutMs ?? 30_000;
-	const cmd = args.exeDirect
-		? [args.entry, "-e", args.probe, "-p", "hi"]
-		: [process.execPath, args.entry, "-e", args.probe, "-p", "hi"];
+	const cmd = [process.execPath, args.entry, "-e", args.probe, "-p", "hi"];
 	const proc = Bun.spawn(cmd, {
 		cwd: args.cwd,
 		env: args.env,
@@ -435,8 +425,6 @@ export async function defaultSmokeSpawn(args: {
 
 /**
  * Run the runtime-smoke check. Imperative (fs + spawn). Returns a CheckResult:
- *  - binary mode → spawns the exe directly; marker "<inline:" counts
- *    static-factory tools (and the -e probe loading proves the jiti binary path)
  *  - matched > 0 → PASS (run-dir extensions loaded)
  *  - matched = 0 → FAIL (silent no-op class; the slice-bug regression)
  *  - no [SMOKE] line → FAIL (probe never fired — entry error or a heavy
@@ -446,12 +434,7 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 	const id = "runtime-smoke";
 	const label = "runtime smoke (extension load)";
 	const marker = smokeMarker(ctx.mode, ctx.selfDir);
-	// Compiled modes (binary AND sh): selfDir is the non-existent $bunfs virtual
-	// dir — spawning with that cwd fails before the probe ever runs, and the
-	// failure surfaces as a raw stack rather than a check result. deployDir is
-	// the exe's real on-disk dir.
-	const compiled = ctx.mode === "binary" || ctx.mode === "sh";
-	const cwd = compiled ? ctx.deployDir : ctx.selfDir;
+	const cwd = ctx.selfDir;
 	const dir = mkdtempSync(join(tmpdir(), "s2-agent-smoke-"));
 	const probePath = join(dir, "smoke-probe.ts");
 	writeFileSync(probePath, SMOKE_PROBE);
@@ -466,7 +449,6 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 					cwd,
 					env,
 					timeoutMs: opts.timeoutMs,
-					exeDirect: compiled && !ctx.bundleCore,
 				});
 	} finally {
 		try {
@@ -514,32 +496,22 @@ export interface RunOptions {
 /** Build the real DoctorContext from process state + the module's location. */
 export function realContext(moduleUrl: string, env: Record<string, string | undefined>): DoctorContext {
 	const selfDir = dirname(fileURLToPath(moduleUrl));
-	// Binary mode has no separate entry FILE to verify — the compiled exe IS
-	// the entry (there's no sibling s2-agent.js shipped alongside `--compile`
-	// output). Point at process.execPath so checkEntry's existsSync trivially
-	// passes instead of always failing against a s2-agent.js that never ships
-	// in this mode (a pre-existing gap: this branch was never binary-mode-aware
-	// before the compiled binary shipped real extensions worth doctoring).
-	// A bun-run bundle IS its own entry file too — every bundled module's
+	// A bun-run bundle IS its own entry file — every bundled module's
 	// rewritten URL points at the one shipped s2-agent.js, so fileURLToPath
-	// gives the real entry and selfDir gives the real deploy dir (no $bunfs
-	// indirection to work around).
+	// gives the real entry and selfDir gives the real deploy dir.
 	// A `--snapshot` deploy shipping raw .ts also lands on "source", which
 	// matches a --snapshot deploy (it ships raw .ts under src/), mirroring the
 	// old coarseFromUrl's `.endsWith(".ts")` rule.
 	const coarse = detectMode(moduleUrl);
-	const entryPath =
-		coarse === "binary" ? process.execPath : coarse === "bundle" ? fileURLToPath(moduleUrl) : join(selfDir, "cli.ts");
+	const entryPath = coarse === "bundle" ? fileURLToPath(moduleUrl) : join(selfDir, "cli.ts");
 	// Annotated (not inferred) so an unused marker is a tsc error rather than an
 	// excess property TypeScript silently tolerates on a variable. `.deploy-portable`
 	// and `packages/` were still probed here after their modes were removed
 	// precisely because an inferred object type made the leftovers invisible.
-	// In a compiled binary selfDir is inside $bunfs; only the executable's own
-	// directory names anything on the real filesystem. In a bundle selfDir IS
-	// the deploy dir already.
-	const deployDir = coarse === "binary" ? dirname(process.execPath) : selfDir;
+	// In a bundle selfDir IS the deploy dir already.
+	const deployDir = selfDir;
 	const markers: LayoutMarkers = {
-		shDeploy: (coarse === "binary" || coarse === "bundle") && existsSync(join(deployDir, "deploy.json")),
+		shDeploy: coarse === "bundle" && existsSync(join(deployDir, "deploy.json")),
 	};
 	const mode = classifyMode(coarse, markers);
 	return {

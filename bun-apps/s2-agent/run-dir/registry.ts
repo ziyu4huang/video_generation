@@ -29,7 +29,6 @@ export interface RegistryExt {
   entry: string; // package-relative: "extensions/task.ts"
   load: "static" | "dynamic";
   skills: boolean; // ships <package>/skills → manifest skills[]
-  binarySkills: boolean; // default false → manifest binarySkills[]
   version?: string; // emitted on dynamic entries when present
   excludeReason?: string; // REQUIRED when deploy block is absent
   deploy?: RegistryDeployBlock;
@@ -51,7 +50,7 @@ export interface Registry {
 
 const TOP_KEYS = new Set(["deploy", "hostApi", "hostModules", "extensions", "lazyExtensions"]);
 const DEPLOY_KEYS = new Set(["outRoot", "version", "freeze", "current", "keep"]);
-const EXT_KEYS = new Set(["name", "package", "entry", "load", "skills", "binarySkills", "version", "excludeReason", "deploy"]);
+const EXT_KEYS = new Set(["name", "package", "entry", "load", "skills", "version", "excludeReason", "deploy"]);
 const DEPLOY_BLOCK_KEYS = new Set(["order", "copy", "vendor", "externals", "vendorExclude", "enabled"]);
 
 function expandHome(p: string): string {
@@ -163,10 +162,6 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
 
     const skills = ext.skills === undefined ? false : ext.skills;
     if (typeof skills !== "boolean") throw new Error(`extensions[${i}].skills must be a boolean`);
-    const binarySkills = ext.binarySkills === undefined ? false : ext.binarySkills;
-    if (typeof binarySkills !== "boolean") {
-      throw new Error(`extensions[${i}].binarySkills must be a boolean`);
-    }
 
     if (ext.version !== undefined && typeof ext.version !== "string") {
       throw new Error(`extensions[${i}].version must be a string`);
@@ -258,7 +253,6 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
       entry: ext.entry as string,
       load,
       skills,
-      binarySkills,
       version: ext.version as string | undefined,
       excludeReason: ext.excludeReason as string | undefined,
       deploy,

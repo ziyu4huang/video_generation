@@ -66,7 +66,7 @@ try {
 	const result = await runShDeploy(parsed.action.options);
 	// Post-deploy E2E (2026-08-22): the six build gates verify the STAGED
 	// tree; this re-boots the FINAL (frozen, swapped) tree and places a real
-	// model call through run.sh. Provider-down is a SKIP, not a failure — but
+	// model call through s2-agent.sh. Provider-down is a SKIP, not a failure — but
 	// a boot/ext-load/model-call fail means the deploy is broken: exit 1.
 	const e2e = await runDeployE2e({
 		versionDir: result.target,

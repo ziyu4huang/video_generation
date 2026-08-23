@@ -44,7 +44,7 @@ describe("parseRegistry", () => {
     const { text, bunAppsDir } = fixture();
     const r = parseRegistry(text, { bunAppsDir });
     expect(r.extensions).toHaveLength(2);
-    expect(r.extensions[0]).toMatchObject({ name: "task", load: "static", skills: false, binarySkills: false });
+    expect(r.extensions[0]).toMatchObject({ name: "task", load: "static", skills: false });
     expect(r.extensions[0]?.deploy).toEqual({ order: 10, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true });
     expect(r.extensions[1]).toMatchObject({ load: "dynamic", excludeReason: expect.stringContaining("swift") });
     expect(r.hostApi).toBe(2);

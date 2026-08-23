@@ -310,7 +310,7 @@ guessing at launch flags. When they are absent:
 
   `verify-deploy-e2e-cli` proves the deployed dist works, not just that it
   built: three bounded probes (60s/60s/120s caps) against the version dir
-  `current` points at — `run.sh --help` boot, `--ext-list` vs deploy.json's
+  `current` points at — `s2-agent.sh --help` boot, `--ext-list` vs deploy.json's
   enabled extensions, and a real `-p` one-shot model call. A fast
   provider/auth failure is a SKIP (boot still proved), a timeout or missing
   extension is a FAIL. `deploy-cli.ts` runs the same E2E automatically after

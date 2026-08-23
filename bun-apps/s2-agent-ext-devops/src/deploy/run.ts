@@ -4,9 +4,9 @@
  * Produces <outRoot>/<version>/ containing:
  *   s2-agent.js   minimal core as a bun-run ESM bundle (zero extensions
  *                 inside), hardlinked from <outRoot>/.cores/<hash> when
- *                 frozen (Phase 3 §a; artifact switched from a `--compile`
- *                 Mach-O to a `--target=bun` bundle 2026-08-23 —
- *                 deploy-platform-neutral-core ticket 01)
+ *                 frozen (Phase 3 §a; the core has been a `--target=bun`
+ *                 bundle since 2026-08-23 — deploy-platform-neutral-core —
+ *                 replacing the retired compiled-Mach-O artifact)
  *   dist/…        pi's theme/assets/export-html dirs copied at their Node
  *                 layout, where bundled pi resolves them from the deploy dir
  *   bin/bun       the shipped bun runtime, hardlinked from
@@ -60,7 +60,6 @@ import {
 import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
 import { freezeTree, rmTree } from "./lib/fs.ts";
-import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "s2-agent");
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
@@ -125,12 +124,13 @@ async function assertHostContract(cfg: ShConfig): Promise<void> {
  * Produce the version dir's `s2-agent.js` core — a bun-run ESM bundle, NOT a
  * compiled binary (2026-08-23, deploy-platform-neutral-core ticket 01).
  *
- * The bundle builds against the EMPTY asset manifest: pi's theme/assets/
+ * The bundle carries no embedded assets at all: pi's theme/assets/
  * export-html dirs ship as plain copies at their Node layout inside the
  * version dir (stagePiAssets below), where bundled pi resolves them by
  * walking up from the bundle to the deploy package.json — no
- * `with { type: "file" }` imports, no hashed sidecars, no
- * ~/.pi/agent/embedded-assets extraction.
+ * `with { type: "file" }` imports, no hashed sidecars, and no
+ * ~/.pi/agent/embedded-assets extraction (that mechanism was deleted with
+ * the compiled core, ticket 03).
  *
  * Frozen deploys go through the content-addressed cache: hash the build
  * inputs (the src/ tree, the resolved pi-coding-agent version, Bun.version,
@@ -145,23 +145,6 @@ async function buildCore(
 	opts: { outRoot: string; freeze: boolean },
 ): Promise<{ bytes: number; cached: boolean }> {
 	const piPkgDir = resolvePiPkgDir();
-	// Force the EMPTY asset manifest before building. The bundle never reads
-	// the embed form; forcing also normalizes a stale embed-mode manifest left
-	// behind by an interrupted compiled deploy of the old pipeline (which
-	// would silently emit hashed sidecar assets this layout cannot resolve).
-	//
-	// codegen.ts writes to the CWD-relative "src/generated" and derives
-	// BUN_APPS_DIR from process.cwd() (it was written for `bun run deploy` from
-	// bun-apps/s2-agent). Called from anywhere else it silently writes the
-	// generated files into the caller's directory — observed polluting the repo
-	// root — so pin the cwd here and restore it after.
-	const prevCwd = process.cwd();
-	process.chdir(PI_AGENT_DIR);
-	try {
-		stageGenerateEmbeddedAssets(piPkgDir, BUN_APPS_DIR, [], false);
-	} finally {
-		process.chdir(prevCwd);
-	}
 
 	const bundle = async (target: string): Promise<number> => {
 		const entry = join(PI_AGENT_DIR, "src", "cli-sh.ts");
@@ -314,13 +297,16 @@ interface ExtListPayload {
 
 /**
  * Run the core's --ext-list diagnostic and return the parsed payload. The
- * core is a bun-run bundle: the deploy CLI's own bun (process.execPath —
- * the same runtime that built it) executes the staged s2-agent.js. The
- * shipped `bin/bun` + launcher arrive with ticket 02; until then this
- * spawn shape is the gates' only boot path.
+ * gates boot the tree the way the launcher does (ticket 03): the tree's OWN
+ * shipped runtime, `<tree>/bin/bun`, executes `<tree>/s2-agent.js` — never
+ * the deploy CLI's bun — so a gate pass is a statement about the artifact
+ * that ships, not about the machine that built it.
  */
-function extListOf(coreJs: string): ExtListPayload {
-	const p = Bun.spawnSync([process.execPath, coreJs, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
+function extListOf(tree: string): ExtListPayload {
+	const p = Bun.spawnSync([join(tree, "bin", "bun"), join(tree, CORE_FILENAME), "--ext-list"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	if (p.exitCode !== 0) {
 		throw new Error(`--ext-list exited ${p.exitCode}: ${p.stderr.toString()}`);
 	}
@@ -332,8 +318,7 @@ const CORE_FILENAME = `${APP_NAME}.js`;
 
 /** Gate 3: extensions load; with ext/ moved aside the core still exits 0 with none. */
 function verifyDualState(stageDir: string, expected: string[]): void {
-	const core = join(stageDir, CORE_FILENAME);
-	const withExt = extListOf(core);
+	const withExt = extListOf(stageDir);
 	const missing = expected.filter((n) => !withExt.loaded.includes(n));
 	if (missing.length > 0) {
 		throw new Error(
@@ -345,7 +330,7 @@ function verifyDualState(stageDir: string, expected: string[]): void {
 	const parked = join(stageDir, ".ext-parked");
 	renameSync(extDir, parked);
 	try {
-		const without = extListOf(core);
+		const without = extListOf(stageDir);
 		if (without.loadedCount !== 0) {
 			throw new Error(`smoke: core loaded ${without.loadedCount} extension(s) with ext/ removed`);
 		}
@@ -362,7 +347,7 @@ function verifyDualState(stageDir: string, expected: string[]): void {
  */
 function verifyOfflineContainment(
 	tree: string,
-	opts: { binary?: string; finalTarget?: string } = {},
+	opts: { binaries?: Array<{ label: string; path: string }>; finalTarget?: string } = {},
 ): void {
 	const problems: string[] = [];
 
@@ -387,13 +372,17 @@ function verifyOfflineContainment(
 		);
 	}
 
-	if (opts.binary && opts.finalTarget) {
-		const r = scanBinaryForeignPaths(opts.binary, opts.finalTarget);
-		for (const allowed of r.allowed) {
-			process.stderr.write(`gate5: allowlisted binary artifact: ${allowed}\n`);
-		}
-		if (r.foreign.length > 0) {
-			problems.push(`binary bakes build-machine path(s): ${r.foreign.slice(0, 5).join(", ")}${r.foreign.length > 5 ? ` (+${r.foreign.length - 5} more)` : ""}`);
+	if (opts.binaries && opts.finalTarget) {
+		for (const artifact of opts.binaries) {
+			const r = scanBinaryForeignPaths(artifact.path, opts.finalTarget);
+			for (const allowed of r.allowed) {
+				process.stderr.write(`gate5: allowlisted ${artifact.label} artifact: ${allowed}\n`);
+			}
+			if (r.foreign.length > 0) {
+				problems.push(
+					`${artifact.label} bakes build-machine path(s): ${r.foreign.slice(0, 5).join(", ")}${r.foreign.length > 5 ? ` (+${r.foreign.length - 5} more)` : ""}`,
+				);
+			}
 		}
 	}
 
@@ -409,8 +398,10 @@ function verifyOfflineContainment(
  * that deliberately accepts false negatives; this is the behavioural proof —
  * clone the staged tree to a DIFFERENT absolute path and boot it there. If
  * anything baked the builder's layout into the tree, `--ext-list` fails or
- * drops extensions from the new location. `cp -c` (APFS clone) keeps the copy
- * ~free; cpSync is the portable fallback.
+ * drops extensions from the new location. The copied `bin/bun` relocates
+ * trivially (it resolves no paths relative to its own location), so what this
+ * gate really proves is the BUNDLE + pi assets resolving from the new path.
+ * `cp -c` (APFS clone) keeps the copy ~free; cpSync is the portable fallback.
  */
 function verifyRelocatable(stageDir: string, outRoot: string, expected: string[]): void {
 	const relocRoot = mkdtempSync(join(outRoot, ".reloc-"));
@@ -418,7 +409,7 @@ function verifyRelocatable(stageDir: string, outRoot: string, expected: string[]
 	const clone = Bun.spawnSync(["cp", "-cR", stageDir, copy], { stdout: "pipe", stderr: "pipe" });
 	if (clone.exitCode !== 0) cpSync(stageDir, copy, { recursive: true });
 	try {
-		const there = extListOf(join(copy, CORE_FILENAME));
+		const there = extListOf(copy);
 		const missing = expected.filter((n) => !there.loaded.includes(n));
 		if (there.loadedCount !== expected.length || missing.length > 0) {
 			throw new Error(
@@ -603,11 +594,20 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			));
 
 		// Gate 5 — BEFORE the rename/freeze/current swap, so a violation never
-		// becomes the deployed version. The binary scan keys off the FINAL
+		// becomes the deployed version. The artifact scans key off the FINAL
 		// version path: a baked `.staging-…` path is itself a violation (it
-		// sits under $HOME and would break relocatability).
-		recordGate(gates, "5", "verifyOfflineContainment (5a symlinks · 5b core paths · 5c completeness · 5d closure)", "deploy", () =>
-			verifyOfflineContainment(stage, { binary: join(stage, CORE_FILENAME), finalTarget: target }));
+		// sits under $HOME and would break relocatability). 5b scans BOTH the
+		// core bundle (plain text — foreign paths fully readable) and the
+		// shipped bin/bun (a binary we did not build; see offline-gate.ts's
+		// allowlist table for the only accepted strings).
+		recordGate(gates, "5", "verifyOfflineContainment (5a symlinks · 5b core+runtime paths · 5c completeness · 5d closure)", "deploy", () =>
+			verifyOfflineContainment(stage, {
+				binaries: [
+					{ label: "core bundle", path: join(stage, CORE_FILENAME) },
+					{ label: "shipped bun", path: join(stage, "bin", "bun") },
+				],
+				finalTarget: target,
+			}));
 
 		// Gate 6 — behavioural relocatability: boot a clone of the staged tree
 		// from a different absolute path.

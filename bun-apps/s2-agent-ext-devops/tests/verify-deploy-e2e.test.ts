@@ -2,7 +2,7 @@
  * verify-deploy-e2e — unit tests for the recipe + CLI wrapper.
  *
  * Spawn-free: every probe goes through an injected fake SpawnFn keyed on the
- * argv (the real run.sh is never executed, no model call is ever placed). The
+ * argv (the real launcher is never executed, no model call is ever placed). The
  * filesystem surface is a mkdtemp deploy root with a `current` symlink and a
  * deploy.json, mirroring what ~/proj/dist/s2-agent-sh actually looks like.
  */
@@ -19,10 +19,10 @@ const VERSION = "0.1.0+gdeadbee";
 const versionDir = join(root, VERSION);
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-function makeTree(opts: { extensions?: string[]; runSh?: boolean; deployJson?: string } = {}): string {
+function makeTree(opts: { extensions?: string[]; launcher?: boolean; deployJson?: string } = {}): string {
 	mkdirSync(versionDir, { recursive: true });
-	if (opts.runSh === false) rmSync(join(versionDir, "run.sh"), { force: true });
-	else writeFileSync(join(versionDir, "run.sh"), "#!/usr/bin/env bash\n");
+	if (opts.launcher === false) rmSync(join(versionDir, "s2-agent.sh"), { force: true });
+	else writeFileSync(join(versionDir, "s2-agent.sh"), "#!/usr/bin/env bash\n");
 	writeFileSync(
 		join(versionDir, "deploy.json"),
 		opts.deployJson ??
@@ -243,11 +243,11 @@ describe("runDeployE2e", () => {
 		expect(r.probes).toEqual([]);
 	});
 
-	test("a missing run.sh is a structured fail", async () => {
-		makeTree({ runSh: false });
+	test("a missing s2-agent.sh is a structured fail", async () => {
+		makeTree({ launcher: false });
 		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn() });
 		expect(r.verdict).toBe("fail");
-		expect(r.note).toContain("run.sh");
+		expect(r.note).toContain("s2-agent.sh");
 	});
 
 	test("--skip-model-call keeps the verdict pass without placing a call", async () => {

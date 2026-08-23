@@ -2,7 +2,7 @@
 effort: 2026-08-23-deploy-platform-neutral-core
 created: 2026-08-23
 last: 2026-08-23
-status: active
+status: done
 ---
 # deploy-platform-neutral-core — replace the compiled core with a bun-run ESM bundle + shipped bun
 
@@ -77,9 +77,11 @@ Phase 2 — runtime shipping
   full-chain e2e verified (shim → launcher → shipped bun → bundle, 17/17)
 
 Phase 3 — proof
-- `tickets/03-gates-and-e2e.md` — task, **open** — Gates 3/5b/6 and
-  `verify-deploy-e2e`/`deploy-cli` spawn the new shape; full live deploy + relocation +
-  post-deploy E2E on the real outRoot
+- `tickets/03-gates-and-e2e.md` — task, **closed** (2026-08-23) — Gates 3/5b/6
+  + e2e boot the new shape (5b scans both artifacts; pristine bin/bun
+  produced zero foreign hits); compiled remnant + embedded-assets mechanism +
+  `binarySkills` key deleted; real-outRoot deploy `0.2.5+gb7b7719` green end
+  to end incl. post-deploy E2E and old-compiled-dirs-still-boot
 
 ## Decisions
 
@@ -103,12 +105,13 @@ Recorded with rationale in `spec.md` §3 (D1–D6). The load-bearing three:
 
 ## Frontier
 
-Ticket 03 — 01 and 02 are closed (2026-08-23; #1860 + this branch). The version
-dir now boots entirely from its own runtime; what remains is the proof layer
-speaking the new shape end to end (Gates 5b on a pristine `bin/bun`, e2e/docs
-copy, the real-outRoot live deploy) and deleting the compiled-mode remnant
-(`--compile` branch, `$bunfs` arms, the whole `~/.pi/agent/embedded-assets/`
-extraction mechanism) once the first green real deploy proves the new layout.
+None — the effort is closed (2026-08-23). All three tickets merged; the
+deployed dist at `~/proj/dist/s2-agent-sh/current` is a bun-run ESM bundle +
+shipped `bin/bun` + `s2-agent.sh` launcher, verified by a live deploy with
+post-deploy E2E green and old compiled version dirs still booting. Natural
+follow-ups (not this effort): drop the deprecated `run.sh` shim after a
+grace period; reword the remaining historical `--compile`/`$bunfs` comments
+in s2-agent/src on their next touch (they document still-true constraints).
 
 ## Fog of war
 
@@ -124,9 +127,9 @@ extraction mechanism) once the first green real deploy proves the new layout.
   bun-run-bundle confusion; pi's own internals may branch on compiled-vs-source elsewhere
   (e.g. `scrub-inherited-package-dir.ts` assumptions). Ticket 01 sweeps for
   `execPath`/`$bunfs` anchors across `s2-agent/src`.
-- **Gate 5b on a pristine bun.** `scanBinaryForeignPaths` will scan a bun we did not
-  build; bun embeds its own build-time strings. Expect new allowlist entries; whether any
-  look like build-machine paths is unknown until first run.
+- **Gate 5b on a pristine bun.** RESOLVED (ticket 03): the real deploy's scan of
+  `bin/bun` produced ZERO foreign hits — bun's embedded build strings are CI-runner
+  paths, not under this machine's `$HOME` or the repo. No new allowlist rows needed.
 - **Bun-version drift on swapped-platform runs.** Supported contract is same-`Bun.version`
   (already part of the core hash). Unbounded forward-compat is explicitly out of scope.
 - **`s2-agent.sh` on Linux assumes bash** — same assumption today's `run.sh` makes; noted,
