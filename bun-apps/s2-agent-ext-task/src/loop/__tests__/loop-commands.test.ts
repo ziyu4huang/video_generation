@@ -1,38 +1,52 @@
-// src/loop/__tests__/loop-commands.test.ts
-import { test, expect } from "bun:test";
-import { parseLoopCommand, parseDuration } from "../loop-commands.js";
+/** /loop CC-syntax parsing — [interval] <prompt…>, default 10m, s rounds up. */
+import { test, expect, describe } from "bun:test";
+import { parseLoopCommand, parseInterval } from "../loop-commands.js";
 
-test("start with measure -> metric mode", () => {
-	const r = parseLoopCommand('start "harden security" measure="bun test | grep -c passing"');
-	expect(r).toMatchObject({ kind: "start", mode: "metric", target: "harden security", direction: "higher" });
+describe("parseInterval", () => {
+	test("units s/m/h/d", () => {
+		expect(parseInterval("120s")).toBe(120_000);
+		expect(parseInterval("5m")).toBe(300_000);
+		expect(parseInterval("1h")).toBe(3_600_000);
+		expect(parseInterval("1d")).toBe(86_400_000);
+	});
+	test("seconds round UP to a whole minute (CC)", () => {
+		expect(parseInterval("1s")).toBe(60_000);
+		expect(parseInterval("45s")).toBe(60_000);
+		expect(parseInterval("61s")).toBe(120_000);
+	});
+	test("junk rejected", () => {
+		expect(parseInterval("5x")).toBeUndefined();
+		expect(parseInterval("m5")).toBeUndefined();
+		expect(parseInterval("")).toBeUndefined();
+	});
 });
 
-test("start without measure -> metricless (Sisyphus)", () => {
-	const r = parseLoopCommand('start "improve the spec"');
-	expect(r).toMatchObject({ kind: "start", mode: "metricless", target: "improve the spec" });
-});
-
-test("direction + max + tokens + plateau parsed", () => {
-	const r: any = parseLoopCommand('start "t" measure="m" direction=lower max=10 tokens=100k plateau=3');
-	expect(r.direction).toBe("lower");
-	expect(r.maxIterations).toBe(10);
-	expect(r.tokenBudget).toBe(100_000);
-	expect(r.plateauWindow).toBe(3);
-});
-
-test("time duration parses h/m", () => {
-	expect(parseDuration("2h")).toBe(2 * 60 * 60_000);
-	expect(parseDuration("30m")).toBe(30 * 60_000);
-	expect(parseDuration("bad")).toBeUndefined();
-});
-
-test("stop / status subcommands", () => {
-	expect(parseLoopCommand("stop")).toMatchObject({ kind: "stop" });
-	expect(parseLoopCommand("status")).toMatchObject({ kind: "show" });
-	expect(parseLoopCommand("")).toMatchObject({ kind: "show" });
-});
-
-test("start requires a target", () => {
-	expect(parseLoopCommand("start")).toMatch(/Usage/);
-	expect(parseLoopCommand('start measure="m"')).toMatch(/Usage/);
+describe("parseLoopCommand", () => {
+	test("interval + prompt", () => {
+		const r = parseLoopCommand("5m check the deploy");
+		expect(r).toEqual({ kind: "start", intervalMs: 300_000, prompt: "check the deploy" });
+	});
+	test("prompt only defaults to 10m", () => {
+		const r = parseLoopCommand("babysit the PR queue");
+		expect(r).toEqual({ kind: "start", intervalMs: 600_000, prompt: "babysit the PR queue" });
+	});
+	test("d-unit prompt target", () => {
+		const r = parseLoopCommand("1d /daily-summary");
+		expect(r).toEqual({ kind: "start", intervalMs: 86_400_000, prompt: "/daily-summary" });
+	});
+	test("stop / status / empty", () => {
+		expect(parseLoopCommand("stop")).toEqual({ kind: "stop" });
+		expect(parseLoopCommand("status")).toEqual({ kind: "show" });
+		expect(parseLoopCommand("")).toEqual({ kind: "show" });
+		expect(typeof parseLoopCommand("stop extra")).toBe("string");
+	});
+	test("old process-loop syntax gets a usage pointer", () => {
+		const r = parseLoopCommand('start "improve x" measure="echo 1"');
+		expect(typeof r).toBe("string");
+		expect(r).toContain("/loop <interval> <prompt>");
+	});
+	test("interval token without prompt is a usage error", () => {
+		const r = parseLoopCommand("5m");
+		expect(typeof r).toBe("string");
+	});
 });
