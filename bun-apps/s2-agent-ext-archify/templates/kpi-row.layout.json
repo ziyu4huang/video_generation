@@ -1,0 +1,51 @@
+{
+  "name": "kpi-row",
+  "description": "2–4 metric tiles in one row across the content well: a large value, its label, and an optional note under each. Use when three numbers ARE the slide.",
+  "chrome": true,
+  "slots": {
+    "kpis": {
+      "kind": "array",
+      "of": ["value", "label", "note?"],
+      "min": 2,
+      "max": 4,
+      "required": true,
+      "description": "one tile per entry; `value` is the big number, `label` names it, `note` qualifies it"
+    }
+  },
+  "roles": {
+    "kpiValue": { "sizePt": 40, "bold": true, "color": "title" },
+    "kpiLabel": { "sizePt": 13, "color": "body" },
+    "kpiNote": { "sizePt": 11, "color": "muted" }
+  },
+  "body": [
+    {
+      "region": "content",
+      "repeat": { "over": "kpis", "flow": "row", "gap": 0.3, "max": 4 },
+      "cell": [
+        {
+          "stack": { "dir": "row", "weights": [3, 2, 2], "gap": 0.12 },
+          "children": [
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "kpiValue", "from": "{value}" },
+              "align": "center",
+              "valign": "bottom"
+            },
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "kpiLabel", "from": "{label}" },
+              "align": "center",
+              "valign": "top"
+            },
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "kpiNote", "from": "{note}" },
+              "align": "center",
+              "valign": "top"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

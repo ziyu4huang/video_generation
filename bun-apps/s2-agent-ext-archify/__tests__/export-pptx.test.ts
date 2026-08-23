@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { archifyExportPptx } from "../lib/export-pptx.ts";
+import { archifyExportPptx, readabilityNotes, READABILITY_FLOOR_PT } from "../lib/export-pptx.ts";
 import { count, readZipText } from "../lib/read-zip.ts";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -56,6 +56,34 @@ describe("archify_export_pptx — input contract", () => {
     );
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/slide 1/);
+  });
+});
+
+describe("readability advisory", () => {
+  const slides = (minPt?: number) => [{ ...(minPt !== undefined ? { minPt } : {}) }];
+
+  test("flags a diagram whose smallest label is under the floor", () => {
+    // The v3/v4 defect: an 8px label scaled into a wide viewBox lands ~4pt.
+    // The advisory is exactly the thing that was missing — it has to fire, and
+    // name the slide, so the agent tightens the viewBox before shipping.
+    const notes = readabilityNotes(slides(4.2), READABILITY_FLOOR_PT);
+    expect(notes.length).toBe(1);
+    expect(notes[0]!.slide).toBe(1);
+    expect(notes[0]!.minPt).toBe(4.2);
+    expect(notes[0]!.floor).toBe(READABILITY_FLOOR_PT);
+  });
+
+  test("is silent at or above the floor", () => {
+    expect(readabilityNotes(slides(8.06), READABILITY_FLOOR_PT)).toHaveLength(0);
+    expect(readabilityNotes(slides(), READABILITY_FLOOR_PT)).toHaveLength(0);
+  });
+
+  test("flags only the slides that are under the floor", () => {
+    const notes = readabilityNotes(
+      [{ minPt: 9.1 }, { minPt: 5.5 }],
+      READABILITY_FLOOR_PT
+    );
+    expect(notes.map((n) => n.slide)).toEqual([2]);
   });
 });
 
@@ -126,5 +154,46 @@ describe("archify_export_pptx — output", () => {
     );
     const r = await archifyExportPptx({ manifestPath, theme: "light" }, { cwd: PKG_ROOT });
     expect(r.details["theme"]).toBe("light");
+  }, 60_000);
+});
+
+describe("archify_export_pptx — one-folder output contract", () => {
+  test("an output outside the manifest folder carries the spread advisory", async () => {
+    const manifestDir = mkdtempSync(join(tmpdir(), "archify-spread-manifest-"));
+    const elsewhere = mkdtempSync(join(tmpdir(), "archify-spread-output-"));
+    try {
+      const manifestPath = join(manifestDir, "deck.config.json");
+      await Bun.write(
+        manifestPath,
+        JSON.stringify({
+          output: join(elsewhere, "scattered.pptx"),
+          slides: [{ ir: IR_A, title: "T" }],
+        })
+      );
+      const r = await archifyExportPptx({ manifestPath }, { cwd: PKG_ROOT });
+      expect(r.isError).toBeUndefined();
+      expect(r.content[0]!.text).toContain("outside the manifest folder");
+      const spread = r.details["spread"] as { outputPath: string; manifestDir: string };
+      expect(spread.manifestDir).toBe(manifestDir);
+      expect(spread.outputPath).toBe(join(elsewhere, "scattered.pptx"));
+    } finally {
+      rmSync(manifestDir, { recursive: true, force: true });
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("an output beside the manifest stays silent", async () => {
+    const manifestPath = join(work, "colocated.config.json");
+    await Bun.write(
+      manifestPath,
+      JSON.stringify({
+        output: "colocated.pptx",
+        slides: [{ ir: IR_B, title: "T" }],
+      })
+    );
+    const r = await archifyExportPptx({ manifestPath }, { cwd: PKG_ROOT });
+    expect(r.isError).toBeUndefined();
+    expect(r.details["spread"]).toBeUndefined();
+    expect(r.content[0]!.text).not.toContain("manifest folder");
   }, 60_000);
 });

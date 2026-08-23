@@ -1,0 +1,9 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0213 0.675 0.0747] left/middle text:title "三條關鍵路徑中，解析器獨占八成預算"
+[0.0375 0.0933 0.925 0.04] left/middle text:takeaway "解析器是唯一值得先動刀的路徑"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source ""
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "1 / 1"
+[0.0375 0.2 0.925 0.5928] left/top table:body/tableHead ["服務","p99","p50"] ["解析器","4.2 s","1.8 s"] ["影像服務","210 ms","180 ms"] ["通知佇列","95 ms","88 ms"]
+[0.0375 0.8128 0.925 0.0539] right/bottom text:tableNote "資料期間：2026 年 7 月，生產環境抽樣"

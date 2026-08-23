@@ -104,6 +104,17 @@ describe("the deck builds without a browser", () => {
       expect(s.texts, `${s.diagramType} texts`).toBeGreaterThan(0);
     }
   });
+
+  test("every diagram slide reports the smallest placed text pt", () => {
+    // The shipped examples all carry labels, so each diagram slide must expose
+    // a numeric minPt on the built slide. This is the field the export turns
+    // into a readability advisory, so a missing value means the deck can't tell
+    // the agent a diagram is being shrunk into unreadability.
+    for (const s of result.slides) {
+      expect(s.minPt, `${s.diagramType} minPt`).toBeTypeOf("number");
+      expect(s.minPt!, `${s.diagramType} minPt`).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("shape design — the contract", () => {

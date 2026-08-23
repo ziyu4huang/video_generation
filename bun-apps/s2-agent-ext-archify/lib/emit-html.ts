@@ -36,7 +36,13 @@
  *
  *     --pt: calc(100cqw / 960);   font-size: calc(var(--pt) * 26);
  */
-import { bulletSizePt, TYPE_SCALE, type Palette, type Role, type Theme } from "./deck-theme.ts";
+import {
+  bulletSizePt,
+  builtinRoleOf,
+  type Palette,
+  type Theme,
+  type TypeSpec,
+} from "./deck-theme.ts";
 import type { PlacedBlock } from "./slide-model.ts";
 
 export interface EmitHtmlCtx {
@@ -51,6 +57,11 @@ export interface EmitHtmlCtx {
    * framed area rather than a broken frame.
    */
   diagramSrc: Map<string, DiagramEmbed>;
+  /**
+   * Role → type spec, `{ ...TYPE_SCALE, ...template.roles }` when the slide's
+   * layout is a template. Omitted ⇒ the builtin scale (§4.5).
+   */
+  roleOf?: (role: string) => TypeSpec;
 }
 
 export interface DiagramEmbed {
@@ -84,8 +95,8 @@ function place(b: PlacedBlock): string {
 
 const JUSTIFY: Record<string, string> = { top: "flex-start", middle: "center", bottom: "flex-end" };
 
-function typeCss(role: Role, palette: Palette): string {
-  const spec = TYPE_SCALE[role];
+function typeCss(role: string, palette: Palette, roleOf: (role: string) => TypeSpec): string {
+  const spec = roleOf(role);
   const parts = [
     `font-size:calc(var(--pt) * ${spec.sizePt})`,
     `color:#${palette[spec.color]}`,
@@ -99,6 +110,7 @@ function typeCss(role: Role, palette: Palette): string {
 /** Render the blocks of ONE composed slide into a standalone page. */
 export function emitHtmlSlide(blocks: PlacedBlock[], ctx: EmitHtmlCtx): string {
   const p = ctx.palette;
+  const roleOf = ctx.roleOf ?? builtinRoleOf;
   const body: string[] = [];
 
   for (const block of blocks) {
@@ -123,7 +135,8 @@ export function emitHtmlSlide(blocks: PlacedBlock[], ctx: EmitHtmlCtx): string {
         body.push(
           `<div class="b tx" style="${place(block)};justify-content:${justify};text-align:${align};${typeCss(
             c.role,
-            p
+            p,
+            roleOf
           )}"><span>${esc(c.text)}</span></div>`
         );
         break;
@@ -141,7 +154,27 @@ export function emitHtmlSlide(blocks: PlacedBlock[], ctx: EmitHtmlCtx): string {
           .join("");
         body.push(
           `<div class="b tx" style="${place(block)};justify-content:${justify}">` +
-            `<ul style="line-height:${TYPE_SCALE.bullet.lineSpacing ?? 1.35}">${items}</ul></div>`
+            `<ul style="line-height:${roleOf("bullet").lineSpacing ?? 1.35}">${items}</ul></div>`
+        );
+        break;
+      }
+
+      case "table": {
+        // The pptx table's twin: same columns, same header row, same cell
+        // order, painted from the same two roles.
+        const head = c.columns
+          .map((h) => `<th style="${typeCss(c.headerRole, p, roleOf)}">${esc(h)}</th>`)
+          .join("");
+        const rowsHtml = c.rows
+          .map(
+            (row) =>
+              `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`
+          )
+          .join("");
+        body.push(
+          `<div class="b tx" style="${place(block)};justify-content:${justify}">` +
+            `<table class="tbl" style="${typeCss(c.role, p, roleOf)}">` +
+            `<thead><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`
         );
         break;
       }
@@ -191,6 +224,9 @@ ul{margin:0;padding:0;list-style:none;width:100%}
 li{position:relative;padding-left:calc(var(--pt) * 18);margin:0 0 calc(var(--pt) * 6)}
 li::before{content:"";position:absolute;left:0;top:0.55em;width:calc(var(--pt) * 5);
   height:calc(var(--pt) * 5);border-radius:50%;background:#${p.accent}}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{border:1px solid #${p.panelBorder};padding:calc(var(--pt) * 4);text-align:left;vertical-align:middle}
+.tbl th{background:#${p.panelBg}}
 </style>
 <div class="wrap"><div class="stage">
 ${body.join("\n")}

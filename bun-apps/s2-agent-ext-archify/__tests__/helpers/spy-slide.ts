@@ -11,9 +11,11 @@
 import type { SlideLike, TextRun } from "../../lib/pptx-shapes.ts";
 
 export interface SpyCall {
-  fn: "addShape" | "addText" | "addImage" | "addNotes";
+  fn: "addShape" | "addText" | "addImage" | "addTable" | "addNotes";
   type?: string;
   text?: string | TextRun[];
+  /** `addTable` only: the cell rows as passed. */
+  rows?: unknown;
   opts: Record<string, unknown>;
 }
 
@@ -21,6 +23,7 @@ export interface SpySlide extends SlideLike {
   calls: SpyCall[];
   background?: unknown;
   addImage(opts: Record<string, unknown>): void;
+  addTable(rows: unknown, opts: Record<string, unknown>): void;
   addNotes(text: string): void;
 }
 
@@ -37,6 +40,9 @@ export function spySlide(): SpySlide {
     addImage(opts) {
       calls.push({ fn: "addImage", opts });
     },
+    addTable(rows, opts) {
+      calls.push({ fn: "addTable", rows, opts });
+    },
     addNotes(text) {
       calls.push({ fn: "addNotes", text, opts: {} });
     },
@@ -48,6 +54,13 @@ export function textCalls(slide: SpySlide): { text: string; opts: Record<string,
   return slide.calls
     .filter((c) => c.fn === "addText" && typeof c.text === "string")
     .map((c) => ({ text: c.text as string, opts: c.opts }));
+}
+
+/** Every `addTable` call: the cell rows plus the options they were placed with. */
+export function tableCalls(slide: SpySlide): { rows: unknown; opts: Record<string, unknown> }[] {
+  return slide.calls
+    .filter((c) => c.fn === "addTable")
+    .map((c) => ({ rows: c.rows, opts: c.opts }));
 }
 
 /** Every string that reaches the slide, including the runs of a bullet list. */

@@ -133,6 +133,12 @@ export interface TypeSpec {
   tracking?: number;
   /** Line spacing multiple, for the multi-line roles. */
   lineSpacing?: number;
+  /**
+   * Opt this role's long text into `fit: "shrink"` at the emitters. Omitted ⇒
+   * the builtin `AUTOFIT_ROLES` set decides, so the six code layouts keep
+   * their exact autofit behaviour and a template opts in explicitly.
+   */
+  autofit?: boolean;
 }
 
 /**
@@ -162,6 +168,17 @@ export const TYPE_SCALE: Record<Role, TypeSpec> = {
 
 /** A nested bullet is one tier down, so the hierarchy is visible at a glance. */
 export const BULLET_LEVEL_STEP_PT = 2;
+
+/**
+ * The builtin `roleOf`: the type scale itself. Both emitters default to this
+ * when a caller passes no template roles, which is what keeps the six code
+ * layouts' output byte-identical through the §4.5 refactor.
+ */
+export function builtinRoleOf(role: string): TypeSpec {
+  return (
+    TYPE_SCALE[role as Role] ?? { sizePt: 16, color: "body", lineSpacing: 1.3 }
+  );
+}
 
 /** Font size for a bullet at nesting `level` (0-based). */
 export function bulletSizePt(level: number): number {

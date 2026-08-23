@@ -1,0 +1,40 @@
+{
+  "name": "end",
+  "description": "The closing slide: a full-bleed dark panel with a centred closing headline and an optional contact line under it. Divider-class — no chrome, so the title band and page number are absent by design.",
+  "chrome": false,
+  "slots": {
+    "headline": {
+      "kind": "text",
+      "required": true,
+      "description": "the closing line — thanks, a call to action, or the one sentence to leave the room with"
+    },
+    "contact": {
+      "kind": "text",
+      "description": "where to follow up: an address, a channel, a link"
+    }
+  },
+  "roles": {
+    "endContact": { "sizePt": 16, "color": "sectionFg" }
+  },
+  "body": [
+    {
+      "region": "full",
+      "box": "fill",
+      "content": { "kind": "panel", "tone": "section" }
+    },
+    {
+      "region": "full",
+      "box": { "inset": [0.9, 2.5, 0.9, 2.4] },
+      "content": { "kind": "text", "role": "sectionTitle", "from": "{slide.headline}" },
+      "align": "center",
+      "valign": "middle"
+    },
+    {
+      "region": "full",
+      "box": { "inset": [0.9, 5.2, 0.9, 1.9] },
+      "content": { "kind": "text", "role": "endContact", "from": "{slide.contact}" },
+      "align": "center",
+      "valign": "top"
+    }
+  ]
+}

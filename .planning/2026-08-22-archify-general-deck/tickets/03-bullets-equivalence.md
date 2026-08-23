@@ -2,9 +2,9 @@
 ticket: 03-bullets-equivalence
 effort: archify-general-deck
 type: task
-status: open
+status: done
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocked-by: [01]
 ---
 # 03 — prove the vocabulary is sufficient, not merely convenient

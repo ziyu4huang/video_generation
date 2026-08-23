@@ -2,9 +2,9 @@
 ticket: 02-layout-registry
 effort: archify-general-deck
 type: task
-status: open
+status: done
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocked-by: [01]
 blocking: [04, 06]
 ---

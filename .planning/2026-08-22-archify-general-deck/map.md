@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-22-archify-general-deck
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 status: specified
 ---
 # archify-general-deck — architecture-diagram tool → general slide generator
@@ -99,16 +99,19 @@ the set of available layouts is knowable only by reading `SKILL.md`.
 ## Tickets
 
 Phase 1 — the template seam
-- `tickets/01-template-schema-and-resolver.md` — task, open — schema + `region/stack/repeat/box` resolver
-- `tickets/02-layout-registry.md` — task, open — search path, precedence, role merging
-- `tickets/03-bullets-equivalence.md` — task, open — **the vocabulary's acceptance bar**
+- `tickets/01-template-schema-and-resolver.md` — task, **done** 2026-08-23 — schema + `region/stack/repeat/box` resolver
+- `tickets/02-layout-registry.md` — task, **done** 2026-08-23 — search path, precedence, role merging
+- `tickets/03-bullets-equivalence.md` — task, **done** 2026-08-23 — **the vocabulary's acceptance bar** (equivalence passed first full run; no gap)
 
 Phase 2 — the agent surface
-- `tickets/04-deck-lint-tool.md` — task, open — `archify_deck_lint`: catalog + renderless lint
+- `tickets/04-deck-lint-tool.md` — task, **done** 2026-08-23 — `archify_deck_lint`: catalog + renderless lint
+
+Phase 2.5 — output packaging (added 2026-08-23)
+- `tickets/11-self-contained-output.md` — task, **in progress** — one-folder contract + spread advisory landed 2026-08-23; example-conformance test still owed
 
 Phase 3 — the library
-- `tickets/05-table-primitive.md` — task, open — `BlockContent.kind: "table"`, both emitters
-- `tickets/06-template-library.md` — task, open — the seven shipped templates + goldens
+- `tickets/05-table-primitive.md` — task, **done** 2026-08-23 — `BlockContent.kind: "table"`, both emitters
+- `tickets/06-template-library.md` — task, **done** 2026-08-23 — the seven shipped templates + goldens (zero `.ts` changes needed; no vocabulary gap)
 - `tickets/07-example-deck-general.md` — task, open — `examples/deck-general/` + gates
 
 Phase 4 — authoring ergonomics
@@ -151,19 +154,42 @@ Recorded in full in `spec.md` §3. The load-bearing ones:
   arrives as a new INPUT SHAPE on `archify_export_pptx`, not as a third tool, because the
   schema-cost canary charges every registered tool in every session.
 
+- **D9 — self-contained output folder is a contract + advisory, not a path override**
+  (added 2026-08-23). Measured root cause of the ~/proj/output spread: `resolveDeckOutput`
+  and `defaultSlidesDir` already keep outputs beside the manifest — the leak was authoring
+  time (absolute top-level `outputPath` in the driving prompt). Overriding explicit user
+  paths would break trust; instead the skill states the one-folder rule, and
+  `archify_export_pptx` attaches an advisory (text + `details.spread`) when the resolved
+  output leaves the manifest dir. Advisory-only matches the `lintDeck` channel; no XML is
+  touched, so the D3 byte-lock cannot notice.
+
 ## Frontier
 
-`tickets/03-bullets-equivalence.md` — **write this test before ticket 01's resolver is
-finished**, not after. It reconstructs the shipped `bullets` layout purely in template
-vocabulary and asserts `formatBlocks()` output is line-for-line identical to the code layout.
-It is the only check that answers "is this vocabulary actually sufficient, or is it merely
-sufficient for the seven templates I happened to pick?" — and a vocabulary gap found here is
-cheap, while the same gap found at ticket 06 invalidates seven files.
+`tickets/07-example-deck-general.md` — the proof deck. Phase 2 closed 2026-08-23: ticket
+05 landed `table` as the effort's one new drawing primitive in both emitters (`autoPage:
+false` explicit + asserted; over-long table stays ONE slide; `<a:blip>` still 0;
+`too-many-table-rows` lint advisory at 12 body rows), and ticket 06 shipped all seven
+templates + CJK goldens with **zero `.ts` changes** — the vocabulary held. The role-name
+collision case from Fog of war is now pinned by test (per-slide resolution, no leakage).
+Suite 505 → 605 passing, 0 failing. Ticket 07 builds a real general-purpose deck through
+the new surface; tickets 08–10 (Markdown outline, scaffolds, docs/skill split) follow.
 
-Tickets 01 and 02 are its prerequisites and should be worked as one unit with it.
+Earlier phases, closed: ticket 11 (one-folder contract; example-conformance test owed),
+01+02+03 (template seam; bullets-equivalence first-run pass, timeline EXPRESSIBLE), 04
+(`archify_deck_lint`; canary +248 tok).
 
 ## Fog of war
 
+- **Typo'd slot binding renders silently empty.** `{slide.rowss}` passes `validateFrom`
+  (it checks token syntax, not existence) and a `table` box renders header-only — found in
+  ticket-06 review 2026-08-23, consistent with `resolveBullets`' existing behaviour, so not
+  a regression. If agent-authored templates become common, `validateFrom` should check the
+  key against the slide record at LOAD time.
+- **Custom-IR lessons from ~/proj/output not yet folded back.** The v3 run's
+  `self-reflection.md` records hard-won authoring rules (no `animation:"trace"` on
+  deck-facing sequence IRs; keep lifeline x clear of the segment-label span; DOM
+  computed-style audit before believing screenshots) that belong in SKILL.md or the
+  vendored deep guide — charted 2026-08-23, not yet landed.
 - **P2 (title overflow) was a shared, unfixed defect landing on all seven templates —
   FIXED 2026-08-22 by the visual-fidelity effort (ticket 02), before any template here was
   built.** Every shipped template sets `chrome: true`, inheriting the fixed-height title

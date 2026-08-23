@@ -1,0 +1,2 @@
+[0.0375 0.2 0.5967 0.6667] left/top text:body "Cold-path latency is what users feel"
+[0.6642 0.2 0.2983 0.6667] left/top bullets:bullet 0:"p99 is 4.2 s" 1:"of which 3.1 s is DNS"

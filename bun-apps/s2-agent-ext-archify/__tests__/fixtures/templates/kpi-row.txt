@@ -1,0 +1,16 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0213 0.675 0.0747] left/middle text:title "快取讓冷啟動延遲減半，使用者才回得來"
+[0.0375 0.0933 0.925 0.04] left/middle text:takeaway "先做解析器快取，其餘延後"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source ""
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "1 / 1"
+[0.0375 0.2 0.2933 0.272] center/bottom text:kpiValue "4.2 s"
+[0.0375 0.488 0.2933 0.1813] center/top text:kpiLabel "冷啟動 p99"
+[0.0375 0.6853 0.2933 0.1813] center/top text:kpiNote "快取後降至 1.8 s"
+[0.3533 0.2 0.2933 0.272] center/bottom text:kpiValue "38%"
+[0.3533 0.488 0.2933 0.1813] center/top text:kpiLabel "快取命中率"
+[0.3533 0.6853 0.2933 0.1813] center/top text:kpiNote "上線四週量測"
+[0.6692 0.2 0.2933 0.272] center/bottom text:kpiValue "17 ms"
+[0.6692 0.488 0.2933 0.1813] center/top text:kpiLabel "熱路徑延遲"
+[0.6692 0.6853 0.2933 0.1813] center/top text:kpiNote ""

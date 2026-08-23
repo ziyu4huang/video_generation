@@ -1,11 +1,15 @@
 /**
  * export-pptx.ts — the `archify_export_pptx` tool.
  *
- * Agent-facing face of lib/deck-build.ts. Two input shapes:
+ * Agent-facing face of lib/deck-build.ts. Four input shapes, resolved through
+ * the ONE `resolveDeckInput()` so they cannot drift:
  *
  *   - `manifestPath` — a deck.config.json (the portable, reviewable form)
  *   - `irPaths`      — one slide per IR, titles taken from `ir.meta.title`
  *                      (the "just turn these into a deck" form)
+ *   - `outline`      — Markdown outline text (the prose-first authoring door;
+ *                      six code layouts as markers, templates via fenced JSON)
+ *   - `outlinePath`  — same dialect, read from a file
  *
  * Slides carry NATIVE PowerPoint shapes, not screenshots — no browser is
  * launched and nothing is rasterized.
@@ -17,13 +21,12 @@
  */
 import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve, dirname } from "node:path";
 import {
   buildDeck,
   DeckError,
   defaultSlidesDir,
-  loadManifestFile,
-  manifestFromIrPaths,
+  resolveDeckInput,
   resolveDeckOutput,
   type DeckManifest,
   type Theme,
@@ -34,6 +37,10 @@ import type { OpenBus } from "./open-announce.ts";
 export interface ExportPptxParams {
   manifestPath?: string;
   irPaths?: string[];
+  /** Outline Markdown text (see lib/outline.ts for the marker dialect). */
+  outline?: string;
+  /** Path to an outline file; paths inside resolve beside it. */
+  outlinePath?: string;
   outputPath?: string;
   theme?: string;
   /** Where the rendered slide HTML goes; `null` keeps only the .pptx. */
@@ -58,6 +65,42 @@ function err(text: string, details: Record<string, unknown> = {}): ToolResult {
   return { content: [{ type: "text", text }], details: { error: text, ...details }, isError: true };
 }
 
+/**
+ * Below this pt, a diagram label on a 16:9 slide is hard to read in a meeting.
+ * Exported so the advisory is configurable/testable without a renderer.
+ */
+export const READABILITY_FLOOR_PT = 8;
+
+export interface ReadabilityNote {
+  /** 1-based slide index. */
+  slide: number;
+  /** Smallest diagram-label pt actually placed on that slide. */
+  minPt: number;
+  /** The floor it dropped below. */
+  floor: number;
+}
+
+/**
+ * Which slides put a diagram label below the readability floor?
+ *
+ * `sizePt = fontSize * scale * 72`, and `scale` shrinks with the viewBox. A
+ * wide IR in a fixed slide box silently collapses its labels (the v3/v4 4pt
+ * defect); this surfaces it at export time instead of after a screenshot.
+ * Pure and renderless: only reads what the build already measured.
+ */
+export function readabilityNotes(
+  slides: { minPt?: number }[],
+  floor: number = READABILITY_FLOOR_PT
+): ReadabilityNote[] {
+  const notes: ReadabilityNote[] = [];
+  slides.forEach((s, i) => {
+    if (s.minPt !== undefined && s.minPt < floor) {
+      notes.push({ slide: i + 1, minPt: s.minPt, floor });
+    }
+  });
+  return notes;
+}
+
 /** Pure entry point (tested directly; the tool wrapper only adapts the SDK shape). */
 export async function archifyExportPptx(
   params: ExportPptxParams,
@@ -72,32 +115,29 @@ export async function archifyExportPptx(
   }
   const theme = params.theme as Theme | undefined;
 
-  const hasManifest = typeof params.manifestPath === "string" && params.manifestPath !== "";
-  const hasIrs = Array.isArray(params.irPaths) && params.irPaths.length > 0;
-  if (hasManifest === hasIrs) {
-    return err("Pass exactly one of `manifestPath` or a non-empty `irPaths`.");
-  }
-
   try {
-    let manifest: DeckManifest;
-    let manifestDir: string;
-    if (hasManifest) {
-      const loaded = await loadManifestFile(params.manifestPath!, ctx.cwd);
-      manifest = loaded.manifest;
-      manifestDir = loaded.manifestDir;
-    } else {
-      manifest = manifestFromIrPaths(params.irPaths!, ctx.cwd);
-      manifestDir = ctx.cwd;
-    }
+    const input = await resolveDeckInput(params, ctx.cwd);
+    const manifest: DeckManifest = input.manifest;
+    const manifestDir: string = input.manifestDir;
+    const hasManifest = input.inputKind === "manifest";
 
-    // `irPaths` has no manifest to carry an output, so default beside the cwd.
+    // `irPaths`/`outline` have no manifest to carry an output; default beside
+    // the resolved base dir so the one-folder advisory stays quiet by default.
     const outputPath = params.outputPath
       ? isAbsolute(params.outputPath)
         ? params.outputPath
         : resolve(ctx.cwd, params.outputPath)
       : hasManifest
         ? resolveDeckOutput(manifest, manifestDir, ctx.cwd)
-        : resolve(ctx.cwd, "deck.pptx");
+        : resolve(manifestDir, "deck.pptx");
+
+    // Output-layout contract (map D9): one deliverable = one folder. The tools
+    // already default beside the manifest; this catches an authored outputPath
+    // that would scatter the .pptx/.slides away from it. Advisory only.
+    const spread =
+      hasManifest && dirname(resolve(outputPath)) !== resolve(manifestDir)
+        ? { outputPath, manifestDir }
+        : undefined;
 
     const result = await buildDeck({
       manifest,
@@ -124,6 +164,18 @@ export async function archifyExportPptx(
     // `details` so the agent sees them without a second tool call, alongside the
     // storyline: the titles read in order ARE the deck's argument.
     const notes = lintDeck(manifest);
+    // Readability advisory (this session's learning): a diagram whose smallest
+    // label scales below the floor is silently unreadable. Surfaced at export
+    // so the agent tightens the viewBox before the deck ships, not after a
+    // screenshot. Advisory only — it never fails the export.
+    const small = readabilityNotes(result.slides);
+    const readability =
+      small.length > 0
+        ? ` NOTE: ${small.length} diagram slide(s) put a label below ${READABILITY_FLOOR_PT}pt ` +
+          `(${small
+            .map((n) => `slide ${n.slide} @ ${n.minPt.toFixed(1)}pt`)
+            .join(", ")}) — tighten the viewBox or enlarge the diagram box before shipping.`
+        : "";
     return {
       content: [
         {
@@ -132,12 +184,17 @@ export async function archifyExportPptx(
             `Exported ${result.slides.length} slides → ${result.output} ` +
             `(${(result.bytes / 1024).toFixed(0)} KB, ${shapes} native shapes, theme=${result.theme}). ` +
             `Shapes are editable in PowerPoint; nothing was rasterized.` +
-            (result.slidesDir ? ` Interactive slides: ${result.slidesDir}` : ""),
+            (result.slidesDir ? ` Interactive slides: ${result.slidesDir}` : "") +
+            readability +
+            (spread
+              ? ` NOTE: the .pptx landed outside the manifest folder (${manifestDir}) — keep one deliverable in one folder: put the .pptx (and its .slides/) beside deck.config.json.`
+              : ""),
         },
       ],
       details: {
         path: result.output,
         ...(result.slidesDir ? { slidesDir: result.slidesDir } : {}),
+        ...(spread ? { spread } : {}),
         theme: result.theme,
         bytes: result.bytes,
         slides: result.slides.map((s) => ({
@@ -146,9 +203,11 @@ export async function archifyExportPptx(
           diagramType: s.diagramType,
           shapes: s.shapes,
           texts: s.texts,
+          ...(s.minPt !== undefined ? { minPt: s.minPt } : {}),
         })),
         storyline: storyline(manifest),
         ...(notes.length > 0 ? { lint: notes } : {}),
+        ...(small.length > 0 ? { readability: small } : {}),
       },
     };
   } catch (e) {
@@ -164,10 +223,15 @@ export function makeExportPptxTool(events?: OpenBus) {
     label: "Archify Export PPTX",
     description:
       "Export archify diagrams to a 16:9 .pptx as NATIVE, EDITABLE PowerPoint shapes (no screenshots). " +
-      "Pass either `manifestPath` (a deck.config.json) or `irPaths` (one slide per IR). " +
-      "A manifest slide may set `layout` (title|section|bullets|split|diagram|statement) with " +
-      "`bullets`/`takeaway`/`source`/`statement`; a slide with `ir` and no `layout` is a diagram slide. " +
-      "Optional `outputPath`, `theme` (light|dark) and `slidesDir`. " +
+      "Pass exactly one input shape: `manifestPath` (a deck.config.json), `irPaths` (one slide per IR), " +
+      "`outline` (Markdown outline text) or `outlinePath` (an outline file). The outline dialect covers the " +
+      "six code layouts with markers (# cover, ## NN section, ### action title, ^ takeaway, ~ source, - bullets, " +
+      "!ir diagram); every layout template goes through a fenced :::name JSON payload. Call archify_deck_lint " +
+      "with no arguments first to list available layouts and deck skeletons. " +
+      "A manifest slide may set `layout` with `bullets`/`takeaway`/`source`/`statement`; a slide with `ir` and no " +
+      "`layout` is a diagram slide. Optional `outputPath`, `theme` (light|dark) and `slidesDir`. " +
+      "One deliverable = one folder: keep manifest/outline, IRs, .pptx and .slides/ together; an output outside " +
+      "the manifest folder earns an advisory. " +
       "Also keeps the interactive slide HTML in <output>.slides/ and announces it to a webui Diagram pane. " +
       "Returns the absolute .pptx path.",
     parameters: Type.Object({
@@ -180,7 +244,21 @@ export function makeExportPptxTool(events?: OpenBus) {
       irPaths: Type.Optional(
         Type.Array(Type.String(), {
           description:
-            "IR .json paths, one slide each, in order. Titles come from ir.meta.title. Mutually exclusive with manifestPath.",
+            "IR .json paths, one slide each, in order. Titles come from ir.meta.title.",
+        })
+      ),
+      outline: Type.Optional(
+        Type.String({
+          description:
+            "Deck as Markdown outline TEXT: YAML frontmatter (output/theme/tag/defaults.font) + body markers " +
+            "(# cover + > subtitle; ## NN section; ### action title; ^ takeaway; ~ source; '- ' / two-space '- ' bullets; " +
+            "!ir <path>; fenced ```:::<template> JSON payload for layout templates). Mutually exclusive with the other shapes.",
+        })
+      ),
+      outlinePath: Type.Optional(
+        Type.String({
+          description:
+            "Path to an outline file (same dialect as `outline`). Paths inside resolve against the file's own directory.",
         })
       ),
       outputPath: Type.Optional(

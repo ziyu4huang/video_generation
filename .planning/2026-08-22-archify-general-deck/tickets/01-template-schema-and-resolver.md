@@ -2,9 +2,9 @@
 ticket: 01-template-schema-and-resolver
 effort: archify-general-deck
 type: task
-status: open
+status: done
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocking: [02, 03, 06]
 ---
 # 01 — the template contract and its resolver

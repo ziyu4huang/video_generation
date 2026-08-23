@@ -1,0 +1,54 @@
+{
+  "name": "agenda",
+  "description": "3–8 numbered rows down the content well: an accent number ({index1} numbering), a bold row title, and an optional note (often a time box) to its right. The meeting's contract — keep every row short.",
+  "chrome": true,
+  "slots": {
+    "items": {
+      "kind": "array",
+      "of": ["title", "note?"],
+      "min": 3,
+      "max": 8,
+      "required": true,
+      "description": "one row per entry; `title` is the item, `note` often carries its time box"
+    }
+  },
+  "roles": {
+    "agendaNumber": { "sizePt": 18, "bold": true, "color": "accent" },
+    "agendaTitle": { "sizePt": 16, "bold": true, "color": "title" },
+    "agendaNote": { "sizePt": 12, "color": "muted" }
+  },
+  "body": [
+    {
+      "region": "content",
+      "repeat": { "over": "items", "flow": "col", "gap": 0.18, "max": 8 },
+      "cell": [
+        {
+          "stack": { "dir": "col", "weights": [1, 7], "gap": 0.25 },
+          "children": [
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "agendaNumber", "from": "{index1}" },
+              "align": "right",
+              "valign": "middle"
+            },
+            {
+              "stack": { "dir": "row", "weights": [3, 2], "gap": 0.2 },
+              "children": [
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "agendaTitle", "from": "{title}" },
+                  "valign": "middle"
+                },
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "agendaNote", "from": "{note}" },
+                  "valign": "middle"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

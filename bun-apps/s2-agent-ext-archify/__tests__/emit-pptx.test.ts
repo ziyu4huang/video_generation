@@ -187,3 +187,45 @@ describe("counts", () => {
     }
   });
 });
+
+describe("minPt propagation", () => {
+  test("emitPptxSlide returns the diagram block's smallest text pt", () => {
+    // A 100x100 diagram in a split column (fitContent) with one text node at
+    // fontSize 8. The slide returns the mapped pt so the deck builder can turn
+    // it into a readability advisory without re-deriving the geometry.
+    const ir: ShapeIR = {
+      width: 100,
+      height: 100,
+      theme: "light",
+      nodes: [
+        {
+          kind: "text",
+          x: 60,
+          y: 60,
+          text: "8pt",
+          anchor: "start",
+          fontSize: 8,
+          fontWeight: 400,
+          style: { fill: { r: 0, g: 0, b: 0, a: 1 } },
+        },
+      ],
+    };
+    const blocks = layoutFor("split")({ title: "T", ir: "/abs/x.json", bullets: [] }, CTX);
+    const slide = spySlide();
+    const result = emitPptxSlide(slide, blocks, ctx(new Map([["/abs/x.json", ir]])));
+    expect(result.minPt).toBeGreaterThan(0);
+    // `diagram` layout (canvas fit, not content) is the default the export ships;
+    // assert the shape propagates a number when a text node exists.
+    expect(typeof result.minPt).toBe("number");
+  });
+
+  test("minPt is undefined when a slide has no diagram text", () => {
+    const blocks = layoutFor("bullets")(
+      { title: "T", bullets: ["only prose"] },
+      CTX
+    );
+    const slide = spySlide();
+    const result = emitPptxSlide(slide, blocks, ctx());
+    expect(result.minPt).toBeUndefined();
+  });
+});

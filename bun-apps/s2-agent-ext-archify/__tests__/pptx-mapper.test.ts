@@ -610,7 +610,49 @@ describe("label width", () => {
   });
 });
 
-describe("the shape-design contract", () => {
+describe("readability floor (minPt)", () => {
+  const mk = (fontSize: number, x = 0) => ({
+    kind: "text" as const,
+    x,
+    y: 50,
+    text: "lg",
+    anchor: "start" as const,
+    fontSize,
+    fontWeight: 400,
+    style: BLACK,
+  });
+
+  test("reports the smallest emitted text pt across nodes", () => {
+    const slide = spySlide();
+    // BOX is 10in over a 100-unit viewBox ⇒ scale 0.1 in/unit ⇒ pt = size*0.1*72.
+    const r = addShapeIrToSlide(slide, ir([mk(8), mk(11)]), BOX);
+    // 8*0.1*72 = 57.6pt; 11*0.1*72 = 79.2pt. Without the floor the figure
+    // collapses to whatever the layout chose — this is what the deck exposes
+    // so an agent is told before the deck ships, not after a screenshot.
+    expect(r.minPt).toBeCloseTo(8 * 0.1 * 72, 6);
+  });
+
+  test("minPt is set for one text node and is the box-scaled value", () => {
+    const slide = spySlide();
+    const r = addShapeIrToSlide(slide, ir([mk(10)]), BOX);
+    expect(r.minPt).toBeCloseTo(10 * 0.1 * 72, 6);
+  });
+
+  test("minPt is absent when a diagram emits no text", () => {
+    const slide = spySlide();
+    const r = addShapeIrToSlide(slide, ir([{ kind: "rect", x: 0, y: 0, w: 10, h: 10, style: BLACK }]), BOX);
+    expect(r).toEqual({ shapes: 1, texts: 0, scale: 0.1 });
+    expect(r.minPt).toBeUndefined();
+  });
+
+  test("minPt tracks the smaller of two different font sizes", () => {
+    const slide = spySlide();
+    const r = addShapeIrToSlide(slide, ir([mk(14), mk(7)]), BOX);
+    expect(r.minPt).toBeCloseTo(7 * 0.1 * 72, 6);
+  });
+});
+
+ describe("the shape-design contract", () => {
   test("addImage is NEVER called, for any node kind", () => {
     const slide = spySlide();
     addShapeIrToSlide(

@@ -17,10 +17,12 @@
  */
 import {
   bulletSizePt,
+  builtinRoleOf,
   TYPE_SCALE,
   type Palette,
   type Role,
   type Theme,
+  type TypeSpec,
 } from "./deck-theme.ts";
 import { addShapeIrToSlide, type Box, type SlideLike } from "./pptx-shapes.ts";
 import type { ShapeIR } from "./shape-ir.ts";
@@ -38,11 +40,24 @@ export interface EmitPptxCtx {
    * against a spy slide.
    */
   diagrams: Map<string, ShapeIR>;
+  /**
+   * Role → type spec, `{ ...TYPE_SCALE, ...template.roles }` when the slide's
+   * layout is a template. Omitted ⇒ the builtin scale, which is what keeps
+   * code-layout output unchanged (§4.5).
+   */
+  roleOf?: (role: string) => TypeSpec;
 }
 
 export interface EmitResult {
   shapes: number;
   texts: number;
+  /**
+   * Smallest diagram-label pt on the slide, when it has one (see
+   * `PlacementResult.minPt`). The deck builder turns this into a readability
+   * advisory so a diagram whose labels collapse below a readable floor is
+   * reported at export time, not after a screenshot.
+   */
+  minPt?: number;
 }
 
 /**
@@ -59,8 +74,8 @@ const AUTOFIT_ROLES: ReadonlySet<Role> = new Set<Role>([
   "statement",
 ]);
 
-function textOptions(role: Role, ctx: EmitPptxCtx): Record<string, unknown> {
-  const spec = TYPE_SCALE[role];
+function textOptions(role: string, ctx: EmitPptxCtx): Record<string, unknown> {
+  const spec = ctx.roleOf ? ctx.roleOf(role) : builtinRoleOf(role);
   return {
     fontFace: ctx.font,
     fontSize: spec.sizePt,
@@ -68,7 +83,7 @@ function textOptions(role: Role, ctx: EmitPptxCtx): Record<string, unknown> {
     ...(spec.bold ? { bold: true } : {}),
     ...(spec.tracking !== undefined ? { charSpacing: spec.tracking } : {}),
     ...(spec.lineSpacing !== undefined ? { lineSpacingMultiple: spec.lineSpacing } : {}),
-    ...(AUTOFIT_ROLES.has(role) ? { fit: "shrink" } : {}),
+    ...((spec.autofit ?? AUTOFIT_ROLES.has(role as Role)) ? { fit: "shrink" } : {}),
   };
 }
 
@@ -81,6 +96,7 @@ export function emitPptxSlide(
   const p = ctx.palette;
   let shapes = 0;
   let texts = 0;
+  let resultMinPt: number | undefined;
 
   for (const block of blocks) {
     const box: Box = toInches(block.box);
@@ -158,6 +174,43 @@ export function emitPptxSlide(
         break;
       }
 
+      case "table": {
+        // Native `<a:tbl>` (D5). Both roles resolve through `roleOf` like every
+        // other block; colours are palette keys, never literals.
+        const bodySpec = ctx.roleOf ? ctx.roleOf(content.role) : builtinRoleOf(content.role);
+        const headSpec = ctx.roleOf ? ctx.roleOf(content.headerRole) : builtinRoleOf(content.headerRole);
+        const cellOf = (s: string, spec: TypeSpec): { text: string; options: Record<string, unknown> } => ({
+          text: s,
+          options: {
+            fontFace: ctx.font,
+            fontSize: spec.sizePt,
+            color: ctx.palette[spec.color],
+            ...(spec.bold ? { bold: true } : {}),
+          },
+        });
+        const rows = [
+          content.columns.map((c) => cellOf(c, headSpec)),
+          ...content.rows.map((row) => row.map((cell) => cellOf(cell, bodySpec))),
+        ];
+        slide.addTable(rows, {
+          ...box,
+          // Even columns; pptxgenjs wants one width per column, in inches.
+          colW: content.columns.map(() => box.w / content.columns.length),
+          fontFace: ctx.font,
+          fontSize: bodySpec.sizePt,
+          border: { type: "solid", pt: 0.5, color: ctx.palette.panelBorder },
+          fill: { color: ctx.palette.slideBg },
+          ...(block.align ? { align: block.align } : {}),
+          // autoPage splits an over-long table onto GENERATED slides the
+          // manifest never declared, breaking the 1:1 slide-index ↔
+          // manifest-entry assumption here and in emit-html.ts. Never rely on
+          // the library default being false — set it, and assert it.
+          autoPage: false,
+        });
+        shapes++;
+        break;
+      }
+
       case "diagram": {
         const ir = ctx.diagrams.get(content.ir);
         if (!ir) {
@@ -175,10 +228,13 @@ export function emitPptxSlide(
         });
         shapes += placed.shapes;
         texts += placed.texts;
+        if (placed.minPt !== undefined) {
+          resultMinPt = resultMinPt === undefined ? placed.minPt : Math.min(resultMinPt, placed.minPt);
+        }
         break;
       }
     }
   }
 
-  return { shapes, texts };
+  return { shapes, texts, ...(resultMinPt !== undefined ? { minPt: resultMinPt } : {}) };
 }

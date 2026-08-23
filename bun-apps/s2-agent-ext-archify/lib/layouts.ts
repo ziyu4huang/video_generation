@@ -22,8 +22,8 @@ import {
   TITLE_BAND,
   type Role,
 } from "./deck-theme.ts";
+import { at } from "./blocks.ts";
 import {
-  fromInches,
   normalizeBullets,
   type InchBox,
   type LayoutCtx,
@@ -32,21 +32,11 @@ import {
   type SlideLayout,
 } from "./slide-model.ts";
 
-/** Build a block from inch coordinates — the only constructor this file uses. */
-function at(
-  box: InchBox,
-  content: PlacedBlock["content"],
-  align?: PlacedBlock["align"],
-  valign?: PlacedBlock["valign"]
-): PlacedBlock {
-  return {
-    box: fromInches(box),
-    content,
-    ...(align ? { align } : {}),
-    ...(valign ? { valign } : {}),
-  };
-}
-
+/**
+ * Text block constructor, narrow-`Role` on purpose: the six code layouts keep
+ * the union's type safety even though `BlockContent.role` widens to `string`
+ * at the emitter boundary (§4.5). Box assembly goes through the shared `at`.
+ */
 function text(box: InchBox, role: Role, s: string, align?: PlacedBlock["align"], valign?: PlacedBlock["valign"]): PlacedBlock {
   return at(box, { kind: "text", role, text: s }, align, valign);
 }
@@ -61,8 +51,12 @@ function text(box: InchBox, role: Role, s: string, align?: PlacedBlock["align"],
  * only geometry that moves is the title band, and only when a `takeaway` is
  * present — with no takeaway the output is coordinate-for-coordinate what it
  * was.
+ *
+ * Exported so layout templates wear the SAME chrome (§4.3): a template's
+ * blocks must be indistinguishable from a code layout's, and chrome is where
+ * a second implementation would drift first.
  */
-function chrome(slide: Slide, ctx: LayoutCtx, opts: { title?: boolean } = {}): PlacedBlock[] {
+export function chrome(slide: Slide, ctx: LayoutCtx, opts: { title?: boolean } = {}): PlacedBlock[] {
   const withTitle = opts.title !== false;
   const hasTakeaway = withTitle && !!slide.takeaway;
   const blocks: PlacedBlock[] = [

@@ -1,0 +1,14 @@
+{
+  "name": "bullets-equiv",
+  "description": "TEST FIXTURE ONLY - a template reconstruction of the bullets code layout. Never on a search path, absent from catalog().",
+  "chrome": true,
+  "body": [
+    {
+      "region": "content",
+      "box": { "inset": [0, 0, 1.833, 0] },
+      "content": { "kind": "bullets", "role": "bullet", "from": "{slide.bullets}" },
+      "align": "left",
+      "valign": "top"
+    }
+  ]
+}

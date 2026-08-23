@@ -42,9 +42,15 @@ export interface BulletItem {
   level?: number;
 }
 
+/**
+ * What goes inside a placed block. `role` is a `string`, not `Role`: layout
+ * templates declare their own role names, and `Role` widens here — the emitter
+ * boundary — only. Code layouts keep the narrow union via `layouts.ts`'s
+ * private `text()` wrapper.
+ */
 export type BlockContent =
-  | { kind: "text"; role: Role; text: string }
-  | { kind: "bullets"; role: Role; items: BulletItem[] }
+  | { kind: "text"; role: string; text: string }
+  | { kind: "bullets"; role: string; items: BulletItem[] }
   /**
    * A rendered archify diagram. `ir` is an absolute path to the IR .json.
    *
@@ -59,7 +65,13 @@ export type BlockContent =
   /** The accent rule under a slide title. */
   | { kind: "rule" }
   /** A flat plate: the tag chip's field, or a section divider's full bleed. */
-  | { kind: "panel"; tone: "tag" | "section" };
+  | { kind: "panel"; tone: "tag" | "section" }
+  /**
+   * A native PowerPoint table (`<a:tbl>` inside a graphicFrame — effort
+   * decision D5, probed 2026-08-22). Two roles paint it: `headerRole` for the
+   * column-head row, `role` for every body row. No colour literals anywhere.
+   */
+  | { kind: "table"; columns: string[]; rows: string[][]; role: string; headerRole: string };
 
 export interface PlacedBlock {
   box: FracBox;
@@ -114,6 +126,14 @@ export interface Slide {
   sectionNumber?: string;
   /** `split` — the diagram column's share of the content width. Default 0.6. */
   ratio?: number;
+  /**
+   * The `table` layout template's slots (effort ticket 05): column names and
+   * one array of cells per row. `deck-lint.ts` reads them for the row-count
+   * advisory and the inline-colour sweep; the template resolves them into a
+   * `table` block via `{slide.columns}` / `{slide.rows}`.
+   */
+  columns?: string[];
+  rows?: string[][];
   /**
    * `diagram`/`split`. `"expand"` ⇒ the deck pipeline expands the IR's
    * `meta.views` into this overview slide plus one guided build slide per
@@ -225,6 +245,11 @@ export function formatBlocks(blocks: PlacedBlock[]): string {
           break;
         case "panel":
           what = `panel:${c.tone}`;
+          break;
+        case "table":
+          what =
+            `table:${c.role}/${c.headerRole} ${JSON.stringify(c.columns)} ` +
+            c.rows.map((r) => JSON.stringify(r)).join(" ");
           break;
       }
       return `${box} ${pos} ${what}`;
