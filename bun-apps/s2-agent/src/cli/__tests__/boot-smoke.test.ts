@@ -55,20 +55,32 @@ function runCanary(): { exitCode: number | null; json: unknown; stderr: string }
 }
 
 describe("boot-smoke canary", () => {
+  // ONE shared canary boot for the whole describe: each test used to spawn its
+  // own identical `tools-metrics` boot, paying the full extension load +
+  // hermes startup sync twice (~4.6 s per boot, measured 2026-08-22) for zero
+  // extra coverage — both tests assert on the SAME run's output. hermes stays
+  // ON here (unlike the e2e/_helpers.ts harness): the baseline's sourceMinimum
+  // includes hermes-memory's tools.
+  let canary: ReturnType<typeof runCanary>;
+
   beforeAll(() => {
     // s2-agent-ext-ultracode is src-entry since the 2026-08-15 src-entry migration
     // (ticket 04): package root resolves to src/index.ts, nothing to build.
     // (KC now imports obsidian.ts directly post-#558 — no obsidian bundle build
     // needed either.)
     buildIfMissing("s2-agent-ext-subagent", "build", "dist/index.js");
-  });
+    canary = runCanary();
+    // Trailing timeout (cast: pinned bun-types lack the overload; runtime
+    // honors it) — the hook now CARRIES the real CLI boot, so it needs the
+    // same 30s hang bound the tests used to declare individually.
+  }, 30_000 as never);
 
   // Trailing timeouts (cast: pinned bun-types lack the overload; runtime
-  // honors it): each test spawns a REAL CLI boot, and hermes-memory's startup
-  // sync alone costs ~3.5s (perf.jsonl 2026-08-22) — measured boots ~4.6s,
-  // comfortably above bun's 5s default. 30s bounds a hang.
+  // honors it): the suite spawns a REAL CLI boot (in beforeAll), and
+  // hermes-memory's startup sync alone costs ~3.5s (perf.jsonl 2026-08-22) —
+  // measured boots ~4.6s, comfortably above bun's 5s default. 30s bounds a hang.
   test("CLI boots in source mode and the canary command exits 0 with valid JSON", () => {
-    const { exitCode, json, stderr } = runCanary();
+    const { exitCode, json, stderr } = canary;
     expect(exitCode, `canary exited non-zero.\nstderr:\n${stderr}`).toBe(0);
     expect(json, `stdout was not valid JSON; stderr:\n${stderr}`).not.toBeNull();
     const obj = json as Record<string, unknown>;
@@ -78,7 +90,7 @@ describe("boot-smoke canary", () => {
   }, 30_000 as never);
 
   test("no new factory errors, tool-count at floor, 0 tool-name conflicts, expected sources present", () => {
-    const { exitCode, json, stderr } = runCanary();
+    const { exitCode, json, stderr } = canary;
     expect(exitCode, `stderr:\n${stderr}`).toBe(0);
     const obj = json as {
       toolsRanked: Array<{ name: string; source: string; hasExecute?: boolean; schemaValid?: boolean }>;

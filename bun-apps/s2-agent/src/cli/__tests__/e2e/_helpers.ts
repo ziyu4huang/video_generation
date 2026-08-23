@@ -42,7 +42,8 @@ export interface CliResult {
 
 /**
  * Run the CLI in source mode with the given argv. Extra env entries overlay
- * process.env (PI_SKIP_MODELS_JSON=1 is always set); pass `undefined` to unset.
+ * process.env (PI_SKIP_MODELS_JSON=1 and BUN_PI_HERMES_MEMORY=0 are always
+ * set); pass `undefined` to unset.
  */
 export function runCli(
 	args: string[],
@@ -55,7 +56,13 @@ export function runCli(
 		cwd: pkgDir,
 		stdout: "pipe",
 		stderr: "pipe",
-		env: { ...process.env, PI_SKIP_MODELS_JSON: "1", ...opts.env },
+		// BUN_PI_HERMES_MEMORY=0: the tested surface (meta / dispatch-errors /
+		// arg-validation / exit codes) never touches the memory layer, but every
+		// boot would otherwise pay hermes-memory's startup syncMarkdownMemories
+		// against surrealdb — measured 5.6 s COLD per boot (2026-08-23), ~34
+		// boots across these files. boot-smoke.test.ts is the test that asserts
+		// hermes actually loads; it spawns its own boots with hermes ON.
+		env: { ...process.env, PI_SKIP_MODELS_JSON: "1", BUN_PI_HERMES_MEMORY: "0", ...opts.env },
 	});
 	return {
 		// BunSpawnSync returns exitCode as number | null (null on signal); coerce

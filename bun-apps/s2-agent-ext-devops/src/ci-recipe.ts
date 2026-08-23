@@ -97,6 +97,13 @@ export interface CiGateResult {
 	/** The workflow step's `name:` (or, for a `strict` extra, the script filename). */
 	name: string;
 	exitCode: number;
+	/**
+	 * Wall-clock of the gate's spawn. The 2026-08-23 budget breach (591 s) was
+	 * diagnosed with a hand-rolled timing probe because the report carried no
+	 * gate durations at all — `slowest[]` named packages while the real hot spot
+	 * (typecheck:ext, 184 s serial) hid in a duration-blind gate list.
+	 */
+	durationMs?: number;
 	/** One-liner outcome note (set by the in-process oneshot-smoke gate). */
 	note?: string;
 	/** Multi-line diagnostics on a failed gate (timeout recipe / captured tail). */
@@ -266,14 +273,18 @@ export interface CiOptions {
 	budgetMs?: number;
 	/**
 	 * Hard per-command wall-clock cap in ms, applied to every typecheck and test
-	 * spawn. Default 120 000 — ~4.6x the slowest real package (s2-agent, ~26s),
-	 * so it can only ever catch a HANG, never a slow suite.
+	 * spawn. Default 180 000 — sized against the slowest REAL command today
+	 * (s2-agent's `bun test && bun run typecheck` row, ~97-111 s measured
+	 * 2026-08-23, spiking higher under concurrent-session load), so it can only
+	 * ever catch a HANG, never a slow-but-live suite. The former 120 s default
+	 * predated that row's growth (its comment still priced s2-agent at ~26 s)
+	 * and was one loaded machine away from killing a green suite as HUNG.
 	 *
 	 * Sized against `budgetMs`, not against the slowest package alone: a single
 	 * command allowed 10 minutes can blow the ≤5-minute run budget by itself.
 	 * Measured 2026-08-15 — `s2-agent-ext-archify` hangs under the parallel phase
 	 * (it passes in 4s alone) and ate the full 600s cap, turning a 40s run into a
-	 * 639s one. At 120s the same hang costs 2 minutes and still reports.
+	 * 639s one. At 180s the same hang costs 3 minutes and still reports.
 	 *
 	 * Distinct from `budgetMs`, which is advisory and measured after the fact.
 	 * This one actually kills, because "report the overrun once it finishes" is
@@ -364,6 +375,22 @@ interface GateSpec {
 
 /** Always-on (v1) blocking gates. */
 const BLOCKING_GATES_V1 = ["ci-file-size-guard.sh", "check-lockfile-duplicate-versions.sh"];
+/**
+ * A gate whose command MUTATES shared workspace state and so must run ALONE,
+ * before anything else spawns bun against the tree. Today that is exactly
+ * check-lockfile-freshness.sh: it runs `bun install --cwd bun-apps` and
+ * re-resolves bun.lock — a concurrent `bun test` could observe a half-installed
+ * node_modules or a mid-rewrite lockfile. Matched on the command text, not the
+ * gate name, because names are workflow prose and drift.
+ */
+const EXCLUSIVE_GATE = /check-lockfile-freshness\.sh/;
+/**
+ * Concurrency of the read-only gate pool that overlaps the package test phase.
+ * Deliberately small: the pool shares the machine with the `concurrency`-wide
+ * test phase, and 4 + 2 concurrent bun processes is the proven-safe load on
+ * this machine (6 performance cores; heavier only starved suites into flakes).
+ */
+const GATE_POOL = 2;
 /** Extra audit gates added only under `strict`. */
 const STRICT_AUDIT_GATES = [
 	"test-determinism-audit.sh",
@@ -507,6 +534,59 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//     the generic derivation; an unreadable workflow yields {} → all generic.
 	const matrix = await (opts.readMatrix ?? readCiMatrix)(opts.repoRoot);
 
+	// 2c. GATES — read EARLY and structured for overlap. The gate suite was the
+	//     single biggest serial block in the 2026-08-23 budget breach (591 s
+	//     total; measured gate sum ≈ 298 s, of which typecheck:ext alone was
+	//     184 s and check-deploy-e2e 88 s). Two structural changes:
+	//     (a) EXCLUSIVE gates (mutators — see EXCLUSIVE_GATE) run FIRST, alone,
+	//         before any package phase spawns bun against the workspace;
+	//     (b) every other gate is read-only and runs in a small pool that
+	//         OVERLAPS the package test phase below instead of queueing behind
+	//         it. The pool is launched only AFTER the sequential-first phase:
+	//         s2-agent's suite rewrites bun-apps/node_modules/@repo/* symlinks
+	//         to a dangling form (see healWorkspaceLinks), and a gate resolving
+	//         @repo/* inside that window fails spuriously — the historical
+	//         btw/movie-director ENOENT class.
+	const gates: CiGateResult[] = [];
+	let gateError: string | undefined;
+	let schemaCost: CiOutcome["schemaCost"];
+	const includeGates = opts.includeGates !== false;
+	interface GateSpecSlot {
+		name: string;
+		run: string;
+		cwd: string;
+	}
+	let gateSpecs: GateSpecSlot[] = [];
+	/** One slot per spec (workflow order); filled as gates finish, so the
+	 * REPORTED gate order is the workflow's, independent of completion order. */
+	const gateResults: Array<CiGateResult | null> = [];
+	let gatesPromise: Promise<Array<unknown>> | null = null;
+	if (includeGates && !opts.signal?.aborted) {
+		const parsed = await (opts.readGates ?? readCiGates)(opts.repoRoot);
+		if (parsed.error) {
+			// Fail closed. Running zero gates and reporting "pass" is the false-green
+			// this whole path exists to prevent.
+			gateError = parsed.error;
+		} else {
+			gateSpecs = parsed.gates.map((g) => ({ name: g.name, run: g.run, cwd: g.cwd }));
+			if (opts.strict) {
+				// The audits CI has no step for — otherwise nothing ever runs them.
+				for (const file of LOCAL_ONLY_AUDITS)
+					gateSpecs.push({ name: file, run: auditCommand(file), cwd: "." });
+			}
+			gateResults.length = gateSpecs.length;
+			// (a) Exclusive gates, strictly alone and strictly first.
+			for (let i = 0; i < gateSpecs.length; i++) {
+				const spec = gateSpecs[i]!;
+				if (!EXCLUSIVE_GATE.test(spec.run)) continue;
+				const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
+				const t0 = now();
+				const r = await spawn("bash", ["-c", spec.run], { cwd });
+				gateResults[i] = { name: spec.name, exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
+			}
+		}
+	}
+
 	// 3. Per package: typecheck + lint + test, in three phases (≤5-minute budget
 	//    rule):
 	//    (a) typechecks AND biome runs go in PARALLEL (both are read-only —
@@ -521,13 +601,24 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	const concurrency = Math.max(1, opts.concurrency ?? 4);
 	// Every per-package spawn below carries this. A hung package now fails ITSELF
 	// (exit 124) instead of hanging the whole run forever.
-	const timeoutMs = opts.perCommandTimeoutMs ?? 120_000;
+	const timeoutMs = opts.perCommandTimeoutMs ?? 180_000;
 	const byName = new Map<string, CiPackageResult>(
 		pkgNames.map((name) => [name, { name, test: { exitCode: -1 } } as CiPackageResult]),
 	);
 
 	// 3a. Parallel typechecks + lints. Precedence for tsc: scripts.typecheck >
-	//     scripts.check (only if it runs tsc) > skipped.
+	//     scripts.check (only if it runs tsc) > skipped — with ONE dedupe rule:
+	//     when the package's resolved TEST command already runs typecheck/tsc
+	//     (s2-agent and gui-movie-director's matrix rows are
+	//     `<test> && bun run typecheck`), the separate phase-3a spawn would
+	//     typecheck the same tree a second time back-to-back. The row is the
+	//     source of truth for what CI runs, so its coverage is identical; the
+	//     phase spawn is the redundant copy and is the one skipped.
+	//
+	//     This phase runs `concurrency + 2` wide: every spawn here is read-only
+	//     (tsc --noEmit / biome check), so extra width can only cost CPU, never
+	//     correctness — unlike the test phase below, where width past 4 has
+	//     starved heavy suites into flakes.
 	//
 	//     WHY LINT IS A PHASE AND NOT A MATRIX ROW
 	//     Four packages chain `bun run check` inside their own `test` script and
@@ -541,13 +632,21 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//     uses, and it is why a new package with a biome.json cannot opt out by
 	//     accident. Which packages must HAVE such a script is asserted separately
 	//     by tests/lint-executor-coverage.test.ts.
-	await mapPool(pkgNames, concurrency, async (name) => {
+	await mapPool(pkgNames, concurrency + 2, async (name) => {
 		if (opts.signal?.aborted) return null;
 		const pkgDir = `${opts.repoRoot}/bun-apps/${name}`;
 		const result = byName.get(name)!;
 		const scripts = (await readPkg(pkgDir)).scripts ?? {};
+		// The test command this package will actually run (same precedence the
+		// test-phase planner below uses) — consulted here only for the dedupe.
+		const matrixCmd = matrix[name];
+		const cmdText =
+			typeof matrixCmd === "string" ? matrixCmd : typeof scripts.test === "string" ? scripts.test : null;
+		const rowTypechecks = cmdText !== null && /\btypecheck\b|\btsc\b/.test(cmdText);
 		const t0 = now();
-		if (typeof scripts.typecheck === "string") {
+		if (rowTypechecks) {
+			result.typecheck = { exitCode: -1, skipped: true, note: "covered by the test command itself" };
+		} else if (typeof scripts.typecheck === "string") {
 			const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
 			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 		} else if (typeof scripts.check === "string" && /tsc/.test(scripts.check)) {
@@ -649,6 +748,22 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	if (plans.some((p) => p.name === "s2-agent")) {
 		healWorkspaceLinks(opts.repoRoot);
 	}
+	// (2c-b) Launch the read-only gate pool NOW — after the sequential-first
+	//        phase (s2-agent's symlink rewrite is done and healed) so its
+	//        `bun test` spawns never resolve a dangling @repo/* link, and
+	//        concurrent with the test phase below so ~150 s of gate wall-clock
+	//        hides under it instead of queueing behind it. Not awaited here.
+	const gateIdx = gateSpecs.map((s, i) => ({ spec: s, i })).filter(({ spec }) => !EXCLUSIVE_GATE.test(spec.run));
+	if (gateIdx.length > 0 && !opts.signal?.aborted) {
+		gatesPromise = mapPool(gateIdx, GATE_POOL, async ({ spec, i }) => {
+			if (opts.signal?.aborted) return null;
+			const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
+			const t0 = now();
+			const r = await spawn("bash", ["-c", spec.run], { cwd });
+			gateResults[i] = { name: spec.name, exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
+			return null;
+		});
+	}
 	// 3c. Non-build rows, bounded parallelism.
 	await mapPool(
 		plans.filter((p) => !sequentialFirst(p)),
@@ -662,91 +777,71 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 
 	const packages = pkgNames.map((n) => byName.get(n)!);
 
-	// 4. Gates (default on) + info-only schema-cost.
+	// 4. Collect the gate suite (launched at 2c/3c above) + the tail gates.
 	//    The gate list is DERIVED from the workflow's `regression-gates` job —
 	//    never hand-written here. A hardcoded list drifted into running 2 of the
 	//    job's 14 steps, so eight blocking structural guards (dep-direction, ADR,
 	//    seam, routing, config-parity, ci-workflow, package-scripts, --strict
 	//    portability) never ran under the tool merge_pr_after_local_ci gates the merge on.
-	const gates: CiGateResult[] = [];
-	let gateError: string | undefined;
-	let schemaCost: CiOutcome["schemaCost"];
-	const includeGates = opts.includeGates !== false;
-	if (includeGates && !opts.signal?.aborted) {
-		const parsed = await (opts.readGates ?? readCiGates)(opts.repoRoot);
-		if (parsed.error) {
-			// Fail closed. Running zero gates and reporting "pass" is the false-green
-			// this whole path exists to prevent.
-			gateError = parsed.error;
-		} else {
-			// Every step is run as a SHELL command in its own working-directory: the
-			// rows are commands, not argv vectors (`bun run test:deps`), and a
-			// `bun-apps` row fails at the repo root for reasons unrelated to the guard.
-			const specs = parsed.gates.map((g) => ({ name: g.name, run: g.run, cwd: g.cwd }));
-			if (opts.strict) {
-				// The audits CI has no step for — otherwise nothing ever runs them.
-				for (const file of LOCAL_ONLY_AUDITS) specs.push({ name: file, run: auditCommand(file), cwd: "." });
-			}
-			for (const spec of specs) {
-				if (opts.signal?.aborted) break;
-				const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
-				const r = await spawn("bash", ["-c", spec.run], { cwd });
-				gates.push({ name: spec.name, exitCode: r.exitCode, ...detailOf(r) });
-			}
-			// oneshot-smoke — the ONE gate hand-added beside the workflow-derived set,
-			// and it can never have a workflow home: it boots the real s2-agent CLI,
-			// which needs this machine's providers/credentials (remote CI — disabled
-			// anyway — has neither; there it would classify as provider-unavailable
-			// SKIP and guard nothing). Like LOCAL_ONLY_AUDITS it is local-only, but
-			// unlike them it is ALWAYS on, not `strict`-only: its entire purpose is
-			// catching a boot hang (hermes startup syncMarkdownMemories / surrealdb
-			// wedge, 2026-08-15) before a session pays 6+ minutes for it, and its
-			// adaptive state (6h pass-cache / 24h canary) keeps steady-state cost at
-			// one sha256. Env override: DEVOPS_ONESHOT_SMOKE=force|skip.
-			if (!opts.signal?.aborted) {
-				const smoke = await (opts.runOneshotSmoke ?? runOneshotSmoke)({
-					repoRoot: opts.repoRoot,
-					spawn,
-					now,
+	if (gatesPromise) await gatesPromise;
+	gates.push(...gateResults.filter((r): r is CiGateResult => r !== null));
+	if (includeGates && !gateError && !opts.signal?.aborted) {
+		// oneshot-smoke — the ONE gate hand-added beside the workflow-derived set,
+		// and it can never have a workflow home: it boots the real s2-agent CLI,
+		// which needs this machine's providers/credentials (remote CI — disabled
+		// anyway — has neither; there it would classify as provider-unavailable
+		// SKIP and guard nothing). Like LOCAL_ONLY_AUDITS it is local-only, but
+		// unlike them it is ALWAYS on, not `strict`-only: its entire purpose is
+		// catching a boot hang (hermes startup syncMarkdownMemories / surrealdb
+		// wedge, 2026-08-15) before a session pays 6+ minutes for it, and its
+		// adaptive state (6h pass-cache / 24h canary) keeps steady-state cost at
+		// one sha256. Env override: DEVOPS_ONESHOT_SMOKE=force|skip. Runs AFTER
+		// the packages settle: it boots the real CLI against the real providers,
+		// and overlapping it with the test phase only invites provider contention
+		// into an otherwise-cheap cached gate.
+		if (!opts.signal?.aborted) {
+			const smoke = await (opts.runOneshotSmoke ?? runOneshotSmoke)({
+				repoRoot: opts.repoRoot,
+				spawn,
+				now,
+			});
+			if (smoke) {
+				gates.push({
+					name: ONESHOT_SMOKE_GATE_NAME,
+					exitCode: smoke.exitCode,
+					note: smoke.note,
+					...(smoke.detail ? { detail: smoke.detail } : {}),
 				});
-				if (smoke) {
-					gates.push({
-						name: ONESHOT_SMOKE_GATE_NAME,
-						exitCode: smoke.exitCode,
-						note: smoke.note,
-						...(smoke.detail ? { detail: smoke.detail } : {}),
-					});
-				}
-				// Change-triggered launcher e2e — the one remaining PI_AGENT_E2E-
-				// gated assertion (e2e-launcher's `symlink resolution` block, which
-				// spawns the real src/cli.ts). The workflow-derived gates above
-				// boot the deployed artifact, but a PI_AGENT_E2E-gated block is
-				// invisible to a plain `bun test` and so to the package matrix —
-				// the #1305 class. Runs ONLY when the diff touches a
-				// launcher/entry-sensitive path. A failed `git diff` skips the gate
-				// (fail-open): the unconditional artifact gate above already ran,
-				// and a base-ref that cannot diff was already rejected at step 1.
-				if (!opts.signal?.aborted) {
-					const diff = await spawn("git", ["diff", "--name-only", baseRef, headRef], {
-						cwd: opts.repoRoot,
-					});
-					if (diff.exitCode === 0) {
-						const files = diff.stdout
-							.split("\n")
-							.map((l) => l.trim())
-							.filter(Boolean);
-						if (shouldRunDeployE2e(files)) {
-							const r = await spawn("bash", ["-c", DEPLOY_E2E_COMMAND], {
-								cwd: `${opts.repoRoot}/bun-apps/s2-agent`,
-								// Bundle build + suite ≈ 20-40s; 240s only kills a HANG.
-								timeoutMs: 240_000,
-							});
-							gates.push({
-								name: DEPLOY_E2E_GATE_NAME,
-								exitCode: r.exitCode,
-								...detailOf(r),
-							});
-						}
+			}
+			// Change-triggered launcher e2e — the one remaining PI_AGENT_E2E-
+			// gated assertion (e2e-launcher's `symlink resolution` block, which
+			// spawns the real src/cli.ts). The workflow-derived gates above
+			// boot the deployed artifact, but a PI_AGENT_E2E-gated block is
+			// invisible to a plain `bun test` and so to the package matrix —
+			// the #1305 class. Runs ONLY when the diff touches a
+			// launcher/entry-sensitive path. A failed `git diff` skips the gate
+			// (fail-open): the unconditional artifact gate above already ran,
+			// and a base-ref that cannot diff was already rejected at step 1.
+			if (!opts.signal?.aborted) {
+				const diff = await spawn("git", ["diff", "--name-only", baseRef, headRef], {
+					cwd: opts.repoRoot,
+				});
+				if (diff.exitCode === 0) {
+					const files = diff.stdout
+						.split("\n")
+						.map((l) => l.trim())
+						.filter(Boolean);
+					if (shouldRunDeployE2e(files)) {
+						const r = await spawn("bash", ["-c", DEPLOY_E2E_COMMAND], {
+							cwd: `${opts.repoRoot}/bun-apps/s2-agent`,
+							// Bundle build + suite ≈ 20-40s; 240s only kills a HANG.
+							timeoutMs: 240_000,
+						});
+						gates.push({
+							name: DEPLOY_E2E_GATE_NAME,
+							exitCode: r.exitCode,
+							...detailOf(r),
+						});
 					}
 				}
 			}
