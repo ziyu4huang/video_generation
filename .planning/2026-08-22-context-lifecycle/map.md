@@ -205,4 +205,7 @@ exactly the injector's context-assembly primitive.
 - **Feeds**: `.planning/2026-08-23-kcard-openviking-parity` — that effort builds kcard's
   OpenViking-parity retrieval (SurrealDB derived index, hierarchical search, hotness); it cites
   this effort's D0/D3/D5/D6/D8 rather than re-deciding, and this effort's ticket 08 auto-recall
-  injector is its downstream consumer via the `__piKnowledgePipeline` seam.
+  injector is its downstream consumer via the `__piKnowledgePipeline` seam. That effort's D8
+  (ticket 01, 2026-08-23) adds seam→env→default precedence to D3's `embedding-leaf.ts`
+  resolution point — model choice (bge-m3) unchanged; values centralized in
+  `s2-agent/src/pre-load-providers.ts`.
