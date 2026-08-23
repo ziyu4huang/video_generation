@@ -32,13 +32,7 @@ export type {
 } from "@repo/s2-agent-core-runtime";
 export {
   getGlobalRateLimiter,
-  loadModelTierConfig,
-  logModelDecision,
-  resolveModelRole,
-  roleAwareDirectCall,
-  saveModelTierConfig,
   setRateLimitCapResolver,
-  spawnSubagent,
   WorkflowAgent,
 } from "@repo/s2-agent-core-runtime";
 // ── owned: background dispatch roster + task-notification delivery ───────────
