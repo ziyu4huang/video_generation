@@ -612,14 +612,20 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		}
 	}
 
-	// 3. Per package: typecheck + lint + test, in three phases (≤5-minute budget
-	//    rule):
-	//    (a) typechecks AND biome runs go in PARALLEL (both are read-only —
-	//        nothing races), replacing the former N×sequential tsc wall-clock;
-	//    (b) BUILD-bearing test rows (matrix/`test` commands containing `build`)
-	//        run SEQUENTIALLY FIRST, in package order — they write shared dist/
-	//        trees, and ci-local.sh documented that parallel runs race them;
-	//    (c) the remaining (non-build) test rows run with bounded parallelism —
+	// 3. Per package: typecheck + lint + test. Execution order (≤5-minute budget
+	//    rule) — the sequential-first phase closes the hazard window BEFORE any
+	//    parallel work starts, so everything after it can share one overlap
+	//    window with the gate pool:
+	//    (a) SEQUENTIAL-FIRST: build-bearing test rows (matrix/`test` commands
+	//        containing `build` — they write shared dist/ trees, and ci-local.sh
+	//        documented that parallel runs race them) and s2-agent's own suite
+	//        (the one repo package whose test run makes the Bun runtime rewrite
+	//        bun-apps/node_modules/@repo/* symlinks; running it alone means no
+	//        other process resolves a link inside the rewrite window);
+	//    (b) the gate pool launches (see 2c) — read-only, overlapped;
+	//    (c) typechecks AND biome runs in PARALLEL (both are read-only), mostly
+	//        DEDUPED away by the rules documented at runReadOnlyPhase;
+	//    (d) the remaining (non-build) test rows with bounded parallelism —
 	//        by then no dist write is in flight, so the race is gone by
 	//        construction, not by luck.
 	//    Results are reassembled in the ORIGINAL package order.
@@ -631,7 +637,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		pkgNames.map((name) => [name, { name, test: { exitCode: -1 } } as CiPackageResult]),
 	);
 
-	// 3a. Parallel typechecks + lints. Precedence for tsc: scripts.typecheck >
+	// 3a. Parallel typechecks + lints (EXECUTED after the sequential-first phase
+	//     below — see the call site — so its read-only spawns and the gate pool
+	//     both overlap the widest possible window). Precedence for tsc:
+	//     scripts.typecheck >
 	//     scripts.check (only if it runs tsc) > skipped — with TWO dedupe rules:
 	//     (i) when the package's resolved TEST command already runs
 	//     typecheck/tsc (s2-agent and gui-movie-director's matrix rows are
@@ -664,54 +673,56 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//     uses, and it is why a new package with a biome.json cannot opt out by
 	//     accident. Which packages must HAVE such a script is asserted separately
 	//     by tests/lint-executor-coverage.test.ts.
-	await mapPool(pkgNames, concurrency + 2, async (name) => {
-		if (opts.signal?.aborted) return null;
-		const pkgDir = `${opts.repoRoot}/bun-apps/${name}`;
-		const result = byName.get(name)!;
-		const scripts = (await readPkg(pkgDir)).scripts ?? {};
-		// The test command this package will actually run (same precedence the
-		// test-phase planner below uses) — consulted here only for the dedupe.
-		const matrixCmd = matrix[name];
-		const cmdText =
-			typeof matrixCmd === "string" ? matrixCmd : typeof scripts.test === "string" ? scripts.test : null;
-		const rowTypechecks = cmdText !== null && /\btypecheck\b|\btsc\b/.test(cmdText);
-		// Rule (ii): the typecheck:ext gate covers this package iff the gate
-		// suite is running AND the package matches the gate executor's own
-		// discovery rule (extensions/ entry + a tsc-invoking script). The rule
-		// is duplicated here deliberately (same call-signature as the guard
-		// script's) — see coveredByExtTypecheckGate.
-		const gateCoversTypecheck = includeGates && !gateError && coveredByExtTypecheckGate(pkgDir, scripts);
-		const t0 = now();
-		if (rowTypechecks) {
-			result.typecheck = { exitCode: -1, skipped: true, note: "covered by the test command itself" };
-		} else if (gateCoversTypecheck) {
-			result.typecheck = { exitCode: -1, skipped: true, note: "covered by the typecheck:ext gate" };
-		} else if (typeof scripts.typecheck === "string") {
-			const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
-			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
-		} else if (typeof scripts.check === "string" && /tsc/.test(scripts.check)) {
-			const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
-			result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
-		} else {
-			result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
-		}
-		// Biome, in the same read-only pass. Precedence: scripts.check (only if it
-		// runs biome) > scripts.lint (only if it runs biome) > skipped. `check` is
-		// preferred over `lint` deliberately: `biome lint .` reports NEITHER format
-		// nor organizeImports, which is what every drift found so far has been —
-		// resolving to `lint` would produce a green gate over a red `check`.
-		const tLint = now();
-		if (typeof scripts.check === "string" && /biome/.test(scripts.check)) {
-			const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
-			result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
-		} else if (typeof scripts.lint === "string" && /biome/.test(scripts.lint)) {
-			const r = await spawn("bun", ["run", "lint"], { cwd: pkgDir, timeoutMs });
-			result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
-		} else {
-			result.lint = { exitCode: -1, skipped: true, note: "no biome key" };
-		}
-		return null;
-	});
+	const runReadOnlyPhase = async (): Promise<void> => {
+		await mapPool(pkgNames, concurrency + 2, async (name) => {
+			if (opts.signal?.aborted) return null;
+			const pkgDir = `${opts.repoRoot}/bun-apps/${name}`;
+			const result = byName.get(name)!;
+			const scripts = (await readPkg(pkgDir)).scripts ?? {};
+			// The test command this package will actually run (same precedence the
+			// test-phase planner below uses) — consulted here only for the dedupe.
+			const matrixCmd = matrix[name];
+			const cmdText =
+				typeof matrixCmd === "string" ? matrixCmd : typeof scripts.test === "string" ? scripts.test : null;
+			const rowTypechecks = cmdText !== null && /\btypecheck\b|\btsc\b/.test(cmdText);
+			// Rule (ii): the typecheck:ext gate covers this package iff the gate
+			// suite is running AND the package matches the gate executor's own
+			// discovery rule (extensions/ entry + a tsc-invoking script). The rule
+			// is duplicated here deliberately (same call-signature as the guard
+			// script's) — see coveredByExtTypecheckGate.
+			const gateCoversTypecheck = includeGates && !gateError && coveredByExtTypecheckGate(pkgDir, scripts);
+			const t0 = now();
+			if (rowTypechecks) {
+				result.typecheck = { exitCode: -1, skipped: true, note: "covered by the test command itself" };
+			} else if (gateCoversTypecheck) {
+				result.typecheck = { exitCode: -1, skipped: true, note: "covered by the typecheck:ext gate" };
+			} else if (typeof scripts.typecheck === "string") {
+				const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
+				result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
+			} else if (typeof scripts.check === "string" && /tsc/.test(scripts.check)) {
+				const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
+				result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
+			} else {
+				result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
+			}
+			// Biome, in the same read-only pass. Precedence: scripts.check (only if it
+			// runs biome) > scripts.lint (only if it runs biome) > skipped. `check` is
+			// preferred over `lint` deliberately: `biome lint .` reports NEITHER format
+			// nor organizeImports, which is what every drift found so far has been —
+			// resolving to `lint` would produce a green gate over a red `check`.
+			const tLint = now();
+			if (typeof scripts.check === "string" && /biome/.test(scripts.check)) {
+				const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
+				result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
+			} else if (typeof scripts.lint === "string" && /biome/.test(scripts.lint)) {
+				const r = await spawn("bun", ["run", "lint"], { cwd: pkgDir, timeoutMs });
+				result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
+			} else {
+				result.lint = { exitCode: -1, skipped: true, note: "no biome key" };
+			}
+			return null;
+		});
+	};
 
 	// 3b/3c. Tests. Precedence: the package's CI matrix row > its `test` script >
 	//        nothing (-1, counts as pass). A matrix row is run through `bash -c`
@@ -804,6 +815,12 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			return null;
 		});
 	}
+	// 3a-exec. The read-only phase runs HERE — after the sequential-first phase
+	//        closed the @repo symlink-hazard window — so its (slim, mostly
+	//        deduped-away) typechecks, the gate pool above, and the test phase
+	//        below all share one overlap window instead of serializing into
+	//        three back-to-back blocks.
+	if (!opts.signal?.aborted) await runReadOnlyPhase();
 	// 3c. Non-build rows, bounded parallelism.
 	await mapPool(
 		plans.filter((p) => !sequentialFirst(p)),

@@ -262,7 +262,16 @@ describe("autocommit real-git: 5) abort-skip", () => {
     const fire = pending!;
     pending = null;
     fire();
-    await settle(120); // let the async cycle + its .then() settle
+    // Poll for the re-arm instead of a fixed settle window: the cycle spawns a
+    // REAL git subprocess, and a fixed 120 ms was not always enough under
+    // CI-machine load (local_ci runs this suite beside the 4-wide package test
+    // phase + the gate pool — observed red twice on 2026-08-23, green in every
+    // standalone run). A 5 s DEADLINE bounds a hang while tolerating any
+    // real-world latency; the assertion itself is unchanged.
+    const deadline = Date.now() + 5_000;
+    while (pending === null && Date.now() < deadline) {
+      await settle(25);
+    }
 
     assert.strictEqual(repo.logCount(), before, "no commit while the index is locked (deferred, not skipped)");
     assert.ok(pending !== null, "a defer re-arms one more debounce tick (transient contention retries)");
