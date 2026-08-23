@@ -9,8 +9,10 @@
  *                 deploy-platform-neutral-core ticket 01)
  *   dist/…        pi's theme/assets/export-html dirs copied at their Node
  *                 layout, where bundled pi resolves them from the deploy dir
- *   run.sh        thin launcher (execs the shipped bun + bundle from
- *                 ticket 02; still names the old compiled target until then)
+ *   bin/bun       the shipped bun runtime, hardlinked from
+ *                 <outRoot>/.buns/<hash> (ticket 02) — the launcher execs it
+ *   s2-agent.sh   the launcher (execs bin/bun on s2-agent.js; run.sh is a
+ *                 deprecated one-line shim into it)
  *   deploy.json   provenance
  *   package.json  deploy version — pi reads its version from beside the core
  *   ext/<name>/   independently built extension packages
@@ -56,6 +58,7 @@ import {
 	swapCurrent,
 } from "./lib/version.ts";
 import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
+import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
 import { freezeTree, rmTree } from "./lib/fs.ts";
 import { stageGenerateEmbeddedAssets } from "./lib/codegen.ts";
 
@@ -85,6 +88,10 @@ export interface DeployShResult {
 	pruned: string[];
 	/** Cache entries in .cores/ collected because no version dir links them any more. */
 	prunedCores: PrunedCore[];
+	/** The shipped runtime this deploy linked (bin/bun). */
+	runtime: { bunVersion: string; platform: string; arch: string; bytes: number; cached: boolean };
+	/** Cache entries in .buns/ collected because no version dir links them any more. */
+	prunedBuns: PrunedBun[];
 }
 
 function gitShortSha(): string | null {
@@ -227,14 +234,21 @@ function stagePiAssets(stageDir: string): void {
  */
 const AGENT_DIR_ENV = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;
 
-const RUN_SH = `#!/usr/bin/env bash
-# run.sh — launcher for a s2-agent-sh deploy.
+/**
+ * The launcher, as `s2-agent.sh`: execs the SHIPPED bun (./bin/bun, the
+ * deploy's own copy — S2_AGENT_BUN still overrides, which is also the
+ * documented cross-platform swap) on the core bundle. Every behavior of the
+ * old run.sh is preserved verbatim below the exec-line change.
+ */
+const S2_AGENT_SH = `#!/usr/bin/env bash
+# s2-agent.sh — launcher for a s2-agent-sh deploy.
 #
-# The core beside this script is a bun-run ESM bundle (s2-agent.js): it needs
-# a bun to execute it. INTERIM (ticket 01): the ambient bun from PATH, or
-# \$S2_AGENT_BUN as an explicit override — ticket 02 ships the deploy's own
-# copy at ./bin/bun and execs that instead. The bundle discovers extensions
-# from ./ext/<name>/ at runtime and runs normally when that directory is absent.
+# The core beside this script is a bun-run ESM bundle (s2-agent.js) executed
+# by the deploy's OWN bun at ./bin/bun — same version that built it, so the
+# tree is self-contained (Gate 5) with no bun on PATH. PLATFORM CONTRACT: the
+# bundle is platform-neutral; bin/bun is this platform's. To relocate the
+# deploy to another OS/arch, replace bin/bun with that platform's bun of the
+# SAME Bun.version (or point S2_AGENT_BUN at one) — nothing else changes.
 set -euo pipefail
 SOURCE="\${BASH_SOURCE[0]}"
 while [ -L "\$SOURCE" ]; do
@@ -271,7 +285,25 @@ if [ -z "\${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
   done
 fi
 
-exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\${S2_AGENT_BUN:-bun}" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
+exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\${S2_AGENT_BUN:-\$SCRIPT_DIR/bin/bun}" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
+`;
+
+/**
+ * run.sh stays as a deprecation shim (ticket 02): one exec into s2-agent.sh,
+ * so existing muscle memory and any external reference keeps working. Drop in
+ * a later effort.
+ */
+const RUN_SH = `#!/usr/bin/env bash
+# run.sh — DEPRECATED shim: the launcher is s2-agent.sh (same directory).
+set -euo pipefail
+SOURCE="\${BASH_SOURCE[0]}"
+while [ -L "\$SOURCE" ]; do
+  DIR="\$(cd -P "\$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="\$(readlink "\$SOURCE")"
+  [[ \$SOURCE != /* ]] && SOURCE="\$DIR/\$SOURCE"
+done
+SCRIPT_DIR="\$(cd -P "\$(dirname "\$SOURCE")" >/dev/null 2>&1 && pwd)"
+exec "\$SCRIPT_DIR/${APP_NAME}.sh" "\$@"
 `;
 
 interface ExtListPayload {
@@ -489,6 +521,11 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 	try {
 		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, CORE_FILENAME), { outRoot, freeze });
 		stagePiAssets(stage);
+		// The shipped runtime (ticket 02): the bundle is neutral, bin/bun is
+		// this platform's — content-cached under .buns, hardlinked per version.
+		const bun = ensureCachedBun({ outRoot });
+		mkdirSync(join(stage, "bin"), { recursive: true });
+		linkBun(bun.cacheFile, join(stage, "bin", "bun"));
 
 		for (const ext of enabled) {
 			const r = await buildExtPackage({
@@ -516,6 +553,8 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			});
 		}
 
+		writeFileSync(join(stage, `${APP_NAME}.sh`), S2_AGENT_SH);
+		chmodSync(join(stage, `${APP_NAME}.sh`), 0o755);
 		writeFileSync(join(stage, "run.sh"), RUN_SH);
 		chmodSync(join(stage, "run.sh"), 0o755);
 		// pi resolves its version AND branding from <packageDir>/package.json,
@@ -535,7 +574,26 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		);
 		writeFileSync(
 			join(stage, "deploy.json"),
-			`${JSON.stringify({ version, builtAt, sourceSha, bunVersion: Bun.version, configPath, config: cfg }, null, 2)}\n`,
+			`${JSON.stringify(
+				{
+					version,
+					builtAt,
+					sourceSha,
+					bunVersion: Bun.version,
+					coreKind: "bun-bundle",
+					runtime: {
+						bunVersion: Bun.version,
+						platform: process.platform,
+						arch: process.arch,
+						bytes: bun.bytes,
+						cached: bun.cached,
+					},
+					configPath,
+					config: cfg,
+				},
+				null,
+				2,
+			)}\n`,
 		);
 
 		recordGate(gates, "3", "verifyDualState", "deploy", () =>
@@ -595,6 +653,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			freeze,
 			current: wantCurrent,
 			core: { bytes: coreBytes, cached: coreCached },
+			runtime: { bunVersion: Bun.version, platform: process.platform, arch: process.arch, bytes: bun.bytes, cached: bun.cached },
 			gates,
 			extensions: extensionsReport,
 			excluded: excludedExtensions(configText, { bunAppsDir: BUN_APPS_DIR }),
@@ -614,10 +673,24 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// core into an orphan, and the core just linked above is protected by its
 		// own link count either way.
 		const prunedCores = pruneOrphanCores(outRoot);
+		// Same rule for the shipped runtimes: a version dir dropping is what
+		// orphans a .buns entry.
+		const prunedBuns = pruneOrphanBuns(outRoot);
 		// The outRoot index lists what retention left behind — strictly after
 		// pruneVersions, so it never links a pruned version's report.
 		writeOutRootIndex(outRoot);
-		return { version, target, extensions: built, coreBytes, coreCached, currentUpdated, pruned, prunedCores };
+		return {
+			version,
+			target,
+			extensions: built,
+			coreBytes,
+			coreCached,
+			currentUpdated,
+			pruned,
+			prunedCores,
+			runtime: { bunVersion: Bun.version, platform: process.platform, arch: process.arch, bytes: bun.bytes, cached: bun.cached },
+			prunedBuns,
+		};
 	} catch (e) {
 		rmTree(stage); // never leave a half-written deploy behind
 		throw e;
