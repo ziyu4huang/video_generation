@@ -2,7 +2,7 @@
 effort: 2026-08-23-file2md-vision-extraction
 created: 2026-08-23
 last: 2026-08-23
-status: active
+status: complete
 ---
 # file2md-vision-extraction — make the optional vision layer usable and non-reasoning
 
@@ -100,9 +100,20 @@ tests regardless.
 
 ## Frontier
 
-Ticket 01 — the max_tokens guard is self-contained and immediately shippable, verified by a
-regression test that reproduces the empty-content-at-low-budget case. 02 and 03 are
-config/documentation; 02 blocks on a non-reasoning model being loaded, 03 is informational.
+cleared — all three tickets closed 2026-08-23 and shipped in PR #1913
+(`06bf6006`, squash, verdict **CLEAN**, `branchSpent: true`). Delivered:
+
+- **Ticket 01 (empty-output guard)**: `runVisionInference` gains a
+  completed-but-empty guard (`emptyIsError`); `explainPage` + `vision_ask` opt in; a
+  reasoning-truncated call now degrades (OCR) instead of writing a blank page. +7 tests.
+- **Ticket 02 (non-reasoning id pre-wire)**: `qwen/qwen3.8-27b-nothink`
+  (`reasoning:false`) registered in the catalog as the `capabilities.vision` selection
+  target once a genuinely no-thinking VLM is loaded; working qwen stays the default.
+- **Ticket 03 (caption-page docs)**: SKILL + architecture doc the caption-only figure-page
+  trigger rule (`--extract vlm --pages <list>` opt-in).
+
+Follow-up: **s2-agent version bump `0.3.0 → 0.4.0`** (minor, host-contract catalog change)
+committed and pushed as a separate PR (`file2md-version-bump` branch).
 
 ## Fog of war
 
