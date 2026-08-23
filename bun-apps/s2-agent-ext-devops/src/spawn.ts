@@ -150,3 +150,19 @@ export function createLiveSpawn(cwd: string): SpawnFn {
 		return { stdout, stderr, exitCode };
 	};
 }
+
+/**
+ * Wrap a SpawnFn so every call that does NOT set its own `timeoutMs` inherits
+ * `defaultMs` (an explicit per-call value always wins). This is the adoption
+ * seam for the git/gh clients, whose calls pass NO options at all — an
+ * unbounded `git fetch` over a stalled SSH transport then hangs the whole CLI
+ * for as long as the network stays silent (measured 2026-08-24:
+ * `sync-default-branch` sat 11+ minutes before the operator killed it; the
+ * same fetch completed in 2.5s once the stall cleared). Wrap the spawn BEFORE
+ * handing it to both the recipe and `createBranchClient` — both issue bare
+ * `spawn(cmd, args)` calls, so one wrap covers the entire tool surface.
+ */
+export function withDefaultTimeout(spawn: SpawnFn, defaultMs: number): SpawnFn {
+	return (cmd, args, options) =>
+		spawn(cmd, args, options?.timeoutMs === undefined ? { ...options, timeoutMs: defaultMs } : options);
+}

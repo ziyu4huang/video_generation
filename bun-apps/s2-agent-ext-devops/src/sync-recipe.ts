@@ -85,6 +85,22 @@ export type SyncMode = "full" | "rebase" | "pull";
  *  disable preserve entirely. */
 export const DEFAULT_PRESERVE_PATHS = [".agents/memory/MEMORY.md"];
 
+/**
+ * Per-command wall-clock cap for every git call a sync issues (fetch, stash,
+ * ff-only advance, submodule update …), injected via withDefaultTimeout at the
+ * CLI/tool wiring seams. The 2026-08-24 incident: a stalled SSH transport held
+ * an unbounded `git fetch` (and with it the whole `sync-default-branch` run)
+ * for 11+ minutes until the operator killed it. 5 minutes is generous for any
+ * single command (a healthy fetch lands in seconds) while keeping the tool's
+ * worst case finite and self-reporting.
+ *
+ * Lives HERE — not in sync-default-branch-cli.ts — because extensions/devops.ts
+ * must import it too, and importing the CLI module from the extension drags its
+ * `import.meta.main` top-level-await tail into the CJS ext bundle (deploy Gate
+ * 5 build failure; the same class as the pi-agent-sh cjs traps).
+ */
+export const SYNC_DEFAULT_TIMEOUT_MS = 300_000;
+
 /** Message tagging every preserve stash entry this recipe creates — the grep
  *  target in the pop-conflict recovery hint, and the pairing marker for
  *  parkPreserve/restorePreserve (see their doc comments). */
