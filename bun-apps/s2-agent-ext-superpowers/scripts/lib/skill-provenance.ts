@@ -41,6 +41,7 @@ export interface SkillRecord {
 /** Every directory under skills/, with its provenance. Keep alphabetical. */
 export const SKILLS: readonly SkillRecord[] = [
   { name: "brainstorming", provenance: "upstream" },
+  { name: "deterministic-edit-dispatch", provenance: "repo-owned" },
   { name: "dispatch-recovery", provenance: "repo-owned" },
   { name: "dispatching-parallel-agents", provenance: "upstream" },
   { name: "executing-plans", provenance: "upstream" },
