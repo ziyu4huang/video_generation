@@ -33,13 +33,15 @@ pdf2image rasterization, Swift Vision OCR. See
 - Bun (the whole pipeline runs under Bun; nothing else).
 - LM Studio serving a vision model at `http://localhost:1234/v1` **only** for
   `mode: vlm` (configured via the model-tier config, `PI_MODEL` legacy alias).
-- OCR language data (eng/chi_sim) lives in the repo's external binary store
+- OCR language data (eng/chi_sim, raw tessdata_fast `.traineddata`) lives in
+  the repo's external binary store
   (`../video_generation__models/file2md-ocr-assets/lang/`, the mlx-models
   convention — the 2MB git hook rejects binary blobs, so the lang files are
   **symlinked** into `vendored/ocr-assets/lang/`). On a machine without the
   store, OCR degrades with a notice; `FILE2MD_OCR_LANG_PATH` points anywhere
-  the two `.traineddata.gz` files exist. Delete the symlinks and copy real
-  files from the markdown-converter assets if you need a self-contained copy.
+  the two `.traineddata` files exist. Delete the symlinks and copy real files
+  from [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) if you
+  need a self-contained copy.
 
 ## Examples
 

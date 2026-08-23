@@ -44,9 +44,16 @@ model-tier config) is an optional layer behind `mode: vlm`, never a prerequisite
   @hyzyla/pdfium locate their .wasm via `__dirname`/`import.meta.url`, which
   bun's cjs bundling rewrites to build-machine paths — the same pitfall that
   made web-access vendor unpdf.
-- **Worker spawn under Bun.** tesseract.js node workers use `worker_threads` —
-  verified working under Bun 1.4 (spike: offline OCR of a rendered page from a
-  pdf-lib/scanned-shaped PDF). Fallback if a future Bun regresses: `Bun.spawn`
-  a bun child running the worker script (still bun-only).
+- **In-process OCR engine — no worker_threads.** The engine is robertknight/
+  tesseract-wasm's low-level `OCREngine` (npm `tesseract-wasm`, BSD-2-Clause):
+  the bundled wasm core (`tesseract-core.wasm` from `dist/`) + raw tessdata_fast
+  `.traineddata` load off disk and recognition runs synchronously in-process.
+  Verified 2026-08-23 under Bun 1.4: raster (pdfium via `rasterPage`) → RGBA →
+  text on both the PDF-scan (BMP) and image-file (PNG/JPEG) paths, offline
+  (smoke: `OcrSession.recognizePdfPage` + CLI `file2md <png> --extract
+  ocr`). tesseract.js (worker_threads under Bun) is gone, so the
+  "Bun.spawn fallback if worker_threads regresses" question no longer applies.
+  Models: raw `eng`/`chi_sim` `.traineddata` (tessdata_fast, ~6.6 MB total)
+  replace the earlier `.traineddata.gz` + gunzip-cache convention.
 - **Heavier bundle** (~4.5 MB thin) — accepted: the package is excluded from the
   portable tree; the weight buys full local document coverage.

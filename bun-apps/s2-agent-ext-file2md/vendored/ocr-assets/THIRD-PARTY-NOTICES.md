@@ -44,14 +44,15 @@ THIS SOFTWARE IS PROVIDED BY EUGENE WARE "AS IS" AND ANY EXPRESS OR IMPLIED WARR
 - License: Apache License 2.0
 - Purpose: local PDF text and embedded-image extraction
 
-## Tesseract.js 7 and Tesseract.js Core
+## Tesseract-wasm 0.11.0
 
-- Project: https://github.com/naptha/tesseract.js
-- License: Apache License 2.0
-- Purpose: local OCR for scanned PDF pages
-- Bundled license texts: `assets/ocr/licenses/tesseract.js-Apache-2.0.txt` and `assets/ocr/licenses/tesseract.js-core-Apache-2.0.txt`
+- Project: https://github.com/robertknight/tesseract-wasm
+- License: BSD-2-Clause
+- Purpose: local, in-process OCR (low-level `OCREngine`) for scanned PDF pages and images; wasm core + JS bundle come from the npm package's `dist/`.
+- Bundled artifacts: `tesseract-core.wasm`, `tesseract-core-fallback.wasm`, `tesseract-worker.js` (npm `tesseract-wasm@0.11.0` dist)
 
-## Tesseract language data
+## Tesseract language data (tessdata_fast)
 
-- Bundled languages: English, Spanish, German, Japanese, Simplified Chinese
-- License metadata: `assets/ocr/licenses/tesseract-language-*-MIT-package.json`
+- Project: https://github.com/tesseract-ocr/tessdata_fast
+- License: Apache License 2.0 (see the project README/LICENSE; individual traineddata files carry their own notices)
+- Bundled languages: English (`eng`), Simplified Chinese (`chi_sim`) — raw `.traineddata`, vendored via symlinks into the external binary store (`../video_generation__models/file2md-ocr-assets/lang/`)
