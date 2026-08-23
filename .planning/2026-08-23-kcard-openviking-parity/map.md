@@ -37,7 +37,7 @@ Measured 2026-08-23 in this worktree unless noted.
 - [ ] 06 — session commit → extraction loop: hermes journal → dedup-merge → cards; LLM dedup decisions skip/create/merge/delete; relation to existing distill converge (grilling, blocked by 04)
 - [ ] 07 — hierarchical retrieval: directory-recursive search with score propagation on SurrealDB; deterministic per D5/D6 (no LLM intent analyzer — decision fork inside) (grilling, blocked by 02, 03)
 - [ ] 08 — hotness decay port: sigmoid+exp formula, bounded ≤±10% per D8, RecallLedger as usage feed (grilling, blocked by 07)
-- [ ] 11 — hermes memory migration into `user_<ns>/memory` (task, blocked by 01; added 2026-08-23) — amends D7's no-auto-migration clause; measured divergence: live surreal user_huangziyu/memory (3599 mem / 5287 sess / 57012 msg) vs stale sqlite memory.db (3549 mem) + sessions.db (1381/3549/35480); one-time idempotent reconciliation upsert keyed on `mdId`, D14 gate, sqlite renamed to backups after pass
+- [x] 11 — hermes memory migration into `user_<ns>/memory` (CLOSED 2026-08-23, BUILT+EXECUTED — `scripts/db-transfer.ts` two-way insert-only reconciliation; to-surreal +394 mem/+130 sess/+131 msg rescued, to-sqlite fallback refreshed +2604/+1875/+21690; convergence dry-runs 0 both ways; D14 passed: A/B count tables + independent reviewer FIX-FIRST→all findings fixed incl. supersession fidelity UPDATE; detail in ticket)
 
 ### Phase C — gate & handoff
 

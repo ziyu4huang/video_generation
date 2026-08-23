@@ -29,6 +29,7 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-flux2/scripts/check-flags.ts",
 	"bun-apps/s2-agent-ext-flux2/scripts/self-improve-loop.driver.ts",
 	"bun-apps/s2-agent-ext-hermes-memory/scripts/pi-memory-merge.mjs",
+	"bun-apps/s2-agent-ext-hermes-memory/scripts/db-transfer.ts",
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/backfill-summaries.mjs",
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/kcard-coverage-measure.mjs",
 	"bun-apps/s2-agent-ext-krea2/scripts/build-bundle.ts",
