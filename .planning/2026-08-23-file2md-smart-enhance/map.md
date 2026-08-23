@@ -47,9 +47,14 @@ Measured 2026-08-23 in this worktree unless noted.
 
 ### Phase A — ladder
 
-- [ ] 01 — smart mode plumbing + figure detection (no vision) — mode parses, soft vision
+- [x] 01 — smart mode plumbing + figure detection (no vision) — mode parses, soft vision
       resolve, figure.ts detectors, figure-flag manifest record + skip notice, non-figure
       pages unchanged. Blockers: none.
+  **(CLOSED 2026-08-23 — PR #1928 `16d0caac`, verdict CLEAN, branchSpent: true.
+  221 tests +12 (figure boundary/caption-regex units + smart-mode E2E fixtures);
+  local_ci 10 packages + 28 gates green; s2-agent bumped 0.5.1 → 0.5.2 via
+  PR #1931. Detector fixture note: pdfjs clips one long text object at the page
+  width, prose fixtures draw in ≤85-char lines.)**
 - [ ] 02 — vision enhance on figure pages — figureHint prompt, append `## Figure (vision)`,
       scan-page OCR-band path, guard degrade, concurrency. Blockers: 01.
 - [ ] 03 — E2E suite hardening + docs + CLI surface. Blockers: 01, 02.
@@ -70,9 +75,10 @@ Measured 2026-08-23 in this worktree unless noted.
   specifier-based, wrapper resolve, base-set seams (core-runtime migration +
   BUN_PI_FILE2MD=0), facade rows dropped.)**
 
-**Execution order:** 04 → 05 → 01 → 02 → 03 — 04 shipped (#1920) and 05 shipped
-(#1922, +0.5.1 via #1923): the engine is in the deployed tree with OCR e2e.
-Next: 01 (ladder skeleton) → 02 → 03.
+**Execution order:** 04 → 05 → 01 → 02 → 03 — 04 shipped (#1920), 05 shipped
+(#1922, +0.5.1 via #1923) and 01 shipped (#1928, +0.5.2 via #1931): the
+engine is in the deployed tree with OCR e2e; smart mode's skeleton is in.
+Next: 02 (vision enhance on figure pages) → 03.
 
 ## Decisions
 
