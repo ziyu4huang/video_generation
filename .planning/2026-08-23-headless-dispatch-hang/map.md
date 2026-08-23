@@ -2,7 +2,7 @@
 effort: 2026-08-23-headless-dispatch-hang
 created: 2026-08-23
 last: 2026-08-23
-status: complete
+status: active
 ---
 
 # map — headless dispatch hang + arming gaps (live-smoke 2026-08-23 findings)
@@ -74,6 +74,18 @@ spawn, full stack) completed the full event chain through `agent_settled` and
 emitted its final answer, yet the process stayed alive ≥114s at 0% CPU before
 being killed. Not reproduced since (m1–m4 settled-AND-exited in 20–34s).
 
+**B4 — colliding command name `loop` breaks slash dispatch via `prompt()`
+(found by the `/loop dynamic` live smoke, 2026-08-23 evening; ticket 03).**
+ext-task and ext-ultracode BOTH `registerCommand("loop")`; the SDK suffixes
+both to `loop:1`/`loop:2`, `getCommand("loop")` finds neither, so a `-p
+'/loop …'` dispatch falls through to the MODEL as literal text (measured: raw
+string in the transcript + runaway exploration, watchdog-bounded at 300s).
+The original cc-parity-2 §9 "BLOCKED (B1)" row for `/loop` dynamic is this
+defect plus B1. The `schedule_wakeup` TOOL half is healthy headless (model
+called it, correct no-active-loop text, clean exit 0); single-name command
+dispatch verified fine in a faux control. Repo's only collision (scanned all
+ext `registerCommand` names).
+
 **Live-smoke surface results** (recorded in
 `.planning/2026-08-23-subagent-cc-parity-2/spec.md` §9): fork PASS, built-in
 explore/plan PASS (read-only tools verified live, count cross-checked),
@@ -94,6 +106,10 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
   (runs `mt5q0urv-9hdejl` merged / `mt5pwx3c-30sjnp` model) and pinned by
   `tests/headless-arming-parity.test.ts`; spec §2 + §9 rows corrected in the
   same PR
+- [ ] `tickets/03-colliding-command-name-breaks-slash-dispatch.md` — B4: the
+  `loop` name collision (ext-task + ext-ultracode) makes `getCommand("loop")`
+  miss so headless `/loop …` falls to the model; choose fix (patch fallback /
+  rename / upstream), pin with a test, re-run the live smoke (frontier)
 
 ## Decisions
 
@@ -115,10 +131,10 @@ measured-negative (B2), /loop dynamic BLOCKED by B1.
 
 ## Frontier
 
-Queue drained — both tickets closed. Next: effort close-out (flip map
-`status: complete`, fold residual B1-recurrence capture into the next-goal
-ranked list: resume the root-cause chase only when a `[print-idle-watchdog]`
-line appears in stderr).
+Ticket 03 (B4 colliding command name). Small and self-contained: pick the fix
+approach, implement + test, re-run the `/loop dynamic` live smoke. B1's
+root-cause chase stays event-driven (recurrence prints the
+`[print-idle-watchdog]` diagnostic).
 
 ## Fog of war
 
