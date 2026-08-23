@@ -66,6 +66,9 @@ Phase 2 — wizard Bun port
 Phase 3 — /loop replacement
 - `tickets/03-loop-cc-scheduler.md` — task, **open** — timer scheduler replaces process loop; goal decoupled
 
+Phase 4 — /goal surface parity
+- `tickets/04-goal-surface-parity.md` — task, **open** — CC command aliases + no-arg status; machinery untouched
+
 ## Decisions
 
 D1–D7 in `spec.md` §3. The shape-givers:
@@ -90,11 +93,10 @@ independent of it and of each other.
 - **Preview side-by-side rendering** — `view/components/preview/` current capabilities
   not yet audited against CC's monospace-markdown side-by-side box; ticket 01 must
   measure before promising TUI changes beyond the ⭐ suffix swap.
-- **`/goal` surface-parity gap, charted not built** — CC's /goal exists (see Context);
-  ours is a functional superset but its surface (command aliases, verdict naming,
-  4,000-char condition cap, small-model evaluator mapping) has not been diffed against
-  CC's. A small ticket 04 could close the syntax gap without touching the machinery —
-  deferred pending user call (2026-08-23), recorded here so it is not lost.
+- **`/goal` surface-parity gap** — resolved into ticket 04 (2026-08-23 user decision):
+  clear aliases (off/reset/none/cancel) + no-arg status; verdict display naming
+  aligned only where it is a pure display map. Machinery (auditor protocol, shield,
+  quota-retry) untouched.
 - **Dynamic self-pacing (CC ScheduleWakeup equivalent)** — deliberately uncharted:
   needs an agent-callable reschedule tool; `/loop <interval>` covers the stated use
   case. Chart if a real need appears.
