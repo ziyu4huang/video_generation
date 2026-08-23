@@ -41,8 +41,8 @@ export interface SpawnOptions {
 	/**
 	 * Hard wall-clock cap in ms. On expiry the child's WHOLE PROCESS GROUP is
 	 * SIGKILLed and the call resolves with `SPAWN_TIMEOUT_EXIT_CODE` (124).
-	 * Omitted (the default) means no cap — unchanged behaviour for the git/gh
-	 * clients, which never pass options.
+	 * Omitted (the default) means no cap at THIS layer — entry points that
+	 * wrap their spawn in `withDefaultTimeout` still bound every call.
 	 *
 	 * The group, not the child, is the unit that must die. A matrix row is run as
 	 * `bash -c "bun test --isolate"`, so killing only the direct child reaps
@@ -124,6 +124,23 @@ function spawnDetached(
 		});
 		proc.on("close", (code) => finish(code ?? -1));
 	});
+}
+
+/**
+ * Wrap a SpawnFn so EVERY call gets a hard wall-clock cap: an explicit
+ * per-call `options.timeoutMs` wins, otherwise `defaultTimeoutMs` applies.
+ *
+ * WHY: the timeout machinery above existed but was opt-in per call site, and
+ * the git/gh clients never opted in — a stalled network op (`git fetch`, gh
+ * api, `submodule update --remote`) then hung the whole recipe indefinitely
+ * (observed: sync-default-branch stuck 11+ minutes on a transient SSH stall,
+ * 2026-08-24). Wrapping at the entry point (CLI / extension tool) instead of
+ * threading a timeout through every recipe option keeps the recipes
+ * timeout-agnostic while bounding the live surface.
+ */
+export function withDefaultTimeout(spawn: SpawnFn, defaultTimeoutMs: number): SpawnFn {
+	return (cmd, args, options) =>
+		spawn(cmd, args, { ...options, timeoutMs: options?.timeoutMs ?? defaultTimeoutMs });
 }
 
 /**

@@ -36,10 +36,15 @@
  *   - exit 0 on success (incl. dry-run); exit 1 when the run aborted
  *     (dirty_tree / divergent / …); exit 2 on a usage error.
  */
-import { runSync, type SyncMode, DEFAULT_PRESERVE_PATHS } from "./sync-recipe.js";
+import { runSync, type SyncMode, DEFAULT_PRESERVE_PATHS, DEFAULT_SYNC_COMMAND_TIMEOUT_MS } from "./sync-recipe.js";
+// Re-exported for existing imports (tests, docs); the canonical home is
+// sync-recipe.ts so extensions can import it WITHOUT pulling this CLI module
+// (whose import.meta.main top-level await breaks the deploy bundle's CJS
+// transform — Gate 1b).
+export { DEFAULT_SYNC_COMMAND_TIMEOUT_MS };
 import { createBranchClient } from "./gh.js";
 import type { BranchClient } from "./branch-recipe.js";
-import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+import { createLiveSpawn, withDefaultTimeout, type SpawnFn } from "./spawn.js";
 import { resolveRemoteName } from "./remote.js";
 import { type CliResult, defaultRepoRoot, emit } from "./cli-common.js";
 
@@ -53,7 +58,7 @@ export type SyncCliResult = CliResult;
 export const SYNC_CLI_USAGE = [
 	"usage: sync-default-branch-cli.ts [--mode full|rebase|pull] [--dry-run] [--force]",
 	"                    [--branch <name|auto>] [--preserve <path>]... [--preserve-strict]",
-	"                    [--repo-root <path>]",
+	"                    [--timeout-ms <ms>] [--repo-root <path>]",
 	"",
 	"Runs the sync_default_branch recipe (fetch → advance default branch / rebase / pull,",
 	"worktree-aware, submodule sync in full mode) and prints the structured",
@@ -69,6 +74,9 @@ export const SYNC_CLI_USAGE = [
 	"  --preserve <path>   repeatable; preserve-listed dirty path (default:",
 	"                      " + DEFAULT_PRESERVE_PATHS.join(", ") + ")",
 	"  --preserve-strict   disable preserve entirely (preserve: [])",
+	"  --timeout-ms <ms>   per-command wall-clock cap on every git/gh spawn",
+	"                      (default 180000 = 3 min; a stalled network op is",
+	"                      killed + reported as exit 124 instead of hanging)",
 	"  --repo-root <path>  default: the repo this file lives in",
 ].join("\n");
 
@@ -83,6 +91,8 @@ export interface ParsedSyncArgs {
 	branch?: string;
 	preserve: string[] | undefined;
 	repoRoot?: string;
+	/** Per-command wall-clock cap for every git/gh spawn (see withDefaultTimeout). */
+	timeoutMs: number;
 }
 
 /** Pure argv → flags (or a usage-error message). Exported for tests. */
@@ -94,6 +104,7 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 	let preserve: string[] | undefined = undefined;
 	let strict = false;
 	let repoRoot: string | undefined;
+	let timeoutMs = DEFAULT_SYNC_COMMAND_TIMEOUT_MS;
 
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
@@ -107,6 +118,13 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 				return { ok: false, message: "--branch needs a name value (or 'auto')" };
 			}
 			branch = v;
+		} else if (a === "--timeout-ms") {
+			const v = argv[++i];
+			const n = Number(v);
+			if (v === undefined || !Number.isInteger(n) || n <= 0) {
+				return { ok: false, message: `--timeout-ms needs a positive integer (got ${JSON.stringify(v ?? "missing")})` };
+			}
+			timeoutMs = n;
 		} else if (a === "--preserve-strict") {
 			strict = true;
 		} else if (a === "--mode") {
@@ -138,7 +156,7 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 
 	// --preserve-strict overrides any explicit --preserve (explicit [] semantics).
 	if (strict) preserve = [];
-	return { ok: true, args: { mode, dryRun, force, branch, preserve, repoRoot } };
+	return { ok: true, args: { mode, dryRun, force, branch, preserve, repoRoot, timeoutMs } };
 }
 
 /**
@@ -158,10 +176,13 @@ export async function runSyncCli(
 		}
 		return { exitCode: 2, stdout: "", stderr: `${parsed.message}\n${SYNC_CLI_USAGE}` };
 	}
-	const { mode, dryRun, force, branch, preserve } = parsed.args;
+	const { mode, dryRun, force, branch, preserve, timeoutMs } = parsed.args;
 	const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 
-	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
+	// Every live git/gh spawn gets a hard cap: a stalled network op must fail
+	// fast (exit 124, reported in the outcome's warnings/abort) instead of
+	// hanging the CLI for minutes. Injected test spawns are used verbatim.
+	const spawn = deps.spawn ?? withDefaultTimeout(createLiveSpawn(repoRoot), timeoutMs);
 	// Remote name resolved ONCE here (DEVOPS_REMOTE > git config devops.remote >
 	// origin — src/remote.ts); recipes never resolve it themselves.
 	const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));

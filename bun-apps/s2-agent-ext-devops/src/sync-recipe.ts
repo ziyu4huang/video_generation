@@ -85,6 +85,15 @@ export type SyncMode = "full" | "rebase" | "pull";
  *  disable preserve entirely. */
 export const DEFAULT_PRESERVE_PATHS = [".agents/memory/MEMORY.md"];
 
+/** Default per-command wall-clock cap for the sync surface (ticket: sync CLI
+ *  hang, 2026-08-24 — a transient SSH stall hung sync-default-branch 11+ min
+ *  because git/gh spawns had NO cap). Matches ci-recipe's
+ *  `perCommandTimeoutMs ?? 180_000` precedent. Lives HERE, not in the CLI
+ *  module: extensions/devops.ts imports it, and importing the CLI would drag
+ *  its `import.meta.main` top-level await into the deploy bundle's CJS
+ *  transform (Gate 1b precedent). */
+export const DEFAULT_SYNC_COMMAND_TIMEOUT_MS = 180_000;
+
 /** Message tagging every preserve stash entry this recipe creates — the grep
  *  target in the pop-conflict recovery hint, and the pairing marker for
  *  parkPreserve/restorePreserve (see their doc comments). */

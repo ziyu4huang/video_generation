@@ -123,6 +123,20 @@ describe("parseSyncArgs — argv contract", () => {
 		expect(parseSyncArgs(["--branch"]).ok).toBe(false); // missing value
 	});
 
+	test("--timeout-ms: defaults to 180s, accepts positive ints, rejects junk", () => {
+		const d = parseSyncArgs([]);
+		expect(d.ok).toBe(true);
+		if (d.ok) expect(d.args.timeoutMs).toBe(180_000);
+
+		const ok = parseSyncArgs(["--timeout-ms", "5000"]);
+		expect(ok.ok).toBe(true);
+		if (ok.ok) expect(ok.args.timeoutMs).toBe(5000);
+
+		for (const bad of [["--timeout-ms"], ["--timeout-ms", "0"], ["--timeout-ms", "-5"], ["--timeout-ms", "abc"], ["--timeout-ms", "1.5"]]) {
+			expect(parseSyncArgs(bad).ok).toBe(false);
+		}
+	});
+
 	test("unknown flags and positionals are usage errors", () => {
 		expect(parseSyncArgs(["--nope"]).ok).toBe(false);
 		expect(parseSyncArgs(["main"]).ok).toBe(false);

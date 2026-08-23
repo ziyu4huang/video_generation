@@ -13,7 +13,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLiveSpawn, SPAWN_TIMEOUT_EXIT_CODE } from "../src/spawn.js";
+import { createLiveSpawn, withDefaultTimeout, SPAWN_TIMEOUT_EXIT_CODE, type SpawnFn } from "../src/spawn.js";
 
 const onWindows = process.platform === "win32";
 
@@ -66,4 +66,40 @@ describe.skipIf(onWindows)("createLiveSpawn timeout group-kill", () => {
 		const res = await spawn("definitely-not-a-command-xyz", ["--version"], { timeoutMs: 5000 });
 		expect(res.exitCode).not.toBe(0);
 	});
+});
+
+describe("withDefaultTimeout — every call capped unless it opts out", () => {
+	// The sync-default-branch 11-minute hang (2026-08-24): git/gh spawns had NO
+	// cap because timeoutMs was opt-in per call site. withDefaultTimeout is the
+	// entry-point wrap that bounds the whole live surface.
+	test("fills in the default cap when the caller passes none (records options through)", async () => {
+		const seen: Array<{ cwd?: string; timeoutMs?: number }> = [];
+		const inner: SpawnFn = async (_cmd, _args, options) => {
+			seen.push({ cwd: options?.cwd, timeoutMs: options?.timeoutMs });
+			return { stdout: "", stderr: "", exitCode: 0 };
+		};
+		const spawn = withDefaultTimeout(inner, 1234);
+		await spawn("git", ["fetch"]);
+		await spawn("git", ["fetch"], { cwd: "/tmp" });
+		expect(seen[0]?.timeoutMs).toBe(1234);
+		expect(seen[1]).toEqual({ cwd: "/tmp", timeoutMs: 1234 }); // cwd survives the wrap
+	});
+
+	test("an explicit per-call timeoutMs wins over the default", async () => {
+		const seen: number[] = [];
+		const inner: SpawnFn = async (_cmd, _args, options) => {
+			seen.push(options?.timeoutMs ?? -1);
+			return { stdout: "", stderr: "", exitCode: 0 };
+		};
+		const spawn = withDefaultTimeout(inner, 1234);
+		await spawn("git", ["fetch"], { timeoutMs: 99 });
+		expect(seen[0]).toBe(99);
+	});
+
+	test("live: a stalled command under the wrap is killed at the default cap", async () => {
+		const spawn = withDefaultTimeout(createLiveSpawn(tmpdir()), 800);
+		const res = await spawn("bash", ["-c", "sleep 30"]);
+		expect(res.exitCode).toBe(SPAWN_TIMEOUT_EXIT_CODE);
+		expect(res.timedOut).toBe(true);
+	}, 10_000);
 });

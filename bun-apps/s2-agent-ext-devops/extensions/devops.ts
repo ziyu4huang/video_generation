@@ -22,11 +22,12 @@ import { GATE_DEFS } from "@repo/s2-agent-core-interface";
 import { createBranchClient } from "../src/gh.js";
 import { selectForgeClientCached } from "../src/forge/select.js";
 import { resolveRemoteName } from "../src/remote.js";
-import { createLiveSpawn } from "../src/spawn.js";
+import { createLiveSpawn, withDefaultTimeout } from "../src/spawn.js";
 import { runMergeRecipe } from "../src/recipe.js";
 import { runSweep, type SweepOutcome } from "../src/branch-recipe.js";
 import { runLocalCi, type CiOutcome } from "../src/ci-recipe.js";
 import { runSync, type SyncMode, type SyncOutcome, type SyncSubmodule } from "../src/sync-recipe.js";
+import { DEFAULT_SYNC_COMMAND_TIMEOUT_MS } from "../src/sync-recipe.js";
 import { runRetrospect, type RetrospectOutcome } from "../src/retrospect-recipe.js";
 import { runPrepare, type PrepareOutcome } from "../src/prepare-recipe.js";
 import { runVerifyMerge, type VerifyMergeOutcome } from "../src/verify-merge-recipe.js";
@@ -587,9 +588,22 @@ export default function (pi: ExtensionAPI): void {
 						"rebase/pull only — detached-HEAD recovery. When the calling worktree is on a detached HEAD, create (or attach, when it already exists at the exact HEAD) this branch at the current HEAD instead of aborting 'detached_head', then proceed. 'auto' derives the name from the worktree folder suffix (video_generation__memory → 'memory'). Never resolves to the default branch; an existing branch at a different commit or a branch checked out elsewhere aborts.",
 				}),
 			),
+			timeoutMs: Type.Optional(
+				Type.Integer({
+					description:
+						"Per-command wall-clock cap in ms applied to EVERY git/gh spawn this tool issues (fetch, submodule update, gh api). Default 180000 (3 min). A stalled command is killed and reported as a failure (exit 124) instead of hanging the tool call indefinitely.",
+				}),
+			),
 		}),
 		async execute(_id, params, signal) {
-			const spawn = createLiveSpawn(process.cwd());
+			// Hard cap on every git/gh spawn: a stalled network op (fetch, gh api,
+			// submodule update --remote) must fail fast instead of hanging the tool
+			// call indefinitely (observed 11+ min SSH stall, 2026-08-24). Matches
+			// sync-default-branch-cli's --timeout-ms default.
+			const spawn = withDefaultTimeout(
+				createLiveSpawn(process.cwd()),
+				typeof params.timeoutMs === "number" && params.timeoutMs > 0 ? params.timeoutMs : DEFAULT_SYNC_COMMAND_TIMEOUT_MS,
+			);
 			const remoteName = await resolveRemoteName(spawn);
 			const client = createBranchClient(spawn, remoteName);
 			// Resolve the repo root WITHOUT chdir (no top-level cd) — fall back to
