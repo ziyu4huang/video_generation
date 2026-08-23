@@ -25,6 +25,7 @@
 import { existsSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PROVIDERS, BUILTIN_MODEL_DEFAULT } from "../../../../s2-agent/src/pre-load-providers.ts";
+import { APP_NAME } from "./app-name.ts";
 
 // ─── Data shapes ──────────────────────────────────────────────────────────────
 
@@ -90,6 +91,8 @@ export interface DeployReportData {
 	freeze: boolean;
 	current: boolean;
 	core: { bytes: number; cached: boolean };
+	/** The shipped bun runtime (bin/bun) — present since the bundle core (ticket 02). */
+	runtime?: { bunVersion: string; platform: string; arch: string; bytes: number; cached: boolean };
 	gates: GateRecord[];
 	extensions: ReportExtension[];
 	excluded: ReportExcluded[];
@@ -240,10 +243,11 @@ export function renderDeployReport(data: DeployReportData): string {
 <tr><td>version</td><td><code>${esc(data.version)}</code></td></tr>
 <tr><td>built at</td><td>${esc(data.builtAt)}</td></tr>
 <tr><td>source sha</td><td><code>${esc(data.sourceSha)}</code></td></tr>
-<tr><td>launcher</td><td>${esc(data.target)}/run.sh</td></tr>
+<tr><td>launcher</td><td>${esc(data.target)}/${esc(APP_NAME)}.sh (run.sh = deprecated shim)</td></tr>
 <tr><td>config</td><td><code>${esc(data.configPath)}</code></td></tr>
 <tr><td>bun</td><td>${esc(data.bunVersion)}</td></tr>
-<tr><td>core</td><td>${fmtBytes(data.core.bytes)} ${data.core.cached ? "(cached hardlink)" : "(fresh compile)"}</td></tr>
+<tr><td>core</td><td>${fmtBytes(data.core.bytes)} ${data.core.cached ? "(cached hardlink)" : "(fresh bundle)"} — bun-run ESM bundle</td></tr>
+${data.runtime ? `<tr><td>runtime (bin/bun)</td><td>${esc(data.runtime.bunVersion)} ${esc(data.runtime.platform)}/${esc(data.runtime.arch)}, ${fmtBytes(data.runtime.bytes)} ${data.runtime.cached ? "(cached hardlink)" : "(fresh copy)"}</td></tr>` : ""}
 <tr><td>extensions total</td><td>${fmtBytes(totalExtBytes)}</td></tr>
 <tr><td>freeze / current</td><td>${data.freeze ? "frozen (a-w)" : "writable"} · ${data.current ? "current → this version" : "current untouched"}</td></tr>
 </table>

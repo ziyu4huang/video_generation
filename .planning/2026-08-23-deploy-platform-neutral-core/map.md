@@ -72,8 +72,9 @@ Phase 1 — the seam
   sidecars, no multi-file cache — see D5/D6)
 
 Phase 2 — runtime shipping
-- `tickets/02-ship-bun-and-launcher.md` — task, **open** — `.buns` content cache,
-  `bin/bun` copy, `s2-agent.sh` launcher (run.sh becomes a shim)
+- `tickets/02-ship-bun-and-launcher.md` — task, **closed** (2026-08-23) — `.buns`
+  content cache, `bin/bun` hardlink, `s2-agent.sh` launcher + run.sh shim;
+  full-chain e2e verified (shim → launcher → shipped bun → bundle, 17/17)
 
 Phase 3 — proof
 - `tickets/03-gates-and-e2e.md` — task, **open** — Gates 3/5b/6 and
@@ -102,10 +103,12 @@ Recorded with rationale in `spec.md` §3 (D1–D6). The load-bearing three:
 
 ## Frontier
 
-Ticket 02 — the seam is proven (ticket 01 closed 2026-08-23: bundle boots bare,
-17/17, doctor honest, scratch deploy six-gates green). What the version dir
-still lacks is the runtime: `bin/bun` + the `s2-agent.sh` launcher that execs
-it. Ticket 03's e2e boots `run.sh`, so 02 must land first.
+Ticket 03 — 01 and 02 are closed (2026-08-23; #1860 + this branch). The version
+dir now boots entirely from its own runtime; what remains is the proof layer
+speaking the new shape end to end (Gates 5b on a pristine `bin/bun`, e2e/docs
+copy, the real-outRoot live deploy) and deleting the compiled-mode remnant
+(`--compile` branch, `$bunfs` arms, the whole `~/.pi/agent/embedded-assets/`
+extraction mechanism) once the first green real deploy proves the new layout.
 
 ## Fog of war
 

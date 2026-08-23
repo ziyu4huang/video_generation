@@ -38,6 +38,8 @@ describe("runDeploy", () => {
 						currentUpdated: false,
 						pruned: ["0.1.0+gold0000"],
 						prunedCores: [{ hash: "a".repeat(64), bytes: 89_523_400 }],
+						runtime: { bunVersion: "1.4.0", platform: "darwin", arch: "arm64", bytes: 63_558_256, cached: true },
+						prunedBuns: [],
 					};
 				},
 				e2e: async () => e2ePass(),
@@ -72,6 +74,8 @@ describe("runDeploy", () => {
 						currentUpdated: true,
 						pruned: [],
 						prunedCores: [],
+						runtime: { bunVersion: "1.4.0", platform: "darwin", arch: "arm64", bytes: 0, cached: false },
+						prunedBuns: [],
 					};
 				},
 				e2e: async () => e2ePass(),
@@ -125,6 +129,8 @@ describe("runDeploy", () => {
 			currentUpdated: true,
 			pruned: [],
 			prunedCores: [],
+			runtime: { bunVersion: "1.4.0", platform: "darwin", arch: "arm64", bytes: 0, cached: false },
+			prunedBuns: [],
 		});
 		const good = await runDeploy({}, { deploy: deployOk, e2e: async () => e2ePass() });
 		expect(good.ok).toBe(true);
@@ -145,6 +151,8 @@ describe("runDeploy", () => {
 			currentUpdated: true,
 			pruned: [],
 			prunedCores: [],
+			runtime: { bunVersion: "1.4.0", platform: "darwin", arch: "arm64", bytes: 0, cached: false },
+			prunedBuns: [],
 		});
 		const r = await runDeploy({}, { deploy: deployOk, e2e: async () => e2ePass("skip") });
 		expect(r.ok).toBe(true);

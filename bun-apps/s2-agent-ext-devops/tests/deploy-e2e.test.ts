@@ -53,6 +53,15 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 
 		expect(existsSync(join(r.target, CORE_FILENAME))).toBe(true);
 		expect(existsSync(join(r.target, "run.sh"))).toBe(true);
+		// ticket 02: the launcher is s2-agent.sh; run.sh is a deprecated shim;
+		// the runtime ships as bin/bun, hardlinked from .buns (same inode).
+		expect(existsSync(join(r.target, "s2-agent.sh"))).toBe(true);
+		const shippedBun = join(r.target, "bin", "bun");
+		expect(existsSync(shippedBun)).toBe(true);
+		expect(statSync(shippedBun).mode & 0o111).not.toBe(0); // executable
+		expect(statSync(shippedBun).nlink).toBeGreaterThan(1); // hardlink into .buns, not a copy
+		expect(r.runtime?.bunVersion).toBe(Bun.version);
+		expect(r.runtime?.cached).toBe(false); // first deploy in this outRoot
 		expect(existsSync(join(r.target, "deploy.json"))).toBe(true);
 		// pi reads its version from <packageDir>/package.json, and in compiled-
 		// binary mode packageDir = dirname(execPath) = the version dir. Without
