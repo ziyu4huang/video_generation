@@ -1,0 +1,392 @@
+# Review package: 868b05cd..0fe1fe38
+
+## Commits
+0fe1fe38 docs(planning): close ticket 01 — ask_user_question CC parity shipped (schema + description + view)
+7be565dd feat(task): ask_user_question view — suffix-driven star, monospace preview box
+
+## Files changed
+ .../tickets/01-ask-user-cc-parity.md               | 15 ++++-
+ .../ask-user/__tests__/recommended-marker.test.ts  | 77 ++++++----------------
+ .../src/ask-user/ask-user-question.ts              |  3 +-
+ .../ask-user/view/components/multi-select-view.ts  |  9 ++-
+ .../components/preview/preview-block-renderer.ts   | 11 ++--
+ .../ask-user/view/components/wrapping-select.ts    | 14 +++-
+ 6 files changed, 58 insertions(+), 71 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-23-cc-parity-task-ext/tickets/01-ask-user-cc-parity.md b/.planning/2026-08-23-cc-parity-task-ext/tickets/01-ask-user-cc-parity.md
+index d9a5637f..7115b560 100644
+--- a/.planning/2026-08-23-cc-parity-task-ext/tickets/01-ask-user-cc-parity.md
++++ b/.planning/2026-08-23-cc-parity-task-ext/tickets/01-ask-user-cc-parity.md
+@@ -1,15 +1,15 @@
+ ---
+ ticket: 01-ask-user-cc-parity
+ effort: cc-parity-task-ext
+ type: task
+-status: open
++status: closed
+ created: 2026-08-23
+ last: 2026-08-23
+ ---
+ # 01 — ask_user_question CC parity (schema + description + TUI)
+ 
+ > Spec §4.1, decisions D1/D2.
+ 
+ ## Goal
+ 
+ A model that has learned Claude Code's AskUserQuestion produces CC-equivalent calls
+@@ -35,10 +35,23 @@ against `ask_user_question` and gets CC-equivalent answers back.
+ 
+ - Schema rejects: header >12 chars; `preview` on a multiSelect question; duplicate /
+   reserved labels (unchanged).
+ - No schema field named `recommended` remains; grep clean.
+ - Tool description contains CC's four usage-note rules and the plan-mode paragraph.
+ - All ask-user tests green in the suffix form.
+ 
+ ## Gate
+ 
+ `( cd bun-apps/s2-agent-ext-task && bun run typecheck && bun test )`
++
++## Result
++
++Shipped across three commits:
++
++- `d7a5501a` — schema: `MAX_HEADER_LENGTH` 12, `recommended` field deleted, `RECOMMENDED_SUFFIX`/`hasRecommendedSuffix` exported from `tool/types.ts`, `preview_on_multiselect` + `too_many_recommended` (suffix-count form) validation, CC-phrased field descriptions.
++- `868b05cd` — tool description / `DEFAULT_PROMPT_SNIPPET` / `DEFAULT_PROMPT_GUIDELINES` rewritten to CC semantics (usage notes, "(Recommended)" suffix rule, preview paragraph, plan-mode paragraph).
++- `7be565dd` — view layer: `buildItemsForQuestion` derives `recommended` from the label suffix; `WrappingSelect` and `MultiSelectView` render ⭐ and strip the suffix from display only (stored label — and therefore the answer string — keeps it, CC parity); `PreviewBlockRenderer` renders preview content monospace-verbatim (hard-clip at width, no re-wrap) so ASCII mockups and code keep their shape.
++
++Deliberately not built: full markdown rendering of previews (CC renders markdown in the monospace box; we keep verbatim lines). Noted as out of scope here — the box layout is side-by-side and verbatim lines cover the dominant use (mockups, code, config).
++
++Gate: `bun run typecheck` clean; `bun test` 880 pass / 0 fail (64 files), including `recommended-marker.test.ts` rewritten to the suffix form (4 tests) and the ask-user subtree 275 pass. Preview-text assertions in existing tests (cards-ux2-roundtrip et al.) already asserted authored lines and needed no migration.
++
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts
+index b238506d..ccd5aefe 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts
+@@ -1,100 +1,61 @@
+ /**
+- * recommended-marker — the stable recommendation style for ask_user_question.
+- *
+- * A `recommended?: boolean` field on options is rendered by the view as a ⭐
+- * prefix on the option title (display-only). The stored label stays clean so
+- * the answer string never carries the marker. At most one recommended option
+- * per question is allowed (validated).
++ * recommended marker, CC convention — the model suffixes the label with
++ * "(Recommended)"; the view renders ⭐ and strips the suffix from DISPLAY only.
++ * The stored label (and therefore the answer string) keeps the suffix, matching
++ * Claude Code, where the answer carries the label as authored.
+  */
+ import { test, expect, describe } from "bun:test";
+ import { validateQuestionnaire } from "../tool/validate-questionnaire.js";
+ import { buildItemsForQuestion } from "../ask-user-question.js";
+ import { WrappingSelect } from "../view/components/wrapping-select.js";
+-import type { QuestionData, QuestionParams } from "../tool/types.js";
++import { RECOMMENDED_SUFFIX, type QuestionData, type QuestionParams } from "../tool/types.js";
+ 
+-// Minimal theme: pass strings through so render() output is assertion-friendly.
+ const theme = new Proxy(
+ 	{},
+ 	{
+ 		get:
+ 			() =>
+ 			(...args: unknown[]) =>
+ 				args.map((a) => (typeof a === "string" ? a : "")).join(""),
+ 	},
+ ) as never;
+ 
+-function q(
+-	opts: Array<{ label: string; description?: string; recommended?: boolean }>,
+-): QuestionData {
+-	return { question: "q?", header: "hdr", options: opts as never } as never;
++function q(labels: string[]): QuestionData {
++	return { question: "q?", header: "hdr", options: labels.map((l) => ({ label: l, description: "d" })) } as never;
+ }
+-
+ function params(data: QuestionData): QuestionParams {
+ 	return { questions: [data] } as unknown as QuestionParams;
+ }
+ 
+-describe("recommended marker", () => {
+-	test("validation rejects more than one recommended option per question", () => {
+-		const r = validateQuestionnaire(
+-			params(
+-				q([
+-					{ label: "a", description: "d", recommended: true },
+-					{ label: "b", description: "d", recommended: true },
+-				]),
+-			),
+-		);
++describe("recommended marker (CC suffix convention)", () => {
++	test("validation rejects two suffixed labels", () => {
++		const r = validateQuestionnaire(params(q([`A${RECOMMENDED_SUFFIX}`, `B${RECOMMENDED_SUFFIX}`])));
+ 		expect(r.ok).toBe(false);
+ 		if (!r.ok) expect(r.error).toBe("too_many_recommended");
+ 	});
+ 
+-	test("validation accepts at most one recommended option", () => {
+-		const r = validateQuestionnaire(
+-			params(
+-				q([
+-					{ label: "a", description: "d", recommended: true },
+-					{ label: "b", description: "d" },
+-				]),
+-			),
+-		);
+-		expect(r.ok).toBe(true);
+-	});
+-
+-	test("buildItemsForQuestion carries recommended onto the option item", () => {
+-		const items = buildItemsForQuestion(
+-			q([
+-				{ label: "Alpha", description: "d", recommended: true },
+-				{ label: "Beta", description: "d" },
+-			]),
+-		);
++	test("buildItemsForQuestion derives recommended from the suffix", () => {
++		const items = buildItemsForQuestion(q([`Alpha${RECOMMENDED_SUFFIX}`, "Beta"]));
+ 		expect((items[0] as { recommended?: boolean }).recommended).toBe(true);
+ 		expect((items[1] as { recommended?: boolean }).recommended).toBeUndefined();
+ 	});
+ 
+-	test("WrappingSelect renders a ⭐ prefix on the recommended option (display-only)", () => {
+-		const items = buildItemsForQuestion(
+-			q([
+-				{ label: "Alpha", description: "d", recommended: true },
+-				{ label: "Beta", description: "d" },
+-			]),
+-		);
++	test("WrappingSelect renders ⭐ and strips the suffix from display", () => {
++		const items = buildItemsForQuestion(q([`Alpha${RECOMMENDED_SUFFIX}`, "Beta"]));
+ 		const ws = new WrappingSelect(items, 8, theme);
+ 		ws.setSelectedIndex(0);
+ 		const out = ws.render(80).join("\n");
+ 		expect(out).toContain("⭐");
+ 		expect(out).toContain("Alpha");
+-		// stored label stays clean → the answer string stays clean
+-		expect(items[0].label).toBe("Alpha");
++		expect(out).not.toContain("(Recommended)");
++		// stored label keeps the suffix → answer parity with CC
++		expect(items[0].label).toBe(`Alpha${RECOMMENDED_SUFFIX}`);
+ 	});
+ 
+-	test("non-recommended options render no star", () => {
+-		const items = buildItemsForQuestion(
+-			q([
+-				{ label: "Alpha", description: "d" },
+-				{ label: "Beta", description: "d" },
+-			]),
+-		);
++	test("unsuffixed options render no star", () => {
++		const items = buildItemsForQuestion(q(["Alpha", "Beta"]));
+ 		const ws = new WrappingSelect(items, 8, theme);
+ 		ws.setSelectedIndex(0);
+ 		expect(ws.render(80).join("\n")).not.toContain("⭐");
+ 	});
+ });
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts b/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts
+index 14e59ba2..7e3e1262 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/ask-user-question.ts
+@@ -14,20 +14,21 @@ import {
+ 	ASK_USER_PROMPT_EVENT,
+ 	type AskUserAnswerEventPayload,
+ 	type AskUserAnsweredEventPayload,
+ 	type AskUserPromptEventPayload,
+ } from "./events.js";
+ import { hasDialogUI, runRpcQuestionnaire } from "./rpc-fallback.js";
+ import { displayLabel } from "./state/i18n-bridge.js";
+ import { sentinelsToAppend } from "./state/row-intent.js";
+ import { buildQuestionnaireResponse, buildToolResult } from "./tool/response-envelope.js";
+ import {
++	hasRecommendedSuffix,
+ 	MAX_OPTIONS,
+ 	MAX_QUESTIONS,
+ 	MIN_OPTIONS,
+ 	type QuestionData,
+ 	type QuestionnaireResult,
+ 	type QuestionParams,
+ 	QuestionParamsSchema,
+ } from "./tool/types.js";
+ import { validateQuestionnaire } from "./tool/validate-questionnaire.js";
+ import type { WrappingSelectItem } from "./view/components/wrapping-select.js";
+@@ -56,21 +57,21 @@ export const ASK_USER_QUESTION_TOOL_NAME = "ask_user_question";
+ const ERROR_NO_UI = "Error: UI not available (running in non-interactive mode)";
+ 
+ const ERROR_NO_CUSTOM_UI =
+ 	"Error: this client cannot render the questionnaire (custom UI is unavailable, e.g. RPC/ACP hosts such as Zed or Paseo). The user never saw the questions — do NOT treat this as a decline. Ask the questions as plain chat text instead, without using this tool.";
+ 
+ export function buildItemsForQuestion(question: QuestionData): WrappingSelectItem[] {
+ 	const items: WrappingSelectItem[] = question.options.map((o) => ({
+ 		kind: "option",
+ 		label: o.label,
+ 		description: o.description,
+-		recommended: o.recommended,
++		recommended: hasRecommendedSuffix(o.label) ? true : undefined,
+ 	}));
+ 	for (const kind of sentinelsToAppend(question)) {
+ 		items.push({ kind, label: displayLabel(kind) });
+ 	}
+ 	return items;
+ }
+ 
+ export const DEFAULT_PROMPT_SNIPPET = `Ask the user 1-4 structured questions (2-4 options each) when requirements are ambiguous or a decision is needed`;
+ 
+ export const DEFAULT_PROMPT_GUIDELINES: string[] = [
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/multi-select-view.ts b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/multi-select-view.ts
+index ba2987d2..6b576d6d 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/multi-select-view.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/multi-select-view.ts
+@@ -4,20 +4,21 @@
+  */
+ import { type Theme } from "@earendil-works/pi-coding-agent";
+ import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+ import type { StatefulView } from "../stateful-view.js";
+ import type { QuestionData } from "../../tool/types.js";
+ // Stage 3b: route chrome literals through t() at their render sites. The
+ // `Next` default (nextLabel) and the `Type something.` free-text placeholder
+ // are dictionary keys; under the default `en` locale t() is identity, so this
+ // changes NO existing render output.
+ import { t } from "../../state/i18n-bridge.js";
++import { hasRecommendedSuffix, RECOMMENDED_SUFFIX } from "../../tool/types.js";
+ 
+ export interface MultiSelectRow {
+ 	checked: boolean;
+ 	active: boolean;
+ }
+ 
+ export interface MultiSelectOtherState {
+ 	active: boolean;
+ 	inputMode: boolean;
+ 	inputBuffer: string;
+@@ -70,22 +71,26 @@ export class MultiSelectView implements StatefulView<MultiSelectViewProps> {
+ 
+ 	invalidate(): void {}
+ 
+ 	private renderRow(index: number, width: number): string[] {
+ 		const row = this.props.rows[index];
+ 		if (!row) return [];
+ 		const checkbox = row.checked ? "[✔]" : "[ ]";
+ 		const pointer = row.active ? "❯ " : "  ";
+ 		const prefix = `${pointer}${checkbox} `;
+ 		const opt = this.question.options[index];
+-		const label = opt?.label ?? "";
+-		const star = opt?.recommended ? "⭐ " : "";
++		const rawLabel = opt?.label ?? "";
++		// CC suffix convention: ⭐ from the suffix, suffix stripped from display
++		// only — the stored label (and answer string) keeps it.
++		const isRec = hasRecommendedSuffix(rawLabel);
++		const label = isRec ? rawLabel.slice(0, rawLabel.length - RECOMMENDED_SUFFIX.length) : rawLabel;
++		const star = isRec ? "⭐ " : "";
+ 		const line = `${prefix}${star}${label}`;
+ 		const styled = row.active || row.checked ? this.theme.fg("accent", this.theme.bold(line)) : line;
+ 		return [styled];
+ 	}
+ 
+ 	private renderOther(width: number): string[] {
+ 		const o = this.props.other;
+ 		const check = o.inputMode ? "[ ]" : "";
+ 		const pointer = o.active ? "❯ " : "  ";
+ 		const prefix = `${pointer}${check} `;
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts
+index 7b8a3391..481911d9 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts
+@@ -1,15 +1,14 @@
+ /**
+  * PreviewBlockRenderer — renders a markdown preview block for a single option.
+  * Ported from rpiv-ask-user-question view/components/preview/preview-block-renderer.ts.
+  */
+-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+ import type { Theme } from "@earendil-works/pi-coding-agent";
+ import type { QuestionData } from "../../../tool/types.js";
+ 
+ interface PreviewBlockConfig {
+ 	question: QuestionData;
+ 	theme: Theme;
+ 	markdownTheme: Record<string, (text: string) => string>;
+ }
+ 
+ export class PreviewBlockRenderer {
+@@ -27,20 +26,20 @@ export class PreviewBlockRenderer {
+ 		const option = this.config.question.options[optionIndex];
+ 		if (!option?.preview || option.preview.length === 0) return [];
+ 
+ 		const t = this.config.theme;
+ 		const lines: string[] = [];
+ 
+ 		// Header
+ 		lines.push(t.bold(`Preview: ${option.label}`));
+ 		lines.push("");
+ 
+-		// Render preview content as plain text with wrapping
+-		const previewLines = option.preview.split("\n");
+-		for (const line of previewLines) {
+-			const wrapped = wrapTextWithAnsi(line, width);
+-			lines.push(...wrapped);
++		// Monospace-verbatim preview (CC parity): code and ASCII mockups must not
++		// re-wrap. Full markdown rendering is deliberately out of scope.
++		const clip = (line: string): string => (line.length > width ? line.slice(0, width) : line);
++		for (const line of option.preview.split("\n")) {
++			lines.push(clip(line));
+ 		}
+ 
+ 		return lines.map((l) => t.fg("dim", l));
+ 	}
+ }
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/wrapping-select.ts b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/wrapping-select.ts
+index 3abe2158..501a5174 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/wrapping-select.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/wrapping-select.ts
+@@ -1,16 +1,17 @@
+ /**
+  * WrappingSelect — scrollable option list with numbering and inline input.
+  * Ported from rpiv-ask-user-question view/components/wrapping-select.ts.
+  */
+ import type { Component } from "@earendil-works/pi-tui";
+ import { visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
++import { RECOMMENDED_SUFFIX } from "../../tool/types.js";
+ import { renderInlineInputRow } from "./inline-input.js";
+ 
+ export type WrappingSelectItem =
+ 	| { kind: "option"; label: string; description?: string; recommended?: boolean }
+ 	| { kind: "other"; label: string; description?: string }
+ 	| { kind: "next"; label: string; description?: string };
+ 
+ export interface WrappingSelectTheme {
+ 	selectedText: (text: string) => string;
+ 	description: (text: string) => string;
+@@ -156,24 +157,31 @@ export class WrappingSelect implements Component {
+ 	): string[] {
+ 		const rowPrefix = this.buildRowPrefix(index, isActive, numberWidth);
+ 		const continuationPrefix = " ".repeat(visibleWidth(rowPrefix));
+ 		const contentWidth = Math.max(WrappingSelect.MIN_CONTENT_WIDTH, width - visibleWidth(rowPrefix));
+ 
+ 		if (this.shouldRenderAsInlineInput(item, isActive)) {
+ 			return this.renderInlineInputRow(rowPrefix, continuationPrefix, contentWidth);
+ 		}
+ 
+ 		const isConfirmed = index === this.confirmedIndex;
+-		const star = item.kind === "option" && item.recommended ? "⭐ " : "";
++		const isRec = item.kind === "option" && item.recommended === true;
++		const star = isRec ? "⭐ " : "";
++		// Display strips the CC "(Recommended)" suffix; the stored label (and
++		// therefore the answer string) keeps it.
++		const displayLabel =
++			isRec && item.label.endsWith(RECOMMENDED_SUFFIX)
++				? item.label.slice(0, item.label.length - RECOMMENDED_SUFFIX.length)
++				: item.label;
+ 		const baseLabel = isConfirmed
+-			? `${this.confirmedLabelOverride ?? item.label}${WrappingSelect.CONFIRMED_MARK}`
+-			: item.label;
++			? `${this.confirmedLabelOverride ?? displayLabel}${WrappingSelect.CONFIRMED_MARK}`
++			: displayLabel;
+ 		const label = `${star}${baseLabel}`;
+ 		const applySelectedStyle = isActive || isConfirmed;
+ 
+ 		return [
+ 			...this.renderLabelBlock(label, rowPrefix, continuationPrefix, contentWidth, applySelectedStyle),
+ 			...this.renderDescriptionBlock(item.description, continuationPrefix, contentWidth),
+ 		];
+ 	}
+ 
+ 	private buildRowPrefix(index: number, isActive: boolean, numberWidth: number): string {

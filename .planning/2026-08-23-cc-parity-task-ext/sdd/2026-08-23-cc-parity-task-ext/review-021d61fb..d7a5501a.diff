@@ -1,0 +1,406 @@
+# Review package: 021d61fb..d7a5501a
+
+## Commits
+d7a5501a feat(task): ask_user_question CC-parity schema — header 12, suffix recommended, preview single-select
+
+## Files changed
+ .../ask-user/__tests__/cc-parity-schema.test.ts    | 87 ++++++++++++++++++++++
+ .../src/ask-user/tool/__tests__/types.test.ts      | 18 +----
+ .../s2-agent-ext-task/src/ask-user/tool/types.ts   | 30 ++++----
+ .../src/ask-user/tool/validate-questionnaire.ts    | 31 +++++---
+ 4 files changed, 124 insertions(+), 42 deletions(-)
+
+## Diff
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/cc-parity-schema.test.ts b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/cc-parity-schema.test.ts
+new file mode 100644
+index 00000000..1d42a471
+--- /dev/null
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/cc-parity-schema.test.ts
+@@ -0,0 +1,87 @@
++/** CC-parity schema — header 12, suffix-based recommended, preview single-select. */
++import { test, expect, describe } from "bun:test";
++import { validateQuestionnaire } from "../tool/validate-questionnaire.js";
++import {
++	MAX_HEADER_LENGTH,
++	RECOMMENDED_SUFFIX,
++	hasRecommendedSuffix,
++	type QuestionParams,
++} from "../tool/types.js";
++
++function params(questions: unknown[]): QuestionParams {
++	return { questions } as unknown as QuestionParams;
++}
++
++describe("CC parity schema", () => {
++	test("header over 12 chars is rejected", () => {
++		const r = validateQuestionnaire(
++			params([{ question: "q?", header: "13-char header", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] }]),
++		);
++		expect(r.ok).toBe(false);
++		if (!r.ok) expect(r.message).toContain("12");
++	});
++
++	test("header of exactly 12 chars passes", () => {
++		// "Auth method!" is exactly 12 chars ("12 characters" in the brief is 13).
++		const r = validateQuestionnaire(
++			params([{ question: "q?", header: "Auth method!", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] }]),
++		);
++		expect(r.ok).toBe(true);
++	});
++
++	test("label longer than 60 chars is accepted (no hard limit)", () => {
++		const long = `${"word ".repeat(20)}end`;
++		const r = validateQuestionnaire(
++			params([{ question: "q?", header: "hdr", options: [{ label: long, description: "d" }, { label: "b", description: "d" }] }]),
++		);
++		expect(r.ok).toBe(true);
++	});
++
++	test("preview on a multiSelect question is rejected", () => {
++		const r = validateQuestionnaire(
++			params([{
++				question: "q?", header: "hdr", multiSelect: true,
++				options: [
++					{ label: "a", description: "d", preview: "x" },
++					{ label: "b", description: "d" },
++				],
++			}]),
++		);
++		expect(r.ok).toBe(false);
++		if (!r.ok) expect(r.error).toBe("preview_on_multiselect");
++	});
++
++	test("preview on a single-select question still passes", () => {
++		const r = validateQuestionnaire(
++			params([{
++				question: "q?", header: "hdr",
++				options: [
++					{ label: "a", description: "d", preview: "x" },
++					{ label: "b", description: "d" },
++				],
++			}]),
++		);
++		expect(r.ok).toBe(true);
++	});
++
++	test("more than one (Recommended)-suffixed label is rejected", () => {
++		const r = validateQuestionnaire(
++			params([{
++				question: "q?", header: "hdr",
++				options: [
++					{ label: `Alpha${RECOMMENDED_SUFFIX}`, description: "d" },
++					{ label: `Beta${RECOMMENDED_SUFFIX}`, description: "d" },
++				],
++			}]),
++		);
++		expect(r.ok).toBe(false);
++		if (!r.ok) expect(r.error).toBe("too_many_recommended");
++	});
++
++	test("hasRecommendedSuffix matches only the exact CC suffix", () => {
++		expect(hasRecommendedSuffix(`A${RECOMMENDED_SUFFIX}`)).toBe(true);
++		expect(hasRecommendedSuffix("A (recommended)")).toBe(false);
++		expect(hasRecommendedSuffix("A (Recommended) ")).toBe(false);
++		expect(hasRecommendedSuffix("A")).toBe(false);
++	});
++});
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/tool/__tests__/types.test.ts b/bun-apps/s2-agent-ext-task/src/ask-user/tool/__tests__/types.test.ts
+index 79cd0762..f27696ae 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/tool/__tests__/types.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/tool/__tests__/types.test.ts
+@@ -9,21 +9,20 @@
+  * Covers: QuestionsSchema (array/item constraints), QuestionSchema (option/
+  *         preview/multiSelect/header shape), QuestionParamsSchema, QuestionAnswer
+  *         field optionality + discriminated union, isQuestionnaireResult type guard,
+  *         schema constants + RESERVED_LABELS.
+  */
+ import { test, expect, describe } from "bun:test";
+ import { Value } from "typebox/value";
+ import {
+ 	isQuestionnaireResult,
+ 	MAX_HEADER_LENGTH,
+-	MAX_LABEL_LENGTH,
+ 	MAX_OPTIONS,
+ 	MAX_QUESTIONS,
+ 	MIN_OPTIONS,
+ 	type QuestionAnswer,
+ 	type QuestionData,
+ 	type QuestionnaireResult,
+ 	QuestionParamsSchema,
+ 	QuestionsSchema,
+ 	RESERVED_LABELS,
+ } from "../types.js";
+@@ -131,34 +130,20 @@ describe("QuestionSchema — option/preview/multiSelect/header shape", () => {
+ 			],
+ 		};
+ 		expect(Value.Check(QuestionsSchema, [noHeader])).toBe(false);
+ 	});
+ 
+ 	test("rejects a header longer than MAX_HEADER_LENGTH chars", () => {
+ 		const tooLong = "x".repeat(MAX_HEADER_LENGTH + 1);
+ 		expect(Value.Check(QuestionsSchema, [makeQuestion({ header: tooLong })])).toBe(false);
+ 	});
+ 
+-	test("rejects a label longer than MAX_LABEL_LENGTH (60) chars", () => {
+-		const tooLong = "x".repeat(MAX_LABEL_LENGTH + 1);
+-		expect(
+-			Value.Check(QuestionsSchema, [
+-				makeQuestion({
+-					options: [
+-						{ label: tooLong, description: "a" },
+-						{ label: "B", description: "b" },
+-					],
+-				}),
+-			]),
+-		).toBe(false);
+-	});
+-
+ 	test("rejects question with missing 'question' text", () => {
+ 		const broken = {
+ 			options: [
+ 				{ label: "A", description: "a" },
+ 				{ label: "B", description: "b" },
+ 			],
+ 		} as unknown;
+ 		expect(Value.Check(QuestionsSchema, [broken])).toBe(false);
+ 	});
+ });
+@@ -289,18 +274,17 @@ describe("isQuestionnaireResult — type guard", () => {
+ 	test("rejects missing fields", () => {
+ 		expect(isQuestionnaireResult({ answers: [] })).toBe(false);
+ 		expect(isQuestionnaireResult({ cancelled: true })).toBe(false);
+ 	});
+ });
+ 
+ describe("schema constants + RESERVED_LABELS", () => {
+ 	test("exports the expected schema constants", () => {
+ 		expect(MIN_OPTIONS).toBe(2);
+ 		expect(MAX_OPTIONS).toBe(4);
+-		expect(MAX_HEADER_LENGTH).toBe(16);
+-		expect(MAX_LABEL_LENGTH).toBe(60);
++		expect(MAX_HEADER_LENGTH).toBe(12);
+ 	});
+ 
+ 	test("RESERVED_LABELS includes the Pi sentinels + CC's 'Other'", () => {
+ 		expect(RESERVED_LABELS).toEqual(["Other", "Type something.", "Next"]);
+ 	});
+ });
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/tool/types.ts b/bun-apps/s2-agent-ext-task/src/ask-user/tool/types.ts
+index 45fa3da2..a48dafdc 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/tool/types.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/tool/types.ts
+@@ -4,22 +4,28 @@
+  *
+  * Stripped of @juicesharp/rpiv-config imports — LABELS_BY_KIND and
+  * RESERVED_LABEL_SET sourced from local row-intent.ts instead.
+  */
+ import { type Static, Type } from "typebox";
+ import { LABELS_BY_KIND, RESERVED_LABEL_SET, ROW_INTENT_META } from "../state/row-intent.js";
+ 
+ export const MAX_QUESTIONS = 4;
+ export const MIN_OPTIONS = 2;
+ export const MAX_OPTIONS = 4;
+-export const MAX_HEADER_LENGTH = 16;
+-export const MAX_LABEL_LENGTH = 60;
++export const MAX_HEADER_LENGTH = 12;
++
++/** CC convention: the recommended option carries this label suffix and sits first. */
++export const RECOMMENDED_SUFFIX = " (Recommended)";
++
++export function hasRecommendedSuffix(label: string): boolean {
++	return label.endsWith(RECOMMENDED_SUFFIX);
++}
+ 
+ /**
+  * User-facing labels for the three runtime sentinel rows, keyed by their
+  * `WrappingSelectItem.kind` discriminator. Sourced from
+  * `ROW_INTENT_META` via `LABELS_BY_KIND` (`row-intent.ts`).
+  */
+ export const SENTINEL_LABELS = LABELS_BY_KIND;
+ 
+ export type SentinelKind = keyof typeof SENTINEL_LABELS;
+ export type SentinelLabel = (typeof SENTINEL_LABELS)[SentinelKind];
+@@ -30,61 +36,55 @@ export type SentinelLabel = (typeof SENTINEL_LABELS)[SentinelKind];
+  */
+ export const RESERVED_LABELS = [
+ 	"Other",
+ 	ROW_INTENT_META.other.label,
+ 	ROW_INTENT_META.next.label,
+ ] as const;
+ export type ReservedLabel = (typeof RESERVED_LABELS)[number];
+ 
+ export const OptionSchema = Type.Object({
+ 	label: Type.String({
+-		maxLength: MAX_LABEL_LENGTH,
+-		description: `MAX ${MAX_LABEL_LENGTH} CHARACTERS — hard limit, requests over the limit are rejected. The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.`,
++		description:
++			"The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.",
+ 	}),
+ 	description: Type.String({
+ 		description:
+ 			"Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.",
+ 	}),
+ 	preview: Type.Optional(
+ 		Type.String({
+ 			description:
+-				"Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons.",
+-		}),
+-	),
+-	recommended: Type.Optional(
+-		Type.Boolean({
+-			description:
+-				'Set true on the option you recommend (at most one per question). The UI renders a ⭐ prefix on its title — a stable, consistent marker. Prefer this over adding "(Recommended)" text to the label.',
++				"Optional preview content, rendered as markdown in a monospace box next to the options (side-by-side layout). Use for ASCII mockups of UI layouts or components, code snippets, diagrams, graphs, or configuration examples. Only supported for single-select questions.",
+ 		}),
+ 	),
+ });
+ 
+ export const QuestionSchema = Type.Object({
+ 	question: Type.String({
+ 		description:
+ 			'The complete question to ask the user. Should be clear, specific, and end with a question mark.',
+ 	}),
+ 	header: Type.String({
+ 		maxLength: MAX_HEADER_LENGTH,
+-		description: `MAX ${MAX_HEADER_LENGTH} CHARACTERS — hard limit. Very short chip/tag shown next to the question. Examples: "Auth method", "Library".`,
++		description: `Very short label displayed as a chip/tag next to the question. Max ${MAX_HEADER_LENGTH} characters. Examples: "Auth method", "Library".`,
+ 	}),
+ 	options: Type.Array(OptionSchema, {
+ 		minItems: MIN_OPTIONS,
+ 		maxItems: MAX_OPTIONS,
+ 		description:
+ 			"The available choices for this question. Must have 2-4 options.",
+ 	}),
+ 	multiSelect: Type.Optional(
+ 		Type.Boolean({
+ 			default: false,
+ 			description:
+-				"Set to true to allow the user to select multiple options instead of just one.",
++				"Set to true to allow the user to select multiple options instead of just one. Use for questions where multiple answers are valid; phrase the question accordingly. Do not use for mutually exclusive choices.",
+ 		}),
+ 	),
+ });
+ 
+ export const QuestionsSchema = Type.Array(QuestionSchema, {
+ 	minItems: 1,
+ 	maxItems: MAX_QUESTIONS,
+ 	description: "Questions to ask the user (1-4 questions)",
+ });
+ 
+@@ -111,21 +111,23 @@ export interface QuestionAnswer {
+ 
+ export type QuestionnaireError =
+ 	| "no_ui"
+ 	| "no_custom_ui"
+ 	| "no_questions"
+ 	| "empty_options"
+ 	| "too_many_questions"
+ 	| "duplicate_question"
+ 	| "duplicate_option_label"
+ 	| "reserved_label"
+-	| "too_many_recommended";
++	| "too_many_recommended"
++	| "preview_on_multiselect"
++	| "header_too_long";
+ 
+ export interface QuestionnaireResult {
+ 	answers: QuestionAnswer[];
+ 	cancelled: boolean;
+ 	error?: QuestionnaireError;
+ }
+ 
+ export function isQuestionnaireResult(value: unknown): value is QuestionnaireResult {
+ 	if (!value || typeof value !== "object") return false;
+ 	const v = value as Record<string, unknown>;
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts b/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts
+index dcfbb4f5..20fa902a 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts
+@@ -1,20 +1,21 @@
+ /**
+  * Questionnaire validation — catches bad params before the TUI renders.
+  * Ported from rpiv-ask-user-question tool/validate-questionnaire.ts.
+  */
+ import {
+ 	MAX_QUESTIONS,
+-	MAX_LABEL_LENGTH,
++	MAX_HEADER_LENGTH,
+ 	MIN_OPTIONS,
+ 	MAX_OPTIONS,
+ 	RESERVED_LABELS,
++	hasRecommendedSuffix,
+ 	type QuestionParams,
+ 	type QuestionnaireError,
+ } from "./types.js";
+ 
+ export type ValidationResult =
+ 	| { ok: true }
+ 	| { ok: false; message: string; error: QuestionnaireError };
+ 
+ const RESERVED_SET = new Set(RESERVED_LABELS);
+ 
+@@ -44,46 +45,54 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult
+ 		}
+ 
+ 		if (opts.length < MIN_OPTIONS || opts.length > MAX_OPTIONS) {
+ 			return {
+ 				ok: false,
+ 				message: `Error: question ${qi + 1} has ${opts.length} options (need ${MIN_OPTIONS}-${MAX_OPTIONS}).`,
+ 				error: "empty_options",
+ 			};
+ 		}
+ 
+-		const recommendedCount = opts.filter((o) => o.recommended === true).length;
++		if (q.header.length > MAX_HEADER_LENGTH) {
++			return {
++				ok: false,
++				message: `Error: question ${qi + 1} header exceeds ${MAX_HEADER_LENGTH} characters.`,
++				error: "header_too_long",
++			};
++		}
++
++		const recommendedCount = opts.filter((o) => hasRecommendedSuffix(o.label)).length;
+ 		if (recommendedCount > 1) {
+ 			return {
+ 				ok: false,
+-				message: `Error: question ${qi + 1} has ${recommendedCount} recommended options (at most one allowed).`,
++				message: `Error: question ${qi + 1} has ${recommendedCount} options labeled "(Recommended)" (at most one allowed).`,
+ 				error: "too_many_recommended",
+ 			};
+ 		}
+ 
++		if (q.multiSelect === true && opts.some((o) => typeof o.preview === "string" && o.preview.length > 0)) {
++			return {
++				ok: false,
++				message: `Error: question ${qi + 1} is multiSelect but has a preview — previews are only supported for single-select questions.`,
++				error: "preview_on_multiselect",
++			};
++		}
++
+ 		for (let oi = 0; oi < opts.length; oi++) {
+ 			const opt = opts[oi];
+ 			if (!opt.label || opt.label.trim().length === 0) {
+ 				return {
+ 					ok: false,
+ 					message: `Error: question ${qi + 1}, option ${oi + 1} has an empty label.`,
+ 					error: "empty_options",
+ 				};
+ 			}
+-			if (opt.label.length > MAX_LABEL_LENGTH) {
+-				return {
+-					ok: false,
+-					message: `Error: question ${qi + 1}, option ${oi + 1} label exceeds ${MAX_LABEL_LENGTH} characters.`,
+-					error: "empty_options",
+-				};
+-			}
+-
+ 			const key = `${qi}:${opt.label.toLowerCase().trim()}`;
+ 			if (seenLabels.has(key)) {
+ 				return {
+ 					ok: false,
+ 					message: `Error: duplicate option label "${opt.label}" in question ${qi + 1}.`,
+ 					error: "duplicate_option_label",
+ 				};
+ 			}
+ 			seenLabels.set(key, oi);
+ 
