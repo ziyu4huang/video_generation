@@ -19,7 +19,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { SurrealClient } from "@repo/s2-agent-core-interface";
+import { SurrealClient, SURREAL_DEFAULTS } from "@repo/s2-agent-core-interface";
 import { evaluateDefaultSwitchGate } from "../src/hierarchical-retrieval.ts";
 
 // ── 1. D25 gate rule (pure) ─────────────────────────────────────────────────
@@ -45,7 +45,7 @@ describe("evaluateDefaultSwitchGate (D25)", () => {
 
 // ── 2. three-arm fixture smoke (live Surreal, temp ns) ─────────────────────
 
-async function isSurrealUp(endpoint = "http://127.0.0.1:8000"): Promise<boolean> {
+async function isSurrealUp(endpoint: string = SURREAL_DEFAULTS.endpoint): Promise<boolean> {
 	try {
 		const ctrl = new AbortController();
 		const t = setTimeout(() => ctrl.abort(), 1500);
@@ -57,7 +57,10 @@ async function isSurrealUp(endpoint = "http://127.0.0.1:8000"): Promise<boolean>
 	}
 }
 
-const UP = await isSurrealUp();
+// Machine-coupled live section (local SurrealDB service): skipped under CI
+// and when the service is down (test-portability P-classes; surreal-index-
+// live.test.ts pattern).
+const UP = process.env.CI ? false : await isSurrealUp();
 const liveDescribe = (name: string, body: () => void) =>
 	(UP ? describe : (describe.skip as typeof describe))(name, body);
 
@@ -123,7 +126,7 @@ liveDescribe("recall-audit three arms (fixture corpus, temp Surreal ns)", () => 
 			try {
 				// Throwaway namespace cleanup (best effort — a failed remove
 				// never fails the test).
-				const c = new SurrealClient({ namespace: ns, database: "context_db", username: "root", password: "root" });
+				const c = new SurrealClient({ endpoint: SURREAL_DEFAULTS.endpoint, namespace: ns, database: "context_db", username: SURREAL_DEFAULTS.username, password: SURREAL_DEFAULTS.password });
 				await c.query(`REMOVE NAMESPACE ${ns};`);
 			} catch {
 				// already gone
