@@ -183,7 +183,7 @@ export function parseManifest(raw: string, source: string, registry?: LayoutName
   }
   const m = parsed as DeckManifest;
   if (!Array.isArray(m.slides) || m.slides.length === 0) {
-    throw new DeckError("manifest missing non-empty `slides`");
+    throw new DeckError(`manifest missing non-empty \`slides\` (${source})`);
   }
   const available: readonly string[] = registry ? registry.names() : SLIDE_LAYOUTS;
   m.slides.forEach((s, i) => {
