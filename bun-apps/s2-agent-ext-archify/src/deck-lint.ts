@@ -46,6 +46,14 @@ export interface DeckLintNote {
 
 export interface LintableDeck {
   slides: Slide[];
+  /**
+   * Layout names whose chrome suppresses the title band — `title-overflows` is a
+   * false positive for these (the title is never drawn, so it cannot overflow).
+   * `statement` is always exempt; this set extends it with divider-class
+   * templates (`chrome: false` / `chrome: { "title": false }`). Populated by
+   * callers that hold a registry via `loadRegistry().titleSuppressedLayouts()`.
+   */
+  suppressedTitle?: ReadonlySet<string>;
 }
 
 /**
@@ -155,6 +163,13 @@ function copyOf(slide: Slide): string[] {
  */
 export function lintDeck(deck: LintableDeck): DeckLintNote[] {
   const notes: DeckLintNote[] = [];
+  const suppressedTitle = deck.suppressedTitle ?? new Set<string>();
+  // A layout whose chrome suppresses the title band never draws it, so the band
+  // cannot be overflowed. `statement` is the always-exempt code layout; the set
+  // extends it with divider-class templates (fold-back t02).
+  const titleSuppressed = (layout: string): boolean =>
+    layout === "statement" || suppressedTitle.has(layout);
+
   deck.slides.forEach((slide, i) => {
     const n = i + 1;
     const layout = resolveLayout(slide);
@@ -173,7 +188,7 @@ export function lintDeck(deck: LintableDeck): DeckLintNote[] {
     }
     // A statement slide's chrome is drawn WITHOUT a title (the statement is
     // the title), so its `title` never occupies the band and cannot overflow it.
-    if (carriesAnArgument && layout !== "statement") {
+    if (carriesAnArgument && !titleSuppressed(layout)) {
       const note = titleOverflow(slide);
       if (note) notes.push({ slide: n, ...note });
     }

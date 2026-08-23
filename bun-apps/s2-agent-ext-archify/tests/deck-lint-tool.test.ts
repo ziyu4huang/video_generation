@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archifyDeckLint } from "../src/deck-lint-tool.ts";
+import { archifyDeckLint, discoverDeckSkeletons } from "../src/deck-lint-tool.ts";
 import * as run from "../src/run.ts";
 
 const PKG_ROOT = join(import.meta.dir, "..");
@@ -281,5 +281,66 @@ describe("archify_deck_lint — useful result for a valid deck", () => {
       (await archifyDeckLint({ manifest: { slides: [{ title: "No layout or ir" }] } }, { cwd: PKG_ROOT }))
         .isError
     ).toBe(true);
+  });
+});
+
+describe("discoverDeckSkeletons — fold-back tiers (t01)", () => {
+  /** A minimal valid skeleton outline: the description is the first H1 after frontmatter. */
+  function writeSkeleton(dir: string, name: string, description: string): string {
+    mkdirSync(join(dir, "decks"), { recursive: true });
+    const path = join(dir, "decks", `${name}.outline.md`);
+    writeFileSync(path, `---\n---\n# ${description}\n\n## Slide one\n:::bullets\n- a\n`);
+    return path;
+  }
+
+  test("a shippedDir override finds a DIFFERENT-root shipped tree, not the package's", () => {
+    const shipped = tempDir();
+    writeSkeleton(shipped, "custom", "Custom shipped deck");
+    const out = discoverDeckSkeletons({ root: tempDir(), shippedDir: shipped });
+    expect(out.map((d) => d.name)).toEqual(["custom"]);
+    expect(out[0]!.description).toBe("Custom shipped deck");
+    expect(out[0]!.source).toBe(join(shipped, "decks", "custom.outline.md"));
+  });
+
+  test("the four shipped skeletons are still the default (regression guard)", () => {
+    const out = discoverDeckSkeletons({ root: PKG_ROOT });
+    expect(out.map((d) => d.name).sort()).toEqual([
+      "incident-review",
+      "product-proposal",
+      "project-kickoff",
+      "technical-review",
+    ]);
+  });
+
+  test("$ARCHIFY_TEMPLATES decks join the user tier, before the shipped tier", () => {
+    const user = tempDir();
+    writeSkeleton(user, "my-deck", "My user deck");
+    const out = discoverDeckSkeletons({ root: PKG_ROOT, env: { ARCHIFY_TEMPLATES: user } });
+    // User tier precedes shipped: our deck is found; the shipped four remain.
+    expect(out.map((d) => d.name).sort()).toContain("my-deck");
+    expect(out.find((d) => d.name === "my-deck")!.source).toBe(
+      join(user, "decks", "my-deck.outline.md")
+    );
+  });
+
+  test("a user-tier skeleton shadows a same-named shipped skeleton", () => {
+    const user = tempDir();
+    // Shadow the shipped `technical-review` with a user one; first hit wins.
+    writeSkeleton(user, "technical-review", "User version");
+    const out = discoverDeckSkeletons({ root: PKG_ROOT, env: { ARCHIFY_TEMPLATES: user } });
+    const hit = out.filter((d) => d.name === "technical-review");
+    expect(hit).toHaveLength(1);
+    expect(hit[0]!.description).toBe("User version");
+    expect(hit[0]!.source).toBe(join(user, "decks", "technical-review.outline.md"));
+  });
+
+  test("the catalog surface lists a user-tier skeleton end to end", async () => {
+    const user = tempDir();
+    writeSkeleton(user, "my-deck", "My user deck");
+    const r = await archifyDeckLint({}, { cwd: PKG_ROOT, env: { ARCHIFY_TEMPLATES: user } });
+    expect(r.isError).toBeUndefined();
+    const decks = r.details["decks"] as { name: string; description: string }[];
+    expect(decks.find((d) => d.name === "my-deck")?.description).toBe("My user deck");
+    expect(r.content[0]!.text).toContain("my-deck");
   });
 });

@@ -46,6 +46,12 @@ export interface LayoutRegistry {
   roleOf(name: string): (role: string) => TypeSpec;
   catalog(): CatalogEntry[];
   names(): string[];
+  /**
+   * Layout names whose chrome suppresses the title band — `statement` plus
+   * every template with `chrome: false` / `chrome: { "title": false }`. The
+   * lint uses this to exempt them from `title-overflows` (fold-back t02).
+   */
+  titleSuppressedLayouts(): string[];
 }
 
 const CODE_DESCRIPTIONS: Record<SlideLayout, string> = {
@@ -189,6 +195,13 @@ export function loadRegistry(opts: LoadRegistryOpts = {}): LayoutRegistry {
 
     names(): string[] {
       return [...SLIDE_LAYOUTS, ...templates.keys()];
+    },
+
+    titleSuppressedLayouts(): string[] {
+      return [
+        "statement",
+        ...[...templates.values()].filter((t) => t.titleSuppressed).map((t) => t.name),
+      ];
     },
   };
 }

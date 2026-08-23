@@ -57,6 +57,12 @@ export interface LoadedTemplate {
   roles: Record<string, TypeSpec>;
   /** Absolute path this template was loaded from, for the catalog. */
   source: string;
+  /**
+   * True when the chrome suppresses the title band (`chrome: false` or
+   * `chrome: { "title": false }`) — the slide never draws its title, so a
+   * `deck-lint` `title-overflows` note would be a false positive.
+   */
+  titleSuppressed: boolean;
   render(slide: Slide, ctx: LayoutCtx): PlacedBlock[];
 }
 
@@ -605,6 +611,9 @@ export function loadTemplate(json: unknown, source: string): LoadedTemplate {
   ) {
     fail(source, ".chrome", `expected true, false, or {"title": false}`);
   }
+  // Divider-class templates suppress the title band entirely; the lint asks for
+  // this so it can exempt them from `title-overflows` (fold-back t02).
+  const titleSuppressed = chromeSpec === false || (isObject(chromeSpec) && chromeSpec.title === false);
 
   const slots = compileSlots(json.slots, source);
   const roles = compileRoles(json.roles, source);
@@ -636,5 +645,5 @@ export function loadTemplate(json: unknown, source: string): LoadedTemplate {
     return blocks;
   }
 
-  return { name, description: json.description, slots, roles, source, render };
+  return { name, description: json.description, slots, roles, source, titleSuppressed, render };
 }
