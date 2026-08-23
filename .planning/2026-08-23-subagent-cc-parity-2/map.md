@@ -276,3 +276,6 @@ agent).
 Shares-decision-with: 2026-08-22-ultracode-rename — tickets 05/06 touch the
 package under its entry convention (`extensions/ultracode.ts`) and workflow
 gate family.
+Absorbed-by: 2026-08-23-headless-dispatch-hang — its post-close-out live-smoke
+batch (spec §9) surfaced B1/B2/B3 (pre-send hang, interactive-only arming +
+directive, post-settle linger); all three live there as tickets + fog.
