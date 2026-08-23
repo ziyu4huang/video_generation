@@ -2,7 +2,7 @@
 effort: 2026-08-23-cc-parity-task-ext
 created: 2026-08-23
 last: 2026-08-23
-status: open
+status: complete
 ---
 # cc-parity-task-ext — align ask_user_question / /loop / wizard to Claude Code behavior
 
@@ -84,9 +84,24 @@ D1–D7 in `spec.md` §3. The shape-givers:
 
 ## Frontier
 
-All four tickets closed 2026-08-23 (SDD plan tasks 1-7). Remaining: independent
-review of Tasks 4-7 (deferred past a 429 subagent-pool cutoff, resumes after
-16:05 local) → whole-branch final review → merge + version bump.
+cleared — all four tickets closed and merged 2026-08-23 (PR #1897, squash
+c5cc4d35, version bump included).
+
+Delivered: `ask_user_question` at CC parity across schema/description/TUI
+(header 12, "(Recommended)" suffix convention with ⭐ display + authored-label
+answers, single-select monospace preview, plan-mode guidance); wizard skill
+authors Bun wizards (`template.ts`, build-gated); `/loop` is a CC-style
+recurring prompt scheduler (s/m/h/d with second round-up and clamped bounds,
+idle-gated with postpone-on-busy, 7-day max-age, session persistence, slash
+targets via `expandPromptTemplates`) with goal fully decoupled (concurrent
+/goal + /loop); `/goal` accepts CC's clear aliases. Quality: 3 task reviews +
+whole-branch final review (opus) + one fix wave (12/12 findings ADDRESSED,
+scoped re-review ACCEPTED). Suites: task 880/0, wayfind 473/0, local_ci PASS.
+
+Known parked minors (SDD ledger): latestIsIdle cold-start gap (restored loop in
+a fresh process defaults idle until the first /loop command); huge-"s" clamp
+case untested; superpowers `hitl-loop.template.ts` openUrl carries the same
+`!.error` bug wizard's had — its owner's follow-up.
 
 ## Fog of war
 

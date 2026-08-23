@@ -1,0 +1,1045 @@
+# Review package: 5ce75362..6b957eb3
+
+## Commits
+6b957eb3 docs(planning): correct label-hard-limit fog entry; add final fix report
+6b8fbf4f fix(wizard): openUrl status check + order, writeEnv keeps blank lines
+98d17f28 fix(ask-user): guard validation, strip suffix in preview header, tests
+0559cfd0 fix(loop): clamp intervals, idle-gate restores, restore guard, live overlay
+
+## Files changed
+ .planning/2026-08-23-cc-parity-task-ext/map.md     |   5 +-
+ .../final-fix-report.md                            | 148 +++++++++++++++++++++
+ bun-apps/s2-agent-ext-task/extensions/task.ts      |   3 +
+ .../ask-user/__tests__/recommended-marker.test.ts  |  31 +++++
+ .../src/ask-user/tool/validate-questionnaire.ts    |   5 +-
+ .../components/preview/preview-block-renderer.ts   |  13 +-
+ .../src/goal/__tests__/goal.test.ts                |   2 +-
+ .../src/loop/__tests__/integration.test.ts         |  61 +++++++++
+ .../src/loop/__tests__/loop-commands.test.ts       |  24 ++++
+ .../src/loop/__tests__/loop-scheduler.test.ts      |  29 +++-
+ .../s2-agent-ext-task/src/loop/loop-commands.ts    |  21 ++-
+ .../s2-agent-ext-task/src/loop/loop-scheduler.ts   |  12 +-
+ bun-apps/s2-agent-ext-task/src/loop/loop.ts        |  25 +++-
+ bun-apps/s2-agent-ext-task/src/loop/overlay.ts     |  20 ---
+ .../s2-agent-ext-wayfind/skills/wizard/template.ts |  16 ++-
+ 15 files changed, 371 insertions(+), 44 deletions(-)
+
+## Diff
+diff --git a/.planning/2026-08-23-cc-parity-task-ext/map.md b/.planning/2026-08-23-cc-parity-task-ext/map.md
+index 2db81ecd..a5222f33 100644
+--- a/.planning/2026-08-23-cc-parity-task-ext/map.md
++++ b/.planning/2026-08-23-cc-parity-task-ext/map.md
+@@ -97,21 +97,22 @@ review of Tasks 4-7 (deferred past a 429 subagent-pool cutoff, resumes after
+   clear aliases (off/reset/none/cancel) + no-arg status; verdict display naming
+   aligned only where it is a pure display map. Machinery (auditor protocol, shield,
+   quota-retry) untouched.
+ - **Dynamic self-pacing (CC ScheduleWakeup equivalent)** — deliberately uncharted:
+   needs an agent-callable reschedule tool; `/loop <interval>` covers the stated use
+   case. Chart if a real need appears.
+ - **Slash-command targets for /loop** — CC's /loop accepts `<slash-command>` as target;
+   whether s2-agent's command registry can be invoked programmatically from an
+   extension is unprobed. Ticket 03 ships prompt targets; slash targets follow if the
+   probe succeeds.
+-- **Label hard limit** — CC has none; we keep a widened guardrail so TUI wrap tests
+-  stay meaningful. Exact number decided in ticket 01 against the wrap tests.
++- **Label hard limit** — CC has none; ticket 01 shipped full parity (the 60-char
++  rejection was removed and NO guardrail replaced it) — long labels simply wrap
++  in the TUI.
+ 
+ ## Cross-effort links
+ 
+ - **Builds-on**: `.planning/2026-08-22-subagent-cc-parity-2` — same parity intent
+   (Claude Code as reference agent) applied to the subagent subsystem; this effort
+   extends it to the task cockpit. Shares the "parity ledger in spec.md" convention.
+ - **Shares-decision-with**: `.planning/2026-08-21-archify-slide-composition` — both
+   hold "measured-first" Context sections; wizard Bun port follows the same
+   template-invariants pattern (library above a marker never hand-edited).
+diff --git a/.planning/2026-08-23-cc-parity-task-ext/sdd/2026-08-23-cc-parity-task-ext/final-fix-report.md b/.planning/2026-08-23-cc-parity-task-ext/sdd/2026-08-23-cc-parity-task-ext/final-fix-report.md
+new file mode 100644
+index 00000000..7c86af83
+--- /dev/null
++++ b/.planning/2026-08-23-cc-parity-task-ext/sdd/2026-08-23-cc-parity-task-ext/final-fix-report.md
+@@ -0,0 +1,148 @@
++# Final fix wave — whole-branch review findings (2026-08-23)
++
++Scope: all 12 findings from the final whole-branch review (PR #1897, branch
++`cc-parity-task-ext`). TDD where behavior changed: failing tests written first,
++confirmed red, then fixed green.
++
++## Important findings
++
++### 1. parseInterval accepts 0 / overflows setTimeout — FIXED
++`src/loop/loop-commands.ts`
++- Added `MIN_LOOP_INTERVAL_MS = 60_000` and `MAX_LOOP_INTERVAL_MS = 2_000_000_000`
++  (~23 days, under setTimeout's 2^31-1 cap), documented as the timer-safety
++  bound with the note that the scheduler's 7-day max-age still governs lifetime.
++- `parseInterval` now clamps EVERY unit to `[MIN, MAX]` (seconds still round up
++  to a whole minute first). Previously only "s" had the 60s floor, so "0m"/"0h"/
++  "0d" → 0 ms and "999999999d" → 8.64e16 ms (timer overflow).
++- Tests (`loop-commands.test.ts`): 0m/0h/0d/0s → 60_000; 999999999d/h and
++  99999999m → 2_000_000_000; 1d/1h/1m unchanged.
++
++### 2. Restored loop bypasses idle-gating — FIXED
++`src/loop/loop.ts`
++- Added module-level `latestIsIdle: () => boolean` (mirrors goal's
++  `goalState.latestCtx` pattern). Every `/loop` command handler updates it from
++  its ctx (`if (typeof ctx.isIdle === "function") latestIsIdle = ctx.isIdle`).
++- `newScheduler`'s `isIdle` now reads `latestIsIdle()` instead of a per-call ctx
++  default, so a restored scheduler (which has no ctx) gates on the last real
++  command's idle state rather than always-idle.
++- `__resetLoop` resets it to the `() => true` default for test isolation.
++- Test (`integration.test.ts`): capture a BUSY ctx via `/loop status`, restore a
++  persisted loop with a 20 ms interval (real timer), wait 80 ms → zero
++  `sendUserMessage` fires (postponed, not fired). Was red before the fix.
++
++### 3. restoreLoopFromSession orphans an active scheduler — FIXED
++`src/loop/loop.ts`
++- `if (schedulerRef?.active()) return;` after the persisted-loop load — a live
++  loop wins; restore never overwrites (and thus never orphans) an armed timer.
++- `extensions/task.ts` `session_shutdown`: added the explicit commented choice
++  above `loopOverlay.dispose()` — the /loop scheduler is process-lifetime state
++  with nothing per-session to clean (its timer dies with the process).
++- Test (`integration.test.ts`): start `/loop 5m live loop`, persist a DIFFERENT
++  loop, restore → `/loop status` still reports "live loop".
++
++### 4. Overlay frozen after first fire — FIXED
++`src/loop/loop-scheduler.ts`, `src/loop/loop.ts`
++- `SchedulerHooks` gained optional `onTick?: (loop: ActiveLoop) => void` and
++  `onStop?: () => void` observers (the scheduler owns the only mutable copy of
++  the loop, so mirrors need a notification channel).
++- `LoopScheduler.tick` calls `onTick(this.loop)` after each successful fire's
++  state update, and `onStop()` after the 7-day max-age self-stop's final
++  dispatch.
++- `loop.ts`'s `newScheduler` wires `onTick` → `overlay.update(loop)` and
++  `onStop` → `overlay.update(undefined)` + `clearPersistedLoop(extensionApiRef)`,
++  so the overlay stays live and a max-age expiry clears persistence.
++- Tests (`loop-scheduler.test.ts`, harness now accepts extra hooks): onTick
++  fires with iterations [1, 2] and the re-armed `nextFireAt`; onStop fires once
++  on max-age (and not on an ordinary fire).
++
++## Deferred-minor (fix-now per triage)
++
++### 5. validate-questionnaire unguarded accesses — FIXED
++`src/ask-user/tool/validate-questionnaire.ts`
++- `q.header` guarded (`if (q.header && q.header.length > MAX_HEADER_LENGTH)`)
++  with a one-line comment (unvalidated runtime payloads may omit it).
++- Sibling `hasRecommendedSuffix(o.label)` guarded as `o.label && …` (same
++  presence-guard style as the neighboring label checks).
++
++### 6. Preview header shows raw suffixed label — FIXED
++`src/ask-user/view/components/preview/preview-block-renderer.ts`
++- Header line now renders the display label with `RECOMMENDED_SUFFIX` stripped
++  (same strip style as the option-list views; ⭐ stays an option-list
++  affordance).
++- Added the reviewer-requested comment at the clip: code-unit clip, wide chars
++  (CJK/emoji) may clip a cell early — documented limitation.
++- Test (`recommended-marker.test.ts`): preview header renders "Preview: Alpha"
++  with no "(Recommended)".
++
++### 7. MultiSelectView star/strip path untested — FIXED
++`src/ask-user/__tests__/recommended-marker.test.ts`
++- New render test mirroring the WrappingSelect test shape: constructs
++  `MultiSelectView` directly with a suffixed first option, asserts ⭐ present,
++  "Alpha" present, "(Recommended)" absent from display.
++
++## Cheap minors
++
++### 8. Old-syntax guard false-positives on "start …" prompts — FIXED
++`src/loop/loop-commands.ts`
++- Old syntax is now only `measure=…` as the first token, or `start` followed by
++  a token starting with a quote or `measure=`. "/loop start the servers" falls
++  through to a normal start-result (default 10m interval).
++- Tests: "start the servers" → start-result; `start "improve x"` and
++  `start measure=echo` still yield the usage pointer.
++
++### 9. Dead showStopped() — FIXED
++`src/loop/overlay.ts`
++- Deleted `showStopped()` (never called anywhere) plus its now-dead
++  `flashTimer` / `clearFlashTimer` / `STOP_FLASH_MS` scaffolding. Issue-4's
++  `onStop` wiring uses `update(undefined)` as instructed.
++
++### 10. Wizard openUrl — FIXED
++`bun-apps/s2-agent-ext-wayfind/skills/wizard/template.ts`
++- Success check is now `spawnSync(...).status === 0` (not `!r.error`) — a found
++  binary exiting non-zero (WSL's xdg-open without a display) falls through to
++  the next candidate.
++- Candidate order now `open → wslview → xdg-open → explorer.exe` (bash original
++  order; wslview before xdg-open).
++
++### 11. Wizard writeEnv preserves blank lines — FIXED
++Same file.
++- Dropped the `l !== ""` filter (interior blank lines preserved); to keep the
++  upsert idempotent, split()'s single trailing `""` (the file's final newline)
++  is stripped before filtering and the file is rewritten with one trailing
++  newline — re-running no longer accumulates blank lines AND no longer
++  collapses the author's blank-line grouping.
++
++### 12. map.md Fog of war "Label hard limit" — FIXED
++`.planning/2026-08-23-cc-parity-task-ext/map.md`
++- Rewrote the entry to match what shipped: ticket 01 removed the 60-char
++  rejection and kept NO guardrail (long labels simply wrap); the stale "exact
++  number decided in ticket 01" sentence is gone.
++
++## Extra (not in findings list)
++
++- `src/goal/__tests__/goal.test.ts` was RED on the branch before this wave
++  (pre-existing): a prior ticket changed the `/goal clear` completion
++  description to "Clear the current goal (stop|off|reset|none|cancel also
++  work)" (commands.ts:53) without syncing the test expectation. Synced the
++  expected string so the package gate is green. No production code changed.
++
++## Out of scope (per triage, untouched)
++
++- interval h/d display formatting (review minor 11, cosmetic).
++- `isLoopActive` doc comment: added a one-line comment while in the file
++  (explicitly allowed).
++
++## Gates
++
++- `( cd bun-apps/s2-agent-ext-task && bun run typecheck && bun test )`:
++  tsc clean, **880 pass / 0 fail** (61 files, 5210 expect() calls).
++- `( cd bun-apps/s2-agent-ext-wayfind && bun run check && bun run typecheck && bun test )`
++  (touched by the wizard template fix): biome clean, tsc clean,
++  **473 pass / 0 fail**.
++
++## Concerns
++
++- `bun-apps/s2-agent-ext-superpowers/skills/systematic-debugging/scripts/hitl-loop.template.ts`
++  also contains a `wslview` openUrl (found while fixing #10) and may carry the
++  same `!r.error` / ordering bug. Out of this wave's scope — flagging for a
++  follow-up check by the template's owner.
+diff --git a/bun-apps/s2-agent-ext-task/extensions/task.ts b/bun-apps/s2-agent-ext-task/extensions/task.ts
+index 360f1587..2a05db9b 100644
+--- a/bun-apps/s2-agent-ext-task/extensions/task.ts
++++ b/bun-apps/s2-agent-ext-task/extensions/task.ts
+@@ -149,20 +149,23 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
+ 		todoOverlay.resetCompletedDisplayState();
+ 		statusWidget.update();
+ 	});
+ 
+ 	pi.on("session_shutdown", async (_event, ctx) => {
+ 		// Drop this session's todo bucket so a later session reusing the process
+ 		// doesn't inherit stale parent todos. (Children key their own buckets;
+ 		// their own session_shutdown — if any — cleans those.)
+ 		__resetState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
+ 		goalOverlay.dispose();
++		// The /loop scheduler is deliberately NOT stopped here: it is process-
++		// lifetime state with nothing per-session to clean (its timer dies with
++		// the process), so loop teardown is just the overlay.
+ 		loopOverlay.dispose();
+ 		todoOverlay.dispose();
+ 		subagentsHandle.dispose();
+ 		statusWidget.dispose();
+ 	});
+ 
+ 	pi.on("tool_execution_end", async (event) => {
+ 		if (latestCwd && shouldRefreshAfterTool(event.toolName)) refreshPlan(latestCwd); // TB5a: re-parse only after a mutating tool (write/edit/bash)
+ 		if (event.toolName !== TOOL_NAME || event.isError) return;
+ 		todoOverlay.update();
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts
+index ccd5aefe..26b09a41 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/__tests__/recommended-marker.test.ts
+@@ -1,20 +1,22 @@
+ /**
+  * recommended marker, CC convention — the model suffixes the label with
+  * "(Recommended)"; the view renders ⭐ and strips the suffix from DISPLAY only.
+  * The stored label (and therefore the answer string) keeps the suffix, matching
+  * Claude Code, where the answer carries the label as authored.
+  */
+ import { test, expect, describe } from "bun:test";
+ import { validateQuestionnaire } from "../tool/validate-questionnaire.js";
+ import { buildItemsForQuestion } from "../ask-user-question.js";
+ import { WrappingSelect } from "../view/components/wrapping-select.js";
++import { MultiSelectView } from "../view/components/multi-select-view.js";
++import { PreviewBlockRenderer } from "../view/components/preview/preview-block-renderer.js";
+ import { RECOMMENDED_SUFFIX, type QuestionData, type QuestionParams } from "../tool/types.js";
+ 
+ const theme = new Proxy(
+ 	{},
+ 	{
+ 		get:
+ 			() =>
+ 			(...args: unknown[]) =>
+ 				args.map((a) => (typeof a === "string" ? a : "")).join(""),
+ 	},
+@@ -51,11 +53,40 @@ describe("recommended marker (CC suffix convention)", () => {
+ 		// stored label keeps the suffix → answer parity with CC
+ 		expect(items[0].label).toBe(`Alpha${RECOMMENDED_SUFFIX}`);
+ 	});
+ 
+ 	test("unsuffixed options render no star", () => {
+ 		const items = buildItemsForQuestion(q(["Alpha", "Beta"]));
+ 		const ws = new WrappingSelect(items, 8, theme);
+ 		ws.setSelectedIndex(0);
+ 		expect(ws.render(80).join("\n")).not.toContain("⭐");
+ 	});
++
++	test("MultiSelectView renders ⭐ and strips the suffix from display", () => {
++		const view = new MultiSelectView(theme, q([`Alpha${RECOMMENDED_SUFFIX}`, "Beta"]));
++		view.setProps({
++			rows: [
++				{ checked: false, active: true },
++				{ checked: false, active: false },
++			],
++			other: { active: false, inputMode: false, inputBuffer: "", inputCursorOffset: undefined },
++			nextActive: false,
++			nextLabel: "Next",
++		});
++		const out = view.render(80).join("\n");
++		expect(out).toContain("⭐");
++		expect(out).toContain("Alpha");
++		expect(out).not.toContain("(Recommended)");
++	});
++
++	test("preview header strips the recommended suffix (display label)", () => {
++		const question = {
++			question: "q?",
++			header: "hdr",
++			options: [{ label: `Alpha${RECOMMENDED_SUFFIX}`, preview: "line1\nline2" }],
++		} as never as QuestionData;
++		const renderer = new PreviewBlockRenderer({ question, theme, markdownTheme: {} });
++		const out = renderer.render(0, 80).join("\n");
++		expect(out).toContain("Preview: Alpha");
++		expect(out).not.toContain("(Recommended)");
++	});
+ });
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts b/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts
+index 20fa902a..2fca7ef6 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/tool/validate-questionnaire.ts
+@@ -45,29 +45,30 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult
+ 		}
+ 
+ 		if (opts.length < MIN_OPTIONS || opts.length > MAX_OPTIONS) {
+ 			return {
+ 				ok: false,
+ 				message: `Error: question ${qi + 1} has ${opts.length} options (need ${MIN_OPTIONS}-${MAX_OPTIONS}).`,
+ 				error: "empty_options",
+ 			};
+ 		}
+ 
+-		if (q.header.length > MAX_HEADER_LENGTH) {
++		// header guard: unvalidated runtime payloads may omit it
++		if (q.header && q.header.length > MAX_HEADER_LENGTH) {
+ 			return {
+ 				ok: false,
+ 				message: `Error: question ${qi + 1} header exceeds ${MAX_HEADER_LENGTH} characters.`,
+ 				error: "header_too_long",
+ 			};
+ 		}
+ 
+-		const recommendedCount = opts.filter((o) => hasRecommendedSuffix(o.label)).length;
++		const recommendedCount = opts.filter((o) => o.label && hasRecommendedSuffix(o.label)).length;
+ 		if (recommendedCount > 1) {
+ 			return {
+ 				ok: false,
+ 				message: `Error: question ${qi + 1} has ${recommendedCount} options labeled "(Recommended)" (at most one allowed).`,
+ 				error: "too_many_recommended",
+ 			};
+ 		}
+ 
+ 		if (q.multiSelect === true && opts.some((o) => typeof o.preview === "string" && o.preview.length > 0)) {
+ 			return {
+diff --git a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts
+index 481911d9..65a4b2ba 100644
+--- a/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts
++++ b/bun-apps/s2-agent-ext-task/src/ask-user/view/components/preview/preview-block-renderer.ts
+@@ -1,15 +1,16 @@
+ /**
+  * PreviewBlockRenderer — renders a markdown preview block for a single option.
+  * Ported from rpiv-ask-user-question view/components/preview/preview-block-renderer.ts.
+  */
+ import type { Theme } from "@earendil-works/pi-coding-agent";
++import { hasRecommendedSuffix, RECOMMENDED_SUFFIX } from "../../../tool/types.js";
+ import type { QuestionData } from "../../../tool/types.js";
+ 
+ interface PreviewBlockConfig {
+ 	question: QuestionData;
+ 	theme: Theme;
+ 	markdownTheme: Record<string, (text: string) => string>;
+ }
+ 
+ export class PreviewBlockRenderer {
+ 	private readonly config: PreviewBlockConfig;
+@@ -22,24 +23,30 @@ export class PreviewBlockRenderer {
+ 	 * Render the preview content for a single option as markdown text.
+ 	 * Returns the rendered lines, or empty array if no preview content.
+ 	 */
+ 	render(optionIndex: number, width: number): string[] {
+ 		const option = this.config.question.options[optionIndex];
+ 		if (!option?.preview || option.preview.length === 0) return [];
+ 
+ 		const t = this.config.theme;
+ 		const lines: string[] = [];
+ 
+-		// Header
+-		lines.push(t.bold(`Preview: ${option.label}`));
++		// Header — the display label (recommended suffix stripped, mirroring
++		// the option-list views; ⭐ is an option-list affordance, not a preview one).
++		const label = hasRecommendedSuffix(option.label)
++			? option.label.slice(0, option.label.length - RECOMMENDED_SUFFIX.length)
++			: option.label;
++		lines.push(t.bold(`Preview: ${label}`));
+ 		lines.push("");
+ 
+ 		// Monospace-verbatim preview (CC parity): code and ASCII mockups must not
+-		// re-wrap. Full markdown rendering is deliberately out of scope.
++		// re-wrap. Full markdown rendering is deliberately out of scope. The clip
++		// is a code-unit clip — wide chars (CJK/emoji) may clip a cell early;
++		// documented limitation.
+ 		const clip = (line: string): string => (line.length > width ? line.slice(0, width) : line);
+ 		for (const line of option.preview.split("\n")) {
+ 			lines.push(clip(line));
+ 		}
+ 
+ 		return lines.map((l) => t.fg("dim", l));
+ 	}
+ }
+diff --git a/bun-apps/s2-agent-ext-task/src/goal/__tests__/goal.test.ts b/bun-apps/s2-agent-ext-task/src/goal/__tests__/goal.test.ts
+index 290a7a66..de2a9511 100644
+--- a/bun-apps/s2-agent-ext-task/src/goal/__tests__/goal.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/goal/__tests__/goal.test.ts
+@@ -275,21 +275,21 @@ describe("registration", () => {
+ 
+ // ─── Argument completions ────────────────────────────────────────────────────
+ 
+ describe("completeGoalArguments", () => {
+ 	test("suggests /goal subcommands and token options", () => {
+ 		const all = completeGoalArguments("")!;
+ 		expect(all.map((i) => i.label)).toEqual(["pause", "resume", "clear", "edit", "status", "--tokens", "review"]);
+ 		expect(all.map((i) => i.description)).toEqual([
+ 			"Pause the active goal",
+ 			"Resume a paused or budget-limited goal",
+-			"Clear the current goal",
++			"Clear the current goal (stop|off|reset|none|cancel also work)",
+ 			"Edit the current goal objective",
+ 			"Show the current goal",
+ 			"Set a token budget before the goal",
+ 			"Set the post-completion Reviewer mode (on|off|auto|aggressive)",
+ 		]);
+ 
+ 		expect(completeGoalArguments("pa")?.map((i) => i.value)).toEqual(["pause"]);
+ 		expect(completeGoalArguments("pause")?.map((i) => i.value)).toEqual(["pause"]);
+ 		expect(completeGoalArguments("--t")?.map((i) => i.value)).toEqual(["--tokens "]);
+ 		expect(completeGoalArguments("edit ")?.map((i) => i.value)).toEqual(["edit --tokens "]);
+diff --git a/bun-apps/s2-agent-ext-task/src/loop/__tests__/integration.test.ts b/bun-apps/s2-agent-ext-task/src/loop/__tests__/integration.test.ts
+index 1a90ed1f..af6c2bac 100644
+--- a/bun-apps/s2-agent-ext-task/src/loop/__tests__/integration.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/loop/__tests__/integration.test.ts
+@@ -125,20 +125,81 @@ describe("/loop integration", () => {
+ 			getBranch: () => entries,
+ 		};
+ 		persistLoop(sm as never, persisted);
+ 		restoreLoopFromSession(sm, mockOverlay.overlay);
+ 		expect(isLoopActive()).toBe(true);
+ 		expect(updates.at(-1)?.id).toBe("L9");
+ 		// stop it so the real timer chain doesn't leak past this test
+ 		__resetLoop();
+ 	});
+ 
++	test("restoreLoopFromSession does not clobber an active scheduler", async () => {
++		const { pi, commands, entries } = createMockPi();
++		const mockOverlay = createMockOverlay();
++		registerLoop(pi, mockOverlay.overlay);
++		const { ctx } = createMockCtx();
++		await loopCommand(commands).handler("5m live loop", ctx);
++
++		// a DIFFERENT persisted loop appears in the session — restore must not
++		// orphan the live scheduler's armed timer (parallel fires)
++		const persisted: ActiveLoop = {
++			id: "L9",
++			prompt: "stale",
++			intervalMs: 300_000,
++			startedAt: Date.now(),
++			nextFireAt: Date.now() + 300_000,
++			iteration: 7,
++		};
++		const sm = {
++			appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
++			getBranch: () => entries,
++		};
++		persistLoop(sm as never, persisted);
++		restoreLoopFromSession(sm, mockOverlay.overlay);
++		expect(isLoopActive()).toBe(true);
++		const { ctx: ctx2, notifications } = createMockCtx();
++		await loopCommand(commands).handler("status", ctx2);
++		expect(notifications.at(-1)?.message).toContain("live loop");
++		__resetLoop();
++	});
++
++	test("restored scheduler is idle-gated by the last command ctx, not default-idle", async () => {
++		const { pi, commands, entries, sentUserMessages } = createMockPi();
++		const mockOverlay = createMockOverlay();
++		registerLoop(pi, mockOverlay.overlay);
++		// capture a BUSY ctx via any command — the restored scheduler must
++		// inherit it (postpone) instead of the pre-fix always-idle default
++		const busy = createMockCtx({ isIdle: () => false });
++		await loopCommand(commands).handler("status", busy.ctx);
++
++		// intervalMs below the parser floor is fine here: persisted loops are
++		// loaded verbatim, so a tiny interval lets the REAL timer come due fast
++		const persisted: ActiveLoop = {
++			id: "L10",
++			prompt: "p",
++			intervalMs: 20,
++			startedAt: Date.now(),
++			nextFireAt: Date.now() + 20,
++			iteration: 0,
++		};
++		const sm = {
++			appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
++			getBranch: () => entries,
++		};
++		persistLoop(sm as never, persisted);
++		restoreLoopFromSession(sm, mockOverlay.overlay);
++		expect(isLoopActive()).toBe(true);
++		await new Promise((r) => setTimeout(r, 80));
++		expect(sentUserMessages).toEqual([]); // busy → postponed, never fired
++		__resetLoop();
++	});
++
+ 	test("old syntax yields the usage pointer, no scheduler", async () => {
+ 		const { pi, commands } = createMockPi();
+ 		const mockOverlay = createMockOverlay();
+ 		registerLoop(pi, mockOverlay.overlay);
+ 		const { ctx, notifications } = createMockCtx();
+ 
+ 		await loopCommand(commands).handler('start "x" measure="echo 1"', ctx);
+ 		expect(isLoopActive()).toBe(false);
+ 		expect(notifications[0]?.message).toContain("/loop <interval> <prompt>");
+ 		expect(notifications[0]?.level).toBe("warning");
+diff --git a/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-commands.test.ts b/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-commands.test.ts
+index 34ce5830..380b4cdb 100644
+--- a/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-commands.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-commands.test.ts
+@@ -12,20 +12,36 @@ describe("parseInterval", () => {
+ 	test("seconds round UP to a whole minute (CC)", () => {
+ 		expect(parseInterval("1s")).toBe(60_000);
+ 		expect(parseInterval("45s")).toBe(60_000);
+ 		expect(parseInterval("61s")).toBe(120_000);
+ 	});
+ 	test("junk rejected", () => {
+ 		expect(parseInterval("5x")).toBeUndefined();
+ 		expect(parseInterval("m5")).toBeUndefined();
+ 		expect(parseInterval("")).toBeUndefined();
+ 	});
++	test("0m/0h/0d floor to the 60s minimum (all units clamp)", () => {
++		expect(parseInterval("0m")).toBe(60_000);
++		expect(parseInterval("0h")).toBe(60_000);
++		expect(parseInterval("0d")).toBe(60_000);
++		expect(parseInterval("0s")).toBe(60_000);
++	});
++	test("huge values clamp to the timer-safety cap (setTimeout 2^31-1 bound)", () => {
++		expect(parseInterval("999999999d")).toBe(2_000_000_000);
++		expect(parseInterval("999999999h")).toBe(2_000_000_000);
++		expect(parseInterval("99999999m")).toBe(2_000_000_000);
++	});
++	test("in-range values for every unit are unchanged by the clamp", () => {
++		expect(parseInterval("1d")).toBe(86_400_000);
++		expect(parseInterval("1h")).toBe(3_600_000);
++		expect(parseInterval("1m")).toBe(60_000);
++	});
+ });
+ 
+ describe("parseLoopCommand", () => {
+ 	test("interval + prompt", () => {
+ 		const r = parseLoopCommand("5m check the deploy");
+ 		expect(r).toEqual({ kind: "start", intervalMs: 300_000, prompt: "check the deploy" });
+ 	});
+ 	test("prompt only defaults to 10m", () => {
+ 		const r = parseLoopCommand("babysit the PR queue");
+ 		expect(r).toEqual({ kind: "start", intervalMs: 600_000, prompt: "babysit the PR queue" });
+@@ -38,15 +54,23 @@ describe("parseLoopCommand", () => {
+ 		expect(parseLoopCommand("stop")).toEqual({ kind: "stop" });
+ 		expect(parseLoopCommand("status")).toEqual({ kind: "show" });
+ 		expect(parseLoopCommand("")).toEqual({ kind: "show" });
+ 		expect(typeof parseLoopCommand("stop extra")).toBe("string");
+ 	});
+ 	test("old process-loop syntax gets a usage pointer", () => {
+ 		const r = parseLoopCommand('start "improve x" measure="echo 1"');
+ 		expect(typeof r).toBe("string");
+ 		expect(r).toContain("/loop <interval> <prompt>");
+ 	});
++	test("old syntax detected with quote or measure= right after 'start'", () => {
++		expect(typeof parseLoopCommand('start "improve x"')).toBe("string");
++		expect(typeof parseLoopCommand("start measure=echo")).toBe("string");
++	});
++	test("prompt merely beginning with 'start' is a normal recurring target", () => {
++		const r = parseLoopCommand("start the servers");
++		expect(r).toEqual({ kind: "start", intervalMs: 600_000, prompt: "start the servers" });
++	});
+ 	test("interval token without prompt is a usage error", () => {
+ 		const r = parseLoopCommand("5m");
+ 		expect(typeof r).toBe("string");
+ 	});
+ });
+diff --git a/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-scheduler.test.ts b/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-scheduler.test.ts
+index d8fdb098..d22ef8b0 100644
+--- a/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-scheduler.test.ts
++++ b/bun-apps/s2-agent-ext-task/src/loop/__tests__/loop-scheduler.test.ts
+@@ -1,30 +1,31 @@
+ /** LoopScheduler — timer chain, idle-gated, postpone-on-busy, 7-day max-age. */
+ import { test, expect, describe } from "bun:test";
+-import { LoopScheduler, SEVEN_DAYS_MS } from "../loop-scheduler.js";
++import { LoopScheduler, SEVEN_DAYS_MS, type SchedulerHooks } from "../loop-scheduler.js";
+ import type { ActiveLoop } from "../loop-commands.js";
+ 
+ function makeLoop(intervalMs = 1000): ActiveLoop {
+ 	return { id: "L1", prompt: "p", intervalMs, startedAt: 0, nextFireAt: intervalMs, iteration: 0 };
+ }
+ 
+-function harness() {
++function harness(extraHooks: Partial<SchedulerHooks> = {}) {
+ 	let now = 0;
+ 	const fired: string[] = [];
+ 	let idle = true;
+ 	const timers: Array<{ at: number; fn: () => void } | undefined> = [];
+ 	const s = new LoopScheduler(
+ 		{
+ 			fire: (prompt) => {
+ 				fired.push(prompt);
+ 			},
+ 			isIdle: () => idle,
++			...extraHooks,
+ 		},
+ 		{
+ 			now: () => now,
+ 			setTimer: (ms, fn) => {
+ 				timers.push({ at: now + ms, fn });
+ 				return timers.length - 1;
+ 			},
+ 			clearTimer: (h) => {
+ 				timers[h as number] = undefined;
+ 			},
+@@ -85,11 +86,35 @@ describe("LoopScheduler", () => {
+ 		expect(h.s.active()).toBeUndefined();
+ 	});
+ 
+ 	test("iteration counts fires", () => {
+ 		const h = harness();
+ 		h.s.start(makeLoop(5));
+ 		h.tick();
+ 		h.tick();
+ 		expect(h.s.active()?.iteration).toBe(2);
+ 	});
++
++	test("onTick fires after each fire's state update, with the incremented iteration", () => {
++		const ticks: Array<ActiveLoop | undefined> = [];
++		const h = harness({ onTick: (loop) => ticks.push({ ...loop }) });
++		h.s.start(makeLoop(10));
++		h.tick();
++		h.tick();
++		expect(ticks.map((l) => l?.iteration)).toEqual([1, 2]);
++		// the observed loop carries the re-armed nextFireAt, not the stale one
++		expect(ticks[1]?.nextFireAt).toBe(h.s.active()?.nextFireAt);
++	});
++
++	test("onStop fires when the 7-day max-age self-stop triggers", () => {
++		let stops = 0;
++		const h = harness({ onStop: () => stops++ });
++		h.s.start(makeLoop(10));
++		h.tick(); // ordinary fire — no stop
++		expect(stops).toBe(0);
++		// age the loop past max-age (fresh start), then let the timer fire
++		h.s.start({ ...makeLoop(10), startedAt: -(SEVEN_DAYS_MS + 1) });
++		h.tick();
++		expect(stops).toBe(1);
++		expect(h.s.active()).toBeUndefined();
++	});
+ });
+diff --git a/bun-apps/s2-agent-ext-task/src/loop/loop-commands.ts b/bun-apps/s2-agent-ext-task/src/loop/loop-commands.ts
+index ea681da4..5f1ce3a8 100644
+--- a/bun-apps/s2-agent-ext-task/src/loop/loop-commands.ts
++++ b/bun-apps/s2-agent-ext-task/src/loop/loop-commands.ts
+@@ -8,20 +8,27 @@ export interface ActiveLoop {
+ 	iteration: number;
+ }
+ 
+ export type LoopCommandResult =
+ 	| { kind: "show" }
+ 	| { kind: "stop" }
+ 	| { kind: "start"; intervalMs: number; prompt: string };
+ 
+ export const DEFAULT_LOOP_INTERVAL_MS = 600_000; // CC default: 10m
+ 
++/** Interval clamp bounds for EVERY unit. The floor is CC's whole-minute
++ *  minimum; the cap is a timer-safety bound (setTimeout overflows past
++ *  2^31-1 ms ≈ 24.8 days) — the scheduler's 7-day max-age still governs loop
++ *  lifetime independently of this cap. */
++export const MIN_LOOP_INTERVAL_MS = 60_000;
++export const MAX_LOOP_INTERVAL_MS = 2_000_000_000;
++
+ export interface LoopArgumentCompletion {
+ 	value: string;
+ 	label: string;
+ 	description?: string;
+ }
+ 
+ export const LOOP_ARGUMENT_COMPLETIONS: readonly LoopArgumentCompletion[] = [
+ 	{ value: "5m ", label: "5m", description: "Run every 5 minutes" },
+ 	{ value: "30m ", label: "30m", description: "Run every 30 minutes" },
+ 	{ value: "1h ", label: "1h", description: "Run every hour" },
+@@ -29,46 +36,52 @@ export const LOOP_ARGUMENT_COMPLETIONS: readonly LoopArgumentCompletion[] = [
+ 	{ value: "status", label: "status", description: "Show the active loop" },
+ ];
+ 
+ export function completeLoopArguments(prefix: string): LoopArgumentCompletion[] | null {
+ 	const p = prefix.trimStart();
+ 	if (/\s/.test(p)) return null;
+ 	const m = LOOP_ARGUMENT_COMPLETIONS.filter((c) => c.value.startsWith(p) || c.label.startsWith(p));
+ 	return m.length ? [...m] : null;
+ }
+ 
+-/** Parse "90s" / "5m" / "1h" / "1d" -> ms; seconds round UP to a whole minute (CC). */
++/** Parse "90s" / "5m" / "1h" / "1d" -> ms; seconds round UP to a whole minute
++ *  (CC); every unit clamps to [MIN_LOOP_INTERVAL_MS, MAX_LOOP_INTERVAL_MS]. */
+ export function parseInterval(token: string): number | undefined {
+ 	const m = /^(\d+)(s|m|h|d)$/i.exec(token.trim());
+ 	if (!m) return undefined;
+ 	const n = Number(m[1]);
+ 	const unit = m[2].toLowerCase();
+ 	const mult = unit === "s" ? 1_000 : unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000;
+ 	const ms = n * mult;
+-	return unit === "s" ? Math.max(60_000, Math.ceil(ms / 60_000) * 60_000) : ms;
++	const rounded = unit === "s" ? Math.ceil(ms / 60_000) * 60_000 : ms;
++	return Math.min(MAX_LOOP_INTERVAL_MS, Math.max(MIN_LOOP_INTERVAL_MS, rounded));
+ }
+ 
+ const USAGE = "Usage: /loop <interval> <prompt> (e.g. /loop 5m check the deploy) — see /loop status";
+ 
+ export function parseLoopCommand(args: string): LoopCommandResult | string {
+ 	const trimmed = args.trim();
+ 	if (trimmed === "") return { kind: "show" };
+ 	const first = trimmed.split(/\s+/)[0];
+ 	if (first === "stop") {
+ 		const rest = trimmed.slice(first.length).trim();
+ 		return rest.length === 0 ? { kind: "stop" } : "Usage: /loop stop";
+ 	}
+ 	if (first === "status" || first === "show") {
+ 		const rest = trimmed.slice(first.length).trim();
+ 		return rest.length === 0 ? { kind: "show" } : "Usage: /loop status";
+ 	}
+-	// Old process-loop syntax: point at the new surface instead of silently mislooping.
+-	if (first === "start" || /^measure=/.test(first)) {
++	// Old process-loop syntax: point at the new surface instead of silently
++	// mislooping. Only `start <quoted-name…|measure=…>` is old syntax — a
++	// prompt that merely begins with the word "start" ("/loop start the
++	// servers") is a normal recurring-prompt target.
++	const second = trimmed.slice(first.length).trim().split(/\s+/)[0] ?? "";
++	if (/^measure=/.test(first) || (first === "start" && (/^["']/.test(second) || /^measure=/.test(second)))) {
+ 		return `The process-improvement loop was replaced by a recurring-prompt loop. ${USAGE}`;
+ 	}
+ 	const intervalMs = parseInterval(first);
+ 	if (intervalMs !== undefined) {
+ 		const prompt = trimmed.slice(first.length).trim();
+ 		return prompt.length > 0 ? { kind: "start", intervalMs, prompt } : USAGE;
+ 	}
+ 	return { kind: "start", intervalMs: DEFAULT_LOOP_INTERVAL_MS, prompt: trimmed };
+ }
+diff --git a/bun-apps/s2-agent-ext-task/src/loop/loop-scheduler.ts b/bun-apps/s2-agent-ext-task/src/loop/loop-scheduler.ts
+index 0cf0d8a0..b7d7f489 100644
+--- a/bun-apps/s2-agent-ext-task/src/loop/loop-scheduler.ts
++++ b/bun-apps/s2-agent-ext-task/src/loop/loop-scheduler.ts
+@@ -1,18 +1,24 @@
+ /** LoopScheduler — CC-style recurring prompt: timer chain, idle-gated. */
+ import type { ActiveLoop } from "./loop-commands.js";
+ 
+ export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000; // CC recurring auto-expiry
+ 
+ export interface SchedulerHooks {
+ 	fire: (prompt: string) => Promise<void> | void;
+ 	isIdle: () => boolean;
++	/** Optional observer fired after each successful fire's state update —
++	 *  the scheduler owns the only mutable copy of the loop, so callers that
++	 *  mirror its state (overlay, persistence) need this to stay current. */
++	onTick?: (loop: ActiveLoop) => void;
++	/** Optional observer fired when the 7-day max-age self-stop triggers. */
++	onStop?: () => void;
+ }
+ 
+ export interface SchedulerClock {
+ 	now?: () => number;
+ 	setTimer?: (ms: number, fn: () => void) => unknown;
+ 	clearTimer?: (handle: unknown) => void;
+ }
+ 
+ export class LoopScheduler {
+ 	private loop: ActiveLoop | undefined;
+@@ -54,30 +60,34 @@ export class LoopScheduler {
+ 	 *  not delay re-arming), busy postpones by a minute, max-age self-stops. */
+ 	private tick(): void {
+ 		const loop = this.loop;
+ 		if (!loop) return;
+ 		const now = this.now();
+ 		if (now - loop.startedAt >= SEVEN_DAYS_MS) {
+ 			// CC recurring auto-expiry: this fire is the last one, then the
+ 			// loop deletes itself.
+ 			this.stop();
+ 			this.dispatch(loop.prompt);
++			this.hooks.onStop?.();
+ 			return;
+ 		}
+ 		if (!this.hooks.isIdle()) {
+ 			// Postpone-on-busy: re-check every minute; never drop a due fire.
+ 			this.arm(60_000);
+ 			return;
+ 		}
+ 		this.loop = { ...loop, iteration: loop.iteration + 1, nextFireAt: now + loop.intervalMs };
+ 		this.dispatch(loop.prompt);
+-		if (this.loop) this.arm(this.loop.intervalMs);
++		if (this.loop) {
++			this.hooks.onTick?.(this.loop);
++			this.arm(this.loop.intervalMs);
++		}
+ 	}
+ 
+ 	/** Fire-and-forget with swallowed rejection — a failed send must not
+ 	 *  crash the timer chain (sendLoopPrompt-style best-effort). */
+ 	private dispatch(prompt: string): void {
+ 		try {
+ 			void this.hooks.fire(prompt)?.catch?.(() => {});
+ 		} catch {
+ 			// best-effort
+ 		}
+diff --git a/bun-apps/s2-agent-ext-task/src/loop/loop.ts b/bun-apps/s2-agent-ext-task/src/loop/loop.ts
+index e4668e8c..11d68b82 100644
+--- a/bun-apps/s2-agent-ext-task/src/loop/loop.ts
++++ b/bun-apps/s2-agent-ext-task/src/loop/loop.ts
+@@ -1,54 +1,68 @@
+ /** /loop — CC-style recurring prompt execution (replaces the process-improvement loop). */
+ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+ import { parseLoopCommand, completeLoopArguments, type ActiveLoop } from "./loop-commands.js";
+ import { LoopScheduler } from "./loop-scheduler.js";
+ import { persistLoop, clearPersistedLoop, loadLoopFromSession } from "./loop-persistence.js";
+ import type { LoopOverlayLike } from "./overlay.js";
+ 
+ let schedulerRef: LoopScheduler | undefined;
+ let extensionApiRef: ExtensionAPI | undefined;
++/** Latest isIdle from a real command ctx (mirrors goalState.latestCtx): a
++ *  restored scheduler has no ctx of its own, so it gates on this instead of
++ *  an always-idle default that would fire while the agent is busy. */
++let latestIsIdle: () => boolean = () => true;
+ 
++/** True while a scheduler holds an armed loop (started via /loop or restored). */
+ export function isLoopActive(): boolean {
+ 	return schedulerRef?.active() !== undefined;
+ }
+ 
+ /** Test seam — drop the in-process scheduler (mirrors __resetLoopState's role). */
+ export function __resetLoop(): void {
+ 	schedulerRef?.stop();
+ 	schedulerRef = undefined;
+ 	extensionApiRef = undefined;
++	latestIsIdle = () => true;
+ }
+ 
+-function newScheduler(pi: ExtensionAPI, ctx: { isIdle?: () => boolean }): LoopScheduler {
++function newScheduler(pi: ExtensionAPI, overlay: LoopOverlayLike): LoopScheduler {
+ 	return new LoopScheduler({
+ 		// Slash targets dispatch as extension commands (probe 2026-08-23:
+ 		// prompt() only routes "/"-prefixed text through the command registry
+ 		// when expandPromptTemplates is true; sendUserMessage defaults it to
+ 		// false, so pass it explicitly for slash targets).
+ 		fire: (prompt) =>
+ 			pi.sendUserMessage(prompt, prompt.startsWith("/") ? { expandPromptTemplates: true } : undefined),
+-		isIdle: () => ctx.isIdle?.() ?? true,
++		isIdle: () => latestIsIdle(),
++		// The scheduler owns the only mutable copy of the loop; mirror its
++		// state changes into the overlay and clear persistence on self-stop.
++		onTick: (loop) => overlay.update(loop),
++		onStop: () => {
++			overlay.update(undefined);
++			clearPersistedLoop(extensionApiRef);
++		},
+ 	});
+ }
+ 
+ function loopStatus(loop: ActiveLoop): string {
+ 	const nextIn = Math.max(0, Math.round((loop.nextFireAt - Date.now()) / 1000));
+ 	return `⟳ /loop every ${Math.round(loop.intervalMs / 60_000)}m · fired ${loop.iteration}× · next in ${nextIn}s · "${loop.prompt}"`;
+ }
+ 
+ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
+ 	extensionApiRef = pi;
+ 	pi.registerCommand("loop", {
+ 		description: "Run a prompt on a recurring interval: /loop [interval] <prompt…> (default 10m) | stop | status",
+ 		getArgumentCompletions: completeLoopArguments,
+ 		handler: async (args: string, ctx: { isIdle?: () => boolean; sessionManager?: unknown; ui: { notify?: (m: string, k?: "info" | "warning" | "error") => void } }) => {
++			if (typeof ctx.isIdle === "function") latestIsIdle = ctx.isIdle;
+ 			const parsed = parseLoopCommand(args ?? "");
+ 			if (typeof parsed === "string") {
+ 				ctx.ui.notify?.(parsed, "warning");
+ 				return;
+ 			}
+ 			if (parsed.kind === "show") {
+ 				const loop = schedulerRef?.active();
+ 				ctx.ui.notify?.(loop ? loopStatus(loop) : "No active loop.", "info");
+ 				return;
+ 			}
+@@ -68,27 +82,30 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
+ 				return;
+ 			}
+ 			const loop: ActiveLoop = {
+ 				id: crypto.randomUUID(),
+ 				prompt: parsed.prompt,
+ 				intervalMs: parsed.intervalMs,
+ 				startedAt: Date.now(),
+ 				nextFireAt: Date.now() + parsed.intervalMs,
+ 				iteration: 0,
+ 			};
+-			schedulerRef = newScheduler(pi, ctx);
++			schedulerRef = newScheduler(pi, overlay);
+ 			schedulerRef.start(loop);
+ 			persistLoop(extensionApiRef, loop);
+ 			overlay.update(loop);
+ 			ctx.ui.notify?.(loopStatus(loop), "info");
+ 		},
+ 	});
+ }
+ 
+ /** Called from extensions/task.ts session_start to recover an active loop. */
+ export function restoreLoopFromSession(sessionManager: unknown, overlay: LoopOverlayLike): void {
+ 	const loop = loadLoopFromSession(sessionManager);
+ 	if (!loop || !extensionApiRef) return;
+-	schedulerRef = newScheduler(extensionApiRef, {});
++	// A live scheduler wins: restoring over it would orphan its armed timer
++	// (two loops firing in parallel).
++	if (schedulerRef?.active()) return;
++	schedulerRef = newScheduler(extensionApiRef, overlay);
+ 	schedulerRef.start(loop);
+ 	overlay.update(loop);
+ }
+diff --git a/bun-apps/s2-agent-ext-task/src/loop/overlay.ts b/bun-apps/s2-agent-ext-task/src/loop/overlay.ts
+index 01bb747e..de96a356 100644
+--- a/bun-apps/s2-agent-ext-task/src/loop/overlay.ts
++++ b/bun-apps/s2-agent-ext-task/src/loop/overlay.ts
+@@ -1,57 +1,37 @@
+ /** LoopOverlay — recurring-loop section renderer for the CoreTaskStatusWidget (mirror goal/overlay.ts). */
+ import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
+ import type { ActiveLoop } from "./loop-commands.js";
+ 
+-const STOP_FLASH_MS = 8_000;
+-
+ export interface LoopOverlayLike {
+ 	setUICtx(ctx: ExtensionUIContext): void;
+ 	update(loop: ActiveLoop | undefined): void;
+ 	setRefresh(fn: () => void): void;
+ 	dispose(): void;
+ }
+ 
+ export class LoopOverlay implements LoopOverlayLike {
+ 	private current: ActiveLoop | undefined;
+-	private flashTimer: ReturnType<typeof setTimeout> | undefined;
+ 	private refresh: (() => void) | undefined;
+ 
+ 	setUICtx(_ctx: ExtensionUIContext): void {}
+ 	setRefresh(fn: () => void): void {
+ 		this.refresh = fn;
+ 	}
+ 
+ 	update(loop: ActiveLoop | undefined): void {
+ 		this.current = loop;
+ 		this.refresh?.();
+ 	}
+ 
+-	/** Brief "stopped" line after /loop stop or max-age expiry. */
+-	showStopped(): void {
+-		this.current = undefined;
+-		this.clearFlashTimer();
+-		// one render pass without the loop, then nothing further — a stopped
+-		// loop leaves no permanent row.
+-		this.refresh?.();
+-	}
+-
+ 	dispose(): void {
+-		this.clearFlashTimer();
+ 		this.current = undefined;
+ 	}
+ 
+ 	render(_theme: Theme, width: number): string[] {
+ 		const l = this.current;
+ 		if (!l) return [];
+ 		const mins = Math.max(1, Math.round(l.intervalMs / 60_000));
+ 		const nextIn = Math.max(0, Math.round((l.nextFireAt - Date.now()) / 1000));
+ 		return [`⟳ /loop every ${mins}m · fired ${l.iteration}× · next in ${nextIn}s · ${l.prompt}`.slice(0, width)];
+ 	}
+-
+-	private clearFlashTimer(): void {
+-		if (this.flashTimer) {
+-			clearTimeout(this.flashTimer);
+-			this.flashTimer = undefined;
+-		}
+-	}
+ }
+diff --git a/bun-apps/s2-agent-ext-wayfind/skills/wizard/template.ts b/bun-apps/s2-agent-ext-wayfind/skills/wizard/template.ts
+index 293f694b..04ccea6f 100644
+--- a/bun-apps/s2-agent-ext-wayfind/skills/wizard/template.ts
++++ b/bun-apps/s2-agent-ext-wayfind/skills/wizard/template.ts
+@@ -144,32 +144,35 @@ function step(text: string): void {
+ function note(text: string): void {
+   process.stdout.write(`  ${C.dim(text)}\n`);
+ }
+ function warn(text: string): void {
+   process.stdout.write(`  ${C.yellow(`⚠ ${text}`)}\n`);
+ }
+ 
+ /** openUrl — open in the human's browser, cross-platform incl. WSL. */
+ function openUrl(url: string): void {
+   process.stdout.write(`  ${C.green("↗ opening")} ${url}\n`);
++  // wslview BEFORE xdg-open (bash original order): WSL's xdg-open often
++  // exits non-zero without a display, so it must not shadow wslview.
+   const tryCmds: Array<[string, string[]]> =
+     process.platform === "win32"
+       ? [["cmd", ["/c", "start", "", url]]]
+       : [
+           ["open", [url]],
+-          ["xdg-open", [url]],
+           ["wslview", [url]],
++          ["xdg-open", [url]],
+           ["explorer.exe", [url]],
+         ];
+   for (const [cmd, args] of tryCmds) {
+-    const r = spawnSync(cmd, args, { stdio: "ignore" });
+-    if (!r.error) return;
++    // status === 0, not !error: a binary that exists but exits non-zero
++    // (xdg-open on a display-less WSL) must fall through to the next one.
++    if (spawnSync(cmd, args, { stdio: "ignore" }).status === 0) return;
+   }
+   warn(`couldn't open a browser — visit it manually: ${url}`);
+ }
+ 
+ /** pause "msg" — wait for the human to confirm they've done the manual part. */
+ async function pause(msg = "Press Enter to continue"): Promise<void> {
+   await readLine(`  ${C.dim(msg)} `);
+ }
+ 
+ /** confirm "question" — y/N gate; true on yes. */
+@@ -200,22 +203,25 @@ async function ask(key: string, prompt: string): Promise<string> {
+ /** askSecret KEY "Prompt" — like ask, but input is hidden. */
+ async function askSecret(key: string, prompt: string): Promise<string> {
+   const current = existing(key);
+   const suffix = current ? ` ${C.dim("[Enter keeps current]")}` : "";
+   const input = await readSecret(`  ${C.bold(prompt)}${suffix} `);
+   return input === "" && current !== undefined ? current : input;
+ }
+ 
+ /** writeEnv KEY VALUE — idempotent upsert into ENV_FILE. */
+ function writeEnv(key: string, value: string): void {
+-  const lines = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8").split("\n") : [];
+-  const kept = lines.filter((l) => l !== "" && !l.startsWith(`${key}=`));
++  let lines = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8").split("\n") : [];
++  // Preserve interior blank lines; drop only split()'s trailing "" (the
++  // file's final newline) so re-running never accumulates blanks.
++  if (lines[lines.length - 1] === "") lines = lines.slice(0, -1);
++  const kept = lines.filter((l) => !l.startsWith(`${key}=`));
+   kept.push(`${key}=${value}`);
+   writeFileSync(`${ENV_FILE}.tmp`, `${kept.join("\n")}\n`);
+   renameSync(`${ENV_FILE}.tmp`, ENV_FILE);
+   writtenEnv.push(key);
+   process.stdout.write(`  ${C.green("✓ wrote")} ${key} → ${ENV_FILE}\n`);
+ }
+ 
+ function ghReady(): boolean {
+   return spawnSync("gh", ["auth", "status"], { stdio: "ignore" }).status === 0;
+ }
