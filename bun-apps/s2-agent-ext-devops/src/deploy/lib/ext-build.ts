@@ -28,7 +28,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFil
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
-import { evaluateExtModule, EXT_DIR_SPEC } from "../../../../s2-agent/src/sh/ext-loader.ts";
+import { evaluateExtModule, EXT_DIR_SPEC, extRequire } from "../../../../s2-agent/src/sh/ext-loader.ts";
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
 import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
@@ -198,6 +198,61 @@ export function loadProbe(
 	if (typeof exports.default !== "function") {
 		throw new Error(`${cjsPath}: bundle has no callable default export`);
 	}
+}
+
+/**
+ * Evaluate a deployed ext.cjs bundle the way the runtime loader does and
+ * execute ONE of its registered tools — no model, no agent loop. This is what
+ * the file2md OCR e2e probe uses: the deployed bundle's own pipeline runs
+ * against the deployed assets resolved via `#pi/ext-dir` (vendored wasm +
+ * copied lang data), so a broken asset layout fails here instead of on a user
+ * machine.
+ */
+export async function executeExtTool(
+	cjsPath: string,
+	toolName: string,
+	params: Record<string, unknown>,
+	hostModules: readonly string[],
+	opts: { resolveFrom?: string } = {},
+): Promise<unknown> {
+	const code = readFileSync(cjsPath, "utf8");
+	const extDir = join(cjsPath, "..");
+	const resolveFrom = opts.resolveFrom ?? PI_AGENT_DIR;
+	const nodeRequire = createRequire(join(resolveFrom, "package.json"));
+	const allowed = (spec: string): boolean =>
+		matchesAllowed(spec, hostModules) || hostModules.some((e) => e !== "" && spec.startsWith(`${e}/`));
+	// Same contract as the runtime: host modules served by the host require
+	// first, then the ext dir's own require for vendored packages (the deployed
+	// vendored copy at <extDir>/node_modules, loaded for real — bun's require
+	// interops ESM vendored packages).
+	const hostRequireForProbe = (spec: string): unknown => {
+		if (isBuiltinSpecifier(spec)) return nodeRequire(spec);
+		if (!allowed(spec)) throw new EvalError(`bundle required non-host module "${spec}"`);
+		return nodeRequire(Bun.resolveSync(spec, resolveFrom));
+	};
+	const probeRequire = extRequire(extDir, hostRequireForProbe) as unknown as {
+		(spec: string): unknown;
+		resolve?: (spec: string) => string;
+	};
+	// require.resolve returns the PATH (matching require.resolve semantics —
+	// the bundle takes dirname() of it), resolved against the DEPLOYED ext dir
+	// so the probe reads the deployed vendored copy, not the build machine's.
+	probeRequire.resolve = (spec: string): string =>
+		isBuiltinSpecifier(spec) ? nodeRequire.resolve(spec) : Bun.resolveSync(spec, join(extDir, "__probe__.ts"));
+	const exports = evaluateExtModule(code, cjsPath, extDir, probeRequire);
+	if (typeof exports.default !== "function") {
+		throw new Error(`${cjsPath}: bundle has no callable default export`);
+	}
+	const tools: Array<{ name: string; execute: (...a: unknown[]) => unknown }> = [];
+	(exports.default as (api: unknown) => void)({
+		on: () => undefined,
+		registerTool: (tool: { name: string; execute: (...a: unknown[]) => unknown }) => tools.push(tool),
+	});
+	const tool = tools.find((t) => t.name === toolName);
+	if (!tool) {
+		throw new Error(`${cjsPath}: tool "${toolName}" not registered (registered: ${tools.map((t) => t.name).join(", ")})`);
+	}
+	return await tool.execute("e2e-probe", params, undefined, undefined, undefined);
 }
 
 /**

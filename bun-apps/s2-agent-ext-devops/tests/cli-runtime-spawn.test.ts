@@ -108,6 +108,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 			"boot:pass",
 			"ext-load:pass",
 			"model-call:pass",
+			"file2md-ocr:skip",
 		]);
 	});
 

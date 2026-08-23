@@ -127,8 +127,9 @@ describe("runDeployE2e", () => {
 		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn() });
 		expect(r.verdict).toBe("pass");
 		expect(r.version).toBe(VERSION);
-		expect(r.probes.map((p) => p.id)).toEqual(["boot", "ext-load", "model-call"]);
-		expect(r.probes.every((p) => p.verdict === "pass")).toBe(true);
+		expect(r.probes.map((p) => p.id)).toEqual(["boot", "ext-load", "model-call", "file2md-ocr"]);
+		expect(r.probes.find((p) => p.id === "file2md-ocr")?.verdict).toBe("skip"); // not in this tree's deploy set
+		expect(r.probes.filter((p) => p.id !== "file2md-ocr").every((p) => p.verdict === "pass")).toBe(true);
 	});
 
 	test("an extension enabled in deploy.json but not loaded fails ext-load", async () => {

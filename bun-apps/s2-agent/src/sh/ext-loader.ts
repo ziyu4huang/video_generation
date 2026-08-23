@@ -195,6 +195,11 @@ export function evaluateExtModule(
 	const mod = { exports: {} as Record<string, unknown> };
 	const selfDirRequire = (spec: string): unknown =>
 		spec === EXT_DIR_SPEC ? dirname : requireFn(spec);
+	// The bundle's code may call require.resolve specifier-based (file2md's wasm
+	// locator does) — the injected require must carry resolve or those crash.
+	// `#pi/ext-dir` resolves to the ext dir itself.
+	selfDirRequire.resolve = (spec: string): unknown =>
+		spec === EXT_DIR_SPEC ? dirname : (requireFn as { resolve?: (s: string) => unknown }).resolve?.(spec);
 	wrapper(mod.exports, selfDirRequire, mod, filename, dirname);
 	return mod.exports;
 }

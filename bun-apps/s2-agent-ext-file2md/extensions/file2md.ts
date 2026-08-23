@@ -34,13 +34,20 @@ GATE_DEFS.file2md = {
   description: "File/vision → Markdown conversion",
 };
 
-// Capture extension dir at module init. import.meta.dir is Bun-specific and may
-// be undefined when loaded via non-standard mechanisms; fall back to import.meta.url.
+// Capture extension dir at module init WITHOUT import.meta.* — the deploy
+// tree bundles to ext.cjs where import.meta bakes the build-machine path
+// (ADR-file2md-0001 relocatability). Specifier-based: the loader serves
+// `#pi/ext-dir` in the deploy tree; the dev tree resolves the workspace
+// self-link via bun's global require.
 const _EXT_DIR: string | undefined = (() => {
   try {
-    const metaDir = (import.meta as any).dir;
-    if (typeof metaDir === "string" && metaDir) return metaDir;
-    if (typeof import.meta.url === "string") return dirname(fileURLToPath(import.meta.url));
+    return require("#pi/ext-dir") as string;
+  } catch {
+    /* dev tree — fall through */
+  }
+  const SELF = "@repo/s2-agent-ext-file2md/package.json";
+  try {
+    return dirname(require.resolve(SELF));
   } catch {}
   return undefined;
 })();
