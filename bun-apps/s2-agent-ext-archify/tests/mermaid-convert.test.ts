@@ -233,8 +233,17 @@ describe("convertMermaid — bound errors name the line", () => {
     expect(() => convertMermaid(`flowchart LR\n${stages}\n`, { type: "dataflow" })).toThrow("4 stages");
     const chain = Array.from({ length: 5 }, (_, i) => `  n${i + 1}[\"N${i + 1}\"] --> n${i + 2}[\"N${i + 2}\"]`).join("\n");
     expect(() => convertMermaid(`flowchart LR\n  n1[\"N1\"]\n${chain}\n`, { type: "architecture" })).toThrow("4 columns");
-    const holds = Array.from({ length: 4 }, (_, i) => `  hold${i} --> s${i + 1}`).join("\n");
-    expect(() => convertMermaid(`stateDiagram-v2\n  [*] --> hold0\n  ${holds}\n`)).toThrow("3 columns");
+    const holds = Array.from({ length: 5 }, (_, i) => `  hold${i} --> s${i + 1}`).join("\n");
+    expect(() => convertMermaid(`stateDiagram-v2\n  [*] --> hold0\n  ${holds}\n`)).toThrow("caps at 4 columns");
+    // The waiting (event) band caps at 3 columns — explicit labels carry the
+    // keyword; the chain loops back so none of them is an entry/exit state
+    // (those land in the main/terminal bands by rule).
+    const canaries = Array.from({ length: 4 }, (_, i) => `  state "Waiting ${i}" as w${i}`).join("\n");
+    const canLinks = ["  e --> w0", "  w0 --> w1", "  w1 --> w2", "  w2 --> w3", "  w3 --> e"].join("\n");
+    expect(() => convertMermaid(`stateDiagram-v2\n  [*] --> e\n  ${canaries}\n  ${canLinks}\n`)).toThrow("caps at 3 columns");
+  });
+  it("circle shape ((…)) errors with a clear unbounded message", () => {
+    expect(() => convertMermaid("flowchart LR\n  a((x)) --> b\n")).toThrow("circle shape ((…)) is unbounded");
   });
   it("sequence bounds: self-message and empty rect are convert-time errors", () => {
     expect(() => convertMermaid("sequenceDiagram\n  A->>A: ping\n")).toThrow("spans 0px");

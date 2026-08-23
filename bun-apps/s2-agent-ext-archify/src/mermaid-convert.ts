@@ -312,6 +312,10 @@ function readFlowNodeToken(source: string, start: number, lineNo: number): [Flow
     i = end + 1;
     shape = "stadium";
     label = unquote(content);
+  } else if (source[i] === "(" && source[i + 1] === "(") {
+    // Circle `A((x))` is a real mermaid shape — but unbounded in v1; error
+    // clearly instead of a confusing "expected a link".
+    throw new MermaidConvertError("circle shape ((…)) is unbounded — v1 supports [] / () / {} / ([…])", lineNo);
   } else {
     const open = source[i];
     if (open === "[" || open === "(" || open === "{") {
@@ -980,15 +984,23 @@ function toWorkflowIr(ast: FlowchartAst, options: ConvertOptions, title: string)
         }
       } else if (hi - lo >= 2) {
         // First-out edge keeps the checker's auto mid-gap route — its
-        // horizontal runs inside the intermediate lanes' y-bands, so ANY node
-        // there whose column rect overlaps the run's x-window gets sliced
-        // (M2-reviewer shapes; the checker rejects post hoc, we bound eagerly).
+        // horizontal run is at the gap y between lo/hi lanes (up to one node
+        // band deep). A node in an intermediate lane is sliced only when BOTH
+        // its y-band overlaps that run y AND its column rect overlaps the
+        // run's x-window (±46 = node half-width) — the y test matters: spans
+        // of 3+ lane-gaps put the run y between node bands (no hit possible).
         const cxOf = (id: string): number => colXs[colOf.get(id) ?? 0]!;
+        const laneTopC2 = (i: number): number => 52 + i * 124;
+        const runY = (laneTopC2(lo) + 104 + laneTopC2(hi)) / 2; // gapYBetween(lo, hi, 0.5)
         const runLo = Math.min(cxOf(e.from), cxOf(e.to)) - 46;
         const runHi = Math.max(cxOf(e.from), cxOf(e.to)) + 46;
         const hit = [...ast.nodes.values()].some((n) => {
           const ni = laneIndexOf.get(laneOfNode.get(n.id) ?? "") ?? 0;
           if (ni <= lo || ni >= hi) return false;
+          const top = laneTopC2(ni);
+          // node y band: laneTop+41..93 (h 52, yOffset 0); a tag node is taller
+          // but starts at the same y.
+          if (runY < top + 41 || runY > top + 93) return false;
           const nc = cxOf(n.id);
           return nc - 46 < runHi && nc + 46 > runLo;
         });
@@ -1197,10 +1209,16 @@ function toLifecycleIr(ast: LifecycleAst, options: ConvertOptions, title: string
     laneCounters.set(lane, counter + 1);
     colOf.set(id, counter);
   }
-  // The renderer event band holds 3 columns (col 0–2) — the exemplar uses 0/2
-  // for rooms; a 4th state in a lane clamps and fails confusingly (M3c).
+  // The renderer bands: phase/main has 5 slots (4 usable under the default
+  // viewBox), event (waiting) and outcome (terminal) bands have 3 — a state
+  // beyond clamps and fails confusingly, so bound at convert time (M3c).
   for (const [lane, count] of laneCounters) {
-    if (count > 3) throw new MermaidConvertError(`lifecycle lane "${lane}" holds ${count} states — the renderer band caps at 3 columns`);
+    const cap = lane === "main" ? 4 : 3;
+    if (count > cap) {
+      throw new MermaidConvertError(
+        `lifecycle lane "${lane}" holds ${count} states — the renderer band caps at ${cap} columns`,
+      );
+    }
   }
 
   const lanes: Array<{ id: string; label: string }> = [{ id: "main", label: "Lifecycle phases" }];
