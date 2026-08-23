@@ -70,6 +70,13 @@ export function parseLoopCommand(args: string): LoopCommandResult | string {
 		const rest = trimmed.slice(first.length).trim();
 		return rest.length === 0 ? { kind: "show" } : "Usage: /loop status";
 	}
+	// The subagent-side /loop (s2-agent-ext-ultracode, addressable as /loop:2
+	// — both extensions register "loop") owns dynamic pacing and /off.
+	// Without this guard those words would silently schedule a fixed-interval
+	// loop whose PROMPT is "dynamic …" / "off" (ticket 03/B4, 2026-08-23).
+	if (first === "dynamic" || first === "off") {
+		return `"${first}" belongs to the subagent-side /loop:2 (dynamic self-pacing via schedule_wakeup; /loop:2 off cancels it). This /loop runs a prompt on a fixed interval — ${USAGE}`;
+	}
 	// Old process-loop syntax: point at the new surface instead of silently
 	// mislooping. Only `start <quoted-name…|measure=…>` is old syntax — a
 	// prompt that merely begins with the word "start" ("/loop start the

@@ -73,4 +73,12 @@ describe("parseLoopCommand", () => {
 		const r = parseLoopCommand("5m");
 		expect(typeof r).toBe("string");
 	});
+	test("'dynamic'/'off' point at the subagent-side /loop:2 instead of mis-scheduling (t03/B4)", () => {
+		const r1 = parseLoopCommand("dynamic watch the deploy");
+		expect(typeof r1).toBe("string");
+		expect(r1).toContain("/loop:2");
+		const r2 = parseLoopCommand("off");
+		expect(typeof r2).toBe("string");
+		expect(r2).toContain("/loop:2");
+	});
 });

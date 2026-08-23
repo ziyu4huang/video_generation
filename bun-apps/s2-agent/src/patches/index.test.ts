@@ -63,6 +63,7 @@ describe("PATCH_TABLE", () => {
     expect(PATCH_TABLE.map((p) => p.name).sort()).toEqual(
       [
         "autocomplete-source-extension",
+        "colliding-command-dispatch",
         "default-model-env",
         "editor-history-restore",
         "ensure-extension-deps",
