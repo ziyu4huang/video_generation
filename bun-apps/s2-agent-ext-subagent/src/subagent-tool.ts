@@ -334,10 +334,15 @@ export function createSubagentTool(
         const explicitBounds =
           params.tokenBudget !== undefined || params.maxTurns !== undefined || params.timeoutMs !== undefined;
         const tierCeiling = tierDefaultToken(tier, requestedModel ?? mainModel);
+        // A named dispatch opens a persistent live agent — its ceilings are
+        // AGENT-LIFETIME caps (ticket 05 / F2), so the per-dispatch role
+        // envelope is not applied as the lifetime default; the tier ceiling is.
+        const persistent = params.name !== undefined;
         const bounds = roleAwareDefaults(
           { tokenBudget: params.tokenBudget, maxTurns: params.maxTurns, timeoutMs: params.timeoutMs },
           dispatchRole,
           tierCeiling,
+          { persistent },
         );
         if (bounds.applied) {
           params.tokenBudget = bounds.tokenBudget;
@@ -351,12 +356,19 @@ export function createSubagentTool(
         // Threads RunRecordCtx → durable record budget.source; absent on legacy
         // records = unknown cohort.
         const budgetCohort: SubagentToolDetails["budget"] = bounds.applied
-          ? {
-              source: `envelope-${dispatchRole}` as const,
-              tokenBudget: bounds.tokenBudget,
-              maxTurns: bounds.maxTurns,
-              timeoutMs: bounds.timeoutMs,
-            }
+          ? persistent
+            ? {
+                // Live-agent lifetime default (ticket 05 / F2): the tier ceiling
+                // set this agent's lifetime token cap; no turn/timeout default.
+                source: "tier" as const,
+                tokenBudget: bounds.tokenBudget,
+              }
+            : {
+                source: `envelope-${dispatchRole}` as const,
+                tokenBudget: bounds.tokenBudget,
+                maxTurns: bounds.maxTurns,
+                timeoutMs: bounds.timeoutMs,
+              }
           : explicitBounds
             ? {
                 source: "explicit",

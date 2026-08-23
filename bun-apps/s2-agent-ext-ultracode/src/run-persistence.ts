@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentHistoryEntry, WorkflowErrorCode } from "@repo/s2-agent-core-runtime";
+import type { TokenBudgetSource } from "./budget-directive.js";
 import { agentCounts, type WorkflowSnapshot } from "./display.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { workflowProjectPaths } from "./workflow-paths.js";
@@ -41,6 +42,12 @@ export interface PersistedExecOptions {
   maxAgents?: number;
   agentTimeoutMs?: number | null;
   tokenBudget?: number | null;
+  /**
+   * Which mechanism set the effective run-wide ceiling (ticket 05):
+   * "directive" = user `+500k` only, "model" = model-passed tokenBudget only,
+   * "merged" = both. Absent on runs persisted before this field existed.
+   */
+  tokenBudgetSource?: TokenBudgetSource;
   concurrency?: number;
   agentRetries?: number;
   /** Per-run main model (manifest.model on the pack path); rehydrated by resume()
@@ -165,6 +172,8 @@ export function persistedToSnapshot(p: PersistedRunState): WorkflowSnapshot {
     durationMs: p.durationMs,
     result: p.result,
     runId: p.runId,
+    tokenBudget: p.exec?.tokenBudget ?? undefined,
+    tokenBudgetSource: p.exec?.tokenBudgetSource,
   };
 }
 

@@ -10,6 +10,7 @@ import { applyHostFnRegistration, HostFnRegistry } from "../src/host-fn-registry
 import type { CronLoopHandle } from "../src/index.js";
 import {
   buildWorkflowGuidelinesForTurn,
+  consumeBudgetDirective,
   createCronStore,
   createCronTools,
   createEffortState,
@@ -28,6 +29,7 @@ import {
   registerEffortCommand,
   registerWorkflowCommands,
   registerWorkflowModelsCommand,
+  resetBudgetDirective,
   resolveWorkflowScript,
   saveWorkflowSettingsForCwd,
   shouldInjectFullWorkflowGuidelines,
@@ -95,6 +97,10 @@ export default function extension(pi: ExtensionAPI) {
     defaultAgentTimeoutMs: settings.defaultAgentTimeoutMs ?? null,
     concurrency: settings.defaultConcurrency,
     defaultAgentRetries: settings.defaultAgentRetries,
+    // Budget directives (ticket 05 / map D6): the workflows-mode input hook is
+    // the only writer of the session holder; the manager is the only consumer.
+    // A directive binds exactly one run (read-and-clear at run entry).
+    consumeBudgetDirective,
   });
 
   // Session-scoped host-fn registry for the `call('ns.name', args)` global
@@ -246,6 +252,11 @@ export default function extension(pi: ExtensionAPI) {
   });
 
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
+    // Budget directive holder is session-scoped (ticket 05): a directive never
+    // crosses a session boundary. `/reload` re-fires session_start — this also
+    // drops any directive left unconsumed by a turn that refused to run a
+    // workflow. Mirrors the transient-config reset pattern.
+    resetBudgetDirective();
     // Solicit host-fn registrations from peer extensions (load-order robust:
     // catches peers that loaded — and eagerly emitted — before this listener
     // existed). Peers re-emit on request; re-registering overwrites (idempotent).

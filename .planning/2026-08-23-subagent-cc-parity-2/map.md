@@ -100,8 +100,11 @@ Phase 2 — CC subagent parity (after 01)
   pinned (faux-transport system-prompt test)
 
 Phase 3 — ultracode parity (parallel with Phase 2)
-- `tickets/05-budget-directive.md` — open — `+500k`-style binding token
-  directive wired to run_workflow
+- `tickets/05-budget-directive.md` — done (2026-08-23) — `+500k`-style binding
+  token directive wired to run_workflow: parsed at the input transform
+  (`budget-directive.ts`), session-held read-and-clear, enforced as
+  `max(directive, tokenBudget)` at every WorkflowManager run entry with a
+  persisted `tokenBudgetSource` label; F2 folded (D10)
 - `tickets/06-loop-dynamic-pacing.md` — open — `/loop` command +
   `schedule_wakeup` self-pacing
 
@@ -146,22 +149,30 @@ Phase 4 — ledger hygiene
   matching teams-parity D8 (no daemon).
 - D8: `spec.md` is a maintained artifact of this effort: every parity ticket
   updates the alignment/divergence tables in its own PR.
+- D10 (ticket 05, resolves F2): a named (persistent live-agent) dispatch's
+  ceilings are AGENT-LIFETIME caps, so the per-dispatch role envelope
+  (recon 120k / writer 400k) must NOT be the lifetime default — the tier
+  ceiling (500k/1.2M/1.5M) becomes the lifetime token default and NO default
+  maxTurns/timeoutMs applies (a live agent lives until disposed). Chosen over
+  "count non-cache tokens only" because it needs no change to the shared
+  budget-guard check (agent-budget.ts's zero-import invariant) and reuses the
+  p90-calibrated numbers; the 164k-on-two-exchanges smoke passes with the
+  1.2M medium ceiling. Durable-record cohort tag: `tier`.
 - D9: Ticket 01's smoke findings (pass or fail) land in this map's Fog of war
   resolution, and the memory numbers land in spec.md §3 as s2-only evidence
   (in-process children vs CC's process-per-child).
 
 ## Frontier
 
-Tickets 05/06 (parallel, Phase 3) — ticket 04 closed 2026-08-23: children get
-CC's startup-context block as a task PREFIX (git branch/HEAD/porcelain
-snapshot + sibling roster, composed before env-hints and abort-safety; singular
-default `full`, batch default `minimal` sharing ONE snapshot per call). The
-resource-loader inheritance it builds on is now MEASURED (faux-transport
-system-prompt pin: root + ancestor CLAUDE.md both present) rather than assumed.
-Ticket 05 (budget directive, map D6) is the next workable ticket — the
-`workflow-editor.ts:518` transform seam is the parse point and F2 (live-agent
-default tokenBudget 120k too tight) rides it; ticket 06 (`/loop` +
-`schedule_wakeup`, D7) is independent.
+Ticket 06 (`/loop` + `schedule_wakeup`, D7) is the next workable ticket —
+tickets 04 and 05 both closed 2026-08-23. Ticket 05 shipped the binding budget
+directive (parse at the input transform, session-held read-and-clear,
+`max(directive, tokenBudget)` at every WorkflowManager run entry,
+`tokenBudgetSource` persisted + rendered; cron fires excluded) and folded F2
+(D10: live-agent lifetime default = tier ceiling, no default turn/timeout cap).
+Ticket 06 must first test the `sendUserMessage(followUp)` interleave with a
+fake session (S5, fog below) before trusting it live; ticket 07 (ledger
+hygiene) remains last.
 
 ## Fog of war
 
@@ -188,11 +199,14 @@ default tokenBudget 120k too tight) rides it; ticket 06 (`/loop` +
   ext-subagent / ext-ultracode / ext-knowledge-card. Unit tests never caught
   it because they inject `getExtensionTools` fakes — the live smoke is the
   only guard; a regression tripwire is still missing (fog below).
-- **Budget fog (F2): the default live-agent lifetime tokenBudget (120k) is
-  too tight for big-context children** — a named deepseek child burned 164k
-  on two trivial exchanges and was terminated mid-conversation; with
-  `tokenBudget: 2000000` all six smoke steps pass. Decision needed (raise the
-  live-agent default vs count non-cache tokens only) — folds into ticket 05.
+- **Budget fog (F2) — RESOLVED 2026-08-23 (ticket 05, D10):** the default
+  live-agent lifetime tokenBudget (120k, the recon envelope) was too tight for
+  big-context children — a named deepseek child burned 164k on two trivial
+  exchanges and was terminated mid-conversation. Resolution: the tier ceiling
+  (not the role envelope) is the lifetime default, no default turn/timeout
+  cap; "count non-cache tokens only" was rejected (would touch the shared
+  budget-guard check's zero-import invariant for a case the tier ceiling
+  already covers).
 - Whether `sendUserMessage(followUp)` fired from the wakeup tick interleaves
   safely with an in-flight streaming turn (S5; ticket 06 must test with a fake
   session before trusting it live).

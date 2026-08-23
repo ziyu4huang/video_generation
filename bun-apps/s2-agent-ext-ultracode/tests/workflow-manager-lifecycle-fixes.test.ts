@@ -105,12 +105,25 @@ return { a }`;
       // must survive the resume round-trip like every other cap.
       mainModel: "manifest/declared-model",
     };
+    // Ticket 05: run entry labels the ceiling's source — a model-passed
+    // tokenBudget (no directive armed) is labeled "model" and, like every
+    // other cap, must survive the resume round-trip. applyBudgetDirective
+    // mutates the caller's exec object in place, so snapshot the raw caps
+    // BEFORE the run starts.
+    const originalCaps = { ...exec };
+    const persistedExec = { ...exec, tokenBudgetSource: "model" as const };
     const { runId, promise } = manager.startInBackground(script, undefined, exec);
     promise.catch(() => {});
     await new Promise((r) => setTimeout(r, 20));
 
     // The caps must be on disk before any pause/crash, so resume can see them.
-    assert.deepEqual(manager.getPersistedRun(runId)?.exec, exec, "exec caps not persisted at start");
+    // (Ticket 05: tokenBudgetSource is intentionally IGNORED here — whether the
+    // initial record already carries it depends on whether executeRun's first
+    // progress re-persist won the race with this 20ms sleep. The resumed run
+    // below carries it deterministically.)
+    const { tokenBudgetSource: _initialSource, ...initialCaps } = manager.getPersistedRun(runId)?.exec ?? {};
+    void _initialSource;
+    assert.deepEqual(initialCaps, originalCaps, "exec caps not persisted at start");
 
     assert.equal(manager.pause(runId), true, "pause failed");
     assert.equal(manager.getPersistedRun(runId)?.status, "paused");
@@ -129,7 +142,7 @@ return { a }`;
     assert.equal(final?.status, "completed", "resumed run did not complete");
     // The resumed executeRun re-captured and re-persisted the SAME caps —
     // proving resume() rehydrated them instead of resetting to defaults.
-    assert.deepEqual(final?.exec, exec, "exec caps were dropped by resume()");
+    assert.deepEqual(final?.exec, persistedExec, "exec caps were dropped by resume()");
     // Ticket 06: the resumed run's default agent resolves to the rehydrated
     // manifest model (displayModel = modelSpec ?? rehydrated mainModel).
     assert.equal(final?.agents?.[0]?.model, "manifest/declared-model", "resume dropped exec.mainModel");

@@ -44,7 +44,7 @@ workflow JS script + `meta`/`phases` + `agent()/parallel()/pipeline()` | `run_wo
 no fs/shell/module-load from the workflow script | vm sandbox, acorn-parsed meta, `Date.now`/`Math.random` banned | aligned | —
 concurrency 16 / 1000 agents per run | same caps (plus shared per-provider rate limiter — ours adds provider-awareness) | aligned+ | —
 resume via runId, longest-unchanged-prefix cache | disk journal + same prefix semantics, survives process restarts | aligned+ | —
-budget directives ("+500k" → `budget.total` hard ceiling) | none binding — `/effort` prose only | gap | 05
+budget directives ("+500k" → `budget.total` hard ceiling) | parsed at the workflows-mode input transform (`budget-directive.ts`), held session-level (read-and-clear — one directive binds exactly one armed-message run, cleared when an armed message carries none, reset on session_start), enforced at every WorkflowManager run entry as `max(directive, model-passed tokenBudget)` with a persisted `tokenBudgetSource` label ("directive"/"model"/"merged") on the run record + display header; cron fires excluded by design (their budget comes from the script) | aligned | 05
 `/deep-research` built-in workflow | `deep-research.ts` (Queries → Gather → Verify → Report) | aligned | —
 "ultracode" arming keyword | `DEFAULT_KEYWORD_TRIGGER_WORDS = ["workflow","ultracode"]` | aligned | —
 CronCreate 5-field cron, 7-day recurring expiry, session-live firing, missed fires skipped | `cron_create/list/delete` + session-live 30s loop, same contract | aligned | —

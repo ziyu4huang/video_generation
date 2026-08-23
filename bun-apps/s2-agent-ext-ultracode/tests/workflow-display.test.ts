@@ -1038,3 +1038,53 @@ describe("runStatusGlyph (ticket 04)", () => {
     assert.equal(runStatusGlyph("aborted"), "⊘");
   });
 });
+
+// cc-parity-2 ticket 05 — the run-wide ceiling + its source render on the
+// header line (precedent: modelSource label), and persistedToSnapshot projects
+// both so resumed runs keep the label.
+describe("renderWorkflowLines budget ceiling (ticket 05)", () => {
+  it("shows the ceiling with its source label", async () => {
+    const { createWorkflowSnapshot, renderWorkflowLines } = await loadDisplay();
+    const snap = createWorkflowSnapshot(fakeMeta());
+    snap.tokenBudget = 500_000;
+    snap.tokenBudgetSource = "merged";
+    const text = renderWorkflowLines(snap).join("\n");
+    assert.ok(text.includes("ceiling 500,000"), "should show the run-wide ceiling");
+    assert.ok(text.includes("(model + user directive)"), "should label a merged source");
+  });
+
+  it("labels directive-only and model-only sources distinctly", async () => {
+    const { createWorkflowSnapshot, renderWorkflowLines } = await loadDisplay();
+    const snap = createWorkflowSnapshot(fakeMeta());
+    snap.tokenBudget = 1_000_000;
+    snap.tokenBudgetSource = "directive";
+    assert.ok(renderWorkflowLines(snap).join("\n").includes("(user directive)"));
+    snap.tokenBudgetSource = "model";
+    assert.ok(renderWorkflowLines(snap).join("\n").includes("(model)"));
+  });
+
+  it("omits the ceiling entirely when no budget is in force", async () => {
+    const { createWorkflowSnapshot, renderWorkflowLines, recomputeWorkflowSnapshot } = await loadDisplay();
+    const snap = recomputeWorkflowSnapshot(createWorkflowSnapshot(fakeMeta()));
+    const text = renderWorkflowLines(snap).join("\n");
+    assert.ok(!text.includes("ceiling"), "no ceiling line without a budget");
+  });
+
+  it("persistedToSnapshot projects exec.tokenBudget(+Source) for resumed runs", () => {
+    const state = {
+      runId: "r-b",
+      workflowName: "resume-wf",
+      script: "export const meta = { name: 'resume-wf' }",
+      status: "paused",
+      phases: [],
+      agents: [],
+      logs: [],
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      exec: { tokenBudget: 500_000, tokenBudgetSource: "directive" },
+    } as unknown as PersistedRunState;
+    const snap = persistedToSnapshot(state);
+    assert.equal(snap.tokenBudget, 500_000);
+    assert.equal(snap.tokenBudgetSource, "directive");
+  });
+});

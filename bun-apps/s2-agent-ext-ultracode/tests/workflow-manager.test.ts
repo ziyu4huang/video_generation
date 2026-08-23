@@ -2066,3 +2066,84 @@ return out`;
     }
   }),
 );
+
+// Ticket 05 — budget directives (map D6): a user `+500k` parsed at the armed
+// input seam is held session-level and consumed ONCE at run entry, raising the
+// effective run-wide ceiling to max(directive, model-passed tokenBudget) with a
+// persisted tokenBudgetSource label.
+test(
+  "budget directive: raises a lower model budget, source merged, consumed once",
+  withTempCwd(async (cwd) => {
+    let pending = 500_000 as number | undefined;
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent(), consumeBudgetDirective: () => pending });
+    await manager.runSync(oneAgentScript, undefined, { tokenBudget: 200_000 });
+
+    const run = manager.listRuns().find((r) => r.workflowName === "tracked_demo");
+    assert.equal(run?.exec?.tokenBudget, 500_000, "directive raises the run ceiling (max)");
+    assert.equal(run?.exec?.tokenBudgetSource, "merged", "both mechanisms present → merged");
+
+    // One directive binds one run: a second run sees no directive and its own
+    // model-passed budget labeled as such.
+    pending = undefined;
+    await manager.runSync(oneAgentScript, undefined, { tokenBudget: 200_000 });
+    const second = manager.listRuns().filter((r) => r.workflowName === "tracked_demo");
+    const rerun = second.find((r) => r.exec?.tokenBudget === 200_000);
+    assert.equal(rerun?.exec?.tokenBudgetSource, "model", "no directive → model label");
+  }),
+);
+
+test(
+  "budget directive: model budget ABOVE the directive wins the max, still merged",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent(), consumeBudgetDirective: () => 500_000 });
+    await manager.runSync(oneAgentScript, undefined, { tokenBudget: 2_000_000 });
+    const run = manager.listRuns().find((r) => r.workflowName === "tracked_demo");
+    assert.equal(run?.exec?.tokenBudget, 2_000_000, "max() keeps the higher model-passed ceiling");
+    assert.equal(run?.exec?.tokenBudgetSource, "merged");
+  }),
+);
+
+test(
+  "budget directive with no model budget → source directive",
+  withTempCwd(async (cwd) => {
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent(), consumeBudgetDirective: () => 1_000_000 });
+    await manager.runSync(oneAgentScript);
+    const run = manager.listRuns().find((r) => r.workflowName === "tracked_demo");
+    assert.equal(run?.exec?.tokenBudget, 1_000_000);
+    assert.equal(run?.exec?.tokenBudgetSource, "directive");
+  }),
+);
+
+test(
+  "budget directive: a rehydrated (resume-shaped) exec keeps its persisted source label",
+  withTempCwd(async (cwd) => {
+    // Simulates resume(): executeRun re-enters with the persisted exec caps and
+    // an EMPTY holder — the directive was consumed by the original run. The
+    // effective ceiling and its label must survive the re-entry untouched.
+    const manager = new WorkflowManager({ cwd, agent: fakeAgent(), consumeBudgetDirective: () => undefined });
+    await manager.runSync(oneAgentScript, undefined, { tokenBudget: 500_000, tokenBudgetSource: "directive" });
+    const run = manager.listRuns().find((r) => r.workflowName === "tracked_demo");
+    assert.equal(run?.exec?.tokenBudget, 500_000);
+    assert.equal(run?.exec?.tokenBudgetSource, "directive", "rehydrated label is not rewritten to model");
+  }),
+);
+
+test(
+  "budget directive: the live snapshot carries the effective ceiling + source",
+  withTempCwd(async (cwd) => {
+    let seen: { tokenBudget?: number; tokenBudgetSource?: string } | undefined;
+    const manager = new WorkflowManager({
+      cwd,
+      agent: fakeAgent(),
+      consumeBudgetDirective: () => 500_000,
+    });
+    await manager.runSync(oneAgentScript, undefined, {
+      tokenBudget: 100_000,
+      onProgress(snapshot) {
+        seen = { tokenBudget: snapshot.tokenBudget, tokenBudgetSource: snapshot.tokenBudgetSource };
+      },
+    });
+    assert.equal(seen?.tokenBudget, 500_000);
+    assert.equal(seen?.tokenBudgetSource, "merged");
+  }),
+);

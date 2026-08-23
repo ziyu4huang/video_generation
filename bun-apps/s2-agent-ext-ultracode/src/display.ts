@@ -1,6 +1,7 @@
 import type { ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { AgentHistoryEntry, ThemeLike, WorkflowErrorCode } from "@repo/s2-agent-core-runtime";
 import { activityGlyph, fmtCost, NO_THEME, shorten } from "@repo/s2-agent-core-runtime";
+import type { TokenBudgetSource } from "./budget-directive.js";
 import type { RunStatus } from "./run-persistence.js";
 import type { WorkflowMeta } from "./workflow.js";
 
@@ -49,6 +50,14 @@ export interface WorkflowSnapshot {
     cacheWrite?: number;
   };
   runId?: string;
+  /**
+   * Effective run-wide token ceiling, when one is in force (ticket 05). Set
+   * from the manager's exec caps; persistedToSnapshot mirrors it for resumed
+   * runs. Absent = unbounded.
+   */
+  tokenBudget?: number;
+  /** Which mechanism set tokenBudget — user directive, model param, or both. */
+  tokenBudgetSource?: TokenBudgetSource;
 }
 
 export interface WorkflowDisplay {
@@ -239,8 +248,21 @@ export function renderWorkflowLines(
   const usage = snapshot.tokenUsage;
   const costInfo = usage?.cost ? ` · $${fmtCost(usage.cost)}` : "";
   const tokenInfo = usage ? ` · ${usage.total.toLocaleString()} tokens${costInfo}` : "";
+  // Run-wide ceiling + its source (ticket 05) — precedent: the modelSource
+  // label from teams-parity ticket 06, one dim parenthetical on the header.
+  const budgetSourceLabel: Record<TokenBudgetSource, string> = {
+    directive: "user directive",
+    model: "model",
+    merged: "model + user directive",
+  };
+  const budgetInfo =
+    snapshot.tokenBudget !== undefined
+      ? ` · ceiling ${snapshot.tokenBudget.toLocaleString()}${
+          snapshot.tokenBudgetSource ? ` (${budgetSourceLabel[snapshot.tokenBudgetSource]})` : ""
+        }`
+      : "";
   const lines = [
-    `${theme.bold(`◆ Workflow: ${snapshot.name}`)} (${snapshot.doneCount}/${snapshot.agentCount} done${state}${tokenInfo})`,
+    `${theme.bold(`◆ Workflow: ${snapshot.name}`)} (${snapshot.doneCount}/${snapshot.agentCount} done${state}${tokenInfo}${budgetInfo})`,
   ];
 
   const phaseNames = snapshot.phases.length
