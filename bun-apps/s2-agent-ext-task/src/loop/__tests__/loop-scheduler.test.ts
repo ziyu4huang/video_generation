@@ -1,13 +1,13 @@
 /** LoopScheduler — timer chain, idle-gated, postpone-on-busy, 7-day max-age. */
 import { test, expect, describe } from "bun:test";
-import { LoopScheduler, SEVEN_DAYS_MS } from "../loop-scheduler.js";
+import { LoopScheduler, SEVEN_DAYS_MS, type SchedulerHooks } from "../loop-scheduler.js";
 import type { ActiveLoop } from "../loop-commands.js";
 
 function makeLoop(intervalMs = 1000): ActiveLoop {
 	return { id: "L1", prompt: "p", intervalMs, startedAt: 0, nextFireAt: intervalMs, iteration: 0 };
 }
 
-function harness() {
+function harness(extraHooks: Partial<SchedulerHooks> = {}) {
 	let now = 0;
 	const fired: string[] = [];
 	let idle = true;
@@ -18,6 +18,7 @@ function harness() {
 				fired.push(prompt);
 			},
 			isIdle: () => idle,
+			...extraHooks,
 		},
 		{
 			now: () => now,
@@ -91,5 +92,29 @@ describe("LoopScheduler", () => {
 		h.tick();
 		h.tick();
 		expect(h.s.active()?.iteration).toBe(2);
+	});
+
+	test("onTick fires after each fire's state update, with the incremented iteration", () => {
+		const ticks: Array<ActiveLoop | undefined> = [];
+		const h = harness({ onTick: (loop) => ticks.push({ ...loop }) });
+		h.s.start(makeLoop(10));
+		h.tick();
+		h.tick();
+		expect(ticks.map((l) => l?.iteration)).toEqual([1, 2]);
+		// the observed loop carries the re-armed nextFireAt, not the stale one
+		expect(ticks[1]?.nextFireAt).toBe(h.s.active()?.nextFireAt);
+	});
+
+	test("onStop fires when the 7-day max-age self-stop triggers", () => {
+		let stops = 0;
+		const h = harness({ onStop: () => stops++ });
+		h.s.start(makeLoop(10));
+		h.tick(); // ordinary fire — no stop
+		expect(stops).toBe(0);
+		// age the loop past max-age (fresh start), then let the timer fire
+		h.s.start({ ...makeLoop(10), startedAt: -(SEVEN_DAYS_MS + 1) });
+		h.tick();
+		expect(stops).toBe(1);
+		expect(h.s.active()).toBeUndefined();
 	});
 });

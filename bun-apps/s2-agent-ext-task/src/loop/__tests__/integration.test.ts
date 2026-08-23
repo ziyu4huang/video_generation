@@ -132,6 +132,67 @@ describe("/loop integration", () => {
 		__resetLoop();
 	});
 
+	test("restoreLoopFromSession does not clobber an active scheduler", async () => {
+		const { pi, commands, entries } = createMockPi();
+		const mockOverlay = createMockOverlay();
+		registerLoop(pi, mockOverlay.overlay);
+		const { ctx } = createMockCtx();
+		await loopCommand(commands).handler("5m live loop", ctx);
+
+		// a DIFFERENT persisted loop appears in the session — restore must not
+		// orphan the live scheduler's armed timer (parallel fires)
+		const persisted: ActiveLoop = {
+			id: "L9",
+			prompt: "stale",
+			intervalMs: 300_000,
+			startedAt: Date.now(),
+			nextFireAt: Date.now() + 300_000,
+			iteration: 7,
+		};
+		const sm = {
+			appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
+			getBranch: () => entries,
+		};
+		persistLoop(sm as never, persisted);
+		restoreLoopFromSession(sm, mockOverlay.overlay);
+		expect(isLoopActive()).toBe(true);
+		const { ctx: ctx2, notifications } = createMockCtx();
+		await loopCommand(commands).handler("status", ctx2);
+		expect(notifications.at(-1)?.message).toContain("live loop");
+		__resetLoop();
+	});
+
+	test("restored scheduler is idle-gated by the last command ctx, not default-idle", async () => {
+		const { pi, commands, entries, sentUserMessages } = createMockPi();
+		const mockOverlay = createMockOverlay();
+		registerLoop(pi, mockOverlay.overlay);
+		// capture a BUSY ctx via any command — the restored scheduler must
+		// inherit it (postpone) instead of the pre-fix always-idle default
+		const busy = createMockCtx({ isIdle: () => false });
+		await loopCommand(commands).handler("status", busy.ctx);
+
+		// intervalMs below the parser floor is fine here: persisted loops are
+		// loaded verbatim, so a tiny interval lets the REAL timer come due fast
+		const persisted: ActiveLoop = {
+			id: "L10",
+			prompt: "p",
+			intervalMs: 20,
+			startedAt: Date.now(),
+			nextFireAt: Date.now() + 20,
+			iteration: 0,
+		};
+		const sm = {
+			appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
+			getBranch: () => entries,
+		};
+		persistLoop(sm as never, persisted);
+		restoreLoopFromSession(sm, mockOverlay.overlay);
+		expect(isLoopActive()).toBe(true);
+		await new Promise((r) => setTimeout(r, 80));
+		expect(sentUserMessages).toEqual([]); // busy → postponed, never fired
+		__resetLoop();
+	});
+
 	test("old syntax yields the usage pointer, no scheduler", async () => {
 		const { pi, commands } = createMockPi();
 		const mockOverlay = createMockOverlay();

@@ -19,6 +19,22 @@ describe("parseInterval", () => {
 		expect(parseInterval("m5")).toBeUndefined();
 		expect(parseInterval("")).toBeUndefined();
 	});
+	test("0m/0h/0d floor to the 60s minimum (all units clamp)", () => {
+		expect(parseInterval("0m")).toBe(60_000);
+		expect(parseInterval("0h")).toBe(60_000);
+		expect(parseInterval("0d")).toBe(60_000);
+		expect(parseInterval("0s")).toBe(60_000);
+	});
+	test("huge values clamp to the timer-safety cap (setTimeout 2^31-1 bound)", () => {
+		expect(parseInterval("999999999d")).toBe(2_000_000_000);
+		expect(parseInterval("999999999h")).toBe(2_000_000_000);
+		expect(parseInterval("99999999m")).toBe(2_000_000_000);
+	});
+	test("in-range values for every unit are unchanged by the clamp", () => {
+		expect(parseInterval("1d")).toBe(86_400_000);
+		expect(parseInterval("1h")).toBe(3_600_000);
+		expect(parseInterval("1m")).toBe(60_000);
+	});
 });
 
 describe("parseLoopCommand", () => {
@@ -44,6 +60,14 @@ describe("parseLoopCommand", () => {
 		const r = parseLoopCommand('start "improve x" measure="echo 1"');
 		expect(typeof r).toBe("string");
 		expect(r).toContain("/loop <interval> <prompt>");
+	});
+	test("old syntax detected with quote or measure= right after 'start'", () => {
+		expect(typeof parseLoopCommand('start "improve x"')).toBe("string");
+		expect(typeof parseLoopCommand("start measure=echo")).toBe("string");
+	});
+	test("prompt merely beginning with 'start' is a normal recurring target", () => {
+		const r = parseLoopCommand("start the servers");
+		expect(r).toEqual({ kind: "start", intervalMs: 600_000, prompt: "start the servers" });
 	});
 	test("interval token without prompt is a usage error", () => {
 		const r = parseLoopCommand("5m");

@@ -156,6 +156,9 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		// their own session_shutdown — if any — cleans those.)
 		__resetState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
 		goalOverlay.dispose();
+		// The /loop scheduler is deliberately NOT stopped here: it is process-
+		// lifetime state with nothing per-session to clean (its timer dies with
+		// the process), so loop teardown is just the overlay.
 		loopOverlay.dispose();
 		todoOverlay.dispose();
 		subagentsHandle.dispose();

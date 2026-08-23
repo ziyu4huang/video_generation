@@ -6,6 +6,12 @@ export const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000; // CC recurring auto-expir
 export interface SchedulerHooks {
 	fire: (prompt: string) => Promise<void> | void;
 	isIdle: () => boolean;
+	/** Optional observer fired after each successful fire's state update —
+	 *  the scheduler owns the only mutable copy of the loop, so callers that
+	 *  mirror its state (overlay, persistence) need this to stay current. */
+	onTick?: (loop: ActiveLoop) => void;
+	/** Optional observer fired when the 7-day max-age self-stop triggers. */
+	onStop?: () => void;
 }
 
 export interface SchedulerClock {
@@ -61,6 +67,7 @@ export class LoopScheduler {
 			// loop deletes itself.
 			this.stop();
 			this.dispatch(loop.prompt);
+			this.hooks.onStop?.();
 			return;
 		}
 		if (!this.hooks.isIdle()) {
@@ -70,7 +77,10 @@ export class LoopScheduler {
 		}
 		this.loop = { ...loop, iteration: loop.iteration + 1, nextFireAt: now + loop.intervalMs };
 		this.dispatch(loop.prompt);
-		if (this.loop) this.arm(this.loop.intervalMs);
+		if (this.loop) {
+			this.hooks.onTick?.(this.loop);
+			this.arm(this.loop.intervalMs);
+		}
 	}
 
 	/** Fire-and-forget with swallowed rejection — a failed send must not

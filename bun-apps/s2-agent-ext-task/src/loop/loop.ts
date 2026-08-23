@@ -7,7 +7,12 @@ import type { LoopOverlayLike } from "./overlay.js";
 
 let schedulerRef: LoopScheduler | undefined;
 let extensionApiRef: ExtensionAPI | undefined;
+/** Latest isIdle from a real command ctx (mirrors goalState.latestCtx): a
+ *  restored scheduler has no ctx of its own, so it gates on this instead of
+ *  an always-idle default that would fire while the agent is busy. */
+let latestIsIdle: () => boolean = () => true;
 
+/** True while a scheduler holds an armed loop (started via /loop or restored). */
 export function isLoopActive(): boolean {
 	return schedulerRef?.active() !== undefined;
 }
@@ -17,9 +22,10 @@ export function __resetLoop(): void {
 	schedulerRef?.stop();
 	schedulerRef = undefined;
 	extensionApiRef = undefined;
+	latestIsIdle = () => true;
 }
 
-function newScheduler(pi: ExtensionAPI, ctx: { isIdle?: () => boolean }): LoopScheduler {
+function newScheduler(pi: ExtensionAPI, overlay: LoopOverlayLike): LoopScheduler {
 	return new LoopScheduler({
 		// Slash targets dispatch as extension commands (probe 2026-08-23:
 		// prompt() only routes "/"-prefixed text through the command registry
@@ -27,7 +33,14 @@ function newScheduler(pi: ExtensionAPI, ctx: { isIdle?: () => boolean }): LoopSc
 		// false, so pass it explicitly for slash targets).
 		fire: (prompt) =>
 			pi.sendUserMessage(prompt, prompt.startsWith("/") ? { expandPromptTemplates: true } : undefined),
-		isIdle: () => ctx.isIdle?.() ?? true,
+		isIdle: () => latestIsIdle(),
+		// The scheduler owns the only mutable copy of the loop; mirror its
+		// state changes into the overlay and clear persistence on self-stop.
+		onTick: (loop) => overlay.update(loop),
+		onStop: () => {
+			overlay.update(undefined);
+			clearPersistedLoop(extensionApiRef);
+		},
 	});
 }
 
@@ -42,6 +55,7 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 		description: "Run a prompt on a recurring interval: /loop [interval] <prompt…> (default 10m) | stop | status",
 		getArgumentCompletions: completeLoopArguments,
 		handler: async (args: string, ctx: { isIdle?: () => boolean; sessionManager?: unknown; ui: { notify?: (m: string, k?: "info" | "warning" | "error") => void } }) => {
+			if (typeof ctx.isIdle === "function") latestIsIdle = ctx.isIdle;
 			const parsed = parseLoopCommand(args ?? "");
 			if (typeof parsed === "string") {
 				ctx.ui.notify?.(parsed, "warning");
@@ -75,7 +89,7 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 				nextFireAt: Date.now() + parsed.intervalMs,
 				iteration: 0,
 			};
-			schedulerRef = newScheduler(pi, ctx);
+			schedulerRef = newScheduler(pi, overlay);
 			schedulerRef.start(loop);
 			persistLoop(extensionApiRef, loop);
 			overlay.update(loop);
@@ -88,7 +102,10 @@ export function registerLoop(pi: ExtensionAPI, overlay: LoopOverlayLike): void {
 export function restoreLoopFromSession(sessionManager: unknown, overlay: LoopOverlayLike): void {
 	const loop = loadLoopFromSession(sessionManager);
 	if (!loop || !extensionApiRef) return;
-	schedulerRef = newScheduler(extensionApiRef, {});
+	// A live scheduler wins: restoring over it would orphan its armed timer
+	// (two loops firing in parallel).
+	if (schedulerRef?.active()) return;
+	schedulerRef = newScheduler(extensionApiRef, overlay);
 	schedulerRef.start(loop);
 	overlay.update(loop);
 }

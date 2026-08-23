@@ -15,6 +15,13 @@ export type LoopCommandResult =
 
 export const DEFAULT_LOOP_INTERVAL_MS = 600_000; // CC default: 10m
 
+/** Interval clamp bounds for EVERY unit. The floor is CC's whole-minute
+ *  minimum; the cap is a timer-safety bound (setTimeout overflows past
+ *  2^31-1 ms ≈ 24.8 days) — the scheduler's 7-day max-age still governs loop
+ *  lifetime independently of this cap. */
+export const MIN_LOOP_INTERVAL_MS = 60_000;
+export const MAX_LOOP_INTERVAL_MS = 2_000_000_000;
+
 export interface LoopArgumentCompletion {
 	value: string;
 	label: string;
@@ -36,7 +43,8 @@ export function completeLoopArguments(prefix: string): LoopArgumentCompletion[] 
 	return m.length ? [...m] : null;
 }
 
-/** Parse "90s" / "5m" / "1h" / "1d" -> ms; seconds round UP to a whole minute (CC). */
+/** Parse "90s" / "5m" / "1h" / "1d" -> ms; seconds round UP to a whole minute
+ *  (CC); every unit clamps to [MIN_LOOP_INTERVAL_MS, MAX_LOOP_INTERVAL_MS]. */
 export function parseInterval(token: string): number | undefined {
 	const m = /^(\d+)(s|m|h|d)$/i.exec(token.trim());
 	if (!m) return undefined;
@@ -44,7 +52,8 @@ export function parseInterval(token: string): number | undefined {
 	const unit = m[2].toLowerCase();
 	const mult = unit === "s" ? 1_000 : unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000;
 	const ms = n * mult;
-	return unit === "s" ? Math.max(60_000, Math.ceil(ms / 60_000) * 60_000) : ms;
+	const rounded = unit === "s" ? Math.ceil(ms / 60_000) * 60_000 : ms;
+	return Math.min(MAX_LOOP_INTERVAL_MS, Math.max(MIN_LOOP_INTERVAL_MS, rounded));
 }
 
 const USAGE = "Usage: /loop <interval> <prompt> (e.g. /loop 5m check the deploy) — see /loop status";
@@ -61,8 +70,12 @@ export function parseLoopCommand(args: string): LoopCommandResult | string {
 		const rest = trimmed.slice(first.length).trim();
 		return rest.length === 0 ? { kind: "show" } : "Usage: /loop status";
 	}
-	// Old process-loop syntax: point at the new surface instead of silently mislooping.
-	if (first === "start" || /^measure=/.test(first)) {
+	// Old process-loop syntax: point at the new surface instead of silently
+	// mislooping. Only `start <quoted-name…|measure=…>` is old syntax — a
+	// prompt that merely begins with the word "start" ("/loop start the
+	// servers") is a normal recurring-prompt target.
+	const second = trimmed.slice(first.length).trim().split(/\s+/)[0] ?? "";
+	if (/^measure=/.test(first) || (first === "start" && (/^["']/.test(second) || /^measure=/.test(second)))) {
 		return `The process-improvement loop was replaced by a recurring-prompt loop. ${USAGE}`;
 	}
 	const intervalMs = parseInterval(first);
