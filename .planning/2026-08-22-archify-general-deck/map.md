@@ -115,7 +115,7 @@ Phase 3 — the library
 - `tickets/07-example-deck-general.md` — task, **done** 2026-08-23 — 12-slide proof deck + out-of-repo template gate
 
 Phase 4 — authoring ergonomics
-- `tickets/08-outline-markdown.md` — task, open — Markdown outline → manifest
+- `tickets/08-outline-markdown.md` — task, **closed** 2026-08-23 — Markdown outline → manifest
 - `tickets/09-deck-scaffolds.md` — task, open — four reusable deck skeletons
 - `tickets/10-docs-and-skill-split.md` — task, open — SKILL split + README + CONTEXT
 

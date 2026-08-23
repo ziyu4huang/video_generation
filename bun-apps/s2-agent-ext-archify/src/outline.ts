@@ -18,6 +18,11 @@
  * drops a file on the search path. An unknown layout name fails through the
  * registry's available-list message, not a JSON error.
  *
+ * Precedence: a fenced payload's explicit layout always wins — the `!ir`
+ * split-vs-diagram inference applies only when a slide carries no layout. An
+ * `ir` on a template slide that never binds it (`quote`, `bullets`, …) is
+ * simply unused.
+ *
  * Every failure names its line number: an outline is written top to bottom,
  * so an error should point at the line to fix.
  */
@@ -50,7 +55,9 @@ function unquote(v: string): string {
 
 /** Parse the `--- … ---` head of an outline. Absent frontmatter is fine. */
 export function parseFrontmatter(lines: string[]): { fields: OutlineFrontmatter; end: number } {
-  if ((lines[0] ?? "").trim() !== "---") return { fields: {}, end: 0 };
+  // `end: -1` when absent: the body loop starts at `end + 1`, so a
+  // no-frontmatter outline must start at line 0 — never drop the first line.
+  if ((lines[0] ?? "").trim() !== "---") return { fields: {}, end: -1 };
   const fields: OutlineFrontmatter = {};
   let inDefaults = false;
   for (let i = 1; i < lines.length; i++) {
@@ -183,7 +190,10 @@ export function parseOutline(md: string, baseDir: string): DeckManifest {
       if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
         throw new DeckError(`outline line ${n + 2}: fenced payload must be a JSON object of slot values`);
       }
-      current = { ...current, ...(payload as Partial<DeckSlide>), layout: name as DeckSlide["layout"] };
+      // Mutate in place, like takeaway/source/bullets: the array holds THIS
+      // object, so a reassignment would leave the pre-fence slide stranded
+      // (no slots, no layout) while the merged object is never pushed.
+      Object.assign(current, payload as Partial<DeckSlide>, { layout: name as DeckSlide["layout"] });
       n = closedAt;
       continue;
     }
@@ -196,7 +206,7 @@ export function parseOutline(md: string, baseDir: string): DeckManifest {
       expectingSubtitle = true;
       continue;
     }
-    const h2 = /^##\s+(\d{1,2})\s+(.+)$/.exec(line);
+    const h2 = /^##\s+(\d+)\s+(.+)$/.exec(line);
     if (h2) {
       current = { layout: "section", title: h2[2]!.trim(), sectionNumber: h2[1]! };
       slides.push(current);

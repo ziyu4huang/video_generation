@@ -2,9 +2,9 @@
 ticket: 08-outline-markdown
 effort: archify-general-deck
 type: task
-status: open
+status: closed
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocked-by: [02]
 ---
 # 08 — Markdown outline → manifest
@@ -50,3 +50,18 @@ to change every time someone drops a file on the search path, which defeats the 
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-archify && bun run typecheck && bun test )`
+
+## Resolution
+
+2026-08-23 — shipped in this PR. The outline door's implementation + wiring (parseOutline +
+resolveDeckInput's four shapes + `archify_export_pptx` outline/outlinePath + `bun run deck
+--outline`) landed with the t07 PR sweep; this PR adds the missing acceptance test suite (8
+tests, `tests/outline.test.ts`) and fixes two real defects the tests surfaced: (1)
+parseFrontmatter returned `end: 0` when frontmatter was absent, silently dropping an outline's
+first line (now `end: -1`); (2) the fenced-payload branch reassigned `current`, leaving the
+pushed slide without its payload or layout (now `Object.assign` in place, consistent with the
+other marker branches). Independent reviewer pass: BLOCK on a wall-clock-dependent byte-equal
+assertion (pptxgenjs stamps docProps/core.xml with second-precision `new Date()`) and an
+off-schema fixture key (`author` vs the template's `attribution` slot) — both fixed, final
+verdict **RELEASE**. Acceptance 5 as shipped: byte-exact everywhere except the wall-clock
+core-metadata stamp (the parity test compares the part maps minus that entry).
