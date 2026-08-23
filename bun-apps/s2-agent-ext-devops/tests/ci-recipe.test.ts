@@ -386,6 +386,132 @@ describe("runLocalCi — gates come from the workflow, not a hand-written list",
 		expect(out.gates.map((g) => g.name)).toEqual([GATE_FILE_SIZE.name, GATE_DEPS.name]);
 	});
 
+	test("every gate reports its wall-clock (durationMs) — the 591 s breach was diagnosed blind", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(),
+		});
+		for (const g of out.gates) expect(typeof g.durationMs).toBe("number");
+	});
+
+	const GATE_LOCKFILE = {
+		name: "Lockfile freshness guard (package.json vs bun.lock, blocks)",
+		cwd: ".",
+		run: "bash scripts/check-lockfile-freshness.sh",
+	};
+
+	test("the lockfile-freshness gate runs ALONE and FIRST, before any package spawn", async () => {
+		// It executes `bun install` — a mutating gate racing any other bun
+		// process can observe a half-installed tree. Exclusive-first is the
+		// contract that makes overlapping the REST of the gates safe.
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates([GATE_FILE_SIZE, GATE_LOCKFILE, GATE_DEPS]),
+		});
+		const firstBash = calls.find((c) => c.cmd === "bash")!;
+		expect(firstBash.args[1]).toBe(GATE_LOCKFILE.run);
+		// …and nothing else spawned before it (no typecheck, no test).
+		const idxLockfile = calls.indexOf(firstBash);
+		expect(calls.slice(0, idxLockfile).some((c) => c.cmd === "bun")).toBe(false);
+		// Reported order is still the WORKFLOW's order (exclusive moves execution
+		// only, never the report).
+		expect(out.gates.map((g) => g.name)).toEqual([GATE_FILE_SIZE.name, GATE_LOCKFILE.name, GATE_DEPS.name]);
+	});
+
+	test("non-exclusive gates keep WORKFLOW order in the report even though they run as a pool", async () => {
+		const { fn } = mkSpawn([verifyOk()]);
+		const gateList = [
+			GATE_FILE_SIZE,
+			{ name: "g2", cwd: ".", run: "echo two" },
+			{ name: "g3", cwd: ".", run: "echo three" },
+			GATE_DEPS,
+		];
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: detect(),
+			readPkg: readPkg(),
+			readGates: fakeGates(gateList),
+		});
+		expect(out.gates.map((g) => g.name)).toEqual(gateList.map((g) => g.name));
+	});
+
+	test("when the test command itself runs typecheck, the phase-3a spawn is skipped as redundant", async () => {
+		const { fn, calls } = mkSpawn([verifyOk()]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-row": true, "pkg-plain": true }).fn,
+			readPkg: mkReadPkg({
+				"pkg-row": { typecheck: "tsc --noEmit", test: "bun test" },
+				"pkg-plain": { typecheck: "tsc --noEmit", test: "bun test" },
+			}),
+			readMatrix: async () => ({ "pkg-row": "bun test && bun run typecheck" }),
+			includeGates: false,
+		});
+		// pkg-row's typecheck ran ONCE (inside its row) — no separate spawn.
+		expect(calls.filter((c) => c.cwd === pkgDir("pkg-row") && c.args[1] === "typecheck")).toHaveLength(0);
+		expect(out.packages.find((p) => p.name === "pkg-row")?.typecheck?.skipped).toBe(true);
+		// pkg-plain has no row → the phase spawn still runs.
+		expect(calls.filter((c) => c.cwd === pkgDir("pkg-plain") && c.args[1] === "typecheck")).toHaveLength(1);
+		expect(out.packages.find((p) => p.name === "pkg-plain")?.typecheck?.skipped).toBeUndefined();
+	});
+
+	test("extension packages' typecheck is left to the typecheck:ext gate when gates run", async () => {
+		// Same tsc, same package, twice in one run = the measured ~250 s of
+		// duplicated checking this dedup removes. The gate executor is the
+		// authoritative copy (it also covers the --strict/no-diff packages).
+		const tmp = mkdtempSync(join(tmpdir(), "ci-recipe-ext-"));
+		try {
+			// A REAL extensions/ entry — the predicate reads the tree, like the
+			// gate executor's own discovery does. The recipe builds package dirs
+			// as <repoRoot>/bun-apps/<name>, so the fixture must live there.
+			mkdirSync(join(tmp, "bun-apps", "pkg-ext", "extensions"), { recursive: true });
+			await Bun.write(join(tmp, "bun-apps", "pkg-ext", "extensions", "x.ts"), "export {};");
+			const { fn, calls } = mkSpawn([verifyOk()]);
+			const out = await runLocalCi({
+				repoRoot: tmp,
+				spawn: fn,
+				detectChangedPackages: mkDetect({ "pkg-ext": true, "pkg-lib": true }).fn,
+				readPkg: mkReadPkg({
+					"pkg-ext": { typecheck: "tsc --noEmit", test: "bun test" },
+					"pkg-lib": { typecheck: "tsc --noEmit", test: "bun test" },
+				}),
+				readGates: fakeGates(),
+			});
+			expect(out.packages.find((p) => p.name === "pkg-ext")?.typecheck).toEqual({
+				exitCode: -1,
+				skipped: true,
+				note: "covered by the typecheck:ext gate",
+			});
+			// A non-extension package keeps its own phase-3a typecheck.
+			expect(out.packages.find((p) => p.name === "pkg-lib")?.typecheck?.skipped).toBeUndefined();
+			expect(calls.filter((c) => c.cwd.endsWith("pkg-lib") && c.args[1] === "typecheck")).toHaveLength(1);
+
+			// With gates OFF the dedup must NOT apply — there is no gate to cover it.
+			const { fn: fn2, calls: calls2 } = mkSpawn([verifyOk()]);
+			const out2 = await runLocalCi({
+				repoRoot: tmp,
+				spawn: fn2,
+				detectChangedPackages: mkDetect({ "pkg-ext": true }).fn,
+				readPkg: mkReadPkg({ "pkg-ext": { typecheck: "tsc --noEmit", test: "bun test" } }),
+				includeGates: false,
+			});
+			expect(out2.packages.find((p) => p.name === "pkg-ext")?.typecheck?.skipped).toBeUndefined();
+			expect(calls2.filter((c) => c.cwd.endsWith("pkg-ext") && c.args[1] === "typecheck")).toHaveLength(1);
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
 	test("any gate failing → overall fail", async () => {
 		const { fn } = mkSpawn([
 			verifyOk(),
@@ -886,7 +1012,9 @@ describe("runLocalCi — execution model (parallel, builder-first)", () => {
 			concurrency: 3,
 		});
 		expect(maxInFlight).toBeGreaterThan(1);
-		expect(maxInFlight).toBeLessThanOrEqual(3);
+		// The read-only phase runs concurrency + 2 wide (extra width can only
+		// cost CPU, never correctness — see the 3a comment in ci-recipe.ts).
+		expect(maxInFlight).toBeLessThanOrEqual(5);
 	});
 });
 
@@ -1012,7 +1140,9 @@ describe("runLocalCi — hang containment", () => {
 			includeGates: false,
 		});
 		const testCall = calls.find((c) => c.cwd === pkgDir("pkg-a") && c.args[1] === "test");
-		expect(testCall?.timeoutMs).toBe(120_000);
+		// 180s: sized against s2-agent's ~100-111s row (see perCommandTimeoutMs
+		// doc in ci-recipe.ts) so the cap only ever catches a HANG.
+		expect(testCall?.timeoutMs).toBe(180_000);
 	});
 
 	test("a timed-out package (exit 124) fails overall AND says it hung, not that it failed", async () => {
