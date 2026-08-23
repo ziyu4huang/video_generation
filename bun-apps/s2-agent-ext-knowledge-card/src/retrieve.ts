@@ -593,14 +593,6 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 
 	scored.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
 
-	// Ticket 08 (D37–D39): bounded hotness blend over the usage-ledger
-	// aggregates, applied to the FINAL lexical ranking before the top-K cut.
-	// Any usage-lane failure leaves the ranking unchanged (hotnessUsed=false).
-	let hotnessUsed = false;
-	if (hotnessAlpha > 0) {
-		hotnessUsed = await applyHotnessBlend(scored, hotnessAlpha, opts._usageClient);
-	}
-
 	// Opt-in semantic blend (recall-regime-change-eval). Default off = unchanged.
 	// Union the lexical top-12 with a semantic top-12 (cosine), rerank by
 	// Î±Â·lexRankNorm + (1-Î±)Â·cosNorm. Returns null on any embedding failure â
@@ -629,6 +621,18 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			usageClient: opts._usageClient,
 		});
 		if (sem) return sem;
+	}
+
+	// Ticket 08 (D37–D39): bounded hotness blend over the usage-ledger
+	// aggregates — applied ONLY on the flat lane that actually answers (the
+	// semantic path blended its own union pool above, the hier-first lane
+	// inside hierarchicalRetrieve; reviewer F1: blending here BEFORE the
+	// semantic attempt would double-count hotness on that path — its
+	// lexRankNorm derives from this array's order). Any usage-lane failure
+	// leaves the ranking unchanged (hotnessUsed=false).
+	let hotnessUsed = false;
+	if (hotnessAlpha > 0) {
+		hotnessUsed = await applyHotnessBlend(scored, hotnessAlpha, opts._usageClient);
 	}
 
 	const topScored = scored.slice(0, topK);

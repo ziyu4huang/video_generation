@@ -246,4 +246,92 @@ describe("retrieveRecords × hotness — flat-lane integration (D39)", () => {
 			retrieveRecords({ vaultPath: vault, folder: "Zettelkasten/knowledge-graph", tags: ["argv"], hotnessAlpha: 0.5 }),
 		).rejects.toThrow(RangeError);
 	});
+
+	test("reviewer F1 regression: semantic path applies hotness EXACTLY ONCE (no flat pre-blend)", async () => {
+		const { ingestRecords } = await import("../src/ingest.ts");
+		const { retrieveRecords } = await import("../src/retrieve.ts");
+		const { rec, FOLDER, stemsOf } = await import("./helpers/hotness-fixtures.ts");
+		await ingestRecords([rec("cold", ["argv", "extra"]), rec("hot", ["argv", "extra"])], {
+			vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t08", folder: FOLDER, mocPath: `${FOLDER}/MOC.md`,
+		});
+		// Constant embedder: every card the same vector → cosNorm collapses,
+		// the union score is α_sem·lexRankNorm alone — fully deterministic.
+		const emb = async (texts: string[]) => texts.map(() => [1, 0]);
+		const base: Parameters<typeof retrieveRecords>[0] = {
+			vaultPath: vault, folder: FOLDER, tags: ["argv"], queryText: "argv query",
+			topK: 2, semantic: true, hier: false, _testEmbedder: emb, includeTrace: true,
+		};
+		const now = Date.now();
+		const { client } = fakeUsageClient([{ stem: stemsOf["hot"], n: 3, last_ms: now }]);
+		const off = await retrieveRecords({ ...base });
+		const on = await retrieveRecords({ ...base, hotnessAlpha: HOTNESS_ALPHA_MAX, _usageClient: client });
+		expect(off.trace?.semanticUsed).toBe(true);
+		expect(on.trace?.semanticUsed).toBe(true);
+		expect(on.trace?.hotnessUsed).toBe(true);
+		const s0 = new Map(off.trace!.cards.map((c) => [c.id, c.score]));
+		const h = hotnessScore(3, now, now);
+		for (const c of on.trace!.cards) {
+			const expected = blendWithHotness(s0.get(c.id)!, c.id === "t08:hot" ? h : 0, HOTNESS_ALPHA_MAX);
+			expect(c.score).toBeCloseTo(expected, 6); // single application over the
+			// UNBLENDED union score — the old flat-pre-blend ordering would shift
+			// lexRankNorm and double-count hotness (reviewer F1).
+		}
+	});
+});
+
+describe("hierarchicalRetrieve × hotness — hier-lane blend (D39)", () => {
+	/** Fake SurrealClient dispatching on SQL shape: KNN → [], per-token FTS →
+	 *  two leaf rows, children/stem-IN → [], usage aggregate → canned rows. */
+	function fakeHierClient(usageRows: Array<{ stem: string; n: number; last_ms: number | null }>) {
+		const rows = [
+			{ stem: "leaf-a", path: "Zettelkasten/knowledge-graph/leaf-a", title: "A", kind: "pattern", is_leaf: true, parent: null, summary: "" },
+			{ stem: "leaf-b", path: "Zettelkasten/knowledge-graph/leaf-b", title: "B", kind: "pattern", is_leaf: true, parent: null, summary: "" },
+		];
+		const client = {
+			async query<T>(sql: string): Promise<T> {
+				if (sql.includes("FROM usage")) return usageRows as unknown as T;
+				if (sql.includes("<|")) return [] as unknown as T; // KNN lane (no vec data)
+				if (sql.includes("@@")) return rows as unknown as T; // FTS lane
+				return [] as unknown as T; // children / stem-IN
+			},
+		};
+		return { client: client as unknown as SurrealClient, rows };
+	}
+
+	test("α=0.10 blends leaf scores pool-wide before the cut; never-used → 0; lane failure → unchanged", async () => {
+		const { hierarchicalRetrieve } = await import("../src/hierarchical-retrieval.ts");
+		const emb = async (texts: string[]) => texts.map(() => [1, 0]);
+		const now = Date.now();
+
+		// Off lane: reference scores.
+		const offClient = fakeHierClient([]);
+		const off = await hierarchicalRetrieve(offClient.client as never, {
+			query: "anything", topK: 2, embedder: emb as never, includeTrace: true,
+		});
+		expect(off.ok).toBe(true);
+		expect(off.trace?.hotnessUsed).toBeUndefined();
+
+		// On lane, leaf-a hot (3 recent events), leaf-b never used.
+		const onClient = fakeHierClient([{ stem: "leaf-a", n: 3, last_ms: now }]);
+		const on = await hierarchicalRetrieve(onClient.client as never, {
+			query: "anything", topK: 2, embedder: emb as never, includeTrace: true, hotnessAlpha: HOTNESS_ALPHA_MAX,
+		});
+		expect(on.trace?.hotnessUsed).toBe(true);
+		const h = hotnessScore(3, now, now);
+		const byStemOff = new Map(off.cards.map((c) => [c.stem, c.score]));
+		for (const c of on.cards) {
+			const expected = blendWithHotness(byStemOff.get(c.stem)!, c.stem === "leaf-a" ? h : 0, HOTNESS_ALPHA_MAX);
+			expect(c.score).toBeCloseTo(expected, 5);
+		}
+		expect(on.cards.find((c) => c.stem === "leaf-a")!.hotness).toBeGreaterThan(0);
+		expect(on.cards.find((c) => c.stem === "leaf-b")!.hotness).toBe(0);
+
+		// Usage lane down (aggregate query throws) → ranking identical to off.
+		const boom = { async query<T>(sql: string): Promise<T> { if (sql.includes("FROM usage")) throw new Error("down"); return fakeHierClient([]).client.query(sql); } };
+		const degraded = await hierarchicalRetrieve(boom as unknown as SurrealClient, {
+			query: "anything", topK: 2, embedder: emb as never, includeTrace: true, hotnessAlpha: HOTNESS_ALPHA_MAX,
+		});
+		expect(degraded.trace?.hotnessUsed).toBeUndefined();
+		for (const c of degraded.cards) expect(c.score).toBeCloseTo(byStemOff.get(c.stem)!, 5);
+	});
 });

@@ -66,6 +66,9 @@ export function hotnessScore(
 	halfLifeDays: number = HOTNESS_HALF_LIFE_DAYS,
 ): number {
 	if (activeCount <= 0) return 0;
+	if (!Number.isFinite(halfLifeDays) || halfLifeDays <= 0) {
+		throw new RangeError(`halfLifeDays must be a positive number (got ${halfLifeDays})`);
+	}
 	const ts = typeof lastUsedAt === "string" ? Date.parse(lastUsedAt) : lastUsedAt;
 	if (ts === null || ts === undefined || !Number.isFinite(ts)) return 0;
 	const nowMs = now instanceof Date ? now.getTime() : typeof now === "string" ? Date.parse(now) : now;

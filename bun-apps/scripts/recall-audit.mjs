@@ -246,6 +246,9 @@ if (ARMS.has("kcard")) {
 
 	let semanticUsedOnce = false;
 	let hotnessUsedOnce = false;
+	// F4: the receipt must record the ledger's A/B round state on its own
+	// (reset + seeded counts) — console logs are not receipts.
+	let receiptSeedNote = null;
 	// Ticket 08 (D37–D39) A/B: optional hotness blend + deterministic usage
 	// seeding. `--seed-usage targets` writes 3 events per battery target card
 	// (staggered over the last 2 days) BEFORE the run — "these are the cards
@@ -276,6 +279,17 @@ if (ARMS.has("kcard")) {
 				await recordUsage(seedClient, stem(filename), "zk_card", new Date(Date.now() - (i * 16 + 2) * 3_600_000));
 			}
 		};
+		// Deterministic seeding (reviewer F2/F3): readdirSync order is
+		// filesystem-dependent — every lookup sweeps a SORTED file list, target
+		// matching prefers an EXACT stem hit over ambiguous substrings.
+		const sortedFiles = [...files].sort();
+		const findByTarget = (t) => {
+			const tl = t.toLowerCase();
+			return (
+				sortedFiles.find((n) => stem(n).toLowerCase() === tl) ??
+				sortedFiles.find((n) => n.toLowerCase().includes(tl))
+			);
+		};
 		let seeded = 0;
 		if (args["seed-usage"] === "targets") {
 			// Circular by construction (targets ARE the answer keys) — this arm
@@ -285,7 +299,7 @@ if (ARMS.has("kcard")) {
 			for (const e of battery.kcard ?? []) {
 				if (e.negative || !Array.isArray(e.vaultTargets)) continue;
 				for (const t of e.vaultTargets) {
-					const hit = files.find((n) => n.toLowerCase().includes(t.toLowerCase()));
+					const hit = findByTarget(t);
 					if (!hit) continue;
 					await seedOne(hit);
 					seeded++;
@@ -293,13 +307,13 @@ if (ARMS.has("kcard")) {
 			}
 		} else {
 			// Noise control: seed the same EVENT COUNT onto cards that match NO
-			// battery target (deterministic: lexicographic first-N). Numbers
-			// should match the baseline — usage noise must not move recall.
+			// battery target (deterministic: sorted first-N). Numbers should
+			// match the baseline — usage noise must not move recall.
 			const targetSubs = (battery.kcard ?? [])
 				.flatMap((e) => (e.negative ? [] : e.vaultTargets ?? []))
 				.map((t) => t.toLowerCase());
 			const wanted = targetSubs.length; // same card count as the targets arm
-			for (const n of files) {
+			for (const n of sortedFiles) {
 				if (seeded >= wanted) break;
 				if (targetSubs.some((t) => n.toLowerCase().includes(t))) continue;
 				await seedOne(n);
@@ -307,6 +321,7 @@ if (ARMS.has("kcard")) {
 			}
 		}
 		console.log(`seeded usage events: ${seeded * 3} (mode ${args["seed-usage"]})`);
+		receiptSeedNote = { mode: args["seed-usage"], reset: Boolean(args["reset-usage"]), cards: seeded, events: seeded * 3 };
 	}
 	const scored = await scoreArm(battery.kcard ?? [], async (q) => {
 		const result = await retrieveRecords({
@@ -333,7 +348,7 @@ if (ARMS.has("kcard")) {
 
 	receipt.kcard = {
 		vaultCards: files.length,
-		hotness: { alpha: HOTNESS_ALPHA, seedUsage: args["seed-usage"] || null, used: hotnessUsedOnce },
+		hotness: { alpha: HOTNESS_ALPHA, seedUsage: receiptSeedNote, used: hotnessUsedOnce },
 		coverage: {
 			present: (battery.kcard ?? []).filter((e) => !e.negative && !e._absent).length,
 			absent: (battery.kcard ?? []).filter((e) => !e.negative && e._absent).length,
