@@ -1,6 +1,8 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
-import { rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentHistoryEntry, SubagentFailure } from "@repo/s2-agent-core-runtime";
 import type { GitScopeOps, SubagentScopeCheck } from "../src/git-scope.js";
 import {
@@ -310,7 +312,10 @@ test("buildSpawnOptions: forwards params + wires callbacks that mutate progress"
 test("buildSpawnOptions: startup-context prefixes the task, BEFORE env-hints and abort-safety (ticket 04 order pin)", async () => {
   // Hints footer ON: point the env at a fixture that EXISTS, so the composed
   // task carries all three additions and the ORDER is observable.
-  const hintsPath = "/tmp/pi-subagent-hints-startup-order.fixture.md";
+  // Determinism audit (D2): hints fixture in a per-test tmpdir, never a fixed
+  // host path.
+  const hintsDir = mkdtempSync(join(tmpdir(), "s2-startup-order-"));
+  const hintsPath = join(hintsDir, "hints.md");
   writeFileSync(hintsPath, "hint-body");
   const savedHints = process.env.PI_SUBAGENT_HINTS_FILE;
   process.env.PI_SUBAGENT_HINTS_FILE = hintsPath;
@@ -366,7 +371,7 @@ test("buildSpawnOptions: startup-context prefixes the task, BEFORE env-hints and
   } finally {
     if (savedHints === undefined) delete process.env.PI_SUBAGENT_HINTS_FILE;
     else process.env.PI_SUBAGENT_HINTS_FILE = savedHints;
-    rmSync(hintsPath, { force: true });
+    rmSync(hintsDir, { recursive: true, force: true });
   }
 });
 
