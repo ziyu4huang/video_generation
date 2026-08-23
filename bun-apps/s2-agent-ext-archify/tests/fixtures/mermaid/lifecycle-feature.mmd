@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> planned: scope
+  planned --> active: approved
+  active --> canary: ready
+  canary --> live: pass
+  canary --> dropped: fail
+  live --> [*]

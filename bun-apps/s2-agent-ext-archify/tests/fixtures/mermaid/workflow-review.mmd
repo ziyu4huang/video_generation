@@ -1,0 +1,19 @@
+flowchart LR
+  subgraph dev["Developer"]
+    open["Open change"]
+    ship["Ship"]
+  end
+  subgraph ra["Review A"]
+    r1["Review A"] -->|approve| sec{"Security gate"}
+  end
+  subgraph rb["Review B"]
+    r2["Review B"]
+  end
+  subgraph xcp["Exceptions"]
+    reject["Rejected"]
+  end
+  open -->|request review| r1
+  open -.->|second pair| r2
+  sec ==>|clear| ship
+  sec -->|fail| reject
+  reject -. rework .-> open

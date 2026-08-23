@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> planning: kickoff
+  planning --> canary: ready
+  canary --> success: pass
+  canary --> failure: fail
+  success --> [*]
+  failure --> planning: rework

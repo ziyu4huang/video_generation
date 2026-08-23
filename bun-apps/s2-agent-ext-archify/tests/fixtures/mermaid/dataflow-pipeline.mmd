@@ -1,0 +1,14 @@
+flowchart LR
+  subgraph sources["Sources"]
+    web["Web app"]
+    logs["Service logs"]
+  end
+  subgraph ingest["Ingest"]
+    kafka["Kafka"]
+  end
+  subgraph store_stg["Store"]
+    lake["Parquet lake"]
+  end
+  web -->|clickstream| kafka
+  logs -.->|logs| kafka
+  kafka ==>|batch| lake

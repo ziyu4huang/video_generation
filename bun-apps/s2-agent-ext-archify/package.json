@@ -17,6 +17,7 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "deck": "bun scripts/deck.ts",
+    "mermaid:convert": "bun scripts/mermaid-convert.ts",
     "architecture:render": "bun run src/architecture-render.ts",
     "architecture:vendor": "bun run scripts/vendor-mermaid.ts",
     "architecture:css": "bunx @tailwindcss/cli -i src/architecture.css -o vendored/tailwind.css --minify"

@@ -1,0 +1,4 @@
+flowchart LR
+  gate["Ingest gate"] --> parse["Parse"]
+  parse --> resolve["Resolver"]
+  resolve ==>|fast path| serve["Serve"]

@@ -1,0 +1,5 @@
+flowchart LR
+  user["End user"] --> web["Web app"]
+  web --> api["API"]
+  api --> cache(["Cache"])
+  api --> db(["Postgres"])

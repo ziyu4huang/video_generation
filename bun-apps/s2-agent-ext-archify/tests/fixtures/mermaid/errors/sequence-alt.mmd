@@ -1,0 +1,8 @@
+sequenceDiagram
+  participant a as Client
+  participant b as Resolver
+  alt happy path
+    a->>b: query
+  else timeout
+    a->>b: retry
+  end

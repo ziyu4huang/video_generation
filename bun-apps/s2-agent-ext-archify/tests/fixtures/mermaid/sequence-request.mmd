@@ -1,0 +1,21 @@
+sequenceDiagram
+  participant client as Client
+  participant gw as Gateway
+  participant resolver as Resolver
+  participant cache as Cache
+  participant db as Postgres
+  rect lookup
+    client->>gw: GET /resolve
+    gw->>resolver: forward
+    resolver->>cache: lookup miss
+    cache-->>resolver: miss
+  end
+  rect source
+    resolver->>db: SELECT
+    db-->>resolver: row
+  end
+  activate resolver
+  Note right of resolver: cold path pays 4.2 s
+  resolver-->>gw: resolved
+  deactivate resolver
+  gw-->>client: 200 JSON
