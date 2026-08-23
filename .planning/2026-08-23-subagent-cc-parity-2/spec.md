@@ -158,3 +158,20 @@ in the same PR. New gaps get a ticket number here before they get code.
   `model` strings that previously rendered a raw tier (`big`) now render
   `tier:big`, and capability beats tier where both are set — pinned by
   `tests/display-model-parity.test.ts` (matrix + both-tool agentType guards).
+
+## 9. Live smoke (2026-08-23, post-close-out batch)
+
+One headless `./s2-agent.sh -p` dispatch per surface, model
+`deepseek/deepseek-v4-flash`, worktree branch `subagent-live-smoke-batch` @
+452513a9. Full evidence matrix: `.planning/2026-08-23-headless-dispatch-hang/map.md`.
+
+| Surface | Live result |
+|---|---|
+| fork (`fork: true`, background, transcript inheritance) | PASS — child inherited the parent transcript and summarized it correctly, background + `list_subagent_runs` wait-poll relayed the reply, clean exit 21s |
+| built-in `explore` / `plan` | PASS — `explore` used its read-only tools and returned a verified count (25 `.ts` files, cross-checked); `plan` returned `PLAN-OK`; both types accepted (no `agentType` guard false-rejects) |
+| startup context (`context: "full"`) | PASS — child reported `GITCTX-OK subagent-live-smoke-batch`: the git snapshot block landed with the correct branch name |
+| budget directive (`+500k`) | MEASURED NEGATIVE — the run completed (34,019 tok) but the directive did NOT bind: arming is `interactive`-source-only (`workflow-editor.ts:502`), so headless `-p` never parses `+500k`; persisted run record carries no `tokenBudgetSource`. Ticketed: `.planning/2026-08-23-headless-dispatch-hang/tickets/02-*.md` |
+| `/loop` dynamic (`schedule_wakeup`) | BLOCKED — the dispatch hung pre-send (B1: content-keyed headless pre-request hang, reproducible in bare mode; zero events, 0% CPU, no sockets). Ticketed: `tickets/01-*.md` |
+
+Incidental: one run lingered ≥114s after `agent_settled` (B3, unreproduced —
+m1–m4 all settled-AND-exited in 20–34s); recorded as fog in the hang effort.
