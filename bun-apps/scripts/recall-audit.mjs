@@ -168,6 +168,7 @@ const receipt = {
 	},
 	journal: null,
 	kcard: null,
+	"kcard-hier": null,
 };
 
 // ── arm 1: hermes journal (SurrealDB, SELECT-only) ─────────────────────────
@@ -265,6 +266,44 @@ if (ARMS.has("kcard")) {
 	};
 }
 
+// ── arm 3: kcard hierarchical retrieval (SurrealDB card index, ticket 07) ──
+
+if (ARMS.has("kcard-hier")) {
+	if (!args.vault) {
+		console.error("kcard-hier arm requires --vault <path>");
+		process.exit(2);
+	}
+	const { makeContextClient, rebuildCardIndex } = await import("../s2-agent-ext-knowledge-card/src/surreal-index.ts");
+	const { hierarchicalRetrieve } = await import("../s2-agent-ext-knowledge-card/src/hierarchical-retrieval.ts");
+	const client = makeContextClient({ endpoint: args["surreal-endpoint"] });
+	try {
+		const build = await rebuildCardIndex({ client, vaultPath: args.vault, folder: args.folder });
+		let semanticLaneUsed = false;
+		const scored = await scoreArm(battery.kcard ?? [], async (q) => {
+			const res = await hierarchicalRetrieve(client, {
+				query: q,
+				topK: K,
+				includeTrace: true,
+			});
+			if (res.trace?.semanticLane) semanticLaneUsed = true;
+			// Rank key mirrors the kcard arm: "stem :: path" (stem ≈ card id lane).
+			return res.cards.map((c) => `${c.stem} :: ${c.path}`);
+		}, (id, e) => {
+			const targets = (e.vaultTargets ?? []).map((t) => t.toLowerCase());
+			return targets.some((t) => id.toLowerCase().includes(t));
+		});
+		receipt["kcard-hier"] = {
+			available: true,
+			index: { skipped: build.skipped, inserted: build.inserted, leaves: build.leafCount, aggs: build.aggCount, dim: build.dim, embedModel: build.embedModel, elapsedMs: build.elapsedMs },
+			semanticUsed: semanticLaneUsed,
+			...scored,
+			metricsTargetPresent: metricsTargetPresent(scored),
+		};
+	} catch (err) {
+		receipt["kcard-hier"] = { available: false, error: String(err?.message ?? err) };
+	}
+}
+
 // ── emit ────────────────────────────────────────────────────────────────────
 
 const receiptPath = args.receipt ?? join(ROOT, "output", "recall-audit", `receipt-${receipt.meta.ranAt.replace(/[:.]/g, "-")}.json`);
@@ -280,5 +319,12 @@ if (receipt.journal) {
 if (receipt.kcard) {
 	console.log(`kcard:   ${fmt(receipt.kcard.metrics)}`);
 	console.log(`kcard (target-present ${receipt.kcard.coverage.present}/${receipt.kcard.coverage.present + receipt.kcard.coverage.absent}): ${fmt(receipt.kcard.metricsTargetPresent)} semanticUsed=${receipt.kcard.semanticUsed}`);
+}
+if (receipt["kcard-hier"]) {
+	const h = receipt["kcard-hier"];
+	console.log(
+		`kcard-hier: ${h.available ? fmt(h.metrics) : `UNAVAILABLE (${h.error})`}` +
+		(h.available ? ` [index leaves=${h.index.leaves} aggs=${h.index.aggs} dim=${h.index.dim} model=${h.index.embedModel} semanticUsed=${h.semanticUsed}]` : ""),
+	);
 }
 console.log(`receipt: ${receiptPath}`);

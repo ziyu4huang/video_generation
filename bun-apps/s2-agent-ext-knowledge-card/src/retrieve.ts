@@ -51,8 +51,8 @@ import {
 	getCardEmbeddings,
 	lmStudioAvailable,
 	minMaxNorm,
+	resolveCardEmbedModel,
 	SEMANTIC_ALPHA_DEFAULT,
-	SEMANTIC_MODEL_DEFAULT,
 	type Embedder,
 } from "./semantic.ts";
 
@@ -350,7 +350,9 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	const slugDom = opts.slugDom ?? false;
 	const semantic = opts.semantic ?? false;
 	const semanticAlpha = opts.semanticAlpha ?? SEMANTIC_ALPHA_DEFAULT;
-	const semanticModel = opts.semanticModel ?? SEMANTIC_MODEL_DEFAULT;
+	// D22: the default model resolves per call (seam → env → default), so
+	// SEMANTIC_EMBED_MODEL / __piEmbeddingConfig actually control the cards side.
+	const semanticModel = resolveCardEmbedModel(opts.semanticModel);
 	const includeTrace = opts.includeTrace ?? false;
 	const folderAbs = join(opts.vaultPath, folder);
 	const queryTags = new Set(opts.tags.map(normTag).filter(Boolean));
