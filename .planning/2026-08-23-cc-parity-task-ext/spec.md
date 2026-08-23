@@ -50,11 +50,18 @@ syntax, and agent-facing skill conventions:
 - **D4 — wizard template.sh → template.ts (Bun)**, deleted not deprecated. SKILL.md
   rewritten; `bash -n`/shellcheck replaced by `bun build --target=bun` as the syntax
   gate. Library-above-STAGES-marker invariant preserved verbatim in TS form.
-- **D5 — /goal untouched except dead-coupling removal.** CC has no /goal (first-hand,
-  2026-08-23). The auditor/reviewer/shield/quota-retry machinery stays.
+- **D5 — /goal untouched except dead-coupling removal (revised 2026-08-23).** CC HAS
+  `/goal` (docs-verified): `condition|clear` surface, small-model per-turn evaluator,
+  Not-yet-met/Met/Impossible verdicts. s2-agent's /goal is a functional superset
+  (`reviewer.ts` ≈ the evaluator) — the machinery stays; only the four dead coupling
+  sites to the old loop are removed. A surface-syntax parity pass (aliases, verdict
+  naming, 4,000-char cap) is charted in map Fog of war as a possible ticket 04.
 - **D6 — Session-only loop lifetime.** Loop state persists to the session for restart
-  recovery but never to disk-as-cron; CC's 7-day expiry and jitter belong to durable
-  cron, not the session loop.
+  recovery but never to disk-as-cron. CC's /loop is CronCreate-backed and inherits the
+  7-day recurring auto-expiry; we mirror that as a **7-day max-age cap** on the
+  session loop (fires one last time, then self-deletes) rather than as durable cron.
+  Jitter stays unported — CC's jitter exists to de-synchronize fleet-wide cron storms;
+  a local session timer has no such contention.
 - **D7 — Tickets are independent.** 01/02/03 share no code paths; order is by value,
   not dependency.
 
@@ -109,9 +116,12 @@ step all speak Bun; `template.sh` deleted.
 
 New `src/loop/` (replaces all six current modules):
 
-- Command: `/loop [interval] <prompt...>` with `interval` ∈ `90s|5m|1h` style
-  (`parseDuration` reused), default 10m; `/loop stop`; `/loop status`. Completions
-  follow CC's example syntax (`/loop 5m /foo`).
+- Command: `/loop [interval] <prompt...>` with `interval` ∈ `s|m|h|d` units
+  (CC: seconds round up to the nearest minute; `1d` supported), default 10m;
+  `/loop stop`; `/loop status`. Completions follow CC's example syntax
+  (`/loop 5m /foo`). CC's prompt-only mode (agent picks its own interval) and its
+  interval-only maintenance prompt are NOT ported (dynamic mode = Fog of war;
+  maintenance prompt = YAGNI).
 - Scheduler: one timer chain per session; on fire, if `isIdle()` → `sendUserMessage`
   (prompt as-is), else postpone to next idle transition; re-arm after each fire.
 - Persistence: loop target persisted to the session (existing persistence approach);
@@ -148,7 +158,19 @@ New `src/loop/` (replaces all six current modules):
 | preview | single-select only, monospace md, side-by-side | validated single-select; description aligned; render audited |
 | plan-mode guidance | clarify before ExitPlanMode; never "plan ready?" | adapted to `src/plan/` |
 | questions/options | 1-4 / 2-4 | already parity |
-| /loop syntax | `<interval> <prompt\|slash-cmd>`, default 10m | prompt targets; slash targets if probe lands |
+| /loop syntax | `<interval> <prompt\|slash-cmd>`, default 10m; units s/m/h/d (s rounds up) | same units; prompt targets; slash targets if probe lands |
 | /loop firing | only while idle | idle-gated, postpone-on-busy |
-| /loop lifetime | session-only | session-only (D6) |
-| /goal | does not exist | kept as superset (D5) |
+| /loop lifetime | session-only cron, 7-day auto-expire | session-only timer, 7-day max-age cap (D6) |
+| /goal | exists: `condition\|clear`, small-model evaluator, Met/Impossible verdicts | kept as functional superset; surface parity charted, not built (D5) |
+
+### §6.1 Research receipts (2026-08-23)
+
+External confirmation via docs research: header ≤12, options 2-4, questions 1-4,
+Other-option + custom-text answer, side-by-side monospace preview
+(`code.claude.com/docs/en/agent-sdk/user-input`, GitHub issue #33062); /goal existence
+and semantics (`code.claude.com/docs/en/goal`); /loop modes/units/7-day expiry
+(`code.claude.com/docs/en/scheduled-tasks`). Research could not verify label length,
+preview single-select restriction, or the "(Recommended)" suffix convention — all
+three are taken FIRST-HAND from the CC harness's own AskUserQuestion tool
+description (this effort's reference surface, read 2026-08-23), which is more
+authoritative than docs for model-facing behavior.

@@ -36,9 +36,16 @@ loses its dead coupling to the old loop.
   `/loop <interval> <prompt|slash-cmd>` (default 10m) re-enqueues a prompt on a timer,
   firing only while the REPL is idle. Four goal⇄loop coupling sites exist:
   `goal/hooks.ts:254`, `goal/lifecycle.ts:54`, `goal/status.ts:116`, `goal/status.ts:129`.
-- **Claude Code has no `/goal` command** (verified first-hand from the CC harness's own
-  command surface, 2026-08-23; background research pending as confirmation). s2-agent's
-  `/goal` (auditor/reviewer/shield/quota-retry, 5,184 lines) is a superset — untouched.
+- **Claude Code HAS `/goal`** (docs-verified 2026-08-23: `code.claude.com/docs/en/goal`).
+  CC's shape: `/goal [condition|clear]` (clear aliases: stop/off/reset/none/cancel),
+  no-arg shows status; a session-scoped prompt-based Stop hook sends condition +
+  history to a small fast model (default Haiku) every turn; verdicts **Not yet met /
+  Met / Impossible**; condition capped at 4,000 chars; background work defers
+  evaluation with a 30-min check-in (doubling to 4×). My first-hand harness surface
+  showed no /goal because it is a user-side command, not a model-side tool — the
+  first-hand claim is corrected here. s2-agent's `/goal` (auditor/reviewer/shield/
+  quota-retry, 5,184 lines) is a superset of this shape: `reviewer.ts` ≈ the small-model
+  evaluator, and its turn-tick ≈ the Stop-hook evaluation.
 - **wizard teaches bash.** `s2-agent-ext-wayfind/skills/wizard/` = SKILL.md +
   `template.sh` (stage library, `bash -n` + shellcheck verification). Repo rule: Bun
   scripts replace bash where the repo owns the convention.
@@ -83,8 +90,11 @@ independent of it and of each other.
 - **Preview side-by-side rendering** — `view/components/preview/` current capabilities
   not yet audited against CC's monospace-markdown side-by-side box; ticket 01 must
   measure before promising TUI changes beyond the ⭐ suffix swap.
-- **CC `/goal` research confirmation** — background research agent pending; first-hand
-  harness surface already shows none. If research surfaces one, D5 is revisited.
+- **`/goal` surface-parity gap, charted not built** — CC's /goal exists (see Context);
+  ours is a functional superset but its surface (command aliases, verdict naming,
+  4,000-char condition cap, small-model evaluator mapping) has not been diffed against
+  CC's. A small ticket 04 could close the syntax gap without touching the machinery —
+  deferred pending user call (2026-08-23), recorded here so it is not lost.
 - **Dynamic self-pacing (CC ScheduleWakeup equivalent)** — deliberately uncharted:
   needs an agent-callable reschedule tool; `/loop <interval>` covers the stated use
   case. Chart if a real need appears.
