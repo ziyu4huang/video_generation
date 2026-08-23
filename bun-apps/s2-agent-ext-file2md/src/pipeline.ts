@@ -1,20 +1,41 @@
 /**
- * Core file2md pipeline: classify → rasterize → VLM extract → manifest.
+ * Core file2md v2 pipeline: sniff → extract → (OCR / vision on demand) →
+ * markdown → manifest.
  *
- * Extracted from s2-agent's `cli` namespace so both the CLI (thin wrapper) and the
- * pi extension (file2md tool) share the same implementation.
+ * v2 is bun-only and text-first:
+ *   - PDF text layer: pdfjs-dist (pure TS) — no mupdf.
+ *   - Scanned PDF pages / images: vendored tesseract-wasm OCR — no Swift CLI.
+ *   - PDF page images: vendored pdfium wasm — no PDFKit/ghostscript.
+ *   - vision (LM Studio via the tier config) is an OPTIONAL layer (`mode: vlm`),
+ *     never a hard prerequisite.
+ *   - docx/xlsx/pptx/ipynb: vendored dsh-cowork-core bounded windows.
+ *
+ * Shared by the CLI (s2-agent cli file2md) and the pi extension (file2md tool),
+ * unchanged in spirit from v1: per-page md under output/<slug>/pages/ +
+ * manifest.json (resumability) + <slug>.md index note.
  */
-import { copyFileSync, existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
-import { rasterizePdf } from "./native/pdf2png.ts";
-import { extractPdfText } from "./native/pdftext.ts";
+import { readDocument } from "../vendored/dsh-cowork-core@0.1.0/src/read/index.ts";
+import { renderMarkdown } from "../vendored/dsh-cowork-core@0.1.0/src/render/markdown.ts";
+import { openPdf, type PdfHandle } from "./core/pdf-text.ts";
+import { detectKind } from "./core/sniff.ts";
+import {
+  DEFAULT_CAPS,
+  type File2mdCaps,
+  type File2mdMode,
+  type File2mdPipelineOptions,
+  type PageNoteStyle,
+  type SniffedFile,
+} from "./core/types.ts";
+import { askImageDescribe } from "./image/extract-image.ts";
+import { OcrSession, ocrImageFile } from "./ocr/ocr.ts";
+import { rasterPage } from "./raster/pdf.ts";
+import { bgraToPng } from "./raster/png.ts";
 import { type ResolvedLLM, resolveVisionLLM } from "./sessions.ts";
-import { type ExplainMode, type ExplainResult, explainPage } from "./vlm/agents.ts";
-import { ALL_PROFILES, classifyKind, type DocKind, type DocProfile, imageMimeType } from "./vlm/classify.ts";
+import { type ExplainMode, explainPage } from "./vlm/agents.ts";
+import { ALL_PROFILES, type DocProfile } from "./vlm/classify.ts";
 import { classifyProfileFromPages } from "./vlm/classify-vlm.ts";
-import { type ExtractStrategy, parseExtractStrategy } from "./vlm/extract-strategy.ts";
-import { describeFigureWithPrior } from "./vlm/figure-annotate.ts";
-import { detectFigurePages } from "./vlm/figure-detect.ts";
 import {
   createManifest,
   type DocLayout,
@@ -23,51 +44,31 @@ import {
   loadManifest,
   type Manifest,
   type PageStatus,
+  pageLabel,
   slugify,
   writeManifest,
 } from "./vlm/manifest.ts";
-import { formatContext, PageContext } from "./vlm/page-context.ts";
-import { retryableError, withRetry } from "./vlm/retry.ts";
+import { withRetry } from "./vlm/retry.ts";
 import { validatePageMarkdown } from "./vlm/validate.ts";
 
-// Read lazily at call time (not module load) so tests / callers can set the env
-// vars any time before the pipeline runs — evaluating at load froze the values
-// whenever another importer preloaded this module first.
-const defaultRetries = () => Number(process.env.PI_VLM_RETRIES ?? 3);
-const defaultRetryWaitMs = () => Number(process.env.PI_VLM_RETRY_WAIT_MS ?? 10_000);
+/** Below this many chars a page has no usable text layer → OCR/vision. */
+export const OCR_TEXT_MIN_CHARS = 8;
 
-export interface VlmDescribePipelineOpts {
-  inputs: string[];
-  outRoot: string;
-  model?: string;
-  provider?: string;
-  thinking?: string;
-  forcedType?: DocProfile;
-  pages?: string;
-  dpi?: number;
-  /** When true, display paths as relative to cwd instead of absolute. Default false (abs). */
-  relpath?: boolean;
-  /** Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY).
-   *  >1 runs pages in parallel but DISABLES cross-page context (S1), which
-   *  requires strict page order. Speed mode for remote / multi-slot providers. */
-  concurrency?: number;
-  /** Output language for the per-page notes (T3, default zh-TW). */
-  lang?: string;
-  /** Processing mode (T3, default hybrid). */
-  mode?: ExplainMode;
-  /** Extraction strategy: `vlm` (default — rasterize + VLM) | `text` (mupdf text
-   *  layer, no rasterize, no VLM; PDFs only) | `hybrid` (mupdf text body on
-   *  every page + a text-as-prior VLM call on figure-bearing pages only;
-   *  PDFs only).
-   *
-   *  Applies to PDFs only; images always use the vlm path. */
-  extract?: ExtractStrategy;
-  /** Optional NDJSON emitter (json mode). */
-  emit?: (obj: unknown) => void;
+/** Run `fn` over `items` with at most `limit` concurrent invocations (T2). */
+export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
+  if (limit < 1) limit = 1;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const idx = cursor++;
+      await fn(items[idx]!);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
 }
 
 /** Parse a "1,3-5" page spec into a sorted set of 1-indexed page numbers. */
-function parsePageSpec(spec: string, total: number): Set<number> {
+export function parsePageSpec(spec: string, total: number): Set<number> {
   const out = new Set<number>();
   for (const part of spec.split(",")) {
     const t = part.trim();
@@ -85,67 +86,542 @@ function parsePageSpec(spec: string, total: number): Set<number> {
   return out;
 }
 
-/** Run `fn` over `items` with at most `limit` concurrent invocations (T2). */
-export async function runPool<T>(items: T[], limit: number, fn: (item: T) => Promise<unknown>): Promise<void> {
-  if (limit < 1) limit = 1;
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < items.length) {
-      const idx = cursor++;
-      await fn(items[idx]!);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+/** v2 mode validation, with v1's same throw semantics. `auto` converges on `ocr`. */
+export function parseMode(mode: string | undefined): File2mdMode {
+  const m = (mode ?? "auto") as File2mdMode;
+  if (m !== "auto" && m !== "text" && m !== "ocr" && m !== "vlm") {
+    throw new Error(`Invalid mode "${mode}". Valid: auto, text, ocr, vlm.`);
+  }
+  return m === "auto" ? "ocr" : m;
 }
 
-interface PreparedDoc {
-  kind: DocKind;
-  inputAbs: string;
-  inputName: string;
-  slug: string;
-  pageCount: number;
-  layout: DocLayout;
-  pagePngs: string[];
+interface PageRecord {
+  page: number;
+  body: string;
+  provenance: "text" | "ocr" | "vision";
+  /** PNG bytes when the page was rasterized for vision (else undefined). */
+  png?: Uint8Array;
+  pngW?: number;
+  pngH?: number;
 }
 
-/** Step 1–2: classify kind + rasterize/copy into the output layout. */
-async function prepareDoc(inputAbs: string, outRoot: string, dpi: number): Promise<PreparedDoc> {
-  const classified = classifyKind(inputAbs);
-  const inputName = basename(inputAbs);
-  const slug = slugify(inputName);
-  const tmpLayout = layoutFor(outRoot, slug, 1);
-  ensureLayout(tmpLayout);
+/**
+ * Run the full file2md v2 pipeline for one or more input documents.
+ * Shared implementation for the CLI command and the pi extension tool.
+ */
+export async function runFile2mdPipeline(opts: File2mdPipelineOptions): Promise<void> {
+  const { inputs, relpath = false, emit } = opts;
+  const mode = parseMode(opts.mode);
+  const note: PageNoteStyle = opts.note ?? "hybrid";
+  const scale = opts.scale ?? 2;
+  const lang = opts.lang ?? "en";
+  const caps: File2mdCaps = { ...DEFAULT_CAPS };
 
-  let pagePngs: string[];
-  let pageCount: number;
+  if (inputs.length === 0) throw new Error("No input files given.");
 
-  if (classified.kind === "pdf") {
-    const r = await rasterizePdf(inputAbs, tmpLayout.pagesDir, { dpi });
-    pageCount = r.pageCount;
-    pagePngs = r.pages;
-  } else {
-    pageCount = 1;
-    const layout1 = layoutFor(outRoot, slug, 1);
-    const dst = layout1.pngAbs(1);
-    copyFileSync(inputAbs, dst);
-    pagePngs = [dst];
+  const cwd = process.cwd();
+  const outRoot = isAbsolute(opts.outRoot) ? opts.outRoot : resolve(cwd, opts.outRoot);
+  const displayPath = (abs: string) => (relpath ? relative(cwd, abs) || abs : abs);
+
+  if (opts.forcedType && !ALL_PROFILES.includes(opts.forcedType as DocProfile)) {
+    throw new Error(`Invalid type "${opts.forcedType}". Valid: ${ALL_PROFILES.join(", ")}`);
+  }
+  const forcedType = opts.forcedType as DocProfile | undefined;
+
+  // Vision is resolved eagerly ONLY for mode vlm (text/ocr are VLM-free —
+  // resolveVisionLLM throws when no vision capability / PI_MODEL is set,
+  // exactly the users v1 text mode exists for).
+  let llm: ResolvedLLM | undefined;
+  if (mode === "vlm") {
+    llm = resolveVisionLLM({ model: opts.model, provider: opts.provider, thinking: opts.thinking });
   }
 
-  const layout = layoutFor(outRoot, slug, pageCount);
-  ensureLayout(layout);
+  console.error("file2md (v2)");
+  console.error(`  out:   ${displayPath(outRoot)}`);
+  console.error(`  mode:  ${mode}`);
+  if (mode === "vlm") console.error(`  model: ${llm!.provider}/${llm!.modelId}`);
+  console.error(`  scale: ${scale}  lang: ${lang}`);
+  console.error();
 
-  return {
-    kind: classified.kind,
-    inputAbs,
-    inputName,
-    slug,
-    pageCount,
-    layout,
-    pagePngs,
-  };
+  for (const input of inputs) {
+    const inputAbs = isAbsolute(input) ? input : resolve(cwd, input);
+    console.error(`▶ ${displayPath(inputAbs)}`);
+    const inputName = basename(inputAbs);
+    const bytes = new Uint8Array(readFileSync(inputAbs));
+    checkInputData(bytes, caps);
+    const sniffed = await detectKind(bytes, inputName);
+    await runDocument({
+      inputAbs,
+      inputName,
+      bytes,
+      sniffed,
+      outRoot,
+      mode,
+      note,
+      scale,
+      lang,
+      pages: opts.pages,
+      forcedType,
+      concurrency: opts.concurrency ?? Number(process.env.PI_VLM_CONCURRENCY ?? 1),
+      llm,
+      caps,
+      displayPath,
+      emit,
+    });
+  }
 }
 
-/** Write the doc-level MOC note linking all page notes. */
+function checkInputData(data: Uint8Array, caps: File2mdCaps): void {
+  if (data.byteLength > caps.maxInputBytes) {
+    throw new Error(`Input exceeds the ${caps.maxInputBytes}-byte cap (${data.byteLength} bytes).`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// per-document dispatch
+// ---------------------------------------------------------------------------
+
+interface RunDocumentArgs {
+  inputAbs: string;
+  inputName: string;
+  bytes: Uint8Array;
+  sniffed: SniffedFile;
+  outRoot: string;
+  mode: File2mdMode;
+  note: PageNoteStyle;
+  scale: number;
+  lang: string;
+  pages?: string;
+  forcedType?: DocProfile;
+  concurrency: number;
+  llm?: ResolvedLLM;
+  caps: File2mdCaps;
+  displayPath: (abs: string) => string;
+  emit?: (obj: unknown) => void;
+}
+
+async function runDocument(args: RunDocumentArgs): Promise<void> {
+  const { inputAbs, inputName, sniffed, forcedType } = args;
+  const slug = slugify(inputName);
+  const layout = layoutFor(args.outRoot, slug, 1);
+  ensureLayout(layout);
+  void inputAbs;
+  void forcedType;
+
+  if (sniffed.kind === "pdf") return runPdf(args, layout, slug);
+  if (sniffed.kind === "image") return runImage(args, layout, slug);
+  if (sniffed.kind === "text") return runTextPassthrough(args, layout, slug);
+  return runOffice(args, layout, slug, sniffed.kind);
+}
+
+// ---------------------------------------------------------------------------
+// PDF
+// ---------------------------------------------------------------------------
+
+async function runPdf(args: RunDocumentArgs, layout: DocLayout, slug: string): Promise<void> {
+  const { inputAbs, inputName, bytes, outRoot, mode, note, scale, lang, pages, forcedType } = args;
+  const pdf = await openPdf(bytes);
+  try {
+    const pageCount = pdf.numPages;
+    const realLayout = layoutFor(outRoot, slug, pageCount);
+    ensureLayout(realLayout);
+
+    const only = pages ? parsePageSpec(pages, pageCount) : null;
+    if (pages && only && only.size === 0) {
+      throw new Error(
+        `--pages "${pages}" matched no pages (document has ${pageCount} page(s)). Use 1-indexed ranges like "1,3-5".`,
+      );
+    }
+
+    const existing = loadManifest(realLayout);
+    const manifest =
+      existing && existing.pageCount === pageCount
+        ? existing
+        : createManifest({
+            input: inputAbs,
+            inputName,
+            kind: "pdf",
+            profile: forcedType ?? "paper",
+            slug,
+            pageCount,
+            layout: realLayout,
+          });
+    // v2 rasterizes only when a page needs OCR/vision — start png-null; set when produced.
+    for (const mp of manifest.pages) mp.png = null;
+
+    let profile: DocProfile = forcedType ?? "paper";
+    if (mode === "vlm" && !forcedType && args.llm) {
+      profile = await classifyPdfProfile(bytes, pageCount, args.llm, scale);
+      console.error(`  profile: ${profile} (vlm classify)`);
+    }
+    manifest.profile = profile;
+    writeManifest(realLayout, manifest);
+
+    const concurrency = mode === "vlm" ? Math.max(1, args.concurrency) : 1;
+    const ocrSession = new OcrSession(lang);
+    const processPage = async (pageNo: number) => {
+      const mp = manifest.pages[pageNo - 1]!;
+      if (only && !only.has(pageNo)) return;
+      if (mp.status === "done" && existsSync(realLayout.mdAbs(pageNo))) return;
+
+      const record = await extractPdfPage(args, pdf, pageNo, mode, note, scale, profile, slug, pageCount, ocrSession);
+      if (record.png) {
+        writeFileSync(realLayout.pngAbs(pageNo), record.png);
+        mp.png = realLayout.pngRel(pageNo);
+      } else {
+        mp.png = null;
+      }
+      writeFileSync(realLayout.mdAbs(pageNo), pageNoteMd(inputName, pageNo, pageCount, profile, record), "utf8");
+      mp.status = "done" as PageStatus;
+      delete mp.error;
+      writeManifest(realLayout, manifest);
+      args.emit?.({
+        type: "page",
+        slug,
+        page: pageNo,
+        status: "done",
+        chars: record.body.length,
+        provenance: record.provenance,
+      });
+    };
+    await runPool(
+      Array.from({ length: pageCount }, (_, i) => i + 1),
+      concurrency,
+      processPage,
+    );
+    await ocrSession.terminate().catch(() => undefined);
+
+    writeIndexNote(realLayout, manifest, profile, process.cwd());
+    console.error(`\n  ✓ ${slug}: manifest + index written → ${args.displayPath(realLayout.dir)}`);
+    args.emit?.({ type: "doc_done", slug, profile, pages: pageCount });
+  } finally {
+    await pdf.destroy();
+  }
+}
+
+/** Page-1 vision classification (vlm mode only); degrades to "paper". */
+async function classifyPdfProfile(
+  bytes: Uint8Array,
+  pageCount: number,
+  llm: ResolvedLLM,
+  scale: number,
+): Promise<DocProfile> {
+  try {
+    const rendered = await rasterPage(bytes, 1, scale);
+    if (!rendered) return "paper";
+    const png = bgraToPng(rendered.bmp, rendered.width, rendered.height);
+    const tmp = joinTempPng(1);
+    writeFileSync(tmp, png);
+    try {
+      const { profile } = await withRetry(() => classifyProfileFromPages([{ path: tmp, mimeType: "image/png" }], llm));
+      return profile;
+    } finally {
+      await safeUnlink(tmp);
+    }
+  } catch (e) {
+    console.error(`  (profile classify skipped: ${e instanceof Error ? e.message : e})`);
+    return "paper";
+  }
+}
+
+/**
+ * Extract one PDF page to { body, provenance } following the mode:
+ *   text → text layer only; ocr → text, OCR when thin; vlm → text, then
+ *   vision for thin pages (OCR as the automatic degrade).
+ */
+async function extractPdfPage(
+  args: RunDocumentArgs,
+  pdf: PdfHandle,
+  pageNo: number,
+  mode: File2mdMode,
+  note: PageNoteStyle,
+  scale: number,
+  profile: DocProfile,
+  slug: string,
+  pageCount: number,
+  ocrSession: OcrSession,
+): Promise<PageRecord> {
+  const text = (await pdf.getText(pageNo)).trim();
+  if (text.length >= OCR_TEXT_MIN_CHARS || mode === "text") {
+    return { page: pageNo, body: text, provenance: "text" };
+  }
+  const rendered = await rasterPage(args.bytes, pageNo, scale);
+  if (!rendered) {
+    return {
+      page: pageNo,
+      body: `> no text layer on page ${pageNo} and rasterization unavailable (mode: ${mode}).\n`,
+      provenance: "ocr",
+    };
+  }
+  if (mode === "vlm" && args.llm) {
+    const pngBytes = bgraToPng(rendered.bmp, rendered.width, rendered.height);
+    const pngOut = joinTempPng(pageNo);
+    writeFileSync(pngOut, pngBytes);
+    try {
+      const explained = await withRetry(() =>
+        explainPage(args.llm!, profile, {
+          imageAbs: pngOut,
+          mimeType: "image/png",
+          pngLinkName: `${pageLabel(pageNo, pageCount)}.png`,
+          docSlug: slug,
+          pageNo,
+          pageCount,
+          lang: args.lang,
+          mode: note as ExplainMode,
+        }),
+      );
+      const validated = validatePageMarkdown(explained.markdown, { page: pageNo, kind: "page" });
+      if (explained.ok && validated.ok) {
+        return {
+          page: pageNo,
+          body: explained.markdown,
+          provenance: "vision",
+          png: pngBytes,
+          pngW: rendered.width,
+          pngH: rendered.height,
+        };
+      }
+      console.error(`  [${pageNo}] vision output rejected (${explained.error ?? "validation failed"}) — OCR degrade`);
+    } catch (e) {
+      console.error(`  [${pageNo}] vision failed (${e instanceof Error ? e.message : e}) — OCR degrade`);
+    } finally {
+      await safeUnlink(pngOut);
+    }
+  }
+  // OCR path (mode ocr, or vlm-fallback).
+  const ocrRes = await ocrSession.recognize(rendered.bmp).catch(() => undefined);
+  if (ocrRes) {
+    return { page: pageNo, body: ocrRes.text, provenance: "ocr" };
+  }
+  return { page: pageNo, body: `> no text layer on page ${pageNo} (OCR unavailable).\n`, provenance: "ocr" };
+}
+
+// ---------------------------------------------------------------------------
+// image
+// ---------------------------------------------------------------------------
+
+async function runImage(args: RunDocumentArgs, layout: DocLayout, slug: string): Promise<void> {
+  const { inputAbs, inputName, bytes, forcedType, mode } = args;
+  if (mode === "text") {
+    throw new Error(`Image "${inputAbs}" has no text layer; use mode ocr/auto/vlm.`);
+  }
+  const profile: DocProfile = forcedType ?? "image";
+  const manifest = createManifest({
+    input: inputAbs,
+    inputName,
+    kind: "image",
+    profile,
+    slug,
+    pageCount: 1,
+    layout,
+  });
+
+  let body = "";
+  let provenance: PageRecord["provenance"] = "ocr";
+  if (mode === "vlm" && args.llm) {
+    const desc = await askImageDescribe(inputAbs);
+    if (desc.ok && desc.description) {
+      body = desc.description;
+      provenance = "vision";
+    } else {
+      console.error(`  [image] vision unavailable (${desc.error ?? "unknown"}) — OCR degrade`);
+    }
+  }
+  if (body === "") {
+    const ocr = await ocrImageFile(inputAbs, args.lang);
+    if (ocr) {
+      body = ocr.text;
+    } else {
+      throw new Error(`image extraction failed for ${inputAbs}: no OCR text and no vision description`);
+    }
+  }
+  const md = pageNoteMd(inputName, 1, 1, profile, { page: 1, body, provenance });
+  writeFileSync(layout.pngAbs(1), bytes); // page-001.png = the source image (embed target)
+  writeFileSync(layout.mdAbs(1), md, "utf8");
+  manifest.pages[0]!.png = layout.pngRel(1);
+  manifest.pages[0]!.status = "done" as PageStatus;
+  writeManifest(layout, manifest);
+  writeIndexNote(layout, manifest, profile, process.cwd());
+  console.error(`\n  ✓ ${slug}: manifest + index written → ${args.displayPath(layout.dir)}`);
+  args.emit?.({ type: "doc_done", slug, profile, pages: 1 });
+}
+
+// ---------------------------------------------------------------------------
+// office (docx/xlsx/pptx/ipynb) + text passthrough
+// ---------------------------------------------------------------------------
+
+async function runOffice(
+  args: RunDocumentArgs,
+  layout: DocLayout,
+  slug: string,
+  kind: "docx" | "xlsx" | "pptx" | "ipynb",
+): Promise<void> {
+  const { inputAbs, inputName, bytes } = args;
+  const result = await readDocument({ data: bytes, path: inputName });
+  const md = renderMarkdown(result, args.caps.maxBytes);
+  const full = ["---", `title: ${inputName}`, `kind: ${kind}`, `profile: paper`, "---", "", md, ""].join("\n");
+  writeFileSync(layout.indexNotePath, full, "utf8");
+  const manifest = createManifest({
+    input: inputAbs,
+    inputName,
+    kind,
+    profile: "paper",
+    slug,
+    pageCount: 1,
+    layout,
+  });
+  manifest.pages[0]!.png = null;
+  manifest.pages[0]!.md = null;
+  manifest.pages[0]!.status = "done" as PageStatus;
+  writeManifest(layout, manifest);
+  console.error(`\n  ✓ ${slug}: ${kind} → ${args.displayPath(layout.indexNotePath)}`);
+  args.emit?.({ type: "doc_done", slug, profile: "paper", pages: 1 });
+}
+
+async function runTextPassthrough(args: RunDocumentArgs, layout: DocLayout, slug: string): Promise<void> {
+  const { inputAbs, inputName, bytes } = args;
+  const textKind = args.sniffed.textKind ?? "txt";
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  let body: string;
+  if (textKind === "csv") body = csvToMarkdown(text);
+  else if (textKind === "html") body = htmlToMarkdown(text);
+  else body = text;
+  const cap = args.caps.maxBytes;
+  const clipped = body.length > cap;
+  if (clipped) body = `${body.slice(0, cap)}\n> Truncated: output capped at ${cap} bytes.\n`;
+  const full = ["---", `title: ${inputName}`, `kind: text`, `format: ${textKind}`, "---", "", body, ""].join("\n");
+  writeFileSync(layout.indexNotePath, full, "utf8");
+  const manifest = createManifest({
+    input: inputAbs,
+    inputName,
+    kind: "text",
+    profile: "paper",
+    slug,
+    pageCount: 1,
+    layout,
+  });
+  manifest.pages[0]!.png = null;
+  manifest.pages[0]!.md = null;
+  manifest.pages[0]!.status = "done" as PageStatus;
+  writeManifest(layout, manifest);
+  console.error(`\n  ✓ ${slug}: text (${textKind}) → ${args.displayPath(layout.indexNotePath)}`);
+  args.emit?.({ type: "doc_done", slug, profile: "paper", pages: 1 });
+}
+
+/** Split one CSV line into cells (RFC-4180 quoting: "" escapes a quote). */
+function parseCsvLine(line: string): string[] {
+  const cells: string[] = [];
+  let cur = "";
+  let inQ = false;
+  let i = 0;
+  while (i < line.length) {
+    const c = line[i]!;
+    if (inQ) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i += 2;
+          continue;
+        }
+        inQ = false;
+        i++;
+        continue;
+      }
+      cur += c;
+      i++;
+      continue;
+    }
+    if (c === '"') {
+      inQ = true;
+      i++;
+      continue;
+    }
+    if (c === ",") {
+      cells.push(cur);
+      cur = "";
+      i++;
+      continue;
+    }
+    cur += c;
+    i++;
+  }
+  cells.push(cur);
+  return cells;
+}
+
+/** Minimal RFC-4180 CSV → markdown table (quoted cells round-trip, pipe-escaped). */
+export function csvToMarkdown(text: string): string {
+  const rows: string[][] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (line.trim() === "") continue;
+    rows.push(parseCsvLine(line));
+  }
+  if (rows.length === 0) return "";
+  const width = Math.max(...rows.map((r) => r.length));
+  const norm = rows.map((r) => [...r, ...Array(width - r.length).fill("")].map((c) => c.replace(/\|/g, "\\|")));
+  const head = norm[0]!;
+  return [
+    `| ${head.join(" | ")} |`,
+    `| ${head.map(() => "---").join(" | ")} |`,
+    ...norm.slice(1).map((r) => `| ${r.join(" | ")} |`),
+    "",
+  ].join("\n");
+}
+
+/** Very small HTML → markdown-lite: title + headings/lists/paragraphs/styles. */
+export function htmlToMarkdown(html: string): string {
+  const m = /<title[^>]*>([^<]*)<\/title>/i.exec(html);
+  const title = m?.[1]?.trim();
+  let body = html.replace(/<title[\s\S]*?<\/title>/i, " ");
+  body = body
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<\/?(h1|h2|h3|h4|h5|h6)[^>]*>/gi, (cap, tag) => `\n${"#".repeat(+(tag[1] ?? "1"))} `)
+    .replace(/<\/(li)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<(p|div|tr|td)\b[^>]*>/gi, "\n")
+    .replace(/<\/?table>/gi, "\n")
+    .replace(/<\/?pre>/gi, "\n")
+    .replace(/<(b|strong)[^>]*>/gi, "**")
+    .replace(/<\/(b|strong)>/gi, "**")
+    .replace(/<(i|em)[^>]*>/gi, "*")
+    .replace(/<\/(i|em)>/gi, "*")
+    .replace(/<(code)[^>]*>/gi, "`")
+    .replace(/<\/code>/gi, "`")
+    .replace(/<a\s[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, "[$2]($1)")
+    .replace(/<a\s[^>]*>([\s\S]*?)<\/a>/gi, "$1")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n");
+  const out = body.trim();
+  return title && !out.startsWith(`# ${title}`) ? `# ${title}\n\n${out}\n` : `${out}\n`;
+}
+
+// ---------------------------------------------------------------------------
+// note assembly (v1-shaped contract)
+// ---------------------------------------------------------------------------
+
+function pageNoteMd(
+  inputName: string,
+  pageNo: number,
+  pageCount: number,
+  profile: DocProfile,
+  rec: PageRecord,
+): string {
+  const props = [
+    `title: ${inputName}`,
+    `page: ${pageNo}`,
+    `kind: page`,
+    `profile: ${profile}`,
+    `provenance: ${rec.provenance}`,
+    ...(rec.pngW !== undefined ? [`width: ${rec.pngW}`] : []),
+    ...(rec.pngH !== undefined ? [`height: ${rec.pngH}`] : []),
+  ];
+  const ref = rec.png ? `\n![[page-${pageLabel(pageNo, pageCount)}.png]]\n` : "";
+  return `${["---", ...props, "---", "", ref, rec.body, ""].join("\n")}`;
+}
+
 function writeIndexNote(layout: DocLayout, manifest: Manifest, profile: DocProfile, cwd: string): void {
   const relInput = isAbsolute(manifest.input) ? relative(cwd, manifest.input) : manifest.input;
   const lines: string[] = [
@@ -160,543 +636,28 @@ function writeIndexNote(layout: DocLayout, manifest: Manifest, profile: DocProfi
     "",
     `# ${manifest.inputName}`,
     "",
-    `> 來源檔案：\`${relInput}\`  ·  類型：${manifest.kind} / ${profile}  ·  共 ${manifest.pageCount} 頁`,
+    `> Source: \`${relInput}\` · kind: ${manifest.kind} / ${profile} · ${manifest.pageCount} page(s)`,
     "",
-    "## 頁面索引",
+    "## Page index",
     "",
   ];
   for (const pg of manifest.pages) {
     const mdBase = pg.md ? basename(pg.md) : "";
     const status = pg.status === "done" ? "✅" : pg.status === "error" ? "❌" : "⬜";
-    lines.push(`- ${status} [[${manifest.slug}-${mdBase?.replace(/\.md$/, "")} | 第 ${pg.page} 頁]]`);
+    lines.push(`- ${status} [[${manifest.slug}-${mdBase?.replace(/\.md$/, "")} | page ${pg.page}]]`);
   }
   writeFileSync(layout.indexNotePath, lines.join("\n") + "\n", "utf8");
 }
 
-/**
- * T5 — `extract: "text"` branch for a single born-digital PDF.
- *
- * Extracts the embedded text layer via `extractPdfText` (mupdf) and writes
- * per-page Obsidian markdown directly — NO rasterization, NO VLM call, NO
- * profile classifier. The doc-level profile defaults to `forcedType ?? "paper"`
- * (text extraction is cheap; we don't need a VLM to pick a prompt). The MOC
- * index note is still written so the vault stays consistent with the vlm path.
- *
- * Page selection (`opts.pages`) mirrors the vlm path's `parsePageSpec`
- * semantics: unselected pages are left `pending` in the manifest (and get no
- * md), selected pages are marked `done`. Resume parity: a page already `done`
- * with its md on disk is skipped on re-runs.
- */
-async function runTextExtractBranch(opts: {
-  inputAbs: string;
-  inputName: string;
-  outRoot: string;
-  forcedType?: DocProfile;
-  pages?: string;
-  emit?: (obj: unknown) => void;
-  displayPath: (abs: string) => string;
-}): Promise<void> {
-  const { inputAbs, inputName, outRoot, forcedType, pages, emit, displayPath } = opts;
-
-  // One mupdf open gives us both the total page count and every page's text.
-  // (Born-digital text extraction is cheap relative to rasterization, so we
-  // don't bother with a separate count-only probe.)
-  const extracted = extractPdfText(inputAbs);
-  const pageCount = extracted.pageCount;
-
-  const slug = slugify(inputName);
-  const layout = layoutFor(outRoot, slug, pageCount);
-  ensureLayout(layout);
-  console.error(`  kind: pdf  pages: ${pageCount}  slug: ${slug}  (extract: text, no VLM)`);
-
-  // Resolve the page filter (1-indexed) AFTER we know the real page count.
-  const only = pages ? parsePageSpec(pages, pageCount) : null;
-  if (pages && only && only.size === 0) {
-    throw new Error(
-      `--pages "${pages}" matched no pages (document has ${pageCount} page(s)). Use 1-indexed ranges like "1,3-5".`,
-    );
-  }
-
-  // Reuse an existing manifest when it matches (resume parity with the vlm
-  // path); otherwise create a fresh one.
-  const existing = loadManifest(layout);
-  let manifest: Manifest;
-  if (existing && existing.pageCount === pageCount) {
-    manifest = existing;
-  } else {
-    manifest = createManifest({
-      input: inputAbs,
-      inputName,
-      kind: "pdf",
-      profile: forcedType ?? "paper",
-      slug,
-      pageCount,
-      layout,
-    });
-  }
-
-  // Text extraction never rasterizes → no PNG exists for any page. Keep the
-  // manifest honest by nulling the png field (createManifest had set a path).
-  for (const mp of manifest.pages) mp.png = null;
-
-  // Skip the VLM classifier entirely; text mode is profile-agnostic.
-  const profile: DocProfile = forcedType ?? "paper";
-  manifest.profile = profile;
-  writeManifest(layout, manifest);
-
-  for (const page of extracted.pages) {
-    const pageNo = page.pageNo;
-    if (only && !only.has(pageNo)) continue;
-
-    const mp = manifest.pages[pageNo - 1]!;
-    // Resume: a page already done with its md on disk is left as-is.
-    if (mp.status === "done" && existsSync(layout.mdAbs(pageNo))) {
-      continue;
-    }
-
-    const body = page.text ?? "";
-    const md = ["---", `title: ${inputName}`, `page: ${pageNo}`, "kind: text", "---", "", body].join("\n");
-    writeFileSync(layout.mdAbs(pageNo), md + "\n", "utf8");
-
-    mp.status = "done" as PageStatus;
-    delete mp.error;
-    writeManifest(layout, manifest);
-
-    console.error(`  [${pageNo}/${pageCount}] text extracted (${body.length} chars)`);
-    emit?.({ type: "page", slug, page: pageNo, status: "done", chars: body.length });
-  }
-
-  writeIndexNote(layout, manifest, profile, process.cwd());
-  console.error(`  ✓ ${slug}: manifest + index written → ${displayPath(layout.dir)}\n`);
-  emit?.({ type: "doc_done", slug, profile, pages: pageCount });
+/** Temp file for VLM-bound page images (never lands in the vault layout). */
+function joinTempPng(pageNo: number): string {
+  return `/tmp/file2md-page-${pageNo}-${process.pid}.png`;
 }
 
-/**
- * T6 — `extract: "hybrid"` branch for a single born-digital PDF.
- *
- * Best of both worlds: mupdf extracts the body text for EVERY page (cheap,
- * faithful for born-digital prose), and a text-as-prior VLM call
- * (`describeFigureWithPrior`) annotates ONLY figure-bearing pages — those a
- * text-density heuristic flags (pdfimages returns nothing for vector figures,
- * so density is the cheapest reliable signal). The VLM never restates the
- * body; it describes figures + renders equations, using the extracted text as
- * PRIOR ground truth.
- *
- * Like the text branch: no profile classifier (profile = forcedType ??
- * "paper"), the MOC index note is still written, and resume parity holds (a
- * page already `done` with its md on disk is skipped). Unlike the text branch,
- * figure pages ARE rasterized (on demand, one page at a time) so the VLM has a
- * PNG to look at, and the manifest records their png path; text-only pages get
- * no PNG (png nulled) since they were never rasterized.
- */
-async function runHybridExtractBranch(opts: {
-  inputAbs: string;
-  inputName: string;
-  outRoot: string;
-  forcedType?: DocProfile;
-  pages?: string;
-  dpi: number;
-  llm: ResolvedLLM;
-  emit?: (obj: unknown) => void;
-  displayPath: (abs: string) => string;
-}): Promise<void> {
-  const { inputAbs, inputName, outRoot, forcedType, pages, dpi, llm, emit, displayPath } = opts;
-
-  // One mupdf open gives us page count + every page's text. We extract ALL
-  // pages (no `only` filter here) so detectFigurePages has a stable median
-  // baseline; the page-selection filter is applied in the write loop. Figures
-  // (vector or raster) are NOT in the text layer — that is the VLM's job below.
-  const extracted = extractPdfText(inputAbs);
-  const pageCount = extracted.pageCount;
-
-  const slug = slugify(inputName);
-  const layout = layoutFor(outRoot, slug, pageCount);
-  ensureLayout(layout);
-  console.error(`  kind: pdf  pages: ${pageCount}  slug: ${slug}  (extract: hybrid, text + VLM for figures)`);
-
-  const only = pages ? parsePageSpec(pages, pageCount) : null;
-  if (pages && only && only.size === 0) {
-    throw new Error(
-      `--pages "${pages}" matched no pages (document has ${pageCount} page(s)). Use 1-indexed ranges like "1,3-5".`,
-    );
+async function safeUnlink(path: string): Promise<void> {
+  try {
+    await Bun.file(path).delete();
+  } catch {
+    /* best-effort */
   }
-
-  // Reuse an existing manifest when it matches (resume parity); else fresh.
-  const existing = loadManifest(layout);
-  let manifest: Manifest;
-  if (existing && existing.pageCount === pageCount) {
-    manifest = existing;
-  } else {
-    manifest = createManifest({
-      input: inputAbs,
-      inputName,
-      kind: "pdf",
-      profile: forcedType ?? "paper",
-      slug,
-      pageCount,
-      layout,
-    });
-  }
-
-  // Figure pages are rasterized on demand; text-only pages get no PNG. Start
-  // every page honest (null) and fill in the png path as we rasterize figures.
-  for (const mp of manifest.pages) mp.png = null;
-
-  // Skip the VLM classifier — text-as-prior mode is profile-agnostic (like the
-  // text branch). The doc-level profile just labels the MOC note.
-  const profile: DocProfile = forcedType ?? "paper";
-  manifest.profile = profile;
-  writeManifest(layout, manifest);
-
-  // Figure-bearing pages via text-density heuristic, computed over ALL pages
-  // (stable median baseline, independent of the --pages selection).
-  const figurePages = detectFigurePages(extracted.pages);
-
-  for (const page of extracted.pages) {
-    const pageNo = page.pageNo;
-    if (only && !only.has(pageNo)) continue;
-
-    const mp = manifest.pages[pageNo - 1]!;
-    // Resume: a page already done with its md on disk is left as-is.
-    if (mp.status === "done" && existsSync(layout.mdAbs(pageNo))) {
-      continue;
-    }
-
-    const priorText = page.text ?? "";
-    let body = priorText;
-    let kind: "text" | "hybrid" = "text";
-
-    if (figurePages.has(pageNo)) {
-      kind = "hybrid";
-      // Rasterize JUST this figure page into its canonical pages/ slot. Both
-      // real backends name it page-NNN.png (NNN = global page index, padded to
-      // max(3, pageCount width)), matching layout.pngAbs(pageNo).
-      await rasterizePdf(inputAbs, layout.pagesDir, {
-        fromPage: pageNo,
-        toPage: pageNo,
-        dpi,
-      });
-      const pngAbs = layout.pngAbs(pageNo);
-      mp.png = layout.pngRel(pageNo);
-
-      console.error(`  [${pageNo}/${pageCount}] figure page → VLM (text-as-prior)…`);
-      const t0 = Date.now();
-      const r = await describeFigureWithPrior(llm, {
-        imageAbs: pngAbs,
-        priorText,
-        pageNo,
-        mimeType: "image/png",
-      });
-      const dt = ((Date.now() - t0) / 1000).toFixed(1);
-      if (r.ok && r.markdown) {
-        body += `\n\n### Figures & equations (via VLM)\n${r.markdown}`;
-        console.error(`  [${pageNo}/${pageCount}] figure annotated (${dt}s, +${r.markdown.length} chars)`);
-      } else {
-        // VLM failure is non-fatal — the text body is still written so the
-        // page isn't lost. The page is marked done (text succeeded); the
-        // figure annotation is simply absent from the md.
-        console.error(
-          `  [${pageNo}/${pageCount}] figure VLM failed: ${r.error ?? "unknown"} (text body still written)`,
-        );
-      }
-    }
-
-    const md = ["---", `title: ${inputName}`, `page: ${pageNo}`, `kind: ${kind}`, "---", "", body].join("\n");
-    writeFileSync(layout.mdAbs(pageNo), md + "\n", "utf8");
-
-    mp.status = "done" as PageStatus;
-    delete mp.error;
-    writeManifest(layout, manifest);
-
-    console.error(`  [${pageNo}/${pageCount}] hybrid extracted (${body.length} chars)`);
-    emit?.({ type: "page", slug, page: pageNo, status: "done", chars: body.length });
-  }
-
-  writeIndexNote(layout, manifest, profile, process.cwd());
-  console.error(`  ✓ ${slug}: manifest + index written → ${displayPath(layout.dir)}\n`);
-  emit?.({ type: "doc_done", slug, profile, pages: pageCount });
-}
-
-/**
- * Run the full file2md pipeline for one or more input documents.
- *
- * This is the shared implementation used by both the CLI command wrapper and
- * the pi extension tool.
- */
-export async function runVlmDescribePipeline(opts: VlmDescribePipelineOpts): Promise<void> {
-  const { inputs, forcedType, pages, emit, relpath = false } = opts;
-
-  // T5 — extraction strategy. `vlm` (default) runs the existing rasterize +
-  // VLM path byte-for-byte; `text` short-circuits PDFs through mupdf's text
-  // layer (no rasterize, no VLM); `hybrid` runs mupdf text for the body on
-  // every page plus a text-as-prior VLM call on figure-bearing pages only.
-  const extract = parseExtractStrategy(opts.extract);
-  const concurrency = opts.concurrency ?? Number(process.env.PI_VLM_CONCURRENCY ?? 1);
-
-  if (inputs.length === 0) {
-    throw new Error("No input files given.");
-  }
-
-  const dpi = opts.dpi ?? 150;
-  const cwd = process.cwd();
-
-  // Always resolve outRoot to absolute for file operations; display format is controlled by relpath.
-  const outRoot = isAbsolute(opts.outRoot) ? opts.outRoot : resolve(cwd, opts.outRoot);
-  const displayPath = (abs: string) => (relpath ? relative(cwd, abs) || abs : abs);
-
-  if (forcedType && !ALL_PROFILES.includes(forcedType)) {
-    throw new Error(`Invalid type "${forcedType}". Valid: ${ALL_PROFILES.join(", ")}`);
-  }
-
-  // T5-fix — resolve the vision LLM eagerly for vlm/hybrid (byte-for-byte:
-  // same call, same site, same throw timing). `extract: "text"` is VLM-free
-  // and MUST NOT resolve here: resolveVisionLLM throws "[file2md] No model
-  // configured…" when no vision capability / PI_MODEL is set — exactly the
-  // users text mode exists for. `llm` stays undefined for text mode; the text
-  // branch `continue`s before any vlm call site, so `llm!` there is always
-  // defined in practice (the text path never reaches them).
-  let llm: ResolvedLLM | undefined;
-  let label = "";
-  if (extract !== "text") {
-    llm = resolveVisionLLM({
-      model: opts.model,
-      provider: opts.provider,
-      thinking: opts.thinking,
-    });
-    label = `${llm.provider}/${llm.modelId}`;
-  }
-  console.error(`file2md`);
-  if (extract !== "text") {
-    console.error(`  model: ${label}  thinking: ${llm!.thinkingLevel}`);
-  }
-  console.error(`  out:   ${displayPath(outRoot)}`);
-  console.error(`  dpi:   ${dpi}`);
-  if (pages) console.error(`  pages: ${pages}`);
-  if (forcedType) console.error(`  type:  ${forcedType} (forced, skip classifier)`);
-  if (extract !== "vlm") console.error(`  extract: ${extract}`);
-  if (concurrency > 1) console.error(`  concurrency: ${concurrency} (cross-page context off)`);
-  console.error();
-
-  for (const input of inputs) {
-    const inputAbs = isAbsolute(input) ? input : resolve(cwd, input);
-    console.error(`▶ ${displayPath(inputAbs)}`);
-
-    // T5 — `extract: "text"` fast path for born-digital PDFs: pull the text
-    // layer via mupdf and write per-page md directly, with NO rasterization
-    // and NO VLM call. Branch BEFORE prepareDoc so rasterizePdf is never
-    // invoked (prepareDoc classifies AND rasterizes in one step; we only need
-    // the cheap classifyKind sniff here). Images and every other strategy
-    // (vlm/hybrid) fall through to the existing path unchanged.
-    if (extract === "text") {
-      const peek = classifyKind(inputAbs);
-      if (peek.kind === "pdf") {
-        await runTextExtractBranch({
-          inputAbs,
-          inputName: basename(inputAbs),
-          outRoot,
-          forcedType,
-          pages,
-          emit,
-          displayPath,
-        });
-        continue;
-      }
-      // image / unknown with extract=text → fall through to the vlm path
-      // (extract only applies to PDFs).
-    }
-
-    // T6 — `extract: "hybrid"` path for born-digital PDFs: mupdf text for the
-    // body on every page + a text-as-prior VLM call (`describeFigureWithPrior`)
-    // on figure-bearing pages only (detected via text density). Branch BEFORE
-    // prepareDoc (same rationale as the text branch: we rasterize figure pages
-    // on demand ourselves, so we never want prepareDoc's full-doc rasterize).
-    // Images and every other strategy (vlm) fall through unchanged.
-    if (extract === "hybrid") {
-      const peek = classifyKind(inputAbs);
-      if (peek.kind === "pdf") {
-        await runHybridExtractBranch({
-          inputAbs,
-          inputName: basename(inputAbs),
-          outRoot,
-          forcedType,
-          pages,
-          dpi,
-          llm: llm!,
-          emit,
-          displayPath,
-        });
-        continue;
-      }
-      // image / unknown with extract=hybrid → fall through to the vlm path
-      // (hybrid only applies to PDFs).
-    }
-
-    const doc = await prepareDoc(inputAbs, outRoot, dpi);
-    console.error(`  kind: ${doc.kind}  pages: ${doc.pageCount}  slug: ${doc.slug}`);
-
-    const existing = loadManifest(doc.layout);
-    let manifest: Manifest;
-    if (existing && existing.pageCount === doc.pageCount) {
-      manifest = existing;
-    } else {
-      manifest = createManifest({
-        input: inputAbs,
-        inputName: doc.inputName,
-        kind: doc.kind,
-        profile: forcedType ?? "image",
-        slug: doc.slug,
-        pageCount: doc.pageCount,
-        layout: doc.layout,
-      });
-    }
-
-    const alreadyProcessed = !!(existing && existing.pages.some((p) => p.status === "done"));
-    let profile: DocProfile;
-    if (forcedType) {
-      profile = forcedType;
-      manifest.profile = profile;
-    } else if (alreadyProcessed && existing!.profile) {
-      profile = existing!.profile as DocProfile;
-      manifest.profile = profile;
-      console.error(`  profile: ${profile} (reused from existing run)`);
-    } else {
-      const page1Png = doc.pagePngs[0]!;
-      // S4 — sample up to 3 representative pages (first / middle / last) and
-      // majority-vote, so a atypical cover page can't misclassify the whole doc.
-      const sampleIdx =
-        doc.pageCount <= 1 ? [0] : doc.pageCount === 2 ? [0, 1] : [0, Math.floor(doc.pageCount / 2), doc.pageCount - 1];
-      const samplePngs = sampleIdx.map((i) => doc.pagePngs[i]!);
-      console.error(
-        `  classifying profile via VLM (${samplePngs.length} sampled page${samplePngs.length > 1 ? "s" : ""})…`,
-      );
-      try {
-        const { profile: p, replies } = await classifyProfileFromPages(
-          samplePngs.map((p) => ({ path: p, mimeType: "image/png" })),
-          llm!,
-        );
-        profile = p;
-        manifest.profile = profile;
-        console.error(`  → profile: ${profile}  (votes: ${replies.join(" / ")})`);
-        emit?.({ type: "classify", slug: doc.slug, profile, reply: replies.join(" / ") });
-      } catch (e: any) {
-        console.error(`  ! classifier failed: ${e?.message}; defaulting to paper`);
-        profile = doc.kind === "pdf" ? "paper" : "image";
-        manifest.profile = profile;
-      }
-    }
-    writeManifest(doc.layout, manifest);
-
-    const only = pages ? parsePageSpec(pages, doc.pageCount) : null;
-    if (pages && only && only.size === 0) {
-      throw new Error(
-        `--pages "${pages}" matched no pages (document has ${doc.pageCount} page(s)). Use 1-indexed ranges like "1,3-5".`,
-      );
-    }
-
-    // S1 — rolling cross-page context (serial mode only; see concurrency note).
-    const pageContext = new PageContext();
-
-    // Extract ONE page's extraction into a closure shared by serial + parallel
-    // modes. Returns {ok, markdown} so the serial coordinator can feed the
-    // rolling context. writeManifest is synchronous, so concurrent calls are
-    // safe under the single-threaded event loop (no mutex needed).
-    const runPage = async (
-      pageNo: number,
-      priorContext: string | undefined,
-    ): Promise<{ ok: boolean; markdown: string }> => {
-      const i = pageNo - 1;
-      const mp = manifest.pages[i]!;
-      if (mp.status === "done" && existsSync(doc.layout.mdAbs(pageNo))) {
-        return { ok: true, markdown: "" };
-      }
-
-      const pngAbs = doc.pagePngs[i]!;
-      const pngLinkName = basename(pngAbs);
-      const mt = imageMimeType({ kind: doc.kind, path: inputAbs });
-
-      mp.status = "in_progress";
-      writeManifest(doc.layout, manifest);
-
-      console.error(`  [${pageNo}/${doc.pageCount}] explaining…`);
-      const t0 = Date.now();
-      let res: ExplainResult;
-      try {
-        res = await withRetry(
-          async () => {
-            const r = await explainPage(llm!, profile, {
-              imageAbs: pngAbs,
-              mimeType: mt,
-              pngLinkName,
-              docSlug: doc.slug,
-              pageNo,
-              pageCount: doc.pageCount,
-              priorContext,
-              lang: opts.lang,
-              mode: opts.mode,
-            });
-            if (!r.ok) throw new Error(r.error ?? "unknown error");
-            // S2 — output quality gate; gate failure is retryable.
-            const validation = validatePageMarkdown(r.markdown, { page: pageNo, kind: profile });
-            if (!validation.ok) throw retryableError(`gate: ${validation.reason}`);
-            return r;
-          },
-          {
-            maxRetries: defaultRetries(),
-            retryWaitMs: defaultRetryWaitMs(),
-            onRetry: ({ attempt, maxRetries: mx, waitMs: w }) =>
-              console.error(
-                `  [${pageNo}/${doc.pageCount}] 429/transient — 等待 ${Math.round(w / 1000)}s 後重試 (${attempt}/${mx})`,
-              ),
-          },
-        );
-      } catch (err) {
-        res = { ok: false, markdown: "", error: (err as Error)?.message ?? String(err) };
-      }
-      const dt = ((Date.now() - t0) / 1000).toFixed(1);
-
-      if (res.ok && res.markdown) {
-        writeFileSync(doc.layout.mdAbs(pageNo), res.markdown + "\n", "utf8");
-        mp.status = "done" as PageStatus;
-        delete mp.error;
-        console.error(`  [${pageNo}/${doc.pageCount}] done (${dt}s, ${res.markdown.length} chars)`);
-        emit?.({ type: "page", slug: doc.slug, page: pageNo, status: "done", chars: res.markdown.length });
-      } else {
-        mp.status = "error" as PageStatus;
-        mp.error = res.error ?? "unknown error";
-        console.error(`  [${pageNo}/${doc.pageCount}] ERROR: ${mp.error}`);
-        emit?.({ type: "page", slug: doc.slug, page: pageNo, status: "error", error: mp.error });
-      }
-      writeManifest(doc.layout, manifest);
-      return { ok: !!(res.ok && res.markdown), markdown: res.markdown ?? "" };
-    };
-
-    if (concurrency <= 1) {
-      // Serial: full S1 cross-page context (page N sees pages 1..N-1).
-      for (let i = 0; i < doc.pageCount; i++) {
-        const pageNo = i + 1;
-        if (only && !only.has(pageNo)) continue;
-        const priorContext = formatContext(pageContext.snapshot());
-        const r = await runPage(pageNo, priorContext);
-        if (r.ok && r.markdown) pageContext.feed(r.markdown);
-      }
-    } else {
-      // Parallel (T2): bounded pool. Cross-page context is disabled — S1's
-      // rolling context needs strict page order, incompatible with parallelism.
-      // Pages run independently (speed mode for remote / multi-slot providers;
-      // local LM Studio typically single-slots, hence default concurrency 1).
-      const pageNos: number[] = [];
-      for (let i = 0; i < doc.pageCount; i++) {
-        const p = i + 1;
-        if (only && !only.has(p)) continue;
-        pageNos.push(p);
-      }
-      await runPool(pageNos, concurrency, (pageNo) => runPage(pageNo, undefined));
-    }
-
-    writeIndexNote(doc.layout, manifest, profile, cwd);
-    console.error(`  ✓ ${doc.slug}: manifest + index written → ${displayPath(doc.layout.dir)}\n`);
-    emit?.({ type: "doc_done", slug: doc.slug, profile, pages: doc.pageCount });
-  }
-
-  console.error("--- file2md done ---");
 }

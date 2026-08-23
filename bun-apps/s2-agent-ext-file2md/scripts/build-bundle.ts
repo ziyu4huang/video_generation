@@ -298,7 +298,18 @@ async function stageObfuscate() {
 // This is option-independent (it observes behavior, not encoded strings), so it
 // is the PRIMARY correctness gate and runs in every mode (thin/full × minify/
 // obfuscated). A failure here is always a real defect.
-const EXPECTED_VLM_PARAMS = ["input", "out", "model", "provider", "thinking", "type", "pages", "dpi", "relpath"];
+const EXPECTED_VLM_PARAMS = [
+  "input",
+  "out",
+  "model",
+  "provider",
+  "thinking",
+  "type",
+  "mode",
+  "pages",
+  "scale",
+  "relpath",
+];
 
 async function liveFactoryTest(): Promise<{ ok: true; detail: string } | { ok: false; detail: string }> {
   // import() the built file via a file:// URL. For THIN this also proves every

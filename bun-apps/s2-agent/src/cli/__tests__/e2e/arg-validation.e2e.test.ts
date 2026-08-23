@@ -9,12 +9,12 @@ import { runCli } from "./_helpers.ts";
 
 const NO_STACK = /\n\s+at\s\S/;
 
-describe("arg validation — --dpi (1–4096 positive integer)", () => {
-	for (const bad of ["abc", "-1", "0", "99999", "1.5"]) {
-		test(`--dpi ${bad} → Invalid --dpi, exit 1, no stack`, () => {
-			const r = runCli(["file2md", "x.pdf", "--dpi", bad]);
+describe("arg validation — --scale (0.1–16 positive number)", () => {
+	for (const bad of ["abc", "-1", "0", "17", "99999"]) {
+		test(`--scale ${bad} → Invalid --scale, exit 1, no stack`, () => {
+			const r = runCli(["file2md", "x.pdf", "--scale", bad]);
 			expect(r.exitCode).toBe(1);
-			expect(r.stderr).toContain("Invalid --dpi");
+			expect(r.stderr).toContain("Invalid --scale");
 			expect(r.stderr).not.toMatch(NO_STACK);
 		});
 	}

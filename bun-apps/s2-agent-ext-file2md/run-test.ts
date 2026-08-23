@@ -20,7 +20,7 @@
  *
  * NOTE — file2md's canonical `bun run test` is `bun test --isolate`; the retired .sh ran a bare `bun test`
  * and FAILED its quick tier (36 failures — the 12 mock-leak false failures) until --isolate was added.
- * The .ts runs the canonical form: 210 pass.
+ * The .ts runs the canonical form (v2 suite — count changes with the suite as tests are added; do not pin).
  * USAGE (from anywhere):
  *   bun bun-apps/s2-agent-ext-file2md/run-test.ts              # = quick
  *   bun bun-apps/s2-agent-ext-file2md/run-test.ts full

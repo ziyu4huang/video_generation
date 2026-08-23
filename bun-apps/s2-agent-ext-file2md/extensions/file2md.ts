@@ -1,21 +1,21 @@
 /**
- * pi-file2md — file→Markdown bridge for text-only agents.
+ * pi-file2md — file→Markdown bridge for text-only agents (v2, bun-only).
  *
- * Registers the `file2md` tool: converts any PDF or image file to structured
- * Markdown that a pure-text agent can read, using a local vision-LLM subagent
- * served by LM Studio.
+ * Registers the `file2md` tool: converts PDF / image / docx / xlsx / pptx /
+ * ipynb / text files to structured Markdown a pure-text agent can read —
+ * text-first (pdfjs text layer, vendored dsh-cowork-core for office), with
+ * vendored tesseract-wasm OCR for scans and an OPTIONAL vision layer (LM
+ * Studio via the model tier config; `mode: vlm` when a server is present).
  *
  * Pipeline (same as the `s2-agent cli file2md` command):
- *   1. Classify kind (pdf | image)           [local, magic bytes]
- *   2. PDF → page PNGs via macOS PDFKit      [--dpi]
- *   3. Classify profile (paper|slides|...)   [VLM on page 1]
- *   4. Per page: VLM → Obsidian markdown     [frontmatter + ![[png]] + body]
- *   5. Write manifest.json + <slug>.md (MOC)
+ *   1. Sniff kind (content beats extension).      [local, magic bytes]
+ *   2. Extract text (pdf text layer / office windows / passthrough).
+ *   3. Thin pages → pdfium raster → OCR (always) / vision (mode vlm).
+ *   4. Write pages/*.md + manifest.json + <slug>.md index note.
  *
  * Env:
- *   PI_MODEL         Override model (default: lm-studio/google/gemma-4-12b)
- *   PI_VLM_RETRIES   Per-page retry count (default 3)
- *   PI_VLM_RETRY_WAIT_MS  Wait between retries in ms (default 10000)
+ *   PI_MODEL             Override model (deprecated; tier config wins)
+ *   PI_VLM_CONCURRENCY   Max concurrent VLM page extractions (default 1)
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -134,18 +134,18 @@ export default function (pi: ExtensionAPI): void {
     // reference it so buildEffectiveGates groups them into one co-firing gate
     // (names[0] === "file2md") — preserving the original co-fire behavior.
     gating: { gate: "file2md" },
-    label: "File → Markdown (VLM)",
+    label: "File → Markdown",
     description:
-      "Convert a PDF or image file to structured Markdown that a text-only agent can read, " +
-      "using a local vision-LLM subagent (LM Studio). Runs the full pipeline: classify kind → " +
-      "rasterize PDF pages → classify profile → per-page VLM extraction → write manifest + index note.",
+      "Convert a PDF / image / docx / xlsx / pptx / ipynb / text file to structured Markdown that a text-only " +
+      "agent can read. Text-first (pure-TS text layer + bounded office extraction), vendored tesseract-wasm OCR " +
+      "for scans, optional vision (LM Studio) for images/scanned pages. Writes pages/*.md + manifest + index note.",
     parameters: Type.Object({
-      input: Type.String({ description: "Absolute or relative path to a PDF or image file" }),
+      input: Type.String({ description: "Absolute or relative path to a PDF/image/document file" }),
       out: Type.Optional(Type.String({ description: "Output root directory (default: ./vlm-out)" })),
       model: Type.Optional(
         Type.String({
           description:
-            "VLM model in provider/id format (default: lm-studio/google/gemma-4-12b). Honors the PI_MODEL env var when omitted.",
+            "VLM model in provider/id format (default: the vision tier config). Honors the PI_MODEL env var when omitted.",
         }),
       ),
       provider: Type.Optional(
@@ -164,10 +164,10 @@ export default function (pi: ExtensionAPI): void {
           description: "Force document profile: paper | slides | poster | diagram | image",
         }),
       ),
-      extract: Type.Optional(
-        StringEnum(["vlm", "text", "hybrid"] as const, {
+      mode: Type.Optional(
+        StringEnum(["auto", "text", "ocr", "vlm"] as const, {
           description:
-            "Extraction strategy: vlm (default, rasterize→VLM) | text (mupdf text-layer, no VLM, figures lost) | hybrid (mupdf text + VLM for figure-bearing pages).",
+            "Pipeline mode: auto (default, text layer + OCR for scans) | text (text layer only) | ocr (force OCR on thin pages) | vlm (vision-LLM describes thin pages; OCR degrades).",
         }),
       ),
       pages: Type.Optional(
@@ -176,7 +176,7 @@ export default function (pi: ExtensionAPI): void {
             'Pages to extract (1-indexed). Ranges: "1-3". Individual: "3,5". Mixed: "1,3-5,8". Omit for all pages.',
         }),
       ),
-      dpi: Type.Optional(Type.Number({ description: "Rasterization DPI for PDFs (default 150)" })),
+      scale: Type.Optional(Type.Number({ description: "Page raster scale for OCR/vision (default 2 ≈ 144 dpi)" })),
       relpath: Type.Optional(
         Type.Boolean({
           description: "When true, display output paths as relative to cwd. Default false (absolute paths).",
@@ -188,10 +188,10 @@ export default function (pi: ExtensionAPI): void {
             "Max concurrent page extractions (default 1; env PI_VLM_CONCURRENCY). >1 runs pages in parallel but disables cross-page context.",
         }),
       ),
-      lang: Type.Optional(Type.String({ description: "Output language for the notes (default zh-TW)." })),
-      mode: Type.Optional(
+      lang: Type.Optional(Type.String({ description: "OCR language + note language hint (default en)." })),
+      note: Type.Optional(
         Type.String({
-          description: "Processing mode: summary | verbatim | hybrid (default hybrid).",
+          description: "VLM page-note style: summary | verbatim | hybrid (default hybrid).",
         }),
       ),
       knowledge: Type.Optional(
@@ -205,7 +205,7 @@ export default function (pi: ExtensionAPI): void {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const { resolve, isAbsolute, basename } = await import("node:path");
-      const { runVlmDescribePipeline } = await import("../src/pipeline.ts");
+      const { runFile2mdPipeline } = await import("../src/pipeline.ts");
       const rawOut = params.out ?? "./vlm-out";
       const outRootAbs = isAbsolute(rawOut) ? rawOut : resolve(process.cwd(), rawOut);
       const slug = basename(params.input)
@@ -214,7 +214,7 @@ export default function (pi: ExtensionAPI): void {
         .toLowerCase();
       const relpath = params.relpath ?? false;
 
-      await runVlmDescribePipeline({
+      await runFile2mdPipeline({
         inputs: [params.input],
         outRoot: outRootAbs,
         // Honor PI_MODEL like the CLI (file2md.ts) so a global VLM override
@@ -223,13 +223,13 @@ export default function (pi: ExtensionAPI): void {
         provider: params.provider,
         thinking: params.thinking,
         forcedType: params.type as any,
-        extract: params.extract,
+        mode: params.mode as any,
         pages: params.pages,
-        dpi: params.dpi,
+        scale: params.scale,
         relpath,
         concurrency: params.concurrency,
         lang: params.lang,
-        mode: params.mode as any,
+        note: params.note as any,
       });
 
       if (params.knowledge) {

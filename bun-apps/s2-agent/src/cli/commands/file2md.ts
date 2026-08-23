@@ -1,43 +1,45 @@
 /**
  * `file2md <inputs...>` — CLI wrapper.
  *
- * Delegates the full pipeline to the pi-file2md workspace package. The CLI is
- * responsible only for arg parsing and vault env setup; all VLM pipeline logic
- * lives in bun-apps/s2-agent-ext-file2md/src/pipeline.ts.
+ * Delegates the full v2 pipeline to the pi-file2md workspace package. The CLI is
+ * responsible only for arg parsing and vault env setup; all extraction/OCR/
+ * vision logic lives in bun-apps/s2-agent-ext-file2md/src/pipeline.ts.
  */
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { applyVaultEnv } from "../sessions/passthrough.ts";
-import { runVlmDescribePipeline } from "@repo/s2-agent-ext-file2md";
-import type { DocProfile, ExtractStrategy } from "@repo/s2-agent-ext-file2md";
+import { runFile2mdPipeline } from "@repo/s2-agent-ext-file2md";
+import type { DocProfile, File2mdMode, PageNoteStyle } from "@repo/s2-agent-ext-file2md";
 
 export const file2mdCommand = {
 	name: "file2md",
-	summary: "explain images / PDF pages into Obsidian markdown via a local VLM",
+	summary: "convert PDF / image / office files to structured markdown (bun-only, local)",
 	details: `Usage:
   s2-agent cli file2md <files...> [options]
 
 Inputs:
-  One or more PDF or image files (png/jpg/webp/gif/bmp). Each input maps to
-  output/<doc-slug>/ with rasterized page PNGs + per-page Obsidian markdown +
-  a manifest.json + a doc-level index note.
+  PDF, image (png/jpg/webp/gif/bmp), docx, xlsx, pptx, ipynb, txt/md/csv/html.
+  Each input maps to output/<doc-slug>/ with per-page markdown (pdf/image),
+  a manifest.json and a doc-level index note (office/text formats write the
+  converted markdown as <slug>.md directly).
 
 Pipeline (per input):
-  1. classify kind (pdf | image)            [local, magic-number sniff]
-  2. PDF → page PNGs (macOS PDFKit)         [--dpi]
-  3. classify profile (paper|slides|...)    [VLM subagent on page 1]
-  4. per page: VLM → Obsidian markdown      [frontmatter + ![[png]] + body]
-  5. write manifest.json + <slug>.md (MOC)
+  1. sniff kind                        [local, magic bytes + zip family]
+  2. extract text                      [pdfjs text layer / bounded office windows]
+  3. thin pages → pdfium raster → OCR (vendored tesseract wasm, offline)
+  4. mode vlm: vision-LLM describes images/scans (LM Studio, optional)
 
 Options:
   --out <dir>          output root (default: ./vlm-out)
-  --dpi <n>            rasterization DPI for PDFs (default 150)
+  --scale <n>          page raster scale for OCR/vision (default 2 ≈ 144dpi)
   --type <profile>     force a profile, skip the VLM classifier
                        (paper|slides|poster|diagram|image)
-  --extract <mode>     extraction strategy (default vlm = rasterize→VLM):
-                       vlm    current path (every page → VLM)
-                       text   mupdf text-layer only (fast, no VLM, figures lost)
-                       hybrid mupdf text + VLM for figure-bearing pages
+  --extract <mode>     pipeline mode (default auto):
+                       auto/text  text layer only, no OCR/vision
+                       ocr        text layer + OCR for scanned pages
+                       vlm        vision-LLM describes scans; OCR degrades
+  --note <style>       VLM page-note style: summary|verbatim|hybrid (default hybrid)
+  --lang <lang>        OCR language: en|chi_sim|en+chi_sim (default en)
   --pages <spec>       only process these pages, e.g. "1,3-5" (1-indexed)
   --model <pattern>    provider/id[:thinking]  (default: model-tiers config, else PI_MODEL env)
   --provider <name>    provider name
@@ -48,10 +50,8 @@ Options:
 
 Examples:
   s2-agent cli file2md paper.pdf
-  s2-agent cli file2md paper.pdf --dpi 200 --pages 1-4
-  s2-agent cli file2md scan.jpg --type image
-  s2-agent cli file2md *.pdf --out ./notes`,
-
+  s2-agent cli file2md scan.jpg --extract vlm --scale 3 --pages 1-4
+  s2-agent cli file2md workbook.xlsx --out ./notes`,
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const inputs = parsed.positionals;
@@ -64,16 +64,18 @@ Examples:
 		const outRoot = resolve(cwd, parsed.out ?? "vlm-out");
 		const jsonMode = parsed.mode === "json";
 
-		await runVlmDescribePipeline({
+		await runFile2mdPipeline({
 			inputs: inputs.map((p) => (isAbsolute(p) ? p : resolve(cwd, p))),
 			outRoot,
 			model: parsed.model ?? process.env.PI_MODEL,
 			provider: parsed.provider ?? (parsed.model ? undefined : "lm-studio"),
 			thinking: parsed.thinking,
 			forcedType: parsed.type as DocProfile | undefined,
-			extract: parsed.extract as ExtractStrategy | undefined,
+			mode: parsed.extract as File2mdMode | undefined,
+			note: parsed.note as PageNoteStyle | undefined,
+			lang: parsed.lang,
 			pages: parsed.pages,
-			dpi: parsed.dpi ?? 150,
+			scale: parsed.scale ?? 2,
 			emit: jsonMode
 				? (o) => process.stdout.write(JSON.stringify(o) + "\n")
 				: undefined,

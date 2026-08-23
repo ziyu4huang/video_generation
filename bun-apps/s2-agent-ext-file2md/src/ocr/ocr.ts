@@ -1,0 +1,152 @@
+/**
+ * ocr/ocr.ts — local OCR via vendored tesseract-wasm (bun-only, offline).
+ *
+ * Replaces v1's macOS-Vision Swift CLI (`src/image/ocr.ts`). Lang data
+ * (eng/chi_sim) is vendored under `vendored/ocr-assets/lang` and the wasm
+ * core ships inside the tesseract.js-core npm package — zero native code,
+ * zero network. Every failure degrades to `undefined` with an explicit
+ * stderr note (never throws), mirroring v1's degrade-not-fail contract.
+ */
+import { mkdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { createWorker, type Worker } from "tesseract.js";
+import { rasterPage } from "../raster/pdf.ts";
+
+/** One OCR run's result — same shape as v1's swift-OCR contract (hermes-memory consumes this type). */
+export interface OcrResult {
+  text: string;
+  width: number;
+  height: number;
+  format: string;
+}
+
+const PKG_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+/** Engine-default language dir — vendored asset, resolved beside the package. */
+export const DEFAULT_LANG_PATH = join(PKG_ROOT, "vendored", "ocr-assets", "lang");
+
+/** Where gunzipped traineddata settles (temp — never pollutes the vendored tree). */
+const CACHE_PATH = join(tmpdir(), "file2md-ocr-cache");
+
+/** Normalize "en+chi_sim" etc.; only ship what we vendored. */
+export function normalizeOcrLang(lang: string | undefined): string {
+  const parts = (lang ?? "en")
+    .split("+")
+    .map((l) => l.trim().toLowerCase())
+    .filter((l) => l === "eng" || l === "chi_sim" || l === "en" || l === "zh" || l === "zh_cn");
+  const mapped = parts.map((l) =>
+    l === "eng" ? "eng" : l === "en" ? "eng" : l === "chi_sim" || l === "zh_cn" || l === "zh" ? "chi_sim" : l,
+  );
+  const unique = [...new Set(mapped)];
+  return unique.length > 0 ? unique.join("+") : "eng";
+}
+
+/**
+ * Reusable per-document OCR session: one worker, many pages, then terminate.
+ * Capable of PNG/JPEG/BMP buffers only — raw pdfium pages cross as BMP.
+ */
+export class OcrSession {
+  private worker: Worker | undefined;
+  private lang: string;
+  private langPath: string;
+  constructor(lang: string, langPath = DEFAULT_LANG_PATH) {
+    // The worker requests `lang.traineddata.gz` verbatim — normalize aliases
+    // here so a caller passing "en" gets the vendored "eng" file, not ENOENT.
+    this.lang = normalizeOcrLang(lang);
+    this.langPath = langPath;
+  }
+
+  async init(): Promise<boolean> {
+    if (this.worker !== undefined) return true;
+    try {
+      mkdirSync(CACHE_PATH, { recursive: true });
+      this.worker = await createWorker(this.lang, 1, {
+        langPath: this.langPath,
+        cachePath: CACHE_PATH,
+      });
+      return true;
+    } catch (e) {
+      process.stderr.write(`[file2md] tesseract worker init failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      this.worker = undefined;
+      return false;
+    }
+  }
+
+  /** OCR one encoded image buffer (PNG/JPEG/BMP). */
+  async recognize(data: Uint8Array): Promise<OcrResult | undefined> {
+    if (this.worker === undefined && !(await this.init())) return undefined;
+    try {
+      const { data: res } = await this.worker!.recognize(Buffer.from(data));
+      const text = (res.text ?? "").trim();
+      if (text === "") return undefined;
+      const dims = imageDims(data);
+      return { text, width: dims?.width ?? 0, height: dims?.height ?? 0, format: "ocr" };
+    } catch (e) {
+      process.stderr.write(`[file2md] OCR failed: ${e instanceof Error ? e.message : String(e)}\n`);
+      return undefined;
+    }
+  }
+
+  /** Raster + OCR one PDF page (scanned-page path). Never throws. */
+  async recognizePdfPage(pdfBytes: Uint8Array, page: number, scale: number): Promise<OcrResult | undefined> {
+    const raster = await rasterPage(pdfBytes, page, scale);
+    if (raster === undefined) return undefined;
+    return this.recognize(raster.bmp);
+  }
+
+  async terminate(): Promise<void> {
+    if (this.worker !== undefined) {
+      await this.worker.terminate().catch(() => undefined);
+      this.worker = undefined;
+    }
+  }
+}
+
+/** One-shot OCR of an image file (degrade-not-fail contract). */
+export async function ocrImageFile(imagePath: string, lang = "eng"): Promise<OcrResult | undefined> {
+  const session = new OcrSession(normalizeOcrLang(lang));
+  try {
+    const bytes = new Uint8Array(readFileSync(imagePath));
+    return await session.recognize(bytes);
+  } catch {
+    return undefined;
+  } finally {
+    await session.terminate().catch(() => undefined);
+  }
+}
+
+/** Image dimensions parsed from PNG/JPEG/BMP headers (pure, no decode). */
+export function imageDims(data: Uint8Array): { width: number; height: number } | undefined {
+  if (data.length < 8) return undefined;
+  const dv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  // PNG: IHDR at 16 (w,h big-endian)
+  if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) {
+    if (data.length < 24) return undefined;
+    return { width: dv.getUint32(16, false), height: dv.getUint32(20, false) };
+  }
+  // BMP: 12: width, 16: height (little-endian, positive for bottom-up)
+  if (data[0] === 0x42 && data[1] === 0x4d) {
+    if (data.length < 26) return undefined;
+    return { width: dv.getInt32(18, true), height: Math.abs(dv.getInt32(22, true)) };
+  }
+  // JPEG: scan markers for SOF0/SOF2 (trivial parse; dims big-endian)
+  if (data[0] === 0xff && data[1] === 0xd8) {
+    let o = 2;
+    while (o + 9 < data.length) {
+      if (data[o] !== 0xff) {
+        o++;
+        continue;
+      }
+      const marker = data[o + 1]!;
+      if (marker >= 0xc0 && marker <= 0xc3) {
+        return { width: dv.getUint16(o + 7, false), height: dv.getUint16(o + 5, false) };
+      }
+      const segLen = dv.getUint16(o + 2, false);
+      if (segLen < 2) return undefined;
+      o += 2 + segLen;
+    }
+  }
+  return undefined;
+}

@@ -1,156 +1,78 @@
-# pi-file2md
+# pi-file2md (v2)
 
-A file→Markdown bridge for [pi](https://pi.dev): convert any PDF or image into
-structured Markdown that a **pure-text agent can read**, using a local
-vision-LLM subagent (LM Studio). PDFs are rasterized page by page, each page
-is described by the vision-LLM subagent, and the pages are stitched into one
-`.md` with frontmatter + per-page sections, then dropped into a project-local
-vault. The point: give a text-only agent eyes — it never has to "see" the file.
+A file→Markdown bridge for pi/s2-agent: convert **PDF, image, DOCX, XLSX, PPTX,
+IPYNB, and text files** into structured Markdown a pure-text agent can read —
+**entirely bun-only** (no native modules, no macOS toolchain, no Swift, no Python):
+
+- **PDF text layer** — pdfjs-dist, pure TS.
+- **Scanned PDFs / images** — vendored pdfium wasm (page raster) + vendored
+  tesseract wasm (OCR; eng + chi_sim bundled, fully offline).
+- **Office / notebooks** — a vendored `@dsh-cowork/core@0.1.0` snapshot (MIT,
+  the user's own project): bounded windows, stable cell/slide addresses,
+  zip-bomb + macro rejection, explicit truncation notices.
+- **Vision (optional)** — for `mode: vlm`, the local vision-LLM (LM Studio via
+  the model-tier config) describes images/scanned pages; text layer and OCR
+  are the degrades. No vision server is ever required.
+
+Machine-bound v1 machinery is gone: `mupdf` (postinstall wasm), macOS PDFKit /
+pdf2image rasterization, Swift Vision OCR. See
+[`docs/adr/0001-vendored-bun-only-stack.md`](docs/adr/0001-vendored-bun-only-stack.md).
 
 ## What you get
 
-- `file2md` — the pi tool/CLI entry point (`<files...>` → Markdown).
-- A resumable pipeline (`src/pipeline.ts`) that caches per-page VLM output and
-  retries transient (429 / network) errors.
-- `DEFAULT_VLM_MODEL` and friends exported for reuse by downstream packages
-  (e.g. `s2-agent cli`'s `pdf-to-vault` stage 1).
-
-## Internal docs
-
-[`docs/`](./docs) traces how `vision_ask` / `file2md` actually run, with
-source citations into the installed `pi-coding-agent` + `pi-ai`:
-
-- [docs/architecture.md](./docs/architecture.md) — end-to-end call chain,
-  sequence diagram, model resolution (`resolveLLM`), and how an image part is
-  serialized to the provider wire format by the pi-ai adapter.
-- [docs/configuring-vision-models.md](./docs/configuring-vision-models.md) —
-  registering vision models in `~/.pi/agent/models.json`, switching backends
-  at runtime, and the per-`api` image wire-format comparison.
+- `file2md` — the pi tool + `s2-agent cli file2md` command (`<files...> → Markdown`).
+- `vision_ask` — lightweight single-image vision-LLM Q&A (no disk pipeline).
+- A resumable manifest pipeline: `output/<slug>/{manifest.json, pages/*.md,
+  <slug>.md}`; re-runs skip pages already `done`.
+- Modes: `auto` (default, text → OCR for scans) | `text` | `ocr` | `vlm`.
+- Formats: pdf, image, docx, xlsx, pptx, ipynb, txt, md, csv (→ table), html
+  (→ markdown-lite).
 
 ## Requires
 
-- **[LM Studio](https://lmstudio.ai)** serving a vision model at
-  `http://localhost:1234/v1` (no API key needed; `LM_STUDIO_API_KEY=lm-studio`
-  works as a dummy). Configure the model id via `--vlm-model` / `PI_VLM_MODEL`.
+- Bun (the whole pipeline runs under Bun; nothing else).
+- LM Studio serving a vision model at `http://localhost:1234/v1` **only** for
+  `mode: vlm` (configured via the model-tier config, `PI_MODEL` legacy alias).
+- OCR language data (eng/chi_sim) lives in the repo's external binary store
+  (`../video_generation__models/file2md-ocr-assets/lang/`, the mlx-models
+  convention — the 2MB git hook rejects binary blobs, so the lang files are
+  **symlinked** into `vendored/ocr-assets/lang/`). On a machine without the
+  store, OCR degrades with a notice; `FILE2MD_OCR_LANG_PATH` points anywhere
+  the two `.traineddata.gz` files exist. Delete the symlinks and copy real
+  files from the markdown-converter assets if you need a self-contained copy.
 
-## Bundle for distribution (minify + obfuscation)
-
-Ship the extension as a single minified `.js` instead of `.ts` source:
-
-```bash
-bun scripts/build-bundle.ts               # FULL bundle (default) — inline all deps
-bun scripts/build-bundle.ts --obfuscate   # + javascript-obfuscator pass (optional)
-bun scripts/build-bundle.ts --thin        # THIN bundle — peer deps external (see below)
-bun scripts/build-bundle.ts --no-verify   # skip the self-verify stage
-```
-
-Output: `../../dist/pi-extensions/pi-file2md.bundle.js` (gitignored, like `dist/s2-agent/`).
-typebox + `src/pipeline.ts` + transitive deps are inlined into one ESM file with
-the default factory export preserved, so pi's jiti loader imports it unchanged.
-
-`--minify` already renames local identifiers (`var A56=Object.create;…`), which
-defeats casual reading. `--obfuscate` adds string-array + encoding transforms via
-[`javascript-obfuscator`](https://github.com/nicedoc/javascript-obfuscator); it is
-optional (not a default dep) and slow on multi-MB bundles — install with
-`bun add -d javascript-obfuscator` if you want it, otherwise the flag no-ops with
-a warning.
-
-### Self-verify (built-in)
-
-Every build ends with `stageVerify`: static integrity checks (default factory
-export present, minify applied, no dangling `../src/` refs or `/Users/` path
-leak, size sane, externals preserved in thin / inlined in full) **and**, when
-`dist/s2-agent/s2-agent.js` exists, a **live load test** that boots the real
-s2-agent bundle with `-ne -e <bundle>` and asserts `file2md` registers. A
-load crash at the shipping path is a **hard failure** (exit 1) — it cannot ship a
-bundle that doesn't load. `--no-verify` skips.
-
-### FULL vs THIN — which to use
-
-Both produce a loadable `pi -e <bundle>.js`. **THIN is the better default** for
-this repo; FULL is the fallback when you need a self-contained, machine-portable
-artifact.
-
-**FULL** (`bun scripts/build-bundle.ts`) inlines typebox + `src/` + every
-transitive dep (notably typebox's ~6.5 MB `@babel/*` compiler) into one ~6.8 MB
-ESM. Self-contained, portable. Cost: **multi-extension duplication** — each full
-extension carries its own typebox+babel, AND the s2-agent host carries another, so
-N full extensions = (N+1)× the ~6.5 MB babel graph loaded.
-
-**THIN** (`--thin`) bundles only the project's own `src/` (~25 KB, 270× smaller)
-then rewrites the 4 peer-dep bare specifiers (`typebox` + `@earendil-works/*`)
-to **absolute file paths**. That rewrite is mandatory — see the gotcha below.
-Benefit: every extension resolves `typebox` to the SAME path → bun's native
-module cache dedupes → **all extensions share one typebox instance** (no per-copy
-babel). Typebox version can never drift from the host (it IS the host's copy).
-Cost: the baked paths are **machine-specific** — rebuild on the target machine
-(mirrors the s2-agent bundle's own machine-path baking).
-
-#### Gotcha: why THIN must rewrite bare specifiers to absolute paths
-
-pi loads every extension through jiti (`createJiti` + `jiti.import`,
-`pi-coding-agent/dist/core/extensions/loader.js`). jiti wraps any module that
-contains a **bare specifier** (e.g. `"typebox"`) in a
-`data:text/javascript;base64,<whole module>` package specifier to apply its
-alias transform — and bun rejects that wrapper with `NameTooLong` once the module
-exceeds a low-KB limit. Every real pi-file2md module is over that limit, so a thin
-bundle that leaves `"typebox"`/`"@earendil-works/*"` as bare specifiers is
-**unconditionally broken** at the shipping location:
-
-```
-Failed to load extension: ResolveMessage: NameTooLong while resolving
-package 'data:text/javascript;base64,...'
-```
-
-FULL dodges it by having zero bare imports. The thin fix: `stageResolveExternals`
-pre-resolves each bare specifier to its absolute file path at build time (the
-same paths `getAliases()` computes at runtime) — the bundle then has only
-absolute + `node:` + relative imports, so jiti loads it **natively** (no wrapper,
-no size limit). Verified end-to-end. The `stageVerify` live-load test enforces
-this: a load crash at the shipping path is a hard failure (exit 1), so a
-regression (e.g. a new bare import that escapes resolution) can't ship silently.
-
-> Lesson logged in memory (`pi-extension-thin-bundle-jiti-nametoolong`) and
-> here so the same detour isn't repeated: **jiti + bare-import module = data-URL
-> wrap = length-limited. Either inline the dep (FULL) or pre-resolve to abs path
-> (THIN). There is no third option under the current loader.**
-
-Load the bundle with the s2-agent bundle:
+## Examples
 
 ```bash
-bun ../../dist/s2-agent/s2-agent.js -ne \
-  -e ../../dist/pi-extensions/pi-file2md.bundle.js -p "list your tools"
+s2-agent cli file2md report.pdf                # text layer, offline
+s2-agent cli file2md scan.jpg --extract ocr    # OCR (tesseract, offline)
+s2-agent cli file2md deck.pptx --out ./notes
+s2-agent cli file2md wb.xlsx
+s2-agent cli file2md paper.pdf --extract vlm --scale 3 --lang eng
 ```
 
-
-## Known limitations & TODO
-
-- **`src/sessions.ts` forks `s2-agent`'s `src/cli/sessions/shared.ts`.**
-  `resolveLLM`, `resolveModel`, and the session-construction wiring are
-  near-duplicates of the CLI's shared helpers. `resolveLLM` reads the same env
-  knobs as the CLI (`PI_MODEL`, `PI_PROVIDER`, `PI_THINKING`) and `resolveModel`
-  does a case-insensitive provider+id match, so the earlier documented drift is
-  closed (grammar is pinned by `__tests__/sessions.test.ts`). Packages can't
-  import the downstream CLI, so the durable fix is still to extract the
-  model-resolution + session-factory primitives into a neutral shared module
-  both consume, then delete the fork. Until then, any fix to the model-id
-  grammar must be applied in two places.
-
-## Tests
+## Bundle for distribution
 
 ```bash
-bun test        # from this package dir
+bun scripts/build-bundle.ts               # FULL bundle (default) — inline deps
+bun scripts/build-bundle.ts --thin        # THIN — peer deps external (self-verify green)
+bun scripts/build-bundle.ts --obfuscate   # optional obfuscation pass
 ```
 
-The suite covers the **pure, deterministic core** — no LM Studio, network, or
-real model session is needed: `resolveLLM` model-id grammar + env fallbacks
-(`__tests__/sessions.test.ts`, pins the `PI_PROVIDER` resolution parity with
-the CLI), the retry predicate/loop (`retry.ts`), manifest layout math
-(`slugify` / `pageLabel` / `layoutFor` / `createManifest`), and the kind/mime
-classifiers (`classifyKind` / `imageMimeType`, including magic-byte fixtures).
-The I/O- and model-bound `pipeline.ts` / `agents.ts` / `classify-vlm.ts` /
-`pdf2png.ts` are out of scope.
+Output: `../../dist/pi-extensions/pi-file2md.bundle.js` (gitignored). The
+self-verify runs the real registration path against the built artifact.
 
-## License
+## Internal docs
 
-MIT
+- `docs/architecture.md` — v2 call chain (sniff → extract → OCR/vision → render).
+- `docs/configuring-vision-models.md` — registering vision models /
+  `~/.pi/agent/models.json`, tier config.
+- `docs/adr/0001-vendored-bun-only-stack.md` — the bun-only vendoring decision.
+
+## Deploy note
+
+The extension is **excluded from the portable s2-agent-sh deploy** (registry
+`excludeReason`: vendored OCR assets + optional local vision layer — scope
+policy; see `bun-apps/s2-agent/docs/deploy.md` "Limits"). The package structure
+is deploy-ready: a future flip only needs `deploy:` block fields + asset copy
+entries.
