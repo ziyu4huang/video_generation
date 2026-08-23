@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-23-archify-rich-decks
 created: 2026-08-23
-last: 2026-08-23
+last: 2026-08-24
 status: active
 ---
 # archify-rich-decks — faster, richer pptx authoring through a copy-adapt IR library
@@ -54,7 +54,9 @@ Phase 1 — copy-adapt IR library (this session)
 
 
 Phase 2 — authoring-flow tooling
-- `tickets/20-mermaid-converter.md` — task, **open** — mermaid → validated IR console step
+- `tickets/20-mermaid-converter.md` — task, **open** — mermaid → IR converter: all 5 schemas, convert+validate one call (design spec.md §7.1)
+
+**Execution order:** 20 (single ticket, fully forced)
 
 Phase 3 — richer templates
 - `tickets/30-ir-slot-in-templates.md` — task, **open** — `ir`-capable drawing primitive in layout templates + 2–3 new rich templates
@@ -77,12 +79,27 @@ Phase 4 — quality fidelity sweep
   manifests; existing examples stay byte-identical; D3 lock holds.
 - **D6 — phases in order 1→4.** Richer templates touch both emitters (riskiest) so they
   come after the library proves the standard; quality sweep closes.
+- **D7 — the converter is a mechanical subset, not judgment.** The vendored doc says
+  "you choose grouping, lane order, and what deserves emphasis — that judgment is the
+  product"; automating judgment (invented lane grouping, clever typing) is the fastest
+  path to valid-but-wrong IRs. The converter owns only the mechanical grammar→structure→schema
+  step; the judgment happens AFTER, in the copy-adapt step (D2). Any recognized-but-unbounded
+  syntax is a hard error, never a best-effort guess.
+- **D8 — dataflow via convention, ours until upstream.** Mermaid has no documented
+  dataflow mapping, and dataflow's schema is the most opinionated (stages 2–5, mandatory
+  flow labels); subgraph → stage + `to <targetLabel>` defaults is the phase-2 convention,
+  documented in the design and `--help`, to be reconciled if upstream ever maps dataflow.
+- **D9 — the converter ships as a CLI script, not an extension tool.** A `defineTool`
+  costs tool-description tokens in EVERY session (schema-cost canary) for a rare authoring
+  step; a documented `bun run mermaid:convert` + SKILL.md wiring is free and matches D4's
+  no-new-tool precedent. The agent reaches it via a shell step, exactly like `bun run deck`.
 
 ## Frontier
 
-`tickets/10-ir-library.md` — the ~15 validated IRs and the flagship library deck. First
-because it is the biggest single token win per slide and is pure additive (D5), so it fits
-this session end-to-end through its gate.
+`tickets/20-mermaid-converter.md` — the mermaid → IR converter (design: spec.md §7.1).
+First because its only blockers (10/11, the validated library + discovery surface it
+targets) are closed, and the design + ticket 20 are decided (2026-08-24) awaiting
+execution through the valid-IR-out gate.
 
 ## Fog of war
 
@@ -95,8 +112,12 @@ this session end-to-end through its gate.
   hex) and verified byte-identical to their sources.
 - How the no-args lint text renders CJK descriptions inline is a formatting judgment; the
   test pins fields, not prose style.
-- Phase 2 converter dialect coverage (which mermaid features map cleanly to the 5 schemas)
-  is deliberately uncharted until phase 2 starts.
+- Phase 2 converter dialect coverage is now designed (spec.md §7.1, 2026-08-24): the
+  bound is all 5 schemas via 3 dialects + `--type`, with the D8 dataflow convention.
+  Residual unknowns: exact label-clearance tuning against the vendored composition checker
+  is resolved at implementation (the gate is validate-green, not a fixed layout constant);
+  whether the converted output's auto layout feels like good copy-adapt material is an
+  authoring-time judgment, not a converter bug.
 - Whether the flagship deck replaces `deck-general` as the canonical example: **no** —
   deck-general stays canonical; the library deck is the copy-adapt resource (D3).
 

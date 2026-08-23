@@ -177,8 +177,109 @@ addition).
 
 ## 7. Phase plan beyond this ticket (queue, not scope)
 
-- **Phase 2**: mermaid → IR converter as a CLI step (convert + validate in one call) over
-  the vendored "Mermaid as an Input Dialect" docs; wire it into the authoring loop docs.
+### 7.1 Phase 2 — mermaid → IR converter (design v1, 2026-08-24)
+
+A deterministic line-based converter: paste mermaid → copy-adaptable, **valid** IR. It
+implements the mechanical subset of the vendored "Mermaid as an Input Dialect" mapping
+(`vendored/SKILL.md` §); the judgment the doc reserves for the human ("you choose
+grouping, lane order, and what deserves emphasis") happens AFTER conversion, in the
+copy-adapt step (D2/D7). Covering all 5 schemas (D8 for dataflow).
+
+#### 7.1.1 Coverage bound — dialect × schema matrix
+
+| Mermaid dialect | `--type` | IR schema | Mapping source |
+|---|---|---|---|
+| `flowchart` / `graph` | `workflow` (default) | workflow | vendored: flowchart → workflow |
+| `flowchart` / `graph` | `architecture` | architecture | vendored: "or architecture if it's a component map" |
+| `flowchart` / `graph` | `dataflow` | dataflow | **convention D8**: subgraph → stage; flow label = edge label or `to <targetLabel>` |
+| `sequenceDiagram` | `sequence` (auto) | sequence | vendored: participants / messages / notes / rect |
+| `stateDiagram`(-v2) | `lifecycle` (auto) | lifecycle | vendored: states / transitions / `[*]` |
+
+Auto-detection: first token (`sequenceDiagram` | `stateDiagram*` | `flowchart|graph`).
+`--type` selects among flowchart's three targets (default `workflow`, the doc's primary
+mapping; `architecture`/`dataflow` are the explicit choices for the judgment cases —
+"component map" / D8). Passing `--type` for an auto-dialect is a usage error (the
+dialect already decides).
+
+**Syntax bound (v1)** — supported:
+- flowchart: `direction` (TB/TD/LR/BT), node `id["label"]` + shapes `[]`/`()`/`{}`/`[()]`
+  + inline `id:::class`; links `-->` / `-.->` / `==>` (→ `variant: emphasis`), `-- text -->`,
+  `-->|text|`; `subgraph` (title `id["label"]`, body) — 1 level deep; `classDef` / `style` /
+  `class` consumed for semantic typing (§7.1.4), otherwise dropped (the doc says drop styling).
+- sequence: `participant [alias] [as Label]`, messages `->>` / `-->>` (→ `variant: return`),
+  `Note [right|left|over] A[,B]: text`, `rect` blocks (→ `segments`), `activate`/`deactivate`
+  (→ `activations`).
+- state: `state "Label" as X`, `[*]` (→ `type: start` / `terminal` lane), `A --> B: label`.
+- **Unrecognized or recognized-but-unbounded syntax → hard error with file/line** — never a
+  silent drop (a half-converted IR is valid-but-wrong, the worst copy-adapt outcome).
+  Documented unbounded list (also in `--help`): `linkStyle` (dropped — style only), `classDef`
+  names not matching the semantic table (dropped — style only), sequence `alt/loop/opt/par/break`
+  (error), state composites (`state X {`) / forks / joins (error), nested subgraphs >1 level
+  (error), flowchart `&&` node links (error), sequence `-)`/`--)`/`--x` variants (error).
+
+#### 7.1.2 Parser approach
+
+Hand-written line-based subset parser (decided vs mermaid-11 AST-walk — brittle internals,
+heavy import — and mmdc shell-out). Zero new deps, line-numbered errors, deterministic.
+
+#### 7.1.3 Deterministic placement rules (minimal coordinates; renderer defaults do the rest)
+
+- workflow: subgraphs → `lanes` (declaration order); node `col` = flow index within lane
+  (direction-aware); `mainPath` = topological walk from the entry (no incoming edge); diamond
+  `{}` → `type: security` + `tag: "decision"` (only schema-supported decision semantic); `-.->`
+  → `variant: dashed`; link text → edge `label` (sparingly, as the doc says).
+- architecture: components from nodes; subgraphs → `boundaries` (`kind: region`, `wraps`);
+  **no `pos`/`size`** — grid layout default places.
+- dataflow: subgraphs → `stages` (declaration order); node `stage` = subgraph index, `row` =
+  appearance order; `flows` with edge label or default `to <targetLabel>` (schema requires
+  flow labels).
+- sequence: participants in declaration order; message `y` = 160 + 40·index (schema floor
+  160); `-->>` → `variant: return`; Note → nearest message's `note`; `rect` → `segments` y
+  range.
+- lifecycle: reserved `main` lane (+ `terminal` when `[*]` end used); state `type` from name
+  keyword table (§7.1.4), `[*]` → `start`; `col` = appearance order within lane.
+
+#### 7.1.4 Semantic typing table (fixed, documented; shared by all modes)
+
+Keyword scan over `classDef` class names, node labels, participant/state names →
+`componentType` / lifecycle type: `db|store|cache`→database · `api|svc|service`→backend ·
+`ui|web|front`→frontend · `auth|sec|fw`→security · `queue|bus|broker`→messagebus ·
+`user|client|ext`→external, else → `backend` (workflow/architecture/dataflow) or `active` /
+`neutral` (lifecycle, matching state names start/active/waiting/success/failure).
+
+#### 7.1.5 CLI shape — convert + validate in one call
+
+```
+bun run mermaid:convert <input.mmd> [--type workflow|architecture|dataflow] [--out <ir.json>] [--no-validate]
+```
+
+- `scripts/mermaid-convert.ts` (scripts/deck.ts pattern; package.json script
+  `mermaid:convert`; scripts-dir-contract allowlist entry).
+- IR → stdout (pretty JSON, no `meta.output`) or `--out` (writes file, sets `meta.output`).
+- After conversion, always run the vendored `validate` via `src/run.ts runArchify` (real
+  render+composition gate). Exit `0` = converted + VALID; `1` = conversion/validation
+  failure with diagnostics; `2` = usage error. `--no-validate` exits on conversion only
+  (dev escape).
+
+#### 7.1.6 "Valid IR out" contract
+
+Every conversion in the fixture corpus must exit the vendored `validate` green. Corruption
+of layout is not the product; invalid output IS a bug. Corpus: ≥2 fixtures per
+dialect×mode (≥8 total) under `tests/fixtures/mermaid/`, pinned by
+`tests/mermaid-convert.test.ts`: structural assertions (topology preserved: ids/labels/
+edges) + `validate()` green + unsupported-syntax error cases (≥1 per dialect).
+
+#### 7.1.7 Files, docs, non-goals
+
+- New: `src/mermaid-convert.ts` (pure parser + 5 mappers), `scripts/mermaid-convert.ts`
+  (CLI), `tests/mermaid-convert.test.ts`, `tests/fixtures/mermaid/*.mmd` + expected.
+- Docs: `skills/archify/SKILL.md` authoring-loop line + README pointer. `vendored/SKILL.md`
+  untouched (upstream).
+- Non-goals: no new extension tool (D9), no schema/emitter/renderer changes, no IR-library
+  or flagship-deck changes, dataflow convention documented as ours (D8) until upstream maps it.
+
+### 7.2 Phases 3–4 (queue)
+
 - **Phase 3**: `ir` slot as a new template drawing primitive (`BlockContent.kind` +
   per-primitive emitters) without touching the `diagram` layout's frozen geometry; plus
   2–3 new rich templates (e.g. `decision`, `timeline-with-diagram`).
