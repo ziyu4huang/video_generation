@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { GATE_DEFS } from "@repo/s2-agent-core-interface";
+import { GATE_DEFS, readAllToolDefinitions } from "@repo/s2-agent-core-interface";
 // The in-flight registry singleton MUST resolve to the SAME module instance the
 // subagent extension + obsidian extension use. Imported via the package barrel
 // (`@repo/s2-agent-core-runtime`) — verified to share one instance with the
@@ -139,6 +139,22 @@ export default function extension(pi: ExtensionAPI) {
   // s2-agent-ext-subagent — reads the same set via its OWN holder; the two no
   // longer share a closure.)
   const extensionToolsHolder: { current: ToolDefinition[] | undefined } = { current: undefined };
+  // Lazy (re)capture: since pi 0.84.2 the api-level getAllToolDefinitions is
+  // dead (fixed-shape ExtensionAPI — see readAllToolDefinitions in
+  // core-interface, found by the cc-parity-2 ticket-01 live smoke), and the
+  // session_start one-shot capture can run before the source is ready in
+  // headless hosts. ensureExtensionTools() heals at before_agent_start (once
+  // per session) so workflow children never spawn with an empty bridge.
+  let extensionToolsCaptured = false;
+  const ensureExtensionTools = (): void => {
+    if (extensionToolsCaptured) return;
+    const extTools = readAllToolDefinitions(pi);
+    if (extTools?.length) {
+      manager.setExtensionTools(extTools);
+      extensionToolsHolder.current = extTools;
+      extensionToolsCaptured = true;
+    }
+  };
   const workflowControlTool = createWorkflowControlTool({ manager });
   pi.registerTool(workflowControlTool);
 
@@ -226,6 +242,7 @@ export default function extension(pi: ExtensionAPI) {
 
   pi.on("before_agent_start", (_event) => {
     activateWorkflowTools();
+    ensureExtensionTools();
   });
 
   pi.on("session_start", (_event: unknown, ctx: ExtensionContext) => {
@@ -240,13 +257,12 @@ export default function extension(pi: ExtensionAPI) {
     activateWorkflowTools();
     // Inject extension-registered tool definitions so WorkflowAgent child
     // sessions can call the same extension tools the parent session has.
-    // getAllToolDefinitions() is added by the ext-api-get-all-tool-definitions
-    // runtime patch (not on the ExtensionAPI type, so we cast).
-    const extTools = (pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.();
-    if (extTools?.length) {
-      manager.setExtensionTools(extTools);
-      extensionToolsHolder.current = extTools;
-    }
+    // Fresh session → fresh capture; ensureExtensionTools() reads through
+    // core-interface's readAllToolDefinitions (api first, globalThis bridge
+    // from the runtime patch as fallback) and retries at before_agent_start
+    // when the source was not ready yet.
+    extensionToolsCaptured = false;
+    ensureExtensionTools();
     // Tell the manager the session's main model so "explore" agents auto-tier
     // down to a lighter same-family sibling (e.g. Claude → Haiku).
     manager.setMainModel(ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined);

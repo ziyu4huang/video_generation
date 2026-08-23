@@ -51,7 +51,7 @@ import { homedir } from "node:os";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
-import { GATE_DEFS } from "@repo/s2-agent-core-interface";
+import { GATE_DEFS, readAllToolDefinitions } from "@repo/s2-agent-core-interface";
 import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
 import { resolveVault, registerDeterministicHealthCheck } from "@repo/s2-agent-ext-obsidian";
 import { ingestRecords, formatSummary } from "../src/ingest.ts";
@@ -281,13 +281,13 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// Capture the parent session's extension tools so zk_* in-process subagents
 	// (via spawnSubagent) reach obsidian tools in manifest AND `-e` dev mode (R2).
 	pi.on("session_start", () => {
-		try {
-			parentExtensionTools =
-				(pi as unknown as { getAllToolDefinitions?: () => ToolDefinition[] }).getAllToolDefinitions?.() ??
-				parentExtensionTools;
-		} catch {
-			// getAllToolDefinitions is a runtime patch — absent in some contexts.
-		}
+		// Fresh session → fresh capture. Since pi 0.84.2 the api-level
+		// getAllToolDefinitions is dead (fixed-shape ExtensionAPI — see
+		// readAllToolDefinitions in core-interface, found by the cc-parity-2
+		// ticket-01 live smoke); the helper falls back to the runtime patch's
+		// globalThis bridge. Kept on session_start (not lazy at spawn) because
+		// the zk_* spawns read the module-level variable directly.
+		parentExtensionTools = readAllToolDefinitions(pi) ?? parentExtensionTools;
 		// Publish zk's 4-function knowledge surface as the __piKnowledgePipeline
 		// seam (typed via @repo/s2-agent-core-interface). Live for the session;
 		// unpublishKnowledgePipeline() tears it down at session_shutdown.
