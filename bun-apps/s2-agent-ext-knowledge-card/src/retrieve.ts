@@ -43,6 +43,7 @@ import { buildAggTiers, buildLeafTiers, renderTier, type Tier, type TierText } f
 import type { KnowledgeRecord, CoverageReport } from "./types.ts";
 import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag } from "./card-format.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/s2-agent-core-interface";
+import { blendWithHotness, hotnessScore, resolveHotnessAlpha } from "./hotness.ts";
 import {
 	cosine,
 	blendScore,
@@ -197,9 +198,19 @@ export interface RetrieveOptions {
 	 *  `hier: false` forces the flat path; `hier: true` attempts hier even with
 	 *  `semantic: false`. */
 	hier?: boolean;
+	/** Ticket 08 (D39): bounded hotness-decay blend weight,
+	 *  `(1−α)·score + α·hotness` over the usage-ledger aggregates (D37).
+	 *  Default 0 = OFF (byte-identical ranking — upstream's own default and
+	 *  the D8 rule); validated to [0, 0.10] — on this lane's integer-ish
+	 *  scores the bound reorders ties but never displaces a strictly higher
+	 *  score. Any usage-lane failure (Surreal down) leaves ranking unchanged. */
+	hotnessAlpha?: number;
 	/** INTERNAL test hook: inject a SurrealClient so the hier-first lane can be
 	 *  unit-tested without a live SurrealDB. Never set in production. */
 	_hierClient?: import("@repo/s2-agent-core-interface").SurrealClient;
+	/** INTERNAL test hook: inject a SurrealClient so the hotness blend can be
+	 *  unit-tested without a live SurrealDB. Never set in production. */
+	_usageClient?: import("@repo/s2-agent-core-interface").SurrealClient;
 }
 
 export interface RetrieveResult {
@@ -227,6 +238,8 @@ export interface RetrieveTrace {
 		semantic: boolean;
 		topK: number;
 		semanticAlpha?: number;
+		/** Present only when hotnessAlpha was passed (ticket 08 trace honesty). */
+		hotnessAlpha?: number;
 	};
 	/** True only when the semantic blend actually ran (false = off OR fell back). */
 	semanticUsed: boolean;
@@ -234,6 +247,9 @@ export interface RetrieveTrace {
 	 *  bodyMatch/slugDom/linkWeighting are inert, `scanned` is the seed pool
 	 *  (not the vault total) and `excluded` counts hydration failures. */
 	hierUsed?: boolean;
+	/** True only when the hotness blend actually ran (ticket 08 D39: false =
+	 *  off OR the usage lane was unavailable — ranking then unchanged). */
+	hotnessUsed?: boolean;
 	/** Candidate-pool size before the top-K cut (|scored|, lexical stage). */
 	candidatePool: number;
 	/** Total vault cards scanned in the convergence folder. */
@@ -248,6 +264,9 @@ export interface RetrieveTrace {
 		sharedTags: number;
 		/** Whether the card carries a callout (the +0.5 boost source). */
 		hasCallouts: boolean;
+		/** The card's 0–1 hotness score — present when the blend ran (0 =
+		 *  never-used; ticket 08). */
+		hotness?: number;
 		/** How the card entered the result set. "hierarchical" = the D27
 		 *  default-switch lane (ticket 05 D36 — score is the hier blend +
 		 *  propagation score, not sharedTags). */
@@ -372,6 +391,9 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	const slugDom = opts.slugDom ?? false;
 	const semantic = opts.semantic ?? false;
 	const semanticAlpha = opts.semanticAlpha ?? SEMANTIC_ALPHA_DEFAULT;
+	// Ticket 08 (D39): validated at the boundary — a bad value fails loud,
+	// never silently becomes a ranking change. Default 0 = OFF.
+	const hotnessAlpha = resolveHotnessAlpha(opts.hotnessAlpha);
 	// D22: the default model resolves per call (seam → env → default), so
 	// SEMANTIC_EMBED_MODEL / __piEmbeddingConfig actually control the cards side.
 	const semanticModel = resolveCardEmbedModel(opts.semanticModel);
@@ -417,6 +439,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			origTags: opts.tags,
 			includeTrace,
 			optsSnapshot: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
+			hotnessAlpha,
 		});
 		if (hier) return hier;
 	}
@@ -435,7 +458,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		idfTable = computeIdf(folderTagSets);
 	}
 
-	const scored: (RetrievedCard & { _score: number })[] = [];
+	const scored: (RetrievedCard & { _score: number; _hotness?: number })[] = [];
 	let scanned = 0;
 	let excluded = 0;
 
@@ -570,6 +593,14 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 
 	scored.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
 
+	// Ticket 08 (D37–D39): bounded hotness blend over the usage-ledger
+	// aggregates, applied to the FINAL lexical ranking before the top-K cut.
+	// Any usage-lane failure leaves the ranking unchanged (hotnessUsed=false).
+	let hotnessUsed = false;
+	if (hotnessAlpha > 0) {
+		hotnessUsed = await applyHotnessBlend(scored, hotnessAlpha, opts._usageClient);
+	}
+
 	// Opt-in semantic blend (recall-regime-change-eval). Default off = unchanged.
 	// Union the lexical top-12 with a semantic top-12 (cosine), rerank by
 	// Î±Â·lexRankNorm + (1-Î±)Â·cosNorm. Returns null on any embedding failure â
@@ -594,12 +625,14 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			testEmbedder: opts._testEmbedder,
 			includeTrace,
 			optsSnapshot: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
+			hotnessAlpha,
+			usageClient: opts._usageClient,
 		});
 		if (sem) return sem;
 	}
 
 	const topScored = scored.slice(0, topK);
-	const top = topScored.map(({ _score, ...rest }) => rest);
+	const top = topScored.map(({ _score, _hotness, ...rest }) => rest);
 	// LeanRAG ② (ticket 05): auto tree-expansion — append lineage-matched
 	// aggregation summaries as evidence AFTER the ranked list (ranking stays
 	// authoritative). No agg files → zero code-path change (byte-identical).
@@ -614,8 +647,9 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		excluded,
 		trace: includeTrace
 			? {
-					options: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
+					options: { bodyMatch, slugDom, semantic, topK, semanticAlpha, ...(hotnessAlpha > 0 ? { hotnessAlpha } : {}) },
 					semanticUsed: false,
+					...(hotnessUsed ? { hotnessUsed: true } : {}),
 					candidatePool: scored.length,
 					scanned,
 					cards: topScored.map((c) => ({
@@ -625,6 +659,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 						sharedTags: c.sharedTags,
 						hasCallouts: c.hasCallouts,
 						source: "lexical" as const,
+						...(c._hotness !== undefined ? { hotness: c._hotness } : {}),
 					})),
 			  }
 			: undefined,
@@ -665,6 +700,8 @@ async function tryHierarchicalDefault(args: {
 	origTags: string[];
 	includeTrace: boolean;
 	optsSnapshot: { bodyMatch: boolean; slugDom: boolean; semantic: boolean; topK: number; semanticAlpha?: number };
+	/** Ticket 08: hotness blend weight threaded into the hier lane (0 = off). */
+	hotnessAlpha?: number;
 }): Promise<RetrieveResult | null> {
 	const { hierarchicalRetrieve } = await import("./hierarchical-retrieval.ts");
 	const { makeContextClient, indexStatus } = await import("./surreal-index.ts");
@@ -694,6 +731,7 @@ async function tryHierarchicalDefault(args: {
 			model: args.model,
 			embedder: args.embedder,
 			includeTrace: args.includeTrace,
+			hotnessAlpha: args.hotnessAlpha,
 		});
 	} catch {
 		return null;
@@ -717,6 +755,10 @@ async function tryHierarchicalDefault(args: {
 	}
 	if (hydrated.length === 0) return null;
 
+	// Ticket 08: per-card hotness for the trace, keyed by path (hydration can
+	// skip failed builds, so hydrated index ≠ res.cards index).
+	const hotnessByPath = new Map(res.cards.filter((c) => c.hotness !== undefined).map((c) => [c.path, c.hotness!]));
+
 	const top = hydrated.map(({ _score, hierScore, ...rest }) => rest);
 	return {
 		count: top.length,
@@ -727,9 +769,10 @@ async function tryHierarchicalDefault(args: {
 		excluded,
 		trace: args.includeTrace
 			? {
-					options: args.optsSnapshot,
+					options: { ...args.optsSnapshot, ...(args.hotnessAlpha ? { hotnessAlpha: args.hotnessAlpha } : {}) },
 					semanticUsed: res.trace?.semanticLane ?? true,
 					hierUsed: true,
+					...(res.trace?.hotnessUsed ? { hotnessUsed: true } : {}),
 					candidatePool: res.cards.length,
 					scanned: res.trace?.seedPool ?? res.cards.length,
 					cards: hydrated.map((c) => ({
@@ -739,6 +782,7 @@ async function tryHierarchicalDefault(args: {
 						sharedTags: c.sharedTags,
 						hasCallouts: c.hasCallouts,
 						source: "hierarchical" as const,
+						...(hotnessByPath.has(c.path) ? { hotness: hotnessByPath.get(c.path) } : {}),
 					})),
 			  }
 			: undefined,
@@ -926,11 +970,52 @@ function buildRetrievedCard(
 	};
 }
 
+/** Ticket 08 (D37–D39): bounded hotness blend, shared by the flat and semantic
+ *  lanes. Replays the usage-ledger aggregates for the ranked stems, blends
+ *  EVERY card with `(1−α)·score + α·hotness` (never-used → h=0, upstream's
+ *  missing-timestamp semantics — the blend must be pool-wide, or a used card
+ *  would shrink BELOW an equal-scored never-used one), re-sorts by the same
+ *  comparator (score desc, id asc), and stamps `_hotness` for the trace.
+ *  Returns true when the blend ran; ANY failure (no client, Surreal down,
+ *  aggregate query error) returns false with the ranking UNTOUCHED — hotness
+ *  is a re-rank signal, never an availability dependency. */
+async function applyHotnessBlend(
+	cards: (RetrievedCard & { _score: number; _hotness?: number })[],
+	alpha: number,
+	client: import("@repo/s2-agent-core-interface").SurrealClient | undefined,
+): Promise<boolean> {
+	if (alpha <= 0 || cards.length === 0) return false;
+	let c = client;
+	if (!c) {
+		try {
+			const { makeContextClient } = await import("./surreal-index.ts");
+			c = makeContextClient();
+		} catch {
+			return false;
+		}
+	}
+	try {
+		const { usageAggregates } = await import("./usage.ts");
+		const stemOf = (p: string) => p.split("/").pop() ?? p;
+		const agg = await usageAggregates(c, cards.map((x) => stemOf(x.path)));
+		for (const card of cards) {
+			const a = agg.get(stemOf(card.path));
+			const h = a ? hotnessScore(a.activeCount, a.lastUsedAtMs) : 0;
+			card._hotness = h;
+			card._score = blendWithHotness(card._score, h, alpha);
+		}
+		cards.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 /** Opt-in semantic blend. Union lexical top-12 with semantic top-12 (cosine),
  *  rerank by Î±Â·lexRankNorm + (1-Î±)Â·cosNorm. Returns null on any embedding
  *  failure so the caller falls back to pure lexical. */
 async function trySemanticBlend(args: {
-	scored: (RetrievedCard & { _score: number })[];
+	scored: (RetrievedCard & { _score: number; _hotness?: number })[];
 	vaultPath: string;
 	folder: string;
 	topK: number;
@@ -948,6 +1033,9 @@ async function trySemanticBlend(args: {
 	testEmbedder?: Embedder;
 	includeTrace?: boolean;
 	optsSnapshot: { bodyMatch: boolean; slugDom: boolean; semantic: boolean; topK: number; semanticAlpha: number };
+	/** Ticket 08: hotness blend weight + injectable usage client (0 = off). */
+	hotnessAlpha?: number;
+	usageClient?: import("@repo/s2-agent-core-interface").SurrealClient;
 }): Promise<RetrieveResult | null> {
 	if (!args.queryText) return null;
 	// Test hook: skip the network availability check when an embedder is injected.
@@ -968,7 +1056,7 @@ async function trySemanticBlend(args: {
 	lexPool.forEach((c, r) => lexRankNorm.set(c.path, (12 - r) / 12));
 
 	// Union: lexical pool + semantic top-12 (build semantic-only cards on demand).
-	const unionByPath = new Map<string, RetrievedCard & { _score: number }>();
+	const unionByPath = new Map<string, RetrievedCard & { _score: number; _hotness?: number }>();
 	for (const c of lexPool) unionByPath.set(c.path, c);
 	for (const p of semTopPaths) {
 		if (!unionByPath.has(p)) {
@@ -996,8 +1084,14 @@ async function trySemanticBlend(args: {
 			return { ...card, _score: blendScore(lr, cn, alpha) };
 		})
 		.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
+	// Ticket 08: the same bounded hotness blend, on the semantic union pool
+	// (rank-normed [0,1] scores — the blend stays well-formed there).
+	let hotnessUsed = false;
+	if ((args.hotnessAlpha ?? 0) > 0) {
+		hotnessUsed = await applyHotnessBlend(blended, args.hotnessAlpha!, args.usageClient);
+	}
 	const topBlended = blended.slice(0, args.topK);
-	const top = topBlended.map(({ _score, ...rest }) => rest);
+	const top = topBlended.map(({ _score, _hotness, ...rest }) => rest);
 	// Trace source classification: a card is in the lexical pool (top-12), the
 	// semantic top-12, or both.
 	const lexPoolPaths = new Set(lexPool.map((c) => c.path));
@@ -1010,8 +1104,9 @@ async function trySemanticBlend(args: {
 		excluded: args.excluded,
 		trace: args.includeTrace
 			? {
-					options: args.optsSnapshot,
+					options: { ...args.optsSnapshot, ...(args.hotnessAlpha ? { hotnessAlpha: args.hotnessAlpha } : {}) },
 					semanticUsed: true,
+					...(hotnessUsed ? { hotnessUsed: true } : {}),
 					candidatePool: args.scored.length,
 					scanned: args.scanned,
 					cards: topBlended.map((c) => ({
@@ -1020,6 +1115,7 @@ async function trySemanticBlend(args: {
 						score: c._score,
 						sharedTags: c.sharedTags,
 						hasCallouts: c.hasCallouts,
+						...(c._hotness !== undefined ? { hotness: c._hotness } : {}),
 						source: lexPoolPaths.has(c.path)
 							? semTopPaths.has(c.path)
 								? "both"

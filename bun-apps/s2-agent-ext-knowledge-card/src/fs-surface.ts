@@ -374,12 +374,25 @@ export async function fsGrep(args: FsSurfaceOptions & { query: string; type?: st
 	return { op: "grep", ok: true, entries: hits.sort((a, b) => (a.stem < b.stem ? -1 : 1)).slice(0, limit).map((r) => toEntry(r, args, tier)), lane: "md", scanned };
 }
 
-/** `stat <path>` — one card's metadata + tier text. */
+/** `stat <path>` — one card's metadata + tier text. Records a usage event
+ *  (ticket 08 D37: an explicit single-card read feeds the hotness ledger;
+ *  the auto-recall injector joins downstream via the same `usage` table). */
 export async function fsStat(args: FsSurfaceOptions & { path: string }): Promise<FsResult> {
 	const folder = args.folder ?? "Zettelkasten/knowledge-graph";
 	const tier = args.tier ?? "abstract";
 	const { rows, lane } = await allRows(args, folder);
 	const hit = rows.find((r) => r.path === args.path || r.path === `${folder}/${args.path}` || r.stem === args.path);
 	if (!hit) return { op: "stat", ok: false, reason: `no such path: ${args.path}`, entries: [], lane, scanned: rows.length };
+	// Fire-and-forget: a failed usage write must never fail the read that
+	// triggered it (hotness stays 0 for this card until the next successful
+	// write — the blend degrades, it never blocks).
+	void (async () => {
+		try {
+			const { recordUsage } = await import("./usage.ts");
+			await recordUsage(args.client ?? makeContextClient(), hit.stem, "zk_card");
+		} catch {
+			// usage feed unavailable — nothing to do
+		}
+	})();
 	return { op: "stat", ok: true, entries: [toEntry(hit, args, tier)], lane, scanned: rows.length };
 }

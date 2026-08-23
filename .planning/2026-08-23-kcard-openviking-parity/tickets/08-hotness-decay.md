@@ -30,3 +30,21 @@ Upstream grounding (measured on the local clone): `openviking/retrieve/memory_li
 3. Blend into both retrieval lanes (`retrieveRecords` flat + `hierarchical-retrieval.ts`) behind `hotnessAlpha` (default 0; ≤0.10 validated).
 4. D14: A/B receipt (hotness ON arm vs OFF baseline) + independent reviewer subagent.
 5. Fold-back candidate (Frontier): index rebuild automation if it fits the writer scope landed here.
+
+## Resolution (build, 2026-08-24)
+
+Shipped: `src/hotness.ts` (pure formula, D38 verbatim) + `src/usage.ts` (the D12 `usage` table's writer/reader — `recordUsage` append + `usageAggregates` GROUP BY replay) + pool-wide `(1−α)·score+α·hotness` blend on BOTH lanes (flat post-sort + semantic union + hier leaves pre-cut) + `fsStat` fire-and-forget usage recording (explicit card reads, D37) + harness A/B flags (`--hotness-alpha`, `--seed-usage targets|non-targets`, `--reset-usage`).
+
+Key mechanics learned/pinned:
+- **The blend must be POOL-WIDE** (never-used → h=0), not skip-no-event: skipping makes a used card's blended `(1−α)s+αh` lose to an equal-scored never-used card's untouched `s` — tie inversion, the opposite of the feature. Pinned in `__tests__/hotness.test.ts`.
+- `zk_card find` is agent free-text (no structured card list) — the deterministic explicit-read seam is `zk_fs stat`; kind `zk_card` covers both (D37's "explicit zk_card reads" = the zk_* read surface).
+- The semantic path composes: the flat blend runs first (order feeds lexRankNorm), then the union blend applies hotness again — bounded double-count (order-lift + ≤0.10 score-lift), recorded here rather than restructured; revisit only if a future gate arm shows distortion.
+
+D14 A/B (receipts `output/recall-audit/receipt-ticket08-hotness-{baseline,on,noise}.json`, live bge-m3 + SurrealDB, 2026-08-24):
+- **baseline** (α=0, empty ledger): 17/20 hit@5, hit@1 12/20, MRR 0.725 — byte-identical to the ticket-05 shipped numbers (default OFF is a true no-op).
+- **noise control** (α=0.10, non-target usage seeded at equal event count): 17/20 / 12 / 0.725 — EXACTLY the baseline: usage noise does not move recall (the D8 ≤±10% bound holds; synthetic events cleared after the run, `--reset-usage`).
+- **mechanism arm** (α=0.10, target usage): 18/20 hit@5, hit@1 18/20, MRR 0.900 — the bounded blend lifts recently-used cards as designed. CIRCULAR BY CONSTRUCTION (seeds = answer keys): a mechanism demonstration, NOT a production recall claim. Per D39 the default stays **0 = OFF**; any default flip routes through the ticket 09 gate with REAL ledger data once the injector feeds it.
+
+Gates: kcard `bun run test` 589/589 (+17 hotness) + typecheck clean; hermes `scripts/recall-audit.test.ts` fixture green against the modified harness.
+
+Not done here (recorded): **index rebuild automation fold-back stays open** — post-extract `rebuildCardIndex` trigger needs live-embedder cost care (shutdown lane), deferred to the effort close-out's spec rather than half-baked into 08. Tool-layer `hotnessAlpha` exposure also deferred to the gate-flip ticket (nothing may flip defaults outside ticket 09).
