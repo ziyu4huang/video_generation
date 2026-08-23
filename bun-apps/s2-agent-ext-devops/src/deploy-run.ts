@@ -19,7 +19,6 @@ import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
 
 export interface ResolveOpts {
 	PI_AGENT_DIR?: string;
@@ -35,20 +34,49 @@ function hasDevopsScripts(bunAppsDir: string): boolean {
 	);
 }
 
+/**
+ * Start dir for the source-repo walk, via the `#pi/ext-dir` idiom.
+ *
+ * In the DEPLOYED bundle the specifier is bundler-external and the loader's
+ * injected require serves it as the deployed ext/<name>/ dir (a string); the
+ * walk from there finds no source repo → null → the caller fails closed. In
+ * SOURCE mode the package.json `imports` map resolves it to
+ * src/sh-ext-dir.ts, whose default export is this package's root. The two
+ * forms are told apart at the require site — never statically imported (the
+ * module must stay out of any bundle graph; see sh-ext-dir.ts).
+ */
+function extDirStart(): string | undefined {
+	try {
+		const m = require("#pi/ext-dir") as unknown;
+		if (typeof m === "string") return m; // dist loader: the deployed ext dir
+		if (typeof m === "object" && m !== null && typeof (m as { default?: unknown }).default === "string") {
+			return (m as { default: string }).default; // source mode: package root
+		}
+	} catch {
+		// No loader and no imports map — fall through to the cwd rung.
+	}
+	return undefined;
+}
+
 /** Find the source bun-apps/s2-agent dir, or null if unreachable.
  *
  *  The devops SCRIPTS live in the sibling s2-agent-ext-devops package
  *  (scripts/); the returned dir is still s2-agent's — run-test.ts drives that
- *  package, and tools derive the ext-devops scripts dir from it. */
+ *  package, and tools derive the ext-devops scripts dir from it.
+ *
+ *  The walk starts from (explicit startDir >) the #pi/ext-dir rung (> cwd).
+ *  It used to start from this module's import.meta.url — but a cjs bundle
+ *  folds that into the build machine's path, which the deploy relocatability
+ *  gate rejects, so the default is resolved at CALL time instead. */
 export function resolvePiAgentDir(
 	env: ResolveOpts = (process.env as unknown as ResolveOpts),
-	modUrl: string = import.meta.url,
+	startDir?: string,
 ): string | null {
 	const envDir = env.PI_AGENT_DIR;
 	if (envDir && hasDevopsScripts(dirname(envDir))) {
 		return envDir;
 	}
-	let dir = dirname(fileURLToPath(modUrl));
+	let dir = startDir ?? extDirStart() ?? process.cwd();
 	for (let i = 0; i < 8; i++) {
 		const candidate = join(dir, "s2-agent");
 		if (existsSync(candidate) && hasDevopsScripts(dir)) {

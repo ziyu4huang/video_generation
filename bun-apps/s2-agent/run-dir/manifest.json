@@ -7,7 +7,7 @@
 			"version": "0.1.0"
 		},
 		{
-			"name": "s2-agent-ext-devops",
+			"name": "devops",
 			"entry": "s2-agent-ext-devops/extensions/devops.ts",
 			"version": "0.1.0"
 		},

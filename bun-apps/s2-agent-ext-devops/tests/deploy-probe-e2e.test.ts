@@ -216,7 +216,7 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		// hermes-memory / web-access / hyperframes families. Spot-check one
 		// known skill per owner rather than pinning counts — the #1713 lesson:
 		// hardcoded totals go stale the moment a family grows.
-		const expected = ["btw", "playwright-cli", "webui-audit", "using-superpowers"];
+		const expected = ["btw", "playwright-cli", "webui-audit", "using-superpowers", "devops-workflow"];
 		expect(names.length, `skills: ${names.join(" ")}`).toBeGreaterThan(0);
 		for (const skill of expected) {
 			expect(names, `skill '${skill}' must reach the system prompt`).toContain(skill);

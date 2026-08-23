@@ -142,6 +142,7 @@ extensions:
 			"archify",
 			"btw",
 			"compact",
+			"devops",
 			"hermes-memory",
 			"hyperframes",
 			"knowledge-card",
