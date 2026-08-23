@@ -151,18 +151,21 @@ function warn(text: string): void {
 /** openUrl — open in the human's browser, cross-platform incl. WSL. */
 function openUrl(url: string): void {
   process.stdout.write(`  ${C.green("↗ opening")} ${url}\n`);
+  // wslview BEFORE xdg-open (bash original order): WSL's xdg-open often
+  // exits non-zero without a display, so it must not shadow wslview.
   const tryCmds: Array<[string, string[]]> =
     process.platform === "win32"
       ? [["cmd", ["/c", "start", "", url]]]
       : [
           ["open", [url]],
-          ["xdg-open", [url]],
           ["wslview", [url]],
+          ["xdg-open", [url]],
           ["explorer.exe", [url]],
         ];
   for (const [cmd, args] of tryCmds) {
-    const r = spawnSync(cmd, args, { stdio: "ignore" });
-    if (!r.error) return;
+    // status === 0, not !error: a binary that exists but exits non-zero
+    // (xdg-open on a display-less WSL) must fall through to the next one.
+    if (spawnSync(cmd, args, { stdio: "ignore" }).status === 0) return;
   }
   warn(`couldn't open a browser — visit it manually: ${url}`);
 }
@@ -207,8 +210,11 @@ async function askSecret(key: string, prompt: string): Promise<string> {
 
 /** writeEnv KEY VALUE — idempotent upsert into ENV_FILE. */
 function writeEnv(key: string, value: string): void {
-  const lines = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8").split("\n") : [];
-  const kept = lines.filter((l) => l !== "" && !l.startsWith(`${key}=`));
+  let lines = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8").split("\n") : [];
+  // Preserve interior blank lines; drop only split()'s trailing "" (the
+  // file's final newline) so re-running never accumulates blanks.
+  if (lines[lines.length - 1] === "") lines = lines.slice(0, -1);
+  const kept = lines.filter((l) => !l.startsWith(`${key}=`));
   kept.push(`${key}=${value}`);
   writeFileSync(`${ENV_FILE}.tmp`, `${kept.join("\n")}\n`);
   renameSync(`${ENV_FILE}.tmp`, ENV_FILE);
