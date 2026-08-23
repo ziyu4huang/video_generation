@@ -32,6 +32,7 @@ import {
   type Theme,
 } from "./deck-build.ts";
 import { lintDeck, storyline } from "./deck-lint.ts";
+import { loadRegistry } from "./layout-registry.ts";
 import type { OpenBus } from "./open-announce.ts";
 
 export interface ExportPptxParams {
@@ -163,7 +164,10 @@ export async function archifyExportPptx(
     // Advisory only — content notes never fail an export. They ride along in
     // `details` so the agent sees them without a second tool call, alongside the
     // storyline: the titles read in order ARE the deck's argument.
-    const notes = lintDeck(manifest);
+    const notes = lintDeck({
+      slides: manifest.slides,
+      suppressedTitle: new Set(loadRegistry({ manifestDir }).titleSuppressedLayouts()),
+    });
     // Readability advisory (this session's learning): a diagram whose smallest
     // label scales below the floor is silently unreadable. Surfaced at export
     // so the agent tightens the viewBox before the deck ships, not after a

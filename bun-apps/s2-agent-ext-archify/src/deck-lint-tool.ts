@@ -111,15 +111,46 @@ export interface DeckSkeleton {
   source: string;
 }
 
+export interface DeckSkeletonOpts {
+  /**
+   * Base dir. `<root>/templates/decks` is the user tier's second stop, after
+   * the `$ARCHIFY_TEMPLATES` env dirs. Omit to skip the file-backed user tier.
+   */
+  root?: string;
+  /** Overrides `$ARCHIFY_TEMPLATES` resolution — tests must not drop files into the package. */
+  env?: NodeJS.ProcessEnv;
+  /**
+   * Overrides the shipped `<pkg>/templates` tier (its `decks` subdir is
+   * searched) — for tests, which must not drop files into the package to prove
+   * precedence. Same seam as `loadRegistry`'s `shippedDir` (layout-registry.ts).
+   */
+  shippedDir?: string;
+}
+
 /**
- * Outlines from `templates/decks/` — user tier first (`<root>/templates/decks/`),
- * then the shipped tier; first hit wins and shadowed names are dropped, the
- * same precedence as the layout tiers.
+ * Outlines from `templates/decks/` — user tier first, then the shipped tier;
+ * first hit wins and shadowed names are dropped, the same precedence as the
+ * layout tiers. The user tier is each `$ARCHIFY_TEMPLATES` dir's `decks/`
+ * (in env order), then `<root>/templates/decks/`; the shipped tier is
+ * `<shippedDir>/decks/` or `<pkgRoot()>/templates/decks/` when not overridden.
  */
-export function discoverDeckSkeletons(root: string): DeckSkeleton[] {
-  const dirs = [join(root, "templates", "decks")];
-  const shipped = pkgRoot();
-  if (shipped) dirs.push(join(shipped, "templates", "decks"));
+export function discoverDeckSkeletons(opts: DeckSkeletonOpts = {}): DeckSkeleton[] {
+  const env = opts.env ?? process.env;
+  const abs = (p: string) => (isAbsolute(p) ? p : resolve(p));
+  const userDirs = [
+    ...(env.ARCHIFY_TEMPLATES ?? "")
+      .split(":")
+      .filter(Boolean)
+      .map((d) => join(abs(d), "decks")),
+    ...(opts.root ? [join(opts.root, "templates", "decks")] : []),
+  ];
+  const shippedRoot = pkgRoot();
+  const shippedDirs = opts.shippedDir
+    ? [join(opts.shippedDir, "decks")]
+    : shippedRoot
+      ? [join(shippedRoot, "templates", "decks")]
+      : [];
+  const dirs = [...userDirs, ...shippedDirs];
   const out: DeckSkeleton[] = [];
   const seen = new Set<string>();
   for (const dir of dirs) {
@@ -151,7 +182,7 @@ export async function archifyDeckLint(params: DeckLintParams, ctx: DeckLintCtx):
     // ── discovery surface (D9): no manifest → the catalog ────────────────────
     if (params.manifest === undefined) {
       const catalog = loadRegistry({ manifestDir: root, env: ctx.env }).catalog();
-      const decks = discoverDeckSkeletons(root);
+      const decks = discoverDeckSkeletons({ root, env: ctx.env });
       const text =
         `Available layouts (${catalog.length}) — six code layouts first, then templates ` +
         `from $ARCHIFY_TEMPLATES, <baseDir>/templates/ and the shipped tier:\n` +
@@ -198,7 +229,10 @@ export async function archifyDeckLint(params: DeckLintParams, ctx: DeckLintCtx):
       problems.push(...slotProblems(record, i, entry));
     });
 
-    const notes = lintDeck(manifest);
+    const notes = lintDeck({
+      slides: manifest.slides,
+      suppressedTitle: new Set(reg.titleSuppressedLayouts()),
+    });
     const story = storyline(manifest);
     if (problems.length > 0) {
       const text =

@@ -409,7 +409,10 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   // says the deck will come out visibly broken — today only a title too wide
   // for its band, which the accent rule strikes through — and writing that file
   // anyway just moves the discovery to whoever opens it. See `deck-lint.ts`.
-  const blocking = lintDeck({ slides }).filter((n) => n.severity === "error");
+  const blocking = lintDeck({
+    slides,
+    suppressedTitle: new Set(registry.titleSuppressedLayouts()),
+  }).filter((n) => n.severity === "error");
   if (blocking.length > 0) {
     throw new DeckError(
       `deck would render broken:\n` +

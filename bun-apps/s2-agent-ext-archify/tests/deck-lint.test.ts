@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { formatLintNotes, lintDeck, storyline, type DeckLintNote } from "../src/deck-lint.ts";
+import { loadRegistry } from "../src/layout-registry.ts";
 import type { Slide } from "../src/slide-model.ts";
 
 function codes(notes: DeckLintNote[]): string[] {
@@ -158,4 +159,43 @@ test("lintDeck never throws on a malformed slide", () => {
 test("formatLintNotes prints severity, slide and code", () => {
   const notes = lintDeck({ slides: [{ ...CLEAN, title: "Latency" }] });
   expect(formatLintNotes(notes)).toStartWith("warn slide 1: [title-is-a-label]");
+});
+
+describe("title-overflows — chrome-suppressed layouts are exempt (t02)", () => {
+  const long = "一".repeat(40); // a title that overflows on a normal layout
+
+  test("a quote slide's long title is NOT flagged — its band is never drawn", () => {
+    // `layout` is typed to the six code layouts; a template name flows through
+    // at runtime, so the test casts it (template slides reach lintDeck via a
+    // parsed manifest in real usage, where the name is a plain string).
+    const quoteSlide = { layout: "quote" as unknown as Slide["layout"], title: long, quote: "somebody's words" };
+    const notes = lintDeck({ slides: [quoteSlide], suppressedTitle: new Set(["quote"]) });
+    expect(codes(notes)).not.toContain("title-overflows");
+  });
+
+  test("an end slide's long title is NOT flagged", () => {
+    const endSlide = { layout: "end" as unknown as Slide["layout"], title: long, headline: "thanks" };
+    const notes = lintDeck({ slides: [endSlide], suppressedTitle: new Set(["end"]) });
+    expect(codes(notes)).not.toContain("title-overflows");
+  });
+
+  test("the same title on a bullets slide IS flagged when not suppressed", () => {
+    const notes = lintDeck({ slides: [{ ...CLEAN, title: long }] });
+    expect(codes(notes)).toContain("title-overflows");
+  });
+
+  test("without the set a statement slide stays exempt (regression)", () => {
+    expect(
+      lint({ layout: "statement", title: long, statement: long })
+    ).not.toContain("title-overflows");
+  });
+
+  test("the registry reports the divider templates as title-suppressed", () => {
+    // The shipped `quote` (chrome {title:false}) and `end` (chrome false) suppress
+    // the title band; `statement` is the code layout that always does.
+    const suppressed = loadRegistry({}).titleSuppressedLayouts();
+    expect(suppressed).toContain("statement");
+    expect(suppressed).toContain("quote");
+    expect(suppressed).toContain("end");
+  });
 });
