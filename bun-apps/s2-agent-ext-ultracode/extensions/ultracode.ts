@@ -14,6 +14,7 @@ import {
   createCronStore,
   createCronTools,
   createEffortState,
+  createScheduleWakeupTool,
   createWorkflowControlTool,
   createWorkflowHelpTool,
   createWorkflowStorage,
@@ -27,6 +28,7 @@ import {
   registerAllSavedWorkflows,
   registerBuiltinWorkflows,
   registerEffortCommand,
+  registerLoopCommand,
   registerWorkflowCommands,
   registerWorkflowModelsCommand,
   resetBudgetDirective,
@@ -34,6 +36,8 @@ import {
   saveWorkflowSettingsForCwd,
   shouldInjectFullWorkflowGuidelines,
   startCronSchedulerLoop,
+  startWakeupLoop,
+  WakeupRegistry,
   WorkflowManager,
   workflowProjectPaths,
 } from "../src/index.js";
@@ -183,6 +187,18 @@ export default function extension(pi: ExtensionAPI) {
   }
   let cronLoop: CronLoopHandle | undefined;
 
+  // ── /loop + schedule_wakeup (ticket 06 / map D7) ──────────────────────
+  // In-memory, session-live wakeup registry — deliberately NOT in the cron
+  // store: wakeups never persist, never lease across processes, and die with
+  // the session. `activeLoop.id` is the loop a fired turn belongs to (the
+  // tick sets it on fire; /loop sets it on start) so schedule_wakeup re-arms
+  // the loop whose prompt is actually running.
+  const wakeupRegistry = new WakeupRegistry();
+  const activeLoop: { id?: string } = {};
+  pi.registerTool(createScheduleWakeupTool({ registry: wakeupRegistry, currentLoopId: () => activeLoop.id }));
+  registerLoopCommand(pi, { registry: wakeupRegistry, activeLoop });
+  let wakeupLoop: ReturnType<typeof startWakeupLoop> | undefined;
+
   // Layer-3 conditional guideline injection. The workflow tool's authoring
   // guidelines are NO LONGER a static promptGuidelines tax on every turn; they
   // are injected here, per-turn, by before_agent_start:
@@ -240,6 +256,7 @@ export default function extension(pi: ExtensionAPI) {
       "cron_create",
       "cron_list",
       "cron_delete",
+      "schedule_wakeup",
     ].filter((nm) => !active.includes(nm));
     if (missing.length) {
       pi.setActiveTools([...active, ...missing]);
@@ -314,13 +331,34 @@ export default function extension(pi: ExtensionAPI) {
     // so exactly one interval runs per session.
     cronLoop?.stop();
     cronLoop = startCronSchedulerLoop({ store: cronStore, dispatch: manager, resolveScript: resolveCronScript });
+    // Session-live wakeup loop (ticket 06): sibling of the cron loop, same
+    // stop-and-restart discipline. The fire seam is the S5-measured
+    // followUp interleave — `sendUserMessage` queues while a turn streams and
+    // drains as the next turn (tests/wakeup-interleave.test.ts pins it).
+    wakeupLoop?.stop();
+    wakeupLoop = startWakeupLoop({
+      registry: wakeupRegistry,
+      fire: (loopId, prompt) => {
+        activeLoop.id = loopId;
+        void pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+      },
+      // TUI observability (ticket risk): every loop-end event (fire cap)
+      // surfaces as a display message, not just a log line.
+      notify: (message) => void pi.sendMessage({ customType: "wakeup", content: message, display: true }),
+    });
   });
 
   // Stop the cron loop when the session ends (ticket 08 / map D8): firing is
-  // session-live only — no daemon, no orphaned interval after shutdown.
+  // session-live only — no daemon, no orphaned interval after shutdown. The
+  // wakeup registry clears too (D7): wakeups are in-memory and never survive
+  // the session that armed them.
   pi.on("session_shutdown", () => {
     cronLoop?.stop();
     cronLoop = undefined;
+    wakeupLoop?.stop();
+    wakeupLoop = undefined;
+    wakeupRegistry.clear();
+    activeLoop.id = undefined;
   });
 
   // Track runtime model switches (e.g. /model, model cycling): future agent

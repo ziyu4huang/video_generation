@@ -1,6 +1,38 @@
 # Ticket 06 — /loop + schedule_wakeup dynamic self-pacing
 
-Status: open · Phase 3 (ultracode-only; independent)
+Status: done (2026-08-23) · Phase 3 (ultracode-only; independent)
+
+## Close-out (2026-08-23)
+
+- **S5 fog CLOSED first, as the approach prescribed**: a REAL
+  `createAgentSession` over the pi faux transport with turn one held open
+  mid-stream (`tests/wakeup-interleave.test.ts`) pins the fire-seam contract:
+  `sendUserMessage(prompt, {deliverAs: "followUp"})` during streaming does NOT
+  throw, queues exactly one followUp (`pendingMessageCount === 1`), the
+  streaming turn completes undisturbed, and the queue drains into EXACTLY one
+  new turn (faux `callCount === 2` — no runaway). Idle-session fire verified
+  too (direct turn, nothing queued).
+- **Built per approach**: `src/wakeup-registry.ts` (in-memory, one pending per
+  loop id, last-fired snapshot so the dynamic tool re-arms with the ORIGINAL
+  prompt + running fireCount past a fire, fire cap 50 with pre-fire auto-stop),
+  `src/wakeup-tools.ts` (`schedule_wakeup`: clamp 60–3600 LOUD not rejecting,
+  required reason, stop, cache-window-aware pacing guidance in the
+  description), `src/loop-command.ts` (`/loop 30s|5m|1h <prompt>` — unit
+  REQUIRED so a leading-digit prompt can't be misparsed as an interval —
+  default 10m, `dynamic`, `off`), sibling `startWakeupLoop` beside the cron
+  loop in `extensions/ultracode.ts` (same stop/restart discipline, cleared at
+  `session_shutdown`, `<wakeup>` display messages for loop starts/stops).
+- One design deviation from the ticket text, recorded in
+  `runWakeupTick`'s docstring: a dynamic loop that never re-arms ends
+  SILENTLY — the tool call happens inside the fired turn, AFTER `fire()`
+  returns, so a tick cannot observe "did not schedule". The only `ended` event
+  is the fire cap (pre-fire check). Bare `/loop dynamic` without a prompt is a
+  usage error (was silently a fixed loop whose prompt was the word "dynamic").
+- Gates: ext-ultracode `CI=true bun run test` 1169 pass (21 new across 4
+  files) + `check` + `typecheck` exit 0; ext-tool-gate `bun run test` 434
+  pass + `typecheck` exit 0 (the workflow-family order pin now 14 names,
+  `schedule_wakeup` after `cron_delete`). spec.md §2 `/loop` row updated
+  gap→aligned in this PR.
 
 ## Scope
 

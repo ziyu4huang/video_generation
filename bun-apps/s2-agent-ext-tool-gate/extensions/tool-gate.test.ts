@@ -205,7 +205,7 @@ describe("matchIntent (S1)", () => {
     expect(matched.map((g) => g.names[0])).toEqual(["movie"]);
     expect(matched[0]!.names).toEqual(["movie", "movie_help"]);
   });
-  test("workflow intent → the 13-tool workflow/subagent family", () => {
+  test("workflow intent → the 14-tool workflow/subagent family", () => {
     // run_workflow/workflow_help/workflow_control/spawn_subagent/list_subagents/
     // send_message all reference the ONE "workflow" gate family (ticket 01,
     // declared in the workflow extension, referenced cross-package by subagent;
@@ -213,8 +213,9 @@ describe("matchIntent (S1)", () => {
     // follow-up belongs to the exact sessions that can spawn one; the 4 task_*
     // board tools joined same-day ticket 03; the 3 cron tools joined
     // 2026-08-23 — teams-parity ticket 08: scheduled firing belongs to the
-    // exact sessions that can run a workflow)
-    // → buildEffectiveGates groups all 13 into a single multi-name gate.
+    // exact sessions that can run a workflow; schedule_wakeup joined same-day
+    // cc-parity-2 ticket 06 — /loop self-pacing belongs with the scheduling tools)
+    // → buildEffectiveGates groups all 14 into a single multi-name gate.
     // Intent-mode fires the whole family; co-fire via updateSticky is
     // preserved by the grouped names. (Names renamed 2026-08-20 —
     // docs/agents/extension-naming.md.)
@@ -227,6 +228,7 @@ describe("matchIntent (S1)", () => {
       "cron_create",
       "cron_list",
       "cron_delete",
+      "schedule_wakeup",
       "spawn_subagent",
       "list_subagents",
       "send_message",
