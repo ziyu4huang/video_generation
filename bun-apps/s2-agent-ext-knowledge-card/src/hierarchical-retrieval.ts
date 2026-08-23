@@ -92,23 +92,82 @@ export interface HierarchicalResult {
 // Pure scoring core (unit-testable offline — no Surreal)
 // ---------------------------------------------------------------------------
 
+/** English function words dropped from the lexical seed lane (ticket 09 D23
+ *  tuning): a stop-word token FTS-matches ~1600 of 2351 cards, so its lexRank
+ *  boost is pure noise that reorders the top ranks. Measured 2026-08-23 — the
+ *  "the"/"and" pools were the single biggest hier-vs-flat gap driver. */
+const HIER_STOPWORDS = new Set([
+	"the", "and", "for", "from", "with", "that", "this", "these", "those", "what",
+	"when", "where", "which", "how", "why", "who", "whom", "its", "it's", "into",
+	"onto", "over", "under", "than", "then", "them", "they", "their", "there",
+	"here", "been", "being", "was", "were", "are", "is", "am", "be", "do",
+	"does", "did", "doing", "have", "has", "had", "will", "would", "should",
+	"could", "can", "may", "might", "must", "shall", "not", "but", "out", "off",
+	"his", "her", "our", "your", "any", "all", "both", "each", "some", "such",
+	"one", "two", "also", "just", "very", "too", "so", "if", "or", "as", "at",
+	"by", "on", "up", "no", "nor", "only", "own", "same", "of", "to", "in",
+	"it", "an", "we", "you", "he", "she", "get", "got", "use", "using",
+]);
+
 export function hierTokenize(query: string): string[] {
-	return [...new Set(query.toLowerCase().split(/[^a-z0-9]+/g).filter((t) => t.length >= 2))].slice(0, 8);
+	return [...new Set(query.toLowerCase().split(/[^a-z0-9]+/g).filter((t) => t.length >= 2 && !HIER_STOPWORDS.has(t)))].slice(0, 8);
 }
 
+/** Stem-token noise filter: namespace/type prefixes baked into card stems
+ *  (`auto-memory-*`, `gotcha-*`, …) carry no topic signal (mirrors
+ *  retrieve.ts SLUG_STOP — kept local, that one is not exported). */
+const STEM_STOP = new Set([
+	...HIER_STOPWORDS,
+	"auto", "memory", "gotcha", "lever", "pattern", "metric", "note", "card",
+	"zettel", "self", "improve", "distill", "hermes", "false", "positive",
+]);
+
+/** Count query tokens present in the card's STEM (filename) token set — the
+ *  stem is the card's distilled topic fingerprint (flat's slugDom insight).
+ *  Pure. */
+export function stemTokenOverlap(stem: string, tokens: readonly string[]): number {
+	const stemSet = new Set(
+		stem.toLowerCase().split(/[-_. ]+/).filter((t) => t.length >= 3 && !STEM_STOP.has(t)),
+	);
+	let n = 0;
+	for (const t of tokens) {
+		if (t.length >= 3 && stemSet.has(t)) n++;
+	}
+	return n;
+}
+
+/** Minimum stem-token overlap for the absolute stem-lane term to fire —
+ *  flat's SLUG_DOM_THRESHOLD lesson: ungated slug weight floods the top
+ *  ranks with weak matches (measured here too: threshold 2 boosted crowd
+ *  cards on generic tokens — merge/branch/check — and REGRESSED five-step
+ *  2→4, receipts t2 vs t5). */
+export const STEM_LANE_THRESHOLD = 3;
+/** Absolute stem-lane term added to the seed: β·min(ov,3)/3. Injecting the
+ *  stem signal into lexRankNorm does NOTHING — that normalization is
+ *  rank-based, so the two boosted cards both sit at pool-rank 1–2 (~1.0 vs
+ *  0.999) and the ordering still falls to cos (measured: t4-stemlane receipt
+ *  identical to t2 on every query). The term must be absolute. */
+export const SLUG_BETA = 0.2;
+
 /** Seed blend, mirroring the retrieveRecords semantic blend: α·lexRankNorm +
- *  (1−α)·cosNorm. lexRankNorm ranks the pool by lexical score (stem-sorted
- *  ties): (N−r)/N for matched cards, 0 for semantic-only cards. Pure. */
+ *  (1−α)·cosNorm, plus the absolute stem-lane term β·min(ov,3)/3 (ticket 09
+ *  D23 tuning — flat's slugDom rank-1 maker). lexRankNorm ranks the pool by
+ *  lexical score (stem-sorted ties): (N−r)/N for matched cards, 0 for
+ *  semantic-only cards. Pure. */
 export function blendSeedScores(
-	pool: Array<{ stem: string; lex: number; cos: number | null }>,
+	pool: Array<{ stem: string; lex: number; cos: number | null; slugOv?: number }>,
 	alpha = SEMANTIC_ALPHA_DEFAULT,
+	beta = SLUG_BETA,
 ): Map<string, number> {
 	const byLex = [...pool].sort((a, b) => b.lex - a.lex || (a.stem < b.stem ? -1 : 1));
 	const lexRankNorm = new Map<string, number>();
 	byLex.forEach((p, r) => lexRankNorm.set(p.stem, p.lex > 0 ? (byLex.length - r) / byLex.length : 0));
 	const cosNorm = minMaxNorm(pool.map((p) => p.cos ?? Math.min(...pool.map((q) => q.cos ?? 0))));
 	const out = new Map<string, number>();
-	pool.forEach((p, i) => out.set(p.stem, alpha * (lexRankNorm.get(p.stem) ?? 0) + (1 - alpha) * (cosNorm[i] ?? 0)));
+	pool.forEach((p, i) => {
+		const slugTerm = beta * (Math.min(p.slugOv ?? 0, 3) / 3);
+		out.set(p.stem, alpha * (lexRankNorm.get(p.stem) ?? 0) + (1 - alpha) * (cosNorm[i] ?? 0) + slugTerm);
+	});
 	return out;
 }
 
@@ -162,6 +221,39 @@ export function propagateScores(
 }
 
 // ---------------------------------------------------------------------------
+// Default-switch gate (ticket 09, D25)
+// ---------------------------------------------------------------------------
+
+export interface GateMetrics {
+	/** Hits at the gate's K (hit@5 on the recall-audit battery). */
+	hitK: number;
+	/** Graded query count. */
+	graded: number;
+	/** Mean reciprocal rank. */
+	mrr: number;
+}
+
+export interface GateVerdict {
+	passes: boolean;
+	/** Human-readable evidence line for the map/ticket. */
+	reason: string;
+}
+
+/** D25 gate rule: hierarchical retrieval replaces flat `retrieveRecords` as
+ *  the default ONLY when it holds the baseline on BOTH metrics — hit@5 ≥
+ *  17/20 AND MRR ≥ 0.688 (the 2026-08-23 measured flat baseline; D8's
+ *  count-baseline rule generalized to both metrics). Tie stays flat: the
+ *  switch must be earned, not defaulted into. Pure. */
+export function evaluateDefaultSwitchGate(baseline: GateMetrics, candidate: GateMetrics): GateVerdict {
+	const hitOk = candidate.hitK >= baseline.hitK;
+	const mrrOk = candidate.mrr >= baseline.mrr;
+	return {
+		passes: hitOk && mrrOk,
+		reason: `candidate ${candidate.hitK}/${candidate.graded} hit@K (baseline ${baseline.hitK}/${baseline.graded}) ${hitOk ? "≥" : "<"}, MRR ${candidate.mrr.toFixed(3)} (baseline ${baseline.mrr.toFixed(3)}) ${mrrOk ? "≥" : "<"}`,
+	};
+}
+
+// ---------------------------------------------------------------------------
 // SurrealDB-facing retrieval
 // ---------------------------------------------------------------------------
 
@@ -211,11 +303,16 @@ export async function hierarchicalRetrieve(
 	}
 
 	// Lexical seed lane: per-token FTS (AND-only analyzer, P6), merged client-side.
+	// Body column included (ticket 09 D23): title+summary alone left this lane
+	// blind to body-level token matches that flat's bodyMatch scores (measured
+	// 2-query gap on the 20-question battery). Column weighting was probed and
+	// REJECTED (title 3×/summary 2×/body 1×: MRR 0.617→0.600, receipts
+	// t2-bodylane vs t3-lexweight — two rank-2→3 regressions, zero gains).
 	const lexHits = new Map<string, number>();
 	for (const tok of tokens) {
 		try {
 			const rows = await client.query<SeedRow[]>(
-				"SELECT stem, path, title, kind, is_leaf, parent, summary FROM card WHERE title @@ $tok OR summary @@ $tok;",
+				"SELECT stem, path, title, kind, is_leaf, parent, summary FROM card WHERE title @@ $tok OR summary @@ $tok OR body @@ $tok;",
 				{ tok },
 			);
 			for (const r of rows ?? []) {
@@ -238,12 +335,19 @@ export async function hierarchicalRetrieve(
 		};
 	}
 
-	// Seed blend (α over the union pool).
-	const pool = [...byStem.values()].map((r) => ({
-		stem: r.stem,
-		lex: tokens.length > 0 ? (lexHits.get(r.stem) ?? 0) / tokens.length : 0,
-		cos: cosByStem.has(r.stem) ? (cosByStem.get(r.stem) as number) : null,
-	}));
+	// Seed blend (α over the union pool) + the absolute stem lane: a card
+	// whose FILENAME names ≥2 query tokens gets the β term — flat's slugDom
+	// rank-1 maker, without which hier's MRR sat 0.071 under the baseline
+	// (4 queries at rank 2 vs flat's rank 1).
+	const pool = [...byStem.values()].map((r) => {
+		const ov = tokens.length > 0 ? stemTokenOverlap(r.stem, tokens) : 0;
+		return {
+			stem: r.stem,
+			lex: tokens.length > 0 ? (lexHits.get(r.stem) ?? 0) / tokens.length : 0,
+			cos: cosByStem.has(r.stem) ? (cosByStem.get(r.stem) as number) : null,
+			slugOv: ov >= STEM_LANE_THRESHOLD ? ov : 0,
+		};
+	});
 	const seeds = blendSeedScores(pool);
 	const rowsByStem = new Map(
 		pool.map((p) => [
