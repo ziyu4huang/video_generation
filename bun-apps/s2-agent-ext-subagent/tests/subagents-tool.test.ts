@@ -669,6 +669,7 @@ test("mid-batch throw at higher concurrency: in-flight sibling still settles; wo
   const inFlight = new SubagentInFlightRegistry();
   let spawn0Release: (() => void) | undefined;
   let spawn0Done: Promise<void> | undefined;
+  let sawThrow = false;
   const spawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
     const idx = Number(opts.task.match(/^#(\d+)/)?.[1] ?? 0);
     if (idx === 0) {
@@ -682,6 +683,7 @@ test("mid-batch throw at higher concurrency: in-flight sibling still settles; wo
       await spawn0Done;
       return ok("ok");
     }
+    sawThrow = true;
     throw new Error("boom-1");
   };
   const tool = createSubagentsTool({ cwd: "/repo", spawn: spawn as never, inFlight });
@@ -692,8 +694,14 @@ test("mid-batch throw at higher concurrency: in-flight sibling still settles; wo
     undefined,
     NO_CTX,
   );
-  // Give #1 a chance to throw while #0 is still in flight.
-  await new Promise((r) => setTimeout(r, 10));
+  // Wait (poll with deadline, NOT a fixed sleep — the pre-dispatch window grew
+  // by ticket 04's startup-context capture and a loaded runner makes a fixed
+  // 10ms window racy) until #1 has THROWN while #0 is still in flight.
+  const deadline = Date.now() + 4000;
+  while (!sawThrow && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  assert.ok(sawThrow, "child #1 threw while #0 was still in flight");
   spawn0Release?.();
   await assert.rejects(executing, /boom-1/);
   assert.equal(inFlight.views().length, 0, "both children evicted (in-flight sibling drained, not orphaned)");
