@@ -51,6 +51,13 @@ export interface EmitPptxCtx {
 export interface EmitResult {
   shapes: number;
   texts: number;
+  /**
+   * Smallest diagram-label pt on the slide, when it has one (see
+   * `PlacementResult.minPt`). The deck builder turns this into a readability
+   * advisory so a diagram whose labels collapse below a readable floor is
+   * reported at export time, not after a screenshot.
+   */
+  minPt?: number;
 }
 
 /**
@@ -89,6 +96,7 @@ export function emitPptxSlide(
   const p = ctx.palette;
   let shapes = 0;
   let texts = 0;
+  let resultMinPt: number | undefined;
 
   for (const block of blocks) {
     const box: Box = toInches(block.box);
@@ -220,10 +228,13 @@ export function emitPptxSlide(
         });
         shapes += placed.shapes;
         texts += placed.texts;
+        if (placed.minPt !== undefined) {
+          resultMinPt = resultMinPt === undefined ? placed.minPt : Math.min(resultMinPt, placed.minPt);
+        }
         break;
       }
     }
   }
 
-  return { shapes, texts };
+  return { shapes, texts, ...(resultMinPt !== undefined ? { minPt: resultMinPt } : {}) };
 }

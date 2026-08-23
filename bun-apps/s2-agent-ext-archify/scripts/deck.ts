@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 //
-// archify deck — IR[] → PPTX slide deck of NATIVE, EDITABLE shapes.
+// archify deck — IR[] / Markdown outline → PPTX slide deck of NATIVE, EDITABLE shapes.
 //
-//   bun run deck [manifest] [--theme light|dark] [--output out.pptx]
+//   bun run deck [manifest] [--outline <file>] [--theme light|dark] [--output out.pptx]
 //                [--slides-dir <dir> | --no-slides] [--thumbnails]
 //                [--emit-shape-ir <dir>] [--lint]
 //   bun run deck render <manifest> [--out <dir>] [--size <px>]
@@ -25,9 +25,14 @@
 //     "slides": [ { "ir": "slide1.json", "title": "…", "subtitle": "…" } ]
 //   }
 //
-// A slide with `ir` and no `layout` is a diagram slide, so every manifest written
-// before layouts existed still builds unchanged. The six layouts are `title`,
-// `section`, `bullets`, `split`, `diagram` and `statement`; see the README.
+// `--outline <file>` swaps the manifest for a Markdown outline (lib/outline.ts):
+// frontmatter carries output/theme/tag/defaults; the body's markers cover the
+// six code layouts and fenced :::name JSON payloads reach the layout templates.
+// Both doors go through the same resolveDeckInput() as the manifest, so the
+// input shapes cannot drift. A slide with `ir` and no `layout` is a diagram
+// slide, so every manifest written before layouts existed still builds
+// unchanged. The six layouts are `title`, `section`, `bullets`, `split`,
+// `diagram` and `statement`; see the README.
 //
 // `--lint` additionally prints the title storyline (the deck's argument read from
 // the titles alone), the advisory content notes, and the OOXML structural
@@ -54,7 +59,7 @@ import {
   buildDeck,
   DeckError,
   defaultSlidesDir,
-  loadManifestFile,
+  resolveDeckInput,
   resolveDeckOutput,
   type Theme,
 } from "../lib/deck-build.ts";
@@ -68,6 +73,8 @@ const PKG_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export interface DeckArgs {
   manifest: string;
+  /** Markdown outline file; replaces the manifest as the input shape. */
+  outline?: string;
   theme?: Theme;
   output?: string;
   emitShapeIr?: string;
@@ -81,6 +88,7 @@ export interface DeckArgs {
 
 export function parseArgs(argv: string[]): DeckArgs {
   const positional: string[] = [];
+  let outline: string | undefined;
   let theme: Theme | undefined;
   let output: string | undefined;
   let emitShapeIr: string | undefined;
@@ -90,6 +98,10 @@ export function parseArgs(argv: string[]): DeckArgs {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === undefined) break;
+    if (a === "--outline") {
+      outline = argv[++i];
+      continue;
+    }
     if (a === "--theme") {
       theme = argv[++i] as Theme;
       continue;
@@ -126,6 +138,7 @@ export function parseArgs(argv: string[]): DeckArgs {
   }
   return {
     manifest: positional[0] ?? "deck.config.json",
+    ...(outline ? { outline } : {}),
     ...(theme ? { theme } : {}),
     ...(output ? { output } : {}),
     ...(emitShapeIr ? { emitShapeIr } : {}),
@@ -192,7 +205,8 @@ async function runRender(args: RenderArgs): Promise<void> {
     fail(`no render backend on this machine\n${looked}`);
   }
 
-  const { manifest, manifestDir } = await loadManifestFile(args.manifest, cwd);
+  const input = await resolveDeckInput(args.outline ? { outlinePath: args.outline } : { manifestPath: args.manifest }, cwd);
+  const { manifest, manifestDir } = input;
   const outputPath = resolveDeckOutput(manifest, manifestDir, cwd, args.output);
   const result = await buildDeck({
     manifest,
@@ -226,7 +240,8 @@ async function main(): Promise<void> {
     fail(`vendored archify bin not found at ${VENDORED_BIN} (set PI_ARCHIFY_BIN to override)`);
   }
 
-  const { manifest, manifestDir } = await loadManifestFile(args.manifest, cwd);
+  const input = await resolveDeckInput(args.outline ? { outlinePath: args.outline } : { manifestPath: args.manifest }, cwd);
+  const { manifest, manifestDir } = input;
   const outputPath = resolveDeckOutput(manifest, manifestDir, cwd, args.output);
 
   const result = await buildDeck({

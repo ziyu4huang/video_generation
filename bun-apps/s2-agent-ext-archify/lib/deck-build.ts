@@ -51,6 +51,7 @@ import { applyViewFocus, readComponentIds, readGuidedViews } from "./view-focus.
 import { runArchify, VENDORED_BIN } from "./run.ts";
 import { announceDeck, type OpenBus } from "./open-announce.ts";
 import { generateThumbnails } from "./thumbnails.ts";
+import { parseOutline } from "./outline.ts";
 
 export type { Theme, Palette };
 /** Re-exported for consumers that imported it from here before the split. */
@@ -138,6 +139,13 @@ export interface BuiltSlide {
   diagramType: string;
   shapes: number;
   texts: number;
+  /**
+   * Smallest diagram-label pt on this slide, when it has one (see
+   * `PlacementResult.minPt`). The export surfaces a readability advisory when
+   * it drops below a configurable floor, so a diagram whose labels collapse is
+   * reported at export time rather than after a screenshot.
+   */
+  minPt?: number;
 }
 
 export interface DeckResult {
@@ -469,6 +477,7 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
         diagramType: diagramType ?? layout,
         shapes: placed.shapes,
         texts: placed.texts,
+        ...(placed.minPt !== undefined ? { minPt: placed.minPt } : {}),
       });
       progress(
         `slide ${i + 1}/${total} (${diagramType ?? layout}) — ` +
@@ -512,7 +521,9 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   }
 }
 
-/** Resolve a manifest path + its output path the way both entry points expect. */
+/**
+ * Resolve a manifest path + its output path the way both entry points expect.
+ */
 export async function loadManifestFile(
   manifestPath: string,
   cwd: string,
@@ -527,6 +538,61 @@ export async function loadManifestFile(
   const reg = registry ?? loadRegistry({ manifestDir: dirname(manifestAbs) });
   const manifest = parseManifest(await file.text(), manifestAbs, reg);
   return { manifest, manifestDir: dirname(manifestAbs), manifestAbs };
+}
+
+/**
+ * The four input shapes a deck can arrive in, resolved through ONE function so
+ * `archify_export_pptx` and `bun run deck` cannot drift (ticket 08, D8):
+ *
+ *   - `manifestPath` — a deck.config.json
+ *   - `irPaths`      — one slide per IR, titles from `ir.meta.title`
+ *   - `outline`      — Markdown outline text, resolved against the cwd
+ *   - `outlinePath`  — an outline file, resolved against its own directory
+ *
+ * Exactly one shape must be present.
+ */
+export type DeckInputKind = "manifest" | "irPaths" | "outline";
+
+export interface DeckInputParams {
+  manifestPath?: string;
+  irPaths?: string[];
+  /** Outline Markdown text; `ir`/`output` paths resolve against the cwd. */
+  outline?: string;
+  /** Path to an outline file; `ir`/`output` paths resolve beside it. */
+  outlinePath?: string;
+}
+
+const SHAPE_NAMES = ["manifestPath", "irPaths", "outline", "outlinePath"] as const;
+
+export async function resolveDeckInput(
+  params: DeckInputParams,
+  cwd: string
+): Promise<{ manifest: DeckManifest; manifestDir: string; inputKind: DeckInputKind }> {
+  const present = [
+    typeof params.manifestPath === "string" && params.manifestPath !== "",
+    Array.isArray(params.irPaths) && params.irPaths.length > 0,
+    typeof params.outline === "string" && params.outline !== "",
+    typeof params.outlinePath === "string" && params.outlinePath !== "",
+  ];
+  const count = present.filter(Boolean).length;
+  if (count !== 1) {
+    const listed = SHAPE_NAMES.filter((_, i) => present[i]).join(", ");
+    throw new DeckError(
+      count === 0
+        ? `Pass exactly one of ${SHAPE_NAMES.join(" / ")}.`
+        : `Pass exactly one of ${SHAPE_NAMES.join(" / ")} — got ${listed}.`
+    );
+  }
+  if (present[0]!) {
+    const loaded = await loadManifestFile(params.manifestPath!, cwd);
+    return { manifest: loaded.manifest, manifestDir: loaded.manifestDir, inputKind: "manifest" };
+  }
+  if (present[1]!) return { manifest: manifestFromIrPaths(params.irPaths!, cwd), manifestDir: cwd, inputKind: "irPaths" };
+  if (present[2]!) return { manifest: parseOutline(params.outline!, cwd), manifestDir: cwd, inputKind: "outline" };
+  const outlineAbs = isAbsolute(params.outlinePath!) ? params.outlinePath! : resolve(cwd, params.outlinePath!);
+  const file = Bun.file(outlineAbs);
+  if (!(await file.exists())) throw new DeckError(`outline not found: ${outlineAbs}`);
+  return { manifest: parseOutline(await file.text(), dirname(outlineAbs)), manifestDir: dirname(outlineAbs), inputKind: "outline" };
 }
 
 /**

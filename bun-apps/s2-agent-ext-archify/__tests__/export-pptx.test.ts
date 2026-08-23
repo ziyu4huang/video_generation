@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { archifyExportPptx } from "../lib/export-pptx.ts";
+import { archifyExportPptx, readabilityNotes, READABILITY_FLOOR_PT } from "../lib/export-pptx.ts";
 import { count, readZipText } from "../lib/read-zip.ts";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -56,6 +56,34 @@ describe("archify_export_pptx — input contract", () => {
     );
     expect(r.isError).toBe(true);
     expect(r.content[0]!.text).toMatch(/slide 1/);
+  });
+});
+
+describe("readability advisory", () => {
+  const slides = (minPt?: number) => [{ ...(minPt !== undefined ? { minPt } : {}) }];
+
+  test("flags a diagram whose smallest label is under the floor", () => {
+    // The v3/v4 defect: an 8px label scaled into a wide viewBox lands ~4pt.
+    // The advisory is exactly the thing that was missing — it has to fire, and
+    // name the slide, so the agent tightens the viewBox before shipping.
+    const notes = readabilityNotes(slides(4.2), READABILITY_FLOOR_PT);
+    expect(notes.length).toBe(1);
+    expect(notes[0]!.slide).toBe(1);
+    expect(notes[0]!.minPt).toBe(4.2);
+    expect(notes[0]!.floor).toBe(READABILITY_FLOOR_PT);
+  });
+
+  test("is silent at or above the floor", () => {
+    expect(readabilityNotes(slides(8.06), READABILITY_FLOOR_PT)).toHaveLength(0);
+    expect(readabilityNotes(slides(), READABILITY_FLOOR_PT)).toHaveLength(0);
+  });
+
+  test("flags only the slides that are under the floor", () => {
+    const notes = readabilityNotes(
+      [{ minPt: 9.1 }, { minPt: 5.5 }],
+      READABILITY_FLOOR_PT
+    );
+    expect(notes.map((n) => n.slide)).toEqual([2]);
   });
 });
 

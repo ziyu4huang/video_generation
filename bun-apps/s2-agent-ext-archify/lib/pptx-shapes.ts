@@ -76,6 +76,16 @@ export interface PlacementResult {
   texts: number;
   /** The uniform SVG-unit → inch scale actually used. */
   scale: number;
+  /**
+   * Smallest text pt emitted, when any text node was placed.
+   *
+   * `pt = fontSize * scale * 72`. A diagram whose viewBox is large relative to
+   * the slide's diagram box silently collapses its labels (e.g. 8px × 0.006in ×
+   * 72 ≈ 3.5pt) — the deck exposes this so an agent is told the diagram text
+   * will be unreadable BEFORE the deck ships, not after a screenshot. Absent
+   * when the slide (or box) holds no text.
+   */
+  minPt?: number;
 }
 
 const EPS = 1e-6;
@@ -264,6 +274,7 @@ export function addShapeIrToSlide(
 
   let shapes = 0;
   let texts = 0;
+  let minPt: number | undefined;
   if (scale <= 0) return { shapes, texts, scale: 0 };
 
   /** Emit an arrowhead triangle matching SVG's markerUnits="strokeWidth". */
@@ -469,6 +480,7 @@ export function addShapeIrToSlide(
         // every OOXML renderer, so the width must be an upper bound anyway —
         // see `labelWidthEms` above.
         const sizePt = node.fontSize * scale * 72;
+        if (minPt === undefined || sizePt < minPt) minPt = sizePt;
         const boxH = len(node.fontSize * 1.8);
         const centerY = py(node.y - node.fontSize * 0.35);
         const estWidth = len(node.fontSize * labelWidthEms(node.text));
@@ -502,5 +514,5 @@ export function addShapeIrToSlide(
     }
   }
 
-  return { shapes, texts, scale };
+  return { shapes, texts, scale, ...(minPt !== undefined ? { minPt } : {}) };
 }
