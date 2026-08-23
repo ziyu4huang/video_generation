@@ -2,7 +2,7 @@
 effort: 2026-08-23-file2md-smart-enhance
 created: 2026-08-23
 last: 2026-08-24
-status: active
+status: complete
 ---
 
 # file2md smart enhance — adaptive text → OCR → vision-on-figure ladder
@@ -62,7 +62,16 @@ Measured 2026-08-23 in this worktree unless noted.
   guard degrade, prose zero-call, soft-resolve); tsc clean, biome 0 errors
   (45 pre-existing warnings), local_ci 10 packages green, schema-cost
   +2.65%.)**
-- [ ] 03 — E2E suite hardening + docs + CLI surface. Blockers: 01, 02.
+- [x] 03 — E2E suite hardening + docs + CLI surface. Blockers: 01, 02.
+  **(CLOSED 2026-08-24 — PR #1938 `e9e05b3`, verdict CLEAN, branchSpent:
+  true. 231 tests +4 (resume-no-redo ×2 — enhanced page never re-runs,
+  flag-only page not retroactively enhanced — and `--pages` ×2 on a new
+  2-page mixed prose+figure fixture); tsc clean, biome 0 errors (45
+  pre-existing warnings), local_ci green. SKILL.md smart-ladder section
+  (thresholds as constants, degrade semantics, resume rule), CONTEXT.md
+  glossary terms, architecture.md ladder record. CLI help
+  `auto|text|ocr|vlm|smart` + `--extract smart` example and the tool mode
+  enum already carried `smart` from 01/02.)**
 
 ### Phase B — OCR engine (independent; user-added 2026-08-23)
 
@@ -81,10 +90,12 @@ Measured 2026-08-23 in this worktree unless noted.
   BUN_PI_FILE2MD=0), facade rows dropped.)**
 
 **Execution order:** 04 → 05 → 01 → 02 → 03 — 04 shipped (#1920), 05 shipped
-(#1922, +0.5.1 via #1923), 01 shipped (#1928, +0.5.2 via #1931) and 02
-shipped (#1935): the engine is in the deployed tree with OCR e2e, smart
-mode's skeleton is in, figure pages now enhance via vision. Next: 03
-(E2E hardening + docs + CLI surface) — the queue head.
+(#1922, +0.5.1 via #1923), 01 shipped (#1928, +0.5.2 via #1931), 02
+shipped (#1935) and 03 shipped (#1938): the engine is in the deployed tree
+with OCR e2e, smart mode's skeleton is in, figure pages enhance via vision,
+and the ladder is fully covered + documented. **Queue drained — the effort
+is 'complete'; the successor head is the effort close-out work (real-VLM
+validation of the ladder on the USB4 figure pages).**
 
 ## Decisions
 
@@ -128,9 +139,12 @@ mode's skeleton is in, figure pages now enhance via vision. Next: 03
 
 ## Frontier
 
-Ticket 03 (`tickets/03-e2e-suite-docs.md`) — the last queue ticket: smart-mode
-E2E branch coverage (resume-no-redo, `--pages`), SKILL.md + CONTEXT.md + docs,
-CLI help surface. Its close-out ends the effort (map status: complete).
+Effort complete (map status: complete) — every queue ticket shipped. The next
+workable item is the fog-of-war real-VLM validation (`--extract smart` over the
+USB4 spec's 31 caption-only figure pages with LM Studio live) before trusting
+the ladder on a real figure-bearing spec; it is ranked first in the successor
+next-goal. Without a real-VLM pass, the ladder is fixture-verified but not
+corpus-validated.
 
 ## Fog of war
 
