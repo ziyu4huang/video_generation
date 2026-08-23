@@ -15,7 +15,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { formatBudget, type ActiveGoal } from "./format.js";
 import { applyDefaultTokenBudget, goalState, incrementGoal, transitionGoal } from "./state.js";
 import { clearPersistedGoal, loadGoalStateFromSession, persistGoal } from "./persistence.js";
-import { isLoopActive, runLoopTick } from "../loop/loop.js";
 import {
 	accountTurnForNudges,
 	HEARTBEAT_MAX_NUDGES,
@@ -250,11 +249,6 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 			return;
 		}
 
-		// Loop 3 dispatch: a live loop drives the continuation, not a goal.
-		if (isLoopActive()) {
-			await runLoopTick(pi, ctx as StatusContext, event);
-			return;
-		}
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
 		// (the prior `const finalAssistant = findFinalAssistantMessage(...)` line
 		//  here is REMOVED — the hoisted binding above is reused by the aborted/
@@ -404,14 +398,12 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 			}
 		}
 		await sendContinuationPrompt(pi, ctx, currentGoal);
-	});	// Heartbeat supervision seam (Task 8). syncHeartbeatTimer's `shouldRun` now
-	// includes isLoopActive(), so the heartbeat supervises a goal XOR a loop. But
-	// syncHeartbeatTimer is only invoked from updateStatus (goal-driven) — a
-	// loop-only session never hits updateStatus, so the heartbeat would never
-	// start/stop for a loop. Publish a re-evaluate hook on globalThis (mirroring
-	// the __piGoalActive pattern) so the loop's start/stop transitions can arm/
-	// disarm the heartbeat WITHOUT a goal↔loop import cycle. Defensive `?.()` —
-	// degraded (no heartbeat) if goal() was never registered.
+	});
+	// Heartbeat supervision seam (Task 8). The heartbeat now supervises goals
+	// only — the recurring /loop owns its own timer chain (loop-scheduler.ts)
+	// and needs no goal-side heartbeat. The globalThis kick hook stays for the
+	// goal lifecycle transitions; defensive `?.()` — degraded (no heartbeat)
+	// if goal() was never registered.
 	(globalThis as Record<string, unknown>).__piKickHeartbeat = syncHeartbeatTimer;
 }
 
