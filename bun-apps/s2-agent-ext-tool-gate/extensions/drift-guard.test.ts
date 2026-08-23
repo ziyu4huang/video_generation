@@ -3,7 +3,7 @@
  *
  * Every tool OWNED by a MIGRATED extension must declare valid (non-dead)
  * owner-`gating`. The set of migrated extensions is the single source of truth
- * in ./migrated-extensions.ts (MIGRATED_EXTENSIONS, imported below); the net
+ * in ../qa/migrated-extensions.ts (MIGRATED_EXTENSIONS, imported below); the net
  * iterates it, so APPENDING an entry there is all a rollout ticket does to put
  * that extension's tools behind this gate.
  *
@@ -51,7 +51,7 @@ import {
 	captureRegisteredTools,
 	type MigratedExtension,
 	type ToolDef,
-} from "./migrated-extensions.ts";
+} from "../qa/migrated-extensions.ts";
 
 /**
  * Pure gating validator — the heart of the drift-guard. Throws on:

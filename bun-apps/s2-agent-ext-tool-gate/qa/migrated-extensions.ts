@@ -46,7 +46,7 @@ import { registerMemoryTool } from "@repo/s2-agent-ext-hermes-memory/src/tools/m
 import { registerSearchTool } from "@repo/s2-agent-ext-hermes-memory/src/tools/search-tool.ts";
 import { registerSkillTool } from "@repo/s2-agent-ext-hermes-memory/src/tools/skill-tool.ts";
 import { createPresentTool } from "@repo/s2-agent-ext-webui/src/present-tool.ts";
-import toolGate from "./tool-gate.ts";
+import toolGate from "../extensions/tool-gate.ts";
 
 /** A registered tool def — only the fields the guard reads are typed. */
 export type ToolDef = {

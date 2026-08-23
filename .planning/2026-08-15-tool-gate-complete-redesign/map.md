@@ -79,6 +79,22 @@ today: 0 task-breaking gates, enable_tool escape, fail-open for untracked — bu
 argument remains the standing risk); (2) the 309-tok enable_tool overhead the dist would gain;
 (3) policy naming ("repo-internal tooling" vs measured claim, cf. devops's own reversal #1911).
 
+**Decision (2026-08-23, same day): REVERSED — tool-gate ships in the dist.** User chose the
+reversal over reaffirm/defer. Implementation (then-stale "repo-internal tooling" was the only
+reason; the measurement + devops #1911 precedent carried the decision): registry row gained
+`deploy: { order: 190 }` + the name shortened to `tool-gate` (shipped rows use the short name —
+the isolation contract derives the package from it), deploy.md "Limits" moved it from "Excluded"
+to the base set (19 extensions), the isolation contract gained its second sanctioned lib-face edge
+(tool-gate → power-tool `schema-cost`), the entry gained the base-set disable-env guard
+(`BUN_PI_TOOL_GATE=0`), and the test-support enumeration substrate
+(`qa/migrated-extensions.ts`, moved out of `extensions/`) stopped being scanned as a cross-import.
+Deploy: `0.4.0+gbbde34c` (19 extensions, e2e boot/ext-load/model-call all pass).
+**Re-measured on the shipped dist** (same probe + production pipeline recipe): 70 tools / 63 defs,
+21 families all resolve, **gross saved 12,637 (61%)** — family composition byte-identical to the
+full-tree qa workflow 5,553 · zk_ingest 921 · sync_default_branch 753 · skill_manage 578 ·
+wayfind_effort 557 · power_browser 518 · zk_ask 445 · run_local_ci 383 — enable_tool 297, **net
+12,340**.
+
 **Fog left.**
 - Live L2 (--model) measurement on the dist — whether the 58.7% survives real prompts.
 - Whether the dist-shipped matcher's recall can be guaranteed without the repo corpus (probe

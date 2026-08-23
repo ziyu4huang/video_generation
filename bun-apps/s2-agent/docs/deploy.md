@@ -319,10 +319,10 @@ The dist runs with zero network and zero package installation — enforced, not 
 
 ## Limits
 
-- **Deploy set (2026-08-23): 18 extensions** — `task`, `prompt-history`, `superpowers`,
+- **Deploy set (2026-08-23): 19 extensions** — `task`, `prompt-history`, `superpowers`,
   `wayfind`, `hermes-memory`, `subagent`, `ultracode` (was `workflow` pre-2026-08-22), `btw`,
   `web-access`, `power-tool`, `webui`, `hyperframes`, `obsidian`, `knowledge-card`, `archify`,
-  `compact`, `sv-analyzer`, and `devops` (joined 2026-08-23, below). The earlier
+  `compact`, `sv-analyzer`, `tool-gate`, and `devops` (joined 2026-08-23, below). The earlier
   named blockers turned out to be stale on measurement: hermes-memory's sqlite is `bun:sqlite` (a
   builtin the host require serves), webui's HTML shell is a single inline string constant (no
   static assets), and the superpowers skills tree copies through the same path hyperframes
@@ -346,13 +346,20 @@ The dist runs with zero network and zero package installation — enforced, not 
   the repo-side `src/deploy-cli.ts` rather than importing the pipeline — the pipeline's
   module-scope `import.meta` paths would be folded by the bundler into build-machine paths,
   which the relocatability gate rejects.
+- **`tool-gate` joined the base set** (2026-08-23, measured reversal of the original
+  repo-internal exclusion): the dist carries 74% of the full-tree gate-managed schema mass, so
+  shipping it saves **12,637 gross / 12,328 net (57.3%)** per request at session start (dist
+  baseline 21,531; `enable_tool` costs −309). Fail-open for untracked tools plus the
+  `enable_tool` escape hatch hold the 0 task-breaking posture; its recall corpus and gate-recall
+  probes stay repo-side — this ships without its QA harness, the standing portability caveat (a
+  real `--model` run on the dist remains fog).
 - **Excluded, with reasons**:
   `file2md` (v2 is bun-only — pdfjs text + vendored dsh-cowork office + pdfium wasm + tesseract
   wasm OCR with an optional local vision tier — but stays out of the portable core by size/scope
   policy; its package structure is deploy-ready, see `ADR-file2md-0001`), the director/MCP
   wrappers (`movie-director`, `flux2`, `krea2`, `ltx`, `zai-mcp`, `research-tool` — bound to
-  this machine's swift CLIs and services), and repo-internal tooling
-  (`tool-gate`). All stay available through the legacy source/run-dir modes.
+  this machine's swift CLIs and services). All stay available through the legacy
+  source/run-dir modes.
 - **Host modules**: `@earendil-works/pi-ai` (+`/compat`) — already compiled in via pi-coding-agent,
   served for identity stability; `@repo/s2-agent-core-interface` — GATE_DEFS is a shared mutable
   registry (obsidian, knowledge-card and wayfind all register gate families at module scope), so
