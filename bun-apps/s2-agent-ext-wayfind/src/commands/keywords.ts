@@ -11,6 +11,7 @@ export const WAYFIND_KEYWORDS = new Set([
   "seed",
   "sync",
   "done",
+  "handoff",
   "validate",
   "statusbar",
   "help",

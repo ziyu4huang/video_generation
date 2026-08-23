@@ -13,7 +13,9 @@ import { adoptMostRecentActiveEffort } from "../effort-query.js";
 import { renderStatus, renderValidate } from "../effort-render.js";
 import { effortStatus, validateEffort } from "../effort-tool.js";
 import { buildFreshnessWarning, checkFactFreshness } from "../freshness.js";
+import { writeSessionHandoff } from "../handoff.js";
 import { readEffortMeta } from "../lifecycle.js";
+import { readMap } from "../map.js";
 import type { WayfindOverlay } from "../overlay.js";
 import { procedurePath } from "../procedures.js";
 import { writeWayfindStatusBar } from "../settings.js";
@@ -67,6 +69,41 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
     const filedNote = r.filedTo ? ` · filed to ${r.filedTo}` : r.fileError ? ` · filing failed: ${r.fileError}` : "";
     ctx.ui.notify(
       `[${PKG_NAME}] done: wrote ${r.path} (${r.deferredPrizes.length} deferred prize(s))${filedNote}. Next goal: ${r.nextGoal} → present the choice via the ask_user_question tool (recommended ⭐).`,
+      "info",
+    );
+  }
+
+  /** `/wayfind handoff [effort]` — session-end handoff when the effort is NOT
+   *  finished: carry every open ticket into a strict-v2 next-goal file
+   *  (devops `self-reflect-next-goal` contract, validator-passing) instead of
+   *  dropping them. The counterpart of `done`: done closes a FINISHED effort,
+   *  handoff preserves an UNFINISHED one. */
+  async function handleWayfindHandoff(args: string, ctx: ExtensionCommandContext): Promise<void> {
+    const sessionId = getSessionId(ctx);
+    const effort = resolveEffortOrWarn(args, ctx, sessionId);
+    if (!effort) return;
+    const map = readMap(ctx.cwd, effort);
+    if (!map) {
+      ctx.ui.notify(`[${PKG_NAME}] handoff: no map at .planning/${effort}/map.md`, "warning");
+      return;
+    }
+    let r: ReturnType<typeof writeSessionHandoff>;
+    try {
+      r = writeSessionHandoff(ctx.cwd, effort, map);
+    } catch (e) {
+      ctx.ui.notify(`[${PKG_NAME}] handoff: ${e instanceof Error ? e.message : String(e)}`, "warning");
+      return;
+    }
+    if ("refused" in r) {
+      ctx.ui.notify(`[${PKG_NAME}] handoff: ${r.refused}`, "warning");
+      return;
+    }
+    overlay.setLine("handoff", `handoff: ${effort} (${r.openTickets.length} open)`);
+    ctx.ui.notify(
+      [
+        `[${PKG_NAME}] handoff: wrote ${r.path} carrying ${r.openTickets.length} open ticket(s) (${r.openTickets.join(", ")}); frontier now: ${r.frontier.length > 0 ? r.frontier.join(", ") : "(blocked/claimed only)"}.`,
+        `Fill the 'Verified this session' section with real evidence, then validate: bun bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts`,
+      ].join("\n"),
       "info",
     );
   }
@@ -152,7 +189,7 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
     // remain → bare /wayfind claims the next one; frontier clear → chart next.
     ctx.ui.notify(
       r.open > 0
-        ? "Resume: /wayfind  (claims the next ticket)"
+        ? "Resume: /wayfind  (claims the next ticket). Session ending with these open? /wayfind handoff — never just stop."
         : "All done — chart the next effort: /wayfind <destination>",
       "info",
     );
@@ -289,6 +326,7 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
     seed: handleWayfindSeed,
     sync: handleChainSync,
     done: handleWayfindDone,
+    handoff: handleWayfindHandoff,
     validate: handleWayfindValidate,
     statusbar: handleWayfindStatusbar,
     help: handleWayfindHelp,

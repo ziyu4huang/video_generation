@@ -49,6 +49,7 @@ export function renderWayfindHelp(cwd: string, activeEffort: string | undefined)
     "  /wayfind seed [effort]      flatten tickets/decisions into .planning/<effort>/task_plan.md (refuses to overwrite)",
     "  /wayfind sync [effort]      close tickets whose task_plan phase completed",
     "  /wayfind done [effort]      closing ceremony: harvest to output/next-goal-<ts>.md + archive to .planning/done/",
+    "  /wayfind handoff [effort]   session ending with OPEN tickets: write the v2 next-goal handoff (never just stop)",
     "  /wayfind validate [effort]  check map/manifest/ticket conformance",
     "  /wayfind statusbar on|off   toggle the persistent effort status bar",
     "  /wayfind help               this overview (alias: usage)",

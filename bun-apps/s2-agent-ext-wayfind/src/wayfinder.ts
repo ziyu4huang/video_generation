@@ -112,10 +112,13 @@ function nextGoalTimestamp(now: Date = new Date()): string {
 }
 
 /** Canonical `output/next-goal-*.md` filename matcher: `next-goal-` + the
- *  YYYYMMDD_HHMMSS stamp from {@link nextGoalTimestamp} + `.md`. Shared (single
- *  source of truth) with `tidy-next-goals.ts`, which uses it to detect
- *  already-normalized names instead of re-deriving the format. */
-export const NEXT_GOAL_FILENAME_RE = /^next-goal-[0-9]{8}_[0-9]{6}\.md$/;
+ *  stamp + `.md`. Accepts BOTH separators: the underscore variant is this
+ *  package's legacy `/wayfind done` note; the dash variant
+ *  (`next-goal-YYYYMMDD-HHMMSS.md`) is the devops `self-reflect-next-goal`
+ *  strict-v2 contract that `/wayfind handoff` writes (2026-08-23). Both are
+ *  canonical — tidy must never "normalize" one into the other. Shared (single
+ *  source of truth) with `tidy-next-goals.ts`. */
+export const NEXT_GOAL_FILENAME_RE = /^next-goal-[0-9]{8}[-_][0-9]{6}\.md$/;
 
 export interface CloseEffortReflection {
   /** Repo-relative path written, e.g. "output/next-goal-20260723_033000.md". */
