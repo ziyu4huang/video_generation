@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-22-archify-general-deck
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 status: specified
 ---
 # archify-general-deck — architecture-diagram tool → general slide generator
@@ -106,6 +106,9 @@ Phase 1 — the template seam
 Phase 2 — the agent surface
 - `tickets/04-deck-lint-tool.md` — task, open — `archify_deck_lint`: catalog + renderless lint
 
+Phase 2.5 — output packaging (added 2026-08-23)
+- `tickets/11-self-contained-output.md` — task, open — one-folder deliverable contract + spread advisory (D9)
+
 Phase 3 — the library
 - `tickets/05-table-primitive.md` — task, open — `BlockContent.kind: "table"`, both emitters
 - `tickets/06-template-library.md` — task, open — the seven shipped templates + goldens
@@ -151,7 +154,20 @@ Recorded in full in `spec.md` §3. The load-bearing ones:
   arrives as a new INPUT SHAPE on `archify_export_pptx`, not as a third tool, because the
   schema-cost canary charges every registered tool in every session.
 
+- **D9 — self-contained output folder is a contract + advisory, not a path override**
+  (added 2026-08-23). Measured root cause of the ~/proj/output spread: `resolveDeckOutput`
+  and `defaultSlidesDir` already keep outputs beside the manifest — the leak was authoring
+  time (absolute top-level `outputPath` in the driving prompt). Overriding explicit user
+  paths would break trust; instead the skill states the one-folder rule, and
+  `archify_export_pptx` attaches an advisory (text + `details.spread`) when the resolved
+  output leaves the manifest dir. Advisory-only matches the `lintDeck` channel; no XML is
+  touched, so the D3 byte-lock cannot notice.
+
 ## Frontier
+
+`tickets/11-self-contained-output.md` first — it is independent of the template seam,
+small, and answers a standing user requirement ("one deliverable = one folder") observed
+in every deck under ~/proj/output. Then the unit below.
 
 `tickets/03-bullets-equivalence.md` — **write this test before ticket 01's resolver is
 finished**, not after. It reconstructs the shipped `bullets` layout purely in template
@@ -164,6 +180,11 @@ Tickets 01 and 02 are its prerequisites and should be worked as one unit with it
 
 ## Fog of war
 
+- **Custom-IR lessons from ~/proj/output not yet folded back.** The v3 run's
+  `self-reflection.md` records hard-won authoring rules (no `animation:"trace"` on
+  deck-facing sequence IRs; keep lifeline x clear of the segment-label span; DOM
+  computed-style audit before believing screenshots) that belong in SKILL.md or the
+  vendored deep guide — charted 2026-08-23, not yet landed.
 - **P2 (title overflow) was a shared, unfixed defect landing on all seven templates —
   FIXED 2026-08-22 by the visual-fidelity effort (ticket 02), before any template here was
   built.** Every shipped template sets `chrome: true`, inheriting the fixed-height title

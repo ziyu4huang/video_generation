@@ -70,6 +70,16 @@ browsable slide HTML. Six layouts:
   ] }
 ```
 
+### Output layout — one deliverable = one folder
+
+Keep every artifact of one deck inside a single named project folder: the
+`deck.config.json`, the IR `.json` files, the exported `.pptx`, its `*.slides/`
+HTML, and every rendered diagram HTML. Concretely: put `deck.config.json` in the
+project folder and leave manifest-relative paths (`"output": "deck.pptx"`,
+`"ir": "ir/flow.json"`) alone — do NOT pass an absolute `outputPath` that points
+outside it. The export tool warns (advisory) when the output leaves the manifest
+folder; treat that warning as a defect to fix, not a note to ignore.
+
 ### Writing rules (these are checked, advisorily)
 
 1. **`title` is an ACTION TITLE** — the takeaway as a complete claim ("Cold-path latency is

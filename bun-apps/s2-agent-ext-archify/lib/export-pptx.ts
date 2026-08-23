@@ -17,7 +17,7 @@
  */
 import { Type } from "typebox";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, resolve, dirname } from "node:path";
 import {
   buildDeck,
   DeckError,
@@ -99,6 +99,14 @@ export async function archifyExportPptx(
         ? resolveDeckOutput(manifest, manifestDir, ctx.cwd)
         : resolve(ctx.cwd, "deck.pptx");
 
+    // Output-layout contract (map D9): one deliverable = one folder. The tools
+    // already default beside the manifest; this catches an authored outputPath
+    // that would scatter the .pptx/.slides away from it. Advisory only.
+    const spread =
+      hasManifest && dirname(resolve(outputPath)) !== resolve(manifestDir)
+        ? { outputPath, manifestDir }
+        : undefined;
+
     const result = await buildDeck({
       manifest,
       manifestDir,
@@ -132,12 +140,16 @@ export async function archifyExportPptx(
             `Exported ${result.slides.length} slides → ${result.output} ` +
             `(${(result.bytes / 1024).toFixed(0)} KB, ${shapes} native shapes, theme=${result.theme}). ` +
             `Shapes are editable in PowerPoint; nothing was rasterized.` +
-            (result.slidesDir ? ` Interactive slides: ${result.slidesDir}` : ""),
+            (result.slidesDir ? ` Interactive slides: ${result.slidesDir}` : "") +
+            (spread
+              ? ` NOTE: the .pptx landed outside the manifest folder (${manifestDir}) — keep one deliverable in one folder: put the .pptx (and its .slides/) beside deck.config.json.`
+              : ""),
         },
       ],
       details: {
         path: result.output,
         ...(result.slidesDir ? { slidesDir: result.slidesDir } : {}),
+        ...(spread ? { spread } : {}),
         theme: result.theme,
         bytes: result.bytes,
         slides: result.slides.map((s) => ({
@@ -168,6 +180,7 @@ export function makeExportPptxTool(events?: OpenBus) {
       "A manifest slide may set `layout` (title|section|bullets|split|diagram|statement) with " +
       "`bullets`/`takeaway`/`source`/`statement`; a slide with `ir` and no `layout` is a diagram slide. " +
       "Optional `outputPath`, `theme` (light|dark) and `slidesDir`. " +
+      "One deliverable = one folder: keep manifest, IRs, .pptx and .slides/ together; an output outside the manifest folder earns an advisory. " +
       "Also keeps the interactive slide HTML in <output>.slides/ and announces it to a webui Diagram pane. " +
       "Returns the absolute .pptx path.",
     parameters: Type.Object({

@@ -128,3 +128,44 @@ describe("archify_export_pptx — output", () => {
     expect(r.details["theme"]).toBe("light");
   }, 60_000);
 });
+
+describe("archify_export_pptx — one-folder output contract", () => {
+  test("an output outside the manifest folder carries the spread advisory", async () => {
+    const manifestDir = mkdtempSync(join(tmpdir(), "archify-spread-manifest-"));
+    const elsewhere = mkdtempSync(join(tmpdir(), "archify-spread-output-"));
+    try {
+      const manifestPath = join(manifestDir, "deck.config.json");
+      await Bun.write(
+        manifestPath,
+        JSON.stringify({
+          output: join(elsewhere, "scattered.pptx"),
+          slides: [{ ir: IR_A, title: "T" }],
+        })
+      );
+      const r = await archifyExportPptx({ manifestPath }, { cwd: PKG_ROOT });
+      expect(r.isError).toBeUndefined();
+      expect(r.content[0]!.text).toContain("outside the manifest folder");
+      const spread = r.details["spread"] as { outputPath: string; manifestDir: string };
+      expect(spread.manifestDir).toBe(manifestDir);
+      expect(spread.outputPath).toBe(join(elsewhere, "scattered.pptx"));
+    } finally {
+      rmSync(manifestDir, { recursive: true, force: true });
+      rmSync(elsewhere, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test("an output beside the manifest stays silent", async () => {
+    const manifestPath = join(work, "colocated.config.json");
+    await Bun.write(
+      manifestPath,
+      JSON.stringify({
+        output: "colocated.pptx",
+        slides: [{ ir: IR_B, title: "T" }],
+      })
+    );
+    const r = await archifyExportPptx({ manifestPath }, { cwd: PKG_ROOT });
+    expect(r.isError).toBeUndefined();
+    expect(r.details["spread"]).toBeUndefined();
+    expect(r.content[0]!.text).not.toContain("manifest folder");
+  }, 60_000);
+});
