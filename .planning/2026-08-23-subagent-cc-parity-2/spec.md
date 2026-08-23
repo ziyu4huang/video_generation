@@ -38,7 +38,7 @@ follow-up messaging to live agents | `send_message` (steer when running, re-prom
 protocol envelopes `shutdown_request` / `plan_approval_request(_response)` | same envelope names, one `type`-union tool; timeout → DENY | aligned (verified live 2026-08-23, ticket 01 round 3; the child-side tool injection had been silently dead since pi 0.84.2 — fixed the same ticket via `readAllToolDefinitions`; live semantics: the child default-denies after its 5s window, so the parent must answer within it) | —
 shared team task list | `TeamTaskStore` + `task_*` tools (session-scoped) | aligned | —
 background execution | `background: true` (cap `SUBAGENT_MAX_BACKGROUND=4`, fail-fast) | aligned | —
-per-invocation model override | `model`/`tier`/`capability` (precedence model > capability > tier > mainModel) | aligned | —
+per-invocation model override | `model`/`tier`/`capability` (precedence model > capability > tier > mainModel; ONE shared display resolver `resolveDisplayModel` on the singular in-flight string, the batch result slots, AND the singular background track record — prefixed strings `tier:x`/`capability:y` everywhere; `agentType: ""` is a bad type name on both tools, schema `minLength: 1` + runtime `!== undefined` guards, never silently "untyped") | aligned | 07
 structured output (`schema`) | `schema` + `schemaRepairAttempts` | aligned | —
 workflow JS script + `meta`/`phases` + `agent()/parallel()/pipeline()` | `run_workflow` script + same globals (+ `verify/judgePanel/loopUntilDry/completenessCheck/retry/gate/checkpoint/call`) | aligned | —
 no fs/shell/module-load from the workflow script | vm sandbox, acorn-parsed meta, `Date.now`/`Math.random` banned | aligned | —
@@ -141,3 +141,20 @@ Any PR that adds or changes a multi-agent capability in
 `s2-agent-ext-subagent`, `s2-agent-ext-ultracode`, or the shared core-runtime
 agent machinery updates §2/§3 rows (and §4 when adding an s2-only capability)
 in the same PR. New gaps get a ticket number here before they get code.
+
+## 8. Sign-off (ticket 07 final pass, 2026-08-23)
+
+- Every ticket 01–07 has its §2/§3 rows confirmed updated in its own PR (D8);
+  the two ledger fogs carried from teams-parity ticket 07 — batch-vs-singular
+  display-model precedence and empty-string `agentType` — are closed in §2's
+  model-override row (shared `resolveDisplayModel`, model > capability >
+  tier > mainModel, prefixed display strings; `minLength: 1` + runtime
+  `!== undefined` guards on both tools).
+- §3 divergence table reviewed 2026-08-23: every entry is a deliberate,
+  rationale-carrying divergence — none is an unowned accident.
+- §6 CC citations re-checked 2026-08-23 (docs studied the same day the spec
+  was written; all six surfaces still match the shipped behavior).
+- The batch display change is observable, not just internal: result-slot
+  `model` strings that previously rendered a raw tier (`big`) now render
+  `tier:big`, and capability beats tier where both are set — pinned by
+  `tests/display-model-parity.test.ts` (matrix + both-tool agentType guards).

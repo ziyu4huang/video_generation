@@ -174,7 +174,10 @@ export function createSubagentTool(
       }
 
       let agentDef: AgentDefinition | undefined;
-      if (params.agentType) {
+      // Ticket 07: `!== undefined` (not truthiness) — an empty-string
+      // agentType is a BAD TYPE NAME, not "no type": it fails early with the
+      // unknown-agentType error instead of silently dispatching untyped.
+      if (params.agentType !== undefined) {
         const registry = options.agentRegistry ?? loadAgentRegistry(runCwd);
         agentDef = resolveAgentType(params.agentType, registry);
         if (!agentDef) {
@@ -673,7 +676,17 @@ export function createSubagentTool(
             {
               id: toolCallId,
               agent: params.agent,
-              model: params.model ?? agentDef?.model ?? "default",
+              // Ticket 07: unified display precedence — this track record used
+              // to collapse to model-or-"default", silently dropping tier and
+              // capability the dispatch actually honors. Same shared resolver
+              // (and same fold: task field > agentType definition) as the
+              // in-flight display string inside runCompletion.
+              model: resolveDisplayModel(
+                params.model ?? agentDef?.model,
+                params.capability,
+                params.tier ?? agentDef?.tier,
+                options.getMainModel?.(),
+              ),
               taskPreview: taskPreview(params.task),
               startedAt: t0,
             },

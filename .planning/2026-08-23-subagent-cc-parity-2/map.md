@@ -2,7 +2,7 @@
 effort: 2026-08-23-subagent-cc-parity-2
 created: 2026-08-23
 last: 2026-08-23
-status: active
+status: done
 ---
 
 # subagent-cc-parity-2 — CC parity round 2: validate teams-parity, then fork / built-ins / startup-context / budget-directives / loop
@@ -112,9 +112,11 @@ Phase 3 — ultracode parity (parallel with Phase 2)
   transport (S5 fog closed)
 
 Phase 4 — ledger hygiene
-- `tickets/07-parity-ledger-reconciliations.md` — open — batch/singular
-  display-model precedence unification + `agentType` minLength guard + spec.md
-  sign-off
+- `tickets/07-parity-ledger-reconciliations.md` — done (2026-08-23) — batch +
+  background-track display strings route through the shared
+  `resolveDisplayModel` (model > capability > tier > mainModel, prefixed);
+  `agentType: ""` rejected on both tools (schema minLength 1 + runtime
+  `!== undefined`); spec.md §2 row + §8 sign-off landed
 
 ## Decisions
 
@@ -175,21 +177,36 @@ Phase 4 — ledger hygiene
   (or precheck off/unreachable) → timeout stays FAIL. The gate reflects the
   TREE; the environment says itself out loud in the gate row. Recorded per
   next-goal-20260823-103123 Immediate step 3.
+- D11 (ticket 07): display-model precedence is the SINGULAR's order (model >
+  capability > tier > mainModel) with prefixed display strings, shared by ONE
+  resolver (`resolveDisplayModel`) across the singular in-flight string, batch
+  result slots, and the singular background track record — the third site was
+  discovered mid-ticket (it collapsed to model-or-"default"); batch raw-tier
+  strings change observably (`big` → `tier:big`), pinned by
+  `tests/display-model-parity.test.ts`. `agentType: ""` is a bad type name on
+  both tools (schema `minLength: 1` + runtime `!== undefined`), never silently
+  "untyped".
 
 ## Frontier
 
-Ticket 07 (ledger hygiene — batch/singular display-model precedence,
-`agentType` minLength, spec sign-off) is the next workable ticket and closes
-Phase 4. Tickets 05 and 06 both closed 2026-08-23: 05 shipped the binding
-budget directive (parse at the input transform, session-held read-and-clear,
-`max(directive, tokenBudget)` at every WorkflowManager run entry,
-`tokenBudgetSource` persisted + rendered; cron fires excluded) and folded F2
-(D10: live-agent lifetime default = tier ceiling); 06 shipped `/loop` +
-`schedule_wakeup` (in-memory session-live registry per D7, fire cap 50,
-followUp fire seam pinned by a faux-transport AgentSession test — S5 fog
-closed). After 07, the effort's remaining open surface is the live-smoke
-family (fork builtin types, startup block, budget directive, wakeup loop —
-one headless dispatch each).
+NONE — the ticket tree is empty; the effort CLOSED 2026-08-23 when ticket 07
+landed (all seven tickets done same-day). Spec.md is now the standing parity
+ledger with its §8 sign-off. The remaining open surface is the LIVE-SMOKE
+family, which was deliberately kept OUT of the ticket tree (each needs one
+headless deepseek dispatch against a live model endpoint, not code): fork
+quality, built-in types, startup block, budget directive, `/loop dynamic`
+pacing — plus the extension-tools bridge regression tripwire (fog item).
+Successor work is queued in `output/next-goal-*.md` (LATEST).
+
+## Retrospective (close-out 2026-08-23)
+
+Seven tickets scoped, built, and merged in a single day (01–07, PRs
+#1865/#1873/#1876/#1880/#1883 + this PR), the last of them the ledger
+hygiene pass that signs off the spec. The plan held: validation-first (01)
+surfaced TWO real seam defects (session-model injection losing to the tier
+registry; the pi-0.84.2 extension-tools bridge being silently dead) that
+every later ticket would have inherited. The parity ledger (spec.md §2/§3 +
+D8) kept every divergence deliberate and documented instead of accidental.
 
 ## Fog of war
 

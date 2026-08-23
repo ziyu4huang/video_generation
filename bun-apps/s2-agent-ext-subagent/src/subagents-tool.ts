@@ -51,7 +51,12 @@ import {
   type StartupContextMode,
 } from "./startup-context.js";
 import { taskPreview, workIntentPreview } from "./subagent-tool-render.js";
-import { abortSafetyFooter, augmentOutputWithScopeViolation, extractSalvage } from "./subagent-tool-run.js";
+import {
+  abortSafetyFooter,
+  augmentOutputWithScopeViolation,
+  extractSalvage,
+  resolveDisplayModel,
+} from "./subagent-tool-run.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 
 /** Tree-mutating tools a read-only child may NEVER carry (non-overridable). */
@@ -185,8 +190,9 @@ export const subagentsToolSchema = Type.Object({
       id: Type.Optional(Type.String({ description: "Optional caller tag echoed in the result for correlation." })),
       agentType: Type.Optional(
         Type.String({
+          minLength: 1,
           description:
-            "Named agentType (.pi/agents/*.md) whose tools/model/tier/prompt bind to this child. Built-in read-only types 'explore'/'plan' are always available and sit under any user file of the same name. Worktree-isolating types are rejected (batch children share the parent tree).",
+            "Named agentType (.pi/agents/*.md) whose tools/model/tier/prompt bind to this child. Built-in read-only types 'explore'/'plan' need no setup; user files shadow them. Worktree-isolating types are rejected (batch children share the parent tree). Empty string is invalid.",
         }),
       ),
       model: Type.Optional(
@@ -409,14 +415,18 @@ export function createSubagentsTool(
       // offending task indexes so one bad task is findable in a large batch.
       // The registry loads LAZILY — a batch with no typed task keeps the pre-07
       // path free of the .pi/agents disk scan.
-      const agentRegistry = tasks.some((t) => t?.agentType)
+      // Ticket 07: `!== undefined` (not truthiness) on BOTH the registry-load
+      // gate and the loop — an empty-string agentType loads the registry and
+      // rejects the batch as a bad type name, instead of silently dispatching
+      // untyped.
+      const agentRegistry = tasks.some((t) => t?.agentType !== undefined)
         ? (options.agentRegistry ?? loadAgentRegistry(defaultCwd))
         : (options.agentRegistry ?? new Map<string, AgentDefinition>());
       const agentDefs = new Map<number, AgentDefinition>();
       const typeErrors: string[] = [];
       for (let index = 0; index < tasks.length; index++) {
         const task = tasks[index];
-        if (!task?.agentType) continue;
+        if (task?.agentType === undefined) continue;
         const def = resolveAgentType(task.agentType, agentRegistry);
         if (!def) {
           typeErrors.push(`[${index}] unknown agentType "${task.agentType}"`);
@@ -510,10 +520,19 @@ export function createSubagentsTool(
         // Effective model string + task preview — computed up front so BOTH the
         // soft-gate skip branch and the normal dispatch branch can enrich the
         // result slot (deficit 4b: Completed-section display needs task/model).
-        // Ticket 07: the definition's model/tier sit between the task fields and
-        // the session fallbacks (singular parity).
-        const childModel =
-          task.model ?? agentDef?.model ?? task.tier ?? agentDef?.tier ?? task.capability ?? mainModel ?? "default";
+        // Ticket 07 (cc-parity): precedence unified with the singular path —
+        // ONE shared resolveDisplayModel (model > capability > tier >
+        // mainModel) with the prefixed display strings (`tier:big`,
+        // `capability:vision`), replacing the batch-local raw chain that
+        // ordered tier above capability and dropped the prefixes. The
+        // definition's model/tier fold into the task fields first (singular
+        // parity); definitions carry no capability.
+        const childModel = resolveDisplayModel(
+          task.model ?? agentDef?.model,
+          task.capability,
+          task.tier ?? agentDef?.tier,
+          mainModel,
+        );
         const preview = taskPreview(task.task);
         // Soft gate: once tripped, no NEW children start; in-flight ones finish.
         // `gateTripped` is set only together with `budgetExhaustion` (see the
