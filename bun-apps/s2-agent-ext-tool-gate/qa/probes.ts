@@ -124,6 +124,9 @@ export const MUST_FIRE: Probe[] = [
 	{ gate: "zk_ingest", prompt: "ingest the .knowledge.jsonl records", note: "keyword ingest / knowledge.jsonl" },
 	{ gate: "knowledge_query", prompt: "query the knowledge graph for lora cards", note: "keyword knowledge graph / query" },
 	{ gate: "knowledge_query", prompt: "查卡片 matching the tag argparse", note: "keyword 查卡片" },
+	// zk_fs (kcard-parity ticket 05 D32 — FS-style browse surface).
+	{ gate: "zk_fs", prompt: "list the cards in the knowledge vault", note: "keyword list cards" },
+	{ gate: "zk_fs", prompt: "grep the knowledge cards for lora", note: "keyword knowledge grep" },
 	// ticket 02 demotions (hermes/web-access/wayfind/obsidian).
 	{ gate: "skill_manage", prompt: "create a skill for running tests", note: "keyword create skill" },
 	{ gate: "knowledge_search", prompt: "search the knowledge graph for the sampler gotcha", note: "keyword knowledge search" },
@@ -187,6 +190,8 @@ export const MUST_NOT_FIRE: Probe[] = [
 	{ gate: "zk_ask", prompt: "my notes app crashed", note: "notes but no ask/query verb" },
 	{ gate: "zk_ingest", prompt: "the records show a converging trend", note: "converge as adjective, no ingest intent" },
 	{ gate: "knowledge_query", prompt: "query the database directly", note: "query + database, no knowledge/card/graph noun" },
+	{ gate: "zk_fs", prompt: "the filesystem is full on the server", note: "filesystem noun but no card/knowledge browse verb" },
+	{ gate: "zk_fs", prompt: "list the open pull requests", note: "list verb but no cards/knowledge noun" },
 	// ticket 02 demotions — lookalikes without the demoted intent.
 	{ gate: "skill_manage", prompt: "the skills section of the README", note: "skill noun, no manage verb" },
 	{ gate: "knowledge_search", prompt: "search the web for lora papers", note: "web search, not the knowledge graph" },

@@ -74,6 +74,9 @@ export interface RetrieveOptions {
   vaultPath: string; folder?: string; tags: string[]; excludeIds?: string[]; topK?: number;
   maxDetailChars?: number; linkWeighting?: LinkWeighting; bodyMatch?: boolean; slugDom?: boolean;
   semantic?: boolean; queryText?: string; semanticAlpha?: number; semanticModel?: string;
+  /** D18 typed filter (kcard-parity ticket 05): exact leaf-type match —
+   *  frontmatter `type` on the flat lane, index `kind` on the hier lane. */
+  type?: string;
 }
 export interface RetrieveResult {
   count: number; cards: RetrievedCard[]; digest: string; folder: string; scanned: number; excluded: number;

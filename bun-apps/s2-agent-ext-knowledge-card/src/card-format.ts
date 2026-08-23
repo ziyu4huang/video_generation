@@ -64,6 +64,9 @@ export function readCardFrontmatterFields(content: string) {
 		sourceId: data.source_id,
 		source: data.source,
 		recordType: data.record_type,
+		/** D15 discriminator: frontmatter `type` (typed cards, ticket 04/05) —
+		 *  mirrors the index `kind` derivation (surreal-index.ts). */
+		type: typeof data.type === "string" ? data.type : undefined,
 		status: (data.status ?? "active").trim(),
 		supersededBy: data.superseded_by,
 		confidence: typeof data.confidence === "number" ? data.confidence : 0,

@@ -58,6 +58,9 @@ export interface ZkRetrieveArgs {
    *  (L1, detail) | "full" (L2, explicit). Selects the pre-rendered tier text
    *  in each card's `detail` + the digest; overflow demotes, never truncates. */
   tier?: "abstract" | "overview" | "full";
+  /** D18 typed filter (ticket 05): exact leaf type — hier `kind` / flat
+   *  frontmatter lanes alike. */
+  type?: string;
 }
 
 /**
@@ -78,6 +81,7 @@ export function buildRetrieveOptions(args: ZkRetrieveArgs, vaultPath: string): R
     semantic: args.semantic ?? true,
     queryText: args.query ?? "",
     includeTrace: args.trace === true,
+    type: args.type,
   };
 }
 

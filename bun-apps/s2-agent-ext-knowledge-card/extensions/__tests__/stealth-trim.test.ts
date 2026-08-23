@@ -27,7 +27,7 @@ function captureTools(): Record<string, Record<string, unknown>> {
 
 test("knowledge-card tools are stealth-trimmed: no promptSnippet/guidelines", () => {
 	const tools = captureTools();
-	expect(Object.keys(tools).length).toBe(4);
+	expect(Object.keys(tools).length).toBe(5);
 
 	for (const [name, tool] of Object.entries(tools)) {
 		expect(typeof tool.description).toBe("string");

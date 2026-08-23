@@ -335,6 +335,10 @@ function cardTableDefs(): string[] {
 		"DEFINE INDEX IF NOT EXISTS card_stem ON TABLE card COLUMNS stem;",
 		"DEFINE INDEX IF NOT EXISTS card_parent ON TABLE card COLUMNS parent;",
 		"DEFINE INDEX IF NOT EXISTS card_is_leaf ON TABLE card COLUMNS is_leaf;",
+		// ticket 05 D36: virtual type dirs (type/<kind>) list by kind — plain
+		// index applies on the next natural rebuild; correctness never depends
+		// on it (a kind filter is a valid full-scan predicate regardless).
+		"DEFINE INDEX IF NOT EXISTS card_kind ON TABLE card COLUMNS kind;",
 	];
 }
 
