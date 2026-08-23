@@ -21,6 +21,7 @@ import { displayLabel } from "./state/i18n-bridge.js";
 import { sentinelsToAppend } from "./state/row-intent.js";
 import { buildQuestionnaireResponse, buildToolResult } from "./tool/response-envelope.js";
 import {
+	hasRecommendedSuffix,
 	MAX_OPTIONS,
 	MAX_QUESTIONS,
 	MIN_OPTIONS,
@@ -63,7 +64,7 @@ export function buildItemsForQuestion(question: QuestionData): WrappingSelectIte
 		kind: "option",
 		label: o.label,
 		description: o.description,
-		recommended: o.recommended,
+		recommended: hasRecommendedSuffix(o.label) ? true : undefined,
 	}));
 	for (const kind of sentinelsToAppend(question)) {
 		items.push({ kind, label: displayLabel(kind) });

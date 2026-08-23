@@ -11,6 +11,7 @@ import type { QuestionData } from "../../tool/types.js";
 // are dictionary keys; under the default `en` locale t() is identity, so this
 // changes NO existing render output.
 import { t } from "../../state/i18n-bridge.js";
+import { hasRecommendedSuffix, RECOMMENDED_SUFFIX } from "../../tool/types.js";
 
 export interface MultiSelectRow {
 	checked: boolean;
@@ -77,8 +78,12 @@ export class MultiSelectView implements StatefulView<MultiSelectViewProps> {
 		const pointer = row.active ? "❯ " : "  ";
 		const prefix = `${pointer}${checkbox} `;
 		const opt = this.question.options[index];
-		const label = opt?.label ?? "";
-		const star = opt?.recommended ? "⭐ " : "";
+		const rawLabel = opt?.label ?? "";
+		// CC suffix convention: ⭐ from the suffix, suffix stripped from display
+		// only — the stored label (and answer string) keeps it.
+		const isRec = hasRecommendedSuffix(rawLabel);
+		const label = isRec ? rawLabel.slice(0, rawLabel.length - RECOMMENDED_SUFFIX.length) : rawLabel;
+		const star = isRec ? "⭐ " : "";
 		const line = `${prefix}${star}${label}`;
 		const styled = row.active || row.checked ? this.theme.fg("accent", this.theme.bold(line)) : line;
 		return [styled];

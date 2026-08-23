@@ -2,7 +2,6 @@
  * PreviewBlockRenderer — renders a markdown preview block for a single option.
  * Ported from rpiv-ask-user-question view/components/preview/preview-block-renderer.ts.
  */
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { QuestionData } from "../../../tool/types.js";
 
@@ -34,11 +33,11 @@ export class PreviewBlockRenderer {
 		lines.push(t.bold(`Preview: ${option.label}`));
 		lines.push("");
 
-		// Render preview content as plain text with wrapping
-		const previewLines = option.preview.split("\n");
-		for (const line of previewLines) {
-			const wrapped = wrapTextWithAnsi(line, width);
-			lines.push(...wrapped);
+		// Monospace-verbatim preview (CC parity): code and ASCII mockups must not
+		// re-wrap. Full markdown rendering is deliberately out of scope.
+		const clip = (line: string): string => (line.length > width ? line.slice(0, width) : line);
+		for (const line of option.preview.split("\n")) {
+			lines.push(clip(line));
 		}
 
 		return lines.map((l) => t.fg("dim", l));
