@@ -29,7 +29,15 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GATE_DEFS, publishSeam, type Gate, type Gating, type ToolGateStatus } from "@repo/s2-agent-core-interface";
+import {
+  ALL_TOOL_DEFINITIONS_GLOBAL,
+  GATE_DEFS,
+  publishSeam,
+  readAllToolDefinitions,
+  type Gate,
+  type Gating,
+  type ToolGateStatus,
+} from "@repo/s2-agent-core-interface";
 import { appendFileSync } from "node:fs";
 import { Type } from "typebox";
 import { estimateToolCost } from "@repo/s2-agent-ext-power-tool/schema-cost";
@@ -435,9 +443,29 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   if (process.env.BUN_PI_TOOL_GATE === "0") return;
 
   type DiscoveredTool = { name: string; description?: string; parameters?: unknown; gating?: Gating };
-  const getDiscovered = (): DiscoveredTool[] => {
-    const fn = (pi as typeof pi & { getAllToolDefinitions?(): DiscoveredTool[] }).getAllToolDefinitions;
-    const raw = typeof fn === "function" ? fn() : [];
+
+  // Tool discovery goes through the shared bridge (pi 0.84.2's fixed-shape
+  // ExtensionAPI hides runtime methods like getAllToolDefinitions from the
+  // `pi` object extensions hold, so the direct read returned [] and — because
+  // this extension loads LAST in the deploy order (registry order 190) — its
+  // setActiveTools(filterActive([])) wiped EVERY tool from the deployed
+  // session's API requests; repo runs were masked only by subagent/ultracode's
+  // before_agent_start force-activators running after this gate. Found by the
+  // live tmux deploy verification 2026-08-24: deployed request tools(0) vs
+  // repo tools(15). readAllToolDefinitions is the blessed reader
+  // (subagent/ultracode/knowledge-card use the same seam).
+  //
+  // "Bridge empty" is NOT "no tools exist" (the interface contract): when
+  // NEITHER reader surface exists (patch disabled, pre-bindCore, non-pi host)
+  // discovery returns null and every caller SKIPS gating — never zeroes the
+  // active set on an unreadable toolset.
+  const toolBridgeUp = (): boolean =>
+    typeof (pi as typeof pi & { getAllToolDefinitions?: unknown }).getAllToolDefinitions === "function" ||
+    typeof (globalThis as unknown as Record<string, unknown>)[ALL_TOOL_DEFINITIONS_GLOBAL] === "function";
+
+  const getDiscovered = (): DiscoveredTool[] | null => {
+    if (!toolBridgeUp()) return null;
+    const raw = readAllToolDefinitions(pi) ?? [];
     // Ticket 03 (Path B): inject `gating:{ core: true }` onto the 4
     // pi-coding-agent built-ins (BUILTIN_CORE) so buildEffectiveGates routes
     // them into effectiveCore as owner-declared core. pi-coding-agent is
@@ -474,8 +502,9 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     (ctx as { sessionManager?: { getSessionId?: () => string } } | undefined | null)
       ?.sessionManager?.getSessionId?.() ?? "__default__";
   /** The one-time full build: capture tool list, gates, sticky (core), tokens. */
-  const buildSessionState = (): SessionGateState => {
+  const buildSessionState = (): SessionGateState | null => {
     const all = getDiscovered();
+    if (all === null) return null;
     const eff = buildEffectiveGates(all);
     return {
       allToolNames: all.map((t) => t.name),
@@ -519,6 +548,9 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     const state = buildSessionState();
     lastSessionId = sessionIdOf(ctx);
+    // Bridge down: the toolset is unreadable, not empty — leave the active set
+    // untouched rather than gating on nothing (the pre-2026-08-24 wipe bug).
+    if (state === null) return;
     gateStateBySession.set(lastSessionId, state);
 
     const active = filterActive(state.allToolNames, state.sticky, state.tracked);
@@ -546,9 +578,11 @@ export default function toolGateExtension(pi: ExtensionAPI) {
   // child, which would wipe the parent's core-task singletons).
   pi.on("before_agent_start", async (event, ctx) => {
     const sid = sessionIdOf(ctx);
-    let state = gateStateBySession.get(sid);
+    let state: SessionGateState | null | undefined = gateStateBySession.get(sid);
     if (!state) {
       state = buildSessionState();
+      // Bridge down: skip this turn's gating entirely (see session_start).
+      if (state === null) return;
       gateStateBySession.set(sid, state);
     }
     lastSessionId = sid;
@@ -619,11 +653,23 @@ export default function toolGateExtension(pi: ExtensionAPI) {
         // runs inside a session; if that session has no state yet (defensive —
         // session_start or the child seed always runs first), seed on demand.
         const sid = sessionIdOf(_ctx);
-        let state = gateStateBySession.get(sid);
-        if (!state) {
-          state = buildSessionState();
-          gateStateBySession.set(sid, state);
+        const existing = gateStateBySession.get(sid);
+        let seeded: SessionGateState | undefined;
+        if (!existing) {
+          const built = buildSessionState();
+          if (built === null) {
+            return {
+              details: undefined,
+              content: [{
+                type: "text" as const,
+                text: "Tool gate: tool discovery is unavailable in this host (bridge down) — no gates to enable.",
+              }],
+            };
+          }
+          gateStateBySession.set(sid, built);
+          seeded = built;
         }
+        const state = existing ?? seeded!;
         if (params.list) {
           const dormant = state.gates.filter((g) => !g.names.every((n) => state.sticky.has(n)));
           const lines = dormant.map(
