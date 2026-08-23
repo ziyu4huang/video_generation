@@ -10,11 +10,16 @@
 import { parse as parseYaml } from "yaml";
 
 /** The canonical embedding model id served by LM Studio (D3, effort
- *  2026-08-22-context-lifecycle): `text-embedding-bge-m3` — the vault is
- *  Traditional Chinese and MiniLM-class models (the prior nomic default) are
- *  CJK-weak. The kcard semantic cache is model-keyed, so the swap is a new
- *  cache file, not a migration. Recorded fallback if the eval gate
- *  (ticket 07) loses: `text-embedding-nomic-embed-text-v1.5`. */
+ *  2026-08-22-context-lifecycle): `text-embedding-bge-m3`. RE-CONFIRMED
+ *  2026-08-23 by ticket 07's eval gate, which cut BOTH ways: the English
+ *  50-query eval set favors nomic (48/50 vs 47/50 hit@4, receipt
+ *  output/d3-reeval/) — but the committed recall-audit battery (ticket 04,
+ *  the binding Done-when gate) regresses under nomic (15/20 vs 17/20 hit@5)
+ *  and the prior embed-bench measured bge-m3 recall@1 0.909 vs nomic 0.864.
+ *  D3 stays bge-m3; the 1-query English-set cost is recorded in the effort
+ *  map. nomic stays one env override (`SEMANTIC_EMBED_MODEL`) away. The
+ *  kcard semantic cache is model-keyed, so any swap is a cache-file change,
+ *  not a migration. */
 export const SEMANTIC_MODEL_DEFAULT = "text-embedding-bge-m3";
 
 /** Canonical embedding endpoint: LM Studio (also serves the local chat

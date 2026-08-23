@@ -336,12 +336,6 @@ export function extractTitle(content: string): string {
 	return title || "(untitled)";
 }
 
-/** Extract the 核心想法 (core idea) body section, truncated (anatomy via cardAnatomy). */
-export function extractDetail(content: string, maxChars: number): string {
-	const body = cardAnatomy(content).body.trim();
-	return body.length > maxChars ? body.slice(0, maxChars) + "…" : body;
-}
-
 /** Normalize MOC content for drift comparison (trim trailing whitespace per line). */
 function normalizeMoc(content: string): string {
 	return content

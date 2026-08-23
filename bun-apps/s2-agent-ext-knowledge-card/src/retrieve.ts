@@ -38,7 +38,8 @@ import { join } from "node:path";
 import { getIndex, graphDeadLinks, graphOrphans, invalidateCache, parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
 import { writeMoc } from "./ingest.ts";
 import { extractFeatures } from "./card-render.ts";
-import { extractDetail, extractTitle } from "./graph-health.ts";
+import { extractTitle } from "./graph-health.ts";
+import { buildAggTiers, buildLeafTiers, renderTier, type Tier, type TierText } from "./tier-ladder.ts";
 import type { KnowledgeRecord, CoverageReport } from "./types.ts";
 import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag } from "./card-format.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/s2-agent-core-interface";
@@ -66,7 +67,9 @@ export interface RetrievedCard {
 	title: string;
 	/** Record type (lever / avoid / gotcha / pattern / metric / false_positive). */
 	type: string;
-	/** Detail body (truncated for digest). */
+	/** Tier-rendered text (ticket 07 ladder): the requested tier's pre-rendered
+	 *  text, DEMOTED one tier shallower while it overflows the per-entry budget
+	 *  instead of truncating (OpenViking rule). */
 	detail: string;
 	/** Tags (normalised). */
 	tags: string[];
@@ -90,6 +93,15 @@ export interface RetrievedCard {
 	 *  write-back); retrieve is a faithful pass-through, it does NOT
 	 *  re-normalize. Substrate for ticket 20 + LeanRAG â¢. */
 	relations?: Array<{ s: string; rel: string; o: string }>;
+	/** EFFECTIVE render tier after demotion (ticket 07): the tier `detail`
+	 *  actually holds — shallower than the requested tier when the entry's
+	 *  text overflowed its budget. */
+	tier: Tier;
+	/** Pre-rendered per-tier text (ticket 07 ladder): L0 = title + tags +
+	 *  `summary` frontmatter (ticket 05); L1 = body lead (~600 chars) / agg
+	 *  `summary` (ticket 06); L2 = full body. Renderers pick a tier and let
+	 *  renderTier demote — never slice. */
+	tiers: TierText;
 }
 
 export interface RetrieveOptions {
@@ -103,7 +115,16 @@ export interface RetrieveOptions {
 	excludeIds?: string[];
 	/** Max cards to return (default 10). */
 	topK?: number;
-	/** Max detail chars in the returned card (default 240). */
+	/** Render tier (ticket 07 ladder, D0/D5): "abstract" (L0, DEFAULT) |
+	 *  "overview" (L1, detail flag) | "full" (L2, explicit request). Selects
+	 *  the pre-rendered tier text that lands in each card's `detail`/digest
+	 *  line. */
+	tier?: Tier;
+	/** Per-entry render budget (ticket 07). A tier text that OVERFLOWS this
+	 *  budget DEMOTES one tier shallower instead of truncating (OpenViking
+	 *  rule, verbatim); only the abstract floor is word-boundary clamped.
+	 *  Default: the tier's intrinsic budget (TIER_BUDGETS — i.e. nothing
+	 *  demotes unless the caller caps). */
 	maxDetailChars?: number;
 	/** Ranking weight (SAG-inspired, kg-improvement-plan P8):
 	 *  - "count" (default): raw shared-tag count (the pinned baseline).
@@ -148,7 +169,9 @@ export interface RetrieveOptions {
 	/** Blend weight Î± (lexical) in [0,1]; semantic weight = 1-Î±. Default 0.18
 	 *  (center of the measured 1.00 band). */
 	semanticAlpha?: number;
-	/** Embedding model id (default text-embedding-bge-m3, D3 2026-08-22). */
+	/** Embedding model id (default text-embedding-bge-m3, D3 re-confirmed
+	 *  2026-08-23 by ticket 07's eval gate; see core-interface
+	 *  embedding-leaf.ts). */
 	semanticModel?: string;
 	/** INTERNAL test hook: inject a deterministic embedder so the semantic blend
 	 *  can be unit-tested without a live LM Studio. When set, the availability
@@ -320,7 +343,8 @@ function slugTokenOverlap(slug: string, queryTags: Set<string>): number {
 export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveResult> {
 	const folder = opts.folder ?? "Zettelkasten/knowledge-graph";
 	const topK = opts.topK ?? 10;
-	const maxDetailChars = opts.maxDetailChars ?? 240;
+	const tier = opts.tier ?? "abstract";
+	const maxDetailChars = opts.maxDetailChars; // undefined = tier-intrinsic budget
 	const linkWeighting = opts.linkWeighting ?? "count";
 	const bodyMatch = opts.bodyMatch ?? false;
 	const slugDom = opts.slugDom ?? false;
@@ -404,9 +428,19 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			continue;
 		}
 		const title = extractTitle(content);
-		const detail = extractDetail(content, maxDetailChars);
 		const type = typeof fields.recordType === "string" ? fields.recordType : "pattern";
 		const source = typeof fields.source === "string" ? fields.source : "unknown";
+		// Tier ladder (ticket 07): pre-render L0/L1/L2, then render the
+		// requested tier under the caller's budget — overflow DEMOTES a tier
+		// (never truncates); the abstract floor alone is word-boundary clamped.
+		const displayTags = [...meta.tags].filter((t) => t !== "zettel");
+		const tiers = buildLeafTiers({
+			title,
+			tags: displayTags,
+			summary: fields.summary || undefined,
+			body: cardAnatomy(content).body.trim(),
+		});
+		const rendered = renderTier(tiers, tier, maxDetailChars);
 
 		// Feature-aware ranking (kg-improvement-plan P1): a callout-bearing card
 		// gets a BOUNDED boost of +0.5, applied AFTER shared-tag count and BEFORE
@@ -441,8 +475,10 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			id: meta.source_id ?? cardSlug,
 			title,
 			type,
-			detail,
-			tags: [...meta.tags].filter((t) => t !== "zettel"),
+			detail: rendered.text,
+			tier: rendered.tier,
+			tiers,
+			tags: displayTags,
 			sharedTags: shared,
 			path: `${folder}/${cardSlug}`,
 			source,
@@ -481,6 +517,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			queryText: opts.queryText,
 			alpha: semanticAlpha,
 			model: semanticModel,
+			tier,
 			maxDetailChars,
 			queryTags,
 			excludeIds,
@@ -534,7 +571,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 async function expandWithTree(
 	folderAbs: string,
 	ranked: RetrievedCard[],
-	maxDetailChars: number,
+	maxDetailChars: number | undefined,
 ): Promise<RetrievedCard[]> {
 	if (ranked.length === 0) return [];
 	const rankedIds = new Set(ranked.map((c) => c.id));
@@ -548,13 +585,20 @@ async function expandWithTree(
 		const layer = Number(data.layer ?? 0) || 0;
 		const summary = typeof data.summary === "string" ? data.summary : "";
 		const entities = flattenScalarList(data.entities);
+		const aggTitle = `Aggregation L${layer}`;
+		// Ticket 07: agg nodes render L1 (the composed `summary:`, ticket 06);
+		// the ladder bottoms out there — an agg card has no deeper prose body.
+		const aggTiers = buildAggTiers({ title: aggTitle, tags: entities, summary });
+		const aggRendered = renderTier(aggTiers, "overview", maxDetailChars);
 		matches.push({
 			layer,
 			card: {
 				id: typeof data.id === "string" ? data.id : name.replace(/\.md$/, ""),
-				title: `Aggregation L${layer}`,
+				title: aggTitle,
 				type: "aggregation",
-				detail: summary.length > maxDetailChars ? `${summary.slice(0, maxDetailChars - 1)}…` : summary,
+				detail: aggRendered.text,
+				tier: aggRendered.tier,
+				tiers: aggTiers,
 				tags: entities,
 				sharedTags: 0,
 				path: name.replace(/\.md$/, ""),
@@ -654,7 +698,8 @@ function buildRetrievedCard(
 	vaultPath: string,
 	folder: string,
 	cardPath: string,
-	maxDetailChars: number,
+	tier: Tier,
+	maxDetailChars: number | undefined,
 	queryTags: Set<string>,
 	excludeIds: Set<string>,
 	excludeSlugs: Set<string>,
@@ -671,12 +716,23 @@ function buildRetrievedCard(
 	if (fields.status === "retired" || fields.status === "superseded") return null;
 	let calloutText = "";
 	if (meta.hasCallouts) calloutText = extractFeatures(content).calloutTexts[0] ?? "";
+	const title = extractTitle(content);
+	const displayTags = [...meta.tags].filter((t) => t !== "zettel");
+	const tiers = buildLeafTiers({
+		title,
+		tags: displayTags,
+		summary: fields.summary || undefined,
+		body: cardAnatomy(content).body.trim(),
+	});
+	const rendered = renderTier(tiers, tier, maxDetailChars);
 	return {
 		id: meta.source_id ?? cardSlug,
-		title: extractTitle(content),
+		title,
 		type: typeof fields.recordType === "string" ? fields.recordType : "pattern",
-		detail: extractDetail(content, maxDetailChars),
-		tags: [...meta.tags].filter((t) => t !== "zettel"),
+		detail: rendered.text,
+		tier: rendered.tier,
+		tiers,
+		tags: displayTags,
 		sharedTags: scoreOverlap(queryTags, meta.tags, new Map(), "count"),
 		path: cardPath,
 		source: typeof fields.source === "string" ? fields.source : "unknown",
@@ -698,7 +754,8 @@ async function trySemanticBlend(args: {
 	queryText?: string;
 	alpha: number;
 	model: string;
-	maxDetailChars: number;
+	tier: Tier;
+	maxDetailChars: number | undefined;
 	queryTags: Set<string>;
 	excludeIds: Set<string>;
 	excludeSlugs: Set<string>;
@@ -733,7 +790,7 @@ async function trySemanticBlend(args: {
 	for (const p of semTopPaths) {
 		if (!unionByPath.has(p)) {
 			const built = buildRetrievedCard(
-				args.vaultPath, args.folder, p, args.maxDetailChars,
+				args.vaultPath, args.folder, p, args.tier, args.maxDetailChars,
 				args.queryTags, args.excludeIds, args.excludeSlugs,
 			);
 			if (built) unionByPath.set(p, built);
@@ -791,8 +848,11 @@ async function trySemanticBlend(args: {
 	};
 }
 
-/** Build a compact grouped digest (<= ~1500 chars) for injection into a
- *  workflow's Resolve phase. Grouped by type, highest-shared first. */
+/** Build a compact grouped digest for injection into a workflow's Resolve
+ *  phase. Grouped by type, highest-shared first. Each line renders the card's
+ *  already-tier-resolved `detail` (ticket 07: L0 abstract by default, demoted
+ *  never truncated — the 160-char slice is gone; the effective tier is named
+ *  per line so a caller can see when an entry demoted). */
 function formatDigest(cards: RetrievedCard[], queryTags: string[]): string {
 	if (cards.length === 0) return "";
 	const header = `(graph: ${cards.length} cross-workflow card(s) for tags [${queryTags.join(", ")}])`;
@@ -814,7 +874,7 @@ function formatDigest(cards: RetrievedCard[], queryTags: string[]): string {
 			// (`[!warning] ...`) ahead of the truncated prose so the highest-signal
 			// sentence reaches the RAG context instead of being buried in the body.
 			const calloutPrefix = c.calloutText ? `${c.calloutText} â ` : "";
-			parts.push(`- ${c.title} â ${calloutPrefix}${c.detail.slice(0, 160)} (${c.source})`);
+			parts.push(`- ${calloutPrefix}${c.detail} (${c.source}) [${c.tier}]`);
 		}
 	}
 	return parts.join("\n");

@@ -35,8 +35,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(__dirname, "..");
 const EVAL_PATH = resolve(REPO, "scripts/real-retrieval-eval.json");
 const FOLDER = "Zettelkasten/knowledge-graph";
-const DRIFT_GUARD_RATE = 0.84; // drift-guard target — #486 bodyMatch + #492 slugDom (lexical)
-const DRIFT_GUARD_HITS = 21; // 21/25 on the ORIGINAL first-25 set
+const DRIFT_GUARD_RATE = 0.80; // drift-guard target — #486 bodyMatch + #492 slugDom (lexical).
+// 2026-08-23 deliberate regen (ticket 07 / D0 baseline regen): the vault corpus
+// changed under the guard (ticket 05 schema-v2 backfill + ticket 06 hierarchy
+// build; note count 2327 → 2653). Control-test: origin/main code on the SAME
+// corpus also measures 20/25 (receipt output/d3-reeval/), so 21/25 was a stale
+// corpus pin, not a retrieval regression. The ranking code is unchanged.
+const DRIFT_GUARD_HITS = 20; // 20/25 on the ORIGINAL first-25 set (see regen note above)
 const DRIFT_GUARD_N = 25; // the original eval slice — harness integrity anchor
 const SHIP_RECALL_RATE = 0.88; // a regime must reach ≥0.88 to be a candidate ship
 

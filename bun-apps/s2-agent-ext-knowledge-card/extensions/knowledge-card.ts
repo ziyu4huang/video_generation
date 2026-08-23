@@ -561,7 +561,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			max_note_tokens: Type.Optional(
 				Type.Number({
 					description:
-						"Token limit per note in full-read tier (default: 2000).",
+						"Token limit per note in the L2 full-read tier (default: 2000); a note over the limit demotes to its L1 overview instead of truncating.",
 					minimum: 1,
 				}),
 			),
@@ -999,6 +999,14 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					"unchanged. Default false.",
 				default: false,
 			})),
+			tier: Type.Optional(Type.Union([Type.Literal("abstract"), Type.Literal("overview"), Type.Literal("full")], {
+				description:
+					"Render tier (ticket 07 ladder): 'abstract' (L0 — title+tags+summary, DEFAULT), " +
+					"'overview' (L1 — body lead ~600 chars / agg summary), 'full' (L2 — full body). " +
+					"An entry whose tier text overflows its budget DEMOTES to a shallower tier " +
+					"instead of truncating.",
+				default: "abstract",
+			})),
 		}),
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			let vaultPath: string;
@@ -1040,6 +1048,9 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				folder: "Zettelkasten/knowledge-graph",
 				tags: effectiveTags,
 				topK,
+				// Tier ladder (ticket 07): L0 abstract is the default render;
+				// 'overview' is the detail flag; 'full' is the explicit request.
+				tier: params.tier ?? "abstract",
 				// Body-match recall (kg-improvement-plan follow-on): also surface cards
 				// whose query tokens appear in body prose, not just tags. Blend score
 				// (tag×2 + body + callout) — measured 0.48 → 0.80 hit-rate@4, zero
@@ -1051,7 +1062,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				// with bodyMatch; cheap (slug = filename, no extra read).
 				slugDom: true,
 				// Semantic (embedding) blend (recall-regime-change-eval, 2026-07-12):
-				// union lexical top-12 with a bge-m3 cosine top-12, rerank by
+				// union lexical top-12 with a semantic cosine top-12, rerank by
 				// α·lexRank + (1-α)·cosNorm. Bridges symptom→cause gaps lexical
 				// retrieval cannot (measured 0.84 → 1.00 hit-rate@4, zero regression).
 				// Graceful fallback: if LM Studio / the embed model is unavailable, retrieval is

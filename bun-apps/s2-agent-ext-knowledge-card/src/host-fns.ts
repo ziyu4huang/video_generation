@@ -54,6 +54,10 @@ export interface ZkRetrieveArgs {
   trace?: boolean;
   /** Override the semantic-embed blend (default true; set false for pure lexical). */
   semantic?: boolean;
+  /** Render tier (ticket 07 ladder): "abstract" (L0, default) | "overview"
+   *  (L1, detail) | "full" (L2, explicit). Selects the pre-rendered tier text
+   *  in each card's `detail` + the digest; overflow demotes, never truncates. */
+  tier?: "abstract" | "overview" | "full";
 }
 
 /**
@@ -68,6 +72,7 @@ export function buildRetrieveOptions(args: ZkRetrieveArgs, vaultPath: string): R
     folder: args.folder ?? "Zettelkasten/knowledge-graph",
     tags: args.tags ?? [],
     topK: args.topK ?? 10,
+    tier: args.tier ?? "abstract",
     bodyMatch: true,
     slugDom: true,
     semantic: args.semantic ?? true,

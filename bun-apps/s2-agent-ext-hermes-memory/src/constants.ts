@@ -80,7 +80,7 @@ export const DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS = 600_000;
 export const DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE = 64;
 
 // ─── LM Studio (hierarchy-build embedder) ──
-/** Default LM Studio base URL (serves the embedder + bge-m3 + qwen3). */
+/** Default LM Studio base URL (serves the embedder + chat models). */
 export const DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234";
 
 // ─── Staleness audit ───

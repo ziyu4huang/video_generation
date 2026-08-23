@@ -406,13 +406,18 @@ describe("buildRagTask", () => {
 		expect(t).toContain("12");
 	});
 
-	// Enhancement 3: Snippet-first context assembly
-	test("Stage 4 uses 2-tier strategy with score threshold 0.7", () => {
+	// Enhancement 3: Snippet-first context assembly (ticket 07: the L0/L1/L2
+	// tier ladder with demote-not-truncate replaces the old truncate-the-lead rule)
+	test("Stage 4 uses the tier ladder with score threshold 0.7", () => {
 		const t = buildRagTask(BASE.query, BASE.depth, BASE.topK, false, false);
-		expect(t).toContain("Tier 1 (full read)");
-		expect(t).toContain("Tier 2 (snippet only)");
+		expect(t).toContain("Tier 1 (L2 full read)");
+		expect(t).toContain("Tier 2 (L0 abstract)");
 		expect(t).toContain("score ≥ 0.7");
 		expect(t).toContain('Do NOT call action:"read"');
+		// Demote-not-truncate (OpenViking rule, verbatim — ticket 07 D0/D5)
+		expect(t).toContain("DEMOTE, NEVER TRUNCATE");
+		expect(t).toContain("body lead (~600 chars)");
+		expect(t).not.toContain("take from the beginning");
 	});
 
 	// P1: callout surfacing instruction is wired into context assembly
@@ -423,7 +428,7 @@ describe("buildRagTask", () => {
 		expect(t).toContain("must not be buried");
 	});
 
-	test("Stage 4 maxNoteTokens controls full-read truncation limit", () => {
+	test("Stage 4 maxNoteTokens controls the full-read demote threshold", () => {
 		const t = buildRagTask(
 			BASE.query,
 			BASE.depth,
@@ -522,9 +527,9 @@ describe("buildRagTask", () => {
 	// Fix 8: assembleNote placed inside Tier 1 block, before Tier 2
 	test("assembleNote appears before Tier 2 block", () => {
 		const t = buildRagTask(BASE.query, BASE.depth, BASE.topK, true, false);
-		const tier1Pos = t.indexOf("Tier 1 (full read)");
+		const tier1Pos = t.indexOf("Tier 1 (L2 full read)");
 		const assemblePos = t.indexOf("summary per cluster");
-		const tier2Pos = t.indexOf("Tier 2 (snippet only)");
+		const tier2Pos = t.indexOf("Tier 2 (L0 abstract)");
 		expect(tier1Pos).toBeLessThan(assemblePos);
 		expect(assemblePos).toBeLessThan(tier2Pos);
 	});
