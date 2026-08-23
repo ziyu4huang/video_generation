@@ -18,8 +18,7 @@
  * import.
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { isAbsolute, join, resolve } from "node:path";
 import { builtinRoleOf, TYPE_SCALE, type TypeSpec } from "./deck-theme.ts";
 import { TemplateError, loadTemplate, type LoadedTemplate, type SlotSpec } from "./layout-template.ts";
 import { layoutFor } from "./layouts.ts";
@@ -61,6 +60,29 @@ const CODE_DESCRIPTIONS: Record<SlideLayout, string> = {
 /** What an unknown role resolves to rather than crashing a build. */
 const ROLE_FALLBACK: TypeSpec = { sizePt: 16, color: "body", lineSpacing: 1.3 };
 
+/**
+ * Package root via the `#pi/ext-dir` idiom (same ladder as lib/run.ts's
+ * shExtDir). Deliberately NOT import.meta.url: bun's cjs bundler folds it into
+ * a build-machine path literal, which the sh deploy's relocatability gate
+ * (scanForeignPaths) rejects. Unresolvable (native ESM without the loader)
+ * → undefined; callers skip the shipped tier instead of throwing — tests
+ * always inject shippedDir explicitly.
+ */
+function pkgRoot(): string | undefined {
+  try {
+    if (typeof require === "function") {
+      const mod = require("#pi/ext-dir") as { default?: unknown } | string;
+      if (typeof mod === "string") return mod; // sh loader: the deployed ext dir
+      if (mod !== null && typeof mod === "object" && typeof mod.default === "string") {
+        return mod.default; // imports entry: the package root
+      }
+    }
+  } catch {
+    // Not resolvable here — fall through.
+  }
+  return undefined;
+}
+
 export interface LoadRegistryOpts {
   manifestDir?: string;
   env?: NodeJS.ProcessEnv;
@@ -84,7 +106,8 @@ export function loadRegistry(opts: LoadRegistryOpts = {}): LayoutRegistry {
     ...(opts.manifestDir ? [join(opts.manifestDir, "templates")] : []),
   ];
   // Tier 3: what the package ships.
-  const shippedDirs = [opts.shippedDir ?? join(dirname(fileURLToPath(import.meta.url)), "..", "templates")];
+  const root = pkgRoot();
+  const shippedDirs = [opts.shippedDir ?? (root !== undefined ? join(root, "templates") : "")].filter(Boolean);
 
   const templates = new Map<string, LoadedTemplate>();
   for (const dirs of [userDirs, shippedDirs]) {
@@ -129,7 +152,9 @@ export function loadRegistry(opts: LoadRegistryOpts = {}): LayoutRegistry {
     return fn;
   }
 
-  const layoutsAbs = join(dirname(fileURLToPath(import.meta.url)), "layouts.ts");
+  // Provenance label for lint/diagnostic output; a package-relative path when
+  // the root is unresolvable (native ESM) — display-only, never read from disk.
+  const layoutsAbs = root !== undefined ? join(root, "lib", "layouts.ts") : "lib/layouts.ts";
   const codeCatalog: CatalogEntry[] = SLIDE_LAYOUTS.map((name) => ({
     name,
     description: CODE_DESCRIPTIONS[name],
