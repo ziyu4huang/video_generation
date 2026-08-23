@@ -3,10 +3,10 @@
  * TS port of the former `scripts/tidy-next-goals.sh` (see project memory:
  * next-goal-naming-sop). Two phases, byte-for-byte with the bash semantics:
  *
- *   1. Normalize non-canonical filenames to `next-goal-YYYYMMDD_HHMMSS.md`:
- *        • dash separator  -> underscore   (next-goal-20260706-0531.md -> _053100)
- *        • missing seconds  -> padded with '0' (next-goal-20260705_1100.md -> _110000)
- *        • already-canonical names are left untouched (idempotent).
+ *   1. Normalize non-canonical filenames to `next-goal-YYYYMMDD-HHMMSS.md`:
+ *        • underscore separator  -> dash   (next-goal-20260706_0531.md -> -053100)
+ *        • missing seconds  -> padded with '0' (next-goal-20260705_1100.md -> -110000)
+ *        • already-canonical dash names are left untouched (idempotent).
  *        • unparsable timestamps are skipped (never renamed).
  *   2. Retention: keep only the N newest (default 10). Sort the fixed-width
  *      names lexicographically descending (== newest-first) and unlink
@@ -30,7 +30,7 @@ import { NEXT_GOAL_FILENAME_RE } from "./wayfinder.js";
 const PARSE_TS_RE = /^([0-9]{8})[-_]([0-9]{4,6})$/;
 
 export interface TidyResult {
-  /** Files renamed to the canonical `next-goal-YYYYMMDD_HHMMSS.md` form. */
+  /** Files renamed to the canonical `next-goal-YYYYMMDD-HHMMSS.md` form. */
   normalized: number;
   /** Files unlinked past the keepN newest. */
   removed: number;
@@ -44,12 +44,14 @@ function padTime(t: string): string {
 
 /** Canonical name for a parsable next-goal basename, or `null` if the timestamp
  *  is unparsable. Mirrors the bash `[[ "$tok" =~ ^([0-9]{8})[-_]([0-9]{4,6})$ ]]`
- *  branch (d + padded t → `next-goal-${d}_${t}.md`). */
+ *  branch — since the strict-v2 contract (devops `self-reflect-next-goal` +
+ *  `/wayfind handoff`) uses DASH as the single canonical form, both separators
+ *  collapse onto `next-goal-${d}-${t}.md`. */
 function canonicalName(base: string): string | null {
   const tok = base.slice("next-goal-".length, base.length - ".md".length); // strip prefix + suffix
   const m = PARSE_TS_RE.exec(tok);
   if (!m) return null;
-  return `next-goal-${m[1]}_${padTime(m[2])}.md`;
+  return `next-goal-${m[1]}-${padTime(m[2])}.md`;
 }
 
 /** Basenames of regular `next-goal-*.md` files in `outDir` (matches bash
@@ -62,7 +64,7 @@ function listNextGoalFiles(outDir: string): string[] {
 
 /**
  * Tidy `<effortDir>/output/next-goal-*.md` goal notes:
- *   1. normalize non-canonical filenames to `next-goal-YYYYMMDD_HHMMSS.md`,
+ *   1. normalize non-canonical filenames to `next-goal-YYYYMMDD-HHMMSS.md`,
  *   2. keep only the `keepN` newest (default 10), unlinking the rest.
  *
  * No-op (returns `{normalized: 0, removed: 0}`) when `<effortDir>/output/` is

@@ -60,8 +60,10 @@ function handoffTimestamp(now: Date): string {
 const LATEST_SYMLINK = join("output", "LATEST-next-goal.md");
 
 /** Resolve the repo-root LATEST pointer to an absolute path, or undefined when
- *  missing/dangling (→ frontmatter `supersedes: none`). */
-function resolveSupersedes(cwd: string): string | undefined {
+ *  missing/dangling (→ frontmatter `supersedes: none`). Shared with the
+ *  `/wayfind done` closing ceremony (wayfinder.ts) — the single LATEST source
+ *  of truth for both writers. */
+export function resolveSupersedes(cwd: string): string | undefined {
   const link = join(cwd, LATEST_SYMLINK);
   if (!existsSync(link) && !lstatSafe(link)) return undefined;
   try {
@@ -76,8 +78,9 @@ function resolveSupersedes(cwd: string): string | undefined {
 /** Repoint the repo-root LATEST symlink at the freshly written file (relative
  *  target, per the devops WRITE step 5). Best-effort: symlink support is
  *  optional (some CI filesystems lack it) and a stale pointer degrades to the
- *  newest-by-filename fallback, never to data loss. */
-function repointLatest(cwd: string, filename: string): void {
+ *  newest-by-filename fallback, never to data loss. Shared with the `/wayfind
+ *  done` closing ceremony (wayfinder.ts). */
+export function repointLatest(cwd: string, filename: string): void {
   const link = join(cwd, LATEST_SYMLINK);
   try {
     if (existsSync(link) || lstatSafe(link)) unlinkSync(link);

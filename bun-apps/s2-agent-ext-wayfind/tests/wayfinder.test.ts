@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { effortStatus } from "../src/effort-tool.js";
+import { assertHandoffShape } from "../src/handoff.js";
 import { completeEffort, readEffortMeta, setEffortStatus } from "../src/lifecycle.js";
 import { readMap, writeMap } from "../src/map.js";
 import { parseMapFrontmatter, today } from "../src/model.js";
@@ -147,16 +148,20 @@ describe("closeEffortReflection (/wayfind done)", () => {
     const r = await closeEffortReflection(cwd, "done-demo", new Date(2026, 6, 23, 3, 30, 0));
     expect("refused" in r).toBe(false);
     if ("refused" in r) throw new Error("expected a reflection, got a refusal");
-    expect(r.path).toBe("output/next-goal-20260723_033000.md");
+    // strict-v2 dash filename (the legacy underscore note is retired 2026-08-23)
+    expect(r.path).toBe("output/next-goal-20260723-033000.md");
     expect(r.deferredPrizes).toEqual(["Fix the deploy-verify CI gate", "Surface SDD status in workflow agent()"]);
     expect(r.nextGoal).toBe("Fix the deploy-verify CI gate");
     const note = readFileSync(join(cwd, r.path), "utf-8");
-    expect(note).toContain("ship the closing ceremony"); // destination framing
-    expect(note).toContain("1. Fix the deploy-verify CI gate"); // prize pre-filled
-    expect(note).toContain("**Fix the deploy-verify CI gate**"); // next goal bolded
+    expect(note).toContain("ship the closing ceremony"); // destination framing in the title
+    expect(note).toContain("**Fix the deploy-verify CI gate**"); // next goal bolded as ranked head
+    const ranked = note.split(/^## Ranked next goals$/m)[1] ?? "";
+    expect((ranked.match(/^\d+\. /gm) ?? []).length).toBeGreaterThanOrEqual(3); // 3–5 ranked entries
     // the next-goal fork MUST instruct the agent to present it via ask_user_question
     // (never a prose menu) — mirrors grilling's one-question-at-a-time discipline.
     expect(note).toContain("ask_user_question");
+    // strict-v2 shape: frontmatter + five exact headings in order, unchecked box
+    expect(() => assertHandoffShape(note)).not.toThrow();
     // D1: /wayfind done now FILES the effort — status:complete + move to done/
     expect(r.filedTo).toBe(".planning/done/done-demo");
     expect(r.fileError).toBeUndefined();

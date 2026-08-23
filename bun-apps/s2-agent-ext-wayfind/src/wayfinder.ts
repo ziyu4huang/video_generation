@@ -13,8 +13,9 @@
  * renderStatus, shared by /wayfind status and the wayfind_effort tool.)
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { assertHandoffShape, repointLatest, resolveSupersedes } from "./handoff.js";
 import { completeEffort } from "./lifecycle.js";
 import { readMap, writeFreshMap, writeMap, writeTicket } from "./map.js";
 import { computeFrontier, type Ticket, today, type WayfindMap } from "./model.js";
@@ -104,24 +105,26 @@ export function claimNextTicket(cwd: string, effort: string, claimLabel: string)
 // premises / footguns) stay with the agent — this writes a template the agent
 // fills. The command handler runs tidy + notifies; this function does not.
 
-/** Local timestamp as YYYYMMDD_HHMMSS (the canonical next-goal filename stamp). */
+/** Local timestamp as YYYYMMDD-HHMMSS (the canonical next-goal filename stamp).
+ *  DASH separator — the devops `self-reflect-next-goal` strict-v2 contract that
+ *  `/wayfind handoff` writes; the underscore variant was the legacy `/wayfind
+ *  done` note and is retired (2026-08-23) in favour of the dash form. */
 function nextGoalTimestamp(now: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   const d = now;
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-/** Canonical `output/next-goal-*.md` filename matcher: `next-goal-` + the
- *  stamp + `.md`. Accepts BOTH separators: the underscore variant is this
- *  package's legacy `/wayfind done` note; the dash variant
- *  (`next-goal-YYYYMMDD-HHMMSS.md`) is the devops `self-reflect-next-goal`
- *  strict-v2 contract that `/wayfind handoff` writes (2026-08-23). Both are
- *  canonical — tidy must never "normalize" one into the other. Shared (single
- *  source of truth) with `tidy-next-goals.ts`. */
-export const NEXT_GOAL_FILENAME_RE = /^next-goal-[0-9]{8}[-_][0-9]{6}\.md$/;
+/** Canonical `output/next-goal-*.md` filename matcher: `next-goal-` + the dash
+ *  stamp + `.md`. DASH is the SINGLE canonical form (the devops
+ *  `self-reflect-next-goal` strict-v2 contract and `/wayfind handoff`); the
+ *  underscore variant was the legacy `/wayfind done` note and is normalized to
+ *  dash by `tidy-next-goals.ts`. Shared (single source of truth) with
+ *  `tidy-next-goals.ts`. */
+export const NEXT_GOAL_FILENAME_RE = /^next-goal-[0-9]{8}-[0-9]{6}\.md$/;
 
 export interface CloseEffortReflection {
-  /** Repo-relative path written, e.g. "output/next-goal-20260723_033000.md". */
+  /** Repo-relative path written, e.g. "output/next-goal-20260723-033000.md". */
   path: string;
   /** Recommended next goal (= first fog bullet), or a fallback when fog is empty. */
   nextGoal: string;
@@ -180,18 +183,38 @@ export async function closeEffortReflection(
   const deferredPrizes = map.fog.filter((p) => !p.startsWith("<!--"));
   const nextGoal = deferredPrizes[0] ?? "(fog is empty — no deferred prizes harvested; pick the next goal freely)";
 
+  // Strict-v2 build: frontmatter (file/created/supersedes) + five exact
+  // headings, keyed off the SAME timestamp so the validator's
+  // created-matches-filename check holds. Reuses the LATEST resolve/repoint
+  // logic from the handoff writer (single source of truth).
+  const ts = nextGoalTimestamp(now);
+  const filename = `next-goal-${ts}.md`;
+  const relPath = join("output", filename);
+  const absPath = join(cwd, relPath);
+  const created = `${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)} ${ts.slice(9, 11)}:${ts.slice(11, 13)}:${ts.slice(13, 15)}`;
+  const supersedes = resolveSupersedes(cwd);
+
   const body = renderNextGoalNote({
     effort,
     destination: map.destination,
     deferredPrizes,
     nextGoal,
+    file: absPath,
+    created,
+    supersedes: supersedes ?? "none",
   });
-  const filename = `next-goal-${nextGoalTimestamp(now)}.md`;
+  const frontmatter = `${["---", `file: ${absPath}`, `created: ${created}`, `supersedes: ${supersedes ?? "none"}`, "---", ""].join("\n")}\n`;
+
   mkdirSync(join(cwd, "output"), { recursive: true });
-  writeFileSync(join(cwd, "output", filename), body, "utf-8");
+  writeFileSync(absPath, frontmatter + body, "utf-8");
+
+  const written = readFileSync(absPath, "utf-8");
+  assertHandoffShape(written); // never ship a note the strict-v2 contract rejects
+
+  repointLatest(cwd, filename);
 
   const filing = fileCompletedEffort(cwd, effort);
-  return { path: `output/${filename}`, nextGoal, deferredPrizes, effort, ...filing };
+  return { path: relPath, nextGoal, deferredPrizes, effort, ...filing };
 }
 
 /** D1 canonical close as the tail of the ceremony: after the next-goal note is
@@ -202,37 +225,61 @@ function fileCompletedEffort(cwd: string, effort: string): { filedTo?: string; f
   return c.ok ? { filedTo: c.movedTo } : { fileError: c.reason };
 }
 
+/** Render the strict-v2 body (five exact headings) for a `/wayfind done` note.
+ *  The frontmatter is built by the caller; this produces the `# Next goal — …`
+ *  heading + the five ordered sections the devops `self-reflect-next-goal`
+ *  validator requires. The map's harvested deferred prizes seed the gaps +
+ *  ranked list; only the SHAPE changed from the retired v1 template. */
 function renderNextGoalNote(args: {
   effort: string;
   destination: string;
   deferredPrizes: string[];
   nextGoal: string;
+  file: string;
+  created: string;
+  supersedes: string;
 }): string {
+  const { effort, destination, deferredPrizes, nextGoal } = args;
   const prizes =
-    args.deferredPrizes.length > 0
-      ? args.deferredPrizes.map((p, i) => `${i + 1}. ${p}`).join("\n")
-      : "_(none harvested — fog was empty)_";
-  return `# Goal completed: ${args.destination || args.effort}
+    deferredPrizes.length > 0 ? deferredPrizes.map((p) => `- **${p}**`) : ["_(none harvested — fog was empty)_"];
 
-Effort: \`.planning/${args.effort}/\`
-Self-reflect + next-goal note written by \`/wayfind done\` (the closing ceremony, distilled from the convention into a command).
+  // Ranked next goals: the recommended head first, then the remaining deferred
+  // prizes, padded toward the validator's 3-5 floor with a fresh-effort entry.
+  const ranked: string[] = [
+    `**${nextGoal}** — the recommended next goal; first step: present this fork via the ask_user_question tool (⭐) and start it.`,
+    ...deferredPrizes
+      .filter((p) => p !== nextGoal)
+      .map(
+        (p) =>
+          `**${p}** — a deferred prize not yet pursued; first step: chart it (\`/wayfind -- <destination>\`) or fold it into the current effort.`,
+      ),
+  ];
+  while (ranked.length < 3) ranked.push("**Chart the next effort** — first step: `/wayfind -- <destination>`.");
 
-## Self-reflection — fill in (only the agent knows these)
-
-### False premises / course-corrections
-_(fill: hypotheses that were wrong, mental models that needed correcting)_
-
-### Footguns
-_(fill: non-obvious traps for future work in this area)_
-
-## Deferred prizes (harvested from the map's "Not yet specified")
-
-${prizes}
-
-## Next concrete goal (recommended)
-
-**${args.nextGoal}**
-
-_(Present this fork via the **ask_user_question tool** — recommended option (⭐) above; alternatives = the other deferred prizes + a fresh effort. Never a prose menu.)_
-`;
+  return [
+    `# Next goal — ${destination || effort} is done; pick the next work`,
+    "",
+    "## Verified this session",
+    "",
+    `Effort \`.planning/${effort}/\` reached its destination — every ticket resolved, and the effort filed to \`.planning/done/\`. _(fill the concrete evidence before stopping: PR number, test run, command output.)_`,
+    "",
+    "## Honest gaps",
+    "",
+    ...prizes,
+    "",
+    "## Immediate steps",
+    "",
+    "1. Present the next-goal fork via the **ask_user_question** tool — recommended option (⭐) is the ranked head; the alternatives are the deferred prizes + a fresh effort. Never a prose menu.",
+    "2. Sync to origin/main first (`bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`).",
+    `3. Execute the ranked head: ${nextGoal}.`,
+    "",
+    "## Done when",
+    "",
+    "- [ ] next goal picked and its first step executed (or carried as the successor's head)",
+    "",
+    "## Ranked next goals",
+    "",
+    ...ranked.slice(0, 5).map((r, i) => `${i + 1}. ${r}`),
+    "",
+  ].join("\n");
 }
