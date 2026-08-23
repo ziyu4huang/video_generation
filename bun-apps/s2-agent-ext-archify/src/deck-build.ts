@@ -34,7 +34,6 @@ import { lintDeck } from "./deck-lint.ts";
 import { PALETTES, type Palette, type Theme } from "./deck-theme.ts";
 import { emitHtmlSlide, type DiagramEmbed } from "./emit-html.ts";
 import { emitPptxSlide, type SlideLike } from "./emit-pptx.ts";
-import { layoutFor } from "./layouts.ts";
 import { loadRegistry } from "./layout-registry.ts";
 import { loadIrMeta } from "./load-ir.ts";
 import { formatShapeIR, toShapeIR, type ShapeIR } from "./shape-ir.ts";
@@ -98,6 +97,11 @@ export interface BuildDeckParams {
   theme?: Theme;
   /** Working dir for the vendored CLI. */
   cwd: string;
+  /**
+   * Env for template search-path resolution (tests must not mutate
+   * `process.env`; cf. `LoadRegistryOpts.env`).
+   */
+  env?: NodeJS.ProcessEnv;
   bin?: string;
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
@@ -132,7 +136,8 @@ export interface BuiltSlide {
   subtitle?: string;
   /** The slide page: an archify artifact for `diagram`, else a composed page. */
   htmlPath: string;
-  layout: SlideLayout;
+  /** The code layout or the resolved template name (`*.layout.json`). */
+  layout: string;
   /** Absolute IR path, when this slide has a diagram. */
   irPath?: string;
   /** The archify diagram type, or the layout name when there is no diagram. */
@@ -393,6 +398,11 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
   const tag = manifest.tag ?? "archify deck";
   const progress = params.onProgress ?? (() => {});
 
+  // Template search path, scoped to this build — the SAME tier order that
+  // `loadManifestFile` used to validate the manifest, so the names that passed
+  // validation are the ones `render` dispatches on here (ticket 07).
+  const registry = loadRegistry({ manifestDir: params.manifestDir, env: params.env });
+
   const slides = expandViews(manifest, params.manifestDir);
 
   // Style notes ride along in the tool result; an `error` note does not. It
@@ -435,7 +445,7 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
         ...(authored.bullets ? { bullets: normalizeBullets(authored.bullets) } : {}),
       };
 
-      const blocks = layoutFor(layout)(slide, { index: i, total, tag });
+      const blocks = registry.render(layout, slide, { index: i, total, tag });
       const { diagrams, diagramSrc, artifactPath, diagramType } = await resolveDiagrams(
         blocks,
         i,
@@ -451,7 +461,13 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
         addNotes?: (t: string) => unknown;
       };
       pptxSlide.background = { color: palette.slideBg };
-      const placed = emitPptxSlide(pptxSlide, blocks, { palette, theme, font, diagrams });
+      const placed = emitPptxSlide(pptxSlide, blocks, {
+        palette,
+        theme,
+        font,
+        diagrams,
+        roleOf: registry.roleOf(layout),
+      });
       if (slide.notes && typeof pptxSlide.addNotes === "function") pptxSlide.addNotes(slide.notes);
 
       // D4: a `diagram` slide's page IS the archify artifact, untouched.
@@ -460,7 +476,14 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
       if (layout !== "diagram") {
         await Bun.write(
           htmlPath,
-          emitHtmlSlide(blocks, { palette, theme, font, title: slide.title, diagramSrc })
+          emitHtmlSlide(blocks, {
+            palette,
+            theme,
+            font,
+            title: slide.title,
+            diagramSrc,
+            roleOf: registry.roleOf(layout),
+          })
         );
       } else if (!artifactPath) {
         throw new DeckError(

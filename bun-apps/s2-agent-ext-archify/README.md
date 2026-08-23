@@ -110,6 +110,10 @@ measuring a glyph or opening a renderer (buckets calibrated against rendered ink
 **Canonical example:** `examples/deck-composed/` exercises all six —
 `bun run deck examples/deck-composed/deck.config.json --lint`.
 
+**Library proof deck:** `examples/deck-general/` exercises every shipped
+`*.layout.json` template next to the code layouts —
+`bun run deck examples/deck-general/deck.config.json --lint`.
+
 ## Text is a real text box
 
 `src/pptx-shapes.ts` places diagram labels at fixed coordinates with `wrap: false`: the

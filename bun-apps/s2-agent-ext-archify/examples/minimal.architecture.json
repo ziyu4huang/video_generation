@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": { "title": "Mini", "output": "mini.html" },
+  "components": [
+    { "id": "client", "type": "frontend", "label": "Client", "pos": [40, 40], "size": [120, 60] },
+    { "id": "server", "type": "backend", "label": "Server", "pos": [260, 40], "size": [120, 60] },
+    { "id": "db", "type": "database", "label": "DB", "pos": [480, 40], "size": [120, 60] }
+  ],
+  "connections": [
+    { "id": "c1", "from": "client", "to": "server" },
+    { "id": "c2", "from": "server", "to": "db", "label": "SQL" }
+  ]
+}

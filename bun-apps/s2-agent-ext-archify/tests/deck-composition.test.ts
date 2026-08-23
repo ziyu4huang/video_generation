@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,10 +13,13 @@ import {
 import { lintDeck } from "../src/deck-lint.ts";
 import { lintPptx, formatDiagnostics } from "../src/ooxml-lint.ts";
 import { count, readZipText } from "../src/read-zip.ts";
+import { loadRegistry } from "../src/layout-registry.ts";
+import { archifyExportPptx } from "../src/export-pptx.ts";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const LEGACY_MANIFEST = join(PKG_ROOT, "examples", "deck", "deck.config.json");
 const COMPOSED_MANIFEST = join(PKG_ROOT, "examples", "deck-composed", "deck.config.json");
+const GENERAL_MANIFEST = join(PKG_ROOT, "examples", "deck-general", "deck.config.json");
 
 let workDir = "";
 
@@ -235,6 +238,125 @@ describe("a composed deck", () => {
     const { manifest } = await loadManifestFile(COMPOSED_MANIFEST, PKG_ROOT);
     expect(lintDeck(manifest)).toEqual([]);
   });
+});
+
+describe("examples/deck-general — the seven templates build as one deck (ticket 07)", () => {
+  let built: Awaited<ReturnType<typeof build>>;
+  beforeAll(async () => {
+    built = await build(GENERAL_MANIFEST, "general");
+  });
+
+  test("exercises every shipped template beside the code layouts", () => {
+    expect(built.result.slides.map((s) => s.layout)).toEqual([
+      "title",
+      "diagram",
+      "kpi-row",
+      "compare",
+      "timeline",
+      "table",
+      "quote",
+      "split",
+      "bullets",
+      "agenda",
+      "statement",
+      "end",
+    ]);
+  });
+
+  test("passes the content lint with zero notes", async () => {
+    const { manifest } = await loadManifestFile(GENERAL_MANIFEST, PKG_ROOT);
+    expect(lintDeck(manifest)).toEqual([]);
+  });
+
+  test("nothing is rasterized on any slide", () => {
+    for (let i = 1; i <= 12; i++) {
+      expect(count(built.parts[`ppt/slides/slide${i}.xml`]!, /<a:blip\b/g), `slide${i}`).toBe(0);
+    }
+  });
+
+  test("the table slide carries exactly one native <a:tbl> (never split)", () => {
+    expect(count(built.parts["ppt/slides/slide6.xml"]!, /<a:tbl\b/g)).toBe(1);
+  });
+
+  test("a template's merged roles reached the pptx emitter (kpiValue 40 pt)", () => {
+    // `roleOf` threading: the kpi-row template's role table, not the builtin
+    // TYPE_SCALE, sizes the big number.
+    expect(built.parts["ppt/slides/slide3.xml"]!).toContain('sz="4000"');
+  });
+
+  test("passes every OOXML structural rule", async () => {
+    expect(formatDiagnostics(await lintPptx(built.parts))).toBe("");
+  });
+
+  test("the shipped examples stay inside their manifest folders (ticket 11)", async () => {
+    // The one-folder contract is pinned on the SHIPPED examples, not just on a
+    // synthetic manifest: an export that leaves the folder carries the spread
+    // advisory, and a conforming one must stay silent.
+    for (const manifestPath of [GENERAL_MANIFEST, COMPOSED_MANIFEST]) {
+      const r = await archifyExportPptx({ manifestPath }, { cwd: PKG_ROOT });
+      expect(r.isError).toBeUndefined();
+      expect(r.details["spread"], manifestPath).toBeUndefined();
+      expect(r.content[0]!.text, manifestPath).not.toContain("outside the manifest folder");
+    }
+  }, 180_000);
+});
+
+describe("gate 5 — a template dropped into $ARCHIFY_TEMPLATES from outside the repo", () => {
+  test("appears in the catalog and renders in a built deck", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "archify-out-of-repo-"));
+    try {
+      writeFileSync(
+        join(dir, "proof.layout.json"),
+        JSON.stringify({
+          name: "proof",
+          description: "out-of-repo search-path proof",
+          chrome: false,
+          roles: { proofBig: { sizePt: 40, color: "title" } },
+          slots: { headline: { kind: "text", required: true, description: "the proof line" } },
+          body: [
+            {
+              region: "content",
+              box: { inset: [0.2, 0.3, 0.2, 0.5] },
+              content: { kind: "text", role: "proofBig", from: "{slide.headline}" },
+            },
+          ],
+        })
+      );
+      const manifestPath = join(dir, "deck.config.json");
+      writeFileSync(
+        manifestPath,
+        JSON.stringify({
+          output: "proof.pptx",
+          slides: [{ layout: "proof", title: "Proof slides render from a template", headline: "渲染成功" }],
+        })
+      );
+      const env = { ARCHIFY_TEMPLATES: dir };
+      const reg = loadRegistry({ env });
+
+      // 1. `catalog()` sees it, from the temp dir, not the package.
+      const entry = reg.catalog().find((e) => e.name === "proof");
+      expect(entry?.source.startsWith(dir)).toBe(true);
+
+      // 2. It renders in a built deck, through the SAME registry the manifest
+      //    was validated with (parse-time and build-time names must agree).
+      const { manifest, manifestDir } = await loadManifestFile(manifestPath, PKG_ROOT, reg);
+      const result = await buildDeck({
+        manifest,
+        manifestDir,
+        outputPath: join(dir, "deck.pptx"),
+        cwd: PKG_ROOT,
+        slidesDir: null,
+        env,
+      });
+      expect(result.slides[0]!.layout).toBe("proof");
+      expect(result.slides[0]!.texts).toBeGreaterThan(0);
+      const parts = await readZipText(await Bun.file(join(dir, "deck.pptx")).bytes());
+      expect(count(parts["ppt/slides/slide1.xml"]!, /<a:blip\b/g)).toBe(0);
+      expect(formatDiagnostics(await lintPptx(parts))).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 describe("a deck that would render broken is refused", () => {

@@ -37,7 +37,9 @@ Shared vocabulary:
 
 ## Minimal example (architecture)
 
-See the worked architecture IR (3 components, 2 connections) — copy + edit it. Components need `pos` + `size`; connections reference component `id`s via `from`/`to`.
+Copy `examples/minimal.architecture.json` — 3 components, 2 connections, the whole
+type's vocabulary in one small file — and edit it. Components need `pos` + `size`;
+connections reference component `id`s via `from`/`to`.
 
 ## The loop
 
@@ -69,6 +71,20 @@ browsable slide HTML. Six layouts:
       "ir": "flow.dataflow.json", "bullets": ["…", { "text": "…", "level": 1 }] }
   ] }
 ```
+
+These six are code layouts; more layouts arrive as data (`*.layout.json`) on the
+search path, so never guess a layout name — ask the catalog first:
+`archify_deck_lint` with no arguments lists everything available.
+
+### Sample decks (imitate these)
+
+- `bun run deck examples/deck-composed/deck.config.json --lint` — the canonical
+  showcase: one slide per code layout, IR + prose composed, zero lint notes.
+- `bun run deck examples/deck-general/deck.config.json --lint` — the library
+  proof deck: every shipped `*.layout.json` template next to the code layouts,
+  content- and ooxml-lint clean.
+- `bun run deck examples/deck/deck.config.json` — the legacy baseline (5 slides,
+  388 native shapes); it rebuilds unchanged and is the compatibility canary.
 
 ### Output layout — one deliverable = one folder
 
