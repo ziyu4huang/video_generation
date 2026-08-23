@@ -1,0 +1,56 @@
+{
+  "name": "timeline",
+  "description": "3–6 milestones on one horizontal rule across the content well: a muted date above the rule, a bold label below it, an optional note under that. Reads left to right — order `milestones[]` chronologically.",
+  "chrome": true,
+  "slots": {
+    "milestones": {
+      "kind": "array",
+      "of": ["date", "label", "note?"],
+      "min": 3,
+      "max": 6,
+      "required": true,
+      "description": "one station per entry; `date` sits above the rule, `label` below, `note` qualifies"
+    }
+  },
+  "roles": {
+    "milestoneDate": { "sizePt": 13, "color": "muted" },
+    "milestoneLabel": { "sizePt": 16, "bold": true, "color": "accent" },
+    "milestoneNote": { "sizePt": 11, "color": "muted" }
+  },
+  "body": [
+    {
+      "region": "content",
+      "box": { "inset": [0.3, 2.6, 0.3, 2.44] },
+      "content": { "kind": "rule" }
+    },
+    {
+      "region": "content",
+      "repeat": { "over": "milestones", "flow": "row", "gap": 0.3, "max": 6 },
+      "cell": [
+        {
+          "stack": { "dir": "row", "weights": [1, 1, 2], "gap": 0.08 },
+          "children": [
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "milestoneDate", "from": "{date}" },
+              "align": "center",
+              "valign": "bottom"
+            },
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "milestoneLabel", "from": "{label}" },
+              "align": "center",
+              "valign": "top"
+            },
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "milestoneNote", "from": "{note}" },
+              "align": "center",
+              "valign": "top"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -2,9 +2,9 @@
 ticket: 06-template-library
 effort: archify-general-deck
 type: task
-status: open
+status: done
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocked-by: [01, 02, 03, 05]
 ---
 # 06 — the seven shipped templates

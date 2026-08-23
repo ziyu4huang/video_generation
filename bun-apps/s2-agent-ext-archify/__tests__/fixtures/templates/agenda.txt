@@ -1,0 +1,18 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0293 0.675 0.1] left/middle text:title "今天只決策一件事：解析器自建或採購"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source ""
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "1 / 1"
+[0.0375 0.1867 0.1133 0.152] right/middle text:agendaNumber "1"
+[0.1695 0.1867 0.793 0.0752] left/middle text:agendaTitle "現況與痛點"
+[0.1695 0.2885 0.793 0.0501] left/middle text:agendaNote "10 分鐘"
+[0.0375 0.3627 0.1133 0.152] right/middle text:agendaNumber "2"
+[0.1695 0.3627 0.793 0.0752] left/middle text:agendaTitle "解析器基準測試"
+[0.1695 0.4645 0.793 0.0501] left/middle text:agendaNote "15 分鐘"
+[0.0375 0.5387 0.1133 0.152] right/middle text:agendaNumber "3"
+[0.1695 0.5387 0.793 0.0752] left/middle text:agendaTitle "移行計畫"
+[0.1695 0.6405 0.793 0.0501] left/middle text:agendaNote "20 分鐘"
+[0.0375 0.7147 0.1133 0.152] right/middle text:agendaNumber "4"
+[0.1695 0.7147 0.793 0.0752] left/middle text:agendaTitle "決策與下一步"
+[0.1695 0.8165 0.793 0.0501] left/middle text:agendaNote ""

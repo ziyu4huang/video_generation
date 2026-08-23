@@ -1,0 +1,10 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0293 0.675 0.1] left/middle text:title "自建解析器在第二年反超託管服務的成本線"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source ""
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "1 / 1"
+[0.0375 0.1867 0.925 0.0547] left/top text:sideHeading "自建解析器"
+[0.0375 0.2747 0.925 0.2187] left/top bullets:bullet 0:"p99 由 4.2 s 壓到 1.8 s" 0:"維運成本每月增加 12 小時" 0:"資料不出內網"
+[0.0375 0.56 0.925 0.0547] left/top text:sideHeading "採用託管服務"
+[0.0375 0.648 0.925 0.2187] left/top bullets:bullet 0:"零維運，但單價高 2.3 倍" 0:"資料出境需法務審查" 0:"第二年合約重議"

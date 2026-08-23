@@ -1,0 +1,39 @@
+{
+  "name": "compare",
+  "description": "Two peer options side by side at an exact 50/50 split — deliberately even, unlike `split`'s 60/40 diagram weighting: here neither side outranks the other, so neither gets more room. Each side carries a bold heading plus bullets; author them as `sides[]` in left-first order.",
+  "chrome": true,
+  "slots": {
+    "sides": {
+      "kind": "array",
+      "of": ["heading", "bullets"],
+      "min": 2,
+      "max": 2,
+      "required": true,
+      "description": "exactly two entries; index 0 is the LEFT side, index 1 the RIGHT; each has `heading` and `bullets`"
+    }
+  },
+  "roles": {
+    "sideHeading": { "sizePt": 20, "bold": true, "color": "accent" }
+  },
+  "body": [
+    {
+      "region": "content",
+      "repeat": { "over": "sides", "flow": "col", "gap": 0.5, "max": 2 },
+      "cell": [
+        {
+          "stack": { "dir": "row", "weights": [1, 4], "gap": 0.25 },
+          "children": [
+            {
+              "box": "fill",
+              "content": { "kind": "text", "role": "sideHeading", "from": "{heading}" }
+            },
+            {
+              "box": "fill",
+              "content": { "kind": "bullets", "role": "bullet", "from": "{bullets}" }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

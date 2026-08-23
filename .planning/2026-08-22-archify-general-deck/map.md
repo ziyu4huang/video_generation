@@ -110,8 +110,8 @@ Phase 2.5 — output packaging (added 2026-08-23)
 - `tickets/11-self-contained-output.md` — task, **in progress** — one-folder contract + spread advisory landed 2026-08-23; example-conformance test still owed
 
 Phase 3 — the library
-- `tickets/05-table-primitive.md` — task, open — `BlockContent.kind: "table"`, both emitters
-- `tickets/06-template-library.md` — task, open — the seven shipped templates + goldens
+- `tickets/05-table-primitive.md` — task, **done** 2026-08-23 — `BlockContent.kind: "table"`, both emitters
+- `tickets/06-template-library.md` — task, **done** 2026-08-23 — the seven shipped templates + goldens (zero `.ts` changes needed; no vocabulary gap)
 - `tickets/07-example-deck-general.md` — task, open — `examples/deck-general/` + gates
 
 Phase 4 — authoring ergonomics
@@ -165,20 +165,26 @@ Recorded in full in `spec.md` §3. The load-bearing ones:
 
 ## Frontier
 
-`tickets/05-table-primitive.md` — Phase 2 continues with the table drawing primitive
-(both emitters must learn it; that is the "Drawing primitive" cost CONTEXT.md warns about),
-then ticket 06's seven shipped templates can be authored against the now-live catalog +
-`archify_deck_lint`. Ticket 04 landed 2026-08-23: `archify_deck_lint` (catalog mode /
-renderless manifest check / storyline return, runArchify-spy proven, schema-cost canary +
-248 tok). Phases closed: ticket 11 (one-folder contract, example-conformance test still
-owed), tickets 01+02+03 as one unit (shared `lib/blocks.ts`, `lib/layout-template.ts`
-resolver, `lib/layout-registry.ts` three-tier precedence, `roleOf` refactor). Ticket 03's
-equivalence passed on the first full run — zero vocabulary gap; timeline verdict EXPRESSIBLE,
-pinned as `layout-template.test.ts` "timeline vocabulary verdict". Suite 505 → 579 passing,
-0 failing.
+`tickets/07-example-deck-general.md` — the proof deck. Phase 2 closed 2026-08-23: ticket
+05 landed `table` as the effort's one new drawing primitive in both emitters (`autoPage:
+false` explicit + asserted; over-long table stays ONE slide; `<a:blip>` still 0;
+`too-many-table-rows` lint advisory at 12 body rows), and ticket 06 shipped all seven
+templates + CJK goldens with **zero `.ts` changes** — the vocabulary held. The role-name
+collision case from Fog of war is now pinned by test (per-slide resolution, no leakage).
+Suite 505 → 605 passing, 0 failing. Ticket 07 builds a real general-purpose deck through
+the new surface; tickets 08–10 (Markdown outline, scaffolds, docs/skill split) follow.
+
+Earlier phases, closed: ticket 11 (one-folder contract; example-conformance test owed),
+01+02+03 (template seam; bullets-equivalence first-run pass, timeline EXPRESSIBLE), 04
+(`archify_deck_lint`; canary +248 tok).
 
 ## Fog of war
 
+- **Typo'd slot binding renders silently empty.** `{slide.rowss}` passes `validateFrom`
+  (it checks token syntax, not existence) and a `table` box renders header-only — found in
+  ticket-06 review 2026-08-23, consistent with `resolveBullets`' existing behaviour, so not
+  a regression. If agent-authored templates become common, `validateFrom` should check the
+  key against the slide record at LOAD time.
 - **Custom-IR lessons from ~/proj/output not yet folded back.** The v3 run's
   `self-reflection.md` records hard-won authoring rules (no `animation:"trace"` on
   deck-facing sequence IRs; keep lifeline x clear of the segment-label span; DOM

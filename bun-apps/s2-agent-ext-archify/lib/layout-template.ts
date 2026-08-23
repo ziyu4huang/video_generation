@@ -68,9 +68,13 @@ type BoxSpec = "fill" | { inset: [number, number, number, number] };
 type RegionName = "content" | "full";
 
 interface ContentSpec {
-  kind: "text" | "bullets" | "diagram" | "rule" | "panel";
+  kind: "text" | "bullets" | "diagram" | "rule" | "panel" | "table";
   role?: string;
   from?: string;
+  /** `table` only: one binding each for the column names and the row arrays. */
+  headerRole?: string;
+  columns?: string;
+  rows?: string;
   tone?: "tag" | "section";
 }
 
@@ -83,7 +87,7 @@ type ScopeNode =
 /** A root node names its region; nested nodes inherit their scope. */
 type Node = ScopeNode | { op: "region"; region: RegionName; child: ScopeNode };
 
-const KNOWN_KINDS = ["text", "bullets", "diagram", "rule", "panel"] as const;
+const KNOWN_KINDS = ["text", "bullets", "diagram", "rule", "panel", "table"] as const;
 
 const REGIONS: readonly RegionName[] = ["content", "full"];
 const ALIGNMENTS = ["left", "center", "right"] as const;
@@ -252,6 +256,30 @@ function compileContent(raw: unknown, path: string, ctx: CompileCtx): ContentSpe
       }
       validateFrom(raw.from, `${path}.content`, ctx);
       spec.from = raw.from;
+      break;
+    case "table":
+      if (typeof raw.role !== "string" || raw.role === "") {
+        fail(ctx.source, `${path}.content.role`, `a "table" block needs a body role name`);
+      }
+      spec.role = raw.role;
+      if (typeof raw.headerRole !== "string" || raw.headerRole === "") {
+        fail(ctx.source, `${path}.content.headerRole`, `a "table" block needs a headerRole name`);
+      }
+      spec.headerRole = raw.headerRole;
+      // Each resolves to an array off the slide, so exactly one binding each —
+      // the same discipline a "bullets" block already follows.
+      for (const k of ["columns", "rows"] as const) {
+        const v = raw[k];
+        if (typeof v !== "string" || !/^(\{[^{}]+\})$/.test(v.trim())) {
+          fail(
+            ctx.source,
+            `${path}.content.${k}`,
+            `a "table" block's \`${k}\` must be exactly one binding (it resolves to an array)`
+          );
+        }
+        validateFrom(v, `${path}.content`, ctx);
+        spec[k] = v;
+      }
       break;
     case "panel":
       if (raw.tone !== "tag" && raw.tone !== "section") {
@@ -440,6 +468,17 @@ function resolveBullets(tpl: string, b: Bindings): BulletItem[] {
   return normalizeBullets(v as Slide["bullets"]);
 }
 
+/** One binding → the raw array it names off the slide or repeat item. */
+function resolveArray(tpl: string, b: Bindings): unknown[] {
+  const tok = /^(\{[^{}]+\})$/.exec(tpl.trim())?.[1];
+  if (!tok) return [];
+  const inner = tok.slice(1, -1);
+  let v: unknown;
+  if (inner.startsWith("slide.")) v = (b.slide as unknown as Record<string, unknown>)[inner.slice(6)];
+  else if (b.item !== null && typeof b.item === "object") v = (b.item as Record<string, unknown>)[inner];
+  return Array.isArray(v) ? v : [];
+}
+
 /** The takeaway-aware content well, or full bleed. */
 function regionBox(name: RegionName, slide: Slide): InchBox {
   if (name === "full") return { x: 0, y: 0, w: STAGE.w, h: STAGE.h };
@@ -470,6 +509,18 @@ function buildBlock(node: Extract<ScopeNode, { op: "box" }>, scope: InchBox, b: 
       return at(box, { kind: "diagram", ir: resolveString(c.from!, b) }, node.align, node.valign);
     case "panel":
       return at(box, { kind: "panel", tone: c.tone! }, node.align, node.valign);
+    case "table": {
+      const columns = resolveArray(c.columns!, b).map((v) => String(v));
+      const rows = resolveArray(c.rows!, b).map((row) =>
+        Array.isArray(row) ? row.map((v) => String(v)) : [String(row)]
+      );
+      return at(
+        box,
+        { kind: "table", columns, rows, role: c.role!, headerRole: c.headerRole! },
+        node.align,
+        node.valign
+      );
+    }
     case "rule":
       return at(box, { kind: "rule" }, node.align, node.valign);
   }

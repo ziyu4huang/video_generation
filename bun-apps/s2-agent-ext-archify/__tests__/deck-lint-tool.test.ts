@@ -13,14 +13,19 @@ function tempDir(prefix = "archify-deck-lint-"): string {
   return mkdtempSync(join(tmpdir(), prefix));
 }
 
-/** A minimal valid template with one required array slot (as the registry tests use). */
+/**
+ * A minimal valid template with one required array slot. Named `kpi-probe` —
+ * NOT `kpi-row` — because ticket 06 shipped a real `kpi-row.layout.json`, and
+ * a user-tier template sharing a name with one in `<cwd>/templates` is the
+ * registry's deliberate duplicate-within-tier load error.
+ */
 function writeKpiTemplate(dir: string): string {
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, "kpi-row.layout.json");
+  const path = join(dir, "kpi-probe.layout.json");
   writeFileSync(
     path,
     JSON.stringify({
-      name: "kpi-row",
+      name: "kpi-probe",
       description: "2–4 metric tiles across the content well",
       chrome: false,
       slots: { kpis: { kind: "array", of: ["value", "label"], min: 2, max: 4, required: true } },
@@ -88,6 +93,8 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
     const r = await archifyDeckLint({}, { cwd: PKG_ROOT, env: { ARCHIFY_TEMPLATES: user } });
     expect(r.isError).toBeUndefined();
     const layouts = r.details["layouts"] as { name: string; description: string; slots: object }[];
+    // Six code layouts first, then the probe (its tier precedes the shipped
+    // one), then ticket 06's seven shipped templates, alphabetically.
     expect(layouts.map((l) => l.name)).toEqual([
       "title",
       "section",
@@ -95,12 +102,22 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
       "split",
       "diagram",
       "statement",
+      "kpi-probe",
+      "agenda",
+      "compare",
+      "end",
       "kpi-row",
+      "quote",
+      "table",
+      "timeline",
     ]);
-    const kpi = layouts.find((l) => l.name === "kpi-row")!;
+    const kpi = layouts.find((l) => l.name === "kpi-probe")!;
     expect(kpi.description).toContain("metric tiles");
     expect(Object.keys(kpi.slots)).toEqual(["kpis"]);
-    expect(r.content[0]!.text).toContain("kpi-row — 2–4 metric tiles across the content well");
+    expect(r.content[0]!.text).toContain("kpi-probe — 2–4 metric tiles across the content well");
+    // The shipped kpi-row is discoverable too — and it is NOT the probe's.
+    const shipped = layouts.find((l) => l.name === "kpi-row")!;
+    expect(shipped.description).not.toBe(kpi.description);
   });
 
   test("baseDir joins <baseDir>/templates to the search path", async () => {
@@ -108,7 +125,7 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
     writeKpiTemplate(join(base, "templates"));
     const r = await archifyDeckLint({ baseDir: base }, { cwd: "/tmp" });
     const layouts = r.details["layouts"] as { name: string }[];
-    expect(layouts.some((l) => l.name === "kpi-row")).toBe(true);
+    expect(layouts.some((l) => l.name === "kpi-probe")).toBe(true);
   });
 });
 
@@ -118,7 +135,7 @@ describe("archify_deck_lint — slot validation", () => {
     writeKpiTemplate(user);
     const env = { ARCHIFY_TEMPLATES: user };
     const r = await archifyDeckLint(
-      { manifest: { slides: [{ title: "Q3 numbers", layout: "kpi-row" }] } },
+      { manifest: { slides: [{ title: "Q3 numbers", layout: "kpi-probe" }] } },
       { cwd: PKG_ROOT, env }
     );
     expect(r.isError).toBe(true);
@@ -137,8 +154,8 @@ describe("archify_deck_lint — slot validation", () => {
       {
         manifest: {
           slides: [
-            { title: "Too few", layout: "kpi-row", kpis: [{ value: "1ms" }] },
-            { title: "Too many", layout: "kpi-row", kpis: Array.from({ length: 5 }, (_, i) => ({ value: String(i) })) },
+            { title: "Too few", layout: "kpi-probe", kpis: [{ value: "1ms" }] },
+            { title: "Too many", layout: "kpi-probe", kpis: Array.from({ length: 5 }, (_, i) => ({ value: String(i) })) },
           ],
         },
       },

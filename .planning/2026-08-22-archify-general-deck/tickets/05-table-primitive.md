@@ -2,9 +2,9 @@
 ticket: 05-table-primitive
 effort: archify-general-deck
 type: task
-status: open
+status: done
 created: 2026-08-22
-last: 2026-08-22
+last: 2026-08-23
 blocking: [06]
 ---
 # 05 — `table`: the one new drawing primitive

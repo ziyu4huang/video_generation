@@ -1,0 +1,55 @@
+{
+  "name": "quote",
+  "description": "Somebody ELSE's words, attributed: a centred quotation over a short rule, with the speaker's name and optional role beneath. For YOUR OWN claim use `statement`, never this — a quote without attribution is plagiarism, not emphasis.",
+  "chrome": {
+    "title": false
+  },
+  "slots": {
+    "quote": {
+      "kind": "text",
+      "required": true,
+      "description": "the quoted words, verbatim"
+    },
+    "attribution": {
+      "kind": "text",
+      "required": true,
+      "description": "who said it — rendered after an em dash"
+    },
+    "role": {
+      "kind": "text",
+      "description": "the speaker's title or credential, under the name"
+    }
+  },
+  "roles": {
+    "quoteVoice": { "sizePt": 28, "color": "statement", "lineSpacing": 1.3 },
+    "quoteRole": { "sizePt": 12, "color": "muted" }
+  },
+  "body": [
+    {
+      "region": "full",
+      "box": { "inset": [1.4, 1.9, 1.4, 2.75] },
+      "content": { "kind": "text", "role": "quoteVoice", "from": "{slide.quote}" },
+      "align": "center",
+      "valign": "middle"
+    },
+    {
+      "region": "full",
+      "box": { "inset": [6.17, 4.95, 6.16, 2.51] },
+      "content": { "kind": "rule" }
+    },
+    {
+      "region": "full",
+      "box": { "inset": [1.4, 5.35, 1.4, 1.75] },
+      "content": { "kind": "text", "role": "attribution", "from": "— {slide.attribution}" },
+      "align": "center",
+      "valign": "top"
+    },
+    {
+      "region": "full",
+      "box": { "inset": [1.4, 5.85, 1.4, 1.25] },
+      "content": { "kind": "text", "role": "quoteRole", "from": "{slide.role}" },
+      "align": "center",
+      "valign": "top"
+    }
+  ]
+}

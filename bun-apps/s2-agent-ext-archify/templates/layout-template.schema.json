@@ -110,8 +110,20 @@
       "type": "object",
       "required": ["kind"],
       "properties": {
-        "kind": { "enum": ["text", "bullets", "diagram", "rule", "panel"] },
+        "kind": { "enum": ["text", "bullets", "diagram", "rule", "panel", "table"] },
         "role": { "type": "string" },
+        "headerRole": {
+          "type": "string",
+          "description": "table only: the role painting the column-head row."
+        },
+        "columns": {
+          "$ref": "#/$defs/binding",
+          "description": "table only: exactly one binding resolving to the column-name array."
+        },
+        "rows": {
+          "$ref": "#/$defs/binding",
+          "description": "table only: exactly one binding resolving to the array of row arrays."
+        },
         "from": { "$ref": "#/$defs/binding" },
         "tone": { "enum": ["tag", "section"] }
       }

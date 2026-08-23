@@ -159,6 +159,26 @@ export function emitHtmlSlide(blocks: PlacedBlock[], ctx: EmitHtmlCtx): string {
         break;
       }
 
+      case "table": {
+        // The pptx table's twin: same columns, same header row, same cell
+        // order, painted from the same two roles.
+        const head = c.columns
+          .map((h) => `<th style="${typeCss(c.headerRole, p, roleOf)}">${esc(h)}</th>`)
+          .join("");
+        const rowsHtml = c.rows
+          .map(
+            (row) =>
+              `<tr>${row.map((cell) => `<td>${esc(cell)}</td>`).join("")}</tr>`
+          )
+          .join("");
+        body.push(
+          `<div class="b tx" style="${place(block)};justify-content:${justify}">` +
+            `<table class="tbl" style="${typeCss(c.role, p, roleOf)}">` +
+            `<thead><tr>${head}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`
+        );
+        break;
+      }
+
       case "diagram": {
         const embed = ctx.diagramSrc.get(c.ir);
         if (!embed) {
@@ -204,6 +224,9 @@ ul{margin:0;padding:0;list-style:none;width:100%}
 li{position:relative;padding-left:calc(var(--pt) * 18);margin:0 0 calc(var(--pt) * 6)}
 li::before{content:"";position:absolute;left:0;top:0.55em;width:calc(var(--pt) * 5);
   height:calc(var(--pt) * 5);border-radius:50%;background:#${p.accent}}
+.tbl{width:100%;border-collapse:collapse}
+.tbl th,.tbl td{border:1px solid #${p.panelBorder};padding:calc(var(--pt) * 4);text-align:left;vertical-align:middle}
+.tbl th{background:#${p.panelBg}}
 </style>
 <div class="wrap"><div class="stage">
 ${body.join("\n")}

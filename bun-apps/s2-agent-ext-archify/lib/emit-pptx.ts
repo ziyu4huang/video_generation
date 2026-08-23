@@ -166,6 +166,43 @@ export function emitPptxSlide(
         break;
       }
 
+      case "table": {
+        // Native `<a:tbl>` (D5). Both roles resolve through `roleOf` like every
+        // other block; colours are palette keys, never literals.
+        const bodySpec = ctx.roleOf ? ctx.roleOf(content.role) : builtinRoleOf(content.role);
+        const headSpec = ctx.roleOf ? ctx.roleOf(content.headerRole) : builtinRoleOf(content.headerRole);
+        const cellOf = (s: string, spec: TypeSpec): { text: string; options: Record<string, unknown> } => ({
+          text: s,
+          options: {
+            fontFace: ctx.font,
+            fontSize: spec.sizePt,
+            color: ctx.palette[spec.color],
+            ...(spec.bold ? { bold: true } : {}),
+          },
+        });
+        const rows = [
+          content.columns.map((c) => cellOf(c, headSpec)),
+          ...content.rows.map((row) => row.map((cell) => cellOf(cell, bodySpec))),
+        ];
+        slide.addTable(rows, {
+          ...box,
+          // Even columns; pptxgenjs wants one width per column, in inches.
+          colW: content.columns.map(() => box.w / content.columns.length),
+          fontFace: ctx.font,
+          fontSize: bodySpec.sizePt,
+          border: { type: "solid", pt: 0.5, color: ctx.palette.panelBorder },
+          fill: { color: ctx.palette.slideBg },
+          ...(block.align ? { align: block.align } : {}),
+          // autoPage splits an over-long table onto GENERATED slides the
+          // manifest never declared, breaking the 1:1 slide-index ↔
+          // manifest-entry assumption here and in emit-html.ts. Never rely on
+          // the library default being false — set it, and assert it.
+          autoPage: false,
+        });
+        shapes++;
+        break;
+      }
+
       case "diagram": {
         const ir = ctx.diagrams.get(content.ir);
         if (!ir) {

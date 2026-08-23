@@ -1,0 +1,49 @@
+{
+  "name": "table",
+  "description": "One native, editable table filling the content well: `columns` names the column heads (bold header row), `rows` is an array of cell arrays, optional `note` sits bottom-right. The table NEVER splits across slides — keep to about 12 body rows and summarize the rest.",
+  "chrome": true,
+  "slots": {
+    "columns": {
+      "kind": "array",
+      "required": true,
+      "description": "column head strings; one per column"
+    },
+    "rows": {
+      "kind": "array",
+      "required": true,
+      "description": "one array of cell strings per body row, in column order"
+    },
+    "note": {
+      "kind": "text",
+      "description": "optional footnote under the table (data period, sampling, caveat)"
+    }
+  },
+  "roles": {
+    "tableHead": { "sizePt": 14, "bold": true, "color": "title" },
+    "tableNote": { "sizePt": 12, "color": "muted" }
+  },
+  "body": [
+    {
+      "region": "content",
+      "stack": { "dir": "row", "weights": [11, 1], "gap": 0.15 },
+      "children": [
+        {
+          "box": "fill",
+          "content": {
+            "kind": "table",
+            "role": "body",
+            "headerRole": "tableHead",
+            "columns": "{slide.columns}",
+            "rows": "{slide.rows}"
+          }
+        },
+        {
+          "box": "fill",
+          "content": { "kind": "text", "role": "tableNote", "from": "{slide.note}" },
+          "align": "right",
+          "valign": "bottom"
+        }
+      ]
+    }
+  ]
+}

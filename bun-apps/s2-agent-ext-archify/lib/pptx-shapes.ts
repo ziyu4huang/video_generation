@@ -35,6 +35,12 @@ export interface SlideLike {
    * (see `emit-pptx.ts`). This module only ever passes a plain string.
    */
   addText(text: string | TextRun[], opts: Record<string, unknown>): unknown;
+  /**
+   * The `table` drawing primitive's sink (D5). On the real pptxgenjs slide this
+   * emits `<a:tbl>` inside a `<p:graphicFrame>`; the spy records it so the
+   * zero-blip property can assert its absence there too.
+   */
+  addTable(rows: unknown, opts: Record<string, unknown>): unknown;
 }
 
 /** One paragraph inside a multi-run text box. */

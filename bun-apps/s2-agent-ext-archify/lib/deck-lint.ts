@@ -36,6 +36,7 @@ export interface DeckLintNote {
     | "title-overflows"
     | "too-many-bullets"
     | "bullets-too-deep"
+    | "too-many-table-rows"
     | "inline-color"
     | "missing-source";
   /** `error` means the deck is broken, not merely unidiomatic — see the header. */
@@ -63,6 +64,18 @@ const TITLE_LABEL_MAX = 8;
 
 /** One idea per slide; past this it is two slides. */
 const BULLETS_MAX = 6;
+
+/**
+ * Advisory ceiling for a table slide's body rows (`slide.rows`, the `table`
+ * template's slot). LINT-side on purpose: the emitter never splits a table
+ * (`autoPage: false` is set explicitly and asserted), so an over-long table
+ * overflows ONE slide rather than spawning slides the manifest never declared.
+ * The content well is 5.0 in tall; at the table role's 16 pt with cell padding
+ * a row sets about 0.35 in — twelve body rows plus the header fit, thirteen
+ * start clipping. A warn, not an error: how much wrapping a table tolerates is
+ * a judgement about its data, not a structural fact.
+ */
+const TABLE_ROWS_MAX = 12;
 
 const HEX_COLOR = /#[0-9a-fA-F]{6}\b/;
 
@@ -129,6 +142,10 @@ function copyOf(slide: Slide): string[] {
     slide.eyebrow,
     slide.attribution,
     ...normalizeBullets(slide.bullets).map((b) => b.text),
+    ...(Array.isArray(slide.columns) ? slide.columns.filter((c): c is string => typeof c === "string") : []),
+    ...((Array.isArray(slide.rows) ? slide.rows : []) as unknown[][]).flatMap((row) =>
+      row.filter((c): c is string => typeof c === "string")
+    ),
   ].filter((s): s is string => typeof s === "string");
 }
 
@@ -177,6 +194,19 @@ export function lintDeck(deck: LintableDeck): DeckLintNote[] {
         code: "bullets-too-deep",
         severity: "warn",
         message: `bullets nest ${deepest + 1} levels deep; the layouts style two, and a third reads as noise`,
+      });
+    }
+
+    // Tables never split across slides (the emitter pins `autoPage: false`), so
+    // an over-long table clips instead — say so while there is time to split it.
+    if (Array.isArray(slide.rows) && slide.rows.length > TABLE_ROWS_MAX) {
+      notes.push({
+        slide: n,
+        code: "too-many-table-rows",
+        severity: "warn",
+        message:
+          `${slide.rows.length} table rows (over ${TABLE_ROWS_MAX}) — a table is never split across slides, ` +
+          `so the overflow clips; summarize, or move detail to an appendix slide`,
       });
     }
 
