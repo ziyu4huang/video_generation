@@ -72,9 +72,11 @@ PR #1884), or not skill-worthy (`goal-loop-deadlock`,
 
 Remaining **candidates** (ranked writing-skills promotion queue):
 
-1. `deterministic-edit-dispatch.md` — RED+GREEN confirmed; READY for promotion.
-2. `probe-extension-introspection.md` — unique offline session-surface probing method.
-3. `pi-reviewer-scope-bounding.md` — A/B-tested bounded review-dispatch shape.
+1. `probe-extension-introspection.md` — unique offline session-surface probing method.
+2. `pi-reviewer-scope-bounding.md` — A/B-tested bounded review-dispatch shape.
+
+Consumed 2026-08-23: `deterministic-edit-dispatch.md` → promoted as repo-owned
+skill `s2-agent-ext-superpowers/skills/deterministic-edit-dispatch/`.
 
 The following are **NOT candidates and are exempt from deletion-on-promotion**
 — they are durable cross-effort records that happen to live here:
