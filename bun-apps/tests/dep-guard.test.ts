@@ -186,15 +186,19 @@ describe("monorepo dependency hygiene guard (knowledge-layer tier rules)", () =>
 		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from s2-agent.registry.yaml`);
 
 		const violations: string[] = [];
-		// The one sanctioned base-set lib edge: knowledge-card consumes
-		// obsidian's PURE LIBRARY face (the bare specifier resolves to
-		// src/index.ts → src/obsidian-lib.ts, per #1737 — vault resolution,
-		// frontmatter, graph index). It never imports obsidian's extension
-		// entry /extensions/obsidian.ts (which would double-register GATE_DEFS
-		// and inline the tool factory); that no-entry invariant is enforced by
-		// its own test below.
+		// The sanctioned base-set lib edges, both PURE LIBRARY faces:
+		//   knowledge-card consumes obsidian's lib face (the bare specifier
+		//   resolves to src/index.ts → src/obsidian-lib.ts, per #1737 — vault
+		//   resolution, frontmatter, graph index);
+		//   tool-gate consumes power-tool's schema-cost subpath (src/schema-cost
+		//   — pure token-accounting, zero runtime deps beyond the typebox host,
+		//   per its subpath header "consumable standalone").
+		// Neither may import the target's extension entry /extensions/<name>.ts
+		// (which would double-register GATE_DEFS and inline the tool factory);
+		// that no-entry invariant is enforced by their own tests below.
 		const BASE_SET_LIB_EDGES: ReadonlySet<string> = new Set([
 			"s2-agent-ext-knowledge-card → s2-agent-ext-obsidian",
+			"s2-agent-ext-tool-gate → s2-agent-ext-power-tool",
 		]);
 		for (const pkg of baseSet) {
 			const d = JSON.parse(readFileSync(join(ROOT, pkg, "package.json"), "utf8"));
@@ -242,6 +246,40 @@ describe("monorepo dependency hygiene guard (knowledge-layer tier rules)", () =>
 			}
 		}
 		assert.deepEqual(bad, [], bad.length ? "non-lib obsidian imports:\n" + bad.join("\n") : "");
+	});
+
+	it("tool-gate never imports power-tool's extension entry — schema-cost subpath only", () => {
+		// The allowlisted edge above is safe BECAUSE it is pure library reuse
+		// through the declared subpath (exports["./schema-cost"] →
+		// src/schema-cost/index.ts). This pins that: any import reaching
+		// power-tool's /extensions/ registration entry from tool-gate reverts
+		// the edge to forbidden territory and must fail here, not in a
+		// deploy smoke.
+		const TG = join(ROOT, "s2-agent-ext-tool-gate");
+		const files: string[] = [];
+		const walk = (dir: string) => {
+			for (const e of readdirSync(dir, { withFileTypes: true })) {
+				if (e.name === "node_modules" || e.name === "__tests__") continue;
+				const p = join(dir, e.name);
+				if (e.isDirectory()) walk(p);
+				else if (e.name.endsWith(".ts")) files.push(p);
+			}
+		};
+		walk(join(TG, "src"));
+		walk(join(TG, "extensions"));
+		walk(join(TG, "qa"));
+		const bad: string[] = [];
+		const spec = /["']@repo\/s2-agent-ext-power-tool(\/[^"']*)?["']/g;
+		for (const f of files) {
+			const text = readFileSync(f, "utf8");
+			for (const m of text.matchAll(spec)) {
+				const sub = m[1] ?? "";
+				if (sub.startsWith("/extensions/")) {
+					bad.push(`  ${f}: ${m[0]}`);
+				}
+			}
+		}
+		assert.deepEqual(bad, [], bad.length ? "non-schema-cost power-tool imports:\n" + bad.join("\n") : "");
 	});
 
 	it("the declared @repo dependency graph is acyclic", () => {
