@@ -8,6 +8,8 @@ import { test, expect, describe } from "bun:test";
 import { validateQuestionnaire } from "../tool/validate-questionnaire.js";
 import { buildItemsForQuestion } from "../ask-user-question.js";
 import { WrappingSelect } from "../view/components/wrapping-select.js";
+import { MultiSelectView } from "../view/components/multi-select-view.js";
+import { PreviewBlockRenderer } from "../view/components/preview/preview-block-renderer.js";
 import { RECOMMENDED_SUFFIX, type QuestionData, type QuestionParams } from "../tool/types.js";
 
 const theme = new Proxy(
@@ -57,5 +59,34 @@ describe("recommended marker (CC suffix convention)", () => {
 		const ws = new WrappingSelect(items, 8, theme);
 		ws.setSelectedIndex(0);
 		expect(ws.render(80).join("\n")).not.toContain("⭐");
+	});
+
+	test("MultiSelectView renders ⭐ and strips the suffix from display", () => {
+		const view = new MultiSelectView(theme, q([`Alpha${RECOMMENDED_SUFFIX}`, "Beta"]));
+		view.setProps({
+			rows: [
+				{ checked: false, active: true },
+				{ checked: false, active: false },
+			],
+			other: { active: false, inputMode: false, inputBuffer: "", inputCursorOffset: undefined },
+			nextActive: false,
+			nextLabel: "Next",
+		});
+		const out = view.render(80).join("\n");
+		expect(out).toContain("⭐");
+		expect(out).toContain("Alpha");
+		expect(out).not.toContain("(Recommended)");
+	});
+
+	test("preview header strips the recommended suffix (display label)", () => {
+		const question = {
+			question: "q?",
+			header: "hdr",
+			options: [{ label: `Alpha${RECOMMENDED_SUFFIX}`, preview: "line1\nline2" }],
+		} as never as QuestionData;
+		const renderer = new PreviewBlockRenderer({ question, theme, markdownTheme: {} });
+		const out = renderer.render(0, 80).join("\n");
+		expect(out).toContain("Preview: Alpha");
+		expect(out).not.toContain("(Recommended)");
 	});
 });

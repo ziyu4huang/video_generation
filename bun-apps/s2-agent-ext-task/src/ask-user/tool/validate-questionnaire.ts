@@ -52,7 +52,8 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult 
 			};
 		}
 
-		if (q.header.length > MAX_HEADER_LENGTH) {
+		// header guard: unvalidated runtime payloads may omit it
+		if (q.header && q.header.length > MAX_HEADER_LENGTH) {
 			return {
 				ok: false,
 				message: `Error: question ${qi + 1} header exceeds ${MAX_HEADER_LENGTH} characters.`,
@@ -60,7 +61,7 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult 
 			};
 		}
 
-		const recommendedCount = opts.filter((o) => hasRecommendedSuffix(o.label)).length;
+		const recommendedCount = opts.filter((o) => o.label && hasRecommendedSuffix(o.label)).length;
 		if (recommendedCount > 1) {
 			return {
 				ok: false,
