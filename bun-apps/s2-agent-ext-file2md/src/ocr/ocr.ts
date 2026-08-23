@@ -1,3 +1,4 @@
+/// <reference path="./tesseract-wasm.d.ts" />
 /**
  * ocr/ocr.ts — local OCR via tesseract-wasm (robertknight, bun-only, offline).
  *
@@ -10,10 +11,10 @@
  * degrade-not-fail contract. Heremes-memory consumes `OcrResult`.
  */
 import { readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createOCREngine, type OCREngine } from "tesseract-wasm";
-import { loadWasmBinary } from "tesseract-wasm/node";
 import { decodeImageToRgba } from "../image/decode-image.ts";
 import { rasterPage } from "../raster/pdf.ts";
 
@@ -29,6 +30,18 @@ const PKG_ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** Engine-default language dir — vendored asset, resolved beside the package. */
 export const DEFAULT_LANG_PATH = join(PKG_ROOT, "vendored", "ocr-assets", "lang");
+
+/** The wasm core's path in the npm package dist (resolved here, not via the package's `node` subpath — that entry is the worker_threads adapter we deliberately do not use). */
+const WASM_BINARY_PATH = fileURLToPath(new URL("../../node_modules/tesseract-wasm/dist/tesseract-core.wasm", import.meta.url));
+
+/** Read the wasm core off disk (cached per process). Degrades cleanly on failure. */
+async function loadWasmBinary(): Promise<Uint8Array | undefined> {
+  try {
+    return new Uint8Array(await readFile(WASM_BINARY_PATH));
+  } catch {
+    return undefined;
+  }
+}
 
 /** wasm binary cache (1.8 MB fs read — load once per process). */
 let wasmBinaryCache: Uint8Array | undefined;
@@ -65,8 +78,9 @@ export class OcrSession {
   async init(): Promise<boolean> {
     if (this.engine !== undefined) return true;
     try {
-      wasmBinaryCache ??= await loadWasmBinary();
-      const engine = await createOCREngine({ wasmBinary: wasmBinaryCache });
+      const wasm = (wasmBinaryCache ??= await loadWasmBinary());
+      if (wasm === undefined) throw new Error(`wasm core not found at ${WASM_BINARY_PATH}`);
+      const engine = await createOCREngine({ wasmBinary: wasm });
       // Load one raw `.traineddata` per lang part ("eng+chi_sim" → 2 loads).
       let loaded = false;
       for (const part of this.lang.split("+")) {

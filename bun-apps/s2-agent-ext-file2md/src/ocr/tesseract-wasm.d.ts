@@ -1,12 +1,23 @@
 /**
- * Ambient types for tesseract-wasm (pinned ^0.11.0, BSD-2-Clause).
+ * Ambient types for tesseract-wasm — GLOBAL script (no top-level import/export),
+ * pulled into EVERY program that typechecks `src/ocr/ocr.ts` via the triple-slash
+ * reference directive at the top of that file (same mechanism as
+ * `s2-agent-core-interface/src/index.ts`'s reference to `tool-gating.d.ts` —
+ * directives inside the types-entry *library* are ignored, directives in a
+ * program-graph module are processed).
  *
- * The package ships no `types` condition in its exports map
- * (`.` → `./dist/lib.js`, `./node` → `./src/node-worker.js`) and the
- * sibling declaration files are not what NodeNext resolution expects, so
- * tsc cannot follow it. We declare exactly the surface file2md uses,
- * verified against upstream `dist/ocr-engine.d.ts` (v0.11.0). If the
- * package fixes its types, this file can be deleted with a typecheck green.
+ * WHY: `tesseract-wasm@0.11.0` ships `dist/index.d.ts` but its exports map has
+ * no `types` condition and `dist/lib.d.ts` does not exist, so `tsc` cannot
+ * resolve the module from ANY program that imports it — file2md's own
+ * typecheck AND the cross-package executor typecheck (tool-gate's
+ * `migrated-extensions.ts`, movie-director, …). A package-local d.ts alone
+ * only covers the package's own program; the reference directive makes it
+ * part of every program that reaches ocr.ts.
+ *
+ * Surface: exactly what file2md uses, verified against upstream
+ * `dist/ocr-engine.d.ts` (v0.11.0). If the package fixes its exports map,
+ * delete this file + the reference directive once the typechecks are green
+ * without them.
  */
 declare module "tesseract-wasm" {
   /** Structural image-input shape the engine consumes (ImageData-like). */
@@ -25,9 +36,4 @@ declare module "tesseract-wasm" {
   }
 
   export function createOCREngine(opts?: { wasmBinary?: Uint8Array; progressChannel?: unknown }): Promise<OCREngine>;
-}
-
-declare module "tesseract-wasm/node" {
-  /** Read the bundled wasm binary from the package's dist (offline). */
-  export function loadWasmBinary(): Promise<Uint8Array>;
 }
