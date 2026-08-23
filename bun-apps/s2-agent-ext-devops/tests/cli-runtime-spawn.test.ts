@@ -65,7 +65,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: every bin CLI spawns and
 });
 
 describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli end-to-end against a stub deploy", () => {
-	// A stub run.sh that answers all three probes offline — this exercises the
+	// A stub s2-agent.sh that answers all three probes offline — this exercises the
 	// REAL CLI process: argv parse → deploy.json read → current resolve →
 	// three real child spawns → JSON serialization → exit code.
 	const root = mkdtempSync(join(tmpdir(), "deploy-e2e-spawn-"));
@@ -77,7 +77,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 	test("healthy stub tree: exit 0, verdict pass, pure JSON on stdout", () => {
 		mkdirSync(versionDir, { recursive: true });
 		writeFileSync(
-			join(versionDir, "run.sh"),
+			join(versionDir, "s2-agent.sh"),
 			[
 				"#!/usr/bin/env bash",
 				'case "$1" in',
@@ -89,7 +89,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 				"",
 			].join("\n"),
 		);
-		chmodSync(join(versionDir, "run.sh"), 0o755);
+		chmodSync(join(versionDir, "s2-agent.sh"), 0o755);
 		writeFileSync(
 			join(versionDir, "deploy.json"),
 			JSON.stringify({

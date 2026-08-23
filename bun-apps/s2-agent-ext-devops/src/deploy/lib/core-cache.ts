@@ -1,21 +1,20 @@
 /**
- * core-cache.ts — content-addressed cache for the compiled sh core (Phase 3 §a).
+ * core-cache.ts — content-addressed cache for the sh core bundle (Phase 3 §a).
  *
  * <outRoot>/.cores/<hash> holds ONE copy of each distinct core; every version
- * directory hardlinks it as its `s2-agent`. Hashing the core's BUILD INPUTS
- * (not the binary) means a "nothing changed in the core" deploy skips the
- * compile entirely — the measured 15-version tree held 11 distinct binaries,
- * ~280 MB of duplication, and every one of them paid the compile again.
+ * directory hardlinks it as its `s2-agent.js`. Hashing the core's BUILD INPUTS
+ * (not the artifact) means a "nothing changed in the core" deploy skips the
+ * build entirely — the measured 15-version tree held 11 distinct cores,
+ * ~280 MB of duplication, and every one of them paid the build again.
  *
- * Inputs hashed: the s2-agent/src/ tree AS COMPILED (i.e. after the
- * embedded-assets codegen stage, so the generated manifest is covered exactly
- * as the compiler sees it), the resolved @earendil-works/pi-coding-agent
- * version, Bun.version, the entry relpath, and the compile flag set.
+ * Inputs hashed: the s2-agent/src/ tree as the bundler sees it, the resolved
+ * @earendil-works/pi-coding-agent version, Bun.version, the entry relpath,
+ * and the build flag set.
  *
  * freeze:false deploys BYPASS the cache (spec Risk 2): hardlinks share an
  * inode, so chmod-ing one copy re-modes every copy — a writable cached core
  * would make every frozen version sharing it writable. A no-freeze deploy
- * therefore compiles a plain, private copy and never touches .cores.
+ * therefore builds a plain, private copy and never touches .cores.
  */
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
@@ -42,14 +41,14 @@ function hashTree(hash: ReturnType<typeof createHash>, root: string, prefix: str
 }
 
 export interface CoreHashInputs {
-	/** s2-agent package dir; its src/ tree is hashed as-is (run the codegen first). */
+	/** s2-agent package dir; its src/ tree is hashed as-is. */
 	piAgentDir: string;
 	/** Resolved @earendil-works/pi-coding-agent version string. */
 	piPkgVersion: string;
 	bunVersion: string;
 	/** Entry relpath under piAgentDir, e.g. "src/cli-sh.ts". */
 	entry: string;
-	/** Compile flag markers, e.g. ["--minify"] — output-affecting flags only. */
+	/** Build flag markers, e.g. ["--target=bun", "--minify"] — output-affecting flags only. */
 	flags: string[];
 }
 
@@ -66,7 +65,7 @@ export function computeCoreHash(inputs: CoreHashInputs): string {
 export interface CachedCore {
 	/** The cache file — hardlink (never copy) from it into the version dir. */
 	cacheFile: string;
-	/** True when the core already existed (the compile was skipped). */
+	/** True when the core already existed (the build was skipped). */
 	cached: boolean;
 	bytes: number;
 }

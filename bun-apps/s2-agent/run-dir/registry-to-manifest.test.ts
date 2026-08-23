@@ -3,7 +3,7 @@ import { buildManifestObject, manifestText, type ManifestJson } from "./registry
 import type { Registry } from "./registry.ts";
 
 // Hand-built registry literal (no YAML, no fs) covering the shapes the
-// emitter must distinguish: a deployed skill+binarySkills carrier, a
+// emitter must distinguish: a deployed skill carrier, a
 // deploy-less entry, a plain one, and dynamic entries with/without version.
 const registry: Registry = {
   deploy: {
@@ -21,7 +21,6 @@ const registry: Registry = {
       entry: "extensions/alpha.ts",
       load: "static",
       skills: true,
-      binarySkills: true,
       deploy: { order: 1, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
     },
     {
@@ -30,7 +29,6 @@ const registry: Registry = {
       entry: "extensions/beta.ts",
       load: "static",
       skills: true,
-      binarySkills: false,
       excludeReason: "local-only helper",
     },
     {
@@ -39,7 +37,6 @@ const registry: Registry = {
       entry: "extensions/gamma.ts",
       load: "static",
       skills: false,
-      binarySkills: false,
       deploy: { order: 2, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
     },
     {
@@ -48,7 +45,6 @@ const registry: Registry = {
       entry: "extensions/delta.ts",
       load: "dynamic",
       skills: false,
-      binarySkills: false,
       version: "0.1.0",
       deploy: { order: 3, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
     },
@@ -58,7 +54,6 @@ const registry: Registry = {
       entry: "extensions/epsilon.ts",
       load: "dynamic",
       skills: false,
-      binarySkills: false,
       excludeReason: "experimental",
     },
   ],
@@ -74,12 +69,6 @@ describe("buildManifestObject", () => {
   test("skills includes BOTH deployed and non-deployed skill carriers, in registry order", () => {
     const m = buildManifestObject(registry);
     expect(m.skills).toEqual(["s2-agent-ext-alpha/skills", "s2-agent-ext-beta/skills"]);
-  });
-
-  test("binarySkills lists only binarySkills:true carriers and is a subset of skills", () => {
-    const m = buildManifestObject(registry);
-    expect(m.binarySkills).toEqual(["s2-agent-ext-alpha/skills"]);
-    for (const b of m.binarySkills) expect(m.skills).toContain(b);
   });
 
   test("extensions carries only load:dynamic entries with package-prefixed entries and version only when set", () => {

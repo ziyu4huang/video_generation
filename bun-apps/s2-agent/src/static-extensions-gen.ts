@@ -128,7 +128,7 @@ const ROW_COMMENTS: Record<string, string> = {
 	webui:
 		"webui — web frontend co-driving one AgentSession with the TUI behind an\nagentic mutex (Bun.serve WS transport; starts lazily on session_start).",
 	hyperframes:
-		"hyperframes — skills-only carrier: the vendored HyperFrames + media-use\nskill family ships in skills/ (manifest skills[]/binarySkills[]); the\nfactory is a no-op that exists so the registration path stays uniform.",
+		"hyperframes — skills-only carrier: the vendored HyperFrames + media-use\nskill family ships in skills/ (manifest skills[]); the\nfactory is a no-op that exists so the registration path stays uniform.",
 };
 
 function camel(kebab: string): string {

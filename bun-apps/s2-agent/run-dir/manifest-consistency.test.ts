@@ -53,10 +53,7 @@ const dynamicDirs = parseManifestEntries(manifest.extensions ?? []).map(
 	(e) => e.entry.split("/")[0]!,
 );
 const staticDirs = [...(manifest.staticExtensions ?? [])];
-const skillDirs = [
-	...(manifest.skills ?? []),
-	...(manifest.binarySkills ?? []),
-].map((rel) => rel.split("/")[0]!);
+const skillDirs = [...(manifest.skills ?? [])].map((rel) => rel.split("/")[0]!);
 
 describe("staticExtensions ↔ STATIC_EXTENSION_FACTORIES", () => {
 	test("the two sets are equal (no hardcoded count anywhere)", () => {
@@ -110,7 +107,7 @@ describe("every manifest-referenced package exists on disk", () => {
 		});
 	}
 
-	for (const rel of [...(manifest.skills ?? []), ...(manifest.binarySkills ?? [])]) {
+	for (const rel of manifest.skills ?? []) {
 		test(`${rel} exists`, () => {
 			expect(existsSync(join(BUN_APPS, rel))).toBe(true);
 		});
@@ -128,14 +125,6 @@ describe("every registered extension is a declared workspace dependency", () => 
 			expect(declaredRepoDeps.has(specifierFor(dir))).toBe(true);
 		});
 	}
-});
-
-describe("binarySkills is a subset of skills", () => {
-	test("a binary-embedded skill dir is also loaded in source/bundle mode", () => {
-		const skills = new Set(manifest.skills ?? []);
-		const orphans = (manifest.binarySkills ?? []).filter((s) => !skills.has(s));
-		expect(orphans).toEqual([]);
-	});
 });
 
 describe("declared-but-unenforced manifest fields", () => {

@@ -36,12 +36,15 @@ const shConfig = parseShConfig(
 const configuredNames = shConfig.extensions.map((e) => e.name);
 const configuredNamesSorted = [...configuredNames].sort();
 
-// The core is a bun-run bundle: every boot goes through the test runner bun
-// (same runtime that built it) until ticket 02 ships bin/bun + the launcher.
+// The core is a bun-run bundle booted by the tree's OWN shipped runtime —
+// same shape the deploy gates and s2-agent.sh use (ticket 03).
 const CORE_FILENAME = "s2-agent.js";
 
-function extList(core: string) {
-	const p = Bun.spawnSync([process.execPath, core, "--ext-list"], { stdout: "pipe", stderr: "pipe" });
+function extList(target: string) {
+	const p = Bun.spawnSync([join(target, "bin", "bun"), join(target, CORE_FILENAME), "--ext-list"], {
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 	return { exitCode: p.exitCode, payload: JSON.parse(p.stdout.toString()) };
 }
 
@@ -103,13 +106,13 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(statSync(join(r.target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
 
 		// state 1: extensions load, in config order
-		const withExt = extList(join(r.target, CORE_FILENAME));
+		const withExt = extList(r.target);
 		expect(withExt.exitCode).toBe(0);
 		expect(withExt.payload.loaded).toEqual(configuredNames);
 		expect(withExt.payload.skipped).toEqual([]);
 
 		// the binary reports the deploy version, not the "0.0.0" fallback
-		const v = Bun.spawnSync([process.execPath, join(r.target, CORE_FILENAME), "--version"], { stdout: "pipe", stderr: "pipe" });
+		const v = Bun.spawnSync([join(r.target, "bin", "bun"), join(r.target, CORE_FILENAME), "--version"], { stdout: "pipe", stderr: "pipe" });
 		expect(v.exitCode).toBe(0);
 		expect(v.stdout.toString().trim()).toBe(r.version);
 
@@ -121,7 +124,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		const poisonDir = join(outRoot, "pkg-dir-poison", ".pi", "agent", "embedded-assets", "leak");
 		mkdirSync(poisonDir, { recursive: true });
 		writeFileSync(join(poisonDir, "package.json"), JSON.stringify({ version: "9.9.9+polluted" }));
-		const polluted = Bun.spawnSync([process.execPath, join(r.target, CORE_FILENAME), "--version"], {
+		const polluted = Bun.spawnSync([join(r.target, "bin", "bun"), join(r.target, CORE_FILENAME), "--version"], {
 			stdout: "pipe",
 			stderr: "pipe",
 			env: { ...process.env, PI_PACKAGE_DIR: poisonDir },
@@ -138,7 +141,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		unfreezeTree(target);
 		renameSync(join(target, "ext"), parked);
 		try {
-			const without = extList(join(target, CORE_FILENAME));
+			const without = extList(target);
 			expect(without.exitCode).toBe(0);
 			expect(without.payload.loadedCount).toBe(0);
 		} finally {
@@ -238,6 +241,6 @@ describeE2E("core cache + keep:N retention", () => {
 		expect(readlinkSync(join(keepRoot, "current"))).toBe("e2e-cache-d");
 		// the pruned dirs' core links are gone but the cache entry survived
 		// every prune — d still boots through it.
-		expect(extList(join(keepRoot, "e2e-cache-d", CORE_FILENAME)).payload.loadedCount).toBe(0);
+		expect(extList(join(keepRoot, "e2e-cache-d")).payload.loadedCount).toBe(0);
 	}, 300_000);
 });

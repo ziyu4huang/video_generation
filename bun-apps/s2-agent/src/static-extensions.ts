@@ -133,7 +133,7 @@ export const STATIC_EXTENSION_FACTORIES = [
 	// agentic mutex (Bun.serve WS transport; starts lazily on session_start).
 	{ name: "s2-agent-ext-webui", factory: webuiExtension },
 	// hyperframes — skills-only carrier: the vendored HyperFrames + media-use
-	// skill family ships in skills/ (manifest skills[]/binarySkills[]); the
+	// skill family ships in skills/ (manifest skills[]); the
 	// factory is a no-op that exists so the registration path stays uniform.
 	{ name: "s2-agent-ext-hyperframes", factory: hyperframesExtension },
 	{ name: "s2-agent-ext-archify", factory: archifyExtension },

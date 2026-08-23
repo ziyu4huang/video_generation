@@ -35,9 +35,8 @@ import { createRequire } from "node:module";
 import { mkdirSync, readlinkSync, symlinkSync, lstatSync, rmSync, readdirSync, readFileSync } from "node:fs";
 
 // SOURCE mode only — match the same import.meta.url key the other mode-aware
-// patches use (set-package-dir). Bundle = /dist/s2-agent/s2-agent.js; binary =
-// $bunfs|~BUN. In those modes extension resolution is handled differently
-// (bundle symlinks node_modules; binary can't load .ts), so this is a no-op.
+// patches use. Bundle = /dist/s2-agent/s2-agent.js, where extension resolution
+// is handled differently (the bundle symlinks node_modules), so this is a no-op.
 const url = import.meta.url;
 const isSource = url.includes("/src/patches/");
 

@@ -9,9 +9,12 @@
  *       A vendoring bug that copies a link instead of dereferencing it points
  *       back at the build machine's ~/.bun store (the isolated linker's link
  *       farm). The stale repo-root dist/s2-agent tree carried a live one.
- *   5b. scanBinaryForeignPaths — the compiled binary may not bake build-machine
- *       paths beyond the documented bun-cache artifacts (Gate 4 scans ext.cjs
- *       only; `bun build --compile` inlines `__dirname`s of its own).
+ *   5b. scanBinaryForeignPaths — the core bundle and the shipped `bin/bun`
+ *       may not bake build-machine paths beyond the documented allowlisted
+ *       artifacts (Gate 4 scans ext.cjs only; the core bundle is scanned here
+ *       as plain text — a strictly stronger read than the old binary
+ *       heuristic — and bin/bun is a binary we did not build, so bun-internal
+ *       build strings get an explicit, justified allowlist row each).
  *   5c. verifyVendoredCompleteness — every `vendored` entry in every ext.json
  *       actually shipped.
  *   5d. verifyVendoredClosure — every vendored package's HARD deps resolve
@@ -87,18 +90,22 @@ interface AllowlistEntry {
 }
 
 /**
- * Binary-scanned path exceptions. `bun build --compile` bakes the build-time
- * `__dirname` of deps it inlines; the artifact is dead weight in the binary,
- * not a live resolution — but a vendoring defect would produce a BURST of
- * cache paths, so each prefix carries a small hit cap rather than a blanket
- * pass. Prefixes are `~/`-prefixed and expanded at call time (the cache path
- * carries per-machine content hashes, so exact strings never match twice).
+ * Artifact-scanned path exceptions. Two producers of strings exist today: the
+ * core bundle (minified text — a hit under the builder's home/repo is a REAL
+ * violation, dead code or not, because the same bundler defect that bakes one
+ * path can bake a live one) and the shipped `bin/bun` (a binary WE did not
+ * build — bun's own release embeds its CI build-machine paths; those are only
+ * accepted with a row here, each justified). A vendoring defect would produce
+ * a BURST of cache paths, so each prefix carries a small hit cap rather than a
+ * blanket pass on the file. Prefixes are `~/`-prefixed and expanded at call
+ * time (cache paths carry per-machine content hashes, so exact strings never
+ * match twice).
  */
 const BINARY_PATH_ALLOWLIST: AllowlistEntry[] = [
 	{
 		prefix: "~/.bun/install/cache/",
 		maxHits: 3,
-		reason: "bun --compile bakes the build-time __dirname of an inlined dep (photon-node); dead code",
+		reason: "bun's release binary embeds its own build-time toolchain cache paths; inert strings, not resolutions",
 	},
 ];
 
@@ -109,7 +116,7 @@ export interface BinaryForeignPathsResult {
 	allowed: string[];
 }
 
-/** 5b. Foreign build-machine paths inside the compiled binary. */
+/** 5b. Foreign build-machine paths inside a scanned artifact (core bundle or shipped bun). */
 export function scanBinaryForeignPaths(
 	binaryPath: string,
 	finalTarget: string,

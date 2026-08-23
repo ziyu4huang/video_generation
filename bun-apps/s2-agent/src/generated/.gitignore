@@ -1,5 +1,0 @@
-# Build-generated constants (written by scripts/build.ts).
-# pi-pkg-dir.ts is intentionally gitignored: it holds a machine-specific
-# absolute path. Source-mode launches do not need it — the set-package-dir
-# patch loads it via a try/catch'd dynamic import and skips when absent.
-*.ts

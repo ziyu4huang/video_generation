@@ -22,22 +22,9 @@ describe("detectMode", () => {
 		).toBe("source");
 	});
 
-	test("binary mode: $bunfs virtual scheme", () => {
-		expect(detectMode("file://$bunfs/s2-agent.js")).toBe("binary");
-	});
-
-	test("binary mode: ~BUN marker", () => {
-		expect(detectMode("file:///~BUN/s2-agent.js")).toBe("binary");
-	});
-
-	test("binary mode: URL-encoded ~BUN (%7EBUN)", () => {
-		expect(detectMode("file:///%7EBUN/s2-agent.js")).toBe("binary");
-	});
-
-	test("binary takes precedence over source", () => {
-		// a compiled binary whose path happens to contain /run-dir/ still binary
-		expect(detectMode("file://$bunfs/run-dir/x")).toBe("binary");
-	});
+	// The "binary" mode ($bunfs / ~BUN / %7EBUN markers) went with the compiled
+	// core (deploy-platform-neutral-core ticket 03, 2026-08-23); its tests went
+	// with it. Those URLs now classify by extension like any other URL.
 
 	test("a non-virtual .js URL is a bun-run bundle; .ts is source", () => {
 		// The sh deploy's core since 2026-08-23 is a shipped s2-agent.js run by

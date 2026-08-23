@@ -12,7 +12,6 @@
  *  `switch` in applyPatches() — the `default: never` guard catches a missing case. */
 export type PatchName =
 	| "skip-update-check"
-	| "extract-embedded-assets"
 	| "pre-load-providers"
 	| "load-run-dir-resources"
 	| "default-model-env"
@@ -51,10 +50,6 @@ export interface PatchEntry {
  */
 export const PATCH_TABLE: readonly PatchEntry[] = [
   { name: "skip-update-check", env: "BUN_PI_SKIP_UPDATE_CHECK", defaultValue: true },
-  // extract-embedded-assets runs BEFORE load-run-dir-resources: must set
-  // BUN_PI_EMBEDDED_EXTRACT_DIR + PI_PACKAGE_DIR before resolveRunDirArgv()
-  // resolves binary-mode --skill paths. No-op in non-binary modes.
-  { name: "extract-embedded-assets", env: "BUN_PI_EXTRACT_EMBEDDED_ASSETS", defaultValue: true },
   { name: "pre-load-providers", env: "BUN_PI_PRE_LOAD_PROVIDERS", defaultValue: true },
   { name: "load-run-dir-resources", env: "BUN_PI_LOAD_RUN_DIR", defaultValue: true },
   { name: "default-model-env", env: "BUN_PI_DEFAULT_MODEL_ENV", defaultValue: true },
@@ -234,9 +229,6 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
     switch (p.name) {
       case "skip-update-check":
         mod = await import("./skip-update-check.ts");
-        break;
-      case "extract-embedded-assets":
-        mod = await import("./extract-embedded-assets.ts");
         break;
       case "pre-load-providers":
         mod = await import("./pre-load-providers.ts");

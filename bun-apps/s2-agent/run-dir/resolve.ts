@@ -40,7 +40,7 @@ import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
 import { detectMode } from "../src/mode.ts";
 import type { UserSuppressFlags } from "../src/cli-argv.ts";
-import { mode, resolveBunAppsDir, warn } from "./run-context.ts";
+import { resolveBunAppsDir, warn } from "./run-context.ts";
 import {
   emitMissingDepsGuide,
   maybeAutoInstall,
@@ -83,45 +83,13 @@ export async function resolveRunDirArgv(
 }
 
 async function resolveRunDirArgvUnfiltered(): Promise<string[]> {
-  // Compiled-binary mode: emit NO -e flags — the default extension set ships
-  // as STATIC factories instead (src/static-extensions.ts, native in-memory
-  // call). Two reasons this stays -e-free even though upstream 0.80.10+ CAN
-  // load user `-e <path>.ts` in a compiled binary (jiti virtualModules +
-  // tryNative:false — verified live 2026-07-20): (1) the manifest's relative
-  // .ts entries don't exist in the $bunfs virtual FS, and (2) import.meta.url
-  // is the $bunfs scheme so the absolute-path resolution below would yield
-  // garbage (e.g. BUN_APPS_DIR collapsing to "/", producing "/zai-mcp/…"
-  // non-paths). A USER's own -e paths are untouched by this function and load
-  // fine.
+  // A compiled-binary branch (emit NO -e flags; resolve manifest.binarySkills
+  // against the extraction dir or the exe's own dir) used to live here — it
+  // went with the compiled core and its embedded-assets extraction mechanism
+  // (deploy-platform-neutral-core ticket 03, 2026-08-23). The bundle core
+  // never runs this resolver at all: sh mode owns extension/skill resolution
+  // and disables the run-dir patch (cli-sh.ts's BUN_PI_LOAD_RUN_DIR ??= "0").
   //
-  // `--skill` paths ARE emitted: @earendil-works/pi-coding-agent's skill
-  // reader uses only node:fs (existsSync/readdirSync/readFileSync/statSync) —
-  // zero jiti, zero dynamic code execution — and the extract-embedded-assets
-  // patch extracts manifest.binarySkills' directories to a real on-disk dir
-  // before this runs. Resolve them against that dir, falling back to
-  // dirname(process.execPath) (the exe's own dir), mirroring how
-  // getThemesDir()/getAssetsDir() resolve shipped assets in binary mode.
-  if (mode !== "source") {
-    // --compile-embed mode: extract-embedded-assets patch sets BUN_PI_EMBEDDED_EXTRACT_DIR
-    // before this runs (during applyPatches). Use that dir for skill resolution.
-    const embedDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
-    const exeDir = dirname(process.execPath);
-    const baseDir = embedDir && existsSync(embedDir) ? embedDir : exeDir;
-    const argv: string[] = [];
-    for (const rel of manifest.binarySkills ?? []) {
-      const p = join(baseDir, rel);
-      if (existsSync(p)) {
-        argv.push("--skill", p);
-      } else if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
-        warn(`binary mode: skill path not found, skipping: ${p}`);
-      }
-    }
-    if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
-      warn(`compiled-binary mode — default extensions ship as static factories; emitting ${argv.length / 2} --skill flag(s)`);
-    }
-    return argv;
-  }
-
   // SOURCE mode: additive layering (no -ne) with <cwd>/.pi/ +
   // ~/.pi/. Safe because run-dir resolves to the same canonical bun-apps/ paths
   // a repo .pi/ would, so pi dedupes them.

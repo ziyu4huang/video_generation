@@ -54,13 +54,6 @@
 		"s2-agent-ext-research-tool/skills",
 		"s2-agent-ext-archify/skills"
 	],
-	"binarySkills": [
-		"s2-agent-ext-hermes-memory/skills",
-		"s2-agent-ext-superpowers/skills",
-		"s2-agent-ext-wayfind/skills",
-		"s2-agent-ext-web-access/skills",
-		"s2-agent-ext-hyperframes/skills"
-	],
 	"staticExtensions": [
 		"s2-agent-ext-task",
 		"s2-agent-ext-prompt-history",

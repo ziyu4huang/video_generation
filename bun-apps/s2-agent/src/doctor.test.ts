@@ -42,13 +42,9 @@ function ctx(over: Partial<DoctorContext> & { mode: DoctorContext["mode"] }): Do
 describe("classifyMode", () => {
 	// `portable` and `release` were removed: nothing writes .deploy-portable or a
 	// packages/ dir, so those branches — and the ~15 tests that were the only
-	// thing exercising them — could never fire in production.
-	test("binary with no sh marker stays binary", () => {
-		expect(classifyMode("binary", { shDeploy: false })).toBe("binary");
-	});
-	test("binary beside a deploy.json is an sh deploy", () => {
-		expect(classifyMode("binary", { shDeploy: true })).toBe("sh");
-	});
+	// thing exercising them — could never fire in production. `binary` followed
+	// the compiled core out (deploy-platform-neutral-core ticket 03, 2026-08-23):
+	// nothing in this repo produces a compiled artifact any more.
 	test("source stays source regardless of markers", () => {
 		expect(classifyMode("source", { shDeploy: true })).toBe("source");
 		expect(classifyMode("source", { shDeploy: false })).toBe("source");
@@ -90,14 +86,16 @@ describe("classifyMode", () => {
 		const deployShSource = readFileSync(DEPLOY_SH_TS, "utf8");
 
 		/** Modes something can actually put on disk today. */
-		const PRODUCED = new Set<DeployMode>(["source", "binary", "sh"]);
-		// "binary" (compiled exe) is kept produced: retention still holds compiled
-		// version dirs on disk, and the plain compiled exe remains a supported pi
-		// artifact. The CURRENT sh core produces coarse "bundle" → "sh".
+		const PRODUCED = new Set<DeployMode>(["source", "sh"]);
+		// "binary" (compiled exe) stopped being produced with the compiled core
+		// (deploy-platform-neutral-core ticket 03, 2026-08-23). The compiled
+		// version dirs retention still holds carry their own frozen doctor —
+		// this source never runs inside one. The CURRENT sh core produces
+		// coarse "bundle" → "sh".
 
 		function reachableModes(): Set<DeployMode> {
 			const seen = new Set<DeployMode>();
-			for (const coarse of ["source", "binary", "bundle"] as const) {
+			for (const coarse of ["source", "bundle"] as const) {
 				for (const shDeploy of [true, false]) {
 					seen.add(classifyMode(coarse, { shDeploy }));
 				}
@@ -157,13 +155,13 @@ describe("checkHostDeps", () => {
 		// been able to fail: its only `fail` path keyed on `portable`, a mode
 		// nothing could produce, and the `warn` path that replaced it keyed on
 		// `bundle` and became unreachable the same way in Phase 1b. For every
-		// mode that EXISTS, missing host deps are either irrelevant (source and
-		// binary resolve their own through pi's loader) or caught earlier (an sh
+		// mode that EXISTS, missing host deps are either irrelevant (source
+		// resolves its own through pi's loader) or caught earlier (an sh
 		// deploy hard-fails at build time on a host-module mismatch).
 		//
 		// A future `fail` path needs a mode where host deps are genuinely
 		// essential AND unverified until runtime. There is not one today.
-		for (const mode of ["source", "binary", "sh"] as const) {
+		for (const mode of ["source", "sh"] as const) {
 			const r = checkHostDeps(ctx({ mode, ...noDeps }));
 			expect(r.status).toBe("info");
 			expect(r.detail).toContain(mode);
@@ -172,9 +170,8 @@ describe("checkHostDeps", () => {
 });
 
 describe("checkExtensions (mode-aware)", () => {
-	test("source/binary → INFO (loads from source/baked paths)", () => {
+	test("source → INFO (loads from source paths)", () => {
 		expect(checkExtensions(ctx({ mode: "source" })).status).toBe("info");
-		expect(checkExtensions(ctx({ mode: "binary" })).status).toBe("info");
 	});
 	test("sh delegates to the deployed-tree check", () => {
 		// The only mode with a tree on disk to be wrong about. An absent ext/ is
@@ -246,11 +243,8 @@ describe("smokeMarker (pure)", () => {
 		// selfDir for source mode is .../s2-agent/src → marker is .../bun-apps
 		expect(smokeMarker("source", "/repo/bun-apps/s2-agent/src")).toBe("/repo/bun-apps");
 	});
-	test("sh → the same static-factory prefix as binary", () => {
+	test("sh → the static-factory source prefix (tools report path '<inline:<pkg>>')", () => {
 		expect(smokeMarker("sh", "/out")).toBe("<inline:");
-	});
-	test("binary → the static-factory source prefix (tools report path '<inline:<pkg>>')", () => {
-		expect(smokeMarker("binary", "/out")).toBe("<inline:");
 	});
 });
 
@@ -278,12 +272,6 @@ describe("runSmokeCheck (via injected spawn seam)", () => {
 		expect(r.status).toBe("fail");
 		expect(r.detail).toContain("did not report");
 		expect(r.hint).toContain("something broke");
-	});
-	test("binary mode runs the probe (spawn injected) and passes on matched>0", async () => {
-		const r = await runSmokeCheck(ctx({ mode: "binary" }), {
-			spawn: fakeSpawn("[SMOKE] total=31 matched=24\n"),
-		});
-		expect(r.status).toBe("pass");
 	});
 });
 
