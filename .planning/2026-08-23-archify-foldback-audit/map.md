@@ -2,7 +2,7 @@
 effort: 2026-08-23-archify-foldback-audit
 created: 2026-08-23
 last: 2026-08-23
-status: in-progress
+status: complete
 ---
 # archify-foldback-audit — close the t09-review fold-back gaps in `s2-agent-ext-archify`
 
@@ -50,9 +50,9 @@ changes.
 
 ## Tickets
 
-- `tickets/01-skeleton-discovery-tiers.md` — task, **to-do** — injectable `shippedDir` seam +
+- `tickets/01-skeleton-discovery-tiers.md` — task, **closed** — injectable `shippedDir` seam +
   `$ARCHIFY_TEMPLATES` for `discoverDeckSkeletons`, with different-root + env-dir tests.
-- `tickets/02-title-overflow-exemption.md` — task, **to-do** — chrome-suppressed
+- `tickets/02-title-overflow-exemption.md` — task, **closed** — chrome-suppressed
   `title-overflows` exemption, exposing template `titleSuppressed` + a registry set and threading a
   `suppressedTitle` set into `lintDeck`, with a test.
 
@@ -75,9 +75,23 @@ Recorded in `spec.md` §2 (D1–D5). The two that shape the shape:
 
 ## Frontier
 
-Ticket 01 (the skeleton-discovery seams). It is first because the two skeleton items are the
-largest gap from the layout catalogue's parity and are self-contained in one function; ticket 02's
-plumbing is independent and follows cleanly.
+cleared — tickets 01 and 02 both closed 2026-08-23 (PR #1902 merged).
+
+Delivered:
+- `discoverDeckSkeletons` now takes `{ root, env, shippedDir }`, mirroring `loadRegistry`:
+  `$ARCHIFY_TEMPLATES` deck outlines join the user tier (before the shipped tier) and the shipped
+  tier is injectable. 5 new tests (different-root shipped tree, env user tier, shadowing, end-to-end
+  catalog listing, default-path regression guard).
+- `LoadedTemplate.titleSuppressed` + `LayoutRegistry.titleSuppressedLayouts()` exposed; `lintDeck`
+  accepts an optional `suppressedTitle` set (always unions `statement`), so `quote`/`end`
+  chrome-suppressed layouts stop raising a false `title-overflows`. Threaded through `buildDeck`,
+  `archifyDeckLint`, `archifyExportPptx`. 5 new tests.
+
+Gate evidence: `bun run typecheck` clean; `bun test` **629 pass / 21 skip / 0 fail** (baseline
+619 + 10 new); change-scoped `local-ci-cli.ts` exit 0. The pre-push hook's `ci-local.ts --gates`
+reports 25/26 — the one failure is the known environment-only `Deploy-sh L1 e2e` (no authenticated
+model provider), unrelated to this change; merged with `--assume-ci-green <head sha>` (t09
+precedent), verify-merge CLEAN (12 files.
 
 ## Fog of war
 
