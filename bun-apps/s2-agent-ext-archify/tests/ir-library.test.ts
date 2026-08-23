@@ -52,15 +52,15 @@ describe("t10 — the IR library stays validated, cataloged and buildable", () =
         `cataloged IR missing: ${e.path}`,
       ).toBe(true);
     }
-    // Every diagram type is covered by at least one cataloged IR.
+    // Every diagram type is covered by at least two archetypes (t10 acceptance).
     for (const t of EXPECTED) {
-      expect(
-        catalog.entries.some((e) => e.diagram_type === t),
-        `no cataloged ${t} IR`,
-      ).toBe(true);
+      const n = catalog.entries.filter((e) => e.diagram_type === t).length;
+      expect(n, `cataloged ${t} IRs: ${n}`).toBeGreaterThanOrEqual(2);
     }
-    // Both tiers are exercised.
-    expect(catalog.entries.some((e) => e.tier === "flagship-domain")).toBe(true);
+    // The harvest tier keeps the real chip IRs (t10 acceptance: ≥2).
+    expect(
+      catalog.entries.filter((e) => e.tier === "flagship-domain").length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   test("catalog diagram_type matches each IR file's own declaration", async () => {

@@ -5,7 +5,8 @@
  * told FIRST, with zero rendering. Two input shapes:
  *
  *   - no `manifest` → the layout catalog: every code layout and every
- *     discovered template with its `description`, `slots` and source path.
+ *     discovered template with its `description`, `slots` and source path,
+ *     plus the deck skeletons and the copy-adapt IR library.
  *     This is the discovery surface (D9) — the agent asks, never guesses.
  *   - with `manifest` (path or inline object) → parse, validate each slide's
  *     fields against its layout's slots, check every `ir` exists, then the

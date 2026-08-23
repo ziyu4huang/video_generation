@@ -40,8 +40,9 @@ Build speed is a non-target (it is already 0.15 s); speed means tokens and autho
   returns the layout catalog + deck skeletons (`src/deck-lint-tool.ts`, D9 discovery
   surface) — the IR library slots into the same no-args surface; no new tool needed
   (schema-cost canary rule).
-- **Suite is green and large** — 38 test files under `tests/` (deck-skeletons,
-  real-result, role-color, e2e, …); `bun run test` is the canonical gate.
+- **Suite is green and large** — 54 test files under `tests/` (deck-skeletons,
+  real-result, role-color, e2e, ir-library, …); `bun run test` is the canonical gate
+  (measured 54 at `a246efce`).
 
 ## Tickets
 
@@ -87,9 +88,11 @@ this session end-to-end through its gate.
 
 - The exact 15-IR list (which archetypes map to which type) is pinned in `spec.md` §4 but
   not yet validated against the schema — expect 2–3 authoring iterations per IR.
-- Harvest tier: up to 3 real chip/ASPICE IRs from `~/proj/output/archify-aspice4-v5` are
-  folded in as a flagship-domain archetype; they must be re-audited against the cardinal
-  rule (no inline hex) since shipping does not imply catalog-pinned quality style.
+- Harvest tier: up to 3 real chip/ASPICE IRs from `~/proj/output/archify-aspice4/` (the
+  11-slide 2026-07-08 rerun — chip-scope, chip-vmodel, tapeout-cycle; the 25-slide
+  `archify-aspice4-v5/` folder is a different deck and holds none of them) are folded in as
+  a flagship-domain archetype; they were re-audited against the cardinal rule (no inline
+  hex) and verified byte-identical to their sources.
 - How the no-args lint text renders CJK descriptions inline is a formatting judgment; the
   test pins fields, not prose style.
 - Phase 2 converter dialect coverage (which mermaid features map cleanly to the 5 schemas)

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archifyDeckLint, discoverDeckSkeletons } from "../src/deck-lint-tool.ts";
+import { archifyDeckLint, discoverDeckSkeletons, loadIrLibrary } from "../src/deck-lint-tool.ts";
 import * as run from "../src/run.ts";
 
 const PKG_ROOT = join(import.meta.dir, "..");
@@ -107,6 +107,11 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
     expect(irLibrary.some((e) => e.tier === "flagship-domain")).toBe(true);
     expect(r.content[0]!.text).toContain("IR library (15)");
     expect(r.content[0]!.text).toContain("pair with: kpi-row, split");
+  });
+
+  test("loadIrLibrary honors the shippedRoot override and a missing catalog (t11)", () => {
+    const missing = loadIrLibrary(join(tempDir(), "empty"));
+    expect(missing).toEqual([]);
   });
 
   test("no arguments lists the six code layouts plus every discovered template", async () => {

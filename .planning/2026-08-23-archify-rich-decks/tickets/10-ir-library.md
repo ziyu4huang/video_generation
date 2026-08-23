@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 ---
 
 # 10 — Copy-adapt IR library: ~15 validated IRs + catalog + flagship deck + gate

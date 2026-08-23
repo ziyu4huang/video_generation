@@ -22,7 +22,9 @@ schema memory.
 - A flagship library deck (~19 slides) that weaves those IRs with the 7 rich template
   results into one argument — the strongest copy-adapt artifact (the manifest shape itself
   is shown filled).
-- A harvest tier: up to 3 real shipped IRs from `~/proj/output/archify-aspice4-v5`
+- A harvest tier: up to 3 real shipped IRs from `~/proj/output/archify-aspice4/`
+  (the 11-slide 2026-07-08 rerun — `chip-scope`, `chip-vmodel`, `tapeout-cycle`;
+  NOT the 25-slide `archify-aspice4-v5` folder, which holds a different deck)
   re-audited against the cardinal rule (no inline hex) and folded in as the
   flagship-domain archetype set.
 - Discovery: `archify_deck_lint` (no args) reports the library; docs index it. No new tool.
@@ -154,12 +156,18 @@ an authoring decision; the test pins counts, not order.
 
 ## 5. Verification (Done when)
 
-- [ ] ≥12 generic + ≥2 harvest IRs, all validate + render clean via `deliver`.
-- [ ] Library deck builds: 0 fatal lint, 0 blips, all 7 rich templates present ≥1 slide.
-- [ ] `archify_deck_lint` no-args output includes the IR library section.
-- [ ] `tests/ir-library.test.ts` green; full `bun run test` green in `s2-agent-ext-archify`.
-- [ ] Existing examples untouched, `examples/deck` byte-identical build (D5).
-- [ ] Docs updated (README + deck.md + SKILL.md pointer).
+- [x] ≥12 generic + ≥2 harvest IRs, all validate + render clean via `deliver`.
+- [x] Library deck builds: 0 fatal lint, 0 blips, all 7 rich templates present ≥1 slide.
+- [x] `archify_deck_lint` no-args output includes the IR library section.
+- [x] `tests/ir-library.test.ts` green; full `bun run test` green in `s2-agent-ext-archify`.
+- [x] Existing examples untouched, `examples/deck` byte-identical build (D5).
+- [x] Docs updated (README + deck.md + SKILL.md pointer).
+
+> Shipped 2026-08-23 on `archify-rich-decks-ir-library` (t10 + t11 closed). Authoring-time
+> name drift from §4.1/§4.4: `soctopology` → `system-inventory` (generic inventory
+> archetype), generic `tapeout-cycle` → `cold-path-walk` (sequence) + `release-states`
+> (lifecycle), and the tier `tapeout-cycle` appears only in the catalog — the flagship deck
+> stays resolver-world and does not include tier IRs.
 
 ## 6. Decisions recorded in the map (`## Decisions`, D1–D6)
 

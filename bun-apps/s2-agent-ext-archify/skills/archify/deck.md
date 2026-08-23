@@ -18,7 +18,7 @@ Two tools only — one to discover, one to build:
    wrong the moment it happens, and *being wrong there is worse than being absent*.
    - The IR library is the "copy-adapt" path: 12 validated generic archetype IRs (5 diagram
      types × 2–3) + 3 harvest-tier real chip IRs, each already through `deliver`, plus the
-     flagships deck `examples/ir-library/decks/library.config.json` showing them woven with
+     flagship deck `examples/ir-library/decks/library.config.json` showing them woven with
      the 7 rich templates. When a slide needs a diagram, pick a cataloged IR and adapt it —
      do not author from schema memory.
    - With a `manifest` (path, or the object itself for an unwritten draft) it validates each

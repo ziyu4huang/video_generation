@@ -127,8 +127,8 @@ and can change under you. How to author a template:
 
 ### Copy-adapt IR library
 
-It already illustrated the answer to "which IR do I copy?" — `examples/ir-library/` ships a
-catalog of **validated, render-ready IRs** (12 generic archetypes across all five diagram types
+The answer to "which IR do I copy?" is a catalog, not a sketch — `examples/ir-library/` ships
+a catalog of **validated, render-ready IRs** (12 generic archetypes across all five diagram types
 plus 3 harvest-tier real chip IRs), each with a typed index entry (`library.catalog.json`:
 `diagram_type`, `title`, `description`, `archetype`, suggested `pairing`, `tier`) and a
 **flagship deck** (`examples/ir-library/decks/library.config.json`, 21 slides) that weaves the

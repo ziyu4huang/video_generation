@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 10
-status: open
+status: closed
 ---
 
 # 11 — Discovery & docs: IR library in the no-args lint catalog + docs index
