@@ -74,13 +74,23 @@ they stay native regardless of backend.
 ### 0. Sync check — ALWAYS first, no exceptions
 
 Before ANY step below (and before executing a next-goal queue head), verify
-the tree is at the remote default branch's tip:
-`bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`
-(detached worktree → `--branch <slug>` per the trigger map above; or fetch and
-count `git rev-list --count HEAD..origin/main` — `0` = already at tip). Work is
-written against main as of its session; main moves between sessions. Starting
-the chain from a stale tree rebases, CI-gates, or merges against the wrong
-base — this check is not optional and not implicit in later steps.
+the tree is at the remote default branch's tip. Work is written against main
+as of its session; main moves between sessions. Starting the chain from a
+stale tree rebases, CI-gates, or merges against the wrong base — this check
+is not optional and not implicit in later steps.
+
+- **Attached worktree**: `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`
+  (or fetch and count `git rev-list --count HEAD..origin/main` — `0` = already at tip).
+- **Detached worktree** (post-merge detach / fresh agent worktree — routine
+  here): `--branch <slug>` works in `rebase`/`pull` modes only. It is IGNORED
+  in the default `full` mode — full advances `main` in its own worktree, never
+  the calling worktree's HEAD, so a detached caller stays stale with nothing
+  but a warning ("branch option ignored in full mode"). The full-mode recipe
+  is TWO steps: (1) `sync-default-branch-cli` (full — fetch, advance main,
+  submodules), then (2) `prepare-feature-branch-cli --branch <slug> --create`
+  (base defaults to the freshly fetched `<remote>/main`) to attach THIS
+  worktree to the tip. Verify after either path:
+  `git rev-list --count HEAD..origin/main` → `0`.
 
 ### 1. `prepare_feature_branch` — worktree-safe branch setup
 
