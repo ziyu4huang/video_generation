@@ -290,4 +290,9 @@ describe("mermaid:convert CLI contract (exit codes)", () => {
     expect(r.status).toBe(2);
     expect(r.stderr).toContain("usage:");
   });
+  it("exit 0 on --no-validate (conversion only, gate skipped)", async () => {
+    const r = await runCli([join(pkgFixtures, "workflow-chain.mmd"), "--no-validate"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("NOT validated");
+  });
 });
