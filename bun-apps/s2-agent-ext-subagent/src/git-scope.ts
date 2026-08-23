@@ -49,6 +49,53 @@ export interface GitScopeOps {
   changedPaths(cwd: string, base: string, head: string): Promise<string[]>;
 }
 
+/**
+ * Spawn-time git snapshot for the startup-context block (cc-parity-2 ticket
+ * 04). Deliberately a SEPARATE interface from {@link GitScopeOps} rather than
+ * an extension: the scope guard's ops are injected into dozens of existing
+ * test fakes, and widening that interface would break them all for a feature
+ * the scope check never reads.
+ */
+export interface GitSnapshot {
+  /** `## <branch>...` line from `status --porcelain -b` (tracked repos only). */
+  branch?: string;
+  /** `git log -1 --oneline` — the checkout the child starts from. */
+  head?: string;
+  /** Porcelain status lines (staged + unstaged + untracked), repo order. */
+  statusLines: string[];
+}
+
+/** Injectable snapshot ops (never throws — a non-repo cwd yields undefined). */
+export interface GitSnapshotOps {
+  snapshot(cwd: string): Promise<GitSnapshot | undefined>;
+}
+
+/** Production snapshot ops: one `status --porcelain -b` + one `log -1 --oneline`. */
+export const realGitSnapshotOps: GitSnapshotOps = {
+  async snapshot(cwd: string): Promise<GitSnapshot | undefined> {
+    try {
+      const { stdout } = await exec("git", ["-C", cwd, "status", "--porcelain=v1", "-b"]);
+      const lines = stdout
+        .split("\n")
+        .map((l) => l.trimEnd())
+        .filter(Boolean);
+      if (lines.length === 0) return undefined; // "not a repo" prints an error, not empty — but stay defensive
+      const branch = lines[0]?.startsWith("## ") ? lines[0] : undefined;
+      const statusLines = branch ? lines.slice(1) : lines;
+      let head: string | undefined;
+      try {
+        const log = await exec("git", ["-C", cwd, "log", "-1", "--oneline"]);
+        head = log.stdout.trim() || undefined;
+      } catch {
+        head = undefined; // a repo with no commits yet still has a branch line
+      }
+      return { branch, head, statusLines };
+    } catch {
+      return undefined; // not a repo / git broke — the block just loses its git section
+    }
+  },
+};
+
 /** Production git ops. Every call swallows errors — scope-guard diagnostics never throw. */
 export const realGitOps: GitScopeOps = {
   async headCommit(cwd: string): Promise<string | undefined> {

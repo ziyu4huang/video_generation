@@ -1,6 +1,6 @@
 # Ticket 04 — subagent startup context (git status + sibling roster)
 
-Status: open · Phase 2 (after 02 — reuses its transcript composer plumbing)
+Status: done (2026-08-23) · Phase 2 (after 02 — reuses its transcript composer plumbing)
 
 ## Scope
 
@@ -57,3 +57,25 @@ size-capped block.
   the tool-run tests with an end-to-end composition-order pin; the system-prompt
   inheritance measurement test from step 1.
 - Full gates s2-agent-ext-subagent (+ core-runtime/ultracode if touched).
+
+## Close-out (2026-08-23)
+
+- Measurement (Approach step 1) PASSED and is now a standing pin: a real
+  `spawnSubagent` child over the pi faux provider sees BOTH its spawn-cwd
+  CLAUDE.md AND the ancestor's in its system prompt — the resource-loader
+  inheritance claim (map S3) is measured, not assumed. A pi upgrade that drops
+  it fails this test instead of silently double-carrying repo context.
+- Shipped: `src/startup-context.ts` (pure composer + `buildSiblingRoster`),
+  `GitSnapshotOps`/`realGitSnapshotOps` in `git-scope.ts` (separate interface —
+  widening `GitScopeOps` would have broken dozens of injected test fakes),
+  `context` param on BOTH tool schemas, composition
+  `[startup-context] → task → [env-hints] → [abort-safety]` pinned in
+  `subagent-tool-run.test.ts`. Batch shares ONE snapshot per call (asserted:
+  1 snapshot for a 3-task batch, identical prefix on every child).
+- Approach step 6 (explore skipping CLAUDE.md): stays the accepted divergence
+  recorded in spec §3 by ticket 03 — the measurement above shows the
+  inheritance is real but gives no bloat signal to act on.
+- Gates: ext-subagent 691 pass / 0 fail (canonical `CI=true bun run test`,
+  includes biome check); core-runtime 452 pass (untouched, run per handoff
+  instruction). Three microtask-counting tests moved to a queue flush — the
+  capture's `Promise.all` deepened the pre-spawn window.

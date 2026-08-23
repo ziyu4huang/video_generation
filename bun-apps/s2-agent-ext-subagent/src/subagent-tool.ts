@@ -32,7 +32,7 @@ import {
 import { getBackgroundRunManager } from "./background-run-manager.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent, GuardedComponent } from "./composer-component.js";
-import { realGitOps } from "./git-scope.js";
+import { realGitOps, realGitSnapshotOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
 import {
   consecutiveIdenticalFailures,
@@ -42,6 +42,7 @@ import {
   shouldCircuitBreak,
   taskSignature,
 } from "./retry-loop-detector.js";
+import { buildSiblingRoster, buildStartupContextBlock } from "./startup-context.js";
 import {
   formatSubagentLive,
   formatSubagentResult,
@@ -293,6 +294,26 @@ export function createSubagentTool(
         // session runs without the block — accurate, not a silent degrade). A
         // throw inside the getter surfaces as this dispatch's failure.
         const forkTranscript = params.fork ? options.getParentTranscript?.() : undefined;
+        // Startup-context block (ticket 04): git snapshot + sibling roster,
+        // captured HERE (spawnCwd is final after the worktree alloc) and
+        // composed by buildSpawnOptions as a task PREFIX. Best-effort — a
+        // failed snapshot or empty roster just shrinks/omits the block, never
+        // fails the dispatch. `minimal` drops the porcelain body and roster
+        // (branch+HEAD only); `none` skips capture entirely.
+        const contextMode = params.context ?? "full";
+        let startupContext: string | undefined;
+        if (contextMode !== "none") {
+          const snapshotOps = options.gitSnapshotOps ?? realGitSnapshotOps;
+          const [gitStatus, roster] = await Promise.all([
+            snapshotOps.snapshot(spawnCwd).catch(() => undefined),
+            Promise.resolve(
+              contextMode === "full"
+                ? (options.getSiblingRoster?.() ?? buildSiblingRoster(liveRegistry, options.inFlight))
+                : undefined,
+            ),
+          ]);
+          startupContext = buildStartupContextBlock({ spawnCwd, gitStatus, roster, mode: contextMode });
+        }
         // Shown WHILE the subagent runs, before the resolved model is known.
         const displayModelBeforeResolve = resolveDisplayModel(requestedModel, capability, tier, mainModel);
 
@@ -357,6 +378,7 @@ export function createSubagentTool(
               modelCtx: { requestedModel, tier, capability, mainModel, scopedModels },
               spawnCwd,
               forkTranscript,
+              startupContext,
               // dispatchChild owns the child controller and overwrites this field;
               // buildSpawnOptions still needs a signal-shaped value for its type.
               childSignal: new AbortController().signal,

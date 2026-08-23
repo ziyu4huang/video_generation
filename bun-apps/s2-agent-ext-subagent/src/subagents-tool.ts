@@ -42,8 +42,14 @@ import {
 import { Type } from "typebox";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";
-import { realGitOps } from "./git-scope.js";
+import { type GitSnapshotOps, realGitOps, realGitSnapshotOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
+import {
+  buildSiblingRoster,
+  buildStartupContextBlock,
+  DEFAULT_BATCH_STARTUP_CAP_CHARS,
+  type StartupContextMode,
+} from "./startup-context.js";
 import { taskPreview, workIntentPreview } from "./subagent-tool-render.js";
 import { abortSafetyFooter, augmentOutputWithScopeViolation, extractSalvage } from "./subagent-tool-run.js";
 import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
@@ -165,6 +171,9 @@ export interface SubagentsToolOptions {
   agentRegistry?: AgentRegistry;
   inFlight?: SubagentInFlightRegistry;
   persistence?: SubagentRunPersistence;
+  /** Injectable spawn-time git snapshot ops for the shared startup-context
+   *  block (ticket 04). Defaults to realGitSnapshotOps (best-effort). */
+  gitSnapshotOps?: GitSnapshotOps;
 }
 
 export const subagentsToolSchema = Type.Object({
@@ -224,6 +233,12 @@ export const subagentsToolSchema = Type.Object({
     { description: "Read-only fan-out: each task runs as an isolated subagent with edit/write/bash always excluded." },
   ),
   concurrency: Type.Optional(Type.Integer({ description: "Max parallel children. Clamped to [1,16]; default 4." })),
+  context: Type.Optional(
+    Type.Union([Type.Literal("full"), Type.Literal("minimal"), Type.Literal("none")], {
+      description:
+        "Startup-context block prefixed to every child's spawned task (CLAUDE.md hierarchy is inherited regardless). Batch default 'minimal' = git branch + HEAD only (one SHARED snapshot for the whole batch, tightly capped); 'full' adds the porcelain status body + sibling roster; 'none' omits the block.",
+    }),
+  ),
   tokenBudget: Type.Optional(
     Type.Integer({
       description:
@@ -261,6 +276,11 @@ export function mergeReadOnlyExclusion(
     logToken?: string;
     /** Resolved agentType definition (ticket 07), when the task names one. */
     agentDef?: AgentDefinition;
+    /** Rendered startup-context block (ticket 04), shared verbatim across the
+     *  batch — the snapshot is captured ONCE per list_subagents call, so every
+     *  child sees the identical spawn-time state. Prefixed to the spawned task
+     *  only; task.task (persisted) stays raw. */
+    startupBlock?: string;
   },
 ): SpawnSubagentOptions {
   const excludeTools = Array.from(
@@ -271,12 +291,15 @@ export function mergeReadOnlyExclusion(
   const tier = task.tier ?? ctx.agentDef?.tier;
   // H4: a batch child is read-only BY CONSTRUCTION (edit/write/bash always
   // denied below), so the write-tool footer gate is always false here — the
-  // footer rides only on an explicit long turn cap (maxTurns > 10). Appended
-  // to the SPAWNED task only; task.task (persisted) stays raw.
+  // footer rides only on an explicit long turn cap (maxTurns > 10). The
+  // startup-context block (ticket 04) PREFIXES the spawned task; the footer
+  // is APPENDED after it. Both compose onto the SPAWNED task only; task.task
+  // (persisted) stays raw.
+  const taskWithBlock = ctx.startupBlock ? `${ctx.startupBlock}\n\n${task.task}` : task.task;
   const task0 =
     (task.maxTurns ?? 0) > 10
-      ? `${task.task}${abortSafetyFooter(`/tmp/subagent-runs/${ctx.logToken ?? "batch-child"}.md`)}`
-      : task.task;
+      ? `${taskWithBlock}${abortSafetyFooter(`/tmp/subagent-runs/${ctx.logToken ?? "batch-child"}.md`)}`
+      : taskWithBlock;
   const opts: SpawnSubagentOptions = {
     task: task0,
     // H1: real per-task label (was a hardcoded "zk-spawn").
@@ -424,6 +447,27 @@ export function createSubagentsTool(
         };
       }
       const concurrency = clampConcurrency(params.concurrency);
+      // Startup-context block (ticket 04): ONE git snapshot for the whole
+      // batch, captured before any child dispatches — a 10-task batch pays one
+      // pair of git subprocesses, and every child sees the IDENTICAL
+      // spawn-time state (map D5). Default 'minimal' (branch + HEAD, no
+      // porcelain body, no roster): read-only researchers need to know WHERE
+      // they stand; the dirty-tree inventory and sibling roster are the
+      // singular 'full' mode's job. Best-effort — a non-repo cwd yields no
+      // block and never fails the batch.
+      const contextMode: StartupContextMode = params.context ?? "minimal";
+      let startupBlock: string | undefined;
+      if (contextMode !== "none") {
+        const snapshotOps = options.gitSnapshotOps ?? realGitSnapshotOps;
+        const gitStatus = await snapshotOps.snapshot(defaultCwd).catch(() => undefined);
+        startupBlock = buildStartupContextBlock({
+          spawnCwd: defaultCwd,
+          gitStatus,
+          roster: contextMode === "full" ? buildSiblingRoster(undefined, options.inFlight) : undefined,
+          mode: contextMode,
+          capChars: DEFAULT_BATCH_STARTUP_CAP_CHARS,
+        });
+      }
       const mainModel = options.getMainModel?.();
       const scopedModels = options.getScopedModels?.();
       const extensionTools = options.getExtensionTools?.();
@@ -518,6 +562,7 @@ export function createSubagentsTool(
           activeTools,
           logToken: `${toolCallId}:${index}`,
           agentDef,
+          startupBlock,
         });
         // #03 plural mirror: impossible-tool preflight. A child missing a
         // required tool is skipped (null slot) and warned — never dispatched.

@@ -105,6 +105,16 @@ export {
   formatSiblingReplyNotification,
   sendMessageToolSchema,
 } from "./send-message-tool.js";
+// ── owned: startup-context block (git snapshot + sibling roster, ticket 04) ─
+export type { RosterRow, StartupContextMode } from "./startup-context.js";
+export {
+  buildSiblingRoster,
+  buildStartupContextBlock,
+  DEFAULT_BATCH_STARTUP_CAP_CHARS,
+  DEFAULT_STARTUP_CAP_CHARS,
+  MAX_ROSTER_ROWS,
+  STARTUP_CONTEXT_HEADER,
+} from "./startup-context.js";
 // ── owned: the LLM-facing tools ──────────────────────────────────────────────
 export type { SubagentRunsToolOptions } from "./subagent-runs-tool.js";
 export { createSubagentRunsTool, renderLiveRoster } from "./subagent-runs-tool.js";

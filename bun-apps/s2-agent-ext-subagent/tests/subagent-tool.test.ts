@@ -13,7 +13,7 @@ import { SubagentInFlightRegistry } from "@repo/s2-agent-core-runtime";
 import { BackgroundRunManager } from "../src/background-run-manager.js";
 import { ComposerComponent } from "../src/composer-component.js";
 import type { GitScopeOps } from "../src/git-scope.js";
-import { createSubagentTool } from "../src/subagent-tool.js";
+import { createSubagentTool as realCreateSubagentTool } from "../src/subagent-tool.js";
 import {
   formatHistoryLine,
   formatSubagentLive,
@@ -26,8 +26,19 @@ import {
   taskPreview,
   workIntentPreview,
 } from "../src/subagent-tool-render.js";
-import type { SubagentToolDetails } from "../src/subagent-tool-schema.js";
+import type { SubagentToolDetails, SubagentToolOptions } from "../src/subagent-tool-schema.js";
 import { DEFAULT_TIMEOUT_MS } from "../src/subagent-tool-schema.js";
+
+// Ticket 04: the DEFAULT startup-context capture runs real git at the spawn
+// cwd (process.cwd() under bun test = this repo) — a nondeterministic task
+// prefix plus subprocess latency. Unit tests here inject a no-snapshot source
+// so the spawned task stays byte-identical to the old contract; the block
+// itself is covered by tests/startup-context.test.ts (composer + modes + the
+// resource-loader measurement) and the composition-order pin in
+// tests/subagent-tool-run.test.ts.
+const noSnapshotOps = { snapshot: async () => undefined } as never;
+const createSubagentTool = (o: SubagentToolOptions = {}) =>
+  realCreateSubagentTool({ gitSnapshotOps: noSnapshotOps, ...o });
 
 // getMarkdownTheme() (used by the settled-expanded Markdown finalize path) reads the
 // host theme proxy, which throws "Theme not initialized" unless initTheme() ran.
@@ -204,8 +215,10 @@ test("execute fans the runtime abort signal into a per-child externalSignal (not
   });
   const controller = new AbortController();
   const runP = tool.execute("id", { task: "t" }, controller.signal, undefined, NO_CTX);
-  await Promise.resolve();
-  await Promise.resolve();
+  // Ticket 04 deepened the pre-spawn window (startup-context capture awaits
+  // the git snapshot Promise.all) — flush the microtask queue rather than
+  // counting hops.
+  await new Promise((r) => setTimeout(r, 0));
   const childSignal = f.calls[0]?.externalSignal;
   assert.ok(childSignal, "spawn receives an externalSignal");
   assert.notEqual(childSignal, controller.signal, "per-child controller, not the parent signal directly");
@@ -247,10 +260,11 @@ test("user per-child abort (registry.abort) → status 'aborted' + 'Subagent abo
   });
   const parent = new AbortController(); // NOT aborted — represents the live turn
   const p = tool.execute("id-u", { task: "research" }, parent.signal, undefined, NO_CTX);
-  // #02 default-on: captureCommitBaseline now ALWAYS awaits gitOps.headCommit,
-  // so the registered window is one microtask deeper than before the change.
-  await Promise.resolve();
-  await Promise.resolve();
+  // #02 default-on made captureCommitBaseline always await gitOps.headCommit;
+  // ticket 04 added the startup-context capture (Promise.all over the git
+  // snapshot) on top — the registered window is now several microtasks deep,
+  // so flush the whole queue instead of counting hops.
+  await new Promise((r) => setTimeout(r, 0));
   assert.equal(reg.view("id-u")?.abortable, true, "abort lever wired on the in-flight entry");
   reg.abort("id-u"); // user aborts this one child
   const res = await p;
@@ -1215,9 +1229,9 @@ test("execute registers on inFlight at start, streams history, deregisters on co
     NO_CTX,
   );
   // #02 default-on: captureCommitBaseline now ALWAYS awaits gitOps.headCommit,
-  // so the registered window is one microtask deeper than before the change.
-  await Promise.resolve();
-  await Promise.resolve();
+  // and ticket 04 added the startup-context capture on top — the registered
+  // window is now several microtasks deep, so flush the whole queue.
+  await new Promise((r) => setTimeout(r, 0));
   assert.equal(reg.views().length, 1, "registered while in flight");
   assert.equal(reg.views()[0]?.id, "id-7");
   assert.equal(reg.views()[0]?.actor, "implementer");
