@@ -21,7 +21,12 @@ export function __resetLoop(): void {
 
 function newScheduler(pi: ExtensionAPI, ctx: { isIdle?: () => boolean }): LoopScheduler {
 	return new LoopScheduler({
-		fire: (prompt) => pi.sendUserMessage(prompt),
+		// Slash targets dispatch as extension commands (probe 2026-08-23:
+		// prompt() only routes "/"-prefixed text through the command registry
+		// when expandPromptTemplates is true; sendUserMessage defaults it to
+		// false, so pass it explicitly for slash targets).
+		fire: (prompt) =>
+			pi.sendUserMessage(prompt, prompt.startsWith("/") ? { expandPromptTemplates: true } : undefined),
 		isIdle: () => ctx.isIdle?.() ?? true,
 	});
 }

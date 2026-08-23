@@ -2,7 +2,7 @@
 ticket: 03-loop-cc-scheduler
 effort: cc-parity-task-ext
 type: task
-status: open
+status: closed
 created: 2026-08-23
 last: 2026-08-23
 ---
@@ -46,3 +46,16 @@ CC semantics — with the process-improvement machinery and goal coupling delete
 ## Gate
 
 `( cd bun-apps/s2-agent-ext-task && bun run typecheck && bun test )`
+
+## Result
+
+**closed 2026-08-23** — commits d8774317 (parser/scheduler/persistence) + 8072b0fb (registration rewrite + goal decoupling) + follow-up wiring.
+
+- `parseInterval` s/m/h/d with seconds rounding UP to whole minutes; `parseLoopCommand` `[interval] <prompt>` default 10m; old `start "…" measure=…` syntax returns a usage pointer naming the new surface.
+- `LoopScheduler`: injectable-clock timer chain, idle-gated fire, postpone-on-busy (60s recheck, never drops), 7-day max-age fires once then self-stops. Fully synchronous `tick()` (fire is dispatched, not awaited) — awaiting a slow send used to delay re-arming past the test horizon.
+- Slash-command targets: **supported**. Probe finding 2026-08-23 (agent-session.js:797-805): `prompt()` routes "/"-prefixed text through the extension-command registry ONLY when `expandPromptTemplates` is true; `sendUserMessage` defaults it false (public option per agent-session.d.ts:410-413). The fire hook passes `{ expandPromptTemplates: true }` for slash targets — `/loop 1d /daily-summary` executes the command, not a literal message.
+- Goal decoupled at all four sites (hooks agent_end dispatch, lifecycle XOR gate, heartbeat shouldRun + refire branch); heartbeat supervises goals only; /goal and /loop run concurrently (CC parity — old XOR gate deleted).
+- Deletions: loop-state.ts, loop-metric.ts, continuation-marker machinery, before_agent_start marker hook, setLoopRenderSid/__resetLoopState wiring (loop no longer keys per-session buckets — one scheduler per process).
+- Gate: tsc clean; 865 pass / 0 fail (61 files).
+
+Plan-errata fixed inline: 90s→120_000 under the round-up rule (plan's literal contradicted itself), primitive-string instanceof check, USAGE ellipsis vs toContain, scheduler harness now advances to next timer deadline, fake session entries carry `type: "custom"`.
