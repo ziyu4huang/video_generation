@@ -166,35 +166,39 @@ Not covered by this script: extension-contract, deploy-verify, compile-verify,
 clean-launch-self-heal, determinism-spotcheck. Run regression-gates with --gates.`;
 
 // `--gates --tsv`: the three-field form (name / working-directory / run).
-const GATES_TSV_GOLDEN = `File-size guard (2 MB, blocks)\t.\tbash scripts/ci-file-size-guard.sh
-Lockfile duplicate-version guard (blocks)\t.\tbash scripts/check-lockfile-duplicate-versions.sh
-Lockfile freshness guard (package.json vs bun.lock, blocks)\t.\tbash scripts/check-lockfile-freshness.sh
-Dependency-direction guard (ADR-monorepo-0001, blocks)\tbun-apps\tbun run test:deps
-Registry base-set scanner guard (blocks)\tbun-apps\tbun run test:base-set
-ADR identity + citation guard (blocks)\tbun-apps\tbun run test:adr
-Cross-skill reference guard (blocks)\tbun-apps\tbun run test:skills-ref
-Dead-export guard (blocks)\tbun-apps\tbun run test:dead-export
-Cross-extension seam-contract guard (status widget, blocks)\tbun-apps\tbun run test:seam
-Cross-extension routing-contract guard (bootstrap ↔ wayfind, blocks)\tbun-apps\tbun run test:routing
-Cross-extension isolation-contract guard (portable base set, blocks)\tbun-apps\tbun run test:isolation
-Config-field parity guard (hermes loadConfig, blocks)\tbun-apps\tbun run test:config-parity
-Test-portability audit regression test\tbun-apps\tbun run test:portability-audit
-CI-workflow reference guard (matrix ↔ tree, blocks)\tbun-apps\tbun run test:ci-workflow
-Package-script runnability guard (bare binaries, blocks)\tbun-apps\tbun run test:scripts
-Workspace dist-freshness guard (blocks)\tbun-apps\tbun run test:dist
-Deploy-sh L1 e2e (deployed binary runs its extensions, blocks)\t.\tbash scripts/check-deploy-e2e.sh
-Extension-entry typecheck coverage (blocks)\tbun-apps\tbun run test:ext-entry
-Extension-entry typecheck (executor, blocks)\tbun-apps\tbun run typecheck:ext
-Lint-executor coverage (blocks)\tbun-apps\tbun run test:lint-coverage
-Test-portability audit (--strict, blocks)\t.\tbash scripts/test-portability-audit.sh --strict
-Test-determinism audit (D2 --strict, blocks)\t.\tbash scripts/test-determinism-audit.sh --strict
-PR-finish decision tests (devops-merge-pr-after-ci)\tbun-apps/s2-agent-ext-devops\tbun test tests/merge-pr-after-ci-cli.test.ts
-Schema-cost regression (warns >5%, not a block)\t.\tbun scripts/check-schema-cost.ts
-Declared-imports audit (warn-only v1)\t.\tnode scripts/check-declared-imports.mjs
+// Rows re-captured 2026-08-23 — the no-bash-skills guard became gate #15.
+// This is a workflow fact, not a .sh output change: the .sh is gone (D3) and
+// the rows track the workflow's live regression-gates job.
+const GATES_TSV_GOLDEN = `File-size guard (2 MB, blocks)	.	bash scripts/ci-file-size-guard.sh
+Lockfile duplicate-version guard (blocks)	.	bash scripts/check-lockfile-duplicate-versions.sh
+Lockfile freshness guard (package.json vs bun.lock, blocks)	.	bash scripts/check-lockfile-freshness.sh
+Dependency-direction guard (ADR-monorepo-0001, blocks)	bun-apps	bun run test:deps
+Registry base-set scanner guard (blocks)	bun-apps	bun run test:base-set
+ADR identity + citation guard (blocks)	bun-apps	bun run test:adr
+Cross-skill reference guard (blocks)	bun-apps	bun run test:skills-ref
+Dead-export guard (blocks)	bun-apps	bun run test:dead-export
+Cross-extension seam-contract guard (status widget, blocks)	bun-apps	bun run test:seam
+Cross-extension routing-contract guard (bootstrap ↔ wayfind, blocks)	bun-apps	bun run test:routing
+Cross-extension isolation-contract guard (portable base set, blocks)	bun-apps	bun run test:isolation
+Config-field parity guard (hermes loadConfig, blocks)	bun-apps	bun run test:config-parity
+Test-portability audit regression test	bun-apps	bun run test:portability-audit
+CI-workflow reference guard (matrix ↔ tree, blocks)	bun-apps	bun run test:ci-workflow
+No-bash-skills guard (deleted launchers, blocks)	bun-apps	bun run test:no-bash-skills
+Package-script runnability guard (bare binaries, blocks)	bun-apps	bun run test:scripts
+Workspace dist-freshness guard (blocks)	bun-apps	bun run test:dist
+Deploy-sh L1 e2e (deployed binary runs its extensions, blocks)	.	bash scripts/check-deploy-e2e.sh
+Extension-entry typecheck coverage (blocks)	bun-apps	bun run test:ext-entry
+Extension-entry typecheck (executor, blocks)	bun-apps	bun run typecheck:ext
+Lint-executor coverage (blocks)	bun-apps	bun run test:lint-coverage
+Test-portability audit (--strict, blocks)	.	bash scripts/test-portability-audit.sh --strict
+Test-determinism audit (D2 --strict, blocks)	.	bash scripts/test-determinism-audit.sh --strict
+PR-finish decision tests (devops-merge-pr-after-ci)	bun-apps/s2-agent-ext-devops	bun test tests/merge-pr-after-ci-cli.test.ts
+Schema-cost regression (warns >5%, not a block)	.	bun scripts/check-schema-cost.ts
+Declared-imports audit (warn-only v1)	.	node scripts/check-declared-imports.mjs
 `;
 
 const GATES_LIST_GOLDEN = `ci-local --list (parsed from .github/workflows/ci.yml.disabled · regression-gates job)
-25 entries; each runs in its directory with CI=true
+26 entries; each runs in its directory with CI=true
 
 #   DIR  GATE                             COMMAND
 --- ---- -------------------------------- --------
@@ -212,19 +216,21 @@ const GATES_LIST_GOLDEN = `ci-local --list (parsed from .github/workflows/ci.yml
 12  ok   Config-field parity guard (herme bun run test:config-parity
 13  ok   Test-portability audit regressio bun run test:portability-audit
 14  ok   CI-workflow reference guard (mat bun run test:ci-workflow
-15  ok   Package-script runnability guard bun run test:scripts
-16  ok   Workspace dist-freshness guard ( bun run test:dist
-17  ok   Deploy-sh L1 e2e (deployed binar bash scripts/check-deploy-e2e.sh
-18  ok   Extension-entry typecheck covera bun run test:ext-entry
-19  ok   Extension-entry typecheck (execu bun run typecheck:ext
-20  ok   Lint-executor coverage (blocks)  bun run test:lint-coverage
-21  ok   Test-portability audit (--strict bash scripts/test-portability-audit.sh --strict
-22  ok   Test-determinism audit (D2 --str bash scripts/test-determinism-audit.sh --strict
-23  ok   PR-finish decision tests (devops bun test tests/merge-pr-after-ci-cli.test.ts
-24  ok   Schema-cost regression (warns >5 bun scripts/check-schema-cost.ts
-25  ok   Declared-imports audit (warn-onl node scripts/check-declared-imports.mjs
+15  ok   No-bash-skills guard (deleted la bun run test:no-bash-skills
+16  ok   Package-script runnability guard bun run test:scripts
+17  ok   Workspace dist-freshness guard ( bun run test:dist
+18  ok   Deploy-sh L1 e2e (deployed binar bash scripts/check-deploy-e2e.sh
+19  ok   Extension-entry typecheck covera bun run test:ext-entry
+20  ok   Extension-entry typecheck (execu bun run typecheck:ext
+21  ok   Lint-executor coverage (blocks)  bun run test:lint-coverage
+22  ok   Test-portability audit (--strict bash scripts/test-portability-audit.sh --strict
+23  ok   Test-determinism audit (D2 --str bash scripts/test-determinism-audit.sh --strict
+24  ok   PR-finish decision tests (devops bun test tests/merge-pr-after-ci-cli.test.ts
+25  ok   Schema-cost regression (warns >5 bun scripts/check-schema-cost.ts
+26  ok   Declared-imports audit (warn-onl node scripts/check-declared-imports.mjs
 
-This is the regression-gates job. Run the tests matrix with no --gates flag.`;
+This is the regression-gates job. Run the tests matrix with no --gates flag.
+`;
 
 const ONLY_LIST_GOLDEN = `ci-local --list (parsed from .github/workflows/ci.yml.disabled · tests matrix)
 1 entry; each runs in its directory with CI=true

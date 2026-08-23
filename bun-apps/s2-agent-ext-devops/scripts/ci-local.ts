@@ -190,11 +190,20 @@ if (gates && only !== "") {
 // read as "everything passed". Order is preserved (readCiMatrix is a map).
 type MatrixRow = [packageName: string, testCmd: string];
 
+/** The run is REFUSED (never an empty pass) — keep the parse shape stable. */
+const MATRIX_PARSE_ERR = (w: string): string =>
+	`could not parse the tests matrix out of ${w} — keep the YAML as ` +
+	`{jobs.tests.strategy.matrix.include:[{package,test-cmd}]}`;
+
+const GATES_PARSE_ERR = (w: string): string =>
+	`could not parse the regression-gates job out of ${w} — keep the YAML as ` +
+	`{jobs.regression-gates.steps:[{name,run,working-directory}]}`;
+
 function workflowDoc(): unknown {
 	try {
 		return Bun.YAML.parse(readFileSync(WORKFLOW_PATH, "utf8"));
 	} catch {
-		die(`could not parse the tests matrix out of ${WORKFLOW}`);
+		die(MATRIX_PARSE_ERR(WORKFLOW));
 	}
 }
 
@@ -211,14 +220,14 @@ function parseMatrix(): MatrixRow[] {
 	const rows: MatrixRow[] = [];
 	for (const entry of requireArray(
 		doc?.jobs?.tests?.strategy?.matrix?.include,
-		`could not parse the tests matrix out of ${WORKFLOW}`,
+		MATRIX_PARSE_ERR(WORKFLOW),
 	)) {
 		const e = entry as { package?: unknown; "test-cmd"?: unknown };
 		const pkg = e?.package;
 		const testCmd = e?.["test-cmd"];
 		if (typeof pkg !== "string" || typeof testCmd !== "string") {
 			// .sh: "unexpected matrix entry" → the run is refused, not subset.
-			die(`could not parse the tests matrix out of ${WORKFLOW}`);
+			die(MATRIX_PARSE_ERR(WORKFLOW));
 		}
 		rows.push([pkg, testCmd]);
 	}
@@ -266,11 +275,11 @@ function parseGates(): GateRow[] {
 	const job = doc?.jobs?.["regression-gates"];
 	const steps = (job as { steps?: unknown } | undefined)?.steps;
 	const rows: GateRow[] = [];
-	for (const raw of requireArray(steps, `could not parse the regression-gates job out of ${WORKFLOW}`)) {
+	for (const raw of requireArray(steps, GATES_PARSE_ERR(WORKFLOW))) {
 		const s = raw as { run?: unknown; name?: unknown; "working-directory"?: unknown; if?: unknown };
 		if (typeof s?.run !== "string") continue; // `uses:` steps
 		if (s.if !== undefined) {
-			die(`could not parse the regression-gates job out of ${WORKFLOW}`);
+			die(GATES_PARSE_ERR(WORKFLOW));
 		}
 		rows.push({
 			label: typeof s.name === "string" ? s.name : "<unnamed>",
@@ -281,7 +290,7 @@ function parseGates(): GateRow[] {
 		});
 	}
 	if (rows.length === 0) {
-		die(`could not parse the regression-gates job out of ${WORKFLOW}`);
+		die(GATES_PARSE_ERR(WORKFLOW));
 	}
 	return rows;
 }

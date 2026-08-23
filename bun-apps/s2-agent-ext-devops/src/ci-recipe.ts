@@ -22,7 +22,7 @@
  * — otherwise `bun run test` would stand in for `bun test --isolate`, `bun test &&
  * bun run qa`, or a build-first row, and run_local_ci could report green on a package
  * whose real CI command fails. Packages with no matrix row keep the generic
- * derivation. scripts/ci-local.ts parses the same matrix block, so the two local
+ * derivation. bun-apps/s2-agent-ext-devops/scripts/ci-local.ts parses the same matrix block, so the two local
  * runners cannot disagree about what a package's command is.
  *
  * One gate is hand-added beside the workflow-derived set beyond
@@ -728,7 +728,8 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	//        nothing (-1, counts as pass). A matrix row is run through `bash -c`
 	//        because the rows are shell COMMANDS, not single argv vectors
 	//        (`bun test && bun run qa`, knowledge-card's 3-phase chain,
-	//        `bun run build && bun test`) — the same way scripts/ci-local.ts
+	//        `bun run build && bun test`) — the same way
+	//        bun-apps/s2-agent-ext-devops/scripts/ci-local.ts
 	//        executes them. NB: ci-local.ts additionally exports CI=true;
 	//        run_local_ci deliberately does not, preserving its own pre-existing
 	//        behavior — locally the machine-coupled tests SHOULD run, that's the point.

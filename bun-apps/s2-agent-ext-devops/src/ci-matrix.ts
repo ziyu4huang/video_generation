@@ -15,7 +15,7 @@
  *       resolves a gitignored dist/).
  *   So `run_local_ci` could report green on a package whose real CI command fails.
  *   The matrix is the specification; this makes it the source of truth for both
- *   runners (scripts/ci-local.ts already parses the same block).
+ *   runners (bun-apps/s2-agent-ext-devops/scripts/ci-local.ts already parses the same block).
  *
  * NO SECOND COPY OF THE MATRIX. This parses the workflow file; it never carries a
  * hand-maintained table. A package with no row falls back to the generic
