@@ -22,7 +22,7 @@ headings, or frontmatter keys.
 ```markdown
 ---
 file: /ABS/PATH/TO/REPO/output/next-goal-YYYYMMDD-HHMMSS.md
-created: YYYY-MM-DD
+created: YYYY-MM-DD HH:MM:SS
 supersedes: /ABS/PATH/TO/REPO/output/next-goal-<previous-ts>.md
 ---
 
@@ -64,7 +64,9 @@ Frontmatter rules (strict — exact key set, no extras):
   when sessions run in several worktrees, this field is the ONLY thing that
   names which tree's handoff you are holding. The validator fails a file whose
   `file:` does not resolve to itself.
-- `created:` — `YYYY-MM-DD`, must equal the filename's date part.
+- `created:` — `YYYY-MM-DD HH:MM:SS` (local), must equal the filename's
+  date AND time parts. Date-only is NOT enough — sessions write several
+  handoffs on the same day, and the date alone cannot order them.
 - `supersedes:` — the **absolute path** of the predecessor file, or `none`
   (only for the first file ever written). A pruned predecessor is a warning,
   not a failure.
@@ -81,7 +83,9 @@ write the successor instead). `Ranked next goals` needs 3–5 numbered entries.
    the sort key for newest-file resolution and pruning.
 2. Write `output/next-goal-<ts>.md` at the repo root, in English, in the
    strict v2 shape above. Build the frontmatter from REAL values:
-   `file: $(pwd)/output/next-goal-<ts>.md`, `supersedes: $(readlink
+   `file: $(pwd)/output/next-goal-<ts>.md`, `created:` from the SAME `ts`
+   (e.g. `20260823-022001` → `2026-08-23 02:20:01` — date AND time),
+   `supersedes: $(readlink
    output/LATEST-next-goal.md | sed "s|^|$(pwd)/output/|")` (or `none`).
 3. Validate BEFORE pointing the symlink:
    `bun bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts
@@ -169,6 +173,7 @@ stale pointer executes the wrong goal. The symlink lives in gitignored
 | Committing next-goal files | `output/` is scratch; `.planning/` is durable |
 | Dropping an unfinished prior goal | Fold it into the new ranked list |
 | Off-pattern filename (`_` separator, ISO timestamp, made-up time) | Only `next-goal-YYYYMMDD-HHMMSS.md` from real `date` output sorts correctly |
+| Date-only `created:` | Must carry the time too — `YYYY-MM-DD HH:MM:SS` from the same `ts` as the filename; the date alone cannot order same-day handoffs |
 | Writing the file but not repointing `LATEST-next-goal.md` | Step 5 of WRITE — a stale pointer hands the next session the WRONG goal |
 | Skipping the validator/doctor | Steps 3 and 6 of WRITE — exit 0 or fix; never hand off an unvalidated file |
 | "Hands on" treated as "plan the goal" | It means EXECUTE through the done-when gate |

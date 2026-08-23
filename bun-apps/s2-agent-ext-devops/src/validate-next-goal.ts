@@ -121,9 +121,14 @@ export function validateNextGoalFile(absFile: string): NextGoalValidation {
       }
     }
     if ("created" in keys && fm) {
-      const dateStr = `${fm[1].slice(0, 4)}-${fm[1].slice(4, 6)}-${fm[1].slice(6, 8)}`;
-      if (keys.created !== dateStr) {
-        fail("created-matches-filename", `created: must be ${dateStr} (filename-derived), got "${keys.created}"`);
+      // Full timestamp (date AND time) — a date-only `created:` cannot order
+      // same-day handoffs; sessions routinely write several files per day.
+      const tsStr = `${fm[1].slice(0, 4)}-${fm[1].slice(4, 6)}-${fm[1].slice(6, 8)} ${fm[2].slice(0, 2)}:${fm[2].slice(2, 4)}:${fm[2].slice(4, 6)}`;
+      if (keys.created !== tsStr) {
+        fail(
+          "created-matches-filename",
+          `created: must be "${tsStr}" (date AND time, filename-derived — date-only is not enough), got "${keys.created}"`,
+        );
       }
     }
     if ("supersedes" in keys) {

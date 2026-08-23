@@ -26,7 +26,7 @@ function validFile(dir: string, ts = "20260823-001732", supersedes = "none"): st
 		[
 			"---",
 			`file: ${file}`,
-			`created: ${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)}`,
+			`created: ${ts.slice(0, 4)}-${ts.slice(4, 6)}-${ts.slice(6, 8)} ${ts.slice(9, 11)}:${ts.slice(11, 13)}:${ts.slice(13, 15)}`,
 			`supersedes: ${supersedes}`,
 			"---",
 			"# Next goal — the title",
@@ -109,9 +109,15 @@ describe("validateNextGoalFile — strict format", () => {
 		expect(failedChecks(validateNextGoalFile(file))).toEqual(["self-abs-path"]);
 	});
 
-	test("created must be filename-derived", () => {
+	test("created must be filename-derived (date AND time)", () => {
 		const file = validFile(TMP, "20260823-030303");
-		writeFile(file, mutate(file, (s) => s.replace("created: 2026-08-23", "created: 2026-01-01")));
+		writeFile(file, mutate(file, (s) => s.replace("created: 2026-08-23 03:03:03", "created: 2026-01-01 03:03:03")));
+		expect(failedChecks(validateNextGoalFile(file))).toEqual(["created-matches-filename"]);
+	});
+
+	test("created: date-only (legacy shape) is NOT enough — time is required", () => {
+		const file = validFile(TMP, "20260823-030404");
+		writeFile(file, mutate(file, (s) => s.replace("created: 2026-08-23 03:04:04", "created: 2026-08-23")));
 		expect(failedChecks(validateNextGoalFile(file))).toEqual(["created-matches-filename"]);
 	});
 
