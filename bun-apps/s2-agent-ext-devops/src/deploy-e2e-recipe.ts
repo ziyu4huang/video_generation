@@ -33,6 +33,13 @@
  *                  FAST provider/auth failure (≤10s, provider-smelling output)
  *                  is a SKIP, never a FAIL — the hang detector must not fail on
  *                  missing credentials (semantics lifted from oneshot-smoke).
+ *                  The SAME probe carries two REGRESSION BUDGETS: one-shot wall
+ *                  time under ONESHOT_RUNTIME_BUDGET_MS (35s; baseline p95
+ *                  10.99s measured 2026-08-24 — the #1976 36.6s class must
+ *                  fail, contention downgrades to skip) and hermes-memory
+ *                  startup round-trips under HERMES_STARTUP_ROUNDTRIP_CAP
+ *                  (150; parsed from the slow-startup stderr banner, measured
+ *                  103–114 dirty-vault / 26 clean).
  *   file2md-ocr    executes the DEPLOYED file2md bundle's OCR on a fixture —
  *                  no model; proves the shipped wasm/lang assets resolve.
  *   tool-gate-fire executes the DEPLOYED tool-gate bundle's matcher on a
@@ -81,6 +88,52 @@ export const BOOT_CAP_MS = 60_000;
 export const EXT_LIST_CAP_MS = 60_000;
 export const TOOLS_PROBE_CAP_MS = 60_000;
 export const MODEL_CALL_CAP_MS = 300_000;
+
+/**
+ * One-shot RUNTIME BUDGET — the regression gate for startup/shutdown
+ * serialization (the 36.6s→~5s #1976 class). Baseline measured 2026-08-24 on
+ * this machine against deployed 0.7.1+gd6f3c0c: 8 runs of
+ * `./s2-agent.sh -p 'Reply with exactly: ok' --no-session` → 10.97–10.99s
+ * wall (p95 10.99s, ±0.02s), including the model round-trip. 35s = 3.2×
+ * headroom for normal model variance while sitting BELOW the 36.6s #1976
+ * regression — that class must FAIL here, not merely look slow. A breach
+ * with >1 large resident chat model (the contention precheck) is a SKIP:
+ * the environment is the suspect, not the tree.
+ */
+export const ONESHOT_RUNTIME_BUDGET_MS = 35_000;
+
+/**
+ * hermes-memory STARTUP ROUND-TRIP CAP. Measured 2026-08-24 on this machine
+ * (deployed 0.7.1+gd6f3c0c, perf.jsonl): syncMarkdownMemories does 26
+ * round-trips with a clean vault (610ms, below the extension's own 50-RT
+ * breach threshold — no banner) and 103–114 with a dirty vault (breach
+ * banner). 150 sits above the dirty-vault ceiling to catch a ≥2× drift;
+ * once the batching fix lands (successor goal "hermes-memory startup perf")
+ * the banner disappears entirely and this cap goes quiet. Parsed from the
+ * `[hermes-memory] slow startup.<op>: N HTTP round-trips` stderr banner the
+ * extension already emits on breach.
+ */
+export const HERMES_STARTUP_ROUNDTRIP_CAP = 150;
+
+/**
+ * Parse hermes-memory startup round-trip counts out of a probe's captured
+ * stderr. Pure. Returns the MAX round-trip count across `slow startup.*`
+ * banner lines (the extension prints one line per breaching op), or null
+ * when no startup banner fired — no banner means every startup op stayed
+ * under the extension's own thresholds (50 RT / 2000ms), which is a pass.
+ * ms-breach lines carry no round-trip count and are ignored here; the wall
+ * budget above is what catches a slow-but-chatty-less startup.
+ */
+export function parseHermesStartupRoundTrips(stderr: string): number | null {
+	const clean = stderr.replace(/\x1b\[[0-9;]*m/g, "");
+	const re = /\[hermes-memory\] slow startup\.[\w.]+: (\d+) HTTP round-trips/g;
+	let max: number | null = null;
+	for (const m of clean.matchAll(re)) {
+		const n = Number(m[1]);
+		if (max === null || n > max) max = n;
+	}
+	return max;
+}
 
 /** The one-shot prompt; the reply content is irrelevant, the round-trip is. */
 export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
@@ -394,20 +447,46 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		});
 		const ms = now() - t0;
 		const c = classifyRun({ ...r, durationMs: ms });
-		// A timeout here is NOT automatically a hang: distinguish slow from hung
-		// in the note so the next reader unloads LM Studio models before hunting
-		// a surrealdb wedge (root cause #2 vs #1 in BOOT_HANG_DIAGNOSTIC).
-		const note =
+		// ── one-shot runtime budget + hermes round-trip cap ──────────────────
+		// The one-shot's wall time IS the startup/shutdown serialization
+		// signal (a trivial prompt is ~11s on a healthy tree; the #1976 class
+		// inflated it to 36.6s at 14% CPU). A completed run slower than the
+		// budget FAILS — unless the contention precheck fired, in which case
+		// slow generation is as likely as slow startup and the breach is
+		// inconclusive (SKIP). The hermes banner round-trip cap applies
+		// regardless of how the call classified: the banner proves the
+		// startup path ran, so a round-trip regression is tree-side even
+		// when the provider itself was down.
+		const hermesRt = parseHermesStartupRoundTrips(`${r.stdout}\n${r.stderr}`);
+		let verdict = c.verdict;
+		const budgetS = Math.round(ONESHOT_RUNTIME_BUDGET_MS / 1000);
+		let note =
 			c.reason === "timeout"
 				? `timeout after ${Math.round(MODEL_CALL_CAP_MS / 1000)}s — SLOW generation under model-endpoint contention is as likely as a hang; if a direct curl to the endpoint answers, unload the extra models and rerun`
 				: `${c.reason}${c.detail ? ` — ${firstLine(c.detail)}` : ""}`;
+		if (c.verdict === "pass" || c.verdict === "skip") {
+			note += ` — wall ${(ms / 1000).toFixed(1)}s (budget ${budgetS}s)`;
+		}
+		if (c.verdict === "pass" && ms > ONESHOT_RUNTIME_BUDGET_MS) {
+			if (warnings.length > 0) {
+				verdict = "skip";
+				note = `one-shot wall ${(ms / 1000).toFixed(1)}s exceeds the ${budgetS}s budget under model contention — inconclusive, not a tree regression`;
+			} else {
+				verdict = "fail";
+				note = `one-shot wall ${(ms / 1000).toFixed(1)}s exceeds the ${budgetS}s budget (baseline p95 10.99s measured 2026-08-24 on 0.7.1+gd6f3c0c) — startup/shutdown serialization regression (the #1976 class)`;
+			}
+		}
+		if (hermesRt !== null && hermesRt > HERMES_STARTUP_ROUNDTRIP_CAP) {
+			verdict = "fail";
+			note = `hermes-memory startup made ${hermesRt} HTTP round-trips (cap ${HERMES_STARTUP_ROUNDTRIP_CAP}; measured 103–114 dirty-vault / 26 clean on 2026-08-24) — ${note}`;
+		}
 		probes.push({
 			id: "model-call",
-			verdict: c.verdict,
+			verdict,
 			ms,
 			note,
 			detail:
-				c.verdict === "fail"
+				verdict === "fail"
 					? [c.detail, ...warnings.map((w) => `Precheck: ${w}`)].filter(Boolean).join("\n")
 					: undefined,
 		});

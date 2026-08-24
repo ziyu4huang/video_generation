@@ -10,7 +10,16 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseDeployJson, parseExtListPayload, resolveModelEndpoint, runDeployE2e, modelContentionWarning } from "../src/deploy-e2e-recipe.js";
+import {
+	parseDeployJson,
+	parseExtListPayload,
+	resolveModelEndpoint,
+	runDeployE2e,
+	modelContentionWarning,
+	parseHermesStartupRoundTrips,
+	ONESHOT_RUNTIME_BUDGET_MS,
+	HERMES_STARTUP_ROUNDTRIP_CAP,
+} from "../src/deploy-e2e-recipe.js";
 import { parseVerifyDeployE2eArgs, runVerifyDeployE2eCli } from "../src/verify-deploy-e2e-cli.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 
@@ -360,6 +369,122 @@ describe("runDeployE2e", () => {
 		expect(placed).toBe(false);
 		expect(r.verdict).toBe("pass");
 		expect(r.probes.find((p) => p.id === "model-call")!.verdict).toBe("skip");
+	});
+});
+
+// ── one-shot runtime budget + hermes round-trip cap (2026-08-24 plan) ────────
+// Baselines measured 2026-08-24 on this machine against deployed
+// 0.7.1+gd6f3c0c: one-shot wall p95 10.99s over 8 runs (budget 35s — below
+// the #1976 36.6s regression, above contention-era 31.7s generation); hermes
+// syncMarkdownMemories 103–114 round-trips dirty-vault / 26 clean (cap 150).
+describe("parseHermesStartupRoundTrips (pure)", () => {
+	const BANNER = (op: string, n: number) =>
+		`[hermes-memory] slow ${op}: ${n} HTTP round-trips (backend=surrealdb). See perf.jsonl.`;
+
+	test("extracts the round-trip count from a breach banner", () => {
+		expect(parseHermesStartupRoundTrips(BANNER("startup.syncMarkdownMemories", 114))).toBe(114);
+	});
+	test("returns the MAX across multiple startup ops", () => {
+		expect(parseHermesStartupRoundTrips([BANNER("startup.syncMarkdownMemories", 60), BANNER("startup.other", 90)].join("\n"))).toBe(90);
+	});
+	test("matches op names with digits/underscores/nested dots", () => {
+		expect(parseHermesStartupRoundTrips(BANNER("startup.backfill.needsBackfill_v2", 70))).toBe(70);
+	});
+	test("no banner → null (under the extension's own thresholds = pass)", () => {
+		expect(parseHermesStartupRoundTrips("")).toBeNull();
+		expect(parseHermesStartupRoundTrips("[hermes-memory] event consolidation.memory: …")).toBeNull();
+	});
+	test("ignores non-startup ops and ms-only breaches", () => {
+		expect(parseHermesStartupRoundTrips(BANNER("shutdown.indexSession", 400))).toBeNull();
+		expect(parseHermesStartupRoundTrips("[hermes-memory] slow startup.syncMarkdownMemories: 2596ms (backend=surrealdb).")).toBeNull();
+	});
+	test("survives ANSI escapes around the banner", () => {
+		expect(parseHermesStartupRoundTrips(`\x1b[33m${BANNER("startup.syncMarkdownMemories", 104)}\x1b[0m`)).toBe(104);
+	});
+});
+
+/** Fake clock advancing `stepMs` per now() call — every probe's ms = stepMs. */
+function steppingClock(stepMs: number): { now: () => number } {
+	let t = 1_000_000_000_000;
+	return { now: () => (t += stepMs) };
+}
+
+describe("model-call regression budgets", () => {
+	test("a completed one-shot over the wall budget FAILS citing the baseline", async () => {
+		makeTree();
+		const { now } = steppingClock(ONESHOT_RUNTIME_BUDGET_MS + 5_000);
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn(), now });
+		expect(r.verdict).toBe("fail");
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("fail");
+		expect(mc.note).toContain("40.0s");
+		expect(mc.note).toContain("#1976");
+	});
+
+	test("the same breach under model contention is an inconclusive SKIP", async () => {
+		makeTree();
+		const { now } = steppingClock(ONESHOT_RUNTIME_BUDGET_MS + 5_000);
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn(),
+			now,
+			modelEndpoint: "http://127.0.0.1:1234",
+			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "gemma-4-12b"]),
+		});
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("skip");
+		expect(mc.note).toContain("contention");
+	});
+
+	test("a hermes banner over the round-trip cap FAILS even with a healthy call", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({
+				modelCall: {
+					stdout: "ok",
+					stderr: "[hermes-memory] slow startup.syncMarkdownMemories: 240 HTTP round-trips (backend=surrealdb). See perf.jsonl.\n",
+				},
+			}),
+		});
+		expect(r.verdict).toBe("fail");
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("fail");
+		expect(mc.note).toContain("240 HTTP round-trips");
+		expect(mc.note).toContain(`cap ${HERMES_STARTUP_ROUNDTRIP_CAP}`);
+	});
+
+	test("a banner UNDER the cap (dirty-vault 114) does not fail", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({
+				modelCall: {
+					stdout: "ok",
+					stderr: "[hermes-memory] slow startup.syncMarkdownMemories: 114 HTTP round-trips (backend=surrealdb). See perf.jsonl.\n",
+				},
+			}),
+		});
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("pass");
+		expect(mc.note).toContain("budget");
+	});
+
+	test("the round-trip cap holds even when the provider itself was down (skip)", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({
+				modelCall: {
+					exitCode: 1,
+					stdout: "",
+					stderr: "[hermes-memory] slow startup.syncMarkdownMemories: 240 HTTP round-trips (backend=surrealdb).\nprovider lm-studio: connection refused — no api key",
+				},
+			}),
+		});
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("fail");
+		expect(mc.note).toContain("240 HTTP round-trips");
 	});
 });
 

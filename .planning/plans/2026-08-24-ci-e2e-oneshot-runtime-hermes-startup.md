@@ -1,6 +1,23 @@
 # CI E2E — bound one-shot runtime + hermes-memory startup speed
 
-Status: open · seeded 2026-08-24 (user ask, mid registry-code-as-config t03 session)
+Status: done 2026-08-24 — budgets landed in the deploy-e2e model-call probe
+(`bun-apps/s2-agent-ext-devops/src/deploy-e2e-recipe.ts`:
+`ONESHOT_RUNTIME_BUDGET_MS = 35_000`, `HERMES_STARTUP_ROUNDTRIP_CAP = 150`).
+Baseline provenance (measured 2026-08-24 on this machine, deployed
+`0.7.1+gd6f3c0c` — i.e. main WITH the #1976 fix, so these are the post-fix
+numbers, not the plan's original 12.3s): one-shot wall 10.97–10.99s over 8
+runs (p95 10.99s) → budget 35s = 3.2× headroom, BELOW the 36.6s #1976
+regression so that class fails; contention (>1 large resident model via the
+existing precheck) downgrades a wall breach to SKIP. hermes
+syncMarkdownMemories round-trips: 103–114 dirty-vault (breach banner) / 26
+clean (610ms, below the extension's 50-RT threshold — visible only via
+`PI_HERMES_PERF=1` full trace) → cap 150 on the stderr banner, absent banner
+= under the extension's own thresholds = pass. Live verification:
+`verify-deploy-e2e-cli` against `current` → pass, model-call note
+`ok — wall 11.0s (budget 35s)`. Unit coverage: 5 budget tests +
+5 `parseHermesStartupRoundTrips` tests in `tests/verify-deploy-e2e.test.ts`
+(devops suite 881 pass / 0 fail). The fix itself (batch the surrealdb
+session) remains the successor goal — this is the CONTROL only.
 
 ## Problem (measured 2026-08-24, this machine)
 
@@ -38,8 +55,8 @@ Add a CI E2E lane that FAILS on regression of:
 
 ## Done when
 
-- [ ] A CI-gated test asserts one-shot wall time under the measured budget
-- [ ] A CI-gated test (or the same one) asserts hermes startup round-trips
+- [x] A CI-gated test asserts one-shot wall time under the measured budget
+- [x] A CI-gated test (or the same one) asserts hermes startup round-trips
       under a cap, reading the banner/perf.jsonl the extension already emits
-- [ ] Both documented in the effort map / successor notes with the baseline
+- [x] Both documented in the effort map / successor notes with the baseline
       numbers they were set from
