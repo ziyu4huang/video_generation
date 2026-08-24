@@ -118,18 +118,20 @@ describe("PROVIDERS config (contract)", () => {
     expect(qwen?.thinkingLevelMap?.high).toBe("xhigh");
   });
 
-  test("capabilities.vision = gemma-4-12b with the :off no-think pin", () => {
-    // The vision lane swaps qwen-27b (always-on reasoning burn) for gemma-4-12b
-    // run thinking-off; the `:off` spec suffix is what makes every vision call
-    // resolve thinking-off (the map then emits reasoning_effort:"none").
-    expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).toBe("lm-studio/google/gemma-4-12b:off");
+  test("capabilities.vision = prism-ml/bonsai-27b with the :off no-think pin", () => {
+    // The vision lane moved gemma-4-12b → bonsai-27b (user directive
+    // 2026-08-24, quality over speed — gemma is ~5× faster per image call
+    // measured; see the §3 comment in the source). The `:off` spec suffix is
+    // what makes every vision call resolve thinking-off (the map then emits
+    // reasoning_effort:"none").
+    expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).toBe("lm-studio/prism-ml/bonsai-27b:off");
     for (const key of ["vision-large", "vision-medium", "vision-small"]) {
       expect(DEFAULT_MODEL_TIER_CONFIG.capabilities[key]).toBe(
-        "lm-studio/google/gemma-4-12b:off",
+        "lm-studio/prism-ml/bonsai-27b:off",
       );
     }
     // The catalog id the spec selects must exist (strip the provider + :thinking).
-    const id = "google/gemma-4-12b";
+    const id = "prism-ml/bonsai-27b";
     const entry = PROVIDERS["lm-studio"].models.find((m) => m.id === id);
     expect(entry).toBeDefined();
     expect(entry!.input).toContain("image");

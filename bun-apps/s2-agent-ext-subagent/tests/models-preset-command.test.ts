@@ -62,10 +62,10 @@ describe("/models-preset — transient contract", () => {
       {
         tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
         capabilities: {
-          vision: "lm-studio/qwen/qwen3.8-27b",
-          "vision-large": "lm-studio/qwen/qwen3.8-27b",
-          "vision-medium": "lm-studio/qwen/qwen3.8-27b",
-          "vision-small": "lm-studio/qwen/qwen3.8-27b",
+          vision: "lm-studio/prism-ml/bonsai-27b:off",
+          "vision-large": "lm-studio/prism-ml/bonsai-27b:off",
+          "vision-medium": "lm-studio/prism-ml/bonsai-27b:off",
+          "vision-small": "lm-studio/prism-ml/bonsai-27b:off",
         },
       },
     ]);
