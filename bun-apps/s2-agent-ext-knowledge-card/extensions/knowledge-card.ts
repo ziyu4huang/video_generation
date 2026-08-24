@@ -271,6 +271,8 @@ export async function convergeHermesMemory(
 		source: "hermes",
 		sourceLabel: "hermes:auto-converge",
 		wikiAware: true,
+		// ticket 08 fold-back (ticket 10 reconciliation): post-write index rebuild.
+		indexRebuild: true,
 	});
 }
 
@@ -338,6 +340,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					entries,
 					trigger: "shutdown",
 					timeoutMs: 25_000,
+					// ticket 08 fold-back (ticket 10 reconciliation): post-write
+					// index rebuild — fire-and-forget AFTER the loop's writes
+					// land, so session shutdown is never blocked on the embedder.
+					indexRebuild: true,
 				});
 			}
 		} catch {
@@ -855,6 +861,8 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						entries,
 						trigger: "on-demand",
 						dryRun: Boolean(params.dry_run),
+						// ticket 08 fold-back (ticket 10 reconciliation): post-write index rebuild.
+						indexRebuild: true,
 					});
 					return {
 						content: [{ type: "text", text: JSON.stringify(result) }],
@@ -1003,6 +1011,8 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				sourceLabel,
 				folder: params.folder,
 				dryRun: params.dry_run === true,
+				// ticket 08 fold-back (ticket 10 reconciliation): post-write index rebuild.
+				indexRebuild: true,
 			});
 			summary.parseErrors.push(...parseErrors);
 			const skippedNote = skipped.length
@@ -1134,6 +1144,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				// D18 typed filter (ticket 05): exact leaf-type match, hier `kind` /
 				// flat frontmatter lanes alike.
 				type: params.type,
+				// ticket 10 reconciliation: the served cards are real accesses —
+				// echo them into the usage ledger (the hotness feed). The
+				// production boundary; hermetic tests gate via KCARD_USAGE_LOG=0.
+				usageLog: true,
 			};
 
 			const result = await retrieveRecords(opts);

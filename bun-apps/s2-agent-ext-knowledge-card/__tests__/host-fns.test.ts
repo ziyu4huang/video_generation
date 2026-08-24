@@ -1,5 +1,12 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
+
+// ticket 10 reconciliation kill-switches: zkRetrieve opts into the usage
+// ledger and zkIngest into the post-write index rebuild (both production
+// boundaries) — this suite never writes the real ledger, nor swaps the
+// live index, from a temp vault.
+process.env.KCARD_USAGE_LOG = "0";
+process.env.KCARD_INDEX_REBUILD = "0";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

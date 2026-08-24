@@ -320,6 +320,11 @@ async function insertBatches(client: SurrealClient, table: string, rows: CardInd
 const TABLE_DEFS = [
 	"DEFINE TABLE IF NOT EXISTS relation SCHEMALESS;",
 	"DEFINE TABLE IF NOT EXISTS usage SCHEMALESS;",
+	// ticket 10 reconciliation (from the parallel t08 branch): the usage
+	// ledger's GROUP BY reader (`usageAggregates`: WHERE stem IN … GROUP BY
+	// stem) scans `usage` per query — a plain stem index keeps the replay
+	// cheap once real retrieve events accumulate.
+	"DEFINE INDEX IF NOT EXISTS usage_stem ON TABLE usage COLUMNS stem;",
 ];
 
 /** Table + plain indexes — everything EXCEPT the analyzer/FTS/HNSW search
@@ -381,6 +386,81 @@ export interface RebuildResult {
 	dim: number;
 	embedModel: string;
 	elapsedMs: number;
+}
+
+// ---------------------------------------------------------------------------
+// Post-write rebuild trigger (ticket 08 fold-back, landed via the ticket 10
+// reconciliation): the production path for rebuildCardIndex.
+// ---------------------------------------------------------------------------
+
+/** Default convergence folder (identical to retrieve/ingest defaults). */
+const GRAPH_FOLDER = "Zettelkasten/knowledge-graph";
+
+/**
+ * Coalesced fire-and-forget rebuild after card writes — the production path
+ * for `rebuildCardIndex` (until this, only the eval script rebuilt, so the
+ * D36 freshness gate flipped back to flat after every ingest).
+ *
+ * Fingerprint-gated: an unchanged vault skips in ~ms (rebuildCardIndex), and
+ * concurrent triggers coalesce onto one in-flight rebuild (single un-keyed
+ * slot — production is single-vault/single-folder by construction; a
+ * custom-folder ingest racing a default-folder one drops the loser's
+ * rebuild, and the NEXT trigger on that folder picks it up). Failure is
+ * NON-fatal by design — the index stays stale and the freshness gate serves
+ * the flat path (the graceful-degrade contract, never a raised error in a
+ * write path). Callers opt in with `indexRebuild: true` so unit tests stay
+ * hermetic (ingest tests would otherwise hit the live Surreal service).
+ *
+ * LANE LIMITATION (reviewer F2, deliberate): the s2-agent CLI entry is
+ * `process.exit(await runCli(...))`, so an un-awaited rebuild dies at exit —
+ * the zk-ingest CLI therefore re-awaits the coalesced promise before
+ * returning. The session_shutdown trigger stays fire-and-forget (shutdown
+ * must never block on the embedder): in headless `-p` runs that lane is
+ * best-effort and may not complete — the next explicit ingest/rebuild
+ * closes the gap, and the fingerprint gate makes that retry cheap.
+ *
+ * Env kill-switch `KCARD_INDEX_REBUILD=0` (the KCARD_* knob family): test
+ * suites that exercise the write path through the production boundary (tool
+ * handler, spawned CLI) set it so a temp-vault run never touches the real
+ * index — scheduleCardRebuild fingerprints the TEMP vault and would swap the
+ * LIVE index to it.
+ */
+let pendingRebuild: Promise<RebuildResult | null> | null = null;
+export function scheduleCardRebuild(args: {
+	vaultPath: string;
+	folder?: string;
+	model?: string;
+	/** INTERNAL test seam: client opts passthrough (fake fetch) so the
+	 *  coalescing / kill-switch / non-fatal contract is unit-testable without
+	 *  a live SurrealDB. Never set in production. */
+	_clientOpts?: Partial<SurrealClientOptions>;
+}): Promise<RebuildResult | null> {
+	if (process.env.KCARD_INDEX_REBUILD === "0") return Promise.resolve(null);
+	if (!pendingRebuild) {
+		pendingRebuild = (async () => {
+			try {
+				// Long timeout: a real rebuild embeds + bulk-inserts the whole
+				// vault (~minutes on a cold embed cache); the client default
+				// 10s would abort mid-swap and leave a partial index (the
+				// freshness gate still degrades to flat — recorded fog).
+				const client = makeContextClient({ requestTimeoutMs: 180_000, ...args._clientOpts });
+				return await rebuildCardIndex({
+					client,
+					vaultPath: args.vaultPath,
+					folder: args.folder ?? GRAPH_FOLDER,
+					model: args.model ?? resolveCardEmbedModel(),
+				});
+			} catch (e) {
+				console.warn(
+					`[kcard] post-write index rebuild failed: ${e instanceof Error ? e.message : String(e)} — index stays stale, the freshness gate serves flat`,
+				);
+				return null;
+			} finally {
+				pendingRebuild = null;
+			}
+		})();
+	}
+	return pendingRebuild;
 }
 
 export interface IndexStatus {

@@ -112,6 +112,13 @@ export interface IngestOptions {
 	 *  condense (over-budget bodies only) so tests can count calls without a
 	 *  live LM Studio. Production callers leave this unset. */
 	_summaryFetch?: typeof fetch;
+	/** Post-write index rebuild (ticket 08 fold-back, landed via the ticket 10
+	 *  reconciliation): after the writes land, schedule the fingerprint-gated
+	 *  SurrealDB card-index rebuild (fire-and-forget, coalesced, non-fatal on
+	 *  any failure). Default FALSE — production callers (zk_ingest tools/CLI,
+	 *  the extract loop) opt in; tests stay hermetic (a rebuild touches the
+	 *  live Surreal service). */
+	indexRebuild?: boolean;
 }
 
 export type CardOutcome = "created" | "updated" | "unchanged";

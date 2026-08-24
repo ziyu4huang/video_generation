@@ -17,7 +17,8 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SurrealClient, SURREAL_DEFAULTS } from "@repo/s2-agent-core-interface";
-import { rebuildCardIndex, indexStatus, makeContextClient } from "../src/surreal-index.ts";
+import { rebuildCardIndex, indexStatus, makeContextClient, ensureContextDb } from "../src/surreal-index.ts";
+import { recordUsageBatch, usageAggregates } from "../src/usage.ts";
 import { hierarchicalRetrieve } from "../src/hierarchical-retrieval.ts";
 import type { Embedder } from "../src/semantic.ts";
 
@@ -244,5 +245,20 @@ localDescribe("kcard SurrealDB index (live)", () => {
 		expect(res.ok).toBe(true);
 		expect(res.trace!.semanticLane).toBe(false);
 		expect(res.cards.map((c) => c.stem)).toContain("leaf-x");
+	});
+
+	test("recordUsageBatch → usageAggregates round trip (the retrieve echo's batch shape, live)", async () => {
+		// The ticket 10 reconciliation's new write shape: one /sql batch with
+		// N numbered-param CREATEs. Proves it against the real v3 endpoint —
+		// the reader (usageAggregates) replays count + last-use per stem.
+		// (In production the ns/db exist — the index build's ensureContextDb
+		// ran; the ledger writer is not self-ensuring by design.)
+		await ensureContextDb(client);
+		const t0 = Date.now() - 3_600_000;
+		await recordUsageBatch(client, ["leaf-a", "leaf-a", "leaf-b"], "retrieve", new Date(t0));
+		const agg = await usageAggregates(client, ["leaf-a", "leaf-b", "leaf-missing"]);
+		expect(agg.get("leaf-a")).toEqual({ activeCount: 2, lastUsedAtMs: t0 });
+		expect(agg.get("leaf-b")).toEqual({ activeCount: 1, lastUsedAtMs: t0 });
+		expect(agg.has("leaf-missing")).toBe(false); // never-served → absent → hotness 0.0
 	});
 });

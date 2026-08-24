@@ -161,6 +161,9 @@ Examples:
 			tags,
 			excludeIds,
 			topK,
+			// ticket 10 reconciliation: the CLI retrieve is a production access
+			// path — echo the served cards into the usage ledger.
+			usageLog: true,
 		});
 
 		if (parsed.json || parsed.mode === "json") {

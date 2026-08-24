@@ -198,6 +198,16 @@ export interface RetrieveOptions {
 	 *  `hier: false` forces the flat path; `hier: true` attempts hier even with
 	 *  `semantic: false`. */
 	hier?: boolean;
+	/** Usage-ledger echo (ticket 10 reconciliation of the parallel t08
+	 *  branch): when true, the SERVED leaf cards append to the `usage` ledger
+	 *  (one batched round trip, non-fatal — a failed write never fails the
+	 *  read, and the write client is short-fused: 1 attempt, 2s cap, so a
+	 *  down Surreal cannot tax the retrieve path). Default FALSE: only the
+	 *  production boundaries (zk_ask / knowledge_query / the zk.retrieve
+	 *  host-fn / zk-query CLI) opt in; bare library callers and the eval
+	 *  harness never write. Env kill-switch `KCARD_USAGE_LOG=0` guards test
+	 *  suites that exercise the production boundary from temp vaults. */
+	usageLog?: boolean;
 	/** Ticket 08 (D39): bounded hotness-decay blend weight,
 	 *  `(1−α)·score + α·hotness` over the usage-ledger aggregates (D37).
 	 *  Default 0 = OFF (byte-identical ranking — upstream's own default and
@@ -403,6 +413,38 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	const excludeIds = new Set((opts.excludeIds ?? []).map((id) => id));
 	const excludeSlugs = new Set([...excludeIds].map((id) => slugify(id)));
 
+	// Usage-ledger echo (ticket 10 reconciliation): see RetrieveOptions.usageLog.
+	const usageLogOn = opts.usageLog === true && process.env.KCARD_USAGE_LOG !== "0";
+	const echoUsage = async (res: RetrieveResult): Promise<RetrieveResult> => {
+		if (!usageLogOn || res.cards.length === 0) return res;
+		// Stems = the served LEAF cards (agg viaTree evidence is not a card
+		// access); path is "folder/stem" → last segment is the stem.
+		const stems = [
+			...new Set(
+				res.cards
+					.filter((c) => !c.viaTree)
+					.map((c) => c.path.split("/").pop() ?? "")
+					.filter((s) => s.length > 0),
+			),
+		];
+		if (stems.length === 0) return res;
+		try {
+			const { makeContextClient } = await import("./surreal-index.ts");
+			const { recordUsageBatch } = await import("./usage.ts");
+			// Short-fused client (reviewer F3): the echo is awaited inline, so
+			// a DOWN endpoint must not tax every retrieve with the default
+			// 3-attempt retry ladder — one attempt, 2s cap, non-fatal.
+			await recordUsageBatch(
+				opts._usageClient ?? makeContextClient({ maxAttempts: 1, requestTimeoutMs: 2_000 }),
+				stems,
+				"retrieve",
+			);
+		} catch {
+			// non-fatal — usage logging never degrades retrieval
+		}
+		return res;
+	};
+
 	if (!existsSync(folderAbs)) {
 		return { count: 0, cards: [], digest: "", folder, scanned: 0, excluded: 0 };
 	}
@@ -441,7 +483,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			optsSnapshot: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
 			hotnessAlpha,
 		});
-		if (hier) return hier;
+		if (hier) return echoUsage(hier);
 	}
 
 	// IDF pre-scan (only when linkWeighting === "idf"): collect every card's tag
@@ -620,7 +662,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			hotnessAlpha,
 			usageClient: opts._usageClient,
 		});
-		if (sem) return sem;
+		if (sem) return echoUsage(sem);
 	}
 
 	// Ticket 08 (D37–D39): bounded hotness blend over the usage-ledger
@@ -642,7 +684,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	// authoritative). No agg files → zero code-path change (byte-identical).
 	const expanded = await expandWithTree(folderAbs, top, maxDetailChars);
 
-	return {
+	return echoUsage({
 		count: top.length,
 		cards: [...top, ...expanded],
 		digest: formatDigest(top, opts.tags),
@@ -667,7 +709,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 					})),
 			  }
 			: undefined,
-	};
+	});
 }
 
 /** D27 default-switch lane (ticket 05 D36): hierarchicalRetrieve first, its
