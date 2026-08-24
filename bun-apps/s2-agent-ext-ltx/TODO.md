@@ -113,7 +113,7 @@ found-and-fixed item.
 ## 10. Extend the live-e2e workflow with the A/B upscale + ffprobe cross-check that found items 7 & 8 — DONE
 
 Added an opt-in `includeUpscaleAB` step to
-`bun-apps/s2-agent/run-dir/workflows/ltx-live-e2e.js` (default `false` — real
+`bun-apps/s2-agent/src/run-dir/workflows/ltx-live-e2e.js` (default `false` — real
 generation + upscale, ~5-10 min of MLX compute, same reasoning as the
 existing `includeVideo` gate). When set, it runs the exact chain that found
 items 7 and 8 for real, through the actual `ltx` s2-agent tool:

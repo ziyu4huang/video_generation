@@ -289,4 +289,4 @@ Default threshold **300 tok/req** (`--coverage-threshold` overrides). Builtins a
 
 ## Installation
 
-Registered as a dynamic extension in `bun-apps/s2-agent/run-dir/manifest.json`. No manual setup needed — the extension auto-loads on session start.
+Registered as a dynamic extension in `bun-apps/s2-agent/src/run-dir/manifest.json`. No manual setup needed — the extension auto-loads on session start.

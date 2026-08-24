@@ -32,4 +32,4 @@ pi -e bun-apps/s2-agent-ext-zai-mcp
 
 ## Cross-reference
 
-- [`bun-apps/s2-agent/run-dir/manifest.json`](../s2-agent/run-dir/manifest.json) — auto-load configuration
+- [`bun-apps/s2-agent/src/run-dir/manifest.json`](../s2-agent/src/run-dir/manifest.json) — auto-load configuration

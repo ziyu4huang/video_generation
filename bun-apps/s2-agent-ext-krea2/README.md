@@ -24,7 +24,7 @@ bun bun-apps/s2-agent/src/cli.ts -e bun-apps/s2-agent-ext-krea2/extensions/krea2
 To make pi load it permanently, add it to the run-dir manifest (the source of truth in this fork — see [[s2-agent-extensions-source-of-truth-run-dir]]):
 
 ```jsonc
-// bun-apps/s2-agent/run-dir/manifest.json
+// bun-apps/s2-agent/src/run-dir/manifest.json
 {
   "extensions": [
     // …

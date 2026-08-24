@@ -63,7 +63,7 @@ Both extensions can be loaded in the same pi process. wayfind has **no forward c
 
 ## Install (local)
 
-Registered in the deploy manifest (`bun-apps/s2-agent/run-dir/manifest.json`) — the bundler picks it up. For ad-hoc loading:
+Registered in the deploy manifest (`bun-apps/s2-agent/src/run-dir/manifest.json`) — the bundler picks it up. For ad-hoc loading:
 
 ```bash
 pi -e ./bun-apps/s2-agent-ext-wayfind/extensions/wayfind.ts

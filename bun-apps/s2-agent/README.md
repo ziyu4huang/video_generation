@@ -50,11 +50,11 @@ To add a patch: create `src/patches/<name>.ts`, register it in
 ## Extensions
 
 `src/registry-config.ts` is THE registry (one typed entry per extension);
-derived `run-dir/manifest.json` is freshness-guarded — regen with
+derived `src/run-dir/manifest.json` is freshness-guarded — regen with
 `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for
 `load: static`), never hand-edit. Heavy on-demand extensions live in the same
 module's `LAZY_EXTENSIONS` and load only via `-e <alias>`. Validation
-authority: `run-dir/registry.ts`.
+authority: `src/run-dir/registry.ts`.
 
 ## Deploy / doctor
 
@@ -93,6 +93,6 @@ s2-agent/
 ## Known issues
 
 - A compiled binary cannot `-e`-load `.ts` extensions (jiti base64 URL →
-  Bun `ENAMETOOLONG`). `run-dir/resolve.ts` detects binary mode; the registry's
+  Bun `ENAMETOOLONG`). `src/run-dir/resolve.ts` detects binary mode; the registry's
   `load: static` entries (`src/static-extensions.ts`, regen'd) carry a fixed
   statically-imported set instead. Provider injection still works.

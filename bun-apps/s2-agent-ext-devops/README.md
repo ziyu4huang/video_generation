@@ -75,7 +75,7 @@ The same footgun recurs in **branch cleanup**: `git branch --merged` is silently
 
 ## Install
 
-Registered in `bun-apps/s2-agent/run-dir/manifest.json` (`extensions[]`). The tools are non-tracked by the tool-gate, so they're always active.
+Registered in `bun-apps/s2-agent/src/run-dir/manifest.json` (`extensions[]`). The tools are non-tracked by the tool-gate, so they're always active.
 
 ## Build & verify tools (absorbed from the former `s2-agent-ext-deploy`)
 

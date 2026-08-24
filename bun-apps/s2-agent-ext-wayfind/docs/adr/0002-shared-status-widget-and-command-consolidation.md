@@ -47,7 +47,7 @@ planning-with-files' `/plan-*` namespace).
   display; if ext-task is not loaded, their status sections simply never
   render (no fallback to standalone `setStatus`). Acceptable because
   ext-task is already the earliest-loaded core package in
-  `bun-apps/s2-agent/run-dir/manifest.json`.
+  `bun-apps/s2-agent/src/run-dir/manifest.json`.
 - The singleton MUST be `globalThis`-backed, not a module-level `let
   instance` — pi loads extensions via jiti, and jiti-loaded module identity is
   not guaranteed to match a native `import()` of the same package (the same

@@ -50,7 +50,7 @@ pi -e ../packages/zai-mcp
 ```
 
 > If you're using `bun-apps/s2-agent` (this monorepo's wrapper), none of the above
-> is needed — it auto-loads this extension via `bun-apps/s2-agent/run-dir/manifest.json`
+> is needed — it auto-loads this extension via `bun-apps/s2-agent/src/run-dir/manifest.json`
 > regardless of invocation cwd. See `bun-apps/s2-agent/README.md`.
 
 ### 3. Configure (optional)
@@ -96,7 +96,7 @@ factory. The factory only receives `ExtensionAPI` (no `ctx`, no `ui`, no
 This also matches the pi rule of "don't start long-lived resources in the
 factory". Connection happens lazily on `session_start`.
 
-When loaded via `s2-agent` (registered in `bun-apps/s2-agent/run-dir/manifest.json`,
+When loaded via `s2-agent` (registered in `bun-apps/s2-agent/src/run-dir/manifest.json`,
 loaded regardless of invocation cwd — see `bun-apps/s2-agent/README.md`), users
 **expect it to work** — silence on missing key would be confusing (unlike
 opt-in packages such as `ssh`, which can silently no-op). The strategy is a

@@ -67,4 +67,4 @@ The **mutate/pure split** is deliberate: `enable_tool` calls `filterActive` dire
 ## Cross-extension notes
 
 - `subagent` + `workflow` are **gated** (the cross-package `workflow` family), not core. Research (effort `2026-07-30-…`, ticket 00) found empirical friction ZERO — they fire on explicit prompts or the agent escape-hatches via the always-present `enable_tool`. Re-evaluate only if `TOOL_GATE_LOG` telemetry shows workflow-gate `activate` events.
-- Registered as a dynamic extension in `bun-apps/s2-agent/run-dir/manifest.json`; standardized on `peerDependencies`.
+- Registered as a dynamic extension in `bun-apps/s2-agent/src/run-dir/manifest.json`; standardized on `peerDependencies`.

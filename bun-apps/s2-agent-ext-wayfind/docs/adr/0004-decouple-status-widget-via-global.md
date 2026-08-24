@@ -56,7 +56,7 @@ if (widget) widget.addSection({ id: "wayfind", order: 2, render: ... });
 **No fallback.** When ext-task's widget is not on the global, wayfind's status
 section simply does not render — ADR-0002's accepted consequence, retained. This
 is theoretical in practice: ext-task is the earliest-loaded core package (first
-in `run-dir/manifest.json`) and creates the widget in its own factory body, so
+in `src/run-dir/manifest.json`) and creates the widget in its own factory body, so
 the global is populated before wayfind's factory runs.
 
 ADR-0002 **Decision 2** (command consolidation: `/grill [me|docs|done|domain]`,
