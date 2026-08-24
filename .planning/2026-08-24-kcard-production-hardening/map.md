@@ -20,7 +20,7 @@ Measured 2026-08-24 on this machine unless noted.
 - **hermes startup N+1 closed same PR**: sync 103 HTTP round-trips → one `getCardsByKind` per batch; sync now under the 50-rt breach threshold.
 - **Freshness gate (D36) is count-based**: md-count + embed-model only — an in-place edit changes neither, so the hier index serves via the flat md fallback until a count-changing event rebuilds (D41 automation narrows, does not eliminate).
 - **Hotness ledger now has two writers** (D12 zk_card reads; D41 retrieve echoes) but no cadence measurement and no gate run; α stays 0 per D39 until it beats the count baseline (D8).
-- **1925 active cards at parity-effort open** (real-vault receipts) vs knowledge-pipeline D03 scale triggers ≈2k cards / ≈5k relations — extraction lanes now writing make the crossing plausible this effort.
+- **Scale trigger ASSESSED UNDER (ticket 04, 2026-08-24)**: live `context_db` measured **61 cards / 0 relations / 0 usage** vs knowledge-pipeline D03 triggers ≈2k cards / ≈5k relations (~33× card headroom). The earlier "1925 active cards at parity-effort open" figure was the stale parity-era receipt — the live vault's `Zettelkasten/knowledge-graph` folder holds 61 md and the index fingerprint matches. Re-check trigger: `index_meta.card_count ≥ 1,500`, or relation count > 0, or next scale-touching kcard effort.
 - Standing harnesses: `recall-audit.mjs` three-arm (D23), `hier-english-eval.mjs`, CI fixture smoke `__tests__/eval-gate.test.ts`; standing reconciliation `s2-agent-ext-hermes-memory/scripts/db-transfer.ts` (ticket 11, two-way, insert-only).
 
 ## Tickets
@@ -34,7 +34,7 @@ Measured 2026-08-24 on this machine unless noted.
 
 ### Phase B — gates & assessment
 
-- [ ] 04 — SurrealDB scale-trigger assessment (D03 nearing) (open)
+- [x] 04 — SurrealDB scale-trigger assessment (D03 nearing) (complete 2026-08-24: **UNDER** — live `context_db` measured 61 cards / 0 relations / 0 usage vs D03 ≈2k/≈5k (~33× headroom); the 1925-card figure was the stale parity-era receipt, live vault folder = 61 md and index fp matches; vaultFingerprint 0.74–1.01 ms @ 61 cards; all 8 D21 card indexes live; re-check trigger = card_count ≥ 1,500 or relation count > 0; receipt in ticket)
 - [ ] 03 — Hotness α-flip gate on real ledger data (open; may honestly defer if cadence is still thin)
 
 ## Decisions
@@ -48,7 +48,7 @@ Measured 2026-08-24 on this machine unless noted.
 
 ## Frontier
 
-**Ticket 04 (SurrealDB scale-trigger assessment)** — with 01 drained (+52 cards written) and 02's fingerprint gate live, the remaining pre-03 work is a measured read: card/relation counts vs the knowledge-pipeline D03 triggers (≈2k cards / ≈5k relations). Quick assessment ticket — no build unless the verdict is over.
+**Ticket 03 (Hotness α-flip gate on real ledger data)** — the last queue item. Ticket 04's measured read already feeds it: `usage` = 0 rows in the live db (both D12/D41 writer lanes have yet to emit) — direct evidence the ledger cadence is thin, so D4's honest-defer path is the likely outcome; run the ledger-cadence measurement to make the defer evidenced, then close the effort.
 
 ## Fog of war
 
