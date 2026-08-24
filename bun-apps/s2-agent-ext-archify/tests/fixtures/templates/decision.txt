@@ -1,0 +1,9 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0293 0.675 0.1] left/middle text:title "決策：快取優先，下一季度全程上線"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source ""
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "1 / 1"
+[0.0375 0.1867 0.925 0.36] left/top diagram "ir/service-topology.architecture.json"
+[0.0375 0.5867 0.925 0.12] center/middle text:decisionCall "自建解析器，快取優先，Q2 全程上線。"
+[0.0375 0.7467 0.925 0.12] center/middle text:decisionWhy "p99 4.2 s → 1.8 s；佇列是唯一保留的結耦。"

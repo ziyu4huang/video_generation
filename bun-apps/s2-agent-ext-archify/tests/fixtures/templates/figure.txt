@@ -1,0 +1,9 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0293 0.675 0.1] left/middle text:title "規格鏈正是整個系統的原始碼"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source ""
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "1 / 1"
+[0.0375 0.1867 0.925 0.0767] left/middle text:figureCaption "需求鏈：MRD → SAS → MAS → RDS"
+[0.0375 0.2967 0.925 0.46] left/top diagram "ir/req-chain.architecture.json"
+[0.0375 0.79 0.925 0.0767] center/middle text:figureNote "成對存在，缺一件即不可交付。"

@@ -1,10 +1,11 @@
 /**
- * shipped-templates.test.ts — the seven `templates/*.layout.json` (ticket 06).
+ * shipped-templates.test.ts — the shipped `templates/*.layout.json` (tickets
+ * 06 + 30: seven + the three ir-slot templates).
  *
- * Three properties:
+ * Properties:
  *
- *   1. all seven load with zero diagnostics and appear in `catalog()` — they
- *      are data, so this is the whole "shipped" claim;
+ *   1. all ship with zero diagnostics and appear in `catalog()` — they are
+ *      data, so this is the whole "shipped" claim;
  *   2. each renders a realistic CJK payload to a `formatBlocks` golden under
  *      `tests/fixtures/templates/<name>.txt`, exactly like the
  *      per-primitive goldens;
@@ -12,7 +13,7 @@
  *      leakage — the map.md Fog-of-war collision case, proven rather than
  *      assumed.
  *
- * No `.ts` file exists to make these seven work beyond ticket 05's primitive:
+ * No `.ts` file exists to make them work beyond ticket 05's primitive:
  * that absence is the point of the data-driven seam.
  */
 import { afterAll, describe, expect, test } from "bun:test";
@@ -22,6 +23,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRegistry } from "../src/layout-registry.ts";
 import { emitPptxSlide } from "../src/emit-pptx.ts";
+import { emitHtmlSlide } from "../src/emit-html.ts";
 import { PALETTES } from "../src/deck-theme.ts";
 import { formatBlocks, type LayoutCtx, type PlacedBlock, type Slide } from "../src/slide-model.ts";
 import { spySlide } from "./helpers/spy-slide.ts";
@@ -39,6 +41,9 @@ export const SHIPPED = [
   "agenda",
   "quote",
   "end",
+  "decision",
+  "timeline-with-diagram",
+  "figure",
 ] as const;
 
 /**
@@ -128,6 +133,40 @@ const PAYLOADS: Record<(typeof SHIPPED)[number], { slide: Slide; assert: string[
     } as unknown as Slide,
     assert: ["謝謝——進入問題與討論", "archify@team.example"],
   },
+  // ticket 30 — the ir-slot templates. The diagram binding carries the slide's
+  // `ir` into BlockContent; the unit render never touches the filesystem, so a
+  // relative-looking path string is fine here (the deck-build absolutizes it).
+  decision: {
+    slide: {
+      title: "決策：快取優先，下一季度全程上線",
+      ir: "ir/service-topology.architecture.json",
+      call: "自建解析器，快取優先，Q2 全程上線。",
+      why: "p99 4.2 s → 1.8 s；佇列是唯一保留的結耦。",
+    } as unknown as Slide,
+    assert: ['diagram "ir/service-topology.architecture.json"', "自建解析器，快取優先，Q2 全程上線。", "佇列是唯一保留的結耦。"],
+  },
+  "timeline-with-diagram": {
+    slide: {
+      title: "移行四季度，與追蹤管線步調一致",
+      ir: "ir/trace-pipeline.dataflow.json",
+      milestones: [
+        { date: "Q1", label: "架構完成", note: "冷鏈路接上管線" },
+        { date: "Q2", label: "閘門上線" },
+        { date: "Q3", label: "快取命中", note: "38 % 命中率" },
+        { date: "Q4", label: "全程上線" },
+      ],
+    } as unknown as Slide,
+    assert: ['diagram "ir/trace-pipeline.dataflow.json"', "Q1", "冷鏈路接上管線", "38 % 命中率", "全程上線"],
+  },
+  figure: {
+    slide: {
+      title: "規格鏈正是整個系統的原始碼",
+      ir: "ir/req-chain.architecture.json",
+      caption: "需求鏈：MRD → SAS → MAS → RDS",
+      note: "成對存在，缺一件即不可交付。",
+    } as unknown as Slide,
+    assert: ['diagram "ir/req-chain.architecture.json"', "需求鏈：MRD → SAS → MAS → RDS", "缺一件即不可交付。"],
+  },
 };
 
 describe("the seven ship as data and nothing else", () => {
@@ -158,7 +197,7 @@ describe("the seven ship as data and nothing else", () => {
 
   test("no shipped name shadows a code layout, and every file parses", () => {
     // A throw anywhere above IS this test failing; here we pin the count.
-    expect(reg.catalog().filter((c) => c.source.startsWith(TPL_DIR))).toHaveLength(7);
+    expect(reg.catalog().filter((c) => c.source.startsWith(TPL_DIR))).toHaveLength(10);
   });
 });
 
@@ -175,6 +214,24 @@ describe("formatBlocks goldens — one per template, realistic CJK payloads", ()
       await Bun.write(path, got);
     }
     expect(got).toBe(await Bun.file(path).text());
+  });
+
+  test("the ir-slot decision template's diagram iframe + text reach the HTML emitter (ticket 30)", () => {
+    const reg = loadRegistry({ env: {} });
+    const PAYLOAD = PAYLOADS.decision!.slide;
+    const blocks = reg.render("decision", PAYLOAD, CTX);
+    const html = emitHtmlSlide(blocks, {
+      theme: "light",
+      palette: PALETTES.light,
+      font: "PingFang TC",
+      title: PAYLOAD.title as string,
+      diagramSrc: new Map([
+        ["ir/service-topology.architecture.json", { file: "slide-11.diagram.html", aspect: 1.2 }],
+      ]),
+    });
+    expect(html).toContain("slide-11.diagram.html"); // the embed iframe is the diagram
+    expect(html).toContain("自建解析器，快取優先，Q2 全程上線。");
+    expect(html).toContain("佇列是唯一保留的結耦。");
   });
 
   test("every authored CJK string reaches both emitters", () => {

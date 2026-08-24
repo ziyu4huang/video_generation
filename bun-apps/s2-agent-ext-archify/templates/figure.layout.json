@@ -1,0 +1,70 @@
+{
+  "name": "figure",
+  "description": "One exhibit, captioned: a caption line, the diagram (from `ir`), and a note under it — the authoritative-figure slide decks use to show the source that defends the argument.",
+  "chrome": true,
+  "slots": {
+    "caption": {
+      "kind": "text",
+      "required": true,
+      "description": "one line naming what the exhibit is — the caption above the figure"
+    },
+    "note": {
+      "kind": "text",
+      "required": true,
+      "description": "the provenance or takeaway line under the figure (e.g. the source)"
+    }
+  },
+  "roles": {
+    "figureCaption": {
+      "sizePt": 16,
+      "bold": true,
+      "color": "title"
+    },
+    "figureNote": {
+      "sizePt": 11,
+      "color": "muted"
+    }
+  },
+  "body": [
+    {
+      "region": "content",
+      "stack": {
+        "dir": "row",
+        "weights": [
+          1,
+          6,
+          1
+        ],
+        "gap": 0.25
+      },
+      "children": [
+        {
+          "box": "fill",
+          "content": {
+            "kind": "text",
+            "role": "figureCaption",
+            "from": "{slide.caption}"
+          },
+          "valign": "middle"
+        },
+        {
+          "box": "fill",
+          "content": {
+            "kind": "diagram",
+            "from": "{slide.ir}"
+          }
+        },
+        {
+          "box": "fill",
+          "content": {
+            "kind": "text",
+            "role": "figureNote",
+            "from": "{slide.note}"
+          },
+          "align": "center",
+          "valign": "middle"
+        }
+      ]
+    }
+  ]
+}

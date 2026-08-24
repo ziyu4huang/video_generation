@@ -121,7 +121,7 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
     expect(r.isError).toBeUndefined();
     const layouts = r.details["layouts"] as { name: string; description: string; slots: object }[];
     // Six code layouts first, then the probe (its tier precedes the shipped
-    // one), then ticket 06's seven shipped templates, alphabetically.
+    // one), then ticket 06/30's shipped templates (7 + 3 ir-slot), alphabetically.
     expect(layouts.map((l) => l.name)).toEqual([
       "title",
       "section",
@@ -132,10 +132,13 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
       "kpi-probe",
       "agenda",
       "compare",
+      "decision",
       "end",
+      "figure",
       "kpi-row",
       "quote",
       "table",
+      "timeline-with-diagram",
       "timeline",
     ]);
     const kpi = layouts.find((l) => l.name === "kpi-probe")!;
@@ -192,6 +195,39 @@ describe("archify_deck_lint — slot validation", () => {
     const problems = r.details["problems"] as string[];
     expect(problems[0]).toContain("at least 2");
     expect(problems[1]).toContain("at most 4");
+  });
+
+  test("an ir-slot template demands `ir` on the slide, renderless (ticket 30)", async () => {
+    const r = await archifyDeckLint(
+      {
+        manifest: {
+          slides: [{ title: "Missing ir", layout: "decision", call: "x", why: "y" }],
+        },
+      },
+      { cwd: PKG_ROOT, env: {} }
+    );
+    expect(r.isError).toBe(true);
+    const problems = r.details["problems"] as string[];
+    expect(problems.some((p) => p.includes("needs an `ir`") && p.includes("decision"))).toBe(true);
+    // A slide WITH the ir passes the ir demand (slots are filled).
+    const ok = await archifyDeckLint(
+      {
+        manifest: {
+          slides: [
+            {
+              title: "With ir",
+              layout: "decision",
+              ir: join(PKG_ROOT, "examples", "ir-library", "architecture", "service-topology.architecture.json"),
+              call: "x",
+              why: "y",
+            },
+          ],
+        },
+      },
+      { cwd: PKG_ROOT, env: {} }
+    );
+    const okProblems = (ok.details["problems"] as string[] | undefined) ?? [];
+    expect(okProblems.some((p) => p.includes("needs an `ir`"))).toBe(false);
   });
 
   test("code layouts and optional slots stay silent when satisfied", async () => {

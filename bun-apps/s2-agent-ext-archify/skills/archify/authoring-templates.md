@@ -109,11 +109,20 @@ new **drawing primitive** is a `.ts` change in **both** emitters (`emit-pptx.ts`
 `emit-html.ts`) — by design (effort decision D4). A template is the cheap kind; never reach for
 a new drawing primitive when a new arrangement would do.
 
-`text` / `bullets` / `diagram` need `role` + `from` (or `ir`). `rule` draws a rule. `panel`
+`text` / `bullets` / `diagram` need `role` + `from`. `rule` draws a rule. `panel`
 fills a plate (`tone: "tag" | "section"`). `table` is the one special case: it needs a `role`
 (body), `headerRole` (the column-head row), and two bindings — `columns` (column names) and
 `rows` (row arrays) — e.g. `{ "columns": "{slide.columns}", "rows": "{slide.rows}" }`. A table
 is **never split across slides** (the emitter pins `autoPage: false`), so keep to ~12 body rows.
+
+**The `ir` binding** — a template's `diagram` block with `from: "{slide.ir}"` draws the
+slide's IR (absolute path after deck-build's manifestDir absolutization); the shipped
+`decision`, `timeline-with-diagram` and `figure` templates do exactly this. A template that
+binds `{slide.ir}` is flagged `requiresIr` at load time, so the renderless deck lint demands
+an `ir` on such slides instead of a build-time "IR not found at ''". Template diagrams use
+the canvas fit (the `fit: "content"` option is a code-layout affordance). Stack direction
+naming is the compiler's: `dir: "row"` splits VERTICALLY (rows), `dir: "col"` splits
+HORIZONTALLY (columns).
 
 ## The `Palette`-key restriction on `roles.color`
 

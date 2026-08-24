@@ -288,11 +288,82 @@ edges) + `validate()` green + unsupported-syntax error cases (≥1 per dialect).
 - Non-goals: no new extension tool (D9), no schema/emitter/renderer changes, no IR-library
   or flagship-deck changes, dataflow convention documented as ours (D8) until upstream maps it.
 
-### 7.2 Phases 3–4 (queue)
+### 7.2 Phase 3 — `ir` slot in layout templates (design v1, 2026-08-24)
 
-- **Phase 3**: `ir` slot as a new template drawing primitive (`BlockContent.kind` +
-  per-primitive emitters) without touching the `diagram` layout's frozen geometry; plus
-  2–3 new rich templates (e.g. `decision`, `timeline-with-diagram`).
+#### 7.2.0 The insight (measured 2026-08-24, prototype-proven)
+
+The `diagram` BlockContent kind **already exists in the template language**: `KNOWN_KINDS`
+includes it, `from: "{slide.ir}"` is a valid binding, `deck-build.ts:442-449` absolutizes
+`slide.ir` against `manifestDir` BEFORE template render, `resolveDiagrams` (`:291-345`)
+delivers it and builds both emitters' keyed maps, and both emitters already render
+template blocks. No shipped template used it — the `ir` slot is NOT a new primitive; it is
+an **untested first-class seam**. Proof: a scratch `decision` template binding
+`{kind:"diagram", from:"{slide.ir}", fit:"content"}` inside a `[6,2,2]` stack built
+end-to-end with **zero src changes** — 1 slide, 100 native shapes, 0 `<a:blip>`, OOXML
+lint clean.
+
+#### 7.2.1 New rich templates (data only)
+
+Three shipped templates in `templates/*.layout.json` (all binding the slide's `ir`).
+
+Stack semantics in the template compiler: `dir "row"` splits the box VERTICALLY
+(rows), `dir "col"` splits HORIZONTALLY (columns) — the prototype's first draft had
+them inverted; the goldens are the authority.
+
+- **`decision`** — "show the evidence, then make the call": content-well `stack row
+  [6,2,2] gap 0.3` → `diagram {from:"{slide.ir}"}` on top, `decisionCall`
+  (20pt bold title, centered) + `decisionWhy` (13pt muted) under. Slots: `call` (text,
+  required), `why` (text, required).
+- **`timeline-with-diagram`** — the library's timeline↔IR pair on one slide: `col [5,4]
+  gap 0.4` → left = the timeline repeat (`milestones` array, `date/label/note?`, min 3
+  max 6, milestone roles); right = `diagram`. Slots: `milestones` (array).
+- **`figure`** — the generic exhibit: `stack row [1,6,1] gap 0.25` → `figureCaption`
+  (16pt bold), `diagram`, `figureNote` (11pt muted) — the deck-lint is
+  `missing-source`-friendly (a note/source line is one field away).
+
+Template diagram blocks use the canvas fit (the `fit:"content"` option is a code-layout
+affordance — template ContentSpecs do not declare it; a template `fit` key is ignored by
+the compiler, so no template emits it).
+
+#### 7.2.2 Validation — `requiresIr` (renderless)
+
+`loadTemplate` sets `requiresIr: true` when any body node's content binds
+`from === "{slide.ir}"` on a `diagram` kind. `slotProblems` (`src/deck-lint-tool.ts`)
+checks it: an ir-slot template slide without `ir` → problem naming the template —
+instead of the build-time "IR not found at ''" (loud but late). No build-time behavior
+change (the exists-check in `resolveDiagrams` stays as backstop).
+
+#### 7.2.3 D3-lock proof (the phase's real risk item)
+
+By construction nothing frozen changes (the seam is already wired); the proof is a test
+bus, not an argument: (a) the legacy D3/D5 suites pass UNCHANGED (`layouts.test.ts`
+chrome goldens, `deck-composition.test.ts` byte-proxy pins, shape-IR goldens); (b) one
+new it in `deck-composition.test.ts` for an ir-slot slide: 0 `<a:blip>`, shape/text
+counts, `fit=content` in the `formatBlocks` golden, OOXML lint clean; (c) a per-primitive
+template-diagram golden in `layout-template.test.ts`.
+
+#### 7.2.4 Tests + docs
+
+- `tests/shipped-templates.test.ts`: SHIPPED 7→10, one PAYLOADS entry per template +
+  regenerated `tests/fixtures/templates/{decision,timeline-with-diagram,figure}.txt`.
+- `deck-lint-tool.test.ts`: `requiresIr` case (missing ir names the template).
+- Demo slides: `examples/deck-general/deck.config.json` gains 3 slides; the pinned layout
+  order in `tests/deck-composition.test.ts:250-264` updated deliberately.
+- Docs: `skills/archify/authoring-templates.md` (the `ir` binding + `requiresIr`), README
+  template list, SKILL.md pointer.
+
+#### 7.2.5 Non-goals
+
+- No change to the `diagram` code layout, `CONTENT`/`TITLE_BAND`, chrome emitter options,
+  canvas-fit default, or any frozen constant; no new BlockContent kind (Q4 rationale: the
+  `diagram` kind IS the primitive; a duplicate `ir` kind would fork both emitters).
+- No `fit` option beyond `"content"` (v1).
+- No changes to existing examples beyond the deliberate deck-general demo slides (D5
+  = zero behavior change to existing decks/slides; deck-general gains slides, it does not
+  change).
+
+### 7.3 Phase 4 (queue)
+
 - **Phase 4**: re-run `archify-deck-visual-fidelity`'s measured checks (title band wrap,
   takeaway placement) against the library deck and the benchmark `aspice4-chip-v5`; fix
   and fold back as gates.
