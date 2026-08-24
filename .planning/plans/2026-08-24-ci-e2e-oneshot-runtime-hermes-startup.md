@@ -60,3 +60,23 @@ Add a CI E2E lane that FAILS on regression of:
       under a cap, reading the banner/perf.jsonl the extension already emits
 - [x] Both documented in the effort map / successor notes with the baseline
       numbers they were set from
+
+## Close-out — the fix itself landed (2026-08-25, branch hermes-batch-startup-sync)
+
+The successor fix this control was waiting for: `syncMarkdownMemories` now
+(1) shares ONE kind index across every file of the run (one `getCardsByKind`
+per KIND, not per file) and (2) collapses all drifted-envelope updates into
+ONE `updateCardsBatch` transaction (`SurrealMemoryRepository
+.updateCardsByMdIdBatch` — the `syncMemoryEntriesBatch` one-query pattern).
+
+Measured on this machine against the local SurrealDB server, isolated
+namespace, fullTrace perf records (`startup.syncMarkdownMemories`):
+
+- clean vault: 26 RT → **4 RT** (3 kind reads + 1 lineage sweep)
+- dirty vault (all 90 global envelopes drifted): 103–114 RT → **5 RT**
+  (3 reads + 1 batched UPDATE + 1 sweep), ≥5 runs, all breach=false
+- initial mirror (insert-heavy first migration) remains ~7 RT/entry by
+  design — inserts stay per-entry through the upsertCard dedup seam;
+  steady state never inserts, so the startup path is unaffected.
+
+The control above (RT cap) stays as the regression gate for these numbers.

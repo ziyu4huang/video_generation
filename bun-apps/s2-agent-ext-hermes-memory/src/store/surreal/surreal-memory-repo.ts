@@ -1108,4 +1108,29 @@ export class SurrealMemoryRepository implements MemoryRepository {
       { seq, frontmatter, graph },
     );
   }
+
+  /** Batched updateCardByMdId: N drifted cards in ONE HTTP round-trip (the
+   *  2026-08-25 startup-sync fix — per-entry UPDATEs cost 1 round-trip each
+   *  and a dirty vault drifts ~90 entries, the 103–114 RT breach). ONE
+   *  BEGIN…COMMIT transaction with unique params per card, the same one-query
+   *  pattern as `supersedeMemory` / `syncMemoryEntriesBatch`. Atomic: a throw
+   *  applies nothing, so the caller's per-entry fallback is safe. */
+  async updateCardsByMdIdBatch(
+    cards: Array<{ mdId: string; content: string; frontmatter: string; graph: string | null }>,
+  ): Promise<void> {
+    if (cards.length === 0) return;
+    const stmts: string[] = ["BEGIN TRANSACTION;"];
+    const params: Record<string, unknown> = {};
+    cards.forEach((card, i) => {
+      stmts.push(
+        `UPDATE memories SET content = $c${i}, frontmatter = $f${i}, graph = $g${i}, lastReferenced = $l WHERE mdId = $m${i};`,
+      );
+      params[`c${i}`] = card.content;
+      params[`f${i}`] = card.frontmatter;
+      params[`g${i}`] = card.graph;
+      params[`m${i}`] = card.mdId;
+    });
+    stmts.push("COMMIT TRANSACTION;");
+    await this.c.query(stmts.join("\n"), { ...params, l: today() });
+  }
 }
