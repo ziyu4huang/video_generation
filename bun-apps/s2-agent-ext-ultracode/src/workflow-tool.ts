@@ -331,7 +331,7 @@ export function buildWorkflowPointerGuideline(): string {
  */
 export function buildUltracodeAddendum(effortLevel: "high" | "ultra"): string[] {
   return [
-    `Ultracode is ON for this session (effort: ${effortLevel}): author and run a workflow for every substantive task by default; solo turns are conversation or trivial mechanical edits. Exhaustive, cross-checked answers are the goal — token thrift is not the constraint (only an explicit user budget directive caps spend).`,
+    `Ultracode is ON for this session (effort: ${effortLevel}): author and run a workflow for every substantive task by default — this supersedes the use-only-when-asked default above; solo turns are conversation or trivial mechanical edits. Exhaustive, cross-checked answers are the goal — token thrift is not the constraint (only an explicit user budget directive caps spend).`,
     "Scale fan-out to the request: a quick check ('find any bugs') needs a few finders plus single-vote verify(item); a thorough ask ('audit everything', 'be comprehensive') gets a wider finder pool, verify(item, {reviewers: 3-5, lens}) adversarial cross-checking, and a synthesis fan-in. Name the scale you chose.",
     "For multi-phase work, run several workflows in sequence — one per phase — reading each result before authoring the next; stay in the main loop between phases instead of writing one giant script.",
     "Quality helpers are built in: verify(item, {reviewers, threshold, lens}) for adversarial fact-checking, judgePanel(attempts, {judges, rubric}) to score N candidates and return the best, loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items, completenessCheck(args, results) as the final what-is-missing critic.",

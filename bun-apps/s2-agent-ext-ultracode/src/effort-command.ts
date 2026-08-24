@@ -31,7 +31,7 @@ export function createEffortState(): EffortState {
 const HIGH_DIRECTIVE =
   "Effort: HIGH. Author a workflow scaled to the request: a quick check needs a few finders plus single-vote verify(item); a broader ask gets a wider pool, verify(item, {reviewers: 3, lens}) for adversarial cross-checking, and a final big-tier synthesis agent returning a compact {ok, verdict} result. Filter nulls before synthesizing. Token thrift is not the constraint — coverage is; cap spend only when the user set an explicit budget.";
 const ULTRA_DIRECTIVE =
-  "Effort: ULTRA. Be exhaustive: wide fan-out (more reviewers/judges, deeper loopUntilDry() rounds), adversarial verify(item, {reviewers: 3-5, lens}), a judgePanel() where candidates compete, and a closing completenessCheck() plus big-tier synthesis agent returning a compact {ok, verdict} result. For multi-phase work, run one workflow per phase and read each result before authoring the next. Set generous tokenBudget/maxAgents — token thrift is not the constraint; only an explicit user budget directive caps spend.";
+  "Effort: ULTRA. Be exhaustive: wide fan-out (more reviewers/judges, deeper loopUntilDry() rounds), adversarial verify(item, {reviewers: 3-5, lens}), a judgePanel() where candidates compete, and a closing completenessCheck() plus big-tier synthesis agent returning a compact {ok, verdict} result. For multi-phase work, run one workflow per phase and read each result before authoring the next. Token thrift is not the constraint — set a high maxAgents, and leave tokenBudget unset (unbounded) unless the user set an explicit budget directive.";
 
 /** The extra directive appended to the forced-workflow prompt for an effort level. */
 export function effortDirective(level: EffortLevel): string | undefined {

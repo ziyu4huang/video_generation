@@ -43,12 +43,19 @@ workflow-editor.ts byte-stable.
 
 ## Acceptance criteria
 
-- [ ] HIGH/ULTRA directives rewritten + unit-pinned (scale ladder, pattern
+- [x] HIGH/ULTRA directives rewritten + unit-pinned (scale ladder, pattern
       names, solo carve-out or addendum bullet, budget framing present)
-- [ ] `buildWorkflowGuidelinesForTurn({full, effortLevel})` appends the
+- [x] `buildWorkflowGuidelinesForTurn({full, effortLevel})` appends the
       addendum ONLY when effortLevel set; pointer/non-armed paths unchanged
-- [ ] Addendum token cost measured and recorded (≤ ~300 tok over simplified)
-- [ ] `bun run --cwd bun-apps/s2-agent-ext-ultracode test` (canonical gate)
-      green
-- [ ] PR via devops chain; reviewer pass; effort map + spec + tickets ride the
-      same PR (planning never lands on main directly)
+      (byte-stable, confirmed by the pre-existing full-equality tests)
+- [x] Addendum token cost measured and recorded: ≈307 tok over the ≈816-tok
+      simplified set (boundary of the ≤~300 target; map fog resolved)
+- [x] `bun run --cwd bun-apps/s2-agent-ext-ultracode test` (canonical gate)
+      green — 1182 pass / 0 fail, re-run independently by the reviewer
+- [x] PR via devops chain (#2016); reviewer pass APPROVE_WITH_NITS with all
+      three nits applied pre-merge; effort map + spec + tickets ride the
+      same PR
+
+In-ticket fog call settled: `verify()` runtime default stays reviewers=2; the
+ladder guidance names the knob (`reviewers: 3` HIGH, `reviewers: 3-5`
+ULTRA/addendum) so breadth scales per request (recorded in map fog).
