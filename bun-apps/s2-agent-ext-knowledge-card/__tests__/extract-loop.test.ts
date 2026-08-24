@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { CARD_TYPES, isCardType } from "../src/kcard-types.ts";
 import {
 	classifyEntry,
+	EXTRACT_CHUNK_ENTRIES,
 	parseHermesEntries,
 	readExtractState,
 	readHermesJournal,
@@ -434,5 +435,155 @@ describe("runExtraction (D28–D31)", () => {
 		expect(readExtractState(vault).seenIds).toHaveLength(0);
 		expect(res.decisions).toHaveLength(1);
 		expect(existsSync(res.diffFile!)).toBe(true);
+	});
+});
+
+// ── 7. chunking (ticket 01 — extract backlog drain) ────────────────────────
+
+describe("runExtraction chunking (ticket 01)", () => {
+	/** Lexically distinct batch entries so the gate's in-batch dedup (Jaccard
+	 *  over >2-char word sets, 0.72) kills none of them — chunk math then keys
+	 *  off real survivor counts. Six unique tokens per entry, near-empty
+	 *  shared scaffold (pairwise similarity ≈ 0.1). */
+	function batch(n: number, prefix = "c"): MemoryEntry[] {
+		return Array.from({ length: n }, (_, i) => {
+			const u = (k: number) => `uniq${i}tok${k}`;
+			return mem(`${prefix}${i}`, `[insight] Subject${i} ${u(1)} ${u(2)} ${u(3)} ${u(4)} ${u(5)} ${u(6)}.`);
+		});
+	}
+
+	/** Scrapes the chunk prompt for entryId=… and votes create for each. */
+	const scrape = async (prompt: string): Promise<RawExtractItem[]> =>
+		[...prompt.matchAll(/entryId=([\w.:-]+)/g)].map((m) => m[1]!).map((entryId) => ({
+			entryId, vote: "create" as const, type: "pattern", title: `Card ${entryId}`,
+			detail: `Detail for ${entryId}.`, tags: [], reason: "new",
+		}));
+
+	test("multi-chunk batch: one LLM call per chunk, cursor advances for everything fresh", async () => {
+		const vault = tmpVault();
+		let calls = 0;
+		const llm = async (p: string): Promise<RawExtractItem[] | null> => {
+			calls++;
+			return scrape(p);
+		};
+		const entries = batch(32);
+		const res = await runExtraction({ vaultPath: vault, entries, outputDir: join(vault, "out"), _llm: llm });
+		const expectedChunks = Math.ceil(res.survivors / EXTRACT_CHUNK_ENTRIES);
+		expect(calls).toBe(expectedChunks); // never one call over the whole batch
+		expect(res.chunksPlanned).toBe(expectedChunks);
+		expect(res.chunksProcessed).toBe(expectedChunks);
+		expect(res.llmFailed).toBe(false);
+		expect(res.seenAfter).toBe(entries.length); // survivors AND killed all seen
+		expect(readExtractState(vault).seenIds).toHaveLength(entries.length);
+		expect(res.writes).toHaveLength(res.survivors);
+	});
+
+	test("mid-batch LLM failure keeps prior chunks' progress; a retry costs only the remainder", async () => {
+		const vault = tmpVault();
+		let calls = 0;
+		const flaky = async (p: string): Promise<RawExtractItem[] | null> => {
+			calls++;
+			return calls === 1 ? scrape(p) : null;
+		};
+		const entries = batch(35);
+		const res = await runExtraction({ vaultPath: vault, entries, outputDir: join(vault, "out"), _llm: flaky });
+		expect(res.chunksProcessed).toBe(1);
+		expect(res.chunksPlanned).toBe(Math.ceil(res.survivors / EXTRACT_CHUNK_ENTRIES));
+		expect(res.llmFailed).toBe(true); // the run is incomplete…
+		const st = readExtractState(vault);
+		expect(st.seenIds.length).toBeGreaterThanOrEqual(Math.min(res.survivors, EXTRACT_CHUNK_ENTRIES)); // …but chunk 1 landed
+		expect(st.seenIds.length).toBeLessThan(entries.length); // and the rest did not
+		const receipt = JSON.parse(readFileSync(res.diffFile!, "utf-8"));
+		expect(receipt.chunksProcessed).toBe(1);
+		expect(receipt.llmFailed).toBe(true);
+
+		// Retry: ONLY the un-processed remainder goes back through the LLM.
+		const res2 = await runExtraction({ vaultPath: vault, entries, outputDir: join(vault, "out"), _llm: (p) => scrape(p) });
+		expect(res2.cursorExcluded).toBe(st.seenIds.length);
+		expect(res2.llmFailed).toBe(false);
+		expect(new Set(readExtractState(vault).seenIds).size).toBe(entries.length); // fully drained
+	});
+
+	test("shutdown run processes at most ONE chunk regardless of backlog size", async () => {
+		const vault = tmpVault();
+		let calls = 0;
+		const llm = async (p: string): Promise<RawExtractItem[] | null> => {
+			calls++;
+			return scrape(p);
+		};
+		const entries = batch(40); // ≥3 chunks of backlog
+		const r1 = await runExtraction({ vaultPath: vault, entries, outputDir: join(vault, "out"), trigger: "shutdown", _llm: llm });
+		expect(calls).toBe(1); // the 25s shutdown budget buys exactly one chunk call
+		expect(r1.chunksPlanned).toBe(1);
+		expect(r1.chunksProcessed).toBe(1);
+		expect(r1.llmFailed).toBe(false);
+		const seen1 = readExtractState(vault).seenIds.length;
+
+		// Progressive drain: the NEXT shutdown takes the NEXT chunk (no backoff
+		// armed — chunk 1 succeeded, consecutiveFailures reset to 0).
+		const r2 = await runExtraction({ vaultPath: vault, entries, outputDir: join(vault, "out"), trigger: "shutdown", _llm: llm });
+		expect(calls).toBe(2);
+		expect(r2.chunksProcessed).toBe(1);
+		const seen2 = readExtractState(vault).seenIds.length;
+		expect(seen2).toBeGreaterThan(seen1);
+		expect(readExtractState(vault).consecutiveFailures).toBe(0);
+	});
+
+	test("backoff interplay: two failing shutdown runs arm; on-demand drain bypasses and resets", async () => {
+		const vault = tmpVault();
+		const entries = batch(20); // ≥2 chunks
+		let fail = true;
+		const llm = async (p: string): Promise<RawExtractItem[] | null> => (fail ? null : scrape(p));
+		const run = (trigger?: "shutdown") =>
+			runExtraction({ vaultPath: vault, entries, outputDir: join(vault, "out"), trigger, _llm: llm });
+
+		await run("shutdown"); // chunk 1 fails → consecutiveFailures 1
+		await run("shutdown"); // chunk 1 fails again → 2, armed
+		expect(readExtractState(vault).consecutiveFailures).toBe(2);
+
+		const skipped = await run("shutdown");
+		expect(skipped.skippedBackoff).toBe(true); // LLM never called, zero budget spent
+
+		fail = false;
+		const drained = await run(); // on-demand: never skips, drains ALL chunks
+		expect(drained.skippedBackoff).toBe(false);
+		expect(drained.llmFailed).toBe(false);
+		expect(readExtractState(vault).consecutiveFailures).toBe(0);
+		expect(readExtractState(vault).seenIds).toHaveLength(entries.length);
+	});
+
+	test("killed entries ride with the first successful chunk — not with a fully-failed run", async () => {
+		// Success: the malformed (too-short) entry never reaches the LLM but is
+		// marked seen alongside chunk 1 (deterministic rejection is final).
+		const v1 = tmpVault();
+		const withTiny = [...batch(3), mem("tiny", "x")]; // < MIN_CONTENT_LEN → malformed kill
+		const r1 = await runExtraction({ vaultPath: v1, entries: withTiny, outputDir: join(v1, "out"), _llm: (p) => scrape(p) });
+		expect(r1.killed).toBe(1);
+		expect(readExtractState(v1).seenIds).toContain("tiny");
+
+		// Full failure: NOTHING is marked seen — the killed id retries too.
+		const v2 = tmpVault();
+		const r2 = await runExtraction({ vaultPath: v2, entries: withTiny, outputDir: join(v2, "out"), _llm: async () => null });
+		expect(r2.llmFailed).toBe(true);
+		expect(readExtractState(v2).seenIds).not.toContain("tiny");
+	});
+
+	test("zero-survivor batch: no LLM call, killed ids still advance the cursor", async () => {
+		const vault = tmpVault();
+		let calls = 0;
+		const llm = async (): Promise<RawExtractItem[] | null> => {
+			calls++;
+			return [];
+		};
+		const res = await runExtraction({
+			vaultPath: vault,
+			entries: [mem("t1", "x"), mem("t2", "y")], // both malformed
+			outputDir: join(vault, "out"),
+			_llm: llm,
+		});
+		expect(calls).toBe(0); // an empty batch never pays an LLM round-trip
+		expect(res.llmFailed).toBe(false);
+		expect(res.chunksProcessed).toBe(0);
+		expect(readExtractState(vault).seenIds).toEqual(["t1", "t2"]); // rejection is final
 	});
 });
