@@ -87,7 +87,8 @@ export interface DeployReportData {
 	builtAt: string;
 	sourceSha: string;
 	bunVersion: string;
-	configPath: string;
+	/** The registry module this deploy projected from (registry-code-as-config t03; was configPath). */
+	registryModule: string;
 	outRoot: string;
 	target: string;
 	freeze: boolean;
@@ -246,7 +247,7 @@ export function renderDeployReport(data: DeployReportData): string {
 <tr><td>built at</td><td>${esc(data.builtAt)}</td></tr>
 <tr><td>source sha</td><td><code>${esc(data.sourceSha)}</code></td></tr>
 <tr><td>launcher</td><td>${esc(data.target)}/${esc(APP_NAME)}.sh</td></tr>
-<tr><td>config</td><td><code>${esc(data.configPath)}</code></td></tr>
+<tr><td>registry</td><td><code>${esc(data.registryModule)}</code></td></tr>
 <tr><td>bun</td><td>${esc(data.bunVersion)}</td></tr>
 <tr><td>core</td><td>${fmtBytes(data.core.bytes)} ${data.core.cached ? "(cached hardlink)" : "(fresh bundle)"} — bun-run ESM bundle</td></tr>
 ${data.runtime ? `<tr><td>runtime (bin/bun)</td><td>${esc(data.runtime.bunVersion)} ${esc(data.runtime.platform)}/${esc(data.runtime.arch)}, ${fmtBytes(data.runtime.bytes)} ${data.runtime.cached ? "(cached hardlink)" : "(fresh copy)"}</td></tr>` : ""}

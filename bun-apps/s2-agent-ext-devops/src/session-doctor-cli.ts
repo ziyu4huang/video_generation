@@ -52,7 +52,7 @@ import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { parseShConfig } from "./deploy/lib/config.ts";
+import { shConfig } from "./deploy/lib/config.ts";
 import { resolveCurrentVersionDir } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn, withDefaultTimeout, type SpawnFn } from "./spawn.js";
 import { TOOLS_ACTIVE_PROBE, parseToolsProbeLine, type ToolsProbePayload } from "./tools-active-probe.js";
@@ -72,7 +72,7 @@ export const SESSION_DOCTOR_CLI_USAGE = [
 	"",
 	"  --target dev|deploy     dev: bun bun-apps/s2-agent/src/cli.ts (default)",
 	"                          deploy: <deploy-root>/current/s2-agent.sh launcher",
-	"  --deploy-root <path>    default: outRoot from s2-agent.registry.yaml",
+	"  --deploy-root <path>    default: outRoot from s2-agent src/registry-config.ts",
 	"  --provider <name>       default lm-studio (the local lane)",
 	"  --model <id>            default qwen/qwen3.8-27b",
 	"  --models                instead of the tool check: list models FILTERED to",
@@ -172,9 +172,7 @@ export function parseListModelTable(text: string): Record<string, string[]> {
 /** Registry outRoot — the same default deploy-cli deploys into. */
 function defaultDeployRoot(): string {
 	const bunAppsDir = resolve(import.meta.dir, "..", "..");
-	return parseShConfig(readFileSync(join(bunAppsDir, "s2-agent", "s2-agent.registry.yaml"), "utf8"), {
-		bunAppsDir,
-	}).outRoot;
+	return shConfig({ bunAppsDir }).outRoot;
 }
 
 export interface SessionDoctorDeps {

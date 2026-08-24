@@ -1,8 +1,9 @@
 /**
  * Cross-extension isolation contract — the "tight yet swappable" guard for the
- * PORTABLE BASE SET: every extension `s2-agent/s2-agent.registry.yaml` ships in
- * an sh deploy. They coexist every session and share conventions (.planning/
- * layout, ctx.cwd) but must NEVER import each other's code — coupling goes only
+ * PORTABLE BASE SET: every extension the typed REGISTRY (s2-agent/src/
+ * registry-config.ts) ships in an sh deploy. They coexist every session and
+ * share conventions (.planning/ layout, ctx.cwd) but must NEVER import each
+ * other's code — coupling goes only
  * through Pi's extension API and the guarded globalThis seams. That
  * zero-cross-import invariant is what makes each independently removable, and
  * `rm -rf ext/<name>` is the operation it protects (deploy gate 3's dual-state
@@ -46,23 +47,20 @@ import * as assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
+import { registryBaseSetNames } from "./lib/registry-base-set.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 
 /**
- * Base-set short names parsed out of s2-agent.registry.yaml's `extensions:`
- * block by the shared scanner (tests/lib/registry-base-set.ts) — an entry is
- * in the base set iff its entry carries a `deploy:` block that is not
- * `enabled: false` (entries kept local have `excludeReason` instead). The
- * `MIN_EXPECTED` floor below is what keeps a silent parse failure from
- * turning every assertion vacuous.
+ * Base-set short names read from the typed REGISTRY by the shared reader
+ * (tests/lib/registry-base-set.ts → shippedEntries()) — an entry is in the
+ * base set iff it carries a `deploy` block that is enabled (entries kept
+ * local have `excludeReason` instead). The `MIN_EXPECTED` floor below is
+ * what keeps a silent import failure from turning every assertion vacuous.
  */
 const MIN_EXPECTED = 10;
 
-const BASE_SET_NAMES = parseRegistryBaseSetNames(
-	readFileSync(join(ROOT, "s2-agent", "s2-agent.registry.yaml"), "utf8"),
-);
+const BASE_SET_NAMES = registryBaseSetNames();
 const BASE_SET = BASE_SET_NAMES.map((n) => `s2-agent-ext-${n}`);
 
 /** short name → `BUN_PI_<SHOUT_CASE>` disable env var. */
@@ -195,11 +193,11 @@ function recordingPi(): { pi: any; count: () => number } {
 	return { pi, count: () => calls };
 }
 
-describe("portable base set is derived from s2-agent.registry.yaml", () => {
+describe("portable base set is derived from the typed REGISTRY", () => {
 	it(`parses at least ${MIN_EXPECTED} extensions (a silent [] would void this file)`, () => {
 		assert.ok(
 			BASE_SET_NAMES.length >= MIN_EXPECTED,
-			`parsed only ${BASE_SET_NAMES.length} extension name(s) from s2-agent.registry.yaml: ${BASE_SET_NAMES.join(", ")}`,
+			`read only ${BASE_SET_NAMES.length} extension name(s) from the typed REGISTRY: ${BASE_SET_NAMES.join(", ")}`,
 		);
 	});
 

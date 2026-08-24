@@ -21,7 +21,7 @@ import {
 	renderOutRootIndex,
 	type DeployReportData,
 } from "../src/deploy/lib/deploy-report.ts";
-import { excludedExtensions } from "../src/deploy/lib/config.ts";
+import { excludedExtensionsFromRegistry } from "../src/deploy/lib/config.ts";
 
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
 
@@ -31,7 +31,7 @@ function fixtureData(overrides: Partial<DeployReportData> = {}): DeployReportDat
 		builtAt: "2026-08-22T00:00:00.000Z",
 		sourceSha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		bunVersion: "1.4.0",
-		configPath: "/repo/bun-apps/s2-agent/s2-agent.registry.yaml",
+		registryModule: "/repo/bun-apps/s2-agent/src/registry-config.ts",
 		outRoot: "/dist/s2-agent-sh",
 		target: "/dist/s2-agent-sh/0.1.0+gdeadbee",
 		freeze: true,
@@ -208,8 +208,7 @@ describe("renderOutRootIndex", () => {
 
 describe("excludedExtensions — the not-shipped half of the registry", () => {
 	test("the real registry: excluded names carry their reasons, shipped ones do not appear", () => {
-		const text = readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registry.yaml"), "utf8");
-		const excluded = excludedExtensions(text, { bunAppsDir: BUN_APPS_DIR });
+		const excluded = excludedExtensionsFromRegistry({ bunAppsDir: BUN_APPS_DIR });
 		const names = excluded.map((e) => e.name);
 		// Facts current at the time this test was written; the point is the
 		// projection works on the real file, not pinning the exact set. Note

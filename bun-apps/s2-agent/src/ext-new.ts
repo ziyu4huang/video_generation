@@ -3,13 +3,13 @@
  *
  * This module holds the pure parts (arg parsing, name validation, file
  * templates); runExtNew (Task B3) adds the writer: mkdir + write files,
- * manifest registration (dynamic object entry / static append + regen:static),
- * optional `bun install --cwd bun-apps`, and the next-steps banner.
+ * registry registration (a typed entry appended to REGISTRY in
+ * src/registry-config.ts + regen:manifest / regen:static), optional
+ * `bun install --cwd bun-apps`, and the next-steps banner.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { parseRegistry } from "../run-dir/registry.ts";
-import { appendRegistryExtension } from "../run-dir/registry-insert.ts";
+import { REGISTRY } from "./registry-config.ts";
 
 /** Registration modes for the scaffolded package. */
 export type ExtNewRegister = "dynamic" | "static" | "none";
@@ -255,8 +255,9 @@ bun run --cwd bun-apps/s2-agent-ext-${name} typecheck
 
 ## Registration
 
-Registered via \`bun-apps/s2-agent/s2-agent.registry.yaml\` — one entry
-(\`load: dynamic\` or \`load: static\`), then \`bun run --cwd bun-apps/s2-agent
+Registered via an entry in the REGISTRY array in
+\`bun-apps/s2-agent/src/registry-config.ts\` — one entry
+(\`load: "dynamic"\` or \`load: "static"\`), then \`bun run --cwd bun-apps/s2-agent
 regen:manifest\` (+ \`regen:static\` for static). The entry point is
 \`extensions/${name}.ts\`.
 
@@ -270,14 +271,14 @@ Set \`${gate}=0\` to disable the extension entirely.
 
 /**
  * Writer half of `ext new` (Task B3): write the scaffold files under
- * `<outRoot>/s2-agent-ext-<name>/`, register in s2-agent.registry.yaml
- * (one entry, then `bun run regen:manifest` — plus `regen:static` for a
- * static registration), run `bun install --cwd bun-apps` unless suppressed,
- * and print next steps. Returns a process exit code.
+ * `<outRoot>/s2-agent-ext-<name>/`, register in src/registry-config.ts
+ * (one typed REGISTRY entry, then `bun run regen:manifest` — plus
+ * `regen:static` for a static registration), run `bun install --cwd bun-apps`
+ * unless suppressed, and print next steps. Returns a process exit code.
  *
- * The registry is edited by TEXTUAL insert (appendRegistryExtension), never
- * by a YAML round-trip — re-serialising would destroy the comments that carry
- * each extension's exclusion rationale. run-dir/manifest.json is regenerated
+ * The registry is edited by TEXTUAL insert (appendRegistryTsEntry), never
+ * by a re-serialization — rewriting the module would destroy the comments
+ * that carry each extension's rationale. run-dir/manifest.json is regenerated
  * by script; it is never written directly.
  */
 export async function runExtNew(argv: string[]): Promise<number> {
@@ -299,24 +300,18 @@ export async function runExtNew(argv: string[]): Promise<number> {
 	// Registration — always against the real registry, independent of
 	// --out-root (the hidden root is a test seam for the file writes only).
 	// Checked BEFORE any file write so a refusal leaves no orphan package.
-	const registryPath = join(import.meta.dir, "..", "s2-agent.registry.yaml");
+	// Duplicate detection reads the imported REGISTRY (the typed authority);
+	// the textual insert below is the only write.
+	const registryModulePath = join(import.meta.dir, "registry-config.ts");
 	const bunAppsDir = resolve(import.meta.dir, "..", "..");
-	let registryText: string;
-	try {
-		registryText = readFileSync(registryPath, "utf8");
-		const registry = parseRegistry(registryText, { bunAppsDir });
-		if (registry.extensions.some((e) => e.package === pkgName)) {
-			console.error(`ext new: ${pkgName} is already registered in s2-agent.registry.yaml`);
-			return 1;
-		}
-	} catch (e) {
-		console.error(`ext new: cannot parse ${registryPath} — ${(e as Error).message}`);
+	if (REGISTRY.some((e) => e.package === pkgName)) {
+		console.error(`ext new: ${pkgName} is already registered in src/registry-config.ts`);
 		return 1;
 	}
 	const realOutRoot = resolve(args.outRoot) !== bunAppsDir;
 	if (args.register !== "none" && realOutRoot) {
 		console.error(
-			`ext new: --register requires the default --out-root (bun-apps/) — registration writes the real s2-agent.registry.yaml, whose schema requires the package to exist under bun-apps/`,
+			`ext new: --register requires the default --out-root (bun-apps/) — registration edits the real src/registry-config.ts, whose validation requires the package to exist under bun-apps/`,
 		);
 		return 1;
 	}
@@ -334,45 +329,17 @@ export async function runExtNew(argv: string[]): Promise<number> {
 	// failed regen leaves the registry edited but the derived artifacts stale,
 	// so the error says exactly what to rerun.
 	try {
-		if (args.register === "dynamic") {
+		if (args.register === "dynamic" || args.register === "static") {
 			// Dynamic entries carry the FULL package id as `name` — that is what
 			// the derived manifest's extensions[] uses (source-mode -e matching),
-			// and the emitter writes `name` verbatim.
-			writeFileSync(
-				registryPath,
-				appendRegistryExtension(
-					registryText,
-					[
-						`  - name: ${pkgName}`,
-						`    package: ${pkgName}`,
-						`    entry: extensions/${args.name}.ts`,
-						`    load: dynamic`,
-						`    version: "0.1.0"`,
-						`    excludeReason: not yet curated for the portable set`,
-					].join("\n"),
-				),
-			);
+			// and the emitter writes `name` verbatim. Static entries carry the
+			// SHORT name; the emitter derives staticExtensions[] from `package`.
+			writeFileSync(registryModulePath, appendRegistryTsEntry(readFileSync(registryModulePath, "utf8"), renderRegistryEntry(args)));
 			await runRegen("regen:manifest");
-			console.log(`ext new: registered ${pkgName} in s2-agent.registry.yaml (dynamic)`);
-		} else if (args.register === "static") {
-			// Static entries carry the SHORT name; the emitter derives
-			// staticExtensions[] from `package`.
-			writeFileSync(
-				registryPath,
-				appendRegistryExtension(
-					registryText,
-					[
-						`  - name: ${args.name}`,
-						`    package: ${pkgName}`,
-						`    entry: extensions/${args.name}.ts`,
-						`    load: static`,
-						`    excludeReason: not yet curated for the portable set`,
-					].join("\n"),
-				),
-			);
-			await runRegen("regen:manifest");
-			console.log(`ext new: appended ${pkgName} to the registry (static)`);
-			await runRegen("regen:static");
+			console.log(`ext new: registered ${pkgName} in src/registry-config.ts (${args.register})`);
+			if (args.register === "static") {
+				await runRegen("regen:static");
+			}
 		}
 	} catch (e) {
 		console.error(`ext new: ${(e as Error).message} — the registry is edited; rerun it manually, or the derived artifacts will drift`);
@@ -401,16 +368,56 @@ Next steps:
   2. verify:                 bun test --cwd bun-apps/${pkgName}
                              bun run --cwd bun-apps/${pkgName} typecheck`);
 	if (args.register === "none") {
-		console.log(`  3. register manually — append an entry to s2-agent.registry.yaml:
-       - name: ${args.name}
-         package: ${pkgName}
-         entry: extensions/${args.name}.ts
-         load: static          # or dynamic
-         excludeReason: <why it stays local, or move it into a deploy: block>
+		console.log(`  3. register manually — add an entry to the REGISTRY array in bun-apps/s2-agent/src/registry-config.ts:
+       {
+         name: "${args.name}",
+         package: "${pkgName}",
+         entry: "extensions/${args.name}.ts",
+         load: "static",        // or "dynamic"
+         enabled: true,
+         excludeReason: "<why it stays local, or give it a deploy: block>",
+       }
      then: bun run --cwd bun-apps/s2-agent regen:manifest
-           bun run --cwd bun-apps/s2-agent regen:static   # load: static only`);
+           bun run --cwd bun-apps/s2-agent regen:static   // load: static only`);
 	}
 	return 0;
+}
+
+/** Render the scaffold's REGISTRY entry as TS source (tab-indented, matches registry-config.ts). */
+function renderRegistryEntry(args: ExtNewArgs): string {
+	const pkgName = `s2-agent-ext-${args.name}`;
+	const lines = [
+		"\t{",
+		`\t\tname: "${args.register === "dynamic" ? pkgName : args.name}",`,
+		`\t\tpackage: "${pkgName}",`,
+		`\t\tentry: "extensions/${args.name}.ts",`,
+		`\t\tload: "${args.register}",`,
+	];
+	if (args.register === "dynamic") lines.push(`\t\tversion: "0.1.0",`);
+	lines.push(
+		"\t\tenabled: true,",
+		'\t\texcludeReason: "not yet curated for the portable set",',
+		"\t},",
+	);
+	return lines.join("\n");
+}
+
+/**
+ * Append `entryTs` before the REGISTRY array's closing `];`.
+ *
+ * TEXT SURGERY, the doctrine the retired YAML insert had: registry-config.ts's
+ * comments carry each entry's rationale — a re-serialization would destroy
+ * them. Duplicate-name detection happens BEFORE the insert, against the
+ * imported REGISTRY; this only places an already-rendered entry. Throws if the
+ * array (or its close) cannot be found — a registry without them is a source
+ * error, not something a writer should invent.
+ */
+export function appendRegistryTsEntry(source: string, entryTs: string): string {
+	const anchor = source.indexOf("export const REGISTRY");
+	if (anchor === -1) throw new Error("registry-config.ts has no REGISTRY array to append to");
+	const close = source.indexOf("\n];", anchor);
+	if (close === -1) throw new Error("registry-config.ts REGISTRY array has no closing `];`");
+	return source.slice(0, close + 1) + entryTs + "\n" + source.slice(close + 1);
 }
 
 /** Run a s2-agent package script (regen:manifest / regen:static). Non-zero exit → error path. */

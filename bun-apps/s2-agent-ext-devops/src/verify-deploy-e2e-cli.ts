@@ -15,9 +15,8 @@
  * Exit 0 pass or skip (provider-down is a SKIP, not a FAIL — the boot is what
  * we vouch for) · 1 fail (boot/ext-load/model-call, or no `current`) · 2 usage.
  */
-import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { parseShConfig } from "./deploy/lib/config.ts";
+import { resolve } from "node:path";
+import { shConfig } from "./deploy/lib/config.ts";
 import { runDeployE2e, resolveCurrentVersionDir, resolveModelEndpoint } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
@@ -33,7 +32,7 @@ export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"failure is a SKIP, never a FAIL. Before the model call, the endpoint's",
 	"/v1/models is checked: >1 large resident chat model emits a `warnings` note",
 	"",
-	"Default deploy root: outRoot from bun-apps/s2-agent/s2-agent.registry.yaml",
+	"Default deploy root: outRoot from bun-apps/s2-agent/src/registry-config.ts",
 	"(the same value deploy-cli deploys into). `current` must exist and point at",
 	"a version dir.",
 	"",
@@ -79,9 +78,7 @@ export function parseVerifyDeployE2eArgs(
 /** Registry outRoot — the same default deploy-cli deploys into. */
 function defaultDeployRoot(): string {
 	const bunAppsDir = resolve(import.meta.dir, "..", "..");
-	return parseShConfig(readFileSync(join(bunAppsDir, "s2-agent", "s2-agent.registry.yaml"), "utf8"), {
-		bunAppsDir,
-	}).outRoot;
+	return shConfig({ bunAppsDir }).outRoot;
 }
 
 export async function runVerifyDeployE2eCli(

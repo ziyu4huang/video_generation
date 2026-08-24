@@ -7,17 +7,22 @@
  * There is no --ext: version dirs are immutable (Phase 3 §b deleted the
  * in-place rebuild); an extension-only change is an ordinary deploy, which the
  * core cache makes compile-free.
+ *
+ * There is no --config either (registry-code-as-config t03): the registry is
+ * bun-apps/s2-agent/src/registry-config.ts, read by import — a config-file
+ * override would point at the retired YAML. The flag errors loudly instead of
+ * being silently ignored.
  */
 import type { DeployShOptions } from "../src/deploy/run.ts";
 
 export type DeployShAction =
 	| { kind: "deploy"; options: DeployShOptions }
-	| { kind: "list"; outRoot?: string; configPath?: string }
+	| { kind: "list"; outRoot?: string }
 	| { kind: "help" };
 
 export type ParseArgvResult = { ok: true; action: DeployShAction } | { ok: false; error: string };
 
-const VALUE_FLAGS = new Set(["--config", "--out", "--version"]);
+const VALUE_FLAGS = new Set(["--out", "--version"]);
 const BOOL_FLAGS = new Set(["--no-freeze", "--no-current", "--force", "--list", "--help", "--json"]);
 
 export function parseDeployShArgv(argv: string[]): ParseArgvResult {
@@ -36,6 +41,13 @@ export function parseDeployShArgv(argv: string[]): ParseArgvResult {
 		const flag = eq === -1 ? token : token.slice(0, eq);
 		let value: string | undefined = eq === -1 ? undefined : token.slice(eq + 1);
 
+		if (flag === "--config") {
+			return {
+				ok: false,
+				error: "--config is retired: the registry is bun-apps/s2-agent/src/registry-config.ts (registry-code-as-config t03)",
+			};
+		}
+
 		if (VALUE_FLAGS.has(flag)) {
 			if (value === undefined) {
 				value = argv[++i];
@@ -43,11 +55,10 @@ export function parseDeployShArgv(argv: string[]): ParseArgvResult {
 					return { ok: false, error: `flag ${flag} requires a value` };
 				}
 			}
-			if (flag === "--config") options.configPath = value;
-			else if (flag === "--out") options.outRoot = value;
+			if (flag === "--out") options.outRoot = value;
 			else options.version = value;
-			// --config/--out are meaningful for both actions; the rest are deploy-only.
-			if (flag !== "--config" && flag !== "--out") sawDeployFlag = true;
+			// --out is meaningful for both actions; the rest are deploy-only.
+			if (flag !== "--out") sawDeployFlag = true;
 			continue;
 		}
 
@@ -69,7 +80,7 @@ export function parseDeployShArgv(argv: string[]): ParseArgvResult {
 	if (help) return { ok: true, action: { kind: "help" } };
 	if (list) {
 		if (sawDeployFlag) return { ok: false, error: `--list cannot be combined with deploy flags` };
-		return { ok: true, action: { kind: "list", outRoot: options.outRoot, configPath: options.configPath } };
+		return { ok: true, action: { kind: "list", outRoot: options.outRoot } };
 	}
 	return { ok: true, action: { kind: "deploy", options } };
 }

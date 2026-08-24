@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameS
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../src/deploy/run.ts";
-import { parseShConfig } from "../src/deploy/lib/config.ts";
+import { shConfig } from "../src/deploy/lib/config.ts";
 import {
 	scanBinaryForeignPaths,
 	scanSymlinkEscapes,
@@ -19,21 +19,18 @@ const describeE2E = RUN ? describe : describe.skip;
 const outRoot = mkdtempSync(join(tmpdir(), "sh-e2e-"));
 afterAll(() => rmTree(outRoot));
 
-// The expected extension set is DERIVED from s2-agent.registry.yaml, never
-// written out here. This file used to assert ["power-tool", "task"] — true when
-// the base set was two, silently wrong from #1713 (hyperframes) onward and
-// flatly red after #1738 took it to fourteen. Nothing caught that for two
-// releases because no gate ran this file: check-deploy-e2e.sh runs the PROBE
-// e2e, and the PI_AGENT_E2E gate hides the rest from a plain `bun test`. Same
-// lesson as the probe suite's own header — the registry is the source of truth
-// for what a deploy ships.
+// The expected extension set is DERIVED from the typed REGISTRY
+// (s2-agent/src/registry-config.ts via shConfig), never written out here. This
+// file used to assert ["power-tool", "task"] — true when the base set was two,
+// silently wrong from #1713 (hyperframes) onward and flatly red after #1738
+// took it to fourteen. Nothing caught that for two releases because no gate ran
+// this file: check-deploy-e2e.sh runs the PROBE e2e, and the PI_AGENT_E2E gate
+// hides the rest from a plain `bun test`. Same lesson as the probe suite's own
+// header — the registry is the source of truth for what a deploy ships.
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
-const shConfig = parseShConfig(
-	readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registry.yaml"), "utf8"),
-	{ bunAppsDir: BUN_APPS_DIR },
-);
+const cfg = shConfig({ bunAppsDir: BUN_APPS_DIR });
 /** Config order — what `--ext-list` reports, and what the loader loads in. */
-const configuredNames = shConfig.extensions.map((e) => e.name);
+const configuredNames = cfg.extensions.map((e) => e.name);
 const configuredNamesSorted = [...configuredNames].sort();
 
 // The core is a bun-run bundle booted by the tree's OWN shipped runtime —
@@ -199,61 +196,26 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 	// ships with a vendorExclude again.
 });
 
-// ── Phase 3: content-addressed core + keep:N retention ─────────────────────
+// ── Phase 3: content-addressed core + retention ─────────────────────────────
 //
-// A fixture registry that ships ZERO extensions (the one entry carries an
-// excludeReason) keeps these deploys compile-only, so the cache/prune flow is
-// exercised without paying 14 extension builds each time.
-describeE2E("core cache + keep:N retention", () => {
+// Since registry-code-as-config t03 there is no --config fixture to deploy a
+// zero-extension registry: the typed REGISTRY is the only config, so these
+// deploys pay the full extension-build cost like any real deploy. The keep:N
+// prune E2E left with the fixture — pruneVersions' behavior (oldest-first,
+// protected current, never below keep) is unit-covered in version.test.ts, and
+// the config→prune plumbing is the single `cfg.keep ?? DEFAULT_KEEP` line
+// asserted by the keep projection in config.test.ts.
+describeE2E("core cache reuse", () => {
 	const keepRoot = mkdtempSync(join(tmpdir(), "sh-keep-"));
-	const configPath = join(keepRoot, "registry.yaml");
-	writeFileSync(
-		configPath,
-		[
-			"deploy:",
-			"  outRoot: /tmp/unused",
-			"  version: { from: package.json, gitSha: false }",
-			"  freeze: true",
-			"  current: true",
-			"  keep: 2",
-			`hostApi: ${HOST_API}`,
-			"hostModules:",
-			...HOST_MODULE_IDS.map((m) => `  - "${m}"`),
-			"extensions:",
-			"  - name: power-tool",
-			"    package: s2-agent-ext-power-tool",
-			"    entry: extensions/power-tool.ts",
-			"    load: dynamic",
-			"    excludeReason: e2e fixture — deploys a zero-extension core",
-			"lazyExtensions: {}",
-			"",
-		].join("\n"),
-	);
-	const deploy = (version: string) => runShDeploy({ outRoot: keepRoot, version, configPath });
 
 	test("second deploy with no source change reuses the cached core (same inode)", async () => {
-		const a = await deploy("e2e-cache-a");
+		const a = await runShDeploy({ outRoot: keepRoot, version: "e2e-cache-a" });
 		expect(a.coreCached).toBe(false); // miss: the compile really happened
-		const b = await deploy("e2e-cache-b");
+		const b = await runShDeploy({ outRoot: keepRoot, version: "e2e-cache-b" });
 		expect(b.coreCached).toBe(true); // hit: no recompile
 		// the two version dirs hardlink ONE cached core — same inode
 		expect(statSync(join(keepRoot, "e2e-cache-a", CORE_FILENAME)).ino).toBe(
 			statSync(join(keepRoot, "e2e-cache-b", CORE_FILENAME)).ino,
 		);
-	}, 300_000);
-
-	test("keep:N prunes oldest-first and current still resolves", async () => {
-		// state: [a, b], current → b. Two more deploys at keep: 2 prune a then b.
-		const c = await deploy("e2e-cache-c");
-		expect(c.pruned).toEqual(["e2e-cache-a"]);
-		const d = await deploy("e2e-cache-d");
-		expect(d.pruned).toEqual(["e2e-cache-b"]);
-
-		expect(existsSync(join(keepRoot, "e2e-cache-a"))).toBe(false);
-		expect(existsSync(join(keepRoot, "e2e-cache-b"))).toBe(false);
-		expect(readlinkSync(join(keepRoot, "current"))).toBe("e2e-cache-d");
-		// the pruned dirs' core links are gone but the cache entry survived
-		// every prune — d still boots through it.
-		expect(extList(join(keepRoot, "e2e-cache-d")).payload.loadedCount).toBe(0);
 	}, 300_000);
 });

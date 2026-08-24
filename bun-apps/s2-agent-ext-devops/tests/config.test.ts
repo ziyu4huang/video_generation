@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { parseShConfig } from "../src/deploy/lib/config.ts";
+import { parseShConfig, shConfig } from "../src/deploy/lib/config.ts";
+import { DEPLOY_CONFIG, shippedEntries } from "../../s2-agent/src/registry-config.ts";
 import {
 	HOST_API,
 	HOST_MODULE_IDS,
@@ -131,38 +132,22 @@ extensions:
 	});
 
 	test("the real repo registry parses and matches the core's host contract", () => {
-		const text = readFileSync(
-			join(BUN_APPS, "s2-agent", "s2-agent.registry.yaml"),
-			"utf8",
-		);
-		const cfg = parseShConfig(text, { bunAppsDir: BUN_APPS });
+		const cfg = shConfig({ bunAppsDir: BUN_APPS });
 		expect(cfg.hostApi).toBe(HOST_API);
 		expect([...cfg.hostModules].sort()).toEqual([...HOST_MODULE_IDS].sort());
-		expect(cfg.extensions.map((e) => e.name).sort()).toEqual([
-			"archify",
-			"btw",
-			"compact",
-			"devops",
-			"file2md",
-			"hermes-memory",
-			// hyperframes: disabled by default 2026-08-24 (registry entry commented
-			// out pending a proven must-have consumer) — re-list here if it returns.
-			"knowledge-card",
-			"obsidian",
-			"power-tool",
-			"prompt-history",
-			"subagent",
-			"superpowers",
-			// sv-analyzer: deploy-excluded 2026-08-24 (machine-built gitignored wasm) —
-			// excludeReason entries never reach parseShConfig extensions; re-list
-			// here only if it regains a deploy block.
-			"task",
-			"ultracode",
-			"wayfind",
-			// web-access + webui: deploy-excluded 2026-08-24 (dev-machine web
-			// tooling / local-operator UI — not needed on the portable target) —
-			// re-list here only if they regain a deploy block.
-		]);
+		// The expected set is DERIVED from the typed registry itself
+		// (registry-code-as-config t03): no hand-maintained name list to go
+		// stale — the exact failure mode PR #1958 hit. What this still pins is
+		// the PROJECTION: shippedEntries() (deploy block present + enabled)
+		// is exactly what shConfig() ships, in deploy order.
+		expect(cfg.extensions.map((e) => e.name).sort()).toEqual(
+			shippedEntries().map((e) => e.name).sort(),
+		);
+		expect(cfg.extensions.length).toBeGreaterThanOrEqual(10);
+		// The keep→prune plumbing is this single projection (run.ts passes
+		// cfg.keep ?? DEFAULT_KEEP to pruneVersions); behavior itself is
+		// unit-covered in version.test.ts.
+		expect(cfg.keep).toBe(DEPLOY_CONFIG.keep);
 		// subagent must load before ultracode (registry population order).
 		const order = (name: string) =>
 			cfg.extensions.find((e) => e.name === name)!.order;

@@ -27,13 +27,18 @@ describe("parseDeployShArgv", () => {
 	});
 
 	test("parses value flags in both forms", () => {
-		const r = parseDeployShArgv(["--out=/tmp/a", "--version", "9.9.9", "--config=/tmp/c.yaml"]);
+		const r = parseDeployShArgv(["--out=/tmp/a", "--version", "9.9.9"]);
 		expect(r.ok).toBe(true);
 		if (r.ok && r.action.kind === "deploy") {
 			expect(r.action.options.outRoot).toBe("/tmp/a");
 			expect(r.action.options.version).toBe("9.9.9");
-			expect(r.action.options.configPath).toBe("/tmp/c.yaml");
 		}
+	});
+
+	test("--config is retired (registry-code-as-config t03) and errors loudly", () => {
+		const r = parseDeployShArgv(["--config=/tmp/c.yaml"]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/--config is retired.*registry-config/);
 	});
 
 	test("parses negation flags", () => {
@@ -69,7 +74,7 @@ describe("parseDeployShArgv", () => {
 		if (!r.ok) expect(r.error).toMatch(/--list/);
 	});
 
-	test("--list still accepts --out and --config", () => {
+	test("--list still accepts --out", () => {
 		const r = parseDeployShArgv(["--list", "--out", "/tmp/a"]);
 		expect(r.ok).toBe(true);
 		if (r.ok && r.action.kind === "list") expect(r.action.outRoot).toBe("/tmp/a");

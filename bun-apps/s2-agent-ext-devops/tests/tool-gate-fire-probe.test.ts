@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildExtPackage } from "../src/deploy/lib/ext-build.js";
-import { parseShConfig } from "../src/deploy/lib/config.js";
+import { shConfig } from "../src/deploy/lib/config.ts";
 import { runToolGateFireProbe } from "../src/tool-gate-fire-probe.js";
 import { HOST_API, HOST_MODULE_IDS } from "../../s2-agent/src/sh/host-modules.js";
 
@@ -22,13 +22,10 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
 
-// The config is DERIVED from the registry — never hardcode a row here, or a
-// future registry edit renames/splits the extension and this test silently
-// tests a stale shape (the #1713 lesson).
-const toolGateExt = parseShConfig(
-	readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registry.yaml"), "utf8"),
-	{ bunAppsDir: BUN_APPS_DIR },
-).extensions.find((e) => e.name === "tool-gate");
+// The config is DERIVED from the typed registry — never hardcode a row here,
+// or a future registry edit renames/splits the extension and this test
+// silently tests a stale shape (the #1713 lesson).
+const toolGateExt = shConfig({ bunAppsDir: BUN_APPS_DIR }).extensions.find((e) => e.name === "tool-gate");
 
 function expectToolGateRow(): NonNullable<typeof toolGateExt> {
 	// Registry-disabled 2026-08-24 (default-off in dev + deploy after the
