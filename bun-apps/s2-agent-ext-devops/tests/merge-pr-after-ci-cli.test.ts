@@ -339,7 +339,7 @@ describe("merge-pr-after-ci-cli — wrapper contract", () => {
 		// planned commands present…
 		expect(outcome.commands.some((c: string) => c === "gh pr merge 42 --squash")).toBe(true);
 		expect(outcome.commands.some((c: string) => c === "git branch -D feature")).toBe(true);
-		expect(outcome.commands.some((c: string) => c === "git push origin --delete feature")).toBe(true);
+		expect(outcome.commands.some((c: string) => c === "git push --no-verify origin --delete feature")).toBe(true);
 		expect(outcome.commands.some((c: string) => c === "git fetch --prune")).toBe(true);
 		// …but nothing mutated: no merge, no deletes, no prune, no mutating spawn.
 		expect(g.mergeCalls).toEqual([]);
@@ -792,7 +792,7 @@ describe("merge-pr-after-ci-cli — non-origin remote (remoteName threading)", (
 		const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, remoteName: "upstream" });
 		expect(res.exitCode).toBe(0);
 		const outcome = JSON.parse(res.stdout);
-		expect(outcome.commands.some((c: string) => c === "git push upstream --delete feature")).toBe(true);
+		expect(outcome.commands.some((c: string) => c === "git push --no-verify upstream --delete feature")).toBe(true);
 		expect(g.ciOpts[0]?.baseRef).toBe("upstream/main");
 	});
 });

@@ -411,17 +411,20 @@ describe("createBranchClient (glue)", () => {
 		await expect(createBranchClient(fn).deleteLocalBranch("feat/x")).rejects.toThrow(/git branch -D feat\/x failed .*1.*branch not found/);
 	});
 
-	test("deleteRemoteBranch issues git push origin --delete <name>", async () => {
+	test("deleteRemoteBranch issues git push --no-verify origin --delete <name>", async () => {
+		// --no-verify pins the hook-bypass contract: a pure ref delete uploads
+		// no content, so it must never pay the pre-push gate suite (removed in
+		// #1954 "restore once stable" — this stays immune when it returns).
 		const { fn, calls } = rec([]);
 		await createBranchClient(fn).deleteRemoteBranch("feat/x");
-		expect(calls[0]).toEqual({ cmd: "git", args: ["push", "origin", "--delete", "feat/x"] });
+		expect(calls[0]).toEqual({ cmd: "git", args: ["push", "--no-verify", "origin", "--delete", "feat/x"] });
 	});
 
 	test("deleteRemoteBranch THROWS on a non-zero exit (surfaces stderr)", async () => {
 		const { fn } = rec([
 			{ match: (c, a) => c === "git" && a.includes("--delete"), result: { stdout: "", stderr: "remote rejected", exitCode: 1 } },
 		]);
-		await expect(createBranchClient(fn).deleteRemoteBranch("feat/x")).rejects.toThrow(/git push origin --delete feat\/x failed .*1.*remote rejected/);
+		await expect(createBranchClient(fn).deleteRemoteBranch("feat/x")).rejects.toThrow(/git push --no-verify origin --delete feat\/x failed .*1.*remote rejected/);
 	});
 
 	test("remoteName scoping: defaultBranch/deleteRemoteBranch follow a non-origin remote", async () => {
@@ -433,7 +436,7 @@ describe("createBranchClient (glue)", () => {
 		expect(await client.defaultBranch()).toBe("main");
 		await client.deleteRemoteBranch("feat/x");
 		expect(calls[0].args).toEqual(["symbolic-ref", "refs/remotes/upstream/HEAD"]);
-		expect(calls[1].args).toEqual(["push", "upstream", "--delete", "feat/x"]);
+		expect(calls[1].args).toEqual(["push", "--no-verify", "upstream", "--delete", "feat/x"]);
 	});
 
 	test("remoteName scoping: deleteRemoteBranch error names the configured remote", async () => {
@@ -441,7 +444,7 @@ describe("createBranchClient (glue)", () => {
 			{ match: (c, a) => c === "git" && a.includes("--delete"), result: { stdout: "", stderr: "remote rejected", exitCode: 1 } },
 		]);
 		await expect(createBranchClient(fn, "upstream").deleteRemoteBranch("feat/x")).rejects.toThrow(
-			/git push upstream --delete feat\/x failed/,
+			/git push --no-verify upstream --delete feat\/x failed/,
 		);
 	});
 

@@ -165,7 +165,7 @@ Propose this set, then run each **after the user confirms**:
 
 ```bash
 # (1) delete the remote branch
-git push origin --delete feat/<short-scope>
+git push --no-verify origin --delete feat/<short-scope>
 
 # (2) drop stale tracking refs
 git fetch --prune origin
@@ -258,7 +258,7 @@ gh pr merge <n> --merge
 gh pr view <n> --json state,mergedAt -q '{state:.state,mergedAt:.mergedAt}'
 
 # ── post-merge cleanup (PROPOSE → CONFIRM → RUN) ─────────────────
-git push origin --delete feat/<scope>
+git push --no-verify origin --delete feat/<scope>
 git fetch --prune origin
 git merge --ff-only origin/main          # in the primary worktree (owns main)
 git branch -d feat/<scope>

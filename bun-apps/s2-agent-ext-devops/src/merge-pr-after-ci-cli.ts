@@ -592,7 +592,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		const planned = [`gh pr merge ${pr} --squash`];
 		if (!keepBranch && status.headRefName) {
 			planned.push(`git branch -D ${status.headRefName}`);
-			planned.push(`git push ${remoteName} --delete ${status.headRefName}`);
+			planned.push(`git push --no-verify ${remoteName} --delete ${status.headRefName}`);
 		}
 		if (!keepBranch) planned.push("git fetch --prune");
 		const outcome: PrFinishOutcome = {
