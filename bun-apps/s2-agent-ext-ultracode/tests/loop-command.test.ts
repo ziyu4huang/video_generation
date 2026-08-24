@@ -129,3 +129,46 @@ test("command: bare /loop prints usage and arms nothing", async () => {
   assert.match(messages.at(-1)!, /Usage: \/loop/);
   assert.equal(registry.list().length, 0);
 });
+
+// --- status subcommand + bare-word guard (2026-08-24 live incident) ---------
+
+test("parse: bare status/help are subcommands, never prompts", () => {
+  assert.deepEqual(parseLoopArgs("status"), { kind: "status" });
+  assert.deepEqual(parseLoopArgs("STATUS"), { kind: "status" });
+  assert.deepEqual(parseLoopArgs("help"), { kind: "usage" });
+  assert.deepEqual(parseLoopArgs("HELP"), { kind: "usage" });
+  // NON-bare words stay prompts (the incident guard must not over-reach).
+  assert.deepEqual(parseLoopArgs("status of the deploy, please"), {
+    kind: "fixed",
+    prompt: "status of the deploy, please",
+    delaySeconds: WAKEUP_DEFAULT_DELAY_S,
+    clamped: false,
+  });
+});
+
+test("command: /loop status lists armed loops and arms nothing", async () => {
+  const { pi, commands, messages } = fakePi();
+  const registry = new WakeupRegistry();
+  const activeLoop: { id?: string } = {};
+  registerLoopCommand(pi, { registry, activeLoop, now: () => new Date(T0) });
+
+  // Empty state: read-only report, nothing armed.
+  await commands.get("loop")!.handler("status");
+  assert.match(messages.at(-1)!, /No active loops/);
+  assert.equal(registry.list().length, 0);
+
+  // Armed state: id, mode, next fire, fire count/cap — and read-only.
+  await commands.get("loop")!.handler("5m check CI");
+  await commands.get("loop")!.handler("status");
+  const report = messages.at(-1)!;
+  assert.match(report, /Active loops \(1\)/);
+  assert.match(report, /loop-1 \[fixed\] next fire in 300s/);
+  assert.match(report, /fire 0\/50/);
+  assert.equal(registry.list().length, 1);
+  assert.equal(activeLoop.id, "loop-1");
+
+  // /loop help is usage, not a loop named "help".
+  await commands.get("loop")!.handler("help");
+  assert.match(messages.at(-1)!, /Usage: \/loop/);
+  assert.equal(registry.list().length, 1);
+});

@@ -15,23 +15,30 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { WakeupRegistry } from "./wakeup-registry.js";
-import { WAKEUP_DEFAULT_DELAY_S } from "./wakeup-registry.js";
+import { WAKEUP_DEFAULT_DELAY_S, WAKEUP_FIRE_CAP } from "./wakeup-registry.js";
 import { clampDelaySeconds } from "./wakeup-tools.js";
 
 export type LoopCommand =
   | { kind: "off" }
+  | { kind: "status" }
   | { kind: "usage" }
   | { kind: "fixed"; prompt: string; delaySeconds: number; clamped: boolean }
   | { kind: "dynamic"; prompt: string };
 
 /**
  * Pure arg parser (tests pin it): `[interval] <prompt>` | `dynamic <prompt>` |
- * `off`. Interval forms: `30s`, `5m`, `1h` (unit required).
+ * `off` | `status`. Interval forms: `30s`, `5m`, `1h` (unit required).
  */
 export function parseLoopArgs(args: string): LoopCommand {
   const trimmed = args.trim();
   if (!trimmed) return { kind: "usage" };
   if (trimmed.toLowerCase() === "off") return { kind: "off" };
+  // Bare subcommand words must never become a loop PROMPT — live incident
+  // 2026-08-24: `/loop status` silently armed a fixed 10m loop whose prompt
+  // was the word "status". `status` is a real read-only subcommand now;
+  // `help` (and bare `dynamic`, below) are usage errors.
+  if (trimmed.toLowerCase() === "status") return { kind: "status" };
+  if (trimmed.toLowerCase() === "help") return { kind: "usage" };
   // Bare "dynamic" would otherwise arm a FIXED loop whose prompt is the word
   // "dynamic" — the explicit guard keeps it a usage error.
   if (trimmed.toLowerCase() === "dynamic") return { kind: "usage" };
@@ -73,6 +80,7 @@ export interface LoopCommandOptions {
 const USAGE = [
   "Usage: /loop [interval] <prompt> — re-fire the prompt on a fixed cadence (interval: 30s | 5m | 1h, unit required; default 10m).",
   "       /loop dynamic <prompt> — the model paces itself via schedule_wakeup (60–3600s, with a reason).",
+  "       /loop status — list active loops (mode, next fire, fire count/cap).",
   "       /loop off — cancel every active loop.",
   "Loops are session-live: they end when the session ends, and dynamic loops end when a fired turn doesn't call schedule_wakeup.",
 ].join("\n");
@@ -89,6 +97,22 @@ export function registerLoopCommand(pi: ExtensionAPI, options: LoopCommandOption
       const parsed = parseLoopArgs(args);
       if (parsed.kind === "usage") {
         await say(USAGE);
+        return;
+      }
+      if (parsed.kind === "status") {
+        const entries = registry.list();
+        if (!entries.length) {
+          await say(
+            "No active loops (no pending wakeups). Arm one with /loop [interval] <prompt> or /loop dynamic <prompt>.",
+          );
+          return;
+        }
+        const lines = entries.map((e) => {
+          const secs = Math.max(0, Math.round((e.dueAt - now().getTime()) / 1000));
+          const reason = e.lastReason ? ` — last reason: ${e.lastReason}` : "";
+          return `- ${e.id} [${e.mode}] next fire in ${secs}s (${new Date(e.dueAt).toLocaleTimeString()}) — fire ${e.fireCount}/${WAKEUP_FIRE_CAP}${reason}`;
+        });
+        await say(`Active loops (${entries.length}):\n${lines.join("\n")}`);
         return;
       }
       if (parsed.kind === "off") {
