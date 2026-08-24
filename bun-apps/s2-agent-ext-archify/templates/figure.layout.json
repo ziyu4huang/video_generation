@@ -1,6 +1,6 @@
 {
   "name": "figure",
-  "description": "One exhibit, captioned: a caption line, the diagram (from `ir`), and a note under it — the authoritative-figure slide decks use to show the source that defends the argument.",
+  "description": "One exhibit, captioned: a caption line, the diagram (from `ir`), and a note under it — the authoritative-figure slide that shows the source defending the argument.",
   "chrome": true,
   "slots": {
     "caption": {

@@ -240,7 +240,7 @@ describe("a composed deck", () => {
   });
 });
 
-describe("examples/deck-general — the seven templates build as one deck (ticket 07)", () => {
+describe("examples/deck-general — all ten shipped templates build as one deck (tickets 07 + 30)", () => {
   let built: Awaited<ReturnType<typeof build>>;
   beforeAll(async () => {
     built = await build(GENERAL_MANIFEST, "general");

@@ -20,8 +20,8 @@ with the D3 lock proven (not argued):
 
 - **3 new shipped templates** (data): `decision` (diagram 60% + call + why),
   `timeline-with-diagram` (milestones row + diagram), `figure` (caption + diagram +
-  note) — all binding `{kind:"diagram", from:"{slide.ir}", fit:"content"}; slots per
-  spec.md §7.2.1.
+  note) — all binding `{kind:"diagram", from:"{slide.ir}"}` (canvas fit — template
+  ContentSpecs do not carry `fit`); slots per spec.md §7.2.1.
 - **`requiresIr`** renderless validation: `loadTemplate` flags templates that bind
   `{slide.ir}`; `slotProblems` reports a missing `ir` naming the template.
 - **D3/D5 proof**: no frozen constant or emitter geometry changes (the seam is already

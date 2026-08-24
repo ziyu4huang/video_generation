@@ -328,7 +328,8 @@ the compiler, so no template emits it).
 #### 7.2.2 Validation — `requiresIr` (renderless)
 
 `loadTemplate` sets `requiresIr: true` when any body node's content binds
-`from === "{slide.ir}"` on a `diagram` kind. `slotProblems` (`src/deck-lint-tool.ts`)
+`from === "{slide.ir}"` on a `diagram` kind; the `diagram` code layout also declares it.
+`slotProblems` (`src/deck-lint-tool.ts`)
 checks it: an ir-slot template slide without `ir` → problem naming the template —
 instead of the build-time "IR not found at ''" (loud but late). No build-time behavior
 change (the exists-check in `resolveDiagrams` stays as backstop).
@@ -346,6 +347,10 @@ template-diagram golden in `layout-template.test.ts`.
 
 - `tests/shipped-templates.test.ts`: SHIPPED 7→10, one PAYLOADS entry per template +
   regenerated `tests/fixtures/templates/{decision,timeline-with-diagram,figure}.txt`.
+  The template-diagram golden lives in these shipped goldens (the `diagram "<ir>"`
+  formatBlocks lines) rather than a separate per-primitive golden in
+  `layout-template.test.ts` — the primitive already has code-layout coverage there;
+  the new thing is the template binding, which the shipped goldens pin.
 - `deck-lint-tool.test.ts`: `requiresIr` case (missing ir names the template).
 - Demo slides: `examples/deck-general/deck.config.json` gains 3 slides; the pinned layout
   order in `tests/deck-composition.test.ts:250-264` updated deliberately.

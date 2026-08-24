@@ -121,7 +121,8 @@ describe("archify_deck_lint — catalog discovery (D9)", () => {
     expect(r.isError).toBeUndefined();
     const layouts = r.details["layouts"] as { name: string; description: string; slots: object }[];
     // Six code layouts first, then the probe (its tier precedes the shipped
-    // one), then ticket 06/30's shipped templates (7 + 3 ir-slot), alphabetically.
+    // one), then ticket 06/30's shipped templates (7 + 3 ir-slot) in the
+    // loader's filename sort (`timeline-with-diagram` < `timeline`).
     expect(layouts.map((l) => l.name)).toEqual([
       "title",
       "section",
