@@ -43,19 +43,22 @@ export interface ModelPreset {
 /** Shared vision capability block: single local model across all vision tiers
  *  (vision / vision-large / vision-medium / vision-small). Users can re-point
  *  individual tiers later — resolveModelRole falls back to `vision` when a
- *  tiered key isn't set, so this four-key shape is the discoverable default. */
+ *  tiered key isn't set, so this four-key shape is the discoverable default.
+ *  Mirrors s2-agent's DEFAULT_MODEL_TIER_CONFIG: bonsai-27b with the :off
+ *  no-think pin (user directive 2026-08-24; the qwen id here had drifted and
+ *  carried no :off — always-on reasoning burn on every vision call). */
 const LMSTUDIO_VISION_CAPS = {
-  vision: "lm-studio/qwen/qwen3.8-27b",
-  "vision-large": "lm-studio/qwen/qwen3.8-27b",
-  "vision-medium": "lm-studio/qwen/qwen3.8-27b",
-  "vision-small": "lm-studio/qwen/qwen3.8-27b",
+  vision: "lm-studio/prism-ml/bonsai-27b:off",
+  "vision-large": "lm-studio/prism-ml/bonsai-27b:off",
+  "vision-medium": "lm-studio/prism-ml/bonsai-27b:off",
+  "vision-small": "lm-studio/prism-ml/bonsai-27b:off",
 };
 
 export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "glm-lmstudio",
     label: "GLM (official) + LM Studio vision",
-    summary: "tiers: glm-4.7 / glm-5.3  ·  vision tiers (large/mid/small): lm-studio qwen3.8-27b",
+    summary: "tiers: glm-4.7 / glm-5.3  ·  vision tiers (large/mid/small): lm-studio bonsai-27b:off",
     config: {
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
       capabilities: { ...LMSTUDIO_VISION_CAPS },
@@ -64,7 +67,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek-pro",
     label: "DeepSeek pro (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / flash / pro  ·  vision tiers: lm-studio qwen3.8-27b",
+    summary: "tiers: gemma-4-12b / flash / pro  ·  vision tiers: lm-studio bonsai-27b:off",
     config: {
       tiers: {
         small: "lm-studio/google/gemma-4-12b",
@@ -77,7 +80,7 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek-flash",
     label: "DeepSeek flash (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision tiers: lm-studio qwen3.8-27b",
+    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision tiers: lm-studio bonsai-27b:off",
     config: {
       tiers: {
         small: "lm-studio/google/gemma-4-12b",

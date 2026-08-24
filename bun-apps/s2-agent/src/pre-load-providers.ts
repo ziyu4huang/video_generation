@@ -536,19 +536,24 @@ export interface ModelTierConfig {
 
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
 	tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-	// `capabilities.vision` = gemma-4-12b with the no-think pin: the spec's
-	// `:off` suffix makes every vision call run thinking-off, which the gemma
-	// catalog entry maps to `reasoning_effort:"none"` (measured honored
-	// 2026-08-24 — reasoning_len 0, direct content, ~4.5s). This replaces the
-	// qwen default, which burned always-on reasoning tokens on every vision
-	// call. The never-resolving sibling-id mechanism
-	// (`qwen/qwen3.8-27b-nothink`) stays catalog-only — see that entry's
-	// comment.
+	// `capabilities.vision` = prism-ml/bonsai-27b with the no-think pin (user
+	// directive 2026-08-24 — QUALITY over speed for the vision lane; gemma
+	// stays the fallback catalog lane and remains ~5× faster per image call
+	// measured 2026-08-24: cache-busted 1672×941 real image, bonsai 3.4–3.8s
+	// with richer descriptions vs gemma 0.5–0.8s — flip the spec back if
+	// captioning throughput ever matters more than description depth). The
+	// `:off` suffix makes every vision call run thinking-off; the bonsai
+	// catalog entry maps it to `reasoning_effort:"none"` (measured honored
+	// 2026-08-24: 0 reasoning tokens, direct content). The same suffix on the
+	// CLI `--model` path is dropped by a session-creation handoff bug (see
+	// the study note above LM_STUDIO_COMPAT) — the capability-spec path was
+	// not re-verified end-to-end; if vision calls start emitting reasoning
+	// burn, suspect that handoff, not this spec.
 	capabilities: {
-		vision: "lm-studio/google/gemma-4-12b:off",
-		"vision-large": "lm-studio/google/gemma-4-12b:off",
-		"vision-medium": "lm-studio/google/gemma-4-12b:off",
-		"vision-small": "lm-studio/google/gemma-4-12b:off",
+		vision: "lm-studio/prism-ml/bonsai-27b:off",
+		"vision-large": "lm-studio/prism-ml/bonsai-27b:off",
+		"vision-medium": "lm-studio/prism-ml/bonsai-27b:off",
+		"vision-small": "lm-studio/prism-ml/bonsai-27b:off",
 	},
 };
 
