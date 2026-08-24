@@ -113,11 +113,11 @@ The defaults are adjustable at runtime via environment variables (read at call t
 
 | Env var | Effect |
 | --- | --- |
-| `SUBAGENT_TOKEN_BUDGET_DISABLE=1|true` | No default budget at all (explicit `tokenBudget` still applies). |
+| `SUBAGENT_TOKEN_BUDGET_DISABLE=1\|true` | No default budget at all (explicit `tokenBudget` still applies). |
 | `SUBAGENT_TOKEN_BUDGET_SMALL` / `_MEDIUM` / `_BIG` | Replace that tier's ceiling (positive integer; applies to whichever tier the dispatch resolved to). |
 | `SUBAGENT_TOKEN_BUDGET_MULTIPLIER` | Multiply the result after any absolute override (positive finite float). |
 | `SUBAGENT_MAX_TURNS` | Replace the role envelope's turn cap (positive integer; applies only when the envelope applies — explicit params still opt out entirely). |
-| `SUBAGENT_TIME_BUDGET_DISABLE=1\|true` | Strip ONLY the role envelope's wall-clock bound — token/turn caps stay applied. At the tool seam the 15-min `DEFAULT_TIMEOUT_MS` still lands; at direct-call seams wall-clock is then unbounded (token/turn caps remain the runaway bound). Not the whole-envelope escape — that is `SUBAGENT_TOKEN_BUDGET_DISABLE`. |
+| `SUBAGENT_TIME_BUDGET_DISABLE=1\|true` | Strip ONLY the role envelope's wall-clock bound — token/turn caps stay applied. At the tool/batch seams the 15-min `DEFAULT_TIMEOUT_MS` then lands (note this TIGHTENS writer 20 min → 15 min, and widens recon 5 → 15); other direct-call seams pass `timeoutMs: undefined` through, so wall-clock is unbounded there (token/turn caps remain the runaway bound) — except the four hermes handlers, which pin their own `timeoutMs` and are inert to this whole family. Not the whole-envelope escape — that is `SUBAGENT_TOKEN_BUDGET_DISABLE`. |
 | `SUBAGENT_TIME_BUDGET_RECON` / `_WRITER` | Replace that role's wall (positive integer, ms; applies only when the envelope applies). |
 | `SUBAGENT_TIME_BUDGET_MULTIPLIER` | Multiply the role wall after any absolute override (positive finite float; floored to ≥1 ms). |
 | `SUBAGENT_MAX_BACKGROUND` | Concurrent background-dispatch ceiling (default 4; at capacity a background dispatch fails fast instead of queueing — wait for or stop a running one, or raise the cap). |

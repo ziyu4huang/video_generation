@@ -177,8 +177,8 @@ function timeEnvKey(role: DispatchRole): string {
 }
 
 /**
- * Resolve the role envelope's wall-clock bound through the time env family
- * family, mirroring the token family's precedence: per-role absolute env
+ * Resolve the role envelope's wall-clock bound through the time env family,
+ * mirroring the token family's precedence: per-role absolute env
  * override → multiplier (applied after the override, floored to ≥1 ms); DISABLE
  * is checked FIRST so it wins over any override/multiplier, exactly like
  * SUBAGENT_TOKEN_BUDGET_DISABLE. Numeric bounds

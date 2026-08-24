@@ -1,8 +1,21 @@
 # Ticket 02 — SUBAGENT_TIME_BUDGET_* env knobs: the time envelope gains the token family's env surface
 
-Status: in progress (2026-08-25, resumed from the parked fog list — fog item
-"Env knob extension to time (`SUBAGENT_TIME_BUDGET_*`)"; queue head named by
-next-goal-20260825-045630)
+Status: done (PR #2024, 2026-08-25 — reviewer APPROVE_WITH_NITS, all nits
+applied pre-merge: doc typo, README token-row pipe escape, DISABLE's
+writer-tightening 20→15 + hermes-inert clauses, status flip; core-runtime
+482/0 + typecheck + biome-clean, ext-subagent canonical 700/0, ADR gate
+17/0; merged via merge-pr-after-ci this session) · resumed from the parked
+fog list (fog item "Env knob extension to time (`SUBAGENT_TIME_BUDGET_*`)";
+queue head named by next-goal-20260825-045630)
+
+Data caveat for the ≥100-rerun re-measure (reviewer nit 5): under
+`SUBAGENT_TIME_BUDGET_DISABLE` the durable `budgetCohort` still tags
+`envelope-<role>` with `timeoutMs` ABSENT — per role-dispatch.ts an absent
+cohort field means "unknown", so time-disabled runs are indistinguishable
+from no-wall-data rows in the recalibration corpus. Acceptable now (the
+knob is host-level and rare); if the corpus ever shows anomalous
+time-distribution in `envelope-*` rows, check the host env before touching
+bounds.
 
 ## Why now
 
@@ -70,9 +83,9 @@ existing family; it belongs in the map's Decisions (per CLAUDE.md ADR bar).
 
 ## Done-when
 
-- [ ] Three time knobs resolve in `roleAwareDefaults` with token-family
+- [x] Three time knobs resolve in `roleAwareDefaults` with token-family
       precedence (disable > override > multiplier), bounds unchanged.
-- [ ] s2-agent-core-runtime + s2-agent-ext-subagent canonical gates green.
-- [ ] README env table documents the three knobs.
-- [ ] Map fog item closed with the decision; PR merged CLEAN via the devops
+- [x] s2-agent-core-runtime + s2-agent-ext-subagent canonical gates green.
+- [x] README env table documents the three knobs.
+- [x] Map fog item closed with the decision; PR merged CLEAN via the devops
       chain.
