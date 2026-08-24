@@ -145,14 +145,17 @@ extensions:
 			"devops",
 			"file2md",
 			"hermes-memory",
-			"hyperframes",
+			// hyperframes: disabled by default 2026-08-24 (registry entry commented
+			// out pending a proven must-have consumer) — re-list here if it returns.
 			"knowledge-card",
 			"obsidian",
 			"power-tool",
 			"prompt-history",
 			"subagent",
 			"superpowers",
-			"sv-analyzer",
+			// sv-analyzer: deploy-excluded 2026-08-24 (machine-built gitignored wasm) —
+			// excludeReason entries never reach parseShConfig extensions; re-list
+			// here only if it regains a deploy block.
 			"task",
 			"ultracode",
 			"wayfind",
