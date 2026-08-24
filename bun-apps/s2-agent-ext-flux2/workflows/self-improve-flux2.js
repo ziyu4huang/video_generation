@@ -82,19 +82,20 @@ const CONSECUTIVE_STATIC = Math.max(0, Number(a.consecutiveStatic ?? 2));
 // attempt 0's generation. Empty/absent → no few-shot (first run).
 const FEWSHOT = typeof a.fewShot === "string" && a.fewShot.trim() ? String(a.fewShot) : "";
 // Optional judge-model override. The pose_dsg judge's default served model
-// (prism-ml/bonsai-27b) returns 0 atoms on multi-subject images (measured
-// 3/3 on L4-02 — see goal 0704 §4). A stronger tier (e.g. prism-ml/bonsai-27b)
-// analyzes them correctly. Injected into the run.py caption --model flag when set.
+// (the 12b-qat lane auto-resolved by caption.py) returns 0 atoms on
+// multi-subject images (measured 3/3 on L4-02 — see goal 0704 §4). A stronger
+// tier (the 31b-qat lane) analyzes them correctly. Injected into the run.py
+// caption --model flag when set.
 const JUDGE_MODEL = typeof a.judgeModel === "string" && a.judgeModel.trim() ? String(a.judgeModel) : "";
 // Fallback judge tier for 0-atom verdicts (goal 0704 §1 — the pure-win fix the
 // 0612 arc left documented-but-not-coded). The default served pose_dsg judge
-// (prism-ml/bonsai-27b) returns 0 atoms on multi-subject images (measured 3/3
-// on L4-02 — see [[pose-dsg-empty-atoms-multi-subject-judge-tier]]); a stronger
+// (the 12b-qat lane) returns 0 atoms on multi-subject images (measured 3/3
+// on L4-02 — see [[pose-dsg-empty-atoms-multi-subject-judge-tier]]); the 31b-qat
 // tier analyzes them correctly. judgePose auto-retries ONCE with this tier when
 // 0 atoms are returned under any other judge, so a user no longer has to KNOW to
 // pass --judge-model on multi-subject. Single-subject poses judge fine under the
 // default and never trigger this → no latency cost there.
-const FALLBACK_JUDGE_MODEL = "prism-ml/bonsai-27b";
+const FALLBACK_JUDGE_MODEL = "google/gemma-4-31b-qat";
 
 // Loop MODE (measured verdict, goal 0704 §1). On flux2-klein, the loop's
 // reflection machinery does NOT beat single-shot best-of-N — seed sampling is

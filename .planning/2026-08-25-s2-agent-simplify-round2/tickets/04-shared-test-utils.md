@@ -21,4 +21,4 @@ Source: map Context "Tests" harness-duplication cluster (~150-250 LOC; net targe
 - [x] Exactly one TEST makeMockPi / one spawn core / one tmpdir helper in the package (src/__tests__/test-utils.ts; the only other in-package `makeMockPi` is ext-doctor.ts:50 — a PRODUCTION runtime probe, deliberately not folded into a tests dir)
 - [x] e2e tier green via ext-devops run-test.ts (full, not hand-picked)
 - [x] `bun run --cwd bun-apps/s2-agent test` + `typecheck` green; numstat recorded honestly (−208 deletions / +163 helper / +40 all-in)
-- [ ] devops local_ci green; PR merged via devops chain; reviewer pass (local_ci pass 111.2s; reviewer READY 2 NITs fixed; merge pending)
+- [x] devops local_ci green; PR merged via devops chain; reviewer pass (local_ci 111.2s; reviewer READY, 2 receipt NITs fixed; PR #2019 squash-merged e00e8d7a)

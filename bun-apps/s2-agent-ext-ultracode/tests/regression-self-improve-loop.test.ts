@@ -409,9 +409,9 @@ describe("flux2 self-improve loop", () => {
           }
           if (/Validate this generated pose/.test(p)) {
             judgeCalls += 1;
-            // The fallback retry appends ` --model "prism-ml/bonsai-27b"` to
+            // The fallback retry appends ` --model "google/gemma-4-31b-qat"` to
             // the run.py caption command. Distinguish the two calls by it.
-            const isFallback = /--model "prism-ml\/bonsai-27b"/.test(p);
+            const isFallback = /--model "google\/gemma-4-31b-qat"/.test(p);
             if (!isFallback) {
               // default judge → 0 atoms (the multi-subject footgun)
               return {
@@ -461,13 +461,13 @@ describe("flux2 self-improve loop", () => {
   });
 
   it("judge-tier auto-fallback is a no-op when the user already pinned the fallback tier", async () => {
-    // If the user passed --judge-model prism-ml/bonsai-27b explicitly and it STILL
+    // If the user passed --judge-model google/gemma-4-31b-qat explicitly and it STILL
     // returns 0 atoms, there is no stronger tier to try — declare unscored
     // instead of looping. Guards against a retry storm on a pinned fallback.
     let judgeCalls = 0;
     const result = await runWorkflow(SOURCE, {
       ...common,
-      args: { ...common.args, attempts: 1, seed: 8, judgeModel: "prism-ml/bonsai-27b" },
+      args: { ...common.args, attempts: 1, seed: 8, judgeModel: "google/gemma-4-31b-qat" },
       agent: {
         async run(prompt: string) {
           const p = String(prompt ?? "");

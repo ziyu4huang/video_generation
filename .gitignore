@@ -123,3 +123,4 @@ bun-apps/s2-agent-ext-wayfind/vendor/mermaid.min.js
 # lastPassTs/lastCanaryTs) — machine-local, never committed.
 bun-apps/s2-agent-ext-devops/.cache/
 bun-apps/s2-agent-ext-archify/vendored/mermaid.min.js
+output/

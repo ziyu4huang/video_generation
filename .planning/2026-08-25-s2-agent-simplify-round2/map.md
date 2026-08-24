@@ -71,7 +71,7 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 ### Phase B — tests
 
 - [x] 03 — Same-seam test dedup (complete 2026-08-25, PR #2018 squash 9859324d: 7 candidates, per-deletion equivalence proofs in ticket Outcome; 11 files +82/−248; 1021→969 tests 0 fail; reviewer READY 0 blockers 4 NITs recorded; effort=full e2e green)
-- [ ] 04 — Shared test-utils: one makeMockPi + one spawn harness (e2e/_helpers runCli promoted) + one tmpdir helper; net −100-150 LOC
+- [x] 04 — Shared test-utils (complete 2026-08-25, PR #2019 squash e00e8d7a: src/__tests__/test-utils.ts — makeMockPi union recorder / spawnCaptureSync+Async / tempDir+cleanupTempDirs; numstat honestly −208 dedup / +163 helper / +40 all-in; fixed a dead dirs[] tmp-leak; 15 try/finally tmpdir files deliberately unchanged; reviewer READY after 2 receipt NITs fixed)
 
 ### Phase C — structure
 

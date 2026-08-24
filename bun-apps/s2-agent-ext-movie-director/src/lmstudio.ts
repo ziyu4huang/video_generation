@@ -71,11 +71,12 @@ export async function catalogModelKeys(apiUrl: string, fetchImpl: typeof fetch =
 }
 
 /**
- * The default brain resolver (mirrors caption.py's `resolve_default_model` /
- * `_resolve_model` with no explicit `--model`): the PREFERRED model is the
- * central vision slot from ~/.pi/workflows/model-tiers.json
+ * The default brain resolver (DELIBERATELY DIVERGED from caption.py's
+ * `resolve_default_model` by the 2026-08-25 bonsai directive — python's ladder
+ * still prefers the 12b-qat lane; do not "sync" this back): the PREFERRED model
+ * is the central vision slot from ~/.pi/workflows/model-tiers.json
  * (capabilities.vision — provider prefix stripped, so LM Studio ids keep their
- * own "google/" prefix). When that isn't configured, fall back to the legacy
+ * own "prism-ml/" prefix). When that isn't configured, fall back to the legacy
  * local probe: any already-loaded model, then the auto-load default if it's
  * downloaded, then DEFAULT_MODEL as terminal fallback.
  */

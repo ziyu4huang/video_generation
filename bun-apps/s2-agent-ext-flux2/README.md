@@ -145,37 +145,38 @@ generation weakness, not a prompt-coverage gap). So:
   where defects may be prompt-coverage gaps (untested on krea2 / non-distilled
   flux2). On flux2-klein it has **not** been observed to beat best-of-N.
 
-### Judge-tier contract — multi-subject poses REQUIRE the 31b judge
+### Judge-tier contract — multi-subject poses need the 31b-qat judge
 
-The pose_dsg judge's default served model (`lm-studio/prism-ml/bonsai-27b`)
-**returns 0 atoms on multi-subject images** — measured 3/3 on the two-person
-pose L4-02 (the verdict comes back well-shaped but with zero atoms, faithfulness
-0, anatomy all-false; ~3× latency). It judges single-subject poses correctly.
-For any multi-subject pose you MUST pass a stronger tier:
+The pose_dsg judge's default served model (the **12b-qat lane**, auto-resolved
+by `run.py caption`'s model ladder) **returns 0 atoms on multi-subject
+images** — measured 3/3 on the two-person pose L4-02 (the verdict comes back
+well-shaped but with zero atoms, faithfulness 0, anatomy all-false; ~3×
+latency). It judges single-subject poses correctly. For any multi-subject pose
+you MUST pass the stronger tier:
 
 ```bash
 bash bun-apps/s2-agent/scripts/run-self-improve-loop.sh --pose-id L4-02 \
-  --judge-model prism-ml/bonsai-27b
+  --judge-model google/gemma-4-31b-qat
 ```
 
 Without `--judge-model`, multi-subject poses will exhaust the full attempt budget
 on unscored (0-atom) attempts. (Since 2026-07-04, repeated unscored attempts do
 trip the plateau guard — see below — but the verdict is still untrustworthy.)
-The 26b default is fine for single-subject poses.
+The 12b-qat default is fine for single-subject poses.
 
 #### Judge-tier auto-fallback (2026-07-04)
 
-`judgePose` now **auto-retries ONCE with `prism-ml/bonsai-27b`** when the
+`judgePose` now **auto-retries ONCE with the 31b-qat tier** when the
 configured judge returns a 0-atom verdict, so multi-subject poses no longer
 silently fail when you forget `--judge-model`. The fallback is logged visibly
 (`[judge] pose_dsg returned 0 atoms under ... → retrying once with ...`) and
 flagged on the verdict (`judgeFallback: true`) so the tier dependency stays
-observable. Single-subject poses judge fine under the 26b default and never
+observable. Single-subject poses judge fine under the default and never
 trigger the fallback, so they pay no latency cost. The fallback is suppressed
-when `--judge-model` is already the 31b tier (no retry storm on a pinned
-fallback). Explicit `--judge-model prism-ml/bonsai-27b` is still the
-cheapest path for a known multi-subject run (avoids the ~60s wasted 26b call),
-but forgetting it is no longer a hard failure.
+when `--judge-model` is already the 31b-qat tier (no retry storm on a pinned
+fallback). Explicit `--judge-model google/gemma-4-31b-qat` is still the
+cheapest path for a known multi-subject run (avoids the wasted default-tier
+call), but forgetting it is no longer a hard failure.
 
 ### Plateau guard (and the unscored blind-spot fix)
 

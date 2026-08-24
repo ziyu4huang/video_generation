@@ -47,7 +47,7 @@ async function lmStudioRegistry(): Promise<ModelRegistry> {
         api: "openai-completions",
         apiKey: "lm-studio",
         models: [
-          { id: "prism-ml/bonsai-27b", name: "Gemma 4 12B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
+          { id: "prism-ml/bonsai-27b", name: "Bonsai 27B (LM Studio)", reasoning: true, input: ["text", "image"], contextWindow: 200000, maxTokens: 16384, cost: FREE_COST, compat: LM_STUDIO_COMPAT },
         ],
       });
       return reg;

@@ -8,8 +8,7 @@
  *  - The orchestrator calls `explainPage()` once per page, feeding the PNG as
  *    an image attachment to the model via `session.prompt(text, { images })`.
  *
- * The model defaults to `lm-studio/prism-ml/bonsai-27b` (a vision-capable
- * Gemma served locally). Override with --model / --provider / --thinking.
+ * The model defaults to `lm-studio/prism-ml/bonsai-27b` (a vision-capable local lane; see the s2-agent provider catalog). Override with --model / --provider / --thinking.
  *
  * Output markdown shape (Obsidian-compatible):
  *
