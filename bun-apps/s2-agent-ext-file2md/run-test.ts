@@ -90,9 +90,11 @@ let overall = 0;
 let logFd: number | null = null;
 
 function runBun(args: string[]): number {
+  const log = logFd;
+  if (log === null) throw new Error("log fd not initialized before run");
   const r = spawnSync("bun", ["run", "--silent", ...args], {
     cwd: SCRIPT_DIR,
-    stdio: ["ignore", logFd!, logFd!],
+    stdio: ["ignore", log, log],
   });
   return r.status ?? 1;
 }
@@ -107,9 +109,11 @@ function runContract(): number {
   // scope-baked canonicals (knowledge-card, obsidian) bun unions the
   // positionals and re-runs the whole package suite as the "contract" step.
   // The canonical-`bun run test` mandate covers the quick/full BASE runner.
+  const log = logFd;
+  if (log === null) throw new Error("log fd not initialized before run");
   const r = spawnSync("bun", ["test", CONTRACT_TEST], {
     cwd: SCRIPT_DIR,
-    stdio: ["ignore", logFd!, logFd!],
+    stdio: ["ignore", log, log],
   });
   return r.status ?? 1;
 }

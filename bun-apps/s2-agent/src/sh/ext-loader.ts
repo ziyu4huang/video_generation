@@ -74,7 +74,10 @@ export interface LoadOptions {
  * throws, so a vendored copy can never shadow the shared runtime and split a
  * singleton.
  */
-export function extRequire(dir: string, hostRequire: (spec: string) => unknown): (spec: string) => unknown {
+/** extRequire's require — carries a resolve member mirroring require.resolve. */
+export type ExtRequire = ((spec: string) => unknown) & { resolve(spec: string): string };
+
+export function extRequire(dir: string, hostRequire: (spec: string) => unknown): ExtRequire {
 	let local: NodeJS.Require | null = null;
 	const fn = (spec: string): unknown => {
 		try {

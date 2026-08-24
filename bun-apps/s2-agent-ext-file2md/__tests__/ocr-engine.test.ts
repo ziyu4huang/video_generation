@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { OcrSession, npmLangPath, normalizeOcrLang } from "../src/ocr/ocr.ts";
+import { normalizeOcrLang, npmLangPath, OcrSession } from "../src/ocr/ocr.ts";
 import { bgraToBmp } from "../src/raster/bmp.ts";
 
 const sessions: OcrSession[] = [];

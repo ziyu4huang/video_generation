@@ -1,5 +1,4 @@
 import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GATE_DEFS } from "@repo/s2-agent-core-interface";
