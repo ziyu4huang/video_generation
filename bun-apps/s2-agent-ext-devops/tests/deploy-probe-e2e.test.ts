@@ -58,6 +58,18 @@ const S2_AGENT_NAME = (
 const agentDirEnv: Record<string, string> = {
 	PI_CODING_AGENT_DIR: piHome,
 	[`${S2_AGENT_NAME.toUpperCase()}_CODING_AGENT_DIR`]: piHome,
+	// CI boots the deployed binary with the DEEPSEEK provider: the baked
+	// default (zai/glm-5.3, BUILTIN_MODEL_DEFAULT) sits on the operator's
+	// coding-plan quota, and a provider-init failure there (zai answers 401
+	// code:1000 "Authentication Failed" when the plan runs out) would turn the
+	// stderr-clean assertion below red for an operator-account reason, not an
+	// extension defect. Precedence (src/cli/sessions/shared.ts resolveLLM):
+	// explicit flag > PI_PROVIDER/PI_MODEL/PI_THINKING env > settings.json >
+	// BUILTIN_MODEL_DEFAULT. PI_MODEL alone is NOT enough — the env value is
+	// the model id, provider comes from PI_PROVIDER.
+	PI_PROVIDER: "deepseek",
+	PI_MODEL: "deepseek-v4-flash-vision-exp",
+	PI_THINKING: "off",
 };
 
 let target = "";
