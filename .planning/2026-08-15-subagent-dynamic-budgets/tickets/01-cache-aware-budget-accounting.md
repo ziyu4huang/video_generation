@@ -1,7 +1,9 @@
 # Ticket 01 — cache-aware budget accounting: guard counts real tokens (input+output), cache excluded
 
-Status: in progress · resumed from the parked fog list (fog item #1: cacheRead
-accounting policy) · 2026-08-25
+Status: done (PR #2012, merged CLEAN 2026-08-25 — verify-merge MERGED,
+outOfScope=[], branchSpent=true; core-runtime 473/0, ext-subagent canonical
+700/0, test:adr 17/0, local-ci pass 108s) · resumed from the parked fog list
+(fog item #1: cacheRead accounting policy)
 
 ## Why now (the ledger evidence, measured 2026-08-25)
 
