@@ -42,6 +42,7 @@
  */
 import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
 import { readAgentSettings } from "../paths.ts";
+import { isPatchOrModelsDebug } from "./index.ts";
 
 /**
  * Pure: given parsed settings + env, return the floor model id to inject (or
@@ -73,12 +74,6 @@ if (floor) {
 	process.env.OB_SUBAGENT_MODEL = floor;
 }
 
-if (
-	floor &&
-	(process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-		process.env.BUN_PI_DEBUG_PATCHES === "true" ||
-		process.env.PI_DEBUG_MODELS === "1" ||
-		process.env.PI_DEBUG_MODELS === "true")
-) {
+if (floor && isPatchOrModelsDebug()) {
 	console.error("[bun-pi] subagent-model-floor set OB_SUBAGENT_MODEL:", floor);
 }

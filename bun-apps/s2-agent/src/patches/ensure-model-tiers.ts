@@ -56,14 +56,11 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { DEFAULT_MODEL_TIER_CONFIG, buildModelTiersJson, shouldEnsureModelTiers } from "../pre-load-providers.ts";
+import { isPatchOrModelsDebug } from "./index.ts";
 
 const MODEL_TIERS_PATH = join(homedir(), ".pi", "workflows", "model-tiers.json");
 
-const debug =
-	process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-	process.env.BUN_PI_DEBUG_PATCHES === "true" ||
-	process.env.PI_DEBUG_MODELS === "1" ||
-	process.env.PI_DEBUG_MODELS === "true";
+const debug = isPatchOrModelsDebug();
 const enabled = process.env.BUN_PI_ENSURE_MODEL_TIERS !== "0";
 
 // Import-time side effect: materialize the config file before main() if (and

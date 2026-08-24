@@ -58,7 +58,7 @@
  * asserted here (mirrors subagent-model-floor / resolvePatchPlan).
  */
 import { AgentSession } from "@earendil-works/pi-coding-agent";
-import { envFlag } from "./index.ts";
+import { envFlag, isPatchDebug } from "./index.ts";
 import { readAgentSettings } from "../paths.ts";
 
 /** Canonical instruction label per BCP-47 tag (pi owns the wording). Lowercased key. */
@@ -254,7 +254,7 @@ export function applyForceResponseLanguagePatch(): boolean {
 // PATCH_TABLE import gate controls whether this file is loaded at all).
 const outcome = applyForceResponseLanguagePatch();
 
-if (process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true") {
+if (isPatchDebug()) {
 	console.error(`[bun-pi] force-response-language patch ${outcome ? "applied" : "DID NOT BIND"}`);
 }
 

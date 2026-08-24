@@ -21,6 +21,7 @@
  * was loaded.
  */
 import { detectMode, type BundlerMode } from "../mode.ts";
+import { isPatchDebug } from "./index.ts";
 
 const url = import.meta.url;
 const mode = detectMode(url);
@@ -39,8 +40,7 @@ export function shouldSkipUpdateCheck(mode: BundlerMode): boolean {
 }
 
 const isShippedArtifact = shouldSkipUpdateCheck(mode);
-const debug = process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-  process.env.BUN_PI_DEBUG_PATCHES === "true";
+const debug = isPatchDebug();
 
 if (isShippedArtifact) {
   // Respect an explicit user choice either way.

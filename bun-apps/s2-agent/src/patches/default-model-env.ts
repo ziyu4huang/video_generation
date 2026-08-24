@@ -66,6 +66,7 @@
  */
 import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
 import { readAgentSettings } from "../paths.ts";
+import { isPatchOrModelsDebug } from "./index.ts";
 
 export interface BridgeEntry {
 	/** env var to read (e.g. "PI_MODEL"). */
@@ -183,12 +184,6 @@ if (extra.length) {
 	process.argv.splice(2, 0, ...extra);
 }
 
-if (
-	extra.length &&
-	(process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-		process.env.BUN_PI_DEBUG_PATCHES === "true" ||
-		process.env.PI_DEBUG_MODELS === "1" ||
-		process.env.PI_DEBUG_MODELS === "true")
-) {
+if (extra.length && isPatchOrModelsDebug()) {
 	console.error("[bun-pi] default-model-env spliced argv:", extra);
 }

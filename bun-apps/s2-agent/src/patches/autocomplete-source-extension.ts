@@ -36,6 +36,7 @@
  */
 
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
+import { gatedPatchOutcome, isPatchDebug } from "./index.ts";
 
 /**
  * Derive the owning `s2-agent-ext-<name>` from a suggestion's sourceInfo —
@@ -112,8 +113,7 @@ export function applyAutocompleteSourceExtensionPatch(): boolean {
 }
 
 // ── Import-time side effect ──────────────────────────────────────────────────
-const debug =
-  process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true";
+const debug = isPatchDebug();
 const enabled = process.env.BUN_PI_AUTOCOMPLETE_SOURCE_EXTENSION !== "0";
 let outcome = false;
 if (enabled) {
@@ -126,10 +126,5 @@ if (enabled) {
   }
 }
 
-/**
- * Whether the wrap actually bound. `applyPatches()` reads this and reports a
- * false as a patch failure instead of claiming success — see ./index.ts.
- * `enabled === false` (env opt-out) is reported as applied: the patch did
- * exactly what it was asked to do.
- */
-export const patchApplied = enabled ? outcome : true;
+/** Whether the wrap actually bound — see gatedPatchOutcome in ./index.ts. */
+export const patchApplied = gatedPatchOutcome(enabled, outcome);

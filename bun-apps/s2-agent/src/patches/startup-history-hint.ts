@@ -1,4 +1,5 @@
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
+import { isPatchDebug } from "./index.ts";
 
 const HINT_LINE = "↑/↓ to browse history";
 const wrappedPrototypes = new WeakSet<object>();
@@ -39,7 +40,7 @@ export function wrapInteractiveInitForHistoryHint(proto: object, hint: string = 
 // "patch applied" unconditionally — so when the wrap failed (a renamed
 // InteractiveMode.init upstream), the diagnostic actively lied.
 const outcome = wrapInteractiveInitForHistoryHint(InteractiveMode.prototype);
-if (process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true") {
+if (isPatchDebug()) {
 	console.error(
 		`[bun-pi] startup-history-hint: ${outcome ? "applied" : "already applied or failed"}`,
 	);

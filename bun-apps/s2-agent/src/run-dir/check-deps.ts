@@ -6,15 +6,15 @@
  * `@repo/s2-agent-ext-obsidian`, `js-yaml`, `@mozilla/readability`) is FRESH and
  * sees a fully-linked node_modules on the FIRST launch.
  *
- * WHY THIS EXISTS (and why resolve.ts's mid-boot auto-install can't do it alone):
- * resolve.ts's `maybeAutoInstall` runs `bun install` from INSIDE pi's boot, but
+ * WHY THIS EXISTS (and why deps-probe.ts's mid-boot auto-install can't do it alone):
+ * deps-probe.ts's `maybeAutoInstall` runs `bun install` from INSIDE pi's boot, but
  * Bun's in-process module resolver does NOT re-scan node_modules mid-process, so
  * the freshly installed packages aren't visible to the CURRENT launch — the user
  * had to run pi twice. Doing the install here, in a throwaway process BEFORE pi
  * boots, sidesteps that entirely: the subsequent `exec bun` is a new process that
  * resolves everything cleanly. One command from the user, fully fixed.
  *
- * Detection reuses resolve.ts's `missingExtensionPackages` (the same probe the
+ * Detection reuses deps-probe.ts's `missingExtensionPackages` (the same probe the
  * consolidated guide uses) so there is a single source of truth — no logic drift.
  *
  * Exit codes (consumed by run.sh, which ignores non-zero and proceeds anyway so
