@@ -92,6 +92,59 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 // model it serves, so the compat is declared once at the provider level and
 // registerAllProviders merges it onto each model for the extension-provider
 // path (which honors only model-level compat via object spread).
+//
+// ─── HOW TO SWITCH LM-STUDIO THINKING ON/OFF (study note, measured) ────────
+//
+// The ONE knob that works on this server's /v1/chat/completions is the
+// TOP-LEVEL STRING `reasoning_effort`. The API validates it against OpenAI's
+// enum — measured 2026-08-24, the server 400s anything else:
+//   "Invalid 'reasoning_effort' value: 'on'. Supported values:
+//    none, minimal, low, medium, high, xhigh."
+// ('on'/'off' are LM Studio GUI-side "Reasoning setting" names — NOT wire
+// values; a `[WARN] Reasoning setting 'high' is not supported … Supported
+// settings: 'on', 'off'` in the server log is the GUI layer mapping a wire
+// effort onto the model's on/off switch, then falling back to 'on'.)
+//
+// OFF = `reasoning_effort: "none"` — the ONLY reliable off, honored by both
+// installed VLMs (measured 2026-08-24, one-sentence ask, max_tokens=300..500):
+//   • google/gemma-4-12b   baseline → 619 chars reasoning_content, ~4.5s;
+//     `"none"` → reasoning_len **0**, answer directly in content. Same for
+//   • qwen/qwen3.8-27b     baseline → 137 chars; `"none"` → **0**.
+//
+// Shapes that DO NOT work (measured 2026-08-23 on qwen, single trivial ask):
+//   ✗ `reasoning: { effort: "none" }` (nested object — the wrong shape; the
+//     2026-08-23 "no no-think achievable" conclusion was this artifact)
+//     → 8.7s, 110 reasoning tokens
+//   ✗ `chat_template_kwargs.enable_thinking: false` → 12.9s, 183 tokens
+//     (ignored — it reasons MORE)
+//   ✗ top-level `enable_thinking: false` → 4.9s, 49 tokens (ignored)
+// Also NOT a disable signal: a `reasoning: false` flag in THIS catalog — that
+// is host metadata only (pi treats the model as non-reasoning and stops
+// sending reasoning params; the server keeps its own thinking-on default).
+//
+// ON = any non-none enum value. Per-model vocab (server-log WARNs, 2026-08-24):
+//   • gemma-4-12b understands ONLY its on/off switch — every non-none value
+//     maps to "on" (a `low` request logs a WARN then reasons). No gradations.
+//   • qwen3.8-27b supports `low`/`medium`/`xhigh` natively; `high` warns and
+//     falls back to on — map high → "xhigh" (the entries below do).
+//
+// HOW PI EMITS IT (openai-completions adapter, node_modules/@earendil-works/
+// pi-ai/dist/api/openai-completions.js): a top-level `reasoning_effort` is
+// sent only when `compat.supportsReasoningEffort` is true — the provider
+// level below pins it FALSE, so a model opts in via PER-MODEL
+// `compat: { supportsReasoningEffort: true }` (merged on top). The value is
+// `thinkingLevelMap[<level>] ?? <level>`; with thinking OFF the adapter sends
+// `thinkingLevelMap.off`. So the full no-think recipe for an LM Studio model:
+//
+//   1. per-model `compat: { supportsReasoningEffort: true }`
+//   2. per-model `thinkingLevelMap: { off: "none", … }`
+//   3. run it thinking-off: spec suffix (`provider/id:off` in
+//      capabilities/`--model`), `--thinking off`, or a caller default of off.
+//
+// Thinking ON = run it with a thinking level (spec `:high`, `--thinking
+// high`); the map translates pi levels to values the model actually speaks
+// (see each entry). Both gemma and qwen entries below carry this wiring, so
+// any lane can be flipped on/off from config in this one file.
 const LM_STUDIO_COMPAT: Compat = {
   supportsDeveloperRole: false,
   supportsReasoningEffort: false,
@@ -116,17 +169,31 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         reasoning: true,
         input: ["text", "image"],
         contextWindow: 200_000,
-        // LM Studio's MLX server serves Gemma 4 as an always-on reasoning
-        // model: it ignores client-side thinking knobs (thinking:disabled,
-        // chat_template_kwargs, reasoning_effort, thinking_token_budget — all
-        // verified ignored on this server) and burns 2–10k tokens of
-        // reasoning_content before any content. maxTokens is a SHARED budget
-        // (reasoning + answer), so a small cap truncates the reply to an empty
-        // "length" stop — the "strange message" symptom (session
-        // 2026-08-22: output=16383, reasoning=5459, content="").
-        // 65_536 keeps headroom for reasoning while staying inside the model's
-        // real 262_144 context window.
+        // maxTokens is a SHARED budget (reasoning + answer): a small cap
+        // truncates the reply to an empty "length" stop — the "strange
+        // message" symptom (session 2026-08-22: output=16383, reasoning=5459,
+        // content=""). 65_536 keeps headroom for reasoning while staying
+        // inside the model's real 262_144 context window.
         maxTokens: 65_536,
+        // NO-THINK WIRED (see the study note above LM_STUDIO_COMPAT):
+        // measured 2026-08-24, `reasoning_effort:"none"` is honored on this
+        // hub-served key (reasoning_len 0, direct content, ~4.5s vs 619
+        // chars of reasoning burn without it). This is the vision default —
+        // §3's capability specs pin `:off`, which the adapter maps to
+        // "none". gemma-4-12b has NO effort gradations (its model-level
+        // switch is on/off only): every non-none pi level lands on the
+        // model's "on" — low/medium pass natively as wire values, the pi
+        // extremes clamp to "xhigh" (the enum's top) to stay request-valid.
+        compat: { supportsReasoningEffort: true },
+        thinkingLevelMap: {
+          off: "none",
+          minimal: "none",
+          low: "low",
+          medium: "medium",
+          high: "high",
+          max: "xhigh",
+          xhigh: "xhigh",
+        },
       },
       {
         id: "qwen/qwen3.8-27b",
@@ -134,26 +201,26 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         reasoning: true,
         input: ["text", "image"],
         contextWindow: 200_000,
-        // Same server behavior as gemma-4-12b: LM Studio's MLX server serves
-        // Qwen 3.8 as an always-on reasoning model, so keep the same shared
-        // maxTokens budget headroom for reasoning + answer.
+        // Same shared maxTokens budget as gemma-4-12b (reasoning + answer),
+        // and the same no-think wiring (same model variant family, operator
+        // directive 2026-08-24): measured, top-level `reasoning_effort:"none"`
+        // drops qwen from 137 chars of reasoning_content to 0 (the
+        // 2026-08-23 "no no-think achievable" battery tested only the WRONG
+        // shapes — see the study note above LM_STUDIO_COMPAT). qwen's native
+        // efforts are low/medium/xhigh — `high` warns and falls back to on,
+        // so high/max/xhigh all map to "xhigh". Kept as the fallback vision
+        // lane; §3 points the capability at gemma.
         maxTokens: 65_536,
-      },
-      {
-        // Non-reasoning VLM target. PRE-WIRE (2026-08-23, file2md-vision-extraction
-        // ticket 02): a `reasoning:false` sibling id does NOT tell the LM Studio
-        // MLX server to stop reasoning — the pi-ai adapter only emits a disable
-        // signal inside branches gated on this flag (and the server ignores the
-        // client knob anyway; see map Context). So this entry is the SELECTION
-        // target for `capabilities.vision` the moment a genuinely non-reasoning
-        // vision model is loaded under this id; until then it never resolves.
-        // Keep `qwen/qwen3.8-27b` as the working fallback.
-        id: "qwen/qwen3.8-27b-nothink",
-        name: "Qwen 3.8 27B (non-reasoning, LM Studio)",
-        reasoning: false,
-        input: ["text", "image"],
-        contextWindow: 200_000,
-        maxTokens: 65_536,
+        compat: { supportsReasoningEffort: true },
+        thinkingLevelMap: {
+          off: "none",
+          minimal: "none",
+          low: "low",
+          medium: "medium",
+          high: "xhigh",
+          max: "xhigh",
+          xhigh: "xhigh",
+        },
       },
     ],
   },
@@ -164,8 +231,9 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
   // path REPLACES a provider's model list with the extension's (applyExtension
   // → config.models.map), so every baked model is re-listed below — omitting
   // one makes it vanish from `--list-models` and breaks the
-  // "deepseek/deepseek-v4-flash" refs (obsidianSubagentFloor,
-  // model-tiers.json seeds). Fields mirror the baked entries; detectCompat()
+  // "deepseek/deepseek-v4-flash*" refs (obsidianSubagentFloor = the vision-exp
+  // sibling; model-tiers.json seeds use the base flash). Fields mirror the
+  // baked entries; detectCompat()
   // would infer the same compat from provider id + baseUrl, but pinning it
   // keeps the behavior stable across pi-ai upgrades.
   //
@@ -322,7 +390,7 @@ export const BUILTIN_MODEL_DEFAULT: BuiltinModelDefault = {
 	provider: "zai",
 	model: "glm-5.3",
 	thinking: "high",
-	obsidianSubagentFloor: "deepseek/deepseek-v4-flash",
+	obsidianSubagentFloor: "deepseek/deepseek-v4-flash-vision-exp",
 };
 
 // ─── §3 Model-tier config seed ────────────────────────────────────────────────
@@ -346,19 +414,19 @@ export interface ModelTierConfig {
 
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
 	tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-	// `capabilities.vision` keeps the WORKING always-on-reasoning qwen default.
-	// The non-reasoning sibling id (`lm-studio/qwen/qwen3.8-27b-nothink`) is
-	// registered in the catalog above but is NOT selectable until a genuinely
-	// no-thinking vision model is actually loaded under that id (the server
-	// ignores client thinking knobs, so a `reasoning:false` id alone doesn't
-	// stop the burn — see the file2md-vision-extraction effort, ticket 02, and
-	// the sibling entry's comment). Flip this to the sibling id only once that
-	// model is loadable; the server 400s an unknown model-id today.
+	// `capabilities.vision` = gemma-4-12b with the no-think pin: the spec's
+	// `:off` suffix makes every vision call run thinking-off, which the gemma
+	// catalog entry maps to `reasoning_effort:"none"` (measured honored
+	// 2026-08-24 — reasoning_len 0, direct content, ~4.5s). This replaces the
+	// qwen default, which burned always-on reasoning tokens on every vision
+	// call. The never-resolving sibling-id mechanism
+	// (`qwen/qwen3.8-27b-nothink`) stays catalog-only — see that entry's
+	// comment.
 	capabilities: {
-		vision: "lm-studio/qwen/qwen3.8-27b",
-		"vision-large": "lm-studio/qwen/qwen3.8-27b",
-		"vision-medium": "lm-studio/qwen/qwen3.8-27b",
-		"vision-small": "lm-studio/qwen/qwen3.8-27b",
+		vision: "lm-studio/google/gemma-4-12b:off",
+		"vision-large": "lm-studio/google/gemma-4-12b:off",
+		"vision-medium": "lm-studio/google/gemma-4-12b:off",
+		"vision-small": "lm-studio/google/gemma-4-12b:off",
 	},
 };
 

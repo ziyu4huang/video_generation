@@ -90,33 +90,49 @@ describe("PROVIDERS config (contract)", () => {
     }
   });
 
-  test("lm-studio registers a non-reasoning VLM sibling pre-wire (ticket 02)", () => {
-    // `reasoning:false` is host metadata (pi treats it as non-reasoning); it does
-    // NOT stop the LM Studio MLX server burning reasoning (which ignores client
-    // thinking knobs). The sibling is the SELECTION target for capabilities.vision
-    // once a genuinely no-thinking vision model is loaded under that id — until
-    // then the working always-on-reasoning qwen stays the default. Catalog-only.
+  test("lm-studio vision models carry the reasoning_effort no-think wiring", () => {
+    // The ONE server-honored disable knob is top-level `reasoning_effort:"none"`
+    // (measured 2026-08-24 on both gemma-4-12b and qwen3.8-27b — study note
+    // above LM_STUDIO_COMPAT in the source). The pi-ai adapter only emits it
+    // when compat.supportsReasoningEffort is true (the provider level pins it
+    // FALSE), and with thinking off the adapter sends thinkingLevelMap.off —
+    // so every vision-capable lm-studio model must carry both. Every mapped
+    // value must be a WIRE-valid enum member (the server 400s 'on'/'off').
+    const WIRE_ENUM = ["none", "minimal", "low", "medium", "high", "xhigh"];
     const lm = PROVIDERS["lm-studio"];
-    const siblings = lm.models.filter((m) => m.input.includes("image"));
-    expect(siblings.length).toBeGreaterThanOrEqual(3);
-    const nothink = siblings.find((m) => m.reasoning === false);
-    expect(nothink).toBeDefined();
-    expect(nothink!.id).toBe("qwen/qwen3.8-27b-nothink");
-    expect(nothink!.input).toEqual(expect.arrayContaining(["image"]));
-    // At least one always-on-reasoning multimodal default remains, so the
-    // working vision path is not unregistered by the sibling addition.
-    const anyReasoning = siblings.some((m) => m.reasoning === true);
-    expect(anyReasoning).toBe(true);
+    const vision = lm.models.filter((m) => m.input.includes("image"));
+    expect(vision.length).toBeGreaterThanOrEqual(2);
+    for (const m of vision) {
+      expect(m.compat?.supportsReasoningEffort).toBe(true);
+      expect(m.thinkingLevelMap?.off).toBe("none");
+      expect(m.thinkingLevelMap?.minimal).toBe("none");
+      for (const v of Object.values(m.thinkingLevelMap ?? {})) {
+        // null = "level unsupported" — legal per the ModelEntry type, but not
+        // what these entries use; every mapped value must be a wire-valid string.
+        expect(typeof v).toBe("string");
+        expect(WIRE_ENUM).toContain(v as string);
+      }
+    }
+    // qwen speaks xhigh natively; `high` warns and falls back to on.
+    const qwen = lm.models.find((m) => m.id === "qwen/qwen3.8-27b");
+    expect(qwen?.thinkingLevelMap?.high).toBe("xhigh");
   });
 
-  test("capabilities.vision keeps the working reasoning default until the non-reasoning VLM is loaded", () => {
-    expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).toBe("lm-studio/qwen/qwen3.8-27b");
-    // The catalog sibling is present and non-reasoning, but the default does NOT
-    // point at it (that id is not a loadable server model yet — the server 400s
-    // an unknown model-id).
-    const nothink = PROVIDERS["lm-studio"].models.find((m) => m.reasoning === false);
-    expect(nothink).toBeDefined();
-    expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).not.toContain(nothink!.id);
+  test("capabilities.vision = gemma-4-12b with the :off no-think pin", () => {
+    // The vision lane swaps qwen-27b (always-on reasoning burn) for gemma-4-12b
+    // run thinking-off; the `:off` spec suffix is what makes every vision call
+    // resolve thinking-off (the map then emits reasoning_effort:"none").
+    expect(DEFAULT_MODEL_TIER_CONFIG.capabilities.vision).toBe("lm-studio/google/gemma-4-12b:off");
+    for (const key of ["vision-large", "vision-medium", "vision-small"]) {
+      expect(DEFAULT_MODEL_TIER_CONFIG.capabilities[key]).toBe(
+        "lm-studio/google/gemma-4-12b:off",
+      );
+    }
+    // The catalog id the spec selects must exist (strip the provider + :thinking).
+    const id = "google/gemma-4-12b";
+    const entry = PROVIDERS["lm-studio"].models.find((m) => m.id === id);
+    expect(entry).toBeDefined();
+    expect(entry!.input).toContain("image");
   });
 
   test("deepseek re-lists the baked family — extension registration REPLACES it", () => {

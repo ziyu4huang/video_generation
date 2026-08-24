@@ -62,31 +62,33 @@ describe("resolveSubagentFloor — env override wins", () => {
 });
 
 describe("resolveSubagentFloor — built-in fill-gaps default", () => {
-  test("undefined settings → built-in floor (deepseek/deepseek-v4-flash)", () => {
+  // Built-in floor = deepseek-v4-flash-vision-exp (vision-capable, operator
+  // choice 2026-08-24 — the obsidian distill subagents get image input).
+  test("undefined settings → built-in floor (deepseek/deepseek-v4-flash-vision-exp)", () => {
     expect(resolveSubagentFloor(undefined, {})).toBe(
-      "deepseek/deepseek-v4-flash",
+      "deepseek/deepseek-v4-flash-vision-exp",
     );
   });
 
   test("missing obsidian.subagentModel field → built-in floor", () => {
     expect(
       resolveSubagentFloor(S({ defaultModel: "glm-5.3", subagents: {} }), {}),
-    ).toBe("deepseek/deepseek-v4-flash");
+    ).toBe("deepseek/deepseek-v4-flash-vision-exp");
   });
 
   test("non-string floor (number) → built-in floor", () => {
     expect(
       resolveSubagentFloor(S({ obsidian: { subagentModel: 123 } }), {}),
-    ).toBe("deepseek/deepseek-v4-flash");
+    ).toBe("deepseek/deepseek-v4-flash-vision-exp");
   });
 
   test("blank / whitespace-only floor → built-in floor", () => {
     expect(
       resolveSubagentFloor(S({ obsidian: { subagentModel: "   " } }), {}),
-    ).toBe("deepseek/deepseek-v4-flash");
+    ).toBe("deepseek/deepseek-v4-flash-vision-exp");
     expect(
       resolveSubagentFloor(S({ obsidian: { subagentModel: "" } }), {}),
-    ).toBe("deepseek/deepseek-v4-flash");
+    ).toBe("deepseek/deepseek-v4-flash-vision-exp");
   });
 
   test("a personal floor distinct from the built-in still wins over it", () => {

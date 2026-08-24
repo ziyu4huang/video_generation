@@ -160,17 +160,67 @@ export function sessionModelInjectionWins(
   return !options.model && !options.tier && Boolean(sessionOptions?.model);
 }
 
+/**
+ * The pi ThinkingLevel values, as the legal `:thinking` spec suffixes.
+ * (Mirrors @earendil-works/pi-agent-core's ThinkingLevel union; kept local so
+ * this module stays dependency-light per its header.)
+ */
+const SPEC_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+export type SpecThinkingLevel = (typeof SPEC_THINKING_LEVELS)[number];
+
+/**
+ * Split a `provider/id[:thinking]` spec into its registry base and optional
+ * thinking level. The suffix is recognized ONLY when it names a real
+ * ThinkingLevel AND sits after the last slash (so `lm-studio/google/gemma-4-12b:off`
+ * splits, while an id containing a colon that isn't a level — or one inside
+ * the provider segment — is left whole). Same rule file2md's resolveLLM and
+ * budget-defaults' stripModelRoleSuffix apply; this is the core-runtime copy
+ * the subagent path resolves through.
+ *
+ * Pure, total (never throws): an unmatched spec returns itself as `base`.
+ */
+export function splitSpecThinkingSuffix(spec: string): { base: string; thinkingLevel?: SpecThinkingLevel } {
+  const slash = spec.lastIndexOf("/");
+  const colon = spec.lastIndexOf(":");
+  if (colon > slash && colon !== -1) {
+    const maybe = spec.slice(colon + 1);
+    if ((SPEC_THINKING_LEVELS as readonly string[]).includes(maybe)) {
+      return { base: spec.slice(0, colon), thinkingLevel: maybe as SpecThinkingLevel };
+    }
+  }
+  return { base: spec };
+}
+
 export function resolveScopedAgentModelSpec(
   options: { model?: string; tier?: string },
   mainModel: string | undefined,
   scopedSpecs: readonly string[] | undefined,
   loadConfig: () => ModelTierConfig | null = getEffectiveModelTierConfig,
-): { spec: string | undefined; clamped: boolean; requested?: string } {
-  const resolved = resolveAgentModelSpec(options, mainModel, loadConfig);
+): { spec: string | undefined; clamped: boolean; requested?: string; thinkingLevel?: SpecThinkingLevel } {
+  // Strip a `:thinking` suffix from the EXPLICIT model before resolution so
+  // registry lookup and scope matching see the base id (a suffixed spec used
+  // to fail `resolveModel` — "requested model … unavailable" — and fall all
+  // the way back to the session default). Tier/capability specs from the
+  // config may carry a suffix too; an explicit one always wins.
+  const explicitSplit = options.model ? splitSpecThinkingSuffix(options.model) : undefined;
+  const resolved = resolveAgentModelSpec(
+    explicitSplit ? { ...options, model: explicitSplit.base } : options,
+    mainModel,
+    loadConfig,
+  );
   if (resolved === undefined) return { spec: undefined, clamped: false };
   const { spec, clamped } = clampModelToScope(resolved, scopedSpecs, mainModel);
+  const specSplit = splitSpecThinkingSuffix(spec);
+  const thinkingLevel = explicitSplit?.thinkingLevel ?? specSplit.thinkingLevel;
+  if (thinkingLevel) logModelDecision("spec-thinking", { spec: specSplit.base, thinkingLevel });
   if (clamped) logModelDecision("clamp", { requested: resolved, spec, reason: "out of session scope" });
-  return clamped ? { spec, clamped, requested: resolved } : { spec, clamped };
+  return {
+    spec: specSplit.base,
+    clamped,
+    ...(clamped ? { requested: resolved } : {}),
+    ...(thinkingLevel ? { thinkingLevel } : {}),
+  };
 }
 
 /**
