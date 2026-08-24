@@ -36,7 +36,8 @@
  * ---------------------------------------
  * When neither the flag, nor the env var, nor a personal default in
  * ~/.pi/agent/settings.json is present, the package's built-in default
- * (src/pre-load-providers.ts — zai / glm-5.3 / high) is spliced instead,
+ * (src/pre-load-providers.ts — lm-studio / prism-ml/bonsai-27b / high since
+ * 2026-08-24) is spliced instead,
  * so the TUI works with ZERO personal model config in ~/.pi. Precedence per
  * flag:
  *

@@ -48,10 +48,10 @@ describe("isThinkingLevel", () => {
 });
 
 describe("resolveLLM — defaults (no opts, no env)", () => {
-  test("falls back to the built-in default target (zai / glm-5.3 / high)", () => {
+  test("falls back to the built-in default target (lm-studio / prism-ml/bonsai-27b / high)", () => {
     const r = resolveLLM({});
-    expect(r.provider).toBe("zai");
-    expect(r.modelId).toBe("glm-5.3");
+    expect(r.provider).toBe("lm-studio");
+    expect(r.modelId).toBe("prism-ml/bonsai-27b");
     expect(r.thinkingLevel).toBe("high");
   });
 });
@@ -67,7 +67,7 @@ describe("resolveLLM — env fallbacks", () => {
     process.env.PI_MODEL = "claude-opus";
     const r = resolveLLM({});
     expect(r.modelId).toBe("claude-opus");
-    expect(r.provider).toBe("zai"); // FALLBACK provider
+    expect(r.provider).toBe("lm-studio"); // FALLBACK provider
   });
 
   test("PI_THINKING sets the thinking level", () => {
@@ -137,7 +137,7 @@ describe("resolveLLM — --model shorthand", () => {
     const r = resolveLLM({ model: "foo:bar" });
     expect(r.modelId).toBe("foo:bar");
     // provider unchanged (no slash to split on).
-    expect(r.provider).toBe("zai");
+    expect(r.provider).toBe("lm-studio");
   });
 
   test("explicit --thinking beats the ':suffix'", () => {

@@ -84,8 +84,8 @@ describe("applyVaultEnv", () => {
 describe("resolveLLMFromArgs", () => {
 	test("no settings.json → userDefaults undefined, FALLBACK applies", async () => {
 		const llm = await resolveLLMFromArgs({} as any);
-		expect(llm.provider).toBe("zai");
-		expect(llm.modelId).toBe("glm-5.3");
+		expect(llm.provider).toBe("lm-studio");
+		expect(llm.modelId).toBe("prism-ml/bonsai-27b");
 		expect(llm.thinkingLevel).toBe("high");
 	});
 
@@ -121,14 +121,14 @@ describe("resolveLLMFromArgs", () => {
 		writeFileSync(join(agentDir, "settings.json"), "{ not json");
 		const llm = await resolveLLMFromArgs({} as any);
 		// JSON.parse throws inside the try → caught → userDefaults stays undefined.
-		expect(llm.provider).toBe("zai");
+		expect(llm.provider).toBe("lm-studio");
 	});
 
 	test("settings.json without the two keys → userDefaults empty → FALLBACK", async () => {
 		writeSettings({ someOtherKey: 1 });
 		const llm = await resolveLLMFromArgs({} as any);
-		expect(llm.provider).toBe("zai");
-		expect(llm.modelId).toBe("glm-5.3");
+		expect(llm.provider).toBe("lm-studio");
+		expect(llm.modelId).toBe("prism-ml/bonsai-27b");
 	});
 
 	test("--model shorthand still works through this layer", async () => {

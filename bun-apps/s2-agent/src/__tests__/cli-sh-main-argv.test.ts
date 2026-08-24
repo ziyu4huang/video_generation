@@ -109,7 +109,7 @@ afterEach(() => {
 });
 
 describe("cli-sh main() argv — default-model-env splice must reach pi", () => {
-	test("built-in default (zai/glm-5.3) is spliced into the argv main() receives", async () => {
+	test("built-in default (lm-studio/prism-ml/bonsai-27b since 2026-08-24) is spliced into the argv main() receives", async () => {
 		const r = await runCliSh(["--print", "hi"]);
 		expect(r.stderr).toBe("");
 		const i = r.argv.indexOf("--model");
@@ -118,7 +118,8 @@ describe("cli-sh main() argv — default-model-env splice must reach pi", () => 
 		// --provider is NOT spliced when a --model token exists (incident
 		// 2026-08-22: the injected provider pinned lookup to zai and fabricated
 		// a bogus zai model id for `--model lm-studio/qwen/qwen3.8-27b` →
-		// zai 400). pi resolves bare "glm-5.3" to zai via unique exact match.
+		// zai 400). pi resolves the bare slashed id "prism-ml/bonsai-27b"
+		// to lm-studio via exact match (verified live 2026-08-24).
 		expect(r.argv).not.toContain("--provider");
 		const t = r.argv.indexOf("--thinking");
 		expect(r.argv[t + 1]).toBe(BUILTIN_MODEL_DEFAULT.thinking);

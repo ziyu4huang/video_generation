@@ -220,9 +220,11 @@ describe("registerAllProviders", () => {
 // ─── §2 BUILTIN_MODEL_DEFAULT ─────────────────────────────────────────────────
 
 describe("BUILTIN_MODEL_DEFAULT", () => {
-  test("provider/model match the repo standard (zai/glm-5.3)", () => {
-    expect(BUILTIN_MODEL_DEFAULT.provider).toBe("zai");
-    expect(BUILTIN_MODEL_DEFAULT.model).toBe("glm-5.3");
+  test("provider/model match the qualified local main lane (lm-studio/prism-ml/bonsai-27b)", () => {
+    // Switched from zai/glm-5.3 2026-08-24 (user directive; agent-loop
+    // battery 5/5 — see the BUILTIN_MODEL_DEFAULT comment in the source).
+    expect(BUILTIN_MODEL_DEFAULT.provider).toBe("lm-studio");
+    expect(BUILTIN_MODEL_DEFAULT.model).toBe("prism-ml/bonsai-27b");
   });
 
   test("thinking is a valid pi-agent-core ThinkingLevel", () => {

@@ -509,8 +509,23 @@ export interface BuiltinModelDefault {
 }
 
 export const BUILTIN_MODEL_DEFAULT: BuiltinModelDefault = {
-	provider: "zai",
-	model: "glm-5.3",
+	// Switched zai/glm-5.3 → lm-studio/prism-ml/bonsai-27b (user directive
+	// 2026-08-24, QUALIFIED through the real agent loop — the only way to
+	// vet a main model; micro-benchmarks say nothing about the agent path):
+	// a 5-task one-shot battery via `s2-agent.sh --model …bonsai-27b:off`
+	// passed 5/5 at 11–15s each (exact-content write / bash+arithmetic /
+	// read+report / multi-step append+verify / bat-ball trap → 0.05 with
+	// thinking ON correcting the System-1 error). The previous local
+	// candidate gemma-4-12b FAILED as main model on the same battery
+	// (measured 2026-08-24): 47s first assistant turn with reasoning burn,
+	// then a pathological `bash: ls -R /Users/...` tool call that never
+	// returns — hung past a 150s bound even with `--thinking off`. Gemma
+	// REMAINS the §3 vision capability lane (5× faster on real image calls
+	// and never enters the agent loop). PRECEDENCE still applies: a personal
+	// settings.json defaultModel / PI_MODEL wins over this built-in, so
+	// existing machines keep their configured default until they remove it.
+	provider: "lm-studio",
+	model: "prism-ml/bonsai-27b",
 	thinking: "high",
 	obsidianSubagentFloor: "deepseek/deepseek-v4-flash-vision-exp",
 };
