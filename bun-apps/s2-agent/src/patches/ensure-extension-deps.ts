@@ -32,7 +32,10 @@
  */
 import path from "node:path";
 import { createRequire } from "node:module";
-import { mkdirSync, readlinkSync, symlinkSync, lstatSync, rmSync, readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readlinkSync, symlinkSync, lstatSync, rmSync } from "node:fs";
+// The shared bun-apps workspace walk (also feeds check-deps.ts's labeling).
+// Dependency-free on purpose: this patch imports at boot.
+import { workspacePackages } from "../run-dir/workspace-packages.ts";
 
 // SOURCE mode only — match the same import.meta.url key the other mode-aware
 // patches use. Bundle = /dist/s2-agent/s2-agent.js, where extension resolution
@@ -118,22 +121,8 @@ if (isSource) {
 	// discipline as the @earendil-works/* loop above; real (non-symlink) entries are
 	// left untouched (don't nuke something bun owns).
 	const bunAppsDir = path.join(repoRoot, "bun-apps");
-	let appDirs: string[] = [];
-	try {
-		appDirs = readdirSync(bunAppsDir, { withFileTypes: true })
-			.filter((e) => e.isDirectory())
-			.map((e) => e.name);
-	} catch {
-		/* bun-apps missing — nothing to link */
-	}
-	for (const dir of appDirs) {
-		let name: unknown;
-		try {
-			name = JSON.parse(readFileSync(path.join(bunAppsDir, dir, "package.json"), "utf8"))?.name;
-		} catch {
-			continue;
-		}
-		if (typeof name !== "string" || !name.startsWith("@repo/")) continue;
+	for (const { dir, name } of workspacePackages(bunAppsDir)) {
+		if (!name.startsWith("@repo/")) continue;
 		const linkPath = path.join(nmRoot, name);
 		// Relative to the link's directory (repo-root/node_modules/@repo/): up two
 		// levels (@repo → node_modules → repo-root) then into bun-apps/<dir>.

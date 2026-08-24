@@ -25,8 +25,7 @@
  * deliberately NOT implemented (see the simplify effort's Fog of war).
  */
 import type { ParsedArgs } from "../args.ts";
-import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, applyDryRun, modelLabel } from "../sessions/shared.ts";
+import { createSharedSession, applyDryRun, modelLabel, resolveLLMFromArgs } from "../sessions/shared.ts";
 
 /** Minimal session surface the REPL loop needs. */
 interface ChatSession {

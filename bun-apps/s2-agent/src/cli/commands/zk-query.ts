@@ -27,7 +27,7 @@
 import { existsSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
-import { resolveVaultPath } from "../vault-paths.ts";
+import { resolveVaultPath, applyResolvedVaultEnv } from "../vault-paths.ts";
 import {
 	retrieveRecords,
 	readActiveIds,
@@ -81,7 +81,7 @@ Examples:
 	async run(parsed: ParsedArgs): Promise<void> {
 		const cwd = process.cwd();
 		const vaultPath = resolveVaultPath(parsed, cwd);
-		process.env.OB_VAULT_PATH = vaultPath;
+		applyResolvedVaultEnv(parsed, vaultPath);
 		const folder = parsed.folder ?? "Zettelkasten/knowledge-graph";
 
 		// ── COVERAGE MODE ─────────────────────────────────────────────────

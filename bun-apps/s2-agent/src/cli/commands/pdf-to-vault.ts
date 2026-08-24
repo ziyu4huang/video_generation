@@ -43,9 +43,10 @@ import type { ParsedArgs } from "../args.ts";
 import { emptyParsed } from "../args.ts";
 import { file2mdCommand } from "./file2md.ts";
 import { zkExtractCommand } from "./zk-extract.ts";
-import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
+import { resolveLLMFromArgs } from "../sessions/shared.ts";
 import { slugify, loadManifest, type DocLayout, layoutFor } from "@repo/s2-agent-ext-file2md";
 import { timestamp, iso, writePipelineJson, readPipelineJson } from "../pipeline-doc.ts";
+import { walkFiles } from "../walk.ts";
 import { DEFAULT_MODEL_TIER_CONFIG } from "../../pre-load-providers.ts";
 
 /** Stage-1 VLM default = the BAKED §3 vision capability lane (centralized in
@@ -188,18 +189,12 @@ function summarizeVlmStage(
 function deletePngs(dir: string): number {
 	let n = 0;
 	if (!existsSync(dir)) return 0;
-	const walk = (d: string) => {
-		for (const entry of readdirSync(d)) {
-			const full = resolve(d, entry);
-			const s = statSync(full);
-			if (s.isDirectory()) walk(full);
-			else if (/\.png$/i.test(entry)) {
-				rmSync(full);
-				n++;
-			}
+	walkFiles(dir, (full, entry) => {
+		if (/\.png$/i.test(entry)) {
+			rmSync(full);
+			n++;
 		}
-	};
-	walk(dir);
+	});
 	return n;
 }
 

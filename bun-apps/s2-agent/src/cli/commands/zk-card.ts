@@ -13,7 +13,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
-import { applyVaultEnv } from "../sessions/passthrough.ts";
+import { applyVaultEnv } from "../vault-paths.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
 import {
   ADD_TOOLS,
