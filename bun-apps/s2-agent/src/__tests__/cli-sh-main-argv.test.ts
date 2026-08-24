@@ -23,10 +23,11 @@
  * ~/.pi state, no network, no model call.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATCH_TABLE } from "../patches/index.ts";
+import { spawnCaptureAsync, tempDir, cleanupTempDirs } from "./test-utils.ts";
 import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
 
 const PKG_ROOT = join(import.meta.dir, "..", "..");
@@ -57,7 +58,7 @@ async function runCliSh(
 	userArgs: string[],
 	opts: { settings?: Record<string, unknown>; keepPatches?: string[] } = {},
 ): Promise<RunResult> {
-	const tmp = mkdtempSync(join(tmpdir(), "cli-sh-argv-"));
+	const tmp = tempDir("cli-sh-argv-");
 	const capture = join(tmp, "cap.json");
 	const stubPath = join(tmp, "stub.ts");
 	const piHome = join(tmp, "pi-home");
@@ -84,13 +85,10 @@ async function runCliSh(
 		env[p.env] = keep.has(p.name) ? "1" : "0";
 	}
 
-	const proc = Bun.spawn([process.execPath, "--preload", stubPath, join(PKG_ROOT, "src", "cli-sh.ts"), ...userArgs], {
-		env,
-		stdout: "pipe",
-		stderr: "pipe",
-		cwd: PKG_ROOT,
-	});
-	const [stderr] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+	const r = await spawnCaptureAsync(
+		[process.execPath, "--preload", stubPath, join(PKG_ROOT, "src", "cli-sh.ts"), ...userArgs],
+		{ env, cwd: PKG_ROOT },
+	);
 
 	let argv: string[] = [];
 	try {
@@ -99,14 +97,12 @@ async function runCliSh(
 		// main() never ran — leave argv empty so the assertions fail with the
 		// subprocess stderr attached.
 	}
-	return { exitCode: proc.exitCode ?? -1, argv, stderr };
+	return { exitCode: r.exitCode, argv, stderr: r.stderr };
 }
 
-const dirs: string[] = [];
-afterEach(() => {
-	for (const d of dirs) rmSync(d, { recursive: true, force: true });
-	dirs.length = 0;
-});
+// Formerly a dead `dirs[]` nothing ever pushed to — runCliSh's mkdtemp dirs
+// leaked per run. Registered cleanup via tempDir() now (round-2 ticket 04).
+afterEach(cleanupTempDirs);
 
 describe("cli-sh main() argv — default-model-env splice must reach pi", () => {
 	test("built-in default (zai/glm-5.3) is spliced into the argv main() receives", async () => {

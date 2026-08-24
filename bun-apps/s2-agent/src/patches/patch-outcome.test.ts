@@ -26,6 +26,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readPatchOutcome, PATCH_TABLE, resolvePatchPlan } from "./index.ts";
+import { spawnCaptureAsync } from "../__tests__/test-utils.ts";
 
 /** Every patch module in this directory, with its source. Not tests, not the registry. */
 function patchModules(): { name: string; source: string }[] {
@@ -97,22 +98,14 @@ describe("patch modules self-report a real outcome", () => {
 
 	for (const name of FAILABLE) {
 		test(`${name} exports a boolean patchApplied`, async () => {
-			const proc = Bun.spawn(
-				[
-					process.execPath,
-					"-e",
-					`const m = await import(${JSON.stringify(`${import.meta.dir}/${name}.ts`)});` +
-						`console.log(JSON.stringify({ t: typeof m.patchApplied, v: m.patchApplied }));`,
-				],
-				{ stdout: "pipe", stderr: "pipe" },
-			);
-			const [out, err, code] = await Promise.all([
-				new Response(proc.stdout).text(),
-				new Response(proc.stderr).text(),
-				proc.exited,
+			const r = await spawnCaptureAsync([
+				process.execPath,
+				"-e",
+				`const m = await import(${JSON.stringify(`${import.meta.dir}/${name}.ts`)});` +
+					`console.log(JSON.stringify({ t: typeof m.patchApplied, v: m.patchApplied }));`,
 			]);
-			expect(code, `stderr:\n${err}`).toBe(0);
-			const last = out.trim().split("\n").pop() ?? "";
+			expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
+			const last = r.stdout.trim().split("\n").pop() ?? "";
 			const parsed = JSON.parse(last) as { t: string; v: boolean };
 			expect(parsed.t).toBe("boolean");
 			// On a healthy tree every hook target exists, so a fresh import binds.
@@ -136,13 +129,8 @@ describe("RED: a vanished hook target is reported, not swallowed", () => {
 	// Subprocess: this deliberately breaks the SDK module for the process it
 	// runs in, which must not leak into any other test file.
 	const runWithBrokenHook = async (script: string) => {
-		const proc = Bun.spawn([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
-		const [out, err, code] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
-			proc.exited,
-		]);
-		return { out, err, code };
+		const r = await spawnCaptureAsync([process.execPath, "-e", script]);
+		return { out: r.stdout, err: r.stderr, code: r.exitCode };
 	};
 
 	const BREAK_CREATE =

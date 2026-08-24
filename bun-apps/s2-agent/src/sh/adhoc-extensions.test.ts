@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { extractAdHocExtensionArgs, loadAdHocExtensions } from "./adhoc-extensions.ts";
 import { hostRequire } from "./host-modules.ts";
+import { spawnCaptureSync } from "../__tests__/test-utils.ts";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
 /**
@@ -111,9 +112,9 @@ describe("loadAdHocExtensions", () => {
 const r = await loadAdHocExtensions([${JSON.stringify(f)}]);
 if (r.skipped.length) { console.error(r.skipped[0]!.reason); process.exit(1); }
 console.log((r.factories[0]!.factory as (...a: unknown[]) => unknown)());`;
-		const child = Bun.spawnSync([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe", env: plainEnv() });
-		expect(child.exitCode, child.stderr.toString()).toBe(0);
-		expect(child.stdout.toString().trim()).toBe("1337");
+		const child = spawnCaptureSync([process.execPath, "-e", script], { env: plainEnv() });
+		expect(child.exitCode, child.stderr).toBe(0);
+		expect(child.stdout.trim()).toBe("1337");
 	}, 30_000);
 
 	test("loading never poisons bun's native dynamic import", async () => {
@@ -129,12 +130,11 @@ console.log((r.factories[0]!.factory as (...a: unknown[]) => unknown)());`;
 		expect(r.skipped).toEqual([]);
 		const native = join(dir, "native.ts");
 		writeFileSync(native, "export default 2;\n");
-		const child = Bun.spawnSync([process.execPath, "-e", `const m = await import(${JSON.stringify(native)}); console.log(m.default);`], {
-			stdout: "pipe",
-			stderr: "pipe",
-			env: plainEnv(),
-		});
-		expect(child.exitCode, child.stderr.toString()).toBe(0);
-		expect(child.stdout.toString().trim()).toBe("2");
+		const child = spawnCaptureSync(
+			[process.execPath, "-e", `const m = await import(${JSON.stringify(native)}); console.log(m.default);`],
+			{ env: plainEnv() },
+		);
+		expect(child.exitCode, child.stderr).toBe(0);
+		expect(child.stdout.trim()).toBe("2");
 	}, 30_000);
 });
