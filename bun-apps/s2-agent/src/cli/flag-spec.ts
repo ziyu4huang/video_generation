@@ -39,10 +39,9 @@ export type ValueField =
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
 	| "extract" | "note" | "lang"
 	| "vlmModel" | "source" | "sourceLabel"
-	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs"
+	| "tags" | "excludeFromKb" | "excludeIds"
 	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
 	| "linkWeighting" | "probeEval"
-	| "outDir"
 	| "only" | "filesCsv" | "projectsDir" | "memoryDir"
 	| "effort" | "tier" | "outcome" | "phase"
 	| "since" | "until" | "cwdSubstr" | "toolFilter" | "sessionsDir" | "ext";
@@ -51,7 +50,7 @@ export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
-	| "noPersistLogs" | "save"
+	| "save"
 	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe"
 	| "verify" | "reconverge"
@@ -131,12 +130,6 @@ const PDF_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--vlm-model", field: "vlmModel" },
 ];
 
-// ── workflow — engine args ──────────────────────────────────────────────────
-const WORKFLOW_VALUE_FLAGS: readonly ValueFlagSpec[] = [
-	{ flag: "--args", field: "workflowArgs" },
-	{ flag: "--out-dir", field: "outDir" },
-];
-
 // ── zk-ingest — convergence-loop tuning (link-weighting read by zk-ingest; ──
 // probe-eval parsed for pipeline consumers) ─────────────────────────────────
 const KCARD_LOOP_VALUE_FLAGS: readonly ValueFlagSpec[] = [
@@ -195,7 +188,6 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...ZK_QUERY_VALUE_FLAGS,
 	...VLM_VALUE_FLAGS,
 	...PDF_VALUE_FLAGS,
-	...WORKFLOW_VALUE_FLAGS,
 	...RESEARCH_VALUE_FLAGS,
 	...KCARD_LOOP_VALUE_FLAGS,
 	...PIPELINE_GATE_VALUE_FLAGS,
@@ -320,11 +312,6 @@ const ZK_QUERY_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--json"], field: "json" },
 ];
 
-// ── workflow — log persistence ──────────────────────────────────────────────
-const WORKFLOW_BOOL_FLAGS: readonly BoolFlagSpec[] = [
-	{ flags: ["--no-persist-logs"], field: "noPersistLogs" },
-];
-
 // ── knowledge-pipeline — operational surface ────────────────────────────────
 const KNOWLEDGE_PIPELINE_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--save"], field: "save" },
@@ -363,7 +350,6 @@ export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...ZK_CARD_BOOL_FLAGS,
 	...PDF_BOOL_FLAGS,
 	...ZK_QUERY_BOOL_FLAGS,
-	...WORKFLOW_BOOL_FLAGS,
 	...KNOWLEDGE_PIPELINE_BOOL_FLAGS,
 	...RESEARCH_BOOL_FLAGS,
 	...KCARD_LOOP_BOOL_FLAGS,

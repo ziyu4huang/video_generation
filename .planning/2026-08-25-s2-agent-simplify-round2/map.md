@@ -65,7 +65,7 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 
 ### Phase A — sweep & disposition
 
-- [ ] 01 — Dead surface + scripts/docs purge + **version bump 0.7.10→0.7.11** (executed 2026-08-25 branch chart/s2-agent-simplify-round2: baselines + lexical-overlap (393 LOC) + scripts cli/list/test:e2e + dead citation deleted; ADR 0005 verdict = RE-CITED (content still governs the PROVIDERS single-catalog invariant — citation added at pre-load-providers.ts header; deletion would lose the baked-providers trade-off record); `__fixtures__/` NOT empty — claim corrected, fixture kept; version 0.7.11 via version-bump-cli, dispatch VERSION lockstep; gates/PR pending)
+- [x] 01 — Dead surface + scripts/docs purge + **version bump 0.7.10→0.7.11** (complete 2026-08-25, PR #2014 squash 3d1ac80d: baselines + lexical-overlap (393 LOC) + scripts cli/list/test:e2e + dead citation deleted; ADR 0005 verdict = RE-CITED at pre-load-providers.ts header; `__fixtures__/` NOT empty — claim corrected, fixture kept; version 0.7.11 lockstep; reviewer READY, local_ci pass, merged via devops chain)
 - [ ] 02 — ultracode disposition, s2-agent side only (rides the Decision below): at minimum doc receipts into CONTEXT.md; if trim chosen, remove/disable the chosen surface (`cli workflow` command + 418 LOC tests, sample packs) while keeping the engine importable for movie-director; cron zero-usage note passed to a separate engine-side effort
 
 ### Phase B — tests

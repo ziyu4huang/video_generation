@@ -202,13 +202,6 @@ export interface ParsedArgs {
 	reconverge?: boolean;
 	/** organize-vault: explicit vault root path */
 	vaultRoot?: string;
-	/** workflow: JSON args passed to the workflow script (its `args` global). */
-	workflowArgs?: string;
-	/** workflow: disable log persistence (logs persist by default). */
-	noPersistLogs?: boolean;
-	/** workflow: override the run-log output dir (default PWD/.pi/workflows/runs).
-	 *  Also via PI_WORKFLOWS_OUT_DIR env. Absolute or relative to cwd. */
-	outDir?: string;
 	/** Convergence-loop tuning: cross-link weighting (count | idf) — read by zk-ingest. */
 	linkWeighting?: string;
 	/** Convergence-loop tuning: path to a probe eval JSON ({queries:[{q,expect}]}). */

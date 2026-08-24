@@ -29,4 +29,4 @@ Version: `bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-
 - [x] `diff` proves repo-root `scripts/schema-cost-baseline.json` untouched
 - [x] ADR 0005 verdict (deleted-with-reason or re-cited) recorded here
 - [x] Version 0.7.11 in package.json AND dispatch VERSION lockstep (e2e meta VERSION pin green)
-- [ ] devops local_ci green (≤ 5 min); PR merged via devops chain; reviewer pass (local_ci pass 121.5s + reviewer READY recorded 2026-08-25; merge pending)
+- [x] devops local_ci green (≤ 5 min); PR merged via devops chain; reviewer pass (local_ci pass 121.5s; reviewer READY 2026-08-25; PR #2014 squash-merged 3d1ac80d)

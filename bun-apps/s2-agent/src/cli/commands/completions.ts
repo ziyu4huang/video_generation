@@ -33,13 +33,10 @@ const ROOT_COMMANDS = ["cli", "doctor", "ext"];
 const EXT_SUBCOMMANDS = ["doctor"];
 
 /** Meta commands the CLI dispatches inline (not present in the COMMANDS array). */
-const META_COMMANDS = ["pipeline", "workflow", "list", "list-tools", "version", "help"];
+const META_COMMANDS = ["pipeline", "list", "list-tools", "version", "help"];
 
 /** Knowledge-pipeline sub-commands, offered alongside the named pipelines. */
 const PIPELINE_SUBCOMMANDS = ["status", "run", "dry-run", "lint"];
-
-/** `workflow` sub-commands. */
-const WORKFLOW_SUBCOMMANDS = ["run", "list"];
 
 const GLOBAL_FLAGS = [
 	"--model", "--provider", "--thinking", "--api-key", "--mode",
@@ -88,10 +85,6 @@ function genBash(commands: string[], pipelines: string[]): string {
 		'    COMPREPLY=($(compgen -W "$pipes" -- "$cur"))',
 		"    return",
 		"  fi",
-		'  if [[ $prev == "workflow" ]]; then',
-		`    COMPREPLY=($(compgen -W "${WORKFLOW_SUBCOMMANDS.join(" ")}" -- "$cur"))`,
-		"    return",
-		"  fi",
 		`  COMPREPLY=($(compgen -W "${GLOBAL_FLAGS.join(" ")}" -- "$cur"))`,
 		"}",
 		`complete -F _pi_agent ${BIN}`,
@@ -126,9 +119,6 @@ function genZsh(commands: string[], pipelines: string[]): string {
 		"            case ${words[2]} in",
 		"              pipeline)",
 		`                _values 'pipeline' ${[...pipelines, ...PIPELINE_SUBCOMMANDS].map((p) => `'${p}'`).join(" ")}`,
-		"                ;;",
-		"              workflow)",
-		`                _values 'sub-command' ${WORKFLOW_SUBCOMMANDS.map((w) => `'${w}'`).join(" ")}`,
 		"                ;;",
 		"            esac",
 		"          fi",
@@ -165,11 +155,6 @@ function genFish(commands: string[], pipelines: string[]): string {
 	for (const p of [...pipelines, ...PIPELINE_SUBCOMMANDS]) {
 		lines.push(
 			`complete -c ${BIN} -n "__fish_seen_subcommand_from cli; and __fish_seen_subcommand_from pipeline" -a '${p}'`,
-		);
-	}
-	for (const w of WORKFLOW_SUBCOMMANDS) {
-		lines.push(
-			`complete -c ${BIN} -n "__fish_seen_subcommand_from cli; and __fish_seen_subcommand_from workflow" -a '${w}'`,
 		);
 	}
 	for (const f of GLOBAL_FLAGS) {

@@ -454,7 +454,7 @@ export function readUserSettings(): Record<string, unknown> | undefined {
 /**
  * Read user default provider/model from ~/.pi/agent/settings.json (best-effort,
  * non-fatal). Thin projection over `readUserSettings` — the single reader for
- * that file in the CLI surface — so the workflow command and
+ * that file in the CLI surface — so every command and
  * `resolveLLMFromArgs` see the SAME read. Returns undefined on any
  * read/parse error or missing file.
  */
