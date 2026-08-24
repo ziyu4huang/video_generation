@@ -98,7 +98,17 @@ async function runOnce(model: string, capMs: number, cwd: string): Promise<RunRe
 	// the same contract check-deploy-e2e.sh guarantees for the probe suites.
 	const proc = Bun.spawn(["bash", LAUNCHER, "--model", model, "-p", PROMPT, "--no-session"], {
 		cwd,
-		env: { ...process.env, ...isolatedAgentDirEnv(join(cwd, "pi-home")) },
+		env: {
+			...process.env,
+			...isolatedAgentDirEnv(join(cwd, "pi-home")),
+			// NEVER let a test-time launcher self-heal-install: check-deps.ts's
+			// `bun install` at the workspace root, racing the concurrent suites of
+			// this gate, is what clobbered the isolated-linker forest mid-run
+			// (2026-08-24: a dangling s2-agent/node_modules link + a 100%-CPU
+			// install spin). The forest is managed by the operator/CI, not by a
+			// test launcher.
+			BUN_PI_AUTO_INSTALL: "0",
+		},
 		stdout: "pipe",
 		stderr: "pipe",
 	});

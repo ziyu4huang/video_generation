@@ -88,6 +88,12 @@ export ZAI_API_KEY="$GATE_ZAI_API_KEY"
 # Fill-gaps qualification: only default when the operator hasn't chosen a model.
 export PI_MODEL="${PI_MODEL:-zai/glm-5.3}"
 export PI_PROVIDER="${PI_PROVIDER:-zai}"
+# A test-time launcher must NEVER self-heal-install: check-deps.ts's
+# `bun install` at the workspace root, racing this gate's concurrent suites,
+# clobbered the isolated-linker forest mid-run (2026-08-24 — dangling
+# s2-agent/node_modules link, launcher died on missing @earendil-works/pi-tui).
+# The forest is managed by the operator/CI, not by a gate.
+export BUN_PI_AUTO_INSTALL="${BUN_PI_AUTO_INSTALL:-0}"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
