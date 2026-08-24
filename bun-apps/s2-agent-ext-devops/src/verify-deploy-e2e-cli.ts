@@ -4,8 +4,10 @@
  *
  * `bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts`
  *
- * Runs the three bounded probes (boot / ext-load / model-call) against the
- * version dir a deploy root's `current` points at, and prints the structured
+ * Runs the bounded probes (boot / ext-load / tools-probe / model-call /
+ * vision-call / file2md-ocr / tool-gate-fire — the latter three skip when not
+ * applicable to the deploy set) against the version dir a deploy root's
+ * `current` points at, and prints the structured
  * outcome as JSON on stdout. Read-only for the repo; the probes spawn the
  * DEPLOYED s2-agent.sh launcher only. This is the post-deploy step the devops chain was
  * missing: the deploy gates verify the staged tree, nothing re-verified the
@@ -13,7 +15,7 @@
  * so they never run in CI.
  *
  * Exit 0 pass or skip (provider-down is a SKIP, not a FAIL — the boot is what
- * we vouch for) · 1 fail (boot/ext-load/model-call, or no `current`) · 2 usage.
+ * we vouch for) · 1 fail (any probe, or no `current`) · 2 usage.
  */
 import { resolve } from "node:path";
 import { shConfig } from "./deploy/lib/config.ts";
@@ -34,7 +36,14 @@ export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"a slower completed run fails, unless the contention precheck fired → skip)",
 	"and hermes-memory startup round-trips ≤150 (from the slow-startup banner;",
 	"measured 103–114 dirty-vault / 26 clean). Before the model call, the endpoint's",
-	"/v1/models is checked: >1 large resident chat model emits a `warnings` note",
+	"/v1/models is checked: >1 large resident chat model emits a `warnings` note.",
+	"",
+	"VISION-CALL probe: when file2md is in the deploy set (and --skip-model-call",
+	"is absent), the deployed file2md bundle's vision_ask tool answers a question",
+	"about a fixture image; the reply must contain text only knowable by SEEING",
+	"the image — proving the DEFAULT vision lane (capabilities.vision) actually",
+	"processes images instead of silently falling back to a text model (the",
+	"#1981 follow-up; measured 2026-08-24: a broken lane answers nothing in 0.3s).",
 	"",
 	"Default deploy root: outRoot from bun-apps/s2-agent/src/registry-config.ts",
 	"(the same value deploy-cli deploys into). `current` must exist and point at",
