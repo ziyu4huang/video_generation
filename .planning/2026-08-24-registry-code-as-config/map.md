@@ -79,10 +79,17 @@ Phase 2 — repo consumers flip (after 01)
   retired YAML bridge for devops/ext-new until 03); regen-manifest +
   freshness gate read it; regen output byte-identical (24 extensions); s2-agent
   suite 1055/0; local_ci pass; s2-agent 0.6.7
-- `tickets/03-flip-devops-and-scaffold.md` — open — devops
-  `parseShConfig` reads the TS (deploy CLI + tests); `ext new` scaffold emits a
-  TS entry edit; contract suites (registry-base-set line scanner, dep-guard,
-  extension-isolation-contract) get a link-state-immune TS reader
+- `tickets/03-flip-devops-and-scaffold.md` — DONE (PR #1967, merged CLEAN
+  2026-08-24) — devops `config.ts` gains `shConfig()` /
+  `excludedExtensionsFromRegistry()` over `loadRegistry()` (parseShConfig kept
+  as deprecated fixture-only YAML bridge); `--config` flag retired everywhere
+  (errors loudly, points at src/registry-config.ts); deploy report
+  `configPath` → `registryModule`; `ext new` appends a typed REGISTRY entry
+  (`appendRegistryTsEntry` text surgery) — its old text surgeon
+  `run-dir/registry-insert.ts` deleted (zero non-test callers left); contract
+  suites read a relative import of registry-config.ts (D4), registry-base-set
+  test rewritten to real-data invariants; s2-agent 0.6.8; local_ci pass
+  (after the probe suite was pinned to the deepseek provider — D8)
 
 Phase 3 — retirement (after 02+03)
 - `tickets/04-retire-yaml-invariants-docs.md` — open — delete
@@ -108,7 +115,22 @@ Phase 3 — retirement (after 02+03)
   ticket 03; ticket 04 deletes it with the YAML. Transitional seam accepted:
   between 02 and 03, `ext new --register dynamic` still writes YAML but
   regen:manifest ignores it — surfaced by the freshness gate going red, fixed
-  by 03.
+  by 03. REVISED (t03): registry-insert was deleted IN 03, not 04 — ext-new's
+  flip to `appendRegistryTsEntry` left it with zero non-test callers, so
+  keeping an orphaned module for one more ticket bought nothing; the t04
+  deletion scope still owns the YAML + the parseRegistry/parseShConfig
+  bridges.
+- D8 (t03, CI provider pin — new, operator constraint): the probe e2e suite
+  boots the deployed binary with PI_PROVIDER=deepseek /
+  PI_MODEL=deepseek-v4-flash-vision-exp / PI_THINKING=off in agentDirEnv, so
+  gates never depend on the zai coding-plan quota. Reason (measured
+  2026-08-24): BUILTIN_MODEL_DEFAULT is zai/glm-5.3 on the operator's z.ai
+  coding-plan account — when the plan limit hits, api.z.ai answers every call
+  401 `{"code":"1000","message":"Authentication Failed"}` and the boot prints
+  it on stderr, turning the probe's stderr-clean session-start assertion red
+  for an operator-account reason (reproduced on the pre-t03 0.6.6 deployed
+  tree; `--model deepseek...` boots clean). CI checks the repo, not the
+  quota; the operator's real sessions keep the zai default.
 - D1: Full replacement, not a hybrid. A TS module that emits YAML (or a YAML
   kept as generated output) would create two sources and re-introduce the
   parse layer; the whole point is one typed authority. Rejected: keep YAML +
@@ -133,11 +155,17 @@ Phase 3 — retirement (after 02+03)
 
 ## Frontier
 
-`tickets/03-flip-devops-and-scaffold.md` — 02 landed `loadRegistry()`
-(PR #1965) with the YAML bridge still serving devops/ext-new, so 03 is the
-mechanical surface swap: devops `parseShConfig` + deploy CLIs read the TS,
-`ext new` emits a TS registry entry (closing the 02↔03 register seam, D7),
-and the contract suites get their link-state-immune TS reader.
+`tickets/04-retire-yaml-invariants-docs.md` — 03 landed the last YAML
+READERS: devops `parseShConfig`/`excludedExtensions` are now fixture-only
+retired bridges, ext-new emits TS entries, the contract suites read the typed
+module. So 04 is the pure deletion: remove `s2-agent.registry.yaml` +
+`parseRegistry` (run-dir) + `parseShConfig`/`excludedExtensions` (devops) and
+their fixture tests, unfreeze the manifest `$generated` string, flip the
+single-registry-guard to a no-YAML form — then the executable invariant tests
+(static order, hostApi/hostModules drift, excludeReason completeness, disabled
+enumeration).
+04 also closes the only remaining registry Fog: `lazyExtensions`' consumer
+and whether it needs a typed shape.
 
 ## Fog of war
 
@@ -150,9 +178,14 @@ and the contract suites get their link-state-immune TS reader.
   `doctor.ts` names the YAML in a comment only and reads `ext.json` trees.
 - `lazyExtensions: {}` (registry tail) — who consumes it and whether it needs
   a typed shape is unknown.
-- Fresh-worktree CI: contract suites run in CI without `bun install`? If they
-  do run with the workspace linked, D4's constraint is belt-and-suspenders;
-  if not, it is load-bearing. Verify in ticket 03.
+- CLOSED (t03): fresh-worktree CI — the GitHub CI workflow is DISABLED
+  (`.github/workflows/ci.yml.disabled`); the only working gate is the
+  change-scoped `local_ci`, always run inside the workspace-linked checkout,
+  so the contract suites never execute without `bun install` today. D4's
+  relative import is therefore belt-and-suspenders for CI — but still
+  load-bearing for a no-install fresh clone / editor typecheck, so it stays.
+- CLOSED (t03, new): gates must not depend on the zai coding-plan quota →
+  Decision D8.
 
 ## Cross-effort links
 
