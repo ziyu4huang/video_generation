@@ -1,96 +1,56 @@
 /**
- * registry-base-set.test.ts — unit tests for the shared base-set scanner
+ * registry-base-set.test.ts — unit tests for the shared base-set reader
  * (tests/lib/registry-base-set.ts).
  *
- * The scanner is the DERIVED scope of two gated contract suites
+ * The reader is the DERIVED scope of two gated contract suites
  * (extension-isolation-contract, dep-guard): every extension the registry
- * ships. Its authority is run-dir/registry.ts — an entry ships iff its entry
- * carries a `deploy:` block that is not `enabled: false`. The two historical
- * line-scanner copies each missed a form the authority handles:
- *   - flow-style `deploy: {order: 10}` (no newline after the colon) was
- *     silently NOT shipped;
- *   - `enabled: false` inside a deploy block was silently shipped.
- * Both divergences are pinned here so the contract suites can share ONE
- * scanner instead of two drifting ones.
+ * ships. Since registry-code-as-config ticket 03 the reader is the typed
+ * REGISTRY (s2-agent/src/registry-config.ts) — the YAML line scanner this
+ * file used to pin is GONE, and its divergence-parity role (flow-style
+ * `deploy: {order: 10}` and `enabled: false` inside a deploy block, which
+ * the two historical scanner copies each missed) now belongs to t01's
+ * equivalence net (s2-agent/src/registry-config.test.ts deep-equals the
+ * retired YAML parse) and t02's bridge (run-dir/registry.test.ts
+ * loadRegistry ≡ parseRegistry on the real file).
+ *
+ * What this file pins instead: the typed reader's REAL-DATA invariants — the
+ * anti-vacuity guarantee the ticket's Notes demand of the import path (an
+ * empty REGISTRY import must fail loudly, not pass every contract suite
+ * vacuously).
  *
  * Run: bun test tests/registry-base-set.test.ts
  */
-import { describe, it } from "node:test";
-import * as assert from "node:assert/strict";
-import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
+import { describe, expect, test } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { registryBaseSetNames } from "./lib/registry-base-set.ts";
+import { shippedEntries } from "../s2-agent/src/registry-config.ts";
 
-const FIXTURE = `deploy:
-  outRoot: ~/proj/dist/s2-agent-sh
-extensions:
-  - name: blocky
-    package: s2-agent-ext-blocky
-    entry: extensions/blocky.ts
-    load: static
-    deploy:
-      order: 10
-  - name: flowy
-    package: s2-agent-ext-flowy
-    entry: extensions/flowy.ts
-    load: dynamic
-    deploy: {order: 20}
-  - name: blockyDisabled
-    package: s2-agent-ext-blocky-disabled
-    entry: extensions/blocky-disabled.ts
-    load: dynamic
-    deploy:
-      order: 30
-      enabled: false
-  - name: flowyDisabled
-    package: s2-agent-ext-flowy-disabled
-    entry: extensions/flowy-disabled.ts
-    load: dynamic
-    deploy: {order: 40, enabled: false}
-  - name: localOnly
-    package: s2-agent-ext-local-only
-    entry: extensions/local-only.ts
-    load: dynamic
-    excludeReason: machine-bound
-lazyExtensions: {}
-`;
+const BUN_APPS_DIR = join(import.meta.dir, "..");
 
-describe("parseRegistryBaseSetNames", () => {
-	it("ships block-style deploy blocks", () => {
-		const names = parseRegistryBaseSetNames(FIXTURE);
-		assert.ok(names.includes("blocky"));
+describe("registryBaseSetNames (t03: typed REGISTRY reader)", () => {
+	test("is exactly the shippedEntries projection (no drift between the two exports)", () => {
+		expect(registryBaseSetNames()).toEqual(shippedEntries().map((e) => e.name));
 	});
 
-	it("ships flow-style deploy blocks (deploy: {order: N}) — the divergence dep-guard/isolation each missed", () => {
-		const names = parseRegistryBaseSetNames(FIXTURE);
-		assert.ok(names.includes("flowy"), `flowy missing from: ${names.join(", ")}`);
+	test("is anti-vacuity: the shipped set is large enough to be a real registry", () => {
+		// Same spirit as the MIN_EXPECTED floors at the contract call sites —
+		// an empty import must trip here, not silently pass every gate.
+		expect(registryBaseSetNames().length).toBeGreaterThanOrEqual(10);
 	});
 
-	it("does NOT ship a block-style deploy disabled via `enabled: false`", () => {
-		const names = parseRegistryBaseSetNames(FIXTURE);
-		assert.ok(!names.includes("blockyDisabled"), `blockyDisabled wrongly shipped: ${names.join(", ")}`);
+	test("every shipping entry's package lives on disk under bun-apps/", () => {
+		for (const e of shippedEntries()) {
+			expect(existsSync(join(BUN_APPS_DIR, e.package)), `${e.package} not on disk`).toBe(true);
+		}
 	});
 
-	it("does NOT ship a flow-style deploy disabled via `enabled: false`", () => {
-		const names = parseRegistryBaseSetNames(FIXTURE);
-		assert.ok(!names.includes("flowyDisabled"), `flowyDisabled wrongly shipped: ${names.join(", ")}`);
-	});
-
-	it("does not ship entries without a deploy block (excludeReason entries)", () => {
-		const names = parseRegistryBaseSetNames(FIXTURE);
-		assert.ok(!names.includes("localOnly"));
-	});
-
-	it("stops at the first column-0 key after extensions:", () => {
-		const names = parseRegistryBaseSetNames(FIXTURE);
-		assert.deepEqual(names, ["blocky", "flowy"]);
-	});
-
-	it("a block whose enabled is explicitly true still ships", () => {
-		const yaml = `extensions:
-  - name: optin
-    deploy:
-      order: 1
-      enabled: true
-`;
-		assert.deepEqual(parseRegistryBaseSetNames(yaml), ["optin"]);
+	test("names are non-empty, unique, and short-name shaped", () => {
+		const names = registryBaseSetNames();
+		expect(new Set(names).size).toBe(names.length);
+		for (const n of names) {
+			expect(n.length).toBeGreaterThan(0);
+			expect(n).toMatch(/^[a-z0-9][a-z0-9-]*$/);
+		}
 	});
 });

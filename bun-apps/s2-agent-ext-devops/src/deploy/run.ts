@@ -33,7 +33,7 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { APP_NAME } from "./lib/app-name.ts";
-import { excludedExtensions, parseShConfig, type ShConfig } from "./lib/config.ts";
+import { excludedExtensionsFromRegistry, shConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
 import {
 	collectModelFacts,
@@ -64,10 +64,9 @@ import { freezeTree, rmTree } from "./lib/fs.ts";
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "s2-agent");
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
 const REPO_ROOT = dirname(BUN_APPS_DIR);
-const DEFAULT_CONFIG = join(PI_AGENT_DIR, "s2-agent.registry.yaml");
+const REGISTRY_MODULE = join(PI_AGENT_DIR, "src", "registry-config.ts");
 
 export interface DeployShOptions {
-	configPath?: string;
 	outRoot?: string;
 	version?: string;
 	freeze?: boolean;
@@ -458,10 +457,10 @@ function recordGate(
 }
 
 export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShResult> {
-	const configPath = opts.configPath ? resolve(opts.configPath) : DEFAULT_CONFIG;
-	if (!existsSync(configPath)) throw new Error(`config not found: ${configPath}`);
-	const configText = readFileSync(configPath, "utf8");
-	const cfg = parseShConfig(configText, { bunAppsDir: BUN_APPS_DIR });
+	// The registry is CODE now (registry-code-as-config t03): no config file
+	// to read or override — shConfig() validates the typed REGISTRY and
+	// projects the deploy set. The retired --config flag is gone with it.
+	const cfg = shConfig({ bunAppsDir: BUN_APPS_DIR });
 	await assertHostContract(cfg);
 
 	const outRoot = opts.outRoot ? resolve(opts.outRoot) : cfg.outRoot;
@@ -572,7 +571,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 						bytes: bun.bytes,
 						cached: bun.cached,
 					},
-					configPath,
+					registryModule: REGISTRY_MODULE,
 					config: cfg,
 				},
 				null,
@@ -644,7 +643,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			builtAt,
 			sourceSha,
 			bunVersion: Bun.version,
-			configPath,
+			registryModule: REGISTRY_MODULE,
 			outRoot,
 			target,
 			freeze,
@@ -653,7 +652,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			runtime: { bunVersion: Bun.version, platform: process.platform, arch: process.arch, bytes: bun.bytes, cached: bun.cached },
 			gates,
 			extensions: extensionsReport,
-			excluded: excludedExtensions(configText, { bunAppsDir: BUN_APPS_DIR }),
+			excluded: excludedExtensionsFromRegistry({ bunAppsDir: BUN_APPS_DIR }),
 			providers: collectModelFacts(),
 		};
 		writeDeployReport(stage, reportData);

@@ -25,7 +25,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, writeFi
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../src/deploy/run.ts";
-import { parseShConfig } from "../src/deploy/lib/config.ts";
+import { shConfig } from "../src/deploy/lib/config.ts";
 import { freezeTree, rmTree, unfreezeTree } from "../src/deploy/lib/fs.ts";
 import { TOOLS_ACTIVE_PROBE, TOOLS_PROBE_CORE } from "../src/tools-active-probe.ts";
 
@@ -63,11 +63,7 @@ const agentDirEnv: Record<string, string> = {
 let target = "";
 let binary = "";
 
-const shConfig = parseShConfig(
-	readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registry.yaml"), "utf8"),
-	{ bunAppsDir: BUN_APPS_DIR },
-);
-const configuredNames = shConfig.extensions.map((e) => e.name).sort();
+const configuredNames = shConfig({ bunAppsDir: BUN_APPS_DIR }).extensions.map((e) => e.name).sort();
 
 // ZERO-Real-~/.pi-pollution guard (2026-08-22): the suite's whole point is
 // that per-user writes land under piHome. Snapshot the operator's REAL

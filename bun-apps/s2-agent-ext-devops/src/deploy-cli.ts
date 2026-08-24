@@ -8,17 +8,15 @@
  *   bun src/deploy-cli.ts                     # deploy (version dirs are immutable)
  *   bun src/deploy-cli.ts --list              # deployed versions + current
  */
-import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseDeployShArgv } from "./deploy-sh-argv.ts";
 import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
-import { parseShConfig } from "./deploy/lib/config.ts";
+import { shConfig } from "./deploy/lib/config.ts";
 import { listVersions } from "./deploy/lib/version.ts";
 import { runDeployE2e, resolveModelEndpoint } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn } from "./spawn.js";
 
 const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
-const DEFAULT_CONFIG = join(BUN_APPS_DIR, "s2-agent", "s2-agent.registry.yaml");
 
 const HELP = `deploy-cli — versioned minimal-core deploy for s2-agent
 
@@ -26,8 +24,7 @@ USAGE
   bun src/deploy-cli.ts [flags]
 
 FLAGS
-  --config <path>   deploy registry (default: bun-apps/s2-agent/s2-agent.registry.yaml)
-  --out <dir>       override outRoot from the config
+  --out <dir>       override outRoot from the registry
   --version <str>   override the computed <pkgVersion>+g<sha> version
   --force           replace an existing version dir
   (re-deploying the CURRENT version without --force is a no-op success:
@@ -55,10 +52,9 @@ if (parsed.action.kind === "help") {
 
 try {
 	if (parsed.action.kind === "list") {
-		const configPath = parsed.action.configPath ? resolve(parsed.action.configPath) : DEFAULT_CONFIG;
 		const outRoot = parsed.action.outRoot
 			? resolve(parsed.action.outRoot)
-			: parseShConfig(readFileSync(configPath, "utf8"), { bunAppsDir: BUN_APPS_DIR }).outRoot;
+			: shConfig({ bunAppsDir: BUN_APPS_DIR }).outRoot;
 		console.log(JSON.stringify({ ok: true, outRoot, ...listVersions(outRoot) }, null, 2));
 		process.exit(0);
 	}

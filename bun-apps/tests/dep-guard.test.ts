@@ -17,7 +17,7 @@
  *     NOTHING from the TIER-1 hub (knowledge-card) — edges point down only.
  *  5. No extension imports the host (s2-agent) — the host is above all exts.
  *  6. The declared @repo dependency graph is acyclic.
- *  7. No extension in the PORTABLE BASE SET (s2-agent.registry.yaml entries
+ *  7. No extension in the PORTABLE BASE SET (typed REGISTRY entries
  *     with a `deploy:` block) declares a
  *     RUNTIME dependency on another extension. Complements
  *     extension-isolation-contract.test.ts invariant (1): that one scans import
@@ -35,7 +35,7 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "./read-jsonc.ts";
-import { parseRegistryBaseSetNames } from "./lib/registry-base-set.ts";
+import { registryBaseSetNames } from "./lib/registry-base-set.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), ".."); // bun-apps/
 const EXTS = readdirSync(ROOT)
@@ -175,15 +175,14 @@ describe("monorepo dependency hygiene guard (knowledge-layer tier rules)", () =>
 	});
 
 	it("no PORTABLE BASE SET extension declares a runtime dependency on another extension", () => {
-		// Base set is DERIVED from s2-agent.registry.yaml (entries carrying a
-		// `deploy:` block that is not `enabled: false` — excluded entries have
-		// `excludeReason` instead), via the shared scanner in
+		// Base set is DERIVED from the typed REGISTRY (shippedEntries — entries
+		// with a deploy block that is enabled; excluded entries carry
+		// excludeReason instead), via the shared reader in
 		// tests/lib/registry-base-set.ts, so promoting an extension into the
 		// portable profile enrolls it here automatically. The floor guard is
-		// what keeps a silent parse failure from making this vacuous.
-		const yamlText = readFileSync(join(ROOT, "s2-agent", "s2-agent.registry.yaml"), "utf8");
-		const baseSet = parseRegistryBaseSetNames(yamlText).map((n) => `s2-agent-ext-${n}`);
-		assert.ok(baseSet.length >= 10, `parsed only ${baseSet.length} base-set name(s) from s2-agent.registry.yaml`);
+		// what keeps a silent import failure from making this vacuous.
+		const baseSet = registryBaseSetNames().map((n) => `s2-agent-ext-${n}`);
+		assert.ok(baseSet.length >= 10, `read only ${baseSet.length} base-set name(s) from the typed REGISTRY`);
 
 		const violations: string[] = [];
 		// The sanctioned base-set lib edges, both PURE LIBRARY faces:
