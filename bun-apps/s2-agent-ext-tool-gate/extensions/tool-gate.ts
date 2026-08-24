@@ -473,7 +473,33 @@ export default function toolGateExtension(pi: ExtensionAPI) {
     // equivalent of true owner-declaration (deferred to FOLLOWUPS #5).
     // Shallow-clones per def — see injectBuiltinCore; the runtime end-state is
     // unchanged (always-active).
-    return injectBuiltinCore(raw);
+    //
+    // #1946 FOLLOW-UP (2026-08-24, caught by deploy-e2e's tools-probe): the
+    // bridge source (getAllRegisteredTools) contains ONLY extension-registered
+    // tools — the session's host built-ins (read/write/edit/bash/grep/find/ls)
+    // live in _toolDefinitions and are INVISIBLE to it, so injectBuiltinCore
+    // had nothing to inject onto. setActiveToolsByName then REPLACED
+    // agent.state.tools with the ext-only list and the half-fixed deploys
+    // (0.5.2+gf816e06) shipped sessions whose model had NO file tools while
+    // ext-load, the gate seam and even the model-call probe stayed green.
+    // Union the host built-ins in from pi.getAllTools() (the one registry that
+    // carries them; ToolInfo name-only is all buildEffectiveGates needs) and
+    // declare them core — the gate manages EXTENSION tools; host built-ins are
+    // always-active by construction, exactly as they were before the gate.
+    const discovered = injectBuiltinCore(raw);
+    if (typeof pi.getAllTools !== "function") return discovered;
+    const seen = new Set(discovered.map((t) => t.name));
+    // sourceInfo.source === "builtin" (measured 2026-08-24 against pi 0.84.2:
+    // `{"path":"<builtin:read>","source":"builtin"}`) is the discriminator —
+    // name-matching would miss the NEXT builtin pi ships.
+    const hostBuiltins = (
+      pi.getAllTools() as Array<{ name: string; sourceInfo?: { source?: string } }>
+    ).filter((t) => typeof t?.name === "string" && !seen.has(t.name) && t.sourceInfo?.source === "builtin");
+    if (hostBuiltins.length === 0) return discovered;
+    return [
+      ...discovered,
+      ...hostBuiltins.map((t) => ({ name: t.name, gating: { core: true } as Gating })),
+    ];
   };
 
   // ── Per-session gate state (ticket 05) ─────────────────────────────────────

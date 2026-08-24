@@ -19,6 +19,11 @@
 #   deploy-e2e        the tree: freeze, version, current symlink, core-cache
 #                        reuse + keep:N pruning, and the zero-extension state.
 #   deploy-probe-e2e  the runtime: real sessions against the deployed binary.
+#   e2e-core-tool-    the L2 loop the 2026-08-24 #1946 incident demanded: a
+#     roundtrip        REAL model round trip (local qwen nothink, deepseek
+#                      fallback on >60s) that EXECUTES inspect_context and
+#                      writes inspect-context.md — verdict is the artifact's
+#                      content, so a toolless session can never pass.
 # Only the probe suite was wired in when this gate was written, so deploy-e2e
 # ran nowhere. It went stale on #1713 and outright red on #1738 — it asserted a
 # literal ["power-tool", "task"] while the base set grew to fourteen — and no
@@ -85,7 +90,7 @@ export PI_PROVIDER="${PI_PROVIDER:-zai}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-SUITES="tests/deploy-e2e.test.ts tests/deploy-probe-e2e.test.ts"
+SUITES="tests/deploy-e2e.test.ts tests/deploy-probe-e2e.test.ts tests/e2e-core-tool-roundtrip.test.ts"
 
 if ! ( cd "$PKG_DIR" && PI_AGENT_E2E=1 bun test $SUITES ) > "$TMP/e2e.log" 2>&1; then
 	echo "FAIL: the sh deploy e2e did not pass against a fresh deploy."

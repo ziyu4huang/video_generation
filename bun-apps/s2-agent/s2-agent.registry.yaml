@@ -227,20 +227,28 @@ extensions:
       # Vendored, the packages are ~22MB of weight no code path can reach.
       # Recorded in ext.json vendoredClosure.excluded; Gate 5d honours it.
       vendorExclude: ["@fontsource/*"]
-  - name: tool-gate
-    package: s2-agent-ext-tool-gate
-    entry: extensions/tool-gate.ts
-    load: dynamic
-    version: "0.1.0"
-    # Shipped 2026-08-23 (measured reversal of the repo-internal exclusion):
-    # the dist carries 74% of the full-tree gate-managed schema mass — 12,637
-    # gross / 12,328 net (57.3%) saved at session start on the real dist.
-    # Fail-open for untracked tools + the enable_tool escape hatch hold the
-    # 0 task-breaking posture; the recall corpus/gate-recall probes stay
-    # repo-side. The deploy e2e `tool-gate-fire` probe smoke-gates the shipped
-    # matcher (session-start gating + keyword firing + enable_tool + disable env).
-    deploy:
-      order: 190
+  # DISABLED BY DEFAULT 2026-08-24 (user decision, after #1946 + its half-fix
+  # follow-up): tool-gate's discovery could not see the host built-ins
+  # (read/write/edit/bash/grep/find/ls — they live in _toolDefinitions, not
+  # getAllRegisteredTools), and setActiveToolsByName REPLACES agent.state.tools
+  # wholesale, so two deploys + the dev tree shipped sessions whose model had
+  # NO file tools while every existing gate stayed green. The builtin-union
+  # fix + the deploy-e2e `tools-probe` (asserts core builtins ACTIVE) landed
+  # on branch ci/tools-active-probe; re-enable = uncomment this entry +
+  # regen:manifest once that PR is merged and the probe has baked green.
+  # History (why it shipped 2026-08-23 in the first place): the dist carries
+  # 74% of the full-tree gate-managed schema mass — 12,637 gross / 12,328 net
+  # (57.3%) saved at session start on the real dist; fail-open for untracked
+  # tools + the enable_tool escape hatch; the recall corpus/gate-recall probes
+  # stay repo-side and the deploy e2e `tool-gate-fire` probe smoke-gates the
+  # shipped matcher.
+  # - name: tool-gate
+  #   package: s2-agent-ext-tool-gate
+  #   entry: extensions/tool-gate.ts
+  #   load: dynamic
+  #   version: "0.1.0"
+  #   deploy:
+  #     order: 190
   - name: devops
     package: s2-agent-ext-devops
     entry: extensions/devops.ts

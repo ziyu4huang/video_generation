@@ -24,6 +24,11 @@ import { PROVIDERS, resolveApiKey, type ApiKey } from "./pre-load-providers.ts";
 import { detectMode, type BundlerMode } from "./mode.ts";
 import { HOST_API, HOST_MODULE_IDS } from "./sh/host-modules.ts";
 import { parseExtManifest } from "./sh/ext-manifest.ts";
+// Cross-package relative import (static-extensions.ts precedent): the smoke
+// probe is SHARED with deploy-e2e's tools-probe so the dev-side and deploy-side
+// gates can never drift — same probe, same [TOOLS] payload, same core builtin
+// assertion. See that module's header for the handler-ordering contract.
+import { parseToolsProbeLine, TOOLS_ACTIVE_PROBE } from "../../s2-agent-ext-devops/src/tools-active-probe.ts";
 
 export type CheckStatus = "pass" | "warn" | "fail" | "info";
 
@@ -323,10 +328,12 @@ export function removedFlagNotice(argv: readonly string[]): string | null {
 // exist, not that pi actually LOADS them. The #182 regression (cli.ts sliced
 // argv before the run-dir patch spliced it in) silently dropped EVERY run-dir
 // extension while every static check stayed green. The smoke check spawns a
-// throwaway probe that calls `pi.getAllTools()` at session_start and counts how
-// many tools came from the run-dir extension root — catching that silent-no-op
-// class on any deployed artifact, offline, without the model call (the probe
-// exits at session_start, before main() reaches the provider).
+// throwaway probe (TOOLS_ACTIVE_PROBE, shared with deploy-e2e's tools-probe)
+// that reads the session's toolset at before_agent_start — catching BOTH the
+// #182 silent-no-op class (matched = 0: no run-dir extension tools registered)
+// AND the #1946 class (core builtins missing from the ACTIVE set, e.g. a
+// setActiveTools([]) wipe) on any deployed artifact, offline, without awaiting
+// a model round trip.
 
 /**
  * The marker the smoke probe greps tool sourceInfo.path for, per mode.
@@ -344,20 +351,10 @@ export function smokeMarker(mode: DeployMode, selfDir: string): string {
 	return resolve(selfDir, "..", ".."); // source
 }
 
-const SMOKE_PROBE = [
-	'export default (pi) => {',
-	'  pi.on("session_start", () => {',
-	'    const tools = pi.getAllTools();',
-	'    const marker = process.env.PI_SMOKE_MARKER ?? "";',
-	'    let matched = 0;',
-	'    for (const t of tools) {',
-	'      if (marker && String(t.sourceInfo?.path ?? "").includes(marker)) matched++;',
-	'    }',
-	'    process.stderr.write("[SMOKE] total=" + tools.length + " matched=" + matched + "\\n");',
-	'    process.exit(0);', // exit at session_start → before the model call → offline
-	'  });',
-	'};',
-].join("\n");
+// The probe source itself lives in s2-agent-ext-devops (tools-active-probe.ts)
+// — shared verbatim with deploy-e2e's tools-probe so the two gates assert the
+// same payload. It exits at before_agent_start (deferred 250ms so every
+// later-loaded handler has run), before any provider response is awaited.
 
 /** Injectable spawn seam so runSmokeCheck's logic is unit-testable without bun. */
 export interface SmokeSpawn {
@@ -373,7 +370,7 @@ export interface SmokeOptions {
 }
 
 /**
- * Spawn the smoke probe against the entry and parse its [SMOKE] line.
+ * Spawn the smoke probe against the entry and parse its [TOOLS] line.
  * Real spawn helper — exported for tests that want to exercise the timeout path.
  */
 export async function defaultSmokeSpawn(args: {
@@ -405,7 +402,7 @@ export async function defaultSmokeSpawn(args: {
 			if (res.timedOut) break;
 			if (res.done) break;
 			buf += dec.decode(res.value, { stream: true });
-			if (/\[SMOKE\]/.test(buf)) break; // got it — no need to wait for exit
+			if (/\[TOOLS\]/.test(buf)) break; // got it — no need to wait for exit
 		}
 	} finally {
 		try {
@@ -425,19 +422,21 @@ export async function defaultSmokeSpawn(args: {
 
 /**
  * Run the runtime-smoke check. Imperative (fs + spawn). Returns a CheckResult:
- *  - matched > 0 → PASS (run-dir extensions loaded)
- *  - matched = 0 → FAIL (silent no-op class; the slice-bug regression)
- *  - no [SMOKE] line → FAIL (probe never fired — entry error or a heavy
- *    extension's session_start handler blocked it past the timeout)
+ *  - matched > 0 AND no missing core → PASS (extensions loaded AND active)
+ *  - matched = 0 → FAIL (silent no-op class; the #182 slice-bug regression)
+ *  - missing core builtins → FAIL (the #1946 setActiveTools([]) class)
+ *  - activeCount = 0 → FAIL (the active toolset is empty)
+ *  - no [TOOLS] line → FAIL (probe never fired — entry error or a heavy
+ *    extension's handler blocked it past the timeout)
  */
 export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {}): Promise<CheckResult> {
 	const id = "runtime-smoke";
-	const label = "runtime smoke (extension load)";
+	const label = "runtime smoke (extension load + core tools active)";
 	const marker = smokeMarker(ctx.mode, ctx.selfDir);
 	const cwd = ctx.selfDir;
 	const dir = mkdtempSync(join(tmpdir(), "s2-agent-smoke-"));
 	const probePath = join(dir, "smoke-probe.ts");
-	writeFileSync(probePath, SMOKE_PROBE);
+	writeFileSync(probePath, TOOLS_ACTIVE_PROBE);
 	const env = { ...ctx.env, PI_SMOKE_MARKER: marker };
 	let result: { stderr: string; code: number | null };
 	try {
@@ -458,30 +457,40 @@ export async function runSmokeCheck(ctx: DoctorContext, opts: SmokeOptions = {})
 		}
 	}
 	const clean = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").trim();
-	const m = result.stderr.match(/\[SMOKE\] total=(\d+) matched=(\d+)/);
-	if (!m) {
+	const p = parseToolsProbeLine(result.stderr);
+	if (!p.ok) {
 		return {
 			id,
 			label,
 			status: "fail",
 			detail: `probe did not report (exit ${result.code})`,
-			hint: `entry failed early, or an extension's session_start handler blocked past the timeout. stderr tail: ${clean(result.stderr).slice(-180)}`,
+			hint: `entry failed early, or an extension's handler blocked past the timeout. stderr tail: ${clean(result.stderr).slice(-180)}`,
 		};
 	}
-	const total = +(m[1] ?? "");
-	const matched = +(m[2] ?? "");
-	if (matched > 0) {
+	const v = p.value;
+	if (v.matched > 0 && v.missing.length === 0 && v.activeCount > 0 && v.getActiveTools && v.getError === undefined) {
 		// "run-dir" is the source of extensions in source/bundle mode only; an sh
 		// deploy has no run-dir at all, and a detail line naming one sends the
 		// operator to a directory that does not exist.
 		const from = ctx.mode === "sh" ? "ext/ extensions loaded" : "run-dir extensions loaded";
-		return { id, label, status: "pass", detail: `total=${total} matched=${matched} — ${from}` };
+		return { id, label, status: "pass", detail: `total=${v.total} matched=${v.matched} active=${v.activeCount} — ${from}` };
+	}
+	if (v.missing.length > 0 || v.activeCount === 0 || !v.getActiveTools || v.getError !== undefined) {
+		return {
+			id,
+			label,
+			status: "fail",
+			detail: `total=${v.total} matched=${v.matched} active=${v.activeCount}${
+				v.missing.length ? ` — core builtins MISSING from the active set: ${v.missing.join(", ")}` : ""
+			}${v.activeCount === 0 && v.missing.length === 0 ? " — active toolset EMPTY" : ""}`,
+			hint: "the #1946 class: something called setActiveTools with an empty/partial set (e.g. tool-gate's discovery read failing) — the model would have no read/write/edit/bash. Check the __s2GetAllToolDefinitions__ bridge and any before_agent_start mutator.",
+		};
 	}
 	return {
 		id,
 		label,
 		status: "fail",
-		detail: `total=${total} matched=0 — NO run-dir extension tools registered`,
+		detail: `total=${v.total} matched=0 — NO run-dir extension tools registered`,
 		hint: "silent load failure (the slice-bug class): verify cli.ts passes process.argv.slice(2) to main() AFTER applyPatches(), then re-run `bun bun-apps/s2-agent-ext-devops/scripts/run-test.ts medium`.",
 	};
 }

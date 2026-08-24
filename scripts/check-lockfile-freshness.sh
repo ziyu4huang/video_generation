@@ -23,6 +23,15 @@
 # both produced a red that had nothing to do with the lockfile. A script file
 # sidesteps the quoting entirely and matches how every other gate here is
 # written.
+#
+# WHY --lockfile-only (2026-08-24 RCA): the full `bun install` re-materializes
+# the ISOLATED-LINKER node_modules forest — a 4+ minute CPU spin (measured
+# 99% CPU, killed at 3:54) that every version-bump push triggered, silently
+# breaking the pre-push hook's "13 steps, ~6s" contract and stalling emergency
+# fixes. `--lockfile-only` runs the SAME resolve (drift detection verified
+# against a freshly added dep: the lock diff appears) WITHOUT linking —
+# measured 8ms on this machine. A watchdog still bounds the pathological case:
+# this is a pre-push gate and may never hang a push.
 
 set -euo pipefail
 
@@ -44,7 +53,27 @@ if ! git diff --quiet -- "$LOCK"; then
 	exit 1
 fi
 
-bun install --cwd bun-apps >/dev/null
+# Watchdogged resolve: 120s hard cap (cold-cache headroom; warm is ~8ms).
+bun install --cwd bun-apps --lockfile-only >/dev/null 2>&1 &
+RESOLVE_PID=$!
+WAITED=0
+while kill -0 "$RESOLVE_PID" 2>/dev/null && [ "$WAITED" -lt 120 ]; do
+	sleep 1
+	WAITED=$((WAITED + 1))
+done
+if kill -0 "$RESOLVE_PID" 2>/dev/null; then
+	kill -9 "$RESOLVE_PID" 2>/dev/null || true
+	wait "$RESOLVE_PID" 2>/dev/null || true
+	echo "FAIL: bun install --lockfile-only exceeded 120s — a resolve that slow is a"
+	echo "      pathological state (store lock? registry hang?), never a gate verdict."
+	echo "      Investigate outside the pre-push hook; push with --no-verify if urgent."
+	exit 1
+fi
+wait "$RESOLVE_PID" 2>/dev/null || RESOLVE_FAILED=1
+if [ "${RESOLVE_FAILED:-0}" = "1" ]; then
+	echo "FAIL: bun install --lockfile-only exited nonzero — see the resolve error above."
+	exit 1
+fi
 
 if ! git diff --quiet -- "$LOCK"; then
 	echo "FAIL: $LOCK is stale — re-resolving it against the workspace changed it:"

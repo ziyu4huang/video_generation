@@ -256,18 +256,50 @@ describe("runSmokeCheck (via injected spawn seam)", () => {
 		async () => ({ stderr, code });
 	const srcCtx = () => ctx({ mode: "source", selfDir: "/repo/bun-apps/s2-agent/src", entryPath: "/repo/bun-apps/s2-agent/src/cli.ts" });
 
-	test("PASS when matched > 0 (run-dir extensions loaded)", async () => {
-		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("[SMOKE] total=38 matched=33\nsome other line") });
+	test("PASS when matched > 0 and the core builtins are active", async () => {
+		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("[TOOLS] " + JSON.stringify({
+			total: 38,
+			matched: 33,
+			activeCount: 30,
+			active: ["read", "write", "edit", "bash", "todo", "ask_user_question"],
+			missing: [],
+			gateSeam: null,
+			getActiveTools: true,
+		}) + "\nsome other line") });
 		expect(r.status).toBe("pass");
 		expect(r.detail).toContain("matched=33");
+		expect(r.detail).toContain("active=30");
 	});
 	test("FAIL when matched = 0 (silent no-op class)", async () => {
-		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("[SMOKE] total=8 matched=0\n") });
+		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("[TOOLS] " + JSON.stringify({
+			total: 8,
+			matched: 0,
+			activeCount: 8,
+			active: ["read", "write", "edit", "bash", "todo"],
+			missing: [],
+			gateSeam: null,
+			getActiveTools: true,
+		}) + "\n") });
 		expect(r.status).toBe("fail");
 		expect(r.detail).toContain("matched=0");
 		expect(r.hint).toContain("slice");
 	});
-	test("FAIL when probe never reported (no [SMOKE] line)", async () => {
+	test("FAIL when core builtins are missing from the ACTIVE set (the #1946 class)", async () => {
+		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("[TOOLS] " + JSON.stringify({
+			total: 66,
+			matched: 26,
+			activeCount: 16,
+			active: ["ask_user_question", "spawn_subagent", "task_create"],
+			missing: ["read", "write", "edit", "bash"],
+			gateSeam: { activeCount: 16, totalCount: 66, coreCount: 0 },
+			getActiveTools: true,
+		}) + "\n") });
+		expect(r.status).toBe("fail");
+		expect(r.detail).toContain("read");
+		expect(r.detail).toContain("MISSING");
+		expect(r.hint).toContain("#1946");
+	});
+	test("FAIL when probe never reported (no [TOOLS] line)", async () => {
 		const r = await runSmokeCheck(srcCtx(), { spawn: fakeSpawn("Error: something broke", 2) });
 		expect(r.status).toBe("fail");
 		expect(r.detail).toContain("did not report");

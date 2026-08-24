@@ -18,7 +18,16 @@
  *   boot           `s2-agent.sh --help` — the core boots from the frozen tree.
  *   ext-load       `s2-agent.sh --ext-list` — every extension enabled in
  *                  deploy.json reports loaded (same contract as deploy Gate 3,
- *                  but against the FINAL tree).
+ *                  but against the FINAL tree). Registration only — blind to
+ *                  the #1946 class, which is what tools-probe covers.
+ *   tools-probe    `s2-agent.sh -e <probe> -p hi --no-session` — a real
+ *                  headless session whose probe asserts the ACTIVE toolset
+ *                  still contains the core builtins (read/write/edit/bash)
+ *                  when the request would go out. The #1946 regression
+ *                  (tool-gate setActiveTools([])) shipped TWO toolless deploys
+ *                  past boot + ext-load + model-call; only the active set
+ *                  observes it. Offline (exits at before_agent_start); a FAST
+ *                  provider/auth failure is a SKIP, never a FAIL.
  *   model-call     `s2-agent.sh -p 'Reply with exactly: ok' --no-session` — a
  *                  real one-shot model call through the deployed launcher. A
  *                  FAST provider/auth failure (≤10s, provider-smelling output)
@@ -42,7 +51,7 @@
  *   spawn surface is the shared `SpawnFn`; tests inject a recording fake and
  *   never place a real model call.
  */
-import { mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -50,6 +59,7 @@ import { executeExtTool } from "./deploy/lib/ext-build.js";
 import { runToolGateFireProbe } from "./tool-gate-fire-probe.js";
 import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
 import { classifyRun } from "./oneshot-smoke.js";
+import { parseToolsProbeLine, TOOLS_ACTIVE_PROBE } from "./tools-active-probe.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
 import type { SpawnFn } from "./spawn.js";
 
@@ -69,6 +79,7 @@ export type { ModelsFetch } from "./model-endpoint.js";
  */
 export const BOOT_CAP_MS = 60_000;
 export const EXT_LIST_CAP_MS = 60_000;
+export const TOOLS_PROBE_CAP_MS = 60_000;
 export const MODEL_CALL_CAP_MS = 300_000;
 
 /** The one-shot prompt; the reply content is irrelevant, the round-trip is. */
@@ -77,7 +88,7 @@ export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
 export interface DeployE2eProbe {
-	id: "boot" | "ext-load" | "model-call" | "file2md-ocr" | "tool-gate-fire";
+	id: "boot" | "ext-load" | "tools-probe" | "model-call" | "file2md-ocr" | "tool-gate-fire";
 	verdict: ProbeVerdict;
 	ms: number;
 	note: string;
@@ -272,6 +283,79 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				);
 			}
 		}
+	}
+
+	// ── tools-probe ──────────────────────────────────────────────────────────
+	// The #1946 class in one sentence: tool-gate's setActiveTools([]) wiped the
+	// ACTIVE toolset while ext-load above (registration) stayed green AND a
+	// toolless model still answers the model-call probe below ("Reply with
+	// exactly: ok" needs no tools). This probe boots a REAL headless session and
+	// asserts the core builtins are active when the request would go out — the
+	// only observation point for every mutator that runs at session_start /
+	// before_agent_start. A mutator acting later (e.g. before_provider_request)
+	// is NOT observed here; that residual window is accepted and documented.
+	// Runs unconditionally — not gated on tool-gate being in the deploy set:
+	// without tool-gate nothing calls setActiveTools and the default active set
+	// is all tools, so the core assertion still holds and still guards.
+	{
+		const t0 = now();
+		let tpNote = "";
+		let tpDetail: string | undefined;
+		let tpVerdict: ProbeVerdict = "fail";
+		const workDir = mkdtempSync(join(tmpdir(), "tools-probe-"));
+		try {
+			const probePath = join(workDir, "tools-probe.ts");
+			writeFileSync(probePath, TOOLS_ACTIVE_PROBE);
+			const r = await opts.spawn("./s2-agent.sh", ["-e", probePath, "-p", "hi", "--no-session"], {
+				cwd: opts.versionDir,
+				timeoutMs: TOOLS_PROBE_CAP_MS,
+			});
+			const ms = now() - t0;
+			const p = parseToolsProbeLine(r.stderr);
+			if (!p.ok) {
+				// Marker absent: reaching before_agent_start requires model
+				// resolution, so a FAST provider/auth failure is the same SKIP
+				// contract as model-call (classifyRun reused — the gates can
+				// never disagree about what that means). Timeouts still FAIL.
+				const c = classifyRun({ ...r, durationMs: ms });
+				tpVerdict = c.verdict === "skip" ? "skip" : "fail";
+				tpNote =
+					c.verdict === "skip"
+						? `probe never fired — ${c.reason}${c.detail ? ` — ${firstLine(c.detail)}` : ""}`
+						: `${p.message}${r.timedOut ? ` (timed out after ${TOOLS_PROBE_CAP_MS}ms)` : ` (exit ${r.exitCode})`}`;
+				tpDetail = tail(r.stdout, r.stderr);
+			} else {
+				const v = p.value;
+				const gate = v.gateSeam
+					? `; gate seam ${v.gateSeam.activeCount}/${v.gateSeam.totalCount}, core ${v.gateSeam.coreCount}`
+					: "; gate seam absent";
+				if (!v.getActiveTools || v.getError !== undefined) {
+					tpNote = `active-set read failed${v.getError ? `: ${v.getError}` : ""}${
+						v.getActiveTools === false ? " — ExtensionAPI no longer exposes getActiveTools" : ""
+					}`;
+					tpDetail = JSON.stringify(v);
+				} else if (v.activeCount === 0) {
+					tpNote = `active toolset is EMPTY (0/${v.total} registered) — the #1946 setActiveTools([]) class`;
+					tpDetail = JSON.stringify(v);
+				} else if (v.missing.length) {
+					tpNote = `active toolset missing core builtins: ${v.missing.join(", ")} (active=${v.activeCount}/${v.total} registered)`;
+					tpDetail = `active=[${v.active.join(", ")}] gateSeam=${JSON.stringify(v.gateSeam)}`;
+				} else {
+					tpVerdict = "pass";
+					tpNote = `core tools active (${v.activeCount}/${v.total} active${gate})`;
+				}
+			}
+		} catch (e) {
+			tpNote = `execution failed: ${e instanceof Error ? e.message : String(e)}`;
+			tpDetail = tpNote;
+		} finally {
+			try {
+				rmSync(workDir, { recursive: true, force: true });
+			} catch {
+				/* */
+			}
+		}
+		probes.push({ id: "tools-probe", verdict: tpVerdict, ms: now() - t0, note: tpNote, detail: tpDetail });
 	}
 
 	// ── model-call probe ────────────────────────────────────────────────────

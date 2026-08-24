@@ -41,6 +41,7 @@ function makeTree(opts: { extensions?: string[]; launcher?: boolean; deployJson?
 interface FakeOpts {
 	extList?: { loaded?: string[]; stdout?: string; exitCode?: number };
 	help?: Partial<SpawnResult>;
+	toolsProbe?: Partial<SpawnResult>;
 	modelCall?: Partial<SpawnResult>;
 }
 
@@ -60,6 +61,20 @@ function fakeSpawn(o: FakeOpts = {}): SpawnFn {
 				stderr: "",
 				exitCode: 0,
 			};
+		}
+		// tools-probe: `-e <probe> -p hi --no-session` — must be matched BEFORE
+		// the bare `-p` fallthrough below (its argv contains both).
+		if (args.includes("-e")) {
+			const healthy = {
+				total: 66,
+				matched: 26,
+				activeCount: 26,
+				active: ["read", "write", "edit", "bash", "enable_tool"],
+				missing: [],
+				gateSeam: { activeCount: 26, totalCount: 66, coreCount: 4 },
+				getActiveTools: true,
+			};
+			return { stdout: "", stderr: `[TOOLS] ${JSON.stringify(healthy)}\n`, exitCode: 0, ...o.toolsProbe };
 		}
 		// model-call probe: -p
 		return { stdout: "ok", stderr: "", exitCode: 0, ...o.modelCall };
@@ -122,12 +137,19 @@ function fakeModelsFetch(ids: string[]): (url: string, init?: RequestInit) => Pr
 }
 
 describe("runDeployE2e", () => {
-	test("all three probes pass on a healthy tree", async () => {
+	test("all probes pass on a healthy tree", async () => {
 		makeTree();
 		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn() });
 		expect(r.verdict).toBe("pass");
 		expect(r.version).toBe(VERSION);
-		expect(r.probes.map((p) => p.id)).toEqual(["boot", "ext-load", "model-call", "file2md-ocr", "tool-gate-fire"]);
+		expect(r.probes.map((p) => p.id)).toEqual([
+			"boot",
+			"ext-load",
+			"tools-probe",
+			"model-call",
+			"file2md-ocr",
+			"tool-gate-fire",
+		]);
 		expect(r.probes.find((p) => p.id === "file2md-ocr")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(r.probes.find((p) => p.id === "tool-gate-fire")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(
@@ -145,6 +167,77 @@ describe("runDeployE2e", () => {
 		const ext = r.probes.find((p) => p.id === "ext-load")!;
 		expect(ext.verdict).toBe("fail");
 		expect(ext.note).toContain("wayfind");
+	});
+
+	test("tools-probe: missing core builtins fails naming them (the #1946 class)", async () => {
+		makeTree();
+		const wiped = {
+			total: 66,
+			matched: 26,
+			activeCount: 16,
+			active: ["ask_user_question", "spawn_subagent", "task_create"],
+			missing: ["read", "write", "edit", "bash"],
+			gateSeam: { activeCount: 16, totalCount: 66, coreCount: 0 },
+			getActiveTools: true,
+		};
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ toolsProbe: { stderr: `[TOOLS] ${JSON.stringify(wiped)}\n`, exitCode: 0 } }),
+		});
+		expect(r.verdict).toBe("fail");
+		const tp = r.probes.find((p) => p.id === "tools-probe")!;
+		expect(tp.verdict).toBe("fail");
+		expect(tp.note).toContain("read");
+		expect(tp.note).toContain("write");
+		expect(tp.note).toContain("active=16/66");
+	});
+
+	test("tools-probe: an EMPTY active set fails citing the #1946 setActiveTools([]) class", async () => {
+		makeTree();
+		const wiped = {
+			total: 66,
+			matched: 0,
+			activeCount: 0,
+			active: [],
+			missing: ["read", "write", "edit", "bash"],
+			gateSeam: { activeCount: 0, totalCount: 0, coreCount: 0 },
+			getActiveTools: true,
+		};
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ toolsProbe: { stderr: `[TOOLS] ${JSON.stringify(wiped)}\n`, exitCode: 0 } }),
+		});
+		expect(r.verdict).toBe("fail");
+		const tp = r.probes.find((p) => p.id === "tools-probe")!;
+		expect(tp.verdict).toBe("fail");
+		expect(tp.note).toContain("EMPTY");
+		expect(tp.note).toContain("#1946");
+	});
+
+	test("tools-probe: a FAST provider failure (no [TOOLS] line) is a SKIP, never a fail", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({
+				toolsProbe: { exitCode: 1, stdout: "", stderr: "provider lm-studio: connection refused — no api key" },
+			}),
+		});
+		const tp = r.probes.find((p) => p.id === "tools-probe")!;
+		expect(tp.verdict).toBe("skip");
+		expect(tp.note).toContain("probe never fired");
+	});
+
+	test("tools-probe: no [TOOLS] line + timeout is a FAIL with diagnostics", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ toolsProbe: { exitCode: 124, timedOut: true, stdout: "", stderr: "" } }),
+		});
+		expect(r.verdict).toBe("fail");
+		const tp = r.probes.find((p) => p.id === "tools-probe")!;
+		expect(tp.verdict).toBe("fail");
+		expect(tp.note).toContain("[TOOLS] line absent");
+		expect(tp.note).toContain("timed out");
 	});
 
 	test("a boot timeout fails the run with diagnostics", async () => {
@@ -258,7 +351,9 @@ describe("runDeployE2e", () => {
 		makeTree();
 		let placed = false;
 		const spawn: SpawnFn = async (_c, args) => {
-			if (args.includes("-p")) placed = true;
+			// tools-probe also carries -p (offline exit before the request
+			// completes) — only a bare -p argv is the model call.
+			if (args.includes("-p") && !args.includes("-e")) placed = true;
 			return fakeSpawn()( _c, args);
 		};
 		const r = await runDeployE2e({ versionDir, spawn, skipModelCall: true });
