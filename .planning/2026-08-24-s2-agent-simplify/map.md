@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-24-s2-agent-simplify
 created: 2026-08-24
-last: 2026-08-24
-status: active
+last: 2026-08-25
+status: complete
 ---
 
 # s2-agent simplify — dedup, dead-code removal, arg unification (user priority)
@@ -49,7 +49,7 @@ Measured 2026-08-24 on this machine (three read-only explore agents + one plan a
 
 ## Frontier
 
-**Ticket 01 (dead code & stale surface)** — lowest risk, highest immediate shrink; every later ticket diffs against a cleaned baseline, so it goes first.
+None — queue drained 2026-08-25. All six tickets merged (PRs #1992, #1994, #1997, #1999, #2000, #2001), post-T6 deploy + verify-deploy-e2e green (boot/ext-load/tools-probe/model-call/vision-call/file2md-ocr all pass). Follow-ups live in Fog of war below and in the session successor's ranked list.
 
 ## Fog of war
 
@@ -58,7 +58,8 @@ Measured 2026-08-24 on this machine (three read-only explore agents + one plan a
 - ensure-model-tiers env-honor charted-but-rejected in 02 (reader `getModelTierConfigPath` keys on $HOME only — writer-side honor would be a silent no-op); revisit only if core-runtime honors the agent dir.
 - footer-extension-status-notify patch ("REDUNDANT BUT RETAINED") — removal needs a receipts/docs check (ticket 06); may stay with a one-line justification.
 - lazy-extensions dead path (manifest.lazyExtensions always {}) — removal touches registry-config zero-import + manifest types; charted as its own follow-up effort, not ticketed here.
-- chat /clear re-create and --no-session persistence semantics — smallest-honest-fix in 01 (drop dead opts); real REPL session management is unmeasured scope.
+- chat /clear re-create and --no-session persistence semantics — smallest-honest-fix in 01 (drop dead opts); real REPL session management is unmeasured scope. `--no-session` is now a parsed global with zero readers — candidate removal in a future flag audit.
+- Follow-up charted, not ticketed here: defineCommand/details help regeneration (~1,900 LOC, churns 30+ tests + e2e help pins — D2); makeMockPi 19-copy cross-package dedup (D3, 15+ ext packages); lazy-extensions dead-path removal (registry zero-import + manifest types); SDK-contract guard test for footer-render assumption (t06 removed the belt-and-suspenders patch — a pi bump that drops requestRender from setExtensionStatus would now be silent); s2-agent-core-runtime debug-models.ts:19 PI_DEBUG_MODELS literal (different package, pre-existing).
 
 ## Cross-effort links
 
