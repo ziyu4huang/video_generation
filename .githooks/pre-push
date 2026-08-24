@@ -13,7 +13,10 @@
 #   reaches bun-apps/tests/. Guards nobody runs are guards that quietly stop
 #   being true — that is how a `check` script that exits 127, a matrix row for a
 #   deleted package, and a deploy flag that never existed all survived for
-#   months. The whole job takes ~6s. There is no reason to run a thirteenth of it.
+#   months. The whole job runs with --jobs 2 inside a 120s wall-clock budget
+#   (the 2026-08-24 fast-lane ask: the two heavy gates — the deploy L1 e2e and
+#   the ext-entry typecheck — overlap, while the deploy-tree gate serializes
+#   via ci-local's EXCLUSIVE set). There is no reason to run a thirteenth of it.
 #   (Original ticket: wayfinder 2026-07-30-self-reflection-to-fix-these-error 01.)
 #
 # EXIT-CODE CONTRACT (bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates)
@@ -38,8 +41,8 @@
 # tree, not the pushed refs.
 cat >/dev/null
 
-echo "→ CI regression-gates (13 steps, ~6s)…"
-bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates
+echo "→ CI regression-gates (27 steps, --jobs 2, ~2min budget)…"
+bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates --jobs 2 --budget-ms 120000
 code=$?
 
 if [ $code -eq 0 ]; then

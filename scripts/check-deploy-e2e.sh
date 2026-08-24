@@ -20,10 +20,12 @@
 #                        reuse + keep:N pruning, and the zero-extension state.
 #   deploy-probe-e2e  the runtime: real sessions against the deployed binary.
 #   e2e-core-tool-    the L2 loop the 2026-08-24 #1946 incident demanded: a
-#     roundtrip        REAL model round trip (local qwen nothink, deepseek
-#                      fallback on >60s) that EXECUTES inspect_context and
-#                      writes inspect-context.md — verdict is the artifact's
-#                      content, so a toolless session can never pass.
+#     roundtrip        REAL model round trip (deepseek flash-vision — the ONLY
+#                      lane since the 2026-08-24 operator directive: no
+#                      LM Studio anywhere in E2E/CI) that EXECUTES
+#                      inspect_context and writes inspect-context.md — verdict
+#                      is the artifact's content, so a toolless session can
+#                      never pass.
 # Only the probe suite was wired in when this gate was written, so deploy-e2e
 # ran nowhere. It went stale on #1713 and outright red on #1738 — it asserted a
 # literal ["power-tool", "task"] while the base set grew to fourteen — and no
