@@ -101,9 +101,12 @@ complexity, which is inherent to a multi-question modal, not accidental.
 ## The footer `setStatus` path — deprecated for persistent display
 
 As of this work, **no extension uses `ctx.ui.setStatus` for persistent display.**
-The `footer-extension-status-notify` patch in `bun-apps/s2-agent/src/patches/`
-is retained but documented as redundant (SDK 0.80.3's `setExtensionStatus`
-already calls `requestRender`; the sole consumer `/goal` moved to a widget). New
+The `footer-extension-status-notify` patch that used to live in
+`bun-apps/s2-agent/src/patches/` was REMOVED on 2026-08-25 (s2-agent-simplify
+ticket 06): it had been redundant since SDK 0.80.3 — `setExtensionStatus`
+already calls `requestRender` itself (verified in the pinned 0.84.2 dist), and
+the sole persistent consumer `/goal` moved to a widget. Transient `setStatus`
+callers (ultracode workflow status lines) rely on the SDK's own render. New
 persistent features should use Tier 1, not Tier 3.
 
 ## Typecheck gate

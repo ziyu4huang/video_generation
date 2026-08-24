@@ -17,7 +17,7 @@ import { describe, expect, test } from "bun:test";
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 // Importing the patch module applies its import-time side effect (wraps
 // InteractiveMode.prototype.prefixAutocompleteDescription). Idempotent — safe
-// to re-import. Mirrors footer-extension-status-notify.test.ts.
+// to re-import.
 import "./autocomplete-source-extension.ts";
 import {
   applyAutocompleteSourceExtensionPatch,

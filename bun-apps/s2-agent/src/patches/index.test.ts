@@ -70,7 +70,6 @@ describe("PATCH_TABLE", () => {
         "ensure-model-tiers",
         "ext-api-get-all-tool-definitions",
         "ext-context-get-system-prompt-options",
-        "footer-extension-status-notify",
         "force-response-language",
         "in-memory-models-store",
         "load-run-dir-resources",

@@ -35,6 +35,7 @@
 
 import { ExtensionRunner, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { ALL_TOOL_DEFINITIONS_GLOBAL } from "@repo/s2-agent-core-interface";
+import { gatedPatchOutcome, isPatchDebug } from "./index.ts";
 
 // ── Module-scoped flag: apply once ──────────────────────────────────────────
 let applied = false;
@@ -97,9 +98,7 @@ export function applyGetAllToolDefinitionsPatch(): boolean {
 }
 
 // Import-time side effect
-const debug =
-  process.env.BUN_PI_DEBUG_PATCHES === "1" ||
-  process.env.BUN_PI_DEBUG_PATCHES === "true";
+const debug = isPatchDebug();
 const enabled = process.env.BUN_PI_EXT_API_GET_ALL_TOOL_DEFS !== "0";
 let outcome = false;
 if (enabled) {
@@ -112,10 +111,5 @@ if (enabled) {
   }
 }
 
-/**
- * Whether the wrap actually bound. `applyPatches()` reads this and reports a
- * false as a patch failure instead of claiming success — see ./index.ts.
- * `enabled === false` (env opt-out) is reported as applied: the patch did
- * exactly what it was asked to do.
- */
-export const patchApplied = enabled ? outcome : true;
+/** Whether the wrap actually bound — see gatedPatchOutcome in ./index.ts. */
+export const patchApplied = gatedPatchOutcome(enabled, outcome);

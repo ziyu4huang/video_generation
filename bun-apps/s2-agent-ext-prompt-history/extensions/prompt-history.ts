@@ -10,8 +10,8 @@ export function createPromptHistoryExtension(
 ): ExtensionFactory {
 	return (pi) => {
 		// Self-gate: BUN_PI_PROMPT_HISTORY=0 disables capture entirely (no subscription).
-		// Mirrors the legacy self-gate pattern (footer-extension-status-notify.ts) since this
-		// is a statically-registered extension, not a runtime patch.
+		// Mirrors the legacy self-gate pattern of the runtime patches in
+		// s2-agent/src/patches/, though this is a statically-registered extension.
 		if (process.env.BUN_PI_PROMPT_HISTORY === "0") return;
 		pi.on("input", (event, ctx) => {
 			// Skip synthetic/programmatic input — only persist human prompts.

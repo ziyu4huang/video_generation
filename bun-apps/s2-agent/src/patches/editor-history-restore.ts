@@ -1,5 +1,6 @@
 import { InteractiveMode } from "@earendil-works/pi-coding-agent";
 import { readHistory } from "../../../s2-agent-ext-prompt-history/src/history-store.ts";
+import { isPatchDebug } from "./index.ts";
 
 const HISTORY_RESTORE_CAP = 100;
 const wrappedPrototypes = new WeakSet<object>();
@@ -40,7 +41,7 @@ export function wrapInteractiveInitForHistoryRestore(
 // "patch applied" unconditionally — so when the wrap failed (a renamed
 // InteractiveMode.init upstream), the diagnostic actively lied.
 const outcome = wrapInteractiveInitForHistoryRestore(InteractiveMode.prototype);
-if (process.env.BUN_PI_DEBUG_PATCHES === "1" || process.env.BUN_PI_DEBUG_PATCHES === "true") {
+if (isPatchDebug()) {
 	console.error(
 		`[bun-pi] editor-history-restore: ${outcome ? "applied" : "already applied or failed"}`,
 	);

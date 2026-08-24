@@ -22,7 +22,6 @@ export type PatchName =
 	| "ext-context-get-system-prompt-options"
 	| "ext-api-get-all-tool-definitions"
 	| "colliding-command-dispatch"
-	| "footer-extension-status-notify"
 	| "force-response-language"
 	| "editor-history-restore"
 	| "startup-history-hint"
@@ -120,23 +119,6 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // English default. Must run after ensure-extension-deps (imports
   // @earendil-works/pi-coding-agent). Disable with BUN_PI_FORCE_RESPONSE_LANGUAGE=0.
   { name: "force-response-language", env: "BUN_PI_FORCE_RESPONSE_LANGUAGE", defaultValue: true },
-  // footer-extension-status-notify: patches InteractiveMode.prototype.init so
-  // FooterDataProvider.setExtensionStatus / clearExtensionStatuses notify
-  // subscribers + trigger ui.requestRender().
-  //
-  // STATUS (2026-07-06): REDUNDANT BUT RETAINED. (1) SDK 0.80.3's
-  // InteractiveMode.setExtensionStatus already calls ui.requestRender() after
-  // delegating to FooterDataProvider, so the live-render this patch adds is a
-  // no-op duplicate. (2) Its original consumer — the /goal indicator — moved
-  // off ctx.ui.setStatus to a setWidget overlay (PR #324, power-tool), so the
-  // setStatus path is no longer used by any persistent feature. Retained
-  // because (a) this repo's patch invariant is opt-OFF-not-opt-IN (every entry
-  // defaults enabled — see index.test.ts), so the consistent options are
-  // keep-on or remove-entirely, and removing is cross-package churn for a
-  // harmless idempotent patch; and (b) ctx.ui.setStatus is still a public SDK
-  // API, and this patch keeps it correct for any future extension or SDK build
-  // that lacks the requestRender call. Disable with BUN_PI_FOOTER_EXT_STATUS_NOTIFY=0.
-  { name: "footer-extension-status-notify", env: "BUN_PI_FOOTER_EXT_STATUS_NOTIFY", defaultValue: true },
   // editor-history-restore: wraps InteractiveMode.prototype.init to hydrate
   // this.editor.history from the per-cwd prompt-history.jsonl (written by the
   // s2-agent-ext-prompt-history extension) so Up/Down recalls prior sessions.
@@ -162,8 +144,9 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
 /**
  * Read a boolean env flag. Accepts "1" / "true" / "yes" (case-insensitive) as
  * truthy; any other set value is false; undefined → fallback. Pure given `env`.
- * Exported because it is the decision primitive for every patch + the debug
- * flag — exactly the logic that silently breaks.
+ * Exported because it is the decision primitive for every patch gate — exactly
+ * the logic that silently breaks. (Debug logging has its own narrower
+ * primitives below.)
  */
 export function envFlag(
   name: string,
@@ -173,6 +156,47 @@ export function envFlag(
   const v = env[name];
   if (v === undefined) return fallback;
   return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
+}
+
+/** The one literal `"1" | "true"` check every debug gate shares. Case-sensitive
+ *  on purpose — this is the exact legacy spelling, not envFlag's wider set. */
+function isOneOrTrue(env: Record<string, string | undefined>, name: string): boolean {
+  return env[name] === "1" || env[name] === "true";
+}
+
+/**
+ * Is patch debug logging on? Deliberately NOT envFlag: it preserves the exact
+ * legacy semantics of the copy-pasted checks it replaced ("1"/"true" only, no
+ * "yes") so rewiring the call sites changed nothing about who logs.
+ */
+export function isPatchDebug(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return isOneOrTrue(env, "BUN_PI_DEBUG_PATCHES");
+}
+
+/**
+ * isPatchDebug OR the older model-debug flag — the exact union the three
+ * model-touching patches (default-model-env, subagent-model-floor,
+ * ensure-model-tiers) have always logged under. Both env names predate envFlag;
+ * a single widened gate would silently change who logs.
+ */
+export function isPatchOrModelsDebug(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return isPatchDebug(env) || isOneOrTrue(env, "PI_DEBUG_MODELS");
+}
+
+/**
+ * Outcome report for a patch gated by its own env opt-out, replacing the
+ * copy-pasted `enabled ? outcome : true`. When disabled, the patch did exactly
+ * what it was asked to do (nothing), so its self-report must read `true` —
+ * `readPatchOutcome` treats a `false` as a BROKEN patch, and a disabled patch
+ * is not broken (`applyPatches` never even imports the module). When enabled,
+ * the wrap's own boolean flows through unchanged.
+ */
+export function gatedPatchOutcome(enabled: boolean, outcome: boolean): boolean {
+  return enabled ? outcome : true;
 }
 
 /**
@@ -233,7 +257,7 @@ export function readPatchOutcome(mod: unknown): boolean | undefined {
  * `import(entry.module)` (see file header).
  */
 export async function applyPatches(): Promise<AppliedPatch[]> {
-  const debug = envFlag("BUN_PI_DEBUG_PATCHES", false);
+  const debug = isPatchDebug();
   const applied = resolvePatchPlan();
 
   for (const p of applied) {
@@ -275,9 +299,6 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "force-response-language":
         mod = await import("./force-response-language.ts");
-        break;
-      case "footer-extension-status-notify":
-        mod = await import("./footer-extension-status-notify.ts");
         break;
       case "editor-history-restore":
         mod = await import("./editor-history-restore.ts");
