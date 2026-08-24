@@ -107,7 +107,10 @@ describe("PROVIDERS config (contract)", () => {
       expect(m.thinkingLevelMap?.off).toBe("none");
       expect(m.thinkingLevelMap?.minimal).toBe("none");
       for (const v of Object.values(m.thinkingLevelMap ?? {})) {
-        expect(WIRE_ENUM).toContain(v);
+        // null = "level unsupported" — legal per the ModelEntry type, but not
+        // what these entries use; every mapped value must be a wire-valid string.
+        expect(typeof v).toBe("string");
+        expect(WIRE_ENUM).toContain(v as string);
       }
     }
     // qwen speaks xhigh natively; `high` warns and falls back to on.
