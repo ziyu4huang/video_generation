@@ -73,10 +73,12 @@ Phase 1 — the module (gates the rest)
   YAML (parseRegistry + parseShConfig shapes), local_ci pass, s2-agent 0.6.5
 
 Phase 2 — repo consumers flip (after 01)
-- `tickets/02-flip-run-dir-consumers.md` — open — NEXT (queue head) —
-  registry.ts / registry-to-manifest.ts / regen-manifest.ts /
-  registry-insert.ts import the TS; manifest.json stays DERIVED; freshness +
-  single-registry-guard gates stay green unchanged
+- `tickets/02-flip-run-dir-consumers.md` — DONE (PR #1965, merged CLEAN
+  2026-08-24) — run-dir/registry.ts gained `loadRegistry()` (validation over
+  REGISTRY → legacy Registry shape; parseRegistry kept verbatim as the
+  retired YAML bridge for devops/ext-new until 03); regen-manifest +
+  freshness gate read it; regen output byte-identical (24 extensions); s2-agent
+  suite 1055/0; local_ci pass; s2-agent 0.6.7
 - `tickets/03-flip-devops-and-scaffold.md` — open — devops
   `parseShConfig` reads the TS (deploy CLI + tests); `ext new` scaffold emits a
   TS entry edit; contract suites (registry-base-set line scanner, dep-guard,
@@ -90,6 +92,23 @@ Phase 3 — retirement (after 02+03)
 
 ## Decisions
 
+- D6 (t02, placement — closes the run-dir-vs-src Fog): the registry read
+  surface STAYS in `run-dir/`. Reason: validation needs `node:fs` (package/
+  entry existence), which `src/registry-config.ts` forbids by contract (D4
+  zero-import); the surviving post-04 pieces (validation + the manifest
+  emitter) already sit beside `run-dir/manifest.json`, the artifact they
+  produce; and the YAML bridge (`parseRegistry`) is transitional — moving it
+  now would churn devops/ext-new imports twice (once for the move, again when
+  04 deletes it).
+- D7 (t02, registry-insert — closes the runtime-YAML Fog): registry-insert
+  does NOT parse YAML and its sole non-test caller is `src/ext-new.ts`
+  (repo-time scaffold CLI). No dynamic run-dir-loading or compiled-binary path
+  reaches it — the deploy tree carries deploy.json / ext.json / manifest.json
+  written at deploy time (Context, measured). Its flip lands with ext-new in
+  ticket 03; ticket 04 deletes it with the YAML. Transitional seam accepted:
+  between 02 and 03, `ext new --register dynamic` still writes YAML but
+  regen:manifest ignores it — surfaced by the freshness gate going red, fixed
+  by 03.
 - D1: Full replacement, not a hybrid. A TS module that emits YAML (or a YAML
   kept as generated output) would create two sources and re-introduce the
   parse layer; the whole point is one typed authority. Rejected: keep YAML +
@@ -114,29 +133,21 @@ Phase 3 — retirement (after 02+03)
 
 ## Frontier
 
-`tickets/02-flip-run-dir-consumers.md` — 01 landed the module + equivalence
-net (PR #1962), so the flip is now mechanical; 02 is first because it closes
-the registry-insert runtime-YAML fog while the net still guards continuity.
+`tickets/03-flip-devops-and-scaffold.md` — 02 landed `loadRegistry()`
+(PR #1965) with the YAML bridge still serving devops/ext-new, so 03 is the
+mechanical surface swap: devops `parseShConfig` + deploy CLIs read the TS,
+`ext new` emits a TS registry entry (closing the 02↔03 register seam, D7),
+and the contract suites get their link-state-immune TS reader.
 
 ## Fog of war
 
-- run-dir/ vs src/ placement (user flag, HIGH, 2026-08-24): why do the
-  registry parsers sit in `run-dir/` instead of `src/`? Working answer:
-  `run-dir/` is the source-mode runtime surface (resolve.ts / run-context.ts
-  load extensions via `-e` from there; manifest.json is derived there), while
-  `src/` is the compiled-core surface — but the PARSERS are repo-side and
-  arguably belong beside registry-config.ts in `src/`. Ticket 02 touches
-  exactly these four files; fold the placement decision into it (or split a
-  ticket 02b) rather than moving files in passing.
-
-- `run-dir/registry-insert.ts` (dynamic load path used by run-dir extensions)
-  parses YAML at RUNTIME in some flows — whether it can import TS at that point
-  (bun runtime: yes repo-side; verify no compiled-binary path reads it) is
-  unconfirmed. If the compiled s2-agent binary needs registry data at runtime,
-  the manifest.json path already covers it (D3), but the ticket must prove it.
-- The schema-cost canary and `doctor.ts` mention the YAML filename — whether
-  they PARSE it or only name it in help text is unverified (grep showed
-  mentions, not call sites).
+- CLOSED (t02): run-dir vs src placement → Decision D6 (stays in run-dir;
+  validation needs node:fs, which registry-config.ts forbids).
+- CLOSED (t02): registry-insert runtime YAML surgery → Decision D7
+  (repo-time only; sole caller ext-new; no binary/runtime path).
+- CLOSED (t02, verified during the flip): schema-cost canary derives from
+  manifest.json (no YAML mention at all in `src/cli/commands/schema-cost.ts`);
+  `doctor.ts` names the YAML in a comment only and reads `ext.json` trees.
 - `lazyExtensions: {}` (registry tail) — who consumes it and whether it needs
   a typed shape is unknown.
 - Fresh-worktree CI: contract suites run in CI without `bun install`? If they

@@ -1,6 +1,21 @@
 # Ticket 02 — flip the run-dir consumers to the TS module
 
-Status: open · Phase 2 (after 01)
+Status: done (PR #1965, merged CLEAN 2026-08-24) · Phase 2 (after 01)
+
+## Close-out notes
+
+- `loadRegistry()` in run-dir/registry.ts is the new authority read path
+  (validation-over-REGISTRY → legacy Registry shape); `parseRegistry(text)`
+  kept verbatim as the retired YAML bridge for devops + ext-new (deleted in
+  04). Placement decided: stays in run-dir (map D6). registry-insert proven
+  repo-time-only, flip deferred to 03 with ext-new (map D7).
+- regen:manifest output byte-identical (24 extensions); s2-agent suite
+  1055/0; local_ci pass; version 0.6.7.
+- Done-when grep nuance: no non-test READER of the YAML remains in
+  bun-apps/s2-agent, but the filename still appears in prose comments, the
+  retired bridge, ext-new (03's flip), and the frozen `$generated` string
+  inside derived manifest.json — the literal "docs/tests only" state lands
+  with 03+04.
 
 ## Scope
 
