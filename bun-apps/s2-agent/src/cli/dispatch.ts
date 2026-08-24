@@ -53,6 +53,8 @@ import { dispatchLogCommand } from "./commands/dispatch-log.ts";
 import { printCompletions, completionsMeta } from "./commands/completions.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
+import { bakedProviderConfigs } from "../pre-load-providers.ts";
+import { publishSeam } from "@repo/s2-agent-core-interface";
 
 const VERSION = "0.7.2";
 
@@ -571,6 +573,17 @@ export async function runCli(argv: string[]): Promise<number> {
   // child lands on the TUI root and inherits the full static-extension set
   // this entry deliberately does not load (docs/adr/0002).
   process.env.PI_SELF_ENTRY_PREFIX = "cli";
+  // Publish the baked provider catalog on the __piBakedProviders seam BEFORE
+  // any command runs: this namespace dispatches before applyPatches (ADR
+  // 0001), so the ModelRuntime.create wrap never runs here, and commands
+  // that never build the shared session registry (e.g. `file2md`, which runs
+  // the pipeline directly) would otherwise leave core-runtime's subagent
+  // registry blind to baked-only lanes — every spawn of
+  // lm-studio/prism-ml/bonsai-27b silently fell back to the session default
+  // and produced EMPTY vision output (measured 2026-08-24). One catalog,
+  // authored in src/pre-load-providers.ts; the patch file publishes the same
+  // payload for the TUI/headless path.
+  publishSeam("__piBakedProviders", bakedProviderConfigs());
   try {
     await dispatch(argv);
     // Honour the `process.exitCode = 1` convention used by doctor / zk-query,

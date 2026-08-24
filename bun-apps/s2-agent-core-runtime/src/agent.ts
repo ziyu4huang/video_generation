@@ -15,7 +15,12 @@ import {
 import type { Static, TSchema } from "typebox";
 import { type AgentUsage, createBudgetGuard } from "./agent-budget.js";
 import { type AgentHistoryEntry, compactAgentHistory } from "./agent-history.js";
-import { resolveFallbackModel, resolveScopedAgentModelSpec, sessionModelInjectionWins } from "./agent-model.js";
+import {
+  registerBakedProvidersFromSeam,
+  resolveFallbackModel,
+  resolveScopedAgentModelSpec,
+  sessionModelInjectionWins,
+} from "./agent-model.js";
 import { applyToolPolicy } from "./agent-registry.js";
 import { createTurnGuard, createWrapUpNudgeQueue, turnExhaustionError } from "./agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
@@ -291,11 +296,23 @@ export class CoreAgent {
     if (!this.registryPromise) {
       const dir = getAgentDir();
       // Same agentDir/auth files createAgentSession uses by default, so a model
-      // resolved here carries valid credentials.
+      // resolved here carries valid credentials. The host's baked provider
+      // catalog (published on the __piBakedProviders seam when running under
+      // the s2-agent host, patched OR cli namespace) is layered on top —
+      // without it, a baked-only model (e.g. lm-studio/prism-ml/bonsai-27b)
+      // resolves to undefined here and every subagent spawn silently degrades
+      // to the session default ("requested model … unavailable", measured
+      // 2026-08-24: empty vision output → OCR degrade). On the PATCHED path
+      // the ModelRuntime.create wrap already registered the catalog;
+      // registerProvider replaces idempotently, so this second registration
+      // is a harmless no-op there — it exists for the unpatched `cli` path.
       this.registryPromise = ModelRuntime.create({
         authPath: join(dir, "auth.json"),
         modelsPath: join(dir, "models.json"),
-      }).then((runtime) => new ModelRegistry(runtime));
+      }).then((runtime) => {
+        registerBakedProvidersFromSeam(runtime);
+        return new ModelRegistry(runtime);
+      });
     }
     return this.registryPromise;
   }

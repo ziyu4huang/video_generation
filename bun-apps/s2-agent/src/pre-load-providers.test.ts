@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   PROVIDERS,
   resolveApiKey,
   registerAllProviders,
+  bakedProviderConfigs,
   BUILTIN_MODEL_DEFAULT,
   DEFAULT_MODEL_TIER_CONFIG,
+  EMBEDDING_CONFIG,
 } from "./pre-load-providers.ts";
+import { SEMANTIC_MODEL_DEFAULT } from "@repo/s2-agent-core-interface";
 
 describe("resolveApiKey", () => {
   test("literal string → returned as-is", () => {
@@ -196,6 +200,22 @@ describe("module purity (no ModelRuntime side effects)", () => {
 });
 
 describe("registerAllProviders", () => {
+  test("bakedProviderConfigs (the __piBakedProviders seam payload) ≡ what registerAllProviders pushes", () => {
+    // The seam consumers (core-runtime's subagent registry) register the
+    // payload verbatim, so the builder and the direct mutation path MUST
+    // produce identical configs — this equivalence is what lets the cli
+    // namespace (no applyPatches, no ModelRuntime.create wrap) behave like
+    // the patched TUI path.
+    const calls: Array<[string, unknown]> = [];
+    const fakeRegistry = { registerProvider: (name: string, config: unknown) => calls.push([name, config]) };
+    registerAllProviders(fakeRegistry, {});
+    const seam = bakedProviderConfigs({});
+    expect(Object.keys(seam).sort()).toEqual(calls.map(([name]) => name).sort());
+    for (const [name, config] of calls) {
+      expect(seam[name]).toEqual(config as Record<string, unknown>);
+    }
+  });
+
   test("calls registerProvider exactly once per PROVIDERS entry", () => {
     const calls: Array<[string, unknown]> = [];
     const fakeRegistry = { registerProvider: (name: string, config: unknown) => calls.push([name, config]) };
@@ -234,5 +254,37 @@ describe("BUILTIN_MODEL_DEFAULT", () => {
 
   test("obsidian floor is provider-qualified (usable as OB_SUBAGENT_MODEL)", () => {
     expect(BUILTIN_MODEL_DEFAULT.obsidianSubagentFloor).toMatch(/^[^/]+\/.+$/);
+  });
+});
+
+// ─── §4 EMBEDDING_CONFIG ─────────────────────────────────────────────────────
+
+describe("EMBEDDING_CONFIG", () => {
+  test("no imports at all — every LLM setting is authored in this file", () => {
+    // User directive 2026-08-24: pre-load-providers.ts is THE one place for
+    // baked LLM config, importing nothing (the prior version imported
+    // SEMANTIC_MODEL_DEFAULT from core-interface). Guard the contract so a
+    // future import cannot silently creep back in — static imports, dynamic
+    // import() calls, and require() are all tripped.
+    const src = readFileSync(join(import.meta.dir, "pre-load-providers.ts"), "utf8");
+    const imports = src.match(/^import\b.*$/gm) ?? [];
+    expect(imports).toEqual([]);
+    const dynamic = src.match(/\b(?:import|require)\s*\(/g) ?? [];
+    expect(dynamic).toEqual([]);
+  });
+
+  test("model id is authored inline (bge-m3, D3) and drift-guarded vs core-interface's fallback", () => {
+    // core-interface sits BELOW this package, so its SEMANTIC_MODEL_DEFAULT
+    // is a host-absent FALLBACK only; the canonical id lives in §4. This
+    // import direction (s2-agent → core-interface) is the legal one — the
+    // test pins the two literals so they cannot drift apart.
+    expect(EMBEDDING_CONFIG.model).toBe("text-embedding-bge-m3");
+    expect(EMBEDDING_CONFIG.model).toBe(SEMANTIC_MODEL_DEFAULT);
+  });
+
+  test("base is DERIVED from the lm-studio PROVIDERS entry (no /v1, no second copy)", () => {
+    expect(PROVIDERS["lm-studio"].baseUrl).toMatch(/\/v1$/);
+    expect(EMBEDDING_CONFIG.base).toBe(PROVIDERS["lm-studio"].baseUrl.replace(/\/v1$/, ""));
+    expect(EMBEDDING_CONFIG.base).not.toMatch(/\/v1$/);
   });
 });

@@ -10,23 +10,26 @@
 import { parse as parseYaml } from "yaml";
 import { readSeam } from "./seam.js";
 
-/** The canonical embedding model id served by LM Studio (D3, effort
- *  2026-08-22-context-lifecycle): `text-embedding-bge-m3`. RE-CONFIRMED
- *  2026-08-23 by ticket 07's eval gate, which cut BOTH ways: the English
- *  50-query eval set favors nomic (48/50 vs 47/50 hit@4, receipt
- *  output/d3-reeval/) — but the committed recall-audit battery (ticket 04,
- *  the binding Done-when gate) regresses under nomic (15/20 vs 17/20 hit@5)
- *  and the prior embed-bench measured bge-m3 recall@1 0.909 vs nomic 0.864.
- *  D3 stays bge-m3; the 1-query English-set cost is recorded in the effort
- *  map. nomic stays one env override (`SEMANTIC_EMBED_MODEL`) away. The
- *  kcard semantic cache is model-keyed, so any swap is a cache-file change,
- *  not a migration. */
+/** FALLBACK embedding model id for host-absent contexts (bare CLI, scripts,
+ *  tests) — the CANONICAL id is authored in s2-agent
+ *  src/pre-load-providers.ts §4 EMBEDDING_CONFIG and delivered via the
+ *  `__piEmbeddingConfig` seam (resolution order below), because
+ *  core-interface sits BELOW the host package and cannot import from it
+ *  without a cycle (user directive 2026-08-24: all LLM-related settings in
+ *  ONE place). Keep the literals identical — a s2-agent-side test
+ *  drift-guards the pair. Historical rationale (D3, effort
+ *  2026-08-22-context-lifecycle; re-confirmed 2026-08-23 by ticket 07's eval
+ *  gate: nomic wins the English 50-query set 48/50 vs 47/50 hit@4 but
+ *  regresses the committed recall-audit battery 15/20 vs 17/20 hit@5, bge-m3
+ *  recall@1 0.909 vs 0.864) lives with the canonical literal in
+ *  pre-load-providers.ts §4. */
 export const SEMANTIC_MODEL_DEFAULT = "text-embedding-bge-m3";
 
-/** Canonical embedding endpoint: LM Studio (also serves the local chat
- *  models). The Swift `embed-mlx-server` on :8090 is the documented fallback
- *  endpoint via `SEMANTIC_EMBED_BASE` (probe 2026-08-22: its `/v1/models` is
- *  404 but `/v1/embeddings` works). */
+/** FALLBACK embedding endpoint (host-absent; canonical = the seam's `base`,
+ *  derived from s2-agent's lm-studio PROVIDERS entry): LM Studio, which also
+ *  serves the local chat models. The Swift `embed-mlx-server` on :8090 is the
+ *  documented fallback endpoint via `SEMANTIC_EMBED_BASE` (probe 2026-08-22:
+ *  its `/v1/models` is 404 but `/v1/embeddings` works). */
 export const SEMANTIC_EMBED_BASE_DEFAULT = "http://127.0.0.1:1234";
 
 /** The single resolution point for which embedding endpoint + model the

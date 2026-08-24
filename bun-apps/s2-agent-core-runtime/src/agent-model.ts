@@ -281,3 +281,43 @@ export async function resolveFallbackModel(
     }using session default`,
   };
 }
+
+/** The host's baked provider catalog seam key (core-interface SEAM_KEYS
+ *  __piBakedProviders). core-runtime deliberately carries ZERO package deps,
+ *  so the literal is read straight off globalThis — the __piRateLimitState
+ *  precedent owns its slot the same way. The publisher is the s2-agent host
+ *  (pre-load-providers patch + the `cli` namespace's shared.ts), which keeps
+ *  every LLM setting authored in ONE file (src/pre-load-providers.ts). */
+export const BAKED_PROVIDERS_SEAM_KEY = "__piBakedProviders";
+
+/** Register every entry of the host-published baked provider catalog onto a
+ *  registry/runtime exposing registerProvider(name, config). Returns the
+ *  number registered (0 when the seam is unpublished — bare hosts/tests).
+ *  The payload is already registerProvider-ready (bakedProviderConfigs in
+ *  s2-agent pre-load-providers.ts folds provider compat per model, resolves
+ *  apiKey, zeroes cost) — this side applies it verbatim. A malformed entry
+ *  warns and is skipped: a bad catalog must never kill the agent spawn, but
+ *  must never be silent either. */
+export function registerBakedProvidersFromSeam(
+  registry: { registerProvider(name: string, config: unknown): void },
+  readSeam: (key: string) => unknown = (key) => (globalThis as Record<string, unknown>)[key],
+): number {
+  const catalog = readSeam(BAKED_PROVIDERS_SEAM_KEY) as Record<string, unknown> | undefined;
+  if (!catalog || typeof catalog !== "object") return 0;
+  let registered = 0;
+  for (const [name, config] of Object.entries(catalog)) {
+    if (!config || typeof config !== "object") {
+      console.warn(`[core-runtime] __piBakedProviders: entry "${name}" is not an object — skipped`);
+      continue;
+    }
+    try {
+      registry.registerProvider(name, config);
+      registered++;
+    } catch (e) {
+      console.warn(
+        `[core-runtime] __piBakedProviders: registering "${name}" failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+  return registered;
+}

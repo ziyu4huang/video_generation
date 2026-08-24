@@ -42,6 +42,20 @@ export const SEAM_KEYS = {
   // so the ≥2-packages rule cannot observe both sides — exempt rather than
   // lie about the real cross-package topology.
   __piEmbeddingConfig:      { crossPackage: false },
+  // __piBakedProviders: the host (s2-agent) publishes its baked provider
+  // catalog as ready-to-call registerProvider configs (built by
+  // bakedProviderConfigs in src/pre-load-providers.ts §1) so low-level
+  // runtimes that build their OWN registry from ~/.pi/agent/models.json —
+  // notably s2-agent-core-runtime's subagent registry — can layer the same
+  // catalog the host session uses. Kills the "requested model … unavailable;
+  // using session default" silent fallback for baked-only models (e.g.
+  // prism-ml/bonsai-27b) on the `cli` namespace, which dispatches BEFORE
+  // applyPatches and thus never sees the ModelRuntime.create wrap. Read via
+  // globalThis directly in core-runtime (zero-dep, __piRateLimitState
+  // precedent). crossPackage:false per the __piEmbeddingConfig exemption:
+  // the publisher (host s2-agent) is outside the seam-contract scanner's
+  // package set.
+  __piBakedProviders:       { crossPackage: false },
 } as const;
 
 export type SeamKey = keyof typeof SEAM_KEYS;

@@ -34,6 +34,7 @@ import {
 	type CheckStatus,
 	type CheckResult,
 } from "../../doctor.ts";
+import { PROVIDERS } from "../../pre-load-providers.ts";
 
 export { isFailing, type CheckStatus, type CheckResult };
 
@@ -213,7 +214,9 @@ export function checkVault(ctx: DoctorContext): CheckResult {
 }
 
 export async function checkLmStudio(ctx: DoctorContext): Promise<CheckResult> {
-	const baseUrl = ctx.env.LM_STUDIO_BASE_URL ?? "http://localhost:1234/v1";
+	// Default derived from the baked catalog (§1) — no second copy of the
+	// endpoint to drift if the LM Studio port ever moves.
+	const baseUrl = ctx.env.LM_STUDIO_BASE_URL ?? PROVIDERS["lm-studio"].baseUrl;
 	const ok = await ctx.probeLmStudio(baseUrl);
 	if (ok) return { id: "lm-studio", label: "LM Studio", status: "pass", detail: `${baseUrl} reachable` };
 	return {

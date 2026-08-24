@@ -4,12 +4,15 @@
  *   §1 PROVIDERS        — extension-provider catalog (lm-studio) + registration helpers
  *   §2 BUILTIN_MODEL_DEFAULT — the default provider/model/thinking choice
  *   §3 DEFAULT_MODEL_TIER_CONFIG — tier→model routing seed (model-tiers.json)
+ *   §4 EMBEDDING_CONFIG — baked embedding endpoint + model (knowledge layer)
  *
- * RETIRED 2026-08-22: §4 DEFAULT_MODELS_STORE (models-store.json seed) was
- * removed — pi 0.84.2's builtin catalog (pi-ai models.generated.js) already
- * ships zai/deepseek/huggingface, so seeding ~/.pi/agent/models-store.json was
+ * RETIRED 2026-08-22: the OLD §4 DEFAULT_MODELS_STORE (models-store.json
+ * seed) was removed — pi 0.84.2's builtin catalog (pi-ai models.generated.js)
+ * already ships zai/deepseek/huggingface, so seeding ~/.pi/agent/models-store.json was
  * redundant; the file is now neither seeded nor persisted (see
- * patches/in-memory-models-store.ts).
+ * patches/in-memory-models-store.ts). Every LLM-related setting — chat
+ * providers, default model, tier routing, vision capability lanes, AND the
+ * embedding model — is authored in THIS file with no config imports.
  *
  * HOW TO ADD A PROVIDER
  * ---------------------
@@ -27,8 +30,9 @@
  *
  * SIDE-EFFECT-FREE BY DESIGN
  * ---------------------------
- * This module has NO top-level side effects — importing PROVIDERS / resolveApiKey /
- * registerAllProviders from anywhere (including s2-agent-cli, via `@repo/s2-agent`)
+ * This module has NO top-level side effects and NO config imports — importing
+ * PROVIDERS / resolveApiKey / registerAllProviders from anywhere (including
+ * s2-agent-cli, via `@repo/s2-agent`)
  * must never monkey-patch anything. The actual ModelRuntime.create() wrap lives in
  * `./patches/pre-load-providers.ts` and is applied ONLY via applyPatches()
  * (env-gated, main()-oriented). A prior version patched the prototype right here
@@ -81,10 +85,6 @@ interface ProviderEntry {
   compat?: Compat;
   models: ModelEntry[];
 }
-
-// Canonical embedding model id (D3: bge-m3) — owned by core-interface's
-// embedding leaf; imported so the id lives in exactly one place (§4 below).
-import { SEMANTIC_MODEL_DEFAULT } from "@repo/s2-agent-core-interface";
 
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
@@ -445,6 +445,38 @@ export function resolveApiKey(key: ApiKey, env: Record<string, string | undefine
 }
 
 /**
+ * Pure: the per-provider `registerProvider(name, config)` configs for every
+ * PROVIDERS entry (provider-level compat folded onto each model, apiKey
+ * resolved, costs zeroed). Shared by registerAllProviders (the registry
+ * mutation) AND the `__piBakedProviders` seam publishers
+ * (patches/pre-load-providers.ts + cli/sessions/shared.ts), so the `cli`
+ * namespace — which dispatches BEFORE applyPatches and therefore never sees
+ * the ModelRuntime.create wrap — can still hand the catalog to low-level
+ * runtimes that build their OWN registry (core-runtime's subagent registry,
+ * otherwise models.json-only and blind to baked-only lanes like bonsai).
+ */
+export function bakedProviderConfigs(
+  env: Record<string, string | undefined> = process.env,
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [name, entry] of Object.entries(PROVIDERS)) {
+    const { compat: providerCompat, ...rest } = entry;
+    out[name] = {
+      ...rest,
+      apiKey: resolveApiKey(entry.apiKey, env),
+      models: entry.models.map((m) => ({
+        ...m,
+        // The SDK's extension-provider path (applyExtension) honors only
+        // model-level compat, so fold the provider-level compat down here.
+        compat: { ...providerCompat, ...m.compat },
+        cost: ZERO_COST,
+      })),
+    };
+  }
+  return out;
+}
+
+/**
  * Register every PROVIDERS entry onto a live ModelRegistry via its real
  * registerProvider(name, config). Pure aside from the registry mutation the
  * caller passes in — shared by the pre-load-providers monkey-patch
@@ -457,19 +489,8 @@ export function registerAllProviders(
   registry: { registerProvider(name: string, config: unknown): void },
   env: Record<string, string | undefined> = process.env,
 ): void {
-  for (const [name, entry] of Object.entries(PROVIDERS)) {
-    const { compat: providerCompat, ...rest } = entry;
-    registry.registerProvider(name, {
-      ...rest,
-      apiKey: resolveApiKey(entry.apiKey, env),
-      models: entry.models.map((m) => ({
-        ...m,
-        // The SDK's extension-provider path (applyExtension) honors only
-        // model-level compat, so fold the provider-level compat down here.
-        compat: { ...providerCompat, ...m.compat },
-        cost: ZERO_COST,
-      })),
-    });
+  for (const [name, config] of Object.entries(bakedProviderConfigs(env))) {
+    registry.registerProvider(name, config);
   }
 }
 
@@ -572,11 +593,14 @@ export function shouldEnsureModelTiers(opts: { fileExists: boolean; enabled: boo
 /** Baked embedding endpoint + model for the knowledge layer (kcard-parity D8,
  *  ticket 01): ONE place for all baked model config. `base` is DERIVED from
  *  the lm-studio PROVIDERS entry (strip the /v1 suffix) — no second copy of
- *  the endpoint; `model` re-exports core-interface's SEMANTIC_MODEL_DEFAULT
- *  (D3: bge-m3) so the id lives in exactly one place. Published at startup by
- *  the pre-load-providers patch via publishSeam("__piEmbeddingConfig", …);
- *  embedding-leaf.ts resolveSemanticEmbedConfig resolution order = seam → env
- *  (SEMANTIC_EMBED_* / LMSTUDIO_BASE_URL) → built-in defaults. Pure data —
+ *  the endpoint; `model` is authored HERE (canonical) so this file carries
+ *  every LLM-related setting with NO imports (user directive 2026-08-24;
+ *  core-interface cannot own it without an import cycle, since it sits BELOW
+ *  this package). Published at startup by the pre-load-providers patch via
+ *  publishSeam("__piEmbeddingConfig", …); embedding-leaf.ts
+ *  resolveSemanticEmbedConfig resolution order = seam → env
+ *  (SEMANTIC_EMBED_* / LMSTUDIO_BASE_URL) → its own host-absent fallback
+ *  literal (kept identical by a drift-guard test here). Pure data —
  *  publishing happens in the side-effecting patch file, per this module's
  *  side-effect-free-by-design header. */
 export interface EmbeddingConfig {
@@ -586,5 +610,16 @@ export interface EmbeddingConfig {
 
 export const EMBEDDING_CONFIG: EmbeddingConfig = {
 	base: PROVIDERS["lm-studio"]!.baseUrl.replace(/\/v1$/, ""),
-	model: SEMANTIC_MODEL_DEFAULT,
+	// Canonical embedding model id served by LM Studio (D3, effort
+	// 2026-08-22-context-lifecycle): `text-embedding-bge-m3`. RE-CONFIRMED
+	// 2026-08-23 by ticket 07's eval gate, which cut BOTH ways: the English
+	// 50-query eval set favors nomic (48/50 vs 47/50 hit@4, receipt
+	// output/d3-reeval/) — but the committed recall-audit battery (ticket 04,
+	// the binding Done-when gate) regresses under nomic (15/20 vs 17/20 hit@5)
+	// and the prior embed-bench measured bge-m3 recall@1 0.909 vs nomic 0.864.
+	// D3 stays bge-m3; the 1-query English-set cost is recorded in the effort
+	// map. nomic stays one env override (`SEMANTIC_EMBED_MODEL`) away. The
+	// kcard semantic cache is model-keyed, so any swap is a cache-file change,
+	// not a migration.
+	model: "text-embedding-bge-m3",
 };

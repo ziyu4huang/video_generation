@@ -45,7 +45,8 @@ import obsidianExtension, {
 // wrong for this entry point — see ../../patches/pre-load-providers.ts).
 // Importing registerAllProviders here is safe: ../../pre-load-providers.ts has
 // no import-time side effects, so this never applies that patch.
-import { registerAllProviders } from "../../pre-load-providers.ts";
+import { bakedProviderConfigs, registerAllProviders } from "../../pre-load-providers.ts";
+import { publishSeam } from "@repo/s2-agent-core-interface";
 // Single-source built-in defaults (provider/model/thinking + obsidian floor) —
 // shared with the TUI argv-splice patch and the subagent floor patch.
 import { BUILTIN_MODEL_DEFAULT } from "../../pre-load-providers.ts";
@@ -278,6 +279,15 @@ export async function buildBakedRegistry(): Promise<{
 	);
 	const modelRegistry = new ModelRegistry(modelRuntime);
 	registerAllProviders(modelRegistry);
+	// Publish the baked catalog on the __piBakedProviders seam too: this CLI
+	// namespace dispatches BEFORE applyPatches (ADR 0001), so the
+	// ModelRuntime.create wrap never runs and low-level runtimes that build
+	// their OWN registry from ~/.pi/agent/models.json — core-runtime's
+	// subagent registry — would otherwise be blind to baked-only lanes
+	// (e.g. prism-ml/bonsai-27b) and silently fall back to the session
+	// default on every subagent spawn (measured 2026-08-24: "[subagent]
+	// requested model … unavailable" → empty vision output → OCR degrade).
+	publishSeam("__piBakedProviders", bakedProviderConfigs());
 	return { modelRuntime, modelRegistry };
 }
 

@@ -33,7 +33,7 @@
  */
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { publishSeam } from "@repo/s2-agent-core-interface";
-import { EMBEDDING_CONFIG, registerAllProviders } from "../pre-load-providers.ts";
+import { bakedProviderConfigs, EMBEDDING_CONFIG, registerAllProviders } from "../pre-load-providers.ts";
 
 // Also publish the baked embedding endpoint+model (kcard-parity D8, ticket 01)
 // on the __piEmbeddingConfig seam. This patch is the host's sanctioned
@@ -43,6 +43,17 @@ import { EMBEDDING_CONFIG, registerAllProviders } from "../pre-load-providers.ts
 // embedding-leaf.ts falls through to env → built-in defaults. Unconditional
 // (globalThis assignment cannot fail) — no patchApplied claim needed.
 publishSeam("__piEmbeddingConfig", { base: EMBEDDING_CONFIG.base, model: EMBEDDING_CONFIG.model });
+
+// Same seam treatment for the full baked provider CATALOG (as ready-to-call
+// registerProvider configs): runtimes that build their OWN ModelRuntime
+// without going through the wrap below — s2-agent-core-runtime's subagent
+// registry reads this seam — get the catalog too. On the patched (TUI /
+// headless) path the wrap below already registers it onto every
+// ModelRuntime.create, so this publish is what makes the UNPATCHED `cli`
+// namespace (which never imports this file; cli/sessions/shared.ts publishes
+// the same payload) and any future non-create construction site converge on
+// one catalog built by bakedProviderConfigs.
+publishSeam("__piBakedProviders", bakedProviderConfigs());
 
 // Capture the real factory before any other patch can touch it.
 type CreateFn = typeof ModelRuntime.create;
