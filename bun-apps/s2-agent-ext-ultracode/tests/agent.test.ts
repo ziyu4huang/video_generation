@@ -848,3 +848,23 @@ return 'unreached'`;
   );
   assert.equal(res.result, "caught:AGENT_LIMIT_EXCEEDED");
 });
+
+test("sub-1 concurrency clamp attributes the min floor, not the cap", async () => {
+  const script = `export const meta = { name: 'sub1', description: 'sub-1 clamp attribution' }
+return 'ok'`;
+  const res = await runWorkflow(script, { agent: echoAgent as any, persistLogs: false, concurrency: 0 });
+  assert.match((res.logs ?? []).join("\n"), /\[clamp\] concurrency 0 → 1 \(invalid; min 1\)/);
+});
+
+test("checkpoint blocked by the agent limit logs the clamp line too", async () => {
+  const script = `export const meta = { name: 'cp', description: 'checkpoint clamp log' }
+try { await checkpoint('proceed?') } catch (e) { return 'caught:' + (e && e.code) }
+return 'unreached'`;
+  const res = await runWorkflow(script, { agent: echoAgent as any, persistLogs: false, maxAgents: 0 });
+  assert.match(
+    (res.logs ?? []).join("\n"),
+    /\[clamp\] agent limit reached \(maxAgents=0\) — checkpoint blocked/,
+    "checkpoint's limit gate leaves a run-log trace",
+  );
+  assert.equal(res.result, "caught:AGENT_LIMIT_EXCEEDED");
+});

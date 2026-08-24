@@ -582,6 +582,9 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     throwIfAborted();
     if (typeof promptText !== "string") throw new TypeError("checkpoint(promptText, options?) needs a prompt string");
     if (shared.agentCount >= maxAgents) {
+      log(
+        `[clamp] agent limit reached (maxAgents=${maxAgents}) — checkpoint blocked; raise the maxAgents option to continue`,
+      );
       throw new WorkflowError(
         `Agent limit exceeded (${maxAgents}). Use maxAgents option to increase the limit.`,
         WorkflowErrorCode.AGENT_LIMIT_EXCEEDED,
@@ -644,6 +647,7 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
     },
     runId,
     throwIfAborted,
+    log,
   });
 
   return { log, phase, budget, throwIfAborted, agent, parallel, pipeline, workflowFn, checkpoint, call };

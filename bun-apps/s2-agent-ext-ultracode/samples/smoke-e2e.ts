@@ -30,6 +30,8 @@
  *                  safe value).
  *   SMOKE_E2E_CLI  override the s2-agent CLI path (test-only; default
  *                  bun-apps/s2-agent/src/cli.ts resolved from this file)
+ *   SMOKE_E2E_EXT  override the -e extension entry path (test-only; default
+ *                  the engine's registered entry resolved from the repo root)
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -48,6 +50,10 @@ const WF = process.argv[2] || resolve(SCRIPT_DIR, "dynamic-workflow-smoke01.js")
 // does not exist), so resolve the engine's registered entry from the repo
 // root, same as CLI below. Override with SMOKE_E2E_EXT (test-only).
 const EXT = process.env.SMOKE_E2E_EXT || resolve(REPO_ROOT, "bun-apps/s2-agent-ext-ultracode/extensions/ultracode.ts");
+if (!existsSync(EXT)) {
+  console.error(`extension entry not found: ${EXT}`);
+  process.exit(2);
+}
 
 if (!existsSync(WF)) {
   console.error(`workflow file not found: ${WF}`);

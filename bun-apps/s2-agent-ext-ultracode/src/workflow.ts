@@ -332,7 +332,9 @@ export async function runWorkflow<T = unknown>(
   // in the run logs. The logger exists (created above), so this lands in the
   // persisted run log, getLogs(), and the onLog stream.
   if (typeof requestedConcurrency === "number" && Math.floor(requestedConcurrency) !== concurrency) {
-    const clampMsg = `[clamp] concurrency ${requestedConcurrency} → ${concurrency} (max ${MAX_CONCURRENCY})`;
+    // Attribute the reason honestly: a sub-1 value hit the min floor, not the cap.
+    const reason = requestedConcurrency < 1 ? "invalid; min 1" : `max ${MAX_CONCURRENCY}`;
+    const clampMsg = `[clamp] concurrency ${requestedConcurrency} → ${concurrency} (${reason})`;
     state.logs.push(clampMsg);
     logger.warn(clampMsg);
   }
