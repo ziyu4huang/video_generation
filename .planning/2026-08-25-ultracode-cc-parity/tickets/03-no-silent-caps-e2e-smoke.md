@@ -61,5 +61,10 @@ Map tickets phase B; spec §5.
       recorded: bare-name `-e ultracode` (the bonus fix above) and the
       mid-run gemma unload ("Model unloaded." — silent abort, hence the
       PI_MODEL note in the smoke's usage doc).
-- [ ] PR via devops chain; reviewer pass; effort close-out check (map status
-      → complete if all tickets merged)
+- [x] PR via devops chain (#2020, squash b1e6bbd4, CLEAN); reviewer
+      APPROVE_WITH_NITS applied (checkpoint()/call() limit gates log the same
+      clamp line via an injected optional log dep; sub-1 clamps attribute
+      "(invalid; min 1)"; smoke EXT existsSync guard + SMOKE_E2E_EXT header
+      doc; accepted: nested-run duplicate clamp line — cosmetic); effort
+      close-out: map status → complete (all 3 tickets merged: #2016, #2017,
+      #2020)
