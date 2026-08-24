@@ -35,7 +35,7 @@ test("renderSubagentCall tolerates nullish args (defense-in-depth)", () => {
 test("renderSubagentCall tolerates a missing task field with theme stub", () => {
   const out = renderSubagentCall({ agent: "implementer" } as never, themeStub);
   assert.equal(typeof out, "string");
-  assert.ok(out.includes('""'));
+  assert.ok(out.includes("Task(implementer)"), "CC-shaped head still renders with an empty intent");
 });
 
 // ── result side ────────────────────────────────────────────────────────────

@@ -720,10 +720,10 @@ test("workIntentPreview tolerates undefined task (render-layer totality)", () =>
 test("taskPreview tolerates undefined task (render-layer totality)", () => {
   assert.equal(taskPreview(undefined as unknown as string), "");
 });
-test("renderSubagentCall tolerates a missing task field (no throw, renders empty quotes)", () => {
+test("renderSubagentCall tolerates a missing task field (no throw, head still renders)", () => {
   const out = renderSubagentCall({ agent: "implementer" } as never, T);
   assert.equal(typeof out, "string");
-  assert.ok(out.includes('""'));
+  assert.ok(out.includes("Task(implementer)"));
 });
 
 // ── renderSubagentCall uses workIntentPreview (ticket 02) ──
@@ -844,16 +844,17 @@ const T = {
   bold: (s: string) => s,
 } as never;
 
-test("renderSubagentCall shows subagent ▸ agent ▸ model ▸ task (omits agent when absent)", () => {
+test("renderSubagentCall is CC-shaped: Task(agent): intent head, model + tool name trailing", () => {
   const withRole = renderSubagentCall({ task: "fix the bug", agent: "implementer", model: "x/flash" }, T);
-  assert.ok(withRole.includes("subagent"));
-  assert.ok(withRole.includes("implementer"));
+  // tui-cc-parity ticket 01: agent-first head `Task(agent): intent`.
+  assert.ok(withRole.includes("Task(implementer): fix the bug"), "CC head shape");
+  assert.ok(withRole.includes("subagent"), "pi tool name stays greppable as a trailing segment");
   // ticket 04 finding 5: model segment is shortened via shortModel (x/flash → flash)
   assert.ok(withRole.includes("flash"));
   assert.ok(!withRole.includes("x/flash"), "provider prefix dropped on the call line");
-  assert.ok(withRole.includes("fix the bug"));
+  assert.ok(withRole.indexOf("Task(implementer)") < withRole.indexOf("flash"), "agent leads, model trails");
   const noRole = renderSubagentCall({ task: "explore" }, T);
-  assert.ok(noRole.includes("subagent"));
+  assert.ok(noRole.includes("Task: explore"), "bare Task head when no agent");
   assert.ok(!noRole.includes("▸ implementer"));
   assert.ok(noRole.includes("default")); // model defaults to "default" when undefined
 });
@@ -908,7 +909,7 @@ test("renderSubagentResult collapsed is short; expanded contains the full report
   assert.ok(!collapsed.includes("Line three"), "collapsed drops later lines");
   assert.ok(expanded.includes("Line one of report"));
   assert.ok(expanded.includes("Line three"), "expanded keeps everything");
-  assert.ok(expanded.includes("12.3s") || expanded.includes("12."), "expanded shows elapsed seconds");
+  assert.ok(expanded.includes("12s"), "expanded shows human duration (tui-cc-parity t01)");
 });
 
 test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 or absent", () => {
@@ -925,8 +926,8 @@ test("renderSubagentResult shows cost/tokens when usage.total > 0, omits when 0 
     { expanded: false },
     T,
   );
-  assert.ok(withUsage.includes("$0.002"), "shows cost to 3 decimals");
-  assert.ok(withUsage.includes("150 tok"), "shows total tokens");
+  assert.ok(withUsage.includes("$0.002"), "shows cost when non-zero");
+  assert.ok(withUsage.includes("150 tokens"), "shows separator'd tokens with the unit spelled (t01)");
 
   const zeroUsage = renderSubagentResult(
     {
@@ -2461,18 +2462,19 @@ test("settled-collapsed headline: width-aware via opts.width (min(60, width)); d
   const content = [{ type: "text", text: `${"L".repeat(300)}\nLine two` }];
   const render = (opts?: { width?: number }) =>
     renderSubagentResult({ content, details }, { expanded: false }, T, opts);
-  // Constant binds at width 200: headline = exactly 60 columns (59 chars + `…`),
-  // and the no-width default renders byte-identically (existing behavior kept).
+  // t01: the headline sits mid-row after the `↳ ` marker (CC shape), followed
+  // by ` · ` meta. Extract it positionally instead of off the line's end.
+  const headlineOf = (out: string) => out.slice(out.indexOf("↳ ") + 2).split(" · ")[0];
   const c200 = render({ width: 200 });
-  const prefix = c200.slice(0, -60); // badge+meta+space before the headline
-  assert.ok(prefix.length > 0, "badge+meta prefix present");
-  assert.ok(c200.endsWith(`${"L".repeat(59)}…`), "constant 60 binds at wide width: 59 chars + one ellipsis");
+  const prefix = c200.slice(0, c200.indexOf("↳ ") + 2); // badge + marker before the headline
+  assert.ok(prefix.length > 0, "badge+marker prefix present");
+  assert.equal(headlineOf(c200), `${"L".repeat(59)}…`, "constant 60 binds at wide width: 59 chars + one ellipsis");
   assert.equal(render(), c200, "default (no width) === width 200 (constant binds, unchanged)");
   // Narrow widths shrink the headline within min(60, width), never the prefix.
   const c40 = render({ width: 40 });
   assert.ok(c40.startsWith(prefix), "only the headline narrows — badge/meta untouched");
-  assert.ok(c40.length <= prefix.length + 40, "headline within 40 columns");
-  assert.ok(c40.endsWith("…"), "cut marked");
+  assert.ok(visibleWidth(headlineOf(c40)) <= 40, "headline within 40 columns");
+  assert.ok(headlineOf(c40).endsWith("…"), "cut marked");
   assert.ok(c40.length < c200.length, "wider shows more");
   const c120 = render({ width: 120 });
   assert.equal(c120, c200, "width 120 ≥ constant 60 → identical");
@@ -2481,17 +2483,9 @@ test("settled-collapsed headline: width-aware via opts.width (min(60, width)); d
 test("settled-collapsed headline: CJK first line never exceeds the width", () => {
   const details: SubagentToolDetails = { taskPreview: "p", elapsedMs: 1000, status: "done", model: "x/flash" };
   const content = [{ type: "text", text: `${"你好世界".repeat(60)}\nsecond` }]; // 480 columns first line
-  // Derive the badge+meta prefix length from an ASCII render (same details →
-  // same prefix; headline at width 200 is exactly the 60-col constant).
-  const asciiFull = renderSubagentResult(
-    { content: [{ type: "text", text: `${"L".repeat(300)}\nsecond` }], details },
-    { expanded: false },
-    T,
-    { width: 200 },
-  );
-  const prefixLen = asciiFull.length - 60; // badge+meta+space before the 60-col headline
+  // Same positional extraction as the ASCII test: after `↳ `, before ` · `.
   const out = renderSubagentResult({ content, details }, { expanded: false }, T, { width: 40 });
-  const headline = out.slice(prefixLen); // after badge+meta space
+  const headline = out.slice(out.indexOf("↳ ") + 2).split(" · ")[0];
   assert.ok(visibleWidth(headline) <= 40, "CJK headline within 40 columns");
   assert.ok(headline.endsWith("…"), "cut marked");
 });
@@ -2667,4 +2661,51 @@ test("background at cap fails fast with the slot-limit message", async () => {
   } finally {
     delete process.env.SUBAGENT_MAX_BACKGROUND;
   }
+});
+
+// ── tui-cc-parity ticket 01: CC-ordered settled row ──
+
+test("settled row is CC-ordered: badge ↳ headline · N tokens · duration · model · tags", () => {
+  const details: SubagentToolDetails = {
+    agent: "implementer",
+    taskPreview: "p",
+    elapsedMs: 133_000,
+    status: "done",
+    model: "x/flash",
+    usage: { input: 33_000, output: 1_283, cacheRead: 0, cacheWrite: 0, total: 34_283, cost: 0 },
+    report: { status: "BLOCKED", summary: "", tickets: [] } as never,
+    scopeCheck: { outOfScope: [{ path: "x.ts" }], committed: [], clean: true } as never,
+  };
+  const out = renderSubagentResult(
+    { content: [{ type: "text", text: "Fixed the race in the spawn seam.\nrest" }], details },
+    { expanded: false },
+    T,
+  );
+  // CC order: summary FIRST after the badge, then separator'd tokens, then
+  // human duration, then the model — and s2's extra axes trail (D1: kept).
+  const iHeadline = out.indexOf("↳ Fixed the race in the spawn seam.");
+  const iTokens = out.indexOf("34,283 tokens");
+  const iDur = out.indexOf("2m 13s");
+  const iModel = out.indexOf("flash");
+  const iSdd = out.indexOf("SDD:BLOCKED");
+  const iScope = out.indexOf("1 out-of-scope");
+  assert.ok(iHeadline > 0, "headline leads after the badge");
+  assert.ok(iHeadline < iTokens && iTokens < iDur && iDur < iModel, "CC order: headline → tokens → duration → model");
+  assert.ok(iModel < iSdd && iSdd < iScope, "s2 tags trail the CC meta (D1 retention)");
+  assert.ok(!out.includes("$"), "zero cost renders no $ segment (local stack)");
+});
+
+test("settled row keeps the failure-tag vocabulary on non-done statuses (unchanged axes)", () => {
+  const details: SubagentToolDetails = {
+    taskPreview: "p",
+    elapsedMs: 60_000,
+    status: "budget",
+    budget: { kind: "tokens", limit: 120_000, actual: 121_000 } as never,
+    turns: { turnsUsed: 12, maxTurns: 12 } as never,
+  };
+  const out = renderSubagentResult({ content: [{ type: "text", text: "partial" }], details }, { expanded: false }, T);
+  assert.ok(out.includes("⛔ budget"), "budget badge retained");
+  assert.ok(out.includes("tokens:121000/120000"), "budget death tag retained");
+  assert.ok(out.includes("turns:12/12"), "turns death tag retained");
+  assert.ok(out.includes("1m 00s"), "human duration on failure rows too");
 });

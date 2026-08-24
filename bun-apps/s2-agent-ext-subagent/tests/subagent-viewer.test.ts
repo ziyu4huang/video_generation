@@ -240,7 +240,7 @@ test("viewer list shows a Running section with live elapsed when getRunning retu
   assert.match(out, /Running/);
   assert.ok(out.includes("implementer"), "running section shows the agent role");
   assert.ok(out.includes("flash"), "running section shows the (shortened) model");
-  assert.ok(out.includes("1.5s"), "running section shows the view's elapsedMs");
+  assert.ok(out.includes(" · 1s ·"), "running section shows the view's elapsedMs (human, t01)");
   assert.match(out, /1 call/, "running section shows the live tool-call count");
 });
 
@@ -409,7 +409,7 @@ test("follow freezes with final status + usage when the run completes (matched b
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("✓"), "frozen header shows the done glyph");
   assert.ok(out.includes("done"), "frozen header shows 'done'");
-  assert.ok(out.includes("4.2s"), "elapsed frozen at the completed run's elapsedMs");
+  assert.ok(out.includes("4s"), "elapsed frozen at the completed run's elapsedMs (human, t01)");
   assert.ok(out.includes("$0.01") || out.includes("$0.0123"), "frozen header shows cost");
   assert.ok(out.includes("150 tok"), "frozen header shows tokens");
   assert.ok(out.includes("→ Reading"), "trace frozen at the last live snapshot");
@@ -496,7 +496,7 @@ test("viewer list completed row shows relative time + model + elapsed + cost", (
   const out = viewer.render(80).join("\n");
   assert.ok(out.includes("5m ago"), "row shows relative start time");
   assert.ok(out.includes("flash"), "row shows short model");
-  assert.ok(out.includes("2.1s"), "row shows elapsed");
+  assert.ok(out.includes(" · 2s — "), "row shows elapsed (human, t01)");
   assert.ok(out.includes("$0.03"), "row shows cost");
 });
 

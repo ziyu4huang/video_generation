@@ -79,8 +79,8 @@ describe("subagents section (order 4)", () => {
 		const { handle } = makeSection(() => views);
 		expect(handle.section.render(plainTheme, 100)).toEqual([
 			" 2 background runs",
-			"  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md",
-			"  ● implementer opus · 4.0s · 1 call — Editing widget.ts",
+			"  ● researcher sonnet · 12s · 3 calls — Reading plan.md",
+			"  ● implementer opus · 4s · 1 call — Editing widget.ts",
 		]);
 	});
 
@@ -88,7 +88,7 @@ describe("subagents section (order 4)", () => {
 		const { handle } = makeSection(() => [fakeView()]);
 		expect(handle.section.render(plainTheme, 100)).toEqual([
 			" 1 background run",
-			"  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md",
+			"  ● researcher sonnet · 12s · 3 calls — Reading plan.md",
 		]);
 	});
 
@@ -97,7 +97,7 @@ describe("subagents section (order 4)", () => {
 		const { handle } = makeSection(() => views);
 		expect(handle.section.render(plainTheme, 100)).toEqual([
 			" 1 background run",
-			"  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md",
+			"  ● researcher sonnet · 12s · 3 calls — Reading plan.md",
 			'    ↳ "summarizing findings"',
 		]);
 	});
@@ -105,7 +105,7 @@ describe("subagents section (order 4)", () => {
 	test("no latest line when history is empty", () => {
 		const { handle } = makeSection(() => [fakeView()]);
 		const lines = handle.section.render(plainTheme, 100);
-		expect(lines).toEqual([" 1 background run", "  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md"]);
+		expect(lines).toEqual([" 1 background run", "  ● researcher sonnet · 12s · 3 calls — Reading plan.md"]);
 		expect(lines.some((l) => l.includes("↳"))).toBe(false);
 	});
 
@@ -184,8 +184,8 @@ describe("subagents section (order 4)", () => {
 			const lines = handle.section.render(plainTheme, 100);
 			expect(lines[0]).toBe(" ⎇ dock focused · j/k scroll · x abort · e trace · ctrl+b detach · ⏎ viewer · esc release");
 			expect(lines[1]).toBe(" 2 background runs");
-			expect(lines[2]).toBe("  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md");
-			expect(lines[3]).toBe("▶ ● implementer opus · 12.3s · 3 calls — Reading plan.md");
+			expect(lines[2]).toBe("  ● researcher sonnet · 12s · 3 calls — Reading plan.md");
+			expect(lines[3]).toBe("▶ ● implementer opus · 12s · 3 calls — Reading plan.md");
 		});
 
 		test("armed state shows the [abort? y/n] marker on the count header", () => {
@@ -236,8 +236,8 @@ describe("subagents section (order 4)", () => {
 			handle.setDockState(undefined);
 			expect(handle.section.render(plainTheme, 100)).toEqual([
 				" 2 background runs",
-				"  ● researcher sonnet · 12.3s · 3 calls — Reading plan.md",
-				"  ● implementer opus · 12.3s · 3 calls — Reading plan.md",
+				"  ● researcher sonnet · 12s · 3 calls — Reading plan.md",
+				"  ● implementer opus · 12s · 3 calls — Reading plan.md",
 			]);
 		});
 
@@ -296,7 +296,7 @@ describe("subagents section (order 4)", () => {
 			// section-level guard is the identity for lines that already fit.
 			expect(lines).toEqual([
 				" 1 background run",
-				`  ● researcher sonnet · 12.3s · 3 calls — ${"a".repeat(49)}…`,
+				`  ● researcher sonnet · 12s · 3 calls — ${"a".repeat(49)}…`,
 			]);
 			expect(lines).toEqual(handle.section.render(plainTheme, 5000)); // constant binds
 		});
