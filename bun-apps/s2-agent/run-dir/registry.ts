@@ -1,19 +1,24 @@
 /**
- * registry.ts — the ONE parser for s2-agent.registry.yaml.
+ * registry.ts — the validation authority over src/registry-config.ts.
  *
- * The registry replaces both the retired deploy config and the hand-maintained
- * manifest.json (which becomes a DERIVED artifact — see regen-manifest.ts).
- * Schema authority lives HERE and nowhere else: the devops deploy config
- * derives ShConfig from parseRegistry(), the manifest emitter derives the
- * arrays, and a structural guard forbids a third parser of this shape.
+ * Since ticket 02 (.planning/2026-08-24-registry-code-as-config/) the typed
+ * REGISTRY in src/registry-config.ts is the data; THIS module owns the
+ * invariants: `loadRegistry()` validates the typed entries (the checks the
+ * YAML parser used to enforce at parse time — disk existence, duplicate
+ * names/orders, deploy/excludeReason contradictions, vendor overlaps) and
+ * returns the legacy `Registry` shape the emitter and tests consume. The
+ * validation lives here and not in registry-config.ts because it needs
+ * node:fs, and that module is zero-import by contract (map D4).
  *
- * Strict on purpose: an unknown key is an error, not a silent no-op — the
- * failure mode this rejects is a registry typo that quietly ships (or drops)
- * an extension.
+ * `parseRegistry(text)` below is the RETIRED-BRIDGE YAML parser, kept only so
+ * devops (`parseShConfig`) and `ext new` keep working until ticket 03 flips
+ * them; ticket 04 deletes it together with s2-agent.registry.yaml. It stays
+ * byte-for-byte the old authority — do not extend it.
  */
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+import { REGISTRY, registryToLegacyShapes } from "../src/registry-config.ts";
 
 export interface RegistryDeployBlock {
   order: number;
@@ -73,7 +78,12 @@ function requireMapping(value: unknown, key: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-/** Strict parse + validate. Throws Error with the offending key/entry in the message. */
+/**
+ * @deprecated Retired bridge (ticket 02): parses s2-agent.registry.yaml text.
+ * Remaining callers are devops `parseShConfig` and `ext new` — both flip in
+ * ticket 03; ticket 04 deletes this function with the YAML. New code uses
+ * `loadRegistry()`.
+ */
 export function parseRegistry(text: string, opts: { bunAppsDir: string }): Registry {
   const raw = Bun.YAML.parse(text) as Record<string, unknown> | null;
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
@@ -285,4 +295,79 @@ export function parseRegistry(text: string, opts: { bunAppsDir: string }): Regis
     extensions,
     lazyExtensions: lazyRaw as Record<string, string>,
   };
+}
+
+// ─── Validation over REGISTRY (the new authority read path) ──────────────────
+
+/**
+ * Validate the typed REGISTRY and return the legacy `Registry` shape.
+ *
+ * Every check the YAML parser enforced at parse time is enforced here over
+ * the typed data instead — the failure modes rejected are the same: an entry
+ * that points at a package/entry not on disk, duplicate names or deploy
+ * orders, a deploy block contradicting excludeReason, vendor/externals/
+ * vendorExclude overlaps, and (typed-only, map D2) a disabled entry missing
+ * its disableReason/reEnableNote paper trail.
+ */
+export function loadRegistry(opts: { bunAppsDir: string }): Registry {
+  const seenNames = new Set<string>();
+  const seenOrders = new Map<number, string>();
+  for (const [i, e] of REGISTRY.entries()) {
+    if (e.name.length === 0) throw new Error(`REGISTRY[${i}].name must be a non-empty string`);
+    if (seenNames.has(e.name)) throw new Error(`duplicate extension name "${e.name}"`);
+    seenNames.add(e.name);
+
+    const pkgDir = resolve(opts.bunAppsDir, e.package);
+    if (!existsSync(pkgDir)) throw new Error(`extensions[${i}] ("${e.name}") package dir not found: ${pkgDir}`);
+    const entryAbs = resolve(pkgDir, e.entry);
+    if (!existsSync(entryAbs)) throw new Error(`extensions[${i}] ("${e.name}") entry not found: ${entryAbs}`);
+
+    if (e.enabled && e.deploy === undefined && e.excludeReason === undefined) {
+      throw new Error(`extensions[${i}] ("${e.name}") has no deploy block — excludeReason is required to say why it is not deployed`);
+    }
+    if (e.enabled && e.deploy !== undefined && e.excludeReason !== undefined) {
+      throw new Error(`extension "${e.name}" has both a deploy block and excludeReason — they contradict: either it ships or it does not`);
+    }
+    if (!e.enabled) {
+      // Map D2: disabled entries are values, not deletions — but only as long
+      // as the reason + re-enable path stay attached as data.
+      if (!e.disableReason || e.disableReason.length === 0) {
+        throw new Error(`extensions[${i}] ("${e.name}") is enabled: false — disableReason is required`);
+      }
+      if (!e.reEnableNote || e.reEnableNote.length === 0) {
+        throw new Error(`extensions[${i}] ("${e.name}") is enabled: false — reEnableNote is required`);
+      }
+    }
+
+    if (e.deploy !== undefined) {
+      if (!Number.isInteger(e.deploy.order)) {
+        throw new Error(`extensions[${i}] ("${e.name}") deploy.order must be an integer`);
+      }
+      const prior = seenOrders.get(e.deploy.order);
+      if (prior !== undefined) {
+        throw new Error(`extensions[${i}] ("${e.name}") deploy order ${e.deploy.order} duplicates "${prior}"`);
+      }
+      seenOrders.set(e.deploy.order, e.name);
+
+      const vendor = e.deploy.vendor ?? [];
+      const externals = e.deploy.externals ?? [];
+      const vendorExclude = e.deploy.vendorExclude ?? [];
+      const overlap = vendor.filter((p) => externals.includes(p));
+      if (overlap.length > 0) {
+        throw new Error(`extensions[${i}] ("${e.name}") declares package(s) both vendored and external: ${overlap.join(", ")}`);
+      }
+      const excludedRoots = vendor.filter(
+        (p) => vendorExclude.includes(p) || vendorExclude.some((x) => x.endsWith("/*") && p.startsWith(x.slice(0, -1))),
+      );
+      if (excludedRoots.length > 0) {
+        throw new Error(`extensions[${i}] ("${e.name}") declares vendor root(s) that vendorExclude also drops: ${excludedRoots.join(", ")}`);
+      }
+    }
+  }
+
+  const { registry } = registryToLegacyShapes({ home: homedir() });
+  if (!isAbsolute(registry.deploy.outRoot)) {
+    throw new Error(`outRoot must resolve to an absolute path, got "${registry.deploy.outRoot}"`);
+  }
+  return registry;
 }

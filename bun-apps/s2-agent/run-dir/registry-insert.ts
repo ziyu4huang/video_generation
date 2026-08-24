@@ -7,6 +7,12 @@
  * re-serialisation would destroy. Duplicate-name detection happens BEFORE the
  * insert, in the caller (ext-new reads the file through parseRegistry); this
  * module only places an already-rendered entry.
+ *
+ * TICKET 02 FINDING (map Fog closed): this module does NOT parse YAML and has
+ * exactly one non-test caller — src/ext-new.ts, the repo-time scaffold CLI.
+ * No compiled-binary or dynamic run-dir-loading path reaches it. It stays
+ * functional-but-transitional until ticket 03 flips ext-new to emit a TS
+ * registry entry; ticket 04 deletes it with the YAML.
  */
 
 /**

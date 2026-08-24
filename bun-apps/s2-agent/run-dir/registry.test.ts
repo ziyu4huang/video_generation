@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseRegistry } from "./registry.ts";
+import { loadRegistry, parseRegistry } from "./registry.ts";
 
 /** Build a minimal valid registry with one static-deployed ext + one dynamic-local ext on disk. */
 function fixture(): { text: string; bunAppsDir: string } {
@@ -38,6 +38,37 @@ lazyExtensions: {}
 `;
   return { text, bunAppsDir };
 }
+
+describe("loadRegistry (ticket 02 flip)", () => {
+  const PKG_DIR = join(import.meta.dir, "..");
+  const BUN_APPS = join(PKG_DIR, "..");
+
+  test("deep-equals parseRegistry on the real retired YAML (the flip bridge)", () => {
+    // While the YAML still exists (until ticket 04), the retired bridge and
+    // the new REGISTRY-based read must agree exactly — this is the in-package
+    // twin of src/registry-config.test.ts's equivalence net, asserted from the
+    // consumer side (loadRegistry) rather than the projection side.
+    const yamlText = readFileSync(join(PKG_DIR, "s2-agent.registry.yaml"), "utf8");
+    const fromYaml = parseRegistry(yamlText, { bunAppsDir: BUN_APPS });
+    const fromTs = loadRegistry({ bunAppsDir: BUN_APPS });
+    expect(fromTs).toEqual(fromYaml);
+  });
+
+  test("returns the manifest-ready shape (active extensions, deployed blocks normalized)", () => {
+    const r = loadRegistry({ bunAppsDir: BUN_APPS });
+    expect(r.extensions.length).toBeGreaterThan(10);
+    for (const e of r.extensions) {
+      expect(e.skills).toBeBoolean();
+      if (e.deploy) {
+        expect(e.deploy.copy).toBeArray();
+        expect(e.deploy.vendor).toBeArray();
+        expect(e.deploy.enabled).toBeBoolean();
+      } else {
+        expect(e.excludeReason).toBeString();
+      }
+    }
+  });
+});
 
 describe("parseRegistry", () => {
   test("parses the fixture", () => {
