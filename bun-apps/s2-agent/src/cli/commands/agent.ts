@@ -29,8 +29,8 @@ import knowledgeCardExtension from "@repo/s2-agent-ext-knowledge-card/extensions
  * (obsidian), web research (web_search/fetch), and knowledge (zk tools).
  *
  * Notably EXCLUDED by default: media generation (flux2/krea2/ltx — heavy
- * binaries, use the dedicated subcommands), and workflow (deterministic, use
- * `workflow run`). The user can always add them via --tools.
+ * binaries, use the dedicated subcommands). The user can always add them
+ * via --tools.
  */
 export const AGENT_TOOLS = [
 	// filesystem
@@ -64,7 +64,6 @@ ${AGENT_TOOLS.map((t) => `  ${t}`).join("\n")}
 
 Notably excluded by default (use the dedicated subcommands):
   flux2 / krea2 / ltx  — media generation (heavy binaries)
-  workflow             — deterministic engine (use 'workflow run')
 
 Options (pi-aligned globals):
   --model <pattern>      provider/id[:thinking]

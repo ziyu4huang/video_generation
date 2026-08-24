@@ -4,5 +4,5 @@
   "entry": "index.js",
   "kind": "workflow-pack",
   "engine": "s2-agent-ext-ultracode",
-  "howToRun": "bun --cwd bun-apps/s2-agent src/cli.ts cli workflow run echo --dry-run   # then drop --dry-run with a --model"
+  "howToRun": "Run by s2-agent-ext-ultracode tests/workflow-pack.test.ts (real-pack suite). Interactive: the `workflow` tool's name param resolves this pack via the shared resolver (workflow-pack.ts)."
 }

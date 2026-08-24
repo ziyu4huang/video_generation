@@ -41,7 +41,6 @@ import { knowledgePipelineCommand } from "./commands/knowledge-pipeline.ts";
 import { memoryToVaultCommand } from "./commands/memory-to-vault.ts";
 import { chatCommand } from "./commands/chat.ts";
 import { agentCommand } from "./commands/agent.ts";
-import { workflowRunCommand, workflowListCommand } from "./commands/workflow.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
 import { agentTrendsCommand } from "./commands/agent-trends.ts";
@@ -105,13 +104,6 @@ const PIPELINES: Command[] = [
   memoryToVaultCommand,
 ];
 
-/**
- * `workflow <sub>` — headless runner for s2-agent-ext-ultracode engine scripts.
- * NOT an agent command: calls `runWorkflow()` directly (deterministic gates).
- * See commands/workflow.ts and `s2-agent cli workflow --help`.
- */
-const WORKFLOWS: Command[] = [workflowRunCommand, workflowListCommand];
-
 /** Meta commands (not agent workflows). */
 const META = ["list", "list-tools", "completions", "version", "help"] as const;
 
@@ -119,9 +111,7 @@ const META = ["list", "list-tools", "completions", "version", "help"] as const;
 const RESERVED = new Set<string>([
   ...COMMANDS.map((c) => c.name),
   ...PIPELINES.map((c) => c.name),
-  ...WORKFLOWS.map((c) => c.name),
   "pipeline", // namespace
-  "workflow", // namespace
   ...META,
   // hidden alias kept for backward compatibility / muscle memory
   "oneshot",
@@ -131,7 +121,7 @@ function isHelp(tok: string | undefined): boolean {
   return tok === "-h" || tok === "--help" || tok === "help";
 }
 
-/** Find a command by name within one of the groups (COMMANDS / PIPELINES / WORKFLOWS). */
+/** Find a command by name within one of the groups (COMMANDS / PIPELINES). */
 function findIn(list: Command[], name: string): Command | undefined {
   return list.find((c) => c.name === name);
 }
@@ -149,16 +139,12 @@ function printRootHelp(): void {
   const pipelineLines = PIPELINES.map(
     (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
   ).join("\n");
-  const workflowLines = WORKFLOWS.map(
-    (c) => `  ${c.name.padEnd(14)} ${c.summary}`,
-  ).join("\n");
 
   console.log(`s2-agent cli v${VERSION} — s2-agent's non-interactive command namespace (pi-obsidian baked in)
 
 Usage:
   s2-agent cli <command> [options]
   s2-agent cli pipeline <name> [options]   (multi-stage orchestrators)
-  s2-agent cli workflow <sub> [options]    (headless engine runner)
   s2-agent cli [pi-compatible flags] [prompt]   (passthrough agent mode)
 
 Commands (agents):
@@ -168,9 +154,6 @@ Pipelines:
 ${pipelineLines}
   status / run /     knowledge pipeline: converge + merge + heal
   dry-run / lint     (pipeline status | run | dry-run | lint)
-
-Workflow:
-${workflowLines}
 
 Meta:
   list                            List available models (with credentials)
@@ -209,9 +192,6 @@ Examples:
   s2-agent cli zk-extract ./inbox/ --max-notes 20
   s2-agent cli pipeline pdf-to-vault paper.pdf
   s2-agent cli pipeline pdf-to-vault paper.pdf --pages 1-3 --delete-png
-  s2-agent cli workflow run closed-loop-proof
-  s2-agent cli workflow run closed-loop-proof --args '{"kbFile":"mlx-movie-director-self-improve"}' --dry-run
-  s2-agent cli workflow list
   s2-agent cli zk-card add "concept text"
   s2-agent cli zk-card find "bun workspace"
   s2-agent cli zk-card update Zettelkasten/Note.md "new info"
@@ -390,7 +370,7 @@ async function dispatch(argv: string[]): Promise<void> {
   // `help [target]` / `-h [target]` / `--help [target]` → show help for the
   // target (or root help), and NEVER dispatch. A leading help token is consumed
   // by parsePiArgs as the --help boolean flag, so without this guard the NEXT
-  // positional dispatches as a command. COMMANDS/PIPELINES/WORKFLOWS happened to
+  // positional dispatches as a command. COMMANDS/PIPELINES happened to
   // print help (runAgentCommand checks parsed.help), but META commands
   // (version/list/list-tools/completions) have explicit `if (first === "X")`
   // branches that don't check the help flag → they EXECUTED instead of helping.
@@ -401,7 +381,7 @@ async function dispatch(argv: string[]): Promise<void> {
     const helpProbe = parsePiArgs(stripped);
     const target = helpProbe.positionals[0];
     const cmd = target
-      ? (findIn(COMMANDS, target) ?? findIn(PIPELINES, target) ?? findIn(WORKFLOWS, target))
+      ? (findIn(COMMANDS, target) ?? findIn(PIPELINES, target))
       : undefined;
     if (cmd) {
       console.log(cmd.details);
@@ -410,11 +390,6 @@ async function dispatch(argv: string[]): Promise<void> {
       const pcmd = pname ? findIn(PIPELINES, pname) : undefined;
       if (pcmd) console.log(pcmd.details);
       else console.log("Pipelines:\n" + PIPELINES.map((c) => `  ${c.name}`).join("\n"));
-    } else if (target === "workflow") {
-      const wname = helpProbe.positionals[1];
-      const wcmd = wname ? findIn(WORKFLOWS, wname) : undefined;
-      if (wcmd) console.log(wcmd.details);
-      else console.log("Workflow sub-commands:\n" + WORKFLOWS.map((c) => `  ${c.name}`).join("\n"));
     } else {
       printRootHelp();
     }
@@ -498,29 +473,6 @@ async function dispatch(argv: string[]): Promise<void> {
       // drop both the `pipeline` namespace token and the pipeline-name token
       const pipeIdx = probe.positionalIndices[1]!;
       await runAgentCommand(pcmd, withoutIndices(stripped, [cmdIdx, pipeIdx]));
-      return;
-    }
-
-    // `workflow <sub> ...` namespace (run | list). NOT an agent command — the
-    // `run` sub-command calls runWorkflow() directly against the engine.
-    if (first === "workflow") {
-      const wname = probe.positionals[1];
-      if (!wname) {
-        die(
-          "Usage: workflow <sub> [options]\n\nWorkflow sub-commands:\n" +
-            WORKFLOWS.map((c) => `  ${c.name.padEnd(14)} ${c.summary}`).join("\n"),
-        );
-      }
-      const wcmd = findIn(WORKFLOWS, wname);
-      if (!wcmd) {
-        die(
-          `Unknown workflow sub-command: ${wname}\n\nAvailable: ` +
-            WORKFLOWS.map((c) => c.name).join(", "),
-        );
-      }
-      // drop both the `workflow` namespace token and the sub-command token.
-      const wsubIdx = probe.positionalIndices[1]!;
-      await runAgentCommand(wcmd, withoutIndices(stripped, [cmdIdx, wsubIdx]));
       return;
     }
 

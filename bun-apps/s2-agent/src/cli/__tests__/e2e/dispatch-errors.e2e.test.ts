@@ -1,6 +1,9 @@
 /**
- * e2e: dispatch error paths — the reserved namespaces (`pipeline` / `workflow`)
- * fail fast with a clean usage message + exit 1, before any model resolution.
+ * e2e: dispatch error paths — the reserved `pipeline` namespace fails fast
+ * with a clean usage message + exit 1, before any model resolution.
+ * (The `workflow` namespace was removed 2026-08-25 — ultracode TRIM,
+ * .planning/2026-08-25-s2-agent-simplify-round2/ ticket 02; `workflow` as a
+ * first token now falls through to passthrough like any unknown word.)
  *
  * Deliberately does NOT test a bare unknown command: that falls through to
  * passthrough and would need a model (risk of hang) — see _helpers.ts NOTE.
@@ -23,22 +26,6 @@ describe("dispatch errors — pipeline namespace", () => {
 		const r = runCli(["pipeline"]);
 		expect(r.exitCode).toBe(1);
 		expect(r.stderr).toContain("Usage: pipeline");
-		expect(r.stderr).not.toMatch(NO_STACK);
-	});
-});
-
-describe("dispatch errors — workflow namespace", () => {
-	test("workflow bogus → Unknown workflow sub-command, exit 1", () => {
-		const r = runCli(["workflow", "bogus"]);
-		expect(r.exitCode).toBe(1);
-		expect(r.stderr).toContain("Unknown workflow sub-command: bogus");
-		expect(r.stderr).not.toMatch(NO_STACK);
-	});
-
-	test("workflow (no sub) → usage, exit 1", () => {
-		const r = runCli(["workflow"]);
-		expect(r.exitCode).toBe(1);
-		expect(r.stderr).toContain("Usage: workflow");
 		expect(r.stderr).not.toMatch(NO_STACK);
 	});
 });

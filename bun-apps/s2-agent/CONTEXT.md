@@ -79,10 +79,9 @@ _Avoid_: describing s2-agent as self-healing — it is not
 ## Non-interactive CLI
 
 The vocabulary of `s2-agent cli` (`src/cli/`) — the package's second entry
-namespace: non-interactive, driving single-turn agent runs and deterministic
-engine workflows from scripts and sub-agents. Merged in from the former
-`s2-agent-cli` package (2026-08-12); this is now one package's glossary, not
-two.
+namespace: non-interactive, driving single-turn agent runs from scripts and
+sub-agents. Merged in from the former `s2-agent-cli` package (2026-08-12);
+this is now one package's glossary, not two.
 
 **`cli` namespace**:
 The argv token that routes into the non-interactive CLI (`s2-agent cli <command>`).
@@ -96,9 +95,25 @@ _Avoid_: subcommand (ambiguous), mode (it is an entry namespace, not a runtime m
 **Non-interactive run**:
 The defining mode of every `cli` invocation: one process, no persistent TUI
 session loop, scriptable. Applies to all of them, including those that never
-create an agent session (META commands, `workflow run`).
+create an agent session (META commands).
 _Avoid_: single-turn (a subcategory, not the definition); one-shot / oneshot
 (legacy CLI alias, not a concept)
+
+**Workflow CLI surface (removed)**:
+The former `s2-agent cli workflow <run|list>` namespace — removed 2026-08-25
+(ultracode TRIM, `.planning/2026-08-25-s2-agent-simplify-round2/` D4).
+Usage receipts from `~/.pi/agent/sessions` (4,737 session files,
+2026-06-27→08-25): workflow + run_workflow = 155 toolCalls all-time, ~2.2% of
+sessions, near-zero organic use since Aug 7 (the 74-call spike on 08-21 was
+the schema-cost dev effort itself); cron tools 0 invocations ever. The ENGINE
+(`@repo/s2-agent-ext-ultracode`) stays enabled — ext-movie-director
+(`movie-manager.ts:17-18`), ext-flux2 (`self-improve-loop.driver.ts:23`) and
+ext-tool-gate import it directly, and its riders (/loop, wakeup, effort,
+deep-research) are in active maintenance. Engine workflows run through the
+interactive `workflow` TOOL, not the CLI. `workflows/` sample packs stay —
+ext-ultracode's workflow-pack tests run them for real.
+_Avoid_: re-adding a workflow CLI namespace (the evidence is recorded); "workflow
+was deleted" (only the CLI surface was — the engine remains)
 
 **Single-turn agent run**:
 One ephemeral agent session created and driven to completion within a single
