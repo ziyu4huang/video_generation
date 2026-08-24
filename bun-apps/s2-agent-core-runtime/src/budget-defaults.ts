@@ -48,6 +48,14 @@ const ENV_KEYS = {
   big: "SUBAGENT_TOKEN_BUDGET_BIG",
   multiplier: "SUBAGENT_TOKEN_BUDGET_MULTIPLIER",
   maxTurns: "SUBAGENT_MAX_TURNS",
+  // Time-budget env knobs (dynamic-budgets ticket 02): the role envelope's
+  // wall gains the token family's env surface (DISABLE / per-role absolute /
+  // multiplier), scoped to the ROLE wall because time has no tier defaults.
+  // Numeric bounds frozen.
+  timeDisable: "SUBAGENT_TIME_BUDGET_DISABLE",
+  timeRecon: "SUBAGENT_TIME_BUDGET_RECON",
+  timeWriter: "SUBAGENT_TIME_BUDGET_WRITER",
+  timeMultiplier: "SUBAGENT_TIME_BUDGET_MULTIPLIER",
 } as const;
 
 /** "1" or "true" (case-insensitive) → true; anything else (incl. unset) → false. */
@@ -164,6 +172,27 @@ export const ROLE_AWARE_DISPATCH_BOUNDS = {
 
 export type DispatchRole = keyof typeof ROLE_AWARE_DISPATCH_BOUNDS;
 
+function timeEnvKey(role: DispatchRole): string {
+  return role === "recon" ? ENV_KEYS.timeRecon : ENV_KEYS.timeWriter;
+}
+
+/**
+ * Resolve the role envelope's wall-clock bound through the time env family
+ * family, mirroring the token family's precedence: per-role absolute env
+ * override → multiplier (applied after the override, floored to ≥1 ms); DISABLE
+ * is checked FIRST so it wins over any override/multiplier, exactly like
+ * SUBAGENT_TOKEN_BUDGET_DISABLE. Numeric bounds
+ * (recon 5 min / writer 20 min) stay the frozen defaults; invalid values are
+ * silently ignored (the previous step's value falls through).
+ */
+function roleTimeoutMs(role: DispatchRole, defaultMs: number): number | undefined {
+  if (envFlagTrue(ENV_KEYS.timeDisable)) return undefined;
+  let result = parsePositiveInt(process.env[timeEnvKey(role)]) ?? defaultMs;
+  const multiplier = parsePositiveFloat(process.env[ENV_KEYS.timeMultiplier]);
+  if (multiplier !== undefined) result = Math.max(1, Math.floor(result * multiplier));
+  return result;
+}
+
 export interface RoleAwareDefaults {
   applied: boolean;
   tokenBudget?: number;
@@ -179,6 +208,10 @@ export interface RoleAwareDefaults {
  * in `p`. `tierCeiling` (the tierDefaultToken value for the dispatch's model)
  * caps the recon tokenBudget so a recon default never exceeds the
  * p90-calibrated tier policy.
+ *
+ * The time env family (`SUBAGENT_TIME_BUDGET_{DISABLE,RECON,WRITER,
+ * MULTIPLIER}`) reshapes only the resolved `timeoutMs` here — same call-time
+ * env-read and silent-ignore rules as the token knobs, see {@link roleTimeoutMs}.
  *
  * `opts.persistent` (cc-parity-2 ticket 05, F2): the dispatch opens a NAMED
  * live agent, whose tokenBudget/maxTurns/timeoutMs are AGENT-LIFETIME
@@ -220,7 +253,10 @@ export function roleAwareDefaults(
     tokenBudget:
       role === "recon" && tierCeiling !== undefined ? Math.min(bounds.tokenBudget, tierCeiling) : bounds.tokenBudget,
     maxTurns: envMaxTurns ?? bounds.maxTurns,
-    timeoutMs: bounds.timeoutMs,
+    // Time env family — replaces the role wall the same way envMaxTurns
+    // replaces the role turn cap (explicit params still opt out, checked above;
+    // SUBAGENT_TIME_BUDGET_DISABLE strips ONLY the wall — token/turn caps stay).
+    timeoutMs: roleTimeoutMs(role, bounds.timeoutMs),
     notice: `bounds: defaults applied (${role}) — pass tokenBudget/maxTurns/timeoutMs to override`,
   };
 }

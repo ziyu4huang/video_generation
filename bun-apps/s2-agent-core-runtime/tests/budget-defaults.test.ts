@@ -15,6 +15,10 @@ const ENV_KNOBS = [
   "SUBAGENT_TOKEN_BUDGET_MEDIUM",
   "SUBAGENT_TOKEN_BUDGET_BIG",
   "SUBAGENT_TOKEN_BUDGET_MULTIPLIER",
+  "SUBAGENT_TIME_BUDGET_DISABLE",
+  "SUBAGENT_TIME_BUDGET_RECON",
+  "SUBAGENT_TIME_BUDGET_WRITER",
+  "SUBAGENT_TIME_BUDGET_MULTIPLIER",
   "SUBAGENT_MAX_TURNS",
   "PI_SUBAGENT_HINTS_FILE",
 ] as const;
@@ -236,6 +240,97 @@ test("roleAwareDefaults: explicit params opt out regardless of env", () => {
   const d = roleAwareDefaults({ maxTurns: 4 }, "recon");
   assert.equal(d.applied, false);
   assert.equal(d.maxTurns, undefined);
+});
+
+// ── time-budget env knobs (dynamic-budgets ticket 02) ──
+
+test("time env knobs: per-role absolute override replaces that role's wall only", () => {
+  process.env.SUBAGENT_TIME_BUDGET_RECON = "600000";
+  const recon = roleAwareDefaults({}, "recon");
+  assert.equal(recon.timeoutMs, 600_000);
+  assert.equal(roleAwareDefaults({}, "writer").timeoutMs, 1_200_000, "writer wall untouched");
+  process.env.SUBAGENT_TIME_BUDGET_WRITER = "180000";
+  assert.equal(roleAwareDefaults({}, "writer").timeoutMs, 180_000);
+  assert.equal(recon.tokenBudget, 120_000, "token cap untouched by the time family");
+  assert.equal(recon.maxTurns, 12, "turn cap untouched by the time family");
+});
+
+test("time env knobs: multiplier scales the role wall (after any override)", () => {
+  process.env.SUBAGENT_TIME_BUDGET_MULTIPLIER = "2";
+  assert.equal(roleAwareDefaults({}, "recon").timeoutMs, 600_000);
+  assert.equal(roleAwareDefaults({}, "writer").timeoutMs, 2_400_000);
+  process.env.SUBAGENT_TIME_BUDGET_RECON = "450000";
+  assert.equal(roleAwareDefaults({}, "recon").timeoutMs, 900_000, "override first, then multiply");
+});
+
+test("time env knobs: multiplier floors fractional results (clamp to ≥1ms)", () => {
+  process.env.SUBAGENT_TIME_BUDGET_MULTIPLIER = "1.000001";
+  // 300_000 * 1.000001 = 300_000.3 → floor → 300_000
+  assert.equal(roleAwareDefaults({}, "recon").timeoutMs, 300_000);
+  process.env.SUBAGENT_TIME_BUDGET_MULTIPLIER = "0.000001";
+  assert.equal(roleAwareDefaults({}, "recon").timeoutMs, 1, "clamps at 1ms, never 0");
+});
+
+test(`time env knobs: DISABLE="1"/"true" strips ONLY the wall — token/turn caps + applied stay`, () => {
+  process.env.SUBAGENT_TIME_BUDGET_DISABLE = "1";
+  const d = roleAwareDefaults({}, "recon");
+  assert.equal(d.applied, true, "envelope still applied (time-only strip)");
+  assert.equal(d.timeoutMs, undefined);
+  assert.equal(d.tokenBudget, 120_000);
+  assert.equal(d.maxTurns, 12);
+  process.env.SUBAGENT_TIME_BUDGET_DISABLE = "true";
+  assert.equal(roleAwareDefaults({}, "writer").timeoutMs, undefined);
+  assert.equal(roleAwareDefaults({}, "writer").tokenBudget, 400_000);
+  // disable wins over overrides/multiplier too (token-family precedence)
+  process.env.SUBAGENT_TIME_BUDGET_RECON = "600000";
+  process.env.SUBAGENT_TIME_BUDGET_MULTIPLIER = "2";
+  assert.equal(roleAwareDefaults({}, "recon").timeoutMs, undefined);
+});
+
+test("time env knobs: TIME disable is NOT the whole-envelope disable (token disable still strips all)", () => {
+  process.env.SUBAGENT_TIME_BUDGET_DISABLE = "1";
+  const timeOnly = roleAwareDefaults({}, "recon");
+  assert.equal(timeOnly.applied, true);
+  process.env.SUBAGENT_TOKEN_BUDGET_DISABLE = "1";
+  assert.equal(roleAwareDefaults({}, "recon").applied, false, "token disable still strips everything");
+});
+
+test("time env knobs: invalid values are silently ignored", () => {
+  for (const bad of ["abc", "0", "-2", "1.5", ""]) {
+    process.env.SUBAGENT_TIME_BUDGET_RECON = bad;
+    assert.equal(roleAwareDefaults({}, "recon").timeoutMs, 300_000);
+  }
+  for (const bad of ["abc", "0", "-2", ""]) {
+    process.env.SUBAGENT_TIME_BUDGET_MULTIPLIER = bad;
+    assert.equal(roleAwareDefaults({}, "recon").timeoutMs, 300_000);
+  }
+  process.env.SUBAGENT_TIME_BUDGET_DISABLE = "yes";
+  assert.equal(roleAwareDefaults({}, "recon").timeoutMs, 300_000);
+});
+
+test("time env knobs: explicit params still opt the whole envelope out regardless of env", () => {
+  process.env.SUBAGENT_TIME_BUDGET_RECON = "600000";
+  const d = roleAwareDefaults({ timeoutMs: 1_000 }, "recon");
+  assert.equal(d.applied, false);
+  assert.equal(d.timeoutMs, undefined);
+  assert.equal(roleAwareDefaults({ maxTurns: 3 }, "recon").applied, false);
+});
+
+test("time env knobs: persistent dispatches stay inert (no time default by design)", () => {
+  process.env.SUBAGENT_TIME_BUDGET_RECON = "600000";
+  const d = roleAwareDefaults({}, "recon", 1_200_000, { persistent: true });
+  assert.equal(d.timeoutMs, undefined, "live-agent lifetime default applies no turn/timeout cap");
+});
+
+test("roleAwareDirectCall: the env-shaped wall travels to the direct-call seam", () => {
+  process.env.SUBAGENT_TIME_BUDGET_RECON = "600000";
+  const r = roleAwareDirectCall("recon", "T", "id-t");
+  assert.equal(r.timeoutMs, 600_000);
+  assert.equal(r.budgetCohort?.timeoutMs, 600_000, "cohort tag carries the env-shaped wall");
+  process.env.SUBAGENT_TIME_BUDGET_DISABLE = "1";
+  const stripped = roleAwareDirectCall("writer", "T", "id-t");
+  assert.equal(stripped.timeoutMs, undefined);
+  assert.equal(stripped.tokenBudget, 400_000, "direct-call token cap survives the time-only strip");
 });
 
 // cc-parity-2 ticket 05 / F2 — persistent (named live-agent) dispatches: the
