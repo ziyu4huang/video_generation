@@ -2,7 +2,7 @@
 effort: 2026-08-25-archify-webui-decouple
 created: 2026-08-25
 last: 2026-08-25
-status: active
+status: complete
 ---
 # archify-webui-decouple — ext-webui out of the static/deploy extension set; archify↔webui contract made explicit
 
@@ -74,9 +74,19 @@ Single mechanical move — no ticket decomposition. One PR:
 
 ## Frontier
 
-The single PR: registry flip + regen + docs + gates (archify / webui / s2-agent
-canonical gates, schema-cost canary, local_ci, deploy + verify-deploy-e2e with webui
-still deploy-excluded and E2E unchanged green).
+cleared — PR #2007 merged CLEAN 2026-08-25 (mergeSha 19d2fea0, branch swept).
+
+Both fog items resolved at execution: `regen:static` output dropped the webui
+import + factory row (no generator surgery needed beyond deleting the dead
+`ROW_COMMENTS.webui` key); no test pins webui's presence in `staticExtensions[]`
+(`manifest-consistency.test.ts` green through the regen). Gates: s2-agent 1064 /
+archify 720 / webui 627 tests 0 fail; schema-cost canary measured webui as before
+(dynamic entries stay registered); local_ci pass 68.8s ≤ 300s budget; deploy +
+verify-deploy-e2e pass on the new dist (boot/ext-load/tools-probe/model-call/
+vision-call/file2md-ocr all pass; tool-gate-fire skip = not in deploy set).
+
+Carry: s2-agent version NOT bumped through #2007 (still 0.7.10, merge-tool
+advisory) — fold the bump into the next s2-agent PR (round-2 simplify).
 
 ## Fog of war
 
