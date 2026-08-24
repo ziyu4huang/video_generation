@@ -21,3 +21,32 @@ Rules:
 ## Done-when
 
 Package gates green; boot-smoke byte-identical; takeFlag/hasFlag/flag/has/num definitions deleted; per-flag regression test lands; audit table attached to this ticket.
+
+## Audit table (2026-08-24, branch s2-agent-simplify-t04-flag-spec)
+
+| Command | Flag | flag-spec group | ParsedArgs field | Semantics |
+|---|---|---|---|---|
+| tools-metrics | `--since` | META_VALUE | `since` | preserved (space + `=` form; raw string, `parseBoundary` unchanged) |
+| tools-metrics | `--until` | META_VALUE | `until` | preserved (idem) |
+| tools-metrics | `--cwd` | META_VALUE | `cwdSubstr` | preserved |
+| tools-metrics | `--tool` | META_VALUE | `toolFilter` | preserved (raw csv string; command splits) |
+| tools-metrics | `--top` | META_NUM (`min:1`) | `top` | preserved via parseNumericFlag (old parseTop also threw on non-positive/non-integer; message text differs) |
+| tools-metrics | `--details` | META_BOOL | `details` | preserved (`--details=x` degenerate form no longer counts as true — unobservable in practice) |
+| tools-metrics | `--schema-cost` | META_BOOL | `schemaCost` | preserved |
+| tools-metrics | `--ext` | META_VALUE | `ext` | preserved (space + `=` form) |
+| tools-metrics / agent-trends | `--sessions-dir` | META_VALUE | `sessionsDir` | preserved; agent-trends gains `--flag=value` form (old `flag()` was indexOf-only) |
+| tools-metrics / agent-trends | `--json` | ZK_QUERY_BOOL (existing row, comment updated) | `json` | unchanged — both already read `parsed.json` |
+| agent-trends | `--all` | META_BOOL | `all` | preserved |
+| agent-trends | `--window` | META_NUM (`min:1`) | `window` | default-fallback when absent preserved (`?? DEFAULT_WINDOW`); CHANGED: invalid/non-positive input now fails fast instead of silently using the default (old `num()` swallowed it) |
+| agent-trends | `--min-events` | META_NUM (`min:1`) | `minEvents` | idem |
+| agent-trends | `--delta` | META_NUM (`min:1`, `integer:false`) | `delta` | idem (fractional pp still accepted) |
+| doctor | `--json` | ZK_QUERY_BOOL (existing) | `json` | preserved — bare-token presence, identical to old `rest.includes("--json")` |
+| doctor | `--fix` | ZK_QUERY_BOOL (existing, comment updated) | `fix` | preserved — identical to old `rest.includes("--fix")` |
+
+Census `(parsed as any).` re-grep across bun-apps (excl. node_modules, excl. tests): exactly one hit, the known
+`s2-agent-ext-web-access/extensions/cli-subcommand.ts:87` (`save`) — no new readers; all new fields are typed on
+`ParsedArgs`, none renamed.
+
+Known unobservable deltas: repeated same flag → flag-spec keeps the LAST occurrence (takeFlag returned the FIRST);
+`--flag=value` spellings of migrated booleans no longer match (old hasFlag matched the `=` prefix form). Neither form
+appears in any script/test in the repo.

@@ -349,21 +349,6 @@ export function formatJson(report: MetricsReport, opts: FormatOpts = {}): string
 
 // --- arg helpers -------------------------------------------------------------
 
-/** Read a `--flag <value>` (or `--flag=<value>`) from a raw argv slice. */
-function takeFlag(rest: string[], name: string): string | undefined {
-	for (let i = 0; i < rest.length; i++) {
-		const a = rest[i];
-		if (a === name) return rest[i + 1];
-		if (a?.startsWith(name + "=")) return a.slice(name.length + 1);
-	}
-	return undefined;
-}
-
-/** True if a boolean `--flag` is present in a raw argv slice. */
-function hasFlag(rest: string[], name: string): boolean {
-	return rest.some((a) => a === name || a.startsWith(name + "="));
-}
-
 /**
  * Parse a --since / --until boundary.
  *   "2026-06-01"        → that date, 00:00:00 (since) / 23:59:59 (until) local
@@ -424,11 +409,9 @@ Examples:
   s2-agent cli tools-metrics --schema-cost
   s2-agent cli tools-metrics --schema-cost --json > schema-cost-baseline.json`,
 	async run(parsed: ParsedArgs): Promise<void> {
-		const rest = parsed.rest;
-
 		// --- schema-cost mode (no session scan) ---
-		if (hasFlag(rest, "--schema-cost")) {
-			const extRaw = takeFlag(rest, "--ext");
+		if (parsed.schemaCost) {
+			const extRaw = parsed.ext;
 			const entries = extRaw
 				? extRaw.split(",").map((s) => s.trim()).filter(Boolean).map((p) => {
 					const source = p.replace(/\.ts$/, "").split("/").pop() ?? p;
@@ -444,18 +427,17 @@ Examples:
 			return;
 		}
 
-		const since = parseBoundary(takeFlag(rest, "--since"), "start");
-		const until = parseBoundary(takeFlag(rest, "--until"), "end");
-		const cwdSubstr = takeFlag(rest, "--cwd");
-		const toolRaw = takeFlag(rest, "--tool");
+		const since = parseBoundary(parsed.since, "start");
+		const until = parseBoundary(parsed.until, "end");
+		const cwdSubstr = parsed.cwdSubstr;
+		const toolRaw = parsed.toolFilter;
 		const toolFilter = toolRaw
 			? toolRaw.split(",").map((s) => s.trim()).filter(Boolean)
 			: [];
-		const topRaw = takeFlag(rest, "--top");
-		const top = topRaw !== undefined ? parseTop(topRaw) : undefined;
-		const details = hasFlag(rest, "--details") || parsed.verbose >= 1;
+		const top = parsed.top;
+		const details = parsed.details || parsed.verbose >= 1;
 		const sessionsDir =
-			takeFlag(rest, "--sessions-dir") ?? resolveSessionsDir(process.env);
+			parsed.sessionsDir ?? resolveSessionsDir(process.env);
 
 		const files = listSessionFiles(sessionsDir);
 		const scans: SessionScan[] = [];
@@ -479,12 +461,3 @@ Examples:
 		}
 	},
 };
-
-/** Parse --top: positive integer. */
-function parseTop(raw: string): number {
-	const n = Number(raw);
-	if (!Number.isInteger(n) || n <= 0) {
-		throw new Error(`Invalid --top "${raw}" — expected a positive integer (e.g. 20).`);
-	}
-	return n;
-}

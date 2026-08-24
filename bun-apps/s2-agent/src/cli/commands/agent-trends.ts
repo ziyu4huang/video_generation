@@ -164,26 +164,14 @@ Examples:
   s2-agent cli agent-trends
   s2-agent cli agent-trends --window 100 --json`,
 	async run(parsed: ParsedArgs): Promise<void> {
-		const rest = parsed.rest;
-		const flag = (name: string): string | undefined => {
-			const i = rest.indexOf(name);
-			return i >= 0 ? rest[i + 1] : undefined;
-		};
-		const has = (name: string): boolean => rest.includes(name);
-		const num = (name: string, dflt: number): number => {
-			const v = flag(name);
-			const n = v !== undefined ? Number(v) : Number.NaN;
-			return Number.isFinite(n) && n > 0 ? n : dflt;
-		};
-
 		const home = homedir();
-		const sessionsDir = flag("--sessions-dir") ?? resolveSessionsDir(process.env);
+		const sessionsDir = parsed.sessionsDir ?? resolveSessionsDir(process.env);
 		const windows = loadContextWindows(home);
 
 		const cwd = process.cwd();
 		const roots = listWorktrees(cwd);
 		const scope = roots.length ? buildScope(roots[0]!, roots) : buildScope(cwd, [cwd]);
-		const scanAll = has("--all");
+		const scanAll = parsed.all === true;
 
 		const rows: SessionResult[] = [];
 		let unmeasurable = 0;
@@ -212,9 +200,9 @@ Examples:
 		}
 
 		const report = aggregate(rows, {
-			windowSize: num("--window", DEFAULT_WINDOW),
-			minEvents: num("--min-events", DEFAULT_MIN_EVENTS),
-			deltaPct: num("--delta", DEFAULT_DELTA_PCT),
+			windowSize: parsed.window ?? DEFAULT_WINDOW,
+			minEvents: parsed.minEvents ?? DEFAULT_MIN_EVENTS,
+			deltaPct: parsed.delta ?? DEFAULT_DELTA_PCT,
 		});
 
 		if (parsed.json || parsed.mode === "json") {

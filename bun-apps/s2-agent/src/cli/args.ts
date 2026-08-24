@@ -118,6 +118,32 @@ export interface ParsedArgs {
 	phase?: string;
 	/** dispatch-log: outcome filter (green|red|budget-dead|skipped) */
 	outcome?: string;
+	/** tools-metrics: only sessions starting on/after (YYYY-MM-DD or ISO) */
+	since?: string;
+	/** tools-metrics: only sessions starting on/before (YYYY-MM-DD or ISO) */
+	until?: string;
+	/** tools-metrics: only sessions whose cwd contains this substring (case-insensitive) */
+	cwdSubstr?: string;
+	/** tools-metrics: tool-name substring filter (csv; empty = all) */
+	toolFilter?: string;
+	/** tools-metrics: show at most N tools (sorted by calls desc) */
+	top?: number;
+	/** tools-metrics: add p95/max/mean latency columns */
+	details?: boolean;
+	/** tools-metrics: schema-cost estimation mode (no session scan) */
+	schemaCost?: boolean;
+	/** tools-metrics --schema-cost: override extension entry points (csv of .ts paths) */
+	ext?: string;
+	/** tools-metrics / agent-trends: override the sessions root */
+	sessionsDir?: string;
+	/** agent-trends: scan every project, not just this repo and its worktrees */
+	all?: boolean;
+	/** agent-trends: sessions per comparison window (default 200) */
+	window?: number;
+	/** agent-trends: baseline occurrences required for a verdict (default 10) */
+	minEvents?: number;
+	/** agent-trends: floor on the percentage-point move counting as a change (default 10) */
+	delta?: number;
 	/** zk-card: bypass duplicate/backlink safety checks */
 	force?: boolean;
 	/** zk-card add: read content from file instead of inline text */
