@@ -75,6 +75,28 @@ Section rules: the five `##` headings above, EXACT spelling, EXACT order.
 `Done when` needs ≥1 unchecked `- [ ]` box (all-checked = a closed record —
 write the successor instead). `Ranked next goals` needs 3–5 numbered entries.
 
+### Focus scope (ranked-list discipline)
+
+The 3–5 ranked entries are a FOCUS queue, not a general backlog. A successor
+that pads its ranked list with goals outside the active focus scope turns the
+next "hands on" into a diversion — the executor dutifully executes the head,
+and the head is off-mission work. Rules:
+
+- **The successor inherits the predecessor's focus scope** unless the user
+  re-scopes it (e.g. names an extension family, effort, or package set). State
+  the scope as one line under the title (e.g. `Focus: hermes-memory /
+  knowledge-card / obsidian / file2md`) so the next reader sees the fence.
+- **Every ranked entry must be in scope.** Pad toward the 3-entry minimum with
+  in-scope dormant items — trigger-gated re-checks, measured-receipt gaps,
+  standing flakes inside the scope — not with out-of-scope goals.
+- **Out-of-scope items appear ONLY when they block in-scope work** (e.g. a
+  broken reviewer pool blocks every code ticket's D14 gate), and the entry
+  says it blocks what.
+- **When the in-scope queue is truly empty**, the successor's head is an
+  explicit wait-state ("awaiting <trigger>") — never an invented out-of-scope
+  goal. The loop's purpose ends with its scope; other work gets its own
+  effort, not a smuggled ranked entry.
+
 ## WRITE (on close-out)
 
 0. **Push before you write.** A hands-off NEVER leaves uncommitted or
@@ -228,3 +250,4 @@ stale pointer executes the wrong goal. The symlink lives in gitignored
 | Executing the queue head from a stale tree | Step 1: sync-default-branch-cli `--mode rebase` first; detached HEAD → verify `HEAD..origin/main` is 0 before proceeding |
 | New session invents a fresh goal when a queue head exists | Boundary discipline: the successor's `Immediate steps` name the NEXT ticket of the effort's chosen `Execution order` — never an unlinked goal while the queue holds tickets |
 | The loop never ends (every successor invents new work) | Queue-drain termination: empty queue → successor head = effort close-out (map status: complete), the loop STOPS |
+| Padding the ranked list with out-of-scope goals | Focus-scope rule above: rank in-scope only; dormant re-checks pad the minimum; out-of-scope only when it BLOCKS in-scope work |
