@@ -19,6 +19,10 @@ import {
 	parseHermesStartupRoundTrips,
 	ONESHOT_RUNTIME_BUDGET_MS,
 	HERMES_STARTUP_ROUNDTRIP_CAP,
+	normalizeVisionReply,
+	visionErrorIsProviderDown,
+	VISION_FIXTURE_NEEDLE,
+	type VisionAskOutcome,
 } from "../src/deploy-e2e-recipe.js";
 import { parseVerifyDeployE2eArgs, runVerifyDeployE2eCli } from "../src/verify-deploy-e2e-cli.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
@@ -41,6 +45,13 @@ function makeTree(opts: { extensions?: string[]; launcher?: boolean; deployJson?
 				config: { extensions: (opts.extensions ?? ["task", "wayfind"]).map((name) => ({ name, enabled: true })) },
 			}),
 	);
+	// The vision-call and file2md-ocr probes read ext/file2md/ext.json when the
+	// deploy set includes file2md — the fixture only needs the JSON to parse.
+	const exts = opts.extensions ?? ["task", "wayfind"];
+	if (exts.includes("file2md")) {
+		mkdirSync(join(versionDir, "ext", "file2md"), { recursive: true });
+		writeFileSync(join(versionDir, "ext", "file2md", "ext.json"), JSON.stringify({ hostModules: [] }));
+	}
 	// Re-created per test — remove the previous round's link first (EEXIST).
 	rmSync(join(root, "current"), { force: true });
 	symlinkSync(VERSION, join(root, "current"), "dir");
@@ -156,13 +167,17 @@ describe("runDeployE2e", () => {
 			"ext-load",
 			"tools-probe",
 			"model-call",
+			"vision-call",
 			"file2md-ocr",
 			"tool-gate-fire",
 		]);
 		expect(r.probes.find((p) => p.id === "file2md-ocr")?.verdict).toBe("skip"); // not in this tree's deploy set
+		expect(r.probes.find((p) => p.id === "vision-call")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(r.probes.find((p) => p.id === "tool-gate-fire")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(
-			r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire").every((p) => p.verdict === "pass"),
+			r.probes
+				.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "vision-call")
+				.every((p) => p.verdict === "pass"),
 		).toBe(true);
 	});
 
@@ -485,6 +500,162 @@ describe("model-call regression budgets", () => {
 		const mc = r.probes.find((p) => p.id === "model-call")!;
 		expect(mc.verdict).toBe("fail");
 		expect(mc.note).toContain("240 HTTP round-trips");
+	});
+});
+
+// ── vision-call probe (the #1981 follow-up — default vision lane health) ────
+// The probe's contract: only a model that SAW the fixture image can produce
+// its text; a silent text-model fallback (the measured broken-lane signature)
+// must FAIL, provider-down must SKIP.
+const visionAsk = (r: Partial<VisionAskOutcome>): ((p: string) => Promise<VisionAskOutcome>) =>
+	async (imagePath: string) => {
+		// The seam must receive the fixture the recipe wrote.
+		if (!imagePath.endsWith("vision-e2e.png")) throw new Error(`unexpected fixture path: ${imagePath}`);
+		return { ok: true, reply: "", ...r };
+	};
+
+describe("vision-call probe", () => {
+	const F2MD = ["task", "wayfind", "file2md"];
+	// fakeSpawn's default --ext-list payload is ["task","wayfind"] — a file2md
+	// deploy set needs the loaded list to match or ext-load fails first.
+	const f2mdSpawn = () => fakeSpawn({ extList: { loaded: F2MD } });
+
+	// NOTE on these tests: the unit fixture tree carries ext/file2md/ext.json
+	// but NO real ext.cjs bundle, so the file2md-ocr probe fails artifactually
+	// on every F2MD tree — assertions here target the vision-call probe's OWN
+	// verdict (and the other probes' pass/skip mix), not the overall verdict.
+
+	test("a reply containing the fixture text passes and names the lane evidence", async () => {
+		makeTree({ extensions: F2MD });
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: f2mdSpawn(),
+			visionAsk: visionAsk({ ok: true, reply: 'The text is "FILE2MD E2E OCR".' }),
+		});
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("pass");
+		expect(vc.note).toContain(VISION_FIXTURE_NEEDLE);
+		expect(vc.note).toContain("fixture image");
+		// every probe EXCEPT the bundle-less ocr artifact passes
+		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire").every((p) => p.verdict === "pass")).toBe(true);
+	});
+
+	test("a reply WITHOUT the fixture text fails — the image was not processed", async () => {
+		makeTree({ extensions: F2MD });
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: f2mdSpawn(),
+			visionAsk: visionAsk({ ok: true, reply: "I cannot see any image in this conversation." }),
+		});
+		expect(r.verdict).toBe("fail");
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("fail");
+		expect(vc.note).toContain("did NOT read the image");
+	});
+
+	test("empty output fails citing the text-model fallback signature (the #1981 class)", async () => {
+		makeTree({ extensions: F2MD });
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: f2mdSpawn(),
+			visionAsk: visionAsk({ ok: false, reply: "", error: "Subagent produced no assistant output" }),
+		});
+		expect(r.verdict).toBe("fail");
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("fail");
+		expect(vc.note).toContain("text-model fallback");
+	});
+
+	test("a provider-down error is a SKIP that degrades the verdict, never a fail", async () => {
+		makeTree({ extensions: F2MD });
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: f2mdSpawn(),
+			visionAsk: visionAsk({ ok: false, reply: "", error: "fetch failed: connection refused" }),
+		});
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("skip");
+		expect(vc.note).toContain("provider down");
+		// an OUTCOME-driven skip degrades the overall verdict (worst() includes
+		// it) — the only fail on this tree is the bundle-less ocr artifact
+		expect(r.verdict).toBe("fail"); // ocr artifact fail outranks the skip
+		expect(r.probes.filter((p) => p.id !== "file2md-ocr").every((p) => p.verdict !== "fail")).toBe(true);
+	});
+
+	test("a deadline breach is a SKIP naming the abandonment (injectable cap)", async () => {
+		makeTree({ extensions: F2MD });
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: f2mdSpawn(),
+			visionCallCapMs: 5,
+			visionAsk: () => new Promise<VisionAskOutcome>(() => {}), // never resolves
+		});
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("skip");
+		expect(vc.note).toContain("exceeded");
+		expect(vc.note).toContain("abandoned");
+	});
+
+	test("a refusal phrased like connectivity is NOT provider-down (narrow regex)", async () => {
+		makeTree({ extensions: F2MD });
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: f2mdSpawn(),
+			visionAsk: visionAsk({ ok: false, reply: "", error: "I am not configured to see images" }),
+		});
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("fail");
+	});
+
+	test("--skip-model-call skips the vision probe without degrading the verdict", async () => {
+		makeTree({ extensions: F2MD });
+		let asked = false;
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: f2mdSpawn(),
+			skipModelCall: true,
+			visionAsk: async (p) => {
+				asked = true;
+				return visionAsk({})(p);
+			},
+		});
+		expect(asked).toBe(false);
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("skip");
+		expect(vc.note).toContain("skipped by caller");
+		// model-call is skip-by-caller too; nothing may FAIL outside the ocr artifact
+		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire").every((p) => p.verdict !== "fail")).toBe(true);
+	});
+
+	test("an unreadable ext.json is a structured fail, never a throw", async () => {
+		makeTree({ extensions: F2MD });
+		writeFileSync(join(versionDir, "ext", "file2md", "ext.json"), "{");
+		const r = await runDeployE2e({ versionDir, spawn: f2mdSpawn(), visionAsk: visionAsk({ reply: "x" }) });
+		expect(r.verdict).toBe("fail");
+		const vc = r.probes.find((p) => p.id === "vision-call")!;
+		expect(vc.verdict).toBe("fail");
+		expect(vc.note).toContain("execution failed");
+	});
+
+	// Hermeticity contract (no test): the recipe's DEFAULT visionAsk seam hits
+	// the network (s2-agent patch set + a real model call) — every unit test
+	// here injects; the default is exercised only by live CLI runs against a
+	// real deploy root.
+});
+
+describe("vision pure helpers", () => {
+	test("normalizeVisionReply collapses case/whitespace/quotes so needle matching is robust", () => {
+		expect(normalizeVisionReply('  "File2md   E2E  OCR!"  ')).toContain(VISION_FIXTURE_NEEDLE);
+		expect(normalizeVisionReply("file2md e2e ocr")).toBe(VISION_FIXTURE_NEEDLE);
+	});
+	test("visionErrorIsProviderDown matches provider smells, not model failures", () => {
+		expect(visionErrorIsProviderDown("fetch failed: connection refused")).toBe(true);
+		expect(visionErrorIsProviderDown("request timed out after 30000ms")).toBe(true);
+		expect(visionErrorIsProviderDown("401 unauthorized")).toBe(true);
+		expect(visionErrorIsProviderDown("Subagent produced no assistant output")).toBe(false);
+		expect(visionErrorIsProviderDown("model not found in the provided modelRuntime")).toBe(false);
+		// narrow by design: a refusal phrased like connectivity must FAIL, not skip
+		expect(visionErrorIsProviderDown("I am not configured to see images")).toBe(false);
 	});
 });
 

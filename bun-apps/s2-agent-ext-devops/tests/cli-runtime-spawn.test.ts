@@ -111,6 +111,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 			"ext-load:pass",
 			"tools-probe:pass",
 			"model-call:pass",
+			"vision-call:skip",
 			"file2md-ocr:skip",
 			"tool-gate-fire:skip",
 		]);

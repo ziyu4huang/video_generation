@@ -40,6 +40,20 @@
  *                  startup round-trips under HERMES_STARTUP_ROUNDTRIP_CAP
  *                  (150; parsed from the slow-startup stderr banner, measured
  *                  103–114 dirty-vault / 26 clean).
+ *   vision-call    executes the DEPLOYED file2md bundle's `vision_ask` tool on
+ *                  a fixture image whose large text is known ("FILE2MD E2E
+ *                  OCR") and asserts the DEFAULT vision lane
+ *                  (capabilities.vision → model-tiers.json) actually processes
+ *                  the image: the reply must contain text that is only knowable
+ *                  by looking at the picture. This is the #1981 follow-up —
+ *                  the default vision lane moved to bonsai-27b:off with the
+ *                  lane's end-to-end health explicitly unverified, and the
+ *                  failure mode is SILENT: an unresolvable lane falls back to a
+ *                  text model that returns nothing for an image (measured
+ *                  2026-08-24: "Subagent produced no assistant output" in
+ *                  0.3s). A provider-down smell is a SKIP (same contract as
+ *                  model-call); a wrong/empty answer is a FAIL. Skipped when
+ *                  file2md is not in the deploy set or --skip-model-call.
  *   file2md-ocr    executes the DEPLOYED file2md bundle's OCR on a fixture —
  *                  no model; proves the shipped wasm/lang assets resolve.
  *   tool-gate-fire executes the DEPLOYED tool-gate bundle's matcher on a
@@ -61,7 +75,7 @@
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { executeExtTool } from "./deploy/lib/ext-build.js";
 import { runToolGateFireProbe } from "./tool-gate-fire-probe.js";
 import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
@@ -116,6 +130,105 @@ export const ONESHOT_RUNTIME_BUDGET_MS = 35_000;
 export const HERMES_STARTUP_ROUNDTRIP_CAP = 150;
 
 /**
+ * vision-call CAP (ms). The real path is patches (~2s) + one vision inference
+ * through the deployed bundle; measured 2026-08-24 on this machine against
+ * deployed 0.7.2: full vision_ask round trip 34.2s cold (bonsai-27b:off, image
+ * + answer "FILE2MD E2E OCR"), with the model itself answering image asks in
+ * 3.4–3.8s warm. 120s = contention headroom, same posture as MODEL_CALL_CAP.
+ */
+export const VISION_CALL_CAP_MS = 120_000;
+
+/**
+ * The pass assertion for the vision-call probe: the fixture image's large text
+ * (uppercase, whitespace-collapsed). A model that never saw the image cannot
+ * produce this string — that is the whole point of the probe.
+ */
+export const VISION_FIXTURE_NEEDLE = "FILE2MD E2E OCR";
+
+/** The question handed to the deployed bundle's vision_ask tool. */
+export const VISION_ASK_QUESTION =
+	"What is the large bold text in this image? Reply with the exact text only, nothing else.";
+
+/**
+ * The vision-call probe's injectable seam (DeployE2eOptions.visionAsk). The
+ * default implementation runs the DEPLOYED file2md bundle for real (patches +
+ * network); unit tests inject fakes and never touch either.
+ */
+export interface VisionAskOutcome {
+	ok: boolean;
+	/** The model's reply (already extracted from the tool result). */
+	reply: string;
+	error?: string;
+}
+
+/** Provider-down smells that downgrade the vision probe to SKIP (never fail). */
+export function visionErrorIsProviderDown(error: string): boolean {
+	// Deliberately NARROW: this regex also sees free-form model/tool reply
+	// text, and a loose pattern (an earlier draft carried "not configured")
+	// could SKIP a genuine lane failure phrased like a refusal. Only transport
+	// / auth smells belong here.
+	return /connection refused|econnrefused|fetch failed|timed out|timeout|etimedout|401|403|no api key|econnreset/i.test(
+		error,
+	);
+}
+
+/**
+ * Read an ext.json and merge its module-allowlist arrays (hostModules +
+ * vendored + runtimeExternals) — the surface evaluateExtTool accepts. Shared
+ * by the vision-call, file2md-ocr, and tool-gate-fire probes.
+ */
+export function readExtHostModules(extJsonPath: string): string[] {
+	const extJson = JSON.parse(readFileSync(extJsonPath, "utf8")) as {
+		hostModules?: string[];
+		vendored?: string[];
+		runtimeExternals?: string[];
+	};
+	return [...(extJson.hostModules ?? []), ...(extJson.vendored ?? []), ...(extJson.runtimeExternals ?? [])];
+}
+
+/** Normalize a VLM reply for the needle assertion (case + whitespace + quotes). */
+export function normalizeVisionReply(reply: string): string {
+	return reply
+		.toUpperCase()
+		.replace(/[“”"'`]/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+}
+
+/**
+ * Run the deployed file2md bundle's vision_ask tool on one image — the DEFAULT
+ * visionAsk seam. In-process (no launcher spawn): evaluates the deployed
+ * ext.cjs the same way the runtime loader does and executes the tool, which
+ * internally resolves capabilities.vision → model-tiers.json → a real model
+ * call with the image attached. The s2-agent patch set must be applied first —
+ * without it the runtime model registrations (bonsai-27b) are invisible to the
+ * registry and the lane silently falls back to a text model (measured
+ * 2026-08-24: "requested model … unavailable" → empty output). Patches rewrite
+ * process.argv; callers must capture their own argv before this runs.
+ */
+export async function runDeployedVisionAsk(
+	ctx: { versionDir: string; hostModules: readonly string[] },
+	imagePath: string,
+): Promise<VisionAskOutcome> {
+	const patchesPath = resolve(import.meta.dir, "..", "..", "s2-agent", "src", "patches", "index.ts");
+	const { applyPatches } = (await import(patchesPath)) as { applyPatches: () => Promise<unknown[]> };
+	await applyPatches();
+	const r = (await executeExtTool(join(ctx.versionDir, "ext", "file2md", "ext.cjs"), "vision_ask", {
+		image: imagePath,
+		question: VISION_ASK_QUESTION,
+	}, ctx.hostModules)) as {
+		isError?: boolean;
+		content?: Array<{ type: string; text?: string }>;
+		details?: { reply?: string; error?: string };
+	};
+	const reply = r.content?.map((c) => c.text ?? "").join("\n").trim() ?? "";
+	if (r.isError || !reply) {
+		return { ok: false, reply, error: r.details?.error ?? reply ?? "vision_ask returned no text" };
+	}
+	return { ok: true, reply };
+}
+
+/**
  * Parse hermes-memory startup round-trip counts out of a probe's captured
  * stderr. Pure. Returns the MAX round-trip count across `slow startup.*`
  * banner lines (the extension prints one line per breaching op), or null
@@ -141,7 +254,7 @@ export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
 export interface DeployE2eProbe {
-	id: "boot" | "ext-load" | "tools-probe" | "model-call" | "file2md-ocr" | "tool-gate-fire";
+	id: "boot" | "ext-load" | "tools-probe" | "model-call" | "vision-call" | "file2md-ocr" | "tool-gate-fire";
 	verdict: ProbeVerdict;
 	ms: number;
 	note: string;
@@ -251,10 +364,22 @@ export interface DeployE2eOptions {
 	modelEndpoint?: string | null;
 	/** Injectable fetch for the precheck (default: global fetch). Just the surface used. */
 	fetchImpl?: ModelsFetch;
+	/**
+	 * Injectable vision-call seam. Default: runDeployedVisionAsk — the real
+	 * deployed-bundle vision_ask (applies the s2-agent patch set + places a
+	 * REAL model call). Unit tests inject fakes; a tree without file2md in its
+	 * deploy set skips the probe and never reaches this seam.
+	 */
+	visionAsk?: (imagePath: string) => Promise<VisionAskOutcome>;
+	/**
+	 * Injectable vision-call deadline (default VISION_CALL_CAP_MS). Exists so
+	 * unit tests can exercise the timeout path without waiting 120s.
+	 */
+	visionCallCapMs?: number;
 }
 
 /**
- * Run the three probes against one deployed version dir. Never throws — every
+ * Run the probes against one deployed version dir. Never throws — every
  * failure (missing tree, unreadable deploy.json, probe fail) is a structured
  * FAIL outcome so callers can JSON-serialize it blindly.
  */
@@ -414,6 +539,9 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	// ── model-call probe ────────────────────────────────────────────────────
 	const warnings: string[] = [];
 	let modelCallSkippedByCaller = false;
+	// Set when the vision probe was excluded by environment, not by outcome —
+	// not-applicable skips must not degrade the overall verdict (see worst()).
+	let visionSkippedNotApplicable = false;
 	if (opts.skipModelCall) {
 		// Recorded as a skip probe for the report, but NOT allowed to degrade
 		// the overall verdict — the caller asked for two probes, two probes ran.
@@ -492,6 +620,81 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		});
 	}
 
+	// ── vision-call probe ────────────────────────────────────────────────────
+	// The default vision lane's health is otherwise INVISIBLE to this recipe:
+	// model-call proves a TEXT round-trip only, and a broken lane fails
+	// silently (unresolvable capability → text-model fallback → empty output
+	// for an image, measured 2026-08-24). Only an image whose content is
+	// knowable solely by SEEING it proves the lane processes images. Skipped
+	// with the same contract as model-call when the caller opts out.
+	if (!enabled.includes("file2md")) {
+		visionSkippedNotApplicable = true;
+		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "file2md not in deploy set" });
+	} else if (modelCallSkippedByCaller) {
+		visionSkippedNotApplicable = true;
+		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call)" });
+	} else {
+		const t0 = now();
+		const workDir = mkdtempSync(join(tmpdir(), "vision-e2e-"));
+		let vVerdict: ProbeVerdict = "fail";
+		let vNote = "";
+		let vDetail: string | undefined;
+		try {
+			const fixturePath = join(workDir, "vision-e2e.png");
+			writeFileSync(fixturePath, Buffer.from(F2MD_E2E_OCR_B64, "base64"));
+			const hostModules = readExtHostModules(join(opts.versionDir, "ext", "file2md", "ext.json"));
+			const ask =
+				opts.visionAsk ?? ((imagePath: string) => runDeployedVisionAsk({ versionDir: opts.versionDir, hostModules }, imagePath));
+			// In-process work has no spawn timeout — race a deadline instead.
+			// A breach is a SKIP (slow generation under contention is as likely
+			// as a wedge; same posture as the model-call timeout). The losing
+			// side is abandoned, not canceled: the timer is cleared when ask()
+			// wins, and a late rejection from a timed-out ask() is swallowed so
+			// it can never surface as an unhandled rejection in a host process.
+			const capMs = opts.visionCallCapMs ?? VISION_CALL_CAP_MS;
+			let timedOut = false;
+			let raceTimer: ReturnType<typeof setTimeout> | undefined;
+			const r = await Promise.race([
+				ask(fixturePath).catch((e: unknown): VisionAskOutcome => {
+					if (timedOut) return { ok: false, reply: "", error: e instanceof Error ? e.message : String(e) };
+					throw e;
+				}),
+				new Promise<VisionAskOutcome>((res) => {
+					raceTimer = setTimeout(() => {
+						timedOut = true;
+						res({ ok: false, reply: "", error: `vision_ask exceeded ${Math.round(capMs / 1000)}s` });
+					}, capMs);
+				}),
+			]);
+			if (!timedOut && raceTimer !== undefined) clearTimeout(raceTimer);
+			if (timedOut) {
+				vVerdict = "skip";
+				vNote = `vision_ask exceeded ${Math.round(capMs / 1000)}s — SLOW generation under model contention is as likely as a wedge (the ask is abandoned; the fixture dir below may already be gone)`;
+			} else if (r.ok && normalizeVisionReply(r.reply).includes(VISION_FIXTURE_NEEDLE)) {
+				vVerdict = "pass";
+				vNote = `default vision lane read the fixture image ("${VISION_FIXTURE_NEEDLE}") — reply: ${r.reply.slice(0, 120)}`;
+			} else if (!r.ok && r.error !== undefined && visionErrorIsProviderDown(r.error)) {
+				vVerdict = "skip";
+				vNote = `provider down — ${r.error.slice(0, 200)}`;
+			} else {
+				vNote = !r.ok
+					? `default vision lane failed on an image ask — ${r.error?.slice(0, 200) ?? "unknown error"} (an empty/no-output result is the measured signature of a silent text-model fallback: the image never reached a vision model)`
+					: `default vision lane answered but did NOT read the image — reply lacked "${VISION_FIXTURE_NEEDLE}": ${normalizeVisionReply(r.reply).slice(0, 200)}`;
+				vDetail = `reply: ${r.reply.slice(0, 500)}${r.error ? `\nerror: ${r.error.slice(0, 500)}` : ""}`;
+			}
+		} catch (e) {
+			vNote = `execution failed: ${e instanceof Error ? e.message : String(e)}`;
+			vDetail = vNote;
+		} finally {
+			try {
+				rmSync(workDir, { recursive: true, force: true });
+			} catch {
+				/* */
+			}
+		}
+		probes.push({ id: "vision-call", verdict: vVerdict, ms: now() - t0, note: vNote, detail: vDetail });
+	}
+
 	// ── file2md-ocr probe ───────────────────────────────────────────────────
 	// A REAL OCR run through the DEPLOYED bundle and the deployed vendored
 	// assets — no model, no agent loop (executeExtTool evaluates ext.cjs with
@@ -510,18 +713,11 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		const outDir = join(workDir, "out");
 		try {
 			writeFileSync(fixturePath, Buffer.from(F2MD_E2E_OCR_B64, "base64"));
-			const extJson = JSON.parse(
-				readFileSync(join(opts.versionDir, "ext", "file2md", "ext.json"), "utf8"),
-			) as {
-				hostModules?: string[];
-				vendored?: string[];
-				runtimeExternals?: string[];
-			};
 			await executeExtTool(
 				join(opts.versionDir, "ext", "file2md", "ext.cjs"),
 				"file2md",
 				{ input: fixturePath, out: outDir, mode: "ocr", lang: "en" },
-				[...(extJson.hostModules ?? []), ...(extJson.vendored ?? []), ...(extJson.runtimeExternals ?? [])],
+				readExtHostModules(join(opts.versionDir, "ext", "file2md", "ext.json")),
 			);
 			const pageMd = readFileSync(join(outDir, "f2md-e2e", "pages", "page-001.md"), "utf8");
 			if (pageMd.includes("FILE2MD E2E OCR") && pageMd.includes("provenance: ocr")) {
@@ -555,16 +751,9 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		let tgDetail: string | undefined;
 		let tgVerdict: ProbeVerdict = "fail";
 		try {
-			const extJson = JSON.parse(
-				readFileSync(join(opts.versionDir, "ext", "tool-gate", "ext.json"), "utf8"),
-			) as {
-				hostModules?: string[];
-				vendored?: string[];
-				runtimeExternals?: string[];
-			};
 			const r = await runToolGateFireProbe(
 				join(opts.versionDir, "ext", "tool-gate", "ext.cjs"),
-				[...(extJson.hostModules ?? []), ...(extJson.vendored ?? []), ...(extJson.runtimeExternals ?? [])],
+				readExtHostModules(join(opts.versionDir, "ext", "tool-gate", "ext.json")),
 			);
 			tgVerdict = r.ok ? "pass" : "fail";
 			tgNote = r.ok ? "deployed matcher gates + fires (offline, no model)" : r.note;
@@ -580,6 +769,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		probes
 			.filter((p) => {
 				if (modelCallSkippedByCaller && p.id === "model-call") return false;
+				if (visionSkippedNotApplicable && p.id === "vision-call") return false;
 				// Not-applicable skips are inconclusive, not a degraded verdict.
 				if (p.id === "file2md-ocr" && p.verdict === "skip") return false;
 				if (p.id === "tool-gate-fire" && p.verdict === "skip") return false;
