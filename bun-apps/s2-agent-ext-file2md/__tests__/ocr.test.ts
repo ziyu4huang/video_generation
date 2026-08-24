@@ -1,7 +1,7 @@
 /**
  * ocr.test.ts — pure parts of the OCR module (dims parsing, lang mapping);
- * the real tesseract worker is exercised by the spike + manual smoke, not by
- * unit tests (worker init is ~300ms and lang-data-bound — deterministic here).
+ * the real tesseract engine (wasm + npm lang data) is exercised by
+ * ocr-engine.test.ts, not here.
  */
 import { describe, expect, test } from "bun:test";
 import { imageDims, normalizeOcrLang } from "../src/ocr/ocr.ts";

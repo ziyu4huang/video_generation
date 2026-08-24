@@ -13,10 +13,10 @@ export function bgraToRgba(bgra: Uint8Array, width: number, height: number): Uin
   for (let i = 0; i < width * height; i++) {
     const s = i * 4;
     const d = i * 4;
-    out[d] = bgra[s + 2]!; // R
-    out[d + 1] = bgra[s + 1]!; // G
-    out[d + 2] = bgra[s]!; // B
-    out[d + 3] = bgra[s + 3]!; // A
+    out[d] = bgra[s + 2] ?? 0; // R
+    out[d + 1] = bgra[s + 1] ?? 0; // G
+    out[d + 2] = bgra[s] ?? 0; // B
+    out[d + 3] = bgra[s + 3] ?? 0; // A
   }
   return out;
 }
@@ -37,9 +37,9 @@ export function bmpToRgba(bmp: Uint8Array, width: number, height: number): Uint8
     for (let x = 0; x < width; x++) {
       const s = srcRow + x * 3;
       const d = dstRow + x * 4;
-      out[d] = bmp[s + 2]!; // R
-      out[d + 1] = bmp[s + 1]!; // G
-      out[d + 2] = bmp[s]!; // B
+      out[d] = bmp[s + 2] ?? 0; // R
+      out[d + 1] = bmp[s + 1] ?? 0; // G
+      out[d + 2] = bmp[s] ?? 0; // B
       out[d + 3] = 255; // BMP has no alpha
     }
   }

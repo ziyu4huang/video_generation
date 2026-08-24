@@ -24,9 +24,10 @@ s2-agent cli file2md ./spec.pdf --extract smart --scale 3
 ## Pipeline (mode-selectable)
 
 Everything is text-first: `auto` (default) extracts the text layer and runs
-vendored tesseract-wasm OCR only on pages that have no usable text layer
-(scans). OCR happens offline (eng + chi_sim language data is bundled). No
-macOS toolchain, no native npm binaries, no LM Studio requirement.
+tesseract-wasm OCR only on pages that have no usable text layer (scans). OCR
+happens offline (eng + chi_sim language data ships as npm deps,
+`@tesseract.js-data/*`). No macOS toolchain, no native npm binaries, no LM
+Studio requirement.
 
 | mode | behavior |
 | --- | --- |

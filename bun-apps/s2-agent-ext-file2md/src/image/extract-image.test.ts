@@ -70,7 +70,7 @@ describe("extractImageCard", () => {
     });
     assert.equal(r.degraded, true);
     assert.equal(r.warnings.length, 1);
-    assert.match(r.warnings[0]!, /vision-LLM unavailable/);
+    assert.match(r.warnings[0] ?? "", /vision-LLM unavailable/);
     assert.match(r.markdown, /extractor: vision-ocr$/m);
     assert.ok(!r.markdown.includes("Vision:"), "no Vision block when degraded");
     assert.match(r.markdown, /OCR:\nHELLO 123/);
@@ -101,7 +101,7 @@ describe("extractImageCard", () => {
       now: () => "2026-08-14",
     });
     assert.equal(r.degraded, true);
-    assert.match(r.warnings[0]!, /OCR unavailable/);
+    assert.match(r.warnings[0] ?? "", /OCR unavailable/);
     assert.match(r.markdown, /Vision:\nA white image\./);
   });
 

@@ -46,6 +46,45 @@ afterEach(() => {
 	for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true });
 });
 
+describe("extRequire.resolve", () => {
+	test("resolves <pkg>/package.json and the vendored entry from the ext dir", () => {
+		const dir = makeRoot();
+		mkdirSync(join(dir, "node_modules", "tess-pkg", "dist"), { recursive: true });
+		writeFileSync(
+			join(dir, "node_modules", "tess-pkg", "package.json"),
+			JSON.stringify({ name: "tess-pkg", main: "./dist/lib.js" }),
+		);
+		writeFileSync(join(dir, "node_modules", "tess-pkg", "dist", "lib.js"), "module.exports = {}");
+		const req = extRequire(dir, () => {
+			throw new Error("host require must not be consulted for resolve");
+		});
+		expect(req.resolve("tess-pkg/package.json")).toBe(join(dir, "node_modules", "tess-pkg", "package.json"));
+		expect(req.resolve("tess-pkg")).toBe(join(dir, "node_modules", "tess-pkg", "dist", "lib.js"));
+	});
+
+	test("scoped packages resolve their own node_modules dir", () => {
+		const dir = makeRoot();
+		mkdirSync(join(dir, "node_modules", "@tess", "data"), { recursive: true });
+		writeFileSync(
+			join(dir, "node_modules", "@tess", "data", "package.json"),
+			JSON.stringify({ name: "@tess/data", main: "index.js" }),
+		);
+		const req = extRequire(dir, () => {
+			throw new Error("host require must not be consulted for resolve");
+		});
+		expect(req.resolve("@tess/data/package.json")).toBe(join(dir, "node_modules", "@tess", "data", "package.json"));
+	});
+
+	test("builtin specifiers and unknown packages behave like require.resolve", () => {
+		const dir = makeRoot();
+		const req = extRequire(dir, () => {
+			throw new Error("host require must not be consulted for resolve");
+		});
+		expect(req.resolve("node:fs")).toBe("node:fs");
+		expect(() => req.resolve("not-there/package.json")).toThrow();
+	});
+});
+
 describe("loadExtensions", () => {
 	test("returns nothing when the ext root does not exist", () => {
 		const r = loadExtensions({ extRoot: join(makeRoot(), "absent"), host: HOST, require: () => ({}) });

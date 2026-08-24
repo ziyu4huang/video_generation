@@ -74,9 +74,12 @@ export interface LoadOptions {
  * throws, so a vendored copy can never shadow the shared runtime and split a
  * singleton.
  */
-export function extRequire(dir: string, hostRequire: (spec: string) => unknown): (spec: string) => unknown {
+/** extRequire's require — carries a resolve member mirroring require.resolve. */
+export type ExtRequire = ((spec: string) => unknown) & { resolve(spec: string): string };
+
+export function extRequire(dir: string, hostRequire: (spec: string) => unknown): ExtRequire {
 	let local: NodeJS.Require | null = null;
-	return (spec: string): unknown => {
+	const fn = (spec: string): unknown => {
 		try {
 			return hostRequire(spec);
 		} catch (hostError) {
@@ -97,6 +100,30 @@ export function extRequire(dir: string, hostRequire: (spec: string) => unknown):
 			}
 		}
 	};
+	// The bundle's `require.resolve` (evaluateExtModule's wrapper require
+	// delegates here) — e.g. file2md's wasm/lang-data locators call
+	// require.resolve("<pkg>/package.json"). Mirror the deploy probe's resolve
+	// (ext-build.ts) but walk the real filesystem for vendored packages: inside
+	// a compiled binary createRequire/Bun.resolveSync cannot resolve packages
+	// from the deploy dir (the MEASUREMENT at the top of this function).
+	fn.resolve = (spec: string): string => {
+		if (isBuiltinSpecifier(spec)) {
+			local ??= createRequire(join(dir, "package.json"));
+			return local.resolve(spec);
+		}
+		if (spec.endsWith("/package.json")) {
+			// Locators take dirname() of the result, so return the package.json
+			// file itself for "<pkg>/package.json" specifiers.
+			const pkgRoot = packageRootOf(spec.slice(0, -"/package.json".length));
+			const pkgJsonPath = join(dir, "node_modules", pkgRoot, "package.json");
+			if (existsSync(pkgJsonPath)) return pkgJsonPath;
+		} else {
+			const entry = resolveVendoredEntryFile(spec, dir);
+			if (entry !== null) return entry;
+		}
+		throw new Error(`cannot resolve "${spec}" from the extension dir`);
+	};
+	return fn;
 }
 
 /** "@scope/name/sub" → "@scope/name"; "pkg/sub" → "pkg". */

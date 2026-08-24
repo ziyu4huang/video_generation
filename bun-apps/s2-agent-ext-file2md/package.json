@@ -59,6 +59,8 @@
     "@hyzyla/pdfium": "^2.1.13",
     "@repo/s2-agent-core-interface": "workspace:*",
     "@repo/s2-agent-core-runtime": "workspace:*",
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
     "exceljs": "^4.4.0",
     "jpeg-js": "^0.4.4",
     "jszip": "^3.10.1",
