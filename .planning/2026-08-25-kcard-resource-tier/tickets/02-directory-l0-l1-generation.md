@@ -29,7 +29,8 @@ Does one LLM call per directory (inputs = child abstracts + child-dir L0s, botto
 Implemented in `bun-apps/s2-agent-ext-knowledge-card/src/resource-tiers.ts` (new) +
 `src/resource-index.ts` (sidecar → level-0/1 rows, fingerprint gains sidecar hashes,
 schema salt `v2-l0l1`) + `s2-agent cli resource-ingest` (tier pass default-on,
-`--no-tiers`, dry-run tier plan). PR #2023.
+`--no-tiers`, dry-run tier plan). PR #2026 (two commits: implementation +
+reviewer fold).
 
 **Design deltas vs the ticket text** (all recorded reasons):
 - The L1 call is markdown-out, not JSON — `chatJson` with a lenient identity parse;
@@ -71,3 +72,25 @@ schema salt `v2-l0l1`) + `s2-agent cli resource-ingest` (tier pass default-on,
   row shape, chain-only refresh, wide-dir pending accumulation 0.025→pending /
   0.125→refresh, planOnly purity, L0 clamp, sampling determinism, prompt shape,
   phantom-refresh regression). kcard canonical `bun run test` 654/0.
+
+**Independent reviewer pass (D14): first round FAIL, 3 reproduced findings —
+all folded in the second commit, re-review PASS.**
+- F1 (blocker): `collectDirTree` had no EACCES guard — one unreadable subdir
+  crashed the ENTIRE resource-ingest (regression of the ticket-01 degrade
+  contract, since the tier pass runs before the L2 rebuild). → guarded,
+  degrade-to-absent (walkTree precedent).
+- F2 (major): a torn/missing `.abstract.md` with a healthy overview +
+  baseline never healed → permanent silent loss of that dir's L0/L1 rows. →
+  deterministic zero-LLM heal (rewrite from the overview) + `hasBaseline`
+  requires BOTH sidecars so a failed heal falls through to regeneration.
+- F3 (major): the pending counter double-counted (carry + re-diff of the same
+  changes) — repeated NO-OP re-ingests of a wide dir with one lingering
+  below-ratio change eventually burned an LLM call on nothing. → pending =
+  DISTINCT children changed since last generation (the generation-time map
+  diff already accumulates).
+- m4–m7 (folded): planOnly populates child L0s from existing sidecars;
+  failed child dirs hash a stable empty placeholder (no phantom ancestor
+  refresh on flaky-LLM retries); emptied dirs' stale sidecars no longer
+  index; concurrency posture (no locks, last-writer-wins) documented.
+- Post-fold gates: 21 tier tests (4 reviewer regressions), kcard 658/0, tsc
+  clean; reviewer re-ran its adversarial repros — PASS.
