@@ -59,12 +59,14 @@ Phase 2 — authoring-flow tooling
 **Execution order:** 20 (single ticket, fully forced — closed 2026-08-24)
 
 Phase 3 — richer templates
-- `tickets/30-ir-slot-in-templates.md` — task, **open** — `ir`-capable drawing primitive in layout templates + 2–3 new rich templates
+- `tickets/30-ir-slot-in-templates.md` — task, **closed** — `ir` slot as a first-class template binding + 3 new rich templates (decision / timeline-with-diagram / figure; PR #1950)
 
-**Execution order:** 30 (single ticket, fully forced; design-first)
+**Execution order:** 30 (single ticket, fully forced — closed 2026-08-24)
 
 Phase 4 — quality fidelity sweep
 - `tickets/40-quality-sweep.md` — task, **open** — re-run the visual-fidelity gates against the library + benchmark deck
+
+**Execution order:** 40 (single ticket, fully forced; design-first)
 
 ## Decisions
 
@@ -98,11 +100,12 @@ Phase 4 — quality fidelity sweep
 
 ## Frontier
 
-`tickets/30-ir-slot-in-templates.md` — the `ir`-capable drawing primitive in layout
-templates + 2–3 new rich templates. First because its phase-1/2 blockers (10/11, 20 — the
-library + converter whose output the slot consumes) are closed, and it is the riskiest
-remaining work (both emitters + the D3 byte-identity lock), so it gets its own design pass
-first (spec.md §7.2) — same as phase 2: design → to-tickets → execute.
+`tickets/40-quality-sweep.md` — the phase-4 quality/fidelity sweep. First because
+phases 1–3 (library, converter, ir-slot templates) are done and its subject — the library
+deck + the benchmark `aspice4-chip-v5`, incl. the harvest-tier visual review the earlier
+sessions deferred — is ready; design-first as usual: scope the
+`archify-deck-visual-fidelity` measured checks (title band wrap, takeaway placement) to
+re-run, then to-tickets → execute.
 
 ## Fog of war
 
