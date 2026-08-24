@@ -68,6 +68,8 @@ export async function askImage(
     modelRuntime?: ModelRuntime;
     /** Treat a completed but empty reply as `ok:false` (see runVisionInference). */
     emptyIsError?: boolean;
+    /** Cancel lever threaded to runVisionInference (#1948). */
+    signal?: AbortSignal;
   } = {},
 ): Promise<AskImageResult> {
   const llm = opts.llm ?? resolveVisionLLM();
@@ -82,6 +84,7 @@ export async function askImage(
     ...(opts.agentDir ? { agentDir: opts.agentDir } : {}),
     ...(opts.modelRuntime ? { modelRuntime: opts.modelRuntime } : {}),
     ...(opts.emptyIsError ? { emptyIsError: true } : {}),
+    ...(opts.signal ? { signal: opts.signal } : {}),
   });
 
   return ok ? { reply: output, ok: true } : { reply: "", ok: false, ...(empty ? { empty: true } : {}), error };

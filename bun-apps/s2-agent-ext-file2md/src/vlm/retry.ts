@@ -46,6 +46,10 @@ export interface RetryOptions {
   retryWaitMs?: number;
   /** Optional logger for retry notices. */
   onRetry?: (info: { attempt: number; maxRetries: number; waitMs: number; error: unknown }) => void;
+  /** Caller's cancel lever (e.g. a pipeline-level AbortSignal). An aborted
+   *  signal NEVER retries — the caller has given up, so even a retryable-looking
+   *  error (an aborted fetch can surface as "fetch failed") fails fast. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -65,7 +69,7 @@ export async function withRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (!isRetryableError(err) || attempt === maxRetries) throw err;
+      if (opts.signal?.aborted || !isRetryableError(err) || attempt === maxRetries) throw err;
       opts.onRetry?.({ attempt: attempt + 1, maxRetries, waitMs: retryWaitMs, error: err });
       await sleep(retryWaitMs);
     }

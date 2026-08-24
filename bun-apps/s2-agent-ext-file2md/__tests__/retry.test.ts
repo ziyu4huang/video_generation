@@ -140,3 +140,47 @@ describe("withRetry", () => {
     expect(attempts).toEqual([1, 2]);
   });
 });
+
+describe("withRetry — abort signal (#1948)", () => {
+  test("aborted signal fails fast on an otherwise-retryable error", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    let calls = 0;
+    await expect(
+      withRetry(
+        async () => {
+          calls++;
+          throw new Error("fetch failed"); // retryable-looking, but caller gave up
+        },
+        { maxRetries: 3, retryWaitMs: 0, signal: ac.signal },
+      ),
+    ).rejects.toThrow("fetch failed");
+    expect(calls).toBe(1); // no retries after abort
+  });
+
+  test("aborting mid-retry-wait stops the ladder (no further attempts)", async () => {
+    const ac = new AbortController();
+    let calls = 0;
+    await expect(
+      withRetry(
+        async () => {
+          calls++;
+          if (calls === 1) {
+            // abort WHILE the first attempt is in flight — the next catch sees aborted
+            ac.abort();
+            throw new Error("503 service unavailable");
+          }
+          throw new Error("fetch failed");
+        },
+        { maxRetries: 3, retryWaitMs: 0, signal: ac.signal },
+      ),
+    ).rejects.toThrow("503 service unavailable");
+    expect(calls).toBe(1);
+  });
+
+  test("live signal does not affect a successful call", async () => {
+    const ac = new AbortController();
+    const r = await withRetry(async () => "ok", { signal: ac.signal });
+    expect(r).toBe("ok");
+  });
+});

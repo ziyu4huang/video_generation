@@ -81,6 +81,11 @@ export interface File2mdPipelineOptions {
   concurrency?: number;
   /** Optional NDJSON emit (json mode). */
   emit?: (obj: unknown) => void;
+  /** Cancel lever for the vision lane (#1948): threaded to every VLM call's
+   *  spawnSubagent externalSignal + withRetry fail-fast. A caller whose test
+   *  timed out (or CLI user who gave up) aborts in-flight model calls instead
+   *  of leaving them under their own 5-min fuse holding sockets open. */
+  signal?: AbortSignal;
 }
 
 /** Provenance of a page's text in the rendered markdown. */

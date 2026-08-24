@@ -75,6 +75,7 @@ const { captionFigurePdf, mixedProseFigurePdf, prosePdf, scannedPdf, textPdf } =
 const { FIGURE_HINT } = await import("../src/vlm/agents.ts");
 
 let tmp: string;
+let abort: AbortController;
 beforeEach(async () => {
   tmp = await mkdtemp(join(tmpdir(), "file2md-smart-test-"));
   calls.raster = 0;
@@ -88,8 +89,12 @@ beforeEach(async () => {
   visionReply.ok = true;
   visionReply.output = "A diagram of the adaptive equalization chain.";
   visionReply.error = "";
+  abort = new AbortController();
 });
 afterEach(async () => {
+  // #1948: kill any in-flight vision call a timed-out test left behind (see
+  // pipeline-v2.test.ts afterEach).
+  abort.abort();
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -111,7 +116,13 @@ describe("smart — text-page ladder", () => {
   test("caption-only-figure page flags + skip notice + manifest record + doc_done (no server)", async () => {
     const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
     const emitted: unknown[] = [];
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", emit: (o) => emitted.push(o) });
+    await runFile2mdPipeline({
+      inputs: [pdf],
+      outRoot: tmp,
+      mode: "smart",
+      signal: abort.signal,
+      emit: (o) => emitted.push(o),
+    });
     // Ladder order: a text figure page must never rasterize in ticket 01
     // (no enhancement to run) and a usable text page never OCRs.
     expect(calls.raster).toBe(0);
@@ -127,7 +138,7 @@ describe("smart — text-page ladder", () => {
 
   test("prose page with an inline Figure mention is NOT flagged and never rasterizes", async () => {
     const pdf = await writeFixture("prose.pdf", await prosePdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(calls.raster).toBe(0);
     expect(calls.ocr).toBe(0);
     const md = readFileSync(join(tmp, "prose", "pages", "page-001.md"), "utf8");
@@ -140,7 +151,7 @@ describe("smart — text-page ladder", () => {
 
   test("usable text page without a caption stays untouched in smart mode", async () => {
     const pdf = await writeFixture("paper.pdf", await textPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(calls.raster).toBe(0);
     const md = readFileSync(join(tmp, "paper", "pages", "page-001.md"), "utf8");
     expect(md).toContain("Hello from file2md v2");
@@ -153,7 +164,7 @@ describe("smart — scan-page ladder", () => {
   test("thin page OCRs exactly as ocr mode when OCR output exceeds the band", async () => {
     ocrState.text = "SIMPLE OCR LINE ".repeat(20); // 340 chars > 200
     const pdf = await writeFixture("scan.pdf", await scannedPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(calls.raster).toBe(1);
     expect(calls.ocr).toBe(1);
     const md = readFileSync(join(tmp, "scan", "pages", "page-001.md"), "utf8");
@@ -167,7 +178,7 @@ describe("smart — scan-page ladder", () => {
   test("short labels-only OCR flags the scan page as a figure", async () => {
     ocrState.text = "OCR TEXT 42"; // 12 chars ≤ 200
     const pdf = await writeFixture("scan.pdf", await scannedPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(calls.raster).toBe(1);
     expect(calls.ocr).toBe(1);
     const md = readFileSync(join(tmp, "scan", "pages", "page-001.md"), "utf8");
@@ -183,7 +194,7 @@ describe("smart — vision enhancement on figure pages (ticket 02)", () => {
   test("text figure page + vision: figureHint variant, description appended, manifest enhanced", async () => {
     visionState.available = true;
     const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     // Enhancement runs: exactly one raster, one vision call carrying the hint.
     expect(visionCalls.calls).toBe(1);
     expect(visionCalls.lastTask).toContain(FIGURE_HINT);
@@ -209,7 +220,7 @@ describe("smart — vision enhancement on figure pages (ticket 02)", () => {
     visionState.available = true;
     ocrState.text = "FIG 5-1. EYE DIAGRAM"; // 21 chars ≤ 200 band
     const pdf = await writeFixture("scan.pdf", await scannedPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(calls.raster).toBe(1); // OCR's raster is reused for enhancement — once
     expect(calls.ocr).toBe(1);
     expect(visionCalls.calls).toBe(1);
@@ -229,7 +240,7 @@ describe("smart — vision enhancement on figure pages (ticket 02)", () => {
     visionState.available = true;
     ocrState.text = "SIMPLE OCR LINE ".repeat(20); // 340 chars > 200
     const pdf = await writeFixture("scan.pdf", await scannedPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(visionCalls.calls).toBe(0);
     const md = readFileSync(join(tmp, "scan", "pages", "page-001.md"), "utf8");
     expect(md).toContain(ocrState.text);
@@ -242,7 +253,7 @@ describe("smart — vision enhancement on figure pages (ticket 02)", () => {
     visionReply.ok = false;
     visionReply.error = "vision model completed with no output text (possible reasoning/token-budget truncation)";
     const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     // ok:false is a RETURN, not a throw → withRetry no-ops → exactly one call.
     expect(visionCalls.calls).toBe(1);
     expect(calls.raster).toBe(1); // the attempt still rasterized exactly once
@@ -262,7 +273,7 @@ describe("smart — vision enhancement on figure pages (ticket 02)", () => {
     visionState.available = true;
     const prose = await writeFixture("prose.pdf", await prosePdf());
     const paper = await writeFixture("paper.pdf", await textPdf());
-    await runFile2mdPipeline({ inputs: [prose, paper], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [prose, paper], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(visionCalls.calls).toBe(0);
     expect(calls.raster).toBe(0);
     expect(calls.ocr).toBe(0);
@@ -272,7 +283,7 @@ describe("smart — vision enhancement on figure pages (ticket 02)", () => {
     // visionState.available = false (beforeEach default): the mock leaf throws
     // → smart catches → llm stays undefined; pages flag + notice, never fail.
     const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(visionCalls.calls).toBe(0);
     const md = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
     expect(md).toContain(FIGURE_SKIP_NOTICE);
@@ -286,14 +297,14 @@ describe("smart — resume + --pages interaction (ticket 03)", () => {
   test("resume: an enhanced page is never re-rasterized or re-described", async () => {
     visionState.available = true;
     const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(visionCalls.calls).toBe(1);
     expect(calls.raster).toBe(1);
     const before = readFileSync(join(tmp, "fig", "pages", "page-001.md"), "utf8");
 
     // Second run over the same output: the done page is skipped wholesale —
     // no re-raster, no re-OCR, no second vision call (call-counter assertions).
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(calls.raster).toBe(1);
     expect(calls.ocr).toBe(0);
     expect(visionCalls.calls).toBe(1);
@@ -308,13 +319,13 @@ describe("smart — resume + --pages interaction (ticket 03)", () => {
   test("resume: a flag-only page (no server) is not retroactively enhanced when a server appears later", async () => {
     const pdf = await writeFixture("fig.pdf", await captionFigurePdf());
     // Pass 1: no vision server → flagged, not enhanced.
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(visionCalls.calls).toBe(0);
     let manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));
     expect(manifest.pages[0].figure).toEqual({ detected: true, enhanced: false });
     // Pass 2: server now available — but the page is DONE; resume must not redo it.
     visionState.available = true;
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "smart", signal: abort.signal });
     expect(visionCalls.calls).toBe(0);
     expect(calls.raster).toBe(0);
     manifest = JSON.parse(readFileSync(join(tmp, "fig", "manifest.json"), "utf8"));

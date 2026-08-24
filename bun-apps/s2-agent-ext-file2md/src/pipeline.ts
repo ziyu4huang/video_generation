@@ -183,6 +183,7 @@ export async function runFile2mdPipeline(opts: File2mdPipelineOptions): Promise<
       caps,
       displayPath,
       emit,
+      signal: opts.signal,
     });
   }
 }
@@ -214,6 +215,8 @@ interface RunDocumentArgs {
   caps: File2mdCaps;
   displayPath: (abs: string) => string;
   emit?: (obj: unknown) => void;
+  /** Caller's cancel lever for the vision lane (#1948) — see File2mdPipelineOptions.signal. */
+  signal?: AbortSignal;
 }
 
 async function runDocument(args: RunDocumentArgs): Promise<void> {
@@ -267,7 +270,7 @@ async function runPdf(args: RunDocumentArgs, _layout: DocLayout, slug: string): 
 
     let profile: DocProfile = forcedType ?? "paper";
     if (mode === "vlm" && !forcedType && args.llm) {
-      profile = await classifyPdfProfile(bytes, pageCount, args.llm, scale);
+      profile = await classifyPdfProfile(bytes, pageCount, args.llm, scale, args.signal);
       console.error(`  profile: ${profile} (vlm classify)`);
     }
     manifest.profile = profile;
@@ -327,6 +330,7 @@ async function classifyPdfProfile(
   _pageCount: number,
   llm: ResolvedLLM,
   scale: number,
+  signal?: AbortSignal,
 ): Promise<DocProfile> {
   try {
     const rendered = await rasterPage(bytes, 1, scale);
@@ -335,7 +339,10 @@ async function classifyPdfProfile(
     const tmp = joinTempPng(1);
     writeFileSync(tmp, png);
     try {
-      const { profile } = await withRetry(() => classifyProfileFromPages([{ path: tmp, mimeType: "image/png" }], llm));
+      const { profile } = await withRetry(
+        () => classifyProfileFromPages([{ path: tmp, mimeType: "image/png" }], llm, signal),
+        { signal },
+      );
       return profile;
     } finally {
       await safeUnlink(tmp);
@@ -393,17 +400,24 @@ async function extractPdfPage(
     const pngOut = joinTempPng(pageNo);
     writeFileSync(pngOut, pngBytes);
     try {
-      const explained = await withRetry(() =>
-        explainPage(args.llm!, profile, {
-          imageAbs: pngOut,
-          mimeType: "image/png",
-          pngLinkName: `${pageLabel(pageNo, pageCount)}.png`,
-          docSlug: slug,
-          pageNo,
-          pageCount,
-          lang: args.lang,
-          mode: note as ExplainMode,
-        }),
+      const explained = await withRetry(
+        () =>
+          explainPage(
+            args.llm!,
+            profile,
+            {
+              imageAbs: pngOut,
+              mimeType: "image/png",
+              pngLinkName: `${pageLabel(pageNo, pageCount)}.png`,
+              docSlug: slug,
+              pageNo,
+              pageCount,
+              lang: args.lang,
+              mode: note as ExplainMode,
+            },
+            args.signal,
+          ),
+        { signal: args.signal },
       );
       const validated = validatePageMarkdown(explained.markdown, { page: pageNo, kind: "page" });
       if (explained.ok && validated.ok) {
@@ -481,18 +495,25 @@ async function enhanceFigure(
     // Mirrors the vlm degrade shape (withRetry + same rejection logs). The
     // #1913 guard returns ok:false rather than throwing, so a rejected output
     // is exactly ONE call — no retry storm on a deterministic no-text outcome.
-    const explained = await withRetry(() =>
-      explainPage(llm, profile, {
-        imageAbs: pngOut,
-        mimeType: "image/png",
-        pngLinkName: `${pageLabel(pageNo, pageCount)}.png`,
-        docSlug: slug,
-        pageNo,
-        pageCount,
-        lang: args.lang,
-        mode: args.note as ExplainMode,
-        figure: true,
-      }),
+    const explained = await withRetry(
+      () =>
+        explainPage(
+          llm,
+          profile,
+          {
+            imageAbs: pngOut,
+            mimeType: "image/png",
+            pngLinkName: `${pageLabel(pageNo, pageCount)}.png`,
+            docSlug: slug,
+            pageNo,
+            pageCount,
+            lang: args.lang,
+            mode: args.note as ExplainMode,
+            figure: true,
+          },
+          args.signal,
+        ),
+      { signal: args.signal },
     );
     const description = explained.markdown.trim();
     if (explained.ok && description !== "") {
@@ -541,7 +562,7 @@ async function runImage(args: RunDocumentArgs, layout: DocLayout, slug: string):
   let body = "";
   let provenance: PageRecord["provenance"] = "ocr";
   if (mode === "vlm" && args.llm) {
-    const desc = await askImageDescribe(inputAbs);
+    const desc = await askImageDescribe(inputAbs, args.signal);
     if (desc.ok && desc.description) {
       body = desc.description;
       provenance = "vision";

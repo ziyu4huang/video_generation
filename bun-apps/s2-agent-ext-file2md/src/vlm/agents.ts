@@ -293,6 +293,7 @@ export async function explainPage(
     /** Smart-mode figure-describe variant (ticket 02): figureHint + description-only output. */
     figure?: boolean;
   },
+  signal?: AbortSignal,
 ): Promise<ExplainResult> {
   const image = readImageContent(page.imageAbs, page.mimeType);
   const userMsg = pageUserMessage({
@@ -310,6 +311,7 @@ export async function explainPage(
     llm,
     systemPrompt: systemPromptFor(profile, { lang: page.lang, mode: page.mode, figure: page.figure }),
     emptyIsError: true,
+    ...(signal ? { signal } : {}),
   });
 
   return ok
