@@ -73,8 +73,7 @@ self-verify runs the real registration path against the built artifact.
 
 ## Deploy note
 
-The extension is **excluded from the portable s2-agent-sh deploy** (registry
-`excludeReason`: vendored OCR assets + optional local vision layer — scope
-policy; see `bun-apps/s2-agent/docs/deploy.md` "Limits"). The package structure
-is deploy-ready: a future flip only needs `deploy:` block fields + asset copy
-entries.
+The extension **ships in the portable s2-agent-sh deploy** (registry entry
+`file2md`, order 85 — vendored OCR assets via `copy:`/`vendor:`). Deploy
+membership and its reasons live in `bun-apps/s2-agent/s2-agent.registry.yaml`,
+the sole source of truth.

@@ -212,12 +212,13 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		);
 		const names = payload(r, "[SKILLS]") as unknown as string[];
 		// The full-profile deploy ships skills from their owning extensions:
-		// btw -> ext-btw, webui-audit -> ext-webui, playwright-cli stays with
-		// power-tool (the #1724 re-homing), plus the superpowers / wayfind /
-		// hermes-memory / web-access / hyperframes families. Spot-check one
-		// known skill per owner rather than pinning counts — the #1713 lesson:
-		// hardcoded totals go stale the moment a family grows.
-		const expected = ["btw", "playwright-cli", "webui-audit", "using-superpowers", "devops-workflow"];
+		// btw -> ext-btw, playwright-cli stays with power-tool (the #1724
+		// re-homing), plus the superpowers / wayfind / hermes-memory families.
+		// web-access + webui went deploy-excluded 2026-08-24, so webui-audit
+		// (the webui ext's skill) no longer reaches the deployed prompt.
+		// Spot-check one known skill per owner rather than pinning counts —
+		// the #1713 lesson: hardcoded totals go stale the moment a family grows.
+		const expected = ["btw", "playwright-cli", "using-superpowers", "devops-workflow"];
 		expect(names.length, `skills: ${names.join(" ")}`).toBeGreaterThan(0);
 		for (const skill of expected) {
 			expect(names, `skill '${skill}' must reach the system prompt`).toContain(skill);
@@ -414,14 +415,10 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		expect(code).toContain('require("playwright-core")');
 	}, 30_000);
 
-	test("unpdf ships vendored for web-access — its import.meta.resolve syntax cannot live in a cjs bundle", async () => {
-		const vendored = join(target, "ext", "web-access", "node_modules", "unpdf");
-		expect(existsSync(join(vendored, "package.json"))).toBe(true);
-		const code = readFileSync(join(target, "ext", "web-access", "ext.cjs"), "utf8");
-		// `import.meta` (any form) is a SyntaxError inside the loader's indirect
-		// cjs eval — the ESM-only construct must stay inside the vendored module.
-		expect(code).not.toContain("import.meta");
-	}, 30_000);
+	// web-access went deploy-excluded 2026-08-24 — its unpdf-vendoring test
+	// ("import.meta.resolve cannot live in a cjs bundle") left with it. The
+	// vendor mechanics it locked are still covered by power-tool's
+	// playwright-core test above; re-add a web-access variant if it ships again.
 
 	// Ported from the deleted src/__tests__/e2e-readonly.test.ts, which asserted
 	// this for the bundle and snapshot modes. The contract is not mode-specific:

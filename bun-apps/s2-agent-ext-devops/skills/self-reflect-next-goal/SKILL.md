@@ -77,6 +77,17 @@ write the successor instead). `Ranked next goals` needs 3–5 numbered entries.
 
 ## WRITE (on close-out)
 
+0. **Push before you write.** A hands-off NEVER leaves uncommitted or
+   unpushed work behind — the successor's Immediate steps must never be "commit
+   my changes" (that is exactly the carry a close-out silently drops when the
+   tree is swept or a sibling session clobbers it). Before writing the file:
+   the working tree is clean, and every change this session made is committed
+   on a feature branch and PUSHED to origin (PR opened when the arc produced
+   reviewable changes — full merge via the devops chain if its gates already
+   ran green). If a gate blocks the push, surface that blocker to the user and
+   stop — do not write a successor that defers the push. The only acceptable
+   unpushed state is a deliberately work-in-progress WIP branch the user asked
+   to park, and then the successor's `## Honest gaps` names it by branch.
 1. `ts=$(date +%Y%m%d-%H%M%S)` — local time, seconds precision for uniqueness.
    The filename pattern is EXACTLY `next-goal-YYYYMMDD-HHMMSS.md` — no
    underscores, no ISO `T`/timezone suffixes, no fabricated timestamps. It is
@@ -211,6 +222,7 @@ stale pointer executes the wrong goal. The symlink lives in gitignored
 | Off-pattern filename (`_` separator, ISO timestamp, made-up time) | Only `next-goal-YYYYMMDD-HHMMSS.md` from real `date` output sorts correctly |
 | Date-only `created:` | Must carry the time too — `YYYY-MM-DD HH:MM:SS` from the same `ts` as the filename; the date alone cannot order same-day handoffs |
 | Writing the file but not repointing `LATEST-next-goal.md` | Step 5 of WRITE — a stale pointer hands the next session the WRONG goal |
+| Hands-off with uncommitted/unpushed work ("the successor will commit it") | Step 0 of WRITE — push FIRST; a successor whose head is "commit my changes" drops the carry the moment the tree is swept |
 | Skipping the validator/doctor | Steps 3 and 6 of WRITE — exit 0 or fix; never hand off an unvalidated file |
 | "Hands on" treated as "plan the goal" | It means EXECUTE through the done-when gate |
 | Executing the queue head from a stale tree | Step 1: sync-default-branch-cli `--mode rebase` first; detached HEAD → verify `HEAD..origin/main` is 0 before proceeding |
