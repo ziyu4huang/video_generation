@@ -89,12 +89,17 @@ const LOAD_PROBE_SKIP: Record<string, string> = {
 /**
  * Exempt from invariant (3): a package whose factory registers NOTHING by
  * design has no registration to gate, and adding a `BUN_PI_*` knob that
- * disables nothing would be a lie the guard then certifies. hyperframes is a
- * skills-only carrier — its payload is wired through deploy-config's `skills:`
- * key, so removing it means removing the skill path, not setting an env var.
+ * disables nothing would be a lie the guard then certifies. The canonical
+ * case was hyperframes (a skills-only carrier whose payload is wired through
+ * deploy-config's `skills:` key — removing it means removing the skill path,
+ * not setting an env var); it left with its 2026-08-24 registry disable.
  */
 const DISABLE_GATE_EXEMPT: Record<string, string> = {
-	"s2-agent-ext-hyperframes": "skills-only carrier; the factory is a deliberate no-op",
+	// hyperframes WAS here ("skills-only carrier; the factory is a deliberate
+	// no-op") until 2026-08-24, when its registry entry was disabled by default
+	// (not shipped, not loaded) pending a proven must-have consumer — the
+	// honesty check below requires exemptions to be in the base set, so the
+	// entry left with it. Re-add both together if it ships again.
 };
 
 /** Walk a package's `src/` + `extensions/` + root `index.ts` (skip tests/fixtures). */

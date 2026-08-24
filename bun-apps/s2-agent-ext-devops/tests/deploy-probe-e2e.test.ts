@@ -512,72 +512,14 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		expect(sessionErr, "sandboxed session start never fired").toContain("[SESSION-OK]");
 	}, 180_000);
 
-	test("hyperframes skill helpers resolve from the vendored closure — no npm bootstrap can run", async () => {
-		// The deployed loader is fail-fast patched: a missing package throws,
-		// never offers `npm install`. Both skill copies, asserted.
-		for (const skill of ["hyperframes-animation", "hyperframes-creative"]) {
-			const loader = join(target, "ext", "hyperframes", "skills", skill, "scripts", "package-loader.mjs");
-			expect(existsSync(loader), `${skill} loader missing`).toBe(true);
-			const code = readFileSync(loader, "utf8");
-			expect(code, `${skill} loader not fail-fast patched`).toContain(
-				"package not vendored in the offline s2-agent-sh dist",
-			);
-			// The bootstrap must be UNREACHABLE, not merely unpreferred: the two
-			// call sites are replaced by the fail-fast throw. (The dead function
-			// bodies and header comments survive as text; they are never invoked.)
-			expect(code, `${skill} loader still calls the bootstrap`).not.toContain(
-				"await confirmBootstrap(npmPackages)",
-			);
-			expect(code, `${skill} loader still calls the installer`).not.toContain(
-				"bootstrapWithNpmInstall(npmPackages)",
-			);
-		}
-
-		// Resolution proof: run the DEPLOYED loader the way a skill helper runs
-		// it — every package must resolve from ext/hyperframes/node_modules via
-		// the loader's own ancestor walk, with no bootstrap branch taken.
-		const loader = join(
-			target,
-			"ext",
-			"hyperframes",
-			"skills",
-			"hyperframes-animation",
-			"scripts",
-			"package-loader.mjs",
-		);
-		const driverPath = join(outRoot, "loader-driver.mjs");
-		writeFileSync(
-			driverPath,
-			[
-				`const loader = await import(process.argv[2]);`,
-				`const pkgs = await loader.importPackagesOrBootstrap([`,
-				`  "@hyperframes/producer",`,
-				`  "@hyperframes/core",`,
-				`  "@hyperframes/core/compiler",`,
-				`  "sharp",`,
-				`]);`,
-				`process.stderr.write("[LOADER]" + Object.keys(pkgs).sort().join(","));`,
-			].join("\n"),
-		);
-		const proc = Bun.spawn(["bun", driverPath, "--", loader], {
-			cwd: join(target, "ext", "hyperframes"),
-			env: { ...process.env, ...agentDirEnv },
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		const timer = setTimeout(() => proc.kill(9), 120_000);
-		let stderr = "";
-		try {
-			stderr = await new Response(proc.stderr).text();
-			await new Response(proc.stdout).text();
-		} finally {
-			clearTimeout(timer);
-		}
-		expect(await proc.exited, `loader driver failed:\n${stderr.slice(0, 2000)}`).toBe(0);
-		expect(stderr).toContain(
-			"[LOADER]@hyperframes/core,@hyperframes/core/compiler,@hyperframes/producer,sharp",
-		);
-	}, 180_000);
+	// REMOVED 2026-08-24: "hyperframes skill helpers resolve from the vendored
+	// closure — no npm bootstrap can run" asserted the DEPLOYED hyperframes
+	// skill loaders were fail-fast patched and resolved @hyperframes/* + sharp
+	// from ext/hyperframes/node_modules. hyperframes is disabled by default
+	// (registry entry commented out, pending a proven must-have consumer), so
+	// there is no deployed copy to probe. The fail-fast loader PATCH itself
+	// (patchOfflinePackageLoadersUnder) still runs for every shipped skills/
+	// and copy dir; if hyperframes ships again, restore this test with it.
 
 	test("the core still boots after ext/ is removed entirely", async () => {
 		// deploy-e2e asserts this against a frozen tree at deploy time; asserted

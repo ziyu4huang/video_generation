@@ -176,21 +176,14 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(scanBinaryForeignPaths(join(target, CORE_FILENAME), target).foreign, "core bakes build-machine path(s)").toEqual([]);
 	}, 60_000);
 
-	// vendorExclude (registry) must actually reach the tree: the excluded
-	// packages are absent, the manifest records the exclusion, and the closure
-	// otherwise ships intact (producer + its non-excluded deps still resolve —
-	// covered by the Gate 5d assertion above, which reads the same ext.json).
-	test("vendorExclude drops the excluded packages and records them in ext.json", () => {
-		const version = readlinkSync(join(outRoot, "current"));
-		const target = join(outRoot, version);
-
-		expect(existsSync(join(target, "ext", "hyperframes", "node_modules", "@fontsource"))).toBe(false);
-		const manifest = JSON.parse(
-			readFileSync(join(target, "ext", "hyperframes", "ext.json"), "utf8"),
-		) as { vendoredClosure: { excluded: string[] } };
-		expect(manifest.vendoredClosure.excluded.length).toBeGreaterThan(0);
-		expect(manifest.vendoredClosure.excluded.every((e) => e.startsWith("@fontsource/"))).toBe(true);
-	}, 60_000);
+	// REMOVED 2026-08-24: "vendorExclude drops the excluded packages and records
+	// them in ext.json" read ext/hyperframes/ext.json from the deployed tree —
+	// hyperframes was vendorExclude's ONLY live consumer, and its registry
+	// entry is disabled by default now, so the deployed tree no longer carries
+	// a vendoredClosure.excluded to assert. The vendorExclude MECHANISM stays
+	// covered synthetically (run-dir/registry.test.ts parse + drop validation;
+	// offline-gate.test.ts Gate 5d fixture). Restore this E2E when an entry
+	// ships with a vendorExclude again.
 });
 
 // ── Phase 3: content-addressed core + keep:N retention ─────────────────────
