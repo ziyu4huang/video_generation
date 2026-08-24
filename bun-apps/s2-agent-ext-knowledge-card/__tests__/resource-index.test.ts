@@ -9,9 +9,32 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	buildResourceRows,
+	rebuildResourceIndex,
+	resourceKnnQuery,
 	resourceRecordKey,
 	TIER_SIDEFILES,
 } from "../src/resource-index.ts";
+import type { SurrealClient } from "@repo/s2-agent-core-interface";
+
+/** Fake SurrealClient (reviewer m3/m4): captures every statement, answers
+ *  query() from a scriptable handler. Cast-shaped, never a network call. */
+function fakeClient(onQuery?: (sql: string, params?: unknown) => unknown): {
+	client: SurrealClient;
+	statements: string[];
+} {
+	const statements: string[] = [];
+	const client = {
+		namespace: "test_ns",
+		database: "test_db",
+		async query<T>(_sql?: string, _params?: unknown): Promise<T | null> {
+			const sql = _sql ?? "";
+			statements.push(sql);
+			const out = onQuery?.(sql, _params);
+			return (out === undefined ? [] : out) as T | null;
+		},
+	} as unknown as SurrealClient;
+	return { client, statements };
+}
 
 // Deterministic embedder: 8-dim one-hot-ish hash vector — order-stable,
  // injectable, zero network (the _testEmbedder hermeticity contract).
@@ -154,5 +177,119 @@ describe("record keys + constants", () => {
 
 	test("tier sidecar names are exactly the two upstream OKF names", () => {
 		expect([...TIER_SIDEFILES].sort()).toEqual([".abstract.md", ".overview.md"]);
+	});
+});
+
+describe("KNN fallback lane (fake client, reviewer m3)", () => {
+	test("combined tree+KNN predicate rejected → unfiltered over-fetch (k*5) + client-side tree filter + slice", async () => {
+		const rows = [
+			{ tree: "other", uri: "x.md", name: "X", abstract: "", level: 2, parent: null, sim: 0.9 },
+			{ tree: "fixture", uri: "a.md", name: "A", abstract: "", level: 2, parent: null, sim: 0.8 },
+			{ tree: "fixture", uri: "b.md", name: "B", abstract: "", level: 2, parent: null, sim: 0.7 },
+		];
+		let sawUnfiltered: string | null = null;
+		const { client, statements } = fakeClient((sql) => {
+			if (/AND vec <\|/.test(sql)) throw new Error("parse error"); // v3.2.3 rejects the combo
+			if (/WHERE vec <\|/.test(sql)) {
+				sawUnfiltered = sql;
+				return rows;
+			}
+			return [];
+		});
+		const res = await resourceKnnQuery({ client, query: "anything", tree: "fixture", topK: 1, model: "m", embedder: fakeEmbedder });
+		expect(res.semantic).toBe(true);
+		expect(res.hits).toHaveLength(1);
+		expect(res.hits[0]!.uri).toBe("a.md"); // other-tree row filtered, then sliced to topK
+		expect(sawUnfiltered ?? "").toContain("<|5,100|>"); // k*5 over-fetch
+		expect(statements.some((s) => /AND vec <\|/.test(s))).toBe(true); // primary attempted first
+	});
+
+	test("combined predicate accepted → no fallback round-trip", async () => {
+		let combined = false;
+		const { client } = fakeClient((sql) => {
+			if (/AND vec <\|/.test(sql)) {
+				combined = true;
+				return [{ tree: "fixture", uri: "a.md", name: "A", abstract: "", level: 2, parent: null, sim: 0.8 }];
+			}
+			return [];
+		});
+		const res = await resourceKnnQuery({ client, query: "q", tree: "fixture", topK: 5, model: "m", embedder: fakeEmbedder });
+		expect(combined).toBe(true);
+		expect(res.hits[0]!.uri).toBe("a.md");
+	});
+
+	test("embedder down → semantic:false, zero statements issued", async () => {
+		const { client, statements } = fakeClient(() => []);
+		// a THROWING embedder (undefined would fall to the live default param)
+		const down = async (): Promise<number[][]> => {
+			throw new Error("embedding endpoint down");
+		};
+		const res = await resourceKnnQuery({ client, query: "q", embedder: down });
+		expect(res.semantic).toBe(false);
+		expect(res.hits).toHaveLength(0);
+		expect(statements).toHaveLength(0);
+	});
+});
+
+describe("card-lane isolation tripwire (fake client, reviewer m4)", () => {
+	test("a full rebuild never issues a statement touching card / index_meta", async () => {
+		put("a.md", "# A\n\nBody.");
+		const { client, statements } = fakeClient((sql) => {
+			if (/^SELECT fingerprint/.test(sql.trim())) return [{ fingerprint: "x", embed_model: "m", dim: 8 }];
+			if (/SELECT VALUE count\(\)/.test(sql)) return [{ count: 0 }];
+			return [];
+		});
+		await rebuildResourceIndex({ client, treePath: root, tree: "iso", model: "m", embedder: fakeEmbedder });
+		expect(statements.length).toBeGreaterThan(0);
+		// `\bcard\b` must not match `resource`/`resource_meta`; word boundaries
+		// on both sides keep `kcard`/`cardinality` out only if bounded — spell it.
+		const offenders = statements.filter((s) => /(^|[^_a-zA-Z:])card([^_a-zA-Z:]|$)|index_meta/.test(s));
+		expect(offenders).toEqual([]);
+	});
+
+	test("M1 skip gate: a dim-0 meta stamp does NOT satisfy a dim-8 rebuild", async () => {
+		put("a.md", "# A\n\nBody.");
+		const { client } = fakeClient((sql) => {
+			if (/^SELECT fingerprint/.test(sql.trim())) {
+				// a previous vector-less build stamped fingerprint+model but dim 0
+				return [{ fingerprint: "STALE", embed_model: "m", dim: 0 }];
+			}
+			if (/SELECT VALUE count\(\)/.test(sql)) return [{ count: 1 }];
+			return [];
+		});
+		const r = await rebuildResourceIndex({ client, treePath: root, tree: "iso", model: "m", embedder: fakeEmbedder });
+		// the fake's fingerprint never matches ("STALE"), so this rebuilds for
+		// the fingerprint reason; the DIM leg is asserted by the matching-fp
+		// variant below.
+		expect(r.skipped).toBe(false);
+	});
+
+	test("M1 skip gate: matching fingerprint + dim → skip even when the file set is unchanged", async () => {
+		put("a.md", "# A\n\nBody.");
+		const built = await buildResourceRows({ treePath: root, tree: "iso2", model: "m", embedder: fakeEmbedder });
+		const { client } = fakeClient((sql) => {
+			if (/^SELECT fingerprint/.test(sql.trim())) {
+				return [{ fingerprint: built.fingerprint, embed_model: built.embedModel, dim: built.dim }];
+			}
+			if (/SELECT VALUE count\(\)/.test(sql)) return [{ count: built.rows.length }];
+			return [];
+		});
+		const r = await rebuildResourceIndex({ client, treePath: root, tree: "iso2", model: "m", embedder: fakeEmbedder });
+		expect(r.skipped).toBe(true);
+	});
+
+	test("M1 skip gate: matching fingerprint but stale dim → rebuild (the embedder-down brick)", async () => {
+		put("a.md", "# A\n\nBody.");
+		const built = await buildResourceRows({ treePath: root, tree: "iso3", model: "m", embedder: fakeEmbedder });
+		const { client } = fakeClient((sql) => {
+			if (/^SELECT fingerprint/.test(sql.trim())) {
+				// previous build stamped the SAME fingerprint but dim 0 (embedder was down)
+				return [{ fingerprint: built.fingerprint, embed_model: built.embedModel, dim: 0 }];
+			}
+			if (/SELECT VALUE count\(\)/.test(sql)) return [{ count: built.rows.length }];
+			return [];
+		});
+		const r = await rebuildResourceIndex({ client, treePath: root, tree: "iso3", model: "m", embedder: fakeEmbedder });
+		expect(r.skipped).toBe(false);
 	});
 });

@@ -54,6 +54,7 @@ afterAll(async () => {
 	if (up) {
 		try {
 			await client.query(`REMOVE DATABASE IF EXISTS ${DB};`);
+			await client.query(`REMOVE NAMESPACE IF EXISTS ${NS};`);
 		} catch {
 			// teardown best-effort
 		}

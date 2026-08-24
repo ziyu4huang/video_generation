@@ -161,7 +161,9 @@ function walkTree(rootAbs: string): WalkedFile[] {
 		}
 	};
 	walk(rootAbs, "");
-	return out.sort((a, b) => a.uri.localeCompare(b.uri));
+	// Codepoint sort (localeCompare is ICU-dependent — the fingerprint's own
+	// sort at resourceFingerprintOf is codepoint; keep the two agreeing).
+	return out.sort((a, b) => (a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0));
 }
 
 /** Embed text for a resource file: title + first 800 chars of body prose —
@@ -171,6 +173,10 @@ function resourceEmbedText(raw: string, name: string): string {
 	return `${name}. ${body}`.replace(/\s+/g, " ").trim().slice(0, 1000);
 }
 
+/** H1 title or "" — a DELIBERATE third convention (semantic.ts / surreal-index
+ *  fall back to "(untitled)" for curated cards; resource files fall back to
+ *  the filename stem at the row-build site, which reads better for page files
+ *  that carry no H1). */
 function readTitle(content: string): string {
 	const m = content.match(/^#\s+(.+?)\s*$/m);
 	return m ? m[1]!.trim() : "";
@@ -387,14 +393,16 @@ export interface ResourceMetaStatus {
 	fingerprint: string | null;
 	rowCount: number;
 	embedModel: string | null;
+	/** Vector dimensionality stamped at build time (0 = vector-less build). */
+	dim: number | null;
 }
 
 /** Read one tree's rebuild stamp (`resource_meta`, sha-keyed per tree). */
 export async function resourceMetaStatus(client: SurrealClient, tree: string): Promise<ResourceMetaStatus> {
 	const key = createHash("sha256").update(tree).digest("hex").slice(0, 16);
 	try {
-		const meta = await client.query<{ fingerprint: string; embed_model: string }[] | null>(
-			`SELECT fingerprint, embed_model FROM resource_meta:${key};`,
+		const meta = await client.query<{ fingerprint: string; embed_model: string; dim: number }[] | null>(
+			`SELECT fingerprint, embed_model, dim FROM resource_meta:${key};`,
 		);
 		const count = await client.query<Array<{ count: number }>>(
 			`SELECT VALUE count() FROM resource WHERE tree = ${JSON.stringify(tree)} GROUP ALL;`,
@@ -405,9 +413,10 @@ export async function resourceMetaStatus(client: SurrealClient, tree: string): P
 			fingerprint: meta?.[0]?.fingerprint ?? null,
 			rowCount: n,
 			embedModel: meta?.[0]?.embed_model ?? null,
+			dim: typeof meta?.[0]?.dim === "number" ? meta[0].dim : null,
 		};
 	} catch {
-		return { present: false, fingerprint: null, rowCount: 0, embedModel: null };
+		return { present: false, fingerprint: null, rowCount: 0, embedModel: null, dim: null };
 	}
 }
 
@@ -447,10 +456,20 @@ export async function rebuildResourceIndex(args: {
 	if (built.rows.length === 0) throw new Error(`no indexable markdown files under ${args.treePath}`);
 
 	const status = await resourceMetaStatus(args.client, built.tree);
+	// Skip conditions (reviewer M1, the card lane's F2/F3 class): fingerprint +
+	// model match is NOT enough — a vector-less build (embedder down, dim 0) or
+	// a partially-vector build (mid-run embedder failure left some vec null
+	// while the cache now holds the rest) must rebuild, or the tree's KNN lane
+	// stays bricked until content changes. dim rides resource_meta for exactly
+	// this comparison; the every-vec check catches the partial case the stamped
+	// dim cannot see.
+	const fullyVectorized = built.dim === 0 || built.rows.every((r) => r.vec !== null);
 	if (
 		status.present
 		&& status.fingerprint === built.fingerprint
 		&& status.embedModel === built.embedModel
+		&& status.dim === built.dim
+		&& fullyVectorized
 		&& status.rowCount > 0
 	) {
 		return {
@@ -466,23 +485,39 @@ export async function rebuildResourceIndex(args: {
 		};
 	}
 
-	await args.client.query("REMOVE TABLE IF EXISTS resource_shadow;");
-	await args.client.query([...resourceTableDefs(), "DEFINE TABLE IF NOT EXISTS resource_shadow SCHEMALESS;"].join("\n"));
-	const inserted = await insertResourceBatches(args.client, "resource_shadow", built.rows);
+	// Per-tree shadow (reviewer M2): a single global shadow name would let two
+	// concurrent tree rebuilds drop/copy each other's staging rows — the tree
+	// discriminator exists precisely so trees rebuild independently.
+	const metaKey = createHash("sha256").update(built.tree).digest("hex").slice(0, 16);
+	const shadowTable = `resource_shadow_${metaKey}`;
+	await args.client.query(`REMOVE TABLE IF EXISTS ${shadowTable};`);
+	await args.client.query([...resourceTableDefs(), `DEFINE TABLE IF NOT EXISTS ${shadowTable} SCHEMALESS;`].join("\n"));
+	const inserted = await insertResourceBatches(args.client, shadowTable, built.rows);
 
 	// Scoped swap: only THIS tree's live rows are replaced (map D2 multi-tree).
+	// The vec HNSW index is dropped before the bulk copy and re-applied after
+	// (reviewer m5, the card lane's measured 10s-timeout discipline: index
+	// maintenance per copied row is the slow path), and a dim mismatch against
+	// a stale index (reviewer m2 — model flip across trees) is recovered by
+	// dropping the index and retrying the copy once.
 	await args.client.query(`DELETE resource WHERE tree = ${JSON.stringify(built.tree)};`);
-	await args.client.query([...resourceTableDefs(), `INSERT INTO resource SELECT * FROM resource_shadow;`].join("\n"));
+	await args.client.query(`REMOVE INDEX IF EXISTS resource_vec ON TABLE resource;`);
+	try {
+		await args.client.query([...resourceTableDefs(), `INSERT INTO resource SELECT * FROM ${shadowTable};`].join("\n"));
+	} catch (e) {
+		await args.client.query(`REMOVE INDEX IF EXISTS resource_vec ON TABLE resource;`);
+		await args.client.query(`INSERT INTO resource SELECT * FROM ${shadowTable};`);
+		void e; // first copy attempt failed on the stale index — retried bare above
+	}
 	for (const stmt of resourceSearchDefs(built.dim)) {
 		await args.client.query(stmt);
 	}
-	const metaKey = createHash("sha256").update(built.tree).digest("hex").slice(0, 16);
 	await args.client.query(
 		[
 			"DEFINE TABLE IF NOT EXISTS resource_meta SCHEMALESS;",
 			`DELETE resource_meta:${metaKey};`,
 			`CREATE resource_meta:${metaKey} SET tree = ${JSON.stringify(built.tree)}, fingerprint = ${JSON.stringify(built.fingerprint)}, row_count = ${built.rows.length}, embed_model = ${JSON.stringify(built.embedModel)}, dim = ${built.dim};`,
-			"REMOVE TABLE IF EXISTS resource_shadow;",
+			`REMOVE TABLE IF EXISTS ${shadowTable};`,
 		].join("\n"),
 	);
 	return {
@@ -535,17 +570,19 @@ export async function resourceKnnQuery(args: {
 	embedder?: Embedder;
 }): Promise<ResourceQueryResult> {
 	const started = Date.now();
-	const topK = args.topK ?? 10;
+	const topK = Math.max(1, Math.floor(args.topK ?? 10));
 	const qv = await embedQuery(args.query, args.model, args.embedder);
 	if (!qv) {
 		return { tree: args.tree ?? null, query: args.query, semantic: false, hits: [], elapsedMs: Date.now() - started };
 	}
 	const baseSelect =
 		"tree, uri, name, abstract, level, parent, vector::similarity::cosine(vec, $qv) AS sim FROM resource";
+	/** Select-row shape (the fallback filter reads `tree`, so it rides along). */
+	type SelectRow = ResourceHit & { tree?: string };
 	try {
 		if (args.tree) {
 			try {
-				const rows = await args.client.query<ResourceHit[]>(
+				const rows = await args.client.query<SelectRow[]>(
 					`SELECT ${baseSelect} WHERE tree = ${JSON.stringify(args.tree)} AND vec <|${topK},100|> $qv;`,
 					{ qv },
 				);
@@ -560,11 +597,11 @@ export async function resourceKnnQuery(args: {
 				// combined predicate unsupported — fall through to unfiltered
 			}
 		}
-		const rows = await args.client.query<ResourceHit[]>(
+		const rows = await args.client.query<SelectRow[]>(
 			`SELECT ${baseSelect} WHERE vec <|${args.tree ? topK * 5 : topK},100|> $qv;`,
 			{ qv },
 		);
-		const hits = (rows ?? []).filter((r) => !args.tree || (r as { tree?: string }).tree === args.tree).slice(0, topK);
+		const hits = (rows ?? []).filter((r) => !args.tree || r.tree === args.tree).slice(0, topK);
 		return { tree: args.tree ?? null, query: args.query, semantic: true, hits, elapsedMs: Date.now() - started };
 	} catch {
 		return { tree: args.tree ?? null, query: args.query, semantic: false, hits: [], elapsedMs: Date.now() - started };

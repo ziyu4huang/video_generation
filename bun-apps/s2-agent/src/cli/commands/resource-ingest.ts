@@ -56,11 +56,13 @@ Examples:
 		}
 
 		if (parsed.dryRun) {
+			// Reviewer m1: dry-run means dry — NO embedder (zero network), NO
+			// cache write into the previewed tree. Rows come back vec-null;
+			// the report is files + fingerprint only.
 			const built = await buildResourceRows({
 				treePath,
 				tree: parsed.tree,
 				model: parsed.model,
-				embedder: defaultEmbedder,
 			});
 			if (parsed.json) {
 				console.log(

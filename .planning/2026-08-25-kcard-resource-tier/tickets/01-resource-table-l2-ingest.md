@@ -37,4 +37,14 @@ Can a markdown tree be ingested into `context_db` as embedded per-file L2 rows, 
 
 **Known L2-quality limitations (ticket 02's lane, not regressions):** file2md pages carry no H1 → `name` falls back to the filename stem; the first-sentence abstract picks up the page-header copyright/version line (the same header pollution measured in the morning's generic-card verification). D4 (deterministic abstract) holds; any per-file LLM summary stays rejected.
 
-**Review:** independent reviewer subagent pass on the branch diff (findings folded before merge; inline-fallback disclosure if the reviewer goes silent, parity precedent).
+**Review:** independent reviewer subagent PASSED with findings, all folded before merge (second commit on the branch):
+- **M1 (MAJOR, fixed)** — skip gate couldn't see a vector-less/partially-vector build (embedder-down ingest bricked the tree's KNN lane until content changed): `dim` now rides `resource_meta`, `resourceMetaStatus` selects it, skip requires `status.dim === built.dim` + every-row-vec check (the card lane's F2/F3 class, reopened and re-closed here).
+- **M2 (MAJOR, fixed)** — single global `resource_shadow` broke the multi-tree design under concurrent rebuilds: per-tree shadow `resource_shadow_<sha16(tree)>`.
+- **m1 (fixed)** — `--dry-run` embedded over the network and wrote the cache into the previewed tree; now walk+fingerprint only (no embedder, no cache write).
+- **m2 (fixed)** — dim-mismatch against a stale `resource_vec` failed mid-swap AFTER the tree's rows were deleted: recovery path drops the index and retries the copy bare.
+- **m3 (fixed)** — KNN fallback lane untested: fake-client tests pin combined-predicate rejection → k*5 over-fetch → client-side tree filter → slice, plus the no-fallback and embedder-down paths.
+- **m4 (fixed)** — card-lane isolation now a TRIPWIRE test (captured-SQL fake client asserts no statement matches `card`/`index_meta`), not prose.
+- **m5 (fixed)** — `REMOVE INDEX resource_vec` before the bulk copy + re-apply after (the card lane's measured per-row-index-maintenance discipline).
+- NITs taken: live-test namespace cleanup, codepoint walk sort, topK clamp, SelectRow type (cast dropped), readTitle divergence comment.
+- NIT noted-not-taken: cache-entry pruning for deleted files only on embed-runs (bounded hygiene; revisit if a tree churns heavily).
+Post-fix: kcard `bun run test` **637 pass / 0 fail** (7 new review-driven tests); live re-smoke SKIP-gate + KNN rank-1 hold.
