@@ -80,6 +80,44 @@ lang data:
   ~2.5 MB decompressed) — NOT byte-identical to the previous refs. Quality gate
   = the live engine tests + the deploy-e2e `file2md-ocr` probe. Fallback pin if
   a regression shows up: `4.0.0/` (standard).
+
+## Amendment 2026-08-24 (b) — accuracy re-verification: the "swap" was sourcing-only, and multi-lang was silently broken
+
+Verified on a real bilingual sample (rendered CN+EN page → PNG + image-only
+PDF, under `/tmp`, 2026-08-24):
+
+- **The swap was NOT a model change.** SHA-256 of the npm
+  `4.0.0_best_int/*.traineddata.gz` == the external store's
+  `.traineddata.gz` (eng & chi_sim, byte-identical) and the OCR output of the
+  npm set matches the old fast refs error-for-error (`综述`→`红述`,
+  `迭代`→`欠代` in both). The change was the *source of shipping*
+  (machine-bound store → npm install) — the "deliberately swaps" framing above
+  was wrong; the store's *raw* (ungzipped) files differ by hash but are
+  quality-equivalent on the sample. **Model-set verdict: keep
+  `4.0.0_best_int`.** `4.0.0/` (standard) was exercised as the fallback pin:
+  it reads `综述`/`迭代` correctly but misreads `0.001`→`0.0001` and costs
+  ~11× chi_sim size (20.2 MB vs 1.7 MB gz) — mixed trade-offs, not a
+  regression to fix.
+- **Real bug found (this is the regression the probe was designed to catch):
+  multi-lang silently degraded to eng-only.** tesseract-wasm's `OCREngine`
+  keeps only the FIRST loaded model; `OcrSession` looped `loadModel` over
+  "eng+chi_sim", the second call was silently ignored, and the output was
+  eng-only — Chinese text came back as Latin junk («#5 2%» for «第 2 章»).
+  The v1 smoke tests (English fixture) and the deploy-e2e probe could not see
+  it; `init()` "eng+chi_sim" only asserted the load loop didn't throw.
+  **Fix:** multi-part langs run one pass per part (one engine per part,
+  per part's model) and merge lines — match boxes by vertical center
+  tolerance, per line pick the pass whose text contains Han unless the other
+  side read it confidently (≥ 0.5); Han-Han spaces from chi_sim spacing are
+  collapsed. Pinned by new tests: pure merge-logic unit tests (incl. the
+  measured trap line at chi confidence 0.00) + a live `chi_sim+eng`-order
+  rasterized-prose test asserting eng-quality text (that order was the
+  silent poisons pre-fix). Single-part path unchanged.
+- Eng+chi_sim on the bilingual page then returns correct Chinese + exact
+  English (image path and raster→OCR PDF path both, `provenance: ocr`).
+  Known residual model limits (not regressions, present in old fast too):
+  `综述`→`红述`, `迭代`→`欠代`, `0.001`→`0001`, chi_sim's English slightly
+  less precise than eng's (the merge picks eng for English lines).
 - **`FILE2MD_OCR_LANG_PATH` was doc-only and is now implemented**: raw
   `.traineddata` dir override (external-store / custom copies still work).
 - The old ".traineddata.gz + gunzip-cache" convention is intentionally

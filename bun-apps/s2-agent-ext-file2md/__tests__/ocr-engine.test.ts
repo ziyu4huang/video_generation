@@ -9,8 +9,18 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { normalizeOcrLang, npmLangPath, OcrSession } from "../src/ocr/ocr.ts";
+import {
+  collapseCjkSpaces,
+  containsCjk,
+  mergeOcrLines,
+  normalizeOcrLang,
+  npmLangPath,
+  type OcrLine,
+  OcrSession,
+} from "../src/ocr/ocr.ts";
 import { bgraToBmp } from "../src/raster/bmp.ts";
+import { rasterPage } from "../src/raster/pdf.ts";
+import { prosePdf } from "./helpers/docs.ts";
 
 const sessions: OcrSession[] = [];
 
@@ -68,5 +78,87 @@ describe("live engine (tesseract-wasm core + npm lang data)", () => {
       delete process.env.FILE2MD_OCR_LANG_PATH;
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  test("eng+chi_sim on a rasterized prose page returns eng-quality text (multi-pass merge beats first-model-wins)", async () => {
+    // Regression pin: tesseract-wasm's OCREngine keeps only the FIRST loaded
+    // model, so pre-fix "chi_sim+eng" (and "eng+chi_sim") silently degraded to
+    // the first pass — chi_sim's garbled Latin. Post-fix the passes merge per
+    // line and eng's confident reading must win on this all-Latin page.
+    const pdf = await prosePdf();
+    const raster = await rasterPage(pdf, 1, 3);
+    expect(raster).toBeDefined();
+    if (raster === undefined) return;
+    const s = session("chi_sim+eng");
+    expect(await s.init()).toBe(true);
+    const result = await s.recognize(raster.bmp);
+    expect(result).toBeDefined();
+    // Exact prose start — chi_sim-only output garbles these words.
+    expect(result?.text).toContain("explains the module architecture");
+    expect(result?.text).toContain("eye diagrams");
+  });
+});
+
+describe("multi-lang line merge (pure)", () => {
+  const line = (text: string, confidence: number, top: number, bottom: number): OcrLine => ({
+    text,
+    confidence,
+    top,
+    bottom,
+  });
+
+  test("CJK side wins over eng garbage even at 0.00 confidence (measured title trap: chi 0.00 vs eng 0.21)", () => {
+    const eng = [line("REESE] SEMEN Lik", 0.21, 120, 180)];
+    const chi = [line("深度学习与图神经网络综述", 0.0, 120, 180)];
+    expect(mergeOcrLines(eng, chi)[0]?.text).toBe("深度学习与图神经网络综述");
+  });
+
+  test("confident non-CJK reading beats unsure CJK hallucination", () => {
+    const eng = [line("Neural networks are machine-learning models", 0.95, 100, 140)];
+    const chi = [line("神经", 0.4, 100, 140)];
+    expect(mergeOcrLines(eng, chi)[0]?.text).toBe("Neural networks are machine-learning models");
+  });
+
+  test("CJK side with >= 0.5 confidence wins over junk eng (meta line: chi 0.91 vs eng 0.49)", () => {
+    const eng = [line("#5 2% - Chapter2 - 2026 4E 8 FJ", 0.49, 500, 560)];
+    const chi = [line("第 2 章 . Chapter2 . 2026 年 8 月 . 内部技术报告", 0.91, 500, 560)];
+    expect(mergeOcrLines(eng, chi)[0]?.text).toBe("第 2 章 . Chapter2 . 2026 年 8 月 . 内部技术报告");
+  });
+
+  test("no CJK on either side → higher confidence wins (eng paragraph)", () => {
+    const eng = [line("Neural networks are machine-learning models", 0.92, 100, 140)];
+    const chi = [line("Neutal netwotks atre machine-leathing models", 0.75, 100, 140)];
+    expect(mergeOcrLines(eng, chi)[0]?.text).toBe("Neural networks are machine-learning models");
+  });
+
+  test("both sides CJK → higher confidence wins", () => {
+    const a = [line("神经网络", 0.5, 100, 140)];
+    const b = [line("神经网络", 0.9, 100, 140)];
+    expect(mergeOcrLines(a, b)[0]?.text).toBe("神经网络");
+  });
+
+  test("lines seen in only one pass are kept and the result is sorted by top", () => {
+    const a = [line("only-in-a-near-top", 0.9, 100, 140), line("shared lower", 0.9, 400, 440)];
+    const b = [line("shared lower", 0.8, 400, 440), line("only-in-b-tail", 0.7, 900, 940)];
+    const merged = mergeOcrLines(a, b);
+    expect(merged.map((l) => l.text)).toEqual(["only-in-a-near-top", "shared lower", "only-in-b-tail"]);
+  });
+
+  test("empty passes are ignored in the merge", () => {
+    const a = [line(" ", 0.95, 100, 140), line("text", 0.9, 200, 240)];
+    const b: OcrLine[] = [];
+    expect(mergeOcrLines(a, b).map((l) => l.text)).toEqual(["text"]);
+  });
+
+  test("collapseCjkSpaces removes inter-Han spaces only", () => {
+    expect(collapseCjkSpaces("深 度 学 习 与 图 神经")).toBe("深度学习与图神经");
+    // "第 2 章" — space touching a digit stays (not Han-Han).
+    expect(collapseCjkSpaces("第 2 章 . Chapter2")).toBe("第 2 章 . Chapter2");
+  });
+
+  test("containsCjk detects Han and rejects Latin", () => {
+    expect(containsCjk("深度学习")).toBe(true);
+    expect(containsCjk("Deep Learning")).toBe(false);
+    expect(containsCjk("中文 x")).toBe(true);
   });
 });
