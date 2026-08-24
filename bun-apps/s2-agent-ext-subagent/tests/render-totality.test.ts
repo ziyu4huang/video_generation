@@ -105,3 +105,17 @@ test("ComposerComponent still survives a throwing composer", () => {
     ["composer exploded"],
   );
 });
+
+// ── tui-cc-parity t01 review: GuardedComponent threads render-time width ──
+
+test("GuardedComponent rebuilds per width (width-aware builder, cached per width)", () => {
+  const widths: number[] = [];
+  const c = new GuardedComponent((w) => {
+    widths.push(w);
+    return { render: (rw: number) => [`${rw}`], invalidate: () => {} } as never;
+  });
+  assert.deepEqual(c.render(80), ["80"], "first render builds at 80");
+  assert.deepEqual(c.render(80), ["80"], "same width reuses the cache");
+  assert.deepEqual(c.render(40), ["40"], "new width rebuilds");
+  assert.deepEqual(widths, [80, 40], "exactly one build per distinct width");
+});

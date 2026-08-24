@@ -129,8 +129,18 @@ function settledHeadline(text: string, width?: number): string {
       .find((l) => l) ?? "";
   // The report body is Markdown; the headline segment renders PLAIN — strip
   // the common leading markers so `## Findings` headlines as `Findings`, not
-  // a raw `##` (CC's completion summary is plain text).
-  const plain = raw.replace(/^#{1,6}\s*/, "").replace(/^\*\*(.+)\*\*$/, "$1");
+  // a raw `##` (CC's completion summary is plain text). Heading, list bullet,
+  // ordered item, quote; bold is stripped ONLY when the line is entirely
+  // wrapped (a mixed `**a** and **b**` keeps its markers rather than having
+  // the anchors swallow them — review nit).
+  let plain = raw
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^[-*+]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^>\s?/, "");
+  if (plain.startsWith("**") && plain.endsWith("**") && plain.length > 4 && !plain.slice(2, -2).includes("**")) {
+    plain = plain.slice(2, -2);
+  }
   return plain ? ellipsizeToWidth(plain, capWidth(60, width)) : "";
 }
 

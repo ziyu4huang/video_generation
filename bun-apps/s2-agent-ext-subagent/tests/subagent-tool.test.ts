@@ -2709,3 +2709,21 @@ test("settled row keeps the failure-tag vocabulary on non-done statuses (unchang
   assert.ok(out.includes("turns:12/12"), "turns death tag retained");
   assert.ok(out.includes("1m 00s"), "human duration on failure rows too");
 });
+
+test("settledHeadline strips common markdown first-line markers (t01 review nit)", () => {
+  const cases: Array<[string, string]> = [
+    ["## Findings", "Findings"],
+    ["- item one", "item one"],
+    ["* item one", "item one"],
+    ["3. step three", "step three"],
+    ["> quoted opening", "quoted opening"],
+    ["**bold lead**", "bold lead"],
+    ["**a** and **b**", "**a** and **b**"], // mixed line is NOT whole-line bold → markers kept
+    ["plain line", "plain line"],
+  ];
+  for (const [body, wantHeadline] of cases) {
+    const details: SubagentToolDetails = { taskPreview: "p", elapsedMs: 1000, status: "done" };
+    const out = renderSubagentResult({ content: [{ type: "text", text: body }], details }, { expanded: false }, T);
+    assert.ok(out.includes(`↳ ${wantHeadline}`), `${body} → ↳ ${wantHeadline}`);
+  }
+});

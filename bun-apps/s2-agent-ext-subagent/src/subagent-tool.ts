@@ -773,9 +773,9 @@ export function createSubagentTool(
       // path where a throw (partial `result`, a Markdown parse fault) would
       // reach the host's frame loop and kill the session.
       if (!renderOptions.isPartial && renderOptions.expanded) {
-        return new GuardedComponent(() => {
+        return new GuardedComponent((width) => {
           const box = new Container();
-          const header = renderSubagentResultHeader(result, theme, { modelSeg: v?.modelSeg });
+          const header = renderSubagentResultHeader(result, theme, { modelSeg: v?.modelSeg, width });
           if (header) box.addChild(new Text(header, 0, 0));
           box.addChild(new Markdown(subagentResultText(result), 0, 0, getMarkdownTheme()));
           return box;

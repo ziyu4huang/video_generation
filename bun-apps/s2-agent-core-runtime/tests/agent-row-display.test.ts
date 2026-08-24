@@ -158,3 +158,11 @@ describe("fmtTokens — separator'd count (34,283)", () => {
     expect(fmtTokens(Number.NaN)).toBe("0");
   });
 });
+
+describe("fmtDurationHuman boundaries (t01 review nit)", () => {
+  test("sub-second floors tenths; 999ms never rounds to 1.0s", () => {
+    expect(fmtDurationHuman(0)).toBe("0s");
+    expect(fmtDurationHuman(999)).toBe("0.9s");
+    expect(fmtDurationHuman(1000)).toBe("1s");
+  });
+});

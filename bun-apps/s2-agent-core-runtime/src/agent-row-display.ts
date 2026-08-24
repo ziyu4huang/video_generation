@@ -132,7 +132,10 @@ export function fmtElapsed(ms: number): string {
 export function fmtDurationHuman(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return "0s";
   const total = Math.floor(ms / 1000);
-  if (total < 1) return `${(ms / 1000).toFixed(1)}s`;
+  // Floor the sub-second tenths (review nit): 999ms renders "0.9s", never a
+  // rounding-induced "1.0s" that reads as a different magnitude than 1000ms's
+  // "1s"; 0 keeps the plain clamp form.
+  if (total < 1) return ms === 0 ? "0s" : `${Math.floor(ms / 100) / 10}s`;
   if (total < 60) return `${total}s`;
   const m = Math.floor(total / 60);
   const s = total % 60;

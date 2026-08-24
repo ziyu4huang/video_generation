@@ -59,7 +59,7 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-cc-line-vocabulary.md` | pending | Inline line vocabulary: `Task(agent): intent` live shape + `↳ summary · 34,283 tokens · 2m 13s` settled shape (fmtTokens separator'd, fmtDuration human m+s, summary-first ordering; keep s2 tags as trailing segments) |
+| `tickets/01-cc-line-vocabulary.md` | done (PR #2025, 2026-08-25) | Inline line vocabulary: `Task(agent): intent` live shape + `↳ summary · 34,283 tokens · 2m 13s` settled shape (fmtTokens separator'd, fmtDuration human m+s, summary-first ordering; keep s2 tags as trailing segments) |
 | `tickets/02-esc-interrupt.md` | pending | Esc during a running foreground subagent aborts it (input seam investigation: onTerminalInput vs pi interrupt semantics; must not steal Esc from the editor when no subagent runs) |
 | `tickets/03-ctrl-b-panel.md` | pending | **alt+b** opens the background-agents panel CC-style (user-confirmed direction; ctrl+b stays pi's cursorLeft — no collision, no startup warning; alt+s detach unchanged) + ADR-subagent-0004 amendment recording the decision |
 
@@ -84,20 +84,27 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 
 ## Frontier
 
-Ticket 01 — pure render-layer work (subagent-tool-render.ts +
-agent-row-display.ts formatting helpers + their tests), no keybinding or
-input-seam changes, so it starts with no open blocker.
+Ticket 02 (Esc interrupt) — ticket 01 landed (PR #2025); 02 is next per the
+confirmed Execution order and has no open blocker beyond its own seam
+investigation (below).
 
 ## Fog of war
+
+- Batch `subagents` tool settled surfaces (subagents-tool.ts:906, 1003,
+  1137 — formatSlotMeta/formatUsage) still render the OLD vocabulary
+  (`45.3s · 38211 tok`) on the same composer surface as t01's new one —
+  no same-line mixing (the rule as written holds) but a transcript with
+  both tools shows both vocabularies (t01 review nit 5). Fold the batch
+  meta into the CC vocabulary in a later ticket or t02/t03's PR if
+  trivially cheap.
 
 - Exact Esc ownership in pi while a foreground tool call streams (does the
   editor keep Esc? does pi already map Esc to interrupt the TURN?) —
   investigate in ticket 02 before designing.
-- Whether Ctrl+B-as-panel is even claimable globally given the
-  cursorLeft collision (the collision killed the global detach binding —
-  a panel-OPEN action has the same claim problem; options: keep alt+s for
-  detach, add alt+b for panel, or reclaim ctrl+b and rebind cursorLeft).
-  Ticket 03 exists to resolve this, possibly as "documented no-go".
+- ~~Whether Ctrl+B-as-panel is claimable globally~~ — RESOLVED at the
+  confirm-gate (D4): alt+b carries the panel-opener; ctrl+b is never
+  reclaimed. Remaining t03 fog is only which surface alt+b opens first
+  (dock vs viewer vs notice) when background runs are empty.
 - `/agents` definition-management parity: intentionally NOT charted (big
   surface, orthogonal to display vocabulary); revisit if the user asks.
 - CC's live spinner words (Deliberating / Reading files…) vs s2's
