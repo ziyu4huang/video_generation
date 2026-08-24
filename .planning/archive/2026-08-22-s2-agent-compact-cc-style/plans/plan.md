@@ -15,7 +15,7 @@
 - Scripts MUST be named exactly `test` (`bun test`) and `typecheck` (`tsc --noEmit`) — local_ci resolves gates by script NAME.
 - Package tsconfig `include` MUST cover `extensions/**/*.ts` (guard: `bun-apps/tests/extension-entry-typechecked.test.ts`).
 - `load: static` means the entry is literally imported by `bun-apps/s2-agent/src/static-extensions.ts` → the whole package must ALSO typecheck under s2-agent's tsconfig (run `bun run --cwd bun-apps/s2-agent typecheck` before finishing).
-- `bun-apps/s2-agent/run-dir/manifest.json` is DERIVED — only edit `bun-apps/s2-agent/s2-agent.registry.yaml`, then `bun run --cwd bun-apps/s2-agent regen:manifest` (scaffold does this).
+- `bun-apps/s2-agent/run-dir/manifest.json` is DERIVED — only edit `bun-apps/s2-agent/src/registry-config.ts`, then `bun run --cwd bun-apps/s2-agent regen:manifest` (scaffold does this).
 - Deploy `order` values 10–140 are taken; this package uses `order: 150` (uniqueness enforced by `registry.ts:195-202`).
 - Deep imports under `@earendil-works/pi-coding-agent/dist/...` are BLOCKED by its `exports` field — only root exports are importable. `completeSummarization` and `SUMMARIZATION_SYSTEM_PROMPT` are NOT root-exported; that is why this package ships its own system prompt and calls `completeSimple` directly.
 - Never edit vendor code; no top-level `cd` — use `( cd <dir> && ... )` or `--cwd`.
@@ -41,7 +41,7 @@
 
 **Files:**
 - Create: `bun-apps/s2-agent-ext-compact/` (scaffold output)
-- Modify: `bun-apps/s2-agent/s2-agent.registry.yaml` (compact entry)
+- Modify: `bun-apps/s2-agent/src/registry-config.ts` (compact entry)
 - Derived (regen, never hand-edit): `bun-apps/s2-agent/run-dir/manifest.json`, `bun-apps/s2-agent/src/static-extensions.ts`
 
 **Interfaces:**
@@ -70,7 +70,7 @@ and add `"@repo/s2-agent-core-runtime": "workspace:*"` to `devDependencies` (nee
 
 - [ ] **Step 3: Registry entry — replace excludeReason with deploy**
 
-In `bun-apps/s2-agent/s2-agent.registry.yaml`, replace the scaffold's compact entry with:
+In `bun-apps/s2-agent/src/registry-config.ts`, replace the scaffold's compact entry with:
 
 ```yaml
   - name: compact
@@ -103,7 +103,7 @@ Expected: all PASS. If cross-package typecheck fails on the stub entry, fix the 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add bun-apps/s2-agent-ext-compact bun-apps/s2-agent/s2-agent.registry.yaml bun-apps/s2-agent/run-dir/manifest.json bun-apps/s2-agent/src/static-extensions.ts bun-apps/bun.lock
+git add bun-apps/s2-agent-ext-compact bun-apps/s2-agent/src/registry-config.ts bun-apps/s2-agent/run-dir/manifest.json bun-apps/s2-agent/src/static-extensions.ts bun-apps/bun.lock
 git commit -m "feat(compact): scaffold s2-agent-ext-compact — static + deploy order 150"
 ```
 

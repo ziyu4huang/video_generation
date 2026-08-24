@@ -58,7 +58,7 @@ s2-agent = renamed pi-agent (2026-08-21; upstream `@earendil-works/pi-*` deps, `
 - **Scaffold**: `bun bun-apps/s2-agent/src/cli.ts ext new <name>` (`--lib` lib face + shim; `--register dynamic|static|none`, default dynamic — static auto-runs `regen:static`; `--no-install` skips `bun install`). All conventions below are baked into the scaffold output.
 - **Entry**: ONE registered entry per folder — `extensions/<X>.ts` (`<X>` = folder minus `s2-agent-ext-`); never `src/index.ts`, root `index.ts`, `extensions/index.ts`, or `extensions/pi-<X>.ts`.
 - **Lib entry stays separate**: `main: "./src/index.ts"` is the lib face (web-access uses root `index.ts`); if the registration entry has no in-file implementation (power-tool, hermes-memory), add shim `export { default } from "../src/index.ts";`.
-- **Registration**: ONE entry in `bun-apps/s2-agent/s2-agent.registry.yaml` (`load: dynamic` or `static` — never both), then `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for static). `run-dir/manifest.json` is DERIVED (freshness-gated — never hand-edit).
+- **Registration**: ONE entry in `bun-apps/s2-agent/src/registry-config.ts` (`REGISTRY`; `load: dynamic` or `static` — never both), then `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for static). `run-dir/manifest.json` is DERIVED (freshness-gated — never hand-edit).
 - **Schema-cost canary**: `discoverExtensionEntries()` in `bun-apps/s2-agent/src/cli/commands/schema-cost.ts` derives from manifest.json — registered extensions are measured automatically; only unregistered measure-worthy files need a manual `EXTRA_ENTRIES` row.
 - **CLI subcommands**: `extensions/cli-subcommand.ts`, wired in `bun-apps/s2-agent/src/cli/extensions/registry.ts`.
 

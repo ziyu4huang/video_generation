@@ -43,7 +43,7 @@ bun run --cwd bun-apps/s2-agent-ext-compact typecheck
 
 ## Registration
 
-Registered via `bun-apps/s2-agent/s2-agent.registry.yaml` — one entry
+Registered via `bun-apps/s2-agent/src/registry-config.ts` — one entry
 (`load: dynamic` or `load: static`), then `bun run --cwd bun-apps/s2-agent
 regen:manifest` (+ `regen:static` for static). The entry point is
 `extensions/compact.ts`.

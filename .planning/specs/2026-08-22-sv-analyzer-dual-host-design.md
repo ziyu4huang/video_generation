@@ -84,7 +84,7 @@ as archify's `vendored/`).
 
 - new: `bun-apps/s2-agent-ext-sv-analyzer/{package.json,tsconfig.json,README.md,.gitignore,extensions/sv-analyzer.ts,src/{sh-ext-dir,wasm-runner,analyzer}.ts,tests/sv-analyzer.test.ts}`
   (the `wasm/` mirror is gitignored — see D1; fresh clones run build.sh first)
-- `bun-apps/s2-agent/s2-agent.registry.yaml` (+entry), `package.json` (+dep),
+- `bun-apps/s2-agent/src/registry-config.ts` (+entry), `package.json` (+dep),
   `run-dir/manifest.json` + `src/static-extensions.ts` (regen), `src/sh/host-modules.ts` (+`wasi`)
 - `bun-apps/s2-agent-ext-devops/src/changed-packages.ts` (+alias), `tests/{changed-packages,config}.test.ts`
 - `dsh-plugin/sv-analyzer/{build.sh,README.md}`

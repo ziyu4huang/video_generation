@@ -37,7 +37,7 @@ data-backed follow-up.
 
 - `bun-apps/s2-agent-ext-compact` (`@repo/s2-agent-ext-compact`)
 - Entry: `extensions/compact.ts` (ONE registered entry), `main: "./src/index.ts"` lib face
-- `load: static` in `bun-apps/s2-agent/s2-agent.registry.yaml` + `deploy:` block
+- `load: static` in `bun-apps/s2-agent/src/registry-config.ts` + `deploy:` block
   (pure TS, zero native deps → clean base-set member; no `vendor:` needed)
 - Deploy: YES (user decision) — the extension must ride the portable `s2-agent.sh` tree
 

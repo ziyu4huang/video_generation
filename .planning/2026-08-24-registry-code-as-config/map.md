@@ -5,11 +5,11 @@ last: 2026-08-24
 status: active
 ---
 
-# registry-code-as-config — s2-agent.registry.yaml → typed TS registry (pre-load-providers pattern)
+# registry-code-as-config — the registry YAML → typed TS registry (pre-load-providers pattern)
 
 ## Destination
 
-`s2-agent.registry.yaml` is retired. The extension registry lives as ONE typed,
+The YAML registry is retired. The extension registry lives as ONE typed,
 side-effect-free TS module in `bun-apps/s2-agent/src/` (same doctrine as
 `pre-load-providers.ts`): every entry — including disabled ones — is a
 first-class `enabled: false` value that stays type-checked, enumerable, and
@@ -20,7 +20,7 @@ in YAML comments become executable invariant tests.
 
 ## Context (measured 2026-08-24 on this machine, file:line verified during planning)
 
-- **The registry chain today**: `bun-apps/s2-agent/s2-agent.registry.yaml` →
+- **The registry chain today**: `bun-apps/s2-agent/src/registry-config.ts` →
   `regen:manifest` (`bun-apps/s2-agent/scripts/regen-manifest.ts`) → derived
   `run-dir/manifest.json` (freshness-gated) → consumed by the loader and the
   schema-cost canary (`src/cli/commands/schema-cost.ts` derives from
@@ -93,7 +93,7 @@ Phase 2 — repo consumers flip (after 01)
 
 Phase 3 — retirement (after 02+03)
 - `tickets/04-retire-yaml-invariants-docs.md` — open — delete
-  `s2-agent.registry.yaml`; add executable invariant tests (static order,
+  `the registry YAML`; add executable invariant tests (static order,
   hostApi/hostModules drift, excludeReason completeness, disabled entries
   enumerate); update CLAUDE.md / devops SKILL.md / ext headers / docs
 
@@ -158,7 +158,7 @@ Phase 3 — retirement (after 02+03)
 `tickets/04-retire-yaml-invariants-docs.md` — 03 landed the last YAML
 READERS: devops `parseShConfig`/`excludedExtensions` are now fixture-only
 retired bridges, ext-new emits TS entries, the contract suites read the typed
-module. So 04 is the pure deletion: remove `s2-agent.registry.yaml` +
+module. So 04 is the pure deletion: remove `the registry YAML` +
 `parseRegistry` (run-dir) + `parseShConfig`/`excludedExtensions` (devops) and
 their fixture tests, unfreeze the manifest `$generated` string, flip the
 single-registry-guard to a no-YAML form — then the executable invariant tests

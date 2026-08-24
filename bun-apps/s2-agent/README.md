@@ -49,12 +49,12 @@ To add a patch: create `src/patches/<name>.ts`, register it in
 
 ## Extensions
 
-`s2-agent.registry.yaml` is THE registry (one entry per extension); derived
-`run-dir/manifest.json` is freshness-guarded — regen with
+`src/registry-config.ts` is THE registry (one typed entry per extension);
+derived `run-dir/manifest.json` is freshness-guarded — regen with
 `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for
 `load: static`), never hand-edit. Heavy on-demand extensions live in the same
-file's `lazyExtensions` and load only via `-e <alias>`. Schema authority:
-`run-dir/registry.ts`.
+module's `LAZY_EXTENSIONS` and load only via `-e <alias>`. Validation
+authority: `run-dir/registry.ts`.
 
 ## Deploy / doctor
 
@@ -63,7 +63,7 @@ bun run --cwd bun-apps/s2-agent deploy              # cut a versioned frozen tre
 bun bun-apps/s2-agent/src/cli.ts cli doctor [--smoke] [--json]   # self-check (offline; --smoke loads extensions)
 ```
 
-Deploy reference: `s2-agent.registry.yaml` (what ships and why — the sole
+Deploy reference: `src/registry-config.ts` (what ships and why — the sole
 source of truth) and `../s2-agent-ext-devops/src/deploy-cli.ts --help` (how).
 Workflow SOP (branch prep, local CI, PR merge):
 `s2-agent-ext-devops/skills/devops-workflow/SKILL.md`.
@@ -79,7 +79,7 @@ bun ../s2-agent-ext-devops/scripts/run-test.ts medium   # + the s2-agent suite i
 
 ```
 s2-agent/
-├── s2-agent.registry.yaml   # THE extension registry (edit this)
+├── src/registry-config.ts   # THE extension registry (edit this)
 ├── run-dir/                 # manifest.json (DERIVED) + resolve.ts (argv splice, lazy aliases)
 ├── docs/adr/                # design decisions (indexed in bun-apps/docs/adr/INDEX.md)
 └── src/

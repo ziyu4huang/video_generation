@@ -5,13 +5,11 @@
  * The reader is the DERIVED scope of two gated contract suites
  * (extension-isolation-contract, dep-guard): every extension the registry
  * ships. Since registry-code-as-config ticket 03 the reader is the typed
- * REGISTRY (s2-agent/src/registry-config.ts) — the YAML line scanner this
- * file used to pin is GONE, and its divergence-parity role (flow-style
- * `deploy: {order: 10}` and `enabled: false` inside a deploy block, which
- * the two historical scanner copies each missed) now belongs to t01's
- * equivalence net (s2-agent/src/registry-config.test.ts deep-equals the
- * retired YAML parse) and t02's bridge (run-dir/registry.test.ts
- * loadRegistry ≡ parseRegistry on the real file).
+ * REGISTRY (s2-agent/src/registry-config.ts); ticket 04 retired the YAML and
+ * its line scanner together, and the scanner-divergence-parity role (flow-
+ * style `deploy: {order: 10}` and `enabled: false` inside a deploy block,
+ * which the two historical scanner copies each missed) is now carried by the
+ * typed data itself — one source, no second scanner to diverge.
  *
  * What this file pins instead: the typed reader's REAL-DATA invariants — the
  * anti-vacuity guarantee the ticket's Notes demand of the import path (an

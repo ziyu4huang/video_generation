@@ -746,7 +746,7 @@ export default function (pi: ExtensionAPI): void {
 		label: "Build & Deploy s2-agent Bundle",
 		description:
 			"Build a versioned s2-agent deploy: a minimal core plus independently built extension " +
-			"packages under ext/, at <outRoot>/<version>/ (see bun-apps/s2-agent/s2-agent.registry.yaml). " +
+			"packages under ext/, at <outRoot>/<version>/ (see bun-apps/s2-agent/src/registry-config.ts). " +
 			"Returns the version, target dir, per-extension sizes, and whether `current` was repointed.",
 		parameters: Type.Object({
 			force: Type.Optional(

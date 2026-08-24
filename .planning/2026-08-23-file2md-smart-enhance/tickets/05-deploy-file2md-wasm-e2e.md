@@ -14,7 +14,7 @@ covered by an e2e test that would catch a broken wasm/asset layout?
 ## What to build
 Flip file2md into the deploy set. The registry comment already names the shape
 (`deploy.flip = asset copy fields + vendor: for the wasm __dirname locators`):
-the `s2-agent.registry.yaml` entry drops `excludeReason` and gains the
+the `the registry YAML` entry drops `excludeReason` and gains the
 `deploy:` key with `copy:`/`vendor:` entries (wired at `deploy/run.ts:630-631`)
 so the deployed tree carries `dist/tesseract-core.wasm` + the vendored
 `.traineddata` at the paths our locators expect. Then an OCR e2e probe rides the

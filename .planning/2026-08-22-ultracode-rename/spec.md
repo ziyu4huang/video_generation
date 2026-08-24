@@ -10,7 +10,7 @@
    `/workflows*` commands stay (Claude Code's tool is also named Workflow —
    "ultracode" is only the arming keyword).
 3. `s2-agent-ext-devops` must still deploy to `s2-agent-sh/` — deploy list is
-   a projection of `s2-agent.registry.yaml`, so the registry edit must keep
+   a projection of `the registry YAML`, so the registry edit must keep
    the workflow entry shippable (deploy.order 70) and Gate 3's `--ext-list`
    must still load `workflow`.
 

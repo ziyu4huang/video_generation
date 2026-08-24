@@ -1,24 +1,21 @@
 /**
- * registry-config.test.ts — the equivalence net (ticket 01,
+ * registry-config.test.ts — the registry invariants (ticket 04,
  * .planning/2026-08-24-registry-code-as-config/).
  *
- * While the YAML stays authoritative, `registryToLegacyShapes()` must produce
- * EXACTLY what today's parsers return on the REAL s2-agent.registry.yaml —
- * these deep-equal assertions are the migration's safety net: as long as they
- * hold (locally and in CI), flipping consumers (tickets 02–03) and deleting
- * the YAML (ticket 04) is mechanical. Also asserts the module-level
- * invariants that used to live in YAML comments only.
+ * With the retired registry YAML gone, these tests are the registry's rule
+ * layer: the rules that used to live in YAML comments (static order,
+ * host-contract equality, excludeReason completeness, disabled-entry
+ * metadata) are now executable assertions over the typed REGISTRY. The
+ * pre-retirement equivalence net (TS ≡ YAML deep-equals) died with the YAML —
+ * there is no second source to be equivalent to anymore.
  */
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { parseRegistry } from "../run-dir/registry.ts";
-import { parseShConfig } from "../../s2-agent-ext-devops/src/deploy/lib/config.ts";
-import { REGISTRY, registryToLegacyShapes } from "./registry-config.ts";
+import { HOST_API, HOST_MODULE_IDS } from "./sh/host-modules.ts";
+import { HOST_CONTRACT, REGISTRY } from "./registry-config.ts";
 
-const bunAppsDir = resolve(import.meta.dir, "../..");
-const yamlPath = join(bunAppsDir, "s2-agent", "s2-agent.registry.yaml");
+const BUN_APPS = resolve(import.meta.dir, "../..");
 
 /**
  * Strip comments AND string literal contents, leaving only code tokens.
@@ -81,26 +78,6 @@ function stripCommentsAndStrings(src: string): string {
   return out;
 }
 
-describe("registry-config equivalence net (vs the real YAML)", () => {
-  const yamlText = readFileSync(yamlPath, "utf8");
-  const parsed = parseRegistry(yamlText, { bunAppsDir });
-  const shParsed = parseShConfig(yamlText, { bunAppsDir });
-  const shapes = registryToLegacyShapes({ home: homedir() });
-
-  test("registryToLegacyShapes().registry deep-equals parseRegistry(yaml)", () => {
-    expect(shapes.registry).toEqual(parsed);
-  });
-
-  test("registryToLegacyShapes().shConfig deep-equals parseShConfig(yaml)", () => {
-    expect(shapes.shConfig).toEqual(shParsed);
-  });
-
-  test("active entry count matches the YAML parse (nothing silently dropped)", () => {
-    expect(shapes.registry.extensions.map((e) => e.name)).toEqual(parsed.extensions.map((e) => e.name));
-    expect(shapes.shConfig.extensions.map((e) => e.name)).toEqual(shParsed.extensions.map((e) => e.name));
-  });
-});
-
 describe("registry-config invariants (rules that used to be YAML comments)", () => {
   test("every enabled entry without a deploy block carries a non-empty excludeReason", () => {
     const offenders = REGISTRY.filter((e) => e.enabled && e.deploy === undefined && !e.excludeReason);
@@ -126,6 +103,47 @@ describe("registry-config invariants (rules that used to be YAML comments)", () 
   test("extension names are unique", () => {
     const names = REGISTRY.map((e) => e.name);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  test("static entries order: subagent before ultracode (registry population order)", () => {
+    const idx = (name: string) => REGISTRY.findIndex((e) => e.name === name);
+    expect(idx("subagent")).toBeGreaterThanOrEqual(0);
+    expect(idx("ultracode")).toBeGreaterThan(idx("subagent"));
+    expect(REGISTRY[idx("subagent")]!.load).toBe("static");
+    expect(REGISTRY[idx("ultracode")]!.load).toBe("static");
+  });
+});
+
+describe("registry-config host contract (vs src/sh/host-modules.ts)", () => {
+  test("HOST_CONTRACT.hostApi equals the core's HOST_API", () => {
+    expect(HOST_CONTRACT.hostApi).toBe(HOST_API);
+  });
+
+  test("HOST_CONTRACT.hostModules set-equals the core's HOST_MODULE_IDS", () => {
+    // Set-equal, not array-equal: module order is a core detail; the contract
+    // is that every module the registry promises is actually embedded.
+    expect([...HOST_CONTRACT.hostModules].sort()).toEqual([...HOST_MODULE_IDS].sort());
+  });
+});
+
+describe("registry-config data integrity (module-internal + on-disk)", () => {
+  test("one registry entry per bun-apps/s2-agent-ext-* folder", () => {
+    const extDirs = readdirSync(BUN_APPS, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name.startsWith("s2-agent-ext-"))
+      .map((d) => d.name)
+      .sort();
+    const packages = REGISTRY.map((e) => e.package).sort();
+    // Every entry points at an existing folder exactly once, and every ext
+    // folder is registered — a scaffolded-but-unregistered extension is the
+    // comment-out failure mode (D2) by another name.
+    expect(packages).toEqual(extDirs);
+  });
+
+  test("every entry's package dir and entry file exist on disk", () => {
+    const missing = REGISTRY.filter(
+      (e) => !existsSync(join(BUN_APPS, e.package)) || !existsSync(join(BUN_APPS, e.package, e.entry)),
+    ).map((e) => e.name);
+    expect(missing).toEqual([]);
   });
 });
 

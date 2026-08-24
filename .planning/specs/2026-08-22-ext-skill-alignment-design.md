@@ -41,7 +41,7 @@ packages):
   (`bun-apps/s2-agent/tests/ext-package-layout.test.ts`), not docs. Allowlist
   entries carry reasons and fail when stale so the list only shrinks.
 - **D4 — Registry is the source of truth**: the bridge derives its skill list
-  from `s2-agent.registry.yaml`, never from its own glob assumptions; a
+  from `the registry YAML`, never from its own glob assumptions; a
   registered-but-undiscoverable skill fails CI.
 - **D5 — Fix known drift inline**, not per-ticket (user decision): delete the
   orphan package, rename `task/__tests__/`, add missing CONTEXT.md files in
@@ -72,7 +72,7 @@ Forbidden registration entries (existing scaffold rule, now asserted):
 - New `list-ext-skills.ts` next to the existing SKILL.md in
   `.claude/skills/using-s2-agent-skills/`. Modes: `skills | cli | scripts`,
   same tab-separated output shape as today (nothing downstream changes).
-- `skills` mode: parse `s2-agent.registry.yaml` (YAML parse, not regex) →
+- `skills` mode: parse `the registry YAML` (YAML parse, not regex) →
   entries with `skills: true` → glob `<pkg>/skills/*/SKILL.md` → real YAML
   frontmatter parse for name/description (handles `>` and `|` blocks).
 - `cli`: glob `src/*-cli.ts`. `scripts`: list `scripts/` minus `lib/`.

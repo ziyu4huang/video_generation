@@ -4,7 +4,7 @@ Status: draft (seeded 2026-08-24). Scope locked by map.md Decisions D1–D5.
 
 ## 1. Problem
 
-`s2-agent.registry.yaml` is the repo's extension registry — 24 entries mixing
+The YAML-based registry is the repo's extension registry — 24 entries mixing
 load strategy, deploy shipping, vendoring, and per-entry rationale. Two
 structural defects, both observed live:
 

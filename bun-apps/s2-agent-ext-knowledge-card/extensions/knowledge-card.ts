@@ -278,7 +278,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// Self-gate: BUN_PI_KNOWLEDGE_CARD=0 disables the entire extension — it
 	// registers no tools, event hooks, or workflow host-fns. Mirrors
 	// prompt-history's BUN_PI_PROMPT_HISTORY=0 so every extension in the
-	// portable base set (s2-agent.registry.yaml) shares one symmetric
+	// portable base set (the typed registry) shares one symmetric
 	// full-disable knob; enforced by tests/extension-isolation-contract.test.ts.
 	// (Module-scope work — GATE_DEFS registration and the deterministic
 	// health-check handoff to obsidian — is import-time by design; the knob

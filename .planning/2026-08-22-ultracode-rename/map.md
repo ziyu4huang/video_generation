@@ -23,7 +23,7 @@ Three-part effort on branch `feat/ultracode-rename`:
 
 - Identity: package.json (self + 3 dependents: s2-agent, movie-director,
   tool-gate), bun.lock (hand-aligned; bun doesn't refresh workspace sections).
-- Registry chain: s2-agent.registry.yaml → regen:manifest → manifest.json →
+- Registry chain: the registry YAML → regen:manifest → manifest.json →
   regen:static → static-extensions.ts (all derived).
 - Entry-file imports: static-extensions.ts (regen), tool-gate
   migrated-extensions/tool-gate.test/qa/* (package-specifier subpath).

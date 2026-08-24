@@ -88,7 +88,7 @@ Follow CLAUDE.md first — these are the ones that bite:
 ```
 
 Verified working: `./s2-agent.sh --list-models` (offline smoke), `./s2-agent.sh -p "<short prompt>"`
-(replied with loaded skill names). Skills load via `bun-apps/s2-agent/s2-agent.registry.yaml` (`skills: true` per entry).
+(replied with loaded skill names). Skills load via `bun-apps/s2-agent/src/registry-config.ts` (`skills: true` per entry).
 
 `bun` is required to run most ext CLIs directly. If the consuming agent has no Bun on PATH (e.g. it
 runs on plain Node), delegate rather than shelling out: `./s2-agent.sh -p "<prompt that names the skill>"`
