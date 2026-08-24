@@ -138,8 +138,21 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 //
 //   1. per-model `compat: { supportsReasoningEffort: true }`
 //   2. per-model `thinkingLevelMap: { off: "none", … }`
-//   3. run it thinking-off: spec suffix (`provider/id:off` in
-//      capabilities/`--model`), `--thinking off`, or a caller default of off.
+//   3. run it thinking-off: `--thinking off` (PROVEN reliable, measured
+//      2026-08-24: session record shows level=off, answer has NO thinking
+//      part), or a caller default of off. CAVEAT on the spec suffix
+//      (`provider/id:off` in capabilities/`--model`): pi's model-resolver
+//      (resolveCliModel) and s2-agent's resolveLLM BOTH parse the suffix
+//      correctly — but the sessions created from a `--model <id>:off -p` CLI
+//      run still recorded thinkingLevel HIGH and emitted REAL reasoning
+//      content (measured 2026-08-24, session JSONL + assistant
+//      `thinking` parts — the old `-nothink` sessions record `off`
+//      faithfully, so the record is trustworthy). The suffix was
+//      parsed-then-dropped somewhere in the session-creation handoff;
+//      until that handoff bug is found, treat `--thinking off` as the
+//      reliable no-think switch on the CLI path. Capability specs
+//      (`:off` in §3 / buildMainSpec) were NOT re-verified end-to-end — same
+//      risk applies.
 //
 // Thinking ON = run it with a thinking level (spec `:high`, `--thinking
 // high`); the map translates pi levels to values the model actually speaks
@@ -184,6 +197,58 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         // switch is on/off only): every non-none pi level lands on the
         // model's "on" — low/medium pass natively as wire values, the pi
         // extremes clamp to "xhigh" (the enum's top) to stay request-valid.
+        compat: { supportsReasoningEffort: true },
+        thinkingLevelMap: {
+          off: "none",
+          minimal: "none",
+          low: "low",
+          medium: "medium",
+          high: "high",
+          max: "xhigh",
+          xhigh: "xhigh",
+        },
+      },
+      {
+        // BENCHMARKED LANE (2026-08-24, this machine): the same gemma-4-12b
+        // served from the QAT GGUF variant — a DISTINCT id in LM Studio's
+        // /v1/models (`google/gemma-4-12b-qat`), loaded from
+        // .lmstudio/models/lmstudio-community/gemma-4-12B-it-QAT-GGUF. Same
+        // no-think wiring as the base entry — measured honored:
+        //   • text ask, reasoning_effort:"none" → 0 reasoning tokens, 0.36s
+        //   • image ask (1px PNG) → direct answer, 0 reasoning tokens, 0.51s
+        // COST vs the base entry (the reason the capability specs do NOT use
+        // this lane): 9,018-token prefill → 8.4s (~1.07K tok/s) vs 4.9s
+        // (~1.84K tok/s) on `google/gemma-4-12b` — ~1.7× slower per token, so
+        // on the agent's ~40-50K-token prompts this lane is tens of seconds
+        // worse per turn for the same output. Tiny asks are indistinguishable
+        // (<0.4s both). Prefer the base entry for anything latency-relevant;
+        // this lane exists for when the QAT weights' other properties matter.
+        // ENGINE note (user Q, 2026-08-24): the QAT lane is llama.cpp (GGUF),
+        // while `google/gemma-4-12b` is MLX-4bit — LM Studio serves ONE
+        // engine per GPU, so switching lanes costs a full model unload+load.
+        // Agent e2e (trivial ask, same machine, 2026-08-24 pass 1; step
+        // start times UTC from the session JSONL):
+        //   base   fresh 33.5s @05:12Z (idle-unloaded; main.log load dump
+        //          at 05:12:37Z) | repeated 6.7s @05:13:16Z / 05:15:36Z
+        //   qat    engine-switch 77.4s @05:13:50Z | repeated 28.9s @05:15:07Z
+        // (Measured split: fresh prompt ~21-33s prefill at ~1.3K tok/s on
+        // ~30K-token agent prompts + engine load 10-45s; same-lane
+        // repeat ≈2-7s once the server's prompt KV cache serves the
+        // identical prefix. The llama.cpp lane showed NO cross-run cache:
+        // 26s on repeat.) Correctness is uncompromised (same
+        // /v1/chat/completions; none-honored; vision OK — image ask 0.51s,
+        // 0 reasoning tokens); the draw is QAT quality-per-bit, paid in
+        // latency + engine-switch. Guidance: pick ONE lane per session and
+        // keep the server's idle-load off so the chosen engine stays
+        // resident; mixing lanes per-run pays the full reload every time.
+        // `none` is the only effort verified HERE (higher levels assumed same
+        // on/off server behavior as the base — same model family, untested).
+        id: "google/gemma-4-12b-qat",
+        name: "Gemma 4 12B QAT (LM Studio)",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 200_000,
+        maxTokens: 65_536,
         compat: { supportsReasoningEffort: true },
         thinkingLevelMap: {
           off: "none",
