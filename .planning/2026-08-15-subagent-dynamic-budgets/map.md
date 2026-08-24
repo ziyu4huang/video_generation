@@ -2,7 +2,7 @@
 effort: 2026-08-15-subagent-dynamic-budgets
 created: 2026-08-15
 last: 2026-08-25
-status: paused
+status: active
 ---
 
 # Wayfinder map: 2026-08-15-subagent-dynamic-budgets
@@ -19,6 +19,15 @@ Subagent budgets become self-calibrating and symmetric across tokens/turns/time 
 - Philosophy arc documented in `.planning/specs/2026-08-15-subagent-budget-hardening.md` + `.planning/knowledge/subagent-dispatch-budget-protocol.md` (warn-only advisories never abort; protocol: no explicit budget below tier defaults — prose, unenforced).
 
 ## Decisions so far
+
+- 2026-08-25 (fog #2 resolved, ticket 02): the time side of the role envelope
+  gains the token family's env surface — `SUBAGENT_TIME_BUDGET_{DISABLE,
+  RECON, WRITER, MULTIPLIER}` resolved inside `roleAwareDefaults` (per-role
+  absolute ms → multiplier, floor ≥1ms; DISABLE strips ONLY the wall, never
+  the whole envelope — that stays `SUBAGENT_TOKEN_BUDGET_DISABLE`). Rejected:
+  a global `SUBAGENT_TIMEOUT_MS` (third way to set the same wall), suffixed
+  units ("300s"/"5m"), per-tier time knobs (no tier time defaults exist).
+  Numeric bounds frozen (recon 5min / writer 20min) — policy-only ticket.
 
 - 2026-08-25 (fog #1 resolved, ticket 01): budget accounting is cache-aware —
   the billable metric is input+output (ADR-subagent-0009). Rejected: separate
@@ -44,7 +53,10 @@ Subagent budgets become self-calibrating and symmetric across tokens/turns/time 
   + the grace ceiling (now also on the real metric).
 - Role-model granularity beyond binary recon/writer
 - All-or-nothing envelope mixing semantics
-- Env knob extension to time (`SUBAGENT_TIME_BUDGET_*`)
+- ~~Env knob extension to time (`SUBAGENT_TIME_BUDGET_*`)~~ — RESOLVED
+  2026-08-25 (ticket `tickets/02-time-budget-env-knobs.md`): the token
+  family's knob shape mirrored onto the role wall (DISABLE/RECON/WRITER/
+  MULTIPLIER) inside `roleAwareDefaults`; all seams inherit it for free.
 - Grace ceiling ratio for time
 - Batch soft-gate extension to time
 
