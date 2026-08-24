@@ -4,7 +4,7 @@
  *
  * Regression guard for the bug where a leading help token was eaten by
  * parsePiArgs as the --help flag, so the next positional dispatched as a
- * command. COMMANDS/PIPELINES/WORKFLOWS happened to print help (runAgentCommand
+ * command. COMMANDS/PIPELINES happened to print help (runAgentCommand
  * checks the help flag), but META commands (version/list/list-tools/completions)
  * have explicit `if (first === "X")` branches that do NOT check the help flag →
  * they EXECUTED instead of showing help.

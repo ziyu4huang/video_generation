@@ -7,5 +7,5 @@
   "args": { "items": ["alpha", "beta", "gamma"] },
   "model": "lm-studio/google/gemma-4-12b",
   "thinking": "low",
-  "howToRun": "bun --cwd bun-apps/s2-agent src/cli.ts cli workflow run sample --dry-run   # then drop --dry-run (model/thinking default from manifest; override with --model/--thinking)"
+  "howToRun": "Run by s2-agent-ext-ultracode tests/workflow-pack.test.ts (real-pack suite). Interactive: the `workflow` tool's name param (model/thinking default from this manifest; override per run)."
 }
