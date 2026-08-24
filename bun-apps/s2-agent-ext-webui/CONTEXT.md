@@ -31,6 +31,16 @@ The unit of server→client payload over the WebSocket, grouped into families
 (`card`, `report`, `ask_user`, `message_*`, `tool_execution_*`, …).
 _Avoid_: message, event (a frame is the wire-level envelope; agents emit events, the webui frames them)
 
+**Announce channels (`webui:open` / `webui:deck` / `webui:present`)**:
+The INBOUND host-bus contract (archify-webui-decouple D2, 2026-08-25): the
+webui subscribes string-literal channels on `pi.events` — `webui:open` /
+`webui:deck` at `webui-wiring.ts` (open + deck handlers), `webui:present` via
+the present handler wrapper — and the emitter today is archify alone
+(`archify/src/open-announce.ts`), announcing renders, decks, and HITL views.
+Zero imports either direction: archify never imports this package, this
+package never imports archify; disabling either side degrades, never crashes.
+_Avoid_: renaming the channels (the replay path passes them by name — a rename strands every replayed event), webui-owned events (the data flow is INBOUND: emitters announce, the webui subscribes)
+
 **Frame diet**:
 The v3-at-the-source rule: the wiring subscribes ONLY the HITL frame families —
 log families (`message_*`, `tool_execution_*`, `tool_result`, `turn_*`,

@@ -101,7 +101,6 @@ import subagentExtension from "../../s2-agent-ext-subagent/extensions/subagent.t
 import ultracodeExtension from "../../s2-agent-ext-ultracode/extensions/ultracode.ts";
 import knowledgeCardExtension from "../../s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import powerToolExtension from "../../s2-agent-ext-power-tool/extensions/power-tool.ts";
-import webuiExtension from "../../s2-agent-ext-webui/extensions/webui.ts";
 import archifyExtension from "../../s2-agent-ext-archify/extensions/archify.ts";
 import compactExtension from "../../s2-agent-ext-compact/extensions/compact.ts";
 import svAnalyzerExtension from "../../s2-agent-ext-sv-analyzer/extensions/sv-analyzer.ts";
@@ -128,9 +127,6 @@ export const STATIC_EXTENSION_FACTORIES = [
 	// roster in its own TOOL_FACTORIES, deliberately not restated here). Active,
 	// not lazy, so it belongs inline like the rest of Group B.
 	{ name: "s2-agent-ext-power-tool", factory: powerToolExtension },
-	// webui — web frontend co-driving one AgentSession with the TUI behind an
-	// agentic mutex (Bun.serve WS transport; starts lazily on session_start).
-	{ name: "s2-agent-ext-webui", factory: webuiExtension },
 	{ name: "s2-agent-ext-archify", factory: archifyExtension },
 	{ name: "s2-agent-ext-compact", factory: compactExtension },
 	{ name: "s2-agent-ext-sv-analyzer", factory: svAnalyzerExtension },

@@ -125,8 +125,6 @@ const ROW_COMMENTS: Record<string, string> = {
 		"subagent — owns spawn_subagent + list_subagent_runs tools (renamed\n2026-08-20, docs/agents/extension-naming.md) + shared singletons; must\nload before workflow so workflow's /subagents viewer reads a populated registry.",
 	"power-tool":
 		"power-tool — always-on agent self-diagnostics suite (the inspect_* tools;\nroster in its own TOOL_FACTORIES, deliberately not restated here). Active,\nnot lazy, so it belongs inline like the rest of Group B.",
-	webui:
-		"webui — web frontend co-driving one AgentSession with the TUI behind an\nagentic mutex (Bun.serve WS transport; starts lazily on session_start).",
 	hyperframes:
 		"hyperframes — skills-only carrier: the vendored HyperFrames + media-use\nskill family ships in skills/ (manifest skills[]); the\nfactory is a no-op that exists so the registration path stays uniform.",
 };

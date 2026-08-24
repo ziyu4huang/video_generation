@@ -1,5 +1,14 @@
 import * as path from "node:path";
 
+/**
+ * OUTBOUND announce contract (archify-webui-decouple D2, 2026-08-25): this
+ * package emits `webui:open` / `webui:present` / `webui:deck` on the optional
+ * host event bus after successful renders/deltas/deck builds. Channel names
+ * are FROZEN — the webui subscribes them by string literal (and passes them
+ * through its replay path by name), so a rename strands replayed events.
+ * Zero webui dependency here: no bus, no subscriber, no effect.
+ */
+
 /** Structural slice of the SDK EventBus — permissive on purpose (older hosts). */
 export type OpenBus = { emit?: (channel: string, payload: unknown) => void };
 
