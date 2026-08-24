@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { HOST_API, HOST_MODULE_IDS, HostModuleNotFoundError, hostRequire } from "./host-modules.ts";
+import { HOST_MODULE_IDS, HostModuleNotFoundError, hostRequire } from "./host-modules.ts";
 
 describe("host-modules", () => {
-	test("HOST_API is the integer contract version", () => {
-		expect(HOST_API).toBe(2);
-	});
-
+	// HOST_API literal re-statement dropped 2026-08-25 (round-2 ticket 03):
+	// asserting toBe(2) restates the constant; the whitelist + hostRequire
+	// identity/shape tests below are the real contract.
 	test("exposes exactly the whitelisted specifiers", () => {
 		expect([...HOST_MODULE_IDS].sort()).toEqual([
 			"@earendil-works/pi-ai",

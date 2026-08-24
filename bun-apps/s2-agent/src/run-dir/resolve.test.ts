@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import manifest from "./manifest.json";
 import {
 	buildArgvFromManifest,
-	detectMode,
 	resolveRunDirArgv,
 	looksLikeAlias,
 	resolveLazyExtension,
@@ -15,29 +14,10 @@ import {
 	type LazySettings,
 } from "./resolve.ts";
 
-describe("detectMode", () => {
-	test("source mode: an ordinary repo path", () => {
-		expect(
-			detectMode("file:///repo/bun-apps/s2-agent/src/run-dir/resolve.ts"),
-		).toBe("source");
-	});
-
-	// The "binary" mode ($bunfs / ~BUN / %7EBUN markers) went with the compiled
-	// core (deploy-platform-neutral-core ticket 03, 2026-08-23); its tests went
-	// with it. Those URLs now classify by extension like any other URL.
-
-	test("a non-virtual .js URL is a bun-run bundle; .ts is source", () => {
-		// The sh deploy's core since 2026-08-23 is a shipped s2-agent.js run by
-		// bun — every bundled module's rewritten URL points at it.
-		expect(detectMode("file:///opt/s2-agent-sh/1.0.0/s2-agent.js")).toBe("bundle");
-		expect(detectMode("file:///repo/bun-apps/s2-agent/src/run-dir/resolve.ts")).toBe("source");
-	});
-
-	test("the real module URL (this test run) is source mode", () => {
-		// This test file lives in run-dir/ too, so its URL is a source-mode URL.
-		expect(detectMode(import.meta.url)).toBe("source");
-	});
-});
+// detectMode's own suite lives at src/mode.test.ts (the canonical seam test —
+// .ts→source, .js→bundle, own-URL→source). This file keeps only the
+// argv/manifest resolution behavior that is its real subject.
+// (dedup 2026-08-25, round-2 ticket 03)
 
 describe("buildArgvFromManifest", () => {
 	function setup() {

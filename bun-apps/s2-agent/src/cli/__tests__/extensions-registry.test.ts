@@ -52,12 +52,9 @@ describe("extension sub-command registry", () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
-  test("flux2 task echoes the positional request", () => {
-    const flux2 = EXTENSION_SPECS.find((s) => s.name === "flux2")!;
-    const task = flux2.task({ positionals: ["generate", "a red cube"] });
-    expect(task).toContain("a red cube");
-    expect(task).toContain("flux2");
-  });
+  // flux2 echo test ("task contains the positional") dropped 2026-08-25
+  // (round-2 ticket 03) — it re-echoed the input; the fallback shape test
+  // below pins the real contract.
 
   test("flux2 task falls back to a prompt when no positionals given", () => {
     const flux2 = EXTENSION_SPECS.find((s) => s.name === "flux2")!;
