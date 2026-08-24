@@ -102,7 +102,6 @@ import ultracodeExtension from "../../s2-agent-ext-ultracode/extensions/ultracod
 import knowledgeCardExtension from "../../s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import powerToolExtension from "../../s2-agent-ext-power-tool/extensions/power-tool.ts";
 import webuiExtension from "../../s2-agent-ext-webui/extensions/webui.ts";
-import hyperframesExtension from "../../s2-agent-ext-hyperframes/extensions/hyperframes.ts";
 import archifyExtension from "../../s2-agent-ext-archify/extensions/archify.ts";
 import compactExtension from "../../s2-agent-ext-compact/extensions/compact.ts";
 import svAnalyzerExtension from "../../s2-agent-ext-sv-analyzer/extensions/sv-analyzer.ts";
@@ -132,10 +131,6 @@ export const STATIC_EXTENSION_FACTORIES = [
 	// webui — web frontend co-driving one AgentSession with the TUI behind an
 	// agentic mutex (Bun.serve WS transport; starts lazily on session_start).
 	{ name: "s2-agent-ext-webui", factory: webuiExtension },
-	// hyperframes — skills-only carrier: the vendored HyperFrames + media-use
-	// skill family ships in skills/ (manifest skills[]); the
-	// factory is a no-op that exists so the registration path stays uniform.
-	{ name: "s2-agent-ext-hyperframes", factory: hyperframesExtension },
 	{ name: "s2-agent-ext-archify", factory: archifyExtension },
 	{ name: "s2-agent-ext-compact", factory: compactExtension },
 	{ name: "s2-agent-ext-sv-analyzer", factory: svAnalyzerExtension },

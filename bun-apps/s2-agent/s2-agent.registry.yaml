@@ -205,28 +205,35 @@ extensions:
     # power-tool — the audit drives the webui's own surface).
     deploy:
       order: 110
-  - name: hyperframes
-    package: s2-agent-ext-hyperframes
-    entry: extensions/hyperframes.ts
-    load: static
-    skills: true
-    # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
-    # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
-    deploy:
-      order: 120
-      # The skill helpers (animation-map / contrast-report) import these at
-      # runtime; vendoring their full closure lets the dist answer offline — no
-      # npm-install bootstrap. pinned exact in s2-agent-ext-hyperframes/package.json.
-      # Frame capture needs a browser: run.sh exports PUPPETEER_EXECUTABLE_PATH
-      # to system Chrome (none is bundled).
-      vendor: ["@hyperframes/core", "@hyperframes/producer", "sharp"]
-      # producer DECLARES 11× @fontsource/* but never resolves them at runtime:
-      # its fonts are a base64 woff2 table embedded in the bundle itself
-      # (dist/services/fontData.generated.ts — fontDataUri() reads only that
-      # Map, zero @fontsource requires across producer/engine/core/skills).
-      # Vendored, the packages are ~22MB of weight no code path can reach.
-      # Recorded in ext.json vendoredClosure.excluded; Gate 5d honours it.
-      vendorExclude: ["@fontsource/*"]
+  # DISABLED BY DEFAULT 2026-08-24 (user decision, tool-gate precedent): the
+  # HyperFrames skills family is not yet proven must-have, so it is OFF in
+  # every dimension until that is established — not loaded in source mode, not
+  # shipped in the deploy tree. It was a skills-only carrier (~5.5MB skills
+  # incl. mp3 SFX / woff2 fonts + vendored @hyperframes/core, @hyperframes/
+  # producer, and the sharp native binary). Re-enable = uncomment this entry +
+  # regen:manifest + regen:static once a real consumer demonstrates the need.
+  # - name: hyperframes
+  #   package: s2-agent-ext-hyperframes
+  #   entry: extensions/hyperframes.ts
+  #   load: static
+  #   skills: true
+  #   # Skills-only carrier: the vendored HyperFrames + media-use family (~5.5MB
+  #   # incl. mp3 SFX / woff2 fonts). Factory is a no-op; skills copy verbatim.
+  #   deploy:
+  #     order: 120
+  #     # The skill helpers (animation-map / contrast-report) import these at
+  #     # runtime; vendoring their full closure lets the dist answer offline — no
+  #     # npm-install bootstrap. pinned exact in s2-agent-ext-hyperframes/package.json.
+  #     # Frame capture needs a browser: run.sh exports PUPPETEER_EXECUTABLE_PATH
+  #     # to system Chrome (none is bundled).
+  #     vendor: ["@hyperframes/core", "@hyperframes/producer", "sharp"]
+  #     # producer DECLARES 11× @fontsource/* but never resolves them at runtime:
+  #     # its fonts are a base64 woff2 table embedded in the bundle itself
+  #     # (dist/services/fontData.generated.ts — fontDataUri() reads only that
+  #     # Map, zero @fontsource requires across producer/engine/core/skills).
+  #     # Vendored, the packages are ~22MB of weight no code path can reach.
+  #     # Recorded in ext.json vendoredClosure.excluded; Gate 5d honours it.
+  #     vendorExclude: ["@fontsource/*"]
   # DISABLED BY DEFAULT 2026-08-24 (user decision, after #1946 + its half-fix
   # follow-up): tool-gate's discovery could not see the host built-ins
   # (read/write/edit/bash/grep/find/ls — they live in _toolDefinitions, not
@@ -339,9 +346,15 @@ extensions:
     # typebox + node builtins (node:wasi for the parser). wasm/ is the built
     # tree-sitter binary, mirrored from dsh-plugin/sv-analyzer/build.sh and
     # GITIGNORED (regenerated artifact, same policy as the plugin's own
-    # plugin/wasm/) — a fresh clone runs build.sh first to mirror it before
-    # deploy/test; resolved at runtime via require("#pi/ext-dir").
-    deploy:
-      order: 170
-      copy: [wasm]
+    # plugin/wasm/); resolved at runtime via require("#pi/ext-dir").
+    #
+    # EXCLUDED FROM DEPLOY (user decision 2026-08-24): the wasm is a
+    # machine-built 40MB artifact that exists only where build.sh ran —
+    # promising it in the portable tree made every fresh worktree's Deploy-sh
+    # L1 gate fail on the missing mirror (gate 17, "copy dir 'wasm' not
+    # found"). Machine-bound like the swift-CLI extensions: loads in source
+    # mode (pure-code entry; wasm is read lazily at tool-call time), does not
+    # ship. Re-include = give it a deploy block again AFTER the wasm is either
+    # committed (LFS) or built by the deploy pipeline itself.
+    excludeReason: wasm is a machine-built gitignored artifact; ship would require the 40MB mirror in every fresh worktree
 lazyExtensions: {}
