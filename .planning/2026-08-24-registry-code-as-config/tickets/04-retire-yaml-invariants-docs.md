@@ -1,6 +1,6 @@
 # Ticket 04 — retire the YAML; invariants + docs land as code
 
-Status: open · Phase 3 (after 02+03)
+Status: done · Phase 3 (merged PR #1970, CLEAN, 2026-08-24; s2-agent 0.7.0)
 
 ## Scope
 
@@ -25,6 +25,29 @@ Status: open · Phase 3 (after 02+03)
   deploy from a scratch temp registry fixture (deploy-e2e's fixture lane)
   green; local_ci green; version bumped (minor — developer-facing workflow
   change).
+
+## Close-out (PR #1970, merged CLEAN 2026-08-24)
+
+- Deleted: the YAML; `parseRegistry` (run-dir/registry.ts) with its schema
+  constants; `parseShConfig`/`excludedExtensions` (devops config.ts); the
+  fixture tests (run-dir/registry.test.ts describe, devops config.test.ts
+  fixture describes). The equivalence net dropped (map D9) —
+  `registryToLegacyShapes()` became `legacyRegistry()` (converter, shConfig
+  half deleted); the invariant suite in registry-config.test.ts absorbed the
+  rule layer.
+- Comment-diff per Notes: the YAML's per-entry comments were ported verbatim
+  into `notes:` fields during t01; re-checked before deletion (web-access /
+  obsidian / file2md / power-tool externals / webui / hyperframes
+  vendor+fontsource / tool-gate history) — nothing measured dropped.
+- `$generated` unfrozen → "from src/registry-config.ts by regen:manifest";
+  manifest regenerated; `regen:static` byte-identical (17 entries).
+- single-registry-guard flips to a zero-mention form (retired filename must
+  never reappear in bun-apps/scripts); `git grep` of the filename: zero hits
+  repo-wide (docs sweep incl. planning docs + archives).
+- GATES: s2-agent 1038/0 + typecheck clean · devops 871/0 + tsc clean ·
+  contract suites 168/0 · local_ci pass (merge gate) · deploy-probe fixture
+  lane 15/15 (PI_AGENT_E2E=1) · verify-merge CLEAN (58 files,
+  +225/−1252, outOfScope []) · version bump minor → 0.7.0.
 
 ## Notes
 
