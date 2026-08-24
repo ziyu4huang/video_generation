@@ -5,6 +5,8 @@ last: 2026-08-25
 status: active
 ---
 
+<!-- last touched: ticket 02 closed 2026-08-25 (L0/L1 generation live on USB4) -->
+
 # kcard resource tier — document-tree L0/L1/L2 (the OpenViking resource model) on the kcard Surreal index
 
 ## Destination
@@ -25,7 +27,7 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 ### Phase 1 — index + L2
 - [01] `resource` table + document-tree L2 ingest — closed 2026-08-25 (implemented; receipts in the ticket)
 ### Phase 2 — semantic tiers
-- [02] directory L1 overview + L0 abstract generation (bottom-up, sampled) — open (blocked by 01)
+- [02] directory L1 overview + L0 abstract generation (bottom-up, sampled) — closed 2026-08-25 (implemented; receipts in the ticket)
 ### Phase 3 — retrieval
 - [03] directory-recursive retrieval lane over resource rows — open (blocked by 02)
 ### Phase 4 — proof + surface
@@ -47,12 +49,12 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 
 ## Frontier
 
-Ticket 02 — directory L1 overview + L0 abstract generation: ticket 01 landed the `resource` table + L2 ingest (840 USB4 rows, delta-embedding contract, flat KNN live); the semantic tiers are the next readers of those rows and the input ticket 03's recursion descends through.
+Ticket 03 — directory-recursive retrieval lane over resource rows: tickets 01+02 landed the full row set (840 L2 + 2 L0 + 2 L1 on USB4, idempotent re-ingest, zero-LLM skip); the heap-recursive lane (global L0/L1 seed pass → best-first descent with α-propagation, D6) is the first reader of the tier rows and the input to the eval gate (04).
 
 ## Fog of war
 
-- Sampling bound + token budget for L1 over an 839-child directory (the USB4 pages/ dir is flat) — measure in ticket 02; upstream batches/merges, we may need chapter-level grouping (page-number → chapter segmentation from the spec TOC) if a single L1 can't hold a sampled 839-file dir usefully.
-- Whether L0/L1 sidecars inside a file2md output tree confuse file2md's resumability (page-status manifest ignores non-page files — expected safe; verify in ticket 02).
+- Sampling bound RESOLVED (ticket 02): 32-sample, 5.8k-char prompt on the 839-child dir — single sampled L1 suffices, NO TOC chapter segmentation; revisit only if ticket 04's eval shows chapter-level misranking.
+- file2md resumability RESOLVED (ticket 02): sidecars are invisible to the page-scoped manifest (0.57s full resume over the sidecar'd tree).
 - α (score propagation) and the L0/L1-seed-vs-L2-only ablation — measure in ticket 03/04.
 - Whether `zk_ask`'s graph-RAG turn-limit fallback (observed 2026-08-25 morning) interacts with the resource lane — out of scope here, recorded in the morning's next-goal.
 

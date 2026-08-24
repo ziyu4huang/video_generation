@@ -49,7 +49,7 @@ export type ValueField =
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
-	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json"
+	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json" | "noTiers"
 	| "save"
 	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe"
@@ -111,6 +111,11 @@ const ZK_INGEST_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 // ── resource tier (resource-ingest / resource-query) — tree discriminator ───
 const RESOURCE_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--tree", field: "tree" }, // filter/scope by tree slug (default: basename of the ingested root)
+];
+
+// ── resource tier (resource-ingest) — semantic tier pass ────────────────────
+const RESOURCE_BOOL_FLAGS: readonly BoolFlagSpec[] = [
+	{ flags: ["--no-tiers"], field: "noTiers" }, // skip L0/L1 sidecar generation (L2-only rebuild)
 ];
 
 // ── zk-query — graph-health filters ─────────────────────────────────────────
@@ -351,6 +356,7 @@ const META_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 /** All boolean flags (merged). */
 export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...MEMORY_TO_VAULT_BOOL_FLAGS,
+	...RESOURCE_BOOL_FLAGS,
 	...GLOBAL_BOOL_FLAGS,
 	...ZK_ASK_BOOL_FLAGS,
 	...ZK_CARD_BOOL_FLAGS,
