@@ -51,12 +51,13 @@ import { loopCommand } from "./commands/loop.ts";
 import { pipelineGateCommand } from "./commands/pipeline-gate.ts";
 import { dispatchLogCommand } from "./commands/dispatch-log.ts";
 import { printCompletions, completionsMeta } from "./commands/completions.ts";
+import { printTable } from "./format.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 import { bakedProviderConfigs } from "../pre-load-providers.ts";
 import { publishSeam } from "@repo/s2-agent-core-interface";
 
-const VERSION = "0.7.5";
+const VERSION = "0.7.6";
 
 /** A top-level agent/meta command. Exported for extensions/registry.ts. */
 export interface Command {
@@ -279,22 +280,6 @@ async function listModels(): Promise<void> {
     { key: "images", label: "images" },
   ]);
   console.log(`\nTotal: ${rows.length}`);
-}
-
-/**
- * Print `rows` as an aligned column table with a header derived from `cols`.
- * Shared by `listModels` and `listTools` so the width/padEnd logic isn't duplicated.
- */
-function printTable(rows: Record<string, string>[], cols: { key: string; label: string }[]): void {
-  if (rows.length === 0) return;
-  const widths = cols.map(
-    (c) => Math.max(c.label.length, ...rows.map((r) => String(r[c.key] ?? "").length)),
-  );
-  const fmt = (r: Record<string, string>) =>
-    cols.map((c, i) => String(r[c.key] ?? "").padEnd(widths[i]!)).join("  ").trimEnd();
-  const header = Object.fromEntries(cols.map((c) => [c.key, c.label])) as Record<string, string>;
-  console.log(fmt(header));
-  for (const r of rows) console.log(fmt(r));
 }
 
 /**

@@ -13,7 +13,7 @@
  * session, so this command reads them locally and prints only aggregate counts
  * — never raw arguments.
  */
-import { readdirSync, readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -27,6 +27,7 @@ import {
 	resolveContextPercent,
 } from "@repo/s2-agent-ext-power-tool/history";
 import type { ParsedArgs } from "../args.ts";
+import { listSessionFiles, resolveSessionsDir } from "../sessions/discover.ts";
 
 /** Calibrated against the real corpus — see .planning/plans/2026-08-16-*.md. */
 const DEFAULT_WINDOW = 200;
@@ -80,27 +81,6 @@ export function formatTrendReport(report: AggregateReport, ctx: FormatContext): 
 		);
 	}
 	return out;
-}
-
-/** Default transcript archive root. */
-function resolveSessionsDir(env: NodeJS.ProcessEnv): string {
-	return env.PI_SESSIONS_DIR ?? join(homedir(), ".pi", "agent", "sessions");
-}
-
-/** Every *.jsonl under every subdirectory of the sessions root. */
-function listSessionFiles(root: string): string[] {
-	if (!existsSync(root)) return [];
-	const files: string[] = [];
-	for (const dir of readdirSync(root)) {
-		try {
-			for (const f of readdirSync(join(root, dir))) {
-				if (f.endsWith(".jsonl")) files.push(join(root, dir, f));
-			}
-		} catch {
-			// unreadable directory — skip
-		}
-	}
-	return files;
 }
 
 /** modelId → context window, read shape-agnostically from the models store. */

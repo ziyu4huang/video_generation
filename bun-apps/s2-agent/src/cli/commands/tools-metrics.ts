@@ -23,10 +23,10 @@
  * lives on the `bash` tool's `toolCall` + `toolResult` records. Counting both
  * would double-count bash.
  */
-import { readdirSync, readFileSync, existsSync, type Dirent } from "node:fs";
-import { join } from "node:path";
-import { resolveAgentDir } from "../../paths.ts";
+import { readFileSync } from "node:fs";
 import type { ParsedArgs } from "../args.ts";
+import { printTable } from "../format.ts";
+import { listSessionFiles, resolveSessionsDir } from "../sessions/discover.ts";
 import {
 	buildSchemaCostReport,
 	formatSchemaCostReport,
@@ -226,6 +226,16 @@ export interface FormatOpts {
 	toolFilter?: string[]; // substrings; empty = all
 }
 
+/** Columns rendered right-aligned in the report table (counts, rates, latencies). */
+const NUMERIC_COLS = new Set([
+	"calls", "results", "errors", "err%", "recov%", "p50", "p95", "max", "mean",
+]);
+
+/** Table render opts for `printTable`: right-align numerics, append to `lines`. */
+function tableOpts(lines: string[]): { rightAlign: ReadonlySet<string>; emit: (l: string) => void } {
+	return { rightAlign: NUMERIC_COLS, emit: (l) => lines.push(l) };
+}
+
 /** Render the report as plain-text lines (human mode). */
 export function formatReport(report: MetricsReport, opts: FormatOpts = {}): string[] {
 	const lines: string[] = [];
@@ -266,9 +276,13 @@ export function formatReport(report: MetricsReport, opts: FormatOpts = {}): stri
 			max: fmtMs(Math.max(0, ...t.latencies)),
 			mean: fmtMs(t.latencies.length ? sum(t.latencies) / t.latencies.length : 0),
 		}));
-		printTable(lines, rows, [
-			"tool", "calls", "results", "errors", "err%", "recov%", "p50", "p95", "max", "mean",
-		]);
+		printTable(
+			rows,
+			["tool", "calls", "results", "errors", "err%", "recov%", "p50", "p95", "max", "mean"].map(
+				(key) => ({ key }),
+			),
+			tableOpts(lines),
+		);
 	} else {
 		const rows = shown.map((t) => ({
 			tool: t.name,
@@ -278,37 +292,17 @@ export function formatReport(report: MetricsReport, opts: FormatOpts = {}): stri
 			"err%": pct(t.errors, t.results),
 			p50: fmtMs(percentile(t.latencies, 50)),
 		}));
-		printTable(lines, rows, ["tool", "calls", "results", "errors", "err%", "p50"]);
+		printTable(
+			rows,
+			["tool", "calls", "results", "errors", "err%", "p50"].map((key) => ({ key })),
+			tableOpts(lines),
+		);
 	}
 
 	if (opts.top && tools.length > shown.length) {
 		lines.push(`(${tools.length - shown.length} more tools hidden — raise --top or use --tool <name>)`);
 	}
 	return lines;
-}
-
-/** Append a right-aligned column table to `lines`. */
-function printTable(
-	lines: string[],
-	rows: Record<string, string>[],
-	cols: string[],
-): void {
-	if (rows.length === 0) return;
-	const numeric = new Set(["calls", "results", "errors", "err%", "recov%", "p50", "p95", "max", "mean"]);
-	const widths = cols.map(
-		(c) => Math.max(c.length, ...rows.map((r) => String(r[c] ?? "").length)),
-	);
-	const fmt = (r: Record<string, string>) =>
-		cols
-			.map((c, i) => {
-				const v = String(r[c] ?? "");
-				return numeric.has(c) ? v.padStart(widths[i]!) : v.padEnd(widths[i]!);
-			})
-			.join("  ")
-			.trimEnd();
-	const header = Object.fromEntries(cols.map((c) => [c, c])) as Record<string, string>;
-	lines.push(fmt(header));
-	for (const r of rows) lines.push(fmt(r));
 }
 
 /** Render the report as a single JSON object (machine mode). */
@@ -388,34 +382,6 @@ function parseBoundary(raw: string | undefined, edge: "start" | "end"): number |
 	const ms = Date.parse(raw);
 	if (Number.isNaN(ms)) throw new Error(`Invalid timestamp: ${raw} (expected YYYY-MM-DD or ISO)`);
 	return ms;
-}
-
-// --- file discovery ----------------------------------------------------------
-
-/** Recursively collect *.jsonl paths under `dir` (empty if absent). */
-export function listSessionFiles(dir: string): string[] {
-	if (!existsSync(dir)) return [];
-	const out: string[] = [];
-	const walk = (d: string): void => {
-		let entries: Dirent<string>[];
-		try {
-			entries = readdirSync(d, { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const e of entries) {
-			const p = join(d, e.name);
-			if (e.isDirectory()) walk(p);
-			else if (e.isFile() && p.endsWith(".jsonl")) out.push(p);
-		}
-	};
-	walk(dir);
-	return out;
-}
-
-/** Resolve the sessions dir: $PI_CODING_AGENT_DIR/sessions → ~/.pi/agent/sessions. */
-export function resolveSessionsDir(env: Record<string, string | undefined>): string {
-	return join(resolveAgentDir(env), "sessions");
 }
 
 // --- command wiring ----------------------------------------------------------
