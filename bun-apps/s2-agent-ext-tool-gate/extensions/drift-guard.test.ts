@@ -179,17 +179,19 @@ function entry(name: string): MigratedExtension {
 // source of truth stays single.
 // ────────────────────────────────────────────────────────────────────
 describe("drift-guard — pilot tools declare valid gating", () => {
-	test("power-tool: 6 core inspect_* + power_browser-gated browser/webui carry valid (non-dead) gating", () => {
+	test("power-tool: 6 core inspect_* + power_browser-gated browser carry valid (non-dead) gating", () => {
 		const defs = captureRegisteredTools(entry("power-tool").register);
 		// Non-vacuous: assert the expected names are present (capture captured the
 		// real tools, not an empty set). This list is deliberately hand-maintained
 		// — it is the tripwire that fires when power-tool grows or loses a tool,
-		// which is exactly how `webui` (#1564) was caught.
+		// which is exactly how `webui` (#1564) was caught (and again when `webui`
+		// moved to s2-agent-ext-webui, 2026-08-25 — it audits that package's own
+		// server and registers there now; that dynamic ext is not a captured
+		// pilot, so its tool is out of this characterization).
 		const names = defs.map((d) => d.name).sort();
 		expect(names).toEqual(
 			[
 				"browser",
-				"webui",
 				"inspect_agent",
 				"inspect_context",
 				"inspect_extensions",
@@ -207,8 +209,9 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 			expect(d.gating?.gate, `'${d.name}' no longer references a gate family`).toBeUndefined();
 		}
 		// The non-inspect_ tools are the deliberate exception: on-demand headless
-		// Chrome (`browser`, and `webui` which drives the same engine), so they
-		// stay keyword-gated rather than riding along with the always-on
+		// Chrome (`browser` — and `webui`, which drives the same engine but moved
+		// to s2-agent-ext-webui 2026-08-25), so they stay keyword-gated rather
+		// than riding along with the always-on
 		// diagnostics. Asserting the inverse of the inspect_* rule keeps a future
 		// un-gating from passing silently.
 		//
@@ -217,7 +220,7 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 		// family, a `defs.find(d => d.name === "browser")` assertion said nothing
 		// about it. Now any new tool in the group is checked the moment it appears.
 		const gated = defs.filter((d) => !d.name?.startsWith("inspect_"));
-		expect(gated.map((d) => d.name).sort()).toEqual(["browser", "webui"]);
+		expect(gated.map((d) => d.name).sort()).toEqual(["browser"]);
 		for (const d of gated) {
 			expect(d.gating?.gate, `'${d.name}' is gated, not core`).toBe("power_browser");
 			expect(d.gating?.core, `'${d.name}' must not be owner-declared core`).toBeFalsy();

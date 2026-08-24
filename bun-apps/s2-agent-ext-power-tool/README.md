@@ -77,47 +77,13 @@ bun bun-apps/s2-agent/src/cli.ts \
 bun bun-apps/s2-agent/src/cli.ts cli power-tool "which extension is heaviest?"
 ```
 
-## webui audit (Playwright)
+## webui audit (Playwright) — MOVED
 
-The `webui` tool audits the LIVE webui extension (s2-agent-ext-webui) in one
-call: it opens `http://localhost:<port>` in headless system Chrome (same engine
-as the browser tool — never downloads one), exercises every tab, screenshots
-each into `~/.pi/power-browser/runs/`, and evaluates the design invariants.
-
-```bash
-# In a session: just say "call webui" (gated: power_browser family).
-# Default port 8890; publish on by default:
-#   call webui {port: 8890, publish: true}
-```
-
-**Invariants (7).** The tool DETECTS the live layout — it never assumes which
-shell generation is running (v2/v3 family-tolerant):
-
-1. `panes-exclusive` — at most one visible pane.
-2. `ask-cards-located` — ask cards live in inbox-family panes.
-3. `viewer-cards-located` — viewer cards live in data panes.
-4. `report-articles-located` — report panes hold report-* articles only.
-5. `report-iframe-sized` — report iframes >= 320x300 (the #1576 bug class:
-   a browser-default 300x150 iframe passed every earlier invariant; geometry
-   is measured with each pane actually SHOWN — a hidden pane measures 0x0 and
-   counts as unmeasured, never a failure).
-6. `zero-page-errors` / 7. `zero-console-errors` — the shell loads clean
-   (boot noise like a favicon 404 or an empty main-slot 404 fails here).
-
-**Dogfood (audit → report loop).** After auditing, the tool PUBLISHES its own
-markdown report into the audited webui's Report tab (`POST /api/report`,
-source `webui-audit`) — findings appear in the browser you are looking at, and
-the webui's persistence mirror accumulates audit history across restarts.
-Best-effort by contract: a publish failure never fails the audit it reports
-on; opt out with `publish: false`.
-
-**Verification playbook** (proven across the webui-v3 arc): drive the REAL
-`makeWebuiTool().execute()` from a script for CI-style audits; for
-composition-level proof boot the real `wireWebui` against a seeded
-`WEBUI_REPORT_DIR` and fire `session_start` (the server starts lazily there);
-`page.on("console")` messages carry `msg.location()` with the URL Chromium
-strips from the text (how the favicon 404 was found); download menus prove out
-via `page.waitForEvent("download")` with `acceptDownloads: true`.
+The `webui` audit tool moved to **s2-agent-ext-webui** (user directive
+2026-08-25): it audits that package's server, so it lives and registers with
+the server it audits (same `power_browser` gate family as this package's
+browser tool; registered tool name/params unchanged). See
+`bun-apps/s2-agent-ext-webui/` and its `skills/webui-audit/`.
 
 ## Testing
 

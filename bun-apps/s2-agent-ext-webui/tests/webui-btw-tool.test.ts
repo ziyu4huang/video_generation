@@ -1,10 +1,11 @@
 /**
  * webui-btw-tool.test.ts — mode "btw": drain the BTW tab queue WITHOUT
  * launching a browser (pure fetch), the agent-side half of the branch loop.
+ * (Moved from s2-agent-ext-power-tool with the tool itself.)
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
-import { makeWebuiTool } from "../tools/webui-tool.js";
+import { makeWebuiTool } from "../src/webui-tool.js";
 
 const pending = [
   { id: "btw-1", question: "why is the scrollbar inset?", chips: ["css"], aboutTitle: "Architecture" },

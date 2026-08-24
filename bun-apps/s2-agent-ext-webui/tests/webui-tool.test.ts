@@ -1,25 +1,27 @@
 /**
  * webui-tool.test.ts — units for the pure audit logic + one Chrome-gated
  * integration against a Bun.serve stub of the five-tab webui shell.
+ * (Moved from s2-agent-ext-power-tool with the tool itself — it audits THIS
+ * package's server.)
  *
- * Chrome gating mirrors browser-tool.test.ts: a real headless launch is
- * probed ONCE at module load (bun evaluates test.skipIf at definition time,
- * so a beforeAll probe cannot flip it). Machines without system Chrome skip
- * the integration gracefully while the pure units still run everywhere.
- * PI_POWER_BROWSER_RUNS_ROOT points at a temp dir for the whole file — no
- * test ever writes under the real ~/.pi/power-browser.
+ * Chrome gating mirrors power-tool's browser-tool.test.ts: a real headless
+ * launch is probed ONCE at module load (bun evaluates test.skipIf at
+ * definition time, so a beforeAll probe cannot flip it). Machines without
+ * system Chrome skip the integration gracefully while the pure units still
+ * run everywhere. PI_POWER_BROWSER_RUNS_ROOT points at a temp dir for the
+ * whole file — no test ever writes under the real ~/.pi/power-browser.
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { chromeLikelyAvailable } from "../browser-tool.js";
 import {
+  chromeLikelyAvailable,
   evaluateInvariants,
   formatReport,
   makeWebuiTool,
   type WebuiAuditState,
-} from "../webui-tool.js";
+} from "../src/webui-tool.js";
 
 // ─── Fixtures (pure) ──────────────────────────────────────────────────────────
 

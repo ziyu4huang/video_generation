@@ -184,7 +184,7 @@ interface ToolInfoStub {
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe("tool registration", () => {
-  test("registers all 6 inspect_* tools plus browser and webui", () => {
+  test("registers all 6 inspect_* tools plus browser", () => {
     const { captured } = loadExtension([]);
     // ask_user_question -> s2-agent-ext-ask-user (A2, merged into
     // s2-agent-ext-task 2026-07-18); goal+todo -> s2-agent-ext-task
@@ -192,9 +192,9 @@ describe("tool registration", () => {
     // power-tool is now self-contained diagnostics: inspect_* only, plus
     // inspect_pathology (F v1) for failure-pattern detection, plus
     // inspect_tui for above-editor widget debugging, plus the gated browser
-    // tool (power_browser gate) for on-demand headless-Chrome browsing, plus
-    // the gated webui tool for single-call visual/design audits of the live
-    // webui.
+    // tool (power_browser gate) for on-demand headless-Chrome browsing.
+    // The gated `webui` audit tool moved to s2-agent-ext-webui (user
+    // directive 2026-08-25) — it audits that package's server.
     expect(Object.keys(captured).sort()).toEqual([
       "browser",
       "inspect_agent",
@@ -203,13 +203,12 @@ describe("tool registration", () => {
       "inspect_hooks",
       "inspect_pathology",
       "inspect_tui",
-      "webui",
     ]);
   });
 
   test("each registered tool has label, description, and execute fn", () => {
     const { captured } = loadExtension([]);
-    expect(Object.keys(captured).length).toBe(8);
+    expect(Object.keys(captured).length).toBe(7);
     for (const name of Object.keys(captured)) {
       expect(typeof captured[name].label).toBe("string");
       expect(captured[name].label.length).toBeGreaterThan(0);

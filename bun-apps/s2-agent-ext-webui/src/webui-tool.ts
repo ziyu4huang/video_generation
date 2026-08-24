@@ -1,7 +1,9 @@
 // webui-tool.ts — single-call visual/design audit of the live webui.
-// Sibling of browser-tool.ts: same engine (headless system Chrome), same
-// run-dir audit trail, but PURPOSE-BUILT for webui design verification —
-// the instrument for the v3 simplify effort (planning D3).
+// Same engine as power-tool's browser tool (headless system Chrome, shared
+// run-dir audit trail), but PURPOSE-BUILT for webui design verification —
+// the instrument for the v3 simplify effort (planning D3). Moved here from
+// s2-agent-ext-power-tool (user directive 2026-08-25): it audits THIS
+// package's server, so it lives and registers with the server it audits.
 // Pure logic (state → invariants/report) is split from Chrome I/O so units
 // run everywhere; only audit() needs a real browser (Chrome-gated tests).
 import { defineTool } from "@earendil-works/pi-coding-agent";
@@ -11,12 +13,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { Browser } from "playwright-core";
-import { chromeLikelyAvailable } from "./browser-tool.js";
 
-// Same gate family as browser-tool: ONE power_browser gate covers both
-// headless-Chrome tools. browser-tool.ts owns the canonical registration
-// (both modules load together via TOOL_FACTORIES); the re-assert below is
-// an identical, idempotent copy so this file stays correct standalone.
+// Same gate family as power-tool's browser tool: ONE power_browser gate
+// covers both headless-Chrome tools. browser-tool.ts (power-tool) owns the
+// canonical registration; the re-assert below is an identical, idempotent
+// copy so this file stays correct standalone (both load in a session —
+// power-tool statically, this package dynamically).
 GATE_DEFS["power_browser"] ??= {
   id: "power_browser",
   keywords: [
@@ -33,6 +35,24 @@ GATE_DEFS["power_browser"] ??= {
   ],
   description: "Code-first headless-Chrome browsing: openPage/snapshot/screenshot via JS",
 };
+
+// System-Chrome candidates — `channel: "chrome"` resolves these; probing the
+// paths first lets us fail fast with a helpful message instead of a launch
+// stack. playwright-core never downloads browsers on its own. Kept in sync
+// with power-tool's browser-tool.ts (the copy this file used to import).
+const CHROME_CANDIDATES = [
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+];
+
+/** Cheap filesystem probe for a system Chrome/Chromium. */
+export function chromeLikelyAvailable(): boolean {
+  return CHROME_CANDIDATES.some((candidate) => fs.existsSync(candidate));
+}
 
 const DEFAULT_PORT = 8890;
 const ACTION_TIMEOUT_MS = 10_000;
@@ -278,8 +298,9 @@ function collectDom(): WebuiDom {
   return { tabs, tabIds, panes };
 }
 
-// Default audit root — SAME root as browser-tool (tests override via
-// PI_POWER_BROWSER_RUNS_ROOT, read lazily so an env set after import applies).
+// Default audit root — SAME root as power-tool's browser tool (tests override
+// via PI_POWER_BROWSER_RUNS_ROOT, read lazily so an env set after import
+// applies).
 function runsRoot(): string {
   const override = process.env.PI_POWER_BROWSER_RUNS_ROOT;
   return override ? path.resolve(override) : path.join(os.homedir(), ".pi", "power-browser", "runs");
@@ -411,7 +432,7 @@ export function makeWebuiTool() {
       mode: Type.Optional(
         Type.Union([Type.Literal("audit"), Type.Literal("btw")], {
           description:
-            '"audit" (default): full Playwright audit. "btw": list the BTW tab\u0027s pending branch questions (browser -> agent; NO browser launched) — answer them in chat, then resolve each via POST /api/btw/<id>/resolve.',
+            "\"audit\" (default): full Playwright audit. \"btw\": list the BTW tab's pending branch questions (browser -> agent; NO browser launched) — answer them in chat, then resolve each via POST /api/btw/<id>/resolve.",
         }),
       ),
     }),

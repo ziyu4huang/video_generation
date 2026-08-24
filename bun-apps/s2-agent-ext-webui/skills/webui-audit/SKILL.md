@@ -1,6 +1,6 @@
 ---
 name: webui-audit
-description: Use when the pi webui (s2-agent-ext-webui) changes, when the user reports a webui/UI problem (small frames, broken exports, console noise, layout), or when verifying webui work end-to-end. Drives the power-tool `webui` tool (headless Chrome + Playwright) to audit the LIVE shell, publish findings into its Report tab, and dig deeper when invariants fail.
+description: Use when the pi webui (s2-agent-ext-webui) changes, when the user reports a webui/UI problem (small frames, broken exports, console noise, layout), or when verifying webui work end-to-end. Drives this package's own `webui` tool (headless Chrome + Playwright; moved from power-tool 2026-08-25) to audit the LIVE shell, publish findings into its Report tab, and dig deeper when invariants fail.
 allowed-tools: Bash(bun:*), Bash(curl:*), Bash(lsof:*)
 ---
 

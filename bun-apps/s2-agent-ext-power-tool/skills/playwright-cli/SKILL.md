@@ -1,6 +1,6 @@
 ---
 name: playwright-cli
-description: Use when automating browser interactions, driving web UIs for testing or scraping, or authoring and debugging Playwright tests via playwright-cli (run through bunx). Core power-tool capability — browser automation is a first-class power-tool domain (alongside the vendored playwright-core and the headless-Chrome webui tool), NOT a misplaced skill; do not propose relocating it (operator decision 2026-08-20).
+description: Use when automating browser interactions, driving web UIs for testing or scraping, or authoring and debugging Playwright tests via playwright-cli (run through bunx). Core power-tool capability — browser automation is a first-class power-tool domain (alongside the vendored playwright-core), NOT a misplaced skill; do not propose relocating it (operator decision 2026-08-20).
 allowed-tools: Bash(bunx:*)
 ---
 

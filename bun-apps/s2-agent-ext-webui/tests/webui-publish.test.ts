@@ -2,11 +2,12 @@
  * webui-publish.test.ts — the dogfood door (publishAuditReport): the audit
  * tool POSTs its own report into the audited webui. Contract: never throws;
  * ok on 200, rejected on non-200, unreachable when the fetch fails.
+ * (Moved from s2-agent-ext-power-tool with the tool itself.)
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { publishAuditReport } from "../tools/webui-tool.js";
+import { publishAuditReport } from "../src/webui-tool.js";
 
 const received: Array<{ title?: unknown; source?: unknown; markdown?: unknown }> = [];
 const srv = createServer((req, res) => {

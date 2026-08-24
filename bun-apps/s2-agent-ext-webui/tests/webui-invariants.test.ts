@@ -1,11 +1,12 @@
 /**
- * webui-invariants.test.ts â unit tests for the pure audit logic in
+ * webui-invariants.test.ts — unit tests for the pure audit logic in
  * webui-tool.ts (evaluateInvariants). The seven invariants ran untested
  * between t01 and inv 7; these pin the interesting branches, especially the
  * report-iframe-sized thresholds (the #1576 bug class: 304x154 default).
+ * (Moved from s2-agent-ext-power-tool with the tool itself.)
  */
 import { describe, expect, test } from "bun:test";
-import { evaluateInvariants, type WebuiAuditState } from "../tools/webui-tool.js";
+import { evaluateInvariants, type WebuiAuditState } from "../src/webui-tool.js";
 
 function state(panes: WebuiAuditState["panes"]): WebuiAuditState {
   return { url: "http://t", tabs: ["Inbox", "Report", "Data"], panes, consoleErrors: [], pageErrors: [] };
@@ -18,7 +19,7 @@ const art = (id: string, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-describe("evaluateInvariants â report-iframe-sized (inv 7)", () => {
+describe("evaluateInvariants — report-iframe-sized (inv 7)", () => {
   test("healthy 70vh frame passes; undersized 304x154 (the #1576 default) fails", () => {
     const ok = evaluateInvariants(state([
       { id: "cards-pane", hidden: false, articles: [] },
@@ -118,7 +119,7 @@ describe("evaluateInvariants — panes-exclusive is fold-aware (webui #1684 More
   });
 });
 
-import { connectFailureReport } from "../tools/webui-tool.js";
+import { connectFailureReport } from "../src/webui-tool.js";
 
 describe("connectFailureReport — failure-kind classification (errdx)", () => {
   test("Chrome launch failure -> launch hint, NOT 'start the webui'", () => {
