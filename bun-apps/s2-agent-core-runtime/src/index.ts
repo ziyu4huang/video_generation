@@ -38,13 +38,14 @@ export {
 
 export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryOptions, AgentHistoryRole } from "./agent-history.js";
 export { compactAgentHistory, summarizeLatestAction } from "./agent-history.js";
-export type { FallbackDecision } from "./agent-model.js";
+export type { FallbackDecision, SpecThinkingLevel } from "./agent-model.js";
 export {
   clampModelToScope,
   resolveAgentModelSpec,
   resolveFallbackModel,
   resolveScopedAgentModelSpec,
   sessionModelInjectionWins,
+  splitSpecThinkingSuffix,
 } from "./agent-model.js";
 export type { AgentDefinition, AgentRegistry } from "./agent-registry.js";
 export {

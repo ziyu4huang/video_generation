@@ -360,8 +360,9 @@ export class CoreAgent {
       spec: modelSpec,
       clamped,
       requested,
+      thinkingLevel: specThinkingLevel,
     } = sessionModelInjectionWins(options, this.sessionOptions)
-      ? { spec: undefined, clamped: false, requested: undefined }
+      ? { spec: undefined, clamped: false, requested: undefined, thinkingLevel: undefined }
       : resolveScopedAgentModelSpec(options, this.mainModel, this.scopedModels, () => this.getTierConfig());
     if (clamped) {
       console.warn(
@@ -420,8 +421,13 @@ export class CoreAgent {
       settingsManager: SettingsManager.create(this.cwd, agentDir),
       customTools,
       ...this.sessionOptions,
-      // Per-call model wins over any sessionOptions.model.
+      // Per-call model wins over any sessionOptions.model. Same precedence for
+      // a `:thinking` spec suffix (explicit per-call/tier intent beats the
+      // sessionOptions thinking level, which would otherwise default to the
+      // user's settings — e.g. high — and re-enable the reasoning burn the
+      // suffix pins off).
       ...(resolvedModel ? { model: resolvedModel } : {}),
+      ...(specThinkingLevel ? { thinkingLevel: specThinkingLevel } : {}),
     });
 
     // On fallback, emit the ACTUAL model the session resolved to so downstream

@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import type { ModelTierConfig } from "@repo/s2-agent-core-runtime";
-import { resolveAgentModelSpec, sessionModelInjectionWins } from "@repo/s2-agent-core-runtime";
+import {
+  resolveAgentModelSpec,
+  resolveScopedAgentModelSpec,
+  sessionModelInjectionWins,
+  splitSpecThinkingSuffix,
+} from "@repo/s2-agent-core-runtime";
 
 /**
  * Pins the unknown-tier console.warn emitted by resolveAgentModelSpec (agent.ts):
@@ -44,4 +49,53 @@ test("sessionModelInjectionWins: injection wins only when no per-call model/tier
   // No injection → normal resolution applies (today's behavior).
   expect(sessionModelInjectionWins({}, undefined)).toBe(false);
   expect(sessionModelInjectionWins({}, {})).toBe(false);
+});
+
+/**
+ * `:thinking` spec-suffix handling (gemma no-think vision swap, 2026-08-24):
+ * a suffixed spec (`provider/id:off`) used to reach WorkflowAgent.resolveModel
+ * with the suffix intact, fail the registry lookup, and fall all the way back
+ * to the session default ("requested model … unavailable"). The suffix must be
+ * stripped for lookup AND surfaced as `thinkingLevel` so assembleSession can
+ * pin the run's thinking level (the load-bearing no-think pin).
+ */
+test("splitSpecThinkingSuffix: splits a legal suffix, leaves everything else whole", () => {
+  // Legal suffix after the last slash → split.
+  expect(splitSpecThinkingSuffix("lm-studio/google/gemma-4-12b:off")).toEqual({
+    base: "lm-studio/google/gemma-4-12b",
+    thinkingLevel: "off",
+  });
+  expect(splitSpecThinkingSuffix("vendor/x:high")).toEqual({ base: "vendor/x", thinkingLevel: "high" });
+  // Not a ThinkingLevel → whole spec is the base (colons are not assumed).
+  expect(splitSpecThinkingSuffix("vendor/x:sometimes")).toEqual({ base: "vendor/x:sometimes" });
+  // Colon inside the provider segment (before the last slash) → whole.
+  expect(splitSpecThinkingSuffix("http://host/model")).toEqual({ base: "http://host/model" });
+  // No colon at all.
+  expect(splitSpecThinkingSuffix("vendor/x")).toEqual({ base: "vendor/x" });
+});
+
+test("resolveScopedAgentModelSpec: strips the suffix for resolution and returns thinkingLevel", async () => {
+  const noTierConfig = () => null;
+  // Explicit suffixed model: base id resolves the precedence chain, level is carried.
+  const explicit = resolveScopedAgentModelSpec(
+    { model: "lm-studio/google/gemma-4-12b:off" },
+    undefined,
+    undefined,
+    noTierConfig,
+  );
+  expect(explicit.spec).toBe("lm-studio/google/gemma-4-12b");
+  expect(explicit.thinkingLevel).toBe("off");
+  expect(explicit.clamped).toBe(false);
+  // Tier/capability specs from the config may carry a suffix too.
+  const cfg: ModelTierConfig = {
+    tiers: { small: "vendor/s:off", medium: "vendor/m:low", big: "vendor/b" },
+    capabilities: { vision: "lm-studio/google/gemma-4-12b:off" },
+  };
+  const viaTier = resolveScopedAgentModelSpec({ tier: "medium" }, undefined, undefined, () => cfg);
+  expect(viaTier.spec).toBe("vendor/m");
+  expect(viaTier.thinkingLevel).toBe("low");
+  // Unsuffixed specs stay unsuffixed (no level emitted).
+  const plain = resolveScopedAgentModelSpec({ tier: "big" }, undefined, undefined, () => cfg);
+  expect(plain.spec).toBe("vendor/b");
+  expect(plain.thinkingLevel).toBeUndefined();
 });

@@ -21,8 +21,9 @@ describe("buildModelTiersJson — serializes the default config", () => {
   test("contains the glm-lmstudio tier ids", () => {
     const json = buildModelTiersJson();
     expect(json).toContain("zai/glm-4.7");
-expect(json).toContain("zai/glm-5.3");
-    expect(json).toContain("lm-studio/qwen/qwen3.8-27b");  });
+    expect(json).toContain("zai/glm-5.3");
+    expect(json).toContain("lm-studio/google/gemma-4-12b:off");
+  });
 
   test("parses back to a structurally-equal config object", () => {
     const json = buildModelTiersJson();
