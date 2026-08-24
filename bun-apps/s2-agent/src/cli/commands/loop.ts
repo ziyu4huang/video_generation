@@ -94,10 +94,17 @@ function row(label: string, drift: boolean, detail: string): string {
 	return `${drift ? "DRIFT" : "PASS"}  ${label}: ${detail}`;
 }
 
-/** Spawn and capture BOTH streams: bun ≥1.4 routes `bun test` output (incl.
- * the coverage table) to stderr, so a stdout-only capture sees nothing. */
+/**
+ * Spawn and capture BOTH streams: bun ≥1.4 routes `bun test` output (incl.
+ * the coverage table) to stderr, so a stdout-only capture sees nothing.
+ * The child env drops FORCE_COLOR (a set shell var makes bun ANSI-wrap piped
+ * output — e.g. `\x1b[0m\x1b[33m50\x1b[0m` for a parsed number) which would
+ * corrupt the coverage/stats parsers below; NO_COLOR alone cannot win.
+ */
 export function run(cwd: string, cmd: string[]): string {
-	const r = Bun.spawnSync(cmd, { cwd });
+	const env = { ...process.env };
+	delete env.FORCE_COLOR;
+	const r = Bun.spawnSync(cmd, { cwd, env });
 	return `${r.stdout ? r.stdout.toString() : ""}\n${r.stderr ? r.stderr.toString() : ""}`;
 }
 
