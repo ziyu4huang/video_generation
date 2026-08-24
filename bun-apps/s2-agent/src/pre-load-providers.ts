@@ -1,5 +1,6 @@
 /**
  * pre-load-providers — ALL baked model config for @repo/s2-agent in one file:
+ * (single-catalog invariant: `ADR-s2-agent-0005`)
  *
  *   §1 PROVIDERS        — extension-provider catalog (lm-studio) + registration helpers
  *   §2 BUILTIN_MODEL_DEFAULT — the default provider/model/thinking choice

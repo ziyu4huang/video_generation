@@ -11,7 +11,7 @@ import { findCommandToken } from "../dispatch.ts";
  * covers the CLI-only surface: `--args` JSON parsing and the `workflow` namespace
  * dispatch (reserved-token routing). End-to-end pack runs are exercised by the
  * engine's workflow-pack tests (which point at the example packs in this
- * package's `workflows/` dir) and by `workflow-retrieval-quality.test.ts`.
+ * package's `workflows/` dir).
  */
 
 // ── parseWorkflowArgs ──────────────────────────────────────────────────────
