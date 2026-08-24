@@ -151,7 +151,7 @@ describe("resolveEnvBridges — built-in fill-gaps defaults", () => {
         {
           settings: {
             defaultProvider: "lm-studio",
-            defaultModel: "google/gemma-4-12b",
+            defaultModel: "prism-ml/bonsai-27b",
             defaultThinkingLevel: "low",
           },
           builtinByFlag: BUILTIN,

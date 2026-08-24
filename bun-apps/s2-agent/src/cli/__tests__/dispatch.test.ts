@@ -13,7 +13,7 @@ import { findCommandToken } from "../dispatch.ts";
 describe("findCommandToken — global flags before sub-command", () => {
   test("regression: --model <value> before command is detected", () => {
     const argv = [
-      "--model", "lm-studio/google/gemma-4-12b",
+      "--model", "lm-studio/prism-ml/bonsai-27b",
       "file2md", "fixture/p.pdf",
       "--out", "./tmp/x/", "--pages", "16",
     ];

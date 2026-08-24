@@ -97,7 +97,7 @@ function printList(): void {
       `Env gates l2-e2e.test.ts reads:\n` +
       `  PI_RUN_L2=1      enable L2 (spawns real CLI + real LM Studio model)  (high+)\n` +
       `  PI_REQUIRE_L2=1  blocked services FAIL instead of SKIP               (full)\n` +
-      `  PI_L2_MODEL      override the LM Studio model (default: google/gemma-4-12b)\n`,
+      `  PI_L2_MODEL      override the LM Studio model (default: prism-ml/bonsai-27b)\n`,
   );
 }
 

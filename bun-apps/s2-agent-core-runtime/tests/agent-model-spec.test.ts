@@ -61,8 +61,8 @@ test("sessionModelInjectionWins: injection wins only when no per-call model/tier
  */
 test("splitSpecThinkingSuffix: splits a legal suffix, leaves everything else whole", () => {
   // Legal suffix after the last slash → split.
-  expect(splitSpecThinkingSuffix("lm-studio/google/gemma-4-12b:off")).toEqual({
-    base: "lm-studio/google/gemma-4-12b",
+  expect(splitSpecThinkingSuffix("lm-studio/prism-ml/bonsai-27b:off")).toEqual({
+    base: "lm-studio/prism-ml/bonsai-27b",
     thinkingLevel: "off",
   });
   expect(splitSpecThinkingSuffix("vendor/x:high")).toEqual({ base: "vendor/x", thinkingLevel: "high" });
@@ -78,18 +78,18 @@ test("resolveScopedAgentModelSpec: strips the suffix for resolution and returns 
   const noTierConfig = () => null;
   // Explicit suffixed model: base id resolves the precedence chain, level is carried.
   const explicit = resolveScopedAgentModelSpec(
-    { model: "lm-studio/google/gemma-4-12b:off" },
+    { model: "lm-studio/prism-ml/bonsai-27b:off" },
     undefined,
     undefined,
     noTierConfig,
   );
-  expect(explicit.spec).toBe("lm-studio/google/gemma-4-12b");
+  expect(explicit.spec).toBe("lm-studio/prism-ml/bonsai-27b");
   expect(explicit.thinkingLevel).toBe("off");
   expect(explicit.clamped).toBe(false);
   // Tier/capability specs from the config may carry a suffix too.
   const cfg: ModelTierConfig = {
     tiers: { small: "vendor/s:off", medium: "vendor/m:low", big: "vendor/b" },
-    capabilities: { vision: "lm-studio/google/gemma-4-12b:off" },
+    capabilities: { vision: "lm-studio/prism-ml/bonsai-27b:off" },
   };
   const viaTier = resolveScopedAgentModelSpec({ tier: "medium" }, undefined, undefined, () => cfg);
   expect(viaTier.spec).toBe("vendor/m");

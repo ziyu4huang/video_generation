@@ -82,7 +82,7 @@ describe("/models-preset — transient contract", () => {
     await handler("deepseek-pro", ctx);
     expect(calls.switchMainModel).toEqual(["deepseek/deepseek-v4-pro"]);
     expect(calls.setTransientConfig[0]?.tiers).toEqual({
-      small: "lm-studio/google/gemma-4-12b",
+      small: "lm-studio/prism-ml/bonsai-27b",
       medium: "deepseek/deepseek-v4-flash",
       big: "deepseek/deepseek-v4-pro",
     });
@@ -130,9 +130,9 @@ describe("/models-preset — transient contract", () => {
 describe("parseModelSpec", () => {
   test("provider/id split at the FIRST slash, optional :thinking suffix", () => {
     expect(parseModelSpec("zai/glm-5.3")).toEqual({ provider: "zai", modelId: "glm-5.3" });
-    expect(parseModelSpec("lm-studio/google/gemma-4-12b")).toEqual({
+    expect(parseModelSpec("lm-studio/prism-ml/bonsai-27b")).toEqual({
       provider: "lm-studio",
-      modelId: "google/gemma-4-12b",
+      modelId: "prism-ml/bonsai-27b",
     });
     expect(parseModelSpec("zai/glm-5.3:low")).toEqual({ provider: "zai", modelId: "glm-5.3", thinking: "low" });
     expect(parseModelSpec("no-slash")).toBeUndefined();

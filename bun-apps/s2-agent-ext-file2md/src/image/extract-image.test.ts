@@ -54,7 +54,7 @@ describe("extractImageCard", () => {
     assert.match(r.markdown, /dimensions: \{width: 800, height: 200\}/);
     assert.match(r.markdown, /locator: shot\.png/);
     assert.match(r.markdown, /format: png/);
-    assert.match(r.markdown, /extractor: vision-ocr\+google\/gemma-4-12b/);
+    assert.match(r.markdown, /extractor: vision-ocr\+prism-ml\/bonsai-27b/);
     assert.match(r.markdown, /source_hash: [0-9a-f]{64}/);
     assert.match(r.markdown, /content_hash: [0-9a-f]{64}/);
     assert.match(r.markdown, /## 核心想法[\s\S]*OCR:\nHELLO 123[\s\S]*Vision:\nA white image/);
@@ -85,7 +85,7 @@ describe("extractImageCard", () => {
       now: () => "2026-08-14",
     });
     assert.equal(r.degraded, true);
-    assert.match(r.markdown, /extractor: google\/gemma-4-12b$/m);
+    assert.match(r.markdown, /extractor: prism-ml\/bonsai-27b$/m);
     assert.match(r.markdown, /dimensions: \{width: 0, height: 0\}/); // dims unknown without OCR
     assert.match(r.markdown, /Vision:\nA diagram of the pipeline\./);
   });

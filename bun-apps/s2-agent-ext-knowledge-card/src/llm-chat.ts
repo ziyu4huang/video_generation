@@ -30,7 +30,7 @@ export interface LmChatOptions {
 	 *  on the first attempt instead of relying on the parse-failure retry
 	 *  (ticket 01 — the 2048 default guaranteed truncation at chunk scale). */
 	maxTokensFirst?: number;
-	/** `reasoning_effort` pass-through. Measured 2026-08-24 on gemma-4-12b
+	/** `reasoning_effort` pass-through. Measured 2026-08-24 on bonsai-27b
 	 *  (LM Studio OpenAI API): this is the ONLY knob that actually suppresses
 	 *  gemma-4 thinking — without it every token burns in reasoning_content,
 	 *  `content` stays empty and the reply hits finish=length (a 15-entry
@@ -109,7 +109,7 @@ export function resolveKgModel(config: Parameters<typeof resolveModelRole>[1] = 
 	if (spec) {
 		const slash = spec.indexOf("/");
 		let id = slash === -1 ? spec : spec.slice(slash + 1);
-		// Strip the pi `model:effort` suffix (e.g. "gemma-4-12b:off") — LM
+		// Strip the pi `model:effort` suffix (e.g. "bonsai-27b:off") — LM
 		// Studio model ids never carry it. Measured 2026-08-24: the leaked
 		// ":off" made LM Studio silently route the request to whatever model
 		// happened to be loaded (prism-ml/bonsai-27b, 2× slower prefill),
@@ -118,7 +118,7 @@ export function resolveKgModel(config: Parameters<typeof resolveModelRole>[1] = 
 		if (colon > 0) id = id.slice(0, colon);
 		return id;
 	}
-	return "google/gemma-4-12b";
+	return "prism-ml/bonsai-27b";
 }
 
 /**

@@ -5,7 +5,7 @@
   "kind": "workflow-pack",
   "engine": "s2-agent-ext-ultracode",
   "args": { "items": ["alpha", "beta", "gamma"] },
-  "model": "lm-studio/google/gemma-4-12b",
+  "model": "lm-studio/prism-ml/bonsai-27b",
   "thinking": "low",
   "howToRun": "Run by s2-agent-ext-ultracode tests/workflow-pack.test.ts (real-pack suite). Interactive: the `workflow` tool's name param (model/thinking default from this manifest; override per run)."
 }

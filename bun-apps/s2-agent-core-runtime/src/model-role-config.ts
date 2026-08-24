@@ -19,7 +19,7 @@ import { homeDir } from "./home.js";
  */
 export interface ModelTierConfig {
   tiers: Record<string, string>;
-  /** Capability → model-spec (e.g. { vision: "lmstudio/google/gemma-4-12b" }). Optional.
+  /** Capability → model-spec (e.g. { vision: "lmstudio/prism-ml/bonsai-27b" }). Optional.
    * Supports tiered keys ("vision-large"/"vision-medium"/"vision-small") that
    * fall back to the un-suffixed capability ("vision") when not set separately. */
   capabilities?: Record<string, string>;

@@ -51,7 +51,7 @@ Options:
 Examples:
   s2-agent cli pipeline image-to-vault scan.jpg
   s2-agent cli pipeline image-to-vault diagram.png --delete-png
-  s2-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/google/gemma-4-12b`,
+  s2-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/prism-ml/bonsai-27b`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		// Delegate to the shared pdf-to-vault orchestrator, passing `parsed`

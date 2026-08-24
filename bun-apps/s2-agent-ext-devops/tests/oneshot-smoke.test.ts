@@ -421,7 +421,7 @@ function mkModelsFetch(state: "contentious" | "quiet" | "error" | "not-ok") {
 		if (state === "not-ok") return { ok: false, json: async () => ({}) } as unknown as Response;
 		const ids =
 			state === "contentious"
-				? [{ id: "qwen3.8-27b" }, { id: "gemma-4-12b" }, { id: "text-embedding-bge-m3" }]
+				? [{ id: "qwen3.8-27b" }, { id: "bonsai-27b" }, { id: "text-embedding-bge-m3" }]
 				: [{ id: "qwen3.8-27b" }, { id: "text-embedding-bge-m3" }];
 		return { ok: true, json: async () => ({ data: ids }) } as unknown as Response;
 	};

@@ -97,8 +97,8 @@ const model = (provider: string, id: string) => ({ provider, id });
 
 describe("summaryModelValue + modelMatchesEnabledPatterns", () => {
 	test("summaryModelValue composes provider/id", () => {
-		expect(summaryModelValue(model("lm-studio", "google/gemma-4-12b"))).toBe(
-			"lm-studio/google/gemma-4-12b",
+		expect(summaryModelValue(model("lm-studio", "prism-ml/bonsai-27b"))).toBe(
+			"lm-studio/prism-ml/bonsai-27b",
 		);
 	});
 
@@ -107,8 +107,8 @@ describe("summaryModelValue + modelMatchesEnabledPatterns", () => {
 	});
 
 	test("exact provider/id pattern matches (case-insensitive)", () => {
-		const patterns = ["lm-studio/google/gemma-4-12b"];
-		expect(modelMatchesEnabledPatterns(model("LM-Studio", "google/gemma-4-12b"), patterns)).toBe(true);
+		const patterns = ["lm-studio/prism-ml/bonsai-27b"];
+		expect(modelMatchesEnabledPatterns(model("LM-Studio", "prism-ml/bonsai-27b"), patterns)).toBe(true);
 		expect(modelMatchesEnabledPatterns(model("openai", "gpt-4o"), patterns)).toBe(false);
 	});
 
@@ -119,8 +119,8 @@ describe("summaryModelValue + modelMatchesEnabledPatterns", () => {
 	});
 
 	test("strips a trailing thinking-level suffix before matching", () => {
-		const patterns = ["lm-studio/google/gemma-4-12b"];
+		const patterns = ["lm-studio/prism-ml/bonsai-27b"];
 		// A pattern without the suffix still matches (suffix is normalized away).
-		expect(modelMatchesEnabledPatterns(model("lm-studio", "google/gemma-4-12b"), patterns)).toBe(true);
+		expect(modelMatchesEnabledPatterns(model("lm-studio", "prism-ml/bonsai-27b"), patterns)).toBe(true);
 	});
 });

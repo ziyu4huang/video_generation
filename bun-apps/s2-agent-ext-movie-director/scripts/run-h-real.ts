@@ -13,7 +13,7 @@
  * #281 already proved the agent walks this state machine end-to-end. H-real
  * isolates ONE variable — "does real generation work in the assets stage?" — so
  * driving the same `movie` handlers deterministically removes the
- * gemma-4-12b tool-adherence flake from the critical path (see goal honest
+ * the retired 12b lane's tool-adherence flake from the critical path (see goal honest
  * risks: "the agent, not the pipeline, is the binding constraint"). The state
  * machine, the gate, the cost lifecycle, and the real directors are all
  * exercised identically to an agent-driven run.

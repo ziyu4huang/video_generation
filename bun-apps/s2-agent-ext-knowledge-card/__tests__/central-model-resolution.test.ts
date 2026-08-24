@@ -5,25 +5,25 @@ import type { ModelTierConfig } from "@repo/s2-agent-core-runtime";
 
 const CFG: ModelTierConfig = {
 	tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-	capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+	capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
 };
 
 describe("knowledge-card central model resolution", () => {
 	test("resolveKgModel strips provider prefix from capabilities.vision", () => {
 		delete process.env.PI_KG_LLM_MODEL;
-		expect(resolveKgModel(CFG)).toBe("google/gemma-4-12b");
+		expect(resolveKgModel(CFG)).toBe("prism-ml/bonsai-27b");
 	});
 
 	test("resolveKgModel strips the pi :effort suffix — LM Studio ids never carry it", () => {
 		// Regression (2026-08-24): capabilities entries carry pi's `model:effort`
-		// form ("gemma-4-12b:off"); the leaked suffix made LM Studio silently
+		// form ("bonsai-27b:off"); the leaked suffix made LM Studio silently
 		// route to whatever model was loaded (bonsai-27b) instead of erroring.
 		delete process.env.PI_KG_LLM_MODEL;
 		const cfg: ModelTierConfig = {
 			tiers: CFG.tiers,
-			capabilities: { vision: "lm-studio/google/gemma-4-12b:off" },
+			capabilities: { vision: "lm-studio/prism-ml/bonsai-27b:off" },
 		};
-		expect(resolveKgModel(cfg)).toBe("google/gemma-4-12b");
+		expect(resolveKgModel(cfg)).toBe("prism-ml/bonsai-27b");
 	});
 
 	test("resolveKgModel env wins over tier config", () => {
@@ -37,7 +37,7 @@ describe("knowledge-card central model resolution", () => {
 
 	test("resolveKgModel keeps a local terminal default when config absent (never-throw contract)", () => {
 		delete process.env.PI_KG_LLM_MODEL;
-		expect(resolveKgModel(null)).toBe("google/gemma-4-12b");
+		expect(resolveKgModel(null)).toBe("prism-ml/bonsai-27b");
 	});
 
 	test("resolveDistillModel uses tiers.small from central config", () => {

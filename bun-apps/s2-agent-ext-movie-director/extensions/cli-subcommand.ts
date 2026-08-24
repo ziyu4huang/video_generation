@@ -55,7 +55,7 @@ This spends real GPU tokens (MLX image + video generation). Call \`movie_help\`
 first if the agent needs the command reference or stage contract.
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          override the curated [movie, movie_help] tool allowlist

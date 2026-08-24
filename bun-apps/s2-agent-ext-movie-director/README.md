@@ -248,7 +248,7 @@ from HuggingFace on first use). The end-to-end proof is reproducible:
 bun run --cwd bun-apps/s2-agent-ext-movie-director scripts/run-whisper-e2e.ts
 ```
 
-The agent-driven path (gemma-4-12b drives the chain via the `movie` tool, no
+The agent-driven path (bonsai-27b drives the chain via the `movie` tool, no
 deterministic script) feeds the transcribe `words.json` straight into
 `generate {capability:"subtitle", options:{wordsPath}}` — `subtitle_gen` derives
 the cues itself, so the agent does no timestamp math. See

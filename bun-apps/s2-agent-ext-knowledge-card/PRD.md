@@ -169,7 +169,7 @@ auto-triggers:
   all collapsed to `["read", "obsidian", "obsidian_help"]` after obsidian's
   Phase-3 fold of 18 granular tools into one action-dispatched `obsidian`.
 - `model` — `resolveDistillModel(params.model)` =
-  `params.model ?? KC_SUBAGENT_MODEL ?? "google/gemma-4-12b"`.
+  `params.model ?? KC_SUBAGENT_MODEL ?? "prism-ml/bonsai-27b"`.
 - `extensionTools` — `parentExtensionTools`, captured at `session_start` (the R2
   bridge so the child's `obsidian` tool is reachable in manifest AND `-e` dev mode).
 
@@ -188,7 +188,7 @@ zkSpawn reads **environment variables**, not `~/.pi/agent/settings.json`:
 
 | Knob | Affects | Default / note |
 |------|---------|----------------|
-| `KC_SUBAGENT_MODEL` (env) | child model | `google/gemma-4-12b` — a **LOCAL** LM Studio model, keeping kcard's LLM spend off the cloud. Per-call `model` arg overrides. |
+| `KC_SUBAGENT_MODEL` (env) | child model | `prism-ml/bonsai-27b` — a **LOCAL** LM Studio model, keeping kcard's LLM spend off the cloud. Per-call `model` arg overrides. |
 | `OB_VAULT_PATH` / `OB_VAULT_DIR` (env) | vault path | resolved via pi-obsidian `resolveVault` (env → config → app → `cwd/vault`). |
 | `OB_SUBAGENT_TIMEOUT_MS` (env) | timeout | ⚠ **documented in the header comment but stale for the migrated path**: the in-process `zkSpawn` call sites pass no `timeoutMs`, and `spawnSubagent` only arms a timer when `timeoutMs` is truthy (`spawn-subagent.ts:228`). zk_* subagents therefore run with **no timeout gate** today. (This env is still honored by pi-obsidian's separate `obsidian_distill`/`garden` child-process tools.) |
 
@@ -201,7 +201,7 @@ the zk_* subagent model, set `KC_SUBAGENT_MODEL` (or pass the tool's `model` arg
 
 ```
  CONFIG  (env / arg — NOT settings.json; see gotchas above)
-   KC_SUBAGENT_MODEL (env) ......... child model  [default local gemma-4-12b]
+   KC_SUBAGENT_MODEL (env) ......... child model  [default local bonsai-27b]
    OB_VAULT_PATH / OB_VAULT_DIR .... vault path  (resolveVault)
    per-call `model` arg ............ overrides KC_SUBAGENT_MODEL
    ✗ settings.json obsidian.subagentModel + defaultModel → IGNORED

@@ -54,7 +54,7 @@ MLX_MODELS_DIR, LTX_VIDEO_BIN, …). Use \`--tools\` / \`-V\` / \`--mode json\` 
 CLI-level control. Call \`ltx_help\` first if the agent needs exact option keys.
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          override the curated [ltx, ltx_help] tool allowlist

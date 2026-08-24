@@ -43,7 +43,7 @@ export interface IngestOptions {
   kgLlm?: boolean;
   /** Chat model id for the kg.llm extractor (Phase-2 T2). Threaded to zk's
    *  `resolveExtractor` as the `LlmRelationExtractor` model override; env
-   *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b").
+   *  fallback `PI_KG_LLM_MODEL` (zk default "prism-ml/bonsai-27b").
    *  Walk-and-ingest / hermes call-sites may rely on the env default — the
    *  field is the explicit carrier. */
   kgLlmModel?: string;

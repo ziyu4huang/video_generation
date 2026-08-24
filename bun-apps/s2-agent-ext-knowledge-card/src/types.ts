@@ -94,7 +94,7 @@ export interface IngestOptions {
 	kgLlm?: boolean;
 	/** Chat model id for the kg.llm extractor (Phase-2 T2). Threaded to
 	 *  `resolveExtractor` as the `LlmRelationExtractor` model override; env
-	 *  fallback `PI_KG_LLM_MODEL` (zk default "google/gemma-4-12b"). */
+	 *  fallback `PI_KG_LLM_MODEL` (zk default "prism-ml/bonsai-27b"). */
 	kgLlmModel?: string;
 	/** Opt-in LLM condense for schema-v2 summaries (D4). Default OFF — the
 	 *  over-budget body then keeps its clamped deterministic first sentence

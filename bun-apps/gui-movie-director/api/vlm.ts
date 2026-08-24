@@ -1,7 +1,11 @@
 import { loadConfig, vlmModelIsAuto } from "../lib/config";
 
-// Mirror caption.py constants — kept in sync manually.
-const PREFERRED_VLM = "google/gemma-4-12b-qat";  // Gemma 12B (better, never auto-loaded)
+// VLM constants. User directive 2026-08-25: defaults point at prism-ml/bonsai-27b
+// (the provider catalog's 256K ternary lane). Deliberate divergence: python
+// caption.py's _resolve_model ladder still prefers the 12b-qat lane —
+// aligning the python stack is a separate decision, do NOT "fix" this back to
+// match it. Bonsai is never auto-loaded (LM Studio loads on demand).
+const PREFERRED_VLM = "prism-ml/bonsai-27b";   // Bonsai 27B (preferred, never auto-loaded)
 const DEFAULT_VLM   = "qwen/qwen3-vl-4b";              // Qwen 4B  (default, auto-loaded when needed)
 
 interface VlmTestResult {
@@ -37,7 +41,7 @@ async function getLoadedModels(apiUrl: string): Promise<string[]> {
 
 /**
  * Mirror caption.py's _resolve_model: walk priority list, return whichever
- * candidate is already loaded (Gemma preferred); fall back to Qwen + willLoad.
+ * candidate is already loaded (bonsai preferred); fall back to Qwen + willLoad.
  */
 function resolveAutoModel(loadedModels: string[]): { model: string; alreadyLoaded: boolean } {
   for (const candidate of [PREFERRED_VLM, DEFAULT_VLM]) {

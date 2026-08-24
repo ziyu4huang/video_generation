@@ -172,7 +172,7 @@ export type SpecThinkingLevel = (typeof SPEC_THINKING_LEVELS)[number];
 /**
  * Split a `provider/id[:thinking]` spec into its registry base and optional
  * thinking level. The suffix is recognized ONLY when it names a real
- * ThinkingLevel AND sits after the last slash (so `lm-studio/google/gemma-4-12b:off`
+ * ThinkingLevel AND sits after the last slash (so `lm-studio/prism-ml/bonsai-27b:off`
  * splits, while an id containing a colon that isn't a level — or one inside
  * the provider segment — is left whole). Same rule file2md's resolveLLM and
  * budget-defaults' stripModelRoleSuffix apply; this is the core-runtime copy

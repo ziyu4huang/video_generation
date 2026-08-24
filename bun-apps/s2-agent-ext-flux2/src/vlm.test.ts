@@ -26,12 +26,12 @@ test("resolveVlmLLM resolves the central capabilities.vision slot", () => {
   withTempTierConfig(
     {
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
     },
     () => {
       const llm = resolveVlmLLM();
       expect(llm.provider).toBe("lm-studio");
-      expect(llm.modelId).toBe("google/gemma-4-12b");
+      expect(llm.modelId).toBe("prism-ml/bonsai-27b");
     },
   );
 });
@@ -40,7 +40,7 @@ test("resolveVlmLLM: explicit override wins over the central slot", () => {
   withTempTierConfig(
     {
       tiers: { small: "zai/glm-4.7" },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
     },
     () => {
       const llm = resolveVlmLLM("openai/gpt-4.1-mini");

@@ -40,7 +40,7 @@ describe("parseArgs — global flags", () => {
 	});
 
 	test("--model=gemma inline form", () => {
-		expect(parseArgs(["--model=gemma-4-12b"]).model).toBe("gemma-4-12b");
+		expect(parseArgs(["--model=bonsai-27b"]).model).toBe("bonsai-27b");
 	});
 });
 

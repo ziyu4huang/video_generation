@@ -69,14 +69,14 @@ describe("decision-point logging", () => {
       cfgPath,
       JSON.stringify({
         tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-        capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+        capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
       }),
     );
     process.env.PI_DEBUG_MODELS = "1";
     const { lines, ret } = captureConsoleError(() => loadModelTierConfig(cfgPath));
-    expect(ret?.capabilities?.vision).toBe("lm-studio/google/gemma-4-12b");
+    expect(ret?.capabilities?.vision).toBe("lm-studio/prism-ml/bonsai-27b");
     expect(lines.some((l) => l.includes("[models] load-config") && l.includes(cfgPath))).toBe(true);
-    expect(lines.some((l) => l.includes("vision") && l.includes("gemma-4-12b"))).toBe(true);
+    expect(lines.some((l) => l.includes("vision") && l.includes("bonsai-27b"))).toBe(true);
   });
 
   test("absent config is reported as absent, not silent", () => {
@@ -92,7 +92,7 @@ describe("decision-point logging", () => {
     process.env.PI_DEBUG_MODELS = "1";
     const loadConfig = () => ({
       tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3" },
-      capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+      capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
     });
     const { lines, ret } = captureConsoleError(() =>
       resolveScopedAgentModelSpec({ tier: "small" }, "zai/glm-5.3", undefined, loadConfig),

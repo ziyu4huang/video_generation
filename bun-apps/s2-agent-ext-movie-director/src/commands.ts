@@ -197,7 +197,7 @@ with the movie-director extension baked in (\`-e\`), the same invocation the
 README documents for agent-driven runs. Override the pi entry via \`PI_BIN\`.
 
 Options (forwarded to pi):
-  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --mode json            NDJSON event stream

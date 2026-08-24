@@ -67,7 +67,7 @@ describe("collectModelFacts — the baked-in provider/model layers of s2-agent",
 		expect(facts.catalog.length).toBeGreaterThan(0);
 		const lm = facts.catalog.find((p) => p.id === "lm-studio");
 		expect(lm).toBeDefined();
-		expect(lm?.models.map((m) => m.id)).toContain("google/gemma-4-12b");
+		expect(lm?.models.map((m) => m.id)).toContain("prism-ml/bonsai-27b");
 	});
 
 	test("default model facts come from the real sources", () => {
@@ -92,7 +92,7 @@ describe("renderDeployReport", () => {
 		expect(html).toContain("verifyDualState");
 		// Provider analysis section.
 		expect(html).toContain("lm-studio");
-		expect(html).toContain("google/gemma-4-12b");
+		expect(html).toContain("prism-ml/bonsai-27b");
 		expect(html).toContain("glm-5.3");
 	});
 
