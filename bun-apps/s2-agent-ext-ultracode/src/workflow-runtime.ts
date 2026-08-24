@@ -212,6 +212,12 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
 
     // Check agent limit
     if (shared.agentCount >= maxAgents) {
+      // No-silent-caps (cc-parity t03): the cap is also a run-log line, not
+      // only the thrown error — a script reading its logs sees why dispatches
+      // stopped even when the error is caught/swallowed upstream.
+      log(
+        `[clamp] agent limit reached (maxAgents=${maxAgents}) — dispatch blocked; raise the maxAgents option to continue`,
+      );
       throw new WorkflowError(
         `Agent limit exceeded (${maxAgents}). Use maxAgents option to increase the limit.`,
         WorkflowErrorCode.AGENT_LIMIT_EXCEEDED,

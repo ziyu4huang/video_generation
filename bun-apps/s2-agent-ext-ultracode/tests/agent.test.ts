@@ -802,3 +802,49 @@ test("checkBudgetExhaustion: only one budget set — checks just that one", () =
   );
   assert.equal(checkBudgetExhaustion({ tokens: { total: 10 }, cost: 2 }, { spendBudget: 0.5 })?.kind, "spend");
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ultracode-cc-parity t03: no-silent-caps — a clamped run says so in its logs
+// ═══════════════════════════════════════════════════════════════════════════
+
+const echoAgent = {
+  async run(prompt: string) {
+    return `ran:${prompt}`;
+  },
+};
+
+test("concurrency clamp is logged requested→actual, not silent", async () => {
+  const script = `export const meta = { name: 'clamp', description: 'concurrency clamp log' }
+return 'ok'`;
+  const res = await runWorkflow(script, {
+    agent: echoAgent as any,
+    persistLogs: false,
+    concurrency: 64, // MAX_CONCURRENCY is 16 — must clamp AND say so
+  });
+  assert.match(
+    (res.logs ?? []).join("\n"),
+    /\[clamp\] concurrency 64 → 16 \(max 16\)/,
+    "the run log names requested→actual",
+  );
+});
+
+test("concurrency within the cap logs no clamp line", async () => {
+  const script = `export const meta = { name: 'noclamp', description: 'no clamp log' }
+return 'ok'`;
+  const res = await runWorkflow(script, { agent: echoAgent as any, persistLogs: false, concurrency: 4 });
+  assert.doesNotMatch((res.logs ?? []).join("\n"), /\[clamp\] concurrency/, "unclamped run stays quiet");
+});
+
+test("agent-limit block is logged before the throw", async () => {
+  const script = `export const meta = { name: 'limit', description: 'agent limit log' }
+await agent('first')
+try { await agent('second') } catch (e) { return 'caught:' + (e && e.code) }
+return 'unreached'`;
+  const res = await runWorkflow(script, { agent: echoAgent as any, persistLogs: false, maxAgents: 1 });
+  assert.match(
+    (res.logs ?? []).join("\n"),
+    /\[clamp\] agent limit reached \(maxAgents=1\)/,
+    "the cap is a run-log line, not only the thrown error",
+  );
+  assert.equal(res.result, "caught:AGENT_LIMIT_EXCEEDED");
+});

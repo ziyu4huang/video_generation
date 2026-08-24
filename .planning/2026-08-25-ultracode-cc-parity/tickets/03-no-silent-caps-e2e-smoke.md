@@ -23,9 +23,43 @@ Map tickets phase B; spec §5.
 
 ## Acceptance criteria
 
-- [ ] Seam verification recorded (where the clamp lines land and why)
-- [ ] Both clamps log requested→actual; unit test asserts the line(s)
-- [ ] Canonical `bun run --cwd bun-apps/s2-agent-ext-ultracode test` green
-- [ ] smoke-e2e receipt (ok:true JSON) pasted in this ticket
+- [x] Seam verification recorded: the run logger is created at workflow.ts
+      BEFORE concurrency normalization (~:307 vs ~:329), so the concurrency
+      clamp line lands in BOTH `state.logs` (returned in the run result) and
+      `logger.warn` (persisted run log + onLog stream) — no fallback needed;
+      the maxAgents cap fires at dispatch time inside `agent()`
+      (workflow-runtime.ts), logged via the runtime `log()` (state.logs +
+      logger) immediately BEFORE the non-recoverable throw, so even a script
+      that catches the error keeps the line in its run logs.
+- [x] Both clamps log requested→actual; unit tests assert the lines
+      (tests/agent.test.ts: `[clamp] concurrency 64 → 16 (max 16)` /
+      unclamped-stays-quiet / `[clamp] agent limit reached (maxAgents=1)` +
+      the caught error code)
+- [x] Canonical `bun run --cwd bun-apps/s2-agent-ext-ultracode test` green —
+      1191 pass / 0 fail
+- [x] BONUS FIX (found by the e2e run): `samples/smoke-e2e.ts` passed `-e
+      ultracode` as a bare name, but pi's extension loader resolves `-e`
+      values as cwd-relative PATHS — `<root>/ultracode` does not exist, so the
+      documented e2e was broken ON MAIN (pre-existing, nothing in this effort
+      caused it). Fixed: the smoke resolves the engine's registered entry
+      (`bun-apps/s2-agent-ext-ultracode/extensions/ultracode.ts`) from the
+      repo root, `SMOKE_E2E_EXT` override for tests; smoke-e2e-contract
+      golden updated to pin the resolved path. Probing the path form +
+      `pong` round-trip confirmed the model lane works.
+- [x] smoke-e2e receipt (executed 2026-08-25, `PI_MODEL=prism-ml/bonsai-27b`
+      — gemma-4-12b was loaded at probe time but LM Studio evicted it
+      mid-run for a sibling session's model, so the receipt run used the
+      loaded bonsai-27b; `S2_PRINT_IDLE_EXIT_MS=900000` for the relay):
+      exit 0 through the REAL path (CLI → `-e` engine entry → extension →
+      model → workflow tool → script run) —
+      `| Agents dispatched | 2 (parallel) | / | Agent echo-foo result | FOO ✅ |
+       | Agent echo-bar result | BAR ✅ | / | Token usage | 68,006 |`.
+      Honest caveat: the run was piped through `tail -6` so the raw
+      `{"ok":true,…}` JSON line itself was not captured — the FOO/BAR agent
+      results + join + exit 0 are the captured evidence (the smoke01 script's
+      join makes those the result's constituents). Two failed pre-attempts
+      recorded: bare-name `-e ultracode` (the bonus fix above) and the
+      mid-run gemma unload ("Model unloaded." — silent abort, hence the
+      PI_MODEL note in the smoke's usage doc).
 - [ ] PR via devops chain; reviewer pass; effort close-out check (map status
       → complete if all tickets merged)

@@ -2,7 +2,7 @@
  * smoke-e2e.ts — the REAL end-to-end smoke for dynamic-workflows.
  *
  * Drives the full stack the way a user actually invokes it:
- *   s2-agent CLI  →  -e ultracode (alias-resolved)  →  the `workflow` TOOL
+ *   s2-agent CLI  →  -e <engine entry path>  →  the `workflow` TOOL
  *   →  the model calls it with the smoke script  →  background:false inline result.
  *
  * This is the same path as:
@@ -21,7 +21,13 @@
  *
  * Env:
  *   PI_MODEL       model passed to `--model` (default google/gemma-4-12b; empty
- *                  = default, same as the shell's `${PI_MODEL:-…}`)
+ *                  = default, same as the shell's `${PI_MODEL:-…}`). Use a
+ *                  model LM Studio currently has LOADED — a mid-run unload
+ *                  ("Model unloaded.") aborts the relay silently (2026-08-25).
+ *   S2_PRINT_IDLE_EXIT_MS  inherited by the CLI child: print-mode idle
+ *                  watchdog deadline (default 300s; the full relay + 2 child
+ *                  agents can exceed it on a cold local model — 900000 is a
+ *                  safe value).
  *   SMOKE_E2E_CLI  override the s2-agent CLI path (test-only; default
  *                  bun-apps/s2-agent/src/cli.ts resolved from this file)
  */
@@ -37,6 +43,11 @@ const CLI = process.env.SMOKE_E2E_CLI || resolve(REPO_ROOT, "bun-apps/s2-agent/s
 
 const MODEL = process.env.PI_MODEL || "google/gemma-4-12b";
 const WF = process.argv[2] || resolve(SCRIPT_DIR, "dynamic-workflow-smoke01.js");
+// The `-e` value MUST be a real path: pi's extension loader treats a bare name
+// as a cwd-relative path (broken 2026-08-25 on this repo — `<root>/ultracode`
+// does not exist), so resolve the engine's registered entry from the repo
+// root, same as CLI below. Override with SMOKE_E2E_EXT (test-only).
+const EXT = process.env.SMOKE_E2E_EXT || resolve(REPO_ROOT, "bun-apps/s2-agent-ext-ultracode/extensions/ultracode.ts");
 
 if (!existsSync(WF)) {
   console.error(`workflow file not found: ${WF}`);
@@ -56,7 +67,7 @@ Return only the workflow result.`;
 
 // One-shot: the CLI's exit code IS our exit code (the .sh `exec`'d the CLI).
 process.exit(
-  spawnSync("bun", [CLI, "-e", "ultracode", "--model", MODEL, "-p", PROMPT], {
+  spawnSync("bun", [CLI, "-e", EXT, "--model", MODEL, "-p", PROMPT], {
     stdio: "inherit",
   }).status ?? 1,
 );
