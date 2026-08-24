@@ -8,7 +8,7 @@
 import type { Registry } from "./registry.ts";
 
 export interface ManifestJson {
-  $generated: string; // "from s2-agent.registry.yaml by regen:manifest — do not edit"
+  $generated: string; // "from s2-agent.registry.yaml by regen:manifest — do not edit" — verbatim until ticket 04: the byte-identical manifest gate freezes it
   extensions: Array<{ name: string; entry: string; version?: string }>; // load:dynamic, entry = "<package>/<entry>"
   skills: string[]; // "<package>/skills" for skills:true (registry order)
   staticExtensions: string[]; // package names for load:static (registry order)

@@ -1,3 +1,10 @@
+# SUPERSEDED pending ticket 04 (.planning/2026-08-24-registry-code-as-config/):
+# since ticket 02 the typed REGISTRY in src/registry-config.ts is the data
+# authority (regen:manifest / freshness read it via loadRegistry). This YAML
+# stays only because devops (parseShConfig) and `ext new` still read it —
+# they flip in ticket 03, which deletes this file. DO NOT add new entries
+# here; edit src/registry-config.ts instead.
+#
 # s2-agent.registry.yaml — THE extension registry. One entry per extension;
 # adding an extension is ONE edit here + `bun run regen:manifest`
 # (+ `regen:static` when load: static). run-dir/manifest.json is DERIVED from
