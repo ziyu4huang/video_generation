@@ -2,7 +2,7 @@
 effort: 2026-08-24-kcard-production-hardening
 created: 2026-08-24
 last: 2026-08-24
-status: active
+status: complete
 ---
 
 # kcard production hardening — extraction success, freshness, hotness gate, scale
@@ -35,7 +35,7 @@ Measured 2026-08-24 on this machine unless noted.
 ### Phase B — gates & assessment
 
 - [x] 04 — SurrealDB scale-trigger assessment (D03 nearing) (complete 2026-08-24: **UNDER** — live `context_db` measured 61 cards / 0 relations / 0 usage vs D03 ≈2k/≈5k (~33× headroom); the 1925-card figure was the stale parity-era receipt, live vault folder = 61 md and index fp matches; vaultFingerprint 0.74–1.01 ms @ 61 cards; all 8 D21 card indexes live; re-check trigger = card_count ≥ 1,500 or relation count > 0; receipt in ticket)
-- [ ] 03 — Hotness α-flip gate on real ledger data (open; may honestly defer if cadence is still thin)
+- [x] 03 — Hotness α-flip gate on real ledger data (complete 2026-08-24: **D4 honest-defer** — usage ledger measured 0 events (both reads, 15:22Z + 15:31Z); wiring verified LIVE at the production boundary (`usageLog: true` at host-fns.ts:89 + extensions/knowledge-card.ts:1150), so the zero is thin cadence (echo lane PR #1974 landed hours prior; auto-recall feeder not landed), not a broken writer; **α stays 0 per D39**, harness standing; re-run trigger ≥ ~100 events spanning ≥ 2 weeks or injector live; receipt in ticket)
 
 ## Decisions
 
@@ -48,7 +48,7 @@ Measured 2026-08-24 on this machine unless noted.
 
 ## Frontier
 
-**Ticket 03 (Hotness α-flip gate on real ledger data)** — the last queue item. Ticket 04's measured read already feeds it: `usage` = 0 rows in the live db (both D12/D41 writer lanes have yet to emit) — direct evidence the ledger cadence is thin, so D4's honest-defer path is the likely outcome; run the ledger-cadence measurement to make the defer evidenced, then close the effort.
+**CLOSED (queue drained 2026-08-24).** All four tickets resolved: 01 drained (PR #1983), 02 fingerprint gate live (PR #1986), 04 scale assessed UNDER (PR #1996), 03 hotness gate deferred on measured zero cadence (α stays 0, this PR). Two dormant re-check triggers carry forward (recorded in tickets 03/04): the hotness gate re-run (usage ≥ ~100 events spanning ≥ 2 weeks, or auto-recall injector live) and the scale re-check (`index_meta.card_count ≥ 1,500` or relation count > 0).
 
 ## Fog of war
 
