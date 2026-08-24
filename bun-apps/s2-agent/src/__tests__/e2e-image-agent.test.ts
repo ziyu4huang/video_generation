@@ -34,11 +34,13 @@ const truthy = (v: string | undefined) => v === "1" || v === "true" || v === "ye
 export const IMAGE_E2E_ENABLED = truthy(process.env.PI_AGENT_E2E_IMAGE);
 
 /**
- * Model id. The example used google/gemma-4-12b; any model the operator
- * has authenticated works. Fail-fast if unset AND no default fits — but we keep
- * the example default so `run-image-agent-e2e.sh` works with zero config.
+ * Model id. DEFAULT (since 2026-08-24): deepseek/deepseek-v4-flash-vision-exp —
+ * the CI/E2E lane per the "LM Studio out of CI" operator directive (local gemma
+ * stays the interactive brain; this is a test lane, and the full provider/model
+ * id is immune to a user-level defaultProvider hijack). Needs DEEPSEEK_API_KEY.
+ * Any model the operator has authenticated works via PI_AGENT_E2E_MODEL.
  */
-const MODEL = process.env.PI_AGENT_E2E_MODEL || "google/gemma-4-12b";
+const MODEL = process.env.PI_AGENT_E2E_MODEL || "deepseek/deepseek-v4-flash-vision-exp";
 
 /** Overridable prompt; default keeps the example's mechanics with a neutral subject. */
 const PROMPT =

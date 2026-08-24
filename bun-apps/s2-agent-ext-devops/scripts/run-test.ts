@@ -13,12 +13,13 @@
  *   medium  (1)  + the s2-agent package suite, incl. the run.sh/s2-agent.sh
  *                 launcher e2e (symlink resolution, entry-mode detection,
  *                 --update-help, --upgrade passthrough). DEFAULT.
- *   smoke    (2)  + LIVE local-LLM check: boots the real launcher in print
- *                  mode against LM Studio (google/gemma-4-12b on
- *                  localhost:1234) — zero cost, zero egress, fully local.
- *                  Skips (passes) when LM Studio is down; fails if it's up
- *                  but the default model isn't loaded. Opt-in tier; also
- *                  folded into full (skips when down).
+ *   smoke    (2)  + LIVE LLM check: boots the real launcher in print mode
+ *                  against the CI/E2E lane deepseek/deepseek-v4-flash-vision-exp
+ *                  (2026-08-24 directive: LM Studio is out of the shared
+ *                  lanes — GPU contention pushed gates past watchdogs).
+ *                  Skips (passes) when DEEPSEEK_API_KEY is unset; a live
+ *                  provider error fails. Opt-in tier; also folded into full
+ *                  (skips when the key is unset).
  *   full    (3)  + smoke + sibling pi-* unit baseline (whole stack).
  *
  * The `high` and `readonly` tiers are GONE. They existed to deploy the
@@ -31,7 +32,7 @@
  * USAGE (from anywhere):
  *   bun scripts/run-test.ts            # = medium
  *   bun scripts/run-test.ts quick      # pre-commit
- *   bun scripts/run-test.ts smoke      # live check vs local LM Studio only
+ *   bun scripts/run-test.ts smoke      # live check vs deepseek only
  *   bun scripts/run-test.ts full       # whole stack (incl. smoke)
  *   bun scripts/run-test.ts --effort=medium
  *   bun scripts/run-test.ts --list     # print the tier table, exit 0
@@ -120,9 +121,9 @@ function printList(): void {
 		`${Y("s2-agent run-test.sh — effort tiers (each ⊇ the one above)")}:\n\n` +
 			`  ${G("quick")}   ${D("~0.2s")}  unit only (pure fn + import-time smoke)\n` +
 			`  ${G("medium")}  ${D("~7s")}    + the s2-agent package suite incl. the launcher e2e  ${Y("[default]")}\n` +
-			`  ${G("smoke")}   ${D("~30s")}   LIVE local-LLM check vs LM Studio (gemma-4-12b, localhost:1234);\n` +
-			`                            zero cost/egress. Skips when LM Studio is down, fails if the\n` +
-			`                            model isn't loaded. Also folded into ${G("full")} (skips when down).\n` +
+			`  ${G("smoke")}   ${D("~30s")}   LIVE LLM check vs deepseek/deepseek-v4-flash-vision-exp\n` +
+			`                            (the CI/E2E lane, 2026-08-24). Skips when DEEPSEEK_API_KEY\n` +
+			`                            is unset; a live provider error fails. Also folded into ${G("full")}.\n` +
 			`  ${G("full")}    ${D("~40s")}   + smoke + sibling pi-* unit baseline (whole stack)\n\n` +
 			`Env gates the e2e test files read:\n` +
 			`  PI_AGENT_E2E=1          enable the launcher symlink-resolution block (medium+)\n\n` +
@@ -179,40 +180,31 @@ function runPatches(): number {
 	return runBunTest(PI_AGENT_DIR, ["test", ...extra]);
 }
 
-// LIVE local-LLM smoke test. Boots the REAL launcher (`run.sh`) in print mode
-// against LM Studio (localhost:1234) with the fast default model — zero cost,
-// zero egress, fully self-contained. Opt-in tier — run via `bun run-test.ts
-// smoke`; also folded into `full`. Skips (rc 0) when LM Studio is down (an
-// environment condition, not a repo bug); fails with a hint when LM Studio is
-// up but the default model isn't loaded. Sets smokeSkipped so the caller can
-// print the skip notice (step() only surfaces the log on failure).
-const SMOKE_MODEL = "google/gemma-4-12b";
+// LIVE LLM smoke test. Boots the REAL launcher (`run.sh`) in print mode
+// against the CI/E2E lane deepseek/deepseek-v4-flash-vision-exp (operator
+// directive 2026-08-24, same lane as e2e-core-tool-roundtrip: LM Studio is
+// out of the shared lanes — its GPU contention pushed gates past watchdogs).
+// Opt-in tier — run via `bun run-test.ts smoke`; also folded into `full`.
+// Skips (rc 0) when DEEPSEEK_API_KEY is unset (an environment condition, not
+// a repo bug). A live provider error (bad key, API down) FAILS the step — the
+// same posture as the roundtrip e2e's non-fast failures. Sets smokeSkipped so
+// the caller can print the skip notice (step() only surfaces the log on
+// failure).
+const SMOKE_MODEL = "deepseek/deepseek-v4-flash-vision-exp";
 let smokeSkipped = false;
 
 function runSmoke(): number {
-	const base = "http://localhost:1234/v1";
-	const r = spawnSync("curl", ["-sf", "-m", "3", `${base}/models`], {
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "ignore"],
-	});
-	if (r.error || r.status !== 0) {
+	if (!process.env.DEEPSEEK_API_KEY) {
 		smokeSkipped = true;
 		return 0;
 	}
-	const models = r.stdout ?? "";
-	if (!models.includes(`"${SMOKE_MODEL}"`)) {
-		writeSync(
-			logFd!,
-			`${R("✗ smoke FAILED")} — ${SMOKE_MODEL} not loaded in LM Studio (load it in My Models first)\n`,
-		);
-		return 1;
-	}
-	// No LM Studio reachable-with-model case can only be proven live; the
-	// spinner-not-`-f`-style verbosity is silenced the way the .sh did with
-	// `>/dev/null 2>&1`, and run.sh's exit code IS this step's exit code.
+	// A reachable-key case can only be proven live; the spinner-not-`-f`-style
+	// verbosity is silenced the way the .sh did with `>/dev/null 2>&1`, and
+	// run.sh's exit code IS this step's exit code. The full `provider/model`
+	// id makes the spawn immune to a user-level defaultProvider hijack.
 	return (
 		spawnSync(resolve(PI_AGENT_DIR, "run.sh"), [
-			"--provider", "lm-studio", "--model", SMOKE_MODEL, "--no-session", "-p", "hi",
+			"--model", SMOKE_MODEL, "--no-session", "-p", "hi",
 		], { cwd: PI_AGENT_DIR, env: childEnv, stdio: "ignore" }).status ?? 1
 	);
 }
@@ -221,9 +213,9 @@ function runSmoke(): number {
 // terminal (step captures all output into the log, which is only surfaced on
 // failure — a silent skip would read as a pass).
 function smokeStep(): void {
-	step("live lm-studio smoke (smoke)", runSmoke);
+	step("live deepseek smoke (smoke)", runSmoke);
 	if (smokeSkipped) {
-		console.log(`${Y("· smoke skipped")} — LM Studio not running on localhost:1234 (start it for the live check)`);
+		console.log(`${Y("· smoke skipped")} — DEEPSEEK_API_KEY not set (the smoke lane is deepseek/deepseek-v4-flash-vision-exp per the 2026-08-24 directive)`);
 	}
 }
 
@@ -287,7 +279,7 @@ if (effort === "quick") {
 	smokeStep();
 } else if (effort === "full") {
 	step("unit + patch e2e (medium)", runPatches);
-	console.log(`${Y("▶ live local-LLM smoke (skips when LM Studio is down)")}`);
+	console.log(`${Y("▶ live LLM smoke (skips when DEEPSEEK_API_KEY is unset)")}`);
 	smokeStep();
 	console.log(`${Y("▶ sibling stack-health baseline")}`);
 	for (const pkg of SIBLING_PKGS) {

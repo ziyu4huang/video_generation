@@ -21,8 +21,14 @@
  *   the verification logic is 100% deterministic.
  *
  * REQUIREMENTS:
- *   - LM Studio running on localhost:1234 with google/gemma-4-12b
- *     loaded (or a different model configured via PI_L2_MODEL)
+ *   - DEFAULT (since 2026-08-24): DEEPSEEK_API_KEY in the environment — the
+ *     lane runs deepseek/deepseek-v4-flash-vision-exp (the CI/E2E lane per
+ *     the 2026-08-24 "LM Studio out of CI" operator directive; measured
+ *     0.45s / 0 reasoning tokens with effort:none, no local prefill cost).
+ *     A `provider/model` FULL id also sidesteps the portability pitfall below.
+ *   - ALTERNATIVE: a local LM Studio lane via PI_L2_MODEL (bare id, e.g.
+ *     google/gemma-4-12b) + PI_L2_PROVIDER=lm-studio with the model loaded
+ *     on localhost:1234.
  *
  *     PORTABILITY PITFALL (found live 2026-08-18): a user-level
  *     `defaultProvider` in ~/.pi/agent/settings.json (e.g. "zai") SILENTLY
@@ -73,7 +79,7 @@ const FILE_DIR = resolve(import.meta.dirname ?? process.cwd());
 const REPO_ROOT = findRepoRoot(FILE_DIR);
 const CLI = `${REPO_ROOT}/bun-apps/s2-agent/src/cli.ts`;
 const EXT = `${REPO_ROOT}/bun-apps/s2-agent-ext-power-tool/extensions/power-tool.ts`;
-const MODEL = process.env.PI_L2_MODEL || "google/gemma-4-12b";
+const MODEL = process.env.PI_L2_MODEL || "deepseek/deepseek-v4-flash-vision-exp";
 // Optional explicit provider (see the pitfall note above): when set, the CLI
 // spawn carries `--provider <PI_L2_PROVIDER>` so a user-level defaultProvider
 // cannot hijack the model resolution. Unset = legacy behavior (bare --model).
@@ -95,35 +101,41 @@ const TOOLS: ToolEntry[] = [
     prompt: "call inspect_context --self-test true",
     // Tool name in backticks survives LLM translation reliably.
     markers: ["inspect_context"],
-    // Self-test mode: still needs model inference for prompt→tool routing,
-    // but returns immediately once the tool is invoked. Short timeout so a
-    // non-responsive model fails fast rather than hanging.
-    timeoutMs: 30_000,
+    // Self-test mode: still needs model inference for prompt→tool routing.
+    // but returns immediately once the tool is invoked. 60s so a slow session
+    // START (hermes syncMarkdownMemories, 2026-08-24 measured 30s+) plus the
+// deepseek roundtrip still fits; a truly non-responsive model still fails fast.
+    timeoutMs: 60_000,
   },
   {
     name: "inspect_agent",
     prompt: "call inspect_agent --self-test true",
     markers: ["self-test", "inspect-agent"],
-    timeoutMs: 30_000,
+    timeoutMs: 60_000,
   },
   {
     name: "inspect_extensions",
     prompt: "call inspect_extensions --self-test true",
     // "medium" is the English severity label that appears in the data regardless of language.
     markers: ["medium"],
-    timeoutMs: 30_000,
+    timeoutMs: 60_000,
   },
   {
     name: "inspect_pathology",
     prompt: "call inspect_pathology --self-test true",
     markers: ["inspect_pathology"],
-    timeoutMs: 30_000,
+    timeoutMs: 60_000,
   },
 ];
 
-// ─── Smoke check: is LM Studio reachable? ─────────────────────────────────────
+// ─── Smoke check: is the model's endpoint usable? ────────────────────────────
+// Default lane (deepseek/<id>) → key presence (the API is remote; a live probe
+// would burn a request — a missing key is the skip condition, a bad key fails
+// the run like any real model error). PI_L2_MODEL overrides may point back at
+// a local lane → keep the LM Studio probe for bare (provider-less) ids.
 
 async function lmStudioReachable(): Promise<boolean> {
+  if (MODEL.includes("/")) return !!process.env.DEEPSEEK_API_KEY;
   try {
     // Fast 2s timeout so a down LM Studio causes the test to skip quickly.
     const resp = await fetch("http://localhost:1234/v1/models", { signal: AbortSignal.timeout(2000) });
