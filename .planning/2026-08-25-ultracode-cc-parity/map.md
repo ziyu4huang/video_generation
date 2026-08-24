@@ -2,7 +2,7 @@
 effort: 2026-08-25-ultracode-cc-parity
 created: 2026-08-25
 last: 2026-08-25
-status: charted
+status: complete
 ---
 
 # ultracode CC-parity — make ext-ultracode behave like claude-code ultracode
@@ -45,7 +45,7 @@ Baseline (non-armed) "use workflow only when the user explicitly asks" (workflow
 
 ### Phase B — caps + verification
 
-- [ ] 03 — No-silent-caps: log concurrency clamp in/after `normalizeConcurrency` and the 1000-total / maxAgents clamp at dispatch (workflow-runtime.ts:214-220 seam) so a clamped run says so in its log; run `samples/smoke-e2e.ts` once (PI_MODEL local) as the real-path e2e receipt.
+- [x] 03 — No-silent-caps: log concurrency clamp in/after `normalizeConcurrency` and the 1000-total / maxAgents clamp at dispatch (workflow-runtime.ts:214-220 seam) so a clamped run says so in its log; run `samples/smoke-e2e.ts` once (PI_MODEL local) as the real-path e2e receipt. (executed 2026-08-25, PR #2020 squash b1e6bbd4 CLEAN; reviewer APPROVE_WITH_NITS applied — checkpoint()/call() limit gates gained the same clamp line, sub-1 attribution "(invalid; min 1)", smoke EXT guard; accepted: nested-run duplicate clamp line. BONUS: smoke-e2e `-e ultracode` bare-name break fixed (pre-existing on main); real e2e receipt on bonsai-27b: 2 agents FOO/BAR ✅, 68,006 tok, exit 0. Final gates 1193/0)
 
 ## Decisions
 
@@ -57,7 +57,7 @@ Baseline (non-armed) "use workflow only when the user explicitly asks" (workflow
 
 ## Frontier
 
-Ticket 01 — no blocker; all seams measured (effort-command.ts:27-37, workflow-tool.ts:347-376, extensions/ultracode.ts:212-225).
+None — queue drained. All three tickets merged (#2016, #2017, #2020); ultracode armed behavior is CC-parity per spec §1–5. Successor focus: s2-agent-ext-subagent (dynamic-budgets fog #2).
 
 ## Fog of war
 
