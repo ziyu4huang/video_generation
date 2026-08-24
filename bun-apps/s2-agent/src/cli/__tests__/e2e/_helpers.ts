@@ -18,11 +18,11 @@
 import { dirname, join } from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { spawnCaptureSync } from "../../../__tests__/test-utils.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // _helpers.ts lives at <pkg>/src/cli/__tests__/e2e/ → up FOUR levels to pkg root.
 const pkgDir = join(__dirname, "..", "..", "..", "..");
-const dec = new TextDecoder();
 
 /**
  * The version `cli version` must print — read from package.json (the file
@@ -49,26 +49,16 @@ export function runCli(
 	args: string[],
 	opts: { env?: Record<string, string | undefined> } = {},
 ): CliResult {
-	const proc = Bun.spawnSync({
-		// The CLI is reached through s2-agent's own entry under the `cli`
-		// namespace token — there is no standalone s2-agent-cli binary any more.
-		cmd: [process.execPath, "src/cli.ts", "cli", ...args],
+	// The CLI is reached through s2-agent's own entry under the `cli`
+	// namespace token — there is no standalone s2-agent-cli binary any more.
+	// BUN_PI_HERMES_MEMORY=0: the tested surface (meta / dispatch-errors /
+	// arg-validation / exit codes) never touches the memory layer, but every
+	// boot would otherwise pay hermes-memory's startup syncMarkdownMemories
+	// against surrealdb — measured 5.6 s COLD per boot (2026-08-23), ~34
+	// boots across these files. boot-smoke.test.ts is the test that asserts
+	// hermes actually loads; it spawns its own boots with hermes ON.
+	return spawnCaptureSync([process.execPath, "src/cli.ts", "cli", ...args], {
 		cwd: pkgDir,
-		stdout: "pipe",
-		stderr: "pipe",
-		// BUN_PI_HERMES_MEMORY=0: the tested surface (meta / dispatch-errors /
-		// arg-validation / exit codes) never touches the memory layer, but every
-		// boot would otherwise pay hermes-memory's startup syncMarkdownMemories
-		// against surrealdb — measured 5.6 s COLD per boot (2026-08-23), ~34
-		// boots across these files. boot-smoke.test.ts is the test that asserts
-		// hermes actually loads; it spawns its own boots with hermes ON.
 		env: { ...process.env, PI_SKIP_MODELS_JSON: "1", BUN_PI_HERMES_MEMORY: "0", ...opts.env },
 	});
-	return {
-		// BunSpawnSync returns exitCode as number | null (null on signal); coerce
-		// null → -1 so assertions have a finite value to compare against.
-		exitCode: proc.exitCode ?? -1,
-		stdout: dec.decode(proc.stdout),
-		stderr: dec.decode(proc.stderr),
-	};
 }

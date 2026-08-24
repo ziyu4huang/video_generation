@@ -41,6 +41,7 @@ import {
 } from "@repo/s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import { EXTENSION_SPECS } from "../extensions/registry.ts";
 import { AGENT_TOOLS } from "../commands/agent.ts";
+import { makeMockPi } from "../../__tests__/test-utils.ts";
 import {
 	URL_TO_VAULT_FACTORIES,
 	URL_TO_VAULT_TOOLS,
@@ -70,33 +71,15 @@ const CORE_BUILTINS = new Set([
 	"ask_user_question",
 ]);
 
-type ToolLike = { name?: unknown };
-
-/** Mirror of ext-doctor's mock pi — enough surface for a factory to register. */
+/** Factories invoked against the shared recording mock to collect tool names. */
 function collectRegisteredToolNames(factories: unknown[]): Set<string> {
-	const names = new Set<string>();
-	const pi = {
-		registerTool: (t: ToolLike) => {
-			if (typeof t?.name === "string") names.add(t.name);
-			return t;
-		},
-		registerCommand: () => {},
-		registerMessageRenderer: () => {},
-		registerShortcut: () => {},
-		appendEntry: () => {},
-		sendMessage: () => {},
-		sendUserMessage: () => {},
-		getThinkingLevel: () => "medium",
-		on: () => {},
-		events: { on: () => () => {}, off: () => {}, emit: () => {}, once: () => () => {} },
-		getAllTools: () => [],
-		exec: async () => "",
-		z: { undefined: () => ({}) },
-	};
+	const mock = makeMockPi();
 	for (const f of factories) {
-		(f as (api: unknown) => void)(pi);
+		(f as (api: unknown) => void)(mock.pi);
 	}
-	return names;
+	return new Set(
+		mock.tools.map((t) => t.name).filter((n): n is string => typeof n === "string"),
+	);
 }
 
 /**

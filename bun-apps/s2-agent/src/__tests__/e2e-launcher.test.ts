@@ -41,23 +41,21 @@
  * genuinely does not belong in a default `bun test`.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync, lstatSync, readlinkSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync, chmodSync, symlinkSync, mkdirSync, readFileSync, realpathSync, lstatSync, readlinkSync, existsSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { E2E_ENABLED } from "./e2e-harness.ts";
+import { tempDir, cleanupTempDirs } from "./test-utils.ts";
 
 const RUN_SH = path.resolve(import.meta.dirname, "../../run.sh");
 const REAL_PKG_DIR = path.dirname(RUN_SH); // bun-apps/s2-agent — source (dev) mode in this checkout
 let TMP: string;
 
 beforeAll(() => {
-	TMP = mkdtempSync(path.join(tmpdir(), "s2-agent-e2e-launcher-"));
+	TMP = tempDir("s2-agent-e2e-launcher-");
 });
 
-afterAll(() => {
-	rmSync(TMP, { recursive: true, force: true });
-});
+afterAll(cleanupTempDirs);
 
 function run(args: string[], opts: { cwd?: string; env?: Record<string, string> } = {}) {
 	return spawnSync("bash", [opts.cwd ? path.join(opts.cwd, "run.sh") : RUN_SH, ...args], {

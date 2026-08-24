@@ -16,6 +16,7 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnCaptureSync } from "./test-utils.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const MODE_TS = resolve(HERE, "..", "mode.ts");
@@ -35,21 +36,20 @@ describe("a bun-run bundle anchors on its own directory", () => {
 			`import { detectMode, deployRoot } from "./mode.ts";\n` +
 				`console.log(JSON.stringify({ mode: detectMode(import.meta.url), root: deployRoot(import.meta.url) }));\n`,
 		);
-		let build: ReturnType<typeof Bun.spawnSync> | undefined;
+		let build: ReturnType<typeof spawnCaptureSync> | undefined;
 		try {
-			build = Bun.spawnSync(["bun", "build", entry, "--target=bun", "--minify", "--outfile", join(outDir, "probe.js")], {
-				cwd: dirname(MODE_TS),
-				stdout: "pipe",
-				stderr: "pipe",
-			});
+			build = spawnCaptureSync(
+				["bun", "build", entry, "--target=bun", "--minify", "--outfile", join(outDir, "probe.js")],
+				{ cwd: dirname(MODE_TS) },
+			);
 		} finally {
 			rmSync(entry, { force: true });
 		}
-		expect(build.exitCode, `bun build failed: ${build.stderr?.toString() ?? ""}`).toBe(0);
+		expect(build.exitCode, `bun build failed: ${build?.stderr ?? ""}`).toBe(0);
 
-		const boot = Bun.spawnSync(["bun", join(outDir, "probe.js")], { stdout: "pipe", stderr: "pipe" });
-		expect(boot.exitCode, `bundle boot failed: ${boot.stderr.toString()}`).toBe(0);
-		const got = JSON.parse(boot.stdout.toString()) as { mode: string; root: string };
+		const boot = spawnCaptureSync(["bun", join(outDir, "probe.js")]);
+		expect(boot.exitCode, `bundle boot failed: ${boot.stderr}`).toBe(0);
+		const got = JSON.parse(boot.stdout) as { mode: string; root: string };
 		expect(got.mode).toBe("bundle");
 		// realpath on both sides: macOS tmpdir answers /var/… while file URLs
 		// resolve through the /private symlink.

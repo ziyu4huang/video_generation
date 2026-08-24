@@ -2,13 +2,13 @@ import { describe, expect, test, beforeAll } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnCaptureSync } from "../../__tests__/test-utils.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // test lives at <pkg>/src/cli/__tests__ — up THREE levels to the package root,
 // then TWO more (pkg → bun-apps → repo root).
 const pkgDir = join(__dirname, "..", "..", "..");  // bun-apps/s2-agent
 const repoRoot = join(pkgDir, "..", "..");         // repo root
-const dec = new TextDecoder();
 
 interface Baseline {
   toolCountFloor: number;
@@ -25,33 +25,27 @@ const baseline: Baseline = JSON.parse(
  * a manual prebuild. Idempotent + fast (~3 s on a cold run). */
 function buildIfMissing(pkg: string, script: string, marker: string): void {
   if (existsSync(join(repoRoot, "bun-apps", pkg, marker))) return;
-  const r = Bun.spawnSync({
-    cmd: [process.execPath, "run", script],
+  const r = spawnCaptureSync([process.execPath, "run", script], {
     cwd: join(repoRoot, "bun-apps", pkg),
-    stdout: "ignore",
-    stderr: "pipe",
   });
   if (r.exitCode !== 0) {
-    throw new Error(`prebuild failed for ${pkg} (${script}): ${dec.decode(r.stderr)}`);
+    throw new Error(`prebuild failed for ${pkg} (${script}): ${r.stderr}`);
   }
 }
 
 /** Spawn the CLI in source mode and return {exitCode, json, stderr}. */
-function runCanary(): { exitCode: number | null; json: unknown; stderr: string } {
-  const proc = Bun.spawnSync({
-    cmd: [process.execPath, "src/cli.ts", "cli", "tools-metrics", "--schema-cost", "--json"],
-    cwd: pkgDir,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const stdout = dec.decode(proc.stdout);
+function runCanary(): { exitCode: number; json: unknown; stderr: string } {
+  const r = spawnCaptureSync(
+    [process.execPath, "src/cli.ts", "cli", "tools-metrics", "--schema-cost", "--json"],
+    { cwd: pkgDir },
+  );
   let json: unknown = null;
   try {
-    json = JSON.parse(stdout);
+    json = JSON.parse(r.stdout);
   } catch {
     /* the exit-code / JSON assertion below surfaces the real failure */
   }
-  return { exitCode: proc.exitCode, json, stderr: dec.decode(proc.stderr) };
+  return { exitCode: r.exitCode, json, stderr: r.stderr };
 }
 
 describe("boot-smoke canary", () => {

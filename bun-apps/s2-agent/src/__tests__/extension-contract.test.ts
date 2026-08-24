@@ -19,6 +19,7 @@ import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseManifestEntries } from "../../src/run-dir/manifest-types.ts";
+import { makeMockPi } from "./test-utils.ts";
 
 // Self-sufficient: import the patch so repo-root node_modules symlinks exist.
 await import("../patches/ensure-extension-deps.ts");
@@ -29,54 +30,6 @@ const MANIFEST = JSON.parse(
 	readFileSync(path.join(PI_AGENT_DIR, "src", "run-dir", "manifest.json"), "utf8"),
 ) as { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
 const ENTRIES = parseManifestEntries(MANIFEST.extensions ?? []);
-
-interface ToolLike {
-	name?: string;
-	label?: string;
-	description?: string;
-	parameters?: unknown;
-	[key: string]: unknown;
-}
-
-interface CommandLike {
-	name?: string;
-	handler?: unknown;
-}
-
-function makeMockPi() {
-	const tools: ToolLike[] = [];
-	const commands: CommandLike[] = [];
-	const pi = {
-		onCount: 0,
-		registerTool: (t: ToolLike) => {
-			tools.push(t);
-			return t;
-		},
-		registerCommand: (_name: string, opts: CommandLike) => {
-			commands.push({ name: _name, handler: opts.handler });
-		},
-		registerMessageRenderer: () => {},
-		registerShortcut: () => {},
-		registerFlag: () => {},
-		sendMessage: () => {},
-		appendEntry: () => {},
-		setSessionName: () => {},
-		getSessionName: () => undefined,
-		setActiveTools: () => {},
-		getActiveTools: () => [] as string[],
-		getFlag: () => undefined,
-		setModel: async () => true,
-		on: () => { pi.onCount++; },
-		events: {
-			on: () => () => {},  // returns unsubscribe
-			emit: () => {},
-		},
-		getAllTools: () => tools,
-		exec: async () => "",
-		sendUserMessage: () => {},
-	};
-	return { pi, tools, commands, get onCount() { return pi.onCount; } };
-}
 
 /** Load one extension factory, return its tools/commands/events. */
 async function loadExtension(entryRel: string) {
@@ -91,7 +44,7 @@ async function loadExtension(entryRel: string) {
 	if (maybe && typeof (maybe as Promise<void>).then === "function") {
 		await maybe;
 	}
-	return { error: undefined as string | undefined, tools: mock.tools, commands: mock.commands, onCount: mock.pi.onCount, abs };
+	return { error: undefined as string | undefined, tools: mock.tools, commands: mock.commands, onCount: mock.onCount, abs };
 }
 
 // Pre-load all extensions once (imports are cached by Bun, so re-importing in

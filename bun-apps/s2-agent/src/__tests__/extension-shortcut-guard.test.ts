@@ -44,6 +44,7 @@ import path from "node:path";
 import { TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import { parseManifestEntries } from "../../src/run-dir/manifest-types.ts";
 import { STATIC_EXTENSION_FACTORIES } from "../static-extensions.ts";
+import { makeMockPi } from "./test-utils.ts";
 
 // Self-sufficient: import the patch so repo-root node_modules symlinks exist
 // (same reason as extension-contract.test.ts).
@@ -135,35 +136,7 @@ interface ShortcutCapture {
 	key: string;
 }
 
-function makeRecordingMockPi(extension: string, sink: ShortcutCapture[]) {
-	return {
-		registerShortcut: (key: string, _opts: unknown) => {
-			sink.push({ extension, key });
-		},
-		registerTool: (t: unknown) => t,
-		registerCommand: () => {},
-		registerMessageRenderer: () => {},
-		registerFlag: () => {},
-		sendMessage: () => {},
-		appendEntry: () => {},
-		setSessionName: () => {},
-		getSessionName: () => undefined,
-		setActiveTools: () => {},
-		getActiveTools: () => [] as string[],
-		getFlag: () => undefined,
-		setModel: async () => true,
-		on: () => {},
-		events: {
-			on: () => () => {},
-			emit: () => {},
-		},
-		getAllTools: () => [],
-		exec: async () => "",
-		sendUserMessage: () => {},
-	};
-}
-
-/** Load one factory (static entry or dynamic manifest entry) with the mock. */
+/** Load one factory (static entry or dynamic manifest entry) with the shared mock. */
 async function captureShortcuts(
 	extension: string,
 	factory: unknown,
@@ -173,10 +146,12 @@ async function captureShortcuts(
 		return `no default factory (got ${typeof factory})`;
 	}
 	try {
-		const maybe = (factory as (pi: unknown) => unknown)(makeRecordingMockPi(extension, sink));
+		const mock = makeMockPi();
+		const maybe = (factory as (pi: unknown) => unknown)(mock.pi);
 		if (maybe && typeof (maybe as Promise<void>).then === "function") {
 			await maybe;
 		}
+		for (const s of mock.shortcuts) sink.push({ extension, key: s.key });
 	} catch (err) {
 		return `factory threw: ${err instanceof Error ? err.message : String(err)}`;
 	}

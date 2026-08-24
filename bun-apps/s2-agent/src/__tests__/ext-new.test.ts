@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildScaffoldFiles, parseExtNewArgs, validateName } from "../ext-new.ts";
+import { spawnCaptureAsync } from "./test-utils.ts";
 
 /** bun-apps/s2-agent — the cwd the spawned `src/cli.ts` needs. */
 const PI_AGENT_DIR = join(import.meta.dir, "..", "..");
@@ -176,7 +177,7 @@ describe("runExtNew end-to-end (temp root, no repo mutation)", () => {
 		async () => {
 		const tmp = mkdtempSync(join(tmpdir(), "ext-new-"));
 		try {
-			const proc = Bun.spawn(
+			const proc = await spawnCaptureAsync(
 				[
 					"bun",
 					"src/cli.ts",
@@ -189,18 +190,17 @@ describe("runExtNew end-to-end (temp root, no repo mutation)", () => {
 					"none",
 					"--no-install",
 				],
-				{ cwd: PI_AGENT_DIR, stdout: "pipe", stderr: "pipe" },
+				{ cwd: PI_AGENT_DIR },
 			);
-			const code = await proc.exited;
-			expect(code).toBe(0);
+			expect(proc.exitCode, proc.stderr).toBe(0);
 			const pkgDir = join(tmp, "s2-agent-ext-smoke-test-ext");
 			expect(existsSync(join(pkgDir, "package.json"))).toBe(true);
 
 			// The scaffolded package's own gate must be green out of the box:
 			// its entry-smoke test needs only bun:test (the entry's only import
 			// is a type-only ExtensionFactory), so it runs without an install.
-			const self = Bun.spawn(["bun", "test"], { cwd: pkgDir, stdout: "pipe", stderr: "pipe" });
-			expect(await self.exited).toBe(0);
+			const self = await spawnCaptureAsync(["bun", "test"], { cwd: pkgDir });
+			expect(self.exitCode, self.stderr).toBe(0);
 		} finally {
 			rmSync(tmp, { recursive: true, force: true });
 		}
