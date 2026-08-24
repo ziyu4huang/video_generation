@@ -681,7 +681,11 @@ export function createSubagentsTool(
         const slotModel = outcome.model;
         const slotRequestedModel = outcome.requestedModel;
         const slotFellBack = outcome.fellBack || undefined;
-        if (userAborted) {
+        // t02: an aborted child is an ABORTED slot regardless of WHICH lever
+        // fired (viewer x = userAborted; whole-turn Esc fans into childAc and
+        // arrives here as status "aborted" with userAborted false). Either way
+        // the user interrupted it — never badge it done/timedout.
+        if (userAborted || status === "aborted") {
           slots[index] = {
             output: "",
             status: "aborted",

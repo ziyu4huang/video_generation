@@ -271,7 +271,14 @@ export async function dispatchChild(
     // cancelled run, only the parent turn knows the user asked for it.
     // `detached` (Task 05): the run was backgrounded mid-flight — the detached
     // subprocess owns execution, the parent turn resumes.
-    status: detached ? "detached" : userAborted ? "aborted" : (result.failure?.kind ?? "done"),
+    // tui-cc-parity t02: a whole-turn Esc (parent signal fanning into childAc)
+    // also settles `aborted` — EITHER abort lever means the user interrupted
+    // the run, and the old fall-through read the spawn's abort-shaped error as
+    // `timedout` (classifyError maps signalAborted → timedout), badging an
+    // Esc'd run ⏱ timedout in the record/viewer. A timeout does NOT touch
+    // childAc (its timer aborts the runner's controller inside spawnSubagent),
+    // so `timedout` still derives from result.failure alone.
+    status: detached ? "detached" : childAc.signal.aborted ? "aborted" : (result.failure?.kind ?? "done"),
     userAborted,
     model: resolvedModel ?? entry.model,
     requestedModel: fellBack ? requestedSpec : undefined,

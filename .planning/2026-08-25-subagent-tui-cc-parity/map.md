@@ -60,7 +60,7 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 | Ticket | Status | Summary |
 |---|---|---|
 | `tickets/01-cc-line-vocabulary.md` | done (PR #2025, 2026-08-25) | Inline line vocabulary: `Task(agent): intent` live shape + `↳ summary · 34,283 tokens · 2m 13s` settled shape (fmtTokens separator'd, fmtDuration human m+s, summary-first ordering; keep s2 tags as trailing segments) |
-| `tickets/02-esc-interrupt.md` | pending | Esc during a running foreground subagent aborts it (input seam investigation: onTerminalInput vs pi interrupt semantics; must not steal Esc from the editor when no subagent runs) |
+| `tickets/02-esc-interrupt.md` | done (2026-08-25 — investigation found pi's `app.interrupt` ALREADY binds Esc → `agent.abort()` → childAc fan-in; the real gap was the settle status misreading an Esc'd run as `timedout`, fixed in child-dispatch) | Esc during a running foreground subagent aborts it (input seam investigation: onTerminalInput vs pi interrupt semantics; must not steal Esc from the editor when no subagent runs) |
 | `tickets/03-ctrl-b-panel.md` | pending | **alt+b** opens the background-agents panel CC-style (user-confirmed direction; ctrl+b stays pi's cursorLeft — no collision, no startup warning; alt+s detach unchanged) + ADR-subagent-0004 amendment recording the decision |
 
 ## Decisions
@@ -84,9 +84,8 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 
 ## Frontier
 
-Ticket 02 (Esc interrupt) — ticket 01 landed (PR #2025); 02 is next per the
-confirmed Execution order and has no open blocker beyond its own seam
-investigation (below).
+Ticket 03 (alt+b background-agents panel) — 01 and 02 landed; 03 is the
+last ticket before the effort close-out.
 
 ## Fog of war
 
@@ -98,9 +97,14 @@ investigation (below).
   meta into the CC vocabulary in a later ticket or t02/t03's PR if
   trivially cheap.
 
-- Exact Esc ownership in pi while a foreground tool call streams (does the
-  editor keep Esc? does pi already map Esc to interrupt the TURN?) —
-  investigate in ticket 02 before designing.
+- ~~Exact Esc ownership in pi while a foreground tool call streams~~ —
+  RESOLVED 2026-08-25 (ticket 02 investigation): `app.interrupt` defaults to
+  `escape` (core/keybindings.js:7) and the editor's `onEscape` calls
+  `agent.abort()` while streaming (interactive-mode.js:2219); the hint
+  "(esc to interrupt)" already renders in the working status indicator
+  (:1741). The ticket's own key-claim design was dropped as a collision; the
+  shipped fix is the settle-status correction (Esc'd run → `aborted`, was
+  misread `timedout`).
 - ~~Whether Ctrl+B-as-panel is claimable globally~~ — RESOLVED at the
   confirm-gate (D4): alt+b carries the panel-opener; ctrl+b is never
   reclaimed. Remaining t03 fog is only which surface alt+b opens first

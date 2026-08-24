@@ -885,7 +885,11 @@ test("fan-in: aborting the parent signal aborts all in-flight batch children (ne
   parent.abort(); // whole-turn Esc
   const res = await p; // resolves — does NOT hang (children now see the signal)
   for (const slot of res.details.results) {
-    assert.equal((slot as { status: string }).status, "timedout", "whole-turn abort → timedout, not aborted");
+    assert.equal(
+      (slot as { status: string }).status,
+      "aborted",
+      "whole-turn abort → aborted (t02: was misread timedout)",
+    );
   }
 });
 
