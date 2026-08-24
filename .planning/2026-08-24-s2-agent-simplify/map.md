@@ -33,7 +33,7 @@ Measured 2026-08-24 on this machine (three read-only explore agents + one plan a
 ### Phase B — consolidate
 
 - [x] 03 — `cli/sessions/discover.ts` (transcript discovery ×3 → 1) + `cli/format.ts` (printTable ×2 → 1, snippet clip ×2 → 1) (complete 2026-08-24 branch s2-agent-simplify-t03-discover-format: 4,730-file walk equivalence proven; printTable byte-identity re-verified by reviewer over 4,000 adversarial cases; env precedence unified PI_SESSIONS_DIR→agentDir; gates 1048 pass; reviewer READY)
-- [ ] 04 — Arg unification: rest-parsed flags (tools-metrics takeFlag/hasFlag, agent-trends flag/has/num, doctor rest.includes) → flag-spec rows + typed ParsedArgs (depends 03)
+- [x] 04 — Arg unification: rest-parsed flags (tools-metrics takeFlag/hasFlag, agent-trends flag/has/num, doctor rest.includes) → flag-spec rows + typed ParsedArgs (complete 2026-08-24 branch s2-agent-simplify-t04-flag-spec: 16 flags migrated, 93-flag table 0 duplicates, 20-case regression test, full ext parsed.* enumeration = zero readers of new fields; DELIBERATE change flagged: garbage numerics fail fast exit 1, was silent default; reviewer READY — audit table in ticket)
 - [ ] 05 — Session-tail dedup (resolveLLMFromArgs → shared.ts, runPassthrough/runAgentSession tail, printModel→modelLabel), applyVaultEnv in vault-paths.ts, run-dir bun-install self-heal + workspacePackageNames walk
 - [ ] 06 — Patches boilerplate: envFlag adoption ×11, patchApplied helper, footer-extension-status-notify keep/remove decision (depends 02)
 

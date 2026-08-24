@@ -341,8 +341,8 @@ Options:
   --json    Emit a single JSON object { checks, ok } to stdout (no checklist)
   --fix     Auto-create the MLX output dir and ~/.pi/agent if missing, then re-check`,
 	async run(parsed: ParsedArgs): Promise<void> {
-		const json = parsed.rest.includes("--json");
-		const fix = parsed.rest.includes("--fix");
+		const json = parsed.json === true;
+		const fix = parsed.fix === true;
 
 		const ctx: DoctorContext = {
 			cwd: process.cwd(),

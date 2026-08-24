@@ -336,3 +336,114 @@ describe("parsePiArgs — the bare word `help` is positional-sensitive", () => {
     expect(parsePiArgs(["foo", "bar", "--help"]).positionals).toEqual(["foo", "bar"]);
   });
 });
+
+// Ticket 04 — tools-metrics / agent-trends / doctor flags migrated off the
+// hand-rolled rest-parsers (takeFlag/hasFlag, flag/has/num, rest.includes)
+// onto flag-spec rows. These tests pin the value-shape contract each command
+// now reads, so a dropped flag-spec row fails HERE instead of being swallowed
+// by the unknown-flag skipper at runtime.
+describe("parsePiArgs — meta command flags (tools-metrics / agent-trends / doctor)", () => {
+  // --- value flags: space + = forms ---
+  test("--since <date> (space form)", () => {
+    expect(parsePiArgs(["tools-metrics", "--since", "2026-07-01"]).since).toBe("2026-07-01");
+  });
+  test("--since=<date> (= form)", () => {
+    expect(parsePiArgs(["tools-metrics", "--since=2026-07-01"]).since).toBe("2026-07-01");
+  });
+  test("--until <date> + = form", () => {
+    expect(parsePiArgs(["--until", "2026-07-31"]).until).toBe("2026-07-31");
+    expect(parsePiArgs(["--until=2026-07-31"]).until).toBe("2026-07-31");
+  });
+  test("--cwd <substr> + = form", () => {
+    expect(parsePiArgs(["--cwd", "video_generation"]).cwdSubstr).toBe("video_generation");
+    expect(parsePiArgs(["--cwd=video_generation"]).cwdSubstr).toBe("video_generation");
+  });
+  test("--tool <csv> keeps the raw csv string (command splits)", () => {
+    expect(parsePiArgs(["--tool", "bash,edit"]).toolFilter).toBe("bash,edit");
+  });
+  test("--sessions-dir <path> + = form (shared tools-metrics/agent-trends)", () => {
+    expect(parsePiArgs(["agent-trends", "--sessions-dir", "/tmp/s"]).sessionsDir).toBe("/tmp/s");
+    expect(parsePiArgs(["--sessions-dir=/tmp/s"]).sessionsDir).toBe("/tmp/s");
+  });
+  test("--ext <csv> (schema-cost mode) + = form", () => {
+    expect(parsePiArgs(["--schema-cost", "--ext", "a.ts,b.ts"]).ext).toBe("a.ts,b.ts");
+    expect(parsePiArgs(["--ext=a.ts"]).ext).toBe("a.ts");
+  });
+  test("value flags absent → undefined (commands apply their own defaults)", () => {
+    const out = parsePiArgs(["tools-metrics"]);
+    expect(out.since).toBeUndefined();
+    expect(out.until).toBeUndefined();
+    expect(out.cwdSubstr).toBeUndefined();
+    expect(out.toolFilter).toBeUndefined();
+    expect(out.sessionsDir).toBeUndefined();
+    expect(out.ext).toBeUndefined();
+  });
+
+  // --- boolean flags: bare presence, absent → undefined ---
+  test("--details / --schema-cost / --all set their fields", () => {
+    expect(parsePiArgs(["tools-metrics", "--details"]).details).toBe(true);
+    expect(parsePiArgs(["tools-metrics", "--schema-cost"]).schemaCost).toBe(true);
+    expect(parsePiArgs(["agent-trends", "--all"]).all).toBe(true);
+  });
+  test("boolean flags absent → undefined", () => {
+    const out = parsePiArgs(["tools-metrics"]);
+    expect(out.details).toBeUndefined();
+    expect(out.schemaCost).toBeUndefined();
+    expect(out.all).toBeUndefined();
+  });
+
+  // --- numeric flags: both forms, fractional delta, fail-fast on garbage ---
+  test("--top <n> (space + = form)", () => {
+    expect(parsePiArgs(["--top", "20"]).top).toBe(20);
+    expect(parsePiArgs(["--top=5"]).top).toBe(5);
+  });
+  test("--top absent → undefined (show all)", () => {
+    expect(parsePiArgs(["tools-metrics"]).top).toBeUndefined();
+  });
+  test("--top abc throws (old parseTop threw too)", () => {
+    expect(() => parsePiArgs(["--top", "abc"])).toThrow(/--top/);
+  });
+  test("--top 0 throws (positive integer required)", () => {
+    expect(() => parsePiArgs(["--top", "0"])).toThrow(/--top/);
+  });
+  test("--window / --min-events (space + = form)", () => {
+    expect(parsePiArgs(["agent-trends", "--window", "100"]).window).toBe(100);
+    expect(parsePiArgs(["--window=50"]).window).toBe(50);
+    expect(parsePiArgs(["--min-events", "25"]).minEvents).toBe(25);
+    expect(parsePiArgs(["--min-events=5"]).minEvents).toBe(5);
+  });
+  test("--delta accepts fractional pp (integer: false)", () => {
+    expect(parsePiArgs(["--delta", "2.5"]).delta).toBe(2.5);
+    expect(parsePiArgs(["--delta=10"]).delta).toBe(10);
+  });
+  test("agent-trends numerics absent → undefined (commands default 200/10/10)", () => {
+    const out = parsePiArgs(["agent-trends"]);
+    expect(out.window).toBeUndefined();
+    expect(out.minEvents).toBeUndefined();
+    expect(out.delta).toBeUndefined();
+  });
+  test("agent-trends numerics: garbage now fails fast (old num() silently defaulted)", () => {
+    expect(() => parsePiArgs(["--window", "abc"])).toThrow(/--window/);
+    expect(() => parsePiArgs(["--min-events", "-3"])).toThrow(/--min-events/);
+    expect(() => parsePiArgs(["--delta", "0"])).toThrow(/--delta/);
+  });
+
+  // --- doctor reads the shared --json / --fix boolean rows ---
+  test("doctor: --json / --fix come from the shared boolean rows", () => {
+    const out = parsePiArgs(["doctor", "--json", "--fix"]);
+    expect(out.json).toBe(true);
+    expect(out.fix).toBe(true);
+  });
+  test("doctor without flags → json/fix undefined", () => {
+    const out = parsePiArgs(["doctor"]);
+    expect(out.json).toBe(false);
+    expect(out.fix).toBeUndefined();
+  });
+
+  // --- unknown-flag skipper behavior is unchanged ---
+  test("unknown --flag + value still skipped without touching positionals", () => {
+    const out = parsePiArgs(["--nope", "value", "prompt"]);
+    expect(out.positionals).toEqual(["prompt"]);
+    expect(out.since).toBeUndefined();
+  });
+});

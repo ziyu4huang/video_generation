@@ -31,7 +31,8 @@ export type NumericField =
 	| "depth" | "maxNeighbors" | "topK" | "maxNoteTokens" | "threshold"
 	| "recency"
 	| "maxRounds" | "consecutiveEmpty" | "maxLinks"
-	| "concurrency";
+	| "concurrency"
+	| "top" | "window" | "minEvents" | "delta";
 
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
@@ -43,7 +44,8 @@ export type ValueField =
 	| "linkWeighting" | "probeEval"
 	| "outDir"
 	| "only" | "filesCsv" | "projectsDir" | "memoryDir"
-	| "effort" | "tier" | "outcome" | "phase";
+	| "effort" | "tier" | "outcome" | "phase"
+	| "since" | "until" | "cwdSubstr" | "toolFilter" | "sessionsDir" | "ext";
 
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
@@ -52,7 +54,8 @@ export type BoolField =
 	| "noPersistLogs" | "save"
 	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe"
-	| "verify" | "reconverge";
+	| "verify" | "reconverge"
+	| "details" | "schemaCost" | "all";
 
 // ── spec row shapes ─────────────────────────────────────────────────────────
 
@@ -170,6 +173,18 @@ const DISPATCH_LOG_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--outcome", field: "outcome" },
 ];
 
+// ── meta commands (tools-metrics / agent-trends) — session-log analysis ──────
+// Migrated from hand-rolled takeFlag/hasFlag/flag/has/num rest-parsers
+// (ticket 04): field names mirror the local variables the commands read.
+const META_VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	{ flag: "--since", field: "since" }, // tools-metrics: sessions starting on/after
+	{ flag: "--until", field: "until" }, // tools-metrics: sessions starting on/before
+	{ flag: "--cwd", field: "cwdSubstr" }, // tools-metrics: cwd substring filter
+	{ flag: "--tool", field: "toolFilter" }, // tools-metrics: tool-name substrings (csv)
+	{ flag: "--sessions-dir", field: "sessionsDir" }, // shared: tools-metrics, agent-trends
+	{ flag: "--ext", field: "ext" }, // tools-metrics --schema-cost: entry overrides (csv)
+];
+
 /** All value flags (merged, order-independent). */
 export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...MEMORY_TO_VAULT_VALUE_FLAGS,
@@ -185,6 +200,7 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...KCARD_LOOP_VALUE_FLAGS,
 	...PIPELINE_GATE_VALUE_FLAGS,
 	...DISPATCH_LOG_VALUE_FLAGS,
+	...META_VALUE_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -239,6 +255,16 @@ const MEMORY_TO_VAULT_NUM_FLAGS: readonly NumericFlagSpec[] = [
 	{ flag: "--concurrency", field: "concurrency", min: 1, example: "4" },
 ];
 
+// ── meta commands (tools-metrics / agent-trends) — shaping + window tuning ───
+// agent-trends' old num() silently fell back to the default on invalid input;
+// these rows fail fast via parseNumericFlag instead (documented in ticket 04).
+const META_NUM_FLAGS: readonly NumericFlagSpec[] = [
+	{ flag: "--top", field: "top", min: 1, example: "20" }, // tools-metrics
+	{ flag: "--window", field: "window", min: 1, example: "200" }, // agent-trends
+	{ flag: "--min-events", field: "minEvents", min: 1, example: "10" }, // agent-trends
+	{ flag: "--delta", field: "delta", min: 1, integer: false, example: "10" }, // agent-trends (pp floor)
+];
+
 /** All numeric flags (merged). */
 export const NUMERIC_FLAGS: readonly NumericFlagSpec[] = [
 	...MEMORY_TO_VAULT_NUM_FLAGS,
@@ -249,6 +275,7 @@ export const NUMERIC_FLAGS: readonly NumericFlagSpec[] = [
 	...ZK_QUERY_NUM_FLAGS,
 	...RESEARCH_NUM_FLAGS,
 	...KCARD_LOOP_NUM_FLAGS,
+	...META_NUM_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -286,6 +313,8 @@ const PDF_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 // ── zk-query — graph health + output ────────────────────────────────────────
 const ZK_QUERY_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--health"], field: "health" },
+	// --fix / --json are shared beyond zk-query: doctor reads fix+json,
+	// tools-metrics + agent-trends read json (ticket 04 moved them off rest-scan).
 	{ flags: ["--fix"], field: "fix" },
 	{ flags: ["--coverage"], field: "coverage" },
 	{ flags: ["--json"], field: "json" },
@@ -319,6 +348,13 @@ const MEMORY_TO_VAULT_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--verify"], field: "verify" },
 ];
 
+// ── meta commands (tools-metrics / agent-trends) — mode switches ─────────────
+const META_BOOL_FLAGS: readonly BoolFlagSpec[] = [
+	{ flags: ["--details"], field: "details" }, // tools-metrics: latency detail columns
+	{ flags: ["--schema-cost"], field: "schemaCost" }, // tools-metrics: schema-cost mode
+	{ flags: ["--all"], field: "all" }, // agent-trends: scan every project
+];
+
 /** All boolean flags (merged). */
 export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...MEMORY_TO_VAULT_BOOL_FLAGS,
@@ -331,6 +367,7 @@ export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...KNOWLEDGE_PIPELINE_BOOL_FLAGS,
 	...RESEARCH_BOOL_FLAGS,
 	...KCARD_LOOP_BOOL_FLAGS,
+	...META_BOOL_FLAGS,
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */
