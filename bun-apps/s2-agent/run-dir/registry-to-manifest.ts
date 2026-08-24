@@ -8,7 +8,7 @@
 import type { Registry } from "./registry.ts";
 
 export interface ManifestJson {
-  $generated: string; // "from s2-agent.registry.yaml by regen:manifest — do not edit" — verbatim until ticket 04: the byte-identical manifest gate freezes it
+  $generated: string; // "from src/registry-config.ts by regen:manifest — do not edit" — the byte-identical manifest gate freezes it
   extensions: Array<{ name: string; entry: string; version?: string }>; // load:dynamic, entry = "<package>/<entry>"
   skills: string[]; // "<package>/skills" for skills:true (registry order)
   staticExtensions: string[]; // package names for load:static (registry order)
@@ -18,7 +18,7 @@ export interface ManifestJson {
 export function buildManifestObject(r: Registry): ManifestJson {
   const byLoad = (load: "static" | "dynamic") => r.extensions.filter((e) => e.load === load);
   return {
-    $generated: "from s2-agent.registry.yaml by regen:manifest — do not edit",
+    $generated: "from src/registry-config.ts by regen:manifest — do not edit",
     extensions: byLoad("dynamic").map((e) => {
       const entry: { name: string; entry: string; version?: string } = {
         name: e.name,

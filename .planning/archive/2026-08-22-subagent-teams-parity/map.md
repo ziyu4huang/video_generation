@@ -131,7 +131,7 @@ Phase 4 — ultracode gaps (P4)
   existing cross-process run leases guard against double-fire.
 - D9: Task list tools register in the subagent ext (existing `extensionTools` bridges
   reach children and workflow agents with zero dispatch-path changes);
-  `s2-agent.registry.yaml` unchanged — no new ext for any ticket.
+  `the registry YAML` unchanged — no new ext for any ticket.
 - D10: Out of scope: fork-type subagents, remote isolation, ToolSearch/skills-in-child,
   cross-restart live-session resume, direct child→child channels, a cron daemon.
 - D11 (ticket 04): `request_plan_approval` is CHILD-INJECTED, never

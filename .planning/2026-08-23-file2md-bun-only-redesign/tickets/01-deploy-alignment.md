@@ -10,7 +10,7 @@ like.
 
 ## Work done
 
-- `bun-apps/s2-agent/s2-agent.registry.yaml` — file2md entry gains `skills: true`
+- `bun-apps/s2-agent/src/registry-config.ts` — file2md entry gains `skills: true`
   and a refreshed `excludeReason` (v1: "mupdf native/wasm + hard LM Studio"; v2:
   "vendored OCR assets + optional local vision layer — kept out of the portable
   core by scope policy (deploy-ready structure)"). devops entry untouched

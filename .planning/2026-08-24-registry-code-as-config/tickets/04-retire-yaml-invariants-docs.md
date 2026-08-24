@@ -4,7 +4,7 @@ Status: open · Phase 3 (after 02+03)
 
 ## Scope
 
-- Delete `bun-apps/s2-agent/s2-agent.registry.yaml` (ticket 02/03 removed all
+- Delete the retired YAML registry file (ticket 02/03 removed all
   parsers; verify with repo-wide grep including docs that name it as a FILE to
   edit — CLAUDE.md § Extension packages, devops SKILL.md, ext headers,
   docs/deploy.md).
@@ -20,7 +20,7 @@ Status: open · Phase 3 (after 02+03)
 
 ## Done-when
 
-- `git grep s2-agent.registry.yaml` returns zero hits (history only).
+- `git grep` of the retired registry filename returns zero hits (history only).
 - Invariant suite green incl. in local_ci; `regen:static` still works;
   deploy from a scratch temp registry fixture (deploy-e2e's fixture lane)
   green; local_ci green; version bumped (minor — developer-facing workflow

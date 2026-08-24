@@ -9,13 +9,11 @@
  * the workspace, so a plain relative import is fine here — map D4's
  * link-state-immunity constraint applies only to bun-apps/tests.
  *
- * `parseShConfig(text)` / `excludedExtensions(text)` are the RETIRED-BRIDGE
- * YAML projections, kept for the fixture-based tests until ticket 04 deletes
- * them with the YAML. No production caller passes YAML text anymore.
+ * The retired registry YAML and `parseShConfig` bridge are gone (ticket 04);
+ * ShConfig comes from the typed REGISTRY and nothing parses YAML.
  */
 import {
 	loadRegistry,
-	parseRegistry,
 	type Registry,
 	type RegistryDeployBlock,
 	type RegistryExt,
@@ -95,7 +93,7 @@ function isShipped(
 	return ext.deploy?.enabled === true;
 }
 
-/** The deploy projection over a validated legacy Registry (shared by both read paths). */
+/** The deploy projection over a validated legacy Registry. */
 function projectShConfig(registry: Registry): ShConfig {
 	// Registry `skills: true` means "the package's skills/ dir ships" — the one
 	// dir convention the deploy layout hardcodes.
@@ -132,17 +130,6 @@ export function shConfig(opts: { bunAppsDir: string }): ShConfig {
 	return projectShConfig(loadRegistry(opts));
 }
 
-/**
- * @deprecated Retired bridge (ticket 03): projects ShConfig from
- * s2-agent.registry.yaml text. Fixture tests only; ticket 04 deletes it.
- */
-export function parseShConfig(
-	text: string,
-	opts: { bunAppsDir: string },
-): ShConfig {
-	return projectShConfig(parseRegistry(text, opts));
-}
-
 export interface ExcludedExtension {
 	name: string;
 	package: string;
@@ -151,9 +138,10 @@ export interface ExcludedExtension {
 
 /**
  * The not-shipped half of the registry — every entry WITHOUT a live deploy
- * block, with its excludeReason verbatim. parseShConfig keeps only the shipped
- * entries, so the deploy report reads this for its excluded table: the reason
- * a package stays local is part of the deploy's record, not tribal knowledge.
+ * block, with its excludeReason verbatim. The ShConfig projection keeps only
+ * the shipped entries, so the deploy report reads this for its excluded
+ * table: the reason a package stays local is part of the deploy's record,
+ * not tribal knowledge.
  */
 export function excludedExtensionsFromRegistry(opts: { bunAppsDir: string }): ExcludedExtension[] {
 	const registry = loadRegistry(opts);
@@ -166,17 +154,3 @@ export function excludedExtensionsFromRegistry(opts: { bunAppsDir: string }): Ex
 		}));
 }
 
-/**
- * @deprecated Retired bridge (ticket 03): the not-shipped half from
- * s2-agent.registry.yaml text. Fixture tests only; ticket 04 deletes it.
- */
-export function excludedExtensions(text: string, opts: { bunAppsDir: string }): ExcludedExtension[] {
-	const registry = parseRegistry(text, opts);
-	return registry.extensions
-		.filter((ext) => ext.deploy?.enabled !== true)
-		.map((ext) => ({
-			name: ext.name,
-			package: ext.package,
-			reason: ext.excludeReason ?? "(no excludeReason given)",
-		}));
-}

@@ -152,4 +152,4 @@ s2-agent cross-package typecheck. local_ci ≤ 5 min (standing user rule).
   aggregate budgets is hard to reverse, surprising without context, and a real
   trade-off. Everything else is map.md Decisions.
 - ultracode CONTEXT.md: cron terms (ticket 08). PRD.md:74-76 rewrite (ticket 06).
-- Registry (`s2-agent.registry.yaml`) unchanged throughout (D9).
+- Registry (`the registry YAML`) unchanged throughout (D9).

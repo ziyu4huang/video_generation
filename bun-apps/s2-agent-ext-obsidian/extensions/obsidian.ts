@@ -291,7 +291,7 @@ export default function (pi: ExtensionAPI) {
 	// Self-gate: BUN_PI_OBSIDIAN=0 disables the entire extension — it registers
 	// no tools, commands, or session hooks. Mirrors prompt-history's
 	// BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
-	// (s2-agent.registry.yaml) shares one symmetric full-disable knob; enforced by
+	// (the typed registry) shares one symmetric full-disable knob; enforced by
 	// tests/extension-isolation-contract.test.ts. Before the gate, this factory
 	// was the one base-set member with no disable path at all.
 	if (process.env.BUN_PI_OBSIDIAN === "0") return;

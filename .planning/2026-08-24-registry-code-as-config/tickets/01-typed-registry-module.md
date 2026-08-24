@@ -16,7 +16,7 @@ Add `registryToLegacyShapes()` (pure): produce the exact structures today's
 
 ## Approach
 
-1. Port the entry data mechanically from `s2-agent.registry.yaml` (comments
+1. Port the entry data mechanically from `the registry YAML` (comments
    become per-entry `notes:` strings — the measured rationale must not be lost;
    they are the registry's real documentation).
 2. Unit tests in `src/registry-config.test.ts`:

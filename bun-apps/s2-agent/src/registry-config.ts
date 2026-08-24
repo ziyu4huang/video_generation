@@ -1,12 +1,10 @@
 /**
- * registry-config.ts — the extension registry as typed, side-effect-free data.
+ * registry-config.ts — THE extension registry as typed, side-effect-free data.
  *
- * Migrated 2026-08-24 from s2-agent.registry.yaml (effort
- * .planning/2026-08-24-registry-code-as-config/, ticket 01). During migration
- * the YAML stays authoritative everywhere; this module proves byte-equivalence
- * via `registryToLegacyShapes()` + src/registry-config.test.ts (the
- * equivalence net) until the consumers flip (tickets 02–03) and the YAML is
- * retired (ticket 04).
+ * Migrated 2026-08-24 from the retired YAML registry (effort
+ * .planning/2026-08-24-registry-code-as-config/, tickets 01–04). The YAML is
+ * retired with its parsers; THIS module is now the single source of truth —
+ * every entry, disabled ones included, is a typed `enabled: false` value.
  *
  * ZERO-IMPORT / SIDE-EFFECT-FREE BY DESIGN
  * ----------------------------------------
@@ -20,7 +18,7 @@
  * `import` statement or `require(` call — comments below legitimately mention
  * require("#pi/ext-dir") in prose.)
  *
- * REGISTRY HEADER (ported verbatim from the YAML; still the rules):
+ * REGISTRY HEADER (the rules; ported verbatim from the retired YAML):
  *   load: static  → source mode statically imports it (via regen:static codegen)
  *   load: dynamic → source mode loads it via -e
  *   deploy: block PRESENT → ships in the portable tree (order/copy/vendor/externals)
@@ -591,14 +589,15 @@ export function shippedEntries(): RegistryEntry[] {
   return activeEntries().filter((e) => e.deploy !== undefined && e.deploy.enabled !== false);
 }
 
-// ─── Legacy shapes (equivalence net) ─────────────────────────────────────────
+// ─── Legacy Registry shape (consumed by run-dir validation) ──────────────────
 //
-// Structural mirrors of what run-dir/registry.ts `parseRegistry()` and devops
-// `parseShConfig()` return on the REAL s2-agent.registry.yaml today. Ticket 01
-// keeps the YAML authoritative; these shapes + src/registry-config.test.ts
-// prove the typed data is byte-equivalent, which is what makes tickets 02–04
-// mechanical. HOME comes in as an argument — the module cannot call homedir()
-// (zero imports), and outRoot is stored in ~ form so it stays machine-neutral.
+// Structural mirror of the Registry shape run-dir/registry.ts returns. The
+// module cannot import it (zero-import contract, map D4); the projection
+// below builds the shape the pre-migration YAML parser produced, so
+// run-dir/registry.ts's `loadRegistry()` and everything downstream (manifest
+// emitter, devops ShConfig projection, tests) consume an unchanged contract.
+// Home comes in as an argument — the module cannot call homedir() (zero
+// imports), and outRoot is stored in ~ form so it stays machine-neutral.
 
 interface LegacyRegistryExt {
   name: string;
@@ -632,50 +631,21 @@ interface LegacyRegistry {
   lazyExtensions: Record<string, string>;
 }
 
-interface LegacyShExtConfig {
-  name: string;
-  package: string;
-  entry: string;
-  order: number;
-  skills: string[];
-  copy: string[];
-  externals: string[];
-  vendor: string[];
-  vendorExclude: string[];
-  enabled: boolean;
-}
-
-interface LegacyShConfig {
-  outRoot: string;
-  version: { from: "package.json"; gitSha: boolean };
-  freeze: boolean;
-  current: boolean;
-  keep?: number;
-  hostApi: number;
-  hostModules: string[];
-  extensions: LegacyShExtConfig[];
-}
-
 function expandHome(p: string, home: string): string {
   if (p === "~") return home;
   if (p.startsWith("~/")) return `${home}/${p.slice(2)}`;
   return p;
 }
 
-export interface LegacyShapes {
-  registry: LegacyRegistry;
-  shConfig: LegacyShConfig;
-}
-
-export type { LegacyRegistry, LegacyShConfig };
+export type { LegacyRegistry };
 
 /**
- * Project the typed registry into the exact structures today's
- * `parseRegistry(yaml)` and devops `parseShConfig(yaml)` return. Pure; the
- * deep-equal assertion against the real YAML parse output lives in
- * src/registry-config.test.ts and runs in CI until ticket 04 deletes the YAML.
+ * Project the typed registry into the legacy `Registry` shape consumers have
+ * always known — the post-migration counterpart of the retired parseRegistry.
+ * The old projection's ShConfig half died with parseShConfig: devops builds
+ * its own ShConfig out of this shape. Pure.
  */
-export function registryToLegacyShapes(opts: { home: string }): LegacyShapes {
+export function legacyRegistry(opts: { home: string }): LegacyRegistry {
   const outRoot = expandHome(DEPLOY_CONFIG.outRoot, opts.home);
   const keep = DEPLOY_CONFIG.keep;
 
@@ -700,7 +670,7 @@ export function registryToLegacyShapes(opts: { home: string }): LegacyShapes {
           },
   }));
 
-  const registry: LegacyRegistry = {
+  return {
     deploy: {
       outRoot,
       version: { from: "package.json", gitSha: DEPLOY_CONFIG.version.gitSha },
@@ -713,31 +683,4 @@ export function registryToLegacyShapes(opts: { home: string }): LegacyShapes {
     extensions,
     lazyExtensions: LAZY_EXTENSIONS,
   };
-
-  const shConfig: LegacyShConfig = {
-    outRoot: registry.deploy.outRoot,
-    version: registry.deploy.version,
-    freeze: registry.deploy.freeze,
-    current: registry.deploy.current,
-    keep: registry.deploy.keep,
-    hostApi: registry.hostApi,
-    hostModules: registry.hostModules,
-    extensions: shippedEntries().map((e) => ({
-      name: e.name,
-      package: e.package,
-      entry: e.entry,
-      order: e.deploy!.order,
-      skills: e.skills ? ["skills"] : [],
-      copy: e.deploy!.copy ?? [],
-      vendor: e.deploy!.vendor ?? [],
-      externals: e.deploy!.externals ?? [],
-      vendorExclude: e.deploy!.vendorExclude ?? [],
-      enabled: e.deploy!.enabled ?? true,
-    })),
-  };
-  // parseShConfig sorts shipped entries by deploy order; stable sort, same
-  // input order ⇒ identical output ordering.
-  shConfig.extensions.sort((a, b) => a.order - b.order);
-
-  return { registry, shConfig };
 }

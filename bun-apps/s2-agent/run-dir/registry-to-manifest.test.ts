@@ -90,7 +90,7 @@ describe("buildManifestObject", () => {
 
   test("$generated is present and the first key of the emitted object", () => {
     const m = buildManifestObject(registry);
-    expect(m.$generated).toBe("from s2-agent.registry.yaml by regen:manifest — do not edit");
+    expect(m.$generated).toBe("from src/registry-config.ts by regen:manifest — do not edit");
     expect(Object.keys(m)[0]).toBe("$generated");
   });
 });

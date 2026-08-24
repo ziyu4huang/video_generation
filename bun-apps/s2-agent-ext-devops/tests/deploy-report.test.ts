@@ -206,7 +206,7 @@ describe("renderOutRootIndex", () => {
 	});
 });
 
-describe("excludedExtensions — the not-shipped half of the registry", () => {
+describe("excludedExtensionsFromRegistry — the not-shipped half of the registry", () => {
 	test("the real registry: excluded names carry their reasons, shipped ones do not appear", () => {
 		const excluded = excludedExtensionsFromRegistry({ bunAppsDir: BUN_APPS_DIR });
 		const names = excluded.map((e) => e.name);

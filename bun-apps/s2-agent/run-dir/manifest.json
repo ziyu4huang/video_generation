@@ -1,5 +1,5 @@
 {
-	"$generated": "from s2-agent.registry.yaml by regen:manifest — do not edit",
+	"$generated": "from src/registry-config.ts by regen:manifest — do not edit",
 	"extensions": [
 		{
 			"name": "devops",

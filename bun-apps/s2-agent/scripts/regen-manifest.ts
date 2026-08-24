@@ -4,9 +4,7 @@
  * `bun run regen:manifest` from bun-apps/s2-agent. The manifest is a DERIVED
  * artifact; this script plus the freshness test are the only writers that
  * should ever touch it. Refuses to write an empty manifest (same guard shape
- * as regen-static-extensions.ts). Since ticket 02 the retired
- * s2-agent.registry.yaml is no longer read here (devops keeps reading it
- * until ticket 03).
+ * as regen-static-extensions.ts).
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";

@@ -52,7 +52,7 @@ dsh-plugin/sv-analyzer/
 
 The s2-agent face lives at `bun-apps/s2-agent-ext-sv-analyzer/` (entry
 `extensions/sv-analyzer.ts`, registered `load: static` with `copy: [wasm]` in
-`s2-agent.registry.yaml`, so the devops deploy ships it like any other
+`bun-apps/s2-agent/src/registry-config.ts`, so the devops deploy ships it like any other
 `s2-agent-ext-*` package).
 
 ## Requirements

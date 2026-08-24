@@ -267,7 +267,7 @@ the effort close-out (map status: complete).
 | Classify + clean up merged local/remote branches | `sweep_merged_branches` |
 | Build + deploy the s2-agent bundle + thin ext bundles (runs `s2-agent-ext-devops/src/deploy/run.ts` via `src/deploy-cli.ts`) | `deploy_pi_agent_sh` |
 | Run a s2-agent `run-test.ts` tier (quick/medium/full) to self-verify | `verify_pi_agent_deploy` |
-| Deploy the versioned sh core + ext set (Pipeline B, registry `s2-agent.registry.yaml`) | `deploy` — `bun run --cwd bun-apps/s2-agent deploy` (CLI: `bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]`) |
+| Deploy the versioned sh core + ext set (Pipeline B, registry `src/registry-config.ts`) | `deploy` — `bun run --cwd bun-apps/s2-agent deploy` (CLI: `bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]`) |
 | "Does the DEPLOYED dist actually work?" (boot + ext-load + model call against `<outRoot>/current`) | `bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts` (runs automatically after every deploy too) |
 
 ### `sweep_merged_branches` — the worktree guard covers remotes too

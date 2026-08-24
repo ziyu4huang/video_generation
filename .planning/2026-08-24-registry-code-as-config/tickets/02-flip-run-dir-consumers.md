@@ -42,7 +42,7 @@ freshness + single-registry-guard gates unchanged (map D3).
 
 ## Done-when
 
-- The four consumers import REGISTRY; `grep -l "s2-agent.registry.yaml"` in
+- The four consumers import REGISTRY; `grep -l` for the retired registry filename in
   bun-apps/s2-agent returns only docs/tests.
 - `regen:manifest` output byte-identical to pre-flip manifest.json.
 - Freshness, single-registry-guard, registry-to-manifest tests green;

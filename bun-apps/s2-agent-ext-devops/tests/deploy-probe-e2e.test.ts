@@ -36,7 +36,7 @@ const outRoot = mkdtempSync(join(tmpdir(), "sh-probe-"));
 /** Per-user state must never land in the operator's real ~/.pi during a test. */
 const piHome = join(outRoot, "pi-home");
 
-// Expected loaded set is DERIVED from s2-agent.registry.yaml, not hardcoded:
+// Expected loaded set is DERIVED from the registry, not hardcoded:
 // #1713 added hyperframes as a third configured extension and every hardcoded
 // ["power-tool","task"] / count-2 assertion here went stale the moment it
 // merged. The registry is the source of truth for what a deploy must load.
@@ -400,7 +400,7 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 	test("no bundle carries a path from the build machine", async () => {
 		// The static half of gate 4, asserted against what actually shipped rather
 		// than against the string the build happened to scan. Every configured
-		// extension — the set derives from s2-agent.registry.yaml, so a new entry is
+		// extension — the set derives from the registry, so a new entry is
 		// covered automatically (the #1713 lesson: hardcoded names go stale).
 		const home = process.env.HOME ?? "";
 		for (const name of configuredNames) {
