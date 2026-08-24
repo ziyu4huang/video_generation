@@ -20,6 +20,7 @@
  */
 import { readFileSync, readdirSync, existsSync, type Dirent } from "node:fs";
 import { join } from "node:path";
+import { findRepoRoot } from "../../paths.ts";
 
 export type Tier = "T1" | "T2" | "T3";
 
@@ -306,6 +307,6 @@ bootstrap gate — the ledger only exists after the Report phase);
 Exits 0 green, 1 red (with the stage to return to), 2 usage error. T1
 efforts have no effort folder — pass --tier T1 explicitly.`,
 	run: async (parsed: import("../args.ts").ParsedArgs) => {
-		await run(join(import.meta.dir, "../../../../.."), parsed);
+		await run(findRepoRoot(import.meta.dir) ?? import.meta.dir, parsed);
 	},
 };

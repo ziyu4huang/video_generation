@@ -2,6 +2,16 @@
 
 Phase A · risk MED · gate: package gates + bundle-mode-anchor · depends: none
 
+## Receipt (2026-08-24)
+
+Implemented on branch `s2-agent-simplify-t02-paths-leaf`. Net −63 lines; 14 files rewired + new src/paths.ts.
+
+- Precondition proven empirically: real deploy bundle build (same flags as deploy/run.ts) greps 0 hits for any cli/ path; cli-sh.ts static import closure contains no cli/ (cli namespace rejected at :83-91 before applyPatches).
+- Rewires: 3 patch settings readers → leaf (subagent-model-floor now zero @earendil-works imports); agent-dir sites per plan EXCEPT **ensure-model-tiers charted-but-rejected** — its reader `getModelTierConfigPath` (s2-agent-core-runtime/src/model-role-config.ts:29) keys on `$HOME` only, so env-honor in the writer would be a silent no-op (map D5 amended). memory/memory-to-vault/knowledge-pipeline gain PI_CODING_AGENT_DIR (intended delta).
+- Deviation: findRepoRoot keys on the `bun-apps/` marker, not `.git` — doctor.test.ts:42-52 pins that marker (fixture has no .git). Result identical for all callers.
+- Kept wrappers (real importers or test pins): readUserSettings (shared.ts), resolveRepoRoot (schema-cost.ts), resolveSessionsDir (tools-metrics.ts; agent-trends' is semantically distinct — PI_SESSIONS_DIR).
+- Gates: tsc clean; bun test 1046 pass / 0 fail; bundle-mode-anchor 1 pass. Independent reviewer verdict READY (2 Info semantic notes: no tilde expansion / `??` vs truthy env check — immaterial for real callers).
+
 ## Scope
 
 New `src/paths.ts` (node-builtins only — no @earendil-works, no workspace imports; patches must stay SDK-free in its importers where required):

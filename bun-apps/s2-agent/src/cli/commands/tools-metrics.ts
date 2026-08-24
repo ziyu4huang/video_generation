@@ -24,8 +24,8 @@
  * would double-count bash.
  */
 import { readdirSync, readFileSync, existsSync, type Dirent } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
 import {
 	buildSchemaCostReport,
@@ -415,8 +415,7 @@ export function listSessionFiles(dir: string): string[] {
 
 /** Resolve the sessions dir: $PI_CODING_AGENT_DIR/sessions → ~/.pi/agent/sessions. */
 export function resolveSessionsDir(env: Record<string, string | undefined>): string {
-	const base = env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-	return join(base, "sessions");
+	return join(resolveAgentDir(env), "sessions");
 }
 
 // --- command wiring ----------------------------------------------------------

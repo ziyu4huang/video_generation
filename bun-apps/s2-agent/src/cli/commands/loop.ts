@@ -14,6 +14,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { findRepoRoot } from "../../paths.ts";
 
 export interface RunsStats {
 	total: number;
@@ -158,6 +159,6 @@ superpowers + subagent): dispatch death rate, skill line counts, duplicate
 skill scan, schema-cost canary, wayfind coverage floor. Report-only: ALWAYS
 exits 0 — fixes are gated human/agent actions (#1616 lesson).`,
 	run: async (parsed: import("../args.ts").ParsedArgs) => {
-		await loopStatus(join(import.meta.dir, "../../../../.."), parsed.positionals);
+		await loopStatus(findRepoRoot(import.meta.dir) ?? import.meta.dir, parsed.positionals);
 	},
 };

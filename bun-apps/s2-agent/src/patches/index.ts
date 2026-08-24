@@ -60,10 +60,9 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // subagent (zk_card / zk_ask / obsidian_distill) with no --model
   // hits the pi default path → the "no subagent model configured" warning + a
   // slow inherited model → distill timeouts. No ordering dependency on
-  // ensure-extension-deps: getAgentDir is a plain top-level import from
-  // @earendil-works/pi-coding-agent resolved at module load, not through the
-  // repo-root symlinks ensure-extension-deps materializes. Disable with
-  // BUN_PI_SUBAGENT_MODEL_FLOOR=0.
+  // ensure-extension-deps: the settings read goes through the
+  // node-builtins-only leaf ../paths.ts (no @earendil-works import at all).
+  // Disable with BUN_PI_SUBAGENT_MODEL_FLOOR=0.
   { name: "subagent-model-floor", env: "BUN_PI_SUBAGENT_MODEL_FLOOR", defaultValue: true },
   // ensure-model-tiers: the model-tiers resolver (in s2-agent-ext-subagent)
   // reads ~/.pi/workflows/model-tiers.json per-dispatch with NO env/cascade

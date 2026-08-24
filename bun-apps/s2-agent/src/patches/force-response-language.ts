@@ -57,10 +57,9 @@
  * import-time prototype wrap is a thin side effect and is intentionally not
  * asserted here (mirrors subagent-model-floor / resolvePatchPlan).
  */
-import { AgentSession, getAgentDir } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { AgentSession } from "@earendil-works/pi-coding-agent";
 import { envFlag } from "./index.ts";
+import { readAgentSettings } from "../paths.ts";
 
 /** Canonical instruction label per BCP-47 tag (pi owns the wording). Lowercased key. */
 const LANGUAGE_LABELS: Record<string, string> = {
@@ -147,18 +146,6 @@ export function resolveAskUserForcedBlock(settings: unknown): string | null {
 	return mapAskUserLanguageTag(lang)?.block ?? null;
 }
 
-/** Best-effort read of ~/.pi/agent/settings.json. Non-fatal: undefined on any
- *  read/parse error or missing file. (Same shape as subagent-model-floor's reader.) */
-function readUserSettings(): Record<string, unknown> | undefined {
-	try {
-		const settingsPath = join(getAgentDir(), "settings.json");
-		if (!existsSync(settingsPath)) return undefined;
-		return JSON.parse(readFileSync(settingsPath, "utf8")) as Record<string, unknown>;
-	} catch {
-		return undefined;
-	}
-}
-
 /**
  * Pure-ish combiner (modulo envFlag read inside resolveAskUserForcedBlock): given
  * parsed settings, return the COMBINED per-turn block to prepend — response
@@ -186,7 +173,7 @@ export function resolveCombinedForcedBlock(
  *  undefined). Per-turn (re-reads settings.json) so /response-language and
  *  /ask-user-language both flip live with no reload. */
 function currentForcedBlock(): string | undefined {
-	return resolveCombinedForcedBlock(readUserSettings());
+	return resolveCombinedForcedBlock(readAgentSettings());
 }
 
 // ── Module-scoped tracking ───────────────────────────────────────────────

@@ -28,7 +28,7 @@ Measured 2026-08-24 on this machine (three read-only explore agents + one plan a
 ### Phase A — shrink
 
 - [x] 01 — Dead code & stale surface (complete 2026-08-24 branch s2-agent-simplify-t01-dead-code: all items landed; `.agents/` premise false — tracked content, kept; ltx-live-e2e.js kept — ltx TODO references it; chat help corrected to honest in-memory claim; gates 1043 pass + e2e 57 pass; receipt in ticket)
-- [ ] 02 — `src/paths.ts` shared leaf: resolveAgentDir + readAgentSettings + findRepoRoot (node-builtins only); rewire 3 patch readers + ~6 agent-dir sites + 5 repo-root sites
+- [x] 02 — `src/paths.ts` shared leaf: resolveAgentDir + readAgentSettings + findRepoRoot (node-builtins only); rewire 3 patch readers + ~6 agent-dir sites + 5 repo-root sites (complete 2026-08-24 branch s2-agent-simplify-t02-paths-leaf: ensure-model-tiers charted-but-rejected — reader keys on $HOME only; gates 1046 pass + bundle-anchor; reviewer READY; receipt in ticket)
 
 ### Phase B — consolidate
 
@@ -53,7 +53,9 @@ Measured 2026-08-24 on this machine (three read-only explore agents + one plan a
 
 ## Fog of war
 
-- Whether cli/ files are truly excluded from the cli-sh cjs bundle (assumed from mode.ts rules; ticket 02 verifies with a real build before relying on import.meta.dir in cli/).
+- Whether cli/ files are truly excluded from the cli-sh cjs bundle — RESOLVED in 02: real bundle build greps 0 cli/ paths; cli-sh.ts static import closure holds.
+- agent-trends.ts:86 reads env `PI_SESSIONS_DIR` — likely a typo of pi's actual `PI_CODING_SESSION_DIR` (pi config.js ENV_SESSION_DIR); pre-existing, ticket 03 must decide keep-alias vs fix while consolidating discovery.
+- ensure-model-tiers env-honor charted-but-rejected in 02 (reader `getModelTierConfigPath` keys on $HOME only — writer-side honor would be a silent no-op); revisit only if core-runtime honors the agent dir.
 - footer-extension-status-notify patch ("REDUNDANT BUT RETAINED") — removal needs a receipts/docs check (ticket 06); may stay with a one-line justification.
 - lazy-extensions dead path (manifest.lazyExtensions always {}) — removal touches registry-config zero-import + manifest types; charted as its own follow-up effort, not ticketed here.
 - chat /clear re-create and --no-session persistence semantics — smallest-honest-fix in 01 (drop dead opts); real REPL session management is unmeasured scope.

@@ -24,8 +24,9 @@
  * across changes. Mirrors the approach `inspect_context` reports in-agent.
  */
 import { createCodingTools } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve, relative, isAbsolute, join } from "node:path";
+import { findRepoRoot } from "../../paths.ts";
 
 // --- pure core delegated to the schema-cost submodule ----------------------
 // The static schema-cost accounting (estimateToolCost + formatting + types)
@@ -203,18 +204,11 @@ export function discoverExtensionEntries(cwd: string): { source: string; path: s
 
 /**
  * Resolve the repo root: walk up from `from` until a dir containing `bun-apps/`
- * is found. Falls back to `from` if none (so the command still runs, just with
- * no extensions discovered).
+ * is found (the shared leaf ../../paths.ts). Falls back to `from` if none (so
+ * the command still runs, just with no extensions discovered).
  */
 export function resolveRepoRoot(from: string = process.cwd()): string {
-	let dir = resolve(from);
-	for (let i = 0; i < 8; i++) {
-		if (existsSync(join(dir, "bun-apps"))) return dir;
-		const parent = resolve(dir, "..");
-		if (parent === dir) break;
-		dir = parent;
-	}
-	return resolve(from);
+	return findRepoRoot(from) ?? resolve(from);
 }
 
 /** Build the full report (built-ins + extensions), sorted by cost desc. */
