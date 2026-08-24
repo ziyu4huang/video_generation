@@ -27,10 +27,12 @@ export type {
   BudgetSeam,
   BudgetSessionSurface,
   BudgetWarning,
+  TokenStats,
 } from "./agent-budget.js";
 export {
   BUDGET_WARNING_RATIO,
   BUDGET_WRAP_UP_MESSAGE,
+  billableTokens,
   checkBudgetExhaustion,
   checkBudgetWarning,
   createBudgetGuard,

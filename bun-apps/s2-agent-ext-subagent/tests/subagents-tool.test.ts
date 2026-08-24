@@ -399,8 +399,11 @@ function fakeSpawnWithUsage(usages: { total: number; cost: number }[], delayMs =
     const idx = i++;
     if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     const u = usages[idx] ?? { total: 0, cost: 0 };
+    // `total` here IS real consumption (input) — since ADR-subagent-0009 the
+    // batch gate bills input+output, so a fake with input:0/output:0 would
+    // read as "all cache" and never trip the gate.
     return ok(`out${idx}`, {
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: u.total, cost: u.cost },
+      usage: { input: u.total, output: 0, cacheRead: 0, cacheWrite: 0, total: u.total, cost: u.cost },
     });
   };
 }
@@ -524,7 +527,8 @@ test("a failed child is not persisted; a gate-skipped child is not persisted", a
   // (re-use the usage fake by wrapping)
   const wrappedSpawn = async (opts: { task: string }): Promise<SpawnSubagentResult> => {
     const r = await f.spawn(opts);
-    if (!r.failure) return { ...r, usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 60000, cost: 0 } };
+    if (!r.failure)
+      return { ...r, usage: { input: 60000, output: 0, cacheRead: 0, cacheWrite: 0, total: 60000, cost: 0 } };
     return r;
   };
   const tool2 = createSubagentsTool({ cwd: "/repo", spawn: wrappedSpawn, persistence });

@@ -25,13 +25,47 @@ export interface AgentUsage {
   cost: number;
 }
 
+/**
+ * The token stats shapes below carry the usage breakdown OPTIONALY: the real
+ * SDK session surface provides input/output/cacheRead/cacheWrite/total, while
+ * test doubles and older surfaces may serve `total` alone. Every enforcement
+ * site goes through {@link billableTokens}, which degrades to `total` when
+ * the breakdown is absent — a missing field never disables the guard.
+ */
+export interface TokenStats {
+  total: number;
+  input?: number;
+  output?: number;
+}
+
+/**
+ * The billable token metric a tokenBudget is enforced against: REAL
+ * consumption (input + output), cache excluded.
+ *
+ * Why (ADR-subagent-0009; 2026-08-25 rolling-200 ledger): each API round
+ * re-bills the whole fixed context as cacheRead, so a cache-inclusive
+ * `total` kills big-context children that do little real work — the 9
+ * envelope-recon budget deaths carried 73–85% cacheRead with REAL usage
+ * (19k–49k) at or below the done cohort's real p90 (29.8k). A child that
+ * loops re-reading a giant context is bounded by maxTurns + timeoutMs (and
+ * the grace ceiling on this same real metric), not by the token ceiling.
+ *
+ * Falls back to `total` when either breakdown field is undefined.
+ */
+export function billableTokens(stats: { tokens: TokenStats }): number {
+  const { input, output, total } = stats.tokens;
+  if (input === undefined || output === undefined) return total;
+  return input + output;
+}
+
 /** Why a budget-capped subagent run was aborted mid-run. */
 export interface BudgetExhaustion {
   /** Which budget was exceeded. */
   kind: "tokens" | "spend";
   /** The caller-declared ceiling. */
   limit: number;
-  /** The cumulative usage at the moment of abort. */
+  /** The cumulative billable usage at the moment of abort (real tokens for
+   *  "tokens" — cache excluded per ADR-subagent-0009; cost for "spend"). */
   actual: number;
 }
 
@@ -45,11 +79,11 @@ export interface BudgetExhaustion {
  * agent-budget.test.ts.
  */
 export function checkBudgetExhaustion(
-  stats: { tokens: { total: number }; cost: number },
+  stats: { tokens: TokenStats; cost: number },
   budget: { tokenBudget?: number; spendBudget?: number },
 ): BudgetExhaustion | undefined {
-  if (budget.tokenBudget !== undefined && stats.tokens.total > budget.tokenBudget) {
-    return { kind: "tokens", limit: budget.tokenBudget, actual: stats.tokens.total };
+  if (budget.tokenBudget !== undefined && billableTokens(stats) > budget.tokenBudget) {
+    return { kind: "tokens", limit: budget.tokenBudget, actual: billableTokens(stats) };
   }
   if (budget.spendBudget !== undefined && stats.cost > budget.spendBudget) {
     return { kind: "spend", limit: budget.spendBudget, actual: stats.cost };
@@ -84,11 +118,11 @@ export const BUDGET_WARNING_RATIO = 0.8;
  * set or neither trips. Informational only: never aborts, never retries.
  */
 export function checkBudgetWarning(
-  stats: { tokens: { total: number }; cost: number },
+  stats: { tokens: TokenStats; cost: number },
   budget: { tokenBudget?: number; spendBudget?: number },
 ): BudgetWarning | undefined {
-  if (budget.tokenBudget !== undefined && stats.tokens.total >= BUDGET_WARNING_RATIO * budget.tokenBudget) {
-    return { kind: "tokens", limit: budget.tokenBudget, actual: stats.tokens.total };
+  if (budget.tokenBudget !== undefined && billableTokens(stats) >= BUDGET_WARNING_RATIO * budget.tokenBudget) {
+    return { kind: "tokens", limit: budget.tokenBudget, actual: billableTokens(stats) };
   }
   if (budget.spendBudget !== undefined && stats.cost >= BUDGET_WARNING_RATIO * budget.spendBudget) {
     return { kind: "spend", limit: budget.spendBudget, actual: stats.cost };
@@ -106,7 +140,7 @@ export function checkBudgetWarning(
  */
 export interface BudgetSessionSurface {
   abort(): unknown;
-  getSessionStats(): { tokens: { total: number }; cost: number };
+  getSessionStats(): { tokens: TokenStats; cost: number };
   sendUserMessage?(content: string, options?: { deliverAs?: "steer" | "followUp" }): Promise<void>;
 }
 
@@ -223,7 +257,10 @@ export function createBudgetGuard(
     try {
       const stats = session.getSessionStats();
       cost = stats.cost;
-      totalTokens = stats.tokens.total;
+      // The billable (real) metric — cache excluded; `total` when the surface
+      // serves no breakdown. Both the exhaustion check and the grace ceiling
+      // below compare THIS number against tokenBudget.
+      totalTokens = billableTokens(stats);
       detected = checkBudgetExhaustion(
         { tokens: { total: totalTokens }, cost },
         { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
@@ -260,12 +297,14 @@ export function createBudgetGuard(
         }
         // Grace ceiling: #1334's wrap-up grace suppresses token-kind aborts
         // for an ENTIRE agentic turn with no upper bound — one turn can loop
-        // many API rounds, and usage totals count cacheRead 1:1 (each round
-        // re-bills the full context), so real incidents overshot 3.4-7.3x.
-        // Hard-abort once cumulative tokens exceed tokenBudget * the ceiling
+        // many API rounds, so real incidents overshot 3.4-7.3x. Hard-abort
+        // once cumulative billable tokens exceed tokenBudget * the ceiling
         // ratio even mid-grace. A wrap-up truncated mid-stream is acceptable
-        // — hard safety beats graceful wording. Big-context children may hit
-        // the ceiling within 1-2 rounds of crossing, which is the intent.
+        // — hard safety beats graceful wording. Since ADR-subagent-0009 the
+        // metric is REAL tokens (cache excluded — each round used to re-bill
+        // the full context 1:1 and blew through this ceiling within one
+        // round); on the real metric per-round overshoot is naturally small,
+        // and a child looping tool calls still hits the ceiling fast.
         if (
           detected?.kind === "tokens" &&
           budget.tokenBudget !== undefined &&

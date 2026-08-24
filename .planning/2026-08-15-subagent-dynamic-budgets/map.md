@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-15-subagent-dynamic-budgets
 created: 2026-08-15
-last: 2026-08-16
+last: 2026-08-25
 status: paused
 ---
 
@@ -20,6 +20,12 @@ Subagent budgets become self-calibrating and symmetric across tokens/turns/time 
 
 ## Decisions so far
 
+- 2026-08-25 (fog #1 resolved, ticket 01): budget accounting is cache-aware —
+  the billable metric is input+output (ADR-subagent-0009). Rejected: separate
+  cacheBudget (third knob), cache discount factor (arbitrary constant). The
+  post-change `status:"budget"` ledger population is NOT comparable to
+  pre-change snapshots (regime change noted in budget-history).
+
 - Symmetric three-currency: `timeBudget` gets tier defaults + 80% warning + two-stage wrap-up (grace turn before hard stop); `timeoutMs` stays as alias for compat.
 - Dynamic base: rolling p90 auto-calibration from the runs DB (tier×role buckets), written back to the defaults table at startup/periodically; env knobs keep override precedence.
 - Persist `turnsUsed` on ALL runs (today only turns-aborts record it) — calibration needs the feedback data.
@@ -27,7 +33,15 @@ Subagent budgets become self-calibrating and symmetric across tokens/turns/time 
 
 ## Not yet specified
 
-- cacheRead accounting policy (count 1:1 vs exclude vs separate cacheBudget)
+- ~~cacheRead accounting policy~~ — RESOLVED 2026-08-25 (ticket
+  `tickets/01-cache-aware-budget-accounting.md`, ADR-subagent-0009):
+  tokenBudget enforces REAL tokens (input+output), cache excluded; fallback
+  to inclusive `total` when a stats surface carries no breakdown. The
+  2026-08-25 re-measure (rolling 200, gate ARMED) showed every envelope-recon
+  budget death was 73–85% cacheRead with real usage 19k–49k — at/below the
+  done-recon real p90 (29.8k): the cache-inclusive total was the false-kill
+  mechanism, not consumption. Runaway stays bounded by maxTurns + timeoutMs
+  + the grace ceiling (now also on the real metric).
 - Role-model granularity beyond binary recon/writer
 - All-or-nothing envelope mixing semantics
 - Env knob extension to time (`SUBAGENT_TIME_BUDGET_*`)

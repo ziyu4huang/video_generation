@@ -259,7 +259,9 @@ function budgetWarningFor(
 ): BudgetWarning | undefined {
   if (!usage) return undefined;
   return checkBudgetWarning(
-    { tokens: { total: usage.total }, cost: usage.cost },
+    // Full breakdown: the warning rides the same billable (real-token)
+    // metric as the guard — cache excluded (ADR-subagent-0009).
+    { tokens: { total: usage.total, input: usage.input, output: usage.output }, cost: usage.cost },
     { tokenBudget: budget.tokenBudget, spendBudget: budget.spendBudget },
   );
 }
