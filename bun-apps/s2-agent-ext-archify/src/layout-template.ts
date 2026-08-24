@@ -63,7 +63,28 @@ export interface LoadedTemplate {
    * `deck-lint` `title-overflows` note would be a false positive.
    */
   titleSuppressed: boolean;
+  /**
+   * True when this template draws the slide's IR (a `diagram` block bound to
+   * `{slide.ir}`) — the renderless lint uses it to demand an `ir` on slides,
+   * instead of the build failing with "IR not found at ''".
+   */
+  requiresIr: boolean;
   render(slide: Slide, ctx: LayoutCtx): PlacedBlock[];
+}
+
+/** True when any body content node is a diagram bound to `{slide.ir}`. */
+function bodyBindsSlideIr(body: unknown): boolean {
+  if (Array.isArray(body)) return body.some((n) => bodyBindsSlideIr(n));
+  if (!isObject(body)) return false;
+  const content = (body as Record<string, unknown>).content;
+  if (
+    isObject(content) &&
+    (content as Record<string, unknown>).kind === "diagram" &&
+    (content as Record<string, unknown>).from === "{slide.ir}"
+  ) {
+    return true;
+  }
+  return Object.values(body).some((v) => v !== body && bodyBindsSlideIr(v));
 }
 
 // ── compiled node shapes ─────────────────────────────────────────────────────
@@ -645,5 +666,14 @@ export function loadTemplate(json: unknown, source: string): LoadedTemplate {
     return blocks;
   }
 
-  return { name, description: json.description, slots, roles, source, titleSuppressed, render };
+  return {
+    name,
+    description: json.description,
+    slots,
+    roles,
+    source,
+    titleSuppressed,
+    requiresIr: bodyBindsSlideIr(json.body),
+    render,
+  };
 }

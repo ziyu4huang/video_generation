@@ -1,0 +1,107 @@
+{
+  "name": "timeline-with-diagram",
+  "description": "Milestones beside the picture: the timeline repeat owns the left half, the diagram (from `ir`) the right — pair the library's lifecycle/dataflow IRs with the dates that made them.",
+  "chrome": true,
+  "slots": {
+    "milestones": {
+      "kind": "array",
+      "of": [
+        "date",
+        "label",
+        "note?"
+      ],
+      "min": 3,
+      "max": 6,
+      "required": true,
+      "description": "one milestone per entry; `date` is the marker, `label` the milestone, `note` the qualifier"
+    }
+  },
+  "roles": {
+    "milestoneDate": {
+      "sizePt": 13,
+      "bold": true,
+      "color": "accent"
+    },
+    "milestoneLabel": {
+      "sizePt": 14,
+      "bold": true,
+      "color": "title"
+    },
+    "milestoneNote": {
+      "sizePt": 11,
+      "color": "muted"
+    }
+  },
+  "body": [
+    {
+      "region": "content",
+      "stack": {
+        "dir": "col",
+        "weights": [
+          5,
+          4
+        ],
+        "gap": 0.4
+      },
+      "children": [
+        {
+          "repeat": {
+            "over": "milestones",
+            "flow": "col",
+            "gap": 0.2,
+            "max": 6
+          },
+          "cell": [
+            {
+              "stack": {
+                "dir": "row",
+                "weights": [
+                  2,
+                  3,
+                  2
+                ],
+                "gap": 0.15
+              },
+              "children": [
+                {
+                  "box": "fill",
+                  "content": {
+                    "kind": "text",
+                    "role": "milestoneDate",
+                    "from": "{date}"
+                  },
+                  "valign": "middle"
+                },
+                {
+                  "box": "fill",
+                  "content": {
+                    "kind": "text",
+                    "role": "milestoneLabel",
+                    "from": "{label}"
+                  },
+                  "valign": "middle"
+                },
+                {
+                  "box": "fill",
+                  "content": {
+                    "kind": "text",
+                    "role": "milestoneNote",
+                    "from": "{note}"
+                  },
+                  "valign": "middle"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "box": "fill",
+          "content": {
+            "kind": "diagram",
+            "from": "{slide.ir}"
+          }
+        }
+      ]
+    }
+  ]
+}

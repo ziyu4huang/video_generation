@@ -37,6 +37,11 @@ export interface CatalogEntry {
   slots: Record<string, SlotSpec>;
   /** Absolute path. Code layouts point at `layouts.ts`. */
   source: string;
+  /**
+   * True when the layout draws the slide's IR: templates binding `{slide.ir}`
+   * AND the `diagram` code layout. The renderless lint demands `ir`.
+   */
+  requiresIr?: boolean;
 }
 
 export interface LayoutRegistry {
@@ -166,6 +171,7 @@ export function loadRegistry(opts: LoadRegistryOpts = {}): LayoutRegistry {
     description: CODE_DESCRIPTIONS[name],
     slots: {},
     source: layoutsAbs,
+    ...(name === "diagram" ? { requiresIr: true } : {}),
   }));
 
   return {
@@ -189,6 +195,7 @@ export function loadRegistry(opts: LoadRegistryOpts = {}): LayoutRegistry {
           description: t.description,
           slots: t.slots,
           source: t.source,
+          ...(t.requiresIr ? { requiresIr: true } : {}),
         })),
       ];
     },

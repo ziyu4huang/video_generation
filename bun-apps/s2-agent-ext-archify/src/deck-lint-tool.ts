@@ -82,6 +82,11 @@ function slotProblems(
   entry: CatalogEntry
 ): string[] {
   const out: string[] = [];
+  if (entry.requiresIr && (typeof slide.ir !== "string" || slide.ir === "")) {
+    out.push(
+      `slide ${index + 1}: layout "${entry.name}" (${entry.description}) needs an \`ir\` — this layout draws the slide's IR`
+    );
+  }
   for (const [name, spec] of Object.entries(entry.slots)) {
     const where = `slide ${index + 1}: layout "${entry.name}" (${entry.description})`;
     const value = slide[name];

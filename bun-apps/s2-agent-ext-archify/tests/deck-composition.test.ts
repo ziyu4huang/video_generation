@@ -240,13 +240,15 @@ describe("a composed deck", () => {
   });
 });
 
-describe("examples/deck-general — the seven templates build as one deck (ticket 07)", () => {
+describe("examples/deck-general — all ten shipped templates build as one deck (tickets 07 + 30)", () => {
   let built: Awaited<ReturnType<typeof build>>;
   beforeAll(async () => {
     built = await build(GENERAL_MANIFEST, "general");
   });
 
   test("exercises every shipped template beside the code layouts", () => {
+    // ticket 30: the three ir-slot templates (decision / timeline-with-diagram /
+    // figure) sit between agenda and statement in the resolver-world order.
     expect(built.result.slides.map((s) => s.layout)).toEqual([
       "title",
       "diagram",
@@ -258,6 +260,9 @@ describe("examples/deck-general — the seven templates build as one deck (ticke
       "split",
       "bullets",
       "agenda",
+      "decision",
+      "timeline-with-diagram",
+      "figure",
       "statement",
       "end",
     ]);
@@ -268,10 +273,22 @@ describe("examples/deck-general — the seven templates build as one deck (ticke
     expect(lintDeck(manifest)).toEqual([]);
   });
 
-  test("nothing is rasterized on any slide", () => {
-    for (let i = 1; i <= 12; i++) {
+  test("nothing is rasterized on any slide (15 incl. the ir-slot templates)", () => {
+    for (let i = 1; i <= 15; i++) {
       expect(count(built.parts[`ppt/slides/slide${i}.xml`]!, /<a:blip\b/g), `slide${i}`).toBe(0);
     }
+  });
+
+  test("the ir-slot template slides draw their diagrams as native shapes (ticket 30)", () => {
+    // decision = slide 11, timeline-with-diagram = 12, figure = 13.
+    const shapes = (i: number): number =>
+      count(built.parts[`ppt/slides/slide${i}.xml`]!, /<p:sp\b/g);
+    // The service-topology IR has 8 components + 7 connections; the two text
+    // lines ride on top — the important property is real shapes, not blips
+    // (slide 11 also carries the diagram's own chrome shapes).
+    expect(shapes(11)).toBeGreaterThan(30);
+    expect(shapes(12)).toBeGreaterThan(20);
+    expect(shapes(13)).toBeGreaterThan(20);
   });
 
   test("the table slide carries exactly one native <a:tbl> (never split)", () => {

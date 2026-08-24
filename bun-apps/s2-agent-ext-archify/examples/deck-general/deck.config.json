@@ -112,6 +112,34 @@
       ]
     },
     {
+      "layout": "decision",
+      "title": "決策：自建解析器，快取優先，下一季度全程上線",
+      "source": "資料來源：2026-08 解析器基準測試與管線追蹤",
+      "ir": "../ir-library/architecture/service-topology.architecture.json",
+      "call": "自建解析器，快取優先，Q2 全程上線。",
+      "why": "p99 4.2 s → 1.8 s；佇列是唯一保留的結耦。"
+    },
+    {
+      "layout": "timeline-with-diagram",
+      "title": "移行四季度，與追蹤管線步調一致",
+      "source": "資料來源：移行計畫與管線追蹤日誌",
+      "ir": "../ir-library/dataflow/trace-pipeline.dataflow.json",
+      "milestones": [
+        { "date": "Q1", "label": "架構完成", "note": "冷鏈路接上管線" },
+        { "date": "Q2", "label": "閘門上線", "note": "p99 雙位數" },
+        { "date": "Q3", "label": "快取命中", "note": "38 % 命中率" },
+        { "date": "Q4", "label": "全程上線", "note": "舊鏈路保留 30 天" }
+      ]
+    },
+    {
+      "layout": "figure",
+      "title": "規格鏈正是整個系統的原始碼",
+      "source": "來源：2026-08 規格審查",
+      "ir": "../ir-library/architecture/req-chain.architecture.json",
+      "caption": "需求鏈：MRD → SAS → MAS → RDS",
+      "note": "一翼是規格，另一翼是驗證——成對存在，缺一件即不可交付。"
+    },
+    {
       "layout": "statement",
       "title": "只驗一翼，會漏掉一整類問題",
       "statement": "只驗一翼，會漏掉一整類問題",
