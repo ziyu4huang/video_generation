@@ -2,7 +2,7 @@
 effort: 2026-08-23-kcard-openviking-parity
 created: 2026-08-23
 last: 2026-08-24
-status: active
+status: complete
 ---
 
 # kcard OpenViking parity — Core-5 on s2-agent-ext-* + Bun + SurrealDB
@@ -42,7 +42,7 @@ Measured 2026-08-23 in this worktree unless noted.
 ### Phase C — gate & handoff
 
 - [x] 09 — evaluation gate (CLOSED 2026-08-23 — D23–D27: standing `kcard-flat-vector` third arm + English set through three arms (`scripts/hier-english-eval.mjs`); NO scale arm; **gate PASSED — hier 17/20 hit@5, MRR 0.700 vs flat 17/20, 0.688; English 47/50 tie**; tuning ladder t1 stop-words → t2 body FTS lane → t6 absolute slug term (β=0.2, ov≥3) with probed-and-rejected t3/t4; γ A/B identical (propagation is not a battery mover); CI fixture smoke `__tests__/eval-gate.test.ts` 1.6s; load-then-index swap fix for the 10s timeout; tool-path default switch DEFERRED to ticket 05 per D27; detail in ticket)
-- [ ] 10 — collapse to spec: hand off to `to-spec` → `to-tickets` for the build plan (task, blocked by 04–09; must fold in ticket 11's migration spec)
+- [x] 10 — collapse to spec: hand off to `to-spec` → `to-tickets` for the build plan (CLOSED 2026-08-24 — collapsed into `.planning/2026-08-24-kcard-production-hardening/` (spec.md via to-spec + map.md + 4 tickets via to-tickets; Execution order confirmed by user: 01 → 02 → 04 → 03). Folded in: ticket 11's migration spec (two-way db-transfer as standing operational stance), the three standing fold-backs (full-scale extraction A/B → ticket 01, in-place-edit staleness → ticket 02, hotness α-flip gate → ticket 03), the D03 scale trigger → ticket 04, and the 2026-08-24 shutdown-extract perf incident (:effort model-id leak + no-failure-backoff, PR #1976 — receipts `llmFailed:true candidates:101`; also closed the hermes 114-rt startup N+1). Effort COMPLETE: Core-5 landed, evaluated, reconciled, collapsed.)
 
 ## Decisions
 
@@ -67,7 +67,7 @@ Measured 2026-08-23 in this worktree unless noted.
 
 ## Frontier
 
-Ticket 08 (hotness decay) is CLOSED (D37–D39 + build + D14 A/B, 2026-08-24). The sibling t08 branch is RECONCILED (D41: the automation delta landed as `kcard/rebuild-automation`; hotness core stayed superseded). **The queue head is the effort close-out: ticket 10 (collapse to spec via `to-spec`, folding in ticket 11's migration spec)** — Core-5 is fully landed (typed model 04, FS surface 05, extraction loop 06, hier retrieval 07+D27 switch, hotness 08) plus the eval-gate harness (09). Remaining fold-backs to disposition at close-out: full-scale 06 extraction A/B (unload big LM Studio models first); in-place-edit index staleness (bounded by the freshness gate's count check only — the rebuild automation narrows but does not eliminate it); hotness default stays α=0 until a ticket-09-gate run on REAL ledger data (the injector is context-lifecycle's, downstream; the D41 retrieve echo is now a second writer feeding that ledger).
+(None — queue drained. Ticket 10 close-out executed 2026-08-24: the effort collapsed into `.planning/2026-08-24-kcard-production-hardening/`, whose Frontier names its ticket 01 as the next workable head. This map is a closed record; its Decisions D1–D41 stay citable.)
 
 ## Fog of war
 
@@ -80,6 +80,7 @@ Ticket 08 (hotness decay) is CLOSED (D37–D39 + build + D14 A/B, 2026-08-24). T
 
 ## Cross-effort links
 
+- `Absorbed-by: 2026-08-24-kcard-production-hardening` — ticket 10 collapse (2026-08-24): the standing fold-backs + the #1976 perf incident became that effort's ticket queue; this map's D1–D41 remain the citable decision record.
 - `Builds-on: 2026-08-22-context-lifecycle` — D0 breaking scope, D3 embed canonical, D5/D6 deterministic retrieval, D8 bounded feedback; its ticket 08 auto-recall consumes our retrieval surface.
 - `Builds-on: 2026-08-08-knowledge-pipeline` — D04 chose SurrealDB as the vector store; D05 tier classification is what D2 here instantiates for kcard.
 - `Shares-decision-with: 2026-08-16-hermes-leanrag-simplify` — D1 SurrealDB-vs-sqlite default tension resolved here: this effort's D7 (ticket 01, 2026-08-23) executes the flip leanrag D1 specified; sqlite stays its backup.
