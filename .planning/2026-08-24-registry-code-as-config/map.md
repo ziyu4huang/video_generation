@@ -92,10 +92,16 @@ Phase 2 — repo consumers flip (after 01)
   (after the probe suite was pinned to the deepseek provider — D8)
 
 Phase 3 — retirement (after 02+03)
-- `tickets/04-retire-yaml-invariants-docs.md` — open — delete
-  `the registry YAML`; add executable invariant tests (static order,
-  hostApi/hostModules drift, excludeReason completeness, disabled entries
-  enumerate); update CLAUDE.md / devops SKILL.md / ext headers / docs
+- `tickets/04-retire-yaml-invariants-docs.md` — DONE (PR #1970, merged CLEAN
+  2026-08-24) — the YAML + its bridges deleted (parseRegistry /
+  parseShConfig / excludedExtensions + fixture tests); the equivalence net
+  became `legacyRegistry()`, a converter (D9); `$generated` unfrozen;
+  single-registry-guard zero-mention form; invariant suite landed in
+  registry-config.test.ts (static order, host contract vs host-modules.ts,
+  one-entry-per-folder + entry-exists, excludeReason/disabled metadata);
+  docs sweep incl. planning archives — `git grep` of the retired filename =
+  zero hits; deploy-probe fixture lane 15/15; s2-agent 0.7.0 (minor, per
+  ticket); local_ci pass
 
 ## Decisions
 
@@ -131,6 +137,18 @@ Phase 3 — retirement (after 02+03)
   for an operator-account reason (reproduced on the pre-t03 0.6.6 deployed
   tree; `--model deepseek...` boots clean). CI checks the repo, not the
   quota; the operator's real sessions keep the zai default.
+- D9 (t04, equivalence net — the effort's last open design point): the t01
+  equivalence net is DROPPED, not frozen as a golden snapshot. Reason: the
+  net's entire job was proving TS ≡ YAML while the YAML stayed authoritative;
+  with zero parsers left there is no second source to be equivalent to, and a
+  frozen snapshot would be a mirror of data the test itself is the source of
+  — no behavioral guarantee, only churn on every registry edit (spec §3's
+  "the shapes ARE the source"; ticket's "prefer deletion"). The legacy
+  `Registry` projection survives as `legacyRegistry()` — an internal
+  converter consumed by `loadRegistry()` (its contract must not change); the
+  projection's shConfig half died with parseShConfig (devops projects its own
+  ShConfig). The rule layer is now the executable invariant suite (spec
+  §2.3) + run-dir's runtime validation.
 - D1: Full replacement, not a hybrid. A TS module that emits YAML (or a YAML
   kept as generated output) would create two sources and re-introduce the
   parse layer; the whole point is one typed authority. Rejected: keep YAML +
@@ -155,17 +173,13 @@ Phase 3 — retirement (after 02+03)
 
 ## Frontier
 
-`tickets/04-retire-yaml-invariants-docs.md` — 03 landed the last YAML
-READERS: devops `parseShConfig`/`excludedExtensions` are now fixture-only
-retired bridges, ext-new emits TS entries, the contract suites read the typed
-module. So 04 is the pure deletion: remove `the registry YAML` +
-`parseRegistry` (run-dir) + `parseShConfig`/`excludedExtensions` (devops) and
-their fixture tests, unfreeze the manifest `$generated` string, flip the
-single-registry-guard to a no-YAML form — then the executable invariant tests
-(static order, hostApi/hostModules drift, excludeReason completeness, disabled
-enumeration).
-04 also closes the only remaining registry Fog: `lazyExtensions`' consumer
-and whether it needs a typed shape.
+None — the queue is drained (01–04 all DONE). Next work per the 2026-08-24
+session close-out's ranked list: **CI-E2E: bound the one-shot runtime +
+hermes-memory startup** (user ask 2026-08-24; flat plan seeded:
+`.planning/plans/2026-08-24-ci-e2e-oneshot-runtime-hermes-startup.md`), then
+hermes-memory startup batching, `.agents/memory` regeneration, devops scripts
+timeout control. The next boundary for THIS effort is the close-out: map
+status → complete.
 
 ## Fog of war
 
@@ -176,8 +190,11 @@ and whether it needs a typed shape.
 - CLOSED (t02, verified during the flip): schema-cost canary derives from
   manifest.json (no YAML mention at all in `src/cli/commands/schema-cost.ts`);
   `doctor.ts` names the YAML in a comment only and reads `ext.json` trees.
-- `lazyExtensions: {}` (registry tail) — who consumes it and whether it needs
-  a typed shape is unknown.
+- CLOSED (t04): `lazyExtensions` — consumers: run-dir/lazy-extensions.ts
+  (resolveLazyExtension, alias → package path) and run-dir/deps-probe.ts
+  (deploy-time check), plus a passthrough into manifest.json. Typed shape
+  already exists: `LAZY_EXTENSIONS: Record<string, string>` in
+  registry-config.ts (empty today); no further work needed.
 - CLOSED (t03): fresh-worktree CI — the GitHub CI workflow is DISABLED
   (`.github/workflows/ci.yml.disabled`); the only working gate is the
   change-scoped `local_ci`, always run inside the workspace-linked checkout,
