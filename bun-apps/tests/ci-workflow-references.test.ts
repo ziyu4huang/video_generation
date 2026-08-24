@@ -384,10 +384,24 @@ describe(".githooks — every script a hook shells out to exists", () => {
 
 	// Vacuity guard: a hook directory that stopped being scanned, or a scanner
 	// that matched nothing, would pass the assertion above forever.
-	test("the scanner finds the hooks' real references", () => {
+	//
+	// pre-push was REMOVED on 2026-08-24 (operator directive: the gates lane
+	// was clobbering the isolated-linker forest mid-push — see PR #1954). While
+	// it is absent, the scanner has no ci-local.ts / portability-audit
+	// reference to find, so the guard flips to asserting the removal is
+	// DELIBERATE: no half-deleted pre-push (a file whose invocation lines were
+	// stripped but which still exists) may linger. When the hook returns,
+	// restore the two toContain expectations verbatim.
+	test("the scanner finds the hooks' real references (or the pre-push removal is clean)", () => {
 		const found = hookReferences().map((r) => r.raw);
-		expect(found).toContain("bun-apps/s2-agent-ext-devops/scripts/ci-local.ts");
-		expect(found).toContain("scripts/test-portability-audit.sh");
+		const prePushGone = !existsSync(join(REPO_ROOT, ".githooks", "pre-push"));
+		if (prePushGone) {
+			expect(found).not.toContain("bun-apps/s2-agent-ext-devops/scripts/ci-local.ts");
+			expect(found).not.toContain("scripts/test-portability-audit.sh");
+		} else {
+			expect(found).toContain("bun-apps/s2-agent-ext-devops/scripts/ci-local.ts");
+			expect(found).toContain("scripts/test-portability-audit.sh");
+		}
 	});
 });
 
