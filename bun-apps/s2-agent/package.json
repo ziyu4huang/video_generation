@@ -1,6 +1,6 @@
 {
   "name": "@repo/s2-agent",
-  "version": "0.7.11",
+  "version": "0.7.12",
   "private": true,
   "description": "Interactive pi TUI wrapper — injects a source-hardcoded provider catalog via a ModelRuntime.create monkey-patch, delegates everything else to the official pi main(). [s2-agent = renamed pi-agent (2026-08-21); upstream deps still @earendil-works/pi-*; update flow unchanged (update-pi.sh); PI_*/BUN_PI_* env names and ~/.pi/agent state dir unchanged by design]",
   "type": "module",
