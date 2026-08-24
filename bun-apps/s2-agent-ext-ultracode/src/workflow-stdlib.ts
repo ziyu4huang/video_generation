@@ -237,7 +237,13 @@ export function createStdlib(deps: StdlibDeps): Stdlib {
     const okResults = list.filter((r) => r != null);
     const failed = list.length - okResults.length;
     const taskText = typeof task === "string" ? task : JSON.stringify(task);
-    const resultsText = JSON.stringify(okResults).slice(0, opts.maxChars ?? 24000);
+    const maxChars = opts.maxChars ?? 24000;
+    const full = JSON.stringify(okResults);
+    // Mid-JSON truncation is fine for prompt text, but SAY so — the synthesizer
+    // is writing the final verdict and must know the payload tail may be cut
+    // (tail-drop bias, reviewer nit 2).
+    const resultsText =
+      full.length > maxChars ? `${full.slice(0, maxChars)}\n…(results truncated at ${maxChars} chars)` : full;
     return agent(
       `Synthesize ONE final answer for the task from the subagent results below. Return a compact verdict: ok (did the task succeed overall), verdict (one sentence), summary (the key findings/outputs, concise; you may add extra fields for important outputs).${failed ? ` ${failed} of ${list.length} subagent results FAILED (null) and are excluded — say so in the summary.` : ""}\n\nTask:\n${taskText}\n\nResults:\n${resultsText}`,
       { label: opts.label ?? "synthesis", tier: opts.tier ?? "big", schema: SYNTHESIZE_SCHEMA as unknown as TSchema },

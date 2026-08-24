@@ -525,6 +525,10 @@ describe("workflow tool — no-agent script rejection (D9-8)", () => {
       "export const meta = { name: 'j', description: 'd' };\nreturn await judgePanel(['a', 'b'], { judges: 3 });\n",
     loopUntilDry:
       "export const meta = { name: 'l', description: 'd' };\nreturn await loopUntilDry({ round: (i) => [] });\n",
+    completenessCheck:
+      "export const meta = { name: 'c', description: 'd' };\nreturn await completenessCheck(args, []);\n",
+    synthesize:
+      "export const meta = { name: 's', description: 'd' };\nreturn await synthesize(args.task, args.results);\n",
     "nested workflow":
       "export const meta = { name: 'n', description: 'd' };\nreturn await workflow('saved-name', { q: 1 });\n",
   };

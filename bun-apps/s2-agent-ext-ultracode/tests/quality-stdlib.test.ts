@@ -180,16 +180,24 @@ return await synthesize('t', [{ a: 1 }])`;
   assert.equal(res.result, null, "exhausted synthesizer surfaces null");
 });
 
-test("synthesize(): opts.tier and label are forwarded", async () => {
-  let tier = "";
+test("synthesize(): opts.tier, label, and maxChars are forwarded; truncation says so", async () => {
+  let seen: { tier: string; label: string; prompt: string } | undefined;
   const synth = {
-    async run(_p: string, o: { schema?: unknown } & Record<string, unknown>) {
-      tier = String(o.tier);
+    async run(p: string, o: { schema?: unknown } & Record<string, unknown>) {
+      seen = { tier: String(o.tier), label: String(o.label), prompt: p };
       return o?.schema ? { ok: true, verdict: "v", summary: "s" } : "ok";
     },
   };
   const script = `export const meta = { name: 's', description: 'synthesize opts' }
 return await synthesize('t', [1], { tier: 'small', label: 'final answer' })`;
   await runWorkflow(script, { agent: synth, persistLogs: false });
-  assert.equal(tier, "small", "explicit tier overrides the big default");
+  assert.equal(seen?.tier, "small", "explicit tier overrides the big default");
+  assert.equal(seen?.label, "final answer", "explicit label is forwarded");
+
+  // maxChars: a payload longer than the cap gains a truncation notice.
+  const long = { blob: "x".repeat(500) };
+  const script2 = `export const meta = { name: 's2', description: 'synthesize max' }
+return await synthesize('t', [args.big], { maxChars: 50 })`;
+  await runWorkflow(script2, { agent: synth, persistLogs: false, args: { big: long } });
+  assert.match(seen!.prompt, /\(results truncated at 50 chars\)/, "truncation is announced, not silent");
 });

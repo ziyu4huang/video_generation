@@ -821,7 +821,8 @@ function normalizeWorkflowScript(script: string): string {
  * runId immediately without ever evaluating the runtime `agentCount === 0`
  * check on the inline path. The heuristic scans the raw script text for a call
  * to `agent(` OR to the stdlib quality helpers (`verify(`, `judgePanel(`,
- * `loopUntilDry(`, `completenessCheck(`) OR to a nested `workflow(` — the
+ * `loopUntilDry(`, `completenessCheck(`, `synthesize(`) OR to a nested
+ * `workflow(` — the
  * helpers spawn agents inside the engine, so a legitimate helper-only script
  * never mentions the `agent(` token itself.
  *
@@ -841,9 +842,9 @@ function scriptInvokesAgent(script: string): boolean {
   // positive. We only need to inspect the body the workflow will execute.
   const body = script.replace(/^[\s\S]*?\bexport\s+const\s+meta\s*=[\s\S]*?\};/, "");
   // Match a call to `agent(` — or to any stdlib helper that spawns agents
-  // internally (verify/judgePanel/loopUntilDry/completenessCheck), or to a
-  // nested `workflow('name')`, none of which mention the `agent(` token in the
-  // script text but all of which run real subagents at runtime. The `\s*\(`
-  // ensures we don't match the bare words in prose.
-  return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|workflow)\s*\(/.test(body);
+  // internally (verify/judgePanel/loopUntilDry/completenessCheck/synthesize),
+  // or to a nested `workflow('name')`, none of which mention the `agent(`
+  // token in the script text but all of which run real subagents at runtime.
+  // The `\s*\(` ensures we don't match the bare words in prose.
+  return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|synthesize|workflow)\s*\(/.test(body);
 }
