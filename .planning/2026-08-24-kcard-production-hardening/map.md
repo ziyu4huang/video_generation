@@ -30,7 +30,7 @@ Measured 2026-08-24 on this machine unless noted.
 ### Phase A — close the standing degradations
 
 - [x] 01 — Extract backlog drain: chunked success path at real batch scale (complete 2026-08-24: seenIds 0→101, cf→0, final run 5/5 chunks clean; receipts `run-extract-20260824211225…212956`; chunking suite §7, 607 pass; reviewer APPROVE — PR pending)
-- [ ] 02 — Content-aware freshness fingerprint (in-place-edit staleness) (open)
+- [x] 02 — Content-aware freshness fingerprint (in-place-edit staleness) (complete 2026-08-24: gate fingerprint leg live, 1ms/61-card receipt, 8-test suite, reviewer APPROVE inline — PR pending)
 
 ### Phase B — gates & assessment
 
@@ -48,7 +48,7 @@ Measured 2026-08-24 on this machine unless noted.
 
 ## Frontier
 
-**Ticket 02 (content-aware freshness fingerprint)** — with the extract lane now succeeding, the next standing degradation is D36's count-based freshness gate (an in-place card edit changes neither md-count nor embed-model, so the hier index serves via flat fallback until a count-changing event). D3 already fixed the approach: detection at the gate (size+mtime digest per file), fallback stays the safety net.
+**Ticket 04 (SurrealDB scale-trigger assessment)** — with 01 drained (+52 cards written) and 02's fingerprint gate live, the remaining pre-03 work is a measured read: card/relation counts vs the knowledge-pipeline D03 triggers (≈2k cards / ≈5k relations). Quick assessment ticket — no build unless the verdict is over.
 
 ## Fog of war
 

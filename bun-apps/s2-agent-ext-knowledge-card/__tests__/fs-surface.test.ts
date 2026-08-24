@@ -148,12 +148,25 @@ describe("fs-surface (md fallback lane)", () => {
 const embedder = (async (texts: string[]) => texts.map(() => [1, 0, 0, 0])) as unknown as import("../src/semantic.ts").Embedder;
 
 /** Wrap an inner fake with the freshness-gate answers (indexStatus + count).
- *  The gate (reviewer F1/F5 fix) requires: index present, embed_model match,
- *  cardCount === md file count. `stale` forces a count mismatch. */
-function freshClient(inner: (sql: string) => Promise<unknown>, opts: { stale?: boolean; model?: string; mdCount?: number } = {}): SurrealClient {
+ *  The gate (reviewer F1/F5 fix + ticket 02 fingerprint leg) requires: index
+ *  present, embed_model match, cardCount === md file count, AND
+ *  fingerprint === the LIVE vaultFingerprint of the fixture vault (computed
+ *  for real — the stored value must be what a fresh rebuild would stamp).
+ *  `stale` forces a count mismatch; `staleFingerprint` forces a fingerprint
+ *  mismatch with the count still agreeing (the ticket-02 in-place-edit case). */
+function freshClient(inner: (sql: string) => Promise<unknown>, opts: { stale?: boolean; staleFingerprint?: boolean; model?: string; mdCount?: number } = {}): SurrealClient {
+	// STAMP AT CONSTRUCTION: a real index_meta row was written by a PAST
+	// rebuild — the ticket-02 tests construct the client BEFORE mutating the
+	// vault, so this frozen value is the pre-mutation fingerprint the gate
+	// must disagree with. (Computing it at query time would chase the
+	// mutation and always read fresh.)
+	const stampedFp = vaultFingerprint(vault, FOLDER);
 	return fakeClient(async <T>(sql: string) => {
 		if (sql.includes("index_meta")) {
-			return [{ fingerprint: "test-fp", embed_model: opts.model ?? "text-embedding-bge-m3" }] as unknown as T;
+			return [{
+				fingerprint: opts.staleFingerprint ? `${stampedFp}-stale` : stampedFp,
+				embed_model: opts.model ?? "text-embedding-bge-m3",
+			}] as unknown as T;
 		}
 		if (sql.includes("SELECT VALUE count()")) {
 			const md = opts.mdCount ?? readdirSync(join(vault, FOLDER)).filter((n) => n.endsWith(".md")).length;
@@ -164,7 +177,8 @@ function freshClient(inner: (sql: string) => Promise<unknown>, opts: { stale?: b
 }
 
 import { resolveCardEmbedModel } from "../src/semantic.ts";
-import { readdirSync } from "node:fs";
+import { vaultFingerprint } from "../src/surreal-index.ts";
+import { readdirSync, readFileSync, writeFileSync, unlinkSync, renameSync } from "node:fs";
 
 describe("retrieveRecords D27 default switch (D36)", () => {
 	test("hier-first hydrates leaf cards through the md path (RetrieveResult shape preserved)", async () => {
@@ -372,5 +386,104 @@ describe("retrieveRecords D27 default switch (D36)", () => {
 		});
 		expect(knnSeen).toBe(false);
 		expect(r.cards.some((c) => c.id === "test:alpha")).toBe(true);
+	});
+});
+
+// ─── Ticket 02: content-aware freshness fingerprint (in-place-edit staleness) ─
+
+describe("freshness gate fingerprint leg (ticket 02)", () => {
+	/** Shared harness: a client whose index was stamped over the SEEDED vault,
+	 *  with `mutate` applied AFTER stamping (freshClient freezes the
+	 *  fingerprint at construction — the index never sees the mutation, the
+	 *  gate must). Returns whether the hier lane was consulted. */
+	async function gateAfter(mutate?: (v: string) => void): Promise<boolean> {
+		await seed();
+		let knnSeen = false;
+		const client = freshClient(async (sql: string) => {
+			if (sql.includes("<|")) {
+				knnSeen = true;
+				return [{ stem: "test-alpha", path: `${FOLDER}/test-alpha`, title: "Alpha gotcha", kind: "gotcha", is_leaf: true, parent: null, summary: "", sim: 0.9 }];
+			}
+			return [];
+		}, { model: resolveCardEmbedModel(undefined) });
+		if (mutate) mutate(vault);
+		const r = await retrieveRecords({
+			vaultPath: vault,
+			tags: ["argparse"],
+			queryText: "argparse flags",
+			semantic: true,
+			_hierClient: client,
+			_testEmbedder: embedder,
+		});
+		// flat always answers; knnSeen is the hier-lane verdict
+		expect(r.cards.length).toBeGreaterThan(0);
+		return knnSeen;
+	}
+
+	test("identical tree: fingerprint matches, the hier lane serves", async () => {
+		expect(await gateAfter()).toBe(true);
+	});
+
+	test("in-place edit (same file count): fingerprint flips → flat fallback", async () => {
+		// THE ticket-02 case: count and model agree, only content changed.
+		const served = await gateAfter((v) => {
+			const p = join(v, FOLDER, "test-alpha.md");
+			writeFileSync(p, readFileSync(p, "utf8").replace("Argparse", "Argparse EDITED"));
+		});
+		expect(served).toBe(false);
+	});
+
+	test("append (new card file): gate flips (count leg catches it too)", async () => {
+		const served = await gateAfter((v) => {
+			writeFileSync(join(v, FOLDER, "test-delta.md"), "---\nid: test:delta\ntype: gotcha\nstatus: active\n---\n# Delta\n");
+		});
+		expect(served).toBe(false);
+	});
+
+	test("delete: gate flips", async () => {
+		const served = await gateAfter((v) => {
+			unlinkSync(join(v, FOLDER, "test-gamma.md"));
+		});
+		expect(served).toBe(false);
+	});
+
+	test("rename (same content, new stem): gate flips", async () => {
+		const served = await gateAfter((v) => {
+			renameSync(join(v, FOLDER, "test-beta.md"), join(v, FOLDER, "test-beta-renamed.md"));
+		});
+		expect(served).toBe(false);
+	});
+
+	test("staleFingerprint with count still agreeing: flat (the fake-forces-it case)", async () => {
+		await seed();
+		let knnSeen = false;
+		const client = freshClient(async (sql: string) => {
+			if (sql.includes("<|")) {
+				knnSeen = true;
+				return [{ stem: "test-alpha", path: `${FOLDER}/test-alpha`, title: "Alpha gotcha", kind: "gotcha", is_leaf: true, parent: null, summary: "", sim: 0.9 }];
+			}
+			return [];
+		}, { staleFingerprint: true, model: resolveCardEmbedModel(undefined) });
+		const r = await retrieveRecords({
+			vaultPath: vault, tags: ["argparse"], queryText: "argparse flags", semantic: true,
+			_hierClient: client, _testEmbedder: embedder,
+		});
+		expect(knnSeen).toBe(false);
+		expect(r.cards.length).toBeGreaterThan(0);
+	});
+
+	test("vaultFingerprint formula: mtime-free (D13) — re-writing IDENTICAL content does not flip it", async () => {
+		await seed();
+		const fp1 = vaultFingerprint(vault, FOLDER);
+		// rewrite one file byte-identical (mtime changes, content does not)
+		const p = join(vault, FOLDER, "test-alpha.md");
+		writeFileSync(p, readFileSync(p, "utf8"));
+		const fp2 = vaultFingerprint(vault, FOLDER);
+		expect(fp2).not.toBeNull();
+		expect(fp2).toBe(fp1);
+	});
+
+	test("vaultFingerprint: unreadable folder → null (gate treats as stale, never throws)", () => {
+		expect(vaultFingerprint(vault, "does/not/exist")).toBeNull();
 	});
 });

@@ -114,6 +114,47 @@ function sha256(text: string): string {
  *  `body` column (ticket 09 D23 body lane). */
 const INDEX_SCHEMA_VERSION = "v2-body";
 
+/** The ONE fingerprint formula (D13 + ticket 02): sha256 over the schema salt
+ *  + sorted `stem:contentHash` pairs. Content-only, mtime-FREE (mtime is
+ *  unreliable after git checkout, D13) so an in-place edit changes it and a
+ *  checkout alone does not. Both the rebuild path (buildCardRows) and the
+ *  retrieval freshness gate (vaultFingerprint) derive from this — the stored
+ *  index_meta.fingerprint and the gate's live recomputation can never
+ *  disagree by construction. */
+function fingerprintOf(hashes: { stem: string; contentHash: string }[]): string {
+	return sha256(
+		`schema:${INDEX_SCHEMA_VERSION}\n` + hashes.map((r) => `${r.stem}:${r.contentHash}`).sort().join("\n"),
+	);
+}
+
+/** Cheap gate-side recomputation of the index fingerprint (ticket 02): read +
+ *  hash every card md, NO embedding, NO row building. This is what the D36
+ *  freshness gate compares against `index_meta.fingerprint` — a mismatch (any
+ *  in-place edit, append, delete, rename) degrades the hier lane to flat
+ *  instead of serving stale index text. Returns null when the folder is
+ *  unreadable (gate treats null as stale — flat, never block retrieval).
+ *  Cost: one readdir + one read+sha256 per card file (measured 1ms on the
+ *  61-card live vault, ticket-02 receipt; linear extrapolation keeps a
+ *  ~2k-card vault in the tens of ms). */
+export function vaultFingerprint(vaultPath: string, folder: string): string | null {
+	const folderAbs = join(vaultPath, folder);
+	let names: string[];
+	try {
+		names = readdirSync(folderAbs).filter((n) => n.endsWith(".md"));
+	} catch {
+		return null;
+	}
+	const hashes: { stem: string; contentHash: string }[] = [];
+	for (const name of names) {
+		try {
+			hashes.push({ stem: name.slice(0, -3), contentHash: sha256(readFileSync(join(folderAbs, name), "utf8")) });
+		} catch {
+			return null; // unreadable card file — treat the whole tree as unverifiable
+		}
+	}
+	return fingerprintOf(hashes);
+}
+
 /** Truncation cap for the indexed body text: keeps a body row ≤ ~3 KB so the
  *  24-row /sql batch (~8–10 KB/vector row) stays well inside the 1 MiB cap. */
 const INDEX_BODY_CHARS = 3000;
@@ -202,14 +243,27 @@ export async function buildCardRows(args: {
 		row: CardIndexRow;
 		children: string[];
 		isAgg: boolean;
-		contentHash: string;
 	}
 	const raws: Raw[] = [];
+	// Ticket 02 consistency invariant: the fingerprint hashes EVERY readable
+	// .md file's raw content — independent of parse success — so the rebuild's
+	// stamp and the gate's live recomputation can never disagree over a file
+	// the row build skipped (a parse-failed file is absent from `rows` but
+	// MUST be present in the fingerprint, or the gate would serve the hier
+	// lane stale after that file's next edit, or dead-flat forever).
+	const fileHashes: { stem: string; contentHash: string }[] = [];
 	for (const name of names) {
 		const stem = name.slice(0, -3);
 		let raw: Raw;
+		let content: string;
 		try {
-			const content = readFileSync(join(folderAbs, name), "utf8");
+			content = readFileSync(join(folderAbs, name), "utf8");
+		} catch {
+			skipped.push(name); // unreadable — genuinely absent from BOTH rows and fingerprint (gate: null → flat)
+			continue;
+		}
+		fileHashes.push({ stem, contentHash: sha256(content) });
+		try {
 			const { data, bodyStart } = parseFrontmatter(content);
 			const isAgg = isDerivedAggregation(content);
 			const kind = isAgg
@@ -240,11 +294,10 @@ export async function buildCardRows(args: {
 				},
 				children: isAgg ? aggChildStems(content, bodyStart) : [],
 				isAgg,
-				contentHash: sha256(content),
 			};
 			if (raw.row.vec) raw.row.embed_model = model;
 		} catch {
-			skipped.push(name);
+			skipped.push(name); // parse failed — no row, but the hash stays in fileHashes (see the invariant above)
 			continue;
 		}
 		raws.push(raw);
@@ -260,13 +313,11 @@ export async function buildCardRows(args: {
 		}
 	}
 
-	// Fingerprint: sorted stem:contentHash (mtime-free — unreliable after git
-	// checkout, D13), salted with the index SCHEMA version so a row-shape
-	// change (e.g. the body column) forces exactly one rebuild of otherwise
-	// unchanged contents.
-	const fingerprint = sha256(
-		`schema:${INDEX_SCHEMA_VERSION}\n` + raws.map((r) => `${r.row.stem}:${r.contentHash}`).sort().join("\n"),
-	);
+	// Fingerprint: the shared fingerprintOf formula over EVERY readable file
+	// (see the fileHashes invariant above — ticket 02 made the retrieval gate
+	// recompute the SAME value over the same set, so rebuild-skip and
+	// gate-staleness can never disagree).
+	const fingerprint = fingerprintOf(fileHashes);
 	const dim = raws.find((r) => r.row.vec)?.row.vec?.length ?? 0;
 	return {
 		rows: raws.map((r) => r.row),
