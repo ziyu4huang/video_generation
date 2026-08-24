@@ -3,13 +3,16 @@
  *
  * One call runs the whole loop over a commit's worth of fresh hermes-journal
  * entries: deterministic gate (distill/gate.ts, unchanged) → deterministic
- * classify (unique / upgrade / ambiguous-evidence, D29) → ONE local LLM call
- * (typed extraction + dedup votes, OpenViking single-LLM-call shape) → vote
- * validation (deterministic-first: add_only passthrough, canonical-id upsert,
+ * classify (unique / upgrade / ambiguous-evidence, D29) → bounded chunks of
+ * survivors, ONE local LLM call per chunk (typed extraction + dedup votes,
+ * OpenViking single-LLM-call shape per batch — ticket 01: per-chunk cursor
+ * advance, shutdown runs capped at one chunk) → vote validation
+ * (deterministic-first: add_only passthrough, canonical-id upsert,
  * mechanism-B supersede, ambiguous-band LLM judgment) → converge (typed cards,
  * ingestRecords idempotent by canonical id) → markSuperseded for raw targets →
  * per-run audit diff under `output/kcard-extract/` (D30) → cursor advance in
- * `.extract-state.json` (D31, fresh-only next run).
+ * `.extract-state.json` (D31, fresh-only next run — advanced per successfully
+ * processed chunk, so a mid-batch failure keeps prior chunks' progress).
  *
  * Deterministic-first (D29) is the CONTRACT, and it is enforced IN CODE, not
  * merely in the prompt: votes the deterministic layer forbids (event merge/
@@ -46,8 +49,22 @@ const AMBIG_LOW = 0.45;
 const EVIDENCE_LIMIT = 3;
 /** Entry content truncation for the prompt (prompt budget is real). */
 const PROMPT_ENTRY_CHARS = 1200;
-/** Hard cap on LLM items per run (defensive; the gate already bounds survivors). */
+/** Hard cap on LLM items per call (defensive; chunks already bound it). */
 const MAX_ITEMS = 60;
+/** Max survivor entries per LLM call (ticket 01 chunking). Measured
+ *  2026-08-24 on gemma-4-12b (LM Studio, reasoning suppressed): one item ≈
+ *  ~95 output tokens, decode ~47 tok/s under 4-resident-model contention →
+ *  an 8-entry chunk ≈ ~800-1000 output tokens ≈ 17-21s, which fits the
+ *  shutdown trigger's 25s per-attempt budget (a 15-entry chunk measured
+ *  ~32s and cannot). Input side: survivors avg 488 chars (p90 771), so a
+ *  chunk is ~4k prompt chars; the single-call shape over ALL survivors
+ *  (~49k chars) is what made every pre-#1976 run llmFailed. */
+export const EXTRACT_CHUNK_ENTRIES = 8;
+/** First-attempt max_tokens for a chunk call (ticket 01). Measured chunk
+ *  output ≈ 800-1000 tokens; 4096 is generous headroom so the JSON parses on
+ *  the FIRST attempt — the llm-chat default 2048 truncated at chunk scale;
+ *  the parse-failure retry ladder (14000) stays as the safety net. */
+const CHUNK_MAX_TOKENS_FIRST = 4096;
 const STATE_FILE = ".extract-state.json";
 
 // ---------------------------------------------------------------------------
@@ -320,8 +337,9 @@ function buildPrompt(
 }
 
 /** Tolerant parseFn (never invalid JSON array escapes — chatJson is the
- *  never-throws boundary; a malformed payload maps to null → llmFailed). */
-function parseItems(raw: string): RawExtractItem[] {
+ *  never-throws boundary; a malformed payload maps to null → llmFailed).
+ *  Exported for measurement wrappers that reuse the SAME parse contract. */
+export function parseItems(raw: string): RawExtractItem[] {
 	let text = raw.trim();
 	text = text.replace(/^```[a-zA-Z]*\s*/, "").replace(/\s*```$/, "");
 	const start = text.indexOf("[");
@@ -410,10 +428,16 @@ export interface ExtractResult {
 	trigger: ExtractTrigger;
 	dryRun: boolean;
 	seenBefore: number;
+	/** Seen ids AFTER the run (per-chunk advance reflects partial progress). */
+	seenAfter: number;
 	cursorExcluded: number;
 	candidates: number;
 	killed: number;
 	survivors: number;
+	/** Chunks this run planned to process (shutdown runs cap at 1). */
+	chunksPlanned: number;
+	/** Chunks that completed (LLM ok + ingest ok + cursor advanced). */
+	chunksProcessed: number;
 	decisions: ExtractDecision[];
 	writes: ExtractWrite[];
 	superseded: { rawCardId: string; byCardId: string; found: boolean; updated: boolean }[];
@@ -478,8 +502,9 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 		}
 		return {
 			runId, ts: tsStr, trigger: "shutdown", dryRun: !!opts.dryRun,
-			seenBefore: seen.length, cursorExcluded, candidates: fresh.length,
-			killed: 0, survivors: 0, decisions: [], writes: [], superseded: [],
+			seenBefore: seen.length, seenAfter: seen.length, cursorExcluded, candidates: fresh.length,
+			killed: 0, survivors: 0, chunksPlanned: 0, chunksProcessed: 0,
+			decisions: [], writes: [], superseded: [],
 			errors: [], llmFailed: false, skippedBackoff: true, diffFile,
 		};
 	}
@@ -492,42 +517,79 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 		classifyEntry(s.entry, cards, s.supersedesCardId),
 	);
 
-	// Single LLM call (OpenViking shape). Failure → no writes, no cursor move.
-	let items: RawExtractItem[] | null = null;
+	// Chunked loop (ticket 01): bounded input chunks, ONE LLM call per chunk,
+	// cursor advancing per successfully-processed chunk — a mid-batch failure
+	// keeps prior chunks' progress (the un-processed remainder simply retries
+	// fresh next run). A SHUTDOWN-triggered run processes at most ONE chunk so
+	// the #1976 bounded-timeout guarantee holds regardless of backlog size;
+	// with per-chunk advance each successful shutdown also drains one chunk
+	// instead of failing whole (the never-succeeding loop is gone
+	// structurally, the backoff stays as the LLM-down safety net).
+	const chunks: ClassifiedEntry[][] = [];
+	for (let i = 0; i < classified.length; i += EXTRACT_CHUNK_ENTRIES) {
+		chunks.push(classified.slice(i, i + EXTRACT_CHUNK_ENTRIES));
+	}
+	const maxChunks = opts.trigger === "shutdown" ? 1 : chunks.length;
+	const plannedChunks = Math.min(chunks.length, maxChunks);
+
+	// Killed entries' ids ride along with the FIRST successful chunk's cursor
+	// advance (they are deterministically rejected — no LLM involved — but a
+	// fully-failed run must not mark them seen, matching pre-chunk semantics).
+	const survivorIds = new Set(classified.map((c) => c.entry.id));
+	let killedPending = fresh.filter((e) => !survivorIds.has(e.id)).map((e) => e.id);
+
 	const llm: (p: string) => Promise<RawExtractItem[] | null> =
 		opts._llm ??
-		((p) => chatJson(p, parseItems, { timeoutMs: opts.timeoutMs ?? 60_000 }));
-	try {
-		items = await llm(
-			buildPrompt(classified, fresh.length, seen.length),
-		);
-	} catch {
-		items = null;
-	}
-	const llmFailed = items === null;
+		((p) => chatJson(p, parseItems, {
+			timeoutMs: opts.timeoutMs ?? 60_000,
+			maxTokensFirst: CHUNK_MAX_TOKENS_FIRST,
+			reasoningEffort: "none", // JSON-only fast path (measured — see llm-chat.ts)
+		}));
 
 	const decisions: ExtractDecision[] = [];
 	const records: KnowledgeRecord[] = [];
 	const supersedePlan: { rawCardId: string; byCardId: string }[] = [];
 	const runErrors: string[] = [];
-	if (!llmFailed) {
+	const writes: ExtractWrite[] = [];
+	const superseded: ExtractResult["superseded"] = [];
+	let seenIdsNow = state.seenIds;
+	let llmFailed = false;
+	let chunksProcessed = 0;
+
+	for (let ci = 0; ci < plannedChunks; ci++) {
+		const chunk = chunks[ci]!;
+		// One LLM call per chunk (OpenViking shape). Failure → this chunk (and
+		// the rest of the run) stops; prior chunks keep their progress.
+		let items: RawExtractItem[] | null = null;
+		try {
+			items = await llm(buildPrompt(chunk, chunk.length, seen.length));
+		} catch {
+			items = null;
+		}
+		if (items === null) {
+			llmFailed = true;
+			break;
+		}
+
+		const chunkRecords: KnowledgeRecord[] = [];
+		const chunkPlan: { rawCardId: string; byCardId: string }[] = [];
 		const byEntry = new Map<ClassifiedEntry, ExtractionItem>();
-		for (const raw of items!.slice(0, MAX_ITEMS)) {
+		for (const raw of items.slice(0, MAX_ITEMS)) {
 			const item = coerceItem(raw);
 			if (!item.entryId) {
 				runErrors.push("dropped item: no entryId");
 				continue;
 			}
-			const cls = classified.find((c) => c.entry.id === item.entryId);
+			const cls = chunk.find((c) => c.entry.id === item.entryId);
 			if (!cls) {
 				runErrors.push(`dropped item: unknown entryId ${item.entryId}`);
 				continue;
 			}
-			buildDecisionAndRecord(cls, item, byEntry, decisions, records, supersedePlan);
+			buildDecisionAndRecord(cls, item, byEntry, decisions, chunkRecords, chunkPlan);
 		}
 		// Entries the LLM omitted entirely are recorded as skipped (created
 		// only when the item is a mis-indexed duplicate of another entry).
-		for (const cls of classified) {
+		for (const cls of chunk) {
 			if (!byEntry.has(cls)) {
 				decisions.push({
 					entryId: cls.entry.id,
@@ -542,39 +604,85 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 				});
 			}
 		}
-	}
 
-	// Converge (idempotent by canonical id; add_only contract enforced by the
-	// decision layer ABOVE — ingest must not wiki-merge behind its back, so
-	// `wikiAware` stays OFF for the extract lane (reviewer D14-F3): the
-	// distinct-id create for an event must never collapse into an existing
-	// card under the 0.85 wiki match).
-	let writes: ExtractWrite[] = [];
-	let ingestFailed = false;
-	if (!opts.dryRun && records.length > 0) {
-		try {
-			const summary = await ingestRecords(records, {
-				vaultPath: opts.vaultPath,
-				source: "hermes", // the loop's source IS the hermes journal (D28); the extract origin rides the label
-				sourceLabel: `extract:${opts.trigger ?? "on-demand"}`,
-				wikiAware: false,
+		// Converge per chunk (idempotent by canonical id; add_only contract
+		// enforced by the decision layer ABOVE — ingest must not wiki-merge
+		// behind its back, so `wikiAware` stays OFF for the extract lane
+		// (reviewer D14-F3): the distinct-id create for an event must never
+		// collapse into an existing card under the 0.85 wiki match).
+		let ingestFailed = false;
+		if (!opts.dryRun && chunkRecords.length > 0) {
+			try {
+				const summary = await ingestRecords(chunkRecords, {
+					vaultPath: opts.vaultPath,
+					source: "hermes", // the loop's source IS the hermes journal (D28); the extract origin rides the label
+					sourceLabel: `extract:${opts.trigger ?? "on-demand"}`,
+					wikiAware: false,
+					indexRebuild: opts.indexRebuild,
+				});
+				writes.push(...summary.cards.map((c) => ({ cardId: c.id, path: c.path, outcome: c.status })));
+				records.push(...chunkRecords);
+			} catch (e) {
+				ingestFailed = true;
+				runErrors.push(`ingest failed: ${(e as Error).message}`);
+			}
+		} else if (opts.dryRun) {
+			records.push(...chunkRecords);
+		}
+		if (ingestFailed) break; // no cursor advance for this chunk — it retries.
+
+		// Mechanism B: supersede raw upgrade cards (idempotent per card).
+		for (const plan of chunkPlan) {
+			const res = markSuperseded(plan.rawCardId, plan.byCardId, opts.vaultPath, {
 				indexRebuild: opts.indexRebuild,
 			});
-			writes = summary.cards.map((c) => ({ cardId: c.id, path: c.path, outcome: c.status }));
-		} catch (e) {
-			writes = [];
-			ingestFailed = true;
-			runErrors.push(`ingest failed: ${(e as Error).message}`);
+			superseded.push({ ...plan, found: res.found, updated: res.updated });
 		}
+
+		// Per-chunk cursor advance (real runs only): this chunk's entries plus
+		// the pending killed ids (first ok chunk only). An INGEST failure
+		// breaks above BEFORE this — the curated cards never landed, the
+		// entries' knowledge exists only as raw hermes:* cards, which the next
+		// run's gate upgrades (reviewer D14-F4).
+		if (!opts.dryRun) {
+			seenIdsNow = [...new Set([...seenIdsNow, ...chunk.map((c) => c.entry.id), ...killedPending])]
+				.slice(-SEEN_CAP);
+			killedPending = [];
+			writeExtractState(opts.vaultPath, {
+				seenIds: seenIdsNow,
+				lastRun: tsStr,
+				runs: state.runs + 1,
+				consecutiveFailures: 0, // any successful chunk resets the backoff
+			});
+		}
+		chunksProcessed++;
 	}
 
-	// Mechanism B: supersede raw upgrade cards (idempotent per card).
-	const superseded: ExtractResult["superseded"] = [];
-	for (const plan of supersedePlan) {
-		const res = markSuperseded(plan.rawCardId, plan.byCardId, opts.vaultPath, {
-			indexRebuild: opts.indexRebuild,
+	// Zero-survivor batch (all killed / nothing fresh to extract): no LLM
+	// call, cursor advances for the killed ids — deterministic rejection is
+	// final, it must not re-gate the same entries every run forever.
+	if (chunks.length === 0 && !opts.dryRun && killedPending.length > 0) {
+		seenIdsNow = [...new Set([...seenIdsNow, ...killedPending])].slice(-SEEN_CAP);
+		killedPending = [];
+		writeExtractState(opts.vaultPath, {
+			seenIds: seenIdsNow,
+			lastRun: tsStr,
+			runs: state.runs + 1,
+			consecutiveFailures: 0,
 		});
-		superseded.push({ ...plan, found: res.found, updated: res.updated });
+	}
+
+	// Backoff bookkeeping (2026-08-24 perf fix): a run where NO chunk
+	// succeeded records the failure WITHOUT advancing the cursor (the batch
+	// must retry) so shutdown runs can stop re-paying the timeout budget on a
+	// batch that keeps failing. Any successful chunk already reset the counter.
+	if (!opts.dryRun && llmFailed && chunksProcessed === 0) {
+		writeExtractState(opts.vaultPath, {
+			seenIds: state.seenIds,
+			lastRun: state.lastRun,
+			runs: state.runs,
+			consecutiveFailures: state.consecutiveFailures + 1,
+		});
 	}
 
 	// Audit diff (D30) — gitignored scratch, receipts precedent.
@@ -586,7 +694,7 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 		writeFileSync(
 			diffFile,
 			JSON.stringify(
-				{ runId, ts: tsStr, trigger: opts.trigger ?? "on-demand", dryRun: !!opts.dryRun, seenBefore: seen.length, seenAfter: state.seenIds.length, cursorExcluded, candidates: gate.candidates, killed: gate.killed.length, survivors: gate.survivors.length, consecutiveFailures: llmFailed ? state.consecutiveFailures + 1 : 0, decisions, writes, superseded, llmFailed },
+				{ runId, ts: tsStr, trigger: opts.trigger ?? "on-demand", dryRun: !!opts.dryRun, seenBefore: seen.length, seenAfter: seenIdsNow.length, cursorExcluded, candidates: gate.candidates, killed: gate.killed.length, survivors: gate.survivors.length, chunksPlanned: plannedChunks, chunksProcessed, chunkEntries: EXTRACT_CHUNK_ENTRIES, consecutiveFailures: llmFailed && chunksProcessed === 0 ? state.consecutiveFailures + 1 : 0, decisions, writes, superseded, llmFailed },
 				null,
 				2,
 			),
@@ -595,41 +703,19 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 		diffFile = null; // diff is advisory; never fail the run over it.
 	}
 
-	// Cursor advance (real runs only). A dry run must retry fresh; an LLM
-	// failure must retry (nothing decided); an INGEST failure must retry (the
-	// curated cards never landed — the entries' knowledge exists only as raw
-	// hermes:* cards, which the next run's gate upgrades). The diff records
-	// every failure so the audit trail stays complete (reviewer D14-F4).
-	if (!opts.dryRun && !llmFailed && !ingestFailed) {
-		const nextSeen = [...new Set([...state.seenIds, ...fresh.map((e) => e.id)])].slice(-SEEN_CAP);
-		writeExtractState(opts.vaultPath, {
-			seenIds: nextSeen,
-			lastRun: tsStr,
-			runs: state.runs + 1,
-			consecutiveFailures: 0,
-		});
-	} else if (!opts.dryRun && llmFailed) {
-		// Backoff bookkeeping (2026-08-24 perf fix): record the failure WITHOUT
-		// advancing the cursor (the batch must retry) so shutdown runs can
-		// stop re-paying the timeout budget on a batch that keeps failing.
-		writeExtractState(opts.vaultPath, {
-			seenIds: state.seenIds,
-			lastRun: state.lastRun,
-			runs: state.runs,
-			consecutiveFailures: state.consecutiveFailures + 1,
-		});
-	}
-
 	return {
 		runId,
 		ts: tsStr,
 		trigger: opts.trigger ?? "on-demand",
 		dryRun: !!opts.dryRun,
 		seenBefore: seen.length,
+		seenAfter: seenIdsNow.length,
 		cursorExcluded,
 		candidates: gate.candidates,
 		killed: gate.killed.length,
 		survivors: gate.survivors.length,
+		chunksPlanned: plannedChunks,
+		chunksProcessed,
 		decisions,
 		writes,
 		superseded,

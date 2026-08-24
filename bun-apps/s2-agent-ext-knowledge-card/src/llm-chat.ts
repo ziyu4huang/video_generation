@@ -25,6 +25,18 @@ export interface LmChatOptions {
 	model?: string;
 	/** Per-attempt timeout; default 30000ms. */
 	timeoutMs?: number;
+	/** First-attempt `max_tokens` override (default `MAX_TOKENS_FIRST`). The
+	 *  extract loop passes a chunk-sized budget so a chunk's JSON output parses
+	 *  on the first attempt instead of relying on the parse-failure retry
+	 *  (ticket 01 — the 2048 default guaranteed truncation at chunk scale). */
+	maxTokensFirst?: number;
+	/** `reasoning_effort` pass-through. Measured 2026-08-24 on gemma-4-12b
+	 *  (LM Studio OpenAI API): this is the ONLY knob that actually suppresses
+	 *  gemma-4 thinking — without it every token burns in reasoning_content,
+	 *  `content` stays empty and the reply hits finish=length (a 15-entry
+	 *  chunk then cannot complete inside any sane timeout). The extract loop
+	 *  passes "none" for the JSON-only fast path; null omits the field. */
+	reasoningEffort?: string | null;
 	/** Fetch override for deterministic tests. */
 	_fetchImpl?: typeof fetch;
 }
@@ -54,16 +66,18 @@ async function postChat(
 	fetchImpl: typeof fetch,
 ): Promise<{ ok: true; text: string } | { ok: false }> {
 	try {
+		const body: Record<string, unknown> = {
+			model: opts.model ?? resolveKgModel(),
+			messages: [{ role: "user", content: prompt }],
+			max_tokens: maxTokens,
+			temperature: 0.3,
+			stream: false,
+		};
+		if (opts.reasoningEffort) body.reasoning_effort = opts.reasoningEffort;
 		const res = await fetchImpl(`${opts.apiUrl ?? lmStudioBase()}/v1/chat/completions`, {
 			method: "POST",
 			headers: { "content-type": "application/json" },
-			body: JSON.stringify({
-				model: opts.model ?? resolveKgModel(),
-				messages: [{ role: "user", content: prompt }],
-				max_tokens: maxTokens,
-				temperature: 0.3,
-				stream: false,
-			}),
+			body: JSON.stringify(body),
 			signal: AbortSignal.timeout(opts.timeoutMs ?? 30000),
 		});
 		if (!res.ok) return { ok: false };
@@ -135,7 +149,7 @@ export async function chatJson<T>(
 	opts: LmChatOptions = {},
 ): Promise<T | null> {
 	const fetchImpl = opts._fetchImpl ?? fetch;
-	const first = await postChat(prompt, MAX_TOKENS_FIRST, opts, fetchImpl);
+	const first = await postChat(prompt, opts.maxTokensFirst ?? MAX_TOKENS_FIRST, opts, fetchImpl);
 	if (!first.ok) return null; // HTTP error / timeout / network: fail fast, no retry
 	const parsed = await safeParse(parseFn, first.text);
 	if (parsed !== null) return parsed;

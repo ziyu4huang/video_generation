@@ -29,7 +29,7 @@ Measured 2026-08-24 on this machine unless noted.
 
 ### Phase A — close the standing degradations
 
-- [ ] 01 — Extract backlog drain: chunked success path at real batch scale (open)
+- [x] 01 — Extract backlog drain: chunked success path at real batch scale (complete 2026-08-24: seenIds 0→101, cf→0, final run 5/5 chunks clean; receipts `run-extract-20260824211225…212956`; chunking suite §7, 607 pass; reviewer APPROVE — PR pending)
 - [ ] 02 — Content-aware freshness fingerprint (in-place-edit staleness) (open)
 
 ### Phase B — gates & assessment
@@ -48,14 +48,14 @@ Measured 2026-08-24 on this machine unless noted.
 
 ## Frontier
 
-**Ticket 01 (extract backlog drain)** — it closes the only standing correctness-adjacent degradation (knowledge accumulating in the journal but never reaching cards), everything else in this effort is hardening on top of a working system. No blockers; starts immediately.
+**Ticket 02 (content-aware freshness fingerprint)** — with the extract lane now succeeding, the next standing degradation is D36's count-based freshness gate (an in-place card edit changes neither md-count nor embed-model, so the hier index serves via flat fallback until a count-changing event). D3 already fixed the approach: detection at the gate (size+mtime digest per file), fallback stays the safety net.
 
 ## Fog of war
 
 - Optimal chunk size / first-pass token budget for the extract LLM — measure on the real journal during 01 (gemma-4-12b reasoning overhead vs a `:off`-capable tier config).
 - Whether the D41 retrieve echo's ledger volume is already meaningful for the 03 gate (echo landed 2026-08-24 — likely weeks thin; the deferral path D4 exists for exactly this).
 - Ledger injector (context-lifecycle downstream) timeline — external dependency for 03's cadence thickness.
-- Whether `resolveModelRole` has OTHER consumers leaking `model:effort` into provider ids (grep during 01; #1976 pinned only `resolveKgModel`).
+- ~~Whether `resolveModelRole` has OTHER consumers leaking `model:effort` into provider ids~~ RESOLVED during 01: only `resolveKgModel` (llm-chat.ts, feeds LM Studio) touches a provider id and it strips the suffix; zk-task-config's distill model feeds pi subagent spawn where `model:effort` is legal syntax.
 
 ## Cross-effort links
 
