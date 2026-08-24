@@ -56,7 +56,9 @@ export function createScheduleWakeupTool(options: ScheduleWakeupOptions): ToolDe
       if (params.stop) {
         const cancelled = loopId != null && registry.cancel(loopId);
         return text(
-          cancelled ? `Loop "${loopId}" stopped — no further wakeups.` : "No loop was running (nothing to stop).",
+          cancelled
+            ? `Loop "${loopId}" stopped — no further wakeups.`
+            : `No loop was running (nothing to stop) — a fire consumes the pending wakeup, so a loop continues only when each fired turn schedules the next one. This loop already ended naturally (nothing further to cancel).`,
         );
       }
       if (loopId == null) {
