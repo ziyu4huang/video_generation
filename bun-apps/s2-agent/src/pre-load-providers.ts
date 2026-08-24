@@ -316,6 +316,17 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         //     payload, don't blame the lane)
         //   • effort levels low/medium/high/xhigh all 200-OK (server accepts
         //     the same wire enum as gemma; map mirrors it)
+        // SECOND A/B (2026-08-24 19:3x, both lanes resident on the MLX engine,
+        // effort none, temp 0, 3 runs/shape) — adds DECODE + warm-tiny numbers:
+        //   • prefill 3.3K-token prompt, COLD first run: bonsai 3.49s (~962
+        //     tok/s) vs gemma 2.07s (~1,593 tok/s) — gemma ~1.7× faster, same
+        //     ratio as the 7.5K first A/B above; warm repeats ~0.2-0.3s BOTH
+        //     lanes (prompt KV cache serves both MLX engines)
+        //   • decode (300+ word answer): bonsai 53.7 tok/s vs gemma 64.1
+        //     tok/s — gemma only ~19% faster on decode; prefill is where the
+        //     ~2× gap lives
+        //   • tiny ask warm: bonsai 155ms vs gemma 65ms — both sub-0.2s,
+        //     indistinguishable for routing decisions
         id: "prism-ml/bonsai-27b",
         name: "Bonsai 27B Ternary (LM Studio)",
         reasoning: true,
