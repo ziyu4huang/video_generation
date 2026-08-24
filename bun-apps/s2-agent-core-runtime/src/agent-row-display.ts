@@ -123,6 +123,40 @@ export function fmtElapsed(ms: number): string {
 }
 
 /**
+ * Human wall-clock duration, CC-parity vocabulary (tui-cc-parity ticket 01):
+ * `0.8s` → `45s` → `2m 13s` → `1h 04m`. Used by the SETTLED inline line and
+ * the section rows; the live/ticking surfaces (streaming header, runHeader,
+ * notify) keep {@link fmtElapsed}'s stable-width one-decimal form so a 1s
+ * refresh tick never changes segment width mid-run.
+ */
+export function fmtDurationHuman(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0s";
+  const total = Math.floor(ms / 1000);
+  // Floor the sub-second tenths (review nit): 999ms renders "0.9s", never a
+  // rounding-induced "1.0s" that reads as a different magnitude than 1000ms's
+  // "1s"; 0 keeps the plain clamp form.
+  if (total < 1) return ms === 0 ? "0s" : `${Math.floor(ms / 100) / 10}s`;
+  if (total < 60) return `${total}s`;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m < 60) return `${m}m ${String(s).padStart(2, "0")}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${String(m % 60).padStart(2, "0")}m`;
+}
+
+/**
+ * Separator'd token count, CC-parity vocabulary (tui-cc-parity ticket 01):
+ * `34,283`. The SETTLED inline line spells the unit ("34,283 tokens");
+ * space-constrained section rows keep {@link fmtTokensShort} ("12.4K tok").
+ */
+export function fmtTokens(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  return Math.round(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+/**
  * Shared one-line renderer for an agent/subagent's live status — used by the
  * bottom task panel, the /workflows navigator's agent list and detail
  * live-tail, and the /subagents viewer, so all three surfaces speak one
@@ -137,7 +171,7 @@ export function renderActivityRow(row: ActivityRow, theme: ThemeLike, maxDetailW
     row.model ?? undefined,
     row.tokens ? `${fmtTokensShort(row.tokens)} tok` : undefined,
     typeof row.cost === "number" && row.cost > 0 ? `$${fmtCost(row.cost)}` : undefined,
-    typeof row.elapsedMs === "number" ? fmtElapsed(row.elapsedMs) : undefined,
+    typeof row.elapsedMs === "number" ? fmtDurationHuman(row.elapsedMs) : undefined,
     typeof row.toolCalls === "number" ? `${row.toolCalls} call${row.toolCalls === 1 ? "" : "s"}` : undefined,
   ]
     .filter(Boolean)
@@ -158,7 +192,7 @@ export function renderRunRow(v: RunView, theme: ThemeLike, maxDetailWidth = 50):
   const meta = [
     v.modelSeg,
     v.costUsd > 0 ? `$${fmtCost(v.costUsd)}` : undefined,
-    fmtElapsed(v.elapsedMs),
+    fmtDurationHuman(v.elapsedMs),
     `${v.toolCallCount} call${v.toolCallCount === 1 ? "" : "s"}`,
   ]
     .filter(Boolean)

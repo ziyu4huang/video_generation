@@ -78,20 +78,29 @@ export class ComposerComponent implements Component {
  *
  * The subtree is built LAZILY inside `render` so a throw in the BUILDER (e.g.
  * reading `.content` off a partial result) is caught by the same barrier as a
- * throw inside a child's own `render`. A successful build is cached; a failed
- * one is dropped so the next frame retries rather than latching the error.
+ * throw inside a child's own `render`. The builder receives the RENDER-TIME
+ * WIDTH (tui-cc-parity t01 review: the settled header's embedded headline is
+ * width-capped, so the expanded container must compose it per width just like
+ * the collapsed composer — otherwise the two settle surfaces drift on the cap
+ * at narrow terminals). A successful build is cached per width and rebuilt on
+ * resize; a failed one is dropped so the next frame retries rather than
+ * latching the error.
  */
 export class GuardedComponent implements Component {
-  private readonly build: () => Component;
+  private readonly build: (width: number) => Component;
   private built: Component | undefined;
+  private builtWidth: number | undefined;
 
-  constructor(build: () => Component) {
+  constructor(build: (width: number) => Component) {
     this.build = build;
   }
 
   render(width: number): string[] {
     try {
-      this.built ??= this.build();
+      if (this.built === undefined || this.builtWidth !== width) {
+        this.built = this.build(width);
+        this.builtWidth = width;
+      }
       return this.built.render(width);
     } catch (error) {
       this.built = undefined;

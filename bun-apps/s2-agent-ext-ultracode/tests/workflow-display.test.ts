@@ -617,7 +617,7 @@ describe("renderActivityRow", () => {
   it("shows elapsed time and tool-call count when present", async () => {
     const { renderActivityRow } = await loadCore();
     const line = renderActivityRow({ status: "running", actor: "worker", elapsedMs: 1500, toolCalls: 1 }, theme);
-    assert.match(line, /1\.5s/);
+    assert.match(line, / 1s · /); // human duration (tui-cc-parity t01): 1500ms → whole seconds
     assert.match(line, /1 call\b/);
   });
 

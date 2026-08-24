@@ -17,7 +17,7 @@ import {
   type ActivityStatus,
   activityGlyph,
   fmtCost,
-  fmtElapsed,
+  fmtDurationHuman,
   isTerminalStatus,
   matchedCallArgsFor,
   type RunView,
@@ -591,7 +591,7 @@ export class SubagentViewer {
     const absTime = r.startedAt ? ` • ${formatAbsoluteTime(r.startedAt)}` : "";
     lines.push(
       truncateToWidth(
-        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${fmtElapsed(r.elapsedMs)}${absTime}${usageStr}`,
+        `  ${th.fg("accent", `#${r.index}`)} ${th.fg("muted", r.agent ?? "general-purpose")} ▸ ${r.model} • ${r.status} • ${fmtDurationHuman(r.elapsedMs)}${absTime}${usageStr}`,
         width,
       ),
     );
@@ -662,7 +662,7 @@ export class SubagentViewer {
         ? { icon: status === "finalizing" ? "…" : "–", color: "dim" }
         : activityGlyph(status as ActivityStatus);
     const glyph = th.fg(color as Parameters<Theme["fg"]>[0], icon);
-    const head = `${glyph} ${th.fg("accent", agentLabel)} ▸ ${th.fg("muted", model)} • ${th.fg("muted", status)} • ${fmtElapsed(elapsedMs)}${usageStr}`;
+    const head = `${glyph} ${th.fg("accent", agentLabel)} ▸ ${th.fg("muted", model)} • ${th.fg("muted", status)} • ${fmtDurationHuman(elapsedMs)}${usageStr}`;
     lines.push(truncateToWidth(`  ${head}`, width));
     lines.push(truncateToWidth(th.fg("borderMuted", "─".repeat(Math.max(0, width))), width));
 

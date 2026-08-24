@@ -10,7 +10,8 @@ import {
   capWidth,
   ellipsizeToWidth,
   fmtCost,
-  fmtElapsed,
+  fmtDurationHuman,
+  fmtTokens,
   isSddReportActionable,
   type SpawnSubagentResult,
   STREAMING_EXPANDED_TAIL,
@@ -84,8 +85,13 @@ export function renderSubagentCall(
   // Render-layer safe (2026-08-16 crash fix #2): tolerate nullish/partial args —
   // a composer must never throw per frame (uncaught render exception kills pi).
   if (!args) return "";
-  const parts: string[] = [theme.bold(theme.fg("toolTitle", "spawn_subagent"))];
-  if (args.agent) parts.push(theme.fg("accent", args.agent));
+  // CC-parity head (tui-cc-parity ticket 01): `Task(agent): intent` — agent
+  // FIRST, the work intent right after, exactly the shape Claude-Code's live
+  // Task line reads as. No agent param → bare `Task: intent`.
+  const head = theme.bold(theme.fg("toolTitle", "Task"));
+  const intent = workIntentPreview(args.task ?? "", 60, width);
+  const named = args.agent ? `${head}${theme.fg("accent", `(${args.agent})`)}` : head;
+  const parts: string[] = [`${named}${theme.fg("dim", `: ${intent}`)}`];
   // Requested-model slot: explicit model, else capability, else tier, else "default".
   // shortModel() drops the provider prefix on a real model id (ticket 04, finding 5 —
   // a full `anthropic/claude-opus-4-1` overflows the one-line glance). `tier:`/`capability:`/
@@ -104,19 +110,59 @@ export function renderSubagentCall(
   if (args.modelSeg && args.modelSeg !== slot) {
     parts.push(theme.fg("muted", args.modelSeg));
   }
-  parts.push(theme.fg("dim", `"${workIntentPreview(args.task ?? "", 60, width)}"`));
+  // The pi tool name trails as a dim segment: greppable in the terminal, but
+  // no longer the head — CC's line leads with the AGENT, not the tool.
+  parts.push(theme.fg("dim", "spawn_subagent"));
   return parts.join(" ▸ ");
 }
 
 /**
- * Settled header row: status badge + fallback-aware meta (usage / SDD /
- * commit-scope / budget / turns tags). One home for both settle surfaces —
- * the collapsed one-liner appends the width-capped headline, and the
- * ticket-03 expanded CONTAINER (subagent-tool.ts renderResult) renders it as
- * the header Text above the Markdown body — so the row's content can never
- * drift between them. Content-identical to the pre-ticket-03 inline block.
+ * Width-capped first non-empty line of the report — the settled headline the
+ * CC-parity row leads with (ticket 01). Measured on the PLAIN text (style
+ * applied by the caller), cap min(60, width) columns, CJK double-width aware.
  */
-function settledHeaderRow(d: SubagentToolDetails, theme: Theme, opts?: { modelSeg?: string }): string {
+function settledHeadline(text: string, width?: number): string {
+  const raw =
+    text
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l) ?? "";
+  // The report body is Markdown; the headline segment renders PLAIN — strip
+  // the common leading markers so `## Findings` headlines as `Findings`, not
+  // a raw `##` (CC's completion summary is plain text). Heading, list bullet,
+  // ordered item, quote; bold is stripped ONLY when the line is entirely
+  // wrapped (a mixed `**a** and **b**` keeps its markers rather than having
+  // the anchors swallow them — review nit).
+  let plain = raw
+    .replace(/^#{1,6}\s+/, "")
+    .replace(/^[-*+]\s+/, "")
+    .replace(/^\d+[.)]\s+/, "")
+    .replace(/^>\s?/, "");
+  if (plain.startsWith("**") && plain.endsWith("**") && plain.length > 4 && !plain.slice(2, -2).includes("**")) {
+    plain = plain.slice(2, -2);
+  }
+  return plain ? ellipsizeToWidth(plain, capWidth(60, width)) : "";
+}
+
+/**
+ * Settled header row, CC-parity order (tui-cc-parity ticket 01):
+ * `badge ↳ headline · 34,283 tokens · 2m 13s · model · tags…` — the result
+ * summary leads (Claude-Code's `↳ summary · N tokens · duration` shape),
+ * tokens carry thousands separators with the unit spelled, duration is human
+ * (m+s). s2's extra axes (SDD / commit-scope / budget death+warn / turns)
+ * stay as trailing warning-tinted segments — they are load-bearing for this
+ * repo's dispatch protocol (effort map D1) and are NEVER removed for parity.
+ * Cost renders only when non-zero (cost ≡ 0 on this local stack; CC omits
+ * it too). One home for both settle surfaces — the collapsed one-liner IS
+ * this row, and the ticket-03 expanded CONTAINER (subagent-tool.ts
+ * renderResult) renders it as the header Text above the Markdown body — so
+ * the row's content can never drift between them.
+ */
+function settledHeaderRow(
+  d: SubagentToolDetails,
+  theme: Theme,
+  opts?: { modelSeg?: string; headline?: string },
+): string {
   const badge =
     d.status === "done"
       ? theme.fg("success", "✓ done")
@@ -133,7 +179,22 @@ function settledHeaderRow(d: SubagentToolDetails, theme: Theme, opts?: { modelSe
                 : d.status === "running"
                   ? theme.fg("muted", "⌛ running") // background:true immediate return — live, the parent turn moved on
                   : theme.fg("error", "✗ failed");
-  const usageStr = d.usage && d.usage.total > 0 ? ` · $${d.usage.cost.toFixed(3)} · ${d.usage.total} tok` : "";
+  // CC-shaped meta head: headline (if any) → tokens → duration → cost → model.
+  const tokensSeg = d.usage && d.usage.total > 0 ? ` · ${fmtTokens(d.usage.total)} tokens` : "";
+  const costSeg = d.usage && d.usage.cost > 0 ? ` · $${fmtCost(d.usage.cost)}` : "";
+  // Settled result meta (ticket 04, findings 3 + 5): the live call line shows
+  // the fallback `→ actual` mid-run, but on settle that segment vanished and
+  // the meta collapsed to the bare actual model — a surprising fallback became
+  // invisible. modelSeg comes in fallback-aware from the RunView-carrying caller
+  // ("requested → actual", shortModel-ed, single home in core-runtime); when no
+  // view is available (registry entry torn down after end()) degrade to the
+  // bare actual model.
+  const modelSeg = opts?.modelSeg ?? shortModel(d.model) ?? "default";
+  const headline = opts?.headline ? theme.fg("dim", ` ↳ ${opts.headline}`) : "";
+  const metaHead = theme.fg(
+    "muted",
+    `${headline}${tokensSeg} · ${fmtDurationHuman(d.elapsedMs)}${costSeg} · ${modelSeg}`,
+  );
   // SDD self-report tag (ticket 04): separate axis from process status. A run
   // can be process-done yet self-report BLOCKED — tint the actionable ones so
   // they never read as routine success.
@@ -164,22 +225,7 @@ function settledHeaderRow(d: SubagentToolDetails, theme: Theme, opts?: { modelSe
         ` · ⚠ budget 80% ${d.budget.warning.kind}:${d.budget.warning.actual}/${d.budget.warning.limit}`,
       )
     : "";
-  // Settled result meta (ticket 04, findings 3 + 5): the live call line shows
-  // the fallback `→ actual` mid-run, but on settle that segment vanished and
-  // the meta collapsed to the bare actual model — a surprising fallback became
-  // invisible. modelSeg comes in fallback-aware from the RunView-carrying caller
-  // ("requested → actual", shortModel-ed, single home in core-runtime); when no
-  // view is available (registry entry torn down after end()) degrade to the
-  // bare actual model.
-  const modelSeg = opts?.modelSeg ?? shortModel(d.model) ?? "default";
-  const meta =
-    theme.fg("muted", `${modelSeg} · ${fmtElapsed(d.elapsedMs)}${usageStr}`) +
-    sddTag +
-    scopeTag +
-    budgetExhaustionTag +
-    turnsExhaustionTag +
-    budgetWarnTag;
-  return `${badge} ${meta}`;
+  return `${badge} ${metaHead}${sddTag}${scopeTag}${budgetExhaustionTag}${turnsExhaustionTag}${budgetWarnTag}`;
 }
 
 /**
@@ -192,10 +238,14 @@ function settledHeaderRow(d: SubagentToolDetails, theme: Theme, opts?: { modelSe
 export function renderSubagentResultHeader(
   result: { content?: Array<{ type: string; text?: string }>; details?: SubagentToolDetails } | undefined,
   theme: Theme,
-  opts?: { modelSeg?: string },
+  opts?: { modelSeg?: string; width?: number },
 ): string {
   const d = result?.details;
-  return d ? settledHeaderRow(d, theme, opts) : "";
+  // Headline derived from the SAME body text the collapsed one-liner reads, so
+  // the two settle surfaces share one summary (ticket 01's no-drift rule).
+  return d
+    ? settledHeaderRow(d, theme, { ...opts, headline: settledHeadline(subagentResultText(result), opts?.width) })
+    : "";
 }
 
 /**
@@ -250,21 +300,13 @@ export function renderSubagentResult(
   }
   const d = result?.details;
   if (!d) return text;
-  // Both settle branches share the header row via settledHeaderRow (ticket 03)
-  // — collapsed appends the width-capped headline, expanded prepends it above
+  // Both settle branches share the header row via settledHeaderRow (ticket 03;
+  // ticket 01 moved the width-capped headline INSIDE the row so collapsed and
+  // expanded cannot drift) — collapsed IS the row, expanded prepends it above
   // the report body.
-  const header = settledHeaderRow(d, theme, opts);
+  const header = settledHeaderRow(d, theme, { ...opts, headline: settledHeadline(text, opts?.width) });
   if (!options.expanded) {
-    const firstLine =
-      text
-        .split("\n")
-        .map((l) => l.trim())
-        .find((l) => l) ?? "";
-    // Settled-collapsed headline (ticket 01): width-aware via the shared
-    // helper — cap min(60, width) columns, CJK double-width counted, one
-    // trailing `…` inside budget when cut. Measured BEFORE theming (plain
-    // text in, style out — render-width input contract).
-    return `${header} ${theme.fg("dim", ellipsizeToWidth(firstLine, capWidth(60, opts?.width)))}`;
+    return header;
   }
   return `${header}\n${theme.fg("toolOutput", text)}`;
 }

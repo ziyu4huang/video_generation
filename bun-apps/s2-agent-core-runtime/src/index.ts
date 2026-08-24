@@ -64,7 +64,9 @@ export type { ActivityRow, ActivityStatus, ThemeLike } from "./agent-row-display
 export {
   activityGlyph,
   fmtCost,
+  fmtDurationHuman,
   fmtElapsed,
+  fmtTokens,
   fmtTokensShort,
   glyphFor,
   NO_THEME,

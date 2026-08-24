@@ -3,6 +3,9 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { ActivityStatus } from "../src/agent-row-display.js";
 import {
   activityGlyph,
+  fmtDurationHuman,
+  fmtElapsed,
+  fmtTokens,
   glyphFor,
   NO_THEME,
   preview,
@@ -112,5 +115,54 @@ describe("shorten / preview — column-aware budgets", () => {
     const out = preview({ note: "你".repeat(100) }, 40);
     expect(visibleWidth(out)).toBeLessThanOrEqual(40);
     expect(out.endsWith("…")).toBe(true);
+  });
+});
+
+// ── CC-parity formatting helpers (tui-cc-parity ticket 01) ──
+
+describe("fmtDurationHuman — CC vocabulary (45s / 2m 13s / 1h 04m)", () => {
+  test("sub-second keeps one decimal", () => {
+    expect(fmtDurationHuman(830)).toBe("0.8s");
+  });
+  test("sub-minute is whole seconds", () => {
+    expect(fmtDurationHuman(45_000)).toBe("45s");
+    expect(fmtDurationHuman(59_900)).toBe("59s");
+  });
+  test("minutes carry zero-padded seconds", () => {
+    expect(fmtDurationHuman(133_000)).toBe("2m 13s");
+    expect(fmtDurationHuman(65_000)).toBe("1m 05s");
+  });
+  test("hours carry zero-padded minutes", () => {
+    expect(fmtDurationHuman(3_600_000)).toBe("1h 00m");
+    expect(fmtDurationHuman(3_840_000 + 5_000)).toBe("1h 04m");
+  });
+  test("degenerate inputs clamp to 0s", () => {
+    expect(fmtDurationHuman(-5)).toBe("0s");
+    expect(fmtDurationHuman(Number.NaN)).toBe("0s");
+  });
+  test("fmtElapsed stays the stable-width live form (unchanged)", () => {
+    expect(fmtElapsed(45_000)).toBe("45.0s");
+  });
+});
+
+describe("fmtTokens — separator'd count (34,283)", () => {
+  test("groups thousands", () => {
+    expect(fmtTokens(999)).toBe("999");
+    expect(fmtTokens(1_000)).toBe("1,000");
+    expect(fmtTokens(34_283)).toBe("34,283");
+    expect(fmtTokens(1_200_000)).toBe("1,200,000");
+  });
+  test("degenerate inputs clamp to 0", () => {
+    expect(fmtTokens(0)).toBe("0");
+    expect(fmtTokens(-3)).toBe("0");
+    expect(fmtTokens(Number.NaN)).toBe("0");
+  });
+});
+
+describe("fmtDurationHuman boundaries (t01 review nit)", () => {
+  test("sub-second floors tenths; 999ms never rounds to 1.0s", () => {
+    expect(fmtDurationHuman(0)).toBe("0s");
+    expect(fmtDurationHuman(999)).toBe("0.9s");
+    expect(fmtDurationHuman(1000)).toBe("1s");
   });
 });

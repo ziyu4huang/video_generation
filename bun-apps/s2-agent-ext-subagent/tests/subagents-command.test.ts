@@ -96,7 +96,7 @@ test("command: a running subagent renders in the Running section with live elaps
   assert.match(out, /Running/);
   assert.ok(out.includes("implementer"), "running entry shows the agent role");
   assert.ok(out.includes("flash"), "running entry shows the (shortened) model");
-  assert.match(out, /\d+\.\d+s/, "running entry shows live elapsed");
+  assert.match(out, / · \d+s · /, "running entry shows live elapsed (human, t01)");
   ret.handleInput("\x1b"); // esc from list view → onClose → done → handler completes
   await p;
   assert.equal(renders(), 1, "handleInput drove a re-render");

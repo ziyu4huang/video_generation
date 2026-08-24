@@ -35,7 +35,7 @@ test("renderSubagentCall tolerates nullish args (defense-in-depth)", () => {
 test("renderSubagentCall tolerates a missing task field with theme stub", () => {
   const out = renderSubagentCall({ agent: "implementer" } as never, themeStub);
   assert.equal(typeof out, "string");
-  assert.ok(out.includes('""'));
+  assert.ok(out.includes("Task(implementer)"), "CC-shaped head still renders with an empty intent");
 });
 
 // ── result side ────────────────────────────────────────────────────────────
@@ -104,4 +104,18 @@ test("ComposerComponent still survives a throwing composer", () => {
     c.render(40).map((l) => l.trimEnd()),
     ["composer exploded"],
   );
+});
+
+// ── tui-cc-parity t01 review: GuardedComponent threads render-time width ──
+
+test("GuardedComponent rebuilds per width (width-aware builder, cached per width)", () => {
+  const widths: number[] = [];
+  const c = new GuardedComponent((w) => {
+    widths.push(w);
+    return { render: (rw: number) => [`${rw}`], invalidate: () => {} } as never;
+  });
+  assert.deepEqual(c.render(80), ["80"], "first render builds at 80");
+  assert.deepEqual(c.render(80), ["80"], "same width reuses the cache");
+  assert.deepEqual(c.render(40), ["40"], "new width rebuilds");
+  assert.deepEqual(widths, [80, 40], "exactly one build per distinct width");
 });

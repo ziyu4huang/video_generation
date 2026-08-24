@@ -555,7 +555,7 @@ test("renderNavigator shows full model + elapsed in agent-list for a running age
   const lines = renderNavigator(state, model, 80);
   const text = lines.join("\n");
   assert.ok(text.includes("zai/glm-5.2"), `agent-list should show full provider/id, got: ${text}`);
-  assert.match(text, /65\.0s/); // elapsed (decimal, via renderActivityRow → fmtElapsed)
+  assert.match(text, /1m 05s/); // elapsed (human, via renderActivityRow → fmtDurationHuman — tui-cc-parity t01)
 });
 
 test("renderNavigator shows full Model + Elapsed line in detail for a running agent", () => {
