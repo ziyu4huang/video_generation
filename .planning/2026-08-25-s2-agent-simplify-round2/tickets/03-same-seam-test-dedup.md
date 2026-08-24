@@ -24,6 +24,11 @@ Source: map Context "Tests" items 1-7 (~330-400 LOC). Rule: per-candidate, quote
 
 Net: 11 files changed, 82 insertions, 248 deletions (−166 net); 77 → 74 test files; 1021 → 969 tests. Below the −330/−400 chart estimate because candidates 4 (pre-satisfied, no double-count) and parts of 3/7 overlapped other deletions — the chart's estimate counted LOC of files whose unique portions were smaller than their duplication.
 
+**Reviewer pass (READY, 0 blockers, 4 NITs recorded 2026-08-25):**
+- loadRegistry NOT test-orphaned: `registry-freshness.test.ts:18` calls it against the real tree every run (a broken entry would throw there); shape normalization transitively covered via buildManifestObject/manifestText consuming the same fields.
+- Wording corrections: (a) cli-argv combined long-form `["--no-extensions","--no-skills"]` case covered behaviorally (same includes() branches) but not verbatim — "strict subset" slightly overstated; (b) help-dispatch `-h`/`--help` rows assert banner only (1 of 3 strings) — all four argv forms funnel into the same root-help print path, residual risk ≈ 0.
+- Two one-line positive branches now untested: maxNotes threading (noteClause at memory-to-vault-script.ts:20-21; negative case + arg parsing still covered) and flux2Subcommand.task non-empty-positionals (ext-flux2 has no tests dir). Both accepted as one-line template interpolations; pickup optional in t04.
+
 ## Acceptance criteria
 
 - [x] Each deletion's equivalence proof quoted in this ticket (or the candidate explicitly skipped with reason)
