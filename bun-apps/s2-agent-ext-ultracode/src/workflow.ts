@@ -326,9 +326,18 @@ export async function runWorkflow<T = unknown>(
   };
 
   const agentRunner = options.agent ?? new WorkflowAgent(options);
-  const concurrency = normalizeConcurrency(
-    options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2),
-  );
+  const requestedConcurrency = options.concurrency ?? Math.max(1, (globalThis.navigator?.hardwareConcurrency ?? 8) - 2);
+  const concurrency = normalizeConcurrency(requestedConcurrency);
+  // No-silent-caps (cc-parity t03): a clamped run SAYS so — requested→actual,
+  // in the run logs. The logger exists (created above), so this lands in the
+  // persisted run log, getLogs(), and the onLog stream.
+  if (typeof requestedConcurrency === "number" && Math.floor(requestedConcurrency) !== concurrency) {
+    // Attribute the reason honestly: a sub-1 value hit the min floor, not the cap.
+    const reason = requestedConcurrency < 1 ? "invalid; min 1" : `max ${MAX_CONCURRENCY}`;
+    const clampMsg = `[clamp] concurrency ${requestedConcurrency} → ${concurrency} (${reason})`;
+    state.logs.push(clampMsg);
+    logger.warn(clampMsg);
+  }
   // Global caps + budget are shared with any nested workflow() so they hold across nesting.
   const shared: SharedRuntime = options.sharedRuntime ?? {
     limiter: createLimiter(concurrency),

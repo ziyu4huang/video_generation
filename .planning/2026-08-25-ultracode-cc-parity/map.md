@@ -41,7 +41,7 @@ Baseline (non-armed) "use workflow only when the user explicitly asks" (workflow
 ### Phase A — guidance layer
 
 - [ ] 01 — Armed-guidance CC parity: rewrite HIGH/ULTRA directives (effort-command.ts), thread `effortLevel` through `buildWorkflowGuidelinesForTurn` (workflow-tool.ts) with a `buildUltracodeAddendum` block — standing author-by-default + solo carve-out, scale ladder, multi-phase sequencing, inline pattern catalog; wire in extensions/ultracode.ts `before_agent_start`; unit tests pin the strings. (executed 2026-08-25 branch chart/ultracode-cc-parity, PR #2016; gates 1182/0 + local_ci 103s; reviewer APPROVE_WITH_NITS, nits applied; merge pending)
-- [ ] 02 — `synthesize()` stdlib helper (workflow-stdlib.ts): fan-in agent (big-tier default) with compact `{ok, verdict, summary}`-shaped result; guidance wired into `workflowHelpersDoc` + verbose bullet + `workflow_help` patterns topic; tests in quality-stdlib.test.ts.
+- [ ] 02 — `synthesize()` stdlib helper (workflow-stdlib.ts): fan-in agent (big-tier default) with compact `{ok, verdict, summary}`-shaped result; guidance wired into `workflowHelpersDoc` + verbose bullet + `workflow_help` patterns topic; tests in quality-stdlib.test.ts. (executed 2026-08-25, PR #2017 squash 961b8ff0 CLEAN; reviewer APPROVE_WITH_NITS applied — pre-flight regex + HELPER_ONLY_SCRIPTS rows, truncation notice, opts assertions; final gates 1188/0)
 
 ### Phase B — caps + verification
 
@@ -62,7 +62,7 @@ Ticket 01 — no blocker; all seams measured (effort-command.ts:27-37, workflow-
 ## Fog of war
 
 - ~~Token cost of the armed addendum~~ RESOLVED t01: measured ≈307 tok over the ≈816-tok simplified set (char/3.8 estimate, 2026-08-25) — at the ≤~300 target boundary; accepted.
-- Where `normalizeConcurrency`'s clamp can log to is UNVERIFIED (the clamp happens at workflow.ts:433-436, possibly before the run's log sink exists) — t03 verifies the seam first; fallback = surface in the run's initial status/event record.
+- ~~Where `normalizeConcurrency`'s clamp can log to~~ RESOLVED t03: the run logger is created BEFORE the concurrency normalization in runWorkflow, so the clamp line lands in state.logs + the persisted run log directly — no fallback path needed. The maxAgents cap logs via the runtime log() right before its non-recoverable throw.
 - ~~`verify()` default reviewers=2 vs CC's "3–5 vote" phrasing~~ RESOLVED t01: runtime default stays 2; the ladder guidance names the knob explicitly (`verify(item, {reviewers: 3-5, lens})` in ULTRA + addendum, `reviewers: 3` in HIGH) so the model sets breadth per request instead of a silently-raised global default.
 - Reviewer pass t01 (independent subagent, 2026-08-25): APPROVE_WITH_NITS, all three nits applied pre-merge — ULTRA directive's "set generous tokenBudget" self-contradiction reworded to "leave tokenBudget unset unless the user set an explicit budget directive"; addendum bullet 1 now says "this supersedes the use-only-when-asked default above" (~10 tok) so the armed-turn coexistence of the two defaults is unambiguous.
 

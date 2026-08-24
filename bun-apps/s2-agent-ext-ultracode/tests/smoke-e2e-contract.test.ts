@@ -50,7 +50,11 @@ const TMP = mkdtempSync(join(tmpdir(), "smoke-e2e-contract-"));
 const FAKE_CLI = join(TMP, "fake-cli.ts");
 writeFileSync(FAKE_CLI, "console.log(JSON.stringify(process.argv.slice(2)));\nprocess.exit(42);\n");
 
-const cliArgs = (model: string): string[] => ["-e", "ultracode", "--model", model, "-p", STRICT_PROMPT];
+// `-e` must be the engine's real entry path (pi resolves bare names as
+// cwd-relative paths — fixed 2026-08-25, cc-parity t03): the golden pins the
+// repo-root-resolved path.
+const EXT_ENTRY = resolve(SAMPLES, "../extensions/ultracode.ts");
+const cliArgs = (model: string): string[] => ["-e", EXT_ENTRY, "--model", model, "-p", STRICT_PROMPT];
 
 afterAll(() => {
   rmSync(TMP, { recursive: true, force: true });

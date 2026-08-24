@@ -58,6 +58,12 @@ export interface CallDeps {
   runId: string;
   throwIfAborted: () => void;
   /**
+   * Runtime log closure (no-silent-caps, cc-parity t03): used ONLY for the
+   * agent-limit clamp line so a blocked call() leaves a run-log trace like
+   * agent()/checkpoint() do. Optional so pure unit tests need not stub it.
+   */
+  log?: (message: string) => void;
+  /**
    * Production leaves this undefined — `call()` bypasses the concurrency limiter
    * (local compute). A test injects a spy to assert the limiter is NOT invoked.
    * The factory body never calls this field; its presence is the assertion hook.
@@ -76,6 +82,9 @@ export function buildCallGlobal(deps: CallDeps): (namespaced: unknown, args?: un
     }
     // Bounded-work guard — mirrors checkpoint() exactly (workflow.ts maxAgents check).
     if (deps.shared.agentCount >= deps.maxAgents) {
+      deps.log?.(
+        `[clamp] agent limit reached (maxAgents=${deps.maxAgents}) — call blocked; raise the maxAgents option to continue`,
+      );
       throw new WorkflowError(
         `Agent limit exceeded (${deps.maxAgents}). Use maxAgents option to increase the limit.`,
         WorkflowErrorCode.AGENT_LIMIT_EXCEEDED,
