@@ -77,6 +77,15 @@ export interface CiPackageResult {
 	};
 	test: {
 		exitCode: number;
+		/**
+		 * True when NO command ran — no matrix row and no `test` script. The
+		 * aggregation exempts `exitCode: -1` from failing ONLY under this flag:
+		 * a REAL spawn can also return -1 (src/spawn.ts maps a signal-killed
+		 * child or a spawn error to -1 — observed live as `bun test --isolate`
+		 * exiting -1 mid-run, issue #1948's secondary note), and before this
+		 * flag that was counted as PASS: a signal-killed suite reported green.
+		 */
+		skipped?: boolean;
 		note?: string;
 		/**
 		 * Where the test command came from. `"matrix"` = the package's row in
@@ -777,7 +786,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 						...detailOf(r),
 					};
 				} else {
-					result.test = { exitCode: -1, note: "no test script" };
+					result.test = { exitCode: -1, skipped: true, note: "no test script" };
 				}
 			},
 		};
@@ -924,14 +933,16 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 
 	// 5. Aggregate. overall = fail iff any non-skipped typecheck failed, any
 	//    non-skipped lint failed, any test
-	//    failed (exit not in {0=pass, -1=no-test-script}), any gate failed, or the
+	//    failed (any non-zero exit except the SKIPPED -1 no-test-script sentinel —
+	//    an UNSKIPPED -1 is a signal-killed/error spawn and FAILS, see
+	//    CiPackageResult.test.skipped), any gate failed, or the
 	//    gate job could not be read at all. schemaCost never participates.
 	//    Every gate is blocking: GitHub fails a job on any failed step and
 	//    `regression-gates` carries no continue-on-error, so a step's "warn-only"
 	//    naming is encoded in the SCRIPT's exit code, not in a per-gate flag here.
 	const typecheckFailed = packages.some((p) => !!p.typecheck && !p.typecheck.skipped && p.typecheck.exitCode !== 0);
 	const lintFailed = packages.some((p) => !!p.lint && !p.lint.skipped && p.lint.exitCode !== 0);
-	const testFailed = packages.some((p) => p.test.exitCode !== 0 && p.test.exitCode !== -1);
+	const testFailed = packages.some((p) => p.test.exitCode !== 0 && !(p.test.exitCode === -1 && p.test.skipped));
 	const gateFailed = gates.some((g) => g.exitCode !== 0);
 	const overall: "pass" | "fail" =
 		typecheckFailed || lintFailed || testFailed || gateFailed || !!gateError ? "fail" : "pass";

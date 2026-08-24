@@ -149,14 +149,17 @@ describe("runMainHealth — the verdict", () => {
 				{ name: "ok-pkg", test: { exitCode: 0 } },
 				{ name: "test-red", test: { exitCode: 1 } },
 				{ name: "types-red", typecheck: { exitCode: 1 }, test: { exitCode: 0 } },
-				{ name: "no-test-script", test: { exitCode: -1 } },
+				{ name: "no-test-script", test: { exitCode: -1, skipped: true } },
+				// unSKIPPED -1 = a real spawn killed by a signal (bun test --isolate
+				// crash, #1948) — counts as failing, not as the no-script sentinel.
+				{ name: "signal-killed", test: { exitCode: -1 } },
 				{ name: "types-skipped", typecheck: { exitCode: -1, skipped: true }, test: { exitCode: 0 } },
 			],
 		};
 		const out = await runMainHealth({ client: fakeClient({}), spawn: noSpawn, runCi: mkCi(red).fn });
 		expect(out.healthy).toBe(false);
-		// -1 means "no test script" and a skipped typecheck is not a failure.
-		expect(out.failingPackages).toEqual(["test-red", "types-red"]);
+		// skipped -1 means "no test script"; a skipped typecheck is not a failure.
+		expect(out.failingPackages).toEqual(["test-red", "types-red", "signal-killed"]);
 	});
 
 	test("a red LINT is a failing package, and a skipped one is not", async () => {

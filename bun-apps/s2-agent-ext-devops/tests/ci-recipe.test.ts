@@ -159,7 +159,7 @@ describe("runLocalCi — aggregation", () => {
 		expect(out.packages[0].test.exitCode).toBe(1);
 	});
 
-	test("a package with NO test script → test exit -1 (counts as pass)", async () => {
+	test("a package with NO test script → skipped -1 sentinel (counts as pass)", async () => {
 		const { fn } = mkSpawn([verifyOk()]);
 		const out = await runLocalCi({
 			repoRoot: REPO,
@@ -169,8 +169,31 @@ describe("runLocalCi — aggregation", () => {
 			includeGates: false,
 		});
 		expect(out.packages[0].test.exitCode).toBe(-1);
+		expect(out.packages[0].test.skipped).toBe(true);
 		expect(out.packages[0].test.note).toBe("no test script");
 		expect(out.overall).toBe("pass");
+	});
+
+	// Regression (#1948 secondary note): src/spawn.ts maps a signal-killed child
+	// (and a spawn error) to exitCode -1 — the SAME number as the no-test-script
+	// sentinel. Before the `skipped` flag, the aggregation exempted -1
+	// unconditionally, so `bun test --isolate` crashing mid-run (observed live,
+	// exit -1) reported GREEN. The unsKIPPED -1 must FAIL.
+	test("a REAL spawn returning -1 (signal-killed suite) → overall FAIL, not pass", async () => {
+		const { fn } = mkSpawn([
+			verifyOk(),
+			{ match: (c, a, cwd) => c === "bun" && a[1] === "test" && pkgOf(cwd) === "pkg-a", result: { stdout: "", stderr: " Killed\n", exitCode: -1 } },
+		]);
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: fn,
+			detectChangedPackages: mkDetect({ "pkg-a": true }).fn,
+			readPkg: mkReadPkg({ "pkg-a": { test: "bun test --isolate" } }),
+			includeGates: false,
+		});
+		expect(out.packages[0].test.exitCode).toBe(-1);
+		expect(out.packages[0].test.skipped).toBeUndefined();
+		expect(out.overall).toBe("fail");
 	});
 
 	test("a failing gate → overall fail", async () => {
