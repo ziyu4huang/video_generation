@@ -232,6 +232,105 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.ok(counts.getCardsByKind <= 3, `one kind read per mirror batch (was 1/entry), got ${counts.getCardsByKind}`);
   });
 
+  it('multi-file sync reads each KIND once, not once per file (2026-08-25 kind-index fix)', async () => {
+    // The 2026-08-24 batch made the read per-FILE: a 26-file vault paid 26
+    // getCardsByKind round-trips on every startup (26 clean measured). The
+    // kind index is now shared across the whole run — one read per KIND.
+    fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), fm('md-kindidx-g1', 'kind index global').trim(), 'utf-8');
+    fs.writeFileSync(path.join(globalDir, 'USER.md'), fm('md-kindidx-u1', 'kind index user').trim(), 'utf-8');
+    fs.writeFileSync(path.join(globalDir, 'failures.md'), fm('md-kindidx-f1', '[failure] kind index failure').trim(), 'utf-8');
+    for (let i = 1; i <= 5; i++) {
+      const projectDir = path.join(agentRoot, 'projects-memory', `kindidx-p${i}`);
+      fs.mkdirSync(projectDir, { recursive: true });
+      fs.writeFileSync(path.join(projectDir, 'MEMORY.md'), fm(`md-kindidx-p${i}`, `kind index project ${i}`).trim(), 'utf-8');
+    }
+    const inner = await makeCardStore();
+
+    const counts = { getCardsByKind: 0 };
+    const counting: CardStore = Object.assign(Object.create(Object.getPrototypeOf(inner)), inner, {
+      getCardsByKind: async (kind: import('../../src/store/card.js').CardKind) => {
+        counts.getCardsByKind++;
+        return inner.getCardsByKind(kind);
+      },
+    });
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, counting);
+    counts.getCardsByKind = 0; // measure the steady-state run in isolation
+    const res = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, counting);
+    assert.strictEqual(res.imported, 0, 'steady state: all skipped (8 entries across 8 files)');
+    assert.strictEqual(res.skipped, 8);
+    assert.strictEqual(
+      counts.getCardsByKind,
+      3,
+      `ONE kind read per KIND per run (8 files → 3 kinds → 3 reads; was 1/file), got ${counts.getCardsByKind}`,
+    );
+  });
+
+  it('dirty multi-entry sync updates via ONE updateCardsBatch, not per-entry updateCard (2026-08-25)', async () => {
+    // The dirty-vault breach: every drifted envelope cost one updateCard HTTP
+    // round-trip (103–114 RT measured on the real surreal backend). The
+    // drifted cards now collapse into a single updateCardsBatch transaction.
+    const mk = (last: string) =>
+      [1, 2, 3, 4, 5, 6]
+        .map((i) => fm(`md-batchupd-${i}`, `batch update probe ${i}`, '2026-05-08', last))
+        .join(ENTRY_DELIMITER);
+    fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), mk('2026-05-08'), 'utf-8');
+    const inner = await makeCardStore();
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, inner);
+    assert.strictEqual((await inner.getCardsByKind('memory')).length, 6, 'precondition: 6 mirrored');
+
+    // Dirty the vault: every envelope drifts (lastReferenced bump).
+    fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), mk('2026-05-20'), 'utf-8');
+
+    const counts = { updateCard: 0, updateCardsBatch: 0 };
+    const counting: CardStore = Object.assign(Object.create(Object.getPrototypeOf(inner)), inner, {
+      updateCard: async (card: import('../../src/store/card.js').Card) => {
+        counts.updateCard++;
+        return inner.updateCard(card);
+      },
+      updateCardsBatch: async (cards: import('../../src/store/card.js').Card[]) => {
+        counts.updateCardsBatch++;
+        return inner.updateCardsBatch(cards);
+      },
+    });
+
+    const res = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, counting);
+    assert.strictEqual(res.imported, 6, 'all 6 drifted entries updated');
+    assert.strictEqual(counts.updateCardsBatch, 1, `exactly ONE batched update call, got ${counts.updateCardsBatch}`);
+    assert.strictEqual(counts.updateCard, 0, `no per-entry updateCard on the batch path, got ${counts.updateCard}`);
+
+    const cards = await inner.getCardsByKind('memory');
+    assert.strictEqual(cards.length, 6, 'update-in-place: no new rows');
+    assert.ok(cards.every((c) => c.frontmatter.last === '2026-05-20'), 'every envelope refreshed');
+  });
+
+  it('a throwing updateCardsBatch falls back to per-entry updateCard (atomic-batch safety)', async () => {
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      fm('md-batchfail-1', 'batch fail probe one', '2026-05-08', '2026-05-08'),
+      'utf-8',
+    );
+    const inner = await makeCardStore();
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, inner);
+
+    fs.writeFileSync(
+      path.join(globalDir, 'MEMORY.md'),
+      fm('md-batchfail-1', 'batch fail probe one', '2026-05-08', '2026-05-30'),
+      'utf-8',
+    );
+
+    const counting: CardStore = Object.assign(Object.create(Object.getPrototypeOf(inner)), inner, {
+      updateCardsBatch: async () => {
+        throw new Error('batch transport down');
+      },
+    });
+
+    const res = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, counting);
+    assert.strictEqual(res.imported, 1, 'fallback per-entry update still lands the drift');
+    const card = (await inner.getCardsByKind('memory')).find((c) => c.id === 'md-batchfail-1')!;
+    assert.strictEqual(card.frontmatter.last, '2026-05-30', 'envelope refreshed via the per-entry fallback');
+  });
+
   it('re-sync updates only the drifted entry, in place (md_id stable)', async () => {
     fs.writeFileSync(
       path.join(globalDir, 'MEMORY.md'),

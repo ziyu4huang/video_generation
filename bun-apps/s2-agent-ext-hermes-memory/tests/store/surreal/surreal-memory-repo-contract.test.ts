@@ -237,4 +237,51 @@ if (up) {
       await backend.close();
     });
   });
+
+  describe("SurrealMemoryRepository updateCardsByMdIdBatch (gated on SurrealDB)", () => {
+    let backend: SurrealBackend;
+    let repo: SurrealMemoryRepository;
+    let ns: string;
+
+    it("updates N drifted cards in one call, mdId-keyed, envelope stamped", async () => {
+      ns = uniqueNs();
+      backend = new SurrealBackend({ namespace: ns, database: ns });
+      await backend.init();
+      repo = new SurrealMemoryRepository(backend);
+
+      // Seed 3 card rows via the card seam (addMemory + envelope stamp).
+      for (let i = 1; i <= 3; i++) {
+        const entry = await repo.addMemory({ content: `batch card ${i}`, target: "memory", mdId: `md-batch-${i}` });
+        await repo.setCardEnvelopeBySeq(Number(entry.id), JSON.stringify({ last: "2026-05-08" }), null);
+      }
+
+      await repo.updateCardsByMdIdBatch([
+        { mdId: "md-batch-1", content: "batch card 1 v2", frontmatter: JSON.stringify({ last: "2026-05-20" }), graph: null },
+        { mdId: "md-batch-2", content: "batch card 2 v2", frontmatter: JSON.stringify({ last: "2026-05-20" }), graph: null },
+        { mdId: "md-batch-3", content: "batch card 3 v2", frontmatter: JSON.stringify({ last: "2026-05-20" }), graph: null },
+      ]);
+
+      const cards = await repo.listCardsByTarget("memory");
+      expect(cards.length).toBe(3, "update-in-place: no new rows");
+      for (const card of cards) {
+        expect(card.content.endsWith(" v2")).toBe(true);
+        expect(JSON.parse(card.frontmatter!).last).toBe("2026-05-20");
+      }
+      // Untouched mdIds stay put (WHERE mdId — no cross-card bleed).
+      expect(cards.map((c) => c.mdId).sort()).toEqual(["md-batch-1", "md-batch-2", "md-batch-3"]);
+
+      await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      await backend.close();
+    });
+
+    it("empty input is a no-op (early return, no mutation)", async () => {
+      ns = uniqueNs();
+      backend = new SurrealBackend({ namespace: ns, database: ns });
+      await backend.init();
+      repo = new SurrealMemoryRepository(backend);
+      await repo.updateCardsByMdIdBatch([]);
+      await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      await backend.close();
+    });
+  });
 }

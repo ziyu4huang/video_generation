@@ -19,6 +19,7 @@ import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { MemoryRepository } from '../store/repository.js';
 import type { CardStore } from '../store/card-store.js';
+import type { Card } from '../store/card.js';
 import { mirrorMemoryEntries, mirrorMemoryEntry } from '../store/memory-card-mirror.js';
 import type { FailureState } from '../types.js';
 import {
@@ -77,6 +78,7 @@ async function importEntries(
   entries: string[],
   target: 'memory' | 'user' | 'failure',
   project: string | null = null,
+  byId?: Map<string, Card>,
 ): Promise<void> {
   const inputs: Parameters<typeof mirrorMemoryEntries>[2] = [];
   for (const rawEntry of entries) {
@@ -103,7 +105,7 @@ async function importEntries(
     else counters.skipped++;
   };
   try {
-    for (const outcome of await mirrorMemoryEntries(cardStore, target, inputs)) count(outcome);
+    for (const outcome of await mirrorMemoryEntries(cardStore, target, inputs, byId)) count(outcome);
   } catch (err) {
     counters.warnings.push(
       `${path.basename(project ?? 'global')}/${target}: batch mirror failed (${err instanceof Error ? err.message : String(err)}) — retrying per entry`,
@@ -295,6 +297,25 @@ export async function syncMarkdownMemories(
   // re-migration, idempotent — see importEntries). The memoryRepo content-keyed
   // batch mirror is retired; memoryRepo stays ONLY for the read-only lineage
   // sweep at the end of this pass.
+  //
+  // 2026-08-25 perf fix: ONE kind index per RUN (not per file). A 26-file
+  // vault paid 26 getCardsByKind round-trips clean, 103–114 dirty. The map is
+  // write-through (mirrorMemoryEntries keeps it current), so later files see
+  // earlier files' writes exactly as the sequential per-file fetches did.
+  // Caveat: backfillFailureState mirrors per-entry BELOW without writing
+  // through to the failure map — harmless today (no failure-kind import runs
+  // after it; the next run re-fetches), re-check if a failure file is ever
+  // imported after the backfill.
+  const kindIndex = new Map<'memory' | 'user' | 'failure', Map<string, Card>>();
+  const indexFor = async (kind: 'memory' | 'user' | 'failure'): Promise<Map<string, Card>> => {
+    let byId = kindIndex.get(kind);
+    if (!byId) {
+      const cards = cardStore ? await cardStore.getCardsByKind(kind) : [];
+      byId = new Map(cards.map((c) => [c.id, c]));
+      kindIndex.set(kind, byId);
+    }
+    return byId;
+  };
   const importFile = async (
     filePath: string,
     target: 'memory' | 'user' | 'failure',
@@ -303,7 +324,7 @@ export async function syncMarkdownMemories(
     if (!fs.existsSync(filePath)) return;
     counters.filesScanned++;
     const entries = readEntries(filePath);
-    await importEntries(cardStore, counters, entries, target, project);
+    await importEntries(cardStore, counters, entries, target, project, await indexFor(target));
   };
 
   await importFile(globalMemoryFile, 'memory');

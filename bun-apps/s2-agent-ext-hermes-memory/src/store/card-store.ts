@@ -65,6 +65,12 @@ export interface CardStore {
    *  frontmatter (NOT a new row). Bypasses dedup (pure identity cannot express
    *  "update"; the sync-layer hash-compare decides WHEN to call this). */
   updateCard(card: Card): Promise<void>;
+  /** Batched Tier-1 refresh: semantically N updateCard calls, but ONE HTTP
+   *  round-trip on the surreal backend (one BEGIN…COMMIT transaction). The
+   *  startup sync's dirty-vault path (many drifted envelopes at once) rides
+   *  this; sqlite implements it as a sequential loop (local, no round-trip
+   *  cost). Atomic on surreal — a throw applies nothing. */
+  updateCardsBatch(cards: Card[]): Promise<void>;
   /** 09-impl: hard-delete a card row by Card.id (md-wins reconciliation — the
    *  source md vanished). Also paired with deleteCardMdHash by the sweep. */
   deleteCard(id: string): Promise<void>;
@@ -132,6 +138,8 @@ interface CardPersistence {
   insertCard(card: Card): Promise<void>;
   /** UPDATE an existing card row by Card.id (content + envelope). */
   updateCard(card: Card): Promise<void>;
+  /** Batched UPDATE — see CardStore.updateCardsBatch. */
+  updateCardsBatch(cards: Card[]): Promise<void>;
   /** DELETE the card row by Card.id. */
   deleteCard(id: string): Promise<void>;
   /** One card by Card.id, or null. */
@@ -333,6 +341,12 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
       );
     },
 
+    /** Sequential loop over updateCard — sqlite is local (no HTTP round-trip
+     *  to batch away); the batch seam exists for the surreal backend. */
+    async updateCardsBatch(cards: Card[]): Promise<void> {
+      for (const card of cards) await this.updateCard(card);
+    },
+
     getCard(id: string): Promise<Card | null> {
       return runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
@@ -470,6 +484,17 @@ function createSurrealCardPersistence(repo: SurrealMemoryRepository): CardPersis
         frontmatter: JSON.stringify(card.frontmatter),
         graph: card.graph ? JSON.stringify(card.graph) : null,
       });
+    },
+
+    async updateCardsBatch(cards: Card[]): Promise<void> {
+      await repo.updateCardsByMdIdBatch(
+        cards.map((card) => ({
+          mdId: card.id,
+          content: card.content,
+          frontmatter: JSON.stringify(card.frontmatter),
+          graph: card.graph ? JSON.stringify(card.graph) : null,
+        })),
+      );
     },
 
     async deleteCard(id: string): Promise<void> {
@@ -616,6 +641,10 @@ export async function createCardStore(options: CreateCardStoreOptions): Promise<
 
     updateCard(card: Card): Promise<void> {
       return persistence.updateCard(card);
+    },
+
+    updateCardsBatch(cards: Card[]): Promise<void> {
+      return persistence.updateCardsBatch(cards);
     },
 
     deleteCard(id: string): Promise<void> {

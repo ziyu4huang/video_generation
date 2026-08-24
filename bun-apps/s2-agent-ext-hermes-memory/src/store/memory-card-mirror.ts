@@ -222,18 +222,27 @@ export async function mirrorMemoryEntry(
  * ~1.2–1.6s measured on the real surreal backend, every session). ONE
  * `getCardsByKind` replaces the per-entry lookup: md_ids are globally unique
  * (5d), so a kind-scoped id→card map is equivalent to the per-id getCard.
- * Writes stay per-entry through the same upsertCard/updateCard seams
- * (steady state = zero write round-trips). Outcome order matches the input
- * order; an empty/null cardStore mirrors to all-"skipped". */
+ * (2026-08-25 follow-up, the dirty-vault path: `existingById` lets the sync
+ * pass share ONE kind index across every file of the run — a 26-file sync was
+ * 26 read round-trips — and drifted updates collapse into ONE
+ * `updateCardsBatch` transaction instead of one round-trip per entry.)
+ * Inserts stay per-entry through the upsertCard dedup seam (steady state =
+ * zero inserts, zero write round-trips). The passed `existingById` map is
+ * TRUSTED as the kind's index and kept write-through current (insert/update
+ * set the mirrored card) so later files in the same run see this run's
+ * writes. Outcome order matches the input order; an empty/null cardStore
+ * mirrors to all-"skipped". */
 export async function mirrorMemoryEntries(
   cardStore: CardStore | null,
   kind: MemoryCardKind,
   inputs: MemoryCardInput[],
+  existingById?: Map<string, Card>,
 ): Promise<MirrorEntryOutcome[]> {
   if (!cardStore) return inputs.map(() => "skipped" as const);
   const cards = inputs.map((input) => buildMemoryCard(cardStore, kind, input));
-  const byId = new Map((await cardStore.getCardsByKind(kind)).map((c) => [c.id, c]));
+  const byId = existingById ?? new Map((await cardStore.getCardsByKind(kind)).map((c) => [c.id, c]));
   const outcomes: MirrorEntryOutcome[] = [];
+  const drifted: Card[] = [];
   for (const card of cards) {
     if (!card) {
       outcomes.push("no-stable-id");
@@ -242,15 +251,26 @@ export async function mirrorMemoryEntries(
     const existing = byId.get(card.id);
     if (!existing) {
       await cardStore.upsertCard(card);
+      byId.set(card.id, card);
       outcomes.push("inserted");
     } else if (
       existing.content !== card.content ||
       JSON.stringify(existing.frontmatter) !== JSON.stringify(card.frontmatter)
     ) {
-      await cardStore.updateCard(card);
+      drifted.push(card);
+      byId.set(card.id, card);
       outcomes.push("updated");
     } else {
       outcomes.push("skipped");
+    }
+  }
+  if (drifted.length > 0) {
+    try {
+      await cardStore.updateCardsBatch(drifted);
+    } catch {
+      // Atomic batch applied nothing — redo per-entry so a single bad card
+      // surfaces through the caller's existing per-entry fallback.
+      for (const card of drifted) await cardStore.updateCard(card);
     }
   }
   return outcomes;
