@@ -7,7 +7,6 @@
  */
 import { test, expect, describe, afterEach } from "bun:test";
 import {
-	estimateToolCost,
 	createCapturingApi,
 	collectExtensionToolCosts,
 	collectBuiltinToolCosts,
@@ -16,6 +15,9 @@ import {
 	formatSchemaCostReport,
 	formatSchemaCostJson,
 } from "../commands/schema-cost.ts";
+// The pure estimator is owned by the power-tool submodule — import it there,
+// not through the command's (removed) delegate.
+import { estimateToolCost } from "@repo/s2-agent-ext-power-tool/schema-cost";
 import { Type } from "typebox";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";

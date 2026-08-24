@@ -25,7 +25,6 @@ import { existsSync, statSync, readdirSync } from "node:fs";
 import { resolve, relative, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { resolveVaultPath } from "../vault-paths.ts";
-import { applyVaultEnv } from "../sessions/passthrough.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
 import {
 	buildDistillTask,
@@ -115,9 +114,10 @@ Examples:
 
 		const folder = parsed.folder ?? "Zettelkasten";
 		const vaultPath = resolveVault(parsed, cwd);
-		applyVaultEnv(parsed);
-
-		// Ensure obsidian sees the resolved vault.
+		// Obsidian env, set once each: applyVaultEnv's OB_VAULT_PATH write (the
+		// RAW --vault value) was immediately overwritten by the resolved path
+		// below, so only the vault-dir half of it is inlined here.
+		if (parsed.vaultDir) process.env.OB_VAULT_DIR = parsed.vaultDir;
 		process.env.OB_VAULT_PATH = vaultPath;
 
 		console.error(`vault:  ${vaultPath}`);

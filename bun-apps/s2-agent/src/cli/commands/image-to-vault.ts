@@ -16,7 +16,6 @@
  * issue — the pipeline.json inside records the real input kind.
  */
 import type { ParsedArgs } from "../args.ts";
-import { emptyParsed } from "../args.ts";
 import { pdfToVaultCommand } from "./pdf-to-vault.ts";
 import { DEFAULT_MODEL_TIER_CONFIG } from "../../pre-load-providers.ts";
 
@@ -55,24 +54,12 @@ Examples:
   s2-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/google/gemma-4-12b`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
-		// Delegate to the shared pdf-to-vault orchestrator. file2md's
-		// magic-number sniff detects the image kind automatically; no --type
-		// force is needed (the classifier would run on the image directly).
-		const delegated: ParsedArgs = {
-			...emptyParsed(),
-			...parsed,
-			// Ensure stage-1 model / output flags flow through.
-			positionals: parsed.positionals,
-			out: parsed.out,
-			vlmModel: parsed.vlmModel,
-			model: parsed.model,
-			retries: parsed.retries,
-			retryWaitSec: parsed.retryWaitSec,
-			deletePng: parsed.deletePng,
-			forceDistill: parsed.forceDistill,
-			mode: parsed.mode,
-			verbose: parsed.verbose,
-		};
-		await pdfToVaultCommand.run(delegated);
+		// Delegate to the shared pdf-to-vault orchestrator, passing `parsed`
+		// through verbatim: parsePiArgs() already returns a complete ParsedArgs
+		// (seeded from emptyParsed()), so the field-by-field copy this used to
+		// build added nothing. file2md's magic-number sniff detects the image
+		// kind automatically; no --type force is needed (the classifier would
+		// run on the image directly).
+		await pdfToVaultCommand.run(parsed);
 	},
 };

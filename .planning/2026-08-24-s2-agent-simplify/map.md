@@ -27,7 +27,7 @@ Measured 2026-08-24 on this machine (three read-only explore agents + one plan a
 
 ### Phase A — shrink
 
-- [ ] 01 — Dead code & stale surface (verify script, --cwd help, chat dead ternary, blend row, dead exports/fields, double break, .agents/, dispatch-log normalizeWorkflowRun, workflows js, ext-doctor swallow fix, stale order comment)
+- [x] 01 — Dead code & stale surface (complete 2026-08-24 branch s2-agent-simplify-t01-dead-code: all items landed; `.agents/` premise false — tracked content, kept; ltx-live-e2e.js kept — ltx TODO references it; chat help corrected to honest in-memory claim; gates 1043 pass + e2e 57 pass; receipt in ticket)
 - [ ] 02 — `src/paths.ts` shared leaf: resolveAgentDir + readAgentSettings + findRepoRoot (node-builtins only); rewire 3 patch readers + ~6 agent-dir sites + 5 repo-root sites
 
 ### Phase B — consolidate

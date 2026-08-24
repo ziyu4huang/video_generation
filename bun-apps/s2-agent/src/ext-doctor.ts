@@ -91,12 +91,18 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 	// virtual FS → static factories only) used to live here; it went with the
 	// compiled core (deploy-platform-neutral-core ticket 03, 2026-08-23). A
 	// manifest read failure (ENOENT, EACCES, bad JSON) is now always a genuine
-	// problem to surface, never a mode to mask it as.
+	// problem to surface, never a mode to mask it as. Swallowing it to
+	// `{extensions: [], lazyExtensions: {}}` produced a green-looking report
+	// covering only the static extension set.
 	let manifest: { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
 	try {
 		manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
-	} catch {
-		manifest = { extensions: [], lazyExtensions: {} };
+	} catch (e) {
+		throw new Error(
+			`ext doctor: cannot read src/run-dir/manifest.json — ` +
+				`${(e as Error).message}. A silent fallback would report only the ` +
+				`static extension set (false-green).`,
+		);
 	}
 	const entries = parseManifestEntries(manifest.extensions ?? []);
 	const results: ExtDoctorEntry[] = [];

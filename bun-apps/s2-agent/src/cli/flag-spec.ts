@@ -38,7 +38,7 @@ export type ValueField =
 	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
 	| "extract" | "note" | "lang"
 	| "vlmModel" | "source" | "sourceLabel"
-	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs" | "blend"
+	| "tags" | "excludeFromKb" | "excludeIds" | "workflowArgs"
 	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
 	| "linkWeighting" | "probeEval"
 	| "outDir"
@@ -93,11 +93,6 @@ const GLOBAL_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 // ── knowledge commands (zk-extract / zk-card / zk-ask) — shared target folder ─
 const KNOWLEDGE_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--folder", field: "folder" }, // shared: zk-extract, zk-card, zk-ask
-];
-
-// ── zk-ask — retrieval blend mode ───────────────────────────────────────────
-const ZK_ASK_VALUE_FLAGS: readonly ValueFlagSpec[] = [
-	{ flag: "--blend", field: "blend" },
 ];
 
 // ── zk-card — content source ────────────────────────────────────────────────
@@ -180,7 +175,6 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...MEMORY_TO_VAULT_VALUE_FLAGS,
 	...GLOBAL_VALUE_FLAGS,
 	...KNOWLEDGE_VALUE_FLAGS,
-	...ZK_ASK_VALUE_FLAGS,
 	...ZK_CARD_VALUE_FLAGS,
 	...ZK_INGEST_VALUE_FLAGS,
 	...ZK_QUERY_VALUE_FLAGS,

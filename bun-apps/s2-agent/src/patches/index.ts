@@ -59,9 +59,11 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // set OB_PARENT_MODEL/OB_SUBAGENT_MODEL, so without this every distill/garden
   // subagent (zk_card / zk_ask / obsidian_distill) with no --model
   // hits the pi default path → the "no subagent model configured" warning + a
-  // slow inherited model → distill timeouts. Must run AFTER ensure-extension-deps
-  // (it imports getAgentDir from @earendil-works/pi-coding-agent, whose repo-root
-  // symlinks ensure-extension-deps creates). Disable with BUN_PI_SUBAGENT_MODEL_FLOOR=0.
+  // slow inherited model → distill timeouts. No ordering dependency on
+  // ensure-extension-deps: getAgentDir is a plain top-level import from
+  // @earendil-works/pi-coding-agent resolved at module load, not through the
+  // repo-root symlinks ensure-extension-deps materializes. Disable with
+  // BUN_PI_SUBAGENT_MODEL_FLOOR=0.
   { name: "subagent-model-floor", env: "BUN_PI_SUBAGENT_MODEL_FLOOR", defaultValue: true },
   // ensure-model-tiers: the model-tiers resolver (in s2-agent-ext-subagent)
   // reads ~/.pi/workflows/model-tiers.json per-dispatch with NO env/cascade
@@ -259,7 +261,6 @@ export async function applyPatches(): Promise<AppliedPatch[]> {
         break;
       case "in-memory-models-store":
         mod = await import("./in-memory-models-store.ts");
-        break;
         break;
       case "ensure-extension-deps":
         mod = await import("./ensure-extension-deps.ts");

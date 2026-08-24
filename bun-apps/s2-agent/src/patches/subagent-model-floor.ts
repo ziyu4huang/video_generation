@@ -78,8 +78,9 @@ function readUserSettings(): Record<string, unknown> | undefined {
 }
 
 // Import-time side effect: publish the floor as OB_SUBAGENT_MODEL before main()
-// reads anything. Runs inside applyPatches() (after ensure-extension-deps sets
-// up the @earendil-works/pi-coding-agent import symlinks).
+// reads anything. Runs inside applyPatches(), which imports this module via a
+// static-literal path — getAgentDir above is a plain top-level import resolved
+// at load (no ordering dependency on ensure-extension-deps).
 const floor = resolveSubagentFloor(readUserSettings());
 if (floor) {
 	process.env.OB_SUBAGENT_MODEL = floor;

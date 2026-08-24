@@ -11,7 +11,8 @@
  * tool — but offline (pure file scan, no LLM).
  *
  * Design: the search core (`searchMemory`) is a PURE function over file
- * contents, unit-testable with fixtures. `run()` wires the real memory dir in.
+ * contents (module-internal; no current test imports it). `run()` wires the
+ * real memory dir in.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
@@ -32,7 +33,7 @@ export interface MemoryMatch {
  * @param query         substring (case-insensitive)
  * @param limit         max matches
  */
-export function searchMemory(
+function searchMemory(
 	fileContents: Map<string, string>,
 	query: string,
 	limit = 20,
