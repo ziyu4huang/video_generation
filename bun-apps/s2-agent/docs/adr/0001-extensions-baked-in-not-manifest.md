@@ -12,7 +12,7 @@
 The `cli` namespace statically imports every extension's factory and injects it through
 `resourceLoaderOptions` (pi-obsidian always-on; all others per-command via
 `extraExtensionFactories`), instead of loading extensions from s2-agent's
-`run-dir/manifest.json` at runtime. The trade-off: s2-agent (the interactive
+`src/run-dir/manifest.json` at runtime. The trade-off: s2-agent (the interactive
 TUI) eagerly loads the *entire* manifest because a user may want any tool
 mid-session, but `s2-agent cli` runs single-turn workflows that **curate tools per
 command** (e.g. `zk-extract` passes only the distill tools). Loading the full

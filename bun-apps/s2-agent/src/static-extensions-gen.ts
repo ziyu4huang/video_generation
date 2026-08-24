@@ -23,7 +23,7 @@ const HEADER = [
 	"/**",
 	" * The \"default-on\" extension set — statically imported (native `import`, not",
 	" * jiti-loaded `-e <path>.ts`) so it survives `bun build --compile`. These are",
-	" * deliberately ABSENT from run-dir/manifest.json's `extensions` array — keeping",
+	" * deliberately ABSENT from src/run-dir/manifest.json's `extensions` array — keeping",
 	" * both a static import and a dynamic `-e` entry for the same extension would",
 	" * double-register it, since a jiti-loaded module and a natively-imported module",
 	" * are not guaranteed to be the same module identity (and pi does NOT dedup a",
@@ -110,7 +110,7 @@ const HEADER = [
 ].join("\n");
 
 const BANNER =
-	"// AUTO-GENERATED from run-dir/manifest.json staticExtensions[] — do not edit; run `bun run regen:static` (bun-apps/s2-agent).";
+	"// AUTO-GENERATED from src/run-dir/manifest.json staticExtensions[] — do not edit; run `bun run regen:static` (bun-apps/s2-agent).";
 
 /**
  * Per-row comments, keyed by suffix — folded in from the hand-written file

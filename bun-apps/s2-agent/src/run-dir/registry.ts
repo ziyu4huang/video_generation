@@ -16,7 +16,7 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
-import { REGISTRY, legacyRegistry } from "../src/registry-config.ts";
+import { REGISTRY, legacyRegistry } from "../registry-config.ts";
 
 export interface RegistryDeployBlock {
   order: number;

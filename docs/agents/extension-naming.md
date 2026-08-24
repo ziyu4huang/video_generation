@@ -10,7 +10,7 @@ tool-gate keyword families, docs, CLAUDE.md, CI baselines) must track.
    (`bun-apps/s2-agent-ext-power-tool/src/tools/inspect-extensions.ts`); in a
    live session this enumerates registered extensions + their tools/skills.
 2. Registration sources:
-   - dynamic → `bun-apps/s2-agent/run-dir/manifest.json` (`extensions[]`)
+   - dynamic → `bun-apps/s2-agent/src/run-dir/manifest.json` (`extensions[]`)
    - static → `bun-apps/s2-agent/src/static-extensions.ts` (generated from the
      manifest's `staticExtensions[]` — manifest is the only edit point)
 3. Gating-net enumeration (test support): `bun-apps/s2-agent-ext-tool-gate/

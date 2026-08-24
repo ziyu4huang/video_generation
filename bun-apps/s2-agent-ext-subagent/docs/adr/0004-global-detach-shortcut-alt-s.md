@@ -72,7 +72,7 @@ dispatch logic now shared by both surfaces; only the global *binding* changed.
 - The startup warning is gone and the editor's ctrl+b cursor-left works again.
 - A repo-wide guard test (`bun-apps/s2-agent/src/__tests__/
   extension-shortcut-guard.test.ts`) loads every registered extension — static
-  (`STATIC_EXTENSION_FACTORIES`) and dynamic (`run-dir/manifest.json`) — through
+  (`STATIC_EXTENSION_FACTORIES`) and dynamic (`src/run-dir/manifest.json`) — through
   a recording mock and fails if any registered shortcut collides with a pi
   built-in default key (`TUI_KEYBINDINGS[*].defaultKeys` at runtime plus the
   documented `app.*` table) or if two extensions claim the same key. This

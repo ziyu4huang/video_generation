@@ -54,8 +54,8 @@
  * HOW TO ADD AN EXTENSION
  * -----------------------
  * Add an entry to REGISTRY below. Run `bun run regen:manifest`
- * (+ `regen:static` when load: static). run-dir/manifest.json is DERIVED from
- * this data — never edit it directly; the freshness test will go red.
+ * (+ `regen:static` when load: static). src/run-dir/manifest.json is DERIVED
+ * from this data — never edit it directly; the freshness test will go red.
  */
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -589,12 +589,12 @@ export function shippedEntries(): RegistryEntry[] {
   return activeEntries().filter((e) => e.deploy !== undefined && e.deploy.enabled !== false);
 }
 
-// ─── Legacy Registry shape (consumed by run-dir validation) ──────────────────
+// ─── Legacy Registry shape (consumed by src/run-dir validation) ──────────────
 //
-// Structural mirror of the Registry shape run-dir/registry.ts returns. The
+// Structural mirror of the Registry shape src/run-dir/registry.ts returns. The
 // module cannot import it (zero-import contract, map D4); the projection
 // below builds the shape the pre-migration YAML parser produced, so
-// run-dir/registry.ts's `loadRegistry()` and everything downstream (manifest
+// src/run-dir/registry.ts's `loadRegistry()` and everything downstream (manifest
 // emitter, devops ShConfig projection, tests) consume an unchanged contract.
 // Home comes in as an argument — the module cannot call homedir() (zero
 // imports), and outRoot is stored in ~ form so it stays machine-neutral.

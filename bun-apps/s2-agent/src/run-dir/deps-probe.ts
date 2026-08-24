@@ -153,7 +153,7 @@ export function probeMissingExtensionDeps(bunAppsDir: string | undefined): strin
 /**
  * Union of transitive-workspace missing extension packages — the single signal
  * both the opt-in auto-install and the consolidated guide use. Exported so
- * run-dir/check-deps.ts can run the SAME detection pre-flight (before bun
+ * src/run-dir/check-deps.ts can run the SAME detection pre-flight (before bun
  * boots) and install, so the loading process is fresh and sees deps.
  */
 export function missingExtensionPackages(bunAppsDir: string | undefined): string[] {

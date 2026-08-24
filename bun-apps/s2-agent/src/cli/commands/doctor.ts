@@ -114,7 +114,7 @@ export function checkRepoRoot(ctx: DoctorContext): { result: CheckResult; repoRo
 }
 
 export function checkRunDir(ctx: DoctorContext, repoRoot: string): CheckResult {
-	const manifestPath = join(repoRoot, "bun-apps", "s2-agent", "run-dir", "manifest.json");
+	const manifestPath = join(repoRoot, "bun-apps", "s2-agent", "src", "run-dir", "manifest.json");
 	const raw = readJson(manifestPath);
 	if (!raw || typeof raw !== "object") {
 		return {
@@ -128,7 +128,7 @@ export function checkRunDir(ctx: DoctorContext, repoRoot: string): CheckResult {
 	// The manifest's `extensions` array is MIXED-TYPE: plain strings (most
 	// entries) AND objects ({ name, entry, version }) for entries that
 	// carry declared metadata. The canonical resolver
-	// (s2-agent/run-dir/resolve.ts) normalizes via `typeof e === "string" ? e :
+	// (s2-agent/src/run-dir/resolve.ts) normalizes via `typeof e === "string" ? e :
 	// e?.entry`; doctor must do the same or `join(bunApps, <object>)` throws.
 	// Skills are always plain strings (no metadata objects today).
 	const m = raw as {

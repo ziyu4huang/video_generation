@@ -11,6 +11,6 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "run-dir/**/*.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["src/generated/**/*.ts"]
 }

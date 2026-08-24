@@ -115,7 +115,17 @@ Phase 3 — retirement (after 02+03)
   emitter) already sit beside `run-dir/manifest.json`, the artifact they
   produce; and the YAML bridge (`parseRegistry`) is transitional — moving it
   now would churn devops/ext-new imports twice (once for the move, again when
-  04 deletes it).
+  04 deletes it). REVISED (2026-08-24, post-close-out by the run-dir move,
+  `.planning/plans/2026-08-24-run-dir-to-src.md`): the "STAYS in run-dir/"
+  clause is superseded — the surface now lives at
+  `bun-apps/s2-agent/src/run-dir/` (the repo-source resource dir moved whole
+  under `src/`). D6's YAML-transitional reason (avoid churning devops/ext-new
+  imports twice around the `parseRegistry` deletion) is moot post-t04: the
+  YAML bridge is gone, and D4 constrains only `src/registry-config.ts` itself
+  — files under `src/` may use `node:fs` freely. Everything else D6 pinned
+  survives intact: validation stays beside the manifest emitter, the manifest
+  stays DERIVED next to its producer (`src/run-dir/manifest.json`,
+  freshness-gated), and the deployed tree never carried run-dir either way.
 - D7 (t02, registry-insert — closes the runtime-YAML Fog): registry-insert
   does NOT parse YAML and its sole non-test caller is `src/ext-new.ts`
   (repo-time scaffold CLI). No dynamic run-dir-loading or compiled-binary path

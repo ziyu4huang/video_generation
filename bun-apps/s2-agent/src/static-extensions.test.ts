@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import manifest from "../run-dir/manifest.json";
+import manifest from "./run-dir/manifest.json";
 import { STATIC_EXTENSION_FACTORIES } from "./static-extensions.ts";
 
 /**

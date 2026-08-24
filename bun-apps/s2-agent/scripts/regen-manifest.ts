@@ -1,6 +1,6 @@
 /**
- * regen-manifest.ts — rewrites run-dir/manifest.json from the typed REGISTRY
- * (src/registry-config.ts) via loadRegistry()'s validation. Run as
+ * regen-manifest.ts — rewrites src/run-dir/manifest.json from the typed
+ * REGISTRY (src/registry-config.ts) via loadRegistry()'s validation. Run as
  * `bun run regen:manifest` from bun-apps/s2-agent. The manifest is a DERIVED
  * artifact; this script plus the freshness test are the only writers that
  * should ever touch it. Refuses to write an empty manifest (same guard shape
@@ -8,11 +8,11 @@
  */
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { loadRegistry } from "../run-dir/registry.ts";
-import { buildManifestObject, manifestText } from "../run-dir/registry-to-manifest.ts";
+import { loadRegistry } from "../src/run-dir/registry.ts";
+import { buildManifestObject, manifestText } from "../src/run-dir/registry-to-manifest.ts";
 
 const pkgDir = join(import.meta.dir, "..");
-const manifestPath = join(pkgDir, "run-dir", "manifest.json");
+const manifestPath = join(pkgDir, "src", "run-dir", "manifest.json");
 
 const registry = loadRegistry({ bunAppsDir: join(pkgDir, "..") });
 if (registry.extensions.length === 0) {

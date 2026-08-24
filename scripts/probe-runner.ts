@@ -15,7 +15,7 @@
  * Runtime model: standalone `bun` invocation. `spawnSubagent` boots a fresh
  * in-memory pi session per dispatch (createAgentSession + real SettingsManager
  * + ~/.pi/auth.json), so it does NOT require a live pi TUI around it. The
- * `subagent` tool is a STATIC extension (not in run-dir/manifest.extensions),
+ * `subagent` tool is a STATIC extension (not in src/run-dir/manifest.extensions),
  * so the child would NOT auto-load it — we bridge it explicitly via
  * `extensionTools` (exactly what a live session does via
  * pi.getAllToolDefinitions() on session_start). That keeps the probe faithful:
@@ -68,7 +68,7 @@ const PER_DISPATCH_TIMEOUT_MS = Number(process.env.PROBE_TIMEOUT_MS ?? 240_000);
 // `--skill <skillsDir>` into argv, which loads every skill BEFORE this
 // extension's `resources_discover` runs (silently deduped to the same real
 // files), defeating the exclude knob. `-ns`/`--no-skills` suppresses that splice
-// (run-dir/resolve.ts `suppressResolvedArgv`), making the extension the SOLE
+// (src/run-dir/resolve.ts `suppressResolvedArgv`), making the extension the SOLE
 // skill source so the knob is authoritative. Both fat and thin use `-ns` so the
 // ONLY variable between them is the exclude env.
 const REPO_ROOT = resolve(import.meta.dir, "..");

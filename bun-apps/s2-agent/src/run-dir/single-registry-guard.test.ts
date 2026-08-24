@@ -13,7 +13,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
+const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
 const SCAN_ROOTS = ["bun-apps", "scripts"];
 
 // Assembled, not literal, so the scan below does not hit this file itself.

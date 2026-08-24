@@ -234,7 +234,7 @@ describe("discoverExtensionEntries (manifest-error handling, audit I-7)", () => 
 	test("ENOENT (manifest absent, e.g. outside the repo) → extras only, no throw", () => {
 		const dir = mkdtempSync(join(tmpdir(), "sc-enonent-"));
 		tmpRoots.push(dir);
-		// no bun-apps/s2-agent/run-dir/manifest.json → ENOENT swallowed → extras only.
+		// no bun-apps/s2-agent/src/run-dir/manifest.json → ENOENT swallowed → extras only.
 		// EXTRA_ENTRIES carry repo-relative paths resolved against the cwd — the
 		// rows are returned unfiltered (existence filtering would silently mask a
 		// typo'd extra), so a manifest-less root still lists them, dangling.
@@ -247,7 +247,7 @@ describe("discoverExtensionEntries (manifest-error handling, audit I-7)", () => 
 	test("malformed manifest (exists but bad JSON) → throws, not a silent false-green", () => {
 		const dir = mkdtempSync(join(tmpdir(), "sc-badman-"));
 		tmpRoots.push(dir);
-		const manifestDir = resolve(dir, "bun-apps/s2-agent/run-dir");
+		const manifestDir = resolve(dir, "bun-apps/s2-agent/src/run-dir");
 		mkdirSync(manifestDir, { recursive: true });
 		writeFileSync(join(manifestDir, "manifest.json"), "{not valid json");
 		// A malformed manifest must NOT be swallowed into extras-only (that would

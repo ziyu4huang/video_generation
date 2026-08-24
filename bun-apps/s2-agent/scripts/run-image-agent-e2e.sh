@@ -3,7 +3,7 @@
 # run-image-agent-e2e.sh — REAL-MODEL integration e2e for the image agent.
 #
 # Spawns ./s2-agent.sh with a natural-language prompt that drives the flux2 tool
-# (auto-loaded via run-dir/manifest.json) and asserts: a zh-TW reply + a new
+# (auto-loaded via src/run-dir/manifest.json) and asserts: a zh-TW reply + a new
 # timestamped PNG under output/flux-output/. This is the layer above the offline
 # probe (e2e-extensions) and the L2 judgment workflow (run-ext-e2e.sh).
 #

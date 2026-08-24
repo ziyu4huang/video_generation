@@ -133,7 +133,7 @@ describe("individual checks", () => {
 
 	test("run-dir: manifest with all-resolving paths → pass", () => {
 		const { ctx, repo } = makeCtx({});
-		const manifestDir = join(repo, "bun-apps", "s2-agent", "run-dir");
+		const manifestDir = join(repo, "bun-apps", "s2-agent", "src", "run-dir");
 		mkdirSync(manifestDir, { recursive: true });
 		mkdirSync(join(repo, "bun-apps", "s2-agent-ext-obsidian", "extensions"), { recursive: true });
 		writeFileSync(join(repo, "bun-apps", "s2-agent-ext-obsidian", "extensions", "obsidian.ts"), "// ok");
@@ -149,7 +149,7 @@ describe("individual checks", () => {
 		// objects ({ name, entry, version }). Before the fix,
 		// join(bunApps, <object>) threw "paths[1] must be string, got object".
 		const { ctx, repo } = makeCtx({});
-		const manifestDir = join(repo, "bun-apps", "s2-agent", "run-dir");
+		const manifestDir = join(repo, "bun-apps", "s2-agent", "src", "run-dir");
 		mkdirSync(manifestDir, { recursive: true });
 		// Create both entry dirs so both resolve.
 		mkdirSync(join(repo, "bun-apps", "s2-agent-ext-obsidian", "extensions"), { recursive: true });
@@ -177,7 +177,7 @@ describe("individual checks", () => {
 
 	test("run-dir: mixed-type manifest with a MISSING object entry → warn (not crash)", () => {
 		const { ctx, repo } = makeCtx({});
-		const manifestDir = join(repo, "bun-apps", "s2-agent", "run-dir");
+		const manifestDir = join(repo, "bun-apps", "s2-agent", "src", "run-dir");
 		mkdirSync(manifestDir, { recursive: true });
 		writeFileSync(
 			join(manifestDir, "manifest.json"),

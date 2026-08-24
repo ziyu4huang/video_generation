@@ -41,10 +41,10 @@ import { fileURLToPath } from "node:url";
 import { missingExtensionPackages } from "./deps-probe.ts";
 
 const url = import.meta.url;
-// run-dir/ → s2-agent/ → bun-apps/  (mirrors resolve.ts's source-mode computation).
-// bun-apps/ IS the Bun workspace root (package.json + bun.lock + bunfig.toml live
-// here), so `bun install` must run here — NOT at the repo root.
-const bunAppsDir = pResolve(dirname(fileURLToPath(url)), "..", "..");
+// src/run-dir/ → src/ → s2-agent/ → bun-apps/  (mirrors resolve.ts's source-mode
+// computation). bun-apps/ IS the Bun workspace root (package.json + bun.lock +
+// bunfig.toml live here), so `bun install` must run here — NOT at the repo root.
+const bunAppsDir = pResolve(dirname(fileURLToPath(url)), "..", "..", "..");
 
 const missing = missingExtensionPackages(bunAppsDir);
 if (missing.length === 0) process.exit(0);

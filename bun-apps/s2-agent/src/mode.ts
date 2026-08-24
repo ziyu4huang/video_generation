@@ -4,7 +4,7 @@
  *
  * Bun's bundler rewrites `import.meta.url`, so the URL string is the
  * reliable signal for which execution mode we are in. This was previously
- * copy-pasted (a compiled-binary marker check) across run-dir/resolve.ts,
+ * copy-pasted (a compiled-binary marker check) across src/run-dir/resolve.ts,
  * set-package-dir.ts, and skip-update-check.ts — three copies of fragile
  * string-matching. Centralize it here so it is tested once.
  *

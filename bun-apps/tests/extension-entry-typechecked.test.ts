@@ -9,7 +9,7 @@
  *   EXCEPT the file that is the package's whole reason to exist.
  *
  *   The entry still got compiled, but by the HOST: s2-agent imports it through
- *   run-dir/manifest.json and typechecks it under s2-agent's tsconfig. So the
+ *   src/run-dir/manifest.json and typechecks it under s2-agent's tsconfig. So the
  *   file has an executor, just not the one whose gate the author runs before
  *   pushing. `bun run typecheck` in the package says nothing about the entry,
  *   `bun test` in the package says nothing about it, and the failure surfaces

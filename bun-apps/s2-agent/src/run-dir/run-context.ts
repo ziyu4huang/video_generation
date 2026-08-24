@@ -12,8 +12,9 @@
  * src/mode.ts was created to centralize.
  *
  * `import.meta.url` MUST stay meaningful here: in source mode resolveBunAppsDir
- * walks up two levels from this file's own directory, which is correct only
- * while this module lives in run-dir/. The compiled binary never asks — it
+ * walks up three levels from this file's own directory (src/run-dir/ → src/ →
+ * s2-agent/ → bun-apps/), which is correct only while this module lives in
+ * run-dir/ below src/. The compiled binary never asks — it
  * resolves nothing from the repo — so source is the only case left to serve.
  * Bundle mode used to read baked constants from src/generated/run-dir-base.ts
  * for exactly this reason; both the mode and that generated file went in
@@ -21,7 +22,7 @@
  */
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectMode } from "../src/mode.ts";
+import { detectMode } from "../mode.ts";
 
 const url = import.meta.url;
 
@@ -34,6 +35,6 @@ export function warn(msg: string): void {
 }
 
 export async function resolveBunAppsDir(): Promise<string | undefined> {
-  // run-dir/run-context.ts -> s2-agent/ -> bun-apps/
-  return resolve(dirname(fileURLToPath(url)), "..", "..");
+  // src/run-dir/run-context.ts -> src/ -> s2-agent/ -> bun-apps/
+  return resolve(dirname(fileURLToPath(url)), "..", "..", "..");
 }

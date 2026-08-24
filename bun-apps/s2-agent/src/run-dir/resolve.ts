@@ -5,12 +5,13 @@
  * every project-resource lookup (.pi/settings.json, .pi/extensions, etc.), so the
  * only cwd-independent hook it exposes is passing already-absolute paths via
  * -e/--skill CLI flags (resolvePath() returns absolute inputs unchanged, and
- * these paths are never trust-gated). See run-dir/manifest.json for the source
- * list and bun-apps/s2-agent/README.md for the full rationale.
+ * these paths are never trust-gated). See src/run-dir/manifest.json for the
+ * source list and bun-apps/s2-agent/README.md for the full rationale.
  *
- * MODE DETECTION: `resolve(import.meta.dir, '..', '..')` computes the real
- * bun-apps/ dir only when this file is loaded from source — bun's bundler
- * rewrites import.meta.dir to the output location. That leaves two modes: the
+ * MODE DETECTION: the three-level ascent (src/run-dir/ → src/ → s2-agent/ →
+ * bun-apps/) in run-context.ts computes the real bun-apps/ dir only when this
+ * file is loaded from source — bun's bundler rewrites import.meta.dir to the
+ * output location. That leaves two modes: the
  * compiled binary, which resolves nothing from the repo and ships its default
  * extensions as static factories instead, and source. `mode` and
  * resolveBunAppsDir() live in run-context.ts so the split-out siblings branch
@@ -38,8 +39,8 @@ import { existsSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import manifest from "./manifest.json";
-import { detectMode } from "../src/mode.ts";
-import type { UserSuppressFlags } from "../src/cli-argv.ts";
+import { detectMode } from "../mode.ts";
+import type { UserSuppressFlags } from "../cli-argv.ts";
 import { resolveBunAppsDir, warn } from "./run-context.ts";
 import {
   emitMissingDepsGuide,

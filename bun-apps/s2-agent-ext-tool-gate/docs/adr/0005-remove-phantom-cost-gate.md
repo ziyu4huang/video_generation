@@ -9,7 +9,7 @@ See: inline NOTE in `extensions/tool-gate.ts` (the `cost` gate block)
 
 ## Context
 
-A `cost` gate existed, gating the `movie-director-cost.ts` typed prototype. But that file is **measured offline** (the schema-cost CLI's `EXTRA_ENTRIES`) yet **never loaded at runtime** — it is absent from `bun-apps/s2-agent/run-dir/manifest.json`, from `src/static-extensions.ts`, and from `movie-director.ts`'s imports. Gating a tool that never registers is phantom accounting: the gate "saves" tokens that were never spent, inflating the reported savings by **~536 tok/req**. The headline savings number was thus dishonestly high.
+A `cost` gate existed, gating the `movie-director-cost.ts` typed prototype. But that file is **measured offline** (the schema-cost CLI's `EXTRA_ENTRIES`) yet **never loaded at runtime** — it is absent from `bun-apps/s2-agent/src/run-dir/manifest.json`, from `src/static-extensions.ts`, and from `movie-director.ts`'s imports. Gating a tool that never registers is phantom accounting: the gate "saves" tokens that were never spent, inflating the reported savings by **~536 tok/req**. The headline savings number was thus dishonestly high.
 
 ## Decision
 

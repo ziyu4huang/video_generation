@@ -13,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseManifestEntries } from "../run-dir/manifest-types.ts";
+import { parseManifestEntries } from "./run-dir/manifest-types.ts";
 // NOTE: static-extensions.ts is imported DYNAMICALLY inside runExtDoctor(),
 // below the ensure-extension-deps await — see the comment there. A top-level
 // import is hoisted, and `ext doctor` is one of cli.ts's PRE-patch intercepts,
@@ -30,7 +30,7 @@ export function resolvePiAgentDir(moduleUrl: string): string {
 
 const PI_AGENT_DIR = resolvePiAgentDir(import.meta.url);
 const REPO_ROOT = resolve(PI_AGENT_DIR, "../..");
-const MANIFEST_PATH = join(PI_AGENT_DIR, "run-dir", "manifest.json");
+const MANIFEST_PATH = join(PI_AGENT_DIR, "src", "run-dir", "manifest.json");
 
 interface ExtDoctorEntry {
 	name: string;

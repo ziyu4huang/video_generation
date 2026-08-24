@@ -25,7 +25,7 @@
  * once activated stay active for the rest of the session (they never re-gate
  * on a later turn).
  *
- * Install: registered in bun-apps/s2-agent/run-dir/manifest.json
+ * Install: registered in bun-apps/s2-agent/src/run-dir/manifest.json
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

@@ -1,7 +1,7 @@
 /**
  * dead-deploy-markers — the precondition that makes Phase 1b's deletions safe.
  *
- * `run-dir/resolve.ts` used to branch on a "deploy-bundle" layout, detected by
+ * `src/run-dir/resolve.ts` used to branch on a "deploy-bundle" layout, detected by
  * a `.deploy-bundle` marker file sitting next to an `ext-bundles/` directory.
  * Both were written by `scripts/deploy.ts`, which Phase 1a (#1740) deleted
  * along with the four legacy deploy modes. Nothing writes either any more, so
@@ -86,7 +86,7 @@ describe("the retired deploy-bundle layout has no writer", () => {
 				offenders,
 				`${marker} belongs to the deploy-bundle layout, retired with scripts/deploy.ts in #1740. ` +
 					`Its READER is gone too, so a writer alone produces a tree that resolves as plain source. ` +
-					`If the layout is genuinely coming back, restore run-dir/resolve.ts's branch in the same change.`,
+					`If the layout is genuinely coming back, restore src/run-dir/resolve.ts's branch in the same change.`,
 			).toEqual([]);
 		});
 	}

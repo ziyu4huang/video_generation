@@ -3,7 +3,7 @@ import { detectMode, type BundlerMode } from "./mode.ts";
 
 describe("detectMode", () => {
 	test("a .ts module URL is source", () => {
-		expect(detectMode("file:///repo/bun-apps/s2-agent/run-dir/resolve.ts")).toBe("source");
+		expect(detectMode("file:///repo/bun-apps/s2-agent/src/run-dir/resolve.ts")).toBe("source");
 		expect(detectMode("file:///repo/bun-apps/s2-agent/src/patches/skip-update-check.ts")).toBe("source");
 	});
 
@@ -16,7 +16,7 @@ describe("detectMode", () => {
 
 	test("the return type is exactly the two modes", () => {
 		const modes = new Set<BundlerMode>([
-			detectMode("file:///r/run-dir/x.ts"),
+			detectMode("file:///r/src/run-dir/x.ts"),
 			detectMode("file:///opt/x.js"),
 		]);
 		expect(modes).toEqual(new Set(["bundle", "source"]));

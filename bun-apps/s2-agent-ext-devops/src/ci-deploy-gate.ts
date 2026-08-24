@@ -34,7 +34,7 @@ export const DEPLOY_SENSITIVE_PATTERNS: readonly string[] = [
 	"bun-apps/s2-agent/src/cli.ts", // the source entry the launcher spawns
 	"bun-apps/s2-agent/src/patches/",
 	"bun-apps/s2-agent/src/static-extensions.ts",
-	"bun-apps/s2-agent/run-dir/manifest.json",
+	"bun-apps/s2-agent/src/run-dir/manifest.json",
 	"bun-apps/s2-agent/scripts/",
 ];
 

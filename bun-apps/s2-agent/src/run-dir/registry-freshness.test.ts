@@ -11,12 +11,12 @@ import { join } from "node:path";
 import { loadRegistry } from "./registry.ts";
 import { buildManifestObject, manifestText } from "./registry-to-manifest.ts";
 
-const PKG_DIR = join(import.meta.dir, "..");
+const PKG_DIR = join(import.meta.dir, "..", "..");
 
 describe("manifest.json freshness", () => {
 	test("is byte-identical to what the registry generates", () => {
 		const registry = loadRegistry({ bunAppsDir: join(PKG_DIR, "..") });
-		const committed = readFileSync(join(PKG_DIR, "run-dir", "manifest.json"), "utf8");
+		const committed = readFileSync(join(PKG_DIR, "src", "run-dir", "manifest.json"), "utf8");
 		expect(manifestText(buildManifestObject(registry))).toBe(committed);
 	});
 });
