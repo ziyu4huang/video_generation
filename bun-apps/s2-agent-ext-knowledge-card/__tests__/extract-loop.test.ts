@@ -380,6 +380,48 @@ describe("runExtraction (D28–D31)", () => {
 		expect(JSON.parse(readFileSync(res.diffFile!, "utf-8")).llmFailed).toBe(true);
 	});
 
+	test("shutdown backoff: repeated LLM failures stop re-paying the timeout at shutdown; on-demand still runs and a success resets", async () => {
+		// Regression (2026-08-24 perf fix): a failing shutdown LLM run never
+		// advanced the cursor, so the SAME batch retried at every
+		// session_shutdown — every one-shot -p run stalled its full 25s
+		// budget before exit.
+		const vault = tmpVault();
+		let calls = 0;
+		const failing = async (): Promise<RawExtractItem[] | null> => {
+			calls++;
+			return null;
+		};
+		// Two failing shutdown runs arm the backoff (and book-keep it in state).
+		await runExtraction({ vaultPath: vault, entries: [eventEntry], outputDir: join(vault, "out"), trigger: "shutdown", _llm: failing });
+		expect(readExtractState(vault).consecutiveFailures).toBe(1);
+		await runExtraction({ vaultPath: vault, entries: [eventEntry], outputDir: join(vault, "out"), trigger: "shutdown", _llm: failing });
+		expect(readExtractState(vault).consecutiveFailures).toBe(2);
+		expect(calls).toBe(2);
+
+		// Third shutdown run: the LLM is never called — the 25s budget is not spent.
+		const skipped = await runExtraction({ vaultPath: vault, entries: [eventEntry], outputDir: join(vault, "out"), trigger: "shutdown", _llm: failing });
+		expect(calls).toBe(2);
+		expect(skipped.skippedBackoff).toBe(true);
+		expect(skipped.llmFailed).toBe(false);
+		const receipt = JSON.parse(readFileSync(skipped.diffFile!, "utf-8"));
+		expect(receipt.skippedBackoff).toBe(true);
+		expect(receipt.consecutiveFailures).toBe(2);
+		// The skip does not advance the cursor (the batch is still unprocessed)…
+		expect(readExtractState(vault).seenIds).toHaveLength(0);
+
+		// …but an on-demand run bypasses the backoff and, on success, resets it.
+		const ok = await runExtraction({ vaultPath: vault, entries: [eventEntry], outputDir: join(vault, "out"), _llm: async () => [] });
+		expect(ok.skippedBackoff).toBe(false);
+		const healed = readExtractState(vault);
+		expect(healed.consecutiveFailures).toBe(0);
+		expect(healed.seenIds).toContain("a1");
+
+		// After the reset, a shutdown run starts a fresh cycle (LLM called again).
+		const freshCycle = await runExtraction({ vaultPath: vault, entries: [mem("a9", FIX_BODY)], outputDir: join(vault, "out"), trigger: "shutdown", _llm: failing });
+		expect(freshCycle.skippedBackoff).toBe(false);
+		expect(calls).toBe(3);
+	});
+
 	test("dryRun: zero writes + zero cursor move, decisions recorded", async () => {
 		const vault = tmpVault();
 		const llm = async (): Promise<RawExtractItem[]> => [
