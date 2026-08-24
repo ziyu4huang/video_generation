@@ -287,6 +287,52 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
           xhigh: "xhigh",
         },
       },
+      {
+        // BENCHMARKED LANE (2026-08-24, this machine, same-server A/B vs
+        // google/gemma-4-12b): prism-ml/bonsai-27b, on disk as
+        // .lmstudio/models/prism-ml/Ternary-Bonsai-27B-mlx-2bit — a ternary
+        // (Qwen3.5-arch, 64-layer hybrid linear-attention) 27B, MLX engine,
+        // 2-bit, served at FULL 262,144 context (native /api/v0/models:
+        // loaded_context_length 262144, type vlm, capabilities [tool_use]).
+        // VERDICT of the A/B: NOT a gemma upgrade — the lane is shared for
+        // its 256K context + thinking-on 27B quality niche, while capability
+        // specs stay on gemma-4-12b. Measured:
+        //   • no-think honored: effort "none" → 0 reasoning tokens, clean
+        //     JSON direct in content, 0.22s tiny ask (gemma 0.36s — both
+        //     sub-0.4s, indistinguishable in practice)
+        //   • prefill (same ~7.5K-token payload, same day): 8.4s / ~917
+        //     tok/s vs gemma 4.1s / ~1,814 tok/s — gemma ~2× faster
+        //   • prompt KV cache DOES serve repeats on this MLX lane (0.29s
+        //     repeat) — unlike the llama.cpp QAT lane
+        //   • no-think trap battery: 3/5 (bat/ball answered 10 = the
+        //     reflexive error, strawberry counted 2; gemma 5/5) — with
+        //     thinking ON bonsai corrects bat/ball (5, 339 reasoning tokens),
+        //     so the misses are the no-think path's System-1 slips, not
+        //     model ignorance. Also ignores "just the number" brevity asks
+        //     more often than gemma.
+        //   • vision verified with a valid solid-red 64×64 PNG → "Red", 0
+        //     reasoning tokens, effort:none path (NOTE: malformed images
+        //     400 with "Invalid image detected at index 0" — probe your
+        //     payload, don't blame the lane)
+        //   • effort levels low/medium/high/xhigh all 200-OK (server accepts
+        //     the same wire enum as gemma; map mirrors it)
+        id: "prism-ml/bonsai-27b",
+        name: "Bonsai 27B Ternary (LM Studio)",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 262_144,
+        maxTokens: 65_536,
+        compat: { supportsReasoningEffort: true },
+        thinkingLevelMap: {
+          off: "none",
+          minimal: "none",
+          low: "low",
+          medium: "medium",
+          high: "high",
+          max: "xhigh",
+          xhigh: "xhigh",
+        },
+      },
     ],
   },
 

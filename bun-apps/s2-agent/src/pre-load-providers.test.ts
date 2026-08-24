@@ -154,6 +154,31 @@ describe("PROVIDERS config (contract)", () => {
     // OpenAI-style endpoint rejects the "[1m]" alias (400, measured 2026-08-23)
     // — the plain id is the only registerable name on this provider.
   });
+
+  test("lm-studio re-lists every local lane — incl. referenced + benchmarked ids", () => {
+    // Same REPLACE semantics as deepseek: registering "lm-studio" swaps the
+    // provider's model list wholesale. This pins the complete set — the
+    // capability-spec target (google/gemma-4-12b), the QAT lane, the fallback
+    // vision lane (qwen3.8-27b), and the 256K-context ternary lane
+    // (prism-ml/bonsai-27b, benchmarked 2026-08-24). Omitting one silently
+    // drops it from --list-models.
+    const lm = PROVIDERS["lm-studio"];
+    expect(lm).toBeDefined();
+    const ids = lm.models.map((m) => m.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        "google/gemma-4-12b",
+        "google/gemma-4-12b-qat",
+        "qwen/qwen3.8-27b",
+        "prism-ml/bonsai-27b",
+      ]),
+    );
+    // bonsai is the 256K-context lane: the entry advertises the model's full
+    // window (native /api/v0/models measured loaded_context_length 262144).
+    const bonsai = lm.models.find((m) => m.id === "prism-ml/bonsai-27b");
+    expect(bonsai?.contextWindow).toBe(262_144);
+    expect(bonsai?.input).toContain("image");
+  });
 });
 
 describe("module purity (no ModelRuntime side effects)", () => {
