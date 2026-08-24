@@ -10,7 +10,8 @@
  * there is no second source to be equivalent to anymore.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HOST_API, HOST_MODULE_IDS } from "./sh/host-modules.ts";
 import { HOST_CONTRACT, REGISTRY } from "./registry-config.ts";
@@ -127,17 +128,49 @@ describe("registry-config host contract (vs src/sh/host-modules.ts)", () => {
 });
 
 describe("registry-config data integrity (module-internal + on-disk)", () => {
-  test("one registry entry per bun-apps/s2-agent-ext-* folder", () => {
-    const extDirs = readdirSync(BUN_APPS, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && d.name.startsWith("s2-agent-ext-"))
-      .map((d) => d.name)
-      .sort();
-    const packages = REGISTRY.map((e) => e.package).sort();
-    // Every entry points at an existing folder exactly once, and every ext
-    // folder is registered — a scaffolded-but-unregistered extension is the
-    // comment-out failure mode (D2) by another name.
-    expect(packages).toEqual(extDirs);
-  });
+	/**
+	 * On-disk extension dirs = s2-agent-ext-* dirs that carry a package.json.
+	 * A dir WITHOUT one is a husk — typically node_modules-only rename fallout
+	 * (s2-agent-ext-workflow survived on disk for 2+ days after the #1791
+	 * ultracode rename and false-reded this scan on machines that never
+	 * cleaned it). Untracked, so sync/submodule flows never remove it.
+	 */
+	function extPackageDirs(dir: string): string[] {
+		return readdirSync(dir, { withFileTypes: true })
+			.filter(
+				(d) =>
+					d.isDirectory() &&
+					d.name.startsWith("s2-agent-ext-") &&
+					existsSync(join(dir, d.name, "package.json")),
+			)
+			.map((d) => d.name)
+			.sort();
+	}
+
+	test("one registry entry per bun-apps/s2-agent-ext-* folder", () => {
+		const extDirs = extPackageDirs(BUN_APPS);
+		const packages = REGISTRY.map((e) => e.package).sort();
+		// Every entry points at an existing folder exactly once, and every ext
+		// folder is registered — a scaffolded-but-unregistered extension is the
+		// comment-out failure mode (D2) by another name.
+		expect(packages).toEqual(extDirs);
+	});
+
+	test("husk dirs (no package.json) are not extensions", () => {
+		// Pin the husk rule with a hermetic temp tree: a real ext dir (has
+		// package.json), a rename husk (only node_modules inside), and a
+		// non-ext dir — only the real one counts.
+		const tmp = mkdtempSync(join(tmpdir(), "registry-husk-"));
+		try {
+			mkdirSync(join(tmp, "s2-agent-ext-real", "src"), { recursive: true });
+			writeFileSync(join(tmp, "s2-agent-ext-real", "package.json"), "{}");
+			mkdirSync(join(tmp, "s2-agent-ext-husk", "node_modules", "x"), { recursive: true });
+			mkdirSync(join(tmp, "not-an-ext"), { recursive: true });
+			expect(extPackageDirs(tmp)).toEqual(["s2-agent-ext-real"]);
+		} finally {
+			rmSync(tmp, { recursive: true, force: true });
+		}
+	});
 
   test("every entry's package dir and entry file exist on disk", () => {
     const missing = REGISTRY.filter(
