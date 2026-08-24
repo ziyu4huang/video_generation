@@ -18,6 +18,7 @@
 import type { ParsedArgs } from "../args.ts";
 import { emptyParsed } from "../args.ts";
 import { pdfToVaultCommand } from "./pdf-to-vault.ts";
+import { DEFAULT_MODEL_TIER_CONFIG } from "../../pre-load-providers.ts";
 
 export const imageToVaultCommand = {
 	name: "image-to-vault",
@@ -41,7 +42,7 @@ Resume: re-run with the same <out> and input image to reuse the run dir.
 
 Options:
   --out <dir>            pipeline root (default: ./tmp)
-  --vlm-model <id>       stage 1 model (default: lm-studio/google/gemma-4-12b)
+  --vlm-model <id>       stage 1 model (default: ${DEFAULT_MODEL_TIER_CONFIG.capabilities.vision} — the baked §3 vision lane)
   --model <id>           stage 2 (distill) model — global flag; defaults to CLI default
   --retries <n>          VLM retries on 429/transient errors (default 3)
   --retry-wait <sec>     seconds to wait between retries (default 10)
@@ -51,7 +52,7 @@ Options:
 Examples:
   s2-agent cli pipeline image-to-vault scan.jpg
   s2-agent cli pipeline image-to-vault diagram.png --delete-png
-  s2-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/gemma-4-12b`,
+  s2-agent cli pipeline image-to-vault photo.webp --vlm-model lm-studio/google/gemma-4-12b`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		// Delegate to the shared pdf-to-vault orchestrator. file2md's

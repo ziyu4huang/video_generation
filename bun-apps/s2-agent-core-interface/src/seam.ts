@@ -56,6 +56,19 @@ export interface SeamImplMap {
    *  shape mirrors EMBEDDING_CONFIG in s2-agent src/pre-load-providers.ts §4.
    *  Read by resolveSemanticEmbedConfig as its first tier. */
   __piEmbeddingConfig: { base: string; model: string };
+  /** Baked provider catalog published by the HOST as ready-to-call
+   *  registerProvider configs (built by bakedProviderConfigs in s2-agent
+   *  src/pre-load-providers.ts §1: provider compat folded per model, apiKey
+   *  resolved, costs zeroed). Consumed by s2-agent-core-runtime's subagent
+   *  registry via globalThis (zero-dep read, __piRateLimitState precedent),
+   *  so baked-only models resolve in subagent spawns even on the `cli`
+   *  namespace, which never runs the ModelRuntime.create wrap.
+   *  ORDERING CONTRACT: publish must precede the consumer's FIRST registry
+   *  build — core-runtime caches its registryPromise per agent instance and
+   *  never re-reads the seam. All current publish sites (applyPatches at
+   *  host startup; cli runCli before dispatch) run before any spawn; a new
+   *  publisher must preserve that order. */
+  __piBakedProviders: Record<string, Record<string, unknown>>;
 }
 
 declare global {

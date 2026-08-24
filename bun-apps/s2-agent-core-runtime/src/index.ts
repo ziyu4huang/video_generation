@@ -40,7 +40,9 @@ export type { AgentHistoryEntry, AgentHistoryKind, AgentHistoryOptions, AgentHis
 export { compactAgentHistory, summarizeLatestAction } from "./agent-history.js";
 export type { FallbackDecision, SpecThinkingLevel } from "./agent-model.js";
 export {
+  BAKED_PROVIDERS_SEAM_KEY,
   clampModelToScope,
+  registerBakedProvidersFromSeam,
   resolveAgentModelSpec,
   resolveFallbackModel,
   resolveScopedAgentModelSpec,

@@ -22,8 +22,11 @@
  * At import time (run inside applyPatches()), if
  * ~/.pi/workflows/model-tiers.json does NOT exist and the gate is enabled, write
  * the DEFAULT_MODEL_TIER_CONFIG (from ../pre-load-providers.ts §3 — the
-* glm-lmstudio preset: small=glm-4.7, medium/big=glm-5.3,
- * vision=lm-studio qwen/qwen3.8-27b) to that path, creating the parent * directory as needed. It NEVER overwrites, mutates, or even reads an existing
+ * glm-lmstudio preset: small=glm-4.7, medium/big=glm-5.3, vision =
+ * capabilities.vision, currently lm-studio/prism-ml/bonsai-27b:off — §3 is
+ * the single source of truth, do not restate its values here) to that path,
+ * creating the parent
+ * directory as needed. It NEVER overwrites, mutates, or even reads an existing
  * file's contents — existence alone is the gate.
  *
  * SAFETY

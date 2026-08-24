@@ -46,9 +46,26 @@ import { zkExtractCommand } from "./zk-extract.ts";
 import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
 import { slugify, loadManifest, type DocLayout, layoutFor } from "@repo/s2-agent-ext-file2md";
 import { timestamp, iso, writePipelineJson, readPipelineJson } from "../pipeline-doc.ts";
+import { DEFAULT_MODEL_TIER_CONFIG } from "../../pre-load-providers.ts";
 
-/** Defaults. */
-const DEFAULT_VLM_MODEL = "lm-studio/google/gemma-4-12b";
+/** Stage-1 VLM default = the BAKED §3 vision capability lane (centralized in
+ * pre-load-providers.ts — no model ids authored here; user directive
+ * 2026-08-24). The spec carries the `:off` no-think suffix, which THIS path
+ * honors: file2md's vision call goes through core-runtime spawnSubagent,
+ * whose spec resolver parses the suffix into a thinkingLevel and threads it
+ * into createAgentSession (agent-model.ts splitSpecThinkingSuffix +
+ * tests/agent-model-spec.test.ts — NOT the buggy CLI `-p --model` handoff
+ * documented in §3's study note). `--vlm-model` / PI_VLM_MODEL still
+ * override; a user's LIVE ~/.pi/workflows/model-tiers.json is NOT consulted
+ * here (this reads the baked seed constant, not the resolver). Fail loud on
+ * a missing vision key rather than silently degrading to the text default. */
+const VISION_CAPABILITY_SPEC = DEFAULT_MODEL_TIER_CONFIG.capabilities.vision;
+if (!VISION_CAPABILITY_SPEC) {
+	throw new Error(
+		"DEFAULT_MODEL_TIER_CONFIG.capabilities.vision is unset — stage-1 VLM default cannot resolve (src/pre-load-providers.ts §3)",
+	);
+}
+const DEFAULT_VLM_MODEL = VISION_CAPABILITY_SPEC;
 const DEFAULT_RETRIES = 3;
 const DEFAULT_RETRY_WAIT_SEC = 10;
 
