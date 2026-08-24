@@ -126,7 +126,7 @@ export const HERMES_STARTUP_ROUNDTRIP_CAP = 150;
  */
 export function parseHermesStartupRoundTrips(stderr: string): number | null {
 	const clean = stderr.replace(/\x1b\[[0-9;]*m/g, "");
-	const re = /\[hermes-memory\] slow startup\.[a-zA-Z]+: (\d+) HTTP round-trips/g;
+	const re = /\[hermes-memory\] slow startup\.[\w.]+: (\d+) HTTP round-trips/g;
 	let max: number | null = null;
 	for (const m of clean.matchAll(re)) {
 		const n = Number(m[1]);

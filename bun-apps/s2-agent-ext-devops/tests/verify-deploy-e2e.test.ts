@@ -387,6 +387,9 @@ describe("parseHermesStartupRoundTrips (pure)", () => {
 	test("returns the MAX across multiple startup ops", () => {
 		expect(parseHermesStartupRoundTrips([BANNER("startup.syncMarkdownMemories", 60), BANNER("startup.other", 90)].join("\n"))).toBe(90);
 	});
+	test("matches op names with digits/underscores/nested dots", () => {
+		expect(parseHermesStartupRoundTrips(BANNER("startup.backfill.needsBackfill_v2", 70))).toBe(70);
+	});
 	test("no banner → null (under the extension's own thresholds = pass)", () => {
 		expect(parseHermesStartupRoundTrips("")).toBeNull();
 		expect(parseHermesStartupRoundTrips("[hermes-memory] event consolidation.memory: …")).toBeNull();
