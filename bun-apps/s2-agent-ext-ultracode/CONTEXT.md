@@ -233,7 +233,7 @@ _Avoid_: three independent hand-built status-line templates (the pre-existing st
 ### Quality & control
 
 **Quality pattern**:
-A built-in stdlib global for cross-checking — `verify`, `judgePanel`, `loopUntilDry`, `completenessCheck` (adversarial review, best-of-N, exhaustive discovery).
+A built-in stdlib global for cross-checking — `verify`, `judgePanel`, `loopUntilDry`, `completenessCheck`, `synthesize` (adversarial review, best-of-N, exhaustive discovery, compact fan-in verdict).
 _Avoid_: helper, utility
 
 **Checkpoint**:

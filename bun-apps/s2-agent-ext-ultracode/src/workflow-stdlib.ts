@@ -30,6 +30,11 @@ export interface Stdlib {
     maxRounds?: number;
   }) => Promise<unknown[] & { truncated?: true }>;
   completenessCheck: (taskArgs: unknown, results: unknown) => Promise<unknown>;
+  synthesize: (
+    task: unknown,
+    results: unknown,
+    opts?: { tier?: string; label?: string; maxChars?: number },
+  ) => Promise<{ ok: boolean; verdict: string; summary: string } | null>;
   retry: (
     thunk: (attempt: number) => Promise<unknown> | unknown,
     opts?: { attempts?: number; until?: (r: unknown) => boolean },
@@ -91,6 +96,11 @@ const COMPLETENESS_SCHEMA = {
   type: "object",
   properties: { complete: { type: "boolean" }, missing: { type: "array", items: { type: "string" } } },
   required: ["complete"],
+};
+const SYNTHESIZE_SCHEMA = {
+  type: "object",
+  properties: { ok: { type: "boolean" }, verdict: { type: "string" }, summary: { type: "string" } },
+  required: ["ok", "verdict", "summary"],
 };
 
 export function createStdlib(deps: StdlibDeps): Stdlib {
@@ -215,6 +225,31 @@ export function createStdlib(deps: StdlibDeps): Stdlib {
       { label: "completeness critic", schema: COMPLETENESS_SCHEMA as unknown as TSchema },
     );
 
+  // Fan-in counterpart to the fan-out helpers (ultracode-cc-parity t02): one
+  // big-tier agent turns N subagent results into the compact {ok, verdict,
+  // summary} the guidelines' synthesis contract asks for. Failed branches
+  // (null) never reach the synthesizer silently — they are excluded from the
+  // results and reported in the prompt so the verdict can say so. Returns the
+  // validated object, or null when the synthesizer itself exhausts retries
+  // (same null contract as every other agent() caller).
+  const synthesize: Stdlib["synthesize"] = (task, results, opts = {}) => {
+    const list = Array.isArray(results) ? results : [results];
+    const okResults = list.filter((r) => r != null);
+    const failed = list.length - okResults.length;
+    const taskText = typeof task === "string" ? task : JSON.stringify(task);
+    const maxChars = opts.maxChars ?? 24000;
+    const full = JSON.stringify(okResults);
+    // Mid-JSON truncation is fine for prompt text, but SAY so — the synthesizer
+    // is writing the final verdict and must know the payload tail may be cut
+    // (tail-drop bias, reviewer nit 2).
+    const resultsText =
+      full.length > maxChars ? `${full.slice(0, maxChars)}\n…(results truncated at ${maxChars} chars)` : full;
+    return agent(
+      `Synthesize ONE final answer for the task from the subagent results below. Return a compact verdict: ok (did the task succeed overall), verdict (one sentence), summary (the key findings/outputs, concise; you may add extra fields for important outputs).${failed ? ` ${failed} of ${list.length} subagent results FAILED (null) and are excluded — say so in the summary.` : ""}\n\nTask:\n${taskText}\n\nResults:\n${resultsText}`,
+      { label: opts.label ?? "synthesis", tier: opts.tier ?? "big", schema: SYNTHESIZE_SCHEMA as unknown as TSchema },
+    ) as Promise<{ ok: boolean; verdict: string; summary: string } | null>;
+  };
+
   const retry: Stdlib["retry"] = async (thunk, opts = {}) => {
     const attempts = Math.max(1, opts.attempts ?? 3);
     return attemptLoop(attempts, async (i) => {
@@ -236,5 +271,5 @@ export function createStdlib(deps: StdlibDeps): Stdlib {
     return out as { ok: boolean; value: unknown; attempts: number };
   };
 
-  return { verify, judgePanel, loopUntilDry, completenessCheck, retry, gate };
+  return { verify, judgePanel, loopUntilDry, completenessCheck, synthesize, retry, gate };
 }

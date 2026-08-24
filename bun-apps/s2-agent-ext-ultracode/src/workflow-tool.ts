@@ -86,9 +86,9 @@ export function agentTypeGuideline(cwd: string = process.cwd()): string | undefi
 // is also served here (topic "models") so the always-on guidelines no longer
 // inline it. modelRoutingGuideline() itself is unchanged (its unit tests hold).
 
-/** Quality helpers: verify / judgePanel / loopUntilDry / completenessCheck. */
+/** Quality helpers: verify / judgePanel / loopUntilDry / completenessCheck / synthesize. */
 function workflowHelpersDoc(): string {
-  return "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic.";
+  return "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic; synthesize(task, results) as the fan-in that turns N subagent results into one compact {ok, verdict, summary}.";
 }
 
 /** Spend control: tokenBudget, phase budget, retry, gate, graceful degrade. */
@@ -107,7 +107,7 @@ function workflowPatternsDoc(): string {
     "For workflow, prefer it for decomposable work: repository inspection, independent research/checks, multi-perspective review, or fan-out/fan-in synthesis. Do not use it for a single quick file read/edit or when ordinary tools are enough.",
     "For workflow, pipeline(items, ...stages) runs each item through stages sequentially, while different items may run concurrently. Each stage receives (previousValue, originalItem, index).",
     "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
-    "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
+    "For workflow, include a final synthesis/assertion agent when combining multiple subagent results — synthesize(task, results) does this (big-tier by default, filters nulls, returns a compact {ok, verdict, summary}); or hand-roll one and return a compact JSON-serializable value with ok/verdict plus the important outputs.",
     "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
     "For workflow, use low concurrency and agentRetries for unstable provider/transport fan-out runs; retries apply only to recoverable agent failures and still require explicit null handling after exhaustion.",
   ].join("\n");
@@ -267,7 +267,7 @@ export function buildSimplifiedGuidelines(): string[] {
     "For workflow, runs are background by default: the tool returns immediately with a run ID, and the result is delivered back into the conversation when it finishes. Pass background: false only when you must use the result inline in this same turn.",
     modelRoutingEssentialGuideline(),
     agentTypeGuideline(),
-    'For workflow, advanced reference is NOT inlined here — call workflow_help({topic}) on demand: "helpers" (verify/judgePanel/loopUntilDry/completenessCheck), "budget" (tokenBudget/phase budget/retry/gate), "phases" (phase() tracking), "patterns" (pipeline()/opts.schema/synthesis), "models" (full available-model list).',
+    'For workflow, advanced reference is NOT inlined here — call workflow_help({topic}) on demand: "helpers" (verify/judgePanel/loopUntilDry/completenessCheck/synthesize), "budget" (tokenBudget/phase budget/retry/gate), "phases" (phase() tracking), "patterns" (pipeline()/opts.schema/synthesis), "models" (full available-model list).',
   ].filter((g): g is string => typeof g === "string" && g.length > 0);
 }
 
@@ -285,7 +285,7 @@ export async function buildVerboseGuidelines(scopedModels?: readonly string[]): 
     "For workflow, the script's first statement must be `export const meta = { name: 'short_snake_case', description: 'non-empty human description', phases: [{ title: 'Phase name' }] }`; meta.name and meta.description are required non-empty strings.",
     "For workflow, write plain JavaScript after the meta export. Do not use TypeScript syntax, imports, require(), fs, Date.now(), Math.random(), or new Date().",
     "For workflow, available globals are agent(prompt, opts), parallel(thunks), pipeline(items, ...stages), phase(title), log(message), args, cwd, process.cwd(), and budget. Every workflow must call agent() at least once; do not use workflow only to declare phases or return a static object.",
-    "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic.",
+    "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic; synthesize(task, results, {tier}) as the fan-in synthesis agent returning a compact {ok, verdict, summary}.",
     "For workflow, when meta.phases declares more than one phase, call phase('Exact Title') at the start of each phase's work (or set opts.phase on each agent) so every agent groups under the correct phase; never declare a phase you don't switch into — a declared phase with no agents shows as 0/0 and any agent you forgot to move stays in the previous phase.",
     "For workflow, do not set tokenBudget or agentTimeoutMs unless the user explicitly asks to cap spend or time; the defaults are unbounded.",
     "For workflow, to bound spend: pass tokenBudget for a hard run-wide cap; carve a per-phase ceiling with phase('Name', {budget: N}) (that phase throws at its sub-budget without touching the run total — wrap its work in try/catch so later phases proceed); use retry(thunk, {attempts, until}) for bounded retry, and gate(thunk, validator, {attempts}) when a validator's feedback should steer the next attempt. To degrade gracefully, branch on budget.remaining() to skip optional rounds or choose a lighter tier. For a HARD mid-run cap on a single agent, pass tokenBudget/spendBudget on that agent() call — it aborts that agent mid-run (distinct from the run-wide soft Budget above).",
@@ -295,7 +295,7 @@ export async function buildVerboseGuidelines(scopedModels?: readonly string[]): 
     "For workflow, every agent() call should include a unique short label option, 2-5 words, such as { label: 'repo inventory' } or { label: 'source modules' }; unique labels make live status and error reporting readable.",
     "For workflow, use low concurrency and agentRetries for unstable provider/transport fan-out runs; retries apply only to recoverable agent failures and still require explicit null handling after exhaustion.",
     "For workflow, failed agent(), parallel(), or pipeline() branches return null and log the failure unless the workflow is aborted. Check for nulls before synthesizing conclusions.",
-    "For workflow, include a final synthesis/assertion agent when combining multiple subagent results; return a compact JSON-serializable value with ok/verdict plus the important outputs.",
+    "For workflow, include a final synthesis/assertion agent when combining multiple subagent results — synthesize(task, results) does this (big-tier by default, filters nulls, returns a compact {ok, verdict, summary}); or hand-roll one and return a compact JSON-serializable value with ok/verdict plus the important outputs.",
     "For workflow, if agent() needs machine-readable output, pass a plain JSON Schema via opts.schema; agent() will return the validated object. Use JSON Schema syntax, not TypeScript or TypeBox constructors.",
     await modelRoutingGuideline(scopedModels),
     agentTypeGuideline(),
@@ -334,7 +334,7 @@ export function buildUltracodeAddendum(effortLevel: "high" | "ultra"): string[] 
     `Ultracode is ON for this session (effort: ${effortLevel}): author and run a workflow for every substantive task by default — this supersedes the use-only-when-asked default above; solo turns are conversation or trivial mechanical edits. Exhaustive, cross-checked answers are the goal — token thrift is not the constraint (only an explicit user budget directive caps spend).`,
     "Scale fan-out to the request: a quick check ('find any bugs') needs a few finders plus single-vote verify(item); a thorough ask ('audit everything', 'be comprehensive') gets a wider finder pool, verify(item, {reviewers: 3-5, lens}) adversarial cross-checking, and a synthesis fan-in. Name the scale you chose.",
     "For multi-phase work, run several workflows in sequence — one per phase — reading each result before authoring the next; stay in the main loop between phases instead of writing one giant script.",
-    "Quality helpers are built in: verify(item, {reviewers, threshold, lens}) for adversarial fact-checking, judgePanel(attempts, {judges, rubric}) to score N candidates and return the best, loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items, completenessCheck(args, results) as the final what-is-missing critic.",
+    "Quality helpers are built in: verify(item, {reviewers, threshold, lens}) for adversarial fact-checking, judgePanel(attempts, {judges, rubric}) to score N candidates and return the best, loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items, completenessCheck(args, results) as the final what-is-missing critic, synthesize(task, results) as the fan-in returning the compact {ok, verdict, summary}.",
   ];
 }
 
@@ -697,7 +697,7 @@ export function createWorkflowHelpTool(options: { getScopedModels?: () => readon
     label: "Workflow Reference",
     description:
       "On-demand reference for the `run_workflow` tool. Call when you need the advanced docs NOT inlined " +
-      "in the workflow guidelines: quality helpers (verify/judgePanel/loopUntilDry/completenessCheck), " +
+      "in the workflow guidelines: quality helpers (verify/judgePanel/loopUntilDry/completenessCheck/synthesize), " +
       "spend control (tokenBudget/phase budget/retry/gate), phase() tracking, pipeline()/opts.schema/" +
       "synthesis patterns, or the full available-model list. Omit `topic` for a menu.",
     // Owner-declared gating — mirrored IDENTICALLY from `run_workflow` (same combined
@@ -735,7 +735,7 @@ export function createWorkflowHelpTool(options: { getScopedModels?: () => readon
         default:
           text =
             "workflow_help topics:\n" +
-            "  • helpers — quality helpers (verify/judgePanel/loopUntilDry/completenessCheck)\n" +
+            "  • helpers — quality helpers (verify/judgePanel/loopUntilDry/completenessCheck/synthesize)\n" +
             "  • budget — spend control (tokenBudget, phase budget, retry, gate, degrade)\n" +
             "  • phases — phase() tracking + declared-vs-entered semantics\n" +
             "  • patterns — pipeline()/opts.schema/synthesis agent/concurrency/when-to-decompose\n" +
@@ -821,7 +821,8 @@ function normalizeWorkflowScript(script: string): string {
  * runId immediately without ever evaluating the runtime `agentCount === 0`
  * check on the inline path. The heuristic scans the raw script text for a call
  * to `agent(` OR to the stdlib quality helpers (`verify(`, `judgePanel(`,
- * `loopUntilDry(`, `completenessCheck(`) OR to a nested `workflow(` — the
+ * `loopUntilDry(`, `completenessCheck(`, `synthesize(`) OR to a nested
+ * `workflow(` — the
  * helpers spawn agents inside the engine, so a legitimate helper-only script
  * never mentions the `agent(` token itself.
  *
@@ -841,9 +842,9 @@ function scriptInvokesAgent(script: string): boolean {
   // positive. We only need to inspect the body the workflow will execute.
   const body = script.replace(/^[\s\S]*?\bexport\s+const\s+meta\s*=[\s\S]*?\};/, "");
   // Match a call to `agent(` — or to any stdlib helper that spawns agents
-  // internally (verify/judgePanel/loopUntilDry/completenessCheck), or to a
-  // nested `workflow('name')`, none of which mention the `agent(` token in the
-  // script text but all of which run real subagents at runtime. The `\s*\(`
-  // ensures we don't match the bare words in prose.
-  return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|workflow)\s*\(/.test(body);
+  // internally (verify/judgePanel/loopUntilDry/completenessCheck/synthesize),
+  // or to a nested `workflow('name')`, none of which mention the `agent(`
+  // token in the script text but all of which run real subagents at runtime.
+  // The `\s*\(` ensures we don't match the bare words in prose.
+  return /\b(?:agent|verify|judgePanel|loopUntilDry|completenessCheck|synthesize|workflow)\s*\(/.test(body);
 }

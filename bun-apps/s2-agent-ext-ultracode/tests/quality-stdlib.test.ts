@@ -128,3 +128,76 @@ return { ok: res.ok, value: res.value, attempts: res.attempts, seen }`;
   assert.equal(res.result.attempts, 2);
   assert.deepEqual([...res.result.seen], ["none", "try higher"], "validator feedback is fed into the next attempt");
 });
+
+// ─── ultracode-cc-parity t02: synthesize() ──────────────────────────────────────
+
+test("synthesize(): returns the compact {ok, verdict, summary} from one fan-in agent", async () => {
+  let seen: { prompt: string; opts: Record<string, unknown> } | undefined;
+  const synth = {
+    async run(p: string, o: { schema?: unknown } & Record<string, unknown>) {
+      seen = { prompt: p, opts: o };
+      return o?.schema ? { ok: true, verdict: "all good", summary: "3/3 succeeded" } : "ok";
+    },
+  };
+  const script = `export const meta = { name: 's', description: 'synthesize' }
+return await synthesize('count the bugs', [{ bugs: 1 }, { bugs: 2 }])`;
+  const res = await runWorkflow<{ ok: boolean; verdict: string; summary: string }>(script, {
+    agent: synth,
+    persistLogs: false,
+  });
+  assert.equal(res.result.ok, true);
+  assert.equal(res.result.verdict, "all good");
+  assert.ok(seen, "one agent dispatched");
+  assert.equal(seen?.opts.tier, "big", "fan-in defaults to the big tier");
+  assert.equal(seen?.opts.label, "synthesis");
+  assert.ok(seen!.prompt.includes("count the bugs"), "task text reaches the synthesizer");
+});
+
+test("synthesize(): filters nulls and reports the failed count in the prompt", async () => {
+  let prompt = "";
+  const synth = {
+    async run(p: string, o: { schema?: unknown }) {
+      prompt = p;
+      return o?.schema ? { ok: true, verdict: "partial", summary: "s" } : "ok";
+    },
+  };
+  const script = `export const meta = { name: 's', description: 'synthesize nulls' }
+return await synthesize('t', [{ a: 1 }, null, { b: 2 }, null])`;
+  await runWorkflow(script, { agent: synth, persistLogs: false });
+  assert.match(prompt, /2 of 4 subagent results FAILED/, "failed branches are reported, not silent");
+  assert.ok(!prompt.includes('"a":1,null'), "nulls excluded from the results payload");
+});
+
+test("synthesize(): synthesizer failure → null (same null contract as agent())", async () => {
+  const failing = {
+    async run() {
+      return null;
+    },
+  };
+  const script = `export const meta = { name: 's', description: 'synthesize fail' }
+return await synthesize('t', [{ a: 1 }])`;
+  const res = await runWorkflow<null>(script, { agent: failing, persistLogs: false });
+  assert.equal(res.result, null, "exhausted synthesizer surfaces null");
+});
+
+test("synthesize(): opts.tier, label, and maxChars are forwarded; truncation says so", async () => {
+  let seen: { tier: string; label: string; prompt: string } | undefined;
+  const synth = {
+    async run(p: string, o: { schema?: unknown } & Record<string, unknown>) {
+      seen = { tier: String(o.tier), label: String(o.label), prompt: p };
+      return o?.schema ? { ok: true, verdict: "v", summary: "s" } : "ok";
+    },
+  };
+  const script = `export const meta = { name: 's', description: 'synthesize opts' }
+return await synthesize('t', [1], { tier: 'small', label: 'final answer' })`;
+  await runWorkflow(script, { agent: synth, persistLogs: false });
+  assert.equal(seen?.tier, "small", "explicit tier overrides the big default");
+  assert.equal(seen?.label, "final answer", "explicit label is forwarded");
+
+  // maxChars: a payload longer than the cap gains a truncation notice.
+  const long = { blob: "x".repeat(500) };
+  const script2 = `export const meta = { name: 's2', description: 'synthesize max' }
+return await synthesize('t', [args.big], { maxChars: 50 })`;
+  await runWorkflow(script2, { agent: synth, persistLogs: false, args: { big: long } });
+  assert.match(seen!.prompt, /\(results truncated at 50 chars\)/, "truncation is announced, not silent");
+});
