@@ -54,6 +54,18 @@ test("tool: stop cancels the pending wakeup", async () => {
   assert.equal(registry.list().length, 0);
 });
 
+test("tool: stop with nothing pending explains the fire-consumes-wakeup semantics (live-observed confusion)", async () => {
+  // The final fire already consumed the pending wakeup (observed live
+  // 2026-08-24: the model's stop call on its last planned fire hit this
+  // path) — the reply must say WHY there is nothing to stop, not just that.
+  const registry = new WakeupRegistry();
+  const t = toolFor(registry, "loop-1");
+  const r = await t.execute("t1", { delaySeconds: 300, reason: "done", stop: true });
+  assert.match(r.content[0]!.text, /No loop was running/);
+  assert.match(r.content[0]!.text, /fire consumes the pending wakeup/);
+  assert.equal(registry.list().length, 0);
+});
+
 test("tool: re-arms a FIRED dynamic loop from the last-fired snapshot (prompt + fireCount preserved)", async () => {
   const registry = new WakeupRegistry();
   registry.schedule({ id: "loop-1", prompt: "watch the deploy", mode: "dynamic", dueAt: T0 - 1 });
