@@ -32,7 +32,6 @@ import {
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
 // Inline import of the pi-obsidian extension factory. Bundled in (self-contained).
 import obsidianExtension, {
 	OBSIDIAN_WRITE_ACTIONS,
@@ -46,6 +45,7 @@ import obsidianExtension, {
 // Importing registerAllProviders here is safe: ../../pre-load-providers.ts has
 // no import-time side effects, so this never applies that patch.
 import { bakedProviderConfigs, registerAllProviders } from "../../pre-load-providers.ts";
+import { readAgentSettings } from "../../paths.ts";
 import { publishSeam } from "@repo/s2-agent-core-interface";
 // Single-source built-in defaults (provider/model/thinking + obsidian floor) —
 // shared with the TUI argv-splice patch and the subagent floor patch.
@@ -442,18 +442,12 @@ export function validateToolNames(
 /**
  * Best-effort read of the user settings file (~/.pi/agent/settings.json).
  * Non-fatal: returns undefined on any read/parse error or missing file.
- * The single reader for this file in the CLI surface — passthrough's
- * `readUserDefaults` wraps this (and patches keep their own copies because
- * they must run before the CLI subtree ever loads).
+ * Delegates to the shared leaf ../../paths.ts (the same reader the patches
+ * use); kept as an exported wrapper because passthrough's `readUserDefaults`
+ * and the session-start floor below call it by this name.
  */
 export function readUserSettings(): Record<string, unknown> | undefined {
-	try {
-		const settingsPath = join(getAgentDir(), "settings.json");
-		if (!existsSync(settingsPath)) return undefined;
-		return JSON.parse(readFileSync(settingsPath, "utf8"));
-	} catch {
-		return undefined;
-	}
+	return readAgentSettings();
 }
 
 /**

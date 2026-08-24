@@ -13,6 +13,7 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { findRepoRoot } from "../../paths.ts";
 import type { SubagentRunRecord } from "@repo/s2-agent-core-runtime";
 
 export interface DispatchRecord {
@@ -130,6 +131,6 @@ filters match workflow records only — workflow-side wiring is future
 work (see the effort ledger). Exits 0 with records, 1 when --effort is
 set and no records match.`,
 	run: async (parsed: import("../args.ts").ParsedArgs) => {
-		await run(join(import.meta.dir, "../../../../.."), parsed);
+		await run(findRepoRoot(import.meta.dir) ?? import.meta.dir, parsed);
 	},
 };

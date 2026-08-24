@@ -16,7 +16,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
-import { homedir } from "node:os";
+import { resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
 
 export interface MemoryMatch {
@@ -140,7 +140,7 @@ Examples:
 		}
 
 		const limit = parsed.limit ?? 20;
-		const memoryDir = join(homedir(), ".pi", "agent", "pi-hermes-memory");
+		const memoryDir = join(resolveAgentDir(), "pi-hermes-memory");
 		const files = loadMemoryFiles(memoryDir);
 
 		if (files.size === 0) {

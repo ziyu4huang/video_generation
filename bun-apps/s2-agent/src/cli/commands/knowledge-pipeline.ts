@@ -26,7 +26,7 @@
  */
 import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, isAbsolute, join, basename } from "node:path";
-import { homedir } from "node:os";
+import { resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
 import { resolveVaultPathWalkUp } from "../vault-paths.ts";
 import { ingestRecords } from "@repo/s2-agent-ext-knowledge-card/src/ingest.ts";
@@ -35,7 +35,7 @@ import { adaptHermesMarkdown } from "@repo/s2-agent-ext-knowledge-card/src/adapt
 import type { KnowledgeRecord, IngestSummary } from "@repo/s2-agent-ext-knowledge-card/src/types.ts";
 import { graphHealth, healGraph, type GraphHealthResult, type HealResult } from "@repo/s2-agent-ext-knowledge-card/src/retrieve.ts";
 
-const DEFAULT_MEMORY_DIR = join(homedir(), ".pi", "agent", "pi-hermes-memory");
+const DEFAULT_MEMORY_DIR = join(resolveAgentDir(), "pi-hermes-memory");
 const HERMES_FILES = ["MEMORY.md", "failures.md", "USER.md"];
 const STATE_FILENAME = ".vault-converge-state.json";
 const RECEIPT_DIR = "output/knowledge-pipeline";

@@ -40,10 +40,8 @@
  * out); the import-time side effect is a thin wrapper. Mirrors the
  * resolveEnvBridges / resolvePatchPlan split.
  */
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
+import { readAgentSettings } from "../paths.ts";
 
 /**
  * Pure: given parsed settings + env, return the floor model id to inject (or
@@ -65,23 +63,12 @@ export function resolveSubagentFloor(
 	return BUILTIN_MODEL_DEFAULT.obsidianSubagentFloor;
 }
 
-/** Best-effort read of ~/.pi/agent/settings.json. Non-fatal: undefined on any
- *  read/parse error or missing file. (Same shape as s2-agent-cli's reader.) */
-function readUserSettings(): Record<string, unknown> | undefined {
-	try {
-		const settingsPath = join(getAgentDir(), "settings.json");
-		if (!existsSync(settingsPath)) return undefined;
-		return JSON.parse(readFileSync(settingsPath, "utf8"));
-	} catch {
-		return undefined;
-	}
-}
-
 // Import-time side effect: publish the floor as OB_SUBAGENT_MODEL before main()
 // reads anything. Runs inside applyPatches(), which imports this module via a
-// static-literal path — getAgentDir above is a plain top-level import resolved
-// at load (no ordering dependency on ensure-extension-deps).
-const floor = resolveSubagentFloor(readUserSettings());
+// static-literal path — the settings read goes through the node-builtins-only
+// leaf ../paths.ts (no @earendil-works import at all, so no ordering
+// dependency on ensure-extension-deps).
+const floor = resolveSubagentFloor(readAgentSettings());
 if (floor) {
 	process.env.OB_SUBAGENT_MODEL = floor;
 }

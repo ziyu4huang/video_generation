@@ -19,8 +19,8 @@
  * would resolve them).
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve } from "node:path";
+import { findRepoRoot, resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
 // The doctor result contract (CheckStatus / CheckResult / isFailing) is shared
 // with the package-level doctor two directories up (src/doctor.ts) — same
@@ -54,16 +54,10 @@ export interface DoctorReport {
 	ok: boolean;
 }
 
-/** Walk up from `start` to the nearest dir containing a `bun-apps/` subdir. */
-export function findRepoRoot(start: string, exists: (p: string) => boolean): string | undefined {
-	let dir = resolve(start);
-	for (;;) {
-		if (exists(join(dir, "bun-apps"))) return dir;
-		const parent = dirname(dir);
-		if (parent === dir) return undefined;
-		dir = parent;
-	}
-}
+// findRepoRoot lives in the shared leaf ../../paths.ts; re-exported here so
+// existing imports from `../commands/doctor.ts` (incl. doctor.test) keep
+// working, and because the `bun-apps/` walk originated in this file.
+export { findRepoRoot };
 
 /** Replicate flux2 resolveOutputDir (env MLX_OUTPUT_DIR → repo/../video_generation__output). */
 function resolveOutputDir(repoRoot: string, env: Record<string, string | undefined>): string {
@@ -235,7 +229,7 @@ export function checkProvider(ctx: DoctorContext): CheckResult {
 }
 
 export function checkPiHome(ctx: DoctorContext): CheckResult {
-	const agentDir = ctx.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+	const agentDir = resolveAgentDir(ctx.env);
 	if (!ctx.exists(agentDir)) {
 		return {
 			id: "pi-home",
@@ -322,7 +316,7 @@ function applyFix(results: CheckResult[], ctx: DoctorContext): string[] {
 	}
 	if (results.find((r) => r.id === "pi-home" && r.status === "warn")) {
 		try {
-			const dir = ctx.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+			const dir = resolveAgentDir(ctx.env);
 			mkdirSync(dir, { recursive: true });
 			fixed.push("pi-home");
 		} catch { /* ignore */ }

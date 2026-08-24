@@ -12,7 +12,7 @@
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { resolve, isAbsolute, join, relative, basename } from "node:path";
-import { homedir } from "node:os";
+import { resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
 import { emptyParsed } from "../args.ts";
 import { resolveVaultPathWalkUp } from "../vault-paths.ts";
@@ -27,8 +27,8 @@ import obsidianExtension from "@repo/s2-agent-ext-obsidian/extensions/obsidian.t
 import { timestamp, iso, writePipelineJson, readPipelineJson } from "../pipeline-doc.ts";
 
 // ─── defaults ──────────────────────────────────────────────────────────────
-const DEFAULT_MEMORY_DIR = join(homedir(), ".pi", "agent", "pi-hermes-memory");
-const DEFAULT_PROJECTS_DIR = join(homedir(), ".pi", "agent", "projects-memory");
+const DEFAULT_MEMORY_DIR = join(resolveAgentDir(), "pi-hermes-memory");
+const DEFAULT_PROJECTS_DIR = join(resolveAgentDir(), "projects-memory");
 const DEFAULT_CONCURRENCY = 4;
 const DEFAULT_RETRIES = 2;
 const DEFAULT_FOLDER = "Zettelkasten/knowledge-graph";

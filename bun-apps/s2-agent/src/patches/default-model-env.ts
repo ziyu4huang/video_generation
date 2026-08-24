@@ -46,11 +46,10 @@
  * A settings.json default therefore still WINS over the built-in — /model
  * writing a personal default back keeps working (fill-gaps, never override).
  *
- * The settings read resolves $PI_CODING_AGENT_DIR → ~/.pi/agent the same way
- * doctor.ts / tools-metrics.ts do (pure homedir join, NO @earendil-works
- * import) so this patch keeps its place in PATCH_TABLE BEFORE
- * ensure-extension-deps (which is what materializes the @earendil-works
- * import symlinks).
+ * The settings read goes through the shared leaf src/paths.ts (node-builtins
+ * only, NO @earendil-works import) so this patch keeps its place in
+ * PATCH_TABLE BEFORE ensure-extension-deps (which is what materializes the
+ * @earendil-works import symlinks).
  *
  * MODE GATING
  * -----------
@@ -65,10 +64,8 @@
  * import-time side effect just calls it and splices. Mirrors the
  * resolvePatchPlan split.
  */
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { BUILTIN_MODEL_DEFAULT } from "../pre-load-providers.ts";
+import { readAgentSettings } from "../paths.ts";
 
 export interface BridgeEntry {
 	/** env var to read (e.g. "PI_MODEL"). */
@@ -173,23 +170,6 @@ export function resolveEnvBridges(
 		}
 	}
 	return extra;
-}
-
-/** Best-effort read of the user settings file (<agentDir>/settings.json,
- * where agentDir = $PI_CODING_AGENT_DIR ?? ~/.pi/agent). Non-fatal: returns
- * undefined on any read/parse error or missing file. No @earendil-works
- * import — see the header for why the ordering matters. */
-export function readAgentSettings(
-	env: Record<string, string | undefined> = process.env,
-): Record<string, unknown> | undefined {
-	try {
-		const dir = env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-		const settingsPath = join(dir, "settings.json");
-		if (!existsSync(settingsPath)) return undefined;
-		return JSON.parse(readFileSync(settingsPath, "utf8"));
-	} catch {
-		return undefined;
-	}
 }
 
 // Import-time side effect: splice the bridged flags into argv before main()
