@@ -18,6 +18,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, basename } from "node:path";
 import { resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
+import { clipSnippet } from "../format.ts";
 
 export interface MemoryMatch {
 	file: string;
@@ -55,14 +56,8 @@ function searchMemory(
 				const catMatch = trimmed.match(/^\[(\w+)\]/);
 				const category = catMatch ? `[${catMatch[1]}]` : "(uncategorized)";
 
-				// Snippet around the match
-				const radius = 120;
-				const start = Math.max(0, idx - radius);
-				const end = Math.min(trimmed.length, idx + needle.length + radius);
-				const snippet =
-					(start > 0 ? "…" : "") +
-					trimmed.slice(start, end).replace(/\s+/g, " ").trim() +
-					(end < trimmed.length ? "…" : "");
+				// Snippet around the match (wider radius than sessions: whole-entry context)
+				const snippet = clipSnippet(trimmed, idx, needle.length, 120);
 
 				matches.push({ file, category, snippet });
 				if (matches.length >= limit) return matches;
