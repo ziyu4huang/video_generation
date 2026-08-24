@@ -17,6 +17,7 @@ import { join } from "node:path";
 import {
 	collectModelFacts,
 	renderDeployReport,
+	renderDeployReportYaml,
 	renderOutRootIndex,
 	type DeployReportData,
 } from "../src/deploy/lib/deploy-report.ts";
@@ -114,6 +115,47 @@ describe("renderDeployReport", () => {
 	});
 });
 
+describe("renderDeployReportYaml — the machine-readable twin", () => {
+	test("round-trips through a real YAML parser back to the input data", () => {
+		const data = fixtureData({
+			// exercise the optional runtime field too (undefined-skipping below
+			// covers its absence, this covers its presence)
+			runtime: { bunVersion: "1.4.0", platform: "darwin", arch: "arm64", bytes: 63_000_000, cached: true },
+		});
+		const back = Bun.YAML.parse(renderDeployReportYaml(data)) as DeployReportData;
+		expect(back).toEqual(data);
+	});
+
+	test("always-double-quoted strings survive YAML's implicit-scalar edge cases", () => {
+		const hostile = fixtureData({
+			excluded: [
+				{ name: "no", package: "yes: on #comment", reason: 'quote " backslash \\ newline\n colon: dash - [bracket]' },
+			],
+			gates: [{ id: "1", title: "- not: a #map", scope: "deploy", status: "pass" }],
+		});
+		const back = Bun.YAML.parse(renderDeployReportYaml(hostile)) as DeployReportData;
+		expect(back.excluded[0].name).toBe("no");
+		expect(back.excluded[0].package).toBe("yes: on #comment");
+		expect(back.excluded[0].reason).toBe('quote " backslash \\ newline\n colon: dash - [bracket]');
+		expect(back.gates[0].title).toBe("- not: a #map");
+	});
+
+	test("drops undefined optionals and renders empty collections as flow []/{}", () => {
+		const data = fixtureData(); // no runtime field
+		const yaml = renderDeployReportYaml(data);
+		expect(yaml).not.toContain("runtime:");
+		const back = Bun.YAML.parse(yaml) as DeployReportData;
+		expect(back.runtime).toBeUndefined();
+		expect(back).toEqual(data);
+		// empty lists stay structurally empty, not omitted
+		expect(back.extensions[0].copy).toEqual([]);
+	});
+
+	test("is deterministic — same data, byte-identical output", () => {
+		expect(renderDeployReportYaml(fixtureData())).toBe(renderDeployReportYaml(fixtureData()));
+	});
+});
+
 describe("renderOutRootIndex", () => {
 	function seedOutRoot(): string {
 		const outRoot = mkdtempSync(join(tmpdir(), "report-index-"));
@@ -134,6 +176,7 @@ describe("renderOutRootIndex", () => {
 		try {
 			symlinkSync("0.1.0+gbbbbbbb", join(outRoot, "current"));
 			writeFileSync(join(outRoot, "0.1.0+gbbbbbbb", "deploy-report.html"), "<html></html>");
+			writeFileSync(join(outRoot, "0.1.0+gbbbbbbb", "deploy-report.yaml"), "# yaml\n");
 			const html = renderOutRootIndex(outRoot);
 			expect(html).toContain("0.1.0+gaaaaaaa");
 			expect(html).toContain("0.1.0+gbbbbbbb");
@@ -141,6 +184,10 @@ describe("renderOutRootIndex", () => {
 			expect(html).toMatch(/gbbbbbbb[^\n]*current/s);
 			expect(html).not.toMatch(/gaaaaaaa[^\n]*current/s);
 			expect(html).toContain(`href="0.1.0+gbbbbbbb/deploy-report.html"`);
+			// the yaml twin links beside the html when present, silently absent
+			// for pre-yaml versions (aaaaaaa has none)
+			expect(html).toContain(`href="0.1.0+gbbbbbbb/deploy-report.yaml"`);
+			expect(html).not.toContain("0.1.0+gaaaaaaa/deploy-report.yaml");
 		} finally {
 			rmSync(outRoot, { recursive: true, force: true });
 		}

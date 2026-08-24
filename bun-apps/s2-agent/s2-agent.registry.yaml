@@ -19,12 +19,14 @@
 # extensions that silently refuse to load.
 #
 # Base-set profile (2026-08-20, "portable full-featured agent"): memory, skills,
-# subagent/workflow, web-access, and the knowledge layer (obsidian +
-# knowledge-card) ship in the box. Everything machine-bound (swift director
-# CLIs, LM Studio, mupdf) stays out — see docs/deploy.md "Limits" for the
-# exclusion rationale. devops joined the deploy set 2026-08-23
-# (on-this-machine stance; repo-bound tools fail closed) and tool-gate joined
-# the same day (measured reversal; see its own comment below).
+# subagent/workflow, and the knowledge layer (obsidian + knowledge-card) ship
+# in the box. Everything machine-bound (swift director CLIs, LM Studio, mupdf)
+# stays out. THIS FILE is the single source of truth for what ships and why:
+# every excluded entry carries its reason inline (excludeReason + comment) —
+# the retired docs/deploy.md "Limits" list drifted from reality and was
+# removed 2026-08-24 for exactly that reason. devops joined the deploy set
+# 2026-08-23 (on-this-machine stance; repo-bound tools fail closed) and
+# tool-gate joined the same day (measured reversal; see its own comment below).
 #
 # Entry order: the `load: static` entries first, in staticExtensions[] order
 # (the order regen:static imports them — subagent MUST precede workflow), then
@@ -110,9 +112,13 @@ extensions:
     # is VENDORED, not bundled: its ESM uses import.meta.resolve, whose syntax
     # is invalid inside the loader's cjs eval — as a real directory it loads as
     # a proper module.
-    deploy:
-      order: 90
-      vendor: ["unpdf"]
+    #
+    # EXCLUDED FROM DEPLOY (user decision 2026-08-24): the web-fetch/read
+    # tooling is a dev-machine convenience — the portable tree does not need
+    # the heaviest extension plus a vendored unpdf directory. Loads in source
+    # mode as before; does not ship. Re-include = give it a deploy block again
+    # (order 90, vendor unpdf).
+    excludeReason: heaviest extension (readability/linkedom/turndown inline + vendored unpdf); dev-machine web tooling, not needed on the portable target
   - name: obsidian
     package: s2-agent-ext-obsidian
     entry: extensions/obsidian.ts
@@ -203,8 +209,12 @@ extensions:
     # Pure code: the HTML shell is a single inline string constant; Bun.serve
     # WS works in the compiled binary. webui-audit skill lives HERE (moved from
     # power-tool — the audit drives the webui's own surface).
-    deploy:
-      order: 110
+    #
+    # EXCLUDED FROM DEPLOY (user decision 2026-08-24): the browser UI serves a
+    # local operator at a desk; the portable tree has no operator to point at
+    # it. Loads in source mode as before; does not ship. Re-include = give it
+    # a deploy block again (order 110).
+    excludeReason: local-operator browser UI; no operator on the portable target
   # DISABLED BY DEFAULT 2026-08-24 (user decision, tool-gate precedent): the
   # HyperFrames skills family is not yet proven must-have, so it is OFF in
   # every dimension until that is established — not loaded in source mode, not

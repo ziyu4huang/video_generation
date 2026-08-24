@@ -1,9 +1,11 @@
 /**
- * deploy-report — the per-deploy HTML report.
+ * deploy-report — the per-deploy HTML report and its YAML twin.
  *
  * Every deploy writes <outRoot>/<version>/deploy-report.html (immutable with
  * the tree it describes, written after the gates pass and before the freeze)
- * plus <outRoot>/index.html listing the retained versions. Both files are
+ * plus deploy-report.yaml — the SAME DeployReportData serialized as YAML for
+ * machine consumption (diffing two deploys, tooling over the gate matrix)
+ * — plus <outRoot>/index.html listing the retained versions. All files are
  * single-file self-contained: inline CSS only, zero external references —
  * the same offline discipline the deploy tree itself is gated on (Gate 5).
  *
@@ -277,6 +279,86 @@ ${providerSection(data.providers)}
 `;
 }
 
+// ─── YAML rendering (the machine-readable twin) ───────────────────────────────
+
+/**
+ * Every string is double-quoted, unconditionally: YAML's implicit-scalar edge
+ * cases (": ", " #", leading "-", "no"/"yes"-shaped tokens, unicode) all live
+ * in exactly the fields this report carries — paths, reasons, gate titles —
+ * and a report that only parses until the first odd string is worse than a
+ * slightly noisier one that always round-trips.
+ */
+function yamlQuote(s: string): string {
+	return `"${s
+		.replaceAll("\\", "\\\\")
+		.replaceAll('"', '\\"')
+		.replaceAll("\n", "\\n")
+		.replaceAll("\t", "\\t")
+		.replaceAll("\r", "\\r")}"`;
+}
+
+function yamlScalar(v: string | number | boolean): string {
+	return typeof v === "string" ? yamlQuote(v) : String(v);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+	return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Emit a plain-JSON-shaped value as block-style YAML lines at `level`.
+ * Insertion order is preserved (the data objects are built as literals), so
+ * output is deterministic run over run. Optional (`undefined`) fields drop.
+ */
+function emitYaml(value: unknown, level: number): string[] {
+	const pad = "  ".repeat(level);
+	const lines: string[] = [];
+	if (Array.isArray(value)) {
+		for (const item of value) {
+			if (isPlainObject(item)) {
+				// "- key: v" head line: emit the mapping one level deeper, then
+				// swap the first line's pad for the sequence dash — the head's
+				// content lands where the deeper pad put it, and the tail lines
+				// keep that pad, which is exactly YAML's inline-item shape.
+				const nested = emitYaml(item, level + 1);
+				if (nested.length === 0) {
+					lines.push(`${pad}- {}`);
+					continue;
+				}
+				lines.push(`${pad}- ${nested[0].slice(pad.length + 2)}`, ...nested.slice(1));
+			} else {
+				lines.push(`${pad}- ${yamlScalar(item as string | number | boolean)}`);
+			}
+		}
+		return lines;
+	}
+	if (!isPlainObject(value)) return [`${pad}${yamlScalar(value as string | number | boolean)}`];
+	for (const [k, v] of Object.entries(value)) {
+		if (v === undefined) continue;
+		const key = /^[A-Za-z0-9_-]+$/.test(k) ? k : yamlQuote(k);
+		if (Array.isArray(v)) {
+			if (v.length === 0) lines.push(`${pad}${key}: []`);
+			else lines.push(`${pad}${key}:`, ...emitYaml(v, level));
+		} else if (isPlainObject(v)) {
+			const nested = emitYaml(v, level + 1);
+			if (nested.length === 0) lines.push(`${pad}${key}: {}`);
+			else lines.push(`${pad}${key}:`, ...nested);
+		} else {
+			lines.push(`${pad}${key}: ${yamlScalar(v as string | number | boolean)}`);
+		}
+	}
+	return lines;
+}
+
+/** Render the version-dir report's YAML twin — same DeployReportData, block-style YAML. */
+export function renderDeployReportYaml(data: DeployReportData): string {
+	return (
+		"# s2-agent-sh deploy-report — machine-readable twin of deploy-report.html.\n" +
+		"# Same DeployReportData, YAML serialization; written and frozen together.\n" +
+		`${emitYaml(data, 0).join("\n")}\n`
+	);
+}
+
 // ─── outRoot index ────────────────────────────────────────────────────────────
 
 interface IndexEntry {
@@ -285,6 +367,7 @@ interface IndexEntry {
 	sourceSha: string;
 	isCurrent: boolean;
 	hasReport: boolean;
+	hasYaml: boolean;
 }
 
 const VERSION_DIR = /^\d+\.\d+\.\d+\+g[0-9a-f]+$/;
@@ -323,6 +406,7 @@ function scanOutRoot(outRoot: string): { entries: IndexEntry[]; current: string 
 				sourceSha: j.sourceSha ?? "",
 				isCurrent: current === name || current === j.version,
 				hasReport: existsSync(join(outRoot, name, "deploy-report.html")),
+				hasYaml: existsSync(join(outRoot, name, "deploy-report.yaml")),
 			});
 		} catch {
 			// unreadable deploy.json — skip, not fatal
@@ -338,7 +422,7 @@ export function renderOutRootIndex(outRoot: string): string {
 	const rows = entries
 		.map((e) => {
 			const report = e.hasReport
-				? `<a href="${esc(e.version)}/deploy-report.html">deploy-report.html</a>`
+				? `<a href="${esc(e.version)}/deploy-report.html">html</a>${e.hasYaml ? ` · <a href="${esc(e.version)}/deploy-report.yaml">yaml</a>` : ""}`
 				: "—";
 			return `<tr><td><code>${esc(e.version)}</code></td><td>${esc(e.builtAt)}</td><td><code>${esc(e.sourceSha.slice(0, 8))}</code></td>` +
 				`<td>${e.isCurrent ? '<span class="pass">current</span>' : ""}</td><td>${report}</td></tr>`;
@@ -370,6 +454,13 @@ ${rows}
 export function writeDeployReport(dir: string, data: DeployReportData): string {
 	const p = join(dir, "deploy-report.html");
 	writeFileSync(p, renderDeployReport(data));
+	return p;
+}
+
+/** Write the report's YAML twin next to the HTML; returns its path. */
+export function writeDeployReportYaml(dir: string, data: DeployReportData): string {
+	const p = join(dir, "deploy-report.yaml");
+	writeFileSync(p, renderDeployReportYaml(data));
 	return p;
 }
 

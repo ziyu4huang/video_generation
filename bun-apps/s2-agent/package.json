@@ -1,6 +1,6 @@
 {
   "name": "@repo/s2-agent",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "private": true,
   "description": "Interactive pi TUI wrapper — injects a source-hardcoded provider catalog via a ModelRuntime.create monkey-patch, delegates everything else to the official pi main(). [s2-agent = renamed pi-agent (2026-08-21); upstream deps still @earendil-works/pi-*; update flow unchanged (update-pi.sh); PI_*/BUN_PI_* env names and ~/.pi/agent state dir unchanged by design]",
   "type": "module",
@@ -22,7 +22,7 @@
     "regen:static": "bun scripts/regen-static-extensions.ts",
     "test:e2e": "PI_AGENT_E2E=1 bun test",
     "verify": "PI_AGENT_E2E=1 bun test src/__tests__/e2e-extensions.test.ts",
-    "//deploy": "ONE deploy pipeline: `bun run deploy` -> ../s2-agent-ext-devops/src/deploy-cli.ts. Builds a versioned tree at ~/proj/dist/s2-agent-sh/<version>/ — a minimal compiled core (src/cli-sh.ts, zero extensions inside) plus extension packages under ext/<name>/ that the core discovers at runtime. Registry: s2-agent.registry.yaml. Docs: docs/deploy.md. The four legacy modes (--bundle/--snapshot/--standalone/--exe) were retired in the deploy-architecture consolidation; see .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md. (Renamed from deploy:sh in Phase 2b.)",
+    "//deploy": "ONE deploy pipeline: `bun run deploy` -> ../s2-agent-ext-devops/src/deploy-cli.ts. Builds a versioned tree at ~/proj/dist/s2-agent-sh/<version>/ — a minimal compiled core (src/cli-sh.ts, zero extensions inside) plus extension packages under ext/<name>/ that the core discovers at runtime. Registry: s2-agent.registry.yaml (sole source of truth for what ships and why). The four legacy modes (--bundle/--snapshot/--standalone/--exe) were retired in the deploy-architecture consolidation; see .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md. (Renamed from deploy:sh in Phase 2b.)",
     "deploy": "bun ../s2-agent-ext-devops/src/deploy-cli.ts"
   },
   "dependencies": {

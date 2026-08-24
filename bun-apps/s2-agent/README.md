@@ -63,8 +63,10 @@ bun run --cwd bun-apps/s2-agent deploy              # cut a versioned frozen tre
 bun bun-apps/s2-agent/src/cli.ts cli doctor [--smoke] [--json]   # self-check (offline; --smoke loads extensions)
 ```
 
-Deploy reference: [docs/deploy.md](docs/deploy.md). Workflow SOP (branch prep,
-local CI, PR merge): `s2-agent-ext-devops/skills/devops-workflow/SKILL.md`.
+Deploy reference: `s2-agent.registry.yaml` (what ships and why — the sole
+source of truth) and `../s2-agent-ext-devops/src/deploy-cli.ts --help` (how).
+Workflow SOP (branch prep, local CI, PR merge):
+`s2-agent-ext-devops/skills/devops-workflow/SKILL.md`.
 
 ## Testing
 

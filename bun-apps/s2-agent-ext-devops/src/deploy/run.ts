@@ -38,6 +38,7 @@ import { buildExtPackage } from "./lib/ext-build.ts";
 import {
 	collectModelFacts,
 	writeDeployReport,
+	writeDeployReportYaml,
 	writeOutRootIndex,
 	type GateRecord,
 	type ReportExtension,
@@ -610,12 +611,16 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				enabled.map((e) => e.name),
 			));
 
-		// ── deploy-report.html — after the gates, before the rename/freeze ──
+		// ── deploy-report.html + deploy-report.yaml — after the gates, before
+		// the rename/freeze ──
 		// The report freezes the gate matrix, the included/excluded table, the
 		// vendored-closure stats and the baked provider catalog WITH the
 		// version it describes; freezeTree then makes it immutable like the
 		// rest of the tree. Closure facts come from the ext.json manifests the
 		// builder just wrote — the same source Gate 5d verified against.
+		// The YAML twin is the same DeployReportData serialized for machines
+		// (deploy diffing, tooling over the gate matrix) — written together,
+		// frozen together, never allowed to drift from the HTML.
 		const extensionsReport: ReportExtension[] = built.map((b) => {
 			const cfgExt = enabled.find((e) => e.name === b.name)!;
 			const manifest = JSON.parse(readFileSync(join(stage, "ext", b.name, "ext.json"), "utf8")) as {
@@ -634,7 +639,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				closure: manifest.vendoredClosure ?? { count: 0, pruned: [], excluded: [] },
 			};
 		});
-		writeDeployReport(stage, {
+		const reportData = {
 			version,
 			builtAt,
 			sourceSha,
@@ -650,7 +655,9 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			extensions: extensionsReport,
 			excluded: excludedExtensions(configText, { bunAppsDir: BUN_APPS_DIR }),
 			providers: collectModelFacts(),
-		});
+		};
+		writeDeployReport(stage, reportData);
+		writeDeployReportYaml(stage, reportData);
 
 		if (existsSync(target)) rmTree(target);
 		renameSync(stage, target);

@@ -19,10 +19,10 @@
  *      bun's cjs output rewrote playwright-core's `__dirname` to the builder's
  *      install cache (so the tree was not relocatable).
  *
- * The numbering matches docs/deploy.md; gate 3 (dual-state --ext-list) is a
- * whole-deploy check and lives in deploy.ts, and gate 5 (offline containment
- * of the whole TREE — symlink escapes, binary paths, vendored closure) lives
- * in offline-gate.ts.
+ * The numbering is the gate sequence's stable id space (report + tests cite
+ * these); gate 3 (dual-state --ext-list) is a whole-deploy check and lives in
+ * run.ts, and gate 5 (offline containment of the whole TREE — symlink
+ * escapes, binary paths, vendored closure) lives in offline-gate.ts.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";

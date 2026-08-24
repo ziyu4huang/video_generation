@@ -159,8 +159,9 @@ extensions:
 			"task",
 			"ultracode",
 			"wayfind",
-			"web-access",
-			"webui",
+			// web-access + webui: deploy-excluded 2026-08-24 (dev-machine web
+			// tooling / local-operator UI — not needed on the portable target) —
+			// re-list here only if they regain a deploy block.
 		]);
 		// subagent must load before ultracode (registry population order).
 		const order = (name: string) =>

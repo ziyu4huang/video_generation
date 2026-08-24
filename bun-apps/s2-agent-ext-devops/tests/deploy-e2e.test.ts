@@ -104,10 +104,23 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		// gate matrix rows for the whole-deploy gates
 		expect(report).toContain("verifyDualState");
 		expect(report).toContain("verifyRelocatable");
+		// the report's YAML twin: same facts, machine-readable, frozen with the
+		// tree — and it parses back to data containing the same identity
+		const reportYamlPath = join(r.target, "deploy-report.yaml");
+		expect(existsSync(reportYamlPath)).toBe(true);
+		const reportYaml = Bun.YAML.parse(readFileSync(reportYamlPath, "utf8")) as {
+			version: string;
+			sourceSha: string;
+			extensions: { name: string }[];
+		};
+		expect(reportYaml.version).toBe(r.version);
+		expect(reportYaml.sourceSha).toBe(JSON.parse(readFileSync(join(r.target, "deploy.json"), "utf8")).sourceSha);
+		expect(reportYaml.extensions.map((e: { name: string }) => e.name).sort()).toEqual(configuredNamesSorted);
 		// and the outRoot index links to this version's report
 		const index = readFileSync(join(outRoot, "index.html"), "utf8");
 		expect(index).toContain(r.version);
 		expect(index).toContain(`${r.version}/deploy-report.html`);
+		expect(index).toContain(`${r.version}/deploy-report.yaml`);
 
 		// frozen: no write bits anywhere
 		expect(statSync(join(r.target, "ext", "power-tool", "ext.cjs")).mode & 0o222).toBe(0);
