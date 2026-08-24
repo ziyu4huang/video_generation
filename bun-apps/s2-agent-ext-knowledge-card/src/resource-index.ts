@@ -1,0 +1,609 @@
+/**
+ * src/resource-index.ts — the resource tier: document-TREE rows in the kcard
+ * Surreal index (effort 2026-08-25-kcard-resource-tier, ticket 01, D2/D3).
+ *
+ * Where `card` (surreal-index.ts) indexes the CURATED convergence folder (flat
+ * zettel leaves + derived agg cards), the resource tier indexes a whole
+ * DOCUMENT TREE — file2md output, a spec folder, a docs repo — the OpenViking
+ * `resources/` model: one row per file (L2), one row per directory tier
+ * sidecar (L0 `.abstract.md` / L1 `.overview.md`, written by ticket 02).
+ *
+ * Separation from the card lane (map D2):
+ *   - its own table `resource` + its own `resource_meta` fingerprint row — a
+ *     resource rebuild NEVER touches `card`, `index_meta`, or the D36 default;
+ *   - tree discriminator column `tree` (slug of the tree root) — one table
+ *     holds many trees; a rebuild is scoped `WHERE tree = $t`;
+ *   - uri = tree-relative posix path (WITH the .md suffix for files; tier
+ *     sidecars use their exact sidecar path). Record key sha256(tree + uri)
+ *     (parity ticket-07 fact: raw paths carry CJK/spaces — never identifiers).
+ *
+ * Derived, rebuildable (map D3): the on-disk tree is canonical; fingerprint =
+ * sha256 over a schema salt + sorted `uri:contentHash` pairs (mtime-free, the
+ * shared D13 formula shape). Per-tree rebuild: build rows → shadow batches →
+ * delete the tree's live rows → copy shadow in → stamp resource_meta. The
+ * delete+copy window is not atomic across trees' rows for THIS tree only — a
+ * failed rebuild leaves the tree's rows partially stale, queries miss, the
+ * next rebuild fixes it (derived-index degrade contract, same posture as the
+ * card lane's non-reader-transparent swap).
+ *
+ * Embeddings: bge-m3 via the semantic.ts seam (seam → env → defaults, D22),
+ * with a per-tree content-hash cache at `<treeRoot>/.resource-semantic/<model>.json`
+ * so an unchanged file embeds ZERO times and a single-file edit re-embeds only
+ * that file (ticket-01 acceptance). The cache dir is a dot-dir — excluded from
+ * the walk AND from the fingerprint by construction.
+ *
+ * Library only — no ExtensionAPI, no LLM (L0/L1 generation is ticket 02).
+ */
+import { createHash } from "node:crypto";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
+import { basename, join, posix } from "node:path";
+import type { Dirent } from "node:fs";
+import type { SurrealClient, SurrealClientOptions } from "@repo/s2-agent-core-interface";
+import { embedQuery, resolveCardEmbedModel, type Embedder } from "./semantic.ts";
+import { firstSentenceSummary } from "./extractor.ts";
+import { makeContextClient } from "./surreal-index.ts";
+
+/** Context tier levels (upstream ContextLevel; L0/L1 rows arrive in ticket 02). */
+export const RESOURCE_LEVEL_FILE = 2;
+
+/** Tier sidecar filenames — derived artifacts, excluded from the L2 walk
+ *  (ticket 02 writes them; they index as level 0/1 rows under their own uri). */
+export const TIER_SIDEFILES = new Set([".abstract.md", ".overview.md"]);
+
+/** Row-shape version — salted into the per-tree fingerprint so a schema change
+ *  forces exactly one rebuild of unchanged contents (INDEX_SCHEMA_VERSION
+ *  precedent; bump when the row shape changes). */
+const RESOURCE_SCHEMA_VERSION = "v1-l2";
+
+// ---------------------------------------------------------------------------
+// Row model
+// ---------------------------------------------------------------------------
+
+/** One indexed resource row — the `resource` table shape. */
+export interface ResourceIndexRow {
+	/** Tree slug (basename of the ingested tree root) — the tree discriminator. */
+	tree: string;
+	/** Tree-relative posix path (`.md` suffix kept; tier sidecars use their
+	 *  sidecar path — uri IS the on-disk path, zk_fs-stat compatible). */
+	uri: string;
+	/** 0 = directory abstract, 1 = directory overview, 2 = file (this file). */
+	level: number;
+	name: string;
+	abstract: string;
+	vec: number[] | null;
+	embed_model: string | null;
+	/** Best-effort ISO timestamp from the file mtime (never a second LLM guess). */
+	created: string;
+	updated: string;
+	/** Parent directory's tree-relative path ("" → null at the tree root). */
+	parent: string | null;
+}
+
+export interface BuildResourceResult {
+	tree: string;
+	rows: ResourceIndexRow[];
+	/** sha256 over schema salt + sorted `uri:contentHash` — gates no-op rebuilds. */
+	fingerprint: string;
+	dim: number;
+	embedModel: string;
+	/** Files embedded THIS run (cache misses only — the delta receipt). */
+	embedded: number;
+	/** Files served from the content-hash cache. */
+	cached: number;
+	skipped: string[];
+}
+
+export interface ResourceRebuildResult {
+	skipped: boolean;
+	tree: string;
+	fingerprint: string;
+	inserted: number;
+	dim: number;
+	embedModel: string;
+	embedded: number;
+	cached: number;
+	elapsedMs: number;
+}
+
+/** sha256-based record key: stable per tree+uri, always a legal identifier. */
+export function resourceRecordKey(tree: string, uri: string): string {
+	return `resource:${createHash("sha256").update(`${tree}/${uri}`).digest("hex").slice(0, 16)}`;
+}
+
+function sha256(text: string): string {
+	return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+function resourceFingerprintOf(hashes: { uri: string; contentHash: string }[]): string {
+	return sha256(
+		`schema:${RESOURCE_SCHEMA_VERSION}\n` + hashes.map((r) => `${r.uri}:${r.contentHash}`).sort().join("\n"),
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Tree walk (L2 files only — dot-dirs and tier sidecars excluded)
+// ---------------------------------------------------------------------------
+
+interface WalkedFile {
+	uri: string;
+	abs: string;
+}
+
+/** Recursively collect indexable L2 markdown files under `rootAbs`.
+ *  Excluded: dot-directories (`.resource-semantic` cache, `.git`, …) and the
+ *  two tier sidecar names (derived rows, not L2 sources). A non-FILE entry
+ *  named `*.md` is skipped (the EISDIR lesson, PR #2013). */
+function walkTree(rootAbs: string): WalkedFile[] {
+	const out: WalkedFile[] = [];
+	const walk = (dirAbs: string, rel: string) => {
+		let entries: Dirent[];
+		try {
+			entries = readdirSync(dirAbs, { withFileTypes: true });
+		} catch {
+			return; // unreadable subdir — absent from rows AND fingerprint (degrade, never throw)
+		}
+		for (const e of entries) {
+			if (e.name.startsWith(".")) continue; // dot-entries: caches, VCS, Obsidian config
+			const childRel = rel ? `${rel}/${e.name}` : e.name;
+			const childAbs = join(dirAbs, e.name);
+			if (e.isDirectory()) {
+				walk(childAbs, childRel);
+			} else if (e.isFile() && e.name.endsWith(".md") && !TIER_SIDEFILES.has(e.name)) {
+				out.push({ uri: childRel, abs: childAbs });
+			}
+		}
+	};
+	walk(rootAbs, "");
+	// Codepoint sort (localeCompare is ICU-dependent — the fingerprint's own
+	// sort at resourceFingerprintOf is codepoint; keep the two agreeing).
+	return out.sort((a, b) => (a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0));
+}
+
+/** Embed text for a resource file: title + first 800 chars of body prose —
+ *  the cardEmbedText probe shape (semantic.ts), frontmatter stripped. */
+function resourceEmbedText(raw: string, name: string): string {
+	const body = raw.replace(/^---\n[\s\S]*?\n---/, "").slice(0, 800);
+	return `${name}. ${body}`.replace(/\s+/g, " ").trim().slice(0, 1000);
+}
+
+/** H1 title or "" — a DELIBERATE third convention (semantic.ts / surreal-index
+ *  fall back to "(untitled)" for curated cards; resource files fall back to
+ *  the filename stem at the row-build site, which reads better for page files
+ *  that carry no H1). */
+function readTitle(content: string): string {
+	const m = content.match(/^#\s+(.+?)\s*$/m);
+	return m ? m[1]!.trim() : "";
+}
+
+// ---------------------------------------------------------------------------
+// Per-tree content-hash embedding cache
+// ---------------------------------------------------------------------------
+
+interface ResourceCacheEntry {
+	uri: string;
+	contentHash: string;
+	vec: number[];
+}
+interface ResourceCacheFile {
+	model: string;
+	entries: ResourceCacheEntry[];
+}
+
+function resourceCachePath(treeRoot: string, model: string): string {
+	const slug = model.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+	return join(treeRoot, ".resource-semantic", `${slug}.json`);
+}
+
+/** Load the cache as a contentHash → vec map (uri kept for hygiene pruning). */
+function loadResourceCache(treeRoot: string, model: string): Map<string, number[]> {
+	const map = new Map<string, number[]>();
+	const p = resourceCachePath(treeRoot, model);
+	if (!existsSync(p)) return map;
+	try {
+		const parsed = JSON.parse(readFileSync(p, "utf8")) as ResourceCacheFile;
+		if (parsed.model === model && Array.isArray(parsed.entries)) {
+			for (const e of parsed.entries) {
+				if (typeof e.contentHash === "string" && Array.isArray(e.vec)) {
+					map.set(e.contentHash, e.vec);
+				}
+			}
+		}
+	} catch {
+		// corrupt cache — treat as cold
+	}
+	return map;
+}
+
+function saveResourceCache(treeRoot: string, model: string, entries: ResourceCacheEntry[]): void {
+	try {
+		mkdirSync(join(treeRoot, ".resource-semantic"), { recursive: true });
+		writeFileSync(resourceCachePath(treeRoot, model), JSON.stringify({ model, entries } satisfies ResourceCacheFile));
+	} catch {
+		// cache write failure is non-fatal — this run's vectors still used in-memory
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Row building (pure read side — injectable embedder, hash-keyed cache)
+// ---------------------------------------------------------------------------
+
+const EMBED_BATCH = 32;
+
+/**
+ * Build L2 resource rows for every markdown file under `treePath`. Only
+ * files whose contentHash is absent from the per-tree cache hit the embedder
+ * (ticket-01 delta contract: an unchanged file embeds zero times). Returns
+ * null-equivalent dim 0 when the embedder is unavailable — rows still build
+ * with vec null (the KNN lane degrades; nothing else consumes the vectors).
+ */
+export async function buildResourceRows(args: {
+	treePath: string;
+	tree?: string;
+	model?: string;
+	embedder?: Embedder;
+}): Promise<BuildResourceResult> {
+	const model = resolveCardEmbedModel(args.model);
+	const treeRootAbs = args.treePath;
+	if (!existsSync(treeRootAbs) || !statSync(treeRootAbs).isDirectory()) {
+		throw new Error(`tree root is not a directory: ${treeRootAbs}`);
+	}
+	const tree = args.tree ?? basename(treeRootAbs);
+	const files = walkTree(treeRootAbs);
+	const skipped: string[] = [];
+
+	const hashes: { uri: string; contentHash: string }[] = [];
+	const contents = new Map<string, string>();
+	for (const f of files) {
+		try {
+			const content = readFileSync(f.abs, "utf8");
+			contents.set(f.uri, content);
+			hashes.push({ uri: f.uri, contentHash: sha256(content) });
+		} catch {
+			skipped.push(f.uri); // unreadable — absent from rows AND fingerprint (degrade contract)
+		}
+	}
+	const fingerprint = resourceFingerprintOf(hashes);
+
+	// Delta embedding: hash-keyed cache first, one batched embed for the misses.
+	const cache = loadResourceCache(treeRootAbs, model);
+	const misses: string[] = [];
+	for (const h of hashes) {
+		if (!cache.has(h.contentHash)) misses.push(h.uri);
+	}
+	const embedder = args.embedder;
+	let embedded = 0;
+	if (misses.length > 0 && embedder) {
+		try {
+			for (let i = 0; i < misses.length; i += EMBED_BATCH) {
+				const batch = misses.slice(i, i + EMBED_BATCH);
+				const texts = batch.map((uri) => {
+					const raw = contents.get(uri) ?? "";
+					const h1 = readTitle(raw);
+					return resourceEmbedText(raw, h1 || uri);
+				});
+				const vecs = await embedder(texts, model);
+				batch.forEach((uri, j) => {
+					const v = vecs[j];
+					if (v) cache.set(hashes.find((h) => h.uri === uri)!.contentHash, v);
+				});
+				embedded += batch.length;
+			}
+		} catch {
+			// embedder failed mid-batch — cached-so-far vectors ride, the rest null
+		}
+	}
+
+	const rows: ResourceIndexRow[] = [];
+	const kept: ResourceCacheEntry[] = [];
+	for (const h of hashes) {
+		const raw = contents.get(h.uri)!;
+		const vec = cache.get(h.contentHash) ?? null;
+		if (vec) kept.push({ uri: h.uri, contentHash: h.contentHash, vec });
+		const rel = posix.dirname(h.uri);
+		let mtimeMs: number;
+		try {
+			mtimeMs = statSync(join(treeRootAbs, h.uri)).mtimeMs;
+		} catch {
+			mtimeMs = 0;
+		}
+		const iso = mtimeMs > 0 ? new Date(mtimeMs).toISOString() : "1970-01-01T00:00:00.000Z";
+		const h1 = readTitle(raw);
+		rows.push({
+			tree,
+			uri: h.uri,
+			level: RESOURCE_LEVEL_FILE,
+			name: h1 || posix.basename(h.uri, ".md"),
+			abstract: firstSentenceSummary(raw),
+			vec,
+			embed_model: vec ? model : null,
+			created: iso,
+			updated: iso,
+			parent: rel === "." ? null : rel,
+		});
+	}
+	if (embedded > 0) saveResourceCache(treeRootAbs, model, kept);
+
+	const dim = rows.find((r) => r.vec)?.vec?.length ?? 0;
+	return {
+		tree,
+		rows,
+		fingerprint,
+		dim,
+		embedModel: model,
+		embedded,
+		// Served from the hash cache = every hash NOT in this run's miss set
+		// (a mid-run embedder failure still counts its batch as a miss).
+		cached: hashes.length - misses.length,
+		skipped,
+	};
+}
+
+// ---------------------------------------------------------------------------
+// SQL plumbing (shadow-batched, per-tree scoped — never touches `card`)
+// ---------------------------------------------------------------------------
+
+function resourceCreateStmt(table: string, row: ResourceIndexRow): string {
+	const key = resourceRecordKey(row.tree, row.uri).replace("resource:", `${table}:`);
+	const v = (x: unknown) => JSON.stringify(x ?? null);
+	const vec = (row.vec ?? []).map((x) => Math.round(x * 1e6) / 1e6);
+	return `CREATE ${key} SET tree = ${v(row.tree)}, uri = ${v(row.uri)}, level = ${row.level}, name = ${v(row.name)}, abstract = ${v(row.abstract)}, vec = ${JSON.stringify(row.vec ? vec : null)}, embed_model = ${v(row.embed_model)}, created = ${v(row.created)}, updated = ${v(row.updated)}, parent = ${v(row.parent)};`;
+}
+
+const RESOURCE_BATCH_ROWS = 24;
+
+async function insertResourceBatches(client: SurrealClient, table: string, rows: ResourceIndexRow[]): Promise<number> {
+	let n = 0;
+	for (let i = 0; i < rows.length; i += RESOURCE_BATCH_ROWS) {
+		const body = rows.slice(i, i + RESOURCE_BATCH_ROWS).map((r) => resourceCreateStmt(table, r)).join("\n");
+		await client.query(body);
+		n += Math.min(RESOURCE_BATCH_ROWS, rows.length - i);
+	}
+	return n;
+}
+
+function resourceTableDefs(): string[] {
+	return [
+		"DEFINE TABLE IF NOT EXISTS resource SCHEMALESS;",
+		"DEFINE INDEX IF NOT EXISTS resource_tree ON TABLE resource COLUMNS tree;",
+		"DEFINE INDEX IF NOT EXISTS resource_uri ON TABLE resource COLUMNS uri;",
+		"DEFINE INDEX IF NOT EXISTS resource_parent ON TABLE resource COLUMNS parent;",
+		"DEFINE INDEX IF NOT EXISTS resource_level ON TABLE resource COLUMNS level;",
+	];
+}
+
+function resourceSearchDefs(dim: number): string[] {
+	const defs: string[] = [];
+	if (dim > 0) {
+		defs.push(
+			`DEFINE INDEX IF NOT EXISTS resource_vec ON TABLE resource FIELDS vec HNSW DIMENSION ${dim} DIST COSINE TYPE F32;`,
+		);
+	}
+	return defs;
+}
+
+export interface ResourceMetaStatus {
+	present: boolean;
+	fingerprint: string | null;
+	rowCount: number;
+	embedModel: string | null;
+	/** Vector dimensionality stamped at build time (0 = vector-less build). */
+	dim: number | null;
+}
+
+/** Read one tree's rebuild stamp (`resource_meta`, sha-keyed per tree). */
+export async function resourceMetaStatus(client: SurrealClient, tree: string): Promise<ResourceMetaStatus> {
+	const key = createHash("sha256").update(tree).digest("hex").slice(0, 16);
+	try {
+		const meta = await client.query<{ fingerprint: string; embed_model: string; dim: number }[] | null>(
+			`SELECT fingerprint, embed_model, dim FROM resource_meta:${key};`,
+		);
+		const count = await client.query<Array<{ count: number }>>(
+			`SELECT VALUE count() FROM resource WHERE tree = ${JSON.stringify(tree)} GROUP ALL;`,
+		);
+		const n = Array.isArray(count) && count[0] && typeof count[0].count === "number" ? count[0].count : 0;
+		return {
+			present: Boolean(meta && meta.length > 0 && meta[0]?.fingerprint),
+			fingerprint: meta?.[0]?.fingerprint ?? null,
+			rowCount: n,
+			embedModel: meta?.[0]?.embed_model ?? null,
+			dim: typeof meta?.[0]?.dim === "number" ? meta[0].dim : null,
+		};
+	} catch {
+		return { present: false, fingerprint: null, rowCount: 0, embedModel: null, dim: null };
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Rebuild orchestration (per-tree scoped; shadow batches; meta-gated skip)
+// ---------------------------------------------------------------------------
+
+/** Build a client bound to the kcard context_db for resource-tier callers —
+ *  the SAME db/ns as the card lane (map D2: adjacent, not merged). */
+export function makeResourceClient(opts: Partial<SurrealClientOptions> = {}): SurrealClient {
+	return makeContextClient(opts);
+}
+
+/**
+ * Full fingerprint-gated rebuild of ONE tree's rows in `resource`. Steps:
+ *   1. walk + hash every file (md-canonical; dot-dirs/sidecars excluded);
+ *   2. fingerprint match against resource_meta → no-op skip;
+ *   3. batch-insert into `resource_shadow` (a failed batch throws BEFORE any
+ *      live row is touched);
+ *   4. delete the tree's live rows, copy the shadow in, (re)apply indexes,
+ *      stamp resource_meta, drop the shadow.
+ * The `card` table and `index_meta` are never referenced — the card lane's
+ * freshness gate cannot observe this rebuild (ticket-01 regression assert).
+ */
+export async function rebuildResourceIndex(args: {
+	client: SurrealClient;
+	treePath: string;
+	tree?: string;
+	model?: string;
+	embedder?: Embedder;
+}): Promise<ResourceRebuildResult> {
+	const started = Date.now();
+	await args.client.query(
+		`DEFINE NAMESPACE IF NOT EXISTS ${args.client.namespace};\nDEFINE DATABASE IF NOT EXISTS ${args.client.database};`,
+	);
+	const built = await buildResourceRows(args);
+	if (built.rows.length === 0) throw new Error(`no indexable markdown files under ${args.treePath}`);
+
+	const status = await resourceMetaStatus(args.client, built.tree);
+	// Skip conditions (reviewer M1, the card lane's F2/F3 class): fingerprint +
+	// model match is NOT enough — a vector-less build (embedder down, dim 0) or
+	// a partially-vector build (mid-run embedder failure left some vec null
+	// while the cache now holds the rest) must rebuild, or the tree's KNN lane
+	// stays bricked until content changes. dim rides resource_meta for exactly
+	// this comparison; the every-vec check catches the partial case the stamped
+	// dim cannot see.
+	const fullyVectorized = built.dim === 0 || built.rows.every((r) => r.vec !== null);
+	if (
+		status.present
+		&& status.fingerprint === built.fingerprint
+		&& status.embedModel === built.embedModel
+		&& status.dim === built.dim
+		&& fullyVectorized
+		&& status.rowCount > 0
+	) {
+		return {
+			skipped: true,
+			tree: built.tree,
+			fingerprint: built.fingerprint,
+			inserted: status.rowCount,
+			dim: built.dim,
+			embedModel: built.embedModel,
+			embedded: built.embedded,
+			cached: built.cached,
+			elapsedMs: Date.now() - started,
+		};
+	}
+
+	// Per-tree shadow (reviewer M2): a single global shadow name would let two
+	// concurrent tree rebuilds drop/copy each other's staging rows — the tree
+	// discriminator exists precisely so trees rebuild independently.
+	const metaKey = createHash("sha256").update(built.tree).digest("hex").slice(0, 16);
+	const shadowTable = `resource_shadow_${metaKey}`;
+	await args.client.query(`REMOVE TABLE IF EXISTS ${shadowTable};`);
+	await args.client.query([...resourceTableDefs(), `DEFINE TABLE IF NOT EXISTS ${shadowTable} SCHEMALESS;`].join("\n"));
+	const inserted = await insertResourceBatches(args.client, shadowTable, built.rows);
+
+	// Scoped swap: only THIS tree's live rows are replaced (map D2 multi-tree).
+	// The vec HNSW index is dropped before the bulk copy and re-applied after
+	// (reviewer m5, the card lane's measured 10s-timeout discipline: index
+	// maintenance per copied row is the slow path), and a dim mismatch against
+	// a stale index (reviewer m2 — model flip across trees) is recovered by
+	// dropping the index and retrying the copy once.
+	await args.client.query(`DELETE resource WHERE tree = ${JSON.stringify(built.tree)};`);
+	await args.client.query(`REMOVE INDEX IF EXISTS resource_vec ON TABLE resource;`);
+	try {
+		await args.client.query([...resourceTableDefs(), `INSERT INTO resource SELECT * FROM ${shadowTable};`].join("\n"));
+	} catch (e) {
+		await args.client.query(`REMOVE INDEX IF EXISTS resource_vec ON TABLE resource;`);
+		await args.client.query(`INSERT INTO resource SELECT * FROM ${shadowTable};`);
+		void e; // first copy attempt failed on the stale index — retried bare above
+	}
+	for (const stmt of resourceSearchDefs(built.dim)) {
+		await args.client.query(stmt);
+	}
+	await args.client.query(
+		[
+			"DEFINE TABLE IF NOT EXISTS resource_meta SCHEMALESS;",
+			`DELETE resource_meta:${metaKey};`,
+			`CREATE resource_meta:${metaKey} SET tree = ${JSON.stringify(built.tree)}, fingerprint = ${JSON.stringify(built.fingerprint)}, row_count = ${built.rows.length}, embed_model = ${JSON.stringify(built.embedModel)}, dim = ${built.dim};`,
+			`REMOVE TABLE IF EXISTS ${shadowTable};`,
+		].join("\n"),
+	);
+	return {
+		skipped: false,
+		tree: built.tree,
+		fingerprint: built.fingerprint,
+		inserted,
+		dim: built.dim,
+		embedModel: built.embedModel,
+		embedded: built.embedded,
+		cached: built.cached,
+		elapsedMs: Date.now() - started,
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Flat KNN query (ticket 01's read surface; the recursive lane is ticket 03)
+// ---------------------------------------------------------------------------
+
+export interface ResourceHit {
+	uri: string;
+	name: string;
+	abstract: string;
+	level: number;
+	parent: string | null;
+	sim: number;
+}
+
+export interface ResourceQueryResult {
+	tree: string | null;
+	query: string;
+	semantic: boolean;
+	hits: ResourceHit[];
+	elapsedMs: number;
+}
+
+/**
+ * Flat KNN over the resource table. v3.2.3 KNN with an additional equality
+ * predicate (`WHERE tree = $t AND vec <|k,ef|> $qv`) is attempted first; on
+ * parse/plan rejection it degrades to an unfiltered KNN with client-side tree
+ * filtering (larger k so the filter keeps enough rows). Returns
+ * `semantic:false` + empty hits when the embedder is down — never throws.
+ */
+export async function resourceKnnQuery(args: {
+	client: SurrealClient;
+	query: string;
+	tree?: string;
+	topK?: number;
+	model?: string;
+	embedder?: Embedder;
+}): Promise<ResourceQueryResult> {
+	const started = Date.now();
+	const topK = Math.max(1, Math.floor(args.topK ?? 10));
+	const qv = await embedQuery(args.query, args.model, args.embedder);
+	if (!qv) {
+		return { tree: args.tree ?? null, query: args.query, semantic: false, hits: [], elapsedMs: Date.now() - started };
+	}
+	const baseSelect =
+		"tree, uri, name, abstract, level, parent, vector::similarity::cosine(vec, $qv) AS sim FROM resource";
+	/** Select-row shape (the fallback filter reads `tree`, so it rides along). */
+	type SelectRow = ResourceHit & { tree?: string };
+	try {
+		if (args.tree) {
+			try {
+				const rows = await args.client.query<SelectRow[]>(
+					`SELECT ${baseSelect} WHERE tree = ${JSON.stringify(args.tree)} AND vec <|${topK},100|> $qv;`,
+					{ qv },
+				);
+				return {
+					tree: args.tree,
+					query: args.query,
+					semantic: true,
+					hits: rows ?? [],
+					elapsedMs: Date.now() - started,
+				};
+			} catch {
+				// combined predicate unsupported — fall through to unfiltered
+			}
+		}
+		const rows = await args.client.query<SelectRow[]>(
+			`SELECT ${baseSelect} WHERE vec <|${args.tree ? topK * 5 : topK},100|> $qv;`,
+			{ qv },
+		);
+		const hits = (rows ?? []).filter((r) => !args.tree || r.tree === args.tree).slice(0, topK);
+		return { tree: args.tree ?? null, query: args.query, semantic: true, hits, elapsedMs: Date.now() - started };
+	} catch {
+		return { tree: args.tree ?? null, query: args.query, semantic: false, hits: [], elapsedMs: Date.now() - started };
+	}
+}

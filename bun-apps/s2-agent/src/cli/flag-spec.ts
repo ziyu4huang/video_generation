@@ -36,7 +36,7 @@ export type NumericField =
 
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
-	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file"
+	| "vault" | "vaultDir" | "folder" | "out" | "type" | "pages" | "file" | "tree"
 	| "extract" | "note" | "lang"
 	| "vlmModel" | "source" | "sourceLabel"
 	| "tags" | "excludeFromKb" | "excludeIds"
@@ -106,6 +106,11 @@ const ZK_CARD_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 const ZK_INGEST_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--source", field: "source" },
 	{ flag: "--source-label", field: "sourceLabel" },
+];
+
+// ── resource tier (resource-ingest / resource-query) — tree discriminator ───
+const RESOURCE_VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	{ flag: "--tree", field: "tree" }, // filter/scope by tree slug (default: basename of the ingested root)
 ];
 
 // ── zk-query — graph-health filters ─────────────────────────────────────────
@@ -185,6 +190,7 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...KNOWLEDGE_VALUE_FLAGS,
 	...ZK_CARD_VALUE_FLAGS,
 	...ZK_INGEST_VALUE_FLAGS,
+	...RESOURCE_VALUE_FLAGS,
 	...ZK_QUERY_VALUE_FLAGS,
 	...VLM_VALUE_FLAGS,
 	...PDF_VALUE_FLAGS,

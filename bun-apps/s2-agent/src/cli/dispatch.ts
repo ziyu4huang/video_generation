@@ -33,6 +33,8 @@ import { zkCardCommand } from "./commands/zk-card.ts";
 import { zkAskCommand } from "./commands/zk-ask.ts";
 import { zkIngestCommand } from "./commands/zk-ingest.ts";
 import { zkQueryCommand } from "./commands/zk-query.ts";
+import { resourceIngestCommand } from "./commands/resource-ingest.ts";
+import { resourceQueryCommand } from "./commands/resource-query.ts";
 import { file2mdCommand } from "./commands/file2md.ts";
 import { pdfToVaultCommand } from "./commands/pdf-to-vault.ts";
 import { imageToVaultCommand } from "./commands/image-to-vault.ts";
@@ -56,7 +58,7 @@ import { runPassthrough } from "./sessions/passthrough.ts";
 import { bakedProviderConfigs } from "../pre-load-providers.ts";
 import { publishSeam } from "@repo/s2-agent-core-interface";
 
-const VERSION = "0.7.11";
+const VERSION = "0.7.12";
 
 /** A top-level agent/meta command. Exported for extensions/registry.ts. */
 export interface Command {
@@ -79,6 +81,8 @@ const COMMANDS: Command[] = [
   zkAskCommand,
   zkIngestCommand,
   zkQueryCommand,
+  resourceIngestCommand,
+  resourceQueryCommand,
   doctorCommand,
   toolsMetricsCommand,
   agentTrendsCommand,

@@ -68,6 +68,8 @@ export interface ParsedArgs {
 	/** vault resolution (obsidian) */
 	vault?: string;
 	vaultDir?: string;
+	/** resource tier: tree discriminator slug (resource-ingest / resource-query) */
+	tree?: string;
 	/** Extension file paths accepted by --extension/-e (source mode only). */
 	extensionPaths: string[];
 	/** zettelkasten target folder (distill) */
