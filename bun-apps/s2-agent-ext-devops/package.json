@@ -36,6 +36,7 @@
     "devops-prepare-feature-branch": "./src/prepare-feature-branch-cli.ts",
     "devops-verify-merge": "./src/verify-merge-cli.ts",
     "devops-verify-deploy-e2e": "./src/verify-deploy-e2e-cli.ts",
+    "devops-session-doctor": "./src/session-doctor-cli.ts",
     "devops-bump-version": "./src/version-bump-cli.ts"
   },
   "scripts": {
