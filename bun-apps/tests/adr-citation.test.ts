@@ -46,11 +46,13 @@ const ROOT = resolve(BUN_APPS, ".."); // repo root — ADRs are cited from docs/
 
 /** Never descend into these. `.pi` is runtime state (sessions, subagent
  * worktrees) — a concurrent session's worktree duplicates every ADR file and
- * red-flagged this guard on 2026-08-22 while its PR's own CI ran. */
+ * red-flagged this guard on 2026-08-22 while its PR's own CI ran. `worktrees`
+ * is the same class for the claude-code harness: a stale session worktree under
+ * `.claude/worktrees/` re-flagged it on 2026-08-24. */
 const SKIP_DIRS = new Set([
 	"node_modules", ".git", "venv", "dist", "build", "mlx-models",
 	"__fixtures__", "coverage", ".planning", "vaults_root", ".agents", "output",
-	".pi",
+	".pi", "worktrees",
 ]);
 
 // ─── ADR discovery ──────────────────────────────────────────────────────────

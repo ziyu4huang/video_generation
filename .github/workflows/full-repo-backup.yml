@@ -1,0 +1,46 @@
+# Daily full-repo backup: real clone (complete .git — all history, branches, tags)
+# packaged as a single .tar.gz, uploaded as a run artifact.
+#
+# Download: Actions tab → "full-repo backup" run → Artifacts → video_generation-full-<date>.tar.gz
+# Restore:  tar -xzf video_generation-full-*.tar.gz && cd video_generation
+#           (it's a normal clone: `git log` spans full history, `git branch -r` has every branch)
+#
+# WHY: the repo's "Download ZIP" / source-code tar.gz GitHub links are working-tree snapshots
+# (git-archive style) that strip `.git` by design. This workflow clones instead, then tars
+# the clone dir — plain `tar` includes `.git`; only `git archive`/`--exclude-vcs` would strip it.
+#
+# CAVEAT: run artifacts expire (retention-days below; capped by repo settings). For permanent
+# backups, replace the upload step with one that attaches the tarball to a GitHub Release.
+name: full-repo-backup
+
+on:
+  schedule:
+    # Daily 03:41 UTC (= 11:41 CST). Off the :00/:30 marks; GitHub schedules can fire ~15 min late.
+    - cron: '41 3 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      # GITHUB_TOKEN (auto-injected as $GITHUB_TOKEN) keeps this working if the repo goes private.
+      - name: Full clone (all history + .git)
+        run: |
+          git clone --quiet \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            video_generation
+      - name: Package into .tar.gz
+        run: |
+          mkdir -p dist
+          tar -czf "dist/video_generation-full-$(date -u +%Y%m%d)-$(git -C video_generation rev-parse --short HEAD).tar.gz" \
+            video_generation
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-repo-backup
+          path: dist/*.tar.gz
+          retention-days: 30
