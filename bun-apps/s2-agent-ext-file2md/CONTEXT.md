@@ -51,7 +51,7 @@ pdfium (vendored wasm) renders a PDF page to raw BGRA; our pure-TS encoders (`sr
 _Avoid_: render (it is specifically PDF-page rasterization for OCR/vision)
 
 **OCR**:
-The in-process tesseract-wasm engine (robertknight/tesseract-wasm, low-level `OCREngine`, no worker_threads) with raw tessdata_fast eng/chi_sim `.traineddata` vendored beside the package (symlinked into the external binary store) — offline, no network, no Swift Vision CLI. Decode layer: pngjs (PNG) / jpeg-js (JPEG) / our own 24-bit BMP decoder (`src/raster/rgba.ts`) → RGBA. Degrades to `undefined`-and-notice on failure.
+The in-process tesseract-wasm engine (robertknight/tesseract-wasm, low-level `OCREngine`, no worker_threads) with eng/chi_sim `.traineddata.gz` from the `@tesseract.js-data` npm packages (tessdata 4.0.0 best-int; gunzipped in-process, cached) — everything installs via `bun install`, no external store, no web at runtime; `FILE2MD_OCR_LANG_PATH` overrides with a raw `.traineddata` dir. Offline, no network, no Swift Vision CLI. Decode layer: pngjs (PNG) / jpeg-js (JPEG) / our own 24-bit BMP decoder (`src/raster/rgba.ts`) → RGBA. Degrades to `undefined`-and-notice on failure.
 _Avoid_: Vision framework, OCR service
 
 **Vision-LLM subagent** (VLM, optional):

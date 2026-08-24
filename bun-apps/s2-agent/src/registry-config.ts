@@ -271,14 +271,14 @@ export const REGISTRY: RegistryEntry[] = [
     notes: [
       "v2 is bun-only (pdfjs text + vendored dsh-cowork office + pdfium wasm +",
       "tesseract-wasm OCR) with an optional local vision tier (LM Studio at",
-      "runtime, never shipped). OCR assets ride the deploy: copy/vendor fields:",
-      "the vendored lang data is copied (symlink-dereferenced) and the wasm core",
-      "ships verbatim under node_modules/tesseract-wasm (ADR-file2md-0001).",
+      "runtime, never shipped). OCR assets are all npm deps shipped via the",
+      "deploy vendor field: the lang data rides node_modules/@tesseract.js-data/*",
+      "and the wasm core under node_modules/tesseract-wasm (ADR-file2md-0001).",
+      "FILE2MD_OCR_LANG_PATH overrides the lang data at runtime.",
     ].join("\n"),
     deploy: {
       order: 85,
-      copy: ["vendored/ocr-assets"],
-      vendor: ["tesseract-wasm", "pdfjs-dist", "@hyzyla/pdfium"],
+      vendor: ["tesseract-wasm", "pdfjs-dist", "@hyzyla/pdfium", "@tesseract.js-data/eng", "@tesseract.js-data/chi_sim"],
     },
   },
   {

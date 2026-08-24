@@ -699,7 +699,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	// A REAL OCR run through the DEPLOYED bundle and the deployed vendored
 	// assets — no model, no agent loop (executeExtTool evaluates ext.cjs with
 	// the runtime loader; `#pi/ext-dir` serves the deployed ext dir so the
-	// wasm + copied traineddata resolve inside the frozen tree). A broken
+	// wasm + vendored npm lang data resolve inside the frozen tree). A broken
 	// asset layout fails here, not on a user machine.
 	if (!enabled.includes("file2md")) {
 		probes.push({ id: "file2md-ocr", verdict: "skip", ms: 0, note: "file2md not in deploy set" });

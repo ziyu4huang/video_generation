@@ -4,15 +4,18 @@
  *
  * Replaces v1's macOS-Vision Swift CLI and v2's tesseract.js worker: the
  * in-process low-level `OCREngine` (no worker_threads, no runtime network —
- * the wasm core + lang data come off disk). Lang data (eng/chi_sim,
- * tessdata_fast) is vendored beside the package as raw `.traineddata`
- * symlinks into the external binary store. Every failure degrades to
- * `undefined` with an explicit stderr note (never throws), mirroring v1's
- * degrade-not-fail contract. Heremes-memory consumes `OcrResult`.
+ * the wasm core + lang data come off disk). The wasm core is the npm
+ * tesseract-wasm package's `dist/tesseract-core.wasm`; lang data (eng/chi_sim)
+ * ships as gzipped `.traineddata` inside the `@tesseract.js-data` npm packages
+ * (tessdata 4.0.0 best-int), gunzipped in-process and cached per part.
+ * `FILE2MD_OCR_LANG_PATH` overrides with a raw `.traineddata` dir. Every
+ * failure degrades to `undefined` with an explicit stderr note (never throws),
+ * mirroring v1's degrade-not-fail contract. hermes-memory consumes `OcrResult`.
  */
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { createOCREngine, type OCREngine } from "tesseract-wasm";
 import { decodeImageToRgba } from "../image/decode-image.ts";
 import { rasterPage } from "../raster/pdf.ts";
@@ -25,34 +28,28 @@ export interface OcrResult {
   format: string;
 }
 
+/** In-npm data subdir: tessdata 4.0.0 best-int (tesseract.js's integerized production set). */
+const LANG_GZ_DIR = "4.0.0_best_int";
+
+/** lang `.traineddata.gz` path inside one of the `@tesseract.js-data` npm packages. */
+const LANG_NPM_PACKAGES: Record<string, string> = { eng: "eng", chi_sim: "chi_sim" };
+
 /**
- * Resolve the package root WITHOUT `import.meta.url` — the deploy bundle is
- * compiled to ext.cjs where import.meta bakes the build-machine path (the
- * ADR-file2md-0001 relocatability rule). Two specifier-based anchors:
- *   1. Deploy tree: `require("#pi/ext-dir")` — served by the loader's
- *      injected require (s2-agent/src/sh/ext-loader.ts) as the ext dir.
- *   2. Dev tree: the workspace self-link via bun's global `require`.
+ * Map a lang part to its npm-shipped `.traineddata.gz` path. Resolved by
+ * specifier (template, non-literal — a literal would be inlined to the
+ * build-machine path by the bundler): dev — workspace node_modules; deploy —
+ * the vendored copy at `<extDir>/node_modules/@tesseract.js-data/<part>/`.
  */
-function resolvePackageRoot(): string | undefined {
+export function npmLangPath(part: string): string | undefined {
+  const pkg = LANG_NPM_PACKAGES[part];
+  if (pkg === undefined) return undefined;
   try {
-    return require("#pi/ext-dir") as string;
-  } catch {
-    /* dev tree — fall through */
-  }
-  // Non-literal specifier: a literal would be inlined to the build-machine
-  // path by the bundler (the exact bake the detector guards).
-  const SELF = "@repo/s2-agent-ext-file2md/package.json";
-  try {
-    return dirname(require.resolve(SELF));
+    const pkgRoot = dirname(require.resolve(`@tesseract.js-data/${pkg}/package.json`));
+    return join(pkgRoot, LANG_GZ_DIR, `${part}.traineddata.gz`);
   } catch {
     return undefined;
   }
 }
-
-const PKG_ROOT = resolvePackageRoot();
-
-/** Engine-default language dir — vendored assets beside the package (deploy: copy). */
-export const DEFAULT_LANG_PATH = PKG_ROOT ? join(PKG_ROOT, "vendored", "ocr-assets", "lang") : "";
 
 /**
  * The wasm core's path in the vendored tesseract-wasm package. Resolved by
@@ -83,6 +80,9 @@ async function loadWasmBinary(): Promise<Uint8Array | undefined> {
 /** wasm binary cache (1.8 MB fs read — load once per process). */
 let wasmBinaryCache: Uint8Array | undefined;
 
+/** gunzipped lang `.traineddata` cache per part (load once per process). */
+const langDataCache = new Map<string, Uint8Array>();
+
 /** Normalize "en+chi_sim" etc.; only ship what we vendored. */
 export function normalizeOcrLang(lang: string | undefined): string {
   const parts = (lang ?? "en")
@@ -104,12 +104,31 @@ export function normalizeOcrLang(lang: string | undefined): string {
 export class OcrSession {
   private engine: OCREngine | undefined;
   private lang: string;
-  private langPath: string;
-  constructor(lang: string, langPath = DEFAULT_LANG_PATH) {
+  private langPath: string | undefined;
+  constructor(lang: string, langPath?: string) {
     // Engine models are raw `lang.traineddata` files — normalize aliases
-    // here so a caller passing "en" gets the vendored "eng" file, not ENOENT.
+    // here so a caller passing "en" gets the "eng" model, not ENOENT.
     this.lang = normalizeOcrLang(lang);
     this.langPath = langPath;
+  }
+
+  /**
+   * Model bytes for one lang part. Order: explicit langPath (raw dir) →
+   * `FILE2MD_OCR_LANG_PATH` (raw dir) → the npm `.traineddata.gz` (gunzipped,
+   * cached per part). Throws when nothing is resolvable; init catches.
+   */
+  private loadModelBytes(part: string): Uint8Array {
+    const rawDir = this.langPath ?? (process.env.FILE2MD_OCR_LANG_PATH?.trim() || undefined);
+    if (rawDir !== undefined) return readFileSync(join(rawDir, `${part}.traineddata`));
+    const cached = langDataCache.get(part);
+    if (cached !== undefined) return cached;
+    const gzPath = npmLangPath(part);
+    if (gzPath === undefined) {
+      throw new Error(`lang data "${part}" not found (@tesseract.js-data/${part} not installed)`);
+    }
+    const bytes = gunzipSync(readFileSync(gzPath));
+    langDataCache.set(part, bytes);
+    return bytes;
   }
 
   async init(): Promise<boolean> {
@@ -120,11 +139,10 @@ export class OcrSession {
         if (wasmBinaryCache === undefined) throw new Error("tesseract-wasm core not found (vendored package missing)");
       }
       const engine = await createOCREngine({ wasmBinary: wasmBinaryCache });
-      // Load one raw `.traineddata` per lang part ("eng+chi_sim" → 2 loads).
+      // Load one `.traineddata` per lang part ("eng+chi_sim" → 2 loads).
       let loaded = false;
       for (const part of this.lang.split("+")) {
-        const model = readFileSync(join(this.langPath, `${part}.traineddata`));
-        engine.loadModel(model);
+        engine.loadModel(this.loadModelBytes(part));
         loaded = true;
       }
       if (!loaded) throw new Error(`no model loaded for "${this.lang}"`);

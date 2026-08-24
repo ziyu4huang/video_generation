@@ -57,3 +57,33 @@ model-tier config) is an optional layer behind `mode: vlm`, never a prerequisite
   replace the earlier `.traineddata.gz` + gunzip-cache convention.
 - **Heavier bundle** (~4.5 MB thin) — accepted: the package is excluded from the
   portable tree; the weight buys full local document coverage.
+
+## Amendment 2026-08-24 — OCR lang data source: external store → npm
+
+Every runtime asset is now npm-sourced so `bun install` alone covers a
+network-limited host (no external binary store, no web fetch at runtime).
+`tesseract-wasm`'s `dist/tesseract-core.wasm` and `@hyzyla/pdfium`'s
+`pdfium.wasm` already shipped inside their npm tarballs; the remaining gap was
+lang data:
+
+- **Old**: git-tracked symlinks `vendored/ocr-assets/lang/{eng,chi_sim}`
+  → `../video_generation__models/file2md-ocr-assets/lang/` (raw
+  tessdata_fast@main). Machine-bound absolute paths — dangled on any other
+  host, and `vendored/` could not hold real files (2 MB git hook).
+- **New**: `@tesseract.js-data/eng@1.0.0` + `@tesseract.js-data/chi_sim@1.0.0`
+  (npm, MIT wrapper; traineddata from tesseract-ocr/tessdata, Apache-2.0);
+  pinned exact. `src/ocr/ocr.ts` resolves the gz via
+  `require.resolve("@tesseract.js-data/<part>/package.json")` →
+  `4.0.0_best_int/<part>.traineddata.gz`, gunzips in-process, caches per part.
+- **Model set deliberately swaps**: tessdata_fast@main → tessdata 4.0.0
+  best-int (tesseract.js's default integerized set; eng ~5.2 MB / chi_sim
+  ~2.5 MB decompressed) — NOT byte-identical to the previous refs. Quality gate
+  = the live engine tests + the deploy-e2e `file2md-ocr` probe. Fallback pin if
+  a regression shows up: `4.0.0/` (standard).
+- **`FILE2MD_OCR_LANG_PATH` was doc-only and is now implemented**: raw
+  `.traineddata` dir override (external-store / custom copies still work).
+- The old ".traineddata.gz + gunzip-cache" convention is intentionally
+  reinstated (npm ships gz), superseding the raw-file convention of the base
+  decision.
+- Deploy: `registry-config.ts` file2md entry drops `copy: ["vendored/ocr-assets"]`
+  and adds both `@tesseract.js-data` packages to `vendor:`.

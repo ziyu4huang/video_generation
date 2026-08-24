@@ -9,7 +9,7 @@ input bytes
   ├─ pdf: openPdf()        pure TS pdfjs text layer, lazy per page                [src/core/pdf-text.ts]
   │        │ page text < 8 chars → scan
   │        ├─ rasterPage() pdfium wasm → BGRA → BMP/PNG (pure encoders)           [src/raster/]
-  │        │        │ mode ocr | auto → tesseract wasm OCR (lang data vendored)  [src/ocr/ocr.ts]
+  │        │        │ mode ocr | auto → tesseract wasm OCR (lang data from npm) [src/ocr/ocr.ts]
   │        │        │ mode vlm    → explainPage() vision-LLM (optional, degrade to OCR)
   │        │        │ mode smart  → figure page? → vision enhance (append
   │        │        │               ## Figure (vision); flag w/o server)         [src/core/figure.ts]

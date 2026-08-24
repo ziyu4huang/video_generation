@@ -5,8 +5,8 @@ IPYNB, and text files** into structured Markdown a pure-text agent can read —
 **entirely bun-only** (no native modules, no macOS toolchain, no Swift, no Python):
 
 - **PDF text layer** — pdfjs-dist, pure TS.
-- **Scanned PDFs / images** — vendored pdfium wasm (page raster) + vendored
-  tesseract wasm (OCR; eng + chi_sim bundled, fully offline).
+- **Scanned PDFs / images** — pdfium wasm (page raster) + tesseract wasm (OCR;
+  eng + chi_sim language data as npm deps, fully offline).
 - **Office / notebooks** — a vendored `@dsh-cowork/core@0.1.0` snapshot (MIT,
   the user's own project): bounded windows, stable cell/slide addresses,
   zip-bomb + macro rejection, explicit truncation notices.
@@ -33,15 +33,13 @@ pdf2image rasterization, Swift Vision OCR. See
 - Bun (the whole pipeline runs under Bun; nothing else).
 - LM Studio serving a vision model at `http://localhost:1234/v1` **only** for
   `mode: vlm` (configured via the model-tier config, `PI_MODEL` legacy alias).
-- OCR language data (eng/chi_sim, raw tessdata_fast `.traineddata`) lives in
-  the repo's external binary store
-  (`../video_generation__models/file2md-ocr-assets/lang/`, the mlx-models
-  convention — the 2MB git hook rejects binary blobs, so the lang files are
-  **symlinked** into `vendored/ocr-assets/lang/`). On a machine without the
-  store, OCR degrades with a notice; `FILE2MD_OCR_LANG_PATH` points anywhere
-  the two `.traineddata` files exist. Delete the symlinks and copy real files
-  from [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) if you
-  need a self-contained copy.
+- OCR language data (eng/chi_sim) ships as npm deps
+  (`@tesseract.js-data/eng` + `@tesseract.js-data/chi_sim`, tessdata 4.0.0
+  best-int `.traineddata.gz`, gunzipped in-process) — `bun install` covers it,
+  no external binary store, no web access at runtime.
+  `FILE2MD_OCR_LANG_PATH` overrides with any directory holding raw
+  `<lang>.traineddata` files (e.g. a self-contained tessdata_fast copy).
+  Without the packages, OCR degrades with a notice.
 
 ## Examples
 
@@ -74,6 +72,7 @@ self-verify runs the real registration path against the built artifact.
 ## Deploy note
 
 The extension **ships in the portable s2-agent-sh deploy** (registry entry
-`file2md`, order 85 — vendored OCR assets via `copy:`/`vendor:`). Deploy
-membership and its reasons live in `bun-apps/s2-agent/src/registry-config.ts`,
-the sole source of truth.
+`file2md`, order 85 — OCR assets ride `vendor:` npm packages: lang data under
+`node_modules/@tesseract.js-data/*`, wasm under `node_modules/tesseract-wasm`).
+Deploy membership and its reasons live in
+`bun-apps/s2-agent/src/registry-config.ts`, the sole source of truth.
