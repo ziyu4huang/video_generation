@@ -22,10 +22,11 @@ function runScript(
   versionArg?: string,
 ): { stdout: string; stderr: string; status: number | null } {
   const args = [join(pkg, "scripts/update-superpowers.ts"), ...(versionArg !== undefined ? [versionArg] : [])];
-  const r = spawnSync(process.execPath, args, {
-    cwd: pkg,
-    env: { ...process.env, CLAUDE_PLUGINS_CACHE: cache },
-  });
+  // Scrub FORCE_COLOR: a set shell var makes bun ANSI-wrap piped output,
+  // falsifying these golden-exact stdout/stderr assertions (NO_COLOR cannot win).
+  const env = { ...process.env, CLAUDE_PLUGINS_CACHE: cache };
+  delete env.FORCE_COLOR;
+  const r = spawnSync(process.execPath, args, { cwd: pkg, env });
   return { stdout: r.stdout.toString(), stderr: r.stderr.toString(), status: r.status };
 }
 

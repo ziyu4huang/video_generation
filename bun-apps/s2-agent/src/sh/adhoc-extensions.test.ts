@@ -6,6 +6,18 @@ import { extractAdHocExtensionArgs, loadAdHocExtensions } from "./adhoc-extensio
 import { hostRequire } from "./host-modules.ts";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 
+/**
+ * Children must see the plain-text world: a FORCE_COLOR'd shell makes bun
+ * color piped stdout (numbers get ANSI-wrapped, e.g. `\x1b[0m\x1b[33m2\x1b[0m`),
+ * falsifying exact-output assertions below. NO_COLOR cannot win against
+ * FORCE_COLOR, so drop the variable for the subprocesses.
+ */
+function plainEnv(): Record<string, string | undefined> {
+  const env = { ...process.env };
+  delete env.FORCE_COLOR;
+  return env;
+}
+
 /** Call an ad-hoc factory with a dummy pi — the factories are opaque here. */
 function call(factory: ExtensionFactory, ...args: unknown[]): unknown {
 	return (factory as (...a: unknown[]) => unknown)(...args);
@@ -99,7 +111,7 @@ describe("loadAdHocExtensions", () => {
 const r = await loadAdHocExtensions([${JSON.stringify(f)}]);
 if (r.skipped.length) { console.error(r.skipped[0]!.reason); process.exit(1); }
 console.log((r.factories[0]!.factory as (...a: unknown[]) => unknown)());`;
-		const child = Bun.spawnSync([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe" });
+		const child = Bun.spawnSync([process.execPath, "-e", script], { stdout: "pipe", stderr: "pipe", env: plainEnv() });
 		expect(child.exitCode, child.stderr.toString()).toBe(0);
 		expect(child.stdout.toString().trim()).toBe("1337");
 	}, 30_000);
@@ -120,6 +132,7 @@ console.log((r.factories[0]!.factory as (...a: unknown[]) => unknown)());`;
 		const child = Bun.spawnSync([process.execPath, "-e", `const m = await import(${JSON.stringify(native)}); console.log(m.default);`], {
 			stdout: "pipe",
 			stderr: "pipe",
+			env: plainEnv(),
 		});
 		expect(child.exitCode, child.stderr.toString()).toBe(0);
 		expect(child.stdout.toString().trim()).toBe("2");

@@ -27,12 +27,24 @@ declare module "tesseract-wasm" {
     height: number;
   }
 
+  /** One text-recognition result item (per word/line box). */
+  export interface TextItem {
+    rect: { left: number; top: number; right: number; bottom: number };
+    /** Combination of layout flags; unused by file2md. */
+    flags: number;
+    /** Confidence score for this word in [0, 1]. */
+    confidence: number;
+    text: string;
+  }
+
   export class OCREngine {
     destroy(): void;
     loadModel(model: Uint8Array | ArrayBuffer): void;
     loadImage(image: OcrEngineImage): void;
     clearImage(): void;
     getText(onProgress?: (progress: number) => void): string;
+    /** Layout analysis + text recognition; text boxes for a given unit ("line" | "word"). */
+    getTextBoxes(unit: "line" | "word"): TextItem[];
   }
 
   export function createOCREngine(opts?: { wasmBinary?: Uint8Array; progressChannel?: unknown }): Promise<OCREngine>;
