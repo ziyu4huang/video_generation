@@ -10,6 +10,11 @@
  * extension entry).
  */
 export { wireWebui } from "./webui-wiring.js";
+export { chromeLikelyAvailable, makeWebuiTool } from "./webui-tool.js";
+export type {
+  WebuiAuditFinding,
+  WebuiAuditState,
+} from "./webui-tool.js";
 export type {
   HitlResponse,
   RenderHostEvents,

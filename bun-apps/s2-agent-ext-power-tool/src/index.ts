@@ -24,7 +24,6 @@ import { makeInspectExtensionsTool } from "./tools/inspect-extensions.js";
 import { makeInspectHooksTool } from "./tools/inspect-hooks.js";
 import { makeInspectTuiTool } from "./tools/inspect-tui.js";
 import { makeBrowserTool } from "./tools/browser-tool.js";
-import { makeWebuiTool } from "./tools/webui-tool.js";
 import {
   makeInspectPathologyTool,
   recordCallStart,
@@ -62,7 +61,6 @@ export {
 } from "./tools/inspect-extensions.js";
 export { makeInspectTuiTool } from "./tools/inspect-tui.js";
 export { makeBrowserTool } from "./tools/browser-tool.js";
-export { makeWebuiTool } from "./tools/webui-tool.js";
 
 // ─── Tool inventory ───────────────────────────────────────────────────────────
 
@@ -78,7 +76,6 @@ const TOOL_FACTORIES: ((getAllTools: () => ToolInfo[]) => { name: string })[] = 
   makeInspectTuiTool,
   makeInspectPathologyTool,
   makeBrowserTool,
-  makeWebuiTool,
 ];
 
 /**

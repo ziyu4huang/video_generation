@@ -50,7 +50,7 @@
     },
     "s2-agent": {
       "name": "@repo/s2-agent",
-      "version": "0.7.4",
+      "version": "0.7.12",
       "bin": {
         "s2-agent": "src/cli.ts",
       },
@@ -607,6 +607,7 @@
         "@earendil-works/pi-ai": "0.84.2",
         "@earendil-works/pi-coding-agent": "0.84.2",
         "marked": "^15",
+        "playwright-core": "1.62.0-alpha-1783623505000",
       },
       "devDependencies": {
         "@repo/s2-agent-core-interface": "workspace:*",

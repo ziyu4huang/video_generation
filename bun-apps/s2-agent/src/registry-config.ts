@@ -326,7 +326,7 @@ export const REGISTRY: RegistryEntry[] = [
     skills: true,
     enabled: true,
     notes: [
-      "power-tool pulls playwright-core (browser/webui tools). It is VENDORED,",
+      "power-tool pulls playwright-core (the browser tool). It is VENDORED,",
       "not bundled: bun's cjs output rewrites __dirname to the path the file had",
       "on the BUILD MACHINE, and playwright-core locates its own resources that",
       "way — bundling it baked ~/.bun/install/cache/... into the deploy and made",
@@ -356,8 +356,9 @@ export const REGISTRY: RegistryEntry[] = [
     excludeReason: "local-operator browser UI; no operator on the portable target",
     notes: [
       "Pure code: the HTML shell is a single inline string constant; Bun.serve",
-      "WS works in the compiled binary. webui-audit skill lives HERE (moved from",
-      "power-tool — the audit drives the webui's own surface).",
+      "WS works in the compiled binary. webui-audit skill + the `webui` audit",
+      "TOOL live HERE (both moved from power-tool — the audit drives the",
+      "webui's own surface; user directive 2026-08-25).",
       "",
       "EXCLUDED FROM DEPLOY (user decision 2026-08-24): the browser UI serves a",
       "local operator at a desk; the portable tree has no operator to point at",

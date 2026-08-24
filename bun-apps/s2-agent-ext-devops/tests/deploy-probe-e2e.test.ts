@@ -186,9 +186,14 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		// power-tool's diagnostic surface + task's tools. Names, not counts: a
 		// count assertion goes green when one extension gains a tool and another
 		// silently stops loading.
-		for (const t of ["inspect_tui", "inspect_extensions", "inspect_context", "inspect_hooks", "browser", "webui"]) {
+		for (const t of ["inspect_tui", "inspect_extensions", "inspect_context", "inspect_hooks", "browser"]) {
 			expect(toolPath.get(t), `tool ${t} missing`).toBe("<inline:power-tool>");
 		}
+		// The `webui` audit tool moved to s2-agent-ext-webui (2026-08-25), which
+		// is deploy-EXCLUDED — so the deployed binary must NOT register it. The
+		// negative assertion pins the decouple: if webui ever ships again, this
+		// goes red and the expected-list above regains it.
+		expect(toolPath.get("webui"), "webui tool unexpectedly deployed").toBeUndefined();
 		for (const t of ["todo", "ask_user_question"]) {
 			expect(toolPath.get(t), `tool ${t} missing`).toBe("<inline:task>");
 		}

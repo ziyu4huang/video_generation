@@ -33,7 +33,7 @@ import type { Browser, BrowserContext, Page } from "playwright-core";
 import { actModeHint, compressSnapshot, diffSnapshots, filterInteractive, filterReadable } from "./snapshot-compress.js";
 
 // Register the gate family in the shared registry at module load: browsing is
-// on-demand (webui debugging, page inspection), so the tool stays dormant
+// on-demand (UI debugging, page inspection), so the tool stays dormant
 // behind keyword gating instead of riding along with the always-on inspect_*
 // diagnostics (which are `core: true` because you need them when things break).
 GATE_DEFS["power_browser"] = {

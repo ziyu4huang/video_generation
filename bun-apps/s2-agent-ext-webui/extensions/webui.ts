@@ -17,6 +17,7 @@
  * frames it still acts on are appexec (HITL respond/cancel) + btw/view traffic.
  */
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { makeWebuiTool } from "../src/webui-tool.js";
 import { wireWebui, type WebuiHost } from "../src/webui-wiring.js";
 
 const extension: ExtensionFactory = (pi) => {
@@ -28,6 +29,12 @@ const extension: ExtensionFactory = (pi) => {
   // consumer reads its seam defensively, so disabling degrades features,
   // never crashes.
   if (process.env.BUN_PI_WEBUI === "0") return;
+  // The `webui` audit tool moved here from s2-agent-ext-power-tool (user
+  // directive 2026-08-25): it audits THIS package's server, so it registers
+  // with the server it audits. Name/params unchanged (session-compatible);
+  // rides this package's load shape (dynamic, source-mode) — where the webui
+  // exists, its auditor exists.
+  pi.registerTool(makeWebuiTool() as never);
   wireWebui(pi as unknown as WebuiHost);
 };
 
