@@ -74,6 +74,8 @@ Ticket 08 (hotness decay) is CLOSED (D37–D39 + build + D14 A/B, 2026-08-24). *
 - Tool-surface impact: does the FS read surface absorb/reshape `zk_ask`/`knowledge_query` (tool-gating contract + hermes seam consumers must be consulted)?
 - ~~Whether OpenViking's intent-analysis-free constraint (D5/D6) survives contact with multi-type memory~~ RESOLVED by D18 (ticket 04): the type is a caller-passed filter parameter, not an analyzer output.
 - Scale trigger from knowledge-pipeline D03 (>5k rels / >2k cards — already at 1925 cards) may force relation-index decisions earlier.
+- **Parallel ticket-08 branch not reconciled (2026-08-24)**: a parallel session built its own ticket 08 on old main (`kcard/ticket08-hotness-decay`, 8e30f468, "D37–D40", pushed ~02:42, NO PR opened). Its hotness core is SUPERSEDED by #1945 (this map's D37–D39 are canonical); its UNIQUE delta — index rebuild automation (`surreal-index.ts` +107, post-ingest rebuild) + a D40 decision + zk-query/zk-ingest touches — is NOT on main and was this effort's open fold-back. Rebase-and-reland the automation-only remainder on top of #1945 at the close-out, or drop it with a recorded reason if the freshness gate's degradation is judged enough. Second same-day parallel-collision (after the devops sync-timeout fix #1937/#1942).
+- **file2md VLM e2e hang (issue #1948, 2026-08-24)**: file2md's canonical `bun run test` hangs the whole suite after the 5s VLM test timeout — time/environment-dependent, out-of-diff, blocked PR #1945's merge gate 3× (merged via `--assume-ci-green` on the verified sha). Track in #1948; also flagged there: `bun test --isolate` exiting −1 mid-run may be under-counted by the local_ci matrix reporter.
 
 ## Cross-effort links
 
