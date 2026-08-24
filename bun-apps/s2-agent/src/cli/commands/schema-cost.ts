@@ -143,7 +143,13 @@ export async function collectExtensionToolCosts(
 // Empty today. The movie-director-cost prototype that once lived here was
 // deleted (2026-08-10): measuring an extension offline while it never loads is
 // what let a phantom `cost` gate inflate savings by ~536 tok/req.
-const EXTRA_ENTRIES: { source: string; path: string }[] = [];
+const EXTRA_ENTRIES: { source: string; path: string }[] = [
+	// Registry-disabled 2026-08-24 (default-off in dev + deploy after the
+	// #1946 half-fix incident) — no longer in run-dir/manifest.json, but its
+	// schema mass stays measured while the package exists so a re-enable
+	// decision has current numbers (the canary row CLAUDE.md describes).
+	{ source: "tool-gate", path: "bun-apps/s2-agent-ext-tool-gate/extensions/tool-gate.ts" },
+];
 
 /**
  * Discover extension entry files by DERIVING them from s2-agent's

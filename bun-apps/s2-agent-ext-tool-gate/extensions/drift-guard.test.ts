@@ -52,6 +52,8 @@ import {
 	type MigratedExtension,
 	type ToolDef,
 } from "../qa/migrated-extensions.ts";
+import { BUILTIN_CORE } from "./tool-gate.ts";
+import { TOOLS_PROBE_CORE } from "../../s2-agent-ext-devops/src/tools-active-probe.ts";
 
 /**
  * Pure gating validator — the heart of the drift-guard. Throws on:
@@ -448,5 +450,18 @@ describe("drift-guard — reference form (gating:{gate:id})", () => {
 		GATE_DEFS["corex"] = { id: "corex", keywords: ["x"] };
 		const def = { name: "tool", gating: { core: true, gate: "corex" } } as ToolDef;
 		expect(() => validateGating(def)).not.toThrow();
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Probe core list (the #1946 CI net): s2-agent-ext-devops's tools-active-probe
+// hardcodes the core builtins it asserts ACTIVE, because the probe file it
+// writes for the deployed agent to load must import NOTHING. This guard pins
+// that literal against tool-gate's BUILTIN_CORE so the two can never drift —
+// a new builtin added here without the probe would silently ship unguarded.
+// ────────────────────────────────────────────────────────────────────
+describe("drift-guard — probe core list (the #1946 CI net)", () => {
+	test("BUILTIN_CORE (tool-gate) and TOOLS_PROBE_CORE (devops tools-active-probe) are the same set", () => {
+		expect([...BUILTIN_CORE].sort()).toEqual([...TOOLS_PROBE_CORE].sort());
 	});
 });

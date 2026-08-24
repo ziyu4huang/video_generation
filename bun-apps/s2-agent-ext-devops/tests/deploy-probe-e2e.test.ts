@@ -27,6 +27,7 @@ import { join } from "node:path";
 import { runShDeploy } from "../src/deploy/run.ts";
 import { parseShConfig } from "../src/deploy/lib/config.ts";
 import { freezeTree, rmTree, unfreezeTree } from "../src/deploy/lib/fs.ts";
+import { TOOLS_ACTIVE_PROBE, TOOLS_PROBE_CORE } from "../src/tools-active-probe.ts";
 
 const RUN = process.env.PI_AGENT_E2E === "1";
 const describeE2E = RUN ? describe : describe.skip;
@@ -251,6 +252,38 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 			goalActive: "function",
 			planPhases: "function",
 		});
+	}, 120_000);
+
+	test("the ACTIVE toolset keeps the core builtins at request time (the #1946 regression)", async () => {
+		// 2026-08-24, PR #1946: two deploys shipped with setActiveTools([]) —
+		// read/write/edit/bash gone from the provider request while --ext-list
+		// (registration) and even the model call stayed green. The probe reads
+		// pi.getActiveTools() at before_agent_start (deferred 250ms so every
+		// later-loaded handler — tool-gate is order 190 — has run); see
+		// src/tools-active-probe.ts for why an earlier read is a false green.
+		const r = await probe("probe-active-tools", TOOLS_ACTIVE_PROBE);
+		const p = payload(r, "[TOOLS]") as {
+			total: number;
+			activeCount: number;
+			active: string[];
+			missing: string[];
+			gateSeam: { activeCount: number; totalCount: number; coreCount: number } | null;
+			getActiveTools: boolean;
+			getError?: string;
+		};
+		expect(r.code).toBe(0);
+		expect(p.getError).toBeUndefined();
+		expect(p.getActiveTools).toBe(true);
+		expect(p.activeCount, `active toolset empty (0/${p.total}) — the #1946 wipe class`).toBeGreaterThan(0);
+		expect(p.missing, `core builtins missing from the active set: ${p.missing.join(", ")}`).toEqual([]);
+		for (const name of TOOLS_PROBE_CORE) {
+			expect(p.active, `core builtin '${name}' not in the active set`).toContain(name);
+		}
+		if (configuredNames.includes("tool-gate")) {
+			// tool-gate's own post-gate self-report — the seam the fix reads.
+			expect(p.gateSeam, "__piToolGateStatus seam absent with tool-gate loaded").not.toBeNull();
+			expect(p.gateSeam?.coreCount).toBeGreaterThanOrEqual(TOOLS_PROBE_CORE.length);
+		}
 	}, 120_000);
 
 	test("booting prints nothing on stderr", async () => {

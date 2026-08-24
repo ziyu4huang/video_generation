@@ -65,7 +65,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: every bin CLI spawns and
 });
 
 describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli end-to-end against a stub deploy", () => {
-	// A stub s2-agent.sh that answers all three probes offline — this exercises the
+	// A stub s2-agent.sh that answers all probes offline — this exercises the
 	// REAL CLI process: argv parse → deploy.json read → current resolve →
 	// three real child spawns → JSON serialization → exit code.
 	const root = mkdtempSync(join(tmpdir(), "deploy-e2e-spawn-"));
@@ -83,6 +83,8 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 				'case "$1" in',
 				"  --help) echo 'usage: stub'; exit 0;;",
 				"  --ext-list) echo '{\"loadedCount\":2,\"loaded\":[\"stub-a\",\"stub-b\"],\"skipped\":[]}'; exit 0;;",
+				// tools-probe: -e <path> -p hi — healthy active set, core intact
+				"  -e) echo '[TOOLS] {\"total\":66,\"matched\":2,\"activeCount\":26,\"active\":[\"read\",\"write\",\"edit\",\"bash\",\"enable_tool\"],\"missing\":[],\"gateSeam\":null,\"getActiveTools\":true}' >&2; exit 0;;",
 				"  -p) echo ok; exit 0;;",
 				"esac",
 				"exit 1",
@@ -107,6 +109,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 		expect(payload.probes.map((p: { id: string; verdict: string }) => `${p.id}:${p.verdict}`)).toEqual([
 			"boot:pass",
 			"ext-load:pass",
+			"tools-probe:pass",
 			"model-call:pass",
 			"file2md-ocr:skip",
 			"tool-gate-fire:skip",

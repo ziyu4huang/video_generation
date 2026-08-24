@@ -31,7 +31,25 @@ const toolGateExt = parseShConfig(
 ).extensions.find((e) => e.name === "tool-gate");
 
 function expectToolGateRow(): NonNullable<typeof toolGateExt> {
-	if (!toolGateExt) throw new Error("tool-gate missing from s2-agent.registry.yaml");
+	// Registry-disabled 2026-08-24 (default-off in dev + deploy after the
+	// #1946 half-fix incident) — synthesize the row so the BUNDLE contract
+	// (gates, fires, enable_tool, disable env) stays pinned while the package
+	// exists. The synthesized shape must mirror the commented-out registry
+	// entry exactly; re-enabling the entry makes the registry row win again.
+	if (!toolGateExt) {
+		return {
+			name: "tool-gate",
+			package: "s2-agent-ext-tool-gate",
+			entry: "extensions/tool-gate.ts",
+			order: 190,
+			skills: [],
+			copy: [],
+			vendor: [],
+			externals: [],
+			hostApi: HOST_API,
+			hostModules: [...HOST_MODULE_IDS],
+		} as NonNullable<typeof toolGateExt>;
+	}
 	return toolGateExt;
 }
 

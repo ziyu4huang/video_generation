@@ -234,8 +234,14 @@ describe("discoverExtensionEntries (manifest-error handling, audit I-7)", () => 
 	test("ENOENT (manifest absent, e.g. outside the repo) → extras only, no throw", () => {
 		const dir = mkdtempSync(join(tmpdir(), "sc-enonent-"));
 		tmpRoots.push(dir);
-		// no bun-apps/s2-agent/run-dir/manifest.json → ENOENT swallowed → extras only
-		expect(discoverExtensionEntries(dir)).toEqual([]);
+		// no bun-apps/s2-agent/run-dir/manifest.json → ENOENT swallowed → extras only.
+		// EXTRA_ENTRIES carry repo-relative paths resolved against the cwd — the
+		// rows are returned unfiltered (existence filtering would silently mask a
+		// typo'd extra), so a manifest-less root still lists them, dangling.
+		const r = discoverExtensionEntries(dir);
+		// Mirrors EXTRA_ENTRIES in schema-cost.ts (not exported — assert the
+		// source list so a new extra updates this test deliberately).
+		expect(r.map((e) => e.source)).toEqual(["tool-gate"]);
 	});
 
 	test("malformed manifest (exists but bad JSON) → throws, not a silent false-green", () => {
