@@ -20,10 +20,12 @@
 #                        reuse + keep:N pruning, and the zero-extension state.
 #   deploy-probe-e2e  the runtime: real sessions against the deployed binary.
 #   e2e-core-tool-    the L2 loop the 2026-08-24 #1946 incident demanded: a
-#     roundtrip        REAL model round trip (local qwen nothink, deepseek
-#                      fallback on >60s) that EXECUTES inspect_context and
-#                      writes inspect-context.md — verdict is the artifact's
-#                      content, so a toolless session can never pass.
+#     roundtrip        REAL model round trip (deepseek flash-vision — the ONLY
+#                      lane since the 2026-08-24 operator directive: no
+#                      LM Studio anywhere in E2E/CI) that EXECUTES
+#                      inspect_context and writes inspect-context.md — verdict
+#                      is the artifact's content, so a toolless session can
+#                      never pass.
 # Only the probe suite was wired in when this gate was written, so deploy-e2e
 # ran nowhere. It went stale on #1713 and outright red on #1738 — it asserted a
 # literal ["power-tool", "task"] while the base set grew to fourteen — and no
@@ -86,6 +88,12 @@ export ZAI_API_KEY="$GATE_ZAI_API_KEY"
 # Fill-gaps qualification: only default when the operator hasn't chosen a model.
 export PI_MODEL="${PI_MODEL:-zai/glm-5.3}"
 export PI_PROVIDER="${PI_PROVIDER:-zai}"
+# A test-time launcher must NEVER self-heal-install: check-deps.ts's
+# `bun install` at the workspace root, racing this gate's concurrent suites,
+# clobbered the isolated-linker forest mid-run (2026-08-24 — dangling
+# s2-agent/node_modules link, launcher died on missing @earendil-works/pi-tui).
+# The forest is managed by the operator/CI, not by a gate.
+export BUN_PI_AUTO_INSTALL="${BUN_PI_AUTO_INSTALL:-0}"
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

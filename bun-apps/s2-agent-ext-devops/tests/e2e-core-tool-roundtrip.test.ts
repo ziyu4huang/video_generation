@@ -10,8 +10,11 @@
  * bare model-call gate, because "Reply with exactly: ok" exercises no tool.
  * This suite closes the loop end-to-end through the DEV launcher:
  *
- *   1. local-LLM round trip  (LM Studio qwen3.8-27b-nothink — also pins the
- *      nothink model-id wiring: thinking-capable ids hang local generation)
+ *   1. model round trip       (deepseek/deepseek-v4-flash-vision-exp — the
+ *      ONLY lane since the 2026-08-24 operator directive: LM Studio is
+ *      banished from E2E/CI; under multi-model contention it generated at
+ *      10 tok/31.7s (measured 2026-08-23) and a 68-tool context pushed a
+ *      simple 3-in-1 past the 300s watchdog — the run-too-long class)
  *   2. tool execution        (inspect_context — power-tool's seam reader)
  *   3. file write            (the pi `write` builtin — the exact capability
  *      the #1946 class removed)
@@ -20,13 +23,9 @@
  * tmp cwd whose CONTENT carries inspect_context's stable section markers.
  * Marker-based, never exact-text — model prose varies, section headers do not.
  *
- * FALLBACK (measured, not guessed): if the primary model is absent from the
- * endpoint, or its run exceeds 60s (the operator's too-slow threshold — LM
- * Studio under multi-model contention generates at 10 tok/31.7s, measured
- * 2026-08-23), the run is killed and retried once with
- * deepseek/deepseek-v4-flash-vision-exp (cap 180s). A provider/auth failure on
- * the fallback is a SKIP (classifyRun semantics — same contract as deploy-e2e's
- * model-call probe), never a false FAIL.
+ * A provider/auth failure is a SKIP (classifyRun semantics — same contract as
+ * deploy-e2e's model-call probe), never a false FAIL; anything else that goes
+ * wrong (timeout, nonzero exit, missing/short/marker-less artifact) FAILS.
  *
  * Gated on PI_AGENT_E2E like the other real-session suites; wired into
  * scripts/check-deploy-e2e.sh so local_ci's regression-gates lane runs it.
@@ -42,15 +41,42 @@ const describeE2E = RUN ? describe : describe.skip;
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..");
 const LAUNCHER = join(REPO_ROOT, "s2-agent.sh");
 
-const PRIMARY_MODEL = "qwen/qwen3.8-27b-nothink";
-/** The id LM Studio actually serves (nothink is pi's thinking-off variant). */
-const PRIMARY_SERVED_ID = "qwen/qwen3.8-27b";
-const FALLBACK_MODEL = "deepseek/deepseek-v4-flash-vision-exp";
-const PRIMARY_CAP_MS = 60_000; // the operator's too-slow threshold
-const FALLBACK_CAP_MS = 180_000;
+// AGENT-DIR ISOLATION (2026-08-24): a successful round trip makes the DEV
+// launcher write prompt-history under its per-user agent dir — the REAL
+// ~/.pi/agent unless redirected. deploy-probe-e2e (which runs CONCURRENTLY
+// inside this gate's single `bun test` invocation) snapshots the real
+// prompt-history root and fails on any dir added during its window, so an
+// unisolated successful run here is a flaky cross-suite failure AND a real
+// per-user write. Same fix as deploy-probe-e2e (2026-08-22): derive the
+// agent-dir env name from s2-agent's package.json — the binary reads
+// `S2-AGENT_CODING_AGENT_DIR` (DASH included) and IGNORES plain PI_*.
+const S2_AGENT_NAME = (
+	JSON.parse(readFileSync(join(REPO_ROOT, "bun-apps", "s2-agent", "package.json"), "utf8")) as {
+		piConfig: { name: string };
+	}
+).piConfig.name;
+const isolatedAgentDirEnv = (piHome: string): Record<string, string> => ({
+	PI_CODING_AGENT_DIR: piHome,
+	[`${S2_AGENT_NAME.toUpperCase()}_CODING_AGENT_DIR`]: piHome,
+});
 
+/** The ONLY lane (2026-08-24 operator directive): deepseek flash-vision — LM
+ * Studio is banished from E2E/CI entirely (multi-model contention generated at
+ * 10 tok/31.7s measured 2026-08-23, and a 68-tool context under it pushed a
+ * simple 3-in-1 past the 300s watchdog — the exact run-too-long class the
+ * directive targets). A provider/auth failure on this lane is a SKIP
+ * (classifyRun semantics), never a false FAIL. */
+const PRIMARY_MODEL = "deepseek/deepseek-v4-flash-vision-exp";
+const PRIMARY_CAP_MS = 90_000; // flash-vision completes the 3-in-1 well under 60s; 90s = slow-network headroom
+
+// Prompt shape matters (measured 2026-08-24): a bare "write its complete
+// output" occasionally made the model NARRATE the plan ("Now I'll write the
+// complete output to inspect-context.md …") and end the turn without ever
+// calling `write` — exit 0, no artifact. The explicit "call the write tool
+// FIRST / do not print the report in your reply" shape closes that mode, and
+// the one artifact-retry below absorbs the residual flake.
 const PROMPT =
-	"Run the inspect_context tool, then write its complete output to a file named inspect-context.md in the current working directory. Do not ask questions.";
+	"Run the inspect_context tool, then CALL the write tool to save its report to a file named inspect-context.md in the current working directory. Use the write tool in this turn — do not just describe what you will write. Do not print the whole report in your reply. Do not ask questions.";
 
 /** Stable section markers of inspect_context's report (src/tools/inspect-context.ts). */
 const CONTENT_MARKERS = ["Inspect Context", "Token budget", "System prompt text"];
@@ -66,9 +92,23 @@ interface RunResult {
 /** Spawn the dev launcher headless with a hard kill cap. */
 async function runOnce(model: string, capMs: number, cwd: string): Promise<RunResult> {
 	const t0 = Date.now();
+	// Isolated per-run agent dir: per-user writes (prompt-history) land in the
+	// run's tmp cwd tree, never the operator's ~/.pi (see AGENT-DIR ISOLATION
+	// above). Auth flows through env keys (DEEPSEEK_API_KEY / ZAI_API_KEY),
+	// the same contract check-deploy-e2e.sh guarantees for the probe suites.
 	const proc = Bun.spawn(["bash", LAUNCHER, "--model", model, "-p", PROMPT, "--no-session"], {
 		cwd,
-		env: { ...process.env },
+		env: {
+			...process.env,
+			...isolatedAgentDirEnv(join(cwd, "pi-home")),
+			// NEVER let a test-time launcher self-heal-install: check-deps.ts's
+			// `bun install` at the workspace root, racing the concurrent suites of
+			// this gate, is what clobbered the isolated-linker forest mid-run
+			// (2026-08-24: a dangling s2-agent/node_modules link + a 100%-CPU
+			// install spin). The forest is managed by the operator/CI, not by a
+			// test launcher.
+			BUN_PI_AUTO_INSTALL: "0",
+		},
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -99,19 +139,6 @@ function smellsLikeProviderFailure(r: RunResult): boolean {
 	return r.code !== 0 && !r.timedOut && r.ms <= 10_000 && /provider|api.?key|auth|no matching/i.test(text);
 }
 
-/** Is the primary model currently served? (3s bounded; endpoint down → false) */
-async function primaryServed(endpoint: string): Promise<boolean> {
-	try {
-		const res = await fetch(`${endpoint.replace(/\/+$/, "")}/v1/models`, { signal: AbortSignal.timeout(3_000) });
-		if (!res.ok) return false;
-		const body = (await res.json()) as { data?: Array<{ id?: unknown }> };
-		const ids = Array.isArray(body?.data) ? body.data.map((m) => String(m?.id ?? "")) : [];
-		return ids.includes(PRIMARY_SERVED_ID);
-	} catch {
-		return false;
-	}
-}
-
 function assertArtifact(cwd: string, r: RunResult, model: string): void {
 	const path = join(cwd, "inspect-context.md");
 	if (!existsSync(path)) {
@@ -127,39 +154,29 @@ function assertArtifact(cwd: string, r: RunResult, model: string): void {
 	}
 }
 
-describeE2E("core-tool roundtrip (local LLM → inspect_context → write)", () => {
-	test("3-in-1: nothink local model executes inspect_context and writes the report", async () => {
-		const endpoint = process.env.LMSTUDIO_BASE_URL ?? "http://127.0.0.1:1234";
+describeE2E("core-tool roundtrip (model → inspect_context → write)", () => {
+	test("3-in-1: deepseek flash-vision executes inspect_context and writes the report", async () => {
 		const cwd = mkdtempSync(join(tmpdir(), "e2e-write-"));
 		try {
-			// Primary lane: only when the model is actually served — an absent
-			// model must route to the fallback, never false-fail.
-			if (await primaryServed(endpoint)) {
-				const r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
-				if (!r.timedOut && r.code === 0) {
-					assertArtifact(cwd, r, PRIMARY_MODEL);
-					return; // GREEN via the local lane — the cheap path the operator wants
-				}
-				if (smellsLikeProviderFailure(r)) {
-					console.error(`[e2e-write] primary ${PRIMARY_MODEL} provider-failed in ${r.ms}ms — falling back`);
-				} else {
-					console.error(
-						`[e2e-write] primary ${PRIMARY_MODEL} too slow or failed (timedOut=${r.timedOut}, exit=${r.code}, ${r.ms}ms) — falling back to ${FALLBACK_MODEL}`,
-					);
-				}
-			} else {
-				console.error(`[e2e-write] ${PRIMARY_SERVED_ID} not served at ${endpoint} — going straight to fallback`);
+			let r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
+			// Artifact-retry (once): an exit-0 run that wrote nothing is the
+			// narrate-but-don't-write flake, not a tool failure — one immediate
+			// retry is far cheaper than a false FAIL.
+			if (!r.timedOut && r.code === 0 && !existsSync(join(cwd, "inspect-context.md"))) {
+				console.error(`[e2e-write] primary ${PRIMARY_MODEL} finished (${r.ms}ms) but wrote no artifact — retrying once`);
+				r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
 			}
-
-			// Fallback lane.
-			const f = await runOnce(FALLBACK_MODEL, FALLBACK_CAP_MS, cwd);
-			if (smellsLikeProviderFailure(f)) {
-				console.error(`[e2e-write] SKIP: fallback ${FALLBACK_MODEL} provider/auth failed: ${f.stderr.slice(0, 200)}`);
+			if (!r.timedOut && r.code === 0) {
+				assertArtifact(cwd, r, PRIMARY_MODEL);
+				return; // GREEN — the fast remote lane the operator wants
+			}
+			if (smellsLikeProviderFailure(r)) {
+				console.error(`[e2e-write] SKIP: ${PRIMARY_MODEL} provider/auth failed: ${r.stderr.slice(0, 200)}`);
 				return;
 			}
-			expect(f.timedOut, `fallback ${FALLBACK_MODEL} timed out after ${FALLBACK_CAP_MS}ms`).toBe(false);
-			expect(f.code, `fallback ${FALLBACK_MODEL} exited nonzero:\n${f.stderr.slice(-400)}`).toBe(0);
-			assertArtifact(cwd, f, FALLBACK_MODEL);
+			expect(r.timedOut, `${PRIMARY_MODEL} timed out after ${PRIMARY_CAP_MS}ms`).toBe(false);
+			expect(r.code, `${PRIMARY_MODEL} exited nonzero:\n${r.stderr.slice(-400)}`).toBe(0);
+			assertArtifact(cwd, r, PRIMARY_MODEL);
 		} finally {
 			rmSync(cwd, { recursive: true, force: true });
 		}

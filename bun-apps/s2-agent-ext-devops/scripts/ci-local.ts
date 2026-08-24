@@ -14,7 +14,6 @@
  * `sed -n '2,60p' "$0"`. Keep it in that form; the parity test derives its
  * golden from the old script's header by the naming substitutions.
  */
-import { spawnSync } from "node:child_process";
 import {
 	existsSync,
 	lstatSync,
@@ -93,6 +92,7 @@ const HELP = [
 	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --only a,b --list  # preview just that subset",
 	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates            # run the regression-gates job instead",
 	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates --list     # preview it",
+	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates --jobs 2   # overlap the heavy gates (see BEHAVIOR)",
 	"#",
 	"#   --tsv exists so OTHER tools can consume the ONE parser rather than growing a",
 	"#   second copy of the matrix — bun-apps/tests/ci-workflow-references.test.ts (the",
@@ -101,8 +101,26 @@ const HELP = [
 	"#   keep the plain form at exactly two fields: that IS the contract that guard",
 	"#   depends on. `--gates --tsv` is the separate three-field form.",
 	"#",
+	"# TIMEOUTS (2026-08-24 — the operator's controllability ask: no gate may hang",
+	"# the lane, and the whole gates run must fit a wall-clock budget)",
+	"#   --gate-timeout-ms <ms>  per-gate hard kill cap (default 240000). A gate",
+	"#                           that exceeds it FAILS as HUNG — a hang is a",
+	"#                           failure signal, never something to wait out.",
+	"#   --budget-ms <ms>        whole-run wall-clock budget (default 0 = off).",
+	"#                           When the clock crosses it, every remaining gate",
+	"#                           is SKIPPED (loudly, never silently) and the run",
+	"#                           EXITS 1 listing them — budget exhaustion is a",
+	"#                           FAIL, not a green.",
+	"#   --jobs <n>              gates-only parallelism (default 1). n workers",
+	"#                           pull gates; gates whose label matches the",
+	"#                           EXCLUSIVE set (deploy-tree mutations: the",
+	"#                           Deploy-sh L1 e2e builds and repoints deploy",
+	"#                           state) serialize among themselves while the",
+	"#                           read-only gates fill the lanes. The matrix run",
+	"#                           stays sequential regardless — matrix entries",
+	"#                           race s2-agent-ext-ultracode's shared dist/.",
 	"# BEHAVIOR",
-	"#   - Sequential (parallel runs race s2-agent-ext-ultracode's shared dist/)."
+	"#   - Matrix: sequential (parallel runs race s2-agent-ext-ultracode's shared dist/)."
 ].join("\n") + "\n";
 
 // ── colors (disabled when stdout isn't a TTY, for clean logs) ────────────────
@@ -138,7 +156,18 @@ let listOnly = false;
 let tsvOnly = false;
 let gates = false;
 let only = "";
+let jobs = 1;
+let gateTimeoutMs = 240_000;
+let budgetMs = 0;
 {
+	const intFlag = (name: string, value: string | undefined, min: number): number => {
+		const n = Number(value);
+		if (value === undefined || !Number.isInteger(n) || n < min) {
+			process.stdout.write(`${name} needs an integer ≥ ${min}\n`);
+			process.exit(2);
+		}
+		return n;
+	};
 	const argv = process.argv.slice(2);
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i]!;
@@ -148,6 +177,18 @@ let only = "";
 			tsvOnly = true;
 		} else if (a === "--gates") {
 			gates = true;
+		} else if (a === "--jobs") {
+			jobs = intFlag("--jobs", argv[++i], 1);
+		} else if (a.startsWith("--jobs=")) {
+			jobs = intFlag("--jobs", a.slice("--jobs=".length), 1);
+		} else if (a === "--gate-timeout-ms") {
+			gateTimeoutMs = intFlag("--gate-timeout-ms", argv[++i], 1000);
+		} else if (a.startsWith("--gate-timeout-ms=")) {
+			gateTimeoutMs = intFlag("--gate-timeout-ms", a.slice("--gate-timeout-ms=".length), 1000);
+		} else if (a === "--budget-ms") {
+			budgetMs = intFlag("--budget-ms", argv[++i], 1000);
+		} else if (a.startsWith("--budget-ms=")) {
+			budgetMs = intFlag("--budget-ms", a.slice("--budget-ms=".length), 1000);
 		} else if (a === "--only") {
 			only = argv[i + 1] ?? "";
 			// .sh: ONLY="${2-}"; [ -n "$ONLY" ] || { echo "…"; exit 2 } — a
@@ -173,6 +214,12 @@ let only = "";
 			process.exit(2);
 		}
 	}
+}
+// --jobs is a gates-lane lever only: the matrix run must stay sequential
+// (parallel matrix entries race s2-agent-ext-ultracode's shared dist/).
+if (jobs > 1 && !gates) {
+	process.stdout.write("--jobs > 1 applies to --gates only; the matrix run is sequential by contract\n");
+	process.exit(2);
 }
 if (gates && only !== "") {
 	process.stdout.write("--only filters matrix packages; it does not apply to --gates\n");
@@ -393,19 +440,33 @@ const RUN_START_MS = Date.now();
 
 const slug = (label: string): string => label.replace(/[^A-Za-z0-9._-]/g, "-").slice(0, 60);
 
-process.stdout.write(`${B("ci-local")} — CI ${sourceDesc}, run locally ${D(`(${total} entries, sequential, CI=true)`)}\n`);
+process.stdout.write(
+	`${B("ci-local")} — CI ${sourceDesc}, run locally ${D(
+		`(${total} entries, ${gates && jobs > 1 ? `${jobs} lanes` : "sequential"}, CI=true)`,
+	)}\n`,
+);
 process.stdout.write(`${D(`source: ${WORKFLOW} · logs: ${LOG_DIR}`)}\n`);
 if (gates) {
 	process.stdout.write(`${Y("NOTE")} regression-gates only — the tests matrix is NOT run (drop --gates for that).\n`);
+	if (gateTimeoutMs > 0) {
+		process.stdout.write(
+			`${D(`gate timeout: ${Math.round(gateTimeoutMs / 1000)}s${budgetMs > 0 ? ` · budget: ${Math.round(budgetMs / 1000)}s` : ""}`)}\n`,
+		);
+	}
 } else {
 	process.stdout.write(`${Y("NOTE")} matrix tests only — extension-contract / deploy-verify / compile-verify /\n`);
 	process.stdout.write("     determinism-spotcheck are NOT run, and regression-gates needs --gates.\n");
 }
 process.stdout.write("     Green here != green CI.\n");
 
-let idx = 0;
-for (const r of rows) {
-	idx++;
+// Gates whose execution MUTATES shared machine state (the deploy outRoot: a
+// live build + current repoint). With --jobs > 1 they serialize among
+// themselves while read-only gates fill the other lanes; they may still
+// overlap read-only gates (tsc/biome/audits never touch the deploy tree).
+const EXCLUSIVE_GATE_RE = /deploy-sh l1/i;
+const BUDGET_SKIPPED: string[] = [];
+
+async function runGate(r: (typeof rows)[number], idx: number): Promise<void> {
 	if (!existsSync(resolve(REPO_ROOT, r.dir))) {
 		// Dead row: the workflow names a directory that isn't in the tree. Loud
 		// SKIP, never a silent pass — that is how s2-agent-ext-picker stayed in
@@ -416,7 +477,17 @@ for (const r of rows) {
 		process.stdout.write(`  directory that isn't in the tree. Not a pass: fix the row in ${WORKFLOW}\n`);
 		process.stdout.write("  (and, for a matrix package, the required-checks list in .github/CI.md).\n");
 		SKIPPED.push(r.label);
-		continue;
+		return;
+	}
+
+	// Budget gate: checked BEFORE spawning — a gate that would start past the
+	// wall-clock budget is skipped loudly and fails the run at the summary.
+	if (budgetMs > 0 && Date.now() - RUN_START_MS > budgetMs) {
+		step(`[${idx}/${total}] ${r.label}`, "SKIPPED");
+		warn(`${Y("BUDGET")}: wall clock crossed ${Math.round(budgetMs / 1000)}s before this gate started —`);
+		process.stdout.write("  skipped, NOT passed. Raise --budget-ms or fix the slow gate (per-gate times in the summary).\n");
+		BUDGET_SKIPPED.push(r.label);
+		return;
 	}
 
 	step(`[${idx}/${total}] ${r.label}`, r.cmd);
@@ -425,18 +496,49 @@ for (const r of rows) {
 	// command is shell syntax (`bun test && bun run qa`), so bash -c stays the
 	// executor; CI=true is exactly what GitHub Actions sets (machine-coupled
 	// tests skip on it), and it must not leak into this script's own env.
-	const child = spawnSync("bash", ["-c", r.cmd], {
+	// ASYNC spawn (2026-08-24): node's spawnSync BLOCKS the event loop, which
+	// silently serialized the --jobs lanes (measured: two "overlapped" heavy
+	// gates ran back-to-back, 146s wall). Bun.spawn + awaited streams is the
+	// only way the lanes actually overlap. The timer is the gate timeout: a
+	// gate may never hang the lane — killed at the cap, null status = HUNG.
+	// A --budget-ms also BINDS a gate that already started (min of the two
+	// caps): otherwise a 99s gate started at 4.9s would run past a 5s budget
+	// and the wall-clock control would be advisory, not hard.
+	const remainingBudget = budgetMs > 0 ? budgetMs - (Date.now() - RUN_START_MS) : Number.POSITIVE_INFINITY;
+	const capMs = Math.max(1000, Math.min(gateTimeoutMs, remainingBudget));
+	const budgetBinds = capMs < gateTimeoutMs;
+	const proc = Bun.spawn(["bash", "-c", r.cmd], {
 		cwd: resolve(REPO_ROOT, r.dir),
 		env: { ...process.env, CI: "true" },
-		encoding: "utf8",
+		stdout: "pipe",
+		stderr: "pipe",
 	});
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		try {
+			proc.kill(9);
+		} catch {
+			/* already exited */
+		}
+	}, capMs);
+	let stdout = "";
+	let stderr = "";
+	try {
+		[stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+	} finally {
+		clearTimeout(timer);
+	}
+	const status = await proc.exited;
+	const child = { stdout, stderr, status: timedOut ? null : status };
 	const dt = Math.floor((Date.now() - t0) / 1000);
 	const logPath = `${LOG_DIR}/${slug(r.label)}.log`;
 	writeFileSync(logPath, `${child.stdout ?? ""}${child.stderr ?? ""}`);
-	const rc = child.status ?? 1;
-	TIMINGS.push(`${r.label}\t${dt}\t${rc}`);
+	const hung = timedOut || child.status === null || child.status > 128;
+	const rc = hung ? 1 : (child.status ?? 1);
+	TIMINGS.push(`${r.label}\t${dt}\t${hung ? "hung" : rc}`);
 
-	if (rc === 0) {
+	if (!hung && rc === 0) {
 		// .sh: grep -aE '^[[:space:]]*[0-9]+ (pass|tests)' | tail -1 | xargs
 		const summary =
 			(child.stdout ?? "")
@@ -446,7 +548,12 @@ for (const r of rows) {
 		okOk(`${r.label} ${D(`(${dt}s)`)}${summary ? ` — ${summary}` : ""}`);
 		PASSED.push(r.label);
 	} else {
-		fail(`${r.label} ${D(`(${dt}s, exit ${rc})`)}`);
+		const hungWhy = timedOut
+			? budgetBinds
+				? `KILLED at the ${Math.round(budgetMs / 1000)}s wall-clock budget`
+				: `HUNG — killed at the ${Math.round(gateTimeoutMs / 1000)}s gate timeout`
+			: `exit ${rc}`;
+		fail(`${r.label} ${D(`(${dt}s, ${hungWhy})`)}`);
 		process.stdout.write(`${D(`--- last 25 lines of ${logPath} ---`)}\n`);
 		const log = readFileSync(logPath, "utf8");
 		const body = log === "" ? "" : log.endsWith("\n") ? log.slice(0, -1) : log;
@@ -455,6 +562,45 @@ for (const r of rows) {
 		}
 		process.stdout.write(`${D("--- end ---")}\n`);
 		FAILED.push(r.label);
+	}
+}
+
+if (gates && jobs > 1) {
+	// Heavy-first ordering: the two long gates (the deploy L1 e2e ~99s, the
+	// ext-entry typecheck ~45s) sit at matrix positions 19 and 21 — pulled in
+	// index order they only START after ~10s of light gates, which on a slow
+	// LLM round trip pushes the wall clock against the budget (measured
+	// 1:59.8 against a 120s cap). Starting them first hides that lead-in
+	// under their own runtime; light gates fill the second lane. Relative
+	// order within each group is preserved, so the [idx/total] markers stay
+	// stable identifiers (they were never a sequence — lanes complete
+	// out of order by construction).
+	const HEAVY_GATE_RE = /deploy-sh l1|typecheck \(executor/i;
+	const ordered = [...rows.filter((r) => HEAVY_GATE_RE.test(r.label)), ...rows.filter((r) => !HEAVY_GATE_RE.test(r.label))];
+	// n workers pull gates by index; an EXCLUSIVE gate chains onto the previous
+	// exclusive one (never two deploy-tree mutations at once) while the worker
+	// that claimed it waits — read-only gates on other lanes keep flowing.
+	let next = 0;
+	let exclusiveChain: Promise<void> = Promise.resolve();
+	const worker = async (): Promise<void> => {
+		for (;;) {
+			const i = next++;
+			if (i >= ordered.length) return;
+			const r = ordered[i]!;
+			if (EXCLUSIVE_GATE_RE.test(r.label)) {
+				const run = exclusiveChain.then(() => runGate(r, rows.indexOf(r) + 1));
+				exclusiveChain = run.catch(() => {});
+				await run;
+			} else {
+				await runGate(r, rows.indexOf(r) + 1);
+			}
+		}
+	};
+	await Promise.all(Array.from({ length: Math.max(1, Math.min(jobs, ordered.length)) }, worker));
+} else {
+	let idx = 0;
+	for (const r of rows) {
+		await runGate(r, ++idx);
 	}
 }
 
@@ -467,24 +613,38 @@ process.stdout.write(`\n${B("══ summary ══")} ${D(`(${TOTAL_TIME}s total
 process.stdout.write(`${unitUpper.padEnd(W)} ${"TIME".padStart(8)}  ${"RESULT"}\n`);
 for (const row of TIMINGS) {
 	const [label, t, r] = row.split("\t");
-	const res = Number(r) === 0 ? G("PASS") : `${R(`FAIL (exit ${r})`)}`;
+	const res = r === "hung" ? R("FAIL (HUNG)") : Number(r) === 0 ? G("PASS") : `${R(`FAIL (exit ${r})`)}`;
 	process.stdout.write(`${label!.slice(0, W).padEnd(W)} ${t!.padStart(7)}s  ${res}\n`);
 }
 for (const p of SKIPPED) {
 	process.stdout.write(`${p.slice(0, W).padEnd(W)} ${"-".padStart(8)}  ${Y("SKIP")} (directory missing — dead row)\n`);
 }
+for (const p of BUDGET_SKIPPED) {
+	process.stdout.write(`${p.slice(0, W).padEnd(W)} ${"-".padStart(8)}  ${Y("SKIP")} (budget exhausted — NOT a pass)\n`);
+}
 
-process.stdout.write(`\npassed: ${PASSED.length}   failed: ${FAILED.length}   skipped: ${SKIPPED.length}   of ${total}\n`);
+process.stdout.write(
+	`\npassed: ${PASSED.length}   failed: ${FAILED.length}   skipped: ${SKIPPED.length + BUDGET_SKIPPED.length}   of ${total}\n`,
+);
+
+if (BUDGET_SKIPPED.length > 0) {
+	process.stdout.write(`\n${R(`BUDGET EXHAUSTED (${BUDGET_SKIPPED.length} gate(s) never ran):`)}\n`);
+	for (const p of BUDGET_SKIPPED) process.stdout.write(`  - ${p}\n`);
+	process.stdout.write("  Budget exhaustion is a FAIL, not a green — unrun gates prove nothing.\n");
+	process.stdout.write("  Raise --budget-ms, or fix the slow gate (see per-gate times above).\n");
+}
 
 if (SKIPPED.length > 0) {
 	process.stdout.write(`\n${Y("Dead rows (named in CI but absent from the tree):")}\n`);
 	for (const p of SKIPPED) process.stdout.write(`  - ${p}\n`);
 }
 
-if (FAILED.length > 0) {
-	process.stdout.write(`\n${R(`FAILURES (${FAILED.length}):`)}\n`);
-	for (const p of FAILED) {
-		process.stdout.write(`  - ${p}   ${D(`(log: ${LOG_DIR}/${slug(p)}.log)`)}\n`);
+if (FAILED.length > 0 || BUDGET_SKIPPED.length > 0) {
+	if (FAILED.length > 0) {
+		process.stdout.write(`\n${R(`FAILURES (${FAILED.length}):`)}\n`);
+		for (const p of FAILED) {
+			process.stdout.write(`  - ${p}   ${D(`(log: ${LOG_DIR}/${slug(p)}.log)`)}\n`);
+		}
 	}
 	process.stdout.write(`\n${R("ci-local: FAIL")}\n`);
 	process.exit(1);

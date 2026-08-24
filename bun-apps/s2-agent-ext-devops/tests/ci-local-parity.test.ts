@@ -334,6 +334,7 @@ const HELP_GOLDEN = [
 	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --only a,b --list  # preview just that subset",
 	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates            # run the regression-gates job instead",
 	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates --list     # preview it",
+	"#   bun bun-apps/s2-agent-ext-devops/scripts/ci-local.ts --gates --jobs 2   # overlap the heavy gates (see BEHAVIOR)",
 	"#",
 	"#   --tsv exists so OTHER tools can consume the ONE parser rather than growing a",
 	"#   second copy of the matrix — bun-apps/tests/ci-workflow-references.test.ts (the",
@@ -342,8 +343,26 @@ const HELP_GOLDEN = [
 	"#   keep the plain form at exactly two fields: that IS the contract that guard",
 	"#   depends on. `--gates --tsv` is the separate three-field form.",
 	"#",
+	"# TIMEOUTS (2026-08-24 — the operator's controllability ask: no gate may hang",
+	"# the lane, and the whole gates run must fit a wall-clock budget)",
+	"#   --gate-timeout-ms <ms>  per-gate hard kill cap (default 240000). A gate",
+	"#                           that exceeds it FAILS as HUNG — a hang is a",
+	"#                           failure signal, never something to wait out.",
+	"#   --budget-ms <ms>        whole-run wall-clock budget (default 0 = off).",
+	"#                           When the clock crosses it, every remaining gate",
+	"#                           is SKIPPED (loudly, never silently) and the run",
+	"#                           EXITS 1 listing them — budget exhaustion is a",
+	"#                           FAIL, not a green.",
+	"#   --jobs <n>              gates-only parallelism (default 1). n workers",
+	"#                           pull gates; gates whose label matches the",
+	"#                           EXCLUSIVE set (deploy-tree mutations: the",
+	"#                           Deploy-sh L1 e2e builds and repoints deploy",
+	"#                           state) serialize among themselves while the",
+	"#                           read-only gates fill the lanes. The matrix run",
+	"#                           stays sequential regardless — matrix entries",
+	"#                           race s2-agent-ext-ultracode's shared dist/.",
 	"# BEHAVIOR",
-	"#   - Sequential (parallel runs race s2-agent-ext-ultracode's shared dist/)."
+	"#   - Matrix: sequential (parallel runs race s2-agent-ext-ultracode's shared dist/)."
 ].join("\n");
 
 test("ci-local.ts -h / --help (exit 0, the ported header)", () => {
@@ -357,6 +376,10 @@ test("ci-local.ts usage errors exit 2 (D4 exit-code law)", () => {
   assertParity(CI_LOCAL, [
     { name: "only-no-value", args: ["--only"], expectCode: 2, out: "--only needs a value" },
     { name: "bogus-flag", args: ["--bogus"], expectCode: 2, out: "unknown flag: --bogus (see --help)" },
+    { name: "jobs-matrix-forbidden", args: ["--jobs", "2"], expectCode: 2, out: "--jobs > 1 applies to --gates only; the matrix run is sequential by contract" },
+    { name: "jobs-not-int", args: ["--gates", "--jobs", "x"], expectCode: 2, out: "--jobs needs an integer ≥ 1" },
+    { name: "gate-timeout-not-int", args: ["--gates", "--gate-timeout-ms", "abc"], expectCode: 2, out: "--gate-timeout-ms needs an integer ≥ 1000" },
+    { name: "budget-not-int", args: ["--gates", "--budget-ms", "1"], expectCode: 2, out: "--budget-ms needs an integer ≥ 1000" },
     { name: "only-not-a-package", args: ["--only", "bogus", "--list"], expectCode: 2, out: "", errIncludes: ["ci-local FAILED: --only: 'bogus' is not a package in the .github/workflows/ci.yml.disabled tests matrix (run --list)"] },
     { name: "gates-plus-only", args: ["--gates", "--only", "x"], expectCode: 2, out: "--only filters matrix packages; it does not apply to --gates" },
   ]);
