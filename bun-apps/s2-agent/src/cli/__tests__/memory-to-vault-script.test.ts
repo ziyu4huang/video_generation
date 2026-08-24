@@ -22,11 +22,9 @@ describe("generateWorkflowScript", () => {
 		expect(script).toMatch(/actually (invoke|call)/i);
 	});
 
-	test("threads maxNotes into the agent instruction when provided", () => {
-		const script = generateWorkflowScript({ files: ["/x.md"], folder: "Z", maxNotes: 25 });
-		expect(script).toContain("25");
-	});
-
+	// maxNotes positive mirror ("toContain('25')" after passing 25) dropped
+	// 2026-08-25 (round-2 ticket 03) — it re-echoed the input; the negative
+	// case below is the real behavior pin.
 	test("omits maxNotes when not provided", () => {
 		const script = generateWorkflowScript({ files: ["/x.md"], folder: "Z" });
 		expect(script).not.toContain("max_notes");

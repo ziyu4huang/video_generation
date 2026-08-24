@@ -92,21 +92,13 @@ describe("staticExtensions ↔ STATIC_EXTENSION_FACTORIES", () => {
 	});
 });
 
-describe("every manifest-referenced package exists on disk", () => {
-	const allDirs = [...new Set([...dynamicDirs, ...staticDirs, ...skillDirs])];
-
-	for (const dir of allDirs) {
-		test(`${dir}/ exists`, () => {
-			expect(existsSync(join(BUN_APPS, dir))).toBe(true);
-		});
-	}
-
-	for (const entry of parseManifestEntries(manifest.extensions ?? [])) {
-		test(`${entry.entry} is a real file`, () => {
-			expect(existsSync(join(BUN_APPS, entry.entry))).toBe(true);
-		});
-	}
-
+describe("every manifest-referenced skill exists on disk", () => {
+	// Package dirs + extension entry files are covered pre-generation by
+	// registry-config.test.ts ("every entry's package dir and entry file exist
+	// on disk", asserted over REGISTRY directly), and registry-freshness
+	// proves manifest.json is byte-generated from that registry — so those two
+	// loops here were transitively equal (dedup 2026-08-25, round-2 ticket 03).
+	// Skill paths are a separate manifest field with NO other cover — kept.
 	for (const rel of manifest.skills ?? []) {
 		test(`${rel} exists`, () => {
 			expect(existsSync(join(BUN_APPS, rel))).toBe(true);

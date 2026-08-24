@@ -25,15 +25,16 @@ describe("meta — version", () => {
 });
 
 describe("meta — root help", () => {
-	for (const argv of [[], ["help"], ["-h"], ["--help"]] as const) {
-		test(`${argv.length ? argv.join(" ") : "(no args)"} → root help banner, exit 0`, () => {
-			const r = runCli([...argv]);
-			expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
-			expect(r.stdout).toContain("non-interactive command namespace");
-			expect(r.stdout).toContain("Usage:");
-			expect(r.stdout).toContain("Commands (agents):");
-		});
-	}
+	// `help` / `-h` / `--help` rows: covered case-for-case (same runCli
+	// harness, same banner assertions) by help-dispatch.e2e.test.ts —
+	// dedup 2026-08-25, round-2 ticket 03. Bare-args invocation kept here.
+	test("(no args) → root help banner, exit 0", () => {
+		const r = runCli([]);
+		expect(r.exitCode, `stderr:\n${r.stderr}`).toBe(0);
+		expect(r.stdout).toContain("non-interactive command namespace");
+		expect(r.stdout).toContain("Usage:");
+		expect(r.stdout).toContain("Commands (agents):");
+	});
 });
 
 describe("meta — list / --list-models (structural only)", () => {

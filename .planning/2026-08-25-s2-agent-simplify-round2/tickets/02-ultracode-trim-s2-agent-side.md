@@ -21,4 +21,4 @@ Per map D4 (user-confirmed 2026-08-25, option B):
 - [x] `bun run --cwd bun-apps/s2-agent test` + `typecheck` green; `bun run --cwd bun-apps/s2-agent-ext-ultracode test` green (engine intact) (1021 + 1178 pass / 0 fail)
 - [x] movie-director + tool-gate + flux2 typecheck green (engine importability proven)
 - [x] CONTEXT.md carries the receipts; ADR 0003 verdict recorded (knowledge-distill STAYS)
-- [ ] devops local_ci green; PR merged via devops chain; reviewer pass
+- [x] devops local_ci green; PR merged via devops chain; reviewer pass (local_ci 104.3s; reviewer NOT-READY → 2 doc blockers fixed (workflows README + pack howToRun + stale comment) → merged PR #2015 squash d5fc9578)
