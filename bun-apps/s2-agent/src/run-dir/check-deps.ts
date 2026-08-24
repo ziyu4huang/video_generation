@@ -30,15 +30,14 @@
  * No-op outside source mode: in bundle/binary deploy layouts the probe returns
  * [] (deps are baked in), so this exits 0 immediately.
  */
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
-import { dirname, join, resolve as pResolve } from "node:path";
+import { dirname, resolve as pResolve } from "node:path";
 import { fileURLToPath } from "node:url";
 // Straight from deps-probe.ts, which DEFINES it, not through resolve.ts's
 // facade: this runs as a pre-flight before pi boots, and going via the facade
 // would load the layout/argv builders and the lazy-alias resolver for a probe
 // that needs neither.
-import { missingExtensionPackages } from "./deps-probe.ts";
+import { missingExtensionPackages, runBunInstall } from "./deps-probe.ts";
+import { workspacePackages } from "./workspace-packages.ts";
 
 const url = import.meta.url;
 // src/run-dir/ → src/ → s2-agent/ → bun-apps/  (mirrors resolve.ts's source-mode
@@ -57,7 +56,7 @@ if (missing.length === 0) process.exit(0);
 // at least once before it can resolve workspace globs, even though install never
 // symlinks those packages into node_modules. Labeling the kind makes the message
 // read as a benign self-heal instead of a broken install.
-const workspaceNames = workspacePackageNames(bunAppsDir);
+const workspaceNames = new Set(workspacePackages(bunAppsDir).map((p) => p.name));
 
 const log = (msg: string): void => console.error(`[check-deps] ${msg}`);
 log("pre-flight self-heal — this is normal once after a dependency update:");
@@ -74,10 +73,7 @@ if (opt === "0" || opt === "false") {
 }
 
 log(`running \`bun install\` at ${bunAppsDir} (workspace root) …`);
-const res = spawnSync("bun", ["install"], {
-  cwd: bunAppsDir,
-  stdio: ["ignore", "inherit", "inherit"],
-});
+const res = runBunInstall(bunAppsDir);
 if (res.status === 0) {
   // The NEXT bun process (run.sh's `exec bun`) re-probes and will see the deps;
   // we don't claim a same-process re-resolve here either.
@@ -86,30 +82,3 @@ if (res.status === 0) {
 }
 log(`\`bun install\` exited ${res.status ?? "null"} (signal ${res.signal ?? "none"}) — pi may fail to load some extensions`);
 process.exit(1);
-
-/**
- * Names of workspace packages published under <bunAppsDir>/* (each sub-dir's
- * package.json `name`). Used only to label missing deps as workspace vs npm in
- * the self-heal message — cheap (≤ ~20 dirs), read-only, best-effort.
- */
-function workspacePackageNames(bunAppsDir: string): Set<string> {
-  const names = new Set<string>();
-  let entries: Dirent[];
-  try {
-    entries = readdirSync(bunAppsDir, { withFileTypes: true });
-  } catch {
-    return names;
-  }
-  for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
-    const pj = join(bunAppsDir, ent.name, "package.json");
-    if (!existsSync(pj)) continue;
-    try {
-      const name = JSON.parse(readFileSync(pj, "utf8")).name;
-      if (typeof name === "string") names.add(name);
-    } catch {
-      // Unreadable package.json — skip; labeling is best-effort.
-    }
-  }
-  return names;
-}

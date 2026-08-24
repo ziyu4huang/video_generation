@@ -16,7 +16,7 @@
  * gives the agent a clearer, YouTube-optimized task.
  */
 import type { ParsedArgs } from "../args.ts";
-import { applyVaultEnv } from "../sessions/passthrough.ts";
+import { applyVaultEnv } from "../vault-paths.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
 import webAccessExtension from "@repo/s2-agent-ext-web-access";
 import { ADD_TOOLS } from "@repo/s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";

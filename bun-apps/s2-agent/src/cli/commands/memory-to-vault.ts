@@ -15,7 +15,7 @@ import { resolve, isAbsolute, join, relative, basename } from "node:path";
 import { resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
 import { emptyParsed } from "../args.ts";
-import { resolveVaultPathWalkUp } from "../vault-paths.ts";
+import { resolveVaultPathWalkUp, applyResolvedVaultEnv } from "../vault-paths.ts";
 import type { MemoryFile } from "./memory-to-vault-discover.ts";
 import { discoverMemoryFiles } from "./memory-to-vault-discover.ts";
 import { generateWorkflowScript } from "./memory-to-vault-script.ts";
@@ -203,7 +203,7 @@ Examples:
 		if (!dryRun) mkdirSync(runDir, { recursive: true });
 		const pipelinePath = join(runDir, "pipeline.json");
 		const vaultPath = resolveVaultPath(parsed, cwd);
-		process.env.OB_VAULT_PATH = vaultPath;
+		applyResolvedVaultEnv(parsed, vaultPath);
 
 		// Load the existing doc on resume (keeps perFile states → shouldDistill skips
 		// done files); refresh options + scope in case flags changed.

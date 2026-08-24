@@ -1,7 +1,8 @@
 /**
- * sessions/passthrough.ts — the exported pure helpers.
+ * The passthrough runner's pure helpers (T5 move): applyVaultEnv now lives in
+ * vault-paths.ts (the single OB_VAULT_* env home) and resolveLLMFromArgs in
+ * sessions/shared.ts (next to the readUserSettings it projects).
  *
- * applyVaultEnv and resolveLLMFromArgs are the non-session-driving exports.
  * resolveLLMFromArgs reads ~/.pi/agent/settings.json via getAgentDir() — we
  * redirect getAgentDir to a temp dir with PI_CODING_AGENT_DIR (the package's
  * own override), so no mock.module is needed and there is no cross-file leak
@@ -13,10 +14,8 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	applyVaultEnv,
-	resolveLLMFromArgs,
-} from "../sessions/passthrough.ts";
+import { applyVaultEnv } from "../vault-paths.ts";
+import { resolveLLMFromArgs } from "../sessions/shared.ts";
 
 // All env these functions read at call time.
 const ENV_KEYS = [

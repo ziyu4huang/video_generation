@@ -28,7 +28,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync, statSy
 import { resolve, isAbsolute, join, basename } from "node:path";
 import { resolveAgentDir } from "../../paths.ts";
 import type { ParsedArgs } from "../args.ts";
-import { resolveVaultPathWalkUp } from "../vault-paths.ts";
+import { resolveVaultPathWalkUp, applyResolvedVaultEnv } from "../vault-paths.ts";
 import { ingestRecords } from "@repo/s2-agent-ext-knowledge-card/src/ingest.ts";
 import { scheduleCardRebuild } from "@repo/s2-agent-ext-knowledge-card/src/surreal-index.ts";
 import { adaptHermesMarkdown } from "@repo/s2-agent-ext-knowledge-card/src/adapters.ts";
@@ -168,7 +168,7 @@ Examples:
 		}
 
 		const vaultPath = resolveVaultPath(parsed, cwd);
-		process.env.OB_VAULT_PATH = vaultPath;
+		applyResolvedVaultEnv(parsed, vaultPath);
 		const folder = parsed.folder ?? "Zettelkasten/knowledge-graph";
 		const mocPath = "Tags/Knowledge Graph.md";
 		const memoryDir = resolveMemoryDir(parsed);

@@ -35,8 +35,7 @@ import { runWorkflowScript, listWorkflows, findRepoRoot } from "@repo/s2-agent-e
 // override so only user settings + the hardcoded fallback apply. The resulting
 // `provider/modelId` is forwarded to the engine as the lowest-precedence tier
 // (--model > PI_MODEL > manifest.model > pi-default).
-import { resolveLLM } from "../sessions/shared.ts";
-import { readUserDefaults } from "../sessions/passthrough.ts";
+import { resolveLLM, readUserDefaults } from "../sessions/shared.ts";
 
 /**
  * Parse the `--args` value (a JSON string, or omitted). Throws a clear error on

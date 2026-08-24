@@ -21,10 +21,11 @@
  *   --vault-dir <name>     vault folder name under cwd (default: vault)
  *   --model / --provider / --thinking / --tools / -p / --mode ...
  */
-import { existsSync, statSync, readdirSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve, relative, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
-import { resolveVaultPath } from "../vault-paths.ts";
+import { resolveVaultPath, applyResolvedVaultEnv } from "../vault-paths.ts";
+import { walkFiles } from "../walk.ts";
 import { runAgentSession } from "../sessions/run-agent-session.ts";
 import {
 	buildDistillTask,
@@ -43,15 +44,9 @@ function expandInput(p: string, cwd: string): string[] {
 	if (st.isFile()) return [abs];
 	if (st.isDirectory()) {
 		const out: string[] = [];
-		const walk = (dir: string) => {
-			for (const entry of readdirSync(dir)) {
-				const full = resolve(dir, entry);
-				const s = statSync(full);
-				if (s.isDirectory()) walk(full);
-				else if (s.isFile() && MD_TXT_RE.test(entry)) out.push(full);
-			}
-		};
-		walk(abs);
+		walkFiles(abs, (full, entry) => {
+			if (MD_TXT_RE.test(entry)) out.push(full);
+		});
 		return out;
 	}
 	return [];
@@ -114,11 +109,10 @@ Examples:
 
 		const folder = parsed.folder ?? "Zettelkasten";
 		const vaultPath = resolveVault(parsed, cwd);
-		// Obsidian env, set once each: applyVaultEnv's OB_VAULT_PATH write (the
-		// RAW --vault value) was immediately overwritten by the resolved path
-		// below, so only the vault-dir half of it is inlined here.
-		if (parsed.vaultDir) process.env.OB_VAULT_DIR = parsed.vaultDir;
-		process.env.OB_VAULT_PATH = vaultPath;
+		// Obsidian env, set once each. The vault-dir forwarding exists because
+		// applyVaultEnv's RAW OB_VAULT_PATH write was immediately overwritten by
+		// the resolved path — only its vault-dir half survives here.
+		applyResolvedVaultEnv(parsed, vaultPath, { vaultDir: true });
 
 		console.error(`vault:  ${vaultPath}`);
 		console.error(`folder: ${folder}`);

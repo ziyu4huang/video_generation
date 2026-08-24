@@ -7,7 +7,7 @@
  */
 import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
-import { applyVaultEnv } from "../sessions/passthrough.ts";
+import { applyVaultEnv } from "../vault-paths.ts";
 import { runFile2mdPipeline } from "@repo/s2-agent-ext-file2md";
 import type { DocProfile, File2mdMode, PageNoteStyle } from "@repo/s2-agent-ext-file2md";
 

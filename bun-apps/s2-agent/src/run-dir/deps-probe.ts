@@ -161,6 +161,21 @@ export function missingExtensionPackages(bunAppsDir: string | undefined): string
 }
 
 /**
+ * The ONE `bun install` invocation behind both install lanes: check-deps.ts's
+ * pre-flight self-heal and maybeAutoInstall below. Same cwd + inherited stdio,
+ * so the operator experience cannot drift. Each caller keeps its OWN gating —
+ * deliberately different intents (pre-flight installs by DEFAULT so the launch
+ * process is fresh and sees the deps; maybeAutoInstall is OPT-IN so `bun test`
+ * / CI never mutate node_modules) — and its own success/failure messaging.
+ */
+export function runBunInstall(workspaceRoot: string): ReturnType<typeof spawnSync> {
+  return spawnSync("bun", ["install"], {
+    cwd: workspaceRoot,
+    stdio: ["ignore", "inherit", "inherit"],
+  });
+}
+
+/**
  * Opt-in auto-resolve. When BUN_PI_AUTO_INSTALL=1 (or the legacy
  * BUN_PI_AUTO_RESOLVE alias) and a declared npm extension package can't be
  * resolved in source mode, run `bun install` at the workspace root (bun-apps/); the
@@ -182,10 +197,7 @@ export function maybeAutoInstall(bunAppsDir: string | undefined): boolean {
     `auto-resolve: ${missing.length} npm extension package(s) unresolved ` +
       `(${missing.join(", ")}) — running \`bun install\` at ${workspaceRoot}`,
   );
-  const res = spawnSync("bun", ["install"], {
-    cwd: workspaceRoot,
-    stdio: ["ignore", "inherit", "inherit"],
-  });
+  const res = runBunInstall(workspaceRoot);
   if (res.status !== 0) {
     warn(
       `auto-resolve: \`bun install\` exited ${res.status ?? "null"}` +

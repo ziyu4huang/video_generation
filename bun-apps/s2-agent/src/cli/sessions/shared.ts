@@ -32,6 +32,7 @@ import {
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
+import type { ParsedArgs } from "../args.ts";
 // Inline import of the pi-obsidian extension factory. Bundled in (self-contained).
 import obsidianExtension, {
 	OBSIDIAN_WRITE_ACTIONS,
@@ -443,11 +444,36 @@ export function validateToolNames(
  * Best-effort read of the user settings file (~/.pi/agent/settings.json).
  * Non-fatal: returns undefined on any read/parse error or missing file.
  * Delegates to the shared leaf ../../paths.ts (the same reader the patches
- * use); kept as an exported wrapper because passthrough's `readUserDefaults`
- * and the session-start floor below call it by this name.
+ * use); kept as an exported wrapper because `readUserDefaults` below and the
+ * session-start floor call it by this name.
  */
 export function readUserSettings(): Record<string, unknown> | undefined {
 	return readAgentSettings();
+}
+
+/**
+ * Read user default provider/model from ~/.pi/agent/settings.json (best-effort,
+ * non-fatal). Thin projection over `readUserSettings` — the single reader for
+ * that file in the CLI surface — so the workflow command and
+ * `resolveLLMFromArgs` see the SAME read. Returns undefined on any
+ * read/parse error or missing file.
+ */
+export async function readUserDefaults(): Promise<{ provider?: string; model?: string } | undefined> {
+	const s = readUserSettings() as { defaultProvider?: string; defaultModel?: string } | undefined;
+	if (!s) return undefined;
+	return { provider: s.defaultProvider, model: s.defaultModel };
+}
+
+/** Build the LLM target from parsed flags + user settings defaults. */
+export async function resolveLLMFromArgs(
+	parsed: ParsedArgs,
+): Promise<ResolvedLLM> {
+	return resolveLLM({
+		provider: parsed.provider,
+		model: parsed.model,
+		thinking: parsed.thinking,
+		userDefaults: await readUserDefaults(),
+	});
 }
 
 /**

@@ -15,20 +15,25 @@
  *   text  — stream assistant text deltas to stdout (human readable)
  *   json  — emit one NDJSON event per line (pi schema subset), consumed by the
  *           obsidian subagent parser which reads `message_end` assistant text.
+ *
+ * `resolveLLMFromArgs` / `readUserDefaults` (moved to shared.ts) and
+ * `applyVaultEnv` (moved to ../vault-paths.ts) started here; only the
+ * passthrough run itself remains.
  */
-import { resolveLLM, createSharedSession, applyDryRun, readUserSettings, type ResolvedLLM } from "./shared.ts";
-import { runJsonTask, runPrettyTask } from "./task-runner.ts";
-import type { ParsedArgs } from "../args.ts";
+import { applyDryRun, resolveLLMFromArgs } from "./shared.ts";
+import { runSessionTurn } from "./run-agent-session.ts";
+import { applyVaultEnv } from "../vault-paths.ts";
 import { resolve } from "node:path";
+import type { ParsedArgs } from "../args.ts";
 
 /**
  * Dynamically import extension factories from file paths. Only works in source
- * mode (Bun natively imports .ts). In compiled binary mode these imports fail
+ * mode (Bun natively imports .TS). In compiled binary mode these imports fail
  * gracefully — the user sees a warning and should use the extension's registered
  * CLI subcommand instead (e.g. `s2-agent cli power-tool`).
  *
- * Paths are resolved against cwd (not the CLI's own location), matching how the
- * original s2-agent's `-e` flag works.
+ * Paths are resolved against cwd (not the CLI's own location), matching how
+ * the original s2-agent's `-e` flag works.
  */
 async function loadExtensions(paths: string[], cwd: string): Promise<unknown[]> {
 	const factories: unknown[] = [];
@@ -50,38 +55,17 @@ async function loadExtensions(paths: string[], cwd: string): Promise<unknown[]> 
 	return factories;
 }
 
-/** Apply vault-related flags to the process environment (obsidian reads these). */
-export function applyVaultEnv(parsed: ParsedArgs): void {
-	if (parsed.vault) process.env.OB_VAULT_PATH = parsed.vault;
-	if (parsed.vaultDir) process.env.OB_VAULT_DIR = parsed.vaultDir;
-}
-
 /**
- * Read user default provider/model from ~/.pi/agent/settings.json (best-effort,
- * non-fatal). Thin projection over sessions/shared.ts's `readUserSettings` —
- * the single reader for that file in the CLI surface — so the workflow command
- * and `resolveLLMFromArgs` see the SAME read. Returns undefined on any
- * read/parse error or missing file.
+ * Print the active model label (text mode only).
+ *
+ * Deliberately NOT shared.ts's `modelLabel`: that falls back to the RESOLVED
+ * `llm.provider/modelId` pair, while this header reports the pair off the
+ * session's own model object — which substring-match resolution
+ * (resolveModel's fallback lane) can differ from (`--model sonnet` →
+ * session.model.id "claude-sonnet-5"). thinkingLevel likewise reads the
+ * session ("?" when unset), not the parsed llm. Reusing modelLabel here would
+ * change stderr bytes on every shorthand --model invocation.
  */
-export async function readUserDefaults(): Promise<{ provider?: string; model?: string } | undefined> {
-	const s = readUserSettings() as { defaultProvider?: string; defaultModel?: string } | undefined;
-	if (!s) return undefined;
-	return { provider: s.defaultProvider, model: s.defaultModel };
-}
-
-/** Build the LLM target from parsed flags + user settings defaults. */
-export async function resolveLLMFromArgs(
-	parsed: ParsedArgs,
-): Promise<ResolvedLLM> {
-	return resolveLLM({
-		provider: parsed.provider,
-		model: parsed.model,
-		thinking: parsed.thinking,
-		userDefaults: await readUserDefaults(),
-	});
-}
-
-/** Print the active model label (text mode only). */
 function printModel(session: {
 	model?: { provider: string; id: string; name?: string };
 	thinkingLevel?: string;
@@ -124,21 +108,22 @@ export async function runPassthrough(
 			? await loadExtensions(parsed.extensionPaths, process.cwd())
 			: [];
 
-	const { session } = await createSharedSession(llm, {
+	// --no-session is accepted for pi-compat but is a no-op: every passthrough
+	// turn is already ephemeral (in-memory SessionManager). No branching needed.
+	await runSessionTurn(parsed, {
+		llm,
+		task,
+		labelName: "passthrough",
 		tools: parsed.tools,
 		excludeTools: applyDryRun(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
 		extraExtensionFactories: extraFactories.length > 0 ? extraFactories : undefined,
-		// --no-session is accepted for pi-compat but is a no-op: every passthrough
-		// turn is already ephemeral (in-memory SessionManager). No branching needed.
+		header:
+			parsed.mode === "json"
+				? undefined
+				: (session) => {
+						printModel(session as Parameters<typeof printModel>[0]);
+						console.error(`prompt: ${task}\n`);
+					},
 	});
-
-	if (parsed.mode === "json") {
-		await runJsonTask(session, task, parsed.verbose);
-	} else {
-		printModel(session);
-		console.error(`prompt: ${task}\n`);
-		await runPrettyTask(session, task, "passthrough", parsed.verbose);
-	}
-	session.dispose();
 }
