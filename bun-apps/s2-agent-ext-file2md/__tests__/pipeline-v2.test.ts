@@ -58,12 +58,19 @@ const { runFile2mdPipeline } = await import("../src/pipeline.ts");
 const { textPdf, scannedPdf, workbookXlsx, notebookIpynb } = await import("./helpers/docs.ts");
 
 let tmp: string;
+let abort: AbortController;
 beforeEach(async () => {
   tmp = await mkdtemp(join(tmpdir(), "file2md-test-"));
   calls.raster = 0;
   calls.ocr = 0;
+  abort = new AbortController();
 });
 afterEach(async () => {
+  // #1948: bun runs afterEach even after a test timeout. Aborting here kills
+  // any in-flight vision call the timed-out test left behind — without it the
+  // spawnSubagent attempt runs on under its own 5-min fuse, and its open
+  // sockets hold the whole test process alive (the suite "hang").
+  abort.abort();
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -76,7 +83,7 @@ async function writeFixture(name: string, bytes: Uint8Array): Promise<string> {
 describe("pdf (text layer)", () => {
   test("mode text extracts the text layer with zero raster/OCR calls", async () => {
     const pdf = await writeFixture("paper.pdf", await textPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, signal: abort.signal });
     expect(calls.raster).toBe(0);
     expect(calls.ocr).toBe(0);
     const pageMd = join(tmp, "paper", "pages", "page-001.md");
@@ -90,22 +97,24 @@ describe("pdf (text layer)", () => {
 
   test("resume: re-running skips an already-done page (status preserved)", async () => {
     const pdf = await writeFixture("paper.pdf", await textPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, signal: abort.signal });
     const before = readFileSync(join(tmp, "paper", "pages", "page-001.md"), "utf8");
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, signal: abort.signal });
     expect(readFileSync(join(tmp, "paper", "pages", "page-001.md"), "utf8")).toBe(before);
   });
 
   test("out-of-range page spec fails loudly", async () => {
     const pdf = await writeFixture("paper.pdf", await textPdf());
-    await expect(runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, pages: "99" })).rejects.toThrow(/matched no pages/);
+    await expect(
+      runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, pages: "99", signal: abort.signal }),
+    ).rejects.toThrow(/matched no pages/);
   });
 });
 
 describe("pdf (scan-shaped, OCR path)", () => {
   test("mode ocr rasters thin pages and writes the OCR text with provenance", async () => {
     const pdf = await writeFixture("scan.pdf", await scannedPdf());
-    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "ocr" });
+    await runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "ocr", signal: abort.signal });
     expect(calls.raster).toBeGreaterThan(0);
     expect(calls.ocr).toBeGreaterThan(0);
     const md = readFileSync(join(tmp, "scan", "pages", "page-001.md"), "utf8");
@@ -120,13 +129,15 @@ describe("image input", () => {
   test("mode text refuses images (no text layer)", async () => {
     const { tinyPng } = await import("./helpers/docs.ts");
     const png = await writeFixture("pic.png", tinyPng());
-    await expect(runFile2mdPipeline({ inputs: [png], outRoot: tmp, mode: "text" })).rejects.toThrow(/no text layer/);
+    await expect(
+      runFile2mdPipeline({ inputs: [png], outRoot: tmp, mode: "text", signal: abort.signal }),
+    ).rejects.toThrow(/no text layer/);
   });
 
   test("mode ocr: OCR text + source copied as page-001.png", async () => {
     const { tinyPng } = await import("./helpers/docs.ts");
     const png = await writeFixture("pic.png", tinyPng());
-    await runFile2mdPipeline({ inputs: [png], outRoot: tmp });
+    await runFile2mdPipeline({ inputs: [png], outRoot: tmp, signal: abort.signal });
     const md = readFileSync(join(tmp, "pic", "pages", "page-001.md"), "utf8");
     expect(md).toContain("IMG OCR");
     expect(existsSync(join(tmp, "pic", "pages", "page-001.png"))).toBe(true);
@@ -136,7 +147,7 @@ describe("image input", () => {
 describe("office formats", () => {
   test("xlsx → markdown table with cell references + manifest", async () => {
     const xlsx = await writeFixture("wb.xlsx", await workbookXlsx());
-    await runFile2mdPipeline({ inputs: [xlsx], outRoot: tmp });
+    await runFile2mdPipeline({ inputs: [xlsx], outRoot: tmp, signal: abort.signal });
     const md = readFileSync(join(tmp, "wb", "wb.md"), "utf8");
     expect(md).toContain("# XLSX · wb.xlsx");
     expect(md).toContain("| A2 |");
@@ -145,7 +156,7 @@ describe("office formats", () => {
 
   test("ipynb → fenced cells", async () => {
     const nb = await writeFixture("nb.ipynb", notebookIpynb());
-    await runFile2mdPipeline({ inputs: [nb], outRoot: tmp });
+    await runFile2mdPipeline({ inputs: [nb], outRoot: tmp, signal: abort.signal });
     const md = readFileSync(join(tmp, "nb", "nb.md"), "utf8");
     expect(md).toContain("print(42)");
   });
@@ -154,14 +165,16 @@ describe("office formats", () => {
 describe("text passthrough + mode gates", () => {
   test("csv → markdown table", async () => {
     const csv = await writeFixture("t.csv", new TextEncoder().encode("a,b\n1,2\n"));
-    await runFile2mdPipeline({ inputs: [csv], outRoot: tmp });
+    await runFile2mdPipeline({ inputs: [csv], outRoot: tmp, signal: abort.signal });
     const md = readFileSync(join(tmp, "t", "t.md"), "utf8");
     expect(md).toContain("| a | b |");
   });
 
   test("mode vlm on born-digital pages completes without OCR (text pages skip the vision path)", async () => {
     const pdf = await writeFixture("paper.pdf", await textPdf());
-    await expect(runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "vlm" })).resolves.toBeUndefined();
+    await expect(
+      runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "vlm", signal: abort.signal }),
+    ).resolves.toBeUndefined();
     // The profile classifier rasters page 1 exactly once; no OCR ever runs.
     expect(calls.raster).toBe(1);
     expect(calls.ocr).toBe(0);
@@ -171,8 +184,8 @@ describe("text passthrough + mode gates", () => {
 
   test("invalid mode rejects", async () => {
     const pdf = await writeFixture("paper.pdf", await textPdf());
-    await expect(runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "bogus" as never })).rejects.toThrow(
-      /Invalid mode/,
-    );
+    await expect(
+      runFile2mdPipeline({ inputs: [pdf], outRoot: tmp, mode: "bogus" as never, signal: abort.signal }),
+    ).rejects.toThrow(/Invalid mode/);
   });
 });

@@ -52,6 +52,7 @@ export async function classifyProfileViaVlm(
   imagePath: string,
   mimeType: string,
   llmOverride?: ResolvedLLM,
+  signal?: AbortSignal,
 ): Promise<{ profile: DocProfile; reply: string }> {
   const llm = llmOverride ?? resolveVisionLLM();
   const image = readImage(imagePath, mimeType);
@@ -60,6 +61,7 @@ export async function classifyProfileViaVlm(
     task: "請分類這份文件的第一頁，只輸出一個 profile 代碼。",
     images: [image],
     llm,
+    ...(signal ? { signal } : {}),
   });
 
   // The classifier does NOT swallow model errors — propagate so the caller
@@ -104,11 +106,12 @@ export function voteProfile(replies: string[]): DocProfile {
 export async function classifyProfileFromPages(
   images: { path: string; mimeType: string }[],
   llmOverride?: ResolvedLLM,
+  signal?: AbortSignal,
 ): Promise<{ profile: DocProfile; replies: string[] }> {
   const replies: string[] = [];
   for (const img of images) {
     try {
-      const { reply } = await classifyProfileViaVlm(img.path, img.mimeType, llmOverride);
+      const { reply } = await classifyProfileViaVlm(img.path, img.mimeType, llmOverride, signal);
       if (reply) replies.push(reply);
     } catch {
       // skip a page that failed to classify

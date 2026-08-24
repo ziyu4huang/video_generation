@@ -75,6 +75,13 @@ export async function runVisionInference(opts: {
    * body would then silently be blank due to the reasoning-burn truncation.
    */
   emptyIsError?: boolean;
+  /**
+   * Cancel lever, threaded to spawnSubagent's externalSignal (#1948): a caller
+   * (test harness, pipeline) that gives up — e.g. its test just timed out —
+   * aborts the in-flight child immediately instead of leaving it running under
+   * its own 5-min recon fuse, holding sockets (and the test process) open.
+   */
+  signal?: AbortSignal;
 }): Promise<VisionInferenceResult> {
   let modelSpec: string | undefined;
   let capability: string | undefined;
@@ -113,6 +120,7 @@ export async function runVisionInference(opts: {
     const result = await spawnSubagent({
       task: venv.task,
       images: opts.images,
+      ...(opts.signal ? { externalSignal: opts.signal } : {}),
       ...(venv.tokenBudget !== undefined
         ? { tokenBudget: venv.tokenBudget, maxTurns: venv.maxTurns, timeoutMs: venv.timeoutMs }
         : {}),

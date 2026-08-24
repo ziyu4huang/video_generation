@@ -15,7 +15,13 @@ import { describe, expect, mock, test } from "bun:test";
 // --- control knobs ----------------------------------------------------------
 let nextOutput = "";
 let nextFailure: { message: string } | undefined;
-const spawnCalls: { task: string; images: unknown[]; model?: string; capability?: string }[] = [];
+const spawnCalls: {
+  task: string;
+  images: unknown[];
+  model?: string;
+  capability?: string;
+  externalSignal?: AbortSignal;
+}[] = [];
 
 mock.module("@repo/s2-agent-core-runtime", () => ({
   roleAwareDirectCall: () => ({ task: "recon-task" }),
@@ -117,5 +123,42 @@ describe("runVisionInference — empty-output guard (completed but no text)", ()
     expect(r.ok).toBe(false);
     expect(r.error).toBe("connection reset");
     expect(r.empty).toBeUndefined();
+  });
+});
+
+describe("runVisionInference — cancel lever (#1948)", () => {
+  test("signal is forwarded as spawnSubagent's externalSignal", async () => {
+    reset({ output: "x" });
+    const ac = new AbortController();
+    await runVisionInference({
+      task: "describe",
+      images: [{ type: "image", data: "x", mimeType: "image/png" }],
+      llm: { provider: "lm-studio", modelId: "qwen/qwen3.8-27b", thinkingLevel: "off" },
+      signal: ac.signal,
+    });
+    expect(spawnCalls[0]?.externalSignal).toBe(ac.signal);
+  });
+
+  test("no signal → externalSignal omitted (default shape unchanged)", async () => {
+    reset({ output: "x" });
+    await runVisionInference({
+      task: "describe",
+      images: [{ type: "image", data: "x", mimeType: "image/png" }],
+      llm: { provider: "lm-studio", modelId: "qwen/qwen3.8-27b", thinkingLevel: "off" },
+    });
+    expect(spawnCalls[0]?.externalSignal).toBeUndefined();
+  });
+
+  test("pre-aborted signal → externalSignal still forwarded (spawnSubagent aborts immediately)", async () => {
+    reset({ output: "x" });
+    const ac = new AbortController();
+    ac.abort();
+    await runVisionInference({
+      task: "describe",
+      images: [{ type: "image", data: "x", mimeType: "image/png" }],
+      llm: { provider: "lm-studio", modelId: "qwen/qwen3.8-27b", thinkingLevel: "off" },
+      signal: ac.signal,
+    });
+    expect(spawnCalls[0]?.externalSignal?.aborted).toBe(true);
   });
 });

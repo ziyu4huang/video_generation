@@ -29,9 +29,9 @@ const DESCRIBE_PROMPT =
 
 /** Default describe stage: file2md's shared VLM seam. askImage already
  *  defaults to lm-studio google/gemma-4-12b (see ../vlm/ask.ts header). */
-export async function askImageDescribe(imagePath: string): Promise<DescribeResult> {
+export async function askImageDescribe(imagePath: string, signal?: AbortSignal): Promise<DescribeResult> {
   try {
-    const r = await askImage(imagePath, DESCRIBE_PROMPT);
+    const r = await askImage(imagePath, DESCRIBE_PROMPT, signal ? { signal } : {});
     if (r.ok && r.reply.trim() !== "") return { ok: true, description: r.reply.trim() };
     return { ok: false, error: r.error ?? "vlm-unavailable" };
   } catch (e) {
