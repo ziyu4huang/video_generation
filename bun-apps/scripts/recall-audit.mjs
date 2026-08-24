@@ -58,6 +58,9 @@ const { values: args } = parseArgs({
 		"surreal-database": { type: "string", default: "memory" },
 		"surreal-namespace": { type: "string" },
 		semantic: { type: "string", default: "on" },
+		"hotness-alpha": { type: "string", default: "0" },
+		"seed-usage": { type: "string", default: "" },
+		"reset-usage": { type: "boolean", default: false },
 		"test-embedder": { type: "boolean", default: false },
 		receipt: { type: "string" },
 		help: { type: "boolean", default: false },
@@ -75,6 +78,9 @@ if (args.help) {
   --surreal-database <d>  default memory
   --surreal-namespace <n> default: per-user derivation (tests isolate a throwaway ns)
   --semantic on|off       kcard semantic blend (default on; graceful lexical fallback)
+  --hotness-alpha <a>     kcard arm hotness blend weight (ticket 08 A/B; default 0 = off)
+  --seed-usage targets    seed usage events for battery target cards first
+                          (deterministic: 3 events over the last 2 days each)
   --test-embedder         deterministic hashing embedder (offline/CI; skips availability check)
   --receipt <path>        JSON receipt path (default output/recall-audit/receipt-<ts>.json)`);
 	process.exit(0);
@@ -239,6 +245,84 @@ if (ARMS.has("kcard")) {
 	}
 
 	let semanticUsedOnce = false;
+	let hotnessUsedOnce = false;
+	// F4: the receipt must record the ledger's A/B round state on its own
+	// (reset + seeded counts) — console logs are not receipts.
+	let receiptSeedNote = null;
+	// Ticket 08 (D37–D39) A/B: optional hotness blend + deterministic usage
+	// seeding. `--seed-usage targets` writes 3 events per battery target card
+	// (staggered over the last 2 days) BEFORE the run — "these are the cards
+	// the user actually used recently". `--hotness-alpha` then turns the
+	// bounded blend on for the kcard arm; the receipt records both.
+	const HOTNESS_ALPHA = Number(args["hotness-alpha"]);
+	if (!Number.isFinite(HOTNESS_ALPHA) || HOTNESS_ALPHA < 0 || HOTNESS_ALPHA > 0.1) {
+		console.error(`--hotness-alpha must be within [0, 0.1] (D39 bound), got ${args["hotness-alpha"]}`);
+		process.exit(2);
+	}
+	if (args["seed-usage"] === "targets" || args["seed-usage"] === "non-targets") {
+		const { makeContextClient } = await import("../s2-agent-ext-knowledge-card/src/surreal-index.ts");
+		const { recordUsage } = await import("../s2-agent-ext-knowledge-card/src/usage.ts");
+		const seedClient = makeContextClient({
+			endpoint: args["surreal-endpoint"],
+			...(args["surreal-namespace"] ? { namespace: args["surreal-namespace"] } : {}),
+			requestTimeoutMs: 60_000,
+		});
+		// The ledger is append-only — an A/B round starts from a KNOWN state or
+		// the previous round's events contaminate the control arm.
+		if (args["reset-usage"]) {
+			await seedClient.query("REMOVE TABLE IF EXISTS usage;");
+			console.log("usage table removed (reset)");
+		}
+		const stem = (n) => n.replace(/\.md$/, "");
+		const seedOne = async (filename) => {
+			for (let i = 0; i < 3; i++) {
+				await recordUsage(seedClient, stem(filename), "zk_card", new Date(Date.now() - (i * 16 + 2) * 3_600_000));
+			}
+		};
+		// Deterministic seeding (reviewer F2/F3): readdirSync order is
+		// filesystem-dependent — every lookup sweeps a SORTED file list, target
+		// matching prefers an EXACT stem hit over ambiguous substrings.
+		const sortedFiles = [...files].sort();
+		const findByTarget = (t) => {
+			const tl = t.toLowerCase();
+			return (
+				sortedFiles.find((n) => stem(n).toLowerCase() === tl) ??
+				sortedFiles.find((n) => n.toLowerCase().includes(tl))
+			);
+		};
+		let seeded = 0;
+		if (args["seed-usage"] === "targets") {
+			// Circular by construction (targets ARE the answer keys) — this arm
+			// measures the MECHANISM (recently-used cards rank up), never a
+			// production recall claim. Pair with "non-targets" for the
+			// no-regression control.
+			for (const e of battery.kcard ?? []) {
+				if (e.negative || !Array.isArray(e.vaultTargets)) continue;
+				for (const t of e.vaultTargets) {
+					const hit = findByTarget(t);
+					if (!hit) continue;
+					await seedOne(hit);
+					seeded++;
+				}
+			}
+		} else {
+			// Noise control: seed the same EVENT COUNT onto cards that match NO
+			// battery target (deterministic: sorted first-N). Numbers should
+			// match the baseline — usage noise must not move recall.
+			const targetSubs = (battery.kcard ?? [])
+				.flatMap((e) => (e.negative ? [] : e.vaultTargets ?? []))
+				.map((t) => t.toLowerCase());
+			const wanted = targetSubs.length; // same card count as the targets arm
+			for (const n of sortedFiles) {
+				if (seeded >= wanted) break;
+				if (targetSubs.some((t) => n.toLowerCase().includes(t))) continue;
+				await seedOne(n);
+				seeded++;
+			}
+		}
+		console.log(`seeded usage events: ${seeded * 3} (mode ${args["seed-usage"]})`);
+		receiptSeedNote = { mode: args["seed-usage"], reset: Boolean(args["reset-usage"]), cards: seeded, events: seeded * 3 };
+	}
 	const scored = await scoreArm(battery.kcard ?? [], async (q) => {
 		const result = await retrieveRecords({
 			vaultPath: args.vault,
@@ -250,9 +334,11 @@ if (ARMS.has("kcard")) {
 			slugDom: true,
 			semantic: SEMANTIC,
 			includeTrace: true,
+			...(HOTNESS_ALPHA > 0 ? { hotnessAlpha: HOTNESS_ALPHA } : {}),
 			...(args["test-embedder"] ? { _testEmbedder: makeTestEmbedder() } : {}),
 		});
 		if (result.trace?.semanticUsed) semanticUsedOnce = true;
+		if (result.trace?.hotnessUsed) hotnessUsedOnce = true;
 		// Rank key = "card-id :: path" so target matching can hit either side.
 		return result.cards.map((c) => `${c.id} :: ${c.path}`);
 	}, (id, e) => {
@@ -262,6 +348,7 @@ if (ARMS.has("kcard")) {
 
 	receipt.kcard = {
 		vaultCards: files.length,
+		hotness: { alpha: HOTNESS_ALPHA, seedUsage: receiptSeedNote, used: hotnessUsedOnce },
 		coverage: {
 			present: (battery.kcard ?? []).filter((e) => !e.negative && !e._absent).length,
 			absent: (battery.kcard ?? []).filter((e) => !e.negative && e._absent).length,

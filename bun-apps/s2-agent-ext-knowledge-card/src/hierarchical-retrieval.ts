@@ -32,6 +32,7 @@
  */
 import { SurrealClient } from "@repo/s2-agent-core-interface";
 import { embedQuery, minMaxNorm, SEMANTIC_ALPHA_DEFAULT, type Embedder } from "./semantic.ts";
+import { resolveHotnessAlpha } from "./hotness.ts";
 
 export interface HierarchicalOptions {
 	/** The caller's query string, verbatim (no analysis, D19). */
@@ -53,6 +54,12 @@ export interface HierarchicalOptions {
 	maxSweeps?: number;
 	/** Include the seed/expansion trace (A/B receipts). */
 	includeTrace?: boolean;
+	/** Ticket 08 (D39): bounded hotness blend weight over the usage-ledger
+	 *  aggregates (D37), applied to the final leaf ranking. Default 0 = OFF
+	 *  (byte-identical); validated to [0, 0.10] (resolveHotnessAlpha at the
+	 *  retrieveRecords boundary — direct callers here validate too). Any
+	 *  usage-lane failure leaves the ranking unchanged. */
+	hotnessAlpha?: number;
 }
 
 export interface HierarchicalCard {
@@ -60,12 +67,16 @@ export interface HierarchicalCard {
 	path: string;
 	title: string;
 	kind: string;
-	/** Final score (seed, or propagated when viaTree). */
+	/** Final score (seed, or propagated when viaTree; blended with hotness
+	 *  when hotnessAlpha > 0 — ticket 08). */
 	score: number;
 	/** True when the score arrived via hierarchy propagation rather than the
 	 *  card's own seed — the OpenViking "found via directory" case. */
 	viaTree: boolean;
 	summary: string;
+	/** The card's 0–1 hotness — present when the blend ran (0 = never-used,
+	 *  ticket 08). */
+	hotness?: number;
 }
 
 export interface HierarchicalTrace {
@@ -77,6 +88,8 @@ export interface HierarchicalTrace {
 	childQueries: number;
 	sweeps: number;
 	typeFilter: string | null;
+	/** True only when the hotness blend ran (ticket 08; absent = off). */
+	hotnessUsed?: boolean;
 	seedScores: Array<{ stem: string; kind: string; is_leaf: boolean; seed: number; lex: number; cos: number | null }>;
 }
 
@@ -277,6 +290,9 @@ export async function hierarchicalRetrieve(
 	const efSearch = opts.efSearch ?? 100;
 	const gamma = opts.gamma ?? 0.5;
 	const maxSweeps = opts.maxSweeps ?? 3;
+	// Ticket 08 (D39): validate direct callers' weights too (retrieveRecords
+	// already validated — resolveHotnessAlpha is idempotent).
+	const hotnessAlpha = resolveHotnessAlpha(opts.hotnessAlpha);
 	const tokens = hierTokenize(opts.query);
 
 	const byStem = new Map<string, SeedRow>();
@@ -417,19 +433,43 @@ export async function hierarchicalRetrieve(
 
 	// Leaves only (D18 default), optional typed filter, deterministic order.
 	// Metadata-less stubs (batched fetch failed) are dropped — unrankable.
-	const leaves = [...rowsByStem.values()]
+	let leaves = [...rowsByStem.values()]
 		.filter((r) => r.is_leaf && byStem.has(r.stem))
 		.map((r) => {
 			const meta = byStem.get(r.stem)!;
 			return { meta, score: best.get(r.stem) ?? 0, tree: viaTree.has(r.stem) };
 		})
 		.filter((x) => !opts.type || x.meta.kind === opts.type)
-		.sort((a, b) => b.score - a.score || (a.meta.stem < b.meta.stem ? -1 : 1))
-		.slice(0, topK);
+		.sort((a, b) => b.score - a.score || (a.meta.stem < b.meta.stem ? -1 : 1));
+
+	// Ticket 08 (D37–D39): bounded hotness blend on the leaf ranking, before
+	// the top-K cut. Pool-wide `(1−α)·score + α·hotness` (never-used → 0 —
+	// see applyHotnessBlend's comment in retrieve.ts for why skipping
+	// no-event cards would INVERT ties). Any usage-lane failure leaves the
+	// ranking unchanged.
+	let hotnessByStem: Map<string, number> | undefined;
+	if (hotnessAlpha > 0 && leaves.length > 0) {
+		try {
+			const { usageAggregates } = await import("./usage.ts");
+			const { hotnessScore, blendWithHotness } = await import("./hotness.ts");
+			const agg = await usageAggregates(client, leaves.map((x) => x.meta.stem));
+			hotnessByStem = new Map();
+			for (const x of leaves) {
+				const a = agg.get(x.meta.stem);
+				const h = a ? hotnessScore(a.activeCount, a.lastUsedAtMs) : 0;
+				hotnessByStem.set(x.meta.stem, h);
+				x.score = blendWithHotness(x.score, h, hotnessAlpha);
+			}
+			leaves = leaves.sort((a, b) => b.score - a.score || (a.meta.stem < b.meta.stem ? -1 : 1));
+		} catch {
+			hotnessByStem = undefined; // usage lane unavailable — ranking unchanged
+		}
+	}
+	const ranked = leaves.slice(0, topK);
 
 	return {
 		ok: true,
-		cards: leaves.map((x) => ({
+		cards: ranked.map((x) => ({
 			stem: x.meta.stem,
 			path: x.meta.path,
 			title: x.meta.title,
@@ -437,6 +477,7 @@ export async function hierarchicalRetrieve(
 			score: Number(x.score.toFixed(6)),
 			viaTree: x.tree,
 			summary: x.meta.summary,
+			...(hotnessByStem?.has(x.meta.stem) ? { hotness: hotnessByStem.get(x.meta.stem) } : {}),
 		})),
 		trace: opts.includeTrace
 			? {
@@ -448,6 +489,7 @@ export async function hierarchicalRetrieve(
 					childQueries,
 					sweeps,
 					typeFilter: opts.type ?? null,
+					...(hotnessByStem ? { hotnessUsed: true } : {}),
 					seedScores: pool.map((p) => ({
 						stem: p.stem,
 						kind: byStem.get(p.stem)!.kind,
