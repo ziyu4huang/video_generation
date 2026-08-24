@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-23-subagent-cc-parity-2
 created: 2026-08-23
-last: 2026-08-23
+last: 2026-08-25
 status: done
 ---
 
@@ -231,8 +231,14 @@ D8) kept every divergence deliberate and documented instead of accidental.
   tools. Fixed via a globalThis bridge in the patch +
   `readAllToolDefinitions()` in core-interface, with lazy re-capture in
   ext-subagent / ext-ultracode / ext-knowledge-card. Unit tests never caught
-  it because they inject `getExtensionTools` fakes — the live smoke is the
-  only guard; a regression tripwire is still missing (fog below).
+  it because they inject `getExtensionTools` fakes — the live smoke was the
+  only guard. Tripwire landed 2026-08-25:
+  `bun-apps/s2-agent/src/patches/ext-api-bridge-tripwire.test.ts` runs the
+  REAL seam (real patch on the installed dist's ExtensionRunner.prototype →
+  real bindCore → real loadExtensionFromFactory/createExtensionAPI `pi` →
+  readAllToolDefinitions(pi) must surface a registered tool with `execute`).
+  Mutation-verified: `BUN_PI_EXT_API_GET_ALL_TOOL_DEFS=0` fails both tests,
+  so a pi upgrade that re-breaks the bridge fails CI loudly, not silently.
 - **Budget fog (F2) — RESOLVED 2026-08-23 (ticket 05, D10):** the default
   live-agent lifetime tokenBudget (120k, the recon envelope) was too tight for
   big-context children — a named deepseek child burned 164k on two trivial
