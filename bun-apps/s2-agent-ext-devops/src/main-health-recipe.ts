@@ -243,7 +243,7 @@ export async function runMainHealth(opts: MainHealthOptions): Promise<MainHealth
 			.filter(
 				(p) =>
 					!missing.has(p.name) &&
-					((p.test.exitCode !== 0 && p.test.exitCode !== -1) ||
+					((p.test.exitCode !== 0 && !(p.test.exitCode === -1 && p.test.skipped)) ||
 						(!!p.typecheck && !p.typecheck.skipped && p.typecheck.exitCode !== 0) ||
 						(!!p.lint && !p.lint.skipped && p.lint.exitCode !== 0)),
 			)
