@@ -198,6 +198,40 @@ describe('memory sqlite sync + markdown backfill', () => {
     assert.strictEqual(cards.length, 3, 'row count stable — no duplicates');
   });
 
+  it('steady-state sync mirrors with ONE kind read, not a per-entry getCard (N+1 fix, 2026-08-24)', async () => {
+    // The per-entry mirrorMemoryEntry cost one getCard (one HTTP round-trip on
+    // the surreal backend) PER §-entry at EVERY startup — 103 round-trips /
+    // ~1.2–1.6s measured. The batched pass must read the kind list once.
+    const entries = [
+      fm('md-nplus-1', 'n+1 probe one', '2026-05-08', '2026-05-08'),
+      fm('md-nplus-2', 'n+1 probe two', '2026-05-08', '2026-05-08'),
+      fm('md-nplus-3', 'n+1 probe three', '2026-05-08', '2026-05-08'),
+      fm('md-nplus-4', 'n+1 probe four', '2026-05-08', '2026-05-08'),
+      fm('md-nplus-5', 'n+1 probe five', '2026-05-08', '2026-05-08'),
+    ];
+    fs.writeFileSync(path.join(globalDir, 'MEMORY.md'), entries.join(ENTRY_DELIMITER), 'utf-8');
+    const inner = await makeCardStore();
+
+    const counts = { getCard: 0, getCardsByKind: 0 };
+    const counting: CardStore = Object.assign(Object.create(Object.getPrototypeOf(inner)), inner, {
+      getCard: async (id: string) => {
+        counts.getCard++;
+        return inner.getCard(id);
+      },
+      getCardsByKind: async (kind: import('../../src/store/card.js').CardKind) => {
+        counts.getCardsByKind++;
+        return inner.getCardsByKind(kind);
+      },
+    });
+
+    await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, counting);
+    const res = await syncMarkdownMemories(memoryRepo, globalDir, undefined, agentRoot, undefined, undefined, counting);
+    assert.strictEqual(res.imported, 0, 'steady state: all skipped');
+    assert.strictEqual(res.skipped, 5);
+    assert.strictEqual(counts.getCard, 0, 'no per-entry getCard lookups');
+    assert.ok(counts.getCardsByKind <= 3, `one kind read per mirror batch (was 1/entry), got ${counts.getCardsByKind}`);
+  });
+
   it('re-sync updates only the drifted entry, in place (md_id stable)', async () => {
     fs.writeFileSync(
       path.join(globalDir, 'MEMORY.md'),

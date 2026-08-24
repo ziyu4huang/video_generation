@@ -14,6 +14,18 @@ describe("knowledge-card central model resolution", () => {
 		expect(resolveKgModel(CFG)).toBe("google/gemma-4-12b");
 	});
 
+	test("resolveKgModel strips the pi :effort suffix — LM Studio ids never carry it", () => {
+		// Regression (2026-08-24): capabilities entries carry pi's `model:effort`
+		// form ("gemma-4-12b:off"); the leaked suffix made LM Studio silently
+		// route to whatever model was loaded (bonsai-27b) instead of erroring.
+		delete process.env.PI_KG_LLM_MODEL;
+		const cfg: ModelTierConfig = {
+			tiers: CFG.tiers,
+			capabilities: { vision: "lm-studio/google/gemma-4-12b:off" },
+		};
+		expect(resolveKgModel(cfg)).toBe("google/gemma-4-12b");
+	});
+
 	test("resolveKgModel env wins over tier config", () => {
 		process.env.PI_KG_LLM_MODEL = "google/gemma-4-27b";
 		try {

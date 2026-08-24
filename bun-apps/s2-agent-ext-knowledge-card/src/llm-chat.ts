@@ -94,7 +94,15 @@ export function resolveKgModel(config: Parameters<typeof resolveModelRole>[1] = 
 	const spec = resolveModelRole({ capability: "vision" }, config);
 	if (spec) {
 		const slash = spec.indexOf("/");
-		return slash === -1 ? spec : spec.slice(slash + 1);
+		let id = slash === -1 ? spec : spec.slice(slash + 1);
+		// Strip the pi `model:effort` suffix (e.g. "gemma-4-12b:off") — LM
+		// Studio model ids never carry it. Measured 2026-08-24: the leaked
+		// ":off" made LM Studio silently route the request to whatever model
+		// happened to be loaded (prism-ml/bonsai-27b, 2× slower prefill),
+		// which is one half of the shutdown-extract never-succeeds loop.
+		const colon = id.lastIndexOf(":");
+		if (colon > 0) id = id.slice(0, colon);
+		return id;
 	}
 	return "google/gemma-4-12b";
 }

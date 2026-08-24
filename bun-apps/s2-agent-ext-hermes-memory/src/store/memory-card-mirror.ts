@@ -216,3 +216,42 @@ export async function mirrorMemoryEntry(
   }
   return "skipped";
 }
+
+/** Batched mirrorMemoryEntry for the startup sync pass (2026-08-24 perf fix:
+ * the per-entry `getCard` made the pass an N+1 — 103 HTTP round-trips /
+ * ~1.2–1.6s measured on the real surreal backend, every session). ONE
+ * `getCardsByKind` replaces the per-entry lookup: md_ids are globally unique
+ * (5d), so a kind-scoped id→card map is equivalent to the per-id getCard.
+ * Writes stay per-entry through the same upsertCard/updateCard seams
+ * (steady state = zero write round-trips). Outcome order matches the input
+ * order; an empty/null cardStore mirrors to all-"skipped". */
+export async function mirrorMemoryEntries(
+  cardStore: CardStore | null,
+  kind: MemoryCardKind,
+  inputs: MemoryCardInput[],
+): Promise<MirrorEntryOutcome[]> {
+  if (!cardStore) return inputs.map(() => "skipped" as const);
+  const cards = inputs.map((input) => buildMemoryCard(cardStore, kind, input));
+  const byId = new Map((await cardStore.getCardsByKind(kind)).map((c) => [c.id, c]));
+  const outcomes: MirrorEntryOutcome[] = [];
+  for (const card of cards) {
+    if (!card) {
+      outcomes.push("no-stable-id");
+      continue;
+    }
+    const existing = byId.get(card.id);
+    if (!existing) {
+      await cardStore.upsertCard(card);
+      outcomes.push("inserted");
+    } else if (
+      existing.content !== card.content ||
+      JSON.stringify(existing.frontmatter) !== JSON.stringify(card.frontmatter)
+    ) {
+      await cardStore.updateCard(card);
+      outcomes.push("updated");
+    } else {
+      outcomes.push("skipped");
+    }
+  }
+  return outcomes;
+}

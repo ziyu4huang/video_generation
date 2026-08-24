@@ -144,22 +144,30 @@ export interface ExtractState {
 	seenIds: string[];
 	lastRun: string | null;
 	runs: number;
+	/** Consecutive LLM-failure count (shutdown backoff, 2026-08-24 perf fix).
+	 *  A failing LLM run never advances the cursor — without this counter the
+	 *  SAME batch retried at every session_shutdown, taxing each one-shot run
+	 *  the full 25s budget forever (measured: every receipt since 2026-08-24
+	 *  10:08 was llmFailed with candidates=101). Reset to 0 by any successful
+	 *  run; 0 on legacy state files. */
+	consecutiveFailures: number;
 }
 
 const SEEN_CAP = 500;
 
 export function readExtractState(vaultPath: string): ExtractState {
 	const p = join(vaultPath, STATE_FILE);
-	if (!existsSync(p)) return { seenIds: [], lastRun: null, runs: 0 };
+	if (!existsSync(p)) return { seenIds: [], lastRun: null, runs: 0, consecutiveFailures: 0 };
 	try {
 		const raw = JSON.parse(readFileSync(p, "utf-8")) as Partial<ExtractState>;
 		return {
 			seenIds: Array.isArray(raw.seenIds) ? raw.seenIds.filter((x): x is string => typeof x === "string") : [],
 			lastRun: raw.lastRun ?? null,
 			runs: raw.runs ?? 0,
+			consecutiveFailures: typeof raw.consecutiveFailures === "number" ? raw.consecutiveFailures : 0,
 		};
 	} catch {
-		return { seenIds: [], lastRun: null, runs: 0 };
+		return { seenIds: [], lastRun: null, runs: 0, consecutiveFailures: 0 };
 	}
 }
 
@@ -411,8 +419,18 @@ export interface ExtractResult {
 	superseded: { rawCardId: string; byCardId: string; found: boolean; updated: boolean }[];
 	errors: string[];
 	llmFailed: boolean;
+	/** Shutdown backoff fired: the run short-circuited BEFORE the LLM call
+	 *  because the previous SHUTDOWN_BACKOFF_FAILURES shutdown runs failed
+	 *  (see ExtractState.consecutiveFailures). On-demand runs never skip. */
+	skippedBackoff: boolean;
 	diffFile: string | null;
 }
+
+/** After this many consecutive LLM failures, shutdown-triggered runs stop
+ *  paying their timeout budget on a batch that has already proven unfetchable
+ *  — the lane self-heals via an on-demand `zk_ingest` extract run (any
+ *  success resets the counter). */
+const SHUTDOWN_BACKOFF_FAILURES = 2;
 
 function makeRunId(): { runId: string; ts: string } {
 	const now = new Date();
@@ -434,6 +452,37 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 	// processed by a previous run's loop stay out.
 	const fresh = opts.entries.filter((e) => isFresh(e, seen));
 	const cursorExcluded = opts.entries.length - fresh.length;
+
+	// Shutdown backoff (2026-08-24 perf fix): a shutdown run pays its full
+	// timeout budget (25s at the extension trigger site) for the LLM call —
+	// and because a failure never advances the cursor, the SAME batch retried
+	// at every session end (measured: ~25s stall on every one-shot -p run).
+	// After SHUTDOWN_BACKOFF_FAILURES consecutive failures, skip before the
+	// LLM; on-demand runs still execute and a success resets the counter.
+	if (opts.trigger === "shutdown" && state.consecutiveFailures >= SHUTDOWN_BACKOFF_FAILURES) {
+		let diffFile: string | null = null;
+		try {
+			const dir = opts.outputDir ?? join(process.cwd(), "output", "kcard-extract");
+			mkdirSync(dir, { recursive: true });
+			diffFile = join(dir, `run-${runId}.json`);
+			writeFileSync(
+				diffFile,
+				JSON.stringify(
+					{ runId, ts: tsStr, trigger: "shutdown", skippedBackoff: true, consecutiveFailures: state.consecutiveFailures, seenBefore: seen.length, cursorExcluded, candidates: fresh.length, decisions: [], writes: [], superseded: [], llmFailed: false },
+					null,
+					2,
+				),
+			);
+		} catch {
+			diffFile = null;
+		}
+		return {
+			runId, ts: tsStr, trigger: "shutdown", dryRun: !!opts.dryRun,
+			seenBefore: seen.length, cursorExcluded, candidates: fresh.length,
+			killed: 0, survivors: 0, decisions: [], writes: [], superseded: [],
+			errors: [], llmFailed: false, skippedBackoff: true, diffFile,
+		};
+	}
 
 	// Gate (deterministic — unchanged semantics; this is the kill/upgrade layer)
 	const gate = runGate(fresh, opts.vaultPath);
@@ -537,7 +586,7 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 		writeFileSync(
 			diffFile,
 			JSON.stringify(
-				{ runId, ts: tsStr, trigger: opts.trigger ?? "on-demand", dryRun: !!opts.dryRun, seenBefore: seen.length, seenAfter: state.seenIds.length, cursorExcluded, candidates: gate.candidates, killed: gate.killed.length, survivors: gate.survivors.length, decisions, writes, superseded, llmFailed },
+				{ runId, ts: tsStr, trigger: opts.trigger ?? "on-demand", dryRun: !!opts.dryRun, seenBefore: seen.length, seenAfter: state.seenIds.length, cursorExcluded, candidates: gate.candidates, killed: gate.killed.length, survivors: gate.survivors.length, consecutiveFailures: llmFailed ? state.consecutiveFailures + 1 : 0, decisions, writes, superseded, llmFailed },
 				null,
 				2,
 			),
@@ -557,6 +606,17 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 			seenIds: nextSeen,
 			lastRun: tsStr,
 			runs: state.runs + 1,
+			consecutiveFailures: 0,
+		});
+	} else if (!opts.dryRun && llmFailed) {
+		// Backoff bookkeeping (2026-08-24 perf fix): record the failure WITHOUT
+		// advancing the cursor (the batch must retry) so shutdown runs can
+		// stop re-paying the timeout budget on a batch that keeps failing.
+		writeExtractState(opts.vaultPath, {
+			seenIds: state.seenIds,
+			lastRun: state.lastRun,
+			runs: state.runs,
+			consecutiveFailures: state.consecutiveFailures + 1,
 		});
 	}
 
@@ -578,6 +638,7 @@ export async function runExtraction(opts: ExtractOptions): Promise<ExtractResult
 			...runErrors,
 		],
 		llmFailed,
+		skippedBackoff: false,
 		diffFile,
 	};
 }

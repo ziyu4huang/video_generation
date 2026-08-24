@@ -19,7 +19,7 @@ import path from 'node:path';
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { MemoryRepository } from '../store/repository.js';
 import type { CardStore } from '../store/card-store.js';
-import { mirrorMemoryEntry } from '../store/memory-card-mirror.js';
+import { mirrorMemoryEntries, mirrorMemoryEntry } from '../store/memory-card-mirror.js';
 import type { FailureState } from '../types.js';
 import {
   parseMarkdownMemoryEntry,
@@ -67,7 +67,10 @@ type ParsedEntry = ReturnType<typeof parseMarkdownMemoryEntry>;
  *  registered MemoryDedupStrategy); drifted content/envelope → updateCard
  *  (UPDATE in place, id stable); identical → skip. Entries with no stable id
  *  are counted as skipped — a later pass picks them up after the 5d backfill.
- *  Per-entry failures record a precise warning and never lose the file. */
+ *  Batched (2026-08-24 perf fix): one getCardsByKind per file instead of a
+ *  per-entry getCard — the N+1 cost 103 HTTP round-trips per startup on the
+ *  surreal backend. Per-entry failures record a precise warning and never
+ *  lose the file; a batch-level failure falls back to the per-entry mirror. */
 async function importEntries(
   cardStore: CardStore | null,
   counters: BackfillCounters,
@@ -75,11 +78,12 @@ async function importEntries(
   target: 'memory' | 'user' | 'failure',
   project: string | null = null,
 ): Promise<void> {
+  const inputs: Parameters<typeof mirrorMemoryEntries>[2] = [];
   for (const rawEntry of entries) {
     counters.entriesScanned++;
     try {
       const parsed = parseMarkdownMemoryEntry(rawEntry, target, project);
-      const outcome = await mirrorMemoryEntry(cardStore, target, {
+      inputs.push({
         mdId: parsed.mdId,
         content: parsed.content,
         created: parsed.created ?? null,
@@ -88,12 +92,30 @@ async function importEntries(
         ...(typeof parsed.severity === 'number' ? { severity: parsed.severity } : {}),
         ...(parsed.pin === true ? { pin: true } : {}),
       });
-      if (outcome === 'inserted' || outcome === 'updated') counters.imported++;
-      else counters.skipped++;
     } catch (err) {
       counters.warnings.push(
         `${path.basename(project ?? 'global')}/${target}: ${err instanceof Error ? err.message : String(err)}`,
       );
+    }
+  }
+  const count = (outcome: string): void => {
+    if (outcome === 'inserted' || outcome === 'updated') counters.imported++;
+    else counters.skipped++;
+  };
+  try {
+    for (const outcome of await mirrorMemoryEntries(cardStore, target, inputs)) count(outcome);
+  } catch (err) {
+    counters.warnings.push(
+      `${path.basename(project ?? 'global')}/${target}: batch mirror failed (${err instanceof Error ? err.message : String(err)}) — retrying per entry`,
+    );
+    for (const input of inputs) {
+      try {
+        count(await mirrorMemoryEntry(cardStore, target, input));
+      } catch (err2) {
+        counters.warnings.push(
+          `${path.basename(project ?? 'global')}/${target}: ${err2 instanceof Error ? err2.message : String(err2)}`,
+        );
+      }
     }
   }
 }
