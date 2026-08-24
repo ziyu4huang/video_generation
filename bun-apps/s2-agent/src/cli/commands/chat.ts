@@ -9,7 +9,7 @@
  *
  * Usage:
  *   s2-agent cli chat                          # start REPL (in-memory session)
- *   s2-agent cli chat --model gemma-4-12b      # pick a model
+ *   s2-agent cli chat --model bonsai-27b      # pick a model
  *   s2-agent cli chat --tools read,bash,write  # curated toolset
  *   echo "hello" | s2-agent cli chat           # pipe one prompt, then exit
  *
@@ -105,7 +105,7 @@ The session is in-memory: one REPL process, one conversation. History does not
 survive across invocations (cross-invocation persistence is not implemented).
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. gemma-4-12b, sonnet)
+  --model <pattern>      provider/id[:thinking]  (e.g. bonsai-27b, sonnet)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          curated tool allowlist (default: broad set)
@@ -122,7 +122,7 @@ In-session commands:
 
 Examples:
   s2-agent cli chat
-  s2-agent cli chat --model gemma-4-12b
+  s2-agent cli chat --model bonsai-27b
   s2-agent cli --tools read,bash,edit chat
   echo "what files are here?" | s2-agent cli chat`,
 	async run(parsed: ParsedArgs): Promise<void> {

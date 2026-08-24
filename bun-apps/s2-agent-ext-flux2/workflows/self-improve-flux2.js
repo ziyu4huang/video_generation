@@ -82,19 +82,19 @@ const CONSECUTIVE_STATIC = Math.max(0, Number(a.consecutiveStatic ?? 2));
 // attempt 0's generation. Empty/absent → no few-shot (first run).
 const FEWSHOT = typeof a.fewShot === "string" && a.fewShot.trim() ? String(a.fewShot) : "";
 // Optional judge-model override. The pose_dsg judge's default served model
-// (google/gemma-4-12b) returns 0 atoms on multi-subject images (measured
-// 3/3 on L4-02 — see goal 0704 §4). A stronger tier (e.g. google/gemma-4-12b)
+// (prism-ml/bonsai-27b) returns 0 atoms on multi-subject images (measured
+// 3/3 on L4-02 — see goal 0704 §4). A stronger tier (e.g. prism-ml/bonsai-27b)
 // analyzes them correctly. Injected into the run.py caption --model flag when set.
 const JUDGE_MODEL = typeof a.judgeModel === "string" && a.judgeModel.trim() ? String(a.judgeModel) : "";
 // Fallback judge tier for 0-atom verdicts (goal 0704 §1 — the pure-win fix the
 // 0612 arc left documented-but-not-coded). The default served pose_dsg judge
-// (google/gemma-4-12b) returns 0 atoms on multi-subject images (measured 3/3
+// (prism-ml/bonsai-27b) returns 0 atoms on multi-subject images (measured 3/3
 // on L4-02 — see [[pose-dsg-empty-atoms-multi-subject-judge-tier]]); a stronger
 // tier analyzes them correctly. judgePose auto-retries ONCE with this tier when
 // 0 atoms are returned under any other judge, so a user no longer has to KNOW to
 // pass --judge-model on multi-subject. Single-subject poses judge fine under the
 // default and never trigger this → no latency cost there.
-const FALLBACK_JUDGE_MODEL = "google/gemma-4-12b";
+const FALLBACK_JUDGE_MODEL = "prism-ml/bonsai-27b";
 
 // Loop MODE (measured verdict, goal 0704 §1). On flux2-klein, the loop's
 // reflection machinery does NOT beat single-shot best-of-N — seed sampling is
@@ -315,12 +315,12 @@ async function judgePose(p, i, pose) {
     );
   try {
     // The model for the first call: an explicit --judge-model override wins;
-    // otherwise "" lets run.py auto-resolve (typically google/gemma-4-12b when
+    // otherwise "" lets run.py auto-resolve (typically prism-ml/bonsai-27b when
     // that is the only model served).
     let modelUsed = JUDGE_MODEL;
     let j = await runOnce(modelUsed, "vlm pose_dsg output " + (i + 1));
     // ── Judge-tier auto-fallback (goal 0704 §1) ──────────────────────────────
-    // The default served judge (google/gemma-4-12b) returns 0 atoms on
+    // The default served judge (prism-ml/bonsai-27b) returns 0 atoms on
     // multi-subject images (measured 3/3 on L4-02). A 0-atom verdict means the
     // VLM did not actually analyze the image (faithfulness 0 + anatomy all-false
     // is the tell) — untrustworthy, not a real fail. Rather than declare unscored

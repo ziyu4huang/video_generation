@@ -183,7 +183,7 @@ Pi-compatible flags (passthrough + global):
 
 Examples:
   s2-agent cli chat                                    # interactive REPL (normal-CLI mode)
-  s2-agent cli chat --model gemma-4-12b                # pick a model for chat
+  s2-agent cli chat --model bonsai-27b                # pick a model for chat
   s2-agent cli agent "read package.json and explain"   # free-form agentic task
   s2-agent cli agent --tools read,bash "summarize"     # curated toolset
   s2-agent cli file2md paper.pdf

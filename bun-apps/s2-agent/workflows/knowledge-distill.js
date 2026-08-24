@@ -26,7 +26,7 @@
  *
  * INVOCATION
  *   bun --cwd bun-apps/s2-agent src/cli.ts cli workflow run knowledge-distill \
- *     --model lm-studio/google/gemma-4-12b --thinking medium \
+ *     --model lm-studio/prism-ml/bonsai-27b --thinking medium \
  *     --args '{"pr":244,"folder":"Zettelkasten/distill"}'
  *   # or from markdown sources:
  *   --args '{"sources":["./notes.md"],"folder":"Zettelkasten/distill"}'
@@ -187,7 +187,7 @@ async function distilSource(src, idx) {
       const hint = feedback ? `\nPrior attempt feedback: ${feedback}` : ""
       const r = await agent(
         `Atomise a source file into Zettelkasten atomic notes via zk-extract.
-1. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/s2-agent' src/cli.ts cli zk-extract '${src}' --folder '${FOLDER}' --max-notes ${MAX_NOTES} --model lm-studio/google/gemma-4-12b --thinking ${THINKING} -p 2>&1 | tail -40")
+1. Bash("OB_VAULT_PATH='${VAULT}' bun --cwd '${PROJECT_ROOT}/bun-apps/s2-agent' src/cli.ts cli zk-extract '${src}' --folder '${FOLDER}' --max-notes ${MAX_NOTES} --model lm-studio/prism-ml/bonsai-27b --thinking ${THINKING} -p 2>&1 | tail -40")
 2. The command spawns a distill subagent that writes atomic notes to '${VAULT}/${FOLDER}'.
 3. After it returns, count the cards created:
    Bash("find '${VAULT}/${FOLDER}' -type f -name '*.md' 2>/dev/null | wc -l | tr -d ' '")

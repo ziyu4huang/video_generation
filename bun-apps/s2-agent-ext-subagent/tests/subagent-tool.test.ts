@@ -865,9 +865,9 @@ test("renderSubagentCall shows 'tier:small' in the model slot when model is omit
 });
 
 test("renderSubagentCall appends resolved model as a separate segment when tier is shown", () => {
-  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x", modelSeg: "gemma-4-12b" }, T);
-  // ticket 04 finding 5: resolved segment is shortened (google/gemma-4-12b → gemma-4-12b)
-  assert.match(out, /tier:medium ▸ gemma-4-12b ▸/);
+  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x", modelSeg: "bonsai-27b" }, T);
+  // ticket 04 finding 5: resolved segment is shortened (prism-ml/bonsai-27b → bonsai-27b)
+  assert.match(out, /tier:medium ▸ bonsai-27b ▸/);
 });
 
 test("renderSubagentCall omits resolved model before resolution (undefined)", () => {
@@ -883,12 +883,12 @@ test("renderSubagentCall omits resolved model when it equals the explicit model 
 });
 
 test("renderSubagentCall shows both explicit model and a different resolved model", () => {
-  const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", modelSeg: "gemma-4-12b" }, T);
+  const out = renderSubagentCall({ agent: "scout", model: "x/flash", task: "x", modelSeg: "bonsai-27b" }, T);
   // Both shortened on the call line (ticket 04 finding 5).
   assert.match(out, /flash/);
-  assert.match(out, /gemma-4-12b/);
+  assert.match(out, /bonsai-27b/);
   assert.ok(!out.includes("x/flash"), "provider prefix dropped on the explicit model slot");
-  assert.ok(!out.includes("google/gemma-4-12b"), "provider prefix dropped on the resolved segment");
+  assert.ok(!out.includes("prism-ml/bonsai-27b"), "provider prefix dropped on the resolved segment");
 });
 
 test("renderSubagentResult collapsed is short; expanded contains the full report", () => {
@@ -1623,19 +1623,19 @@ test("execute threads onModelResolved into registry.updateModel (live resolved m
     orig(id, model);
   };
   const { spawn } = fakeSpawn(async (opts) => {
-    opts.onModelResolved?.("google/gemma-4-12b");
+    opts.onModelResolved?.("prism-ml/bonsai-27b");
     return { exitCode: 0, output: "ok", stderr: "", timedOut: false, history: [] };
   });
   const tool = createSubagentTool({ spawn, inFlight: reg });
   await tool.execute("tc1", { task: "audit", tier: "medium" }, NO_SIGNAL, undefined, NO_CTX);
-  assert.deepEqual(updates, [["tc1", "google/gemma-4-12b"]]);
+  assert.deepEqual(updates, [["tc1", "prism-ml/bonsai-27b"]]);
 });
 
 test("renderCall reads resolvedModel from the registry and binds invalidate", () => {
   const reg = new SubagentInFlightRegistry();
   const tool = createSubagentTool({ inFlight: reg });
   reg.start({ id: "tc9", model: "tier:medium", taskPreview: "x", startedAt: 0 });
-  reg.updateModel("tc9", "google/gemma-4-12b");
+  reg.updateModel("tc9", "prism-ml/bonsai-27b");
   let invalidated = 0;
   const comp = tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
     toolCallId: "tc9",
@@ -1644,7 +1644,7 @@ test("renderCall reads resolvedModel from the registry and binds invalidate", ()
     },
   } as never);
   assert.ok(comp instanceof ComposerComponent);
-  assert.match(comp.render(200).join("\n"), /tier:medium ▸ gemma-4-12b ▸/);
+  assert.match(comp.render(200).join("\n"), /tier:medium ▸ bonsai-27b ▸/);
   // invalidate was bound — a later updateModel re-renders the call line
   reg.updateModel("tc9", "anthropic/claude-opus");
   assert.equal(invalidated, 1);
@@ -1654,13 +1654,13 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
   const reg = new SubagentInFlightRegistry();
   const tool = createSubagentTool({ inFlight: reg });
   reg.start({ id: "tc-end", model: "tier:medium", taskPreview: "x", startedAt: 0 });
-  reg.updateModel("tc-end", "google/gemma-4-12b");
+  reg.updateModel("tc-end", "prism-ml/bonsai-27b");
   const before = tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
     toolCallId: "tc-end",
     invalidate: () => {},
   } as never);
   assert.ok(before instanceof ComposerComponent);
-  assert.match(before.render(200).join("\n"), /gemma-4-12b/);
+  assert.match(before.render(200).join("\n"), /bonsai-27b/);
   // After completion the entry is gone — segment reverts; model lives on the result line.
   reg.end("tc-end");
   const after = tool.renderCall?.({ agent: "auditor", tier: "medium", task: "x" }, T, {
@@ -1670,7 +1670,7 @@ test("renderCall drops the resolved-model segment after the run ends (end() tear
   assert.ok(after instanceof ComposerComponent);
   const rendered = after.render(200).join("\n");
   assert.match(rendered, /tier:medium/);
-  assert.doesNotMatch(rendered, /gemma-4-12b/);
+  assert.doesNotMatch(rendered, /bonsai-27b/);
 });
 
 // ── compose-in-render mounting (ticket 02): ladder, re-flow, reuse, settled ──
@@ -2067,20 +2067,20 @@ test("renderSubagentCall with fellBack:false renders normally (no → prefix)", 
       tier: "small",
       task: "x",
       // RunView.modelSeg without a fallback: the plain resolved model
-      modelSeg: "gemma-4-12b",
+      modelSeg: "bonsai-27b",
     },
     T,
   );
   // The resolved model segment is plain (no fallback indicator); shortened on display.
-  assert.ok(String(out).includes("gemma-4-12b"));
-  assert.ok(!String(out).includes("google/gemma-4-12b"), "provider prefix dropped on the resolved segment");
+  assert.ok(String(out).includes("bonsai-27b"));
+  assert.ok(!String(out).includes("prism-ml/bonsai-27b"), "provider prefix dropped on the resolved segment");
   assert.doesNotMatch(String(out), /→ gemma/);
 });
 
 test("renderSubagentCall with fellBack omitted (backward-compat) renders normally", () => {
-  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x", modelSeg: "gemma-4-12b" }, T);
-  assert.ok(String(out).includes("gemma-4-12b"));
-  assert.ok(!String(out).includes("google/gemma-4-12b"), "provider prefix dropped on the resolved segment");
+  const out = renderSubagentCall({ agent: "auditor", tier: "medium", task: "x", modelSeg: "bonsai-27b" }, T);
+  assert.ok(String(out).includes("bonsai-27b"));
+  assert.ok(!String(out).includes("prism-ml/bonsai-27b"), "provider prefix dropped on the resolved segment");
   assert.doesNotMatch(String(out), /→ gemma/);
 });
 

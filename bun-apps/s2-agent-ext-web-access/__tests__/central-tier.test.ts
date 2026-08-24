@@ -27,9 +27,9 @@ describe("parseModelSpec", () => {
 	});
 
 	test("keeps inner slashes in the id (lm-studio convention)", () => {
-		expect(parseModelSpec("lm-studio/google/gemma-4-12b")).toEqual({
+		expect(parseModelSpec("lm-studio/prism-ml/bonsai-27b")).toEqual({
 			provider: "lm-studio",
-			id: "google/gemma-4-12b",
+			id: "prism-ml/bonsai-27b",
 		});
 	});
 

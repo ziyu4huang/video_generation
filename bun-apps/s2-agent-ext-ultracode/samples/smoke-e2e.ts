@@ -17,10 +17,10 @@
  *
  * USAGE (from anywhere):
  *   bun bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts [workflow.js]
- *   PI_MODEL=google/gemma-4-12b bun bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts
+ *   PI_MODEL=prism-ml/bonsai-27b bun bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts
  *
  * Env:
- *   PI_MODEL       model passed to `--model` (default google/gemma-4-12b; empty
+ *   PI_MODEL       model passed to `--model` (default prism-ml/bonsai-27b; empty
  *                  = default, same as the shell's `${PI_MODEL:-…}`). Use a
  *                  model LM Studio currently has LOADED — a mid-run unload
  *                  ("Model unloaded.") aborts the relay silently (2026-08-25).
@@ -43,7 +43,7 @@ const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "../../..");
 const CLI = process.env.SMOKE_E2E_CLI || resolve(REPO_ROOT, "bun-apps/s2-agent/src/cli.ts");
 
-const MODEL = process.env.PI_MODEL || "google/gemma-4-12b";
+const MODEL = process.env.PI_MODEL || "prism-ml/bonsai-27b";
 const WF = process.argv[2] || resolve(SCRIPT_DIR, "dynamic-workflow-smoke01.js");
 // The `-e` value MUST be a real path: pi's extension loader treats a bare name
 // as a cwd-relative path (broken 2026-08-25 on this repo — `<root>/ultracode`

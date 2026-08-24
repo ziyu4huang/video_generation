@@ -34,10 +34,10 @@ mock.module(`${import.meta.dirname}/../src/vlm/vision-inference.ts`, () => ({
 // so stub the resolver to a stable target. Realm-safe (this realm already mocks
 // vision-inference; both the code under test and the test's import see this stub).
 mock.module(`${import.meta.dirname}/../src/sessions.ts`, () => ({
-  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "google/gemma-4-12b", thinkingLevel: "off" }),
+  resolveVisionLLM: () => ({ provider: "lm-studio", modelId: "prism-ml/bonsai-27b", thinkingLevel: "off" }),
   resolveLLM: (opts: { provider?: string; model?: string; thinking?: string } = {}) => ({
     provider: opts.provider ?? "lm-studio",
-    modelId: opts.model ?? "google/gemma-4-12b",
+    modelId: opts.model ?? "prism-ml/bonsai-27b",
     thinkingLevel: opts.thinking ?? "off",
   }),
 }));

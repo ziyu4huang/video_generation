@@ -50,7 +50,7 @@ the SAME `options` once per seed, gates each, and picks a winner:
 - `seeds` (required) — one render per seed, in order.
 - `verifyPrompt` — question asked of a VLM subagent about each rendered candidate (e.g.
   `"Describe each person's LEFT/RIGHT position and pose."`). Reuses pi-file2md's shared subagent
-  (`askImage`/`resolveLLM`, default `lm-studio/google/gemma-4-12b`) — not a new LM Studio
+  (`askImage`/`resolveLLM`, default `lm-studio/prism-ml/bonsai-27b`) — not a new LM Studio
   client. Omit to skip VLM verification (candidates are still generated + gated).
 - `verifyMatch` — case-insensitive substrings that must ALL appear in a candidate's VLM reply to
   win (first matching seed, in order). Falls back to the best-gated candidate if omitted or
@@ -147,7 +147,7 @@ generation weakness, not a prompt-coverage gap). So:
 
 ### Judge-tier contract — multi-subject poses REQUIRE the 31b judge
 
-The pose_dsg judge's default served model (`lm-studio/google/gemma-4-12b`)
+The pose_dsg judge's default served model (`lm-studio/prism-ml/bonsai-27b`)
 **returns 0 atoms on multi-subject images** — measured 3/3 on the two-person
 pose L4-02 (the verdict comes back well-shaped but with zero atoms, faithfulness
 0, anatomy all-false; ~3× latency). It judges single-subject poses correctly.
@@ -155,7 +155,7 @@ For any multi-subject pose you MUST pass a stronger tier:
 
 ```bash
 bash bun-apps/s2-agent/scripts/run-self-improve-loop.sh --pose-id L4-02 \
-  --judge-model google/gemma-4-12b
+  --judge-model prism-ml/bonsai-27b
 ```
 
 Without `--judge-model`, multi-subject poses will exhaust the full attempt budget
@@ -165,7 +165,7 @@ The 26b default is fine for single-subject poses.
 
 #### Judge-tier auto-fallback (2026-07-04)
 
-`judgePose` now **auto-retries ONCE with `google/gemma-4-12b`** when the
+`judgePose` now **auto-retries ONCE with `prism-ml/bonsai-27b`** when the
 configured judge returns a 0-atom verdict, so multi-subject poses no longer
 silently fail when you forget `--judge-model`. The fallback is logged visibly
 (`[judge] pose_dsg returned 0 atoms under ... → retrying once with ...`) and
@@ -173,7 +173,7 @@ flagged on the verdict (`judgeFallback: true`) so the tier dependency stays
 observable. Single-subject poses judge fine under the 26b default and never
 trigger the fallback, so they pay no latency cost. The fallback is suppressed
 when `--judge-model` is already the 31b tier (no retry storm on a pinned
-fallback). Explicit `--judge-model google/gemma-4-12b` is still the
+fallback). Explicit `--judge-model prism-ml/bonsai-27b` is still the
 cheapest path for a known multi-subject run (avoids the ~60s wasted 26b call),
 but forgetting it is no longer a hard failure.
 

@@ -131,9 +131,9 @@ describe("parseExtListPayload (pure)", () => {
 
 describe("contention precheck (pure)", () => {
 	test("modelContentionWarning: >1 large chat model warns and names them", () => {
-		const w = modelContentionWarning(["qwen3.8-27b", "gemma-4-12b", "text-embedding-bge-m3"]);
+		const w = modelContentionWarning(["qwen3.8-27b", "bonsai-27b", "text-embedding-bge-m3"]);
 		expect(w).toContain("qwen3.8-27b");
-		expect(w).toContain("gemma-4-12b");
+		expect(w).toContain("bonsai-27b");
 		// the embedder is excluded — it is not contention for the chat model
 		expect(w).not.toContain("bge-m3");
 	});
@@ -307,7 +307,7 @@ describe("runDeployE2e", () => {
 			versionDir,
 			spawn: fakeSpawn({ modelCall: { exitCode: 124, timedOut: true, stdout: "", stderr: "" } }),
 			modelEndpoint: "http://127.0.0.1:1234",
-			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "gemma-4-12b", "text-embedding-bge-m3"]),
+			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "bonsai-27b", "text-embedding-bge-m3"]),
 		});
 		expect(r.warnings.length).toBe(1);
 		expect(r.warnings[0]).toContain("qwen3.8-27b");
@@ -444,7 +444,7 @@ describe("model-call regression budgets", () => {
 			spawn: fakeSpawn(),
 			now,
 			modelEndpoint: "http://127.0.0.1:1234",
-			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "gemma-4-12b"]),
+			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "bonsai-27b"]),
 		});
 		const mc = r.probes.find((p) => p.id === "model-call")!;
 		expect(mc.verdict).toBe("skip");

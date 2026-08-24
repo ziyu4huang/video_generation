@@ -90,7 +90,7 @@ describe("runStoryAnglesNative / runStoryProposeNative — LM Studio integration
     return (async (input: string | URL | Request) => {
       const url = String(input);
       if (url.includes("/api/v1/models") && !url.includes("/load")) {
-        return new Response(JSON.stringify({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] }), { status: 200 });
+        return new Response(JSON.stringify({ models: [{ key: "prism-ml/bonsai-27b", loaded_instances: [{}] }] }), { status: 200 });
       }
       if (url.includes("/models/load")) {
         return new Response(JSON.stringify({ status: "loaded" }), { status: 200 });

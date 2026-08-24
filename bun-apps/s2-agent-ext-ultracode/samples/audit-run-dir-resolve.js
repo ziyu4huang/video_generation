@@ -12,7 +12,7 @@
  * purpose (4 agents) so a real model finishes in minutes, not hours.
  *
  * Run via the REAL e2e path (drives s2-agent CLI + the workflow tool):
- *   PI_MODEL=google/gemma-4-12b \
+ *   PI_MODEL=prism-ml/bonsai-27b \
  *     bun ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts \
  *       bun-apps/s2-agent-ext-ultracode/samples/audit-run-dir-resolve.js
  *

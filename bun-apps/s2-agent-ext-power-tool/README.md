@@ -131,7 +131,7 @@ bun ./run-test.ts --list           # print the tier table
 ```
 
 `high`/`full` spawn the real `s2-agent` CLI and call a real LM Studio model
-(`google/gemma-4-12b` by default, override via `PI_L2_MODEL`). There is no
+(`prism-ml/bonsai-27b` by default, override via `PI_L2_MODEL`). There is no
 standalone "real CLI, no model" tier: invoking a tool through the CLI always
 triggers model inference, so `high` and `full` run the same suite and differ only
 in whether a blocked service skips (`high`) or fails (`full`). See

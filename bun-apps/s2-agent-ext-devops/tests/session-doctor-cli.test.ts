@@ -59,11 +59,11 @@ describe("parseListModelTable", () => {
 		const table = [
 			"provider     model                                context  max-out  thinking  images",
 			"lm-studio    qwen/qwen3.8-27b                     200K     65.5K    yes       yes",
-			"lm-studio    google/gemma-4-12b                   200K     65.5K    yes       yes",
+			"lm-studio    prism-ml/bonsai-27b                   200K     65.5K    yes       yes",
 			"zai          glm-5.3                              1M       131.1K   yes       no",
 		].join("\n");
 		expect(parseListModelTable(table)).toEqual({
-			"lm-studio": ["qwen/qwen3.8-27b", "google/gemma-4-12b"],
+			"lm-studio": ["qwen/qwen3.8-27b", "prism-ml/bonsai-27b"],
 			zai: ["glm-5.3"],
 		});
 	});

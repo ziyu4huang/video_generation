@@ -73,7 +73,7 @@ test("resolveVisionLLM tier:'large' resolves capabilities.vision-large", () => {
   process.env.HOME = dir;
   saveModelTierConfig({
     tiers: { small: "openai/x" },
-    capabilities: { vision: "lm-studio/google/gemma-4-12b", "vision-large": "lm-studio/google/gemma-4-27b" },
+    capabilities: { vision: "lm-studio/prism-ml/bonsai-27b", "vision-large": "lm-studio/google/gemma-4-27b" },
   });
   try {
     const llm = resolveVisionLLM({ tier: "large" });
@@ -90,11 +90,11 @@ test("resolveVisionLLM tier falls back to capabilities.vision when tiered key ab
   process.env.HOME = dir;
   saveModelTierConfig({
     tiers: { small: "openai/x" },
-    capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+    capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
   });
   try {
     const llm = resolveVisionLLM({ tier: "small" });
-    expect(llm.modelId).toBe("google/gemma-4-12b");
+    expect(llm.modelId).toBe("prism-ml/bonsai-27b");
     expect(llm.provider).toBe("lm-studio");
   } finally {
     process.env.HOME = homeBackup;

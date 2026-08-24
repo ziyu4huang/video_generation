@@ -27,7 +27,7 @@
  *     0.45s / 0 reasoning tokens with effort:none, no local prefill cost).
  *     A `provider/model` FULL id also sidesteps the portability pitfall below.
  *   - ALTERNATIVE: a local LM Studio lane via PI_L2_MODEL (bare id, e.g.
- *     google/gemma-4-12b) + PI_L2_PROVIDER=lm-studio with the model loaded
+ *     prism-ml/bonsai-27b) + PI_L2_PROVIDER=lm-studio with the model loaded
  *     on localhost:1234.
  *
  *     PORTABILITY PITFALL (found live 2026-08-18): a user-level

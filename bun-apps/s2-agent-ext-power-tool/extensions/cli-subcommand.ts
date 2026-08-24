@@ -46,7 +46,7 @@ Tools available:
 ${TOOLS.map((t) => `  ${t}`).join("\n")}
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. gemma-4-12b, sonnet)
+  --model <pattern>      provider/id[:thinking]  (e.g. bonsai-27b, sonnet)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          override the curated tool allowlist
@@ -55,7 +55,7 @@ Options (pi-aligned globals):
 
 Examples:
   s2-agent cli power-tool "call inspect_context"
-  s2-agent cli --model gemma-4-12b power-tool "analyze the context window"
+  s2-agent cli --model bonsai-27b power-tool "analyze the context window"
   s2-agent cli power-tool "check if any extensions have duplicate tools"`,
   factory: extension,
   tools: TOOLS,

@@ -53,7 +53,7 @@ MLX_MODELS_DIR, FLUX2_BIN, …). Use \`--tools\` / \`-V\` / \`--mode json\` for
 CLI-level control.
 
 Options (pi-aligned globals):
-  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          override the curated [flux2] tool allowlist

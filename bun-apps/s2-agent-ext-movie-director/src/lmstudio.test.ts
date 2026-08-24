@@ -8,8 +8,8 @@ function respond(body: unknown, status = 200): Response {
 describe("resolveDefaultModel", () => {
   it("prefers an already-loaded Gemma-4 variant", async () => {
     const fetchImpl = (async () =>
-      respond({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("google/gemma-4-12b");
+      respond({ models: [{ key: "prism-ml/bonsai-27b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("prism-ml/bonsai-27b");
   });
 
   it("falls back to any already-loaded model when no preferred model is loaded", async () => {
@@ -21,7 +21,7 @@ describe("resolveDefaultModel", () => {
     const fetchImpl = (async () => {
       throw new Error("ECONNREFUSED");
     }) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("google/gemma-4-12b");
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("prism-ml/bonsai-27b");
   });
 });
 
@@ -95,7 +95,7 @@ describe("resolveDefaultModel — central vision slot", () => {
     const fetchImpl = (async () =>
       respond({
         models: [
-          { key: "google/gemma-4-12b", loaded_instances: [{}] },
+          { key: "prism-ml/bonsai-27b", loaded_instances: [{}] },
           { key: "foo/bar-model", loaded_instances: [{}] },
         ],
       })) as unknown as typeof fetch;
@@ -106,10 +106,10 @@ describe("resolveDefaultModel — central vision slot", () => {
 
   it("strips only the provider prefix from the central spec (inner slash survives)", async () => {
     const fetchImpl = (async () =>
-      respond({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
+      respond({ models: [{ key: "prism-ml/bonsai-27b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
     expect(
-      await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, CFG("lm-studio/google/gemma-4-12b")),
-    ).toBe("google/gemma-4-12b");
+      await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, CFG("lm-studio/prism-ml/bonsai-27b")),
+    ).toBe("prism-ml/bonsai-27b");
   });
 
   it("terminal fallback returns the central model when nothing is loaded and the server is unreachable", async () => {
@@ -123,7 +123,7 @@ describe("resolveDefaultModel — central vision slot", () => {
 
   it("null config keeps the legacy probe-only behavior", async () => {
     const fetchImpl = (async () =>
-      respond({ models: [{ key: "google/gemma-4-12b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
-    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("google/gemma-4-12b");
+      respond({ models: [{ key: "prism-ml/bonsai-27b", loaded_instances: [{}] }] })) as unknown as typeof fetch;
+    expect(await resolveDefaultModel("http://localhost:1234/v1", fetchImpl, null)).toBe("prism-ml/bonsai-27b");
   });
 });

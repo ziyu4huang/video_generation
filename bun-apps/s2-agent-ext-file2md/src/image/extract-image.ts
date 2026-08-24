@@ -28,7 +28,7 @@ const DESCRIBE_PROMPT =
   "Describe this image factually for a knowledge base: the subject(s), the scene, any legible text, and notable details. 3-6 sentences, plain prose.";
 
 /** Default describe stage: file2md's shared VLM seam. askImage already
- *  defaults to lm-studio google/gemma-4-12b (see ../vlm/ask.ts header). */
+ *  defaults to lm-studio prism-ml/bonsai-27b (see ../vlm/ask.ts header). */
 export async function askImageDescribe(imagePath: string, signal?: AbortSignal): Promise<DescribeResult> {
   try {
     const r = await askImage(imagePath, DESCRIBE_PROMPT, signal ? { signal } : {});
@@ -86,7 +86,7 @@ export async function extractImageCard(imagePath: string, opts: ExtractImageOpts
 
   const extractor = [
     ocrRes !== undefined ? "vision-ocr" : undefined,
-    visionDescription !== undefined ? "google/gemma-4-12b" : undefined,
+    visionDescription !== undefined ? "prism-ml/bonsai-27b" : undefined,
   ]
     .filter((s): s is string => s !== undefined)
     .join("+");

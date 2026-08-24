@@ -48,7 +48,7 @@ This drives the **real** path — the same one a user invokes (`s2-agent -e work
 
 ```bash
 # default smoke (two parallel micro-agents, deterministic join, ~seconds)
-PI_MODEL=google/gemma-4-12b \
+PI_MODEL=prism-ml/bonsai-27b \
   bun ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts
 ```
 
@@ -69,7 +69,7 @@ bun ./bun-apps/s2-agent-ext-ultracode/samples/smoke-e2e.ts path/to/your-workflow
 `samples/run.ts` calls `runWorkflow()` **directly** — no TUI, no CLI, no `workflow` tool, no model writing a script. Faster and fully deterministic, but it **bypasses** the CLI / argv parsing / extension loading / the tool itself, so it is NOT full e2e. Use it for a quick runtime check; use `smoke-e2e.ts` to validate the whole stack.
 
 ```bash
-PI_MODEL=google/gemma-4-12b \
+PI_MODEL=prism-ml/bonsai-27b \
   bun bun-apps/s2-agent-ext-ultracode/samples/run.ts \
     bun-apps/s2-agent-ext-ultracode/samples/dynamic-workflow-smoke01.js
 # → { "ok": true, "result": {…}, "agents": 2, "durationMs": 4540, "tokens": 8800 }

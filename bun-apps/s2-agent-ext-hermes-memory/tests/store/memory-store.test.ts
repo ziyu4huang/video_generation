@@ -1951,7 +1951,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       }));
       const progress: string[] = [];
       // Stub consolidator + a model label (as index.ts injects in production).
-      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }), "gemma-4-12b");
+      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }), "bonsai-27b");
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} progress 1`);
@@ -1961,7 +1961,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.ok(progress.length > 0, "onProgress should fire when consolidation runs");
       assert.ok(
-        progress.some((m) => m.includes("gemma-4-12b")),
+        progress.some((m) => m.includes("bonsai-27b")),
         `progress message should include the consolidator model label; got: ${JSON.stringify(progress)}`,
       );
       assert.ok(

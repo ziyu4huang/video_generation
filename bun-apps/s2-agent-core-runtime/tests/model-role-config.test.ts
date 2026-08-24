@@ -70,19 +70,19 @@ test("saveModelTierConfig round-trips capabilities", () => {
 
 const TIER_CFG: ModelTierConfig = {
   tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-  capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+  capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
 };
 
 const TIERED_CFG: ModelTierConfig = {
   ...TIER_CFG,
   capabilities: {
-    vision: "lm-studio/google/gemma-4-12b",
+    vision: "lm-studio/prism-ml/bonsai-27b",
     "vision-large": "lm-studio/google/gemma-4-27b",
   },
 };
 
 test("resolveModelRole: vision-large falls back to vision when tiered key absent", () => {
-  expect(resolveModelRole({ capability: "vision-large" }, TIER_CFG)).toBe("lm-studio/google/gemma-4-12b");
+  expect(resolveModelRole({ capability: "vision-large" }, TIER_CFG)).toBe("lm-studio/prism-ml/bonsai-27b");
 });
 
 test("resolveModelRole: exact tiered key wins over vision fallback", () => {
@@ -90,15 +90,15 @@ test("resolveModelRole: exact tiered key wins over vision fallback", () => {
 });
 
 test("resolveModelRole: vision-medium falls back when only vision-large is tiered", () => {
-  expect(resolveModelRole({ capability: "vision-medium" }, TIERED_CFG)).toBe("lm-studio/google/gemma-4-12b");
+  expect(resolveModelRole({ capability: "vision-medium" }, TIERED_CFG)).toBe("lm-studio/prism-ml/bonsai-27b");
 });
 
 test("resolveModelRole: vision-small falls back to vision", () => {
-  expect(resolveModelRole({ capability: "vision-small" }, TIER_CFG)).toBe("lm-studio/google/gemma-4-12b");
+  expect(resolveModelRole({ capability: "vision-small" }, TIER_CFG)).toBe("lm-studio/prism-ml/bonsai-27b");
 });
 
 test("resolveModelRole: unknown dashed capability still falls back once (vision-x → vision)", () => {
-  expect(resolveModelRole({ capability: "vision-x" }, TIER_CFG)).toBe("lm-studio/google/gemma-4-12b");
+  expect(resolveModelRole({ capability: "vision-x" }, TIER_CFG)).toBe("lm-studio/prism-ml/bonsai-27b");
   expect(resolveModelRole({ capability: "audio-large" }, TIER_CFG)).toBeUndefined();
 });
 

@@ -140,7 +140,7 @@ hub owns every agent-facing knowledge tool (consolidation cycle, 2026-07-07).
 | ------------------------ | ---------------------------------------------------- |
 | `OB_VAULT_PATH` / `OB_VAULT_DIR` | Vault resolution (passed through to obsidian) |
 | `SUBAGENT_TOKEN_BUDGET_DISABLE` | Set `1` to strip the role-aware dispatch envelopes (see below). |
-| `KC_SUBAGENT_MODEL`       | Model for the subagent-backed tools (`zk_card`, `zk_ask`). Default `google/gemma-4-12b` (local LM Studio — keeps LLM spend off the cloud bill). Per-call override via each tool's `model` arg. Does **not** honor the sibling `OB_SUBAGENT_MODEL`. |
+| `KC_SUBAGENT_MODEL`       | Model for the subagent-backed tools (`zk_card`, `zk_ask`). Default `prism-ml/bonsai-27b` (local LM Studio — keeps LLM spend off the cloud bill). Per-call override via each tool's `model` arg. Does **not** honor the sibling `OB_SUBAGENT_MODEL`. |
 
 zk_card / zk_ask spawn through `roleAwareDirectCall` (in-process `spawnSubagent`): zk_card runs the **writer** envelope (400k tokens / 28 turns / 20 min — children write notes), zk_ask the **recon** envelope (120k / 12 / 5 min — retrieve + synthesize). The old `OB_SUBAGENT_TIMEOUT_MS` knob never applied to these in-process spawns — it belongs to the obsidian package's subprocess runner (distill/garden wall clock, now 20 min).
 

@@ -6,7 +6,7 @@
 //   1. missing workflow file -> stderr `workflow file not found: <path>` (the
 //      path verbatim, no resolution/normalization) + exit 2, stdout empty
 //   2. default workflow = samples/dynamic-workflow-smoke01.js
-//   3. PI_MODEL forwarding: unset/empty -> `--model google/gemma-4-12b` (the
+//   3. PI_MODEL forwarding: unset/empty -> `--model prism-ml/bonsai-27b` (the
 //      old `${PI_MODEL:-…}` default), set -> forwarded verbatim
 //   4. strict prompt relayed byte-for-byte: the tool-invocation framing text
 //      + the workflow script content verbatim (the whole point of the strict
@@ -42,7 +42,7 @@ ${WF_SCRIPT}
 
 Return only the workflow result.`;
 
-const DEFAULT_MODEL = "google/gemma-4-12b";
+const DEFAULT_MODEL = "prism-ml/bonsai-27b";
 
 // Test-only fake cli: dumps argv (after bun + script path) as one JSON line and
 // exits 42 — pins the exact argv build AND the one-shot exit-code pass-through.

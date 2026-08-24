@@ -403,7 +403,7 @@ describe("runWorkflowScript", () => {
 
   test("manifest.model beats pi default (source manifest)", async () => {
     // args-demo is a real pack that declares
-    //   "model": "lm-studio/google/gemma-4-12b"
+    //   "model": "lm-studio/prism-ml/bonsai-27b"
     // in its manifest. Even with a pi default supplied, the manifest must win.
     const argsDemoPack = resolve(import.meta.dirname, "../../s2-agent/workflows/args-demo");
     const manifest = require(`${argsDemoPack}/manifest.json`);

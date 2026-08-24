@@ -67,10 +67,10 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek-pro",
     label: "DeepSeek pro (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / flash / pro  ·  vision tiers: lm-studio bonsai-27b:off",
+    summary: "tiers: bonsai-27b / flash / pro  ·  vision tiers: lm-studio bonsai-27b:off",
     config: {
       tiers: {
-        small: "lm-studio/google/gemma-4-12b",
+        small: "lm-studio/prism-ml/bonsai-27b",
         medium: "deepseek/deepseek-v4-flash",
         big: "deepseek/deepseek-v4-pro",
       },
@@ -80,11 +80,11 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "deepseek-flash",
     label: "DeepSeek flash (official) + LM Studio vision",
-    summary: "tiers: gemma-4-12b / gemma-4-12b / flash  ·  vision tiers: lm-studio bonsai-27b:off",
+    summary: "tiers: bonsai-27b / bonsai-27b / flash  ·  vision tiers: lm-studio bonsai-27b:off",
     config: {
       tiers: {
-        small: "lm-studio/google/gemma-4-12b",
-        medium: "lm-studio/google/gemma-4-12b",
+        small: "lm-studio/prism-ml/bonsai-27b",
+        medium: "lm-studio/prism-ml/bonsai-27b",
         big: "deepseek/deepseek-v4-flash",
       },
       capabilities: { ...LMSTUDIO_VISION_CAPS },

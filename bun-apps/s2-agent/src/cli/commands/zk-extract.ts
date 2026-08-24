@@ -91,7 +91,7 @@ Options (pi-aligned globals also apply):
   --max-notes <n>        hint: cap the number of notes produced
   --vault <path>         absolute path to the vault (sets OB_VAULT_PATH)
   --vault-dir <name>     vault folder name under cwd (default: vault)
-  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, gemma-4-12b)
+  --model <pattern>      provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
   --provider <name>      provider name
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --mode json            NDJSON event stream (for programmatic consumers)

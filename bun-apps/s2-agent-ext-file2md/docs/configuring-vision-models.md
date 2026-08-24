@@ -26,7 +26,7 @@ Each provider entry carries a `baseUrl`, an **`api`** (the adapter selector), an
       "apiKey": "lm-studio",                 // dummy; LM Studio ignores it
       "models": [
         { "id": "qwen/qwen3.8-27b" },      // ← the working vision model
-        { "id": "google/gemma-4-12b" }     // registered but NOT VLM-usable (see below)
+        { "id": "prism-ml/bonsai-27b" }     // registered but NOT VLM-usable (see below)
       ]
     }
   }
@@ -38,11 +38,14 @@ the configured target (`capabilities.vision` in `~/.pi/workflows/model-tiers.jso
 → `lm-studio/qwen/qwen3.8-27b`) resolves against this provider, which is served
 by your local LM Studio on `:1234`.
 
-> **Why not gemma-4-12b?** The default target on this machine is the 27B qwen
-> because loading gemma FAILS on the VLM path — measured 2026-08-24 with
-> `lms load google/gemma-4-12b`: *"The mlx-vlm batched vision path does not
-> support KV cache quantization yet."* Registering it costs nothing; selecting
-> it for vision costs a load-time failure.
+> **Why is the vision lane bonsai-27b?** The vision target resolves via
+> model-tiers `capabilities.vision` (user directive 2026-08-24/25:
+> `lm-studio/prism-ml/bonsai-27b:off` — quality over speed). Some other
+> registered catalog lanes are NOT VLM-usable on this machine — a load-time
+> failure measured 2026-08-24 (*"The mlx-vlm batched vision path does not
+> support KV cache quantization yet."*); the provider catalog
+> (`bun-apps/s2-agent/src/pre-load-providers.ts`) documents which. Registering
+> them costs nothing; selecting them for vision costs a load-time failure.
 
 > **CLI-path registration is mandatory.** The `cli <command>` namespace
 > deliberately does NOT inherit the TUI's baked provider catalog
@@ -151,7 +154,7 @@ export PI_MODEL="anthropic/claude-sonnet-4-5"
 export PI_THINKING="low"          # optional
 
 # Or the bigger local Gemma:
-export PI_MODEL="lm-studio/google/gemma-4-12b"
+export PI_MODEL="lm-studio/prism-ml/bonsai-27b"
 ```
 
 `PI_PROVIDER` is only consulted when `PI_MODEL` has **no slash**; a slash in the
@@ -159,7 +162,7 @@ model string re-sets the provider (test-pinned in `__tests__/sessions.test.ts`).
 
 ### 4c. Built-in default (no override)
 
-Drops to `provider=lm-studio`, `modelId=google/gemma-4-12b`, `thinking=off`.
+Drops to `provider=lm-studio`, `modelId=prism-ml/bonsai-27b`, `thinking=off`.
 
 ## 5. Worked example — one image, three backends
 

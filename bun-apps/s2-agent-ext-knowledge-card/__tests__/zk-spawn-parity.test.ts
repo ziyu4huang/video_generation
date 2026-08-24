@@ -193,7 +193,7 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 		assert.equal(
 			resolveDistillModel(undefined, {
 				tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-				capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+				capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
 			}),
 			"zai/glm-4.7",
 		);
@@ -214,7 +214,7 @@ describe("resolveDistillModel precedence (explicit arg > KC_SUBAGENT_MODEL env >
 		assert.equal(
 			resolveDistillModel(undefined, {
 				tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-				capabilities: { vision: "lm-studio/google/gemma-4-12b" },
+				capabilities: { vision: "lm-studio/prism-ml/bonsai-27b" },
 			}),
 			"zai/glm-4.7",
 		);

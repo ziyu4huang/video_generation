@@ -52,7 +52,7 @@ const PROMPT_ENTRY_CHARS = 1200;
 /** Hard cap on LLM items per call (defensive; chunks already bound it). */
 const MAX_ITEMS = 60;
 /** Max survivor entries per LLM call (ticket 01 chunking). Measured
- *  2026-08-24 on gemma-4-12b (LM Studio, reasoning suppressed): one item ≈
+ *  2026-08-24 on the retired 12b local lane (see s2-agent provider catalog; reasoning suppressed): one item ≈
  *  ~95 output tokens, decode ~47 tok/s under 4-resident-model contention →
  *  an 8-entry chunk ≈ ~800-1000 output tokens ≈ 17-21s, which fits the
  *  shutdown trigger's 25s per-attempt budget (a 15-entry chunk measured
