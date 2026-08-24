@@ -216,6 +216,9 @@ export default function extension(pi: ExtensionAPI) {
     const block = await buildWorkflowGuidelinesForTurn({
       full,
       verbose: settings.verboseWorkflowGuidelines,
+      // ultracode-cc-parity t01: armed turns append the CC-style standing
+      // directive (author-by-default, scale ladder, multi-phase, patterns).
+      effortLevel: effort.level === "off" ? undefined : effort.level,
       // Same scope the dispatch clamp enforces, so the prompt cannot advertise
       // a model the session has excluded.
       scopedModels: manager.getScopedModels(),

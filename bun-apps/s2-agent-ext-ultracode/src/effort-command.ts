@@ -24,10 +24,14 @@ export function createEffortState(): EffortState {
   return { level: "off" };
 }
 
+// CC-parity directives (2026-08-25 ultracode-cc-parity t01): each carries the
+// scale-to-request ladder and the quality-pattern names inline, so an armed
+// message teaches the model HOW to scale without a workflow_help detour. Keep
+// them compact — they append to EVERY armed message.
 const HIGH_DIRECTIVE =
-  "Effort: HIGH. Be thorough — use a few parallel reviewers/perspectives and an adversarial verify pass (see verify()/judgePanel()); set a moderate tokenBudget and maxAgents on the workflow tool call.";
+  "Effort: HIGH. Author a workflow scaled to the request: a quick check needs a few finders plus single-vote verify(item); a broader ask gets a wider pool, verify(item, {reviewers: 3, lens}) for adversarial cross-checking, and a final big-tier synthesis agent returning a compact {ok, verdict} result. Filter nulls before synthesizing. Token thrift is not the constraint — coverage is; cap spend only when the user set an explicit budget.";
 const ULTRA_DIRECTIVE =
-  "Effort: ULTRA. Be exhaustive — fan out widely (more reviewers/judges, deeper loopUntilDry rounds, a completenessCheck at the end), set a generous tokenBudget and a high maxAgents on the workflow tool call, and prefer the big tier for synthesis.";
+  "Effort: ULTRA. Be exhaustive: wide fan-out (more reviewers/judges, deeper loopUntilDry() rounds), adversarial verify(item, {reviewers: 3-5, lens}), a judgePanel() where candidates compete, and a closing completenessCheck() plus big-tier synthesis agent returning a compact {ok, verdict} result. For multi-phase work, run one workflow per phase and read each result before authoring the next. Set generous tokenBudget/maxAgents — token thrift is not the constraint; only an explicit user budget directive caps spend.";
 
 /** The extra directive appended to the forced-workflow prompt for an effort level. */
 export function effortDirective(level: EffortLevel): string | undefined {

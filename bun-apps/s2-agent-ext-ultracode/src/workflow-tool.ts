@@ -320,6 +320,25 @@ export function buildWorkflowPointerGuideline(): string {
 }
 
 /**
+ * The ultracode addendum (2026-08-25 ultracode-cc-parity t01): appended to the
+ * FULL authoring block only on effort-armed turns, replicating claude-code's
+ * ultracode session guidance. Four bullets: the standing author-by-default
+ * directive with a solo carve-out, the scale-to-request ladder, multi-phase
+ * sequencing, and the inline quality-pattern catalog (which the simplified
+ * set otherwise defers to workflow_help). Deliberately NOT part of the
+ * pointer or the non-armed full set — the baseline stays use-only-when-asked
+ * (effort map D2).
+ */
+export function buildUltracodeAddendum(effortLevel: "high" | "ultra"): string[] {
+  return [
+    `Ultracode is ON for this session (effort: ${effortLevel}): author and run a workflow for every substantive task by default; solo turns are conversation or trivial mechanical edits. Exhaustive, cross-checked answers are the goal — token thrift is not the constraint (only an explicit user budget directive caps spend).`,
+    "Scale fan-out to the request: a quick check ('find any bugs') needs a few finders plus single-vote verify(item); a thorough ask ('audit everything', 'be comprehensive') gets a wider finder pool, verify(item, {reviewers: 3-5, lens}) adversarial cross-checking, and a synthesis fan-in. Name the scale you chose.",
+    "For multi-phase work, run several workflows in sequence — one per phase — reading each result before authoring the next; stay in the main loop between phases instead of writing one giant script.",
+    "Quality helpers are built in: verify(item, {reviewers, threshold, lens}) for adversarial fact-checking, judgePanel(attempts, {judges, rubric}) to score N candidates and return the best, loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items, completenessCheck(args, results) as the final what-is-missing critic.",
+  ];
+}
+
+/**
  * Conservative keep-when-unsure intent detector. Returns true when the current
  * turn looks like a workflow turn (full guidelines injected), false when it is
  * clearly a plain/direct action (only the pointer is injected).
@@ -351,6 +370,14 @@ export interface WorkflowGuidelinesForTurnOptions {
   /** When full, use the verbose ~22-bullet set instead of the default ~12. */
   verbose?: boolean;
   /**
+   * The session's standing effort level (/effort high|ultra, /ultracode). When
+   * set, the full authoring block is followed by the ultracode addendum —
+   * CC-parity standing guidance (author-by-default + solo carve-out, scale
+   * ladder, multi-phase sequencing, inline pattern catalog) that the default
+   * sets defer to workflow_help. Never appended to pointer turns.
+   */
+  effortLevel?: "high" | "ultra";
+  /**
    * The session's model scope (`provider/id` specs from --models /
    * enabledModels). When non-empty, the model-routing bullet advertises ONLY
    * these instead of the full catalog — otherwise the prompt tells the model to
@@ -368,9 +395,11 @@ export interface WorkflowGuidelinesForTurnOptions {
  */
 export async function buildWorkflowGuidelinesForTurn(options: WorkflowGuidelinesForTurnOptions): Promise<string> {
   if (options.full) {
-    return (options.verbose ? await buildVerboseGuidelines(options.scopedModels) : buildSimplifiedGuidelines()).join(
-      "\n",
-    );
+    const base = (
+      options.verbose ? await buildVerboseGuidelines(options.scopedModels) : buildSimplifiedGuidelines()
+    ).join("\n");
+    if (!options.effortLevel) return base;
+    return `${base}\n${buildUltracodeAddendum(options.effortLevel).join("\n")}`;
   }
   return buildWorkflowPointerGuideline();
 }

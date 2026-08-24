@@ -9,6 +9,24 @@ test("effortDirective returns a tier nudge for high/ultra, nothing for off", () 
   assert.match(effortDirective("ultra") ?? "", /ULTRA/);
 });
 
+// ultracode-cc-parity t01: directives carry the CC-parity content — scale
+// ladder, quality-pattern names inline, solo/budget framing — not just
+// adjectives.
+test("effort directives carry the CC-parity scale ladder and pattern names", () => {
+  const high = effortDirective("high") ?? "";
+  const ultra = effortDirective("ultra") ?? "";
+  for (const d of [high, ultra]) {
+    assert.match(d, /token thrift is not the constraint/i);
+    assert.ok(/\bverify\(/.test(d), "directive must name verify( inline");
+  }
+  assert.match(high, /single-vote verify\(item\)/, "ladder low end: few finders + single-vote");
+  assert.match(ultra, /reviewers: 3-5/, "ladder high end: 3-5-vote adversarial verify");
+  assert.match(ultra, /one workflow per phase/, "ultra carries multi-phase sequencing");
+  assert.match(ultra, /completenessCheck\(\)/, "ultra names the completeness critic");
+  assert.match(ultra, /judgePanel\(\)/, "ultra names judgePanel");
+  assert.match(ultra, /loopUntilDry\(\)/, "ultra names loopUntilDry");
+});
+
 test("isSubstantive accepts real requests, rejects terse text and slash commands", () => {
   assert.equal(isSubstantive("audit the auth module for race conditions"), true);
   assert.equal(isSubstantive("ok"), false);
