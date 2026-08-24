@@ -176,6 +176,8 @@ export interface ParsedArgs {
 	sourceLabel?: string;
 	/** zk-ingest: report only, write nothing */
 	dryRun?: boolean;
+	/** resource-ingest: skip L0/L1 tier sidecar generation (L2-only rebuild) */
+	noTiers?: boolean;
 	/** zk-query: tags to match (csv) */
 	tags?: string;
 	/** zk-query: .knowledge.jsonl to read active ids from + exclude */
