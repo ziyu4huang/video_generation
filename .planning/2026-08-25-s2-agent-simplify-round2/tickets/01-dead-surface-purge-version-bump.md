@@ -24,9 +24,9 @@ Version: `bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-
 
 ## Acceptance criteria (done-when)
 
-- [x] All deletions landed; repo-wide grep for each deleted filename returns only `.planning/` receipts
-- [ ] `bun run --cwd bun-apps/s2-agent test` + `typecheck` green
-- [ ] `diff` proves repo-root `scripts/schema-cost-baseline.json` untouched
+- [x] All deletions landed; repo-wide grep for each deleted filename returns no CODE consumers — remaining mentions are prose/history only (kcard docs/kg-improvement-plan.md:221,262 + vault note name lexical-overlap-check as history; no importer anywhere — reviewer-verified 2026-08-25)
+- [x] `bun run --cwd bun-apps/s2-agent test` + `typecheck` green (1046 pass / 0 fail; re-verified by independent reviewer)
+- [x] `diff` proves repo-root `scripts/schema-cost-baseline.json` untouched
 - [x] ADR 0005 verdict (deleted-with-reason or re-cited) recorded here
 - [x] Version 0.7.11 in package.json AND dispatch VERSION lockstep (e2e meta VERSION pin green)
-- [ ] devops local_ci green (≤ 5 min); PR merged via devops chain; reviewer pass
+- [ ] devops local_ci green (≤ 5 min); PR merged via devops chain; reviewer pass (local_ci pass 121.5s + reviewer READY recorded 2026-08-25; merge pending)
