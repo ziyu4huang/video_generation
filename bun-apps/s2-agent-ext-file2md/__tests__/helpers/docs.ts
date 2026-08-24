@@ -4,11 +4,14 @@
  * Everything is generated in-process (no binary fixtures in the repo):
  *   - textPdf       pdf-lib: real text layer (pdfjs extractable)
  *   - scannedPdf    pdf-lib: image-only page (no text layer)
+ *   - bilingualPdf  pdf-lib + OS font: REAL Han text (the multi-lang OCR pin)
  *   - workbookXlsx  exceljs: cells + a formula
  *   - tinyPng       bgraToPng (the v2 encoder itself)
  * All builders return Uint8Array buffers to write into temp dirs.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+import fontkit from "@pdf-lib/fontkit";
 import ExcelJS from "exceljs";
 import type { PDFFont, PDFPage } from "pdf-lib";
 import { PDFDocument, StandardFonts } from "pdf-lib";
@@ -35,6 +38,34 @@ export async function textPdf(): Promise<Uint8Array> {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   page.drawText("Hello from file2md v2", { x: 60, y: 760, size: 18, font });
   page.drawText("Second line of the body text.", { x: 60, y: 720, size: 12, font });
+  return new Uint8Array(await doc.save());
+}
+
+/**
+ * Path to the OS CJK font used by `bilingualPdf`. macOS-only (this repo's
+ * platform); the fixture is skipped when the font is absent. Arial Unicode
+ * is a single-file TTF with Han coverage — the only way to get REAL Chinese
+ * glyphs into an in-process test without committing a binary fixture
+ * (pdf-lib's embedFont cannot subset .ttc collections).
+ */
+export const BILINGUAL_TTF = "/System/Library/Fonts/Supplemental/Arial Unicode.ttf";
+export const bilingualFontAvailable = existsSync(BILINGUAL_TTF);
+
+/**
+ * One-page PDF with REAL Chinese + English text: the multi-lang OCR pin's
+ * fixture. The PDF has a text layer, but the live OCR test deliberately
+ * rasterizes the page (pdfium) — the Han glyphs must reach the OCR engine,
+ * and pdfjs extraction cannot exercise it.
+ */
+export async function bilingualPdf(): Promise<Uint8Array> {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+  const page = doc.addPage([595, 842]);
+  const cjk = await doc.embedFont(readFileSync(BILINGUAL_TTF), { subset: true });
+  page.drawText("第 2 章 深度学习与图神经网络", { x: 60, y: 760, size: 20, font: cjk });
+  const lat = await doc.embedFont(StandardFonts.Helvetica);
+  page.drawText("Chapter 2 - Neural network survey", { x: 60, y: 730, size: 14, font: lat });
+  page.drawText("Neural networks are machine-learning models.", { x: 60, y: 700, size: 14, font: lat });
   return new Uint8Array(await doc.save());
 }
 

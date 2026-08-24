@@ -19,8 +19,7 @@ import {
   OcrSession,
 } from "../src/ocr/ocr.ts";
 import { bgraToBmp } from "../src/raster/bmp.ts";
-import { rasterPage } from "../src/raster/pdf.ts";
-import { prosePdf } from "./helpers/docs.ts";
+import { bilingualFontAvailable, bilingualPdf } from "./helpers/docs.ts";
 
 const sessions: OcrSession[] = [];
 
@@ -80,31 +79,36 @@ describe("live engine (tesseract-wasm core + npm lang data)", () => {
     }
   });
 
-  test("eng+chi_sim on a rasterized prose page returns eng-quality text (multi-pass merge beats first-model-wins)", async () => {
-    // Regression pin: tesseract-wasm's OCREngine keeps only the FIRST loaded
-    // model, so pre-fix "chi_sim+eng" (and "eng+chi_sim") silently degraded to
-    // the first pass — chi_sim's garbled Latin. Post-fix the passes merge per
-    // line and eng's confident reading must win on this all-Latin page.
-    const pdf = await prosePdf();
-    const raster = await rasterPage(pdf, 1, 3);
-    expect(raster).toBeDefined();
-    if (raster === undefined) return;
-    const s = session("chi_sim+eng");
-    expect(await s.init()).toBe(true);
-    const result = await s.recognize(raster.bmp);
-    expect(result).toBeDefined();
-    // Exact prose start — chi_sim-only output garbles these words.
-    expect(result?.text).toContain("explains the module architecture");
-    expect(result?.text).toContain("eye diagrams");
-  });
+  test.skipIf(!bilingualFontAvailable)(
+    "eng+chi_sim on a rasterized bilingual PDF returns Chinese + exact English (regression pin: pre-fix eng+chi_sim was eng-only)",
+    async () => {
+      // Regression pin: tesseract-wasm's OCREngine keeps only the FIRST loaded
+      // model, so pre-fix "eng+chi_sim" silently degraded to eng-only and the
+      // Chinese line came back as Latin junk. The fixture must contain Han
+      // (chi_sim reads this ASCII content byte-identically to eng — an
+      // all-Latin fixture cannot discriminate) and use the eng+chi_sim ORDER
+      // (the poison order). Post-fix the passes merge per line.
+      expect(bilingualFontAvailable).toBe(true);
+      const pdf = await bilingualPdf();
+      const s = session("eng+chi_sim");
+      expect(await s.init()).toBe(true);
+      const result = await s.recognizePdfPage(pdf, 1, 3);
+      expect(result).toBeDefined();
+      expect(result?.text).toContain("第 2 章");
+      expect(result?.text).toContain("Neural network survey");
+      expect(result?.text).toContain("machine-learning models");
+    },
+  );
 });
 
 describe("multi-lang line merge (pure)", () => {
-  const line = (text: string, confidence: number, top: number, bottom: number): OcrLine => ({
+  const line = (text: string, confidence: number, top: number, bottom: number, left = 100, right = 600): OcrLine => ({
     text,
     confidence,
     top,
     bottom,
+    left,
+    right,
   });
 
   test("CJK side wins over eng garbage even at 0.00 confidence (measured title trap: chi 0.00 vs eng 0.21)", () => {
@@ -148,6 +152,23 @@ describe("multi-lang line merge (pure)", () => {
     const a = [line(" ", 0.95, 100, 140), line("text", 0.9, 200, 240)];
     const b: OcrLine[] = [];
     expect(mergeOcrLines(a, b).map((l) => l.text)).toEqual(["text"]);
+  });
+
+  test("no match without horizontal overlap — same y, different columns stay separate", () => {
+    const a = [line("left column", 0.9, 100, 140, 100, 500)];
+    const b = [line("right column", 0.8, 100, 140, 700, 1200)];
+    const merged = mergeOcrLines(a, b);
+    expect(merged.map((l) => l.text).sort()).toEqual(["left column", "right column"]);
+  });
+
+  test("one pass splitting a row into two boxes dedupes to a single line", () => {
+    // eng sees one row; chi_sim split it into two boxes on the same visual row.
+    const a = [line("第 2 章 深度学习", 0.9, 100, 140, 100, 600)];
+    const b = [line("第 2 章", 0.8, 100, 119, 100, 600), line("深度学习", 0.75, 120, 140, 100, 600)];
+    const merged = mergeOcrLines(a, b);
+    expect(merged).toHaveLength(1);
+    // Higher-confidence winner (eng's single box) survives.
+    expect(merged[0]?.text).toBe("第 2 章 深度学习");
   });
 
   test("collapseCjkSpaces removes inter-Han spaces only", () => {
