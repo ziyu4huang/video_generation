@@ -750,21 +750,26 @@ async function tryHierarchicalDefault(args: {
 	hotnessAlpha?: number;
 }): Promise<RetrieveResult | null> {
 	const { hierarchicalRetrieve } = await import("./hierarchical-retrieval.ts");
-	const { makeContextClient, indexStatus } = await import("./surreal-index.ts");
+	const { makeContextClient, indexStatus, vaultFingerprint } = await import("./surreal-index.ts");
 	let client: import("@repo/s2-agent-core-interface").SurrealClient;
 	try {
 		client = args.client ?? makeContextClient();
 	} catch {
 		return null;
 	}
-	// Freshness gate (F1/F5): md count vs index count + embed-model match.
-	// Cheap: one readdirSync + one status query.
+	// Freshness gate (F1/F5 + ticket 02): embed-model match → md count vs index
+	// count → CONTENT fingerprint match (in-place edits keep the count stable;
+	// the fingerprint is the only leg that catches them). Cheapest checks
+	// first: one status query + one readdirSync, then the read+hash pass only
+	// when count and model already agree. Any mismatch → flat fallback.
 	try {
 		const status = await indexStatus(client);
 		if (!status.present) return null;
 		if (status.embedModel !== args.model) return null;
 		const mdCount = readdirSync(join(args.vaultPath, args.folder)).filter((n) => n.endsWith(".md")).length;
 		if (status.cardCount !== mdCount) return null;
+		const fp = vaultFingerprint(args.vaultPath, args.folder);
+		if (fp === null || status.fingerprint !== fp) return null;
 	} catch {
 		return null;
 	}
