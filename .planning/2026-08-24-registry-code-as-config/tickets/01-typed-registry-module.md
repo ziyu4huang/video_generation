@@ -1,6 +1,6 @@
 # Ticket 01 — typed registry module + equivalence net (YAML stays authoritative)
 
-Status: open · Phase 1 (gates the rest)
+Status: done (PR #1962, merged CLEAN 2026-08-24 — 4 files, +884/−2; equivalence net 9/9 vs real YAML, local_ci pass) · Phase 1 (gates the rest)
 
 ## Scope
 

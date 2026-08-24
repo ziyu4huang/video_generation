@@ -65,13 +65,15 @@ Execution order (confirm-gate passed 2026-08-24): 01 → 02 → 03 → 04.
 earliest, 03 is the mechanical surface.
 
 Phase 1 — the module (gates the rest)
-- `tickets/01-typed-registry-module.md` — NEXT (queue head) — new
-  `src/registry-config.ts` (typed entries, `enabled: false` first-class,
-  side-effect-free) + serializer producing today's parseRegistry/parseShConfig
-  output shapes; ported unit tests, YAML untouched and still authoritative
+- `tickets/01-typed-registry-module.md` — DONE (PR #1962, merged CLEAN
+  2026-08-24) — `src/registry-config.ts` shipped: typed entries, `enabled:
+  false` first-class (hyperframes + tool-gate with disableReason +
+  reEnableNote), zero-import (tokenizer-based test assertion, since notes
+  mention require("#pi/ext-dir") in prose), equivalence net 9/9 vs the real
+  YAML (parseRegistry + parseShConfig shapes), local_ci pass, s2-agent 0.6.5
 
 Phase 2 — repo consumers flip (after 01)
-- `tickets/02-flip-run-dir-consumers.md` — open —
+- `tickets/02-flip-run-dir-consumers.md` — open — NEXT (queue head) —
   registry.ts / registry-to-manifest.ts / regen-manifest.ts /
   registry-insert.ts import the TS; manifest.json stays DERIVED; freshness +
   single-registry-guard gates stay green unchanged
@@ -112,11 +114,20 @@ Phase 3 — retirement (after 02+03)
 
 ## Frontier
 
-`tickets/01-typed-registry-module.md` — first because everything else imports
-it, and because its equivalence serializer is the migration's safety net: as
-long as it byte-matches the YAML parse output, tickets 02–04 are mechanical.
+`tickets/02-flip-run-dir-consumers.md` — 01 landed the module + equivalence
+net (PR #1962), so the flip is now mechanical; 02 is first because it closes
+the registry-insert runtime-YAML fog while the net still guards continuity.
 
 ## Fog of war
+
+- run-dir/ vs src/ placement (user flag, HIGH, 2026-08-24): why do the
+  registry parsers sit in `run-dir/` instead of `src/`? Working answer:
+  `run-dir/` is the source-mode runtime surface (resolve.ts / run-context.ts
+  load extensions via `-e` from there; manifest.json is derived there), while
+  `src/` is the compiled-core surface — but the PARSERS are repo-side and
+  arguably belong beside registry-config.ts in `src/`. Ticket 02 touches
+  exactly these four files; fold the placement decision into it (or split a
+  ticket 02b) rather than moving files in passing.
 
 - `run-dir/registry-insert.ts` (dynamic load path used by run-dir extensions)
   parses YAML at RUNTIME in some flows — whether it can import TS at that point
