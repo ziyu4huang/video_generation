@@ -2,6 +2,10 @@
 	"$generated": "from src/registry-config.ts by regen:manifest — do not edit",
 	"extensions": [
 		{
+			"name": "webui",
+			"entry": "s2-agent-ext-webui/extensions/webui.ts"
+		},
+		{
 			"name": "devops",
 			"entry": "s2-agent-ext-devops/extensions/devops.ts",
 			"version": "0.1.0"
@@ -63,7 +67,6 @@
 		"s2-agent-ext-ultracode",
 		"s2-agent-ext-knowledge-card",
 		"s2-agent-ext-power-tool",
-		"s2-agent-ext-webui",
 		"s2-agent-ext-archify",
 		"s2-agent-ext-compact",
 		"s2-agent-ext-sv-analyzer"

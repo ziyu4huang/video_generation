@@ -99,6 +99,15 @@ A consumer of `PlacedBlock[]` — `emit-pptx.ts` (native shapes + real text boxe
 only one of them is a drift bug.
 _Avoid_: renderer, exporter (the vendored CLI is the renderer; these consume its output)
 
+**Announce**:
+The outbound contract on the optional host event bus (`open-announce.ts`): after a
+successful render/delta/deck build, archify emits `webui:open` / `webui:present` /
+`webui:deck` — string literals, inert without a bus. The webui is the one subscriber
+today, but the contract is archify's: channel names are FROZEN (a rename strands the
+webui's replayed events), and archify carries no webui import — webui-optional by
+construction (archify-webui-decouple D2, 2026-08-25).
+_Avoid_: webui integration, notification (it is a fire-and-forget announce on a bus nobody may be listening to, not a coupling)
+
 ### The deck
 
 **Deck manifest**:
