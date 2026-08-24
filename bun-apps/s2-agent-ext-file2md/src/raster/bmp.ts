@@ -33,9 +33,9 @@ export function bgraToBmp(bgra: Uint8Array, width: number, height: number): Uint
     for (let x = 0; x < width; x++) {
       const s = srcRow + x * 4;
       const d = dstRow + x * 3;
-      out[d] = bgra[s];
-      out[d + 1] = bgra[s + 1];
-      out[d + 2] = bgra[s + 2];
+      out[d] = bgra[s] ?? 0;
+      out[d + 1] = bgra[s + 1] ?? 0;
+      out[d + 2] = bgra[s + 2] ?? 0;
     }
   }
   return out;

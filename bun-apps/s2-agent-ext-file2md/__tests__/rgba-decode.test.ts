@@ -26,10 +26,10 @@ function sampleBgra(): { bgra: Uint8Array; rgba: Uint8Array; width: number; heig
     bgra[i * 4 + 1] = i * 29 + 2; // G
     bgra[i * 4 + 2] = i * 47 + 3; // R
     bgra[i * 4 + 3] = 255;
-    rgba[i * 4] = bgra[i * 4 + 2]; // R
-    rgba[i * 4 + 1] = bgra[i * 4 + 1]; // G
-    rgba[i * 4 + 2] = bgra[i * 4]; // B
-    rgba[i * 4 + 3] = bgra[i * 4 + 3]; // A
+    rgba[i * 4] = bgra[i * 4 + 2] ?? 0; // R
+    rgba[i * 4 + 1] = bgra[i * 4 + 1] ?? 0; // G
+    rgba[i * 4 + 2] = bgra[i * 4] ?? 0; // B
+    rgba[i * 4 + 3] = bgra[i * 4 + 3] ?? 0; // A
   }
   return { bgra, rgba, width, height };
 }
@@ -75,7 +75,7 @@ describe("decodeImageToRgba", () => {
     expect(out?.height).toBe(height);
     const exp = bgraToRgba(bgra, width, height);
     for (let i = 0; i < exp.length; i++) {
-      expect(Math.abs((out?.data[i] ?? 255) - exp[i])).toBeLessThan(16);
+      expect(Math.abs((out?.data[i] ?? 255) - (exp[i] ?? 0))).toBeLessThan(16);
     }
   });
 
