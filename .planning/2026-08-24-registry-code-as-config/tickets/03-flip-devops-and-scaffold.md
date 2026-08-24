@@ -1,6 +1,33 @@
 # Ticket 03 — devops parseShConfig + ext-new scaffold + contract suites
 
-Status: open · Phase 2 (after 01; parallel-safe with 02 but merges after)
+Status: done (PR #1967, merged CLEAN 2026-08-24) · Phase 2 (after 01;
+parallel-safe with 02 but merges after)
+
+## Close-out notes
+
+- `config.ts` gained `shConfig()` / `excludedExtensionsFromRegistry()` over
+  `loadRegistry()`; `parseShConfig` / `excludedExtensions` kept verbatim as
+  deprecated YAML-bridge projections, fixture tests only (04 deletes).
+- `--config` retired: removed from argv parsing (errors loudly pointing at
+  `src/registry-config.ts`), run.ts / deploy-cli.ts read the TS; deploy
+  report `configPath` → `registryModule`; verify-deploy-e2e-cli +
+  session-doctor-cli derive outRoot via `shConfig()`.
+- `ext new` appends a typed REGISTRY entry via `appendRegistryTsEntry`
+  (comment-preserving text surgery); `run-dir/registry-insert.ts` + its test
+  DELETED here (zero non-test callers after the flip — map D7 revision).
+- Contract suites: `registry-base-set.ts` line scanner → relative import of
+  `registry-config.ts`; dep-guard + isolation derive from `shippedEntries`;
+  `registry-base-set.test.ts` rewritten to real-data invariants (the scanner
+  divergence parity it pinned now lives in t01's equivalence net + t02's
+  loadRegistry bridge).
+- Done-when verified: scratch `ext new` (dynamic) produced a typed entry,
+  regen + freshness green with it present, then reverted (entry removed,
+  manifest regenerated, bridge tests green).
+- map Fog: fresh-worktree CI answered — GitHub CI disabled
+  (ci.yml.disabled); working gate is change-scoped local_ci, always
+  workspace-linked; D4 relative import belt-and-suspenders. New decision D8:
+  probe suite boots deepseek (zai coding-plan quota is not a CI dependency).
+- local_ci pass; s2-agent 0.6.8 (bump included in the PR).
 
 ## Scope
 
