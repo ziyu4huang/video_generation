@@ -7,7 +7,7 @@
  * determinism.
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -261,6 +261,73 @@ describe("generateResourceTiers — bottom-up pass (3-level fixture, mocked LLM)
 		const r2 = await generateResourceTiers({ treePath: root, generator: gen });
 		expect(r2.llmCalls).toBe(0);
 		expect(r2.skipped).toBe(2);
+	});
+
+	test("reviewer F1: an unreadable subdir degrades (absent from the pass), never throws", async () => {
+		buildFixture();
+		const { generator } = mockGenerator();
+		mkdirSync(join(root, "locked"), { recursive: true });
+		put("locked/secret.md", "# Secret\n\nBody.");
+		chmodSync(join(root, "locked"), 0o000);
+		try {
+			const r = await generateResourceTiers({ treePath: root, generator });
+			expect(r.dirs.map((d) => d.uri)).not.toContain("locked"); // absent from the pass
+			expect(r.failed).toBe(0);
+			expect(r.refreshed).toBe(4); // a/b, a, c, root — the pass completed
+		} finally {
+			chmodSync(join(root, "locked"), 0o755); // restore for rmSync
+		}
+	});
+
+	test("reviewer F2: a deleted .abstract.md heals deterministically — zero LLM calls, no lost tier rows", async () => {
+		buildFixture();
+		const { generator, calls } = mockGenerator();
+		await generateResourceTiers({ treePath: root, generator });
+		rmSync(join(root, "a", ABSTRACT_SIDEFILE));
+		calls.length = 0;
+		const r2 = await generateResourceTiers({ treePath: root, generator });
+		expect(r2.llmCalls).toBe(0); // heal is a deterministic rewrite, not a regeneration
+		expect(existsSync(join(root, "a", ABSTRACT_SIDEFILE))).toBe(true);
+		expect(r2.skipped).toBe(4);
+		// and the healed pair indexes again as level-0/1 rows
+		const built = await buildResourceRows({ treePath: root, tree: "t", model: "m", embedder: undefined });
+		expect(built.rows.filter((r) => r.level !== 2)).toHaveLength(8);
+	});
+
+	test("reviewer F3: below-ratio change stays pending across no-op re-ingests (no counter double-count)", async () => {
+		for (let i = 1; i <= 40; i++) put(`page-${String(i).padStart(3, "0")}.md`, `# Page ${i}\n\nBody of page ${i}.`);
+		const { generator } = mockGenerator();
+		await generateResourceTiers({ treePath: root, generator });
+		put("page-001.md", "# Page 1\n\nEDITED body of page 1.");
+		// run2 marks pending; runs 3-5 are no-ops — the counter must NOT grow
+		// per re-ingest until a phantom refresh fires (the double-count bug).
+		for (let run = 2; run <= 5; run++) {
+			const r = await generateResourceTiers({ treePath: root, generator });
+			expect(r.llmCalls).toBe(0);
+			expect(r.dirs[0]!.pendingChildChanges).toBe(1);
+			expect(r.dirs[0]!.action).toBe("pending");
+		}
+	});
+
+	test("reviewer m5: a persistently failing child dir does NOT refresh its ancestors every run", async () => {
+		buildFixture();
+		// fail ONLY the deepest dir (a/b); a, c, root succeed
+		const { generator, calls } = mockGenerator();
+		const failing: TierGenerator = (prompt, dirUri) =>
+			dirUri === "a/b" ? Promise.resolve(null) : generator(prompt, dirUri);
+		const r1 = await generateResourceTiers({ treePath: root, generator: failing });
+		expect(r1.failed).toBe(1);
+		// run2 with the SAME failing generator: only a/b fails again; a/c/root
+		// must SKIP (a/b is a hashed empty placeholder, not a removed child)
+		const r2 = await generateResourceTiers({ treePath: root, generator: failing });
+		expect(r2.failed).toBe(1);
+		expect(r2.skipped).toBe(3);
+		expect(r2.llmCalls).toBe(1); // only a/b's failed attempt
+		// run3 healthy: a/b succeeds → exactly a/b + a + root refresh (chain)
+		const r3 = await generateResourceTiers({ treePath: root, generator });
+		expect(r3.failed).toBe(0);
+		expect(calls.length).toBeGreaterThan(0);
+		expect(r3.refreshed).toBe(3);
 	});
 });
 

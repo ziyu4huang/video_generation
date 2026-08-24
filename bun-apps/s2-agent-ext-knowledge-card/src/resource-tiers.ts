@@ -25,6 +25,11 @@
  *
  * Ported by re-implementation from upstream OpenViking (AGPLv3) ALGORITHMS
  * and prompt SHAPE only — no code copied (spec Further Notes, user directive).
+ *
+ * Concurrency posture: NO locks — two concurrent resource-ingest runs over the
+ * same tree race last-writer-wins on tier-state.json and the sidecars (same
+ * posture as ticket 01's embedding cache). Worst case is a redundant refresh,
+ * never corruption; do not run concurrent ingests of one tree.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
@@ -311,7 +316,13 @@ function collectDirTree(rootAbs: string): DirNode[] {
 	};
 	ensure(""); // root always exists even for a flat tree
 	const walk = (dirAbs: string, rel: string) => {
-		for (const e of readdirSync(dirAbs, { withFileTypes: true })) {
+		let entries;
+		try {
+			entries = readdirSync(dirAbs, { withFileTypes: true });
+		} catch {
+			return; // unreadable subdir — absent from the pass AND the state (degrade, never throw — walkTree precedent, reviewer F1)
+		}
+		for (const e of entries) {
 			if (e.name.startsWith(".")) continue;
 			const childRel = rel ? `${rel}/${e.name}` : e.name;
 			if (e.isDirectory()) {
@@ -415,16 +426,39 @@ export async function generateResourceTiers(args: GenerateTiersArgs): Promise<Ti
 			}
 		}
 		for (const c of dir.childDirs) {
-			const l0 = l0ByDir.get(c.uri);
-			if (l0 !== undefined) children[`dir:${c.uri.split("/").pop()}`] = sha16(l0);
+			// ALWAYS keyed (reviewer m5): a child whose generation failed hashes
+			// the empty string — the parent sees a stable placeholder, not a
+			// phantom REMOVED child that would refresh the ancestor chain on
+			// every retry of a flaky-LLM run. Success later flips the hash
+			// (the one legit refresh).
+			children[`dir:${c.uri.split("/").pop()}`] = sha16(l0ByDir.get(c.uri) ?? "");
 		}
 		const total = Object.keys(children).length;
 		const fingerprint = childrenFingerprint(children);
 		const baseline = state.dirs[dir.uri];
 		const sidecarPath = join(dir.abs, OVERVIEW_SIDEFILE);
-		const existingFm = existsSync(sidecarPath) ? parseSidecarFrontmatter(readFileSync(sidecarPath, "utf8")) : null;
+		const abstractPath = join(dir.abs, ABSTRACT_SIDEFILE);
+		let existingFm = existsSync(sidecarPath) ? parseSidecarFrontmatter(readFileSync(sidecarPath, "utf8")) : null;
 
-		// Pending = changed children this ingest + unrefreshed carry-over.
+		// Torn-pair heal (reviewer F2): a valid overview whose .abstract.md is
+		// missing (deleted, or a disk-full write between the two writes) would
+		// otherwise sit on a healthy baseline forever with NO level-0/1 rows —
+		// walkSidecars indexes sidecars only as a pair. Regenerate the abstract
+		// deterministically from the existing overview — zero LLM calls.
+		if (existingFm && !existsSync(abstractPath) && !args.planOnly) {
+			try {
+				const l0 = readDirAbstract(dir.abs, sidecarBody(readFileSync(sidecarPath, "utf8")));
+				writeFileSync(abstractPath, renderSidecar(existingFm, l0), "utf8");
+			} catch {
+				// heal failed — the refresh path below regenerates both instead
+			}
+		}
+
+		// Pending = DISTINCT children changed since the last GENERATION (the
+		// stored map is the map at generation time, so the diff already
+		// accumulates across ingests — adding a carried counter on top
+		// double-counted every lingering change per no-op re-ingest, reviewer
+		// F3, until a wide dir crossed the ratio on nothing).
 		let changed = 0;
 		if (baseline) {
 			for (const [k, v] of Object.entries(children)) {
@@ -434,9 +468,12 @@ export async function generateResourceTiers(args: GenerateTiersArgs): Promise<Ti
 				if (!(k in children)) changed++;
 			}
 		}
-		const carryPending = baseline ? baseline.pending : 0;
-		const pendingAfter = carryPending + changed;
-		const hasBaseline = Boolean(baseline && existingFm && existingFm.children_fingerprint);
+		const pendingAfter = changed;
+		// Baseline health requires BOTH sidecars (F2): a missing abstract after
+		// a failed heal must regenerate, not skip.
+		const hasBaseline = Boolean(
+			baseline && existingFm && existingFm.children_fingerprint && existsSync(abstractPath),
+		);
 
 		const dirName = dir.uri ? dir.uri.split("/").pop()! : root.split("/").filter(Boolean).pop() ?? "root";
 		const receipt: TierDirReceipt = {
@@ -501,8 +538,14 @@ export async function generateResourceTiers(args: GenerateTiersArgs): Promise<Ti
 		receipt.promptChars = prompt.length;
 		receipt.sampledEntries = sampledFiles.length + sampledDirs.length;
 		// Plan-only stops AFTER the prompt build (dry-run reports prompt sizes —
-		// the token-budget measurement surface) but BEFORE any LLM call or write.
+		// the token-budget measurement surface) but BEFORE any LLM call or
+		// write. Populate l0ByDir from any EXISTING sidecar so interior-dir
+		// prompts on a partially-generated tree carry real child L0s (reviewer
+		// m4 — a fully cold tree still under-reports; the plan is a lower bound).
 		if (args.planOnly) {
+			if (existsSync(sidecarPath)) {
+				l0ByDir.set(dir.uri, readDirAbstract(dir.abs, sidecarBody(readFileSync(sidecarPath, "utf8"))));
+			}
 			receipt.action = "refreshed";
 			receipts.push(receipt);
 			continue;

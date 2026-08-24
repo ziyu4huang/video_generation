@@ -182,8 +182,11 @@ interface WalkedSidecar {
 }
 
 /** Collect tier sidecars (dot-FILES the L2 walk skips by construction). A
- *  sidecar is indexed only when its sibling exists too — an `.abstract.md`
- *  whose `.overview.md` is missing is a torn write, not a row. */
+ *  sidecar pair is indexed only when (a) its sibling exists — an `.abstract.md`
+ *  whose `.overview.md` is missing is a torn write, not a row — and (b) the
+ *  described dir still holds other content (a file or subdir beyond the
+ *  sidecars): a dir emptied of its sources keeps stale sidecars on disk, but
+ *  they must not index forever (reviewer m6). */
 function walkSidecars(rootAbs: string): WalkedSidecar[] {
 	const out: WalkedSidecar[] = [];
 	const walk = (dirAbs: string, rel: string) => {
@@ -194,7 +197,12 @@ function walkSidecars(rootAbs: string): WalkedSidecar[] {
 			return;
 		}
 		const names = new Set(entries.map((e) => e.name));
-		if (names.has(OVERVIEW_SIDEFILE) && names.has(ABSTRACT_SIDEFILE)) {
+		const hasContent = entries.some(
+			(e) =>
+				(e.isDirectory() && !e.name.startsWith(".")) || // dot-dirs (the cache) are not content
+				(e.isFile() && e.name.endsWith(".md") && e.name !== OVERVIEW_SIDEFILE && e.name !== ABSTRACT_SIDEFILE),
+		);
+		if (hasContent && names.has(OVERVIEW_SIDEFILE) && names.has(ABSTRACT_SIDEFILE)) {
 			for (const kind of ["overview", "abstract"] as const) {
 				const name = kind === "overview" ? OVERVIEW_SIDEFILE : ABSTRACT_SIDEFILE;
 				out.push({ uri: rel ? `${rel}/${name}` : name, abs: join(dirAbs, name), kind, dirRel: rel });
