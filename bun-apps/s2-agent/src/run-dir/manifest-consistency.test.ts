@@ -26,10 +26,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import manifest from "./manifest.json";
 import { parseManifestEntries } from "./manifest-types.ts";
-import { STATIC_EXTENSION_FACTORIES } from "../src/static-extensions.ts";
-import { buildStaticExtensionsSource } from "../src/static-extensions-gen.ts";
+import { STATIC_EXTENSION_FACTORIES } from "../static-extensions.ts";
+import { buildStaticExtensionsSource } from "../static-extensions-gen.ts";
 
-const PKG_DIR = join(import.meta.dir, "..");
+const PKG_DIR = join(import.meta.dir, "..", "..");
 const BUN_APPS = join(PKG_DIR, "..");
 
 const pkgJson = JSON.parse(readFileSync(join(PKG_DIR, "package.json"), "utf8")) as {

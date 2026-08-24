@@ -3,21 +3,22 @@
  *
  * Since ticket 03 (.planning/2026-08-24-registry-code-as-config/) the typed
  * REGISTRY in s2-agent/src/registry-config.ts is the data; `shConfig()` reads
- * it through run-dir/registry.ts's `loadRegistry()` (the validation authority:
+ * it through src/run-dir/registry.ts's `loadRegistry()` (the validation authority:
  * disk existence, duplicate names/orders, deploy/excludeReason contradictions,
  * vendor overlaps) and projects ShConfig in deploy order. devops runs inside
  * the workspace, so a plain relative import is fine here — map D4's
  * link-state-immunity constraint applies only to bun-apps/tests.
  *
  * The retired registry YAML and `parseShConfig` bridge are gone (ticket 04);
- * ShConfig comes from the typed REGISTRY and nothing parses YAML.
+ * ShConfig comes from the typed REGISTRY (src/run-dir/registry.ts) and nothing
+ * parses YAML.
  */
 import {
 	loadRegistry,
 	type Registry,
 	type RegistryDeployBlock,
 	type RegistryExt,
-} from "../../../../s2-agent/run-dir/registry.ts";
+} from "../../../../s2-agent/src/run-dir/registry.ts";
 
 export interface ShExtConfig {
 	name: string;

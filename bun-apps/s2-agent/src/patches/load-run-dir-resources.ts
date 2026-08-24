@@ -1,7 +1,7 @@
 /**
  * load-run-dir-resources — splices this repo's fixed extension/skill set into
  * argv as absolute -e/--skill paths, resolved from run-dir/ (see
- * run-dir/resolve.ts), before main() reads process.argv.
+ * src/run-dir/resolve.ts), before main() reads process.argv.
  *
  * WHY: pi's main() threads a single process.cwd() into every project-resource
  * lookup (.pi/settings.json, .pi/extensions, ...) with no --cwd override. That
@@ -10,7 +10,7 @@
  * resolution and trust-gating entirely, so this patch makes extension loading
  * work regardless of where s2-agent is invoked from.
  */
-import { resolveRunDirArgv, rewriteArgvLazyExtensions } from "../../run-dir/resolve.ts";
+import { resolveRunDirArgv, rewriteArgvLazyExtensions } from "../run-dir/resolve.ts";
 import { userSuppressFlags } from "../cli-argv.ts";
 
 // process.argv is still the UNSPLICED user argv at this point (this patch is
@@ -26,7 +26,7 @@ if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
 process.argv.splice(2, 0, ...extra);
 
 // Rewrite `-e <alias>` (e.g. `-e workflow`) to absolute paths from the lazy
-// registry in run-dir/manifest.json's `lazyExtensions`. Heavy opt-in extensions
+// registry in src/run-dir/manifest.json's `lazyExtensions`. Heavy opt-in extensions
 // are not in the eager manifest above, so they cost zero context unless
 // explicitly requested.
 await rewriteArgvLazyExtensions(process.argv);

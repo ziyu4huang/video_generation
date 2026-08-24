@@ -191,7 +191,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 	// hyperframes was vendorExclude's ONLY live consumer, and its registry
 	// entry is disabled by default now, so the deployed tree no longer carries
 	// a vendoredClosure.excluded to assert. The vendorExclude MECHANISM stays
-	// covered synthetically (run-dir/registry.test.ts parse + drop validation;
+	// covered synthetically (src/run-dir/registry.test.ts parse + drop validation;
 	// offline-gate.test.ts Gate 5d fixture). Restore this E2E when an entry
 	// ships with a vendorExclude again.
 });

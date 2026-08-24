@@ -6,7 +6,7 @@
 # @earendil-works/pi-*; update flow unchanged (update-pi.sh). The repo-root
 # ./pi-agent.sh is kept as a deprecated compat alias → ./s2-agent.sh → here.
 #
-# Entry is src/cli.ts (run-dir/resolve.ts source mode, additive with .pi/ +
+# Entry is src/cli.ts (src/run-dir/resolve.ts source mode, additive with .pi/ +
 # ~/.pi/). The deployed artifact does not come through here: the s2-agent-sh
 # tree ships its own run.sh beside a self-contained binary.
 #
@@ -152,8 +152,8 @@ fi
 # missing. Gated to source mode (deploys bake deps in). Opt out with
 # BUN_PI_AUTO_INSTALL=0 (passed through to check-deps.ts). `|| true` so a failed
 # install still launches pi, which then prints the actionable guide.
-if [ -f "$SCRIPT_DIR/src/cli.ts" ] && [ -f "$SCRIPT_DIR/run-dir/check-deps.ts" ]; then
-  bun "$SCRIPT_DIR/run-dir/check-deps.ts" || true
+if [ -f "$SCRIPT_DIR/src/cli.ts" ] && [ -f "$SCRIPT_DIR/src/run-dir/check-deps.ts" ]; then
+  bun "$SCRIPT_DIR/src/run-dir/check-deps.ts" || true
 fi
 
 # Source-mode layout self-heal (AFTER check-deps so the store target exists):

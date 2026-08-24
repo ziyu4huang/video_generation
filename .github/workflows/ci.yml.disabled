@@ -299,7 +299,7 @@ jobs:
   # them. The deployed artifact's gate is now the regression-gates step
   # `bash scripts/check-deploy-e2e.sh`, which is unconditional.
   # Also matches the 5 "core" extension packages that src/static-extensions.ts
-  # statically imports (see run-dir/manifest.json's `staticExtensions` field) —
+  # statically imports (see src/run-dir/manifest.json's `staticExtensions` field) —
   # a change to any of THEIR source is just as capable of breaking s2-agent as
   # a change inside bun-apps/s2-agent/ itself, since their code is inlined
   # directly rather than loaded as an independent jiti-dispatched extension.
@@ -327,7 +327,7 @@ jobs:
   # Thrust B2 — clean-launch self-heal. Exercises the path that escaped CI when
   # the workspace root moved into bun-apps/ (#625): every other job runs
   # `setup-env` (which `bun install`s) BEFORE launching pi, so the launcher's
-  # OWN pre-flight self-heal (run-dir/check-deps.ts → `bun install` at the
+  # OWN pre-flight self-heal (src/run-dir/check-deps.ts → `bun install` at the
   # detected workspace root) was never exercised. A `git clean -dxf` +
   # `./s2-agent.sh` then failed: check-deps ran `bun install` at the repo root,
   # where package.json no longer lives → "could not find a package.json" →
@@ -369,7 +369,7 @@ jobs:
           # check-deps runs `bun install` at its detected workspace root and
           # must exit 0. If anyone re-introduces a repo-root install assumption,
           # this fails with "could not find a package.json".
-          bun bun-apps/s2-agent/run-dir/check-deps.ts
+          bun bun-apps/s2-agent/src/run-dir/check-deps.ts
           test -d bun-apps/node_modules || { echo "FAIL: self-heal did not materialize bun-apps/node_modules"; exit 1; }
           echo "OK: self-heal installed at the workspace root (bun-apps/)"
 
@@ -444,7 +444,7 @@ jobs:
       # Base-set scanner unit guard (blocks). tests/lib/registry-base-set.ts is
       # the ONE scanner behind two gated suites (dep-guard's portable-base-set
       # invariant, extension-isolation-contract's derived scope). Its authority
-      # is run-dir/registry.ts: ships iff a `deploy:` block exists and is not
+      # is src/run-dir/registry.ts: ships iff a `deploy:` block exists and is not
       # `enabled: false`, in block OR flow style. Both historical copies missed
       # one of those forms each; without this step the shared scanner could
       # regress them silently.
@@ -621,7 +621,7 @@ jobs:
       # src/ — and most of these packages wrote `include: ["src/**/*.ts"]`, so
       # `bun run typecheck` inside the package compiled everything EXCEPT the one
       # file the package exists to export. The entry still had an executor, just
-      # the wrong one: the HOST s2-agent typechecks it through run-dir/manifest.json.
+      # the wrong one: the HOST s2-agent typechecks it through src/run-dir/manifest.json.
       # So the author's own pre-push gate said nothing and the failure surfaced one
       # package away, on main, after merge — twice. This asserts each package with
       # an extensions/ dir has a tsconfig, that its `include` covers every entry,

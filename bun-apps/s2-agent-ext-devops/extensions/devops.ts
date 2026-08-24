@@ -13,7 +13,7 @@
  *     vs origin/main, plus repo gates. Structured pass/fail; self-verify before
  *     `gh ship` (merge_pr_after_local_ci gates on this).
  *
- * Install: registered in bun-apps/s2-agent/run-dir/manifest.json (extensions[]).
+ * Install: registered in bun-apps/s2-agent/src/run-dir/manifest.json (extensions[]).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";

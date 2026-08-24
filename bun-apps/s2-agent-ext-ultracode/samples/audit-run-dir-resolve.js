@@ -1,7 +1,7 @@
 /**
  * audit-run-dir-resolve.js — a REAL audit workflow (not a smoke).
  *
- * Target: bun-apps/s2-agent/run-dir/resolve.ts — the lazy-extension alias
+ * Target: bun-apps/s2-agent/src/run-dir/resolve.ts — the lazy-extension alias
  * resolver + the deploy-bundle / deploy-package argv builders. This is the
  * freshest, most relevant code in the repo, so it is a good acceptance target:
  * if the whole chain (alias `-e workflow` → workflow tool → real subagents
@@ -22,7 +22,7 @@
 export const meta = {
   name: "audit-run-dir-resolve",
   description:
-    "Parallel multi-lens audit of run-dir/resolve.ts (lazy aliases + deploy argv), then a schema-validated synthesis",
+    "Parallel multi-lens audit of src/run-dir/resolve.ts (lazy aliases + deploy argv), then a schema-validated synthesis",
   phases: [{ title: "Review" }, { title: "Synthesize" }],
 };
 
@@ -55,7 +55,7 @@ const FINDINGS_SCHEMA = {
   },
 };
 
-const TARGET = "bun-apps/s2-agent/run-dir/resolve.ts";
+const TARGET = "bun-apps/s2-agent/src/run-dir/resolve.ts";
 
 phase("Review");
 
@@ -82,7 +82,7 @@ Empty array if nothing real.`,
   },
   {
     key: "test-coverage",
-    prompt: `Read ${TARGET} AND the test file bun-apps/s2-agent/run-dir/resolve.test.ts. Identify
+    prompt: `Read ${TARGET} AND the test file bun-apps/s2-agent/src/run-dir/resolve.test.ts. Identify
 GAPS where a real defect would NOT be caught by the current tests: untested branches of
 resolveLazyExtension, rewriteExtensionArgs, buildBundleArgvFromLayout, the mode guards, and the
 directory-fallback path. For each gap name the branch and the minimal test that would cover it.

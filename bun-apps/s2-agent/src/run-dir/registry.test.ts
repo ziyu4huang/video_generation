@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { loadRegistry } from "./registry.ts";
 
 describe("loadRegistry (the REGISTRY read path)", () => {
-  const PKG_DIR = join(import.meta.dir, "..");
+  const PKG_DIR = join(import.meta.dir, "..", "..");
   const BUN_APPS = join(PKG_DIR, "..");
 
   test("returns the manifest-ready shape (active extensions, deployed blocks normalized)", () => {

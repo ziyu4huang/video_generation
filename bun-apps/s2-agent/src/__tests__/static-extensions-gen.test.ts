@@ -9,7 +9,7 @@ import { buildStaticExtensionsSource } from "../static-extensions-gen.ts";
 test("generates header + banner + ordered imports + rows", () => {
 	const src = buildStaticExtensionsSource({ staticExtensions: ["task", "prompt-history", "subagent", "ultracode"] });
 	expect(src.startsWith("/**")).toBe(true);
-	expect(src).toContain("// AUTO-GENERATED from run-dir/manifest.json staticExtensions[]");
+	expect(src).toContain("// AUTO-GENERATED from src/run-dir/manifest.json staticExtensions[]");
 	expect(src).toContain('import taskExtension from "../../s2-agent-ext-task/extensions/task.ts";');
 	expect(src).toContain('import ultracodeExtension from "../../s2-agent-ext-ultracode/extensions/ultracode.ts";');
 	expect(src).toContain('\t{ name: "s2-agent-ext-task", factory: taskExtension },');

@@ -87,7 +87,7 @@ export interface VaultConfigFile {
  *  sh deploy: `require("#pi/ext-dir")` → no run-dir/ exists beside the ext
  *  bundle, so the legacy migration read simply finds nothing (by design —
  *  the portable deploy has no repo run-dir).
- *  Source mode: bun-apps/pi-obsidian/extensions/ → ../../s2-agent/run-dir/
+ *  Source mode: bun-apps/pi-obsidian/extensions/ → ../../s2-agent/src/run-dir/
  *  A third branch keyed on `selfDir.includes("ext-bundles")` for the bundle
  *  deploy; that layout's producer and runtime are both gone (#1740, Phase 1b),
  *  and a path-substring guess at the deploy mode is the same shape of check
@@ -97,8 +97,8 @@ export interface VaultConfigFile {
 export function runDirPath(): string | undefined {
 	const extDir = shExtDir();
 	if (extDir === undefined) return undefined;
-	// Source mode: <pkg>/ → ../../s2-agent/run-dir/ (ext-dir is the package root)
-	return resolve(extDir, "..", "..", "s2-agent", "run-dir");
+	// Source mode: <pkg>/ → ../../s2-agent/src/run-dir/ (ext-dir is the package root)
+	return resolve(extDir, "..", "..", "s2-agent", "src", "run-dir");
 }
 
 /** Retired config location — one-time migration source only. Undefined when

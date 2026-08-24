@@ -145,7 +145,7 @@ export async function collectExtensionToolCosts(
 // what let a phantom `cost` gate inflate savings by ~536 tok/req.
 const EXTRA_ENTRIES: { source: string; path: string }[] = [
 	// Registry-disabled 2026-08-24 (default-off in dev + deploy after the
-	// #1946 half-fix incident) — no longer in run-dir/manifest.json, but its
+	// #1946 half-fix incident) — no longer in src/run-dir/manifest.json, but its
 	// schema mass stays measured while the package exists so a re-enable
 	// decision has current numbers (the canary row CLAUDE.md describes).
 	{ source: "tool-gate", path: "bun-apps/s2-agent-ext-tool-gate/extensions/tool-gate.ts" },
@@ -153,7 +153,7 @@ const EXTRA_ENTRIES: { source: string; path: string }[] = [
 
 /**
  * Discover extension entry files by DERIVING them from s2-agent's
- * run-dir/manifest.json — the single source of truth for what a s2-agent
+ * src/run-dir/manifest.json — the single source of truth for what a s2-agent
  * session loads:
  *   - `extensions[]`       → `bun-apps/<entry>` (dynamic `-e` set)
  *   - `staticExtensions[]` → `bun-apps/<pkg>/extensions/<suffix>.ts` where
@@ -167,7 +167,7 @@ export function discoverExtensionEntries(cwd: string): { source: string; path: s
 	let manifest: { extensions?: (string | { entry: string })[]; staticExtensions?: string[] } = {};
 	try {
 		manifest = JSON.parse(
-			readFileSync(resolve(cwd, "bun-apps/s2-agent/run-dir/manifest.json"), "utf8"),
+			readFileSync(resolve(cwd, "bun-apps/s2-agent/src/run-dir/manifest.json"), "utf8"),
 		);
 	} catch (e) {
 		if ((e as NodeJS.ErrnoException).code === "ENOENT") {
@@ -179,7 +179,7 @@ export function discoverExtensionEntries(cwd: string): { source: string; path: s
 			// report (undercounting loaded tools — could mask a phantom or
 			// understate cost). Surface it loudly instead (audit I-7, 2026-07-25).
 			throw new Error(
-				`schema-cost: bun-apps/s2-agent/run-dir/manifest.json is unreadable — ` +
+				`schema-cost: bun-apps/s2-agent/src/run-dir/manifest.json is unreadable — ` +
 				`${(e as Error).message}. Fix the manifest; a silent extras-only ` +
 				`fallback would produce a misleading (false-green) report.`,
 			);

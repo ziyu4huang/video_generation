@@ -3,7 +3,7 @@
  *
  * This package ships SKILLS, not tools: the eight vendored HyperFrames-family
  * skill trees under ../skills/ are the payload, wired through package.json's
- * `pi.skills`, s2-agent/run-dir/manifest.json's `skills` + `binarySkills`,
+ * `pi.skills`, s2-agent/src/run-dir/manifest.json's `skills` + `binarySkills`,
  * and the registry's `skills:` key for the sh deploy.
  *
  * The factory below is a deliberate no-op. It exists so every registration

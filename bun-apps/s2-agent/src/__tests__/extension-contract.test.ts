@@ -18,7 +18,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { parseManifestEntries } from "../../run-dir/manifest-types.ts";
+import { parseManifestEntries } from "../../src/run-dir/manifest-types.ts";
 
 // Self-sufficient: import the patch so repo-root node_modules symlinks exist.
 await import("../patches/ensure-extension-deps.ts");
@@ -26,7 +26,7 @@ await import("../patches/ensure-extension-deps.ts");
 const PI_AGENT_DIR = path.resolve(import.meta.dirname, "../..");
 const REPO_ROOT = path.resolve(PI_AGENT_DIR, "../..");
 const MANIFEST = JSON.parse(
-	readFileSync(path.join(PI_AGENT_DIR, "run-dir", "manifest.json"), "utf8"),
+	readFileSync(path.join(PI_AGENT_DIR, "src", "run-dir", "manifest.json"), "utf8"),
 ) as { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
 const ENTRIES = parseManifestEntries(MANIFEST.extensions ?? []);
 

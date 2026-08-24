@@ -18,7 +18,7 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdtempSync, rmSy
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import manifest from "../run-dir/manifest.json";
+import manifest from "./run-dir/manifest.json";
 import { PATCH_TABLE, resolvePatchPlan } from "./patches/index.ts";
 import { PROVIDERS, resolveApiKey, type ApiKey } from "./pre-load-providers.ts";
 import { detectMode, type BundlerMode } from "./mode.ts";

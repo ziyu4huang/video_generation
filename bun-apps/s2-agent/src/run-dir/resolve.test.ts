@@ -18,7 +18,7 @@ import {
 describe("detectMode", () => {
 	test("source mode: an ordinary repo path", () => {
 		expect(
-			detectMode("file:///repo/bun-apps/s2-agent/run-dir/resolve.ts"),
+			detectMode("file:///repo/bun-apps/s2-agent/src/run-dir/resolve.ts"),
 		).toBe("source");
 	});
 
@@ -30,7 +30,7 @@ describe("detectMode", () => {
 		// The sh deploy's core since 2026-08-23 is a shipped s2-agent.js run by
 		// bun — every bundled module's rewritten URL points at it.
 		expect(detectMode("file:///opt/s2-agent-sh/1.0.0/s2-agent.js")).toBe("bundle");
-		expect(detectMode("file:///repo/bun-apps/s2-agent/run-dir/resolve.ts")).toBe("source");
+		expect(detectMode("file:///repo/bun-apps/s2-agent/src/run-dir/resolve.ts")).toBe("source");
 	});
 
 	test("the real module URL (this test run) is source mode", () => {
@@ -312,8 +312,8 @@ describe("resolveLazyExtension", () => {
 	// static-factory×`-e`). This test now guards that invariant: `workflow`
 	// must NOT resolve via the lazy mechanism against the real manifest.
 	test("integration: real manifest.json has NO lazy alias for the static 'workflow' ext", () => {
-		// run-dir/resolve.ts sits at <repo>/bun-apps/s2-agent/run-dir/ → base is ../../
-		const base = resolve(join(import.meta.dir, "..", ".."));
+		// src/run-dir/resolve.ts sits at <repo>/bun-apps/s2-agent/src/run-dir/ → base is ../../..
+		const base = resolve(join(import.meta.dir, "..", "..", ".."));
 		// lazyExtensions is {} now; the directory-fallback arm looks for
 		// <base>/workflow/extensions/ which doesn't exist (the package dir is
 		// s2-agent-ext-ultracode, not workflow) → undefined either way.

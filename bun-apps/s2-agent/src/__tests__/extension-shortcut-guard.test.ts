@@ -17,7 +17,7 @@
  *
  * Coverage: EVERY registered extension, both registration surfaces —
  *   - the static set (STATIC_EXTENSION_FACTORIES in src/static-extensions.ts)
- *   - the dynamic set (run-dir/manifest.json extensions[], same loading
+ *   - the dynamic set (src/run-dir/manifest.json extensions[], same loading
  *     pattern as extension-contract.test.ts)
  * Each factory is loaded through a recording mock pi whose registerShortcut
  * captures the key string.
@@ -42,7 +42,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { parseManifestEntries } from "../../run-dir/manifest-types.ts";
+import { parseManifestEntries } from "../../src/run-dir/manifest-types.ts";
 import { STATIC_EXTENSION_FACTORIES } from "../static-extensions.ts";
 
 // Self-sufficient: import the patch so repo-root node_modules symlinks exist
@@ -52,7 +52,7 @@ await import("../patches/ensure-extension-deps.ts");
 const PI_AGENT_DIR = path.resolve(import.meta.dirname, "../..");
 const REPO_ROOT = path.resolve(PI_AGENT_DIR, "../..");
 const MANIFEST = JSON.parse(
-	readFileSync(path.join(PI_AGENT_DIR, "run-dir", "manifest.json"), "utf8"),
+	readFileSync(path.join(PI_AGENT_DIR, "src", "run-dir", "manifest.json"), "utf8"),
 ) as { extensions: (string | object)[] };
 const DYNAMIC_ENTRIES = parseManifestEntries(MANIFEST.extensions ?? []);
 

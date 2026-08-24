@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import manifest from "../run-dir/manifest.json";
+import manifest from "./run-dir/manifest.json";
 import { HOST_API } from "./sh/host-modules.ts";
 import {
 	classifyMode,
