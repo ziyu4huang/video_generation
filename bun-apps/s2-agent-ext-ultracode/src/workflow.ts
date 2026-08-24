@@ -378,6 +378,7 @@ export async function runWorkflow<T = unknown>(
     judgePanel: stdlib.judgePanel,
     loopUntilDry: stdlib.loopUntilDry,
     completenessCheck: stdlib.completenessCheck,
+    synthesize: stdlib.synthesize,
     retry: stdlib.retry,
     gate: stdlib.gate,
     checkpoint: rt.checkpoint,
