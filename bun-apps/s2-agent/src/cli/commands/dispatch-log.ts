@@ -14,7 +14,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SubagentRunRecord } from "@repo/s2-agent-core-runtime";
-import type { PersistedRunState } from "@repo/s2-agent-ext-ultracode";
 
 export interface DispatchRecord {
 	effort: string;
@@ -49,30 +48,6 @@ export function normalizeSubagentRecord(rec: SubagentRunRecord): DispatchRecord 
 		commit: null,
 		ts: rec.startedAt ?? "",
 	};
-}
-
-/** One workflow run -> one record per agent. Ticket parsed from the agent
- * label ("impl:01" / "verify:02" -> "01"); tokenBudget falls back to the
- * agent's actual token spend, then the run-level exec cap. */
-export function normalizeWorkflowRun(
-	state: PersistedRunState,
-	effort: string,
-	tier: string,
-): DispatchRecord[] {
-	return state.agents.map((a) => ({
-		effort,
-		tier,
-		ticket: a.label.match(/(\d+)/)?.[1] ?? String(a.id),
-		engine: "workflow" as const,
-		tokenBudget: a.tokens ?? state.exec?.tokenBudget ?? 0,
-		maxTurns: 0,
-		outcome:
-			a.status === "done" ? ("green" as const)
-			: a.status === "error" ? ("red" as const)
-			: ("skipped" as const),
-		commit: null,
-		ts: state.runId,
-	}));
 }
 
 export interface DispatchFilter {

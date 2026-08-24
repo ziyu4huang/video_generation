@@ -165,8 +165,6 @@ export function resolveLLM(opts: {
 
 export interface SharedServices {
 	services: AgentSessionServices;
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	model: any;
 }
 
 /**
@@ -329,7 +327,7 @@ export async function getSharedServices(
 				: {}),
 		},
 	});
-	return { services, model: undefined };
+	return { services };
 }
 
 /**

@@ -8,9 +8,8 @@
  * in, tool streaming, model selection).
  *
  * Usage:
- *   s2-agent cli chat                          # start REPL (persistent session)
+ *   s2-agent cli chat                          # start REPL (in-memory session)
  *   s2-agent cli chat --model gemma-4-12b      # pick a model
- *   s2-agent cli --no-session chat             # ephemeral (in-memory) session
  *   s2-agent cli chat --tools read,bash,write  # curated toolset
  *   echo "hello" | s2-agent cli chat           # pipe one prompt, then exit
  *
@@ -21,12 +20,13 @@
  *   /model X     switch model mid-session (e.g. /model sonnet)
  *   /tools       list active tools
  *
- * The session persists to disk by default (SessionManager.create), so history
- * survives across invocations unless --no-session is given.
+ * The session is in-memory (createSharedSession's SessionManager.inMemory
+ * default) — one REPL process, one session. Cross-invocation persistence is
+ * deliberately NOT implemented (see the simplify effort's Fog of war).
  */
 import type { ParsedArgs } from "../args.ts";
 import { resolveLLMFromArgs } from "../sessions/passthrough.ts";
-import { createSharedSession, applyDryRun, modelLabel, type CreateSharedSessionOptions } from "../sessions/shared.ts";
+import { createSharedSession, applyDryRun, modelLabel } from "../sessions/shared.ts";
 
 /** Minimal session surface the REPL loop needs. */
 interface ChatSession {
@@ -82,23 +82,19 @@ async function runTurn(session: ChatSession, task: string, verbose: number): Pro
 /** Build a fresh session using the same shared factory as every other command. */
 async function makeSession(
 	parsed: ParsedArgs,
-	opts: Partial<CreateSharedSessionOptions> & { persist?: boolean } = {},
 ): Promise<{ session: ChatSession; llm: Awaited<ReturnType<typeof resolveLLMFromArgs>> }> {
 	const llm = await resolveLLMFromArgs(parsed);
 	const { session } = await createSharedSession(llm, {
 		tools: parsed.tools,
 		excludeTools: applyDryRun(parsed),
 		appendSystemPrompt: parsed.appendSystemPrompt,
-		// --no-session → ephemeral; default → persistent (survives across runs)
-		sessionManager: opts.persist === false || parsed.noSession ? undefined : undefined,
-		extraExtensionFactories: opts.extraExtensionFactories,
 	});
 	return { session: session as unknown as ChatSession, llm };
 }
 
 export const chatCommand = {
 	name: "chat",
-	summary: "interactive multi-turn REPL (persistent session; the normal-CLI experience)",
+	summary: "interactive multi-turn REPL (in-memory session; the normal-CLI experience)",
 	details: `Usage:
   s2-agent cli chat [options]
 
@@ -106,8 +102,8 @@ Interactive multi-turn agent REPL. Unlike every other command (single-turn),
 \`chat\` maintains a persistent session across turns — type a message, get a
 response, continue the conversation. This is the "normal CLI app" mode.
 
-The session persists to disk by default (history survives across invocations).
-Pass --no-session for an ephemeral in-memory session.
+The session is in-memory: one REPL process, one conversation. History does not
+survive across invocations (cross-invocation persistence is not implemented).
 
 Options (pi-aligned globals):
   --model <pattern>      provider/id[:thinking]  (e.g. gemma-4-12b, sonnet)
@@ -115,7 +111,6 @@ Options (pi-aligned globals):
   --thinking <level>     off|minimal|low|medium|high|xhigh
   --tools <csv>          curated tool allowlist (default: broad set)
   --exclude-tools <csv>  tool denylist
-  --no-session           ephemeral (in-memory) session
   -V, --verbose          tool verbosity (repeat for debug)
   --dry-run              suppress vault writes (read-only)
 

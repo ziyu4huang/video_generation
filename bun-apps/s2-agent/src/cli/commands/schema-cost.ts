@@ -39,8 +39,8 @@ import { resolve, relative, isAbsolute, join } from "node:path";
 // instrument). The live `inspect_context` (same package, src/index.ts) uses
 // 3.7 — a known inconsistency; standardizing is a future cleanup, not this cycle.
 import {
-	estimateToolCost as _estimateToolCost,
-	checkToolContract as _checkToolContract,
+	estimateToolCost,
+	checkToolContract,
 	formatReport as _formatReport,
 	formatJson as _formatJson,
 } from "@repo/s2-agent-ext-power-tool/schema-cost";
@@ -48,19 +48,13 @@ import {
 // `ToolCost` / `SchemaCostReport` are imported for INTERNAL type annotations only
 // (collectBuiltinToolCosts/collectExtensionToolCosts/buildSchemaCostReport).
 // The @deprecated `export type { ToolCost, SchemaCostReport }` re-export alias
-// that used to live here was removed in the gating-field migration (Task 5):
-// consumers now import these types from
-// `@repo/s2-agent-ext-power-tool/schema-cost` directly. (The value delegates
-// below — estimateToolCost/checkToolContract/formatSchemaCostReport/
-// formatSchemaCostJson — are retained: they back the command's own unit test
-// and the two estimate/check helpers are used internally by the collection
-// logic, so they are not pure re-export scaffolding.)
+// and the @deprecated value delegates (estimateToolCost / checkToolContract)
+// that used to live here were removed in the simplify effort (2026-08-24):
+// consumers now import them from `@repo/s2-agent-ext-power-tool/schema-cost`
+// directly. The only re-exports kept are the DISAMBIGUATED formatter pair at
+// the bottom of this file (formatSchemaCostReport / formatSchemaCostJson),
+// which tools-metrics.ts needs under those names.
 import type { ToolCost, SchemaCostReport } from "@repo/s2-agent-ext-power-tool/schema-cost";
-
-/** @deprecated delegate — import from `@repo/s2-agent-ext-power-tool/schema-cost`
- *  directly. Kept as an alias so existing imports from this module stay valid. */
-export const estimateToolCost = _estimateToolCost;
-export const checkToolContract = _checkToolContract;
 
 // --- capturing mock API ------------------------------------------------------
 

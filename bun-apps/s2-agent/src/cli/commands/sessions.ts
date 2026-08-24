@@ -10,8 +10,8 @@
  * file scan, no LLM, no network).
  *
  * Design: the search core (`searchSessions`) is a PURE function over already-
- * read file contents, so it is unit-testable with tiny fixtures. `run()` wires
- * the real `~/.pi/agent/sessions` tree in (mirrors `tools-metrics.ts`).
+ * read file contents (module-internal; no current test imports it). `run()`
+ * wires the real `~/.pi/agent/sessions` tree in (mirrors `tools-metrics.ts`).
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -40,7 +40,7 @@ export interface SessionFile {
  * @param query    substring to search for (case-insensitive)
  * @param limit    max matches to return
  */
-export function searchSessions(
+function searchSessions(
 	files: SessionFile[],
 	query: string,
 	limit = 20,
@@ -163,12 +163,10 @@ offline (pure file scan, no LLM, no network).
 
 Options:
   --limit <n>           max matches (default 20)
-  --cwd <path>          restrict to sessions from this project path
 
 Examples:
   s2-agent cli sessions "flux2 self-improve"
-  s2-agent cli sessions "bun workspace" --limit 5
-  s2-agent cli sessions "RAG" --cwd /Users/me/proj/myrepo`,
+  s2-agent cli sessions "bun workspace" --limit 5`,
 
 	async run(parsed: ParsedArgs): Promise<void> {
 		const query = parsed.positionals.join(" ").trim();
@@ -177,15 +175,9 @@ Examples:
 		}
 
 		const limit = parsed.limit ?? 20;
-		const cwdFilter = (parsed as any).cwd as string | undefined;
 
 		const sessionsDir = join(homedir(), ".pi", "agent", "sessions");
-		let files = loadSessionFiles(sessionsDir);
-
-		if (cwdFilter) {
-			const filter = cwdFilter.toLowerCase();
-			files = files.filter((f) => f.cwd.toLowerCase().includes(filter));
-		}
+		const files = loadSessionFiles(sessionsDir);
 
 		if (files.length === 0) {
 			console.log("No session transcripts found.");

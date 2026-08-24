@@ -2,11 +2,36 @@
 import { describe, expect, test } from "bun:test";
 import {
 	normalizeSubagentRecord,
-	normalizeWorkflowRun,
 	renderDispatchLog,
 	matchesDispatchFilter,
 	type DispatchRecord,
 } from "./dispatch-log.ts";
+
+/** One workflow run -> one record per agent. Ticket parsed from the agent
+ * label ("impl:01" / "verify:02" -> "01"); tokenBudget falls back to the
+ * agent's actual token spend, then the run-level exec cap. Test-local since
+ * the workflow source is not wired into the command yet (see the effort
+ * ledger); lives in dispatch-log.ts when that wiring lands. */
+function normalizeWorkflowRun(
+	state: import("@repo/s2-agent-ext-ultracode").PersistedRunState,
+	effort: string,
+	tier: string,
+): DispatchRecord[] {
+	return state.agents.map((a) => ({
+		effort,
+		tier,
+		ticket: a.label.match(/(\d+)/)?.[1] ?? String(a.id),
+		engine: "workflow" as const,
+		tokenBudget: a.tokens ?? state.exec?.tokenBudget ?? 0,
+		maxTurns: 0,
+		outcome:
+			a.status === "done" ? ("green" as const)
+			: a.status === "error" ? ("red" as const)
+			: ("skipped" as const),
+		commit: null,
+		ts: state.runId,
+	}));
+}
 
 // Typed fixture helpers with sensible defaults for real type shapes
 function mkSubagentRecord(overrides: Partial<import("@repo/s2-agent-core-runtime").SubagentRunRecord>): import("@repo/s2-agent-core-runtime").SubagentRunRecord {

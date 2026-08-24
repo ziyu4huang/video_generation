@@ -2,6 +2,17 @@
 
 Phase A · risk LOW · gate: package gates + help-pin e2e
 
+## Receipt (2026-08-24)
+
+Implemented on branch `s2-agent-simplify-t01-dead-code`. All items landed except:
+
+- `.agents/` NOT removed — premise false: the dir has TRACKED content (git ls-files: .agents/memory/.gitattributes, MEMORY.md, config.sample.json, skills symlink). Ticket corrected.
+- `run-dir/workflows/ltx-live-e2e.js` KEPT — meaningfully referenced by `bun-apps/s2-agent-ext-ltx/TODO.md` (run instructions, args includeUpscaleAB, described as the live wiring smoke). `parallel-demo.js` deleted (repo-wide grep: self-references only).
+- chat.ts went one honest step further than scoped: the `details` help still claimed "session persists to disk by default" + a `--no-session` option line — both false since the dead ternary always passed undefined (session was ALWAYS in-memory). Help corrected to state in-memory; `--no-session` stays a parsed global flag (zero readers anywhere — candidate for a later flag-spec cleanup in 04's audit).
+- Census for 04: after this ticket the ONLY `(parsed as any).` cast in non-test bun-apps code is `bun-apps/s2-agent-ext-web-access/extensions/cli-subcommand.ts:87` (`(parsed as any).save === true`).
+
+Gates: typecheck clean; `bun test` 1043 pass / 0 fail; e2e (PI_AGENT_E2E=1) 57 pass / 0 fail + ext-new 23 pass.
+
 ## Scope
 
 Remove (each verified before deleting):
