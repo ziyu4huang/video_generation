@@ -105,3 +105,4 @@ Ticket 01 — no blocker, all receipts already in Context, version bump rides it
 - `Builds-on: 2026-08-24-s2-agent-simplify` — every seam named in Context is the residue that effort verified as remaining; its REJECTED list is our D1/D3.
 - `Shares-decision-with: 2026-08-25-archify-webui-decouple` — the `load:"dynamic"` demote mechanic (its D1) is option C's implementation path; webui's frozen-contract discipline applies to any ultracode surface trim that touches `/workflows resume` interop.
 - `Absorbs: s2-agent version bump carry` (Honest-gaps item from next-goal-20260825-022920) — 0.7.10→0.7.11 rides ticket 01.
+- `Complements: 2026-08-25-ultracode-cc-parity` — the engine-side effort D4's "future engine-side effort" clause named; it upgrades ext-ultracode's armed guidance to claude-code ultracode behavior while our ticket 02 trims s2-agent's OWN cli surface (orthogonal files, no seam overlap).

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   backgroundStartedText,
   buildSimplifiedGuidelines,
+  buildUltracodeAddendum,
   buildVerboseGuidelines,
   buildWorkflowGuidelinesForTurn,
   buildWorkflowPointerGuideline,
@@ -208,6 +209,45 @@ test("buildWorkflowGuidelinesForTurn: full block is much larger than the pointer
   // Measured: full ≈668 tok, pointer ≈71 tok (~9x). Net ~−597 tok on every
   // non-workflow turn vs. the old always-on static promptGuidelines.
   assert.ok(full.length > pointer.length * 8, "full block should be ~9x the pointer length");
+});
+
+// ─── ultracode-cc-parity t01: effort-armed addendum ─────────────────────────────
+// Armed turns (effortLevel high|ultra) append the CC-parity standing block
+// (author-by-default + solo carve-out, scale ladder, multi-phase sequencing,
+// inline pattern catalog) to the FULL set — never to the pointer, never to a
+// non-armed full turn (baseline stays use-only-when-asked, map D2).
+
+test("buildUltracodeAddendum carries the CC-parity standing directive", () => {
+  const all = buildUltracodeAddendum("ultra").join(" ");
+  assert.match(all, /Ultracode is ON for this session \(effort: ultra\)/);
+  assert.match(all, /every substantive task by default/);
+  assert.match(all, /solo turns are conversation or trivial mechanical edits/);
+  assert.match(all, /token thrift is not the constraint/i);
+});
+
+test("buildUltracodeAddendum carries the scale ladder, multi-phase, and pattern catalog", () => {
+  const all = buildUltracodeAddendum("high").join(" ");
+  assert.match(all, /Scale fan-out to the request/);
+  assert.match(all, /verify\(item, \{reviewers: 3-5, lens\}\)/);
+  assert.match(all, /one per phase/);
+  for (const helper of ["verify(", "judgePanel(", "loopUntilDry(", "completenessCheck("]) {
+    assert.ok(all.includes(helper), `addendum must name ${helper} inline`);
+  }
+});
+
+test("buildWorkflowGuidelinesForTurn appends the addendum only when effortLevel is set", async () => {
+  const plain = await buildWorkflowGuidelinesForTurn({ full: true });
+  assert.doesNotMatch(plain, /Ultracode is ON/, "non-armed full turn stays baseline");
+
+  const armed = await buildWorkflowGuidelinesForTurn({ full: true, effortLevel: "ultra" });
+  assert.ok(armed.startsWith(plain), "armed block = plain full set + addendum");
+  assert.match(armed, /Ultracode is ON for this session \(effort: ultra\)/);
+
+  const armedVerbose = await buildWorkflowGuidelinesForTurn({ full: true, verbose: true, effortLevel: "high" });
+  assert.match(armedVerbose, /Ultracode is ON for this session \(effort: high\)/);
+
+  const pointer = await buildWorkflowGuidelinesForTurn({ full: false, effortLevel: "ultra" });
+  assert.doesNotMatch(pointer, /Ultracode is ON/, "pointer turn never carries the addendum");
 });
 
 // ─── modelRoutingGuideline ──────────────────────────────────────────────────────
