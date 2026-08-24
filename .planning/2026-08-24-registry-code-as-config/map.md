@@ -2,7 +2,7 @@
 effort: 2026-08-24-registry-code-as-config
 created: 2026-08-24
 last: 2026-08-24
-status: active
+status: complete
 ---
 
 # registry-code-as-config — the registry YAML → typed TS registry (pre-load-providers pattern)
@@ -17,6 +17,9 @@ invariant-tested. All six repo consumers import it instead of parsing YAML; the
 `ext new` scaffold emits a TS entry; `run-dir/manifest.json` remains DERIVED
 with its freshness gate intact; the ordering/host-contract rules that today live
 in YAML comments become executable invariant tests.
+
+**CLOSED 2026-08-24** — the registry is now TS-only, released as s2-agent 0.7.0
+(PR #1970/#1971 merged CLEAN); the deployed tree carries 0.7.0.
 
 ## Context (measured 2026-08-24 on this machine, file:line verified during planning)
 
