@@ -30,6 +30,7 @@ import { homedir } from "node:os";
 import type { ParsedArgs } from "../args.ts";
 import { resolveVaultPathWalkUp } from "../vault-paths.ts";
 import { ingestRecords } from "@repo/s2-agent-ext-knowledge-card/src/ingest.ts";
+import { scheduleCardRebuild } from "@repo/s2-agent-ext-knowledge-card/src/surreal-index.ts";
 import { adaptHermesMarkdown } from "@repo/s2-agent-ext-knowledge-card/src/adapters.ts";
 import type { KnowledgeRecord, IngestSummary } from "@repo/s2-agent-ext-knowledge-card/src/types.ts";
 import { graphHealth, healGraph, type GraphHealthResult, type HealResult } from "@repo/s2-agent-ext-knowledge-card/src/retrieve.ts";
@@ -261,6 +262,9 @@ Examples:
 				dryRun,
 				wikiAware: true,
 				wikiThreshold: 0.85,
+				// ticket 10 reconciliation (reviewer F5): production ingest
+				// lane — post-write index rebuild (coalesced across the loop).
+				indexRebuild: true,
 			});
 			convergeTotals.total += s.total;
 			convergeTotals.created += s.created;
@@ -268,6 +272,13 @@ Examples:
 			convergeTotals.unchanged += s.unchanged;
 			convergeTotals.wikiMerged += s.wikiMerged;
 			convergeTotals.skipped += s.skipped;
+		}
+		// Reviewer F2/F5 follow-up: same CLI-exit constraint as zk-ingest —
+		// an un-awaited rebuild dies at `process.exit(await runCli(...))`, so
+		// re-await the coalesced promise (fingerprint-gated: ~ms when
+		// unchanged) or this lane's trigger is a no-op.
+		if (!dryRun && convergeTotals.total > 0) {
+			await scheduleCardRebuild({ vaultPath, folder });
 		}
 		const converge: IngestSummary = {
 			source: "hermes",

@@ -82,6 +82,11 @@ export function buildRetrieveOptions(args: ZkRetrieveArgs, vaultPath: string): R
     queryText: args.query ?? "",
     includeTrace: args.trace === true,
     type: args.type,
+    // ticket 10 reconciliation: the served cards are real accesses — echo
+    // them into the usage ledger (the hotness feed). Production boundary of
+    // the retrieve path; bare library callers (eval harness, unit tests)
+    // stay off. Hermetic suites gate via KCARD_USAGE_LOG=0.
+    usageLog: true,
   };
 }
 
@@ -128,6 +133,9 @@ export async function zkIngest(args: ZkIngestArgs, ctx: HostFnCtxKC) {
     sourceLabel,
     folder: args.folder,
     dryRun: args.dryRun === true,
+    // ticket 10 reconciliation (reviewer F5): this is a production ingest
+    // lane — the post-write index rebuild applies (kill-switch as everywhere).
+    indexRebuild: true,
   });
 }
 

@@ -1,4 +1,11 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+
+// ticket 10 reconciliation kill-switches: the zk_ingest/extract tool
+// handlers opt into the post-write index rebuild and knowledge_query into
+// the usage-ledger echo — this suite never touches the live SurrealDB
+// index or ledger from a temp vault.
+process.env.KCARD_INDEX_REBUILD = "0";
+process.env.KCARD_USAGE_LOG = "0";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

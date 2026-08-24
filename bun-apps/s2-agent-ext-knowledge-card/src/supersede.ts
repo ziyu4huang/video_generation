@@ -18,6 +18,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
+import { scheduleCardRebuild } from "./surreal-index.ts";
 import { yamlScalar } from "./card-format.ts";
 
 const GRAPH_FOLDER = "Zettelkasten/knowledge-graph";
@@ -31,17 +32,28 @@ export interface SupersedeResult {
 	path?: string;
 }
 
+/** Post-write index-rebuild opt-in (see IngestOptions.indexRebuild —
+ *  production callers only; ticket 08 fold-back via the ticket 10
+ *  reconciliation). */
+export interface SupersedeOptions {
+	indexRebuild?: boolean;
+}
+
 /**
  * Mark the card with `cardId` as superseded by `supersededById`.
  *
  * @param cardId          the raw card id to retire (e.g. `pi-memory:failure:<hash>`).
  * @param supersededById  the curated card id that replaces it (e.g. `distill:<slug>`).
  * @param vaultPath       the Obsidian vault root.
+ * @param opts            SupersedeOptions — `indexRebuild: true` schedules the
+ *                        fingerprint-gated SurrealDB card-index rebuild after a
+ *                        real frontmatter flip (fire-and-forget, non-fatal).
  */
 export function markSuperseded(
 	cardId: string,
 	supersededById: string,
 	vaultPath: string,
+	opts: SupersedeOptions = {},
 ): SupersedeResult {
 	const dir = join(vaultPath, GRAPH_FOLDER);
 	if (!existsSync(dir)) return { found: false, updated: false };
@@ -73,5 +85,9 @@ export function markSuperseded(
 
 	const out = `---\n${fm}\n---` + raw.slice(fmMatch[0].length);
 	writeFileSync(targetPath, out);
+	if (opts.indexRebuild === true) {
+		// fire-and-forget; non-fatal by contract (scheduleCardRebuild)
+		scheduleCardRebuild({ vaultPath, folder: GRAPH_FOLDER });
+	}
 	return { found: true, updated: true, path: targetPath };
 }

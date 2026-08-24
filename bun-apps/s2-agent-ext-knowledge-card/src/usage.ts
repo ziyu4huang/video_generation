@@ -24,8 +24,11 @@
  */
 import type { SurrealClient } from "@repo/s2-agent-core-interface";
 
-/** Usage-event kinds (D37). */
-export type UsageKind = "zk_card" | "auto_recall";
+/** Usage-event kinds (D37, amended by the ticket 10 reconciliation: the
+ *  production retrieve boundary — zk_ask / knowledge_query / zk-query CLI /
+ *  the zk.retrieve host-fn — echoes the SERVED leaf cards into the ledger;
+ *  bare library callers and the eval harness never write). */
+export type UsageKind = "zk_card" | "auto_recall" | "retrieve";
 
 /** One replayed aggregate per stem. */
 export interface UsageAggregate {
@@ -48,6 +51,38 @@ export async function recordUsage(
 		"CREATE usage SET stem = $stem, kind = $kind, at = <datetime> $at, at_ms = $atMs;",
 		{ stem, kind, at: at.toISOString(), atMs },
 	);
+}
+
+/** Append one event per stem in a SINGLE `/sql` batch — the retrieve
+ *  boundary's echo path (one served top-K = one round trip, not topK).
+ *  Same fire-and-forget contract as recordUsage. Reviewer F6 note: the
+ *  client retries 5xx/429/connection failures — a batch applied
+ *  server-side but answered retryable gets duplicated, inflating
+ *  `active_count` (pre-existing class for single recordUsage; accepted —
+ *  a deterministic record id would close it if the ledger ever needs
+ *  exactness). */
+export async function recordUsageBatch(
+	client: SurrealClient,
+	stems: readonly string[],
+	kind: UsageKind,
+	at: Date = new Date(),
+): Promise<void> {
+	if (stems.length === 0) return;
+	const atMs = at.getTime();
+	const vars: Record<string, string | number> = {
+		kind,
+		at: at.toISOString(),
+		atMs,
+	};
+	// One CREATE per stem with a numbered param — batch-stemmed into one
+	// query body, well inside the /sql 1 MiB body cap at any realistic topK.
+	const body = stems
+		.map((s, i) => {
+			vars[`s${i}`] = s;
+			return `CREATE usage SET stem = $s${i}, kind = $kind, at = <datetime> $at, at_ms = $atMs;`;
+		})
+		.join("\n");
+	await client.query(body, vars);
 }
 
 /** Replay aggregates for the given stems (one GROUP BY query). Stems with no

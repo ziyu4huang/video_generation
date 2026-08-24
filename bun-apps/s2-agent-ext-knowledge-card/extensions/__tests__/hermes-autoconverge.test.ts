@@ -7,6 +7,12 @@
  */
 import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
+
+// ticket 10 reconciliation kill-switch (reviewer F1): convergeHermesMemory
+// opts into the post-write index rebuild — this suite converges a TEMP
+// vault, and a rebuild would fingerprint it and swap the LIVE index to it
+// on any machine with SurrealDB up.
+process.env.KCARD_INDEX_REBUILD = "0";
 import { mkdtempSync, writeFileSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -25,6 +25,7 @@ import { resolve, isAbsolute } from "node:path";
 import type { ParsedArgs } from "../args.ts";
 import { resolveVaultPath } from "../vault-paths.ts";
 import { ingestRecords, formatSummary } from "@repo/s2-agent-ext-knowledge-card/src/ingest.ts";
+import { scheduleCardRebuild } from "@repo/s2-agent-ext-knowledge-card/src/surreal-index.ts";
 import {
 	parseKnowledgeJsonl,
 	adaptGenericMarkdown,
@@ -134,8 +135,24 @@ Examples:
 			folder: parsed.folder,
 			dryRun: parsed.dryRun === true,
 			linkWeighting: parsed.linkWeighting === "idf" ? "idf" : "count",
+			// ticket 08 fold-back (ticket 10 reconciliation): post-write index rebuild.
+			indexRebuild: true,
 		});
 		summary.parseErrors.push(...parseErrors);
 		console.log(formatSummary(summary));
+		// Reviewer F2: the CLI entry is `process.exit(await runCli(...))`, so a
+		// fire-and-forget rebuild dies at exit — AWAIT it here (the coalescing
+		// slot hands back the very promise ingestRecords already fired). An
+		// unchanged vault skips in ~ms (fingerprint gate); a real rebuild is
+		// the operator-visible work this command exists to do.
+		if (parsed.dryRun !== true) {
+			console.error("card index: rebuilding (fingerprint-gated)…");
+			const rebuild = await scheduleCardRebuild({ vaultPath, folder: parsed.folder });
+			console.error(
+				rebuild === null
+					? "card index: rebuild suppressed (KCARD_INDEX_REBUILD=0) or failed — index may be stale; retrieval degrades to flat"
+					: `card index: ${rebuild.skipped ? "unchanged (skipped)" : `${rebuild.inserted} rows`}, ${rebuild.embedModel}, ${rebuild.elapsedMs}ms`,
+			);
+		}
 	},
 };

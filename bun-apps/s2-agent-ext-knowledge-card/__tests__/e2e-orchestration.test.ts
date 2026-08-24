@@ -127,11 +127,20 @@ beforeEach(async () => {
 	savedVaultEnv = process.env.OB_VAULT_PATH;
 	process.env.OB_VAULT_PATH = vault;
 	mkdirSync(join(vault, "Tags"), { recursive: true });
+	// ticket 10 reconciliation kill-switches: the zk_ingest tool handler
+	// opts into the post-write index rebuild and knowledge_query into the
+	// usage-ledger echo — this suite must never touch the live SurrealDB
+	// index or ledger from a temp vault (a rebuild would fingerprint the TEMP
+	// vault and swap the LIVE index to it).
+	process.env.KCARD_INDEX_REBUILD = "0";
+	process.env.KCARD_USAGE_LOG = "0";
 });
 
 afterEach(async () => {
 	if (savedVaultEnv === undefined) delete process.env.OB_VAULT_PATH;
 	else process.env.OB_VAULT_PATH = savedVaultEnv;
+	delete process.env.KCARD_INDEX_REBUILD;
+	delete process.env.KCARD_USAGE_LOG;
 rmSync(vault, { recursive: true, force: true });
 });
 

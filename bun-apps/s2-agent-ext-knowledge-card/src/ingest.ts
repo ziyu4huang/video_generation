@@ -45,6 +45,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
+import { scheduleCardRebuild } from "./surreal-index.ts";
 import {
 	validateZettelNote,
 	ZETTEL_MAX_BYTES,
@@ -535,6 +536,16 @@ export async function ingestRecords(
 		if (allCards.length > 0) {
 			summary.mocUpdated = writeMoc(opts.vaultPath, mocPath, allCards, dryRun);
 		}
+	}
+
+	// 6. Post-write index rebuild (ticket 08 fold-back, ticket 10
+	//    reconciliation): after the MOC regeneration, fingerprint-gated +
+	//    coalesced, fire-and-forget. Opt-in (`indexRebuild: true`,
+	//    production callers only — a rebuild touches the live Surreal
+	//    service); any failure is non-fatal — the D36 freshness gate serves
+	//    flat until the next successful rebuild.
+	if (!dryRun && opts.indexRebuild === true) {
+		scheduleCardRebuild({ vaultPath: opts.vaultPath, folder });
 	}
 
 	return summary;
