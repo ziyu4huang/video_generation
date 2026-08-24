@@ -501,7 +501,7 @@ export function createSubagentsTool(
       // `details` and used to label the skipped slots.
       let gateTripped = false;
       let budgetExhaustion: BudgetExhaustion | undefined;
-      const acc = { tokens: { total: 0 }, cost: 0 };
+      const acc = { tokens: { total: 0, input: 0, output: 0 }, cost: 0 };
       // Per-child final usage, captured via the additive onUsage callback
       // (fires once at each child's completion). Feeds the running (live)
       // header's Σtok/$Σ. NOTE: onUsage is completion-triggered, so the Σ is
@@ -668,8 +668,12 @@ export function createSubagentsTool(
         const elapsedMs = outcome.elapsedMs;
         dispatched++;
         // Accumulate usage for the batch-wide budget check (guard for undefined usage).
+        // Full breakdown: the batch gate rides the billable (real-token)
+        // metric — cache excluded (ADR-subagent-0009).
         if (result.usage) {
           acc.tokens.total += result.usage.total;
+          acc.tokens.input += result.usage.input ?? 0;
+          acc.tokens.output += result.usage.output ?? 0;
           acc.cost += result.usage.cost;
         }
         const userAborted = outcome.userAborted;

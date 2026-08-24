@@ -3,10 +3,65 @@ import assert from "node:assert/strict";
 import {
   BUDGET_WRAP_UP_MESSAGE,
   type BudgetSessionSurface,
+  billableTokens,
   checkBudgetExhaustion,
   checkBudgetWarning,
   createBudgetGuard,
 } from "../src/agent-budget.js";
+
+// ---------------------------------------------------------------------------
+// ADR-subagent-0009 — the billable metric is REAL tokens (input+output),
+// cache excluded. Every 2026-08-25 ledger recon budget-death carried 73–85%
+// cacheRead with real usage at/below the done cohort's p90: the cache-
+// inclusive total was the false-kill mechanism, not consumption.
+// ---------------------------------------------------------------------------
+
+test("billableTokens: breakdown present → input+output (cache excluded)", () => {
+  assert.equal(billableTokens({ tokens: { total: 255_157, input: 46_867, output: 802 } }), 47_669);
+});
+
+test("billableTokens: no breakdown → falls back to total (guard never disabled)", () => {
+  assert.equal(billableTokens({ tokens: { total: 1000 } }), 1000);
+  assert.equal(billableTokens({ tokens: { total: 1000, input: undefined, output: undefined } }), 1000);
+});
+
+test("checkBudgetExhaustion: cache-heavy usage under budget on the real metric → no exhaustion", () => {
+  // The ledger's smoking gun, verbatim shape: total 255k (82% cacheRead),
+  // real 47.7k — vs the 120k recon ceiling this run used to die on.
+  const stats = { tokens: { total: 255_157, input: 46_867, output: 802 }, cost: 0 };
+  assert.equal(checkBudgetExhaustion(stats, { tokenBudget: 120_000 }), undefined);
+});
+
+test("checkBudgetExhaustion: real crossing trips with actual = billable, not total", () => {
+  const stats = { tokens: { total: 300_000, input: 45_000, output: 5_000 }, cost: 0 };
+  assert.deepEqual(checkBudgetExhaustion(stats, { tokenBudget: 40_000 }), {
+    kind: "tokens",
+    limit: 40_000,
+    actual: 50_000,
+  });
+});
+
+test("checkBudgetExhaustion: same stats without breakdown keep the total-based semantics (fallback)", () => {
+  assert.deepEqual(checkBudgetExhaustion({ tokens: { total: 50_001 }, cost: 0 }, { tokenBudget: 50_000 }), {
+    kind: "tokens",
+    limit: 50_000,
+    actual: 50_001,
+  });
+});
+
+test("checkBudgetWarning: rides the same real-token metric", () => {
+  const stats = { tokens: { total: 250_000, input: 79_000, output: 1_000 }, cost: 0 };
+  assert.deepEqual(checkBudgetWarning(stats, { tokenBudget: 100_000 }), {
+    kind: "tokens",
+    limit: 100_000,
+    actual: 80_000,
+  });
+  // 79.9k real (massive cache) does not trip an 100k budget's 80% line.
+  assert.equal(
+    checkBudgetWarning({ tokens: { total: 900_000, input: 79_000, output: 900 }, cost: 0 }, { tokenBudget: 100_000 }),
+    undefined,
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Direct semantics of checkBudgetExhaustion (previously covered only indirectly
@@ -206,6 +261,71 @@ test("stats not yet available (getSessionStats throws) is skipped, not fatal", (
   guard.onSessionEvent({ type: "message_start", message: { role: "user" } });
   guard.onSessionEvent(turnBoundary());
   assert.deepEqual(guard.exhaustion, { kind: "tokens", limit: 1000, actual: 2000 });
+  assert.equal(aborts.length, 1);
+});
+
+// ---------------------------------------------------------------------------
+// ADR-subagent-0009 wiring: a breakdown-carrying session surface (the real
+// SDK shape) is billed on REAL tokens — cache-heavy big-context children no
+// longer die on cacheRead re-billing; the grace ceiling also compares real.
+// ---------------------------------------------------------------------------
+
+test("guard: cache-heavy surface never crosses on cacheRead; real crossing earns the wrap-up", () => {
+  // input/output grow slowly; cacheRead re-bills the whole context each round.
+  const stats = { input: 30_000, output: 2_000, cacheRead: 180_000, total: 212_000 };
+  const { session, aborts, sent } = fakeSession(() => ({ tokens: { ...stats }, cost: 0 }));
+  const guard = createBudgetGuard(session, { tokenBudget: 120_000 }); // the recon ceiling
+
+  // 212k cache-inclusive total, 32k real — the exact shape that died as a
+  // "budget" status before ADR-subagent-0009. No wrap-up, no abort.
+  guard.onSessionEvent(usageObservation(stats.total));
+  guard.onSessionEvent(turnBoundary());
+  assert.equal(guard.wrapUpIssued, false);
+  assert.equal(guard.exhaustion, undefined);
+  assert.equal(aborts.length, 0);
+
+  // Real work eventually crosses: wrap-up queued (actual = billable 131k).
+  stats.input = 125_000;
+  stats.total = 307_000;
+  guard.onSessionEvent(usageObservation(stats.total));
+  assert.equal(guard.wrapUpIssued, true);
+  assert.equal(sent.length, 1);
+  assert.equal(guard.exhaustion, undefined);
+
+  guard.onSessionEvent({ type: "message_start", message: { role: "user" } });
+  guard.onSessionEvent(turnBoundary());
+  assert.deepEqual(guard.exhaustion, { kind: "tokens", limit: 120_000, actual: 127_000 });
+  assert.equal(aborts.length, 1);
+});
+
+test("guard: grace ceiling compares REAL tokens — mid-grace cache re-billing alone never aborts", () => {
+  // budget 100k → grace ceiling 1.25x = 125k REAL.
+  const stats = { input: 105_000, output: 5_000, cacheRead: 300_000, total: 410_000 };
+  const { session, aborts } = fakeSession(() => ({ tokens: { ...stats }, cost: 0 }));
+  const guard = createBudgetGuard(session, { tokenBudget: 100_000 });
+
+  // First real crossing (110k real) → wrap-up queued, grace in flight.
+  guard.onSessionEvent(usageObservation(stats.total));
+  assert.equal(guard.wrapUpIssued, true);
+  assert.equal(aborts.length, 0);
+
+  // Mid-grace: cache re-billing explodes the INCLUSIVE total to 9.1x the
+  // budget — far past the 1.25x grace ceiling — while real stays 110k < 125k.
+  // The ceiling compares REAL: no abort.
+  stats.cacheRead = 800_000;
+  stats.total = 910_000;
+  guard.onSessionEvent({ type: "message_start", message: { role: "user" } });
+  guard.onSessionEvent(usageObservation(stats.total));
+  assert.equal(aborts.length, 0);
+  assert.equal(guard.exhaustion, undefined);
+
+  // Real grows past the ceiling mid-grace (input 120k + output 6k = 126k
+  // > 125k) → immediate hard abort even with the wrap-up still in flight.
+  stats.input = 120_000;
+  stats.output = 6_000;
+  stats.total = 926_000;
+  guard.onSessionEvent(usageObservation(stats.total));
+  assert.deepEqual(guard.exhaustion, { kind: "tokens", limit: 100_000, actual: 126_000 });
   assert.equal(aborts.length, 1);
 });
 
