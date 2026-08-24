@@ -112,7 +112,20 @@ export async function getCardEmbeddings(
 	model = resolveCardEmbedModel(model);
 	const folderAbs = join(vaultPath, folder);
 	if (!existsSync(folderAbs)) return null;
-	const names = readdirSync(folderAbs).filter((n) => n.endsWith(".md")).sort();
+	// Non-FILE *.md entries (a directory named *.md passes the suffix filter —
+	// EISDIR on read; ticket-02 receipt 2026-08-25) are skipped up front, so
+	// they neither crash the pre-read nor ride the cache fingerprint: they
+	// carry no embeddable text, exactly like buildCardRows' own read-skip.
+	const names = readdirSync(folderAbs)
+		.filter((n) => n.endsWith(".md"))
+		.filter((n) => {
+			try {
+				return statSync(join(folderAbs, n)).isFile();
+			} catch {
+				return false;
+			}
+		})
+		.sort();
 	// Current fingerprint: name + mtime per card.
 	const fingerprint = names.map((n) => `${n}:${statSync(join(folderAbs, n)).mtimeMs}`).join("|");
 	const cache = cachePath(vaultPath, model);
@@ -126,16 +139,19 @@ export async function getCardEmbeddings(
 			// corrupt cache — fall through to rebuild
 		}
 	}
-	// Rebuild: read each card, embed its text (batched).
-	const texts: string[] = [];
-	for (const n of names) {
-		const raw = readFileSync(join(folderAbs, n), "utf8");
-		const fmM = raw.match(/^---\n([\s\S]*?)\n---/);
-		const tagsM = fmM?.[1]?.match(/^tags:\s*\[(.*?)\]/m);
-		const tags = tagsM?.[1]?.split(",")?.map((s) => s.trim().replace(/"/g, "")) ?? [];
-		texts.push(cardEmbedText(raw, readTitle(raw), tags));
-	}
+	// Rebuild: read each card, embed its text (batched). The reads live INSIDE
+	// the try (same degrade contract as the embedder call below): a file that
+	// stats readable but fails to read makes this return null → caller keeps
+	// building rows with vec=null — never a crash out of buildCardRows.
 	try {
+		const texts: string[] = [];
+		for (const n of names) {
+			const raw = readFileSync(join(folderAbs, n), "utf8");
+			const fmM = raw.match(/^---\n([\s\S]*?)\n---/);
+			const tagsM = fmM?.[1]?.match(/^tags:\s*\[(.*?)\]/m);
+			const tags = tagsM?.[1]?.split(",")?.map((s) => s.trim().replace(/"/g, "")) ?? [];
+			texts.push(cardEmbedText(raw, readTitle(raw), tags));
+		}
 		const vectors: number[][] = [];
 		const batchSize = 32;
 		for (let i = 0; i < texts.length; i += batchSize) {

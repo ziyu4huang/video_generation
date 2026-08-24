@@ -9,7 +9,7 @@
  * bridge) while semantic:false stays byte-identical (drift-guard).
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ingestRecords } from "../src/ingest.ts";
@@ -116,6 +116,26 @@ describe("getCardEmbeddings", () => {
 		await ingestRecords([rec({ id: "test:beta", title: "Beta" })], { vaultPath: vault, folder: FOLDER, source: "workflow-jsonl", sourceLabel: "t" });
 		await getCardEmbeddings(vault, FOLDER, SEMANTIC_MODEL_DEFAULT, mock);
 		expect(calls).toBe(2);
+	});
+
+	// Ticket-02 receipt follow-up (measured 2026-08-25): a DIRECTORY named
+	// *.md passes the .md filter but readFileSync throws EISDIR — and the
+	// pre-read loop ran OUTSIDE the embed try, so the whole call (and through
+	// it buildCardRows) crashed instead of degrading to vec-null. Non-file
+	// entries are skipped for embedding exactly like buildCardRows' read-skip.
+	test("a DIRECTORY named *.md is skipped, not a throw (EISDIR guard)", async () => {
+		await ingestRecords([rec({ id: "test:alpha", title: "Alpha" })], { vaultPath: vault, folder: FOLDER, source: "workflow-jsonl", sourceLabel: "t" });
+		mkdirSync(join(vault, FOLDER, "zz-eisdir.md"));
+		try {
+			const mock: Embedder = async (texts) => texts.map(() => [1, 0]);
+			const emb = await getCardEmbeddings(vault, FOLDER, SEMANTIC_MODEL_DEFAULT, mock);
+			expect(emb).not.toBeNull();
+			// only the REAL card got a vector — the dir carries no embeddable text
+			expect(emb!.paths.length).toBe(1);
+			expect(emb!.paths[0]!.includes("zz-eisdir")).toBe(false);
+		} finally {
+			rmSync(join(vault, FOLDER, "zz-eisdir.md"), { recursive: true, force: true });
+		}
 	});
 
 	// D22 (kcard-parity ticket 07): the seam trap. Before the fix, the model

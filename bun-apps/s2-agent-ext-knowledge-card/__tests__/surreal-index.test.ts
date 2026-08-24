@@ -5,7 +5,7 @@
  * surreal-index-live.test.ts.
  */
 import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCardRows, cardRecordKey } from "../src/surreal-index.ts";
@@ -76,6 +76,23 @@ beforeEach(() => {
 });
 afterEach(() => {
 	rmSync(vault, { recursive: true, force: true });
+});
+
+// Ticket-02 receipt follow-up (measured 2026-08-25 on the live 61-card copy):
+// a DIRECTORY named *.md made buildCardRows THROW EISDIR — getCardEmbeddings
+// pre-read every *.md entry (semantic.ts) BEFORE the guarded per-file loop
+// below, so the documented read-skip ("unreadable → skipped, absent from
+// both rows and fingerprint") was unreachable. With the semantic-side guard,
+// the build now degrades exactly as the comment claims.
+test("a DIRECTORY named *.md degrades to skipped — not a throw (EISDIR guard)", async () => {
+	leaf("real", "real body text");
+	mkdirSync(join(vault, FOLDER, "zz-eisdir.md"));
+	const r = await buildCardRows({ vaultPath: vault, folder: FOLDER, embedder: mockEmbedder });
+	expect(r.skipped).toContain("zz-eisdir.md");
+	expect(r.rows.map((x) => x.stem)).toEqual(["real"]);
+	// the dir is absent from the fingerprint too (readable files only)
+	const names = readdirSync(join(vault, FOLDER)).filter((n) => n.endsWith(".md") && n !== "zz-eisdir.md");
+	expect(r.rows.length).toBe(names.length);
 });
 
 describe("buildCardRows", () => {
