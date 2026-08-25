@@ -246,7 +246,7 @@ export function createSubagentRunsTool(
     name: "list_subagent_runs",
     label: "SubagentRuns",
     description:
-      "Read back subagent-tool runs (cross-session archive at ~/.pi/subagents/runs + this session's live registry). action 'list' returns recent runs (newest-first; optional status/cwd filter, limit) plus the LIVE team roster — named agents addressable via send_message (name, status, model, agentId); action 'get' returns one run's full output + metadata by id (includeHistory for the compact transcript); action 'wait' blocks on a LIVE run until terminal or timeoutMs (timeout returns current status, never an error); action 'stop' aborts a live run.",
+      "Read back subagent-tool runs (cross-session archive at ~/.pi/subagents/runs + this session's live registry). 'list': recent runs (newest-first; status/cwd filter, limit) plus the LIVE team roster (named agents addressable via send_message). 'get': one run's full output + metadata by id (includeHistory for the compact transcript). 'wait': block on a LIVE run until terminal or timeoutMs (timeout returns status, never an error). 'stop': abort a live run.",
     promptSnippet:
       "Recall past subagent runs: list_subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, list_subagent_runs({ action: 'get', id }) for one run's output; for a live/background run, list_subagent_runs({ action: 'wait', id [, timeoutMs] }) blocks until it finishes and list_subagent_runs({ action: 'stop', id }) aborts it.",
     parameters: subagentRunsSchema,
