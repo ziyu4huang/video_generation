@@ -46,12 +46,11 @@ surface instead: `/extensions power-tool` in a session, or `call inspect_agent`.
 ```
 s2-agent-ext-power-tool/
 ├── extensions/
-│   ├── power-tool.ts       # the registered entry (+ tool-gate QA probes)
+│   ├── power-tool.ts       # the registered entry (shim)
 │   └── cli-subcommand.ts   # `s2-agent cli power-tool` wiring
 └── src/
     ├── index.ts            # ExtensionFactory + TOOL_FACTORIES (the tool inventory)
     ├── cost.ts             # the one tool-schema cost measurement
-    ├── gating.ts           # the one tool-gate predicate the suite shares
     ├── report.ts           # token/bar formatting + shared report chrome
     ├── findings.ts         # Finding / Severity vocabulary
     ├── runner-hooks.ts     # runner-shape adapters (hook collection + firing counts)

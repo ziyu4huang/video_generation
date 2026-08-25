@@ -31,7 +31,15 @@ export class LoopScheduler {
 	constructor(hooks: SchedulerHooks, clock: SchedulerClock = {}) {
 		this.hooks = hooks;
 		this.now = clock.now ?? Date.now;
-		this.setTimer = clock.setTimer ?? ((ms, fn) => setTimeout(fn, ms));
+		// Default timer is unref'd — an armed loop (up to ~7 days) must never
+		// keep a headless process alive (mirrors goal's status/heartbeat timers).
+		this.setTimer =
+			clock.setTimer ??
+			((ms, fn) => {
+				const timer = setTimeout(fn, ms);
+				timer.unref?.();
+				return timer;
+			});
 		this.clearTimer = clock.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
 	}
 
@@ -41,8 +49,14 @@ export class LoopScheduler {
 
 	start(loop: ActiveLoop): void {
 		this.stop();
-		this.loop = { ...loop, nextFireAt: this.now() + loop.intervalMs };
-		this.arm(loop.intervalMs);
+		const now = this.now();
+		// A restored loop carries its persisted nextFireAt — honor it while still
+		// future so a session restart keeps the cadence instead of pushing it out
+		// a full interval; a stale (past) due time re-anchors on a fresh interval
+		// rather than burst-firing the missed prompt.
+		const nextFireAt = loop.nextFireAt > now ? loop.nextFireAt : now + loop.intervalMs;
+		this.loop = { ...loop, nextFireAt };
+		this.arm(Math.max(0, nextFireAt - now));
 	}
 
 	stop(): void {

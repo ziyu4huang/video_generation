@@ -123,6 +123,8 @@ interface BrowserState {
   context: BrowserContext | null;
   pages: Page[]; // live array — exposed as the `pages` global (mutate in place)
   current: Page | null;
+  /** The page runCode's eager ensurePage created implicitly — openPage reuses it while virgin. */
+  implicitPage: Page | null;
   idleTimer: ReturnType<typeof setTimeout> | null;
   lastSnapshots: WeakMap<Page, Map<string, string>>;
 }
@@ -132,6 +134,7 @@ const state: BrowserState = {
   context: null,
   pages: [],
   current: null,
+  implicitPage: null,
   idleTimer: null,
   lastSnapshots: new WeakMap(),
 };
@@ -151,6 +154,7 @@ async function closeBrowser(): Promise<void> {
   state.browser = null;
   state.context = null;
   state.current = null;
+  state.implicitPage = null;
   state.pages.length = 0;
   if (browser) await browser.close().catch(() => {});
 }
@@ -187,6 +191,7 @@ async function ensurePage(): Promise<Page> {
   const page = await context.newPage();
   state.pages.push(page); // in place — the `pages` global array stays identical
   state.current = page;
+  state.implicitPage = page;
   return page;
 }
 
@@ -330,6 +335,26 @@ async function snapshotPage(page: Page | null, options: SnapshotOptions = {}): P
 
 async function openPage(url?: string): Promise<string> {
   const context = await ensureContext();
+  // Reuse the implicit page runCode's eager ensurePage created while it is
+  // still virgin (never navigated off about:blank) — an openPage-first session
+  // keeps ONE page instead of carrying a dead blank as page 0 all session.
+  const implicit = state.implicitPage;
+  if (
+    implicit &&
+    state.current === implicit &&
+    !implicit.isClosed() &&
+    (() => {
+      try {
+        return implicit.url() === "about:blank";
+      } catch {
+        return false; // destroyed page — fall through to a fresh one
+      }
+    })()
+  ) {
+    state.implicitPage = null;
+    if (url) await implicit.goto(url, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+    return `page ${pageIndexOf(implicit)} ${implicit.url()}`;
+  }
   const page = await context.newPage();
   state.pages.push(page);
   state.current = page;
@@ -337,14 +362,34 @@ async function openPage(url?: string): Promise<string> {
   return `page ${pageIndexOf(page)} ${page.url()}`;
 }
 
+/**
+ * Resolve a closePage target to the real Page it designates. Exported pure for
+ * unit tests — no browser needed. The injected `page` global is a live Proxy
+ * over the current page: it forwards every access but can never match a real
+ * Page by identity, so an unmatched object designates `current`.
+ */
+export function resolveCloseTarget(
+  pages: Page[],
+  current: Page | null,
+  target?: Page | number,
+): Page | null {
+  if (typeof target === "number") return pages[target] ?? null;
+  if (!target) return current;
+  return pages.includes(target) ? target : (current ?? target);
+}
+
 async function closePage(target?: Page | number): Promise<string> {
-  const page =
-    typeof target === "number" ? state.pages[target] : (target as Page | undefined) ?? state.current;
+  const page = resolveCloseTarget(state.pages, state.current, target);
   if (!page) return "no pages open";
   await page.close();
   const index = state.pages.indexOf(page);
   if (index >= 0) state.pages.splice(index, 1);
-  if (state.current === page) state.current = state.pages[state.pages.length - 1] ?? null;
+  // Re-point when the CURRENT page is the closed one (covers both a real
+  // reference and the live-page Proxy, which never matches by identity).
+  if (state.current && state.current.isClosed()) {
+    state.current = state.pages[state.pages.length - 1] ?? null;
+  }
+  if (state.implicitPage?.isClosed()) state.implicitPage = null;
   return `closed page ${index >= 0 ? index : "?"}; ${state.pages.length} open`;
 }
 

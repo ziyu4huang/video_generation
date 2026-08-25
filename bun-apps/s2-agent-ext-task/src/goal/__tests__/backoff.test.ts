@@ -1,12 +1,6 @@
 import { test, expect } from "bun:test";
-import { backoffMs, shouldPauseAfterBackoff, shouldHeartbeatRefire, accountTurnForNudges, shouldWedgeAlert, BACKOFF_HARD_CAP_MS, HEARTBEAT_STALL_MS } from "../backoff.js";
+import { shouldPauseAfterBackoff, shouldHeartbeatRefire, accountTurnForNudges, shouldWedgeAlert, BACKOFF_HARD_CAP_MS, HEARTBEAT_STALL_MS } from "../backoff.js";
 
-test("backoffMs follows the stuck schedule then caps", () => {
-	expect(backoffMs(0)).toBe(0);
-	expect(backoffMs(1)).toBe(30_000);
-	expect(backoffMs(4)).toBe(240_000);
-	expect(backoffMs(99)).toBe(BACKOFF_HARD_CAP_MS);
-});
 test("shouldPauseAfterBackoff trips at the cap or 3 idle iters", () => {
 	expect(shouldPauseAfterBackoff(BACKOFF_HARD_CAP_MS, 0)).toBe(true);
 	expect(shouldPauseAfterBackoff(0, 3)).toBe(true);

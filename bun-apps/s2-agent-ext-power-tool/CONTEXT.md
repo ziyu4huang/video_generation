@@ -69,7 +69,7 @@ The shared `high` / `medium` / `low` / `info` ranking reused by both `inspect_ex
 _Avoid_: severity levels, ranking
 
 **schema-cost**:
-The static tool-token estimator — estimates a tool's per-request cost from its schema + description + guidelines, no model call. Also exported as a standalone publishable package.
+The static tool-token estimator — estimates a tool's per-request cost from its description + parameters schema (guidelines and the repeated tool name are NOT measured), no model call. Also exported as a standalone publishable package.
 _Avoid_: token counter, cost calculator
 
 **Extension token tax**:

@@ -303,7 +303,7 @@ export function formatReviewReport(r: ReviewReport): string {
 
 export function writeReviewReport(cwd: string, report: ReviewReport): string {
 	// ext-task adaptation (spec D7): reports live under
-	// `.pi/core-task/reviews/` (GLA uses `.pi-gla/reviews/`). The filename
+	// `.pi/ext-task/reviews/` (GLA uses `.pi-gla/reviews/`). The filename
 	// shape (`${goalId}-${ts}.md`, ts with [:.] → -) is unchanged.
 	const dir = path.join(cwd, ".pi", "ext-task", "reviews");
 	fs.mkdirSync(dir, { recursive: true });

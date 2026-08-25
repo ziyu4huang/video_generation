@@ -5,16 +5,17 @@
 import type { QuestionAnswer } from "./types.js";
 
 export function formatQuestionAnswer(answer: QuestionAnswer): string {
+	const note = answer.notes?.trim() ? ` — note: ${answer.notes.trim()}` : "";
 	switch (answer.kind) {
 		case "option":
-			return `${answer.question} → ${answer.answer}`;
+			return `${answer.question} → ${answer.answer}${note}`;
 		case "custom":
-			return `${answer.question} → (custom) ${answer.answer ?? "(empty)"}`;
+			return `${answer.question} → (custom) ${answer.answer ?? "(empty)"}${note}`;
 		case "multi": {
 			const labels = answer.selected?.join(", ");
 			return labels
-				? `${answer.question} → [${labels}]`
-				: `${answer.question} → (none selected)`;
+				? `${answer.question} → [${labels}]${note}`
+				: `${answer.question} → (none selected)${note}`;
 		}
 	}
 }
