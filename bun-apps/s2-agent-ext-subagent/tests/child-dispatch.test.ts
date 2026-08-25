@@ -121,7 +121,7 @@ describe("dispatchChild — abort fan-in", () => {
     assert.equal(seen?.aborted, true);
   });
 
-  it("a turn-level abort (parent signal) is NOT reported as a user abort", async () => {
+  it("a turn-level abort (parent signal) is NOT a per-child user abort but DOES settle `aborted` (t02)", async () => {
     const ac = new AbortController();
     const out = await dispatchChild(
       req({ parentSignal: ac.signal }),
@@ -133,7 +133,29 @@ describe("dispatchChild — abort fan-in", () => {
       }),
     );
     assert.equal(out.userAborted, false, "whole-turn Esc is not a per-child user abort");
-    assert.notEqual(out.status, "aborted");
+    assert.equal(out.status, "aborted", "an Esc'd run settles aborted, never done/failed");
+  });
+
+  it("a whole-turn Esc over a real abort-shaped spawn error settles `aborted`, not `timedout` (t02)", async () => {
+    const ac = new AbortController();
+    // Real path: the parent signal fans into childAc, spawnSubagent's runner
+    // dies abort-shaped, classifyError maps signalAborted → failure kind
+    // "timedout". The dispatch-level childAc state must win for STATUS.
+    const out = await dispatchChild(
+      req({ parentSignal: ac.signal }),
+      deps({
+        spawn: async (o: SpawnSubagentOptions) => {
+          ac.abort();
+          o.externalSignal?.addEventListener("abort", () => {}, { once: true });
+          return {
+            output: "",
+            failure: { kind: "timedout", message: "Subagent was aborted" },
+          } as never;
+        },
+      }),
+    );
+    assert.equal(out.result.failure?.kind, "timedout", "spawn result keeps its own failure kind");
+    assert.equal(out.status, "aborted", "status reads the dispatch-level abort, not the misread timeout");
   });
 
   it("aborting the registry entry IS reported as a user abort", async () => {
