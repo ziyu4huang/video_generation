@@ -4,7 +4,7 @@
 // `workflow run echo` through the s2-agent-ext-ultracode engine. One agent()
 // call; returns its `args` so a run is observable in the receipt.
 //
-// See ../README.md and ../../../docs/workflow-cli.md (workflow packs).
+// See ../README.md (workflow packs).
 
 export const meta = {
 	name: "echo",

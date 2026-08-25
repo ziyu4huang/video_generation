@@ -7,7 +7,7 @@
 // that breaks this pack shows up in `bun test`. Hermetic — no bash, no writes,
 // no network — just agent() calls over in-memory items.
 //
-// See ../README.md and ../../../docs/workflow-cli.md (workflow packs).
+// See ../README.md (workflow packs).
 
 export const meta = {
 	name: "sample",
