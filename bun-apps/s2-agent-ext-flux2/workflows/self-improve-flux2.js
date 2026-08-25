@@ -34,7 +34,7 @@
  * INVOCATION
  *   bash bun-apps/s2-agent/scripts/run-self-improve-loop.sh flux2
  *   # or directly:
- *   bun-apps/s2-agent/run.sh -e workflow -p \
+ *   bun-apps/s2-agent/run.sh -p \
  *     "read bun-apps/s2-agent-ext-flux2/workflows/self-improve-flux2.js and execute it via the workflow tool (background:false)"
  *
  * SAFETY: this loop is PROPOSE-ONLY. It persists exemplars (jsonl) and returns a

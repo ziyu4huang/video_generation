@@ -6,7 +6,8 @@
  *   →  the model calls it with the smoke script  →  background:false inline result.
  *
  * This is the same path as:
- *   bun bun-apps/s2-agent/src/cli.ts -e ultracode -p "<prompt>"
+ *   bun bun-apps/s2-agent/src/cli.ts -p "<prompt>"
+ * (the ultracode extension is static-loaded/built-in — no `-e` flag)
  * …but deterministic: it feeds a FIXED script (default samples/dynamic-workflow-
  * smoke01.js) instead of letting the model invent a 4-phase workflow, so the run
  * takes seconds, not minutes.

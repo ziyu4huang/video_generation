@@ -23,7 +23,7 @@ Claude Code–style dynamic workflows for Pi. The agent writes a small JavaScrip
 ## Key Dependencies
 
 - Self-contained npm package: `npm:@quintinshaw/pi-dynamic-workflows`
-- Loaded via s2-agent's run-dir manifest, or headlessly via `s2-agent cli workflow run`
+- Loaded via s2-agent's run-dir manifest (static/built-in since 2026-07-10 — no `-e` flag needed)
 
 ## Architecture — thin adapter, not a parallel LLM stack
 
@@ -54,6 +54,11 @@ provider, agent runtime, or tool registry.
 > orchestration layer, never a second implementation of the layers below it.
 
 ## Workflow packs — two entry paths, one resolver
+
+> **STATUS 2026-08-25:** Path A (the CLI meta-command `s2-agent cli workflow
+> run`) was REMOVED in s2-agent round-2 t02 (#2015) — this section records the
+> original design. Only Path B remains: the `workflow` tool's `name` parameter
+> (the workflow extension is static-loaded/built-in, so no `-e` flag either).
 
 A **workflow pack** (a `manifest.json` + entry script folder) is the reusable,
 named form of a workflow. It is reachable through **two** entry paths that
@@ -93,7 +98,8 @@ pi install npm:@quintinshaw/pi-dynamic-workflows
 "Run a workflow to audit every route under src/routes/ for missing auth checks."
 ```
 
-Headless mode:
+Headless mode (the `cli workflow run` meta-command was removed 2026-08-25;
+ask the built-in `workflow` tool headlessly instead):
 ```bash
-bun bun-apps/s2-agent/src/cli.ts cli workflow run <name> [--model <spec>]
+bun bun-apps/s2-agent/src/cli.ts -p "Use the workflow tool to run <name> …"
 ```

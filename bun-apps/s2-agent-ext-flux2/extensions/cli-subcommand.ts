@@ -83,7 +83,7 @@ Examples:
 /**
  * `flux2-self-improve` sub-command: the CLOSED self-improve loop
  * (generate → judge → reflect → retry), reached as ONE top-level command so the
- * user does not need to know the `-e workflow` incantation. It shells out to
+ * user does not need to know the workflow-tool incantation. It shells out to
  * run-self-improve-loop.sh (which drives the loop workflow via the s2-agent
  * workflow tool) — robust whether or not the workflow tool is registered in the
  * current mode, because bash is always available to the agent.

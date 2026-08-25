@@ -29,7 +29,7 @@ for the L0/L1/L2 split and the over-praise caveat behind the conservative thresh
 bash bun-apps/s2-agent/scripts/run-ext-e2e.sh flux2
 
 # or directly via the workflow tool:
-bun-apps/s2-agent/run.sh -e workflow -p \
+bun-apps/s2-agent/run.sh -p \
   "read bun-apps/s2-agent-ext-flux2/workflows/test-flux2-e2e.js and execute it via the workflow tool (background:false)"
 ```
 
@@ -38,7 +38,7 @@ Opt-in — it spends LLM tokens and is non-deterministic, so it is NOT part of C
 
 ## Why the workflow drives the CLI, not the `flux2` tool
 
-Under `-e workflow`, subagents get `createCodingTools` (bash/read/...) — they do NOT
+Inside the workflow (built-in extension, no `-e` flag), subagents get `createCodingTools` (bash/read/...) — they do NOT
 inherit the parent's registered `flux2` tool. So the workflow exercises the same CLI
 surface the tool forwards to, via bash. The tool's own TS logic is L0's job.
 
@@ -103,7 +103,7 @@ bash bun-apps/s2-agent/scripts/run-self-improve-loop.sh --dry-run               
 The runner parses flags + selects a pose via jq, then calls
 `scripts/self-improve-loop.driver.ts`, which invokes the engine's `runWorkflow`
 **directly** (no LLM agent in the middle). An earlier version invoked
-`s2-agent -e workflow -p "read … and execute"`, but the in-the-middle agent
+`s2-agent -p "read … and execute"`, but the in-the-middle agent
 backgrounded the workflow and exited before the result; the direct driver returns
 the structured result synchronously. (The agentic `./s2-agent.sh -p "generate +
 improve …"` shape and the `s2-agent cli flux2-self-improve` subcommand still

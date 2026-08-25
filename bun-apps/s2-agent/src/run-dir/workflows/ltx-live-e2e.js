@@ -3,7 +3,7 @@
  *
  * Runs the ACTUAL `ltx-video` Swift/MLX binary via `runLtx()` (no mocks),
  * through s2-agent's own dynamic-workflows engine — the same path a user
- * invokes with `bun-apps/s2-agent/run.sh -e workflow -p "…"`. Mirrors
+ * invokes with `bun-apps/s2-agent/run.sh -p "…"`. Mirrors
  * `.claude/workflows/s2-agent-ext-flux2-self-improve.js`'s `runLiveE2eLane()`
  * shape, scaled down to a one-shot smoke (no contract/review lanes, no
  * knowledge-base persistence — those belong to a future full self-improve

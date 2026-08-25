@@ -24,10 +24,12 @@
  * s2-agent-ext-ultracode engine vm, NOT in Claude Code's Workflow tool. See
  * ./README.md (two-runtime boundary).
  *
- * INVOCATION
- *   bun --cwd bun-apps/s2-agent src/cli.ts cli workflow run knowledge-distill \
- *     --model lm-studio/prism-ml/bonsai-27b --thinking medium \
- *     --args '{"pr":244,"folder":"Zettelkasten/distill"}'
+ * INVOCATION (the `cli workflow run` meta-command was removed 2026-08-25;
+ * ask the built-in workflow tool by name instead)
+ *   bun --cwd bun-apps/s2-agent src/cli.ts -p \
+ *     "Use the workflow tool to run knowledge-distill (background:false) with args {\"pr\":244,\"folder\":\"Zettelkasten/distill\"}" \
+ *   # or from markdown sources:
+ *   --args '{"sources":["./notes.md"],"folder":"Zettelkasten/distill"}'
  *   # or from markdown sources:
  *   --args '{"sources":["./notes.md"],"folder":"Zettelkasten/distill"}'
  *   # driver default: thinkingLevel=medium (args.thinkingLevel overrides)

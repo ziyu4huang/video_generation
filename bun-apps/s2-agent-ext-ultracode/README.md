@@ -44,7 +44,7 @@ The prompt-driven path (above) asks the model to **write** the orchestration scr
 
 ### Recommended — full e2e via `smoke-e2e.ts`
 
-This drives the **real** path — the same one a user invokes (`s2-agent -e workflow -p …`): the s2-agent CLI, `-e workflow` alias resolution, the `workflow` tool, and the model calling it. It just pins the script so the model relays a fixed smoke instead of inventing a 4-phase workflow:
+This drives the **real** path — the same one a user invokes (`s2-agent -p …`): the s2-agent CLI, the built-in `workflow` tool (static-loaded, no `-e` flag), and the model calling it. It just pins the script so the model relays a fixed smoke instead of inventing a 4-phase workflow:
 
 ```bash
 # default smoke (two parallel micro-agents, deterministic join, ~seconds)

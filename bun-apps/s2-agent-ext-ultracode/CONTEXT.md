@@ -28,9 +28,9 @@ _Avoid_: "extension" (a pack is NOT a pi extension); "template"
 
 **Pack resolver** (`resolveWorkflowScript` / `resolveWorkflowPack`):
 The SINGLE source of truth that maps a `<name>` (or path) to runnable script
-text, owned by this package (`workflow-pack.ts`). Shared by BOTH entry paths —
-the CLI (`s2-agent cli workflow run`) and the `workflow` tool's `name`
-parameter — so resolution never drifts between them. Pure + injectable fs.
+text, owned by this package (`workflow-pack.ts`). Consumed by the `workflow`
+tool's `name` parameter — the single entry path since the CLI meta-command
+was removed (2026-08-25, #2015). Pure + injectable fs.
 _Avoid_: "CLI resolver" / "tool resolver" (there is one, in the engine)
 
 **Resolution order** (first hit wins; per location a pack directory beats a
@@ -53,10 +53,10 @@ _Avoid_: conflating with the inline `script` parameter; "loadSavedWorkflow"
 (that resolves saved single-file workflows from `/workflows`, a separate namespace)
 
 **Entry path**:
-One of the two ways a pack is reached. Path A: the CLI meta-command (headless,
-`--model` overrides `manifest.model`). Path B: the interactive `workflow` tool
-`name` param (the workflow extension is built-in in the TUI). Both converge on
-the same resolver + engine.
+The way a pack is reached: the `workflow` tool's `name` param (the workflow
+extension is static-loaded/built-in, so no `-e` flag). The former second path
+— the `s2-agent cli workflow run` headless meta-command — was removed
+2026-08-25 (#2015); `manifest.model` still applies via `ExecOptions.mainModel`.
 _Avoid_: "mode" (a path is an entry surface, not an execution mode)
 
 ### Workflow pack self-containment

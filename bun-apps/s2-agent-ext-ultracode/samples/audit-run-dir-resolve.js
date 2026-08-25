@@ -1,12 +1,16 @@
 /**
  * audit-run-dir-resolve.js — a REAL audit workflow (not a smoke).
  *
- * Target: bun-apps/s2-agent/src/run-dir/resolve.ts — the lazy-extension alias
- * resolver + the deploy-bundle / deploy-package argv builders. This is the
- * freshest, most relevant code in the repo, so it is a good acceptance target:
- * if the whole chain (alias `-e workflow` → workflow tool → real subagents
- * reading files → parallel() → schema-validated synthesis → inline result)
- * works, this returns a structured audit report.
+ * Target: bun-apps/s2-agent/src/run-dir/resolve.ts — the run-dir argv
+ * builder (manifest extensions/skills → absolute -e/--skill paths, with
+ * suppression flags). This is the freshest, most relevant code in the repo,
+ * so it is a good acceptance target: if the whole chain (built-in workflow
+ * tool → real subagents reading files → parallel() → schema-validated
+ * synthesis → inline result) works, this returns a structured audit report.
+ *
+ * (The lazy-extension alias resolver this sample originally audited was
+ * removed 2026-08-25, round-2 t11 #2040 — the prompts below were retargeted
+ * with it.)
  *
  * Shape: 3 parallel reviewers (distinct lenses) → 1 synthesizer. Bounded on
  * purpose (4 agents) so a real model finishes in minutes, not hours.
@@ -67,16 +71,15 @@ const LENSES = [
     prompt: `Read ${TARGET} in full. Audit it for CORRECTNESS bugs only: logic errors, wrong
 resolution order, cases where an alias resolves to the wrong path or silently no-ops, argv
 mutation bugs (off-by-one, mutating while iterating, skipping the last -e), and any path where
-resolveLazyExtension / rewriteExtensionArgs / buildBundleArgvFromLayout returns a wrong result.
+buildArgvFromManifest / suppressResolvedArgv returns a wrong result.
 Only report defects you can pin to specific lines with concrete triggering input. If you find
 nothing real, return an empty findings array — do not invent issues.`,
   },
   {
     key: "edge-cases",
     prompt: `Read ${TARGET} in full. Audit it for EDGE-CASES only: empty string, leading dash
-("-e -p" where the next token is a flag), values that look like aliases but are schemes/paths,
-ambiguous substring matches, directories with zero or many .ts files, missing bunAppsDir,
-binary/bundle/source mode guards, and readdirSync throwing on a non-existent dir. For each, give
+("-e -p" where the next token is a flag), malformed manifest entries (missing 'entry'), npm-path
+resolution, missing bunAppsDir, and mode guards. For each, give
 the exact input and the observed/predicted behavior. Only real defects with line references.
 Empty array if nothing real.`,
   },
@@ -84,8 +87,8 @@ Empty array if nothing real.`,
     key: "test-coverage",
     prompt: `Read ${TARGET} AND the test file bun-apps/s2-agent/src/run-dir/resolve.test.ts. Identify
 GAPS where a real defect would NOT be caught by the current tests: untested branches of
-resolveLazyExtension, rewriteExtensionArgs, buildBundleArgvFromLayout, the mode guards, and the
-directory-fallback path. For each gap name the branch and the minimal test that would cover it.
+buildArgvFromManifest, suppressResolvedArgv, and the mode guards. For each gap name the branch
+and the minimal test that would cover it.
 Only material gaps (a bug could hide there). Empty array if coverage is solid.`,
   },
 ];

@@ -17,7 +17,7 @@
  * INVOCATION (unified runner)
  *   bash bun-apps/s2-agent/scripts/run-ext-e2e.sh krea2
  *   # or directly:
- *   bun-apps/s2-agent/run.sh -e workflow -p \
+ *   bun-apps/s2-agent/run.sh -p \
  *     "read bun-apps/s2-agent-ext-krea2/workflows/test-krea2-e2e.js and execute it via the workflow tool (background:false)"
  */
 
