@@ -135,6 +135,8 @@ divergence: executing-plans | Ticket-order checkpoint
 divergence: executing-plans | Queue boundary (effort ticket queues only)
 divergence: subagent-driven-development | Ticket-queue linkage
 
+divergence: dispatching-parallel-agents | dispatch-log
+
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
 #   2026-08-20 — develop-pipeline v2 task 5: dispatching-parallel-agents fully rewritten (workflow templates default, manual dispatch exception); see LOCAL-DIVERGENCES addendum 2026-08-20 (sha256:ee44613fa363…)
@@ -174,3 +176,4 @@ divergence: subagent-driven-development | Ticket-queue linkage
 #   schema is outcome-queryable only). Upstream's bullet has no such command —
 #   a future re-port must re-apply the repo-local citation, not upstream's
 #   wording.
+#   2026-08-25 — record the dispatch-log divergence row (ticket 10 review: prose-only addendum was advisory; the row is machine-checked by skills-fidelity) (sha256:c59f504bc1bd…)

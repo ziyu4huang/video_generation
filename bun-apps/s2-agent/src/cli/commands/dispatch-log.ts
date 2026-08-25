@@ -1,8 +1,7 @@
 /**
  * `dispatch-log` — the manual dispatch archive, queryable (pipeline v2 spec §3).
  * Reads ~/.pi/subagents/runs/<id>.json (SubagentRunRecord), normalizes into one
- * schema, prints rows + a death-rate summary. Feeds devops_retrospect and the
- * wayfind entry consult.
+ * schema, prints rows + a death-rate summary.
  *
  * Scope (round-2 ticket 10): the charted "workflow" source was NEVER wired and
  * its producer (the cli workflow namespace) died in ticket 02 — the manual
