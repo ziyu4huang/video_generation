@@ -44,10 +44,27 @@ describe("shConfig — the deploy projection (post-t04: typed REGISTRY only)", (
 			expect(ext.skills).toBeArray();
 			expect(ext.copy).toBeArray();
 			expect(ext.vendor).toBeArray();
+			expect(ext.assets).toBeArray();
 			expect(ext.externals).toBeArray();
 			expect(ext.vendorExclude).toBeArray();
 			expect(ext.enabled).toBe(true);
 		}
+	});
+
+	test("file2md ships assets-only: no node_modules tree, wasm payloads under vendored/", () => {
+		// The 2026-08-25 layout change (user directive: no unnecessary
+		// node_modules in the deployed ext): vendor is EMPTY — all JS bundles
+		// into ext.cjs — and every wasm/lang payload is a declared asset.
+		const f2md = shConfig({ bunAppsDir: BUN_APPS }).extensions.find((e) => e.name === "file2md")!;
+		expect(f2md.vendor).toEqual([]);
+		const tos = f2md.assets.map((a) => a.to);
+		expect(tos).toContain("vendored/tesseract-wasm/tesseract-core.wasm");
+		expect(tos).toContain("vendored/pdfium/pdfium.wasm");
+		expect(tos).toContain("vendored/tessdata/eng.traineddata.gz");
+		expect(tos).toContain("vendored/tessdata/chi_sim.traineddata.gz");
+		expect(tos.some((t) => t.startsWith("vendored/pdfjs/"))).toBe(true);
+		// Every destination lives under vendored/ — never node_modules/.
+		expect(tos.every((t) => t.startsWith("vendored/"))).toBe(true);
 	});
 
 	test("excludedExtensionsFromRegistry names the not-shipped half with reasons", () => {

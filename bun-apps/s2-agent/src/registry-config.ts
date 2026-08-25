@@ -60,12 +60,30 @@
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
+export interface RegistryDeployAsset {
+  /** npm package the payload is extracted from, resolved from the ext package. */
+  pkg: string;
+  /** Path inside the package — a file or a directory. */
+  from: string;
+  /** Destination under the deployed ext dir, e.g. "vendored/pdfium/pdfium.wasm". */
+  to: string;
+}
+
 export interface RegistryDeployBlock {
   order: number;
   /** Package-relative data dirs copied into the deployed ext dir (default []). */
   copy?: string[];
   /** Packages shipped verbatim under <ext>/node_modules/<pkg>/ (default []). */
   vendor?: string[];
+  /**
+   * npm payloads copied verbatim under <ext>/<to> — file or dir — with the
+   * package's JS bundled INTO ext.cjs instead of shipping node_modules.
+   * The `vendor:` alternative for asset-bearing deps whose code inlines
+   * cleanly and only the payload needs a real path at runtime (file2md's
+   * wasm OCR): no node_modules tree ships, payloads are byte-for-byte npm
+   * copies, and the deploy never rebuilds or fetches them (default []).
+   */
+  assets?: RegistryDeployAsset[];
   /** Specifiers left OUT of the bundle and out of the host registry (default []). */
   externals?: string[];
   /** Closure deps deliberately dropped from the vendored tree (default []). */
@@ -271,14 +289,25 @@ export const REGISTRY: RegistryEntry[] = [
     notes: [
       "v2 is bun-only (pdfjs text + vendored dsh-cowork office + pdfium wasm +",
       "tesseract-wasm OCR) with an optional local vision tier (LM Studio at",
-      "runtime, never shipped). OCR assets are all npm deps shipped via the",
-      "deploy vendor field: the lang data rides node_modules/@tesseract.js-data/*",
-      "and the wasm core under node_modules/tesseract-wasm (ADR-file2md-0001).",
+      "runtime, never shipped). Since 2026-08-25 ALL code bundles into ext.cjs",
+      "and only the npm payloads ship, under vendored/ — NO node_modules tree",
+      "in the deployed ext (user directive: keep the dist free of unnecessary",
+      "node_modules). Payloads are byte-for-byte npm copies via the deploy",
+      "assets field — no rebuild, no network at deploy time (ADR-file2md-0001).",
       "FILE2MD_OCR_LANG_PATH overrides the lang data at runtime.",
     ].join("\n"),
     deploy: {
       order: 85,
-      vendor: ["tesseract-wasm", "pdfjs-dist", "@hyzyla/pdfium", "@tesseract.js-data/eng", "@tesseract.js-data/chi_sim"],
+      assets: [
+        { pkg: "tesseract-wasm", from: "dist/tesseract-core.wasm", to: "vendored/tesseract-wasm/tesseract-core.wasm" },
+        { pkg: "@hyzyla/pdfium", from: "dist/pdfium.wasm", to: "vendored/pdfium/pdfium.wasm" },
+        { pkg: "pdfjs-dist", from: "wasm", to: "vendored/pdfjs/wasm" },
+        { pkg: "pdfjs-dist", from: "standard_fonts", to: "vendored/pdfjs/standard_fonts" },
+        { pkg: "pdfjs-dist", from: "cmaps", to: "vendored/pdfjs/cmaps" },
+        { pkg: "pdfjs-dist", from: "iccs", to: "vendored/pdfjs/iccs" },
+        { pkg: "@tesseract.js-data/eng", from: "4.0.0_best_int/eng.traineddata.gz", to: "vendored/tessdata/eng.traineddata.gz" },
+        { pkg: "@tesseract.js-data/chi_sim", from: "4.0.0_best_int/chi_sim.traineddata.gz", to: "vendored/tessdata/chi_sim.traineddata.gz" },
+      ],
     },
   },
   {
@@ -619,6 +648,7 @@ interface LegacyRegistryExt {
     order: number;
     copy: string[];
     vendor: string[];
+    assets: RegistryDeployAsset[];
     externals: string[];
     vendorExclude: string[];
     enabled: boolean;
@@ -672,6 +702,7 @@ export function legacyRegistry(opts: { home: string }): LegacyRegistry {
             order: e.deploy.order,
             copy: e.deploy.copy ?? [],
             vendor: e.deploy.vendor ?? [],
+            assets: e.deploy.assets ?? [],
             externals: e.deploy.externals ?? [],
             vendorExclude: e.deploy.vendorExclude ?? [],
             enabled: e.deploy.enabled ?? true,

@@ -18,10 +18,16 @@ import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { REGISTRY, legacyRegistry } from "../registry-config.ts";
 
+export interface RegistryDeployAsset {
+  pkg: string;
+  from: string;
+  to: string;
+}
 export interface RegistryDeployBlock {
   order: number;
   copy: string[]; // default []
   vendor: string[]; // default []
+  assets: RegistryDeployAsset[]; // default [] — npm payloads under <ext>/<to>, code bundles
   externals: string[]; // default []
   vendorExclude: string[]; // default [] — closure deps deliberately not shipped
   enabled: boolean; // default true
@@ -104,11 +110,33 @@ export function loadRegistry(opts: { bunAppsDir: string }): Registry {
       seenOrders.set(e.deploy.order, e.name);
 
       const vendor = e.deploy.vendor ?? [];
+      const assets = e.deploy.assets ?? [];
       const externals = e.deploy.externals ?? [];
       const vendorExclude = e.deploy.vendorExclude ?? [];
       const overlap = vendor.filter((p) => externals.includes(p));
       if (overlap.length > 0) {
         throw new Error(`extensions[${i}] ("${e.name}") declares package(s) both vendored and external: ${overlap.join(", ")}`);
+      }
+      // An asset's package in `vendor` too is a contradiction: vendor ships the
+      // whole package under node_modules/, assets exist to avoid exactly that.
+      const assetVendorOverlap = [...new Set(assets.map((a) => a.pkg))].filter((p) => vendor.includes(p));
+      if (assetVendorOverlap.length > 0) {
+        throw new Error(
+          `extensions[${i}] ("${e.name}") declares package(s) in both vendor and assets: ${assetVendorOverlap.join(", ")} — vendor the package OR extract its assets, not both`,
+        );
+      }
+      const seenAssetTo = new Set<string>();
+      for (const a of assets) {
+        if (!a.pkg || !a.from || !a.to) {
+          throw new Error(`extensions[${i}] ("${e.name}") deploy.assets entries need pkg, from, and to`);
+        }
+        if (isAbsolute(a.to) || a.to.split("/").includes("..")) {
+          throw new Error(`extensions[${i}] ("${e.name}") deploy.assets to "${a.to}" must be a relative path inside the ext dir`);
+        }
+        if (seenAssetTo.has(a.to)) {
+          throw new Error(`extensions[${i}] ("${e.name}") deploy.assets has duplicate to "${a.to}"`);
+        }
+        seenAssetTo.add(a.to);
       }
       const excludedRoots = vendor.filter(
         (p) => vendorExclude.includes(p) || vendorExclude.some((x) => x.endsWith("/*") && p.startsWith(x.slice(0, -1))),

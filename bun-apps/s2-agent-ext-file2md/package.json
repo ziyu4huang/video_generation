@@ -30,6 +30,9 @@
       "./extensions"
     ]
   },
+  "imports": {
+    "#pi/ext-dir": "./src/sh-ext-dir.ts"
+  },
   "scripts": {
     "check": "biome check .",
     "typecheck": "tsc --noEmit",

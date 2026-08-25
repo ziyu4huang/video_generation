@@ -8,8 +8,11 @@
  * fails to resolve, breaking the whole deploy. These cases moved here with the
  * function when the legacy build-extensions.ts was retired.
  */
-import { describe, expect, test } from "bun:test";
-import { extractBareSpecifiers, patchOfflinePackageLoader } from "./ext-build.ts";
+import { afterAll, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { copyDeployAssets, extractBareSpecifiers, patchOfflinePackageLoader } from "./ext-build.ts";
 
 describe("extractBareSpecifiers", () => {
 	test("extracts real ESM bare specifiers", () => {
@@ -76,5 +79,67 @@ describe("patchOfflinePackageLoader", () => {
 
 	test("throws on shape drift — a silent no-op patch is the failure mode gates exist to prevent", () => {
 		expect(() => patchOfflinePackageLoader("const x = 1;")).toThrow(/shape drifted/);
+	});
+});
+
+describe("copyDeployAssets", () => {
+	// A minimal npm tree: <root>/node_modules/<pkg>/{package.json,<payload>}.
+	// copyDeployAssets resolves the package the same way vendorPackage does
+	// (Bun.resolveSync of <pkg>/package.json from the consumer dir), so the
+	// fixture mirrors that layout exactly.
+	const assetDirs: string[] = [];
+	function makeNpmTree(): { root: string; outDir: string } {
+		const root = mkdtempSync(join(tmpdir(), "sh-assets-"));
+		assetDirs.push(root);
+		const outDir = mkdtempSync(join(tmpdir(), "sh-assets-out-"));
+		assetDirs.push(outDir);
+		return { root, outDir };
+	}
+	function writePkg(root: string, name: string): string {
+		const pkgDir = join(root, "node_modules", name);
+		mkdirSync(pkgDir, { recursive: true });
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name, version: "0.0.0" }));
+		return pkgDir;
+	}
+	afterAll(() => {
+		for (const d of assetDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+	});
+
+	test("copies a file payload byte-for-byte under <outDir>/<to>", () => {
+		const { root, outDir } = makeNpmTree();
+		const pkg = writePkg(root, "tesseract-wasm");
+		mkdirSync(join(pkg, "dist"), { recursive: true });
+		const wasm = new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]); // \0asm magic
+		writeFileSync(join(pkg, "dist", "tesseract-core.wasm"), wasm);
+		const copied = copyDeployAssets(
+			[{ pkg: "tesseract-wasm", from: "dist/tesseract-core.wasm", to: "vendored/tesseract-wasm/tesseract-core.wasm" }],
+			outDir,
+			root,
+		);
+		expect(copied).toEqual(["vendored/tesseract-wasm/tesseract-core.wasm"]);
+		expect(new Uint8Array(readFileSync(join(outDir, "vendored", "tesseract-wasm", "tesseract-core.wasm")))).toEqual(wasm);
+	});
+
+	test("copies a directory payload recursively", () => {
+		const { root, outDir } = makeNpmTree();
+		const pkg = writePkg(root, "pdfjs-dist");
+		mkdirSync(join(pkg, "wasm"), { recursive: true });
+		writeFileSync(join(pkg, "wasm", "jbig2.wasm"), "jbig2-bytes");
+		writeFileSync(join(pkg, "wasm", "openjpeg.wasm"), "openjpeg-bytes");
+		copyDeployAssets([{ pkg: "pdfjs-dist", from: "wasm", to: "vendored/pdfjs/wasm" }], outDir, root);
+		expect(existsSync(join(outDir, "vendored", "pdfjs", "wasm", "jbig2.wasm"))).toBe(true);
+		expect(existsSync(join(outDir, "vendored", "pdfjs", "wasm", "openjpeg.wasm"))).toBe(true);
+	});
+
+	test("aborts loudly when the npm payload is missing — never ships a bundle without its assets", () => {
+		const { root, outDir } = makeNpmTree();
+		writePkg(root, "tesseract-wasm"); // package present, payload absent
+		expect(() =>
+			copyDeployAssets(
+				[{ pkg: "tesseract-wasm", from: "dist/tesseract-core.wasm", to: "vendored/tesseract-wasm/tesseract-core.wasm" }],
+				outDir,
+				root,
+			),
+		).toThrow(/asset "tesseract-wasm\/dist\/tesseract-core.wasm" not found.*bun install/s);
 	});
 });

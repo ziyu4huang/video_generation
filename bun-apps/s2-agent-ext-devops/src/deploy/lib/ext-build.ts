@@ -404,6 +404,42 @@ export function scanUnroutableDynamicImports(code: string): string[] {
 }
 
 /**
+ * Copy deploy asset payloads — files or dirs — from their npm packages into
+ * <outDir>/<to>, verbatim.
+ *
+ * The `assets:` alternative to `vendor:` for asset-bearing deps whose CODE
+ * bundles into ext.cjs and only the PAYLOAD needs a real path at runtime
+ * (file2md's wasm OCR): no node_modules tree ships for the extension. Payloads
+ * are extracted straight from the npm-installed package (resolved through the
+ * workspace's isolated linker, dereferenced so no store symlink escapes) —
+ * byte-for-byte copies, no rebuild, no network fetch. A missing payload fails
+ * the build loudly with the fix in the message, mirroring the copy-dir gate:
+ * silently shipping a bundle whose assets were dropped ships a broken ext.
+ */
+export function copyDeployAssets(
+	assets: ReadonlyArray<{ pkg: string; from: string; to: string }>,
+	outDir: string,
+	resolveFrom: string,
+): string[] {
+	const copied: string[] = [];
+	for (const a of assets) {
+		const pkgJson = Bun.resolveSync(`${a.pkg}/package.json`, resolveFrom);
+		const src = resolve(pkgJson, "..", a.from);
+		if (!existsSync(src)) {
+			throw new Error(
+				`asset "${a.pkg}/${a.from}" not found at ${src} — payloads come verbatim from npm; ` +
+					`run \`bun install\` in bun-apps/ (via the configured npm registry/mirror), then deploy again`,
+			);
+		}
+		const dest = join(outDir, a.to);
+		mkdirSync(resolve(dest, ".."), { recursive: true });
+		cpSync(src, dest, { recursive: true, dereference: true });
+		copied.push(a.to);
+	}
+	return copied;
+}
+
+/**
  * Copy a vendored package verbatim into <outDir>/node_modules/<pkg>/.
  *
  * `dereference` matters: the workspace's isolated linker puts packages in a
@@ -578,6 +614,11 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 				})
 			: [];
 
+	// ── Asset payloads (npm files/dirs → <outDir>/<to>, code is bundled) ─────
+	// The vendor: alternative — no node_modules tree; payloads only. Runs
+	// before Gate 4 so the deploy-tree exemption covers what we just wrote.
+	const assetsCopied = copyDeployAssets(opts.ext.assets ?? [], opts.outDir, pkgDir);
+
 	// ── Gate 4: no build-machine path may survive in the bundle ──────────────
 	// Runs after vendoring so the deploy-tree exemption covers what we just
 	// wrote.
@@ -637,6 +678,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		hostModules: usedHostModules,
 		runtimeExternals: opts.ext.externals,
 		vendored: opts.ext.vendor,
+		assets: assetsCopied,
 		vendoredClosure: {
 			count: vendoredClosure.length,
 			// Deps intentionally not shipped: not installed or wrong platform.

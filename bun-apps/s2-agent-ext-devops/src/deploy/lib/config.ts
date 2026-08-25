@@ -16,6 +16,7 @@
 import {
 	loadRegistry,
 	type Registry,
+	type RegistryDeployAsset,
 	type RegistryDeployBlock,
 	type RegistryExt,
 } from "../../../../s2-agent/src/run-dir/registry.ts";
@@ -64,6 +65,14 @@ export interface ShExtConfig {
 	 */
 	vendor: string[];
 	/**
+	 * npm payloads copied verbatim under <ext>/<to> (file or dir) while the
+	 * package's JS bundles INTO ext.cjs — the vendor alternative for
+	 * asset-bearing deps whose code inlines cleanly (file2md's wasm OCR). No
+	 * node_modules tree ships for these; payloads are byte-for-byte npm copies
+	 * with no rebuild and no network at deploy time.
+	 */
+	assets: RegistryDeployAsset[];
+	/**
 	 * Closure deps deliberately dropped from the vendored tree, as exact
 	 * package names or `<scope>/*` patterns. For deps a vendored package
 	 * DECLARES but never resolves at runtime (hyperframes' @fontsource/*:
@@ -108,6 +117,7 @@ function projectShConfig(registry: Registry): ShConfig {
 			skills: ext.skills ? ["skills"] : [],
 			copy: ext.deploy.copy,
 			vendor: ext.deploy.vendor,
+			assets: ext.deploy.assets,
 			externals: ext.deploy.externals,
 			vendorExclude: ext.deploy.vendorExclude,
 			enabled: ext.deploy.enabled,

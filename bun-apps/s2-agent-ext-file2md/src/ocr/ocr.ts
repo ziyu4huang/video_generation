@@ -14,9 +14,10 @@
  */
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
 import { createOCREngine, type OCREngine, type OcrEngineImage } from "tesseract-wasm";
+import { tessdataPath, tesseractWasmPath } from "../assets.ts";
 import { decodeImageToRgba } from "../image/decode-image.ts";
 import { rasterPage } from "../raster/pdf.ts";
 
@@ -28,42 +29,28 @@ export interface OcrResult {
   format: string;
 }
 
-/** In-npm data subdir: tessdata 4.0.0 best-int (tesseract.js's integerized production set). */
-const LANG_GZ_DIR = "4.0.0_best_int";
-
-/** lang `.traineddata.gz` path inside one of the `@tesseract.js-data` npm packages. */
+/** lang part → its `@tesseract.js-data` package (tessdata 4.0.0 best-int set). */
 const LANG_NPM_PACKAGES: Record<string, string> = { eng: "eng", chi_sim: "chi_sim" };
 
 /**
- * Map a lang part to its npm-shipped `.traineddata.gz` path. Resolved by
- * specifier (template, non-literal — a literal would be inlined to the
- * build-machine path by the bundler): dev — workspace node_modules; deploy —
- * the vendored copy at `<extDir>/node_modules/@tesseract.js-data/<part>/`.
+ * Map a lang part to its `.traineddata.gz` path. Deploy — the vendored copy at
+ * `<extDir>/vendored/tessdata/<part>.traineddata.gz` (registry assets block);
+ * dev — the @tesseract.js-data npm package. See src/assets.ts.
  */
 export function npmLangPath(part: string): string | undefined {
   const pkg = LANG_NPM_PACKAGES[part];
   if (pkg === undefined) return undefined;
-  try {
-    const pkgRoot = dirname(require.resolve(`@tesseract.js-data/${pkg}/package.json`));
-    return join(pkgRoot, LANG_GZ_DIR, `${part}.traineddata.gz`);
-  } catch {
-    return undefined;
-  }
+  return tessdataPath(pkg);
 }
 
 /**
- * The wasm core's path in the vendored tesseract-wasm package. Resolved by
- * specifier — dev: workspace node_modules; deploy: the vendored copy at
- * `<extDir>/node_modules/tesseract-wasm/` — NOT the package's `node` subpath,
- * which is the worker_threads adapter we deliberately do not use.
+ * The wasm core's path. Deploy — the vendored copy at
+ * `<extDir>/vendored/tesseract-wasm/tesseract-core.wasm`; dev — the npm
+ * package's dist/. NOT the package's `node` subpath, which is the
+ * worker_threads adapter we deliberately do not use. See src/assets.ts.
  */
 function wasmBinaryPath(): string | undefined {
-  try {
-    const pkg = dirname(require.resolve("tesseract-wasm/package.json"));
-    return join(pkg, "dist", "tesseract-core.wasm");
-  } catch {
-    return undefined;
-  }
+  return tesseractWasmPath();
 }
 
 /** Read the wasm core off disk (cached per process). Degrades cleanly on failure. */

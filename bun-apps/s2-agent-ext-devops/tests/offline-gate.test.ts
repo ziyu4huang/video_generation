@@ -18,6 +18,7 @@ import { join } from "node:path";
 import {
 	scanBinaryForeignPaths,
 	scanSymlinkEscapes,
+	verifyAssetCompleteness,
 	verifyVendoredClosure,
 	verifyVendoredCompleteness,
 } from "../src/deploy/lib/offline-gate.ts";
@@ -201,5 +202,38 @@ describe("verifyVendoredClosure", () => {
 
 		const violations = verifyVendoredClosure(root);
 		expect(violations).toEqual([{ pkg: "consumer", missing: ["@fontsource/inter"] }]);
+	});
+});
+
+describe("verifyAssetCompleteness (Gate 5e)", () => {
+	test("reports a declared asset missing from the shipped tree", () => {
+		const root = makeDir();
+		const extDir = join(root, "ext", "file2md");
+		mkdirSync(join(extDir, "vendored", "pdfjs", "wasm"), { recursive: true });
+		writeFileSync(join(extDir, "vendored", "pdfjs", "wasm", "jbig2.wasm"), "bytes");
+		writeFileSync(
+			join(extDir, "ext.json"),
+			JSON.stringify({ assets: ["vendored/pdfjs/wasm", "vendored/tessdata/eng.traineddata.gz"] }),
+		);
+		// eng.traineddata.gz deliberately NOT written → must be reported.
+		const missing = verifyAssetCompleteness(root);
+		expect(missing).toEqual([{ ext: "file2md", to: "vendored/tessdata/eng.traineddata.gz" }]);
+	});
+
+	test("clean when every declared asset shipped", () => {
+		const root = makeDir();
+		const extDir = join(root, "ext", "file2md");
+		mkdirSync(join(extDir, "vendored", "pdfjs", "wasm"), { recursive: true });
+		writeFileSync(join(extDir, "vendored", "pdfjs", "wasm", "jbig2.wasm"), "bytes");
+		writeFileSync(join(extDir, "ext.json"), JSON.stringify({ assets: ["vendored/pdfjs/wasm"] }));
+		expect(verifyAssetCompleteness(root)).toEqual([]);
+	});
+
+	test("no assets declared → vacuously clean (asset-less exts are the norm)", () => {
+		const root = makeDir();
+		const extDir = join(root, "ext", "task");
+		mkdirSync(extDir, { recursive: true });
+		writeFileSync(join(extDir, "ext.json"), JSON.stringify({ vendored: [] }));
+		expect(verifyAssetCompleteness(root)).toEqual([]);
 	});
 });
