@@ -95,7 +95,6 @@ one subagent to one outcome.
   may already be committed. Don't redo it. Run the janitor sweep
   (execute-plan's Janitor phase, or a janitor child: status → gate → check
   boxes → commit green work), then redispatch only the gap.
-- **Query history first**: `s2-agent cli dispatch-log` — every dispatch,
-  workflow-driven or manual, normalizes into one schema queryable by
-  effort / tier / outcome. Calibrate budgets against what this ticket
+- **Query history first**: `s2-agent cli dispatch-log` — the manual
+  subagent archive normalizes into one schema queryable by outcome. Calibrate budgets against what this ticket
   class cost before, not against a guess.

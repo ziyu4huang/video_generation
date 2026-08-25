@@ -1,4 +1,11 @@
-// dispatch-log.test.ts
+// dispatch-log.test.ts — pins the surviving seams after the round-2 ticket-10
+// trim: the status→outcome mapping, ticket-id extraction, token-budget
+// passthrough, and the outcome filter + death-rate render. Deleted WITH the
+// dead surface (equivalence proofs in the ticket Outcome): normalizeWorkflowRun
+// + its describe (tested the never-wired workflow source — producer died in
+// round-2 ticket 02) and the "honest effort filtering" describe (tested the
+// --effort dead path; the honesty property is now structural — no effort field
+// exists to fabricate).
 import { describe, expect, test } from "bun:test";
 import {
 	normalizeSubagentRecord,
@@ -7,33 +14,7 @@ import {
 	type DispatchRecord,
 } from "./dispatch-log.ts";
 
-/** One workflow run -> one record per agent. Ticket parsed from the agent
- * label ("impl:01" / "verify:02" -> "01"); tokenBudget falls back to the
- * agent's actual token spend, then the run-level exec cap. Test-local since
- * the workflow source is not wired into the command yet (see the effort
- * ledger); lives in dispatch-log.ts when that wiring lands. */
-function normalizeWorkflowRun(
-	state: import("@repo/s2-agent-ext-ultracode").PersistedRunState,
-	effort: string,
-	tier: string,
-): DispatchRecord[] {
-	return state.agents.map((a) => ({
-		effort,
-		tier,
-		ticket: a.label.match(/(\d+)/)?.[1] ?? String(a.id),
-		engine: "workflow" as const,
-		tokenBudget: a.tokens ?? state.exec?.tokenBudget ?? 0,
-		maxTurns: 0,
-		outcome:
-			a.status === "done" ? ("green" as const)
-			: a.status === "error" ? ("red" as const)
-			: ("skipped" as const),
-		commit: null,
-		ts: state.runId,
-	}));
-}
-
-// Typed fixture helpers with sensible defaults for real type shapes
+// Typed fixture helper with sensible defaults for the real record shape.
 function mkSubagentRecord(overrides: Partial<import("@repo/s2-agent-core-runtime").SubagentRunRecord>): import("@repo/s2-agent-core-runtime").SubagentRunRecord {
 	return {
 		id: "test-id",
@@ -50,35 +31,18 @@ function mkSubagentRecord(overrides: Partial<import("@repo/s2-agent-core-runtime
 	};
 }
 
-function mkPersistedRunState(overrides: Partial<import("@repo/s2-agent-ext-ultracode").PersistedRunState>): import("@repo/s2-agent-ext-ultracode").PersistedRunState {
-	return {
-		runId: "wf_test",
-		workflowName: "test-workflow",
-		script: "test.js",
-		status: "completed",
-		phases: [],
-		startedAt: "2026-08-20T10:00:00Z",
-		updatedAt: "2026-08-20T10:00:00Z",
-		agents: [],
-		logs: [],
-		exec: { tokenBudget: 500000 },
-		...overrides,
-	};
-}
-
 describe("normalizeSubagentRecord", () => {
-	test("done -> green", () => {
+	test("done -> green, tokens pass through, ticket parsed from task text", () => {
 		const r = normalizeSubagentRecord(
 			mkSubagentRecord({ status: "done", usage: { total: 180000, input: 90000, output: 90000, cacheRead: 0, cacheWrite: 0, cost: 0 }, task: "impl ticket 02" }),
 		);
-		expect(r.engine).toBe("manual");
 		expect(r.outcome).toBe("green");
 		expect(r.tokenBudget).toBe(180000);
+		expect(r.ticket).toBe("02");
 	});
-	test("manual records carry unknown effort/tier (no fabricated attribution)", () => {
-		const r = normalizeSubagentRecord(mkSubagentRecord({ status: "done" }));
-		expect(r.effort).toBe("unknown");
-		expect(r.tier).toBe("unknown");
+	test("task without a ticket number falls back to the run id", () => {
+		const r = normalizeSubagentRecord(mkSubagentRecord({ id: "run-abc", task: "freeform task" }));
+		expect(r.ticket).toBe("run-abc");
 	});
 	test("budget -> budget-dead, timedout -> budget-dead, failed -> red, turns -> budget-dead", () => {
 		expect(normalizeSubagentRecord(mkSubagentRecord({ id: "r2", status: "budget" })).outcome).toBe("budget-dead");
@@ -88,64 +52,28 @@ describe("normalizeSubagentRecord", () => {
 	});
 });
 
-describe("normalizeWorkflowRun", () => {
-	test("maps agent statuses into records", () => {
-		type PAS = { id: number; label: string; prompt: string; status: "done" | "error" | "queued" | "running" | "skipped"; tokens?: number };
-		const rs = normalizeWorkflowRun(
-			mkPersistedRunState({
-				runId: "wf_1",
-				workflowName: "execute-plan",
-				exec: { tokenBudget: 500000 },
-				agents: [
-					{ id: 1, label: "impl:01", prompt: "p", status: "done", tokens: 210000 } as PAS,
-					{ id: 2, label: "verify:01", prompt: "p", status: "error", tokens: 30000 } as PAS,
-					{ id: 3, label: "impl:02", prompt: "p", status: "skipped" } as PAS,
-				],
-			}),
-			"demo-effort",
-			"T3",
-		);
-		expect(rs).toHaveLength(3);
-		expect(rs[0]).toMatchObject({ engine: "workflow", ticket: "01", outcome: "green", tokenBudget: 210000 });
-		expect(rs[1].outcome).toBe("red");
-		expect(rs[2].outcome).toBe("skipped");
-	});
-});
-
 describe("renderDispatchLog", () => {
-	test("filters by outcome and counts death rate", () => {
-		const records: DispatchRecord[] = [
-			{ effort: "e", tier: "T2", ticket: "01", engine: "workflow", tokenBudget: 200000, maxTurns: 8, outcome: "green", commit: "abc1234", ts: "2026-08-20T10:00:00Z" },
-			{ effort: "e", tier: "T2", ticket: "02", engine: "workflow", tokenBudget: 150000, maxTurns: 8, outcome: "budget-dead", commit: null, ts: "2026-08-20T11:00:00Z" },
-		];
+	const records: DispatchRecord[] = [
+		{ ticket: "01", tokenBudget: 200000, outcome: "green", commit: "abc1234", ts: "2026-08-20T10:00:00Z" },
+		{ ticket: "02", tokenBudget: 150000, outcome: "budget-dead", commit: null, ts: "2026-08-20T11:00:00Z" },
+	];
+
+	test("renders all records with a death-rate line", () => {
 		const out = renderDispatchLog(records, {});
 		expect(out).toContain("green");
 		expect(out).toContain("budget-dead");
 		expect(out).toContain("50%"); // death rate line
-	});
-});
-
-describe("honest effort filtering (manual archive has no attribution)", () => {
-	const manual: DispatchRecord[] = [
-		{ effort: "unknown", tier: "unknown", ticket: "01", engine: "manual", tokenBudget: 90000, maxTurns: 0, outcome: "green", commit: null, ts: "2026-08-20T10:00:00Z" },
-		{ effort: "unknown", tier: "unknown", ticket: "02", engine: "manual", tokenBudget: 80000, maxTurns: 0, outcome: "budget-dead", commit: null, ts: "2026-08-20T11:00:00Z" },
-	];
-
-	test("--effort query over manual-only records yields zero rows", () => {
-		const out = renderDispatchLog(manual, { effort: "nonexistent-effort" });
-		expect(out).toContain("0 dispatch(es)");
-		expect(manual.filter((r) => matchesDispatchFilter(r, { effort: "nonexistent-effort" }))).toHaveLength(0);
-	});
-	test("any --effort value excludes manual records (unknown never matches)", () => {
-		// Even a real effort name cannot match manual records — this is what
-		// makes the exit-1 path honest instead of fabricated.
-		for (const effort of ["nonexistent-effort", "2026-08-20-develop-pipeline-v2"]) {
-			expect(manual.some((r) => matchesDispatchFilter(r, { effort }))).toBe(false);
-		}
-	});
-	test("no filter shows all manual records with unknown labels", () => {
-		const out = renderDispatchLog(manual, {});
-		expect(out).toContain("unknown");
 		expect(out).toContain("2 dispatch(es)");
+	});
+	test("--outcome filter narrows rows and recalculates the rate", () => {
+		expect(matchesDispatchFilter(records[0]!, { outcome: "budget-dead" })).toBe(false);
+		const out = renderDispatchLog(records, { outcome: "budget-dead" });
+		expect(out).toContain("1 dispatch(es)");
+		expect(out).toContain("100%");
+	});
+	test("empty archive renders zero rows, 0% rate", () => {
+		const out = renderDispatchLog([], {});
+		expect(out).toContain("0 dispatch(es)");
+		expect(out).toContain("0%");
 	});
 });

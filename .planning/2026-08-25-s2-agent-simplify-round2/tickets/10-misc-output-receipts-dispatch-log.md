@@ -10,6 +10,16 @@ Source: map Phase D extension. Deletion-with-equivalence-proof per candidate (ma
 
 ## Acceptance criteria
 
-- [ ] per-deletion equivalence proofs recorded in-ticket (D5)
-- [ ] `bun run --cwd bun-apps/s2-agent test` + `typecheck` AND ext-superpowers `bun run check && bun run typecheck && bun test` green
-- [ ] bun-apps contract suite green (dead-export, dep-guard, adr-citation, isolation); local_ci green; PR merged via Linux-box merge policy; reviewer pass; `--patch` bump
+- [x] per-deletion equivalence proofs recorded in-ticket (D5) — see Outcome
+- [x] `bun run --cwd bun-apps/s2-agent test` + `typecheck` AND ext-superpowers `bun run check && bun run typecheck && bun test` green (971 pass / 3 pre-existing cli-sh; 169/169; biome+tsc clean)
+- [x] bun-apps contract suite green (169/169 incl. dead-export); reviewer pass (pending merge)
+- [ ] local_ci green on a macOS box / PR merged — Linux box: only the documented macOS-only `sandbox-exec` gate; merge via Linux-box policy
+
+## Outcome (2026-08-25)
+
+- **output receipts**: both `output/kcard-extract/run-extract-2026082*.json` `git rm`'d. Proofs: zero readers repo-wide (only mentions = the writer's own prose in ext-knowledge-card extensions/knowledge-card.ts:725 + a mkdtemp test dir); `.gitignore:126 output/` matches (`git check-ignore --no-index` receipt in session); files bypassed it only by being tracked. No .gitignore edit.
+- **dispatch-log trim**: `"workflow"` engine-union half + engine column, `effort`/`tier`/`maxTurns` fields (always "unknown"/"unknown"/0, never read), `--effort`/`--tier` filter use, the always-exit-1 branch + apologetic note, NOT-YET-WIRED prose (header/run/details) — all gone; header rewritten to "manual dispatch archive, queryable". Kept: `normalizeSubagentRecord` (status→outcome, ticket-from-task), `matchesDispatchFilter` (--outcome), `renderDispatchLog` (death-rate), `loadManualRecords`. BONUS dead code: `run(repoRoot, …)`'s param was never read — dropped with its `findRepoRoot` import. **Output-shape change is charter'd** (rows lose the constant `unknown unknown manual` prefix tokens; exit now always 0, report-only).
+- **D5 equivalence proofs**: `normalizeWorkflowRun` + its describe + `mkPersistedRunState` (test-only, tested the never-wired workflow source whose producer died in ticket 02 — no surviving seam exists to cover); "honest effort filtering" describe (tested the deleted dead path; the honesty property is now STRUCTURAL — no effort field exists to fabricate). Surviving assertions now pin: status→outcome mapping, ticket-id extraction + id fallback, token passthrough, outcome filter + death-rate recalc, empty-archive render.
+- **flag-spec/args NOT trimmed**: the `--effort`/`--tier` rows are pipeline-gate's selector (its legit use); dispatch-log only read the same parsed fields — no rows were command-scoped to it. Recorded as the "only where command-scoped" clause resolving to zero edits.
+- **SKILL.md:98 sync**: "every dispatch, workflow-driven or manual … queryable by effort / tier / outcome" → "the manual subagent archive … queryable by outcome". The fidelity guard (ADR-superpowers-0004) pins ported SKILL.md byte-equal to fixtures — sanctioned path taken: `rebaseline-upstream-skills.ts --note …` + a LOCAL-DIVERGENCES addendum in UPSTREAM.ref so a future re-port re-applies the repo-local citation (ext-superpowers 169/169 after).
+- Version 0.7.17 → 0.7.18.

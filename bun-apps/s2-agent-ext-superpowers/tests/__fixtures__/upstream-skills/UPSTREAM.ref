@@ -124,7 +124,7 @@ baselined: 2026-07-26
 #   reference onto any new upstream body, or accept upstream text and record it
 #   here. Divergence row: `systematic-debugging | scripts/hitl-loop.template.ts`.
 
-fixtures-digest: sha256:9e47b0c5e1f852b4708c714bd78c46cd48b42fefafa859caf3d14a10ea1ee270
+fixtures-digest: sha256:c59f504bc1bd59401c0fa576388bc841ed75be45475c46d9256bc790d8ad67bb
 
 divergence: systematic-debugging | Verify before claiming success
 divergence: dispatching-parallel-agents | run_workflow
@@ -134,6 +134,8 @@ divergence: systematic-debugging | scripts/hitl-loop.template.ts
 divergence: executing-plans | Ticket-order checkpoint
 divergence: executing-plans | Queue boundary (effort ticket queues only)
 divergence: subagent-driven-development | Ticket-queue linkage
+
+divergence: dispatching-parallel-agents | dispatch-log
 
 # Re-baseline log (appended by scripts/rebaseline-upstream-skills.ts):
 #   2026-08-19 — backfill: record the ext-simplification-round-2 (#1682) in-place compression and tie the record to the fixtures via fixtures-digest (sha256:7eca97ecfe79…)
@@ -165,3 +167,13 @@ divergence: subagent-driven-development | Ticket-queue linkage
 #   2026-08-23 — portable-bun wave 2 task 5: hitl-loop.template.sh deleted, SKILL.md HITL item now points at scripts/hitl-loop.template.ts (bun twin copy source) (sha256:dcb561534ee2…)
 #   2026-08-23 — ticket-execution-loop effort: sanctioned local divergence — ticket-order confirm gate (executing-plans) + ticket-queue next-goal linkage (subagent-driven-development); see .planning/2026-08-23-ticket-execution-loop (sha256:40bfbeb925fa…)
 #   2026-08-23 — ticket-execution-loop effort: wording fix — record confirmed (not just re-chosen) execution order; ticket-number fallback for phase order; see .planning/2026-08-23-ticket-execution-loop (sha256:9e47b0c5e1f8…)
+#   2026-08-25 — dispatching-parallel-agents SKILL.md dispatch-log line synced to manual-only truth (s2-agent round-2 ticket 10: workflow engine half + --effort/--tier dead paths removed from cli dispatch-log; schema is outcome-queryable only) (sha256:c59f504bc1bd…)
+
+# LOCAL-DIVERGENCES addendum (2026-08-25): dispatching-parallel-agents'
+#   "Query history first" bullet cites the LOCAL cli `dispatch-log` command,
+#   synced this date to manual-only truth (s2-agent round-2 ticket 10 removed
+#   the never-wired workflow engine half + --effort/--tier dead paths; the
+#   schema is outcome-queryable only). Upstream's bullet has no such command —
+#   a future re-port must re-apply the repo-local citation, not upstream's
+#   wording.
+#   2026-08-25 — record the dispatch-log divergence row (ticket 10 review: prose-only addendum was advisory; the row is machine-checked by skills-fidelity) (sha256:c59f504bc1bd…)
