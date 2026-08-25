@@ -52,13 +52,13 @@ import { loopCommand } from "./commands/loop.ts";
 import { pipelineGateCommand } from "./commands/pipeline-gate.ts";
 import { dispatchLogCommand } from "./commands/dispatch-log.ts";
 import { printCompletions, completionsMeta } from "./commands/completions.ts";
-import { printTable } from "./format.ts";
+import { clip, printTable } from "./format.ts";
 import { EXTENSION_COMMANDS } from "./extensions/registry.ts";
 import { runPassthrough } from "./sessions/passthrough.ts";
 import { bakedProviderConfigs } from "../pre-load-providers.ts";
 import { publishSeam } from "@repo/s2-agent-core-interface";
 
-const VERSION = "0.7.14";
+const VERSION = "0.7.15";
 
 /** A top-level agent/meta command. Exported for extensions/registry.ts. */
 export interface Command {
@@ -280,13 +280,11 @@ async function listTools(): Promise<void> {
   }
 
   // Defensive field access — ToolInfo shape is generated/untyped here.
-  const clip = (s: string, max: number): string =>
-    s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
   const rows = tools
     .map((t: any) => ({
       name: String(t?.name ?? ""),
       source: String(t?.source ?? t?.extensionName ?? t?.extension ?? t?.packageName ?? "(builtin)"),
-      description: clip(String(t?.description ?? "").replace(/\s+/g, " ").trim(), 60),
+      description: clip(String(t?.description ?? "").replace(/\s+/g, " ").trim(), 60, true),
     }))
     .filter((r) => r.name)
     .sort((a, b) => a.source.localeCompare(b.source) || a.name.localeCompare(b.name));

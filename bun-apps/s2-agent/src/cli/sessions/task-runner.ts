@@ -19,6 +19,8 @@
  * fuller at 2) so log-dredging / replay tooling can see what happened.
  */
 
+import { clip } from "../format.ts";
+
 /** Minimal session surface these runners need. */
 export interface TaskSession {
   subscribe: (fn: (event: any) => void) => () => void;
@@ -61,19 +63,16 @@ const PRIORITY_KEYS = [
   "content",
 ] as const;
 
-/** Truncate a string to `cap` chars, appending an ellipsis when cut. */
-function trunc(s: string, cap: number): string {
-  if (s.length <= cap) return s;
-  return s.slice(0, cap - 1) + "…";
-}
+// trunc → shared clip in ../format.ts (round-2 ticket 06): same cut semantics
+// with trimTail left off — quoted/JSON values keep every char of their cut.
 
 /** Render a single arg value compactly (strings quoted, objects JSON'd). */
 function renderValue(v: unknown): string {
-  if (typeof v === "string") return JSON.stringify(trunc(v, 80));
+  if (typeof v === "string") return JSON.stringify(clip(v, 80));
   if (v === null || v === undefined) return String(v);
   if (typeof v === "object") {
     try {
-      return trunc(JSON.stringify(v), 120);
+      return clip(JSON.stringify(v), 120);
     } catch {
       return String(v);
     }
@@ -87,7 +86,7 @@ function renderValue(v: unknown): string {
  */
 function summarizeArgs(args: unknown): string {
   if (args === null || args === undefined) return "";
-  if (typeof args !== "object") return trunc(String(args), LINE_CAP);
+  if (typeof args !== "object") return clip(String(args), LINE_CAP);
   const obj = args as Record<string, unknown>;
   const picked: string[] = [];
   for (const key of PRIORITY_KEYS) {
@@ -99,19 +98,19 @@ function summarizeArgs(args: unknown): string {
   if (picked.length === 0) {
     // No recognized key — emit the whole thing compactly.
     try {
-      return trunc(JSON.stringify(obj), LINE_CAP);
+      return clip(JSON.stringify(obj), LINE_CAP);
     } catch {
       return "";
     }
   }
-  return trunc(picked.join("  "), LINE_CAP);
+  return clip(picked.join("  "), LINE_CAP);
 }
 
 /** Level-2 full args: pretty-but-compact JSON, capped. */
 function dumpArgs(args: unknown): string {
   if (args === null || args === undefined) return "";
   try {
-    return trunc(JSON.stringify(args), LINE_CAP);
+    return clip(JSON.stringify(args), LINE_CAP);
   } catch {
     return String(args).slice(0, LINE_CAP);
   }
@@ -123,27 +122,27 @@ function dumpArgs(args: unknown): string {
  */
 function summarizeResult(result: unknown, cap: number): string {
   if (result === null || result === undefined) return "(no result)";
-  if (typeof result === "string") return trunc(result, cap);
+  if (typeof result === "string") return clip(result, cap);
   if (Array.isArray(result)) {
     const head = result[0];
     const headStr =
       head && typeof head === "object"
-        ? trunc(JSON.stringify(head), Math.min(120, cap))
-        : trunc(String(head ?? ""), Math.min(120, cap));
+        ? clip(JSON.stringify(head), Math.min(120, cap))
+        : clip(String(head ?? ""), Math.min(120, cap));
     return `${result.length} item(s): [${headStr}${result.length > 1 ? ", …" : ""}]`;
   }
   if (typeof result === "object") {
     // Many obsidian tools return { content?: string, ... } or structured text.
     const r = result as Record<string, unknown>;
     const textish = r.text ?? r.content ?? r.message ?? r.error;
-    if (typeof textish === "string") return trunc(textish, cap);
+    if (typeof textish === "string") return clip(textish, cap);
     try {
-      return trunc(JSON.stringify(r), cap);
+      return clip(JSON.stringify(r), cap);
     } catch {
       return String(result).slice(0, cap);
     }
   }
-  return trunc(String(result), cap);
+  return clip(String(result), cap);
 }
 
 /** Format the `[tool]` start line for the given verbosity. */
