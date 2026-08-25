@@ -26,7 +26,7 @@ Source: map Context (15 `-e` sites + 5 Path-A sites + knowledge-distill.js:28).
 - [x] All 15 `-e` sites fixed or per-site verdict recorded
 - [x] `cli workflow` live-doc grep clean (or hits dispositioned in-ticket)
 - [x] Touched packages' canonical `bun run test` green (ultracode, krea2, flux2, s2-agent)
-- [x] No version bumps; merged via devops chain; reviewer pass
+- [x] No version bumps; merged via devops chain; reviewer pass (PR #2043 merged after the fix round)
 
 ## Review round (2026-08-25, verdict WITH-FIXES → fixed)
 

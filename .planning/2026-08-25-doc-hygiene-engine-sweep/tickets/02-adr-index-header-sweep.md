@@ -22,7 +22,7 @@ may have fixed some (verify count before editing).
 
 - [x] `grep -rln "bun-apps/docs/adr/INDEX.md" bun-apps` returns 0 (receipt)
 - [x] `bun run test:adr` (from bun-apps/) green — the citation guard must accept the new pointer
-- [ ] No version bumps; merged via devops chain; reviewer pass
+- [x] No version bumps; merged via devops chain; reviewer pass (PR #2045, reviewer READY 0 blockers)
 
 ## Outcome (2026-08-25)
 
