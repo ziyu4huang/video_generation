@@ -28,7 +28,7 @@ const PI_AGENT_DIR = path.resolve(import.meta.dirname, "../..");
 const REPO_ROOT = path.resolve(PI_AGENT_DIR, "../..");
 const MANIFEST = JSON.parse(
 	readFileSync(path.join(PI_AGENT_DIR, "src", "run-dir", "manifest.json"), "utf8"),
-) as { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
+) as { extensions: (string | object)[] };
 const ENTRIES = parseManifestEntries(MANIFEST.extensions ?? []);
 
 /** Load one extension factory, return its tools/commands/events. */

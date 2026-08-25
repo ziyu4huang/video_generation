@@ -98,9 +98,9 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 	// compiled core (deploy-platform-neutral-core ticket 03, 2026-08-23). A
 	// manifest read failure (ENOENT, EACCES, bad JSON) is now always a genuine
 	// problem to surface, never a mode to mask it as. Swallowing it to
-	// `{extensions: [], lazyExtensions: {}}` produced a green-looking report
-	// covering only the static extension set.
-	let manifest: { extensions: (string | object)[]; lazyExtensions?: Record<string, string> };
+	// `{extensions: []}` produced a green-looking report covering only the
+	// static extension set.
+	let manifest: { extensions: (string | object)[] };
 	try {
 		manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
 	} catch (e) {
@@ -183,40 +183,7 @@ export async function runExtDoctor(opts: { json?: boolean } = {}): Promise<{ ok:
 		}
 	}
 
-	// Also check lazy extensions
-	if (manifest.lazyExtensions) {
-		for (const [alias, rel] of Object.entries(manifest.lazyExtensions)) {
-			const abs = join(REPO_ROOT, "bun-apps", rel);
-			try {
-				const mod = await import(abs);
-				const factory = mod.default;
-				if (typeof factory === "function") {
-					const mock = makeMockPi();
-					const maybe = factory(mock.pi);
-					if (maybe && typeof (maybe as Promise<void>).then === "function") await maybe;
-					const toolNames = mock.tools.map((t) => String(t.name ?? "?"));
-					results.push({
-						name: `${alias} (lazy)`,
-						entry: rel,
-						status: toolNames.length > 0 || mock.commands.length > 0 ? "OK" : "DYNAMIC",
-						tools: toolNames,
-						commands: mock.commands,
-					});
-				}
-			} catch (e) {
-				results.push({
-					name: `${alias} (lazy)`,
-					entry: rel,
-					status: "FAIL",
-					tools: [],
-					commands: [],
-					error: (e as Error).message?.split("\n")[0] ?? String(e),
-				});
-			}
-		}
-	}
-
-	// Cross-extension tool-conflict check (same-file lazy aliases excluded)
+	// Cross-extension tool-conflict check
 	const toolOwners = new Map<string, Map<string, string[]>>(); // toolName → entryPath → [name, ...]
 	for (const r of results) {
 		for (const toolName of r.tools) {

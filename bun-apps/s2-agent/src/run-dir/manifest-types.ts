@@ -20,8 +20,6 @@ export interface ExtensionManifestEntry {
 	entry: string;
 	/** Semantic version for changelog/compat tracking. */
 	version?: string;
-	/** Original raw entry (for lazyExtensions backward compat). */
-	raw?: string | object;
 }
 
 /**
@@ -36,7 +34,7 @@ export function parseManifestEntry(raw: string | object): ExtensionManifestEntry
 			const parts = raw.split("/");
 			return parts.length > 1 ? parts[parts.length - 2]! : m;
 		});
-		return { name, entry: raw, raw };
+		return { name, entry: raw };
 	}
 	if (raw && typeof raw === "object") {
 		const obj = raw as Partial<ExtensionManifestEntry>;
@@ -47,7 +45,6 @@ export function parseManifestEntry(raw: string | object): ExtensionManifestEntry
 			name,
 			entry,
 			version: obj.version,
-			raw,
 		};
 	}
 	throw new Error(`invalid manifest entry: ${JSON.stringify(raw)}`);

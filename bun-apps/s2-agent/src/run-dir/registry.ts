@@ -54,7 +54,6 @@ export interface Registry {
   hostApi: number;
   hostModules: string[];
   extensions: RegistryExt[];
-  lazyExtensions: Record<string, string>;
 }
 
 // ─── Validation over REGISTRY (the authority read path) ─────────────────────

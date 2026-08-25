@@ -123,9 +123,6 @@ export function probeMissingExtensionDeps(bunAppsDir: string | undefined): strin
   for (const e of manifest.staticExtensions ?? []) {
     consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);
   }
-  for (const e of Object.values(manifest.lazyExtensions ?? {})) {
-    consider(typeof e === "string" ? e : (e as { entry?: string })?.entry);
-  }
   const missing: string[] = [];
   for (const dir of dirs) {
     const extDir = join(bunAppsDir, dir);
