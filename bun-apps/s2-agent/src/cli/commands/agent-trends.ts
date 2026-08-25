@@ -14,7 +14,6 @@
  * — never raw arguments.
  */
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import {
 	type AggregateReport,
@@ -27,6 +26,8 @@ import {
 	resolveContextPercent,
 } from "@repo/s2-agent-ext-power-tool/history";
 import type { ParsedArgs } from "../args.ts";
+import { gitLines } from "../git.ts";
+import { resolveAgentDir } from "../../paths.ts";
 import { listSessionFiles, resolveSessionsDir } from "../sessions/discover.ts";
 
 /** Calibrated against the real corpus — see .planning/plans/2026-08-16-*.md. */
@@ -83,12 +84,14 @@ export function formatTrendReport(report: AggregateReport, ctx: FormatContext): 
 	return out;
 }
 
-/** modelId → context window, read shape-agnostically from the models store. */
-function loadContextWindows(home: string): Map<string, number> {
+/** modelId → context window, read shape-agnostically from the models store.
+ *  <agentDir>/models-store.json via resolveAgentDir (round-2 ticket 05) — now
+ *  honors PI_CODING_AGENT_DIR (round-1 D5 bug class; delta flagged in the PR). */
+function loadContextWindows(): Map<string, number> {
 	const windows = new Map<string, number>();
 	let raw: unknown;
 	try {
-		raw = JSON.parse(readFileSync(join(home, ".pi", "agent", "models-store.json"), "utf8"));
+		raw = JSON.parse(readFileSync(join(resolveAgentDir(process.env), "models-store.json"), "utf8"));
 	} catch {
 		return windows;
 	}
@@ -112,21 +115,10 @@ function loadContextWindows(home: string): Map<string, number> {
 
 /** Live worktree roots, main worktree first. Empty on any failure. */
 function listWorktrees(cwd: string): string[] {
-	try {
-		const out = Bun.spawnSync(["git", "-C", cwd, "worktree", "list", "--porcelain"], {
-			stdout: "pipe",
-			stderr: "ignore",
-		});
-		if (out.exitCode !== 0) return [];
-		return out.stdout
-			.toString()
-			.split("\n")
-			.filter((l) => l.startsWith("worktree "))
-			.map((l) => l.slice("worktree ".length).trim())
-			.filter(Boolean);
-	} catch {
-		return [];
-	}
+	return (gitLines(cwd, ["-C", cwd, "worktree", "list", "--porcelain"]) ?? [])
+		.filter((l) => l.startsWith("worktree "))
+		.map((l) => l.slice("worktree ".length).trim())
+		.filter(Boolean);
 }
 
 export const agentTrendsCommand = {
@@ -164,9 +156,8 @@ Examples:
   s2-agent cli agent-trends
   s2-agent cli agent-trends --window 100 --json`,
 	async run(parsed: ParsedArgs): Promise<void> {
-		const home = homedir();
 		const sessionsDir = parsed.sessionsDir ?? resolveSessionsDir(process.env);
-		const windows = loadContextWindows(home);
+		const windows = loadContextWindows();
 
 		const cwd = process.cwd();
 		const roots = listWorktrees(cwd);

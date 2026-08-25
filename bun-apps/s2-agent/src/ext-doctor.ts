@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { findRepoRoot } from "./paths.ts";
 import { parseManifestEntries } from "./run-dir/manifest-types.ts";
 // NOTE: static-extensions.ts is imported DYNAMICALLY inside runExtDoctor(),
 // below the ensure-extension-deps await — see the comment there. A top-level
@@ -28,8 +29,13 @@ export function resolvePiAgentDir(moduleUrl: string): string {
 	return resolve(dirname(fileURLToPath(moduleUrl)), "..");
 }
 
+// VERDICT (round-2 ticket 05, map Fog resolved): `PI_AGENT_DIR` here is the
+// PACKAGE-dir resolver (bun-apps/s2-agent from this module's URL) — unrelated
+// to the PI_CODING_AGENT_DIR state dir; the name is legacy, not drift. Kept.
 const PI_AGENT_DIR = resolvePiAgentDir(import.meta.url);
-const REPO_ROOT = resolve(PI_AGENT_DIR, "../..");
+// Marker walk (round-2 ticket 05) with the old fixed resolve as the degenerate
+// fallback — schema-cost's house pattern.
+const REPO_ROOT = findRepoRoot(PI_AGENT_DIR) ?? resolve(PI_AGENT_DIR, "../..");
 const MANIFEST_PATH = join(PI_AGENT_DIR, "src", "run-dir", "manifest.json");
 
 interface ExtDoctorEntry {

@@ -7,6 +7,11 @@
  * like `import(def.module)` — bun cannot statically analyze that and the module
  * will be missing from the bundle.
  */
+// envFlag moved to the zero-import leaf ../env-flag.ts (round-2 ticket 05) so
+// cli/sessions and the e2e harness share the one definition without importing
+// the patch index; re-exported below — still the decision primitive for every
+// patch gate.
+import { envFlag } from "../env-flag.ts";
 
 /** Literal union of registered patch names. Keep in sync with PATCH_TABLE + the
  *  `switch` in applyPatches() — the `default: never` guard catches a missing case. */
@@ -141,22 +146,8 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   { name: "autocomplete-source-extension", env: "BUN_PI_AUTOCOMPLETE_SOURCE_EXTENSION", defaultValue: true },
 ];
 
-/**
- * Read a boolean env flag. Accepts "1" / "true" / "yes" (case-insensitive) as
- * truthy; any other set value is false; undefined → fallback. Pure given `env`.
- * Exported because it is the decision primitive for every patch gate — exactly
- * the logic that silently breaks. (Debug logging has its own narrower
- * primitives below.)
- */
-export function envFlag(
-  name: string,
-  fallback: boolean,
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  const v = env[name];
-  if (v === undefined) return fallback;
-  return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
-}
+/** Re-export of the leaf definition — see ../env-flag.ts (round-2 ticket 05). */
+export { envFlag };
 
 /** The one literal `"1" | "true"` check every debug gate shares. Case-sensitive
  *  on purpose — this is the exact legacy spelling, not envFlag's wider set. */

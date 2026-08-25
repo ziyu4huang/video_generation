@@ -30,7 +30,7 @@
  * No-op outside source mode: in bundle/binary deploy layouts the probe returns
  * [] (deps are baked in), so this exits 0 immediately.
  */
-import { dirname, resolve as pResolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 // Straight from deps-probe.ts, which DEFINES it, not through resolve.ts's
 // facade: this runs as a pre-flight before pi boots, and going via the facade
@@ -38,12 +38,17 @@ import { fileURLToPath } from "node:url";
 // that needs neither.
 import { missingExtensionPackages, runBunInstall } from "./deps-probe.ts";
 import { workspacePackages } from "./workspace-packages.ts";
+import { findRepoRoot } from "../paths.ts";
 
 const url = import.meta.url;
-// src/run-dir/ → src/ → s2-agent/ → bun-apps/  (mirrors resolve.ts's source-mode
-// computation). bun-apps/ IS the Bun workspace root (package.json + bun.lock +
-// bunfig.toml live here), so `bun install` must run here — NOT at the repo root.
-const bunAppsDir = pResolve(dirname(fileURLToPath(url)), "..", "..", "..");
+// Repo root = nearest ancestor containing bun-apps/ (the shared marker walk,
+// round-2 ticket 05 — was a fixed three-level resolve). bun-apps/ IS the Bun
+// workspace root (package.json + bun.lock + bunfig.toml live here), so
+// `bun install` must run there — NOT at the repo root. No bun-apps ancestor ⇒
+// not a source checkout (deploy layouts bake deps) — nothing to heal.
+const repoRoot = findRepoRoot(dirname(fileURLToPath(url)));
+if (repoRoot === undefined) process.exit(0);
+const bunAppsDir = join(repoRoot, "bun-apps");
 
 const missing = missingExtensionPackages(bunAppsDir);
 if (missing.length === 0) process.exit(0);
