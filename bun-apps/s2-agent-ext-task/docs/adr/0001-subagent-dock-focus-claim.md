@@ -1,4 +1,4 @@
-**ID:** `ADR-task-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-task-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR-task-0001: Subagent dock focus via onTerminalInput prefix-claim
 

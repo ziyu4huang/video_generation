@@ -1,4 +1,4 @@
-**ID:** `ADR-archify-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-archify-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # Code layouts outrank templates and cannot be shadowed
 

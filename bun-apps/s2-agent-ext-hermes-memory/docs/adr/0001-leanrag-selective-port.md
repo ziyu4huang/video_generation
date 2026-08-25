@@ -1,4 +1,4 @@
-**ID:** `ADR-hermes-memory-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-hermes-memory-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # LeanRAG retrieval concepts are ported selectively; the aggregation hierarchy is deferred
 

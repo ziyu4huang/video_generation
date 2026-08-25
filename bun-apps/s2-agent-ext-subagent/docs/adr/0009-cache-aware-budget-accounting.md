@@ -1,4 +1,4 @@
-**ID:** `ADR-subagent-0009` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-subagent-0009` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # 0009 — Cache-aware budget accounting — tokenBudget enforces REAL tokens (input+output)
 

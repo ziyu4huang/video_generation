@@ -1,4 +1,4 @@
-**ID:** `ADR-wayfind-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-wayfind-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR-0004: Decouple the status widget via the `globalThis` singleton (reverse ADR-0002 Decision 1)
 

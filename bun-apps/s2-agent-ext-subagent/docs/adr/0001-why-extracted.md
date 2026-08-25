@@ -1,4 +1,4 @@
-**ID:** `ADR-subagent-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-subagent-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # 0001 — Why the subagent subsystem was extracted into its own package
 

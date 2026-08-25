@@ -1,4 +1,4 @@
-**ID:** `ADR-tool-gate-0003` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-tool-gate-0003` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR-0003: Noun∧verb co-occurrence (`requires`) for core nouns
 
