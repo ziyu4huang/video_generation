@@ -50,7 +50,7 @@ import type { SurrealClient, SurrealClientOptions } from "@repo/s2-agent-core-in
 import { embedQuery, resolveCardEmbedModel, type Embedder } from "./semantic.ts";
 import { firstSentenceSummary } from "./extractor.ts";
 import { extractAbstractFromOverview, sidecarBody, ABSTRACT_SIDEFILE, OVERVIEW_SIDEFILE } from "./resource-tiers.ts";
-import { makeContextClient } from "./surreal-index.ts";
+import { makeContextClient, stripLoneSurrogates } from "./surreal-index.ts";
 
 /** Context tier levels (upstream ContextLevel; 0/1 rows derive from the tier
  *  sidecars written by resource-tiers.ts — ticket 02). */
@@ -454,7 +454,10 @@ export async function buildResourceRows(args: {
 
 function resourceCreateStmt(table: string, row: ResourceIndexRow): string {
 	const key = resourceRecordKey(row.tree, row.uri).replace("resource:", `${table}:`);
-	const v = (x: unknown) => JSON.stringify(x ?? null);
+	// stripLoneSurrogates: a cap-split surrogate pair becomes a `\uD800` escape
+	// SurrealDB rejects (same class as the card-index bug, measured 2026-08-25).
+	const v = (x: unknown) =>
+		JSON.stringify(typeof x === "string" ? stripLoneSurrogates(x) : (x ?? null));
 	const vec = (row.vec ?? []).map((x) => Math.round(x * 1e6) / 1e6);
 	return `CREATE ${key} SET tree = ${v(row.tree)}, uri = ${v(row.uri)}, level = ${row.level}, name = ${v(row.name)}, abstract = ${v(row.abstract)}, vec = ${JSON.stringify(row.vec ? vec : null)}, embed_model = ${v(row.embed_model)}, created = ${v(row.created)}, updated = ${v(row.updated)}, parent = ${v(row.parent)};`;
 }

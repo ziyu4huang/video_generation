@@ -340,6 +340,18 @@ function aggParentStem(parentId: string): string | null {
 // SQL plumbing
 // ---------------------------------------------------------------------------
 
+/** Strip unpaired UTF-16 surrogates from text bound for a SurrealQL literal.
+ *  JSON.stringify emits a lone surrogate as a `\uD800`-style escape, which
+ *  SurrealDB's parser rejects ("unicode escape character is not a valid
+ *  unicode character") — one VLM math glyph split by a summary cap poisoned
+ *  the whole 24-row batch and left the card index stale (measured 2026-08-25,
+ *  USB4 generic-card ingest). Valid pairs pass through untouched. */
+export function stripLoneSurrogates(s: string): string {
+	return s.replace(/[\uD800-\uDBFF](?:[\uDC00-\uDFFF])?|[\uDC00-\uDFFF]/g, (m) =>
+		m.length === 2 ? m : "",
+	);
+}
+
 /** CREATE statement for one row. Every value is JSON-encoded (a valid
  *  SurrealQL literal for string/number/bool/null/array); the record key is a
  *  hex hash, so no identifier escaping is ever needed. Vector components are
@@ -349,9 +361,10 @@ function aggParentStem(parentId: string): string | null {
  *  vault; rounding halves the statement size for zero index-visible loss). */
 function createStmt(table: string, row: CardIndexRow): string {
 	const key = cardRecordKey(row.stem);
-	const v = (x: unknown) => JSON.stringify(x ?? null);
+	const v = (x: unknown) =>
+		JSON.stringify(typeof x === "string" ? stripLoneSurrogates(x) : (x ?? null));
 	const vec = (row.vec ?? []).map((x) => Math.round(x * 1e6) / 1e6);
-	return `CREATE ${key.replace("card:", `${table}:`)} SET stem = ${v(row.stem)}, path = ${v(row.path)}, title = ${v(row.title)}, summary = ${v(row.summary)}, body = ${v(row.body)}, is_leaf = ${row.is_leaf}, layer = ${row.layer ?? null}, parent = ${v(row.parent)}, entities = ${JSON.stringify(row.entities)}, kind = ${v(row.kind)}, vec = ${JSON.stringify(row.vec ? vec : null)}, embed_model = ${v(row.embed_model)};`;
+	return `CREATE ${key.replace("card:", `${table}:`)} SET stem = ${v(row.stem)}, path = ${v(row.path)}, title = ${v(row.title)}, summary = ${v(row.summary)}, body = ${v(row.body)}, is_leaf = ${row.is_leaf}, layer = ${row.layer ?? null}, parent = ${v(row.parent)}, entities = ${JSON.stringify(row.entities.map(stripLoneSurrogates))}, kind = ${v(row.kind)}, vec = ${JSON.stringify(row.vec ? vec : null)}, embed_model = ${v(row.embed_model)};`;
 }
 
 /** /sql body cap (HTTP 413 above it, measured): rounded 1024-dim vectors run

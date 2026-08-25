@@ -14,6 +14,7 @@ import {
 	resourceRecordKey,
 	TIER_SIDEFILES,
 } from "../src/resource-index.ts";
+import { stripLoneSurrogates } from "../src/surreal-index.ts";
 import type { SurrealClient } from "@repo/s2-agent-core-interface";
 
 /** Fake SurrealClient (reviewer m3/m4): captures every statement, answers
@@ -291,5 +292,32 @@ describe("card-lane isolation tripwire (fake client, reviewer m4)", () => {
 		});
 		const r = await rebuildResourceIndex({ client, treePath: root, tree: "iso3", model: "m", embedder: fakeEmbedder });
 		expect(r.skipped).toBe(false);
+	});
+});
+
+describe("lone-surrogate sanitation (2026-08-25 USB4 batch poisoning)", () => {
+	test("stripLoneSurrogates keeps valid pairs, drops lone halves", () => {
+		const pair = "𝑡"; // 𝑡 (mathematical italic t)
+		expect(stripLoneSurrogates(`a${pair}b`)).toBe(`a${pair}b`);
+		expect(stripLoneSurrogates("a\uD835b")).toBe("ab"); // lone high half
+		expect(stripLoneSurrogates("a\uDC61b")).toBe("ab"); // lone low half
+		expect(stripLoneSurrogates("plain ascii")).toBe("plain ascii");
+	});
+
+	test("a cap-split math glyph never emits the \\uD800 escape Surreal rejects", async () => {
+		// A lone high surrogate in source text (a summary/body cap split a VLM
+		// math glyph on the real corpus) previously reached JSON.stringify,
+		// whose \uD835 escape SurrealDB parses as "not a valid character code"
+		// — poisoning the whole 24-row batch.
+		put("math.md", `# Math\n\nTraining \uD835 and trailing text.`);
+		const { client, statements } = fakeClient((sql) => {
+			if (/^SELECT fingerprint/.test(sql.trim())) return [{ fingerprint: "x", embed_model: "m", dim: 8 }];
+			if (/SELECT VALUE count\(\)/.test(sql)) return [{ count: 0 }];
+			return [];
+		});
+		await rebuildResourceIndex({ client, treePath: root, tree: "sur", model: "m", embedder: fakeEmbedder });
+		expect(statements.length).toBeGreaterThan(0);
+		const offenders = statements.filter((s) => /\\u[dD][89abAB][0-9a-fA-F]{2}/.test(s));
+		expect(offenders).toEqual([]);
 	});
 });
