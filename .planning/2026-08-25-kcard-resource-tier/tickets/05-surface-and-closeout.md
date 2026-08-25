@@ -59,4 +59,30 @@ re-derives). Stays a map decision — no ADR.
 
 ## Review receipts
 
-Independent reviewer subagent pass — see below (appended after the pass).
+Independent reviewer subagent pass — **REQUEST_CHANGES → all folded
+pre-merge** (reviewer's own note: "after that it is an APPROVE"):
+
+- **B1 (blocker, fixed)** — the ticket claimed the successor next-goal was
+  written/validated/LATEST-re-pointed while the newest file still headed at
+  ticket 05 itself. Fixed for real: terminal successor
+  `output/next-goal-20260825-211359.md` written at the boundary (pre-merge,
+  by design), validated, LATEST re-pointed, doctor green.
+- **B2 (blocker, fixed)** — same class for the memory-refresh claim. Fixed:
+  `kcard-resource-tier-effort-opened` memory refreshed to effort-COMPLETE
+  (description + carries + the receipt-honesty lesson), MEMORY.md index line
+  updated.
+- **S1 (folded)** — `Completed-by:` was an unregistered cross-effort link
+  verb; now registered in `.planning/CONVENTIONS.md` (one line + why).
+- **S2 (folded)** — L2 glossary overstated the body budget ("first ~1000
+  body chars"); corrected to the implementation: name + first 800 body
+  chars, combined cap 1000 (`resource-index.ts`).
+- **S3 (folded)** — L0 abstract glossary now names the actual mechanism:
+  prose between the overview's H1 and first `##`, clamped to 256 chars.
+- **N4 (folded)** — ticket 01's stale `closed: (implemented) PR pending`
+  frontmatter swept to the true receipt (#2022, verify-merge CLEAN).
+- Verified by the reviewer (unchanged): every gate number matches ticket 04
+  exactly; all 7 glossary terms conform to house shape and check out against
+  the implementation; CONTEXT-MAP.md correctly unchanged; the
+  no-zk_fs/no-canary reasoning holds; the back-link drift disclosure is
+  honest; map close-out correct (status complete, Frontier none, 5/5 tickets
+  resolved); the ADR-decline correctly applies the conjunctive bar.

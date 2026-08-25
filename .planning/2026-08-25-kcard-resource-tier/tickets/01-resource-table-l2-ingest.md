@@ -2,7 +2,7 @@
 type: task
 blocking: 02
 status: closed
-closed: (implemented) PR pending — see Resolution
+closed: 2026-08-25 (merged as PR #2022, verify-merge CLEAN — s2-agent 0.7.12)
 ---
 
 # 01 — `resource` table + document-tree L2 ingest

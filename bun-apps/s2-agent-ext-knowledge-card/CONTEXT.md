@@ -127,7 +127,7 @@ One ingested markdown tree — L2 file rows plus generated L0/L1 tier rows, disc
 _Avoid_: corpus, vault, index (the vault is the Obsidian vault; a resource tree is a derived, regenerable projection)
 
 **L0 abstract**:
-The directory-level top tier — ONE `.abstract.md` sidecar per directory, EXTRACTED from the L1 overview's first paragraph (never a second LLM call).
+The directory-level top tier — ONE `.abstract.md` sidecar per directory, EXTRACTED from the L1 overview (the prose between its H1 and the first `##`, clamped to 256 chars; never a second LLM call).
 _Avoid_: summary, TL;DR, description (it is a specific extracted tier artifact, not a generic summary)
 
 **L1 overview**:
@@ -135,7 +135,7 @@ The directory-level middle tier — ONE `.overview.md` sidecar per directory, ge
 _Avoid_: digest, MOC, TOC (a MOC indexes zettels; an overview summarizes a directory's children)
 
 **L2 file row**:
-The per-file leaf tier — embeds title + first ~1000 body chars, abstract is the deterministic first sentence; NO per-file LLM call (token economics: 839 pages × LLM is what the tier system exists to avoid).
+The per-file leaf tier — embeds name + first 800 body chars (combined cap 1000), abstract is the deterministic first sentence; NO per-file LLM call (token economics: 839 pages × LLM is what the tier system exists to avoid).
 _Avoid_: page card, generic card, leaf card (generic cards are zettel cards from `zk_ingest --source generic`; L2 rows are resource-tier leaves)
 
 **Tier sidecars**:

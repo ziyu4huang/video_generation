@@ -11,7 +11,7 @@ Wayfinder efforts under .planning/ are a knowledge source — they must not hold
 
 ## Cross-effort links
 
-When efforts overlap (one supersedes/absorbs another, or shares a decision), add a `## Cross-effort links` section to BOTH maps with `Supersedes:` / `Absorbed-by:` / `Shares-decision-with:` lines + a 1-line why. This makes overlap visible at a glance and prevents future readers from trusting a superseded ticket.
+When efforts overlap (one supersedes/absorbs another, shares a decision, or later completes another's open gap), add a `## Cross-effort links` section to BOTH maps with `Supersedes:` / `Absorbed-by:` / `Shares-decision-with:` / `Builds-on:` / `Completed-by:` lines + a 1-line why. This makes overlap visible at a glance and prevents future readers from trusting a superseded ticket. (`Completed-by:` names the effort that closed one of THIS map's open gaps — registered 2026-08-25, kcard-resource-tier close-out.)
 
 ## Periodic review
 
