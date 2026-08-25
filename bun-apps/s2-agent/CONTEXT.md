@@ -26,22 +26,14 @@ _Avoid_: config dir, settings (it is a cwd-independent resource manifest, not us
 
 **manifest.json** (`src/run-dir/manifest.json`):
 The **eager** extension/skill list — loaded every session. Edit this to add/remove workspace-local extensions.
-_Avoid_: extension list (too generic; distinguish from the lazy registry)
-
-**Lazy extension** (`src/run-dir/manifest.json` `lazyExtensions`):
-An opt-in extension resolved only when invoked via `-e <alias>` (e.g. `workflow`). Costs zero context unless asked for by alias — for heavy on-demand tools. (No `run-dir/settings.json` exists — the registry is a field of the manifest.)
-_Avoid_: optional extension, plugin (it is alias-gated, zero-cost-until-invoked)
-
-**Alias resolution**:
-`src/run-dir/lazy-extensions.ts` rewrites `-e <alias>` to an absolute factory path before `main()` sees argv. First-hit-wins: exact key → unique substring → single-`.ts` directory fallback; real paths and URL schemes pass through untouched. Acts on the USER's argv — which is what makes it a separate module from the argv `resolve.ts` produces.
-_Avoid_: alias mapping, shortcut
+_Avoid_: extension list (too generic; also do not revive a "lazy registry" — the `-e <alias>` lazy-extension mechanism was removed 2026-08-25, round-2 ticket 11)
 
 **npmExtensions**:
 The single array in `manifest.json` that is the source of truth for npm-sourced extensions, read by both `src/run-dir/deps-probe.ts` (source) and `../s2-agent-ext-devops/src/deploy/lib/codegen.ts` (bundle).
 _Avoid_: deps list, package array
 
 **run-dir module split** (`src/run-dir/run-context.ts`):
-`resolve.ts` owns deploy-layout detection + argv construction and re-exports — one hop, naming the defining module — what moved out: `deps-probe.ts` (will the extensions be able to import what they need; auto-install; missing-deps guide) and `lazy-extensions.ts` (alias rewriting). `run-context.ts` holds the three facts all of them must agree on: `mode`, `resolveBunAppsDir()`, `warn()`. Import direction is strictly `resolve → {deps-probe, lazy-extensions} → run-context`.
+`resolve.ts` owns deploy-layout detection + argv construction and re-exports — one hop, naming the defining module — what moved out: `deps-probe.ts` (will the extensions be able to import what they need; auto-install; missing-deps guide). (`lazy-extensions.ts`, the third sibling, was deleted 2026-08-25 round-2 ticket 11 — its alias registry had been empty since ultracode went eager.) `run-context.ts` holds the three facts all of them must agree on: `mode`, `resolveBunAppsDir()`, `warn()`. Import direction is strictly `resolve → deps-probe → run-context`.
 _Avoid_: helpers, utils (each module is a concern, not a grab bag)
 
 ### Build & deploy

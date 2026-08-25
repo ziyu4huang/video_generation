@@ -12,7 +12,6 @@ export interface ManifestJson {
   extensions: Array<{ name: string; entry: string; version?: string }>; // load:dynamic, entry = "<package>/<entry>"
   skills: string[]; // "<package>/skills" for skills:true (registry order)
   staticExtensions: string[]; // package names for load:static (registry order)
-  lazyExtensions: Record<string, string>;
 }
 
 export function buildManifestObject(r: Registry): ManifestJson {
@@ -29,7 +28,6 @@ export function buildManifestObject(r: Registry): ManifestJson {
     }),
     skills: r.extensions.filter((e) => e.skills).map((e) => `${e.package}/skills`),
     staticExtensions: byLoad("static").map((e) => e.package),
-    lazyExtensions: r.lazyExtensions,
   };
 }
 

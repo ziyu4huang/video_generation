@@ -57,7 +57,6 @@ const registry: Registry = {
       excludeReason: "experimental",
     },
   ],
-  lazyExtensions: { "lazy-one": "s2-agent-ext-lazy-one/extensions/lazy-one.ts" },
 };
 
 describe("buildManifestObject", () => {
@@ -81,11 +80,6 @@ describe("buildManifestObject", () => {
     });
     expect(m.extensions[1]).toEqual({ name: "epsilon", entry: "s2-agent-ext-epsilon/extensions/epsilon.ts" });
     expect("version" in m.extensions[1]).toBe(false);
-  });
-
-  test("lazyExtensions passes through verbatim", () => {
-    const m = buildManifestObject(registry);
-    expect(m.lazyExtensions).toEqual({ "lazy-one": "s2-agent-ext-lazy-one/extensions/lazy-one.ts" });
   });
 
   test("$generated is present and the first key of the emitted object", () => {

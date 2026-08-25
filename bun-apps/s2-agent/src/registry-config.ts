@@ -169,9 +169,6 @@ export const HOST_CONTRACT: HostContract = {
   ],
 };
 
-/** Run-dir lazy extension map (empty today; kept as data so it stays typed). */
-export const LAZY_EXTENSIONS: Record<string, string> = {};
-
 export const REGISTRY: RegistryEntry[] = [
   {
     name: "task",
@@ -666,7 +663,6 @@ interface LegacyRegistry {
   hostApi: number;
   hostModules: string[];
   extensions: LegacyRegistryExt[];
-  lazyExtensions: Record<string, string>;
 }
 
 function expandHome(p: string, home: string): string {
@@ -720,6 +716,5 @@ export function legacyRegistry(opts: { home: string }): LegacyRegistry {
     hostApi: HOST_CONTRACT.hostApi,
     hostModules: HOST_CONTRACT.hostModules,
     extensions,
-    lazyExtensions: LAZY_EXTENSIONS,
   };
 }

@@ -10,7 +10,7 @@
  * resolution and trust-gating entirely, so this patch makes extension loading
  * work regardless of where s2-agent is invoked from.
  */
-import { resolveRunDirArgv, rewriteArgvLazyExtensions } from "../run-dir/resolve.ts";
+import { resolveRunDirArgv } from "../run-dir/resolve.ts";
 import { userSuppressFlags } from "../cli-argv.ts";
 
 // process.argv is still the UNSPLICED user argv at this point (this patch is
@@ -25,8 +25,7 @@ if (process.env.BUN_PI_DEBUG_RUN_DIR === "1") {
 
 process.argv.splice(2, 0, ...extra);
 
-// Rewrite `-e <alias>` (e.g. `-e workflow`) to absolute paths from the lazy
-// registry in src/run-dir/manifest.json's `lazyExtensions`. Heavy opt-in extensions
-// are not in the eager manifest above, so they cost zero context unless
-// explicitly requested.
-await rewriteArgvLazyExtensions(process.argv);
+// (`-e <alias>` lazy rewriting used to run here — deleted 2026-08-25 round-2
+// ticket 11: the alias registry had been empty since ultracode went eager.
+// The user's own `-e <file>` values were never touched and still pass through
+// to the SDK untouched.)

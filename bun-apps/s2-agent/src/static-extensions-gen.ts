@@ -104,8 +104,8 @@ const HEADER = [
 	" *     mode (binary mode emits zero `-e` flags; the .ts paths don't exist in",
 	" *     the compiled $bunfs virtual FS). Migrating them to static imports makes",
 	" *     the single-exe build bundle them by default. They were removed from",
-	" *     manifest.extensions AND (for workflow) manifest.lazyExtensions at the",
-	" *     same time to avoid the static+dynamic double-registration noted above.",
+	" *     manifest.extensions at the same time to avoid the static+dynamic",
+	" *     double-registration noted above.",
 	" */"
 ].join("\n");
 

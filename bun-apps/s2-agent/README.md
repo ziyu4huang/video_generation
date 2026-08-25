@@ -52,8 +52,7 @@ To add a patch: create `src/patches/<name>.ts`, register it in
 `src/registry-config.ts` is THE registry (one typed entry per extension);
 derived `src/run-dir/manifest.json` is freshness-guarded — regen with
 `bun run --cwd bun-apps/s2-agent regen:manifest` (+ `regen:static` for
-`load: static`), never hand-edit. Heavy on-demand extensions live in the same
-module's `LAZY_EXTENSIONS` and load only via `-e <alias>`. Validation
+`load: static`), never hand-edit. Validation
 authority: `src/run-dir/registry.ts`.
 
 ## Deploy / doctor

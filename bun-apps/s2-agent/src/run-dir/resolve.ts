@@ -25,12 +25,14 @@
  * it in Phase 1b.
  *
  * WHAT THIS FILE OWNS after the step-1c split: deploy-layout detection and argv
- * construction. Two neighbouring concerns moved out and are re-exported below,
+ * construction. One neighbouring concern moved out and is re-exported below,
  * so every existing import of this module still resolves:
- *   - deps-probe.ts      — "will these extensions be able to import what they
- *                          need?", auto-install, the missing-deps guide
- *   - lazy-extensions.ts — `-e <alias>` rewriting, which acts on the USER's argv
- *                          rather than on anything this file produces
+ *   - deps-probe.ts — "will these extensions be able to import what they
+ *                     need?", auto-install, the missing-deps guide
+ * (lazy-extensions.ts, the `-e <alias>` rewriter, was deleted 2026-08-25
+ * round-2 ticket 11: manifest.lazyExtensions had been `{}` since ultracode
+ * went eager and the directory-fallback arm had zero live consumers —
+ * `-e <file>` loading is the SDK's own and was never here.)
  * The re-exports are one-hop: every line below names the module that DEFINES the
  * symbol, the invariant s2-agent-core-runtime's barrel had to be repaired to
  * restore (see its CONTEXT.md "One-hop barrel").
@@ -61,13 +63,6 @@ export {
   probeMissingExtensionDeps,
   runtimeDependencyNames,
 } from "./deps-probe.ts";
-export type { LazySettings } from "./lazy-extensions.ts";
-export {
-  looksLikeAlias,
-  resolveLazyExtension,
-  rewriteArgvLazyExtensions,
-  rewriteExtensionArgs,
-} from "./lazy-extensions.ts";
 
 const url = import.meta.url;
 

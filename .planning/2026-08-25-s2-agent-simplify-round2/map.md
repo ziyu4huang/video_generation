@@ -2,7 +2,7 @@
 effort: 2026-08-25-s2-agent-simplify-round2
 created: 2026-08-25
 last: 2026-08-25
-status: charted
+status: complete
 ---
 
 # s2-agent simplify ROUND 2 — structure / docs+scripts / duplicate tests / ultracode necessity
@@ -93,7 +93,7 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 - [x] 08 — Launcher slim: run.sh 206 → ~150-160 LOC — delete `--update-help` (heredoc duplicates header UPGRADING block; upgrade docs single-source in `update-pi.sh -h`; behavior delta flagged in PR) + its paired e2e describe + run-test.ts comment; compress header/comments ONLY, logic verbatim (link-farm reclaim tests pin it; KEEP the regular-file reclaim-safety rationale) (complete 2026-08-25, PR #2033 squash e6376161: 206→132 LOC; reviewer's comment-stripped diff = the equivalence-proof method — caught the undisclosed dead pre-init ENTRY=""/MODE="" removal (set -u-safe, kept deleted, recorded); reclaim invariant preserved; 12/12 launcher e2e; version 0.7.17)
 - [x] 09 — md cleanup: 8 × ADR line-1 `Index: bun-apps/docs/adr/INDEX.md` (nonexistent) → repo-root `CONTEXT-MAP.md`; README stale Layout tree → ~6-line map to code headers + `:63` doctor-command fix; knowledge-distill.js:25 stale doc ref. No bump (no shipped surface) (complete 2026-08-25, PR #2034 squash 7b481c3b: test:adr 17/17; review fix extended the ref-class grep — 3 fixture-pack workflow-cli.md refs also fixed, ultracode pack tests 61/61; no bump)
 - [x] 10 — misc: `git rm` the 2 tracked `output/kcard-extract/*.json` runtime receipts (zero readers; `.gitignore:126` already matches); dispatch-log trim (drop `"workflow"` engine half + `--effort`/`--tier` dead paths + NOT-YET-WIRED prose; command stays live); completions split deferred by D8 (complete 2026-08-25, PR #2037 squash c91bf138: + dead run(repoRoot) param dropped; flag-spec/args rows stay — pipeline-gate's; SKILL.md synced via the sanctioned rebaseline + machine-checked `divergence:` row (reviewer Important-1); D5 proofs reviewer-verified; ext-superpowers 169/169; contract suite green; version 0.7.18)
-- [ ] 11 — lazy-extensions dead-path removal (split out of 06): resolver + registry exports + derived manifest + generated static-extensions header + ext-doctor reader + 3 test files; D5 equivalence proofs; regen receipts
+- [x] 11 — lazy-extensions dead-path removal (split out of 06): resolver + registry exports + derived manifest + generated static-extensions header + ext-doctor reader + 3 test files; D5 equivalence proofs; regen receipts (complete 2026-08-25, PR #2040: `-e <alias>` keeps NO form — directory-fallback arm had zero live consumers (measured; only docs/samples show bare names that never matched its dir shape); census +3 files vs chart (patches/load-run-dir-resources.ts the real consumer, deps-probe, registry.ts); 0.7.20; ext doctor 24/24 live; rider fixes pre-existing #2035 assets-fixture typecheck RED on main; reviewer pass)
 
 ## Decisions
 
@@ -109,7 +109,7 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 
 ## Frontier
 
-Ticket 11 — lazy-extensions dead-path removal (split out of 06 with a full surface census already in its ticket: resolver 153 LOC + registry exports + derived manifest + generated static-extensions header + ext-doctor reader + 3 test files + CONTEXT.md glossary terms + resolve.ts LazySettings type move). It is the only open ticket; 01–10 are complete (05–10 via #2029/#2031/#2032/#2033/#2034/#2037, all reviewer-gated two-axis, all merged through the Linux-box policy with the macOS-only sandbox-exec gate documented per PR). Nothing blocks it; it is next because the queue is otherwise drained and it is the last structural dead path in the package.
+DRAINED — tickets 01–11 all complete (01–04 via #2014/#2015/#2018/#2019; 05–10 via #2029/#2031/#2032/#2033/#2034/#2037; 11 via #2040). The effort's Destination bar is met: no same-seam duplication rounds 1–2 left behind, no same-seam test duplication, docs/scripts dead surface purged, ultracode disposition user-confirmed and executed. Remaining named follow-ups live in Fog of war + round-1/2 REJECTED lists (D1/D3: defineCommand help regen, makeMockPi cross-package dedup), each with its evidence.
 
 ## Fog of war
 
@@ -119,7 +119,7 @@ Ticket 11 — lazy-extensions dead-path removal (split out of 06 with a full sur
 - movie-director `/movie` runs may journal outside `~/.pi/workflows/projects` (no produce-video/review-cut run logs found despite 2,179 movie tool calls) — UNVERIFIED; only matters if option C or REMOVE is ever revisited.
 - Ultracode's exact schema-token share inside the 83-tool/25,641-token aggregate baseline is UNMEASURED (baseline is aggregate); measurable if option C is chosen.
 - `--no-session` parsed global with zero readers (round-1 fog, still open) — candidate for the next flag audit, not ticketed here.
-- lazy-extensions dead-path removal may exceed ticket 06's budget if the manifest-types surface is wider than expected — split rather than cram.
+- lazy-extensions dead-path removal may exceed ticket 06's budget if the manifest-types surface is wider than expected — split rather than cram. (RESOLVED: split WAS ticket 11, complete #2040; also noted there — ext-ultracode samples/smoke-e2e.ts:9 header documents a bare `-e ultracode` form that never matched even the deleted fallback arm, and samples/audit-run-dir-resolve.js:70,87 reviewer-strings still name the deleted resolveLazyExtension/rewriteExtensionArgs (PR #2040 review NIT-1); belongs to the engine-side doc sweep.)
 - **Other packages' ADR headers carry the same stale `Index: bun-apps/docs/adr/INDEX.md` line repo-wide** (found charting Phase D, 2026-08-25) — out of this effort's scope (s2-agent only); a repo-wide doc-hygiene sweep would own it.
 
 ## Cross-effort links
