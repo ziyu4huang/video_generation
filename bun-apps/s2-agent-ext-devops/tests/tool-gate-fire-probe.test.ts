@@ -42,6 +42,7 @@ function expectToolGateRow(): NonNullable<typeof toolGateExt> {
 			skills: [],
 			copy: [],
 			vendor: [],
+			assets: [],
 			externals: [],
 			hostApi: HOST_API,
 			hostModules: [...HOST_MODULE_IDS],

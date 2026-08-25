@@ -7,6 +7,7 @@
  * can interleave text extraction with selective rasterization (scanned pages).
  */
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { pdfjsAssetDirUrl } from "../assets.ts";
 
 export interface PdfHandle {
   numPages: number;
@@ -14,6 +15,37 @@ export interface PdfHandle {
   getText(page: number): Promise<string>;
   destroy(): Promise<void>;
 }
+
+/**
+ * pdfjs's external asset dirs, resolved once per process (vendored/ in deploy,
+ * the npm package in dev — see src/assets.ts). Passed as plain absolute paths
+ * with a trailing separator: on Node/Bun pdfjs reads them through
+ * NodeBinaryDataFactory (fs.readFile of `${url}${name}`), so no file:// form.
+ * Only the params whose dir exists are set — text extraction needs none of
+ * them; cmaps/standard_fonts/wasm matter for CJK text, non-embedded fonts,
+ * and JBIG2/JPX image decoding respectively.
+ */
+const pdfjsAssetParams = (() => {
+  const params: {
+    cMapUrl?: string;
+    cMapPacked?: boolean;
+    standardFontDataUrl?: string;
+    wasmUrl?: string;
+    iccUrl?: string;
+  } = {};
+  const cmaps = pdfjsAssetDirUrl("cmaps");
+  if (cmaps !== undefined) {
+    params.cMapUrl = cmaps;
+    params.cMapPacked = true;
+  }
+  const fonts = pdfjsAssetDirUrl("standard_fonts");
+  if (fonts !== undefined) params.standardFontDataUrl = fonts;
+  const wasm = pdfjsAssetDirUrl("wasm");
+  if (wasm !== undefined) params.wasmUrl = wasm;
+  const iccs = pdfjsAssetDirUrl("iccs");
+  if (iccs !== undefined) params.iccUrl = iccs; // worker appends CGATS001Compat-v2-micro.icc
+  return params;
+})();
 
 /** Collapse pdfjs text items into one line of text per page. */
 function pageText(items: Array<{ str?: string; hasEOL?: boolean }>): string {
@@ -29,7 +61,7 @@ function pageText(items: Array<{ str?: string; hasEOL?: boolean }>): string {
 
 /** Open a PDF buffer for text extraction. Throws DocError-ish on parse failure. */
 export async function openPdf(data: Uint8Array): Promise<PdfHandle> {
-  const task = getDocument({ data: data.slice().buffer as ArrayBuffer });
+  const task = getDocument({ data: data.slice().buffer as ArrayBuffer, ...pdfjsAssetParams });
   const doc = await task.promise;
   return {
     numPages: doc.numPages,

@@ -145,6 +145,7 @@ export function scanBinaryForeignPaths(
 
 interface ExtManifest {
 	vendored?: string[];
+	assets?: string[];
 }
 
 /** 5c. Declared-but-unshipped vendor roots: [{ext, pkg}]. */
@@ -169,6 +170,31 @@ export function verifyVendoredCompleteness(root: string): Array<{ ext: string; p
 interface PkgManifest {
 	name?: string;
 	dependencies?: Record<string, string>;
+}
+
+/**
+ * 5e. Declared-but-unshipped deploy assets: [{ext, to}]. ext.json's `assets`
+ * list is the build's record of every payload copied under the ext dir; a
+ * hand-pruned or partially-written tree that lost one would otherwise ship a
+ * bundle whose wasm/lang resolution silently degrades at runtime (file2md OCR
+ * degrades to "no text", never throws). The build's copy step aborts on a
+ * missing SOURCE; this checks the SHIPPED tree.
+ */
+export function verifyAssetCompleteness(root: string): Array<{ ext: string; to: string }> {
+	const missing: Array<{ ext: string; to: string }> = [];
+	const extRoot = join(root, "ext");
+	if (!existsSync(extRoot)) return missing;
+	for (const name of readdirSync(extRoot)) {
+		const manifestPath = join(extRoot, name, "ext.json");
+		if (!existsSync(manifestPath)) continue;
+		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ExtManifest;
+		for (const to of manifest.assets ?? []) {
+			if (!existsSync(join(extRoot, name, to))) {
+				missing.push({ ext: name, to });
+			}
+		}
+	}
+	return missing;
 }
 
 /**

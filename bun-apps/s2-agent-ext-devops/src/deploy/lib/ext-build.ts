@@ -404,6 +404,87 @@ export function scanUnroutableDynamicImports(code: string): string[] {
 }
 
 /**
+ * Rewrite the `import.meta.url` folds an INLINED asset package bakes into the
+ * bundle.
+ *
+ * When bun bundles a package whose default asset resolution keys off its own
+ * location (`new URL("x.wasm", import.meta.url)`), the cjs output folds
+ * import.meta.url to `file://<build-machine-cache>/<pkg>/<file>`. For an
+ * `assets:` package that JS is deliberate — the runtime passes wasmBinary /
+ * asset URLs EXPLICITLY (see file2md src/assets.ts), so the default branch is
+ * dead code — but Gate 4 rightly rejects ANY baked machine path, dead or not
+ * (the same bundler defect could bake a live one).
+ *
+ * Each fold becomes `file:///__s2-inlined-assets/<pkg>/<file>`: still a valid
+ * URL base, never a real path. Scoped to the registry's asset packages ONLY —
+ * a fold from any other package still trips Gate 4, where a human decides.
+ *
+ * Shape-asserted per the rewrite family: rewriting an assets-declared ext
+ * where NO fold matched is an error — that means the fold moved somewhere this
+ * rewrite cannot see (or the package stopped folding), and a silent no-op is
+ * the failure mode the gate family exists to prevent.
+ */
+export function rewriteAssetImportMetaFolds(
+	code: string,
+	pkgs: readonly string[],
+	resolveFrom: string,
+): string {
+	let out = code;
+	let total = 0;
+	for (const pkg of pkgs) {
+		const dir = resolve(Bun.resolveSync(`${pkg}/package.json`, resolveFrom), "..");
+		// Counted from the INPUT (replaceAll gives no count): each occurrence is
+		// one import.meta.url fold this pass neutralizes.
+		const hits = code.split(`file://${dir}/`).length - 1;
+		total += hits;
+		out = out.replaceAll(`file://${dir}/`, `file:///__s2-inlined-assets/${pkg}/`);
+	}
+	if (pkgs.length > 0 && total === 0) {
+		throw new Error(
+			`rewriteAssetImportMetaFolds: expected import.meta.url fold(s) from asset package(s) [${pkgs.join(", ")}] — none found. ` +
+				`Either the packages stopped folding import.meta.url (relax this assert) or the fold shape moved (update this rewrite).`,
+		);
+	}
+	return out;
+}
+
+/**
+ * Copy deploy asset payloads — files or dirs — from their npm packages into
+ * <outDir>/<to>, verbatim.
+ *
+ * The `assets:` alternative to `vendor:` for asset-bearing deps whose CODE
+ * bundles into ext.cjs and only the PAYLOAD needs a real path at runtime
+ * (file2md's wasm OCR): no node_modules tree ships for the extension. Payloads
+ * are extracted straight from the npm-installed package (resolved through the
+ * workspace's isolated linker, dereferenced so no store symlink escapes) —
+ * byte-for-byte copies, no rebuild, no network fetch. A missing payload fails
+ * the build loudly with the fix in the message, mirroring the copy-dir gate:
+ * silently shipping a bundle whose assets were dropped ships a broken ext.
+ */
+export function copyDeployAssets(
+	assets: ReadonlyArray<{ pkg: string; from: string; to: string }>,
+	outDir: string,
+	resolveFrom: string,
+): string[] {
+	const copied: string[] = [];
+	for (const a of assets) {
+		const pkgJson = Bun.resolveSync(`${a.pkg}/package.json`, resolveFrom);
+		const src = resolve(pkgJson, "..", a.from);
+		if (!existsSync(src)) {
+			throw new Error(
+				`asset "${a.pkg}/${a.from}" not found at ${src} — payloads come verbatim from npm; ` +
+					`run \`bun install\` in bun-apps/ (via the configured npm registry/mirror), then deploy again`,
+			);
+		}
+		const dest = join(outDir, a.to);
+		mkdirSync(resolve(dest, ".."), { recursive: true });
+		cpSync(src, dest, { recursive: true, dereference: true });
+		copied.push(a.to);
+	}
+	return copied;
+}
+
+/**
  * Copy a vendored package verbatim into <outDir>/node_modules/<pkg>/.
  *
  * `dereference` matters: the workspace's isolated linker puts packages in a
@@ -529,6 +610,18 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// dynamic import cannot reach them inside a compiled binary (see the
 	// rewriteAllowedDynamicImports header — the /websearch defect).
 	built = rewriteAllowedDynamicImports(built, allExternals);
+	// ── Asset-package import.meta.url folds → dead placeholders ────────────
+	// An assets: package's JS is inlined (not vendored), and bun folds its
+	// import.meta.url to the build-machine cache path. The runtime resolves
+	// payloads EXPLICITLY, so the folded default is dead — but Gate 4 rejects
+	// any baked path. Must run before the gates read the bundle.
+	if (opts.ext.assets.length > 0) {
+		built = rewriteAssetImportMetaFolds(
+			built,
+			[...new Set(opts.ext.assets.map((a) => a.pkg))],
+			pkgDir,
+		);
+	}
 	writeFileSync(cjsPath, built);
 
 	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
@@ -577,6 +670,11 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 					exclude: opts.ext.vendorExclude,
 				})
 			: [];
+
+	// ── Asset payloads (npm files/dirs → <outDir>/<to>, code is bundled) ─────
+	// The vendor: alternative — no node_modules tree; payloads only. Runs
+	// before Gate 4 so the deploy-tree exemption covers what we just wrote.
+	const assetsCopied = copyDeployAssets(opts.ext.assets ?? [], opts.outDir, pkgDir);
 
 	// ── Gate 4: no build-machine path may survive in the bundle ──────────────
 	// Runs after vendoring so the deploy-tree exemption covers what we just
@@ -637,6 +735,7 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		hostModules: usedHostModules,
 		runtimeExternals: opts.ext.externals,
 		vendored: opts.ext.vendor,
+		assets: assetsCopied,
 		vendoredClosure: {
 			count: vendoredClosure.length,
 			// Deps intentionally not shipped: not installed or wrong platform.

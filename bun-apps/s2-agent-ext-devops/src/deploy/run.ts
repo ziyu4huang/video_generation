@@ -48,6 +48,7 @@ import {
 	scanSymlinkEscapes,
 	verifyVendoredClosure,
 	verifyVendoredCompleteness,
+	verifyAssetCompleteness,
 } from "./lib/offline-gate.ts";
 import {
 	DEFAULT_KEEP,
@@ -366,6 +367,13 @@ function verifyOfflineContainment(
 		);
 	}
 
+	const assetsMissing = verifyAssetCompleteness(tree);
+	if (assetsMissing.length > 0) {
+		problems.push(
+			`declared deploy asset(s) not shipped: ${assetsMissing.map((m) => `${m.ext}:${m.to}`).join(", ")}`,
+		);
+	}
+
 	if (opts.binaries && opts.finalTarget) {
 		for (const artifact of opts.binaries) {
 			const r = scanBinaryForeignPaths(artifact.path, opts.finalTarget);
@@ -633,6 +641,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				skills: cfgExt.skills,
 				copy: cfgExt.copy,
 				vendor: cfgExt.vendor,
+				assets: cfgExt.assets,
 				externals: cfgExt.externals,
 				vendorExclude: cfgExt.vendorExclude,
 				closure: manifest.vendoredClosure ?? { count: 0, pruned: [], excluded: [] },
