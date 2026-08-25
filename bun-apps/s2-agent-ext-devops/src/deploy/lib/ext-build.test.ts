@@ -12,7 +12,12 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { copyDeployAssets, extractBareSpecifiers, patchOfflinePackageLoader } from "./ext-build.ts";
+import {
+	copyDeployAssets,
+	extractBareSpecifiers,
+	patchOfflinePackageLoader,
+	rewriteAssetImportMetaFolds,
+} from "./ext-build.ts";
 
 describe("extractBareSpecifiers", () => {
 	test("extracts real ESM bare specifiers", () => {
@@ -141,5 +146,49 @@ describe("copyDeployAssets", () => {
 				root,
 			),
 		).toThrow(/asset "tesseract-wasm\/dist\/tesseract-core.wasm" not found.*bun install/s);
+	});
+});
+
+describe("rewriteAssetImportMetaFolds", () => {
+	// Realistic fold shape: bun's cjs output replaces import.meta.url with the
+	// package file's file:// URL inside default-asset branches. The pkg dir is
+	// RESOLVED for real (same as the build), so the fixture is a real npm tree.
+	const foldDirs: string[] = [];
+	function makeFoldTree(): { root: string; assetDir: string; otherDir: string } {
+		const root = mkdtempSync(join(tmpdir(), "sh-fold-"));
+		foldDirs.push(root);
+		const assetDir = join(root, "node_modules", "tesseract-wasm");
+		const otherDir = join(root, "node_modules", "other-pkg");
+		mkdirSync(assetDir, { recursive: true });
+		mkdirSync(otherDir, { recursive: true });
+		writeFileSync(join(assetDir, "package.json"), JSON.stringify({ name: "tesseract-wasm" }));
+		writeFileSync(join(otherDir, "package.json"), JSON.stringify({ name: "other-pkg" }));
+		return { root, assetDir, otherDir };
+	}
+	afterAll(() => {
+		for (const d of foldDirs.splice(0)) rmSync(d, { recursive: true, force: true });
+	});
+	const fold = (dir: string, file: string) => `new URL("tesseract-core.wasm","file://${dir}/${file}").href`;
+
+	test("neutralizes only the declared asset packages' folds", () => {
+		const { root, assetDir, otherDir } = makeFoldTree();
+		const code = `var a=${fold(assetDir, "dist/lib.js")};var b=${fold(otherDir, "index.js")};`;
+		const out = rewriteAssetImportMetaFolds(code, ["tesseract-wasm"], root);
+		expect(out).toContain('file:///__s2-inlined-assets/tesseract-wasm/dist/lib.js');
+		expect(out).not.toContain(assetDir);
+		// An undeclared package's fold survives — Gate 4 must still see it.
+		expect(out).toContain(otherDir);
+	});
+
+	test("throws when an assets ext has NO folds (silent no-op is the failure mode)", () => {
+		const { root } = makeFoldTree();
+		expect(() => rewriteAssetImportMetaFolds("var a=1;", ["tesseract-wasm"], root)).toThrow(
+			/expected import\.meta\.url fold\(s\)/,
+		);
+	});
+
+	test("empty pkg list is a no-op (non-assets exts)", () => {
+		const { root } = makeFoldTree();
+		expect(rewriteAssetImportMetaFolds("var a=1;", [], root)).toBe("var a=1;");
 	});
 });

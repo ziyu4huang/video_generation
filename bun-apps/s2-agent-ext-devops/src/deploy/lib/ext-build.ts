@@ -404,6 +404,51 @@ export function scanUnroutableDynamicImports(code: string): string[] {
 }
 
 /**
+ * Rewrite the `import.meta.url` folds an INLINED asset package bakes into the
+ * bundle.
+ *
+ * When bun bundles a package whose default asset resolution keys off its own
+ * location (`new URL("x.wasm", import.meta.url)`), the cjs output folds
+ * import.meta.url to `file://<build-machine-cache>/<pkg>/<file>`. For an
+ * `assets:` package that JS is deliberate — the runtime passes wasmBinary /
+ * asset URLs EXPLICITLY (see file2md src/assets.ts), so the default branch is
+ * dead code — but Gate 4 rightly rejects ANY baked machine path, dead or not
+ * (the same bundler defect could bake a live one).
+ *
+ * Each fold becomes `file:///__s2-inlined-assets/<pkg>/<file>`: still a valid
+ * URL base, never a real path. Scoped to the registry's asset packages ONLY —
+ * a fold from any other package still trips Gate 4, where a human decides.
+ *
+ * Shape-asserted per the rewrite family: rewriting an assets-declared ext
+ * where NO fold matched is an error — that means the fold moved somewhere this
+ * rewrite cannot see (or the package stopped folding), and a silent no-op is
+ * the failure mode the gate family exists to prevent.
+ */
+export function rewriteAssetImportMetaFolds(
+	code: string,
+	pkgs: readonly string[],
+	resolveFrom: string,
+): string {
+	let out = code;
+	let total = 0;
+	for (const pkg of pkgs) {
+		const dir = resolve(Bun.resolveSync(`${pkg}/package.json`, resolveFrom), "..");
+		// Counted from the INPUT (replaceAll gives no count): each occurrence is
+		// one import.meta.url fold this pass neutralizes.
+		const hits = code.split(`file://${dir}/`).length - 1;
+		total += hits;
+		out = out.replaceAll(`file://${dir}/`, `file:///__s2-inlined-assets/${pkg}/`);
+	}
+	if (pkgs.length > 0 && total === 0) {
+		throw new Error(
+			`rewriteAssetImportMetaFolds: expected import.meta.url fold(s) from asset package(s) [${pkgs.join(", ")}] — none found. ` +
+				`Either the packages stopped folding import.meta.url (relax this assert) or the fold shape moved (update this rewrite).`,
+		);
+	}
+	return out;
+}
+
+/**
  * Copy deploy asset payloads — files or dirs — from their npm packages into
  * <outDir>/<to>, verbatim.
  *
@@ -565,6 +610,18 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	// dynamic import cannot reach them inside a compiled binary (see the
 	// rewriteAllowedDynamicImports header — the /websearch defect).
 	built = rewriteAllowedDynamicImports(built, allExternals);
+	// ── Asset-package import.meta.url folds → dead placeholders ────────────
+	// An assets: package's JS is inlined (not vendored), and bun folds its
+	// import.meta.url to the build-machine cache path. The runtime resolves
+	// payloads EXPLICITLY, so the folded default is dead — but Gate 4 rejects
+	// any baked path. Must run before the gates read the bundle.
+	if (opts.ext.assets.length > 0) {
+		built = rewriteAssetImportMetaFolds(
+			built,
+			[...new Set(opts.ext.assets.map((a) => a.pkg))],
+			pkgDir,
+		);
+	}
 	writeFileSync(cjsPath, built);
 
 	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
