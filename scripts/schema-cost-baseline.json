@@ -1,15 +1,15 @@
 {
   "tools": 84,
-  "totalTokens": 26256,
+  "totalTokens": 25852,
   "builtinCount": 4,
   "extensionCount": 80,
   "errors": [],
   "toolsRanked": [
     {
       "name": "spawn_subagent",
-      "approxTokens": 1590,
+      "approxTokens": 1314,
       "descLen": 351,
-      "paramsLen": 6009,
+      "paramsLen": 4906,
       "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
@@ -51,20 +51,20 @@
       "schemaValid": true
     },
     {
-      "name": "send_message",
-      "approxTokens": 725,
-      "descLen": 771,
-      "paramsLen": 2130,
-      "source": "subagent",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "archify_export_pptx",
       "approxTokens": 635,
       "descLen": 1046,
       "paramsLen": 1494,
       "source": "archify",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "send_message",
+      "approxTokens": 620,
+      "descLen": 599,
+      "paramsLen": 1882,
+      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -222,15 +222,6 @@
       "schemaValid": true
     },
     {
-      "name": "list_subagent_runs",
-      "approxTokens": 392,
-      "descLen": 545,
-      "paramsLen": 1021,
-      "source": "subagent",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "run_local_ci",
       "approxTokens": 383,
       "descLen": 722,
@@ -254,6 +245,15 @@
       "descLen": 649,
       "paramsLen": 855,
       "source": "devops",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "list_subagent_runs",
+      "approxTokens": 369,
+      "descLen": 455,
+      "paramsLen": 1021,
+      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },

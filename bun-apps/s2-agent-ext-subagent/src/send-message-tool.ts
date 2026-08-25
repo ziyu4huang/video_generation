@@ -32,11 +32,11 @@ import { DEFAULT_TIMEOUT_MS } from "./subagent-tool-schema.js";
 export const sendMessageToolSchema = Type.Object({
   to: Type.String({
     description:
-      "Target: a live agent's `name` or `agentId` (from spawn_subagent `name`), or 'main' to address the ROOT session (a CHILD reporting up; a nested child's 'main' is the root, not its intermediate parent — the bus is process-global). From a named child, a teammate target is parent-brokered: delivered to the teammate AND surfaced to the parent.",
+      "Target: a live agent's `name` or `agentId`, or 'main' for the ROOT session (a nested child's 'main' is the root, not its intermediate parent). From a named child, a teammate target is parent-brokered: delivered to the teammate AND surfaced to the parent.",
   }),
   message: Type.String({
     description:
-      "The message text. Self-contained — a follow-up exchange, not a new task. With a protocol `type`, this carries the payload (e.g. the plan for plan_approval_request, the reason for shutdown_request).",
+      "The message text. Self-contained — a follow-up exchange, not a new task. With a protocol `type`, carries the payload (e.g. the plan, the shutdown reason).",
   }),
   type: Type.Optional(
     Type.Union(
@@ -48,7 +48,7 @@ export const sendMessageToolSchema = Type.Object({
       ],
       {
         description:
-          "Protocol envelope (ticket 04). shutdown_request: parent→child = two-stage stop (wrap-up turn, then grace-abort); child→main = notification (parent approves by stopping). plan_approval_response: parent→child resolves a pending request_plan_approval (approve:true|false, optional feedback). plan_approval_request: child→main notifies (for agents without the injected tool). shutdown_response: acknowledgment, either direction.",
+          "Protocol envelope. shutdown_request: parent→child two-stage stop (wrap-up turn, then grace-abort); child→main notification. plan_approval_response: resolves a pending request_plan_approval (approve + optional feedback). plan_approval_request / shutdown_response: child→main notifications / acknowledgment.",
       },
     ),
   ),
@@ -395,11 +395,9 @@ export function createSendMessageTool(
     name: "send_message",
     label: "SendMessage",
     description: [
-      "Send a follow-up message to a NAMED live agent (spawned with spawn_subagent `name`) and get its reply.",
-      "A mid-flight agent is steered — the message joins its current exchange and returns 'delivered' without a separate reply.",
-      "to:'main' routes a CHILD's message up to the ROOT session (a nested child's 'main' is the root, not its intermediate parent).",
-      "From inside a named child, a TEAMMATE target is parent-brokered: the message reaches the teammate AND is surfaced to the parent — no direct child→child channel (ticket 05).",
-      "Protocol `type` envelopes (ticket 04): shutdown_request (parent→child two-stage stop; child→main notification), plan_approval_response (resolves a pending request_plan_approval), plan_approval_request / shutdown_response (child→main notifications).",
+      "Send a follow-up message to a NAMED live agent (spawn_subagent `name`) and get its reply; a mid-flight agent is steered (returns 'delivered').",
+      "to:'main' routes a CHILD's message up to the ROOT session. From inside a named child, a TEAMMATE target is parent-brokered: the message reaches the teammate AND is surfaced to the parent — no direct child→child channel.",
+      "Protocol `type` envelopes: shutdown_request (parent→child two-stage stop; child→main notification), plan_approval_response (resolves a pending request_plan_approval), plan_approval_request / shutdown_response (child→main notifications).",
     ].join(" "),
     promptSnippet:
       "Follow up with a named live agent: send_message({ to: '<name|agentId>', message }) returns its reply; wait:false fires-and-forgets (reply lands as a <task-notification>); a mid-flight agent gets the message as a steer. A named child messaging a teammate goes through the parent (both see it); list_subagent_runs 'list' shows the live team roster.",

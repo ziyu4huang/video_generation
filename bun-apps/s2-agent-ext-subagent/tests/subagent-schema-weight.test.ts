@@ -15,6 +15,7 @@ const EXPECTED = [
   "timeoutMs",
   "tokenBudget",
   "spendBudget",
+  "maxTurns",
   "retryOnTransient",
   "commitScope",
   "schema",
@@ -38,10 +39,10 @@ describe("subagent tool schema — slimmed weight", () => {
     }
   });
 
-  // #1336: maxTurns must be present on BOTH tool schemas. Deliberately NOT
-  // added to EXPECTED above — the terse-description gate (<240 chars) does not
-  // hold for maxTurns (its description is 461 chars; see the review note in PR
-  // fix/subagent-maxturns-tests). Presence, optionality, and type are asserted here.
+  // #1336: maxTurns must be present on BOTH tool schemas. Since the 2026-08-25
+  // schema-cost trim its description is <240 chars, so it now also sits in
+  // EXPECTED above (the #1336-era exemption for a 461-char description no
+  // longer applies). Presence, optionality, and type stay asserted here.
   it("maxTurns is an optional integer param on BOTH the singular and plural tool schemas", () => {
     const singular = subagentToolSchema as any;
     expect(singular.properties.maxTurns).toBeDefined();

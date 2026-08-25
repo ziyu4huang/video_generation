@@ -115,6 +115,13 @@ export interface SubagentToolDetails {
  */
 export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 
+// Schema descriptions are per-request API cost (scripts/schema-cost-baseline.json):
+// the singular subagent tool is the biggest single tool in the repo (~1590 tok).
+// Keep descriptions terse (<240 chars, gated by tests/subagent-schema-weight.test.ts);
+// rationale/evidence prose belongs in ADRs/docs, not the wire schema. Every
+// semantic constraint and the test-pinned phrases ("NO access to this session's
+// history", "only pass a model you know is configured", "never auto-reverts",
+// "non-recoverable") survive any trim.
 export const subagentToolSchema = Type.Object({
   agent: Type.Optional(
     Type.String({
@@ -124,20 +131,20 @@ export const subagentToolSchema = Type.Object({
   name: Type.Optional(
     Type.String({
       description:
-        "Keep this agent LIVE after it reports back: its session survives completion so you can send follow-up messages later by this handle via send_message (steers a mid-flight agent, re-prompts an idle one; 'main' addresses the parent). Unique among live agents; 'main' reserved. Budgets apply over the agent's whole lifetime, not per dispatch. Incompatible with schema/worktree isolation; no transient retry.",
+        "Keep this agent LIVE after it reports back so you can follow up by this handle via send_message. Unique; 'main' reserved. Budgets apply over its whole lifetime. Incompatible with schema/worktree isolation; no transient retry.",
     }),
   ),
   agentType: Type.Optional(
     Type.String({
       minLength: 1,
       description:
-        "Named agent def (.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation; built-in 'explore'/'plan' need no setup, user files shadow them. Explicit model/tools/excludeTools override the binding. Empty string is invalid.",
+        "Named agent def (.pi/agents/<name>.md) binding tools/model/prompt/worktree-isolation; built-in 'explore'/'plan' need no setup. Explicit model/tools/excludeTools override it. Empty string is invalid.",
     }),
   ),
   fork: Type.Optional(
     Type.Boolean({
       description:
-        "Inherit THIS session's conversation as context (Claude Code fork semantics): the parent transcript (compaction-aware, char-capped) is prepended to the child's prompt as a context-only block. Background by default; the `task` is still the child's job. Not combinable with `name` or `agentType`; a fork child cannot fork again. Divergence: prompt-borne transcript, not a session continuation.",
+        "Inherit THIS session's conversation as context: the parent transcript (compaction-aware, char-capped) is prepended to the child's prompt. Background by default. Not combinable with `name`/`agentType`; a fork child cannot fork again.",
     }),
   ),
   task: Type.String({
@@ -147,13 +154,13 @@ export const subagentToolSchema = Type.Object({
   context: Type.Optional(
     Type.Union([Type.Literal("full"), Type.Literal("minimal"), Type.Literal("none")], {
       description:
-        "Startup-context block prefixed to the spawned task (the CLAUDE.md hierarchy is inherited regardless): 'full' = git branch/HEAD/status snapshot + sibling roster (default); 'minimal' = branch + HEAD only; 'none' = no block.",
+        "Startup-context block prefixed to the task (CLAUDE.md hierarchy inherited regardless): 'full' = git snapshot + sibling roster (default); 'minimal' = branch + HEAD; 'none' = none.",
     }),
   ),
   model: Type.Optional(
     Type.String({
       description:
-        "Model override `provider/model-id`. Prefer omitting (uses the session's current model) or set `tier`; an unauthed id warns and falls back — only pass a model you know is configured.",
+        "Model override `provider/model-id`. Prefer omitting (session model) or `tier`; an unauthed id warns and falls back — only pass a model you know is configured.",
     }),
   ),
   tier: Type.Optional(
@@ -165,7 +172,7 @@ export const subagentToolSchema = Type.Object({
   capability: Type.Optional(
     Type.String({
       description:
-        "Model capability for the child (e.g. 'vision'), resolved from the capabilities map in the model-tiers config. Omit to inherit the session's current model. Precedence: model > capability > tier.",
+        "Model capability (e.g. 'vision') from the model-tiers capabilities map. Precedence: model > capability > tier.",
     }),
   ),
   cwd: Type.Optional(Type.String({ description: "Child working directory (defaults to parent session cwd)." })),
@@ -195,7 +202,7 @@ export const subagentToolSchema = Type.Object({
   requiredTools: Type.Optional(
     Type.Array(Type.String(), {
       description:
-        "Tools this task NEEDS (e.g. ['memory']). Before spawn, aborts if any is absent from the child's allowlist (tools) or denied by excludeTools — prevents impossible-task over-engineering that burns runaway tokens.",
+        "Tools this task NEEDS. Aborts pre-spawn if any is absent from the allowlist or denied by excludeTools — prevents impossible-task runaway token burn.",
     }),
   ),
   timeoutMs: Type.Optional(
@@ -206,7 +213,7 @@ export const subagentToolSchema = Type.Object({
   tokenBudget: Type.Optional(
     Type.Number({
       description:
-        "Abort once cumulative token usage exceeds this (bounds a looping child timeoutMs can't catch; per-turn check, may overshoot one turn; non-recoverable).",
+        "Abort once cumulative token usage exceeds this (catches a looping child; per-turn check, may overshoot one turn; non-recoverable).",
     }),
   ),
   spendBudget: Type.Optional(
@@ -218,7 +225,7 @@ export const subagentToolSchema = Type.Object({
     Type.Integer({
       minimum: 1,
       description:
-        "Turn-count governor complementing tokenBudget: cap the child at N turns (integer >= 1, no default). Each turn re-pays ~10k+ tokens of fixed overhead (system prompt + AGENTS.md + tool schemas), so turn count dominates cost for bounded tasks (2026-08-14 evidence: same task as 6 command groups = 60-69k tokens vs one single-block dispatch = 13.5k). Exceeding the cap hard-aborts with timeout-like semantics (transient, retried once when retryOnTransient is true).",
+        "Cap the child at N turns (integer >= 1, no default). Turn count dominates cost for bounded tasks (each turn re-pays ~10k+ tokens of fixed overhead). Exceeding hard-aborts, timeout-like semantics (retried once under retryOnTransient).",
     }),
   ),
   retryOnTransient: Type.Optional(
@@ -229,13 +236,13 @@ export const subagentToolSchema = Type.Object({
   commitScope: Type.Optional(
     Type.Array(Type.String(), {
       description:
-        "Commit-path allowlist (prefix-matched). After the run, flags any committed path outside this scope as a ⚠ violation (detection only, never auto-reverts; best-effort). Use [] to flag any commit. Ignored for worktree-isolated runs.",
+        "Commit-path allowlist (prefix-matched); after the run, committed paths outside it are flagged ⚠ (detection only, never auto-reverts). [] flags any commit. Ignored for worktree-isolated runs.",
     }),
   ),
   retryCircuitBreak: Type.Optional(
     Type.Integer({
       description:
-        "Circuit-break this dispatch BEFORE spawn when the same task has already failed this many consecutive times with the same error (within 10 min). Default 2. Counts completed dispatch outcomes (not the in-dispatch retryOnTransient retry). Set 0 to disable.",
+        "Skip this dispatch BEFORE spawn when the same task failed this many consecutive times with the same error (within 10 min). Default 2; 0 disables.",
     }),
   ),
   schema: Type.Optional(
@@ -246,14 +253,13 @@ export const subagentToolSchema = Type.Object({
   ),
   schemaRepairAttempts: Type.Optional(
     Type.Number({
-      description:
-        "Max repair re-prompts when the child returns prose instead of structured_output (default 2). Bump for models that emit structured output unreliably.",
+      description: "Max repair re-prompts when the child returns prose instead of structured_output (default 2).",
     }),
   ),
   background: Type.Optional(
     Type.Boolean({
       description:
-        "Dispatch to background: returns immediately with the run id; the run continues in-process and a <task-notification> follow-up message reports completion. Poll/block via list_subagent_runs action 'wait'; stop via action 'stop'.",
+        "Returns immediately with the run id; completion arrives via a <task-notification>. Poll/block via list_subagent_runs action 'wait'; stop via action 'stop'.",
     }),
   ),
 });
