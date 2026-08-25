@@ -189,7 +189,7 @@ How it works:
 To run it on a pose set:
 
 ```bash
-bun-apps/s2-agent/run.sh -e workflow -p \
+bun-apps/s2-agent/run.sh -p \
   "read bun-apps/s2-agent-ext-flux2/workflows/test-flux2-e2e.js and execute it via the workflow tool (background:false), passing args.poses = the L3+L4 entries of bun-apps/s2-agent-ext-flux2/workflows/poses.json"
 ```
 

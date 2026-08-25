@@ -2,9 +2,10 @@
  * workflow-pack.ts — the shared workflow-pack resolver + orchestration.
  *
  * This is the SINGLE source of truth for resolving a workflow `<name>` (or path)
- * to runnable script text, shared by BOTH entry paths:
- *   - Path A: `s2-agent cli workflow run <name>` (headless CLI meta-command)
- *   - Path B: the `workflow` tool's `name` parameter (interactive TUI session)
+ * to runnable script text, consumed by the `workflow` tool's `name` parameter —
+ * the single entry path since the `s2-agent cli workflow run` meta-command was
+ * removed (2026-08-25, round-2 t02 #2015; the extension is static-loaded/
+ * built-in, so no `-e` flag is involved either).
  *
  * Resolution order (first hit wins):
  *   1. `<name>` as a literal path (absolute, or relative to cwd) when it exists.

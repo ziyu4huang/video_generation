@@ -542,8 +542,9 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       // the session model as `ctx.model: Model<any> | undefined` (see
       // pi-coding-agent core/extensions/types.d.ts). The governing spec is
       // forwarded so callers can see which model a background run inherits; the
-      // label `modelSource` is always emitted so Path B is distinguishable from
-      // Path A (cli `workflow run`, whose --model flag outranks the manifest).
+      // label `modelSource` is always emitted for observability (it used to
+      // distinguish the tool path from the removed Path A CLI, whose --model
+      // flag outranked the manifest).
       const sessionModelId = (ctx as { model?: { id?: string } } | undefined)?.model?.id;
       const governingModel = manifestModel ?? sessionModelId;
       const modelSource = manifestModel ? "manifest" : "session";

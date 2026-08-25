@@ -32,7 +32,7 @@ thresholds.
 bash bun-apps/s2-agent/scripts/run-ext-e2e.sh krea2
 
 # or directly via the workflow tool:
-bun-apps/s2-agent/run.sh -e workflow -p \
+bun-apps/s2-agent/run.sh -p \
   "read bun-apps/s2-agent-ext-krea2/workflows/test-krea2-e2e.js and execute it via the workflow tool (background:false)"
 ```
 
@@ -41,7 +41,7 @@ Opt-in — it spends LLM tokens and is non-deterministic, so it is NOT part of C
 
 ## Why the workflow drives the CLI, not the `krea2` tool
 
-Under `-e workflow`, subagents get `createCodingTools` (bash/read/...) — they do NOT
+Inside the workflow (built-in extension, no `-e` flag), subagents get `createCodingTools` (bash/read/...) — they do NOT
 inherit the parent's registered `krea2` tool. So the workflow exercises the same CLI
 surface the tool forwards to, via bash. The tool's own TS logic is L0's job.
 

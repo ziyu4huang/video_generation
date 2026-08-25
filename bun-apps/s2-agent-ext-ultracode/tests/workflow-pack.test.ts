@@ -15,7 +15,8 @@ import {
 
 /**
  * workflow-pack — the shared resolver + orchestration (single source of truth
- * for both the CLI `workflow run` path and the `workflow` tool `name` path).
+ * for the `workflow` tool `name` path — the sole entry path since the CLI
+ * `workflow run` meta-command was removed 2026-08-25, round-2 t02).
  *
  * These tests exercise the pure pieces (script + pack resolution, args/model
  * precedence, enumeration) and one headless smoke run with a stub agent (no LLM,

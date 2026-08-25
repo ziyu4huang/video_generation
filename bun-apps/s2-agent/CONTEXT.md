@@ -158,9 +158,10 @@ LLM. The structural exception to "every command is an agent run."
 _Avoid_: conflating with agent command (it is NOT one)
 
 **Workflow pack**:
-A folder of `manifest.json` + an entry workflow script, run headless by the
-workflow sub-command (`workflow run <name|path>`) via `runWorkflow()` — a
-dispatch branch, NOT an extension: no factory, no agent session, no session
+A folder of `manifest.json` + an entry workflow script, run headless via
+`runWorkflow()` by the built-in `workflow` tool's `name` param (the former
+`workflow run` CLI sub-command was removed 2026-08-25, round-2 t02) —
+NOT an extension: no factory, no agent session, no session
 tools. Its folder+manifest shape echoes a pi extension folder, but it is not
 loaded via `-e` and ADR 0001 never applies to it. Named resolution lives under
 `PWD/.pi/workflows/` (the project engine dir) + `bun-apps/<pkg>/workflows/`; a
@@ -170,8 +171,8 @@ Claude Code's Workflow-tool dir and is NOT name-resolved here.
 _Avoid_: "extension" / "headless pack-extension" (deprecated ADR 0007 term —
 a pack is not an extension); "loaded via `-e`"
 
-**Workflow-pack resolution precedence**: the order `workflow run <name>` looks
-for a pack — absolute path → `<cwd>/workflows` → `<binDir>/workflows` → repo
+**Workflow-pack resolution precedence**: the order the `workflow` tool resolves
+`<name>` to a pack — absolute path → `<cwd>/workflows` → `<binDir>/workflows` → repo
 `.pi/workflows` → repo `bun-apps/<pkg>/workflows`. "Most local wins": cwd-local
 and binary-bundled packs shadow repo packs. See ADR 0008.
 
