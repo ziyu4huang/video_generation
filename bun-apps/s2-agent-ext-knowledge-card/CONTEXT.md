@@ -72,6 +72,10 @@ _Avoid_: query modes, read modes
 The hub's direct no-LLM surface — wrapping `src/retrieve.ts` with no subagent, no model, no network. A cheaper fast read/audit path than the `zk_*` tools.
 _Avoid_: lite tools, helpers (they are first-class deterministic tools, not utilities)
 
+**Card lane** (`hierarchicalRetrieve`):
+The zettel retrieval module of the hierarchy port (`src/hierarchical-retrieval.ts` — KNN+FTS seeds, γ-propagation BFS). Upstream OpenViking's `HierarchicalRetriever` (`openviking/retrieve/hierarchical_retriever.py`) is NOT this module despite the shared name — it is the resource-tier recursive search, whose kcard counterpart is `resourceRecursiveQuery` (Resource tier below). See `.planning/specs/2026-08-25-openviking-naming-alignment-audit.md` A1.
+_Avoid_: mapping upstream `HierarchicalRetriever` onto this module (same name, different concept — the upstream analog is `resourceRecursiveQuery`)
+
 ### Architecture
 
 **Task builder** (`buildDistillTask` / `buildAddTask` / …):
@@ -117,6 +121,10 @@ Effort 2026-08-16-leanrag-hierarchy-port. `KnowledgePipeline.buildHierarchy` sea
 ## Resource tier (document-tree L0/L1/L2)
 
 Effort 2026-08-25-kcard-resource-tier. A second knowledge unit alongside zettel cards: whole markdown trees (file2md output) indexed per file/directory in the `resource` table of `context_db`, retrieved via `resource-ingest` / `resource-query` (CLI-only by D9 — the recursive lane failed its eval gate on a single-directory corpus and is opt-in `--mode recursive`).
+
+**Resource tier levels** (L0/L1/L2):
+"Tier" in this section means the L0/L1/L2 LEVELS of a resource tree (`--tier 0|1|2`, `RetrieveOptions.tier`) — NOT the card lane's tier-ladder (`src/tier-ladder.ts`, per-card demote-not-truncate), which predates this effort. One word, two concepts; see `.planning/specs/2026-08-25-openviking-naming-alignment-audit.md` A3. (Upstream's `openviking/resource/` package is watch/source management, not this layer — audit A2.)
+_Avoid_: tier-ladder, card tiers (those belong to the zettel lane's per-card demotion ladder)
 
 **Resource row**:
 One file or directory row in the `resource` table — `uri` (tree-relative), `level` (0|1|2), `name`, `abstract`, `vec`, `parent`, keyed by sha256(tree+uri) with its own fingerprint (`resource_meta`). The document-tree analog of a zettel card, but derived, not curated.
