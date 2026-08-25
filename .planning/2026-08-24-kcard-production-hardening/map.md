@@ -60,5 +60,6 @@ Measured 2026-08-24 on this machine unless noted.
 ## Cross-effort links
 
 - `Builds-on: 2026-08-23-kcard-openviking-parity` — Core-5 + harnesses + D41 automation all landed there (ticket 10 collapse birthed this effort's spec); its D-numbers stay citable here.
+- `Completed-by: 2026-08-25-kcard-resource-tier` — that effort reused this one's fingerprint freshness gate + shadow-rebuild automation for its `resource` table (per-tree resource_meta / resource_shadow) and closed complete 2026-08-25 (its D9 keeps the recursive lane CLI-only).
 - `Builds-on: 2026-08-22-context-lifecycle` — D3 embed canonical; its ticket-08 auto-recall injector feeds the 03 ledger (and is 03's external dependency).
 - `Shares-decision-with: 2026-08-08-knowledge-pipeline` — D03 scale triggers adjudicated in ticket 04; D04/D05 SurrealDB stance instantiated for kcard by parity D2.

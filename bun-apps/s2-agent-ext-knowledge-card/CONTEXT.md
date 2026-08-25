@@ -113,3 +113,35 @@ _Avoid:_ config, settings (it is the distill run-state + threshold + history).
 Effort 2026-08-16-leanrag-hierarchy-port. `KnowledgePipeline.buildHierarchy` seam method drives `src/hierarchy.ts`'s pure core (deterministic cosine clustering, budget-gated buildLayer, per-layer checkpoints, parentChain) over kbDir cards; nodes materialize as derived-aggregation MOC cards (T2 regen-able, heal-pruned). Retrieval auto-expands: lineage-matched node summaries appended post-ranking (≤3, layer-desc, viaTree) — ranking stays authoritative; no tree → byte-identical. Config: `HIERARCHY_DEFAULTS` + `layerBudgetOf` (base>>depth, floor 1200) in zk-task-config; hermes fires the build post-ingest (fire-and-forget, `hierarchyEnabled` knob, PI_HIERARCHY_DISABLED env). D4 injected callables / D5 deterministic clustering (no GMM/UMAP) / D6 token-budget gating — see the effort map.
 
 - Mirrors-must-hoist (2026-08-17): cross-package leaf duplication hoists to @repo/s2-agent-core-interface (see embedding-leaf.ts) — never copy.
+
+## Resource tier (document-tree L0/L1/L2)
+
+Effort 2026-08-25-kcard-resource-tier. A second knowledge unit alongside zettel cards: whole markdown trees (file2md output) indexed per file/directory in the `resource` table of `context_db`, retrieved via `resource-ingest` / `resource-query` (CLI-only by D9 — the recursive lane failed its eval gate on a single-directory corpus and is opt-in `--mode recursive`).
+
+**Resource row**:
+One file or directory row in the `resource` table — `uri` (tree-relative), `level` (0|1|2), `name`, `abstract`, `vec`, `parent`, keyed by sha256(tree+uri) with its own fingerprint (`resource_meta`). The document-tree analog of a zettel card, but derived, not curated.
+_Avoid_: card, document, entry (cards are hand-curated zettels; resource rows are tree-derived and rebuildable)
+
+**Resource tree**:
+One ingested markdown tree — L2 file rows plus generated L0/L1 tier rows, discriminated by the tree slug, rebuildable from the tree alone (content-hash fingerprint gates shadow rebuild + swap).
+_Avoid_: corpus, vault, index (the vault is the Obsidian vault; a resource tree is a derived, regenerable projection)
+
+**L0 abstract**:
+The directory-level top tier — ONE `.abstract.md` sidecar per directory, EXTRACTED from the L1 overview's first paragraph (never a second LLM call).
+_Avoid_: summary, TL;DR, description (it is a specific extracted tier artifact, not a generic summary)
+
+**L1 overview**:
+The directory-level middle tier — ONE `.overview.md` sidecar per directory, generated bottom-up by a single LLM call over deterministically sampled child abstracts + child-dir L0s (32-sample bound on the 839-child corpus).
+_Avoid_: digest, MOC, TOC (a MOC indexes zettels; an overview summarizes a directory's children)
+
+**L2 file row**:
+The per-file leaf tier — embeds title + first ~1000 body chars, abstract is the deterministic first sentence; NO per-file LLM call (token economics: 839 pages × LLM is what the tier system exists to avoid).
+_Avoid_: page card, generic card, leaf card (generic cards are zettel cards from `zk_ingest --source generic`; L2 rows are resource-tier leaves)
+
+**Tier sidecars**:
+The `.abstract.md` / `.overview.md` files written INTO the source tree (OKF convention: `generated_by` + `freshness` frontmatter) — regenerable artifacts, human-browsable in Obsidian; the DB re-derives from them. The source tree is canonical; SurrealDB rows are derived.
+_Avoid_: cache, metadata files, dotfiles (they are tier artifacts of the canonical tree, and the walk excludes them from L2)
+
+**Trajectory**:
+The recursive lane's per-hit provenance — the ordered sidecar chain that produced the hit (`seed dir → … → file`), carried on every recursive result.
+_Avoid_: path, provenance (the uri is the path; the trajectory is the descent record that found it)

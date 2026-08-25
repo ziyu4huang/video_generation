@@ -81,6 +81,7 @@ Measured 2026-08-23 in this worktree unless noted.
 ## Cross-effort links
 
 - `Absorbed-by: 2026-08-24-kcard-production-hardening` — ticket 10 collapse (2026-08-24): the standing fold-backs + the #1976 perf incident became that effort's ticket queue; this map's D1–D41 remain the citable decision record.
+- `Completed-by: 2026-08-25-kcard-resource-tier` — this effort's two remaining upstream gaps (directory-level LLM L0/L1 tiers + document-tree ingestion) were built and closed there (2026-08-25, tickets 01–05); its eval gate FAILED the recursive lane on the single-dir USB4 corpus (its D9), so retrieval surfaces stay as this map shipped them.
 - `Builds-on: 2026-08-22-context-lifecycle` — D0 breaking scope, D3 embed canonical, D5/D6 deterministic retrieval, D8 bounded feedback; its ticket 08 auto-recall consumes our retrieval surface.
 - `Builds-on: 2026-08-08-knowledge-pipeline` — D04 chose SurrealDB as the vector store; D05 tier classification is what D2 here instantiates for kcard.
 - `Shares-decision-with: 2026-08-16-hermes-leanrag-simplify` — D1 SurrealDB-vs-sqlite default tension resolved here: this effort's D7 (ticket 01, 2026-08-23) executes the flip leanrag D1 specified; sqlite stays its backup.
