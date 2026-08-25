@@ -26,6 +26,33 @@
  * constructor options.
  */
 
+/** Strip unpaired UTF-16 surrogates from text bound for a SurrealQL literal.
+ *  JSON.stringify emits a lone surrogate as a `\uD800`-style escape that
+ *  SurrealDB's parser rejects ("unicode escape character is not a valid
+ *  unicode character"); the LET-vars path below is reachable with user query
+ *  text (kcard fsGrep q / hierarchicalRetrieve tokens), so the strip lives
+ *  centrally here. Same semantics as knowledge-card's surreal-index.ts copy
+ *  (PR #2050) — core-interface must not import the ext package, hence this
+ *  local twin. Valid pairs pass through untouched. */
+function stripLoneSurrogates(s: string): string {
+  return s.replace(/[\uD800-\uDBFF](?:[\uDC00-\uDFFF])?|[\uDC00-\uDFFF]/g, (m) =>
+    m.length === 2 ? m : "",
+  );
+}
+
+/** Encode a LET var value: JSON (the valid SurrealQL literal subset) with
+ *  lone surrogates stripped from TOP-LEVEL strings and FLAT string arrays
+ *  only — objects and nested structures pass through as plain JSON,
+ *  unstripped (no current caller passes object params; the header's object
+ *  support is unchanged for them, byte-identical to the old stringify). */
+function encodeLetValue(v: unknown): string {
+  if (typeof v === "string") return JSON.stringify(stripLoneSurrogates(v));
+  if (Array.isArray(v)) {
+    return JSON.stringify(v.map((x) => (typeof x === "string" ? stripLoneSurrogates(x) : x)));
+  }
+  return JSON.stringify(v);
+}
+
 /** Structural fetch contract — deliberately NOT `typeof fetch`, for the same
  *  reason as embedding-leaf's FetchLike: this file is compiled by consumers
  *  whose tsconfigs run DOM-less (lib:["ESNext"] `Response` lacks
@@ -127,7 +154,7 @@ export class SurrealClient {
 
   private buildBody(sql: string, params: Record<string, unknown>): string {
     const lets = Object.entries(params)
-      .map(([k, v]) => `LET $${k} = ${JSON.stringify(v)};`)
+      .map(([k, v]) => `LET $${k} = ${encodeLetValue(v)};`)
       .join("\n");
     return lets.length > 0 ? `${lets}\n${sql}` : sql;
   }
