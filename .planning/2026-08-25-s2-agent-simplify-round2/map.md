@@ -113,7 +113,7 @@ Ticket 05 — no blocker; every seam is file:line-verified in Context, the ext-d
 ## Fog of war
 
 - **Engine-side live docs still cite the removed "Path A" CLI** (ext-ultracode CONTEXT.md:32, PRD.md:26,62,98, workflow-pack.ts:6 header) — reviewer finding on ticket 02; the engine package is deliberately out of this effort's scope, so a future engine-side effort must own the doc fix (CONTEXT.md Path-A sentence is factually wrong as of 2026-08-25).
-- ext-doctor.ts:32 repo-root copy uses `PI_AGENT_DIR` (not PI_CODING_AGENT_DIR) — deliberate or drift is UNMEASURED; ticket 05 verifies before migrating.
+- ext-doctor.ts:32 repo-root copy uses `PI_AGENT_DIR` (not PI_CODING_AGENT_DIR) — deliberate or drift is UNMEASURED; ticket 05 verifies before migrating. **RESOLVED 2026-08-25 ticket 05: legacy package-dir NAME, not drift — kept (verdict comment at the const; see ticket 05 Outcome).**
 - movie-director `/movie` runs may journal outside `~/.pi/workflows/projects` (no produce-video/review-cut run logs found despite 2,179 movie tool calls) — UNVERIFIED; only matters if option C or REMOVE is ever revisited.
 - Ultracode's exact schema-token share inside the 83-tool/25,641-token aggregate baseline is UNMEASURED (baseline is aggregate); measurable if option C is chosen.
 - `--no-session` parsed global with zero readers (round-1 fog, still open) — candidate for the next flag audit, not ticketed here.

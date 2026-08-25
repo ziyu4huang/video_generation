@@ -45,7 +45,8 @@ const url = import.meta.url;
 // round-2 ticket 05 — was a fixed three-level resolve). bun-apps/ IS the Bun
 // workspace root (package.json + bun.lock + bunfig.toml live here), so
 // `bun install` must run there — NOT at the repo root. No bun-apps ancestor ⇒
-// not a source checkout (deploy layouts bake deps) — nothing to heal.
+// an exotic partial tree run.sh's source gate didn't cover (real deploy
+// layouts never invoke check-deps at all) — nothing to heal.
 const repoRoot = findRepoRoot(dirname(fileURLToPath(url)));
 if (repoRoot === undefined) process.exit(0);
 const bunAppsDir = join(repoRoot, "bun-apps");

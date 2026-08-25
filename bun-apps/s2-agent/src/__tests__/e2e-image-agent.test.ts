@@ -27,11 +27,12 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test, expect } from "bun:test";
 import { PI_AGENT_DIR, REPO_ROOT } from "./e2e-harness.ts";
+import { envFlag } from "../env-flag.ts";
 
-const truthy = (v: string | undefined) => v === "1" || v === "true" || v === "yes";
-
-/** Fires only when the operator explicitly opts in. */
-export const IMAGE_E2E_ENABLED = truthy(process.env.PI_AGENT_E2E_IMAGE);
+/** Fires only when the operator explicitly opts in.
+ *  envFlag (round-2 ticket 05 review) — was a fourth case-sensitive "1"|"true"
+ *  |"yes" hand-roll the chart's ×3 census missed. */
+export const IMAGE_E2E_ENABLED = envFlag("PI_AGENT_E2E_IMAGE", false);
 
 /**
  * Model id. DEFAULT (since 2026-08-24): deepseek/deepseek-v4-flash-vision-exp —

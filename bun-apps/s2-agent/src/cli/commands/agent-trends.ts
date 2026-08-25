@@ -115,7 +115,7 @@ function loadContextWindows(): Map<string, number> {
 
 /** Live worktree roots, main worktree first. Empty on any failure. */
 function listWorktrees(cwd: string): string[] {
-	return (gitLines(cwd, ["-C", cwd, "worktree", "list", "--porcelain"]) ?? [])
+	return (gitLines(cwd, ["worktree", "list", "--porcelain"]) ?? [])
 		.filter((l) => l.startsWith("worktree "))
 		.map((l) => l.slice("worktree ".length).trim())
 		.filter(Boolean);

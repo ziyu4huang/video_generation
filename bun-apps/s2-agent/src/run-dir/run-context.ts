@@ -12,13 +12,13 @@
  * src/mode.ts was created to centralize.
  *
  * `import.meta.url` MUST stay meaningful here: in source mode resolveBunAppsDir
- * walks up three levels from this file's own directory (src/run-dir/ → src/ →
- * s2-agent/ → bun-apps/), which is correct only while this module lives in
- * run-dir/ below src/. The compiled binary never asks — it
- * resolves nothing from the repo — so source is the only case left to serve.
- * Bundle mode used to read baked constants from src/generated/run-dir-base.ts
- * for exactly this reason; both the mode and that generated file went in
- * Phase 1b (see the header of resolve.ts).
+ * marker-walks up from this file's own directory to the nearest ancestor
+ * containing bun-apps/ (the shared findRepoRoot leaf), so the walk needs this
+ * module to actually live somewhere under the repo. The compiled binary never
+ * asks — it resolves nothing from the repo — so source is the only case left
+ * to serve. Bundle mode used to read baked constants from
+ * src/generated/run-dir-base.ts for exactly this reason; both the mode and
+ * that generated file went in Phase 1b (see the header of resolve.ts).
  */
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

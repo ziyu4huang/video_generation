@@ -5,9 +5,11 @@
  * `pipeline-gate.changedFilesSinceBase` and `agent-trends.listWorktrees` each
  * carried a private Bun.spawnSync(["git", …]) + exitCode→stdout-lines block.
  * One helper now; failure POLICY stays at the call sites — null means the spawn
- * failed (non-zero exit, empty stdout, or a throw): callers that treat failure
+ * failed (non-zero exit, absent stdout, or a throw): callers that treat failure
  * as "empty" do `?? []`, callers that must distinguish "git error" from "no
- * changes" (pipeline-gate's gate rows) check for null.
+ * changes" (pipeline-gate's gate rows) check for null. A SUCCESSFUL spawn with
+ * empty output returns [] — an empty piped stdout is a truthy empty Buffer, so
+ * it never lands in the null branch.
  *
  * LEAF: node builtins + the Bun global only — import-light by construction
  * (round-1 D6); lives in the cli namespace so it never enters the cli-sh bundle.
