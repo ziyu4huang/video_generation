@@ -20,6 +20,17 @@ may have fixed some (verify count before editing).
 
 ## Acceptance criteria
 
-- [ ] `grep -rln "bun-apps/docs/adr/INDEX.md" bun-apps` returns 0 (receipt)
-- [ ] `bun run test:adr` (from bun-apps/) green — the citation guard must accept the new pointer
+- [x] `grep -rln "bun-apps/docs/adr/INDEX.md" bun-apps` returns 0 (receipt)
+- [x] `bun run test:adr` (from bun-apps/) green — the citation guard must accept the new pointer
 - [ ] No version bumps; merged via devops chain; reviewer pass
+
+## Outcome (2026-08-25)
+
+- Re-grep at execution: count still 35 (no sibling fixes) — subagent 9,
+  superpowers 7, wayfind 6, tool-gate 5, ultracode 4, core-runtime/archify/
+  hermes-memory/task 1 each; 35/35 replaced, residual grep = 0.
+- NOTE: the actual on-disk form was backticked (`Index: \`bun-apps/…\``) —
+  the ticket's Scope block showed it unbackticked; replacement used the t09
+  byte-identical precedent `Index: repo-root \`CONTEXT-MAP.md\``.
+- `bun run test:adr` 17/17 green; format byte-identical to s2-agent's 8
+  (head -1 comparison receipt). No version bumps.

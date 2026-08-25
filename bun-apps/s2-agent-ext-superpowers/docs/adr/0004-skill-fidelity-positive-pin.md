@@ -1,4 +1,4 @@
-**ID:** `ADR-superpowers-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-superpowers-0004` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # Skill fidelity is guarded by a positive content pin, not a denylist
 

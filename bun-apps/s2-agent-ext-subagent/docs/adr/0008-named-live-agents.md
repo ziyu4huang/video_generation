@@ -1,4 +1,4 @@
-**ID:** `ADR-subagent-0008` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-subagent-0008` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # 0008 — Named live agents retain in-process child sessions; budgets aggregate over the agent's lifetime
 

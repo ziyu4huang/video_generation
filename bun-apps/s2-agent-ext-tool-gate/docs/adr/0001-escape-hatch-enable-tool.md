@@ -1,4 +1,4 @@
-**ID:** `ADR-tool-gate-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-tool-gate-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR-0001: Escape hatch (`enable_tool`) for dormant gated tools
 

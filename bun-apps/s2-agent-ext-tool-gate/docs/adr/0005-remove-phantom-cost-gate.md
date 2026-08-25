@@ -1,4 +1,4 @@
-**ID:** `ADR-tool-gate-0005` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-tool-gate-0005` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR-0005: Remove the phantom `cost` gate
 

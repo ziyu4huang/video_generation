@@ -1,4 +1,4 @@
-**ID:** `ADR-s2-agent-core-runtime-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-s2-agent-core-runtime-0001` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR 0001 — RunView: destructive convergence of the run read surface
 

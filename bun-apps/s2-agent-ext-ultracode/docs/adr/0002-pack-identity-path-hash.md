@@ -1,4 +1,4 @@
-**ID:** `ADR-ultracode-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-ultracode-0002` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # Pack identity is a path-resolved hash, version-INDEPENDENT
 

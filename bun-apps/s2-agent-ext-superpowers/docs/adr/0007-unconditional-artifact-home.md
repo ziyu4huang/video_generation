@@ -1,4 +1,4 @@
-**ID:** `ADR-superpowers-0007` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-superpowers-0007` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR-0007: Unconditional artifact home — never write to upstream paths
 

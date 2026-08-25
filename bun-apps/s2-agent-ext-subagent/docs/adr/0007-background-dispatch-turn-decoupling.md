@@ -1,4 +1,4 @@
-**ID:** `ADR-subagent-0007` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-subagent-0007` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # 0007 — Background dispatch decouples the child run from the parent turn
 
