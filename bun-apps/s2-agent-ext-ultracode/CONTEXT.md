@@ -183,8 +183,8 @@ parsed-but-ignored, `ToolSearch` is absent from this package)
 Each `agent()` call opens a **fresh in-memory session**
 (`SessionManager.inMemory()`), not a continuation of any parent session. This is
 what makes each call a journaled, resumable, deterministic atom — sharing session
-state across agents would break resume. The CLI (`workflow run`) passes only a
-model string + `cwd`; the extension path (`/workflows`) additionally threads the
+state across agents would break resume. The extension path (`/workflows`) threads a
+model string + `cwd`, and additionally the
 parent's extension tool definitions + model string, but the child session is still
 newly constructed. Connection objects are never shared; only the config files are.
 _Avoid_: "child reuses the parent's connection" (it reuses the parent's *config*,

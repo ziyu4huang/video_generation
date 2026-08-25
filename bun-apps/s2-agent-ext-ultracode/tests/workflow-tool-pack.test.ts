@@ -412,9 +412,9 @@ describe("workflow tool — `name` (pack resolution)", () => {
   });
 
   // D3-2 — Path B (the `workflow` tool) does NOT thread persistLogs / runsDir /
-  // outDir into the manager. This is an intentional asymmetry with Path A
-  // (`runWorkflowScript`, the CLI `workflow run` path), which owns those fields
-  // and passes them to the engine. Path B builds an options object of only
+  // outDir into the manager. This was an intentional asymmetry with Path A
+  // (`runWorkflowScript`, the CLI `workflow run` path — removed 2026-08-25),
+  // which owned those fields and passed them to the engine. Path B builds an options object of only
   // { maxAgents, concurrency, agentRetries, agentTimeoutMs, tokenBudget } so the
   // engine defaults take effect. Pin the omission so a divergence (accidentally
   // forwarding persistLogs=false from the tool, or runsDir from a pack manifest)

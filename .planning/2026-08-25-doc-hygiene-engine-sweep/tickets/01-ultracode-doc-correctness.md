@@ -26,7 +26,25 @@ Source: map Context (15 `-e` sites + 5 Path-A sites + knowledge-distill.js:28).
 - [x] All 15 `-e` sites fixed or per-site verdict recorded
 - [x] `cli workflow` live-doc grep clean (or hits dispositioned in-ticket)
 - [x] Touched packages' canonical `bun run test` green (ultracode, krea2, flux2, s2-agent)
-- [ ] No version bumps; merged via devops chain; reviewer pass
+- [x] No version bumps; merged via devops chain; reviewer pass
+
+## Review round (2026-08-25, verdict WITH-FIXES → fixed)
+
+- Blocker 1 fixed: knowledge-distill.js INVOCATION had the old
+  `# or from markdown sources:` / `--args '…'` pair duplicated under the new
+  form (my patch replaced the head but not the tail) — deduped; the orphan
+  `--args` flag form (a flag of the removed CLI) became an args-JSON comment.
+- Blocker 2 fixed: `meta.description` still said "runnable via `s2-agent
+  workflow run`" (a form that never existed) → built-in workflow tool form.
+- NITs fixed: PRD:26 invented-looking "since 2026-07-10" date dropped;
+  s2-agent CONTEXT.md Workflow-pack + resolution-precedence terms de-CLI'd;
+  cli.ts:116 namespace comment drops `workflow run`; ext-ultracode
+  CONTEXT.md:186 CLI arm; workflow-pack.test.ts / workflow-tool-pack.test.ts /
+  workflow-tool.ts Path-A comments → removal-noted historical wording.
+- **Grep-claim correction (reviewer):** residual `-e workflow` hits are 2, not
+  0 — both benign + now dispositioned: scripts/run-ext-e2e.sh:13 (NEGATED
+  mention: "no `-e workflow` needed") and scripts/run-self-improve-loop.sh:6
+  (past-tense history note). Left as-is deliberately.
 
 ## Outcome (2026-08-25)
 

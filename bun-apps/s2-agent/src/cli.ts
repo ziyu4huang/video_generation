@@ -113,7 +113,7 @@ if (isExtNewCommand(argv)) {
 }
 
 // `cli <command>`: the non-interactive CLI namespace (agent commands, pipelines,
-// `workflow run`, meta). Intercepted HERE, before applyPatches(), on purpose:
+// meta). Intercepted HERE, before applyPatches(), on purpose:
 // the CLI curates its extension set per command (docs/adr/0001) and must NOT
 // inherit the TUI's run-dir argv splice, provider patch, or static factories.
 //

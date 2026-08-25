@@ -28,10 +28,7 @@
  * ask the built-in workflow tool by name instead)
  *   bun --cwd bun-apps/s2-agent src/cli.ts -p \
  *     "Use the workflow tool to run knowledge-distill (background:false) with args {\"pr\":244,\"folder\":\"Zettelkasten/distill\"}" \
- *   # or from markdown sources:
- *   --args '{"sources":["./notes.md"],"folder":"Zettelkasten/distill"}'
- *   # or from markdown sources:
- *   --args '{"sources":["./notes.md"],"folder":"Zettelkasten/distill"}'
+ *   # markdown sources instead of a PR: args {"sources":["./notes.md"],"folder":"Zettelkasten/distill"}
  *   # driver default: thinkingLevel=medium (args.thinkingLevel overrides)
  *
  * SAFETY: writes only to the target vault folder + history receipt. It never
@@ -43,7 +40,7 @@
 export const meta = {
   name: "knowledge-distill",
   description:
-    "Deterministic WRITE-side distill: codebase source (PR thread via gh, markdown files, or .operation-lessons.jsonl) → zk-extract atomise under gate/retry → optional zk-ingest graph-link → garden gate (zk-card check + zk-query --health). pipeline over sources. Produces ≥N atomic vault cards + a history receipt. Engine workflow — runnable via `s2-agent workflow run`.",
+    "Deterministic WRITE-side distill: codebase source (PR thread via gh, markdown files, or .operation-lessons.jsonl) → zk-extract atomise under gate/retry → optional zk-ingest graph-link → garden gate (zk-card check + zk-query --health). pipeline over sources. Produces ≥N atomic vault cards + a history receipt. Engine workflow — runnable via the built-in `workflow` tool (name: knowledge-distill).",
   phases: [
     { title: "Resolve", detail: "repo root, vault, source list; fetch PR if --pr" },
     { title: "Baseline", detail: "cards-before count + graphHealth snapshot" },

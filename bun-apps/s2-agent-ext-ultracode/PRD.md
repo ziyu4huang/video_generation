@@ -23,7 +23,7 @@ Claude Code–style dynamic workflows for Pi. The agent writes a small JavaScrip
 ## Key Dependencies
 
 - Self-contained npm package: `npm:@quintinshaw/pi-dynamic-workflows`
-- Loaded via s2-agent's run-dir manifest (static/built-in since 2026-07-10 — no `-e` flag needed)
+- Loaded via s2-agent's run-dir manifest (static/built-in — no `-e` flag needed)
 
 ## Architecture — thin adapter, not a parallel LLM stack
 
