@@ -116,4 +116,38 @@ describe("SurrealClient", () => {
   it("SURREAL_DEFAULTS pins the embedded local-service endpoint + root credentials", () => {
     expect(SURREAL_DEFAULTS).toEqual({ endpoint: "http://127.0.0.1:8000", username: "root", password: "root" });
   });
+
+  it("LET vars strip lone surrogates — no \\ud8xx–\\udfxx escape reaches the SQL body", async () => {
+    // PR #2050 reviewer follow-up: query vars ride as `LET $k = <json>;`
+    // INSIDE the SQL body, hitting the same SurrealDB lexer that rejects
+    // lone-surrogate escapes. Reachable with user query text (kcard fsGrep q,
+    // hierarchicalRetrieve tokens). The production shape is an IN-MEMORY
+    // code-unit cap split — a file-seeded surrogate becomes U+FFFD at utf8
+    // decode and never reaches this layer (mutation-verified vacuous).
+    const full = `${"q".repeat(1999)}𝑡 trailing query text`; // pair straddles a 2000 cap
+    const capped = full.slice(0, 2000);
+    // Premise (self-verifying non-vacuousness): raw stringify WOULD emit the
+    // escape SurrealDB rejects.
+    expect(JSON.stringify(capped)).toMatch(/\\ud[89a-f]/i);
+    expect(/[\uD800-\uDBFF]$/.test(capped)).toBe(true); // the cap split the pair
+    const valid = "keep 𝑡 and 🚀 and 𠀀 intact";
+    let body = "";
+    const fetchMock = mock(async (_url: string | URL, init?: RequestInit) => {
+      body = String(init!.body);
+      return okJson([{ result: 1, status: "OK", time: "0ns" }]);
+    });
+    const client = new SurrealClient({
+      endpoint: "http://127.0.0.1:8000", namespace: "user_alice", database: "memory",
+      username: "root", password: "root", fetch: fetchMock as unknown as SurrealFetch,
+    });
+    await client.query("RETURN 1;", { q: capped, toks: ["ok-token", "e\uDC61"], valid });
+    // All surrogate escapes are \ud8xx–\udfxx (D + 8-F); JSON.stringify never
+    // escapes a VALID pair, so this scan has no false-positive class.
+    expect(/\\ud[89a-f]/i.test(body)).toBe(false);
+    expect(body).toContain("ok-token");
+    expect(body).toContain(valid); // valid pairs survive untouched
+    // Non-string, non-array values keep plain JSON encoding
+    await client.query("RETURN 2;", { n: 42 });
+    expect(body).toContain("LET $n = 42;");
+  });
 });
