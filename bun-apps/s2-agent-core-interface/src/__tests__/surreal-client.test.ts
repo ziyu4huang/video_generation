@@ -149,5 +149,9 @@ describe("SurrealClient", () => {
     // Non-string, non-array values keep plain JSON encoding
     await client.query("RETURN 2;", { n: 42 });
     expect(body).toContain("LET $n = 42;");
+    // undefined passthrough pinned byte-identical to the old stringify —
+    // a future "harmless" `?? null` would silently change the binding.
+    await client.query("RETURN 3;", { u: undefined });
+    expect(body).toContain("LET $u = undefined;");
   });
 });

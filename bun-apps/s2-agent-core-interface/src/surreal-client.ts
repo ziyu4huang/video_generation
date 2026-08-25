@@ -41,7 +41,10 @@ function stripLoneSurrogates(s: string): string {
 }
 
 /** Encode a LET var value: JSON (the valid SurrealQL literal subset) with
- *  lone surrogates stripped from strings, inside strings and string arrays. */
+ *  lone surrogates stripped from TOP-LEVEL strings and FLAT string arrays
+ *  only — objects and nested structures pass through as plain JSON,
+ *  unstripped (no current caller passes object params; the header's object
+ *  support is unchanged for them, byte-identical to the old stringify). */
 function encodeLetValue(v: unknown): string {
   if (typeof v === "string") return JSON.stringify(stripLoneSurrogates(v));
   if (Array.isArray(v)) {
