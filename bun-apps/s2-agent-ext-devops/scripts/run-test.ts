@@ -12,7 +12,7 @@
  *   quick   (0)  unit only (pure fn + import-time smoke).                  ~90s
  *   medium  (1)  + the s2-agent package suite, incl. the run.sh/s2-agent.sh
  *                 launcher e2e (symlink resolution, entry-mode detection,
- *                 --update-help, --upgrade passthrough). DEFAULT.
+ *                 --upgrade passthrough). DEFAULT.
  *   smoke    (2)  + LIVE LLM check: boots the real launcher in print mode
  *                  against the CI/E2E lane deepseek/deepseek-v4-flash-vision-exp
  *                  (2026-08-24 directive: LM Studio is out of the shared

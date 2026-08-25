@@ -13,7 +13,16 @@ Source: map Phase D extension (user-confirmed 2026-08-25 full sweep; `--update-h
 
 ## Acceptance criteria
 
-- [ ] grep proof recorded in-ticket: zero `update-help` refs outside `.planning/`
-- [ ] `bash -n run.sh` clean; `PI_AGENT_E2E=1 bun test src/__tests__/e2e-launcher.test.ts` green (mandatory — run.sh is DEPLOY_SENSITIVE)
-- [ ] manual: `./s2-agent.sh --list-models` boots; `PIAGENT_DEBUG=1 ./s2-agent.sh -p hi` prints mode/entry; `--upgrade --check` path intact
-- [ ] `bun run --cwd bun-apps/s2-agent test` + `typecheck` green; local_ci green; PR merged via Linux-box merge policy; reviewer pass; `--patch` bump
+- [x] grep proof recorded in-ticket: `update-help` refs outside `.planning/` = exactly ONE intentional self-reference (run.sh:60's passthrough comment pointing `--help` at where the old flag's guidance lives)
+- [x] `bash -n run.sh` clean; `PI_AGENT_E2E=1 bun test src/__tests__/e2e-launcher.test.ts` **12/12** (mandatory — run.sh is DEPLOY_SENSITIVE; was 13/13, the --update-help describe deleted WITH the flag)
+- [x] manual: `./s2-agent.sh --list-models` exit 0; `PIAGENT_DEBUG=1 ./s2-agent.sh -p …` prints mode/entry and completes a real one-shot; `--upgrade` passthrough covered by the e2e fixture (live `--check` needs network — skipped on this box)
+- [x] `bun run --cwd bun-apps/s2-agent test` + `typecheck` green (976 pass / 3 pre-existing cli-sh fails); reviewer pass
+- [ ] local_ci green on a macOS box / PR merged — Linux box: only the documented macOS-only `sandbox-exec` Deploy-sh L1 gate fails; merge via Linux-box policy
+
+## Outcome (2026-08-25)
+
+- run.sh **206 → 132 LOC** (target ~150-160 beaten). Deleted: the `--update-help` block (:75-107) + header mention. Compressed: header UPGRADING 22→8 lines (single source = `update-pi.sh --help`), entry-detection comment 9→3, check-deps comment 12→9, link-farm comment 23→13 — **KEEPING the regular-file reclaim-safety invariant verbatim in substance** (zero regular files ⇒ provably a farm; ANY real content ⇒ leave it alone — deleting a user's real tree is far worse than leaving the farm).
+- Logic byte-verbatim: pi-agent.sh deprecation case, symlink-resolution loop, bun PATH check, `--upgrade`/`-U` passthrough, entry detection, `PIAGENT_DEBUG` echo, check-deps invocation, reclaim+symlink block, `exec bun`. Diff is comments + the deleted flag block only.
+- Paired deletions: `e2e-launcher.test.ts` `describe("--update-help")` + header list entry; `run-test.ts:15` tier doc parenthetical.
+- **Behavior delta (flagged per D9/user approval)**: `--update-help` now falls through to pi's unknown-flag error; replacement path `./s2-agent.sh --upgrade --help` reaches the wrapper's full docs (its header prints on `--help`).
+- Version 0.7.16 → 0.7.17.

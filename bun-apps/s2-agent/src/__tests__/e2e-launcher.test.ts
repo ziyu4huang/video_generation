@@ -1,7 +1,7 @@
 /**
  * e2e-launcher — spawns real child processes against run.sh itself (not the
  * TS modules it loads). Covers symlink resolution, entry-mode detection,
- * --update-help, --upgrade passthrough, read-only env exports, and the
+ * --upgrade passthrough, read-only env exports, and the
  * source-mode node_modules self-heal — none of which any other test file
  * exercises (they all import TS directly).
  *
@@ -144,21 +144,6 @@ describe("entry-mode detection", () => {
 	});
 });
 
-describe("--update-help", () => {
-	test("exits 0, prints the upgrade wrapper docs, never execs bun", () => {
-		const result = run(["--update-help"]);
-		expect(result.status).toBe(0);
-		expect(result.stdout).toMatch(/update-pi\.sh/);
-		expect(result.stdout).toMatch(/--check/);
-		expect(result.stdout).toMatch(/--rebuild/);
-		// Early-return branch: no entry/mode resolution happens, so the debug
-		// line (which fires after entry detection) must NOT appear even with
-		// PIAGENT_DEBUG=1.
-		const debugResult = run(["--update-help"], { env: { PIAGENT_DEBUG: "1" } });
-		expect(debugResult.status).toBe(0);
-		expect(debugResult.stderr).not.toMatch(/\[run\.sh\] mode=/);
-	});
-});
 
 describe("--upgrade / -U passthrough", () => {
 	function makeUpgradeFixture(name: string) {
