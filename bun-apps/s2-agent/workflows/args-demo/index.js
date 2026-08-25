@@ -5,7 +5,7 @@
 // parallel() fans out one agent() per topic concurrently — the engine's
 // deterministic concurrency primitive, not a renamed single-file script.
 //
-// See ../README.md and ../../../docs/workflow-cli.md (workflow packs).
+// See ../README.md (workflow packs).
 
 export const meta = {
 	name: "args-demo",

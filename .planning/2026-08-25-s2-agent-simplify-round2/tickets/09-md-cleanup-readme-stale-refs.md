@@ -11,6 +11,17 @@ Source: map Phase D extension (user option: slim README + fix stale refs; CONTEX
 
 ## Acceptance criteria
 
-- [ ] `bun run test:adr` (from bun-apps/) green
-- [ ] grep: zero `INDEX.md` refs in s2-agent md/ADRs after the change
-- [ ] local_ci green; PR merged via Linux-box merge policy; reviewer pass; NO version bump
+- [x] `bun run test:adr` (from bun-apps/) green — **17/17**
+- [x] grep: zero `INDEX.md` refs in s2-agent md/ADRs after the change — 0
+- [x] reviewer pass (pending merge)
+- [ ] local_ci green on a macOS box / PR merged — Linux box: only the documented macOS-only `sandbox-exec` gate; merge via Linux-box policy
+
+## Outcome (2026-08-25)
+
+- 8 × ADR line 1: `Index:` segment → `Index: repo-root \`CONTEXT-MAP.md\``; `**ID:**` segments byte-identical (test:adr green is the proof).
+- README: stale Layout tree (14 lines, pre-#1975 `run-dir/` location + nonexistent INDEX.md cite) → 7-line "map to code headers" (run.sh / src/cli.ts / src/cli/ / src/patches/ / registry-config + run-dir / pre-load-providers); `:63` fixed to `./s2-agent.sh doctor [--smoke] [--json]` (root doctor owns `--smoke` — verified cli.ts:93) + `./s2-agent.sh cli doctor [--json] [--fix]` (verified commands/doctor.ts:331) as the separate portability surface.
+- knowledge-distill.js:25: `../docs/workflow-cli.md` (nonexistent) → `./README.md`. NOTE: the file's INVOCATION block below it still shows the removed `cli workflow run` path — that belongs to the known engine-side doc debt already in map Fog ("engine-side live docs still cite the removed Path A CLI"), not re-scoped here.
+- Found-stale beyond chart (added to ticket 11's census): README Extensions section still documents `LAZY_EXTENSIONS` on-demand loading — dead path ({} since ultracode went static); ticket 11 owns the lazy-extensions surface.
+- **Review fix (Important-1)**: the three fixture packs (`workflows/{echo,sample,args-demo}/index.js`) carried the same ref class — `../../../docs/workflow-cli.md` (nonexistent) — now `// See ../README.md (workflow packs).` Grep proof extended per the reviewer's standing-step recommendation: **zero `workflow-cli.md` refs in the package** (the knowledge-distill INVOCATION block's `cli workflow run` staleness remains Fog-scoped, below). Ultracode's workflow-pack.test.ts re-run green (61/61) — it executes the packs, pins no comment bytes.
+- Found-stale census conventions applied retroactively to this ticket's own receipts: map rows 07/08 closure receipts rode this PR as catch-up bookkeeping (disclosed here); the repo-wide INDEX.md backlog measured by the reviewer = **35 md files** across ext packages (map Fog already owns the sweep).
+- NO version bump (md + comments; no shipped-surface change).
