@@ -73,3 +73,18 @@ export function clipSnippet(text: string, idx: number, matchLen: number, radius 
 		(end < text.length ? "…" : "")
 	);
 }
+
+/**
+ * Truncate `s` to at most `max` chars, appending "…" when cut (round-2
+ * ticket 06: dispatch's listTools clip and task-runner's trunc were the same
+ * helper modulo one detail — dispatch feeds it whitespace-normalized text and
+ * wants a trailing-space-free cut (`trimTail: true`); task-runner truncates
+ * quoted/JSON values where every char is content and keeps the raw cut).
+ * clipSnippet above is a different beast — a match-window snippet, not a
+ * length cap.
+ */
+export function clip(s: string, max: number, trimTail = false): string {
+	if (s.length <= max) return s;
+	const cut = s.slice(0, max - 1);
+	return (trimTail ? cut.trimEnd() : cut) + "…";
+}

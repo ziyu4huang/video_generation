@@ -70,7 +70,7 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 
 ## Tickets
 
-**Execution order:** 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 — **user-confirmed 2026-08-25** (01 first is no-choice — the version bump rides it; 03 before 04 so deletions land before helpers consolidate what remains; user declined swapping tests-track (03-04) ahead of structure-track (05-06); Phase D extension 08–10 confirmed in a second 2026-08-25 session — full sweep, `--update-help` drop approved, md depth = README slim + stale refs, vehicle = extend this map)
+**Execution order:** 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 → 11 — **user-confirmed 2026-08-25** (01 first is no-choice — the version bump rides it; 03 before 04 so deletions land before helpers consolidate what remains; user declined swapping tests-track (03-04) ahead of structure-track (05-06); Phase D extension 08–10 confirmed in a second 2026-08-25 session — full sweep, `--update-help` drop approved, md depth = README slim + stale refs, vehicle = extend this map; 11 split out of ticket 06 at execution per the Fog clause)
 
 ### Phase A — sweep & disposition
 
@@ -84,8 +84,8 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 
 ### Phase C — structure
 
-- [ ] 05 — Seams A: envFlag leaf, findRepoRoot migration ×4 (ext-doctor PI_AGENT_DIR case verified first), agent-trends → resolveAgentDir, shared git-spawn helper; no file moves (external pins)
-- [ ] 06 — Seams B: clip/trunc + humanizer consolidation into format.ts, findExistingRun parameterize, printTable adoption at workflow.ts:208 + agent-trends.ts:65; `emit()` helper only where shapes honestly converge; lazy-extensions dead-path fold-in if the registry zero-import contract survives contact
+- [x] 05 — Seams A: envFlag leaf, findRepoRoot migration ×4 (ext-doctor PI_AGENT_DIR case verified first), agent-trends → resolveAgentDir, shared git-spawn helper; no file moves (external pins) (complete 2026-08-25, PR #2029 squash 1bf08c43: envFlag ×4→leaf src/env-flag.ts — chart census said ×3, reviewer found the 4th (e2e-image-agent) and it rode the same PR; findRepoRoot ×4 marker-walk; agent-trends honors PI_CODING_AGENT_DIR (flagged delta); gitLines leaf src/cli/git.ts null-vs-empty contract; version 0.7.14; reviewer With-fixes→applied; local_ci 213s pass; merged via Linux-box policy)
+- [ ] 06 — Seams B: clip/trunc + humanizer consolidation into format.ts, findExistingRun parameterize, printTable adoption at workflow.ts:208 + agent-trends.ts:65; `emit()` helper only where shapes honestly converge; lazy-extensions dead-path fold-in if the registry zero-import contract survives contact — measured outcome: clip ×2 unified; humanizers/findExistingRun/printTable/emit() all SKIP-with-measurement (genuine difference, not duplication); lazy-extensions SPLIT → 11; gitLines contract test added
 - [ ] 07 — SDK-contract guard test (carried from t06): source-scan the pinned pi-coding-agent dist for setExtensionStatus→requestRender so a pi bump can't silently drop footer rendering
 
 ### Phase D — round-2 extension (user-confirmed 2026-08-25: full sweep)
@@ -93,6 +93,7 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 - [ ] 08 — Launcher slim: run.sh 206 → ~150-160 LOC — delete `--update-help` (heredoc duplicates header UPGRADING block; upgrade docs single-source in `update-pi.sh -h`; behavior delta flagged in PR) + its paired e2e describe + run-test.ts comment; compress header/comments ONLY, logic verbatim (link-farm reclaim tests pin it; KEEP the regular-file reclaim-safety rationale)
 - [ ] 09 — md cleanup: 8 × ADR line-1 `Index: bun-apps/docs/adr/INDEX.md` (nonexistent) → repo-root `CONTEXT-MAP.md`; README stale Layout tree → ~6-line map to code headers + `:63` doctor-command fix; knowledge-distill.js:25 stale doc ref. No bump (no shipped surface)
 - [ ] 10 — misc: `git rm` the 2 tracked `output/kcard-extract/*.json` runtime receipts (zero readers; `.gitignore:126` already matches); dispatch-log trim (drop `"workflow"` engine half + `--effort`/`--tier` dead paths + NOT-YET-WIRED prose; command stays live); completions split deferred by D8
+- [ ] 11 — lazy-extensions dead-path removal (split out of 06): resolver + registry exports + derived manifest + generated static-extensions header + ext-doctor reader + 3 test files; D5 equivalence proofs; regen receipts
 
 ## Decisions
 
