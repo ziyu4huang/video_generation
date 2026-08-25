@@ -10,10 +10,13 @@ import { join } from "node:path";
 import {
 	buildResourceRows,
 	rebuildResourceIndex,
+	resourceCreateStmt,
 	resourceKnnQuery,
 	resourceRecordKey,
 	TIER_SIDEFILES,
 } from "../src/resource-index.ts";
+import type { ResourceIndexRow } from "../src/resource-index.ts";
+import { stripLoneSurrogates } from "../src/surreal-index.ts";
 import type { SurrealClient } from "@repo/s2-agent-core-interface";
 
 /** Fake SurrealClient (reviewer m3/m4): captures every statement, answers
@@ -291,5 +294,43 @@ describe("card-lane isolation tripwire (fake client, reviewer m4)", () => {
 		});
 		const r = await rebuildResourceIndex({ client, treePath: root, tree: "iso3", model: "m", embedder: fakeEmbedder });
 		expect(r.skipped).toBe(false);
+	});
+});
+
+describe("lone-surrogate sanitation (2026-08-25 USB4 batch poisoning)", () => {
+	test("stripLoneSurrogates keeps valid pairs, drops lone halves", () => {
+		const pair = "𝑡"; // 𝑡 (mathematical italic t)
+		expect(stripLoneSurrogates(`a${pair}b`)).toBe(`a${pair}b`);
+		expect(stripLoneSurrogates("a\uD835b")).toBe("ab"); // lone high half
+		expect(stripLoneSurrogates("a\uDC61b")).toBe("ab"); // lone low half
+		expect(stripLoneSurrogates("plain ascii")).toBe("plain ascii");
+	});
+
+	test("resourceCreateStmt strips a cap-split pair; no \\ud8xx–\\udfxx escape is emitted", () => {
+		// Same bug class as the card-lane test (surreal-index.test.ts): the
+		// abstract slices in this file (resource-index.ts `slice(0, 1000)`)
+		// are code-unit caps, so an IN-MEMORY split is the real shape — a
+		// file-seeded surrogate can never reach this layer (utf8 decode maps
+		// lone halves to U+FFFD on read; mutation-verified vacuous).
+		const full = `${"y".repeat(999)}𝑡 trailing abstract text`; // pair straddles the 1000 cap
+		const capped = full.slice(0, 1000);
+		// Premise (self-verifying non-vacuousness): raw stringify WOULD emit
+		// the escape SurrealDB rejects.
+		expect(JSON.stringify(capped)).toMatch(/\\ud[89a-f]/i);
+		const row = {
+			tree: "sur",
+			uri: "pages/math.md",
+			level: 2,
+			name: "Math",
+			abstract: capped,
+			vec: null,
+			embed_model: "m",
+			created: "2026-08-25T00:00:00Z",
+			updated: "2026-08-25T00:00:00Z",
+			parent: "pages",
+		} satisfies ResourceIndexRow;
+		const stmt = resourceCreateStmt("resource", row);
+		expect(/\\ud[89a-f]/i.test(stmt)).toBe(false);
+		expect(stmt).toContain("pages/math.md"); // untouched values survive
 	});
 });
