@@ -63,7 +63,7 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 |---|---|---|
 | `tickets/01-cc-line-vocabulary.md` | done (PR #2025, 2026-08-25) | Inline line vocabulary: `Task(agent): intent` live shape + `↳ summary · 34,283 tokens · 2m 13s` settled shape (fmtTokens separator'd, fmtDuration human m+s, summary-first ordering; keep s2 tags as trailing segments) |
 | `tickets/02-esc-interrupt.md` | done (PR #2027 merged CLEAN, 2026-08-25 — investigation found pi's `app.interrupt` ALREADY binds Esc → `agent.abort()` → childAc fan-in; the real gap was the settle status misreading an Esc'd run as `timedout`, fixed in child-dispatch) | Esc during a running foreground subagent aborts it (input seam investigation: onTerminalInput vs pi interrupt semantics; must not steal Esc from the editor when no subagent runs) |
-| `tickets/03-ctrl-b-panel.md` | done (2026-08-25 — recorded NO-GO: alt+b measured as a `tui.editor.cursorWordLeft` default, the exact ADR-0004 conflict class; user chose no new key at the second confirm-gate; ADR-subagent-0004 amended) | **alt+b** opens the background-agents panel CC-style (user-confirmed direction; ctrl+b stays pi's cursorLeft — no collision, no startup warning; alt+s detach unchanged) + ADR-subagent-0004 amendment recording the decision |
+| `tickets/03-ctrl-b-panel.md` | done (2026-08-25 — recorded NO-GO: alt+b measured as a `tui.editor.cursorWordLeft` default, the exact ADR-subagent-0004 conflict class; user chose no new key at the second confirm-gate) | CC-parity panel-opener key — first directed alt+b (D4), then resolved as a documented no-go (D5): background surface stays reachable via `ctrl+g s` + `/subagents`; ADR-subagent-0004 amendment records the measurement + the free alt-key space |
 
 ## Decisions
 
@@ -85,11 +85,12 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
   new widget. **SUPERSEDED by D5** — the "alt+b is free" premise was wrong.
 - D5 (2026-08-25, second confirm-gate): **no global panel-opener key** —
   alt+b is one of `tui.editor.cursorWordLeft`'s defaults (measured in the
-  pi-tui dist), so registering it re-creates the ADR-0004 startup-warning
+  pi-tui dist), so registering it re-creates the ADR-subagent-0004 startup-warning
   failure the repo already rejected. The background surface stays reachable
   via `ctrl+g s` (dock claim, runs-gated) and `/subagents`. Measured free
   alt+<letter> space recorded in the ADR amendment (built-ins claim only
-  b/d/f/v/y + non-letters; alt+p is the clean future candidate).
+  b/d/f/y among letters — alt+v is win32-only — plus non-letters, and the
+  repo's own alt+s; alt+p is the clean future candidate).
 
 ## Frontier
 

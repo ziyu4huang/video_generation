@@ -118,7 +118,9 @@ surface stays reachable through its two existing scoped surfaces — the
 dock focus claim `ctrl+g s` (runs-gated; `s2-agent-ext-task`
 `dock-claim.ts`, ADR-task-0001) and the `/subagents` command (viewer).
 Should a future effort want the key, the free `alt+<letter>` space was
-measured 2026-08-25: built-ins claim only alt+b/d/f/v/y (letters) plus
+measured 2026-08-25: built-ins claim only alt+b/d/f/y among letters (plus
+alt+v on win32 only — free on darwin/linux) and
 alt+enter/up/down/left/right/backspace/delete — e.g. `alt+p` ("panel")
-claims cleanly with the same legacy ESC-prefix deliverability as alt+s;
-revisit this ADR before adding it.
+claims cleanly with the same legacy ESC-prefix deliverability as alt+s; and
+note the repo's own registered alt+s (this ADR) shrinks the truly-free
+space by one. Revisit this ADR before adding any key.

@@ -11,7 +11,7 @@ second confirm-gate; no code change, no key registered)
    which implementation-time measurement DISPROVED.
 2. Measurement (2026-08-25, pi dists on this machine): `alt+b` is one of
    `tui.editor.cursorWordLeft`'s defaults (`alt+left`/`ctrl+left`/`alt+b`,
-   pi-tui dist/keybindings.js). Registering it re-creates ADR-0004's exact
+   pi-tui dist/keybindings.js). Registering it re-creates ADR-subagent-0004's exact
    failure mode: a startup conflict diagnostic every launch (the extension
    would WIN the key — restrictOverride is false — but at the cost the ADR
    already rejected) plus shadowing the editor's readline M-b word-left.
