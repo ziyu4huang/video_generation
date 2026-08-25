@@ -21,7 +21,7 @@ const registry: Registry = {
       entry: "extensions/alpha.ts",
       load: "static",
       skills: true,
-      deploy: { order: 1, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
+      deploy: { order: 1, copy: [], vendor: [], externals: [], vendorExclude: [], assets: [], enabled: true },
     },
     {
       name: "beta",
@@ -37,7 +37,7 @@ const registry: Registry = {
       entry: "extensions/gamma.ts",
       load: "static",
       skills: false,
-      deploy: { order: 2, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
+      deploy: { order: 2, copy: [], vendor: [], externals: [], vendorExclude: [], assets: [], enabled: true },
     },
     {
       name: "delta",
@@ -46,7 +46,7 @@ const registry: Registry = {
       load: "dynamic",
       skills: false,
       version: "0.1.0",
-      deploy: { order: 3, copy: [], vendor: [], externals: [], vendorExclude: [], enabled: true },
+      deploy: { order: 3, copy: [], vendor: [], externals: [], vendorExclude: [], assets: [], enabled: true },
     },
     {
       name: "epsilon",
