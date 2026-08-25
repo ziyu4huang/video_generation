@@ -1,4 +1,4 @@
-**ID:** `ADR-s2-agent-0006` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-s2-agent-0006` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # --dry-run excludes write tools (deterministic guard, not an LLM instruction)
 

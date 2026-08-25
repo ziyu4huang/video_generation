@@ -60,7 +60,8 @@ authority: `src/run-dir/registry.ts`.
 
 ```bash
 bun run --cwd bun-apps/s2-agent deploy              # cut a versioned frozen tree, move `current`
-bun bun-apps/s2-agent/src/cli.ts cli doctor [--smoke] [--json]   # self-check (offline; --smoke loads extensions)
+./s2-agent.sh doctor [--smoke] [--json]             # root self-check (offline; --smoke loads extensions)
+./s2-agent.sh cli doctor [--json] [--fix]           # the cli-namespace portability check (separate surface)
 ```
 
 Deploy reference: `src/registry-config.ts` (what ships and why — the sole
@@ -75,20 +76,14 @@ Workflow SOP (branch prep, local CI, PR merge):
 bun ../s2-agent-ext-devops/scripts/run-test.ts medium   # + the s2-agent suite incl. launcher e2e (default); --list for tiers
 ```
 
-## Layout
+## Layout (map to code headers)
 
-```
-s2-agent/
-├── src/registry-config.ts   # THE extension registry (edit this)
-├── run-dir/                 # manifest.json (DERIVED) + resolve.ts (argv splice, lazy aliases)
-├── docs/adr/                # design decisions (indexed in bun-apps/docs/adr/INDEX.md)
-└── src/
-    ├── cli.ts               # entry — `cli` argv intercept → applyPatches() → main(argv)
-    ├── pre-load-providers.ts  # ALL baked model config (§1–§4, pure)
-    ├── cli/                 # non-interactive `cli` namespace (commands/, sessions/, extensions/)
-    ├── patches/             # env-gated monkey-patches (index.ts = PATCH_TABLE)
-    └── __tests__/           # unit + e2e-harness (PI_AGENT_E2E gates)
-```
+- `run.sh` — the launcher (`./s2-agent.sh` symlinks here); its header documents usage + pi upgrading
+- `src/cli.ts` — entry: pre-patch argv intercepts → `applyPatches()` → pi `main(argv)`
+- `src/cli/` — the non-interactive `cli` namespace (commands/, sessions/, extensions/); `src/cli/dispatch.ts` is the dispatcher
+- `src/patches/` — env-gated monkey-patches (`index.ts` = `PATCH_TABLE`)
+- `src/registry-config.ts` + `src/run-dir/` — the extension registry, its derived manifest, and resource loading
+- `src/pre-load-providers.ts` — ALL baked model config (§1–§4, pure)
 
 ## Known issues
 

@@ -12,7 +12,7 @@ Source: ticket 06's "lazy-extensions dead-path fold-in if it fits budget" clause
 - `src/ext-doctor.ts:187-188` (reads it), `src/run-dir/manifest-types.ts:23` (raw-entry backward compat), `src/run-dir/resolve.ts:64` (LazySettings re-export)
 - `src/static-extensions.ts` + `src/static-extensions-gen.ts` doc comments (GENERATED — regen via `regen:static`)
 - Tests: registry-to-manifest.test.ts, resolve.test.ts, extension-contract.test.ts
-- **CONTEXT.md glossary** (:32-38 **Lazy extension** + **Alias resolution** — the latter ALREADY stale: it describes the exact-key→substring→dir-fallback arms removed 2026-08-22; :41-44 run-dir module split names lazy-extensions.ts) — deleting the module without touching these leaves false ubiquitous-language terms
+- **CONTEXT.md glossary** (:32-38 **Lazy extension** + **Alias resolution** — the latter ALREADY stale: it describes the exact-key→substring→dir-fallback arms removed 2026-08-22; :41-44 run-dir module split names lazy-extensions.ts) — deleting the module without touching these leaves false ubiquitous-language terms. ALSO README.md Extensions section documents `LAZY_EXTENSIONS` on-demand loading (found-stale in ticket 09).
 - `resolve.ts:64` re-exports `LazySettings` FROM the module — the type must move (or the re-export go) or resolve.ts keeps importing a deleted file
 
 Removal must keep the registry zero-import contract intact (map D4 lineage) and go `deletion-with-equivalence-proof` per candidate (map D5): each deleted test assertion quotes its surviving cover. Decide in-ticket whether `-e <alias>` bare-name support keeps ANY form (upstream `-e <file>` loading is unrelated and stays).

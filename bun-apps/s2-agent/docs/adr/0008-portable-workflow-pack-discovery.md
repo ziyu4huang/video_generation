@@ -1,4 +1,4 @@
-**ID:** `ADR-s2-agent-0008` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-s2-agent-0008` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 # ADR 0008 — Portable workflow-pack discovery (cwd/bin tiers above repo)
 

@@ -1,4 +1,4 @@
-**ID:** `ADR-s2-agent-0005` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: `bun-apps/docs/adr/INDEX.md`
+**ID:** `ADR-s2-agent-0005` — ADR numbers restart per context, so this number alone is ambiguous; cite this ID. Index: repo-root `CONTEXT-MAP.md`
 
 > **Amended 2026-08-12 (s2-agent-cli merge).** The CLI now lives inside `s2-agent`
 > (`src/cli/`), so the catalog is reached by a relative import
