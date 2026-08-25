@@ -1,6 +1,6 @@
 {
   "tools": 84,
-  "totalTokens": 25852,
+  "totalTokens": 25472,
   "builtinCount": 4,
   "extensionCount": 80,
   "errors": [],
@@ -29,15 +29,6 @@
       "descLen": 103,
       "paramsLen": 3305,
       "source": "subagent",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "sync_default_branch",
-      "approxTokens": 753,
-      "descLen": 1418,
-      "paramsLen": 1595,
-      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -159,6 +150,15 @@
       "schemaValid": true
     },
     {
+      "name": "sync_default_branch",
+      "approxTokens": 500,
+      "descLen": 722,
+      "paramsLen": 1276,
+      "source": "devops",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "search_memory",
       "approxTokens": 499,
       "descLen": 857,
@@ -222,15 +222,6 @@
       "schemaValid": true
     },
     {
-      "name": "run_local_ci",
-      "approxTokens": 383,
-      "descLen": 722,
-      "paramsLen": 809,
-      "source": "devops",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "zk_card",
       "approxTokens": 380,
       "descLen": 269,
@@ -240,20 +231,29 @@
       "schemaValid": true
     },
     {
+      "name": "list_subagent_runs",
+      "approxTokens": 369,
+      "descLen": 455,
+      "paramsLen": 1021,
+      "source": "subagent",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "sweep_merged_branches",
-      "approxTokens": 376,
-      "descLen": 649,
+      "approxTokens": 347,
+      "descLen": 531,
       "paramsLen": 855,
       "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
     {
-      "name": "list_subagent_runs",
-      "approxTokens": 369,
-      "descLen": 455,
-      "paramsLen": 1021,
-      "source": "subagent",
+      "name": "run_local_ci",
+      "approxTokens": 332,
+      "descLen": 519,
+      "paramsLen": 809,
+      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -447,15 +447,6 @@
       "schemaValid": true
     },
     {
-      "name": "check_main_health",
-      "approxTokens": 182,
-      "descLen": 695,
-      "paramsLen": 33,
-      "source": "devops",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "merge_pr_after_local_ci",
       "approxTokens": 182,
       "descLen": 366,
@@ -569,6 +560,15 @@
       "descLen": 191,
       "paramsLen": 359,
       "source": "ltx",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "check_main_health",
+      "approxTokens": 135,
+      "descLen": 508,
+      "paramsLen": 33,
+      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
