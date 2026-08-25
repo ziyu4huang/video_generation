@@ -19,6 +19,7 @@ import {
   chromeLikelyAvailable,
   codeTimeoutMs,
   makeBrowserTool,
+  resolveCloseTarget,
 } from "../browser-tool.js";
 
 interface Payload {
@@ -84,6 +85,19 @@ describe("pure seams", () => {
   test("chromeLikelyAvailable is a boolean filesystem probe", () => {
     expect(typeof chromeLikelyAvailable()).toBe("boolean");
   });
+
+  test("resolveCloseTarget: numbers index, objects identity-match, unmatched designates current", () => {
+    const a = {} as import("playwright-core").Page;
+    const b = {} as import("playwright-core").Page;
+    const proxyLike = {} as import("playwright-core").Page; // the live `page` global can never identity-match
+    const pages = [a, b];
+    expect(resolveCloseTarget(pages, b)).toBe(b); // no target -> current
+    expect(resolveCloseTarget(pages, b, 0)).toBe(a); // numeric index
+    expect(resolveCloseTarget(pages, b, 5)).toBe(null); // out of range -> null
+    expect(resolveCloseTarget(pages, b, a)).toBe(a); // real reference identity-matches
+    expect(resolveCloseTarget(pages, b, proxyLike)).toBe(b); // proxy-like falls back to current
+    expect(resolveCloseTarget(pages, null, proxyLike)).toBe(proxyLike); // nothing live -> the target itself
+  });
 });
 
 // ─── Integration (system Chrome required) ─────────────────────────────────────
@@ -112,22 +126,56 @@ describe("integration (requires system Chrome)", () => {
     },
   );
 
-  test.skipIf(!chromeOk)("two-page lifecycle: openPage x2 -> 2 new pages, closePage -> 1", async () => {
-    const payload = await runTool(`
-      const before = pages.length;
-      await openPage("about:blank");
-      await openPage("about:blank");
-      const two = pages.length - before;
-      await closePage(pages[pages.length - 1]);
-      const one = pages.length - before;
-      return { two, one };
-    `);
-    expect(payload.ok).toBe(true);
-    const result = payload.result as { two: number; one: number };
-    expect(result.two).toBe(2);
-    expect(result.one).toBe(1);
-    expect(payload.pages).toBeInstanceOf(Array);
-  });
+  test.skipIf(!chromeOk)(
+    "page lifecycle: openPage reuses the implicit virgin page, closePage removes it",
+    async () => {
+      // Fresh state so the implicit page is THIS test's (module state persists
+      // across tests — an earlier test's openPage would have consumed the flag).
+      await __resetBrowserToolForTests();
+      // runCode's eager ensurePage created an implicit about:blank as page 0.
+      // The FIRST openPage must reuse it (no dead blank left behind); the second
+      // opens a real new page; closePage(pages[...]) then removes one.
+      const payload = await runTool(`
+        const before = pages.length;
+        await openPage("about:blank");
+        const reused = pages.length - before;
+        await openPage("about:blank");
+        const two = pages.length - before;
+        await closePage(pages[pages.length - 1]);
+        const one = pages.length - before;
+        return { reused, two, one };
+      `);
+      expect(payload.ok).toBe(true);
+      const result = payload.result as { reused: number; two: number; one: number };
+      expect(result.reused).toBe(0); // virgin implicit page reused, not a second blank
+      expect(result.two).toBe(1);
+      expect(result.one).toBe(0);
+      expect(payload.pages).toBeInstanceOf(Array);
+    },
+  );
+
+  test.skipIf(!chromeOk)(
+    "closePage(page) via the live proxy: bookkeeping lands despite identity mismatch",
+    async () => {
+      const payload = await runTool(`
+        await openPage("about:blank");
+        await openPage("about:blank");
+        const before = pages.length;
+        const closed = await closePage(page);
+        const after = pages.length;
+        return { closed, before, after };
+      `);
+      expect(payload.ok).toBe(true);
+      const result = payload.result as { closed: string; before: number; after: number };
+      // The proxy designates current (the last opened page): it must splice by
+      // real index — never the pre-fix "closed page ?" — and drop the count.
+      expect(result.closed).not.toContain("?");
+      expect(result.after).toBe(result.before - 1);
+      // The re-pointed current still works for the next call.
+      const recovery = await runTool("return await snapshot({ pruneMode: 'act' })");
+      expect(recovery.ok).toBe(true);
+    },
+  );
 
   test.skipIf(!chromeOk)("error path: throwing code -> {ok:false, error} string", async () => {
     const payload = await runTool("throw new Error('boom')");

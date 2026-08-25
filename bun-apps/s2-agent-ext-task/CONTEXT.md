@@ -4,14 +4,14 @@ Also owns `ask_user_question` (merged from `s2-agent-ext-ask-user` on 2026-07-18
 
 Also owns `/response-language` (relocated from its own `s2-agent-ext-response-language` package — see the "response-language" section below). It shares no code or state with goal/todo; relocated for ext-task pi-ext consolidation, not because of a runtime coupling. It pairs with the `force-response-language` patch in `s2-agent` (the per-turn injection half), coupling only through the `responseLanguage` key in `~/.pi/agent/settings.json`.
 
-The ubiquitous language of s2-agent-ext-task — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Ported from @narumitw/pi-goal v0.11.0 (adapted for power-tool embedding). Publishes the `__piGoalActive` seam, read only by the in-package `/loop` subsystem (goal⇄loop mutual exclusion) and surfaced, display-only, by power-tool's `inspect_tui`; no plan coordinator or wayfind reads it.
+The ubiquitous language of s2-agent-ext-task — the `/goal` objective driver (with `goal_complete`) and the `todo` step tracker (with `/todos`), kept together because they share a composite status widget and six lifecycle hooks. Ported from @narumitw/pi-goal v0.11.0 (adapted for power-tool embedding). Publishes the `__piGoalActive` seam, surfaced display-only by power-tool's `inspect_tui`; no plan coordinator, wayfind, or `/loop` reads it.
 
 ## Language
 
 ### The composite widget
 
 **Composite status widget** (`CoreTaskStatusWidget`, key `pi-core-task`):
-A single below-editor widget rendering sections in fixed order: goal **or** loop (order 0, mutually exclusive) + todo (1) + wayfind (2). The goal and loop sections share order 0 because only one is ever non-empty at a time (goal⇄loop mutual exclusion). The plan-coordinator section (order 3) is documented but not currently registered. The reason goal+todo share a package — splitting them across two extensions reintroduces a widget-key ordering flicker (the SDK orders widgets by Map insertion with no index API).
+A single below-editor widget rendering sections in fixed order: goal + loop (both order 0) + todo (1) + wayfind (2). The goal and loop sections share order 0 for stacking continuity — both may render concurrently (`/goal` and `/loop` run independently, CC-style); an inactive section renders `[]`. The plan-coordinator section (order 3) is documented but not currently registered. The reason goal+todo share a package — splitting them across two extensions reintroduces a widget-key ordering flicker (the SDK orders widgets by Map insertion with no index API).
 _Avoid_: status bar, overlay (it is the composite widget keyed for deterministic stacking)
 
 ### Objective layer
@@ -41,18 +41,18 @@ The command to view and manage the todo list.
 _Avoid_: task list
 
 **`/loop`**:
-The command that runs a goal queue in a loop — executes goals sequentially, advancing the queue head after each completion. Mutually exclusive with `/goal` (only one active at a time, enforced by the `__piGoalActive` coordination seam). Uses `LoopState` to track the queue, parked items, and head advances. **Consumes** `__piKickHeartbeat` (published by `goal.ts`) to arm/disarm the heartbeat on its own start/stop transitions — `/loop` is the reader here, not the publisher.
-_Avoid_: repeat, batch (it is a goal queue runner with explicit pause/resume and parking controls)
+The command that runs a prompt on a recurring interval (CC parity): 1m–~23d cadence (default 10m), idle-gated fires (busy postpones a minute, never drops), 7-day max-age self-stop, session-store restore across restarts, and a persisted `nextFireAt` honored on restore. Runs concurrently with `/goal` (CC-style); only one loop at a time — `/loop stop` first. The `dynamic`/`off` arguments redirect to ultracode's `/loop` (the `schedule_wakeup` self-paced variant).
+_Avoid_: repeat, batch (it is a recurring-prompt timer chain with idle gating, not a queue runner)
 
 **`/list`**:
-The command that inspects and manipulates the goal queue — shows the queue state, reorders items, parks/unparks goals, and removes entries. The queue layer for `/loop`, exposing the same underlying `LoopState`. Used during review to manage the pending goal sequence.
+The command that inspects and manipulates the goal queue — shows the queue state, reorders items, parks/unparks goals, and removes entries. The queue advances on goal completion (the reviewer's auto-advance enqueues here), NOT via `/loop`. Used during review to manage the pending goal sequence.
 _Avoid_: show, display (it is a queue manipulation command, not just a viewer)
 
 ### Coordination
 
 **Coordination seam** (`globalThis.__piGoalActive`):
-The process-singleton reader ext-task publishes so the in-package `/loop` subsystem can detect an active goal WITHOUT a hard dep (goal⇄loop mutual exclusion). A peer reads `typeof __piGoalActive === "function" && __piGoalActive() === true`. ext-task is the publisher; only `/loop` (and power-tool's display-only `inspect_tui`) reads it — no plan coordinator or wayfind does.
-_Avoid_: hook, signal (it is a published globalThis reader for cross-extension turn-ownership)
+The process-singleton reader ext-task publishes so a peer can surface goal activity WITHOUT a hard dep. A peer reads `typeof __piGoalActive === "function" && __piGoalActive() === true`. ext-task is the publisher; the only reader is power-tool's display-only `inspect_tui` — no plan coordinator, wayfind, or `/loop` reads it (goal and loop run concurrently by design).
+_Avoid_: hook, signal (it is a published globalThis reader for cross-extension state display)
 
 **Session-only todos**:
 Todos are SESSION-ONLY in-memory state. `session_start` resets to `EMPTY_STATE` — never replayed from the session branch, never seeded from disk plans. `session_compact` / `session_tree` do NOT replay either (in-memory todos survive naturally). Permanent task tracking lives in wayfind/superpowers plans & tickets; the session todo is a transient working scratchpad.
@@ -63,10 +63,10 @@ The goal subsystem self-consumes the plan coordinator directly via internal call
 _Avoid_: yield, handoff (it is a publish-consume pattern, not a state transfer)
 
 **Published coordination seams** (ext-task → peers via `globalThis`):
-Core-task publishes five coordination seams. Both intra-package seams are published by the goal subsystem and read by `/loop` — the publisher is goal in BOTH cases, never loop:
-- **Goal-side (2):** `__piGoalActive` — `() => boolean` goal-activity reader, published in `extensions/task.ts` from `isGoalActive`; consumed by the in-package `/loop` subsystem (goal⇄loop mutual exclusion) and surfaced display-only by power-tool's `inspect_tui`. `__piKickHeartbeat` — `() => void` re-evaluate hook published and torn down in `src/goal/hooks.ts`; `/loop` calls it so a loop-only session can arm/disarm the heartbeat without a goal↔loop import cycle. Both are `crossPackage: false` in `core-interface/src/seam-keys.ts`. (Grep for the key, not for a line number — the two prior citations here pointed at `goal.ts` lines that no longer exist and at the wrong file for `__piGoalActive`.)
+Core-task publishes four coordination seams:
+- **Goal-side (1):** `__piGoalActive` — `() => boolean` goal-activity reader, published in `extensions/task.ts` from `isGoalActive`; read display-only by power-tool's `inspect_tui`. `crossPackage: false` in `core-interface/src/seam-keys.ts`. (Grep for the key, not for a line number — citations here have gone stale before.)
 - **Plan-side (3):** `__piPlanPhases`, `__piPlanIncomplete`, `__piPlanSummary` — `(cwd) => …` readers of the active plan, all consumed by wayfind.
-All five are one-way publishes from ext-task; only wayfind (plan-side) and `/loop` (goal-side) read them.
+All four are one-way publishes from ext-task; only power-tool's `inspect_tui` (goal-side) and wayfind (plan-side) read them.
 _Avoid_: hook, signal (they are published globalThis readers, not event hooks)
 
 **Process-singleton state**:
@@ -86,8 +86,8 @@ The free-text escape hatch — every question auto-appends a "Type something." r
 _Avoid_: custom input, free-text box (it is the auto-appended free-text fallback every question has)
 
 **Reconciler** (`before_agent_start`):
-Rewrites a pending `ask_user_question` tool call into the canonical question shape before the agent turn starts — so a malformed or model-shaped call still renders correctly.
-_Avoid_: validator, normalizer (it is a pending-call canonicalization on `before_agent_start`)
+Strips `ask_user_question` from the active tool set when the session has no UI, and restores it when one appears — so the model is never offered a dialog that cannot render. (Malformed calls are instead rejected at execute time by `validateQuestionnaire`.)
+_Avoid_: validator, normalizer (it is a hasUI availability gate on `before_agent_start`)
 
 ## Language — response-language
 

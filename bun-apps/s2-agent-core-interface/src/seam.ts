@@ -43,7 +43,6 @@ export interface SeamImplMap {
   __piToolGateStatus: () => ToolGateStatus | undefined;
   __piCoreTaskStatusWidget: unknown;
   __piGoalActive: unknown;
-  __piKickHeartbeat: unknown;
   __piPlanPhases: unknown;
   __piWayfindGrill: unknown;
   __piRateLimitState: unknown;

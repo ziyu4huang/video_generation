@@ -1,7 +1,8 @@
 /**
  * inspect_agent — dump agent state to YAML: extensions, tools, skills, context
- * files, model, cwd. Outputs to <cwd>/output/pi/inspect-agent-<timestamp>.yaml
- * by default. Readable by humans and agents for debugging/analysis.
+ * files, model, cwd. Outputs to <cwd>/output/pi/agent-inventory-<timestamp>.yaml
+ * by default (the `filename` param default). Readable by humans and agents for
+ * debugging/analysis.
  */
 import {
   type ExtensionContext,

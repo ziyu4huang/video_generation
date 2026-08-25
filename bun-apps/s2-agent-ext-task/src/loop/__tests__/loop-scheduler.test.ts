@@ -117,4 +117,27 @@ describe("LoopScheduler", () => {
 		expect(stops).toBe(1);
 		expect(h.s.active()).toBeUndefined();
 	});
+
+	test("start honors a future persisted nextFireAt (restart keeps the cadence)", () => {
+		const h = harness();
+		// A loop persisted at t=90 with nextFireAt=100 and a 10m-interval,
+		// restored at t=95: the first fire must come at t=100, not t=105 —
+		// the pre-fix behavior pushed every restart out a full interval.
+		h.s.start({ ...makeLoop(10), nextFireAt: 100 });
+		expect(h.s.active()?.nextFireAt).toBe(100);
+		h.tick(); // earliest pending timer is t=100
+		expect(h.fired).toEqual(["p"]);
+		expect(h.s.active()?.iteration).toBe(1);
+	});
+
+	test("start re-anchors a stale persisted nextFireAt instead of burst-firing", () => {
+		const h = harness();
+		// Restored long after the persisted due time (now=0, due at t=-100):
+		// no immediate catch-up fire — the cadence restarts one fresh interval
+		// from now, mirroring the recorded divergence on missed cron fires.
+		h.s.start({ ...makeLoop(10), nextFireAt: -100 });
+		expect(h.s.active()?.nextFireAt).toBe(10); // re-anchored to now + interval
+		h.tick(); // t=10: the single, on-cadence fire
+		expect(h.fired).toEqual(["p"]);
+	});
 });

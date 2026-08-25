@@ -266,7 +266,7 @@ describe("findSelfOnlySeams predicate (self-reference loophole)", () => {
 	});
 
 	it("exempts an intentionally intra-package seam even with a single referencing package", () => {
-		// e.g. __piKickHeartbeat: goal publishes, loop consumes, both in ext-task.
+		// e.g. __piGoalActive: goal publishes, inspect_tui reads it display-only.
 		const refs = mk([["__piIntra", ["onlyPkg"]]]);
 		const seams: readonly SeamKey[] = [{ key: "__piIntra", crossPackage: false }];
 		assert.deepEqual(findSelfOnlySeams(seams, refs), []);

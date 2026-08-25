@@ -35,10 +35,23 @@ export function validateQuestionnaire(params: QuestionParams): ValidationResult 
 	}
 
 	const seenLabels = new Map<string, number>();
+	const seenQuestions = new Set<string>();
 
 	for (let qi = 0; qi < questions.length; qi++) {
 		const q = questions[qi];
 		const opts = q.options;
+
+		// Duplicate question text is ambiguous: answers are keyed by the
+		// question's text, so two identical questions would collide.
+		const questionKey = q.question?.trim().toLowerCase() ?? "";
+		if (questionKey && seenQuestions.has(questionKey)) {
+			return {
+				ok: false,
+				message: `Error: duplicate question text "${q.question}" (question ${qi + 1}).`,
+				error: "duplicate_question",
+			};
+		}
+		seenQuestions.add(questionKey);
 
 		if (!opts || opts.length === 0) {
 			return { ok: false, message: `Error: question ${qi + 1} has no options.`, error: "empty_options" };

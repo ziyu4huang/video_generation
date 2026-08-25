@@ -136,8 +136,6 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 		stopStatusRefreshTimer();
 		stopHeartbeatTimer();
 		goalState.overlay?.dispose();
-		// Clear the heartbeat coordination seam for symmetry with publish
-		delete (globalThis as Record<string, unknown>).__piKickHeartbeat;
 	});
 
 	pi.on("session_before_compact", (_event: unknown, ctx: StatusContext) => {
@@ -399,11 +397,9 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 		}
 		await sendContinuationPrompt(pi, ctx, currentGoal);
 	});
-	// Heartbeat supervision seam (Task 8). The heartbeat now supervises goals
-	// only — the recurring /loop owns its own timer chain (loop-scheduler.ts)
-	// and needs no goal-side heartbeat. The globalThis kick hook stays for the
-	// goal lifecycle transitions; defensive `?.()` — degraded (no heartbeat)
-	// if goal() was never registered.
-	(globalThis as Record<string, unknown>).__piKickHeartbeat = syncHeartbeatTimer;
+	// Heartbeat supervision (Task 8): the heartbeat supervises goals only —
+	// the recurring /loop owns its own timer chain (loop-scheduler.ts) and
+	// needs no goal-side heartbeat. No cross-subsystem kick seam is published:
+	// goal lifecycle transitions call syncHeartbeatTimer directly.
 }
 

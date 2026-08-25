@@ -85,6 +85,38 @@ describe("CC parity schema", () => {
 		expect(hasRecommendedSuffix("A (Recommended) ")).toBe(false);
 		expect(hasRecommendedSuffix("A")).toBe(false);
 	});
+
+	test("duplicate question text is rejected (answers are keyed by question text)", () => {
+		const r = validateQuestionnaire(
+			params([
+				{ question: "Which approach?", header: "hdr", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] },
+				{ question: "Which approach?", header: "hdr2", options: [{ label: "c", description: "d" }, { label: "d", description: "d" }] },
+			]),
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toBe("duplicate_question");
+	});
+
+	test("same question text differing only by case/whitespace is still a duplicate", () => {
+		const r = validateQuestionnaire(
+			params([
+				{ question: "Which approach?", header: "hdr", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] },
+				{ question: "  which APPROACH?  ", header: "hdr2", options: [{ label: "c", description: "d" }, { label: "d", description: "d" }] },
+			]),
+		);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toBe("duplicate_question");
+	});
+
+	test("distinct question texts pass", () => {
+		const r = validateQuestionnaire(
+			params([
+				{ question: "Which approach?", header: "hdr", options: [{ label: "a", description: "d" }, { label: "b", description: "d" }] },
+				{ question: "Which library?", header: "hdr2", options: [{ label: "c", description: "d" }, { label: "d", description: "d" }] },
+			]),
+		);
+		expect(r.ok).toBe(true);
+	});
 });
 
 describe("CC-parity tool description", () => {
