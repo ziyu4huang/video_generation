@@ -452,7 +452,8 @@ export async function buildResourceRows(args: {
 // SQL plumbing (shadow-batched, per-tree scoped — never touches `card`)
 // ---------------------------------------------------------------------------
 
-function resourceCreateStmt(table: string, row: ResourceIndexRow): string {
+/** Exported for the lone-surrogate tests (see surreal-index.ts createStmt). */
+export function resourceCreateStmt(table: string, row: ResourceIndexRow): string {
 	const key = resourceRecordKey(row.tree, row.uri).replace("resource:", `${table}:`);
 	// stripLoneSurrogates: a cap-split surrogate pair becomes a `\uD800` escape
 	// SurrealDB rejects (same class as the card-index bug, measured 2026-08-25).

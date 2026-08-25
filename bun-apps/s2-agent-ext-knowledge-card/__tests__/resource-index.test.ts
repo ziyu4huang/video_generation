@@ -10,10 +10,12 @@ import { join } from "node:path";
 import {
 	buildResourceRows,
 	rebuildResourceIndex,
+	resourceCreateStmt,
 	resourceKnnQuery,
 	resourceRecordKey,
 	TIER_SIDEFILES,
 } from "../src/resource-index.ts";
+import type { ResourceIndexRow } from "../src/resource-index.ts";
 import { stripLoneSurrogates } from "../src/surreal-index.ts";
 import type { SurrealClient } from "@repo/s2-agent-core-interface";
 
@@ -304,20 +306,31 @@ describe("lone-surrogate sanitation (2026-08-25 USB4 batch poisoning)", () => {
 		expect(stripLoneSurrogates("plain ascii")).toBe("plain ascii");
 	});
 
-	test("a cap-split math glyph never emits the \\uD800 escape Surreal rejects", async () => {
-		// A lone high surrogate in source text (a summary/body cap split a VLM
-		// math glyph on the real corpus) previously reached JSON.stringify,
-		// whose \uD835 escape SurrealDB parses as "not a valid character code"
-		// — poisoning the whole 24-row batch.
-		put("math.md", `# Math\n\nTraining \uD835 and trailing text.`);
-		const { client, statements } = fakeClient((sql) => {
-			if (/^SELECT fingerprint/.test(sql.trim())) return [{ fingerprint: "x", embed_model: "m", dim: 8 }];
-			if (/SELECT VALUE count\(\)/.test(sql)) return [{ count: 0 }];
-			return [];
-		});
-		await rebuildResourceIndex({ client, treePath: root, tree: "sur", model: "m", embedder: fakeEmbedder });
-		expect(statements.length).toBeGreaterThan(0);
-		const offenders = statements.filter((s) => /\\u[dD][89abAB][0-9a-fA-F]{2}/.test(s));
-		expect(offenders).toEqual([]);
+	test("resourceCreateStmt strips a cap-split pair; no \\ud8xx–\\udfxx escape is emitted", () => {
+		// Same bug class as the card-lane test (surreal-index.test.ts): the
+		// abstract slices in this file (resource-index.ts `slice(0, 1000)`)
+		// are code-unit caps, so an IN-MEMORY split is the real shape — a
+		// file-seeded surrogate can never reach this layer (utf8 decode maps
+		// lone halves to U+FFFD on read; mutation-verified vacuous).
+		const full = `${"y".repeat(999)}𝑡 trailing abstract text`; // pair straddles the 1000 cap
+		const capped = full.slice(0, 1000);
+		// Premise (self-verifying non-vacuousness): raw stringify WOULD emit
+		// the escape SurrealDB rejects.
+		expect(JSON.stringify(capped)).toMatch(/\\ud[89a-f]/i);
+		const row = {
+			tree: "sur",
+			uri: "pages/math.md",
+			level: 2,
+			name: "Math",
+			abstract: capped,
+			vec: null,
+			embed_model: "m",
+			created: "2026-08-25T00:00:00Z",
+			updated: "2026-08-25T00:00:00Z",
+			parent: "pages",
+		} satisfies ResourceIndexRow;
+		const stmt = resourceCreateStmt("resource", row);
+		expect(/\\ud[89a-f]/i.test(stmt)).toBe(false);
+		expect(stmt).toContain("pages/math.md"); // untouched values survive
 	});
 });

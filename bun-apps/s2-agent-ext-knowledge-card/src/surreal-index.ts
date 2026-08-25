@@ -359,7 +359,11 @@ export function stripLoneSurrogates(s: string): string {
  *  anyway, and full-precision JSON floats make a 1024-dim row ~20 KB+, which
  *  overflowed the /sql body cap (HTTP 413, measured on the real 2352-card
  *  vault; rounding halves the statement size for zero index-visible loss). */
-function createStmt(table: string, row: CardIndexRow): string {
+/** Exported for the lone-surrogate tests: the poisoning shape is an
+ *  IN-MEMORY cap-split pair (extractor.ts slices by UTF-16 code unit), which
+ *  a file-seeded test can never reproduce — utf8 decode maps lone surrogates
+ *  to U+FFFD before this layer sees them. */
+export function createStmt(table: string, row: CardIndexRow): string {
 	const key = cardRecordKey(row.stem);
 	const v = (x: unknown) =>
 		JSON.stringify(typeof x === "string" ? stripLoneSurrogates(x) : (x ?? null));

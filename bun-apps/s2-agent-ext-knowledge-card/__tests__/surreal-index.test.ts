@@ -8,7 +8,8 @@ import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { buildCardRows, cardRecordKey } from "../src/surreal-index.ts";
+import { buildCardRows, cardRecordKey, createStmt } from "../src/surreal-index.ts";
+import type { CardIndexRow } from "../src/surreal-index.ts";
 import type { Embedder } from "../src/semantic.ts";
 
 // MOCK.GUARD (see semantic.test.ts): pre-load the REAL obsidian and register a
@@ -178,5 +179,43 @@ describe("cardRecordKey", () => {
 		expect(cardRecordKey(weird)).toBe(cardRecordKey(weird));
 		expect(cardRecordKey(weird)).toMatch(/^card:[0-9a-f]{16}$/);
 		expect(cardRecordKey(weird)).not.toBe(cardRecordKey("other"));
+	});
+});
+
+describe("lone-surrogate sanitation — card lane (2026-08-25 USB4 batch poisoning)", () => {
+	// A lone UTF-16 surrogate reaching JSON.stringify inside a SurrealQL
+	// CREATE emits a \uD8xx escape SurrealDB rejects ("not a valid character
+	// code") — poisoning the whole /sql batch and leaving the card index
+	// stale. The production shape is an IN-MEMORY cap split (extractor.ts
+	// slices summaries by UTF-16 code unit), so the test builds the row
+	// directly: a file-seeded surrogate can never reach this layer (utf8
+	// decode maps lone halves to U+FFFD on read — mutation-verified: a
+	// file-based rebuild test passes with the strip reverted, i.e. vacuous).
+	test("createStmt strips a cap-split pair; no \\ud8xx–\\udfxx escape is emitted", () => {
+		const full = `${"x".repeat(1999)}𝑡 trailing summary text`; // pair straddles the 2000 cap
+		const capped = full.slice(0, 2000); // the extractor's code-unit cap
+		// Premise (self-verifying non-vacuousness): raw stringify WOULD emit
+		// the escape — this is exactly what SurrealDB rejects.
+		expect(JSON.stringify(capped)).toMatch(/\\ud[89a-f]/i);
+		expect(/[\uD800-\uDBFF]$/.test(capped)).toBe(true); // the cap split the pair
+		const row = {
+			stem: "mathy",
+			path: `${FOLDER}/mathy`,
+			title: "Mathy",
+			summary: capped,
+			body: capped,
+			is_leaf: true,
+			layer: null,
+			parent: null,
+			entities: ["valid-entity", "e\uDC61"], // lone LOW half in the array lane
+			kind: "note",
+			vec: null,
+			embed_model: "m",
+		} satisfies CardIndexRow;
+		const stmt = createStmt("card", row);
+		// All surrogate escapes are \ud8xx–\udfxx (D + 8-F); JSON.stringify
+		// never escapes a VALID pair, so this scan has no false-positive class.
+		expect(/\\ud[89a-f]/i.test(stmt)).toBe(false);
+		expect(stmt).toContain("valid-entity"); // untouched strings survive
 	});
 });
