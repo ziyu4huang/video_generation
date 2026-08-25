@@ -127,24 +127,33 @@ const WORKFLOW_HELP_TOPIC_ENUM = StringEnum(["helpers", "budget", "phases", "pat
   description: "Reference topic: helpers | budget | phases | patterns | models.",
 });
 
+// Schema descriptions are the per-request API cost of this tool (see
+// scripts/schema-cost-baseline.json) — keep them minimal. The full authoring
+// reference (helper functions, patterns) is NOT enumerated here: it is
+// injected per-turn on workflow-intent turns by buildWorkflowGuidelinesForTurn
+// and lives in workflow_help — the same seam that already moved the ~722-tok
+// guideline block out of this schema. Every semantic constraint stays:
+// script/name exclusivity, the meta header, agent() requirement, background
+// default TRUE, and the budget guidance (tests pin /Maximum concurrent
+// agents/, /Retry attempts/, /Omit for no hard timeout/ + /only when the
+// user asks/).
 const workflowToolSchema = Type.Object({
   script: Type.Optional(
     Type.String({
       description: [
-        "Raw JavaScript workflow script, with no Markdown fences.",
+        "Raw JavaScript workflow script, no Markdown fences.",
         "First statement: export const meta = { name: 'short_snake_case', description: 'non-empty description', phases: [{ title: 'Phase' }] }",
-        "Use phase('Name'), agent(prompt, opts), parallel(arrayOfFunctions), pipeline(items, ...stages), log(message), args, and budget. The workflow must call agent() at least once.",
-        "parallel() requires functions, not promises: await parallel(items.map(item => () => agent(...))).",
-        "Mutually exclusive with `name`: provide exactly one of `script` (inline) or `name` (an installed pack).",
+        "Must call agent() at least once; parallel() takes functions, not promises (await parallel(items.map(item => () => agent(...)))).",
+        "Exactly one of `script` or `name`.",
       ].join(" "),
     }),
   ),
   name: Type.Optional(
     Type.String({
       description: [
-        "Run an installed workflow pack by name (or path), resolved under .pi/workflows/ or bun-apps/<pkg>/workflows/.",
-        "The pack's manifest.json provides default args (shallow-merged under `args`) and identity; its entry script supplies export const meta.",
-        "Mutually exclusive with `script`: provide exactly one of `name` (a pack) or `script` (inline).",
+        "Installed workflow pack name or path under .pi/workflows/ or bun-apps/<pkg>/workflows/.",
+        "Its manifest.json supplies default args (shallow-merged under `args`); the entry script supplies export const meta.",
+        "Exactly one of `script` or `name`.",
       ].join(" "),
     }),
   ),
@@ -154,7 +163,7 @@ const workflowToolSchema = Type.Object({
   background: Type.Optional(
     Type.Boolean({
       description:
-        "Run the workflow in the background. Default: true — the tool returns immediately with a run ID, the turn ends so the user isn't blocked, and the result is delivered back into the conversation when it finishes. Set to false only when you need the result inline in this same turn (the call will block until the workflow completes).",
+        "Run in background. Default: true — returns immediately with a run ID; the result is delivered when it finishes. Set false only to block this turn for the inline result.",
     }),
   ),
   maxAgents: Type.Optional(
@@ -165,25 +174,25 @@ const workflowToolSchema = Type.Object({
   concurrency: Type.Optional(
     Type.Number({
       description:
-        "Maximum concurrent agents for this run. Clamped to the runtime maximum. Use when provider/transport stability matters.",
+        "Maximum concurrent agents for this run (clamped to the runtime max); use when provider stability matters.",
     }),
   ),
   agentRetries: Type.Optional(
     Type.Number({
       description:
-        "Retry attempts for recoverable agent failures such as timeout, connection failure, or empty assistant output. Default 0 unless configured.",
+        "Retry attempts for recoverable agent failures (timeout, connection failure, empty output). Default 0 unless configured.",
     }),
   ),
   agentTimeoutMs: Type.Optional(
     Type.Number({
       description:
-        "Timeout per agent in milliseconds. Omit for no hard timeout by default. Set only when the user asks to bound time.",
+        "Timeout per agent in ms. Omit for no hard timeout by default; set only when the user asks to bound time.",
     }),
   ),
   tokenBudget: Type.Optional(
     Type.Number({
       description:
-        "Hard total-token budget for the whole run. Once spent reaches it, further agent() calls fail and the run stops. Omit for no limit. Set it when the user asks to cap spend.",
+        "Hard total-token budget for the run; further agent() calls fail once spent reaches it. Omit for no limit; set when the user asks to cap spend.",
     }),
   ),
 });

@@ -1,6 +1,6 @@
 {
   "tools": 84,
-  "totalTokens": 26393,
+  "totalTokens": 26256,
   "builtinCount": 4,
   "extensionCount": 80,
   "errors": [],
@@ -56,15 +56,6 @@
       "descLen": 771,
       "paramsLen": 2130,
       "source": "subagent",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "run_workflow",
-      "approxTokens": 683,
-      "descLen": 390,
-      "paramsLen": 2343,
-      "source": "ultracode",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -128,6 +119,15 @@
       "descLen": 823,
       "paramsLen": 1404,
       "source": "wayfind",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "run_workflow",
+      "approxTokens": 546,
+      "descLen": 390,
+      "paramsLen": 1793,
+      "source": "ultracode",
       "hasExecute": true,
       "schemaValid": true
     },
