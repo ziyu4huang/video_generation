@@ -8,13 +8,18 @@
  * tripwire.
  *
  * Scope: grep-level source contract against the PINNED dist resolved from
- * THIS package's dependency range (createRequire from import.meta.url — the
- * same resolution the runtime uses, so it follows update-pi.sh bumps). The
- * method body is cut at the next method-level `\n    }` close: tight enough
- * that a requestRender in some OTHER method can't satisfy it, loose enough
- * to survive cosmetic reformatting. A dist style change that breaks the
- * close-brace scan fails LOUDLY (start<end assertion) — a false red that a
- * human re-verifies beats a silent green.
+ * THIS package's dependency range. The `./package.json` subpath resolve is
+ * Bun-lax (the package's exports map does not list it; Node-strict would
+ * throw) — deliberate: this repo is Bun-only, and any resolution change
+ * fails LOUDLY, never silently green. The method body is cut at the next
+ * method-level `\n    }` close AND asserted to contain no other method
+ * signature, so a requestRender in some OTHER method can't satisfy it; the
+ * call itself is matched as `requestRender\s*\(` — a CALL SHAPE, not a
+ * substring, so an upstream rename that merely extends the symbol
+ * (requestRenderSync, requestRender2, …) goes red, which is the renaming
+ * case the ticket promises to catch. A dist style change that breaks the
+ * close-brace scan fails LOUDLY — a false red that a human re-verifies
+ * beats a silent green.
  */
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -33,7 +38,7 @@ function loadPinnedInteractiveMode(): string {
 }
 
 describe("SDK contract: InteractiveMode.setExtensionStatus triggers a render", () => {
-	test("the pinned dist's setExtensionStatus body calls requestRender", () => {
+	test("the pinned dist's setExtensionStatus body calls requestRender(...)", () => {
 		const dist = loadPinnedInteractiveMode();
 		const start = dist.indexOf("setExtensionStatus(");
 		expect(
@@ -48,12 +53,20 @@ describe("SDK contract: InteractiveMode.setExtensionStatus triggers a render", (
 			"re-verify the contract and adjust the scan").toBeGreaterThan(start);
 
 		const body = dist.slice(start, end);
+		// The cut must cover exactly this method — no other method signature inside.
 		expect(
-			body.includes("requestRender"),
-			"setExtensionStatus no longer calls requestRender in the pinned " +
+			/\n {4}\w+\(/.test(body) === false,
+			"the scanned window swallowed a following method — dist style changed; " +
+				"re-verify the contract and adjust the scan",
+		).toBe(true);
+
+		expect(
+			/requestRender\s*\(/.test(body),
+			"setExtensionStatus no longer CALLS requestRender(...) in the pinned " +
 				"pi-coding-agent dist — extension status updates would stop re-rendering " +
 				"the footer. Restore the render call upstream or reintroduce the s2-agent " +
-				"footer-extension-status-notify patch (removed on the old evidence).",
+				"footer-extension-status-notify patch (removed on the old evidence). " +
+				"(Matched as a call shape, so a renamed/extended symbol fails here too.)",
 		).toBe(true);
 	});
 });
