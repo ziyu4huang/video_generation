@@ -2,10 +2,10 @@
 effort: kcard-resource-tier
 created: 2026-08-25
 last: 2026-08-25
-status: active
+status: complete
 ---
 
-<!-- last touched: ticket 04 closed 2026-08-25 (eval gate FAIL — recursive stays opt-in CLI-only) -->
+<!-- last touched: ticket 05 closed 2026-08-25 (effort COMPLETE — CLI-only surface per D9, glossary + back-links landed) -->
 
 # kcard resource tier — document-tree L0/L1/L2 (the OpenViking resource model) on the kcard Surreal index
 
@@ -32,7 +32,7 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 - [03] directory-recursive retrieval lane over resource rows — closed 2026-08-25 (implemented; receipts in the ticket)
 ### Phase 4 — proof + surface
 - [04] USB4 eval gate: resource-tier vs flat generic-card A/B — closed 2026-08-25 (gate FAIL, receipts in the ticket)
-- [05] tool/CLI surface + effort close-out — open (blocked by 04 → now unblocked; recursive stays CLI-only per D9)
+- [05] tool/CLI surface + effort close-out — closed 2026-08-25 (CLI-only surface recorded per D9; glossary + back-links landed)
 
 **Execution order:** 01 → 02 → 03 → 04 → 05 (fully forced by blocking edges; single lane).
 
@@ -50,7 +50,12 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 
 ## Frontier
 
-Ticket 05 — tool/CLI surface + effort close-out, now under the D9 constraint: the recursive lane FAILED its eval gate on this corpus (single-directory degeneration), so 05 surfaces only what won its evidence — the flat resource lane stays the CLI default; any recursive tool wiring is OFF the table until a multi-directory corpus re-opens the gate. Close-out: map status → complete, cross-effort back-links, and the multi-dir corpus requirement parked in fog for whoever re-judges.
+None — the queue is drained and the effort is complete (ticket 05 closed
+2026-08-25: CLI-only surface recorded per D9, glossary + cross-effort
+back-links landed). The one standing re-open trigger lives in fog: a
+multi-directory corpus re-runs the gate via
+`bun-apps/scripts/resource-eval.mjs`; tool wiring is reconsidered only if the
+recursive lane then wins.
 
 ## Fog of war
 
@@ -64,7 +69,7 @@ Ticket 05 — tool/CLI surface + effort close-out, now under the D9 constraint: 
 
 ## Cross-effort links
 
-- **Builds-on:** `2026-08-23-kcard-openviking-parity` (Core-5 + SurrealDB build facts; this effort fills its two remaining gaps). Back-link added there.
-- **Builds-on:** `2026-08-24-kcard-production-hardening` (fingerprint freshness gate + shadow-rebuild automation this effort reuses). Back-link added there.
+- **Builds-on:** `2026-08-23-kcard-openviking-parity` (Core-5 + SurrealDB build facts; this effort fills its two remaining gaps). Back-link added there (at close-out — the t01-era claim had drifted; landed with ticket 05).
+- **Builds-on:** `2026-08-24-kcard-production-hardening` (fingerprint freshness gate + shadow-rebuild automation this effort reuses). Back-link added there (at close-out — same drift, landed with ticket 05).
 - **Shares-decision-with:** `2026-08-22-context-lifecycle` (embedding model D3 bge-m3 via the `__piEmbeddingConfig` seam; unchanged here).
 - Evidence source: 2026-08-25 morning file2md→kcard pipeline verification (output/next-goal-20260825-111500.md) — the USB4 corpus, its generic-card baseline, and the measured gaps are this effort's seed evidence.
