@@ -10,6 +10,7 @@ Source: map Context "Structure" D5-D9 clusters.
 - **printTable adoption**: `workflow.ts:208`, `agent-trends.ts:65` hand-rolled rows → printTable. NOTE: workflow.ts may already be gone via ticket 02 — skip if so.
 - **`json ?` ternary ×8 + dry-run message ×2**: add a shared `emit()` ONLY where output shapes honestly converge; if shapes stay divergent ({error} vs {mode} vs raw), record that and skip (map D-cluster 8 explicitly allows this outcome).
 - **lazy-extensions dead-path** (manifest.lazyExtensions always {}): fold in ONLY if the registry zero-import contract + manifest-types surface survive contact within this ticket's budget; else split into its own follow-up ticket (map Fog of war).
+- **gitLines contract test** (reviewer recommendation on ticket 05): a small unit test locking `src/cli/git.ts`'s null-vs-empty distinction — non-zero exit → null; successful empty output → `[]`; the `?? []` consumer shape. Nothing pins it today (pipeline-gate.test.ts covers parsing only).
 
 ## Acceptance criteria
 

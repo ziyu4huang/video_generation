@@ -12,17 +12,18 @@
  * src/mode.ts was created to centralize.
  *
  * `import.meta.url` MUST stay meaningful here: in source mode resolveBunAppsDir
- * walks up three levels from this file's own directory (src/run-dir/ → src/ →
- * s2-agent/ → bun-apps/), which is correct only while this module lives in
- * run-dir/ below src/. The compiled binary never asks — it
- * resolves nothing from the repo — so source is the only case left to serve.
- * Bundle mode used to read baked constants from src/generated/run-dir-base.ts
- * for exactly this reason; both the mode and that generated file went in
- * Phase 1b (see the header of resolve.ts).
+ * marker-walks up from this file's own directory to the nearest ancestor
+ * containing bun-apps/ (the shared findRepoRoot leaf), so the walk needs this
+ * module to actually live somewhere under the repo. The compiled binary never
+ * asks — it resolves nothing from the repo — so source is the only case left
+ * to serve. Bundle mode used to read baked constants from
+ * src/generated/run-dir-base.ts for exactly this reason; both the mode and
+ * that generated file went in Phase 1b (see the header of resolve.ts).
  */
-import { dirname, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { detectMode } from "../mode.ts";
+import { findRepoRoot } from "../paths.ts";
 
 const url = import.meta.url;
 
@@ -35,6 +36,10 @@ export function warn(msg: string): void {
 }
 
 export async function resolveBunAppsDir(): Promise<string | undefined> {
-  // src/run-dir/run-context.ts -> src/ -> s2-agent/ -> bun-apps/
-  return resolve(dirname(fileURLToPath(url)), "..", "..", "..");
+  // Marker walk (nearest ancestor containing bun-apps/, round-2 ticket 05 —
+  // was a fixed three-level resolve that broke if this module ever moved depth).
+  // undefined now means what the signature always claimed: no bun-apps ancestor
+  // (deploy layouts never ask — see header).
+  const root = findRepoRoot(dirname(fileURLToPath(url)));
+  return root === undefined ? undefined : join(root, "bun-apps");
 }

@@ -36,6 +36,7 @@ import { mkdirSync, readlinkSync, symlinkSync, lstatSync, rmSync } from "node:fs
 // The shared bun-apps workspace walk (also feeds check-deps.ts's labeling).
 // Dependency-free on purpose: this patch imports at boot.
 import { workspacePackages } from "../run-dir/workspace-packages.ts";
+import { findRepoRoot } from "../paths.ts";
 
 // SOURCE mode only — match the same import.meta.url key the other mode-aware
 // patches use. Bundle = /dist/s2-agent/s2-agent.js, where extension resolution
@@ -69,8 +70,10 @@ if (isSource) {
 		typebox: pkgRoot("typebox"),
 	};
 
-	// Repo root = 4 levels up from bun-apps/s2-agent/src/patches/.
-	const repoRoot = path.resolve(import.meta.dirname, "../../../..");
+	// Repo root via the shared marker walk (round-2 ticket 05 — was a fixed
+	// 4-level resolve); the old value stays as the degenerate-layout fallback
+	// (schema-cost's house pattern) so behavior is unchanged off-repo.
+	const repoRoot = findRepoRoot(import.meta.dirname) ?? path.resolve(import.meta.dirname, "../../../..");
 	const nmRoot = path.join(repoRoot, "node_modules");
 
 	for (const [spec, abs] of Object.entries(targets)) {

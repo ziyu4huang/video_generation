@@ -32,6 +32,7 @@ import {
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { join } from "node:path";
+import { envFlag } from "../../env-flag.ts";
 import type { ParsedArgs } from "../args.ts";
 // Inline import of the pi-obsidian extension factory. Bundled in (self-contained).
 import obsidianExtension, {
@@ -242,10 +243,11 @@ export function applyDryRun(parsed: {
 	return dryRunExclude(parsed);
 }
 
-/** PI_SKIP_MODELS_JSON=1 → hermetic binary: no ~/.pi/agent/models.json read. */
+/** PI_SKIP_MODELS_JSON=1 → hermetic binary: no ~/.pi/agent/models.json read.
+ *  envFlag (round-2 ticket 05) — was a case-sensitive "1"|"true" hand-roll; the
+ *  widening to 1/true/yes case-insensitive is deliberate and flagged in the PR. */
 function isSkipModelsJson(): boolean {
-	const v = process.env.PI_SKIP_MODELS_JSON;
-	return v === "1" || v === "true";
+	return envFlag("PI_SKIP_MODELS_JSON", false);
 }
 
 /**

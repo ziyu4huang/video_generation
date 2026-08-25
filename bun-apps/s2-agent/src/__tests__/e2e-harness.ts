@@ -12,13 +12,14 @@
  * the tiers that run these.
  */
 import { dirname } from "node:path";
+import { envFlag } from "../env-flag.ts";
 
 /** bun-apps/s2-agent (this package). import.meta.dir = <pkg>/src/__tests__ */
 export const PI_AGENT_DIR = dirname(dirname(import.meta.dir));
 /** repo root. */
 export const REPO_ROOT = dirname(dirname(PI_AGENT_DIR));
 
-const truthy = (v: string | undefined) => v === "1" || v === "true" || v === "yes";
-
-/** E2E fires only when PI_AGENT_E2E is set; otherwise test files skip themselves. */
-export const E2E_ENABLED = truthy(process.env.PI_AGENT_E2E);
+/** E2E fires only when PI_AGENT_E2E is set; otherwise test files skip themselves.
+ *  envFlag (round-2 ticket 05) — was a case-sensitive "1"|"true"|"yes" local;
+ *  run-test.ts always sets the literal "1", so the widening is unobservable. */
+export const E2E_ENABLED = envFlag("PI_AGENT_E2E", false);

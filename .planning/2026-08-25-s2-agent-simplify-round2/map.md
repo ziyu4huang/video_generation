@@ -9,7 +9,7 @@ status: charted
 
 ## Destination
 
-`bun-apps/s2-agent` carries no same-seam duplication round 1 left behind (env-flag parsing, repo-root walks, agent-dir hand-rolls, git/spawn boilerplate, truncation helpers), its test suite has no assertion that another test already makes at the same seam, its docs/scripts dir holds zero dead files, and the ultracode/workflow question is answered with usage receipts recorded here. Same bar as round 1: every ticket merges through package gates + independent reviewer + local_ci ≤ 5 min; the 0.7.10→0.7.11 version bump rides the first PR.
+`bun-apps/s2-agent` carries no same-seam duplication round 1 left behind (env-flag parsing, repo-root walks, agent-dir hand-rolls, git/spawn boilerplate, truncation helpers), its test suite has no assertion that another test already makes at the same seam, its docs/scripts dir holds zero dead files, and the ultracode/workflow question is answered with usage receipts recorded here. Phase D extension (2026-08-25): the launcher run.sh carries one doc surface not two and no dead flag, the package's md cites only files that exist, and no tracked runtime receipts sit in `output/`. Same bar as round 1: every ticket merges through package gates + independent reviewer + local_ci ≤ 5 min; the 0.7.10→0.7.11 version bump rides the first PR.
 
 ## Context
 
@@ -59,9 +59,18 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 - **Hard dependents (block REMOVE):** ext-movie-director (`movie-manager.ts:17-18` imports WorkflowManager + createWebTools; runs 4 saved packs, ~472 LOC, registry-enabled deploy ext), s2-agent `cli workflow run/list`, ext-flux2 `self-improve-loop.driver.ts:23`, ext-tool-gate references. NOT dependents: subagent, devops (doc note only), wayfind, knowledge-card, obsidian.
 - **Available mechanics:** full off = `enabled:false`+disableReason (hyperframes e97cf6c8); deploy-only = `excludeReason` (sv-analyzer/webui); demote = `load:"dynamic"` (webui 2026-08-25) — drops static-bundle + default-session schema-cost while keeping source-mode `-e` loading. Full REMOVE additionally breaks movie-director/tool-gate typecheck until decoupled.
 
+### Round-2 extension (Phase D) — charted 2026-08-25, second session (four read/design agents, all file:line verified)
+
+- run.sh 206 LOC: `--update-help` heredoc (:80-105) ≈ header UPGRADING block (:26-47) — one doc surface duplicated; `update-pi.sh -h` already prints the wrapper docs (:2-48). Link-farm reclaim logic pinned by 5 e2e tests (e2e-launcher.test.ts:208-303) — comments compress, logic stays.
+- Dual doctor (src/doctor.ts 567 vs cli/commands/doctor.ts 369): overlap THIN — the result contract is ALREADY shared (cli/commands/doctor.ts:32-39 imports CheckStatus/CheckResult/isFailing from src/doctor.ts); check surfaces deliberately disjoint (deploy/patch health vs fresh-machine portability); renderers differ by channel. → D7, no edit.
+- Stale refs: all 8 ADR headers + README:84 cite nonexistent `bun-apps/docs/adr/INDEX.md`; README Layout tree predates #1975 run-dir move; README:63 documents `cli doctor [--smoke]` (wrong — `--smoke` is the root doctor's); knowledge-distill.js:25 cites nonexistent `../docs/workflow-cli.md`.
+- `output/kcard-extract/` holds 2 tracked runtime receipts (13 LOC each; writer ext-knowledge-card src/extract.ts:489,691 declares the dir gitignored per its D30; `.gitignore:126 output/` matches — tracked-ness bypassed it).
+- dispatch-log.ts: no workflow *code* branch — dead surface is the `"workflow"` engine-union half (producer died in ticket 02), `--effort`/`--tier` filters (manual records always `effort/tier:"unknown"` ⇒ permanently unmatched), NOT-YET-WIRED prose. Command LIVE (taught in dispatching-parallel-agents SKILL.md:98).
+- completions inline-in-dispatch: load-bearing (circular-import hang, completions.ts:11-15 / dispatch.ts:434-435); META vs META_COMMANDS deliberately differ (dispatch.ts:112 vs completions.ts:36); `e2e/meta.e2e.test.ts` pins output. → D8, no edit.
+
 ## Tickets
 
-**Execution order:** 01 → 02 → 03 → 04 → 05 → 06 → 07 — **user-confirmed 2026-08-25** (01 first is no-choice — the version bump rides it; 03 before 04 so deletions land before helpers consolidate what remains; user declined swapping tests-track (03-04) ahead of structure-track (05-06))
+**Execution order:** 01 → 02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 10 — **user-confirmed 2026-08-25** (01 first is no-choice — the version bump rides it; 03 before 04 so deletions land before helpers consolidate what remains; user declined swapping tests-track (03-04) ahead of structure-track (05-06); Phase D extension 08–10 confirmed in a second 2026-08-25 session — full sweep, `--update-help` drop approved, md depth = README slim + stale refs, vehicle = extend this map)
 
 ### Phase A — sweep & disposition
 
@@ -79,6 +88,12 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 - [ ] 06 — Seams B: clip/trunc + humanizer consolidation into format.ts, findExistingRun parameterize, printTable adoption at workflow.ts:208 + agent-trends.ts:65; `emit()` helper only where shapes honestly converge; lazy-extensions dead-path fold-in if the registry zero-import contract survives contact
 - [ ] 07 — SDK-contract guard test (carried from t06): source-scan the pinned pi-coding-agent dist for setExtensionStatus→requestRender so a pi bump can't silently drop footer rendering
 
+### Phase D — round-2 extension (user-confirmed 2026-08-25: full sweep)
+
+- [ ] 08 — Launcher slim: run.sh 206 → ~150-160 LOC — delete `--update-help` (heredoc duplicates header UPGRADING block; upgrade docs single-source in `update-pi.sh -h`; behavior delta flagged in PR) + its paired e2e describe + run-test.ts comment; compress header/comments ONLY, logic verbatim (link-farm reclaim tests pin it; KEEP the regular-file reclaim-safety rationale)
+- [ ] 09 — md cleanup: 8 × ADR line-1 `Index: bun-apps/docs/adr/INDEX.md` (nonexistent) → repo-root `CONTEXT-MAP.md`; README stale Layout tree → ~6-line map to code headers + `:63` doctor-command fix; knowledge-distill.js:25 stale doc ref. No bump (no shipped surface)
+- [ ] 10 — misc: `git rm` the 2 tracked `output/kcard-extract/*.json` runtime receipts (zero readers; `.gitignore:126` already matches); dispatch-log trim (drop `"workflow"` engine half + `--effort`/`--tier` dead paths + NOT-YET-WIRED prose; command stays live); completions split deferred by D8
+
 ## Decisions
 
 - **D1 — Round-1 REJECTED merges stay rejected** (printModel, gating unify, ensure-model-tiers — round-1 map D-entries with evidence). Not re-litigated.
@@ -87,19 +102,23 @@ Measured from `~/.pi/agent/sessions/**.jsonl` (4,737 session files, 2026-06-27�
 - **D4 — ultracode verdict: (B) TRIM s2-agent-side surface — USER-CONFIRMED 2026-08-25.** The engine package and its riders stay enabled and untouched; s2-agent's own workflow surface (cli/commands/workflow.ts + its 418 LOC tests + sample packs) is removed, engine stays importable for movie-director/flux2/tool-gate; cron zero-usage + usage-decay receipts land in CONTEXT.md for a future engine-side effort. Rejected: (A) keep-as-is (21k test LOC + CI row riding for ~0 organic use since Aug 7), (C) `load:"dynamic"` demotion (kills default availability of live riders /loop, wakeup, effort, deep-research — recent maintenance #1990/#1995), full REMOVE (hard dependents: movie-director movie-manager.ts:17-18, flux2 driver, tool-gate typecheck). Ticket 02 encodes the trim.
 - **D5 — deletion-with-equivalence-proof per candidate, never bulk** (same rule as round 1): each test deletion quotes the surviving assertion that covers the same seam.
 - **D6 — no file moves** (round-1 external-pin census unchanged: cli.ts, cli-sh.ts, patches/*, static-extensions.ts, run-dir/{manifest.json,check-deps.ts}, sh/*, pre-load-providers.ts, run-dir/registry.ts are pinned by devops/deploy/run.sh/ext consumers).
+- **D7 — dual doctor stays two files** (verified 2026-08-25): the shared result contract already lives once (cli/commands/doctor.ts imports it from src/doctor.ts:32-39); check surfaces are disjoint by design; renderers differ by channel (colored stdout vs stderr checklist). Consolidation would change output bytes both test suites observe for ~zero dedup. Forced merges rejected on evidence.
+- **D8 — completions inline-in-dispatch split stays** (verified 2026-08-25): the split is a load-bearing circular-import workaround; `META` (dispatch.ts:112) vs `META_COMMANDS` (completions.ts:36) differ deliberately; `e2e/meta.e2e.test.ts` pins the output bytes. "Fixing" the awkwardness changes completion output.
+- **D9 — `--update-help` removed; upgrade docs single-source in `update-pi.sh -h`** (user-approved 2026-08-25): the run.sh heredoc duplicated the header's UPGRADING block — one doc surface, one source. Replacement path: `./s2-agent.sh --upgrade --help` reaches the wrapper's docs. The paired e2e describe is deleted WITH the flag (consistent pair).
 
 ## Frontier
 
-Ticket 01 — no blocker, all receipts already in Context, version bump rides it.
+Ticket 05 — no blocker; every seam is file:line-verified in Context, the ext-doctor PI_AGENT_DIR verify-first gate is written into the ticket, and patches/run-dir being DEPLOY_SENSITIVE means the launcher e2e runs explicitly. Then 06 → 07 → 08 → 09 → 10 in order (08 before 09 so the README "map to code headers" describes the final launcher; 10 last — it touches a cross-package skill doc and benefits from the settled tree).
 
 ## Fog of war
 
 - **Engine-side live docs still cite the removed "Path A" CLI** (ext-ultracode CONTEXT.md:32, PRD.md:26,62,98, workflow-pack.ts:6 header) — reviewer finding on ticket 02; the engine package is deliberately out of this effort's scope, so a future engine-side effort must own the doc fix (CONTEXT.md Path-A sentence is factually wrong as of 2026-08-25).
-- ext-doctor.ts:32 repo-root copy uses `PI_AGENT_DIR` (not PI_CODING_AGENT_DIR) — deliberate or drift is UNMEASURED; ticket 05 verifies before migrating.
+- ext-doctor.ts:32 repo-root copy uses `PI_AGENT_DIR` (not PI_CODING_AGENT_DIR) — deliberate or drift is UNMEASURED; ticket 05 verifies before migrating. **RESOLVED 2026-08-25 ticket 05: legacy package-dir NAME, not drift — kept (verdict comment at the const; see ticket 05 Outcome).**
 - movie-director `/movie` runs may journal outside `~/.pi/workflows/projects` (no produce-video/review-cut run logs found despite 2,179 movie tool calls) — UNVERIFIED; only matters if option C or REMOVE is ever revisited.
 - Ultracode's exact schema-token share inside the 83-tool/25,641-token aggregate baseline is UNMEASURED (baseline is aggregate); measurable if option C is chosen.
 - `--no-session` parsed global with zero readers (round-1 fog, still open) — candidate for the next flag audit, not ticketed here.
 - lazy-extensions dead-path removal may exceed ticket 06's budget if the manifest-types surface is wider than expected — split rather than cram.
+- **Other packages' ADR headers carry the same stale `Index: bun-apps/docs/adr/INDEX.md` line repo-wide** (found charting Phase D, 2026-08-25) — out of this effort's scope (s2-agent only); a repo-wide doc-hygiene sweep would own it.
 
 ## Cross-effort links
 

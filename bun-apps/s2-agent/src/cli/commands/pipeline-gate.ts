@@ -20,6 +20,7 @@
  */
 import { readFileSync, readdirSync, existsSync, type Dirent } from "node:fs";
 import { join } from "node:path";
+import { gitLines } from "../git.ts";
 import { findRepoRoot } from "../../paths.ts";
 
 export type Tier = "T1" | "T2" | "T3";
@@ -196,19 +197,19 @@ function readOr(path: string, fallback: string): string {
 }
 
 function changedFilesSinceBase(repoRoot: string): { files: string[]; error: string | null } {
+	// gitLines returns null on any failure (round-2 ticket 05) — the gate rows
+	// keep distinguishing "git error" from "no changed files".
 	// Get committed files
-	const r = Bun.spawnSync(["git", "diff", "--name-only", "origin/main...HEAD"], { cwd: repoRoot });
-	if (r.exitCode !== 0) {
+	const committed = gitLines(repoRoot, ["diff", "--name-only", "origin/main...HEAD"]);
+	if (committed === null) {
 		return { files: [], error: "git error" };
 	}
-	const committed = r.stdout ? r.stdout.toString().split("\n").filter(Boolean) : [];
 
 	// Get uncommitted files (working tree)
-	const r2 = Bun.spawnSync(["git", "status", "--porcelain"], { cwd: repoRoot });
-	if (r2.exitCode !== 0) {
+	const porcelain = gitLines(repoRoot, ["status", "--porcelain"]);
+	if (porcelain === null) {
 		return { files: [], error: "git status error" };
 	}
-	const porcelain = r2.stdout ? r2.stdout.toString().split("\n").filter(Boolean) : [];
 
 	// Parse porcelain output: XY filename
 	// X = staged, Y = unstaged. We want any file that's modified (M), added (A), etc.
