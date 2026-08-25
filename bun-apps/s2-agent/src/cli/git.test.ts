@@ -24,9 +24,12 @@ describe("gitLines — null-vs-empty contract", () => {
 		expect(r).toEqual([]);
 	});
 
-	test("success with output → split, empty lines dropped (agent-trends' `?? []` shape)", () => {
+	test("success with output → split lines, empties dropped (agent-trends' `?? []` shape)", () => {
 		const r = gitLines(process.cwd(), ["diff", "--name-only", "HEAD~1", "HEAD"]);
 		expect(Array.isArray(r)).toBe(true);
-		if (r !== null) for (const line of r) expect(line.length).toBeGreaterThan(0);
+		// This repo's last commit always touches files, so a non-empty array is
+		// the observable pin; the per-line non-empty check guards the filter.
+		expect(r!.length).toBeGreaterThan(0);
+		for (const line of r!) expect(line.length).toBeGreaterThan(0);
 	});
 });
