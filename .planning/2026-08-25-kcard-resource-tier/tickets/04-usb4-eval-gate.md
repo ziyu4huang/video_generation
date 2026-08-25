@@ -60,11 +60,15 @@ win over the cheap baseline either.
 
 **±1-lens (diagnostic, NOT the gate key):** a post-hoc lens that also accepts
 the section-heading page's continuation (target±1) — USB4 sections routinely
-start at a page bottom with their content on the next page, so 8 of the 11
-strict misses have the adjacent page in top-1 (e.g. §9.1 target page-539 →
-top1 page-540; §11.3 729→730). Under this lens recursive STILL does not beat
-flat (13/21 tie, MRR 0.516 < 0.540); generic-hier actually leads hit@5
-(15/21). The verdict is lens-invariant.
+start at a page bottom with their content on the next page (e.g. §9.1 target
+page-539 → top1 page-540; §11.3 729→730). Among the 11 strict misses the
+adjacent page sits at top-1 for 3 (recursive/flat; generic-hier 2, its
+generic-flat-vector ablation 3 of 7) and inside top-5 for 3/3/5 — the lens
+gains come mostly from rank-promotion of near misses, not wholesale adjacent
+hits (statistic corrected per reviewer S1; originally mis-written as 8/11).
+Under this lens recursive STILL does not beat flat (13/21 tie, MRR
+0.516 < 0.540); generic-hier actually leads hit@5 (15/21). The verdict is
+lens-invariant.
 
 ### Why (measured, consistent with ticket 03)
 
@@ -89,10 +93,35 @@ tier rows do not rescue it: they reorder the top ranks slightly (MRR −0.024).
   granularity, not embedding quality.
 - Receipts: `output/resource-eval/receipt-2026-08-25T12-28-24-597Z.json`
   (per-query top-K recorded; negatives retrieved spec pages as expected for
-  KNN — recorded, no scoring impact).
+  KNN — recorded, no scoring impact). A superseded first receipt exists
+  (`receipt-2026-08-25T12-26-23-215Z.json`, 841 generic cards — the
+  pre-sidecar-exclusion harness); its metrics are identical on every arm, so
+  the outcome was not affected by the fix (reviewer N2, disclosed for a
+  self-explanatory record).
 
 ## Review receipts
 
-Independent reviewer subagent pass on the harness + question set — see the
-final section of this file for the round's findings and their disposition
-(appended after the pass).
+Independent reviewer subagent pass on the harness + question set — **APPROVE,
+no blockers**. Folded before merge:
+
+- **S1 (doc fix, applied)** — the ±1-lens paragraph's "8 of 11 strict misses
+  have the adjacent page in top-1" was not supported by the receipt (actual:
+  adjacent@top1 3/11 recursive+flat, 2/11 generic-hier; in-top5 3/3/5).
+  Corrected above and in the map fog; the ±1 metrics themselves verified
+  correct and the verdict lens-invariant.
+- **N2 (disclosure, applied)** — pre-sidecar-exclusion receipt noted above
+  (outcome-identical on every arm).
+- Verified by the reviewer: metric code correct end-to-end (1-based ranks,
+  MRR denominator, negatives unscored); no match collisions possible
+  (zero-padded page ids, sidecar uris never match); scratch-ns isolation and
+  cleanup; determinism reproduces across PROCESSES (two receipts, different
+  pid/ns, identical digits); all four arms share the same live embedder
+  (embedQuery's default IS defaultEmbedder — semantic.ts:177); tier-row
+  distractor set symmetric across resource arms; generic ingest faithfully
+  mirrors the `zk-ingest --source generic` CLI path (same
+  adaptGenericMarkdown + ingestRecords); blind authoring verified by commit
+  order (questions f3cd7b13 20:24 +0800 precedes harness 04bb3f6b 20:31,
+  receipts 12:26Z/12:28Z); receipt metrics recomputed from perQuery — all
+  match, including the recursive-vs-flat MRR delta being exactly 0.5/21 (ONE
+  query differs between the arms: q1, tier row `.overview.md` displacing
+  page-045 from rank 1 to 2).
