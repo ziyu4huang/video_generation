@@ -42,9 +42,11 @@ subagents section, notify, RunView tokens/cost, detach, dock):
   `ctrl-b.ts:33-60`, ADR-subagent-0004, guard test
   `s2-agent/src/__tests__/extension-shortcut-guard.test.ts`); ctrl+b acts
   only inside the `/subagents` viewer / dock as detach-focused.
-- No Esc path interrupts a running foreground subagent from the display
-  surface (abort only via dock `x` on background rows, or the caller's
-  controller).
+- Esc at charting time: no display-surface interrupt for a FOREGROUND run
+  was known; t02's investigation found pi's `app.interrupt` (Esc) already
+  aborts the streaming turn and fans into the child — the gap was only the
+  settle status (Esc'd run misbadged `timedout`; fixed in child-dispatch,
+  PR #2027).
 
 CC reference behavior (this harness, observed first-hand 2026-08-25): live
 `⏺ Task(<agent>): <description>` with spinner word; completion `  ↳ <result
@@ -60,8 +62,8 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 | Ticket | Status | Summary |
 |---|---|---|
 | `tickets/01-cc-line-vocabulary.md` | done (PR #2025, 2026-08-25) | Inline line vocabulary: `Task(agent): intent` live shape + `↳ summary · 34,283 tokens · 2m 13s` settled shape (fmtTokens separator'd, fmtDuration human m+s, summary-first ordering; keep s2 tags as trailing segments) |
-| `tickets/02-esc-interrupt.md` | done (2026-08-25 — investigation found pi's `app.interrupt` ALREADY binds Esc → `agent.abort()` → childAc fan-in; the real gap was the settle status misreading an Esc'd run as `timedout`, fixed in child-dispatch) | Esc during a running foreground subagent aborts it (input seam investigation: onTerminalInput vs pi interrupt semantics; must not steal Esc from the editor when no subagent runs) |
-| `tickets/03-ctrl-b-panel.md` | pending | **alt+b** opens the background-agents panel CC-style (user-confirmed direction; ctrl+b stays pi's cursorLeft — no collision, no startup warning; alt+s detach unchanged) + ADR-subagent-0004 amendment recording the decision |
+| `tickets/02-esc-interrupt.md` | done (PR #2027 merged CLEAN, 2026-08-25 — investigation found pi's `app.interrupt` ALREADY binds Esc → `agent.abort()` → childAc fan-in; the real gap was the settle status misreading an Esc'd run as `timedout`, fixed in child-dispatch) | Esc during a running foreground subagent aborts it (input seam investigation: onTerminalInput vs pi interrupt semantics; must not steal Esc from the editor when no subagent runs) |
+| `tickets/03-ctrl-b-panel.md` | done (2026-08-25 — recorded NO-GO: alt+b measured as a `tui.editor.cursorWordLeft` default, the exact ADR-0004 conflict class; user chose no new key at the second confirm-gate; ADR-subagent-0004 amended) | **alt+b** opens the background-agents panel CC-style (user-confirmed direction; ctrl+b stays pi's cursorLeft — no collision, no startup warning; alt+s detach unchanged) + ADR-subagent-0004 amendment recording the decision |
 
 ## Decisions
 
@@ -80,12 +82,19 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
   on s2-agent — the user chose it over reclaiming ctrl+b (which collides
   with pi's `tui.editor.cursorLeft`, ADR-subagent-0004). alt+s detach is
   unchanged; the panel target is the existing dock//subagents surface, not a
-  new widget.
+  new widget. **SUPERSEDED by D5** — the "alt+b is free" premise was wrong.
+- D5 (2026-08-25, second confirm-gate): **no global panel-opener key** —
+  alt+b is one of `tui.editor.cursorWordLeft`'s defaults (measured in the
+  pi-tui dist), so registering it re-creates the ADR-0004 startup-warning
+  failure the repo already rejected. The background surface stays reachable
+  via `ctrl+g s` (dock claim, runs-gated) and `/subagents`. Measured free
+  alt+<letter> space recorded in the ADR amendment (built-ins claim only
+  b/d/f/v/y + non-letters; alt+p is the clean future candidate).
 
 ## Frontier
 
-Ticket 03 (alt+b background-agents panel) — 01 and 02 landed; 03 is the
-last ticket before the effort close-out.
+Effort close-out — all three tickets landed (t01 #2025, t02 #2027, t03 as a
+documented no-go); remaining step: status → complete, terminal successor.
 
 ## Fog of war
 
@@ -105,10 +114,11 @@ last ticket before the effort close-out.
   (:1741). The ticket's own key-claim design was dropped as a collision; the
   shipped fix is the settle-status correction (Esc'd run → `aborted`, was
   misread `timedout`).
-- ~~Whether Ctrl+B-as-panel is claimable globally~~ — RESOLVED at the
-  confirm-gate (D4): alt+b carries the panel-opener; ctrl+b is never
-  reclaimed. Remaining t03 fog is only which surface alt+b opens first
-  (dock vs viewer vs notice) when background runs are empty.
+- ~~Whether Ctrl+B-as-panel is claimable globally~~ — RESOLVED, twice:
+  D4's alt+b direction was DISPROVED by measurement (alt+b is a
+  `tui.editor.cursorWordLeft` default) and D5 records the no-go (no global
+  panel key; `ctrl+g s` + `/subagents` remain the access paths; see the
+  ADR-subagent-0004 amendment for the measured free alt+letter space).
 - `/agents` definition-management parity: intentionally NOT charted (big
   surface, orthogonal to display vocabulary); revisit if the user asks.
 - CC's live spinner words (Deliberating / Reading files…) vs s2's

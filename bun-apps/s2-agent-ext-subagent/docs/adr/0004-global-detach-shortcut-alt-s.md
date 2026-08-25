@@ -2,7 +2,7 @@
 
 # 0004 — Global detach shortcut is `alt+s`, not `ctrl+b`
 
-**Status:** accepted
+**Status:** accepted (amended 2026-08-25 — see the 2026-08-25 amendment below)
 **Date:** 2026-08-16
 **Amends the global detach key introduced with Task 06 of the cc-subagent-tui effort.**
 
@@ -100,3 +100,25 @@ dispatch logic now shared by both surfaces; only the global *binding* changed.
 - **Rebind the scoped in-viewer surface to alt+s too.** It cannot collide
   (no editor is active on its surface), and ctrl+b is the Emacs-friendly
   binding where it works.
+
+## Amendment — 2026-08-25: the CC-parity panel-opener key is a recorded no-go
+
+The `2026-08-25-subagent-tui-cc-parity` effort (ticket 03) evaluated a
+Claude-Code-parity GLOBAL key that opens the background-agents panel (CC
+binds Ctrl+B to it). The confirm-gate first directed `alt+b`
+(``map.md`` D4, chosen over reclaiming ctrl+b); implementation-time
+measurement found **`alt+b` is itself a pi built-in** — one of
+`tui.editor.cursorWordLeft`'s defaults (`alt+left`/`ctrl+left`/`alt+b`).
+Registering it would re-create exactly this ADR's failure mode: a startup
+conflict diagnostic on every launch plus shadowing the editor's readline
+M-b word-left. The user then chose to skip a new key entirely.
+
+Disposition (map D5): **no global panel-opener key**. The background
+surface stays reachable through its two existing scoped surfaces — the
+dock focus claim `ctrl+g s` (runs-gated; `s2-agent-ext-task`
+`dock-claim.ts`, ADR-task-0001) and the `/subagents` command (viewer).
+Should a future effort want the key, the free `alt+<letter>` space was
+measured 2026-08-25: built-ins claim only alt+b/d/f/v/y (letters) plus
+alt+enter/up/down/left/right/backspace/delete — e.g. `alt+p` ("panel")
+claims cleanly with the same legacy ESC-prefix deliverability as alt+s;
+revisit this ADR before adding it.
