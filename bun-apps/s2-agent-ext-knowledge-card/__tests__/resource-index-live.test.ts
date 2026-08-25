@@ -18,6 +18,7 @@ import {
 	resourceKnnQuery,
 	resourceMetaStatus,
 } from "../src/resource-index.ts";
+import { resourceRecursiveQuery } from "../src/resource-recursive.ts";
 
 const NS = "kcard_resource_test";
 const DB = "resource_receipt_tmp";
@@ -139,6 +140,68 @@ describe.skipIf(!up)("resource round-trip (live Surreal, scratch ns/db)", () => 
 				expect(s2.rowCount).toBe(1);
 			} finally {
 				rmSync(root2, { recursive: true, force: true });
+			}
+		},
+		60_000,
+	);
+
+	test(
+		"recursive lane: tier sidecars seed the descent, nested file found with a recorded trajectory (ticket 03)",
+		async () => {
+			// scratch hygiene: start from a clean db for THIS run
+			await client.query(`REMOVE DATABASE IF EXISTS ${DB};`);
+			await client.query(`DEFINE NAMESPACE IF NOT EXISTS ${NS};\nDEFINE DATABASE IF NOT EXISTS ${DB};`);
+
+			// A two-level tree with hand-written tier sidecars (ticket-02 output
+			// shape): root + pages each carry the .overview/.abstract pair.
+			mkdirSync(join(root, "pages"), { recursive: true });
+			writeFileSync(join(root, "pages", "alpha.md"), "# Alpha Router\n\nAlpha topic body content.", "utf8");
+			writeFileSync(join(root, "pages", "beta.md"), "# Beta Adapter\n\nBeta topic body content.", "utf8");
+			writeFileSync(join(root, "readme.md"), "# Tree Root\n\nOverview prose.", "utf8");
+			writeFileSync(join(root, ".overview.md"), "---\ngenerated_by: test\n---\n# Root overview\n\nThe root holds a readme and the pages directory.", "utf8");
+			writeFileSync(join(root, ".abstract.md"), "---\ngenerated_by: test\n---\n# Root abstract\n\nRoot: readme plus pages.", "utf8");
+			writeFileSync(join(root, "pages", ".overview.md"), "---\ngenerated_by: test\n---\n# Pages overview\n\nPages hold the Alpha Router and Beta Adapter documents.", "utf8");
+			writeFileSync(join(root, "pages", ".abstract.md"), "---\ngenerated_by: test\n---\n# Pages abstract\n\nPages: Alpha Router, Beta Adapter.", "utf8");
+
+			const built = await rebuildResourceIndex({
+				client,
+				treePath: root,
+				tree: "recursive-fixture",
+				model: "fake-model",
+				embedder: fakeEmbedder,
+			});
+			// 3 files + 2 sidecar pairs = 7 rows
+			expect(built.inserted).toBe(7);
+
+			const res = await resourceRecursiveQuery({
+				client,
+				query: "Alpha Router alpha topic",
+				tree: "recursive-fixture",
+				topK: 7,
+				model: "fake-model",
+				embedder: fakeEmbedder,
+			});
+			expect(res.semantic).toBe(true);
+			expect(res.seedCount).toBe(4); // both sidecar pairs indexed as tier rows
+			expect(res.stop === "converged" || res.stop === "stagnant" || res.stop === "drained").toBe(true);
+			expect(res.expandedDirs).toBeGreaterThan(0);
+			const alpha = res.hits.find((h) => h.uri === "pages/alpha.md");
+			expect(alpha).toBeDefined();
+			// The trajectory is a real descent: starts at a tier sidecar row,
+			// ends at the hit — and the directory above the file was expanded.
+			expect(alpha!.trajectory[0]!.endsWith(".md")).toBe(true);
+			expect(alpha!.trajectory.at(-1)).toBe("pages/alpha.md");
+			expect(alpha!.trajectory.length).toBeGreaterThanOrEqual(2);
+			expect(alpha!.rawSim).toBeGreaterThan(0);
+			expect(alpha!.sim).toBeGreaterThanOrEqual(alpha!.rawSim * 0.5); // parent context never sank it below half-raw
+
+			// The root expansion's parent-scoped query must see the pages
+			// sidecar rows as root children (parent null) — proven by the
+			// trajectory chain containing a second sidecar hop OR the pages
+			// sidecar being the seed. Either way every non-terminal trajectory
+			// element is a sidecar uri:
+			for (const step of alpha!.trajectory.slice(0, -1)) {
+				expect(step.endsWith(".overview.md") || step.endsWith(".abstract.md")).toBe(true);
 			}
 		},
 		60_000,

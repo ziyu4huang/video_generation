@@ -70,6 +70,14 @@ export interface ParsedArgs {
 	vaultDir?: string;
 	/** resource tier: tree discriminator slug (resource-ingest / resource-query) */
 	tree?: string;
+	/** resource-query: retrieval lane — flat KNN (default) | recursive heap descent.
+	 *  Carried by the shared --mode flag (text|json|rpc stay the output modes;
+	 *  recursive|flat never touch out.mode). */
+	retrievalMode?: "recursive" | "flat";
+	/** resource-query: score propagation α for the recursive lane (default 0.5) */
+	alpha?: number;
+	/** resource-query: tree root path for lazy L2 body promotion (--tier 2) */
+	root?: string;
 	/** Extension file paths accepted by --extension/-e (source mode only). */
 	extensionPaths: string[];
 	/** zettelkasten target folder (distill) */
@@ -483,6 +491,7 @@ export function parsePiArgs(
 				if (m === "json") out.mode = "json";
 				else if (m === "text") out.mode = "text";
 				else if (m === "rpc") out.mode = "text"; // rpc unsupported → degrade to text
+				else if (m === "recursive" || m === "flat") out.retrievalMode = m; // resource-query lane
 				i++;
 				continue;
 			}

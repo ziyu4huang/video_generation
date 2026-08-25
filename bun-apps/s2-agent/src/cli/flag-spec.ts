@@ -32,7 +32,8 @@ export type NumericField =
 	| "recency"
 	| "maxRounds" | "consecutiveEmpty" | "maxLinks"
 	| "concurrency"
-	| "top" | "window" | "minEvents" | "delta";
+	| "top" | "window" | "minEvents" | "delta"
+	| "alpha";
 
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
@@ -44,7 +45,8 @@ export type ValueField =
 	| "linkWeighting" | "probeEval"
 	| "only" | "filesCsv" | "projectsDir" | "memoryDir"
 	| "effort" | "tier" | "outcome" | "phase"
-	| "since" | "until" | "cwdSubstr" | "toolFilter" | "sessionsDir" | "ext";
+	| "since" | "until" | "cwdSubstr" | "toolFilter" | "sessionsDir" | "ext"
+	| "root";
 
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
@@ -111,6 +113,12 @@ const ZK_INGEST_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 // ── resource tier (resource-ingest / resource-query) — tree discriminator ───
 const RESOURCE_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--tree", field: "tree" }, // filter/scope by tree slug (default: basename of the ingested root)
+	{ flag: "--root", field: "root" }, // resource-query: tree root path for lazy L2 body promotion (--tier 2)
+];
+
+// ── resource tier (resource-query) — recursive lane tuning ───────────────────
+const RESOURCE_NUM_FLAGS: readonly NumericFlagSpec[] = [
+	{ flag: "--alpha", field: "alpha", min: 0, integer: false, example: "0.5" }, // score propagation α (≤1 validated in-command)
 ];
 
 // ── resource tier (resource-ingest) — semantic tier pass ────────────────────
@@ -279,6 +287,7 @@ export const NUMERIC_FLAGS: readonly NumericFlagSpec[] = [
 	...RESEARCH_NUM_FLAGS,
 	...KCARD_LOOP_NUM_FLAGS,
 	...META_NUM_FLAGS,
+	...RESOURCE_NUM_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════

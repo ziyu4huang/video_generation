@@ -5,7 +5,7 @@ last: 2026-08-25
 status: active
 ---
 
-<!-- last touched: ticket 02 closed 2026-08-25 (L0/L1 generation live on USB4) -->
+<!-- last touched: ticket 03 closed 2026-08-25 (recursive heap lane live on USB4) -->
 
 # kcard resource tier — document-tree L0/L1/L2 (the OpenViking resource model) on the kcard Surreal index
 
@@ -29,7 +29,7 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 ### Phase 2 — semantic tiers
 - [02] directory L1 overview + L0 abstract generation (bottom-up, sampled) — closed 2026-08-25 (implemented; receipts in the ticket)
 ### Phase 3 — retrieval
-- [03] directory-recursive retrieval lane over resource rows — open (blocked by 02)
+- [03] directory-recursive retrieval lane over resource rows — closed 2026-08-25 (implemented; receipts in the ticket)
 ### Phase 4 — proof + surface
 - [04] USB4 eval gate: resource-tier vs flat generic-card A/B — open (blocked by 03)
 - [05] tool/CLI surface + effort close-out — open (blocked by 04)
@@ -49,13 +49,14 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 
 ## Frontier
 
-Ticket 03 — directory-recursive retrieval lane over resource rows: tickets 01+02 landed the full row set (840 L2 + 2 L0 + 2 L1 on USB4, idempotent re-ingest, zero-LLM skip); the heap-recursive lane (global L0/L1 seed pass → best-first descent with α-propagation, D6) is the first reader of the tier rows and the input to the eval gate (04).
+Ticket 04 — USB4 eval gate (resource-tier recursive vs flat generic-card A/B, D8): ticket 03 landed the heap lane (`--mode recursive`, α measured α-invariant on this single-directory corpus — ranking parity with flat, trajectory + diagnostics in the result contract); the eval question is now whether the tiered lane beats the flat generic-card baseline on a chapter-level question set (hit@k + MRR), and whether α becomes identifiable on multi-directory trees.
 
 ## Fog of war
 
 - Sampling bound RESOLVED (ticket 02): 32-sample, 5.8k-char prompt on the 839-child dir — single sampled L1 suffices, NO TOC chapter segmentation; revisit only if ticket 04's eval shows chapter-level misranking.
 - file2md resumability RESOLVED (ticket 02): sidecars are invisible to the page-scoped manifest (0.57s full resume over the sidecar'd tree).
-- α (score propagation) and the L0/L1-seed-vs-L2-only ablation — measure in ticket 03/04.
+- α PARTIALLY RESOLVED (ticket 03): ranking is α-invariant on USB4 (single directory — every hit shares one parent, mix monotonic in child sim; 0.3/0.5/0.7 measured, only score spread moves). α identification deferred to ticket 04's eval / any multi-dir corpus; default holds at 0.5.
+- The L0/L1-seed-vs-L2-only ablation — measure in ticket 04.
 - Whether `zk_ask`'s graph-RAG turn-limit fallback (observed 2026-08-25 morning) interacts with the resource lane — out of scope here, recorded in the morning's next-goal.
 
 ## Cross-effort links
