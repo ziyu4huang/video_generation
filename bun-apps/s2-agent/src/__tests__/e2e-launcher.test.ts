@@ -144,7 +144,6 @@ describe("entry-mode detection", () => {
 	});
 });
 
-
 describe("--upgrade / -U passthrough", () => {
 	function makeUpgradeFixture(name: string) {
 		const dir = path.join(TMP, name);
