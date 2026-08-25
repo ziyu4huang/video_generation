@@ -1,0 +1,125 @@
+{
+	"meta": {
+		"authored": "2026-08-25",
+		"authoring": "blind — authored from the spec's own Table of Contents (TOC pages page-015..page-032) BEFORE any eval arm ran; targets derived by locating each section heading in the pages tree, spot-verified on page-045 and page-699",
+		"corpus": "usb4-specification-2.0-november-2025-clean",
+		"corpusPages": 839,
+		"pageOffset": "file page-NNN = spec doc page + 44",
+		"ticket": "04 — USB4 eval gate (D8)"
+	},
+	"questions": [
+		{
+			"q": "what design goals drove the usb4 specification beyond increasing bandwidth",
+			"anchor": "1.4 Design Goals",
+			"targetPages": ["page-045"]
+		},
+		{
+			"q": "which architectural constructs make up a usb4 system such as routers and adapters",
+			"anchor": "2.1.1 Architectural Constructs",
+			"targetPages": ["page-058"]
+		},
+		{
+			"q": "how is the usb4 fabric architecture organized between host routers and device routers",
+			"anchor": "2.2 USB4 Fabric Architecture",
+			"targetPages": ["page-063"]
+		},
+		{
+			"q": "what signaling rates and characteristics does gen 4 mode define",
+			"anchor": "3.2 Gen 4 Mode",
+			"targetPages": ["page-126"]
+		},
+		{
+			"q": "what is low frequency periodic signaling used for on usb4 links",
+			"anchor": "3.4 Low Frequency Periodic Signaling",
+			"targetPages": ["page-158"]
+		},
+		{
+			"q": "how are usb4 link symbols encoded onto the wire",
+			"anchor": "4.3 USB4 Link Encoding",
+			"targetPages": ["page-246"]
+		},
+		{
+			"q": "which state machines govern usb4 link operation in the logical layer",
+			"anchor": "4.4 USB4 Link Operation",
+			"targetPages": ["page-270"]
+		},
+		{
+			"q": "how do usb4 links go to sleep and wake back up",
+			"anchor": "4.5 Sleep and Wake",
+			"targetPages": ["page-287"]
+		},
+		{
+			"q": "what does a transport layer packet header contain",
+			"anchor": "5.1 Transport Layer Packets",
+			"targetPages": ["page-296"]
+		},
+		{
+			"q": "how does a transport layer packet get routed through the usb4 fabric",
+			"anchor": "5.2 Routing",
+			"targetPages": ["page-306"]
+		},
+		{
+			"q": "how is quality of service enforced for tunnels through the fabric",
+			"anchor": "5.3 Quality of Service",
+			"targetPages": ["page-312"]
+		},
+		{
+			"q": "how are routers enumerated to discover the domain topology",
+			"anchor": "6.7 Router Enumeration and Topology Discovery",
+			"targetPages": ["page-348"]
+		},
+		{
+			"q": "which notification events does a router emit when devices are hot plugged",
+			"anchor": "6.5 Notification Events",
+			"targetPages": ["page-346"]
+		},
+		{
+			"q": "how do connection managers exchange control packets in the configuration layer",
+			"anchor": "6.4 Control Packet Protocol",
+			"targetPages": ["page-330"]
+		},
+		{
+			"q": "how are time stamps measured for time synchronization between routers",
+			"anchor": "7.2 Time Stamp Measurement",
+			"targetPages": ["page-358"]
+		},
+		{
+			"q": "what configuration space types exist and how are their attributes accessed",
+			"anchor": "8.2 Configuration Space Types",
+			"targetPages": ["page-398"]
+		},
+		{
+			"q": "how does the usb3 adapter layer carry usb3 traffic across a usb4 fabric",
+			"anchor": "9.1 USB3 Adapter Layer",
+			"targetPages": ["page-539"]
+		},
+		{
+			"q": "how is displayport bandwidth allocated when dp bw allocation mode is enabled",
+			"anchor": "10.7 DP BW Allocation",
+			"targetPages": ["page-699"]
+		},
+		{
+			"q": "how are pcie paths set up through the pcie adapter layer",
+			"anchor": "11.3 Paths",
+			"targetPages": ["page-729"]
+		},
+		{
+			"q": "how does the host interface descriptor ring move packets between software and hardware",
+			"anchor": "12.1 Descriptor Ring Mode",
+			"targetPages": ["page-732"]
+		},
+		{
+			"q": "which electrical layer requirements apply for interoperating with thunderbolt 3 systems",
+			"anchor": "13.1 Electrical Layer",
+			"targetPages": ["page-764"]
+		}
+	],
+	"negatives": [
+		{
+			"q": "recipe for sourdough starter hydration ratios"
+		},
+		{
+			"q": "weekend train schedule from Lisbon to Porto"
+		}
+	]
+}
