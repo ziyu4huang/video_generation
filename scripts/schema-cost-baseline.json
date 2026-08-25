@@ -1,33 +1,33 @@
 {
-  "tools": 83,
-  "totalTokens": 25641,
+  "tools": 84,
+  "totalTokens": 26393,
   "builtinCount": 4,
-  "extensionCount": 79,
+  "extensionCount": 80,
   "errors": [],
   "toolsRanked": [
     {
       "name": "spawn_subagent",
-      "approxTokens": 1586,
+      "approxTokens": 1590,
       "descLen": 351,
-      "paramsLen": 5991,
+      "paramsLen": 6009,
       "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
     {
       "name": "zk_ingest",
-      "approxTokens": 921,
+      "approxTokens": 999,
       "descLen": 713,
-      "paramsLen": 2969,
+      "paramsLen": 3281,
       "source": "knowledge-card",
       "hasExecute": true,
       "schemaValid": true
     },
     {
       "name": "list_subagents",
-      "approxTokens": 849,
+      "approxTokens": 852,
       "descLen": 103,
-      "paramsLen": 3294,
+      "paramsLen": 3305,
       "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
@@ -42,20 +42,20 @@
       "schemaValid": true
     },
     {
+      "name": "ask_user_question",
+      "approxTokens": 749,
+      "descLen": 1280,
+      "paramsLen": 1716,
+      "source": "task",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "send_message",
       "approxTokens": 725,
       "descLen": 771,
       "paramsLen": 2130,
       "source": "subagent",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "ask_user_question",
-      "approxTokens": 700,
-      "descLen": 1031,
-      "paramsLen": 1770,
-      "source": "task",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -87,6 +87,15 @@
       "schemaValid": true
     },
     {
+      "name": "file2md",
+      "approxTokens": 614,
+      "descLen": 315,
+      "paramsLen": 2140,
+      "source": "file2md",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "web_search",
       "approxTokens": 593,
       "descLen": 858,
@@ -110,15 +119,6 @@
       "descLen": 514,
       "paramsLen": 1797,
       "source": "hermes-memory",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "file2md",
-      "approxTokens": 563,
-      "descLen": 266,
-      "paramsLen": 1985,
-      "source": "file2md",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -195,11 +195,29 @@
       "schemaValid": true
     },
     {
+      "name": "zk_fs",
+      "approxTokens": 422,
+      "descLen": 486,
+      "paramsLen": 1202,
+      "source": "knowledge-card",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "webui_present",
       "approxTokens": 406,
       "descLen": 752,
       "paramsLen": 872,
       "source": "webui",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "knowledge_query",
+      "approxTokens": 404,
+      "descLen": 313,
+      "paramsLen": 1304,
+      "source": "knowledge-card",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -240,20 +258,11 @@
       "schemaValid": true
     },
     {
-      "name": "knowledge_query",
-      "approxTokens": 347,
-      "descLen": 313,
-      "paramsLen": 1075,
-      "source": "knowledge-card",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "webui",
       "approxTokens": 325,
       "descLen": 767,
       "paramsLen": 533,
-      "source": "power-tool",
+      "source": "webui",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -263,6 +272,15 @@
       "descLen": 434,
       "paramsLen": 836,
       "source": "sv-analyzer",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "enable_tool",
+      "approxTokens": 314,
+      "descLen": 881,
+      "paramsLen": 376,
+      "source": "tool-gate",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -331,8 +349,8 @@
     },
     {
       "name": "archify_deck_lint",
-      "approxTokens": 261,
-      "descLen": 628,
+      "approxTokens": 275,
+      "descLen": 685,
       "paramsLen": 414,
       "source": "archify",
       "hasExecute": true,
@@ -371,15 +389,6 @@
       "descLen": 377,
       "paramsLen": 604,
       "source": "sv-analyzer",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "enable_tool",
-      "approxTokens": 243,
-      "descLen": 594,
-      "paramsLen": 376,
-      "source": "tool-gate",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -537,20 +546,20 @@
       "schemaValid": true
     },
     {
+      "name": "workflow_help",
+      "approxTokens": 143,
+      "descLen": 377,
+      "paramsLen": 195,
+      "source": "ultracode",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "archify_delta",
       "approxTokens": 142,
       "descLen": 223,
       "paramsLen": 345,
       "source": "archify",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "workflow_help",
-      "approxTokens": 140,
-      "descLen": 366,
-      "paramsLen": 195,
-      "source": "ultracode",
       "hasExecute": true,
       "schemaValid": true
     },
