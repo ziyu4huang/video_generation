@@ -2,7 +2,7 @@
 effort: 2026-08-25-subagent-tui-cc-parity
 created: 2026-08-25
 last: 2026-08-25
-status: active
+status: complete
 ---
 
 # Wayfinder map: 2026-08-25-subagent-tui-cc-parity
@@ -94,8 +94,9 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 
 ## Frontier
 
-Effort close-out — all three tickets landed (t01 #2025, t02 #2027, t03 as a
-documented no-go); remaining step: status → complete, terminal successor.
+None — the queue is drained (t01 #2025, t02 #2027, t03 as a documented
+no-go in #2039). The loop ends here per queue-drain termination; remaining
+fog items are parked records, not open work.
 
 ## Fog of war
 
