@@ -5,7 +5,7 @@ last: 2026-08-25
 status: active
 ---
 
-<!-- last touched: ticket 03 closed 2026-08-25 (recursive heap lane live on USB4) -->
+<!-- last touched: ticket 04 closed 2026-08-25 (eval gate FAIL — recursive stays opt-in CLI-only) -->
 
 # kcard resource tier — document-tree L0/L1/L2 (the OpenViking resource model) on the kcard Surreal index
 
@@ -31,8 +31,8 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 ### Phase 3 — retrieval
 - [03] directory-recursive retrieval lane over resource rows — closed 2026-08-25 (implemented; receipts in the ticket)
 ### Phase 4 — proof + surface
-- [04] USB4 eval gate: resource-tier vs flat generic-card A/B — open (blocked by 03)
-- [05] tool/CLI surface + effort close-out — open (blocked by 04)
+- [04] USB4 eval gate: resource-tier vs flat generic-card A/B — closed 2026-08-25 (gate FAIL, receipts in the ticket)
+- [05] tool/CLI surface + effort close-out — open (blocked by 04 → now unblocked; recursive stays CLI-only per D9)
 
 **Execution order:** 01 → 02 → 03 → 04 → 05 (fully forced by blocking edges; single lane).
 
@@ -46,17 +46,20 @@ Large document corpora (file2md output trees, spec folders, repo docs) ingest in
 - **D6 — retrieval = the upstream heap algorithm over `resource` rows, as a SEPARATE lane.** Global L0/L1 KNN pass seeds a best-first dir heap; child expansion = KNN scoped to `parent = $uri` (depth-1, plain index); propagation `α·child + (1−α)·parent` (α measured in ticket 03, upstream default shape); only L0/L1 children re-enqueue; ≤3 convergence rounds (parity D20's client-side BFS + upstream `_recursive_search` both agree). The `card` lane's default (parity D36) is untouched; no default switch without a D25-style gate. Reason: parity D19 deterministic posture holds (no reranker, no intent analyzer).
 - **D7 — MVP surface = CLI first (`s2-agent cli resource-ingest` + `resource-query`), tool wiring is ticket 05.** zk-ingest CLI precedent (this morning's verification used it live); `zk_fs` op extension only after the eval gate proves the lane. Reason: schema-cost discipline (parity D32 rationale) — one gate family at a time.
 - **D8 — eval gate (parity D14/D25 discipline): USB4 question set, resource-tier vs this morning's flat generic-card path.** ~20 questions answerable from the spec (written from the spec's own section content, English); metrics hit@k + MRR; a fresh generic-card arm is the baseline (10-card morning ingest scales to the same chapters). Independent reviewer subagent per build ticket (parity D14). Reason: no default/tool surface without beating the cheap baseline.
+- **D9 — ticket-04 gate verdict: FAIL; the recursive lane stays opt-in CLI-only.** Measured 2026-08-25 on USB4 (21 blind TOC-derived questions, 4 arms × 2 identical runs, bge-m3): recursive vs flat hit@5 TIE 10/21, MRR 0.373 < 0.397; vs the generic-card baseline no clear win (strict lens MRR +0.012, ±1-lens hit@5 13/21 vs 15/21). Lens-invariant. Root cause = the corpus is a single directory — directory pruning (the lane's entire advantage) cannot express itself, the same mechanism as ticket 03's α-invariance. Consequence per the ticket's pre-defined loss case: numbers recorded, lane kept, NO default switch, NO tool wiring of the recursive lane (ticket 05's constraint); the flat resource lane remains the CLI default. The next eval corpus MUST be multi-directory before the lane is re-judged.
 
 ## Frontier
 
-Ticket 04 — USB4 eval gate (resource-tier recursive vs flat generic-card A/B, D8): ticket 03 landed the heap lane (`--mode recursive`, α measured α-invariant on this single-directory corpus — ranking parity with flat, trajectory + diagnostics in the result contract); the eval question is now whether the tiered lane beats the flat generic-card baseline on a chapter-level question set (hit@k + MRR), and whether α becomes identifiable on multi-directory trees.
+Ticket 05 — tool/CLI surface + effort close-out, now under the D9 constraint: the recursive lane FAILED its eval gate on this corpus (single-directory degeneration), so 05 surfaces only what won its evidence — the flat resource lane stays the CLI default; any recursive tool wiring is OFF the table until a multi-directory corpus re-opens the gate. Close-out: map status → complete, cross-effort back-links, and the multi-dir corpus requirement parked in fog for whoever re-judges.
 
 ## Fog of war
 
 - Sampling bound RESOLVED (ticket 02): 32-sample, 5.8k-char prompt on the 839-child dir — single sampled L1 suffices, NO TOC chapter segmentation; revisit only if ticket 04's eval shows chapter-level misranking.
 - file2md resumability RESOLVED (ticket 02): sidecars are invisible to the page-scoped manifest (0.57s full resume over the sidecar'd tree).
-- α PARTIALLY RESOLVED (ticket 03): ranking is α-invariant on USB4 (single directory — every hit shares one parent, mix monotonic in child sim; 0.3/0.5/0.7 measured, only score spread moves). α identification deferred to ticket 04's eval / any multi-dir corpus; default holds at 0.5.
-- The L0/L1-seed-vs-L2-only ablation — measure in ticket 04.
+- α PARTIALLY RESOLVED (ticket 03): ranking is α-invariant on USB4 (single directory — every hit shares one parent, mix monotonic in child sim; 0.3/0.5/0.7 measured, only score spread moves). Ticket 04 confirmed: unidentifiable on this corpus BY CONSTRUCTION (D9); default holds at 0.5; any re-identification needs a multi-directory corpus.
+- The L0/L1-seed-vs-L2-only ablation — RESOLVED as moot on this corpus by ticket 04's D9 (tier rows cannot change ranking when all hits share one parent; measured MRR −0.024 from their presence). Re-open only with the multi-dir corpus.
+- Answer-key granularity (ticket 04 diagnostic): USB4 sections start at page bottoms — 8/11 strict misses had the adjacent page at top-1 (±1-lens hit@5 +3–5 across arms). Any future spec-corpus eval should key sections to their page SPAN, not the heading page.
+- Corpus ceiling: absolute hit@5 ~48% across ALL four arms — thin L2 abstracts (copyright-line pollution) + page-vs-section granularity bound every lane equally; not a lane differentiator.
 - Whether `zk_ask`'s graph-RAG turn-limit fallback (observed 2026-08-25 morning) interacts with the resource lane — out of scope here, recorded in the morning's next-goal.
 
 ## Cross-effort links
