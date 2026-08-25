@@ -2,7 +2,7 @@
 effort: 2026-08-25-doc-hygiene-engine-sweep
 created: 2026-08-25
 last: 2026-08-25
-status: charted
+status: complete
 ---
 
 # Doc-hygiene engine sweep — Path-A citations, inert `-e workflow` prose, stale ADR Index headers
@@ -52,12 +52,8 @@ round-2 t11 #2040 removed `-e <alias>` entirely):
 that actively mislead a reader about entry paths), 02 is mechanical line-1
 surgery; no cross-dependency, order chosen so the harder review lands first.
 
-- [ ] 01 — ultracode/workflow doc correctness: Path-A citations (workflow-pack.ts
-  header, PRD two-paths section, CONTEXT.md Entry-path term), 15 `-e` prose
-  sites (drop the flag / reword to built-in), knowledge-distill.js invocation
-  block
-- [ ] 02 — ADR Index header sweep: 35 files × 9 packages, `Index: bun-apps/docs/adr/INDEX.md`
-  → `Index: repo-root `CONTEXT-MAP.md``; `bun run test:adr` (bun-apps/) green
+- [x] 01 — ultracode/workflow doc correctness (complete 2026-08-25, PR #2043 squash 92961787: reviewer WITH-FIXES → 2 blockers + 6 NITs fixed in the same PR — knowledge-distill INVOCATION dedupe + meta.description dead form, PRD invented date, s2-agent CONTEXT/cli.ts Path-A prose, 3 test/tool comment sites; audit sample retarget onto live resolve.ts surface; residual `-e` grep 2 benign hits dispositioned)
+- [x] 02 — ADR Index header sweep (complete 2026-08-25, PR #2045: 35/35 backticked-form replacements across 9 packages, byte-identical to t09 precedent, residual grep 0, test:adr 17/17, reviewer READY 0 blockers)
 
 ## Decisions
 
@@ -73,7 +69,9 @@ surgery; no cross-dependency, order chosen so the harder review lands first.
 
 ## Frontier
 
-Ticket 01 — full site census already measured above; nothing blocks.
+DRAINED — both tickets complete (#2043, #2045). Destination met: no live doc
+teaches `-e workflow`/`-e ultracode`/`cli workflow run` or points an ADR Index
+at a nonexistent file.
 
 ## Fog of war
 
