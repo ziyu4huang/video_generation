@@ -718,6 +718,80 @@ describe("merge-pr-after-ci-cli — the merge gates read a fresh, settled status
 });
 
 /**
+ * The already-MERGED retry path (issue #2077, observed twice on 2026-08-25
+ * around PR #2027): a retry against a PR whose merge had landed printed
+ * `merged: false, verdict: "NOT-MERGED"` with `mergeStateSettle UNKNOWN,
+ * polls: 4` while the PR was MERGED — and the branch cleanup then had to be
+ * done by hand. Two defects compose: (a) settlePrStatus polls UNKNOWN on a
+ * terminal-state PR that can never settle (GitHub stops computing
+ * mergeability once merged), and (b) the gate stage aborts not-open with
+ * verdict NOT-MERGED on a PR that IS merged — runMergeRecipe already models
+ * state MERGED as merged:true (already merged); the CLI must too.
+ */
+describe("merge-pr-after-ci-cli — an already-MERGED PR is a settled outcome, not an abort (#2077)", () => {
+	const noSleep = async () => {};
+	/** A merged PR as GitHub actually serves it: mergeable null → UNKNOWN.
+	 *  (forge/github-rest.ts maps `mergeable === null` to UNKNOWN.) */
+	const MERGED_UNKNOWN: PrStatus = { ...MERGED, mergeState: "UNKNOWN" as const };
+
+	test("settlePrStatus does NOT poll a terminal-state PR — UNKNOWN on MERGED is a real answer", async () => {
+		let reads = 0;
+		const gh = {
+			prStatus: async () => {
+				reads++;
+				return MERGED_UNKNOWN;
+			},
+		} as unknown as GhClient;
+		const settled = await settlePrStatus(gh, 42, noSleep);
+		expect(settled.polls).toBe(1);
+		expect(reads).toBe(1);
+		expect(settled.status.state).toBe("MERGED");
+	});
+
+	test("an already-MERGED retry verifies + cleans up instead of aborting NOT-MERGED", async () => {
+		// The #2027 receipt, replayed: preflight read, then the fresh gate
+		// read finds MERGED — the merge landed in a prior invocation. The
+		// fixed CLI reports merged:true via verify_merge_landed, never calls
+		// mergeNow, and runs the branch cleanup the sessions did by hand.
+		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN, MERGED]);
+		const clientParts = fakeClient({ current: "feature" });
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: clientParts.client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(outcome.verdict).toBe("CLEAN");
+		expect(outcome.aborted).toBeUndefined();
+		expect(ghParts.mergeCalls).toEqual([]); // never re-merge
+		expect(outcome.warnings.some((w: string) => /already MERGED/.test(w))).toBe(true);
+		// The cleanup the receipt had to do by hand:
+		expect(clientParts.calls).toEqual([`detach:${MERGED.mergeSha}`, "deleteLocal:feature", "deleteRemote:feature", "fetchPrune"]);
+	});
+
+	test("a CLOSED PR still aborts not-open (terminal ≠ merged)", async () => {
+		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, state: "CLOSED" as const }]);
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted.reason).toBe("not-open");
+		expect(ghParts.mergeCalls).toEqual([]);
+	});
+});
+
+/**
  * A missing `workflow` scope is a distinct, recoverable failure with exactly
  * one fix — not a generic merge error. It blocked PR #1646 on 2026-08-18 and
  * arrived as a raw GraphQL passthrough that named no remedy.
