@@ -1547,6 +1547,20 @@ test("renderSubagentResult renders a '⏹ turns' badge + turns:n/n tag (distinct
   assert.ok(!out.includes("⛔"), "a turn cap is not mislabeled as a budget abort");
 });
 
+test("renderSubagentResult hides the turns segment on an uncapped done run (no `turns:1/undefined`) — #2069", () => {
+  const details: SubagentToolDetails = {
+    taskPreview: "p",
+    elapsedMs: 9000,
+    status: "done",
+    // Success-surface shape per TurnExhaustion's contract: turnsUsed with no cap.
+    turns: { turnsUsed: 1 },
+  };
+  const out = renderSubagentResult({ content: [{ type: "text", text: "OK" }], details }, { expanded: false }, T);
+  assert.match(out, /✓ done/);
+  assert.ok(!out.includes("turns:"), "an uncapped run has no turn-cap death tag to show");
+  assert.ok(!out.includes("undefined"), "no leaked undefined from the optional maxTurns");
+});
+
 test("formatSubagentResult emits 'max turns exceeded (N)' on a turns abort", () => {
   assert.equal(
     formatSubagentResult({
