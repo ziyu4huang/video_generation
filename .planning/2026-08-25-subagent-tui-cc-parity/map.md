@@ -94,11 +94,15 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 
 ## Frontier
 
-Re-opened by real-dist measurement 2026-08-26: **#2067** — the whole-turn Esc
-misbadge t02 fixed at the dispatch seam RESURFACES in the deployed TUI (see
-Fog of war). First step: adjudicate the fix directions in the issue (parent
-turn signal into `dispatchChild` vs `classifyError` abort-shape handling) and
-open the fix ticket under this effort or a successor.
+None — **#2067 CLOSED 2026-08-26** (PR #2073, merged `d167352`, deployed
+`0.7.21+gd167352`, real-pty receipt on the issue): the whole-turn Esc
+misbadge was the #2027 settle correction being dropped at `subagent-tool.ts`'s
+consume seam (buildDetails re-derived status from the abort-shaped failure
+kind) — NOT a broken signal fan-in. Esc now settles `⊘ aborted` on the
+inline row AND the durable record. Lesson recorded: the t02 fix corrected
+one seam; the pre-#2027 unit pin at the OTHER seam kept asserting the old
+semantics green — a fix must flip every pin its intent supersedes, and the
+real-pty repro is the only gate that sees the whole chain.
 
 ## Fog of war
 
