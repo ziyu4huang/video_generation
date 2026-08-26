@@ -146,31 +146,37 @@ test("tripwire B: an untagged spawn with an injected session model lands on the 
   const prevAgentDir = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
 
-  // The injected model: a faux provider on the SESSION runtime (the
-  // memory-live-agents harness pattern — both halves: runtime AND model).
-  const core = createFauxCore({
-    provider: "fauxprov",
-    models: [{ id: "injected-model", name: "Injected", contextWindow: 128_000, maxTokens: 4_096 }],
-  });
-  const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null });
-  modelRuntime.registerProvider("fauxprov", {
-    api: core.api as never,
-    apiKey: "faux-not-used",
-    streamSimple: core.streamSimple as never,
-    models: core.models as never,
-  });
-
-  // The dangerous configuration: an ACTIVE tier config (untagged spawns
-  // resolve default-medium) + an injected session model + no per-call
-  // model/tier. Forced through the same constructor seam production uses.
-  const agent = new CoreAgent({
-    cwd,
-    tools: [],
-    session: { model: core.getModel() as never, modelRuntime: modelRuntime as never },
-    loadTierConfig: () => ({ tiers: { medium: "tierprov/tier-model" } }),
-  });
-
+  // try starts IMMEDIATELY after the env mutation: the setup below (faux
+  // core, ModelRuntime.create, registerProvider, CoreAgent) is exactly the
+  // SDK surface this tripwire exists to catch drifting — when one of those
+  // throws, the env must still be restored and the temp dirs removed, or the
+  // red cascades confusingly into every later getAgentDir() reader in this
+  // process (reviewer nit on 2763ec34).
   try {
+    // The injected model: a faux provider on the SESSION runtime (the
+    // memory-live-agents harness pattern — both halves: runtime AND model).
+    const core = createFauxCore({
+      provider: "fauxprov",
+      models: [{ id: "injected-model", name: "Injected", contextWindow: 128_000, maxTokens: 4_096 }],
+    });
+    const modelRuntime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null });
+    modelRuntime.registerProvider("fauxprov", {
+      api: core.api as never,
+      apiKey: "faux-not-used",
+      streamSimple: core.streamSimple as never,
+      models: core.models as never,
+    });
+
+    // The dangerous configuration: an ACTIVE tier config (untagged spawns
+    // resolve default-medium) + an injected session model + no per-call
+    // model/tier. Forced through the same constructor seam production uses.
+    const agent = new CoreAgent({
+      cwd,
+      tools: [],
+      session: { model: core.getModel() as never, modelRuntime: modelRuntime as never },
+      loadTierConfig: () => ({ tiers: { medium: "tierprov/tier-model" } }),
+    });
+
     const { session } = await agent.assembleSession({});
     const landed = `${(session.model as { provider: string }).provider}/${(session.model as { id: string }).id}`;
     assert.equal(landed, "fauxprov/injected-model", "the injected session model must win over tier resolution");
