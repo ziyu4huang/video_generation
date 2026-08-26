@@ -22,6 +22,15 @@
  * question whose target page is missing from the corpus is reported as a
  * coverage miss, never scored as a retrieval miss.
  *
+ * Multi-dir trees (effort 2026-08-26-kcard-multidir-rejudge, ticket 02): the
+ * corpus is walked RECURSIVELY (same exclusions as resource-index walkTree —
+ * dot-entries/tier sidecars), and battery `targetPages` are tree-relative
+ * paths (e.g. `v2-ecn/<slug>/pages/page-003`). Legacy flat `page-NNN`
+ * basenames still resolve on single-dir corpora; an ambiguous basename
+ * (`page-001` exists in every doc dir) is a hard error. `--check-only` runs
+ * just the walk + coverage precheck (no Surreal, no vault) — the fixture
+ * self-test.
+ *
  * WHY THIS HOME: same neutral-tier rule as recall-audit.mjs (bun-apps/scripts/
  * sits above every package; the script only imports, never owned by either).
  *
@@ -50,6 +59,7 @@ const { values: args } = parseArgs({
 		arm: { type: "string", default: "resource-recursive,resource-flat,generic-hier,generic-flat-vector" },
 		"surreal-endpoint": { type: "string", default: "http://127.0.0.1:8000" },
 		receipt: { type: "string" },
+		"check-only": { type: "boolean", default: false },
 		keep: { type: "boolean", default: false },
 		help: { type: "boolean", default: false },
 	},
@@ -67,12 +77,13 @@ if (args.help) {
   --arm <a,b,...>        subset of the four arms (default all)
   --surreal-endpoint <u> default http://127.0.0.1:8000
   --receipt <path>       JSON receipt (default output/resource-eval/receipt-<ts>.json)
+  --check-only           walk + coverage precheck only (no Surreal, no vault) and exit
   --keep                 keep the scratch ns + temp vault for inspection`);
 	process.exit(0);
 }
 
 if (!args.corpus || !existsSync(args.corpus)) {
-	console.error("--corpus <path> must exist (the usb4 clean tree root)");
+	console.error("--corpus <path> must exist (the corpus tree root)");
 	process.exit(2);
 }
 
@@ -82,12 +93,49 @@ const ALPHA = Number(args.alpha);
 const ARMS = new Set(args.arm.split(",").map((s) => s.trim()));
 const battery = JSON.parse(readFileSync(args.battery, "utf8"));
 const corpusAbs = resolve(args.corpus);
-const pagesDir = join(corpusAbs, "pages");
-if (!existsSync(pagesDir)) {
-	console.error(`no pages/ under corpus: ${corpusAbs}`);
+const tree = basename(corpusAbs);
+
+// ── recursive page walk (multi-dir trees; mirrors resource-index walkTree) ──
+// Dot-entries are skipped by construction, so the tier sidecars
+// (.overview.md/.abstract.md — the resource tier's L0/L1 rows) never enter
+// the page set: the generic baseline arm must not ingest them as cards.
+const pageFiles = new Set(); // tree-relative paths, always with .md
+{
+	const walk = (dirAbs, rel) => {
+		for (const e of readdirSync(dirAbs, { withFileTypes: true })) {
+			if (e.name.startsWith(".")) continue; // dot-entries: sidecars, caches, VCS
+			const childRel = rel ? `${rel}/${e.name}` : e.name;
+			if (e.isDirectory()) walk(join(dirAbs, e.name), childRel);
+			else if (e.isFile() && e.name.endsWith(".md")) pageFiles.add(childRel);
+		}
+	};
+	walk(corpusAbs, "");
+}
+if (pageFiles.size === 0) {
+	console.error(`no walkable .md pages under corpus: ${corpusAbs}`);
 	process.exit(2);
 }
-const tree = basename(corpusAbs);
+
+// basename → paths index, for legacy flat batteries (page-NNN targets).
+const byBasename = new Map();
+for (const p of pageFiles) {
+	const bn = p.slice(p.lastIndexOf("/") + 1);
+	if (!byBasename.has(bn)) byBasename.set(bn, []);
+	byBasename.get(bn).push(p);
+}
+
+/** Resolve a battery target — a full tree-relative path (preferred, required
+ *  on multi-dir corpora) or a legacy bare basename — to a rel path WITH .md.
+ *  An ambiguous basename (`page-001` exists in every doc dir) is an error:
+ *  the battery author must disambiguate with the full path. */
+function resolveTarget(t) {
+	const withExt = t.endsWith(".md") ? t : `${t}.md`;
+	if (pageFiles.has(withExt)) return withExt;
+	const hits = byBasename.get(withExt) ?? [];
+	if (hits.length === 1) return hits[0];
+	if (hits.length === 0) throw new Error(`target "${t}" not found in corpus`);
+	throw new Error(`target "${t}" ambiguous across ${hits.length} dirs (${hits.slice(0, 3).join(", ")}${hits.length > 3 ? ", …" : ""}) — use the full tree-relative path`);
+}
 
 // ── shared plumbing ─────────────────────────────────────────────────────────
 
@@ -95,6 +143,18 @@ const tree = basename(corpusAbs);
 function firstHitRank(rankedIds, match) {
 	for (let i = 0; i < rankedIds.length; i++) if (match(rankedIds[i])) return i + 1;
 	return 0;
+}
+
+/** Generic-arm matcher: the card stem is `generic-<basename>` (legacy flat
+ *  corpus) or `generic-<basename>-<docSlug>` (multi-dir corpus, where the id
+ *  is namespaced per doc dir to keep basenames from upserting together). The
+ *  dash boundary keeps `page-003` from matching `page-0030`. */
+function genericMatch(id, e) {
+	const stem = id.split(" :: ")[0];
+	return e._resolved.some((r) => {
+		const bn = r.slice(r.lastIndexOf("/") + 1, -3); // strip dir + .md
+		return stem === `generic-${bn}` || stem.startsWith(`generic-${bn}-`);
+	});
 }
 
 /** Score one arm's battery. `run(q)` → ranked ids (best first). */
@@ -129,20 +189,28 @@ const fmt = (m) => (m ? `hit@1=${m.hit1}/${m.graded} hit@3=${m.hit3}/${m.graded}
 
 // ── coverage check (before any arm; absent targets never score as misses) ──
 
-// Dotfile sidecars (.overview.md/.abstract.md) are the resource tier's L0/L1
-// rows — the generic baseline arm must NOT ingest them as cards (they are not
-// part of the morning path, and they'd be 2 asymmetric distractor cards).
-const pageFiles = new Set(readdirSync(pagesDir).filter((n) => n.endsWith(".md") && !n.startsWith(".")));
 const coveredQuestions = [];
 const absentQuestions = [];
+const targetErrors = [];
 for (const e of battery.questions ?? []) {
-	const missing = (e.targetPages ?? []).filter((p) => !pageFiles.has(`${p}.md`));
-	(missing.length ? absentQuestions : coveredQuestions).push(e);
+	try {
+		e._resolved = (e.targetPages ?? []).map(resolveTarget);
+		coveredQuestions.push(e);
+	} catch (err) {
+		targetErrors.push(`${e.anchor ?? e.q}: ${err.message}`);
+		absentQuestions.push(e);
+	}
 }
-console.log(`battery: ${coveredQuestions.length} graded + ${(battery.negatives ?? []).length} negatives; absent targets: ${absentQuestions.length}`);
+console.log(`battery: ${coveredQuestions.length} graded + ${(battery.negatives ?? []).length} negatives; absent/unresolvable targets: ${absentQuestions.length}`);
 if (absentQuestions.length > 0) {
-	console.error(`target pages missing from corpus: ${absentQuestions.map((e) => `${e.anchor}:${e.targetPages}`).join(", ")}`);
+	console.error(`target pages missing from corpus:\n  ${targetErrors.join("\n  ")}`);
 	process.exit(2);
+}
+
+if (args["check-only"]) {
+	const dirs = new Set([...pageFiles].map((p) => p.slice(0, p.lastIndexOf("/"))));
+	console.log(`check-only: ${pageFiles.size} pages across ${dirs.size} dirs (tree "${tree}") — coverage OK`);
+	process.exit(0);
 }
 
 // ── scratch ns + temp vault ─────────────────────────────────────────────────
@@ -194,9 +262,20 @@ try {
 		console.log(`adapting ${pageFiles.size} pages through the generic adapter …`);
 		const t0 = Date.now();
 		const records = [];
-		for (const name of [...pageFiles].sort()) {
-			const rec = adaptGenericMarkdown(readFileSync(join(pagesDir, name), "utf8"), name);
-			if (rec) records.push(rec);
+		for (const rel of [...pageFiles].sort()) {
+			const name = rel.slice(rel.lastIndexOf("/") + 1); // pages of different docs share basenames — stems stay per-file
+			const rec = adaptGenericMarkdown(readFileSync(join(corpusAbs, rel), "utf8"), name);
+			if (rec) {
+				// Multi-dir trees: `page-003.md` exists in every doc dir and the
+				// adapter ids by basename — all 41 would upsert onto ONE card.
+				// Namespace the id with the doc dir. The suffix lives in the stem
+				// (identity) only: the EMBEDDED text (title/body/tags) still sees
+				// just the page, keeping the baseline info-fair vs the resource
+				// lane, which embeds basename + body (never the path).
+				const docSlug = rel.slice(0, rel.lastIndexOf("/")).split("/").pop();
+				rec.id = `${rec.id}@${docSlug}`;
+				records.push(rec);
+			}
 		}
 		const summary = await ingestRecords(records, {
 			vaultPath: tmpVault,
@@ -223,7 +302,7 @@ try {
 			const scored = await scoreArm(coveredQuestions, NEGATIVES, async (q) => {
 				const res = await resourceRecursiveQuery({ client, query: q, tree, topK: K, embedder: defaultEmbedder, alpha: ALPHA, maxLevel: 2 });
 				return res.hits.map((h) => h.uri);
-			}, (id, e) => (e.targetPages ?? []).some((p) => id.includes(`${p}.md`)));
+			}, (id, e) => e._resolved.includes(id));
 			runReceipt.arms["resource-recursive"] = scored;
 			console.log(`run ${r} resource-recursive: ${fmt(scored.metrics)}`);
 		}
@@ -233,7 +312,7 @@ try {
 			const scored = await scoreArm(coveredQuestions, NEGATIVES, async (q) => {
 				const res = await resourceKnnQuery({ client, query: q, tree, topK: K, embedder: defaultEmbedder });
 				return res.hits.map((h) => h.uri);
-			}, (id, e) => (e.targetPages ?? []).some((p) => id.includes(`${p}.md`)));
+			}, (id, e) => e._resolved.includes(id));
 			runReceipt.arms["resource-flat"] = scored;
 			console.log(`run ${r} resource-flat:      ${fmt(scored.metrics)}`);
 		}
@@ -243,7 +322,7 @@ try {
 			const scored = await scoreArm(coveredQuestions, NEGATIVES, async (q) => {
 				const res = await hierarchicalRetrieve(client, { query: q, topK: K });
 				return res.cards.map((c) => `${c.stem} :: ${c.path}`);
-			}, (id, e) => (e.targetPages ?? []).some((p) => id.includes(`-${p} `) || id.includes(`-${p}::`) || id.includes(`-${p}.md`)));
+			}, genericMatch);
 			runReceipt.arms["generic-hier"] = scored;
 			console.log(`run ${r} generic-hier:        ${fmt(scored.metrics)}`);
 		}
@@ -257,7 +336,7 @@ try {
 					{ qv },
 				);
 				return (rows ?? []).filter((x) => x.is_leaf).map((x) => `${x.stem} :: ${x.path}`);
-			}, (id, e) => (e.targetPages ?? []).some((p) => id.includes(`-${p} `) || id.includes(`-${p}::`) || id.includes(`-${p}.md`)));
+			}, genericMatch);
 			runReceipt.arms["generic-flat-vector"] = scored;
 			console.log(`run ${r} generic-flat-vector: ${fmt(scored.metrics)}`);
 		}
