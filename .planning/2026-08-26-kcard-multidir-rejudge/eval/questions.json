@@ -1,0 +1,173 @@
+{
+	"meta": {
+		"authored": "2026-08-26",
+		"authoring": "blind — companion questions authored from each doc's own TOC BEFORE any arm ran on this corpus; targets located by section-heading search and spot-verified per page (see ticket 02 receipt). Within-doc controls reuse the 2026-08-25 main-spec battery questions (blind then, targets re-verified in the copied tree), prefixed with the doc dir.",
+		"corpus": "usb4-family",
+		"corpusPages": 1263,
+		"pageOffsets": "DROM/CM-Guide/Retimer/DVSEC/ECNs: file page-NNN = doc page N. Inter-Domain: file page = doc page + 7 (roman-numbered front matter). Main spec: file page = doc page + 44.",
+		"classes": "dir = target sits in a companion/ECN dir (directory-discriminating); within = target inside the main-spec dir (control, comparable to the 2026-08-25 battery)",
+		"ticket": "02 — eval harness multi-dir + battery"
+	},
+	"questions": [
+		{
+			"q": "how does a device store its ascii vendor name entry in the drom",
+			"anchor": "DROM 7.1.1 ASCII Vendor Name Entry",
+			"class": "dir",
+			"targetPages": ["usb4-drom-specification-november-2025/pages/page-017"]
+		},
+		{
+			"q": "what information does the drom product descriptor entry carry about a device",
+			"anchor": "DROM 7.1.4 Product Descriptor Entry",
+			"class": "dir",
+			"targetPages": ["usb4-drom-specification-november-2025/pages/page-020"]
+		},
+		{
+			"q": "which tbt3 adapter entry in the drom describes a pcie downstream adapter",
+			"anchor": "DROM 8.5.3 TBT3-PCIe Downstream Adapter Entry",
+			"class": "dir",
+			"targetPages": ["usb4-drom-specification-november-2025/pages/page-039"]
+		},
+		{
+			"q": "how does the connection manager detect that a device was removed from the fabric",
+			"anchor": "CM Guide 3.4 Detecting a Removal Event",
+			"class": "dir",
+			"targetPages": ["usb4-connection-manager-guide-2.0-november-2025/pages/page-022"]
+		},
+		{
+			"q": "what steps does the connection manager follow to enumerate the adapters present in a router",
+			"anchor": "CM Guide 3.2.2 Adapter Enumeration",
+			"class": "dir",
+			"targetPages": ["usb4-connection-manager-guide-2.0-november-2025/pages/page-017"]
+		},
+		{
+			"q": "how are loops and inter-domain links identified during router initialization",
+			"anchor": "CM Guide 3.3 Identifying Loops and Inter-Domain Links",
+			"class": "dir",
+			"targetPages": ["usb4-connection-manager-guide-2.0-november-2025/pages/page-020"]
+		},
+		{
+			"q": "how does dedicated flow control differ from shared flow control for path buffers",
+			"anchor": "CM Guide 5.1.2/5.1.3 Dedicated vs Shared Flow Control",
+			"class": "dir",
+			"targetPages": ["usb4-connection-manager-guide-2.0-november-2025/pages/page-029"]
+		},
+		{
+			"q": "what is the packet format of an inter-domain uuid request",
+			"anchor": "IDS 2.2 Inter-Domain UUID Request Packet Format",
+			"class": "dir",
+			"targetPages": ["usb4-inter-domain-service-specification-2.0-november-2025/pages/page-014"]
+		},
+		{
+			"q": "which fields does the inter-domain properties read response packet carry",
+			"anchor": "IDS 2.5 Inter-Domain Properties Read Response Packet Format",
+			"class": "dir",
+			"targetPages": ["usb4-inter-domain-service-specification-2.0-november-2025/pages/page-016"]
+		},
+		{
+			"q": "how is lane initialization performed over the re-timer sideband channel",
+			"anchor": "Re-Timer 4.1.2 Lane Initialization",
+			"class": "dir",
+			"targetPages": ["usb4-re-timer-specification-2.0-november-2025-clean/pages/page-031"]
+		},
+		{
+			"q": "what behavior do the cl0s cl1 and cl2 low power states define for a re-timer channel",
+			"anchor": "Re-Timer 4.2.4 Low Power (CL0s, CL1, and CL2)",
+			"class": "dir",
+			"targetPages": ["usb4-re-timer-specification-2.0-november-2025-clean/pages/page-042"]
+		},
+		{
+			"q": "what fields make up the usb4 dvsec header for power management",
+			"anchor": "DVSEC 3 USB4 DVSEC Header",
+			"class": "dir",
+			"targetPages": ["usb4-dvsec-version-1.0/pages/page-008"]
+		},
+		{
+			"q": "what timing requirements were added for clx exit by the engineering change notice",
+			"anchor": "V2 ECN Adding Timing Requirements for CLx Exit (change text)",
+			"class": "dir",
+			"targetPages": ["v2-ecn/usb4-2.0-ecn-adding-timing-requirements-for-clx-exit/pages/page-003"]
+		},
+		{
+			"q": "which gen 4 link recovery timing constraints were introduced by the ecn",
+			"anchor": "V2 ECN Gen4 Link Recovery Timing Constraints (change text)",
+			"class": "dir",
+			"targetPages": ["v2-ecn/usb4-2.0-ecn-gen4-link-recovery-timing-constraints/pages/page-003"]
+		},
+		{
+			"q": "why was usb3 gen t isochronous support deprecated",
+			"anchor": "V2 ECN USB3 Gen T Isochronous Deprecation (change text)",
+			"class": "dir",
+			"targetPages": ["v2-ecn/usb4-2.0-ecn-usb3-gen-t-isochronous-deprecation/pages/page-003"]
+		},
+		{
+			"q": "which error cases and recovery actions apply when an adapter enters the training state",
+			"anchor": "V1 ECN Error Cases and Recovery (change text)",
+			"class": "dir",
+			"targetPages": ["v1-ecn/usb4-1.0-ecn-error-cases-and-recovery/pages/page-003"]
+		},
+		{
+			"q": "what design goals drove the usb4 specification beyond increasing bandwidth",
+			"anchor": "Spec 1.4 Design Goals",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-045"]
+		},
+		{
+			"q": "which architectural constructs make up a usb4 system such as routers and adapters",
+			"anchor": "Spec 2.1.1 Architectural Constructs",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-058"]
+		},
+		{
+			"q": "what signaling rates and characteristics does gen 4 mode define",
+			"anchor": "Spec 3.2 Gen 4 Mode",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-126"]
+		},
+		{
+			"q": "how are usb4 link symbols encoded onto the wire",
+			"anchor": "Spec 4.3 USB4 Link Encoding",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-246"]
+		},
+		{
+			"q": "how do usb4 links go to sleep and wake back up",
+			"anchor": "Spec 4.5 Sleep and Wake",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-287"]
+		},
+		{
+			"q": "how does a transport layer packet get routed through the usb4 fabric",
+			"anchor": "Spec 5.2 Routing",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-306"]
+		},
+		{
+			"q": "how are routers enumerated to discover the domain topology",
+			"anchor": "Spec 6.7 Router Enumeration and Topology Discovery",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-348"]
+		},
+		{
+			"q": "what configuration space types exist and how are their attributes accessed",
+			"anchor": "Spec 8.2 Configuration Space Types",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-398"]
+		},
+		{
+			"q": "how does the usb3 adapter layer carry usb3 traffic across a usb4 fabric",
+			"anchor": "Spec 9.1 USB3 Adapter Layer",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-539"]
+		},
+		{
+			"q": "how is displayport bandwidth allocated when dp bw allocation mode is enabled",
+			"anchor": "Spec 10.7 DP BW Allocation",
+			"class": "within",
+			"targetPages": ["usb4-specification-2.0-november-2025-clean/pages/page-699"]
+		}
+	],
+	"negatives": [
+		{ "q": "recipe for sourdough starter hydration ratios" },
+		{ "q": "weekend train schedule from Lisbon to Porto" }
+	]
+}

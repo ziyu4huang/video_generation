@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-26-kcard-multidir-rejudge
 created: 2026-08-26
-last: 2026-08-26 (t01 closed — corpus built, 1263 L2 / 86 dirs)
+last: 2026-08-26 (t02 closed — harness multi-dir + battery 26q, --check-only green)
 status: active
 ---
 
@@ -56,7 +56,7 @@ pairs, order recorded per wayfind confirm-gate discipline).
 - [01] Build the usb4-family multi-directory corpus — closed 2026-08-26 (1263 L2 rows / 86 dirs; receipt in ticket)
 
 ### Phase 2 — harness + battery
-- [02] Generalize resource-eval.mjs for multi-dir trees + blind battery — open
+- [02] Generalize resource-eval.mjs for multi-dir trees + blind battery — closed 2026-08-26 (--check-only green; 844-row fog resolved)
 
 ### Phase 3 — judgment
 - [03] Run the re-judgment (recursive vs flat vs generic ×2) + F2 knob adjudication — open
@@ -85,10 +85,10 @@ pairs, order recorded per wayfind confirm-gate discipline).
 
 ## Frontier
 
-Ticket 02 — the corpus exists (t01 closed); the flat-`pages/` assumption in
-`resource-eval.mjs` is now the blocker for everything downstream. The
-battery authoring is the careful part (TOC spans, dir-discriminating
-majority); the script change itself is small.
+Ticket 03 — corpus (t01) and harness+battery (t02) are closed; the live run
+is next. Pre-conditions to verify before firing: LM Studio bge-m3 up (the
+canonical embedder — CLAUDE.md), local SurrealDB on :8000, and the L1 tier
+generation cost note (~50 dirs ⇒ ~50 LLM calls inside the resource build).
 
 ## Fog of war
 
@@ -98,9 +98,11 @@ majority); the script change itself is small.
 - Question-battery authoring for companions: TOC-derived like the main-spec
   set (its lesson: key sections to page SPANS, not the heading page —
   resource-tier map fog, answer-key granularity).
-- The main-spec 839-row receipt vs 840 walked files discrepancy (combined
-  root .md) — resolve as a side-check while assembling (D2 stripping makes
-  it moot for the new corpus, but the old receipt's count deserves a note).
+- ~~The main-spec 839-row receipt vs 840 walked files discrepancy (combined
+  root .md)~~ — RESOLVED t02: the 2026-08-25 receipt actually inserted
+  **844** resource rows (839 pages + 1 combined root .md + 4 tier sidecar
+  rows); "839" was the page-count shorthand. New corpus = exactly 1263 L2
+  by construction (D2 strips the combined file).
 
 ## Cross-effort links
 
