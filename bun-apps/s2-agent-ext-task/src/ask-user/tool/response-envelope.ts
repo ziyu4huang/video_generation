@@ -8,12 +8,15 @@ import { formatQuestionAnswer } from "./format-answer.js";
 export interface ToolResult {
 	content: Array<{ type: "text"; text: string }>;
 	details: QuestionnaireResult;
+	/** Flag validation/host errors so the model sees a failed call, not an answer (cc-parity t02). */
+	isError?: boolean;
 }
 
-export function buildToolResult(text: string, details: QuestionnaireResult): ToolResult {
+export function buildToolResult(text: string, details: QuestionnaireResult, isError?: boolean): ToolResult {
 	return {
 		content: [{ type: "text", text }],
 		details,
+		...(isError ? { isError: true } : {}),
 	};
 }
 

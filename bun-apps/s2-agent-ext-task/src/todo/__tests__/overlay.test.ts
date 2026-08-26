@@ -3,12 +3,15 @@
  *
  * TDD for core-task-review ticket #09:
  * - M6: todo panel should still render heading when all tasks are completed/hidden
+ *
+ * Since cc-parity-task-powertool ticket 02/D7 the overlay renders the ONE
+ * shared task board (TeamTaskStore singleton) via board-view — seeding goes
+ * through the same store the task tools mutate.
  */
 
 import { test, expect } from "bun:test";
+import { __resetTeamTaskStoreForTests, getTeamTaskStore } from "@repo/s2-agent-core-runtime";
 import { TodoOverlay } from "../overlay.js";
-import { replaceState, __resetState } from "../state/store.js";
-import type { Task } from "../tool/types.js";
 
 // Minimal theme mock (only fg is used by overlay)
 const T = { fg: (_c: string, s: string) => s, bold: (s: string) => s, strikethrough: (s: string) => s } as any;
@@ -16,20 +19,23 @@ const T = { fg: (_c: string, s: string) => s, bold: (s: string) => s, strikethro
 // Theme with ANSI escape codes for testing ANSI awareness
 const ANSI_THEME = { fg: (c: string, s: string) => `\x1b[33m${s}\x1b[0m`, bold: (s: string) => `\x1b[1m${s}\x1b[0m`, strikethrough: (s: string) => s } as any;
 
+function resetBoard() {
+	__resetTeamTaskStoreForTests();
+	return getTeamTaskStore();
+}
+
 test("M6: todo panel still renders heading when all tasks completed/hidden", () => {
 	// Reset state before test
-	__resetState();
+	const store = resetBoard();
 
 	// Create overlay
 	const overlay = new TodoOverlay();
 
-	// Set up state with completed tasks
-	const tasks: Task[] = [
-		{ id: 1, subject: "task 1", status: "completed" },
-		{ id: 2, subject: "task 2", status: "completed" },
-		{ id: 3, subject: "task 3", status: "completed" },
-	];
-	replaceState({ tasks, nextId: 4 });
+	// Set up the board with completed tasks
+	store.create("*", { subject: "task 1" });
+	store.create("*", { subject: "task 2" });
+	store.create("*", { subject: "task 3" });
+	for (const id of ["1", "2", "3"]) store.update("*", id, { status: "completed" });
 
 	// First render: this populates completedTaskIdsPendingHide with the completed tasks
 	overlay.render(T, 80);
@@ -52,18 +58,17 @@ test("M6: todo panel still renders heading when all tasks completed/hidden", () 
 
 	// Cleanup
 	overlay.dispose();
-	__resetState();
+	resetBoard();
 });
 
 test("L7: ANSI-awareness — truncateToWidth handles ANSI escape codes", () => {
-	__resetState();
+	const store = resetBoard();
 
 	const overlay = new TodoOverlay();
 
 	// Create a task with a very long subject (longer than typical terminal width)
 	const longSubject = "This is a very long task subject that exceeds typical terminal width and should be truncated properly even with ANSI escape codes in the theme";
-	const tasks: Task[] = [{ id: 1, subject: longSubject, status: "pending" }];
-	replaceState({ tasks, nextId: 2 });
+	store.create("*", { subject: longSubject });
 
 	// Render with ANSI theme and limited width
 	const lines = overlay.render(ANSI_THEME, 60);
@@ -83,5 +88,23 @@ test("L7: ANSI-awareness — truncateToWidth handles ANSI escape codes", () => {
 	expect(maxLineLength).toBeLessThan(200);
 
 	overlay.dispose();
-	__resetState();
+	resetBoard();
+});
+
+test("effective blockedBy: completed deps do not render ⛓ in the widget", () => {
+	const store = resetBoard();
+	const overlay = new TodoOverlay();
+
+	store.create("*", { subject: "dep" });
+	store.create("*", { subject: "dependent", blockedBy: ["1"] });
+
+	const blocked = overlay.render(T, 120).join("\n");
+	expect(blocked).toContain("⛓ #1");
+
+	store.update("*", "1", { status: "completed" });
+	const cleared = overlay.render(T, 120).join("\n");
+	expect(cleared.includes("⛓")).toBe(false);
+
+	overlay.dispose();
+	resetBoard();
 });

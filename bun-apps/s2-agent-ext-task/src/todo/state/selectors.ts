@@ -1,9 +1,8 @@
-import type { Task, TaskStatus } from "../tool/types";
-import type { TaskState } from "./state";
+import type { Task, TaskState } from "../types";
 
-/** Tasks excluding deleted tombstones. */
+/** All board tasks (the board has no tombstones — a task is or isn't). */
 export function selectVisibleTasks(state: TaskState): readonly Task[] {
-	return state.tasks.filter((t) => t.status !== "deleted");
+	return state.tasks;
 }
 
 export interface TasksByStatus {
@@ -38,10 +37,6 @@ export function selectTodoCounts(state: TaskState): TodoCounts {
 
 export function selectShowTaskIds(state: TaskState): boolean {
 	return selectVisibleTasks(state).some((t) => t.blockedBy && t.blockedBy.length > 0);
-}
-
-export function selectTaskSubjectById(state: TaskState, id: number): string | undefined {
-	return state.tasks.find((t) => t.id === id)?.subject;
 }
 
 export interface OverlayLayout {

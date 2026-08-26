@@ -94,22 +94,30 @@ Usage notes:
 - If you recommend a specific option, add "(Recommended)" to the end of its label and place it first in the list. At most one per question.
 - Use multiSelect: true ONLY when multiple answers are valid; phrase the question accordingly. Do not use it for mutually exclusive choices.
 - Preview feature: use the optional \`preview\` field on options when presenting concrete artifacts the user needs to visually compare — mockups, code snippets, diagram variations, config examples. Previews render as markdown in a monospace box with a side-by-side layout, and are only supported for single-select questions.
-- Clarify requirements BEFORE finalizing a plan; when a plan-approval flow exists, ask clarifying questions before presenting the plan, and never use this tool to ask "is the plan ready" — that is the plan-approval flow's job.`,
+- Clarify requirements BEFORE finalizing a plan; when a plan-approval flow exists, ask clarifying questions before presenting the plan, and never use this tool to ask "is the plan ready" — that is the plan-approval flow's job.
+- Only ask when the decision is genuinely the user's AND changes what happens next; otherwise pick a sensible default, mention it, and move on.`,
 		promptSnippet: guidance.promptSnippet ?? DEFAULT_PROMPT_SNIPPET,
 		promptGuidelines: guidance.promptGuidelines ?? DEFAULT_PROMPT_GUIDELINES,
 		parameters: QuestionParamsSchema,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const typed = params as unknown as QuestionParams;
-			if (!ctx.hasUI) return buildToolResult(ERROR_NO_UI, { answers: [], cancelled: true, error: "no_ui" });
+			// Host/validation failures are ERRORS (isError), never "cancelled" —
+			// the user never saw, let alone abandoned, a dialog (cc-parity t02).
+			if (!ctx.hasUI)
+				return buildToolResult(ERROR_NO_UI, { answers: [], cancelled: false, error: "no_ui" }, true);
 
 			const validation = validateQuestionnaire(typed);
 			if (!validation.ok) {
-				return buildToolResult(validation.message, {
-					answers: [],
-					cancelled: true,
-					error: validation.error,
-				});
+				return buildToolResult(
+					validation.message,
+					{
+						answers: [],
+						cancelled: false,
+						error: validation.error,
+					},
+					true,
+				);
 			}
 
 			const promptId = emitAskUserPromptEvent(pi, typed);
@@ -201,7 +209,7 @@ Usage notes:
 					if (hasDialogUI(ctx.ui)) {
 						return buildQuestionnaireResponse(await runRpcQuestionnaire(ctx.ui, typed), typed);
 					}
-					return buildToolResult(ERROR_NO_CUSTOM_UI, { answers: [], cancelled: true, error: "no_custom_ui" });
+					return buildToolResult(ERROR_NO_CUSTOM_UI, { answers: [], cancelled: false, error: "no_custom_ui" }, true);
 				}
 
 				return buildQuestionnaireResponse(result, typed);

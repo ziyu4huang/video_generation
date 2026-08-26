@@ -11,6 +11,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   __resetTeamTaskStoreForTests,
+  effectiveBlockedBy,
   getTeamTaskStore,
   isTeamTaskError,
   type TeamTask,
@@ -250,6 +251,43 @@ describe("TeamTaskStore — session scoping + lifecycle", () => {
     ok(s.create("*", { subject: "a" }));
     s.reset("*");
     expect(ok(s.create("*", { subject: "b" })).id).toBe("1");
+  });
+});
+
+describe("effectiveBlockedBy — CC effective-blocked selector", () => {
+  const mkTask = (id: string, status: TeamTask["status"]): TeamTask => ({
+    id,
+    subject: `task ${id}`,
+    description: "",
+    status,
+    blocks: [],
+    blockedBy: [],
+    createdAt: 0,
+    updatedAt: 0,
+  });
+
+  test("table: completed deps clear, pending/in_progress deps bind, unknown ids stay visible", () => {
+    const board = [mkTask("1", "completed"), mkTask("2", "pending"), mkTask("3", "in_progress")];
+    const cases: Array<{ blockedBy: string[]; expected: string[] }> = [
+      { blockedBy: [], expected: [] },
+      { blockedBy: ["1"], expected: [] }, // completed dep → cleared
+      { blockedBy: ["2"], expected: ["2"] }, // pending dep → binds
+      { blockedBy: ["3"], expected: ["3"] }, // in_progress dep → binds
+      { blockedBy: ["1", "2", "3"], expected: ["2", "3"] }, // mixed
+      { blockedBy: ["1", "99"], expected: ["99"] }, // stale edge stays visible
+    ];
+    for (const { blockedBy, expected } of cases) {
+      expect(effectiveBlockedBy(board, { blockedBy })).toEqual(expected);
+    }
+  });
+
+  test("derives off the live store: completing a dep clears the dependent's rendered block", () => {
+    const s = mk();
+    const dep = ok(s.create("*", { subject: "dep" }));
+    const dependent = ok(s.create("*", { subject: "dependent", blockedBy: [dep.id] }));
+    expect(effectiveBlockedBy(s.list("*"), dependent)).toEqual([dep.id]);
+    ok(s.update("*", dep.id, { status: "completed" }));
+    expect(effectiveBlockedBy(s.list("*"), dependent)).toEqual([]);
   });
 });
 

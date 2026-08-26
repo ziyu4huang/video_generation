@@ -28,7 +28,7 @@ tool-gate keyword families, docs, CLAUDE.md, CI baselines) must track.
 | zai-mcp dynamic tools | **external** (from each MCP server's `listTools()`) | `webReader` | ℹ️ not ours to rename |
 
 Tool-name outliers still on the wire (bare nouns / non-verb forms, all
-pre-convention): `memory`, `todo`, `browser`, `webui`, `file2md`, `flux2`,
+pre-convention): `memory`, `browser`, `webui`, `file2md`, `flux2`,
 `krea2`, `ltx`, `movie`, `obsidian`, `zk` namespace tools. Renaming any of
 these is a **behavior change** — it requires the PR #1738 pattern (legacy name
 kept where transcript matching reads it + caller sweep) and a new row in the
@@ -42,9 +42,9 @@ history table below. Do not rename casually.
 | obsidian | `obsidian` (fat tool), `obsidian_help`, `obsidian_list/read/create/append/append_section/search/search_help/semantic_search/move/rename/query/update_frontmatter/delete/invalidate/open/distill/garden/status` |
 | knowledge-card | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` (internal ns `zk`: retrieve/ingest/health/heal) |
 | hermes-memory | `memory`, `search_memory`, `skill_manage`, `skill_manage_help`, `knowledge_search`, `knowledge_ingest` |
-| task | `ask_user_question`, `todo`, `goal_complete` |
+| task | `ask_user_question`, `goal_complete` |
 | workflow | `run_workflow`, `workflow_help`, `workflow_control`, `wf_web_search`, `wf_web_fetch` (child-session-only tools — never registered on the parent session) |
-| subagent | `spawn_subagent`, `list_subagents`, `list_subagent_runs` (ungated by design) |
+| subagent | `spawn_subagent`, `list_subagents`, `list_subagent_runs` (ungated by design), `task_create/get/list/update` (core-gated — the ONE task family since cc-parity t02; `todo` retired) |
 | web-access | `web_search`, `fetch_content`, `get_search_content` |
 | webui | `webui_present`, `webui_report` |
 | power-tool | `inspect_extensions`, `inspect_tui`, `inspect_agent`, `inspect_hooks`, `browser`, `webui` |

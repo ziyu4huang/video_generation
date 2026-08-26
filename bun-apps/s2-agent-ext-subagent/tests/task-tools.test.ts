@@ -39,6 +39,12 @@ async function run(tool: ToolDefinition | undefined, params: unknown) {
   return text((await (tool as unknown as AnyTool).execute("call-1", params, NO_SIGNAL, undefined, NO_CTX)) as never);
 }
 
+/** Full result object (for isError assertions), not just the text. */
+async function exec(tool: ToolDefinition | undefined, params: unknown) {
+  assert.ok(tool, "tool missing");
+  return (tool as unknown as AnyTool).execute("call-1", params, NO_SIGNAL, undefined, NO_CTX);
+}
+
 test("task_create → task_get round-trip; ids and defaults surface in output", async () => {
   const { by, store } = mkTools();
   const created = await run(by.get("task_create"), { subject: "Wire the board", description: "do it" });
@@ -106,22 +112,53 @@ test("task_update rejects cycles and unknown ids without mutating", async () => 
   assert.match(missing, /unknown task id "404"/);
 });
 
-test("task_get/task_list on an empty board say so without erroring", async () => {
+test("error results are flagged isError (create/update/get); empty list is not an error", async () => {
+  const { by } = mkTools();
+  await run(by.get("task_create"), { subject: "a" });
+  const empty = await exec(by.get("task_create"), { subject: "  " });
+  assert.equal((empty as { isError?: boolean }).isError, true);
+  const unknown = await exec(by.get("task_update"), { id: "404", status: "completed" });
+  assert.equal((unknown as { isError?: boolean }).isError, true);
+  const missingGet = await exec(by.get("task_get"), { id: "404" });
+  assert.equal((missingGet as { isError?: boolean }).isError, true);
+  const noTasks = await exec(by.get("task_list"), {});
+  assert.equal((noTasks as { isError?: boolean }).isError, undefined);
+});
+
+test("effective-blocked rendering: completed deps clear from task_list lines", async () => {
+  const { by } = mkTools();
+  await run(by.get("task_create"), { subject: "dep" });
+  await run(by.get("task_create"), { subject: "dependent", blockedBy: ["1"] });
+  const before = await run(by.get("task_list"), {});
+  assert.match(before, /#2 \[pending\] — dependent \(blockedBy: 1\)/);
+  await run(by.get("task_update"), { id: "1", status: "completed" });
+  const after = await run(by.get("task_list"), {});
+  assert.match(after, /#2 \[pending\] — dependent/, "dependent itself must still render");
+  assert.ok(!after.includes("blockedBy: 1"), `resolved dep leaked into list rendering: ${after}`);
+});
+
+test("task_get/task_list on an empty board say so (get flagged isError)", async () => {
   const { by } = mkTools();
   assert.match(await run(by.get("task_get"), { id: "1" }), /No task #1/);
   assert.match(await run(by.get("task_list"), {}), /No tasks/);
 });
 
-test("all four tools declare the workflow gate family (owner-declared gating)", () => {
+test("all four tools are core-gated (ONE model-visible family, cc-parity t02/D7) + stealth-trimmed", () => {
   const { tools } = mkTools();
   assert.deepEqual(
     tools.map((t) => t.name),
     ["task_create", "task_get", "task_list", "task_update"],
   );
   for (const t of tools) {
-    const gating = (t as { gating?: { gate?: string } }).gating;
-    assert.equal(gating?.gate, "workflow", `${t.name} must reference the workflow gate family`);
+    const gating = (t as { gating?: { core?: boolean; gate?: string } }).gating;
+    assert.equal(gating?.core, true, `${t.name} must be core-gated (visible in every session shape)`);
+    // Stealth doctrine for core-visible tools: no per-turn promptSnippet —
+    // the description (with the workflow-discipline rules) routes the model.
+    assert.equal((t as { promptSnippet?: unknown }).promptSnippet, undefined, `${t.name} must stay stealth-trimmed`);
   }
+  const create = tools[0] as { description?: string };
+  assert.match(create.description ?? "", /in_progress BEFORE starting/);
+  assert.match(create.description ?? "", /NEW task describing the blocker/);
 });
 
 test("read-only children keep the task tools (not in READ_ONLY_EXCLUDED)", () => {

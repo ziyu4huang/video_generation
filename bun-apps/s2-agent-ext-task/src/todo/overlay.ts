@@ -8,6 +8,11 @@
  * `render(theme, width)` and pokes `refresh()` (the composite's update) when
  * its content changes.
  *
+ * Since cc-parity-task-powertool ticket 02/D7 the rendered STATE is the ONE
+ * shared task board (core-runtime's TeamTaskStore, mutated by ext-subagent's
+ * task_* tools), read through ../board-view.ts — this overlay renders what
+ * the model's task_list shows, effective blockedBy included.
+ *
  * Stripped of external i18n dependency (@juicesharp/rpiv-i18n):
  * - formatStatusLabel imported from sister module (view/format.ts — English-only inline)
  * - All t(key, fallback) calls replaced with fallback literals
@@ -15,10 +20,10 @@
 
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import { formatStatusLabel } from "./view/format";
+import { getBoardViewState } from "./board-view";
+import { formatStatusLabel, formatOverlayTaskLine } from "./view/format";
 import { selectHasActive, selectOverlayLayout, selectShowTaskIds, selectTodoCounts } from "./state/selectors";
-import { getState } from "./state/store";
-import { formatOverlayTaskLine } from "./view/format";
+import type { Task } from "./types";
 
 const MAX_WIDGET_LINES = 12;
 
@@ -67,40 +72,39 @@ export class TodoOverlay {
 		pendingHideIds: number[];
 		fullTaskList: { id: number; subject: string; status: string }[];
 	} {
-		const state = getState();
-		const nonDeleted = state.tasks.filter((t) => t.status !== "deleted");
+		const state = getBoardViewState();
 		return {
-			totalTasks: nonDeleted.length,
-			visibleTasks: nonDeleted.filter((t) => !this.shouldHideCompletedTask(t)).length,
+			totalTasks: state.tasks.length,
+			visibleTasks: state.tasks.filter((t) => !this.shouldHideCompletedTask(t)).length,
 			hiddenCompletedTaskIds: [...this.hiddenCompletedTaskIds],
 			pendingHideIds: [...this.completedTaskIdsPendingHide],
-			fullTaskList: nonDeleted.map((t) => ({ id: t.id, subject: t.subject, status: t.status })),
+			fullTaskList: state.tasks.map((t) => ({ id: t.id, subject: t.subject, status: t.status })),
 		};
 	}
 
 	private getSnapshot() {
-		const state = getState();
+		const state = getBoardViewState();
+		// A shrinking nextId means the board was reset (session_start) — the
+		// hide-completed display state belongs to the previous board.
 		if (this.lastNextId !== undefined && state.nextId < this.lastNextId) {
 			this.resetCompletedDisplayState();
 		}
 		this.lastNextId = state.nextId;
-		const completedTaskIds = new Set(
-			state.tasks.filter((task) => task.status === "completed").map((task) => task.id),
-		);
+		const completedTaskIds = new Set(state.tasks.filter((task) => task.status === "completed").map((task) => task.id));
 		for (const taskId of this.completedTaskIdsPendingHide) {
 			if (!completedTaskIds.has(taskId)) this.completedTaskIdsPendingHide.delete(taskId);
 		}
 		for (const taskId of this.hiddenCompletedTaskIds) {
 			if (!completedTaskIds.has(taskId)) this.hiddenCompletedTaskIds.delete(taskId);
 		}
-		return { tasks: [...state.tasks], nextId: state.nextId };
+		return state;
 	}
 
 	private selectOverlayTasks(snapshot: ReturnType<TodoOverlay["getSnapshot"]>) {
-		return snapshot.tasks.filter((task) => task.status !== "deleted" && !this.shouldHideCompletedTask(task));
+		return snapshot.tasks.filter((task) => !this.shouldHideCompletedTask(task));
 	}
 
-	private shouldHideCompletedTask(task: ReturnType<TodoOverlay["getSnapshot"]>["tasks"][number]): boolean {
+	private shouldHideCompletedTask(task: Task): boolean {
 		return task.status === "completed" && this.hiddenCompletedTaskIds.has(task.id);
 	}
 
@@ -110,22 +114,18 @@ export class TodoOverlay {
 		const overlayTasks = this.selectOverlayTasks(snapshot);
 
 		const truncate = (line: string): string => truncateToWidth(line, width, "…");
-		// Heading counts reflect REAL progress over ALL non-deleted tasks, not
-		// just the visible subset. Completed tasks are hidden from the list
-		// after agent_start but must still count — otherwise the heading shows
-		// "0/2" when 7 tasks are completed+hidden, looking like nothing was done.
-		const counts = selectTodoCounts({
-			tasks: snapshot.tasks.filter((t) => t.status !== "deleted"),
-			nextId: snapshot.nextId,
-		});
+		// Heading counts reflect REAL progress over ALL tasks, not just the
+		// visible subset. Completed tasks are hidden from the list after
+		// agent_start but must still count — otherwise the heading shows "0/2"
+		// when 7 tasks are completed+hidden, looking like nothing was done.
+		const counts = selectTodoCounts(snapshot);
 
 		// M6 fix: Only return empty if there are NO tasks at all. If there are tasks
 		// but all are completed/hidden, we still show the heading with counts.
 		if (counts.total === 0) return [];
 
-		const overlayState = { tasks: overlayTasks, nextId: snapshot.nextId };
-		const hasActive = selectHasActive(overlayState);
-		const showIds = selectShowTaskIds(overlayState);
+		const hasActive = selectHasActive(snapshot);
+		const showIds = selectShowTaskIds(snapshot);
 
 		const headingColor = hasActive ? "accent" : "dim";
 		const headingIcon = hasActive ? "●" : "○";
@@ -133,7 +133,7 @@ export class TodoOverlay {
 		const heading = truncate(`${theme.fg(headingColor, headingIcon)} ${theme.fg(headingColor, headingText)}`);
 
 		const lines: string[] = [heading];
-		const layout = selectOverlayLayout(overlayState, MAX_WIDGET_LINES - 1);
+		const layout = selectOverlayLayout({ tasks: overlayTasks, nextId: snapshot.nextId }, MAX_WIDGET_LINES - 1);
 		let lastTask: (typeof layout.visible)[number] | undefined;
 		for (const task of layout.visible) {
 			lines.push(truncate(`${theme.fg("dim", "├─")} ${formatOverlayTaskLine(task, theme, showIds)}`));

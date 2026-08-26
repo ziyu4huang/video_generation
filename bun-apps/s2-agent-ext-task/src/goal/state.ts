@@ -144,7 +144,7 @@ export function isGoal(value: unknown): value is ActiveGoal {
 // Centralizes goal.ts's session-scoped mutable `let`s behind one object so the
 // pure status-machine above stays pure while the coordination/UI seam in goal.ts
 // reads/writes a single named container. `__resetGoalState()` mirrors
-// todo/state/store.ts __resetState and lets tests start from a known baseline.
+// a store-style __reset lets tests start from a known baseline.
 
 /** Runtime, session-scoped goal state. One instance per process (module singleton).
  *
@@ -239,7 +239,7 @@ export const goalState: GoalRuntimeState = {
 	reviewerMode: "on",
 };
 
-/** Test seam: reset all runtime state to initial values (mirrors todo/state/store.ts __resetState). */
+/** Test seam: reset all runtime state to initial values (store-style __reset). */
 export function __resetGoalState(): void {
 	goalState.activeGoal = undefined;
 	goalState.extensionApi = undefined;
