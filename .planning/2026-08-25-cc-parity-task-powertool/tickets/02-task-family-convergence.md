@@ -1,8 +1,9 @@
 # Ticket 02 — Task-family convergence + todo CC semantics
 
-Status: closed (PR pending at write time — gates green: ext-task 849 pass /
-tsc clean, ext-subagent 709 pass / check+build+tsc, core-runtime 493 pass /
-tsc clean, tool-gate 445 pass / tsc clean)
+Status: closed (2026-08-27; merged CLEAN via PR #2079, merge commit
+13bc3abb — gates green: ext-task 849 pass / tsc clean, ext-subagent 709
+pass / check+build+tsc, core-runtime 493 pass / tsc clean, tool-gate 445
+pass / tsc clean, local_ci exit 0 incl. dead-export + deploy-sh L1 e2e)
 
 ## Why
 
