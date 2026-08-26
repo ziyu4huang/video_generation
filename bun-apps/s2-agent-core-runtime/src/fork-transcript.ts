@@ -87,8 +87,11 @@ export function projectTranscriptTurns(entries: SessionEntry[], leafId: string |
  * inherits nothing — the dispatch still runs, without the block).
  *
  * Truncation is OLDEST-first over whole turns; the marker names what was
- * dropped. A single turn longer than the cap is sliced to it (the cap is a
- * hard bound, never advisory).
+ * dropped. Blocks are sliced against the effective limit (the cap minus the
+ * marker + separator length when turns were dropped), so the body never
+ * exceeds the cap (the cap is a hard bound, never advisory — with one floor:
+ * a cap smaller than marker + separator keeps the intact marker over literal
+ * compliance).
  */
 export function buildForkTranscript(
   entries: SessionEntry[],
@@ -107,9 +110,14 @@ export function buildForkTranscript(
     }
     const dropped = kept.length < blocks.length;
     // A block that alone exceeds the cap is sliced — the cap is a hard bound,
-    // never advisory. No marker when nothing was dropped (a slice is not a
-    // truncation of TURNS).
-    const sliced = kept.map((b) => (b.length > capChars ? b.slice(0, capChars) : b));
+    // never advisory. When turns were dropped the marker prefixes the body, so
+    // its length (+ separator) is reserved BEFORE slicing: every block is
+    // sliced against the EFFECTIVE limit (cap minus marker slack), so the final
+    // body never exceeds the cap. No marker when nothing was dropped (a slice
+    // is not a truncation of TURNS).
+    const markerSlack = dropped ? TRUNCATION_MARKER.length + 2 : 0;
+    const limit = capChars - markerSlack;
+    const sliced = kept.map((b) => (b.length > limit ? b.slice(0, Math.max(0, limit)) : b));
     body = dropped ? `${TRUNCATION_MARKER}\n\n${sliced.join("\n\n")}` : sliced.join("\n\n");
   }
   return `${FORK_TRANSCRIPT_HEADER}\n\n${body}`;
