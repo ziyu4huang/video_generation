@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-26-kcard-multidir-rejudge
 created: 2026-08-26
-last: 2026-08-26 (t02 closed — harness multi-dir + battery 26q, --check-only green)
+last: 2026-08-26 (t03 closed — 4-arm × 2 runs measured, reviewer APPROVE; recursive still loses to flat incl. dir-disc split; F2 = KEEP-UNPORTED ×3; follow-ups #2064)
 status: active
 ---
 
@@ -59,7 +59,7 @@ pairs, order recorded per wayfind confirm-gate discipline).
 - [02] Generalize resource-eval.mjs for multi-dir trees + blind battery — closed 2026-08-26 (--check-only green; 844-row fog resolved)
 
 ### Phase 3 — judgment
-- [03] Run the re-judgment (recursive vs flat vs generic ×2) + F2 knob adjudication — open
+- [03] Run the re-judgment (recursive vs flat vs generic ×2) + F2 knob adjudication — closed 2026-08-26 (runs deterministic; recursive 11/26·0.253 vs flat 14/26·0.394, dir-disc split 7/16 vs 9/16 — the lane's theoretical advantage does not materialize; F2 all KEEP-UNPORTED; α mild 0.3-best 13/26 still < flat; L0/L1 crowding INCONCLUSIVE at K=5; generic 0/16 dir-disc = id-collision coverage artifact — harness namespacing bug #2064; reviewer APPROVE after a REQUEST_CHANGES round, all findings addressed in-record)
 - [04] Verdict, D9/D-map update, effort close-out — open
 
 ## Decisions
@@ -85,10 +85,14 @@ pairs, order recorded per wayfind confirm-gate discipline).
 
 ## Frontier
 
-Ticket 03 — corpus (t01) and harness+battery (t02) are closed; the live run
-is next. Pre-conditions to verify before firing: LM Studio bge-m3 up (the
-canonical embedder — CLAUDE.md), local SurrealDB on :8000, and the L1 tier
-generation cost note (~50 dirs ⇒ ~50 LLM calls inside the resource build).
+Ticket 04 — the numbers are in (t03): recursive loses to flat on the
+multi-dir corpus INCLUDING the dir-discriminating split (7/16 vs 9/16
+hit@5, MRR 0.234 vs 0.400), α sweep's best (0.3 → 13/26·0.278) stays under
+flat (14/26·0.394), and all three F2 knobs adjudicated KEEP-UNPORTED. The
+verdict work is to record the D-map update (D9 successor decision: the
+recursive lane's CLI-only status is CONFIRMED, not re-opened), fold the
+generic-arm collision finding into #2064's scope decision, and close the
+effort.
 
 ## Fog of war
 
