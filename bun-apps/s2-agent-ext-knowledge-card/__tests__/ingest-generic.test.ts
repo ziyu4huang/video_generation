@@ -8,7 +8,7 @@
  * real temp vault: valid card, idempotency, cross-source link.
  */
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ingestRecords } from "../src/ingest.ts";
@@ -95,7 +95,7 @@ describe("adaptGenericMarkdown", () => {
 		expect(r.id).toBe("generic:thing");
 	});
 
-	test("callout type-inference: [!warning] → avoid, [!tip] → pattern", () => {
+	test("callout type-inference: [!warning] → avoid, [!tip] → reference (#2056)", () => {
 		const caution = [
 			"# Dangerous Pattern",
 			"",
@@ -105,8 +105,13 @@ describe("adaptGenericMarkdown", () => {
 		].join("\n");
 		expect(adaptGenericMarkdown(caution, "x/a.md")!.type).toBe("avoid");
 
+		// Plain prose is NOT a pattern — the neutral `reference` type keeps the
+		// `pattern` tag's IDF cross-linking meaningful (839 file2md cards were
+		// uniformly stamped `pattern` before #2056).
 		const tip = ["# Helpful Tip", "", "> [!tip] Cache your results."].join("\n");
-		expect(adaptGenericMarkdown(tip, "x/b.md")!.type).toBe("pattern");
+		expect(adaptGenericMarkdown(tip, "x/b.md")!.type).toBe("reference");
+		const plain = ["# Plain Page", "", "Just prose, no callouts."].join("\n");
+		expect(adaptGenericMarkdown(plain, "x/c.md")!.type).toBe("reference");
 	});
 
 	test("harvests body #hashtags AND [[wikilinks]] as cross-link tags", () => {
@@ -134,6 +139,38 @@ describe("adaptGenericMarkdown", () => {
 		expect(adaptGenericMarkdown("", "x.md")).toBeNull();
 		expect(adaptGenericMarkdown("   \n\n  ", "x.md")).toBeNull();
 		expect(adaptGenericMarkdown(null as unknown as string, "x.md")).toBeNull();
+	});
+
+	// ── #2056: generic adapter card quality ──────────────────────────────────
+
+	test("#2056 created: frontmatter-less page falls back to source-file mtime", () => {
+		const fp = join(vault, "undated.md");
+		writeFileSync(fp, "# Undated Page\n\nProse with no date frontmatter.");
+		// Pin the mtime (a real clock would make the assertion date-dependent).
+		utimesSync(fp, new Date("2026-01-15T10:00:00Z"), new Date("2026-01-15T10:00:00Z"));
+		const r = adaptGenericMarkdown(readFileSync(fp, "utf8"), fp)!;
+		expect(r.evidence?.first_seen).toBe("2026-01-15"); // mtime fallback, not epoch
+		// Non-existent path (unit-test fake): no evidence — never throws.
+		const fake = adaptGenericMarkdown("# No File\n\nBody.", "x/does-not-exist.md")!;
+		expect(fake.evidence).toBeUndefined();
+	});
+
+	test("#2056 summary: explicit adapter summary strips leading copyright boilerplate", () => {
+		const md = [
+			"# USB4 Page",
+			"",
+			"Version 2.0 - iii - Universal Serial Bus 4 November 2025 Specification Copyright © 2025 USB Promoter Group.",
+			"",
+			"All rights reserved.",
+			"",
+			"Chapter 1 defines the protocol architecture. More prose follows here.",
+		].join("\n");
+		const r = adaptGenericMarkdown(md, "x/usb4-page.md")!;
+		expect(r.summary).toBeTruthy();
+		expect(r.summary).not.toMatch(/copyright|all rights reserved/i); // boilerplate gone
+		expect(r.summary).toMatch(/protocol architecture|USB4 Page/i); // real content head
+		// The detail body keeps the full content — strip is summary-only.
+		expect(r.detail).toContain("Copyright © 2025");
 	});
 });
 
@@ -225,6 +262,39 @@ describe("ingestRecords — generic source end-to-end", () => {
 		expect(second.created).toBe(0);
 		expect(second.unchanged).toBe(1);
 		expect(second.updated).toBe(0);
+	});
+
+	test("#2056 convergence: re-ingest overwrites a polluted on-disk summary (explicit > on-disk)", async () => {
+		// The ingest precedence is explicit rec.summary > the existing card's
+		// on-disk summary > deterministic derivation. The adapter sets an
+		// explicit summary PRECISELY so a re-ingest converges cards written by
+		// the pre-#2056 adapter (whose summaries began with copyright
+		// boilerplate) instead of preserving them forever.
+		const md = [
+			"# Converge Doc",
+			"",
+			"Version 2.0 Copyright © 2025 USB Promoter Group. All rights reserved.",
+			"",
+			"The link layer defines the physical topology. More prose follows.",
+		].join("\n");
+		const record = adaptGenericMarkdown(md, "x/converge-doc.md")!;
+		const opts = { vaultPath: vault, source: "generic" as const, sourceLabel: "generic:x" };
+		await ingestRecords([record], opts);
+		const basename = slugify(record.id);
+		const cardPath = join(vault, FOLDER, `${basename}.md`);
+
+		// Simulate a PRE-#2056 card: polluted on-disk summary + epoch-ish type.
+		const polluted = readFileSync(cardPath, "utf8")
+			.replace(/^summary: .*$/m, "summary: Version 2.0 Copyright © 2025 USB Promoter Group. All rights reserved.")
+			.replace(/^record_type: .*$/m, "record_type: pattern");
+		writeFileSync(cardPath, polluted);
+
+		const second = await ingestRecords([record], opts);
+		expect(second.updated).toBe(1); // converged, not "unchanged"
+		const converged = readFileSync(cardPath, "utf8");
+		expect(converged).toMatch(/^record_type: reference$/m);
+		const summaryLine = converged.match(/^summary: (.*)$/m)![1]!;
+		expect(summaryLine).not.toMatch(/copyright|all rights reserved/i);
 	});
 
 	test("cross-source link: a generic card links a workflow card via a shared tag", async () => {

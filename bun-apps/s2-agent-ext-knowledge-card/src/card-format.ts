@@ -106,7 +106,7 @@ export function buildMocContent(cardsAbs: string[]): string {
 	}
 	for (const list of groups.values()) list.sort();
 
-	const order = ["gotcha", "avoid", "lever", "pattern", "metric", "false_positive", "experience", "other"];
+	const order = ["gotcha", "avoid", "lever", "pattern", "metric", "false_positive", "experience", "reference", "other"];
 	const present = order.filter((g) => groups.has(g)).concat(
 		[...groups.keys()].filter((g) => !order.includes(g)).sort(),
 	);

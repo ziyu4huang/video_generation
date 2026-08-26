@@ -68,7 +68,7 @@ const FIX_BODY = "The pi SDK model hijack was fixed by --provider.";
 describe("CARD_TYPES (D17)", () => {
 	test("full D16 key set, one entry per type", () => {
 		expect(Object.keys(CARD_TYPES).sort()).toEqual(
-			["avoid", "case", "event", "experience", "false_positive", "gotcha", "lever", "metric", "pattern", "preference"].sort(),
+			["avoid", "case", "event", "experience", "false_positive", "gotcha", "lever", "metric", "pattern", "preference", "reference"].sort(),
 		);
 	});
 	test("event is add_only; case/preference/legacy are upsert", () => {

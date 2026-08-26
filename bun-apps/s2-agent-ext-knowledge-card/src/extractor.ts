@@ -221,11 +221,76 @@ export interface ResolveExtractorOptions {
  *  an LLM pass would buy nothing. Mirrors the leanrag-D6 budget-gating rule. */
 export const SUMMARY_BODY_BUDGET = 800;
 
+/** Boilerplate markers for the leading-block strip (#2056 symptom 3): a page
+ *  whose head is a copyright/license/legal notice block (file2md page output
+ *  begins with the spec's title-page legalese) must not have that as its L0
+ *  abstract. TWO tiers (review finding 1 — the strip runs inside
+ *  firstSentenceSummary for EVERY source, so weak words must not fire on
+ *  ordinary prose like "How to license your product…"):
+ *  - ANYWHERE in the line: only unambiguous legal markers (`copyright`, `©`,
+ *    `all rights reserved`) — prose never legitimately contains these.
+ *  - LINE-START only AND immediately followed by a notice separator (`:`,
+ *    `—`, `-`) or end-of-line: `license`/`licence`/`disclaimer`/
+ *    `legal notice`/`trademark`/`(c)`. Real title-page notices have the shape
+ *    `License: MIT` / `DISCLAIMER` alone on a line; prose that merely BEGINS
+ *    a line with the word ("Disclaimer applies to beta builds only.")
+ *    survives. */
+const BOILERPLATE_ANYWHERE_RE = /(copyright|©|all rights reserved)/i;
+const BOILERPLATE_LINE_START_RE =
+	/^\s*(?:[-*>#]+\s*)?(license|licence|disclaimer|legal notice|trademark|\(c\))(?:\s*[:：—-]|\s*$)/i;
+
+/** How many leading lines the boilerplate strip may scan past — the strip is
+ *  for TITLE-PAGE blocks, not for scrubbing a legal notice deep in the body
+ *  (those stay: the abstract head just has to clear the leading block). */
+const BOILERPLATE_SCAN_LINES = 12;
+
+/** Does this line read as a title-page legal notice? (both tiers, see the
+ *  BOILERPLATE_*_RE docblock). */
+function isBoilerplateLine(ln: string): boolean {
+	return BOILERPLATE_ANYWHERE_RE.test(ln) || BOILERPLATE_LINE_START_RE.test(ln);
+}
+
+/** Strip the leading copyright/license boilerplate block from a body: drop
+ *  leading lines that match isBoilerplateLine (scanning at most the first
+ *  BOILERPLATE_SCAN_LINES lines, stopping at the first clean line — a
+ *  boilerplate line deep in the body is content, not a header). Lines before
+ *  the first boilerplate line are kept (a real title/heading precedes the
+ *  notice on some pages). Exported for the generic adapter's explicit summary
+ *  (#2056 D-c) and tested directly. */
+export function stripLeadingBoilerplate(text: string): string {
+	const lines = text.split(/\r?\n/);
+	const end = Math.min(lines.length, BOILERPLATE_SCAN_LINES);
+	// Find the FIRST boilerplate line in the window; if none, return as-is.
+	let first = -1;
+	for (let i = 0; i < end; i++) {
+		if (isBoilerplateLine(lines[i]!)) {
+			first = i;
+			break;
+		}
+	}
+	if (first === -1) return text;
+	// Drop the boilerplate block from `first` onward: extend past boilerplate
+	// lines AND blank lines separating them (title-page blocks interleave
+	// `Copyright © …` / `` / `All rights reserved.`), stopping at the first
+	// line with real content. Everything before `first` is kept.
+	let last = first;
+	for (let i = first + 1; i < end; i++) {
+		const ln = lines[i]!;
+		if (ln.trim() === "" || isBoilerplateLine(ln)) last = i;
+		else break;
+	}
+	// Trailing blanks swallowed by the block are dropped with it.
+	const kept = [...lines.slice(0, first), ...lines.slice(last + 1)];
+	return kept.join("\n");
+}
+
 /** Deterministic first-sentence summary (schema v2 L0): strips markdown
  *  decorations, takes prose up to the first sentence boundary (。．.!?？！；
- *  or newline), clamped to the 256-char budget. Returns "" for empty input. */
+ *  or newline), clamped to the 256-char budget. Leading copyright/license
+ *  boilerplate is stripped first (#2056 symptom 3) so the abstract head is
+ *  real content. Returns "" for empty input. */
 export function firstSentenceSummary(text: string): string {
-	const prose = text
+	const prose = stripLeadingBoilerplate(text)
 		.replace(/^---\n[\s\S]*?\n---/, "") // defensive: strip frontmatter if present
 		.replace(/```[\s\S]*?```/g, " ") // code fences are not abstract material
 		.replace(/^#{1,6}\s+/gm, "") // headings → prose

@@ -28,7 +28,7 @@ same shape from an auto-memory topic file.
 | Key | Type | Required | Notes |
 | --- | ---- | -------- | ----- |
 | `id` | string | ✅ | Canonical, namespaced (`ltx:cfg-scale-7-lever`, `auto-memory:pr-merge-sop`). Dedup key. |
-| `type` | string | (default `pattern`) | `lever` · `avoid` · `pattern` · `gotcha` · `metric` · `false_positive` |
+| `type` | string | (default `pattern`) | `lever` · `avoid` · `pattern` · `gotcha` · `metric` · `false_positive` · `experience` · `event` · `case` · `preference` · `reference` (the generic adapter's neutral prose-page type, #2056) |
 | `title` | string | ✅ | One-line hook (becomes the card H1). |
 | `detail` | string | (default `""`) | The body — prose, callouts, tasks, embeds. |
 | `tags` | string[] | (default `[]`) | Concept tags (normalised on ingest). |

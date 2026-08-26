@@ -100,6 +100,44 @@ describe("summary L0", () => {
 		expect(firstSentenceSummary("")).toBe("");
 	});
 
+	test("#2056: leading copyright/license boilerplate is stripped from the L0 head", () => {
+		// The real symptom (file2md USB4-spec page): title-page legalese as the
+		// abstract. Multi-line block with blank lines between notices.
+		const page = [
+			"# USB4 Page",
+			"",
+			"Version 2.0 - iii - Universal Serial Bus 4 November 2025 Specification Copyright © 2025 USB Promoter Group.",
+			"",
+			"All rights reserved.",
+			"",
+			"Chapter 1 defines the protocol architecture.",
+		].join("\n");
+		const s = firstSentenceSummary(page);
+		expect(s).not.toMatch(/copyright|all rights reserved|Version 2\.0 - iii/i);
+		expect(s).toContain("Chapter 1");
+		// No boilerplate → byte-identical behavior (no strip false-positives).
+		expect(firstSentenceSummary("Normal page. Second sentence.")).toBe("Normal page.");
+		// Boilerplate AFTER real content survives in the abstract — the strip
+		// drops the block but keeps everything before it, so a notice below
+		// the intro never displaces the intro.
+		const deep = ["Intro sentence here.", "", "Copyright notice appears only later in the body."].join("\n");
+		expect(firstSentenceSummary(deep)).toBe("Intro sentence here.");
+		// A page that is ONLY boilerplate still yields "" (no crash).
+		expect(firstSentenceSummary("Copyright © 2025 X. All rights reserved.")).toBe("");
+		// Weak words mid-sentence are PROSE, not notices (review finding 1):
+		// only `copyright`/`©`/`all rights reserved` match anywhere; the weak
+		// words (license/disclaimer/…) match at line start only.
+		expect(firstSentenceSummary("How to license your product for EU distribution. First decide the jurisdiction."))
+			.toBe("How to license your product for EU distribution.");
+		expect(firstSentenceSummary("# Note\n\nDisclaimer applies to beta builds only. The API is stable."))
+			.toBe("Note Disclaimer applies to beta builds only.");
+		expect(firstSentenceSummary("The function f(c) returns a value. Second sentence."))
+			.toBe("The function f(c) returns a value.");
+		// …but a line-START notice IS stripped even for the weak words.
+		expect(firstSentenceSummary("License: MIT\nEverything below is free to use. The library itself is small."))
+			.toBe("Everything below is free to use.");
+	});
+
 	test("renderCard emits summary frontmatter only when present", () => {
 		const withS = renderCard(rec({ summary: "Abstract." }), "2026-01-01", ["zettel", "gotcha"], [], "test", 1000);
 		expect(withS).toContain("summary: Abstract.");

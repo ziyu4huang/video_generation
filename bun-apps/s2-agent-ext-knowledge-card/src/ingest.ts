@@ -30,7 +30,7 @@
  *   sources: [<provenance>]
  *   source: workflow-jsonl          # source family
  *   source_id: <record.id>          # dedup key (== id; kept explicit for scanners)
- *   record_type: lever              # lever|avoid|pattern|gotcha|metric|false_positive
+ *   record_type: lever              # lever|avoid|pattern|gotcha|metric|false_positive|experience|event|case|preference|reference
  *   status: active                  # active|superseded|retired
  *   superseded_by: <id|null>
  *   confidence: 0.93

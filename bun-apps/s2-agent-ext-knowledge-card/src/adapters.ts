@@ -5,6 +5,7 @@ import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
 import type { ExtractedEntity } from "@repo/s2-agent-core-interface";
 import { normTag, slugify } from "./card-format.ts";
 import { extractFeatures } from "./card-render.ts";
+import { firstSentenceSummary } from "./extractor.ts";
 import type { KnowledgeRecord, SourceFamily } from "./types.ts";
 export function stripWikiLinkBrackets(content: string): string {
 	return content.replace(/\[\[([^\]]+)\]\]/g, (_full, inner: string) => {
@@ -447,12 +448,18 @@ const CAUTION_CALLOUTS = new Set([
  *
  *  Mapping (composes the same primitives as the other adapters):
  *    id          = `generic:<slug>`        (slug from H1 or filename)
- *    type        = callout-inferred (caution→avoid) else `pattern`
+ *    type        = callout-inferred (caution→avoid) else `reference` (#2056 —
+ *                  plain prose is NOT a pattern; keeps the `pattern` tag's
+ *                  IDF cross-linking meaningful)
  *    title       = first `# H1`, else filename sans extension (cleaned, ≤120 chars)
  *    detail      = body after frontmatter, `[[wiki-link]]` brackets normalized
  *    tags        = frontmatter `tags` ∪ body `#hashtags` ∪ `[[wikilinks]]` ∪ distinctive H1 tokens
  *    dimension   = frontmatter `type`/`category`/`dimension` (first present), else null
  *    confidence  = 0.7 (machine-adapted, unreviewed — below human-curated sources)
+ *    summary     = explicit deterministic L0 abstract from the boilerplate-stripped
+ *                  body (#2056 — explicit > on-disk, so re-ingest converges
+ *                  cards written by the pre-#2056 adapter)
+ *    evidence    = created from frontmatter, else source-file mtime (UTC date)
  *
  *  Returns null ONLY for a file with no title-able content AND no body (truly
  *  empty / whitespace). A frontmatter-less file with any prose still yields a
@@ -527,9 +534,14 @@ export function adaptGenericMarkdown(
 	}
 	const tags = [...tagSet].slice(0, 10);
 
-	// 5. Type: infer from callouts (caution → avoid), else pattern.
+	// 5. Type: infer from callouts (caution → avoid), else `reference` (#2056
+	//    symptom 2). Plain prose pages are NOT patterns — stamping every
+	//    frontmatter-less page `pattern` (839 file2md cards did) pollutes the
+	//    `pattern` tag's IDF cross-linking (P8 demotes a tag on everything).
+	//    `reference` is the neutral prose-page type; a cautionary callout is
+	//    still the one deterministic avoid-signal.
 	const feats = extractFeatures(detail);
-	const type = feats.calloutTypes.some((c) => CAUTION_CALLOUTS.has(c)) ? "avoid" : "pattern";
+	const type = feats.calloutTypes.some((c) => CAUTION_CALLOUTS.has(c)) ? "avoid" : "reference";
 
 	// 6. Dimension: frontmatter type/category/dimension (first present), else null.
 	const dimensionRaw = data.type ?? data.category ?? data.dimension;
@@ -538,11 +550,34 @@ export function adaptGenericMarkdown(
 			? normTag(dimensionRaw)
 			: null;
 
-	// 7. Provenance: created date from frontmatter (created/date), else undefined.
-	const created = extractDate(
+	// 7. Provenance: created date from frontmatter (created/date); fallback =
+	//    the source file's mtime (#2056 symptom 1 — frontmatter-less pages
+	//    otherwise stamp `created: 1970-01-01` downstream). statSync is wrapped:
+	//    a non-existent path (unit tests pass fake paths) keeps `undefined`.
+	//    mtime is formatted in UTC (toISOString) — matches the ingest path's
+	//    UTC "today" stamps, and keeps the date TZ-independent (review finding 2).
+	let created = extractDate(
 		typeof data.created === "string" ? data.created : undefined,
 		typeof data.date === "string" ? data.date : undefined,
 	);
+	if (!created) {
+		try {
+			created = statSync(filePath).mtime.toISOString().slice(0, 10);
+		} catch {
+			// no file behind the path (test fixtures) — leave undefined
+		}
+	}
+
+	// 8. Explicit summary (#2056 symptom 3): the adapter states its own L0
+	//    abstract from the boilerplate-stripped body. This is REQUIRED for
+	//    re-ingest convergence, not just first ingest: ingest's summary
+	//    precedence is explicit rec.summary > the EXISTING card's on-disk
+	//    summary > deterministic derivation — an adapter that left summary
+	//    unset would preserve the polluted on-disk abstracts forever. The
+	//    deterministic sentence therefore both anchors new cards and
+	//    converges old ones. Trade-off: generic records never take the
+	//    opt-in LLM-condense path (explicit summary always present).
+	const summary = firstSentenceSummary(detail || title) || undefined;
 
 	return {
 		id: `generic:${slugify(titleSlugSrc)}`,
@@ -554,6 +589,7 @@ export function adaptGenericMarkdown(
 		confidence: 0.7,
 		status: "active",
 		superseded_by: null,
+		summary,
 		evidence: created ? { first_seen: created, last_seen: created } : undefined,
 	};
 }
