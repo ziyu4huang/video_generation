@@ -130,6 +130,9 @@ Two name inventories, then a three-way comparison:
 - **F2 (deferred)**: fold `DIRECTORY_DOMINANCE_RATIO` /
   `GLOBAL_SEARCH_TOPK` / RetrieverMode into the resource-tier D9 re-judgment
   ticket whenever the multi-directory corpus lands — they only become
-  meaningful there.
+  meaningful there. **[ADJUDICATED 2026-08-26 — all three KEEP-UNPORTED with
+  per-knob evidence; see `.planning/2026-08-26-kcard-multidir-rejudge/`
+  ticket 03 (D9 re-judgment ran on usb4-family and the recursive lane lost
+  at every α — map D4 there).]**
 
 No renames, no code changes, no new efforts required by this audit.

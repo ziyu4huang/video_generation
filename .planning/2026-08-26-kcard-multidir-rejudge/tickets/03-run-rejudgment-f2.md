@@ -145,3 +145,34 @@ re-verification and corrected in this record:
    (`"pages"` for every file) — caveat amended; fix filed as an issue.
 
 The three KEEP-UNPORTED knob verdicts were checked and stand unchanged.
+
+## Second measurement (2026-08-26 parallel session — fixed baseline, full index; reconciles #2064)
+
+A parallel session in the `video_generation__subagent` worktree ran the same
+4-arm eval AFTER the docSlug fix and on the complete 1433-row index — its
+receipts supersede the generic-arm and index-dependent cells above (this
+record's run raced the tier-sidecar writes: 1431 vs 1433 rows, and its
+generic arms still carried the id collision):
+
+- Receipts: `output/resource-eval/receipt-2026-08-26T13-16-57-978Z.json`
+  (main 4-arm × 2, byte-identical runs), `…13-19-40-711Z` (α=0.3),
+  `…13-20-15-545Z` (α=0.7), `ablation-flat-l2only-2026-08-26.json`
+  (L2-filtered flat). Numbers recorded here (the receipts are scratch):
+- **Generic arms now VALID** (leaves=1263, ids namespaced by doc dir):
+  generic-hier 17/26·0.449 (dir-split 12/16·0.449 — best of any arm),
+  generic-flat-vector 15/26·0.406. The 0/16 above was indeed the collision
+  artifact; the card lane is genuinely strong on multi-dir.
+- **Recursive vs flat unchanged in direction**: recursive 10/26·0.215 vs
+  flat 14/26·0.394 (this record's 11/26·0.253 reflects the 2-row index
+  race); dir-split 7/16·0.234 vs 9/16·0.400; α=0.5 = 10/26 here vs 11/26
+  above (same race). α=0.3 (13/26·0.278) and α=0.7 (11/26·0.251) reproduce
+  EXACTLY across both runs — the verdict is race-invariant.
+- **#2064 part 1 (docSlug)**: fixed in the reconciling PR (namespace by the
+  path minus its trailing `pages` segment; immediate-parent namespacing is
+  a no-op). Part 2 (crowding): the L2-FILTERED flat run this record asked
+  for measured 15/26·0.401 vs 14/26·0.394 all-rows — tier rows cost the
+  flat lane ~1 slot; crowding is real but small. Both parts discharged.
+- That session's own reviewer pass confirmed its receipts raw; its three
+  corrections (citation of the console-only `reproduction` block; the
+  α=0.3 dir-class hit@5 TIE at 9/16; persisting the ablation) are folded
+  into the numbers above.
