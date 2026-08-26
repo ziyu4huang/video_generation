@@ -12,6 +12,9 @@
  *   bin/bun       the shipped bun runtime, hardlinked from
  *                 <outRoot>/.buns/<hash> (ticket 02) — the launcher execs it
  *   s2-agent.sh   the launcher (execs bin/bun on s2-agent.js)
+ *   s2-agent.ps1  the Windows launcher twin (crossos-deploy ticket 04),
+ *                 plus s2-agent.cmd — the cmd.exe/double-click shim that
+ *                 exec's the .ps1 with -ExecutionPolicy Bypass
  *   deploy.json   provenance
  *   package.json  deploy version — pi reads its version from beside the core
  *   ext/<name>/   independently built extension packages
@@ -282,6 +285,87 @@ export PATH="\$(cd "\$(dirname "\$_bun")" && pwd):\$PATH"
 exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" "\$@"
 `;
 
+/**
+ * The Windows launcher, as `s2-agent.ps1` (crossos-deploy ticket 04): the
+ * PowerShell twin of S2_AGENT_SH — SAME contract, native spellings. The
+ * dashed agent-dir env var that forced `env(1)` in bash is native here
+ * ([Environment]::SetEnvironmentVariable accepts any name); PATH prepends
+ * with `;` on Windows; the Chrome probe walks the Windows install paths
+ * (Edge ships with every Win10+). Execution-policy friction is absorbed by
+ * the .cmd shim below, which launches this file with -ExecutionPolicy
+ * Bypass — the .ps1 itself needs no policy change. PLATFORM CONTRACT is
+ * identical to the .sh: the core bundle is platform-neutral, bin/bun.exe
+ * is this platform's; S2_AGENT_BUN still overrides (swap escape hatch).
+ * Measured friction on a real Windows box: DEFERRED (ticket 04 records the
+ * blocker — no Windows host in this effort yet; CI has no windows runner
+ * precedent as of 2026-08-27).
+ */
+const S2_AGENT_PS1 = `# s2-agent.ps1 - launcher for a s2-agent-sh deploy (Windows).
+# PowerShell twin of s2-agent.sh: same contract - exec the SHIPPED bun
+# (./bin/bun.exe) on the platform-neutral core bundle, prepend the resolved
+# bun's dir to PATH so session-spawned children resolve the SAME bun, set
+# the dashed agent-dir env var natively, and probe system Chrome/Edge for
+# the (optional, hyperframes) puppeteer channel. No browser is bundled -
+# no candidate found -> the var stays unset -> puppeteer fails with its
+# own clear launch error.
+# ASCII-only by design: powershell.exe 5.1 reads a BOM-less .ps1 as ANSI,
+# so non-ASCII comment characters would mojibake (harmless in a comment,
+# but pointless risk).
+$ErrorActionPreference = "Stop"
+$dir = $PSScriptRoot
+$_pf86 = [Environment]::GetEnvironmentVariable("ProgramFiles(x86)")
+
+# Per-user state mirrors the .sh: the operator-facing input stays
+# PI_CODING_AGENT_DIR; the binary's own dashed var (derived from
+# piConfig.name, hyphens legal in env names but not as a bash export -
+# native in PowerShell) is set per-process.
+$_agent_dir = if ($env:PI_CODING_AGENT_DIR) { $env:PI_CODING_AGENT_DIR } else { Join-Path $HOME ".pi\\agent" }
+[Environment]::SetEnvironmentVariable("${AGENT_DIR_ENV}", $_agent_dir, "Process")
+
+# The deploy tree is read-only; keep every per-user write under ~\\.pi\\agent.
+if ($null -eq $env:JITI_FS_CACHE) { $env:JITI_FS_CACHE = "0" }
+
+if (-not $env:PUPPETEER_EXECUTABLE_PATH) {
+  # ProgramFiles(x86) is null on 32-bit Windows - Join-Path $null throws,
+  # so each 32-bit-path candidate is guarded and yields $null instead.
+  foreach ($_chrome in @(
+    (Join-Path $env:LOCALAPPDATA "Google\\Chrome\\Application\\chrome.exe"),
+    (Join-Path $env:ProgramFiles   "Google\\Chrome\\Application\\chrome.exe"),
+    $(if ($_pf86) { Join-Path $_pf86 "Google\\Chrome\\Application\\chrome.exe" }),
+    (Join-Path $env:ProgramFiles   "Microsoft\\Edge\\Application\\msedge.exe"),
+    $(if ($_pf86) { Join-Path $_pf86 "Microsoft\\Edge\\Application\\msedge.exe" })
+  )) {
+    if ($_chrome -and (Test-Path $_chrome)) { $env:PUPPETEER_EXECUTABLE_PATH = $_chrome; break }
+  }
+}
+
+# Self-containment for CHILDREN: anything the session spawns later (agent
+# shells, tools that spawn "bun ...") resolves bun via PATH - prepend the
+# resolved bun's dir so they get the SAME bun, not a system one.
+$_bun = if ($env:S2_AGENT_BUN) { $env:S2_AGENT_BUN } else { Join-Path $dir "bin\\bun.exe" }
+if (-not (Test-Path $_bun)) { $_bun = Join-Path $dir "bin\\bun" } # pre-bun.exe tree shape
+$env:PATH = (Split-Path -Parent $_bun) + ";" + $env:PATH
+
+& $_bun (Join-Path $dir "${APP_NAME}.js") @args
+exit $LASTEXITCODE
+`;
+
+/**
+ * The cmd.exe / double-click entry shim, as `s2-agent.cmd`: delegates to
+ * the .ps1 through powershell.exe with -ExecutionPolicy Bypass, so the
+ * Windows default (Restricted) policy cannot block the deploy's own
+ * launcher and no one-time policy change is asked of the user. `%~dp0` is
+ * the shim's own dir (the version dir), trailing backslash included.
+ */
+const S2_AGENT_CMD = `@echo off
+rem s2-agent.cmd - entry shim for cmd.exe / double-click users; delegates
+rem to s2-agent.ps1 with -ExecutionPolicy Bypass so the default Windows
+rem execution policy (Restricted) cannot block the deploy's own launcher.
+rem ASCII-only, like the .ps1 (ANSI-read on BOM-less files).
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0${APP_NAME}.ps1" %*
+exit /b %ERRORLEVEL%
+`;
+
 
 
 interface ExtListPayload {
@@ -548,6 +632,13 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 
 		writeFileSync(join(stage, `${APP_NAME}.sh`), S2_AGENT_SH);
 		chmodSync(join(stage, `${APP_NAME}.sh`), 0o755);
+		// Windows launchers (crossos-deploy ticket 04): text artifacts, shipped
+		// in EVERY tree — a darwin/linux tree carrying them is inert weight,
+		// and it keeps the run.ts:236-238 swap escape hatch usable in both
+		// directions. No chmod equivalent: the .ps1 is exec'd via the .cmd
+		// shim's -ExecutionPolicy Bypass, never by a POSIX exec.
+		writeFileSync(join(stage, `${APP_NAME}.ps1`), S2_AGENT_PS1);
+		writeFileSync(join(stage, `${APP_NAME}.cmd`), S2_AGENT_CMD);
 		// pi resolves its version AND branding from <packageDir>/package.json,
 		// and in compiled-binary mode packageDir = dirname(execPath) = this
 		// version dir. Without this file VERSION falls back to "0.0.0", and

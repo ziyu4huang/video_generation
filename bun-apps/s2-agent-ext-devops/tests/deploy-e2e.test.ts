@@ -63,6 +63,21 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		const launcher = readFileSync(join(r.target, "s2-agent.sh"), "utf8");
 		expect(launcher).toContain('_bun="${S2_AGENT_BUN:-$SCRIPT_DIR/bin/bun}"');
 		expect(launcher).toContain('export PATH="$(cd "$(dirname "$_bun")" && pwd):$PATH"');
+		// Windows launchers (crossos-deploy ticket 04): every tree ships the
+		// .ps1 twin + .cmd shim. The .ps1 must honor the same contract as the
+		// .sh — S2_AGENT_BUN override, bun.exe resolution, PATH prepend for
+		// children, dashed agent-dir env var, args passthrough — and the .cmd
+		// must launch the .ps1 with -ExecutionPolicy Bypass so the default
+		// (Restricted) policy cannot block the deploy's own launcher.
+		const ps1 = readFileSync(join(r.target, "s2-agent.ps1"), "utf8");
+		expect(ps1).toContain('[Environment]::SetEnvironmentVariable("S2-AGENT_CODING_AGENT_DIR"');
+		expect(ps1).toContain('$_bun = if ($env:S2_AGENT_BUN) { $env:S2_AGENT_BUN } else { Join-Path $dir "bin\\bun.exe" }');
+		expect(ps1).toContain('$env:PATH = (Split-Path -Parent $_bun) + ";" + $env:PATH');
+		expect(ps1).toContain('& $_bun (Join-Path $dir "s2-agent.js") @args');
+		expect(ps1).toContain("exit $LASTEXITCODE");
+		const cmd = readFileSync(join(r.target, "s2-agent.cmd"), "utf8");
+		expect(cmd).toContain('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0s2-agent.ps1" %*');
+		expect(cmd).toContain("exit /b %ERRORLEVEL%");
 		const shippedBun = join(r.target, "bin", "bun");
 		expect(existsSync(shippedBun)).toBe(true);
 		expect(statSync(shippedBun).mode & 0o111).not.toBe(0); // executable
