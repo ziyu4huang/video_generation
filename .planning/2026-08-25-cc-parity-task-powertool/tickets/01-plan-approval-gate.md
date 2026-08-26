@@ -1,6 +1,6 @@
 # Ticket 01 — Plan approval gate (ExitPlanMode-shaped)
 
-Status: pending
+Status: closed (2026-08-27; PR pending at write time — receipt below)
 
 ## Why
 
@@ -46,3 +46,39 @@ envelope (child→parent, different surface).
       divergence in spec.md §2 with the seam investigation noted.
 - [ ] Canonical gates green; spec.md §1 plan-mode row updated; PR merged
       CLEAN via the devops chain.
+
+## Receipt (2026-08-27)
+
+- **`plan/approval.ts`** — pure, pi-import-free approval state machine:
+  contract fingerprint = phase `id|title|stepCount` (progress NEVER
+  invalidates; structure does); `planApprovalNeeded` / `shouldPromptForApproval`
+  (once-per-contract-version prompt dedupe) / `recordPlanDecision`; per-cwd
+  records; `__resetPlanApproval` test seam.
+- **Gates**: `planningGateBlocking` (goal/internals.ts) now blocks
+  unapproved-incomplete FIRST ("not approved yet — /goal approve"), falling
+  through to the pre-existing incomplete-phases reason once approved — the
+  negative gate extended, not duplicated. Read-only planning wired on the
+  tool_call seam (hooks.ts): `write`/`edit` blocked while a goal is active
+  against an unapproved plan — the same seam the stale-goal blocker uses, so
+  scope item 4 is WIRED, not a divergence. bash stays allowed (toolName-only
+  seam, no args to inspect) — recorded in spec §2.
+- **Entry points**: `/goal` start + `/goal resume` prompt via
+  `ctx.ui.confirm` (lifecycle.ts); new `/goal approve` subcommand — explicit,
+  bypasses the automatic prompt dedupe (smoke-found regression: a denied
+  contract must re-prompt on the explicit command; unit-pinned).
+  Re-approval on contract change: agent_end turn-boundary re-prompt, once per
+  edited contract version, never per turn.
+- **Auditor grant**: `AUDITOR_TOOLS = ["read","grep","find","ls"]` exported,
+  `bash` removed from the session factory, the prompt line, AND the
+  must-call-read-tool floor; test-pinned in auditor.test.ts.
+- **Smoke receipt** (manual, real state machine in one process, human answers
+  piped): /goal start → deny → goal_complete rejected "not approved" →
+  /goal approve → approve → goal_complete rejected "incomplete phases" →
+  plan completed + refreshPlan → goal_complete accepted (terminate:true).
+  Interactive TUI dialog rendering itself not smoked (same `ctx.ui.confirm`
+  surface the startGoal replace-dialog and Reviewer proposals already render
+  in the TUI); gap noted, not blocking.
+- **Tests**: approval.test.ts (state machine, 10 cases), goal.test.ts
+  (approval-first gate reasons, goal_complete deny→approve ladder, read-only
+  tool_call block/release, /goal approve deny-reprompt regression), commands
+  + auditor pins. ext-task 913 pass / 0 fail; tsc --noEmit clean.

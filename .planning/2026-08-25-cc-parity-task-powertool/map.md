@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-25-cc-parity-task-powertool
 created: 2026-08-25
-last: 2026-08-25
+last: 2026-08-27 (ticket 01 closed — plan approval gate shipped)
 status: active
 ---
 
@@ -84,7 +84,7 @@ quota-retry, pathology engine, browser token economy) stay.
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-plan-approval-gate.md` | pending | ExitPlanMode-shaped approval surface on the plan coordinator: plan content shown → user approval gates implementation; read-only enforcement during planning; drop `bash` from the auditor's read-only grant |
+| `tickets/01-plan-approval-gate.md` | closed | ExitPlanMode-shaped approval surface on the plan coordinator: plan content shown → user approval gates implementation; read-only enforcement during planning; drop `bash` from the auditor's read-only grant |
 | `tickets/02-task-family-convergence.md` | pending | ONE model-visible task family with CC semantics — converge `todo` (split into four CC-shaped tools or converge on TeamTaskStore); effective-blocked deps, symmetric addBlocks/removeBlocks, workflow-discipline description text, isError error envelopes |
 | `tickets/03-loop-consolidation.md` | pending | Retire ext-task LoopScheduler into ultracode's WakeupRegistry (the CC-faithful core), porting idle-postpone + restart-restore; ext-task keeps only the composite-widget section + `/loop` redirect |
 | `tickets/04-pathology-model-visible.md` | pending | Opt-in (env-gated) once-per-episode turn-boundary injection so the model can learn it is looping; warning count refresh per evaluation; per-session status key |
@@ -138,11 +138,13 @@ quota-retry, pathology engine, browser token economy) stay.
 
 ## Frontier
 
-Ticket 01 (plan approval gate) — the biggest CC gap with no blocker: the
-coordinator, gate hooks, and `ctx.ui.confirm` infrastructure all exist
-(hooks.ts already blocks stale-goal tool calls on `before_agent_start`);
-tickets 02+ are independent of it. Hard edge 06→07 sits later in the order
-and needs nothing from Phase 1.
+Ticket 02 (task-family convergence) — ticket 01 closed 2026-08-27 (plan
+approval gate: contract-fingerprinted approval state machine, /goal approve,
+read-only write/edit on the tool_call seam, auditor bash grant dropped;
+913 pass / tsc clean / manual smoke receipt in the ticket). 02 is the next
+CC-parity impact item: ONE model-visible task family (D4), flat-root
+constraint preserved (spec §2). Hard edge 06→07 sits later and needs nothing
+from Phase 1.
 
 ## Fog of war
 

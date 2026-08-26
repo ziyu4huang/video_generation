@@ -244,3 +244,17 @@ describe("CC surface parity", () => {
 		expect(validateObjective("x".repeat(4000))).toBeUndefined();
 	});
 });
+
+// ─── Plan approval (ticket 01: /goal approve) ────────────────────────────────
+
+describe("plan approval command parsing (ticket 01)", () => {
+	test("approve parses bare; trailing args are a usage error", () => {
+		expect(parseCommand("approve")).toEqual({ kind: "approve" });
+		expect(typeof parseCommand("approve now")).toBe("string");
+		expect(parseCommand("approve now")).toMatch(/Usage: \/goal approve/);
+	});
+	test("approve appears in argument completions", () => {
+		const completions = completeGoalArguments("") ?? [];
+		expect(completions.some((c) => c.value === "approve")).toBe(true);
+	});
+});
