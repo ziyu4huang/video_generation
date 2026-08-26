@@ -212,14 +212,18 @@ export const MERGE_STATE_POLL_DELAY_MS = 3000;
 type PrStatusSnapshot = Awaited<ReturnType<GhClient["prStatus"]>>;
 
 /**
- * Read `prStatus` until `mergeState` is something other than UNKNOWN.
+ * Read `prStatus` until `mergeState` is something other than UNKNOWN — or the
+ * PR leaves OPEN, whichever comes first.
  *
  * UNKNOWN is not a verdict — it is GitHub saying it has not finished computing
  * mergeability yet (it recomputes on every push to the PR and on every push to
  * its base). Treating it as "not mergeable" turned a routine merge into a
  * manual poll-and-retry loop, at the cost of a full run_local_ci re-run each time.
  * Anything else — CLEAN, BEHIND, DIRTY, BLOCKED — is a real answer and returns
- * immediately, so the common path costs exactly one `gh pr view`.
+ * immediately, so the common path costs exactly one `gh pr view`. A
+ * terminal-state PR (MERGED/CLOSED) NEVER settles — GitHub stops computing
+ * mergeability once a PR leaves OPEN — so an UNKNOWN read on one is returned
+ * immediately rather than polled (#2077).
  */
 /**
  * Pure decision for the version-bump advisory: warn iff the merge touched
@@ -594,6 +598,12 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		warnings.push(
 			`PR #${pr} is already MERGED — the merge landed in a prior invocation; this run verifies + cleans up instead of merging.`,
 		);
+		// The default-branch worktree is just as behind as after a fresh merge
+		// (the prior invocation advanced the base) — the operator needs the
+		// same catch-up nudge the post-merge path gives.
+		warnings.push(
+			`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
+		);
 	} else {
 		if (status.state !== "OPEN") {
 			return abort("not-open", `PR #${pr} state is ${status.state}, expected OPEN`);
@@ -772,10 +782,24 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		}
 	}
 
+	// #2077 residual seam, one layer down: verify's OWN prStatus read can fail
+	// (network), and runVerifyMerge then returns merged:false / NOT-MERGED —
+	// the very misreport this fix kills. The gate-stage read already
+	// established MERGED, so on that path report UNVERIFIED instead.
+	// Branch deletion stays safe: it is gated on verify.branchSpent, which is
+	// false in the aborted outcome.
+	const mergedFinal = alreadyMerged && !verify.merged;
+	const verdictFinal: VerifyMergeOutcome["verdict"] = mergedFinal ? "UNVERIFIED" : verify.verdict;
+	if (mergedFinal) {
+		warnings.push(
+			`PR #${pr} read MERGED at the gate stage but verify_merge_landed could not confirm (${verify.verdict}${verify.aborted ? `, ${verify.aborted.reason}` : ""}) — reporting UNVERIFIED, not NOT-MERGED.`,
+		);
+	}
+
 	const outcome: PrFinishOutcome = {
 		pr,
-		merged: verify.merged,
-		verdict: verify.verdict,
+		merged: mergedFinal || verify.merged,
+		verdict: verdictFinal,
 		branchSpent: verify.branchSpent,
 		commands,
 		warnings,
