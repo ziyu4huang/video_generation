@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-26-s2agent-crossos-deploy
 created: 2026-08-26
-last: 2026-08-26 (tickets 01+02 closed — matrix + ext policy decided; frontier = 03 + parallelizable 07)
+last: 2026-08-27 (tickets 01+02+03 closed — topology + acquisition decided; frontier = 04/05 parallel + 07)
 status: active
 ---
 
@@ -62,9 +62,9 @@ tickets; sibling effort merge-base `a57b6d38`):
 - [02] Per-platform bun acquisition channel — closed 2026-08-26 (research, pre-fired at chart time; answer in ticket)
 
 ### Phase 2 — launcher + tree layout (the build work)
-- [03] Packaging topology — open (grilling; blocked by 01)
-- [04] PowerShell launcher `s2-agent.ps1` (+ entry shim) — open (prototype; blocked by 03)
-- [05] Windows tree-layout compat (PATH/env/junction/exec-perms) — open (task; blocked by 03)
+- [03] Packaging topology — closed 2026-08-27 (per-target subroots `<outRoot>/<target>/<version>/` + per-target `current`, `--target` flag default host; bun via GitHub release + SHASUMS256 — D6/D7)
+- [04] PowerShell launcher `s2-agent.ps1` (+ entry shim) — open (prototype; unblocked by 03)
+- [05] Windows tree-layout compat (PATH/env/junction/exec-perms) — open (task; unblocked by 03)
 
 ### Phase 3 — verification + simplification fold-in
 - [06] Cross-OS verification strategy (E2E on mac host vs CI runners) — open (grilling; blocked by 03)
@@ -91,15 +91,28 @@ tickets; sibling effort merge-base `a57b6d38`):
 - **D5 — Per-platform ext filtering** (user, 2026-08-26, ticket 01):
   non-darwin trees drop darwin-by-nature exts; registry gains a platform
   dimension; Gate 3 verifies per-tree expected counts.
+- **D6 — Per-target subroots** (user, 2026-08-27, ticket 03): one deploy
+  invocation → one complete immutable tree per `<outRoot>/<target>/<version>/`
+  with a per-target `current`; caches (`.cores`/`.buns`) stay shared at the
+  outRoot top level. Rejected: suffix version dirs (same semantics, larger
+  change surface) and canonical-tree+swap (cannot express D5, no gate
+  protection — swap stays an emergency escape hatch only).
+- **D7 — Bun acquisition via GitHub release** (user, 2026-08-27, ticket 03,
+  closes 02's ride-along): tag `bun-v<Bun.version>` per-target artifacts +
+  official SHASUMS256, landing in `.buns/<hash>` under the same
+  parameterized hash (`computeBunHash`). Build-side only (D3). npm `@oven/*`
+  extraction rejected: depends on wrapper-internal tarball layout.
 
 ## Frontier
 
-**Ticket 03 (packaging topology)** — now unblocked by 01's matrix; its
-output (tree-per-platform vs swap-on-relocate, plus the bun acquisition
-channel pick) gates the two build tickets (04 launcher, 05 layout) and the
-verification ticket (06). **Ticket 07 (dead `--compile` cleanup)** is also
-unblocked and parallelizable — it is pure AFK deletion work with no
-dependency on the topology outcome.
+**Tickets 04 + 05 (now unblocked by 03's D6/D7)** — the two build tickets
+are parallelizable: 04 (PowerShell launcher prototype — bash launcher
+contract translated to `s2-agent.ps1` + entry shim, `bin/bun`-vs-`bun.exe`
+naming from D7's Windows artifact) and 05 (Windows tree-layout compat —
+PATH/env/junction/exec-perms, vendor-closure `--target` pass-through, and
+the `ensureCachedBun` foreign-binary entry point D7 names). **Ticket 07
+(dead `--compile` cleanup)** remains parallelizable AFK work. Ticket 06
+(verification strategy) sharpens after 04/05 land shapes.
 
 ## Fog of war
 
