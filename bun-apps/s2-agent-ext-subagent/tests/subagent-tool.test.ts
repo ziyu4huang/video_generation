@@ -164,6 +164,13 @@ test("execute on timeout surfaces 'timed out', partial output, and status timedo
   assert.match(text, /partial/);
   assert.equal(res.details.status, "timedout");
 });
+// ── whole-turn Esc (#2067) — covered by the flipped "whole-turn abort" test above ──
+test("a genuine timeout (no abort lever fired) still settles `timedout` (#2067 guard)", async () => {
+  const f = fakeSpawn(() => timedout("timed out"));
+  const tool = createSubagentTool({ spawn: f.spawn });
+  const res = await tool.execute("id", { task: "t" }, NO_SIGNAL, undefined, NO_CTX);
+  assert.equal(res.details.status, "timedout", "the #2067 routing must not swallow real timeouts");
+});
 test("formatSubagentResult success returns output verbatim", () => {
   assert.equal(formatSubagentResult(ok("ok")), "ok");
 });
@@ -273,7 +280,14 @@ test("user per-child abort (registry.abort) → status 'aborted' + 'Subagent abo
   assert.equal(parent.signal.aborted, false, "the parent turn is NOT aborted (per-child isolation)");
 });
 
-test("whole-turn abort (parent signal) → status 'timedout', NOT 'aborted' (unchanged)", async () => {
+test("whole-turn abort (parent signal) → status 'aborted', NOT 'timedout' (#2067; supersedes the pre-#2027 pin)", async () => {
+  // This test previously pinned `timedout` as the deliberate "unchanged"
+  // semantics — written BEFORE #2027's settle correction, whose stated intent
+  // ("Esc'd run → aborted, was misread timedout") this seam never received:
+  // dispatchChild settled `aborted` but buildDetails re-derived from the
+  // abort-shaped failure kind, so the inline row + durable record misbadged
+  // ⏱ timedout (deployed-TUI receipts: settles at 0.2s child-age against a
+  // 15-min DEFAULT_TIMEOUT_MS). Flipped with the #2067 fix.
   const reg = new SubagentInFlightRegistry();
   const f = spawnOnAbort();
   const tool = createSubagentTool({ spawn: f.spawn, inFlight: reg });
@@ -282,7 +296,7 @@ test("whole-turn abort (parent signal) → status 'timedout', NOT 'aborted' (unc
   await Promise.resolve();
   parent.abort(); // whole-turn Esc
   const res = await p;
-  assert.equal(res.details.status, "timedout", "whole-turn abort keeps the existing timedout status");
+  assert.equal(res.details.status, "aborted", "an Esc'd run settles aborted (both abort levers, one surface)");
 });
 
 test("a timeout (no controller abort) → status 'timedout', NOT 'aborted'", async () => {
