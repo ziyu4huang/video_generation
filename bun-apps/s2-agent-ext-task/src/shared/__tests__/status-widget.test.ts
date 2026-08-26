@@ -7,11 +7,28 @@
  */
 import { test, expect, describe } from "bun:test";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { __resetTeamTaskStoreForTests, getTeamTaskStore } from "@repo/s2-agent-core-runtime";
 import { CoreTaskStatusWidget, getSharedStatusWidget } from "../status-widget.ts";
 import { GoalOverlay } from "../../goal/overlay.ts";
 import { TodoOverlay } from "../../todo/overlay.ts";
-import { replaceState } from "../../todo/state/store.ts";
 import type { ActiveGoal } from "../../goal/format.ts";
+
+/** Seed the shared board the TodoOverlay renders (t02/D7: the overlay reads
+ *  the TeamTaskStore singleton through board-view, so golden tests seed the
+ *  same store the task tools mutate). */
+function seedBoard(
+	tasks: Array<{ id?: number; subject: string; status?: string; activeForm?: string; blockedBy?: number[] }>,
+) {
+	__resetTeamTaskStoreForTests();
+	const store = getTeamTaskStore();
+	for (const t of tasks) {
+		const created = store.create("*", { subject: t.subject, activeForm: t.activeForm });
+		if (typeof created === "object" && "id" in created) {
+			if (t.status) store.update("*", created.id, { status: t.status as "pending" | "in_progress" | "completed" });
+		}
+	}
+	return store;
+}
 
 // Plain theme: any method returns its last string arg, so output is uncolored,
 // readable, and deterministic (fg/strikethrough/bold all collapse to raw text).
@@ -170,20 +187,13 @@ describe("GoalOverlay.render", () => {
 
 describe("TodoOverlay.render", () => {
 	test("empty list renders nothing", () => {
-		replaceState({ tasks: [], nextId: 1 });
+		seedBoard([]);
 		const o = new TodoOverlay();
 		expect(o.render(plainTheme, 80)).toEqual([]);
 	});
 
 	test("non-empty list: heading + one line per visible task", () => {
-		replaceState({
-			tasks: [
-				{ id: 1, subject: "composite widget", status: "completed" },
-				{ id: 2, subject: "refactor overlays", status: "in_progress" },
-				{ id: 3, subject: "write tests", status: "pending" },
-			],
-			nextId: 4,
-		});
+		seedBoard([{ id: 1, subject: "composite widget", status: "completed" }, { id: 2, subject: "refactor overlays", status: "in_progress" }, { id: 3, subject: "write tests", status: "pending" }]);
 		const o = new TodoOverlay();
 		const lines = o.render(plainTheme, 200); // wide → no truncation
 		expect(lines[0]).toContain("Todos (1/3)"); // 1 completed / 3 total
@@ -199,10 +209,7 @@ describe("TodoOverlay.render", () => {
 
 describe("composite + real overlays", () => {
 	test("goal renders above todo, separated by a blank line", () => {
-		replaceState({
-			tasks: [{ id: 1, subject: "task one", status: "pending" }],
-			nextId: 2,
-		});
+		seedBoard([{ id: 1, subject: "task one", status: "pending" }]);
 		const goal = new GoalOverlay();
 		const todo = new TodoOverlay();
 		const w = new CoreTaskStatusWidget();
@@ -266,14 +273,7 @@ describe("CoreTaskStatusWidget order field", () => {
 
 describe("TodoOverlay heading count includes hidden completed tasks", () => {
 	test("heading shows REAL progress (completed/total) even when completed tasks are hidden", () => {
-		replaceState({
-			tasks: [
-				{ id: 1, subject: "task A", status: "pending" },
-				{ id: 2, subject: "task B", status: "pending" },
-				{ id: 3, subject: "task C", status: "completed" },
-			],
-			nextId: 4,
-		});
+		seedBoard([{ id: 1, subject: "task A", status: "pending" }, { id: 2, subject: "task B", status: "pending" }, { id: 3, subject: "task C", status: "completed" }]);
 		const o = new TodoOverlay();
 		// First render: completed task #3 is displayed and staged in pendingHide
 		o.render(plainTheme, 200);
@@ -296,13 +296,7 @@ describe("TodoOverlay heading count includes hidden completed tasks", () => {
 
 describe("TodoOverlay.inspect", () => {
 	test("exposes hidden completed + full task list", () => {
-		replaceState({
-			tasks: [
-				{ id: 1, subject: "visible task", status: "pending" },
-				{ id: 2, subject: "hidden task", status: "completed" },
-			],
-			nextId: 3,
-		});
+		seedBoard([{ id: 1, subject: "visible task", status: "pending" }, { id: 2, subject: "hidden task", status: "completed" }]);
 		const o = new TodoOverlay();
 		o.render(plainTheme, 200); // stage #2 in pendingHide
 		o.hideCompletedTasksFromPreviousTurn(); // move #2 to hidden

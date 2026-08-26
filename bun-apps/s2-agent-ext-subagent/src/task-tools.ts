@@ -1,14 +1,17 @@
 /**
- * `task_create` / `task_get` / `task_list` / `task_update` — the shared team
- * task board (agent-teams parity ticket 03, effort
- * `.planning/2026-08-22-subagent-teams-parity`).
+ * `task_create` / `task_get` / `task_list` / `task_update` — the ONE
+ * model-visible task family (cc-parity-task-powertool ticket 02, decision D7:
+ * the TeamTaskStore board won; ext-task's `todo` mega-tool retired to a TUI
+ * face). CC vocabulary by design — TaskCreate/TaskGet/TaskList/TaskUpdate —
+ * and core-visible in EVERY session shape (plain + workflow), mirroring CC's
+ * always-present task tools.
  *
  * Thin adapters, nothing more: every rule (id allocation, edge symmetry, cycle
  * rejection, owner validation, board lifecycle) lives in core-runtime's
  * TeamTaskStore; these tools only shape schemas and render results. The board
- * is session-scoped and in-memory — deliberately NOT ext-task's todo tracker
- * (that is a single session's private scratchpad; this one is shared by the
- * parent, spawn children, and workflow agents through the ONE store singleton).
+ * is session-scoped and in-memory, and is shared by the parent, spawn
+ * children, and workflow agents through the ONE store singleton — CC shares
+ * its task list across agents the same way.
  *
  * The tools register in the parent and reach children through the existing
  * `extensionTools` bridges — zero dispatch-path changes (map D9). Read-only
@@ -17,6 +20,7 @@
  */
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
+  effectiveBlockedBy,
   getTeamTaskStore,
   isTeamTaskError,
   type TeamTask,
@@ -94,11 +98,21 @@ function textResult(text: string) {
   return { content: [{ type: "text" as const, text }], details: undefined };
 }
 
-/** One compact board line: `#2 [in_progress] owner=researcher — Add retry tests (blockedBy: 1)`. */
-function taskLine(t: TeamTask): string {
+/** Error results are flagged isError so the model sees a failed call, not a plain answer. */
+function errorResult(text: string) {
+  return { content: [{ type: "text" as const, text }], details: undefined, isError: true };
+}
+
+/**
+ * One compact board line: `#2 [in_progress] owner=researcher — Add retry tests (blockedBy: 1)`.
+ * blockedBy renders EFFECTIVE deps only (completed deps cleared — CC's
+ * blocked-until-resolved semantics); the raw edges stay visible in task_get.
+ */
+function taskLine(t: TeamTask, board: TeamTask[]): string {
   const owner = t.owner ? ` owner=${t.owner}` : "";
+  const effective = effectiveBlockedBy(board, t);
   const edges = [
-    ...(t.blockedBy.length ? [`blockedBy: ${t.blockedBy.join(",")}`] : []),
+    ...(effective.length ? [`blockedBy: ${effective.join(",")}`] : []),
     ...(t.blocks.length ? [`blocks: ${t.blocks.join(",")}`] : []),
   ];
   const edgeNote = edges.length ? ` (${edges.join("; ")})` : "";
@@ -131,14 +145,12 @@ export function createTaskTools(options: TaskToolsOptions = {}) {
     description: [
       "Add a task to this session's SHARED team task board.",
       "The board is visible to you, every live agent, and every workflow agent in this session — coordinate work through it instead of private notes.",
-      "Dependencies (blockedBy/blocks) are validated; cycles are rejected.",
+      "Dependencies (blockedBy/blocks) are validated; cycles are rejected; a completed dependency no longer blocks its dependents.",
+      "Workflow discipline: mark a task in_progress BEFORE starting work on it; mark it completed ONLY when fully done (never with failing tests); when blocked, keep it in_progress and create a NEW task describing the blocker.",
     ].join(" "),
-    promptSnippet:
-      "Coordinate multi-agent work on the shared board: task_create({ subject, blockedBy }) → task ids; agents claim with task_update({ id, owner: '<name>', status: 'in_progress' }).",
-    // Owner-declared gating — the workflow family (GATE_DEFS["workflow"]): the
-    // board exists for the exact sessions that can spawn/corordinate agents
-    // (same reference form as spawn_subagent / send_message).
-    gating: { gate: "workflow" },
+    // Stealth-trimmed (no per-turn promptSnippet) now that the family is
+    // core-visible in every session — the description routes the model.
+    gating: { core: true },
     parameters: taskCreateSchema,
     async execute(_toolCallId, params) {
       const created = store.create(getSessionId(), {
@@ -151,7 +163,7 @@ export function createTaskTools(options: TaskToolsOptions = {}) {
         blocks: params.blocks,
       });
       if (isTeamTaskError(created)) {
-        return textResult(errorText(created, `Board: ${boardSummary(store.list(getSessionId()))}`));
+        return errorResult(errorText(created, `Board: ${boardSummary(store.list(getSessionId()))}`));
       }
       return textResult(
         `Created task #${created.id} "${created.subject}". ${boardSummary(store.list(getSessionId()))}`,
@@ -163,12 +175,14 @@ export function createTaskTools(options: TaskToolsOptions = {}) {
     name: "task_get",
     label: "TaskGet",
     description: "Fetch one task from the shared team task board by id, with its full dependency edges and metadata.",
-    gating: { gate: "workflow" },
+    gating: { core: true },
     parameters: taskGetSchema,
     async execute(_toolCallId, params) {
       const task = store.get(getSessionId(), params.id);
       if (!task) {
-        return textResult(`No task #${params.id} on this session's board. ${boardSummary(store.list(getSessionId()))}`);
+        return errorResult(
+          `No task #${params.id} on this session's board. ${boardSummary(store.list(getSessionId()))}`,
+        );
       }
       return textResult(JSON.stringify(task, null, 2));
     },
@@ -177,8 +191,9 @@ export function createTaskTools(options: TaskToolsOptions = {}) {
   const taskList: ToolDefinition<typeof taskListSchema, undefined> = defineTool({
     name: "task_list",
     label: "TaskList",
-    description: "List the shared team task board (optionally filtered by status/owner) in creation order.",
-    gating: { gate: "workflow" },
+    description:
+      "List the shared team task board (optionally filtered by status/owner) in creation order. blockedBy edges render EFFECTIVE dependencies only — completed deps are cleared.",
+    gating: { core: true },
     parameters: taskListSchema,
     async execute(_toolCallId, params) {
       const all = store.list(getSessionId());
@@ -194,7 +209,7 @@ export function createTaskTools(options: TaskToolsOptions = {}) {
       return textResult(
         [
           `${boardSummary(filtered)}${all.length !== filtered.length ? ` (of ${all.length} total)` : ""}:`,
-          ...filtered.map(taskLine),
+          ...filtered.map((t) => taskLine(t, all)),
         ].join("\n"),
       );
     },
@@ -206,8 +221,9 @@ export function createTaskTools(options: TaskToolsOptions = {}) {
     description: [
       "Update a task on the shared team task board: claim it (owner), move its status, edit fields, or link/unlink dependencies.",
       "Dependency edits are cycle-checked and rejected atomically; clearing optionals uses null.",
+      "Discipline: in_progress BEFORE starting work; completed ONLY when fully done (never with failing tests); when blocked, stay in_progress and create a NEW task describing the blocker.",
     ].join(" "),
-    gating: { gate: "workflow" },
+    gating: { core: true },
     parameters: taskUpdateSchema,
     async execute(_toolCallId, params) {
       const updated = store.update(getSessionId(), params.id, {
@@ -223,9 +239,9 @@ export function createTaskTools(options: TaskToolsOptions = {}) {
         removeBlocks: params.removeBlocks,
       });
       if (isTeamTaskError(updated)) {
-        return textResult(errorText(updated, `Run task_list to see the board's current ids and edges.`));
+        return errorResult(errorText(updated, `Run task_list to see the board's current ids and edges.`));
       }
-      return textResult(`Updated ${taskLine(updated)}.`);
+      return textResult(`Updated ${taskLine(updated, store.list(getSessionId()))}.`);
     },
   });
 

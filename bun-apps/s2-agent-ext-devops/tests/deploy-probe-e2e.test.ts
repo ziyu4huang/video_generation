@@ -194,8 +194,13 @@ describeE2E("s2-agent-sh L1 — the deployed binary really runs its extensions",
 		// negative assertion pins the decouple: if webui ever ships again, this
 		// goes red and the expected-list above regains it.
 		expect(toolPath.get("webui"), "webui tool unexpectedly deployed").toBeUndefined();
-		for (const t of ["todo", "ask_user_question"]) {
+		// `todo` retired with its tool (cc-parity-task-powertool t02/D7) — the
+		// ONE task family (task_create/get/list/update) lives in ext-subagent.
+		for (const t of ["ask_user_question"]) {
 			expect(toolPath.get(t), `tool ${t} missing`).toBe("<inline:task>");
+		}
+		for (const t of ["task_create", "task_get", "task_list", "task_update"]) {
+			expect(toolPath.get(t), `tool ${t} missing`).toBe("<inline:subagent>");
 		}
 		// Commands are the ONLY load proof for a command-bearing extension: an
 		// extension can register commands and zero tools.

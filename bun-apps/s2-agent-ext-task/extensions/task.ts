@@ -32,16 +32,17 @@ import goal, { isGoalActive } from "../src/goal/goal.js";
 import { registerLoop, restoreLoopFromSession } from "../src/loop/loop.js";
 import { LoopOverlay } from "../src/loop/overlay.js";
 import { GoalOverlay } from "../src/goal/overlay.js";
-import { registerTodoTool, registerTodosCommand } from "../src/todo/todo";
+import { registerTodosCommand } from "../src/todo/todo";
 import { TodoOverlay } from "../src/todo/overlay";
-import { __resetState, replaceState, setRenderSid } from "../src/todo/state/store";
-import { EMPTY_STATE } from "../src/todo/state/state";
-import { TOOL_NAME } from "../src/todo/tool/types";
 import { getSharedStatusWidget } from "../src/shared/status-widget.js";
 import registerAskUser from "../src/ask-user";
 import { registerResponseLanguage } from "../src/response-language/response-language.js";
 import { registerAskUserLanguage } from "../src/response-language/ask-user-language.js";
 import { getPlanPhases, refreshPlan, shouldRefreshAfterTool } from "../src/plan/coordinator.js";
+
+/** ext-subagent's task tools (the ONE model-visible task family, t02/D7) — the
+ *  calls that may have mutated the shared board the todo section renders. */
+const TASK_TOOL_NAMES = new Set(["task_create", "task_get", "task_list", "task_update"]);
 
 const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// Self-gate: BUN_PI_TASK=0 disables the entire extension — it registers
@@ -78,8 +79,11 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	// ── /ask-user-language command (independent of responseLanguage; overrides it for ask_user_question) ──
 	registerAskUserLanguage(pi);
 
-	// ── Todo tool + /todos command ────────────────────────────────────────
-	registerTodoTool(pi);
+	// ── /todos command + todo widget section (TUI face of the shared board) ──
+	// The `todo` mega-tool is retired (cc-parity-task-powertool t02/D7): the
+	// ONE model-visible task family is ext-subagent's core-gated
+	// task_create/get/list/update over core-runtime's TeamTaskStore. This
+	// package only RENDERS that board.
 	registerTodosCommand(pi);
 
 	// ── Goal + Todo overlays → ONE composite below-editor widget ─────────────
@@ -114,16 +118,12 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	statusWidget.addSection(subagentsHandle.section);
 
 	pi.on("session_start", async (_event, ctx) => {
-		// Todos are SESSION-ONLY: never replayed from the session branch and
-		// never seeded from disk plans, so each session starts empty. Permanent
-		// task tracking lives in wayfind/superpowers plans & tickets — read
-		// those on demand; do not auto-load them into the session todo.
-		//
-		// Capture the parent/display session id so ctx-less display code
-		// (renderers/overlay/command — no sessionManager on ToolRenderContext)
-		// reads the parent's todos via the no-arg accessors' renderSid default.
-		setRenderSid((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId() ?? "");
-		replaceState(EMPTY_STATE);
+		// The shared task board is SESSION-ONLY: never replayed from the session
+		// branch and never seeded from disk plans, so each session starts empty
+		// (ext-subagent's session_start resets the TeamTaskStore — same
+		// contract the retired per-session todo buckets had). Permanent task
+		// tracking lives in wayfind/superpowers plans & tickets — read those on
+		// demand; do not auto-load them onto the board.
 		latestCwd = ctx.cwd;
 		refreshPlan(ctx.cwd); // parse + cache the active effort's plan (for the plan coordinator; NOT for todo seeding)
 		// Recover a persisted recurring loop (CC-style /loop) for this session.
@@ -150,11 +150,10 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		statusWidget.update();
 	});
 
-	pi.on("session_shutdown", async (_event, ctx) => {
-		// Drop this session's todo bucket so a later session reusing the process
-		// doesn't inherit stale parent todos. (Children key their own buckets;
-		// their own session_shutdown — if any — cleans those.)
-		__resetState((ctx as { sessionManager?: { getSessionId: () => string } }).sessionManager?.getSessionId());
+	pi.on("session_shutdown", async () => {
+		// The shared board's teardown lives with its owner (ext-subagent's
+		// session_shutdown drops the TeamTaskStore); here only the display
+		// state is disposed.
 		goalOverlay.dispose();
 		// The /loop scheduler is deliberately NOT stopped here: it is process-
 		// lifetime state with nothing per-session to clean (its timer dies with
@@ -167,7 +166,11 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 
 	pi.on("tool_execution_end", async (event) => {
 		if (latestCwd && shouldRefreshAfterTool(event.toolName)) refreshPlan(latestCwd); // TB5a: re-parse only after a mutating tool (write/edit/bash)
-		if (event.toolName !== TOOL_NAME || event.isError) return;
+		// Refresh the todo section after any successful task_* tool call — the
+		// board may have changed. Names mirror ext-subagent's task tools (the
+		// ONE model-visible task family, t02/D7); a local Set avoids a
+		// cross-extension dependency for four string literals.
+		if (!TASK_TOOL_NAMES.has(event.toolName) || event.isError) return;
 		todoOverlay.update();
 	});
 

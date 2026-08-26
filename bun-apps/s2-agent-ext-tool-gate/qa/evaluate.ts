@@ -72,7 +72,6 @@ import { createPresentTool } from "@repo/s2-agent-ext-webui/src/present-tool.ts"
 // 3 individual registrars instead (mirrors hermesMemoryRegistrar; proven safe
 // by s2-agent-ext-task/src/__tests__/core-gating.test.ts).
 import { registerAskUserQuestionTool } from "@repo/s2-agent-ext-task/src/ask-user/ask-user-question.ts";
-import { registerTodoTool } from "@repo/s2-agent-ext-task/src/todo/todo.ts";
 import goalDefault from "@repo/s2-agent-ext-task/src/goal/goal.ts";
 // ticket 04 — tool-gate's own enable_tool is owner-declared core (gating:{ core:true }),
 // registered synchronously at the top of its default factory. Driving the factory
@@ -207,7 +206,6 @@ const hermesMemoryRegistrar = (pi: any) => {
 // `new GoalOverlay()`, so it's safe to call with just pi.
 const coreTaskRegistrar = (pi: any) => {
 	registerAskUserQuestionTool(pi);
-	registerTodoTool(pi);
 	goalDefault(pi);
 };
 

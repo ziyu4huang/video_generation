@@ -17,7 +17,6 @@
  */
 import powerTool from "@repo/s2-agent-ext-power-tool";
 import { registerAskUserQuestionTool } from "@repo/s2-agent-ext-task/src/ask-user/ask-user-question.ts";
-import { registerTodoTool } from "@repo/s2-agent-ext-task/src/todo/todo.ts";
 import goalDefault from "@repo/s2-agent-ext-task/src/goal/goal.ts";
 import file2mdExtension from "@repo/s2-agent-ext-file2md/extensions/file2md.ts";
 import flux2Extension from "@repo/s2-agent-ext-flux2/extensions/flux2.ts";
@@ -38,7 +37,7 @@ import { registerServerTools } from "@repo/s2-agent-ext-zai-mcp/extensions/zai-m
 // default factory is async + heavy (backend setup before registerTool), so its
 // entry below invokes the 5 individual registrars with stub args (store/repo are
 // deref'd only inside `execute`, which capture never calls) — mirroring how
-// ext-task's entry invokes registerAskUserQuestionTool/registerTodoTool directly.
+// ext-task's entry invokes registerAskUserQuestionTool/goal directly.
 import knowledgeCardExtension from "@repo/s2-agent-ext-knowledge-card/extensions/knowledge-card.ts";
 import webAccessExtension from "@repo/s2-agent-ext-web-access";
 import obsidianExtension from "@repo/s2-agent-ext-obsidian/extensions/obsidian.ts";
@@ -106,7 +105,6 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		name: "task",
 		register: (pi) => {
 			registerAskUserQuestionTool(pi);
-			registerTodoTool(pi);
 			goalDefault(pi);
 		},
 	},

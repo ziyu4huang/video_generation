@@ -9,7 +9,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import type { QuestionAnswer, QuestionData, QuestionParams, QuestionnaireResult } from "../types.js";
-import { buildQuestionnaireResponse } from "../response-envelope.js";
+import { buildQuestionnaireResponse, buildToolResult } from "../response-envelope.js";
 import { formatQuestionAnswer } from "../format-answer.js";
 
 function makeParams(): QuestionParams {
@@ -97,5 +97,27 @@ describe("buildQuestionnaireResponse model-facing content", () => {
 		const { content } = buildQuestionnaireResponse(result, makeParams());
 		expect(content[0]?.text).toContain("Which library? → Bun — note: partial");
 		expect(content[0]?.text).toContain("(the user cancelled before completing");
+	});
+});
+
+// ─── Error envelopes (cc-parity t02: host/validation failures are errors,
+//     never "cancelled" — the user never saw a dialog) ─────────────────────
+
+describe("buildToolResult isError flag", () => {
+	test("validation/host errors carry isError:true and stay buildable with cancelled:false", () => {
+		const r = buildToolResult("Error: bad questionnaire", { answers: [], cancelled: false, error: "too_many_recommended" }, true);
+		expect(r.isError).toBe(true);
+		expect(r.details.cancelled).toBe(false);
+	});
+
+	test("normal results carry no isError field", () => {
+		const r = buildToolResult("ok", { answers: [], cancelled: false });
+		expect(r.isError).toBeUndefined();
+	});
+
+	test("a genuine user cancellation is NOT an error (cancelled:true, no isError)", () => {
+		const r = buildQuestionnaireResponse({ answers: [], cancelled: true }, makeParams());
+		expect(r.isError).toBeUndefined();
+		expect(r.details.cancelled).toBe(true);
 	});
 });

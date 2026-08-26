@@ -32,13 +32,13 @@ _Avoid_: helpers, utils, shared (each module is one concern; nothing here is a g
 
 ### Step layer
 
-**`todo`**:
-The in-session step tracker — fine-grained steps within a phase, branch-aware (replayed from the session branch). The bottom section of the composite widget.
-_Avoid_: checklist, tasks (it is the in-session, branch-aware step tracker — see the plan coordinator's three-layer model)
+**`todo` (TUI face)**:
+The in-session step tracker's RENDER layer — since cc-parity-task-powertool t02/D7 the `todo` mega-tool is retired; the model-visible family is ext-subagent's core-gated `task_create/get/list/update` over the shared TeamTaskStore, and this package renders that board (bottom section of the composite widget, `/todos`, effective blockedBy pre-filtered by `board-view.ts`).
+_Avoid_: checklist; calling the widget a "store" (the board's rules live in core-runtime; ext-task only renders)
 
 **`/todos`**:
-The command to view and manage the todo list.
-_Avoid_: task list
+The command to view the board's tasks, grouped by status.
+_Avoid_: task list (the board is shared with spawn children and workflow agents — one board, not a private list)
 
 **`/loop`**:
 The command that runs a prompt on a recurring interval (CC parity): 1m–~23d cadence (default 10m), idle-gated fires (busy postpones a minute, never drops), 7-day max-age self-stop, session-store restore across restarts, and a persisted `nextFireAt` honored on restore. Runs concurrently with `/goal` (CC-style); only one loop at a time — `/loop stop` first. The `dynamic`/`off` arguments redirect to ultracode's `/loop` (the `schedule_wakeup` self-paced variant).
@@ -54,9 +54,9 @@ _Avoid_: show, display (it is a queue manipulation command, not just a viewer)
 The process-singleton reader ext-task publishes so a peer can surface goal activity WITHOUT a hard dep. A peer reads `typeof __piGoalActive === "function" && __piGoalActive() === true`. ext-task is the publisher; the only reader is power-tool's display-only `inspect_tui` — no plan coordinator, wayfind, or `/loop` reads it (goal and loop run concurrently by design).
 _Avoid_: hook, signal (it is a published globalThis reader for cross-extension state display)
 
-**Session-only todos**:
-Todos are SESSION-ONLY in-memory state. `session_start` resets to `EMPTY_STATE` — never replayed from the session branch, never seeded from disk plans. `session_compact` / `session_tree` do NOT replay either (in-memory todos survive naturally). Permanent task tracking lives in wayfind/superpowers plans & tickets; the session todo is a transient working scratchpad.
-_Avoid_: restore, persist, replay (todos are ephemeral session state, deliberately not reconstructed from history)
+**Session-only board**:
+The shared task board is SESSION-ONLY in-memory state (TeamTaskStore; reset on `session_start`, dropped on `session_shutdown` — both owned by ext-subagent) — never replayed from the session branch, never seeded from disk plans. `session_compact` / `session_tree` do NOT replay either. Permanent task tracking lives in wayfind/superpowers plans & tickets; the board is a transient working surface shared by the parent, spawn children, and workflow agents.
+_Avoid_: restore, persist, replay (the board is ephemeral session state, deliberately not reconstructed from history)
 
 **Plan-coordinator asymmetry (L13)**:
 The goal subsystem self-consumes the plan coordinator directly via internal calls (`planningGateBlocking()`, `planProgressLineFromPeer()`), while wayfind reads the same coordinator through published `__piPlan*` seams. This is intentional — goal needs immediate access to phase gating and progress, wayfind needs display-only coordination. The plan coordinator is a one-way publisher (ext-task → wayfind); there is no "yielding" behavior or bidirectional handshake.

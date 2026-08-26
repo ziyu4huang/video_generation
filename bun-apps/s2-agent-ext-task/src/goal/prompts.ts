@@ -42,13 +42,15 @@ export const CONTINUATION_MARKER_PREFIX = "pi-goal-continuation:";
 // ─── Three-layer fusion guidance ─────────────────────────────────────────────
 
 // Three-layer fusion guidance: teaches the agent that the plan coordinator (the
-// roadmap) and the `todo` tool (in-session steps) are tools to FINISH the goal,
-// not stopping points. Goal drives; the other two structure the drive.
+// roadmap) and the task board tools (in-session steps) are tools to FINISH the
+// goal, not stopping points. Goal drives; the other two structure the drive.
+// (The `todo` mega-tool was retired in cc-parity-task-powertool t02/D7 — the
+// step tracker is now the task_create/task_update family.)
 export const THREE_LAYER_GUIDANCE =
 	"You have three cooperating layers: this /goal (drives to completion), " +
 	"the plan coordinator (the cross-session phase roadmap in task_plan.md), and " +
-	"the `todo` tool (in-session step tracking). Use the plan as your roadmap " +
-	"and todo to track steps — neither is a stopping point; they are tools to finish this goal.";
+	"the task board (task_create/task_update in-session step tracking). Use the plan as your roadmap " +
+	"and the task board to track steps — neither is a stopping point; they are tools to finish this goal.";
 
 // ─── XML/text helpers ─────────────────────────────────────────────────────────
 

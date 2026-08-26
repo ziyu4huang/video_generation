@@ -232,10 +232,9 @@ describe("matchIntent (S1)", () => {
       "spawn_subagent",
       "list_subagents",
       "send_message",
-      "task_create",
-      "task_get",
-      "task_list",
-      "task_update",
+      // task_create/get/list/update left the workflow family for core
+      // visibility in cc-parity-task-powertool ticket 02 (D7) — they are the
+      // ONE model-visible task family in every session shape now.
     ]);
   });
   test("S2 flip: 'docker image cleanup' → [] (image noun, no gen-verb)", () => {

@@ -16,7 +16,7 @@
  *
  * SCOPE (today): the 3 migration pilots + file2md
  * (ticket 04) — power-tool (6 inspect_*), ext-task (ask_user_question /
- * todo / goal_complete), tool-gate (enable_tool), file2md (file2md /
+ * goal_complete), tool-gate (enable_tool), file2md (file2md /
  * vision_ask). The other ~7 unmigrated extensions are NOT asserted here; rollout tickets 05–12
  * APPEND their extension to MIGRATED_EXTENSIONS as they migrate, which
  * auto-includes that extension's tools here. Built-ins (read/write/edit/bash/
@@ -40,7 +40,7 @@
  * real session would see. power-tool's default factory registers all 6
  * inspect_* (two of the factories — hooks/pathology — are not individually
  * exported, so the default factory is the only way to capture the full set);
- * ext-task's 3 registrars are invoked directly (its full extension factory has
+ * ext-task's registrars are invoked directly (its full extension factory has
  * heavy overlay/widget/globalThis side effects unrelated to tool registration);
  * tool-gate's default factory registers enable_tool.
  */
@@ -227,10 +227,12 @@ describe("drift-guard — pilot tools declare valid gating", () => {
 		}
 	});
 
-	test("ext-task: ask_user_question / todo / goal_complete carry gating:{core:true}", () => {
+	test("ext-task: ask_user_question / goal_complete carry gating:{core:true}", () => {
 		const defs = captureRegisteredTools(entry("task").register);
 		const names = defs.map((d) => d.name).sort();
-		expect(names).toEqual(["ask_user_question", "goal_complete", "todo"].sort());
+		// `todo` retired with its tool (cc-parity-task-powertool t02/D7); the
+		// task family (task_create/get/list/update) is core-gated in ext-subagent.
+		expect(names).toEqual(["ask_user_question", "goal_complete"].sort());
 		assertAllValid(defs);
 		// core tools: core === true (exempt from dead-gate; legitimately keyword-less)
 		for (const d of defs) expect(d.gating?.core, `'${d.name}' is owner-declared core`).toBe(true);

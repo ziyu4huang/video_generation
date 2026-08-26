@@ -80,6 +80,20 @@ export function isTeamTaskError(v: unknown): v is TeamTaskError {
   return typeof v === "object" && v !== null && "error" in v;
 }
 
+/**
+ * Effective (still-binding) blockedBy edges: the dep ids that have NOT
+ * completed yet (CC task-tool semantics — a completed dependency no longer
+ * renders its dependent blocked). Pure over a board snapshot so both the
+ * model-facing tool renderers (ext-subagent) and the TUI face (ext-task)
+ * derive the same view; unknown ids (should not happen — edges are pruned on
+ * delete) count as still-binding so a stale edge stays visible rather than
+ * silently vanishing.
+ */
+export function effectiveBlockedBy(tasks: TeamTask[], task: Pick<TeamTask, "blockedBy">): string[] {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  return task.blockedBy.filter((id) => byId.get(id)?.status !== "completed");
+}
+
 interface TaskBoard {
   tasks: Map<string, TeamTask>;
   nextId: number;

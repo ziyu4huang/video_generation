@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-25-cc-parity-task-powertool
 created: 2026-08-25
-last: 2026-08-27 (ticket 01 closed — plan approval gate shipped)
+last: 2026-08-27 (ticket 02 closed — task-family convergence shipped, D7)
 status: active
 ---
 
@@ -84,8 +84,8 @@ quota-retry, pathology engine, browser token economy) stay.
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-plan-approval-gate.md` | closed | ExitPlanMode-shaped approval surface on the plan coordinator: plan content shown → user approval gates implementation; read-only enforcement during planning; drop `bash` from the auditor's read-only grant |
-| `tickets/02-task-family-convergence.md` | pending | ONE model-visible task family with CC semantics — converge `todo` (split into four CC-shaped tools or converge on TeamTaskStore); effective-blocked deps, symmetric addBlocks/removeBlocks, workflow-discipline description text, isError error envelopes |
+| `tickets/01-plan-approval-gate.md` | closed | ExitPlanMode-shaped approval surface on the plan coordinator: plan content shown → user approval gates implementation; read-only enforcement during planning; drop `bash` from the auditor's read-only grant — shipped via PR #2075 |
+| `tickets/02-task-family-convergence.md` | closed | ONE model-visible task family with CC semantics — D7: TeamTaskStore `task_*` won (core-gated everywhere), `todo` retired to a TUI face; effective-blocked deps, discipline text, isError envelopes |
 | `tickets/03-loop-consolidation.md` | pending | Retire ext-task LoopScheduler into ultracode's WakeupRegistry (the CC-faithful core), porting idle-postpone + restart-restore; ext-task keeps only the composite-widget section + `/loop` redirect |
 | `tickets/04-pathology-model-visible.md` | pending | Opt-in (env-gated) once-per-episode turn-boundary injection so the model can learn it is looping; warning count refresh per evaluation; per-session status key |
 | `tickets/05-cost-accounting.md` | pending | `/cost`-style session accumulator in power-tool: cumulative spend + duration + turn count on `after_provider_response`, surfaced via a tool/command and inspect_agent |
@@ -135,16 +135,28 @@ quota-retry, pathology engine, browser token economy) stay.
   unless field evidence surfaces against it — its own changelog (four
   false-positive rounds) is the evidence; it overlaps the repo's real
   planning layer (wayfind/`.planning/`).
+- D7 (2026-08-27, ticket 02): the task-family convergence lands on
+  TeamTaskStore — ext-subagent's `task_create/get/list/update` (already CC
+  vocabulary, symmetric cycle-checked edges) becomes the ONE model-visible
+  family, core-gated in every session shape; ext-task's `todo` mega-tool is
+  retired to a TUI face (`/todos` + composite widget render the shared board
+  through `board-view.ts`). Reason: splitting `todo` into four tools would
+  leave TWO visible families in workflow sessions (the team board cannot be
+  un-registered — children coordinate through it), and the actual bug was
+  "no shared state", which only store convergence fixes. The ticket-#16
+  per-session isolation died WITH the private-scratchpad design it protected;
+  sharing is CC-faithful (CC's subagents share the task list).
 
 ## Frontier
 
-Ticket 02 (task-family convergence) — ticket 01 closed 2026-08-27 (plan
-approval gate: contract-fingerprinted approval state machine, /goal approve,
-read-only write/edit on the tool_call seam, auditor bash grant dropped;
-913 pass / tsc clean / manual smoke receipt in the ticket). 02 is the next
-CC-parity impact item: ONE model-visible task family (D4), flat-root
-constraint preserved (spec §2). Hard edge 06→07 sits later and needs nothing
-from Phase 1.
+Ticket 03 (loop consolidation) — ticket 02 closed 2026-08-27 (task-family
+convergence, D7: TeamTaskStore `task_*` core-gated everywhere, `todo` retired
+to a TUI face over `board-view.ts`, effective-blocked selector in
+core-runtime, isError envelopes, discipline text; ext-task 849 / ext-subagent
+709 / core-runtime 493 / tool-gate 445 all green, tsc ×4 clean). 03 retires
+ext-task's LoopScheduler into ultracode's WakeupRegistry — its first
+investigation step is the import-cycle question in the fog below. Hard edge
+06→07 sits later and needs nothing from Phase 1.
 
 ## Fog of war
 

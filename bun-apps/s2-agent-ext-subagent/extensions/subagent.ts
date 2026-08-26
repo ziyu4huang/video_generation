@@ -182,18 +182,21 @@ export default function extension(pi: ExtensionAPI) {
   // bus wired above. Reaches children automatically through the parent tools
   // captured at session_start (extensionTools bridge). Registration order is
   // load-bearing: the workflow gate family's grouped-names order (pinned by
-  // tool-gate tests) reads spawn → batch → follow-up → task_create/get/list/
-  // update (the task tools below register after this one).
+  // tool-gate tests) reads spawn → batch → follow-up (the task tools below
+  // left the family for core visibility in cc-parity-task-powertool t02/D7).
   const sendMessageTool = createSendMessageTool({ liveRegistry, bus: getParentMessageBus() });
   pi.registerTool(sendMessageTool);
 
-  // Shared team task board (ticket 03): task_create/get/list/update over the
-  // session-scoped in-memory TeamTaskStore. Thin adapters in src/task-tools.ts;
-  // every rule lives in core-runtime. They reach spawn children and workflow
-  // agents through the SAME extensionTools bridge captured at session_start
-  // (parent-side registration only, D9) — and read-only children keep them
-  // (task updates mutate the board, never the filesystem, so they stay out of
-  // READ_ONLY_EXCLUDED).
+  // Shared team task board (teams-parity ticket 03; the ONE model-visible task
+  // family since cc-parity-task-powertool ticket 02/D7): task_create/get/list/
+  // update over the session-scoped in-memory TeamTaskStore, CORE-gated so
+  // every session shape (plain + workflow) sees exactly one task family —
+  // ext-task's `todo` mega-tool retired to a TUI face over this same store.
+  // Thin adapters in src/task-tools.ts; every rule lives in core-runtime. They
+  // reach spawn children and workflow agents through the SAME extensionTools
+  // bridge captured at session_start (parent-side registration only, D9) — and
+  // read-only children keep them (task updates mutate the board, never the
+  // filesystem, so they stay out of READ_ONLY_EXCLUDED).
   const taskTools = createTaskTools();
   // registerTool is generic over ONE schema; the four per-schema defs cannot
   // unify into a single inference, so pass each through registerTool's own

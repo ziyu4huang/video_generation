@@ -1,64 +1,20 @@
 /**
- * todo tool + /todos command — thin registration shell.
+ * /todos command — the TUI face of the ONE shared task board
+ * (cc-parity-task-powertool ticket 02/D7).
  *
- * Stripped of external dependencies (rpiv-config, rpiv-i18n):
- * - promptSnippet/guidelines removed (stealth — description routes; system-prompt saving)
- * - i18n-bridge replaced with English-only inline calls
+ * The `todo` mega-tool is retired: the model-visible task family is
+ * ext-subagent's core-gated task_create/get/list/update over core-runtime's
+ * TeamTaskStore, and this package only RENDERS that board (this command +
+ * the composite-widget section in overlay.ts). Reads go through
+ * ../board-view.ts (effective blockedBy only — completed deps render
+ * cleared, same as the task tools' list output).
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getBoardViewState } from "./board-view";
 import { selectTasksByStatus, selectTodoCounts, selectVisibleTasks } from "./state/selectors";
-import { applyTaskMutation } from "./state/state-reducer";
-import { commitState, getState, replaceState } from "./state/store";
-import { buildToolResult } from "./tool/response-envelope";
-import {
-	COMMAND_NAME,
-	ERR_REQUIRES_INTERACTIVE,
-	MSG_NO_TODOS,
-	type TaskMutationParams,
-	TOOL_LABEL,
-	TOOL_NAME,
-	TodoParamsSchema,
-} from "./tool/types";
-import { formatCommandTaskLine, formatStatusLabel, renderTodoCall, renderTodoResult } from "./view/format";
-
-// ---------------------------------------------------------------------------
-// Inlined config defaults — stripped from @juicesharp/rpiv-config
-// ---------------------------------------------------------------------------
-
-
-// ---------------------------------------------------------------------------
-// Tool registration
-// ---------------------------------------------------------------------------
-
-export function registerTodoTool(pi: ExtensionAPI): void {
-	pi.registerTool({
-		name: TOOL_NAME,
-		gating: { core: true },
-		label: TOOL_LABEL,
-		description:
-			"Manage a task list for tracking multi-step progress. Actions: create (new task), update (change status/fields/dependencies), list (all tasks, optionally filtered by status), get (single task details), delete (tombstone), clear (reset all). Status: pending → in_progress → completed, plus deleted tombstone. Use this to plan and track multi-step work like research, design, and implementation.",
-		parameters: TodoParamsSchema,
-
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
-			// Thread the real ctx sessionId so an in-process subagent child writes its
-			// own bucket rather than the parent's (renderCall/renderResult/command stay
-			// no-arg → renderSid/parent bucket; they render the parent TUI). Ticket #16.
-			const sid = _ctx?.sessionManager?.getSessionId();
-			const result = applyTaskMutation(getState(sid), params.action, params as TaskMutationParams);
-			commitState(result.state, sid);
-			return buildToolResult(params.action, params as TaskMutationParams, result.state, result.op);
-		},
-
-		renderCall(args, theme, _context) {
-			return renderTodoCall(args as never, theme, getState());
-		},
-
-		renderResult(result, _opts, theme, _context) {
-			return renderTodoResult(result, theme);
-		},
-	});
-}
+import { COMMAND_NAME, ERR_REQUIRES_INTERACTIVE, MSG_NO_TODOS } from "./types";
+import { formatCommandTaskLine, formatStatusLabel } from "./view/format";
 
 // ---------------------------------------------------------------------------
 // /todos slash command
@@ -72,7 +28,7 @@ export function registerTodosCommand(pi: ExtensionAPI): void {
 				ctx.ui.notify(ERR_REQUIRES_INTERACTIVE, "error");
 				return;
 			}
-			const state = getState();
+			const state = getBoardViewState();
 			const visible = selectVisibleTasks(state);
 			if (visible.length === 0) {
 				ctx.ui.notify(MSG_NO_TODOS, "info");

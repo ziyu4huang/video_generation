@@ -1,6 +1,6 @@
 # Ticket 01 — Plan approval gate (ExitPlanMode-shaped)
 
-Status: closed (2026-08-27; PR pending at write time — receipt below)
+Status: closed (2026-08-27; merged CLEAN via PR #2075, merge commit 072f2ebf — receipt below)
 
 ## Why
 

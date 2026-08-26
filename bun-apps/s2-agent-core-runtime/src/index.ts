@@ -259,6 +259,7 @@ export type {
 } from "./team-task-store.js";
 export {
   __resetTeamTaskStoreForTests,
+  effectiveBlockedBy,
   getTeamTaskStore,
   isTeamTaskError,
   TeamTaskStore,
