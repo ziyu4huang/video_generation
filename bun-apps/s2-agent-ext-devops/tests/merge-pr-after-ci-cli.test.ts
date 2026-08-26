@@ -21,6 +21,7 @@
  */
 import { test, expect, describe } from "bun:test";
 import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE, versionNudge } from "../src/merge-pr-after-ci-cli.js";
+import type { runVerifyMerge } from "../src/verify-merge-recipe.js";
 import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
 import type { runLocalCi } from "../src/ci-recipe.js";
@@ -714,6 +715,186 @@ describe("merge-pr-after-ci-cli — the merge gates read a fresh, settled status
 		const good = parsePrFinishArgs(["42", "--assume-ci-green", OID.toUpperCase()]);
 		expect(good.ok).toBe(true);
 		if (good.ok) expect(good.args.assumeCiGreen).toBe(OID);
+	});
+});
+
+/**
+ * The already-MERGED retry path (issue #2077, observed twice on 2026-08-25
+ * around PR #2027): a retry against a PR whose merge had landed printed
+ * `merged: false, verdict: "NOT-MERGED"` with `mergeStateSettle UNKNOWN,
+ * polls: 4` while the PR was MERGED — and the branch cleanup then had to be
+ * done by hand. Two defects compose: (a) settlePrStatus polls UNKNOWN on a
+ * terminal-state PR that can never settle (GitHub stops computing
+ * mergeability once merged), and (b) the gate stage aborts not-open with
+ * verdict NOT-MERGED on a PR that IS merged — runMergeRecipe already models
+ * state MERGED as merged:true (already merged); the CLI must too.
+ */
+describe("merge-pr-after-ci-cli — an already-MERGED PR is a settled outcome, not an abort (#2077)", () => {
+	const noSleep = async () => {};
+	/** A merged PR as GitHub actually serves it: mergeable null → UNKNOWN.
+	 *  (forge/github-rest.ts maps `mergeable === null` to UNKNOWN.) */
+	const MERGED_UNKNOWN: PrStatus = { ...MERGED, mergeState: "UNKNOWN" as const };
+
+	test("settlePrStatus does NOT poll a terminal-state PR — UNKNOWN on MERGED is a real answer", async () => {
+		let reads = 0;
+		const gh = {
+			prStatus: async () => {
+				reads++;
+				return MERGED_UNKNOWN;
+			},
+		} as unknown as GhClient;
+		const settled = await settlePrStatus(gh, 42, noSleep);
+		expect(settled.polls).toBe(1);
+		expect(reads).toBe(1);
+		expect(settled.status.state).toBe("MERGED");
+	});
+
+	test("an already-MERGED retry verifies + cleans up instead of aborting NOT-MERGED", async () => {
+		// The #2027 receipt, replayed: preflight read, then the fresh gate
+		// read finds MERGED — the merge landed in a prior invocation. The
+		// fixed CLI reports merged:true via verify_merge_landed, never calls
+		// mergeNow, and runs the branch cleanup the sessions did by hand.
+		// (The third read's CLEAN mergeState is deliberately unrealistic —
+		// the real adapter serves UNKNOWN on a merged PR — but verify keys
+		// off state/mergeSha, never mergeState.)
+		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN, MERGED]);
+		const clientParts = fakeClient({ current: "feature" });
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: clientParts.client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(outcome.verdict).toBe("CLEAN");
+		expect(outcome.aborted).toBeUndefined();
+		expect(outcome.mergeStateSettle).toEqual({ mergeState: "UNKNOWN", polls: 1 }); // terminal ⇒ no polling, wrapper-level
+		expect(ghParts.mergeCalls).toEqual([]); // never re-merge
+		expect(outcome.warnings.some((w: string) => /already MERGED/.test(w))).toBe(true);
+		// The behind-default nudge applies on this path too — the prior
+		// invocation advanced the base just as much as a fresh merge would.
+		expect(outcome.warnings.some((w: string) => /may now be behind .*run sync_default_branch/.test(w))).toBe(true);
+		// The cleanup the receipt had to do by hand:
+		expect(clientParts.calls).toEqual([`detach:${MERGED.mergeSha}`, "deleteLocal:feature", "deleteRemote:feature", "fetchPrune"]);
+	});
+
+	test("already-MERGED × --assume-ci-green: the head-sha check runs BEFORE the already-merged fall-through", async () => {
+		// The ordering is load-bearing: the shortcut must never skip its
+		// staleness assertion just because the PR turned out to be merged.
+		const ghParts = fakeGh([
+			{ ...OPEN_CLEAN, headRefOid: "b".repeat(40) },
+			{ ...MERGED_UNKNOWN, headRefOid: "b".repeat(40) },
+			{ ...MERGED, headRefOid: "b".repeat(40) },
+		]);
+		let ciRuns = 0;
+		const res = await runPrFinishCli(["42", "--assume-ci-green", "b".repeat(40)], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => {
+				ciRuns++;
+				return ciPass();
+			},
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(ciRuns).toBe(0);
+		expect(outcome.ciSkipped).toEqual({ assumedSha: "b".repeat(40) });
+		expect(outcome.merged).toBe(true);
+		expect(ghParts.mergeCalls).toEqual([]);
+	});
+
+	test("already-MERGED × --dry-run: plans cleanup only, never a merge", async () => {
+		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN]);
+		const res = await runPrFinishCli(["42", "--dry-run"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.dryRun).toBe(true);
+		expect(outcome.commands.some((c: string) => c.startsWith("gh pr merge"))).toBe(false);
+		expect(outcome.commands.some((c: string) => c.startsWith("git branch -D feature"))).toBe(true);
+		expect(outcome.warnings.some((w: string) => /already MERGED/.test(w))).toBe(true);
+	});
+
+	test("already-MERGED × --keep-branch: verify still runs, cleanup skipped", async () => {
+		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN, MERGED]);
+		const clientParts = fakeClient();
+		const res = await runPrFinishCli(["42", "--keep-branch"], {
+			gh: ghParts.gh,
+			client: clientParts.client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(0);
+		expect(JSON.parse(res.stdout).merged).toBe(true);
+		expect(clientParts.calls).toEqual([]);
+	});
+
+	test("verify failing to confirm an already-MERGED PR reports UNVERIFIED, never NOT-MERGED", async () => {
+		// The #2077 misreport's residual seam one layer down: verify's own
+		// prStatus read fails, runVerifyMerge returns merged:false/NOT-MERGED
+		// — the gate-stage read already established MERGED, so the outcome is
+		// clamped to UNVERIFIED (branch deletion stays gated on branchSpent).
+		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN]);
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+			verify: async () => ({
+				pr: 42,
+				state: "OPEN",
+				merged: false,
+				verdict: "NOT-MERGED",
+				files: [],
+				fileCount: 0,
+				insertions: 0,
+				deletions: 0,
+				outOfScope: [],
+				inspected: false,
+				branchSpent: false,
+				commands: [],
+				warnings: [],
+				aborted: { aborted: true, reason: "pr-status-failed", message: "network blip" },
+			}) as Awaited<ReturnType<typeof runVerifyMerge>>,
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(outcome.verdict).toBe("UNVERIFIED");
+		expect(outcome.warnings.some((w: string) => /could not confirm .*reporting UNVERIFIED, not NOT-MERGED/.test(w))).toBe(true);
+	});
+
+	test("a CLOSED PR still aborts not-open (terminal ≠ merged)", async () => {
+		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, state: "CLOSED" as const }]);
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: noSleep,
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted.reason).toBe("not-open");
+		expect(ghParts.mergeCalls).toEqual([]);
 	});
 });
 

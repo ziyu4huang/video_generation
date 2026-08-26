@@ -363,7 +363,17 @@ guessing at launch flags. When they are absent:
   `polls > 1` means it started UNKNOWN and settled. Before this, the gates read
   a snapshot from before a two-minute run_local_ci run — an UNKNOWN that had long
   since settled to CLEAN aborted the merge, and each manual retry paid for a
-  full CI re-run (observed on PR #1646, 2026-08-18).
+  full CI re-run (observed on PR #1646, 2026-08-18). The poll applies **only to
+  an OPEN PR** — a terminal-state PR never settles (GitHub stops computing
+  mergeability once merged), so an UNKNOWN read on one is returned immediately.
+
+  An **already-MERGED PR is a settled outcome, not an abort** (#2077, observed
+  twice around PR #2027): a retry against a merge that had landed used to print
+  `merged:false, verdict:NOT-MERGED` — sending the operator to re-verify and
+  clean up by hand. The CLI now warns `already MERGED`, skips the merge gates +
+  `mergeNow`, and runs verify_merge_landed + branch cleanup as its own recovery
+  path. `NOT-MERGED` from this tool now means what it says; a `CLOSED` PR
+  still aborts `not-open`.
 
   `--assume-ci-green <sha>` skips the local-CI gate for exactly that retry
   case, asserting a full 40-hex head sha you already saw green. It is checked

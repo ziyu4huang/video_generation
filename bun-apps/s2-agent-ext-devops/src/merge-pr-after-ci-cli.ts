@@ -212,14 +212,18 @@ export const MERGE_STATE_POLL_DELAY_MS = 3000;
 type PrStatusSnapshot = Awaited<ReturnType<GhClient["prStatus"]>>;
 
 /**
- * Read `prStatus` until `mergeState` is something other than UNKNOWN.
+ * Read `prStatus` until `mergeState` is something other than UNKNOWN — or the
+ * PR leaves OPEN, whichever comes first.
  *
  * UNKNOWN is not a verdict — it is GitHub saying it has not finished computing
  * mergeability yet (it recomputes on every push to the PR and on every push to
  * its base). Treating it as "not mergeable" turned a routine merge into a
  * manual poll-and-retry loop, at the cost of a full run_local_ci re-run each time.
  * Anything else — CLEAN, BEHIND, DIRTY, BLOCKED — is a real answer and returns
- * immediately, so the common path costs exactly one `gh pr view`.
+ * immediately, so the common path costs exactly one `gh pr view`. A
+ * terminal-state PR (MERGED/CLOSED) NEVER settles — GitHub stops computing
+ * mergeability once a PR leaves OPEN — so an UNKNOWN read on one is returned
+ * immediately rather than polled (#2077).
  */
 /**
  * Pure decision for the version-bump advisory: warn iff the merge touched
@@ -282,7 +286,11 @@ export async function settlePrStatus(
 ): Promise<{ status: PrStatusSnapshot; polls: number }> {
 	let status = await gh.prStatus(pr);
 	let used = 1;
-	while (status.mergeState === "UNKNOWN" && used < polls) {
+	// A terminal-state PR (MERGED/CLOSED) NEVER settles: GitHub stops
+	// computing mergeability once a PR leaves OPEN, so an UNKNOWN read on one
+	// is a real answer, not "not computed yet" (#2077 — polling it burned
+	// MERGE_STATE_POLLS reads and surfaced in the receipt as an "UNKNOWN race").
+	while (status.state === "OPEN" && status.mergeState === "UNKNOWN" && used < polls) {
 		await sleep(delayMs);
 		status = await gh.prStatus(pr);
 		used++;
@@ -577,19 +585,40 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		}
 	}
 
-	if (status.state !== "OPEN") {
-		return abort("not-open", `PR #${pr} state is ${status.state}, expected OPEN`);
-	}
-	if (status.mergeState === "BEHIND") {
-		return abort("behind", `PR #${pr} is BEHIND ${status.baseRefName} — run prepare_feature_branch (rebase) first`);
-	}
-	if (status.mergeState !== "CLEAN") {
-		return abort("not-clean", `PR #${pr} mergeState is ${status.mergeState}, expected CLEAN`);
+	// Already merged is the GOAL STATE, not an error (#2077): the merge landed
+	// in a prior invocation (a retry after a merge-failed whose response was
+	// lost after the server applied it, or a sibling session). Aborting here
+	// as `not-open` printed `merged:false, verdict:NOT-MERGED` on a merged PR
+	// — the NOT-MERGED-but-MERGED misreport whose cleanup was then redone by
+	// hand, twice. Skip the merge gates + mergeNow and fall through to verify
+	// + cleanup instead; runMergeRecipe (recipe.ts) models the same case as
+	// merged:true already-merged. A CLOSED PR is still an abort.
+	const alreadyMerged = status.state === "MERGED";
+	if (alreadyMerged) {
+		warnings.push(
+			`PR #${pr} is already MERGED — the merge landed in a prior invocation; this run verifies + cleans up instead of merging.`,
+		);
+		// The default-branch worktree is just as behind as after a fresh merge
+		// (the prior invocation advanced the base) — the operator needs the
+		// same catch-up nudge the post-merge path gives.
+		warnings.push(
+			`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
+		);
+	} else {
+		if (status.state !== "OPEN") {
+			return abort("not-open", `PR #${pr} state is ${status.state}, expected OPEN`);
+		}
+		if (status.mergeState === "BEHIND") {
+			return abort("behind", `PR #${pr} is BEHIND ${status.baseRefName} — run prepare_feature_branch (rebase) first`);
+		}
+		if (status.mergeState !== "CLEAN") {
+			return abort("not-clean", `PR #${pr} mergeState is ${status.mergeState}, expected CLEAN`);
+		}
 	}
 
 	// --- dry-run stops here: emit the planned commands, mutate nothing. ------
 	if (dryRun) {
-		const planned = [`gh pr merge ${pr} --squash`];
+		const planned = alreadyMerged ? [] : [`gh pr merge ${pr} --squash`];
 		if (!keepBranch && status.headRefName) {
 			planned.push(`git branch -D ${status.headRefName}`);
 			planned.push(`git push --no-verify ${remoteName} --delete ${status.headRefName}`);
@@ -610,27 +639,31 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	}
 
 	// --- 4. Merge (squash; branch deletion is our own cleanup below). --------
-	try {
-		await gh.mergeNow(pr, "squash", false);
-	} catch (err) {
-		const message = errMsg(err);
-		if (isMissingWorkflowScope(message)) {
-			return abort(
-				"missing-workflow-scope",
-				`gh pr merge ${pr} --squash was refused: the gh token has no \`workflow\` scope, and this PR ` +
-					`touches .github/workflows/. Fix: ${WORKFLOW_SCOPE_FIX} (interactive — the token owner must run it), ` +
-					`then re-run with --assume-ci-green <head sha> to skip re-paying for local CI. ` +
-					`Original: ${message}`,
-			);
+	// Skipped when the PR is already MERGED (#2077): re-merging is a guaranteed
+	// refusal and verify + cleanup below are the actual recovery.
+	if (!alreadyMerged) {
+		try {
+			await gh.mergeNow(pr, "squash", false);
+		} catch (err) {
+			const message = errMsg(err);
+			if (isMissingWorkflowScope(message)) {
+				return abort(
+					"missing-workflow-scope",
+					`gh pr merge ${pr} --squash was refused: the gh token has no \`workflow\` scope, and this PR ` +
+						`touches .github/workflows/. Fix: ${WORKFLOW_SCOPE_FIX} (interactive — the token owner must run it), ` +
+						`then re-run with --assume-ci-green <head sha> to skip re-paying for local CI. ` +
+						`Original: ${message}`,
+				);
+			}
+			return abort("merge-failed", `gh pr merge ${pr} --squash failed: ${message}`);
 		}
-		return abort("merge-failed", `gh pr merge ${pr} --squash failed: ${message}`);
+		// The merge advanced ${baseRefName} on origin — the worktree holding the
+		// default branch (possibly this cwd) is now behind until synced. Nudge the
+		// caller (matches sync_default_branch's own behind-default warning style).
+		warnings.push(
+			`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
+		);
 	}
-	// The merge advanced ${baseRefName} on origin — the worktree holding the
-	// default branch (possibly this cwd) is now behind until synced. Nudge the
-	// caller (matches sync_default_branch's own behind-default warning style).
-	warnings.push(
-		`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
-	);
 
 	// --- 5. Verify (read-only; CONTAMINATED warns, never rolls back). -------
 	let verify: VerifyMergeOutcome;
@@ -749,10 +782,24 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		}
 	}
 
+	// #2077 residual seam, one layer down: verify's OWN prStatus read can fail
+	// (network), and runVerifyMerge then returns merged:false / NOT-MERGED —
+	// the very misreport this fix kills. The gate-stage read already
+	// established MERGED, so on that path report UNVERIFIED instead.
+	// Branch deletion stays safe: it is gated on verify.branchSpent, which is
+	// false in the aborted outcome.
+	const mergedFinal = alreadyMerged && !verify.merged;
+	const verdictFinal: VerifyMergeOutcome["verdict"] = mergedFinal ? "UNVERIFIED" : verify.verdict;
+	if (mergedFinal) {
+		warnings.push(
+			`PR #${pr} read MERGED at the gate stage but verify_merge_landed could not confirm (${verify.verdict}${verify.aborted ? `, ${verify.aborted.reason}` : ""}) — reporting UNVERIFIED, not NOT-MERGED.`,
+		);
+	}
+
 	const outcome: PrFinishOutcome = {
 		pr,
-		merged: verify.merged,
-		verdict: verify.verdict,
+		merged: mergedFinal || verify.merged,
+		verdict: verdictFinal,
 		branchSpent: verify.branchSpent,
 		commands,
 		warnings,
