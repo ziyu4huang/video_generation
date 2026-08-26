@@ -52,6 +52,7 @@ export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
 	| "forceDistill" | "deletePng" | "noSession" | "print" | "noTools"
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json" | "noTiers"
+	| "vaultCreate"
 	| "save"
 	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe"
@@ -303,6 +304,11 @@ const GLOBAL_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--dry-run"], field: "dryRun" }, // globalized: suppresses vault writes
 ];
 
+// ── vault resolution (zk-ingest / zk-query / zk-extract) — explicit seed ─────
+const VAULT_BOOL_FLAGS: readonly BoolFlagSpec[] = [
+	{ flags: ["--vault-create"], field: "vaultCreate" },
+];
+
 // ── zk-ask — RAG output control ─────────────────────────────────────────────
 const ZK_ASK_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--retrieve-only"], field: "retrieveOnly" },
@@ -367,6 +373,7 @@ export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...MEMORY_TO_VAULT_BOOL_FLAGS,
 	...RESOURCE_BOOL_FLAGS,
 	...GLOBAL_BOOL_FLAGS,
+	...VAULT_BOOL_FLAGS,
 	...ZK_ASK_BOOL_FLAGS,
 	...ZK_CARD_BOOL_FLAGS,
 	...PDF_BOOL_FLAGS,

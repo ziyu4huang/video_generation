@@ -100,8 +100,12 @@ describe("resolveInputs", () => {
 
 // --- resolveVault -----------------------------------------------------------
 
-const ENV_KEYS = ["OB_VAULT_PATH", "OB_VAULT_DIR"] as const;
+// HOME is redirected per-suite so the personal-config tier (~/.pi/…) reads a
+// clean temp home, never the developer machine's real config (the tier is
+// covered in depth by vault-resolution.test.ts).
+const ENV_KEYS = ["OB_VAULT_PATH", "OB_VAULT_DIR", "HOME"] as const;
 let saved: Record<string, string | undefined>;
+let home: string;
 
 beforeEach(() => {
 	saved = {};
@@ -109,17 +113,20 @@ beforeEach(() => {
 		saved[k] = process.env[k];
 		delete process.env[k];
 	}
+	home = mkdtempSync(join(tmpdir(), "zkex-home-"));
+	process.env.HOME = home;
 });
 afterEach(() => {
 	for (const k of ENV_KEYS) {
 		if (saved[k] === undefined) delete process.env[k];
 		else process.env[k] = saved[k];
 	}
+	rmSync(home, { recursive: true, force: true });
 });
 
-function parsed(p: Partial<{ vault: string; vaultDir: string }> = {}) {
+function parsed(p: Partial<{ vault: string; vaultDir: string; vaultCreate: boolean }> = {}) {
 	// Only the vault-related fields are read by resolveVault.
-	return { vault: p.vault, vaultDir: p.vaultDir } as any;
+	return { vault: p.vault, vaultDir: p.vaultDir, vaultCreate: p.vaultCreate } as any;
 }
 
 describe("resolveVault", () => {
@@ -129,18 +136,20 @@ describe("resolveVault", () => {
 		expect(resolveVault(parsed({ vault: v }), root)).toBe(v);
 	});
 
-	test("--vault missing → created (mkdir recursive)", () => {
+	test("--vault missing → REFUSED (typo guard, #2055); --vault-create seeds", () => {
 		const v = join(root, "newvault");
 		expect(existsSync(v)).toBe(false);
-		const got = resolveVault(parsed({ vault: v }), root);
+		expect(() => resolveVault(parsed({ vault: v }), root)).toThrow(/does not exist/);
+		expect(existsSync(v)).toBe(false); // nothing seeded on refusal
+		const got = resolveVault(parsed({ vault: v, vaultCreate: true }), root);
 		expect(got).toBe(v);
 		expect(existsSync(v)).toBe(true);
 	});
 
 	test("--vault relative → resolved against cwd", () => {
+		mkdirSync(join(root, "rel-vault")); // explicit target must exist
 		const got = resolveVault(parsed({ vault: "rel-vault" }), root);
 		expect(got).toBe(join(root, "rel-vault"));
-		expect(existsSync(got)).toBe(true);
 	});
 
 	test("--vault-dir → <cwd>/<dir>, created", () => {
@@ -156,12 +165,15 @@ describe("resolveVault", () => {
 	});
 
 	test("OB_VAULT_PATH env acts as the explicit-vault fallback", () => {
+		mkdirSync(join(root, "envvault"));
 		process.env.OB_VAULT_PATH = join(root, "envvault");
 		const got = resolveVault(parsed({}), root);
 		expect(got).toBe(join(root, "envvault"));
 	});
 
 	test("--vault beats OB_VAULT_PATH env", () => {
+		mkdirSync(join(root, "envvault"));
+		mkdirSync(join(root, "flagvault"));
 		process.env.OB_VAULT_PATH = join(root, "envvault");
 		const flag = join(root, "flagvault");
 		const got = resolveVault(parsed({ vault: flag }), root);

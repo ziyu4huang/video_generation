@@ -2,38 +2,164 @@
  * Shared vault-path resolution for the `cli` command surface.
  *
  * One home for the vault-resolution rules that every knowledge/vault command
- * shares (previously copy-pasted in five commands):
+ * shares (previously copy-pasted in five commands). Plain flavor order
+ * (mirrors the obsidian ext ladder, `s2-agent-ext-obsidian/src/lib/vault-resolution.ts`):
  *
- *   1. explicit: --vault flag, else OB_VAULT_PATH env (relative → cwd-resolved)
- *   2. default:  --vault-dir flag / OB_VAULT_DIR env / <defaultDir> under cwd
+ *   1a. explicit:  --vault flag, else OB_VAULT_PATH env (relative → cwd-resolved)
+ *       — nonexistent target REFUSES unless --vault-create (#2055: a typo must
+ *         not silently seed a fresh tree)
+ *   1b. named:     --vault-dir flag / OB_VAULT_DIR env under cwd (session-scoped
+ *       explicit intent outranks the file tiers below)
+ *   1c. personal:  ~/.pi/obsidian_config.json vault_path (mode:"app" skipped —
+ *       the personal tier is explicit-only, same as the ext)
+ *   1d. project:   <cwd>/.pi/obsidian_config.json vault_path when mode != "app"
+ *   3.  fallback:  <defaultDir> under cwd, auto-seeded
  *
- * Both flavors mkdir-if-missing so a first run on a fresh tree never crashes.
+ * Config tiers (1c/1d) whose target is missing warn on stderr and fall
+ * through instead of aborting (ext stale-config semantics). Nothing is ever
+ * created under --dry-run.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve, isAbsolute, join } from "node:path";
 import type { ParsedArgs } from "./args.ts";
+// Canonical config-path builders from the obsidian ext (the tier ladder this
+// resolver mirrors); importing them also keeps the config FILENAME literal out
+// of CLI sources — the tool-name contract guard scans for obsidian_* tokens.
+import {
+	personalConfigPath,
+	projectConfigPath,
+} from "@repo/s2-agent-ext-obsidian/src/lib/vault-resolution.ts";
 
 export interface VaultPathOptions {
 	/** Fallback dir name under cwd when no flag/env is set. Default "vault". */
 	defaultDir?: string;
 }
 
-/** The plain flavor: `<cwd>/<vaultDir|OB_VAULT_DIR|defaultDir>`, no walk-up. */
+/** Minimal schema of the two obsidian_config.json locations (see the ext's
+ *  VaultConfigFile for the full story; the CLI only reads these two keys). */
+interface VaultConfigFile {
+	vault_path?: string;
+	mode?: "explicit" | "app";
+}
+
+/** Read an obsidian_config.json-shaped file; {} when absent/unparseable. */
+function readVaultConfig(path: string): VaultConfigFile {
+	try {
+		return JSON.parse(readFileSync(path, "utf8")) as VaultConfigFile;
+	} catch {
+		return {};
+	}
+}
+
+/** The plain flavor: explicit → named → personal/project config → <cwd> fallback. */
 export function resolveVaultPath(
 	parsed: ParsedArgs,
 	cwd: string,
 	opts: VaultPathOptions = {},
 ): string {
-	const dir = opts.defaultDir ?? "vault";
+	const dryRun = parsed.dryRun === true;
+
+	// ---- 1a. explicit: --vault flag / OB_VAULT_PATH env -------------------
 	const explicit = parsed.vault ?? process.env.OB_VAULT_PATH;
 	if (explicit) {
 		const abs = isAbsolute(explicit) ? explicit : resolve(cwd, explicit);
-		if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
+		if (!existsSync(abs)) {
+			if (parsed.vaultCreate === true) {
+				// Deliberate seeding intent: create (unless dry-run previews it).
+				if (!dryRun) {
+					mkdirSync(abs, { recursive: true });
+					console.error(
+						`vault:   ${abs} did not exist — seeded (--vault-create)`,
+					);
+				}
+			} else {
+				throw new Error(
+					`Vault path does not exist: ${abs}\n` +
+						`  An explicit --vault (or OB_VAULT_PATH) pointing at a missing directory is\n` +
+						`  treated as a typo, not a first run — nothing was written. To seed a new\n` +
+						`  vault tree there deliberately, pass --vault-create.`,
+				);
+			}
+		}
 		return abs;
 	}
-	const rel = parsed.vaultDir ?? process.env.OB_VAULT_DIR ?? dir;
-	const abs = resolve(cwd, rel);
-	if (!existsSync(abs)) mkdirSync(abs, { recursive: true });
+
+	// ---- 1b. named: --vault-dir flag / OB_VAULT_DIR env under cwd ---------
+	// Deliberate divergence from the ext ladder (where OB_VAULT_DIR is a
+	// Tier-3 dir name only): here it is session-scoped explicit intent and
+	// outranks the ambient file tiers below — the historical CLI contract.
+	const dir = opts.defaultDir ?? "vault";
+	const named = parsed.vaultDir ?? process.env.OB_VAULT_DIR;
+	if (named) {
+		const abs = resolve(cwd, named);
+		if (!existsSync(abs)) {
+			if (dryRun) return abs;
+			mkdirSync(abs, { recursive: true });
+			console.error(`vault:   ${abs} did not exist — seeded (--vault-dir)`);
+		}
+		return abs;
+	}
+
+	// A locally seeded tree that the config tiers below are about to bypass
+	// deserves a notice — otherwise pre-existing <cwd>/vault data silently
+	// disappears from these commands' view (the #2054 population).
+	const bypassed = join(cwd, dir);
+
+	// ---- 1c. personal config ~/.pi/obsidian_config.json --------------------
+	const personalPath = personalConfigPath();
+	const personal = readVaultConfig(personalPath);
+	if (personal.mode === "app") {
+		// Personal tier honors vault_path ONLY (ext parity): mode:"app" is
+		// recorded as unsupported here and resolution falls through.
+		console.error(
+			`vault:   ${personalPath} has mode:"app" — not honored at the personal tier; falling through`,
+		);
+	} else if (personal.vault_path) {
+		const p = isAbsolute(personal.vault_path)
+			? personal.vault_path
+			: resolve(personalPath, "..", "..", personal.vault_path);
+		if (existsSync(p)) {
+			if (existsSync(bypassed)) {
+				console.error(
+					`vault:   bypassing existing ${bypassed} — personal config takes precedence`,
+				);
+			}
+			return p;
+		}
+		console.error(
+			`vault:   personal config vault_path="${personal.vault_path}" does not exist — falling through`,
+		);
+	}
+
+	// ---- 1d. project config <cwd>/.pi/obsidian_config.json -----------------
+	const projectPath = projectConfigPath(cwd);
+	const project = readVaultConfig(projectPath);
+	if (project.mode !== "app" && project.vault_path) {
+		const p = isAbsolute(project.vault_path)
+			? project.vault_path
+			: resolve(cwd, project.vault_path);
+		if (existsSync(p)) {
+			if (existsSync(bypassed)) {
+				console.error(
+					`vault:   bypassing existing ${bypassed} — project config takes precedence`,
+				);
+			}
+			return p;
+		}
+		console.error(
+			`vault:   project config vault_path="${project.vault_path}" does not exist — falling through`,
+		);
+	}
+
+	// ---- 3. fallback: <cwd>/<defaultDir>, auto-seeded ----------------------
+	const abs = resolve(cwd, dir);
+	if (!existsSync(abs)) {
+		if (dryRun) return abs;
+		mkdirSync(abs, { recursive: true });
+		console.error(
+			`vault:   no --vault/--vault-dir and no config vault — seeded fallback ${abs}`,
+		);
+	}
 	return abs;
 }
 

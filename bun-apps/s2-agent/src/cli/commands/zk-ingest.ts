@@ -14,8 +14,9 @@
  *   --source <family>      workflow-jsonl | hermes | auto-memory | generic (default workflow-jsonl)
  *   --source-label <text>  provenance string (default '<source>:<first file basename>')
  *   --folder <name>        convergence folder (default Zettelkasten/knowledge-graph)
- *   --vault <path>         absolute vault path
+ *   --vault <path>         absolute vault path (must exist unless --vault-create)
  *   --vault-dir <name>     vault folder under cwd (default vault)
+ *   --vault-create         permit seeding a NEW vault tree at --vault
  *   --dry-run              report only, write nothing
  *   --link-weighting <mode> count | idf (default count). IDF weights cross-links
  *                          by tag rarity (P8, SAG-inspired).
@@ -51,8 +52,9 @@ Options:
   --source <family>        workflow-jsonl | hermes | auto-memory | generic (default workflow-jsonl)
   --source-label <text>    provenance string (default '<source>:<first file basename>')
   --folder <name>          convergence folder (default Zettelkasten/knowledge-graph)
-  --vault <path>           absolute vault path (sets OB_VAULT_PATH)
+  --vault <path>           absolute vault path (must exist unless --vault-create)
   --vault-dir <name>       vault folder name under cwd (default vault)
+  --vault-create           permit seeding a NEW vault tree at --vault
   --dry-run                report what would change, write nothing
   --link-weighting <mode>  count | idf (default count). IDF weights cross-links
                            by tag rarity so specific bridges (pi-obsidian)
