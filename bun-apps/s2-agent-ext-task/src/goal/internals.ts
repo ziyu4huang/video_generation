@@ -16,7 +16,8 @@
  * three-node cycle rather than relying on ES-module function hoisting to hide it.
  */
 import { randomUUID } from "crypto";
-import { getPlanSummary, isPlanIncomplete } from "../plan/coordinator.js";
+import { computeIncomplete, getPlanPhases, getPlanSummary } from "../plan/coordinator.js";
+import { isPlanApproved } from "../plan/approval.js";
 import type { ActiveGoal } from "./format.js";
 import { goalState } from "./state.js";
 import { CONTINUATION_MARKER_PREFIX } from "./prompts.js";
@@ -94,9 +95,20 @@ export function isPiOwnedCompactionRetry(event: unknown, goalId: string) {
  * applies (no plan, plan closed, or all phases complete). The coordinator
  * (historical: the coordinator once published a plan-incomplete seam key for
  * wayfind — dead, removed 2026-08-21 D1; this internal call is the live path.)
+ *
+ * Ticket 01 (ExitPlanMode parity): an INCOMPLETE plan that lacks a recorded
+ * user approval blocks FIRST with its own actionable reason — approve via
+ * /goal approve (or the /goal start/resume prompt) — then the pre-existing
+ * incomplete-phases reason applies once approved. Approval state lives in
+ * ../plan/approval.js (contract-fingerprinted; progress never invalidates).
  */
 export function planningGateBlocking(cwd: string): string | undefined {
-	return isPlanIncomplete(cwd) ? "the plan still has incomplete phases" : undefined;
+	const phases = getPlanPhases(cwd);
+	if (!computeIncomplete(phases)) return undefined;
+	if (!isPlanApproved(cwd, phases)) {
+		return "the active plan is not approved yet — approve it via /goal approve";
+	}
+	return "the plan still has incomplete phases";
 }
 
 /**

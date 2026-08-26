@@ -40,6 +40,64 @@ import {
 } from "./internals.js";
 import { clearActiveGoal, setAndPersistGoal, updateStatus } from "./status.js";
 import { sendGoalPrompt, sendObjectiveUpdatedPrompt, sendResumePrompt } from "./prompting.js";
+import { getPlanPhases } from "../plan/coordinator.js";
+import {
+	planApprovalNeeded,
+	recordPlanDecision,
+	shouldPromptForApproval,
+	summarizePhases,
+} from "../plan/approval.js";
+
+// ─── Plan approval (ticket 01: ExitPlanMode-shaped gate) ─────────────────────
+
+/** Render + confirm + record one approval decision (the shared dialog body). */
+async function runApprovalPrompt(ctx: StatusContext, phases: ReturnType<typeof getPlanPhases>): Promise<boolean> {
+	const approved = await ctx.ui.confirm("Approve plan?", summarizePhases(phases));
+	recordPlanDecision(ctx.cwd, phases, approved);
+	ctx.ui.notify(
+		approved
+			? `Plan approved (${phases.filter((p) => p.status === "completed").length}/${phases.length} phases done).`
+			: "Plan NOT approved — read-only planning: write/edit stay blocked and goal_complete will refuse until /goal approve.",
+		approved ? "info" : "warning",
+	);
+	return approved;
+}
+
+/**
+ * Prompt plan approval when the active plan needs it (incomplete + unapproved
+ * + this contract version not yet prompted). Returns the decision when a
+ * prompt fired, undefined when nothing needed one (no plan / complete /
+ * already prompted — the once-per-contract-version dedupe lives here).
+ *
+ * Called from /goal start, /goal resume, and the agent_end re-prompt
+ * (contract edited mid-goal) — the interactive seam for the pure approval
+ * state machine in ../plan/approval.js.
+ */
+export async function promptPlanApprovalIfNeeded(ctx: StatusContext): Promise<boolean | undefined> {
+	const phases = getPlanPhases(ctx.cwd);
+	if (!shouldPromptForApproval(ctx.cwd, phases)) return undefined;
+	return runApprovalPrompt(ctx, phases);
+}
+
+/**
+ * `/goal approve` — the EXPLICIT approval entry. Bypasses the automatic
+ * prompt dedupe: a user who denied at /goal start and changed their mind must
+ * get the dialog again (promptedContract dedupe guards automatic re-prompts,
+ * never a direct command). No-op only when there is nothing to approve
+ * (no plan / complete / already approved for this contract).
+ */
+export async function approvePlan(ctx: StatusContext) {
+	const phases = getPlanPhases(ctx.cwd);
+	if (phases.length === 0) {
+		ctx.ui.notify("No active plan found — nothing to approve.", "info");
+		return;
+	}
+	if (!planApprovalNeeded(ctx.cwd, phases)) {
+		ctx.ui.notify("Plan already approved (or complete) — nothing to do.", "info");
+		return;
+	}
+	await runApprovalPrompt(ctx, phases);
+}
 
 // ─── Goal management ──────────────────────────────────────────────────────────
 
@@ -75,6 +133,10 @@ export async function startGoal(
 	goalState.activeGoal = createGoal(objective, tokenBudget, currentTokenTotal(ctx), audit);
 	setAndPersistGoal(goalState.activeGoal, ctx);
 	ctx.ui.notify(existingGoal ? `Goal replaced: ${objective}` : `Goal started: ${objective}`, "info");
+	// Ticket 01: an active incomplete plan needs user approval before
+	// implementation — prompt at goal entry (after createGoal so the
+	// read-only gate has an active goal to key on, before the first prompt).
+	await promptPlanApprovalIfNeeded(ctx);
 	await sendGoalPrompt(pi, ctx, goalState.activeGoal);
 }
 
@@ -130,6 +192,9 @@ export async function resumeGoal(pi: ExtensionAPI, ctx: StatusContext) {
 		return;
 	}
 	ctx.ui.notify(`Goal resumed: ${goalState.activeGoal.text}`, "info");
+	// Ticket 01: resume re-enters implementation — a plan whose contract was
+	// edited while paused (or that was never approved) prompts here.
+	await promptPlanApprovalIfNeeded(ctx);
 	await sendResumePrompt(pi, ctx, goalState.activeGoal);
 }
 

@@ -60,14 +60,31 @@ import {
 	updateStatus,
 } from "./status.js";
 import { sendContinuationPrompt, sendLengthContinue, sendPrompt } from "./prompting.js";
-import { pauseGoalAfterAgentEnd, updateGoalUsage } from "./lifecycle.js";
+import { pauseGoalAfterAgentEnd, updateGoalUsage, promptPlanApprovalIfNeeded } from "./lifecycle.js";
 import { ASK_USER_QUESTION_TOOL_NAME } from "../ask-user/ask-user-question.js";
+import { getPlanPhases } from "../plan/coordinator.js";
+import { planApprovalNeeded, shouldPromptForApproval } from "../plan/approval.js";
 
 // No-progress guard (issue #1616): counts consecutive goal continuations that
 // carried zero tool activity. A session whose agent lacks the goal_complete
 // tool (or just narrates forever) would otherwise spin on auto-continuations.
 let noProgressContinuations = 0;
 let noProgressGoalId: string | null = null;
+
+// Ticket 01 (read-only planning): the write tools blocked while a goal runs
+// against an unapproved incomplete plan. bash is deliberately NOT listed —
+// the tool_call seam is toolName-only (no args to inspect), and a blanket
+// bash block would break read-only greps; recorded as a divergence in the
+// effort spec §2.
+const PLANNING_WRITE_TOOLS = new Set(["write", "edit"]);
+
+/** Ticket 01: whether write tools must be blocked right now (goal active + plan needs approval). */
+function planningReadOnlyActive(): boolean {
+	if (goalState.activeGoal?.status !== "active") return false;
+	const cwd = (goalState.latestCtx as StatusContext | undefined)?.cwd;
+	if (!cwd) return false;
+	return planApprovalNeeded(cwd, getPlanPhases(cwd));
+}
 
 /**
  * Decide whether the current turn contained any tool activity.
@@ -180,6 +197,16 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 		// so shouldWedgeAlert knows the session is blocked on a human answer, not
 		// wedged. Cleared by the next tool_execution_end (asks cannot nest).
 		if (event.toolName === ASK_USER_QUESTION_TOOL_NAME) goalState.hitlToolInFlight = true;
+		// Ticket 01 (read-only planning): write/edit are blocked while a goal
+		// runs against an unapproved incomplete plan — CC's plan-mode write
+		// block on the same tool_call seam the stale-goal blocker uses.
+		if (PLANNING_WRITE_TOOLS.has(event.toolName) && planningReadOnlyActive()) {
+			return {
+				block: true,
+				reason:
+					"Plan not approved — read-only planning mode (write/edit blocked). The plan must be approved before implementation: run /goal approve.",
+			};
+		}
 		if (!goalState.staleGoalToolCallsBlocked) return;
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "paused") {
 			clearStaleGoalToolCallBlock();
@@ -248,6 +275,13 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 		}
 
 		if (!goalState.activeGoal || goalState.activeGoal.status !== "active") return;
+		// Ticket 01 (re-approval on contract change): at this turn boundary, a
+		// plan whose contract was edited mid-goal (promptedContract ≠ current)
+		// re-prompts ONCE — never per turn. Denied or unchanged contracts fall
+		// through; the read-only tool_call gate keeps enforcing until approval.
+		if (shouldPromptForApproval(ctx.cwd, getPlanPhases(ctx.cwd))) {
+			await promptPlanApprovalIfNeeded(ctx);
+		}
 		// (the prior `const finalAssistant = findFinalAssistantMessage(...)` line
 		//  here is REMOVED — the hoisted binding above is reused by the aborted/
 		//  error check below.)

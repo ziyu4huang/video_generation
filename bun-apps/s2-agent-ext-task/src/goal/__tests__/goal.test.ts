@@ -39,6 +39,7 @@ import goal, {
 	type StatusContext,
 } from "../goal.js";
 import { __resetCoordinator, refreshPlan } from "../../plan/coordinator.js";
+import { __resetPlanApproval, recordPlanDecision } from "../../plan/approval.js";
 import { goalState } from "../state.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -278,7 +279,7 @@ describe("registration", () => {
 describe("completeGoalArguments", () => {
 	test("suggests /goal subcommands and token options", () => {
 		const all = completeGoalArguments("")!;
-		expect(all.map((i) => i.label)).toEqual(["pause", "resume", "clear", "edit", "status", "--tokens", "review"]);
+		expect(all.map((i) => i.label)).toEqual(["pause", "resume", "clear", "edit", "status", "--tokens", "review", "approve"]);
 		expect(all.map((i) => i.description)).toEqual([
 			"Pause the active goal",
 			"Resume a paused or budget-limited goal",
@@ -287,6 +288,7 @@ describe("completeGoalArguments", () => {
 			"Show the current goal",
 			"Set a token budget before the goal",
 			"Set the post-completion Reviewer mode (on|off|auto|aggressive)",
+			"Approve the active plan (read-only planning until approved)",
 		]);
 
 		expect(completeGoalArguments("pa")?.map((i) => i.value)).toEqual(["pause"]);
@@ -1171,6 +1173,7 @@ function makePlanTmp(planMd?: string): string {
 }
 function cleanupPlanTmp(tmp: string): void {
 	__resetCoordinator();
+	__resetPlanApproval();
 	try {
 		rmSync(tmp, { recursive: true, force: true });
 	} catch {
@@ -1189,14 +1192,131 @@ describe("planningGateBlocking (Plan A completion gate)", () => {
 		expect(planningGateBlocking(tmp)).toBeUndefined();
 	});
 
-	test("reason string when the plan has open phases", () => {
+	test("approval-first reason when the open plan is unapproved (ticket 01)", () => {
 		tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n");
+		expect(planningGateBlocking(tmp)).toMatch(/not approved/);
+		expect(planningGateBlocking(tmp)).toMatch(/\/goal approve/);
+	});
+
+	test("incomplete-phases reason once the plan IS approved", () => {
+		tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n");
+		recordPlanDecision(tmp, [{ id: "task-1", title: "A", status: "pending", stepCount: 1, completedSteps: 0 }], true);
 		expect(planningGateBlocking(tmp)).toMatch(/incomplete phases/);
 	});
 
-	test("undefined when all phases are complete", () => {
+	test("undefined when all phases are complete (approval moot)", () => {
 		tmp = makePlanTmp("# P\n### Task 1: A\n- [x] done\n");
 		expect(planningGateBlocking(tmp)).toBeUndefined();
+	});
+});
+
+// ─── Ticket 01: plan approval gate (ExitPlanMode parity) ─────────────────────
+
+describe("plan approval gate (ticket 01)", () => {
+	test("goal_complete blocks on an UNAPPROVED plan with the approve reason; approval releases to the phases reason", async () => {
+		const tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n");
+		try {
+			// confirm:false → the /goal-start approval prompt is DENIED.
+			const { mock, ctx } = await startGoalForTest({ cwd: tmp, confirm: async () => false });
+			const tool = mock.tools[0]!;
+
+			const denied = await tool.execute(
+				"call-denied",
+				{ summary: "Implemented and verified with bun test." },
+				new AbortController().signal,
+				() => undefined,
+				ctx,
+			);
+			expect(denied.terminate).toBeUndefined();
+			expect(denied.content?.[0]?.text ?? "").toMatch(/not approved/);
+			expect(lastGoalStatus(mock)).toBe("active");
+
+			// Approve via the decision recorder (what /goal approve does) → the
+			// gate falls through to the pre-existing incomplete-phases reason.
+			recordPlanDecision(tmp, [{ id: "task-1", title: "A", status: "pending", stepCount: 1, completedSteps: 0 }], true);
+			const phases = await tool.execute(
+				"call-phases",
+				{ summary: "Implemented and verified with bun test." },
+				new AbortController().signal,
+				() => undefined,
+				ctx,
+			);
+			expect(phases.content?.[0]?.text ?? "").toMatch(/incomplete phases/);
+
+			const shutdown = mock.events.get("session_shutdown")?.[0];
+			await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+		} finally {
+			cleanupPlanTmp(tmp);
+		}
+	});
+
+	test("read-only planning: write/edit tool calls blocked while the plan is unapproved; reads pass", async () => {
+		const tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n");
+		try {
+			const { mock, ctx } = await startGoalForTest({ cwd: tmp, confirm: async () => false });
+			const toolCallHandlers = mock.events.get("tool_call") ?? [];
+
+			const blocked = await Promise.all(
+				toolCallHandlers.map((h) => h({ toolName: "write" }, undefined)),
+			);
+			for (const r of blocked) {
+				expect(r).toEqual({
+					block: true,
+					reason: expect.stringMatching(/read-only planning/),
+				});
+			}
+
+			const reads = await Promise.all(
+				toolCallHandlers.map((h) => h({ toolName: "read" }, undefined)),
+			);
+			for (const r of reads) expect(r).toBeUndefined();
+
+			// Approval releases the write block.
+			recordPlanDecision(tmp, [{ id: "task-1", title: "A", status: "pending", stepCount: 1, completedSteps: 0 }], true);
+			const released = await Promise.all(
+				toolCallHandlers.map((h) => h({ toolName: "edit" }, undefined)),
+			);
+			for (const r of released) expect(r).toBeUndefined();
+
+			const shutdown = mock.events.get("session_shutdown")?.[0];
+			await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+		} finally {
+			cleanupPlanTmp(tmp);
+		}
+	});
+
+	test("/goal approve: no-op when already approved, but re-prompts after a DENY (smoke-found regression)", async () => {
+		const tmp = makePlanTmp("# P\n### Task 1: A\n- [ ] do it\n");
+		try {
+			let answer = false; // /goal start → DENY
+			const confirms: string[] = [];
+			const { mock, ctx, notifications } = await startGoalForTest({
+				cwd: tmp,
+				confirm: async (_title: string, message: string) => {
+					confirms.push(`${_title}: ${message.split("\n")[0]}`);
+					return answer;
+				},
+			});
+			const goalCmd = mock.commands.get("goal");
+			expect(confirms.length).toBe(1); // the start prompt (denied)
+
+			// Explicit /goal approve after a deny MUST prompt again — the
+			// promptedContract dedupe guards automatic prompts, not commands.
+			answer = true;
+			await goalCmd?.handler("approve", ctx);
+			expect(confirms.length).toBe(2);
+			expect(planningGateBlocking(tmp)).toMatch(/incomplete phases/); // approval recorded
+
+			// Already approved for this contract → clean no-op, no third dialog.
+			await goalCmd?.handler("approve", ctx);
+			expect(confirms.length).toBe(2);
+			expect(notifications.some((n) => n.message.includes("already approved"))).toBe(true);
+
+			const shutdown = mock.events.get("session_shutdown")?.[0];
+			await (shutdown as (e: unknown, c: unknown) => void)?.({}, ctx);
+		} finally {
+			cleanupPlanTmp(tmp);
+		}
 	});
 });
 

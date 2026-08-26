@@ -11,7 +11,7 @@ import { currentTokenTotal } from "./internals.js";
 import { clearActiveGoal, setAndPersistGoal, updateStatus } from "./status.js";
 import { goalCompleteTool } from "./goal-complete-tool.js";
 import { registerGoalHooks } from "./hooks.js";
-import { clearGoal, editGoal, pauseGoal, resumeGoal, showGoal, startGoal, toggleGoalAudit } from "./lifecycle.js";
+import { approvePlan, clearGoal, editGoal, pauseGoal, resumeGoal, showGoal, startGoal, toggleGoalAudit } from "./lifecycle.js";
 import { sendGoalPrompt } from "./prompting.js";
 
 
@@ -106,6 +106,9 @@ export default function goal(pi: ExtensionAPI, overlay: GoalOverlayLike = new Go
 					return;
 				case "audit":
 					toggleGoalAudit(ctx);
+					return;
+				case "approve":
+					await approvePlan(ctx);
 					return;
 				case "review":
 					if (result.mode) {

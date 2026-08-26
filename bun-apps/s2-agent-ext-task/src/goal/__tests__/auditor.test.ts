@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runGoalCompletionAuditor, AUDIT_MAX_RETRIES, AUDIT_HISTORY_CAP, AUDITOR_STALL_MS } from "../auditor.js";
+import { runGoalCompletionAuditor, AUDIT_MAX_RETRIES, AUDIT_HISTORY_CAP, AUDITOR_STALL_MS, AUDITOR_TOOLS } from "../auditor.js";
 import type { ActiveGoal } from "../format.js";
 import type { CreateAgentSessionOptions } from "@earendil-works/pi-coding-agent";
 import { ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -192,6 +192,12 @@ describe("runGoalCompletionAuditor — safety floors", () => {
 	test("constants exported", () => {
 		expect(AUDIT_MAX_RETRIES).toBe(3);
 		expect(AUDIT_HISTORY_CAP).toBe(8);
+	});
+	test("read-only tool grant is pinned: the four read tools and NOTHING that can mutate (ticket 01)", () => {
+		// bash was removed from the grant 2026-08-26 (ticket 01): it was a write
+		// escape hatch guarded only by prompt-level "Never modify files". Any
+		// addition here must be provably non-mutating.
+		expect([...AUDITOR_TOOLS]).toEqual(["read", "grep", "find", "ls"]);
 	});
 });
 

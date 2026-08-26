@@ -46,6 +46,15 @@ export const AUDITOR_STALL_MS = 10 * 60_000; // 10-min inactivity → abort → 
 export const AUDIT_MAX_RETRIES = 3;           // consecutive disapprovals before escalate-to-user
 export const AUDIT_HISTORY_CAP = 8;           // max audit results retained on the goal
 
+/**
+ * The auditor's read-only tool grant (ticket 01: bash REMOVED). The auditor
+ * verifies completion by READING the tree; `bash` here was a write escape
+ * hatch guarded only by prompt-level "Never modify files". The must-call-
+ * read-tool floor is unaffected. Test-pinned — extend only with tools that
+ * cannot mutate the tree.
+ */
+export const AUDITOR_TOOLS = ["read", "grep", "find", "ls"] as const;
+
 export interface AuditProgress {
 	recentOutput: string[];
 	toolCalls: Array<{ name: string; argsPrefix: string; finishedAt: number }>;
@@ -100,7 +109,7 @@ function buildGoalAuditorPrompt(goal: ActiveGoal, completionSummary: string | nu
 		"You are the independent completion auditor for ext-task.",
 		"The executor claims the goal is complete. Decide whether the user's objective is actually satisfied.",
 		"Be skeptical and semantic. Do not approve from paperwork, intent, file count, word count, build success, or a plausible summary alone.",
-		"Use read/grep/find/ls/bash to inspect real artifacts. Do not mutate files or run destructive commands.",
+		"Use read/grep/find/ls to inspect real artifacts. Do not mutate files or run destructive commands.",
 		"If the work is an alpha scaffold, generated template, shallow draft, or lacks the user-facing value requested, disapprove.",
 		"If any explicit requirement is missing, weakly verified, contradicted, or not inspectable, disapprove.",
 		"Return a concise audit report. The final line MUST be exactly one of:",
@@ -182,7 +191,7 @@ export async function runGoalCompletionAuditor(args: AuditRunnerArgs): Promise<G
 			resourceLoader: makeAuditorResourceLoader(),
 			sessionManager: SessionManager.inMemory(ctx.cwd),
 			settingsManager: SettingsManager.inMemory({ compaction: { enabled: true } }),
-			tools: ["read", "grep", "find", "ls", "bash"],
+			tools: [...AUDITOR_TOOLS],
 		});
 
 		// Stall watchdog: no session event for AUDITOR_STALL_MS → abort → error.
@@ -254,7 +263,7 @@ export async function runGoalCompletionAuditor(args: AuditRunnerArgs): Promise<G
 				error: `Auditor produced no verdict marker${streamError ? ` — stream error: ${streamError}` : ""}. Treated as error, not a verdict.` };
 		}
 
-		const usedReadTool = toolCalls.some((c) => ["read", "grep", "find", "ls", "bash"].includes(c.name));
+		const usedReadTool = toolCalls.some((c) => (AUDITOR_TOOLS as readonly string[]).includes(c.name));
 		if (parsed.approved && !usedReadTool) {
 			return { approved: false, disapproved: true, output, model: modelLabel(model),
 				error: "Auditor approved without calling any read tool; treated as disapproved." };

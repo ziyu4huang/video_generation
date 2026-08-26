@@ -19,7 +19,7 @@ export type ReviewerMode = "off" | "on" | "auto" | "aggressive";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface CommandResult {
-	kind: "show" | "start" | "pause" | "resume" | "clear" | "edit" | "audit" | "review";
+	kind: "show" | "start" | "pause" | "resume" | "clear" | "edit" | "audit" | "review" | "approve";
 	objective?: string;
 	tokenBudget?: number;
 	/** Opt-in: run the completion auditor against this goal. */
@@ -55,6 +55,7 @@ export const GOAL_ARGUMENT_COMPLETIONS: readonly GoalArgumentCompletion[] = [
 	{ value: "status", label: "status", description: "Show the current goal" },
 	{ value: "--tokens ", label: "--tokens", description: "Set a token budget before the goal" },
 	{ value: "review ", label: "review", description: "Set the post-completion Reviewer mode (on|off|auto|aggressive)" },
+	{ value: "approve", label: "approve", description: "Approve the active plan (read-only planning until approved)" },
 ];
 
 export const EDIT_TOKEN_COMPLETION: GoalArgumentCompletion = {
@@ -96,6 +97,7 @@ export function parseCommand(args: string): CommandResult | string {
 	if (CLEAR_ALIASES.has(first)) return rest.length === 0 ? { kind: "clear" } : "Usage: /goal clear";
 	if (first === "status") return rest.length === 0 ? { kind: "show" } : "Usage: /goal status";
 	if (first === "audit") return rest.length === 0 ? { kind: "audit" } : "Usage: /goal audit";
+	if (first === "approve") return rest.length === 0 ? { kind: "approve" } : "Usage: /goal approve";
 	if (first === "review") {
 		const arg = rest[0]?.toLowerCase();
 		if (arg === "on") return { kind: "review", mode: "on" };

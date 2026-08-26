@@ -17,8 +17,8 @@ workflow discipline in tool text (in_progress-before-start, completed-only-when-
 AskUserQuestion (1-4 questions, header ≤12, 2-4 options, multiSelect, preview, recommended-first, Other) | `ask_user_question` — all present, schema+runtime enforced | aligned | — |
 AskUserQuestion annotations (notes + preview selection returned to model) | notes appended to model content (`— note: …`) since PR #2030 | aligned | — |
 "only ask when genuinely the user's decision" guidance | formatting/batching taught; overuse guard missing | partial | 02 (error-envelope work) |
-EnterPlanMode/ExitPlanMode (approval-gated, read-only planning) | passive plan coordinator; negative gate only (goal_complete blocked) | divergent | 01
-auditor read-only enforcement | prompt-level only; `bash` included in the grant | divergent | 01
+EnterPlanMode/ExitPlanMode (approval-gated, read-only planning) | plan approval gate (t01): `/goal` start/resume prompt + `/goal approve`; contract-fingerprinted approval; write/edit blocked while unapproved; goal_complete blocks "not approved" ahead of incomplete-phases | aligned (t01) | 01 ✅
+auditor read-only enforcement | `AUDITOR_TOOLS` = read/grep/find/ls (bash removed), test-pinned; prompt updated to match | aligned (t01) | 01 ✅
 `/loop` + ScheduleWakeup (one mechanism, dynamic pacing) | TWO `/loop`s (ext-task fixed-cadence LoopScheduler; ext-ultracode WakeupRegistry), `/loop:2` redirect | divergent | 03
 surface repeated failure to the model (strategy change) | pathology warnings status-line-only by design (opt-in injection charted) | divergent → opt-in parity | 04
 `/cost` + `/status` (cumulative spend, duration, turns) | absent (turn counter exists internally) | gap | 05
@@ -42,6 +42,15 @@ error results flagged isError | reducer errors return plain content; ask-user va
 - **goal machinery has no CC analog and stays** — auditor, quota-retry,
   heartbeat supervision, length-continue are s2-only advantages; ticket 01/11
   tune edges (bash grant, reviewer default), never remove the machinery.
+- **Read-only planning blocks write/edit only, not bash (t01)** — the
+  tool_call seam is toolName-only (no args to inspect), so a blanket bash
+  block would break read-only greps. CC's plan mode inspects bash commands;
+  s2 cannot at this seam. bash writes during unapproved planning remain
+  possible (prompt-discipline only) — same posture the auditor had before
+  t01 dropped its bash grant.
+- **Plan approval is session-scoped, not persisted (t01)** — CC's plan-mode
+  approval is also per-session; a new session re-prompts. The approval
+  record lives in `plan/approval.ts`'s module map, reset per process.
 
 ## 3. s2-only advantages (no CC counterpart — do not remove)
 
