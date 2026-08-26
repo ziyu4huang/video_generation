@@ -9,7 +9,7 @@ import type { Extractor } from "./extractor.ts";
  *  beyond the canonical 12 are tolerated and preserved in evidence only. */
 export interface KnowledgeRecord {
 	id: string;
-	type: string; // lever | avoid | pattern | gotcha | metric | false_positive | experience (schema v2)
+	type: string; // lever | avoid | pattern | gotcha | metric | false_positive | experience | event | case | preference | reference (schema v2 + D16 + #2056)
 	title: string;
 	detail: string;
 	tags: string[];

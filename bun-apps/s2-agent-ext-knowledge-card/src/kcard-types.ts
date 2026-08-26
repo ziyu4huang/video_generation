@@ -13,7 +13,8 @@
  */
 import type { MergeOp } from "./card-format.ts";
 
-/** D16 union: the 7 legacy kcard values + the 3 ported OpenViking types. */
+/** D16 union: the 7 legacy kcard values + the 3 ported OpenViking types +
+ *  `reference` (#2056: the generic adapter's neutral prose-page type). */
 export type CardType =
 	| "lever"
 	| "avoid"
@@ -24,7 +25,8 @@ export type CardType =
 	| "experience"
 	| "event"
 	| "case"
-	| "preference";
+	| "preference"
+	| "reference";
 
 /** add_only: extraction always creates; no merge/delete toward an existing
  *  card of this type (OpenViking `events` passthrough, measured). upsert:
@@ -137,6 +139,19 @@ export const CARD_TYPES: Readonly<Record<CardType, CardTypeDef>> = {
 		requiredFields: ["title", "detail"],
 		stage: "user",
 		notes: "A preference: a durable user preference (tooling, workflow, style) — an upsert target whose re-extraction refines the recorded preference.",
+	},
+	// ── #2056: the generic adapter's neutral prose-page type ───────────────
+	/** reference: what a plain prose/document page IS when it is not any of
+	 *  the meaning-bearing types. Introduced so `adaptGenericMarkdown` stops
+	 *  stamping every frontmatter-less page `pattern` (839 file2md USB4-spec
+	 *  cards did exactly that, polluting the `pattern` tag's IDF cross-linking
+	 *  — P8 demotes a tag that is on everything). Machine-adapted, hence
+	 *  stage "agent" like `experience`. */
+	reference: {
+		operationMode: "upsert",
+		requiredFields: ["title", "detail"],
+		stage: "agent",
+		notes: "A reference: a neutral prose/document page carried into the graph for retrieval — no lever/avoid/pattern claim. The generic adapter's default for pages without a cautionary callout.",
 	},
 };
 

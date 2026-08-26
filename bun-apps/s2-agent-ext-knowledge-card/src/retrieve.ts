@@ -367,6 +367,9 @@ const SLUG_STOP = new Set([
 	...BODY_STOP,
 	"auto", "memory", "gotcha", "lever", "avoid", "pattern", "metric",
 	"false", "positive", "note", "card", "zettel", "self", "improve",
+	// #2056: the generic adapter's neutral prose-page type — ubiquitous on
+	// file2md corpora, zero topic signal, same rationale as the others.
+	"reference",
 ]);
 
 /** Minimum slug-token overlap for the slug-dom precision branch to fire. Below

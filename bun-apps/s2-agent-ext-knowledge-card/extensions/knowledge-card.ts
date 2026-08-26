@@ -1074,7 +1074,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			type: Type.Optional(Type.String({
 				description:
 					"D18 typed filter (ticket 05): exact leaf type — gotcha|avoid|lever|pattern|" +
-					"metric|false_positive|experience|event|case|preference. Deterministic " +
+					"metric|false_positive|experience|event|case|preference|reference. Deterministic " +
 					"caller-passed filter (no intent analysis).",
 			})),
 		}),
@@ -1200,7 +1200,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			pattern: Type.Optional(Type.String({ description: "find: glob over stems ('*' wildcard) or bare substring." })),
 			query: Type.Optional(Type.String({ description: "grep: token query — FTS conjunction over title/summary/body." })),
 			type: Type.Optional(Type.String({
-				description: "D18 typed filter — exact leaf type (gotcha|avoid|lever|pattern|metric|false_positive|experience|event|case|preference).",
+				description: "D18 typed filter — exact leaf type (gotcha|avoid|lever|pattern|metric|false_positive|experience|event|case|preference|reference).",
 			})),
 			depth: Type.Optional(Type.Number({ description: "tree: max depth (1–4, default 2).", default: 2 })),
 			limit: Type.Optional(Type.Number({ description: "Max entries (per-op default: ls 50 / find 30 / grep 20).", default: 50 })),
