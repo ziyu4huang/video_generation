@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-26-kcard-multidir-rejudge
 created: 2026-08-26
-last: 2026-08-26 (t03 closed — 4-arm × 2 runs measured, reviewer APPROVE; recursive still loses to flat incl. dir-disc split; F2 = KEEP-UNPORTED ×3; follow-ups #2064)
-status: active
+last: 2026-08-26 (effort COMPLETE — two parallel t03 measurements reconciled: recursive LOSES both times; D4; F2 all KEEP-UNPORTED; #2064 discharged)
+status: complete
 ---
 
 # Multi-directory corpus re-judgment of the recursive lane (D9 trigger + audit F2)
@@ -59,8 +59,8 @@ pairs, order recorded per wayfind confirm-gate discipline).
 - [02] Generalize resource-eval.mjs for multi-dir trees + blind battery — closed 2026-08-26 (--check-only green; 844-row fog resolved)
 
 ### Phase 3 — judgment
-- [03] Run the re-judgment (recursive vs flat vs generic ×2) + F2 knob adjudication — closed 2026-08-26 (runs deterministic; recursive 11/26·0.253 vs flat 14/26·0.394, dir-disc split 7/16 vs 9/16 — the lane's theoretical advantage does not materialize; F2 all KEEP-UNPORTED; α mild 0.3-best 13/26 still < flat; L0/L1 crowding INCONCLUSIVE at K=5; generic 0/16 dir-disc = id-collision coverage artifact — harness namespacing bug #2064; reviewer APPROVE after a REQUEST_CHANGES round, all findings addressed in-record)
-- [04] Verdict, D9/D-map update, effort close-out — open
+- [03] Run the re-judgment + F2 adjudication — closed 2026-08-26 (reviewer-confirmed; recursive LOSES at every α)
+- [04] Verdict, D9/D-map update, effort close-out — closed 2026-08-26 (D4 recorded)
 
 ## Decisions
 
@@ -82,36 +82,73 @@ pairs, order recorded per wayfind confirm-gate discipline).
   `GLOBAL_SEARCH_TOPK`, `RetrieverMode` — no silent non-decisions. Cheap
   env-gated sweeps only if implementation is trivial; otherwise the verdict
   is adjudicated from the measured runs + upstream reading.
+- **D4 — the re-judgment verdict: recursive lane LOSES on the multi-dir
+  corpus; CLI-only is now REDESIGN-gated, not re-tune-gated.** Measured
+  2026-08-26 on usb4-family (1263 L2 + 170 tier rows, 26-question battery
+  16 dir-class + 10 within-class, 4 arms × 2 identical runs, bge-m3):
+  recursive 10/26 hit@5 MRR 0.215 vs flat 14/26 0.394; dir-class MRR loses
+  at every α (best 0.275 @ α=0.3 vs flat 0.400); dir-class hit@5 loses at
+  α=0.5/0.7, single TIE at α=0.3. Lexical-bias anomaly CUTS AGAINST
+  recursive (13/16 dir questions name their doc — easy seeds — and it still
+  loses; reviewer finding). F2 verdicts (all KEEP-UNPORTED, evidence in
+  ticket 03): `DIRECTORY_DOMINANCE_RATIO` is a dead constant upstream;
+  `GLOBAL_SEARCH_TOPK` is a reranker-scoped floor structurally surpassed
+  (seed pass selects all tier rows, D19 = no reranker); `RetrieverMode` is
+  the flat-vs-recursive fork kcard already exposes as two CLI surfaces.
+  Reason: D9's single-dir excuse is now DISCHARGED with counter-evidence —
+  directory pruning is actively harmful on the corpus type it was built
+  for. Re-open only with a redesign hypothesis (seed scoring / descent
+  policy), never with re-tuning.
 
 ## Frontier
 
-Ticket 04 — the numbers are in (t03): recursive loses to flat on the
-multi-dir corpus INCLUDING the dir-discriminating split (7/16 vs 9/16
-hit@5, MRR 0.234 vs 0.400), α sweep's best (0.3 → 13/26·0.278) stays under
-flat (14/26·0.394), and all three F2 knobs adjudicated KEEP-UNPORTED. The
-verdict work is to record the D-map update (D9 successor decision: the
-recursive lane's CLI-only status is CONFIRMED, not re-opened), fold the
-generic-arm collision finding into #2064's scope decision, and close the
-effort.
+(none — effort complete; the queue drained. Successor next-goal per session
+SOP.)
 
 ## Fog of war
 
-- Whether the flat lane also gains from L0/L1 tier rows on a multi-dir tree
-  (t03's arms measure this as a side-effect; the t04 α-re-identification
-  question from resource-tier fog rides along).
-- Question-battery authoring for companions: TOC-derived like the main-spec
-  set (its lesson: key sections to page SPANS, not the heading page —
-  resource-tier map fog, answer-key granularity).
+- ~~Whether the flat lane also gains from L0/L1 tier rows on a multi-dir
+  tree~~ — RESOLVED t03: it does not (flat with tier rows 14/26 0.394 vs
+  L2-only 15/26 0.401; receipt `ablation-flat-l2only-2026-08-26.json`).
+  Tier rows exist for the recursive lane only.
+- ~~α unidentifiable on single-dir (resource-tier fog)~~ — RESOLVED t03:
+  identifiable on multi-dir (0.3/0.5/0.7 → 13/10/11 hit@5); the
+  single-dir invariance was a corpus artifact as hypothesized. 0.5 default
+  retained (moot under D4).
+- ~~Question-battery authoring for companions~~ — RESOLVED t02: TOC-derived,
+  targets spot-verified, page-offset pitfalls recorded in the battery meta
+  (Inter-Domain +7 roman front matter).
 - ~~The main-spec 839-row receipt vs 840 walked files discrepancy (combined
   root .md)~~ — RESOLVED t02: the 2026-08-25 receipt actually inserted
   **844** resource rows (839 pages + 1 combined root .md + 4 tier sidecar
   rows); "839" was the page-count shorthand. New corpus = exactly 1263 L2
   by construction (D2 strips the combined file).
+- NEW observation, NOT re-litigated here: the generic-card baseline
+  (`zk_ingest` generic → hierarchicalRetrieve) beat BOTH resource lanes on
+  this corpus (17/26 0.449 vs flat 14/26 0.394) — consistent with the
+  2026-08-25 "no clear win vs generic". The resource tier's standing
+  justification remains its derived/rebuildable/token-economics posture
+  (that effort's D2), not retrieval supremacy; any future "should the
+  default document lane be generic cards instead" question is its own
+  effort with its own battery.
 
 ## Cross-effort links
 
 - Builds-on: `.planning/2026-08-25-kcard-resource-tier/` — D9 named this
-  corpus as the re-judgment trigger; α fog + L0/L1-ablation re-opens ride
-  along (both were "re-open only with the multi-dir corpus").
+  corpus as the re-judgment trigger; α fog + L0/L1-ablation re-opens rode
+  along and both RESOLVED here (see Fog). That map's D9 now carries the
+  resolution pointer to this effort's D4.
 - Shares-decision-with: `.planning/specs/2026-08-25-openviking-naming-alignment-audit.md`
   — F2 (un-ported retrieval knobs) folds into t03 per that audit's §E.
+
+## Parallel-session note (record, not decision)
+
+Ticket 03 was measured TWICE by concurrent worktrees (`__memory`: receipts
+13-13-20, a 1431-row index that raced the tier-sidecar writes, broken
+generic baseline, closed via PR #2066; `__subagent`: receipts 13-16-57+,
+full 1433-row index, fixed baseline, closed via the reconciling PR). Both
+reviewer passes approved their own records; the verdict (D4) is identical,
+and the α=0.3/0.7 cells reproduce exactly across both. Lesson for parallel
+dispatches: never run the live eval while another session's
+resource-ingest is still writing sidecars into the same tree — the index
+row count is a race surface (1431 vs 1433).

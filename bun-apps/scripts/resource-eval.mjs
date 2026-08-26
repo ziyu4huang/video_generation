@@ -268,11 +268,16 @@ try {
 			if (rec) {
 				// Multi-dir trees: `page-003.md` exists in every doc dir and the
 				// adapter ids by basename — all 41 would upsert onto ONE card.
-				// Namespace the id with the doc dir. The suffix lives in the stem
-				// (identity) only: the EMBEDDED text (title/body/tags) still sees
-				// just the page, keeping the baseline info-fair vs the resource
-				// lane, which embeds basename + body (never the path).
-				const docSlug = rel.slice(0, rel.lastIndexOf("/")).split("/").pop();
+				// Namespace the id with the DOC dir (the path minus its trailing
+				// `pages` segment — the immediate parent is `pages` for EVERY doc,
+				// so the parent alone does not disambiguate; first run measured
+				// this: 1263 pages → 839 cards, companions overwritten by the
+				// main spec). The suffix lives in the stem (identity) only: the
+				// EMBEDDED text (title/body/tags) still sees just the page,
+				// keeping the baseline info-fair vs the resource lane, which
+				// embeds basename + body (never the path).
+				const dirPath = rel.slice(0, rel.lastIndexOf("/"));
+				const docSlug = dirPath.endsWith("/pages") ? dirPath.slice(0, -"/pages".length) : dirPath;
 				rec.id = `${rec.id}@${docSlug}`;
 				records.push(rec);
 			}
