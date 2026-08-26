@@ -118,6 +118,40 @@ test("a single over-cap turn is sliced — the cap is a hard bound, not advisory
   assert.ok(!block.includes("truncated"), "a single turn drops nothing, it is sliced");
 });
 
+test("an over-cap tail turn with older turns dropped still honors the cap exactly (marker slack reserved)", () => {
+  const entries: SessionEntry[] = [
+    msg("e1", null, "user", "A".repeat(40)),
+    msg("e2", "e1", "assistant", "B".repeat(40)),
+    msg("e3", "e2", "user", "X".repeat(500)),
+  ];
+  const cap = 100;
+  const block = buildForkTranscript(entries, "e3", cap);
+  assert.ok(block);
+  const body = block.slice(FORK_TRANSCRIPT_HEADER.length + 2);
+  // Regression (#2081 follow-up): the oversized kept block used to be sliced
+  // to `cap` and THEN prefixed with the marker — body landed ~35 chars over.
+  assert.ok(body.startsWith("[... earlier turns truncated ...]"), "older turns dropped, marker present");
+  assert.ok(!body.includes("AAAA"), "oldest turn dropped");
+  assert.equal(body.length, cap, `body is exactly the cap (got ${body.length})`);
+});
+
+test("a tail turn within marker-slack of the cap is still sliced when older turns were dropped (effective limit)", () => {
+  // Reviewer-found residual edge: a last kept block in (cap - markerSlack, cap]
+  // used to pass the `> capChars` slice threshold untouched — body overshot
+  // the cap by the marker slack.
+  const entries: SessionEntry[] = [
+    msg("e1", null, "user", "A".repeat(60)),
+    msg("e2", "e1", "assistant", "X".repeat(98)),
+  ];
+  const cap = 100;
+  const block = buildForkTranscript(entries, "e2", cap);
+  assert.ok(block);
+  const body = block.slice(FORK_TRANSCRIPT_HEADER.length + 2);
+  assert.ok(body.startsWith("[... earlier turns truncated ...]"), "older turn dropped, marker present");
+  assert.ok(!body.includes("AAAA"), "oldest turn dropped");
+  assert.equal(body.length, cap, `body is exactly the cap (got ${body.length})`);
+});
+
 test("runAsForkChild scopes isForkChild() across awaits; the guard is false outside", async () => {
   assert.equal(isForkChild(), false);
   const inside = runAsForkChild(async () => {
