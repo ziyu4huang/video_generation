@@ -3,8 +3,6 @@ import { readAllToolDefinitions } from "@repo/s2-agent-core-interface";
 // Moved to @repo/s2-agent-core-runtime (in-flight registry with the dispatch
 // layer; run persistence with the record layer).
 import {
-  buildForkTranscript,
-  forkTranscriptCap,
   getLiveAgentRegistry,
   getPendingProtocolMap,
   getSubagentInFlightRegistry,
@@ -13,6 +11,7 @@ import {
   setTransientModelTierConfig,
 } from "@repo/s2-agent-core-runtime";
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
+import { createParentTranscriptGetter } from "../src/fork-transcript-getter.js";
 import {
   convertToBackground,
   createRequestPlanApprovalTool,
@@ -113,11 +112,9 @@ export default function extension(pi: ExtensionAPI) {
     // on demand. undefined = no sessionManager captured (fork then fails
     // pre-flight in the tool — never a silent empty inheritance). A projection
     // throw propagates to the dispatch and fails it with the real error.
-    getParentTranscript: () => {
-      const sm = sessionManagerHolder.current;
-      if (!sm) return undefined;
-      return buildForkTranscript(sm.getEntries(), sm.getLeafId(), forkTranscriptCap());
-    },
+    // Extracted into src/fork-transcript-getter.ts so the real chain is
+    // tripwire-testable (#2081) — this is the same closure, not a copy.
+    getParentTranscript: createParentTranscriptGetter(sessionManagerHolder),
     // Parent's gated active set, read lazily at spawn time so a child inherits
     // the freshest ~24-tool gated set (optimization #1), not the full ~55-tool
     // universe. Best-effort: getActiveTools may be unavailable in some hosts.
