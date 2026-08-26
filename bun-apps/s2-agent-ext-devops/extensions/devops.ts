@@ -452,7 +452,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "sweep_merged_branches",
 		label: "Sweep merged local + remote branches (conservative, dry-run by default)",
 		description:
-			"Classify every local + remote branch and report which are safe to delete. CONSERVATIVE: a branch is deleted only when gh shows a MERGED PR for it (high confidence); uncertain cases ([gone] without gh proof, or a head ref reused by an open PR) go to a `review` bucket the human decides — never auto-deleted. Worktree-checked-out, protected (main/master/default) and the current branch are NEVER deleted (absolute). Dry-run by default: returns the plan only; pass execute:true to delete the high-confidence set, or confirm:[...] to delete specific reviewed branches. Uses structured git/gh JSON — never `git branch --merged` (wrong for squash merges).",
+			"Classify every local + remote branch and report which are safe to delete. CONSERVATIVE: deletes only on gh-confirmed MERGED PRs; uncertain cases ([gone] without gh proof, head reused by an open PR) go to a `review` bucket for the human — never auto-deleted. Worktree-checked-out, protected, and current branches are NEVER deleted. Dry-run by default: execute:true deletes the high-confidence set, confirm:[...] deletes specific reviewed branches. Uses structured git/gh JSON — never `git branch --merged` (wrong for squash merges).",
 		gating: { gate: "sweep_merged_branches" }, // reference form (ticket 01)
 		promptSnippet:
 			"Sweep merged local+remote branches. Conservative: delete only on gh-confirmed merge; uncertain → review (human). Dry-run by default; worktree/protected/current never deleted.",
@@ -495,7 +495,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "run_local_ci",
 		label: "Local CI verification",
 		description:
-			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus EVERY step of the workflow's regression-gates job (file-size, lockfile, dep-direction, ADR citation, seam, routing, config-parity, ci-workflow, package-scripts, portability, determinism, …; info-only schema-cost). Returns a STRUCTURED pass/fail so you can self-verify before merge. OFFLINE (no network): change detection runs in-process (extension-native TS), the per-package command comes from the CI matrix, and the gate list is DERIVED from the same workflow — neither is hand-copied here — so a green run is the local proxy for a green remote run. Use to self-verify before merge; merge_pr_after_local_ci / merge should gate on this.",
+			"Run local CI — typecheck + tests scoped to the packages changed vs origin/main, plus EVERY step of the workflow's regression-gates job (file-size, lockfile, dep-direction, ADR citation, seam, routing, config-parity, determinism, …; info-only schema-cost). Returns a STRUCTURED pass/fail. OFFLINE (no network): change detection runs in-process and the gate list is DERIVED from the same CI workflow — a green run is the local proxy for a green remote run. Self-verify before merge; merge_pr_after_local_ci gates on this.",
 		gating: { gate: "run_local_ci" }, // reference form (ticket 01)
 		promptSnippet:
 			"Local CI: typecheck + tests for changed packages vs origin/main, plus repo gates. Structured pass/fail, offline. Self-verify before `gh ship`.",
@@ -543,7 +543,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "check_main_health",
 		label: "Is the default branch green right now?",
 		description:
-			"Run the FULL test matrix + the whole regression-gates suite against the default branch, in the worktree that actually has it checked out. run_local_ci is change-scoped and remote CI is disabled here, so a branch that avoids a broken package merges green forever and nothing reports that main itself is red — this is the missing health check. ABORTS (tests nothing, reports unhealthy) when no worktree holds the default branch: a tree is required because a suite runs against a working tree, not a ref. A dirty or behind tree still runs but the outcome carries a warning saying the verdict is about that tree, not exactly origin/<default>. Read-only: never checks out, syncs, or mutates anything.",
+			"Run the FULL test matrix + regression-gates suite against the default branch, in the worktree that has it checked out (run_local_ci is change-scoped and remote CI is off — this is the check that main ITSELF is green). ABORTS (tests nothing, reports unhealthy) when no worktree holds the default branch: a suite needs a working tree, not a ref. A dirty or behind tree still runs, with a warning that the verdict is about that tree, not exactly origin/<default>. Read-only: never checks out, syncs, or mutates.",
 		gating: { gate: "check_main_health" }, // reference form (ticket 01)
 		promptSnippet:
 			"check_main_health: full matrix + gates against the default branch, run in the worktree that holds it. Read-only. Says which packages/gates are red on main — the thing change-scoped run_local_ci structurally cannot see.",
@@ -561,7 +561,7 @@ export default function (pi: ExtensionAPI): void {
 		name: "sync_default_branch",
 		label: "Sync this repo to latest default branch (TS port of sync-repo.sh)",
 		description:
-			"Sync this worktree/repo to the latest default branch. Modes: 'full' (default) — git fetch origin; auto-detect the default branch D via origin/HEAD; advance D to origin/<D> WORKTREE-AWARE (advance it in the worktree that holds D; only check it out here when free), then recursively sync submodules to their remote tips. By DEFAULT the advance uses `git merge --ff-only origin/<D>` — it REFUSES (aborts, reason 'divergent') when local <D> has divergent/unpushed commits, so it NEVER loses commits. Pass force:true to instead use `git reset --hard origin/<D>` (discards those divergent commits — explicit opt-in). 'rebase' — fetch + rebase the current branch onto origin/<D>. 'pull' — fetch + merge origin/<D> into the current branch (a real merge, never fast-forward). dryRun computes + returns the exact git commands without mutating. Pre-flight: a dirty tracked tree aborts mutating runs; unpushed commits are warned. Auto-managed hot files (default: .agents/memory/MEMORY.md) are stashed + restored across the advance instead of aborting; genuinely uncommitted work still aborts. rebase/pull on a DETACHED HEAD aborts 'detached_head' unless branch is passed — then the named branch is created (or attached) at the current HEAD and the sync proceeds ('auto' derives the name from the worktree folder suffix). Replaces the sync-repo.sh / git-remote-main-sync.sh / safe-sync.sh bash (agent-invoked only; no shell entry).",
+			"Sync this repo to the latest default branch. 'full' (default): fetch; auto-detect default branch D; advance D to origin/D worktree-aware (in the worktree that holds D) via merge --ff-only — aborts 'divergent' on divergent/unpushed commits, never losing them (force:true = reset --hard, explicit discard opt-in); then recursively sync submodules. 'rebase': fetch + rebase the current branch onto origin/D. 'pull': fetch + merge (a real merge, never fast-forward). dryRun returns the exact git commands without mutating. A dirty tracked tree aborts mutating runs; the preserve list (default .agents/memory/MEMORY.md) is stashed + restored instead. rebase/pull on a detached HEAD aborts unless `branch` is passed (see param).",
 		gating: { gate: "sync_default_branch" }, // reference form (ticket 01) — family in GATE_DEFS
 		promptSnippet:
 			"Sync this repo to latest default branch. full (default): fetch + advance default branch via merge --ff-only (worktree-aware; aborts on divergent unless force:true → reset --hard) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
@@ -573,19 +573,19 @@ export default function (pi: ExtensionAPI): void {
 			force: Type.Optional(
 				Type.Boolean({
 					description:
-						"full-mode only. When false (default), advance the default branch with `merge --ff-only` and REFUSE if it has divergent/unpushed commits (never loses commits). When true, use `reset --hard origin/<default>` (discards divergent commits) — explicit opt-in.",
+						"full-mode only. false (default): merge --ff-only, refuses on divergent/unpushed commits (never loses them). true: reset --hard origin/<default> — discards divergent commits, explicit opt-in.",
 				}),
 			),
 			preserve: Type.Optional(
 				Type.Array(Type.String(), {
 					description:
-						"Paths (exact, or dir prefix ending in '/') whose uncommitted changes are auto-preserved across the advance (stashed before, restored after) instead of aborting dirty_tree. Default: ['.agents/memory/MEMORY.md'] (hermes auto-managed). Only the listed paths are preserved; ALL OTHER uncommitted tracked work still aborts dirty_tree. Pass [] to disable preserve entirely.",
+						"Paths (exact, or dir prefix ending in '/') whose uncommitted changes are stashed + restored across the advance instead of aborting dirty_tree. Default: ['.agents/memory/MEMORY.md']. All other uncommitted tracked work still aborts; [] disables preserve.",
 				}),
 			),
 			branch: Type.Optional(
 				Type.String({
 					description:
-						"rebase/pull only — detached-HEAD recovery. When the calling worktree is on a detached HEAD, create (or attach, when it already exists at the exact HEAD) this branch at the current HEAD instead of aborting 'detached_head', then proceed. 'auto' derives the name from the worktree folder suffix (video_generation__memory → 'memory'). Never resolves to the default branch; an existing branch at a different commit or a branch checked out elsewhere aborts.",
+						"rebase/pull, detached HEAD only: create (or attach, if it exists at this exact HEAD) this branch at HEAD and proceed instead of aborting 'detached_head'; 'auto' derives the name from the worktree folder suffix. Never the default branch; an existing branch at a different commit or checked out elsewhere aborts.",
 				}),
 			),
 		}),
