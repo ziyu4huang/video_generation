@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-26-s2agent-crossos-deploy
 created: 2026-08-26
-last: 2026-08-27 (tickets 01+02+03 closed — topology + acquisition decided; frontier = 04/05 parallel + 07)
+last: 2026-08-27 (tickets 01–04 closed — topology, acquisition, Windows launcher shipped; frontier = 05 + parallel 07)
 status: active
 ---
 
@@ -63,7 +63,7 @@ tickets; sibling effort merge-base `a57b6d38`):
 
 ### Phase 2 — launcher + tree layout (the build work)
 - [03] Packaging topology — closed 2026-08-27 (per-target subroots `<outRoot>/<target>/<version>/` + per-target `current`, `--target` flag default host; bun via GitHub release + SHASUMS256 — D6/D7)
-- [04] PowerShell launcher `s2-agent.ps1` (+ entry shim) — open (prototype; unblocked by 03)
+- [04] PowerShell launcher `s2-agent.ps1` (+ entry shim) — closed 2026-08-27 (`.ps1` twin + `.cmd` Bypass shim shipped in every tree; real-Windows friction DEFERRED to 06 with blockers named: no Windows host, no CI windows runner)
 - [05] Windows tree-layout compat (PATH/env/junction/exec-perms) — open (task; unblocked by 03)
 
 ### Phase 3 — verification + simplification fold-in
@@ -105,14 +105,15 @@ tickets; sibling effort merge-base `a57b6d38`):
 
 ## Frontier
 
-**Tickets 04 + 05 (now unblocked by 03's D6/D7)** — the two build tickets
-are parallelizable: 04 (PowerShell launcher prototype — bash launcher
-contract translated to `s2-agent.ps1` + entry shim, `bin/bun`-vs-`bun.exe`
-naming from D7's Windows artifact) and 05 (Windows tree-layout compat —
-PATH/env/junction/exec-perms, vendor-closure `--target` pass-through, and
-the `ensureCachedBun` foreign-binary entry point D7 names). **Ticket 07
-(dead `--compile` cleanup)** remains parallelizable AFK work. Ticket 06
-(verification strategy) sharpens after 04/05 land shapes.
+**Ticket 05 (Windows tree-layout compat)** — the remaining build work, with
+t04's launcher shapes settled (`.ps1` + `.cmd` ship in every tree; runtime
+resolved as `bin\bun.exe` with `bin\bun` fallback). t05 lands the pipeline
+side of D6/D7: `--target` flag + per-target subroots, vendor-closure target
+pass-through, and the `ensureCachedBun` foreign-binary cache entry point D7
+names (GitHub-release fetch → `.buns/<hash>`). **Ticket 07 (dead
+`--compile` cleanup)** remains parallelizable AFK work. Ticket 06 inherits
+t04's deferred friction measurements (double-click under Restricted
+policy, TUI console inheritance, verify-deploy-e2e `.cmd` spawn twin).
 
 ## Fog of war
 
