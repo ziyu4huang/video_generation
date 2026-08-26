@@ -519,7 +519,18 @@ export function createSubagentTool(
               },
             };
           }
-          if (outcome.userAborted) {
+          // #2067: a whole-turn Esc (parent signal aborted → childAc fanned in
+          // via onParentAbort) is the SAME user interrupt as the per-child
+          // lever, but `userAborted` is deliberately false there — the parent's
+          // own state distinguishes the levers (child-dispatch.ts:254). Route
+          // BOTH through this branch: before, the whole-turn case fell through
+          // to the generic path where buildDetails re-derived status from the
+          // abort-shaped failure kind (`timedout`), so an Esc'd run misbadged
+          // ⏱ timedout in the settled row AND the durable record — the #2027
+          // settle correction lived only in dispatchChild's outcome.status,
+          // which this seam dropped. status "aborted" ⇔ a user interrupt: the
+          // third childAc firer, detach, is handled above (detached=true).
+          if (outcome.userAborted || outcome.status === "aborted") {
             // Partial work is discarded (worktree) or left in-tree (real-tree);
             // scope/watchdog review of a half-finished diff would be noise. The
             // transcript, though, is exactly the "code done, unreported" case —
