@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-25-subagent-tui-cc-parity
 created: 2026-08-25
-last: 2026-08-25
+last: 2026-08-26
 status: complete
 ---
 
@@ -94,9 +94,11 @@ confirm-gate: "確認 3 張全做"; no blocking edges).
 
 ## Frontier
 
-None — the queue is drained (t01 #2025, t02 #2027, t03 as a documented
-no-go in #2039). The loop ends here per queue-drain termination; remaining
-fog items are parked records, not open work.
+Re-opened by real-dist measurement 2026-08-26: **#2067** — the whole-turn Esc
+misbadge t02 fixed at the dispatch seam RESURFACES in the deployed TUI (see
+Fog of war). First step: adjudicate the fix directions in the issue (parent
+turn signal into `dispatchChild` vs `classifyError` abort-shape handling) and
+open the fix ticket under this effort or a successor.
 
 ## Fog of war
 
@@ -115,7 +117,16 @@ fog items are parked records, not open work.
   "(esc to interrupt)" already renders in the working status indicator
   (:1741). The ticket's own key-claim design was dropped as a collision; the
   shipped fix is the settle-status correction (Esc'd run → `aborted`, was
-  misread `timedout`).
+  misread `timedout`). **RE-OPENED 2026-08-26 (#2067)**: deployed-TUI
+  verification of `0.7.21+ga57b6d3` (real pty/tmux, twice reproduced) shows
+  the correction never engages on a real Esc — the tool `signal` does not
+  abort (or aborts only at cleanup, after the child settles), the child's
+  fetch dies via a shared host abort channel, and `classifyError`'s
+  abort-shape fallback (`spawn-subagent.ts:230-232`) maps it to `timedout`
+  (receipts: settles at 3s and 0.2s child-age against a 15-min
+  `DEFAULT_TIMEOUT_MS`). The t02 unit tests pass because they abort
+  `parentSignal` directly; the untested premise was the real propagation
+  ORDER. Fix directions to adjudicate in the issue.
 - ~~Whether Ctrl+B-as-panel is claimable globally~~ — RESOLVED, twice:
   D4's alt+b direction was DISPROVED by measurement (alt+b is a
   `tui.editor.cursorWordLeft` default) and D5 records the no-go (no global
