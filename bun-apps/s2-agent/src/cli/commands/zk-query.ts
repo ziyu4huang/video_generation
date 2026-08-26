@@ -21,7 +21,7 @@
  *   --health               graph health audit (dead-links / MOC-drift / orphans)
  *   --fix                  auto-heal (with --health): regenerate MOC + prune dead links
  *   --folder <name>        convergence folder (default Zettelkasten/knowledge-graph)
- *   --vault <path>         absolute vault path
+ *   --vault <path>         absolute vault path (must exist unless --vault-create)
  *   --vault-dir <name>     vault folder name under cwd (default vault)
  */
 import { existsSync } from "node:fs";
@@ -65,8 +65,9 @@ Options:
   --health                 run graph health audit instead of retrieval
   --fix                    with --health: auto-heal: regenerate MOC + prune dead links
   --folder <name>          convergence folder (default Zettelkasten/knowledge-graph)
-  --vault <path>           absolute vault path (sets OB_VAULT_PATH)
+  --vault <path>           absolute vault path (must exist unless --vault-create)
   --vault-dir <name>       vault folder name under cwd (default vault)
+  --vault-create           permit seeding a NEW vault tree at --vault
 
 Examples:
   # Cross-workflow retrieval for flux2's tag space

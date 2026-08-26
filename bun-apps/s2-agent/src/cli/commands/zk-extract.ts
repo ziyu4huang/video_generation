@@ -4,8 +4,8 @@
  *
  * Workflow:
  *   1. Resolve input files (expand folders to *.md / *.txt, dedupe, validate).
- *   2. Resolve the target vault (OB_VAULT_PATH / --vault / --vault-dir / cwd/vault)
- *      and ensure it exists.
+ *   2. Resolve the target vault (--vault / OB_VAULT_PATH > --vault-dir >
+ *      obsidian config > cwd/vault — see vault-paths.ts) and ensure it exists.
  *   3. Drive a parent agent session (pi-obsidian baked in) whose task instructs
  *      it to call `obsidian` with action:"distill" and the resolved inputs.
  *
@@ -17,7 +17,7 @@
  *   <inputs...>            files and/or folders (relative to cwd or absolute)
  *   --folder <name>        Zettelkasten target folder (default: Zettelkasten)
  *   --max-notes <n>        hint: cap notes produced
- *   --vault <path>         absolute vault path
+ *   --vault <path>         absolute vault path (must exist unless --vault-create)
  *   --vault-dir <name>     vault folder name under cwd (default: vault)
  *   --model / --provider / --thinking / --tools / -p / --mode ...
  */
@@ -70,9 +70,11 @@ export function resolveInputs(inputs: string[], cwd: string): string[] {
 
 /**
  * Resolve the vault directory and ensure it exists.
- * Order: --vault (OB_VAULT_PATH) > <cwd>/<--vault-dir|vault> > OB_VAULT_PATH env.
- * Shared implementation in vault-paths.ts (same body lived here, zk-ingest,
- * and zk-query until T1 of the 2026-08-22 simplification).
+ * Order: --vault (OB_VAULT_PATH) > --vault-dir/OB_VAULT_DIR under cwd >
+ * ~/.pi + <cwd>/.pi obsidian config > <cwd>/vault (see vault-paths.ts; a
+ * missing explicit target refuses unless --vault-create). Shared
+ * implementation in vault-paths.ts (same body lived here, zk-ingest, and
+ * zk-query until T1 of the 2026-08-22 simplification).
  */
 export const resolveVault = resolveVaultPath;
 
@@ -89,7 +91,8 @@ Inputs:
 Options (pi-aligned globals also apply):
   --folder <name>        Zettelkasten target folder (default: Zettelkasten)
   --max-notes <n>        hint: cap the number of notes produced
-  --vault <path>         absolute path to the vault (sets OB_VAULT_PATH)
+  --vault <path>         absolute path to the vault (must exist unless --vault-create)
+  --vault-create         permit seeding a NEW vault tree at --vault
   --vault-dir <name>     vault folder name under cwd (default: vault)
   --model <pattern>      provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
   --provider <name>      provider name

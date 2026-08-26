@@ -78,11 +78,6 @@ const ALLOWED: readonly { symbol: string; file: string; reason: string }[] = [
     file: "s2-agent-ext-obsidian/src/lib/vault-resolution.ts",
     reason: "vault-resolution tier API — public surface via obsidian-lib.ts `export *`",
   },
-  {
-    symbol: "readVaultConfig",
-    file: "s2-agent-ext-obsidian/src/lib/vault-resolution.ts",
-    reason: "vault-resolution tier API — public surface via obsidian-lib.ts `export *`",
-  },
   // ── reference data, read by humans rather than code
   {
     symbol: "CORE_RELATIONS",

@@ -24,7 +24,8 @@
  *   --approve, -a                  (accepted & ignored — self-trusted)
  *   --no-extensions, -ne           (accepted & ignored)
  *   --no-tools, -nt / --no-builtin-tools, -nbt
- *   --vault <path>                 absolute vault path (sets OB_VAULT_PATH)
+ *   --vault <path>                 absolute vault path (sets OB_VAULT_PATH;
+ *                                  missing targets refuse — see vault-paths.ts)
  *   --vault-dir <name>             vault folder name (sets OB_VAULT_DIR)
  *   --help, -h                     help
  *   --version, -v                  version
@@ -68,6 +69,10 @@ export interface ParsedArgs {
 	/** vault resolution (obsidian) */
 	vault?: string;
 	vaultDir?: string;
+	/** permit seeding a NEW vault tree at the explicit --vault path (zk-ingest /
+	 *  zk-query / zk-extract plain resolver; without it a missing explicit path
+	 *  is treated as a typo and refused — #2055) */
+	vaultCreate?: boolean;
 	/** resource tier: tree discriminator slug (resource-ingest / resource-query) */
 	tree?: string;
 	/** resource-query: retrieval lane — flat KNN (default) | recursive heap descent.
