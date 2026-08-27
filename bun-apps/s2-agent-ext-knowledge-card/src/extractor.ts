@@ -238,16 +238,50 @@ export const SUMMARY_BODY_BUDGET = 800;
 const BOILERPLATE_ANYWHERE_RE = /(copyright|©|all rights reserved)/i;
 const BOILERPLATE_LINE_START_RE =
 	/^\s*(?:[-*>#]+\s*)?(license|licence|disclaimer|legal notice|trademark|\(c\))(?:\s*[:：—-]|\s*$)/i;
+/** Tier 3 (#2056 residual, license-NOTE prose): a `NOTE:`/`NOTICE:` line that
+ *  itself carries legal language starts a legal-note RUN, and the run keeps
+ *  swallowing soft-wrapped continuation lines while they stay legal-dense —
+ *  the USB4 title page's notice block (`NOTE: Adopters may only use …` /
+ *  `…all other uses are prohibited.`) has no other marker on its continuation
+ *  lines, so tiers 1–2 stop mid-block and the legal text re-pollutes the
+ *  abstract head (measured: generic-page-003). `NOTE:` alone is common
+ *  ordinary prose — the legal keyword gate is what keeps this tier from
+ *  firing on "NOTE: this is a draft".
+ *
+ *  Two strengths (same discipline as tiers 1–2's anywhere/line-start split):
+ *  the START gate may use bare legal words (patent/license/trademark — the
+ *  `NOTE:` prefix is already a strong signal), but a CONTINUATION line must
+ *  carry an unambiguous legal PHRASE — "The chapter covers patent history
+ *  broadly." must not extend the run just for mentioning patents. Bare
+ *  copyright/©/all-rights-reserved remain covered on every line by tier 1. */
+const LEGAL_NOTE_START_RE = /^\s*(?:[-*>#]+\s*)?(?:note|notice)\s*[:：]/i;
+const LEGAL_NOTE_CONTENT_RE =
+	/\b(adopters?|may only|expressly|prohibited|sole purpose|solely|not authorized|no other rights|no other uses|without limitation|written permission|intellectual property|hereby|licen[cs]e|licen[cs]ed|licen[cs]ing|patent|trademark)\b|copyright|©|all rights reserved/i;
+const LEGAL_RUN_PHRASE_RE =
+	/\b(adopters?|may only|expressly|prohibited|sole purpose|solely to the extent|not authorized|no other rights|no other uses|without limitation|written permission|intellectual property|hereby)\b|copyright|©|all rights reserved/i;
 
 /** How many leading lines the boilerplate strip may scan past — the strip is
  *  for TITLE-PAGE blocks, not for scrubbing a legal notice deep in the body
  *  (those stay: the abstract head just has to clear the leading block). */
 const BOILERPLATE_SCAN_LINES = 12;
 
-/** Does this line read as a title-page legal notice? (both tiers, see the
+/** Extra lines a tier-3 legal run may extend past the base window — real
+ *  title-page notice blocks run 25+ soft-wrapped lines (measured:
+ *  usb4 page-003's NOTE + LIMITED COPYRIGHT LICENSE + all-caps IP
+ *  disclaimer). Only applies once a legal run has STARTED inside the base
+ *  window, so the strip still cannot reach into a clean body. */
+const LEGAL_RUN_EXTRA_LINES = 48;
+
+/** Does this line read as a title-page legal notice? (tiers 1–2, see the
  *  BOILERPLATE_*_RE docblock). */
 function isBoilerplateLine(ln: string): boolean {
 	return BOILERPLATE_ANYWHERE_RE.test(ln) || BOILERPLATE_LINE_START_RE.test(ln);
+}
+
+/** Does this line BEGIN a legal-note run? (tier 3 — a `NOTE:` line that
+ *  carries legal language; see the LEGAL_NOTE_START_RE docblock). */
+function isLegalNoteLine(ln: string): boolean {
+	return LEGAL_NOTE_START_RE.test(ln) && LEGAL_NOTE_CONTENT_RE.test(ln);
 }
 
 /** Strip the leading copyright/license boilerplate block from a body: drop
@@ -257,27 +291,71 @@ function isBoilerplateLine(ln: string): boolean {
  *  the first boilerplate line are kept (a real title/heading precedes the
  *  notice on some pages). Exported for the generic adapter's explicit summary
  *  (#2056 D-c) and tested directly. */
+/** Does a line read as title-page all-caps legalese? (≥80% uppercase
+ *  letters, ≥4 letters — the IP-disclaimer paragraphs of a title page; only
+ *  consulted INSIDE an active legal run, never to start one). */
+function isMostlyUppercase(ln: string): boolean {
+	const letters = ln.replace(/[^A-Za-z]/g, "");
+	if (letters.length < 4) return false;
+	const upper = letters.replace(/[^A-Z]/g, "").length;
+	return upper / letters.length >= 0.8;
+}
+
+/** Does a line END with sentence-final punctuation? A notice block's
+ *  soft-wrapped lines end mid-sentence ("…under the"), so a non-final line
+ *  inside a legal run extends it; a line that CLOSES a sentence does not
+ *  (the next line must justify itself). */
+function endsSentence(ln: string): boolean {
+	return /[.!?;:。．！？；：]["'”’)]*\s*$/.test(ln.trimEnd());
+}
+
 export function stripLeadingBoilerplate(text: string): string {
 	const lines = text.split(/\r?\n/);
-	const end = Math.min(lines.length, BOILERPLATE_SCAN_LINES);
-	// Find the FIRST boilerplate line in the window; if none, return as-is.
+	// Find the FIRST boilerplate line in the base window; if none, return as-is.
 	let first = -1;
-	for (let i = 0; i < end; i++) {
-		if (isBoilerplateLine(lines[i]!)) {
+	for (let i = 0; i < Math.min(lines.length, BOILERPLATE_SCAN_LINES); i++) {
+		if (isBoilerplateLine(lines[i]!) || isLegalNoteLine(lines[i]!)) {
 			first = i;
 			break;
 		}
 	}
 	if (first === -1) return text;
-	// Drop the boilerplate block from `first` onward: extend past boilerplate
-	// lines AND blank lines separating them (title-page blocks interleave
-	// `Copyright © …` / `` / `All rights reserved.`), stopping at the first
-	// line with real content. Everything before `first` is kept.
+	// Drop the boilerplate block from `first` onward. Tier-3 legal runs are
+	// the long soft-wrapped title-page notices: once started, a run extends
+	// across blanks and any line that is legal-dense, all-caps legalese, OR
+	// a soft-wrapped continuation (the previous text line did not close a
+	// sentence, or this line starts lowercase). A line that closes its
+	// sentence and none of the signals fire is real content — the run ends.
+	// Everything before `first` is kept.
 	let last = first;
-	for (let i = first + 1; i < end; i++) {
+	let inLegalRun = isLegalNoteLine(lines[first]!);
+	let lastTextLine: string | null = inLegalRun ? lines[first]! : null;
+	for (let i = first + 1; i < lines.length; i++) {
+		// The window bound is re-evaluated per line: a legal run that starts
+		// mid-block (© line first, NOTE line after) lifts the cap from the
+		// moment it flips on — the base window only bounds finding `first`.
+		if (i >= (inLegalRun ? BOILERPLATE_SCAN_LINES + LEGAL_RUN_EXTRA_LINES : BOILERPLATE_SCAN_LINES)) break;
 		const ln = lines[i]!;
-		if (ln.trim() === "" || isBoilerplateLine(ln)) last = i;
-		else break;
+		if (ln.trim() === "") {
+			last = i;
+			continue;
+		}
+		if (isLegalNoteLine(ln)) {
+			last = i;
+			inLegalRun = true;
+			lastTextLine = ln;
+			continue;
+		}
+		const legalHere = isBoilerplateLine(ln) || (inLegalRun && LEGAL_RUN_PHRASE_RE.test(ln));
+		const wrappedHere =
+			inLegalRun &&
+			(lastTextLine === null || !endsSentence(lastTextLine) || /^[a-z]/.test(ln.trim()));
+		if (legalHere || (inLegalRun && isMostlyUppercase(ln)) || wrappedHere) {
+			last = i;
+			lastTextLine = ln;
+			continue;
+		}
+		break;
 	}
 	// Trailing blanks swallowed by the block are dropped with it.
 	const kept = [...lines.slice(0, first), ...lines.slice(last + 1)];
@@ -290,8 +368,7 @@ export function stripLeadingBoilerplate(text: string): string {
  *  boilerplate is stripped first (#2056 symptom 3) so the abstract head is
  *  real content. Returns "" for empty input. */
 export function firstSentenceSummary(text: string): string {
-	const prose = stripLeadingBoilerplate(text)
-		.replace(/^---\n[\s\S]*?\n---/, "") // defensive: strip frontmatter if present
+	const prose = stripLeadingBoilerplate(text.replace(/^---\n[\s\S]*?\n---/, "")) // frontmatter first — it must not eat the boilerplate strip's scan window
 		.replace(/```[\s\S]*?```/g, " ") // code fences are not abstract material
 		.replace(/^#{1,6}\s+/gm, "") // headings → prose
 		.replace(/^[-*]\s+/gm, "") // list markers → prose

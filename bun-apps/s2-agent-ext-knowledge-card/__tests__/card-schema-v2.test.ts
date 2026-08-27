@@ -138,6 +138,41 @@ describe("summary L0", () => {
 			.toBe("Everything below is free to use.");
 	});
 
+	test("#2056 residual: license-NOTE prose run is stripped (tier 3), NOTE-without-legal-content survives", () => {
+		// The real page-003 body (verbatim shapes): the © line strips under
+		// tier 1, but the NOTE block's continuation lines carry no marker of
+		// their own — tier 3 must swallow the whole run or the legal text
+		// re-pollutes the abstract head mid-block.
+		const page = [
+			"# Page 003",
+			"",
+			"Version 2.0 - iii - Universal Serial Bus 4",
+			"November 2025 Specification",
+			"Copyright © 2025 USB Promoter Group. All rights reserved.",
+			"NOTE: Adopters may only use this USB specification to implement USB or third party",
+			"functionality as expressly described in this Specification; all other uses are prohibited.",
+			"LIMITED COPYRIGHT LICENSE: The Promoters grant a conditional copyright license under the",
+			"copyrights embodied in this USB Specification to use and reproduce the Specification for the",
+			"sole purpose of evaluating whether to implement it. Without limitation, no patent rights",
+			"are granted hereby.",
+			"",
+			"Chapter 1 defines the protocol architecture.",
+		].join("\n");
+		const s = firstSentenceSummary(page);
+		expect(s).not.toMatch(/adopters?|expressly|prohibited|licen[cs]e|copyright|hereby/i);
+		expect(s).toContain("Chapter 1");
+		// NOTE: WITHOUT legal language is ordinary prose — must survive.
+		expect(firstSentenceSummary("NOTE: this is a draft.\nFinal content follows here."))
+			.toBe("NOTE: this is a draft.");
+		// A legal-note line alone (no © before it) also starts the strip.
+		expect(firstSentenceSummary("NOTICE: all other uses are prohibited.\nReal intro sentence."))
+			.toBe("Real intro sentence.");
+		// The run STOPS at the first clean line — a later legal mention in
+		// prose is content, not continuation.
+		expect(firstSentenceSummary(["NOTE: patent use is expressly prohibited.", "The chapter covers patent history broadly.", "Later prose."].join("\n")))
+			.toBe("The chapter covers patent history broadly.");
+	});
+
 	test("renderCard emits summary frontmatter only when present", () => {
 		const withS = renderCard(rec({ summary: "Abstract." }), "2026-01-01", ["zettel", "gotcha"], [], "test", 1000);
 		expect(withS).toContain("summary: Abstract.");
