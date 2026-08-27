@@ -47,6 +47,13 @@ export const TIER_ABSTRACT_MAX_CHARS = 256;
 /** L1 overview clamp (upstream overview_max_chars=4000). */
 export const TIER_OVERVIEW_MAX_CHARS = 4000;
 
+/** Prompt-shape version salt (#2090): baked into the children fingerprint so
+ *  a prompt-scheme change (the [N]-index → Markdown-link port) invalidates
+ *  existing sidecars exactly once — same discipline as INDEX_SCHEMA_VERSION.
+ *  The sidecar's stored fp then differs from the freshly computed one on an
+ *  otherwise-unchanged dir, which decide() reads as a forced refresh. */
+export const TIER_PROMPT_VERSION = "l1-links-v2";
+
 export const OVERVIEW_SIDEFILE = ".overview.md";
 export const ABSTRACT_SIDEFILE = ".abstract.md";
 
@@ -135,9 +142,37 @@ export function extractAbstractFromOverview(overview: string): string {
 	return out.join("\n").trim();
 }
 
+/** Placeholder token scheme (#2090, upstream 8ab07b1e port): each sampled
+ *  entry carries a collision-free `kcard-tier://f<N>` (files) /
+ *  `kcard-tier://c<N>` (child dirs) placeholder in the prompt; the model
+ *  emits Markdown links against them; resolveLinkPlaceholders() swaps them
+ *  for tree-relative targets. Replaces the old bare `[N]` index scheme,
+ *  whose references survived verbatim into sidecars and resolved to
+ *  nothing (measured on the usb4 vault: "see [13]"). */
+const TIER_LINK_PLACEHOLDER = /kcard-tier:\/\/([fc])(\d+)/g;
+
+/** Resolve link placeholders against the SAME entry arrays the prompt was
+ *  built from (1-based, prompt order — buildOverviewPrompt numbers them).
+ *  Files resolve to their filename, child dirs to `name/` (same-directory
+ *  relative targets, clickable in Obsidian). Unknown or out-of-range
+ *  placeholders are left untouched (upstream discipline: never guess). */
+export function resolveLinkPlaceholders(
+	text: string,
+	files: { name: string }[],
+	dirs: { name: string }[],
+): string {
+	return text.replace(TIER_LINK_PLACEHOLDER, (whole, kind: string, num: string) => {
+		const idx = Number(num) - 1;
+		const entry = kind === "f" ? files[idx] : dirs[idx];
+		if (!entry) return whole; // unknown placeholder — passthrough
+		return kind === "f" ? entry.name : `${entry.name}/`;
+	});
+}
+
 /** L1 prompt — the upstream overview_generation SHAPE re-implemented (title,
- *  scale/coverage statement, numbered file summaries, child-dir abstracts,
- *  faithfulness + sampled-generalization rules, fixed output structure). */
+ *  scale/coverage statement, link-placeholder file summaries, child-dir
+ *  abstracts, faithfulness + sampled-generalization rules, fixed output
+ *  structure). */
 export function buildOverviewPrompt(args: {
 	dirName: string;
 	fileSummaries: { name: string; abstract: string }[];
@@ -152,10 +187,10 @@ export function buildOverviewPrompt(args: {
 			? `Total direct entries: ${total}. All direct entries are represented in the summaries below.`
 			: `Total direct entries: ${total} (${args.totalFiles} files, ${args.totalChildren} subdirectories).\nSummaries provided for this aggregation: ${provided}.\nDirect entries not individually shown: ${total - provided}.\nCoverage: sampled. The summaries below are representative entries; generalize cautiously and do not treat them as exhaustive.`;
 	const files = args.fileSummaries.length
-		? args.fileSummaries.map((f, i) => `[${i + 1}] ${f.name}: ${f.abstract}`).join("\n")
+		? args.fileSummaries.map((f, i) => `- ${f.name} (link: kcard-tier://f${i + 1}): ${f.abstract}`).join("\n")
 		: "None";
 	const dirs = args.childDirs.length
-		? args.childDirs.map((d) => `- ${d.name}/: ${d.abstract}`).join("\n")
+		? args.childDirs.map((d, i) => `- ${d.name}/ (link: kcard-tier://c${i + 1}): ${d.abstract}`).join("\n")
 		: "None";
 	return `Output Language: English
 Write the entire overview in English; do not mix languages.
@@ -171,7 +206,7 @@ ${coverage}
 [Files and Their Summaries in Directory]
 ${files}
 
-Files are numbered as [1], [2], [3] etc. Some entries may be structural descriptions rather than prose summaries — treat them as such.
+Each entry above carries a compact link placeholder — kcard-tier://f1, kcard-tier://f2, … for files and kcard-tier://c1, kcard-tier://c2, … for subdirectories. When you reference an entry, write a normal Markdown link using its placeholder as the URL, e.g. [display title](kcard-tier://f1). Use a natural display title (typically the entry's name); do not print the raw placeholder text and do not repeat the name outside the link. Some entries may be structural descriptions rather than prose summaries — treat them as such.
 
 [Subdirectories and Their Summaries]
 ${dirs}
@@ -185,7 +220,7 @@ Output in Markdown, strictly following this structure:
 1. Title (H1): the directory name.
 2. Brief Description (a plain-text paragraph, 50-150 words, immediately after the title with NO H2 heading): what this is, what it covers, core keywords from the summaries. Do not include entry counts or sample statistics — keep it useful as a standalone retrieval abstract.
 3. Directory Coverage (H2): total direct entries and whether all were represented; when sampled, how many were sampled.
-4. Quick Navigation (H2): a decision-tree style guide ("want to learn X → see [2]") using the file number references, concise keyword descriptions.`;
+4. Quick Navigation (H2): a decision-tree style guide ("want to learn X → [entry title](kcard-tier://f1)") where every referenced entry is a Markdown link using its placeholder, with concise keyword descriptions.`;
 }
 
 /** Default generator: chatJson with an identity-tolerant parse (markdown in,
@@ -227,7 +262,9 @@ function sha16(text: string): string {
 
 function childrenFingerprint(children: Record<string, string>): string {
 	const pairs = Object.entries(children).map(([k, v]) => `${k}:${v}`).sort();
-	return sha16(pairs.join("\n"));
+	// Salted with the prompt version (#2090): the fingerprint gates the
+	// OUTPUT shape, not just the inputs — see TIER_PROMPT_VERSION.
+	return sha16(`${TIER_PROMPT_VERSION}\n${pairs.join("\n")}`);
 }
 
 function renderSidecar(fm: TierFrontmatter, body: string): string {
@@ -487,6 +524,11 @@ export async function generateResourceTiers(args: GenerateTiersArgs): Promise<Ti
 
 		const decide = (): "refresh" | "skip" | "pending" => {
 			if (!hasBaseline) return "refresh";
+			// Prompt-format rollout (#2090): an unchanged dir whose sidecar was
+			// generated under an older TIER_PROMPT_VERSION (fingerprint salt
+			// differs) regenerates exactly once — the stored fp matches again
+			// on the next pass, so idempotency is restored after one sweep.
+			if (changed === 0 && existingFm?.children_fingerprint !== fingerprint) return "refresh";
 			if (changed === 0) return "skip";
 			if (total <= TIER_SAMPLE_LIMIT) return "refresh";
 			return pendingAfter / Math.max(total, 1) >= TIER_REFRESH_RATIO ? "refresh" : "pending";
@@ -558,7 +600,10 @@ export async function generateResourceTiers(args: GenerateTiersArgs): Promise<Ti
 			receipts.push(receipt);
 			continue;
 		}
-		const overview = truncateAtSentence(generated.trim(), TIER_OVERVIEW_MAX_CHARS);
+		// Placeholder resolution BEFORE the clamp (#2090): links must land in
+		// the sidecar as real tree-relative targets, never as raw tokens.
+		const resolved = resolveLinkPlaceholders(generated.trim(), sampledFiles, sampledDirs);
+		const overview = truncateAtSentence(resolved, TIER_OVERVIEW_MAX_CHARS);
 		const abstract = truncateAtSentence(extractAbstractFromOverview(overview), TIER_ABSTRACT_MAX_CHARS);
 		const fm: TierFrontmatter = {
 			total_entries: total,
