@@ -120,6 +120,18 @@ export interface RegistryEntry {
   reEnableNote?: string;
   /** The entry's measured rationale, ported from the YAML comments — the registry's real documentation. */
   notes?: string;
+  /**
+   * Platforms (process.platform spellings) this entry may SHIP to
+   * (crossos-deploy D5, ticket 08). ABSENT = portable — ships to every
+   * target. An entry whose list excludes the deploy target is dropped from
+   * that tree at deploy time (run.ts filterForTarget) and therefore from the
+   * tree's deploy.json expected set. Measured 2026-08-27: every
+   * darwin-by-nature ext (flux2/krea2/ltx/research-tool/zai-mcp/
+   * movie-director — swift CLIs + MPS) is ALREADY deploy-excluded via
+   * excludeReason, so no shipped entry carries the field today; this is the
+   * seam for the first genuinely platform-bound SHIPPING ext.
+   */
+  platforms?: Array<"darwin" | "linux" | "win32">;
 }
 
 export interface DeployConfig {
@@ -641,6 +653,8 @@ interface LegacyRegistryExt {
   skills: boolean;
   version?: string;
   excludeReason?: string;
+  /** crossos-deploy D5: target platforms this entry ships to; absent = portable. */
+  platforms?: string[];
   deploy?: {
     order: number;
     copy: string[];
@@ -691,6 +705,7 @@ export function legacyRegistry(opts: { home: string }): LegacyRegistry {
     skills: e.skills === true,
     version: e.version,
     excludeReason: e.excludeReason,
+    platforms: e.platforms,
     deploy:
       e.deploy === undefined
         ? undefined

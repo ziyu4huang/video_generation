@@ -82,6 +82,12 @@ export interface ShExtConfig {
 	 */
 	vendorExclude: string[];
 	enabled: boolean;
+	/**
+	 * crossos-deploy D5 (ticket 08): target platforms (process.platform
+	 * spellings) this entry ships to; absent = portable. The deploy-side
+	 * filter is {@link filterForTarget}.
+	 */
+	platforms?: string[];
 }
 
 export interface ShConfig {
@@ -121,6 +127,7 @@ function projectShConfig(registry: Registry): ShConfig {
 			externals: ext.deploy.externals,
 			vendorExclude: ext.deploy.vendorExclude,
 			enabled: ext.deploy.enabled,
+			platforms: ext.platforms,
 		}))
 		.sort((a, b) => a.order - b.order);
 
@@ -139,6 +146,36 @@ function projectShConfig(registry: Registry): ShConfig {
 /** The production read path: typed REGISTRY → validation → ShConfig. */
 export function shConfig(opts: { bunAppsDir: string }): ShConfig {
 	return projectShConfig(loadRegistry(opts));
+}
+
+export interface PlatformFilteredExtensions {
+	/** Entries that ship to the target (portable entries + listed ones). */
+	shipped: ShExtConfig[];
+	/** Deploy-enabled entries dropped SOLELY by the platform filter. */
+	dropped: Array<{ name: string; package: string; platforms: string[] }>;
+}
+
+/**
+ * crossos-deploy D5 (ticket 08): split a deploy-enabled extension list by
+ * TARGET platform — an entry with a `platforms` list that excludes the target
+ * is dropped from that tree (dead weight at best, boot-failing at worst);
+ * an entry WITHOUT the field is portable and always ships. Pure; the deploy
+ * pipeline uses the result for the build loop AND for the tree's deploy.json
+ * expected set, so Gate 3 / the E2E compare per-tree counts, not registry
+ * totals.
+ */
+export function filterForTarget(extensions: ShExtConfig[], platform: string): PlatformFilteredExtensions {
+	const shipped: ShExtConfig[] = [];
+	const dropped: PlatformFilteredExtensions["dropped"] = [];
+	for (const e of extensions) {
+		if (!e.enabled) continue;
+		if (e.platforms === undefined || e.platforms.includes(platform)) {
+			shipped.push(e);
+		} else {
+			dropped.push({ name: e.name, package: e.package, platforms: e.platforms });
+		}
+	}
+	return { shipped, dropped };
 }
 
 export interface ExcludedExtension {

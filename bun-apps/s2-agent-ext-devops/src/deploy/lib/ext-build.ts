@@ -315,18 +315,24 @@ export function scanForeignPaths(
 	// windows-latest one) bakes `C:\Users\…` paths, and the allow-list prefixes
 	// must compare against them with one spelling.
 	const norm = (s: string) => s.replace(/\\/g, "/");
-	const home = norm(roots.home ?? homedir());
-	const repo = norm(roots.repo ?? resolve(PI_AGENT_DIR, "..", ".."));
-	const root = norm(deployRoot);
+	// Windows filesystems are case-insensitive: a baked "c:/users/…" vs
+	// homedir()'s "C:/Users/…" is the same allow-listed path, not a foreign
+	// one (crossos t06 review). Case-fold only when a WINDOWS-shaped path is
+	// in play, so POSIX matching stays exact.
+	const eqFold = (s: string) => (/^[A-Za-z]:[\/\\]/.test(s) ? norm(s).toLowerCase() : norm(s));
+	const home = eqFold(roots.home ?? homedir());
+	const repo = eqFold(roots.repo ?? resolve(PI_AGENT_DIR, "..", ".."));
+	const root = eqFold(deployRoot);
 	const piState = `${home}/.pi`;
 	const found = new Set<string>();
 	// Drive-letter absolute paths (`C:\…` / `C:/…`) alongside POSIX `/…` —
 	// the win32 build-host spelling a leading-`/`-only anchor would miss.
 	for (const m of code.matchAll(/["'`]((?:file:\/\/)?(?:[A-Za-z]:[\/\\]|\/)[^"'`\n]{4,}?)["'`]/g)) {
-		const p = norm(m[1]!.replace(/^file:\/\//, ""));
+		const raw = norm(m[1]!.replace(/^file:\/\//, ""));
+		const p = eqFold(raw); // case-folded copy for COMPARISON only
 		if (p.startsWith(root)) continue;
 		if (p === piState || p.startsWith(`${piState}/`)) continue;
-		if (p.startsWith(`${home}/`) || p.startsWith(`${repo}/`)) found.add(p);
+		if (p.startsWith(`${home}/`) || p.startsWith(`${repo}/`)) found.add(raw);
 	}
 	return [...found];
 }

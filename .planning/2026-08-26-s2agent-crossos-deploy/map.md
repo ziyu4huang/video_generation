@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-26-s2agent-crossos-deploy
 created: 2026-08-26
-last: 2026-08-27 (tickets 01–07 closed — D8 landed: GH Actions cross-OS verify channel + platform-aware E2E launcher + REAL D7 network path measured; frontier = 08)
-status: active
+last: 2026-08-27 (ALL TICKETS CLOSED — D5 built out: registry platforms dimension + filterForTarget + per-tree deploy.json counts; the dead-weight premise measured already-solved; status complete)
+status: complete
 ---
 
 # s2-agent cross-OS deploy — mac / linux / windows
@@ -69,9 +69,9 @@ tickets; sibling effort merge-base `a57b6d38`):
 ### Phase 3 — verification + simplification fold-in
 - [06] Cross-OS verification strategy (E2E on mac host vs CI runners) — closed 2026-08-27 (D8: GH Actions matrix channel landed — crossos-deploy-verify.yml, manual dispatch, ubuntu+windows; E2E launcher platform-aware; S2_AGENT_E2E_SKIP_MODEL_CALL; first dispatch pending = the real windows measurement)
 - [07] Dead `--compile` compat-code cleanup on the deploy path — closed 2026-08-27 (every behavioral --compile branch deleted across core-runtime/superpowers + comment-only rewording in archify/ultracode; historical sites kept WITH citation — receipts in ticket)
-- [08] Per-platform ext filtering (D5 build-out) — open (task; spawned from 05 — unblocked now that t06's channel exists)
+- [08] Per-platform ext filtering (D5 build-out) — closed 2026-08-27 (registry `platforms` dimension + `filterForTarget` + per-tree deploy.json expected counts; MEASURED: every darwin-by-nature ext was already deploy-excluded, so the filter lands as the identity — the seam + tripwire test are the value; receipts in ticket)
 
-**Execution order:** 01 → 02 → 03 → 04 → 05 → 07 → 06 → 08 (01–07 closed; 08 = the last ticket)
+**Execution order:** 01 → 02 → 03 → 04 → 05 → 07 → 06 → 08 — ALL CLOSED. Effort complete 2026-08-27 (PRs #2076/#2083/#2086/#2092/#2096/#2097 + this ticket's PR).
 
 ## Decisions
 
@@ -115,13 +115,10 @@ tickets; sibling effort merge-base `a57b6d38`):
 
 ## Frontier
 
-**Ticket 08 (per-platform ext filtering, D5 build-out)** — the last ticket.
-The registry (s2-agent package) gains a platform dimension so non-darwin
-trees drop darwin-by-nature exts (movie-director, flux2/krea2/ltx swift
-runners); Gate 3 verifies per-tree expected counts. Now unblocked: t06's
-channel can boot the filtered trees on native runners. First dispatch of
-`crossos-deploy-verify` (windows) is the standing follow-through — expect
-portability findings to iterate there.
+**None — the queue is drained.** The standing follow-through is the first
+`crossos-deploy-verify` dispatch (windows-latest row = t04's deferred
+frictions + the deploy pipeline's own windows portability); expect that to
+iterate as small follow-up PRs, not new tickets in this effort.
 
 ## Fog of war
 
