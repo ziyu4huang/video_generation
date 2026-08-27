@@ -441,6 +441,27 @@ async function win32LayerDiag(
 			parts.push(`${label}: spawn error ${(e as Error).message}`);
 		}
 	}
+	// cmd REDIRECTING bun's output to a file — a real file handle created by
+	// cmd's `>` vs the inherited pipe: separates "bun cannot write through
+	// cmd's inherited handles" from "bun cannot write at all as cmd's child".
+	try {
+		const outFile = join(tmpdir(), `diag-bun-out-${process.pid}.txt`);
+		const r = await spawn(
+			"cmd",
+			["/c", bunExe, core, ...args, ">", outFile],
+			{ cwd: versionDir, timeoutMs: 30_000 },
+		);
+		let fileNote = "output file missing";
+		try {
+			const bytes = (await Bun.file(outFile).arrayBuffer()).byteLength;
+			fileNote = `${bytes}B in file`;
+		} catch {
+			/* keep "missing" */
+		}
+		parts.push(`cmd-bun-file: exit ${r.exitCode}, pipe stdout ${r.stdout.length}B — ${fileNote}`);
+	} catch (e) {
+		parts.push(`cmd-bun-file: spawn error ${(e as Error).message}`);
+	}
 	// Non-detached control: the SpawnFn timeout path spawns detached:true,
 	// which on Windows hands the child its own console — one candidate for
 	// where the output goes. Bun.spawn is not detached.
