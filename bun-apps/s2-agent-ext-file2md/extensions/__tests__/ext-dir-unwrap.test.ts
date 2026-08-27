@@ -33,8 +33,8 @@ function makeMockPi() {
       return t;
     },
     on: (ev: string, fn: (event: unknown, ctx: unknown) => Promise<void>) => {
-      const list = (handlers[ev] ??= []);
-      list.push(fn);
+      handlers[ev] ??= [];
+      handlers[ev]!.push(fn);
     },
     events: { on: () => () => {}, emit: () => {} },
   };
