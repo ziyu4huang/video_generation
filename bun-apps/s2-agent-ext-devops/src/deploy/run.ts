@@ -38,7 +38,7 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { APP_NAME } from "./lib/app-name.ts";
-import { excludedExtensionsFromRegistry, shConfig, type ShConfig } from "./lib/config.ts";
+import { excludedExtensionsFromRegistry, filterForTarget, shConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
 import {
 	collectModelFacts,
@@ -603,7 +603,16 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 	const wantCurrent = opts.current ?? cfg.current;
 	const builtAt = new Date().toISOString();
 	const sourceSha = sha ?? "unknown";
-	const enabled = cfg.extensions.filter((e) => e.enabled);
+	// crossos-deploy D5 (ticket 08): per-platform ext filtering. `enabled` is
+	// the per-TREE set — portable entries plus entries whose registry
+	// `platforms` lists this target; a platform-dropped entry never enters
+	// the build loop NOR the tree's deploy.json config below, so Gate 3 and
+	// the post-deploy E2E compare per-tree expected counts, not registry
+	// totals. (Measured 2026-08-27: no shipped entry carries `platforms` yet —
+	// every darwin-by-nature ext is already deploy-excluded — so today this
+	// filter is the identity; it is the seam for the first platform-bound
+	// SHIPPING ext.)
+	const { shipped: enabled, dropped: platformDropped } = filterForTarget(cfg.extensions, targetSpec.platform);
 
 	ensureOutRoot(targetRoot);
 
@@ -736,7 +745,10 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 						cached: bun.cached,
 					},
 					registryModule: REGISTRY_MODULE,
-					config: cfg,
+					// The PER-TREE extension set (D5 filter applied) — the list
+					// Gate 3 / verify-deploy-e2e compare --ext-list against.
+					config: { ...cfg, extensions: enabled },
+					platformDropped: platformDropped.length > 0 ? platformDropped : undefined,
 				},
 				null,
 				2,
@@ -832,7 +844,16 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			runtime: { bunVersion: Bun.version, platform: targetSpec.platform, arch: targetSpec.arch, bytes: bun.bytes, cached: bun.cached },
 			gates,
 			extensions: extensionsReport,
-			excluded: excludedExtensionsFromRegistry({ bunAppsDir: BUN_APPS_DIR }),
+			// Registry-never-ships rows PLUS this-tree platform drops (D5) —
+			// both are "why is it not in this tree" answers.
+			excluded: [
+				...excludedExtensionsFromRegistry({ bunAppsDir: BUN_APPS_DIR }),
+				...platformDropped.map((d) => ({
+					name: d.name,
+					package: d.package,
+					reason: `platform filter (D5): entry platforms [${d.platforms.join(", ")}] exclude this tree's target ${targetSpec.platform}`,
+				})),
+			],
 			providers: collectModelFacts(),
 		};
 		writeDeployReport(stage, reportData);

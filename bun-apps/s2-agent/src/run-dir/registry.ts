@@ -40,6 +40,7 @@ export interface RegistryExt {
   skills: boolean; // ships <package>/skills → manifest skills[]
   version?: string; // emitted on dynamic entries when present
   excludeReason?: string; // REQUIRED when deploy block is absent
+  platforms?: string[]; // crossos-deploy D5 — target platforms; absent = portable
   deploy?: RegistryDeployBlock;
 }
 export interface Registry {
@@ -83,6 +84,19 @@ export function loadRegistry(opts: { bunAppsDir: string }): Registry {
 
     if (e.enabled && e.deploy === undefined && e.excludeReason === undefined) {
       throw new Error(`extensions[${i}] ("${e.name}") has no deploy block — excludeReason is required to say why it is not deployed`);
+    }
+    // crossos-deploy D5 (ticket 08): platforms must be process.platform
+    // spellings the deploy targets can match, with no duplicates.
+    if (e.platforms !== undefined) {
+      const KNOWN_PLATFORMS = new Set(["darwin", "linux", "win32"]);
+      for (const p of e.platforms) {
+        if (!KNOWN_PLATFORMS.has(p)) {
+          throw new Error(`extensions[${i}] ("${e.name}") platforms value "${p}" is not a known process.platform (darwin|linux|win32)`);
+        }
+      }
+      if (new Set(e.platforms).size !== e.platforms.length) {
+        throw new Error(`extensions[${i}] ("${e.name}") platforms has duplicate values`);
+      }
     }
     if (e.enabled && e.deploy !== undefined && e.excludeReason !== undefined) {
       throw new Error(`extension "${e.name}" has both a deploy block and excludeReason — they contradict: either it ships or it does not`);
