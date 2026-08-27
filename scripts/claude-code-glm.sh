@@ -62,7 +62,7 @@ glm()
     export ANTHROPIC_DEFAULT_SONNET_MODEL="${Z_AI_MODEL_DEFAULT}"
     export ANTHROPIC_DEFAULT_OPUS_MODEL="${Z_AI_MODEL_OPUS}"
     # Auto-compact near the 1M context window (matches glm-5.2[1m])
-    export CLAUDE_CODE_AUTO_COMPACT_WINDOW="1000000"
+    # export CLAUDE_CODE_AUTO_COMPACT_WINDOW="1000000"
     echo "Using model: ${ANTHROPIC_MODEL}"
     export API_TIMEOUT_MS=30000000
     export BASH_DEFAULT_TIMEOUT_MS=3000000
