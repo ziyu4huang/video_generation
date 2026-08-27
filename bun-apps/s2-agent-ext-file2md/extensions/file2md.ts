@@ -40,9 +40,20 @@ GATE_DEFS.file2md = {
 // self-link via bun's global require.
 const _EXT_DIR: string | undefined = (() => {
   try {
-    return require("#pi/ext-dir") as string;
+    // Two spellings by mode (same unwrap as obsidian's shExtDir / archify's
+    // shExtDir): the sh loader's injected require serves the deployed ext dir
+    // as a BARE STRING; the dev tree resolves package.json's "#pi/ext-dir"
+    // imports entry (src/sh-ext-dir.ts), which jiti interop hands back as a
+    // namespace object `{ default: <pkg root> }`. Taking the object as the
+    // dir made missingExtDeps' join() throw "paths[0] … got object" at every
+    // source-mode session_start (measured 2026-08-27).
+    const mod = require("#pi/ext-dir") as { default?: unknown } | string;
+    if (typeof mod === "string") return mod;
+    if (mod !== null && typeof mod === "object" && typeof mod.default === "string") {
+      return mod.default;
+    }
   } catch {
-    /* dev tree — fall through */
+    /* dev tree without the imports entry — fall through */
   }
   const SELF = "@repo/s2-agent-ext-file2md/package.json";
   try {
