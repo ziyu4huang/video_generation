@@ -33,6 +33,8 @@ import {
   getCalls,
   surfacePathologyWarning,
   resetWarning,
+  takePendingNote,
+  resetInjection,
 } from "./pathology/index.ts";
 import {
   buildSidecarRecord,
@@ -129,12 +131,26 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   pi.on("tool_execution_end", (event, ctx) => {
     const sid = ctx?.sessionManager?.getSessionId();
     recordCallEnd(event, sid);
-    surfacePathologyWarning(ctx, getCalls(sid));
+    // Per-session keying: status line AND the opt-in injection episode map both
+    // follow the sessionId, so an in-process subagent child keeps its own line
+    // and arms its own note (ticket 04).
+    surfacePathologyWarning(ctx, getCalls(sid), sid);
+  });
+  // Ticket 04 (opt-in, BUN_PI_PATHOLOGY_INJECT=1): deliver the pending episode
+  // note at the turn boundary — before_agent_start fires after the user message
+  // is queued and BEFORE the agent loop starts, so it cannot fire mid-stream.
+  // With the env unset takePendingNote always returns undefined and this hook is
+  // a no-op, preserving the documented non-invasive default.
+  pi.on("before_agent_start", (_e, ctx) => {
+    const note = takePendingNote(ctx?.sessionManager?.getSessionId());
+    if (note === undefined) return;
+    return { message: { customType: "pathology-note", content: note, display: true } };
   });
   pi.on("turn_end", (e, ctx) => recordTurnEnd(e, ctx?.sessionManager?.getSessionId()));
   pi.on("session_start", (_e, ctx) => {
     resetAccumulator(ctx?.sessionManager?.getSessionId());
     resetWarning();
+    resetInjection();
     // Record the environment fingerprint for longitudinal analysis. Everything
     // else the analyzer needs is derived from transcripts on demand; only these
     // facts (which commit, which tools) cannot be reconstructed later. Written
