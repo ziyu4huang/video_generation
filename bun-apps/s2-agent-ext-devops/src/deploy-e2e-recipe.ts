@@ -417,7 +417,7 @@ async function win32LayerDiag(
 	spawn: import("./spawn.js").SpawnFn,
 	versionDir: string,
 	args: string[],
-): Promise<string> {
+): Promise<{ summary: string; isBunShellChildBug: boolean }> {
 	const bunExe = join(versionDir, "bin", "bun.exe");
 	const core = join(versionDir, "s2-agent.js");
 	const layers: Array<[string, string, string[]]> = [
@@ -432,10 +432,12 @@ async function win32LayerDiag(
 		["cmd-bun", "cmd", ["/c", bunExe, core, ...args]],
 	];
 	const parts: string[] = [];
+	const stdoutBytes: Record<string, number> = {};
 	for (const [label, cmd, argv] of layers) {
 		try {
 			const r = await spawn(cmd, argv, { cwd: versionDir, timeoutMs: 30_000 });
 			const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+			stdoutBytes[label] = r.stdout.length;
 			parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout — ${head || "<no output>"}`);
 		} catch (e) {
 			parts.push(`${label}: spawn error ${(e as Error).message}`);
@@ -477,7 +479,28 @@ async function win32LayerDiag(
 	} catch (e) {
 		parts.push(`cmd-echo-bunspawn: error ${(e as Error).message}`);
 	}
-	return `win32 layer diag:\n  ${parts.join("\n  ")}`;
+	// The measured upstream signature (windows-latest, bun 1.4.0 = latest as
+	// of 2026-08-28, identical under `bun-version: latest`): bun.exe delivers
+	// full output when spawned directly, cmd.exe's own echo flows, but bun as
+	// cmd's or powershell's child delivers ZERO bytes — pipe, file redirect,
+	// everything — while exiting 0. oven-sh/bun#12108 family. When the diag
+	// reproduces exactly this, the launcher chain CANNOT be verified through
+	// a piped shell on this bun: callers classify the probe a SKIP (the
+	// environment cannot verify), never a silent pass.
+	return {
+		summary: `win32 layer diag:\n  ${parts.join("\n  ")}`,
+		isBunShellChildBug: isBunShellChildSignature(stdoutBytes),
+	};
+}
+
+/** Pure signature check for the bun-as-shell-child output loss (see win32LayerDiag). */
+export function isBunShellChildSignature(bytes: Record<string, number>): boolean {
+	return (
+		(bytes["bun-direct"] ?? 0) > 0 &&
+		(bytes["cmd-echo"] ?? 0) > 0 &&
+		(bytes["cmd-bun"] ?? -1) === 0 &&
+		(bytes["cmd-shim"] ?? -1) === 0
+	);
 }
 
 function worst(verdicts: ProbeVerdict[]): ProbeVerdict {
@@ -581,19 +604,32 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
 		const ms = now() - t0;
 		if (r.timedOut || r.exitCode !== 0) {
-			const diag = process.platform === "win32" ? `\n${await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"])}` : "";
+			const diag =
+				process.platform === "win32" ? await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"]) : null;
 			probes.push({
 				id: "ext-load",
-				verdict: "fail",
+				verdict: diag?.isBunShellChildBug ? "skip" : "fail",
 				ms,
-				note: `--ext-list ${r.timedOut ? `timed out after ${EXT_LIST_CAP_MS}ms` : `exited ${r.exitCode}`}`,
-				detail: `${tail(r.stdout, r.stderr)}${diag}`,
+				note:
+					diag?.isBunShellChildBug
+						? "--ext-list unverifiable through a piped shell: bun#12108 (bun.exe as a cmd/powershell child loses all output; runtime verified via bun-direct in the diag)"
+						: `--ext-list ${r.timedOut ? `timed out after ${EXT_LIST_CAP_MS}ms` : `exited ${r.exitCode}`}`,
+				detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
 			});
 		} else {
 			const p = parseExtListPayload(r.stdout);
 			if (!p.ok) {
-				const diag = process.platform === "win32" ? `\n${await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"])}` : "";
-				probes.push({ id: "ext-load", verdict: "fail", ms, note: p.message, detail: `${tail(r.stdout, r.stderr)}${diag}` });
+				const diag =
+					process.platform === "win32" ? await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"]) : null;
+				probes.push({
+					id: "ext-load",
+					verdict: diag?.isBunShellChildBug ? "skip" : "fail",
+					ms,
+					note: diag?.isBunShellChildBug
+						? "--ext-list stdout empty via the launcher: bun#12108 (bun.exe as a cmd/powershell child loses all output; runtime verified via bun-direct in the diag)"
+						: p.message,
+					detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
+				});
 			} else {
 				const missing = enabled.filter((n) => !p.value.loaded.includes(n));
 				const skippedNote = p.value.skipped.length
@@ -652,11 +688,18 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 					c.verdict === "skip"
 						? `probe never fired — ${c.reason}${c.detail ? ` — ${firstLine(c.detail)}` : ""}`
 						: `${p.message}${r.timedOut ? ` (timed out after ${TOOLS_PROBE_CAP_MS}ms)` : ` (exit ${r.exitCode})`}`;
-				tpDetail =
-					tail(r.stdout, r.stderr) +
-					(process.platform === "win32" && tpVerdict === "fail"
-						? `\n${await win32LayerDiag(opts.spawn, opts.versionDir, ["--help"])}`
-						: "");
+				tpDetail = tail(r.stdout, r.stderr);
+				if (process.platform === "win32" && tpVerdict === "fail") {
+					const diag = await win32LayerDiag(opts.spawn, opts.versionDir, ["--help"]);
+					tpDetail += `\n${diag.summary}`;
+					if (diag.isBunShellChildBug) {
+						// The probe's [TOOLS] marker travels on stderr — the same
+						// bun-as-shell-child output loss eats it. Same upstream
+						// classification as ext-load.
+						tpVerdict = "skip";
+						tpNote = "probe output unverifiable through a piped shell: bun#12108 (see layer diag)";
+					}
+				}
 			} else {
 				const v = p.value;
 				const gate = v.gateSeam

@@ -11,6 +11,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+	isBunShellChildSignature,
 	parseDeployJson,
 	parseExtListPayload,
 	resolveModelEndpoint,
@@ -832,5 +833,34 @@ describe("crossos t06 review — env skip + ps1 presence", () => {
 		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn() });
 		expect(r.verdict).toBe("fail");
 		expect((r as { note?: string }).note).toContain("s2-agent.ps1 missing");
+	});
+});
+
+describe("isBunShellChildSignature (win32 upstream-block classification)", () => {
+	// The measured windows-latest signature (bun 1.4.0 = latest, 2026-08-28):
+	// bun-direct delivers, cmd's own echo delivers, bun as cmd's child and
+	// the .cmd shim deliver nothing. Exactly this → SKIP, never FAIL.
+	test("the measured signature classifies as the upstream bug", () => {
+		expect(
+			isBunShellChildSignature({ "bun-direct": 1299, "cmd-echo": 22, "cmd-bun": 0, "cmd-shim": 0, "ps1-direct": 0 }),
+		).toBe(true);
+	});
+
+	test("a genuine launcher defect does NOT classify (bun-direct broken too)", () => {
+		expect(
+			isBunShellChildSignature({ "bun-direct": 0, "cmd-echo": 22, "cmd-bun": 0, "cmd-shim": 0 }),
+		).toBe(false);
+	});
+
+	test("a cmd-only defect does NOT classify (cmd's own echo lost as well)", () => {
+		expect(
+			isBunShellChildSignature({ "bun-direct": 1299, "cmd-echo": 0, "cmd-bun": 0, "cmd-shim": 0 }),
+		).toBe(false);
+	});
+
+	test("the launcher suddenly delivering output does NOT classify (bug fixed → probes pass)", () => {
+		expect(
+			isBunShellChildSignature({ "bun-direct": 1299, "cmd-echo": 22, "cmd-bun": 1299, "cmd-shim": 1299 }),
+		).toBe(false);
 	});
 });
