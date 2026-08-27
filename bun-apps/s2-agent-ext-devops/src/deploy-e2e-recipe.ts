@@ -419,10 +419,17 @@ async function win32LayerDiag(
 	args: string[],
 ): Promise<string> {
 	const bunExe = join(versionDir, "bin", "bun.exe");
+	const core = join(versionDir, "s2-agent.js");
 	const layers: Array<[string, string, string[]]> = [
-		["bun-direct", bunExe, [join(versionDir, "s2-agent.js"), ...args]],
+		["bun-direct", bunExe, [core, ...args]],
 		["ps1-direct", "powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(versionDir, "s2-agent.ps1"), ...args]],
 		["cmd-shim", "cmd", ["/c", "s2-agent.cmd", ...args]],
+		// cmd.exe's OWN output, no script involved — isolates "cmd loses
+		// everything" from "the .cmd script's child loses everything".
+		["cmd-echo", "cmd", ["/c", "echo diag-cmd-echo-marker"]],
+		// cmd wrapping bun DIRECTLY (no .cmd file) — isolates the script from
+		// the cmd-wrapping.
+		["cmd-bun", "cmd", ["/c", bunExe, core, ...args]],
 	];
 	const parts: string[] = [];
 	for (const [label, cmd, argv] of layers) {
@@ -433,6 +440,21 @@ async function win32LayerDiag(
 		} catch (e) {
 			parts.push(`${label}: spawn error ${(e as Error).message}`);
 		}
+	}
+	// Non-detached control: the SpawnFn timeout path spawns detached:true,
+	// which on Windows hands the child its own console — one candidate for
+	// where the output goes. Bun.spawn is not detached.
+	try {
+		const p = Bun.spawn(["cmd", "/c", "echo", "diag-bunspawn-marker"], {
+			cwd: versionDir,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		const out = await Bun.readableStreamToText(p.stdout);
+		await p.exited;
+		parts.push(`cmd-echo-bunspawn(not detached): ${out.length}B stdout — ${out.trim() || "<no output>"}`);
+	} catch (e) {
+		parts.push(`cmd-echo-bunspawn: error ${(e as Error).message}`);
 	}
 	return `win32 layer diag:\n  ${parts.join("\n  ")}`;
 }
