@@ -65,15 +65,27 @@ export {
   redeliverPendingResults,
   type TaskPanelOptions,
 } from "./task-panel.js";
+export type { WakeupPersistenceApi } from "./wakeup-persistence.js";
+export {
+  loadWakeupEntries,
+  persistWakeupEntries,
+  reanchorWakeupEntries,
+  WAKEUP_STATE_ENTRY_TYPE,
+} from "./wakeup-persistence.js";
 export type {
   WakeupEntry,
   WakeupFire,
+  WakeupIdleProbe,
   WakeupLoopHandle,
   WakeupNotify,
+  WakeupTickOptions,
   WakeupTickResult,
 } from "./wakeup-registry.js";
 export {
   buildWakeupFooter,
+  LOOP_FIXED_MAX_S,
+  LOOP_FIXED_MIN_S,
+  LOOP_MAX_AGE_MS,
   runWakeupTick,
   startWakeupLoop,
   WAKEUP_DEFAULT_DELAY_S,

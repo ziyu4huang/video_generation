@@ -15,6 +15,12 @@
  * Runaway guard: each entry counts fires against a hard cap (default 50) —
  * reaching the cap auto-stops the loop with an `ended` notification instead of
  * firing forever.
+ *
+ * cc-parity-task ticket 03 (2026-08-28) folded ext-task's LoopScheduler in
+ * here, porting its two missing behaviors: an idle gate (a busy session
+ * postpones the whole tick — a due entry is never consumed while the agent is
+ * mid-turn, retried on the next 30s pass) and a 7-day max-age self-stop (CC
+ * recurring auto-expiry: the final fire lands, then the loop ends itself).
  */
 
 import type { WorkflowLogger } from "./logger.js";
@@ -31,6 +37,20 @@ export const WAKEUP_DEFAULT_DELAY_S = 600;
 
 export const WAKEUP_TICK_MS = 30_000;
 
+/** Fixed-cadence clamp bounds for `/loop <interval> <prompt>` — the floor is
+ * CC's whole-minute minimum (same as schedule_wakeup); the cap is the 7-day
+ * max-age (a cadence at or past the cap would never fire before expiring).
+ * The schedule_wakeup TOOL keeps its own CC-parity 60–3600s clamp; this bound
+ * governs only the fixed /loop surface (ext-task's retired /loop accepted up
+ * to 23d — 7d is the new ceiling because the max-age self-stop governs loop
+ * lifetime, and a tick-based scheduler has no setTimeout overflow to fear). */
+export const LOOP_FIXED_MIN_S = 60;
+export const LOOP_FIXED_MAX_S = 7 * 24 * 60 * 60;
+
+/** CC recurring auto-expiry, ported from ext-task's LoopScheduler: a loop
+ * older than this fires once more, then ends itself. */
+export const LOOP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 export interface WakeupEntry {
   /** Loop id — one pending wakeup per id; the fire footer cites it. */
   id: string;
@@ -46,6 +66,9 @@ export interface WakeupEntry {
   lastReason?: string;
   /** Fires so far this session (runaway cap). */
   fireCount: number;
+  /** Epoch ms the loop was first armed (7-day max-age self-stop). Entries
+   *  without it (pre-ticket-03 tests/fixtures) never age out. */
+  startedAt?: number;
 }
 
 export interface WakeupTickResult {
@@ -68,23 +91,36 @@ export class WakeupRegistry {
   /** Snapshot of each loop's last-fired state — the dynamic tool re-arms from it. */
   private last = new Map<string, WakeupEntry>();
 
+  /** Optional mutation observer (ticket 03): fired after every pending-set
+   *  mutation so the extension can mirror the pending entries into the
+   *  session store. Reads via list() see the post-mutation state. */
+  constructor(onChange?: () => void) {
+    this.onChange = onChange;
+  }
+
+  private readonly onChange?: () => void;
+
   /** Schedule (or replace) the pending wakeup for an id. */
   schedule(entry: Omit<WakeupEntry, "fireCount"> & { fireCount?: number }): WakeupEntry {
     const full: WakeupEntry = { fireCount: entry.fireCount ?? 0, ...entry };
     this.entries.set(entry.id, full);
+    this.onChange?.();
     return full;
   }
 
   /** Cancel one loop. Returns true when a pending wakeup existed. */
   cancel(id: string): boolean {
     this.last.delete(id);
-    return this.entries.delete(id);
+    const had = this.entries.delete(id);
+    if (had) this.onChange?.();
+    return had;
   }
 
   /** Cancel every loop (session_shutdown / /loop off). */
   clear(): void {
     this.entries.clear();
     this.last.clear();
+    this.onChange?.();
   }
 
   /** The pending wakeup for an id (undefined once it has fired). */
@@ -112,6 +148,7 @@ export class WakeupRegistry {
       this.entries.delete(entry.id);
       this.last.set(entry.id, entry);
     }
+    if (due.length) this.onChange?.();
     return due;
   }
 }
@@ -128,23 +165,39 @@ export function buildWakeupFooter(entry: WakeupEntry, fireCount: number): string
   return lines.filter(Boolean).join("\n");
 }
 
+/** Idle probe — ported from ext-task's LoopScheduler (postpone-on-busy). */
+export type WakeupIdleProbe = () => boolean;
+
+export interface WakeupTickOptions {
+  /** Busy session ⇒ the tick is a no-op: due entries are NOT consumed and
+   *  retry on the next pass. `undefined` (tests, legacy callers) = always
+   *  idle — the pre-ticket-03 behavior. */
+  isIdle?: WakeupIdleProbe;
+}
+
 /**
  * One wakeup pass. Exported for tests — the loop itself just calls this.
  *
  * Dynamic loops end SILENTLY when the model never re-arms (the tool call
  * happens inside the fired turn, AFTER `fire()` returns — a tick cannot see
- * it, so "did not schedule" is unknowable here by design). The only `ended`
- * event is the fire cap, checked BEFORE firing so a capped loop never fires.
+ * it, so "did not schedule" is unknowable here by design). The `ended` events
+ * are the fire cap and the 7-day max-age, both checked BEFORE firing so a
+ * capped/expired loop never fires again (max-age fires exactly one last time).
  */
 export function runWakeupTick(
   registry: WakeupRegistry,
   fire: WakeupFire,
   now: Date,
   notify?: WakeupNotify,
+  options?: WakeupTickOptions,
 ): WakeupTickResult {
   const result: WakeupTickResult = { fired: [], ended: [] };
+  // Idle gate FIRST — before due() consumes anything. A due entry must never
+  // be dropped (nor fired into a busy turn) because the agent is mid-turn.
+  if (options?.isIdle && !options.isIdle()) return result;
   for (const entry of registry.due(now)) {
-    if (entry.fireCount >= WAKEUP_FIRE_CAP) {
+    const expired = entry.startedAt !== undefined && now.getTime() - entry.startedAt >= LOOP_MAX_AGE_MS;
+    if (!expired && entry.fireCount >= WAKEUP_FIRE_CAP) {
       result.ended.push({ id: entry.id, reason: `fire cap reached (${WAKEUP_FIRE_CAP}) — loop auto-stopped` });
       continue;
     }
@@ -156,6 +209,12 @@ export function runWakeupTick(
     } catch (err) {
       // The loop must survive its own fires — log via notify and keep going.
       notify?.(`wakeup: fire for loop ${entry.id} failed: ${(err as Error).message}`);
+    }
+    if (expired) {
+      // CC recurring auto-expiry (LoopScheduler port): this fire is the last
+      // one — the loop ends itself instead of rescheduling.
+      result.ended.push({ id: entry.id, reason: "max age reached (7d) — loop auto-stopped" });
+      continue;
     }
     if (entry.mode === "fixed" && entry.delaySeconds != null) {
       // Auto-reschedule at the constant cadence from the FIRE time, not dueAt —
@@ -172,18 +231,20 @@ export interface WakeupLoopHandle {
 }
 
 /** Start the wakeup interval (sibling of `startCronSchedulerLoop`; same injectable
- *  tick contract). `tickMs` injectable so tests don't wait 30 s. */
+ *  tick contract). `tickMs` injectable so tests don't wait 30 s. `isIdle`
+ *  optional (ticket 03): busy ⇒ the tick no-ops, due entries retry next pass. */
 export function startWakeupLoop(options: {
   registry: WakeupRegistry;
   fire: WakeupFire;
   notify?: WakeupNotify;
   logger?: WorkflowLogger;
   tickMs?: number;
+  isIdle?: WakeupIdleProbe;
 }): WakeupLoopHandle {
-  const { registry, fire, notify, logger, tickMs = WAKEUP_TICK_MS } = options;
+  const { registry, fire, notify, logger, tickMs = WAKEUP_TICK_MS, isIdle } = options;
   const tick = () => {
     try {
-      const result = runWakeupTick(registry, fire, new Date(), notify);
+      const result = runWakeupTick(registry, fire, new Date(), notify, isIdle ? { isIdle } : undefined);
       for (const f of result.fired) logger?.log(`wakeup: fired loop ${f.id} (${f.fireCount}/${WAKEUP_FIRE_CAP})`);
       for (const e of result.ended) notify?.(`[wakeup] loop "${e.id}" ended — ${e.reason}`);
     } catch (err) {

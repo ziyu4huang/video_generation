@@ -137,7 +137,7 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 	timer = si(tick, REFRESH_MS);
 	// Unref only the DEFAULT (real) interval — a live background-run section
 	// must never keep a headless process alive (mirrors goal's status/heartbeat
-	// timers and LoopScheduler's timer). Injected test timers pass through
+	// timers and the wakeup loop's timer). Injected test timers pass through
 	// untouched.
 	if (!deps.setInterval) (timer as { unref?: () => void }).unref?.();
 	return {

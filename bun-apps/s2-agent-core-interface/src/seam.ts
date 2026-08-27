@@ -43,6 +43,10 @@ export interface SeamImplMap {
   __piToolGateStatus: () => ToolGateStatus | undefined;
   __piCoreTaskStatusWidget: unknown;
   __piGoalActive: unknown;
+  /** Pending-loop snapshot reader () => WakeupEntry[] (cc-parity-task t03);
+   *  publisher ultracode + consumer ext-task's overlay both access globalThis
+   *  directly, so `unknown` here keeps publishSeam/readSeam typing total. */
+  __piWakeupLoops: unknown;
   __piPlanPhases: unknown;
   __piWayfindGrill: unknown;
   __piRateLimitState: unknown;

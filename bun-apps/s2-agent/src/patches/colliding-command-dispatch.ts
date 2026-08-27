@@ -5,9 +5,10 @@
  *
  * WHY THIS IS NEEDED
  * ------------------
- * When two extensions `registerCommand("loop", …)` (the repo has exactly this:
- * s2-agent-ext-task's user-facing scheduler and s2-agent-ext-ultracode's
- * subagent-side /loop), upstream 0.84.2's `resolveRegisteredCommands()` renames
+ * When two extensions `registerCommand("loop", …)` (the repo had exactly this
+ * until 2026-08-28: s2-agent-ext-task's scheduler retired into
+ * s2-agent-ext-ultracode's WakeupRegistry, cc-parity-task ticket 03, leaving
+ * ONE /loop), upstream 0.84.2's `resolveRegisteredCommands()` renames
  * BOTH registrations to `loop:1` / `loop:2` for disambiguation — and
  * `getCommand("loop")` then returns undefined. Every dispatch path that looks
  * the command up by plain name silently degrades: `AgentSession.prompt()`'s
