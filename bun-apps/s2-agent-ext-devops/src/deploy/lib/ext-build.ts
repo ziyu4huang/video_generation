@@ -67,6 +67,14 @@ export interface BuildExtOptions {
 	 * no "fail" observation to report.
 	 */
 	onGate?: (id: string, ms: number) => void;
+	/**
+	 * Cross-OS vendoring (crossos-deploy t05): the TARGET platform the
+	 * vendored closure is filtered for (os/cpu/libc match). Absent → the
+	 * build host, the pre-t05 behavior.
+	 */
+	vendorPlatform?: NodeJS.Platform;
+	vendorArch?: string;
+	vendorLibc?: "glibc" | "musl" | null;
 }
 
 /** Time one gate body; report the duration to opts.onGate on pass. */
@@ -668,6 +676,11 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 					resolveFrom: pkgDir,
 					outDir: opts.outDir,
 					exclude: opts.ext.vendorExclude,
+					// Cross-OS (t05): filter native packages for the TARGET, not
+					// the build host. Explicitly null libc disables filtering.
+					platform: opts.vendorPlatform,
+					arch: opts.vendorArch,
+					libc: opts.vendorLibc,
 				})
 			: [];
 

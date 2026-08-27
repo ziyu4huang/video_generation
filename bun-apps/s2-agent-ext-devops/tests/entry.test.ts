@@ -161,6 +161,7 @@ function fakePi() {
 				"force",
 				"noCurrent",
 				"noFreeze",
+				"target", // crossos t05 (D6): cross-OS target name, optional
 			]);
 			// reference form (ticket 01): shared "deploy_pi_agent_sh" family (deploy_pi_agent_sh + verify_pi_agent_deploy).
 			expect(tool?.gating?.gate).toBe("deploy_pi_agent_sh");

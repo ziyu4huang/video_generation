@@ -19,7 +19,7 @@
  */
 import { resolve } from "node:path";
 import { shConfig } from "./deploy/lib/config.ts";
-import { runDeployE2e, resolveCurrentVersionDir, resolveModelEndpoint } from "./deploy-e2e-recipe.js";
+import { runDeployE2e, resolveCurrentVersionDir, resolveModelEndpoint, isNonHostTree } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
@@ -110,6 +110,16 @@ export async function runVerifyDeployE2eCli(
 			verdict: "fail",
 			deployRoot,
 			note: `fail (no 'current' under ${deployRoot} — nothing deployed, or the symlink is broken)`,
+		});
+	}
+	// crossos t05: a non-host tree's launcher + bun cannot boot on this
+	// machine — booting it produces a false FAIL for a healthy cross-built
+	// tree. Skip with the t06 note instead (same rule as deploy-cli).
+	if (isNonHostTree(versionDir)) {
+		return jsonResult(0, {
+			verdict: "skip",
+			deployRoot,
+			note: "skip (crossos t05: non-host target tree — cross-OS boot verification is t06's channel)",
 		});
 	}
 	const spawn = deps.spawn ?? createLiveSpawn(versionDir);

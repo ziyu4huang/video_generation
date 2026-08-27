@@ -29,10 +29,17 @@ import { join } from "node:path";
 
 export const BUNS_DIR = ".buns";
 
-/** Hash the runtime identity: same bun version on the same platform/arch. */
-export function computeBunHash(opts: { bunVersion: string; platform: string; arch: string }): string {
+/**
+ * Hash the runtime identity: same bun version on the same platform/arch —
+ * and, when specified, the same libc flavor (crossos t05: `linux-x64` and
+ * `linux-x64-musl` artifacts are DIFFERENT binaries and must not collide
+ * onto one cache entry). The libc term is only folded when set, so host
+ * entries (which never specify one) keep their pre-existing hashes.
+ */
+export function computeBunHash(opts: { bunVersion: string; platform: string; arch: string; libc?: string }): string {
+	const libcTerm = opts.libc ? `libc=${opts.libc}\0` : "";
 	return createHash("sha256")
-		.update(`bun=${opts.bunVersion}\0platform=${opts.platform}\0arch=${opts.arch}\0`)
+		.update(`bun=${opts.bunVersion}\0platform=${opts.platform}\0arch=${opts.arch}\0${libcTerm}`)
 		.digest("hex");
 }
 
@@ -45,12 +52,38 @@ export interface CachedBun {
 }
 
 /**
- * Return the cache entry for this process's bun, copying it in on miss via
- * `process.execPath`. The copy lands at a temp path first and is renamed into
- * place, so a killed copy never poisons the cache with a partial binary.
+ * Return the cache entry for this process's bun. The copy discipline lives
+ * in ensureCachedBunFrom; this is the host-identity spelling of it.
  */
 export function ensureCachedBun(opts: { outRoot: string }): CachedBun {
-	const hash = computeBunHash({ bunVersion: Bun.version, platform: process.platform, arch: process.arch });
+	return ensureCachedBunFrom(process.execPath, {
+		outRoot: opts.outRoot,
+		bunVersion: Bun.version,
+		platform: process.platform,
+		arch: process.arch,
+	});
+}
+
+/**
+ * Return the cache entry for a FOREIGN bun binary (crossos-deploy t05/D7):
+ * one fetched from a GitHub release rather than lifted from
+ * `process.execPath`. Same discipline as ensureCachedBun — the copy lands
+ * at a temp path first and is renamed into place — but the identity is
+ * EXPLICIT (`bunVersion`/`platform`/`arch` of the fetched artifact), never
+ * derived from the running process: the hash discipline t02 named. A cache
+ * hit skips the copy, so a matrix of targets sharing an outRoot pays each
+ * binary once.
+ */
+export function ensureCachedBunFrom(
+	sourcePath: string,
+	opts: { outRoot: string; bunVersion: string; platform: string; arch: string; libc?: string },
+): CachedBun {
+	const hash = computeBunHash({
+		bunVersion: opts.bunVersion,
+		platform: opts.platform,
+		arch: opts.arch,
+		libc: opts.libc,
+	});
 	const dir = join(opts.outRoot, BUNS_DIR);
 	const cacheFile = join(dir, hash);
 	if (existsSync(cacheFile)) {
@@ -58,7 +91,7 @@ export function ensureCachedBun(opts: { outRoot: string }): CachedBun {
 	}
 	mkdirSync(dir, { recursive: true });
 	const tmp = join(dir, `.tmp-${hash.slice(0, 12)}-${process.pid}`);
-	copyFileSync(process.execPath, tmp);
+	copyFileSync(sourcePath, tmp);
 	chmodSync(tmp, 0o755);
 	renameSync(tmp, cacheFile);
 	return { cacheFile, cached: false, bytes: statSync(cacheFile).size };

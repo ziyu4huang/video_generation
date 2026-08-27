@@ -758,6 +758,12 @@ export default function (pi: ExtensionAPI): void {
 			noCurrent: Type.Optional(
 				Type.Boolean({ description: "Do not repoint <outRoot>/current. Default: false.", default: false }),
 			),
+			target: Type.Optional(
+				Type.String({
+					description:
+						"Cross-OS target (crossos t05, D6): <platform>-<arch> the tree is packed for, e.g. win32-x64, linux-x64. Default: this host.",
+				}),
+			),
 		}),
 		async execute(_id, params) {
 			try {
@@ -765,6 +771,7 @@ export default function (pi: ExtensionAPI): void {
 					force: params.force ?? false,
 					noFreeze: params.noFreeze ?? false,
 					noCurrent: params.noCurrent ?? false,
+					target: params.target,
 				});
 				const text = r.ok
 					? `✓ deployed ${r.version} → ${r.target}\n` +

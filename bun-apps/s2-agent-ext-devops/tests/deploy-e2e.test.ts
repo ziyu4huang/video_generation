@@ -1,5 +1,16 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
+import {
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	readlinkSync,
+	renameSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runShDeploy } from "../src/deploy/run.ts";
@@ -12,12 +23,19 @@ import {
 } from "../src/deploy/lib/offline-gate.ts";
 import { freezeTree, rmTree, unfreezeTree } from "../src/deploy/lib/fs.ts";
 import { HOST_API, HOST_MODULE_IDS } from "../../s2-agent/src/sh/host-modules.ts";
+import { hostTargetName } from "../src/deploy/lib/targets.ts";
 
+// crossos t05 (D6): version dirs + current + index live under the per-target
+// subroot — the HOST's for a default deploy.
 const RUN = process.env.PI_AGENT_E2E === "1";
 const describeE2E = RUN ? describe : describe.skip;
 
 const outRoot = mkdtempSync(join(tmpdir(), "sh-e2e-"));
 afterAll(() => rmTree(outRoot));
+
+// crossos t05 (D6): version dirs + current + index live under the per-target
+// subroot — the HOST's for a default deploy.
+const HOST_SUBROOT = join(outRoot, hostTargetName());
 
 // The expected extension set is DERIVED from the typed REGISTRY
 // (s2-agent/src/registry-config.ts via shConfig), never written out here. This
@@ -97,7 +115,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 			configDir: ".pi",
 		});
 		expect(existsSync(join(r.target, "ext", "power-tool", "ext.json"))).toBe(true);
-		expect(readlinkSync(join(outRoot, "current"))).toBe(r.version);
+		expect(readlinkSync(join(HOST_SUBROOT, "current"))).toBe(r.version);
 
 		// the per-deploy report: written after the gates, frozen with the tree,
 		// carrying the included/excluded table and the baked provider catalog
@@ -129,7 +147,7 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(reportYaml.sourceSha).toBe(JSON.parse(readFileSync(join(r.target, "deploy.json"), "utf8")).sourceSha);
 		expect(reportYaml.extensions.map((e: { name: string }) => e.name).sort()).toEqual(configuredNamesSorted);
 		// and the outRoot index links to this version's report
-		const index = readFileSync(join(outRoot, "index.html"), "utf8");
+		const index = readFileSync(join(HOST_SUBROOT, "index.html"), "utf8");
 		expect(index).toContain(r.version);
 		expect(index).toContain(`${r.version}/deploy-report.html`);
 		expect(index).toContain(`${r.version}/deploy-report.yaml`);
@@ -166,8 +184,8 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 	}, 300_000);
 
 	test("the core still runs with ext/ deleted", () => {
-		const version = readlinkSync(join(outRoot, "current"));
-		const target = join(outRoot, version);
+		const version = readlinkSync(join(HOST_SUBROOT, "current"));
+		const target = join(HOST_SUBROOT, version);
 		const parked = join(target, "ext-parked");
 		// unfreeze just enough to move the directory
 		unfreezeTree(target);
@@ -192,8 +210,8 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 	// test in the probe suite. Gate 5 runs on the staging tree before the
 	// rename; this re-runs the pure scans against the final, frozen tree.
 	test("the shipped tree is offline-contained (Gate 5 static half)", async () => {
-		const version = readlinkSync(join(outRoot, "current"));
-		const target = join(outRoot, version);
+		const version = readlinkSync(join(HOST_SUBROOT, "current"));
+		const target = join(HOST_SUBROOT, version);
 
 		expect(scanSymlinkEscapes(target), "symlink(s) escape the deploy tree").toEqual([]);
 		expect(verifyVendoredCompleteness(target), "declared vendor package(s) missing").toEqual([]);
@@ -229,8 +247,85 @@ describeE2E("core cache reuse", () => {
 		const b = await runShDeploy({ outRoot: keepRoot, version: "e2e-cache-b" });
 		expect(b.coreCached).toBe(true); // hit: no recompile
 		// the two version dirs hardlink ONE cached core — same inode
-		expect(statSync(join(keepRoot, "e2e-cache-a", CORE_FILENAME)).ino).toBe(
-			statSync(join(keepRoot, "e2e-cache-b", CORE_FILENAME)).ino,
-		);
+		expect(statSync(join(a.target, CORE_FILENAME)).ino).toBe(statSync(join(b.target, CORE_FILENAME)).ino);
+	}, 300_000);
+});
+
+// ── crossos t05 (D6/D7): per-target subroots + non-host acquisition ─────────
+//
+// A win32-x64 deploy from this (darwin) build host: the tree lands under
+// <outRoot>/win32-x64/, its bun comes from the release channel (a LOCAL
+// fixture via S2_AGENT_BUN_RELEASE_BASE — the payload is this process's bun
+// under the exe name; nothing executes it on this host), and the boot gates
+// (3/6) + post-deploy E2E are recorded as SKIPPED, deferred to t06's channel.
+describeE2E("cross-target deploy (win32-x64 from a darwin host)", () => {
+	const crossRoot = mkdtempSync(join(tmpdir(), "sh-cross-"));
+	const releaseBase = join(crossRoot, "release");
+
+	beforeAll(() => {
+		// Fixture release dir shaped like the GitHub tag: bun-v<Bun.version>/
+		// with the win32 artifact + SHASUMS256.txt.
+		const tagDir = join(releaseBase, `bun-v${Bun.version}`);
+		const payloadDir = join(crossRoot, "payload", "bun-windows-x64");
+		mkdirSync(tagDir, { recursive: true });
+		mkdirSync(payloadDir, { recursive: true });
+		copyFileSync(process.execPath, join(payloadDir, "bun.exe"));
+		const zip = join(tagDir, "bun-windows-x64.zip");
+		const tar = Bun.spawnSync(["tar", "-cf", zip, "--format", "zip", "-C", join(crossRoot, "payload"), "bun-windows-x64"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		});
+		if (tar.exitCode !== 0) throw new Error(`fixture zip failed: ${tar.stderr.toString()}`);
+		const digest = createHash("sha256").update(readFileSync(zip)).digest("hex");
+		writeFileSync(join(tagDir, "SHASUMS256.txt"), `${digest}  bun-windows-x64.zip\n`);
+		process.env.S2_AGENT_BUN_RELEASE_BASE = releaseBase;
+	});
+	afterAll(() => {
+		delete process.env.S2_AGENT_BUN_RELEASE_BASE;
+		rmTree(crossRoot);
+	});
+
+	test("win32-x64 deploy: subroot layout, exe naming, skipped boot gates, shared caches", async () => {
+		const r = await runShDeploy({ outRoot: crossRoot, target: "win32-x64", version: "e2e-cross-win" });
+		expect(r.targetName).toBe("win32-x64");
+		expect(r.target).toBe(join(crossRoot, "win32-x64", "e2e-cross-win"));
+
+		// Windows exe naming (D7 artifact) in bin/; the .ps1 resolves it first.
+		expect(existsSync(join(r.target, "bin", "bun.exe"))).toBe(true);
+		expect(existsSync(join(r.target, "s2-agent.ps1"))).toBe(true);
+		expect(existsSync(join(r.target, "s2-agent.cmd"))).toBe(true);
+
+		// per-target current, inside the subroot
+		expect(readlinkSync(join(crossRoot, "win32-x64", "current"))).toBe("e2e-cross-win");
+
+		// deploy.json carries the TARGET facts, not the build host's
+		const dj = JSON.parse(readFileSync(join(r.target, "deploy.json"), "utf8")) as {
+			target: string;
+			runtime: { platform: string; arch: string };
+		};
+		expect(dj.target).toBe("win32-x64");
+		expect(dj.runtime.platform).toBe("win32");
+		expect(dj.runtime.arch).toBe("x64");
+
+		// boot gates skipped with the t06 deferral note; build gates still pass
+		const reportYaml = Bun.YAML.parse(readFileSync(join(r.target, "deploy-report.yaml"), "utf8")) as {
+			gates: Array<{ id: string; status: string; note?: string }>;
+		};
+		const gate3 = reportYaml.gates.find((g) => g.id === "3");
+		const gate6 = reportYaml.gates.find((g) => g.id === "6");
+		expect(gate3?.status).toBe("skip");
+		expect(gate6?.status).toBe("skip");
+		expect(gate3?.note).toMatch(/t06/);
+		for (const g of reportYaml.gates) expect(g.status, `gate ${g.id}`).not.toBe("fail");
+
+		// SHARED caches (D6): a second win32 deploy of the same sources hits
+		// both — no recompile of the neutral core, no refetch of the .buns
+		// entry (the S2_AGENT_BUN_RELEASE_BASE fixture is one-shot proof
+		// enough: a refetch would rebuild the zip, which still exists, but
+		// cached=true asserts it never needed to).
+		const r2 = await runShDeploy({ outRoot: crossRoot, target: "win32-x64", version: "e2e-cross-win-2", force: true });
+		expect(r2.coreCached).toBe(true);
+		expect(r2.runtime.platform).toBe("win32");
+		expect(r2.runtime.cached).toBe(true); // .buns hit — no refetch of the fixture
 	}, 300_000);
 });

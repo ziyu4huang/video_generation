@@ -23,6 +23,11 @@ export interface DeployParams {
 	noFreeze?: boolean;
 	/** Do not repoint <outRoot>/current. */
 	noCurrent?: boolean;
+	/**
+	 * Cross-OS target (crossos t05, D6): `<platform>-<arch>` the tree is packed
+	 * for (e.g. win32-x64). Default: the build host.
+	 */
+	target?: string;
 }
 
 export interface DeployResult {
@@ -98,6 +103,7 @@ export async function deployViaCli(
 	}
 	const cli = resolve(piAgentDir, "..", "s2-agent-ext-devops", "src", "deploy-cli.ts");
 	const args = [cli];
+	if (params.target) args.push("--target", params.target);
 	if (params.force) args.push("--force");
 	if (params.noFreeze) args.push("--no-freeze");
 	if (params.noCurrent) args.push("--no-current");

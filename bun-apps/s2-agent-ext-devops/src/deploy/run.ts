@@ -1,7 +1,9 @@
 /**
  * deploy.ts — orchestrator for the s2-agent-sh deploy.
  *
- * Produces <outRoot>/<version>/ containing:
+ * Produces <outRoot>/<target>/<version>/ containing (crossos-deploy t05,
+ * D6: one complete immutable tree per cross-OS target, per-target `current`;
+ * the .cores/.buns content-addressed caches stay shared at <outRoot>/):
  *   s2-agent.js   minimal core as a bun-run ESM bundle (zero extensions
  *                 inside), hardlinked from <outRoot>/.cores/<hash> when
  *                 frozen (Phase 3 §a; the core has been a `--target=bun`
@@ -63,6 +65,8 @@ import {
 } from "./lib/version.ts";
 import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
+import { acquireBunBinary } from "./lib/bun-acquire.ts";
+import { bunBinaryName, hostTargetName, isHostTarget, parseTargetName, type TargetSpec } from "./lib/targets.ts";
 import { freezeTree, rmTree } from "./lib/fs.ts";
 
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "s2-agent");
@@ -76,11 +80,20 @@ export interface DeployShOptions {
 	freeze?: boolean;
 	current?: boolean;
 	force?: boolean;
+	/**
+	 * Cross-OS target (crossos-deploy t05, D6): `<platform>-<arch>` the tree
+	 * is FOR. Default: the host. Routes version dirs + `current` under
+	 * `<outRoot>/<target>/` (caches stay shared); non-host targets acquire
+	 * their bun from a GitHub release (D7) and skip the boot gates (t06).
+	 */
+	target?: string;
 }
 
 export interface DeployShResult {
 	version: string;
 	target: string;
+	/** The cross-OS target name this tree was packed for (D6; host name by default). */
+	targetName: string;
 	extensions: Array<{ name: string; bytes: number }>;
 	coreBytes: number;
 	/** True when the core came from <outRoot>/.cores without a recompile. */
@@ -548,6 +561,20 @@ function recordGate(
 	}
 }
 
+/**
+ * Record a deliberately-not-run gate (crossos t05): non-host targets skip the
+ * boot gates with the t06 deferral note. One spelling for every skip site.
+ */
+function skipGate(gates: GateRecord[], id: string, title: string, targetName: string): void {
+	gates.push({
+		id,
+		title,
+		scope: "deploy",
+		status: "skip",
+		note: `crossos t05: non-host target ${targetName} — boot gates deferred to t06's verification channel`,
+	});
+}
+
 export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShResult> {
 	// The registry is CODE now (registry-code-as-config t03): no config file
 	// to read or override — shConfig() validates the typed REGISTRY and
@@ -556,24 +583,35 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 	await assertHostContract(cfg);
 
 	const outRoot = opts.outRoot ? resolve(opts.outRoot) : cfg.outRoot;
+	// Cross-OS target topology (crossos-deploy t05, D6): cacheRoot owns the
+	// shared content-addressed caches (.cores/.buns — platform-neutral core
+	// hash, platform-folded bun hash); targetRoot owns this target's version
+	// dirs + `current`. swapCurrent/listVersions/pruneVersions/staging all
+	// treat targetRoot as their outRoot, unchanged — the isolation falls out
+	// of the directory shape rather than new code.
+	const targetName = opts.target ?? hostTargetName();
+	const targetSpec = parseTargetName(targetName);
+	const hostTree = isHostTarget(targetSpec);
+	const cacheRoot = outRoot;
+	const targetRoot = join(outRoot, targetName);
 	const pkgVersion = (JSON.parse(readFileSync(join(PI_AGENT_DIR, "package.json"), "utf8")) as { version: string })
 		.version;
 	const sha = gitShortSha();
 	const version = opts.version ?? computeVersion({ pkgVersion, gitSha: sha, useGitSha: cfg.version.gitSha });
-	const target = resolveTargetDir(outRoot, version);
+	const target = resolveTargetDir(targetRoot, version);
 	const freeze = opts.freeze ?? cfg.freeze;
 	const wantCurrent = opts.current ?? cfg.current;
 	const builtAt = new Date().toISOString();
 	const sourceSha = sha ?? "unknown";
 	const enabled = cfg.extensions.filter((e) => e.enabled);
 
-	ensureOutRoot(outRoot);
+	ensureOutRoot(targetRoot);
 
 	// ── deploy (version dirs are immutable — the in-place ext rebuild is gone) ─
 	if (existsSync(target) && !opts.force) {
 		throw new DeployVersionExistsError(version, target);
 	}
-	const stage = join(outRoot, `.staging-${version}`);
+	const stage = join(targetRoot, `.staging-${version}`);
 	rmTree(stage);
 	mkdirSync(join(stage, "ext"), { recursive: true });
 
@@ -596,13 +634,24 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		extGateTotals.set(id, t);
 	};
 	try {
-		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, CORE_FILENAME), { outRoot, freeze });
+		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, CORE_FILENAME), { outRoot: cacheRoot, freeze });
 		stagePiAssets(stage);
 		// The shipped runtime (ticket 02): the bundle is neutral, bin/bun is
-		// this platform's — content-cached under .buns, hardlinked per version.
-		const bun = ensureCachedBun({ outRoot });
+		// the TARGET's — content-cached under the shared .buns, hardlinked per
+		// version. Host target: lift it from process.execPath. Non-host target
+		// (D7): fetch the same-Bun.version binary from the GitHub release
+		// (SHASUMS256-verified) into the same content-addressed cache.
+		const bun = hostTree
+			? ensureCachedBun({ outRoot: cacheRoot })
+			: await acquireBunBinary({
+					outRoot: cacheRoot,
+					bunVersion: Bun.version,
+					spec: targetSpec,
+					releaseBase: process.env.S2_AGENT_BUN_RELEASE_BASE,
+				});
+		const binBasename = bunBinaryName(targetSpec);
 		mkdirSync(join(stage, "bin"), { recursive: true });
-		linkBun(bun.cacheFile, join(stage, "bin", "bun"));
+		linkBun(bun.cacheFile, join(stage, "bin", binBasename));
 
 		for (const ext of enabled) {
 			const r = await buildExtPackage({
@@ -615,6 +664,17 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				sourceSha,
 				builtAt,
 				onGate,
+				// Cross-OS vendoring (t05): the closure filters native packages
+				// for the TARGET (os/cpu/libc match, vendor-closure.ts), not the
+				// build host. A HOST deploy passes libc undefined so the
+				// closure's own detectLibc() stays authoritative (a musl host
+				// must not be forced to glibc filtering); a cross target's
+				// spec carries the flavor (bare linux implies glibc, D4).
+				// Build-side only — the ext gates below still run the bundle
+				// on the host bun, which is exactly what they prove.
+				vendorPlatform: targetSpec.platform,
+				vendorArch: targetSpec.arch,
+				vendorLibc: hostTree ? undefined : targetSpec.libc,
 			});
 			built.push({ name: r.name, bytes: r.bytes });
 		}
@@ -663,10 +723,15 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 					sourceSha,
 					bunVersion: Bun.version,
 					coreKind: "bun-bundle",
+					// The TARGET the tree is packed for (D6) — platform/arch name
+					// the bun binary shipped in bin/, NOT the machine that built
+					// the tree. Acquisition provenance for a non-host runtime is
+					// the GitHub release channel (D7).
+					target: targetName,
 					runtime: {
 						bunVersion: Bun.version,
-						platform: process.platform,
-						arch: process.arch,
+						platform: targetSpec.platform,
+						arch: targetSpec.arch,
 						bytes: bun.bytes,
 						cached: bun.cached,
 					},
@@ -678,11 +743,22 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			)}\n`,
 		);
 
-		recordGate(gates, "3", "verifyDualState", "deploy", () =>
-			verifyDualState(
-				stage,
-				enabled.map((e) => e.name),
-			));
+		// Gates 3 and 6 BOOT the tree with its own bin/bun — a non-host
+		// target's bun cannot execute on this build host, so both are recorded
+		// as skipped with the reason (cross-OS boot verification is ticket
+		// 06's channel: CI windows/linux runner or a real box). Skipping here
+		// is a topology statement, not a gate weakening: the host-target
+		// deploy of the SAME core+exts runs them, and the artifacts are
+		// byte-shared through the caches.
+		if (hostTree) {
+			recordGate(gates, "3", "verifyDualState", "deploy", () =>
+				verifyDualState(
+					stage,
+					enabled.map((e) => e.name),
+				));
+		} else {
+			skipGate(gates, "3", "verifyDualState", targetName);
+		}
 
 		// Gate 5 — BEFORE the rename/freeze/current swap, so a violation never
 		// becomes the deployed version. The artifact scans key off the FINAL
@@ -695,19 +771,23 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			verifyOfflineContainment(stage, {
 				binaries: [
 					{ label: "core bundle", path: join(stage, CORE_FILENAME) },
-					{ label: "shipped bun", path: join(stage, "bin", "bun") },
+					{ label: "shipped bun", path: join(stage, "bin", binBasename) },
 				],
 				finalTarget: target,
 			}));
 
 		// Gate 6 — behavioural relocatability: boot a clone of the staged tree
-		// from a different absolute path.
-		recordGate(gates, "6", "verifyRelocatable", "deploy", () =>
-			verifyRelocatable(
-				stage,
-				outRoot,
-				enabled.map((e) => e.name),
-			));
+		// from a different absolute path. Host target only (see Gate 3's note).
+		if (hostTree) {
+			recordGate(gates, "6", "verifyRelocatable", "deploy", () =>
+				verifyRelocatable(
+					stage,
+					targetRoot,
+					enabled.map((e) => e.name),
+				));
+		} else {
+			skipGate(gates, "6", "verifyRelocatable", targetName);
+		}
 
 		// ── deploy-report.html + deploy-report.yaml — after the gates, before
 		// the rename/freeze ──
@@ -744,12 +824,12 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			sourceSha,
 			bunVersion: Bun.version,
 			registryModule: REGISTRY_MODULE,
-			outRoot,
+			outRoot: targetRoot,
 			target,
 			freeze,
 			current: wantCurrent,
 			core: { bytes: coreBytes, cached: coreCached },
-			runtime: { bunVersion: Bun.version, platform: process.platform, arch: process.arch, bytes: bun.bytes, cached: bun.cached },
+			runtime: { bunVersion: Bun.version, platform: targetSpec.platform, arch: targetSpec.arch, bytes: bun.bytes, cached: bun.cached },
 			gates,
 			extensions: extensionsReport,
 			excluded: excludedExtensionsFromRegistry({ bunAppsDir: BUN_APPS_DIR }),
@@ -763,30 +843,39 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		if (freeze) freezeTree(target);
 		let currentUpdated = false;
 		if (wantCurrent) {
-			swapCurrent(outRoot, version);
+			swapCurrent(targetRoot, version);
 			currentUpdated = true;
 		}
-		const pruned = pruneVersions(outRoot, { keep: cfg.keep ?? DEFAULT_KEEP });
+		const pruned = pruneVersions(targetRoot, { keep: cfg.keep ?? DEFAULT_KEEP });
+		// crossos t05: retention must not stop at the subroot — a pre-t05
+		// outRoot's flat version dirs would otherwise survive forever against
+		// keep:N (the exact unbounded-disk class Phase 3 fixed). Prune the
+		// legacy flat layer with target subroots EXCLUDED; a legacy top-level
+		// `current` still protects its version via the same rule as ever.
+		pruneVersions(cacheRoot, { keep: cfg.keep ?? DEFAULT_KEEP, excludeTargets: true });
 		// Strictly after pruneVersions: dropping a version dir is what turns its
 		// core into an orphan, and the core just linked above is protected by its
-		// own link count either way.
-		const prunedCores = pruneOrphanCores(outRoot);
+		// own link count either way. Cache pruning runs on the SHARED root —
+		// orphan collection is cross-target (an entry lives while ANY target's
+		// version links it).
+		const prunedCores = pruneOrphanCores(cacheRoot);
 		// Same rule for the shipped runtimes: a version dir dropping is what
 		// orphans a .buns entry.
-		const prunedBuns = pruneOrphanBuns(outRoot);
+		const prunedBuns = pruneOrphanBuns(cacheRoot);
 		// The outRoot index lists what retention left behind — strictly after
 		// pruneVersions, so it never links a pruned version's report.
-		writeOutRootIndex(outRoot);
+		writeOutRootIndex(targetRoot);
 		return {
 			version,
 			target,
+			targetName,
 			extensions: built,
 			coreBytes,
 			coreCached,
 			currentUpdated,
 			pruned,
 			prunedCores,
-			runtime: { bunVersion: Bun.version, platform: process.platform, arch: process.arch, bytes: bun.bytes, cached: bun.cached },
+			runtime: { bunVersion: Bun.version, platform: targetSpec.platform, arch: targetSpec.arch, bytes: bun.bytes, cached: bun.cached },
 			prunedBuns,
 		};
 	} catch (e) {

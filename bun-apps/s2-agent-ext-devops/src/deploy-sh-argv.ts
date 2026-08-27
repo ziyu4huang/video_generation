@@ -22,7 +22,7 @@ export type DeployShAction =
 
 export type ParseArgvResult = { ok: true; action: DeployShAction } | { ok: false; error: string };
 
-const VALUE_FLAGS = new Set(["--out", "--version"]);
+const VALUE_FLAGS = new Set(["--out", "--version", "--target"]);
 const BOOL_FLAGS = new Set(["--no-freeze", "--no-current", "--force", "--list", "--help", "--json"]);
 
 export function parseDeployShArgv(argv: string[]): ParseArgvResult {
@@ -56,7 +56,8 @@ export function parseDeployShArgv(argv: string[]): ParseArgvResult {
 				}
 			}
 			if (flag === "--out") options.outRoot = value;
-			else options.version = value;
+			else if (flag === "--version") options.version = value;
+			else if (flag === "--target") options.target = value;
 			// --out is meaningful for both actions; the rest are deploy-only.
 			if (flag !== "--out") sawDeployFlag = true;
 			continue;

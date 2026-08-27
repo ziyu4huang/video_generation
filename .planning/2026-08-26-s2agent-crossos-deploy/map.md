@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-26-s2agent-crossos-deploy
 created: 2026-08-26
-last: 2026-08-27 (tickets 01–04 closed — topology, acquisition, Windows launcher shipped; frontier = 05 + parallel 07)
+last: 2026-08-27 (tickets 01–05 closed — D6/D7 pipeline landed: --target + subroots + GitHub-release bun + vendor pass-through; D5 re-scoped to new ticket 08; frontier = 07 + 06)
 status: active
 ---
 
@@ -64,13 +64,14 @@ tickets; sibling effort merge-base `a57b6d38`):
 ### Phase 2 — launcher + tree layout (the build work)
 - [03] Packaging topology — closed 2026-08-27 (per-target subroots `<outRoot>/<target>/<version>/` + per-target `current`, `--target` flag default host; bun via GitHub release + SHASUMS256 — D6/D7)
 - [04] PowerShell launcher `s2-agent.ps1` (+ entry shim) — closed 2026-08-27 (`.ps1` twin + `.cmd` Bypass shim shipped in every tree; real-Windows friction DEFERRED to 06 with blockers named: no Windows host, no CI windows runner)
-- [05] Windows tree-layout compat (PATH/env/junction/exec-perms) — open (task; unblocked by 03)
+- [05] Windows tree-layout compat (PATH/env/junction/exec-perms) — closed 2026-08-27 (D6/D7 pipeline landed: `--target` at CLI+tool surfaces, per-target subroots w/ shared caches, `acquireBunBinary` GitHub+SHASUMS256 → `ensureCachedBunFrom`, vendor target pass-through, boot gates skip w/ t06 note; tree-side mechanics classified in ticket; D5 → ticket 08)
 
 ### Phase 3 — verification + simplification fold-in
-- [06] Cross-OS verification strategy (E2E on mac host vs CI runners) — open (grilling; blocked by 03)
+- [06] Cross-OS verification strategy (E2E on mac host vs CI runners) — open (grilling; owns t04's deferred friction measurements + the windows-CI question)
 - [07] Dead `--compile` compat-code cleanup on the deploy path — open (task)
+- [08] Per-platform ext filtering (D5 build-out) — open (task; spawned from 05 — after t06 so per-tree Gate 3 counts are checkable)
 
-**Execution order:** 01 → 02 → 03 → 04 → 05 → 06 → 07 (02 pre-closed; 04/05 parallelizable after 03)
+**Execution order:** 01 → 02 → 03 → 04 → 05 → 07 → 06 → 08 (02 pre-closed; 08 parked until t06's channel exists)
 
 ## Decisions
 
@@ -105,15 +106,15 @@ tickets; sibling effort merge-base `a57b6d38`):
 
 ## Frontier
 
-**Ticket 05 (Windows tree-layout compat)** — the remaining build work, with
-t04's launcher shapes settled (`.ps1` + `.cmd` ship in every tree; runtime
-resolved as `bin\bun.exe` with `bin\bun` fallback). t05 lands the pipeline
-side of D6/D7: `--target` flag + per-target subroots, vendor-closure target
-pass-through, and the `ensureCachedBun` foreign-binary cache entry point D7
-names (GitHub-release fetch → `.buns/<hash>`). **Ticket 07 (dead
-`--compile` cleanup)** remains parallelizable AFK work. Ticket 06 inherits
-t04's deferred friction measurements (double-click under Restricted
-policy, TUI console inheritance, verify-deploy-e2e `.cmd` spawn twin).
+**Ticket 07 (dead `--compile` cleanup)** — pure AFK deletion work, now the
+only ticket ahead of the verification grilling; also pre-clears
+execPath/bunfs audit noise for anything touching the deploy path. Then
+**ticket 06 (cross-OS verification strategy)** — it inherits every deferred
+measurement: t04's Restricted-policy double-click + TUI console
+inheritance + `.cmd` spawn twin, t05's skipped boot gates on non-host
+trees, and the windows-CI-runner question (zero precedent measured
+2026-08-27). Ticket 08 (D5 ext filtering) stays parked until 06's channel
+exists.
 
 ## Fog of war
 

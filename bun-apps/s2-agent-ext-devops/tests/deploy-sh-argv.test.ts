@@ -35,6 +35,27 @@ describe("parseDeployShArgv", () => {
 		}
 	});
 
+	test("--target parses in both forms (crossos t05, D6)", () => {
+		const r = parseDeployShArgv(["--target=win32-x64"]);
+		expect(r.ok).toBe(true);
+		if (r.ok && r.action.kind === "deploy") expect(r.action.options.target).toBe("win32-x64");
+		const r2 = parseDeployShArgv(["--target", "linux-x64-musl"]);
+		expect(r2.ok).toBe(true);
+		if (r2.ok && r2.action.kind === "deploy") expect(r2.action.options.target).toBe("linux-x64-musl");
+	});
+
+	test("--target with no value is a usage error", () => {
+		const r = parseDeployShArgv(["--target"]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/--target/);
+	});
+
+	test("--target is deploy-only — rejected with --list", () => {
+		const r = parseDeployShArgv(["--list", "--target", "win32-x64"]);
+		expect(r.ok).toBe(false);
+		if (!r.ok) expect(r.error).toMatch(/--list/);
+	});
+
 	test("--config is retired (registry-code-as-config t03) and errors loudly", () => {
 		const r = parseDeployShArgv(["--config=/tmp/c.yaml"]);
 		expect(r.ok).toBe(false);
