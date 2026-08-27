@@ -55,6 +55,14 @@ export const SEAM_KEYS = {
   // the publisher (host s2-agent) is outside the seam-contract scanner's
   // package set.
   __piBakedProviders:       { crossPackage: false },
+  // __piWakeupLoops: cc-parity-task ticket 03 (2026-08-28) — ext-task's
+  // LoopScheduler retired into ultracode's WakeupRegistry; ext-task keeps ONLY
+  // the composite-widget loop overlay, which renders ultracode's pending-loop
+  // snapshots through this reader seam (the __piGoalActive display-only
+  // pattern; no import of ultracode — import-cycle rule). Publisher:
+  // s2-agent-ext-ultracode (extensions/ultracode.ts). Consumer:
+  // s2-agent-ext-task (src/loop/overlay.ts, display-only).
+  __piWakeupLoops:          { crossPackage: true },
 } as const;
 
 export type SeamKey = keyof typeof SEAM_KEYS;
