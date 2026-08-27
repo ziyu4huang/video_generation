@@ -37,6 +37,7 @@
  */
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { APP_NAME } from "./lib/app-name.ts";
 import { excludedExtensionsFromRegistry, filterForTarget, shConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
@@ -115,9 +116,12 @@ function gitShortSha(): string | null {
 	return p.stdout.toString().trim() || null;
 }
 
-function resolvePiPkgDir(): string {
+export function resolvePiPkgDir(): string {
 	const url = import.meta.resolve("@earendil-works/pi-coding-agent/package.json");
-	return dirname(new URL(url).pathname);
+	// fileURLToPath, NOT url.pathname: on win32 the pathname keeps a posix
+	// `/C:/…` spelling that later path.win32 joins turn into `\C:\…` —
+	// unopenable (measured: crossos-deploy-verify windows row, run 33075359667).
+	return dirname(fileURLToPath(url));
 }
 
 /** The config and the core must agree on the host contract, or every extension silently refuses to load. */

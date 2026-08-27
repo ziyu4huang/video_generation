@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BUNS_DIR, computeBunHash, ensureCachedBunFrom, type CachedBun } from "./bun-cache.ts";
 import { githubBunArtifact, type TargetSpec } from "./targets.ts";
 
@@ -32,7 +33,10 @@ function isHttp(u: string): boolean {
 
 /** file:// URLs and plain paths resolve to the same local-dir reading. */
 function localDirOf(u: string): string {
-	return u.startsWith("file://") ? new URL(u).pathname : u;
+	// fileURLToPath, NOT url.pathname — win32 file:// URLs carry a posix
+	// `/C:/…` pathname that no windows open() accepts (same trap as
+	// resolvePiPkgDir in deploy/run.ts).
+	return u.startsWith("file://") ? fileURLToPath(u) : u;
 }
 
 /** Repo convention (session-doctor-cli, deploy-e2e-recipe): every outbound fetch is timeout-bounded — a black-holed connection must fail, not hang the deploy. */
