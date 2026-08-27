@@ -1,6 +1,6 @@
 # Ticket 04 — Pathology findings can reach the model (opt-in)
 
-Status: pending
+Status: done (PR #2113, squash `0a8fe360`, merged CLEAN 2026-08-28)
 
 ## Why
 
@@ -37,10 +37,33 @@ warner; TUI rendering changes beyond the key split.
 
 ## Done-when
 
-- [ ] With the env set, a live retry-loop episode produces exactly one
+- [x] With the env set, a live retry-loop episode produces exactly one
       model-visible note and the model's next turn sees it (faux-transport
-      or real-session receipt).
-- [ ] With the env unset, zero model-visible output — status line only
-      (test-pinned; existing behavior unchanged).
-- [ ] Count refresh + per-session key landed with tests.
-- [ ] Canonical gates green; PR merged CLEAN.
+      or real-session receipt). — faux-transport receipt pinned in
+      `src/pathology/__tests__/inject.test.ts` ("factory wiring"): the
+      captured `tool_execution_end` handler is driven 3× with identical
+      calls, then the captured `before_agent_start` handler returns
+      `{ message: { customType: "pathology-note", content, display: true } }`
+      ONCE; the second boundary returns `undefined`.
+- [x] With the env unset, zero model-visible output — status line only
+      (test-pinned; existing behavior unchanged). — "env unset through the
+      FULL factory path" test: same wiring, `before_agent_start` returns
+      `undefined`; plus `injectionEnabled()` pins `=1` as the only enabling
+      value ("true" is not).
+- [x] Count refresh + per-session key landed with tests. —
+      `warning.test.ts` "count refresh" (×3→×4→×6 text updates) +
+      `statusKey`/per-session isolation tests; key `pi-pathology:<sid>`,
+      per-session episode maps mirror the accumulator.
+- [x] Canonical gates green; PR merged CLEAN. — `bun run test` 262 pass,
+      `tsc --noEmit` clean, devops `local_ci` pass 88s; PR #2113
+      mergeState CLEAN (squash `0a8fe360`).
+
+Implementation notes (seam decision): both candidate seams were
+investigated — `before_agent_start` returning `{ message }` vs
+`ctx.sendMessage(..., { deliverAs: "nextTurn" })`. Picked
+`before_agent_start`: the SDK emits it in `agent-session.js` after the
+user message is queued and before the agent loop starts, so it cannot
+fire mid-stream, and it needs no action surface (no `triggerTurn` risk).
+Pending notes are armed at detection time, dropped on episode end
+(re-arm), and the take at the boundary is destructive. Print mode (no
+UI) still arms + delivers — the note is model-visible, not UI-visible.
