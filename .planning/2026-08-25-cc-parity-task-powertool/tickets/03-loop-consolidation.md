@@ -1,6 +1,25 @@
 # Ticket 03 — Loop consolidation onto WakeupRegistry
 
-Status: pending
+Status: closed
+
+Closed 2026-08-28 via PR #2108 (squash `fff48bfc`, merged CLEAN, local_ci
+pass 111s). Investigation outcome: WakeupRegistry hosts both ported
+behaviors natively — idle-postpone became "busy ⇒ the whole tick no-ops"
+(finer than LoopScheduler's 60s postpone, same never-drop contract), and
+restart-restore lives in a new `src/wakeup-persistence.ts` (session-store
+snapshots under `wakeup-loop-state`; future dueAt honored, stale fixed
+re-anchors a full interval, stale dynamic re-anchors to NOW, expired
+dropped). Day-scale cadences kept legal (fixed clamp 60s–7d, the max-age
+ceiling — NOT schedule_wakeup's 60–3600s). `/loop stop` kept as an alias
+of `off`. The ext-task overlay renders from a new `__piWakeupLoops`
+globalThis seam (registered in SEAM_KEYS + SeamImplMap — the seam-contract
+ORPHANS invariant caught the unregistered key, as designed). Two
+incidental fixes: slash-prompt loop fires now expandPromptTemplates (the
+retired scheduler's 2026-08-23 probe — the consolidated fire had dropped
+it), and file2md's pre-existing ext-dir-unwrap lint error (from #2102,
+surfaced by dependency-scoped local_ci). Session-store compat decision
+(scope 4): old ext-task `loop-state` entries are NOT migrated — inert
+session history once its loader is gone. Net −238 lines.
 
 ## Why
 
