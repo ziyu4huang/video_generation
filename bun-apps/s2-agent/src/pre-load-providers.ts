@@ -59,6 +59,8 @@ interface Compat {
   maxTokensField?: "max_tokens" | "max_completion_tokens";
   requiresReasoningContentOnAssistantMessages?: boolean;
   thinkingFormat?: "openai" | "deepseek" | "zai" | "qwen" | string;
+  /** pi-ai zai adapter knob: streamed tool-call deltas (baked zai catalog pins it true). */
+  zaiToolStream?: boolean;
 }
 
 interface ModelEntry {
@@ -422,6 +424,95 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         // finish_reason "length"), so a small cap truncates the reply.
         maxTokens: 384_000,
         thinkingLevelMap: { minimal: null, low: "low", medium: null, high: "high", max: "max" },
+      },
+    ],
+  },
+
+  // Z.AI's GLM coding API, OpenAI style. This REGISTERS OVER the baked pi-ai
+  // catalog provider "zai" (pi-ai@0.84.2 providers/data/zai.json ships
+  // glm-4.7 / glm-5-turbo / glm-5.2 / glm-5.2-highspeed / glm-5.3, all
+  // text-only): the extension-provider path REPLACES a provider's model list
+  // with the extension's, so every baked model is re-listed below verbatim
+  // (minus cost — the registration convention zeroes costs) — omitting one
+  // makes it vanish from `--list-models` and breaks the "zai/glm-*" refs in
+  // DEFAULT_MODEL_TIER_CONFIG / the glm-lmstudio preset. Fields mirror the
+  // baked entries; detectCompat() would infer the same compat from provider
+  // id + baseUrl, but pinning it keeps the behavior stable across pi-ai
+  // upgrades (same posture as deepseek above).
+  //
+  // glm-5.3-flash (added 2026-08-27, user request — mirrors
+  // scripts/claude-code-glm.sh's AIR-tier glm-5.3-flash[1m]): declared with
+  // input text+image — the [1m] suffix exists only on the Anthropic gateway
+  // (same measurement as deepseek's), so the id here is the bare one on the
+  // coding endpoint, contextWindow 1M per the family's [1m] naming. Vision
+  // verified with a real image call 2026-08-27 (see the ticket receipt).
+  "zai": {
+    baseUrl: "https://api.z.ai/api/coding/paas/v4",
+    api: "openai-completions",
+    // pi config-template form: resolved from the env by pi's own config
+    // machinery at request time (same as deepseek above) — the key lives in
+    // the user's shell env (~/.zshrc), NOT auth.json.
+    apiKey: "$ZAI_API_KEY",
+    compat: {
+      supportsStore: false,
+      supportsDeveloperRole: false,
+      supportsReasoningEffort: false,
+      maxTokensField: "max_tokens",
+      thinkingFormat: "zai",
+      zaiToolStream: true,
+    },
+    models: [
+      {
+        id: "glm-4.7",
+        name: "GLM-4.7",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 204_800,
+        maxTokens: 131_072,
+      },
+      {
+        id: "glm-5-turbo",
+        name: "GLM-5-Turbo",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 200_000,
+        maxTokens: 131_072,
+      },
+      {
+        id: "glm-5.2",
+        name: "GLM-5.2",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 1_000_000,
+        maxTokens: 131_072,
+        // The ONE baked zai entry with reasoning effort on — per-model compat
+        // merges over the provider-level pin.
+        compat: { supportsReasoningEffort: true },
+        thinkingLevelMap: { minimal: null, low: "high", medium: "high", high: "high", max: "max" },
+      },
+      {
+        id: "glm-5.2-highspeed",
+        name: "GLM-5.2 Highspeed",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 1_000_000,
+        maxTokens: 131_072,
+      },
+      {
+        id: "glm-5.3",
+        name: "GLM-5.3",
+        reasoning: true,
+        input: ["text"],
+        contextWindow: 1_000_000,
+        maxTokens: 131_072,
+      },
+      {
+        id: "glm-5.3-flash",
+        name: "GLM-5.3 Flash",
+        reasoning: true,
+        input: ["text", "image"],
+        contextWindow: 1_000_000,
+        maxTokens: 131_072,
       },
     ],
   },

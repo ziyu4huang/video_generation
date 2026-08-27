@@ -161,6 +161,31 @@ describe("PROVIDERS config (contract)", () => {
     // — the plain id is the only registerable name on this provider.
   });
 
+  test("zai re-lists every baked model + adds glm-5.3-flash with vision", () => {
+    // Same REPLACE semantics as deepseek: registering "zai" swaps the
+    // provider model list wholesale — every baked entry (glm-4.7, glm-5-turbo,
+    // glm-5.2, glm-5.2-highspeed, glm-5.3) plus the tier-config refs
+    // (zai/glm-4.7 small, zai/glm-5.3 medium/big) must survive. glm-5.3-flash
+    // (added 2026-08-27, mirrors claude-code-glm.sh AIR tier) is the vision
+    // lane — verified with a real image call 2026-08-27 (solid-red 64x64 PNG
+    // through the read tool answered "Red").
+    const z = PROVIDERS["zai"];
+    expect(z).toBeDefined();
+    const ids = z.models.map((m) => m.id);
+    expect(ids).toEqual(
+      expect.arrayContaining(["glm-4.7", "glm-5-turbo", "glm-5.2", "glm-5.2-highspeed", "glm-5.3", "glm-5.3-flash"]),
+    );
+    const flash = z.models.find((m) => m.id === "glm-5.3-flash");
+    expect(flash).toBeDefined();
+    expect(flash!.input).toContain("image");
+    expect(flash!.reasoning).toBe(true);
+    expect(flash!.contextWindow).toBe(1_000_000);
+    // The ONE baked zai entry with reasoning effort on keeps its per-model
+    // opt-in (provider-level pins it off).
+    const g52 = z.models.find((m) => m.id === "glm-5.2");
+    expect(g52?.compat?.supportsReasoningEffort).toBe(true);
+  });
+
   test("lm-studio re-lists every local lane — incl. referenced + benchmarked ids", () => {
     // Same REPLACE semantics as deepseek: registering "lm-studio" swaps the
     // provider's model list wholesale. This pins the complete set — the
