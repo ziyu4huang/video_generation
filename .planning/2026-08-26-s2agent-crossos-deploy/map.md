@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-26-s2agent-crossos-deploy
 created: 2026-08-26
-last: 2026-08-27 (tickets 01–05 + 07 closed — D6/D7 pipeline landed; dead --compile compat deleted from the deploy path; frontier = 06 + 08)
+last: 2026-08-27 (tickets 01–07 closed — D8 landed: GH Actions cross-OS verify channel + platform-aware E2E launcher + REAL D7 network path measured; frontier = 08)
 status: active
 ---
 
@@ -67,11 +67,11 @@ tickets; sibling effort merge-base `a57b6d38`):
 - [05] Windows tree-layout compat (PATH/env/junction/exec-perms) — closed 2026-08-27 (D6/D7 pipeline landed: `--target` at CLI+tool surfaces, per-target subroots w/ shared caches, `acquireBunBinary` GitHub+SHASUMS256 → `ensureCachedBunFrom`, vendor target pass-through, boot gates skip w/ t06 note; tree-side mechanics classified in ticket; D5 → ticket 08)
 
 ### Phase 3 — verification + simplification fold-in
-- [06] Cross-OS verification strategy (E2E on mac host vs CI runners) — open (grilling; owns t04's deferred friction measurements + the windows-CI question)
+- [06] Cross-OS verification strategy (E2E on mac host vs CI runners) — closed 2026-08-27 (D8: GH Actions matrix channel landed — crossos-deploy-verify.yml, manual dispatch, ubuntu+windows; E2E launcher platform-aware; S2_AGENT_E2E_SKIP_MODEL_CALL; first dispatch pending = the real windows measurement)
 - [07] Dead `--compile` compat-code cleanup on the deploy path — closed 2026-08-27 (every behavioral --compile branch deleted across core-runtime/superpowers + comment-only rewording in archify/ultracode; historical sites kept WITH citation — receipts in ticket)
-- [08] Per-platform ext filtering (D5 build-out) — open (task; spawned from 05 — after t06 so per-tree Gate 3 counts are checkable)
+- [08] Per-platform ext filtering (D5 build-out) — open (task; spawned from 05 — unblocked now that t06's channel exists)
 
-**Execution order:** 01 → 02 → 03 → 04 → 05 → 07 → 06 → 08 (01–05, 07 closed; 08 parked until t06's channel exists)
+**Execution order:** 01 → 02 → 03 → 04 → 05 → 07 → 06 → 08 (01–07 closed; 08 = the last ticket)
 
 ## Decisions
 
@@ -102,17 +102,26 @@ tickets; sibling effort merge-base `a57b6d38`):
   closes 02's ride-along): tag `bun-v<Bun.version>` per-target artifacts +
   official SHASUMS256, landing in `.buns/<hash>` under the same
   parameterized hash (`computeBunHash`). Build-side only (D3). npm `@oven/*`
-  extraction rejected: depends on wrapper-internal tarball layout.
+  extraction rejected: depends on wrapper-internal tarball layout. Measured
+  end-to-end against real github.com 2026-08-27 (ticket 06): linux + win32
+  cross-deploys from a darwin host both fetched + verified their bun.
+- **D8 — Cross-OS verification = GH Actions matrix, manual dispatch** (user,
+  2026-08-27, ticket 06): `crossos-deploy-verify.yml`, ubuntu-latest +
+  windows-latest, each runner deploys its OWN host target so boot gates +
+  E2E run natively. macos excluded (10× private-repo billing; darwin is
+  verified on the build host every deploy). Rejected: real box (none
+  available — t04 measured), emulation (subsumed at worse fidelity).
+  Model-call probe off on runners (`S2_AGENT_E2E_SKIP_MODEL_CALL=1`).
 
 ## Frontier
 
-**Ticket 06 (cross-OS verification strategy)** — the grilling ticket; it
-inherits every deferred measurement: t04's Restricted-policy double-click +
-TUI console inheritance + `.cmd` spawn twin, t05's skipped boot gates on
-non-host trees, and the windows-CI-runner question (zero precedent measured
-2026-08-27). It is also the first opportunity for a REAL GitHub-release
-cross-deploy (t05's E2E used a local fixture base). Ticket 08 (D5 ext
-filtering) stays parked until 06's channel exists.
+**Ticket 08 (per-platform ext filtering, D5 build-out)** — the last ticket.
+The registry (s2-agent package) gains a platform dimension so non-darwin
+trees drop darwin-by-nature exts (movie-director, flux2/krea2/ltx swift
+runners); Gate 3 verifies per-tree expected counts. Now unblocked: t06's
+channel can boot the filtered trees on native runners. First dispatch of
+`crossos-deploy-verify` (windows) is the standing follow-through — expect
+portability findings to iterate there.
 
 ## Fog of war
 

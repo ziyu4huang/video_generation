@@ -311,13 +311,20 @@ export function scanForeignPaths(
 	deployRoot: string,
 	roots: { home?: string; repo?: string } = {},
 ): string[] {
-	const home = roots.home ?? homedir();
-	const repo = roots.repo ?? resolve(PI_AGENT_DIR, "..", "..");
-	const piState = join(home, ".pi");
+	// Separator-normalize both sides: a WINDOWS build host (crossos t06 makes
+	// windows-latest one) bakes `C:\Users\…` paths, and the allow-list prefixes
+	// must compare against them with one spelling.
+	const norm = (s: string) => s.replace(/\\/g, "/");
+	const home = norm(roots.home ?? homedir());
+	const repo = norm(roots.repo ?? resolve(PI_AGENT_DIR, "..", ".."));
+	const root = norm(deployRoot);
+	const piState = `${home}/.pi`;
 	const found = new Set<string>();
-	for (const m of code.matchAll(/["'`]((?:file:\/\/)?\/[^"'`\n]{4,}?)["'`]/g)) {
-		const p = m[1]!.replace(/^file:\/\//, "");
-		if (p.startsWith(deployRoot)) continue;
+	// Drive-letter absolute paths (`C:\…` / `C:/…`) alongside POSIX `/…` —
+	// the win32 build-host spelling a leading-`/`-only anchor would miss.
+	for (const m of code.matchAll(/["'`]((?:file:\/\/)?(?:[A-Za-z]:[\/\\]|\/)[^"'`\n]{4,}?)["'`]/g)) {
+		const p = norm(m[1]!.replace(/^file:\/\//, ""));
+		if (p.startsWith(root)) continue;
 		if (p === piState || p.startsWith(`${piState}/`)) continue;
 		if (p.startsWith(`${home}/`) || p.startsWith(`${repo}/`)) found.add(p);
 	}

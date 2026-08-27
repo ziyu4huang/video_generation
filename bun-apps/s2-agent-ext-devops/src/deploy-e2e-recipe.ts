@@ -15,12 +15,13 @@
  * version dir, spawn-injectable, provider-tolerant.
  *
  * THE PROBES
- *   boot           `s2-agent.sh --help` — the core boots from the frozen tree.
- *   ext-load       `s2-agent.sh --ext-list` — every extension enabled in
+ *   boot           `<launcher> --help` — the core boots from the frozen tree
+ *                  (s2-agent.sh; `cmd /c s2-agent.cmd` on win32 trees — t06).
+ *   ext-load       `<launcher> --ext-list` — every extension enabled in
  *                  deploy.json reports loaded (same contract as deploy Gate 3,
  *                  but against the FINAL tree). Registration only — blind to
  *                  the #1946 class, which is what tools-probe covers.
- *   tools-probe    `s2-agent.sh -e <probe> -p hi --no-session` — a real
+ *   tools-probe    `<launcher> -e <probe> -p hi --no-session` — a real
  *                  headless session whose probe asserts the ACTIVE toolset
  *                  still contains the core builtins (read/write/edit/bash)
  *                  when the request would go out. The #1946 regression
@@ -28,7 +29,7 @@
  *                  past boot + ext-load + model-call; only the active set
  *                  observes it. Offline (exits at before_agent_start); a FAST
  *                  provider/auth failure is a SKIP, never a FAIL.
- *   model-call     `s2-agent.sh -p 'Reply with exactly: ok' --no-session` — a
+ *   model-call     `<launcher> -p 'Reply with exactly: ok' --no-session` — a
  *                  real one-shot model call through the deployed launcher. A
  *                  FAST provider/auth failure (≤10s, provider-smelling output)
  *                  is a SKIP, never a FAIL — the hang detector must not fail on
@@ -284,6 +285,8 @@ interface DeployJson {
 	version: string;
 	sourceSha: string;
 	config: { extensions: Array<{ name: string; enabled: boolean }> };
+	/** Target runtime facts (crossos t05+); absent on pre-t05 trees. */
+	runtime?: { platform?: string; arch?: string };
 }
 
 /**
@@ -379,6 +382,22 @@ export function isNonHostTree(versionDir: string): boolean {
 	}
 }
 
+/**
+ * Launcher invocation for the tree's target platform (crossos t06). A win32
+ * tree boots through `s2-agent.cmd` — a `.cmd` cannot be exec'd directly from
+ * a spawn (CreateProcess only runs it through a shell), so the command is
+ * `cmd /c s2-agent.cmd`. Everything else uses the sh launcher verbatim. The
+ * platform comes from deploy.json's runtime facts; absent (pre-t05 tree) → sh.
+ */
+export function launcherInvocation(platform: string | undefined): {
+	file: string;
+	command: string;
+	prefix: string[];
+} {
+	if (platform === "win32") return { file: "s2-agent.cmd", command: "cmd", prefix: ["/c", "s2-agent.cmd"] };
+	return { file: "s2-agent.sh", command: "./s2-agent.sh", prefix: [] };
+}
+
 function tail(stdout: string, stderr: string): string {
 	const out = `${stdout}\n${stderr}`.trim();
 	return out.length > 1500 ? `…${out.slice(-1500)}` : out;
@@ -433,29 +452,38 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	const probes: DeployE2eProbe[] = [];
 
 	// Tree preconditions: deploy.json readable (it also supplies the expected
-	// extension set) and the launcher present. Both are structured FAILs, not
-	// throws. The launcher is s2-agent.sh (the run.sh shim was dropped in
-	// ticket 05).
+	// extension set and the tree's target platform) and the launcher present.
+	// Both are structured FAILs, not throws. The launcher is s2-agent.sh
+	// (the run.sh shim was dropped in ticket 05) except on win32 trees, which
+	// boot s2-agent.cmd through cmd /c (crossos t06).
 	let enabled: string[] = [];
 	let version = basename(opts.versionDir);
 	let sourceSha = "";
+	let launcher = launcherInvocation(undefined);
 	try {
 		const p = parseDeployJson(await readFile(join(opts.versionDir, "deploy.json"), "utf8"));
 		if (!p.ok) return failFast(opts.versionDir, `deploy.json unreadable: ${p.message}`, startedAt, now);
 		enabled = p.enabled;
 		version = p.value.version;
 		sourceSha = p.value.sourceSha;
+		launcher = launcherInvocation(p.value.runtime?.platform);
 	} catch (e) {
 		return failFast(opts.versionDir, `deploy.json unreadable: ${(e as Error).message}`, startedAt, now);
 	}
-	if (!(await Bun.file(join(opts.versionDir, "s2-agent.sh")).exists())) {
-		return failFast(opts.versionDir, "s2-agent.sh missing from the version dir", startedAt, now);
+	if (!(await Bun.file(join(opts.versionDir, launcher.file)).exists())) {
+		return failFast(opts.versionDir, `${launcher.file} missing from the version dir`, startedAt, now);
+	}
+	// win32 boot chain: the .cmd shim execs `powershell -File s2-agent.ps1` —
+	// a quarantined/missing .ps1 would otherwise surface only as powershell's
+	// generic "-File … does not exist", never naming the actually-missing file.
+	if (launcher.file === "s2-agent.cmd" && !(await Bun.file(join(opts.versionDir, "s2-agent.ps1")).exists())) {
+		return failFast(opts.versionDir, "s2-agent.ps1 missing from the version dir", startedAt, now);
 	}
 
 	// ── boot probe ──────────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn("./s2-agent.sh", ["--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
 		const ms = now() - t0;
 		probes.push(
 			r.exitCode === 0 && !r.timedOut
@@ -473,7 +501,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	// ── ext-load probe ──────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn("./s2-agent.sh", ["--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
 		const ms = now() - t0;
 		if (r.timedOut || r.exitCode !== 0) {
 			probes.push({
@@ -528,7 +556,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		try {
 			const probePath = join(workDir, "tools-probe.ts");
 			writeFileSync(probePath, TOOLS_ACTIVE_PROBE);
-			const r = await opts.spawn("./s2-agent.sh", ["-e", probePath, "-p", "hi", "--no-session"], {
+			const r = await opts.spawn(launcher.command, [...launcher.prefix, "-e", probePath, "-p", "hi", "--no-session"], {
 				cwd: opts.versionDir,
 				timeoutMs: TOOLS_PROBE_CAP_MS,
 			});
@@ -590,7 +618,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		// Recorded as a skip probe for the report, but NOT allowed to degrade
 		// the overall verdict — the caller asked for two probes, two probes ran.
 		modelCallSkippedByCaller = true;
-		probes.push({ id: "model-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call)" });
+		probes.push({ id: "model-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call flag or S2_AGENT_E2E_SKIP_MODEL_CALL=1)" });
 	} else {
 		// Contention precheck: >1 large chat model resident on the endpoint is
 		// the measured condition (2026-08-23) under which generation is slow
@@ -613,7 +641,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			}
 		}
 		const t0 = now();
-		const r = await opts.spawn("./s2-agent.sh", ["-p", DEPLOY_E2E_PROMPT, "--no-session"], {
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "-p", DEPLOY_E2E_PROMPT, "--no-session"], {
 			cwd: opts.versionDir,
 			timeoutMs: MODEL_CALL_CAP_MS,
 		});
@@ -676,7 +704,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "file2md not in deploy set" });
 	} else if (modelCallSkippedByCaller) {
 		visionSkippedNotApplicable = true;
-		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call)" });
+		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call flag or S2_AGENT_E2E_SKIP_MODEL_CALL=1)" });
 	} else {
 		const t0 = now();
 		const workDir = mkdtempSync(join(tmpdir(), "vision-e2e-"));

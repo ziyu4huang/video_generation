@@ -1,0 +1,67 @@
+# crossos-deploy verify — the t06 verification channel (D8, 2026-08-27).
+#
+# Boots a REAL deploy on native OS runners: each matrix row checks out the
+# repo, deploys for its OWN host target (deploy-cli default = host), and the
+# post-deploy E2E runs automatically against the host tree — exercising the
+# launcher (bash sh / ps1+cmd on windows), the shipped bun binary, the boot
+# gates, and ext-load. This is where every deferred cross-OS friction lives:
+# t04's PowerShell execution-policy / .cmd spawn behavior, t05's skipped boot
+# gates on non-host trees (a host deploy on the native runner runs them).
+#
+# Manual dispatch ONLY (cost control — windows runners bill 2x minutes on
+# private repos; macos is 10x and deliberately EXCLUDED: darwin-arm64 is
+# verified on the build host by every local deploy + E2E).
+#
+# The model-call probe self-skips on runners (no LM Studio / provider creds —
+# a fast provider failure is a SKIP by contract, never a FAIL).
+#
+# Not wired into PR CI: this is the standing verification op for cross-OS
+# work, not a per-PR gate. The CI-workflow reference guard
+# (bun-apps/tests/ci-workflow-references.test.ts) scans ci.yml.disabled only,
+# so this file needs no guard registration.
+name: crossos-deploy-verify
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-and-boot:
+    strategy:
+      fail-fast: false
+      matrix:
+        # D4 matrix v1, non-darwin members. ubuntu-latest = linux x64 glibc;
+        # windows-latest = win x64.
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Match the workspace's expected bun (runner-side only — the deployed
+          # tree ships its own bin/bun).
+          bun-version: "1.4.0"
+
+      - name: Install workspace dependencies (bun-apps ONLY, repo SOP)
+        run: bun install --cwd bun-apps
+
+      - name: Deploy (host target) + post-deploy E2E
+        run: >
+          bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts
+          --out "${{ runner.temp }}/crossos-verify"
+        env:
+          # Post-deploy E2E model-call probe: no provider on runners — make the
+          # skip explicit instead of relying on the fast-failure heuristic.
+          S2_AGENT_E2E_SKIP_MODEL_CALL: "1"
+
+      - name: Deploy report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-report-${{ matrix.os }}
+          path: ${{ runner.temp }}/crossos-verify/*/*/deploy-report.yaml
+          retention-days: 14

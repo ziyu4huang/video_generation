@@ -95,7 +95,12 @@ const SELF = "bun-apps/s2-agent-ext-devops/src/oneshot-smoke.ts";
 /** This monorepo's marker: without it the gate is not applicable (foreign repoRoot). */
 const DEVOPS_PKG = "bun-apps/s2-agent-ext-devops/package.json";
 
-const PROVIDER_RE = /provider|api.?key|model|auth/i;
+// Connection-refusal spellings join the provider smells (crossos t06 review,
+// 2026-08-27): a provider-less box (the GH Actions verify runners) exits fast
+// with "Unable to connect … ECONNREFUSED" — no provider/model/auth word — and
+// that IS provider-down, not a broken tree. Shared by oneshot-smoke and the
+// deploy E2E probes via classifyRun.
+const PROVIDER_RE = /provider|api.?key|model|auth|econnrefused|connection refused|unable to connect|fetch failed/i;
 
 /** Persisted TTL cache. Times are epoch ms. */
 export interface OneshotSmokeState {
