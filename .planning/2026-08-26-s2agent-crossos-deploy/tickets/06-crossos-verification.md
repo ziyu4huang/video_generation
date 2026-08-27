@@ -72,6 +72,33 @@ projections.
   without `s2-agent.cmd` fails fast naming the cmd launcher. devops
   canonical `bun run test` 938 pass / 0 fail (check incl. tsc clean).
 
+### Review round (harness `/code-review high`, 2026-08-27 — 8 findings, ALL addressed)
+
+- **spawn.ts win32 group-kill** (top severity, two finders converged):
+  `kill(-pid)` throws on Windows and the child-only fallback orphans
+  grandchildren holding stdio — a wedged probe would hang to the job
+  timeout without recording FAIL. Win32 timeout path now uses
+  `taskkill /T /F` (tree kill).
+- **scanForeignPaths POSIX-only**: drive-letter paths
+  (`C:\Users\runneradmin\…`) never matched the leading-`/` anchor, so a
+  windows build host's Gate 5b silently passed baked paths. Regex now
+  anchors drive-letters too; both sides separator-normalized (tests:
+  backslash + forward-slash spellings, in-tree allow, URL/relative
+  non-match).
+- **PROVIDER_RE missed connection refusal**: "Unable to connect …
+  ECONNREFUSED" (no provider word) FAILED healthy trees on provider-less
+  runners — extended with econnrefused/connection refused/unable to
+  connect/fetch failed (classifyRun shared by oneshot-smoke; test added).
+- **One opt-out surface**: verify-deploy-e2e-cli now honors
+  S2_AGENT_E2E_SKIP_MODEL_CALL too (was flag-only while deploy-cli was
+  env-only); skip note names flag AND env; misleading deploy-cli comment
+  fixed.
+- **win32 presence gate also checks s2-agent.ps1** (the .cmd's real
+  target) so its absence fails fast naming the file (test added).
+- **Workflow `runner.temp` quoted** (self-hosted runners with spaces).
+- **Docs de-sh'd**: recipe probe docs, deploy-cli comment, verify CLI
+  usage text now say "the deployed launcher" with the win32 spelling.
+
 ### Honest gaps
 
 - **First dispatch not yet run** — the workflow is landed but untriggered;

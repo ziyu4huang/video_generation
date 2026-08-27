@@ -725,27 +725,28 @@ describe("runVerifyDeployE2eCli", () => {
 	});
 });
 
+/** A win32 tree: s2-agent.cmd + .ps1 (the .cmd's real target) and deploy.json
+ *  runtime facts naming win32; the recipe must boot it through `cmd /c`. */
+function makeWin32Tree(): string {
+	rmSync(join(root, "current"), { force: true });
+	rmSync(versionDir, { recursive: true, force: true });
+	mkdirSync(versionDir, { recursive: true });
+	writeFileSync(join(versionDir, "s2-agent.cmd"), "@echo off\r\n");
+	writeFileSync(join(versionDir, "s2-agent.ps1"), "# ps1\n");
+	writeFileSync(
+		join(versionDir, "deploy.json"),
+		JSON.stringify({
+			version: VERSION,
+			sourceSha: "deadbee",
+			config: { extensions: [{ name: "task", enabled: true }] },
+			runtime: { platform: "win32", arch: "x64" },
+		}),
+	);
+	symlinkSync(VERSION, join(root, "current"), "dir");
+	return versionDir;
+}
+
 describe("crossos t06 — platform-aware launcher", () => {
-	// A win32 tree carries s2-agent.cmd (not .sh) and deploy.json runtime facts
-	// naming win32; the recipe must boot it through `cmd /c` (a .cmd cannot be
-	// exec'd directly by a spawn) instead of ./s2-agent.sh.
-	function makeWin32Tree(): string {
-		rmSync(join(root, "current"), { force: true });
-		rmSync(versionDir, { recursive: true, force: true });
-		mkdirSync(versionDir, { recursive: true });
-		writeFileSync(join(versionDir, "s2-agent.cmd"), "@echo off\r\n");
-		writeFileSync(
-			join(versionDir, "deploy.json"),
-			JSON.stringify({
-				version: VERSION,
-				sourceSha: "deadbee",
-				config: { extensions: [{ name: "task", enabled: true }] },
-				runtime: { platform: "win32", arch: "x64" },
-			}),
-		);
-		symlinkSync(VERSION, join(root, "current"), "dir");
-		return versionDir;
-	}
 
 	test("launcherInvocation (pure): win32 → cmd /c s2-agent.cmd; else ./s2-agent.sh", async () => {
 		const { launcherInvocation } = await import("../src/deploy-e2e-recipe.js");
@@ -799,5 +800,37 @@ describe("crossos t06 — platform-aware launcher", () => {
 		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn() });
 		expect(r.verdict).toBe("fail");
 		expect((r as { note?: string }).note).toContain("s2-agent.cmd missing");
+	});
+});
+
+describe("crossos t06 review — env skip + ps1 presence", () => {
+	test("S2_AGENT_E2E_SKIP_MODEL_CALL=1 is honored by the CLI (one opt-out surface with deploy-cli)", async () => {
+		makeTree();
+		const saved = process.env.S2_AGENT_E2E_SKIP_MODEL_CALL;
+		try {
+			process.env.S2_AGENT_E2E_SKIP_MODEL_CALL = "1";
+			const res = await runVerifyDeployE2eCli(["--deploy-root", root], {
+				spawn: fakeSpawn(),
+				versionDir: undefined,
+				modelEndpoint: null,
+			});
+			expect(res.exitCode).toBe(0);
+			const payload = JSON.parse(res.stdout);
+			expect(payload.verdict).toBe("pass"); // caller-skip never fails
+			const model = payload.probes.find((p: { id: string }) => p.id === "model-call");
+			expect(model.verdict).toBe("skip");
+			expect(model.note).toContain("S2_AGENT_E2E_SKIP_MODEL_CALL");
+		} finally {
+			if (saved === undefined) delete process.env.S2_AGENT_E2E_SKIP_MODEL_CALL;
+			else process.env.S2_AGENT_E2E_SKIP_MODEL_CALL = saved;
+		}
+	});
+
+	test("a win32 tree missing s2-agent.ps1 (the .cmd's real target) fails fast naming it", async () => {
+		makeWin32Tree();
+		rmSync(join(versionDir, "s2-agent.ps1"), { force: true });
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn() });
+		expect(r.verdict).toBe("fail");
+		expect((r as { note?: string }).note).toContain("s2-agent.ps1 missing");
 	});
 });

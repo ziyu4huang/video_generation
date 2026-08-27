@@ -90,6 +90,17 @@ describe("classifyRun — pure classification", () => {
 		expect(c.reason).toBe("provider-unavailable");
 	});
 
+	test("fast connection-refused → skip too — provider-less runners are provider-down, not broken trees (crossos t06)", () => {
+		// The GH Actions verify runners have no LM Studio: the one-shot exits
+		// fast with "Unable to connect" / ECONNREFUSED and no provider word —
+		// that must not FAIL a healthy tree.
+		const c = classifyRun(
+			okRun({ exitCode: 1, stdout: "", stderr: "error: Unable to connect to 127.0.0.1:1234 (ECONNREFUSED)", durationMs: 800 }),
+		);
+		expect(c.verdict).toBe("skip");
+		expect(c.reason).toBe("provider-unavailable");
+	});
+
 	test("SLOW provider failure (>10s) → fail, not skip — slow is a hang signal", () => {
 		const c = classifyRun(okRun({ exitCode: 1, stdout: "", stderr: "provider error", durationMs: 60_000 }));
 		expect(c.verdict).toBe("fail");

@@ -52,7 +52,7 @@ jobs:
       - name: Deploy (host target) + post-deploy E2E
         run: >
           bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts
-          --out ${{ runner.temp }}/crossos-verify
+          --out "${{ runner.temp }}/crossos-verify"
         env:
           # Post-deploy E2E model-call probe: no provider on runners — make the
           # skip explicit instead of relying on the fast-failure heuristic.

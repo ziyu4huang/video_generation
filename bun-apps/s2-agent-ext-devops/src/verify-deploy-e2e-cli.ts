@@ -26,7 +26,7 @@ import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./c
 export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"usage: verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call]",
 	"",
-	"Proves the DEPLOYED dist actually works: boots s2-agent.sh (the launcher),",
+	"Proves the DEPLOYED dist actually works: boots the deployed launcher (the sh launcher; cmd /c s2-agent.cmd on win32 trees),",
 	"checks every deploy.json-enabled extension",
 	"reports loaded, and places a real one-shot model call through the deployed",
 	"launcher. Bounded (60s/60s/300s caps — the",
@@ -126,7 +126,11 @@ export async function runVerifyDeployE2eCli(
 	const outcome = await runDeployE2e({
 		versionDir,
 		spawn,
-		skipModelCall: parsed.args.skipModelCall,
+		// Flag OR env — one opt-out surface shared with deploy-cli's auto-E2E
+		// (crossos t06): the GH Actions verify runners export the env var, and a
+		// local operator mirroring that shell gets the same behavior from BOTH
+		// CLIs instead of two divergent answers.
+		skipModelCall: parsed.args.skipModelCall || process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
 		// deps.modelEndpoint === null keeps unit tests hermetic (no fetch).
 		modelEndpoint: deps.modelEndpoint === undefined ? resolveModelEndpoint() : deps.modelEndpoint,
 	});

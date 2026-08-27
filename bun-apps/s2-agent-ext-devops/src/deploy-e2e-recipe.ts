@@ -15,12 +15,13 @@
  * version dir, spawn-injectable, provider-tolerant.
  *
  * THE PROBES
- *   boot           `s2-agent.sh --help` — the core boots from the frozen tree.
- *   ext-load       `s2-agent.sh --ext-list` — every extension enabled in
+ *   boot           `<launcher> --help` — the core boots from the frozen tree
+ *                  (s2-agent.sh; `cmd /c s2-agent.cmd` on win32 trees — t06).
+ *   ext-load       `<launcher> --ext-list` — every extension enabled in
  *                  deploy.json reports loaded (same contract as deploy Gate 3,
  *                  but against the FINAL tree). Registration only — blind to
  *                  the #1946 class, which is what tools-probe covers.
- *   tools-probe    `s2-agent.sh -e <probe> -p hi --no-session` — a real
+ *   tools-probe    `<launcher> -e <probe> -p hi --no-session` — a real
  *                  headless session whose probe asserts the ACTIVE toolset
  *                  still contains the core builtins (read/write/edit/bash)
  *                  when the request would go out. The #1946 regression
@@ -28,7 +29,7 @@
  *                  past boot + ext-load + model-call; only the active set
  *                  observes it. Offline (exits at before_agent_start); a FAST
  *                  provider/auth failure is a SKIP, never a FAIL.
- *   model-call     `s2-agent.sh -p 'Reply with exactly: ok' --no-session` — a
+ *   model-call     `<launcher> -p 'Reply with exactly: ok' --no-session` — a
  *                  real one-shot model call through the deployed launcher. A
  *                  FAST provider/auth failure (≤10s, provider-smelling output)
  *                  is a SKIP, never a FAIL — the hang detector must not fail on
@@ -472,6 +473,12 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	if (!(await Bun.file(join(opts.versionDir, launcher.file)).exists())) {
 		return failFast(opts.versionDir, `${launcher.file} missing from the version dir`, startedAt, now);
 	}
+	// win32 boot chain: the .cmd shim execs `powershell -File s2-agent.ps1` —
+	// a quarantined/missing .ps1 would otherwise surface only as powershell's
+	// generic "-File … does not exist", never naming the actually-missing file.
+	if (launcher.file === "s2-agent.cmd" && !(await Bun.file(join(opts.versionDir, "s2-agent.ps1")).exists())) {
+		return failFast(opts.versionDir, "s2-agent.ps1 missing from the version dir", startedAt, now);
+	}
 
 	// ── boot probe ──────────────────────────────────────────────────────────
 	{
@@ -611,7 +618,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		// Recorded as a skip probe for the report, but NOT allowed to degrade
 		// the overall verdict — the caller asked for two probes, two probes ran.
 		modelCallSkippedByCaller = true;
-		probes.push({ id: "model-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call)" });
+		probes.push({ id: "model-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call flag or S2_AGENT_E2E_SKIP_MODEL_CALL=1)" });
 	} else {
 		// Contention precheck: >1 large chat model resident on the endpoint is
 		// the measured condition (2026-08-23) under which generation is slow
@@ -697,7 +704,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "file2md not in deploy set" });
 	} else if (modelCallSkippedByCaller) {
 		visionSkippedNotApplicable = true;
-		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call)" });
+		probes.push({ id: "vision-call", verdict: "skip", ms: 0, note: "skipped by caller (--skip-model-call flag or S2_AGENT_E2E_SKIP_MODEL_CALL=1)" });
 	} else {
 		const t0 = now();
 		const workDir = mkdtempSync(join(tmpdir(), "vision-e2e-"));

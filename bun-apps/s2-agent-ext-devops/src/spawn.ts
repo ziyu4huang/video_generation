@@ -18,7 +18,7 @@
  * optional trailing parameter is backwards-compatible: a `(cmd, args) => …`
  * function is still assignable to `(cmd, args, options?) => …`.
  */
-import { spawn as nodeSpawn } from "node:child_process";
+import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 
 export interface SpawnResult {
 	stdout: string;
@@ -51,13 +51,18 @@ export interface SpawnOptions {
 	 * a `bun test --isolate` orphan that spun at 100% CPU for six hours and made
 	 * every later run in the same worktree hang.
 	 *
-	 * Group-kill portability (macOS + Linux): the timeout path spawns via
-	 * node:child_process with `detached: true`, which on both POSIX platforms
-	 * puts the child in its OWN process group as leader — `kill(-pid)` then
-	 * reaches the whole tree without any external helper. The former
+	 * Group-kill portability (macOS + Linux + Windows): the timeout path spawns
+	 * via node:child_process with `detached: true`, which on both POSIX
+	 * platforms puts the child in its OWN process group as leader — `kill(-pid)`
+	 * then reaches the whole tree without any external helper. The former
 	 * `/usr/bin/perl -e 'setpgrp(0,0); exec …'` wrapper assumed macOS's base-system
 	 * perl; verified empirically under Bun (detached + group-kill + grandchild
-	 * death, 2026-08-22).
+	 * death, 2026-08-22). On Windows `kill(-pid)` THROWS (no POSIX process
+	 * groups) and the child-only fallback would orphan grandchildren holding
+	 * the stdio pipes — so the win32 timeout path uses `taskkill /T /F`
+	 * (tree kill), the only native whole-tree kill (crossos t06 review,
+	 * 2026-08-27: the E2E win32 launcher chain cmd→powershell→bun is the
+	 * first driver that makes this reachable).
 	 */
 	timeoutMs?: number;
 }
@@ -97,6 +102,13 @@ function spawnDetached(
 		proc.stderr?.on("data", (d: string) => (stderr += d));
 		const timer = setTimeout(() => {
 			timedOut = true;
+			if (process.platform === "win32") {
+				// No POSIX process groups here — kill(-pid) throws and a
+				// child-only kill orphans the grandchildren (see SpawnOptions
+				// docs). taskkill /T kills the whole tree, synchronously.
+				spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"]);
+				return;
+			}
 			try {
 				process.kill(-proc.pid!, "SIGKILL");
 			} catch {
