@@ -98,9 +98,11 @@ const DEVOPS_PKG = "bun-apps/s2-agent-ext-devops/package.json";
 // Connection-refusal spellings join the provider smells (crossos t06 review,
 // 2026-08-27): a provider-less box (the GH Actions verify runners) exits fast
 // with "Unable to connect … ECONNREFUSED" — no provider/model/auth word — and
-// that IS provider-down, not a broken tree. Shared by oneshot-smoke and the
-// deploy E2E probes via classifyRun.
-const PROVIDER_RE = /provider|api.?key|model|auth|econnrefused|connection refused|unable to connect|fetch failed/i;
+// that IS provider-down, not a broken tree. Deliberately NARROW: generic
+// network shapes ("fetch failed", "network error") stay OUT — a broken baked
+// URL in the boot path is a tree defect and must FAIL, not skip (t08 review).
+// Shared by oneshot-smoke and the deploy E2E probes via classifyRun.
+const PROVIDER_RE = /provider|api.?key|model|auth|econnrefused|connection refused|unable to connect/i;
 
 /** Persisted TTL cache. Times are epoch ms. */
 export interface OneshotSmokeState {

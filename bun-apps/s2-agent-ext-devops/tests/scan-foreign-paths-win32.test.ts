@@ -34,3 +34,23 @@ describe("scanForeignPaths — windows build host (crossos t06)", () => {
 		expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toEqual([]);
 	});
 });
+
+describe("scanForeignPaths — windows case-insensitivity (t06 review)", () => {
+	const ROOTS = { home: "C:\\Users\\runneradmin", repo: "C:\\Users\\runneradmin\\proj\\repo" };
+
+	test("a lowercase-drive baked path still MATCHES the mixed-case home prefix (case-insensitive FS)", () => {
+		// home-prefixed paths are FOREIGN (build-machine layout) — the case
+		// fold is what makes c:/users/… match C:/Users/… at all.
+		const code = 'const p = "c:/users/runneradmin/.bun/install/cache/x/lib.js";';
+		expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toEqual([
+			"c:/users/runneradmin/.bun/install/cache/x/lib.js",
+		]);
+	});
+
+	test("mixed-case user dir still matches the home prefix and is flagged (original casing reported)", () => {
+		const code = 'var __dirname="C:\\users\\RUNNERADMIN\\proj\\repo\\bun-apps\\x\\src\\sdk.ts";';
+		const found = scanForeignPaths(code, "D:\\a\\crossos", ROOTS);
+		expect(found).toHaveLength(1);
+		expect(found[0]).toBe("C:/users/RUNNERADMIN/proj/repo/bun-apps/x/src/sdk.ts");
+	});
+});

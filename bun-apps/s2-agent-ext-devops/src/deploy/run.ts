@@ -395,7 +395,10 @@ interface ExtListPayload {
  * that ships, not about the machine that built it.
  */
 function extListOf(tree: string): ExtListPayload {
-	const p = Bun.spawnSync([join(tree, "bin", "bun"), join(tree, CORE_FILENAME), "--ext-list"], {
+	// bunBinaryName: a win32 tree ships bin/bun.exe (crossos t06 review) —
+	// gates only ever boot a HOST tree (3/6 skip non-host), so the runtime
+	// name follows THIS machine's platform.
+	const p = Bun.spawnSync([join(tree, "bin", bunBinaryName({ platform: process.platform, arch: process.arch })), join(tree, CORE_FILENAME), "--ext-list"], {
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -505,8 +508,16 @@ function verifyOfflineContainment(
 function verifyRelocatable(stageDir: string, outRoot: string, expected: string[]): void {
 	const relocRoot = mkdtempSync(join(outRoot, ".reloc-"));
 	const copy = join(relocRoot, "tree");
-	const clone = Bun.spawnSync(["cp", "-cR", stageDir, copy], { stdout: "pipe", stderr: "pipe" });
-	if (clone.exitCode !== 0) cpSync(stageDir, copy, { recursive: true });
+	// `cp -cR` is the darwin fast path (APFS clone, ~free). It THROWS (not
+	// exits non-zero) when the executable is missing — windows-latest has no
+	// cp on PATH, GNU cp has no -c — so the try/catch is the real fallback
+	// selector and cpSync is the portable truth (crossos t06 review).
+	try {
+		const clone = Bun.spawnSync(["cp", "-cR", stageDir, copy], { stdout: "pipe", stderr: "pipe" });
+		if (clone.exitCode !== 0) cpSync(stageDir, copy, { recursive: true });
+	} catch {
+		cpSync(stageDir, copy, { recursive: true });
+	}
 	try {
 		const there = extListOf(copy);
 		const missing = expected.filter((n) => !there.loaded.includes(n));

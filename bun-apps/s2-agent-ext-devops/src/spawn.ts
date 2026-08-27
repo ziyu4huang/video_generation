@@ -105,8 +105,15 @@ function spawnDetached(
 			if (process.platform === "win32") {
 				// No POSIX process groups here — kill(-pid) throws and a
 				// child-only kill orphans the grandchildren (see SpawnOptions
-				// docs). taskkill /T kills the whole tree, synchronously.
-				spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"]);
+				// docs). taskkill /T kills the whole tree, synchronously; the
+				// child-only kill after it is the same belt-and-braces fallback
+				// the POSIX branch has (t06 review: never leave NOTHING dead).
+				if (proc.pid !== undefined) spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"]);
+				try {
+					proc.kill("SIGKILL");
+				} catch {
+					// already gone — the 'close' event resolves the promise
+				}
 				return;
 			}
 			try {
