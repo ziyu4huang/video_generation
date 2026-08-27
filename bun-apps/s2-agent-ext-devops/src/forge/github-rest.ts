@@ -13,9 +13,10 @@
  * - mergeState: gh gave `mergeStateStatus`; REST gives `mergeable_state`
  *   (clean/unstable/blocked/behind/dirty/has_hooks/unknown). `mergeable:
  *   null` means GitHub is still computing — ONE internal re-GET after a short
- *   wait before reporting UNKNOWN (the merge CLI's settlePrStatus loop then
- *   handles the remainder; the re-GET just avoids a pointless immediate
- *   UNKNOWN round-trip).
+ *   wait before reporting UNKNOWN, skipped on terminal-state PRs (closed/
+ *   merged: mergeability never matters there; the re-GET is pure latency).
+ *   The merge CLI's settlePrStatus loop then handles the remainder; the
+ *   re-GET just avoids a pointless immediate UNKNOWN round-trip.
  * - checks: gh gave `pr checks` rows; REST has TWO surfaces — check-runs
  *   (Actions) and commit statuses (any reporter). A true rollup unions both.
  *   Pending is classified by the check-run `status` field (queued/
@@ -150,9 +151,13 @@ export function createGithubRestClient(opts: GithubRestOptions): ForgeClient {
 	return {
 		async prStatus(n: number): Promise<PrSnapshot> {
 			let data = await getPull(n);
-			// mergeable:null ⇒ still computing. One short re-GET; still null ⇒
-			// UNKNOWN (settlePrStatus owns further polling).
-			if (data.mergeable === null) {
+			// mergeable:null ⇒ still computing. One short re-GET — but only for
+			// an OPEN PR: a closed/merged one is terminal, its mergeability
+			// never matters, and the re-GET (retry wait + round-trip) is pure
+			// latency an already-merged retry pays on every read (#2077 nit 4).
+			// Still null (or terminal) ⇒ UNKNOWN (settlePrStatus owns further
+			// polling; terminal states settle on `state`, not mergeState).
+			if (data.mergeable === null && data.state === "open") {
 				await sleep(MERGEABLE_RETRY_MS);
 				data = await getPull(n);
 			}

@@ -169,6 +169,26 @@ describe("createGithubRestClient", () => {
 		expect(s.mergeState).toBe("UNKNOWN");
 	});
 
+	test("prStatus: terminal-state PR skips the mergeable re-GET entirely (#2077 nit 4)", async () => {
+		// A closed/merged PR never recomputes usefully — the re-GET's wait +
+		// round-trip is pure latency an already-merged retry pays per read.
+		for (const terminal of [
+			{ state: "closed", merged_at: "2026-08-27T00:00:00Z" },
+			{ state: "closed", merged_at: null },
+		]) {
+			let slept = 0;
+			const { fn, calls } = mockFetch([{ method: "GET", path: "/repos/o/r/pulls/7", body: { ...pull, mergeable: null, ...terminal } }]);
+			const c = createGithubRestClient({
+				owner: "o", repo: "r", token: "t", tokenKind: "k", fetchFn: fn,
+				sleep: async () => { slept++; },
+			});
+			const s = await c.prStatus(7);
+			expect(s.mergeState).toBe("UNKNOWN"); // terminal settles on state, not mergeState
+			expect(slept).toBe(0);
+			expect(calls.filter((x) => x.path.endsWith("/pulls/7")).length).toBe(1);
+		}
+	});
+
 	test("prStatus: check endpoints failing → zero tally, snapshot still returned", async () => {
 		const { fn } = mockFetch([{ method: "GET", path: "/repos/o/r/pulls/7", body: pull }]);
 		const c = createGithubRestClient({ owner: "o", repo: "r", token: "t", tokenKind: "k", fetchFn: fn, sleep: noSleep });
