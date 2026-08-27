@@ -131,6 +131,21 @@ SOP.)
   (that effort's D2), not retrieval supremacy; any future "should the
   default document lane be generic cards instead" question is its own
   effort with its own battery.
+- POST-SWEEP REPRODUCTION (2026-08-28, after the #2090/#2098 corpus-wide
+  sidecar regeneration): 4-arm battery re-run on the fully-swept tree
+  (receipt `output/resource-eval/receipt-2026-08-27T21-26-18-333Z.json`,
+  2 identical runs). vs the FIXED baseline (13-16-57): recursive 10→13
+  hit@5 / MRR 0.215→0.281 (the resolvable-link L1s genuinely help the
+  tier-descending lane); flat 14→14 / 0.394→0.362 (stable, shuffle
+  noise); generic-hier 17→17 / 0.449→0.453 and generic-flat-vector
+  15→15 / 0.406→0.427 — generic lanes are byte-identical inputs
+  (sidecars are dot-entries, never in the generic page set), so
+  unchanged scores are the mechanically expected outcome. D4 stands.
+  TRAP (measured the hard way): `output/resource-eval/` receipts are
+  PER-WORKTREE scratch — comparing against this worktree's 13-13-20
+  receipt (the broken 839-leaf run) manufactures a phantom
+  "generic-hier +11 hit@5 jump"; always cross-check the
+  Parallel-session note below before treating a receipt as THE baseline.
 
 ## Cross-effort links
 
