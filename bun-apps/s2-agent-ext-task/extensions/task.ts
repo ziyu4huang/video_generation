@@ -17,19 +17,18 @@
  * ask_user_question is a self-contained modal dialog tool with no shared code
  * against goal/todo — merged here purely for entry-point consolidation.
  *
- * Plan A coordination seam: publishes `isGoalActive` on globalThis so the
- * in-package `/loop` subsystem can read it WITHOUT a hard dep (goal⇄loop
- * mutual exclusion). A peer reads `globalThis.__piGoalActive?.() ?? false`
- * (power-tool's `inspect_tui` also surfaces it, display-only). No plan
- * coordinator or wayfind reads it. This is a runtime globalThis contract —
- * load order only affects the brief startup window, handled by the `?? false`
- * fallback.
+ * Plan A coordination seam: publishes `isGoalActive` on globalThis so a peer
+ * can read it WITHOUT a hard dep (goal⇄loop mutual exclusion — the /loop
+ * mechanism now lives in s2-agent-ext-ultracode, ticket 03). A peer reads
+ * `globalThis.__piGoalActive?.() ?? false` (power-tool's `inspect_tui` also
+ * surfaces it, display-only). No plan coordinator or wayfind reads it. This
+ * is a runtime globalThis contract — load order only affects the brief
+ * startup window, handled by the `?? false` fallback.
  */
 import type { ExtensionAPI, ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { getSubagentInFlightRegistry } from "@repo/s2-agent-core-runtime";
 import { createSubagentsSection } from "../src/subagents/subagents-section.js";
 import goal, { isGoalActive } from "../src/goal/goal.js";
-import { registerLoop, restoreLoopFromSession } from "../src/loop/loop.js";
 import { LoopOverlay } from "../src/loop/overlay.js";
 import { GoalOverlay } from "../src/goal/overlay.js";
 import { registerTodosCommand } from "../src/todo/todo";
@@ -55,9 +54,10 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	if (process.env.BUN_PI_TASK === "0") return;
 	// ── Plan A coordination seam ─────────────────────────────────────────
 	// globalThis is process-singleton → the function always reads goal/goal's
-	// activeGoal. The in-package /loop subsystem reads globalThis.__piGoalActive?.()
-	// (goal⇄loop mutual exclusion); power-tool's inspect_tui also surfaces it
-	// display-only. No plan coordinator or wayfind reads it.
+	// activeGoal. The /loop mechanism (s2-agent-ext-ultracode since ticket 03)
+	// reads globalThis.__piGoalActive?.() (goal⇄loop mutual exclusion);
+	// power-tool's inspect_tui also surfaces it display-only. No plan
+	// coordinator or wayfind reads it.
 	(globalThis as Record<string, unknown>).__piGoalActive = isGoalActive;
 
 	// ── Plan coordination seam (ticket 09, tracer-bullet 2) ─────────────
@@ -99,10 +99,14 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 	statusWidget.addSection({ id: "goal", order: 0, render: (t, w) => goalOverlay.render(t, w) });
 
 	const loopOverlay = new LoopOverlay();
-	registerLoop(pi, loopOverlay);
 	loopOverlay.setRefresh(() => statusWidget.update());
+	loopOverlay.startPolling();
 	// Recurring /loop runs independently of goal (CC runs /goal and /loop
 	// concurrently) — order 0 shared is fine, an inactive section renders [].
+	// Ticket 03 (2026-08-28): the /loop COMMAND, scheduler, and persistence
+	// retired into s2-agent-ext-ultracode's WakeupRegistry — this package's
+	// loop surface is this composite-widget section only, rendered from the
+	// __piWakeupLoops seam (no import of ultracode: import-cycle rule).
 	statusWidget.addSection({ id: "loop", order: 0, render: (t, w) => loopOverlay.render(t, w) });
 
 	statusWidget.addSection({ id: "todo", order: 1, render: (t, w) => todoOverlay.render(t, w), inspect: () => todoOverlay.inspect() });
@@ -126,8 +130,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		// demand; do not auto-load them onto the board.
 		latestCwd = ctx.cwd;
 		refreshPlan(ctx.cwd); // parse + cache the active effort's plan (for the plan coordinator; NOT for todo seeding)
-		// Recover a persisted recurring loop (CC-style /loop) for this session.
-		restoreLoopFromSession((ctx as { sessionManager?: unknown }).sessionManager, loopOverlay);
+		// Loop restore (ticket 03) moved with the mechanism: ultracode's
+		// session_start re-registers pending wakeups from the session branch.
 		if (ctx.hasUI) {
 			statusWidget.setUICtx(ctx.ui);
 			todoOverlay.resetCompletedDisplayState();
@@ -155,9 +159,8 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
 		// session_shutdown drops the TeamTaskStore); here only the display
 		// state is disposed.
 		goalOverlay.dispose();
-		// The /loop scheduler is deliberately NOT stopped here: it is process-
-		// lifetime state with nothing per-session to clean (its timer dies with
-		// the process), so loop teardown is just the overlay.
+		// The /loop mechanism lives in ultracode (ticket 03) and tears itself
+		// down there; here only the display state is disposed.
 		loopOverlay.dispose();
 		todoOverlay.dispose();
 		subagentsHandle.dispose();

@@ -432,7 +432,8 @@ export function registerGoalHooks(pi: ExtensionAPI): void {
 		await sendContinuationPrompt(pi, ctx, currentGoal);
 	});
 	// Heartbeat supervision (Task 8): the heartbeat supervises goals only —
-	// the recurring /loop owns its own timer chain (loop-scheduler.ts) and
+	// the recurring /loop owns its own timer chain (s2-agent-ext-ultracode's
+	// WakeupRegistry since ticket 03) and
 	// needs no goal-side heartbeat. No cross-subsystem kick seam is published:
 	// goal lifecycle transitions call syncHeartbeatTimer directly.
 }

@@ -23,7 +23,10 @@ import {
   installResultDelivery,
   installTaskPanel,
   installWorkflowEditor,
+  loadWakeupEntries,
   loadWorkflowSettings,
+  persistWakeupEntries,
+  reanchorWakeupEntries,
   redeliverPendingResults,
   registerAllSavedWorkflows,
   registerBuiltinWorkflows,
@@ -187,16 +190,37 @@ export default function extension(pi: ExtensionAPI) {
   }
   let cronLoop: CronLoopHandle | undefined;
 
-  // ── /loop + schedule_wakeup (ticket 06 / map D7) ──────────────────────
+  // ── /loop + schedule_wakeup (ticket 06 / map D7; ticket 03 folded
+  // ext-task's LoopScheduler in: idle gate + 7-day max-age + session-store
+  // restore) ────────────────────────────────────────────────────────────
   // In-memory, session-live wakeup registry — deliberately NOT in the cron
-  // store: wakeups never persist, never lease across processes, and die with
-  // the session. `activeLoop.id` is the loop a fired turn belongs to (the
-  // tick sets it on fire; /loop sets it on start) so schedule_wakeup re-arms
-  // the loop whose prompt is actually running.
-  const wakeupRegistry = new WakeupRegistry();
+  // store: wakeups never lease across processes or outlive the session file.
+  // The pending set IS snapshotted into the session store (wakeup-persistence)
+  // so a RESUMED session keeps its loops' cadence — map D7's "no daemon"
+  // still holds; this is the resumed-session's own branch, not durability.
+  // `activeLoop.id` is the loop a fired turn belongs to (the tick sets it on
+  // fire; /loop sets it on start) so schedule_wakeup re-arms the loop whose
+  // prompt is actually running.
   const activeLoop: { id?: string } = {};
+  // Mirror the pending set into the session store on every mutation — the
+  // resumed-session restore (session_start below) reads the last snapshot.
+  const wakeupRegistry = new WakeupRegistry(() => persistWakeupEntries(pi, wakeupRegistry.list()));
   pi.registerTool(createScheduleWakeupTool({ registry: wakeupRegistry, currentLoopId: () => activeLoop.id }));
-  registerLoopCommand(pi, { registry: wakeupRegistry, activeLoop });
+  // Latest isIdle from a real command ctx (the ext-task latestIsIdle
+  // pattern): the tick's idle gate reads the freshest known probe; the
+  // always-idle default only applies before any /loop ran this process.
+  let latestIsIdle: () => boolean = () => true;
+  registerLoopCommand(pi, {
+    registry: wakeupRegistry,
+    activeLoop,
+    setIdleProbe: (isIdle) => {
+      latestIsIdle = isIdle;
+    },
+  });
+  // Cross-extension read seam (the __piGoalActive pattern): ext-task's
+  // composite-widget loop section renders from this snapshot — it must NOT
+  // import this package (import-cycle rule, ticket 03).
+  (globalThis as Record<string, unknown>).__piWakeupLoops = () => wakeupRegistry.list();
   let wakeupLoop: ReturnType<typeof startWakeupLoop> | undefined;
 
   // Layer-3 conditional guideline injection. The workflow tool's authoring
@@ -338,9 +362,30 @@ export default function extension(pi: ExtensionAPI) {
     // stop-and-restart discipline. The fire seam is the S5-measured
     // followUp interleave — `sendUserMessage` queues while a turn streams and
     // drains as the next turn (tests/wakeup-interleave.test.ts pins it).
+    // Ticket 03: the idle gate (busy ⇒ the tick no-ops) + the resumed-session
+    // restore (future dueAt honored; stale re-anchored, expired dropped —
+    // the PR #2030 rules, ported from ext-task's loop restore).
+    const resumed = reanchorWakeupEntries(
+      loadWakeupEntries((ctx as { sessionManager?: unknown }).sessionManager),
+      new Date(),
+    );
+    for (const entry of resumed) {
+      if (!wakeupRegistry.get(entry.id)) wakeupRegistry.schedule(entry);
+    }
+    if (resumed.length) {
+      activeLoop.id = resumed[resumed.length - 1]?.id;
+      void pi.sendMessage({
+        customType: "wakeup",
+        display: true,
+        content: `Restored ${resumed.length} loop${resumed.length > 1 ? "s" : ""} from the session branch: ${resumed
+          .map((e) => e.id)
+          .join(", ")}.`,
+      });
+    }
     wakeupLoop?.stop();
     wakeupLoop = startWakeupLoop({
       registry: wakeupRegistry,
+      isIdle: () => latestIsIdle(),
       fire: (loopId, prompt) => {
         activeLoop.id = loopId;
         void pi.sendUserMessage(prompt, { deliverAs: "followUp" });

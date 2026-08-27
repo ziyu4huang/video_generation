@@ -12,7 +12,7 @@ import { WAKEUP_DEFAULT_DELAY_S, WakeupRegistry } from "../src/wakeup-registry.j
 
 const T0 = Date.parse("2026-08-23T12:00:00Z");
 
-test("parse: fixed with explicit interval (unit REQUIRED — s/m/h)", () => {
+test("parse: fixed with explicit interval (unit REQUIRED — s/m/h/d; 60s–7d clamp)", () => {
   assert.deepEqual(parseLoopArgs("30s check CI"), {
     kind: "fixed",
     prompt: "check CI",
@@ -31,16 +31,30 @@ test("parse: fixed with explicit interval (unit REQUIRED — s/m/h)", () => {
     delaySeconds: 3600,
     clamped: false,
   });
+  // Day-scale cadences are legal since ticket 03 (ext-task's retired /loop
+  // accepted them; the fixed ceiling is the 7-day max-age, not 3600s).
   assert.deepEqual(parseLoopArgs("2h check CI"), {
     kind: "fixed",
     prompt: "check CI",
-    delaySeconds: 3600,
+    delaySeconds: 7200,
+    clamped: false,
+  });
+  assert.deepEqual(parseLoopArgs("1d check CI"), {
+    kind: "fixed",
+    prompt: "check CI",
+    delaySeconds: 86_400,
+    clamped: false,
+  });
+  assert.deepEqual(parseLoopArgs("8d check CI"), {
+    kind: "fixed",
+    prompt: "check CI",
+    delaySeconds: 604_800,
     clamped: true,
   });
   assert.deepEqual(parseLoopArgs("100ms fast"), { kind: "usage" });
 });
 
-test("parse: default cadence, dynamic, off, usage", () => {
+test("parse: default cadence, dynamic, off/stop, usage", () => {
   assert.deepEqual(parseLoopArgs("check the logs"), {
     kind: "fixed",
     prompt: "check the logs",
@@ -51,6 +65,10 @@ test("parse: default cadence, dynamic, off, usage", () => {
   assert.deepEqual(parseLoopArgs("dynamic   "), { kind: "usage" });
   assert.deepEqual(parseLoopArgs("off"), { kind: "off" });
   assert.deepEqual(parseLoopArgs("OFF"), { kind: "off" });
+  // `stop` is the ext-task verb, kept as an alias (ticket 03: one command,
+  // both spellings — retired /loop users typed /loop stop).
+  assert.deepEqual(parseLoopArgs("stop"), { kind: "off" });
+  assert.deepEqual(parseLoopArgs("STOP"), { kind: "off" });
   assert.deepEqual(parseLoopArgs(""), { kind: "usage" });
   assert.deepEqual(parseLoopArgs("0m nothing"), { kind: "usage" });
   // A prompt that merely STARTS with digits stays a prompt (no unit + no split).
@@ -171,4 +189,50 @@ test("command: /loop status lists armed loops and arms nothing", async () => {
   await commands.get("loop")!.handler("help");
   assert.match(messages.at(-1)!, /Usage: \/loop/);
   assert.equal(registry.list().length, 1);
+});
+
+// --- ticket 03: stop alias, startedAt stamp, idle-probe capture ------------
+
+test("command: /loop stop clears everything (the ext-task verb, ticket 03)", async () => {
+  const { pi, commands, messages } = fakePi();
+  const registry = new WakeupRegistry();
+  const activeLoop: { id?: string } = {};
+  registerLoopCommand(pi, { registry, activeLoop, now: () => new Date(T0) });
+
+  await commands.get("loop")!.handler("5m check CI");
+  assert.equal(registry.list().length, 1);
+  await commands.get("loop")!.handler("stop");
+  assert.equal(registry.list().length, 0);
+  assert.equal(activeLoop.id, undefined);
+  assert.match(messages.at(-1)!, /Stopped 1 loop/);
+});
+
+test("command: armed entries carry startedAt (7-day max-age anchor)", async () => {
+  const { pi, commands } = fakePi();
+  const registry = new WakeupRegistry();
+  registerLoopCommand(pi, { registry, activeLoop: {}, now: () => new Date(T0) });
+  await commands.get("loop")!.handler("5m check CI");
+  assert.equal(registry.get("loop-1")!.startedAt, T0);
+  await commands.get("loop")!.handler("dynamic watch");
+  assert.equal(registry.get("loop-2")!.startedAt, T0);
+});
+
+test("command: a ctx-provided isIdle reaches the setIdleProbe seam", async () => {
+  const { pi, commands } = fakePi();
+  const registry = new WakeupRegistry();
+  const probes: Array<() => boolean> = [];
+  registerLoopCommand(pi, {
+    registry,
+    activeLoop: {},
+    now: () => new Date(T0),
+    setIdleProbe: (isIdle) => probes.push(isIdle),
+  });
+  const idle = () => false;
+  const handler = commands.get("loop")!.handler as (args: string, ctx?: { isIdle?: () => boolean }) => Promise<void>;
+  await handler("status", { isIdle: idle });
+  assert.equal(probes.length, 1, "the real probe was captured");
+  assert.equal(probes[0], idle);
+  // A ctx WITHOUT isIdle must not clobber the freshest probe.
+  await handler("status");
+  assert.equal(probes.length, 1);
 });

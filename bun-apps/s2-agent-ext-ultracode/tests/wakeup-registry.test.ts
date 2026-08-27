@@ -138,3 +138,73 @@ test("buildWakeupFooter: dynamic instructs re-arm, fixed forbids it", () => {
   assert.match(fixed, /do NOT call schedule_wakeup/);
   assert.doesNotMatch(fixed, /Last wakeup reason/, "no reason line when none was recorded");
 });
+
+// --- ticket 03: idle gate + 7-day max-age (LoopScheduler port) -------------
+
+test("tick with a busy idle probe consumes nothing — a due entry retries next pass", () => {
+  const { registry, fired, fire } = fixture(T0);
+  registry.schedule({
+    id: "loop-1",
+    prompt: "check builds",
+    mode: "fixed",
+    delaySeconds: 300,
+    dueAt: T0 - 1000,
+    startedAt: T0,
+  });
+  // Busy: the tick is a NO-OP — the pending wakeup is neither consumed nor fired.
+  const busy = runWakeupTick(registry, fire, new Date(T0), undefined, { isIdle: () => false });
+  assert.equal(busy.fired.length, 0);
+  assert.equal(busy.ended.length, 0);
+  assert.equal(fired.length, 0);
+  assert.ok(registry.get("loop-1"), "the due entry stayed pending");
+  // Idle on the next pass: it fires normally.
+  const idle = runWakeupTick(registry, fire, new Date(T0 + 30_000), undefined, { isIdle: () => true });
+  assert.equal(idle.fired.length, 1);
+  assert.equal(fired.length, 1);
+});
+
+test("tick without an idle probe keeps the pre-ticket-03 always-fire behavior", () => {
+  const { registry, fire } = fixture(T0);
+  registry.schedule({ id: "loop-1", prompt: "p", mode: "dynamic", dueAt: T0 - 1000 });
+  const r = runWakeupTick(registry, fire, new Date(T0));
+  assert.equal(r.fired.length, 1);
+});
+
+test("7-day max-age: the loop fires one last time, then ends itself (no reschedule)", () => {
+  const { registry, fired, fire, notifications } = fixture(T0);
+  const started = T0 - 7 * 86_400_000 - 1000;
+  registry.schedule({
+    id: "loop-1",
+    prompt: "daily check",
+    mode: "fixed",
+    delaySeconds: 86_400,
+    dueAt: T0 - 1000,
+    fireCount: 3,
+    startedAt: started,
+  });
+  const r = runWakeupTick(registry, fire, new Date(T0), (m) => notifications.push(m));
+  assert.equal(r.fired.length, 1, "the expiry fire lands (CC auto-expiry: final prompt delivered)");
+  assert.equal(fired.length, 1);
+  assert.equal(r.ended.length, 1);
+  assert.match(r.ended[0]!.reason, /max age/);
+  assert.equal(registry.get("loop-1"), undefined, "no reschedule after the expiry fire");
+});
+
+test("7-day max-age: entries without startedAt never age out", () => {
+  const { registry, fired, fire } = fixture(T0);
+  registry.schedule({ id: "loop-1", prompt: "p", mode: "fixed", delaySeconds: 300, dueAt: T0 - 1000, fireCount: 0 });
+  const r = runWakeupTick(registry, fire, new Date(T0 + 10 * 86_400_000));
+  assert.equal(r.fired.length, 1);
+  assert.equal(r.ended.length, 0);
+});
+
+test("registry onChange fires on every pending-set mutation (persistence mirror)", () => {
+  const seen: number[] = [];
+  const registry = new WakeupRegistry(() => seen.push(registry.list().length));
+  registry.schedule({ id: "a", prompt: "p", mode: "dynamic", dueAt: T0 });
+  registry.schedule({ id: "b", prompt: "p", mode: "dynamic", dueAt: T0 });
+  registry.cancel("a");
+  registry.due(new Date(T0 + 1));
+  registry.clear();
+  assert.deepEqual(seen, [1, 2, 1, 0, 0], "schedule a, schedule b, cancel a, due consumes b, clear");
+});
