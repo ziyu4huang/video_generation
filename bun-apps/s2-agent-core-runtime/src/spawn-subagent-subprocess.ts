@@ -56,15 +56,19 @@ export type SpawnFn = (
  * `pi` shim can point at the wrong worktree/version, so relying on it is a
  * hidden correctness hazard). Branches:
  *   1. `currentScript` is a real file on disk (dev `bun src/cli.ts`, dist
- *      `bun s2-agent.js`) → `execPath` + `[currentScript, ...extra]`.
- *   2. the runtime is a non-node/bun executable (e.g. a `bun build --compile`
- *      binary, whose argv[1] is the `/$bunfs/root/` virtual fs) → `execPath`
- *      + `extra` (the compiled binary is its own entry).
- *   3. otherwise → THROW. Self-resolution is impossible and we refuse to fall
+ *      `bun s2-agent.js` — every produced launcher execs bun with the
+ *      bundle, so this is the only success shape) → `execPath` +
+ *      `[currentScript, ...extra]`.
+ *   2. otherwise → THROW. Self-resolution is impossible and we refuse to fall
  *      back to a PATH lookup, surfacing the problem loudly instead of silently.
  *
+ * (Two earlier branches were deleted with the retired `bun build --compile`
+ * mode — crossos-deploy ticket 07, 2026-08-27: the `/$bunfs/root/` virtual-fs
+ * special case, and the "non-node/bun exec IS its own entry" fallback that
+ * only a compiled artifact could produce.)
+ *
  * `entryPrefix` (optional) is a namespace token spliced in front of the pi
- * flags in BOTH success branches — see the comment in the body.
+ * flags — see the comment in the body.
  *
  * Generalized from pi-obsidian's `getPiInvocation`.
  */
@@ -79,19 +83,15 @@ export function resolvePiInvocation(
   // mode as the parent. Without it a CLI-parented child would land on the host's
   // default (TUI/print) entry and inherit an extension set the parent curated away.
   const prefix = entryPrefix ? [entryPrefix] : [];
-  const isBunVirtual = currentScript?.startsWith("/$bunfs/root/");
-  if (currentScript && !isBunVirtual && existsSync(currentScript)) {
+  if (currentScript && existsSync(currentScript)) {
     return { command: execPath, args: [currentScript, ...prefix, ...extra] };
   }
   const execName = (execPath.split(sep).pop() ?? "").toLowerCase();
-  if (!/^(node|bun)(\.exe)?$/.test(execName)) {
-    return { command: execPath, args: [...prefix, ...extra] };
-  }
   throw new Error(
     `cannot self-resolve a pi entry for the subprocess subagent — refusing to fall back to a bare "pi" on PATH. ` +
-      `currentScript=${currentScript ?? "(none)"} (bunVirtual=${isBunVirtual ?? false}), ` +
+      `currentScript=${currentScript ?? "(none)"}, ` +
       `execPath=${execPath} (runtime=${execName}). ` +
-      `Run via \`bun <cli.ts|bundle.js>\` or a \`bun build --compile\` binary so the child can reuse the parent's entry.`,
+      `Run via \`bun <cli.ts|bundle.js>\` so the child can reuse the parent's entry.`,
   );
 }
 

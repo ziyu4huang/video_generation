@@ -152,8 +152,8 @@ export function resolveWorkflowScript(
   }
 
   // 3. <binDir>/workflows/<name> — packs shipped next to the binary. binDir
-  //    defaults to dirname(process.execPath) (the compiled exe's real location
-  //    in `bun --compile`); injectable so tests don't depend on the real exe.
+  //    defaults to dirname(process.execPath); injectable so tests don't
+  //    depend on the real exe.
   const binWorkflowsDir = join(binDir, "workflows");
   if (fs.exists(binWorkflowsDir)) {
     const pack = tryResolvePack(join(binWorkflowsDir, name), fs);

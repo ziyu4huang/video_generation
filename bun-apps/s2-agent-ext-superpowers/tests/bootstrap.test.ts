@@ -46,6 +46,20 @@ describe("superpowers extension wiring", () => {
     // 14 skill subdirs resolve here
     expect(existsSync(join(dir, "using-superpowers", "SKILL.md"))).toBe(true);
   });
+
+  it("resources_discover advertises NOTHING for a nonexistent skills dir", async () => {
+    // A mispackaged deploy (bundle shipped, skills/ omitted) must not
+    // advertise a missing path — pi would warn "[Skill conflicts] skill
+    // path does not exist" on every start. This guard lost its only pin
+    // when binary-mode.test.ts was deleted (crossos-deploy ticket 07
+    // review, 2026-08-27); this test restores it.
+    _resetBootstrapCacheForTests();
+    const pi = createMockPi();
+    const bogusUrl = new URL("file:///nonexistent-superpowers/src/superpowers.ts").href;
+    superpowersExtension(pi, bogusUrl);
+    const result = await pi.fire("resources_discover", { type: "resources_discover" });
+    expect(result).toEqual({ skillPaths: [] });
+  });
 });
 
 describe("context bootstrap injection", () => {
