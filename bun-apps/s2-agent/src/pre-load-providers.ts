@@ -51,15 +51,22 @@ export type ApiKey = string | { env: string };
 interface Compat {
   supportsDeveloperRole?: boolean;
   supportsReasoningEffort?: boolean;
-  // openai-completions adapter knobs — the ones pi-ai's detectCompat() infers
-  // from provider id + baseUrl; pinned explicitly here so the extension
-  // registration is stable across pi-ai upgrades (see getCompat() / detectCompat()
-  // in pi-ai dist/api/openai-completions.js).
+  // openai-completions adapter knobs — MOSTLY the ones pi-ai's detectCompat()
+  // infers from provider id + baseUrl, pinned explicitly here so the extension
+  // registration is stable across pi-ai upgrades (see getCompat() /
+  // detectCompat() in pi-ai dist/api/openai-completions.js). EXCEPTION:
+  // zaiToolStream is NOT inferred — detectCompat() hardcodes it false, so a
+  // pinned true is the one entry a "redundant compat" cleanup must never drop.
   supportsStore?: boolean;
   maxTokensField?: "max_tokens" | "max_completion_tokens";
   requiresReasoningContentOnAssistantMessages?: boolean;
   thinkingFormat?: "openai" | "deepseek" | "zai" | "qwen" | string;
-  /** pi-ai zai adapter knob: streamed tool-call deltas (baked zai catalog pins it true). */
+  /**
+   * pi-ai zai adapter knob: streamed tool-call deltas. NOT re-derivable —
+   * detectCompat() hardcodes false; the pinned true is load-bearing for the
+   * repo's DEFAULT provider (zai/glm-5.3). Guarded by the folded-compat
+   * test in pre-load-providers.test.ts.
+   */
   zaiToolStream?: boolean;
 }
 
@@ -436,9 +443,14 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
   // (minus cost — the registration convention zeroes costs) — omitting one
   // makes it vanish from `--list-models` and breaks the "zai/glm-*" refs in
   // DEFAULT_MODEL_TIER_CONFIG / the glm-lmstudio preset. Fields mirror the
-  // baked entries; detectCompat() would infer the same compat from provider
-  // id + baseUrl, but pinning it keeps the behavior stable across pi-ai
-  // upgrades (same posture as deepseek above).
+  // baked entries; detectCompat() would infer most of this compat from
+  // provider id + baseUrl — EXCEPT zaiToolStream, which detectCompat()
+  // hardcodes to false (pi-ai dist/api/openai-completions.js detectCompat):
+  // `zaiToolStream: true` here is the ONE pin the fold cannot re-derive.
+  // Dropping it as "redundant" silently turns off tool-call streaming for
+  // the repo's DEFAULT provider (openai-completions.js reads
+  // `compat.zaiToolStream ?? detected`) — pinned by
+  // pre-load-providers.test.ts's folded-compat assertion (2026-08-28).
   //
   // glm-5.3-flash (added 2026-08-27, user request — mirrors
   // scripts/claude-code-glm.sh's AIR-tier glm-5.3-flash[1m]): declared with

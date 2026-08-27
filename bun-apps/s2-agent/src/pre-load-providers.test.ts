@@ -12,6 +12,9 @@ import {
   EMBEDDING_CONFIG,
 } from "./pre-load-providers.ts";
 import { SEMANTIC_MODEL_DEFAULT } from "@repo/s2-agent-core-interface";
+// Baked upstream catalog — the source our REPLACE-semantics re-listing must
+// keep covering (pi-ai subpath export; JSON-backed, regenerates on upgrade).
+import { ZAI_MODELS } from "@earendil-works/pi-ai/providers/zai.models";
 
 describe("resolveApiKey", () => {
   test("literal string → returned as-is", () => {
@@ -312,4 +315,47 @@ describe("EMBEDDING_CONFIG", () => {
     expect(EMBEDDING_CONFIG.base).toBe(PROVIDERS["lm-studio"].baseUrl.replace(/\/v1$/, ""));
     expect(EMBEDDING_CONFIG.base).not.toMatch(/\/v1$/);
   });
+});
+
+// ─── §zai folded-compat pin (2026-08-28, #2100 review follow-up) ─────────────
+describe("zai folded compat — zaiToolStream is the non-inferred pin", () => {
+	// The provider-level compat folds onto every model (bakedProviderConfigs);
+	// pi-ai's adapter reads `compat.zaiToolStream ?? detected` where
+	// detectCompat() hardcodes FALSE. A future cleanup trusting the "detectCompat
+	// infers the same compat" comment would flip streaming off for the repo's
+	// DEFAULT provider with zero red tests — this is that test.
+	test("every zai model's FOLDED compat keeps zaiToolStream: true", () => {
+		const seam = bakedProviderConfigs({});
+		const zai = seam["zai"] as { models: Array<{ id: string; compat?: { zaiToolStream?: boolean } }> };
+		expect(zai.models.length).toBeGreaterThanOrEqual(6); // 5 baked re-listed + glm-5.3-flash
+		for (const m of zai.models) {
+			expect(m.compat?.zaiToolStream, `zai/${m.id} lost zaiToolStream through the fold`).toBe(true);
+		}
+	});
+
+	test("glm-5.2 keeps its per-model supportsReasoningEffort opt-in through the fold", () => {
+		const seam = bakedProviderConfigs({});
+		const zai = seam["zai"] as { models: Array<{ id: string; compat?: { supportsReasoningEffort?: boolean } }> };
+		const glm52 = zai.models.find((m) => m.id === "glm-5.2");
+		expect(glm52?.compat?.supportsReasoningEffort).toBe(true);
+	});
+});
+
+// ─── §zai catalog drift guard (2026-08-28, #2100 review follow-up) ───────────
+describe("zai catalog drift guard — REPLACE re-listing covers every baked model", () => {
+	// Registering over the baked "zai" provider id REPLACES its model list
+	// (pi-ai REPLACE semantics — see pre-load-providers.ts zai block). If a
+	// pi-ai upgrade ships a new model (say glm-5.4) and our re-listing isn't
+	// updated, the model silently vanishes from --list-models. This test
+	// compares against the LIVE baked catalog, not a hardcoded id list, so it
+	// reds the moment upstream adds a model we don't re-list.
+	test("every baked pi-ai zai model id survives the re-listing", () => {
+		const bakedIds = Object.keys(ZAI_MODELS);
+		expect(bakedIds.length).toBeGreaterThanOrEqual(5); // sanity: catalog resolved
+		const listedIds = new Set(
+			(bakedProviderConfigs({})["zai"] as { models: Array<{ id: string }> }).models.map((m) => m.id),
+		);
+		const missing = bakedIds.filter((id) => !listedIds.has(id));
+		expect(missing, `baked zai models dropped by the re-listing: ${missing.join(", ")}`).toEqual([]);
+	});
 });
