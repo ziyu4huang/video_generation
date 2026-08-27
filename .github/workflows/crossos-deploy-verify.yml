@@ -22,7 +22,18 @@
 name: crossos-deploy-verify
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      # Diagnostic escape hatch (crossos follow-through 2026-08-28): bun.exe
+      # 1.4.0 as a cmd/powershell child loses ALL its stdout while exiting 0
+      # (measured, layer-diag rounds 1-3) — possibly bun#12108. Dispatching
+      # with a newer bun measures whether a bun upgrade would unblock the
+      # windows launcher chain. The deploy ships a runtime matching the
+      # RUNNING Bun.version (D7), so this one input moves both.
+      bun-version:
+        description: "bun version for setup-bun (default: the pinned 1.4.0)"
+        required: false
+        default: "1.4.0"
 
 permissions:
   contents: read
@@ -44,7 +55,7 @@ jobs:
         with:
           # Match the workspace's expected bun (runner-side only — the deployed
           # tree ships its own bin/bun).
-          bun-version: "1.4.0"
+          bun-version: ${{ inputs.bun-version || '1.4.0' }}
 
       - name: Install workspace dependencies (bun-apps ONLY, repo SOP)
         run: bun install --cwd bun-apps
