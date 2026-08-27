@@ -58,12 +58,6 @@ describe("missingExtDeps", () => {
     expect(missingExtDeps([DEP], deployedExtDir({ hostApi: 2 }))).toEqual([]);
   });
 
-  test("a compiled binary reports nothing — deps are inlined", () => {
-    expect(missingExtDeps([DEP], "/$bunfs/root")).toEqual([]);
-    expect(missingExtDeps([DEP], "/~BUN/root")).toEqual([]);
-    expect(missingExtDeps([DEP], "/%7EBUN/root")).toEqual([]);
-  });
-
   test("an undetermined dir reports nothing rather than guessing", () => {
     expect(missingExtDeps([DEP], undefined)).toEqual([]);
   });

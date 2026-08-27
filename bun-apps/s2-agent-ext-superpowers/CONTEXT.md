@@ -61,11 +61,13 @@ Which ported skills are excluded from default discovery and why — unregister, 
 ## Deploy asset resolution (documented, deliberately not consolidated — decision D3, 2026-08-21)
 
 Resolving a package's non-code assets (`skills/`, `procedures/`) from inside a
-running extension is solved per-package by the same three-mode ladder:
+running extension is solved per-package by the same two-mode ladder (the
+third mode — `BUN_PI_EMBEDDED_EXTRACT_DIR` for the compiled `--compile`
+binary — was deleted with that mode itself, crossos-deploy ticket 07,
+2026-08-27):
 
-1. `BUN_PI_EMBEDDED_EXTRACT_DIR` (compiled `--compile` binary: assets extracted next to the bundle),
-2. `require("#pi/ext-dir")` (sh deploy: the loader serves the deployed `ext/<name>/` dir; jiti/source: the package's `"#pi/ext-dir"` imports entry → package root),
-3. injected `fromUrl` (tests / callers with a valid module URL).
+1. `require("#pi/ext-dir")` (sh deploy: the loader serves the deployed `ext/<name>/` dir; jiti/source: the package's `"#pi/ext-dir"` imports entry → package root),
+2. injected `fromUrl` (tests / callers with a valid module URL).
 
 This ladder is currently duplicated (intentionally similar, not shared) in:
 `src/superpowers.ts` here, `s2-agent-ext-wayfind/src/procedures.ts` +

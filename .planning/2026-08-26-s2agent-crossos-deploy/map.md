@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-26-s2agent-crossos-deploy
 created: 2026-08-26
-last: 2026-08-27 (tickets 01–05 closed — D6/D7 pipeline landed: --target + subroots + GitHub-release bun + vendor pass-through; D5 re-scoped to new ticket 08; frontier = 07 + 06)
+last: 2026-08-27 (tickets 01–05 + 07 closed — D6/D7 pipeline landed; dead --compile compat deleted from the deploy path; frontier = 06 + 08)
 status: active
 ---
 
@@ -68,10 +68,10 @@ tickets; sibling effort merge-base `a57b6d38`):
 
 ### Phase 3 — verification + simplification fold-in
 - [06] Cross-OS verification strategy (E2E on mac host vs CI runners) — open (grilling; owns t04's deferred friction measurements + the windows-CI question)
-- [07] Dead `--compile` compat-code cleanup on the deploy path — open (task)
+- [07] Dead `--compile` compat-code cleanup on the deploy path — closed 2026-08-27 (every behavioral --compile branch deleted across core-runtime/superpowers + comment-only rewording in archify/ultracode; historical sites kept WITH citation — receipts in ticket)
 - [08] Per-platform ext filtering (D5 build-out) — open (task; spawned from 05 — after t06 so per-tree Gate 3 counts are checkable)
 
-**Execution order:** 01 → 02 → 03 → 04 → 05 → 07 → 06 → 08 (02 pre-closed; 08 parked until t06's channel exists)
+**Execution order:** 01 → 02 → 03 → 04 → 05 → 07 → 06 → 08 (01–05, 07 closed; 08 parked until t06's channel exists)
 
 ## Decisions
 
@@ -106,15 +106,13 @@ tickets; sibling effort merge-base `a57b6d38`):
 
 ## Frontier
 
-**Ticket 07 (dead `--compile` cleanup)** — pure AFK deletion work, now the
-only ticket ahead of the verification grilling; also pre-clears
-execPath/bunfs audit noise for anything touching the deploy path. Then
-**ticket 06 (cross-OS verification strategy)** — it inherits every deferred
-measurement: t04's Restricted-policy double-click + TUI console
-inheritance + `.cmd` spawn twin, t05's skipped boot gates on non-host
-trees, and the windows-CI-runner question (zero precedent measured
-2026-08-27). Ticket 08 (D5 ext filtering) stays parked until 06's channel
-exists.
+**Ticket 06 (cross-OS verification strategy)** — the grilling ticket; it
+inherits every deferred measurement: t04's Restricted-policy double-click +
+TUI console inheritance + `.cmd` spawn twin, t05's skipped boot gates on
+non-host trees, and the windows-CI-runner question (zero precedent measured
+2026-08-27). It is also the first opportunity for a REAL GitHub-release
+cross-deploy (t05's E2E used a local fixture base). Ticket 08 (D5 ext
+filtering) stays parked until 06's channel exists.
 
 ## Fog of war
 

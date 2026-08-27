@@ -63,14 +63,13 @@ export const VENDORED_BIN = resolveVendoredBin();
 /**
  * Resolve the JavaScript runtime that can execute the vendored .mjs bins.
  *
- * Under bun test / jiti, process.execPath IS bun — but inside a
- * `bun build --compile` binary process.execPath is the AGENT entry: spawning
- * it with a script path runs the agent CLI, not the script (verified against
- * a real deploy; the argv0="bun" trick does not switch it to runtime mode).
- * Ladder: (1) PI_ARCHIFY_RUNTIME env override, (2) a real `bun` on PATH,
- * (3) process.execPath when its basename is literally "bun". Empty string
- * when nothing resolves — runArchify then surfaces a clear failure instead
- * of spawning the agent entry.
+ * process.execPath is only usable when it IS bun by name (test/jiti runs, or
+ * a deploy whose launcher execs the shipped bun): a self-contained host
+ * entry would run the AGENT CLI when spawned with a script path, not the
+ * script. Ladder: (1) PI_ARCHIFY_RUNTIME env override, (2) a real `bun` on
+ * PATH, (3) process.execPath when its basename is literally "bun". Empty
+ * string when nothing resolves — runArchify then surfaces a clear failure
+ * instead of spawning a wrong runtime.
  */
 export function resolveRuntime(): string {
   const fromEnv = process.env.PI_ARCHIFY_RUNTIME;
@@ -87,12 +86,12 @@ function binMissingMessage(path: string): string {
   return `archify vendored bin not found at ${path}; deploy may have omitted vendored/ (set PI_ARCHIFY_BIN to override).`;
 }
 
-/** Surfaced when no runtime can execute the .mjs bins (compiled deploy without bun on PATH). */
+/** Surfaced when no runtime can execute the .mjs bins (no bun on PATH, execPath not bun). */
 function runtimeMissingMessage(): string {
   return (
     "archify found no JavaScript runtime to execute its vendored bins: " +
     "install bun on PATH or set PI_ARCHIFY_RUNTIME to a bun executable " +
-    "(process.execPath is the compiled agent entry and cannot run scripts)."
+    "(process.execPath is not a usable script runtime)."
   );
 }
 

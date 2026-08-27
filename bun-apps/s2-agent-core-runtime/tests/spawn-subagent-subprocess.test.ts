@@ -139,17 +139,12 @@ test("resolvePiInvocation: real currentScript → execPath + [script, ...extra] 
   expect(inv.args.includes("do-task")).toBe(true);
 });
 
-test("resolvePiInvocation: compiled binary (bunfs virtual + non-node exec) → execPath + extra", () => {
-  const exec = "/opt/pi/bin/s2-agent"; // `bun build --compile` binary — name is not node/bun.
-  const inv = resolvePiInvocation("/$bunfs/root/main.js", exec, ["--mode", "json"]);
-  expect(inv.command).toBe(exec);
-  expect(inv.args).toEqual(["--mode", "json"]); // virtual entry not prepended — the binary is its own entry.
-});
-
-test("resolvePiInvocation: virtual/missing entry + node|bun runtime → throws (refuses PATH fallback)", () => {
-  const exec = "/usr/local/bin/bun";
-  expect(() => resolvePiInvocation("/$bunfs/root/main.js", exec, [])).toThrow(/cannot self-resolve/);
-  expect(() => resolvePiInvocation("/nonexistent/cli.ts", exec, [])).toThrow(/cannot self-resolve/);
+test("resolvePiInvocation: missing entry → throws for ANY runtime (refuses PATH fallback)", () => {
+  // bun runtime …
+  expect(() => resolvePiInvocation("/nonexistent/cli.ts", "/usr/local/bin/bun", [])).toThrow(/cannot self-resolve/);
+  // … and a non-node/bun exec alike — the compiled-mode "exec IS its own
+  // entry" fallback was deleted with that mode (crossos-deploy ticket 07).
+  expect(() => resolvePiInvocation("/nonexistent/cli.ts", "/opt/pi/bin/s2-agent", [])).toThrow(/cannot self-resolve/);
 });
 
 // ---- runner (mock spawnFn) -----------------------------------------------
@@ -425,17 +420,6 @@ describe("resolvePiInvocation entry prefix", () => {
   test("an entry prefix is spliced between the script and the pi flags", () => {
     const { args } = resolvePiInvocation(import.meta.path, "/usr/bin/bun", ["-p", "hi"], "cli");
     expect(args).toEqual([import.meta.path, "cli", "-p", "hi"]);
-  });
-
-  test("a compiled binary (argv[1] is the $bunfs virtual path) still gets the prefix", () => {
-    const { command, args } = resolvePiInvocation(
-      "/$bunfs/root/s2-agent",
-      "/opt/s2-agent/s2-agent",
-      ["-p", "hi"],
-      "cli",
-    );
-    expect(command).toBe("/opt/s2-agent/s2-agent");
-    expect(args).toEqual(["cli", "-p", "hi"]);
   });
 
   // The empty-string contract is guarded at TWO layers, so both are pinned:

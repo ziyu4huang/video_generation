@@ -53,16 +53,6 @@ export const DEFAULTS_DISABLE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS";
 export { BOOTSTRAP_MARKER };
 
 /**
- * True when `fromUrl` is inside Bun's compiled-binary virtual filesystem
- * ($bunfs, or its ~BUN / URL-encoded %7EBUN variants). Same marker check as
- * s2-agent/src/mode.ts isBunBinary() — inlined here to keep this package
- * dependency-free of s2-agent.
- */
-function isBunBinaryUrl(fromUrl: string): boolean {
-  return fromUrl.includes("$bunfs") || fromUrl.includes("~BUN") || fromUrl.includes("%7EBUN");
-}
-
-/**
  * This extension's deployed directory under the sh loader, when running there.
  *
  * bun's cjs bundler REBINDS `__dirname`/`__filename` inside an extension bundle
@@ -97,35 +87,28 @@ function shExtDir(): string | undefined {
  * gate rejects), and an unfolded `import.meta` is a SyntaxError inside the sh
  * loader's cjs wrapper. Resolution order:
  *
- *   1. Compiled-binary mode (`bun build --compile`, detected via the
- *      BUN_PI_EMBEDDED_EXTRACT_DIR env the extract-embedded-assets patch sets
- *      before extensions load): skills are extracted to
- *      $BUN_PI_EMBEDDED_EXTRACT_DIR/s2-agent-ext-superpowers/skills (the same
- *      dir the run-dir resolver passes via `--skill`, so pi dedups the two).
- *   2. sh deploy (cjs bundle): `require("#pi/ext-dir")` → skills/ ships beside
+ *   1. sh deploy (cjs bundle): `require("#pi/ext-dir")` → skills/ ships beside
  *      the bundle (ext/<name>/skills).
- *   3. jiti/source and dist: the package.json `"#pi/ext-dir"` imports entry
+ *   2. jiti/source and dist: the package.json `"#pi/ext-dir"` imports entry
  *      (`src/sh-ext-dir.ts`, loaded by jiti as cjs with the REAL `__dirname`)
  *      → the package root, where `skills/` lives.
  *
- * `fromUrl` stays injectable for tests and for callers that DO have a valid
- * module URL (e.g. inside s2-agent's own --compile binary, where
- * `import.meta.url` is the $bunfs virtual path).
+ * (The compiled-binary branch — `BUN_PI_EMBEDDED_EXTRACT_DIR` + the
+ * `$bunfs`-URL marker check — was deleted with the `bun build --compile`
+ * mode itself: nothing produces a compiled artifact since #1866, so the env
+ * var has no producer. crossos-deploy ticket 07, 2026-08-27.)
+ *
+ * `fromUrl` is the TEST seam: production callers pass nothing (the entry
+ * registers bare), tests inject a module URL to drive the real package dir.
  */
 export function resolveSkillsDir(fromUrl?: string): string {
-  const extractDir = process.env.BUN_PI_EMBEDDED_EXTRACT_DIR;
-  if (extractDir && (fromUrl === undefined || isBunBinaryUrl(fromUrl))) {
-    return join(extractDir, "s2-agent-ext-superpowers", "skills");
-  }
   if (fromUrl !== undefined) {
     // src/superpowers.ts → ../skills (jiti/source mode; there is no dist/ build)
     return resolve(dirname(fileURLToPath(fromUrl)), "..", "skills");
   }
   const extDir = shExtDir();
   if (extDir !== undefined) return join(extDir, "skills");
-  throw new Error(
-    "resolveSkillsDir: cannot locate skills/ (no fromUrl injected, no BUN_PI_EMBEDDED_EXTRACT_DIR, no #pi/ext-dir)",
-  );
+  throw new Error("resolveSkillsDir: cannot locate skills/ (no fromUrl injected, no #pi/ext-dir)");
 }
 
 /** Path to the bootstrap skill, resolved relative to a caller module URL. */
@@ -231,8 +214,8 @@ export function superpowersExtension(pi: ExtensionAPI, fromUrl?: string): void {
   const skillsDir = resolveSkillsDir(fromUrl);
   let injectBootstrap = true;
 
-  // Never advertise a non-existent dir (e.g. a classic --compile binary with no
-  // embedded-assets extraction): pi reports each missing skill path as a
+  // Never advertise a non-existent dir (e.g. a mispackaged deploy that ships
+  // the bundle but omits skills/): pi reports each missing skill path as a
   // "[Skill conflicts] skill path does not exist" startup warning.
   //
   // PI_SUPERPOWERS_SKILL_EXCLUDE (Phase-3): a comma-list of skill dir-names to

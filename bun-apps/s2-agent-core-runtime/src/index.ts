@@ -114,7 +114,6 @@ export {
 } from "./errors.js";
 export {
   findWorkspaceRoot,
-  isBunVirtualPath,
   isDeployedExtDir,
   missingExtDeps,
   packageBaseName,
