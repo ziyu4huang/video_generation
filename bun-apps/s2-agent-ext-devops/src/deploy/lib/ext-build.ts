@@ -402,10 +402,15 @@ export function rewriteAllowedDynamicImports(code: string, allowed: readonly str
 	for (const spec of dynamicImportSpecs(code)) {
 		if (isBuiltinSpecifier(spec)) continue;
 		if (!matchesAllowed(spec, allowed)) continue;
-		const q = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const q = escapeRegExp(spec);
 		out = out.replace(new RegExp(`import\\(\\s*(["'\`])${q}\\1\\s*\\)`, "g"), `Promise.resolve(require("${spec}"))`);
 	}
 	return out;
+}
+
+/** Escape a literal for embedding in a RegExp. Shared — a drifted copy silently mis-matches. */
+function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -454,19 +459,49 @@ export function rewriteAssetImportMetaFolds(
 	let total = 0;
 	for (const pkg of pkgs) {
 		const dir = resolve(Bun.resolveSync(`${pkg}/package.json`, resolveFrom), "..");
-		// Counted from the INPUT (replaceAll gives no count): each occurrence is
-		// one import.meta.url fold this pass neutralizes.
-		const hits = code.split(`file://${dir}/`).length - 1;
-		total += hits;
-		out = out.replaceAll(`file://${dir}/`, `file:///__s2-inlined-assets/${pkg}/`);
+		const re = assetFoldRegex(dir);
+		// match/replace on a g-flagged regex are stateless (both reset
+		// lastIndex) — one compiled RegExp serves both passes.
+		total += code.match(re)?.length ?? 0;
+		out = out.replace(re, `file:///__s2-inlined-assets/${pkg}/`);
 	}
 	if (pkgs.length > 0 && total === 0) {
+		// Self-diagnosing assert: the next host may fold in yet another
+		// spelling. Embedding what IS baked in the bundle turns a remote CI
+		// failure into the measurement needed for the fix (crossos windows
+		// row has no interactive access to the staged tree).
+		const fileUrlish = code.match(/file:\/\/[^"'\s]{4,160}/g) ?? [];
+		const driveish = code.match(/[A-Za-z]:[\\/][^"'\s]{4,160}/g) ?? [];
+		const baked = [...new Set([...fileUrlish, ...driveish])].slice(0, 5);
 		throw new Error(
 			`rewriteAssetImportMetaFolds: expected import.meta.url fold(s) from asset package(s) [${pkgs.join(", ")}] — none found. ` +
-				`Either the packages stopped folding import.meta.url (relax this assert) or the fold shape moved (update this rewrite).`,
+				`Either the packages stopped folding import.meta.url (relax this assert) or the fold shape moved (update this rewrite). ` +
+				(baked.length > 0 ? `Baked machine-path strings in the bundle: ${JSON.stringify(baked)}` : "No file:// or drive-letter strings found in the bundle at all."),
 		);
 	}
 	return out;
+}
+
+/**
+ * The regex that recognizes one asset package's baked `import.meta.url` folds,
+ * across every host spelling bun emits (measured darwin + windows-latest):
+ *   posix    `file:///abs/cache/<pkg>/…`      (what `file://${dir}/` matched)
+ *   win32    `file:///C:/Users/…/<pkg>/…`     (proper URL form)
+ *   win32    `file://C:/Users/…/<pkg>/…`      (naive concat, no third slash)
+ *   encoded  `file:///Users/John%20Doe/…`     (URL machinery percent-encodes
+ *             the path when the store dir has spaces/unicode — RFC 3986 pchar)
+ * The optional third slash covers both windows forms in one pattern; raw and
+ * percent-encoded dir spellings are alternates; the case-insensitive flag
+ * covers case-insensitive hosts (win32, default darwin APFS) — a case-variant
+ * fold is still this package's dir.
+ */
+export function assetFoldRegex(dir: string): RegExp {
+	const fwd = dir.replaceAll("\\", "/");
+	// Encode exactly the characters a URL path must encode (anything outside
+	// RFC 3986 pchar + "/"); ":" stays raw so drive letters survive.
+	const encoded = fwd.replace(/[^\w\-._~!$&'()*+,;=:@/]/g, (c) => encodeURIComponent(c));
+	const alt = encoded === fwd ? escapeRegExp(fwd) : `${escapeRegExp(fwd)}|${escapeRegExp(encoded)}`;
+	return new RegExp(`file:///?(${alt})/`, "gi");
 }
 
 /**

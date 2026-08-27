@@ -73,8 +73,12 @@ export interface CatalogProvider {
 	id: string;
 	baseUrl: string;
 	api: string;
-	/** "literal" = hardcoded key (local servers); otherwise the env var name. */
-	apiKey: "literal" | string;
+	/**
+	 * "literal" = hardcoded key (local servers); "env template $NAME" = pi's
+	 * `$NAME` form expanded from the target machine's env at request time;
+	 * otherwise the env var name (pi-ai's envApiKeyAuth spelling).
+	 */
+	apiKey: "literal" | "env template" | string;
 	models: CatalogModel[];
 }
 

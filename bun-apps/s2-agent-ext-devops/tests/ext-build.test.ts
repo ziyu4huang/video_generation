@@ -12,6 +12,8 @@ import {
 	scanForeignSpecifiers,
 	scanUnroutableDynamicImports,
 	vendorPackage,
+	assetFoldRegex,
+	rewriteAssetImportMetaFolds,
 } from "../src/deploy/lib/ext-build.ts";
 
 const BUN_APPS = join(import.meta.dir, "..", "..");
@@ -456,4 +458,56 @@ describe("vendorPackage", () => {
 		// store, which is the failure vendoring exists to avoid
 		expect(lstatSync(dest).isSymbolicLink()).toBe(false);
 	}, 60_000);
+});
+
+describe("assetFoldRegex / rewriteAssetImportMetaFolds (cross-host fold spellings)", () => {
+	/** A fixture npm package so the rewrite's Bun.resolveSync resolves locally. */
+	function fixturePkg(): { root: string; pkgDir: string } {
+		const root = makeDir();
+		const pkgDir = join(root, "node_modules", "fixture-asset-pkg");
+		mkdirSync(pkgDir, { recursive: true });
+		writeFileSync(join(pkgDir, "package.json"), JSON.stringify({ name: "fixture-asset-pkg", version: "1.0.0" }));
+		return { root, pkgDir };
+	}
+
+	test("posix fold: file:///abs/<pkg>/… is matched and neutralized", () => {
+		const { root, pkgDir } = fixturePkg();
+		const code = `var u = new URL("x.wasm", "file://${pkgDir}/dist/index.js");`;
+		const out = rewriteAssetImportMetaFolds(code, ["fixture-asset-pkg"], root);
+		expect(out).toContain("file:///__s2-inlined-assets/fixture-asset-pkg/dist/index.js");
+		expect(out).not.toContain(pkgDir);
+	});
+
+	test("win32 fold spellings both match: file:///C:/… and file://C:/…", () => {
+		// The measured windows-latest failure (run 33080255089): the old
+		// `file://${dir}/` needle embedded backslashes and found nothing.
+		const dir = "C:\\Users\\runneradmin\\.bun\\install\\cache\\links\\tesseract-wasm@5";
+		// match() (not stateful .test on the g-flagged regex) for each spelling.
+		const matches = (s: string): boolean => (s.match(assetFoldRegex(dir)) ?? []).length > 0;
+		expect(matches("file:///C:/Users/runneradmin/.bun/install/cache/links/tesseract-wasm@5/tesseract.js")).toBe(true);
+		expect(matches("file://C:/Users/runneradmin/.bun/install/cache/links/tesseract-wasm@5/tesseract.js")).toBe(true);
+		// Case variance on case-insensitive hosts still matches.
+		expect(matches("file:///c:/users/RUNNERADMIN/.bun/install/cache/links/tesseract-wasm@5/tesseract.js")).toBe(true);
+		// A sibling package dir must NOT match.
+		expect(matches("file:///C:/Users/runneradmin/.bun/install/cache/links/tesseract-wasm@5-extra/x.js")).toBe(false);
+	});
+
+	test("percent-encoded folds match when the store dir has spaces/unicode", () => {
+		// A home dir with a space: the URL machinery encodes it in the proper
+		// fold form. Raw and encoded spellings both match (review 2026-08-28).
+		const dir = "/Users/John Doe/.bun/install/cache/links/pdfjs-dist@4";
+		const matches = (s: string): boolean => (s.match(assetFoldRegex(dir)) ?? []).length > 0;
+		expect(matches("file:///Users/John%20Doe/.bun/install/cache/links/pdfjs-dist@4/build/pdf.mjs")).toBe(true);
+		expect(matches('file:///Users/John Doe/.bun/install/cache/links/pdfjs-dist@4/build/pdf.mjs')).toBe(true);
+		// The win32 encoded spelling too (drive colon stays raw).
+		const wdir = "C:\\Users\\runner admin\\cache\\tesseract-wasm@5";
+		expect((("file:///C:/Users/runner%20admin/cache/tesseract-wasm@5/t.js").match(assetFoldRegex(wdir)) ?? []).length > 0).toBe(true);
+	});
+
+	test("no fold from any asset package still throws the shape assert", () => {
+		const { root } = fixturePkg();
+		expect(() => rewriteAssetImportMetaFolds("var x = 1;", ["fixture-asset-pkg"], root)).toThrow(
+			/none found/,
+		);
+	});
 });
