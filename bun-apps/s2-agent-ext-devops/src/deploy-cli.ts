@@ -12,8 +12,8 @@ import { join, resolve } from "node:path";
 import { parseDeployShArgv } from "./deploy-sh-argv.ts";
 import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
 import { shConfig } from "./deploy/lib/config.ts";
-import { listVersions } from "./deploy/lib/version.ts";
-import { runDeployE2e, resolveModelEndpoint } from "./deploy-e2e-recipe.js";
+import { listTargetLayout } from "./deploy/lib/version.ts";
+import { runDeployE2e, resolveModelEndpoint, isNonHostTree } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn } from "./spawn.js";
 
 const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
@@ -26,12 +26,20 @@ USAGE
 FLAGS
   --out <dir>       override outRoot from the registry
   --version <str>   override the computed <pkgVersion>+g<sha> version
+  --target <name>   cross-OS target (crossos t05, D6): <platform>-<arch>
+                    the tree is packed for, e.g. win32-x64, linux-x64.
+                    Default: this host. Version dirs + current live under
+                    <outRoot>/<target>/; the .cores/.buns caches are shared.
+                    A non-host target fetches its bun from the GitHub release
+                    (D7; override the base with S2_AGENT_BUN_RELEASE_BASE)
+                    and skips the boot gates + post-deploy E2E (t06 owns the
+                    cross-OS verification channel).
   --force           replace an existing version dir
   (re-deploying the CURRENT version without --force is a no-op success:
    { ok: true, noop: true } — same git sha means same content)
   --no-freeze       skip chmod a-w on the deployed tree (also bypasses the core cache)
-  --no-current      do not repoint <outRoot>/current
-  --list            list deployed versions and the current target
+  --no-current      do not repoint <outRoot>/<target>/current
+  --list            list deployed versions per target subroot (+ any legacy flat layout)
   --help            this text
 
 OUTPUT
@@ -55,7 +63,7 @@ try {
 		const outRoot = parsed.action.outRoot
 			? resolve(parsed.action.outRoot)
 			: shConfig({ bunAppsDir: BUN_APPS_DIR }).outRoot;
-		console.log(JSON.stringify({ ok: true, outRoot, ...listVersions(outRoot) }, null, 2));
+		console.log(JSON.stringify({ ok: true, outRoot, ...listTargetLayout(outRoot) }, null, 2));
 		process.exit(0);
 	}
 
@@ -64,11 +72,18 @@ try {
 	// tree; this re-boots the FINAL (frozen, swapped) tree and places a real
 	// model call through s2-agent.sh. Provider-down is a SKIP, not a failure — but
 	// a boot/ext-load/model-call fail means the deploy is broken: exit 1.
-	const e2e = await runDeployE2e({
-		versionDir: result.target,
-		spawn: createLiveSpawn(result.target),
-		modelEndpoint: resolveModelEndpoint(),
-	});
+	// crossos t05: a non-host target's tree cannot boot on this build host
+	// (its bin/bun(.exe) is a foreign binary) — skip with a note, t06 owns
+	// the cross-OS verification channel. result.runtime already carries the
+	// TARGET's facts (not the host's) — no disk re-read needed here.
+	const nonHost = result.runtime.platform !== process.platform || result.runtime.arch !== process.arch;
+	const e2e = nonHost
+		? { verdict: "skip", note: `crossos t05: non-host target ${result.targetName} — post-deploy E2E deferred to t06` }
+		: await runDeployE2e({
+				versionDir: result.target,
+				spawn: createLiveSpawn(result.target),
+				modelEndpoint: resolveModelEndpoint(),
+			});
 	console.log(JSON.stringify({ ok: e2e.verdict !== "fail", ...result, e2e }, null, 2));
 	if (e2e.verdict === "fail") {
 		console.error(`✗ post-deploy E2E failed: ${e2e.note}`);
@@ -80,11 +95,13 @@ try {
 	// no-op success (content-addressed by git sha), so scripts can distinguish
 	// "nothing to do" from a real failure without string-matching error text.
 	if (e instanceof DeployVersionExistsError) {
-		const e2e = await runDeployE2e({
-			versionDir: e.target,
-			spawn: createLiveSpawn(e.target),
-			modelEndpoint: resolveModelEndpoint(),
-		});
+		const e2e = isNonHostTree(e.target)
+			? { verdict: "skip", note: `crossos t05: non-host target — post-deploy E2E deferred to t06` }
+			: await runDeployE2e({
+					versionDir: e.target,
+					spawn: createLiveSpawn(e.target),
+					modelEndpoint: resolveModelEndpoint(),
+				});
 		console.log(JSON.stringify({ ok: e2e.verdict !== "fail", noop: true, version: e.version, target: e.target, message: e.message, e2e }, null, 2));
 		if (e2e.verdict === "fail") {
 			console.error(`✗ post-deploy E2E failed: ${e2e.note}`);

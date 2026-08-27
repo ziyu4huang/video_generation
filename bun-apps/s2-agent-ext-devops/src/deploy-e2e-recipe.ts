@@ -72,10 +72,12 @@
  *   spawn surface is the shared `SpawnFn`; tests inject a recording fake and
  *   never place a real model call.
  */
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { hostTargetName } from "./deploy/lib/targets.js";
+import { isTargetSubrootName } from "./deploy/lib/version.js";
 import { executeExtTool } from "./deploy/lib/ext-build.js";
 import { runToolGateFireProbe } from "./tool-gate-fire-probe.js";
 import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
@@ -326,12 +328,54 @@ export function parseExtListPayload(stdout: string): { ok: true; value: ExtListP
 	}
 }
 
-/** Resolve `<deployRoot>/current` to the version dir it points at (null if absent). */
+/**
+ * Resolve `<deployRoot>/current` to the version dir it points at (null if
+ * absent). crossos t05 (D6): the HOST target's subroot is preferred — the
+ * verification tooling must follow NEW deploys, not a stale pre-t05 flat
+ * link — then the legacy flat layout, and only then another target's
+ * subroot (a cross-only outRoot resolves something rather than nothing;
+ * callers that cannot boot it check isNonHostTree first).
+ */
 export function resolveCurrentVersionDir(deployRoot: string): string | null {
+	const tryDir = (d: string): string | null => {
+		try {
+			return realpathSync(join(d, "current"));
+		} catch {
+			return null;
+		}
+	};
+	if (!existsSync(deployRoot)) return null;
+	const hostName = hostTargetName();
+	const hostHit = tryDir(join(deployRoot, hostName));
+	if (hostHit) return hostHit;
+	const direct = tryDir(deployRoot); // pre-t05 flat layout
+	if (direct) return direct;
+	const subroots = readdirSync(deployRoot)
+		.filter((n) => isTargetSubrootName(n) && n !== hostName)
+		.sort();
+	for (const name of subroots) {
+		const hit = tryDir(join(deployRoot, name));
+		if (hit) return hit;
+	}
+	return null;
+}
+
+/**
+ * Does this deployed tree belong to a NON-host target (crossos t05)? Its
+ * bun binary cannot execute here, so boot-style verification must SKIP it
+ * (deploy-cli and verify-deploy-e2e-cli share this test). deploy.json
+ * carries the target's runtime facts; absent/unreadable = pre-t05 host
+ * tree.
+ */
+export function isNonHostTree(versionDir: string): boolean {
 	try {
-		return realpathSync(join(deployRoot, "current"));
+		const dj = JSON.parse(readFileSync(join(versionDir, "deploy.json"), "utf8")) as {
+			runtime?: { platform?: string; arch?: string };
+		};
+		if (!dj.runtime?.platform || !dj.runtime?.arch) return false;
+		return dj.runtime.platform !== process.platform || dj.runtime.arch !== process.arch;
 	} catch {
-		return null;
+		return false;
 	}
 }
 

@@ -51,10 +51,14 @@ export function swapCurrent(outRoot: string, version: string): void {
 	renameSync(tmp, link);
 }
 
-export function listVersions(outRoot: string): { versions: string[]; current: string | null } {
+export function listVersions(
+	outRoot: string,
+	opts: { excludeTargets?: boolean } = {},
+): { versions: string[]; current: string | null } {
 	if (!existsSync(outRoot)) return { versions: [], current: null };
 	const versions = readdirSync(outRoot)
 		.filter((n) => n !== "current" && !n.startsWith("."))
+		.filter((n) => (opts.excludeTargets ? !isTargetSubrootName(n) : true))
 		.filter((n) => {
 			try {
 				return lstatSync(join(outRoot, n)).isDirectory();
@@ -85,10 +89,10 @@ export function ensureOutRoot(outRoot: string): void {
  */
 export function pruneVersions(
 	outRoot: string,
-	opts: { keep: number; protectedVersion?: string | null },
+	opts: { keep: number; protectedVersion?: string | null; excludeTargets?: boolean },
 ): string[] {
 	const keep = Math.max(1, opts.keep);
-	const { versions, current } = listVersions(outRoot);
+	const { versions, current } = listVersions(outRoot, { excludeTargets: opts.excludeTargets });
 	const protect = opts.protectedVersion ?? current;
 	if (versions.length <= keep) return [];
 
@@ -120,4 +124,35 @@ function isSymlink(p: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+import { isKnownTargetSubrootName } from "./targets.ts";
+
+/** Public shape test for target-subroot names (crossos t05, D6) — known platform families only, so legacy flat dirs with dash-y names (`demo-run`) never misclassify. */
+export const isTargetSubrootName = isKnownTargetSubrootName;
+
+/**
+ * crossos t05 (D6): the outRoot's layout across target subroots — each
+ * `<outRoot>/<target>/` is a full version namespace with its own `current`.
+ * Pre-t05 outRoots keep their flat version dirs under `legacy` (a version
+ * string like `0.1.0+g520acb9` never matches the target-name shape).
+ */
+export function listTargetLayout(outRoot: string): {
+	targets: Record<string, { versions: string[]; current: string | null }>;
+	legacy: { versions: string[]; current: string | null };
+} {
+	const targets: Record<string, { versions: string[]; current: string | null }> = {};
+	let legacy = { versions: [] as string[], current: null as string | null };
+	if (!existsSync(outRoot)) return { targets, legacy };
+
+	const { versions, current } = listVersions(outRoot);
+	for (const name of versions) {
+		if (isTargetSubrootName(name)) {
+			targets[name] = listVersions(join(outRoot, name));
+		} else {
+			legacy.versions.push(name);
+		}
+	}
+	legacy.current = current;
+	return { targets, legacy };
 }

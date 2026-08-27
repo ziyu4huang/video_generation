@@ -35,7 +35,8 @@ export interface GateRecord {
 	id: string;
 	title: string;
 	scope: "per-ext" | "deploy";
-	status: "pass" | "fail";
+	/** "skip" = deliberately not run for this tree (crossos t05: non-host targets skip the boot gates; t06 owns that channel). */
+	status: "pass" | "fail" | "skip";
 	ms?: number;
 	note?: string;
 }
@@ -223,7 +224,12 @@ ${catalogRows}
 
 /** Render the version-dir report. Self-contained HTML, no external references. */
 export function renderDeployReport(data: DeployReportData): string {
-	const allPass = data.gates.every((g) => g.status === "pass");
+	// "skip" gates (non-host targets) don't fail the banner — but the wording
+	// must not claim they ran. A skipped gate is a topology statement recorded
+	// with its reason, never a silent pass.
+	const failed = data.gates.some((g) => g.status === "fail");
+	const skipped = data.gates.some((g) => g.status === "skip");
+	const gateSummary = failed ? '<span class="fail">FAILED</span>' : skipped ? "pass (with skips)" : '<span class="pass">all pass</span>';
 	const totalExtBytes = data.extensions.reduce((n, e) => n + e.bytes, 0);
 	const excludedRows = data.excluded
 		.map((x) => `<tr><td>${esc(x.name)}</td><td>${esc(x.package)}</td><td>${esc(x.reason)}</td></tr>`)
@@ -239,7 +245,7 @@ export function renderDeployReport(data: DeployReportData): string {
 </head>
 <body>
 <h1>deploy-report — <code>${esc(data.version)}</code></h1>
-<p class="meta">${data.extensions.length} extensions included · ${data.excluded.length} excluded · gates ${allPass ? '<span class="pass">all pass</span>' : '<span class="fail">FAILED</span>'}</p>
+<p class="meta">${data.extensions.length} extensions included · ${data.excluded.length} excluded · gates ${gateSummary}</p>
 
 <h2>Overview</h2>
 <table class="kv">
