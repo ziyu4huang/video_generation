@@ -403,6 +403,40 @@ function tail(stdout: string, stderr: string): string {
 	return out.length > 1500 ? `…${out.slice(-1500)}` : out;
 }
 
+/**
+ * win32 launcher-chain layer diagnosis (crossos follow-through 2026-08-28):
+ * the first windows E2E run had `cmd /c s2-agent.cmd --ext-list` exit 0 with
+ * BOTH streams empty — while the deploy's own gates (which spawn bin\bun.exe
+ * directly) passed on the same machine, so the output vanished somewhere in
+ * the cmd→powershell→bun chain with no local repro. On a win32 ext-load
+ * failure, re-run the SAME args through each layer independently and append
+ * per-layer exit/output summaries, so one remote CI failure carries its own
+ * measurement of WHICH layer dropped the output.
+ */
+async function win32LayerDiag(
+	spawn: import("./spawn.js").SpawnFn,
+	versionDir: string,
+	args: string[],
+): Promise<string> {
+	const bunExe = join(versionDir, "bin", "bun.exe");
+	const layers: Array<[string, string, string[]]> = [
+		["bun-direct", bunExe, [join(versionDir, "s2-agent.js"), ...args]],
+		["ps1-direct", "powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", join(versionDir, "s2-agent.ps1"), ...args]],
+		["cmd-shim", "cmd", ["/c", "s2-agent.cmd", ...args]],
+	];
+	const parts: string[] = [];
+	for (const [label, cmd, argv] of layers) {
+		try {
+			const r = await spawn(cmd, argv, { cwd: versionDir, timeoutMs: 30_000 });
+			const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+			parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout — ${head || "<no output>"}`);
+		} catch (e) {
+			parts.push(`${label}: spawn error ${(e as Error).message}`);
+		}
+	}
+	return `win32 layer diag:\n  ${parts.join("\n  ")}`;
+}
+
 function worst(verdicts: ProbeVerdict[]): ProbeVerdict {
 	if (verdicts.includes("fail")) return "fail";
 	if (verdicts.includes("skip")) return "skip";
@@ -504,17 +538,19 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
 		const ms = now() - t0;
 		if (r.timedOut || r.exitCode !== 0) {
+			const diag = process.platform === "win32" ? `\n${await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"])}` : "";
 			probes.push({
 				id: "ext-load",
 				verdict: "fail",
 				ms,
 				note: `--ext-list ${r.timedOut ? `timed out after ${EXT_LIST_CAP_MS}ms` : `exited ${r.exitCode}`}`,
-				detail: tail(r.stdout, r.stderr),
+				detail: `${tail(r.stdout, r.stderr)}${diag}`,
 			});
 		} else {
 			const p = parseExtListPayload(r.stdout);
 			if (!p.ok) {
-				probes.push({ id: "ext-load", verdict: "fail", ms, note: p.message, detail: tail(r.stdout, r.stderr) });
+				const diag = process.platform === "win32" ? `\n${await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"])}` : "";
+				probes.push({ id: "ext-load", verdict: "fail", ms, note: p.message, detail: `${tail(r.stdout, r.stderr)}${diag}` });
 			} else {
 				const missing = enabled.filter((n) => !p.value.loaded.includes(n));
 				const skippedNote = p.value.skipped.length
@@ -573,7 +609,11 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 					c.verdict === "skip"
 						? `probe never fired — ${c.reason}${c.detail ? ` — ${firstLine(c.detail)}` : ""}`
 						: `${p.message}${r.timedOut ? ` (timed out after ${TOOLS_PROBE_CAP_MS}ms)` : ` (exit ${r.exitCode})`}`;
-				tpDetail = tail(r.stdout, r.stderr);
+				tpDetail =
+					tail(r.stdout, r.stderr) +
+					(process.platform === "win32" && tpVerdict === "fail"
+						? `\n${await win32LayerDiag(opts.spawn, opts.versionDir, ["--help"])}`
+						: "");
 			} else {
 				const v = p.value;
 				const gate = v.gateSeam
