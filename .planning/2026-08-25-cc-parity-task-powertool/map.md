@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-25-cc-parity-task-powertool
 created: 2026-08-25
-last: 2026-08-28 (ticket 03 closed — loop consolidation onto WakeupRegistry shipped, PR #2108)
+last: 2026-08-28 (ticket 04 closed — pathology episode note model-visible opt-in, PR #2113)
 status: active
 ---
 
@@ -87,7 +87,7 @@ quota-retry, pathology engine, browser token economy) stay.
 | `tickets/01-plan-approval-gate.md` | closed | ExitPlanMode-shaped approval surface on the plan coordinator: plan content shown → user approval gates implementation; read-only enforcement during planning; drop `bash` from the auditor's read-only grant — shipped via PR #2075 |
 | `tickets/02-task-family-convergence.md` | closed | ONE model-visible task family with CC semantics — D7: TeamTaskStore `task_*` won (core-gated everywhere), `todo` retired to a TUI face; effective-blocked deps, discipline text, isError envelopes |
 | `tickets/03-loop-consolidation.md` | closed | Retire ext-task LoopScheduler into ultracode's WakeupRegistry (the CC-faithful core), porting idle-postpone + restart-restore; ext-task keeps only the composite-widget section + `/loop` redirect — shipped via PR #2108 |
-| `tickets/04-pathology-model-visible.md` | pending | Opt-in (env-gated) once-per-episode turn-boundary injection so the model can learn it is looping; warning count refresh per evaluation; per-session status key |
+| `tickets/04-pathology-model-visible.md` | closed | Opt-in (`BUN_PI_PATHOLOGY_INJECT=1`) once-per-episode turn-boundary injection via `before_agent_start` message; warning count refresh per evaluation; per-session status key `pi-pathology:<sid>` — shipped via PR #2113 |
 | `tickets/05-cost-accounting.md` | pending | `/cost`-style session accumulator in power-tool: cumulative spend + duration + turn count on `after_provider_response`, surfaced via a tool/command and inspect_agent |
 
 **Phase 2 — analytics correctness (power-tool)**
@@ -149,26 +149,31 @@ quota-retry, pathology engine, browser token economy) stay.
 
 ## Frontier
 
-Ticket 04 (pathology model-visible) — ticket 03 closed 2026-08-28 (PR #2108,
-squash `fff48bfc`, merged CLEAN, local_ci pass 111s, net −238 lines):
-ext-task's LoopScheduler retired into ultracode's WakeupRegistry — idle
-gate (busy ⇒ tick no-ops, due entry retries next 30s pass), 7-day max-age
-self-stop, restart-restore via the new `wakeup-persistence.ts` (future
-dueAt honored / stale re-anchored / expired dropped), `/loop stop` alias,
-fixed clamp 60s–7d, ext-task keeps ONLY the composite-widget overlay fed
-by the registered `__piWakeupLoops` seam; slash-prompt fires
-expandPromptTemplates (retired-scheduler parity, caught in self-review).
-ONE `/loop` command remains; the colliding-command-dispatch patch stays as
-class-level defense. 04 is the next Phase-1 ticket and blocks nothing.
+Ticket 05 (cost accounting) — ticket 04 closed 2026-08-28 (PR #2113, squash
+`0a8fe360`, merged CLEAN, local_ci pass 88s): the pathology engine gained an
+opt-in model-visible path (`BUN_PI_PATHOLOGY_INJECT=1`, D2 — default OFF
+keeps the non-invasive status-line contract, test-pinned through the full
+factory): detection arms a once-per-episode pending note, the factory's
+`before_agent_start` handler delivers it as a `pathology-note` CustomMessage
+at the turn boundary (cannot fire mid-stream — chosen over
+`sendMessage`+`deliverAs:"nextTurn"` after investigating both; fog entry
+resolved). Adjacent bugs fixed: warning count now refreshes every evaluation
+(×3→×8 no longer freezes at first-warn) and the status key is
+sessionId-qualified (`pi-pathology:<sid>`, per-session episode maps mirror
+the accumulator) so subagent children no longer overwrite the parent's line.
+05 is the last open Phase-1 ticket and blocks nothing (06 → 07 is the only
+hard edge, inside Phase 2).
 
 ## Fog of war
 
 - Micro-compaction of stale tool outputs (CC's "[File previously read]")
   — genuinely missing repo-wide, but it belongs to `s2-agent-ext-compact`,
   NOT this effort; chart it there if pursued.
-- Whether pi's SDK exposes a turn-boundary context-injection seam usable
-  by ticket 04 (the warning path is display-only today) — investigate
-  in-ticket; if none exists, the injection rides `before_agent_start`.
+- ~~Whether pi's SDK exposes a turn-boundary context-injection seam usable
+  by ticket 04~~ RESOLVED 2026-08-28 (ticket 04): `before_agent_start`
+  returning `{ message }` is the seam — emitted in `agent-session.js` after
+  the user message is queued, before the agent loop starts (cannot fire
+  mid-stream); chosen over `sendMessage`+`deliverAs:"nextTurn"`.
 - Whether ultracode's WakeupRegistry can host idle-postpone +
   restart-restore without an import cycle with ext-task (ticket 03's
   first investigation step).
