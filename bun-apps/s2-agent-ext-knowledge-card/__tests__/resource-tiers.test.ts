@@ -18,6 +18,7 @@ import {
 	parseSidecarFrontmatter,
 	sidecarBody,
 	buildOverviewPrompt,
+	resolveLinkPlaceholders,
 	TIER_SAMPLE_LIMIT,
 	TIER_REFRESH_RATIO,
 	TIER_ABSTRACT_MAX_CHARS,
@@ -67,8 +68,8 @@ function mockGenerator(): { generator: TierGenerator; calls: string[] } {
 				"",
 				"## Quick Navigation",
 				"",
-				"- want alpha → see [1]",
-				"- want beta → see [2]",
+				"- want alpha → [alpha](kcard-tier://f1)",
+				"- want beta → [beta](kcard-tier://f2)",
 			].join("\n"),
 		);
 	};
@@ -368,8 +369,8 @@ describe("freshness policy on wide dirs (mark-pending accumulation)", () => {
 		expect(sawPrompt).toContain("Coverage: sampled");
 		expect(sawPrompt).toContain("Direct entries not individually shown: 68"); // 100 − 32
 		// sample spans the sequence deterministically (first + last present)
-		expect(sawPrompt).toContain("[1] page-001.md");
-		expect(sawPrompt).toContain(`[${TIER_SAMPLE_LIMIT}] page-100.md`);
+		expect(sawPrompt).toContain("page-001.md (link: kcard-tier://f1)");
+		expect(sawPrompt).toContain(`page-100.md (link: kcard-tier://f${TIER_SAMPLE_LIMIT})`);
 	});
 
 	test("planOnly: decides and reports prompt sizes with ZERO LLM calls and ZERO writes", async () => {
@@ -385,7 +386,7 @@ describe("freshness policy on wide dirs (mark-pending accumulation)", () => {
 });
 
 describe("prompt shape (upstream overview_generation, re-implemented)", () => {
-	test("carries dir name, numbered file summaries, child-dir abstracts, coverage", () => {
+	test("carries dir name, placeholder-linked file summaries, child-dir abstracts, coverage", () => {
 		const prompt = buildOverviewPrompt({
 			dirName: "spec",
 			fileSummaries: [{ name: "a.md", abstract: "About alpha." }],
@@ -394,9 +395,63 @@ describe("prompt shape (upstream overview_generation, re-implemented)", () => {
 			totalChildren: 1,
 		});
 		expect(prompt).toContain("[Directory Name]\nspec");
-		expect(prompt).toContain("[1] a.md: About alpha.");
-		expect(prompt).toContain("- pages/: Pages subtree.");
+		expect(prompt).toContain("- a.md (link: kcard-tier://f1): About alpha.");
+		expect(prompt).toContain("- pages/ (link: kcard-tier://c1): Pages subtree.");
+		expect(prompt).toContain("Markdown link using its placeholder");
+		expect(prompt).toContain("[entry title](kcard-tier://f1)");
 		expect(prompt).toContain("All direct entries are represented");
 		expect(prompt).not.toContain("Coverage: sampled");
+		// the retired scheme must be gone (issue #2090: dangling "see [N]")
+		expect(prompt).not.toContain("numbered as [1]");
+	});
+});
+
+describe("link placeholder resolution (#2090)", () => {
+	const files = [{ name: "a.md" }, { name: "b.md" }];
+	const dirs = [{ name: "pages" }, { name: "annex" }];
+
+	test("resolves file placeholders to filenames and dir placeholders to name/", () => {
+		const out = resolveLinkPlaceholders(
+			"see [alpha](kcard-tier://f1) and [pages](kcard-tier://c2) plus [b](kcard-tier://f2)",
+			files,
+			dirs,
+		);
+		expect(out).toBe("see [alpha](a.md) and [pages](annex/) plus [b](b.md)");
+	});
+
+	test("unknown or out-of-range placeholders pass through untouched", () => {
+		const out = resolveLinkPlaceholders("[x](kcard-tier://f9), [y](kcard-tier://c99), [z](kcard-tier://q1)", files, dirs);
+		expect(out).toBe("[x](kcard-tier://f9), [y](kcard-tier://c99), [z](kcard-tier://q1)");
+	});
+
+	test("bare bracketed numbers are NOT rewritten (model-emitted [1] survives as text)", () => {
+		const out = resolveLinkPlaceholders("see [1] and [2]", files, dirs);
+		expect(out).toBe("see [1] and [2]");
+	});
+
+	test("sidecar body carries resolved tree-relative links, never a raw placeholder", async () => {
+		put("a.md", "# A\n\nAbout alpha.");
+		const generator: TierGenerator = () =>
+			Promise.resolve("# pages\n\nOverview prose.\n\n## Quick Navigation\n\n- want alpha → [alpha](kcard-tier://f1)");
+		const r = await generateResourceTiers({ treePath: root, generator });
+		expect(r.failed).toBe(0);
+		const body = readFileSync(join(root, OVERVIEW_SIDEFILE), "utf8");
+		expect(body).toContain("[alpha](a.md)");
+		expect(body).not.toContain("kcard-tier://");
+	});
+
+	test("prompt-version rollout: stale-fingerprint sidecar on unchanged children refreshes exactly once", async () => {
+		put("a.md", "# A\n\nBody.");
+		const { generator, calls } = mockGenerator();
+		await generateResourceTiers({ treePath: root, generator });
+		calls.length = 0;
+		// Simulate a pre-#2090 sidecar: same children, old-format fingerprint.
+		const raw = readFileSync(join(root, OVERVIEW_SIDEFILE), "utf8");
+		const aged = raw.replace(/^children_fingerprint: .+$/m, "children_fingerprint: 0000000000000000");
+		writeFileSync(join(root, OVERVIEW_SIDEFILE), aged, "utf8");
+		const sweep = await generateResourceTiers({ treePath: root, generator });
+		expect(sweep.llmCalls).toBe(1); // forced refresh despite zero changed children
+		const settle = await generateResourceTiers({ treePath: root, generator });
+		expect(settle.llmCalls).toBe(0); // idempotency restored after the sweep
 	});
 });
