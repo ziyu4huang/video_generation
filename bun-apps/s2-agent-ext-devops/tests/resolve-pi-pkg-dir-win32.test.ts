@@ -76,7 +76,7 @@ describe("resolvePiPkgDir (win32 url→path trap)", () => {
 });
 
 describe("tripwire: no .pathname fs reads in deploy sources", () => {
-	/** Collect .ts files under dir (flat walk is enough — deploy lib is shallow). */
+	/** Collect .ts files under dir, recursing into subdirectories. */
 	function tsFiles(dir: string): string[] {
 		const out: string[] = [];
 		for (const e of readdirSync(dir, { withFileTypes: true })) {
