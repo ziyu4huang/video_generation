@@ -167,6 +167,37 @@ describe("summary L0", () => {
 		// A legal-note line alone (no © before it) also starts the strip.
 		expect(firstSentenceSummary("NOTICE: all other uses are prohibited.\nReal intro sentence."))
 			.toBe("Real intro sentence.");
+		// All-caps IP-disclaimer paragraphs (the title page's tail) are part
+		// of the run — a mixed-case line after them is real content.
+		const withCaps = [
+			"NOTE: Adopters may only use this specification.",
+			"INTELLECTUAL PROPERTY DISCLAIMER",
+			"THIS SPECIFICATION IS PROVIDED TO YOU “AS IS” WITH NO WARRANTIES WHATSOEVER",
+			"INCLUDING ANY WARRANTY OF MERCHANTABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE.",
+			"",
+			"Chapter 2 covers the physical layer.",
+		].join("\n");
+		expect(firstSentenceSummary(withCaps)).toBe("Chapter 2 covers the physical layer.");
+		// Frontmatter must not eat the scan window (the raw-source trap: the
+		// strip ran BEFORE the frontmatter strip and never saw the notice).
+		const frontmattered = [
+			"---",
+			"title: CLEAN.pdf",
+			"page: 3",
+			"---",
+			"",
+			"",
+			"Version 2.0 - iii - Universal Serial Bus 4",
+			"November 2025 Specification",
+			"Copyright © 2025 USB Promoter Group. All rights reserved.",
+			"NOTE: Adopters may only use this USB specification to implement USB",
+			"functionality as expressly described in this Specification; all other uses are prohibited.",
+			"",
+			"Chapter 1 defines the protocol architecture.",
+		].join("\n");
+		const fs2 = firstSentenceSummary(frontmattered);
+		expect(fs2).not.toMatch(/adopters?|expressly|prohibited|copyright/i);
+		expect(fs2).toContain("Chapter 1");
 		// The run STOPS at the first clean line — a later legal mention in
 		// prose is content, not continuation.
 		expect(firstSentenceSummary(["NOTE: patent use is expressly prohibited.", "The chapter covers patent history broadly.", "Later prose."].join("\n")))
