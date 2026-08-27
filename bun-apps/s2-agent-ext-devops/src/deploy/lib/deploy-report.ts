@@ -111,7 +111,11 @@ export function collectModelFacts(): ModelFacts {
 		id,
 		baseUrl: p.baseUrl,
 		api: p.api,
-		apiKey: typeof p.apiKey === "string" ? "literal" : p.apiKey.env,
+		// "$NAME" is pi's env-template form (expanded from the target machine's
+		// env at request time) — label it as such, never as a literal key:
+		// "literal" in the deploy report reads as a shipped secret.
+		apiKey:
+			typeof p.apiKey === "string" ? (p.apiKey.startsWith("$") ? `env template ${p.apiKey}` : "literal") : p.apiKey.env,
 		models: p.models.map((m) => ({
 			id: m.id,
 			name: m.name,
