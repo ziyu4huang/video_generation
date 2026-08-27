@@ -284,6 +284,8 @@ interface DeployJson {
 	version: string;
 	sourceSha: string;
 	config: { extensions: Array<{ name: string; enabled: boolean }> };
+	/** Target runtime facts (crossos t05+); absent on pre-t05 trees. */
+	runtime?: { platform?: string; arch?: string };
 }
 
 /**
@@ -379,6 +381,22 @@ export function isNonHostTree(versionDir: string): boolean {
 	}
 }
 
+/**
+ * Launcher invocation for the tree's target platform (crossos t06). A win32
+ * tree boots through `s2-agent.cmd` — a `.cmd` cannot be exec'd directly from
+ * a spawn (CreateProcess only runs it through a shell), so the command is
+ * `cmd /c s2-agent.cmd`. Everything else uses the sh launcher verbatim. The
+ * platform comes from deploy.json's runtime facts; absent (pre-t05 tree) → sh.
+ */
+export function launcherInvocation(platform: string | undefined): {
+	file: string;
+	command: string;
+	prefix: string[];
+} {
+	if (platform === "win32") return { file: "s2-agent.cmd", command: "cmd", prefix: ["/c", "s2-agent.cmd"] };
+	return { file: "s2-agent.sh", command: "./s2-agent.sh", prefix: [] };
+}
+
 function tail(stdout: string, stderr: string): string {
 	const out = `${stdout}\n${stderr}`.trim();
 	return out.length > 1500 ? `…${out.slice(-1500)}` : out;
@@ -433,29 +451,32 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	const probes: DeployE2eProbe[] = [];
 
 	// Tree preconditions: deploy.json readable (it also supplies the expected
-	// extension set) and the launcher present. Both are structured FAILs, not
-	// throws. The launcher is s2-agent.sh (the run.sh shim was dropped in
-	// ticket 05).
+	// extension set and the tree's target platform) and the launcher present.
+	// Both are structured FAILs, not throws. The launcher is s2-agent.sh
+	// (the run.sh shim was dropped in ticket 05) except on win32 trees, which
+	// boot s2-agent.cmd through cmd /c (crossos t06).
 	let enabled: string[] = [];
 	let version = basename(opts.versionDir);
 	let sourceSha = "";
+	let launcher = launcherInvocation(undefined);
 	try {
 		const p = parseDeployJson(await readFile(join(opts.versionDir, "deploy.json"), "utf8"));
 		if (!p.ok) return failFast(opts.versionDir, `deploy.json unreadable: ${p.message}`, startedAt, now);
 		enabled = p.enabled;
 		version = p.value.version;
 		sourceSha = p.value.sourceSha;
+		launcher = launcherInvocation(p.value.runtime?.platform);
 	} catch (e) {
 		return failFast(opts.versionDir, `deploy.json unreadable: ${(e as Error).message}`, startedAt, now);
 	}
-	if (!(await Bun.file(join(opts.versionDir, "s2-agent.sh")).exists())) {
-		return failFast(opts.versionDir, "s2-agent.sh missing from the version dir", startedAt, now);
+	if (!(await Bun.file(join(opts.versionDir, launcher.file)).exists())) {
+		return failFast(opts.versionDir, `${launcher.file} missing from the version dir`, startedAt, now);
 	}
 
 	// ── boot probe ──────────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn("./s2-agent.sh", ["--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
 		const ms = now() - t0;
 		probes.push(
 			r.exitCode === 0 && !r.timedOut
@@ -473,7 +494,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	// ── ext-load probe ──────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn("./s2-agent.sh", ["--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
 		const ms = now() - t0;
 		if (r.timedOut || r.exitCode !== 0) {
 			probes.push({
@@ -528,7 +549,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		try {
 			const probePath = join(workDir, "tools-probe.ts");
 			writeFileSync(probePath, TOOLS_ACTIVE_PROBE);
-			const r = await opts.spawn("./s2-agent.sh", ["-e", probePath, "-p", "hi", "--no-session"], {
+			const r = await opts.spawn(launcher.command, [...launcher.prefix, "-e", probePath, "-p", "hi", "--no-session"], {
 				cwd: opts.versionDir,
 				timeoutMs: TOOLS_PROBE_CAP_MS,
 			});
@@ -613,7 +634,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			}
 		}
 		const t0 = now();
-		const r = await opts.spawn("./s2-agent.sh", ["-p", DEPLOY_E2E_PROMPT, "--no-session"], {
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "-p", DEPLOY_E2E_PROMPT, "--no-session"], {
 			cwd: opts.versionDir,
 			timeoutMs: MODEL_CALL_CAP_MS,
 		});

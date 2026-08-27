@@ -77,12 +77,17 @@ try {
 	// the cross-OS verification channel. result.runtime already carries the
 	// TARGET's facts (not the host's) — no disk re-read needed here.
 	const nonHost = result.runtime.platform !== process.platform || result.runtime.arch !== process.arch;
+	// S2_AGENT_E2E_SKIP_MODEL_CALL=1 (crossos t06): provider-less runners in the
+	// GH Actions verify channel skip the model-call probe EXPLICITLY instead of
+	// relying on the fast-failure heuristic (connect-refused → skip).
+	const skipModelCall = process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1";
 	const e2e = nonHost
 		? { verdict: "skip", note: `crossos t05: non-host target ${result.targetName} — post-deploy E2E deferred to t06` }
 		: await runDeployE2e({
 				versionDir: result.target,
 				spawn: createLiveSpawn(result.target),
 				modelEndpoint: resolveModelEndpoint(),
+				skipModelCall,
 			});
 	console.log(JSON.stringify({ ok: e2e.verdict !== "fail", ...result, e2e }, null, 2));
 	if (e2e.verdict === "fail") {
@@ -101,6 +106,7 @@ try {
 					versionDir: e.target,
 					spawn: createLiveSpawn(e.target),
 					modelEndpoint: resolveModelEndpoint(),
+					skipModelCall: process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
 				});
 		console.log(JSON.stringify({ ok: e2e.verdict !== "fail", noop: true, version: e.version, target: e.target, message: e.message, e2e }, null, 2));
 		if (e2e.verdict === "fail") {

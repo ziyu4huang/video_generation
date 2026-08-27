@@ -724,3 +724,80 @@ describe("runVerifyDeployE2eCli", () => {
 		expect(res.exitCode).toBe(1);
 	});
 });
+
+describe("crossos t06 — platform-aware launcher", () => {
+	// A win32 tree carries s2-agent.cmd (not .sh) and deploy.json runtime facts
+	// naming win32; the recipe must boot it through `cmd /c` (a .cmd cannot be
+	// exec'd directly by a spawn) instead of ./s2-agent.sh.
+	function makeWin32Tree(): string {
+		rmSync(join(root, "current"), { force: true });
+		rmSync(versionDir, { recursive: true, force: true });
+		mkdirSync(versionDir, { recursive: true });
+		writeFileSync(join(versionDir, "s2-agent.cmd"), "@echo off\r\n");
+		writeFileSync(
+			join(versionDir, "deploy.json"),
+			JSON.stringify({
+				version: VERSION,
+				sourceSha: "deadbee",
+				config: { extensions: [{ name: "task", enabled: true }] },
+				runtime: { platform: "win32", arch: "x64" },
+			}),
+		);
+		symlinkSync(VERSION, join(root, "current"), "dir");
+		return versionDir;
+	}
+
+	test("launcherInvocation (pure): win32 → cmd /c s2-agent.cmd; else ./s2-agent.sh", async () => {
+		const { launcherInvocation } = await import("../src/deploy-e2e-recipe.js");
+		expect(launcherInvocation("win32")).toEqual({
+			file: "s2-agent.cmd",
+			command: "cmd",
+			prefix: ["/c", "s2-agent.cmd"],
+		});
+		expect(launcherInvocation("darwin")).toEqual({ file: "s2-agent.sh", command: "./s2-agent.sh", prefix: [] });
+		expect(launcherInvocation("linux")).toEqual({ file: "s2-agent.sh", command: "./s2-agent.sh", prefix: [] });
+		// pre-t05 tree: no runtime facts → the sh launcher, unchanged behavior
+		expect(launcherInvocation(undefined)).toEqual({ file: "s2-agent.sh", command: "./s2-agent.sh", prefix: [] });
+	});
+
+	test("a win32 tree boots through cmd /c (command + prefix recorded at every probe)", async () => {
+		makeWin32Tree();
+		const seen: Array<{ cmd: string; args: string[] }> = [];
+		const spawn: SpawnFn = async (cmd, args) => {
+			seen.push({ cmd, args });
+			if (args.includes("--help")) return { stdout: "usage…", stderr: "", exitCode: 0 };
+			if (args.includes("--ext-list"))
+				return { stdout: JSON.stringify({ loadedCount: 1, loaded: ["task"], skipped: [] }), stderr: "", exitCode: 0 };
+			if (args.includes("-e"))
+				return {
+					stdout: "",
+					stderr: `[TOOLS] ${JSON.stringify({
+						total: 66,
+						matched: 26,
+						activeCount: 26,
+						active: ["read", "write", "edit", "bash", "enable_tool"],
+						missing: [],
+						gateSeam: { activeCount: 26, totalCount: 66, coreCount: 4 },
+						getActiveTools: true,
+					})}\n`,
+					exitCode: 0,
+				};
+			return { stdout: "ok", stderr: "", exitCode: 0 };
+		};
+		const r = await runDeployE2e({ versionDir, spawn, modelEndpoint: null });
+		expect(r.verdict).toBe("pass");
+		expect(seen.length).toBe(4); // boot, ext-load, tools-probe, model-call
+		for (const s of seen) {
+			expect(s.cmd).toBe("cmd");
+			expect(s.args.slice(0, 2)).toEqual(["/c", "s2-agent.cmd"]);
+		}
+	});
+
+	test("a win32 tree WITHOUT s2-agent.cmd fails fast naming the cmd launcher", async () => {
+		makeWin32Tree();
+		rmSync(join(versionDir, "s2-agent.cmd"), { force: true });
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn() });
+		expect(r.verdict).toBe("fail");
+		expect((r as { note?: string }).note).toContain("s2-agent.cmd missing");
+	});
+});
