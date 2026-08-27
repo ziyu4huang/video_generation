@@ -41,8 +41,8 @@ function validFile(dir: string, ts = "20260823-001732", supersedes = "none"): st
 			"",
 			"## Immediate steps",
 			"",
-			"1. Read the spec.",
-			"2. Branch, implement, test.",
+			"1. Sync main (`sync-default-branch-cli --mode rebase`), then read `.planning/<effort>/map.md`'s Frontier ticket before touching code — the map names the queue head and its blocking edges.",
+			"2. Branch via `prepare-feature-branch-cli`, implement in `src/`, gate on the package's canonical `bun run test` (biome + build + tests), reviewer, then merge via `merge-pr-after-ci`.",
 			"",
 			"## Done when",
 			"",
@@ -144,14 +144,17 @@ describe("validateNextGoalFile — strict format", () => {
 
 	test("sections out of order", () => {
 		const file = validFile(TMP, "20260823-060607");
-		// Swap the two headings (content rides along) — order breaks, nothing else.
+		// Swap two headings whose content is list-shape-agnostic (content rides
+		// along) — order breaks and nothing else: swapping either section with
+		// Immediate steps would also drag the numbered steps out and fire the
+		// detail check.
 		writeFile(
 			file,
 			mutate(file, (s) =>
 				s
-					.replace("## Honest gaps", "@@TMP@@")
-					.replace("## Immediate steps", "## Honest gaps")
-					.replace("@@TMP@@", "## Immediate steps"),
+					.replace("## Verified this session", "@@TMP@@")
+					.replace("## Honest gaps", "## Verified this session")
+					.replace("@@TMP@@", "## Honest gaps"),
 			),
 		);
 		expect(failedChecks(validateNextGoalFile(file))).toEqual(["sections-order"]);
@@ -167,6 +170,68 @@ describe("validateNextGoalFile — strict format", () => {
 		const file = validFile(TMP, "20260823-080808");
 		writeFile(file, mutate(file, (s) => s.replace("3. **Third** — first step.\n", "")));
 		expect(failedChecks(validateNextGoalFile(file))).toEqual(["ranked-3-to-5"]);
+	});
+
+	test("Immediate steps: a bare-pointer step fails the detail bar (what's next must be explained)", () => {
+		const file = validFile(TMP, "20260823-090909");
+		writeFile(
+			file,
+			mutate(file, (s) =>
+				s.replace(
+					/^1\. Sync main.*\n2\. Branch via.*$/m,
+					"1. Fix it.\n2. Ask the user what to do next, then do that.",
+				),
+			),
+		);
+		expect(failedChecks(validateNextGoalFile(file))).toEqual(["immediate-steps-detail"]);
+	});
+
+	test("Immediate steps: wrapped continuation lines count toward the detail bar", () => {
+		const file = validFile(TMP, "20260823-090910");
+		// Two short-looking lines that JOIN into one detailed step must pass —
+		// the bar measures substance, not line length.
+		writeFile(
+			file,
+			mutate(file, (s) =>
+				s.replace(
+					/^1\. Sync main.*\n2\. Branch via.*$/m,
+					"1. Sync main via sync-default-branch-cli --mode rebase, then read\n   `.planning/<effort>/map.md` before touching code — the map names the queue head.",
+				),
+			),
+		);
+		expect(validateNextGoalFile(file).ok).toBe(true);
+	});
+
+	test("Immediate steps: no numbered step at all fails", () => {
+		const file = validFile(TMP, "20260823-090911");
+		writeFile(
+			file,
+			mutate(file, (s) => s.replace(/^1\. Sync main.*\n2\. Branch via.*$/m, "Just continue the effort where it stopped.")),
+		);
+		expect(failedChecks(validateNextGoalFile(file))).toEqual(["immediate-steps-detail"]);
+	});
+
+	test("Immediate steps: column-0 prose after a step does NOT lend it length (reviewer false-pass edge)", () => {
+		const file = validFile(TMP, "20260823-090912");
+		// A thin step followed by an unindented context paragraph — the
+		// paragraph is its own prose, not the step's wrapped body, so the step
+		// stays under the bar and the file must fail.
+		writeFile(
+			file,
+			mutate(file, (s) =>
+				s.replace(
+					/^1\. Sync main.*\n2\. Branch via.*$/m,
+					[
+						"1. Fix it.",
+						"",
+						"The broader context for this goal involves several files across the repository that the executor will need to survey carefully before making any changes at all.",
+						"",
+						"2. Then gate on the package's canonical `bun run test` in bun-apps/s2-agent-ext-devops and merge via the devops chain.",
+					].join("\n"),
+				),
+			),
+		);
+		expect(failedChecks(validateNextGoalFile(file))).toEqual(["immediate-steps-detail"]);
 	});
 });
 
