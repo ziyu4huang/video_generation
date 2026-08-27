@@ -388,7 +388,14 @@ export default function extension(pi: ExtensionAPI) {
       isIdle: () => latestIsIdle(),
       fire: (loopId, prompt) => {
         activeLoop.id = loopId;
-        void pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+        // Slash targets dispatch as extension commands (the retired ext-task
+        // scheduler's probe, ticket 03): sendUserMessage defaults
+        // expandPromptTemplates to false, so a "/"-prefixed loop prompt must
+        // pass it explicitly or the literal slash text reaches the model.
+        void pi.sendUserMessage(prompt, {
+          deliverAs: "followUp",
+          ...(prompt.startsWith("/") ? { expandPromptTemplates: true } : {}),
+        });
       },
       // TUI observability (ticket risk): every loop-end event (fire cap)
       // surfaces as a display message, not just a log line.
