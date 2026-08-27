@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve, extname, basename, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { activityMonitor } from "./activity.ts";
 import { isGeminiWebAvailable, queryWithCookies } from "./gemini-web.ts";
 import { queryGeminiApiWithVideo, getApiKey, API_BASE, defaultGeminiModel } from "./gemini-api.ts";
@@ -109,7 +110,11 @@ export function isVideoFile(input: string): VideoFileInfo | null {
 	let filePath = input;
 	if (input.startsWith("file://")) {
 		try {
-			filePath = decodeURIComponent(new URL(input).pathname);
+			// fileURLToPath, never the URL pathname property: on win32 the
+			// pathname keeps a posix `/C:/…` spelling no windows open()
+			// accepts (same trap fixed in the devops deploy pipeline,
+			// crossos run 33075359667).
+			filePath = fileURLToPath(input);
 		} catch {
 			return null;
 		}

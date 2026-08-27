@@ -37,7 +37,6 @@
  */
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { APP_NAME } from "./lib/app-name.ts";
 import { excludedExtensionsFromRegistry, filterForTarget, shConfig, type ShConfig } from "./lib/config.ts";
 import { buildExtPackage } from "./lib/ext-build.ts";
@@ -68,7 +67,7 @@ import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrph
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
 import { acquireBunBinary } from "./lib/bun-acquire.ts";
 import { bunBinaryName, hostTargetName, isHostTarget, parseTargetName, type TargetSpec } from "./lib/targets.ts";
-import { freezeTree, rmTree } from "./lib/fs.ts";
+import { freezeTree, rmTree, urlToFsPath } from "./lib/fs.ts";
 
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "s2-agent");
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
@@ -118,10 +117,10 @@ function gitShortSha(): string | null {
 
 export function resolvePiPkgDir(): string {
 	const url = import.meta.resolve("@earendil-works/pi-coding-agent/package.json");
-	// fileURLToPath, NOT url.pathname: on win32 the pathname keeps a posix
-	// `/C:/…` spelling that later path.win32 joins turn into `\C:\…` —
-	// unopenable (measured: crossos-deploy-verify windows row, run 33075359667).
-	return dirname(fileURLToPath(url));
+	// urlToFsPath (lib/fs.ts), never the URL pathname property: on win32 it keeps
+	// a posix `/C:/…` spelling that later path.win32 joins turn into `\C:\…`
+	// — unopenable (measured: crossos-deploy-verify windows row, run 33075359667).
+	return dirname(urlToFsPath(url));
 }
 
 /** The config and the core must agree on the host contract, or every extension silently refuses to load. */

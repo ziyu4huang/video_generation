@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { extractAdHocExtensionArgs, loadAdHocExtensions } from "./adhoc-extensions.ts";
 import { hostRequire } from "./host-modules.ts";
 import { spawnCaptureSync } from "../__tests__/test-utils.ts";
@@ -107,7 +108,7 @@ describe("loadAdHocExtensions", () => {
 		const f = join(dir, "main.ts");
 		writeFileSync(f, 'import { marker } from "./sibling.ts";\nexport default () => marker;\n');
 		const script = `const { loadAdHocExtensions } = await import(${JSON.stringify(
-			new URL("adhoc-extensions.ts", import.meta.url).pathname,
+			fileURLToPath(new URL("adhoc-extensions.ts", import.meta.url)),
 		)});
 const r = await loadAdHocExtensions([${JSON.stringify(f)}]);
 if (r.skipped.length) { console.error(r.skipped[0]!.reason); process.exit(1); }

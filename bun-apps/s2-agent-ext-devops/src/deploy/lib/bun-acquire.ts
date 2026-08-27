@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { urlToFsPath } from "./fs.ts";
 import { BUNS_DIR, computeBunHash, ensureCachedBunFrom, type CachedBun } from "./bun-cache.ts";
 import { githubBunArtifact, type TargetSpec } from "./targets.ts";
 
@@ -29,14 +29,6 @@ export const DEFAULT_RELEASE_BASE = "https://github.com/oven-sh/bun/releases/dow
 
 function isHttp(u: string): boolean {
 	return u.startsWith("http://") || u.startsWith("https://");
-}
-
-/** file:// URLs and plain paths resolve to the same local-dir reading. */
-function localDirOf(u: string): string {
-	// fileURLToPath, NOT url.pathname — win32 file:// URLs carry a posix
-	// `/C:/…` pathname that no windows open() accepts (same trap as
-	// resolvePiPkgDir in deploy/run.ts).
-	return u.startsWith("file://") ? fileURLToPath(u) : u;
 }
 
 /** Repo convention (session-doctor-cli, deploy-e2e-recipe): every outbound fetch is timeout-bounded — a black-holed connection must fail, not hang the deploy. */
@@ -49,7 +41,7 @@ async function fetchBytes(url: string): Promise<Buffer> {
 }
 
 async function fetchText(url: string): Promise<string> {
-	if (!isHttp(url)) return readFileSync(localDirOf(url), "utf8");
+	if (!isHttp(url)) return readFileSync(urlToFsPath(url), "utf8");
 	const res = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 	if (!res.ok) throw new Error(`bun release fetch failed: ${url} → HTTP ${res.status}`);
 	return res.text();
@@ -93,7 +85,7 @@ export async function acquireBunBinary(opts: {
 
 	const zipBytes = isHttp(base)
 		? await fetchBytes(`${base}/${tag}/${artifact}`)
-		: readFileSync(join(localDirOf(base), tag, artifact));
+		: readFileSync(join(urlToFsPath(base), tag, artifact));
 	const actual = createHash("sha256").update(zipBytes).digest("hex");
 	if (actual !== expected) {
 		throw new Error(

@@ -10,6 +10,7 @@
  */
 import { chmodSync, lstatSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Depth-first walk that never follows symlinks (chmod through a link would
@@ -64,4 +65,28 @@ export function unfreezeTree(root: string): void {
 export function rmTree(root: string): void {
 	unfreezeTree(root);
 	rmSync(root, { recursive: true, force: true });
+}
+
+/**
+ * url → filesystem path, for file URLs only.
+ *
+ * fileURLToPath, never the URL pathname property: on win32 it keeps a
+ * posix `/C:/…` spelling that path.win32 joins then normalize into the
+ * unopenable `\C:\…` form (measured: crossos-deploy-verify windows row, run
+ * 33075359667, `ENOENT … open '\C:\Users\runneradmin\.bun\install\cache\
+ * links\…\package.json'`). On darwin/linux both spellings agree. Host-form
+ * file URLs (`file://host/…`, e.g. a win32 drive-letter typo like
+ * `file://C:/mirror`) rethrow with the input and the valid spellings named —
+ * the bare TypeError names neither.
+ */
+export function urlToFsPath(u: string): string {
+	if (!u.startsWith("file://")) return u;
+	try {
+		return fileURLToPath(u);
+	} catch (e) {
+		throw new Error(
+			`invalid file:// path ${JSON.stringify(u)}: ${e instanceof Error ? e.message : String(e)} ` +
+				`(valid forms: file:///abs/path on posix, file:///C:/path on windows)`,
+		);
+	}
 }
