@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-25-cc-parity-task-powertool
 created: 2026-08-25
-last: 2026-08-27 (ticket 02 closed — task-family convergence shipped, D7)
+last: 2026-08-28 (ticket 03 closed — loop consolidation onto WakeupRegistry shipped, PR #2108)
 status: active
 ---
 
@@ -86,7 +86,7 @@ quota-retry, pathology engine, browser token economy) stay.
 |---|---|---|
 | `tickets/01-plan-approval-gate.md` | closed | ExitPlanMode-shaped approval surface on the plan coordinator: plan content shown → user approval gates implementation; read-only enforcement during planning; drop `bash` from the auditor's read-only grant — shipped via PR #2075 |
 | `tickets/02-task-family-convergence.md` | closed | ONE model-visible task family with CC semantics — D7: TeamTaskStore `task_*` won (core-gated everywhere), `todo` retired to a TUI face; effective-blocked deps, discipline text, isError envelopes |
-| `tickets/03-loop-consolidation.md` | pending | Retire ext-task LoopScheduler into ultracode's WakeupRegistry (the CC-faithful core), porting idle-postpone + restart-restore; ext-task keeps only the composite-widget section + `/loop` redirect |
+| `tickets/03-loop-consolidation.md` | closed | Retire ext-task LoopScheduler into ultracode's WakeupRegistry (the CC-faithful core), porting idle-postpone + restart-restore; ext-task keeps only the composite-widget section + `/loop` redirect — shipped via PR #2108 |
 | `tickets/04-pathology-model-visible.md` | pending | Opt-in (env-gated) once-per-episode turn-boundary injection so the model can learn it is looping; warning count refresh per evaluation; per-session status key |
 | `tickets/05-cost-accounting.md` | pending | `/cost`-style session accumulator in power-tool: cumulative spend + duration + turn count on `after_provider_response`, surfaced via a tool/command and inspect_agent |
 
@@ -149,14 +149,17 @@ quota-retry, pathology engine, browser token economy) stay.
 
 ## Frontier
 
-Ticket 03 (loop consolidation) — ticket 02 closed 2026-08-27 (task-family
-convergence, D7: TeamTaskStore `task_*` core-gated everywhere, `todo` retired
-to a TUI face over `board-view.ts`, effective-blocked selector in
-core-runtime, isError envelopes, discipline text; ext-task 849 / ext-subagent
-709 / core-runtime 493 / tool-gate 445 all green, tsc ×4 clean). 03 retires
-ext-task's LoopScheduler into ultracode's WakeupRegistry — its first
-investigation step is the import-cycle question in the fog below. Hard edge
-06→07 sits later and needs nothing from Phase 1.
+Ticket 04 (pathology model-visible) — ticket 03 closed 2026-08-28 (PR #2108,
+squash `fff48bfc`, merged CLEAN, local_ci pass 111s, net −238 lines):
+ext-task's LoopScheduler retired into ultracode's WakeupRegistry — idle
+gate (busy ⇒ tick no-ops, due entry retries next 30s pass), 7-day max-age
+self-stop, restart-restore via the new `wakeup-persistence.ts` (future
+dueAt honored / stale re-anchored / expired dropped), `/loop stop` alias,
+fixed clamp 60s–7d, ext-task keeps ONLY the composite-widget overlay fed
+by the registered `__piWakeupLoops` seam; slash-prompt fires
+expandPromptTemplates (retired-scheduler parity, caught in self-review).
+ONE `/loop` command remains; the colliding-command-dispatch patch stays as
+class-level defense. 04 is the next Phase-1 ticket and blocks nothing.
 
 ## Fog of war
 
