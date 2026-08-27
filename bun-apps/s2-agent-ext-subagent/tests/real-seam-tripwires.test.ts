@@ -53,8 +53,8 @@ test("tripwire A: the production getter projects a REAL SessionManager conversat
   // SDK's own, not fixtures. An SDK re-shape of appendMessage/appendCompaction
   // or of getEntries()/getLeafId() fails right here.
   const sm = SessionManager.inMemory("/tripwire");
-  sm.appendMessage({ role: "user", content: "please fix the login bug" } as never);
-  const assistantTurn1 = sm.appendMessage(fauxAssistantMessage("reading auth.ts now", { stopReason: "stop" }) as never);
+  sm.appendMessage({ role: "user", content: "please fix the login bug" });
+  const assistantTurn1 = sm.appendMessage(fauxAssistantMessage("reading auth.ts now", { stopReason: "stop" }));
   // One assistant turn carrying tool-call content: the projection exists to
   // drop exactly this noise, on the real entry shape.
   sm.appendMessage({
@@ -64,13 +64,13 @@ test("tripwire A: the production getter projects a REAL SessionManager conversat
       { type: "toolCall", id: "tc1", name: "read_file", arguments: { path: "auth.ts" } },
     ],
     usage: { cost: 0, tokensIn: 0, tokensOut: 0 },
-  } as never);
+  });
   // A real compaction: everything up to `firstKeptEntryId` is summarized
   // away — firstKept = the tool-call turn, so the first user turn survives
   // only through the summary.
   sm.appendCompaction("located the login bug in auth.ts line 40", assistantTurn1, 5_000);
-  sm.appendMessage({ role: "user", content: "also check the tests" } as never);
-  const leaf = sm.appendMessage(fauxAssistantMessage("tests pass now", { stopReason: "stop" }) as never);
+  sm.appendMessage({ role: "user", content: "also check the tests" });
+  const leaf = sm.appendMessage(fauxAssistantMessage("tests pass now", { stopReason: "stop" }));
   assert.equal(sm.getLeafId(), leaf, "leaf advanced to the last append (SDK sanity)");
 
   // The PRODUCTION getter — the same function the extension entry wires
