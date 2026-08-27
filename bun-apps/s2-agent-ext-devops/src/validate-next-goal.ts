@@ -9,8 +9,9 @@
  * executing the wrong goal. The format is now one fixed shape, and this module
  * is the definition of "conforms": filename, frontmatter (with the
  * self-identifying ABSOLUTE `file:` path — output/ is per-worktree, so a file
- * must name which tree wrote it), exact ordered sections, checkbox gate, and
- * the 3–5 ranked queue.
+ * must name which tree wrote it), exact ordered sections, the Immediate-steps
+ * detail bar (every step explains what the next session will do), the
+ * checkbox gate, and the 3–5 ranked queue.
  *
  * Pure logic, no deps: `bun bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts`
  * is the runnable entry; tests import these functions directly.
@@ -76,6 +77,37 @@ function rankedEntryCount(body: string): number {
   const section = nextH2 === -1 ? rest : rest.slice(0, nextH2);
   return (section.match(/^\d+\.\s+\S/gm) ?? []).length;
 }
+
+/**
+ * Each numbered Immediate step, first line + its wrapped continuation lines,
+ * as one string. A step runs until the next `N. ` entry or the next section
+ * heading. Only INDENTED lines join as continuations (a wrapped step body) —
+ * column-0 prose after a step is its own paragraph and must NOT lend the
+ * step its length (the reviewer's false-pass edge: `1. Fix it.` followed by
+ * a long context paragraph would otherwise cross the bar).
+ */
+function immediateStepTexts(body: string): string[] {
+  const start = body.indexOf("## Immediate steps");
+  if (start === -1) return [];
+  const rest = body.slice(start);
+  const nextH2 = rest.indexOf("\n## ", 1);
+  const lines = (nextH2 === -1 ? rest : rest.slice(0, nextH2)).split("\n");
+  const steps: string[] = [];
+  for (const line of lines) {
+    if (/^\d+\.\s+\S/.test(line)) steps.push(line.trim());
+    else if (steps.length > 0 && /^\s+\S/.test(line)) steps[steps.length - 1] += ` ${line.trim()}`;
+  }
+  return steps.map((s) => s.replace(/^\d+\.\s+/, ""));
+}
+
+/**
+ * Minimum substance per Immediate step (chars, wrapped lines joined). The bar
+ * the hands-off SOP sets: every step explains WHAT the next session will do —
+ * the concrete action, the files/packages it touches, the approach, the gates
+ * — so the executor never re-derives context. A bare pointer ("1. Fix it.")
+ * cannot cross it.
+ */
+export const MIN_IMMEDIATE_STEP_CHARS = 80;
 
 /**
  * Validate one next-goal file against the strict format. `absFile` should
@@ -160,6 +192,22 @@ export function validateNextGoalFile(absFile: string): NextGoalValidation {
   const openBoxes = (doneWhenSection.match(/- \[ \]/g) ?? []).length;
   if (openBoxes < 1) {
     fail("done-when-checkboxes", "Done when needs at least one `- [ ]` checkbox the executor can gate on");
+  }
+
+  // Immediate steps: ≥1 numbered step, each detailed enough that the executor
+  // knows WHAT the next session will do without re-deriving context (the
+  // hands-off SOP's "always explain in detail what's next" rule).
+  const steps = immediateStepTexts(body);
+  if (steps.length < 1) {
+    fail("immediate-steps-detail", "Immediate steps needs at least one numbered (`1. `) step — the next session's entry point");
+  } else {
+    const thin = steps.findIndex((s) => s.length < MIN_IMMEDIATE_STEP_CHARS);
+    if (thin !== -1) {
+      fail(
+        "immediate-steps-detail",
+        `Immediate step ${thin + 1} is too thin (${steps[thin].length} < ${MIN_IMMEDIATE_STEP_CHARS} chars) — every step must explain in detail what the next session will do: the concrete action, the files/packages it touches, the approach, and the gates — never a bare pointer`,
+      );
+    }
   }
 
   // Ranked next goals: 3–5 numbered entries.

@@ -43,7 +43,13 @@ an empty gaps section is a red flag, not an achievement.>
 
 <The CURRENT goal: ordered, concrete, actionable steps the executor runs
 in order. Branch prep via the devops chain, implementation, gates, review,
-close-out — exactly as written.>
+close-out — exactly as written. EVERY step explains in detail WHAT the next
+session will do — the concrete action, the files/packages it touches, the
+approach, and the gates — so the executor never re-derives context: a bare
+pointer ("1. Fix it.") fails the validator's `immediate-steps-detail`
+check (≥1 numbered step, each ≥80 chars with wrapped lines joined). A
+wait-state step states in full WHAT it waits for and HOW the next goal
+derives.>
 
 ## Done when
 
@@ -72,8 +78,11 @@ Frontmatter rules (strict — exact key set, no extras):
   not a failure.
 
 Section rules: the five `##` headings above, EXACT spelling, EXACT order.
-`Done when` needs ≥1 unchecked `- [ ]` box (all-checked = a closed record —
-write the successor instead). `Ranked next goals` needs 3–5 numbered entries.
+`Immediate steps` needs ≥1 numbered step, each detailed enough that the next
+session knows WHAT it will do without re-deriving context (≥80 chars with
+wrapped lines joined — the `immediate-steps-detail` check). `Done when` needs
+≥1 unchecked `- [ ]` box (all-checked = a closed record — write the successor
+instead). `Ranked next goals` needs 3–5 numbered entries.
 
 ### Focus scope (ranked-list discipline)
 
@@ -120,6 +129,12 @@ and the head is off-mission work. Rules:
    (e.g. `20260823-022001` → `2026-08-23 02:20:01` — date AND time),
    `supersedes: $(readlink
    output/LATEST-next-goal.md | sed "s|^|$(pwd)/output/|")` (or `none`).
+   Then REREAD `## Immediate steps` as the next session would: does each
+   step say exactly WHAT will be done — action, files/packages, approach,
+   gates? A step that only names a goal without saying how it will be
+   executed is not done; expand it before validating. The same detail goes
+   into your closing REPORT: when you report the arc done, tell the user
+   in plain terms what the next session is going to do.
 3. Validate BEFORE pointing the symlink:
    `bun bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts
    output/next-goal-<ts>.md` — exit 0 or FIX THE FILE; never ship a file the
@@ -235,6 +250,7 @@ stale pointer executes the wrong goal. The symlink lives in gitignored
 | Mistake | Fix |
 | --- | --- |
 | "Shipped X" with no evidence | Cite the PR/CI/command output that proves it |
+| Bare-pointer Immediate steps ("1. Fix it.") — successor names the goal but not how it will be executed | Every step details action + files/packages + approach + gates (validator `immediate-steps-detail`, ≥80 chars); the closing REPORT tells the user what the next session will do |
 | Freelanced sections/headings/frontmatter keys | The five headings + three keys are exact; the validator is the arbiter |
 | Relative or wrong `file:` path | Must be this file's OWN absolute path — it names the owning worktree |
 | 10 unranked wishlist items | 3–5 ranked, each with a first step |
