@@ -179,6 +179,21 @@ describe("createGiteaClient", () => {
 		expect((await createGiteaClient(baseOpts(fn)).prStatus(1)).mergeState).toBe("CLEAN");
 	});
 
+	test("prStatus: terminal-state PR skips the mergeable re-GET entirely (the #2087 github-rest twin)", async () => {
+		// Closed/merged and closed-unmerged both settle on `state` — a terminal
+		// PR's mergeability never matters, and the re-GET is pure latency an
+		// already-merged retry pays per read.
+		for (const terminal of [{ state: "closed", merged: true }, { state: "closed", merged: false }]) {
+			let slept = 0;
+			const { fn, calls } = mockFetch([{ method: "GET", path: "/api/v1/repos/o/r/pulls/1", body: { ...pull, mergeable: null, ...terminal } }]);
+			const c = createGiteaClient({ ...baseOpts(fn), sleep: async () => { slept++; } });
+			const s = await c.prStatus(1);
+			expect(s.mergeState).toBe("UNKNOWN"); // terminal settles on state, not mergeState
+			expect(slept).toBe(0);
+			expect(calls.filter((x) => x.path.endsWith("/pulls/1"))).toHaveLength(1);
+		}
+	});
+
 	test("prStatus: statuses endpoint failure → zero tally, snapshot still returned", async () => {
 		const { fn } = mockFetch([
 			{ method: "GET", path: "/api/v1/repos/o/r/pulls/1", body: pull },

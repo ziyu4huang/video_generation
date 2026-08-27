@@ -157,9 +157,14 @@ export function createGiteaClient(opts: GiteaRestOptions): ForgeClient {
 	return {
 		async prStatus(n: number): Promise<PrSnapshot> {
 			let data = await getPull(n);
-			// mergeable:null ⇒ still computing. One short re-GET; still null ⇒
-			// UNKNOWN (settlePrStatus owns further polling).
-			if (data.mergeable === null) {
+			// mergeable:null ⇒ still computing. One short re-GET — but only for
+			// an OPEN PR: a closed/merged one is terminal, its mergeability
+			// never matters, and the re-GET (retry wait + round-trip) is pure
+			// latency an already-merged retry pays on every read (the #2087
+			// github-rest fix's twin — reviewer symmetry note). Still null (or
+			// terminal) ⇒ UNKNOWN (settlePrStatus owns further polling;
+			// terminal states settle on `state`, not mergeState).
+			if (data.mergeable === null && data.state === "open") {
 				await sleep(MERGEABLE_RETRY_MS);
 				data = await getPull(n);
 			}
