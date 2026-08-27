@@ -6,7 +6,7 @@
  * fully unit-testable without the SDK or any UI.
  */
 import { test, expect, describe } from "bun:test";
-import { pickWorstHighFinding, loopSignature, makeWarner } from "../warning.ts";
+import { pickWorstHighFinding, loopSignature, makeWarner, statusKey } from "../warning.ts";
 import type { Finding } from "../../findings.ts";
 import type { ToolCallRecord } from "../types.ts";
 
@@ -78,19 +78,23 @@ describe("makeWarner", () => {
     expect(calls["pi-pathology"]).toContain("bash");
   });
 
-  test("dedup: a continuing loop does NOT re-warn for the same signature", () => {
-    let setCount = 0;
-    const surface = { setStatus: (_k: string, _t: string | undefined) => { setCount++; } };
+  test("count refresh: a continuing loop UPDATES the status text with the current magnitude (ticket 04)", () => {
+    const setCalls: (string | undefined)[] = [];
+    const surface = { setStatus: (_k: string, t: string | undefined) => { setCalls.push(t); } };
     const warn = makeWarner(surface);
     const log = [
       rec("bash", '{"command":"npm test"}'),
       rec("bash", '{"command":"npm test"}'),
       rec("bash", '{"command":"npm test"}'),
     ];
-    warn(log); // first warn
+    warn(log); // ×3
     log.push(rec("bash", '{"command":"npm test"}')); // 4th identical
-    warn(log); // should NOT re-warn (same signature)
-    expect(setCount).toBe(1);
+    warn(log); // same signature — text must refresh to ×4 (pre-ticket-04 it froze at ×3)
+    log.push(rec("bash", '{"command":"npm test"}'), rec("bash", '{"command":"npm test"}')); // ×6
+    warn(log);
+    expect(setCalls[0]).toContain("×3");
+    expect(setCalls[1]).toContain("×4");
+    expect(setCalls[2]).toContain("×6");
   });
 
   test("no loop → clears the status (sets undefined)", () => {
@@ -129,3 +133,58 @@ describe("makeWarner", () => {
     expect(calls["pi-pathology"]).toBeTruthy();
   });
 });
+
+// ─── per-session status key (ticket 04) ───────────────────────────────────────
+
+describe("statusKey", () => {
+  test("sessionId-qualified: parent and child render under distinct keys", () => {
+    expect(statusKey()).toBe("pi-pathology");
+    expect(statusKey("sid-parent")).toBe("pi-pathology:sid-parent");
+    expect(statusKey("sid-child")).toBe("pi-pathology:sid-child");
+  });
+
+  test("warner keyed per session: a child loop does not touch the parent's line", () => {
+    const calls: Record<string, string | undefined> = {};
+    const surface = { setStatus: (k: string, t: string | undefined) => { calls[k] = t; } };
+    const parent = makeWarner(surface, new Set(), { sid: "sid-parent" });
+    const child = makeWarner(surface, new Set(), { sid: "sid-child" });
+    const loop = [rec("bash", '{"command":"x"}'), rec("bash", '{"command":"x"}'), rec("bash", '{"command":"x"}')];
+    child(loop);
+    expect(calls["pi-pathology:sid-child"]).toBeTruthy();
+    expect(calls["pi-pathology:sid-parent"]).toBeUndefined();
+    // Child episode end clears ONLY the child's line.
+    child([rec("read", '{"path":"a"}')]);
+    expect(calls["pi-pathology:sid-child"]).toBeUndefined();
+    expect(calls["pi-pathology:sid-parent"]).toBeUndefined();
+  });
+});
+
+// ─── episode hooks (injection arming seam) ────────────────────────────────────
+
+describe("makeWarner episode hooks", () => {
+  const loop = [rec("bash", '{"command":"x"}'), rec("bash", '{"command":"x"}'), rec("bash", '{"command":"x"}')];
+
+  test("onNewEpisode fires ONCE per signature per episode, re-fires on a fresh episode", () => {
+    const fired: number[] = [];
+    let cleared = 0;
+    const warn = makeWarner(
+      { setStatus: () => {} },
+      new Set(),
+      {
+        hooks: {
+          onNewEpisode: (f) => fired.push(((f.detail as any).count)),
+          onEpisodeEnd: () => { cleared++; },
+        },
+      },
+    );
+    warn(loop);
+    warn([...loop, rec("bash", '{"command":"x"}')]); // same signature — no re-fire
+    expect(fired).toEqual([3]);
+    expect(cleared).toBe(0);
+    warn([rec("read", '{"path":"a"}')]); // episode ends
+    expect(cleared).toBe(1);
+    warn(loop); // fresh episode — re-armed
+    expect(fired).toEqual([3, 3]);
+  });
+});
+

@@ -55,8 +55,8 @@ _Avoid_: significance, confidence, baseline deviation (there is no p-value and n
 distribution model — see [[Pathology detector]], which is signal-driven, not heuristic)
 
 **Proactive warning**:
-The non-invasive status-line nudge (`⚠ retry loop: bash ×3`) surfaced automatically when a *high*-severity pathology is active — a status bar line only, no context injection and no turn hijack.
-_Avoid_: alert, notification, interrupt (it never injects into the model context)
+The non-invasive status-line nudge (`⚠ retry loop: bash ×3`) surfaced automatically when a *high*-severity pathology is active, keyed per session and refreshed with the current magnitude. By default a status bar line only — the sole model-visible path is the OPT-IN episode note (`BUN_PI_PATHOLOGY_INJECT=1`), delivered once per episode at the next turn boundary.
+_Avoid_: alert, notification, interrupt (with the env unset it never injects into the model context)
 
 **Finding**:
 A severity-tagged issue emitted by `inspect_extensions` or `inspect_pathology`, shaped `{ severity, id }` (e.g. `{ high, "retry-loop" }`).

@@ -8,6 +8,10 @@
  *     the factory registers on tool_execution_start/end + session_start.
  *   - analyzePathology / argsSig / formatPathologyReport — pure, exported for
  *     unit testing and reuse.
+ *   - takePendingNote / injectionEnabled / noteText (inject.ts) — the OPT-IN
+ *     model-visible episode note (ticket 04, `BUN_PI_PATHOLOGY_INJECT=1`):
+ *     armed by the warner at detection time, delivered by the factory's
+ *     before_agent_start handler at the turn boundary.
  */
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -20,7 +24,8 @@ import type { PathologyInput } from "./types.ts";
 export { analyzePathology, argsSig } from "./detector.ts";
 export { formatPathologyReport } from "./format.ts";
 export { recordCallStart, recordCallEnd, getCalls, getTurnCount, recordTurnEnd, resetAccumulator } from "./accumulator.ts";
-export { surfacePathologyWarning, resetWarning, makeWarner, pickWorstHighFinding, loopSignature } from "./warning.ts";
+export { surfacePathologyWarning, resetWarning, makeWarner, pickWorstHighFinding, loopSignature, statusKey } from "./warning.ts";
+export { injectionEnabled, noteText, makeInjectionHooks, takePendingNote, resetInjection } from "./inject.ts";
 export type { ToolCallRecord, PathologyInput } from "./types.ts";
 
 // ─── deterministic self-test output (mirrors the other inspect_* tools) ───────
