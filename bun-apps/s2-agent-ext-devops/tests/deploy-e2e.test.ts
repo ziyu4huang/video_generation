@@ -94,8 +94,13 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(ps1).toContain('& $_bun (Join-Path $dir "s2-agent.js") @args');
 		expect(ps1).toContain("exit $LASTEXITCODE");
 		const cmd = readFileSync(join(r.target, "s2-agent.cmd"), "utf8");
-		expect(cmd).toContain('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0s2-agent.ps1" %*');
-		expect(cmd).toContain("exit /b %ERRORLEVEL%");
+		// DIRECT bun invocation (the powershell -File delegation dropped all
+		// piped child stdout while exiting 0 — measured windows-latest
+		// 2026-08-28, crossos run 33115285500 layer diag).
+		expect(cmd).not.toContain("powershell.exe");
+		expect(cmd).toContain('"%S2_BUN%" "%DIR%s2-agent.js" %*');
+		expect(cmd).toContain('set "S2-AGENT_CODING_AGENT_DIR=%PI_CODING_AGENT_DIR%"');
+		expect(cmd).toContain("endlocal & exit /b %ERRORLEVEL%");
 		const shippedBun = join(r.target, "bin", "bun");
 		expect(existsSync(shippedBun)).toBe(true);
 		expect(statSync(shippedBun).mode & 0o111).not.toBe(0); // executable

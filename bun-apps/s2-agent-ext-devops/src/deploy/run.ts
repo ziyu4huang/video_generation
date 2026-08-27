@@ -15,8 +15,9 @@
  *                 <outRoot>/.buns/<hash> (ticket 02) — the launcher execs it
  *   s2-agent.sh   the launcher (execs bin/bun on s2-agent.js)
  *   s2-agent.ps1  the Windows launcher twin (crossos-deploy ticket 04),
- *                 plus s2-agent.cmd — the cmd.exe/double-click shim that
- *                 exec's the .ps1 with -ExecutionPolicy Bypass
+ *                 plus s2-agent.cmd — the cmd.exe/double-click entry that
+ *                 invokes bin/bun DIRECTLY (the powershell delegation lost
+ *                 all piped child stdout, measured 2026-08-28)
  *   deploy.json   provenance
  *   package.json  deploy version — pi reads its version from beside the core
  *   ext/<name>/   independently built extension packages
@@ -307,14 +308,13 @@ exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" 
  * dashed agent-dir env var that forced `env(1)` in bash is native here
  * ([Environment]::SetEnvironmentVariable accepts any name); PATH prepends
  * with `;` on Windows; the Chrome probe walks the Windows install paths
- * (Edge ships with every Win10+). Execution-policy friction is absorbed by
- * the .cmd shim below, which launches this file with -ExecutionPolicy
- * Bypass — the .ps1 itself needs no policy change. PLATFORM CONTRACT is
+ * (Edge ships with every Win10+). PLATFORM CONTRACT is
  * identical to the .sh: the core bundle is platform-neutral, bin/bun.exe
  * is this platform's; S2_AGENT_BUN still overrides (swap escape hatch).
- * Measured friction on a real Windows box: DEFERRED (ticket 04 records the
- * blocker — no Windows host in this effort yet; CI has no windows runner
- * precedent as of 2026-08-27).
+ * MEASURED on windows-latest (2026-08-28): run via `powershell -File`,
+ * piped runs lose ALL child stdout while exiting 0 — so the .cmd entry
+ * invokes bun directly and this .ps1 serves PowerShell-native INTERACTIVE
+ * use only (console output shows; the piped path does not).
  */
 const S2_AGENT_PS1 = `# s2-agent.ps1 - launcher for a s2-agent-sh deploy (Windows).
 # PowerShell twin of s2-agent.sh: same contract - exec the SHIPPED bun
@@ -367,19 +367,51 @@ exit $LASTEXITCODE
 `;
 
 /**
- * The cmd.exe / double-click entry shim, as `s2-agent.cmd`: delegates to
- * the .ps1 through powershell.exe with -ExecutionPolicy Bypass, so the
- * Windows default (Restricted) policy cannot block the deploy's own
- * launcher and no one-time policy change is asked of the user. `%~dp0` is
- * the shim's own dir (the version dir), trailing backslash included.
+ * The cmd.exe / double-click entry shim, as `s2-agent.cmd`: invokes the
+ * shipped bun DIRECTLY on the core — the full .ps1 contract (dashed
+ * agent-dir env var, PATH prepend, Chrome/Edge probe, S2_AGENT_BUN escape
+ * hatch) in cmd syntax. It formerly delegated to s2-agent.ps1 through
+ * powershell.exe, but that layer DROPPED ALL child stdout when piped while
+ * exiting 0 (measured on windows-latest 2026-08-28: bun-direct 1299B,
+ * ps1-direct 0B, cmd-shim 0B — crossos run 33115285500 layer diag), which
+ * no piping consumer (CI, scripts) can survive; the direct invocation is
+ * the same layer the deploy's own gates already prove. s2-agent.ps1 still
+ * ships for PowerShell-native users (interactive console use shows output
+ * — only the piped path loses it). No execution-policy friction exists in
+ * this form at all: cmd never asks. `%~dp0` is the shim's own dir (the
+ * version dir), trailing backslash included. ASCII-only, like the .ps1.
  */
 const S2_AGENT_CMD = `@echo off
-rem s2-agent.cmd - entry shim for cmd.exe / double-click users; delegates
-rem to s2-agent.ps1 with -ExecutionPolicy Bypass so the default Windows
-rem execution policy (Restricted) cannot block the deploy's own launcher.
-rem ASCII-only, like the .ps1 (ANSI-read on BOM-less files).
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0${APP_NAME}.ps1" %*
-exit /b %ERRORLEVEL%
+rem s2-agent.cmd - entry shim for cmd.exe / double-click users; invokes
+rem the shipped bun (bin\\bun.exe) directly on the platform-neutral core.
+rem Same contract as s2-agent.ps1 / s2-agent.sh. %ProgramFiles(x86)% is
+rem captured OUTSIDE parenthesized blocks: the ")" in its name would
+rem close an enclosing cmd block (classic cmd parsing trap).
+setlocal
+set "DIR=%~dp0"
+set "PF86=%ProgramFiles(x86)%"
+rem Per-user state mirrors the .sh/.ps1: operator-facing input stays
+rem PI_CODING_AGENT_DIR; the binary's own dashed var is set per-process
+rem (hyphens are legal in cmd env names).
+if not defined PI_CODING_AGENT_DIR set "PI_CODING_AGENT_DIR=%USERPROFILE%\\.pi\\agent"
+set "${AGENT_DIR_ENV}=%PI_CODING_AGENT_DIR%"
+rem The deploy tree is read-only; keep every per-user write under ~/.pi/agent.
+if not defined JITI_FS_CACHE set "JITI_FS_CACHE=0"
+rem Optional Chrome/Edge probe for the (hyperframes) puppeteer channel - no
+rem browser is bundled; no candidate found leaves the var unset.
+if not defined PUPPETEER_EXECUTABLE_PATH if exist "%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe" set "PUPPETEER_EXECUTABLE_PATH=%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe"
+if not defined PUPPETEER_EXECUTABLE_PATH if exist "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe" set "PUPPETEER_EXECUTABLE_PATH=%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"
+if not defined PUPPETEER_EXECUTABLE_PATH if exist "%PF86%\\Google\\Chrome\\Application\\chrome.exe" set "PUPPETEER_EXECUTABLE_PATH=%PF86%\\Google\\Chrome\\Application\\chrome.exe"
+if not defined PUPPETEER_EXECUTABLE_PATH if exist "%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe" set "PUPPETEER_EXECUTABLE_PATH=%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe"
+rem Self-containment for CHILDREN: anything the session spawns later
+rem resolves bun via PATH - prepend the resolved bun's dir so they get the
+rem SAME bun, not a system one. S2_AGENT_BUN still overrides (swap hatch).
+set "S2_BUN=%DIR%bin\\bun.exe"
+if not exist "%S2_BUN%" set "S2_BUN=%DIR%bin\\bun"
+if defined S2_AGENT_BUN set "S2_BUN=%S2_AGENT_BUN%"
+set "PATH=%DIR%bin;%PATH%"
+"%S2_BUN%" "%DIR%${APP_NAME}.js" %*
+endlocal & exit /b %ERRORLEVEL%
 `;
 
 

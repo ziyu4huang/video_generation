@@ -507,9 +507,9 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	if (!(await Bun.file(join(opts.versionDir, launcher.file)).exists())) {
 		return failFast(opts.versionDir, `${launcher.file} missing from the version dir`, startedAt, now);
 	}
-	// win32 boot chain: the .cmd shim execs `powershell -File s2-agent.ps1` —
-	// a quarantined/missing .ps1 would otherwise surface only as powershell's
-	// generic "-File … does not exist", never naming the actually-missing file.
+	// win32 boot chain: the .cmd entry invokes bun directly, but the .ps1
+	// twin still ships for PowerShell-native users — a tree missing it is
+	// incompletely shipped, and the check names it before anything else can.
 	if (launcher.file === "s2-agent.cmd" && !(await Bun.file(join(opts.versionDir, "s2-agent.ps1")).exists())) {
 		return failFast(opts.versionDir, "s2-agent.ps1 missing from the version dir", startedAt, now);
 	}
