@@ -269,7 +269,10 @@ const BOILERPLATE_SCAN_LINES = 12;
  *  title-page notice blocks run 25+ soft-wrapped lines (measured:
  *  usb4 page-003's NOTE + LIMITED COPYRIGHT LICENSE + all-caps IP
  *  disclaimer). Only applies once a legal run has STARTED inside the base
- *  window, so the strip still cannot reach into a clean body. */
+ *  window, so the strip still cannot reach into a clean body. The cap is
+ *  ABSOLUTE (base 12 + 48 = line index 60): a run starting late in the base
+ *  window gets fewer than 48 extra lines, and a >60-line notice leaks its
+ *  tail into the summary (bounded by design). */
 const LEGAL_RUN_EXTRA_LINES = 48;
 
 /** Does this line read as a title-page legal notice? (tiers 1–2, see the
@@ -291,12 +294,16 @@ function isLegalNoteLine(ln: string): boolean {
  *  the first boilerplate line are kept (a real title/heading precedes the
  *  notice on some pages). Exported for the generic adapter's explicit summary
  *  (#2056 D-c) and tested directly. */
-/** Does a line read as title-page all-caps legalese? (≥80% uppercase
- *  letters, ≥4 letters — the IP-disclaimer paragraphs of a title page; only
+/** Does a line read as title-page all-caps legalese? (≥80% uppercase letters,
+ *  ≥20 letters — the IP-disclaimer PARAGRAPHS of a title page run 40+ letters,
+ *  while real all-caps section headings ("CHAPTER 1" = 8, "INTRODUCTION" = 12)
+ *  are short; the floor keeps headings out of the strip. Review blocker 1,
+ *  PR #2119 follow-up: at ≥4 the rule ate "CHAPTER 1"-style headings and the
+ *  swallowed heading then armed the wrap cascade onto real prose. Only
  *  consulted INSIDE an active legal run, never to start one). */
 function isMostlyUppercase(ln: string): boolean {
 	const letters = ln.replace(/[^A-Za-z]/g, "");
-	if (letters.length < 4) return false;
+	if (letters.length < 20) return false;
 	const upper = letters.replace(/[^A-Z]/g, "").length;
 	return upper / letters.length >= 0.8;
 }
@@ -352,7 +359,12 @@ export function stripLeadingBoilerplate(text: string): string {
 			(lastTextLine === null || !endsSentence(lastTextLine) || /^[a-z]/.test(ln.trim()));
 		if (legalHere || (inLegalRun && isMostlyUppercase(ln)) || wrappedHere) {
 			last = i;
-			lastTextLine = ln;
+			// An all-caps line swallowed ONLY by the caps rule does NOT become
+			// the wrap reference: an all-caps heading has no sentence-final
+			// punctuation, so feeding it to lastTextLine would arm wrappedHere
+			// against the NEXT real sentence (the review-blocker-1 cascade).
+			const capsOnly = !legalHere && !wrappedHere;
+			if (!capsOnly) lastTextLine = ln;
 			continue;
 		}
 		break;

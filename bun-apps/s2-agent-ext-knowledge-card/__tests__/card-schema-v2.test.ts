@@ -18,7 +18,7 @@ import {
 	SUMMARY_MAX_CHARS,
 } from "../src/card-format.ts";
 import { renderCard } from "../src/card-render.ts";
-import { firstSentenceSummary, SUMMARY_BODY_BUDGET } from "../src/extractor.ts";
+import { firstSentenceSummary, stripLeadingBoilerplate, SUMMARY_BODY_BUDGET } from "../src/extractor.ts";
 import { ingestRecords } from "../src/ingest.ts";
 import { wikiMergeIntoCard } from "../src/wiki-match.ts";
 import type { KnowledgeRecord } from "../src/types.ts";
@@ -180,10 +180,22 @@ describe("summary L0", () => {
 		expect(firstSentenceSummary(withCaps)).toBe("Chapter 2 covers the physical layer.");
 		// Frontmatter must not eat the scan window (the raw-source trap: the
 		// strip ran BEFORE the frontmatter strip and never saw the notice).
+		// The frontmatter is long enough that the © line sits at RAW index 14
+		// (≥ BOILERPLATE_SCAN_LINES): under the OLD order (strip ran before
+		// the frontmatter strip) the window never reached it and the notice
+		// leaked — only the new order (frontmatter stripped first, © at body
+		// index 2) finds it. Review blocker 2: with a short frontmatter the
+		// old order produced the identical summary, so the reorder was
+		// untested (vacuous pin).
 		const frontmattered = [
 			"---",
 			"title: CLEAN.pdf",
+			"source: usb4-family/CLEAN.pdf",
 			"page: 3",
+			"extracted_at: 2026-08-25",
+			"mode: text",
+			"doc: Universal Serial Bus 4 Specification",
+			"revision: 2.0",
 			"---",
 			"",
 			"",
@@ -198,6 +210,38 @@ describe("summary L0", () => {
 		const fs2 = firstSentenceSummary(frontmattered);
 		expect(fs2).not.toMatch(/adopters?|expressly|prohibited|copyright/i);
 		expect(fs2).toContain("Chapter 1");
+		// Review blocker 1 regression: an all-caps SECTION HEADING after a
+		// legal run is real content — the heading itself AND the prose after
+		// it must both survive (the old caps rule at ≥4 letters swallowed
+		// "CHAPTER 1" and the cascade then ate the next sentence).
+		const withHeading = [
+			"NOTE: patent use is expressly prohibited.",
+			"",
+			"CHAPTER 1",
+			"",
+			"This chapter covers the transport layer.",
+			"Section 2 describes signaling.",
+		].join("\n");
+		// The heading survives AND the following prose is no longer cascaded
+		// away — the summary leads with the (punctuation-less) heading line
+		// merged into the first real sentence.
+		expect(firstSentenceSummary(withHeading)).toBe("CHAPTER 1 This chapter covers the transport layer.");
+		expect(stripLeadingBoilerplate(withHeading)).toContain("CHAPTER 1");
+		// A short all-caps label alone never extends the run.
+		expect(stripLeadingBoilerplate(["NOTE: use is prohibited.", "INTRODUCTION", "Real prose."].join("\n")))
+			.toContain("INTRODUCTION");
+		// wrappedHere's lowercase-start sub-rule as the SOLE justifier (review
+		// non-blocking 4): this continuation carries no legal phrase, does not
+		// end a sentence boundary differently — it qualifies ONLY because the
+		// previous line ended mid-sentence and it starts lowercase.
+		const wrappedOnly = [
+			"NOTE: Adopters may only use this USB specification to implement USB",
+			"or third party functionality as described herein and no other use",
+			"is permitted under this specification.",
+			"",
+			"Chapter 3 covers the link layer.",
+		].join("\n");
+		expect(firstSentenceSummary(wrappedOnly)).toBe("Chapter 3 covers the link layer.");
 		// The run STOPS at the first clean line — a later legal mention in
 		// prose is content, not continuation.
 		expect(firstSentenceSummary(["NOTE: patent use is expressly prohibited.", "The chapter covers patent history broadly.", "Later prose."].join("\n")))
