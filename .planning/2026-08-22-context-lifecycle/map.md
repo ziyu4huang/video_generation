@@ -122,7 +122,7 @@ Phase P1 — card schema v2 + tiered retrieval
 
 Phase P2 — injection loop + ledger
 - `tickets/08-auto-recall-injector.md` — task, **closed 2026-08-28** — probe: before_agent_start DOES fire in spawnSubagent children (both paths) → per-session child-guard (`sessionManager.getSessionFile()` falsy ⇒ skip, D9 re-decided after review round 2 refuted the env-marker design); `src/inject/auto-recall.ts` (deterministic gate, single retrieveRecords path, 350-tok/turn cap + 2× per-entry + ranked-walk drop, prefix-stable block); /knowledge-recall command; KC_AUTORECALL default-off; hermetic unit pins + contract default-off pin + armed-append wiring pin (real tmp vault); kcard tests green
-- `tickets/09-recall-ledger.md` — task, **open** — session cooldown, no_relevant records nothing
+- `tickets/09-recall-ledger.md` — task, **closed 2026-08-28** — `src/inject/recall-ledger.ts` (RecallLedger: tick→isCooled→recordServed, default 3 turns, injector-side session state only — library stays pure); pipeline filters cooled cards BEFORE floor/budget (cooled top demotes runner-up), records only post-budget KEPT cards (no_relevant/floor-miss/budget-drop record nothing — OpenViking poisoning fix + retrieved≠served); `# cooled: N` block footer; wiring = factory-scope ledger (per-session via D9's fresh-load property), tick once per parent turn; t08's deferred two-turn session test delivered as four-turn hook test over a real tmp vault; kcard 722 tests + typecheck green
 - `tickets/10-injection-probe-and-flip.md` — task, **open** — measure, then flip default ON (risky)
 
 Phase P3 — feedback + extraction upgrade
@@ -181,16 +181,13 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/09-recall-ledger.md` — ticket 08 closed 2026-08-28 (auto-recall injector shipped
-default-off: deterministic gate, single retrieveRecords path, 350-tok/turn budget with the
-2× per-entry rule and ranked-walk drop, prefix-stable `<knowledge-recall>` block,
-child-guard = per-session `sessionManager.getSessionFile()` per D9 as re-decided in review
-round 2; kcard 712 tests green, review round-2 APPROVE). Ticket 09 is
-next because the injector currently re-retrieves and re-injects the SAME top cards every
-turn of a session — the RecallLedger's per-session cooldown is what makes turn 2 inject
-different-or-less content, and its `no_relevant`-records-nothing rule needs the injector's
-trace (already returned by buildAutoRecallBlock) as the write feed. Ticket 10's default-ON
-flip is gated on t09 + t16 measurements, unchanged.
+`tickets/10-injection-probe-and-flip.md` — ticket 09 closed 2026-08-28 (RecallLedger:
+per-session cooldown, serve→suppress×2→eligible, no_relevant records nothing, only
+post-budget-kept cards recorded, `# cooled: N` footer; t08's deferred two-turn session
+test delivered; kcard 722 tests green). Ticket 10 is next because the injector + ledger
+are now COMPLETE but unmeasured live (default OFF): the flip decision needs t16's
+end-task measurement plus the ledger's durability call (in-memory today) and the
+KC_AUTORECALL default — all three are t10's gate, unchanged.
 
 ## Fog of war
 

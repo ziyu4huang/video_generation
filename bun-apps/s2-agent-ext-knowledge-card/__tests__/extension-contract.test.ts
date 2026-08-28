@@ -76,6 +76,63 @@ describe("s2-agent-ext-knowledge-card extension contract", () => {
 	});
 
 	// ── auto-recall injector contract (ticket 08, context-lifecycle P2) ──────
+	// ── recall-ledger session cooldown (ticket 09: t08's deferred two-turn
+	//    session test — turn 1 injects the top cards, turn 2 shows cooldown) ──
+	test("armed hook: turn 1 injects, turns 2–3 cooled silent, turn 4 eligible again", async () => {
+		const hooks: Record<string, ((e: unknown, ctx?: unknown) => Promise<unknown>) | undefined> = {};
+		const { pi } = makeMockPi();
+		(pi as { on?: unknown }).on = (ev: string, fn: (e: unknown, ctx?: unknown) => Promise<unknown>) => {
+			hooks[ev] = fn;
+		};
+		process.env.KC_AUTORECALL = "1";
+		extensionFactory(pi as never); // ONE factory call ⇒ ONE session-scoped ledger
+		const vault = mkdtempSync(join(tmpdir(), "kcard-ledger-"));
+		__setVaultResolverForTest(async () => vault);
+		try {
+			// Two cards that both clear the score floor for the shared prompt
+			// (lora+argparse / lora+training), so both serve on turn 1.
+			await ingestRecords(
+				[
+					{
+						id: "test:lora-1", type: "gotcha", title: "LoRA scale gotcha",
+						detail: "scale overrides compose differently than you think.",
+						tags: ["lora", "argparse"], dimension: null, confidence: 0.8,
+						status: "active", superseded_by: null,
+					},
+					{
+						id: "test:train-1", type: "pattern", title: "Training seed pattern",
+						detail: "fixed seeds make A/B runs comparable.",
+						tags: ["lora", "training"], dimension: null, confidence: 0.8,
+						status: "active", superseded_by: null,
+					},
+				],
+				{ vaultPath: vault, source: "workflow-jsonl", sourceLabel: "contract", folder: "Zettelkasten/knowledge-graph" },
+			);
+			const hook = hooks["before_agent_start"]!;
+			const parentCtx = { sessionManager: { getSessionFile: () => "/sessions/main.jsonl" } };
+			const turn = () => hook({ prompt: "prompt about the lora and argparse training behavior", systemPrompt: "BASE" }, parentCtx) as Promise<{ systemPrompt?: string } | undefined>;
+
+			// Turn 1: both cards inject at the systemPrompt tail.
+			const t1 = await turn();
+			expect(t1?.systemPrompt).toContain("LoRA scale gotcha");
+			expect(t1?.systemPrompt).toContain("Training seed pattern");
+			expect(t1?.systemPrompt).toContain("# cooled: 0");
+
+			// Turns 2–3: cooldown — the hook changes nothing at all.
+			expect(await turn()).toBeUndefined();
+			expect(await turn()).toBeUndefined();
+
+			// Turn 4: the 3-turn window expired; the cards inject again.
+			const t4 = await turn();
+			expect(t4?.systemPrompt).toContain("LoRA scale gotcha");
+			expect(t4?.systemPrompt).toContain("# cooled: 0");
+		} finally {
+			__setVaultResolverForTest(null);
+			delete process.env.KC_AUTORECALL;
+			rmSync(vault, { recursive: true, force: true });
+		}
+	});
+
 	test("before_agent_start is registered and default-off returns no prompt change", async () => {
 		const hooks: Record<string, ((e: unknown, ctx?: unknown) => Promise<unknown>) | undefined> = {};
 		const { pi, commands } = makeMockPi();
