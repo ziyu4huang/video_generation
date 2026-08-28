@@ -183,8 +183,9 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 `tickets/09-recall-ledger.md` — ticket 08 closed 2026-08-28 (auto-recall injector shipped
 default-off: deterministic gate, single retrieveRecords path, 350-tok/turn budget with the
-2× per-entry rule and tail-drop, prefix-stable `<knowledge-recall>` block, child-guard via
-the S2_AGENT_SUBAGENT marker per D9; kcard 711 / core-runtime 495 tests green). Ticket 09 is
+2× per-entry rule and ranked-walk drop, prefix-stable `<knowledge-recall>` block,
+child-guard = per-session `sessionManager.getSessionFile()` per D9 as re-decided in review
+round 2; kcard 712 tests green, review round-2 APPROVE). Ticket 09 is
 next because the injector currently re-retrieves and re-injects the SAME top cards every
 turn of a session — the RecallLedger's per-session cooldown is what makes turn 2 inject
 different-or-less content, and its `no_relevant`-records-nothing rule needs the injector's
@@ -194,8 +195,8 @@ flip is gated on t09 + t16 measurements, unchanged.
 ## Fog of war
 
 - ~~Whether `before_agent_start` fires inside `spawnSubagent` child sessions (double-inject
-  risk)~~ — RESOLVED ticket 08 probe 2026-08-28: YES on both paths; guard is the
-  `S2_AGENT_SUBAGENT` marker (D9).
+  risk)~~ — RESOLVED ticket 08 probe 2026-08-28: YES on both paths; guard is the per-session
+  `sessionManager.getSessionFile()` check (D9, re-decided in review round 2).
 - `turn_end` payload shape at the extension layer (assistant text surface unverified) —
   ticket 11 opens with a probe; zk_card provenance works even if turn_end doesn't.
 - One-time re-embed burst when card `summary:` backfill touches every card — MEASURED in

@@ -336,16 +336,23 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				const sessionFile = ctx?.sessionManager?.getSessionFile?.();
 				if (isChildSession(sessionFile)) return;
 				const cwd = process.cwd();
-				// Vault resolution rides inside the same wall-clock bound as
-				// retrieval: a slow Tier-2 (Obsidian app) probe must not hold
-				// the turn open (review round 2 non-blocking finding).
-				const vaultPath = await Promise.race([
-					resolveKnowledgeVault(cwd),
-					new Promise<never>((_, reject) => {
-						const t = setTimeout(() => reject(new Error("autorecall-vault-timeout")), autoRecall.timeoutMs);
-						(t as { unref?: () => void }).unref?.();
-					}),
-				]);
+				// Vault resolution is its own bounded stage (a slow Tier-2
+				// Obsidian probe must not hold the turn open — review round 2
+				// finding); retrieval runs a second bounded stage inside
+				// buildAutoRecallBlock, so worst-case latency is ~2× timeoutMs.
+				let vaultT: ReturnType<typeof setTimeout> | undefined;
+				let vaultPath: string;
+				try {
+					vaultPath = await Promise.race([
+						resolveKnowledgeVault(cwd),
+						new Promise<never>((_, reject) => {
+							vaultT = setTimeout(() => reject(new Error("autorecall-vault-timeout")), autoRecall.timeoutMs);
+							(vaultT as unknown as { unref?: () => void }).unref?.();
+						}),
+					]);
+				} finally {
+					if (vaultT) clearTimeout(vaultT);
+				}
 				const prompt = typeof event.prompt === "string" ? event.prompt : "";
 				const { block } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile }, autoRecall);
 				if (!block) return;
