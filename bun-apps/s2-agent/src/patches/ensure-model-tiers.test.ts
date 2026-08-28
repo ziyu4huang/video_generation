@@ -20,7 +20,7 @@ import {
 describe("buildModelTiersJson — serializes the default config", () => {
   test("contains the glm-lmstudio tier ids + the bonsai vision spec", () => {
     const json = buildModelTiersJson();
-    expect(json).toContain("zai/glm-4.7");
+    expect(json).toContain("zai/glm-5.3-flash");
     expect(json).toContain("zai/glm-5.3");
     // vision lane = bonsai with the :off no-think pin since 2026-08-24
     expect(json).toContain("lm-studio/prism-ml/bonsai-27b:off");

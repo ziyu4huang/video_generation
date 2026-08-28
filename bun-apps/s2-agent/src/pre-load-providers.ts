@@ -660,7 +660,9 @@ export interface ModelTierConfig {
 }
 
 export const DEFAULT_MODEL_TIER_CONFIG: ModelTierConfig = {
-	tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+	// small = glm-5.3-flash (user request 2026-08-28 — mirrors
+	// scripts/claude-code-glm.sh's AIR tier glm-5.3-flash[1m]; was glm-4.7).
+	tiers: { small: "zai/glm-5.3-flash", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
 	// `capabilities.vision` = prism-ml/bonsai-27b with the no-think pin (user
 	// directive 2026-08-24 — QUALITY over speed for the vision lane; gemma
 	// stays the fallback catalog lane and remains ~5× faster per image call
