@@ -139,3 +139,7 @@ iterate as small follow-up PRs, not new tickets in this effort.
 Builds-on: 2026-08-23-deploy-platform-neutral-core — this effort is the
 documented cross-platform swap contract (run.ts:236-238) finally exercised;
 D2/D3 above inherit that effort's decisions verbatim.
+Shares-decision-with: 2026-08-28-win32-launcher-stdout — that effort's
+launcher 真修 continues this effort's follow-through (the skip-classified
+green of run 33121706417 is provisional); D7 single-runtime is inherited
+verbatim by its D2.
