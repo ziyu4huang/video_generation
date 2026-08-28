@@ -147,6 +147,7 @@ import {
 	isChildSession,
 	type AutoRecallConfig,
 } from "../src/inject/auto-recall.ts";
+import { RecallLedger } from "../src/inject/recall-ledger.ts";
 import type { MemoryEntry, EnrichedNote, ConvergeMetrics } from "../src/distill/types.ts";
 import {
 	ADD_TOOLS,
@@ -325,6 +326,11 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		...AUTORECALL_DEFAULTS,
 		enabled: process.env.KC_AUTORECALL === "1",
 	};
+	// Session recall ledger (ticket 09): factory-scope state, so it is
+	// per-session by construction (each AgentSession loads extensions fresh —
+	// the same D9 property the child-guard relies on). In-memory only; the
+	// durability call is deferred to t10's flip decision.
+	const recallLedger = new RecallLedger(autoRecall.cooldownTurns);
 	pi.on(
 		"before_agent_start",
 		async (
@@ -335,6 +341,13 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			try {
 				const sessionFile = ctx?.sessionManager?.getSessionFile?.();
 				if (isChildSession(sessionFile)) return;
+				// One tick per parent agent turn, BEFORE the pipeline consults
+				// the ledger — decrement-then-read is the cooldown's clock.
+				// NOTE: the clock only runs while ARMED — turns during a
+				// /knowledge-recall off period do not count down (safe
+				// direction: over-suppression; nothing injects while off
+				// anyway — review nit 2 on PR #2123).
+				recallLedger.tick();
 				const cwd = process.cwd();
 				// Vault resolution is its own bounded stage (a slow Tier-2
 				// Obsidian probe must not hold the turn open — review round 2
@@ -354,7 +367,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					if (vaultT) clearTimeout(vaultT);
 				}
 				const prompt = typeof event.prompt === "string" ? event.prompt : "";
-				const { block } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile }, autoRecall);
+				const { block } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile, ledger: recallLedger }, autoRecall);
 				if (!block) return;
 				const base = event.systemPrompt ?? "";
 				return { systemPrompt: `${base}\n\n${block}` };
@@ -365,7 +378,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	);
 	pi.registerCommand("knowledge-recall", {
 		description:
-			"Auto-recall injector (ticket 08): no args = status | on/off = toggle per-session (KC_AUTORECALL=1 arms it by default). Injects ≤350 tok of ranked L0 knowledge into the systemPrompt per turn when armed.",
+			"Auto-recall injector (tickets 08/09): no args = status | on/off = toggle per-session (KC_AUTORECALL=1 arms it by default). Injects ≤350 tok of ranked L0 knowledge into the systemPrompt per turn when armed; served cards cool down for 3 turns (RecallLedger).",
 		async handler(args: string, ctx: { ui?: { notify?: (m: string, level?: "error" | "info" | "warning") => void } }) {
 			const sub = args.trim().toLowerCase();
 			if (sub === "on") autoRecall.enabled = true;
@@ -374,6 +387,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			notify(
 				`knowledge-recall: ${autoRecall.enabled ? "ARMED" : "off"} ` +
 					`(cap ${autoRecall.tokenCap} tok/turn, floor ${autoRecall.scoreFloor} shared tags, ` +
+					`cooldown frees served cards after ${recallLedger.cooldownTurns} turns (${recallLedger.cooledCount()} cooled now), ` +
 					`gate ≥${autoRecall.minPromptChars} chars; KC_AUTORECALL=1 arms new sessions)`,
 			);
 		},

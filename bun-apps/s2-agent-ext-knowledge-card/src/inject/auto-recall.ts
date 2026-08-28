@@ -35,6 +35,7 @@
  */
 
 import { retrieveRecords, type RetrievedCard, type RetrieveOptions } from "../retrieve.ts";
+import { RecallLedger } from "./recall-ledger.ts";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -61,6 +62,8 @@ export interface AutoRecallConfig {
 	/** Wall-clock bound on the whole retrieve+render pass. An injector that
 	 *  misses it injects nothing — the turn loop must never wait on recall. */
 	timeoutMs: number;
+	/** Turns a served card stays suppressed (ticket 09 ledger). */
+	cooldownTurns: number;
 }
 
 export const AUTORECALL_DEFAULTS: AutoRecallConfig = {
@@ -70,6 +73,7 @@ export const AUTORECALL_DEFAULTS: AutoRecallConfig = {
 	tokenCap: 350,
 	topK: 3,
 	timeoutMs: 3_000,
+	cooldownTurns: 3,
 };
 
 /** Chitchat that never merits retrieval even past the length gate. Anchored
@@ -186,11 +190,12 @@ export function renderCardLine(card: RetrievedCard): string {
 	return tags ? `${head} — ${tags}: ${card.detail}` : `${head}: ${card.detail}`;
 }
 
-export function renderInjectionBlock(lines: string[]): string {
+export function renderInjectionBlock(lines: string[], footer?: string): string {
 	if (lines.length === 0) return "";
-	return [RECALL_BLOCK_OPEN, RECALL_BLOCK_HINT, ...lines.map((l) => `- ${l}`), RECALL_BLOCK_CLOSE].join(
-		"\n",
-	);
+	const parts = [RECALL_BLOCK_OPEN, RECALL_BLOCK_HINT, ...lines.map((l) => `- ${l}`)];
+	if (footer) parts.push(footer);
+	parts.push(RECALL_BLOCK_CLOSE);
+	return parts.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +214,11 @@ export interface AutoRecallDeps {
 	/** Retrieve implementation — retrieveRecords by default; injectable for
 	 *  tests. */
 	retrieve?: (opts: RetrieveOptions) => Promise<{ count: number; cards: RetrievedCard[] }>;
+	/** Session recall ledger (ticket 09). When provided, cooled cards are
+	 *  filtered before ranking/budget and only actually-injected cards are
+	 *  recorded. The caller owns tick() cadence (once per parent agent turn,
+	 *  before this call). */
+	ledger?: RecallLedger;
 }
 
 /**
@@ -221,8 +231,8 @@ export async function buildAutoRecallBlock(
 	prompt: string,
 	deps: AutoRecallDeps,
 	cfg: AutoRecallConfig = AUTORECALL_DEFAULTS,
-): Promise<{ block: string; trace: { gated: boolean; retrieved: number; kept: number; tokensUsed: number; timedOut: boolean } }> {
-	const trace = { gated: false, retrieved: 0, kept: 0, tokensUsed: 0, timedOut: false };
+): Promise<{ block: string; trace: { gated: boolean; retrieved: number; cooled: number; kept: number; tokensUsed: number; timedOut: boolean } }> {
+	const trace = { gated: false, retrieved: 0, cooled: 0, kept: 0, tokensUsed: 0, timedOut: false };
 	if (!shouldRecall(prompt, cfg) || isChildSession(deps.sessionFile)) {
 		trace.gated = true;
 		return { block: "", trace };
@@ -264,17 +274,38 @@ export async function buildAutoRecallBlock(
 			}),
 		]);
 		trace.retrieved = result.cards.length;
+		// Ledger cooldown (ticket 09): cooled cards are filtered BEFORE the
+		// floor check and the budget, so a cooled top card demotes the runner-up
+		// to top instead of blanking the turn.
+		const eligible = deps.ledger ? result.cards.filter((c) => !deps.ledger!.isCooled(c.id)) : result.cards;
+		trace.cooled = result.cards.length - eligible.length;
+		if (eligible.length === 0) {
+			// All candidates cooled: not a gate miss — nothing records (a cooled
+			// turn must not re-extend its own cooldown).
+			return { block: "", trace };
+		}
 		// Score floor: RetrievedCard.sharedTags is the ranking score before the
 		// callout boost — the top card must clear it or nothing injects.
-		const top = result.cards[0];
-		if (!top || top.sharedTags < cfg.scoreFloor) {
+		const top = eligible[0];
+		if (top.sharedTags < cfg.scoreFloor) {
+			// no_relevant turn: records NOTHING into the ledger (the OpenViking
+			// poisoning fix — never-served cards must not be suppressed).
 			trace.gated = true;
 			return { block: "", trace };
 		}
-		const budget = budgetLines(result.cards.map(renderCardLine), cfg.tokenCap);
+		const budget = budgetLines(eligible.map(renderCardLine), cfg.tokenCap);
 		trace.kept = budget.lines.length;
 		trace.tokensUsed = budget.tokensUsed;
-		return { block: renderInjectionBlock(budget.lines), trace };
+		// Record ONLY what was actually injected (post-budget): a card dropped
+		// by the per-entry/turn cap was not "served" and stays eligible.
+		if (deps.ledger && budget.lines.length > 0) {
+			deps.ledger.recordServed(eligible.filter((_, i) => budget.entries[i].kept).map((c) => c.id));
+		}
+		// Footer only when something was actually cooled this turn — a constant
+		// `# cooled: 0` on every block is ~4 tok/turn of pure noise (review
+		// nit 3 on PR #2123).
+		const footer = deps.ledger && trace.cooled > 0 ? `# cooled: ${trace.cooled}` : undefined;
+		return { block: renderInjectionBlock(budget.lines, footer), trace };
 	} catch (e) {
 		// timeout / retrieval failure — inject nothing, never break the turn
 		trace.timedOut = (e as Error).message === "autorecall-timeout";
