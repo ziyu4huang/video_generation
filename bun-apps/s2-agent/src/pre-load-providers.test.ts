@@ -285,6 +285,54 @@ describe("BUILTIN_MODEL_DEFAULT", () => {
   });
 });
 
+// ─── §3 DEFAULT_MODEL_TIER_CONFIG resolution guard ──────────────────────────
+
+describe("DEFAULT_MODEL_TIER_CONFIG — every ref resolves into the §1 catalog", () => {
+  // "provider/model[:suffix]" → {provider, model}; the :suffix (e.g. bonsai's
+  // :off no-think pin) is a thinking-level directive, not part of the id.
+  // Split at the FIRST slash only — model ids may contain slashes themselves
+  // (lm-studio/prism-ml/bonsai-27b), same as parseModelSpec in ext-subagent.
+  const parseSpec = (spec: string): { provider: string; model: string } => {
+    const slash = spec.indexOf("/");
+    expect(slash).toBeGreaterThan(0);
+    const provider = spec.slice(0, slash);
+    const model = spec.slice(slash + 1).replace(/:[a-z]+$/, "");
+    expect(model).toBeTruthy();
+    return { provider, model };
+  };
+
+  const resolveEntry = (spec: string) => {
+    const { provider, model } = parseSpec(spec);
+    const entry = PROVIDERS[provider]?.models.find((m) => m.id === model);
+    // The failure message names the spec so a drifted seed/tier ref is
+    // immediately actionable (which ref, which provider came up short).
+    expect(entry, `spec "${spec}" resolves in the PROVIDERS catalog`).toBeDefined();
+    return entry!;
+  };
+
+  test("every tier id resolves (small/medium/big)", () => {
+    for (const spec of Object.values(DEFAULT_MODEL_TIER_CONFIG.tiers)) {
+      resolveEntry(spec);
+    }
+  });
+
+  test("every capability spec resolves; vision specs point at image-input models", () => {
+    for (const [cap, spec] of Object.entries(DEFAULT_MODEL_TIER_CONFIG.capabilities)) {
+      const entry = resolveEntry(spec);
+      if (cap.includes("vision")) {
+        // A vision lane routed at a text-only model fails SILENTLY at runtime
+        // (the image part is dropped or the call errors) — pin the input
+        // declaration here so a catalog edit can't orphan the vision seed.
+        expect(entry.input, `capability "${cap}" → "${spec}" accepts image input`).toContain("image");
+      }
+    }
+  });
+
+  test("small tier = glm-5.3-flash (user directive 2026-08-28)", () => {
+    expect(DEFAULT_MODEL_TIER_CONFIG.tiers.small).toBe("zai/glm-5.3-flash");
+  });
+});
+
 // ─── §4 EMBEDDING_CONFIG ─────────────────────────────────────────────────────
 
 describe("EMBEDDING_CONFIG", () => {

@@ -442,7 +442,7 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
   // with the extension's, so every baked model is re-listed below verbatim
   // (minus cost — the registration convention zeroes costs) — omitting one
   // makes it vanish from `--list-models` and breaks the "zai/glm-*" refs in
-  // DEFAULT_MODEL_TIER_CONFIG / the glm-lmstudio preset. Fields mirror the
+  // DEFAULT_MODEL_TIER_CONFIG / the glm preset. Fields mirror the
   // baked entries; detectCompat() would infer most of this compat from
   // provider id + baseUrl — EXCEPT zaiToolStream, which detectCompat()
   // hardcodes to false (pi-ai dist/api/openai-completions.js detectCompat):
@@ -457,7 +457,11 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
   // input text+image — the [1m] suffix exists only on the Anthropic gateway
   // (same measurement as deepseek's), so the id here is the bare one on the
   // coding endpoint, contextWindow 1M per the family's [1m] naming. Vision
-  // verified with a real image call 2026-08-27 (see the ticket receipt).
+  // verified TWICE with real image calls through the repo launcher's read
+  // tool on the deploy-E2E OCR fixture (1190x200 PNG, needle "FILE2MD E2E
+  // OCR"): 2026-08-27 (solid-red probe, ticket receipt) and 2026-08-28
+  // (`--model zai/glm-5.3-flash` headless, exact-needle reply) — the same
+  // session it became the small tier + the glm preset's vision lane.
   "zai": {
     baseUrl: "https://api.z.ai/api/coding/paas/v4",
     api: "openai-completions",
@@ -643,11 +647,16 @@ export const BUILTIN_MODEL_DEFAULT: BuiltinModelDefault = {
 // ─── §3 Model-tier config seed ────────────────────────────────────────────────
 
 /**
- * Mirrors the "glm-lmstudio" preset in s2-agent-ext-subagent/src/presets.ts and
- * the canonical ~/.pi/workflows/model-tiers.json. Seeded to that file at startup
- * by the ensure-model-tiers patch IF (and only if) the file is absent — it never
- * clobbers a user's live config. Kept as typed TS (not loose JSON) so the team's
- * preferred tier→model routing ships with the package and is version-controlled.
+ * Tier ids MIRROR the "glm" preset in s2-agent-ext-subagent/src/presets.ts;
+ * the vision capabilities DIVERGE deliberately (2026-08-28): this seed keeps
+ * the LOCAL lm-studio bonsai lane (offline default), while the preset rides
+ * the cloud zai/glm-5.3-flash vision lane. Seeded to
+ * ~/.pi/workflows/model-tiers.json at startup by the ensure-model-tiers patch
+ * IF (and only if) the file is absent — it never clobbers a user's live
+ * config. Kept as typed TS (not loose JSON) so the team's preferred
+ * tier→model routing ships with the package and is version-controlled.
+ * Every tier id and capability spec must resolve to a §1 catalog entry —
+ * pinned by pre-load-providers.test.ts's resolution guard.
  *
  * NOTE: this bakes provider ids (zai/glm-*, lm-studio/qwen3.8-27b) into the shared
  * host package — appropriate for this repo where these are the standard

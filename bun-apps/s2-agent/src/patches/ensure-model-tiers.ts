@@ -10,7 +10,7 @@
  * NO cascade fallback — when the file is absent it returns null and the caller
  * silently falls back to the session/default model. On a fresh machine (or a
  * fresh ~/.pi) that means tier routing quietly does nothing instead of using the
- * team's preferred glm-lmstudio mapping.
+ * team's preferred glm mapping.
  *
  * Because the resolver only READS the file (never writes it), the only way for
  * the s2-agent host to guarantee a non-null config on a fresh machine is to
@@ -22,7 +22,7 @@
  * At import time (run inside applyPatches()), if
  * ~/.pi/workflows/model-tiers.json does NOT exist and the gate is enabled, write
  * the DEFAULT_MODEL_TIER_CONFIG (from ../pre-load-providers.ts §3 — the
- * glm-lmstudio preset: small=glm-5.3-flash, medium/big=glm-5.3, vision =
+ * glm preset: small=glm-5.3-flash, medium/big=glm-5.3, vision =
  * capabilities.vision, currently lm-studio/prism-ml/bonsai-27b:off — §3 is
  * the single source of truth, do not restate its values here) to that path,
  * creating the parent

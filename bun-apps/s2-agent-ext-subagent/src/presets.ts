@@ -14,9 +14,14 @@
  * writer of that file is the ensure-model-tiers startup seed of the built-in
  * default. Do not regress this to a persistent write.
  *
- * Every preset pairs a text-LLM tier mapping with an always-local vision model,
- * because the text providers (glm, deepseek, …) cannot do vision — only the
- * local lm-studio runtime can. Switching text-LLM providers never touches vision.
+ * Each preset pairs a text-LLM tier mapping with a vision lane. The vision
+ * lane is no longer forced local (user request 2026-08-28): zai/glm-5.3-flash
+ * and deepseek/deepseek-v4-flash-vision-exp are CLOUD vision models (both
+ * vision-verified with real image calls — glm-5.3-flash 2026-08-28 via the
+ * repo launcher's read tool on the FILE2MD E2E OCR fixture), so a preset can
+ * now be fully cloud-provider. The local lm-studio bonsai lane remains the
+ * built-in default seed's vision (s2-agent DEFAULT_MODEL_TIER_CONFIG), not a
+ * preset. Switching text-LLM providers switches vision with them.
  *
  * To add a provider: add one entry to MODEL_PRESETS below (data only).
  */
@@ -40,54 +45,61 @@ export interface ModelPreset {
  * auth is out of scope for preset application.
  */
 
-/** Shared vision capability block: single local model across all vision tiers
+/** Shared vision capability block shape: one model across all vision tiers
  *  (vision / vision-large / vision-medium / vision-small). Users can re-point
  *  individual tiers later — resolveModelRole falls back to `vision` when a
  *  tiered key isn't set, so this four-key shape is the discoverable default.
- *  Mirrors s2-agent's DEFAULT_MODEL_TIER_CONFIG: bonsai-27b with the :off
- *  no-think pin (user directive 2026-08-24; the qwen id here had drifted and
- *  carried no :off — always-on reasoning burn on every vision call). */
-const LMSTUDIO_VISION_CAPS = {
-  vision: "lm-studio/prism-ml/bonsai-27b:off",
-  "vision-large": "lm-studio/prism-ml/bonsai-27b:off",
-  "vision-medium": "lm-studio/prism-ml/bonsai-27b:off",
-  "vision-small": "lm-studio/prism-ml/bonsai-27b:off",
-};
+ *  No `:off` suffix on the cloud lanes: their providers pin reasoning-effort
+ *  off at the provider level (zai) or think always-on (deepseek), so there is
+ *  no per-call no-think switch to pin here — unlike the local lm-studio lane,
+ *  where the suffix maps to `reasoning_effort:"none"`. */
+const glmVisionCaps = (spec: string) => ({
+  vision: spec,
+  "vision-large": spec,
+  "vision-medium": spec,
+  "vision-small": spec,
+});
+
+const ZAI_GLM_VISION_CAPS = glmVisionCaps("zai/glm-5.3-flash");
+const DEEPSEEK_VISION_CAPS = glmVisionCaps("deepseek/deepseek-v4-flash-vision-exp");
 
 export const MODEL_PRESETS: ModelPreset[] = [
   {
-    id: "glm-lmstudio",
-    label: "GLM (official) + LM Studio vision",
-    summary: "tiers: glm-5.3-flash / glm-5.3  ·  vision tiers (large/mid/small): lm-studio bonsai-27b:off",
+    // Renamed from "glm-lmstudio" 2026-08-28 when vision moved to the cloud
+    // glm-5.3-flash lane — the "lmstudio" half of the old id named a vision
+    // provider the preset no longer uses.
+    id: "glm",
+    label: "GLM (official) — GLM vision (cloud)",
+    summary: "tiers: glm-5.3-flash / glm-5.3  ·  vision tiers: zai glm-5.3-flash (cloud)",
     config: {
       tiers: { small: "zai/glm-5.3-flash", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
-      capabilities: { ...LMSTUDIO_VISION_CAPS },
+      capabilities: { ...ZAI_GLM_VISION_CAPS },
     },
   },
   {
     id: "deepseek-pro",
-    label: "DeepSeek pro (official) + LM Studio vision",
-    summary: "tiers: bonsai-27b / flash / pro  ·  vision tiers: lm-studio bonsai-27b:off",
+    label: "DeepSeek pro (official) — DeepSeek vision (cloud)",
+    summary: "tiers: bonsai-27b / flash / pro  ·  vision tiers: deepseek v4-flash-vision-exp (cloud)",
     config: {
       tiers: {
         small: "lm-studio/prism-ml/bonsai-27b",
         medium: "deepseek/deepseek-v4-flash",
         big: "deepseek/deepseek-v4-pro",
       },
-      capabilities: { ...LMSTUDIO_VISION_CAPS },
+      capabilities: { ...DEEPSEEK_VISION_CAPS },
     },
   },
   {
     id: "deepseek-flash",
-    label: "DeepSeek flash (official) + LM Studio vision",
-    summary: "tiers: bonsai-27b / bonsai-27b / flash  ·  vision tiers: lm-studio bonsai-27b:off",
+    label: "DeepSeek flash (official) — DeepSeek vision (cloud)",
+    summary: "tiers: bonsai-27b / bonsai-27b / flash  ·  vision tiers: deepseek v4-flash-vision-exp (cloud)",
     config: {
       tiers: {
         small: "lm-studio/prism-ml/bonsai-27b",
         medium: "lm-studio/prism-ml/bonsai-27b",
         big: "deepseek/deepseek-v4-flash",
       },
-      capabilities: { ...LMSTUDIO_VISION_CAPS },
+      capabilities: { ...DEEPSEEK_VISION_CAPS },
     },
   },
 ];
