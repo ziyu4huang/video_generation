@@ -1,11 +1,21 @@
 ---
 effort: 2026-08-28-win32-launcher-stdout
 created: 2026-08-28
-last: 2026-08-29 (ticket 01 closed — matrix measured, upstream unfound+unfiled per D5, verdict: shim workaround required)
-status: active
+last: 2026-08-29 (PARKED → deploy worktree: user re-scope — "it's deploy jobs"; ownership + queue head transferred to ../video_generation__deploy via its next-goal handoff; tickets 02/03 stay open)
+status: parked (owned by the deploy worktree agent as of 2026-08-29)
 ---
 
 # Wayfinder map: 2026-08-28-win32-launcher-stdout
+
+> **PARKED 2026-08-29 (user):** this effort is deploy-domain work — ownership
+> transferred to the agent running the `video_generation__deploy` worktree
+> (handed off via that worktree's `output/` next-goal). Tickets 02 and 03
+> remain OPEN with all receipts below; the chartering worktree
+> (`video_generation__subagent`) re-scoped to s2-agent-ext-subagent +
+> s2-agent-ext-ultracode and will NOT execute this queue. NOTE for the
+> receiving agent: ticket 01's verdict supersedes the old "wait for bun
+> >1.4.0" standing trigger — no upgrade path is measurable; the shim
+> workaround route (ticket 02) is the way forward.
 
 ## Destination
 
