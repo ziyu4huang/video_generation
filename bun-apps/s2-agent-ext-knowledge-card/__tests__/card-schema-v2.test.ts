@@ -180,11 +180,11 @@ describe("summary L0", () => {
 		expect(firstSentenceSummary(withCaps)).toBe("Chapter 2 covers the physical layer.");
 		// Frontmatter must not eat the scan window (the raw-source trap: the
 		// strip ran BEFORE the frontmatter strip and never saw the notice).
-		// The frontmatter is long enough that the © line sits at RAW index 14
+		// The frontmatter is long enough that the © line sits at RAW index 13
 		// (≥ BOILERPLATE_SCAN_LINES): under the OLD order (strip ran before
 		// the frontmatter strip) the window never reached it and the notice
 		// leaked — only the new order (frontmatter stripped first, © at body
-		// index 2) finds it. Review blocker 2: with a short frontmatter the
+		// index 5) finds it. Review blocker 2: with a short frontmatter the
 		// old order produced the identical summary, so the reorder was
 		// untested (vacuous pin).
 		const frontmattered = [

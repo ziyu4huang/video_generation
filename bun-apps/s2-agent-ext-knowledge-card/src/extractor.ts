@@ -296,11 +296,14 @@ function isLegalNoteLine(ln: string): boolean {
  *  (#2056 D-c) and tested directly. */
 /** Does a line read as title-page all-caps legalese? (≥80% uppercase letters,
  *  ≥20 letters — the IP-disclaimer PARAGRAPHS of a title page run 40+ letters,
- *  while real all-caps section headings ("CHAPTER 1" = 8, "INTRODUCTION" = 12)
- *  are short; the floor keeps headings out of the strip. Review blocker 1,
- *  PR #2119 follow-up: at ≥4 the rule ate "CHAPTER 1"-style headings and the
- *  swallowed heading then armed the wrap cascade onto real prose. Only
- *  consulted INSIDE an active legal run, never to start one). */
+ *  while common all-caps section headings ("CHAPTER 1" = 8, "INTRODUCTION" =
+ *  12, "NORMATIVE REFERENCES" = 19) are shorter; the floor keeps those out of
+ *  the strip. Known gap (accepted): a 20–39-letter all-caps heading inside a
+ *  live legal run is still swallowed — one line, no cascade, and only when no
+ *  clean line separates it from the notice. Review blocker 1 against #2098:
+ *  at ≥4 the rule ate "CHAPTER 1"-style headings and the swallowed heading
+ *  then armed the wrap cascade onto real prose. Only consulted INSIDE an
+ *  active legal run, never to start one). */
 function isMostlyUppercase(ln: string): boolean {
 	const letters = ln.replace(/[^A-Za-z]/g, "");
 	if (letters.length < 20) return false;
