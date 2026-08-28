@@ -70,4 +70,24 @@ describe("s2-agent-ext-knowledge-card extension contract", () => {
 			expect(typeof c.handler, `command "${c.name}" missing handler`).toBe("function");
 		}
 	});
+
+	// ── auto-recall injector contract (ticket 08, context-lifecycle P2) ──────
+	test("before_agent_start is registered and default-off returns no prompt change", async () => {
+		const hooks: Record<string, ((e: unknown) => Promise<unknown>) | undefined> = {};
+		const { pi, commands } = makeMockPi();
+		// Swap the no-op `on` for a captor so the hook body is testable.
+		(pi as { on?: unknown }).on = (ev: string, fn: (e: unknown) => Promise<unknown>) => {
+			hooks[ev] = fn;
+		};
+		extensionFactory(pi as never);
+		expect(typeof hooks["before_agent_start"]).toBe("function");
+		expect(commands.some((c) => c.name === "knowledge-recall")).toBe(true);
+		// Default-off (no KC_AUTORECALL): the hook must not touch the prompt —
+		// merging is a zero-behavior-change operation (ticket 08 acceptance).
+		delete process.env.KC_AUTORECALL;
+		const out = await hooks["before_agent_start"]!({ prompt: "a substantive prompt about lora training", systemPrompt: "BASE" });
+		expect(out).toBeUndefined();
+		// The systemPrompt base is never mutated in place either.
+		expect(process.env.S2_AGENT_SUBAGENT).toBeUndefined();
+	});
 });

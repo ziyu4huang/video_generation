@@ -626,3 +626,43 @@ describe("spawnSubagent label threading (H1)", () => {
     assert.equal(runner.calls[0]?.opts.label, "pinned");
   });
 });
+
+describe("spawnSubagent subagent-child marker (kcard ticket 08)", () => {
+  it("S2_AGENT_SUBAGENT=1 is live during runner.run and restored after", async () => {
+    let observedDuringRun: string | undefined;
+    const runner = mkRunner(async () => {
+      observedDuringRun = process.env.S2_AGENT_SUBAGENT;
+      return "ok";
+    });
+    await spawnSubagent({ task: "t", tools: ["read"], agent: runner });
+    assert.equal(observedDuringRun, "1");
+    assert.equal(process.env.S2_AGENT_SUBAGENT, undefined);
+  });
+
+  it("a pre-existing marker value is restored, not clobbered to undefined", async () => {
+    process.env.S2_AGENT_SUBAGENT = "prior";
+    try {
+      let observedDuringRun: string | undefined;
+      const runner = mkRunner(async () => {
+        observedDuringRun = process.env.S2_AGENT_SUBAGENT;
+        return "ok";
+      });
+      await spawnSubagent({ task: "t", tools: ["read"], agent: runner });
+      assert.equal(observedDuringRun, "1");
+      assert.equal(process.env.S2_AGENT_SUBAGENT, "prior");
+    } finally {
+      delete process.env.S2_AGENT_SUBAGENT;
+    }
+  });
+
+  it("the marker is restored even when the run fails", async () => {
+    const runner = mkRunner(async () => {
+      throw new Error("child blew up");
+    });
+    // classifyError turns a plain Error into a non-transient failure — spawn
+    // resolves (does not throw) with a failure result; the finally must still run.
+    const out = await spawnSubagent({ task: "t", tools: ["read"], agent: runner });
+    assert.ok(out.failure);
+    assert.equal(process.env.S2_AGENT_SUBAGENT, undefined);
+  });
+});

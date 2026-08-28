@@ -3,6 +3,15 @@
  * zk_ask, zk_ingest, knowledge_query) must stay free of per-turn
  * `promptSnippet`/`promptGuidelines`. The rich `description` already routes.
  *
+ * INTENT AMENDMENT (ticket 08, context-lifecycle P2 — D7 overturns the
+ * stealth-trim INTENT, the LETTER still holds): the extension now DOES append
+ * to the systemPrompt per turn via a `before_agent_start` hook (auto-recall,
+ * budgeted, default-off). What remains forbidden — and what this test still
+ * pins — is STATIC prompt tax: tool-schema `promptSnippet`/`promptGuidelines`
+ * on every turn regardless of content. The dynamic injector's per-turn token
+ * cap is pinned separately in __tests__/auto-recall.test.ts ("the 350-tok
+ * default cap bounds the rendered block").
+ *
  * Captures the 4 registered tools via the factory + a mock pi (Proxy swallows
  * `pi.registerCommand`/`pi.on` etc.; only `registerTool` is captured).
  */
@@ -19,6 +28,7 @@ function captureTools(): Record<string, Record<string, unknown>> {
 			tools[t.name as string] = t;
 		},
 		on() {},
+		registerCommand() {},
 		events: { on() {}, emit() {} },
 	};
 	piKnowledgeCardExtension(mockPi as never);

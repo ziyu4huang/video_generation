@@ -44,7 +44,7 @@ export interface ChildProcessLike {
 export type SpawnFn = (
   command: string,
   args: string[],
-  options: { cwd?: string; shell?: boolean; stdio?: unknown },
+  options: { cwd?: string; shell?: boolean; stdio?: unknown; env?: Record<string, string> },
 ) => ChildProcessLike;
 
 // ---- Pure helpers (unit-tested without spawning) -------------------------
@@ -267,6 +267,11 @@ export async function spawnSubagentSubprocess(opts: SpawnSubagentSubprocessOptio
         cwd: opts.cwd,
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
+        // Subagent-child marker (kcard ticket 08 — same contract as the
+        // in-process path in spawn-subagent.ts): the subprocess is a full
+        // AgentSession that loads extensions and fires before_agent_start;
+        // per-turn hooks (knowledge auto-recall) read this to skip children.
+        env: { ...process.env, S2_AGENT_SUBAGENT: "1" },
       });
 
       const completion = new Promise<{ exitCode: number; stderr: string; text: string }>((resolveDone, rejectDone) => {

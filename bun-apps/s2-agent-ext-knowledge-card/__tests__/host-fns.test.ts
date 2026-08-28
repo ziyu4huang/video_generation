@@ -84,6 +84,7 @@ describe("knowledge-card host-fn registration (event bus)", () => {
     const pi: any = {
       registerTool() {},
       on() {},
+      registerCommand() {},
       events: {
         on(ch: string, cb: (p: unknown) => void) {
           (handlers[ch] ??= []).push(cb);

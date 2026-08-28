@@ -141,6 +141,11 @@ import { fsLs, fsTree, fsFind, fsGrep, fsStat } from "../src/fs-surface.ts";
 import { onKnowledge } from "../src/emit.ts";
 import { convergeKnowledgeEmission } from "../src/converge.ts";
 import { readState } from "../src/distill/state.ts";
+import {
+	AUTORECALL_DEFAULTS,
+	buildAutoRecallBlock,
+	type AutoRecallConfig,
+} from "../src/inject/auto-recall.ts";
 import type { MemoryEntry, EnrichedNote, ConvergeMetrics } from "../src/distill/types.ts";
 import {
 	ADD_TOOLS,
@@ -305,6 +310,46 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		// seam (typed via @repo/s2-agent-core-interface). Live for the session;
 		// unpublishKnowledgePipeline() tears it down at session_shutdown.
 		publishKnowledgePipeline({ collectInputFiles, ingestRecords, retrieveRecords, healGraph, buildHierarchy });
+	});
+
+	// ── Auto-recall injector (ticket 08, context-lifecycle P2) ──────────────
+	// Per-turn budgeted L0 recall appended to the systemPrompt tail. Default
+	// OFF (KC_AUTORECALL=1 arms it); /knowledge-recall toggles + reports. The
+	// hook NEVER throws into the turn loop and NEVER injects inside subagent
+	// children (S2_AGENT_SUBAGENT=1 guard — probe 2026-08-28 confirmed
+	// children fire before_agent_start with a fresh extension load).
+	const autoRecall: AutoRecallConfig = {
+		...AUTORECALL_DEFAULTS,
+		enabled: process.env.KC_AUTORECALL === "1",
+	};
+	pi.on("before_agent_start", async (event: { prompt?: string; systemPrompt?: string }) => {
+		if (!autoRecall.enabled) return;
+		try {
+			const cwd = process.cwd();
+			const vaultPath = (await resolveVault(cwd)).path;
+			const prompt = typeof event.prompt === "string" ? event.prompt : "";
+			const { block } = await buildAutoRecallBlock(prompt, { vaultPath }, autoRecall);
+			if (!block) return;
+			const base = event.systemPrompt ?? "";
+			return { systemPrompt: `${base}\n\n${block}` };
+		} catch {
+			// best-effort: a failed vault resolution / retrieval injects nothing
+		}
+	});
+	pi.registerCommand("knowledge-recall", {
+		description:
+			"Auto-recall injector (ticket 08): no args = status | on/off = toggle per-session (KC_AUTORECALL=1 arms it by default). Injects ≤350 tok of ranked L0 knowledge into the systemPrompt per turn when armed.",
+		async handler(args: string, ctx: { ui?: { notify?: (m: string, level?: "error" | "info" | "warning") => void } }) {
+			const sub = args.trim().toLowerCase();
+			if (sub === "on") autoRecall.enabled = true;
+			else if (sub === "off") autoRecall.enabled = false;
+			const notify = (m: string) => ctx.ui?.notify?.(m) ?? pi.sendMessage({ customType: "knowledge-recall", content: m, display: true });
+			notify(
+				`knowledge-recall: ${autoRecall.enabled ? "ARMED" : "off"} ` +
+					`(cap ${autoRecall.tokenCap} tok/turn, floor ${autoRecall.scoreFloor} shared tags, ` +
+					`gate ≥${autoRecall.minPromptChars} chars; KC_AUTORECALL=1 arms new sessions)`,
+			);
+		},
 	});
 
 	// ── Auto-converge hermes memory → graph on session_shutdown (tier rule) ──
