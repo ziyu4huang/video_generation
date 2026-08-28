@@ -109,6 +109,24 @@ the only cross-edge (ADR-0001 down-only).
 - **D10 — eval as committed scripts, outside local_ci.** `recall-audit.mjs` (hermes pkg),
   `retrieval-eval.mjs` (kcard), injection probes — all opt-in (`test:eval`-style npm
   scripts); local_ci stays ≤5 min; long probes capped ≤1 h.
+- **D11 — injection default stays OFF; the flip gate FAILED on measurement (ticket 10,
+  2026-08-29).** `scripts/cache-probe-inject.mjs` (kcard pkg, ultracode cache-probe pattern
+  ported) measured on this machine, real vault `pi-agent-vault` (827 cards), LM Studio
+  `prism-ml/bonsai-27b` + `text-embedding-bge-m3`: (a) tokens p95 282 tok ≤ 350 cap but
+  injection rate only 2/20 scripted turns (10%) — `scoreFloor: 2` suppresses near-perfect
+  retrievals (top cards for a hand-written lora/argparse question score sharedTags=1);
+  (b) cache-transition injected↔clean = **1.156× warm > 1.05× target** (single-entry KV;
+  the block rides the systemPrompt TAIL so the absolute cost is +46 ms/turn at 282 tok —
+  small, but the ticket's own gate says no-flip); (c) chitchat skip 20/20 = 100% ≥ 80%.
+  `KC_AUTORECALL=1` stays the opt-in knob. Re-probe required after ANY of: floor
+  recalibration (floor=1 → 5/14 inject, same p95), a CJK-aware minPromptChars (40 CHARS
+  gates out typical zh questions ~20 chars — 2/10 substantive prompts failed purely on
+  length), or t16's end-task delta. Three operational findings recorded in the map Context:
+  cold-start silent no-op (first semantic call pays bge-m3 load > 3 s timeout), the
+  vault-resolution trap (personal-config vault wins the ladder — probe from a repo cwd
+  resolved to `study-news`, whose generic page cards scored sharedTags 0 and the floor
+  correctly suppressed everything), and cooldown-silent turns count as non-injected in the
+  probe's denominator.
 
 ## 4. What we deliberately do NOT port from OpenViking
 
