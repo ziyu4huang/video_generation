@@ -483,10 +483,12 @@ async function win32LayerDiag(
 	// of 2026-08-28, identical under `bun-version: latest`): bun.exe delivers
 	// full output when spawned directly, cmd.exe's own echo flows, but bun as
 	// cmd's or powershell's child delivers ZERO bytes — pipe, file redirect,
-	// everything — while exiting 0. oven-sh/bun#12108 family. When the diag
-	// reproduces exactly this, the launcher chain CANNOT be verified through
-	// a piped shell on this bun: callers classify the probe a SKIP (the
-	// environment cannot verify), never a silent pass.
+	// everything — while exiting 0. No matching upstream issue exists
+	// (searched 2026-08-29 — bun#12108 is batch termination, a different
+	// bug; filing deliberately skipped, win32-launcher-stdout D5). When the
+	// diag reproduces exactly this, the launcher chain CANNOT be verified
+	// through a piped shell on this bun: callers classify the probe a SKIP
+	// (the environment cannot verify), never a silent pass.
 	return {
 		summary: `win32 layer diag:\n  ${parts.join("\n  ")}`,
 		isBunShellChildBug: isBunShellChildSignature(stdoutBytes),
@@ -612,7 +614,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				ms,
 				note:
 					diag?.isBunShellChildBug
-						? "--ext-list unverifiable through a piped shell: bun#12108 (bun.exe as a cmd/powershell child loses all output; runtime verified via bun-direct in the diag)"
+						? "--ext-list unverifiable through a piped shell: bun.exe as a cmd/powershell child loses all output (no matching upstream issue; runtime verified via bun-direct in the diag)"
 						: `--ext-list ${r.timedOut ? `timed out after ${EXT_LIST_CAP_MS}ms` : `exited ${r.exitCode}`}`,
 				detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
 			});
@@ -626,7 +628,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 					verdict: diag?.isBunShellChildBug ? "skip" : "fail",
 					ms,
 					note: diag?.isBunShellChildBug
-						? "--ext-list stdout empty via the launcher: bun#12108 (bun.exe as a cmd/powershell child loses all output; runtime verified via bun-direct in the diag)"
+						? "--ext-list stdout empty via the launcher: bun.exe as a cmd/powershell child loses all output (no matching upstream issue; runtime verified via bun-direct in the diag)"
 						: p.message,
 					detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
 				});
@@ -697,7 +699,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 						// bun-as-shell-child output loss eats it. Same upstream
 						// classification as ext-load.
 						tpVerdict = "skip";
-						tpNote = "probe output unverifiable through a piped shell: bun#12108 (see layer diag)";
+						tpNote = "probe output unverifiable through a piped shell (see layer diag)";
 					}
 				}
 			} else {
