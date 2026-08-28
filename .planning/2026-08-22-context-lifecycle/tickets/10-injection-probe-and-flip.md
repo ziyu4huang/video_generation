@@ -1,6 +1,49 @@
 # 10 — injection probes + default flip (measure, then decide)
 
-- **Phase:** P2 · **Package:** `s2-agent-ext-knowledge-card` (+ scripts) · **Status:** open · **RISKY: token-budget critical**
+- **Phase:** P2 · **Package:** `s2-agent-ext-knowledge-card` (+ scripts) · **Status:** closed 2026-08-29 · **RISKY: token-budget critical**
+
+## Resolution (2026-08-29 — flip gate FAILED; default stays OFF, D11)
+
+Probe `bun-apps/s2-agent-ext-knowledge-card/scripts/cache-probe-inject.mjs`
+(ultracode cache-probe pattern ported; committed). Measured on this machine,
+real vault `pi-agent-vault` via `OB_VAULT_PATH` (827 cards), LM Studio
+`prism-ml/bonsai-27b` chat + `text-embedding-bge-m3` embed; receipt
+`output/injection-probe/receipt-2026-08-28T23-27-32-435Z.json`:
+
+- **(a) tokens/turn**: p50 240 / p95 282 ≤ 350 cap ✅ (enforced gate is
+  cap+40 chrome allowance; with only n=2 injected turns p50/p95 are min/max,
+  nearest-rank) — but injection rate **2/20 scripted turns (10%)**:
+  `scoreFloor: 2` suppresses near-perfect retrievals (a hand-written
+  lora/argparse question retrieves the exact right cards at sharedTags=1).
+  floor=1 measures 5/14 injected with blockToks [240,265,282,313,360] — p95
+  **360**, at the cap edge (within cap+40, NOT obviously token-safe; reviewer-
+  reproduced, no committed receipt).
+- **(b) cache-transition**: **1.156× warm > 1.05× target** ❌ (single-entry KV;
+  block rides the systemPrompt tail so absolute cost is +46 ms/turn at 282 tok
+  — small, but the ticket's own gate says no-flip).
+- **(c) chitchat skip**: 20/20 = **100%** ≥ 80% ✅ (vs the chitchat target —
+  the script's bonus substantive clause is 8/10, the recorded zh-length
+  finding, not part of the gate).
+
+**Decision (D11 in spec):** `KC_AUTORECALL` stays opt-in; no skills update
+(injection remains off by default). Re-probe required after any of: floor
+recalibration, CJK-aware minPromptChars (40 CHARS gates out typical zh
+questions, ~20 chars — 2/10 substantive probes failed on length alone), or
+t16's end-task delta.
+
+**Three operational findings (map Context):**
+1. Cold-start silent no-op — the first probe run injected 0/20: the first
+   semantic call pays the bge-m3 cold load and exceeds the injector's 3 s
+   timeout (warm re-run, same script: 2/20). A flipped default would no-op
+   silently for the first turns of a session after server idle.
+2. Vault-resolution trap — `resolveVault` from a repo cwd resolves to the
+   personal-config vault (`study-news`), NOT the kcard knowledge vault; its
+   generic page cards scored sharedTags 0 and the floor correctly suppressed
+   everything (defense worked), but the flip measurement almost ran against
+   the wrong corpus.
+3. Cooldown-silent turns count as non-injected in the probe denominator —
+   re-probes after recalibration should report the gated/cooled split (the
+   receipt's perTurn already does).
 
 ## Problem
 

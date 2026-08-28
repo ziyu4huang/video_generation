@@ -20,6 +20,28 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
 
 ## Context (measured 2026-08-19..23 on this machine)
 
+- **Injection flip gate MEASURED and FAILED (ticket 10, 2026-08-29, this machine).**
+  `bun-apps/s2-agent-ext-knowledge-card/scripts/cache-probe-inject.mjs` over the real
+  vault `pi-agent-vault` (827 cards; `OB_VAULT_PATH` override — see the vault-resolution
+  trap below), LM Studio `prism-ml/bonsai-27b` + `text-embedding-bge-m3`, receipt
+  `output/injection-probe/receipt-2026-08-28T23-27-32-435Z.json`: tokens p50 240 / p95
+  282 (≤350 cap; n=2 injected turns, so p50/p95 are min/max nearest-rank) BUT injection
+  rate 2/20 turns (10%); cache-transition 1.156× warm (>1.05× target); chitchat skip
+  20/20 (100%). Decision D11: default stays OFF. Three operational findings: (1)
+  **cold-start silent no-op** — the cold-start probe run (second receipt; the FIRST
+  receipt was the wrong-vault run below) injected 0/20 because the first semantic
+  call pays the bge-m3 cold load and exceeds the injector's 3 s timeout (warm re-run:
+  same script, 2/20); (2) **vault-resolution trap** — `resolveVault` from a repo cwd
+  resolves to the personal-config vault (`study-news`), NOT the kcard knowledge
+  vault; its generic page cards scored sharedTags 0 and the floor correctly
+  suppressed everything, but a flip without this catch would have measured the
+  wrong vault; (3) **floor miscalibration** — `scoreFloor: 2` suppresses
+  near-perfect retrievals (a hand-written lora/argparse question retrieves the
+  exact right cards at sharedTags=1); floor=1 measures 5/14 injected, block p95
+  360 — at the cap edge (within cap+40 chrome allowance; reviewer-reproduced, not
+  receipted). Also: `minPromptChars: 40` counts CHARS, gating out typical zh
+  questions (~20 chars; 2/10 substantive probe prompts failed on length alone).
+
 - **Hermes recall is measured-dead.** Audit 2026-08-19
   (`.planning/knowledge/hermes-recall-audit.md`, runner `/tmp/hermes-audit/run-audit.ts` —
   still uncommitted): hit@1/3/5 = **0/20**, MRR 0.000. The `vectors` SurrealDB database was
@@ -123,7 +145,7 @@ Phase P1 — card schema v2 + tiered retrieval
 Phase P2 — injection loop + ledger
 - `tickets/08-auto-recall-injector.md` — task, **closed 2026-08-28** — probe: before_agent_start DOES fire in spawnSubagent children (both paths) → per-session child-guard (`sessionManager.getSessionFile()` falsy ⇒ skip, D9 re-decided after review round 2 refuted the env-marker design); `src/inject/auto-recall.ts` (deterministic gate, single retrieveRecords path, 350-tok/turn cap + 2× per-entry + ranked-walk drop, prefix-stable block); /knowledge-recall command; KC_AUTORECALL default-off; hermetic unit pins + contract default-off pin + armed-append wiring pin (real tmp vault); kcard tests green
 - `tickets/09-recall-ledger.md` — task, **closed 2026-08-28** — `src/inject/recall-ledger.ts` (RecallLedger: tick→isCooled→recordServed, default 3 turns, injector-side session state only — library stays pure); pipeline filters cooled cards BEFORE floor/budget (cooled top demotes runner-up), records only post-budget KEPT cards (no_relevant/floor-miss/budget-drop record nothing — OpenViking poisoning fix + retrieved≠served); `# cooled: N` block footer; wiring = factory-scope ledger (per-session via D9's fresh-load property), tick once per parent turn; t08's deferred two-turn session test delivered as four-turn hook test over a real tmp vault; kcard 722 tests + typecheck green
-- `tickets/10-injection-probe-and-flip.md` — task, **open** — measure, then flip default ON (risky)
+- `tickets/10-injection-probe-and-flip.md` — task, **closed 2026-08-29** — probe `scripts/cache-probe-inject.mjs` (ultracode cache-probe pattern; 20-turn scripted session over real vault + LM Studio latency A/B/C/D + labeled chitchat set). VERDICT: **default stays OFF** (D11) — cache-transition 1.156× warm > 1.05× target; injection rate 2/20 at floor=2 (near-perfect retrievals score sharedTags=1); chitchat skip 100% PASS. Recorded: cold-start silent no-op (bge-m3 cold load > 3s timeout), vault-resolution trap (personal config wins ladder), floor + zh-char-gate miscalibration (floor=1 → 5/14). Re-probe triggers in D11
 
 Phase P3 — feedback + extraction upgrade
 - `tickets/11-usage-ledger-detection.md` — task, **open** — three provenance sources → usage jsonl
@@ -181,13 +203,16 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/10-injection-probe-and-flip.md` — ticket 09 closed 2026-08-28 (RecallLedger:
-per-session cooldown, serve→suppress×2→eligible, no_relevant records nothing, only
-post-budget-kept cards recorded, `# cooled: N` footer; t08's deferred two-turn session
-test delivered; kcard 722 tests green). Ticket 10 is next because the injector + ledger
-are now COMPLETE but unmeasured live (default OFF): the flip decision needs t16's
-end-task measurement plus the ledger's durability call (in-memory today) and the
-KC_AUTORECALL default — all three are t10's gate, unchanged.
+`tickets/16-injection-endtask-eval.md` — ticket 10 closed 2026-08-29 (probe
+`cache-probe-inject.mjs` committed; flip gate FAILED: cache-transition 1.156× > 1.05×,
+injection rate 10% at floor=2, chitchat 100%; D11 = default stays OFF, reasons and
+re-probe triggers recorded in spec). t16 is next because the flip question is now
+PRECISELY bounded: before any re-probe/flip, someone must show injection moves
+end-task accuracy at all (t16's two-arm battery), and the measured floor/zh-gate
+miscalibrations (sharedTags=1 for perfect retrievals; 40-CHAR gate kills zh questions)
+are exactly the knobs t16's battery would calibrate — measuring task delta with a
+near-no-op injector would waste the run. Do the calibration + t16 together, then
+re-probe the cache gate; flip only on D11's recorded triggers.
 
 ## Fog of war
 
