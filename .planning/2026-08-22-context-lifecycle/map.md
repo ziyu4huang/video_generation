@@ -25,19 +25,22 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   vault `pi-agent-vault` (827 cards; `OB_VAULT_PATH` override — see the vault-resolution
   trap below), LM Studio `prism-ml/bonsai-27b` + `text-embedding-bge-m3`, receipt
   `output/injection-probe/receipt-2026-08-28T23-27-32-435Z.json`: tokens p50 240 / p95
-  282 (≤350 cap) BUT injection rate 2/20 turns (10%); cache-transition 1.156× warm
-  (>1.05× target); chitchat skip 20/20 (100%). Decision D11: default stays OFF. Three
-  operational findings: (1) **cold-start silent no-op** — the first probe run injected
-  0/20 because the first semantic call pays the bge-m3 cold load and exceeds the
-  injector's 3 s timeout (warm re-run: same script, 2/20); (2) **vault-resolution trap**
-  — `resolveVault` from a repo cwd resolves to the personal-config vault
-  (`study-news`), NOT the kcard knowledge vault; its generic page cards scored
-  sharedTags 0 and the floor correctly suppressed everything, but a flip without
-  this catch would have measured the wrong vault; (3) **floor miscalibration** —
-  `scoreFloor: 2` suppresses near-perfect retrievals (a hand-written lora/argparse
-  question retrieves the exact right cards at sharedTags=1); floor=1 measures 5/14
-  injected, same p95 282. Also: `minPromptChars: 40` counts CHARS, gating out typical
-  zh questions (~20 chars; 2/10 substantive probe prompts failed on length alone).
+  282 (≤350 cap; n=2 injected turns, so p50/p95 are min/max nearest-rank) BUT injection
+  rate 2/20 turns (10%); cache-transition 1.156× warm (>1.05× target); chitchat skip
+  20/20 (100%). Decision D11: default stays OFF. Three operational findings: (1)
+  **cold-start silent no-op** — the cold-start probe run (second receipt; the FIRST
+  receipt was the wrong-vault run below) injected 0/20 because the first semantic
+  call pays the bge-m3 cold load and exceeds the injector's 3 s timeout (warm re-run:
+  same script, 2/20); (2) **vault-resolution trap** — `resolveVault` from a repo cwd
+  resolves to the personal-config vault (`study-news`), NOT the kcard knowledge
+  vault; its generic page cards scored sharedTags 0 and the floor correctly
+  suppressed everything, but a flip without this catch would have measured the
+  wrong vault; (3) **floor miscalibration** — `scoreFloor: 2` suppresses
+  near-perfect retrievals (a hand-written lora/argparse question retrieves the
+  exact right cards at sharedTags=1); floor=1 measures 5/14 injected, block p95
+  360 — at the cap edge (within cap+40 chrome allowance; reviewer-reproduced, not
+  receipted). Also: `minPromptChars: 40` counts CHARS, gating out typical zh
+  questions (~20 chars; 2/10 substantive probe prompts failed on length alone).
 
 - **Hermes recall is measured-dead.** Audit 2026-08-19
   (`.planning/knowledge/hermes-recall-audit.md`, runner `/tmp/hermes-audit/run-audit.ts` —

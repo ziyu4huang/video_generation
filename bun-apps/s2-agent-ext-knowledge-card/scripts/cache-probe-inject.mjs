@@ -175,8 +175,11 @@ out.gate = {
 	skipRate: +(100 * chatSkipped / CHITCHAT.length).toFixed(1),
 	substantiveTotal: SUBSTANTIVE.length,
 	substantivePassed: subPassed,
-	target: ">= 80% skip",
-	pass: chatSkipped / CHITCHAT.length >= 0.8 && subPassed === SUBSTANTIVE.length,
+	// Ticket 10's (c) target is the CHITCHAT skip rate only; the substantive
+	// pass count is a reported bonus metric (its misses are the recorded
+	// zh-length finding), not part of the gate (review nit 1 on PR #2126).
+	target: ">= 80% chitchat skip (substantive reported separately)",
+	pass: chatSkipped / CHITCHAT.length >= 0.8,
 };
 console.log(`   chitchat skipped ${chatSkipped}/${CHITCHAT.length} (${out.gate.skipRate}%, target ≥80%)  substantive passed ${subPassed}/${SUBSTANTIVE.length}`);
 

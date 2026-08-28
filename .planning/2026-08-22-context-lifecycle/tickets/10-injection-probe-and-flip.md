@@ -10,14 +10,20 @@ real vault `pi-agent-vault` via `OB_VAULT_PATH` (827 cards), LM Studio
 `prism-ml/bonsai-27b` chat + `text-embedding-bge-m3` embed; receipt
 `output/injection-probe/receipt-2026-08-28T23-27-32-435Z.json`:
 
-- **(a) tokens/turn**: p50 240 / p95 282 ≤ 350 cap ✅ — but injection rate
-  **2/20 scripted turns (10%)**: `scoreFloor: 2` suppresses near-perfect
-  retrievals (a hand-written lora/argparse question retrieves the exact right
-  cards at sharedTags=1). floor=1 measures 5/14 injected, same p95.
+- **(a) tokens/turn**: p50 240 / p95 282 ≤ 350 cap ✅ (enforced gate is
+  cap+40 chrome allowance; with only n=2 injected turns p50/p95 are min/max,
+  nearest-rank) — but injection rate **2/20 scripted turns (10%)**:
+  `scoreFloor: 2` suppresses near-perfect retrievals (a hand-written
+  lora/argparse question retrieves the exact right cards at sharedTags=1).
+  floor=1 measures 5/14 injected with blockToks [240,265,282,313,360] — p95
+  **360**, at the cap edge (within cap+40, NOT obviously token-safe; reviewer-
+  reproduced, no committed receipt).
 - **(b) cache-transition**: **1.156× warm > 1.05× target** ❌ (single-entry KV;
   block rides the systemPrompt tail so absolute cost is +46 ms/turn at 282 tok
   — small, but the ticket's own gate says no-flip).
-- **(c) chitchat skip**: 20/20 = **100%** ≥ 80% ✅.
+- **(c) chitchat skip**: 20/20 = **100%** ≥ 80% ✅ (vs the chitchat target —
+  the script's bonus substantive clause is 8/10, the recorded zh-length
+  finding, not part of the gate).
 
 **Decision (D11 in spec):** `KC_AUTORECALL` stays opt-in; no skills update
 (injection remains off by default). Re-probe required after any of: floor

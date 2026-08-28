@@ -119,7 +119,8 @@ the only cross-edge (ADR-0001 down-only).
   the block rides the systemPrompt TAIL so the absolute cost is +46 ms/turn at 282 tok —
   small, but the ticket's own gate says no-flip); (c) chitchat skip 20/20 = 100% ≥ 80%.
   `KC_AUTORECALL=1` stays the opt-in knob. Re-probe required after ANY of: floor
-  recalibration (floor=1 → 5/14 inject, same p95), a CJK-aware minPromptChars (40 CHARS
+  recalibration (floor=1 → 5/14 inject, block p95 360 — at the cap edge, within the
+  cap+40 chrome allowance; reviewer-reproduced), a CJK-aware minPromptChars (40 CHARS
   gates out typical zh questions ~20 chars — 2/10 substantive prompts failed purely on
   length), or t16's end-task delta. Three operational findings recorded in the map Context:
   cold-start silent no-op (first semantic call pays bge-m3 load > 3 s timeout), the
