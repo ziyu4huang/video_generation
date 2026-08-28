@@ -60,7 +60,7 @@ describe("/models-preset — transient contract", () => {
     // The FULL preset config (tiers + vision) goes to the transient override.
     expect(calls.setTransientConfig).toEqual([
       {
-        tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+        tiers: { small: "zai/glm-5.3-flash", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
         capabilities: {
           vision: "lm-studio/prism-ml/bonsai-27b:off",
           "vision-large": "lm-studio/prism-ml/bonsai-27b:off",

@@ -168,7 +168,7 @@ describe("PROVIDERS config (contract)", () => {
     // Same REPLACE semantics as deepseek: registering "zai" swaps the
     // provider model list wholesale — every baked entry (glm-4.7, glm-5-turbo,
     // glm-5.2, glm-5.2-highspeed, glm-5.3) plus the tier-config refs
-    // (zai/glm-4.7 small, zai/glm-5.3 medium/big) must survive. glm-5.3-flash
+    // (zai/glm-5.3-flash small, zai/glm-5.3 medium/big) must survive. glm-5.3-flash
     // (added 2026-08-27, mirrors claude-code-glm.sh AIR tier) is the vision
     // lane — verified with a real image call 2026-08-27 (solid-red 64x64 PNG
     // through the read tool answered "Red").

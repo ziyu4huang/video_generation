@@ -58,9 +58,9 @@ export const MODEL_PRESETS: ModelPreset[] = [
   {
     id: "glm-lmstudio",
     label: "GLM (official) + LM Studio vision",
-    summary: "tiers: glm-4.7 / glm-5.3  ·  vision tiers (large/mid/small): lm-studio bonsai-27b:off",
+    summary: "tiers: glm-5.3-flash / glm-5.3  ·  vision tiers (large/mid/small): lm-studio bonsai-27b:off",
     config: {
-      tiers: { small: "zai/glm-4.7", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
+      tiers: { small: "zai/glm-5.3-flash", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
       capabilities: { ...LMSTUDIO_VISION_CAPS },
     },
   },
