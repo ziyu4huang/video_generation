@@ -116,7 +116,7 @@ describe("s2-agent-ext-knowledge-card extension contract", () => {
 			const t1 = await turn();
 			expect(t1?.systemPrompt).toContain("LoRA scale gotcha");
 			expect(t1?.systemPrompt).toContain("Training seed pattern");
-			expect(t1?.systemPrompt).toContain("# cooled: 0");
+			expect(t1?.systemPrompt).not.toContain("# cooled:"); // footer only when something cooled
 
 			// Turns 2–3: cooldown — the hook changes nothing at all.
 			expect(await turn()).toBeUndefined();
@@ -125,7 +125,7 @@ describe("s2-agent-ext-knowledge-card extension contract", () => {
 			// Turn 4: the 3-turn window expired; the cards inject again.
 			const t4 = await turn();
 			expect(t4?.systemPrompt).toContain("LoRA scale gotcha");
-			expect(t4?.systemPrompt).toContain("# cooled: 0");
+			expect(t4?.systemPrompt).not.toContain("# cooled:");
 		} finally {
 			__setVaultResolverForTest(null);
 			delete process.env.KC_AUTORECALL;

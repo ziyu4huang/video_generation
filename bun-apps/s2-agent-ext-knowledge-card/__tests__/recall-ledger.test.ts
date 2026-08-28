@@ -39,9 +39,11 @@ function fakeCard(over: Partial<RetrievedCard> = {}): RetrievedCard {
 // ─── class unit ──────────────────────────────────────────────────────────────
 
 describe("RecallLedger (class)", () => {
-	test("default cooldown is 3 turns", () => {
+	test("default cooldown is 3 turns; 0/negative clamps to 1", () => {
 		expect(DEFAULT_COOLDOWN_TURNS).toBe(3);
 		expect(new RecallLedger().cooldownTurns).toBe(3);
+		expect(new RecallLedger(0).cooldownTurns).toBe(1);
+		expect(new RecallLedger(-2).cooldownTurns).toBe(1);
 	});
 
 	test("tick decrements, expires exactly on turn N+1, and re-arms on re-serve", () => {
@@ -81,7 +83,7 @@ describe("pipeline + ledger (ticket 09 acceptance)", () => {
 		const t1 = await turn();
 		expect(t1.trace.kept).toBe(2);
 		expect(t1.block).toContain("Test Card");
-		expect(t1.block).toContain("# cooled: 0");
+		expect(t1.block).not.toContain("# cooled:"); // no footer when nothing cooled
 		const t2 = await turn();
 		expect(t2.block).toBe(""); // both cards cooled
 		expect(t2.trace.cooled).toBe(2);
@@ -92,6 +94,7 @@ describe("pipeline + ledger (ticket 09 acceptance)", () => {
 		const t4 = await turn();
 		expect(t4.trace.kept).toBe(2); // window expired, full block again
 		expect(t4.trace.cooled).toBe(0);
+		expect(t4.block).not.toContain("# cooled:");
 	});
 
 	test("cooled top card demotes the runner-up instead of blanking the turn", async () => {

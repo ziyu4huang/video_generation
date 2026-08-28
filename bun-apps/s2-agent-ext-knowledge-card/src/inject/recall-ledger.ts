@@ -29,11 +29,18 @@ export const DEFAULT_COOLDOWN_TURNS = 3;
 export class RecallLedger {
 	private cooldowns = new Map<string, number>();
 
-	constructor(public readonly cooldownTurns: number = DEFAULT_COOLDOWN_TURNS) {}
+	public readonly cooldownTurns: number;
+
+	constructor(cooldownTurns: number = DEFAULT_COOLDOWN_TURNS) {
+		// Clamp: 0/negative would degenerate to "never cool" — silently unlike
+		// the config's literal meaning (review nit 5 on PR #2123).
+		this.cooldownTurns = Math.max(1, cooldownTurns);
+	}
 
 	/** Advance one agent turn. Call BEFORE consulting the ledger in a turn —
-	 *  decrement-then-read is what makes recordServed(N) suppress exactly the
-	 *  next N turns and free the card on turn N+1. */
+	 *  decrement-then-read is what makes recordServed(N) suppress the next
+	 *  N-1 turns and free the card on turn N (with N=3: served turn 1,
+	 *  suppressed turns 2–3, eligible turn 4). */
 	tick(): void {
 		for (const [id, remaining] of this.cooldowns) {
 			if (remaining <= 1) this.cooldowns.delete(id);

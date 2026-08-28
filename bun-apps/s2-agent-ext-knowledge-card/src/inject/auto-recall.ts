@@ -301,7 +301,10 @@ export async function buildAutoRecallBlock(
 		if (deps.ledger && budget.lines.length > 0) {
 			deps.ledger.recordServed(eligible.filter((_, i) => budget.entries[i].kept).map((c) => c.id));
 		}
-		const footer = deps.ledger ? `# cooled: ${trace.cooled}` : undefined;
+		// Footer only when something was actually cooled this turn — a constant
+		// `# cooled: 0` on every block is ~4 tok/turn of pure noise (review
+		// nit 3 on PR #2123).
+		const footer = deps.ledger && trace.cooled > 0 ? `# cooled: ${trace.cooled}` : undefined;
 		return { block: renderInjectionBlock(budget.lines, footer), trace };
 	} catch (e) {
 		// timeout / retrieval failure — inject nothing, never break the turn

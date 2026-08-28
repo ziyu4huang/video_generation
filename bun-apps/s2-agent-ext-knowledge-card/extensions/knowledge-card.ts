@@ -343,6 +343,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				if (isChildSession(sessionFile)) return;
 				// One tick per parent agent turn, BEFORE the pipeline consults
 				// the ledger — decrement-then-read is the cooldown's clock.
+				// NOTE: the clock only runs while ARMED — turns during a
+				// /knowledge-recall off period do not count down (safe
+				// direction: over-suppression; nothing injects while off
+				// anyway — review nit 2 on PR #2123).
 				recallLedger.tick();
 				const cwd = process.cwd();
 				// Vault resolution is its own bounded stage (a slow Tier-2
@@ -383,7 +387,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			notify(
 				`knowledge-recall: ${autoRecall.enabled ? "ARMED" : "off"} ` +
 					`(cap ${autoRecall.tokenCap} tok/turn, floor ${autoRecall.scoreFloor} shared tags, ` +
-					`cooldown ${recallLedger.cooldownTurns} turns / ${recallLedger.cooledCount()} cooled, ` +
+					`cooldown frees served cards after ${recallLedger.cooldownTurns} turns (${recallLedger.cooledCount()} cooled now), ` +
 					`gate ≥${autoRecall.minPromptChars} chars; KC_AUTORECALL=1 arms new sessions)`,
 			);
 		},
