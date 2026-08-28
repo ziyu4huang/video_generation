@@ -16,7 +16,7 @@ session's model, which pi resolves from `~/.pi/agent/settings.json`
 default. Two consequences, both observed live:
 
 1. **The user-visible "current model" never changed.** Running
-   `/models-preset glm-lmstudio` while settings.json pinned
+   `/models-preset glm` while settings.json pinned
    `deepseek/deepseek-v4-flash` left the chat model exactly where it was. The
    command looked broken even though it did precisely what it was designed to
    do — write a routing file.
@@ -56,7 +56,7 @@ default. Two consequences, both observed live:
 
 ## Consequences
 
-- `/models-preset glm-lmstudio` now visibly switches the chat model to
+- `/models-preset glm` now visibly switches the chat model to
   `zai/glm-5.3` on the next turn, and in-session subagent tiers follow glm
   routing — with zero bytes written to `~/.pi`.
 - The old `.bak` artifacts left on machines by the previous behavior are stale

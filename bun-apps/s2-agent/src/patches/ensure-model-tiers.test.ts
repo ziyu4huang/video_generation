@@ -18,7 +18,7 @@ import {
 } from "../pre-load-providers.ts";
 
 describe("buildModelTiersJson — serializes the default config", () => {
-  test("contains the glm-lmstudio tier ids + the bonsai vision spec", () => {
+  test("contains the glm tier ids + the bonsai vision spec", () => {
     const json = buildModelTiersJson();
     expect(json).toContain("zai/glm-5.3-flash");
     expect(json).toContain("zai/glm-5.3");

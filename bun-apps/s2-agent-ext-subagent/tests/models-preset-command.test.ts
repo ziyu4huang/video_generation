@@ -53,7 +53,7 @@ function makeHarness(opts: { switchResult?: { ok: boolean; reason?: string }; se
 describe("/models-preset — transient contract", () => {
   test("direct apply switches the main model + installs the tier override, no confirm", async () => {
     const { handler, ctx, calls } = makeHarness();
-    await handler("glm-lmstudio", ctx);
+    await handler("glm", ctx);
 
     // Main model = the preset's headline (big) model.
     expect(calls.switchMainModel).toEqual(["zai/glm-5.3"]);
@@ -62,10 +62,10 @@ describe("/models-preset — transient contract", () => {
       {
         tiers: { small: "zai/glm-5.3-flash", medium: "zai/glm-5.3", big: "zai/glm-5.3" },
         capabilities: {
-          vision: "lm-studio/prism-ml/bonsai-27b:off",
-          "vision-large": "lm-studio/prism-ml/bonsai-27b:off",
-          "vision-medium": "lm-studio/prism-ml/bonsai-27b:off",
-          "vision-small": "lm-studio/prism-ml/bonsai-27b:off",
+          vision: "zai/glm-5.3-flash",
+          "vision-large": "zai/glm-5.3-flash",
+          "vision-medium": "zai/glm-5.3-flash",
+          "vision-small": "zai/glm-5.3-flash",
         },
       },
     ]);
@@ -92,7 +92,7 @@ describe("/models-preset — transient contract", () => {
     const { handler, ctx, calls } = makeHarness({
       switchResult: { ok: false, reason: "no API key configured for zai" },
     });
-    await handler("glm-lmstudio", ctx);
+    await handler("glm", ctx);
     expect(calls.switchMainModel).toEqual(["zai/glm-5.3"]);
     expect(calls.setTransientConfig).toEqual([]);
     expect(calls.notify[0]?.level).toBe("error");
@@ -106,7 +106,7 @@ describe("/models-preset — transient contract", () => {
     expect(calls.setTransientConfig).toEqual([]);
     expect(calls.notify[0]?.level).toBe("error");
     expect(calls.notify[0]?.msg).toContain("bogus");
-    expect(calls.notify[0]?.msg).toContain("glm-lmstudio");
+    expect(calls.notify[0]?.msg).toContain("glm");
   });
 
   test("interactive picker applies the chosen preset", async () => {

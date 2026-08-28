@@ -73,7 +73,7 @@ export const PATCH_TABLE: readonly PatchEntry[] = [
   // fallback, so on a fresh machine it returns null and silently falls back to
   // the session model. This patch seeds that file at startup IF absent, from
   // the typed DEFAULT_MODEL_TIER_CONFIG in src/pre-load-providers.ts (the
-  // glm-lmstudio mapping). Self-contained — imports only the local
+  // glm mapping). Self-contained — imports only the local
   // pre-load-providers.ts + node builtins (no @earendil-works import), so no
   // ordering dependency on ensure-extension-deps. Idempotent (existence-only
   // gate, never clobbers) + best-effort (write wrapped in try/catch). Disable

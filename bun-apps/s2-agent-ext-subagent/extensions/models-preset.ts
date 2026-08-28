@@ -14,7 +14,7 @@
  *
  * Usage:
  *   /models-preset              → interactive picker
- *   /models-preset <id>         → apply <id> directly (e.g. glm-lmstudio)
+ *   /models-preset <id>         → apply <id> directly (e.g. glm)
  *
  * Side effects are dependency-injected (model resolution + transient set are
  * defaults to the real pi/model-role-config functions) so the command is
