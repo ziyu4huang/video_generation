@@ -122,3 +122,7 @@ the first crossos-deploy-verify dispatch to iterate as small follow-up
 PRs"). Supersedes (next-goal focus only, not the effort): the
 cc-parity-task-powertool queue head — that effort stays open with tickets
 05–13 pending; its loop resumes after this one drains (D4).
+Shares-decision-with: 2026-08-29-reviewer-harvest — sibling outcome of the
+same 2026-08-29 user re-scope (this effort parked to the deploy worktree;
+reviewer-harvest is what the chartering worktree does instead — its D4
+promised exactly that).
