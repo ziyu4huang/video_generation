@@ -14,13 +14,21 @@
  *     share; overflow DEMOTES (L1→L0) or drops the tail — never truncates
  *     mid-sentence (the ladder's demote-not-truncate rule, applied to the
  *     injection block as a whole).
- *   - Subagent-child guard: spawnSubagent children load extensions fresh from
- *     disk and their AgentSession fires the same hook (probe 2026-08-28,
- *     ticket 08) — the injector MUST skip when `S2_AGENT_SUBAGENT=1` so a
- *     parent + N children never multiply-inject. (Safe against the shared
- *     process.env: the parent's turn is blocked on the tool call while its
- *     children run, so the marker is only ever observed by child sessions
- *     and the restored parent.)
+ *   - Subagent-child guard (review round 2, D9 re-decided): spawnSubagent
+ *     children load extensions fresh from disk and their AgentSession fires
+ *     the same hook (probe 2026-08-28) — and `fork:true` background dispatch
+ *     runs children DETACHED in the parent's process while the parent's turn
+ *     loop continues, so a process.env marker CANNOT distinguish parent from
+ *     child (parent false-positives + overlapping restore races; reviewer
+ *     finding, PR #2119). The guard is therefore PER-SESSION: every child
+ *     path (in-process `createAgentSession` via `SessionManager.inMemory()`,
+ *     subprocess `pi -p --no-session`) runs on an in-memory session whose
+ *     `sessionManager.getSessionFile()` is "" — the wiring reads its OWN ctx
+ *     and passes `sessionFile` here; falsy ⇒ child ⇒ skip. Known limits
+ *     (conservative direction): a user-run headless `--no-session` MAIN
+ *     session also looks in-memory (recall skips there); a caller overriding
+ *     a child's sessionManager with a persisted manager would defeat it (no
+ *     such caller exists today).
  *   - Default OFF (`KC_AUTORECALL`); the /knowledge-recall command toggles.
  *   - The block is prefix-stable in FORMAT (fixed header/footer, ranked
  *     order, one line per card) so prefix caching sees a stable shape.
@@ -83,10 +91,12 @@ export function shouldRecall(prompt: string, cfg: AutoRecallConfig = AUTORECALL_
 	return true;
 }
 
-/** Subagent-child guard. Reads the env marker spawnSubagent sets around every
- *  child run (in-process try/finally; subprocess spawn env). */
-export function isSubagentChild(): boolean {
-	return process.env.S2_AGENT_SUBAGENT === "1";
+/** Subagent-child guard (per-session, review round 2): every spawnSubagent
+ *  child path runs on an in-memory session — `sessionManager.getSessionFile()`
+ *  returns "" — while a persisted main session carries a real file path. The
+ *  wiring reads its OWN ExtensionContext and passes the value here. */
+export function isChildSession(sessionFile: string | undefined): boolean {
+	return !sessionFile;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,10 +130,15 @@ export interface BudgetResult {
  * Apply the two-level budget to rendered L0 lines:
  *   - per-entry cap = 2 × (tokenCap / n) — one card may take at most double
  *     its fair share, so a single high-signal card cannot eat the whole turn;
- *   - turn cap = tokenCap — once exceeded, the TAIL (lowest-ranked) lines are
- *     dropped until the remainder fits.
+ *   - turn cap = tokenCap — the walk visits lines in RANKED order and drops
+ *     any line that does not fit, KEEPING the scan going (a shorter
+ *     lower-ranked line may still fit). A higher-ranked line can therefore
+ *     be dropped while a shorter lower-ranked one survives; that is the
+ *     intended token-efficiency, not a tail-only rule.
  * L0 is the shallowest tier, so "demote" degenerates to "drop" here; the
  * demote-not-truncate discipline is preserved by never slicing a line.
+ * Note: the cap governs the card LINES only — the block chrome (fixed
+ * open/hint/close, ~25 tok) rides on top.
  */
 export function budgetLines(lines: string[], tokenCap: number): BudgetResult {
 	const n = lines.length;
@@ -187,6 +202,10 @@ export interface AutoRecallDeps {
 	vaultPath: string;
 	/** Convergence folder (default Zettelkasten/knowledge-graph). */
 	folder?: string;
+	/** The caller's OWN `sessionManager.getSessionFile()` — falsy (in-memory
+	 *  session) marks a spawnSubagent child, which never injects. The wiring
+	 *  reads its ExtensionContext; tests pass it directly. */
+	sessionFile?: string;
 	/** Retrieve implementation — retrieveRecords by default; injectable for
 	 *  tests. */
 	retrieve?: (opts: RetrieveOptions) => Promise<{ count: number; cards: RetrievedCard[] }>;
@@ -204,7 +223,7 @@ export async function buildAutoRecallBlock(
 	cfg: AutoRecallConfig = AUTORECALL_DEFAULTS,
 ): Promise<{ block: string; trace: { gated: boolean; retrieved: number; kept: number; tokensUsed: number; timedOut: boolean } }> {
 	const trace = { gated: false, retrieved: 0, kept: 0, tokensUsed: 0, timedOut: false };
-	if (!shouldRecall(prompt, cfg) || isSubagentChild()) {
+	if (!shouldRecall(prompt, cfg) || isChildSession(deps.sessionFile)) {
 		trace.gated = true;
 		return { block: "", trace };
 	}

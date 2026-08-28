@@ -144,6 +144,7 @@ import { readState } from "../src/distill/state.ts";
 import {
 	AUTORECALL_DEFAULTS,
 	buildAutoRecallBlock,
+	isChildSession,
 	type AutoRecallConfig,
 } from "../src/inject/auto-recall.ts";
 import type { MemoryEntry, EnrichedNote, ConvergeMetrics } from "../src/distill/types.ts";
@@ -316,26 +317,45 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// Per-turn budgeted L0 recall appended to the systemPrompt tail. Default
 	// OFF (KC_AUTORECALL=1 arms it); /knowledge-recall toggles + reports. The
 	// hook NEVER throws into the turn loop and NEVER injects inside subagent
-	// children (S2_AGENT_SUBAGENT=1 guard — probe 2026-08-28 confirmed
-	// children fire before_agent_start with a fresh extension load).
+	// children: every child path runs on an in-memory session, so the guard
+	// reads THIS session's `ctx.sessionManager.getSessionFile()` (falsy ⇒
+	// child ⇒ skip) — per-session state, immune to the background-dispatch
+	// env races a process-global marker would have (review round 2, D9).
 	const autoRecall: AutoRecallConfig = {
 		...AUTORECALL_DEFAULTS,
 		enabled: process.env.KC_AUTORECALL === "1",
 	};
-	pi.on("before_agent_start", async (event: { prompt?: string; systemPrompt?: string }) => {
-		if (!autoRecall.enabled) return;
-		try {
-			const cwd = process.cwd();
-			const vaultPath = (await resolveVault(cwd)).path;
-			const prompt = typeof event.prompt === "string" ? event.prompt : "";
-			const { block } = await buildAutoRecallBlock(prompt, { vaultPath }, autoRecall);
-			if (!block) return;
-			const base = event.systemPrompt ?? "";
-			return { systemPrompt: `${base}\n\n${block}` };
-		} catch {
-			// best-effort: a failed vault resolution / retrieval injects nothing
-		}
-	});
+	pi.on(
+		"before_agent_start",
+		async (
+			event: { prompt?: string; systemPrompt?: string },
+			ctx?: { sessionManager?: { getSessionFile?: () => string | undefined } },
+		) => {
+			if (!autoRecall.enabled) return;
+			try {
+				const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+				if (isChildSession(sessionFile)) return;
+				const cwd = process.cwd();
+				// Vault resolution rides inside the same wall-clock bound as
+				// retrieval: a slow Tier-2 (Obsidian app) probe must not hold
+				// the turn open (review round 2 non-blocking finding).
+				const vaultPath = await Promise.race([
+					resolveKnowledgeVault(cwd),
+					new Promise<never>((_, reject) => {
+						const t = setTimeout(() => reject(new Error("autorecall-vault-timeout")), autoRecall.timeoutMs);
+						(t as { unref?: () => void }).unref?.();
+					}),
+				]);
+				const prompt = typeof event.prompt === "string" ? event.prompt : "";
+				const { block } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile }, autoRecall);
+				if (!block) return;
+				const base = event.systemPrompt ?? "";
+				return { systemPrompt: `${base}\n\n${block}` };
+			} catch {
+				// best-effort: a failed vault resolution / retrieval injects nothing
+			}
+		},
+	);
 	pi.registerCommand("knowledge-recall", {
 		description:
 			"Auto-recall injector (ticket 08): no args = status | on/off = toggle per-session (KC_AUTORECALL=1 arms it by default). Injects ≤350 tok of ranked L0 knowledge into the systemPrompt per turn when armed.",

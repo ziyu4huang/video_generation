@@ -7,7 +7,11 @@
  * this package) instead of only being caught centrally in s2-agent.
  */
 import { describe, test, expect } from "bun:test";
-import extensionFactory from "../extensions/knowledge-card.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import extensionFactory, { __setVaultResolverForTest } from "../extensions/knowledge-card.ts";
+import { ingestRecords } from "../src/ingest.ts";
 
 interface ToolLike {
 	name?: string;
@@ -73,10 +77,10 @@ describe("s2-agent-ext-knowledge-card extension contract", () => {
 
 	// ── auto-recall injector contract (ticket 08, context-lifecycle P2) ──────
 	test("before_agent_start is registered and default-off returns no prompt change", async () => {
-		const hooks: Record<string, ((e: unknown) => Promise<unknown>) | undefined> = {};
+		const hooks: Record<string, ((e: unknown, ctx?: unknown) => Promise<unknown>) | undefined> = {};
 		const { pi, commands } = makeMockPi();
 		// Swap the no-op `on` for a captor so the hook body is testable.
-		(pi as { on?: unknown }).on = (ev: string, fn: (e: unknown) => Promise<unknown>) => {
+		(pi as { on?: unknown }).on = (ev: string, fn: (e: unknown, ctx?: unknown) => Promise<unknown>) => {
 			hooks[ev] = fn;
 		};
 		extensionFactory(pi as never);
@@ -87,7 +91,46 @@ describe("s2-agent-ext-knowledge-card extension contract", () => {
 		delete process.env.KC_AUTORECALL;
 		const out = await hooks["before_agent_start"]!({ prompt: "a substantive prompt about lora training", systemPrompt: "BASE" });
 		expect(out).toBeUndefined();
-		// The systemPrompt base is never mutated in place either.
-		expect(process.env.S2_AGENT_SUBAGENT).toBeUndefined();
+	});
+
+	test("armed hook skips in-memory (child) sessions and appends for persisted ones", async () => {
+		const hooks: Record<string, ((e: unknown, ctx?: unknown) => Promise<unknown>) | undefined> = {};
+		const { pi } = makeMockPi();
+		(pi as { on?: unknown }).on = (ev: string, fn: (e: unknown, ctx?: unknown) => Promise<unknown>) => {
+			hooks[ev] = fn;
+		};
+		// Arm BEFORE the factory call — `enabled` is captured at factory time.
+		process.env.KC_AUTORECALL = "1";
+		extensionFactory(pi as never);
+		// Hermetic vault: one card tagged lora+argparse via the resolver seam.
+		const vault = mkdtempSync(join(tmpdir(), "kcard-autorecall-"));
+		__setVaultResolverForTest(async () => vault);
+		try {
+			await ingestRecords(
+				[{
+					id: "test:lora-1", type: "gotcha", title: "LoRA scale gotcha",
+					detail: "scale overrides compose differently than you think.",
+					tags: ["lora", "argparse"], dimension: null, confidence: 0.8,
+					status: "active", superseded_by: null,
+				}],
+				{ vaultPath: vault, source: "workflow-jsonl", sourceLabel: "contract", folder: "Zettelkasten/knowledge-graph" },
+			);
+			const hook = hooks["before_agent_start"]!;
+			// Child session (in-memory ⇒ getSessionFile() = ""): no prompt change.
+			const childCtx = { sessionManager: { getSessionFile: () => "" } };
+			const childOut = await hook({ prompt: "prompt about the lora and argparse training behavior", systemPrompt: "BASE" }, childCtx);
+			expect(childOut).toBeUndefined();
+			// Persisted (parent) session: appends the recall block at the tail.
+			const parentCtx = { sessionManager: { getSessionFile: () => "/sessions/main.jsonl" } };
+			const parentOut = (await hook({ prompt: "prompt about the lora and argparse training behavior", systemPrompt: "BASE" }, parentCtx)) as { systemPrompt?: string };
+			expect(parentOut?.systemPrompt).toBeDefined();
+			expect(parentOut.systemPrompt!.startsWith("BASE\n\n<knowledge-recall>")).toBe(true);
+			expect(parentOut.systemPrompt).toContain("LoRA scale gotcha");
+			expect(parentOut.systemPrompt!.endsWith("</knowledge-recall>")).toBe(true);
+		} finally {
+			__setVaultResolverForTest(null);
+			delete process.env.KC_AUTORECALL;
+			rmSync(vault, { recursive: true, force: true });
+		}
 	});
 });

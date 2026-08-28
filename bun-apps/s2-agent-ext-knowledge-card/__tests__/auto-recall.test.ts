@@ -4,18 +4,18 @@
  *   - score floor: a top card under the shared-tag floor injects nothing
  *   - budget: per-entry 2× rule, turn cap with tail-drop (never slices),
  *     and the 350-tok default cap actually bounds the block
- *   - child-guard: S2_AGENT_SUBAGENT=1 never injects
+ *   - child-guard: in-memory session (falsy sessionFile) never injects
  *   - render: prefix-stable block format (fixed open/hint/close)
  *   - failure degradation: retrieval error / timeout inject nothing, never throw
  * All retrieval is injected — no vault, no embedder, hermetic.
  */
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect } from "bun:test";
 import {
 	AUTORECALL_DEFAULTS,
 	budgetLines,
 	buildAutoRecallBlock,
 	estimateTokens,
-	isSubagentChild,
+	isChildSession,
 	renderCardLine,
 	renderInjectionBlock,
 	shouldRecall,
@@ -63,14 +63,10 @@ test("gate: bare chitchat skips, greeting inside a real question does not", () =
 
 // ─── child-guard ─────────────────────────────────────────────────────────────
 
-test("child-guard: S2_AGENT_SUBAGENT=1 skips injection entirely", () => {
-	process.env.S2_AGENT_SUBAGENT = "1";
-	try {
-		expect(isSubagentChild()).toBe(true);
-	} finally {
-		delete process.env.S2_AGENT_SUBAGENT;
-	}
-	expect(isSubagentChild()).toBe(false);
+test("child-guard: in-memory session (falsy sessionFile) is a child; persisted is not", () => {
+	expect(isChildSession("")).toBe(true);
+	expect(isChildSession(undefined)).toBe(true);
+	expect(isChildSession("/home/u/.pi/agent/sessions/abc.jsonl")).toBe(false);
 });
 
 // ─── budget ──────────────────────────────────────────────────────────────────
@@ -138,23 +134,23 @@ test("pipeline: gates before retrieval (disabled/short/child) — retrieve NOT c
 		calls++;
 		return { count: 1, cards: [fakeCard()] };
 	};
-	process.env.S2_AGENT_SUBAGENT = "1";
-	try {
-		const r = await buildAutoRecallBlock("a long prompt about lora training runs", { vaultPath: "/v", retrieve }, ARMED);
-		expect(r.block).toBe("");
-		expect(r.trace.gated).toBe(true);
-		expect(calls).toBe(0);
-	} finally {
-		delete process.env.S2_AGENT_SUBAGENT;
-	}
-	const r2 = await buildAutoRecallBlock("short", { vaultPath: "/v", retrieve }, ARMED);
+	// Child session (in-memory ⇒ empty sessionFile) gates before retrieval.
+	const r = await buildAutoRecallBlock(
+		"a long prompt about lora training runs",
+		{ vaultPath: "/v", retrieve, sessionFile: "" },
+		ARMED,
+	);
+	expect(r.block).toBe("");
+	expect(r.trace.gated).toBe(true);
+	expect(calls).toBe(0);
+	const r2 = await buildAutoRecallBlock("short", { vaultPath: "/v", retrieve, sessionFile: "/s.jsonl" }, ARMED);
 	expect(calls).toBe(0);
 	expect(r2.trace.gated).toBe(true);
 });
 
 test("pipeline: score floor — top card under the floor injects nothing", async () => {
 	const retrieve = async () => ({ count: 1, cards: [fakeCard({ sharedTags: 1 })] });
-	const r = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve }, ARMED);
+	const r = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve, sessionFile: "/s.jsonl" }, ARMED);
 	expect(r.block).toBe("");
 	expect(r.trace.gated).toBe(true);
 	expect(r.trace.retrieved).toBe(1);
@@ -165,7 +161,7 @@ test("pipeline: healthy pass renders a bounded ranked block", async () => {
 		count: 2,
 		cards: [fakeCard(), fakeCard({ id: "t2", title: "Second", sharedTags: 2 })],
 	});
-	const r = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve }, ARMED);
+	const r = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve, sessionFile: "/s.jsonl" }, ARMED);
 	expect(r.trace.kept).toBe(2);
 	expect(r.block).toContain("[gotcha] Test Card");
 	expect(r.block).toContain("[gotcha] Second");
@@ -176,30 +172,32 @@ test("pipeline: retrieval failure / timeout injects nothing and never throws", a
 	const boom = async () => {
 		throw new Error("embedder down");
 	};
-	const r = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve: boom }, ARMED);
+	const r = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve: boom, sessionFile: "/s.jsonl" }, ARMED);
 	expect(r.block).toBe("");
 	expect(r.trace.timedOut).toBe(false);
 
 	const hang = () => new Promise<never>(() => {}); // never settles → timeout path
-	const r2 = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve: hang }, ARMED);
+	const r2 = await buildAutoRecallBlock("prompt about the lora and argparse training behavior", { vaultPath: "/v", retrieve: hang, sessionFile: "/s.jsonl" }, ARMED);
 	expect(r2.block).toBe("");
 	expect(r2.trace.timedOut).toBe(true);
 });
 
-// ─── env restore discipline (mirrors the core-runtime set/restore) ──────────
+// ─── wiring-level pins (extension-contract companion) ────────────────────────
+// The hook-level behavior (ctx guard, armed append) is pinned in
+// extension-contract.test.ts; here we pin the pipeline's sessionFile plumbing.
 
-test("env: guard reads live env (documents the core-runtime contract)", () => {
-	const prev = process.env.S2_AGENT_SUBAGENT;
-	process.env.S2_AGENT_SUBAGENT = "1";
-	expect(isSubagentChild()).toBe(true);
-	if (prev === undefined) delete process.env.S2_AGENT_SUBAGENT;
-	else process.env.S2_AGENT_SUBAGENT = prev;
-	expect(isSubagentChild()).toBe(false);
+test("pipeline: a persisted sessionFile reaches retrieval (parent path)", async () => {
+	let seen = false;
+	const retrieve = async () => {
+		seen = true;
+		return { count: 1, cards: [fakeCard()] };
+	};
+	const r = await buildAutoRecallBlock(
+		"prompt about the lora and argparse training behavior",
+		{ vaultPath: "/v", retrieve, sessionFile: "/sessions/main.jsonl" },
+		ARMED,
+	);
+	expect(seen).toBe(true);
+	expect(r.trace.kept).toBe(1);
 });
 
-beforeEach(() => {
-	delete process.env.S2_AGENT_SUBAGENT;
-});
-afterEach(() => {
-	delete process.env.S2_AGENT_SUBAGENT;
-});

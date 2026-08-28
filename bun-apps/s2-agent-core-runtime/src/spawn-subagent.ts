@@ -361,15 +361,6 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
   })();
 
   const tryOnce = async (): Promise<{ result: SpawnSubagentResult; transient: boolean }> => {
-    // Subagent-child marker (kcard ticket 08): children load extensions fresh
-    // from disk and their AgentSession fires before_agent_start, so a per-turn
-    // hook (e.g. knowledge auto-recall) must be able to tell a child from the
-    // parent. Safe against the shared process.env because the parent's turn is
-    // blocked on this tool call while the child runs — the marker is only ever
-    // observed by child sessions and the restored parent. Set/restored around
-    // the WHOLE attempt (session creation through run) in finally.
-    const prevSubagent = process.env.S2_AGENT_SUBAGENT;
-    process.env.S2_AGENT_SUBAGENT = "1";
     const ac = new AbortController();
     if (opts.externalSignal) {
       if (opts.externalSignal.aborted) ac.abort();
@@ -429,10 +420,6 @@ export async function spawnSubagent(opts: SpawnSubagentOptions): Promise<SpawnSu
       };
     } finally {
       if (timer) clearTimeout(timer);
-      // Restore the subagent marker (see the set-site comment): undefined →
-      // delete so the parent session's own hooks observe a clean env.
-      if (prevSubagent === undefined) delete process.env.S2_AGENT_SUBAGENT;
-      else process.env.S2_AGENT_SUBAGENT = prevSubagent;
     }
   };
 
