@@ -26,10 +26,15 @@ on:
     inputs:
       # Diagnostic escape hatch (crossos follow-through 2026-08-28): bun.exe
       # 1.4.0 as a cmd/powershell child loses ALL its stdout while exiting 0
-      # (measured, layer-diag rounds 1-3) — possibly bun#12108. Dispatching
-      # with a newer bun measures whether a bun upgrade would unblock the
-      # windows launcher chain. The deploy ships a runtime matching the
-      # RUNNING Bun.version (D7), so this one input moves both.
+      # (measured, layer-diag rounds 1-3). NOT bun#12108 — that upstream
+      # issue is batch termination; no matching upstream issue exists
+      # (searched 2026-08-29; upstream filing deliberately skipped, effort
+      # 2026-08-28-win32-launcher-stdout D5). Matrix (ticket 01): 1.4.0 =
+      # bug present; 1.3.14 = workspace install fails on windows
+      # (bun-types link ENOENT, run 33220283080); canary = no GitHub release
+      # assets, not acquirable by the deploy (D7). The deploy ships a
+      # runtime matching the RUNNING Bun.version (D7), so this one input
+      # moves both.
       bun-version:
         description: "bun version for setup-bun (default: the pinned 1.4.0)"
         required: false

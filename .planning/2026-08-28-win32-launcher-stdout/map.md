@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-28-win32-launcher-stdout
 created: 2026-08-28
-last: 2026-08-28 (charted via grill-me-with-docs — user anchored launcher 真修; spec + 3 tickets seeded)
+last: 2026-08-29 (ticket 01 closed — matrix measured, upstream unfound+unfiled per D5, verdict: shim workaround required)
 status: active
 ---
 
@@ -49,7 +49,7 @@ feeds 02's fix-path verdict, 02 feeds 03's record; confirmed 2026-08-28).
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-measure-upstream-truth.md` | open | bun-version matrix via the dispatch input + real upstream issue (find/file); correct the wrong #12108 notes; fix-path verdict |
+| `tickets/01-measure-upstream-truth.md` | closed | Matrix measured (1.4.0 buggy; 1.3.14 install-dead; canary unacquirable); NO matching upstream issue, filing skipped (D5); #12108 notes corrected; verdict: shim workaround required |
 | `tickets/02-launcher-speaks.md` | open | Implement the selected fix (repo-wide pin bump per D2, or no-console-spawn shim); verify flips skip→PASS, windows-latest green |
 | `tickets/03-record-and-refresh-dist.md` | open | ADR/docs record of the standing contract + local dist re-deploy with verify-deploy-e2e green |
 
@@ -68,23 +68,38 @@ feeds 02's fix-path verdict, 02 feeds 03's record; confirmed 2026-08-28).
   verify-recipe note).
 - D4 (2026-08-28, scope — user): subagent-family work (reviewer-subagent
   comms fix) is deliberately OUT — the next effort after this one drains.
+- D5 (2026-08-29, user): NO upstream filing at oven-sh/bun — internal
+  descriptive record only. (Searched first: no matching issue exists;
+  bun#12108 is batch termination, not stdout loss. The ready-to-file
+  minimal repro lives in ticket 01's close-out if this is ever revisited.)
 
 ## Frontier
 
-Ticket 01 (measure upstream truth) — nothing blocks it, its receipts decide
-ticket 02's path (upgrade vs shim), and the dispatch hatch (#2110 input)
-already exists: it is one `workflow_dispatch` + log read away from starting.
+Ticket 02 (launcher speaks) — ticket 01 closed 2026-08-29: the version
+matrix is measured and the upgrade path is DEAD on all three fronts
+(1.4.0 = latest stable AND buggy; 1.3.14 = windows workspace install
+fails at bun-types@1.3.14 link ENOENT, run 33220283080; canary
+1.4.0-canary.20260828.1 = no GitHub release assets, D7 acquisition
+cannot fetch). 01's verdict routes 02 to the shim workaround: prove the
+no-console-spawn hypothesis with a diag variant FIRST (bun.exe with an
+inherited console plausibly writes via WriteConsole, bypassing stdio
+handles — consistent with cmd-bun-file 0B), then rewrite the shipped
+.cmd/.ps1 entries around whatever the proof shows, then flip the verify
+recipe's skip-classification back to honest PASS.
 
 ## Fog of war
 
-- The real upstream bun issue for stdout-loss-as-console-child: unknown —
-  found-or-filed is ticket 01's acceptance.
-- Whether any current bun release fixes the layer: unmeasured (the input
-  exists but was never run with a newer version).
+- ~~The real upstream bun issue~~ RESOLVED 2026-08-29 (ticket 01): none
+  exists (searched); filing deliberately skipped (D5).
+- ~~Whether any current bun release fixes the layer~~ RESOLVED 2026-08-29
+  (ticket 01): no measurable upgrade path — verdict is shim workaround.
 - The no-console-spawn workaround hypothesis (bun writes via WriteConsole
   when it has a console, bypassing handles): plausible against the
   cmd-bun-file 0B evidence but UNPROVEN — a diag variant must prove it
   before any shipped shim rewrites (ticket 02).
+- Could a canary ever be measured? Only by extending deploy acquisition to
+  the npm channel (canaries have no GitHub release assets) — not charted;
+  revisit only if the shim route also fails.
 - macOS/Linux launcher behavior is assumed unaffected (probes pass there);
   not re-measured by this effort.
 
