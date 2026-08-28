@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-22-context-lifecycle
 created: 2026-08-22
-last: 2026-08-23
+last: 2026-08-28
 status: open
 pipeline: wayfind→superpowers
 ---
@@ -121,7 +121,7 @@ Phase P1 — card schema v2 + tiered retrieval
 - `tickets/07-tier-ladder-retrieval.md` — task, **closed 2026-08-23** — `RetrievedCard.tier`+`tiers` (L0/L1/L2 pre-rendered, `src/tier-ladder.ts`), demote-not-truncate everywhere (digest, knowledge_query, zk.retrieve, buildRagTask Step 4); tokens/card ↓63.3% (65 vs 178 tok, receipt `output/tier-ladder/`); D3 re-confirmed bge-m3 (see Context); recall-audit unchanged (hit@5 17/20, MRR 0.688)
 
 Phase P2 — injection loop + ledger
-- `tickets/08-auto-recall-injector.md` — task, **open** — before_agent_start budgeted injection
+- `tickets/08-auto-recall-injector.md` — task, **closed 2026-08-28** — probe: before_agent_start DOES fire in spawnSubagent children (both paths) → per-session child-guard (`sessionManager.getSessionFile()` falsy ⇒ skip, D9 re-decided after review round 2 refuted the env-marker design); `src/inject/auto-recall.ts` (deterministic gate, single retrieveRecords path, 350-tok/turn cap + 2× per-entry + ranked-walk drop, prefix-stable block); /knowledge-recall command; KC_AUTORECALL default-off; hermetic unit pins + contract default-off pin + armed-append wiring pin (real tmp vault); kcard tests green
 - `tickets/09-recall-ledger.md` — task, **open** — session cooldown, no_relevant records nothing
 - `tickets/10-injection-probe-and-flip.md` — task, **open** — measure, then flip default ON (risky)
 
@@ -159,23 +159,44 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 - **D8 — feedback re-ranks, never dominates.** Hotness enters `retrieveRecords` as a bounded
   ≤±10% multiplier; the IDF-promotion lesson (a scoring change must beat the count baseline
   on the eval set before it defaults) applies to it too.
+- **D9 — child-guard seam = per-session `sessionManager.getSessionFile()` (ticket 08,
+  re-decided 2026-08-28 after review round 2).** Probe: `before_agent_start` DOES fire in
+  spawnSubagent children on BOTH paths (in-process `createAgentSession` with a fresh disk
+  extension load; subprocess `pi -p` is a full AgentSession) — double-inject is real, so
+  the guard is load-bearing. First design (process.env `S2_AGENT_SUBAGENT` marker set by
+  core-runtime) was REFUTED by the reviewer: `fork:true` background dispatch runs children
+  DETACHED in the parent's process while the parent's turn loop continues — the parent
+  would false-positive (silently skip recall) for the whole background window, and
+  overlapping attempts restore each other's marker (sticky = recall permanently off).
+  Shipped design: every child path runs on an in-memory session
+  (`SessionManager.inMemory()` in-process; `--no-session` in subprocess), so
+  `ctx.sessionManager.getSessionFile()` is "" — the hook reads its OWN ctx and skips on
+  falsy. Zero core-runtime surface; immune to background dispatch and overlap by
+  construction. Known limits (conservative direction): a user-run headless
+  `pi -p --no-session` MAIN session also looks in-memory (recall skips there); a caller
+  overriding a child's sessionManager with a persisted manager would defeat it (no such
+  caller exists). `KC_AUTORECALL` stays default-off until t10's measured flip; D6's
+  deterministic-gate letter is unchanged (no promptSnippet tax — stealth-trim test header
+  amended per D7).
 
 ## Frontier
 
-`tickets/08-auto-recall-injector.md` — ticket 07 closed 2026-08-23 (`RetrievedCard.tier` +
-`tiers` L0/L1/L2 pre-rendered text with demote-not-truncate across digest / knowledge_query
-/ zk.retrieve / buildRagTask; tokens/card ↓63.3%; D3 re-confirmed bge-m3 after a genuinely
-two-sided eval — English set favored nomic 48/50 vs 47/50, the binding recall-audit battery
-broke under nomic 15/20 vs 17/20). Ticket 08 is next because retrieval now HANDS the
-consumer a budgeted tier ladder, but nothing injects it: knowledge still reaches the prompt
-only if the model voluntarily calls a tool. The proven `before_agent_start` hook seam
-(ultracode, 0.98× warm cache) + ticket 07's `renderTier(tiers, tier, callerBudget)` is
-exactly the injector's context-assembly primitive.
+`tickets/09-recall-ledger.md` — ticket 08 closed 2026-08-28 (auto-recall injector shipped
+default-off: deterministic gate, single retrieveRecords path, 350-tok/turn budget with the
+2× per-entry rule and ranked-walk drop, prefix-stable `<knowledge-recall>` block,
+child-guard = per-session `sessionManager.getSessionFile()` per D9 as re-decided in review
+round 2; kcard 712 tests green, review round-2 APPROVE). Ticket 09 is
+next because the injector currently re-retrieves and re-injects the SAME top cards every
+turn of a session — the RecallLedger's per-session cooldown is what makes turn 2 inject
+different-or-less content, and its `no_relevant`-records-nothing rule needs the injector's
+trace (already returned by buildAutoRecallBlock) as the write feed. Ticket 10's default-ON
+flip is gated on t09 + t16 measurements, unchanged.
 
 ## Fog of war
 
-- Whether `before_agent_start` fires inside `spawnSubagent` child sessions (double-inject
-  risk) — one-line probe before ticket 08; the child-guard flag is designed regardless.
+- ~~Whether `before_agent_start` fires inside `spawnSubagent` child sessions (double-inject
+  risk)~~ — RESOLVED ticket 08 probe 2026-08-28: YES on both paths; guard is the per-session
+  `sessionManager.getSessionFile()` check (D9, re-decided in review round 2).
 - `turn_end` payload shape at the extension layer (assistant text surface unverified) —
   ticket 11 opens with a probe; zk_card provenance works even if turn_end doesn't.
 - One-time re-embed burst when card `summary:` backfill touches every card — MEASURED in

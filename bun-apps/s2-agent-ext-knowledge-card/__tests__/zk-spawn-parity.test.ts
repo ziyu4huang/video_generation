@@ -18,6 +18,7 @@ function mkPi() {
 			tools.set(t.name, t);
 		},
 		on() {},
+		registerCommand() {},
 		events: { on() {}, emit() {} },
 	};
 	return { pi, tools };

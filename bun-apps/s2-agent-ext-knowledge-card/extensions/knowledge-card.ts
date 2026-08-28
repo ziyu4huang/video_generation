@@ -141,6 +141,12 @@ import { fsLs, fsTree, fsFind, fsGrep, fsStat } from "../src/fs-surface.ts";
 import { onKnowledge } from "../src/emit.ts";
 import { convergeKnowledgeEmission } from "../src/converge.ts";
 import { readState } from "../src/distill/state.ts";
+import {
+	AUTORECALL_DEFAULTS,
+	buildAutoRecallBlock,
+	isChildSession,
+	type AutoRecallConfig,
+} from "../src/inject/auto-recall.ts";
 import type { MemoryEntry, EnrichedNote, ConvergeMetrics } from "../src/distill/types.ts";
 import {
 	ADD_TOOLS,
@@ -305,6 +311,72 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 		// seam (typed via @repo/s2-agent-core-interface). Live for the session;
 		// unpublishKnowledgePipeline() tears it down at session_shutdown.
 		publishKnowledgePipeline({ collectInputFiles, ingestRecords, retrieveRecords, healGraph, buildHierarchy });
+	});
+
+	// ── Auto-recall injector (ticket 08, context-lifecycle P2) ──────────────
+	// Per-turn budgeted L0 recall appended to the systemPrompt tail. Default
+	// OFF (KC_AUTORECALL=1 arms it); /knowledge-recall toggles + reports. The
+	// hook NEVER throws into the turn loop and NEVER injects inside subagent
+	// children: every child path runs on an in-memory session, so the guard
+	// reads THIS session's `ctx.sessionManager.getSessionFile()` (falsy ⇒
+	// child ⇒ skip) — per-session state, immune to the background-dispatch
+	// env races a process-global marker would have (review round 2, D9).
+	const autoRecall: AutoRecallConfig = {
+		...AUTORECALL_DEFAULTS,
+		enabled: process.env.KC_AUTORECALL === "1",
+	};
+	pi.on(
+		"before_agent_start",
+		async (
+			event: { prompt?: string; systemPrompt?: string },
+			ctx?: { sessionManager?: { getSessionFile?: () => string | undefined } },
+		) => {
+			if (!autoRecall.enabled) return;
+			try {
+				const sessionFile = ctx?.sessionManager?.getSessionFile?.();
+				if (isChildSession(sessionFile)) return;
+				const cwd = process.cwd();
+				// Vault resolution is its own bounded stage (a slow Tier-2
+				// Obsidian probe must not hold the turn open — review round 2
+				// finding); retrieval runs a second bounded stage inside
+				// buildAutoRecallBlock, so worst-case latency is ~2× timeoutMs.
+				let vaultT: ReturnType<typeof setTimeout> | undefined;
+				let vaultPath: string;
+				try {
+					vaultPath = await Promise.race([
+						resolveKnowledgeVault(cwd),
+						new Promise<never>((_, reject) => {
+							vaultT = setTimeout(() => reject(new Error("autorecall-vault-timeout")), autoRecall.timeoutMs);
+							(vaultT as unknown as { unref?: () => void }).unref?.();
+						}),
+					]);
+				} finally {
+					if (vaultT) clearTimeout(vaultT);
+				}
+				const prompt = typeof event.prompt === "string" ? event.prompt : "";
+				const { block } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile }, autoRecall);
+				if (!block) return;
+				const base = event.systemPrompt ?? "";
+				return { systemPrompt: `${base}\n\n${block}` };
+			} catch {
+				// best-effort: a failed vault resolution / retrieval injects nothing
+			}
+		},
+	);
+	pi.registerCommand("knowledge-recall", {
+		description:
+			"Auto-recall injector (ticket 08): no args = status | on/off = toggle per-session (KC_AUTORECALL=1 arms it by default). Injects ≤350 tok of ranked L0 knowledge into the systemPrompt per turn when armed.",
+		async handler(args: string, ctx: { ui?: { notify?: (m: string, level?: "error" | "info" | "warning") => void } }) {
+			const sub = args.trim().toLowerCase();
+			if (sub === "on") autoRecall.enabled = true;
+			else if (sub === "off") autoRecall.enabled = false;
+			const notify = (m: string) => ctx.ui?.notify?.(m) ?? pi.sendMessage({ customType: "knowledge-recall", content: m, display: true });
+			notify(
+				`knowledge-recall: ${autoRecall.enabled ? "ARMED" : "off"} ` +
+					`(cap ${autoRecall.tokenCap} tok/turn, floor ${autoRecall.scoreFloor} shared tags, ` +
+					`gate ≥${autoRecall.minPromptChars} chars; KC_AUTORECALL=1 arms new sessions)`,
+			);
+		},
 	});
 
 	// ── Auto-converge hermes memory → graph on session_shutdown (tier rule) ──
