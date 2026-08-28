@@ -17,12 +17,12 @@ hand-rolling the tool logic from scratch.
 
 ## Solution
 
-The deploy gains ONE additional artifact: `ext/ext-standalone.cjs` — a
+The deploy gains ONE additional artifact: `ext/ext-standalone.mjs` — a
 self-contained, side-effect-free loader ("the shim"). Any bun script, in any
 directory, on any machine with the dist, does:
 
 ```js
-const { loadExt, listExts } = require("<dist>/ext/ext-standalone.cjs");
+const { loadExt, listExts } = require("<dist>/ext/ext-standalone.mjs");
 const devops = loadExt("devops");
 const result = await devops.tool("sync_default_branch").execute({ mode: "dryRun" });
 ```
@@ -73,8 +73,11 @@ existing bundles are untouched by this effort.
 
 ## Implementation Decisions
 
-- **Artifact**: `<dist>/ext/ext-standalone.cjs`, built by
-  `bun build --target=bun --format=cjs --minify` from a NEW side-effect-free
+- **Artifact**: `<dist>/ext/ext-standalone.mjs`, an ESM bundle built by
+  `bun build --target=bun --minify` (same shape as the core bundle — in an
+  ESM bun bundle `import.meta.dir` is the bundle's REAL runtime path, so the
+  shim self-locates the way the deployed core does; bun's cjs output would
+  fold `__dirname` to build-machine paths) from a NEW side-effect-free
   entry in the s2-agent core (`src/sh/standalone.ts`). The entry re-exports
   the REAL `extRequire` / `evaluateExtModule` from `src/sh/ext-loader.ts`
   and the REAL host registry from `src/sh/host-modules.ts` — semantics

@@ -1,6 +1,6 @@
 ---
 type: task
-status: open
+status: closed
 ---
 
 # 01 — Standalone shim entry (`src/sh/standalone.ts`)

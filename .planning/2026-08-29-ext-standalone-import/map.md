@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-ext-standalone-import
 created: 2026-08-29
-last: 2026-08-29 (effort opened — spec + 5 tickets charted, execution order confirmed D7)
+last: 2026-08-29 (ticket 01 closed — shim entry + 12 tests green, D4 amended to ESM .mjs)
 status: active
 ---
 
@@ -59,7 +59,7 @@ Confirmed 2026-08-29.
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-shim-entry.md` | open | `s2-agent/src/sh/standalone.ts` — side-effect-free `loadExt`/`listExts` entry over `extRequire`/`evaluateExtModule`; unit tests |
+| `tickets/01-shim-entry.md` | closed | `standalone.ts` + 12 contract tests green; s2-agent full suite 989 pass/0 fail; D4 amended (ESM `.mjs`, `import.meta.dir` self-location) |
 | `tickets/02-deploy-build-step.md` | open | Deploy builds `<dist>/ext/ext-standalone.cjs` (full-registry inline, content-addressed cache, Gates 1/4/5, deploy.json record) |
 | `tickets/03-dist-agents-md.md` | open | Deploy writes `<outRoot>/AGENTS.md` — agent-facing usage guide for the standalone import mechanism |
 | `tickets/04-e2e-standalone-import.md` | open | Post-deploy E2E probe `standalone-import`: /tmp consumer script, devops dry-run on a fixture git repo, file2md cross-check, foreign-path assert |
@@ -78,10 +78,13 @@ Confirmed 2026-08-29.
   over the alternatives: vendored `node_modules` tree (bigger, closure
   computation, offline-gate re-verification) or a second core entry at the
   version-dir root (same construct, two-entry drift risk).
-- D4 (2026-08-29, design): dist-root resolution = `dirname(module.filename)`
-  (the cjs wrapper's `module` param carries the real path — bun only folds
-  in-code `__dirname` literals) with an explicit `distRoot` option as
-  override; proven by t04's foreign-path assert.
+- D4 (2026-08-29, design; amended same day during t01): the shim is an ESM
+  bundle `ext/ext-standalone.mjs` (`bun build --target=bun`, like the core),
+  NOT cjs — in an ESM bun bundle `import.meta.dir` is the bundle's REAL
+  runtime path (the deployed core resolves its ext root the same way,
+  `mode.ts deployRoot`), whereas bun's cjs output folds in-code
+  `__dirname`/`__filename` to build-machine paths. Explicit `distRoot`
+  option overrides; proven by t04's foreign-path assert.
 - D5 (2026-08-29, user requirement): the deploy writes an **`AGENTS.md` at
   the dist outRoot** — version-agnostic (references `current`), so any
   agent discovering the dist learns the import mechanism without our repo.

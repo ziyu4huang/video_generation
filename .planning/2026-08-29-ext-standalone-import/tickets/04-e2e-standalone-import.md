@@ -17,7 +17,7 @@ A new `standalone-import` probe in the deploy-e2e recipe (runs with the
 automatic post-deploy E2E; `verify-deploy-e2e-cli` picks it up for post-hoc
 runs). Steps: (1) write a ~10-line consumer script into an empty temp dir
 OUTSIDE the repo and dist trees; (2) the script requires the deployed
-`<versionDir>/ext/ext-standalone.cjs`, calls `listExts()`, `loadExt("devops")`,
+`<versionDir>/ext/ext-standalone.mjs`, calls `listExts()`, `loadExt("devops")`,
 and executes `sync_default_branch` in dry-run against a throwaway fixture
 git repo created by the probe (git-only, offline); (3) assert a structured
 JSON outcome (`commands[]`, ok/aborted shape); (4) cross-check `file2md`
