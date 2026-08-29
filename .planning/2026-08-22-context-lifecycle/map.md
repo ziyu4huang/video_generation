@@ -29,7 +29,7 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   → armed floor=0 12/20 (60%), Δ+40pct** (armed floor=2 = default gates: 2/20 ≈ the
   no-op injector calibration predicts). Calibration (deterministic): floor=2 → 1/20
   injected, floor=1 → 1/20, **floor=0 → 20/20 with the target card in the block**, block
-  median 323 / max 377 est-tok, chitchat 0/5. Go/no-go: **payoff YES, flip still NO** (D12)
+  median 318 / max 377 est-tok, chitchat 0/5. Go/no-go: **payoff YES, flip still NO** (D12)
   — three blockers recorded: (1) **auto-converge × semantic cache interplay** — hermes
   auto-converge at session_shutdown touches card mtimes, the cache fingerprint is
   name+mtime, so every session invalidates the cache → 828-card re-embed burst (measured

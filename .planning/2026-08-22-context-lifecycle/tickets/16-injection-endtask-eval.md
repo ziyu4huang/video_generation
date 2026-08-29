@@ -42,7 +42,7 @@ One full run receipt (accuracy both arms, tokens/turn, duration); decision recor
 negatives, deterministic grader, serialized, `--thinking off --tools read`, bonsai-27b,
 43 min ≤ 1 h cap), receipt `output/injection-endtask/receipt-2026-08-29T01-57-14-101Z.json`:
 - Calibration (deterministic, no LLM): floor=2 → 1/20 injected; floor=1 → 1/20; **floor=0 →
-  20/20 injected, 20/20 with the TARGET card in the block**, block tokens median 323 / max
+  20/20 injected, 20/20 with the TARGET card in the block**, block tokens median 318 / max
   377 (≤350 cap + coarse-estimate noise); chitchat gate 0/5 tripped (CJK-weighted length).
 - Arms: off 4/20 (20%) · floor2 2/20 (10%, ≈ no-op injector as calibration predicts, within
   timeout noise) · **floor0 12/20 (60%)**. Per-turn injection evidence `kept=3 tok=338`
@@ -68,5 +68,5 @@ negatives, deterministic grader, serialized, `--thinking off --tools read`, bons
 - **Flip decision: default stays OFF (D11 unchanged).** The end-task payoff question is
   ANSWERED (yes, +40pct under floor=0), but flipping requires: the converge/cache fix (1),
   a floor=0 precision probe on off-topic substantive prompts, and D11's cache-gate re-probe
-  (floor=0 blocks are bigger: median 323 vs t10's 282 p95 — the 1.156× transition ratio
+  (floor=0 blocks are bigger: median 318 vs t10's 282 p95 — the 1.156× transition ratio
   will not have improved).

@@ -28,7 +28,7 @@
  *   OB_VAULT_PATH=/Users/huangziyu/proj/pi-agent-vault \
  *     bun bun-apps/s2-agent-ext-knowledge-card/scripts/injection-endtask.mjs
  *   --calibrate-only   stop after phase 1
- *   --arm <name>       run a single arm (off | floor2 | floor1)
+ *   --arm <name>       run a single arm (off | floor2 | floor0)
  * Env: OB_VAULT_PATH (REQUIRED — t10 vault-resolution trap: resolveVault
  *      from a repo cwd resolves the personal-config vault otherwise),
  *      ENDTASK_PROVIDER (default lm-studio), ENDTASK_MODEL (default
@@ -91,7 +91,7 @@ const argValue = (name) => {
 
 const VAULT = process.env.OB_VAULT_PATH;
 if (ARGS.has("--help")) {
-	console.log("usage: OB_VAULT_PATH=<vault> bun bun-apps/s2-agent-ext-knowledge-card/scripts/injection-endtask.mjs [--calibrate-only] [--arm off|floor2|floor1]");
+	console.log("usage: OB_VAULT_PATH=<vault> bun bun-apps/s2-agent-ext-knowledge-card/scripts/injection-endtask.mjs [--calibrate-only] [--arm off|floor2|floor0]");
 	process.exit(0);
 }
 if (!VAULT) {
@@ -212,7 +212,7 @@ const ARMS = [
 const only = argValue("--arm");
 const arms = only ? ARMS.filter((a) => a.name === only) : ARMS;
 if (!arms.length) {
-	console.error(`unknown --arm "${only}" (off | floor2 | floor1)`);
+	console.error(`unknown --arm "${only}" (off | floor2 | floor0)`);
 	process.exit(2);
 }
 
@@ -257,7 +257,11 @@ for (const arm of arms) {
 		const stdout = (proc.stdout ?? "").trim();
 		const stderr = (proc.stderr ?? "");
 		// One debug line per injected/attempted turn: kept=N tok=M [error=...]
-		const dbg = [...stderr.matchAll(/\[autorecall-debug\] gated=(\w+) kept=(\d+) tok=(\d+)(?: error="?([^"\n]*?)"?)?/g)].pop();
+		// The error group is anchored on the trailing ` prompt=` (or EOL) so the
+		// lazy capture cannot collapse to "" — review round 1 blocker: the
+		// unanchored form silently dropped every error string, exactly the
+		// wedge-visibility this field exists for.
+		const dbg = [...stderr.matchAll(/\[autorecall-debug\] gated=(\w+) kept=(\d+) tok=(\d+)(?: error="?([^"\n]*?)"?)?(?=\s+prompt=|$)/g)].pop();
 		let pass = null;
 		if (p.kind === "q") {
 			const item = QUESTIONS.find((x) => x.id === p.id);
@@ -305,6 +309,14 @@ if (out.off && (out.floor0 || out.floor2)) {
 		deltaPct: (best.accuracyPct ?? 0) - base,
 		ticketGate: "armed ≥ unarmed (injection must at least not hurt)",
 		pass: (best.accuracyPct ?? 0) >= base,
+		// The SHIPPED default config's own arm — the gate above passes on the
+		// BEST armed config; the default-gates arm must be reported beside it,
+		// not hidden behind the best (review nit 3: floor2 measured 2/20 vs
+		// off 4/20 — within per-arm timeout noise, but the receipt says so).
+		armedDefaultAccuracyPct: out.floor2?.accuracyPct ?? null,
+		armedDefaultNote: out.floor2
+			? `default-gates arm (floor=2) measured ${out.floor2.accuracy} vs off ${out.off.accuracy} — the default injector injects ~1/20 (calibration), so this arm is ≈unarmed + timeout noise, NOT a measured harm of injection`
+			: null,
 		measuredUnder: {
 			scoreFloor: best === out.floor0 ? 0 : 2,
 			minPromptChars: AUTORECALL_DEFAULTS.minPromptChars,
@@ -312,13 +324,19 @@ if (out.off && (out.floor0 || out.floor2)) {
 		},
 	};
 	console.log(`\nVERDICT: armed ${best.accuracyPct}% vs unarmed ${base}% (Δ${out.verdict.deltaPct >= 0 ? "+" : ""}${out.verdict.deltaPct}pct, floor=${out.verdict.measuredUnder.scoreFloor}) → ${out.verdict.pass ? "injection does not hurt" : "injection HURTS — record rollback rationale"}`);
+	if (out.verdict.armedDefaultAccuracyPct !== null) {
+		console.log(`        default-gates arm (floor=2): ${out.verdict.armedDefaultAccuracyPct}% — ≈unarmed (injector no-op at floor 2), not a measured harm`);
+	}
 }
 writeReceipt();
 
 function median(xs) {
 	if (!xs.length) return null;
 	const s = [...xs].sort((a, b) => a - b);
-	return s[Math.floor(s.length / 2)];
+	const mid = s.length >> 1;
+	// True median: average of the middle pair on even length (the upper-median
+	// shortcut over-reported block median 323 vs the true 318 — review nit 2).
+	return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
 function writeReceipt() {
