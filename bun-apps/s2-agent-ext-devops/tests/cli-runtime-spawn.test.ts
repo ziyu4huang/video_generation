@@ -109,6 +109,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 		expect(payload.probes.map((p: { id: string; verdict: string }) => `${p.id}:${p.verdict}`)).toEqual([
 			"boot:pass",
 			"ext-load:pass",
+			"cwd-independence:pass",
 			"tools-probe:pass",
 			"model-call:pass",
 			"vision-call:skip",
