@@ -158,7 +158,7 @@ distinct from the PR/merge keywords above.
 - For deploy_pi_agent_sh/verify_pi_agent_deploy: `deploy.ts` and `run-test.ts` are the single source of
   truth — no deploy logic is duplicated. Scripts exist only in the **source
   repo**; the tools resolve that dir and refuse to spawn if unreachable (never a
-  wrong-cwd spawn). Set `PI_AGENT_DIR` to override. No top-level `cd`; spawn uses
+  wrong-cwd spawn). Resolution ladder: `PI_AGENT_DIR` env > the `#pi/ext-dir` walk > the **cwd walk** (a dist-hosted session sitting in a source worktree resolves via cwd; each walk rung tries the dir itself and its `bun-apps/` subdir, so a repo-ROOT cwd resolves too — 2026-08-29 fix for "Could not locate the source s2-agent dir" from dist-hosted sessions). No top-level `cd`; spawn uses
   `cwd: <absolute s2-agent dir>`.
 - Dynamic + tool-gated (the PR/merge tools via their own keywords; deploy_pi_agent_sh /
   verify_pi_agent_deploy via build/deploy/verify/bundle keywords + noun∧verb requires);

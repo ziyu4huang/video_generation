@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolvePiAgentDir } from "../src/deploy-run.ts";
@@ -48,5 +48,43 @@ describe("resolvePiAgentDir", () => {
 		const extDir = join(nowhere, "ext", "devops");
 		mkdirSync(extDir, { recursive: true });
 		expect(resolvePiAgentDir({}, extDir)).toBeNull();
+	});
+	test("dist-hosted ext-dir rung falls through to the CWD rung (session sitting in a source worktree)", () => {
+		// The 2026-08-29 failure shape: a session launched from a deployed dist
+		// gets an #pi/ext-dir inside the dist tree (walk finds nothing) — but
+		// its cwd IS a source worktree. The cwd rung must rescue it.
+		const root = fakeRepo();
+		const nowhere = mkdtempSync(join(tmpdir(), "deploy-ext-empty-"));
+		const distExtDir = join(nowhere, "ext", "devops");
+		mkdirSync(distExtDir, { recursive: true });
+		const prevCwd = process.cwd();
+		try {
+			process.chdir(root); // cwd = a source worktree ROOT (one level above bun-apps)
+			const got = resolvePiAgentDir({}, undefined, { extDirStart: () => distExtDir });
+			// macOS: chdir resolves /var → /private/var, so compare realpaths.
+			expect(got && realpathSync(got)).toBe(realpathSync(join(root, "bun-apps", "s2-agent")));
+		} finally {
+			process.chdir(prevCwd);
+		}
+	});
+	test("both rungs failing returns null (dist tree, empty cwd)", () => {
+		const nowhere = mkdtempSync(join(tmpdir(), "deploy-ext-empty-"));
+		const distExtDir = join(nowhere, "ext", "devops");
+		mkdirSync(distExtDir, { recursive: true });
+		const empty = mkdtempSync(join(tmpdir(), "deploy-ext-empty-cwd-"));
+		const prevCwd = process.cwd();
+		try {
+			process.chdir(empty);
+			const got = resolvePiAgentDir({}, undefined, { extDirStart: () => distExtDir });
+			expect(got).toBeNull();
+		} finally {
+			process.chdir(prevCwd);
+		}
+	});
+	test("a start dir AT the repo root resolves via the bun-apps base rung", () => {
+		// The walk's each-rung base set is {dir, dir/bun-apps}: a cwd at the
+		// repo ROOT (not inside bun-apps) still resolves.
+		const root = fakeRepo();
+		expect(resolvePiAgentDir({}, root)).toBe(join(root, "bun-apps", "s2-agent"));
 	});
 });

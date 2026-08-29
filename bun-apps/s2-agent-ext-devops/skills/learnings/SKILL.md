@@ -44,6 +44,21 @@ The `hermes-memory` extension uses `~/.pi/agent/pi-hermes-memory/skills/` as **b
 
 ---
 
+## [tool-quirk] promoting a doc into an active SKILL.md brings its `.sh` mentions under the no-bash-skills docs seal
+
+**Added:** 2026-08-29
+
+`bun-apps/tests/no-bash-skills-guard.test.ts` (gate `test:no-bash-skills`) scans every **active `SKILL.md`** for `.sh` mentions. Docs that previously lived outside `skills/` (e.g. the old `docs/agents/` folder) were never scanned — converting them to skills (PR #2135) surfaced mentions the seal rejects, and `run_local_ci` went red only AFTER the promotion.
+
+Rules that bite during such a migration:
+
+- A mention of a `BANNED_TOOLS` name (the five deleted bash launchers listed in the guard's `BANNED_TOOLS` const — including the dedup and run-test ones) is an **unconditional violation on the docs surface** — no history-label relief; describe the launcher without naming it.
+- Other `.sh` mentions pass only if they (a) are a D6 exception, (b) **resolve on disk** from the repo root (so a bare `setup-repo-deps.sh` must be written as `scripts/setup-repo-deps.sh`), or (c) carry a same-line history label (`history`/`old`/`used to`/`retired`/`pre-Bun-port`).
+
+Before promoting a doc to a skill, grep it for `\.sh` and pre-fix mentions — the seal is a local_ci **gate**, not a lint.
+
+---
+
 ## [convention] Use the repo's git/gh tooling (devops extension + scripts/), not hand-rolled git
 
 **Added:** 2026-08-07
