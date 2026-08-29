@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 01
-status: open
+status: closed
 ---
 
 # 02 — reviewer-harvest CLI: poll, extract, receipt
@@ -30,10 +30,21 @@ with the session's Agent tool — this tool owns everything after.
 
 ## Acceptance
 
-- [ ] `scripts/` entry + `src/` lib, throw-free JSON contract, `--help`
+- [x] `scripts/` entry + `src/` lib, throw-free JSON contract, `--help`
       documented, scripts-dir-contract allowlist row added.
-- [ ] Unit tests green over fixture transcripts covering newest-selection,
+      (`scripts/reviewer-harvest.ts` + `src/reviewer-harvest.ts`; exit
+      0 completed / 1 still-running·absent·errored / 2 usage; allowlist
+      row in `tests/scripts-dir-contract.test.ts`.)
+- [x] Unit tests green over fixture transcripts covering newest-selection,
       name match, verdict extraction, still-running/absent/errored states,
-      receipt writing.
-- [ ] One live receipt: run against a real dispatched reviewer transcript
+      receipt writing. (`tests/reviewer-harvest.test.ts`, 21 tests incl.
+      scripts-dir contract — fixtures copied from the real t01 probe
+      transcript + the real 429 death shape; full devops `bun run test`
+      1030 pass + `tsc --noEmit` clean + local-ci green 2026-08-29.)
+- [x] One live receipt: run against a real dispatched reviewer transcript
       (can be t01's probe) and record the harvest output in the close-out.
+      (Live 2026-08-29: `--name injection-probe` → status completed, verdict
+      `INJECTION-PROBE-MARKER-Movie Director…`, SendMessage record captured,
+      receipt `output/reviewer-harvest/injection-probe-e4fa0b0d.json`,
+      exit 0; immediate re-run → `unchanged: true` — idempotence proven
+      live, not just in fixtures.)
