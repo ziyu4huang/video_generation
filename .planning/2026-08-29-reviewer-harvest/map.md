@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-reviewer-harvest
 created: 2026-08-29
-last: 2026-08-29 (charted via grill-me-with-docs — user anchored probe + SOP productization; spec + 3 tickets seeded)
+last: 2026-08-29 (ticket 01 closed — injection WORKS on CLI 2.1.250, ≤45s; notifications revert to primary, harvest tool = fallback + receipt)
 status: active
 ---
 
@@ -47,7 +47,7 @@ procedure discoverable without memory.
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-injection-reprobe.md` | open | Live re-probe of lead-inbox injection on the current claude CLI; receipt + verdict (notifications-revert vs harvest-primary) |
+| `tickets/01-injection-reprobe.md` | closed | CLI 2.1.250 probe: notification OBSERVED ≤45s (RCA baseline 2.1.247 = never/>24h) — notifications revert to primary; harvest tool stays fallback + receipt writer |
 | `tickets/02-harvest-tool.md` | open | reviewer-harvest CLI: locate newest subagent transcript by name, extract verdict, write receipt (throw-free JSON contract) |
 | `tickets/03-workflow-wiring.md` | open | devops-workflow review phase + skills gates + closeout SOP + CONTEXT.md glossary name the procedure |
 
@@ -65,9 +65,16 @@ procedure discoverable without memory.
 
 ## Frontier
 
-Ticket 01 (injection re-probe) — nothing blocks it, it is one dispatch +
-a watch away, and its verdict is the input t02's docs wording consumes.
-Do it while the session that charted this effort is still live.
+Ticket 02 (harvest tool) — ticket 01 closed 2026-08-29 with the verdict
+**injection WORKS on CLI 2.1.250 (notification observed ≤45s into the
+lead's conversation, mid-turn; probe transcript 8 lines, SendMessage
+receipt on disk)**: notifications revert to PRIMARY, so t02's tool lands
+as the FALLBACK + durable receipt writer (one command away on any
+regression), and t03 wires docs accordingly (primary = reply to the
+notification; fallback = harvest; inbox re-read at session start stays —
+the >24h delay mode would not show in a 45s window). The RCA memory note
+should be annotated by t03 or t02's close-out: 2.1.247→2.1.250 fixed
+prompt injection for this probe shape.
 
 ## Fog of war
 
