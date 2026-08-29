@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-slash-surface-consistency
 created: 2026-08-29
-last: 2026-08-30 (t01–t04 done)
+last: 2026-08-30 (t01–t05 done)
 status: open
 ---
 
@@ -86,8 +86,11 @@ listing derives after renames land).
   `piConfig.name` seam, measured on dist 0.8.0); source face's `pi` banner
   is upstream's own CLI in dev mode — patch refused (churn > dev-only
   value). Receipt in ticket.
-- [ ] **05-doctor-family-doc** — unify the five diagnostic surfaces in
-  one doc surface (domain-docs / CONTEXT.md), zero or near-zero code.
+- [x] **05-doctor-family-doc** — DONE (2026-08-30): routing table at
+  `s2-agent-ext-devops/docs/doctor-family.md` (5 surfaces re-measured live,
+  symptom→doctor routing); Doctor-family glossary term + cross-links
+  (devops CONTEXT.md, s2-agent doctor _Source_, debug-s2-session pointer);
+  surfaces deliberately NOT merged.
 
 ### Phase D — discoverability
 
@@ -143,9 +146,11 @@ listing derives after renames land).
 
 ## Frontier
 
-**05-doctor-family-doc** — 01–04 closed the behavioral, naming, and
-help-face slices; 05 unifies the five diagnostic surfaces in one doc
-surface (domain-docs / CONTEXT.md), zero or near-zero code.
+**06-tui-command-grouping** — the last ticket: a listing/grouping mechanism
+for the ~62-skill palette. FIRST check upstream 0.84.x for existing
+grouping support (skills.md / TUI command list); listing derives from the
+re-measured landscape (no renames needed post-D5). After 06: effort
+close-out (map status → complete) and the loop ENDS.
 
 ## Fog of war
 
