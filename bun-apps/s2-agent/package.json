@@ -22,10 +22,10 @@
     "deploy": "bun ../s2-agent-ext-devops/src/deploy-cli.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.2",
-    "@earendil-works/pi-ai": "0.84.2",
-    "@earendil-works/pi-coding-agent": "0.84.2",
-    "@earendil-works/pi-tui": "0.84.2",
+    "@earendil-works/pi-agent-core": "0.84.4",
+    "@earendil-works/pi-ai": "0.84.4",
+    "@earendil-works/pi-coding-agent": "0.84.4",
+    "@earendil-works/pi-tui": "0.84.4",
     "@repo/s2-agent-core-runtime": "workspace:*",
     "@repo/s2-agent-ext-archify": "workspace:*",
     "@repo/s2-agent-ext-btw": "workspace:*",

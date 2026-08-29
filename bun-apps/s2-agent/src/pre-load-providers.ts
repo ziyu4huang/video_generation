@@ -436,9 +436,9 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
   },
 
   // Z.AI's GLM coding API, OpenAI style. This REGISTERS OVER the baked pi-ai
-  // catalog provider "zai" (pi-ai@0.84.2 providers/data/zai.json ships
-  // glm-4.7 / glm-5-turbo / glm-5.2 / glm-5.2-highspeed / glm-5.3, all
-  // text-only): the extension-provider path REPLACES a provider's model list
+  // catalog provider "zai" (pi-ai@0.84.4 providers/data/zai.json ships
+  // glm-4.7 / glm-5-turbo / glm-5.2 / glm-5.2-highspeed / glm-5.3 /
+  // glm-5.3-flash / glm-5.3-highspeed): the extension-provider path REPLACES a provider's model list
   // with the extension's, so every baked model is re-listed below verbatim
   // (minus cost — the registration convention zeroes costs) — omitting one
   // makes it vanish from `--list-models` and breaks the "zai/glm-*" refs in
@@ -527,6 +527,20 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         name: "GLM-5.3 Flash",
         reasoning: true,
         input: ["text", "image"],
+        contextWindow: 1_000_000,
+        maxTokens: 131_072,
+      },
+      {
+        // NEW in baked pi-ai 0.84.4 (the drift guard requires the REPLACE
+        // list to cover every baked id). Field divergence vs baked, kept
+        // deliberately: baked carries supportsReasoningEffort:true + a
+        // thinkingLevelMap (low:"low") on the 5.3 family; our provider-level
+        // pin keeps effort OFF — the repo default is thinking:high, which the
+        // zai thinkingFormat honors without the effort field.
+        id: "glm-5.3-highspeed",
+        name: "GLM-5.3 Highspeed",
+        reasoning: true,
+        input: ["text"],
         contextWindow: 1_000_000,
         maxTokens: 131_072,
       },

@@ -23,7 +23,7 @@
  * ~/.pi state, no network, no model call.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATCH_TABLE } from "../patches/index.ts";
@@ -60,7 +60,17 @@ async function runCliSh(
 ): Promise<RunResult> {
 	const tmp = tempDir("cli-sh-argv-");
 	const capture = join(tmp, "cap.json");
-	const stubPath = join(tmp, "stub.ts");
+	// The stub MUST live inside the package tree: a bare
+	// "@earendil-works/pi-coding-agent" import from a /tmp mkdtemp resolves
+	// through bun's global cache to a STALE link of whatever version was
+	// linked there first (measured 2026-08-29: stub resolved 0.84.2 while the
+	// workspace resolved 0.84.4) — two module instances, so mock.module
+	// patched the one cli-sh never imports and the REAL main ran (live
+	// network call with any stub API key). Inside PKG_ROOT the specifier
+	// resolves through the workspace node_modules exactly like cli-sh's own
+	// import, so the mock lands on the same instance.
+	const stubPath = join(PKG_ROOT, "src", "__tests__", `.cli-sh-argv-stub-${Date.now()}-${Math.random().toString(36).slice(2)}.ts`);
+	STUBS_WRITTEN.push(stubPath);
 	const piHome = join(tmp, "pi-home");
 	const extRoot = join(tmp, "ext");
 	writeFileSync(stubPath, STUB);
@@ -102,7 +112,19 @@ async function runCliSh(
 
 // Formerly a dead `dirs[]` nothing ever pushed to — runCliSh's mkdtemp dirs
 // leaked per run. Registered cleanup via tempDir() now (round-2 ticket 04).
-afterEach(cleanupTempDirs);
+// Transient in-tree stub files (see runCliSh) — removed alongside temp dirs.
+const STUBS_WRITTEN: string[] = [];
+afterEach(() => {
+	for (const p of STUBS_WRITTEN) {
+		try {
+			rmSync(p, { force: true });
+		} catch {
+			// best-effort cleanup; the file is inert once the subprocess exits
+		}
+	}
+	STUBS_WRITTEN.length = 0;
+	cleanupTempDirs();
+});
 
 describe("cli-sh main() argv — default-model-env splice must reach pi", () => {
 	test("built-in default (zai/glm-5.3) is spliced into the argv main() receives", async () => {
@@ -110,11 +132,14 @@ describe("cli-sh main() argv — default-model-env splice must reach pi", () => 
 		expect(r.stderr).toBe("");
 		const i = r.argv.indexOf("--model");
 		expect(i).toBeGreaterThanOrEqual(0);
-		expect(r.argv[i + 1]).toBe(BUILTIN_MODEL_DEFAULT.model);
+		// Provider-QUALIFIED (pi 0.84.4+): glm-5.3 is no longer unique across
+		// providers (zai, zai-coding-cn, opencode-go all ship it), so the
+		// splice pins the provider in the id itself.
+		expect(r.argv[i + 1]).toBe(`${BUILTIN_MODEL_DEFAULT.provider}/${BUILTIN_MODEL_DEFAULT.model}`);
 		// --provider is NOT spliced when a --model token exists (incident
 		// 2026-08-22: the injected provider pinned lookup to zai and fabricated
 		// a bogus zai model id for `--model lm-studio/qwen/qwen3.8-27b` →
-		// zai 400). pi resolves bare "glm-5.3" to zai via unique exact match.
+		// zai 400). The qualified --model id carries the provider instead.
 		expect(r.argv).not.toContain("--provider");
 		const t = r.argv.indexOf("--thinking");
 		expect(r.argv[t + 1]).toBe(BUILTIN_MODEL_DEFAULT.thinking);

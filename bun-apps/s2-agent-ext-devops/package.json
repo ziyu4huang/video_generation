@@ -44,7 +44,7 @@
     "check": "tsc --noEmit"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.2",
+    "@earendil-works/pi-coding-agent": "0.84.4",
     "typebox": "*"
   },
   "devDependencies": {
@@ -52,7 +52,7 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-ai": "0.84.4",
     "@repo/s2-agent-core-interface": "workspace:*"
   }
 }
