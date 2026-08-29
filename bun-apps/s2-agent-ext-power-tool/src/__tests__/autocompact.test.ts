@@ -198,6 +198,49 @@ describe("checkAutocompact (agent_settled hook)", () => {
     expect(checkAutocompact(child.ctx as never)).toBe(false);
     expect(getThreshold("child-session")).toBeUndefined();
   });
+
+  test("onError clears the guard and notifies the failure", () => {
+    setThreshold("sess-1", 50_000);
+    const env = makeCtx({ tokens: 60_000, contextWindow: 128000, percent: 47 });
+    // compact fires onError instead of onComplete.
+    (env.ctx as { compact: unknown }).compact = (opts?: { onError?: (e: Error) => void }) => {
+      env.compactCalls.push(opts);
+      queueMicrotask(() => opts?.onError?.(new Error("Nothing to compact (session too small)")));
+    };
+    checkAutocompact(env.ctx as never);
+    // Drain the microtask queue, then assert the guard cleared + error surfaced.
+    return Promise.resolve().then(() => {
+      Promise.resolve().then(() => {
+        expect(isCompacting("sess-1")).toBe(false);
+        const err = env.notifications.find((n) => n.level === "error");
+        expect(err?.msg).toContain("compaction failed");
+        expect(err?.msg).toContain("Nothing to compact");
+      });
+    });
+  });
+
+  test("arming while already over the threshold does NOT compact mid-command (waits for agent_settled)", async () => {
+    const env = makeCtx({ tokens: 90_000, contextWindow: 128000, percent: 70 });
+    const cmd = makeAutocompactCommand();
+    await cmd.handler("50k", env.ctx as never);
+    expect(getThreshold("sess-1")).toBe(50_000);
+    expect(env.compactCalls.length).toBe(0); // pin: the handler never triggers compaction itself
+  });
+
+  test("re-arming clears a stuck in-flight guard (review finding 1)", async () => {
+    setThreshold("sess-1", 50_000);
+    // Simulate a hung compaction: compact that never calls back.
+    const env = makeCtx({ tokens: 60_000, contextWindow: 128000, percent: 47 });
+    (env.ctx as { compact: unknown }).compact = (opts?: unknown) => env.compactCalls.push(opts);
+    checkAutocompact(env.ctx as never);
+    expect(isCompacting("sess-1")).toBe(true);
+    // Re-arm via the command — fresh intent must reset the guard.
+    const cmd = makeAutocompactCommand();
+    await cmd.handler("60k", env.ctx as never);
+    expect(isCompacting("sess-1")).toBe(false);
+    // ...and the next settled check can fire again.
+    expect(checkAutocompact(env.ctx as never)).toBe(true);
+  });
 });
 
 describe("contract pin: factory registers /autocompact", () => {

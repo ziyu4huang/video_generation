@@ -71,6 +71,13 @@ export function isCompacting(sessionId: string): boolean {
   return compacting.has(sessionId);
 }
 
+/** Clear a stuck in-flight guard. Called when the user re-arms or disarms —
+ *  a fresh /autocompact intent must not inherit a guard left behind by a
+ *  compaction that hung or never called back (review #2144 finding 1). */
+export function clearCompacting(sessionId: string): void {
+  compacting.delete(sessionId);
+}
+
 /** Test-only: wipe all per-session state. */
 export function resetAutocompact(): void {
   thresholds.clear();
@@ -122,7 +129,14 @@ export function checkAutocompact(ctx: CtxLike): boolean {
   ctx.ui.notify(`/autocompact: threshold ${fmt(threshold)} reached (${usage.tokens.toLocaleString()} tokens) — compacting…`, "info");
   ctx.compact({
     onComplete: () => compacting.delete(id),
-    onError: () => compacting.delete(id),
+    onError: (e) => {
+      compacting.delete(id);
+      // Surface the failure — upstream refuses some compactions ("Nothing to
+      // compact (session too small)", "Already compacted", a compact-ext
+      // cancel); without this the retry loop is silent after the arming
+      // notice (review #2144 finding 2).
+      ctx.ui.notify(`/autocompact: compaction failed (${e.message}); will re-check at next settle.`, "error");
+    },
   });
   return true;
 }
@@ -148,6 +162,8 @@ export function makeAutocompactCommand(): Pick<RegisteredCommand, "name" | "desc
       }
       if (parsed.value.kind === "off") {
         setThreshold(id, undefined);
+        // Fresh intent clears any guard a hung compaction left behind.
+        clearCompacting(id);
         ui.notify("/autocompact: disarmed.", "info");
         return;
       }
@@ -160,6 +176,9 @@ export function makeAutocompactCommand(): Pick<RegisteredCommand, "name" | "desc
         return;
       }
       setThreshold(id, threshold);
+      // Re-arming is fresh intent — a guard stuck from a compaction that
+      // never called back must not silently kill the new threshold.
+      clearCompacting(id);
       ui.notify(renderStatus(id, usage), "info");
     },
     getArgumentCompletions(prefix: string) {
