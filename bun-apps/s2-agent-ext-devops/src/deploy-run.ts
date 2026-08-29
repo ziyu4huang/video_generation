@@ -6,7 +6,8 @@
  * (bun-apps/s2-agent-ext-devops/ — deploy library in src/deploy/, runnable
  * entries in scripts/), never in a deployed tree. A
  * candidate bun-apps/ is valid only when its s2-agent-ext-devops holds them. So the tools are dev-time: they resolve the source dir
- * (PI_AGENT_DIR env, else an upward walk for a sibling s2-agent/) and refuse
+ * (PI_AGENT_DIR env > the #pi/ext-dir walk > the cwd walk — a dist-hosted
+ * session inside a source worktree resolves via cwd) and refuse
  * to spawn if it can't be found.
  *
  * The probe pair is src/deploy/run.ts + scripts/run-test.ts. It used to be
@@ -58,29 +59,58 @@ function extDirStart(): string | undefined {
 	return undefined;
 }
 
-/** Find the source bun-apps/s2-agent dir, or null if unreachable.
+/**
+ * Find the source bun-apps/s2-agent dir, or null if unreachable.
  *
  *  The devops SCRIPTS live in the sibling s2-agent-ext-devops package
  *  (scripts/); the returned dir is still s2-agent's — run-test.ts drives that
  *  package, and tools derive the ext-devops scripts dir from it.
  *
- *  The walk starts from (explicit startDir >) the #pi/ext-dir rung (> cwd).
+ *  Ladder (first hit wins): explicit `startDir` (a TEST seam that replaces
+ *  the whole default ladder) > the `#pi/ext-dir` rung > **the cwd rung**.
+ *  The cwd rung is the dist-hosted fix: a session launched from a deployed
+ *  dist gets an ext-dir inside the dist tree, whose walk finds no source
+ *  repo — but that session very often sits in a source WORKTREE as its cwd,
+ *  so cwd is walked before giving up (2026-08-29; previously the cwd was
+ *  only the fallback when the ext-dir rung was absent, and a dist-hosted
+ *  session inside a worktree failed with "Could not locate the source
+ *  s2-agent dir"). At each rung BOTH the dir itself and its `bun-apps/`
+ *  subdir are tried as the base, so a cwd at a repo ROOT (not inside
+ *  bun-apps) still resolves.
+ *
  *  It used to start from this module's import.meta.url — but a cjs bundle
  *  folds that into the build machine's path, which the deploy relocatability
  *  gate rejects, so the default is resolved at CALL time instead. */
 export function resolvePiAgentDir(
 	env: ResolveOpts = (process.env as unknown as ResolveOpts),
 	startDir?: string,
+	deps: { extDirStart?: () => string | undefined } = {},
 ): string | null {
 	const envDir = env.PI_AGENT_DIR;
 	if (envDir && hasDevopsScripts(dirname(envDir))) {
 		return envDir;
 	}
-	let dir = startDir ?? extDirStart() ?? process.cwd();
+	if (startDir) {
+		return walkUpForS2Agent(startDir);
+	}
+	const extDirRung = deps.extDirStart ? deps.extDirStart() : extDirStart();
+	if (extDirRung) {
+		const found = walkUpForS2Agent(extDirRung);
+		if (found) return found;
+	}
+	return walkUpForS2Agent(process.cwd());
+}
+
+/** Upward walk from `start` (≤8 rungs): each rung tries the dir itself AND
+ *  its `bun-apps/` subdir as the bun-apps base whose `s2-agent` + devops
+ *  scripts make a valid source repo. Returns the s2-agent dir or null. */
+function walkUpForS2Agent(start: string): string | null {
+	let dir = start;
 	for (let i = 0; i < 8; i++) {
-		const candidate = join(dir, "s2-agent");
-		if (existsSync(candidate) && hasDevopsScripts(dir)) {
-			return candidate;
+		for (const base of [dir, join(dir, "bun-apps")]) {
+			if (hasDevopsScripts(base) && existsSync(join(base, "s2-agent"))) {
+				return join(base, "s2-agent");
+			}
 		}
 		const parent = dirname(dir);
 		if (parent === dir) break;
