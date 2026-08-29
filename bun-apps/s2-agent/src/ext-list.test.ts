@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { devExtListResult } from "./ext-list.ts";
+import { devExtListResult, devSkillInventory, formatSkillInventory } from "./ext-list.ts";
 import { formatExtList } from "./sh/ext-list.ts";
 import { REGISTRY, type RegistryEntry } from "./registry-config.ts";
 
@@ -132,5 +132,57 @@ describe("payload parity with sh/ext-list (the deploy E2E contract)", () => {
 			userFlags: {},
 		});
 		expect(new Set(r.loaded).size).toBe(r.loaded.length);
+	});
+});
+
+// ── `ext list --skills` (slash-surface t06/D8): the grouped skill inventory ──
+
+function listSkillsFor(dirs: Record<string, string[]>): (skillsDir: string) => string[] {
+	return (skillsDir) => dirs[skillsDir] ?? [];
+}
+
+describe("devSkillInventory (pure projection)", () => {
+	test("enabled skills:true rows contribute their dir's skills, registry order; others omitted", () => {
+		const rows = devSkillInventory({
+			bunAppsDir: "/apps",
+			registry: REG,
+			exists, // knows task + devops only
+			listSkills: listSkillsFor({
+				[join("/apps", "s2-agent-ext-task", "skills")]: ["goal", "handoff"],
+				[join("/apps", "s2-agent-ext-devops", "skills")]: ["devops-workflow"],
+			}),
+		});
+		expect(rows).toEqual([
+			{ family: "task", skills: ["goal", "handoff"] },
+			{ family: "devops", skills: ["devops-workflow"] },
+		]);
+	});
+
+	test("unresolved bun-apps dir answers empty (never throws)", () => {
+		expect(devSkillInventory({ bunAppsDir: undefined, registry: REG, exists, listSkills: () => [] })).toEqual([]);
+	});
+
+	test("a skills dir with zero SKILL.md subdirs is omitted, not an empty row", () => {
+		const rows = devSkillInventory({
+			bunAppsDir: "/apps",
+			registry: REG,
+			exists,
+			listSkills: () => [],
+		});
+		expect(rows).toEqual([]);
+	});
+});
+
+describe("formatSkillInventory (text form)", () => {
+	test("header counts names across families, one line per family", () => {
+		const text = formatSkillInventory([
+			{ family: "devops", skills: ["a", "b"] },
+			{ family: "wayfind", skills: ["c"] },
+		]);
+		expect(text.split("\n")).toEqual([
+			"skills: 3 across 2 families (registry-derived; invoke as /skill:<name>)",
+			"devops (2): a, b",
+			"wayfind (1): c",
+		]);
 	});
 });

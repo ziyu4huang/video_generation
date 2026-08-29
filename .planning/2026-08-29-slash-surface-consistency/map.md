@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-29-slash-surface-consistency
 created: 2026-08-29
-last: 2026-08-30 (t01–t05 done)
-status: open
+last: 2026-08-30 (t01–t06 done — COMPLETE)
+status: complete
 ---
 
 # Slash-surface consistency — s2-agent command face cleanup
@@ -21,11 +21,14 @@ MEASURED 2026-08-29 on this machine, main `8d588d50` / dist `0.8.0+g8d588d5`
 (pi core 0.84.4), via skills-dir enumeration + registry-config.ts +
 pi-coding-agent@0.84.4 dist/core/slash-commands.js:
 
-- Surface sizes: **23 pi builtin** TUI slash commands (settings model tree
-  thinking scoped-models export import share copy name session changelog
-  hotkeys fork clone trust login logout new compact resume reload quit …),
-  **68 repo skills** across 15 s2-agent-ext-* packages, **22 CLI
-  subcommands + 5 pipelines** (`-to-vault` suffix family).
+- Surface sizes (CLOSED 2026-08-30 with t06's reconciliation): **23 pi
+  builtin** TUI slash commands (settings model tree thinking scoped-models
+  export import share copy name session changelog hotkeys fork clone trust
+  login logout new compact resume reload quit …), **64 repo skill dirs /
+  56 live** across 13 families (hyperframes' 8 disabled in registry; the
+  audit's "68" over-counted the pre-rename landscape), **22 CLI subcommands
+  + 5 pipelines** (`-to-vault` suffix family). Grouped listing:
+  `s2-agent ext list --skills` (D8).
 - **`/compact` collision — RESOLVED as false premise (ticket 01,
   2026-08-29)**: `registry-config.ts:590` registers the extension LOAD KEY,
   not a slash command; s2-agent-ext-compact registers no command at all (it
@@ -94,9 +97,11 @@ listing derives after renames land).
 
 ### Phase D — discoverability
 
-- [ ] **06-tui-command-grouping** — a listing/grouping mechanism for the
-  68 slash commands (manifest-driven; check upstream 0.84.x skills.md for
-  existing support FIRST).
+- [x] **06-tui-command-grouping** — DONE (2026-08-30): upstream 0.84.4 has
+  NO palette grouping (checked docs/skills.md + tui.md + CHANGELOG);
+  shipped `s2-agent ext list --skills` (D8) — offline registry-derived
+  grouped inventory; no palette patch. Count of record: 64 skill dirs /
+  56 live across 13 families (hyperframes 8 disabled).
 
 ## Decisions
 
@@ -143,14 +148,18 @@ listing derives after renames land).
   seam would churn every bump for a dev-only surface. Documented in
   extension-naming SKILL.md alongside the `S2-AGENT_CODING_AGENT_DIR` dash
   consequence.
+- D8 (2026-08-30, ticket 06): discoverability answered by a CLI listing,
+  NOT a palette patch — upstream 0.84.4 has no grouping seam, so
+  `s2-agent ext list --skills` ships the family-grouped inventory
+  (registry-derived, offline; slash-commands stay with `ext doctor`).
+  Count of record: 64 skill dirs / 56 live across 13 families.
 
 ## Frontier
 
-**06-tui-command-grouping** — the last ticket: a listing/grouping mechanism
-for the ~62-skill palette. FIRST check upstream 0.84.x for existing
-grouping support (skills.md / TUI command list); listing derives from the
-re-measured landscape (no renames needed post-D5). After 06: effort
-close-out (map status → complete) and the loop ENDS.
+**Effort close-out** — all six tickets done (01–06). Remaining: flip map
+`status: open → complete`, final cross-ticket audit (D1–D8 coherent,
+tickets checked), and the terminal successor per queue-drain termination.
+The slash-surface loop ENDS here; no new tickets.
 
 ## Fog of war
 
@@ -162,6 +171,10 @@ close-out (map status → complete) and the loop ENDS.
 - ~~Help-banner patch cost across bumps~~ RESOLVED (D6): no patch — the
   deployed face renames via the upstream `piConfig.name` seam; the source
   face is upstream's own dev-mode CLI name.
+- ~~Does pi 0.84.x already offer skill/command grouping in TUI?~~ RESOLVED
+  (t06 receipt): NO — docs/skills.md "grouping" is nested-folder discovery
+  only; palette builds flat; source tags are provenance, not family. D8
+  answers discoverability with `ext list --skills` instead of a patch.
 - `research-pi-packages`: "pi" names the upstream Pi.dev ecosystem the
   skill researches — renaming may be semantically WRONG; needs its own
   mini-adjudication inside 02.
