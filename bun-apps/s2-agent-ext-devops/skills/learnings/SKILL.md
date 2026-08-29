@@ -75,3 +75,26 @@ Before any git/GitHub operation, reach for the repo's purpose-built tooling inst
 | Clean up branches | `sweep_merged_branches({ execute: true })` pi tool (gh-confirmed merges only) | manual branch deletion |
 
 Why it matters: hand-running git in a subagent against a stale worktree is what produces the `commitScope` false-positive noise (see the `[tool-quirk]` entry above) and skips the local-CI self-verification that `merge_pr_after_local_ci` enforces. Note: the devops tools are s2-agent extension tools — if they aren't directly callable in the current session, invoke them via a subagent rather than falling back to raw git.
+
+---
+
+## [insight] inspect_extensions "104" adjudicated: it was the JSON findings length, never the Issue count
+
+**Added:** 2026-08-30
+
+Receipted 2026-08-30 (both modes, `output/inspect-ext-receipt-20260830.md`, queue head of `next-goal-20260829-203146`): the historical 2026-08-29 dev reading of **104** was the **JSON `findings[]` length** — every one of them `info`-severity (missing-snippet, no-guidelines, per-source token-tax rows, totals) — NOT the Issue count. The same-day deploy reading of **11** was the **Source count**. Different report lines, both correct under the #2146 vocabulary (power-tool CONTEXT.md: a number without its named line — issue count · JSON findings length · source count · per-source tool count — is an unknown basis).
+
+Decisive evidence: the deployed dist `0.8.0+gb894dc9` (frozen from the same Aug-29 lineage the historical reading came from) returns `findings_length = 104` **exactly** (35 missing-snippet + 55 no-guidelines + 11 tax rows + 2 totals + 1 lazy-extension), all info, `summary.total = 0`. The dist is the historical surface snap-frozen. Dev-now reads 149 findings / 20 sources because main advanced past `b894dc9` (#2151–#2156) — expected drift of a moving surface. Issue count: **0 in both modes**, every capture. No discrepancy existed; the ambiguity was vocabulary, and it is now closed with measured numbers.
+
+---
+
+## [tool-quirk] deployed dists skip `-e` extensions needing non-host modules — non-fatally
+
+**Added:** 2026-08-30
+
+A dist session loads `-e <file>` extensions against a **fixed host-module map** (`@earendil-works/pi-coding-agent`, `typebox`, …). An extension whose imports reach a specifier outside that map — observed: `typebox/compile`, pulled in via a deep `@earendil-works/pi-coding-agent/dist/index.js` filesystem import instead of the host alias — is **skipped with a stderr notice and the session continues without it**. Two consequences:
+
+- A guarded offline probe (register hook → print → `process.exit(0)` before any provider call) **silently degrades into a live model session** — the skip never fires the exit, the `-p` prompt runs, tokens get spent. Observed 2026-08-30: the receipt probe for the deployed mode was skipped this way and became a live session (which then captured the receipt in-band instead — acceptable fallback, but accidental).
+- Deep-path imports of host-provided packages don't get host-alias resolution; probe files for dist verification must **import nothing**, or only bare host-provided specifiers.
+
+When a guarded probe produces no marker, read the launch output for a `skipped -e extension` line before assuming the harness hung.
