@@ -60,6 +60,15 @@ import {
 } from "./card-format.ts";
 import { cardTags, renderCard, truncateDetail } from "./card-render.ts";
 import { tokeniseCardFile, wikiMergeIntoCard } from "./wiki-match.ts";
+import {
+	embedRecordText,
+	llmDedupDecision,
+	loadDedupEmbeddings,
+	planDedup,
+	DEDUP_GRAY_THRESHOLD_DEFAULT,
+	DEDUP_MERGE_THRESHOLD_DEFAULT,
+	type DedupDecision,
+} from "./semantic-dedup.ts";
 import { extractDate } from "./adapters.ts";
 import {
 	computeIdf,
@@ -128,6 +137,14 @@ export function writeMoc(
  * of creating a parallel duplicate — the Alluvium "add to the existing page"
  * pattern. Canonical-id policy: FIRST-WINS — the existing card keeps its id;
  * later sources upsert evidence into it.
+ *
+ * Semantic dedup pre-filter (ticket 13, `opts.semanticDedup` — opt-in, OFF by
+ * default): records the Jaccard pass misses are cosine-compared against the
+ * `.knowledge-semantic` card cache; ≥ 0.90 top-1 merges deterministically, the
+ * 0.75–0.90 gray band asks ONE advisory local-LLM skip/create/merge decision
+ * (guardrailed — malformed output fails open to create), below 0.75 creates.
+ * A cache/embedder miss degrades to the Jaccard-only path (offline-safe). See
+ * src/semantic-dedup.ts.
  */
 
 export async function coverageReport(opts: {
@@ -212,6 +229,13 @@ export async function ingestRecords(
 	// ingest is LLM-free); over-budget bodies keep the clamped deterministic
 	// first sentence unless explicitly enabled here or via env.
 	const summaryLlm = opts.summaryLlm ?? process.env.PI_KG_SUMMARY_LLM === "1";
+	// Semantic dedup pre-filter (ticket 13, P3): opt-in, OFF by default (tier
+	// rule). Vector pre-filter over the .knowledge-semantic cache + gray-zone
+	// advisory LLM decision — see src/semantic-dedup.ts. A cache/embedder
+	// miss degrades to the Jaccard-only path (offline-safe).
+	const semanticDedup = opts.semanticDedup ?? process.env.PI_KG_SEMANTIC_DEDUP === "1";
+	const dedupMergeThreshold = opts.dedupMergeThreshold ?? DEDUP_MERGE_THRESHOLD_DEFAULT;
+	const dedupGrayThreshold = opts.dedupGrayThreshold ?? DEDUP_GRAY_THRESHOLD_DEFAULT;
 	const folderAbs = join(opts.vaultPath, folder);
 
 	if (!existsSync(opts.vaultPath)) {
@@ -263,6 +287,9 @@ export async function ingestRecords(
 		skipped: 0,
 		linked: 0,
 		wikiMerged: 0,
+		semanticMerged: 0,
+		semanticSkipped: 0,
+		dedupDecisions: [],
 		mocUpdated: false,
 		vaultPath: opts.vaultPath,
 		folder,
@@ -276,41 +303,105 @@ export async function ingestRecords(
 	//     This is what prevents the 10+ id namespaces from growing parallel
 	//     duplicate cards for the same lesson.
 	const today = new Date().toISOString().slice(0, 10);
+	// Semantic dedup embeddings, loaded ONCE per batch (ticket 13): the cached
+	// card vectors of the folder under the injectable embedder. null (no
+	// folder, embedder failure, corrupt cache) or empty → every record takes
+	// today's Jaccard-only path; the gray-zone LLM is never reached without a
+	// working embedder (offline-safe degrade).
+	const dedupEmb =
+		semanticDedup && existing.size > 0
+			? await loadDedupEmbeddings(opts.vaultPath, folder, opts._testEmbedder)
+			: null;
+	const dedupSourceIds = new Map<string, string>();
+	for (const [name, c] of existing.entries()) dedupSourceIds.set(name, c.sourceId);
 	const pendingRecords: typeof records = [];
 	for (const rec of records) {
 		let wikiMatched = false;
-		if (wikiAware && existing.size > 0) {
-			// Skip the wiki check for an EXACT id match (normal upsert path handles it).
-			let exactId = false;
+		// The exact-id skip is shared by BOTH matchers (Jaccard + semantic):
+		// a record whose canonical id is already on disk takes the normal
+		// upsert path below — neither pre-filter may merge it elsewhere.
+		let exactId = false;
+		if ((wikiAware || semanticDedup) && existing.size > 0) {
 			for (const c of existing.values()) {
 				if (c.sourceId === rec.id) { exactId = true; break; }
 			}
-			if (!exactId) {
-				const recTokens = tokeniseText(`${rec.title} ${rec.detail}`);
-				if (recTokens.size > 0) {
-					const candidateBasenames = [...existing.keys()];
-					const candidates = [...existing.values()];
-					const candidateTokens = candidates.map((c) => c.tokens);
-					const match = bestMatch(recTokens, candidateTokens, wikiThreshold);
-					if (match.index >= 0) {
-						const targetBasename = candidateBasenames[match.index]!;
-						const target = candidates[match.index]!;
-						const outcome = wikiMergeIntoCard(
-							target.abs, rec, opts.sourceLabel, match.similarity, today, dryRun,
-						);
-						summary.wikiMerged++;
-						if (outcome === "updated") summary.updated++;
-						else summary.unchanged++;
-						summary.cards.push({
-							id: rec.id,
-							path: `${folder}/${targetBasename}.md`,
-							status: outcome,
-							links: 0,
-						});
-						wikiMatched = true;
-					}
+		}
+		if (!exactId && wikiAware && existing.size > 0) {
+			const recTokens = tokeniseText(`${rec.title} ${rec.detail}`);
+			if (recTokens.size > 0) {
+				const candidateBasenames = [...existing.keys()];
+				const candidates = [...existing.values()];
+				const candidateTokens = candidates.map((c) => c.tokens);
+				const match = bestMatch(recTokens, candidateTokens, wikiThreshold);
+				if (match.index >= 0) {
+					const targetBasename = candidateBasenames[match.index]!;
+					const target = candidates[match.index]!;
+					const outcome = wikiMergeIntoCard(
+						target.abs, rec, opts.sourceLabel, match.similarity, today, dryRun,
+					);
+					summary.wikiMerged++;
+					if (outcome === "updated") summary.updated++;
+					else summary.unchanged++;
+					summary.cards.push({
+						id: rec.id,
+						path: `${folder}/${targetBasename}.md`,
+						status: outcome,
+						links: 0,
+					});
+					wikiMatched = true;
 				}
 			}
+		}
+		// Semantic pre-filter (ticket 13): only for records the Jaccard pass
+		// did NOT already merge. ≥ merge threshold → deterministic merge;
+		// gray band → ONE advisory LLM decision (guardrailed, fail-open);
+		// below → straight create (falls through to pendingRecords).
+		if (!wikiMatched && !exactId && semanticDedup && dedupEmb) {
+			const queryVec = await embedRecordText(rec, opts._testEmbedder);
+			let decision: DedupDecision;
+			if (!queryVec) {
+				decision = { decision: "create", via: "embed-failed" };
+			} else {
+				const plan = planDedup(
+					queryVec, dedupEmb.paths, dedupEmb.vectors, dedupSourceIds,
+					dedupMergeThreshold, dedupGrayThreshold,
+				);
+				if (plan.kind === "merge") decision = { decision: "merge", target: plan.candidate, via: "vector" };
+				else if (plan.kind === "gray") decision = await llmDedupDecision(rec, plan.candidates, opts._dedupFetch);
+				else decision = { decision: "create", via: "below-gray" };
+			}
+			if (decision.decision === "merge") {
+				const target = existing.get(decision.target.basename);
+				if (target) {
+					const outcome = wikiMergeIntoCard(
+						target.abs, rec, opts.sourceLabel, decision.target.sim, today, dryRun,
+						"semantic-merged",
+					);
+					summary.semanticMerged++;
+					if (outcome === "updated") summary.updated++;
+					else summary.unchanged++;
+					summary.cards.push({
+						id: rec.id,
+						path: `${folder}/${decision.target.basename}.md`,
+						status: outcome,
+						links: 0,
+					});
+					wikiMatched = true;
+				}
+				// A cache-named target absent from the folder snapshot (stale
+				// cache) falls through to create — never merges blind.
+			} else if (decision.decision === "skip") {
+				// The LLM judged the record a duplicate adding nothing: not
+				// minted, not merged — intentionally dropped (counted, traced).
+				summary.semanticSkipped++;
+				wikiMatched = true;
+			}
+			summary.dedupDecisions.push({
+				id: rec.id,
+				sim: decision.decision === "merge" ? decision.target.sim : null,
+				via: decision.via,
+				target: decision.decision === "merge" ? decision.target.basename : null,
+			});
 		}
 		if (!wikiMatched) pendingRecords.push(rec);
 	}
@@ -558,7 +649,7 @@ export function formatSummary(s: IngestSummary): string {
 		`vault:   ${s.vaultPath}`,
 		`folder:  ${rel(s.folder)}/`,
 		`source:  ${s.source} (${s.sourceLabel})`,
-		`total:   ${s.total} record(s) → ${s.created} created, ${s.updated} updated, ${s.unchanged} unchanged, ${s.skipped} skipped${s.wikiMerged > 0 ? `, ${s.wikiMerged} wiki-merged` : ""}`,
+		`total:   ${s.total} record(s) → ${s.created} created, ${s.updated} updated, ${s.unchanged} unchanged, ${s.skipped} skipped${s.wikiMerged > 0 ? `, ${s.wikiMerged} wiki-merged` : ""}${s.semanticMerged > 0 || s.semanticSkipped > 0 ? `, ${s.semanticMerged} semantic-merged, ${s.semanticSkipped} semantic-skipped` : ""}`,
 		`links:   ${s.linked} cross-source edge(s) written`,
 		`moc:     ${s.mocUpdated ? "regenerated " + rel("Tags/Knowledge Graph.md") : "(no MOC change)"}`,
 	];

@@ -1,6 +1,7 @@
 /** Shared knowledge-card data contract (split from ingest.ts — hermes-arch-13). */
-import type { ExtractedEntity, LinkWeighting, Relation } from "@repo/s2-agent-core-interface";
+import type { ExtractedEntity, LinkWeighting, Relation, Embedder } from "@repo/s2-agent-core-interface";
 import type { Extractor } from "./extractor.ts";
+import type { DedupDecisionEntry } from "./semantic-dedup.ts";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -103,6 +104,28 @@ export interface IngestOptions {
 	 *  the local chat endpoint (llm-chat.ts), best-effort, deterministic
 	 *  fallback on failure. Env fallback `PI_KG_SUMMARY_LLM=1`. */
 	summaryLlm?: boolean;
+	/** Opt-in semantic (embedding) dedup pre-filter for the wiki-aware path
+	 *  (ticket 13, context-lifecycle P3). When ON, an incoming record that
+	 *  escapes the Jaccard match is cosine-compared against the
+	 *  `.knowledge-semantic` card cache (BGE-M3, D3): ≥ `dedupMergeThreshold`
+	 *  top-1 → deterministic merge (the D4 merge-op table); in the gray band
+	 *  [dedupGrayThreshold, dedupMergeThreshold) → ONE advisory local-LLM
+	 *  skip/create/merge decision (guardrailed; malformed → create). Default
+	 *  OFF (tier rule — the default ingest path stays LLM-free and offline);
+	 *  a cache/embedder miss degrades to today's Jaccard-only path. Env
+	 *  fallback `PI_KG_SEMANTIC_DEDUP=1`. */
+	semanticDedup?: boolean;
+	/** Top-1 cosine at/above this merges deterministically (default 0.90). */
+	dedupMergeThreshold?: number;
+	/** Bottom of the gray band that asks the ONE LLM decision (default 0.75). */
+	dedupGrayThreshold?: number;
+	/** @internal Test seam: embedder override for the semantic dedup
+	 *  pre-filter (mirrors retrieve.ts's `_testEmbedder`) — no live LM
+	 *  Studio. Production callers leave this unset. */
+	_testEmbedder?: Embedder;
+	/** @internal Test seam: fetch override for the gray-zone dedup LLM call
+	 *  so tests can count invocations. Production callers leave this unset. */
+	_dedupFetch?: typeof fetch;
 	/** @internal Test seam: overrides the resolved extractor so tests can
 	 *  inject an `LlmRelationExtractor` with a canned `_fetchImpl` (no live
 	 *  LM Studio). Production callers leave this unset — the effective
@@ -140,6 +163,15 @@ export interface IngestSummary {
 	skipped: number; // malformed records
 	linked: number; // total cross-link edges written
 	wikiMerged: number; // records wiki-aware-merged into an existing canonical card
+	/** Records merged into an existing card by the semantic dedup pre-filter
+	 *  (vector ≥ threshold OR gray-zone LLM "merge") — ticket 13. */
+	semanticMerged: number;
+	/** Records the gray-zone LLM decided to "skip" (duplicate adding nothing;
+	 *  not minted, not merged — intentionally dropped). */
+	semanticSkipped: number;
+	/** Per-record semantic-dedup trace (the merge receipt; empty when the
+	 *  flag is OFF or every record missed the cache). */
+	dedupDecisions: DedupDecisionEntry[];
 	mocUpdated: boolean;
 	vaultPath: string;
 	folder: string;
