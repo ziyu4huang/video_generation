@@ -176,7 +176,7 @@ Phase P2 — injection loop + ledger
 - `tickets/10-injection-probe-and-flip.md` — task, **closed 2026-08-29** — probe `scripts/cache-probe-inject.mjs` (ultracode cache-probe pattern; 20-turn scripted session over real vault + LM Studio latency A/B/C/D + labeled chitchat set). VERDICT: **default stays OFF** (D11) — cache-transition 1.156× warm > 1.05× target; injection rate 2/20 at floor=2 (near-perfect retrievals score sharedTags=1); chitchat skip 100% PASS. Recorded: cold-start silent no-op (bge-m3 cold load > 3s timeout), vault-resolution trap (personal config wins ladder), floor + zh-char-gate miscalibration (floor=1 → 5/14). Re-probe triggers in D11
 
 Phase P3 — feedback + extraction upgrade
-- `tickets/11-usage-ledger-detection.md` — task, **open** — three provenance sources → usage jsonl
+- `tickets/11-usage-ledger-detection.md` — task, **closed 2026-08-29** — PR #2148 merged (`e989762b`; reviewer BLOCK→fix `23fd0ac6`→APPROVE, repros re-run). Three provenance sources live in `src/feedback/usage.ts` + entry wiring: (i) turn_end assistant-text scan vs the auto-recall served set (trace.servedCards — the same post-budget set the RecallLedger records), (ii) non-error zk_card results vs served set + per-root lazy vault title index (reset after mutating ops), (iii) `pi:knowledge` bus used reports (`emitKnowledgeUsed`/`onKnowledgeUsed`, shape-routed). Storage `<vault>/.knowledge-usage.jsonl` `{uri, at, via}`, NEVER frontmatter (git-clean cycle tested); cross-source monotonicity via a `detected` Set (one row per card per session). Vault ignore entry committed vault-side (pi-agent-vault#22) + gitlink bump. 24 unit tests + entry-wiring integration; 750 pass / 0 fail, tsc clean, portability audit green. Deferred follow-up: Tier-3 plain-subdir vault shows the ledger untracked in the host repo (finding 9). t11's `via` kinds are DISTINCT from the D37 Surreal access ledger (served vs used)
 - `tickets/12-hotness-scoring.md` — task, **open** — bounded hotness multiplier in retrieval
 - `tickets/13-extractloop-dedup.md` — task, **open** — vector pre-filter + gray-zone LLM dedup
 - `tickets/14-memory-diff-audit.md` — task, **open** — .distill-diff.json per converge run
@@ -231,22 +231,27 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/11-usage-ledger-detection.md` — ticket 16 closed 2026-08-29 (end-task payoff
-MEASURED: armed floor=0 60% vs unarmed 20%, Δ+40pct; flip still NO per D12 — blockers:
-converge×cache invalidation fix, floor=0 precision probe on off-topic prompts, D11
-cache re-probe). t11 is next because the P3 feedback loop (usage ledger → t12 hotness)
-is the only remaining UNOPENED write-side machinery in the Destination, it reuses t09's
-write-feed shape (receipted), and the injection flip-path items are charted as their own
-follow-ups, not blockers of P3. The three flip-path items live in Fog of war until
-someone charts them.
+`tickets/12-hotness-scoring.md` — ticket 11 closed 2026-08-29 (usage ledger SHIPPED,
+PR #2148: three provenance sources → `<vault>/.knowledge-usage.jsonl`, cross-source
+monotonic, vault-side ignore entry landed). t12 is next because the P3 feedback loop
+now has its missing write side: the used-ledger rows exist, and t12's bounded ≤±10%
+hotness multiplier (D8) is the consumer that closes the loop. The hotness math itself
+already shipped in the parity effort (`src/hotness.ts`, D38/D39 — alpha OFF by
+default); t12's remaining work is the FEED adapter (replay `.knowledge-usage.jsonl`
+into `usageAggregates`' input shape) plus the eval-set gate D8 requires (must beat the
+count baseline before the multiplier defaults on). The injection flip-path items stay
+charted as their own follow-ups, not blockers.
 
 ## Fog of war
 
 - ~~Whether `before_agent_start` fires inside `spawnSubagent` child sessions (double-inject
   risk)~~ — RESOLVED ticket 08 probe 2026-08-28: YES on both paths; guard is the per-session
   `sessionManager.getSessionFile()` check (D9, re-decided in review round 2).
-- `turn_end` payload shape at the extension layer (assistant text surface unverified) —
-  ticket 11 opens with a probe; zk_card provenance works even if turn_end doesn't.
+- ~~`turn_end` payload shape at the extension layer (assistant text surface
+  unverified)~~ — RESOLVED 2026-08-29 (autocompact session + t11 fixture):
+  `{type, turnIndex, message: AgentMessage, toolResults}` (types.d.ts:556-561);
+  `message.content` text blocks ARE the assistant spoken text (thinking/toolCall
+  excluded by the scan) — t11's detection runs on it.
 - One-time re-embed burst when card `summary:` backfill touches every card — MEASURED in
   ticket 05: 1925 cards, ~2 min rebuild, ranking byte-identical. Closed.
 - BGE-M3 vs nomic head-to-head: the hermes embed-bench already measured bge-m3 recall@1
