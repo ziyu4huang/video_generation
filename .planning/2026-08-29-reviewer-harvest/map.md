@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-reviewer-harvest
 created: 2026-08-29
-last: 2026-08-29 (ticket 01 closed — injection WORKS on CLI 2.1.250, ≤45s; notifications revert to primary, harvest tool = fallback + receipt)
+last: 2026-08-29 (ticket 02 closed — reviewer-harvest CLI shipped: lib + entry + 21 fixture-pinned tests + live receipt on t01's probe)
 status: active
 ---
 
@@ -48,7 +48,7 @@ procedure discoverable without memory.
 | Ticket | Status | Summary |
 |---|---|---|
 | `tickets/01-injection-reprobe.md` | closed | CLI 2.1.250 probe: notification OBSERVED ≤45s (RCA baseline 2.1.247 = never/>24h) — notifications revert to primary; harvest tool stays fallback + receipt writer |
-| `tickets/02-harvest-tool.md` | open | reviewer-harvest CLI: locate newest subagent transcript by name, extract verdict, write receipt (throw-free JSON contract) |
+| `tickets/02-harvest-tool.md` | closed | reviewer-harvest CLI: locate newest subagent transcript by name, extract verdict, write receipt (throw-free JSON contract) — shipped 2026-08-29, live receipt `output/reviewer-harvest/injection-probe-e4fa0b0d.json` |
 | `tickets/03-workflow-wiring.md` | open | devops-workflow review phase + skills gates + closeout SOP + CONTEXT.md glossary name the procedure |
 
 ## Decisions
@@ -65,16 +65,15 @@ procedure discoverable without memory.
 
 ## Frontier
 
-Ticket 02 (harvest tool) — ticket 01 closed 2026-08-29 with the verdict
-**injection WORKS on CLI 2.1.250 (notification observed ≤45s into the
-lead's conversation, mid-turn; probe transcript 8 lines, SendMessage
-receipt on disk)**: notifications revert to PRIMARY, so t02's tool lands
-as the FALLBACK + durable receipt writer (one command away on any
-regression), and t03 wires docs accordingly (primary = reply to the
-notification; fallback = harvest; inbox re-read at session start stays —
-the >24h delay mode would not show in a 45s window). The RCA memory note
-should be annotated by t03 or t02's close-out: 2.1.247→2.1.250 fixed
-prompt injection for this probe shape.
+Ticket 03 (workflow wiring) — ticket 02 closed 2026-08-29: the harvest
+tool EXISTS (`bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts`,
+lib `src/reviewer-harvest.ts`, 21 fixture-pinned tests green, live
+receipt + live idempotence on t01's probe). t03 wires it into the docs:
+devops-workflow review phase (primary = reply to the notification,
+fallback = one harvest command), skills gates, session-closeout SOP
+inbox re-read, CONTEXT.md glossary (Reviewer harvest / Lead inbox
+injection), and the RCA memory annotation is still owed (2.1.247→2.1.250
+fixed prompt injection for the probe shape).
 
 ## Fog of war
 
