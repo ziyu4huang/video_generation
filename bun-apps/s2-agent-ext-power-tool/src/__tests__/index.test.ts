@@ -602,6 +602,58 @@ describe("analyzeExtensions — checks", () => {
   });
 });
 
+// ── counting semantics (the dev-vs-deploy pin, 2026-08-29) ──────────────
+//
+// The 2026-08-29 three-mode verification quoted "dev answered 104, deploy 11
+// sources" for the same inspect_extensions prompt — two DIFFERENT bases of
+// one report (an issue-count reading vs the total-extension-tax line). These
+// tests pin what each count actually counts, from the analyzer's code, so
+// the cross-mode contrast stops reading like drift.
+
+describe("analyzeExtensions — counting semantics (dev-vs-deploy pin)", () => {
+  const tool = (name: string, path: string, source = "extension") => ({
+    name,
+    description: `d ${name}`,
+    parameters: { type: "object" },
+    promptGuidelines: [`Use \`${name}\`.`],
+    sourceInfo: { source, scope: "user", origin: "top-level", path },
+  });
+
+  test("total-extension-tax.sources = DISTINCT active non-builtin sourcePaths — not tools, not extensions", () => {
+    const tools = [
+      tool("a", "ext1.ts"),
+      tool("b", "ext1.ts"), // second tool, SAME source → sources stays at 1
+      tool("c", "ext2.ts"),
+      tool("bash", "<builtin>", "builtin"), // builtins never contribute
+    ];
+    const snippets = { a: "s", b: "s", c: "s", bash: "s" };
+    const total = analyzeWith(tools, { snippets }).find((x) => x.check === "total-extension-tax");
+    // ext1.ts + ext2.ts — NOT 4 (tools), NOT 3 (extensions)
+    expect((total!.detail as any).sources).toBe(2);
+  });
+
+  test("an extension whose tools are all INACTIVE is invisible to the active source count (it surfaces in the lazy section)", () => {
+    const active = [tool("a", "active.ts")];
+    const inactive = [tool("z1", "only-lazy.ts"), tool("z2", "only-lazy.ts")];
+    const findings = analyzeWith(active, { inactiveTools: inactive });
+    const total = findings.find((x) => x.check === "total-extension-tax");
+    const lazyTotal = findings.find((x) => x.check === "total-lazy-tax");
+    expect((total!.detail as any).sources).toBe(1); // only-lazy.ts does NOT count here
+    expect((lazyTotal!.detail as any).sources).toBe(1); // …it counts THERE
+  });
+
+  test("the report has no single 'count': actionable issue count ≠ findings length (info included)", () => {
+    // One healthy stealth tool (no snippet, guidelines present): info findings
+    // only — summarizeFindings.total (the report's summary line) stays 0 while
+    // the findings array is non-empty. A reader quoting "N" without naming the
+    // line is comparing an unknown basis.
+    const findings = analyzeWith([tool("stealth", "s.ts")], { snippets: {} });
+    expect(summarizeFindings(findings).total).toBe(0);
+    expect(findings.length).toBeGreaterThan(0);
+    expect(findings.filter((f) => f.severity === "info").length).toBe(findings.length);
+  });
+});
+
 describe("analyzeExtensions — lazy-loaded extensions", () => {
   test("inactiveTools surface as lazy-loaded-extension findings grouped by source", () => {
     const active = [
