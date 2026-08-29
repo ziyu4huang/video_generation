@@ -19,7 +19,13 @@
  */
 import { resolve } from "node:path";
 import { shConfig } from "./deploy/lib/config.ts";
-import { runDeployE2e, resolveCurrentVersionDir, resolveModelEndpoint, isNonHostTree } from "./deploy-e2e-recipe.js";
+import {
+	runDeployE2e,
+	resolveCurrentVersionDir,
+	resolveModelEndpoint,
+	resolveE2eModelPin,
+	isNonHostTree,
+} from "./deploy-e2e-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
@@ -48,6 +54,16 @@ export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"Default deploy root: outRoot from bun-apps/s2-agent/src/registry-config.ts",
 	"(the same value deploy-cli deploys into). `current` must exist and point at",
 	"a version dir.",
+	"",
+	"MODEL PIN: set VERIFY_E2E_MODEL=provider/model-id (e.g. deepseek/deepseek-",
+	"v4-flash-vision-exp) to pin the one-shot spawns (model-call + tools-probe)",
+	"to ONE lane via PI_PROVIDER/PI_MODEL/PI_THINKING=off — the D8 form. Pinned,",
+	"the 35s runtime budget is deterministic (a light lane answers well under",
+	"it; a breach on a pinned light lane is the #1976 serialization class), and",
+	"the local-endpoint contention precheck neither runs nor downgrades a",
+	"breach. Unset: the tree's default lane, behavior unchanged (measured",
+	"2026-08-29: the default LM Studio 27b lane cold-starts ~36s — a coin flip",
+	"against the 35s budget).",
 	"",
 	"NOTE: never probe interactive subcommands (e.g. bare `auth`) — the upstream",
 	"TUI blocks forever without a TTY.",
@@ -123,6 +139,9 @@ export async function runVerifyDeployE2eCli(
 		});
 	}
 	const spawn = deps.spawn ?? createLiveSpawn(versionDir);
+	// Lane pin (shared surface with deploy-cli): VERIFY_E2E_MODEL from the
+	// environment. A malformed value warns and runs unpinned — never silent.
+	const pin = resolveE2eModelPin();
 	const outcome = await runDeployE2e({
 		versionDir,
 		spawn,
@@ -133,7 +152,9 @@ export async function runVerifyDeployE2eCli(
 		skipModelCall: parsed.args.skipModelCall || process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
 		// deps.modelEndpoint === null keeps unit tests hermetic (no fetch).
 		modelEndpoint: deps.modelEndpoint === undefined ? resolveModelEndpoint() : deps.modelEndpoint,
+		modelPin: pin?.ok ? pin.pin : undefined,
 	});
+	if (pin && !pin.ok) outcome.warnings.push(pin.message);
 	return jsonResult(outcome.verdict === "fail" ? 1 : 0, { deployRoot, ...outcome });
 }
 

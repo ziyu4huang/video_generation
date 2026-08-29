@@ -33,6 +33,7 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-hermes-memory/scripts/db-transfer.ts",
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/backfill-summaries.mjs",
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/cache-probe-inject.mjs",
+	"bun-apps/s2-agent-ext-knowledge-card/scripts/injection-endtask.mjs", // #2138 t16 end-task eval (allowlist line missed in that PR — added 2026-08-29)
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/kcard-coverage-measure.mjs",
 	"bun-apps/s2-agent-ext-krea2/scripts/build-bundle.ts",
 	"bun-apps/s2-agent-ext-krea2/scripts/check-flags.ts",

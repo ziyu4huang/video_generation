@@ -264,6 +264,63 @@ export function parseHermesStartupRoundTrips(stderr: string): number | null {
 /** The one-shot prompt; the reply content is irrelevant, the round-trip is. */
 export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
 
+/** A deterministic one-shot lane: provider + model id (thinking forced off). */
+export interface E2EModelPin {
+	provider: string;
+	model: string;
+}
+
+/** `<provider>/<model-id>` for display (same shape the operator wrote). */
+export function pinLabel(pin: E2EModelPin): string {
+	return `${pin.provider}/${pin.model}`;
+}
+
+/** The env that carries the pin (shared surface for both CLIs). */
+export const VERIFY_E2E_MODEL_ENV = "VERIFY_E2E_MODEL";
+
+/**
+ * Resolve the model-call lane pin from the environment. Pure.
+ *
+ * `VERIFY_E2E_MODEL=provider/model-id` (first-slash split — a multi-segment
+ * model id like `openrouter/qwen/qwen3-235b` keeps its inner slashes) pins
+ * the one-shot spawns (model-call + tools-probe) to that lane via the D8 env
+ * form — PI_PROVIDER/PI_MODEL/PI_THINKING=off, the same precedence the
+ * deploy-probe-e2e suite uses (explicit flag > env > settings.json > baked
+ * default; PI_MODEL alone is NOT enough, provider comes from PI_PROVIDER).
+ *
+ * WHY: the predecessor's measured blocker (2026-08-29) — unpinned, the
+ * one-shot rides whatever lane the deployed tree defaults to (LM Studio
+ * bonsai-27b here), whose cold-start (~36s) straddles the 35s budget with NO
+ * contention warning (1 resident model), making every budget verdict a
+ * coin flip between fail and luck. Pinned to a light lane (deepseek flash:
+ * measured 15.5s wall through the deployed launcher, 2026-08-29) the budget
+ * is deterministic again and keeps its #1976 teeth.
+ *
+ * Returns null when unset/empty (default lane — behavior unchanged), or a
+ * usage error the caller surfaces as a warning before running unpinned.
+ */
+export function resolveE2eModelPin(
+	env: Record<string, string | undefined> = process.env,
+): { ok: true; pin: E2EModelPin } | { ok: false; message: string } | null {
+	const raw = (env[VERIFY_E2E_MODEL_ENV] ?? "").trim();
+	if (raw === "") return null;
+	const slash = raw.indexOf("/");
+	const provider = slash > 0 ? raw.slice(0, slash).trim() : "";
+	const model = slash > 0 ? raw.slice(slash + 1).trim() : "";
+	if (!provider || !model) {
+		return {
+			ok: false,
+			message: `${VERIFY_E2E_MODEL_ENV}="${raw}" is not provider/model-id — PI_MODEL alone is not enough (provider comes from PI_PROVIDER); running unpinned on the default lane`,
+		};
+	}
+	return { ok: true, pin: { provider, model } };
+}
+
+/** The spawn env that carries a pin (the D8 form). Exported for tests/docs. */
+export function pinSpawnEnv(pin: E2EModelPin): Record<string, string> {
+	return { PI_PROVIDER: pin.provider, PI_MODEL: pin.model, PI_THINKING: "off" };
+}
+
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
 export interface DeployE2eProbe {
@@ -560,6 +617,16 @@ export interface DeployE2eOptions {
 	 * unit tests can exercise the timeout path without waiting 120s.
 	 */
 	visionCallCapMs?: number;
+	/**
+	 * Pin the one-shot spawns (model-call + tools-probe) to ONE lane via the
+	 * D8 env form (PI_PROVIDER/PI_MODEL/PI_THINKING=off) — `resolveE2eModelPin`
+	 * from `VERIFY_E2E_MODEL`. Pinned, the one-shot runtime budget is
+	 * DETERMINISTIC: a breach on a pinned light lane is the #1976 class, and
+	 * the contention precheck (which polls the DEFAULT local endpoint, not the
+	 * pinned lane) neither runs nor downgrades a breach. Unset (the default):
+	 * the one-shot rides the tree's default lane, behavior unchanged.
+	 */
+	modelPin?: E2EModelPin;
 }
 
 /**
@@ -761,6 +828,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			const r = await opts.spawn(launcher.command, [...launcher.prefix, "-e", probePath, "-p", "hi", "--no-session"], {
 				cwd: opts.versionDir,
 				timeoutMs: TOOLS_PROBE_CAP_MS,
+				env: opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined,
 			});
 			const ms = now() - t0;
 			const p = parseToolsProbeLine(r.stderr);
@@ -837,8 +905,12 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		// the measured condition (2026-08-23) under which generation is slow
 		// enough to blow past even the 300s cap. Best-effort and bounded — a
 		// down/unreachable endpoint just yields no warning (the probe itself
-		// will classify whatever follows).
-		if (opts.modelEndpoint) {
+		// will classify whatever follows). SKIPPED when a lane pin is active:
+		// the precheck polls the DEFAULT local endpoint (LM Studio), which a
+		// pinned remote lane never touches — its warning would be about a lane
+		// the one-shot does not use, and the skip-downgrade it buys would turn
+		// the pinned budget deterministic gate back into a coin flip.
+		if (opts.modelEndpoint && !opts.modelPin) {
 			try {
 				const res = await (opts.fetchImpl ?? fetch)(`${opts.modelEndpoint.replace(/\/+$/, "")}/v1/models`, {
 					signal: AbortSignal.timeout(3_000),
@@ -857,6 +929,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		const r = await opts.spawn(launcher.command, [...launcher.prefix, "-p", DEPLOY_E2E_PROMPT, "--no-session"], {
 			cwd: opts.versionDir,
 			timeoutMs: MODEL_CALL_CAP_MS,
+			env: opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined,
 		});
 		const ms = now() - t0;
 		const c = classifyRun({ ...r, durationMs: ms });
@@ -873,6 +946,10 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		const hermesRt = parseHermesStartupRoundTrips(`${r.stdout}\n${r.stderr}`);
 		let verdict = c.verdict;
 		const budgetS = Math.round(ONESHOT_RUNTIME_BUDGET_MS / 1000);
+		// When a lane pin is active there is exactly one explanation for a
+		// breach on a light lane — the #1976 serialization class — so the note
+		// names the lane (receipt: the reader sees WHICH lane was measured).
+		const laneNote = opts.modelPin ? ` — lane ${pinLabel(opts.modelPin)} (pinned via ${VERIFY_E2E_MODEL_ENV})` : "";
 		let note =
 			c.reason === "timeout"
 				? `timeout after ${Math.round(MODEL_CALL_CAP_MS / 1000)}s — SLOW generation under model-endpoint contention is as likely as a hang; if a direct curl to the endpoint answers, unload the extra models and rerun`
@@ -889,6 +966,9 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				note = `one-shot wall ${(ms / 1000).toFixed(1)}s exceeds the ${budgetS}s budget (baseline p95 10.99s measured 2026-08-24 on 0.7.1+gd6f3c0c) — startup/shutdown serialization regression (the #1976 class)`;
 			}
 		}
+		// Appended last so EVERY outcome (pass note, breach note, timeout note)
+		// carries the lane receipt when a pin measured it.
+		if (laneNote) note += laneNote;
 		if (hermesRt !== null && hermesRt > HERMES_STARTUP_ROUNDTRIP_CAP) {
 			verdict = "fail";
 			note = `hermes-memory startup made ${hermesRt} HTTP round-trips (cap ${HERMES_STARTUP_ROUNDTRIP_CAP}; measured 103–114 dirty-vault / 26 clean on 2026-08-24) — ${note}`;
