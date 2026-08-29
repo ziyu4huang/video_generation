@@ -44,6 +44,9 @@ import type { KnowledgeRecord, CoverageReport } from "./types.ts";
 import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag } from "./card-format.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/s2-agent-core-interface";
 import { blendWithHotness, hotnessScore, resolveHotnessAlpha } from "./hotness.ts";
+import type { UsageAggregate } from "./usage.ts";
+import { usedLedgerAggregates, usedLedgerMultiplier } from "./feedback/hotness-feed.ts";
+import { readUsageLedger, readUsageLedgerFile } from "./feedback/usage.ts";
 import {
 	cosine,
 	blendScore,
@@ -215,6 +218,29 @@ export interface RetrieveOptions {
 	 *  scores the bound reorders ties but never displaces a strictly higher
 	 *  score. Any usage-lane failure (Surreal down) leaves ranking unchanged. */
 	hotnessAlpha?: number;
+	/** Ticket 12 (context-lifecycle, D8): bounded used-ledger hotness
+	 *  multiplier. When true, the t11 USED ledger (`<vault>/.knowledge-
+	 *  usage.jsonl` — what the agent actually USED, three provenance sources)
+	 *  is replayed once per call into per-uri aggregates and every candidate's
+	 *  score is multiplied by m(h) = 1 + 0.1·h ∈ [1.0, 1.1] ⊆ the D8 [0.9,
+	 *  1.1] envelope (see src/feedback/hotness-feed.ts for the shape
+	 *  reconciliation): used-and-recent ranks up; never-used AND stale-decayed
+	 *  cards keep their score byte-identical (neutral at h=0, the ticket's
+	 *  acceptance criteria). DISTINCT from `hotnessAlpha` (the t08 SERVED
+	 *  ledger, SurrealDB, additive blend) — both may be on; they compose
+	 *  multiplicatively on the score. Default false = OFF (byte-identical
+	 *  ranking; D8 promotion gate must beat the count baseline before any
+	 *  default flip). A missing/unreadable ledger is neutral (no rows → all
+	 *  m=1.0). */
+	hotness?: boolean;
+	/** Ticket 12: explicit path to the used-ledger FILE (default
+	 *  `<vaultPath>/.knowledge-usage.jsonl`). Overrides the root-derived
+	 *  location for callers whose vault root differs from the retrieval sink
+	 *  (e.g. the eval harness seeding a temp ledger). */
+	usageLedgerPath?: string;
+	/** INTERNAL test hook: deterministic clock for the ticket-12 used-ledger
+	 *  multiplier (epoch ms). Never set in production. */
+	_hotnessNowMs?: number;
 	/** INTERNAL test hook: inject a SurrealClient so the hier-first lane can be
 	 *  unit-tested without a live SurrealDB. Never set in production. */
 	_hierClient?: import("@repo/s2-agent-core-interface").SurrealClient;
@@ -250,6 +276,9 @@ export interface RetrieveTrace {
 		semanticAlpha?: number;
 		/** Present only when hotnessAlpha was passed (ticket 08 trace honesty). */
 		hotnessAlpha?: number;
+		/** Present only when the ticket-12 used-ledger blend was requested
+		 *  (`hotness: true`). */
+		hotnessLedger?: boolean;
 	};
 	/** True only when the semantic blend actually ran (false = off OR fell back). */
 	semanticUsed: boolean;
@@ -260,6 +289,9 @@ export interface RetrieveTrace {
 	/** True only when the hotness blend actually ran (ticket 08 D39: false =
 	 *  off OR the usage lane was unavailable — ranking then unchanged). */
 	hotnessUsed?: boolean;
+	/** True only when the ticket-12 used-ledger multiplier actually ran
+	 *  (hotness:true AND the answering lane applied it; absent = off). */
+	hotnessLedgerUsed?: boolean;
 	/** Candidate-pool size before the top-K cut (|scored|, lexical stage). */
 	candidatePool: number;
 	/** Total vault cards scanned in the convergence folder. */
@@ -407,6 +439,18 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	// Ticket 08 (D39): validated at the boundary — a bad value fails loud,
 	// never silently becomes a ranking change. Default 0 = OFF.
 	const hotnessAlpha = resolveHotnessAlpha(opts.hotnessAlpha);
+	// Ticket 12 (D8): the t11 USED-ledger feed — the jsonl is read ONCE per
+	// retrieve call ("memoized per retrieve call") and the aggregate map is
+	// threaded down every answering lane, so no lane re-reads the file. A
+	// missing/unreadable ledger yields an empty map = all multipliers 1.0
+	// (neutral, never an error). `now` is injected per call (deterministic
+	// tests via _hotnessNowMs; no library clock inside the feed itself).
+	const usedAgg = opts.hotness === true
+		? usedLedgerAggregates(
+				opts.usageLedgerPath ? readUsageLedgerFile(opts.usageLedgerPath) : readUsageLedger(opts.vaultPath),
+			)
+		: null;
+	const nowMs = opts._hotnessNowMs ?? Date.now();
 	// D22: the default model resolves per call (seam → env → default), so
 	// SEMANTIC_EMBED_MODEL / __piEmbeddingConfig actually control the cards side.
 	const semanticModel = resolveCardEmbedModel(opts.semanticModel);
@@ -485,6 +529,8 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			includeTrace,
 			optsSnapshot: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
 			hotnessAlpha,
+			usedAgg,
+			nowMs,
 		});
 		if (hier) return echoUsage(hier);
 	}
@@ -664,6 +710,8 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			optsSnapshot: { bodyMatch, slugDom, semantic, topK, semanticAlpha },
 			hotnessAlpha,
 			usageClient: opts._usageClient,
+			usedAgg,
+			nowMs,
 		});
 		if (sem) return echoUsage(sem);
 	}
@@ -678,6 +726,15 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	let hotnessUsed = false;
 	if (hotnessAlpha > 0) {
 		hotnessUsed = await applyHotnessBlend(scored, hotnessAlpha, opts._usageClient);
+	}
+	// Ticket 12 (D8): the used-ledger multiplier on the ANSWERING flat lane —
+	// after (and independent of) the t08 alpha blend; they compose
+	// multiplicatively when both are on. Never-used rows stay at m=1.0, so
+	// with an empty/absent ledger the ranking is byte-identical (the OFF
+	// regression pin covers this lane by construction).
+	let hotnessLedgerUsed = false;
+	if (usedAgg) {
+		hotnessLedgerUsed = applyUsedLedgerHotness(scored, usedAgg, nowMs);
 	}
 
 	const topScored = scored.slice(0, topK);
@@ -696,9 +753,18 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		excluded,
 		trace: includeTrace
 			? {
-					options: { bodyMatch, slugDom, semantic, topK, semanticAlpha, ...(hotnessAlpha > 0 ? { hotnessAlpha } : {}) },
+					options: {
+						bodyMatch,
+						slugDom,
+						semantic,
+						topK,
+						semanticAlpha,
+						...(hotnessAlpha > 0 ? { hotnessAlpha } : {}),
+						...(usedAgg ? { hotnessLedger: true } : {}),
+					},
 					semanticUsed: false,
 					...(hotnessUsed ? { hotnessUsed: true } : {}),
+					...(hotnessLedgerUsed ? { hotnessLedgerUsed: true } : {}),
 					candidatePool: scored.length,
 					scanned,
 					cards: topScored.map((c) => ({
@@ -751,6 +817,11 @@ async function tryHierarchicalDefault(args: {
 	optsSnapshot: { bodyMatch: boolean; slugDom: boolean; semantic: boolean; topK: number; semanticAlpha?: number };
 	/** Ticket 08: hotness blend weight threaded into the hier lane (0 = off). */
 	hotnessAlpha?: number;
+	/** Ticket 12: the t11 used-ledger aggregates (null = off), applied on the
+	 *  hydrated top-K below. */
+	usedAgg?: ReadonlyMap<string, UsageAggregate> | null;
+	/** Ticket 12: injected clock for the used-ledger multiplier. */
+	nowMs?: number;
 }): Promise<RetrieveResult | null> {
 	const { hierarchicalRetrieve } = await import("./hierarchical-retrieval.ts");
 	const { makeContextClient, indexStatus, vaultFingerprint } = await import("./surreal-index.ts");
@@ -813,6 +884,21 @@ async function tryHierarchicalDefault(args: {
 	// skip failed builds, so hydrated index ≠ res.cards index).
 	const hotnessByPath = new Map(res.cards.filter((c) => c.hotness !== undefined).map((c) => [c.path, c.hotness!]));
 
+	// Ticket 12: the used-ledger multiplier, applied POST-CUT on the hydrated
+	// top-K (res.cards is already the lane's cut — unlike the flat lane this
+	// reorders WITHIN the served set, it cannot pull a hotter card in from
+	// outside the cut; honest limitation, recorded here). Stable sort by the
+	// blended hierScore alone so equal scores keep the lane's own order.
+	let hotnessLedgerUsed = false;
+	if (args.usedAgg) {
+		const stemOf = (p: string) => p.split("/").pop() ?? p;
+		for (const h of hydrated) {
+			h.hierScore *= usedLedgerMultiplier(args.usedAgg, h.id, stemOf(h.path), args.nowMs ?? Date.now());
+		}
+		hydrated.sort((a, b) => b.hierScore - a.hierScore);
+		hotnessLedgerUsed = hydrated.length > 0;
+	}
+
 	const top = hydrated.map(({ _score, hierScore, ...rest }) => rest);
 	return {
 		count: top.length,
@@ -823,10 +909,15 @@ async function tryHierarchicalDefault(args: {
 		excluded,
 		trace: args.includeTrace
 			? {
-					options: { ...args.optsSnapshot, ...(args.hotnessAlpha ? { hotnessAlpha: args.hotnessAlpha } : {}) },
+					options: {
+						...args.optsSnapshot,
+						...(args.hotnessAlpha ? { hotnessAlpha: args.hotnessAlpha } : {}),
+						...(args.usedAgg ? { hotnessLedger: true } : {}),
+					},
 					semanticUsed: res.trace?.semanticLane ?? true,
 					hierUsed: true,
 					...(res.trace?.hotnessUsed ? { hotnessUsed: true } : {}),
+					...(hotnessLedgerUsed ? { hotnessLedgerUsed: true } : {}),
 					candidatePool: res.cards.length,
 					scanned: res.trace?.seedPool ?? res.cards.length,
 					cards: hydrated.map((c) => ({
@@ -1065,6 +1156,29 @@ async function applyHotnessBlend(
 	}
 }
 
+/** Ticket 12 (D8): the t11 used-ledger multiplier, shared by the flat and
+ *  semantic lanes. Multiplies every candidate's score by m(h) ∈ [1.0, 1.1]
+ *  (uri-keyed lookup, stem fallback — see hotness-feed.ts) and re-sorts by
+ *  the same comparator. SYNCHRONOUS + total: a missing ledger never throws
+ *  (readUsageLedger already degrades to []), so unlike applyHotnessBlend
+ *  there is no failure return — `true` means "the multiplier was applied".
+ *  Cards the ledger does not cover keep their score byte-identical (m=1.0),
+ *  so the DEFAULT-OFF and empty-ledger lanes are both byte-identical to the
+ *  pre-ticket ranking. */
+function applyUsedLedgerHotness(
+	cards: (RetrievedCard & { _score: number })[],
+	aggregates: ReadonlyMap<string, UsageAggregate>,
+	now: number,
+): boolean {
+	if (cards.length === 0) return false;
+	const stemOf = (p: string) => p.split("/").pop() ?? p;
+	for (const card of cards) {
+		card._score *= usedLedgerMultiplier(aggregates, card.id, stemOf(card.path), now);
+	}
+	cards.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
+	return true;
+}
+
 /** Opt-in semantic blend. Union lexical top-12 with semantic top-12 (cosine),
  *  rerank by Î±Â·lexRankNorm + (1-Î±)Â·cosNorm. Returns null on any embedding
  *  failure so the caller falls back to pure lexical. */
@@ -1090,6 +1204,9 @@ async function trySemanticBlend(args: {
 	/** Ticket 08: hotness blend weight + injectable usage client (0 = off). */
 	hotnessAlpha?: number;
 	usageClient?: import("@repo/s2-agent-core-interface").SurrealClient;
+	/** Ticket 12: the t11 used-ledger aggregates + injected clock (null = off). */
+	usedAgg?: ReadonlyMap<string, UsageAggregate> | null;
+	nowMs?: number;
 }): Promise<RetrieveResult | null> {
 	if (!args.queryText) return null;
 	// Test hook: skip the network availability check when an embedder is injected.
@@ -1144,6 +1261,12 @@ async function trySemanticBlend(args: {
 	if ((args.hotnessAlpha ?? 0) > 0) {
 		hotnessUsed = await applyHotnessBlend(blended, args.hotnessAlpha!, args.usageClient);
 	}
+	// Ticket 12: the used-ledger multiplier on the same union pool, applied
+	// BEFORE the top-K cut (the full candidate pool, not just the cut).
+	let hotnessLedgerUsed = false;
+	if (args.usedAgg) {
+		hotnessLedgerUsed = applyUsedLedgerHotness(blended, args.usedAgg, args.nowMs ?? Date.now());
+	}
 	const topBlended = blended.slice(0, args.topK);
 	const top = topBlended.map(({ _score, _hotness, ...rest }) => rest);
 	// Trace source classification: a card is in the lexical pool (top-12), the
@@ -1158,9 +1281,14 @@ async function trySemanticBlend(args: {
 		excluded: args.excluded,
 		trace: args.includeTrace
 			? {
-					options: { ...args.optsSnapshot, ...(args.hotnessAlpha ? { hotnessAlpha: args.hotnessAlpha } : {}) },
+					options: {
+						...args.optsSnapshot,
+						...(args.hotnessAlpha ? { hotnessAlpha: args.hotnessAlpha } : {}),
+						...(args.usedAgg ? { hotnessLedger: true } : {}),
+					},
 					semanticUsed: true,
 					...(hotnessUsed ? { hotnessUsed: true } : {}),
+					...(hotnessLedgerUsed ? { hotnessLedgerUsed: true } : {}),
 					candidatePool: args.scored.length,
 					scanned: args.scanned,
 					cards: topBlended.map((c) => ({

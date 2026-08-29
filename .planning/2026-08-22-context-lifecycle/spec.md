@@ -153,6 +153,33 @@ the only cross-edge (ADR-0001 down-only).
   `/v1/models` answers) — silent armed no-ops, detected via `trace.error`; probes must
   never infer from silence. `SEMANTIC_EMBED_BASE` is honored standalone but NOT inside
   the extension-loaded s2-agent child (batteries ride :1234).
+- **D13 — t12 used-ledger hotness multiplier: shape reconciled to neutral-at-h=0,
+  mechanism PROVEN on the seeded battery, default stays OFF until a real-usage battery
+  (ticket 12, 2026-08-29).** The t11 USED ledger (`.knowledge-usage.jsonl`) feeds
+  retrieval via `src/feedback/hotness-feed.ts` (per-uri replay mirroring
+  `usageAggregates`' shape) + `RetrieveOptions.hotness` / `usageLedgerPath`. The
+  ticket's prose multiplier `score × (0.9 + 0.2·h)` contradicts its own acceptance
+  criteria (stale decay → 1.0, never-used unaffected/byte-identical): a literal map
+  sends both to 0.9 (punitive, never neutral). Implemented `m(h) = 1 + 0.1·h` —
+  neutral at h=0, reward-only, [1.0, 1.1] inside the D8 [0.9, 1.1] envelope; on the
+  flat lane's integer-ish scores a 1-tag gap (ratio ≥ 3/2 vs m ≤ 1.1) is never
+  displaced, and on the semantic rank-norm pool the 12/11 ≈ 1.091 rank gap holds
+  against h(2, fresh) = 1.086 (pinned by test). Applied on flat + semantic lanes
+  BEFORE the top-K cut; the hier lane applies it POST-CUT on the hydrated top-K
+  (reorders within the served set only — honest limitation, cannot pull a hotter card
+  in from outside the cut). Eval receipt (2026-08-29, real vault, live bge-m3,
+  `output/recall-audit/t12-*.json`): baseline 11/20 hit@1 · 16/20 hit@3 · 17/20
+  hit@5 · MRR 0.688 (reproduces the t04 receipt exactly); seeded-targets ON
+  15/20 · 17/20 · 17/20 · 0.792; non-targets noise control byte-identical to
+  baseline. Mechanism proven — used-and-recent ranks up, usage noise moves nothing —
+  but the targets arm is CIRCULAR by construction (answer keys seeded) and the
+  production ledger is still EMPTY (t11 shipped 2026-08-28; no live rows on this
+  machine yet), so D8's promotion gate ("beat the count baseline on the eval set")
+  is NOT met by a seeded run: default stays OFF. Re-eval trigger = a populated
+  production ledger (weeks of real use rows), then re-run the battery UNSEEDED
+  comparing hotness on/off. Decay is asymptotic: m > 1 strictly for any finite age,
+  so a stale-used card can still flip an exact tie (bounded by the 7d half-life —
+  90d ⇒ m−1 < 1e-4, pinned by test).
 
 ## 4. What we deliberately do NOT port from OpenViking
 

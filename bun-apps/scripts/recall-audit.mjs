@@ -61,6 +61,9 @@ const { values: args } = parseArgs({
 		"hotness-alpha": { type: "string", default: "0" },
 		"seed-usage": { type: "string", default: "" },
 		"reset-usage": { type: "boolean", default: false },
+		"used-ledger": { type: "string", default: "off" },
+		"seed-used-ledger": { type: "string", default: "" },
+		"reset-used-ledger": { type: "boolean", default: false },
 		"test-embedder": { type: "boolean", default: false },
 		receipt: { type: "string" },
 		help: { type: "boolean", default: false },
@@ -81,6 +84,10 @@ if (args.help) {
   --hotness-alpha <a>     kcard arm hotness blend weight (ticket 08 A/B; default 0 = off)
   --seed-usage targets    seed usage events for battery target cards first
                           (deterministic: 3 events over the last 2 days each)
+  --used-ledger on|off    kcard arm t12 used-ledger multiplier (default off)
+  --seed-used-ledger t|n  seed <vault>/.knowledge-usage.jsonl rows (ticket 12 A/B:
+                          "targets" = 3 rows per target card, "non-targets" = noise control)
+  --reset-used-ledger     remove the used ledger first (an A/B round starts from a known state)
   --test-embedder         deterministic hashing embedder (offline/CI; skips availability check)
   --receipt <path>        JSON receipt path (default output/recall-audit/receipt-<ts>.json)`);
 	process.exit(0);
@@ -246,6 +253,8 @@ if (ARMS.has("kcard")) {
 
 	let semanticUsedOnce = false;
 	let hotnessUsedOnce = false;
+	let usedLedgerUsedOnce = false;
+	let hierUsedOnce = false;
 	// F4: the receipt must record the ledger's A/B round state on its own
 	// (reset + seeded counts) — console logs are not receipts.
 	let receiptSeedNote = null;
@@ -323,6 +332,93 @@ if (ARMS.has("kcard")) {
 		console.log(`seeded usage events: ${seeded * 3} (mode ${args["seed-usage"]})`);
 		receiptSeedNote = { mode: args["seed-usage"], reset: Boolean(args["reset-usage"]), cards: seeded, events: seeded * 3 };
 	}
+
+	// Ticket 12 (context-lifecycle D8): the t11 USED-ledger A/B.
+	// `--seed-used-ledger targets|non-targets` appends rows to
+	// <vault>/.knowledge-usage.jsonl through the production appendUsageRows
+	// path (3 rows per card over the last 2 days, mirroring the t08 seeding
+	// cadence; uri = the card's frontmatter source_id, stem fallback).
+	// `--reset-used-ledger` deletes the ledger first so an A/B round starts
+	// from a KNOWN state (append-only, same rationale as --reset-usage).
+	const USED_LEDGER = args["used-ledger"] === "on";
+	let receiptUsedLedgerSeed = null;
+	if (args["seed-used-ledger"] === "targets" || args["seed-used-ledger"] === "non-targets") {
+		const { appendUsageRows } = await import("../s2-agent-ext-knowledge-card/src/feedback/usage.ts");
+		const { readCardFrontmatterFields } = await import("../s2-agent-ext-knowledge-card/src/card-format.ts");
+		const { rmSync: rmLedgerSync } = await import("node:fs");
+		const ledgerPath = join(args.vault, ".knowledge-usage.jsonl");
+		let resetLedger = false;
+		if (args["reset-used-ledger"]) {
+			try {
+				rmLedgerSync(ledgerPath);
+				resetLedger = true;
+			} catch {}
+		}
+		const stem = (n) => n.replace(/\.md$/, "");
+		const uriOf = (filename) => {
+			try {
+				const content = readFileSync(join(folderAbs, filename), "utf8");
+				return readCardFrontmatterFields(content).sourceId ?? stem(filename);
+			} catch {
+				return stem(filename);
+			}
+		};
+		const seedRows = (filename) => {
+			const uri = uriOf(filename);
+			const rows = [];
+			for (let i = 0; i < 3; i++) {
+				rows.push({ uri, at: new Date(Date.now() - (i * 16 + 2) * 3_600_000).toISOString(), via: "turn_end" });
+			}
+			appendUsageRows(args.vault, rows);
+		};
+		// Deterministic seeding: same sorted-file discipline as the t08 arm.
+		const sortedFiles12 = [...files].sort();
+		const findByTarget12 = (t) => {
+			const tl = t.toLowerCase();
+			return (
+				sortedFiles12.find((n) => stem(n).toLowerCase() === tl) ??
+				sortedFiles12.find((n) => n.toLowerCase().includes(tl))
+			);
+		};
+		let seededLedger = 0;
+		if (args["seed-used-ledger"] === "targets") {
+			// Circular by construction (targets ARE the answer keys) — this arm
+			// measures the MECHANISM (recently-used cards rank up), never a
+			// production recall claim. Pair with "non-targets" for the control.
+			for (const e of battery.kcard ?? []) {
+				if (e.negative || !Array.isArray(e.vaultTargets)) continue;
+				for (const t of e.vaultTargets) {
+					const hit = findByTarget12(t);
+					if (!hit) continue;
+					seedRows(hit);
+					seededLedger++;
+				}
+			}
+		} else {
+			// Noise control: same card count, cards that match NO battery
+			// target (deterministic: sorted first-N). Numbers should match the
+			// baseline — used-ledger noise must not move recall.
+			const targetSubs12 = (battery.kcard ?? [])
+				.flatMap((e) => (e.negative ? [] : e.vaultTargets ?? []))
+				.map((t) => t.toLowerCase());
+			const wanted12 = targetSubs12.length;
+			for (const n of sortedFiles12) {
+				if (seededLedger >= wanted12) break;
+				if (targetSubs12.some((t) => n.toLowerCase().includes(t))) continue;
+				seedRows(n);
+				seededLedger++;
+			}
+		}
+		console.log(`seeded used-ledger rows: ${seededLedger * 3} (mode ${args["seed-used-ledger"]})`);
+		// Reviewer note: an ENOENT reset is "nothing to remove", not a failure —
+		// record it as "absent" so the receipt never reads as a skipped reset.
+		receiptUsedLedgerSeed = {
+			mode: args["seed-used-ledger"],
+			reset: args["reset-used-ledger"] ? (resetLedger ? "removed" : "absent") : false,
+			cards: seededLedger,
+			events: seededLedger * 3,
+		};
+	}
 	const scored = await scoreArm(battery.kcard ?? [], async (q) => {
 		const result = await retrieveRecords({
 			vaultPath: args.vault,
@@ -335,10 +431,13 @@ if (ARMS.has("kcard")) {
 			semantic: SEMANTIC,
 			includeTrace: true,
 			...(HOTNESS_ALPHA > 0 ? { hotnessAlpha: HOTNESS_ALPHA } : {}),
+			...(USED_LEDGER ? { hotness: true } : {}),
 			...(args["test-embedder"] ? { _testEmbedder: makeTestEmbedder() } : {}),
 		});
 		if (result.trace?.semanticUsed) semanticUsedOnce = true;
 		if (result.trace?.hotnessUsed) hotnessUsedOnce = true;
+		if (result.trace?.hotnessLedgerUsed) usedLedgerUsedOnce = true;
+		if (result.trace?.hierUsed) hierUsedOnce = true;
 		// Rank key = "card-id :: path" so target matching can hit either side.
 		return result.cards.map((c) => `${c.id} :: ${c.path}`);
 	}, (id, e) => {
@@ -349,6 +448,8 @@ if (ARMS.has("kcard")) {
 	receipt.kcard = {
 		vaultCards: files.length,
 		hotness: { alpha: HOTNESS_ALPHA, seedUsage: receiptSeedNote, used: hotnessUsedOnce },
+		usedLedger: { on: USED_LEDGER, seed: receiptUsedLedgerSeed, used: usedLedgerUsedOnce },
+		hierUsed: hierUsedOnce,
 		coverage: {
 			present: (battery.kcard ?? []).filter((e) => !e.negative && !e._absent).length,
 			absent: (battery.kcard ?? []).filter((e) => !e.negative && e._absent).length,

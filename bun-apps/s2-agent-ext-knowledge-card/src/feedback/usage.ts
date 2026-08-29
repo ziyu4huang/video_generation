@@ -241,21 +241,38 @@ export function appendUsageRows(vaultRoot: string, rows: readonly UsageRow[]): v
 	}
 }
 
+/** Parse raw ledger text into rows (shared by both read entry points).
+ *  Blank + torn/partial lines are skipped — a crash-torn tail never breaks
+ *  the read. */
+function parseUsageRows(raw: string): UsageRow[] {
+	const out: UsageRow[] = [];
+	for (const line of raw.split("\n")) {
+		if (!line.trim()) continue;
+		try {
+			const r = JSON.parse(line) as UsageRow;
+			if (typeof r?.uri === "string" && typeof r?.at === "string" && typeof r?.via === "string") out.push(r);
+		} catch {
+			// a torn/partial line never breaks the read
+		}
+	}
+	return out;
+}
+
 /** Read back the ledger (tests + tooling). Returns [] when absent. */
 export function readUsageLedger(vaultRoot: string): UsageRow[] {
 	try {
-		const raw = readFileSync(join(vaultRoot, USAGE_LEDGER_FILENAME), "utf8");
-		const out: UsageRow[] = [];
-		for (const line of raw.split("\n")) {
-			if (!line.trim()) continue;
-			try {
-				const r = JSON.parse(line) as UsageRow;
-				if (typeof r?.uri === "string" && typeof r?.at === "string" && typeof r?.via === "string") out.push(r);
-			} catch {
-				// a torn/partial line never breaks the read
-			}
-		}
-		return out;
+		return parseUsageRows(readFileSync(join(vaultRoot, USAGE_LEDGER_FILENAME), "utf8"));
+	} catch {
+		return [];
+	}
+}
+
+/** Read the ledger from an EXPLICIT file path (the t12 feed's override
+ *  surface — `usageLedgerPath` names the file itself, not its root dir).
+ *  Returns [] when absent, same torn-line tolerance as readUsageLedger. */
+export function readUsageLedgerFile(ledgerPath: string): UsageRow[] {
+	try {
+		return parseUsageRows(readFileSync(ledgerPath, "utf8"));
 	} catch {
 		return [];
 	}
