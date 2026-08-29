@@ -25,7 +25,15 @@
  *   entry is scripts/reviewer-harvest.ts (thin wrapper); this file is the
  *   library, so tests drive it with injectable filesystem + clock seams.
  */
-import { readdirSync, readFileSync, statSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+	readdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+	existsSync,
+	mkdirSync,
+	renameSync,
+} from "node:fs";
 import { join } from "node:path";
 import os from "node:os";
 
@@ -37,6 +45,7 @@ export interface HarvestIo {
 	readFileSync: (p: string, enc: "utf8") => string;
 	statSync: (p: string) => { mtimeMs: number };
 	writeFileSync: (p: string, data: string) => void;
+	renameSync: (from: string, to: string) => void;
 	existsSync: (p: string) => boolean;
 	mkdirSync: (p: string, opts: { recursive: true }) => void;
 	sleep: (ms: number) => Promise<void>;
@@ -49,6 +58,7 @@ export function createLiveIo(): HarvestIo {
 		readFileSync: (p, enc) => readFileSync(p, enc),
 		statSync,
 		writeFileSync,
+		renameSync,
 		existsSync,
 		mkdirSync,
 		sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -86,7 +96,10 @@ function textBlocks(content: unknown): string[] {
 /**
  * Pure JSONL → status. Terminal rules, in precedence order:
  *   completed — the LAST assistant line with stop_reason "end_turn" whose
- *     text is non-empty (an end_turn BEFORE a later API error does not win);
+ *     text is non-empty, AND nothing follows it (an end_turn followed by a
+ *     resumed turn — a SendMessage nudge to a named agent appends to the
+ *     SAME transcript — means the old verdict is stale: reset to
+ *     still-running until the resumed turn's own end_turn lands);
  *   errored   — an `isApiErrorMessage` line with no completed verdict after it;
  *   still-running — anything else (task dispatched, verdict not landed yet).
  */
@@ -107,7 +120,14 @@ export function parseTranscript(lines: string[]): ParsedTranscript {
 			parsed.lastTimestamp = entry.timestamp;
 		}
 		const message = entry.message as Record<string, unknown> | undefined;
-		if (entry.type !== "assistant" || !message) continue;
+		if (entry.type !== "assistant" || !message) {
+			// a user/tool_result line AFTER a completed verdict = a resumed turn is in flight
+			if (entry.type === "user" && parsed.status === "completed") {
+				parsed.status = "still-running";
+				parsed.verdict = undefined;
+			}
+			continue;
+		}
 		const content = message.content;
 		// tool trail: capture SendMessage records (child→lead notification backup)
 		if (Array.isArray(content)) {
@@ -137,6 +157,13 @@ export function parseTranscript(lines: string[]): ParsedTranscript {
 			parsed.status = "completed";
 			parsed.verdict = text;
 			parsed.error = undefined;
+			continue;
+		}
+		// a non-terminal assistant line (thinking / tool_use) after a completed
+		// verdict = the resumed turn is working; its end_turn will re-complete
+		if (parsed.status === "completed") {
+			parsed.status = "still-running";
+			parsed.verdict = undefined;
 		}
 	}
 	return parsed;
@@ -148,16 +175,29 @@ export interface TranscriptCandidate {
 }
 
 /**
+ * Filename shape: `agent-a<name>-<hash>.jsonl`, `<hash>` the trailing
+ * hex agent-id suffix (observed 16 hex chars; 8+ tolerated). Because
+ * names may contain dashes (`t7-review`), a plain startsWith prefix is
+ * NOT an exact match — `--name t7` would steal `t7-review`'s transcript.
+ * The captured name must EQUAL the requested name.
+ */
+const TRANSCRIPT_NAME_RE = /^agent-a(.+)-[0-9a-f]{8,}\.jsonl$/;
+
+export function transcriptNameOf(fileName: string): string | null {
+	const m = TRANSCRIPT_NAME_RE.exec(fileName);
+	return m ? m[1] : null;
+}
+
+/**
  * All transcripts matching the dispatched name under the harness root,
- * newest-first by mtime. The name must match the FULL `agent-a<name>-`
- * prefix (`probe` must not match `probe2`).
+ * newest-first by mtime. The name must match EXACTLY (`t7` must not match
+ * `t7-review`; `probe` must not match `probe2`).
  */
 export function findTranscripts(opts: {
 	harnessRoot: string;
 	name: string;
 	io: HarvestIo;
 }): TranscriptCandidate[] {
-	const prefix = `agent-a${opts.name}-`;
 	const out: TranscriptCandidate[] = [];
 	const projectsDir = join(opts.harnessRoot, "projects");
 	let projects: string[];
@@ -183,7 +223,7 @@ export function findTranscripts(opts: {
 				continue;
 			}
 			for (const file of files) {
-				if (!file.startsWith(prefix) || !file.endsWith(".jsonl")) continue;
+				if (transcriptNameOf(file) !== opts.name) continue;
 				const full = join(subagentsDir, file);
 				try {
 					out.push({ path: full, mtimeMs: opts.io.statSync(full).mtimeMs });
@@ -342,7 +382,9 @@ export function receiptFileName(name: string, transcriptPath: string): string {
  * Write (or confirm) the receipt. Idempotent: re-harvesting the SAME
  * terminal state returns `{ unchanged: true }` and leaves the file
  * byte-identical — the first receipt's harvestedAt timestamp is the
- * durable record of when the verdict landed.
+ * durable record of when the verdict landed. The write is atomic
+ * (tmp + rename) so a concurrent harvest of the same reviewer can only
+ * land a whole receipt, never an interleaved one.
  */
 export function writeReceipt(
 	payload: ReceiptPayload,
@@ -356,19 +398,17 @@ export function writeReceipt(
 	if (existed) {
 		try {
 			const existing = JSON.parse(io.readFileSync(path, "utf8")) as Record<string, unknown>;
-			const same =
-				existing.status === payload.status &&
-				existing.transcriptPath === payload.transcriptPath &&
-				existing.verdict === payload.verdict &&
-				existing.error === payload.error;
-			if (same) return { path, overwritten: false, unchanged: true };
+			delete existing.harvestedAt; // the one field allowed to differ (first-write wins)
+			const candidate: Record<string, unknown> = JSON.parse(JSON.stringify(payload));
+			if (JSON.stringify(existing) === JSON.stringify(candidate)) {
+				return { path, overwritten: false, unchanged: true };
+			}
 		} catch {
 			// unreadable/corrupt receipt: fall through and rewrite it
 		}
 	}
-	io.writeFileSync(
-		path,
-		JSON.stringify({ ...payload, harvestedAt: io.now().toISOString() }, null, 2) + "\n",
-	);
+	const tmp = `${path}.tmp`;
+	io.writeFileSync(tmp, JSON.stringify({ ...payload, harvestedAt: io.now().toISOString() }, null, 2) + "\n");
+	io.renameSync(tmp, path);
 	return { path, overwritten: existed, unchanged: false };
 }

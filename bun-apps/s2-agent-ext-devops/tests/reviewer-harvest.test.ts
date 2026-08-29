@@ -19,8 +19,9 @@ import {
 	readdirSync as readdirSyncRaw,
 	statSync as statSyncRaw,
 	existsSync as existsSyncRaw,
+	renameSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
 	parseTranscript,
@@ -41,6 +42,7 @@ function testIo(over?: Partial<HarvestIo>): HarvestIo {
 		readFileSync: (p, enc) => readFileSync(p, enc),
 		statSync: (p) => statSyncRaw(p),
 		writeFileSync,
+		renameSync,
 		existsSync: (p) => existsSyncRaw(p),
 		mkdirSync,
 		sleep: async () => {},
@@ -126,6 +128,34 @@ describe("parseTranscript — fixture-pinned terminal states", () => {
 		expect(parsed.status).toBe("still-running");
 		expect(parsed.lineCount).toBe(6);
 	});
+
+	test("resume after end_turn: a user line / working assistant line voids the stale verdict", () => {
+		const resumed = fixtureLines("completed-probe.jsonl");
+		resumed.push(
+			JSON.stringify({ type: "user", timestamp: "2026-08-29T00:10:00.000Z", message: { role: "user", content: "follow-up nudge" } }),
+		);
+		expect(parseTranscript(resumed).status).toBe("still-running");
+		resumed.push(
+			JSON.stringify({
+				type: "assistant",
+				timestamp: "2026-08-29T00:10:05.000Z",
+				message: { role: "assistant", stop_reason: null, content: [{ type: "thinking", thinking: "…" }] },
+			}),
+		);
+		const mid = parseTranscript(resumed);
+		expect(mid.status).toBe("still-running");
+		expect(mid.verdict).toBeUndefined();
+		resumed.push(
+			JSON.stringify({
+				type: "assistant",
+				timestamp: "2026-08-29T00:10:20.000Z",
+				message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "REVISED verdict after resume" }] },
+			}),
+		);
+		const done = parseTranscript(resumed);
+		expect(done.status).toBe("completed");
+		expect(done.verdict).toBe("REVISED verdict after resume");
+	});
 });
 
 describe("findTranscripts — name match + newest selection", () => {
@@ -139,18 +169,35 @@ describe("findTranscripts — name match + newest selection", () => {
 		expect(found[0].path).toContain("agent-aprobe-");
 	});
 
+	test("hyphenated names: `t7` must not steal `t7-review`'s transcript (real on-disk shape)", () => {
+		const { root } = tempHarness([
+			{ file: "agent-at7-review-c8fa5d1001d6e546.jsonl", from: "completed-probe.jsonl", mtimeMs: 300_000 },
+		]);
+		expect(findTranscripts({ harnessRoot: root, name: "t7", io: testIo() })).toEqual([]);
+		const full = findTranscripts({ harnessRoot: root, name: "t7-review", io: testIo() });
+		expect(full).toHaveLength(1);
+	});
+
+	test("files without the agent-a<name>-<hexhash> shape never match", () => {
+		const { root } = tempHarness([
+			{ file: "agent-arev-notahash.jsonl", from: "still-running.jsonl", mtimeMs: 300_000 },
+			{ file: "session-transcript.jsonl", from: "still-running.jsonl", mtimeMs: 300_000 },
+		]);
+		expect(findTranscripts({ harnessRoot: root, name: "rev", io: testIo() })).toEqual([]);
+	});
+
 	test("newest by mtime wins across sessions and projects", () => {
 		const root = mkdtempSync(join(tmpdir(), "rh-harness-"));
 		const older = join(root, "projects", "proj-a", "aaaa-aaaa", "subagents");
 		const newer = join(root, "projects", "proj-b", "bbbb-bbbb", "subagents");
 		mkdirSync(older, { recursive: true });
 		mkdirSync(newer, { recursive: true });
-		copyFileSync(join(FIXTURES, "still-running.jsonl"), join(older, "agent-arev-older1.jsonl"));
-		copyFileSync(join(FIXTURES, "completed-probe.jsonl"), join(newer, "agent-arev-newer1.jsonl"));
-		utimesSync(join(older, "agent-arev-older1.jsonl"), new Date(100_000), new Date(100_000));
-		utimesSync(join(newer, "agent-arev-newer1.jsonl"), new Date(999_000), new Date(999_000));
+		copyFileSync(join(FIXTURES, "still-running.jsonl"), join(older, "agent-arev-0000000000000001.jsonl"));
+		copyFileSync(join(FIXTURES, "completed-probe.jsonl"), join(newer, "agent-arev-0000000000000002.jsonl"));
+		utimesSync(join(older, "agent-arev-0000000000000001.jsonl"), new Date(100_000), new Date(100_000));
+		utimesSync(join(newer, "agent-arev-0000000000000002.jsonl"), new Date(999_000), new Date(999_000));
 		const found = findTranscripts({ harnessRoot: root, name: "rev", io: testIo() });
-		expect(found[0].path).toContain("agent-arev-newer1.jsonl");
+		expect(found[0].path).toContain("agent-arev-0000000000000002.jsonl");
 	});
 
 	test("no projects dir → empty (caller reports absent)", () => {
@@ -259,6 +306,49 @@ describe("writeReceipt + receiptFileName", () => {
 		expect(receiptFileName("rev", "/a/b.jsonl")).not.toBe(receiptFileName("rev", "/a/c.jsonl"));
 		expect(receiptFileName("rev", "/a/b.jsonl")).toMatch(/^rev-[0-9a-f]{8}\.json$/);
 	});
+
+	test("atomic write: no .tmp residue, receipt lands whole", () => {
+		const repoRoot = mkdtempSync(join(tmpdir(), "rh-repo-"));
+		const r = writeReceipt(
+			{
+				status: "completed",
+				name: "rev",
+				harnessRoot: "/h",
+				transcriptPath: "/t/agent-arev-0000000000000009.jsonl",
+				verdict: "V",
+				sendMessages: [],
+			},
+			repoRoot,
+			testIo(),
+		);
+		const dir = join(repoRoot, "output", "reviewer-harvest");
+		expect(readdirSyncRaw(dir).sort()).toEqual([r.path.split("/").pop() as string]);
+		expect(JSON.parse(readFileSync(r.path, "utf8")).verdict).toBe("V");
+	});
+
+	test("idempotence compares the FULL payload: same status+verdict but different sendMessages rewrites", () => {
+		const repoRoot = mkdtempSync(join(tmpdir(), "rh-repo-"));
+		const base = {
+			status: "completed" as const,
+			name: "rev",
+			harnessRoot: "/h",
+			transcriptPath: "/t/agent-arev-0000000000000009.jsonl",
+			verdict: "V",
+			sendMessages: [] as { to: string; summary: string; message: string }[],
+		};
+		writeReceipt(base, repoRoot, testIo());
+		// same terminal state + verdict, but a SendMessage record appeared in a later read
+		const changed = writeReceipt(
+			{ ...base, sendMessages: [{ to: "main", summary: "s", message: "m" }] },
+			repoRoot,
+			testIo({ now: () => new Date("2026-08-29T10:00:00Z") }),
+		);
+		expect(changed.unchanged).toBe(false);
+		expect(changed.overwritten).toBe(true);
+		const receipt = JSON.parse(readFileSync(changed.path, "utf8"));
+		expect(receipt.sendMessages).toHaveLength(1);
+		expect(receipt.harvestedAt).toBe("2026-08-29T10:00:00.000Z"); // rewrite restamps
+	});
 });
 
 describe("runReviewerHarvestCli — throw-free JSON contract", () => {
@@ -306,5 +396,28 @@ describe("runReviewerHarvestCli — throw-free JSON contract", () => {
 		);
 		expect(res.exitCode).toBe(1);
 		expect(JSON.parse(res.stdout).status).toBe("still-running");
+	});
+
+	test("--name value starting with '-' is a usage error, not a swallowed flag", async () => {
+		const res = await runReviewerHarvestCli(["--name", "--timeout", "30"]);
+		expect(res.exitCode).toBe(2);
+		expect(res.stderr).toContain("must not start with '-'");
+	});
+
+	test("--repo-root tilde-expands like --harness-root", async () => {
+		const { root } = tempHarness([
+			{ file: "agent-ainjection-probe-c27137ca99032335.jsonl", from: "completed-probe.jsonl", mtimeMs: 500_000 },
+		]);
+		const homeRel = mkdtempSync(join(tmpdir(), "rh-repo-")).replace(homedir(), "~");
+		// only meaningful when tmpdir is under home; otherwise exercise the plain path
+		const repoRoot = homeRel.startsWith("~") ? homeRel : mkdtempSync(join(tmpdir(), "rh-repo2-"));
+		const res = await runReviewerHarvestCli(
+			["--name", "injection-probe", "--harness-root", root, "--repo-root", repoRoot],
+			{ io: testIo() },
+		);
+		expect(res.exitCode).toBe(0);
+		const receiptPath = JSON.parse(res.stdout).receipt.path;
+		expect(receiptPath.startsWith("~/")).toBe(false); // expanded, not a literal ./~ dir
+		expect(existsSyncRaw(receiptPath)).toBe(true);
 	});
 });

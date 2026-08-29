@@ -57,6 +57,11 @@ function numArg(argv: string[], i: number, flag: string): { value?: number; erro
 	return { value };
 }
 
+/** Expand a leading `~` the way a shell would (both path flags accept it). */
+function expandTilde(v: string): string {
+	return v.startsWith("~") ? join(os.homedir(), v.slice(1)) : v;
+}
+
 export async function runReviewerHarvestCli(
 	argv: string[],
 	deps: { repoRoot?: string; io?: HarvestIo } = {},
@@ -74,13 +79,20 @@ export async function runReviewerHarvestCli(
 			if (v === undefined || v === "") {
 				return { exitCode: 2, stdout: "", stderr: `--name needs a value\n${REVIEWER_HARVEST_USAGE}` };
 			}
+			if (v.startsWith("-")) {
+				return {
+					exitCode: 2,
+					stdout: "",
+					stderr: `--name must not start with '-' (got ${v})\n${REVIEWER_HARVEST_USAGE}`,
+				};
+			}
 			name = v;
 		} else if (a === "--harness-root") {
 			const v = argv[++i];
 			if (v === undefined) {
 				return { exitCode: 2, stdout: "", stderr: `--harness-root needs a value\n${REVIEWER_HARVEST_USAGE}` };
 			}
-			harnessRoot = v.startsWith("~") ? join(os.homedir(), v.slice(1)) : v;
+			harnessRoot = expandTilde(v);
 		} else if (a === "--timeout") {
 			const r = numArg(argv, i, "--timeout");
 			if (r.error) return { exitCode: 2, stdout: "", stderr: `${r.error}\n${REVIEWER_HARVEST_USAGE}` };
@@ -96,7 +108,7 @@ export async function runReviewerHarvestCli(
 			if (v === undefined) {
 				return { exitCode: 2, stdout: "", stderr: `--repo-root needs a value\n${REVIEWER_HARVEST_USAGE}` };
 			}
-			repoRoot = v;
+			repoRoot = expandTilde(v);
 		} else if (a === "-h" || a === "--help") {
 			return { exitCode: 0, stdout: "", stderr: REVIEWER_HARVEST_USAGE };
 		} else if (a.startsWith("-")) {
