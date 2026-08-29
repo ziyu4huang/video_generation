@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { acquireBunBinary } from "../src/deploy/lib/bun-acquire.ts";
+import { acquireBunBinary, parseBunAcquireChannel } from "../src/deploy/lib/bun-acquire.ts";
 import { computeBunHash } from "../src/deploy/lib/bun-cache.ts";
 import { parseTargetName } from "../src/deploy/lib/targets.ts";
 
@@ -49,6 +49,30 @@ function buildFixtureRelease(specName: string, artifact: string, exeName: string
 	return base;
 }
 
+/**
+ * Local fixture REGISTRY for the npm channel: `<registry>/<pkg with "/" as
+ * %2F>` metadata file whose dist.tarball is a RELATIVE filename resolved
+ * next to it (the local-mirror seam acquireFromNpm documents). The tgz
+ * payload is this process's own bun nested at `package/bin/<exe>` — the
+ * layout @oven's real tarball ships.
+ */
+function buildFixtureRegistry(pkg: string, exeName: string): { registry: string; artifact: string } {
+	const seq = fixtureSeq++;
+	const registry = join(work, `registry-${seq}`);
+	mkdirSync(registry, { recursive: true });
+	const payloadRoot = join(work, `payload-${seq}`);
+	mkdirSync(join(payloadRoot, "package", "bin"), { recursive: true });
+	copyFileSync(process.execPath, join(payloadRoot, "package", "bin", exeName));
+	const artifact = `bun-fixture-${seq}.tgz`;
+	const tgz = join(registry, artifact);
+	const tar = Bun.spawnSync(["tar", "-czf", tgz, "-C", payloadRoot, "package"], { stdout: "pipe", stderr: "pipe" });
+	if (tar.exitCode !== 0) throw new Error(`fixture tgz build failed: ${tar.stderr.toString()}`);
+	const integrity = `sha512-${createHash("sha512").update(readFileSync(tgz)).digest("base64")}`;
+	const metadata = { versions: { [FAKE_VERSION]: { dist: { integrity, tarball: artifact } } } };
+	writeFileSync(join(registry, pkg.replace("/", "%2F")), JSON.stringify(metadata));
+	return { registry, artifact };
+}
+
 describe("acquireBunBinary (D7: GitHub-release channel, local fixture)", () => {
 	test("checksum-verified fetch lands in .buns under the SAME parameterized hash", async () => {
 		const base = buildFixtureRelease("darwin-x64", "bun-darwin-x64.zip", "bun");
@@ -77,7 +101,9 @@ describe("acquireBunBinary (D7: GitHub-release channel, local fixture)", () => {
 		const base = buildFixtureRelease("win32-x64", "bun-windows-x64.zip", "bun.exe");
 		const outRoot = join(work, "out-warm");
 		const spec = parseTargetName("win32-x64");
-		await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec, releaseBase: base });
+		// channel pinned github: the FIRST acquire must stay offline (fixture),
+		// and auto would route win32-x64 at the npm registry.
+		await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec, releaseBase: base, channel: "github" });
 		const r2 = await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec, releaseBase: "/nonexistent/release/base" });
 		expect(r2.cached).toBe(true);
 	});
@@ -108,7 +134,15 @@ describe("acquireBunBinary (D7: GitHub-release channel, local fixture)", () => {
 		writeFileSync(join(tagDir, "SHASUMS256.txt"), `${"0".repeat(64)}  ${artifact}\n`);
 		const outRoot = join(work, "out-c");
 		await expect(
-			acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec: parseTargetName("win32-x64"), releaseBase: base }),
+			// channel pinned: win32-x64 would otherwise AUTO to the npm channel
+			// (which never reads SHASUMS) — this test is the github channel's.
+			acquireBunBinary({
+				outRoot,
+				bunVersion: FAKE_VERSION,
+				spec: parseTargetName("win32-x64"),
+				releaseBase: base,
+				channel: "github",
+			}),
 		).rejects.toThrow(/checksum mismatch/);
 		expect(existsSync(join(outRoot, ".buns"))).toBe(false); // nothing cached from a failed verify
 	});
@@ -118,12 +152,125 @@ describe("acquireBunBinary (D7: GitHub-release channel, local fixture)", () => {
 		const tagDir = join(base, `bun-v${FAKE_VERSION}`);
 		writeFileSync(join(tagDir, "SHASUMS256.txt"), `${"a".repeat(64)}  bun-some-other-target.zip\n`);
 		await expect(
+			// channel pinned github for the same reason as the tampered test above.
 			acquireBunBinary({
 				outRoot: join(work, "out-d"),
 				bunVersion: FAKE_VERSION,
 				spec: parseTargetName("win32-x64"),
 				releaseBase: base,
+				channel: "github",
 			}),
 		).rejects.toThrow(/no row for/);
+	});
+});
+
+describe("acquireBunBinary (npm channel, local fixture registry)", () => {
+	test(
+		"auto routes win32-x64 at npm; sha512-verified tgz lands in .buns under the SAME hash",
+		async () => {
+			const { registry } = buildFixtureRegistry("@oven/bun-windows-x64", "bun.exe");
+			const outRoot = join(work, "out-npm-a");
+			const spec = parseTargetName("win32-x64");
+			const r = await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec, npmRegistry: registry });
+			expect(r.cached).toBe(false);
+			const expectedHash = computeBunHash({ bunVersion: FAKE_VERSION, platform: "win32", arch: "x64" });
+			expect(r.cacheFile.endsWith(join(".buns", expectedHash))).toBe(true);
+			expect(readFileSync(r.cacheFile).equals(readFileSync(process.execPath))).toBe(true); // payload survived the tgz round-trip
+			// Second acquire is a cache hit — no registry touch at all.
+			const r2 = await acquireBunBinary({
+				outRoot,
+				bunVersion: FAKE_VERSION,
+				spec,
+				npmRegistry: "/nonexistent/registry",
+			});
+			expect(r2.cached).toBe(true);
+		},
+		{ timeout: 60_000 },
+	);
+
+	test(
+		"channel github stays available for win32 (explicit override of the npm default)",
+		async () => {
+			const base = buildFixtureRelease("win32-x64", "bun-windows-x64.zip", "bun.exe");
+			const outRoot = join(work, "out-npm-gh");
+			const r = await acquireBunBinary({
+				outRoot,
+				bunVersion: FAKE_VERSION,
+				spec: parseTargetName("win32-x64"),
+				releaseBase: base,
+				channel: "github",
+			});
+			expect(r.cached).toBe(false);
+		},
+		{ timeout: 60_000 },
+	);
+
+	test("a tampered npm integrity fails before anything ships", async () => {
+		const { registry, artifact } = buildFixtureRegistry("@oven/bun-windows-x64", "bun.exe");
+		const metadataPath = join(registry, "@oven%2Fbun-windows-x64");
+		const metadata = JSON.parse(readFileSync(metadataPath, "utf8")) as {
+			versions: Record<string, { dist: { integrity: string; tarball: string } }>;
+		};
+		metadata.versions[FAKE_VERSION].dist.integrity = "sha512-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+		writeFileSync(metadataPath, JSON.stringify(metadata));
+		const outRoot = join(work, "out-npm-b");
+		await expect(
+			acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec: parseTargetName("win32-x64"), npmRegistry: registry }),
+		).rejects.toThrow(/npm tarball checksum mismatch/);
+		expect(existsSync(join(outRoot, ".buns"))).toBe(false); // nothing cached from a failed verify
+		expect(artifact).toBeTruthy();
+	});
+
+	test("a registry without the exact version is an error, not a skip", async () => {
+		const { registry } = buildFixtureRegistry("@oven/bun-windows-x64", "bun.exe");
+		const metadataPath = join(registry, "@oven%2Fbun-windows-x64");
+		const metadata = JSON.parse(readFileSync(metadataPath, "utf8")) as {
+			versions: Record<string, unknown>;
+		};
+		delete metadata.versions[FAKE_VERSION];
+		writeFileSync(metadataPath, JSON.stringify(metadata));
+		await expect(
+			acquireBunBinary({
+				outRoot: join(work, "out-npm-c"),
+				bunVersion: FAKE_VERSION,
+				spec: parseTargetName("win32-x64"),
+				npmRegistry: registry,
+			}),
+		).rejects.toThrow(/no version .* for @oven\/bun-windows-x64/);
+	});
+
+	test("forced npm on a target with no published package is an error, not a silent switch", async () => {
+		await expect(
+			acquireBunBinary({
+				outRoot: join(work, "out-npm-d"),
+				bunVersion: FAKE_VERSION,
+				spec: parseTargetName("darwin-arm64"),
+				channel: "npm",
+			}),
+		).rejects.toThrow(/publishes no package/);
+	});
+
+	test("non-win32 targets keep the github channel under auto (registry never consulted)", async () => {
+		const base = buildFixtureRelease("linux-x64", "bun-linux-x64.zip", "bun");
+		const r = await acquireBunBinary({
+			outRoot: join(work, "out-npm-e"),
+			bunVersion: FAKE_VERSION,
+			spec: parseTargetName("linux-x64"),
+			releaseBase: base,
+			npmRegistry: "/nonexistent/registry",
+		});
+		expect(r.cached).toBe(false); // proved github path ran despite a dead npmRegistry
+	});
+});
+
+describe("parseBunAcquireChannel (S2_AGENT_BUN_ACQUIRE_CHANNEL)", () => {
+	test("unset/empty → auto; strict vocabulary otherwise", () => {
+		expect(parseBunAcquireChannel(undefined)).toBe("auto");
+		expect(parseBunAcquireChannel("")).toBe("auto");
+		expect(parseBunAcquireChannel("github")).toBe("github");
+		expect(parseBunAcquireChannel("npm")).toBe("npm");
+		expect(parseBunAcquireChannel("auto")).toBe("auto");
+		expect(() => parseBunAcquireChannel("NPM")).toThrow(/invalid S2_AGENT_BUN_ACQUIRE_CHANNEL/);
+		expect(() => parseBunAcquireChannel("release")).toThrow(/invalid S2_AGENT_BUN_ACQUIRE_CHANNEL/);
 	});
 });

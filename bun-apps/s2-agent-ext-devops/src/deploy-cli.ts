@@ -30,10 +30,14 @@ FLAGS
                     the tree is packed for, e.g. win32-x64, linux-x64.
                     Default: this host. Version dirs + current live under
                     <outRoot>/<target>/; the .cores/.buns caches are shared.
-                    A non-host target fetches its bun from the GitHub release
-                    (D7; override the base with S2_AGENT_BUN_RELEASE_BASE)
-                    and skips the boot gates + post-deploy E2E (t06 owns the
-                    cross-OS verification channel).
+                    A non-host target fetches its bun over the npm registry
+                    where @oven publishes one (win32-x64, sha512-verified;
+                    override with S2_AGENT_BUN_NPM_REGISTRY) or the GitHub
+                    release (D7; override the base with
+                    S2_AGENT_BUN_RELEASE_BASE; force with
+                    S2_AGENT_BUN_ACQUIRE_CHANNEL=github|npm|auto), and skips
+                    the boot gates + post-deploy E2E (t06 owns the cross-OS
+                    verification channel).
   --force           replace an existing version dir
   (re-deploying the CURRENT version without --force is a no-op success:
    { ok: true, noop: true } — same git sha means same content)
