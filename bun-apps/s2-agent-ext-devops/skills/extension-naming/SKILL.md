@@ -39,6 +39,41 @@ these is a **behavior change** — it requires the PR #1738 pattern (legacy name
 kept where transcript matching reads it + caller sweep) and a new row in the
 history table below. Do not rename casually.
 
+## Family-prefix convention (D5, slash-surface t03, 2026-08-29)
+
+**Skill names are FLAT by default; a family prefix is the EXCEPTION, reserved
+for collision, ambiguity, or vendored upstream names.** Measured landscape
+when decided: 62 repo skills — hyperframes 7/8 prefixed (vendored upstream
+family), devops 1/10, superpowers 0/16, wayfind 0/16. Flat was already the
+de-facto convention; all-prefixed would rename ~50 skills (two of them
+upstream families whose vendoring contract is "keep upstream names") for
+zero behavior gain.
+
+A prefix is justified ONLY when:
+
+1. **Collision** — the bare name already exists as a skill (guarded by
+   `bun-apps/tests/skill-frontmatter.test.ts`'s cross-package uniqueness
+   test; extension commands have their own arbitration — the
+   colliding-command-dispatch patch — but skills have neither suffixing nor
+   a dispatch patch, so a collision is a silent shadow).
+2. **Palette ambiguity** — the bare name is a generic word that reads as a
+   tool, not a family (why `devops-workflow` keeps its prefix: `workflow`
+   alone is ambiguous in a 60+-skill palette).
+3. **Vendored upstream family** — hyperframes-* keeps upstream names; do
+   NOT re-prefix or de-prefix vendored families.
+
+Consequences (measured precedents, do not re-litigate):
+
+- The devops family's nine unprefixed skills (`issue-tracker`, `domain-docs`,
+  `learnings`, `extension-naming`, `shared-state-index`, `session-closeout-sop`,
+  `self-reflect-next-goal`, `debug-s2-session`, `s2-agent-model-catalog-update`)
+  are CONFORMANT as-is — explicitly exempt, no renames.
+- To EXTEND a builtin rather than replace it, prefer the hook seam over a
+  same-named command (slash-surface D3: `/compact` hook-rider precedent).
+- "pi"/"s2-agent" wording: residue only where it names OUR agent (D4);
+  upstream-ecosystem references (`research-pi-packages` → Pi.dev) and factual
+  paths (`PI_CODING_AGENT_DIR`, `~/.pi/agent`, `pi-hermes-memory/`) stay.
+
 ## Current tool inventory (2026-08-20)
 
 | Package | Tools |

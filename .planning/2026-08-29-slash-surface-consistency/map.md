@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-slash-surface-consistency
 created: 2026-08-29
-last: 2026-08-29 (t01+t02 done)
+last: 2026-08-29 (t01+t02+t03 done)
 status: open
 ---
 
@@ -72,9 +72,10 @@ listing derives after renames land).
   renamed (9 sites, golden re-pinned); grill-memory claim was STALE (no "pi"
   text exists); `research-pi-packages` KEPT (D4 — names the upstream Pi.dev
   ecosystem it researches).
-- [ ] **03-family-prefix-convention** — ONE convention decision for
-  family prefixes (all-prefixed vs documented flat), recorded in the
-  `extension-naming` skill + applied to the devops family's stragglers.
+- [x] **03-family-prefix-convention** — DONE (2026-08-29): D5 = FLAT by
+  default, prefix only on collision/ambiguity/vendored; written into
+  extension-naming SKILL.md; devops stragglers explicitly exempt; uniqueness
+  lint added to `bun-apps/tests/skill-frontmatter.test.ts`.
 
 ### Phase C — docs face
 
@@ -116,13 +117,22 @@ listing derives after renames land).
   (`PI_CODING_AGENT_DIR`, `~/.pi/agent`, `pi-hermes-memory/` store dir —
   unchanged by design). Also: the audit's grill-memory claim ("description
   says 'pi memory'") was STALE — zero "pi" strings in that SKILL.md.
+- D5 (2026-08-29, ticket 03): skill names are **FLAT by default**; a family
+  prefix only on collision / palette ambiguity / vendored upstream names.
+  Measured: 62 skills, hyperframes 7/8 (vendored), devops 1/10, superpowers
+  0/16, wayfind 0/16 — flat already de-facto; all-prefixed = ~50 renames
+  incl. two upstream families for zero gain. `devops-workflow` keeps its
+  prefix (bare `workflow` is palette-ambiguous); the devops nine are
+  conformant-unprefixed. Guard: cross-package skill-name uniqueness test in
+  `bun-apps/tests/skill-frontmatter.test.ts` (skills have no suffixing or
+  dispatch patch — a collision is a silent shadow, unlike commands in D3).
 
 ## Frontier
 
-**03-family-prefix-convention** — 01 (D3: hook-seam precedent) and 02 (D4:
-"pi" is residue only where it names OUR agent) both closed their feeding
-inputs; 03 now decides the ONE family-prefix convention and writes it into
-the devops `extension-naming` skill.
+**04-help-banner-adjudication** — the behavioral (01) and naming (02, 03)
+tickets are closed; 04 decides which "pi" strings we own on the help face
+(patch via the patches seam vs document-only) — D4's corollary applies, and
+the patch-cost churn is the live question (Fog of war).
 
 ## Fog of war
 
