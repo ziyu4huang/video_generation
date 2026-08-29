@@ -10,10 +10,14 @@
 // Run (from the repo under investigation — the script searches `.`):
 //   bun <path>/skills/systematic-debugging/find-polluter.ts '.git' 'src/**/*.test.ts'
 //
-// Behavior ported verbatim from the .sh: `find . -path` matches the pattern
-// verbatim against ./-prefixed pathnames (a bare `src/**` pattern matches
-// nothing — pass `./src/**`; the upstream-fixed find-polluter.sh strips the
-// ./ prefix, deliberately NOT ported here, see the test's provenance header).
+// Test-file discovery ports the upstream-fixed find-polluter.sh (obra/
+// superpowers master, issue #1862): `find .` emits ./-prefixed pathnames, so
+// the pattern is matched as `./<pattern>` with any leading `./` stripped from
+// the argument — the documented bare `src/**/*.test.ts` invocation works.
+// `-path` can't match `**/` against zero directory levels (src/top.test.ts),
+// so the pattern with `**/` collapsed is tried too; results are deduped
+// (sort -u equivalent). Zero matches print `Found 0 test files` (the old
+// `echo | wc -l` 0→1 quirk is gone).
 
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -38,8 +42,13 @@ console.log(`🔍 Searching for test that creates: ${POLLUTION_CHECK}`);
 console.log(`Test pattern: ${TEST_PATTERN}`);
 console.log("");
 
-// Get list of test files (port of `find . -path "$TEST_PATTERN" | sort`).
-const found = spawnSync("find", [".", "-path", TEST_PATTERN], {
+// Get list of test files (port of the upstream-fixed
+// `find . \( -path "./$TEST_PATTERN" -o -path "./${TEST_PATTERN//**\//}" \) | sort -u`:
+// accept the pattern with or without a leading ./, and also try it with `**/`
+// collapsed so files directly under the base dir match).
+const PATTERN = TEST_PATTERN.replace(/^\.\//, "");
+const COLLAPSED = PATTERN.replaceAll("**/", "");
+const found = spawnSync("find", [".", "(", "-path", `./${PATTERN}`, "-o", "-path", `./${COLLAPSED}`, ")"], {
   cwd: process.cwd(),
   encoding: "utf8",
 });
@@ -53,20 +62,23 @@ const found = spawnSync("find", [".", "-path", TEST_PATTERN], {
 if (found.error) process.stderr.write("find: command not found\n");
 else process.stderr.write(found.stderr ?? "");
 
-// Port of `TEST_FILES=$(find ... | sort)` + `for f in $TEST_FILES` word-splitting
-// (IFS whitespace — a name containing spaces breaks identically to the .sh).
-const TEST_FILES = (found.stdout ?? "")
-  .split("\n")
-  .filter((l) => l !== "")
-  .sort()
-  .join("\n")
-  .split(/\s+/)
+// Port of `TEST_FILES=$(find ... | sort -u)` + `for f in $TEST_FILES`
+// word-splitting (IFS whitespace — a name containing spaces breaks
+// identically to the .sh). Dedupe mirrors `sort -u` (upstream): a path
+// matching both the plain and collapsed patterns prints once.
+const TEST_FILES = [
+  ...new Set(
+    (found.stdout ?? "")
+      .split("\n")
+      .filter((l) => l !== "")
+      .sort(),
+  ),
+].join("\n").split(/\s+/)
   .filter(Boolean);
 
-// Port of `echo "$TEST_FILES" | wc -l | tr -d ' '` — echo of an already-newline-
-// stripped empty string still emits one newline, so zero files counts as 1.
-// (.sh quirk, mirrored; harmless — the loop body never runs for zero files.)
-const TOTAL = TEST_FILES.length === 0 ? 1 : TEST_FILES.length;
+// Upstream TOTAL: zero matches count as 0 (the .sh's `echo | wc -l` 0→1
+// quirk is NOT ported — it masked the match-zero-files bug).
+const TOTAL = TEST_FILES.length;
 
 console.log(`Found ${TOTAL} test files`);
 console.log("");
