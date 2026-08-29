@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 02
-status: open
+status: closed
 ---
 
 # 04 — E2E probe `standalone-import`

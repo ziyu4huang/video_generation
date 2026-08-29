@@ -171,13 +171,15 @@ describe("runDeployE2e", () => {
 			"vision-call",
 			"file2md-ocr",
 			"tool-gate-fire",
+			"standalone-import",
 		]);
 		expect(r.probes.find((p) => p.id === "file2md-ocr")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(r.probes.find((p) => p.id === "vision-call")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(r.probes.find((p) => p.id === "tool-gate-fire")?.verdict).toBe("skip"); // not in this tree's deploy set
+		expect(r.probes.find((p) => p.id === "standalone-import")?.verdict).toBe("skip"); // stub tree has no ext/ext-standalone.mjs
 		expect(
 			r.probes
-				.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "vision-call")
+				.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "standalone-import" && p.id !== "vision-call")
 				.every((p) => p.verdict === "pass"),
 		).toBe(true);
 	});
@@ -538,7 +540,7 @@ describe("vision-call probe", () => {
 		expect(vc.note).toContain(VISION_FIXTURE_NEEDLE);
 		expect(vc.note).toContain("fixture image");
 		// every probe EXCEPT the bundle-less ocr artifact passes
-		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire").every((p) => p.verdict === "pass")).toBe(true);
+		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "standalone-import").every((p) => p.verdict === "pass")).toBe(true);
 	});
 
 	test("a reply WITHOUT the fixture text fails — the image was not processed", async () => {
@@ -580,7 +582,7 @@ describe("vision-call probe", () => {
 		// an OUTCOME-driven skip degrades the overall verdict (worst() includes
 		// it) — the only fail on this tree is the bundle-less ocr artifact
 		expect(r.verdict).toBe("fail"); // ocr artifact fail outranks the skip
-		expect(r.probes.filter((p) => p.id !== "file2md-ocr").every((p) => p.verdict !== "fail")).toBe(true);
+		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "standalone-import").every((p) => p.verdict !== "fail")).toBe(true);
 	});
 
 	test("a deadline breach is a SKIP naming the abandonment (injectable cap)", async () => {
@@ -625,7 +627,7 @@ describe("vision-call probe", () => {
 		expect(vc.verdict).toBe("skip");
 		expect(vc.note).toContain("skipped by caller");
 		// model-call is skip-by-caller too; nothing may FAIL outside the ocr artifact
-		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire").every((p) => p.verdict !== "fail")).toBe(true);
+		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "standalone-import").every((p) => p.verdict !== "fail")).toBe(true);
 	});
 
 	test("an unreadable ext.json is a structured fail, never a throw", async () => {

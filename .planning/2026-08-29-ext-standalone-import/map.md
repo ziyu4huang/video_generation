@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-ext-standalone-import
 created: 2026-08-29
-last: 2026-08-29 (ticket 03 closed — dist AGENTS.md written by every successful deploy, quickstart shared with t04)
+last: 2026-08-29 (ticket 04 closed — standalone-import E2E probe; extRoot default bug found and fixed via its pass-path test)
 status: active
 ---
 
@@ -64,7 +64,7 @@ Confirmed 2026-08-29.
 | `tickets/01-shim-entry.md` | closed | `standalone.ts` + 12 contract tests green; s2-agent full suite 989 pass/0 fail; D4 amended (ESM `.mjs`, `import.meta.dir` self-location) |
 | `tickets/02-deploy-build-step.md` | closed | `lib/standalone-shim.ts` wired into run.ts; 6.11MB, .cores cache hit on 2nd build; gates s1b/s4/s2 (s1 dropped per D8); deploy.json + Gate 5 record; 8 unit tests + pkg suite 999/0 |
 | `tickets/03-dist-agents-md.md` | closed | `lib/agents-md.ts` — AGENTS.md at outRoot, idempotent refresh; STANDALONE_QUICKSTART shared verbatim with the t04 probe; 4 unit tests + tsc green |
-| `tickets/04-e2e-standalone-import.md` | open | Post-deploy E2E probe `standalone-import`: /tmp consumer script, devops dry-run on a fixture git repo, file2md cross-check, foreign-path assert |
+| `tickets/04-e2e-standalone-import.md` | closed | `standalone-import` probe: AGENTS.md quickstart verbatim from scratch dir + offline fixture repo + DEPLOYED bin/bun; file2md via shim cross-check; s1b/s4 re-check; broken-shim fail proven; 3 unit tests + suites 1006/992-0 |
 | `tickets/05-ship-and-close.md` | open | Fresh deploy on this machine with E2E green, repo docs touch-up, effort close-out |
 
 ## Decisions
@@ -111,7 +111,7 @@ Confirmed 2026-08-29.
 
 ## Frontier
 
-`tickets/03-dist-agents-md.md` — the shim entry (t01) and its gated build
+`tickets/04-e2e-standalone-import.md` — the shim, its gates, and its docs are all in; t04 proves the WHOLE path the way a real consumer uses it (scratch dir, no repo): the exact AGENTS.md quickstart script against the deployed shim, a devops dry-run on an offline fixture repo, the file2md cross-check, and the foreign-path assert. t05 then ships on this proof.
 step (t02) are in; t03 writes the agent-facing `AGENTS.md` whose quickstart
 code t04's E2E probe must then execute verbatim (doc and proof cannot
 diverge). It unblocks nothing else — t04 shares only t02 — but leads by the

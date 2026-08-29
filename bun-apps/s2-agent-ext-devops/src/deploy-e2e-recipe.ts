@@ -60,6 +60,11 @@
  *   tool-gate-fire executes the DEPLOYED tool-gate bundle's matcher on a
  *                  fixture gate family — no model; proves the shipped bytes
  *                  gate at session start and fire on a keyword prompt.
+ *   standalone-import  runs the AGENTS.md quickstart VERBATIM from a scratch
+ *                  dir (no repo/workspace) against a fixture git repo with
+ *                  the DEPLOYED bin/bun, cross-checks file2md THROUGH the
+ *                  shim, and re-runs the shim's s1b/s4 gates. Skip on
+ *                  pre-t02 trees (no ext/ext-standalone.mjs).
  *
  * INTERACTIVE SUBCOMMANDS ARE DELIBERATELY NOT PROBED
  *   `s2-agent auth` with no subcommand opens an interactive TUI and blocks
@@ -82,6 +87,7 @@ import { isTargetSubrootName } from "./deploy/lib/version.js";
 import { executeExtTool } from "./deploy/lib/ext-build.js";
 import { runToolGateFireProbe } from "./tool-gate-fire-probe.js";
 import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
+import { standaloneImportProbe } from "./deploy/lib/standalone-import-probe.ts";
 import { classifyRun } from "./oneshot-smoke.js";
 import { parseToolsProbeLine, TOOLS_ACTIVE_PROBE } from "./tools-active-probe.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
@@ -257,7 +263,15 @@ export const DEPLOY_E2E_PROMPT = "Reply with exactly: ok";
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
 export interface DeployE2eProbe {
-	id: "boot" | "ext-load" | "tools-probe" | "model-call" | "vision-call" | "file2md-ocr" | "tool-gate-fire";
+	id:
+		| "boot"
+		| "ext-load"
+		| "tools-probe"
+		| "model-call"
+		| "vision-call"
+		| "file2md-ocr"
+		| "tool-gate-fire"
+		| "standalone-import";
 	verdict: ProbeVerdict;
 	ms: number;
 	note: string;
@@ -965,6 +979,14 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		probes.push({ id: "tool-gate-fire", verdict: tgVerdict, ms: now() - t0, note: tgNote, detail: tgDetail });
 	}
 
+	// ── standalone-import probe ──────────────────────────────────────────────
+	// ext-standalone-import t04: the dist's standalone consumption surface,
+	// proven the way a real consumer uses it — the AGENTS.md quickstart run
+	// from a scratch dir (no repo/workspace) against a fixture git repo with
+	// the DEPLOYED bin/bun, a file2md cross-check THROUGH the shim, and the
+	// shim's text gates re-run at probe time. Skip on pre-t02 trees (no shim).
+	probes.push(await standaloneImportProbe(opts.versionDir));
+
 	const verdict = worst(
 		probes
 			.filter((p) => {
@@ -973,6 +995,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				// Not-applicable skips are inconclusive, not a degraded verdict.
 				if (p.id === "file2md-ocr" && p.verdict === "skip") return false;
 				if (p.id === "tool-gate-fire" && p.verdict === "skip") return false;
+				if (p.id === "standalone-import" && p.verdict === "skip") return false;
 				return true;
 			})
 			.map((p) => p.verdict),

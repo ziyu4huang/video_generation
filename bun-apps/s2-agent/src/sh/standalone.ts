@@ -33,7 +33,7 @@
  * same problem.
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { evaluateExtModule, extRequire } from "./ext-loader.ts";
 import { hostRequire } from "./host-modules.ts";
 
@@ -62,18 +62,21 @@ export interface StandaloneExtSummary {
 
 export interface LoadExtOptions {
 	/**
-	 * The deploy tree's version dir (the one holding `ext/`). Defaults to the
-	 * directory ABOVE this bundle's own location — the shipped layout is
-	 * `<dist>/ext/ext-standalone.mjs`, so the bundle's dir IS the ext root and
-	 * its parent the dist root. Pass this when the consuming script wants an
-	 * explicit tree (e.g. a non-`current` version dir).
+	 * The deploy tree's version dir (the one holding `ext/`). Unset by default:
+	 * the shipped layout is `<dist>/ext/ext-standalone.mjs`, so the bundle's
+	 * own dir IS the ext root and no path needs naming at all. Pass this when
+	 * the consuming script wants an explicit tree (e.g. a non-`current`
+	 * version dir).
 	 */
 	distRoot?: string;
 }
 
 /** The `ext/` dir every ext is resolved from. */
 function extRootFor(opts?: LoadExtOptions): string {
-	return opts?.distRoot ? join(opts.distRoot, "ext") : dirname(import.meta.dir);
+	// Default: THIS BUNDLE'S OWN dir — the shipped layout is
+	// `<dist>/ext/ext-standalone.mjs`, so the bundle already sits in the ext
+	// root. distRoot names the version dir one level up instead.
+	return opts?.distRoot ? join(opts.distRoot, "ext") : import.meta.dir;
 }
 
 /**
