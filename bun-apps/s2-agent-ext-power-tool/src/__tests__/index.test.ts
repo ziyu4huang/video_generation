@@ -606,7 +606,9 @@ describe("analyzeExtensions — checks", () => {
 //
 // The 2026-08-29 three-mode verification quoted "dev answered 104, deploy 11
 // sources" for the same inspect_extensions prompt — two DIFFERENT bases of
-// one report (an issue-count reading vs the total-extension-tax line). These
+// one report (a JSON-findings-length reading vs the total-extension-tax
+// line; adjudicated 2026-08-30 — the Issue count was 0 in both modes, the
+// deployed dist reproduces findings_length = 104 exactly). These
 // tests pin what each count actually counts, from the analyzer's code, so
 // the cross-mode contrast stops reading like drift.
 
