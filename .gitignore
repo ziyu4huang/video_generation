@@ -124,3 +124,6 @@ bun-apps/s2-agent-ext-wayfind/vendor/mermaid.min.js
 bun-apps/s2-agent-ext-devops/.cache/
 bun-apps/s2-agent-ext-archify/vendored/mermaid.min.js
 output/
+
+# TUI/probe session scratch — model-invoked file2md outputs land here (never committed)
+vlm-out/
