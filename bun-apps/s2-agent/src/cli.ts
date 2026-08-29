@@ -121,7 +121,14 @@ if (isExtNewCommand(argv)) {
 // `Unknown option: --ext-list` and fall through to a model session (the exact
 // 40s+ silent "hang" the parity gap measured).
 if (isExtListCommand(argv)) {
-	const { formatDevExtList } = await import("./ext-list.ts");
+	const { formatDevExtList, formatDevSkillInventory } = await import("./ext-list.ts");
+	// `ext list --skills` (slash-surface t06/D8): the grouped skill inventory —
+	// same intercept rationale, same offline guarantee, family-grouped answer
+	// to "what can I invoke" (upstream 0.84.x has no palette grouping).
+	if (argv.includes("--skills")) {
+		console.log(await formatDevSkillInventory(argv.includes("--json")));
+		process.exit(0);
+	}
 	console.log(await formatDevExtList(userSuppressFlags(argv)));
 	process.exit(0);
 }

@@ -19,7 +19,7 @@
  * user's own, not part of the registry report — the sh launcher does not
  * list -e ad-hoc files either).
  */
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { REGISTRY, type RegistryEntry } from "./registry-config.ts";
 import { formatExtList } from "./sh/ext-list.ts";
@@ -90,4 +90,76 @@ export async function formatDevExtList(userFlags: Partial<UserSuppressFlags>): P
 		exists: existsSync,
 		userFlags,
 	}));
+}
+
+// ── `ext list --skills`: the grouped skill inventory ─────────────────────────
+//
+// Slash-surface-consistency ticket 06 (D8): upstream 0.84.x has NO palette
+// grouping (checked docs/skills.md + docs/tui.md + CHANGELOG — the only
+// "grouping" upstream knows is nested skill FOLDER discovery, unrelated to
+// palette navigation), so "what can I invoke + which family" gets answered
+// HERE: one offline command listing every registry skill grouped by family.
+// Derived from the SAME registry rows `devExtListResult` reads (never a hand
+// list) + the skills/ dir contents (skill name = dir name, enforced by
+// bun-apps/tests/skill-frontmatter.test.ts). Extension slash-COMMANDS stay
+// enumerated by `ext doctor` — deriving them requires evaluating extension
+// code, exactly what this diagnostic refuses to do.
+
+export interface SkillInventoryRow {
+	/** Registry extension name — the FAMILY a skill ships with. */
+	family: string;
+	/** Skill dir names under <package>/skills/ (dir name = skill name). */
+	skills: string[];
+}
+
+export interface DevSkillInventoryOptions {
+	bunAppsDir: string | undefined;
+	registry: RegistryEntry[];
+	exists: (p: string) => boolean;
+	/** Dir names under a skills/ root that contain a SKILL.md (injected readdir for purity). */
+	listSkills: (skillsDir: string) => string[];
+}
+
+/** Pure registry+fs → grouped inventory. Registry order preserved; families with zero loadable skills are omitted (a skills:true row whose dir is absent contributes nothing, same skip semantics as skillPaths). */
+export function devSkillInventory(opts: DevSkillInventoryOptions): SkillInventoryRow[] {
+	if (opts.bunAppsDir === undefined) return [];
+	const rows: SkillInventoryRow[] = [];
+	for (const e of opts.registry) {
+		if (!e.enabled || e.skills !== true) continue;
+		const p = join(opts.bunAppsDir, e.package, "skills");
+		if (!opts.exists(p)) continue;
+		const skills = opts.listSkills(p);
+		if (skills.length > 0) rows.push({ family: e.name, skills });
+	}
+	return rows;
+}
+
+/** Text form: one line per family, names flat (D5), registry order. */
+export function formatSkillInventory(rows: SkillInventoryRow[]): string {
+	const total = rows.reduce((n, r) => n + r.skills.length, 0);
+	const lines = [
+		`skills: ${total} across ${rows.length} families (registry-derived; invoke as /skill:<name>)`,
+	];
+	for (const r of rows) lines.push(`${r.family} (${r.skills.length}): ${r.skills.join(", ")}`);
+	return lines.join("\n");
+}
+
+/** `ext list --skills` entry — grouped inventory, text (default) or --json. */
+export async function formatDevSkillInventory(json: boolean): Promise<string> {
+	const bunAppsDir = await resolveBunAppsDir();
+	const rows = devSkillInventory({
+		bunAppsDir,
+		registry: REGISTRY,
+		exists: existsSync,
+		listSkills: (skillsDir) => {
+			try {
+				return readdirSync(skillsDir, { withFileTypes: true })
+					.filter((d) => d.isDirectory() && existsSync(join(skillsDir, d.name, "SKILL.md")))
+					.map((d) => d.name);
+			} catch {
+				return [];
+			}
+		},
+	});
+	return json ? JSON.stringify(rows, null, 2) : formatSkillInventory(rows);
 }
