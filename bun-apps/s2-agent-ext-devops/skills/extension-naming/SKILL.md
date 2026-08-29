@@ -73,6 +73,15 @@ Consequences (measured precedents, do not re-litigate):
 - "pi"/"s2-agent" wording: residue only where it names OUR agent (D4);
   upstream-ecosystem references (`research-pi-packages` → Pi.dev) and factual
   paths (`PI_CODING_AGENT_DIR`, `~/.pi/agent`, `pi-hermes-memory/`) stay.
+- The help face renames through the upstream seam, NOT a patch (D6): the
+  deployed banner/usage lines read `s2-agent …` because
+  `bun-apps/s2-agent/package.json` sets `piConfig.name: "s2-agent"` —
+  upstream `config.js` derives `APP_NAME`/`APP_TITLE`/usage strings from it.
+  CONSEQUENCE: env vars derive as `S2-AGENT_CODING_AGENT_DIR` (DASH — the
+  documented trap); the SOURCE face (`./s2-agent.sh --help`) still says
+  `pi` because source mode resolves upstream's own package.json — that is
+  upstream's CLI name in dev mode, deliberately NOT patched (patch cost
+  churns every bump; dev-only surface).
 
 ## Current tool inventory (2026-08-20)
 

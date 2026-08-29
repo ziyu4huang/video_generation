@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-slash-surface-consistency
 created: 2026-08-29
-last: 2026-08-29 (t01+t02+t03 done)
+last: 2026-08-30 (t01–t04 done)
 status: open
 ---
 
@@ -35,9 +35,11 @@ pi-coding-agent@0.84.4 dist/core/slash-commands.js:
   routing via the hook (`agent-session.js:1490` manual, `:1751` auto).
   Receipt + decision in `tickets/01-compact-collision.md`; pinned by
   `s2-agent-ext-compact/extensions/__tests__/no-command-collision.test.ts`.
-- **Help banner**: `./s2-agent.sh --help` prints `pi - AI coding assistant
-  with read, bash, edit, write tools` + `pi install/remove/update/...`
-  (measured on the source face; the deploy face wraps the same core).
+- **Help banner — RESOLVED (ticket 04, D6, 2026-08-30)**: source face
+  `./s2-agent.sh --help` prints `pi - AI coding assistant …` + `pi
+  install/remove/update/...` (upstream CLI in dev mode); the DEPLOYED face
+  already prints `s2-agent - …` via the upstream `piConfig.name` seam
+  (measured on dist 0.8.0). Document-only; no patch.
 - **`pi-` naming residue — RESOLVED (ticket 02, 2026-08-29)**:
   `pi-memory-bulk-dedup` → `memory-bulk-dedup` (renamed, 9 sites); the
   `grill-memory` claim was STALE (no "pi" text exists); `research-pi-packages`
@@ -79,9 +81,11 @@ listing derives after renames land).
 
 ### Phase C — docs face
 
-- [ ] **04-help-banner-adjudication** — decide which "pi" strings we own
-  (patch `--help` face via the patches seam vs document-only); implement
-  the minimal slice.
+- [x] **04-help-banner-adjudication** — DONE (2026-08-30): D6 =
+  document-only. Deployed face ALREADY says `s2-agent` (upstream
+  `piConfig.name` seam, measured on dist 0.8.0); source face's `pi` banner
+  is upstream's own CLI in dev mode — patch refused (churn > dev-only
+  value). Receipt in ticket.
 - [ ] **05-doctor-family-doc** — unify the five diagnostic surfaces in
   one doc surface (domain-docs / CONTEXT.md), zero or near-zero code.
 
@@ -126,13 +130,22 @@ listing derives after renames land).
   conformant-unprefixed. Guard: cross-package skill-name uniqueness test in
   `bun-apps/tests/skill-frontmatter.test.ts` (skills have no suffixing or
   dispatch patch — a collision is a silent shadow, unlike commands in D3).
+- D6 (2026-08-30, ticket 04): help-banner = DOCUMENT-ONLY, no patch. The
+  deployed face already introduces the agent as `s2-agent` via the upstream
+  `piConfig.name` seam (`bun-apps/s2-agent/package.json`; measured on dist
+  `0.8.0+gb894dc9`), and every residual "pi" string on that face is a D4
+  non-residue class (upstream binary name in `update self|pi`, factual
+  `~/.pi/agent` path, `pi.dev` ecosystem URL). The source face's `pi`
+  banner is upstream's own CLI in dev mode — patching it through the patches
+  seam would churn every bump for a dev-only surface. Documented in
+  extension-naming SKILL.md alongside the `S2-AGENT_CODING_AGENT_DIR` dash
+  consequence.
 
 ## Frontier
 
-**04-help-banner-adjudication** — the behavioral (01) and naming (02, 03)
-tickets are closed; 04 decides which "pi" strings we own on the help face
-(patch via the patches seam vs document-only) — D4's corollary applies, and
-the patch-cost churn is the live question (Fog of war).
+**05-doctor-family-doc** — 01–04 closed the behavioral, naming, and
+help-face slices; 05 unifies the five diagnostic surfaces in one doc
+surface (domain-docs / CONTEXT.md), zero or near-zero code.
 
 ## Fog of war
 
@@ -141,6 +154,9 @@ the patch-cost churn is the live question (Fog of war).
   intact via `session_before_compact`.
 - ~~`research-pi-packages` may be semantically correct~~ RESOLVED (D4):
   KEEP — names the upstream Pi.dev ecosystem it researches.
+- ~~Help-banner patch cost across bumps~~ RESOLVED (D6): no patch — the
+  deployed face renames via the upstream `piConfig.name` seam; the source
+  face is upstream's own dev-mode CLI name.
 - `research-pi-packages`: "pi" names the upstream Pi.dev ecosystem the
   skill researches — renaming may be semantically WRONG; needs its own
   mini-adjudication inside 02.
