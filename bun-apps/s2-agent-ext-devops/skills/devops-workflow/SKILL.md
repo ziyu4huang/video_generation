@@ -269,6 +269,7 @@ the effort close-out (map status: complete).
 | Run a s2-agent `run-test.ts` tier (quick/medium/full) to self-verify | `verify_pi_agent_deploy` |
 | Deploy the versioned sh core + ext set (Pipeline B, registry `src/registry-config.ts`) | `deploy` — `bun run --cwd bun-apps/s2-agent deploy` (CLI: `bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]`) |
 | "Does the DEPLOYED dist actually work?" (boot + ext-load + model call against `<outRoot>/current`) | `bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts` (runs automatically after every deploy too) |
+| Reuse a DEPLOYED extension's tools from any bun script (no repo, no rebuild) | the dist's `<outRoot>/AGENTS.md` — the quickstart against `<platform>/current/ext/ext-standalone.mjs` (proven by every deploy's `standalone-import` E2E probe) |
 
 ### `sweep_merged_branches` — the worktree guard covers remotes too
 
