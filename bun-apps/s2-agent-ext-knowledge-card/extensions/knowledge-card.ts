@@ -143,6 +143,7 @@ import { convergeKnowledgeEmission } from "../src/converge.ts";
 import { readState } from "../src/distill/state.ts";
 import {
 	AUTORECALL_DEFAULTS,
+	applyAutoRecallEnv,
 	buildAutoRecallBlock,
 	isChildSession,
 	type AutoRecallConfig,
@@ -322,10 +323,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// reads THIS session's `ctx.sessionManager.getSessionFile()` (falsy ⇒
 	// child ⇒ skip) — per-session state, immune to the background-dispatch
 	// env races a process-global marker would have (review round 2, D9).
-	const autoRecall: AutoRecallConfig = {
+	const autoRecall: AutoRecallConfig = applyAutoRecallEnv(process.env, {
 		...AUTORECALL_DEFAULTS,
 		enabled: process.env.KC_AUTORECALL === "1",
-	};
+	});
 	// Session recall ledger (ticket 09): factory-scope state, so it is
 	// per-session by construction (each AgentSession loads extensions fresh —
 	// the same D9 property the child-guard relies on). In-memory only; the
@@ -367,7 +368,17 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					if (vaultT) clearTimeout(vaultT);
 				}
 				const prompt = typeof event.prompt === "string" ? event.prompt : "";
-				const { block } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile, ledger: recallLedger }, autoRecall);
+				const { block, trace } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile, ledger: recallLedger }, autoRecall);
+				// Per-turn injection trace for the battery/probe lane (t16):
+				// KC_AUTORECALL_DEBUG=1 writes ONE stderr line per turn so an
+				// end-task run can receipt WHICH cards reached the prompt
+				// without reading the model's reply. Off by default.
+				if (process.env.KC_AUTORECALL_DEBUG === "1") {
+					process.stderr.write(
+						`[autorecall-debug] gated=${trace.gated} kept=${trace.kept} tok=${trace.tokensUsed}` +
+							`${trace.error ? ` error=${JSON.stringify(trace.error)}` : ""} prompt=${JSON.stringify(prompt.slice(0, 60))}\n`,
+					);
+				}
 				if (!block) return;
 				const base = event.systemPrompt ?? "";
 				return { systemPrompt: `${base}\n\n${block}` };

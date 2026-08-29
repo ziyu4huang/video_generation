@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-22-context-lifecycle
 created: 2026-08-22
-last: 2026-08-28
+last: 2026-08-29
 status: open
 pipeline: wayfind→superpowers
 ---
@@ -18,7 +18,35 @@ hotness decay) — with vault-mind retired, hermes folded to a capture-only jour
 harness committed as a script, and breaking changes in obsidian + knowledge-card explicitly
 on the table (D0) to get the better engine rather than preserve the old surfaces.
 
-## Context (measured 2026-08-19..23 on this machine)
+## Context (measured 2026-08-19..29 on this machine)
+
+- **Injection PAYOFF MEASURED (ticket 16, 2026-08-29, this machine).**
+  `bun-apps/s2-agent-ext-knowledge-card/scripts/injection-endtask.mjs` — 20 zh-heavy
+  vault-grounded questions (answers derivable only from specific cards) + 5 chitchat
+  negatives, deterministic grader, serialized headless `s2-agent.sh -p --thinking off
+  --tools read` on LM Studio bonsai-27b, 43 min ≤ 1 h cap, receipt
+  `output/injection-endtask/receipt-2026-08-29T01-57-14-101Z.json`: **unarmed 4/20 (20%)
+  → armed floor=0 12/20 (60%), Δ+40pct** (armed floor=2 = default gates: 2/20 ≈ the
+  no-op injector calibration predicts). Calibration (deterministic): floor=2 → 1/20
+  injected, floor=1 → 1/20, **floor=0 → 20/20 with the target card in the block**, block
+  median 323 / max 377 est-tok, chitchat 0/5. Go/no-go: **payoff YES, flip still NO** (D12)
+  — three blockers recorded: (1) **auto-converge × semantic cache interplay** — hermes
+  auto-converge at session_shutdown touches card mtimes, the cache fingerprint is
+  name+mtime, so every session invalidates the cache → 828-card re-embed burst (measured
+  53 s retrieve) → the injector's 3 s bound is unreachable in any real post-converge
+  session (battery ran with `OB_HERMES_AUTOCONVERGE=0`); (2) floor=0's precision on
+  OFF-TOPIC substantive prompts is unmeasured (negatives are chitchat-only); (3) D11's
+  cache-transition re-probe still owed (floor=0 blocks are bigger than t10's). Structural
+  gate finding: **`scoreFloor` is a lexical-only floor** — query tags are ASCII-derived
+  (`/[^a-z0-9-]+/`), so zh prompts can never clear floor≥1 no matter the length gate;
+  the CJK-weighted `minPromptChars` (shipped, t16) fixes ONLY the length half. Also
+  measured: LM Studio :1234 wedges intermittently under load (embeddings >10 s while
+  `/v1/models` answers) — silent armed-arm no-ops, now surfaced by `trace.error` in the
+  KC_AUTORECALL_DEBUG line; `SEMANTIC_EMBED_BASE` is honored by standalone scripts but NOT
+  inside the extension-loaded s2-agent child; `KC_AUTORECALL_TIMEOUTMS` env (widening
+  only) added for the battery lane after a full extension-loaded child measured >3 s
+  where the same retrieval runs ~200 ms standalone.
+
 
 - **Injection flip gate MEASURED and FAILED (ticket 10, 2026-08-29, this machine).**
   `bun-apps/s2-agent-ext-knowledge-card/scripts/cache-probe-inject.mjs` over the real
@@ -155,7 +183,7 @@ Phase P3 — feedback + extraction upgrade
 
 Phase P4 — eval harness + closeout
 - `tickets/15-retrieval-eval-harness.md` — task, **open** — one-command eval, bge-m3 vs nomic A/B
-- `tickets/16-injection-endtask-eval.md` — task, **open** — end-task accuracy, injection on/off
+- `tickets/16-injection-endtask-eval.md` — task, **closed 2026-08-29** — end-task battery `scripts/injection-endtask.mjs`: **armed floor=0 60% vs unarmed 20% (Δ+40pct, gate PASS)**; calibration floor 2/1/0 → 1/1/20 injected; CJK-weighted length gate shipped; scoreFloor stays 2 (floor=0 precision on off-topic prompts unmeasured); flip blocked on converge×cache fix + precision probe + D11 re-probe (D12)
 - `tickets/17-docs-closeout.md` — task, **open** — CONTEXT/ADR/KNOWLEDGE-LAYER truth
 
 ## Decisions
@@ -203,16 +231,14 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/16-injection-endtask-eval.md` — ticket 10 closed 2026-08-29 (probe
-`cache-probe-inject.mjs` committed; flip gate FAILED: cache-transition 1.156× > 1.05×,
-injection rate 10% at floor=2, chitchat 100%; D11 = default stays OFF, reasons and
-re-probe triggers recorded in spec). t16 is next because the flip question is now
-PRECISELY bounded: before any re-probe/flip, someone must show injection moves
-end-task accuracy at all (t16's two-arm battery), and the measured floor/zh-gate
-miscalibrations (sharedTags=1 for perfect retrievals; 40-CHAR gate kills zh questions)
-are exactly the knobs t16's battery would calibrate — measuring task delta with a
-near-no-op injector would waste the run. Do the calibration + t16 together, then
-re-probe the cache gate; flip only on D11's recorded triggers.
+`tickets/11-usage-ledger-detection.md` — ticket 16 closed 2026-08-29 (end-task payoff
+MEASURED: armed floor=0 60% vs unarmed 20%, Δ+40pct; flip still NO per D12 — blockers:
+converge×cache invalidation fix, floor=0 precision probe on off-topic prompts, D11
+cache re-probe). t11 is next because the P3 feedback loop (usage ledger → t12 hotness)
+is the only remaining UNOPENED write-side machinery in the Destination, it reuses t09's
+write-feed shape (receipted), and the injection flip-path items are charted as their own
+follow-ups, not blockers of P3. The three flip-path items live in Fog of war until
+someone charts them.
 
 ## Fog of war
 
@@ -229,8 +255,19 @@ re-probe the cache gate; flip only on D11's recorded triggers.
   and D3 flips back if ticket 07's gate fails.
 - Hermes fold blast radius (tools/tests referencing the semantic surface) — census is ticket
   03's first step, not charted here.
-- End-task effect of injection is unknown by construction — retrieval hit@k measures
-  retrieval, not task success; ticket 16 exists because this cannot be known in advance.
+- End-task effect of injection ~~unknown by construction~~ — **MEASURED ticket 16
+  (2026-08-29): Δ+40pct under floor=0** (60% vs 20%); flip path charted in D12.
+- Injection flip-path follow-ups (un-charted, from t16): (a) converge×semantic-cache
+  invalidation — auto-converge touches card mtimes every session_shutdown, cache
+  fingerprint is name+mtime → 53 s re-embed bursts; fix candidates: converge preserving
+  mtimes, fingerprint excluding hermes-lane files, or embed-cache epoch; (b) floor=0
+  precision probe on off-topic substantive prompts; (c) D11 cache-transition re-probe at
+  floor=0 block sizes; (d) `SEMANTIC_EMBED_BASE` not honored inside the extension-loaded
+  child (child rides :1234 regardless) — embedding-leaf seam question, possibly t15
+  territory.
+- LM Studio :1234 intermittent wedge under load (embeddings >10 s while /v1/models
+  answers; recovers standalone) — batteries/probes must surface `trace.error`, not infer
+  from silence (t16 burned two battery runs on it).
 - Charted-but-rejected: OpenViking sidecar files (`.abstract.md`/`.overview.md`) — new drift
   surface vs D7 md-git-canonical (rejected in D5); cloud rerank/intent/VLM (no-cloud rule);
   re-arming hermes `card_vectors` (D1 rationale).

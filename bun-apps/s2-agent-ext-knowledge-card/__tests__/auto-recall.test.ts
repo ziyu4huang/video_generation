@@ -12,6 +12,7 @@
 import { test, expect } from "bun:test";
 import {
 	AUTORECALL_DEFAULTS,
+	applyAutoRecallEnv,
 	budgetLines,
 	buildAutoRecallBlock,
 	estimateTokens,
@@ -19,6 +20,7 @@ import {
 	renderCardLine,
 	renderInjectionBlock,
 	shouldRecall,
+	weightedLength,
 	type AutoRecallConfig,
 	type BudgetResult,
 } from "../src/inject/auto-recall.ts";
@@ -59,6 +61,52 @@ test("gate: bare chitchat skips, greeting inside a real question does not", () =
 	expect(shouldRecall("你好,謝謝,好的", ARMED)).toBe(false);
 	// Length gate is what protects real questions; "hi," prefix must not gate.
 	expect(shouldRecall("hi, what broke in the lora training run last night?", ARMED)).toBe(true);
+});
+
+// ─── CJK-weighted length gate (ticket 16) ────────────────────────────────────
+
+test("gate: zh questions clear the 40 gate via CJK weighting (t10's 2/10 length misses)", () => {
+	// ~24 CJK + ~9 ASCII ≈ 33 raw chars (t10: gated) → weighted ≈ 57 (passes).
+	const zhQuestion = "塑膠感皮膚問題的根源是出在平台、base 模型還是 lora 身上？";
+	expect(shouldRecall(zhQuestion, ARMED)).toBe(true);
+});
+
+test("gate: weighting never un-gates a short zh chitchat-style prompt", () => {
+	// Weighted length only RAISES effective length; the chitchat RE and short
+	// prompts stay gated (weighted ≈ 6 < 40).
+	expect(shouldRecall("嗯好的", ARMED)).toBe(false);
+});
+
+test("weightedLength: CJK chars weigh 2, ASCII 1", () => {
+	expect(weightedLength("abcd")).toBe(4);
+	expect(weightedLength("四個中文字")).toBe(10); // 5 chars, all CJK
+	expect(weightedLength("a中b文")).toBe(6); // 4 chars + 2 CJK
+});
+
+// ─── env overrides (ticket 16 battery lane) ─────────────────────────────────
+
+test("applyAutoRecallEnv: floor/minChars/timeout pin, invalid values ignored", () => {
+	const pinned = applyAutoRecallEnv(
+		{ KC_AUTORECALL_FLOOR: "0", KC_AUTORECALL_MINCHARS: "12", KC_AUTORECALL_TIMEOUTMS: "15000" },
+		ARMED,
+	);
+	expect(pinned.scoreFloor).toBe(0);
+	expect(pinned.minPromptChars).toBe(12);
+	expect(pinned.timeoutMs).toBe(15000);
+	// Battery pins must not leak into enabled or other knobs.
+	expect(pinned.enabled).toBe(true);
+	expect(pinned.tokenCap).toBe(ARMED.tokenCap);
+	// A probe may only WIDEN the bound (t16: the child needs >3 s; it must not
+	// be able to shrink the turn-loop guarantee below the default).
+	const shrink = applyAutoRecallEnv({ KC_AUTORECALL_TIMEOUTMS: "10" }, ARMED);
+	expect(shrink.timeoutMs).toBe(ARMED.timeoutMs);
+	// A typo'd env must never crash the agent — defaults win.
+	const bad = applyAutoRecallEnv({ KC_AUTORECALL_FLOOR: "yes", KC_AUTORECALL_MINCHARS: "-3", KC_AUTORECALL_TIMEOUTMS: "soon" }, ARMED);
+	expect(bad.scoreFloor).toBe(ARMED.scoreFloor);
+	expect(bad.minPromptChars).toBe(ARMED.minPromptChars);
+	expect(bad.timeoutMs).toBe(ARMED.timeoutMs);
+	const noop = applyAutoRecallEnv({}, ARMED);
+	expect(noop.scoreFloor).toBe(ARMED.scoreFloor);
 });
 
 // ─── child-guard ─────────────────────────────────────────────────────────────
