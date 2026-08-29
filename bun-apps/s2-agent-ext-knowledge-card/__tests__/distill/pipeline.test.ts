@@ -61,9 +61,24 @@ describe("distill full pipeline integration", () => {
 		expect(state.history[0].passRate).toBe(1);
 		expect(state.lastRun).toBeTruthy();
 
+		// Verify the per-run memory diff (ticket 14): written beside the
+		// state, full shape, runId joined to state.lastRun.
+		const diffFile = join(vault, ".distill-diff.json");
+		expect(existsSync(diffFile)).toBe(true);
+		const diff = convergeResult.diff!;
+		expect(diff.runId).toBe(state.lastRun ?? "");
+		expect(diff.target).toBe("failure");
+		expect(diff.created.length).toBe(3);
+		expect(diff.merged).toEqual([]);
+		expect(diff.superseded).toEqual([]);
+		expect(diff.skipped).toEqual([]);
+
 		// Verify idempotency — second converge upserts
 		const convergeResult2 = await runConverge(enrichedNotes, vault, metrics);
 		expect(convergeResult2.created).toBe(0);
 		expect(convergeResult2.updated + convergeResult2.unchanged).toBe(3);
+		// …and the diff reflects the no-op run (nothing created/merged).
+		expect(convergeResult2.diff?.created).toEqual([]);
+		expect(convergeResult2.diff?.merged).toEqual([]);
 	});
 });
