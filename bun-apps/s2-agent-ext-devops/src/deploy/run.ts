@@ -65,6 +65,8 @@ import {
 	swapCurrent,
 } from "./lib/version.ts";
 import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
+import { buildStandaloneShim, STANDALONE_SHIM_FILENAME } from "./lib/standalone-shim.ts";
+import { writeAgentsMd } from "./lib/agents-md.ts";
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
 import { acquireBunBinary } from "./lib/bun-acquire.ts";
 import { bunBinaryName, hostTargetName, isHostTarget, parseTargetName, type TargetSpec } from "./lib/targets.ts";
@@ -108,6 +110,8 @@ export interface DeployShResult {
 	runtime: { bunVersion: string; platform: string; arch: string; bytes: number; cached: boolean };
 	/** Cache entries in .buns/ collected because no version dir links them any more. */
 	prunedBuns: PrunedBun[];
+	/** The outRoot AGENTS.md refresh (ext-standalone-import t03). */
+	agentsMd: { written: boolean; bytes: number };
 }
 
 function gitShortSha(): string | null {
@@ -681,6 +685,16 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		"2": "loadProbe",
 		"4": "scanForeignPaths",
 	};
+	// The standalone shim's gate family — "s"-prefixed ids keep the report
+	// matrix's ext and shim rows distinct. No static-specifier gate: the s2
+	// import probe resolves every static import for real from the staged tree
+	// (string-literal false positives drown a regex scan over the pi-carrying
+	// bundle — map D8; the core bundle is not specifier-gated either).
+	const SHIM_GATE_TITLES: Record<string, string> = {
+		s1b: "standaloneShim: scanUnroutableDynamicImports (native-compat allowlist)",
+		s4: "standaloneShim: scanForeignPaths",
+		s2: "standaloneShim: importProbe (loadExt/listExts contract)",
+	};
 	const extGateTotals = new Map<string, { ms: number; count: number }>();
 	const onGate = (id: string, ms: number) => {
 		const t = extGateTotals.get(id) ?? { ms: 0, count: 0 };
@@ -690,6 +704,17 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 	};
 	try {
 		const { bytes: coreBytes, cached: coreCached } = await buildCore(join(stage, CORE_FILENAME), { outRoot: cacheRoot, freeze });
+		// The standalone consumption surface (ext-standalone-import t02): one
+		// self-contained ESM bundle at the ext root, gated like every other
+		// artifact and recorded in deploy.json. Cache-hit or fresh build, the
+		// gates run on the STAGED bytes the user gets.
+		const standaloneShim = await buildStandaloneShim({
+			outFile: join(stage, "ext", STANDALONE_SHIM_FILENAME),
+			outRoot: cacheRoot,
+			freeze,
+			deployRoot: stage,
+			onGate,
+		});
 		stagePiAssets(stage);
 		// The shipped runtime (ticket 02): the bundle is neutral, bin/bun is
 		// the TARGET's — content-cached under the shared .buns, hardlinked per
@@ -744,6 +769,17 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 				note: t ? `verified for ${t.count} extension(s)` : "no extensions built",
 			});
 		}
+		for (const [id, title] of Object.entries(SHIM_GATE_TITLES)) {
+			const t = extGateTotals.get(id);
+			gates.push({
+				id,
+				title,
+				scope: "deploy",
+				status: t ? "pass" : "fail",
+				ms: t?.ms,
+				note: t ? "verified for ext/ext-standalone.mjs" : "gate never fired — buildStandaloneShim skipped its gates",
+			});
+		}
 
 		writeFileSync(join(stage, `${APP_NAME}.sh`), S2_AGENT_SH);
 		chmodSync(join(stage, `${APP_NAME}.sh`), 0o755);
@@ -790,6 +826,13 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 						bytes: bun.bytes,
 						cached: bun.cached,
 					},
+					// The standalone consumption surface (ext-standalone-import):
+					// bytes + cache provenance of ext/ext-standalone.mjs.
+					standaloneShim: {
+						path: `ext/${STANDALONE_SHIM_FILENAME}`,
+						bytes: standaloneShim.bytes,
+						cached: standaloneShim.cached,
+					},
 					registryModule: REGISTRY_MODULE,
 					// The PER-TREE extension set (D5 filter applied) — the list
 					// Gate 3 / verify-deploy-e2e compare --ext-list against.
@@ -829,6 +872,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			verifyOfflineContainment(stage, {
 				binaries: [
 					{ label: "core bundle", path: join(stage, CORE_FILENAME) },
+					{ label: "standalone shim", path: join(stage, "ext", STANDALONE_SHIM_FILENAME) },
 					{ label: "shipped bun", path: join(stage, "bin", binBasename) },
 				],
 				finalTarget: target,
@@ -932,6 +976,11 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// The outRoot index lists what retention left behind — strictly after
 		// pruneVersions, so it never links a pruned version's report.
 		writeOutRootIndex(targetRoot);
+		// The agent-facing usage guide (ext-standalone-import t03): one copy at
+		// the OUTROOT serves every platform target and survives version
+		// rotation; refreshed idempotently — only success rewrites it, and only
+		// when the content actually changed.
+		const agentsMd = writeAgentsMd(outRoot);
 		return {
 			version,
 			target,
@@ -944,6 +993,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			prunedCores,
 			runtime: { bunVersion: Bun.version, platform: targetSpec.platform, arch: targetSpec.arch, bytes: bun.bytes, cached: bun.cached },
 			prunedBuns,
+			agentsMd,
 		};
 	} catch (e) {
 		rmTree(stage); // never leave a half-written deploy behind

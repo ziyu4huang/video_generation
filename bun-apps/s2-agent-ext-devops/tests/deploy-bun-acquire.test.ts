@@ -82,16 +82,24 @@ describe("acquireBunBinary (D7: GitHub-release channel, local fixture)", () => {
 		expect(r2.cached).toBe(true);
 	});
 
-	test("glibc and musl never collide on one .buns entry (libc hash term)", async () => {
-		// Same platform+arch, different libc → different artifacts, and the
-		// cache must key them apart (the t05 review's collision finding).
-		const gBase = buildFixtureRelease("linux-x64", "bun-linux-x64.zip", "bun");
-		const mBase = buildFixtureRelease("linux-x64", "bun-linux-x64-musl.zip", "bun");
-		const outRoot = join(work, "out-libc");
-		const g = await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec: parseTargetName("linux-x64"), releaseBase: gBase });
-		const m = await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec: parseTargetName("linux-x64-musl"), releaseBase: mBase });
-		expect(g.cacheFile).not.toBe(m.cacheFile);
-	});
+	test(
+		"glibc and musl never collide on one .buns entry (libc hash term)",
+		async () => {
+			// Same platform+arch, different libc → different artifacts, and the
+			// cache must key them apart (the t05 review's collision finding).
+			// Explicit timeout: two tar --format=zip fixture builds + two
+			// acquisitions exceed bun's default 5s under local_ci's parallel
+			// package load (observed flaking 2026-08-29 while the devops suite
+			// grew with the standalone-shim build tests).
+			const gBase = buildFixtureRelease("linux-x64", "bun-linux-x64.zip", "bun");
+			const mBase = buildFixtureRelease("linux-x64", "bun-linux-x64-musl.zip", "bun");
+			const outRoot = join(work, "out-libc");
+			const g = await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec: parseTargetName("linux-x64"), releaseBase: gBase });
+			const m = await acquireBunBinary({ outRoot, bunVersion: FAKE_VERSION, spec: parseTargetName("linux-x64-musl"), releaseBase: mBase });
+			expect(g.cacheFile).not.toBe(m.cacheFile);
+		},
+		{ timeout: 60_000 },
+	);
 
 	test("a tampered checksum fails the deploy before anything ships", async () => {
 		const base = buildFixtureRelease("win32-x64", "bun-windows-x64.zip", "bun.exe");

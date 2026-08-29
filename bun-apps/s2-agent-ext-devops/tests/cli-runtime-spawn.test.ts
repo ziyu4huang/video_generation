@@ -114,6 +114,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 			"vision-call:skip",
 			"file2md-ocr:skip",
 			"tool-gate-fire:skip",
+			"standalone-import:skip",
 		]);
 	});
 

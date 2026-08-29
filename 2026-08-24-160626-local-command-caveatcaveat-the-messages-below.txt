@@ -1,0 +1,2385 @@
+ ▐▛███▛█   Claude Code v2.1.241
+▝▜██████▀  glm-5.3 · API Usage Billing
+  ▝▝ ▝▝    ~/proj/video_generation__deploy
+
+
+❯ /clear                                                                        
+
+❯ hands on                                                                      
+
+  Thought for 2s (ctrl+o to expand)
+
+⏺ Skill(using-s2-agent-skills)
+  ⎿  Successfully loaded skill
+
+  Thought for 19s, read 2 files, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+⏺ Queue head 是 .planning/2026-08-24-registry-code-as-config/ 的 ticket 02（flip
+  run-dir consumers）。先同步樹，再讀 ticket。
+
+  Thought for 4s, ran 2 shell commands (ctrl+o to expand)
+
+⏺ 已達 origin/main tip（0 落後），可以直接執行。讀 ticket 與 map：
+
+  Thought for 31s, searched for 1 pattern, read 7 files, listed 1 directory (ctrl+o to expand)
+
+⏺ registry-insert.ts 的唯一非測試呼叫者是 src/ext-new.ts（repo-time
+  scaffold），且它是純字串手術、不 parse YAML。繼續盤點其餘呼叫面：
+
+  Thought for 14s, searched for 2 patterns (ctrl+o to expand)
+
+⏺ 關鍵發現：devops src/deploy/lib/config.ts 與 src/ext-new.ts 都 import
+  parseRegistry（03 票才翻轉）。先讀三個守門測試再定設計：
+
+  Thought for 59s, read 3 files (ctrl+o to expand)
+
+⏺ 設計已定。關鍵約束：devops config.ts 與 ext-new.ts 在 03 票前仍需
+  parseRegistry（YAML text 版），所以 registry.ts 採雙面：保留 deprecated YAML
+  bridge + 新增 loadRegistry()（validation-over-REGISTRY）。先建分支：
+
+  Thought for 6s, ran 2 shell commands (ctrl+o to expand)
+
+⏺ 分支已建。現在改寫 run-dir/registry.ts — 新 header +
+  loadRegistry()（validation-over-REGISTRY），parseRegistry 原樣保留為
+  deprecated bridge：
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Added 14 lines, removed 9 lines
+       1  /**
+       2 - * registry.ts — the ONE parser for s2-agent.registry.yaml.    
+       2 + * registry.ts — the validation authority over src/registry-con
+         +fig.ts.                                                        
+       3   *
+       4 - * The registry replaces both the retired deploy config and the
+         - hand-maintained                                               
+       5 - * manifest.json (which becomes a DERIVED artifact — see regen-
+         -manifest.ts).                                                  
+       6 - * Schema authority lives HERE and nowhere else: the devops dep
+         -loy config                                                     
+       7 - * derives ShConfig from parseRegistry(), the manifest emitter 
+         -derives the                                                    
+       8 - * arrays, and a structural guard forbids a third parser of thi
+         -s shape.                                                       
+       4 + * Since ticket 02 (.planning/2026-08-24-registry-code-as-confi
+         +g/) the typed                                                  
+       5 + * REGISTRY in src/registry-config.ts is the data; THIS module 
+         +owns the                                                       
+       6 + * invariants: `loadRegistry()` validates the typed entries (th
+         +e checks the                                                   
+       7 + * YAML parser used to enforce at parse time — disk existence, 
+         +duplicate                                                      
+       8 + * names/orders, deploy/excludeReason contradictions, vendor ov
+         +erlaps) and                                                    
+       9 + * returns the legacy `Registry` shape the emitter and tests co
+         +nsume. The                                                     
+      10 + * validation lives here and not in registry-config.ts because 
+         +it needs                                                       
+      11 + * node:fs, and that module is zero-import by contract (map D4)
+         +.                                                              
+      12   *
+      10 - * Strict on purpose: an unknown key is an error, not a silent 
+         -no-op — the                                                    
+      11 - * failure mode this rejects is a registry typo that quietly sh
+         -ips (or drops)                                                 
+      12 - * an extension.                                               
+      13 + * `parseRegistry(text)` below is the RETIRED-BRIDGE YAML parse
+         +r, kept only so                                                
+      14 + * devops (`parseShConfig`) and `ext new` keep working until ti
+         +cket 03 flips                                                  
+      15 + * them; ticket 04 deletes it together with s2-agent.registry.y
+         +aml. It stays                                                  
+      16 + * byte-for-byte the old authority — do not extend it.         
+      17   */
+      18  import { existsSync } from "node:fs";
+      19  import { homedir } from "node:os";
+      20  import { isAbsolute, join, resolve } from "node:path";
+      21 +import { DEPLOY_CONFIG, REGISTRY, type RegistryEntry, registryT
+         +oLegacyShapes } from "../src/registry-config.ts";              
+      22  
+      23  export interface RegistryDeployBlock {
+      24    order: number;
+
+  Thought for 5s (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Added 6 lines, removed 1 line
+      78    return value as Record<string, unknown>;
+      79  }
+      80  
+      81 -/** Strict parse + validate. Throws Error with the offending ke
+         -y/entry in the message. */                                     
+      81 +/**                                                            
+      82 + * @deprecated Retired bridge (ticket 02): parses s2-agent.regi
+         +stry.yaml text.                                                
+      83 + * Remaining callers are devops `parseShConfig` and `ext new` —
+         + both flip in                                                  
+      84 + * ticket 03; ticket 04 deletes this function with the YAML. Ne
+         +w code uses                                                    
+      85 + * `loadRegistry()`.                                           
+      86 + */                                                            
+      87  export function parseRegistry(text: string, opts: { bunAppsDir:
+           string }): Registry {
+      88    const raw = Bun.YAML.parse(text) as Record<string, unknown> |
+           null;
+      89    if (raw === null || typeof raw !== "object" || Array.isArray(
+          raw)) {
+
+⏺ Now append loadRegistry() at the end of the file:
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Added 89 lines
+      296      lazyExtensions: lazyRaw as Record<string, string>,
+      297    };
+      298  }
+      299 +                                                              
+      300 +// ─── Validation over REGISTRY (the new authority read path) 
+          +──────────────────                                            
+      301 +                                                              
+      302 +/**                                                           
+      303 + * Validate the typed REGISTRY and return the legacy `Registry
+          +` shape.                                                      
+      304 + *                                                            
+      305 + * Every check the YAML parser enforced at parse time is enfor
+          +ced here over                                                 
+      306 + * the typed data instead — the failure modes rejected are the
+          + same: an entry                                               
+      307 + * that points at a package/entry not on disk, duplicate names
+          + or deploy                                                    
+      308 + * orders, a deploy block contradicting excludeReason, vendor/
+          +externals/                                                    
+      309 + * vendorExclude overlaps, and (typed-only, map D2) a disabled
+          + entry missing                                                
+      310 + * its disableReason/reEnableNote paper trail.                
+      311 + */                                                           
+      312 +export function loadRegistry(opts: { bunAppsDir: string }): Re
+          +gistry {                                                      
+      313 +  const outRoot = (() => {                                    
+      314 +    const p = DEPLOY_CONFIG.outRoot;                          
+      315 +    const expanded = p === "~" ? homedir() : p.startsWith("~/"
+          +) ? join(homedir(), p.slice(2)) : p;                          
+      316 +    if (!isAbsolute(expanded)) throw new Error(`outRoot must r
+          +esolve to an absolute path, got "${expanded}"`);              
+      317 +    return expanded;                                          
+      318 +  })();                                                       
+      319 +                                                              
+      320 +  const seenNames = new Set<string>();                        
+      321 +  const seenOrders = new Map<number, string>();               
+      322 +  for (const [i, e] of REGISTRY.entries()) {                  
+      323 +    if (e.name.length === 0) throw new Error(`REGISTRY[${i}].n
+          +ame must be a non-empty string`);                             
+      324 +    if (seenNames.has(e.name)) throw new Error(`duplicate exte
+          +nsion name "${e.name}"`);                                     
+      325 +    seenNames.add(e.name);                                    
+      326 +                                                              
+      327 +    const pkgDir = resolve(opts.bunAppsDir, e.package);       
+      328 +    if (!existsSync(pkgDir)) throw new Error(`extensions[${i}]
+          + ("${e.name}") package dir not found: ${pkgDir}`);            
+      329 +    const entryAbs = resolve(pkgDir, e.entry);                
+      330 +    if (!existsSync(entryAbs)) throw new Error(`extensions[${i
+          +}] ("${e.name}") entry not found: ${entryAbs}`);              
+      331 +                                                              
+      332 +    if (e.enabled && e.deploy === undefined && e.excludeReason
+          + === undefined) {                                             
+      333 +      throw new Error(`extensions[${i}] ("${e.name}") has no d
+          +eploy block — excludeReason is required to say why it is not d
+          +eployed`);                                                    
+      334 +    }                                                         
+      335 +    if (e.enabled && e.deploy !== undefined && e.excludeReason
+          + !== undefined) {                                             
+      336 +      throw new Error(`extension "${e.name}" has both a deploy
+          + block and excludeReason — they contradict: either it ships or
+          + it does not`);                                               
+      337 +    }                                                         
+      338 +    if (!e.enabled) {                                         
+      339 +      // Map D2: disabled entries are values, not deletions — 
+          +but only as long                                              
+      340 +      // as the reason + re-enable path stay attached as data.
+      341 +      if (!e.disableReason || e.disableReason.length === 0) { 
+      342 +        throw new Error(`extensions[${i}] ("${e.name}") is ena
+          +bled: false — disableReason is required`);                    
+      343 +      }                                                       
+      344 +      if (!e.reEnableNote || e.reEnableNote.length === 0) {   
+      345 +        throw new Error(`extensions[${i}] ("${e.name}") is ena
+          +bled: false — reEnableNote is required`);                     
+      346 +      }                                                       
+      347 +    }                                                         
+      348 +                                                              
+      349 +    if (e.deploy !== undefined) {                             
+      350 +      if (!Number.isInteger(e.deploy.order)) {                
+      351 +        throw new Error(`extensions[${i}] ("${e.name}") deploy
+          +.order must be an integer`);                                  
+      352 +      }                                                       
+      353 +      const prior = seenOrders.get(e.deploy.order);           
+      354 +      if (prior !== undefined) {                              
+      355 +        throw new Error(`extensions[${i}] ("${e.name}") deploy
+          + order ${e.deploy.order} duplicates "${prior}"`);             
+      356 +      }                                                       
+      357 +      seenOrders.set(e.deploy.order, e.name);                 
+      358 +                                                              
+      359 +      const vendor = e.deploy.vendor ?? [];                   
+      360 +      const externals = e.deploy.externals ?? [];             
+      361 +      const vendorExclude = e.deploy.vendorExclude ?? [];     
+      362 +      const overlap = vendor.filter((p) => externals.includes(
+          +p));                                                          
+      363 +      if (overlap.length > 0) {                               
+      364 +        throw new Error(`extensions[${i}] ("${e.name}") declar
+          +es package(s) both vendored and external: ${overlap.join(", ")
+          +}`);                                                          
+      365 +      }                                                       
+      366 +      const excludedRoots = vendor.filter(                    
+      367 +        (p) => vendorExclude.includes(p) || vendorExclude.some
+          +((x) => x.endsWith("/*") && p.startsWith(x.slice(0, -1))),    
+      368 +      );                                                      
+      369 +      if (excludedRoots.length > 0) {                         
+      370 +        throw new Error(`extensions[${i}] ("${e.name}") declar
+          +es vendor root(s) that vendorExclude also drops: ${excludedRoo
+          +ts.join(", ")}`);                                             
+      371 +      }                                                       
+      372 +    }                                                         
+      373 +  }                                                           
+      374 +                                                              
+      375 +  const { registry } = registryToLegacyShapes({ home: homedir(
+          +) });                                                         
+      376 +  // The projection above is the equivalence-net shape; outRoo
+          +t was validated                                               
+      377 +  // here so the error names the config, not the projection.  
+      378 +  void outRoot;                                               
+      379 +  return registry;                                            
+      380 +}                                                             
+      381 +                                                              
+      382 +/** Convenience for consumers that only need the validated act
+          +ive extensions. */                                            
+      383 +export function loadRegistryEntries(opts: { bunAppsDir: string
+          + }): RegistryExt[] {                                          
+      384 +  return loadRegistry(opts).extensions;                       
+      385 +}                                                             
+      386 +                                                              
+      387 +export type { RegistryEntry };                                
+
+  Thought for 2s (ctrl+o to expand)
+
+⏺ 清掉 void outRoot 的尷尬寫法 — 改為驗證投影後的值：
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Error editing file
+
+  Thought for 2s (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Removed 7 lines
+      310   * its disableReason/reEnableNote paper trail.
+      311   */
+      312  export function loadRegistry(opts: { bunAppsDir: string }): Re
+           gistry {
+      313 -  const outRoot = (() => {                                    
+      314 -    const p = DEPLOY_CONFIG.outRoot;                          
+      315 -    const expanded = p === "~" ? homedir() : p.startsWith("~/"
+          -) ? join(homedir(), p.slice(2)) : p;                          
+      316 -    if (!isAbsolute(expanded)) throw new Error(`outRoot must r
+          -esolve to an absolute path, got "${expanded}"`);              
+      317 -    return expanded;                                          
+      318 -  })();                                                       
+      319 -                                                              
+      313    const seenNames = new Set<string>();
+      314    const seenOrders = new Map<number, string>();
+      315    for (const [i, e] of REGISTRY.entries()) {
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Added 3 lines, removed 3 lines
+      366    }
+      367  
+      368    const { registry } = registryToLegacyShapes({ home: homedir(
+           ) });
+      369 -  // The projection above is the equivalence-net shape; outRoo
+          -t was validated                                               
+      370 -  // here so the error names the config, not the projection.  
+      371 -  void outRoot;                                               
+      369 +  if (!isAbsolute(registry.deploy.outRoot)) {                 
+      370 +    throw new Error(`outRoot must resolve to an absolute path,
+          + got "${registry.deploy.outRoot}"`);                          
+      371 +  }                                                           
+      372    return registry;
+      373  }
+      374  
+
+  Thought for 3s (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Added 1 line, removed 1 line
+      18  import { existsSync } from "node:fs";
+      19  import { homedir } from "node:os";
+      20  import { isAbsolute, join, resolve } from "node:path";
+      21 -import { DEPLOY_CONFIG, REGISTRY, type RegistryEntry, registryT
+         -oLegacyShapes } from "../src/registry-config.ts";              
+      21 +import { REGISTRY, registryToLegacyShapes } from "../src/regist
+         +ry-config.ts";                                                 
+      22  
+      23  export interface RegistryDeployBlock {
+      24    order: number;
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Removed 2 lines
+      376  export function loadRegistryEntries(opts: { bunAppsDir: string
+            }): RegistryExt[] {
+      377    return loadRegistry(opts).extensions;
+      378  }
+      379 -                                                              
+      380 -export type { RegistryEntry };                                
+
+  Thought for 4s (ctrl+o to expand)
+
+⏺ 現在翻轉 regen-manifest.ts 與 freshness 測試：
+
+⏺ Write(bun-apps/s2-agent/scripts/regen-manifest.ts)
+  ⎿  Added 11 lines, removed 9 lines
+       1  /**
+       2 - * regen-manifest.ts — rewrites run-dir/manifest.json from s2-a
+         -gent.registry.yaml.                                            
+       3 - * Run as `bun run regen:manifest` from bun-apps/s2-agent. The 
+         -manifest is a                                                  
+       4 - * DERIVED artifact; this script plus the freshness test are th
+         -e only writers                                                 
+       5 - * that should ever touch it. Refuses to write an empty manifes
+         -t (same guard                                                  
+       6 - * shape as regen-static-extensions.ts).                       
+       2 + * regen-manifest.ts — rewrites run-dir/manifest.json from the 
+         +typed REGISTRY                                                 
+       3 + * (src/registry-config.ts) via loadRegistry()'s validation. Ru
+         +n as                                                           
+       4 + * `bun run regen:manifest` from bun-apps/s2-agent. The manifes
+         +t is a DERIVED                                                 
+       5 + * artifact; this script plus the freshness test are the only w
+         +riters that                                                    
+       6 + * should ever touch it. Refuses to write an empty manifest (sa
+         +me guard shape                                                 
+       7 + * as regen-static-extensions.ts). Since ticket 02 the retired 
+       8 + * s2-agent.registry.yaml is no longer read here (devops keeps 
+         +reading it                                                     
+       9 + * until ticket 03).                                           
+      10   */
+       8 -import { readFileSync, writeFileSync } from "node:fs";         
+      11 +import { writeFileSync } from "node:fs";                       
+      12  import { join } from "node:path";
+      10 -import { parseRegistry } from "../run-dir/registry.ts";        
+      13 +import { loadRegistry } from "../run-dir/registry.ts";         
+      14  import { buildManifestObject, manifestText } from "../run-dir/r
+          egistry-to-manifest.ts";
+      15  
+      16  const pkgDir = join(import.meta.dir, "..");
+      14 -const registryPath = join(pkgDir, "s2-agent.registry.yaml");   
+      17  const manifestPath = join(pkgDir, "run-dir", "manifest.json");
+      18  
+      17 -const registry = parseRegistry(readFileSync(registryPath, "utf8
+         -"), { bunAppsDir: join(pkgDir, "..") });                       
+      19 +const registry = loadRegistry({ bunAppsDir: join(pkgDir, "..") 
+         +});                                                            
+      20  if (registry.extensions.length === 0) {
+      21    console.error("[regen:manifest] refusing to write: registry h
+          as no extensions");
+      22    process.exit(1);
+
+⏺ Write(bun-apps/s2-agent/run-dir/registry-freshness.test.ts)
+  ⎿  Added 7 lines, removed 8 lines
+       1  /**
+       2 - * The freshness gate: manifest.json is derived from s2-agent.r
+         -egistry.yaml.                                                  
+       3 - * RED when someone hand-edits the manifest OR edits the regist
+         -ry without                                                     
+       4 - * running `bun run regen:manifest`. This is the tripwire that 
+         -makes the                                                      
+       5 - * generated file safe to keep.                                
+       2 + * The freshness gate: manifest.json is derived from the typed 
+         +REGISTRY                                                       
+       3 + * (src/registry-config.ts, via loadRegistry — ticket 02). RED 
+         +when someone                                                   
+       4 + * hand-edits the manifest OR edits the registry without runnin
+         +g                                                              
+       5 + * `bun run regen:manifest`. This is the tripwire that makes th
+         +e generated                                                    
+       6 + * file safe to keep.                                          
+       7   */
+       8  import { describe, expect, test } from "bun:test";
+       9  import { readFileSync } from "node:fs";
+      10  import { join } from "node:path";
+      10 -import { parseRegistry } from "./registry.ts";                 
+      11 +import { loadRegistry } from "./registry.ts";                  
+      12  import { buildManifestObject, manifestText } from "./registry-t
+          o-manifest.ts";
+      13  
+      14  const PKG_DIR = join(import.meta.dir, "..");
+      15  
+      16  describe("manifest.json freshness", () => {
+      17    test("is byte-identical to what the registry generates", () =
+          > {
+      17 -    const registry = parseRegistry(readFileSync(join(PKG_DIR, "
+         -s2-agent.registry.yaml"), "utf8"), {                           
+      18 -      bunAppsDir: join(PKG_DIR, ".."),                         
+      19 -    });                                                        
+      18 +    const registry = loadRegistry({ bunAppsDir: join(PKG_DIR, "
+         +..") });                                                       
+      19      const committed = readFileSync(join(PKG_DIR, "run-dir", "ma
+          nifest.json"), "utf8");
+      20      expect(manifestText(buildManifestObject(registry))).toBe(co
+          mmitted);
+      21    });
+
+  Thought for 4s (ctrl+o to expand)
+
+⏺ 更新 registry-insert.ts header（記錄 repo-time-only 的查證結果）與
+  registry-to-manifest.ts 的 verbatim 註記：
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry-insert.ts)
+  ⎿  Added 6 lines
+       7   * re-serialisation would destroy. Duplicate-name detection hap
+          pens BEFORE the
+       8   * insert, in the caller (ext-new reads the file through parseR
+          egistry); this
+       9   * module only places an already-rendered entry.
+      10 + *                                                             
+      11 + * TICKET 02 FINDING (map Fog closed): this module does NOT par
+         +se YAML and has                                                
+      12 + * exactly one non-test caller — src/ext-new.ts, the repo-time 
+         +scaffold CLI.                                                  
+      13 + * No compiled-binary or dynamic run-dir-loading path reaches i
+         +t. It stays                                                    
+      14 + * functional-but-transitional until ticket 03 flips ext-new to
+         + emit a TS                                                     
+      15 + * registry entry; ticket 04 deletes it with the YAML.         
+      16   */
+      17  
+      18  /**
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry-to-manifest.ts)
+  ⎿  Added 1 line, removed 1 line
+       8  import type { Registry } from "./registry.ts";
+       9  
+      10  export interface ManifestJson {
+      11 -  $generated: string; // "from s2-agent.registry.yaml by regen:
+         -manifest — do not edit"                                        
+      11 +  $generated: string; // "from s2-agent.registry.yaml by regen:
+         +manifest — do not edit" — verbatim until ticket 04: the byte-id
+         +entical manifest gate freezes it                               
+      12    extensions: Array<{ name: string; entry: string; version?: st
+          ring }>; // load:dynamic, entry = "<package>/<entry>"
+      13    skills: string[]; // "<package>/skills" for skills:true (regi
+          stry order)
+      14    staticExtensions: string[]; // package names for load:static 
+          (registry order)
+
+  Thought for 5s (ctrl+o to expand)
+
+⏺ 加 YAML 的 superseded header。先讀檔頭：
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent/s2-agent.registry.yaml)
+  ⎿  Added 7 lines
+       1 +# SUPERSEDED pending ticket 04 (.planning/2026-08-24-registry-c
+         +ode-as-config/):                                               
+       2 +# since ticket 02 the typed REGISTRY in src/registry-config.ts 
+         +is the data                                                    
+       3 +# authority (regen:manifest / freshness read it via loadRegistr
+         +y). This YAML                                                  
+       4 +# stays only because devops (parseShConfig) and `ext new` still
+         + read it —                                                     
+       5 +# they flip in ticket 03, which deletes this file. DO NOT add n
+         +ew entries                                                     
+       6 +# here; edit src/registry-config.ts instead.                   
+       7 +#                                                              
+       8  # s2-agent.registry.yaml — THE extension registry. One entry pe
+          r extension;
+       9  # adding an extension is ONE edit here + `bun run regen:manifes
+          t`
+      10  # (+ `regen:static` when load: static). run-dir/manifest.json i
+          s DERIVED from
+
+  Thought for 7s (ctrl+o to expand)
+
+⏺ 在 registry.test.ts 加 bridge 測試（real YAML parse ≡ loadRegistry）：
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.test.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      1  import { describe, expect, test } from "bun:test";
+      2 -import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+      2 +import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } f
+        +rom "node:fs";                                                  
+      3  import { tmpdir } from "node:os";
+      4  import { join } from "node:path";
+      5 -import { parseRegistry } from "./registry.ts";                  
+      5 +import { loadRegistry, parseRegistry } from "./registry.ts";    
+      6  
+      7  /** Build a minimal valid registry with one static-deployed ext 
+         + one dynamic-local ext on disk. */
+      8  function fixture(): { text: string; bunAppsDir: string } {
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.test.ts)
+  ⎿  Error editing file
+
+  Thought for 2s (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.test.ts)
+  ⎿  Added 31 lines
+      39    return { text, bunAppsDir };
+      40  }
+      41  
+      42 +describe("loadRegistry (ticket 02 flip)", () => {              
+      43 +  const PKG_DIR = join(import.meta.dir, "..");                 
+      44 +  const BUN_APPS = join(PKG_DIR, "..");                        
+      45 +                                                               
+      46 +  test("deep-equals parseRegistry on the real retired YAML (the
+         + flip bridge)", () => {                                        
+      47 +    // While the YAML still exists (until ticket 04), the retir
+         +ed bridge and                                                  
+      48 +    // the new REGISTRY-based read must agree exactly — this is
+         + the in-package                                                
+      49 +    // twin of src/registry-config.test.ts's equivalence net, a
+         +sserted from the                                               
+      50 +    // consumer side (loadRegistry) rather than the projection 
+         +side.                                                          
+      51 +    const yamlText = readFileSync(join(PKG_DIR, "s2-agent.regis
+         +try.yaml"), "utf8");                                           
+      52 +    const fromYaml = parseRegistry(yamlText, { bunAppsDir: BUN_
+         +APPS });                                                       
+      53 +    const fromTs = loadRegistry({ bunAppsDir: BUN_APPS });     
+      54 +    expect(fromTs).toEqual(fromYaml);                          
+      55 +  });                                                          
+      56 +                                                               
+      57 +  test("returns the manifest-ready shape (active extensions, de
+         +ployed blocks normalized)", () => {                            
+      58 +    const r = loadRegistry({ bunAppsDir: BUN_APPS });          
+      59 +    expect(r.extensions.length).toBeGreaterThan(10);           
+      60 +    for (const e of r.extensions) {                            
+      61 +      expect(e.skills).toBeBoolean();                          
+      62 +      if (e.deploy) {                                          
+      63 +        expect(e.deploy.copy).toBeArray();                     
+      64 +        expect(e.deploy.vendor).toBeArray();                   
+      65 +        expect(e.deploy.enabled).toBeBoolean();                
+      66 +      } else {                                                 
+      67 +        expect(e.excludeReason).toBeString();                  
+      68 +      }                                                        
+      69 +    }                                                          
+      70 +  });                                                          
+      71 +});                                                            
+      72 +                                                               
+      73  describe("parseRegistry", () => {
+      74    test("parses the fixture", () => {
+      75      const { text, bunAppsDir } = fixture();
+
+  Thought for 5s (ctrl+o to expand)
+
+⏺ 關鍵驗證：跑 regen:manifest，manifest.json 必須 byte-identical：
+
+  Thought for 2s, ran 1 shell command (ctrl+o to expand)
+
+⏺ manifest.json byte-identical ✓（24 extensions）。跑 s2-agent 標準測試：
+
+  Thought for 5s, ran 1 shell command (ctrl+o to expand)
+
+⏺ 1055 pass / 0 fail。檢查 Done-when 的 grep 證據：
+
+  Thought for 15s, ran 1 shell command (ctrl+o to expand)
+
+⏺ grep 殘留都是註述/generated artifact/03 票的 ext-new。確認 package.json 的
+  mention 與真正的「讀檔者」：
+
+  Thought for 13s, ran 1 shell command (ctrl+o to expand)
+
+⏺ doctor.ts 僅註述提及（讀的是 ext.json）— Fog 項可關。跑
+  local_ci（change-scoped）：
+
+  Thought for 2s, ran 2 shell commands (ctrl+o to expand)
+
+⏺ overall fail — 查明哪個 gate 红：
+  Thought for 2s, ran 2 shell commands (ctrl+o to expand)
+
+⏺ loadRegistryEntries 無人引用 — 我投機加的，刪掉：
+
+⏺ Update(bun-apps/s2-agent/run-dir/registry.ts)
+  ⎿  Removed 5 lines
+      371    }
+      372    return registry;
+      373  }
+      374 -                                                              
+      375 -/** Convenience for consumers that only need the validated act
+          -ive extensions. */                                            
+      376 -export function loadRegistryEntries(opts: { bunAppsDir: string
+          - }): RegistryExt[] {                                          
+      377 -  return loadRegistry(opts).extensions;                       
+      378 -}                                                             
+
+  Thought for 3s, ran 1 shell command (ctrl+o to expand)
+
+⏺ local_ci pass ✓。版號 bump + commit：
+
+  Thought for 5s, committed 6c5a1021, pushed to registry/t02-flip-consumers, created PR #1965, ran 3 shell commands (ctrl+o to expand)
+
+⏺ PR #1965 merged CLEAN。verify-merge：
+
+  Thought for 4s, ran 2 shell commands (ctrl+o to expand)
+
+⏺ PR #1965 合併 CLEAN、scope 乾淨（9 files 全在 bun-apps/s2-agent）。收尾：更新
+  map + ticket → close-out PR：
+
+  Thought for 2s, ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(.planning/2026-08-24-registry-code-as-config/map.md)
+  ⎿  Added 6 lines, removed 4 lines
+      73    YAML (parseRegistry + parseShConfig shapes), local_ci pass, s
+          2-agent 0.6.5
+      74  
+      75  Phase 2 — repo consumers flip (after 01)
+      76 -- `tickets/02-flip-run-dir-consumers.md` — open — NEXT (queue h
+         -ead) —                                                         
+      77 -  registry.ts / registry-to-manifest.ts / regen-manifest.ts /  
+      78 -  registry-insert.ts import the TS; manifest.json stays DERIVED
+         -; freshness +                                                  
+      79 -  single-registry-guard gates stay green unchanged             
+      76 +- `tickets/02-flip-run-dir-consumers.md` — DONE (PR #1965, merg
+         +ed CLEAN                                                       
+      77 +  2026-08-24) — run-dir/registry.ts gained `loadRegistry()` (va
+         +lidation over                                                  
+      78 +  REGISTRY → legacy Registry shape; parseRegistry kept verbatim
+         + as the                                                        
+      79 +  retired YAML bridge for devops/ext-new until 03); regen-manif
+         +est +                                                          
+      80 +  freshness gate read it; regen output byte-identical (24 exten
+         +sions); s2-agent                                               
+      81 +  suite 1055/0; local_ci pass; s2-agent 0.6.7                  
+      82  - `tickets/03-flip-devops-and-scaffold.md` — open — devops
+      83    `parseShConfig` reads the TS (deploy CLI + tests); `ext new` 
+          scaffold emits a
+      84    TS entry edit; contract suites (registry-base-set line scanne
+          r, dep-guard,
+
+⏺ Update(.planning/2026-08-24-registry-code-as-config/map.md)
+  ⎿  Added 17 lines
+       92  
+       93  ## Decisions
+       94  
+       95 +- D6 (t02, placement — closes the run-dir-vs-src Fog): the reg
+          +istry read                                                    
+       96 +  surface STAYS in `run-dir/`. Reason: validation needs `node:
+          +fs` (package/                                                 
+       97 +  entry existence), which `src/registry-config.ts` forbids by 
+          +contract (D4                                                  
+       98 +  zero-import); the surviving post-04 pieces (validation + the
+          + manifest                                                     
+       99 +  emitter) already sit beside `run-dir/manifest.json`, the art
+          +ifact they                                                    
+      100 +  produce; and the YAML bridge (`parseRegistry`) is transition
+          +al — moving it                                                
+      101 +  now would churn devops/ext-new imports twice (once for the m
+          +ove, again when                                               
+      102 +  04 deletes it).                                             
+      103 +- D7 (t02, registry-insert — closes the runtime-YAML Fog): reg
+          +istry-insert                                                  
+      104 +  does NOT parse YAML and its sole non-test caller is `src/ext
+          +-new.ts`                                                      
+      105 +  (repo-time scaffold CLI). No dynamic run-dir-loading or comp
+          +iled-binary path                                              
+      106 +  reaches it — the deploy tree carries deploy.json / ext.json 
+          +/ manifest.json                                               
+      107 +  written at deploy time (Context, measured). Its flip lands w
+          +ith ext-new in                                                
+      108 +  ticket 03; ticket 04 deletes it with the YAML. Transitional 
+          +seam accepted:                                                
+      109 +  between 02 and 03, `ext new --register dynamic` still writes
+          + YAML but                                                     
+      110 +  regen:manifest ignores it — surfaced by the freshness gate g
+          +oing red, fixed                                               
+      111 +  by 03.                                                      
+      112  - D1: Full replacement, not a hybrid. A TS module that emits Y
+           AML (or a YAML
+      113    kept as generated output) would create two sources and re-in
+           troduce the
+      114    parse layer; the whole point is one typed authority. Rejecte
+           d: keep YAML +
+
+⏺ Update(.planning/2026-08-24-registry-code-as-config/map.md)
+  ⎿  Added 12 lines, removed 20 lines
+      133  
+      134  ## Frontier
+      135  
+      136 -`tickets/02-flip-run-dir-consumers.md` — 01 landed the module 
+          -+ equivalence                                                 
+      137 -net (PR #1962), so the flip is now mechanical; 02 is first bec
+          -ause it closes                                                
+      138 -the registry-insert runtime-YAML fog while the net still guard
+          -s continuity.                                                 
+      136 +`tickets/03-flip-devops-and-scaffold.md` — 02 landed `loadRegi
+          +stry()`                                                       
+      137 +(PR #1965) with the YAML bridge still serving devops/ext-new, 
+          +so 03 is the                                                  
+      138 +mechanical surface swap: devops `parseShConfig` + deploy CLIs 
+          +read the TS,                                                  
+      139 +`ext new` emits a TS registry entry (closing the 02↔03 registe
+          +r seam, D7),                                                  
+      140 +and the contract suites get their link-state-immune TS reader.
+      141  
+      142  ## Fog of war
+      143  
+      142 -- run-dir/ vs src/ placement (user flag, HIGH, 2026-08-24): wh
+          -y do the                                                      
+      143 -  registry parsers sit in `run-dir/` instead of `src/`? Workin
+          -g answer:                                                     
+      144 -  `run-dir/` is the source-mode runtime surface (resolve.ts / 
+          -run-context.ts                                                
+      145 -  load extensions via `-e` from there; manifest.json is derive
+          -d there), while                                               
+      146 -  `src/` is the compiled-core surface — but the PARSERS are re
+          -po-side and                                                   
+      147 -  arguably belong beside registry-config.ts in `src/`. Ticket 
+          -02 touches                                                    
+      148 -  exactly these four files; fold the placement decision into i
+          -t (or split a                                                 
+      149 -  ticket 02b) rather than moving files in passing.            
+      150 -                                                              
+      151 -- `run-dir/registry-insert.ts` (dynamic load path used by run-
+          -dir extensions)                                               
+      152 -  parses YAML at RUNTIME in some flows — whether it can import
+          - TS at that point                                             
+      153 -  (bun runtime: yes repo-side; verify no compiled-binary path 
+          -reads it) is                                                  
+      154 -  unconfirmed. If the compiled s2-agent binary needs registry 
+          -data at runtime,                                              
+      155 -  the manifest.json path already covers it (D3), but the ticke
+          -t must prove it.                                              
+      156 -- The schema-cost canary and `doctor.ts` mention the YAML file
+          -name — whether                                                
+      157 -  they PARSE it or only name it in help text is unverified (gr
+          -ep showed                                                     
+      158 -  mentions, not call sites).                                  
+      144 +- CLOSED (t02): run-dir vs src placement → Decision D6 (stays 
+          +in run-dir;                                                   
+      145 +  validation needs node:fs, which registry-config.ts forbids).
+      146 +- CLOSED (t02): registry-insert runtime YAML surgery → Decisio
+          +n D7                                                          
+      147 +  (repo-time only; sole caller ext-new; no binary/runtime path
+          +).                                                            
+      148 +- CLOSED (t02, verified during the flip): schema-cost canary d
+          +erives from                                                   
+      149 +  manifest.json (no YAML mention at all in `src/cli/commands/s
+          +chema-cost.ts`);                                              
+      150 +  `doctor.ts` names the YAML in a comment only and reads `ext.
+          +json` trees.                                                  
+      151  - `lazyExtensions: {}` (registry tail) — who consumes it and w
+           hether it needs
+      152    a typed shape is unknown.
+      153  - Fresh-worktree CI: contract suites run in CI without `bun in
+           stall`? If they
+
+  Thought for 5s (ctrl+o to expand)
+
+⏺ 更新 ticket 檔狀態與 map frontmatter：
+
+⏺ Update(.planning/2026-08-24-registry-code-as-config/tickets/02-flip-run-dir-co
+        nsumers.md)
+  ⎿  Added 16 lines, removed 1 line
+       1  # Ticket 02 — flip the run-dir consumers to the TS module
+       2  
+       3 -Status: open · Phase 2 (after 01)                              
+       3 +Status: done (PR #1965, merged CLEAN 2026-08-24) · Phase 2 (aft
+         +er 01)                                                         
+       4  
+       5 +## Close-out notes                                             
+       6 +                                                               
+       7 +- `loadRegistry()` in run-dir/registry.ts is the new authority 
+         +read path                                                      
+       8 +  (validation-over-REGISTRY → legacy Registry shape); `parseReg
+         +istry(text)`                                                   
+       9 +  kept verbatim as the retired YAML bridge for devops + ext-new
+         + (deleted in                                                   
+      10 +  04). Placement decided: stays in run-dir (map D6). registry-i
+         +nsert proven                                                   
+      11 +  repo-time-only, flip deferred to 03 with ext-new (map D7).   
+      12 +- regen:manifest output byte-identical (24 extensions); s2-agen
+         +t suite                                                        
+      13 +  1055/0; local_ci pass; version 0.6.7.                        
+      14 +- Done-when grep nuance: no non-test READER of the YAML remains
+         + in                                                            
+      15 +  bun-apps/s2-agent, but the filename still appears in prose co
+         +mments, the                                                    
+      16 +  retired bridge, ext-new (03's flip), and the frozen `$generat
+         +ed` string                                                     
+      17 +  inside derived manifest.json — the literal "docs/tests only" 
+         +state lands                                                    
+      18 +  with 03+04.                                                  
+      19 +                                                               
+      20  ## Scope
+      21  
+      22  `run-dir/registry.ts` (authority), `run-dir/registry-to-manifes
+          t.ts`,
+
+⏺ Update(.planning/2026-08-24-registry-code-as-config/map.md)
+  ⎿  Error editing file
+
+  Committed 85d49e1a, pushed to planning/registry-t02-closeout, created PR #1966, ran 1 shell command (ctrl+o to expand)
+
+❯ add new TODO for hands  , why "bun-apps/s2-agent/.agents/memory" always       
+  generated , let's find out and fix it                                         
+
+  Thought for 38s (ctrl+o to expand)
+
+⏺ 收到 — 先登記 TODO，再完成 t02 邊界收尾：
+
+  Thought for 8s, ran 1 shell command (ctrl+o to expand)
+
+⏺ TODO 已登記（附現場證據：空目錄、今日 14:46 生成、未被 gitignore）。完成 t02
+  邊界：寫 successor next-goal（head = ticket 03）：
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Write(output/next-goal-20260824-155608.md)
+  ⎿  Wrote 97 lines to output/next-goal-20260824-155608.md
+      1 ---
+      2 file: /Users/huangziyu/proj/video_generation__deploy/output/next-
+        goal-20260824-155608.md
+      4 supersedes: /Users/huangziyu/proj/video_generation__deploy/output
+        /next-goal-20260824-153846.md
+      5 ---
+      6 
+        affold to the TS registry
+      8 
+      9 ## Verified this session
+     … +152 lines (ctrl+o to expand)
+
+  Thought for 2s, ran 1 shell command (ctrl+o to expand)
+
+⏺ Retention 超標 1 — 刪最舊的再跑 doctor：
+
+  Thought for 3s, ran 1 shell command (ctrl+o to expand)
+
+⏺ t02 完成回報
+
+  PR #1965 merged CLEAN（代碼，s2-agent 0.6.7）+ PR #1966 merged CLEAN（planning
+  收尾），successor 已寫入並指向 ticket 03。
+
+  已驗證
+
+  - run-dir/registry.ts 新增
+    loadRegistry()：validation-over-REGISTRY（磁碟存在性、名稱/order
+    重複、deploy/excludeReason 矛盾、vendor 重疊、D2 disabled-entry 缺
+    disableReason/reEnableNote 即丟錯）；parseRegistry(text) 原樣保留為 retired
+    bridge — devops parseShConfig 與 ext new 在 03 前仍靠它，export types
+    不變、下游零 churn
+  - regen:manifest 輸出 byte-identical（24 extensions，diff 空）
+  - s2-agent suite 1055 pass / 0 fail；local_ci pass（第一次跑被 dead-export
+    guard 抓到我投機加的 loadRegistryEntries — 已刪）
+  - 兩個 map Fog 項關閉：placement 決定 D6（留在 run-dir：validation 需要
+    node:fs，而 registry-config.ts 依 D4 禁止 import）；registry-insert 查證
+    D7（純 repo-time，唯一非測試呼叫者 ext-new.ts，無 runtime/binary 路徑）
+
+  誠實缺口
+
+  - 02↔03 縫隙：ext new --register dynamic 仍寫 YAML 但 regen 已不看它 — 03
+    落地前別用 scaffold
+  - t02 的 grep Done-why 採「無非測試讀檔者」解讀；字面 docs/tests-only 要等
+    03+04
+
+  你插入的 TODO
+
+  已開 Task #5 並排進 successor ranked #2：bun-apps/s2-agent/.agents/memory
+  一直被生成（現場：空目錄、今天 14:46、未被 gitignore → 會以 untracked
+  出現）。嫌疑：local_ci 的 oneshot-smoke 在 ~/.pi/agent 找不到時把 memory 路徑
+  fallback 到相對目錄、或 hermes-memory 的 mkdir。
+
+  Session 還新鮮 — 要我直接續跑 ticket 03（devops + ext-new 翻轉），還是先插隊查
+  .agents/memory 生成源？
+
+✻ Worked for 16m 50s
+
+❯ 直接續跑 ticket 03                                                            
+
+  Thought for 4s (ctrl+o to expand)
+
+⏺ 續跑 ticket 03。先同步 + 讀票：
+  Thought for 30s, read 3 files, ran 3 shell commands (ctrl+o to expand)
+
+⏺ 讀齊其餘改動面：
+
+  Thought for 26s, listed 1 directory, ran 3 shell commands (ctrl+o to expand)
+
+⏺ CI workflow 已停用（ci.yml.disabled），作業 gate 是 local_ci（永遠在 workspace
+  linked 之下跑）— Fog 問題有答案了。開始實作。先改 config.ts：
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/lib/config.ts)
+  ⎿  Added 13 lines, removed 8 lines
+       1  /**
+       2   * config.ts — project the deploy pipeline's ShConfig out of th
+          e registry.
+       3   *
+       4 - * s2-agent.registry.yaml is the ONE config file, parsed + vali
+         -dated by                                                       
+       5 - * run-dir/registry.ts (`parseRegistry` — the schema authority)
+         -. This module is                                               
+       6 - * a pure projection: registry entries with a `deploy:` block t
+         -hat is not                                                     
+       7 - * `enabled: false` become ShExtConfig in deploy order. Schema-
+         -level checks                                                   
+       8 - * (unknown keys, ~ expansion, absolute outRoot, entries on dis
+         -k,                                                             
+       9 - * vendor∩externals) live in parseRegistry; two disk checks the
+         - old parser                                                    
+      10 - * made — skills/copy dirs existing — are NOT re-validated here
+         - and surface                                                   
+      11 - * at build time (ext-build's cpSync), loudly but with less con
+         -text.                                                          
+       4 + * Since ticket 03 (.planning/2026-08-24-registry-code-as-confi
+         +g/) the typed                                                  
+       5 + * REGISTRY in s2-agent/src/registry-config.ts is the data; `sh
+         +Config()` reads                                                
+       6 + * it through run-dir/registry.ts's `loadRegistry()` (the valid
+         +ation authority:                                               
+       7 + * disk existence, duplicate names/orders, deploy/excludeReason
+         + contradictions,                                               
+       8 + * vendor overlaps) and projects ShConfig in deploy order. devo
+         +ps runs inside                                                 
+       9 + * the workspace, so a plain relative import is fine here — map
+         + D4's                                                          
+      10 + * link-state-immunity constraint applies only to bun-apps/test
+         +s.                                                             
+      11 + *                                                             
+      12 + * `parseShConfig(text)` / `excludedExtensions(text)` are the R
+         +ETIRED-BRIDGE                                                  
+      13 + * YAML projections, kept for the fixture-based tests until tic
+         +ket 04 deletes                                                 
+      14 + * them with the YAML. No production caller passes YAML text an
+         +ymore.                                                         
+      15   */
+      16  import {
+      17 +  loadRegistry,                                                
+      18    parseRegistry,
+      19 +  type Registry,                                               
+      20    type RegistryDeployBlock,
+      21    type RegistryExt,
+      22  } from "../../../../s2-agent/run-dir/registry.ts";
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/lib/config.ts)
+  ⎿  Added 18 lines, removed 5 lines
+       95    return ext.deploy?.enabled === true;
+       96  }
+       97  
+       98 -export function parseShConfig(                                
+       99 -  text: string,                                               
+      100 -  opts: { bunAppsDir: string },                               
+      101 -): ShConfig {                                                 
+      102 -  const registry = parseRegistry(text, opts);                 
+       98 +/** The deploy projection over a validated legacy Registry (sh
+          +ared by both read paths). */                                  
+       99 +function projectShConfig(registry: Registry): ShConfig {      
+      100    // Registry `skills: true` means "the package's skills/ dir 
+           ships" — the one
+      101    // dir convention the deploy layout hardcodes.
+      102    const extensions: ShExtConfig[] = registry.extensions
+     ...
+      127    };
+      128  }
+      129  
+      130 +/** The production read path: typed REGISTRY → validation → Sh
+          +Config. */                                                    
+      131 +export function shConfig(opts: { bunAppsDir: string }): ShConf
+          +ig {                                                          
+      132 +  return projectShConfig(loadRegistry(opts));                 
+      133 +}                                                             
+      134 +                                                              
+      135 +/**                                                           
+      136 + * @deprecated Retired bridge (ticket 03): projects ShConfig f
+          +rom                                                           
+      137 + * s2-agent.registry.yaml text. Fixture tests only; ticket 04 
+          +deletes it.                                                   
+      138 + */                                                           
+      139 +export function parseShConfig(                                
+      140 +  text: string,                                               
+      141 +  opts: { bunAppsDir: string },                               
+      142 +): ShConfig {                                                 
+      143 +  return projectShConfig(parseRegistry(text, opts));          
+      144 +}                                                             
+      145 +                                                              
+      146  export interface ExcludedExtension {
+      147    name: string;
+      148    package: string;
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/lib/config.ts)
+  ⎿  Added 15 lines
+      155   * entries, so the deploy report reads this for its excluded t
+           able: the reason
+      156   * a package stays local is part of the deploy's record, not t
+           ribal knowledge.
+      157   */
+      158 +export function excludedExtensionsFromRegistry(opts: { bunApps
+          +Dir: string }): ExcludedExtension[] {                         
+      159 +  const registry = loadRegistry(opts);                        
+      160 +  return registry.extensions                                  
+      161 +    .filter((ext) => ext.deploy?.enabled !== true)            
+      162 +    .map((ext) => ({                                          
+      163 +      name: ext.name,                                         
+      164 +      package: ext.package,                                   
+      165 +      reason: ext.excludeReason ?? "(no excludeReason given)",
+      166 +    }));                                                      
+      167 +}                                                             
+      168 +                                                              
+      169 +/**                                                           
+      170 + * @deprecated Retired bridge (ticket 03): the not-shipped hal
+          +f from                                                        
+      171 + * s2-agent.registry.yaml text. Fixture tests only; ticket 04 
+          +deletes it.                                                   
+      172 + */                                                           
+      173  export function excludedExtensions(text: string, opts: { bunAp
+           psDir: string }): ExcludedExtension[] {
+      174    const registry = parseRegistry(text, opts);
+      175    return registry.extensions
+
+  Thought for 8s (ctrl+o to expand)
+
+⏺ 改 run.ts：拔掉 configPath/YAML 讀檔：
+
+  Thought for 3s, searched for 1 pattern, read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/lib/deploy-report.ts)
+  ⎿  Added 2 lines, removed 1 line
+      87    builtAt: string;
+      88    sourceSha: string;
+      89    bunVersion: string;
+      90 -  configPath: string;                                          
+      90 +  /** The registry module this deploy projected from (registry-
+         +code-as-config t03; was configPath). */                        
+      91 +  registryModule: string;                                      
+      92    outRoot: string;
+      93    target: string;
+      94    freeze: boolean;
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/lib/deploy-report.ts)
+  ⎿  Added 1 line, removed 1 line
+      247  <tr><td>built at</td><td>${esc(data.builtAt)}</td></tr>
+      248  <tr><td>source sha</td><td><code>${esc(data.sourceSha)}</code>
+           </td></tr>
+      249  <tr><td>launcher</td><td>${esc(data.target)}/${esc(APP_NAME)}.
+           sh</td></tr>
+      250 -<tr><td>config</td><td><code>${esc(data.configPath)}</code></t
+          -d></tr>                                                       
+      250 +<tr><td>registry</td><td><code>${esc(data.registryModule)}</co
+          +de></td></tr>                                                 
+      251  <tr><td>bun</td><td>${esc(data.bunVersion)}</td></tr>
+      252  <tr><td>core</td><td>${fmtBytes(data.core.bytes)} ${data.core.
+           cached ? "(cached hardlink)" : "(fresh bundle)"} — bun-run ESM
+            bundle</td></tr>
+      253  ${data.runtime ? `<tr><td>runtime (bin/bun)</td><td>${esc(data
+           .runtime.bunVersion)} ${esc(data.runtime.platform)}/${esc(data
+           .runtime.arch)}, ${fmtBytes(data.runtime.bytes)} ${data.runtim
+           e.cached ? "(cached hardlink)" : "(fresh copy)"}</td></tr>` : 
+           ""}
+
+  Thought for 2s, ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-report.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      31      builtAt: "2026-08-22T00:00:00.000Z",
+      32      sourceSha: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+      33      bunVersion: "1.4.0",
+      34 -    configPath: "/repo/bun-apps/s2-agent/s2-agent.registry.yaml
+         -",                                                             
+      34 +    registryModule: "/repo/bun-apps/s2-agent/src/registry-confi
+         +g.ts",                                                         
+      35      outRoot: "/dist/s2-agent-sh",
+      36      target: "/dist/s2-agent-sh/0.1.0+gdeadbee",
+      37      freeze: true,
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-report.test.ts)
+  ⎿  Added 1 line, removed 2 lines
+      208  
+      209  describe("excludedExtensions — the not-shipped half of the reg
+           istry", () => {
+      210    test("the real registry: excluded names carry their reasons,
+            shipped ones do not appear", () => {
+      211 -    const text = readFileSync(join(BUN_APPS_DIR, "s2-agent", "
+          -s2-agent.registry.yaml"), "utf8");                            
+      212 -    const excluded = excludedExtensions(text, { bunAppsDir: BU
+          -N_APPS_DIR });                                                
+      211 +    const excluded = excludedExtensionsFromRegistry({ bunAppsD
+          +ir: BUN_APPS_DIR });                                          
+      212      const names = excluded.map((e) => e.name);
+      213      // Facts current at the time this test was written; the po
+           int is the
+      214      // projection works on the real file, not pinning the exac
+           t set. Note
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-report.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      21    renderOutRootIndex,
+      22    type DeployReportData,
+      23  } from "../src/deploy/lib/deploy-report.ts";
+      24 -import { excludedExtensions } from "../src/deploy/lib/config.ts
+         -";                                                             
+      24 +import { excludedExtensionsFromRegistry } from "../src/deploy/l
+         +ib/config.ts";                                                 
+      25  
+      26  const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
+      27  
+
+⏺ Now run.ts — 拔 configPath、改用 shConfig()、report 換 registryModule：
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/run.ts)
+  ⎿  Added 4 lines, removed 4 lines
+      458  }
+      459  
+      460  export async function runShDeploy(opts: DeployShOptions = {}):
+            Promise<DeployShResult> {
+      461 -  const configPath = opts.configPath ? resolve(opts.configPath
+          -) : DEFAULT_CONFIG;                                           
+      462 -  if (!existsSync(configPath)) throw new Error(`config not fou
+          -nd: ${configPath}`);                                          
+      463 -  const configText = readFileSync(configPath, "utf8");        
+      464 -  const cfg = parseShConfig(configText, { bunAppsDir: BUN_APPS
+          -_DIR });                                                      
+      461 +  // The registry is CODE now (registry-code-as-config t03): n
+          +o config file                                                 
+      462 +  // to read or override — shConfig() validates the typed REGI
+          +STRY and                                                      
+      463 +  // projects the deploy set. The retired --config flag is gon
+          +e with it.                                                    
+      464 +  const cfg = shConfig({ bunAppsDir: BUN_APPS_DIR });         
+      465    await assertHostContract(cfg);
+      466  
+      467    const outRoot = opts.outRoot ? resolve(opts.outRoot) : cfg.o
+           utRoot;
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/run.ts)
+  ⎿  Added 1 line, removed 2 lines
+      64  const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..",
+           "s2-agent");
+      65  const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
+      66  const REPO_ROOT = dirname(BUN_APPS_DIR);
+      67 -const DEFAULT_CONFIG = join(PI_AGENT_DIR, "s2-agent.registry.ya
+         -ml");                                                          
+      67 +const REGISTRY_MODULE = join(PI_AGENT_DIR, "src", "registry-con
+         +fig.ts");                                                      
+      68  
+      69  export interface DeployShOptions {
+      70 -  configPath?: string;                                         
+      70    outRoot?: string;
+      71    version?: string;
+      72    freeze?: boolean;
+
+  Thought for 3s, ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/run.ts)
+  ⎿  Added 1 line, removed 1 line
+      33  import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync,
+           readFileSync, renameSync, writeFileSync } from "node:fs";
+      34  import { dirname, join, resolve } from "node:path";
+      35  import { APP_NAME } from "./lib/app-name.ts";
+      36 -import { excludedExtensions, parseShConfig, type ShConfig } fro
+         -m "./lib/config.ts";                                           
+      36 +import { excludedExtensionsFromRegistry, shConfig, type ShConfi
+         +g } from "./lib/config.ts";                                    
+      37  import { buildExtPackage } from "./lib/ext-build.ts";
+      38  import {
+      39    collectModelFacts,
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/run.ts)
+  ⎿  Added 1 line, removed 1 line
+      571              bytes: bun.bytes,
+      572              cached: bun.cached,
+      573            },
+      574 -          configPath,                                         
+      574 +          registryModule: REGISTRY_MODULE,                    
+      575            config: cfg,
+      576          },
+      577          null,
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy/run.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      643        builtAt,
+      644        sourceSha,
+      645        bunVersion: Bun.version,
+      646 -      configPath,                                             
+      646 +      registryModule: REGISTRY_MODULE,                        
+      647        outRoot,
+      648        target,
+      649        freeze,
+     ...
+      652        runtime: { bunVersion: Bun.version, platform: process.pl
+           atform, arch: process.arch, bytes: bun.bytes, cached: bun.cach
+           ed },
+      653        gates,
+      654        extensions: extensionsReport,
+      655 -      excluded: excludedExtensions(configText, { bunAppsDir: B
+          -UN_APPS_DIR }),                                               
+      655 +      excluded: excludedExtensionsFromRegistry({ bunAppsDir: B
+          +UN_APPS_DIR }),                                               
+      656        providers: collectModelFacts(),
+      657      };
+      658      writeDeployReport(stage, reportData);
+
+  Thought for 5s, searched for 1 pattern (ctrl+o to expand)
+⏺ 改 deploy-cli.ts 與 deploy-sh-argv.ts（拔 --config）：
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy-cli.ts)
+  ⎿  Added 2 lines, removed 5 lines
+       8   *   bun src/deploy-cli.ts                     # deploy (versio
+          n dirs are immutable)
+       9   *   bun src/deploy-cli.ts --list              # deployed versi
+          ons + current
+      10   */
+      11 -import { readFileSync } from "node:fs";                        
+      11  import { join, resolve } from "node:path";
+      12  import { parseDeployShArgv } from "./deploy-sh-argv.ts";
+      13  import { DeployVersionExistsError, runShDeploy } from "./deploy
+          /run.ts";
+      15 -import { parseShConfig } from "./deploy/lib/config.ts";        
+      14 +import { shConfig } from "./deploy/lib/config.ts";             
+      15  import { listVersions } from "./deploy/lib/version.ts";
+      16  import { runDeployE2e, resolveModelEndpoint } from "./deploy-e2
+          e-recipe.js";
+      17  import { createLiveSpawn } from "./spawn.js";
+      18  
+      19  const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
+      21 -const DEFAULT_CONFIG = join(BUN_APPS_DIR, "s2-agent", "s2-agent
+         -.registry.yaml");                                              
+      20  
+      21  const HELP = `deploy-cli — versioned minimal-core deploy for s2
+          -agent
+      22  
+     ...
+      24    bun src/deploy-cli.ts [flags]
+      25  
+      26  FLAGS
+      29 -  --config <path>   deploy registry (default: bun-apps/s2-agent
+         -/s2-agent.registry.yaml)                                       
+      30 -  --out <dir>       override outRoot from the config           
+      27 +  --out <dir>       override outRoot from the registry         
+      28    --version <str>   override the computed <pkgVersion>+g<sha> v
+          ersion
+      29    --force           replace an existing version dir
+      30    (re-deploying the CURRENT version without --force is a no-op 
+          success:
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy-cli.ts)
+  ⎿  Added 1 line, removed 2 lines
+      52  
+      53  try {
+      54    if (parsed.action.kind === "list") {
+      55 -    const configPath = parsed.action.configPath ? resolve(parse
+         -d.action.configPath) : DEFAULT_CONFIG;                         
+      55      const outRoot = parsed.action.outRoot
+      56        ? resolve(parsed.action.outRoot)
+      58 -      : parseShConfig(readFileSync(configPath, "utf8"), { bunAp
+         -psDir: BUN_APPS_DIR }).outRoot;                                
+      57 +      : shConfig({ bunAppsDir: BUN_APPS_DIR }).outRoot;        
+      58      console.log(JSON.stringify({ ok: true, outRoot, ...listVers
+          ions(outRoot) }, null, 2));
+      59      process.exit(0);
+      60    }
+
+  Thought for 3s, read 1 file, listed 1 directory (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/deploy-sh-argv.ts)
+  ⎿  Added 18 lines, removed 7 lines
+       7   * There is no --ext: version dirs are immutable (Phase 3 §b de
+          leted the
+       8   * in-place rebuild); an extension-only change is an ordinary d
+          eploy, which the
+       9   * core cache makes compile-free.
+      10 + *                                                             
+      11 + * There is no --config either (registry-code-as-config t03): t
+         +he registry is                                                 
+      12 + * bun-apps/s2-agent/src/registry-config.ts, read by import — a
+         + config-file                                                   
+      13 + * override would point at the retired YAML. The flag errors lo
+         +udly instead of                                                
+      14 + * being silently ignored.                                     
+      15   */
+      16  import type { DeployShOptions } from "../src/deploy/run.ts";
+      17  
+      18  export type DeployShAction =
+      19    | { kind: "deploy"; options: DeployShOptions }
+      15 -  | { kind: "list"; outRoot?: string; configPath?: string }    
+      20 +  | { kind: "list"; outRoot?: string }                         
+      21    | { kind: "help" };
+      22  
+      23  export type ParseArgvResult = { ok: true; action: DeployShActio
+          n } | { ok: false; error: string };
+      24  
+      20 -const VALUE_FLAGS = new Set(["--config", "--out", "--version"])
+         -;                                                              
+      25 +const VALUE_FLAGS = new Set(["--out", "--version"]);           
+      26  const BOOL_FLAGS = new Set(["--no-freeze", "--no-current", "--f
+          orce", "--list", "--help", "--json"]);
+      27  
+      28  export function parseDeployShArgv(argv: string[]): ParseArgvRes
+          ult {
+     ...
+      41      const flag = eq === -1 ? token : token.slice(0, eq);
+      42      let value: string | undefined = eq === -1 ? undefined : tok
+          en.slice(eq + 1);
+      43  
+      44 +    if (flag === "--config") {                                 
+      45 +      return {                                                 
+      46 +        ok: false,                                             
+      47 +        error: "--config is retired: the registry is bun-apps/s
+         +2-agent/src/registry-config.ts (registry-code-as-config t03)", 
+      48 +      };                                                       
+      49 +    }                                                          
+      50 +                                                               
+      51      if (VALUE_FLAGS.has(flag)) {
+      52        if (value === undefined) {
+      53          value = argv[++i];
+     ...
+      55            return { ok: false, error: `flag ${flag} requires a v
+          alue` };
+      56          }
+      57        }
+      46 -      if (flag === "--config") options.configPath = value;     
+      47 -      else if (flag === "--out") options.outRoot = value;      
+      58 +      if (flag === "--out") options.outRoot = value;           
+      59        else options.version = value;
+      49 -      // --config/--out are meaningful for both actions; the re
+         -st are deploy-only.                                            
+      50 -      if (flag !== "--config" && flag !== "--out") sawDeployFla
+         -g = true;                                                      
+      60 +      // --out is meaningful for both actions; the rest are dep
+         +loy-only.                                                      
+      61 +      if (flag !== "--out") sawDeployFlag = true;              
+      62        continue;
+      63      }
+      64  
+     ...
+      80    if (help) return { ok: true, action: { kind: "help" } };
+      81    if (list) {
+      82      if (sawDeployFlag) return { ok: false, error: `--list canno
+          t be combined with deploy flags` };
+      72 -    return { ok: true, action: { kind: "list", outRoot: options
+         -.outRoot, configPath: options.configPath } };                  
+      83 +    return { ok: true, action: { kind: "list", outRoot: options
+         +.outRoot } };                                                  
+      84    }
+      85    return { ok: true, action: { kind: "deploy", options } };
+      86  }
+
+⏺ Update argv 測試：
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-sh-argv.test.ts)
+  ⎿  Added 7 lines, removed 2 lines
+      27    });
+      28  
+      29    test("parses value flags in both forms", () => {
+      30 -    const r = parseDeployShArgv(["--out=/tmp/a", "--version", "
+         -9.9.9", "--config=/tmp/c.yaml"]);                              
+      30 +    const r = parseDeployShArgv(["--out=/tmp/a", "--version", "
+         +9.9.9"]);                                                      
+      31      expect(r.ok).toBe(true);
+      32      if (r.ok && r.action.kind === "deploy") {
+      33        expect(r.action.options.outRoot).toBe("/tmp/a");
+      34        expect(r.action.options.version).toBe("9.9.9");
+      35 -      expect(r.action.options.configPath).toBe("/tmp/c.yaml"); 
+      35      }
+      36    });
+      37  
+      38 +  test("--config is retired (registry-code-as-config t03) and e
+         +rrors loudly", () => {                                         
+      39 +    const r = parseDeployShArgv(["--config=/tmp/c.yaml"]);     
+      40 +    expect(r.ok).toBe(false);                                  
+      41 +    if (!r.ok) expect(r.error).toMatch(/--config is retired.*re
+         +gistry-config/);                                               
+      42 +  });                                                          
+      43 +                                                               
+      44    test("parses negation flags", () => {
+      45      const r = parseDeployShArgv(["--no-freeze", "--no-current",
+           "--force"]);
+      46      expect(r.ok).toBe(true);
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-sh-argv.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      74      if (!r.ok) expect(r.error).toMatch(/--list/);
+      75    });
+      76  
+      77 -  test("--list still accepts --out and --config", () => {      
+      77 +  test("--list still accepts --out", () => {                   
+      78      const r = parseDeployShArgv(["--list", "--out", "/tmp/a"]);
+      79      expect(r.ok).toBe(true);
+      80      if (r.ok && r.action.kind === "list") expect(r.action.outRo
+          ot).toBe("/tmp/a");
+
+⏺ verify-deploy-e2e-cli.ts 與 session-doctor-cli.ts：
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts)
+  ⎿  Added 1 line, removed 3 lines
+      79  /** Registry outRoot — the same default deploy-cli deploys into
+          . */
+      80  function defaultDeployRoot(): string {
+      81    const bunAppsDir = resolve(import.meta.dir, "..", "..");
+      82 -  return parseShConfig(readFileSync(join(bunAppsDir, "s2-agent"
+         -, "s2-agent.registry.yaml"), "utf8"), {                        
+      83 -    bunAppsDir,                                                
+      84 -  }).outRoot;                                                  
+      82 +  return shConfig({ bunAppsDir }).outRoot;                     
+      83  }
+      84  
+      85  export async function runVerifyDeployE2eCli(
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/session-doctor-cli.ts)
+  ⎿  Added 1 line, removed 3 lines
+      172  /** Registry outRoot — the same default deploy-cli deploys int
+           o. */
+      173  function defaultDeployRoot(): string {
+      174    const bunAppsDir = resolve(import.meta.dir, "..", "..");
+      175 -  return parseShConfig(readFileSync(join(bunAppsDir, "s2-agent
+          -", "s2-agent.registry.yaml"), "utf8"), {                      
+      176 -    bunAppsDir,                                               
+      177 -  }).outRoot;                                                 
+      175 +  return shConfig({ bunAppsDir }).outRoot;                    
+      176  }
+      177  
+      178  export interface SessionDoctorDeps {
+
+  Thought for 3s, searched for 3 patterns, ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts)
+  ⎿  Added 1 line, removed 2 lines
+      15   * Exit 0 pass or skip (provider-down is a SKIP, not a FAIL — t
+          he boot is what
+      16   * we vouch for) · 1 fail (boot/ext-load/model-call, or no `cur
+          rent`) · 2 usage.
+      17   */
+      18 -import { readFileSync } from "node:fs";                        
+      19 -import { join, resolve } from "node:path";                     
+      18 +import { resolve } from "node:path";                           
+      19  import { shConfig } from "./deploy/lib/config.ts";
+      20  import { runDeployE2e, resolveCurrentVersionDir, resolveModelEn
+          dpoint } from "./deploy-e2e-recipe.js";
+      21  import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+
+  Thought for 3s (ctrl+o to expand)
+
+⏺ 更新三個 devops e2e 測試的 derive 來源：
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-e2e.test.ts)
+  ⎿  Added 10 lines, removed 13 lines
+      19  const outRoot = mkdtempSync(join(tmpdir(), "sh-e2e-"));
+      20  afterAll(() => rmTree(outRoot));
+      21  
+      22 -// The expected extension set is DERIVED from s2-agent.registry
+         -.yaml, never                                                   
+      23 -// written out here. This file used to assert ["power-tool", "t
+         -ask"] — true when                                              
+      24 -// the base set was two, silently wrong from #1713 (hyperframes
+         -) onward and                                                   
+      25 -// flatly red after #1738 took it to fourteen. Nothing caught t
+         -hat for two                                                    
+      26 -// releases because no gate ran this file: check-deploy-e2e.sh 
+         -runs the PROBE                                                 
+      27 -// e2e, and the PI_AGENT_E2E gate hides the rest from a plain `
+         -bun test`. Same                                                
+      28 -// lesson as the probe suite's own header — the registry is the
+         - source of truth                                               
+      29 -// for what a deploy ships.                                    
+      22 +// The expected extension set is DERIVED from the typed REGISTR
+         +Y                                                              
+      23 +// (s2-agent/src/registry-config.ts via shConfig), never writte
+         +n out here. This                                               
+      24 +// file used to assert ["power-tool", "task"] — true when the b
+         +ase set was two,                                               
+      25 +// silently wrong from #1713 (hyperframes) onward and flatly re
+         +d after #1738                                                  
+      26 +// took it to fourteen. Nothing caught that for two releases be
+         +cause no gate ran                                              
+      27 +// this file: check-deploy-e2e.sh runs the PROBE e2e, and the P
+         +I_AGENT_E2E gate                                               
+      28 +// hides the rest from a plain `bun test`. Same lesson as the p
+         +robe suite's own                                               
+      29 +// header — the registry is the source of truth for what a depl
+         +oy ships.                                                      
+      30  const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
+      31 -const shConfig = parseShConfig(                                
+      32 -  readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registr
+         -y.yaml"), "utf8"),                                             
+      33 -  { bunAppsDir: BUN_APPS_DIR },                                
+      34 -);                                                             
+      31 +const cfg = shConfig({ bunAppsDir: BUN_APPS_DIR });            
+      32  /** Config order — what `--ext-list` reports, and what the load
+          er loads in. */
+      36 -const configuredNames = shConfig.extensions.map((e) => e.name);
+      33 +const configuredNames = cfg.extensions.map((e) => e.name);     
+      34  const configuredNamesSorted = [...configuredNames].sort();
+      35  
+      36  // The core is a bun-run bundle booted by the tree's OWN shippe
+          d runtime —
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-e2e.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      3  import { tmpdir } from "node:os";
+      4  import { join } from "node:path";
+      5  import { runShDeploy } from "../src/deploy/run.ts";
+      6 -import { parseShConfig } from "../src/deploy/lib/config.ts";    
+      6 +import { shConfig } from "../src/deploy/lib/config.ts";         
+      7  import {
+      8    scanBinaryForeignPaths,
+      9    scanSymlinkEscapes,
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-probe-e2e.test.ts)
+  ⎿  Added 1 line, removed 5 lines
+      63  let target = "";
+      64  let binary = "";
+      65  
+      66 -const shConfig = parseShConfig(                                
+      67 -  readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registr
+         -y.yaml"), "utf8"),                                             
+      68 -  { bunAppsDir: BUN_APPS_DIR },                                
+      69 -);                                                             
+      70 -const configuredNames = shConfig.extensions.map((e) => e.name).
+         -sort();                                                        
+      66 +const configuredNames = shConfig({ bunAppsDir: BUN_APPS_DIR }).
+         +extensions.map((e) => e.name).sort();                          
+      67  
+      68  // ZERO-Real-~/.pi-pollution guard (2026-08-22): the suite's wh
+          ole point is
+      69  // that per-user writes land under piHome. Snapshot the operato
+          r's REAL
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/tool-gate-fire-probe.test.ts)
+  ⎿  Added 4 lines, removed 7 lines
+      22  
+      23  const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
+      24  
+      25 -// The config is DERIVED from the registry — never hardcode a r
+         -ow here, or a                                                  
+      26 -// future registry edit renames/splits the extension and this t
+         -est silently                                                   
+      27 -// tests a stale shape (the #1713 lesson).                     
+      28 -const toolGateExt = parseShConfig(                             
+      29 -  readFileSync(join(BUN_APPS_DIR, "s2-agent", "s2-agent.registr
+         -y.yaml"), "utf8"),                                             
+      30 -  { bunAppsDir: BUN_APPS_DIR },                                
+      31 -).extensions.find((e) => e.name === "tool-gate");              
+      25 +// The config is DERIVED from the typed registry — never hardco
+         +de a row here,                                                 
+      26 +// or a future registry edit renames/splits the extension and t
+         +his test                                                       
+      27 +// silently tests a stale shape (the #1713 lesson).            
+      28 +const toolGateExt = shConfig({ bunAppsDir: BUN_APPS_DIR }).exte
+         +nsions.find((e) => e.name === "tool-gate");                    
+      29  
+      30  function expectToolGateRow(): NonNullable<typeof toolGateExt> {
+      31    // Registry-disabled 2026-08-24 (default-off in dev + deploy 
+          after the
+
+  Thought for 2s, searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+⏺ 改 config.test.ts 的 real-registry 斷言（刪手維清單，改 derive）：
+
+  Ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/config.test.ts)  ⎿  Added 2 lines, removed 1 line
+      2  import { readFileSync } from "node:fs";
+      3  import { homedir } from "node:os";
+      4  import { join } from "node:path";
+      5 -import { parseShConfig } from "../src/deploy/lib/config.ts";    
+      5 +import { parseShConfig, shConfig } from "../src/deploy/lib/confi
+        +g.ts";                                                          
+      6 +import { shippedEntries } from "../../s2-agent/src/registry-conf
+        +ig.ts";                                                         
+      7  import {
+      8    HOST_API,
+      9    HOST_MODULE_IDS,
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/config.test.ts)
+  ⎿  Added 10 lines, removed 30 lines
+      132    });
+      133  
+      134    test("the real repo registry parses and matches the core's h
+           ost contract", () => {
+      135 -    const text = readFileSync(                                
+      136 -      join(BUN_APPS, "s2-agent", "s2-agent.registry.yaml"),   
+      137 -      "utf8",                                                 
+      138 -    );                                                        
+      139 -    const cfg = parseShConfig(text, { bunAppsDir: BUN_APPS });
+      135 +    const cfg = shConfig({ bunAppsDir: BUN_APPS });           
+      136      expect(cfg.hostApi).toBe(HOST_API);
+      137      expect([...cfg.hostModules].sort()).toEqual([...HOST_MODUL
+           E_IDS].sort());
+      142 -    expect(cfg.extensions.map((e) => e.name).sort()).toEqual([
+      143 -      "archify",                                              
+      144 -      "btw",                                                  
+      145 -      "compact",                                              
+      146 -      "devops",                                               
+      147 -      "file2md",                                              
+      148 -      "hermes-memory",                                        
+      149 -      // hyperframes: disabled by default 2026-08-24 (registry
+          - entry commented                                              
+      150 -      // out pending a proven must-have consumer) — re-list he
+          -re if it returns.                                             
+      151 -      "knowledge-card",                                       
+      152 -      "obsidian",                                             
+      153 -      "power-tool",                                           
+      154 -      "prompt-history",                                       
+      155 -      "subagent",                                             
+      156 -      "superpowers",                                          
+      157 -      // sv-analyzer: deploy-excluded 2026-08-24 (machine-buil
+          -t gitignored wasm) —                                          
+      158 -      // excludeReason entries never reach parseShConfig exten
+          -sions; re-list                                                
+      159 -      // here only if it regains a deploy block.              
+      160 -      "task",                                                 
+      161 -      "ultracode",                                            
+      162 -      "wayfind",                                              
+      163 -      // web-access + webui: deploy-excluded 2026-08-24 (dev-m
+          -achine web                                                    
+      164 -      // tooling / local-operator UI — not needed on the porta
+          -ble target) —                                                 
+      165 -      // re-list here only if they regain a deploy block.     
+      166 -    ]);                                                       
+      138 +    // The expected set is DERIVED from the typed registry its
+          +elf                                                           
+      139 +    // (registry-code-as-config t03): no hand-maintained name 
+          +list to go                                                    
+      140 +    // stale — the exact failure mode PR #1958 hit. What this 
+          +still pins is                                                 
+      141 +    // the PROJECTION: shippedEntries() (deploy block present 
+          ++ enabled)                                                    
+      142 +    // is exactly what shConfig() ships, in deploy order.     
+      143 +    expect(cfg.extensions.map((e) => e.name).sort()).toEqual( 
+      144 +      shippedEntries().map((e) => e.name).sort(),             
+      145 +    );                                                        
+      146 +    expect(cfg.extensions.length).toBeGreaterThanOrEqual(10); 
+      147      // subagent must load before ultracode (registry populatio
+           n order).
+      148      const order = (name: string) =>
+      149        cfg.extensions.find((e) => e.name === name)!.order;
+
+  Thought for 3s (ctrl+o to expand)
+
+⏺ 現在改 ext-new.ts（scaffold 登記改寫 TS entry）。先讀完整登記段：
+
+  Thought for 20s, searched for 1 pattern, read 1 file, ran 2 shell commands (ctrl+o to expand)
+
+⏺ 改寫 ext-new.ts。先換 import 與 header：
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 4 lines, removed 4 lines
+       3   *
+       4   * This module holds the pure parts (arg parsing, name validati
+          on, file
+       5   * templates); runExtNew (Task B3) adds the writer: mkdir + wri
+          te files,
+       6 - * manifest registration (dynamic object entry / static append 
+         -+ regen:static),                                               
+       7 - * optional `bun install --cwd bun-apps`, and the next-steps ba
+         -nner.                                                          
+       6 + * registry registration (a typed entry appended to REGISTRY in
+       7 + * src/registry-config.ts + regen:manifest / regen:static), opt
+         +ional                                                          
+       8 + * `bun install --cwd bun-apps`, and the next-steps banner.    
+       9   */
+      10  import { existsSync, mkdirSync, readFileSync, writeFileSync } f
+          rom "node:fs";
+      11  import { dirname, join, resolve } from "node:path";
+      11 -import { parseRegistry } from "../run-dir/registry.ts";        
+      12 -import { appendRegistryExtension } from "../run-dir/registry-in
+         -sert.ts";                                                      
+      12 +import { REGISTRY } from "./registry-config.ts";               
+      13  
+      14  /** Registration modes for the scaffolded package. */
+      15  export type ExtNewRegister = "dynamic" | "static" | "none";
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 6 lines, removed 12 lines
+      299    // Registration — always against the real registry, independ
+           ent of
+      300    // --out-root (the hidden root is a test seam for the file w
+           rites only).
+      301    // Checked BEFORE any file write so a refusal leaves no orph
+           an package.
+      302 -  const registryPath = join(import.meta.dir, "..", "s2-agent.r
+          -egistry.yaml");                                               
+      302 +  // Duplicate detection reads the imported REGISTRY (the type
+          +d authority);                                                 
+      303 +  // the textual insert below is the only write.              
+      304 +  const registryModulePath = join(import.meta.dir, "registry-c
+          +onfig.ts");                                                   
+      305    const bunAppsDir = resolve(import.meta.dir, "..", "..");
+      304 -  let registryText: string;                                   
+      305 -  try {                                                       
+      306 -    registryText = readFileSync(registryPath, "utf8");        
+      307 -    const registry = parseRegistry(registryText, { bunAppsDir 
+          -});                                                           
+      308 -    if (registry.extensions.some((e) => e.package === pkgName)
+          -) {                                                           
+      309 -      console.error(`ext new: ${pkgName} is already registered
+          - in s2-agent.registry.yaml`);                                 
+      310 -      return 1;                                               
+      311 -    }                                                         
+      312 -  } catch (e) {                                               
+      313 -    console.error(`ext new: cannot parse ${registryPath} — ${(
+          -e as Error).message}`);                                       
+      306 +  if (REGISTRY.some((e) => e.package === pkgName)) {          
+      307 +    console.error(`ext new: ${pkgName} is already registered i
+          +n src/registry-config.ts`);                                   
+      308      return 1;
+      309    }
+      310    const realOutRoot = resolve(args.outRoot) !== bunAppsDir;
+      311    if (args.register !== "none" && realOutRoot) {
+      312      console.error(
+      319 -      `ext new: --register requires the default --out-root (bu
+          -n-apps/) — registration writes the real s2-agent.registry.yaml
+          -, whose schema requires the package to exist under bun-apps/`,
+      313 +      `ext new: --register requires the default --out-root (bu
+          +n-apps/) — registration edits the real src/registry-config.ts,
+          + whose validation requires the package to exist under bun-apps
+          +/`,                                                           
+      314      );
+      315      return 1;
+      316    }
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 8 lines, removed 36 lines
+      328    // failed regen leaves the registry edited but the derived a
+           rtifacts stale,
+      329    // so the error says exactly what to rerun.
+      330    try {
+      331 -    if (args.register === "dynamic") {                        
+      331 +    if (args.register === "dynamic" || args.register === "stat
+          +ic") {                                                        
+      332        // Dynamic entries carry the FULL package id as `name` —
+            that is what
+      333        // the derived manifest's extensions[] uses (source-mode
+            -e matching),
+      334 -      // and the emitter writes `name` verbatim.              
+      335 -      writeFileSync(                                          
+      336 -        registryPath,                                         
+      337 -        appendRegistryExtension(                              
+      338 -          registryText,                                       
+      339 -          [                                                   
+      340 -            `  - name: ${pkgName}`,                           
+      341 -            `    package: ${pkgName}`,                        
+      342 -            `    entry: extensions/${args.name}.ts`,          
+      343 -            `    load: dynamic`,                              
+      344 -            `    version: "0.1.0"`,                           
+      345 -            `    excludeReason: not yet curated for the portab
+          -le set`,                                                      
+      346 -          ].join("\n"),                                       
+      347 -        ),                                                    
+      348 -      );                                                      
+      334 +      // and the emitter writes `name` verbatim. Static entrie
+          +s carry the                                                   
+      335 +      // SHORT name; the emitter derives staticExtensions[] fr
+          +om `package`.                                                 
+      336 +      writeFileSync(registryModulePath, appendRegistryEntryEnt
+          +ry(readFileSync(registryModulePath, "utf8"), renderRegistryEnt
+          +ry(args)));                                                   
+      337        await runRegen("regen:manifest");
+      350 -      console.log(`ext new: registered ${pkgName} in s2-agent.
+          -registry.yaml (dynamic)`);                                    
+      351 -    } else if (args.register === "static") {                  
+      352 -      // Static entries carry the SHORT name; the emitter deri
+          -ves                                                           
+      353 -      // staticExtensions[] from `package`.                   
+      354 -      writeFileSync(                                          
+      355 -        registryPath,                                         
+      356 -        appendRegistryExtension(                              
+      357 -          registryText,                                       
+      358 -          [                                                   
+      359 -            `  - name: ${args.name}`,                         
+      360 -            `    package: ${pkgName}`,                        
+      361 -            `    entry: extensions/${args.name}.ts`,          
+      362 -            `    load: static`,                               
+      363 -            `    excludeReason: not yet curated for the portab
+          -le set`,                                                      
+      364 -          ].join("\n"),                                       
+      365 -        ),                                                    
+      366 -      );                                                      
+      367 -      await runRegen("regen:manifest");                       
+      368 -      console.log(`ext new: appended ${pkgName} to the registr
+          -y (static)`);                                                 
+      369 -      await runRegen("regen:static");                         
+      338 +      console.log(`ext new: registered ${pkgName} in src/regis
+          +try-config.ts (${args.register})`);                           
+      339 +      if (args.register === "static") {                       
+      340 +        await runRegen("regen:static");                       
+      341 +      }                                                       
+      342      }
+      343    } catch (e) {
+      344      console.error(`ext new: ${(e as Error).message} — the regi
+           stry is edited; rerun it manually, or the derived artifacts wi
+           ll drift`);
+
+  Thought for 4s (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 1 line, removed 1 line
+      333        // the derived manifest's extensions[] uses (source-mode
+            -e matching),
+      334        // and the emitter writes `name` verbatim. Static entrie
+           s carry the
+      335        // SHORT name; the emitter derives staticExtensions[] fr
+           om `package`.
+      336 -      writeFileSync(registryModulePath, appendRegistryEntryEnt
+          -ry(readFileSync(registryModulePath, "utf8"), renderRegistryEnt
+          -ry(args)));                                                   
+      336 +      writeFileSync(registryModulePath, appendRegistryTsEntry(
+          +readFileSync(registryModulePath, "utf8"), renderRegistryEntry(
+          +args)));                                                      
+      337        await runRegen("regen:manifest");
+      338        console.log(`ext new: registered ${pkgName} in src/regis
+           try-config.ts (${args.register})`);
+      339        if (args.register === "static") {
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 37 lines
+      379    return 0;
+      380  }
+      381  
+      382 +/** Render the scaffold's REGISTRY entry as TS source (tab-ind
+          +ented, matches registry-config.ts). */                        
+      383 +function renderRegistryEntry(args: ExtNewArgs): string {      
+      384 +  const pkgName = `s2-agent-ext-${args.name}`;                
+      385 +  const lines = [                                             
+      386 +    "\t{",                                                    
+      387 +    `\t\tname: "${args.register === "dynamic" ? pkgName : args
+          +.name}",`,                                                    
+      388 +    `\t\tpackage: "${pkgName}",`,                             
+      389 +    `\t\tentry: "extensions/${args.name}.ts",`,               
+      390 +    `\t\tload: "${args.register}",`,                          
+      391 +  ];                                                          
+      392 +  if (args.register === "dynamic") lines.push(`\t\tversion: "0
+          +.1.0",`);                                                     
+      393 +  lines.push(                                                 
+      394 +    "\t\tenabled: true,",                                     
+      395 +    '\t\texcludeReason: "not yet curated for the portable set"
+          +,',                                                           
+      396 +    "\t},",                                                   
+      397 +  );                                                          
+      398 +  return lines.join("\n");                                    
+      399 +}                                                             
+      400 +                                                              
+      401 +/**                                                           
+      402 + * Append `entryTs` before the REGISTRY array's closing `];`. 
+      403 + *                                                            
+      404 + * TEXT SURGERY, the doctrine the retired YAML insert had: reg
+          +istry-config.ts's                                             
+      405 + * comments carry each entry's rationale — a re-serialization 
+          +would destroy                                                 
+      406 + * them. Duplicate-name detection happens BEFORE the insert, a
+          +gainst the                                                    
+      407 + * imported REGISTRY; this only places an already-rendered ent
+          +ry. Throws if the                                             
+      408 + * array (or its close) cannot be found — a registry without t
+          +hem is a source                                               
+      409 + * error, not something a writer should invent.               
+      410 + */                                                           
+      411 +export function appendRegistryTsEntry(source: string, entryTs:
+          + string): string {                                            
+      412 +  const anchor = source.indexOf("export const REGISTRY");     
+      413 +  if (anchor === -1) throw new Error("registry-config.ts has n
+          +o REGISTRY array to append to");                              
+      414 +  const close = source.indexOf("\n];", anchor);               
+      415 +  if (close === -1) throw new Error("registry-config.ts REGIST
+          +RY array has no closing `];`");                               
+      416 +  return source.slice(0, close + 1) + entryTs + "\n" + source.
+          +slice(close + 1);                                             
+      417 +}                                                             
+      418 +                                                              
+      419  /** Run a s2-agent package script (regen:manifest / regen:stat
+           ic). Non-zero exit → error path. */
+      420  async function runRegen(script: string): Promise<void> {
+      421    const piAgentDir = join(import.meta.dir, "..");
+
+⏺ Update 剩餘 prose（scaffold README 段與 next-steps），並刪
+  registry-insert.ts：
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 10 lines, removed 7 lines
+      367    2. verify:                 bun test --cwd bun-apps/${pkgName
+           }
+      368                               bun run --cwd bun-apps/${pkgName}
+            typecheck`);
+      369    if (args.register === "none") {
+      370 -    console.log(`  3. register manually — append an entry to s
+          -2-agent.registry.yaml:                                        
+      371 -       - name: ${args.name}                                   
+      372 -         package: ${pkgName}                                  
+      373 -         entry: extensions/${args.name}.ts                    
+      374 -         load: static          # or dynamic                   
+      375 -         excludeReason: <why it stays local, or move it into a
+          - deploy: block>                                               
+      370 +    console.log(`  3. register manually — add an entry to the 
+          +REGISTRY array in bun-apps/s2-agent/src/registry-config.ts:   
+      371 +       {                                                      
+      372 +         name: "${args.name}",                                
+      373 +         package: "${pkgName}",                               
+      374 +         entry: "extensions/${args.name}.ts",                 
+      375 +         load: "static",        // or "dynamic"               
+      376 +         enabled: true,                                       
+      377 +         excludeReason: "<why it stays local, or give it a dep
+          +loy: block>",                                                 
+      378 +       }                                                      
+      379       then: bun run --cwd bun-apps/s2-agent regen:manifest
+      377 -           bun run --cwd bun-apps/s2-agent regen:static   # lo
+          -ad: static only`);                                            
+      380 +           bun run --cwd bun-apps/s2-agent regen:static   // l
+          +oad: static only`);                                           
+      381    }
+      382    return 0;
+      383  }
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 3 lines, removed 2 lines
+      255  
+      256  ## Registration
+      257  
+      258 -Registered via \`bun-apps/s2-agent/s2-agent.registry.yaml\` — 
+          -one entry                                                     
+      259 -(\`load: dynamic\` or \`load: static\`), then \`bun run --cwd 
+          -bun-apps/s2-agent                                             
+      258 +Registered via an entry in the REGISTRY array in              
+      259 +\`bun-apps/s2-agent/src/registry-config.ts\` — one entry      
+      260 +(\`load: "dynamic"\` or \`load: "static"\`), then \`bun run --
+          +cwd bun-apps/s2-agent                                         
+      261  regen:manifest\` (+ \`regen:static\` for static). The entry po
+           int is
+      262  \`extensions/${name}.ts\`.
+      263  
+
+⏺ Update(bun-apps/s2-agent/src/ext-new.ts)
+  ⎿  Added 7 lines, removed 7 lines
+      271  
+      272  /**
+      273   * Writer half of `ext new` (Task B3): write the scaffold file
+           s under
+      274 - * `<outRoot>/s2-agent-ext-<name>/`, register in s2-agent.regi
+          -stry.yaml                                                     
+      275 - * (one entry, then `bun run regen:manifest` — plus `regen:sta
+          -tic` for a                                                    
+      276 - * static registration), run `bun install --cwd bun-apps` unle
+          -ss suppressed,                                                
+      277 - * and print next steps. Returns a process exit code.         
+      274 + * `<outRoot>/s2-agent-ext-<name>/`, register in src/registry-
+          +config.ts                                                     
+      275 + * (one typed REGISTRY entry, then `bun run regen:manifest` — 
+          +plus                                                          
+      276 + * `regen:static` for a static registration), run `bun install
+          + --cwd bun-apps`                                              
+      277 + * unless suppressed, and print next steps. Returns a process 
+          +exit code.                                                    
+      278   *
+      279 - * The registry is edited by TEXTUAL insert (appendRegistryExt
+          -ension), never                                                
+      280 - * by a YAML round-trip — re-serialising would destroy the com
+          -ments that carry                                              
+      281 - * each extension's exclusion rationale. run-dir/manifest.json
+          - is regenerated                                               
+      279 + * The registry is edited by TEXTUAL insert (appendRegistryTsE
+          +ntry), never                                                  
+      280 + * by a re-serialization — rewriting the module would destroy 
+          +the comments                                                  
+      281 + * that carry each extension's rationale. run-dir/manifest.jso
+          +n is regenerated                                              
+      282   * by script; it is never written directly.
+      283   */
+      284  export async function runExtNew(argv: string[]): Promise<numbe
+           r> {
+
+  Thought for 2s, ran 1 shell command (ctrl+o to expand)
+
+⏺ 翻轉 contract suite 的 scanner：
+
+⏺ Write(bun-apps/tests/lib/registry-base-set.ts)
+  ⎿  Added 15 lines, removed 73 lines
+       1  /**
+       2 - * registry-base-set.ts — the ONE line-scanner for "which exten
+         -sions does                                                     
+       3 - * s2-agent.registry.yaml ship?", shared by extension-isolation
+         --contract.test.ts                                              
+       4 - * and dep-guard.test.ts.                                      
+       2 + * registry-base-set.ts — the ONE reader for "which extensions 
+         +does the                                                       
+       3 + * registry ship?", shared by extension-isolation-contract.test
+         +.ts and                                                        
+       4 + * dep-guard.test.ts.                                          
+       5   *
+       6 - * Authority semantics (run-dir/registry.ts): an entry ships if
+         -f it carries a                                                 
+       7 - * `deploy:` block that is not `enabled: false`. This scanner h
+         -andles both YAML                                               
+       8 - * forms — block-style (`deploy:` on its own line) and flow-sty
+         -le                                                             
+       9 - * (`deploy: {order: N}`) — and honours an explicit `enabled: f
+         -alse` in either.                                               
+      10 - *                                                             
+      11 - * A hand-rolled line scanner rather than a YAML dependency or 
+         -an import of                                                   
+      12 - * s2-agent's parseRegistry: the contract suites that consume t
+         -his must stay                                                  
+      13 - * immune to `bun-apps/node_modules/@repo/*` link state (same r
+         -easoning as                                                    
+      14 - * seam-contract.test.ts's relative core-interface import), and
+         - the shape                                                     
+      15 - * needed is one key. The MIN_EXPECTED floors at each call site
+         - are what keep a                                               
+      16 - * silent parse failure from turning every assertion vacuous.  
+       6 + * Since registry-code-as-config ticket 03 this reads the typed
+         + REGISTRY in                                                   
+       7 + * s2-agent/src/registry-config.ts directly — no more YAML line
+         + scanner. The                                                  
+       8 + * import is RELATIVE and the module is dependency-free by cont
+         +ract (map D4),                                                 
+       9 + * so these contract suites stay immune to `bun-apps/node_modul
+         +es/@repo/*`                                                    
+      10 + * link state (same reasoning as seam-contract.test.ts's relati
+         +ve                                                             
+      11 + * core-interface import): a fresh clone with no `bun install` 
+         +still resolves                                                 
+      12 + * it. The MIN_EXPECTED floors at each call site are what keep 
+         +a silent import                                                
+      13 + * failure from turning every assertion vacuous.               
+      14   */
+      15 +import { shippedEntries } from "../../s2-agent/src/registry-con
+         +fig.ts";                                                       
+      16  
+      19 -/** Short names (registry `name:` values) of every SHIPPED exte
+         -nsion entry. */                                                
+      20 -export function parseRegistryBaseSetNames(yamlText: string): st
+         -ring[] {                                                       
+      21 -  const names: string[] = [];                                  
+      22 -  let inExtensions = false;                                    
+      23 -  let name: string | null = null;                              
+      24 -  let hasDeployBlock = false;                                  
+      25 -  let deployDisabled = false;                                  
+      26 -  let deployIndent = -1;                                       
+      27 -  const flush = (): void => {                                  
+      28 -    if (name !== null && hasDeployBlock && !deployDisabled) nam
+         -es.push(name);                                                 
+      29 -  };                                                           
+      30 -  for (const raw of yamlText.split("\n")) {                    
+      31 -    if (/^extensions:\s*$/.test(raw)) {                        
+      32 -      inExtensions = true;                                     
+      33 -      continue;                                                
+      34 -    }                                                          
+      35 -    // Any other column-0 key ends the block.                  
+      36 -    if (inExtensions && /^\S/.test(raw)) break;                
+      37 -    if (!inExtensions) continue;                               
+      38 -    const m = /^\s*-\s*name:\s*(\S+)\s*$/.exec(raw);           
+      39 -    if (m) {                                                   
+      40 -      flush();                                                 
+      41 -      name = m[1] as string;                                   
+      42 -      hasDeployBlock = false;                                  
+      43 -      deployDisabled = false;                                  
+      44 -      deployIndent = -1;                                       
+      45 -      continue;                                                
+      46 -    }                                                          
+      47 -    if (name === null) continue;                               
+      48 -    // Flow-style `deploy: {order: 10, enabled: false}` — the w
+         -hole block on                                                  
+      49 -    // one line. (The top-level `deploy:` key is column-0 and n
+         -ever matches.)                                                 
+      50 -    const flow = /^\s+deploy:\s*\{(.*)\}\s*$/.exec(raw);       
+      51 -    if (flow) {                                                
+      52 -      hasDeployBlock = true;                                   
+      53 -      deployDisabled = /enabled:\s*false/.test(flow[1] as strin
+         -g);                                                            
+      54 -      deployIndent = -1;                                       
+      55 -      continue;                                                
+      56 -    }                                                          
+      57 -    // Block-style `deploy:` opens the block that marks the ent
+         -ry shipped.                                                    
+      58 -    if (/^\s+deploy:\s*$/.test(raw)) {                         
+      59 -      hasDeployBlock = true;                                   
+      60 -      deployDisabled = false;                                  
+      61 -      deployIndent = raw.length - raw.trimStart().length;      
+      62 -      continue;                                                
+      63 -    }                                                          
+      64 -    // Lines indented deeper than the block-style `deploy:` key
+         - belong to the                                                 
+      65 -    // block; the first shallower (or equal) non-empty line clo
+         -ses it.                                                        
+      66 -    if (deployIndent >= 0) {                                   
+      67 -      const ind = raw.length - raw.trimStart().length;         
+      68 -      if (raw.trim() === "" || ind > deployIndent) {           
+      69 -        const em = /^\s*enabled:\s*(\S+)\s*$/.exec(raw);       
+      70 -        if (em) deployDisabled = em[1] === "false";            
+      71 -        continue;                                              
+      72 -      }                                                        
+      73 -      deployIndent = -1;                                       
+      74 -    }                                                          
+      75 -  }                                                            
+      76 -  flush();                                                     
+      77 -  return names;                                                
+      17 +/** Short names (REGISTRY `name` values) of every SHIPPED exten
+         +sion entry. */                                                 
+      18 +export function registryBaseSetNames(): string[] {             
+      19 +  return shippedEntries().map((e) => e.name);                  
+      20  }
+
+  Thought for 2s, searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+⏺ Update(bun-apps/tests/extension-isolation-contract.test.ts)
+  ⎿  Added 1 line, removed 3 lines
+      60   */
+      61  const MIN_EXPECTED = 10;
+      62  
+      63 -const BASE_SET_NAMES = parseRegistryBaseSetNames(              
+      64 -  readFileSync(join(ROOT, "s2-agent", "s2-agent.registry.yaml")
+         -, "utf8"),                                                     
+      65 -);                                                             
+      63 +const BASE_SET_NAMES = registryBaseSetNames();                 
+      64  const BASE_SET = BASE_SET_NAMES.map((n) => `s2-agent-ext-${n}`)
+          ;
+      65  
+      66  /** short name → `BUN_PI_<SHOUT_CASE>` disable env var. */
+
+  Thought for 3s, ran 2 shell commands (ctrl+o to expand)
+
+⏺ header 被我改壞了一句，修復：
+
+⏺ Update(bun-apps/tests/extension-isolation-contract.test.ts)
+  ⎿  Added 2 lines, removed 1 line
+      1  /**
+      2   * Cross-extension isolation contract — the "tight yet swappable
+         " guard for the
+      3   * PORTABLE BASE SET: every extension the typed REGISTRY (s2-age
+         nt/src/
+      4 - * an sh deploy. They coexist every session and share convention
+        -s (.planning/                                                   
+      4 + * registry-config.ts) ships in an sh deploy. They coexist every
+        + session and                                                    
+      5 + * share conventions (.planning/                                
+      6   * layout, ctx.cwd) but must NEVER import each other's code — co
+         upling goes only
+      7   * through Pi's extension API and the guarded globalThis seams. 
+         That
+      8   * zero-cross-import invariant is what makes each independently 
+         removable, and
+
+  Thought for 2s, ran 1 shell command (ctrl+o to expand)
+
+⏺ Update(bun-apps/tests/extension-isolation-contract.test.ts)
+  ⎿  Added 2 lines, removed 2 lines
+      2   * Cross-extension isolation contract — the "tight yet swappable
+         " guard for the
+      3   * PORTABLE BASE SET: every extension the typed REGISTRY (s2-age
+         nt/src/
+      4   * registry-config.ts) ships in an sh deploy. They coexist every
+          session and
+      5 - * share conventions (.planning/                                
+      6 - * layout, ctx.cwd) but must NEVER import each other's code — co
+        -upling goes only                                                
+      5 + * share conventions (.planning/ layout, ctx.cwd) but must NEVER
+        + import each                                                    
+      6 + * other's code — coupling goes only                            
+      7   * through Pi's extension API and the guarded globalThis seams. 
+         That
+      8   * zero-cross-import invariant is what makes each independently 
+         removable, and
+      9   * `rm -rf ext/<name>` is the operation it protects (deploy gate
+          3's dual-state
+  Thought for 5s (ctrl+o to expand)
+
+⏺ 跑三個套件驗證：
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+❯ add new TODO to wayfind effort ticket ,  CI E2E Test add below , ensure it's  
+  runtime and hermees memory opening speed controled                            
+  ---                                                                           
+  huangziyu@Huangs-MacBook-Pro output % time                                    
+  ~/proj/video_generation__deploy/s2-agent.sh --model                           
+  deepseek-v4-flash-vision-exp:off  -p "write ~/hello.md "                      
+  [hermes-memory] slow startup.syncMarkdownMemories: 104 HTTP round-trips       
+  (backend=surrealdb). See perf.jsonl.                                          
+  Wrote /Users/huangziyu/hello.md (23 bytes).                                   
+  ~/proj/video_generation__deploy/s2-agent.sh --model  -p "write ~/hello.md "   
+  1.09s user 0.65s system 14% cpu 12.262 total                                  
+  huangziyu@Huangs-MacBook-Pro output %                                         
+
+  Thought for 8s (ctrl+o to expand)
+
+⏺ 收到 — 先登記 TODO，再繼續修 t03：
+
+  Thought for 6s, listed 1 directory (ctrl+o to expand)
+
+⏺ 沒有開放中的 wayfind effort 可掛 — 依 CLAUDE.md 單票工作走 flat
+  .planning/plans/：
+
+⏺ Write(.planning/plans/2026-08-24-ci-e2e-oneshot-runtime-hermes-startup.md)
+  ⎿  Wrote 45 lines to
+     .planning/plans/2026-08-24-ci-e2e-oneshot-runtime-hermes-startup.md
+       1 # CI E2E — bound one-shot runtime + hermes-memory startup speed
+       2 
+         -config t03 session)
+       4 
+       5 ## Problem (measured 2026-08-24, this machine)
+       7 ```
+       8 $ time ~/proj/video_generation__deploy/s2-agent.sh --model deeps
+         eek-v4-flash-vision-exp:off -p "write ~/hello.md "
+         d-trips (backend=surrealdb). See perf.jsonl.
+      10 Wrote `/Users/huangziyu/hello.md` (23 bytes).
+     … +54 lines (ctrl+o to expand)
+
+  Thought for 10s (ctrl+o to expand)
+
+⏺ 修 deploy-e2e.test.ts 的 core-cache/keep 測試（原靠 fixture configPath）：
+
+  Thought for 18s, searched for 1 pattern, listed 1 directory, ran 1 shell command (ctrl+o to expand)
+
+⏺ pruneVersions 已有單元測試；改寫 e2e 區塊 — 快取測試改用真實 registry，keep
+  斷言降級為 projection + 單元覆蓋：
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/deploy-e2e.test.ts)
+  ⎿  Added 11 lines, removed 46 lines
+      196    // ships with a vendorExclude again.
+      197  });
+      198  
+      199 -// ── Phase 3: content-addressed core + keep:N retention ─────
+          -────────────────                                              
+      199 +// ── Phase 3: content-addressed core + retention ────────────
+          +─────────────────                                             
+      200  //
+      201 -// A fixture registry that ships ZERO extensions (the one entr
+          -y carries an                                                  
+      202 -// excludeReason) keeps these deploys compile-only, so the cac
+          -he/prune flow is                                              
+      203 -// exercised without paying 14 extension builds each time.    
+      204 -describeE2E("core cache + keep:N retention", () => {          
+      201 +// Since registry-code-as-config t03 there is no --config fixt
+          +ure to deploys a                                              
+      202 +// zero-extension registry: the typed REGISTRY is the only con
+          +fig, so these                                                 
+      203 +// deploys pay the full extension-build cost like any real dep
+          +loy. The keep:N                                               
+      204 +// prune E2E left with the fixture — pruneVersions' behavior (
+          +oldest-first,                                                 
+      205 +// protected current, never below keep) is unit-covered in ver
+          +sion.test.ts, and                                             
+      206 +// the config→prune plumbing is the single `cfg.keep ?? DEFAUL
+          +T_KEEP` line                                                  
+      207 +// asserted by the keep projection in config.test.ts.         
+      208 +describeE2E("core cache reuse", () => {                       
+      209    const keepRoot = mkdtempSync(join(tmpdir(), "sh-keep-"));
+      206 -  const configPath = join(keepRoot, "registry.yaml");         
+      207 -  writeFileSync(                                              
+      208 -    configPath,                                               
+      209 -    [                                                         
+      210 -      "deploy:",                                              
+      211 -      "  outRoot: /tmp/unused",                               
+      212 -      "  version: { from: package.json, gitSha: false }",     
+      213 -      "  freeze: true",                                       
+      214 -      "  current: true",                                      
+      215 -      "  keep: 2",                                            
+      216 -      `hostApi: ${HOST_API}`,                                 
+      217 -      "hostModules:",                                         
+      218 -      ...HOST_MODULE_IDS.map((m) => `  - "${m}"`),            
+      219 -      "extensions:",                                          
+      220 -      "  - name: power-tool",                                 
+      221 -      "    package: s2-agent-ext-power-tool",                 
+      222 -      "    entry: extensions/power-tool.ts",                  
+      223 -      "    load: dynamic",                                    
+      224 -      "    excludeReason: e2e fixture — deploys a zero-extensi
+          -on core",                                                     
+      225 -      "lazyExtensions: {}",                                   
+      226 -      "",                                                     
+      227 -    ].join("\n"),                                             
+      228 -  );                                                          
+      229 -  const deploy = (version: string) => runShDeploy({ outRoot: k
+          -eepRoot, version, configPath });                              
+      210  
+      211    test("second deploy with no source change reuses the cached 
+           core (same inode)", async () => {
+      232 -    const a = await deploy("e2e-cache-a");                    
+      212 +    const a = await runShDeploy({ outRoot: keepRoot, version: 
+          +"e2e-cache-a" });                                             
+      213      expect(a.coreCached).toBe(false); // miss: the compile rea
+           lly happened
+      234 -    const b = await deploy("e2e-cache-b");                    
+      214 +    const b = await runShDeploy({ outRoot: keepRoot, version: 
+          +"e2e-cache-b" });                                             
+      215      expect(b.coreCached).toBe(true); // hit: no recompile
+      216      // the two version dirs hardlink ONE cached core — same in
+           ode
+      217      expect(statSync(join(keepRoot, "e2e-cache-a", CORE_FILENAM
+           E)).ino).toBe(
+      218        statSync(join(keepRoot, "e2e-cache-b", CORE_FILENAME)).i
+           no,
+      219      );
+      220    }, 300_000);
+      241 -                                                              
+      242 -  test("keep:N prunes oldest-first and current still resolves"
+          -, async () => {                                               
+      243 -    // state: [a, b], current → b. Two more deploys at keep: 2
+          - prune a then b.                                              
+      244 -    const c = await deploy("e2e-cache-c");                    
+      245 -    expect(c.pruned).toEqual(["e2e-cache-a"]);                
+      246 -    const d = await deploy("e2e-cache-d");                    
+      247 -    expect(d.pruned).toEqual(["e2e-cache-b"]);                
+      248 -                                                              
+      249 -    expect(existsSync(join(keepRoot, "e2e-cache-a"))).toBe(fal
+          -se);                                                          
+      250 -    expect(existsSync(join(keepRoot, "e2e-cache-b"))).toBe(fal
+          -se);                                                          
+      251 -    expect(readlinkSync(join(keepRoot, "current"))).toBe("e2e-
+          -cache-d");                                                    
+      252 -    // the pruned dirs' core links are gone but the cache entr
+          -y survived                                                    
+      253 -    // every prune — d still boots through it.                
+      254 -    expect(extList(join(keepRoot, "e2e-cache-d")).payload.load
+          -edCount).toBe(0);                                             
+      255 -  }, 300_000);                                                
+      221  });
+
+  Thought for 6s, searched for 1 pattern (ctrl+o to expand)
+
+⏺ imports 都仍在用。補 config.test.ts 的 keep projection
+  斷言（讓我寫的註解成真）：
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/config.test.ts)
+  ⎿  Added 1 line, removed 1 line
+      3  import { homedir } from "node:os";
+      4  import { join } from "node:path";
+      5  import { parseShConfig, shConfig } from "../src/deploy/lib/confi
+         g.ts";
+      6 -import { shippedEntries } from "../../s2-agent/src/registry-conf
+        -ig.ts";                                                         
+      6 +import { DEPLOY_CONFIG, shippedEntries } from "../../s2-agent/sr
+        +c/registry-config.ts";                                          
+      7  import {
+      8    HOST_API,
+      9    HOST_MODULE_IDS,
+
+⏺ Update(bun-apps/s2-agent-ext-devops/tests/config.test.ts)
+  ⎿  Added 4 lines
+      144        shippedEntries().map((e) => e.name).sort(),
+      145      );
+      146      expect(cfg.extensions.length).toBeGreaterThanOrEqual(10);
+      147 +    // The keep→prune plumbing is this single projection (run.
+          +ts passes                                                     
+      148 +    // cfg.keep ?? DEFAULT_KEEP to pruneVersions); behavior it
+          +self is                                                       
+      149 +    // unit-covered in version.test.ts.                       
+      150 +    expect(cfg.keep).toBe(DEPLOY_CONFIG.keep);                
+      151      // subagent must load before ultracode (registry populatio
+           n order).
+      152      const order = (name: string) =>
+      153        cfg.extensions.find((e) => e.name === name)!.order;
+
+  Read 1 file, ran 6 shell commands (ctrl+o to expand)
+
+⏺ API Error: Request rejected (429) · [1308][Usage limit reached for 5 
+  hour. Your limit will reset at 2026-08-24 
+  18:16:36][20260824160608df014cb9c82a4e25]
+
+✻ Sautéed for 8m 59s
