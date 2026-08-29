@@ -48,13 +48,19 @@ loop ENDS.
 
 ## B. Next iteration (READ + EXECUTE)
 
-1. Sync first: `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`
+1. **Re-read the team inbox at session start** (the #2122 pattern):
+   `~/.claude-glm/teams/session-*/inboxes/team-lead.json` may hold verdicts
+   from yesterday's reviewers — on claude CLI 2.1.247 child→lead injection
+   was measured delayed >24h, and a late REQUEST_CHANGES landed against
+   already-merged code (both blockers real → #2122). A delayed verdict is
+   actionable: check it against current main before acting on stale findings.
+2. Sync first: `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`
    (detached-HEAD abort is not a skip: `git fetch origin main && git
    rev-list --count HEAD..origin/main` — `0` = proceed, else create a
    branch from `origin/main` via `prepare-feature-branch-cli` before work).
-2. Read `output/LATEST-next-goal.md` (the symlink). Its `Immediate steps` ARE
+3. Read `output/LATEST-next-goal.md` (the symlink). Its `Immediate steps` ARE
    the queue head — execute in-session through every `Done when` box.
-3. If a step is factually impossible, surface it — don't improvise a
+4. If a step is factually impossible, surface it — don't improvise a
    different design. If `LATEST` is absent/dangling, say so and ask; never
    invent a goal while a queue holds tickets.
 

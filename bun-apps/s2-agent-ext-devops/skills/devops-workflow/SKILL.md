@@ -178,6 +178,32 @@ Run it before starting work, and when a merge you did not expect to matter looks
 suspicious. Do NOT gate `merge_pr_after_local_ci` on it: your PR is not responsible for a
 package it does not touch.
 
+### 2c. Independent reviewer gate — named dispatch → verdict → receipt
+
+Write-heavy implementer dispatches use the independent **reviewer subagent**
+as the real quality gate (watchdog OFF — see CLAUDE.md's Subagent dispatch).
+Dispatch it WITH a `name:` (e.g. `reviewer-<ticket>`); that name is the key
+to the verdict, whatever the harness's child→lead injection does:
+
+- **PRIMARY (claude CLI 2.1.250+, probed 2026-08-29 ≤45s)**: the reviewer's
+  notification arrives injected into the lead conversation mid-turn — reply to
+  it. NEVER wait idly for it, and never TaskStop blind: on 2.1.247 the same
+  notification was observed delayed >24h or never (RCA 2026-08-28; a
+  REQUEST_CHANGES landed 24h late against already-merged #2098 and spawned
+  #2122), so the fallback is always one command away.
+- **FALLBACK + receipt (always)** —
+  `bun bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts --name <reviewer-name> [--timeout <sec>] [--poll <sec>]`
+  Locates the newest `agent-a<name>-*.jsonl` transcript under `~/.claude-glm`,
+  extracts the last `end_turn` assistant text as the verdict (exit 0
+  completed / 1 still-running·absent·errored / 2 usage), and writes an
+  idempotent receipt under `output/reviewer-harvest/`. **Cite the receipt
+  file (or transcript path) in the PR body** — that is the
+  independent-review evidence. `TaskStop` the reviewer after harvest.
+
+Session-start habit (the #2122 pattern): re-read the team inbox
+(`~/.claude-glm/teams/session-*/inboxes/team-lead.json`) — a delayed verdict
+may carry actionable findings against already-merged code.
+
 ### 3. `merge_pr_after_local_ci` — local-CI-gated squash-merge
 
 Runs `run_local_ci` over the PR's changed packages vs its base, then squash-merges
@@ -260,6 +286,7 @@ the effort close-out (map status: complete).
 | Self-verify typecheck + tests before merge | `run_local_ci` |
 | Merge a PR (gated on local CI + mergeable) | `merge_pr_after_local_ci` |
 | Confirm a merge's scope + that the branch is spent | `verify_merge_landed` |
+| Harvest a named reviewer subagent's verdict (fallback + receipt) | `bun bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts --name <reviewer-name>` |
 | Post-run "anything risky?" anomaly readout | `run_devops_retrospect` |
 | One-shot PR state + check tally (inspect, don't merge) | `show_pr_status` |
 | Sync this repo/worktree to the latest default branch | `sync_default_branch` |
