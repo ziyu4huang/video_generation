@@ -68,7 +68,7 @@ import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrph
 import { buildStandaloneShim, STANDALONE_SHIM_FILENAME } from "./lib/standalone-shim.ts";
 import { writeAgentsMd } from "./lib/agents-md.ts";
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
-import { acquireBunBinary } from "./lib/bun-acquire.ts";
+import { acquireBunBinary, parseBunAcquireChannel } from "./lib/bun-acquire.ts";
 import { bunBinaryName, hostTargetName, isHostTarget, parseTargetName, type TargetSpec } from "./lib/targets.ts";
 import { freezeTree, rmTree, urlToFsPath } from "./lib/fs.ts";
 
@@ -719,8 +719,9 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// The shipped runtime (ticket 02): the bundle is neutral, bin/bun is
 		// the TARGET's — content-cached under the shared .buns, hardlinked per
 		// version. Host target: lift it from process.execPath. Non-host target
-		// (D7): fetch the same-Bun.version binary from the GitHub release
-		// (SHASUMS256-verified) into the same content-addressed cache.
+		// (D7): fetch the same-Bun.version binary over the npm channel where
+		// @oven publishes one (win32-x64, sha512-verified) or the GitHub
+		// release (SHASUMS256-verified) into the same content-addressed cache.
 		const bun = hostTree
 			? ensureCachedBun({ outRoot: cacheRoot })
 			: await acquireBunBinary({
@@ -728,6 +729,8 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 					bunVersion: Bun.version,
 					spec: targetSpec,
 					releaseBase: process.env.S2_AGENT_BUN_RELEASE_BASE,
+					npmRegistry: process.env.S2_AGENT_BUN_NPM_REGISTRY,
+					channel: parseBunAcquireChannel(process.env.S2_AGENT_BUN_ACQUIRE_CHANNEL),
 				});
 		const binBasename = bunBinaryName(targetSpec);
 		mkdirSync(join(stage, "bin"), { recursive: true });

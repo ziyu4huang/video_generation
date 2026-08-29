@@ -93,6 +93,18 @@ export function bunBinaryName(spec: TargetSpec): string {
 }
 
 /**
+ * The npm registry package carrying the target's bun binary, or null when the
+ * platform has no published package (@oven publishes windows-x64 only — no
+ * windows-arm64, no darwin/linux packages as of 2026-08-29). The tarball's
+ * `package/bin/<exe>` layout is identical to what the channel needs, and the
+ * registry's `dist.integrity` (sha512) is the official checksum.
+ */
+export function npmBunPackage(spec: TargetSpec): string | null {
+	if (spec.platform !== "win32" || spec.arch !== "x64") return null;
+	return "@oven/bun-windows-x64";
+}
+
+/**
  * Platform families the target grammar actually names today (D4 matrix).
  * Subroot CLASSIFICATION (version.ts's --list / current resolution) matches
  * on these prefixes only: a pre-t05 flat dir named e.g. `demo-run` must not
