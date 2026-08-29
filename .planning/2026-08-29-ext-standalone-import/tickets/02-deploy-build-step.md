@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 01
-status: open
+status: closed
 ---
 
 # 02 — Deploy build step: produce `ext/ext-standalone.mjs` + gates

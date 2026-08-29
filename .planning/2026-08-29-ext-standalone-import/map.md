@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-ext-standalone-import
 created: 2026-08-29
-last: 2026-08-29 (ticket 01 closed — shim entry + 12 tests green, D4 amended to ESM .mjs)
+last: 2026-08-29 (ticket 02 closed — shim build step + gates shipped; D8 recorded; 6.11MB measured)
 status: active
 ---
 
@@ -11,7 +11,7 @@ status: active
 
 Any external bun script — a claude-code session, a scratch `/tmp` probe, a
 cron job on another machine — can `require()` the deployed
-`<dist>/ext/ext-standalone.cjs` and drive the shipped extensions' tools
+`<dist>/ext/ext-standalone.mjs` and drive the shipped extensions' tools
 (`loadExt("devops").tool("sync_default_branch").execute(…)`), with zero repo
 checkout, zero `bun install`, zero rebuild. The deploy produces the shim
 automatically, gates it like every other dist artifact, proves it with a
@@ -47,8 +47,10 @@ agent that finds the dist can use the mechanism without reading our source.
   calls `main()`) — requiring it for host modules is NOT viable; a separate
   side-effect-free entry is required.
 - Deploys are frozen (`dr-xr-xr-x`), content-addressed-cached for cores
-  (`<outRoot>/.cores/`), retention keep-5; adding ~6MB/version dir is the
-  measured-order size cost of the shim (to be pinned by measurement in t02).
+  (`<outRoot>/.cores/`), retention keep-5; the shim measured **6.11 MB**
+  (t02, bun build --target=bun --minify of standalone.ts, 2517 modules) —
+  core-order as estimated, +6.11 MB per version dir, cache-hit after first
+  build.
 
 ## Tickets
 
@@ -60,7 +62,7 @@ Confirmed 2026-08-29.
 | Ticket | Status | Summary |
 |---|---|---|
 | `tickets/01-shim-entry.md` | closed | `standalone.ts` + 12 contract tests green; s2-agent full suite 989 pass/0 fail; D4 amended (ESM `.mjs`, `import.meta.dir` self-location) |
-| `tickets/02-deploy-build-step.md` | open | Deploy builds `<dist>/ext/ext-standalone.cjs` (full-registry inline, content-addressed cache, Gates 1/4/5, deploy.json record) |
+| `tickets/02-deploy-build-step.md` | closed | `lib/standalone-shim.ts` wired into run.ts; 6.11MB, .cores cache hit on 2nd build; gates s1b/s4/s2 (s1 dropped per D8); deploy.json + Gate 5 record; 8 unit tests + pkg suite 999/0 |
 | `tickets/03-dist-agents-md.md` | open | Deploy writes `<outRoot>/AGENTS.md` — agent-facing usage guide for the standalone import mechanism |
 | `tickets/04-e2e-standalone-import.md` | open | Post-deploy E2E probe `standalone-import`: /tmp consumer script, devops dry-run on a fixture git repo, file2md cross-check, foreign-path assert |
 | `tickets/05-ship-and-close.md` | open | Fresh deploy on this machine with E2E green, repo docs touch-up, effort close-out |
@@ -74,7 +76,7 @@ Confirmed 2026-08-29.
   devops primary** — the shim serves every ext by construction; E2E
   guarantees devops + file2md cross-check only, not per-ext certificates.
 - D3 (2026-08-29, brainstorm — user): host-module supply = **self-contained
-  shim bundle** at `ext/ext-standalone.cjs` (8 host modules inlined),
+  shim bundle** at `ext/ext-standalone.mjs` (8 host modules inlined),
   over the alternatives: vendored `node_modules` tree (bigger, closure
   computation, offline-gate re-verification) or a second core entry at the
   version-dir root (same construct, two-entry drift risk).
@@ -92,10 +94,24 @@ Confirmed 2026-08-29.
   pattern (hash = shim source closure + pi pkg version + Bun.version +
   flags; hardlink; freeze chmod read-only).
 - D7 (2026-08-29, confirm-gate — user): execution order above recorded.
+- D8 (2026-08-29, measured during t02): the shim's static-specifier gate is
+  DROPPED — a regex scan over a bundle that inlines pi-coding-agent drowns in
+  string-literal false positives (`'import … from "typebox/schema"'` doc
+  templates, "undici" in error strings); the s2 import probe is the stronger
+  proof (it resolves every static import for real from the staged tree, where
+  no node_modules exists). Dynamic imports stay gated (s1b) with an
+  allow-list of Bun's native compat modules (`node-fetch`/`ws`/`undici` —
+  all measured resolving from an EMPTY dir under bare bun, 2026-08-29).
+  s4 uses Gate 5b's `scanBinaryForeignPaths` + the bun install-cache
+  allowlist: the production core ships the same inert
+  `var __dirname="~/.bun/install/cache/…/photon-node"` fold and passes the
+  same way — the shim must not be held stricter than the core on identical
+  bytes. Same reasoning precedent as the core: it is not specifier-gated
+  either.
 
 ## Frontier
 
-`tickets/01-shim-entry.md` — everything else builds on the entry's export
+`tickets/02-deploy-build-step.md` — the entry and its contract tests are in; the deploy build step turns them into a shipped, gated dist artifact every later ticket consumes. Everything else builds on the entry's export
 shape; it has no blockers and its unit tests pin the contract the deploy
 step and E2E probe consume.
 
