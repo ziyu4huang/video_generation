@@ -12,20 +12,21 @@
 //   * wrong-arg-count: the two usage lines go to STDOUT (plain `echo`, no
 //     >&2), stderr stays empty — exit 1. The brief said "stderr"; measured
 //     says stdout, so the case pins `out` instead of `errIncludes`.
-//   * `find . -path 'src/**/*.test.ts'` NEVER matches anything: find . emits
-//     ./-prefixed pathnames, and the pre-fix script matches the pattern
-//     verbatim against them — the doc example has no ./ prefix, so the
-//     bisection loop would read zero files and the ⚠️ skip line could never
-//     print. The fixture therefore passes the pattern WITH its ./ prefix
-//     (measured to match), which exercises the skip branch the brief pins
-//     (`⚠️  Pollution already exists before test 1/1` + `✅ No polluter
-//     found`). The upstream-fixed find-polluter.sh (obra/superpowers master)
-//     strips the ./ prefix and also fixes the `**/`-empty-level gap — noted as
-//     a follow-up concern, NOT ported here: D3's discipline is byte-parity
-//     with the script being replaced, and a behavior fix belongs to its own
-//     SDD decision.
-//   * TOTAL with zero matches: `echo "$TEST_FILES" | wc -l` counts 1 (echo of
-//     an empty string still emits one newline) — the .sh's quirk, mirrored.
+//   * `find . -path 'src/**/*.test.ts'` NEVER matched anything in the pre-fix
+//     script: find . emits ./-prefixed pathnames and the pattern was matched
+//     verbatim — the doc example has no ./ prefix, so the bisection loop read
+//     zero files. The fixture therefore passes the pattern WITH its ./ prefix
+//     (still accepted post-fix), which exercises the skip branch the brief
+//     pins (`⚠️  Pollution already exists before test 1/1` + `✅ No polluter
+//     found`). The upstream fix (obra/superpowers master — ./-strip, `**/`
+//     collapse, TOTAL=0) is NOW PORTED (issue #1862): this golden is
+//     unchanged by it (a ./-prefixed pattern strips to the same match set for
+//     this fixture), and the new behavior is pinned by
+//     tests/find-polluter-e2e.test.ts.
+//   * TOTAL with zero matches: `echo "$TEST_FILES" | wc -l` counted 1 in the
+//     .sh (echo of an empty string still emits one newline). That quirk is NO
+//     LONGER mirrored — upstream's TOTAL=0 fix is ported (issue #1862); this
+//     fixture always matched exactly one file, so the golden is unaffected.
 //
 // The usage golden embeds the script path ($0 / argv[1]): bash keeps the path
 // as invoked, bun normalizes argv[1] to absolute — so the expected usage
