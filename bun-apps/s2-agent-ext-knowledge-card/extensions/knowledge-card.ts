@@ -344,10 +344,13 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	const usedDetector = new UsedDetector();
 	let usageVaultRoot: string | undefined;
 	let usageLedgerReady = false;
-	const usageVault = async (): Promise<string | undefined> => {
+	const usageVault = async (cwd?: string): Promise<string | undefined> => {
 		if (usageVaultRoot !== undefined) return usageVaultRoot;
 		try {
-			usageVaultRoot = await resolveKnowledgeVault(process.cwd());
+			// Prefer the handler's ctx.cwd (a session whose cwd differs from
+			// process.cwd() must write the SAME vault zk_card serves — review
+			// finding 6); process.cwd() only as the fallback.
+			usageVaultRoot = await resolveKnowledgeVault(cwd ?? process.cwd());
 			if (!usageLedgerReady) {
 				usageLedgerReady = true;
 				ensureLedgerIgnored(usageVaultRoot);
@@ -440,19 +443,36 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// Every path is best-effort: try/catch-wrapped, never blocks the turn,
 	// and appends to `<vault>/.knowledge-usage.jsonl` (never frontmatter — the
 	// git vault must stay clean through a read+use cycle).
-	pi.on("turn_end", async (event: { message?: unknown }) => {
+	pi.on("turn_end", async (event: { message?: unknown }, ctx?: { cwd?: string }) => {
 		try {
 			const rows = usedDetector.scanTurnEnd(event.message);
 			if (rows.length === 0) return;
-			const vaultRoot = await usageVault();
+			const vaultRoot = await usageVault(ctx?.cwd);
 			if (vaultRoot) appendUsageRows(vaultRoot, rows);
 		} catch {
 			// best-effort — never block the session
 		}
 	});
-	pi.on("tool_execution_end", async (event: { toolName?: string; isError?: boolean; result?: unknown }) => {
+	// tool_execution_start remembers each zk_card call's action so the end
+	// hook can drop the vault-title cache after a MUTATING op (add/update/
+	// remove changed the vault — the cached index no longer matches it).
+	const zkCardActions = new Map<string, string>();
+	pi.on("tool_execution_start", (event: { toolCallId?: string; toolName?: string; args?: { action?: string } }) => {
+		try {
+			if (event.toolName === "zk_card" && event.toolCallId && event.args?.action) {
+				zkCardActions.set(event.toolCallId, event.args.action);
+			}
+		} catch {
+			// best-effort
+		}
+	});
+	pi.on("tool_execution_end", async (event: { toolCallId?: string; toolName?: string; isError?: boolean; result?: unknown }, ctx?: { cwd?: string }) => {
 		try {
 			if (event.toolName !== "zk_card" || event.isError) return;
+			// A completed mutating op invalidated the cached title index.
+			const action = event.toolCallId ? zkCardActions.get(event.toolCallId) : undefined;
+			zkCardActions.delete(event.toolCallId ?? "");
+			if (action === "add" || action === "update" || action === "remove") usedDetector.resetVaultIndex();
 			// zk_card results are { content: [{ type: "text", text }], ... } —
 			// concatenate the text blocks (the model-visible surface).
 			const blocks = (event.result as { content?: Array<{ type?: string; text?: unknown }> } | undefined)?.content;
@@ -462,7 +482,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				.map((b) => b.text as string)
 				.join("\n");
 			if (!text) return;
-			const vaultRoot = await usageVault();
+			const vaultRoot = await usageVault(ctx?.cwd);
 			const rows = usedDetector.scanToolResult(text, vaultRoot);
 			if (rows.length > 0 && vaultRoot) appendUsageRows(vaultRoot, rows);
 		} catch {

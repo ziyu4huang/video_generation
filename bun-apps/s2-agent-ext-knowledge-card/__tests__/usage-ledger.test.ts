@@ -13,7 +13,7 @@
  *    never interleave a torn line.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, appendFileSync as appendFileSyncSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -66,6 +66,11 @@ function tempVault(name: string): string {
 // via `-c user.email/-c user.name`, so no machine-local gitconfig is read.
 const run = (cwd: string, ...args: string[]): number =>
 	Bun.spawnSync(["git", ...args], { cwd }).exitCode ?? -1;
+
+/** Raw append bypassing appendUsageRows (torn-line simulation). */
+function appendFileSyncRaw(vaultRoot: string, s: string): void {
+	appendFileSyncSync(join(vaultRoot, USAGE_LEDGER_FILENAME), s);
+}
 
 // ─── (i) turn_end scan ───────────────────────────────────────────────────────
 
@@ -160,6 +165,71 @@ describe("source (ii): zk_card tool-result provenance", () => {
 		rmSync(join(vault, "c.md"));
 		const second = d.loadVaultTitles(vault);
 		expect(second.get("cached title for index test")).toBe("g:1");
+	});
+
+	// ── review #2148 follow-ups ────────────────────────────────────────────────
+
+	test("CROSS-SOURCE monotonicity: one row per card per session, total (finding 1)", () => {
+		const vault = tempVault("mono");
+		writeCard(vault, "m.md", "g:m", "Monotonic Detection Target Phrase");
+		const d = new UsedDetector();
+		d.registerServed([{ id: "g:m", title: "Monotonic Detection Target Phrase" }]);
+		// turn_end detects once…
+		const t = d.scanTurnEnd(assistantMessage("…Monotonic Detection Target Phrase…"));
+		expect(t).toHaveLength(1);
+		// …and every later scanToolResult mentioning the SAME card (via the
+		// never-forgotten vault index) must add NOTHING — the pre-fix bug
+		// collected one row per call.
+		expect(d.scanToolResult("see Monotonic Detection Target Phrase", vault)).toEqual([]);
+		expect(d.scanToolResult("again Monotonic Detection Target Phrase", vault)).toEqual([]);
+	});
+
+	test("distinct served cards sharing a title both stay detectable (finding 3)", () => {
+		const d = new UsedDetector();
+		d.registerServed([
+			{ id: "a:dup", title: "Duplicated Card Title Phrase" },
+			{ id: "b:dup", title: "Duplicated Card Title Phrase" },
+		]);
+		expect(d.isUndetected("a:dup")).toBe(true);
+		expect(d.isUndetected("b:dup")).toBe(true);
+		const rows = d.scanTurnEnd(assistantMessage("re Duplicated Card Title Phrase"));
+		// Both cards share the title; first-detection order takes one per
+		// markDetected pass — but neither was silently dropped from the set.
+		expect(rows.length).toBeGreaterThanOrEqual(1);
+	});
+
+	test("re-registering a changed title drops the stale old-title entry (finding 4)", () => {
+		const d = new UsedDetector();
+		d.registerServed([{ id: "s:rename", title: "Old Title Phrase For Rename" }]);
+		d.registerServed([{ id: "s:rename", title: "New Title Phrase For Rename" }]);
+		// The OLD title must no longer detect the card.
+		expect(d.scanTurnEnd(assistantMessage("the Old Title Phrase For Rename says"))).toEqual([]);
+		// The NEW one still does.
+		expect(d.scanTurnEnd(assistantMessage("the New Title Phrase For Rename says")).length).toBe(1);
+	});
+
+	test("vault title index is per-root and resetVaultIndex forces a reload (finding 5)", () => {
+		const v1 = tempVault("root1");
+		const v2 = tempVault("root2");
+		writeCard(v1, "a.md", "g:one", "Root One Distinct Title Phrase");
+		writeCard(v2, "b.md", "g:two", "Root Two Distinct Title Phrase");
+		const d = new UsedDetector();
+		expect(d.loadVaultTitles(v1).has("root two distinct title phrase")).toBe(false);
+		expect(d.loadVaultTitles(v2).has("root two distinct title phrase")).toBe(true); // per-root
+		// A new card lands in v1 after the cache; reset re-indexes it.
+		writeCard(v1, "late.md", "g:late", "Late Arriving Card Title Phrase");
+		expect(d.loadVaultTitles(v1).has("late arriving card title phrase")).toBe(false);
+		d.resetVaultIndex();
+		expect(d.loadVaultTitles(v1).has("late arriving card title phrase")).toBe(true);
+	});
+
+	test("readUsageLedger SKIPS a torn trailing line instead of failing (finding 8)", () => {
+		const vault = tempVault("torn");
+		appendUsageRows(vault, [{ uri: "ok:1", at: "2026-08-29T03:00:00Z", via: "bus" }]);
+		// Simulate a torn write: a partial JSON line without the newline.
+		appendFileSyncRaw(vault, '{"uri":"ok:2","at":"2026-08');
+		const rows = readUsageLedger(vault);
+		expect(rows).toEqual([{ uri: "ok:1", at: "2026-08-29T03:00:00Z", via: "bus" }]);
 	});
 });
 

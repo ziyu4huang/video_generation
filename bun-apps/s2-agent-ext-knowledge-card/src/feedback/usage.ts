@@ -28,7 +28,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cardAnatomy, readCardMeta } from "../card-format.ts";
+import { cardAnatomy, readCardFrontmatterFields } from "../card-format.ts";
 
 /** Which provenance source produced a usage row. */
 export type UsageVia = "turn_end" | "zk_card" | "bus";
@@ -83,29 +83,48 @@ interface ServedEntry {
  * ⇒ per-session by construction (the D9 property).
  */
 export class UsedDetector {
-	/** Keyed by NORMALIZED TITLE (not uri) so both scan surfaces iterate
-	 *  title→ref uniformly; the uri lives on the entry. */
+	/** Keyed by URI — one entry per card regardless of title collisions;
+	 *  matching iterates the entries' normalized titles (review finding 3:
+	 *  title keys collapsed distinct cards and made isUndetected lie). */
 	private readonly served = new Map<string, ServedEntry>();
-	/** Lazily-loaded vault-wide title index (source for zk_card provenance on
-	 *  cards that were never injected). Maps normalized title → uri. */
-	private vaultTitles: Map<string, ServedEntry | string> | undefined;
+	/** URIs already recorded this session, across ALL sources — the
+	 *  cross-source monotonicity guard (review #2148 finding 1: the vault
+	 *  index cannot forget, so without this set one card collected a ledger
+	 *  row per scanToolResult call). */
+	private readonly detected = new Set<string>();
+	/** Per-ROOT lazily-loaded vault title indexes (source for zk_card
+	 *  provenance on cards that were never injected), keyed by vaultRoot so
+	 *  two different roots never share an index (review finding 5). */
+	private readonly vaultTitles = new Map<string, Map<string, string>>();
 
 	/** Register cards served this session (the auto-recall injection trace).
-	 *  Re-registering a card replaces its entry (same title ⇒ same key). */
+	 *  Re-registering a card replaces its entry (delete-then-set drops any
+	 *  stale previous entry, so a changed title can never still "detect" via
+	 *  the old one — review finding 4). */
 	registerServed(cards: ReadonlyArray<{ id: string; title: string }>): void {
 		for (const c of cards) {
 			if (!c?.id || !c?.title) continue;
-			this.served.set(normalizeForMatch(c.title), { uri: c.id, normTitle: normalizeForMatch(c.title), title: c.title });
+			this.served.delete(c.id);
+			this.served.set(c.id, { uri: c.id, normTitle: normalizeForMatch(c.title), title: c.title });
 		}
 	}
 
-	/** Load (once) the vault-wide title→uri index for scanToolResult. Cards
-	 *  live under any folder as .md files; title = first H1 (cardAnatomy),
-	 *  uri = frontmatter source_id (readCardMeta). Best-effort: an unreadable
-	 *  vault yields an empty index (zk_card provenance degrades to the served
-	 *  set only — never throws). */
+	/** Drop the cached vault title indexes (e.g. after a mutating zk_card op
+	 *  changed the vault mid-session) so the next scan re-indexes fresh
+	 *  cards (review finding 5). */
+	resetVaultIndex(): void {
+		this.vaultTitles.clear();
+	}
+
+	/** Load (once per root) the vault-wide title→uri index for
+	 *  scanToolResult. Cards live under any folder as .md files; title =
+	 *  first H1, uri = frontmatter source_id — both from ONE file read
+	 *  (review finding 7). Best-effort: an unreadable vault yields an empty
+	 *  index (zk_card provenance degrades to the served set only — never
+	 *  throws). */
 	loadVaultTitles(vaultRoot: string): Map<string, string> {
-		if (this.vaultTitles) return this.vaultTitles as Map<string, string>;
+		const cached = this.vaultTitles.get(vaultRoot);
+		if (cached) return cached;
 		const out = new Map<string, string>();
 		try {
 			const walk = (dir: string, depth: number): void => {
@@ -121,7 +140,7 @@ export class UsedDetector {
 		} catch {
 			// unreadable vault — empty index, scans degrade to the served set
 		}
-		this.vaultTitles = out;
+		this.vaultTitles.set(vaultRoot, out);
 		return out;
 	}
 
@@ -129,7 +148,7 @@ export class UsedDetector {
 		try {
 			const content = readFileSync(absPath, "utf8");
 			const title = cardAnatomy(content).title;
-			const uri = readCardMeta(absPath)?.source_id;
+			const uri = readCardFrontmatterFields(content).sourceId;
 			if (!title || !uri) return;
 			out.set(normalizeForMatch(title), uri);
 		} catch {
@@ -137,19 +156,27 @@ export class UsedDetector {
 		}
 	}
 
-	/** Scan normalized text against a normalized-title→uri index. Only
-	 *  entries whose title is at least MIN_SCAN_TITLE_CHARS and is a
-	 *  substring of the text match. Returns matched uris WITHOUT forgetting
-	 *  (the callers own their monotonicity). */
-	private matchTitles(text: string, index: Map<string, ServedEntry | string>): string[] {
+	/** Scan normalized text against normalized titles. Returns matched uris
+	 *  (order-stable); dedup/forgetting is the caller's, via markDetected. */
+	private matchTitles(text: string, titles: Iterable<[normTitle: string, uriOrEntry: string | ServedEntry]>): string[] {
 		const matched: string[] = [];
-		for (const [normTitle, ref] of index) {
+		for (const [normTitle, ref] of titles) {
 			if (normTitle.length < MIN_SCAN_TITLE_CHARS) continue;
 			if (text.includes(normTitle)) {
 				matched.push(typeof ref === "string" ? ref : ref.uri);
 			}
 		}
 		return matched;
+	}
+
+	/** Cross-source monotonicity gate: true exactly once per uri per session.
+	 *  A served card is also forgotten from the served set on first detection
+	 *  so the served scan cannot re-match it either. */
+	private markDetected(uri: string): boolean {
+		if (this.detected.has(uri)) return false;
+		this.detected.add(uri);
+		this.served.delete(uri);
+		return true;
 	}
 
 	/** Source (i): scan a turn's assistant text against the served set.
@@ -159,19 +186,17 @@ export class UsedDetector {
 		const text = normalizeForMatch(assistantText(message));
 		if (!text) return [];
 		const rows: UsageRow[] = [];
-		for (const [normTitle, entry] of [...this.served]) {
-			if (normTitle.length < MIN_SCAN_TITLE_CHARS) continue;
-			if (text.includes(normTitle)) {
-				this.served.delete(normTitle); // monotonic forget
-				rows.push({ uri: entry.uri, at: at.toISOString(), via: "turn_end" });
-			}
+		for (const uri of this.matchTitles(text, [...this.served.values()].map((e) => [e.normTitle, e] as const))) {
+			if (!this.markDetected(uri)) continue;
+			rows.push({ uri, at: at.toISOString(), via: "turn_end" });
 		}
 		return rows;
 	}
 
 	/** Source (ii): scan a non-error zk_card tool result. Matches BOTH the
-	 *  served set and the vault-wide title index (a find result often surfaces
-	 *  cards that were never injected). Monotonic per card. */
+	 *  served set and the vault-wide title index (a find result often
+	 *  surfaces cards that were never injected). Monotonic per card across
+	 *  ALL sources and calls. */
 	scanToolResult(resultText: string, vaultRoot: string | undefined, at: Date = new Date()): UsageRow[] {
 		const text = normalizeForMatch(resultText ?? "");
 		if (!text) return [];
@@ -181,35 +206,30 @@ export class UsedDetector {
 			for (const uri of uris) {
 				if (seen.has(uri)) continue;
 				seen.add(uri);
+				if (!this.markDetected(uri)) continue;
 				rows.push({ uri, at: at.toISOString(), via: "zk_card" });
 			}
 		};
-		// Served set first (highest-confidence), forgetting as we go.
-		const servedMatched = this.matchTitles(text, this.served as unknown as Map<string, ServedEntry | string>);
-		for (const normTitle of [...this.served.keys()]) {
-			if (servedMatched.includes(this.served.get(normTitle)!.uri)) this.served.delete(normTitle);
-		}
-		collect(servedMatched);
+		// Served set first (highest-confidence).
+		collect(this.matchTitles(text, [...this.served.values()].map((e) => [e.normTitle, e] as const)));
 		if (vaultRoot) {
-			const vault = this.loadVaultTitles(vaultRoot);
-			collect(this.matchTitles(text, vault as unknown as Map<string, ServedEntry | string>));
+			collect(this.matchTitles(text, this.loadVaultTitles(vaultRoot)));
 		}
 		return rows;
 	}
 
 	/** Exposed for tests: is a served card still undetected? */
 	isUndetected(uri: string): boolean {
-		for (const e of this.served.values()) if (e.uri === uri) return true;
-		return false;
+		return this.served.has(uri);
 	}
 }
 
-/** Append usage rows to `<vaultRoot>/.knowledge-usage.jsonl` as single lines.
- *  Crash-safe by construction: each row is ONE append of one complete
- *  `<json>\n` line (a single small O_APPEND write is atomic on APFS/ext4), so
- *  a crash between rows leaves a valid file — never a torn half-line.
- *  Best-effort: never throws (a failed ledger write must never fail the turn
- *  that detected the usage). */
+/** Append usage rows to `<vaultRoot>/.knowledge-usage.jsonl`, one complete
+ *  `<json>\n` line per row, batched into one appendFileSync call (a single
+ *  small O_APPEND write is atomic on APFS/ext4 — a crash leaves whole lines
+ *  only, never a torn half-line; readUsageLedger additionally SKIPS a torn
+ *  line rather than failing the read). Best-effort: never throws (a failed
+ *  ledger write must never fail the turn that detected the usage). */
 export function appendUsageRows(vaultRoot: string, rows: readonly UsageRow[]): void {
 	if (rows.length === 0) return;
 	try {
