@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 02
-status: open
+status: closed
 ---
 
 # 03 — Dist `AGENTS.md`: agent-facing usage guide

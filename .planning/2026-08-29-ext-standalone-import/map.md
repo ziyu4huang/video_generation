@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-ext-standalone-import
 created: 2026-08-29
-last: 2026-08-29 (ticket 02 closed — shim build step + gates shipped; D8 recorded; 6.11MB measured)
+last: 2026-08-29 (ticket 03 closed — dist AGENTS.md written by every successful deploy, quickstart shared with t04)
 status: active
 ---
 
@@ -63,7 +63,7 @@ Confirmed 2026-08-29.
 |---|---|---|
 | `tickets/01-shim-entry.md` | closed | `standalone.ts` + 12 contract tests green; s2-agent full suite 989 pass/0 fail; D4 amended (ESM `.mjs`, `import.meta.dir` self-location) |
 | `tickets/02-deploy-build-step.md` | closed | `lib/standalone-shim.ts` wired into run.ts; 6.11MB, .cores cache hit on 2nd build; gates s1b/s4/s2 (s1 dropped per D8); deploy.json + Gate 5 record; 8 unit tests + pkg suite 999/0 |
-| `tickets/03-dist-agents-md.md` | open | Deploy writes `<outRoot>/AGENTS.md` — agent-facing usage guide for the standalone import mechanism |
+| `tickets/03-dist-agents-md.md` | closed | `lib/agents-md.ts` — AGENTS.md at outRoot, idempotent refresh; STANDALONE_QUICKSTART shared verbatim with the t04 probe; 4 unit tests + tsc green |
 | `tickets/04-e2e-standalone-import.md` | open | Post-deploy E2E probe `standalone-import`: /tmp consumer script, devops dry-run on a fixture git repo, file2md cross-check, foreign-path assert |
 | `tickets/05-ship-and-close.md` | open | Fresh deploy on this machine with E2E green, repo docs touch-up, effort close-out |
 
@@ -111,21 +111,26 @@ Confirmed 2026-08-29.
 
 ## Frontier
 
-`tickets/02-deploy-build-step.md` — the entry and its contract tests are in; the deploy build step turns them into a shipped, gated dist artifact every later ticket consumes. Everything else builds on the entry's export
-shape; it has no blockers and its unit tests pin the contract the deploy
-step and E2E probe consume.
+`tickets/03-dist-agents-md.md` — the shim entry (t01) and its gated build
+step (t02) are in; t03 writes the agent-facing `AGENTS.md` whose quickstart
+code t04's E2E probe must then execute verbatim (doc and proof cannot
+diverge). It unblocks nothing else — t04 shares only t02 — but leads by the
+confirmed execution order.
 
 ## Fog of war
 
-- Exact shim bundle size (est. ~6MB, core-order) — pinned by measurement in
-  t02; if pi-coding-agent's inline pulls asset-dir folds, handle via the
-  existing `rewriteAssetImportMetaFolds` machinery (charted, not yet hit).
 - Which tools are context-free enough to work standalone (devops git/spawn
   tools: yes; model-backed tools: env-dependent) — t04 picks read-only
   probes; the general contract stays "evaluate + execute, same layer as
   deploy-e2e probes", not "full agent runtime".
-- Offline Gate 5's scanner scope (currently `ext.cjs` files) — whether the
-  shim needs explicit inclusion is verified in t02, not assumed.
+- RESOLVED (t02): shim size 6.11 MB measured; the photon-node `var __dirname`
+  fold WAS hit and is handled by Gate 5b's bun install-cache allowlist (same
+  inert-string class the production core ships), not by
+  rewriteAssetImportMetaFolds. Offline Gate 5 scans the shim via the deploy's
+  `binaries:` list — no scanner-scope change needed.
+- deploy-level proofs still pending t05's real deploy: --ext-list dual-state
+  with the shim file present, Gate 5 over the full staged tree, freeze chmod
+  on the hardlinked shim.
 
 ## Cross-effort links
 

@@ -66,6 +66,7 @@ import {
 } from "./lib/version.ts";
 import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
 import { buildStandaloneShim, STANDALONE_SHIM_FILENAME } from "./lib/standalone-shim.ts";
+import { writeAgentsMd } from "./lib/agents-md.ts";
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
 import { acquireBunBinary } from "./lib/bun-acquire.ts";
 import { bunBinaryName, hostTargetName, isHostTarget, parseTargetName, type TargetSpec } from "./lib/targets.ts";
@@ -109,6 +110,8 @@ export interface DeployShResult {
 	runtime: { bunVersion: string; platform: string; arch: string; bytes: number; cached: boolean };
 	/** Cache entries in .buns/ collected because no version dir links them any more. */
 	prunedBuns: PrunedBun[];
+	/** The outRoot AGENTS.md refresh (ext-standalone-import t03). */
+	agentsMd: { written: boolean; bytes: number };
 }
 
 function gitShortSha(): string | null {
@@ -973,6 +976,11 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// The outRoot index lists what retention left behind — strictly after
 		// pruneVersions, so it never links a pruned version's report.
 		writeOutRootIndex(targetRoot);
+		// The agent-facing usage guide (ext-standalone-import t03): one copy at
+		// the OUTROOT serves every platform target and survives version
+		// rotation; refreshed idempotently — only success rewrites it, and only
+		// when the content actually changed.
+		const agentsMd = writeAgentsMd(outRoot);
 		return {
 			version,
 			target,
@@ -985,6 +993,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			prunedCores,
 			runtime: { bunVersion: Bun.version, platform: targetSpec.platform, arch: targetSpec.arch, bytes: bun.bytes, cached: bun.cached },
 			prunedBuns,
+			agentsMd,
 		};
 	} catch (e) {
 		rmTree(stage); // never leave a half-written deploy behind
