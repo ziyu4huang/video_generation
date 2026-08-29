@@ -1,8 +1,10 @@
 // dedup parity: dedup.ts must byte-match the old dedup.sh stdout + exit codes.
 //
 // Provenance — goldens captured 2026-08-23 from the live old script:
-//   bun-apps/s2-agent-ext-hermes-memory/skills/pi-memory-bulk-dedup/dedup.sh@072bfaa8
-//   (last commit touching it before conversion; file deleted when parity went green).
+//   dedup.sh@072bfaa8 (this skill dir, pre-rename path; file deleted when
+//   parity went green). One deliberate post-capture divergence: the HELP
+//   golden's skill-name line says the RENAMED name (slash-surface t02,
+//   2026-08-29) — dedup.ts's HELP and this golden changed together.
 //   Capture was run via `bash <dedup.sh> <args>` on the fixture below, stdout+rc
 //   recorded verbatim. Normalization: NONE — the output is static (no timings/log
 //   paths); the two lines that vary across runs are pinned deterministically:
@@ -38,7 +40,7 @@ import { fileURLToPath } from "node:url";
 // from the package root — the contract in the plan). Resolve the package root
 // from this test file's own URL so the test works from any cwd.
 const PKG_DIR = fileURLToPath(new URL("..", import.meta.url));
-const DEDUP = "skills/pi-memory-bulk-dedup/dedup.ts";
+const DEDUP = "skills/memory-bulk-dedup/dedup.ts";
 
 // Fixed /tmp paths — NOT `node:os tmpdir()` (which honors $TMPDIR =
 // /var/folders/... on macOS and would move the store dir off the goldens). The
@@ -128,7 +130,7 @@ afterAll(() => {
 
 const HELP_GOLDEN = `# dedup.sh — deterministic bulk-dedup of one pi-memory target.
 #
-# Automates the pi-memory-bulk-dedup SKILL.md procedure so each run is
+# Automates the memory-bulk-dedup SKILL.md procedure so each run is
 # reproducible instead of re-derived by hand. Pure bash + sqlite3 (no deps).
 #
 # SAFETY MODEL (two-tier):

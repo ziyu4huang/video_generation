@@ -56,14 +56,14 @@ describe("parseFrontmatter (delegates to splitFencedYaml — behavior change gua
     assert.ok(parsed.body.startsWith("# grill-memory"));
   });
 
-  it("parses REAL package skill: skills/pi-memory-bulk-dedup/SKILL.md (mixed quoted/unquoted + numeric version)", () => {
-    const raw = readFileSync(join(here, "../../skills/pi-memory-bulk-dedup/SKILL.md"), "utf8");
+  it("parses REAL package skill: skills/memory-bulk-dedup/SKILL.md (mixed quoted/unquoted + numeric version)", () => {
+    const raw = readFileSync(join(here, "../../skills/memory-bulk-dedup/SKILL.md"), "utf8");
     const parsed = parseFrontmatter(raw);
-    assert.equal(parsed.meta.name, "pi-memory-bulk-dedup");
+    assert.equal(parsed.meta.name, "memory-bulk-dedup");
     assert.match(parsed.meta.description!, /Bulk-dedup/);
-    assert.equal(parsed.meta.version, "3"); // unquoted scalar `3` → number → "3"
+    assert.equal(parsed.meta.version, "4"); // unquoted scalar `4` → number → "4"
     assert.equal(parsed.meta.created, "2026-06-28");
-    assert.equal(parsed.meta.updated, "2026-08-07");
+    assert.equal(parsed.meta.updated, "2026-08-29");
     assert.match(parsed.body, /Architecture/);
   });
 

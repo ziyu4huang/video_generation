@@ -1,7 +1,7 @@
 // dedup.ts — deterministic bulk-dedup of one pi-memory target.
 //
 // Portable Bun twin of the former dedup.sh (same dir). Automates the
-// pi-memory-bulk-dedup SKILL.md procedure so each run is reproducible instead
+// memory-bulk-dedup SKILL.md procedure so each run is reproducible instead
 // of re-derived by hand. Bun-only (no deps; DB via bun:sqlite).
 //
 // SAFETY MODEL (two-tier):
@@ -69,7 +69,7 @@ let KEEP_BACKUPS = 5; // retain newest N dedup/consolidate backups
 // running `bun dedup.ts --help` vs the recorded golden.
 const HELP = `# dedup.sh — deterministic bulk-dedup of one pi-memory target.
 #
-# Automates the pi-memory-bulk-dedup SKILL.md procedure so each run is
+# Automates the memory-bulk-dedup SKILL.md procedure so each run is
 # reproducible instead of re-derived by hand. Pure bash + sqlite3 (no deps).
 #
 # SAFETY MODEL (two-tier):

@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-slash-surface-consistency
 created: 2026-08-29
-last: 2026-08-29 (t01 done)
+last: 2026-08-29 (t01+t02 done)
 status: open
 ---
 
@@ -38,11 +38,10 @@ pi-coding-agent@0.84.4 dist/core/slash-commands.js:
 - **Help banner**: `./s2-agent.sh --help` prints `pi - AI coding assistant
   with read, bash, edit, write tools` + `pi install/remove/update/...`
   (measured on the source face; the deploy face wraps the same core).
-- **`pi-` naming residue**: skills `pi-memory-bulk-dedup`
-  (hermes-memory), `research-pi-packages` (research-tool — NOTE: it
-  researches the upstream Pi ecosystem, so the "pi" may be semantically
-  correct; see Fog of war), `grill-memory` description text says "pi
-  memory".
+- **`pi-` naming residue — RESOLVED (ticket 02, 2026-08-29)**:
+  `pi-memory-bulk-dedup` → `memory-bulk-dedup` (renamed, 9 sites); the
+  `grill-memory` claim was STALE (no "pi" text exists); `research-pi-packages`
+  KEPT (D4 — names the upstream Pi.dev ecosystem it researches).
 - **Family prefix inconsistency**: hyperframes-* prefixes all 6; devops
   family prefixes 1 of 10 (`/devops-workflow` but not `/issue-tracker`
   `/domain-docs` `/learnings` …); superpowers (19) and wayfind (22)
@@ -69,9 +68,10 @@ listing derives after renames land).
 
 ### Phase B — naming (choice, depends on 01's convention outcome only loosely)
 
-- [ ] **02-pi-residue-rename** — rename `pi-memory-bulk-dedup` (and
-  grill-memory's "pi memory" description); adjudicate
-  `research-pi-packages` (may keep — it names the upstream ecosystem).
+- [x] **02-pi-residue-rename** — DONE (2026-08-29): `memory-bulk-dedup`
+  renamed (9 sites, golden re-pinned); grill-memory claim was STALE (no "pi"
+  text exists); `research-pi-packages` KEPT (D4 — names the upstream Pi.dev
+  ecosystem it researches).
 - [ ] **03-family-prefix-convention** — ONE convention decision for
   family prefixes (all-prefixed vs documented flat), recorded in the
   `extension-naming` skill + applied to the devops family's stragglers.
@@ -108,18 +108,29 @@ listing derives after renames land).
   extension wants to EXTEND a builtin rather than replace it, the hook seam
   is the correct surface — a same-named command could never win in the TUI
   anyway (`onSubmit` intercepts builtins before extension dispatch).
+- D4 (2026-08-29, ticket 02): `research-pi-packages` KEPT — its "pi" names
+  the upstream Pi.dev / Pi Coding Agent ecosystem the skill researches
+  (`pi.dev/packages`), so it is semantically correct, not rename residue.
+  Corollary for 03/04: "pi" is residue only where it names OUR agent (the
+  rename), never where it names the upstream ecosystem or factual paths
+  (`PI_CODING_AGENT_DIR`, `~/.pi/agent`, `pi-hermes-memory/` store dir —
+  unchanged by design). Also: the audit's grill-memory claim ("description
+  says 'pi memory'") was STALE — zero "pi" strings in that SKILL.md.
 
 ## Frontier
 
-**02-pi-residue-rename** — 01 closed the only behavioral risk (as a false
-premise, D3); 02 is the next no-choice naming ticket and its grill-memory /
-pi-memory-bulk-dedup renames are independent of 03's prefix convention.
+**03-family-prefix-convention** — 01 (D3: hook-seam precedent) and 02 (D4:
+"pi" is residue only where it names OUR agent) both closed their feeding
+inputs; 03 now decides the ONE family-prefix convention and writes it into
+the devops `extension-naming` skill.
 
 ## Fog of war
 
 - ~~`/compact` coexistence behavior under 0.84.4~~ RESOLVED (ticket 01
   receipt): no collision; extension is a hook rider; CC-style semantics
   intact via `session_before_compact`.
+- ~~`research-pi-packages` may be semantically correct~~ RESOLVED (D4):
+  KEEP — names the upstream Pi.dev ecosystem it researches.
 - `research-pi-packages`: "pi" names the upstream Pi.dev ecosystem the
   skill researches — renaming may be semantically WRONG; needs its own
   mini-adjudication inside 02.
