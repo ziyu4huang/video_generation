@@ -138,7 +138,12 @@ import { runGate } from "../src/distill/gate.ts";
 import { runConverge } from "../src/distill/converge.ts";
 import { runExtraction, readHermesJournal } from "../src/extract.ts";
 import { fsLs, fsTree, fsFind, fsGrep, fsStat } from "../src/fs-surface.ts";
-import { onKnowledge } from "../src/emit.ts";
+import { onKnowledge, onKnowledgeUsed } from "../src/emit.ts";
+import {
+	appendUsageRows,
+	ensureLedgerIgnored,
+	UsedDetector,
+} from "../src/feedback/usage.ts";
 import { convergeKnowledgeEmission } from "../src/converge.ts";
 import { readState } from "../src/distill/state.ts";
 import {
@@ -332,6 +337,29 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 	// the same D9 property the child-guard relies on). In-memory only; the
 	// durability call is deferred to t10's flip decision.
 	const recallLedger = new RecallLedger(autoRecall.cooldownTurns);
+	// Usage ledger (ticket 11): per-session used-detector + vault-root cache.
+	// Factory scope ⇒ per-session by construction (the same D9 property the
+	// recallLedger relies on). All detection paths are best-effort and fully
+	// wrapped — a ledger failure must never break a turn.
+	const usedDetector = new UsedDetector();
+	let usageVaultRoot: string | undefined;
+	let usageLedgerReady = false;
+	const usageVault = async (cwd?: string): Promise<string | undefined> => {
+		if (usageVaultRoot !== undefined) return usageVaultRoot;
+		try {
+			// Prefer the handler's ctx.cwd (a session whose cwd differs from
+			// process.cwd() must write the SAME vault zk_card serves — review
+			// finding 6); process.cwd() only as the fallback.
+			usageVaultRoot = await resolveKnowledgeVault(cwd ?? process.cwd());
+			if (!usageLedgerReady) {
+				usageLedgerReady = true;
+				ensureLedgerIgnored(usageVaultRoot);
+			}
+		} catch {
+			usageVaultRoot = undefined; // retry next event — resolution is flaky-tier
+		}
+		return usageVaultRoot;
+	};
 	pi.on(
 		"before_agent_start",
 		async (
@@ -369,6 +397,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}
 				const prompt = typeof event.prompt === "string" ? event.prompt : "";
 				const { block, trace } = await buildAutoRecallBlock(prompt, { vaultPath, sessionFile, ledger: recallLedger }, autoRecall);
+				// t11: register the injected cards (id + title) with the
+				// UsedDetector — the same post-budget set the RecallLedger
+				// records, so the served set and the cooldown never disagree.
+				if (trace.servedCards?.length) usedDetector.registerServed(trace.servedCards);
 				// Per-turn injection trace for the battery/probe lane (t16):
 				// KC_AUTORECALL_DEBUG=1 writes ONE stderr line per turn so an
 				// end-task run can receipt WHICH cards reached the prompt
@@ -402,6 +434,75 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					`gate ≥${autoRecall.minPromptChars} chars; KC_AUTORECALL=1 arms new sessions)`,
 			);
 		},
+	});
+
+	// ── Usage ledger detection (ticket 11): three provenance sources ─────────
+	// (i) turn_end — scan the turn's assistant text against the served set;
+	// (ii) tool_execution_end — a non-error zk_card result rendered in-session;
+	// (iii) pi:knowledge bus used reports (onKnowledgeUsed sink below).
+	// Every path is best-effort: try/catch-wrapped, never blocks the turn,
+	// and appends to `<vault>/.knowledge-usage.jsonl` (never frontmatter — the
+	// git vault must stay clean through a read+use cycle).
+	pi.on("turn_end", async (event: { message?: unknown }, ctx?: { cwd?: string }) => {
+		try {
+			const rows = usedDetector.scanTurnEnd(event.message);
+			if (rows.length === 0) return;
+			const vaultRoot = await usageVault(ctx?.cwd);
+			if (vaultRoot) appendUsageRows(vaultRoot, rows);
+		} catch {
+			// best-effort — never block the session
+		}
+	});
+	// tool_execution_start remembers each zk_card call's action so the end
+	// hook can drop the vault-title cache after a MUTATING op (add/update/
+	// remove changed the vault — the cached index no longer matches it).
+	const zkCardActions = new Map<string, string>();
+	pi.on("tool_execution_start", (event: { toolCallId?: string; toolName?: string; args?: { action?: string } }) => {
+		try {
+			if (event.toolName === "zk_card" && event.toolCallId && event.args?.action) {
+				zkCardActions.set(event.toolCallId, event.args.action);
+			}
+		} catch {
+			// best-effort
+		}
+	});
+	pi.on("tool_execution_end", async (event: { toolCallId?: string; toolName?: string; isError?: boolean; result?: unknown }, ctx?: { cwd?: string }) => {
+		try {
+			if (event.toolName !== "zk_card" || event.isError) return;
+			// A completed mutating op invalidated the cached title index.
+			const action = event.toolCallId ? zkCardActions.get(event.toolCallId) : undefined;
+			zkCardActions.delete(event.toolCallId ?? "");
+			if (action === "add" || action === "update" || action === "remove") usedDetector.resetVaultIndex();
+			// zk_card results are { content: [{ type: "text", text }], ... } —
+			// concatenate the text blocks (the model-visible surface).
+			const blocks = (event.result as { content?: Array<{ type?: string; text?: unknown }> } | undefined)?.content;
+			if (!Array.isArray(blocks)) return;
+			const text = blocks
+				.filter((b) => b?.type === "text" && typeof b.text === "string")
+				.map((b) => b.text as string)
+				.join("\n");
+			if (!text) return;
+			const vaultRoot = await usageVault(ctx?.cwd);
+			const rows = usedDetector.scanToolResult(text, vaultRoot);
+			if (rows.length > 0 && vaultRoot) appendUsageRows(vaultRoot, rows);
+		} catch {
+			// best-effort — never block the session
+		}
+	});
+	// (iii) bus sink: workflows report usage from receipts via emitKnowledgeUsed.
+	onKnowledgeUsed(pi, (payload) => {
+		try {
+			const at = new Date().toISOString();
+			void usageVault().then((vaultRoot) => {
+				if (!vaultRoot) return;
+				appendUsageRows(
+					vaultRoot,
+					payload.used.filter((u) => typeof u?.uri === "string").map((u) => ({ uri: u.uri, at, via: "bus" })),
+				);
+			});
+		} catch {
+			// best-effort — never break the emitting extension
+		}
 	});
 
 	// ── Auto-converge hermes memory → graph on session_shutdown (tier rule) ──
