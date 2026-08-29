@@ -108,7 +108,14 @@ export const BRIDGES: readonly BridgeEntry[] = [
 
 /** Built-in splice values keyed by bridge flag. */
 const BUILTIN_BY_FLAG: Record<string, string> = {
-	"--model": BUILTIN_MODEL_DEFAULT.model,
+	// Provider-QUALIFIED id (pi 0.84.4+): the upstream catalogs now ship
+	// glm-5.3 under three providers (zai, zai-coding-cn, opencode-go), so the
+	// bare id is ambiguous whenever zero or >1 of them are authenticated —
+	// resolveCliModel hard-errors ("ambiguous across providers"). The
+	// qualified form pins the lookup to our default provider while still
+	// suppressing the --provider bridge (which must NEVER be injected
+	// alongside a --model token — see the incident note above).
+	"--model": `${BUILTIN_MODEL_DEFAULT.provider}/${BUILTIN_MODEL_DEFAULT.model}`,
 	"--provider": BUILTIN_MODEL_DEFAULT.provider,
 	"--thinking": BUILTIN_MODEL_DEFAULT.thinking,
 };
