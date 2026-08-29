@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-29-slash-surface-consistency
 created: 2026-08-29
-last: 2026-08-29
+last: 2026-08-29 (t01 done)
 status: open
 ---
 
@@ -26,11 +26,15 @@ pi-coding-agent@0.84.4 dist/core/slash-commands.js:
   hotkeys fork clone trust login logout new compact resume reload quit …),
   **68 repo skills** across 15 s2-agent-ext-* packages, **22 CLI
   subcommands + 5 pipelines** (`-to-vault` suffix family).
-- **`/compact` collision**: `bun-apps/s2-agent/src/registry-config.ts:590`
-  registers extension name `compact` (s2-agent-ext-compact, CC-style
-  compaction) while pi 0.84.4 ships builtin `/compact` (upstream
-  compaction; 0.84.3 added compaction routing). Coexistence behavior
-  unmeasured.
+- **`/compact` collision — RESOLVED as false premise (ticket 01,
+  2026-08-29)**: `registry-config.ts:590` registers the extension LOAD KEY,
+  not a slash command; s2-agent-ext-compact registers no command at all (it
+  rides `session_before_compact`). The pi builtin `/compact` is the only
+  `/compact`; TUI `onSubmit` intercepts it before extension dispatch
+  (`interactive-mode.js:2481`), and CC-style semantics survived 0.84.3/4
+  routing via the hook (`agent-session.js:1490` manual, `:1751` auto).
+  Receipt + decision in `tickets/01-compact-collision.md`; pinned by
+  `s2-agent-ext-compact/extensions/__tests__/no-command-collision.test.ts`.
 - **Help banner**: `./s2-agent.sh --help` prints `pi - AI coding assistant
   with read, bash, edit, write tools` + `pi install/remove/update/...`
   (measured on the source face; the deploy face wraps the same core).
@@ -59,9 +63,9 @@ listing derives after renames land).
 
 ### Phase A — behavioral (no-choice first)
 
-- [ ] **01-compact-collision** — measure + adjudicate the `/compact`
-  name fight (builtin vs s2-agent-ext-compact) under pi 0.84.4; rename or
-  document replacement semantics; pin with a test.
+- [x] **01-compact-collision** — DONE (2026-08-29): no collision exists
+  (extension is a hook rider, not a command); no rename; pinned by
+  `no-command-collision.test.ts`. See D3 + ticket receipt.
 
 ### Phase B — naming (choice, depends on 01's convention outcome only loosely)
 
@@ -95,18 +99,27 @@ listing derives after renames land).
 - D2 (2026-08-29, user — multi-select): effort scope = ALL audit slices
   (T1 compact, T3 naming, T4 discoverability, T2+T5 docs), form = effort
   folder.
+- D3 (2026-08-29, ticket 01 measurement): `/compact` needs NO rename — the
+  audit's "collision" conflated the extension load key
+  (`registry-config.ts:590`) with a command registration. s2-agent-ext-compact
+  deliberately registers NO slash command; it rides `session_before_compact`
+  so the pi builtin `/compact` (and auto-compaction) both flow through the
+  CC-style summarizer with built-in fallback. Precedent for 03: when an
+  extension wants to EXTEND a builtin rather than replace it, the hook seam
+  is the correct surface — a same-named command could never win in the TUI
+  anyway (`onSubmit` intercepts builtins before extension dispatch).
 
 ## Frontier
 
-**01-compact-collision** — it is the only behavioral risk (two compaction
-semantics on one name can silently pick the wrong one for users), and its
-outcome (how we name/namespace a colliding command) feeds 03's convention
-decision.
+**02-pi-residue-rename** — 01 closed the only behavioral risk (as a false
+premise, D3); 02 is the next no-choice naming ticket and its grill-memory /
+pi-memory-bulk-dedup renames are independent of 03's prefix convention.
 
 ## Fog of war
 
-- `/compact` coexistence behavior under 0.84.4 (which wins in the TUI
-  command registry? does either break?) — unmeasured.
+- ~~`/compact` coexistence behavior under 0.84.4~~ RESOLVED (ticket 01
+  receipt): no collision; extension is a hook rider; CC-style semantics
+  intact via `session_before_compact`.
 - `research-pi-packages`: "pi" names the upstream Pi.dev ecosystem the
   skill researches — renaming may be semantically WRONG; needs its own
   mini-adjudication inside 02.
