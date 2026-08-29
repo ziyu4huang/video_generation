@@ -33,6 +33,14 @@
  *                  past boot + ext-load + model-call; only the active set
  *                  observes it. Offline (exits at before_agent_start); a FAST
  *                  provider/auth failure is a SKIP, never a FAIL.
+ *   providers-catalog  `<launcher> --list-models` TWICE under a scratch
+ *                  agent-dir — patch ON vs OFF (BUN_PI_PRE_LOAD_PROVIDERS=0).
+ *                  Verifies the pre-load-providers ModelRuntime.create wrap is
+ *                  alive in the FINAL tree: every baked PROVIDERS pair must
+ *                  list, and the ON run must contribute ≥1 pair the OFF run
+ *                  lacks (immune to models.json duplication — the exact
+ *                  accident that masked the pre-0.80 loadModels death).
+ *                  Offline, ~1s.
  *   model-call     `<launcher> -p 'Reply with exactly: ok' --no-session` — a
  *                  real one-shot model call through the deployed launcher. A
  *                  FAST provider/auth failure (≤10s, provider-smelling output)
@@ -95,6 +103,7 @@ import { standaloneImportProbe } from "./deploy/lib/standalone-import-probe.ts";
 import { classifyRun } from "./oneshot-smoke.js";
 import { parseToolsProbeLine, TOOLS_ACTIVE_PROBE } from "./tools-active-probe.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
+import { PROVIDERS } from "../../s2-agent/src/pre-load-providers.ts";
 import type { SpawnFn } from "./spawn.js";
 
 // Re-exported for compatibility: these moved to src/model-endpoint.ts
@@ -114,6 +123,7 @@ export type { ModelsFetch } from "./model-endpoint.js";
 export const BOOT_CAP_MS = 60_000;
 export const EXT_LIST_CAP_MS = 60_000;
 export const TOOLS_PROBE_CAP_MS = 60_000;
+export const PROVIDERS_LIST_CAP_MS = 60_000;
 export const MODEL_CALL_CAP_MS = 300_000;
 
 /**
@@ -321,6 +331,59 @@ export function pinSpawnEnv(pin: E2EModelPin): Record<string, string> {
 	return { PI_PROVIDER: pin.provider, PI_MODEL: pin.model, PI_THINKING: "off" };
 }
 
+/**
+ * The (provider, model-id) pairs the baked catalog (s2-agent §1 PROVIDERS)
+ * must surface. Catalog-true — derived from the source of truth, so a new
+ * lane in pre-load-providers.ts is automatically covered by the probe.
+ */
+export function bakedModelPairs(
+	providers: Record<string, { models: Array<{ id: string }> }> = PROVIDERS,
+): Array<{ provider: string; model: string }> {
+	return Object.entries(providers).flatMap(([provider, entry]) =>
+		entry.models.map((m) => ({ provider, model: m.id })),
+	);
+}
+
+/**
+ * Parse `--list-models` tabular stdout into provider → model-id set. Pure.
+ * Row shape: `<provider>  <model-id>  <context> <max-out> <thinking> <images>`;
+ * the header row (first column "provider") and blank lines are skipped.
+ */
+export function parseListModelsRows(stdout: string): Map<string, Set<string>> {
+	const rows = new Map<string, Set<string>>();
+	for (const line of stdout.split("\n")) {
+		const cols = line.trim().split(/\s+/);
+		if (cols.length < 2 || cols[0] === "provider" || cols[0] === "") continue;
+		const [provider, model] = cols;
+		if (!rows.has(provider)) rows.set(provider, new Set());
+		rows.get(provider)!.add(model);
+	}
+	return rows;
+}
+
+/**
+ * The per-run agent-dir env for the providers-catalog probe: a SCRATCH dir so
+ * the listing cannot be satisfied by ~/.pi/agent/models.json residue. Sets the
+ * DASHED derived name (upstream builds `${piConfig.name.toUpperCase()_
+ * CODING_AGENT_DIR}`; bash cannot export it but spawn env can — deploy script
+ * precedent) derived from the deployed tree's own package.json when it
+ * carries piConfig, plus the upstream PI_ spelling for pre-rename trees.
+ */
+function providersProbeEnv(scratchDir: string, versionDir: string): Record<string, string> {
+	const env: Record<string, string> = { PI_CODING_AGENT_DIR: scratchDir };
+	try {
+		const pkg = JSON.parse(readFileSync(join(versionDir, "package.json"), "utf8")) as {
+			piConfig?: { name?: string };
+		};
+		if (pkg.piConfig?.name) env[`${pkg.piConfig.name.toUpperCase()}_CODING_AGENT_DIR`] = scratchDir;
+	} catch {
+		// pre-t0x trees without a readable package.json — the hardcoded fallback
+		// covers the s2-agent rename (the name this repo ships as today).
+		env["S2-AGENT_CODING_AGENT_DIR"] = scratchDir;
+	}
+	return env;
+}
+
 export type ProbeVerdict = "pass" | "skip" | "fail";
 
 export interface DeployE2eProbe {
@@ -329,6 +392,7 @@ export interface DeployE2eProbe {
 		| "ext-load"
 		| "cwd-independence"
 		| "tools-probe"
+		| "providers-catalog"
 		| "model-call"
 		| "vision-call"
 		| "file2md-ocr"
@@ -887,6 +951,82 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			}
 		}
 		probes.push({ id: "tools-probe", verdict: tpVerdict, ms: now() - t0, note: tpNote, detail: tpDetail });
+
+	// ── providers-catalog probe ──────────────────────────────────────────────
+	// The pre-load-providers patch (s2-agent patches/pre-load-providers.ts — the
+	// ModelRuntime.create wrap) is the ONLY thing that surfaces the baked
+	// PROVIDERS catalog (lm-studio + the deepseek/zai overrides) with NO
+	// ~/.pi/agent/models.json. Its historical failure shape: pre-0.80 the hook
+	// target (ModelRegistry.loadModels) vanished upstream, the wrap installed a
+	// method nobody called, and everything stayed green only because models.json
+	// happened to duplicate the catalog. NOTHING re-verifies the wrap against the
+	// FINAL frozen tree — boot/ext-load/tools-probe never list models. This probe
+	// does: `--list-models` TWICE under a scratch agent-dir, patch ON (default)
+	// vs patch OFF (BUN_PI_PRE_LOAD_PROVIDERS=0). The OFF run MEASURES what
+	// ambient sources (pi-ai builtin catalog + any models.json residue) provide,
+	// so (a) a dead wrap fails on missing baked pairs, and (b) a fully duplicated
+	// catalog cannot mask it — the ON run must contribute at least one pair the
+	// OFF run lacks (the patch's own work). Measured grounding 2026-08-29: dev
+	// patch ON = 4 lm-studio lanes vs OFF = 2 (models.json residue) on this
+	// machine; deploy current shows all 4 incl. the baked-only prism-ml/bonsai-27b.
+	{
+		const t0 = now();
+		const scratchDir = mkdtempSync(join(tmpdir(), "s2-e2e-providers-"));
+		let pcVerdict: ProbeVerdict = "fail";
+		let pcNote = "";
+		let pcDetail: string | undefined;
+		try {
+			const agentEnv = providersProbeEnv(scratchDir, opts.versionDir);
+			const on = await opts.spawn(launcher.command, [...launcher.prefix, "--list-models"], {
+				cwd: opts.versionDir,
+				timeoutMs: PROVIDERS_LIST_CAP_MS,
+				env: agentEnv,
+			});
+			const off = await opts.spawn(launcher.command, [...launcher.prefix, "--list-models"], {
+				cwd: opts.versionDir,
+				timeoutMs: PROVIDERS_LIST_CAP_MS,
+				env: { ...agentEnv, BUN_PI_PRE_LOAD_PROVIDERS: "0" },
+			});
+			const onRows = on.exitCode === 0 && !on.timedOut ? parseListModelsRows(on.stdout) : null;
+			const offRows = off.exitCode === 0 && !off.timedOut ? parseListModelsRows(off.stdout) : null;
+			if (onRows === null) {
+				pcNote = `patch-on --list-models ${on.timedOut ? `timed out after ${PROVIDERS_LIST_CAP_MS}ms` : `exited ${on.exitCode}`}`;
+				pcDetail = tail(on.stdout, on.stderr);
+			} else if (offRows === null) {
+				pcNote = `patch-off baseline --list-models ${off.timedOut ? `timed out after ${PROVIDERS_LIST_CAP_MS}ms` : `exited ${off.exitCode}`} — the diff needs it`;
+				pcDetail = tail(off.stdout, off.stderr);
+			} else {
+				const baked = bakedModelPairs();
+				const listed = (p: { provider: string; model: string }) => onRows.get(p.provider)?.has(p.model) ?? false;
+				const ambient = (p: { provider: string; model: string }) => offRows.get(p.provider)?.has(p.model) ?? false;
+				const missing = baked.filter((p) => !listed(p));
+				const patchOnly = baked.filter((p) => listed(p) && !ambient(p));
+				if (missing.length) {
+					pcNote = `${missing.length}/${baked.length} baked catalog pair(s) missing from --list-models (e.g. ${missing
+						.slice(0, 3)
+						.map((p) => `${p.provider}/${p.model}`)
+						.join(", ")}) — the ModelRuntime.create wrap is not registering the baked PROVIDERS (the pre-0.80 loadModels precedent: hook target gone upstream?)`;
+					pcDetail = tail(on.stdout, on.stderr);
+				} else if (patchOnly.length === 0) {
+					pcNote = `patch contributes nothing — the patch-OFF baseline already lists every baked pair (models.json duplication masking a dead wrap: the exact pre-0.80 accident this probe exists for; remove the duplication from personal config)`;
+					pcDetail = tail(off.stdout, off.stderr);
+				} else {
+					pcVerdict = "pass";
+					pcNote = `${baked.length} baked catalog pair(s) listed; ${patchOnly.length} patch-only (e.g. ${patchOnly[0].provider}/${patchOnly[0].model}) — ModelRuntime.create wrap alive in the shipped tree`;
+				}
+			}
+		} catch (e) {
+			pcNote = `execution failed: ${e instanceof Error ? e.message : String(e)}`;
+			pcDetail = pcNote;
+		} finally {
+			try {
+				rmSync(scratchDir, { recursive: true, force: true });
+			} catch {
+				/* */
+			}
+		}
+		probes.push({ id: "providers-catalog", verdict: pcVerdict, ms: now() - t0, note: pcNote, detail: pcDetail });
+	}
 	}
 
 	// ── model-call probe ────────────────────────────────────────────────────

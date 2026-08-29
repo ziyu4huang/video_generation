@@ -14,6 +14,8 @@ import {
 	isBunShellChildSignature,
 	parseDeployJson,
 	parseExtListPayload,
+	parseListModelsRows,
+	bakedModelPairs,
 	resolveModelEndpoint,
 	runDeployE2e,
 	modelContentionWarning,
@@ -27,6 +29,7 @@ import {
 	type VisionAskOutcome,
 } from "../src/deploy-e2e-recipe.js";
 import { parseVerifyDeployE2eArgs, runVerifyDeployE2eCli } from "../src/verify-deploy-e2e-cli.js";
+import { PROVIDERS } from "../../s2-agent/src/pre-load-providers.ts";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 
 const root = mkdtempSync(join(tmpdir(), "deploy-e2e-"));
@@ -67,6 +70,34 @@ interface FakeOpts {
 	help?: Partial<SpawnResult>;
 	toolsProbe?: Partial<SpawnResult>;
 	modelCall?: Partial<SpawnResult>;
+	/** providers-catalog probe payloads: patch-ON and patch-OFF --list-models stdout. */
+	listModels?: { on?: string; off?: string; offExit?: number };
+}
+
+/** Render `--list-models` rows for a set of provider→model ids (column layout). */
+function listModelsStdout(rows: Array<[string, string]>): string {
+	return [
+		"provider     model                                context  max-out  thinking  images",
+		...rows.map(([p, m]) => `${p.padEnd(13)} ${m.padEnd(37)} 200K     65.5K    yes       yes   `),
+	].join("\n");
+}
+
+/** The ambient (non-patch) rows: pi-ai's builtin catalog always lists these. */
+const AMBIENT_ROWS: Array<[string, string]> = [
+	["deepseek", "deepseek-v4-flash"],
+	["deepseek", "deepseek-v4-flash-vision-exp"],
+	["huggingface", "deepseek-ai/DeepSeek-V3.2"],
+	["zai", "glm-5.3"],
+];
+
+function defaultListModels(): { on: string; off: string } {
+	// ON: ambient + every baked PROVIDERS pair (the patch registered them).
+	// OFF: ambient + ONE duplicated lm-studio lane (personal models.json
+	// residue — the measured real-world case on this machine).
+	return {
+		on: listModelsStdout([...AMBIENT_ROWS, ...bakedModelPairs().map((p) => [p.provider, p.model] as [string, string])]),
+		off: listModelsStdout([...AMBIENT_ROWS, ["lm-studio", "google/gemma-4-12b"]]),
+	};
 }
 
 /** Fake spawn keyed on the first non-flag argv — the probe identity. */
@@ -104,6 +135,16 @@ function fakeSpawn(o: FakeOpts = {}): SpawnFn {
 				getActiveTools: true,
 			};
 			return { stdout: "", stderr: `[TOOLS] ${JSON.stringify(healthy)}\n`, exitCode: 0, ...o.toolsProbe };
+		}
+		// providers-catalog probe: --list-models (ON default / OFF with the
+		// patch gate) — matched before the bare `-p` fallthrough.
+		if (args.includes("--list-models")) {
+			const lm = { ...defaultListModels(), ...o.listModels };
+		const off = options?.env?.BUN_PI_PRE_LOAD_PROVIDERS === "0";
+		const src = off ? lm.off : lm.on;
+		return off && lm.offExit !== undefined
+			? { stdout: "", stderr: "", exitCode: lm.offExit }
+			: { stdout: src, stderr: "", exitCode: 0 };
 		}
 		// model-call probe: -p
 		return { stdout: "ok", stderr: "", exitCode: 0, ...o.modelCall };
@@ -176,6 +217,7 @@ describe("runDeployE2e", () => {
 			"ext-load",
 			"cwd-independence",
 			"tools-probe",
+			"providers-catalog",
 			"model-call",
 			"vision-call",
 			"file2md-ocr",
@@ -412,11 +454,11 @@ describe("runDeployE2e", () => {
 	test("--skip-model-call keeps the verdict pass without placing a call", async () => {
 		makeTree();
 		let placed = false;
-		const spawn: SpawnFn = async (_c, args) => {
+		const spawn: SpawnFn = async (_c, args, options) => {
 			// tools-probe also carries -p (offline exit before the request
 			// completes) — only a bare -p argv is the model call.
 			if (args.includes("-p") && !args.includes("-e")) placed = true;
-			return fakeSpawn()( _c, args);
+			return fakeSpawn()(_c, args, options);
 		};
 		const r = await runDeployE2e({ versionDir, spawn, skipModelCall: true });
 		expect(placed).toBe(false);
@@ -594,8 +636,11 @@ describe("model pin (VERIFY_E2E_MODEL — the D8-style lane pin)", () => {
 		for (const s of oneShots) {
 			expect(s.env).toEqual({ PI_PROVIDER: "deepseek", PI_MODEL: "deepseek-v4-flash-vision-exp", PI_THINKING: "off" });
 		}
-		// boot / ext-list / cwd-independence place no model call — no env
-		for (const s of seen.filter((x) => !sessionCall(x))) expect(s.env).toBeUndefined();
+		// boot / ext-list / cwd-independence place no model call and set no env;
+		// the providers-catalog runs DO set env (scratch agent-dir) by design.
+		for (const s of seen.filter((x) => !sessionCall(x) && !x.args.includes("--list-models"))) {
+			expect(s.env).toBeUndefined();
+		}
 		// the pass note names the pinned lane (receipt quality)
 		expect(r.probes.find((p) => p.id === "model-call")!.note).toContain(PIN);
 	});
@@ -605,7 +650,7 @@ describe("model pin (VERIFY_E2E_MODEL — the D8-style lane pin)", () => {
 		const { spawn, seen } = recordingSpawn();
 		await runDeployE2e({ versionDir, spawn, modelEndpoint: null });
 		expect(seen.length).toBeGreaterThan(0);
-		for (const s of seen) expect(s.env).toBeUndefined();
+		for (const s of seen.filter((x) => !x.args.includes("--list-models"))) expect(s.env).toBeUndefined();
 	});
 
 	test("pinned + over budget + NO contention → deterministic FAIL naming the lane (not a skip)", async () => {
@@ -682,7 +727,7 @@ describe("model pin (VERIFY_E2E_MODEL — the D8-style lane pin)", () => {
 			const { spawn, seen } = recordingSpawn();
 			const res = await runVerifyDeployE2eCli(["--deploy-root", root], { spawn, versionDir: undefined, modelEndpoint: null });
 			expect(res.exitCode).toBe(0);
-			for (const s of seen) expect(s.env).toBeUndefined(); // ran on the default lane
+			for (const s of seen.filter((x) => !x.args.includes("--list-models"))) expect(s.env).toBeUndefined(); // ran on the default lane
 			const payload = JSON.parse(res.stdout);
 			expect(payload.warnings.join("\n")).toContain("VERIFY_E2E_MODEL");
 			expect(payload.warnings.join("\n")).toContain("provider/model-id");
@@ -690,6 +735,116 @@ describe("model pin (VERIFY_E2E_MODEL — the D8-style lane pin)", () => {
 			if (saved === undefined) delete process.env.VERIFY_E2E_MODEL;
 			else process.env.VERIFY_E2E_MODEL = saved;
 		}
+	});
+});
+
+describe("providers-catalog probe (the pre-load-providers patch, verified in the FINAL tree)", () => {
+	// The historical bug class this probe exists for: pre-0.80 the hook target
+	// (ModelRegistry.loadModels) vanished upstream, the patch installed a method
+	// nobody called, and everything stayed green ONLY because ~/.pi/agent/
+	// models.json happened to duplicate the catalog. Nothing in the deploy gates
+	// or E2E re-verifies the wrap against the shipped tree — this probe does:
+	// --list-models twice under a SCRATCH agent-dir, patch on vs off, and the
+	// OFF run MEASURES what ambient sources provide so duplication cannot mask
+	// a dead patch.
+
+	test("healthy: every baked pair listed ON, patch-only contribution ≥1 → pass", async () => {
+		makeTree();
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn(), modelEndpoint: null });
+		const pc = r.probes.find((p) => p.id === "providers-catalog")!;
+		expect(pc.verdict).toBe("pass");
+		expect(pc.note).toContain("patch-only");
+	});
+
+	test("patch dead: a baked lane missing from the ON run FAILS naming the pair", async () => {
+		makeTree();
+		const on = listModelsStdout([
+			...AMBIENT_ROWS,
+			// every baked pair EXCEPT the lm-studio lanes — the wrap died;
+			// ambient pi-ai rows still list
+			...bakedModelPairs().filter((p) => p.provider !== "lm-studio").map((p) => [p.provider, p.model] as [string, string]),
+		]);
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ listModels: { on, off: listModelsStdout(AMBIENT_ROWS) } }),
+			modelEndpoint: null,
+		});
+		const pc = r.probes.find((p) => p.id === "providers-catalog")!;
+		expect(pc.verdict).toBe("fail");
+		expect(pc.note).toContain("lm-studio");
+		expect(pc.note).toContain("google/gemma-4-12b");
+	});
+
+	test("full duplication: OFF also lists every baked pair → the patch contributes nothing → FAIL", async () => {
+		makeTree();
+		const both = listModelsStdout([
+			...AMBIENT_ROWS,
+			...bakedModelPairs().map((p) => [p.provider, p.model] as [string, string]),
+		]);
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ listModels: { on: both, off: both } }),
+			modelEndpoint: null,
+		});
+		const pc = r.probes.find((p) => p.id === "providers-catalog")!;
+		expect(pc.verdict).toBe("fail");
+		expect(pc.note).toContain("contributes nothing");
+	});
+
+	test("both runs carry a SCRATCH agent-dir env; the OFF run carries the patch gate", async () => {
+		makeTree();
+		const seen: Array<{ args: string[]; env?: Record<string, string> }> = [];
+		const base = fakeSpawn();
+		const spawn: SpawnFn = async (cmd, args, options) => {
+			if (args.includes("--list-models")) seen.push({ args, env: options?.env });
+			return base(cmd, args, options);
+		};
+		await runDeployE2e({ versionDir, spawn, modelEndpoint: null });
+		expect(seen.length).toBe(2);
+		for (const s of seen) {
+			// the dashed agent-dir name a bash export cannot set (deploy script
+			// precedent) + the upstream spelling
+			expect(s.env?.["S2-AGENT_CODING_AGENT_DIR"]).toBeTruthy();
+			expect(s.env?.PI_CODING_AGENT_DIR).toBeTruthy();
+		}
+		const off = seen.find((s) => s.env?.BUN_PI_PRE_LOAD_PROVIDERS === "0");
+		const on = seen.find((s) => s.env?.BUN_PI_PRE_LOAD_PROVIDERS !== "0");
+		expect(off).toBeTruthy();
+		expect(on).toBeTruthy();
+	});
+
+	test("the OFF listing itself errors → fail (it is the baseline the diff needs)", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ listModels: { offExit: 1 } }),
+			modelEndpoint: null,
+		});
+		const pc = r.probes.find((p) => p.id === "providers-catalog")!;
+		expect(pc.verdict).toBe("fail");
+		expect(pc.note).toContain("patch-off");
+	});
+
+	test("parseListModelsRows (pure): columns, header skipped, blank-safe", () => {
+		const rows = parseListModelsRows(
+			[
+				"provider     model                                context",
+				"lm-studio    google/gemma-4-12b                   200K     65.5K",
+				"",
+				"deepseek     deepseek-v4-flash                    1M",
+			].join("\n"),
+		);
+		expect(rows.get("lm-studio")?.has("google/gemma-4-12b")).toBe(true);
+		expect(rows.get("deepseek")?.has("deepseek-v4-flash")).toBe(true);
+		expect(rows.has("provider")).toBe(false);
+	});
+
+	test("bakedModelPairs mirrors PROVIDERS §1 (catalog-true, not hardcoded)", () => {
+		const pairs = bakedModelPairs();
+		expect(pairs.length).toBe(
+			Object.values(PROVIDERS).reduce((n, e) => n + e.models.length, 0),
+		);
+		expect(pairs.some((p) => p.provider === "lm-studio" && p.model === "prism-ml/bonsai-27b")).toBe(true);
 	});
 });
 
@@ -954,9 +1109,13 @@ describe("crossos t06 — platform-aware launcher", () => {
 	test("a win32 tree boots through cmd /c (command + prefix recorded at every probe)", async () => {
 		makeWin32Tree();
 		const seen: Array<{ cmd: string; args: string[] }> = [];
-		const spawn: SpawnFn = async (cmd, args) => {
+		const spawn: SpawnFn = async (cmd, args, options) => {
 			seen.push({ cmd, args });
 			if (args.includes("--help")) return { stdout: "usage…", stderr: "", exitCode: 0 };
+			if (args.includes("--list-models")) {
+				const lm = defaultListModels();
+				return { stdout: options?.env?.BUN_PI_PRE_LOAD_PROVIDERS === "0" ? lm.off : lm.on, stderr: "", exitCode: 0 };
+			}
 			if (args.includes("--ext-list"))
 				return { stdout: JSON.stringify({ loadedCount: 1, loaded: ["task"], skipped: [] }), stderr: "", exitCode: 0 };
 			if (args.includes("-e"))
@@ -977,7 +1136,7 @@ describe("crossos t06 — platform-aware launcher", () => {
 		};
 		const r = await runDeployE2e({ versionDir, spawn, modelEndpoint: null });
 		expect(r.verdict).toBe("pass");
-		expect(seen.length).toBe(5); // boot, ext-load, cwd-independence, tools-probe, model-call
+		expect(seen.length).toBe(7); // boot, ext-load, cwd-independence, tools-probe, providers-catalog×2 (on/off), model-call
 		for (const s of seen) {
 			expect(s.cmd).toBe("cmd");
 			expect(s.args[0]).toBe("/c");
