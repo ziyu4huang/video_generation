@@ -962,6 +962,19 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					{ description: "Gate metrics (required for action='converge')." },
 				),
 			),
+			killed: Type.Optional(
+				Type.Array(
+					Type.Object({
+						id: Type.String(),
+						reason: Type.String(),
+						detail: Type.Optional(Type.String()),
+					}),
+					{
+						description:
+							"Gate-killed entries (id + reason), optionally passed back on action='converge' so the per-run memory diff (.distill-diff.json) records WHY each entry was skipped.",
+					},
+				),
+			),
 			files: Type.Array(Type.String(), {
 				description:
 					"Paths to input files (absolute or relative to cwd). Each entry may also be a DIRECTORY — recursively expanded for the source's file type (.md for auto-memory/hermes/generic, .knowledge.jsonl for workflow-jsonl); MEMORY.md/README.md index files are skipped. For a random .md folder, use source=generic.",
@@ -1103,11 +1116,26 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				// action === "converge"
 				const notes = (params.notes ?? []) as EnrichedNote[];
 				const metrics = (params.metrics ?? { candidates: 0, killed: 0, survivors: 0 }) as ConvergeMetrics;
-				const result = await runConverge(notes, vaultPath, metrics);
+				const killed = (params.killed ?? []) as { id: string; reason: string; detail?: string }[];
+				const result = await runConverge(notes, vaultPath, metrics, "failure", killed);
+				// Ticket 14: the tool output surfaces the one-line counts; the
+				// full per-run diff stays in `.distill-diff.json` (atomic).
+				const diff = result.diff;
 				return {
-					content: [{ type: "text", text: JSON.stringify(result) }],
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({
+								...result,
+								diff: undefined,
+								diffCounts: diff
+									? `memory-diff: ${diff.created.length} created, ${diff.merged.length} merged, ${diff.superseded.length} superseded, ${diff.skipped.length} skipped (run ${diff.runId})`
+									: null,
+							}),
+						},
+					],
 					isError: false,
-					details: null,
+					details: { diffFile: diff ? join(vaultPath, ".distill-diff.json") : null },
 				};
 			}
 

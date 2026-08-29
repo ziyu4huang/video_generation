@@ -59,6 +59,9 @@ export interface ConvergeResult {
 	newThreshold: number;
 	thresholdDelta: number;
 	thresholdReason: string;
+	/** Ticket 14: the per-run audit diff (also persisted to
+	 *  `.distill-diff.json`). Tool surfaces count it, not inline it. */
+	diff?: DistillDiff;
 }
 
 export interface DistillState {
@@ -74,4 +77,53 @@ export interface DistillState {
 		passRate: number;
 	}>;
 	lastRun: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Per-run memory diff (ticket 14 — OpenViking memory_diff.json analog)
+// ---------------------------------------------------------------------------
+
+/** One field-level effect on a merged card, derived from the pre/post
+ *  frontmatter (+body) diff — the applied view of the D4 merge-op table. */
+export interface DistillDiffFieldOp {
+	/** Frontmatter key, or "body" for the rendered card body. */
+	field: string;
+	op: "replace" | "union" | "add";
+	/** Post-run value (for "union": the items the run ADDED). */
+	value?: unknown;
+}
+
+/** A card the run merged into (status "updated"). */
+export interface DistillDiffEntry {
+	id: string;
+	/** Vault-relative card path. */
+	path: string;
+	ops: DistillDiffFieldOp[];
+}
+
+/** A raw card the run superseded (mechanism B frontmatter flip). */
+export interface DistillDiffSuperseded {
+	from: string;
+	to: string;
+	found: boolean;
+}
+
+/** A gate-killed entry the run rejected (reason: duplicate|stale|malformed). */
+export interface DistillDiffSkipped {
+	id: string;
+	reason: string;
+	detail?: string;
+}
+
+/** The per-run audit trail written atomically to `.distill-diff.json` beside
+ *  `.distill-state.json`. One file, overwritten per run — the LATEST run's
+ *  diff (history lives in DistillState.history). */
+export interface DistillDiff {
+	runId: string;
+	at: string;
+	target: string;
+	created: { id: string; path: string }[];
+	merged: DistillDiffEntry[];
+	superseded: DistillDiffSuperseded[];
+	skipped: DistillDiffSkipped[];
 }

@@ -179,7 +179,7 @@ Phase P3 — feedback + extraction upgrade
 - `tickets/11-usage-ledger-detection.md` — task, **closed 2026-08-29** — PR #2148 merged (`e989762b`; reviewer BLOCK→fix `23fd0ac6`→APPROVE, repros re-run). Three provenance sources live in `src/feedback/usage.ts` + entry wiring: (i) turn_end assistant-text scan vs the auto-recall served set (trace.servedCards — the same post-budget set the RecallLedger records), (ii) non-error zk_card results vs served set + per-root lazy vault title index (reset after mutating ops), (iii) `pi:knowledge` bus used reports (`emitKnowledgeUsed`/`onKnowledgeUsed`, shape-routed). Storage `<vault>/.knowledge-usage.jsonl` `{uri, at, via}`, NEVER frontmatter (git-clean cycle tested); cross-source monotonicity via a `detected` Set (one row per card per session). Vault ignore entry committed vault-side (pi-agent-vault#22) + gitlink bump. 24 unit tests + entry-wiring integration; 750 pass / 0 fail, tsc clean, portability audit green. Deferred follow-up: Tier-3 plain-subdir vault shows the ledger untracked in the host repo (finding 9). t11's `via` kinds are DISTINCT from the D37 Surreal access ledger (served vs used)
 - `tickets/12-hotness-scoring.md` — task, **closed 2026-08-29** — `src/feedback/hotness-feed.ts` (t11 used-ledger replay → per-uri aggregates, mirrors `usageAggregates`) + `RetrieveOptions.hotness`/`usageLedgerPath` (default OFF); multiplier m(h)=1+0.1·h ∈ [1.0,1.1] ⊆ D8 envelope, neutral at h=0 (ticket's literal 0.9+0.2·h reconciled against its own acceptance — D13); flat+semantic lanes pre-cut, hier lane post-cut; eval receipt: baseline 11/16/17 MRR 0.688 == t04, seeded-targets ON 15/17/17 MRR 0.792, non-targets control identical; **default stays OFF** (production ledger empty — D13 promotion trigger recorded); 764 pass / 0 fail, tsc clean, portability --strict green
 - `tickets/13-extractloop-dedup.md` — task, **closed 2026-08-30** — PR #2160. `src/semantic-dedup.ts` + `ingestRecords` wiring behind opt-in `IngestOptions.semanticDedup` (default OFF, tier rule; env `PI_KG_SEMANTIC_DEDUP=1`): records the Jaccard wiki match misses are cosine-compared against the `.knowledge-semantic` cache — ≥0.90 top-1 deterministic merge (D4 merge-op table; `wikiMergeIntoCard` origin label → `- semantic-merged:` provenance), 0.75–0.90 gray band ONE guardrailed local-LLM skip/create/merge decision (merge must name a candidate id; malformed/failed → create; skip drops), <0.75 create; cache/embedder miss degrades to Jaccard-only (offline-safe, LLM never reached without an embedder). `IngestSummary` gains `semanticMerged`/`semanticSkipped`/`dedupDecisions` (receipt trace); extract lane untouched (D14-F3 stands — production surface is the converge/zk_ingest lane). 15 hermetic tests (incl. gray-zone-only LLM counter, zero false merges, idempotency); kcard 779 pass / 0 fail, tsc clean, local_ci 118s pass. Real-vault receipt (copy of the 2356-card vault, live bge-m3): zh-TW reworded fixture near-dup → cosine 0.867 gray zone → LLM merge into the correct canonical card, re-ingest unchanged, distinct control below-gray creates
-- `tickets/14-memory-diff-audit.md` — task, **open** — .distill-diff.json per converge run
+- `tickets/14-memory-diff-audit.md` — task, **closed 2026-08-30** — PR #2163. Per-run memory diff `.distill-diff.json` beside `.distill-state.json` (OpenViking memory_diff.json analog): `{runId, created[], merged[](field ops — union only for append-only supersets, the D4 table's array semantics), superseded[](found), skipped[](gate-kill reasons via the new additive `killed` param)}`; atomic tmp+rename (crash mid-run leaves the prior diff); `runId` joins `DistillState.history[].ts`; `ConvergeResult.diff` returns it, the zk_ingest converge action prints a one-line counts summary + `details.diffFile`. Replay test (ops applied to pre-run snapshot == real post-run card on every field); crash-intact; pipeline e2e shape assertions; kcard 787 pass / 0 fail, tsc clean, local_ci 116s. Real-run receipt: run2 merged ops `tags:union, confidence:replace, body:replace`
 
 Phase P4 — eval harness + closeout
 - `tickets/15-retrieval-eval-harness.md` — task, **open** — one-command eval, bge-m3 vs nomic A/B
@@ -240,15 +240,14 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/14-memory-diff-audit.md` — ticket 13 closed 2026-08-30 (semantic dedup
-pre-filter SHIPPED behind opt-in `semanticDedup`: vector ≥0.90 deterministic merge +
-0.75–0.90 gray-zone guardrailed LLM decision, offline-safe degrade; real-vault receipt
-cosine 0.867 zh-TW near-dup merged into the correct canonical card, default OFF). t14
-is next because it pairs with t13's dedup — both measure converge-run redundancy: t13
-closes the WRITE-side waste (parallel near-dup cards), t14 closes the READ-side
-visibility gap (`.distill-diff.json` per converge run, so the kill/keep/supersede
-deltas become auditable instead of asserted). The injection flip-path items stay
-charted as their own follow-ups (D12), not blockers.
+`tickets/15-retrieval-eval-harness.md` — ticket 14 closed 2026-08-30 (memory-diff audit
+SHIPPED: `.distill-diff.json` per converge run — created/merged(field ops)/superseded/
+skipped deltas, atomic, replay-tested; real-run receipt in the ticket). t15 is next
+because it is the effort's deciding MEASUREMENT ticket: the one-command eval harness
+(bge-m3 vs nomic A/B) is D3's recorded safety net and the reusable scaffolding already
+exists (t12's `--used-ledger` A/B lanes in `recall-audit.mjs`). After t15 only the docs
+close-out (t17) remains. The injection flip-path items stay charted as their own
+follow-ups (D12), not blockers.
 
 ## Fog of war
 
@@ -291,6 +290,12 @@ charted as their own follow-ups (D12), not blockers.
   CREATES a parallel card — inherent to embed-based dedup, low probability, no mitigation
   charted. (c) cross-midnight re-ingest appends a second merge line (inherited wiki-path
   property, consistent).
+- t14 reviewer residual (#2163 finding 1, fold-back needs a VAULT-side PR + gitlink):
+  `.distill-diff.json` (+ its `.tmp`) has no vault `.gitignore` entry — every production
+  converge run leaves an untracked file in the vault submodule (the #1833-class dirty
+  noise `.distill-state.json`'s existing entry avoids; same fix shape as t11's
+  `.knowledge-usage.jsonl`, pi-agent-vault#22). Also documented: replay covers merged
+  frontmatter fields only (finding 3); `skipped[]` trusts the caller (finding 5).
 - Charted-but-rejected: OpenViking sidecar files (`.abstract.md`/`.overview.md`) — new drift
   surface vs D7 md-git-canonical (rejected in D5); cloud rerank/intent/VLM (no-cloud rule);
   re-arming hermes `card_vectors` (D1 rationale).

@@ -1,8 +1,9 @@
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, renameSync } from "node:fs";
 import { join } from "node:path";
-import type { DistillState } from "./types.ts";
+import type { DistillState, DistillDiff } from "./types.ts";
 
 const STATE_FILE = ".distill-state.json";
+const DIFF_FILE = ".distill-diff.json";
 const MAX_HISTORY = 50;
 const DEFAULT_THRESHOLD = 50;
 
@@ -35,5 +36,33 @@ export function writeState(vaultPath: string, state: DistillState): void {
 		history: state.history.slice(-MAX_HISTORY),
 		lastRun: state.lastRun,
 	};
-	writeFileSync(join(vaultPath, STATE_FILE), JSON.stringify(trimmed, null, 2));
+	// tmp+rename (reviewer #2163 finding 4, symmetric with writeDiff): the
+	// crash window where a torn state file silently resets via readState's
+	// corrupt-handler — orphaning the diff's runId join — is gone.
+	const final = join(vaultPath, STATE_FILE);
+	const tmp = `${final}.tmp`;
+	writeFileSync(tmp, JSON.stringify(trimmed, null, 2), "utf8");
+	renameSync(tmp, final);
+}
+
+/** Write the per-run memory diff ATOMICALLY (tmp + rename, the checkpoint
+ *  pattern): a crash mid-write never leaves a torn `.distill-diff.json` —
+ *  the previous run's diff stays intact until the rename lands. */
+export function writeDiff(vaultPath: string, diff: DistillDiff): void {
+	const final = join(vaultPath, DIFF_FILE);
+	const tmp = `${final}.tmp`;
+	writeFileSync(tmp, JSON.stringify(diff, null, 2), "utf8");
+	renameSync(tmp, final);
+}
+
+/** Read the latest run's diff; null when absent or corrupt (same
+ *  self-healing read contract as readState — never throws). */
+export function readDiff(vaultPath: string): DistillDiff | null {
+	const p = join(vaultPath, DIFF_FILE);
+	if (!existsSync(p)) return null;
+	try {
+		return JSON.parse(readFileSync(p, "utf8")) as DistillDiff;
+	} catch {
+		return null;
+	}
 }
