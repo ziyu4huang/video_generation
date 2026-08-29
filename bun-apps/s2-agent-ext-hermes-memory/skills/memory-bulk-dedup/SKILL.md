@@ -1,9 +1,9 @@
 ---
-name: pi-memory-bulk-dedup
-description: "Bulk-dedup a bloated pi memory target (failure/memory/user) — edits the .md source-of-truth (not just the DB) so deletions survive re-hydration. Ships with dedup.ts; dry-run + backup + FTS verify before any destructive apply."
-version: 3
+name: memory-bulk-dedup
+description: "Bulk-dedup a bloated hermes-memory target (failure/memory/user) — edits the .md source-of-truth (not just the DB) so deletions survive re-hydration. Ships with dedup.ts; dry-run + backup + FTS verify before any destructive apply."
+version: 4
 created: 2026-06-28
-updated: 2026-08-07
+updated: 2026-08-29
 ---
 
 ## ⚠️ Architecture (read first — v1/v2 of this skill got it BACKWARDS)
@@ -25,7 +25,7 @@ A target is full / rejecting `memory add`, AND a dry-run shows real duplicate/to
 Store paths (`sessions.db`, the per-target `.md`, backups, the `.md.lock`, the `.tsv` manifest) **all default to the agent-root memory dir** `${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-hermes-memory/` — the script derives them from the agent root, **never from its own location**, so it works unchanged from a repo worktree, a `--bundle` deploy, or an extracted `--exe` binary. Override the DB (and its co-located `.md` set) with `--db` / `$PI_MEMORY_DB`; select the target with `--target {failure|memory|user}`.
 
 ```bash
-DEDUP=bun-apps/s2-agent-ext-hermes-memory/skills/pi-memory-bulk-dedup/dedup.ts
+DEDUP=bun-apps/s2-agent-ext-hermes-memory/skills/memory-bulk-dedup/dedup.ts
 
 bun "$DEDUP" --target failure                          # 1. DRY-RUN (prints plan, changes nothing)
 bun "$DEDUP" --target failure --commit                 # 2. APPLY safe hard-deletes (.md + DB)
