@@ -96,4 +96,23 @@ describe("every extension skill's frontmatter parses under pi's runtime parser",
 		// after the first bad one behind an identical red.
 		expect(failures).toEqual([]);
 	});
+
+	test("skill names are UNIQUE across packages (flat-surface collision guard, slash-surface D5)", () => {
+		// The family-prefix convention (extension-naming SKILL.md, D5
+		// 2026-08-29) is FLAT by default — which is only safe while no two
+		// packages ship a skill with the same name: the TUI palette and
+		// skill: namespace address skills by bare name, so a collision is a
+		// silent shadow, the exact class ticket 01 measured for commands.
+		// This test turns that runtime hazard into a red here.
+		const byName = new Map<string, string[]>();
+		for (const { pkg, dirName } of allSkillFiles()) {
+			const owners = byName.get(dirName) ?? [];
+			owners.push(pkg);
+			byName.set(dirName, owners);
+		}
+		const collisions = [...byName.entries()]
+			.filter(([, owners]) => owners.length > 1)
+			.map(([name, owners]) => `${name}: ${owners.join(", ")}`);
+		expect(collisions).toEqual([]);
+	});
 });
