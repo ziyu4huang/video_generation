@@ -177,7 +177,7 @@ Phase P2 — injection loop + ledger
 
 Phase P3 — feedback + extraction upgrade
 - `tickets/11-usage-ledger-detection.md` — task, **closed 2026-08-29** — PR #2148 merged (`e989762b`; reviewer BLOCK→fix `23fd0ac6`→APPROVE, repros re-run). Three provenance sources live in `src/feedback/usage.ts` + entry wiring: (i) turn_end assistant-text scan vs the auto-recall served set (trace.servedCards — the same post-budget set the RecallLedger records), (ii) non-error zk_card results vs served set + per-root lazy vault title index (reset after mutating ops), (iii) `pi:knowledge` bus used reports (`emitKnowledgeUsed`/`onKnowledgeUsed`, shape-routed). Storage `<vault>/.knowledge-usage.jsonl` `{uri, at, via}`, NEVER frontmatter (git-clean cycle tested); cross-source monotonicity via a `detected` Set (one row per card per session). Vault ignore entry committed vault-side (pi-agent-vault#22) + gitlink bump. 24 unit tests + entry-wiring integration; 750 pass / 0 fail, tsc clean, portability audit green. Deferred follow-up: Tier-3 plain-subdir vault shows the ledger untracked in the host repo (finding 9). t11's `via` kinds are DISTINCT from the D37 Surreal access ledger (served vs used)
-- `tickets/12-hotness-scoring.md` — task, **open** — bounded hotness multiplier in retrieval
+- `tickets/12-hotness-scoring.md` — task, **closed 2026-08-29** — `src/feedback/hotness-feed.ts` (t11 used-ledger replay → per-uri aggregates, mirrors `usageAggregates`) + `RetrieveOptions.hotness`/`usageLedgerPath` (default OFF); multiplier m(h)=1+0.1·h ∈ [1.0,1.1] ⊆ D8 envelope, neutral at h=0 (ticket's literal 0.9+0.2·h reconciled against its own acceptance — D13); flat+semantic lanes pre-cut, hier lane post-cut; eval receipt: baseline 11/16/17 MRR 0.688 == t04, seeded-targets ON 15/17/17 MRR 0.792, non-targets control identical; **default stays OFF** (production ledger empty — D13 promotion trigger recorded); 764 pass / 0 fail, tsc clean, portability --strict green
 - `tickets/13-extractloop-dedup.md` — task, **open** — vector pre-filter + gray-zone LLM dedup
 - `tickets/14-memory-diff-audit.md` — task, **open** — .distill-diff.json per converge run
 
@@ -228,19 +228,27 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
   caller exists). `KC_AUTORECALL` stays default-off until t10's measured flip; D6's
   deterministic-gate letter is unchanged (no promptSnippet tax — stealth-trim test header
   amended per D7).
+- **D13 — t12 used-ledger hotness multiplier: m(h) = 1 + 0.1·h (neutral at h=0), mechanism
+  PROVEN seeded, default OFF.** The ticket's literal `0.9+0.2·h` contradicts its own
+  acceptance (stale → 1.0, never-used byte-identical) — implemented reward-only upper
+  half [1.0, 1.1] of the D8 envelope. Seeded battery (2026-08-29, real vault, live
+  bge-m3): baseline 11/16/17 MRR 0.688 (== t04), targets-ON 15/17/17 MRR 0.792,
+  non-targets control identical. Promotion gate NOT met by a circular seeded run +
+  the production ledger is still empty → default stays OFF; re-eval trigger = a
+  populated real-usage ledger, then an UNSEEDED on/off battery. Full text in spec.md
+  §3 D13.
 
 ## Frontier
 
-`tickets/12-hotness-scoring.md` — ticket 11 closed 2026-08-29 (usage ledger SHIPPED,
-PR #2148: three provenance sources → `<vault>/.knowledge-usage.jsonl`, cross-source
-monotonic, vault-side ignore entry landed). t12 is next because the P3 feedback loop
-now has its missing write side: the used-ledger rows exist, and t12's bounded ≤±10%
-hotness multiplier (D8) is the consumer that closes the loop. The hotness math itself
-already shipped in the parity effort (`src/hotness.ts`, D38/D39 — alpha OFF by
-default); t12's remaining work is the FEED adapter (replay `.knowledge-usage.jsonl`
-into `usageAggregates`' input shape) plus the eval-set gate D8 requires (must beat the
-count baseline before the multiplier defaults on). The injection flip-path items stay
-charted as their own follow-ups, not blockers.
+`tickets/13-extractloop-dedup.md` — ticket 12 closed 2026-08-29 (used-ledger hotness
+multiplier SHIPPED: `src/feedback/hotness-feed.ts` + `RetrieveOptions.hotness`, D13 —
+mechanism proven on the seeded battery 15/20 hit@1 vs 11/20 baseline, noise control
+identical, default stays OFF pending a populated production ledger). t13 is next
+because the P3 extraction upgrade is the only open extraction-side ticket and it is
+independent of the retrieval/injection lanes: the ExtractLoop currently re-distills
+known cards (no pre-filter), and t13's vector pre-filter + gray-zone LLM dedup closes
+the redundant-distill waste the t06 agg builds already measured. The injection
+flip-path items stay charted as their own follow-ups (D12), not blockers.
 
 ## Fog of war
 
