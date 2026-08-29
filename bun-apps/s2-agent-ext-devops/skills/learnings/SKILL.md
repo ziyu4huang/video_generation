@@ -52,7 +52,7 @@ The `hermes-memory` extension uses `~/.pi/agent/pi-hermes-memory/skills/` as **b
 
 Rules that bite during such a migration:
 
-- A mention of a `BANNED_TOOLS` name (`dedup.sh`, `run-test.sh`, `ci-local.sh`, `smoke.sh`, `find-polluter.sh`) is an **unconditional violation on the docs surface** — no history-label relief; describe the launcher without naming it.
+- A mention of a `BANNED_TOOLS` name (the five deleted bash launchers listed in the guard's `BANNED_TOOLS` const — including the dedup and run-test ones) is an **unconditional violation on the docs surface** — no history-label relief; describe the launcher without naming it.
 - Other `.sh` mentions pass only if they (a) are a D6 exception, (b) **resolve on disk** from the repo root (so a bare `setup-repo-deps.sh` must be written as `scripts/setup-repo-deps.sh`), or (c) carry a same-line history label (`history`/`old`/`used to`/`retired`/`pre-Bun-port`).
 
 Before promoting a doc to a skill, grep it for `\.sh` and pre-fix mentions — the seal is a local_ci **gate**, not a lint.
