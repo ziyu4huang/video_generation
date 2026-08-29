@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	isDoctorCommand,
 	isExtDoctorCommand,
+	isExtListCommand,
 	isExtNewCommand,
 	isCliCommand,
 	userSuppressFlags,
@@ -94,6 +95,28 @@ describe("isExtNewCommand", () => {
 		expect(isExtNewCommand(["ext"])).toBe(false);
 		expect(isExtNewCommand(["new"])).toBe(false);
 		expect(isExtNewCommand(["-p", "ext new foo"])).toBe(false);
+	});
+});
+
+describe("isExtListCommand", () => {
+	test("true for the leading --ext-list flag and the `ext list` alias", () => {
+		expect(isExtListCommand(["--ext-list"])).toBe(true);
+		expect(isExtListCommand(["ext", "list"])).toBe(true);
+	});
+
+	test("false for other ext subcommands and bare tokens", () => {
+		expect(isExtListCommand(["ext", "doctor"])).toBe(false);
+		expect(isExtListCommand(["ext", "new", "foo"])).toBe(false);
+		expect(isExtListCommand(["ext"])).toBe(false);
+		expect(isExtListCommand(["--ext-doctor"])).toBe(false);
+	});
+
+	// Same contract as isDoctorCommand: matching the token ANYWHERE would also
+	// match a literal prompt string passed to -p/--print, hijacking it instead
+	// of running the prompt.
+	test("a literal '--ext-list' prompt passed to -p is NOT hijacked", () => {
+		expect(isExtListCommand(["-p", "--ext-list"])).toBe(false);
+		expect(isExtListCommand(["--print", "ext list"])).toBe(false);
 	});
 });
 

@@ -35,6 +35,7 @@ import { runDoctor, removedFlagNotice } from "./doctor.ts";
 import {
 	isDoctorCommand,
 	isExtDoctorCommand,
+	isExtListCommand,
 	isExtNewCommand,
 	isCliCommand,
 	isBareCliCommand,
@@ -110,6 +111,19 @@ if (isExtDoctorCommand(argv)) {
 if (isExtNewCommand(argv)) {
 	const { runExtNew } = await import("./ext-new.ts");
 	process.exit(await runExtNew(argv.slice(2)));
+}
+
+// `--ext-list` / `ext list`: dev-mode parity with the sh launcher — print the
+// registry-derived extension report (IDENTICAL payload to src/sh/ext-list.ts;
+// see src/ext-list.ts) and exit 0. Intercepted before applyPatches() like
+// ext doctor/ext new: the diagnostic must answer offline in seconds without
+// evaluating any extension graph, and pi's own parser would otherwise answer
+// `Unknown option: --ext-list` and fall through to a model session (the exact
+// 40s+ silent "hang" the parity gap measured).
+if (isExtListCommand(argv)) {
+	const { formatDevExtList } = await import("./ext-list.ts");
+	console.log(await formatDevExtList(userSuppressFlags(argv)));
+	process.exit(0);
 }
 
 // `cli <command>`: the non-interactive CLI namespace (agent commands, pipelines,

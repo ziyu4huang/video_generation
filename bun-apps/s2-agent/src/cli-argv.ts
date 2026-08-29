@@ -20,6 +20,19 @@ export function isExtDoctorCommand(argv: string[]): boolean {
 }
 
 /**
+ * True iff argv should route into the `--ext-list` / `ext list` diagnostic —
+ * dev-mode parity with the sh launcher's `--ext-list` flag (same JSON payload,
+ * sourced from the registry instead of ext/ manifests; see src/ext-list.ts).
+ * Only the two leading forms trigger it — same rationale as isDoctorCommand:
+ * matching `--ext-list` ANYWHERE in argv would also match a literal prompt
+ * string passed to `-p`/`--print` (e.g. `-p "--ext-list"`), silently
+ * hijacking it instead of running the prompt.
+ */
+export function isExtListCommand(argv: string[]): boolean {
+	return argv[0] === "--ext-list" || (argv[0] === "ext" && argv[1] === "list");
+}
+
+/**
  * True iff argv should route into `ext new <name>` (the scaffold command).
  * Only the two-token `ext new` prefix triggers it — same rationale as
  * isExtDoctorCommand: matching the tokens ANYWHERE would also match a literal
