@@ -248,7 +248,7 @@ Examples:
 		//    sourceLabel matches the original per-file convention (hermes:MEMORY,
 		//    hermes:failures, hermes:USER) — a single merged label would dirty
 		//    every card's `source` frontmatter on every run.
-		let convergeTotals = { total: 0, created: 0, updated: 0, unchanged: 0, wikiMerged: 0, skipped: 0 };
+		let convergeTotals = { total: 0, created: 0, updated: 0, unchanged: 0, wikiMerged: 0, skipped: 0, semanticMerged: 0, semanticSkipped: 0 };
 		for (const file of collected.files) {
 			const content = readFileSync(file, "utf8");
 			const recs = adaptHermesMarkdown(content);
@@ -271,6 +271,8 @@ Examples:
 			convergeTotals.updated += s.updated;
 			convergeTotals.unchanged += s.unchanged;
 			convergeTotals.wikiMerged += s.wikiMerged;
+			convergeTotals.semanticMerged += s.semanticMerged;
+			convergeTotals.semanticSkipped += s.semanticSkipped;
 			convergeTotals.skipped += s.skipped;
 		}
 		// Reviewer F2/F5 follow-up: same CLI-exit constraint as zk-ingest —
@@ -290,6 +292,9 @@ Examples:
 			skipped: convergeTotals.skipped,
 			linked: 0,
 			wikiMerged: convergeTotals.wikiMerged,
+			semanticMerged: convergeTotals.semanticMerged,
+			semanticSkipped: convergeTotals.semanticSkipped,
+			dedupDecisions: [],
 			mocUpdated: false,
 			vaultPath,
 			folder,

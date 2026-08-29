@@ -36,6 +36,10 @@ _Avoid_: import, bulk load (it is deterministic convergence, lossless + idempote
 `zk_ingest`'s role — dissolves per-workflow `.knowledge.jsonl` silos into ONE shared, queryable, backlinked graph so `zk_ask` can answer cross-source questions.
 _Avoid_: merge, aggregator (it is a convergence point that preserves identity + cross-links)
 
+**Semantic dedup pre-filter**:
+The opt-in (default OFF) ingest-time vector guard — records the Jaccard wiki match misses are cosine-compared against the `.knowledge-semantic` card cache: ≥0.90 top-1 merges deterministically (D4 merge-op table), the 0.75–0.90 gray band asks ONE guardrailed local-LLM skip/create/merge decision (malformed → create), below 0.75 creates; a cache/embedder miss degrades to Jaccard-only (offline-safe).
+_Avoid_: semantic search, recall (it is an ingest-time dedup guard, not a read path)
+
 **Source family** / **adapter**:
 The input shape + parser selected by `zk_ingest`'s `source` param — `workflow-jsonl`, `hermes`, `auto-memory`, or `generic` (the universal any-`.md` adapter).
 _Avoid_: format, parser (a source family is a named input contract; the adapter implements it)

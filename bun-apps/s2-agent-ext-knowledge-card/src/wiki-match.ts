@@ -28,6 +28,9 @@ export function wikiMergeIntoCard(
 	similarity: number,
 	today: string,
 	dryRun: boolean,
+	/** Provenance label of the merge line (default "wiki-merged"); the
+	 *  semantic dedup pre-filter (ticket 13) passes "semantic-merged". */
+	origin = "wiki-merged",
 ): CardOutcome {
 	const original = readFileSync(abs, "utf8");
 	let next = original;
@@ -85,7 +88,7 @@ export function wikiMergeIntoCard(
 	}
 
 	// 2. Append a wiki-merge provenance line to the 證據 / 脈絡 section.
-	const mergeLine = `- wiki-merged: ${sourceLabel} (sim=${similarity.toFixed(3)}, ${today})`;
+	const mergeLine = `- ${origin}: ${sourceLabel} (sim=${similarity.toFixed(3)}, ${today})`;
 	if (!next.includes(mergeLine)) {
 		const secHdr = "## 證據 / 脈絡";
 		const secStart = next.indexOf(secHdr);
