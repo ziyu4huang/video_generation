@@ -302,3 +302,170 @@ describe("runMergeRecipe — non-origin remote (remoteName threading)", () => {
 		expect(detect.calls[0].headRef).toBe("upstream/feat-x");
 	});
 });
+
+/**
+ * Local branch cleanup after THIS invocation merged the PR — the #2143/#2146
+ * recurrence. The tool merged + the REMOTE branch was deleted (REST mergeNow
+ * deletes the ref; gh --delete-branch handles it CLI-side), but the merging
+ * worktree stayed ON the head branch and the local branch survived — the
+ * caller had to `checkout --detach <mergeSha>` + sweep by hand every time.
+ * These tests pin the documented behavior: detach-then-delete ordering, the
+ * deleteLocalBranch-failure warning surface, and the branch-held-elsewhere
+ * non-touch (mirroring the merge-pr-after-ci-cli cleanup tests).
+ */
+describe("runMergeRecipe — local branch cleanup after merge", () => {
+	const MERGED_SHA = "abc123def4567890";
+	/** two prStatus rows: OPEN/CLEAN pre-merge, MERGED post-merge (mergeSha). */
+	const openThenMerged = () => [
+		{ state: "OPEN" as const, mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+		{ state: "MERGED" as const, mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: MERGED_SHA },
+	];
+	/** canned git state: the merging worktree (/repo, ours) sits ON feat-x. */
+	const onHeadBranch = () => [
+		{
+			match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--abbrev-ref",
+			result: { stdout: "feat-x\n", stderr: "", exitCode: 0 },
+		},
+		{
+			match: (c: string, a: string[]) => c === "git" && a[0] === "worktree" && a[1] === "list",
+			result: { stdout: "worktree /repo\nbranch refs/heads/feat-x\n\nworktree /other\nbranch refs/heads/other-branch\n\n", stderr: "", exitCode: 0 },
+		},
+	];
+	// scoped to the BRANCH NAME (last arg) so runLocalCi's `rev-parse
+	// --verify -q origin/<ref>` resolution is untouched (it must stay green).
+	const hasLocalBranch = () => [{
+		match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--verify" && a[a.length - 1] === "feat-x",
+		result: { stdout: "1111111111111111111111111111111111111111\n", stderr: "", exitCode: 0 },
+	}];
+	const gitCalls = (calls: Rec[], ...args: string[]) => calls.filter((c) => c.cmd === "git" && args.every((x, i) => c.args[i] === x));
+
+	test("merging worktree ON the head branch → detaches onto the MERGE SHA, then deletes the local branch (that order)", async () => {
+		const { client } = fakeGh(openThenMerged());
+		const detect = mkDetect({});
+		const { fn, calls } = mkSpawn([...onHeadBranch(), ...hasLocalBranch()]);
+		const r = await runMergeRecipe(baseOpts(client, fn, detect));
+		expect(r.merged).toBe(true);
+		// the merge sha is fetched into the local store first (REST merges happen remotely)
+		expect(gitCalls(calls, "fetch", "origin", MERGED_SHA)).toHaveLength(1);
+		// detach onto the MERGE COMMIT — never the stale pre-merge origin/<base> ref
+		const detach = gitCalls(calls, "checkout", "--detach");
+		expect(detach).toHaveLength(1);
+		expect(detach[0].args).toContain(MERGED_SHA);
+		expect(gitCalls(calls, "checkout", "--detach").some((c) => c.args.includes("origin/main"))).toBe(false);
+		// delete AFTER the detach — `branch -D` on a checked-out branch is refused
+		const del = gitCalls(calls, "branch", "-D");
+		expect(del).toHaveLength(1);
+		expect(del[0].args).toEqual(["branch", "-D", "feat-x"]);
+		expect(calls.indexOf(detach[0])).toBeLessThan(calls.indexOf(del[0]));
+		expect(r.cleanup).toMatchObject({ headBranch: "feat-x", detached: true, detachedOnto: MERGED_SHA, localDeleted: true });
+	});
+
+	test("held by ANOTHER worktree → NO detach, NO local delete, heldElsewhere recorded", async () => {
+		const { client } = fakeGh(openThenMerged());
+		const detect = mkDetect({});
+		const { fn, calls } = mkSpawn([
+			{
+				match: (c: string, a: string[]) => c === "git" && a[0] === "worktree" && a[1] === "list",
+				result: { stdout: "worktree /repo\nbranch refs/heads/feat-x\n\nworktree /elsewhere\nbranch refs/heads/feat-x\n\n", stderr: "", exitCode: 0 },
+			},
+		]);
+		const r = await runMergeRecipe(baseOpts(client, fn, detect));
+		expect(r.merged).toBe(true);
+		expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
+		expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
+		expect(r.cleanup?.heldElsewhere).toBe("/elsewhere");
+		expect(r.cleanup?.notes.join(" ")).toMatch(/checked out in another worktree \(\/elsewhere\)/);
+	});
+
+	test("deleteLocalBranch FAILS → warning surface, merge outcome stays merged:true", async () => {
+		const { client } = fakeGh(openThenMerged());
+		const detect = mkDetect({});
+		const { fn, calls } = mkSpawn([
+			...onHeadBranch(),
+			...hasLocalBranch(),
+			{
+				match: (c: string, a: string[]) => c === "git" && a[0] === "branch" && a[1] === "-D",
+				result: { stdout: "", stderr: "error: branch 'feat-x' not found.", exitCode: 1 },
+			},
+		]);
+		const r = await runMergeRecipe(baseOpts(client, fn, detect));
+		expect(r.merged).toBe(true); // cleanup must never fail a done merge
+		expect(r.cleanup?.localDeleted).toBe(false);
+		expect(r.cleanup?.notes.join(" ")).toMatch(/deleteLocalBranch\(feat-x\) failed/);
+	});
+
+	test("worktree NOT on the head branch → no detach, local branch still deleted", async () => {
+		const { client } = fakeGh(openThenMerged());
+		const detect = mkDetect({});
+		const { fn, calls } = mkSpawn([
+			{
+				match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--abbrev-ref",
+				result: { stdout: "main\n", stderr: "", exitCode: 0 },
+			},
+			...hasLocalBranch(),
+		]);
+		const r = await runMergeRecipe(baseOpts(client, fn, detect));
+		expect(r.merged).toBe(true);
+		expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
+		expect(gitCalls(calls, "branch", "-D", "feat-x")).toHaveLength(1);
+		expect(r.cleanup).toMatchObject({ detached: false, localDeleted: true });
+	});
+
+	test("no local branch in this clone → nothing attempted, benign note", async () => {
+		const { client } = fakeGh(openThenMerged());
+		const detect = mkDetect({});
+		const { fn, calls } = mkSpawn([
+			{
+				// scoped to the BRANCH NAME so runLocalCi's own ref resolution stays green
+				match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--verify" && a[a.length - 1] === "feat-x",
+				result: { stdout: "", stderr: "", exitCode: 1 },
+			},
+		]);
+		const r = await runMergeRecipe(baseOpts(client, fn, detect));
+		expect(r.merged).toBe(true);
+		expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
+		expect(r.cleanup?.noLocalBranch).toBe(true);
+	});
+
+	test("deleteBranch=false → NO cleanup at all", async () => {
+		const { client } = fakeGh(openThenMerged());
+		const detect = mkDetect({});
+		const { fn, calls } = mkSpawn([...onHeadBranch(), ...hasLocalBranch()]);
+		const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), deleteBranch: false });
+		expect(r.merged).toBe(true);
+		expect(r.cleanup).toBeUndefined();
+		expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
+		expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
+	});
+
+	test("merge sha UNFETCHABLE (exit≠0) → refreshed origin/<base> fallback, still detaches + deletes + prunes", async () => {
+		const { client } = fakeGh(openThenMerged());
+		const detect = mkDetect({});
+		const { fn, calls } = mkSpawn([
+			...onHeadBranch(),
+			...hasLocalBranch(),
+			{
+				// the sha-scoped fetch FAILS (sha-scoped so the pre-CI base+head
+				// fetch and the fallback base fetch stay green)
+				match: (c: string, a: string[]) => c === "git" && a[0] === "fetch" && a[2] === MERGED_SHA,
+				result: { stdout: "", stderr: "offline", exitCode: 1 },
+			},
+		]);
+		const r = await runMergeRecipe(baseOpts(client, fn, detect));
+		expect(r.merged).toBe(true);
+		// fallback: the base was re-fetched post-merge (EXACT arg list — the
+		// pre-CI `fetch origin main feat-x` must not be mistaken for it) …
+		const baseFetches = calls.filter(
+			(c) => c.cmd === "git" && c.args.length === 3 && c.args[0] === "fetch" && c.args[1] === "origin" && c.args[2] === "main",
+		);
+		expect(baseFetches).toHaveLength(1);
+		// … and the detach landed on origin/<base>, never the unfetchable sha
+		const detach = gitCalls(calls, "checkout", "--detach");
+		expect(detach).toHaveLength(1);
+		expect(detach[0].args).toEqual(["checkout", "--detach", "origin/main"]);
+		expect(gitCalls(calls, "branch", "-D", "feat-x")).toHaveLength(1);
+		expect(r.cleanup).toMatchObject({ detached: true, detachedOnto: "origin/main", localDeleted: true });
+		// step 4 of the documented semantics: remote-tracking refs refreshed
+		expect(gitCalls(calls, "fetch", "--prune")).toHaveLength(1);
+	});
+});
