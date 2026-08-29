@@ -85,7 +85,7 @@ export function createSubagentTool(
   const gitOps = options.gitOps ?? realGitOps;
   return defineTool({
     // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `subagent`
-    // — see docs/agents/extension-naming.md for the rename history.
+    // — see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
     name: "spawn_subagent",
     label: "Subagent",
     description: [

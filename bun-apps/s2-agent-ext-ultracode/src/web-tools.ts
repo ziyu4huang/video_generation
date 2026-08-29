@@ -62,7 +62,7 @@ export function createWebSearchTool(): ToolDefinition {
     // Namespaced 2026-08-20: legacy name `web_search` collided with web-access's
     // session tool of the same name — workflow children compose
     // [...baseTools, ...extensionTools] and AgentSession's registry silently
-    // kept the LAST entry, shadowing this one. See docs/agents/extension-naming.md.
+    // kept the LAST entry, shadowing this one. See bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md.
     name: "wf_web_search",
     label: "Web Search",
     description: "Search the web and return a list of result URLs and titles. Use before wf_web_fetch to find sources.",

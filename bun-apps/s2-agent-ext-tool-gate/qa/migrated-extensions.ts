@@ -169,7 +169,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 		// 2026-08-10 (it was suppressing validation of a tool that IS gated).
 		// `subagent_runs` genuinely declares no gating and stays exempt — the typo
 		// guard in runDriftGuardNet fails loudly if it is ever renamed or removed.
-		// (Renamed to `list_subagent_runs` 2026-08-20 — docs/agents/extension-naming.md.)
+		// (Renamed to `list_subagent_runs` 2026-08-20 — bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md.)
 		name: "subagent",
 		ungatedByDesign: ["list_subagent_runs"],
 		register: (pi) => {
@@ -234,7 +234,7 @@ export const MIGRATED_EXTENSIONS: MigratedExtension[] = [
 	},
 	{
 		// ticket 03+08 — hermes surface is 6 tools: memory / search_memory
-		// (renamed from `search` 2026-08-20, see docs/agents/extension-naming.md) /
+		// (renamed from `search` 2026-08-20, see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md) /
 		// skill_manage (owner-declared core) + skill_manage_help (registered by
 		// registerSkillTool, ungated always-on companion) + knowledge_search /
 		// knowledge_ingest (keyword-gated; captured in qa/evaluate.ts's corpus).

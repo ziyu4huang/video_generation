@@ -46,7 +46,7 @@
  *   exit) means the boot itself completed — classify SKIP(provider-unavailable),
  *   never FAIL. Only timeouts and non-provider crashes fail the gate; a timeout
  *   FAIL carries the known root cause + the `-ne -ns -e <ext>` mitigation
- *   recipe and points at docs/agents/learnings.md.
+ *   recipe and points at the learnings skill (skills/learnings/SKILL.md).
  *
  * SEAMS (everything spawnable is injected; tests never spawn or touch network)
  *   - `classifyRun` / `shouldRun` are pure and exported for unit tests.
@@ -153,7 +153,7 @@ export const BOOT_HANG_DIAGNOSTIC = [
 	"Mitigation for one-shot runs: add `-ne -ns -e <ext>` — suppress run-dir extensions/skills",
 	"AND static factories, then re-enable only the extension you need, e.g.",
 	"  bun bun-apps/s2-agent/src/cli.ts -p '<prompt>' -ne -ns -e bun-apps/s2-agent-ext-<X>/extensions/<X>.ts",
-	"Full incident + recipe: docs/agents/learnings.md (s2-agent one-shot boot hang).",
+	"Full incident + recipe: bun-apps/s2-agent-ext-devops/skills/learnings/SKILL.md (s2-agent one-shot boot hang).",
 ].join("\n");
 
 /**

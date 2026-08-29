@@ -118,7 +118,7 @@ export const STATIC_EXTENSION_FACTORIES = [
 	{ name: "s2-agent-ext-btw", factory: btwExtension },
 	{ name: "s2-agent-ext-file2md", factory: file2mdExtension },
 	// subagent — owns spawn_subagent + list_subagent_runs tools (renamed
-	// 2026-08-20, docs/agents/extension-naming.md) + shared singletons; must
+	// 2026-08-20, bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md) + shared singletons; must
 	// load before workflow so workflow's /subagents viewer reads a populated registry.
 	{ name: "s2-agent-ext-subagent", factory: subagentExtension },
 	{ name: "s2-agent-ext-ultracode", factory: ultracodeExtension },

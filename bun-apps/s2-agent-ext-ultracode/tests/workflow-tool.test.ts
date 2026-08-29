@@ -28,7 +28,7 @@ test("backgroundStartedText tells the user it auto-continues and they can wait",
 
 test("createWorkflowTool has correct name and label", () => {
   const tool = createWorkflowTool();
-  // Renamed from `workflow` 2026-08-20 — docs/agents/extension-naming.md
+  // Renamed from `workflow` 2026-08-20 — bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md
   assert.equal(tool.name, "run_workflow");
   assert.equal(tool.label, "Workflow");
 });

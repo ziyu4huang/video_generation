@@ -218,7 +218,7 @@ describe("matchIntent (S1)", () => {
     // → buildEffectiveGates groups all 14 into a single multi-name gate.
     // Intent-mode fires the whole family; co-fire via updateSticky is
     // preserved by the grouped names. (Names renamed 2026-08-20 —
-    // docs/agents/extension-naming.md.)
+    // bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md.)
     const matched = matchIntent("orchestrate a parallel pipeline", EFF.gates, sticky());
     expect(matched.map((g) => g.names[0])).toEqual(["run_workflow"]);
     expect(matched[0]!.names).toEqual([

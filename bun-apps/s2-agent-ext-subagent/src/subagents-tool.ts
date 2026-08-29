@@ -375,7 +375,7 @@ export function createSubagentsTool(
 
   return defineTool<typeof subagentsToolSchema, SubagentsToolDetails>({
     // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `subagents`
-    // — see docs/agents/extension-naming.md for the rename history.
+    // — see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
     name: "list_subagents",
     label: "Subagents",
     description:

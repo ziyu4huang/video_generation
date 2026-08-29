@@ -302,7 +302,7 @@ export function buildForcedWorkflowPrompt(text: string, extraDirective?: string)
     "[workflows mode is ON for this message]",
     "You MUST handle this request by calling the tool named exactly `run_workflow` (Pi's",
     "deterministic JavaScript workflow-orchestration tool from s2-agent-ext-ultracode;",
-    "renamed from `workflow` 2026-08-20 — docs/agents/extension-naming.md).",
+    "renamed from `workflow` 2026-08-20 — bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md).",
     "Write a workflow script that fans the task out across subagents via",
     "agent()/parallel()/pipeline().",
     "",
@@ -323,7 +323,7 @@ export function buildForcedWorkflowPrompt(text: string, extraDirective?: string)
  */
 /** The exact name of the workflow tool that workflows mode forces. */
 // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `workflow` —
-// see docs/agents/extension-naming.md for the rename history.
+// see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
 export const WORKFLOW_TOOL_NAME = "run_workflow";
 
 export function registerWorkflowTriggerCommand(

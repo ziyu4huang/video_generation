@@ -2,7 +2,7 @@
 
 The ubiquitous language of s2-agent-ext-research-tool — research collection: gather LLM/AI videos from Bilibili and YouTube, organize vault frontmatter, import pi-hermes-memory entries into a vault-mind collection, and discover/fetch arXiv papers. Ports and unifies the standalone collection scripts into one self-contained extension, and ports arXiv tooling from @wienerberliner/pi-arxiv.
 
-> Each term carries a `_Source_:` anchor (`file#symbol`). These are **verified-against-repo** locators in the spirit of Harness Handbook's behavior–implementation alignment (arXiv:2607.13285): if a symbol moves or is renamed, the anchor must be refreshed. See `docs/agents/shared-state-index.md` for cross-package shared state.
+> Each term carries a `_Source_:` anchor (`file#symbol`). These are **verified-against-repo** locators in the spirit of Harness Handbook's behavior–implementation alignment (arXiv:2607.13285): if a symbol moves or is renamed, the anchor must be refreshed. See the `shared-state-index` skill (`bun-apps/s2-agent-ext-devops/skills/shared-state-index/SKILL.md`) for cross-package shared state.
 
 ## Language
 

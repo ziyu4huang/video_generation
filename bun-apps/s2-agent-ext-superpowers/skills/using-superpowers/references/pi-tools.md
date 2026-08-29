@@ -2,7 +2,7 @@
 
 Skills speak in actions ("dispatch a subagent", "create a todo", "read a file"). On Pi these resolve to the tools below.
 
-> Renamed 2026-08-20 (see `docs/agents/extension-naming.md`): `subagent` → `spawn_subagent`, `subagents` → `list_subagents`, `subagent_runs` → `list_subagent_runs`, `workflow` → `run_workflow`. Historical transcripts referencing the old names mean the same tools.
+> Renamed 2026-08-20 (see the `extension-naming` skill, `bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md`): `subagent` → `spawn_subagent`, `subagents` → `list_subagents`, `subagent_runs` → `list_subagent_runs`, `workflow` → `run_workflow`. Historical transcripts referencing the old names mean the same tools.
 
 | Action skills request | Pi equivalent |
 | --- | --- |

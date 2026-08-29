@@ -36,7 +36,7 @@ describe("hermes-memory schema-cost regression", () => {
   test("6 tools registered", () => {
     const tools = captureHermesTools();
     expect(Object.keys(tools).sort()).toEqual(
-      // `search` renamed to `search_memory` 2026-08-20 (see docs/agents/extension-naming.md)
+      // `search` renamed to `search_memory` 2026-08-20 (see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md)
       ["memory", "search_memory", "knowledge_ingest", "knowledge_search", "skill_manage", "skill_manage_help"].sort(),
     );
   });

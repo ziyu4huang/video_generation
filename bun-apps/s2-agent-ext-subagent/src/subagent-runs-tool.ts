@@ -242,7 +242,7 @@ export function createSubagentRunsTool(
   const { persistence } = options;
   return defineTool({
     // Renamed 2026-08-20 (tool-name verb_object effort): legacy name
-    // `subagent_runs` — see docs/agents/extension-naming.md for the rename history.
+    // `subagent_runs` — see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
     name: "list_subagent_runs",
     label: "SubagentRuns",
     description:

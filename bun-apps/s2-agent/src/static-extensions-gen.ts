@@ -122,7 +122,7 @@ const ROW_COMMENTS: Record<string, string> = {
 	task: 'Group A — original "general productivity" set',
 	obsidian: "Group B — migrated from dynamic `-e` so the single-exe build bundles them",
 	subagent:
-		"subagent — owns spawn_subagent + list_subagent_runs tools (renamed\n2026-08-20, docs/agents/extension-naming.md) + shared singletons; must\nload before workflow so workflow's /subagents viewer reads a populated registry.",
+		"subagent — owns spawn_subagent + list_subagent_runs tools (renamed\n2026-08-20, bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md) + shared singletons; must\nload before workflow so workflow's /subagents viewer reads a populated registry.",
 	"power-tool":
 		"power-tool — always-on agent self-diagnostics suite (the inspect_* tools;\nroster in its own TOOL_FACTORIES, deliberately not restated here). Active,\nnot lazy, so it belongs inline like the rest of Group B.",
 	hyperframes:
