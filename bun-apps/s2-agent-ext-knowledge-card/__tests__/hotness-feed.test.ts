@@ -119,7 +119,7 @@ describe("retrieveRecords × used-ledger hotness — integration (ticket 12)", (
 		return FOLDER;
 	}
 
-	test("default (no hotness option) never reads the ledger — byte-identical OFF lane", async () => {
+	test("default (no hotness option) ignores the ledger entirely — byte-identical OFF lane", async () => {
 		const { retrieveRecords } = await import("../src/retrieve.ts");
 		const FOLDER = await ingest(["a", "b"]);
 		// A ledger that WOULD change ranking (hot + recent) + a poisoned read

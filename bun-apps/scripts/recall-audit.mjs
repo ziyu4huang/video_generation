@@ -254,6 +254,7 @@ if (ARMS.has("kcard")) {
 	let semanticUsedOnce = false;
 	let hotnessUsedOnce = false;
 	let usedLedgerUsedOnce = false;
+	let hierUsedOnce = false;
 	// F4: the receipt must record the ledger's A/B round state on its own
 	// (reset + seeded counts) — console logs are not receipts.
 	let receiptSeedNote = null;
@@ -409,8 +410,13 @@ if (ARMS.has("kcard")) {
 			}
 		}
 		console.log(`seeded used-ledger rows: ${seededLedger * 3} (mode ${args["seed-used-ledger"]})`);
+		// Reviewer note: an ENOENT reset is "nothing to remove", not a failure —
+		// record it as "absent" so the receipt never reads as a skipped reset.
 		receiptUsedLedgerSeed = {
-			mode: args["seed-used-ledger"], reset: resetLedger, cards: seededLedger, events: seededLedger * 3,
+			mode: args["seed-used-ledger"],
+			reset: args["reset-used-ledger"] ? (resetLedger ? "removed" : "absent") : false,
+			cards: seededLedger,
+			events: seededLedger * 3,
 		};
 	}
 	const scored = await scoreArm(battery.kcard ?? [], async (q) => {
@@ -431,6 +437,7 @@ if (ARMS.has("kcard")) {
 		if (result.trace?.semanticUsed) semanticUsedOnce = true;
 		if (result.trace?.hotnessUsed) hotnessUsedOnce = true;
 		if (result.trace?.hotnessLedgerUsed) usedLedgerUsedOnce = true;
+		if (result.trace?.hierUsed) hierUsedOnce = true;
 		// Rank key = "card-id :: path" so target matching can hit either side.
 		return result.cards.map((c) => `${c.id} :: ${c.path}`);
 	}, (id, e) => {
@@ -442,6 +449,7 @@ if (ARMS.has("kcard")) {
 		vaultCards: files.length,
 		hotness: { alpha: HOTNESS_ALPHA, seedUsage: receiptSeedNote, used: hotnessUsedOnce },
 		usedLedger: { on: USED_LEDGER, seed: receiptUsedLedgerSeed, used: usedLedgerUsedOnce },
+		hierUsed: hierUsedOnce,
 		coverage: {
 			present: (battery.kcard ?? []).filter((e) => !e.negative && !e._absent).length,
 			absent: (battery.kcard ?? []).filter((e) => !e.negative && e._absent).length,
