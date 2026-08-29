@@ -62,6 +62,14 @@ _Avoid_: alert, notification, interrupt (with the env unset it never injects int
 A severity-tagged issue emitted by `inspect_extensions` or `inspect_pathology`, shaped `{ severity, id }` (e.g. `{ high, "retry-loop" }`).
 _Avoid_: issue, error, violation
 
+**Issue count**:
+The report's summary-line number (`summarizeFindings().total`, `src/findings.ts`) — ACTIONABLE findings only (`high`/`medium`/`low`); `info` findings (missing-snippet, no-guidelines, tax tables, lazy totals) are excluded from it and included in the JSON `findings[]` length. The report carries NO single "count": a number quoted without naming its line (issue count · JSON findings length · source count · per-source tool count) is an unknown basis.
+_Avoid_: extension count, finding count (unqualified), "how many extensions" (the summary line counts findings, not extensions)
+
+**Source count**:
+The `total-extension-tax` line's "across N source(s)" — DISTINCT `sourceInfo.path` values among ACTIVE non-builtin tools, computed by the `tax` map in `analyzeExtensions()` (`src/tools/inspect-extensions.ts`; pinned by the "counting semantics" tests in `src/__tests__/index.test.ts`). Not extensions loaded (a tool-less or skills-only extension is invisible to it), not tools registered (two tools from one entry file count once), not builtins. Mode-independent in DEFINITION; mode-dependent in VALUE because the underlying extension sets differ by construction (dev loads the full 24-entry registry incl. machine-bound swift-CLI exts; a dist session loads the shipped base set, with its own active/lazy split). The 2026-08-29 dev-104-vs-deploy-11 contrast was an issue-count reading vs a source-count reading — different lines, both correct.
+_Avoid_: extension count, loaded extensions, tool count (it counts tool-bearing entry FILES among active tools)
+
 ### Severity & cost
 
 **Severity framework**:
