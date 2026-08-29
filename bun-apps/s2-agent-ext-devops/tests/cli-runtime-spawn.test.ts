@@ -30,6 +30,7 @@ import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { bakedModelPairs } from "../src/deploy-e2e-recipe.js";
 
 const PKG = resolve(import.meta.dir, "..");
 const REPO = resolve(PKG, "..", "..");
@@ -74,6 +75,13 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 	const VERSION = "0.1.0+gstub0000";
 	const versionDir = join(root, VERSION);
 
+	// Catalog-true --list-models rows from the REAL baked PROVIDERS §1 (the
+	// providers-catalog probe imports the same source — a stub listing fewer
+	// than every baked pair would fail the probe's missing-pairs check).
+	const lmRows = bakedModelPairs()
+		.map((p) => `${p.provider}    ${p.model}    200K    65.5K    yes    yes`)
+		.join("\n");
+
 	test("healthy stub tree: exit 0, verdict pass, pure JSON on stdout", () => {
 		mkdirSync(versionDir, { recursive: true });
 		writeFileSync(
@@ -83,6 +91,10 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 				'case "$1" in',
 				"  --help) echo 'usage: stub'; exit 0;;",
 				"  --ext-list) echo '{\"loadedCount\":2,\"loaded\":[\"stub-a\",\"stub-b\"],\"skipped\":[]}'; exit 0;;",
+				// providers-catalog: --list-models ON (default) vs OFF (patch gate) —
+				// ON lists every baked pair, OFF lists only an ambient row, so the
+				// probe sees coverage AND a patch-only contribution.
+				`  --list-models) if [ "$BUN_PI_PRE_LOAD_PROVIDERS" = "0" ]; then printf 'provider     model\ndeploy-probe-stub-ambient    x\n'; else printf 'provider     model\n${lmRows}\n'; fi; exit 0;;`,
 				// tools-probe: -e <path> -p hi — healthy active set, core intact
 				"  -e) echo '[TOOLS] {\"total\":66,\"matched\":2,\"activeCount\":26,\"active\":[\"read\",\"write\",\"edit\",\"bash\",\"enable_tool\"],\"missing\":[],\"gateSeam\":null,\"getActiveTools\":true}' >&2; exit 0;;",
 				"  -p) echo ok; exit 0;;",
@@ -111,6 +123,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 			"ext-load:pass",
 			"cwd-independence:pass",
 			"tools-probe:pass",
+			"providers-catalog:pass",
 			"model-call:pass",
 			"vision-call:skip",
 			"file2md-ocr:skip",
