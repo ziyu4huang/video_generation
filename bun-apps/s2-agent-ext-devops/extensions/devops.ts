@@ -381,9 +381,10 @@ export default function (pi: ExtensionAPI): void {
 		name: "merge_pr_after_local_ci",
 		label: "Gate a GitHub PR on run_local_ci, then squash-merge",
 		description:
-			"Gate a GitHub PR on run_local_ci (offline typecheck+tests+quality-gates for the PR's changed packages vs its base), then squash-merge — no remote CI, no polling. Blocks (no merge) when run_local_ci fails OR detection errors OR the PR is BEHIND/non-CLEAN. Remote CI is disabled in this repo; this is the local proxy gate. Returns merged/blocked + a localCi breakdown.",
+			"Gate a GitHub PR on run_local_ci (offline typecheck+tests+quality-gates for the PR's changed packages vs its base), then squash-merge — no remote CI, no polling. Blocks (no merge) when run_local_ci fails OR detection errors OR the PR is BEHIND/non-CLEAN. Remote CI is disabled in this repo; this is the local proxy gate. On merge, also cleans up the spent branch: remote ref deleted, the merging worktree detached onto the merge commit, local branch deleted (held-elsewhere branches are left alone). Returns merged/blocked + a localCi breakdown.",
 		gating: { gate: "merge_pr_after_local_ci" }, // reference form (ticket 01)
-		promptSnippet: "Merge a PR: run run_local_ci over the PR's changed packages vs its base, then squash-merge when green + CLEAN. Blocks on red CI / BEHIND / non-CLEAN. No remote CI, no polling.",
+		promptSnippet:
+			"Merge a PR: run run_local_ci over the PR's changed packages vs its base, then squash-merge when green + CLEAN. Blocks on red CI / BEHIND / non-CLEAN. No remote CI, no polling. On merge, detaches the merging worktree + deletes the spent branch (remote + local).",
 		parameters: Type.Object({
 			prNumber: Type.Integer({ description: "The PR number to merge." }),
 			strategy: Type.Optional(
@@ -415,8 +416,19 @@ export default function (pi: ExtensionAPI): void {
 			});
 			const took = ` Took ${Math.round(outcome.elapsedMs / 1000)}s.`;
 			const ciBlock = outcome.localCi ? `\n${formatCiOutcome(outcome.localCi)}` : "";
+			// Branch-cleanup line — VISIBLE by design: the #2143/#2146 recurrence
+			// was exactly this information being absent (remote deleted, local
+			// branch left checked out, nothing said). One compact line + notes.
+			const c = outcome.cleanup;
+			const ontoLabel = (ref: string | undefined) => (ref ? (ref.includes("/") ? ref : `@${ref.slice(0, 7)}`) : "");
+			const cleanupLine = c
+				? c.heldElsewhere
+					? ` Branch: '${c.headBranch}' is checked out in another worktree (${c.heldElsewhere}) — left in place.`
+					: ` Branch: ${c.detached ? `detached ${ontoLabel(c.detachedOnto)}` : "no detach needed"}${c.localDeleted ? ` + local '${c.headBranch}' deleted` : ""}.`
+				: "";
+			const cleanupNotes = c?.notes.length ? ` Branch-cleanup notes: ${c.notes.join(" | ")}` : "";
 			const text = outcome.merged
-				? `✅ PR #${params.prNumber} MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""} — run_local_ci green, squash-merged.${took}${ciBlock}`
+				? `✅ PR #${params.prNumber} MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""} — run_local_ci green, squash-merged.${took}${cleanupLine}${cleanupNotes}${ciBlock}`
 				: outcome.finalState === "MERGED"
 					? `✅ PR #${params.prNumber} was already MERGED${outcome.mergeSha ? ` (${outcome.mergeSha.slice(0, 7)})` : ""}.`
 					: outcome.error?.startsWith("PR is behind base")

@@ -18,6 +18,12 @@
  *   6. ci green: mergeState==="BEHIND" → block (NO auto-rebase — rebase
  *      locally + re-push, then re-run). mergeState!=="CLEAN" → block.
  *      mergeState==="CLEAN" → `gh pr merge --<strategy>` (+--delete-branch).
+ *   7. LOCAL branch cleanup (deleteBranch): mergeNow deletes the REMOTE
+ *      branch, but the merging worktree is still sitting ON the head branch
+ *      and git refuses `branch -D` on a checked-out branch — so fetch the
+ *      merge sha, detach this worktree onto it, then delete the local
+ *      branch (a branch held by a DIFFERENT worktree is left alone). All
+ *      best-effort: failures land in `cleanup.notes`, never in `error`.
  *
  * All I/O is behind the injectable `GhClient` + `SpawnFn` seams, so it's fully
  * testable with fakes — mirroring how `runLocalCi` is tested with an injected
@@ -26,6 +32,8 @@
 import type { SpawnFn } from "./spawn.js";
 import type { CiOutcome } from "./ci-recipe.js";
 import { runLocalCi } from "./ci-recipe.js";
+import { createBranchClient } from "./gh.js";
+import { runLocalBranchCleanup, type BranchCleanupResult } from "./branch-cleanup.js";
 import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "./changed-packages.js";
 import type { CiGatesResult } from "./ci-gates.js";
 import type { ForgeClient } from "./forge/types.js";
@@ -68,6 +76,10 @@ export interface RecipeOutcome {
 	finalState: string;
 	mergeSha?: string;
 	localCi?: CiOutcome;
+	/** Post-merge LOCAL branch cleanup — present when THIS invocation merged
+	 *  with deleteBranch (the spent head branch is detached-off + deleted;
+	 *  failures are notes, never errors). */
+	cleanup?: BranchCleanupResult;
 	elapsedMs: number;
 	error?: string;
 }
@@ -184,7 +196,46 @@ export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome
 		/* best-effort — keep the pre-merge mergeSha (likely undefined) */
 	}
 
-	return { merged: true, finalState: "MERGED", mergeSha, localCi: ci, elapsedMs: elapsed() };
+	// 7. Local branch cleanup (remote deletion was mergeNow's job). The merge
+	//    happened SERVER-side — REST merges (and gh's own squash) never put the
+	//    merge commit into the local object store — so fetch the sha before
+	//    detaching onto it; without it `checkout --detach <sha>` fails with
+	//    "reference is not a tree". Fall back to a refreshed `origin/<base>`
+	//    (the pre-CI fetch left that ref at the PRE-merge tip) when the sha is
+	//    unknown or unfetchable. Everything here is best-effort: the merge has
+	//    already landed, so cleanup failures are notes — never a failed recipe.
+	let cleanup: BranchCleanupResult | undefined;
+	if (deleteBranch) {
+		const remote = opts.remoteName ?? "origin";
+		let onto = mergeSha;
+		if (onto) {
+			// Guarded like the step-3 fetch: the merge has ALREADY landed — a
+			// spawn rejection here must never fail the recipe for a done merge.
+			try {
+				const f = await spawn("git", ["fetch", remote, onto], { cwd: repoRoot });
+				if (f.exitCode !== 0) onto = undefined; // unfetchable sha → fall back
+			} catch {
+				onto = undefined;
+			}
+		}
+		if (!onto) {
+			try {
+				await spawn("git", ["fetch", remote, status.baseRefName], { cwd: repoRoot });
+			} catch {
+				/* offline: detach onto the (possibly stale) tracking ref is still
+			 * safe for a spent branch; cleanup notes any resulting failure */
+			}
+			onto = `${remote}/${status.baseRefName}`;
+		}
+		cleanup = await runLocalBranchCleanup({
+			client: createBranchClient(spawn, remote),
+			headBranch: status.headRefName,
+			repoRoot,
+			onto,
+		});
+	}
+
+	return { merged: true, finalState: "MERGED", mergeSha, localCi: ci, ...(cleanup ? { cleanup } : {}), elapsedMs: elapsed() };
 }
 
 function errMsg(err: unknown): string {
