@@ -28,10 +28,11 @@ function toRecord(note: EnrichedNote): KnowledgeRecord {
 
 /** Diff one merged card's post-run frontmatter (+body) against its pre-run
  *  raw content, emitting field ops — the applied view of the D4 merge-op
- *  table. Array-vs-array changes become "union" with the ADDED items (the
- *  table's only array semantics: sources/tags are append-only unions);
- *  everything else is "replace"; a key the pre-run card lacked is "add". */
-function diffCardOps(preRaw: string | null, postRaw: string): DistillDiffFieldOp[] {
+ *  table. Array-vs-array changes become "union" with the ADDED items when the
+ *  post array grows append-only (the table's only array semantics: sources/
+ *  tags are unions); reorder/removal/disjoint is "replace"; a key the pre-run
+ *  card lacked is "add". Exported for unit tests (pure). */
+export function diffCardOps(preRaw: string | null, postRaw: string): DistillDiffFieldOp[] {
 	const ops: DistillDiffFieldOp[] = [];
 	if (preRaw === null) return ops; // caller handles the not-comparable case
 	const pre = parseFrontmatter(preRaw).data ?? {};
@@ -44,12 +45,14 @@ function diffCardOps(preRaw: string | null, postRaw: string): DistillDiffFieldOp
 		if (Array.isArray(a) && Array.isArray(b)) {
 			const eq = (x: unknown, y: unknown) => JSON.stringify(x) === JSON.stringify(y);
 			const added = b.filter((x) => !a.some((y) => eq(y, x)));
-			// Union only when the post array is append-only over the pre
-			// array (superset + |added| accounts for the growth, the
-			// merge-op table's array semantics); a removal, swap, or
-			// disjoint change is a plain replace of the whole array.
+			// Union only when the post array GROWS append-only over the pre
+			// array (superset + |added| == growth, the merge-op table's array
+			// semantics); a removal, swap, reorder (growth 0, added 0, but
+			// differing — reviewer #2163 finding 2), or disjoint change is a
+			// plain replace of the whole array.
 			const superset = a.every((y) => b.some((x) => eq(x, y)));
-			if (superset && added.length === b.length - a.length) ops.push({ field: k, op: "union", value: added });
+			const growth = b.length - a.length;
+			if (superset && added.length === growth && growth > 0) ops.push({ field: k, op: "union", value: added });
 			else ops.push({ field: k, op: "replace", value: b });
 		} else if (a === undefined) {
 			ops.push({ field: k, op: "add", value: b });

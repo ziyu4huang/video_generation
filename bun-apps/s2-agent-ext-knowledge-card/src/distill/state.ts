@@ -36,7 +36,13 @@ export function writeState(vaultPath: string, state: DistillState): void {
 		history: state.history.slice(-MAX_HISTORY),
 		lastRun: state.lastRun,
 	};
-	writeFileSync(join(vaultPath, STATE_FILE), JSON.stringify(trimmed, null, 2));
+	// tmp+rename (reviewer #2163 finding 4, symmetric with writeDiff): the
+	// crash window where a torn state file silently resets via readState's
+	// corrupt-handler — orphaning the diff's runId join — is gone.
+	const final = join(vaultPath, STATE_FILE);
+	const tmp = `${final}.tmp`;
+	writeFileSync(tmp, JSON.stringify(trimmed, null, 2), "utf8");
+	renameSync(tmp, final);
 }
 
 /** Write the per-run memory diff ATOMICALLY (tmp + rename, the checkpoint

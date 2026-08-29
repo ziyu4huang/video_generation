@@ -14,8 +14,8 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runConverge } from "../../src/distill/converge.ts";
-import { writeDiff, readDiff } from "../../src/distill/state.ts";
+import { runConverge, diffCardOps } from "../../src/distill/converge.ts";
+import { writeDiff, readDiff, writeState, readState } from "../../src/distill/state.ts";
 import type { DistillDiff, DistillDiffFieldOp } from "../../src/distill/types.ts";
 import type { EnrichedNote } from "../../src/distill/types.ts";
 import { parseFrontmatter } from "@repo/s2-agent-ext-obsidian";
@@ -67,6 +67,38 @@ describe("writeDiff / readDiff (atomic writer)", () => {
 		expect(readDiff(vault)).toBeNull();
 		writeFileSync(join(vault, ".distill-diff.json"), "{torn", "utf8");
 		expect(readDiff(vault)).toBeNull();
+	});
+
+	test("writeState is atomic too (reviewer #2163 finding 4): no tmp debris", () => {
+		writeState(vault, { threshold: 42, history: [], lastRun: "t1" });
+		expect(readState(vault)).toEqual({ threshold: 42, history: [], lastRun: "t1" });
+		expect(existsSync(join(vault, ".distill-state.json.tmp"))).toBe(false);
+	});
+});
+
+describe("diffCardOps array classification (reviewer #2163 finding 2)", () => {
+	const card = (tags: string) =>
+		`---\nid: x\ncreated: 2026-01-01\ntags: [zettel, ${tags}]\n---\n# X\n\nbody\n`;
+
+	test("append-only growth → union with the added items", () => {
+		const ops = diffCardOps(card("a, b"), card("a, b, c"));
+		const tagsOp = ops.find((o) => o.field === "tags")!;
+		expect(tagsOp.op).toBe("union");
+		expect(tagsOp.value).toEqual(["c"]);
+	});
+
+	test("pure reorder (same items, different order) → replace, NOT union []", () => {
+		const ops = diffCardOps(card("lora, training"), card("training, lora"));
+		const tagsOp = ops.find((o) => o.field === "tags")!;
+		expect(tagsOp.op).toBe("replace");
+		expect(tagsOp.value).toEqual(["zettel", "training", "lora"]);
+	});
+
+	test("removal → replace with the whole post array", () => {
+		const ops = diffCardOps(card("a, b, c"), card("a"));
+		const tagsOp = ops.find((o) => o.field === "tags")!;
+		expect(tagsOp.op).toBe("replace");
+		expect(tagsOp.value).toEqual(["zettel", "a"]);
 	});
 });
 
