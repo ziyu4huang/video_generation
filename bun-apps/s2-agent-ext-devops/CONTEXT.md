@@ -136,6 +136,19 @@ distinct from the PR/merge keywords above.
   (that bus is repo code and measured healthy); "the reviewer is silent"
   (the reviewer finished — the INJECTION failed).
 
+### Diagnostics
+
+- **Doctor family** — the repo's FIVE diagnostic surfaces (sh doctor, ext
+  doctor, cli doctor, session-doctor-cli, the debug-s2-session skill), each
+  guarding a different boundary (deploy-mode statics, extension registry,
+  fresh-machine conditions, live tools-active probe, method routing). They
+  are deliberately NOT merged; the symptom→surface routing table is the one
+  doc that ties them together.
+  _Avoid_: "run the doctor" without naming which (there are five — route
+  via the table first); a sixth mega-doctor surface (each check class must
+  fail legibly on its own)
+  _Source_: docs/doctor-family.md
+
 ## Layout
 - `extensions/devops.ts` — registered entry; thin glue registering every tool.
 - `src/pr-logic.ts` / `src/branch-logic.ts` — PURE decision logic (unit-tested).

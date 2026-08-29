@@ -5,6 +5,10 @@ description: 'Use when an s2-agent session looks broken in a way config inspecti
 
 # Debugging an s2-agent Session (tool surface / model lane / request payload)
 
+> One of FIVE diagnostic surfaces — for "which doctor do I run?", see the
+> routing table at `bun-apps/s2-agent-ext-devops/docs/doctor-family.md`
+> (this skill is the method layer; session-doctor-cli below is its probe).
+
 ## Overview
 
 Deploys #1921→#1946 booted TOOLLESS sessions — `tools: []` in every provider

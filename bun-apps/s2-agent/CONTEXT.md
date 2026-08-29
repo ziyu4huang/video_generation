@@ -59,6 +59,7 @@ _Avoid_: reusing the term for the sh deploy (it rebuilds unconditionally)
 **doctor**:
 The offline self-check — detects deploy mode, verifies the extension set is complete for it, checks host deps, reports provider keys + which patches would apply. Exit 0 = all hard checks pass.
 _Avoid_: health check, preflight (it is a deploy/machine boundary-condition checker)
+_Source_: s2-agent-ext-devops/docs/doctor-family.md (the five-surface routing table — this is ONE of five "doctor" surfaces)
 
 **`doctor --smoke`**:
 Spawns a throwaway probe that calls `pi.getAllTools()` at `session_start` and counts run-dir-sourced tools — catches the silent-no-op class (extensions that fail to load while every static check stays green).
