@@ -128,6 +128,31 @@ the only cross-edge (ADR-0001 down-only).
   resolved to `study-news`, whose generic page cards scored sharedTags 0 and the floor
   correctly suppressed everything), and cooldown-silent turns count as non-injected in the
   probe's denominator.
+- **D12 — end-task payoff PROVEN (+40pct under floor=0), flip still OFF; scoreFloor is
+  structurally lexical (ticket 16, 2026-08-29).** Battery
+  `scripts/injection-endtask.mjs` (20 zh-heavy vault-grounded questions + 5 chitchat
+  negatives, deterministic grader, serialized headless bonsai-27b `--thinking off
+  --tools read`, 43 min, receipt `output/injection-endtask/receipt-2026-08-29T01-57-14-101Z.json`):
+  unarmed 4/20 (20%) → armed `KC_AUTORECALL_FLOOR=0` 12/20 (60%), Δ+40pct, ticket gate
+  (armed ≥ unarmed) PASS; armed with default gates ≈ the no-op calibration predicts
+  (2/20). Calibration: floor 2/1/0 → 1/1/20 injected (target card 20/20 at floor=0),
+  block median 318 est-tok, chitchat 0/5. Ships NOW: the CJK-weighted `minPromptChars`
+  (each CJK char weighs 2 — t10's 2/10 zh length-misses fixed) and the battery env pins
+  `KC_AUTORECALL_FLOOR` / `KC_AUTORECALL_MINCHARS` / `KC_AUTORECALL_TIMEOUTMS`
+  (widening-only) + `KC_AUTORECALL_DEBUG` per-turn stderr trace with `trace.error`.
+  Stays: `scoreFloor: 2` default — floor=0's precision on OFF-TOPIC substantive prompts
+  is unmeasured (negatives are chitchat-only), and `sharedTags` is a lexical-only floor
+  (ASCII tag derivation) so zh prompts structurally cannot clear floor≥1 regardless of
+  length gating; a semantic-score floor would be retrieval-side surgery (t15 territory).
+  Flip (default ON) additionally requires, in order: the **converge×cache fix** (hermes
+  auto-converge touches card mtimes at every session_shutdown; the semantic cache
+  fingerprint is name+mtime → per-session 828-card re-embed bursts measured 53 s → the
+  injector's 3 s bound is unreachable in real sessions today), the floor=0 precision
+  probe, and D11's cache-transition re-probe (floor=0 blocks median 318 > t10's 282).
+  Operational: LM Studio :1234 wedges intermittently under load (embeddings >10 s while
+  `/v1/models` answers) — silent armed no-ops, detected via `trace.error`; probes must
+  never infer from silence. `SEMANTIC_EMBED_BASE` is honored standalone but NOT inside
+  the extension-loaded s2-agent child (batteries ride :1234).
 
 ## 4. What we deliberately do NOT port from OpenViking
 

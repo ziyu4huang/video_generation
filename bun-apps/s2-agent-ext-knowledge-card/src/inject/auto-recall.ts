@@ -86,13 +86,49 @@ const CHITCHAT_RE =
 // Gate (pure)
 // ---------------------------------------------------------------------------
 
-/** Deterministic trigger gate: length + chitchat. No LLM, no retrieval. */
+const CJK_RE = /[　-〿぀-ヿ㐀-䶿一-鿿豈-﫿＀-￯]/g;
+
+/** CJK-aware effective length: every CJK char carries roughly twice the
+ *  information of a Latin char at the same `length` count, so it weighs 2.
+ *  The vault is zh-heavy; t10 measured the raw-char gate failing 2/10
+ *  substantive zh questions (~20 chars) purely on length (map Context,
+ *  ticket 10) — this weighting lets `minPromptChars` stay a single knob that
+ *  reads the same for en and zh prompts. */
+export function weightedLength(prompt: string): number {
+	const cjk = prompt.match(CJK_RE)?.length ?? 0;
+	return prompt.length + cjk;
+}
+
+/** Deterministic trigger gate: length (CJK-weighted) + chitchat. No LLM, no retrieval. */
 export function shouldRecall(prompt: string, cfg: AutoRecallConfig = AUTORECALL_DEFAULTS): boolean {
 	if (!cfg.enabled) return false;
 	const trimmed = prompt.trim();
-	if (trimmed.length < cfg.minPromptChars) return false;
+	if (weightedLength(trimmed) < cfg.minPromptChars) return false;
 	if (CHITCHAT_RE.test(trimmed)) return false;
 	return true;
+}
+
+/** Env overrides for the battery/probe lane (t16): `KC_AUTORECALL_FLOOR` and
+ *  `KC_AUTORECALL_MINCHARS` pin scoreFloor/minPromptChars so an end-task run
+ *  can state EXACTLY which gate config its delta was measured under.
+ *  `KC_AUTORECALL_TIMEOUTMS` widens the retrieval bound (t16 measured the
+ *  default 3 s MISS inside a full extension-loaded s2-agent child while the
+ *  same retrieval runs in ~200 ms standalone — the turn-loop bound and the
+ *  probe bound are different budgets). Invalid values are ignored (defaults
+ *  win) — a probe must never crash the agent on a typo'd env. Pure/testable;
+ *  the wiring passes `process.env`. */
+export function applyAutoRecallEnv(
+	env: Record<string, string | undefined>,
+	cfg: AutoRecallConfig,
+): AutoRecallConfig {
+	const out = { ...cfg };
+	const floor = Number.parseInt(env.KC_AUTORECALL_FLOOR ?? "", 10);
+	if (Number.isInteger(floor) && floor >= 0) out.scoreFloor = floor;
+	const minChars = Number.parseInt(env.KC_AUTORECALL_MINCHARS ?? "", 10);
+	if (Number.isInteger(minChars) && minChars > 0) out.minPromptChars = minChars;
+	const timeoutMs = Number.parseInt(env.KC_AUTORECALL_TIMEOUTMS ?? "", 10);
+	if (Number.isInteger(timeoutMs) && timeoutMs >= out.timeoutMs) out.timeoutMs = timeoutMs;
+	return out;
 }
 
 /** Subagent-child guard (per-session, review round 2): every spawnSubagent
@@ -231,8 +267,8 @@ export async function buildAutoRecallBlock(
 	prompt: string,
 	deps: AutoRecallDeps,
 	cfg: AutoRecallConfig = AUTORECALL_DEFAULTS,
-): Promise<{ block: string; trace: { gated: boolean; retrieved: number; cooled: number; kept: number; tokensUsed: number; timedOut: boolean } }> {
-	const trace = { gated: false, retrieved: 0, cooled: 0, kept: 0, tokensUsed: 0, timedOut: false };
+): Promise<{ block: string; trace: { gated: boolean; retrieved: number; cooled: number; kept: number; tokensUsed: number; timedOut: boolean; error?: string } }> {
+	const trace = { gated: false, retrieved: 0, cooled: 0, kept: 0, tokensUsed: 0, timedOut: false, error: undefined as string | undefined };
 	if (!shouldRecall(prompt, cfg) || isChildSession(deps.sessionFile)) {
 		trace.gated = true;
 		return { block: "", trace };
@@ -309,6 +345,9 @@ export async function buildAutoRecallBlock(
 	} catch (e) {
 		// timeout / retrieval failure — inject nothing, never break the turn
 		trace.timedOut = (e as Error).message === "autorecall-timeout";
+		// The message is recorded for the probe/battery lane (t16: a silent
+		// catch made the armed arm a mystery no-op until this field existed).
+		trace.error = String((e as Error).message ?? e);
 		return { block: "", trace };
 	}
 }
