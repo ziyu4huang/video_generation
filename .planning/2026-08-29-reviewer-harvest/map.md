@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-29-reviewer-harvest
 created: 2026-08-29
-last: 2026-08-29 (ticket 02 closed — reviewer-harvest CLI shipped: lib + entry + 21 fixture-pinned tests + live receipt on t01's probe)
-status: active
+last: 2026-08-29 (ticket 03 closed — harvest wired into devops-workflow §2c, using-s2-agent-skills gate row, closeout SOP inbox re-read, CONTEXT.md glossary; queue drained → effort COMPLETE)
+status: complete
 ---
 
 # Wayfinder map: 2026-08-29-reviewer-harvest
@@ -49,7 +49,7 @@ procedure discoverable without memory.
 |---|---|---|
 | `tickets/01-injection-reprobe.md` | closed | CLI 2.1.250 probe: notification OBSERVED ≤45s (RCA baseline 2.1.247 = never/>24h) — notifications revert to primary; harvest tool stays fallback + receipt writer |
 | `tickets/02-harvest-tool.md` | closed | reviewer-harvest CLI: locate newest subagent transcript by name, extract verdict, write receipt (throw-free JSON contract) — shipped 2026-08-29, live receipt `output/reviewer-harvest/injection-probe-e4fa0b0d.json` |
-| `tickets/03-workflow-wiring.md` | open | devops-workflow review phase + skills gates + closeout SOP + CONTEXT.md glossary name the procedure |
+| `tickets/03-workflow-wiring.md` | closed | devops-workflow review phase + skills gates + closeout SOP + CONTEXT.md glossary name the procedure — wired 2026-08-29 (§2c + gate row + SOP §B.1 + two glossary terms) |
 
 ## Decisions
 
@@ -65,15 +65,14 @@ procedure discoverable without memory.
 
 ## Frontier
 
-Ticket 03 (workflow wiring) — ticket 02 closed 2026-08-29: the harvest
-tool EXISTS (`bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts`,
-lib `src/reviewer-harvest.ts`, 21 fixture-pinned tests green, live
-receipt + live idempotence on t01's probe). t03 wires it into the docs:
-devops-workflow review phase (primary = reply to the notification,
-fallback = one harvest command), skills gates, session-closeout SOP
-inbox re-read, CONTEXT.md glossary (Reviewer harvest / Lead inbox
-injection), and the RCA memory annotation is still owed (2.1.247→2.1.250
-fixed prompt injection for the probe shape).
+None — queue drained 2026-08-29 (01→02→03 all closed, every acceptance
+box evidence-checked in-file). The effort delivered its Destination:
+dispatch a named reviewer → reply to the injected notification (primary,
+2.1.250) or run one harvest command (fallback) → cite the receipt. The
+RCA memory note already carries the 2.1.250 amendment (t01 close-out);
+the remaining follow-up fog — reviewer-sized injection re-measure on a
+real diff — is trigger-gated on the next real reviewer dispatch, with
+`reviewer-harvest.ts --name <n>` as the always-on receipt writer.
 
 ## Fog of war
 

@@ -75,7 +75,7 @@ Follow CLAUDE.md first — these are the ones that bite:
 | run `bun test` | a package's **canonical** `bun run test` (may include build/typecheck); devops `local_ci` resolves gates by script NAME and silently skips renamed scripts |
 | hand-roll git/PR/CI | via the devops skill + its `*-cli.ts` (`prepare-feature-branch`, `local-ci`, `merge-pr-after-ci`, `main-health`, …) — never raw-bash git/gh subagents |
 | context glossary / ADR | `CONTEXT.md` is a **ubiquitous-language glossary** (one `**Term**:` per concept + an `_Avoid_:` line); ADRs live in `<pkg>/docs/adr/` and are cited `ADR-<context>-NNNN` |
-| dispatch a subagent for writes | watchdog OFF for write-heavy implementers; the independent **reviewer subagent** is the real quality gate |
+| dispatch a subagent for writes | watchdog OFF for write-heavy implementers; the independent **reviewer subagent** is the real quality gate — dispatch it WITH a `name:`, reply to its injected notification when it arrives (CLI 2.1.250+, probed 2026-08-29), else harvest + write the receipt: `bun bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts --name <reviewer-name>` — cite the receipt in the PR body, TaskStop after (devops-workflow §2c) |
 
 ## Pick the runtime by what the skill references
 

@@ -113,6 +113,29 @@ distinct from the PR/merge keywords above.
   _Avoid_: smoke test (it runs a `run-test.ts` TIER — the real suite, not an
   ad-hoc ping)
 
+### Reviewer gate
+- **Reviewer harvest** — recovering a dispatched reviewer subagent's verdict
+  from its on-disk transcript (`~/.claude-glm/projects/*/*/subagents/agent-a<name>-*.jsonl`)
+  instead of the lead's notification stream: the last `end_turn` assistant
+  text IS the verdict. Productized as
+  `scripts/reviewer-harvest.ts --name <reviewer-name>` (lib
+  `src/reviewer-harvest.ts`), which also writes an idempotent receipt under
+  `output/reviewer-harvest/` for PR-body citation. PRIMARY mode is the
+  injected notification (claude CLI 2.1.250+, probed ≤45s 2026-08-29);
+  harvest is the fallback — and always the receipt writer.
+  _Avoid_: polling transcripts by hand (the tool owns newest-selection,
+  terminal states, and the receipt); TaskStop before harvesting; trusting a
+  notification that has not arrived (2.1.247 measured >24h / never).
+- **Lead inbox injection** — the harness's child→lead delivery of a
+  subagent's SendMessage into the LEAD's conversation turns. Broken on
+  claude CLI 2.1.247 (RCA 2026-08-28: zero mid-turn injections, verdicts
+  >24h late; parent→child and child→child delivery worked), fixed for the
+  probe shape on 2.1.250. The failure mode that makes Reviewer harvest
+  necessary; the session-start team-inbox re-read covers the delay mode.
+  _Avoid_: conflating with s2-agent's own in-process ParentMessageBus
+  (that bus is repo code and measured healthy); "the reviewer is silent"
+  (the reviewer finished — the INJECTION failed).
+
 ## Layout
 - `extensions/devops.ts` — registered entry; thin glue registering every tool.
 - `src/pr-logic.ts` / `src/branch-logic.ts` — PURE decision logic (unit-tested).
