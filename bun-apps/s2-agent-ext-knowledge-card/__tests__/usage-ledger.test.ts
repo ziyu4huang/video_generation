@@ -299,3 +299,92 @@ describe("ledger storage", () => {
 		expect(readUsageLedger(vault)).toEqual([]);
 	});
 });
+
+// ─── entry wiring: hooks land rows in the REAL vault ledger ──────────────────
+
+describe("extension entry wiring (ticket 11 hooks)", () => {
+	async function loadFactory() {
+		const handlers = new Map<string, Array<(e: unknown) => unknown>>();
+		const pi = {
+			registerTool: () => {},
+			registerCommand: () => {},
+			registerMessageRenderer: () => {},
+			registerShortcut: () => {},
+			registerFlag: () => {},
+			sendMessage: () => {},
+			appendEntry: () => {},
+			setSessionName: () => {},
+			getSessionName: () => undefined,
+			setActiveTools: () => {},
+			getActiveTools: () => [] as string[],
+			getFlag: () => undefined,
+			setModel: async () => true,
+			on: (event: string, handler: (e: unknown) => unknown) => {
+				if (!handlers.has(event)) handlers.set(event, []);
+				handlers.get(event)!.push(handler);
+			},
+			events: { on: () => () => {}, emit: () => {} },
+			getAllTools: () => [],
+			exec: async () => "",
+			sendUserMessage: () => {},
+		};
+		const { default: factory, __setVaultResolverForTest } = await import("../extensions/knowledge-card.ts");
+		__setVaultResolverForTest(async () => vault);
+		factory(pi as never);
+		return {
+			fire: async (event: string, e: unknown) => {
+				for (const h of handlers.get(event) ?? []) await h(e);
+			},
+			restore: () => __setVaultResolverForTest(null),
+		};
+	}
+
+	const vault = tempVault("wiring");
+
+	test("zk_card tool_execution_end lands a ledger row in the resolved vault", async () => {
+		writeCard(vault, "Zettelkasten/knowledge-graph/w.md", "g:wired", "Wired Detection Card Title Phrase");
+		const w = await loadFactory();
+		try {
+			await w.fire("tool_execution_end", {
+				type: "tool_execution_end",
+				toolCallId: "t1",
+				toolName: "zk_card",
+				isError: false,
+				result: { content: [{ type: "text", text: "vault: test\nFound: Wired Detection Card Title Phrase — match" }] },
+			});
+			// The handler awaits usageVault + appends synchronously inside the
+			// fired promise — one microtask drain for safety.
+			await new Promise((r) => setTimeout(r, 10));
+			const rows = readUsageLedger(vault);
+			expect(rows.some((r) => r.uri === "g:wired" && r.via === "zk_card")).toBe(true);
+		} finally {
+			w.restore();
+		}
+	});
+
+	test("error zk_card results and other tools never write", async () => {
+		const w = await loadFactory();
+		try {
+			await w.fire("tool_execution_end", {
+				type: "tool_execution_end",
+				toolCallId: "t2",
+				toolName: "zk_card",
+				isError: true,
+				result: { content: [{ type: "text", text: "Wired Detection Card Title Phrase" }] },
+			});
+			await w.fire("tool_execution_end", {
+				type: "tool_execution_end",
+				toolCallId: "t3",
+				toolName: "read",
+				isError: false,
+				result: { content: [{ type: "text", text: "Wired Detection Card Title Phrase" }] },
+			});
+			await new Promise((r) => setTimeout(r, 10));
+			const rows = readUsageLedger(vault).filter((r) => r.uri === "g:wired");
+			// Still exactly the one row from the previous test — monotonic + gated.
+			expect(rows).toHaveLength(1);
+		} finally {
+			w.restore();
+		}
+	});
+});
