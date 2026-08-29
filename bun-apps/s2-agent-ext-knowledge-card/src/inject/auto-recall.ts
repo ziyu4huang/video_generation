@@ -267,8 +267,8 @@ export async function buildAutoRecallBlock(
 	prompt: string,
 	deps: AutoRecallDeps,
 	cfg: AutoRecallConfig = AUTORECALL_DEFAULTS,
-): Promise<{ block: string; trace: { gated: boolean; retrieved: number; cooled: number; kept: number; tokensUsed: number; timedOut: boolean; error?: string } }> {
-	const trace = { gated: false, retrieved: 0, cooled: 0, kept: 0, tokensUsed: 0, timedOut: false, error: undefined as string | undefined };
+): Promise<{ block: string; trace: { gated: boolean; retrieved: number; cooled: number; kept: number; tokensUsed: number; timedOut: boolean; servedCards?: Array<{ id: string; title: string }>; error?: string } }> {
+	const trace = { gated: false, retrieved: 0, cooled: 0, kept: 0, tokensUsed: 0, timedOut: false, servedCards: undefined as Array<{ id: string; title: string }> | undefined, error: undefined as string | undefined };
 	if (!shouldRecall(prompt, cfg) || isChildSession(deps.sessionFile)) {
 		trace.gated = true;
 		return { block: "", trace };
@@ -334,8 +334,15 @@ export async function buildAutoRecallBlock(
 		trace.tokensUsed = budget.tokensUsed;
 		// Record ONLY what was actually injected (post-budget): a card dropped
 		// by the per-entry/turn cap was not "served" and stays eligible.
+		const injected = eligible.filter((_, i) => budget.entries[i].kept);
 		if (deps.ledger && budget.lines.length > 0) {
-			deps.ledger.recordServed(eligible.filter((_, i) => budget.entries[i].kept).map((c) => c.id));
+			deps.ledger.recordServed(injected.map((c) => c.id));
+		}
+		// t11 usage ledger: expose the injected cards (id + title) so the
+		// extension entry can register them with the UsedDetector — the same
+		// post-budget set the RecallLedger records, one source of truth.
+		if (injected.length > 0) {
+			trace.servedCards = injected.map((c) => ({ id: c.id, title: c.title }));
 		}
 		// Footer only when something was actually cooled this turn — a constant
 		// `# cooled: 0` on every block is ~4 tok/turn of pure noise (review
