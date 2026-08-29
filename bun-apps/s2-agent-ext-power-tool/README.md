@@ -56,6 +56,7 @@ s2-agent-ext-power-tool/
     ├── runner-hooks.ts     # runner-shape adapters (hook collection + firing counts)
     ├── sdk-patch.ts        # getSystemPromptOptions()/getHooks() shim on the tool ctx
     ├── extensions-command.ts  # the /extensions slash command
+    ├── autocompact.ts       # the /autocompact command (absolute-threshold trigger)
     ├── tools/              # one module per inspect_* tool
     ├── schema-cost/        # static tool-token estimator (exported; publishable)
     └── pathology/          # failure-pattern detection (accumulator + detector)

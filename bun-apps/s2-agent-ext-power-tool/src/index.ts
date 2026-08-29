@@ -18,6 +18,7 @@
 import type { ExtensionAPI, ExtensionFactory, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { ensureGetSystemPromptOptions } from "./sdk-patch.js";
 import { makeExtensionsCommand } from "./extensions-command.js";
+import { checkAutocompact, makeAutocompactCommand } from "./autocompact.js";
 import { makeInspectContextTool } from "./tools/inspect-context.js";
 import { makeInspectAgentTool } from "./tools/inspect-agent.js";
 import { makeInspectExtensionsTool } from "./tools/inspect-extensions.js";
@@ -115,6 +116,16 @@ const extension: ExtensionFactory = (pi: ExtensionAPI) => {
   // getCommands is deferred the same way. The framework auto-attaches sourceInfo.
   const getCommands = () => pi.getCommands();
   pi.registerCommand("extensions", makeExtensionsCommand(getAllTools, getCommands));
+
+  // /autocompact: per-session ABSOLUTE context-token threshold. The trigger
+  // check hangs on agent_settled — after a run fully settles (and after
+  // upstream's own relative-threshold compaction pass), so it never races the
+  // agent loop or upstream's compaction. See autocompact.ts header for the
+  // seam notes.
+  pi.registerCommand("autocompact", makeAutocompactCommand());
+  pi.on("agent_settled", (_e, ctx) => {
+    checkAutocompact(ctx as never);
+  });
 
   // Feed the pathology accumulator: observe every tool call's args + outcome so
   // inspect_pathology can detect retry loops / error storms this session.
