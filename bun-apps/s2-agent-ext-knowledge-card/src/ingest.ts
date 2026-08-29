@@ -387,9 +387,13 @@ export async function ingestRecords(
 						links: 0,
 					});
 					wikiMatched = true;
+				} else {
+					// A cache-named target absent from the folder snapshot
+					// (stale cache) falls through to create — never merges
+					// blind, and the receipt must not claim a merge happened
+					// (reviewer #2160 finding 1).
+					decision = { decision: "create", via: "no-candidates" };
 				}
-				// A cache-named target absent from the folder snapshot (stale
-				// cache) falls through to create — never merges blind.
 			} else if (decision.decision === "skip") {
 				// The LLM judged the record a duplicate adding nothing: not
 				// minted, not merged — intentionally dropped (counted, traced).

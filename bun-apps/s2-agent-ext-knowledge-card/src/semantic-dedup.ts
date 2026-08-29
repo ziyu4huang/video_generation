@@ -54,6 +54,9 @@ export type DedupDecision =
 	| { decision: "merge"; target: DedupCandidate; via: "vector" | "llm" }
 	| { decision: "skip"; via: "llm" }
 	| { decision: "create"; via: "below-gray" | "no-candidates" | "embed-failed" | "llm" | "llm-malformed" | "llm-failed" };
+// "no-candidates" is produced by ingest when a decided merge names a target
+// absent from the folder snapshot (stale cache) — the fall-through to create
+// rewrites the decision so the receipt never claims a merge that did not land.
 
 /** Trace entry recorded on IngestSummary.dedupDecisions — the merge receipt. */
 export interface DedupDecisionEntry {
