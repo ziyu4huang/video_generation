@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-29-ext-standalone-import
 created: 2026-08-29
-last: 2026-08-29 (ticket 04 closed — standalone-import E2E probe; extRoot default bug found and fixed via its pass-path test)
-status: active
+last: 2026-08-29 (effort COMPLETE — PR #2131 merged CLEAN; deploy 0.7.26+g0b63709 shipped, standalone-import E2E pass ×2; #2132 cleanup CLEAN)
+status: complete
 ---
 
 # Wayfinder map: 2026-08-29-ext-standalone-import
@@ -65,7 +65,7 @@ Confirmed 2026-08-29.
 | `tickets/02-deploy-build-step.md` | closed | `lib/standalone-shim.ts` wired into run.ts; 6.11MB, .cores cache hit on 2nd build; gates s1b/s4/s2 (s1 dropped per D8); deploy.json + Gate 5 record; 8 unit tests + pkg suite 999/0 |
 | `tickets/03-dist-agents-md.md` | closed | `lib/agents-md.ts` — AGENTS.md at outRoot, idempotent refresh; STANDALONE_QUICKSTART shared verbatim with the t04 probe; 4 unit tests + tsc green |
 | `tickets/04-e2e-standalone-import.md` | closed | `standalone-import` probe: AGENTS.md quickstart verbatim from scratch dir + offline fixture repo + DEPLOYED bin/bun; file2md via shim cross-check; s1b/s4 re-check; broken-shim fail proven; 3 unit tests + suites 1006/992-0 |
-| `tickets/05-ship-and-close.md` | open | Fresh deploy on this machine with E2E green, repo docs touch-up, effort close-out |
+| `tickets/05-ship-and-close.md` | closed | Deploy 0.7.26+g0b63709 fresh (shim 6111847B frozen, AGENTS.md 3960B, current repointed); standalone-import pass ×2; verify-deploy-e2e standalone re-run; docs (SKILL.md + CLAUDE.md); 0.7.26 bump; PR #2131 merged CLEAN (+#2132 junk-file sweep) |
 
 ## Decisions
 

@@ -1,7 +1,7 @@
 ---
 type: task
 blocking: 03, 04
-status: open
+status: closed
 ---
 
 # 05 — Ship: fresh deploy + docs + effort close-out
