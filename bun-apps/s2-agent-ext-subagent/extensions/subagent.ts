@@ -131,7 +131,7 @@ export default function extension(pi: ExtensionAPI) {
   });
 
   // Best-effort guard: warn if another extension already registered
-  // 'spawn_subagent' (renamed from 'subagent' 2026-08-20 — docs/agents/extension-naming.md).
+  // 'spawn_subagent' (renamed from 'subagent' 2026-08-20 — bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md).
   try {
     const activeAtLoad = pi.getActiveTools();
     if (Array.isArray(activeAtLoad) && activeAtLoad.includes("spawn_subagent")) {

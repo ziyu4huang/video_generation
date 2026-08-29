@@ -441,7 +441,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
 
   return defineTool({
     // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `workflow`
-    // — see docs/agents/extension-naming.md for the rename history.
+    // — see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
     name: "run_workflow",
     label: "Workflow",
     description: [

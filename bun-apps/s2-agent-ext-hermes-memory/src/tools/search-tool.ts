@@ -48,7 +48,7 @@ export function registerSearchTool(
 
   pi.registerTool({
     // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `search`
-    // — see docs/agents/extension-naming.md for the rename history.
+    // — see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
     name: "search_memory",
     label: "Search",
     gating: { core: true },

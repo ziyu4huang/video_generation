@@ -1,3 +1,8 @@
+---
+name: issue-tracker
+description: Use when working with GitHub issues/PRDs via gh in this repo — creating/reading/listing issues, labels, wayfinder map/child-ticket/frontier/claim/resolve operations, and the label↔triage-role mapping. "Publish to the issue tracker" = create a GitHub issue.
+---
+
 # Issue tracker: GitHub
 
 Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all operations.

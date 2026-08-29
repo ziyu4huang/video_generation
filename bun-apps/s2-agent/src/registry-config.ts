@@ -337,7 +337,7 @@ export const REGISTRY: RegistryEntry[] = [
     notes: [
       "Must load after subagent (registry population); acorn bundles inline.",
       "Short name = ultracode (was \"workflow\" pre-2026-08-22; see",
-      "docs/agents/extension-naming.md).",
+      "bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md).",
     ].join("\n"),
     deploy: { order: 70 },
   },

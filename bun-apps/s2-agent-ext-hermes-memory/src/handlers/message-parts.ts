@@ -30,7 +30,7 @@ export function collectMessageParts(entries: unknown[], recentMessages = 0): str
 export const SUBAGENT_OUTPUT_MAX_CHARS = 4000;
 
 /** Dispatch tool whose results the learning loop should capture.
- * `spawn_subagent` renamed from `subagent` 2026-08-20 (docs/agents/extension-naming.md)
+ * `spawn_subagent` renamed from `subagent` 2026-08-20 (bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md)
  * — BOTH names accepted because historical transcripts carry the legacy name. */
 const SUBAGENT_TOOL_NAMES = new Set(["subagent", "spawn_subagent"]);
 

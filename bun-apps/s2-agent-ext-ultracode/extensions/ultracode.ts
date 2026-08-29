@@ -71,7 +71,7 @@ GATE_DEFS.workflow = {
 export const __GATE_PROBES__ = {
   // Canonical gate id = GATES[].names[0] = the first-registered family tool's
   // NAME — "run_workflow" since the 2026-08-20 verb_object rename (was "workflow";
-  // see docs/agents/extension-naming.md). The GATE_DEFS family id stays "workflow".
+  // see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md). The GATE_DEFS family id stays "workflow".
   gate: "run_workflow",
   recallFloor: 0,
   adversarial: [],
@@ -273,7 +273,7 @@ export default function extension(pi: ExtensionAPI) {
   const activateWorkflowTools = () => {
     const active = pi.getActiveTools();
     // The `spawn_subagent` + `list_subagent_runs` tools (renamed 2026-08-20 —
-    // docs/agents/extension-naming.md) are activated by s2-agent-ext-subagent's
+    // bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md) are activated by s2-agent-ext-subagent's
     // own before_agent_start + session_start hooks (same pattern as below); workflow
     // no longer touches their activation.
     const missing = [

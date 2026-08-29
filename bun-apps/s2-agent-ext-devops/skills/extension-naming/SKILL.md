@@ -1,3 +1,8 @@
+---
+name: extension-naming
+description: Use when naming a tool, extension, package, or skill in any s2-agent-ext-* package — or renaming one (rename checklist + append-only rename history; renames are behavior changes requiring the PR #1738 legacy-name pattern). Single source of truth for naming style per surface (kebab-case skills, snake_case verb_object tools, <tool>_help companions).
+---
+
 # Extension / Tool / Skill Naming — Convention + Name History
 
 Single source of truth for naming style across every `s2-agent-ext-*` package,
@@ -20,7 +25,7 @@ tool-gate keyword families, docs, CLAUDE.md, CI baselines) must track.
 
 | Surface | Style | Example | Status |
 |---|---|---|---|
-| Extension (package + registration) | `kebab-case` | `s2-agent-ext-research-tool` | ✅ consistent (all 23 pkgs) |
+| Extension (package + registration) | `kebab-case` | `s2-agent-ext-research_tool` | ✅ consistent (all 23 pkgs) |
 | Skill (dir + `SKILL.md` name) | `kebab-case` | `devops-workflow` | ✅ consistent |
 | CLI subcommand | `kebab-case` | `collect-videos` | ✅ consistent |
 | Agent tool | `snake_case`, `verb_object` (optionally `ns_verb`) | `sync_default_branch`, `obsidian_read` | ⚠️ see outliers |
@@ -77,6 +82,7 @@ history table below. Do not rename casually.
 | 2026-08-20 | #1738 | `local_ci` → `run_local_ci` | legacy kept as gate keyword |
 | 2026-08-20 | #1738 | `devops_retrospect` → `run_devops_retrospect` | legacy kept as gate keyword |
 | 2026-08-22 | (this branch) | pkg `s2-agent-ext-workflow` → `s2-agent-ext-ultracode` (entry file `extensions/workflow.ts` → `extensions/ultracode.ts`) | PACKAGE rename — aligns with Claude Code's "ultracode" arming keyword. Tool names (`run_workflow` etc.), registry label `name: workflow`, `/workflows*` commands, and gate family id `workflow` unchanged (Claude Code's tool is also named Workflow). `ultracode` added as a second default keyword trigger (`DEFAULT_KEYWORD_TRIGGER_WORDS`) |
+| 2026-08-29 | (docs migration) | `docs/agents/*.md` → `s2-agent-ext-devops/skills/<name>/SKILL.md` | DOC migration (not a tool rename): the six agent-facing operational docs became skills (`domain-docs`, `extension-naming`, `issue-tracker`, `learnings`, `session-closeout-sop`, `shared-state-index`); all in-repo references swept in the same PR |
 
 ### Rename checklist (from the #1738 experience)
 

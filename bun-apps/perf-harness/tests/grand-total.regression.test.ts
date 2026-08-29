@@ -65,7 +65,7 @@ describe("cross-extension grand-total schema-cost", () => {
     const tools = captureAll();
     expect(Object.keys(tools).sort()).toEqual(
       [
-        // `search` renamed to `search_memory` 2026-08-20 — docs/agents/extension-naming.md
+        // `search` renamed to `search_memory` 2026-08-20 — bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md
         "memory", "search_memory", "skill_manage", "skill_manage_help",
         "obsidian", "obsidian_help",
         "zk_ingest", "zk_ask", "zk_card", "zk_fs", "knowledge_query",

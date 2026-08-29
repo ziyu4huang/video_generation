@@ -2,7 +2,8 @@
  * ADR identity + citation guard.
  *
  * This repo is deliberately multi-context: every context owns its own
- * `docs/adr/` and numbers from 0001 (see `docs/agents/domain.md`). The cost is
+ * `docs/adr/` and numbers from 0001 (see the `domain-docs` skill,
+ * bun-apps/s2-agent-ext-devops/skills/domain-docs/SKILL.md). The cost is
  * that a bare "ADR-0001" names SIX different documents, "ADR-0004" names five,
  * and every number in use collides at least twice. There is no unambiguous ADR
  * number in this repo.

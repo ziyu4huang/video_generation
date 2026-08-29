@@ -1,3 +1,8 @@
+---
+name: learnings
+description: Use when an s2-agent toolchain behavior looks wrong, before hand-rolling a workaround — commitScope false-positives on stale local main, bundled-vs-discovered skill precedence, and the use-devops-tools-not-hand-rolled-git convention. Append-only dated log; add an entry when a quirk is confirmed.
+---
+
 # Agent Learnings
 
 Durable, team-wide learnings about the s2-agent toolchain in this repo — tool quirks, architectural facts, and conventions surfaced during work. Per-user lessons also live in the memory store at `~/.pi/agent/pi-hermes-memory/failures.md`; this file captures the subset worth sharing across the team and version-controlling.
@@ -35,7 +40,7 @@ Consequences:
 - The diagnostic `name "X" collision … (skipped)` means the **bundled** copy is the active winner and the personal one was dropped — it is **informational noise, not a functional bug**; the correct (bundled) skill is already loaded.
 - There is **no override/precedence hook** in the `resources_discover` contract (it only accepts `skillPaths: string[]`), so you cannot make a discovered skill beat a bundled one. To eliminate a collision, **remove the duplicate source** rather than trying to change precedence.
 
-The `hermes-memory` extension uses `~/.pi/agent/pi-hermes-memory/skills/` as **both** a writable `skill_manage` store **and** a discovery source — that dual purpose is what collides with its own bundled skills. Bundled skills ship from `bun-apps/s2-agent-ext-hermes-memory/skills/`; `deploy.ts` copies the whole skill dir (including non-`SKILL.md` files like `dedup.sh`) in all deploy modes (`--bundle` / `--standalone` / `--exe` / `--snapshot`).
+The `hermes-memory` extension uses `~/.pi/agent/pi-hermes-memory/skills/` as **both** a writable `skill_manage` store **and** a discovery source — that dual purpose is what collides with its own bundled skills. Bundled skills ship from `bun-apps/s2-agent-ext-hermes-memory/skills/`; `deploy.ts` copies the whole skill dir (including non-`SKILL.md` files — history: the pre-Bun-port bash dedup launcher it then shipped, since deleted) in all deploy modes (`--bundle` / `--standalone` / `--exe` / `--snapshot`).
 
 ---
 
@@ -47,11 +52,11 @@ Before any git/GitHub operation, reach for the repo's purpose-built tooling inst
 
 | Operation | Use this | Not |
 |---|---|---|
-| Sync a worktree/repo to the latest default branch | devops **`sync_repo`** tool (`mode: "full"`) — `merge --ff-only` by default (aborts on divergent, never loses commits); `force: true` for `reset --hard`; worktree-aware across superproject + submodules | hand-rolled `git fetch` + `reset --hard` + `pull --ff-only` |
-| Rebase current branch onto origin/main | `sync_repo` (`mode: "rebase"`) | manual `git rebase` |
-| Merge origin/main into current branch | `sync_repo` (`mode: "pull"`) | raw `git merge`/`pull` |
-| Merge a PR | `await_pr_merge({ prNumber })` pi tool — runs the `local_ci` gate (typecheck+tests scoped to changed packages vs `origin/main`), then squash-merges; refuses on BEHIND/non-CLEAN | raw `gh pr merge --squash` / `gh ship` |
-| Inspect a PR | `pr_status({ prNumber })` pi tool | `gh pr view` parsing |
-| Clean up branches | `sweep_branches({ execute: true })` pi tool (gh-confirmed merges only) | manual branch deletion |
+| Sync a worktree/repo to the latest default branch | devops **`sync_default_branch`** tool (`mode: "full"`) — `merge --ff-only` by default (aborts on divergent, never loses commits); `force: true` for `reset --hard`; worktree-aware across superproject + submodules | hand-rolled `git fetch` + `reset --hard` + `pull --ff-only` |
+| Rebase current branch onto origin/main | `sync_default_branch` (`mode: "rebase"`) | manual `git rebase` |
+| Merge origin/main into current branch | `sync_default_branch` (`mode: "pull"`) | raw `git merge`/`pull` |
+| Merge a PR | `merge_pr_after_local_ci({ prNumber })` pi tool — runs the `run_local_ci` gate (typecheck+tests scoped to changed packages vs `origin/main`), then squash-merges; refuses on BEHIND/non-CLEAN | raw `gh pr merge --squash` / `gh ship` |
+| Inspect a PR | `show_pr_status({ prNumber })` pi tool | `gh pr view` parsing |
+| Clean up branches | `sweep_merged_branches({ execute: true })` pi tool (gh-confirmed merges only) | manual branch deletion |
 
-Why it matters: hand-running git in a subagent against a stale worktree is what produces the `commitScope` false-positive noise (see the `[tool-quirk]` entry above) and skips the local-CI self-verification that `await_pr_merge` enforces. Note: the devops tools are s2-agent extension tools — if they aren't directly callable in the current session, invoke them via a subagent rather than falling back to raw git.
+Why it matters: hand-running git in a subagent against a stale worktree is what produces the `commitScope` false-positive noise (see the `[tool-quirk]` entry above) and skips the local-CI self-verification that `merge_pr_after_local_ci` enforces. Note: the devops tools are s2-agent extension tools — if they aren't directly callable in the current session, invoke them via a subagent rather than falling back to raw git.

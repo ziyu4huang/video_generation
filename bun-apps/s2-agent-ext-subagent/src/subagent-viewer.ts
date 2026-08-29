@@ -115,8 +115,8 @@ export function reconstructSubagentRuns(branch: Iterable<BranchEntry>): Subagent
       continue;
     }
 
-    // 'spawn_subagent' renamed from 'subagent' 2026-08-20 (docs/agents/
-    // extension-naming.md) — historical transcripts still carry the legacy name.
+    // 'spawn_subagent' renamed from 'subagent' 2026-08-20 (see the extension-naming
+    // skill, bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md) — historical transcripts still carry the legacy name.
     if (msg.toolName !== "subagent" && msg.toolName !== "spawn_subagent") continue; // singular path
     i += 1;
     const d = msg.details;

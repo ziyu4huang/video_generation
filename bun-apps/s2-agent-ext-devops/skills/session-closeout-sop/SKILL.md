@@ -1,3 +1,8 @@
+---
+name: session-closeout-sop
+description: Use at every arc close-out (hands-off) as the command-exact runbook of the session close-out chain — push-first rule, strict-v2 next-goal file shape, validator + LATEST repoint, the devops CLI command table, and environmental-red gate discrimination. The authoritative spec is the self-reflect-next-goal skill; this is its condensed, command-exact twin.
+---
+
 # Session close-out SOP (devops chain)
 
 The runbook behind the hands-off gate of `.claude/skills/using-s2-agent-skills`

@@ -5,7 +5,7 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 /**
  * Moved from s2-agent-ext-ultracode/tests/extension-subagent-registration.test.ts
  * when the `subagent` + `subagent_runs` tools moved to THIS package (renamed
- * `spawn_subagent` + `list_subagent_runs` 2026-08-20 — docs/agents/extension-naming.md)
+ * `spawn_subagent` + `list_subagent_runs` 2026-08-20 — bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md)
  * (s2-agent-ext-subagent). The factory under test is now
  * `../extensions/subagent.ts`; the assertion is broadened to cover BOTH tools
  * the extension owns.

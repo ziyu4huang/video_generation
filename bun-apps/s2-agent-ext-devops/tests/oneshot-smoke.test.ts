@@ -121,7 +121,7 @@ describe("classifyRun — pure classification", () => {
 		expect(c.detail).toBe(BOOT_HANG_DIAGNOSTIC);
 		expect(c.detail).toContain("syncMarkdownMemories");
 		expect(c.detail).toContain("-ne -ns -e");
-		expect(c.detail).toContain("docs/agents/learnings.md");
+		expect(c.detail).toContain("skills/learnings/SKILL.md");
 	});
 
 	test("exit 0 with EMPTY stdout → fail loud (silence is not a boot)", () => {
