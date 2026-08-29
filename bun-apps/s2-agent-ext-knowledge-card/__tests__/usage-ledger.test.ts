@@ -61,6 +61,12 @@ function tempVault(name: string): string {
 	return v;
 }
 
+// PORTABILITY-GUARDED: the git-vault tests below spawn `git` (init/add/
+// commit/status) — present on every CI runner — with commit identity injected
+// via `-c user.email/-c user.name`, so no machine-local gitconfig is read.
+const run = (cwd: string, ...args: string[]): number =>
+	Bun.spawnSync(["git", ...args], { cwd }).exitCode ?? -1;
+
 // ─── (i) turn_end scan ───────────────────────────────────────────────────────
 
 describe("source (i): turn_end scan of assistant text", () => {
@@ -254,9 +260,9 @@ describe("ledger storage", () => {
 	test("read+use cycle leaves the git vault CLEAN (no frontmatter writes)", () => {
 		const vault = tempVault("gitclean");
 		writeCard(vault, "Zettelkasten/knowledge-graph/clean.md", "g:clean", "Clean Cycle Card Title Phrase");
-		Bun.spawnSync(["git", "init", "-q"], { cwd: vault });
-		Bun.spawnSync(["git", "add", "-A"], { cwd: vault });
-		Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "fixture"], { cwd: vault });
+		run(vault, "init", "-q");
+		run(vault, "add", "-A");
+		run(vault, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "fixture");
 		ensureLedgerIgnored(vault);
 		const before = Bun.spawnSync(["git", "status", "--porcelain"], { cwd: vault });
 		const dirtyBefore = String(new TextDecoder().decode(before.stdout)).trim();
@@ -280,7 +286,7 @@ describe("ledger storage", () => {
 
 	test("ensureLedgerIgnored appends the entry once and is idempotent", () => {
 		const vault = tempVault("ignore");
-		Bun.spawnSync(["git", "init", "-q"], { cwd: vault });
+		run(vault, "init", "-q");
 		expect(ensureLedgerIgnored(vault)).toBe(true);
 		expect(ensureLedgerIgnored(vault)).toBe(true);
 		const gi = readFileSync(join(vault, ".gitignore"), "utf8");
