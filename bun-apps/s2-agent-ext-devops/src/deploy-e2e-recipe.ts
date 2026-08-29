@@ -21,6 +21,10 @@
  *                  deploy.json reports loaded (same contract as deploy Gate 3,
  *                  but against the FINAL tree). Registration only — blind to
  *                  the #1946 class, which is what tools-probe covers.
+ *   cwd-independence  re-runs `--ext-list` with cwd OUTSIDE the tree and
+ *                  requires the SAME loaded set — the AGENTS.md promise that
+ *                  the tree works from any cwd (absolute-path invocation from
+ *                  scratch dirs), encoded as a probe 2026-08-29.
  *   tools-probe    `<launcher> -e <probe> -p hi --no-session` — a real
  *                  headless session whose probe asserts the ACTIVE toolset
  *                  still contains the core builtins (read/write/edit/bash)
@@ -266,6 +270,7 @@ export interface DeployE2eProbe {
 	id:
 		| "boot"
 		| "ext-load"
+		| "cwd-independence"
 		| "tools-probe"
 		| "model-call"
 		| "vision-call"
@@ -615,6 +620,9 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	}
 
 	// ── ext-load probe ──────────────────────────────────────────────────────
+	// cwd-independence (next block) re-runs --ext-list from OUTSIDE the tree
+	// and compares against this run's loaded set — captured on success.
+	let extLoadLoaded: string[] | null = null;
 	{
 		const t0 = now();
 		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
@@ -662,7 +670,70 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 							}
 						: { id: "ext-load", verdict: "pass", ms, note: `${p.value.loadedCount} extension(s) loaded${skippedNote}` },
 				);
+				if (!missing.length) extLoadLoaded = p.value.loaded;
 			}
+		}
+	}
+
+	// ── cwd-independence probe ──────────────────────────────────────────────
+	// The outRoot AGENTS.md promises the tree works from ANY cwd (agents and
+	// bun scripts invoke the launcher / ext-standalone by absolute path from
+	// scratch dirs — manually verified 2026-08-29, then encoded here). boot
+	// and ext-load above prove loading from the tree's OWN dir only; this
+	// probe re-runs --ext-list with cwd OUTSIDE the tree and requires the
+	// SAME loaded set. A tree whose discovery depends on cwd (baked builder
+	// paths, relative ext resolution) fails HERE, not in a user's script.
+	{
+		const t0 = now();
+		const outsideDir = mkdtempSync(join(tmpdir(), "s2-e2e-cwd-"));
+		// Invoke by ABSOLUTE path — the way a real consumer does from another
+		// directory. launcher.command is relative ("./s2-agent.sh"; win32
+		// prefix carries "s2-agent.cmd"), which only resolves with cwd inside
+		// the tree — absolutizing is part of the contract under test, not a
+		// workaround: AGENTS.md's quickstart uses the absolute path.
+		const foreignCommand = launcher.command.startsWith(".") ? join(opts.versionDir, launcher.command) : launcher.command;
+		const foreignPrefix = launcher.prefix.map((a) => (a === "s2-agent.cmd" ? join(opts.versionDir, a) : a));
+		try {
+			const r = await opts.spawn(foreignCommand, [...foreignPrefix, "--ext-list"], {
+				cwd: outsideDir,
+				timeoutMs: EXT_LIST_CAP_MS,
+			});
+			const ms = now() - t0;
+			const p = r.timedOut || r.exitCode !== 0 ? null : parseExtListPayload(r.stdout);
+			if (extLoadLoaded === null) {
+				probes.push({
+					id: "cwd-independence",
+					verdict: "skip",
+					ms,
+					note: "ext-load itself did not pass cleanly — no in-tree set to compare against",
+					detail: tail(r.stdout, r.stderr),
+				});
+			} else if (!p?.ok) {
+				// ext-load passed in-tree but the foreign-cwd run errors: that
+				// IS the cwd-dependence bug this probe exists to catch.
+				probes.push({
+					id: "cwd-independence",
+					verdict: "fail",
+					ms,
+					note: `--ext-list from a foreign cwd ${r.timedOut ? `timed out after ${EXT_LIST_CAP_MS}ms` : `failed (exit ${r.exitCode})`}`,
+					detail: tail(r.stdout, r.stderr),
+				});
+			} else {
+				const same =
+					extLoadLoaded.length === p.value.loaded.length && [...p.value.loaded].sort().join(",") === [...extLoadLoaded].sort().join(",");
+				probes.push(
+					same
+						? { id: "cwd-independence", verdict: "pass", ms, note: `same ${p.value.loadedCount} extension(s) loaded from a foreign cwd` }
+						: {
+								id: "cwd-independence",
+								verdict: "fail",
+								ms,
+								note: `loaded set differs by cwd (in-tree vs foreign): [${extLoadLoaded.join(", ")}] vs [${p.value.loaded.join(", ")}]`,
+							},
+				);
+			}
+		} finally {
+			rmSync(outsideDir, { recursive: true, force: true });
 		}
 	}
 

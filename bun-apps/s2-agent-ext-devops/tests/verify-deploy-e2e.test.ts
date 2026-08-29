@@ -61,6 +61,8 @@ function makeTree(opts: { extensions?: string[]; launcher?: boolean; deployJson?
 
 interface FakeOpts {
 	extList?: { loaded?: string[]; stdout?: string; exitCode?: number };
+	/** Payload for the cwd-independence probe's OUT-of-tree --ext-list run. */
+	extListForeignCwd?: { loaded?: string[]; stdout?: string; exitCode?: number };
 	help?: Partial<SpawnResult>;
 	toolsProbe?: Partial<SpawnResult>;
 	modelCall?: Partial<SpawnResult>;
@@ -68,15 +70,20 @@ interface FakeOpts {
 
 /** Fake spawn keyed on the first non-flag argv — the probe identity. */
 function fakeSpawn(o: FakeOpts = {}): SpawnFn {
-	return async (_cmd, args): Promise<SpawnResult> => {
+	return async (_cmd, args, options): Promise<SpawnResult> => {
 		if (args.includes("--help")) {
 			return { stdout: "usage…", stderr: "", exitCode: 0, ...o.help };
 		}
 		if (args.includes("--ext-list")) {
-			if (o.extList?.stdout !== undefined || o.extList?.exitCode !== undefined) {
-				return { stdout: o.extList?.stdout ?? "", stderr: "", exitCode: o.extList?.exitCode ?? 0 };
+			// cwd-independence runs --ext-list from OUTSIDE the tree; give it
+			// its own payload so divergence is testable (default: same as
+			// in-tree — a healthy tree loads identically from any cwd).
+			const foreign = options?.cwd !== undefined && options.cwd !== versionDir;
+			const src = foreign ? (o.extListForeignCwd ?? o.extList) : o.extList;
+			if (src?.stdout !== undefined || src?.exitCode !== undefined) {
+				return { stdout: src?.stdout ?? "", stderr: "", exitCode: src?.exitCode ?? 0 };
 			}
-			const loaded = o.extList?.loaded ?? ["task", "wayfind"];
+			const loaded = src?.loaded ?? ["task", "wayfind"];
 			return {
 				stdout: JSON.stringify({ loadedCount: loaded.length, loaded, skipped: [] }),
 				stderr: "",
@@ -166,6 +173,7 @@ describe("runDeployE2e", () => {
 		expect(r.probes.map((p) => p.id)).toEqual([
 			"boot",
 			"ext-load",
+			"cwd-independence",
 			"tools-probe",
 			"model-call",
 			"vision-call",
@@ -194,6 +202,32 @@ describe("runDeployE2e", () => {
 		const ext = r.probes.find((p) => p.id === "ext-load")!;
 		expect(ext.verdict).toBe("fail");
 		expect(ext.note).toContain("wayfind");
+	});
+
+	test("cwd-independence: a loaded set that DIFFERS by cwd fails", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			// in-tree: healthy; foreign cwd: only one ext loads (the
+			// baked-relative-path class the probe exists to catch)
+			spawn: fakeSpawn({ extListForeignCwd: { loaded: ["task"] } }),
+		});
+		expect(r.verdict).toBe("fail");
+		const p = r.probes.find((x) => x.id === "cwd-independence")!;
+		expect(p.verdict).toBe("fail");
+		expect(p.note).toContain("differs by cwd");
+	});
+
+	test("cwd-independence: ext-load passes in-tree but the foreign-cwd run errors → fail", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ extListForeignCwd: { stdout: "", exitCode: 1 } }),
+		});
+		expect(r.verdict).toBe("fail");
+		const p = r.probes.find((x) => x.id === "cwd-independence")!;
+		expect(p.verdict).toBe("fail");
+		expect(p.note).toContain("foreign cwd");
 	});
 
 	test("tools-probe: missing core builtins fails naming them (the #1946 class)", async () => {
@@ -790,10 +824,13 @@ describe("crossos t06 — platform-aware launcher", () => {
 		};
 		const r = await runDeployE2e({ versionDir, spawn, modelEndpoint: null });
 		expect(r.verdict).toBe("pass");
-		expect(seen.length).toBe(4); // boot, ext-load, tools-probe, model-call
+		expect(seen.length).toBe(5); // boot, ext-load, cwd-independence, tools-probe, model-call
 		for (const s of seen) {
 			expect(s.cmd).toBe("cmd");
-			expect(s.args.slice(0, 2)).toEqual(["/c", "s2-agent.cmd"]);
+			expect(s.args[0]).toBe("/c");
+			// cwd-independence absolutizes the .cmd path (it runs from
+			// outside the tree); every other probe uses the relative form.
+			expect(s.args[1] === "s2-agent.cmd" || s.args[1].endsWith("/s2-agent.cmd")).toBe(true);
 		}
 	});
 

@@ -36,7 +36,7 @@
  * in the deploy-architecture consolidation — see
  * .planning/specs/2026-08-20-deploy-architecture-consolidation-design.md.
  */
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { APP_NAME } from "./lib/app-name.ts";
 import { excludedExtensionsFromRegistry, filterForTarget, shConfig, type ShConfig } from "./lib/config.ts";
@@ -112,6 +112,15 @@ export interface DeployShResult {
 	prunedBuns: PrunedBun[];
 	/** The outRoot AGENTS.md refresh (ext-standalone-import t03). */
 	agentsMd: { written: boolean; bytes: number };
+	/**
+	 * True when a pre-t05 top-level `current` symlink was removed from the
+	 * outRoot. t05+ deploys repoint ONLY the per-target pointer, so the flat
+	 * one froze at the last flat deploy and misled absolute-path users into a
+	 * stale tree (measured 2026-08-29: top-level → 0.7.21 while
+	 * darwin-arm64/current → 0.7.26). Removal runs BEFORE the flat-layer
+	 * prune so retention — not a dead symlink — governs the legacy dirs.
+	 */
+	legacyCurrentRemoved: boolean;
 }
 
 function gitShortSha(): string | null {
@@ -961,11 +970,33 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			currentUpdated = true;
 		}
 		const pruned = pruneVersions(targetRoot, { keep: cfg.keep ?? DEFAULT_KEEP });
+		// crossos t05 follow-up (2026-08-29): drop a pre-t05 top-level
+		// `current` BEFORE pruning the flat layer. swapCurrent above writes
+		// the per-target pointer only, so the flat one froze at the last flat
+		// deploy — a stale absolute-path target for anyone following the old
+		// habit (resolveCurrentVersionDir has preferred the per-target pointer
+		// since t05, so no machinery reads it). With it gone, retention — not
+		// a dead symlink — governs the legacy dirs below.
+		let legacyCurrentRemoved = false;
+		if (wantCurrent) {
+			const legacyCurrent = join(cacheRoot, "current");
+			let isLegacySymlink = false;
+			try {
+				isLegacySymlink = lstatSync(legacyCurrent).isSymbolicLink();
+			} catch {
+				isLegacySymlink = false;
+			}
+			if (isLegacySymlink) {
+				rmSync(legacyCurrent);
+				legacyCurrentRemoved = true;
+			}
+		}
 		// crossos t05: retention must not stop at the subroot — a pre-t05
 		// outRoot's flat version dirs would otherwise survive forever against
 		// keep:N (the exact unbounded-disk class Phase 3 fixed). Prune the
-		// legacy flat layer with target subroots EXCLUDED; a legacy top-level
-		// `current` still protects its version via the same rule as ever.
+		// legacy flat layer with target subroots EXCLUDED; a still-present
+		// top-level `current` (only possible under --no-current) protects its
+		// version via the same rule as ever.
 		pruneVersions(cacheRoot, { keep: cfg.keep ?? DEFAULT_KEEP, excludeTargets: true });
 		// Strictly after pruneVersions: dropping a version dir is what turns its
 		// core into an orphan, and the core just linked above is protected by its
@@ -997,6 +1028,7 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 			runtime: { bunVersion: Bun.version, platform: targetSpec.platform, arch: targetSpec.arch, bytes: bun.bytes, cached: bun.cached },
 			prunedBuns,
 			agentsMd,
+			legacyCurrentRemoved,
 		};
 	} catch (e) {
 		rmTree(stage); // never leave a half-written deploy behind

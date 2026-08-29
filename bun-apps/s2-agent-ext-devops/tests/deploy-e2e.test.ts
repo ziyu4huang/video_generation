@@ -9,6 +9,7 @@ import {
 	readlinkSync,
 	renameSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -253,6 +254,37 @@ describeE2E("core cache reuse", () => {
 		expect(b.coreCached).toBe(true); // hit: no recompile
 		// the two version dirs hardlink ONE cached core — same inode
 		expect(statSync(join(a.target, CORE_FILENAME)).ino).toBe(statSync(join(b.target, CORE_FILENAME)).ino);
+	}, 300_000);
+});
+
+// ── legacy flat-layout housekeeping (crossos t05 follow-up, 2026-08-29) ─────
+//
+// A pre-t05 outRoot's top-level `current` is never repointed by t05+ deploys
+// (swapCurrent writes the per-target pointer only), so it freezes at the last
+// flat deploy and misleads absolute-path users into a stale tree (measured:
+// top-level → 0.7.21 while darwin-arm64/current → 0.7.26). A deploy now
+// REMOVES it (before the flat-layer prune, so retention governs the legacy
+// dirs); --no-current leaves it alone.
+describeE2E("legacy flat-layout housekeeping", () => {
+	const legacyRoot = mkdtempSync(join(tmpdir(), "sh-legacy-"));
+
+	test("a deploy removes a stale pre-t05 top-level current", async () => {
+		const flat = join(legacyRoot, "0.0.1+gdeadbee");
+		mkdirSync(flat, { recursive: true });
+		writeFileSync(join(flat, "marker"), "flat");
+		symlinkSync("0.0.1+gdeadbee", join(legacyRoot, "current"));
+		const r = await runShDeploy({ outRoot: legacyRoot, version: "e2e-legacy-1", force: true });
+		expect(r.legacyCurrentRemoved).toBe(true);
+		expect(existsSync(join(legacyRoot, "current"))).toBe(false);
+		// the per-target pointer is untouched — the real current
+		expect(existsSync(join(r.target, "..", "current")) || existsSync(join(legacyRoot, hostTargetName(), "current"))).toBe(true);
+	}, 300_000);
+
+	test("current:false (--no-current) leaves a legacy top-level current alone", async () => {
+		symlinkSync("0.0.1+gdeadbee", join(legacyRoot, "current"));
+		const r = await runShDeploy({ outRoot: legacyRoot, version: "e2e-legacy-2", current: false, force: true });
+		expect(r.legacyCurrentRemoved).toBe(false);
+		expect(existsSync(join(legacyRoot, "current"))).toBe(true);
 	}, 300_000);
 });
 

@@ -13,7 +13,8 @@
  * devops tool that runs against BOTH targets:
  *
  *   dev    — `bun bun-apps/s2-agent/src/cli.ts` (source tree)
- *   deploy — `<deployRoot>/current/s2-agent.sh` (the frozen dist launcher)
+ *   deploy — `<deployRoot>/<target>/current/s2-agent.sh` (the frozen dist
+ *   launcher; `<target>` = host platform name, resolved target-first)
  *
  * The default check is the tool-surface probe — the SAME probe deploy-e2e's
  * `tools-probe`, deploy-probe-e2e, and `doctor --smoke` use
@@ -71,7 +72,7 @@ export const SESSION_DOCTOR_CLI_USAGE = [
 	"Works on dev (source tree) and deploy (frozen dist) targets.",
 	"",
 	"  --target dev|deploy     dev: bun bun-apps/s2-agent/src/cli.ts (default)",
-	"                          deploy: <deploy-root>/current/s2-agent.sh launcher",
+	"                          deploy: <deploy-root>/<target>/current/s2-agent.sh launcher",
 	"  --deploy-root <path>    default: outRoot from s2-agent src/registry-config.ts",
 	"  --provider <name>       default lm-studio (the local lane)",
 	"  --model <id>            default qwen/qwen3.8-27b",
