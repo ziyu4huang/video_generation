@@ -39,6 +39,17 @@ export interface SpawnOptions {
 	/** Working directory for this single call. Falls back to the baked-in default. */
 	cwd?: string;
 	/**
+	 * EXTRA environment variables for this single call, MERGED OVER the
+	 * inherited process environment by the live implementation (so callers
+	 * never have to restate PATH & friends — a raw replacement env would
+	 * break every spawned binary that resolves through PATH). The injectable
+	 * fakes in tests record `options.env` verbatim; `undefined` (the default)
+	 * means "inherit untouched" — unchanged behavior for every existing
+	 * caller. Adoption seam: deploy-e2e's VERIFY_E2E_MODEL pin (D8 form —
+	 * PI_PROVIDER/PI_MODEL/PI_THINKING over the one-shot spawns).
+	 */
+	env?: Record<string, string>;
+	/**
 	 * Hard wall-clock cap in ms. On expiry the child's WHOLE PROCESS GROUP is
 	 * SIGKILLed and the call resolves with `SPAWN_TIMEOUT_EXIT_CODE` (124).
 	 * Omitted (the default) means no cap — unchanged behaviour for the git/gh
@@ -86,12 +97,14 @@ function spawnDetached(
 	args: string[],
 	cwd: string,
 	timeoutMs: number,
+	env?: Record<string, string>,
 ): Promise<SpawnResult & { timedOut: boolean }> {
 	return new Promise((resolveP) => {
 		const proc = nodeSpawn(cmd, args, {
 			cwd,
 			detached: true,
 			stdio: ["ignore", "pipe", "pipe"],
+			env: env ? { ...process.env, ...env } : process.env,
 		});
 		let stdout = "";
 		let stderr = "";
@@ -156,9 +169,16 @@ export function createLiveSpawn(cwd: string): SpawnFn {
 		// Without one, spawn exactly as before — one fewer moving part on the
 		// path every gh/git call takes.
 		if (options?.timeoutMs !== undefined) {
-			return spawnDetached(cmd, args, options.cwd ?? cwd, options.timeoutMs);
+			return spawnDetached(cmd, args, options.cwd ?? cwd, options.timeoutMs, options.env);
 		}
-		const proc = Bun.spawn([cmd, ...args], { cwd: options?.cwd ?? cwd, stdout: "pipe", stderr: "pipe" });
+		const proc = Bun.spawn([cmd, ...args], {
+			cwd: options?.cwd ?? cwd,
+			// Bun.spawn REPLACES the environment when `env` is given — merge over
+			// the inherited one so an extra-var caller never nukes PATH.
+			env: options?.env ? { ...process.env, ...options.env } : undefined,
+			stdout: "pipe",
+			stderr: "pipe",
+		});
 		// Reading to EOF is what makes a hung child hang the CALLER: these two
 		// awaits never resolve while any descendant holds the pipe open.
 		const [stdout, stderr] = await Promise.all([

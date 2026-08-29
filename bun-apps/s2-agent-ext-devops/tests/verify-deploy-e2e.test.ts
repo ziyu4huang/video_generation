@@ -18,6 +18,7 @@ import {
 	runDeployE2e,
 	modelContentionWarning,
 	parseHermesStartupRoundTrips,
+	resolveE2eModelPin,
 	ONESHOT_RUNTIME_BUDGET_MS,
 	HERMES_STARTUP_ROUNDTRIP_CAP,
 	normalizeVisionReply,
@@ -537,6 +538,158 @@ describe("model-call regression budgets", () => {
 		const mc = r.probes.find((p) => p.id === "model-call")!;
 		expect(mc.verdict).toBe("fail");
 		expect(mc.note).toContain("240 HTTP round-trips");
+	});
+});
+
+describe("model pin (VERIFY_E2E_MODEL — the D8-style lane pin)", () => {
+	// The predecessor's measured blocker (next-goal 2026-08-29-095037): with
+	// only the 27b lane resident, a cold one-shot takes ~36s wall — just over
+	// the 35s budget — with NO contention warning (1 model) → a FAIL that is
+	// neither contention nor a tree regression. The pin (VERIFY_E2E_MODEL=
+	// provider/model-id, the deploy-probe-e2e D8 env form) makes the one-shot's
+	// lane deterministic so the budget has teeth again: breach on a PINNED
+	// light lane IS the #1976 class.
+	const PIN = "deepseek/deepseek-v4-flash-vision-exp";
+
+	test("resolveE2eModelPin: provider/model-id parses (first-slash split)", () => {
+		const r = resolveE2eModelPin({ VERIFY_E2E_MODEL: PIN });
+		expect(r).toEqual({ ok: true, pin: { provider: "deepseek", model: "deepseek-v4-flash-vision-exp" } });
+		// multi-segment model ids (openrouter vendor/model) keep the rest intact
+		const r2 = resolveE2eModelPin({ VERIFY_E2E_MODEL: " openrouter/qwen/qwen3-235b " });
+		expect(r2).toEqual({ ok: true, pin: { provider: "openrouter", model: "qwen/qwen3-235b" } });
+	});
+
+	test("resolveE2eModelPin: unset → null (default lane, behavior unchanged)", () => {
+		expect(resolveE2eModelPin({})).toBeNull();
+		expect(resolveE2eModelPin({ VERIFY_E2E_MODEL: "" })).toBeNull();
+	});
+
+	test("resolveE2eModelPin: a bare model id is a usage error (PI_MODEL alone is not enough — D8)", () => {
+		const r = resolveE2eModelPin({ VERIFY_E2E_MODEL: "deepseek-v4-flash-vision-exp" });
+		expect(r?.ok).toBe(false);
+		if (r && !r.ok) expect(r.message).toContain("provider/model-id");
+		const bare2 = resolveE2eModelPin({ VERIFY_E2E_MODEL: "/model" });
+		expect(bare2?.ok).toBe(false);
+	});
+
+	/** fakeSpawn + a per-call env/args recording surface. */
+	function recordingSpawn(): { spawn: SpawnFn; seen: Array<{ args: string[]; env?: Record<string, string> }> } {
+		const seen: Array<{ args: string[]; env?: Record<string, string> }> = [];
+		const base = fakeSpawn();
+		const spawn: SpawnFn = async (cmd, args, options) => {
+			seen.push({ args, env: options?.env });
+			return base(cmd, args, options);
+		};
+		return { spawn, seen };
+	}
+	const sessionCall = (s: { args: string[] }) => s.args.includes("-p"); // one-shots: tools-probe (-e … -p) + model-call (-p)
+
+	test("a pin reaches the one-shot spawns as PI_PROVIDER/PI_MODEL/PI_THINKING=off and only them", async () => {
+		makeTree();
+		const { spawn, seen } = recordingSpawn();
+		const r = await runDeployE2e({ versionDir, spawn, modelEndpoint: null, modelPin: { provider: "deepseek", model: "deepseek-v4-flash-vision-exp" } });
+		expect(r.probes.find((p) => p.id === "model-call")!.verdict).toBe("pass");
+		const oneShots = seen.filter(sessionCall);
+		expect(oneShots.length).toBe(2); // tools-probe + model-call
+		for (const s of oneShots) {
+			expect(s.env).toEqual({ PI_PROVIDER: "deepseek", PI_MODEL: "deepseek-v4-flash-vision-exp", PI_THINKING: "off" });
+		}
+		// boot / ext-list / cwd-independence place no model call — no env
+		for (const s of seen.filter((x) => !sessionCall(x))) expect(s.env).toBeUndefined();
+		// the pass note names the pinned lane (receipt quality)
+		expect(r.probes.find((p) => p.id === "model-call")!.note).toContain(PIN);
+	});
+
+	test("no pin (default) → no spawn env anywhere — unchanged behavior", async () => {
+		makeTree();
+		const { spawn, seen } = recordingSpawn();
+		await runDeployE2e({ versionDir, spawn, modelEndpoint: null });
+		expect(seen.length).toBeGreaterThan(0);
+		for (const s of seen) expect(s.env).toBeUndefined();
+	});
+
+	test("pinned + over budget + NO contention → deterministic FAIL naming the lane (not a skip)", async () => {
+		makeTree();
+		const { now } = steppingClock(ONESHOT_RUNTIME_BUDGET_MS + 1_000); // 36.0s — the measured slow-lane wall
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn(),
+			now,
+			modelEndpoint: "http://127.0.0.1:1234",
+			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "bonsai-27b"]), // WOULD contend — wrong lane though
+			modelPin: { provider: "deepseek", model: "deepseek-v4-flash-vision-exp" },
+		});
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("fail");
+		expect(mc.note).toContain("36.0s");
+		expect(mc.note).toContain(PIN);
+		expect(mc.note).toContain("#1976");
+		// the contention warning about ANOTHER endpoint's models must not
+		// downgrade a pinned lane's deterministic breach to a skip
+		expect(r.warnings.length).toBe(0);
+	});
+
+	test("a completed 36s one-shot is a budget breach, NEVER a hang (36s ≠ timeout)", async () => {
+		makeTree();
+		const { now } = steppingClock(ONESHOT_RUNTIME_BUDGET_MS + 1_000);
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn(),
+			now,
+			modelPin: { provider: "deepseek", model: "deepseek-v4-flash-vision-exp" },
+		});
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("fail");
+		expect(mc.note).toContain("budget");
+		expect(mc.note).not.toContain("BOOT HANG");
+		expect(mc.note).not.toContain("timed out");
+	});
+
+	test("a pinned TIMEOUT still fails as a hang (the 300s detector is unchanged)", async () => {
+		makeTree();
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn({ modelCall: { stdout: "", stderr: "[spawn] KILLED", exitCode: 124, timedOut: true } }),
+			modelEndpoint: null,
+			modelPin: { provider: "deepseek", model: "deepseek-v4-flash-vision-exp" },
+		});
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("fail");
+		expect(mc.note).toContain("timeout");
+	});
+
+	test("the CLI honors VERIFY_E2E_MODEL from the environment", async () => {
+		makeTree();
+		const saved = process.env.VERIFY_E2E_MODEL;
+		try {
+			process.env.VERIFY_E2E_MODEL = PIN;
+			const { spawn, seen } = recordingSpawn();
+			const res = await runVerifyDeployE2eCli(["--deploy-root", root], { spawn, versionDir: undefined, modelEndpoint: null });
+			expect(res.exitCode).toBe(0);
+			const mc = seen.find((s) => s.args.includes("-p") && !s.args.includes("-e"));
+			expect(mc?.env).toEqual({ PI_PROVIDER: "deepseek", PI_MODEL: "deepseek-v4-flash-vision-exp", PI_THINKING: "off" });
+		} finally {
+			if (saved === undefined) delete process.env.VERIFY_E2E_MODEL;
+			else process.env.VERIFY_E2E_MODEL = saved;
+		}
+	});
+
+	test("a malformed VERIFY_E2E_MODEL warns and runs unpinned (never silently)", async () => {
+		makeTree();
+		const saved = process.env.VERIFY_E2E_MODEL;
+		try {
+			process.env.VERIFY_E2E_MODEL = "deepseek-v4-flash-vision-exp"; // no provider — D8: not enough
+			const { spawn, seen } = recordingSpawn();
+			const res = await runVerifyDeployE2eCli(["--deploy-root", root], { spawn, versionDir: undefined, modelEndpoint: null });
+			expect(res.exitCode).toBe(0);
+			for (const s of seen) expect(s.env).toBeUndefined(); // ran on the default lane
+			const payload = JSON.parse(res.stdout);
+			expect(payload.warnings.join("\n")).toContain("VERIFY_E2E_MODEL");
+			expect(payload.warnings.join("\n")).toContain("provider/model-id");
+		} finally {
+			if (saved === undefined) delete process.env.VERIFY_E2E_MODEL;
+			else process.env.VERIFY_E2E_MODEL = saved;
+		}
 	});
 });
 

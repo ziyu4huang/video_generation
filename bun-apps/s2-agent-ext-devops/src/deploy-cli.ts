@@ -13,7 +13,7 @@ import { parseDeployShArgv } from "./deploy-sh-argv.ts";
 import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
 import { shConfig } from "./deploy/lib/config.ts";
 import { listTargetLayout } from "./deploy/lib/version.ts";
-import { runDeployE2e, resolveModelEndpoint, isNonHostTree } from "./deploy-e2e-recipe.js";
+import { runDeployE2e, resolveModelEndpoint, resolveE2eModelPin, isNonHostTree } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn } from "./spawn.js";
 
 const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
@@ -62,6 +62,14 @@ if (parsed.action.kind === "help") {
 	process.exit(0);
 }
 
+// VERIFY_E2E_MODEL (shared surface with verify-deploy-e2e-cli): pin the
+// post-deploy E2E's one-shots to one deterministic lane. Malformed → warn
+// + run unpinned (never silent, never a deploy blocker for a typo). Resolved
+// OUTSIDE the try so the DeployVersionExistsError catch path (which also runs
+// the E2E) sees the same pin.
+const e2ePin = resolveE2eModelPin();
+if (e2ePin && !e2ePin.ok) console.error(`⚠ ${e2ePin.message}`);
+
 try {
 	if (parsed.action.kind === "list") {
 		const outRoot = parsed.action.outRoot
@@ -94,6 +102,7 @@ try {
 				spawn: createLiveSpawn(result.target),
 				modelEndpoint: resolveModelEndpoint(),
 				skipModelCall,
+				modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
 			});
 	console.log(JSON.stringify({ ok: e2e.verdict !== "fail", ...result, e2e }, null, 2));
 	if (e2e.verdict === "fail") {
@@ -113,6 +122,7 @@ try {
 					spawn: createLiveSpawn(e.target),
 					modelEndpoint: resolveModelEndpoint(),
 					skipModelCall: process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
+					modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
 				});
 		console.log(JSON.stringify({ ok: e2e.verdict !== "fail", noop: true, version: e.version, target: e.target, message: e.message, e2e }, null, 2));
 		if (e2e.verdict === "fail") {
