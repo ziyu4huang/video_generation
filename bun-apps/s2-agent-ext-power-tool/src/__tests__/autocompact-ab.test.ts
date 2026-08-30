@@ -39,7 +39,9 @@
  *    `resourceLoader` given it builds its own SettingsManager over
  *    getDefaultAgentDir() (~/.pi/agent) (sdk.js), so a settings.json written
  *    into the arm's agentDir was silently unread — reserveTokens stayed at the
- *    16384 default. Fix: pass `settingsManager: loader.settingsManager`.
+ *    16384 default. Fix: build `SettingsManager.create(agentDir, agentDir)`
+ *    (what the loader would build internally) and pass that ONE manager to
+ *    BOTH the loader and createAgentSession, so the arm's settings.json wins.
  *  - Compaction silently no-ops while it fits in keepRecentTokens:
  *    findCutPoint budgets by CONTENT-estimated tokens (compaction.js:316-333),
  *    not scripted usage, and the 20k default exceeds the whole ~9k script
@@ -69,6 +71,7 @@ import { Type } from "typebox";
 import { createAgentSession, DefaultResourceLoader, defineTool, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { AgentSession, InlineExtension, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import powerToolFactory from "../index.ts";
+import { resetAutocompact, setThreshold } from "../autocompact.ts";
 
 /** The scripted model every arm of the A/B harness runs on. */
 export function makeScriptedModel(): Model<Api> {
@@ -496,4 +499,182 @@ describe("autocompact A/B harness", () => {
       await smoke.dispose();
     }
   });
+
+  // ─── Task 4: arms S1–S4 + validity gate + verdict report ──────────────────
+
+  test("arms S1–S4: full matrix, validity gate, verdict report", async () => {
+    const rows: AbRow[] = [];
+    for (const spec of ARMS) {
+      await runArm(spec, rows);
+    }
+    // Validity gate: if S1 (upstream-only, reserve 68k ⇒ fires at 60k) never
+    // threshold-compacts, the mock world never reached #6879 — every other
+    // number in the report is meaningless.
+    const s1ThresholdCompacts = rows.filter(
+      (r) => r.arm === "S1-baseline" && r.event === "compact" && r.reason === "threshold",
+    );
+    expect(s1ThresholdCompacts.length).toBeGreaterThanOrEqual(1);
+    // Regression guard: the ext fires ALONE (compaction.enabled false in
+    // settings) — the S3 standalone lane is the ext's minimum viable niche.
+    const s3ManualCompacts = rows.filter(
+      (r) => r.arm === "S3-standalone" && r.event === "compact" && r.reason === "manual",
+    );
+    expect(s3ManualCompacts.length).toBeGreaterThanOrEqual(1);
+    // Measured numbers are REPORTED, never asserted (Task 5 owns measurement).
+    console.log(renderReport(rows));
+  }, 60_000);
 });
+
+/** One experimental arm of the A/B matrix. `compaction` lands verbatim in the
+ *  arm's settings.json (upstream reserveTokens semantics); `extThreshold`
+ *  arms the /autocompact ext via setThreshold between session creation and
+ *  prompt(). */
+export interface ArmSpec {
+  arm: string;
+  compaction: { enabled: boolean; reserveTokens?: number; keepRecentTokens?: number };
+  extThreshold?: number;
+}
+
+/** The four arms. keepRecentTokens MUST sit below the script's ~9k
+ *  content-estimated tokens on EVERY arm — not just enabled ones: the manual
+ *  compact path runs the SAME prepareCompaction with getCompactionSettings()
+ *  (agent-session.js:1480), so with the 20k default the ext's ctx.compact()
+ *  at settle fails "Nothing to compact (session too small)" and S3's manual
+ *  lane dies in compact_failed. Measured in Task 4's RED run (probe): S3 with
+ *  { enabled: false } alone → onError "Nothing to compact (session too
+ *  small)"; + keepRecentTokens 2_000 → manual compact lands. */
+const ARMS: ArmSpec[] = [
+  { arm: "S1-baseline", compaction: { enabled: true, reserveTokens: 68_000, keepRecentTokens: 2_000 } },
+  { arm: "S2-matched", compaction: { enabled: true, reserveTokens: 68_000, keepRecentTokens: 2_000 }, extThreshold: 60_000 },
+  { arm: "S3-standalone", compaction: { enabled: false, keepRecentTokens: 2_000 }, extThreshold: 50_000 },
+  { arm: "S4-niche", compaction: { enabled: true, reserveTokens: 8_000, keepRecentTokens: 2_000 }, extThreshold: 50_000 },
+];
+
+/** Poll `rows` until the arm's post-prompt lifecycle is complete (or the
+ *  deadline passes — late rows are a finding, not a hang). prompt() resolving
+ *  does NOT mean the ext's manual compact finished: agent_settled handlers
+ *  start it and upstream completes it asynchronously, so disposing right
+ *  after prompt() would cancel it and look identical to "never fired". */
+async function waitForArmOutcome(spec: ArmSpec, rows: AbRow[], timeoutMs: number): Promise<void> {
+  const armed = spec.extThreshold !== undefined;
+  const done = () =>
+    rows.some((r) => r.arm === spec.arm && r.event === "settled") &&
+    // For armed arms, wait until the manual compact LANDED (compact) or was
+    // refused upstream (compact_failed) — either is an outcome worth rows.
+    (!armed || rows.some((r) => r.arm === spec.arm && r.reason === "manual" && (r.event === "compact" || r.event === "compact_failed")));
+  const deadline = Date.now() + timeoutMs;
+  while (!done() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+/** Run one arm hermetically: fresh temp agentDir, settings.json from the
+ *  spec, the real power-tool factory + scripted provider + recorder, the
+ *  emit_blob tool, and the full provocation script. `session.prompt` races a
+ *  30 s timeout so a stuck agent loop fails loudly instead of hanging CI. */
+export async function runArm(spec: ArmSpec, rows: AbRow[]): Promise<AbRow[]> {
+  const smoke = await smokeSession({
+    settings: { compaction: spec.compaction },
+    extensions: [
+      { name: "power-tool", factory: powerToolFactory },
+      makeRecorder(spec.arm, rows),
+    ],
+    provider: makeScriptedProviderFromScript([...PROVOCATION_SCRIPT, FINAL_STEP]),
+    customTools: [EMIT_BLOB_TOOL],
+  });
+  try {
+    if (spec.extThreshold !== undefined) {
+      // Same module instance as the loaded factory (inline extensionFactories,
+      // no file-path loader), so this arms the ext the command would arm.
+      setThreshold(smoke.session.sessionId, spec.extThreshold);
+    }
+    let timeoutId: ReturnType<typeof setTimeout>;
+    await Promise.race([
+      smoke.session.prompt("run the plan"),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
+          () => reject(new Error(`arm ${spec.arm}: prompt did not finish within 30s`)),
+          30_000,
+        );
+      }),
+    ]);
+    clearTimeout(timeoutId!);
+    await waitForArmOutcome(spec, rows, 5_000);
+    return rows;
+  } finally {
+    resetAutocompact(); // thresholds are keyed by sessionId — never reused
+    await smoke.dispose();
+  }
+}
+
+/** Verdict line for one arm, per the spec's verdict rules. Measured from
+ *  rows only — no spec knowledge beyond the arm name (which arm IS the
+ *  treatment is the experiment's business, not the reporter's). */
+function verdictFor(arm: string, armRows: AbRow[]): string {
+  const compacts = armRows.filter((r) => r.event === "compact");
+  const manual = compacts.filter((r) => r.reason === "manual");
+  const threshold = compacts.filter((r) => r.reason === "threshold");
+  const manualFailed = armRows.filter((r) => r.event === "compact_failed" && r.reason === "manual");
+  const parts: string[] = [];
+  // Collision: a manual compact adjacent (same loopIndex) to a threshold one.
+  const collision = manual.some((m) => threshold.some((t) => t.loopIndex === m.loopIndex));
+  if (collision) parts.push("COLLISION signal (manual compact at the same loopIndex as a threshold compact)");
+  if (arm === "S2-matched") {
+    if (manual.length === 0) {
+      // The settle-time attempt can still be REFUSED ("Already compacted") —
+      // that is upstream having absorbed the boundary, so it refines, not
+      // breaks, the absorbed verdict.
+      parts.push(
+        manualFailed.length > 0
+          ? `ext absorbed at matched thresholds (0 manual compacts; ${manualFailed.length} settle-time attempt(s) refused as redundant)`
+          : "ext absorbed at matched thresholds (0 manual compacts)",
+      );
+    } else {
+      parts.push(`NOT absorbed — ${manual.length} manual compact(s) fired despite matched thresholds`);
+    }
+  }
+  if (arm === "S4-niche") {
+    if (manual.length === 0) parts.push("retire signal (0 manual compacts)");
+    else if (
+      threshold.length === 0 ||
+      Math.min(...manual.map((r) => r.loopIndex)) < Math.min(...threshold.map((r) => r.loopIndex))
+    ) {
+      parts.push("niche real (manual compact fired earlier than any threshold compact)");
+    } else {
+      parts.push("no niche (manual compacts all fired after a threshold compact)");
+    }
+  }
+  return parts.length ? parts.join("; ") : "n/a (control arm)";
+}
+
+/** Markdown report: per-arm compact counts by reason, tokens at each fire,
+ *  peak turn_end tokens, final settled tokens, verdict. Stdout only —
+ *  measured numbers are never asserted. */
+export function renderReport(rows: AbRow[]): string {
+  const arms = [...new Set(rows.map((r) => r.arm))];
+  const lines = [
+    "## autocompact A/B — S1–S4",
+    "",
+    "| arm | threshold compacts | manual compacts | failed | tokens at fire | peak turn_end | final settled | verdict |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+  ];
+  for (const arm of arms) {
+    const armRows = rows.filter((r) => r.arm === arm);
+    const compacts = armRows.filter((r) => r.event === "compact");
+    const threshold = compacts.filter((r) => r.reason === "threshold");
+    const manual = compacts.filter((r) => r.reason === "manual");
+    const failed = armRows.filter((r) => r.event === "compact_failed");
+    const fires = compacts
+      .map((r) => `${r.contextTokens === null ? "?" : r.contextTokens.toLocaleString()} (${r.reason})`)
+      .join(", ");
+    const turnEnds = armRows.filter((r) => r.event === "turn_end" && r.contextTokens !== null);
+    const peak = turnEnds.length ? Math.max(...turnEnds.map((r) => r.contextTokens as number)).toLocaleString() : "?";
+    const settled = [...armRows].reverse().find((r) => r.event === "settled");
+    lines.push(
+      `| ${arm} | ${threshold.length} | ${manual.length} | ${failed.length} | ${fires || "—"} | ${peak} | ${
+        settled?.contextTokens !== undefined && settled?.contextTokens !== null ? settled.contextTokens.toLocaleString() : "?"
+      } | ${verdictFor(arm, armRows)} |`,
+    );
+  }
+  return lines.join("\n");
+}
