@@ -98,3 +98,17 @@ A dist session loads `-e <file>` extensions against a **fixed host-module map** 
 - Deep-path imports of host-provided packages don't get host-alias resolution; probe files for dist verification must **import nothing**, or only bare host-provided specifiers.
 
 When a guarded probe produces no marker, read the launch output for a `skipped -e extension` line before assuming the harness hung.
+
+---
+
+## [tool-quirk] long-lived session hosts run extension code frozen at process start — merge cleanup can silently not fire
+
+**Added:** 2026-08-30
+
+Confirmed with receipts during PR #2165 (the merge-CLI → shared branch-cleanup-core migration): the session host (pid observed via `ps`/`lsof … awk '$4=="cwd"'`) had been running since **2026-08-29 20:07** — 23 minutes BEFORE #2150 merged (20:30) — so its in-memory `merge_pr_after_local_ci` was the pre-#2150 build. Symptom: the tool merged #2165, deleted the REMOTE branch (mergeNow's job), but left the LOCAL branch checked out with no detach and no cleanup line — the exact #2143/#2146 recurrence — while the on-disk source (and even the deployed dist) both contained the post-#2150 cleanup.
+
+Diagnostics that worked, in order: `inspect_agent` (loaded tool descriptions vs on-disk `registerTool` descriptions — the missing "On merge, also cleans up the spent branch" sentence named the frozen build), then the host pid's start time (`ps -o lstart`) vs the feature merge timestamp. Diagnostics that MISLED first: grepping the deployed `ext/devops/ext.cjs` for identifiers (`runLocalBranchCleanup`, `cleanupLine`) — minification renames identifiers, so both old and new dists grep 0 while string literals (`"no detach needed"`, `"Branch-cleanup notes"`) grep 1; and assuming the dist was the load source at all (this session loads the workspace tree via the run-dir registry — `inspect_agent`'s `tools[].source.path` settles it in one read).
+
+Recovery that worked: the already-MERGED retry path (`merge-pr-after-ci-cli <pr>`) verifies + runs the branch cleanup as its designed recovery — stash the preserve-listed `.agents/memory/MEMORY.md` past its `dirty_tree` preflight first (the CLI, unlike the extension tool, does not exclude it). That run is ALSO the natural live test for any cleanup-path change — it printed the full migrated call order (detach → deleteLocal → benign already-deleted remote warning → fetchPrune).
+
+Rule: when an in-session tool's behavior contradicts the current source, compare `inspect_agent`'s loaded description against the on-disk one BEFORE blaming the deploy or the code — a host that predates a merge is running that merge's ancestor code, no matter what the tree says now. Post-merge, prefer the CLI twin (fresh process, current tree) for the recovery/cleanup pass.
