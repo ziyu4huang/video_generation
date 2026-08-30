@@ -360,6 +360,10 @@ export interface AbRow {
   /** How many turn_end rows this arm had logged before/within this row —
    * ties every row to its tool-loop iteration. */
   loopIndex: number;
+  /** Upstream's own failure text (session_compact_failed errorMessage) —
+   * distinguishes "Already compacted" refusals from real failures such as
+   * "Nothing to compact". */
+  errorMessage?: string;
 }
 
 /** The A/B recorder: an inline extension that turns the session lifecycle
@@ -390,7 +394,14 @@ export function makeRecorder(arm: string, rows: AbRow[]): InlineExtension {
         });
       });
       pi.on("session_compact_failed", (event, ctx) => {
-        rows.push({ arm, event: "compact_failed", reason: event.reason, contextTokens: snap(ctx), loopIndex: turnEnds });
+        rows.push({
+          arm,
+          event: "compact_failed",
+          reason: event.reason,
+          contextTokens: snap(ctx),
+          loopIndex: turnEnds,
+          ...(event.errorMessage !== undefined ? { errorMessage: event.errorMessage } : {}),
+        });
       });
       pi.on("agent_settled", (_event, ctx) => {
         rows.push({ arm, event: "settled", contextTokens: snap(ctx), loopIndex: turnEnds });
@@ -607,6 +618,13 @@ export async function runArm(spec: ArmSpec, rows: AbRow[]): Promise<AbRow[]> {
   }
 }
 
+/** Distinct upstream error texts from failed rows — quoted in the report so
+ *  "Already compacted" refusals read differently from real failures. */
+function summarizeFailures(failed: AbRow[]): string {
+  const messages = [...new Set(failed.map((r) => r.errorMessage ?? "unknown error"))];
+  return messages.map((m) => `"${m}"`).join(", ");
+}
+
 /** Verdict line for one arm, per the spec's verdict rules. Measured from
  *  rows only — no spec knowledge beyond the arm name (which arm IS the
  *  treatment is the experiment's business, not the reporter's). */
@@ -623,10 +641,11 @@ function verdictFor(arm: string, armRows: AbRow[]): string {
     if (manual.length === 0) {
       // The settle-time attempt can still be REFUSED ("Already compacted") —
       // that is upstream having absorbed the boundary, so it refines, not
-      // breaks, the absorbed verdict.
+      // breaks, the absorbed verdict. Quote upstream's own errorMessage so a
+      // refusal and a real failure (e.g. "Nothing to compact") differ.
       parts.push(
         manualFailed.length > 0
-          ? `ext absorbed at matched thresholds (0 manual compacts; ${manualFailed.length} settle-time attempt(s) refused as redundant)`
+          ? `ext absorbed at matched thresholds (0 manual compacts; ${manualFailed.length} settle-time attempt(s) refused upstream: ${summarizeFailures(manualFailed)})`
           : "ext absorbed at matched thresholds (0 manual compacts)",
       );
     } else {
@@ -635,10 +654,12 @@ function verdictFor(arm: string, armRows: AbRow[]): string {
   }
   if (arm === "S4-niche") {
     if (manual.length === 0) parts.push("retire signal (0 manual compacts)");
-    else if (
-      threshold.length === 0 ||
-      Math.min(...manual.map((r) => r.loopIndex)) < Math.min(...threshold.map((r) => r.loopIndex))
-    ) {
+    else if (threshold.length === 0) {
+      // Vacuously "earlier": upstream's effective point sits beyond this
+      // curve's peak, so there was nothing to race — the arm shows the ext's
+      // lane EXISTS here, not that it wins a real race.
+      parts.push("niche real (structural — no upstream compaction raced in this curve)");
+    } else if (Math.min(...manual.map((r) => r.loopIndex)) < Math.min(...threshold.map((r) => r.loopIndex))) {
       parts.push("niche real (manual compact fired earlier than any threshold compact)");
     } else {
       parts.push("no niche (manual compacts all fired after a threshold compact)");
@@ -664,6 +685,9 @@ export function renderReport(rows: AbRow[]): string {
     const threshold = compacts.filter((r) => r.reason === "threshold");
     const manual = compacts.filter((r) => r.reason === "manual");
     const failed = armRows.filter((r) => r.event === "compact_failed");
+    const failedCell = failed.length
+      ? `${failed.length}${failed.some((r) => r.errorMessage !== undefined) ? ` (${summarizeFailures(failed)})` : ""}`
+      : "0";
     const fires = compacts
       .map((r) => `${r.contextTokens === null ? "?" : r.contextTokens.toLocaleString()} (${r.reason})`)
       .join(", ");
@@ -671,7 +695,7 @@ export function renderReport(rows: AbRow[]): string {
     const peak = turnEnds.length ? Math.max(...turnEnds.map((r) => r.contextTokens as number)).toLocaleString() : "?";
     const settled = [...armRows].reverse().find((r) => r.event === "settled");
     lines.push(
-      `| ${arm} | ${threshold.length} | ${manual.length} | ${failed.length} | ${fires || "—"} | ${peak} | ${
+      `| ${arm} | ${threshold.length} | ${manual.length} | ${failedCell} | ${fires || "—"} | ${peak} | ${
         settled?.contextTokens !== undefined && settled?.contextTokens !== null ? settled.contextTokens.toLocaleString() : "?"
       } | ${verdictFor(arm, armRows)} |`,
     );

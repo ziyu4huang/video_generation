@@ -7,11 +7,20 @@
  * `contextTokens > contextWindow − reserveTokens`, see upstream
  * settings-manager `getCompactionSettings`). This command adds an ABSOLUTE,
  * per-session threshold (`/autocompact 400k` → compact once estimated tokens
- * reach 400 000) — useful for low-threshold testing and for pinning a working
- * set smaller than the model's window. Threshold state is deliberately
- * in-memory only (keyed by sessionId, same discipline as the pathology
- * accumulator): persisting it would create a second config surface for one
- * behavior alongside upstream's `compaction` settings block.
+ * reach 400 000). Threshold state is deliberately in-memory only (keyed by
+ * sessionId, same discipline as the pathology accumulator): persisting it
+ * would create a second config surface for one behavior alongside upstream's
+ * `compaction` settings block.
+ *
+ * Positioning (measured 2026-08-30, A/B harness in
+ * src/__tests__/autocompact-ab.test.ts — verdict "reposition"): at thresholds
+ * matched to upstream's effective point the ext is REDUNDANT — upstream's
+ * mid-run + boundary checks compact first and the ext's settle-time attempt
+ * is refused ("Nothing to compact"). The measured niche is a LOW absolute
+ * threshold — a compact point below what upstream's relative threshold ever
+ * reaches in a given session — for low-threshold testing and for pinning a
+ * working set smaller than the model's window. Arming at or above upstream's
+ * effective point buys nothing.
  *
  * Trigger point: the `agent_settled` event — fired after a run has fully
  * settled with no automatic retry, compaction, or queued continuation left.
@@ -94,7 +103,13 @@ export function renderStatus(sessionId: string, usage: { tokens: number | null; 
   const head = `/autocompact: ${threshold === undefined ? "OFF" : `armed at ${fmt(threshold)} tokens`}`;
   if (!usage) return `${head}\nContext usage unknown (no active model).`;
   const cur = usage.tokens === null ? "unknown (fresh compaction?)" : `${usage.tokens.toLocaleString()} (${usage.percent?.toFixed(1) ?? "?"}%)`;
-  return `${head}\nContext: ${cur} of ${usage.contextWindow.toLocaleString()} window.`;
+  // Repositioned niche (measured 2026-08-30 A/B): the absolute lane only adds
+  // value BELOW upstream's relative effective point — say so when armed.
+  const niche =
+    threshold === undefined
+      ? ""
+      : `\nNiche: compact points upstream's relative threshold never reaches (window − reserveTokens); at or above that point upstream already compacts and this is redundant.`;
+  return `${head}\nContext: ${cur} of ${usage.contextWindow.toLocaleString()} window.${niche}`;
 }
 
 type CtxLike = {
