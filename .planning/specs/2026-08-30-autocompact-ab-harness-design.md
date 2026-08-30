@@ -73,12 +73,15 @@ the package's canonical `bun run test`).
 
 ### Arms (single-variable discipline)
 
-| Arm | upstream `reserveTokens` | ext | Question |
+Concrete numbers: script a fake model with `contextWindow: 128_000`; the
+usage script walks context tokens 5k → 70k across ~8 tool loops, then ends.
+
+| Arm | upstream `reserveTokens` (effective point) | ext | Question |
 |---|---|---|---|
-| S1 baseline | small (mid-run provocation) | OFF | upstream alone: count, phase, residual |
-| S2 matched | same as S1 | ON, threshold ≈ upstream's effective point | is the ext a no-op when upstream boundary check runs first? |
-| S3 standalone | disabled | ON | ext regression guard (must still work alone) |
-| S4 niche | large (upstream fires late) | ON, absolute threshold well below upstream's | does the low-absolute-threshold niche actually fire earlier? |
+| S1 baseline | 68_000 (fires at 60k) | OFF | upstream alone: count, phase, residual |
+| S2 matched | 68_000 (fires at 60k) | ON at 60_000 | is the ext a no-op when upstream boundary check runs first? |
+| S3 standalone | disabled (`enabled: false`) | ON at 50_000 | ext regression guard (must still work alone) |
+| S4 niche | 8_000 (fires at 120k — never in this script) | ON at 50_000 | does the low-absolute-threshold niche actually fire earlier? |
 
 ### Report
 
