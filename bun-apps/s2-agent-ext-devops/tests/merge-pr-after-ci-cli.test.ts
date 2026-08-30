@@ -1149,6 +1149,9 @@ describe("merge-pr-after-ci-cli — preserve-listed hot files (dirty MEMORY.md n
 		// The kept stash is identified by its push message + recovery guidance.
 		expect(w[0]).toContain("stash list | grep 'sync_default_branch preserve'");
 		expect(w[0]).toContain("stash drop");
+		// Explicit subset pin: the aftermath names the PARSED conflicted path
+		// (stderr above uses git's REAL casing — capital "Merge conflict in").
+		expect(w[0]).toContain("conflict markers in: .agents/memory/MEMORY.md");
 		// The stash is KEPT — no drop spawned on the conflict path.
 		expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash drop"))).toBe(false);
 	});
