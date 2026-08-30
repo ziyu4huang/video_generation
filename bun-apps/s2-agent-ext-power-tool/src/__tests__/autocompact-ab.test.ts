@@ -277,7 +277,9 @@ export interface SmokeSession {
  *
  *  HOME is redirected to a tmp dir for the session's lifetime and restored by
  *  dispose(): extensions that touch homedir() (power-tool's session_start env
- *  sidecar under ~/.pi/agent/power-tool) stay hermetic for every caller. */
+ *  sidecar under ~/.pi/agent/power-tool) stay hermetic for every caller.
+ *  Because the redirect mutates GLOBAL process.env.HOME, concurrent/
+ *  parallel smokeSession calls are unsafe — arms must run sequentially. */
 export async function smokeSession(options: SmokeSessionOptions = {}): Promise<SmokeSession> {
   const agentDir = await mkdtemp(join(tmpdir(), "ac-ab-"));
   const homeDir = await mkdtemp(join(tmpdir(), "ac-ab-home-"));
@@ -361,8 +363,8 @@ export interface AbRow {
    * ties every row to its tool-loop iteration. */
   loopIndex: number;
   /** Upstream's own failure text (session_compact_failed errorMessage) —
-   * distinguishes "Already compacted" refusals from real failures such as
-   * "Nothing to compact". */
+   * distinguishes refusals ("Nothing to compact (session too small)" — the
+   * measured S2 case) from other failure modes. */
   errorMessage?: string;
 }
 
@@ -441,7 +443,7 @@ describe("autocompact A/B harness", () => {
       expect(smoke.extensionErrors).toEqual([]);
       const assistants = smoke.session.messages.filter((m) => m.role === "assistant");
       expect(assistants.some((m) => m.errorMessage !== undefined)).toBe(false);
-      // The loop actually ran deep: 7 scripted emit_blob calls, each executed
+      // The loop actually ran deep: 8 scripted emit_blob calls, each executed
       // by the real tool executor with a full-size blob result.
       const toolResults = smoke.session.messages.filter((m) => m.role === "toolResult");
       expect(toolResults.length).toBeGreaterThanOrEqual(6);
@@ -619,7 +621,8 @@ export async function runArm(spec: ArmSpec, rows: AbRow[]): Promise<AbRow[]> {
 }
 
 /** Distinct upstream error texts from failed rows — quoted in the report so
- *  "Already compacted" refusals read differently from real failures. */
+ *  "Nothing to compact (session too small)" refusals (the measured S2 case)
+ *  read differently from other failure modes. */
 function summarizeFailures(failed: AbRow[]): string {
   const messages = [...new Set(failed.map((r) => r.errorMessage ?? "unknown error"))];
   return messages.map((m) => `"${m}"`).join(", ");
@@ -639,10 +642,12 @@ function verdictFor(arm: string, armRows: AbRow[]): string {
   if (collision) parts.push("COLLISION signal (manual compact at the same loopIndex as a threshold compact)");
   if (arm === "S2-matched") {
     if (manual.length === 0) {
-      // The settle-time attempt can still be REFUSED ("Already compacted") —
-      // that is upstream having absorbed the boundary, so it refines, not
-      // breaks, the absorbed verdict. Quote upstream's own errorMessage so a
-      // refusal and a real failure (e.g. "Nothing to compact") differ.
+      // The settle-time attempt can still be REFUSED ("Nothing to compact
+      // (session too small)" — the measured message: upstream's boundary
+      // compaction already shrank the content below the manual path's
+      // keepRecentTokens budget). That is upstream having absorbed the
+      // boundary, so it refines, not breaks, the absorbed verdict. Quote
+      // upstream's own errorMessage so distinct failure modes differ.
       parts.push(
         manualFailed.length > 0
           ? `ext absorbed at matched thresholds (0 manual compacts; ${manualFailed.length} settle-time attempt(s) refused upstream: ${summarizeFailures(manualFailed)})`
@@ -688,8 +693,16 @@ export function renderReport(rows: AbRow[]): string {
     const failedCell = failed.length
       ? `${failed.length}${failed.some((r) => r.errorMessage !== undefined) ? ` (${summarizeFailures(failed)})` : ""}`
       : "0";
+    // Phase per fire (spec's Report section): a compact whose loopIndex sits
+    // within the arm's turn_end range fired MID-RUN (between tool-loop
+    // iterations); one at/after the final turn_end fired at settle/boundary.
+    const turnEndCount = armRows.filter((r) => r.event === "turn_end").length;
     const fires = compacts
-      .map((r) => `${r.contextTokens === null ? "?" : r.contextTokens.toLocaleString()} (${r.reason})`)
+      .map((r) => {
+        const tokens = r.contextTokens === null ? "?" : r.contextTokens.toLocaleString();
+        const phase = r.loopIndex >= turnEndCount ? "settled" : "mid-run";
+        return `${tokens} (${r.reason}, ${phase})`;
+      })
       .join(", ");
     const turnEnds = armRows.filter((r) => r.event === "turn_end" && r.contextTokens !== null);
     const peak = turnEnds.length ? Math.max(...turnEnds.map((r) => r.contextTokens as number)).toLocaleString() : "?";
