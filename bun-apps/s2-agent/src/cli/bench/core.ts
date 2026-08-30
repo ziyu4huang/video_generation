@@ -23,6 +23,12 @@ export interface MetricsMessage {
 	 *  Per-turn durations must be measured from message_end event ARRIVALS
 	 *  (wall clock at the listener) and passed in as turnDurationsMs. */
 	timestamp?: number;
+	/** The SDK's StreamFn encodes request/model failures (429, 5xx, bad request)
+	 *  as a RESOLVED final assistant message with stopReason "error" +
+	 *  errorMessage — never as a promise rejection. So a failed call still
+	 *  yields ok:true from prompt(); these two fields are how callers detect it. */
+	stopReason?: string;
+	errorMessage?: string;
 }
 
 export interface RunMetrics {
@@ -104,6 +110,25 @@ export function finalAssistantText(messages: MetricsMessage[]): string {
 	return "";
 }
 
+/** Scan from the end for an assistant message carrying an API error
+ *  (stopReason "error" and/or errorMessage — see MetricsMessage). Returns the
+ *  errorMessage (or the bare stopReason when no message text), else null. */
+export function lastApiError(messages: MetricsMessage[]): string | null {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const m = messages[i];
+		if (m.role === "assistant" && (m.errorMessage || m.stopReason === "error")) {
+			return m.errorMessage || m.stopReason || null;
+		}
+	}
+	return null;
+}
+
+// Escape pipes for markdown table cells — checkEdit failure details join
+// stderr lines with " | ", which would otherwise split the row.
+function esc(s: string): string {
+	return s.replaceAll("|", "\\|");
+}
+
 export function renderReport(results: CellResult[], meta: { startedAt: string; dry: boolean }): string {
 	const lines: string[] = [];
 	lines.push(`# bench-agent report — ${meta.startedAt}${meta.dry ? " (DRY)" : ""}`, "");
@@ -112,8 +137,16 @@ export function renderReport(results: CellResult[], meta: { startedAt: string; d
 	for (const r of results) {
 		const m = r.metrics;
 		const row = m
-			? `| ${r.configId} | ${r.taskId} | ${(m.wallMs / 1000).toFixed(1)} | ${m.turns} | ${m.outputTokens} | ${m.reasoningTokens} | ${(m.reasoningRatio * 100).toFixed(0)} | ${m.tokensPerSec.toFixed(1)} | ${(m.medianTurnMs / 1000).toFixed(1)} | ${(m.p90TurnMs / 1000).toFixed(1)} | ${(m.cacheHitRatio * 100).toFixed(0)} | ${r.ok ? (r.quality?.pass ? "PASS" : `FAIL(${r.quality?.detail ?? "?"})`) : `ERROR(${r.error ?? "?"})`} |`
-			: `| ${r.configId} | ${r.taskId} | - | - | - | - | - | - | - | - | - | ERROR(${r.error ?? "?"}) |`;
+			? `| ${r.configId} | ${r.taskId} | ${(m.wallMs / 1000).toFixed(1)} | ${m.turns} | ${m.outputTokens} | ${m.reasoningTokens} | ${(m.reasoningRatio * 100).toFixed(0)} | ${m.tokensPerSec.toFixed(1)} | ${(m.medianTurnMs / 1000).toFixed(1)} | ${(m.p90TurnMs / 1000).toFixed(1)} | ${(m.cacheHitRatio * 100).toFixed(0)} | ${r.ok ? (r.quality?.pass ? "PASS" : `FAIL(${esc(r.quality?.detail ?? "?")})`) : `ERROR(${esc(r.error ?? "?")})`} |`
+			: `| ${r.configId} | ${r.taskId} | - | - | - | - | - | - | - | - | - | ${
+					r.ok
+						? r.quality
+							? r.quality.pass
+								? "PASS"
+								: `FAIL(${esc(r.quality.detail)})`
+							: "no metrics"
+						: `ERROR(${esc(r.error ?? "?")})`
+				} |`;
 		lines.push(row);
 	}
 	lines.push("", "## Per-config summary", "");

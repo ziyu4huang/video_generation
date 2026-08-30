@@ -26,6 +26,7 @@ import {
 	DEFAULT_CONFIGS,
 	extractMetrics,
 	finalAssistantText,
+	lastApiError,
 	renderReport,
 } from "../bench/core.ts";
 import { BENCH_TASKS, copyFixtureToTemp, type BenchTask } from "../bench/tasks.ts";
@@ -37,6 +38,7 @@ const DEFAULT_TIMEOUT_SEC = 300;
 export function selectConfigs(csv?: string): BenchConfig[] {
 	if (!csv) return DEFAULT_CONFIGS;
 	const wanted = csv.split(",").map((s) => s.trim()).filter(Boolean);
+	if (wanted.length === 0) throw new Error("no valid ids in --configs value");
 	const legal = DEFAULT_CONFIGS.map((c) => c.id);
 	const unknown = wanted.filter((w) => !legal.includes(w));
 	if (unknown.length > 0) {
@@ -48,6 +50,7 @@ export function selectConfigs(csv?: string): BenchConfig[] {
 export function selectTasks(csv?: string): BenchTask[] {
 	if (!csv) return BENCH_TASKS;
 	const wanted = csv.split(",").map((s) => s.trim()).filter(Boolean);
+	if (wanted.length === 0) throw new Error("no valid ids in --tasks value");
 	const legal = BENCH_TASKS.map((t) => t.id);
 	const unknown = wanted.filter((w) => !legal.includes(w));
 	if (unknown.length > 0) {
@@ -149,10 +152,24 @@ async function runCell(config: BenchConfig, task: BenchTask, timeoutMs: number):
 			created = await createSharedSession(llm, { cwd: runDir, tools: task.tools });
 			console.error(`[bench] model: ${llm.provider}/${llm.modelId}:${llm.thinkingLevel}`);
 			const outcome = await promptCollectingDurations(created.session, task.prompt, timeoutMs);
-			if (!outcome.ok && attempt === 0) continue; // one transient retry (finally disposes)
 			// AgentMessage is structurally a MetricsMessage superset; cast at the boundary.
 			const messages = created.session.messages as unknown as MetricsMessage[];
+			// API failures (429/5xx/…) resolve as an erroring assistant message, not a
+			// rejection — prompt() returns ok:true. Lift it so it retries like a timeout
+			// and, if persistent, lands in the cell's error field instead of FAIL(empty).
+			const apiError = lastApiError(messages);
+			if ((!outcome.ok || apiError) && attempt === 0) continue; // one transient retry (finally disposes)
 			const metrics = extractMetrics(messages, outcome.wallMs, outcome.turnDurationsMs);
+			if (apiError) {
+				return {
+					configId: config.id,
+					taskId: task.id,
+					ok: false,
+					error: `api: ${apiError}`,
+					metrics, // keep whatever metrics the erroring attempt produced
+					quality: null,
+				};
+			}
 			const quality = await task.check(finalAssistantText(messages), runDir);
 			return {
 				configId: config.id,
@@ -218,17 +235,26 @@ async function runPrefillProbe(timeoutMs: number): Promise<string> {
 			const toolCount = (session.getActiveToolNames?.() ?? []).length;
 			// Each prompt gets its own subscribe window (cold durations from cold's
 			// arrivals, warm likewise); allM spans both prompts → concat.
+			// API errors resolve into an erroring assistant message (not a rejection)
+			// — annotate the row so a failed probe isn't numeric-only.
+			let apiNote = "";
+			const noteApi = () => {
+				const e = lastApiError(session.messages as unknown as MetricsMessage[]);
+				if (e) apiNote = ` (api error: ${e})`;
+			};
 			const cold = await promptCollectingDurations(session, PROBE_TASK.prompt, timeoutMs);
 			const coldM = extractMetrics(
 				session.messages as unknown as MetricsMessage[],
 				cold.wallMs,
 				cold.turnDurationsMs,
 			);
+			noteApi();
 			const warm = await promptCollectingDurations(
 				session,
 				"Again — reply with only the exact token.",
 				timeoutMs,
 			);
+			noteApi();
 			const allM = extractMetrics(
 				session.messages as unknown as MetricsMessage[],
 				warm.wallMs,
@@ -236,7 +262,7 @@ async function runPrefillProbe(timeoutMs: number): Promise<string> {
 			);
 			const warmCacheRead = allM.cacheReadTokens - coldM.cacheReadTokens;
 			rows.push(
-				`| ${load.name} | ${toolCount} | ${(cold.wallMs / 1000).toFixed(1)} | ${(warm.wallMs / 1000).toFixed(1)} | ${coldM.cacheWriteTokens} | ${warmCacheRead} |`,
+				`| ${load.name} | ${toolCount} | ${(cold.wallMs / 1000).toFixed(1)} | ${(warm.wallMs / 1000).toFixed(1)} | ${coldM.cacheWriteTokens} | ${warmCacheRead} |${apiNote}`,
 			);
 		} finally {
 			session.dispose();

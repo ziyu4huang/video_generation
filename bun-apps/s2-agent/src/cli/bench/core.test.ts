@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_CONFIGS, extractMetrics, finalAssistantText, renderReport } from "./core.ts";
+import { DEFAULT_CONFIGS, extractMetrics, finalAssistantText, lastApiError, renderReport } from "./core.ts";
 
 // Event-arrival durations in ms (extractMetrics no longer derives them from
 // message timestamps — stream-start stamped upstream, see MetricsMessage):
@@ -70,6 +70,23 @@ describe("finalAssistantText", () => {
 	});
 });
 
+describe("lastApiError", () => {
+	test("assistant with stopReason error + errorMessage → returns the message", () => {
+		const msgs = [
+			{ role: "user", content: [{ type: "text", text: "go" }] },
+			{ role: "assistant", content: [], stopReason: "error", errorMessage: "429 rate limit (code 1311)" },
+		];
+		expect(lastApiError(msgs)).toBe("429 rate limit (code 1311)");
+	});
+	test("clean messages → null", () => {
+		expect(lastApiError(MESSAGES)).toBeNull();
+		expect(lastApiError([])).toBeNull();
+	});
+	test("stopReason error without message text → returns the stopReason", () => {
+		expect(lastApiError([{ role: "assistant", content: [], stopReason: "error" }])).toBe("error");
+	});
+});
+
 describe("DEFAULT_CONFIGS", () => {
 	test("five focused configs, ids stable (flag --configs depends on them)", () => {
 		expect(DEFAULT_CONFIGS.map((c) => c.id)).toEqual([
@@ -99,5 +116,41 @@ describe("renderReport", () => {
 		expect(r).toContain("| 5.3-medium | edit |");
 		expect(r).toContain("timeout");
 		expect(r).toContain("## Per-config summary");
+	});
+	test("escapes pipes in quality/error details so the row stays one line", () => {
+		const r = renderReport(
+			[
+				{
+					configId: "5.3-high", taskId: "edit", ok: true,
+					metrics: extractMetrics(MESSAGES, 20000, [10000, 8000]),
+					quality: { pass: false, detail: "bun test exit 1: a | b | c" },
+				},
+			],
+			{ startedAt: "2026-08-30T00:00:00Z", dry: false },
+		);
+		const row = r.split("\n").find((l) => l.startsWith("| 5.3-high | edit |"))!;
+		expect(row).toBe(
+			"| 5.3-high | edit | 20.0 | 2 | 1300 | 500 | 38 | 72.2 | 9.0 | 9.8 | 54 | FAIL(bun test exit 1: a \\| b \\| c) |",
+		);
+	});
+	test("ok:true with metrics null renders 'no metrics', not ERROR", () => {
+		const r = renderReport(
+			[{ configId: "5.3-flash", taskId: "needle", ok: true, metrics: null, quality: null }],
+			{ startedAt: "2026-08-30T00:00:00Z", dry: false },
+		);
+		expect(r).toContain("| 5.3-flash | needle | - | - | - | - | - | - | - | - | - | no metrics |");
+		expect(r).not.toContain("ERROR");
+	});
+	test("escaped pipes in error cells too", () => {
+		const r = renderReport(
+			[
+				{
+					configId: "5.3-low", taskId: "edit", ok: false, error: "api: 429 | quota",
+					metrics: extractMetrics(MESSAGES, 20000, [10000, 8000]), quality: null,
+				},
+			],
+			{ startedAt: "2026-08-30T00:00:00Z", dry: false },
+		);
+		expect(r).toContain("ERROR(api: 429 \\| quota)");
 	});
 });

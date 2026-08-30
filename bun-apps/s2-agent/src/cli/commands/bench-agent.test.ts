@@ -11,6 +11,10 @@ describe("selectConfigs", () => {
 	test("undefined → full default matrix", () => {
 		expect(selectConfigs(undefined)).toEqual(DEFAULT_CONFIGS);
 	});
+	test("provided-but-empty csv (only commas/spaces) → throws, not zero cells", () => {
+		expect(() => selectConfigs(",")).toThrow(/no valid ids in --configs value/);
+		expect(() => selectConfigs(" , ")).toThrow(/no valid ids in --configs value/);
+	});
 });
 
 describe("selectTasks", () => {
@@ -18,6 +22,9 @@ describe("selectTasks", () => {
 		expect(selectTasks("needle").map((t) => t.id)).toEqual(["needle"]);
 		expect(selectTasks(undefined)).toEqual(BENCH_TASKS);
 		expect(() => selectTasks("nope")).toThrow();
+	});
+	test("provided-but-empty csv → throws, not zero cells", () => {
+		expect(() => selectTasks(",")).toThrow(/no valid ids in --tasks value/);
 	});
 });
 
