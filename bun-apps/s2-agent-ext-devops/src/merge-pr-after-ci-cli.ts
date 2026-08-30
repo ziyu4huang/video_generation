@@ -31,6 +31,14 @@
  *     / ci-assumption-stale / ...); exit 2 on a usage error. Throw-free: every
  *     failure is a structured `aborted`.
  *
+ * PRESERVE-LISTED HOT FILES (the sync_default_branch parity fix):
+ *   the preflight tolerates auto-managed "hot files" (default
+ *   `.agents/memory/MEMORY.md`, written by hermes in ~every live-session
+ *   worktree) — they no longer abort `dirty_tree`. The run parks them (tagged
+ *   stash, src/preserve.ts) around the branch-cleanup detach and restores
+ *   them after (kept-stash + warning on a conflict — never a lost file). ALL
+ *   OTHER uncommitted tracked dirt still aborts `dirty_tree` (fail-closed).
+ *
  * THE SNAPSHOT THE MERGE GATES READ MUST BE FRESH.
  *   The merge gates (OPEN / not-BEHIND / CLEAN) used to be evaluated against
  *   the preflight `prStatus` snapshot — taken BEFORE a run_local_ci run that
@@ -50,6 +58,7 @@ import type { GhClient } from "./recipe.js";
 import type { BranchClient } from "./branch-recipe.js";
 import { runVerifyMerge, type VerifyMergeOutcome } from "./verify-merge-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
+import { createPreserveStash, DEFAULT_PRESERVE_PATHS, isPreservable, type PreserveOutcome, type PreservePark } from "./preserve.js";
 
 export interface PrFinishCliResult {
 	exitCode: number;
@@ -68,8 +77,11 @@ export const PR_FINISH_CLI_USAGE = [
 	"merge gates (OPEN + not-BEHIND + CLEAN, read from a FRESH pr status) →",
 	"squash-merge → verify_merge_landed → branch cleanup (delete local+remote head",
 	"branch, fetch --prune). Local CI is the gate (remote CI waiting is",
-	"intentionally NOT ported). Prints the structured outcome as JSON on",
-	"stdout. Exit 0 on success (incl. dry-run), 1 on abort, 2 on usage error.",
+	"intentionally NOT ported). Preserve-listed hot files (hermes MEMORY.md) are",
+	"parked (tagged stash) around the cleanup detach and restored after; ALL",
+	"other uncommitted tracked dirt still aborts dirty_tree. Prints the structured",
+	"outcome as JSON on stdout. Exit 0 on success (incl. dry-run), 1 on abort,",
+	"2 on usage error.",
 	"Options:",
 	"  --pr <n>               PR number (same as the positional form)",
 	"  --dry-run              run read-only gates, emit planned commands only",
@@ -201,6 +213,10 @@ export interface PrFinishOutcome {
 	/** How the pre-merge `mergeState` was reached: the settled value and how
 	 *  many `gh pr view` calls it took. `polls > 1` means it started UNKNOWN. */
 	mergeStateSettle?: { mergeState: string; polls: number };
+	/** Present iff preserve-listed hot files were parked around the cleanup
+	 *  detach and a restore was attempted (restored:false + conflict = the
+	 *  stash is KEPT — recover manually, see the warning). */
+	preserved?: PreserveOutcome;
 	aborted?: { aborted: true; reason: string; message: string };
 }
 
@@ -411,6 +427,14 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	const runCi = deps.runCi ?? runLocalCi;
 	const verifyMerge = deps.verify ?? runVerifyMerge;
 	const sleep = deps.sleep ?? realSleep;
+	// Shared preserve park/restore (src/preserve.ts) — the same pairing
+	// sync_default_branch uses, so the two flows cannot drift. `git` routes
+	// through the recording spawn so the stash commands land in `commands[]`.
+	const preserveStash = createPreserveStash({
+		git: (dir, args) => spawn("git", ["-C", dir, ...args]),
+		spawn,
+		dry: dryRun,
+	});
 
 	const commands = recorded.commands;
 	const warnings: string[] = [];
@@ -419,6 +443,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	// mergeState survived.
 	let ciSkipped: PrFinishOutcome["ciSkipped"];
 	let mergeStateSettle: PrFinishOutcome["mergeStateSettle"];
+	let preserved: PreserveOutcome | undefined;
 	const abort = (reason: string, message: string): PrFinishCliResult => {
 		const outcome: PrFinishOutcome = {
 			pr,
@@ -435,21 +460,39 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		return { exitCode: 1, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 	};
 
-	// --- 1. Preflight: clean tree + PR status. -------------------------------
-	let clean = false;
+	// --- 1. Preflight: clean tree (+ preserve-listed hot files) + PR status. --
+	// Preserve-listed auto-managed hot files (`.agents/memory/MEMORY.md`, dirty
+	// in ~every live-session worktree via hermes) no longer abort the gate: the
+	// run parks them (tagged stash) around its ONE tree mutation — the
+	// branch-cleanup detach — and restores them after (src/preserve.ts, the
+	// same pairing sync_default_branch uses). ALL OTHER uncommitted tracked
+	// dirt still aborts `dirty_tree` — fail-closed unchanged. (Measured twice
+	// in one session on 2026-08-30: every merge needed a manual `git stash
+	// push -- MEMORY.md` + pop dance to get past the old gate.)
+	let dirty: string[] = [];
 	try {
-		clean = await client.isClean(repoRoot);
+		dirty = await client.dirtyPaths(repoRoot);
 	} catch (err) {
-		warnings.push(`isClean failed: ${errMsg(err)}`);
-	}
-	if (!clean) {
-		let dirty: string[] = [];
+		// dirtyPaths unavailable — fall back to the old isClean read rather than
+		// trusting a tree we could not inspect.
+		warnings.push(`dirtyPaths failed: ${errMsg(err)}`);
+		let clean = false;
 		try {
-			dirty = await client.dirtyPaths(repoRoot);
-		} catch {
-			// best-effort detail only
+			clean = await client.isClean(repoRoot);
+		} catch (err2) {
+			warnings.push(`isClean failed: ${errMsg(err2)}`);
 		}
-		return abort("dirty_tree", `working tree not clean at ${repoRoot}${dirty.length ? ` (dirty: ${dirty.join(", ")})` : ""} — commit or stash first`);
+		if (!clean) {
+			return abort("dirty_tree", `working tree not clean at ${repoRoot} (dirty paths unavailable: ${errMsg(err)}) — commit or stash first`);
+		}
+	}
+	const preservable = dirty.filter((p) => isPreservable(p, DEFAULT_PRESERVE_PATHS));
+	const real = dirty.filter((p) => !isPreservable(p, DEFAULT_PRESERVE_PATHS));
+	if (dirty.length > 0) {
+		warnings.push(`worktree '${repoRoot}' has ${dirty.length} uncommitted tracked change(s) (${real.length} real, ${preservable.length} preserve-listed).`);
+	}
+	if (real.length > 0) {
+		return abort("dirty_tree", `working tree not clean at ${repoRoot} (dirty: ${real.join(", ")}) — commit or stash first`);
 	}
 
 	// This snapshot supplies the REF NAMES the CI gate needs to scope its diff.
@@ -699,6 +742,9 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 
 	// --- 6. Cleanup: delete the spent head branch, prune (unless kept). ------
 	const headRefName = status.headRefName;
+	// Parked preserve-listed hot files, restored after the cleanup (below). A
+	// `PreservePark` value means the tagged stash entry is live in this tree.
+	let park: PreservePark | undefined;
 	if (!keepBranch) {
 		if (verify.branchSpent && headRefName) {
 			// The LOCAL half of the cleanup (worktree-held check → detach → delete)
@@ -719,9 +765,11 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			// fall back to `origin/<base>` only when verify could not inspect — there
 			// the sha may genuinely not be local.
 			//
-			// Safe by construction: preflight already gated on a clean tree, and we
-			// only reach this when verify said the branch is spent — its commits are
-			// all in the merge, so detaching onto it loses nothing. The core's notes
+			// Safe by construction: preflight gated on a clean-or-parked tree (all
+			// non-preserve dirt aborts `dirty_tree`; preserve-listed hot files are
+			// parked below before the detach), and we only reach this when verify said
+			// the branch is spent — its commits are all in the merge, so detaching onto
+			// it loses nothing. The core's notes
 			// are byte-identical to the warning strings this block used to emit
 			// (tests pin them), including the held-elsewhere skip, the detach-failure
 			// skip, and the delete failure itself; the one deliberate behavior CHANGE
@@ -729,6 +777,20 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			// checked the branch out now gets a benign "nothing to delete" note
 			// instead of a failed `git branch -D` warning.
 			const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `${remoteName}/${status.baseRefName}`;
+			// PARK preserve-listed hot files right before the detach — the run's
+			// one tree mutation. git refuses `checkout --detach` when a dirty file
+			// differs between HEADs (MEMORY.md routinely does: hermes commits land
+			// in main constantly), so the park brackets the detach and the restore
+			// below re-lands the parked edits on the NEW head. A park failure here is
+			// POST-merge: aborting would misreport a merged PR as NOT-MERGED (#2077's
+			// exact class), so it warns and the cleanup proceeds un-parked (a failing
+			// detach is only a note in the core's semantics — nothing is lost).
+			if (preservable.length > 0) {
+				const p = await preserveStash.parkPreserve(repoRoot, preservable);
+				if (p.aborted) warnings.push(p.aborted);
+				else if (p.empty) warnings.push(preserveStash.emptyParkWarning(repoRoot, preservable));
+				else park = p.park;
+			}
 			const cleanup = await runLocalBranchCleanup({
 				client,
 				headBranch: headRefName,
@@ -751,6 +813,16 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		} catch (err) {
 			warnings.push(`fetchPrune failed: ${errMsg(err)}`);
 		}
+	}
+
+	// RESTORE the parked preserve-listed hot files — the last tree-touching
+	// step (the stash now applies onto the post-merge HEAD the detach moved us
+	// to). On a conflict the stash is KEPT and the warning carries the manual
+	// recovery; `preserved` lands in the outcome either way (never a lost file).
+	if (park) {
+		const r = await preserveStash.restorePreserve(park);
+		preserved = r.outcome;
+		warnings.push(...r.warnings);
 	}
 
 	// #2077 residual seam, one layer down: verify's OWN prStatus read can fail
@@ -776,6 +848,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		warnings,
 		...(ciSkipped ? { ciSkipped } : {}),
 		...(mergeStateSettle ? { mergeStateSettle } : {}),
+		...(preserved ? { preserved } : {}),
 	};
 	return { exitCode: 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 }
