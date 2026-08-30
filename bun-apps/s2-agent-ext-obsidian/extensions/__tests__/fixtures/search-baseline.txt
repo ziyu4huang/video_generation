@@ -1,5 +1,5 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-08-22T17:54
+Generated: 2026-08-30T10:11
 Vault note count: 2653
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
@@ -189,7 +189,7 @@ Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:245: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:254: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Knowledge Graph.md:2003: - [[Obsidian Tools Testing Gap]]
+Tags/Knowledge Graph.md:2332: - [[Obsidian Tools Testing Gap]]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
