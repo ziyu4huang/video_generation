@@ -2,7 +2,7 @@
 effort: 2026-08-22-context-lifecycle
 created: 2026-08-22
 last: 2026-08-30
-status: open
+status: complete
 pipeline: wayfind→superpowers
 ---
 # context-lifecycle — agent context-engineer pipeline rethink (learn from OpenViking)
@@ -210,7 +210,7 @@ Phase P3 — feedback + extraction upgrade
 Phase P4 — eval harness + closeout
 - `tickets/15-retrieval-eval-harness.md` — task, **closed 2026-08-30** — one-command eval SHIPPED (`scripts/retrieval-eval.mjs` + `src/eval/metrics.ts` + `test:eval`, opt-in/CI-offline; receipts `output/retrieval-eval/`); A/B measured: bge-m3 47/50 MRR 0.900 vs nomic 46/50 MRR 0.823 → **D3 stays bge-m3, now winning the English set too** (reverses t07's 48-vs-47 on the current corpus); hotness unseeded on/off identical (empty ledger, t12 trigger unfired); baselines table in Context
 - `tickets/16-injection-endtask-eval.md` — task, **closed 2026-08-29** — end-task battery `scripts/injection-endtask.mjs`: **armed floor=0 60% vs unarmed 20% (Δ+40pct, gate PASS)**; calibration floor 2/1/0 → 1/1/20 injected; CJK-weighted length gate shipped; scoreFloor stays 2 (floor=0 precision on off-topic prompts unmeasured); flip blocked on converge×cache fix + precision probe + D11 re-probe (D12)
-- `tickets/17-docs-closeout.md` — task, **open** — CONTEXT/ADR/KNOWLEDGE-LAYER truth
+- `tickets/17-docs-closeout.md` — task, **closed 2026-08-30** — docs truth pass: kcard CONTEXT.md t07–t16 vocabulary (tier ladder / demote-not-truncate / schema v2 / auto-recall / RecallLedger / used-ledger / hotness / memory-diff / retrieval-eval, each with `_Avoid_` disambiguations); KNOWLEDGE-LAYER.md lifecycle view (capture→converge→retrieve→inject→feedback) + hermes capture-only row + C2 ✅; CONTEXT-MAP obsidian entry de-staled; hermes review-transport term fixed; obsidian SKILL semantic_search row marked RETIRED; kcard ADR-knowledge-card-0001 (feedback measured-before-armed); tickets 05/06/11 resolutions + t11 stale-open status fixed; map status → complete
 
 ## Decisions
 
@@ -266,14 +266,15 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/17-docs-closeout.md` — ticket 15 closed 2026-08-30 (retrieval eval harness
-SHIPPED: one-command `retrieval-eval.mjs` over fixture/controlled/real corpora ×
-model/blend/tier/hotness dims, metric math CI-pinned in `src/eval/metrics.ts`;
-A/B settled D3 — bge-m3 wins the English set 47/50 vs nomic 46/50 on the current
-2351-card corpus, reversing t07's then-observation; hotness unseeded no-op recorded).
-t17 (docs close-out) is the LAST open ticket — the CONTEXT/ADR/KNOWLEDGE-LAYER truth
-pass + map status → complete; the loop ENDS there (queue-drain termination). The
-injection flip-path items stay charted as their own follow-ups (D12), not blockers.
+**QUEUE DRAINED (2026-08-30).** Ticket 17 was the last open ticket; every ticket now
+carries `## Resolution`. The effort's follow-on life is in the DORMANT triggers below
+(the map's Decisions + Fog of war), NOT in new tickets here: (1) t14 vault fold-back
+(`.distill-diff.json` gitignore) rides the next vault-side PR; (2) the t13 `semanticDedup`
+promotion run fires only on a decision to arm the converge lane (also folds the s2-agent
+patch version bump); (3) the t12 hotness re-eval fires when the production used-ledger
+populates (`scripts/retrieval-eval.mjs --hotness on|off`); (4) the D12 injection
+flip-path items (converge×cache fix, floor=0 precision probe, D11 cache re-probe) remain
+charted in Fog of war. New work opens a NEW effort folder, citing this map's Decisions.
 
 ## Fog of war
 
@@ -289,8 +290,10 @@ injection flip-path items stay charted as their own follow-ups (D12), not blocke
   ticket 05: 1925 cards, ~2 min rebuild, ranking byte-identical. Closed.
 - BGE-M3 vs nomic head-to-head: the hermes embed-bench already measured bge-m3 recall@1
   0.909 vs nomic 0.864 (hermes PRD; surfaced when ticket 01 landed) — supportive of D3 but
-  on a different corpus; ticket 15's A/B on the real eval set is still the deciding receipt,
-  and D3 flips back if ticket 07's gate fails.
+  on a different corpus. ~~ticket 15's A/B on the real eval set is still the deciding
+  receipt~~ — **RESOLVED ticket 15 (2026-08-30)**: on the 2351-card corpus bge-m3 wins the
+  English set itself, 47/50 hit@4 MRR 0.900 vs nomic 46/50 MRR 0.823 (receipts
+  `output/retrieval-eval/`) — D3 holds on BOTH surfaces; no flip condition remains.
 - Hermes fold blast radius (tools/tests referencing the semantic surface) — census is ticket
   03's first step, not charted here.
 - End-task effect of injection ~~unknown by construction~~ — **MEASURED ticket 16

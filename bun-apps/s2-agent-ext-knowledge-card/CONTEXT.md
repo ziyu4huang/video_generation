@@ -80,6 +80,13 @@ _Avoid_: lite tools, helpers (they are first-class deterministic tools, not util
 The zettel retrieval module of the hierarchy port (`src/hierarchical-retrieval.ts` — KNN+FTS seeds, γ-propagation BFS). Upstream OpenViking's `HierarchicalRetriever` (`openviking/retrieve/hierarchical_retriever.py`) is NOT this module despite the shared name — it is the resource-tier recursive search, whose kcard counterpart is `resourceRecursiveQuery` (Resource tier below). See `.planning/specs/2026-08-25-openviking-naming-alignment-audit.md` A1.
 _Avoid_: mapping upstream `HierarchicalRetriever` onto this module (same name, different concept — the upstream analog is `resourceRecursiveQuery`)
 
+**Retrieval eval harness** (`scripts/retrieval-eval.mjs`, t15):
+The one-command opt-in measurement — `--corpus fixture|controlled|real` ×
+`--model`/`--blend`/`--tier`/`--hotness`/`--k`; metric math (hit@k / MRR /
+tokens-per-render) in `src/eval/metrics.ts`; receipts under `output/retrieval-eval/`.
+`bun run test:eval` = offline fixture mode; live modes NEVER in local_ci (D10).
+_Avoid_: recall-audit (that is `bun-apps/scripts/recall-audit.mjs`, the committed graded-battery audit; this harness is the dimensioned A/B surface)
+
 ### Architecture
 
 **Task builder** (`buildDistillTask` / `buildAddTask` / …):
@@ -116,11 +123,77 @@ lastRun. Read via `action=status`; converge adjusts the threshold from killRate
 + passRate (high kill+pass → −5; low pass → +10; else stable) and persists.
 _Avoid:_ config, settings (it is the distill run-state + threshold + history).
 
+**Memory diff** (`.distill-diff.json`, t14):
+The per-converge-run audit sidecar beside `.distill-state.json` (OpenViking
+memory_diff.json analog) — `{runId, created[], merged[](field ops), superseded[](found),
+skipped[](gate-kill reasons)}`, written atomically (tmp+rename); `runId` joins
+`DistillState.history[].ts`.
+_Avoid_: changelog, git diff (it is the structured per-run memory-delta audit)
+
 ## Hierarchy (LeanRAG ①②)
 
 Effort 2026-08-16-leanrag-hierarchy-port. `KnowledgePipeline.buildHierarchy` seam method drives `src/hierarchy.ts`'s pure core (deterministic cosine clustering, budget-gated buildLayer, per-layer checkpoints, parentChain) over kbDir cards; nodes materialize as derived-aggregation MOC cards (T2 regen-able, heal-pruned). Retrieval auto-expands: lineage-matched node summaries appended post-ranking (≤3, layer-desc, viaTree) — ranking stays authoritative; no tree → byte-identical. Config: `HIERARCHY_DEFAULTS` + `layerBudgetOf` (base>>depth, floor 1200) in zk-task-config; hermes fires the build post-ingest (fire-and-forget, `hierarchyEnabled` knob, PI_HIERARCHY_DISABLED env). D4 injected callables / D5 deterministic clustering (no GMM/UMAP) / D6 token-budget gating — see the effort map.
 
 - Mirrors-must-hoist (2026-08-17): cross-package leaf duplication hoists to @repo/s2-agent-core-interface (see embedding-leaf.ts) — never copy.
+
+### Card schema v2 (context-lifecycle t05)
+
+**Card schema v2**:
+The 2026-08-22 card shape — schema v1 plus the `summary:` frontmatter key (≤256, L0
+gist, backfilled 1925/1925 active cards) and the `experience` record kind. The embed
+text (title+tags+body-800) deliberately EXCLUDES `summary`, so ranking is unchanged.
+_Avoid_: new schema, card format (it is the versioned frontmatter contract; cite "v2")
+
+**Experience kind**:
+The record_type for situation→approach outcome notes (OpenViking Situation/Approach/
+Reflect analog) — distinct from lever/avoid/gotcha/pattern/metric/false_positive.
+_Avoid_: lesson, reflection (it is a typed record kind with merge semantics)
+
+### Tier ladder (context-lifecycle t07)
+
+**Tier ladder**:
+The per-card render ladder — L0 "abstract" (title + tags head + `summary`) · L1
+"overview" (~600-char body lead / agg `summary`) · L2 "full" (whole body) — pre-rendered
+per card (`src/tier-ladder.ts`, `RetrievedCard.tiers`), chosen per call via
+`RetrieveOptions.tier`. Render-ONLY: no tier changes ranking.
+_Avoid_: resource-tier levels, model tiers (those are the document-tree L0/L1/L2 of the Resource tier section and the LLM tiers — one word, three concepts)
+
+**Demote-not-truncate**:
+The overflow rule — a tier text that overflows the caller's per-entry budget DEMOTES
+one tier shallower instead of being sliced (OpenViking rule; the abstract tier is the
+floor). `RetrievedCard.tier` reports the EFFECTIVE tier after demotion.
+_Avoid_: clamp, truncate (demotion preserves whole-tier semantics; truncation is what it exists to avoid)
+
+### Injection loop (context-lifecycle t08–t10)
+
+**Auto-recall injector**:
+The opt-in per-parent-turn knowledge injection (`src/inject/auto-recall.ts`, KC_AUTORECALL,
+DEFAULT OFF per D11) — deterministic gate, single `retrieveRecords` path, 350-tok/turn
+budget, per-session child-guard (`sessionManager.getSessionFile()` falsy ⇒ skip —
+children of `spawnSubagent` never double-inject).
+_Avoid_: RAG, context stuffing (it is a budgeted, gated, prefix-stable block)
+
+**RecallLedger** (`src/inject/recall-ledger.ts`):
+The injector-side cross-turn cooldown — `tick → isCooled → recordServed`. Records ONLY
+post-budget KEPT cards (no_relevant / floor-miss / budget-drop record nothing — the
+OpenViking poisoning fix): retrieved ≠ served. Session state only; the library stays pure.
+_Avoid_: usage ledger (it is the SERVED-card cooldown, not the USED-card ledger below)
+
+### Feedback loop (context-lifecycle t11–t12)
+
+**Used-ledger** (`<vault>/.knowledge-usage.jsonl`, `{uri, at, via}`):
+The t11 USED-detection append-only file — rows mean "the agent demonstrably used this
+card" (turn_end assistant-text scan vs served set · non-error zk_card results ·
+`pi:knowledge` bus used reports; cross-source monotonicity via a detected Set). NEVER
+frontmatter (git-clean cycle).
+_Avoid_: usage table, usage ledger bare (DISTINCT from the SurrealDB `usage` access table — t08/D37, ONE store recording served-side events incl. zk_card reads and injector serves — used ≠ served)
+
+**Hotness multiplier** (`m(h) = 1 + 0.1·h`):
+The t12 used-ledger replay score — `sigmoid(log1p(activeCount))·exp(−ln2/7d·ageDays)`
+mapped into a reward-only [1.0, 1.1] blend multiplier (neutral at h=0; feedback
+re-ranks, never dominates). `RetrieveOptions.hotness`, DEFAULT OFF — promotion gate
+requires a populated production used-ledger + an unseeded on/off battery (D13).
+_Avoid_: priority, ranking score (it is a bounded feedback multiplier over the base score)
 
 ## Resource tier (document-tree L0/L1/L2)
 

@@ -1,6 +1,6 @@
 # 11 — usage ledger: deterministic "card was used" detection
 
-- **Phase:** P3 · **Package:** `s2-agent-ext-knowledge-card` · **Status:** open
+- **Phase:** P3 · **Package:** `s2-agent-ext-knowledge-card` · **Status:** closed 2026-08-29 (PR #2148)
 
 ## Problem
 
@@ -32,3 +32,17 @@ hotness; we need a deterministic equivalent before feedback can mean anything (D
 
 Canonical kcard gates + a scripted session: inject → model echoes a card title → turn_end →
 ledger row present with `via: "turn_end"`.
+
+
+## Resolution
+
+Closed 2026-08-29 (PR #2148 merged `e989762b`; reviewer BLOCK→fix→APPROVE, repros re-run).
+`src/feedback/usage.ts` + entry wiring: (i) turn_end assistant-text scan vs the auto-recall
+served set (trace.servedCards — the same post-budget set the RecallLedger records), (ii)
+non-error zk_card results vs served set + per-root lazy vault title index, (iii) `pi:knowledge`
+bus used reports. Storage `<vault>/.knowledge-usage.jsonl` `{uri, at, via}` — never
+frontmatter (git-clean cycle tested); cross-source monotonicity via a `detected` Set. Vault
+ignore entry committed vault-side (pi-agent-vault#22) + gitlink bump. 24 unit tests +
+entry-wiring integration. Deferred follow-up: Tier-3 plain-subdir vault shows the ledger
+untracked in the host repo (finding 9). t11's `via` kinds are DISTINCT from the D37
+SurrealDB access ledger (used ≠ served ≠ accessed — ADR-knowledge-card-0001).

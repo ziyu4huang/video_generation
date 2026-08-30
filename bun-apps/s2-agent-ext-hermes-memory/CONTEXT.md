@@ -83,7 +83,7 @@ The activity-triggered learning cycle — every `nudgeInterval` turns (default 1
 _Avoid_: auto-save, indexer, cron (it is an LLM-judged review loop, not a keyword extractor)
 
 **Review transport** (`reviewTransport`):
-How background review reaches a model — `direct` (in-process `completeSimple()`, default, preserves the main session's prefix cache) with `subprocess` (`pi -p`) fallback.
+How background review reaches a model — `direct` (in-process `completeSimple()`, default, preserves the main session's prefix cache) with a `spawnSubagent` child fallback (the legacy `subprocess`/`pi -p` mode was removed in the spawnSubagent migration).
 _Avoid_: backend, runner
 
 **Correction detection**:

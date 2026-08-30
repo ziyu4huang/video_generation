@@ -46,7 +46,9 @@ file is the index.
 - bun-apps/s2-agent-ext-movie-director — agent-first video production pipeline
   (Bun port of OpenMontage); the agent IS the orchestrator over manifests/gates.
 - bun-apps/s2-agent-ext-obsidian — read/write/search/graph a project-local
-  Obsidian vault; opt-in semantic search + distill/garden subagents.
+  Obsidian vault (lexical search only since the 2026-08-22 vault-mind retirement;
+  semantic retrieval lives in s2-agent-ext-knowledge-card) + distill/garden
+  subagents.
 - bun-apps/s2-agent-ext-power-tool — agent self-diagnostics: static load/token
   reporting plus failure-pathology detection.
 - bun-apps/s2-agent-ext-research-tool — research collection: Bilibili/YouTube LLM

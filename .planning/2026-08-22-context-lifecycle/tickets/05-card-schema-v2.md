@@ -38,3 +38,11 @@ per-field op table. D4 defines schema v2.
 
 Canonical kcard gates + `zk-query --health` on the real vault post-backfill + eval hit@4
 unchanged (ticket 15 harness or existing eval set — summary must not change ranking).
+
+## Resolution
+
+Closed 2026-08-22 (main PR + vault PR pi-agent-vault#20; receipts in the status line and
+map Context): summary stamped 1925/1925 active cards, `experience` kind + merge-op table
+shipped, recall-audit byte-identical (17/20 hit@5, MRR 0.688) — `summary` excluded from
+embed text by design, ranking provably unchanged; re-embed burst measured (~2 min/1925
+cards, bge-m3).

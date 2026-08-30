@@ -2,7 +2,8 @@
 
 > **AUTHORITATIVE top-level map** for the four extensions that form the agent's
 > memory → knowledge layer. For depth, see each package's own docs (linked below).
-> Snapshot: 2026-07-14 · branch `docs/memory-ext-architecture-review`.
+> Snapshot: 2026-07-14 · branch `docs/memory-ext-architecture-review`;
+> **lifecycle revision 2026-08-30** (effort `.planning/2026-08-22-context-lifecycle/`).
 >
 > ⚠ **CORRECTED 2026-07-18 (tier rule):** `s2-agent-ext-hermes-memory` is a
 > **TIER-0 foundation** (raw memory I/O), NOT TIER-2. Its former auto-converge
@@ -13,6 +14,33 @@
 > This overview is a *distillation* of the detailed review at
 > `.planning/2026-07-14-memory-ext-architecture-review/findings.md` (every claim
 > there is backed by a runnable `rg`/`git` citation).
+
+## The lifecycle (2026-08-30 view)
+
+The layer is best read as one loop, not two tiers of search:
+
+```
+CAPTURE      hermes journal + auto-capture + correction detection (session_shutdown flush)
+   ↓
+CONVERGE     zk_ingest = canonical sink (deterministic ingest; distill gate→enrich→converge
+             actions; semantic-dedup pre-filter, opt-in; .distill-diff.json per-run audit)
+   ↓
+RETRIEVE     ONE retrieval path: kcard retrieveRecords (lexical+semantic blend, bge-m3
+             canonical; tier-ladder render L0/L1/L2, demote-not-truncate). Obsidian search
+             is lexical-only; hermes runs NO semantic search (capture-only, ADR-hermes-0002).
+   ↓
+INJECT       auto-recall injector (opt-in, DEFAULT OFF — measured D11): budgeted per-turn
+             card block + RecallLedger cross-turn cooldown (retrieved ≠ served)
+   ↓
+FEEDBACK     used-ledger .knowledge-usage.jsonl (USED detection, 3 provenance sources)
+             → hotness multiplier m(h)=1+0.1h (DEFAULT OFF until a populated ledger
+             passes an unseeded on/off battery, D13)
+```
+
+Measurement surface: `s2-agent-ext-knowledge-card/scripts/retrieval-eval.mjs`
+(`--corpus fixture|controlled|real` × model/blend/tier/hotness; baselines in the
+context-lifecycle map ## Context) and the graded battery
+`bun-apps/scripts/recall-audit.mjs`.
 
 ## The three tiers
 
@@ -41,7 +69,7 @@ TIER 1 — CONVERGENCE HUB: s2-agent-ext-knowledge-card
 | --- | --- | --- |
 | [`s2-agent-ext-obsidian`](./s2-agent-ext-obsidian/docs/KNOWLEDGE-LAYER.md) | Foundation: vault I/O, frontmatter parser/validation, `resolveVault` | `obsidian` (1 fat tool, ~17 actions) |
 | [`s2-agent-ext-knowledge-card`](./s2-agent-ext-knowledge-card/docs/ARCHITECTURE.md) | Convergence hub: deterministic ingest + retrieval over the shared graph | `zk_card`, `zk_ask`, `zk_ingest`, `knowledge_query` |
-| [`s2-agent-ext-hermes-memory`](./s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; auto-converges memory into the graph | `memory`, `search` (memory+session search), `knowledge_search`, `knowledge_ingest` (pinned 6-tool surface, effort #1556) |
+| [`s2-agent-ext-hermes-memory`](./s2-agent-ext-hermes-memory/docs/KNOWLEDGE-LAYER.md) | Working memory + session search; **capture-only since the 2026-08-22 fold** (ADR-hermes-memory-0002 — `knowledge_search` is lexical/tags-only; no vector path); hands convergence to the hub on `session_shutdown` | `memory`, `search_memory`, `knowledge_search` (lexical), `knowledge_ingest`, `skill_manage_help` |
 | [`zk_ingest` distill actions](./s2-agent-ext-knowledge-card/) | Agent-self-triggered distillation of hermes entries (Gate→Enrich→Converge) | `zk_ingest` with `action=gate`/`converge`/`status` |
 
 ## Write path — sources → ONE shared graph
@@ -80,8 +108,8 @@ anything hermes touched.
 
 | Intent | Tool |
 | --- | --- |
-| Working memory entries, user prefs, categorized lessons | `memory_search` |
-| Past conversation / session context | `session_search` |
+| Working memory entries, user prefs, categorized lessons | `search_memory` (hermes) |
+| Past conversation / session context | `search_memory` session lane (hermes) |
 | Structured knowledge digest by tags (deterministic, no LLM) | `knowledge_query` |
 | Natural-language cross-source Q&A (graph-RAG, LLM) | `zk_ask` |
 | Vault note full-text / Dataview-style query | `obsidian search` / `obsidian query` |
@@ -98,8 +126,10 @@ anything hermes touched.
 ## Known issues tracked in the review
 
 - **C1** 🔴 distill vs hermes two-writer mutual defeat → R1 (above).
-- **C2** 🟡 knowledge-card docs (`ARCHITECTURE.md`/`TOOL-ORCHESTRATION.md`) still
-  describe removed tools `zk_extract` / `graph_health` → R2 (doc edit).
+- **C2** ✅ resolved — knowledge-card docs corrected (2026-07-14 note in
+  `ARCHITECTURE.md`): `zk_extract` removed in #450 (use `obsidian_distill`;
+  `buildDistillTask` remains as the live CLI builder), `graph_health` merged into
+  `obsidian garden`.
 - **C3** 🟡 "distill" naming collision (3 concepts share the name) → R3 (above).
   *(Correction 2026-07-14: `buildDistillTask` is LIVE CLI code, not vestigial —
   the original review conflated the removed `zk_extract` tool with the live builder.)*

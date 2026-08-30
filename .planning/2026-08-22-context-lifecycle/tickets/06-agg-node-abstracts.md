@@ -31,3 +31,10 @@ already exists in `src/hierarchy-build.ts`.
 
 Canonical kcard gates; `PI_HIERARCHY_DISABLED=0` rebuild run over the real vault with
 receipt (node count, summarized count, LLM-call count).
+
+## Resolution
+
+Closed 2026-08-23 (vault PR ziyu4huang/pi-agent-vault#21): agg `summary:` L1 +
+deterministic top-entity composition + checkpoint v2 + filename child links; first real
+build 326 agg nodes / 4 layers / 10 LLM calls over 1921 cards; recall-audit unchanged
+(17/20, MRR 0.688), graphHealth deadLinks 34 == baseline.

@@ -63,7 +63,7 @@ when you know the exact note.
 | Find notes by tag/folder/date (no body needed) | `query` (cheap, index-only) → then `search` with `paths` |
 | Full-text content match | `search` (substring/regex/words/fuzzy) |
 | "Who links to X" / "what does X link to" / orphans / dead links | `search` with `graph:` |
-| Meaning-based (vector) retrieval | `semantic_search` |
+| Meaning-based (vector) retrieval | RETIRED 2026-08-22 (context-lifecycle t02) — use `knowledge_query` in `s2-agent-ext-knowledge-card` |
 | Read one note fully | `read` |
 | User says "note this down" | `create` into `Inbox/` |
 | Add a log line / event | `append_section` under `Log` (bare heading text) |
