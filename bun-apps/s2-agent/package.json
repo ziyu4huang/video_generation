@@ -14,7 +14,7 @@
     "s2-agent": "src/cli.ts"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun test --path-ignore-patterns 'bench/tasks/**'",
     "typecheck": "tsc --noEmit",
     "regen:manifest": "bun scripts/regen-manifest.ts",
     "regen:static": "bun scripts/regen-static-extensions.ts",

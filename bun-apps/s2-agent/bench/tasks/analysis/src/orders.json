@@ -1,0 +1,6 @@
+[
+	{ "id": "ord-101", "buyer": "u3", "items": [{ "sku": "SKU-AX", "price": 30 }, { "sku": "SKU-BQ", "price": 12 }] },
+	{ "id": "ord-102", "buyer": "u1", "items": [{ "sku": "SKU-CM", "price": 8 }] },
+	{ "id": "ord-103", "buyer": "u2", "items": [{ "sku": "SKU-DP", "price": 25 }, { "sku": "SKU-EF", "price": 19 }] },
+	{ "id": "ord-104", "buyer": "u3", "items": [{ "sku": "SKU-GH", "price": 22 }] }
+]
