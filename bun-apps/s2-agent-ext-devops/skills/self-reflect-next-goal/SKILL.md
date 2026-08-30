@@ -201,9 +201,11 @@ It starts from a synced tree, not whatever HEAD happens to be lying around.
    with `mode: "hands-on"`). The queue head was written against main as of its
    session; main moves under you between sessions. The hands-on mode advances
    the default branch (worktree-aware ff-only, hot files preserved, submodules)
-   AND reconciles THIS worktree to that tip — claims <D> here when it is free,
-   rebases the current branch onto it, or recovers a detached HEAD via
-   `--branch` (default `auto`) — then reports the verdict `handsOn.callerAtTip`.
+   AND reconciles THIS worktree to that tip — claims <D> here when it is free
+   (the caller's current branch is left behind, un-rebased — the claim moves
+   the checkout), rebases the current branch onto it, or recovers a detached
+   HEAD via `--branch` (default `auto`) — then reports the verdict
+   `handsOn.callerAtTip`.
    Only `callerAtTip: true` licenses step 2; an abort is a stop, never a skip:
    `dirty_tree` → stash/commit the real changes; `divergent` → surface to the
    user (`--force` is a destructive opt-in); `branch_exists` /

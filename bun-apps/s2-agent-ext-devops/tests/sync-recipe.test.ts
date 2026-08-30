@@ -1481,7 +1481,10 @@ describe("runSync — hands-on mode (the SOP one-shot prelude: default branch AN
 			aheadBehind: {
 				[`${sha("a")}..${sha("b")}`]: { ahead: 1, behind: 0 },
 				"origin/main..feat/x": { ahead: 0, behind: 3 },
-				"origin/main..HEAD": { ahead: 0, behind: 0 },
+				// POST-FETCH lag probe (phase B gate reads HEAD after phase A's fetch —
+				// the pre-fetch "origin/main..feat/x" fixture above is NOT what gates;
+				// a stale-ref 0 here would skip the reconcile: reviewer finding 1).
+				"origin/main..HEAD": { ahead: 0, behind: 3 },
 			},
 		});
 		const { fn } = fakeSpawn(NO_SUBS);
@@ -1617,5 +1620,111 @@ describe("runSync — hands-on mode (the SOP one-shot prelude: default branch AN
 		expect(out.commands.some((c) => c.includes(`checkout -b archify`))).toBe(true);
 		expect(out.commands.some((c) => c.includes("rebase origin/main"))).toBe(true);
 		expect(calls.length).toBe(0); // read-only queries go through the client, not spawn
+	});
+});
+
+describe("runSync — hands-on mode: review-fix pins (PR #2174)", () => {
+	const NO_SUBS2 = [{ match: (a: string[]) => realArgs(a).join(" ").startsWith("submodule status"), result: { stdout: "", stderr: "", exitCode: 0 } as SpawnResult }];
+
+	test("(10) finding 1: the phase-B lag probe queries POST-FETCH — the gate reads <remote>/<D> AFTER phase A's fetch", async () => {
+		const log: string[] = [];
+		const base = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [{ worktree: REPO, branch: "feat/x" }, { worktree: OTHER, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a"), HEAD: sha("x") },
+			aheadBehind: {
+				[`${sha("a")}..${sha("b")}`]: { ahead: 1, behind: 0 },
+				"origin/main..feat/x": { ahead: 0, behind: 0 }, // the STALE pre-fetch view: at tip…
+				"origin/main..HEAD": { ahead: 0, behind: 3 }, // …but the fresh POST-FETCH view: 3 behind
+			},
+		});
+		// interleave recorder: spawn + client queries share one log so ORDER is assertable.
+		const client: SyncClient = {
+			...base,
+			aheadBehind: async (baseRef, headRef) => {
+				log.push(`ab:${baseRef}..${headRef}`);
+				return base.aheadBehind(baseRef, headRef);
+			},
+		};
+		const spawn: SpawnFn = async (cmd, args) => {
+			log.push(`spawn:${args.filter((x) => x !== "-C" && x !== REPO && x !== OTHER).join(" ")}`);
+			return { stdout: "", stderr: "", exitCode: 0 };
+		};
+		const out = await runSync({ client, spawn, repoRoot: REPO, mode: "hands-on" });
+
+		expect(out.aborted).toBeUndefined();
+		// The gate probe happened AFTER a fetch spawn (phase A's)…
+		const gateIdx = log.findIndex((e) => e === "ab:origin/main..HEAD");
+		const fetchIdx = log.findIndex((e) => e.startsWith("spawn:fetch"));
+		expect(gateIdx).toBeGreaterThan(fetchIdx);
+		// …and the POST-fetch (stale:0 / fresh:3) split really gates: phase B RAN.
+		expect(out.commands).toContain(`git -C "${REPO}" rebase origin/main`);
+		expect(out.handsOn).toEqual({ callerAction: "rebased-current-branch", callerAtTip: true });
+	});
+
+	test("(11) finding 4: attached phase-B reconcile passes NO branch to the rebase sub-run (no spurious 'branch option ignored')", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "feat/x",
+			worktrees: [{ worktree: REPO, branch: "feat/x" }, { worktree: OTHER, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a"), HEAD: sha("x") },
+			aheadBehind: {
+				[`${sha("a")}..${sha("b")}`]: { ahead: 1, behind: 0 },
+				"origin/main..HEAD": { ahead: 0, behind: 3 },
+			},
+		});
+		const { fn } = fakeSpawn(NO_SUBS2);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "hands-on" });
+
+		expect(out.aborted).toBeUndefined();
+		expect(out.commands.some((c) => c.includes("rebase origin/main"))).toBe(true);
+		// Neither the mode's own warning NOR the rebase sub-run's "already on a branch" one.
+		expect(out.warnings.some((w) => w.includes("branch option ignored"))).toBe(false);
+	});
+
+	test("(12) finding 5: a phase-B rebase_failed abort still merges its preserved outcome (park→restore ran)", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "",
+			worktrees: [{ worktree: REPO }, { worktree: OTHER, branch: "main" }],
+			dirty: { [REPO]: [".agents/memory/MEMORY.md"] },
+			revs: { "origin/main": sha("b"), main: sha("a"), HEAD: sha("c") },
+			aheadBehind: {
+				[`${sha("a")}..${sha("b")}`]: { ahead: 1, behind: 0 },
+				"origin/main..HEAD": { ahead: 0, behind: 3 },
+			},
+		});
+		const { fn } = fakeSpawn([
+			...NO_SUBS2,
+			{ match: (a) => realArgs(a).join(" ").startsWith("rebase"), result: { stdout: "", stderr: "conflict", exitCode: 1 } },
+			{ match: isStashTopProbe, result: STASH_TOP },
+			{ match: isStashIndexProbe, result: STASH_INDEX },
+		]);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "hands-on", branch: "archify" });
+
+		expect(out.aborted).toMatchObject({ reason: "rebase_failed" });
+		// Phase A's advance survives in the merged outcome…
+		expect(out.advanced[0]).toMatchObject({ worktree: OTHER, branch: "main" });
+		// …and phase B's park→restore outcome is merged STRUCTURED, not just a warning.
+		expect(out.preserved).toMatchObject({ paths: [".agents/memory/MEMORY.md"], restored: true });
+		expect(out.handsOn).toEqual({ callerAction: "reconcile-aborted", callerAtTip: false });
+	});
+
+	test("(13) finding 2: dryRun verdict is labeled as a plan projection", async () => {
+		const client = fakeClient({
+			defaultBranch: "main",
+			current: "",
+			worktrees: [{ worktree: REPO }, { worktree: OTHER, branch: "main" }],
+			revs: { "origin/main": sha("b"), main: sha("a"), HEAD: sha("c") },
+			aheadBehind: { "origin/main..HEAD": { ahead: 0, behind: 3 } },
+		});
+		const { fn, calls } = fakeSpawn(NO_SUBS2);
+		const out = await runSync({ client, spawn: fn, repoRoot: REPO, mode: "hands-on", branch: "archify", dryRun: true });
+
+		expect(out.dryRun).toBe(true);
+		expect(out.handsOn?.callerAtTip).toBe(true); // the PLAN reconciles to the tip
+		expect(out.warnings.some((w) => w.includes("projects the plan against current refs"))).toBe(true);
+		expect(calls.length).toBe(0);
 	});
 });

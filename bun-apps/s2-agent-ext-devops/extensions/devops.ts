@@ -231,6 +231,13 @@ function formatSync(o: SyncOutcome): string {
 			`  caller: ${o.caller.detached ? "detached HEAD" : o.caller.branch} @ ${o.caller.worktree}${o.caller.behindDefault === null ? "" : `, ${o.caller.behindDefault} behind the remote default (${o.defaultBranch})`}.`,
 		);
 	}
+	// The hands-on verdict line — the very gate the SOP licenses proceeding on
+	// (finding 3): it must be in the TEXT output, not buried in details JSON.
+	if (o.handsOn) {
+		L.push(
+			`  handsOn: ${o.handsOn.callerAction} — callerAtTip ${o.handsOn.callerAtTip ? "✅ (licensed to proceed)" : "❌ (fix the abort/warning above and re-run)"}${o.dryRun ? " [dry-run: projects the plan against current refs]" : ""}`,
+		);
+	}
 	if (o.preserved) {
 		L.push(
 			`  preserved: ${o.preserved.paths.join(", ") || "—"} ${o.preserved.restored ? "✓ restored" : "⚠ NOT restored (kept in stash)"}${o.preserved.conflict ? ` — ${o.preserved.conflict}` : ""}`,

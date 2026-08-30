@@ -276,8 +276,10 @@ export interface SyncHandsOn {
 		| "reconcile-aborted"
 		| "none";
 	/** True iff HEAD is 0 commits behind <remote>/<D> after the run (false on any
-	 *  abort, and under dryRun when the plan has not executed yet). This is the
-	 *  gate the hands-on SOP licenses proceeding on. */
+	 *  abort). Under dryRun this PROJECTS the plan against the current refs —
+	 *  nothing was fetched, so the tip the plan reconciles onto may itself move
+	 *  when the plan executes. This is the gate the hands-on SOP licenses
+	 *  proceeding on. */
 	callerAtTip: boolean;
 }
 
@@ -562,8 +564,6 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		const worktrees = await client.worktreeList();
 		const defaultWt = worktrees.find((w) => w.branch === D)?.worktree;
 		const dHeldElsewhere = defaultWt !== undefined && defaultWt !== repoRoot;
-		const callerRef = detached ? "HEAD" : current;
-		const behindNow = (await client.aheadBehind(`${remote}/${D}`, callerRef)).behind;
 
 		const base = {
 			client,
@@ -595,23 +595,34 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		preserved = a.preserved;
 
 		// PHASE B — reconcile the CALLER, only needed when <D> advanced in a
-		// DIFFERENT worktree AND the caller actually lags the tip. A caller that
-		// holds <D> or claimed it via phase A is already at the tip; a detached
-		// caller already AT the tip stays detached (attaching a queue-head branch
-		// is prepare_feature_branch's job, not this mode's).
+		// DIFFERENT worktree AND the caller actually lags the tip. The lag count
+		// is queried POST-FETCH (phase A just fetched, so <remote>/<D> is fresh):
+		// a PRE-fetch count is the exact stale-ref trap — a fetch that moves the
+		// tip reads behind:0, skips the reconcile, and still claims callerAtTip —
+		// the stale-tree failure this mode exists to prevent (reviewer fixture,
+		// PR #2174 finding 1). A caller that holds <D> or claimed it via phase A
+		// is already at the tip; a detached caller already AT the tip stays
+		// detached (attaching a queue-head branch is prepare_feature_branch's
+		// job, not this mode's).
+		const behindPost = (await client.aheadBehind(`${remote}/${D}`, "HEAD")).behind;
 		let b: SyncOutcome | undefined;
-		if (dHeldElsewhere && behindNow > 0) {
-			b = await runSync({ ...base, mode: "rebase", branch: opts.branch ?? "auto" });
+		if (dHeldElsewhere && behindPost > 0) {
+			// `branch` feeds ONLY the detached recovery — passing it on an attached
+			// caller makes the rebase sub-run warn "branch option ignored" (finding 4).
+			b = await runSync({ ...base, mode: "rebase", branch: detached ? (opts.branch ?? "auto") : undefined });
 			commands.push(...b.commands);
 			warnings.push(...b.warnings);
+			// preserved/caller merge on EVERY phase-B path — an aborted rebase still
+			// ran its park→restore pair, and that outcome must surface structured
+			// (finding 5), not only as a warning line.
+			caller = b.caller ?? caller;
+			preserved = b.preserved ?? preserved;
 			if (b.aborted) {
 				warnings.push(
 					"hands-on phase B (caller reconcile) aborted — the default branch IS advanced (phase A landed); fix the caller and re-run.",
 				);
 			} else {
 				advanced.push(...b.advanced);
-				caller = b.caller ?? caller;
-				preserved = b.preserved ?? preserved;
 			}
 		} else if (dHeldElsewhere) {
 			warnings.push(`calling worktree already at ${remote}/${D} tip — phase B (caller reconcile) skipped.`);
@@ -629,8 +640,8 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 			b ? true // phase B rebased the caller onto <remote>/<D> successfully
 			: defaultWt === repoRoot // ff-only advanced <D> in the caller itself
 				? true
-				: defaultWt // <D> advanced elsewhere; B skipped only because already at tip
-					? behindNow === 0
+				: defaultWt // <D> advanced elsewhere; B skipped only because POST-FETCH behindPost was 0
+					? behindPost === 0
 					: true // <D> was free; phase A claimed it here via checkout + ff
 		);
 		const callerAction: SyncHandsOn["callerAction"] = b?.aborted
@@ -647,6 +658,9 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		handsOn = { callerAction, callerAtTip };
 		if (!callerAtTip) {
 			warnings.push(`hands-on: calling worktree is NOT at ${remote}/${D} — fix the abort above and re-run before executing.`);
+		}
+		if (dry) {
+			warnings.push("dry-run: handsOn.callerAtTip projects the plan against current refs (nothing was fetched).");
 		}
 		return outcome(b?.aborted ? { ...b.aborted, message: `[phase B: caller reconcile] ${b.aborted.message}` } : undefined);
 	}

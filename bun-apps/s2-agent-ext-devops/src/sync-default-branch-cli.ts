@@ -26,7 +26,7 @@
  *                                HEAD instead of aborting detached_head.
  *                                `auto` derives the name from the worktree
  *                                folder suffix (video_generation__x → x).
- *   - `--force`                  full-mode only: reset --hard (discards divergent
+ *   - `--force`                  full/hands-on (phase A): reset --hard (discards divergent
  *                                commits on the default branch — opt-in)
  *   - `--preserve <path>`        repeatable; overrides the default preserve list
  *   - `--preserve-strict`        shorthand for `preserve: []` (disable preserve)
@@ -76,7 +76,7 @@ export const SYNC_CLI_USAGE = [
 	"  --branch <name>     rebase/pull/hands-on + detached HEAD only: create/attach this",
 	"                      branch at the current HEAD instead of aborting",
 	"                      ('auto' derives it from the worktree folder suffix)",
-	"  --force             full-mode only: reset --hard (discards divergent commits)",
+	"  --force             full/hands-on (phase A) only: reset --hard (discards divergent commits)",
 	"  --preserve <path>   repeatable; preserve-listed dirty path (default:",
 	"                      " + DEFAULT_PRESERVE_PATHS.join(", ") + ")",
 	"  --preserve-strict   disable preserve entirely (preserve: [])",
