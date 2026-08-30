@@ -5,17 +5,20 @@
  *
  * Run this right after dispatching a NAMED reviewer subagent (Agent tool
  * with `name:`); it locates the newest matching transcript under the
- * harness root, waits for the verdict, prints it as JSON, and writes a
- * durable receipt under <repoRoot>/output/reviewer-harvest/.
+ * harness root (claude-glm, PRIMARY) — or, when that finds nothing, the
+ * newest matching run record in the pi-harness archive (FALLBACK) — waits
+ * for the verdict, prints it as JSON, and writes a durable receipt under
+ * <repoRoot>/output/reviewer-harvest/.
  *
  * usage: reviewer-harvest.ts --name <reviewer-name> [options]
  *
  * Options:
- *   --name <n>         REQUIRED — the dispatched subagent name
- *   --harness-root <p> harness root (default ~/.claude-glm)
- *   --timeout <sec>    total wait budget; 0 = single check (default 0)
- *   --poll <sec>       delay between checks (default 5)
- *   --repo-root <p>    receipt root (default: the repo this file lives in)
+ *   --name <n>          REQUIRED — the dispatched subagent name
+ *   --harness-root <p>  claude-glm harness root (default ~/.claude-glm)
+ *   --pi-runs-root <p>  pi run archive root (default ~/.pi/subagents/runs)
+ *   --timeout <sec>     total wait budget; 0 = single check (default 0)
+ *   --poll <sec>        delay between checks (default 5)
+ *   --repo-root <p>     receipt root (default: the repo this file lives in)
  *
  * stdout: the HarvestResult JSON, nothing else.
  * exit 0 completed · 1 still-running/absent/errored · 2 usage error.
@@ -32,12 +35,13 @@ export const REVIEWER_HARVEST_USAGE = [
 	"write a receipt under <repo-root>/output/reviewer-harvest/.",
 	"",
 	"Options:",
-	"  --name <n>         REQUIRED — the dispatched subagent name",
-	"  --harness-root <p> harness root (default ~/.claude-glm)",
-	"  --timeout <sec>    total wait budget in seconds; 0 = single check (default 0)",
-	"  --poll <sec>       delay between checks in seconds (default 5)",
-	"  --repo-root <p>    receipt root (default: the repo this file lives in)",
-	"  -h, --help         show this usage",
+	"  --name <n>          REQUIRED — the dispatched subagent name",
+	"  --harness-root <p>  claude-glm harness root (default ~/.claude-glm)",
+	"  --pi-runs-root <p>  pi run archive root (default ~/.pi/subagents/runs)",
+	"  --timeout <sec>     total wait budget in seconds; 0 = single check (default 0)",
+	"  --poll <sec>        delay between checks in seconds (default 5)",
+	"  --repo-root <p>     receipt root (default: the repo this file lives in)",
+	"  -h, --help          show this usage",
 ].join("\n");
 
 export interface ReviewerHarvestCliResult {
@@ -68,6 +72,7 @@ export async function runReviewerHarvestCli(
 ): Promise<ReviewerHarvestCliResult> {
 	let name: string | undefined;
 	let harnessRoot: string | undefined;
+	let piRunsRoot: string | undefined;
 	let timeoutSec: number | undefined;
 	let pollSec: number | undefined;
 	let repoRoot = deps.repoRoot ?? defaultRepoRoot();
@@ -93,6 +98,12 @@ export async function runReviewerHarvestCli(
 				return { exitCode: 2, stdout: "", stderr: `--harness-root needs a value\n${REVIEWER_HARVEST_USAGE}` };
 			}
 			harnessRoot = expandTilde(v);
+		} else if (a === "--pi-runs-root") {
+			const v = argv[++i];
+			if (v === undefined) {
+				return { exitCode: 2, stdout: "", stderr: `--pi-runs-root needs a value\n${REVIEWER_HARVEST_USAGE}` };
+			}
+			piRunsRoot = expandTilde(v);
 		} else if (a === "--timeout") {
 			const r = numArg(argv, i, "--timeout");
 			if (r.error) return { exitCode: 2, stdout: "", stderr: `${r.error}\n${REVIEWER_HARVEST_USAGE}` };
@@ -127,6 +138,7 @@ export async function runReviewerHarvestCli(
 	const result = await harvest({
 		name,
 		harnessRoot,
+		piRunsRoot,
 		timeoutMs: timeoutSec !== undefined ? timeoutSec * 1000 : 0,
 		pollMs: pollSec !== undefined ? pollSec * 1000 : 5000,
 		repoRoot,

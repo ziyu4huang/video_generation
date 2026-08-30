@@ -19,6 +19,18 @@
  *   final turn), and on API death a synthetic assistant line with
  *   `isApiErrorMessage: true` + `model: "<synthetic>"`.
  *
+ * PI-HARNESS FALLBACK (added 2026-08-30, PRs #2168/#2169)
+ *   The claude-code layout only covers claude-dispatched reviewers. A pi /
+ *   s2-agent session dispatching a NAMED reviewer leaves ONE JSON object per
+ *   run at `~/.pi/subagents/runs/<runId>.json` (shape measured 2026-08-30 on
+ *   run mtfah2ey-wl6r8i): `agentName` = the spawn `name:`, `status`
+ *   ("done" | "running" | terminal failures), `startedAt`, `model`, and
+ *   `output` = the final assistant text (the verdict). Two sessions in a row
+ *   hand-wrote receipts because this tool reported `absent` for live pi
+ *   verdicts — the fallback below closes that gap. claude-glm stays PRIMARY:
+ *   the pi archive is consulted only when the claude-glm scan finds ZERO
+ *   candidates, so existing behavior is byte-identical whenever it hits.
+ *
  * CONTRACT (house CLI style, src/cli-common.ts)
  *   stdout: the structured outcome as JSON, nothing else; exit 0 completed
  *   · 1 still-running / absent / errored · 2 usage error. The runnable
@@ -236,10 +248,100 @@ export function findTranscripts(opts: {
 	return out.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
+/** A matching run record from the pi-harness archive (see the header comment
+ *  for the measured shape). */
+export interface PiRunCandidate {
+	path: string;
+	agentName: string;
+	status: string;
+	startedAt?: string;
+	model?: string;
+	output?: string;
+}
+
+/** pi run statuses that are terminal WITHOUT a verdict — a run aborted at its
+ *  turn/token/cost cap or dead is never going to produce one, so reporting it
+ *  as still-running would spin a `--timeout` poll to its deadline for nothing. */
+const PI_TERMINAL_FAILURES = new Set(["failed", "timedout", "turns", "budget", "aborted"]);
+
+/**
+ * All pi-harness run records matching the dispatched name under the runs
+ * root, newest-first by `startedAt` (ISO strings sort lexicographically; a
+ * record without one sorts oldest). The name must match EXACTLY on
+ * `agentName` — the same discipline as transcriptNameOf (`probe` must not
+ * steal `probe2`'s run). Corrupt/unreadable JSON files are SKIPPED, never
+ * fatal: a torn write in an adjacent file must not hide a valid verdict.
+ */
+export function findPiRuns(opts: { piRunsRoot: string; name: string; io: HarvestIo }): PiRunCandidate[] {
+	let files: string[];
+	try {
+		files = opts.io.readdirSync(opts.piRunsRoot);
+	} catch {
+		return [];
+	}
+	const out: PiRunCandidate[] = [];
+	for (const file of files) {
+		if (!file.endsWith(".json")) continue;
+		const full = join(opts.piRunsRoot, file);
+		let run: Record<string, unknown>;
+		try {
+			run = JSON.parse(opts.io.readFileSync(full, "utf8")) as Record<string, unknown>;
+		} catch {
+			continue;
+		}
+		// JSON.parse("null") / ("42") / ('"s"') all SUCCEED but yield non-objects —
+		// reading .agentName off null would throw and break the never-throws
+		// contract, so a non-object record is a skip, not a crash.
+		if (run === null || typeof run !== "object") continue;
+		if (typeof run.agentName !== "string" || run.agentName !== opts.name) continue;
+		out.push({
+			path: full,
+			agentName: run.agentName,
+			status: typeof run.status === "string" ? run.status : "",
+			startedAt: typeof run.startedAt === "string" ? run.startedAt : undefined,
+			model: typeof run.model === "string" ? run.model : undefined,
+			output: typeof run.output === "string" ? run.output : undefined,
+		});
+	}
+	return out.sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""));
+}
+
+/** Map a pi run record onto the transcript parse shape: `done` + non-empty
+ *  `output` → completed (the output IS the final assistant text); a known
+ *  terminal-failure status → errored; anything else (running, unknown) →
+ *  still-running — a live reviewer is not a verdict. */
+export function parsePiRun(run: PiRunCandidate): ParsedTranscript {
+	const base = {
+		lineCount: 1,
+		firstTimestamp: run.startedAt,
+		lastTimestamp: run.startedAt,
+		sendMessages: [] as SendMessageBox[],
+	};
+	const output = (run.output ?? "").trim();
+	if (run.status === "done" && output) {
+		return { ...base, status: "completed", verdict: output };
+	}
+	if (PI_TERMINAL_FAILURES.has(run.status)) {
+		return {
+			...base,
+			status: "errored",
+			error: `pi run terminal status: ${run.status}${output ? ` — ${output.slice(0, 200)}` : " (no output)"}`,
+		};
+	}
+	return { ...base, status: "still-running" };
+}
+
 export interface HarvestResult {
 	status: HarvestStatus;
 	name: string;
 	harnessRoot: string;
+	/** Which archive produced the verdict: claude-glm transcript (primary) or
+	 *  pi-harness run archive (fallback). Absent on a no-match-everywhere. */
+	source?: "claude-glm" | "pi-runs";
+	/** Set when the pi-harness run archive produced (or holds) the artifact. */
+	piRunsRoot?: string;
+	/** Model of the harvested pi run (the run archive records it per run). */
+	model?: string;
 	/** Newest matching transcript (absent when status is "absent"). */
 	transcriptPath?: string;
 	verdict?: string;
@@ -258,6 +360,9 @@ export interface HarvestResult {
 export interface HarvestOptions {
 	name: string;
 	harnessRoot?: string;
+	/** pi-harness run archive root (default ~/.pi/subagents/runs) — the
+	 *  FALLBACK consulted only when the claude-glm scan finds nothing. */
+	piRunsRoot?: string;
 	/** Total wait budget in ms; 0 (default) = single check, no polling. */
 	timeoutMs?: number;
 	/** Delay between checks in ms (default 5000). */
@@ -275,6 +380,7 @@ export interface HarvestOptions {
 export async function harvest(opts: HarvestOptions): Promise<HarvestResult> {
 	const io = opts.io ?? createLiveIo();
 	const harnessRoot = opts.harnessRoot ?? join(os.homedir(), ".claude-glm");
+	const piRunsRoot = opts.piRunsRoot ?? join(os.homedir(), ".pi", "subagents", "runs");
 	const timeoutMs = opts.timeoutMs ?? 0;
 	const pollMs = opts.pollMs ?? 5000;
 	const deadline = io.now().getTime() + timeoutMs;
@@ -283,7 +389,45 @@ export async function harvest(opts: HarvestOptions): Promise<HarvestResult> {
 		attempts++;
 		const candidates = findTranscripts({ harnessRoot, name: opts.name, io });
 		if (candidates.length === 0) {
-			if (io.now().getTime() >= deadline) {
+			// PRIMARY missed → FALLBACK: the pi-harness run archive (see header).
+			const piRuns = findPiRuns({ piRunsRoot, name: opts.name, io });
+			if (piRuns.length > 0) {
+				const newest = piRuns[0];
+				const parsed = parsePiRun(newest);
+				if (parsed.status !== "still-running") {
+					const payload: ReceiptPayload = {
+						status: parsed.status,
+						name: opts.name,
+						harnessRoot,
+						source: "pi-runs",
+						piRunsRoot,
+						model: newest.model,
+						transcriptPath: newest.path,
+						verdict: parsed.verdict,
+						error: parsed.error,
+						lineCount: parsed.lineCount,
+						dispatchedAt: parsed.firstTimestamp,
+						lastActivityAt: parsed.lastTimestamp,
+						sendMessages: parsed.sendMessages,
+					};
+					return { ...payload, receipt: writeReceipt(payload, opts.repoRoot, io), attempts };
+				}
+				if (io.now().getTime() >= deadline) {
+					return {
+						status: "still-running",
+						name: opts.name,
+						harnessRoot,
+						source: "pi-runs",
+						piRunsRoot,
+						transcriptPath: newest.path,
+						lineCount: parsed.lineCount,
+						dispatchedAt: parsed.firstTimestamp,
+						lastActivityAt: parsed.lastTimestamp,
+						sendMessages: parsed.sendMessages,
+						attempts,
+					};
+				}
+			} else if (io.now().getTime() >= deadline) {
 				return {
 					status: "absent",
 					name: opts.name,
@@ -306,6 +450,7 @@ export async function harvest(opts: HarvestOptions): Promise<HarvestResult> {
 					status: parsed.status,
 					name: opts.name,
 					harnessRoot,
+					source: "claude-glm",
 					transcriptPath: newest.path,
 					verdict: parsed.verdict,
 					error: parsed.error,
@@ -318,6 +463,7 @@ export async function harvest(opts: HarvestOptions): Promise<HarvestResult> {
 							status: parsed.status,
 							name: opts.name,
 							harnessRoot,
+							source: "claude-glm",
 							transcriptPath: newest.path,
 							verdict: parsed.verdict,
 							error: parsed.error,
@@ -338,6 +484,7 @@ export async function harvest(opts: HarvestOptions): Promise<HarvestResult> {
 					status: "still-running",
 					name: opts.name,
 					harnessRoot,
+					source: "claude-glm",
 					transcriptPath: newest.path,
 					lineCount: parsed.lineCount,
 					dispatchedAt: parsed.firstTimestamp,
@@ -355,6 +502,9 @@ export interface ReceiptPayload {
 	status: HarvestStatus;
 	name: string;
 	harnessRoot: string;
+	source?: "claude-glm" | "pi-runs";
+	piRunsRoot?: string;
+	model?: string;
 	transcriptPath?: string;
 	verdict?: string;
 	error?: string;
