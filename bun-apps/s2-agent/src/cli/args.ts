@@ -159,6 +159,16 @@ export interface ParsedArgs {
 	minEvents?: number;
 	/** agent-trends: floor on the percentage-point move counting as a change (default 10) */
 	delta?: number;
+	/** bench-agent: config ids to run (csv; default = full DEFAULT_CONFIGS matrix) */
+	configs?: string;
+	/** bench-agent: task ids to run (csv; default = all BENCH_TASKS) */
+	tasks?: string;
+	/** bench-agent: probe mode instead of the matrix (only: prefill) */
+	probe?: string;
+	/** bench-agent: dry self-test — fixtures + quality gates only, zero LLM calls */
+	dry?: boolean;
+	/** bench-agent: per-cell prompt timeout in seconds (default 300) */
+	timeoutSec?: number;
 	/** zk-card: bypass duplicate/backlink safety checks */
 	force?: boolean;
 	/** zk-card add: read content from file instead of inline text */

@@ -1,0 +1,10 @@
+service-registry: alpha gateway listens on 8443
+telemetry sink: batch size 512, flush every 30s
+feature flags: canary cohort pinned at 12%
+edge cache: ttl 300s, stale-while-revalidate on
+quota ledger: refill 40/min burst 80
+audit stream: topic partitions 6, retention 14d
+deployment marker: NEEDLE-7Q4X9M2B acknowledged by controller
+mesh policy: mTLS strict, rotation 24h
+scheduler: max inflight jobs 64
+billing reconciler: drift window 5m, tolerance 0.5%

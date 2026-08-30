@@ -46,6 +46,7 @@ import { agentCommand } from "./commands/agent.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
 import { agentTrendsCommand } from "./commands/agent-trends.ts";
+import { benchAgentCommand } from "./commands/bench-agent.ts";
 import { sessionsCommand } from "./commands/sessions.ts";
 import { memoryCommand } from "./commands/memory.ts";
 import { loopCommand } from "./commands/loop.ts";
@@ -58,7 +59,7 @@ import { runPassthrough } from "./sessions/passthrough.ts";
 import { bakedProviderConfigs } from "../pre-load-providers.ts";
 import { publishSeam } from "@repo/s2-agent-core-interface";
 
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 
 /** A top-level agent/meta command. Exported for extensions/registry.ts. */
 export interface Command {
@@ -86,6 +87,7 @@ const COMMANDS: Command[] = [
   doctorCommand,
   toolsMetricsCommand,
   agentTrendsCommand,
+  benchAgentCommand,
   sessionsCommand,
   memoryCommand,
   loopCommand,
