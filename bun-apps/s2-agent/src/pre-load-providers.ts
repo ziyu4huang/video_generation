@@ -537,6 +537,12 @@ export const PROVIDERS: Record<string, ProviderEntry> = {
         // thinkingLevelMap (low:"low") on the 5.3 family; our provider-level
         // pin keeps effort OFF — the repo default is thinking:high, which the
         // zai thinkingFormat honors without the effort field.
+        //
+        // NOT in the current Z.AI subscription plan — every call 429s with
+        // code 1311 "plan does not yet include access to GLM-5.3-Highspeed"
+        // (bench-agent matrix 2026-08-30: 3/3 cells empty replies; direct -p
+        // probe confirmed the 429). Kept listed for plan-upgrade parity with
+        // the baked catalog; do not route tiers/presets to it until entitled.
         id: "glm-5.3-highspeed",
         name: "GLM-5.3 Highspeed",
         reasoning: true,
