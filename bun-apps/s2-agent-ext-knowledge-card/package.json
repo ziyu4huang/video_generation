@@ -16,6 +16,7 @@
   },
   "scripts": {
     "test": "bun test __tests__/",
+    "test:eval": "bun scripts/retrieval-eval.mjs --corpus fixture",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
