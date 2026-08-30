@@ -33,7 +33,8 @@ export type NumericField =
 	| "maxRounds" | "consecutiveEmpty" | "maxLinks"
 	| "concurrency"
 	| "top" | "window" | "minEvents" | "delta"
-	| "alpha";
+	| "alpha"
+	| "timeoutSec";
 
 export type ValueField =
 	| "provider" | "model" | "thinking" | "apiKey" | "systemPrompt"
@@ -46,7 +47,8 @@ export type ValueField =
 	| "only" | "filesCsv" | "projectsDir" | "memoryDir"
 	| "effort" | "tier" | "outcome" | "phase"
 	| "since" | "until" | "cwdSubstr" | "toolFilter" | "sessionsDir" | "ext"
-	| "root";
+	| "root"
+	| "configs" | "tasks" | "probe";
 
 export type BoolField =
 	| "retrieveOnly" | "summarize" | "noRefine" | "force" | "noContext"
@@ -57,7 +59,8 @@ export type BoolField =
 	| "popular" | "coverage"
 	| "wikiAware" | "healOnly" | "noProbe"
 	| "verify" | "reconverge"
-	| "details" | "schemaCost" | "all";
+	| "details" | "schemaCost" | "all"
+	| "dry";
 
 // ── spec row shapes ─────────────────────────────────────────────────────────
 
@@ -197,6 +200,13 @@ const META_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--ext", field: "ext" }, // tools-metrics --schema-cost: entry overrides (csv)
 ];
 
+// ── bench-agent — GLM speed/effectiveness benchmark ─────────────────────────
+const BENCH_VALUE_FLAGS: readonly ValueFlagSpec[] = [
+	{ flag: "--configs", field: "configs" }, // csv subset of DEFAULT_CONFIGS ids (default: all)
+	{ flag: "--tasks", field: "tasks" }, // csv subset of BENCH_TASKS ids (default: all)
+	{ flag: "--probe", field: "probe" }, // probe mode instead of the matrix (only: prefill)
+];
+
 /** All value flags (merged, order-independent). */
 export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...MEMORY_TO_VAULT_VALUE_FLAGS,
@@ -213,6 +223,7 @@ export const VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	...PIPELINE_GATE_VALUE_FLAGS,
 	...DISPATCH_LOG_VALUE_FLAGS,
 	...META_VALUE_FLAGS,
+	...BENCH_VALUE_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -277,6 +288,11 @@ const META_NUM_FLAGS: readonly NumericFlagSpec[] = [
 	{ flag: "--delta", field: "delta", min: 1, integer: false, example: "10" }, // agent-trends (pp floor)
 ];
 
+// ── bench-agent — per-cell prompt timeout ───────────────────────────────────
+const BENCH_NUM_FLAGS: readonly NumericFlagSpec[] = [
+	{ flag: "--timeout-sec", field: "timeoutSec", min: 10, example: "300" },
+];
+
 /** All numeric flags (merged). */
 export const NUMERIC_FLAGS: readonly NumericFlagSpec[] = [
 	...MEMORY_TO_VAULT_NUM_FLAGS,
@@ -289,6 +305,7 @@ export const NUMERIC_FLAGS: readonly NumericFlagSpec[] = [
 	...KCARD_LOOP_NUM_FLAGS,
 	...META_NUM_FLAGS,
 	...RESOURCE_NUM_FLAGS,
+	...BENCH_NUM_FLAGS,
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -368,6 +385,11 @@ const META_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--all"], field: "all" }, // agent-trends: scan every project
 ];
 
+// ── bench-agent — dry self-test ─────────────────────────────────────────────
+const BENCH_BOOL_FLAGS: readonly BoolFlagSpec[] = [
+	{ flags: ["--dry"], field: "dry" }, // fixtures + gates only, canned outputs, zero LLM calls
+];
+
 /** All boolean flags (merged). */
 export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...MEMORY_TO_VAULT_BOOL_FLAGS,
@@ -382,6 +404,7 @@ export const BOOLEAN_FLAGS: readonly BoolFlagSpec[] = [
 	...RESEARCH_BOOL_FLAGS,
 	...KCARD_LOOP_BOOL_FLAGS,
 	...META_BOOL_FLAGS,
+	...BENCH_BOOL_FLAGS,
 ];
 
 /** Ignored boolean flags (pi-compat no-ops; self-trusted / extensions baked in). */

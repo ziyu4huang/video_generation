@@ -46,6 +46,7 @@ import { agentCommand } from "./commands/agent.ts";
 import { doctorCommand } from "./commands/doctor.ts";
 import { toolsMetricsCommand } from "./commands/tools-metrics.ts";
 import { agentTrendsCommand } from "./commands/agent-trends.ts";
+import { benchAgentCommand } from "./commands/bench-agent.ts";
 import { sessionsCommand } from "./commands/sessions.ts";
 import { memoryCommand } from "./commands/memory.ts";
 import { loopCommand } from "./commands/loop.ts";
@@ -86,6 +87,7 @@ const COMMANDS: Command[] = [
   doctorCommand,
   toolsMetricsCommand,
   agentTrendsCommand,
+  benchAgentCommand,
   sessionsCommand,
   memoryCommand,
   loopCommand,
