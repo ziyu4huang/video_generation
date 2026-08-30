@@ -156,6 +156,32 @@ on the table (D0) to get the better engine rather than preserve the old surfaces
   run the default model. Harness drift-guard regen (D0): first-25 lexical 21/25 → 20/25 —
   tickets-05/06 corpus drift, control-tested on origin/main (identical 20/25); ladder is
   render-only, old-vs-new rankings byte-identical.
+- **Retrieval eval harness consolidated + A/B measured (ticket 15, 2026-08-30).**
+  One-command harness `bun-apps/s2-agent-ext-knowledge-card/scripts/retrieval-eval.mjs`
+  (metric math in `src/eval/metrics.ts`, CI-pinned by `__tests__/retrieval-eval.test.ts`;
+  opt-in `bun run test:eval` = fixture corpus + mock embedder, offline — never in local_ci,
+  D10). Corpora: `fixture` (inline) / `controlled` (papers-docagent+distill staged into one
+  clean folder, battery derived from H1 titles) / `real` (committed 50-query English set).
+  Dimensions: `--model` (cache-keyed `.knowledge-semantic/<model>.json`), `--blend`,
+  `--tier`, `--hotness`, `--k`; receipts under `output/retrieval-eval/`.
+  **Baselines, measured 2026-08-30 on this machine** (real corpus = 2351 cards, k=4,
+  tier=abstract; live LM Studio :1234, warm caches):
+
+  | model | mode | hit@4 | MRR | tok/query | tok/card |
+  |---|---|---|---|---|---|
+  | bge-m3 | semantic | **47/50** | **0.900** | 300.6 | 75.2 |
+  | nomic | semantic | 46/50 | 0.823 | 306.2 | 74.3 |
+  | bge-m3 | lexical | 34/50 | 0.582 | 542.0 | 77.4 |
+  | bge-m3 | semantic + hotness ON (unseeded) | 47/50 | 0.900 | 300.6 | 75.2 |
+  | bge-m3 | semantic, controlled corpus | 23/23 | 1.000 | 185.1 | 46.3 |
+
+  **A/B decision: D3 STAYS bge-m3 — now on both surfaces.** On the current 2351-card
+  corpus bge-m3 beats nomic on the English eval set itself (47 vs 46 hit@4, MRR 0.900 vs
+  0.823), reversing t07's then-observation (nomic 48 vs 47) that the battery result had to
+  override; the fog entry is settled. Hotness ON unseeded is byte-identical to baseline
+  (production used-ledger still empty; lane ran, `hotnessLedgerUsed=true`, multiplier
+  neutral at h=0) — t12's promotion re-eval trigger (populated ledger) has NOT fired; the
+  harness now serves that re-eval when it does.
 
 ## Tickets
 
@@ -182,7 +208,7 @@ Phase P3 — feedback + extraction upgrade
 - `tickets/14-memory-diff-audit.md` — task, **closed 2026-08-30** — PR #2163. Per-run memory diff `.distill-diff.json` beside `.distill-state.json` (OpenViking memory_diff.json analog): `{runId, created[], merged[](field ops — union only for append-only supersets, the D4 table's array semantics), superseded[](found), skipped[](gate-kill reasons via the new additive `killed` param)}`; atomic tmp+rename (crash mid-run leaves the prior diff); `runId` joins `DistillState.history[].ts`; `ConvergeResult.diff` returns it, the zk_ingest converge action prints a one-line counts summary + `details.diffFile`. Replay test (ops applied to pre-run snapshot == real post-run card on every field); crash-intact; pipeline e2e shape assertions; kcard 787 pass / 0 fail, tsc clean, local_ci 116s. Real-run receipt: run2 merged ops `tags:union, confidence:replace, body:replace`
 
 Phase P4 — eval harness + closeout
-- `tickets/15-retrieval-eval-harness.md` — task, **open** — one-command eval, bge-m3 vs nomic A/B
+- `tickets/15-retrieval-eval-harness.md` — task, **closed 2026-08-30** — one-command eval SHIPPED (`scripts/retrieval-eval.mjs` + `src/eval/metrics.ts` + `test:eval`, opt-in/CI-offline; receipts `output/retrieval-eval/`); A/B measured: bge-m3 47/50 MRR 0.900 vs nomic 46/50 MRR 0.823 → **D3 stays bge-m3, now winning the English set too** (reverses t07's 48-vs-47 on the current corpus); hotness unseeded on/off identical (empty ledger, t12 trigger unfired); baselines table in Context
 - `tickets/16-injection-endtask-eval.md` — task, **closed 2026-08-29** — end-task battery `scripts/injection-endtask.mjs`: **armed floor=0 60% vs unarmed 20% (Δ+40pct, gate PASS)**; calibration floor 2/1/0 → 1/1/20 injected; CJK-weighted length gate shipped; scoreFloor stays 2 (floor=0 precision on off-topic prompts unmeasured); flip blocked on converge×cache fix + precision probe + D11 re-probe (D12)
 - `tickets/17-docs-closeout.md` — task, **open** — CONTEXT/ADR/KNOWLEDGE-LAYER truth
 
@@ -240,14 +266,14 @@ Recorded in full in `spec.md` §Decisions. The ones that shape the architecture:
 
 ## Frontier
 
-`tickets/15-retrieval-eval-harness.md` — ticket 14 closed 2026-08-30 (memory-diff audit
-SHIPPED: `.distill-diff.json` per converge run — created/merged(field ops)/superseded/
-skipped deltas, atomic, replay-tested; real-run receipt in the ticket). t15 is next
-because it is the effort's deciding MEASUREMENT ticket: the one-command eval harness
-(bge-m3 vs nomic A/B) is D3's recorded safety net and the reusable scaffolding already
-exists (t12's `--used-ledger` A/B lanes in `recall-audit.mjs`). After t15 only the docs
-close-out (t17) remains. The injection flip-path items stay charted as their own
-follow-ups (D12), not blockers.
+`tickets/17-docs-closeout.md` — ticket 15 closed 2026-08-30 (retrieval eval harness
+SHIPPED: one-command `retrieval-eval.mjs` over fixture/controlled/real corpora ×
+model/blend/tier/hotness dims, metric math CI-pinned in `src/eval/metrics.ts`;
+A/B settled D3 — bge-m3 wins the English set 47/50 vs nomic 46/50 on the current
+2351-card corpus, reversing t07's then-observation; hotness unseeded no-op recorded).
+t17 (docs close-out) is the LAST open ticket — the CONTEXT/ADR/KNOWLEDGE-LAYER truth
+pass + map status → complete; the loop ENDS there (queue-drain termination). The
+injection flip-path items stay charted as their own follow-ups (D12), not blockers.
 
 ## Fog of war
 
