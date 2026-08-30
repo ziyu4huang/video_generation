@@ -289,6 +289,10 @@ export function findPiRuns(opts: { piRunsRoot: string; name: string; io: Harvest
 		} catch {
 			continue;
 		}
+		// JSON.parse("null") / ("42") / ('"s"') all SUCCEED but yield non-objects —
+		// reading .agentName off null would throw and break the never-throws
+		// contract, so a non-object record is a skip, not a crash.
+		if (run === null || typeof run !== "object") continue;
 		if (typeof run.agentName !== "string" || run.agentName !== opts.name) continue;
 		out.push({
 			path: full,

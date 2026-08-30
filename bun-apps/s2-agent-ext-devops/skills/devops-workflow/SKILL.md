@@ -193,7 +193,10 @@ to the verdict, whatever the harness's child→lead injection does:
   #2122), so the fallback is always one command away.
 - **FALLBACK + receipt (always)** —
   `bun bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts --name <reviewer-name> [--timeout <sec>] [--poll <sec>]`
-  Locates the newest `agent-a<name>-*.jsonl` transcript under `~/.claude-glm`,
+  Locates the newest `agent-a<name>-*.jsonl` transcript under `~/.claude-glm`
+  (PRIMARY) — or, when that finds nothing, the newest matching run record in the
+  pi-harness archive `~/.pi/subagents/runs/<runId>.json` (FALLBACK, default-on;
+  PR #2170) — so a pi/s2-agent-dispatched reviewer's verdict harvests too,
   extracts the last `end_turn` assistant text as the verdict (exit 0
   completed / 1 still-running·absent·errored / 2 usage), and writes an
   idempotent receipt under `output/reviewer-harvest/`. **Cite the receipt

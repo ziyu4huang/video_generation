@@ -401,10 +401,14 @@ describe("harvest — pi-runs fallback (claude-glm absent)", () => {
 	});
 
 	test("corrupt JSON in the runs dir is skipped; the valid sibling still harvests", async () => {
-		const piRunsRoot = tempPiRuns([
-			{ file: "torn.json", run: "{not json at all" }, // stringified garbage parses as JSON fail
-			{ file: "mtfake04.json", run: piRun("rev-pi-4") },
-		]);
+		const piRunsRoot = tempPiRuns([{ file: "mtfake04.json", run: piRun("rev-pi-4") }]);
+		// RAW garbage — JSON.parse itself throws, so the catch branch is the skip path.
+		writeFileSync(join(piRunsRoot, "torn.json"), "{not json");
+		// `null` parses SUCCESSFULLY (JSON.parse("null") → null) but is not an object —
+		// reading .agentName off it would throw; the non-object guard must skip it.
+		writeFileSync(join(piRunsRoot, "null.json"), "null");
+		// a bare string parses fine too — shape-guard path (no agentName on a string).
+		writeFileSync(join(piRunsRoot, "str.json"), '"a bare string"');
 		const result = await harvest({
 			name: "rev-pi-4",
 			harnessRoot: noClaudeRoot(),
@@ -414,6 +418,20 @@ describe("harvest — pi-runs fallback (claude-glm absent)", () => {
 		});
 		expect(result.status).toBe("completed");
 		expect(result.verdict).toContain("VERDICT: APPROVE");
+	});
+
+	test("done with EMPTY output is not a verdict → still-running, no receipt", async () => {
+		const piRunsRoot = tempPiRuns([{ file: "mtfake07.json", run: piRun("rev-pi-7", { output: "" }) }]);
+		const result = await harvest({
+			name: "rev-pi-7",
+			harnessRoot: noClaudeRoot(),
+			piRunsRoot,
+			repoRoot: mkdtempSync(join(tmpdir(), "rh-repo-")),
+			io: testIo(),
+		});
+		expect(result.status).toBe("still-running");
+		expect(result.verdict).toBeUndefined();
+		expect(result.receipt).toBeUndefined();
 	});
 
 	test("precedence: a claude-glm transcript wins over a NEWER pi run (primary/fallback order)", async () => {
