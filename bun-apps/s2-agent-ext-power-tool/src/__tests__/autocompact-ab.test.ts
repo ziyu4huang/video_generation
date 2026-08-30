@@ -33,9 +33,27 @@
  *    (Task 1 used input+output): calculateContextTokens prefers totalTokens
  *    (compaction.js:86-87), and the usage curve puts live tokens in cacheWrite,
  *    so the old sum silently dropped 100 tokens off every curve point.
+ *
+ * Reality fixes applied in Task 3 (brief's sketch vs 0.84.4 dist):
+ *  - createAgentSession IGNORES the resourceLoader's agentDir: with only
+ *    `resourceLoader` given it builds its own SettingsManager over
+ *    getDefaultAgentDir() (~/.pi/agent) (sdk.js), so a settings.json written
+ *    into the arm's agentDir was silently unread — reserveTokens stayed at the
+ *    16384 default. Fix: pass `settingsManager: loader.settingsManager`.
+ *  - Compaction silently no-ops while it fits in keepRecentTokens:
+ *    findCutPoint budgets by CONTENT-estimated tokens (compaction.js:316-333),
+ *    not scripted usage, and the 20k default exceeds the whole ~9k script
+ *    content → prepareCompaction finds nothing to summarize → returns
+ *    undefined → _runAutoCompaction returns false with no event. Fix: the arm
+ *    sets keepRecentTokens: 2_000 alongside reserveTokens.
+ *  - ctx.getContextUsage() is null BY DESIGN at session_compact time (it
+ *    returns null until an assistant responds after the compaction boundary —
+ *    agent-session.js getContextUsage), so the recorder's compact row falls
+ *    back to the event payload's compactionEntry.tokensBefore (which IS
+ *    usage-backed: 64_000 / 71_000 in the observed run).
  */
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -48,7 +66,7 @@ import {
   type Provider,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { createAgentSession, DefaultResourceLoader, defineTool } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, defineTool, SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { AgentSession, InlineExtension, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import powerToolFactory from "../index.ts";
 
@@ -163,7 +181,7 @@ const BLOB_SIZE = 4_000; // large tool result = #6879 trigger condition
  *  FINAL_STEP unreachable: the 8th step would already end the turn with
  *  stopReason "stop" — verified by the first GREEN run, which stopped at 8
  *  assistant messages and never consumed FINAL_STEP.) */
-const PROVOCATION_SCRIPT: ScriptStep[] = USAGE_CURVE.map((contextTokens, i) => ({
+export const PROVOCATION_SCRIPT: ScriptStep[] = USAGE_CURVE.map((contextTokens, i) => ({
   content: `step ${i}`,
   toolCall: { args: { size: BLOB_SIZE } },
   usage: { input: contextTokens - 500, output: 400, cacheRead: 0, cacheWrite: 100 },
@@ -171,7 +189,7 @@ const PROVOCATION_SCRIPT: ScriptStep[] = USAGE_CURVE.map((contextTokens, i) => (
 
 /** The final turn after the loop: still 70k context so a boundary compaction
  *  check (agent-session.js:895) sees the peak, but no tool call. */
-const FINAL_STEP: ScriptStep = {
+export const FINAL_STEP: ScriptStep = {
   content: "done",
   usage: { input: 70_000, output: 100, cacheRead: 0, cacheWrite: 0 },
 };
@@ -192,7 +210,7 @@ const SUMMARIZER_RESPONSE: ScriptedMessage = {
 
 /** Cursor-based provider over a fixed script. Normal turns pop steps —
  *  running past the end throws loudly instead of silently repeating. */
-function makeScriptedProviderFromScript(script: ScriptStep[]): Provider<Api> {
+export function makeScriptedProviderFromScript(script: ScriptStep[]): Provider<Api> {
   let cursor = 0;
   return makeScriptedProvider((context) => {
     if (isSummarizerCall(context)) return SUMMARIZER_RESPONSE;
@@ -212,7 +230,7 @@ function makeScriptedProviderFromScript(script: ScriptStep[]): Provider<Api> {
   });
 }
 
-const EMIT_BLOB_TOOL = defineTool({
+export const EMIT_BLOB_TOOL = defineTool({
   name: "emit_blob",
   label: "Emit Blob",
   description: "Returns a blob of the requested size (A/B harness).",
@@ -226,6 +244,10 @@ const EMIT_BLOB_TOOL = defineTool({
 });
 
 export interface SmokeSessionOptions {
+  /** JSON written to `agentDir/settings.json` before the session is created —
+   * global settings for the arm (Task 3+: compaction.reserveTokens is how a
+   * threshold arm scripts its auto-compaction point). */
+  settings?: Record<string, unknown>;
   /** Extra extensions loaded alongside the scripted provider (Task 3's
    *  recorder, the real power-tool factory, ...). */
   extensions?: InlineExtension[];
@@ -263,6 +285,9 @@ export async function smokeSession(options: SmokeSessionOptions = {}): Promise<S
     else process.env.HOME = prevHome;
   };
   try {
+    if (options.settings !== undefined) {
+      await writeFile(join(agentDir, "settings.json"), `${JSON.stringify(options.settings, null, 2)}\n`);
+    }
     const scriptedProviderExt: InlineExtension = {
       name: "scripted-provider",
       factory: (pi) => {
@@ -273,14 +298,24 @@ export async function smokeSession(options: SmokeSessionOptions = {}): Promise<S
         }))));
       },
     };
+    // Task 3 reality fix: createAgentSession ignores the loader's agentDir —
+    // with only `resourceLoader` given it builds its own SettingsManager over
+    // getDefaultAgentDir() (~/.pi/agent) (sdk.js), so a settings.json written
+    // into the arm's agentDir was silently unread (reserveTokens stayed at the
+    // 16384 default). Build the manager here — exactly what the loader would
+    // build internally (SettingsManager.create(cwd, agentDir)) — and hand it
+    // to BOTH the loader and the session so the arm's settings.json wins.
+    const settingsManager = SettingsManager.create(agentDir, agentDir);
     const loader = new DefaultResourceLoader({
       cwd: agentDir,
       agentDir,
+      settingsManager,
       extensionFactories: [scriptedProviderExt, ...(options.extensions ?? [])],
     });
     await loader.reload();
     const { session } = await createAgentSession({
       resourceLoader: loader,
+      settingsManager,
       model: makeScriptedModel(),
       sessionManager: undefined, // in-file sessions under agentDir
       customTools: options.customTools,
@@ -306,6 +341,59 @@ export async function smokeSession(options: SmokeSessionOptions = {}): Promise<S
     ]);
     throw error;
   }
+}
+
+// ─── Task 3: recorder extension + context-token capture ──────────────────────
+
+/** One observed lifecycle event in an A/B arm, captured by makeRecorder. */
+export interface AbRow {
+  arm: string;
+  event: "compact" | "compact_failed" | "settled" | "turn_end";
+  reason?: "manual" | "threshold" | "overflow";
+  /** Live context tokens at event time (ctx.getContextUsage()?.tokens; for
+   * compact rows, compactionEntry.tokensBefore when that is null — see
+   * makeRecorder) — null when the session cannot know yet. */
+  contextTokens: number | null;
+  /** How many turn_end rows this arm had logged before/within this row —
+   * ties every row to its tool-loop iteration. */
+  loopIndex: number;
+}
+
+/** The A/B recorder: an inline extension that turns the session lifecycle
+ * events upstream already emits into comparable rows. Handler params are
+ * inferred from ExtensionAPI.on's per-event overloads (the installed d.ts
+ * types ExtensionHandler as (event, ctx: ExtensionContext)). */
+export function makeRecorder(arm: string, rows: AbRow[]): InlineExtension {
+  return {
+    name: "ab-recorder",
+    factory: (pi) => {
+      let turnEnds = 0;
+      const snap = (ctx: { getContextUsage?: () => { tokens: number | null } | undefined }) =>
+        ctx.getContextUsage?.()?.tokens ?? null;
+      pi.on("turn_end", (_event, ctx) => {
+        rows.push({ arm, event: "turn_end", contextTokens: snap(ctx), loopIndex: turnEnds++ });
+      });
+      pi.on("session_compact", (event, ctx) => {
+        rows.push({
+          arm,
+          event: "compact",
+          reason: event.reason,
+          // ctx.getContextUsage() is null BY DESIGN at session_compact time —
+          // upstream returns null until an assistant responds after the
+          // compaction boundary (agent-session.js getContextUsage) — so fall
+          // back to the event payload's own pre-compaction token count.
+          contextTokens: ctx.getContextUsage()?.tokens ?? event.compactionEntry.tokensBefore,
+          loopIndex: turnEnds,
+        });
+      });
+      pi.on("session_compact_failed", (event, ctx) => {
+        rows.push({ arm, event: "compact_failed", reason: event.reason, contextTokens: snap(ctx), loopIndex: turnEnds });
+      });
+      pi.on("agent_settled", (_event, ctx) => {
+        rows.push({ arm, event: "settled", contextTokens: snap(ctx), loopIndex: turnEnds });
+      });
+    },
+  };
 }
 
 describe("autocompact A/B harness", () => {
@@ -369,5 +457,43 @@ describe("autocompact A/B harness", () => {
       messages: [{ role: "user", content: [{ type: "text", text: "run the loop" }] } as never],
     })).toBe(false);
     expect(isSummarizerCall({ messages: [] })).toBe(false); // no systemPrompt at all
+  });
+
+  test("recorder: threshold compaction emits session_compact with a token snapshot", async () => {
+    const rows: AbRow[] = [];
+    const smoke = await smokeSession({
+      extensions: [
+        { name: "power-tool", factory: powerToolFactory },
+        makeRecorder("baseline", rows),
+      ],
+      provider: makeScriptedProviderFromScript([...PROVOCATION_SCRIPT, FINAL_STEP]),
+      customTools: [EMIT_BLOB_TOOL],
+      // contextWindow 128k − reserve 68k ⇒ threshold at 60k: the curve crosses
+      // it at step 6 (63k) and the final step lands at 70_100 — well past.
+      // keepRecentTokens must ALSO drop below the curve's real content size
+      // (~9k tokens of blobs): findCutPoint budgets by content-estimated
+      // tokens, not scripted usage, and the 20k default keeps everything →
+      // prepareCompaction finds nothing to summarize → compaction silently
+      // no-ops (first GREEN attempt: 0 compact rows, no error anywhere).
+      settings: { compaction: { enabled: true, reserveTokens: 68_000, keepRecentTokens: 2_000 } },
+    });
+    try {
+      await smoke.session.prompt("run the loop");
+      expect(smoke.extensionErrors).toEqual([]); // recorder factory loaded
+      const assistants = smoke.session.messages.filter((m) => m.role === "assistant");
+      expect(assistants.some((m) => m.errorMessage !== undefined)).toBe(false);
+      const compacts = rows.filter((r) => r.event === "compact" && r.reason === "threshold");
+      expect(compacts.length).toBeGreaterThanOrEqual(1);
+      // Validity-gate foundation: the row carries the live token count that
+      // triggered compaction, not a null snapshot.
+      expect(compacts.some((r) => (r.contextTokens ?? 0) > 60_000)).toBe(true);
+      // #6879 mid-run reachability: at least one compaction fired BETWEEN
+      // loop iterations (rows continue after it), not only after the turn.
+      const lastLoop = Math.max(...rows.filter((r) => r.event === "turn_end").map((r) => r.loopIndex));
+      expect(compacts.some((r) => r.loopIndex < lastLoop)).toBe(true);
+      expect(rows.some((r) => r.event === "settled")).toBe(true);
+    } finally {
+      await smoke.dispose();
+    }
   });
 });
