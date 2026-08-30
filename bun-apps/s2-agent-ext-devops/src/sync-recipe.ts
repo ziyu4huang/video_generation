@@ -75,15 +75,21 @@
 import type { SpawnFn, SpawnResult } from "./spawn.js";
 import type { BranchClient } from "./branch-recipe.js";
 import { parseSubmoduleStatus } from "./gh.js";
+import {
+	createPreserveStash,
+	DEFAULT_PRESERVE_PATHS,
+	isPreservable,
+	type PreserveOutcome as SyncPreserved,
+	type PreservePark,
+} from "./preserve.js";
+
+// Preserve machinery lives in src/preserve.ts (shared with merge-pr-after-ci-cli
+// so the two flows cannot drift). Re-exported here for import stability —
+// sync-default-branch-cli imports DEFAULT_PRESERVE_PATHS from this module.
+export { DEFAULT_PRESERVE_PATHS } from "./preserve.js";
+export type { PreserveOutcome as SyncPreserved } from "./preserve.js";
 
 export type SyncMode = "full" | "rebase" | "pull";
-
-/** Auto-managed "hot files" preserved across a sync advance by default (stashed
- *  before, restored after) instead of aborting dirty_tree. Seeded with the
- *  hermes memory file — dirty in ~every worktree, so the default sync would
- *  otherwise ALWAYS refuse. Override via `SyncOptions.preserve`; pass `[]` to
- *  disable preserve entirely. */
-export const DEFAULT_PRESERVE_PATHS = [".agents/memory/MEMORY.md"];
 
 /**
  * Per-command wall-clock cap for every git call a sync issues (fetch, stash,
@@ -103,43 +109,6 @@ export const DEFAULT_PRESERVE_PATHS = [".agents/memory/MEMORY.md"];
  * 5 build failure; the same class as the pi-agent-sh cjs traps).
  */
 export const SYNC_DEFAULT_TIMEOUT_MS = 300_000;
-
-/** Message tagging every preserve stash entry this recipe creates — the grep
- *  target in the pop-conflict recovery hint, and the pairing marker for
- *  parkPreserve/restorePreserve (see their doc comments). */
-const STASH_TAG = "sync_default_branch preserve";
-
-/** Result of a stash+restore cycle for preserve-listed hot files. `restored` is
- *  false when the `git stash pop` conflicted (the stash is KEPT in that case;
- *  `conflict` carries the stderr so the caller can surface it). */
-export interface SyncPreserved {
-	/** Paths that were stashed (== the preserve-listed dirty paths at park time). */
-	paths: string[];
-	/** True iff `git stash pop` succeeded (working tree restored). */
-	restored: boolean;
-	/** Present (with the pop stderr/stdout) iff `restored` is false. */
-	conflict?: string;
-}
-
-/** True iff `path` matches a preserve-list entry: an exact path, or a directory
- *  prefix (entry ending in `/`, OR an entry treated as a prefix by appending
- *  `/`). Mirrors the preserve semantics on SyncOptions. */
-function isPreservable(path: string, preserve: string[]): boolean {
-	return preserve.some((e) => path === e || path.startsWith(e.endsWith("/") ? e : e + "/"));
-}
-
-/** Extract the ACTUALLY conflicted paths from a failed `git stash pop`: git's
- *  stable conflict line is `CONFLICT (content): merge conflict in <path>`.
- *  Parses stderr first, stdout as fallback; deduped, order-preserved. When the
- *  output has no parsable line (other failure shapes), falls back to the full
- *  parked list — worst case the warning over-lists, never under-lists. */
-function popConflictPaths(pop: SpawnResult, fallback: string[]): string[] {
-	for (const out of [pop.stderr, pop.stdout]) {
-		const paths = [...(`${out ?? ""}`.matchAll(/CONFLICT \(content\): merge conflict in (.+)/g) ?? [])].map((m) => m[1].trim());
-		if (paths.length > 0) return [...new Set(paths)];
-	}
-	return fallback;
-}
 
 /**
  * The read-only git surface sync_default_branch needs. A `Pick` of BranchClient so the
@@ -391,120 +360,11 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		return spawn("git", ["-C", dir, ...args]);
 	};
 
-	/** Probe the top stash entry at `dir` right after a preserve push: returns
-	 *  its SHA iff its subject carries OUR tag — PROOF the push created it
-	 *  (git puts a fresh stash on top, and the same-worktree index.lock makes
-	 *  two interleaved stash pushes impossible, so a tagged top ⇔ ours). A
-	 *  bare-gitlink pathspec creates NO entry, leaving an older FOREIGN entry
-	 *  on top (untagged) → "" — the caller must not pop anything. Read-only:
-	 *  raw spawn, never recorded in commands[], never run under dryRun. */
-	const taggedStashTop = async (dir: string): Promise<string> => {
-		if (dry) return "";
-		const r = await spawn("git", ["-C", dir, "stash", "list", "--format=%H %gs", "-n", "1"]);
-		if (r.exitCode !== 0) return "";
-		const m = /^([0-9a-f]{7,40}) (.+)$/.exec(trim((r.stdout ?? "").split("\n")[0] ?? ""));
-		return m && m[2].includes(STASH_TAG) ? m[1] : "";
-	};
+	// The preserve park/restore pair (tagged stash push → SHA-paired apply →
+	// content-matched drop) is the SHARED module src/preserve.ts — the merge
+	// CLI uses the same helpers, so the pairing semantics cannot drift.
+	const preserveStash = createPreserveStash({ git, spawn, dry });
 
-	/** Resolve `sha`'s CURRENT position in the stash list at `dir` (−1 when
-	 *  absent). git accepts only positional stash@{N} for drop — but positions
-	 *  renumber under concurrent pushes, so the index is re-derived from
-	 *  CONTENT at drop time (the parked SHA itself is immutable). */
-	const stashIndexOf = async (dir: string, sha: string): Promise<number> => {
-		if (dry) return -1;
-		const r = await spawn("git", ["-C", dir, "stash", "list", "--format=%H"]);
-		if (r.exitCode !== 0) return -1;
-		return (r.stdout ?? "").split("\n").map((l) => l.trim()).indexOf(sha);
-	};
-
-	/** A preserve park created by parkPreserve, restored by restorePreserve. */
-	interface PreservePark {
-		/** Worktree the stash lives in (the advance target, which may differ
-		 *  from repoRoot in full mode). */
-		dir: string;
-		/** Preserve-listed dirty paths parked (stashed) there. */
-		paths: string[];
-		/** SHA of the tagged stash entry OUR push created — restore APPLIES this
-		 *  entry by SHA (never a positional stash@{0}, which a concurrent
-		 *  session may have replaced between park and restore). "" under
-		 *  dryRun (no SHA is probed; the recorded plan pops positionally). */
-		sha: string;
-	}
-
-	/** Park preserve-listed hot files at `dir` right before the mutating
-	 *  advance. PUSH→POP PAIRING (2026-08-22 incident): `git stash push --
-	 *  <pathspec>` exits 0 while creating NO entry when every pathspec is a
-	 *  submodule gitlink (git cannot stash a bare gitlink) — the old code then
-	 *  blind-popped stash@{0}, applying ANOTHER session's day-old stash onto
-	 *  the tree as a phantom conflict. The park therefore verifies its push
-	 *  created the entry (taggedStashTop: the top entry must carry our tag)
-	 *  and records that entry's SHA for a paired restore. Returns {aborted}
-	 *  with the failure message on a failed push; {empty} when the push
-	 *  created no provable entry (nothing parked, nothing to pop — the caller
-	 *  warns); or {park} for restorePreserve. */
-	const parkPreserve = async (
-		dir: string,
-		paths: string[],
-	): Promise<{ aborted?: string; empty?: boolean; park?: PreservePark }> => {
-		const push = await git(dir, ["stash", "push", "-m", STASH_TAG, "--", ...paths]);
-		if (!dry && push.exitCode !== 0) {
-			return { aborted: `stash push of preserve paths failed: ${trim(push.stderr || push.stdout)}` };
-		}
-		if (dry) return { park: { dir, paths, sha: "" } };
-		const sha = await taggedStashTop(dir);
-		if (!sha) return { empty: true };
-		return { park: { dir, paths, sha } };
-	};
-
-	/** Restore a parked preserve stash right after the advance (also on a
-	 *  refusal — a divergent/reset abort never strands parked files in a
-	 *  stash). Pairing (see parkPreserve): `stash apply <our SHA>` (git
-	 *  refuses raw SHAs for pop/drop — "not a stash reference", verified on
-	 *  git 2.50.1 — but ACCEPTS them for apply), then, on a clean apply,
-	 *  `stash drop stash@{N}` with N re-derived from the list CONTENT so a
-	 *  concurrent push between apply and drop cannot renumber us onto a
-	 *  FOREIGN entry. On apply conflict: keep the stash + warn with the full
-	 *  aftermath + manual recovery (the next sync will refuse on the unmerged
-	 *  index — by design, via the shared unmerged pre-flight). */
-	const restorePreserve = async (park: PreservePark): Promise<void> => {
-		// dryRun: record the plan positionally (no SHA has been probed).
-		const restore = park.sha ? ["stash", "apply", park.sha] : ["stash", "pop"];
-		const apply = await git(park.dir, restore);
-		if (dry) {
-			if (park.sha) await git(park.dir, ["stash", "drop", "stash@{0}"]);
-			return;
-		}
-		if (apply.exitCode !== 0) {
-			preserved = { paths: park.paths, restored: false, conflict: trim(apply.stderr || apply.stdout) };
-			const conflictPaths = popConflictPaths(apply, park.paths);
-			warnings.push(
-				`preserve restore: stash apply CONFLICTED at ${park.dir}. ` +
-					`AFTERMATH: the worktree now has unmerged index entries + conflict markers in: ${conflictPaths.join(", ")}. ` +
-					`The stash is KEPT (find it: git -C ${park.dir} stash list | grep '${STASH_TAG}'). ` +
-					`Recover manually: resolve the markers, then ` +
-					`git -C ${park.dir} add <path> && git -C ${park.dir} stash drop. ` +
-					`Until resolved, the next sync will abort 'unmerged_index' by design.`,
-			);
-			return;
-		}
-		// Applied cleanly → drop the parked entry at its CURRENT (content-matched) position.
-		const idx = await stashIndexOf(park.dir, park.sha);
-		if (idx >= 0) {
-			await git(park.dir, ["stash", "drop", `stash@{${idx}}`]);
-		} else {
-			warnings.push(`preserve restore: applied the parked stash (${park.sha.slice(0, 12)}), but its entry is no longer in the stash list — nothing to drop.`);
-		}
-		preserved = { paths: park.paths, restored: true };
-	};
-
-	/** The warn-and-skip outcome for an entry-less push: every preserve path
-	 *  was an unstashable gitlink, so nothing is parked and the restore pop
-	 *  MUST NOT run (a blind pop could apply an unrelated stash). */
-	const emptyParkWarning = (dir: string, paths: string[]): string =>
-		`preserve: 'git stash push' exited 0 but created NO stash entry at ${dir} — ` +
-		`every preserve path is likely a submodule gitlink (${paths.join(", ")}), which git cannot stash. ` +
-		`NOTHING was parked and the restore pop is SKIPPED (a blind 'git stash pop' could apply an ` +
-		`unrelated stash from another session); the gitlink change stays in the working tree.`;
 
 	// --- 1. Detect the default branch (read-only; runs under dryRun too). -----
 	// origin/HEAD symbolic-ref → short name (main/master/develop/release/v2…).
@@ -702,9 +562,9 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		// parkPreserve) — the restore pops ONLY the entry this push created.
 		let park: PreservePark | undefined;
 		if (preservable.length > 0) {
-			const p = await parkPreserve(advanceTarget, preservable);
+			const p = await preserveStash.parkPreserve(advanceTarget, preservable);
 			if (p.aborted) return outcome({ aborted: true, reason: "preserve_failed", message: p.aborted });
-			if (p.empty) warnings.push(emptyParkWarning(advanceTarget, preservable));
+			if (p.empty) warnings.push(preserveStash.emptyParkWarning(advanceTarget, preservable));
 			park = p.park;
 		}
 
@@ -742,7 +602,11 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		// POP RIGHT AFTER the advance — restore the parked hot files whether the
 		// advance succeeded OR refused (so a divergent/reset abort never strands
 		// them in a stash). Only runs when the park actually created an entry.
-		if (park) await restorePreserve(park);
+		if (park) {
+			const r = await preserveStash.restorePreserve(park);
+			preserved = r.outcome;
+			warnings.push(...r.warnings);
+		}
 
 		// Surface a refusal now — AFTER the stash was restored.
 		if (advanceAborted) return outcome(advanceAborted);
@@ -876,9 +740,9 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	// Same park/restore pairing as full mode (see parkPreserve).
 	let park: PreservePark | undefined;
 	if (preservable.length > 0) {
-		const p = await parkPreserve(repoRoot, preservable);
+		const p = await preserveStash.parkPreserve(repoRoot, preservable);
 		if (p.aborted) return outcome({ aborted: true, reason: "preserve_failed", message: p.aborted });
-		if (p.empty) warnings.push(emptyParkWarning(repoRoot, preservable));
+		if (p.empty) warnings.push(preserveStash.emptyParkWarning(repoRoot, preservable));
 		park = p.park;
 	}
 
@@ -902,7 +766,11 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	// POP RIGHT AFTER the advance — restore parked hot files even on a refusal.
 	// Only runs when the park actually created an entry (pairing; full-mode
 	// message shape applies — see restorePreserve).
-	if (park) await restorePreserve(park);
+	if (park) {
+		const r = await preserveStash.restorePreserve(park);
+		preserved = r.outcome;
+		warnings.push(...r.warnings);
+	}
 
 	if (advanceAborted) return outcome(advanceAborted);
 	const after = (await client.revParse("HEAD")) ?? "";

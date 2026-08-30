@@ -40,6 +40,20 @@ function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[] }[] } 
 	return { fn, calls };
 }
 
+/** Recording SpawnFn with canned results (sync-recipe test style) — needed
+ *  for the preserve park/restore probes, which read real stash-list output. */
+function cannedSpawn(canned: Array<{ match: (args: string[]) => boolean; result: SpawnResult }>) {
+	const calls: { cmd: string; args: string[] }[] = [];
+	const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
+		calls.push({ cmd, args });
+		return canned.find((c) => c.match(args))?.result ?? { stdout: "", stderr: "", exitCode: 0 };
+	};
+	return { fn, calls };
+}
+
+/** Drop the leading `-C <dir>` so matchers read the real git subcommand. */
+const realArgs = (a: string[]) => a.filter((_, i) => !(i === 0 && _ === "-C") && !(i === 1 && a[0] === "-C"));
+
 type PrStatus = Awaited<ReturnType<GhClient["prStatus"]>>;
 
 /** Stateful gh fake: each prStatus() call pops the next snapshot.
@@ -72,6 +86,8 @@ function fakeGh(statuses: PrStatus[], mergeCalls: number[] = []) {
  *  DIFFERENT worktree instead. */
 function fakeClient(opts: {
 	clean?: boolean;
+	/** Explicit dirty tracked paths (wins over `clean`); drives the preserve split. */
+	dirty?: string[];
 	current?: string;
 	worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
 	failDeleteLocal?: boolean;
@@ -81,8 +97,8 @@ function fakeClient(opts: {
 	const client = {
 		currentBranch: async () => current,
 		defaultBranch: async () => "main",
-		isClean: async () => opts.clean ?? true,
-		dirtyPaths: async () => (opts.clean ?? true ? [] : ["src/x.ts"]),
+		isClean: async () => (opts.dirty ? false : (opts.clean ?? true)),
+		dirtyPaths: async () => opts.dirty ?? (opts.clean ?? true ? [] : ["src/x.ts"]),
 		detachHead: async (ref: string) => {
 			calls.push(`detach:${ref}`);
 			current = "";
@@ -1032,5 +1048,141 @@ describe("parsePrFinishArgs — --expected-scope comma syntax (PR #1808 lesson)"
 		const r = parsePrFinishArgs(["42", "--expected-scope", "a", "--expected-scope", "b,c"]);
 		expect(r.ok).toBe(true);
 		if (r.ok) expect(r.args.expectedScope).toEqual(["a", "b", "c"]);
+	});
+});
+
+// --- preserve-listed hot files (sync_default_branch parity, 2026-08-30) -----
+// The preflight used isClean-only: hermes leaves .agents/memory/MEMORY.md dirty
+// in ~every live-session worktree, so EVERY merge in a live session aborted
+// dirty_tree until the operator hand-ran `git stash push -- MEMORY.md` + pop
+// (measured twice in one session). Parity fix: preserve-listed dirt no longer
+// aborts — the run parks it (tagged stash, src/preserve.ts) around the ONE
+// tree mutation (the branch-cleanup detach onto the merge commit) and restores
+// it after. All OTHER dirt still aborts dirty_tree (fail-closed).
+describe("merge-pr-after-ci-cli — preserve-listed hot files (dirty MEMORY.md no longer blocks)", () => {
+	const MEM = ".agents/memory/MEMORY.md";
+	const SHA5 = "5".repeat(40);
+	const SHA_F = "f".repeat(40);
+	const STASH_PUSH = `git -C ${REPO} stash push -m sync_default_branch preserve -- ${MEM}`;
+	const STASH_APPLY = `git -C ${REPO} stash apply ${SHA5}`;
+	const STASH_DROP = `git -C ${REPO} stash drop stash@{0}`;
+	const DETACH = `git -C "${REPO}" checkout --detach ${MERGED.mergeSha}`;
+
+	/** Stash-aware spawn: the park/restore pairing probes read real stash-list
+	 *  output (a tagged top entry for the park proof; a list for the drop's
+	 *  content-matched index). Everything else stays quiet-success. */
+	function stashSpawn(extra: Array<{ match: (args: string[]) => boolean; result: SpawnResult }> = []) {
+		return cannedSpawn([
+			{
+				match: (a) => realArgs(a).join(" ") === "stash list --format=%H %gs -n 1",
+				result: { stdout: `${SHA5} On main: sync_default_branch preserve\n`, stderr: "", exitCode: 0 },
+			},
+			{
+				match: (a) => realArgs(a).join(" ") === "stash list --format=%H",
+				result: { stdout: `${SHA5}\n${SHA_F}\n`, stderr: "", exitCode: 0 },
+			},
+			...extra,
+		]);
+	}
+
+	test("(a) MEMORY.md-only dirty → preflight passes, run proceeds, parked + restored around the detach", async () => {
+		const g = greenDeps({ dirty: [MEM] });
+		const spawnParts = stashSpawn();
+		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
+		expect(res.exitCode).toBe(0);
+		expect(res.stderr).toBe("");
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted).toBeUndefined();
+		expect(outcome.merged).toBe(true);
+		// The gate passed despite the dirty MEMORY.md, and the full cleanup
+		// window still ran (detach → deleteLocal → deleteRemote → prune).
+		expect(g.clientCalls).toEqual([`detach:${MERGED.mergeSha}`, "deleteLocal:feature", "deleteRemote:feature", "fetchPrune"]);
+		// Park/restore actually spawned + recorded: tagged push, SHA-paired
+		// apply, content-matched drop.
+		expect(outcome.commands).toContain(STASH_PUSH);
+		expect(outcome.commands).toContain(STASH_APPLY);
+		expect(outcome.commands).toContain(STASH_DROP);
+		// The park BRACKETS the tree mutation: push before the detach, apply after it.
+		const at = (s: string) => outcome.commands.indexOf(s);
+		expect(at(STASH_PUSH)).toBeLessThan(at(DETACH));
+		expect(at(DETACH)).toBeLessThan(at(STASH_APPLY));
+		expect(outcome.preserved).toEqual({ paths: [MEM], restored: true });
+	});
+
+	test("(b) preserve dirt PLUS real dirt (src/x.ts) → still aborts dirty_tree, nothing stashed", async () => {
+		const ghParts = fakeGh([OPEN_CLEAN]);
+		const spawnParts = stashSpawn();
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient({ dirty: [MEM, "src/x.ts"] }).client,
+			spawn: spawnParts.fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted.reason).toBe("dirty_tree");
+		expect(outcome.aborted.message).toContain("src/x.ts");
+		expect(ghParts.mergeCalls).toEqual([]);
+		// Fail-closed preserved: no park, no restore, no stash spawn at all.
+		expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash"))).toBe(false);
+	});
+
+	test("(c) stash-restore apply conflict → warning + stash KEPT (never a lost file); merge still reported honestly", async () => {
+		const g = greenDeps({ dirty: [MEM] });
+		const spawnParts = stashSpawn([
+			{
+				match: (a) => realArgs(a).join(" ").startsWith("stash apply"),
+				result: { stdout: "", stderr: "CONFLICT (content): Merge conflict in .agents/memory/MEMORY.md", exitCode: 1 },
+			},
+		]);
+		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
+		// The merge LANDED; a restore failure is surfaced, never fatal — and
+		// never an abort that would misreport a merged PR (#2077's class).
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(outcome.preserved).toMatchObject({ paths: [MEM], restored: false });
+		expect(outcome.preserved.conflict).toMatch(/CONFLICT/);
+		const w = outcome.warnings.filter((x: string) => x.includes("stash apply CONFLICTED"));
+		expect(w.length).toBe(1);
+		// The kept stash is identified by its push message + recovery guidance.
+		expect(w[0]).toContain("stash list | grep 'sync_default_branch preserve'");
+		expect(w[0]).toContain("stash drop");
+		// The stash is KEPT — no drop spawned on the conflict path.
+		expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash drop"))).toBe(false);
+	});
+
+	test("(d) --dry-run with MEMORY.md dirt → gate passes, nothing parked (zero stash spawns)", async () => {
+		const g = greenDeps({ dirty: [MEM] });
+		const spawnParts = stashSpawn();
+		const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, spawn: spawnParts.fn });
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.dryRun).toBe(true);
+		expect(outcome.aborted).toBeUndefined();
+		expect(outcome.preserved).toBeUndefined();
+		// dry-run mutates nothing — in particular, no stash.
+		expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash"))).toBe(false);
+	});
+
+	test("(e) park push failure AFTER the merge landed → loud warning, cleanup proceeds (an abort would misreport a merged PR)", async () => {
+		const g = greenDeps({ dirty: [MEM] });
+		const spawnParts = stashSpawn([
+			{
+				match: (a) => realArgs(a).join(" ").startsWith("stash push"),
+				result: { stdout: "", stderr: "fatal: could not write index", exitCode: 128 },
+			},
+		]);
+		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(outcome.aborted).toBeUndefined();
+		expect(outcome.warnings.some((w: string) => w.includes("stash push of preserve paths failed"))).toBe(true);
+		// The detach still ran (un-parked): the park failure did not strand the
+		// cleanup the outcome promises.
+		expect(g.clientCalls).toContain(`detach:${MERGED.mergeSha}`);
+		expect(outcome.preserved).toBeUndefined();
 	});
 });
