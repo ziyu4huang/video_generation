@@ -698,7 +698,7 @@ async function runCell(config: BenchConfig, task: BenchTask, timeoutMs: number):
 		const runDir = await copyFixtureToTemp(task);
 		let session: Awaited<ReturnType<typeof createSharedSession>> | undefined;
 		try {
-			const llm = await resolveLLM({ overrideModel: `${config.model}:${config.thinking}` });
+			const llm = await resolveLLM({ model: `${config.model}:${config.thinking}` });
 			session = await createSharedSession(llm, { cwd: runDir, tools: task.tools });
 			const outcome = await promptWithTimeout(session.session as any, task.prompt, timeoutMs);
 			if (!outcome.ok && attempt === 0) { session.session.dispose?.(); continue; } // one retry
@@ -739,7 +739,7 @@ async function runPrefillProbe(timeoutMs: number): Promise<string> {
 	const rows: string[] = ["| load | tools | cold wall(s) | warm wall(s) | cold cacheW | warm cacheR |", "|---|---|---|---|---|---|"];
 	for (const load of loads) {
 		const runDir = await copyFixtureToTemp(PROBE_TASK);
-		const llm = await resolveLLM({ overrideModel: "zai/glm-5.3:high" });
+		const llm = await resolveLLM({ model: "zai/glm-5.3:high" });
 		const created = await createSharedSession(llm, { cwd: runDir, tools: load.tools });
 		const session = created.session as any;
 		try {
