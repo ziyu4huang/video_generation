@@ -670,7 +670,10 @@ describe("runSync — preserve pop-conflict aftermath warning", () => {
 				match: (a) => realArgs(a).join(" ").startsWith("stash apply"),
 				result: {
 					stdout: "",
-					stderr: "CONFLICT (content): merge conflict in a.md\nCONFLICT (content): merge conflict in b.md",
+					// git's REAL casing: "Merge conflict in" (capital M). The lowercase
+					// shape below never occurs in real git output — a canned lowercase
+					// stderr silently passes even when the parser only matches it.
+					stderr: "CONFLICT (content): Merge conflict in a.md\nCONFLICT (content): Merge conflict in b.md",
 					exitCode: 1,
 				},
 			},
@@ -926,6 +929,10 @@ describe("runSync — preserve hot files (stash before, restore after)", () => {
 		expect(out.preserved?.restored).toBe(false);
 		expect(out.preserved?.conflict).toMatch(/CONFLICT/);
 		expect(out.warnings.some((w) => /stash apply CONFLICTED/.test(w))).toBe(true);
+		// Explicit subset pin: the aftermath names the PARSED conflicted path in
+		// git's real casing (single parked file, so the multi-path discrimination
+		// lives in the pop-conflict-warning suite above — this asserts the shape).
+		expect(out.warnings.some((w) => w.includes("conflict markers in: .agents/memory/MEMORY.md"))).toBe(true);
 		// we KEEP the stash on apply conflict (never drop it).
 		expect(out.commands.some((c) => c.includes("stash drop"))).toBe(false);
 	});

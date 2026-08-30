@@ -63,13 +63,16 @@ export function isPreservable(path: string, preserve: string[]): boolean {
 }
 
 /** Extract the ACTUALLY conflicted paths from a failed `git stash apply`/pop:
- *  git's stable conflict line is `CONFLICT (content): merge conflict in <path>`.
+ *  git's stable conflict line is `CONFLICT (content): Merge conflict in <path>`
+ *  (capital "Merge" — git's merge machinery never prints the lowercase shape;
+ *  a parser pinned to lowercase silently never matched real output and always
+ *  fell back to over-listing, measured in PR #2168 review 2026-08-30).
  *  Parses stderr first, stdout as fallback; deduped, order-preserved. When the
  *  output has no parsable line (other failure shapes), falls back to the full
  *  parked list — worst case the warning over-lists, never under-lists. */
 function popConflictPaths(pop: SpawnResult, fallback: string[]): string[] {
 	for (const out of [pop.stderr, pop.stdout]) {
-		const paths = [...(`${out ?? ""}`.matchAll(/CONFLICT \(content\): merge conflict in (.+)/g) ?? [])].map((m) => m[1].trim());
+		const paths = [...(`${out ?? ""}`.matchAll(/CONFLICT \(content\): [Mm]erge conflict in (.+)/g) ?? [])].map((m) => m[1].trim());
 		if (paths.length > 0) return [...new Set(paths)];
 	}
 	return fallback;
