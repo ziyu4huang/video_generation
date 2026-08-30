@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_CONFIGS, extractMetrics, finalAssistantText, renderReport } from "./core.ts";
 
-// Timestamps in ms. user@1000 → assistant@11000 (usage 400 in / 800 out / 300 reasoning /
-// 600 cacheRead / 0 cacheWrite) → toolResult@12000 → assistant@20000 (usage 2950 in / 500 out /
-// 200 reasoning / 3450 cacheRead). input2 is 2950 so the stated cache-ratio equation
-// 4050/(4050+3350+100) = 4050/7500 = 0.54 holds exactly (plan fixture drift fix).
+// Event-arrival durations in ms (extractMetrics no longer derives them from
+// message timestamps — stream-start stamped upstream, see MetricsMessage):
+// assistant1 arrived 10000ms after the user message, assistant2 8000ms after
+// the toolResult. Combined with the usage below: median 9000 / p90 9800 / tok/s
+// 1300·18⁻¹ all hold.
+// Usage: assistant1 400 in / 800 out / 300 reasoning / 600 cacheRead / 0
+// cacheWrite; assistant2 2950 in / 500 out / 200 reasoning / 3450 cacheRead /
+// 100 cacheWrite — input2 is 2950 so the cache-ratio equation
+// 4050/(4050+3350+100) = 4050/7500 = 0.54 holds exactly.
 const MESSAGES = [
 	{ role: "user", content: [{ type: "text", text: "do the task" }], timestamp: 1000 },
 	{
@@ -24,7 +29,7 @@ const MESSAGES = [
 
 describe("extractMetrics", () => {
 	test("sums usage, derives turns/latency/ratios", () => {
-		const m = extractMetrics(MESSAGES, 20000);
+		const m = extractMetrics(MESSAGES, 20000, [10000, 8000]);
 		expect(m.turns).toBe(2);
 		expect(m.inputTokens).toBe(3350);
 		expect(m.outputTokens).toBe(1300);
@@ -33,17 +38,26 @@ describe("extractMetrics", () => {
 		expect(m.reasoningRatio).toBeCloseTo(0.3846, 3);
 		// cacheRead / (cacheRead + input + cacheWrite) = 4050/7500.
 		expect(m.cacheHitRatio).toBeCloseTo(0.54, 2);
-		// per-turn durations: 11000-1000=10000, 20000-12000=8000 → median 9000, p90 9800.
+		// per-turn durations supplied by the caller: [10000, 8000] → median 9000, p90 9800.
 		expect(m.medianTurnMs).toBe(9000);
 		expect(m.p90TurnMs).toBe(9800);
 		// output tokens over generation seconds: 1300 / 18s.
 		expect(m.tokensPerSec).toBeCloseTo(72.2, 1);
 	});
-	test("empty messages → zeroed metrics, no NaN", () => {
-		const m = extractMetrics([], 1000);
+	test("empty messages + empty durations → zeroed metrics, no NaN", () => {
+		const m = extractMetrics([], 1000, []);
 		expect(m.turns).toBe(0);
+		expect(m.medianTurnMs).toBe(0);
+		expect(m.p90TurnMs).toBe(0);
+		expect(m.tokensPerSec).toBe(0);
 		expect(Number.isNaN(m.reasoningRatio)).toBe(false);
 		expect(m.reasoningRatio).toBe(0);
+	});
+	test("message timestamps are IGNORED for durations (stream-start stamped upstream)", () => {
+		const withTs = extractMetrics(MESSAGES, 20000, []);
+		expect(withTs.medianTurnMs).toBe(0);
+		expect(withTs.p90TurnMs).toBe(0);
+		expect(withTs.tokensPerSec).toBe(0); // no fallback, no garbage tok/s
 	});
 });
 
@@ -70,7 +84,7 @@ describe("renderReport", () => {
 			[
 				{
 					configId: "5.3-high", taskId: "needle", ok: true,
-					metrics: extractMetrics(MESSAGES, 20000),
+					metrics: extractMetrics(MESSAGES, 20000, [10000, 8000]),
 					quality: { pass: true, detail: "needle exact-match" },
 				},
 				{

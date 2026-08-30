@@ -62,6 +62,13 @@ interface PromptOutcome {
 	wallMs: number;
 }
 
+/** Structural session slice the bench touches (same pattern as
+ *  task-runner.ts) — keeps this module free of pi-coding-agent type imports. */
+interface BenchSession {
+	prompt: (task: string) => Promise<void>;
+	subscribe: (fn: (event: { type: string; message?: { role?: string } }) => void) => () => void;
+}
+
 /** Race one prompt against a wall-clock timeout; never rejects. The finally
  *  clears the timer on BOTH success and failure paths. */
 async function promptWithTimeout(
@@ -86,6 +93,41 @@ async function promptWithTimeout(
 	}
 }
 
+/** One prompt + REAL per-turn durations, measured from message_end event
+ *  arrivals: Date.now() at the subscriber for every event, then each assistant
+ *  arrival minus the previous arrival (or prompt start for the first entry).
+ *  This is the only trustworthy per-turn clock — message timestamps are
+ *  stream-start stamped by pi-ai (before the fetch), so timestamp deltas
+ *  measure call-initiation gap, not generation. Unsubscribes before returning. */
+async function promptCollectingDurations(
+	session: BenchSession,
+	task: string,
+	timeoutMs: number,
+): Promise<PromptOutcome & { turnDurationsMs: number[] }> {
+	const arrivals: { role?: string; arrivalMs: number }[] = [];
+	const unsubscribe = session.subscribe((evt) => {
+		if (evt.type === "message_end" && evt.message) {
+			arrivals.push({ role: evt.message.role, arrivalMs: Date.now() });
+		}
+	});
+	const promptStartMs = Date.now();
+	try {
+		const outcome = await promptWithTimeout(session, task, timeoutMs);
+		const turnDurationsMs: number[] = [];
+		let prevMs: number | undefined; // previous ENTRY's arrival, any role
+		for (const a of arrivals) {
+			if (a.role === "assistant") {
+				const dur = a.arrivalMs - (prevMs ?? promptStartMs);
+				if (dur > 0) turnDurationsMs.push(dur);
+			}
+			prevMs = a.arrivalMs;
+		}
+		return { ...outcome, turnDurationsMs };
+	} finally {
+		unsubscribe();
+	}
+}
+
 /** Assert the resolved lane is the requested GLM — the harness must not
  *  silently fall back to another model and pollute the matrix. */
 function assertGLMLane(provider: string, modelId: string): void {
@@ -106,11 +148,11 @@ async function runCell(config: BenchConfig, task: BenchTask, timeoutMs: number):
 			assertGLMLane(llm.provider, llm.modelId);
 			created = await createSharedSession(llm, { cwd: runDir, tools: task.tools });
 			console.error(`[bench] model: ${llm.provider}/${llm.modelId}:${llm.thinkingLevel}`);
-			const outcome = await promptWithTimeout(created.session, task.prompt, timeoutMs);
+			const outcome = await promptCollectingDurations(created.session, task.prompt, timeoutMs);
 			if (!outcome.ok && attempt === 0) continue; // one transient retry (finally disposes)
 			// AgentMessage is structurally a MetricsMessage superset; cast at the boundary.
 			const messages = created.session.messages as unknown as MetricsMessage[];
-			const metrics = extractMetrics(messages, outcome.wallMs);
+			const metrics = extractMetrics(messages, outcome.wallMs, outcome.turnDurationsMs);
 			const quality = await task.check(finalAssistantText(messages), runDir);
 			return {
 				configId: config.id,
@@ -151,7 +193,7 @@ export async function runDry(): Promise<{ report: string; cells: CellResult[] }>
 	for (const task of BENCH_TASKS) {
 		const runDir = await copyFixtureToTemp(task);
 		const quality = await task.check(canned[task.id] ?? "", runDir);
-		cells.push({ configId: "dry", taskId: task.id, ok: true, metrics: extractMetrics([], 0), quality });
+		cells.push({ configId: "dry", taskId: task.id, ok: true, metrics: extractMetrics([], 0, []), quality });
 	}
 	return { report: renderReport(cells, { startedAt: new Date().toISOString(), dry: true }), cells };
 }
@@ -174,14 +216,24 @@ async function runPrefillProbe(timeoutMs: number): Promise<string> {
 		try {
 			console.error(`[probe:${load.name}] model: ${llm.provider}/${llm.modelId}:${llm.thinkingLevel}`);
 			const toolCount = (session.getActiveToolNames?.() ?? []).length;
-			const cold = await promptWithTimeout(session, PROBE_TASK.prompt, timeoutMs);
-			const coldM = extractMetrics(session.messages as unknown as MetricsMessage[], cold.wallMs);
-			const warm = await promptWithTimeout(
+			// Each prompt gets its own subscribe window (cold durations from cold's
+			// arrivals, warm likewise); allM spans both prompts → concat.
+			const cold = await promptCollectingDurations(session, PROBE_TASK.prompt, timeoutMs);
+			const coldM = extractMetrics(
+				session.messages as unknown as MetricsMessage[],
+				cold.wallMs,
+				cold.turnDurationsMs,
+			);
+			const warm = await promptCollectingDurations(
 				session,
 				"Again — reply with only the exact token.",
 				timeoutMs,
 			);
-			const allM = extractMetrics(session.messages as unknown as MetricsMessage[], warm.wallMs);
+			const allM = extractMetrics(
+				session.messages as unknown as MetricsMessage[],
+				warm.wallMs,
+				[...cold.turnDurationsMs, ...warm.turnDurationsMs],
+			);
 			const warmCacheRead = allM.cacheReadTokens - coldM.cacheReadTokens;
 			rows.push(
 				`| ${load.name} | ${toolCount} | ${(cold.wallMs / 1000).toFixed(1)} | ${(warm.wallMs / 1000).toFixed(1)} | ${coldM.cacheWriteTokens} | ${warmCacheRead} |`,

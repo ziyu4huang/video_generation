@@ -17,6 +17,11 @@ export interface MetricsMessage {
 	role: string;
 	content?: { type: string; text?: string }[];
 	usage?: { input?: number; output?: number; reasoning?: number; cacheRead?: number; cacheWrite?: number };
+	/** Present on real AgentMessages but NOT trustworthy as a duration source:
+	 *  pi-ai stamps AssistantMessage.timestamp at STREAM CREATION (before the
+	 *  fetch), so timestamp deltas measure call-initiation gap, not generation.
+	 *  Per-turn durations must be measured from message_end event ARRIVALS
+	 *  (wall clock at the listener) and passed in as turnDurationsMs. */
 	timestamp?: number;
 }
 
@@ -52,13 +57,21 @@ function p90(xs: number[]): number {
 	return s[lo] + (idx - lo) * (s[hi] - s[lo]);
 }
 
-export function extractMetrics(messages: MetricsMessage[], wallMs: number): RunMetrics {
+/** Metrics from session messages + event-arrival durations.
+ *
+ *  Token sums, turns, reasoningRatio and cacheHitRatio come from `messages`.
+ *  `turnDurationsMs` MUST come from message_end event arrivals (wall clock at
+ *  the subscriber), never from message timestamps (stream-start stamped —
+ *  see MetricsMessage.timestamp). Empty array → medianTurnMs/p90TurnMs/
+ *  tokensPerSec are all 0; there is deliberately NO timestamp fallback. */
+export function extractMetrics(
+	messages: MetricsMessage[],
+	wallMs: number,
+	turnDurationsMs: number[],
+): RunMetrics {
 	let input = 0, output = 0, reasoning = 0, cacheRead = 0, cacheWrite = 0;
 	let turns = 0;
-	const durations: number[] = [];
-	let prevTs: number | undefined;
 	for (const m of messages) {
-		const ts = m.timestamp;
 		if (m.role === "assistant" && m.usage) {
 			turns += 1;
 			input += m.usage.input ?? 0;
@@ -66,17 +79,15 @@ export function extractMetrics(messages: MetricsMessage[], wallMs: number): RunM
 			reasoning += m.usage.reasoning ?? 0;
 			cacheRead += m.usage.cacheRead ?? 0;
 			cacheWrite += m.usage.cacheWrite ?? 0;
-			if (prevTs !== undefined && ts !== undefined && ts > prevTs) durations.push(ts - prevTs);
 		}
-		if (ts !== undefined) prevTs = ts;
 	}
-	const genSec = durations.reduce((a, b) => a + b, 0) / 1000;
+	const genSec = turnDurationsMs.reduce((a, b) => a + b, 0) / 1000;
 	const denom = cacheRead + input + cacheWrite;
 	return {
 		wallMs, turns,
 		inputTokens: input, outputTokens: output, reasoningTokens: reasoning,
 		cacheReadTokens: cacheRead, cacheWriteTokens: cacheWrite,
-		medianTurnMs: median(durations), p90TurnMs: p90(durations),
+		medianTurnMs: median(turnDurationsMs), p90TurnMs: p90(turnDurationsMs),
 		tokensPerSec: genSec > 0 ? output / genSec : 0,
 		reasoningRatio: output > 0 ? reasoning / output : 0,
 		cacheHitRatio: denom > 0 ? cacheRead / denom : 0,
