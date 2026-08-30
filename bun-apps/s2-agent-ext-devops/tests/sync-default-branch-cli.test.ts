@@ -84,8 +84,8 @@ describe("parseSyncArgs — argv contract", () => {
 		}
 	});
 
-	test("--mode accepts exactly full|rebase|pull", () => {
-		for (const m of ["full", "rebase", "pull"] as const) {
+	test("--mode accepts exactly full|rebase|pull|hands-on", () => {
+		for (const m of ["full", "rebase", "pull", "hands-on"] as const) {
 			const r = parseSyncArgs(["--mode", m]);
 			expect(r.ok).toBe(true);
 			if (r.ok) expect(r.args.mode).toBe(m);
@@ -180,6 +180,20 @@ describe("sync-default-branch-cli — wrapper contract", () => {
 		expect(res.exitCode).toBe(0);
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.mode).toBe("rebase");
+	});
+
+	test("--mode hands-on round-trips: mode + handsOn verdict (caller holds <D>)", async () => {
+		const res = await runSyncCli(["--mode", "hands-on"], cleanDeps());
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.mode).toBe("hands-on");
+		expect(outcome.handsOn).toEqual({ callerAction: "advanced-default-here", callerAtTip: true });
+		expect(outcome.aborted).toBeUndefined();
+	});
+
+	test("usage text documents the hands-on mode", () => {
+		expect(SYNC_CLI_USAGE).toContain("hands-on");
+		expect(SYNC_CLI_USAGE).toContain("callerAtTip");
 	});
 
 	test("--mode rebase --branch <name> on a DETACHED worktree creates the branch and syncs", async () => {

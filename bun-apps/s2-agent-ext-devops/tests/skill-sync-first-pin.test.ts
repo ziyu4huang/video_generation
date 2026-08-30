@@ -25,7 +25,10 @@ describe("sync-first rule is pinned in the devops skills", () => {
 		expect(doc).toContain("no exceptions");
 		// It covers the next-goal queue head, not just the chain's own steps.
 		expect(doc).toContain("before executing a next-goal queue head");
-		// And names the canonical invocation.
+		// And names the canonical invocations: the one-shot hands-on prelude
+		// (state-agnostic, verdict callerAtTip) + the rebase form for attached trees.
+		expect(doc).toContain("sync-default-branch-cli.ts --mode hands-on");
+		expect(doc).toContain("callerAtTip");
 		expect(doc).toContain("sync-default-branch-cli.ts --mode rebase");
 	});
 
@@ -38,7 +41,9 @@ describe("sync-first rule is pinned in the devops skills", () => {
 		const step2 = execute.indexOf("2. Read `output/LATEST-next-goal.md`");
 		expect(step1).toBeGreaterThan(-1);
 		expect(step2).toBeGreaterThan(step1);
-		expect(execute).toContain("sync-default-branch-cli.ts --mode rebase");
+		// The one-shot hands-on form + its callerAtTip license gate.
+		expect(execute).toContain("sync-default-branch-cli.ts --mode hands-on");
+		expect(execute).toContain("callerAtTip");
 	});
 
 	test("self-reflect-next-goal keeps the stale-tree common-mistake row", () => {

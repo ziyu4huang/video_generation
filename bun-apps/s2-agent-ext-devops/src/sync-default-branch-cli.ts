@@ -18,10 +18,10 @@
  *   is reimplemented here — the wrapper only parses argv and serializes.
  *
  * CONTRACT
- *   - `--mode full|rebase|pull`  sync mode (default: full)
+ *   - `--mode full|rebase|pull|hands-on`  sync mode (default: full)
  *   - `--dry-run`                plan only: emit the exact git commands, zero
  *                                mutating spawns (read-only queries still run)
- *   - `--branch <name|auto>`     rebase/pull only — detached-HEAD recovery:
+ *   - `--branch <name|auto>`     rebase/pull/hands-on — detached-HEAD recovery:
  *                                create (or attach) this branch at the current
  *                                HEAD instead of aborting detached_head.
  *                                `auto` derives the name from the worktree
@@ -60,7 +60,7 @@ export { defaultRepoRoot };
 export type SyncCliResult = CliResult;
 
 export const SYNC_CLI_USAGE = [
-	"usage: sync-default-branch-cli.ts [--mode full|rebase|pull] [--dry-run] [--force]",
+	"usage: sync-default-branch-cli.ts [--mode full|rebase|pull|hands-on] [--dry-run] [--force]",
 	"                    [--branch <name|auto>] [--preserve <path>]... [--preserve-strict]",
 	"                    [--timeout-ms <ms>] [--repo-root <path>]",
 	"",
@@ -69,9 +69,11 @@ export const SYNC_CLI_USAGE = [
 	"outcome as JSON on stdout. Exit 0 on success, 1 on abort (dirty_tree /",
 	"divergent / ...), 2 on usage error.",
 	"Options:",
-	"  --mode <m>          full (default) | rebase | pull",
+	"  --mode <m>          full (default) | rebase | pull | hands-on (the SOP",
+	"                      one-shot prelude: advance <D> AND bring the calling worktree",
+	"                      to the tip; the outcome carries handsOn.callerAtTip)",
 	"  --dry-run           emit the planned git commands, mutate nothing",
-	"  --branch <name>     rebase/pull + detached HEAD only: create/attach this",
+	"  --branch <name>     rebase/pull/hands-on + detached HEAD only: create/attach this",
 	"                      branch at the current HEAD instead of aborting",
 	"                      ('auto' derives it from the worktree folder suffix)",
 	"  --force             full-mode only: reset --hard (discards divergent commits)",
@@ -132,8 +134,8 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
 			strict = true;
 		} else if (a === "--mode") {
 			const v = argv[++i];
-			if (v !== "full" && v !== "rebase" && v !== "pull") {
-				return { ok: false, message: `--mode must be full|rebase|pull (got ${JSON.stringify(v ?? "missing")})` };
+			if (v !== "full" && v !== "rebase" && v !== "pull" && v !== "hands-on") {
+				return { ok: false, message: `--mode must be full|rebase|pull|hands-on (got ${JSON.stringify(v ?? "missing")})` };
 			}
 			mode = v;
 		} else if (a === "--preserve") {

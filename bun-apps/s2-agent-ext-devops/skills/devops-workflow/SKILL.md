@@ -79,6 +79,13 @@ as of its session; main moves between sessions. Starting the chain from a
 stale tree rebases, CI-gates, or merges against the wrong base — this check
 is not optional and not implicit in later steps.
 
+- **One-shot, ANY worktree state (preferred)**: `bun
+  bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode hands-on
+  [--branch <slug>]` — advances `<D>` worktree-aware AND reconciles the CALLING
+  worktree to that tip (claims `<D>` here when it is free / rebases the current
+  branch onto it / recovers a detached HEAD via `--branch`, default `auto`).
+  The verdict field `handsOn.callerAtTip: true` IS this section's pass
+  condition; the same aborts as below (dirty_tree / divergent / …) are stops.
 - **Attached worktree**: `bun bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`
   (or fetch and count `git rev-list --count HEAD..origin/main` — `0` = already at tip).
 - **Detached worktree** (post-merge detach / fresh agent worktree — routine
