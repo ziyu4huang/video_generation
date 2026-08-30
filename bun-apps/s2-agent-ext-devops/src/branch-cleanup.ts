@@ -66,6 +66,15 @@ export interface BranchCleanupOptions {
 	 * a note if this worktree is still on the branch).
 	 */
 	onto?: string;
+	/**
+	 * Run `fetch --prune` inside the cleanup (default `true`). The
+	 * merge-pr-after-ci CLI passes `false`: it keeps its OWN unconditional
+	 * trailing prune, which also covers the `!branchSpent` / `!headRefName`
+	 * paths where this core is never called — an internal prune there would
+	 * duplicate the recorded fetch and reorder the call sequence its tests
+	 * pin (detach → deleteLocal → deleteRemote → fetchPrune).
+	 */
+	prune?: boolean;
 }
 
 function errMsg(err: unknown): string {
@@ -73,13 +82,16 @@ function errMsg(err: unknown): string {
 }
 
 export async function runLocalBranchCleanup(opts: BranchCleanupOptions): Promise<BranchCleanupResult> {
-	const { client, headBranch, repoRoot, onto } = opts;
+	const { client, headBranch, repoRoot, onto, prune = true } = opts;
 	const res: BranchCleanupResult = { headBranch, detached: false, localDeleted: false, notes: [] };
 	const mine = path.resolve(repoRoot);
 	// 4. Refresh remote-tracking refs (the remote branch is gone by now) — run
 	//    on EVERY path, including the held-elsewhere early return (the CLI
 	//    prunes there too; a stale origin/<head> ref would linger otherwise).
+	//    Callers that own their prune wiring (the CLI) disable this via
+	//    `prune: false` — then pruning is entirely their business.
 	const bestEffortPrune = async (): Promise<void> => {
+		if (!prune) return;
 		try {
 			await client.fetchPrune();
 		} catch (err) {

@@ -42,8 +42,8 @@
  *   snapshot taken AFTER the CI gate, and an UNKNOWN one is polled until it
  *   settles instead of being treated as a verdict.
  */
-import path from "node:path";
 import { runLocalCi, summarizeCiFailures, type CiOutcome } from "./ci-recipe.js";
+import { runLocalBranchCleanup } from "./branch-cleanup.js";
 import { createBranchClient } from "./gh.js";
 import { selectForgeClientCached } from "./forge/select.js";
 import type { GhClient } from "./recipe.js";
@@ -370,33 +370,6 @@ function recordingSpawn(spawn: SpawnFn): { fn: SpawnFn; commands: string[] } {
 
 function errMsg(err: unknown): string {
 	return err instanceof Error ? err.message : String(err);
-}
-
-/** Read `fn`; a throw becomes a warning + `fallback` (cleanup must never abort a done merge). */
-async function safeRead<T>(fn: () => Promise<T>, fallback: T, label: string, warnings: string[]): Promise<T> {
-	try {
-		return await fn();
-	} catch (err) {
-		warnings.push(`${label} read failed: ${errMsg(err)}`);
-		return fallback;
-	}
-}
-
-/**
- * The path of a DIFFERENT worktree holding `branch`, or undefined when no other
- * worktree has it. `repoRoot` (ours) is excluded on purpose: we can detach our
- * own HEAD, but another worktree's checkout is not ours to move.
- */
-async function ownerWorktreeOf(
-	client: Pick<BranchClient, "worktreeList">,
-	branch: string,
-	repoRoot: string,
-	warnings: string[],
-): Promise<string | undefined> {
-	const list = await safeRead(() => client.worktreeList(), [], "worktreeList", warnings);
-	const norm = (p: string) => path.resolve(p);
-	const mine = norm(repoRoot);
-	return list.find((w) => w.branch === branch && norm(w.worktree) !== mine)?.worktree;
 }
 
 /**
@@ -728,47 +701,45 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	const headRefName = status.headRefName;
 	if (!keepBranch) {
 		if (verify.branchSpent && headRefName) {
-			// Git refuses `branch -D` on a branch checked out in ANY worktree, and
-			// the worktree that just ran the merge is normally still sitting on the
-			// head branch — so this step failed on essentially every run and the
-			// caller had to detach and sweep by hand. Detach HERE first; a branch
-			// held by a DIFFERENT worktree is left alone (that tree is not ours to
-			// move) and reported as such instead of as a bare git error.
+			// The LOCAL half of the cleanup (worktree-held check → detach → delete)
+			// is delegated to the shared branch-cleanup core (`src/branch-cleanup.ts`,
+			// the same one the recipe path uses since #2150) so the two merge paths
+			// cannot drift apart again — this arc's origin was exactly a
+			// one-path-fixed-other-lacks gap. Kept HERE, outside the call: the
+			// `branchSpent` gate, the REMOTE delete, and the prune wiring (the trailing
+			// fetchPrune below also covers the !branchSpent path, so the core runs
+			// with `prune: false` — one recorded fetch, pinned call order).
+			//
+			// Detach target: prefer the MERGE COMMIT over `origin/<base>` — the local
+			// remote-tracking ref still points at the PRE-merge tip here
+			// (`fetchPrune()` runs after this block), so detaching onto it left the
+			// worktree one commit behind the merge it had just made. verify has
+			// already guaranteed the merge sha is in the local object store when it
+			// could inspect (it read the diff out of it, fetching first if needed);
+			// fall back to `origin/<base>` only when verify could not inspect — there
+			// the sha may genuinely not be local.
 			//
 			// Safe by construction: preflight already gated on a clean tree, and we
 			// only reach this when verify said the branch is spent — its commits are
-			// all in the merge, so detaching onto it loses nothing.
-			const heldElsewhere = await ownerWorktreeOf(client, headRefName, repoRoot, warnings);
-			if (heldElsewhere) {
-				warnings.push(
-					`local branch '${headRefName}' is checked out in another worktree (${heldElsewhere}) — left in place; delete it from there.`,
-				);
-			} else {
-				const current = await safeRead(() => client.currentBranch(), undefined, "currentBranch", warnings);
-				if (current === headRefName) {
-					// Prefer the MERGE COMMIT over `origin/<base>`. The local
-					// remote-tracking ref still points at the PRE-merge tip here —
-					// `fetchPrune()` runs after this block — so detaching onto it left
-					// the worktree one commit behind the merge it had just made, and the
-					// caller had to check out again by hand. The merge sha is the commit
-					// we actually want, and verify has already guaranteed it is in the
-					// local object store (it read the diff out of it, fetching first if
-					// needed). Fall back to `origin/<base>` only when verify could not
-					// inspect — there the sha may genuinely not be local.
-					const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `${remoteName}/${status.baseRefName}`;
-					try {
-						await client.detachHead(onto);
-						commands.push(`git -C "${repoRoot}" checkout --detach ${onto}`);
-					} catch (err) {
-						warnings.push(`detachHead(${onto}) failed: ${errMsg(err)} — local branch delete will be skipped`);
-					}
-				}
-				try {
-					await client.deleteLocalBranch(headRefName);
-				} catch (err) {
-					warnings.push(`deleteLocalBranch(${headRefName}) failed: ${errMsg(err)}`);
-				}
+			// all in the merge, so detaching onto it loses nothing. The core's notes
+			// are byte-identical to the warning strings this block used to emit
+			// (tests pin them), including the held-elsewhere skip, the detach-failure
+			// skip, and the delete failure itself; the one deliberate behavior CHANGE
+			// is the core's existence check before the delete — a clone that never
+			// checked the branch out now gets a benign "nothing to delete" note
+			// instead of a failed `git branch -D` warning.
+			const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `${remoteName}/${status.baseRefName}`;
+			const cleanup = await runLocalBranchCleanup({
+				client,
+				headBranch: headRefName,
+				repoRoot,
+				onto,
+				prune: false,
+			});
+			if (cleanup.detached && cleanup.detachedOnto) {
+				commands.push(`git -C "${repoRoot}" checkout --detach ${cleanup.detachedOnto}`);
 			}
+			warnings.push(...cleanup.notes);
 			try {
 				await client.deleteRemoteBranch(headRefName);
 			} catch (err) {
