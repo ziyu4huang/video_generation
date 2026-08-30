@@ -275,6 +275,7 @@ describe("harvest — end-to-end over the temp tree", () => {
 		const result = await harvest({
 			name: "nobody",
 			harnessRoot: root,
+			piRunsRoot: mkdtempSync(join(tmpdir(), "rh-piruns-")), // empty — never scan the live pi archive
 			repoRoot: mkdtempSync(join(tmpdir(), "rh-repo-")),
 			io: testIo(),
 		});
@@ -297,6 +298,156 @@ describe("harvest — end-to-end over the temp tree", () => {
 		expect(result.error).toContain("429");
 		const receipt = JSON.parse(readFileSync(result.receipt!.path, "utf8"));
 		expect(receipt.status).toBe("errored");
+	});
+});
+
+describe("harvest — pi-runs fallback (claude-glm absent)", () => {
+	/** A realistic pi-harness run record — shape measured 2026-08-30 from
+	 *  ~/.pi/subagents/runs/mtfah2ey-wl6r8i.json (PR #2169's reviewer). */
+	const piRun = (name: string, over?: Record<string, unknown>) => ({
+		id: "mtfake00-wl6r8i",
+		toolCallId: "call_fake000000000000000000000000000",
+		agent: "reviewer",
+		agentName: name,
+		agentId: "call_fake000000000000000000000000000",
+		task: "independent review",
+		model: "zai/glm-5.3",
+		cwd: "/repo",
+		status: "done",
+		startedAt: "2026-08-30T04:04:02.625Z",
+		elapsedMs: 240303,
+		usage: {},
+		output: "Reviewed the diff.\n\nVERDICT: APPROVE",
+		turns: 12,
+		background: true,
+		...over,
+	});
+
+	function tempPiRuns(files: Array<{ file: string; run: unknown }>): string {
+		const root = mkdtempSync(join(tmpdir(), "rh-piruns-"));
+		for (const f of files) writeFileSync(join(root, f.file), JSON.stringify(f.run));
+		return root;
+	}
+
+	/** An empty claude-glm root so the fallback actually engages. */
+	const noClaudeRoot = () => {
+		const root = mkdtempSync(join(tmpdir(), "rh-harness-"));
+		return root;
+	};
+
+	test("done pi run with agentName match → verdict from output, receipt cites the run archive", async () => {
+		const piRunsRoot = tempPiRuns([{ file: "mtfake00-wl6r8i.json", run: piRun("rev-pi-1") }]);
+		const repoRoot = mkdtempSync(join(tmpdir(), "rh-repo-"));
+		const result = await harvest({
+			name: "rev-pi-1",
+			harnessRoot: noClaudeRoot(),
+			piRunsRoot,
+			repoRoot,
+			io: testIo(),
+		});
+		expect(result.status).toBe("completed");
+		expect(result.verdict).toContain("VERDICT: APPROVE");
+		expect(result.transcriptPath).toContain("mtfake00-wl6r8i.json");
+		expect(result.source).toBe("pi-runs");
+		expect(result.model).toBe("zai/glm-5.3");
+		expect(result.dispatchedAt).toBe("2026-08-30T04:04:02.625Z");
+		expect(result.receipt?.path).toContain(join("output", "reviewer-harvest"));
+		const receipt = JSON.parse(readFileSync(result.receipt!.path, "utf8"));
+		expect(receipt.source).toBe("pi-runs");
+		expect(receipt.transcriptPath).toBe(result.transcriptPath);
+		expect(receipt.model).toBe("zai/glm-5.3");
+		expect(receipt.verdict).toBe(result.verdict);
+	});
+
+	test("running pi run is not a verdict → still-running, no receipt (a live reviewer is not a verdict)", async () => {
+		const piRunsRoot = tempPiRuns([{ file: "mtfake01.json", run: piRun("rev-pi-2", { status: "running" }) }]);
+		const result = await harvest({
+			name: "rev-pi-2",
+			harnessRoot: noClaudeRoot(),
+			piRunsRoot,
+			repoRoot: mkdtempSync(join(tmpdir(), "rh-repo-")),
+			io: testIo(),
+		});
+		expect(result.status).toBe("still-running");
+		expect(result.verdict).toBeUndefined();
+		expect(result.receipt).toBeUndefined();
+		expect(result.attempts).toBe(1);
+	});
+
+	test("exact agentName only: `probe` must not match `probe2`'s pi run", async () => {
+		const piRunsRoot = tempPiRuns([{ file: "mtfake02.json", run: piRun("probe2") }]);
+		const result = await harvest({
+			name: "probe",
+			harnessRoot: noClaudeRoot(),
+			piRunsRoot,
+			repoRoot: mkdtempSync(join(tmpdir(), "rh-repo-")),
+			io: testIo(),
+		});
+		expect(result.status).toBe("absent");
+	});
+
+	test("terminal-failure pi status maps to errored (never a fake still-running spin)", async () => {
+		const piRunsRoot = tempPiRuns([{ file: "mtfake03.json", run: piRun("rev-pi-3", { status: "failed", output: "" }) }]);
+		const result = await harvest({
+			name: "rev-pi-3",
+			harnessRoot: noClaudeRoot(),
+			piRunsRoot,
+			repoRoot: mkdtempSync(join(tmpdir(), "rh-repo-")),
+			io: testIo(),
+		});
+		expect(result.status).toBe("errored");
+		expect(result.error).toContain("failed");
+		expect(result.receipt).toBeDefined(); // terminal, so a receipt IS written
+	});
+
+	test("corrupt JSON in the runs dir is skipped; the valid sibling still harvests", async () => {
+		const piRunsRoot = tempPiRuns([
+			{ file: "torn.json", run: "{not json at all" }, // stringified garbage parses as JSON fail
+			{ file: "mtfake04.json", run: piRun("rev-pi-4") },
+		]);
+		const result = await harvest({
+			name: "rev-pi-4",
+			harnessRoot: noClaudeRoot(),
+			piRunsRoot,
+			repoRoot: mkdtempSync(join(tmpdir(), "rh-repo-")),
+			io: testIo(),
+		});
+		expect(result.status).toBe("completed");
+		expect(result.verdict).toContain("VERDICT: APPROVE");
+	});
+
+	test("precedence: a claude-glm transcript wins over a NEWER pi run (primary/fallback order)", async () => {
+		const { root } = tempHarness([
+			{ file: "agent-ainjection-probe-c27137ca99032335.jsonl", from: "completed-probe.jsonl", mtimeMs: 500_000 },
+		]);
+		const piRunsRoot = tempPiRuns([
+			{ file: "mtfake05.json", run: piRun("injection-probe", { startedAt: "2026-08-31T00:00:00.000Z" }) },
+		]);
+		const result = await harvest({
+			name: "injection-probe",
+			harnessRoot: root,
+			piRunsRoot,
+			repoRoot: mkdtempSync(join(tmpdir(), "rh-repo-")),
+			io: testIo(),
+		});
+		expect(result.status).toBe("completed");
+		expect(result.verdict).toContain("INJECTION-PROBE-MARKER"); // claude-glm's verdict, not the pi one
+		expect(result.source).toBe("claude-glm");
+		expect(result.piRunsRoot).toBeUndefined();
+	});
+
+	test("CLI: --pi-runs-root is accepted and produces a pi-source completion", async () => {
+		const piRunsRoot = tempPiRuns([{ file: "mtfake06.json", run: piRun("rev-pi-6") }]);
+		const repoRoot = mkdtempSync(join(tmpdir(), "rh-repo-"));
+		const res = await runReviewerHarvestCli(
+			["--name", "rev-pi-6", "--harness-root", noClaudeRoot(), "--pi-runs-root", piRunsRoot, "--repo-root", repoRoot],
+			{ io: testIo() },
+		);
+		expect(res.exitCode).toBe(0);
+		const parsed = JSON.parse(res.stdout);
+		expect(parsed.status).toBe("completed");
+		expect(parsed.source).toBe("pi-runs");
+		expect(parsed.verdict).toContain("VERDICT: APPROVE");
 	});
 });
 
