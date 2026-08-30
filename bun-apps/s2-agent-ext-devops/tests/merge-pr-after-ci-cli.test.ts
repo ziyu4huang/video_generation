@@ -99,7 +99,7 @@ function fakeClient(opts: {
 		fetchPrune: async () => {
 			calls.push("fetchPrune");
 		},
-		revParse: async () => undefined,
+		revParse: async (rev: string) => (rev === "feature" ? "c".repeat(40) : undefined),
 		containedBranches: async () => new Set(["feature"]),
 		worktreeList: async () => opts.worktrees ?? [],
 	};
@@ -484,6 +484,24 @@ describe("merge-pr-after-ci-cli — spent-branch deletion", () => {
 		expect(g.clientCalls).toContain("fetchPrune");
 		const outcome = JSON.parse(res.stdout);
 		expect(outcome.warnings.some((w: string) => /deleteLocalBranch\(feature\) failed/.test(w))).toBe(true);
+	});
+
+	test("a detached-HEAD caller needs no detach — the local delete proceeds straight through", async () => {
+		// The folded-in gap from the 20260830-072021 handoff: a worktree already
+		// detached at HEAD (the exact state every PRIOR merge's cleanup leaves
+		// behind) reaches cleanup with currentBranch() === "HEAD", which is not
+		// the head ref — no detach may fire, and the delete must proceed through
+		// the shared core's existence check without a spurious not-found warning
+		// (the deliberate behavior change this migration carries: existence is
+		// CHECKED before the delete instead of attempted unconditionally).
+		const g = greenDeps({ current: "HEAD", worktrees: [{ worktree: "/repo", detached: true }] });
+		const res = await runPrFinishCli(["42"], g.deps);
+		expect(res.exitCode).toBe(0);
+		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
+		expect(g.clientCalls).toContain("deleteLocal:feature");
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.warnings.some((w: string) => /no local 'feature' branch/.test(w))).toBe(false);
+		expect(outcome.warnings.some((w: string) => /deleteLocalBranch\(feature\) failed/.test(w))).toBe(false);
 	});
 });
 
