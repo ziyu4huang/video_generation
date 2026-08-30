@@ -231,6 +231,13 @@ function formatSync(o: SyncOutcome): string {
 			`  caller: ${o.caller.detached ? "detached HEAD" : o.caller.branch} @ ${o.caller.worktree}${o.caller.behindDefault === null ? "" : `, ${o.caller.behindDefault} behind the remote default (${o.defaultBranch})`}.`,
 		);
 	}
+	// The hands-on verdict line — the very gate the SOP licenses proceeding on
+	// (finding 3): it must be in the TEXT output, not buried in details JSON.
+	if (o.handsOn) {
+		L.push(
+			`  handsOn: ${o.handsOn.callerAction} — callerAtTip ${o.handsOn.callerAtTip ? "✅ (licensed to proceed)" : "❌ (fix the abort/warning above and re-run)"}${o.dryRun ? " [dry-run: projects the plan against current refs]" : ""}`,
+		);
+	}
 	if (o.preserved) {
 		L.push(
 			`  preserved: ${o.preserved.paths.join(", ") || "—"} ${o.preserved.restored ? "✓ restored" : "⚠ NOT restored (kept in stash)"}${o.preserved.conflict ? ` — ${o.preserved.conflict}` : ""}`,
@@ -576,10 +583,10 @@ export default function (pi: ExtensionAPI): void {
 			"Sync this repo to the latest default branch. 'full' (default): fetch; auto-detect default branch D; advance D to origin/D worktree-aware (in the worktree that holds D) via merge --ff-only — aborts 'divergent' on divergent/unpushed commits, never losing them (force:true = reset --hard, explicit discard opt-in); then recursively sync submodules. 'rebase': fetch + rebase the current branch onto origin/D. 'pull': fetch + merge (a real merge, never fast-forward). dryRun returns the exact git commands without mutating. A dirty tracked tree aborts mutating runs; the preserve list (default .agents/memory/MEMORY.md) is stashed + restored instead. rebase/pull on a detached HEAD aborts unless `branch` is passed (see param).",
 		gating: { gate: "sync_default_branch" }, // reference form (ticket 01) — family in GATE_DEFS
 		promptSnippet:
-			"Sync this repo to latest default branch. full (default): fetch + advance default branch via merge --ff-only (worktree-aware; aborts on divergent unless force:true → reset --hard) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. dryRun shows the plan. Dirty tree aborts.",
+			"Sync this repo to latest default branch. full (default): fetch + advance default branch via merge --ff-only (worktree-aware; aborts on divergent unless force:true → reset --hard) + recursive submodules. rebase/pull: fetch + rebase/merge current branch onto origin/<default>. hands-on: the SOP one-shot prelude — full advance AND the calling worktree brought to the tip (rebased, or a detached HEAD recovered via branch), verdict in handsOn.callerAtTip. dryRun shows the plan. Dirty tree aborts.",
 		parameters: Type.Object({
 			mode: Type.Optional(
-				Type.String({ description: "Sync mode: 'full' (default — advance default branch + submodules), 'rebase' (rebase current onto origin/<default>), or 'pull' (merge origin/<default> into current)." }),
+				Type.String({ description: "Sync mode: 'full' (default — advance default branch + submodules), 'rebase' (rebase current onto origin/<default>), 'pull' (merge origin/<default> into current), or 'hands-on' (SOP one-shot prelude — full advance + calling worktree reconciled to the tip; outcome carries handsOn.callerAtTip)." }),
 			),
 			dryRun: Type.Optional(Type.Boolean({ description: "Compute + return the exact git commands without mutating anything (default false)." })),
 			force: Type.Optional(
@@ -597,7 +604,7 @@ export default function (pi: ExtensionAPI): void {
 			branch: Type.Optional(
 				Type.String({
 					description:
-						"rebase/pull, detached HEAD only: create (or attach, if it exists at this exact HEAD) this branch at HEAD and proceed instead of aborting 'detached_head'; 'auto' derives the name from the worktree folder suffix. Never the default branch; an existing branch at a different commit or checked out elsewhere aborts.",
+						"rebase/pull/hands-on, detached HEAD only: create (or attach, if it exists at this exact HEAD) this branch at HEAD and proceed instead of aborting 'detached_head'; 'auto' derives the name from the worktree folder suffix. Never the default branch; an existing branch at a different commit or checked out elsewhere aborts.",
 				}),
 			),
 		}),
@@ -613,7 +620,7 @@ export default function (pi: ExtensionAPI): void {
 			const root = await spawn("git", ["rev-parse", "--show-toplevel"]);
 			const repoRoot = root.exitCode === 0 ? root.stdout.trim() : process.cwd();
 			const rawMode = params.mode as string | undefined;
-			const mode: SyncMode = rawMode === "rebase" || rawMode === "pull" ? rawMode : "full";
+			const mode: SyncMode = rawMode === "rebase" || rawMode === "pull" || rawMode === "hands-on" ? rawMode : "full";
 			const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun: params.dryRun === true, force: params.force === true, branch: params.branch as string | undefined, preserve: params.preserve as string[] | undefined, remoteName, signal });
 			return { details: outcome, content: [{ type: "text" as const, text: formatSync(outcome) }] };
 		},

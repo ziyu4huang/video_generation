@@ -195,15 +195,22 @@ The user's trigger phrase **"hands on next goal"** (or plain "hands on") means:
 execute the head of the queue end-to-end, this session — not just plan it.
 It starts from a synced tree, not whatever HEAD happens to be lying around.
 
-1. **Sync to the remote default branch first, rebase style**: `bun
-   bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode rebase`.
-   The queue head was written against main as of its session; main moves under
-   you between sessions. In a detached-HEAD worktree the CLI aborts
-   (`reason: "detached_head"` — it refuses to rebase a detached tree); that is
-   not a failure to skip: fetch and compare (`git fetch origin main && git
-   rev-list --count HEAD..origin/main`) — `0` means you are already at the tip
-   and may proceed, anything else means create/switch a branch from
-   `origin/main` via `prepare-feature-branch-cli` before executing.
+1. **Sync to the remote default branch first — one shot**: `bun
+   bun-apps/s2-agent-ext-devops/src/sync-default-branch-cli.ts --mode hands-on
+   [--branch <queue-head-slug>]` (in-session: the `sync_default_branch` tool
+   with `mode: "hands-on"`). The queue head was written against main as of its
+   session; main moves under you between sessions. The hands-on mode advances
+   the default branch (worktree-aware ff-only, hot files preserved, submodules)
+   AND reconciles THIS worktree to that tip — claims <D> here when it is free
+   (the caller's current branch is left behind, un-rebased — the claim moves
+   the checkout), rebases the current branch onto it, or recovers a detached
+   HEAD via `--branch` (default `auto`) — then reports the verdict
+   `handsOn.callerAtTip`.
+   Only `callerAtTip: true` licenses step 2; an abort is a stop, never a skip:
+   `dirty_tree` → stash/commit the real changes; `divergent` → surface to the
+   user (`--force` is a destructive opt-in); `branch_exists` /
+   `worktree_conflict` on the detached recover → re-run with a fresh
+   `--branch <slug>`.
 2. Read `output/LATEST-next-goal.md` (the symlink; fall back to the newest
    `next-goal-*.md` if it is missing). If the file says decisions are
    pre-approved / "do not re-litigate", honor that — execute, don't re-decide.
@@ -263,7 +270,7 @@ stale pointer executes the wrong goal. The symlink lives in gitignored
 | Hands-off with uncommitted/unpushed work ("the successor will commit it") | Step 0 of WRITE — push FIRST; a successor whose head is "commit my changes" drops the carry the moment the tree is swept |
 | Skipping the validator/doctor | Steps 3 and 6 of WRITE — exit 0 or fix; never hand off an unvalidated file |
 | "Hands on" treated as "plan the goal" | It means EXECUTE through the done-when gate |
-| Executing the queue head from a stale tree | Step 1: sync-default-branch-cli `--mode rebase` first; detached HEAD → verify `HEAD..origin/main` is 0 before proceeding |
+| Executing the queue head from a stale tree | Step 1: `sync-default-branch-cli --mode hands-on` first; only `handsOn.callerAtTip: true` licenses proceeding |
 | New session invents a fresh goal when a queue head exists | Boundary discipline: the successor's `Immediate steps` name the NEXT ticket of the effort's chosen `Execution order` — never an unlinked goal while the queue holds tickets |
 | The loop never ends (every successor invents new work) | Queue-drain termination: empty queue → successor head = effort close-out (map status: complete), the loop STOPS |
 | Padding the ranked list with out-of-scope goals | Focus-scope rule above: rank in-scope only; dormant re-checks pad the minimum; out-of-scope only when it BLOCKS in-scope work |

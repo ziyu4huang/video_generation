@@ -30,6 +30,22 @@
  * branch checked out in another worktree aborts `worktree_conflict` (git
  * checkout would fatal). Without `branch`, the historical abort stands.
  *
+ * HANDS-ON MODE (the SOP one-shot prelude — hardens the self-reflect-next-goal
+ * EXECUTE step 1 into a single deterministic call): `mode: "hands-on"`
+ * guarantees, after ONE invocation, that BOTH (1) the default branch <D>
+ * equals <remote>/<D> and (2) the CALLING worktree sits at that tip. It composes
+ * the two existing tested paths — phase A runs the full-mode advance verbatim
+ * (worktree-aware ff-only, force opt-in, preserve hot files, checkout <D> here
+ * when it is free, submodules in caller + advance target), then phase B
+ * reconciles the CALLER when it still lags (only possible when <D> advanced in
+ * a DIFFERENT worktree): the current branch is rebased onto <remote>/<D>, or a
+ * detached HEAD is recovered via `branch` (default "auto") — branch at HEAD,
+ * then rebase. The outcome carries a `handsOn` verdict: `callerAtTip` is true
+ * iff HEAD is 0 commits behind <remote>/<D> after the run. A phase-B abort
+ * keeps phase A's advance in the merged outcome (the default branch IS synced;
+ * only the caller reconcile failed). This replaces the old 3-branch prose
+ * recipe (rebase → detached abort → raw fetch/count → prepare-feature-branch).
+ *
  * SAFETY (full-mode default-branch advance, hardening follow-up to PR #1066):
  * the DEFAULT is now `git merge --ff-only origin/<D>` — matching the original
  * bash `pull --ff-only` "never lose commits" guarantee. Since we already
@@ -89,7 +105,7 @@ import {
 export { DEFAULT_PRESERVE_PATHS } from "./preserve.js";
 export type { PreserveOutcome as SyncPreserved } from "./preserve.js";
 
-export type SyncMode = "full" | "rebase" | "pull";
+export type SyncMode = "full" | "rebase" | "pull" | "hands-on";
 
 /**
  * Per-command wall-clock cap for every git call a sync issues (fetch, stash,
@@ -240,6 +256,33 @@ export const SYNC_ABORT_REASONS = [
 
 export type SyncAbortReason = (typeof SYNC_ABORT_REASONS)[number];
 
+/** Hands-on verdict — the SOP prelude's checkable outcome. Present (on every
+ *  hands-on run, dry included) exactly when mode === "hands-on". */
+export interface SyncHandsOn {
+	/** What the mode did to bring the CALLING worktree to the tip:
+	 *  - "advanced-default-here"  — the caller holds <D>; phase A advanced it here.
+	 *  - "claimed-default-here"   — <D> was free; phase A checked it out in the caller.
+	 *  - "rebased-current-branch" — <D> advanced elsewhere; caller's branch rebased onto the tip.
+	 *  - "attached-and-rebased"   — <D> advanced elsewhere; detached caller recovered via `branch` + rebased.
+	 *  - "already-at-tip"         — <D> advanced elsewhere; caller was already at the tip (phase B skipped).
+	 *  - "reconcile-aborted"      — phase B aborted (the default branch IS advanced; caller is not).
+	 *  - "none"                   — phase A aborted before anything moved. */
+	callerAction:
+		| "advanced-default-here"
+		| "claimed-default-here"
+		| "rebased-current-branch"
+		| "attached-and-rebased"
+		| "already-at-tip"
+		| "reconcile-aborted"
+		| "none";
+	/** True iff HEAD is 0 commits behind <remote>/<D> after the run (false on any
+	 *  abort). Under dryRun this PROJECTS the plan against the current refs —
+	 *  nothing was fetched, so the tip the plan reconciles onto may itself move
+	 *  when the plan executes. This is the gate the hands-on SOP licenses
+	 *  proceeding on. */
+	callerAtTip: boolean;
+}
+
 export interface SyncOutcome {
 	mode: SyncMode;
 	dryRun: boolean;
@@ -263,6 +306,8 @@ export interface SyncOutcome {
 	commands: string[];
 	/** Set when a mutating mode refused to run (dirty tree, divergent, …). */
 	aborted?: SyncAbort;
+	/** Hands-on verdict (present iff mode === "hands-on", dry included). */
+	handsOn?: SyncHandsOn;
 	/** Preserve-listed hot files stashed across the advance + restore result.
 	 *  Present iff a stash actually ran (non-dryRun, only preserve-listed dirty). */
 	preserved?: SyncPreserved;
@@ -292,7 +337,7 @@ export interface SyncOptions {
 	/** Remote name for fetch targets + `<remote>/<D>` tracking refs (default
 	 *  `origin`; resolve via src/remote.ts and pass down — never resolved here). */
 	remoteName?: string;
-	/** rebase/pull ONLY — detached-HEAD recovery. When the calling worktree is
+	/** rebase/pull/hands-on ONLY — detached-HEAD recovery. When the calling worktree is
 	 * on a detached HEAD, instead of aborting `detached_head`, create this
 	 * branch at the current HEAD (or ATTACH it, when a branch of that name
 	 * already exists at the exact HEAD) and proceed with the rebase/pull. The
@@ -300,7 +345,8 @@ export interface SyncOptions {
 	 * deriveWorktreeBranchName). Guarded: never the default branch; an existing
 	 * branch at a DIFFERENT commit aborts `branch_exists`; a branch checked out
 	 * in another worktree aborts `worktree_conflict`. Ignored (warned) in full
-	 * mode or when the caller is already on a branch. */
+	 * mode or when the caller is already on a branch; in hands-on mode it feeds
+	 * phase B's detached recovery and defaults to "auto" when omitted. */
 	branch?: string;
 	signal?: AbortSignal;
 }
@@ -351,6 +397,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 	let preserved: SyncPreserved | undefined;
 	let caller: SyncCaller | undefined;
 	let verification: SyncVerification | undefined;
+	let handsOn: SyncHandsOn | undefined;
 
 	/** Issue a git command: always record it (for `commands`); skip execution
 	 *  entirely under dryRun (returns a canned success). */
@@ -387,6 +434,7 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		warnings,
 		commands,
 		aborted,
+		handsOn,
 		preserved,
 		elapsedMs: Date.now() - t0,
 	});
@@ -473,10 +521,11 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 
 	let current = await client.currentBranch();
 	const detached = !current || current === "HEAD";
-	// `branch` is a rebase/pull-only concern: warn (never abort) when it cannot
+	// `branch` is a rebase/pull/hands-on concern: warn (never abort) when it cannot
 	// apply — full mode advances <D> elsewhere, and a caller already ON a branch
-	// has nothing to recover from.
-	if (opts.branch && (mode === "full" || !detached)) {
+	// has nothing to recover from. Hands-on handles its own branch warning inside
+	// the mode block (phase B decides whether the option applies).
+	if (opts.branch && mode !== "hands-on" && (mode === "full" || !detached)) {
 		warnings.push(
 			mode === "full"
 				? `branch option ignored in full mode (full advances '${D}', not the calling worktree's branch).`
@@ -497,6 +546,123 @@ export async function runSync(opts: SyncOptions): Promise<SyncOutcome> {
 		warnings.push(
 			`default branch '${D}' is ${dab.ahead} commit(s) ahead of ${remote}/${D} (unpushed) — full mode's fast-forward will refuse them; force:true discards them via reset --hard.`,
 		);
+	}
+
+	// --- HANDS-ON (the SOP one-shot prelude) ------------------------------------
+	// Composes the two existing tested paths rather than re-implementing either:
+	// phase A = the full-mode advance (verbatim semantics), phase B = the rebase-
+	// mode reconcile (with detached-HEAD recovery via `branch`). Phase-B gating is
+	// derived from PRE-query state only (where <D> lives + how far the caller
+	// lags) — never from post-mutation re-queries — so the mode stays deterministic
+	// and the whole flow remains testable against a stateless fake client.
+	if (mode === "hands-on") {
+		if (opts.branch && !detached) {
+			warnings.push(
+				`branch option ignored in hands-on mode — calling worktree is already on '${current}'; phase B rebases it.`,
+			);
+		}
+		const worktrees = await client.worktreeList();
+		const defaultWt = worktrees.find((w) => w.branch === D)?.worktree;
+		const dHeldElsewhere = defaultWt !== undefined && defaultWt !== repoRoot;
+
+		const base = {
+			client,
+			spawn,
+			repoRoot,
+			dryRun: dry,
+			force,
+			preserve,
+			remoteName: remote,
+			signal: opts.signal,
+		};
+
+		// PHASE A — advance <D> wherever it lives. Worktree-aware ff-only default
+		// (force opt-in), preserve-listed hot files parked across the advance,
+		// checkout <D> in the caller when it is free (the caller then IS at the
+		// tip), submodules synced in the caller + the advance target.
+		const a = await runSync({ ...base, mode: "full" });
+		commands.push(...a.commands);
+		warnings.push(...a.warnings);
+		if (a.aborted) {
+			warnings.push("hands-on phase A (advance the default branch) aborted — caller reconcile skipped.");
+			handsOn = { callerAction: "none", callerAtTip: false };
+			return outcome({ ...a.aborted, message: `[phase A: advance default branch] ${a.aborted.message}` });
+		}
+		advanced.push(...a.advanced);
+		submodules.push(...a.submodules);
+		verification = a.verification;
+		caller = a.caller;
+		preserved = a.preserved;
+
+		// PHASE B — reconcile the CALLER, only needed when <D> advanced in a
+		// DIFFERENT worktree AND the caller actually lags the tip. The lag count
+		// is queried POST-FETCH (phase A just fetched, so <remote>/<D> is fresh):
+		// a PRE-fetch count is the exact stale-ref trap — a fetch that moves the
+		// tip reads behind:0, skips the reconcile, and still claims callerAtTip —
+		// the stale-tree failure this mode exists to prevent (reviewer fixture,
+		// PR #2174 finding 1). A caller that holds <D> or claimed it via phase A
+		// is already at the tip; a detached caller already AT the tip stays
+		// detached (attaching a queue-head branch is prepare_feature_branch's
+		// job, not this mode's).
+		const behindPost = (await client.aheadBehind(`${remote}/${D}`, "HEAD")).behind;
+		let b: SyncOutcome | undefined;
+		if (dHeldElsewhere && behindPost > 0) {
+			// `branch` feeds ONLY the detached recovery — passing it on an attached
+			// caller makes the rebase sub-run warn "branch option ignored" (finding 4).
+			b = await runSync({ ...base, mode: "rebase", branch: detached ? (opts.branch ?? "auto") : undefined });
+			commands.push(...b.commands);
+			warnings.push(...b.warnings);
+			// preserved/caller merge on EVERY phase-B path — an aborted rebase still
+			// ran its park→restore pair, and that outcome must surface structured
+			// (finding 5), not only as a warning line.
+			caller = b.caller ?? caller;
+			preserved = b.preserved ?? preserved;
+			if (b.aborted) {
+				warnings.push(
+					"hands-on phase B (caller reconcile) aborted — the default branch IS advanced (phase A landed); fix the caller and re-run.",
+				);
+			} else {
+				advanced.push(...b.advanced);
+			}
+		} else if (dHeldElsewhere) {
+			warnings.push(`calling worktree already at ${remote}/${D} tip — phase B (caller reconcile) skipped.`);
+		}
+
+		// The verdict — DERIVED FROM PHASE SEMANTICS, not a post-hoc probe: every
+		// completed phase guarantees 0-behind by git's own semantics (a successful
+		// `merge --ff-only` ⇒ <D> == <remote>/<D>; a successful `rebase <remote>/<D>`
+		// ⇒ HEAD contains the tip entirely — fast-forwarded, or own commits replayed
+		// onto it; a skipped phase B means behindNow was already 0). Probing the tree
+		// AFTER the phases would re-query the client, which cannot distinguish pre
+		// from post state under a stateless fake — and adds a git call the semantics
+		// already pin. An aborted phase ⇒ NOT at tip, by construction.
+		const callerAtTip = !b?.aborted && (
+			b ? true // phase B rebased the caller onto <remote>/<D> successfully
+			: defaultWt === repoRoot // ff-only advanced <D> in the caller itself
+				? true
+				: defaultWt // <D> advanced elsewhere; B skipped only because POST-FETCH behindPost was 0
+					? behindPost === 0
+					: true // <D> was free; phase A claimed it here via checkout + ff
+		);
+		const callerAction: SyncHandsOn["callerAction"] = b?.aborted
+			? "reconcile-aborted"
+			: b
+				? detached
+					? "attached-and-rebased"
+					: "rebased-current-branch"
+				: defaultWt === repoRoot
+					? "advanced-default-here"
+					: defaultWt
+						? "already-at-tip"
+						: "claimed-default-here";
+		handsOn = { callerAction, callerAtTip };
+		if (!callerAtTip) {
+			warnings.push(`hands-on: calling worktree is NOT at ${remote}/${D} — fix the abort above and re-run before executing.`);
+		}
+		if (dry) {
+			warnings.push("dry-run: handsOn.callerAtTip projects the plan against current refs (nothing was fetched).");
+		}
+		return outcome(b?.aborted ? { ...b.aborted, message: `[phase B: caller reconcile] ${b.aborted.message}` } : undefined);
 	}
 
 	// --- FULL ----------------------------------------------------------------
