@@ -126,69 +126,82 @@ export interface SmokeSession {
 
 /** One hermetic real AgentSession on the scripted provider — the seed every
  *  later task's test grows from. File-backed sessions under a tmp agentDir,
- *  so auto-compaction bookkeeping (Task 4) lands on the real session file. */
+ *  so auto-compaction bookkeeping (Task 4) lands on the real session file.
+ *
+ *  HOME is redirected to a tmp dir for the session's lifetime and restored by
+ *  dispose(): extensions that touch homedir() (power-tool's session_start env
+ *  sidecar under ~/.pi/agent/power-tool) stay hermetic for every caller. */
 export async function smokeSession(options: SmokeSessionOptions = {}): Promise<SmokeSession> {
   const agentDir = await mkdtemp(join(tmpdir(), "ac-ab-"));
-  const scriptedProviderExt: InlineExtension = {
-    name: "scripted-provider",
-    factory: (pi) => {
-      pi.registerProvider(makeScriptedProvider(options.respond ?? (() => ({
-        content: "smoke",
-        stopReason: "stop",
-        usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0 },
-      }))));
-    },
+  const homeDir = await mkdtemp(join(tmpdir(), "ac-ab-home-"));
+  const prevHome = process.env.HOME;
+  process.env.HOME = homeDir;
+  const restoreHome = () => {
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
   };
-  const loader = new DefaultResourceLoader({
-    cwd: agentDir,
-    agentDir,
-    extensionFactories: [scriptedProviderExt, ...(options.extensions ?? [])],
-  });
-  await loader.reload();
-  const { session } = await createAgentSession({
-    resourceLoader: loader,
-    model: makeScriptedModel(),
-    sessionManager: undefined, // in-file sessions under agentDir
-  });
-  return {
-    session,
-    agentDir,
-    extensionErrors: loader.getExtensions().errors.map((e) => `${e.path}: ${e.error}`),
-    dispose: async () => {
-      session.dispose();
-      await rm(agentDir, { recursive: true, force: true });
-    },
-  };
+  try {
+    const scriptedProviderExt: InlineExtension = {
+      name: "scripted-provider",
+      factory: (pi) => {
+        pi.registerProvider(makeScriptedProvider(options.respond ?? (() => ({
+          content: "smoke",
+          stopReason: "stop",
+          usage: { input: 100, output: 10, cacheRead: 0, cacheWrite: 0 },
+        }))));
+      },
+    };
+    const loader = new DefaultResourceLoader({
+      cwd: agentDir,
+      agentDir,
+      extensionFactories: [scriptedProviderExt, ...(options.extensions ?? [])],
+    });
+    await loader.reload();
+    const { session } = await createAgentSession({
+      resourceLoader: loader,
+      model: makeScriptedModel(),
+      sessionManager: undefined, // in-file sessions under agentDir
+    });
+    return {
+      session,
+      agentDir,
+      extensionErrors: loader.getExtensions().errors.map((e) => `${e.path}: ${e.error}`),
+      dispose: async () => {
+        session.dispose();
+        restoreHome();
+        await Promise.all([
+          rm(agentDir, { recursive: true, force: true }),
+          rm(homeDir, { recursive: true, force: true }),
+        ]);
+      },
+    };
+  } catch (error) {
+    restoreHome();
+    await Promise.all([
+      rm(agentDir, { recursive: true, force: true }),
+      rm(homeDir, { recursive: true, force: true }),
+    ]);
+    throw error;
+  }
 }
 
 describe("autocompact A/B harness", () => {
   test("smoke: scripted provider drives a real tool-loop turn", async () => {
-    // power-tool's session_start handler writes its env sidecar under
-    // homedir() — point HOME at the tmp agentDir so the run stays hermetic.
-    const prevHome = process.env.HOME;
-    const homeDir = await mkdtemp(join(tmpdir(), "ac-ab-home-"));
-    process.env.HOME = homeDir;
+    const smoke = await smokeSession({
+      extensions: [{ name: "power-tool", factory: powerToolFactory }],
+    });
     try {
-      const smoke = await smokeSession({
-        extensions: [{ name: "power-tool", factory: powerToolFactory }],
-      });
-      try {
-        await smoke.session.prompt("smoke");
-        expect(smoke.extensionErrors).toEqual([]); // both factories loaded
-        const assistants = smoke.session.messages.filter((m) => m.role === "assistant");
-        // Honesty gate: an assistant entry alone would also pass on a
-        // provider error (the loop appends a failure message), so pin the
-        // scripted payload AND the absence of an error envelope.
-        expect(assistants.length).toBeGreaterThan(0);
-        expect(assistants.some((m) => m.errorMessage !== undefined)).toBe(false);
-        expect(JSON.stringify(assistants.map((m) => m.content))).toContain("smoke");
-      } finally {
-        await smoke.dispose();
-      }
+      await smoke.session.prompt("smoke");
+      expect(smoke.extensionErrors).toEqual([]); // both factories loaded
+      const assistants = smoke.session.messages.filter((m) => m.role === "assistant");
+      // Honesty gate: an assistant entry alone would also pass on a
+      // provider error (the loop appends a failure message), so pin the
+      // scripted payload AND the absence of an error envelope.
+      expect(assistants.length).toBeGreaterThan(0);
+      expect(assistants.some((m) => m.errorMessage !== undefined)).toBe(false);
+      expect(JSON.stringify(assistants.map((m) => m.content))).toContain("smoke");
     } finally {
-      if (prevHome === undefined) delete process.env.HOME;
-      else process.env.HOME = prevHome;
-      await rm(homeDir, { recursive: true, force: true });
+      await smoke.dispose();
     }
   });
 });
