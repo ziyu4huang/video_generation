@@ -266,10 +266,17 @@ export async function walkAndIngest(
   // LeanRAG ① / ticket 04b-2: best-effort hierarchy build. Fire-and-forget,
   // never awaited, error-isolated inside the handler (catch-all console.warn).
   // kbDir = <vaultPath>/<folder>; unset vaultPath (no seam / no vault) →
-  // undefined → silent skip.
+  // undefined → silent skip. The heal target rides along so the build's agg
+  // cards are folded into the MOC immediately (the step-7 heal above runs
+  // BEFORE this fire — without a post-build heal the MOC went stale on every
+  // build until a later ingest caught it up; 2026-08-30 t14 receipt finding).
   if (opts.hierarchy) {
     try {
-      fireHierarchyBuildBestEffort(vaultPath ? join(vaultPath, folder) : undefined, opts.hierarchy);
+      fireHierarchyBuildBestEffort(
+        vaultPath ? join(vaultPath, folder) : undefined,
+        opts.hierarchy,
+        vaultPath ? { vaultPath, folder, mocPath } : undefined,
+      );
     } catch {
       // best-effort — never break ingest
     }
