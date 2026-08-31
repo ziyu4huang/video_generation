@@ -104,7 +104,7 @@ import { standaloneImportProbe } from "./deploy/lib/standalone-import-probe.ts";
 import { classifyRun } from "./oneshot-smoke.js";
 import { parseToolsProbeLine, TOOLS_ACTIVE_PROBE } from "./tools-active-probe.js";
 import { captureParityFingerprint } from "./parity-capture.js";
-import { diffFingerprints } from "./parity-diff.js";
+import { diffFingerprints, type ParityExcludedExt } from "./parity-diff.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
 import { PROVIDERS } from "../../s2-agent/src/pre-load-providers.ts";
 import type { SpawnFn } from "./spawn.js";
@@ -655,6 +655,25 @@ function worst(verdicts: ProbeVerdict[]): ProbeVerdict {
 	return "pass";
 }
 
+/**
+ * The parity probe's excluded-set derivation. `excludedExtensionsFromRegistry`
+ * → `loadRegistry` is the validation authority and THROWS on a broken
+ * registry (missing package dir, duplicate names, …); runDeployE2e has a
+ * never-throws contract (every failure is a structured FAIL outcome), so
+ * this wrapper is the seam where the throw becomes data. ok:false must
+ * become a parity FAIL with NO captures — an empty-excluded fallback would
+ * false-FAIL on every legitimately-excluded dev-only item instead.
+ */
+export function deriveExcludedExtensions(
+	bunAppsDir: string,
+): { ok: true; excluded: ParityExcludedExt[] } | { ok: false; error: string } {
+	try {
+		return { ok: true, excluded: excludedExtensionsFromRegistry({ bunAppsDir }) };
+	} catch (e) {
+		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+	}
+}
+
 export interface DeployE2eOptions {
 	/** The deployed version dir (NOT the deploy root — resolve `current` first). */
 	versionDir: string;
@@ -896,37 +915,45 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				note: "skipped: no --dev-launcher (dist-only environment — dev-tree baseline unavailable)",
 			});
 		} else {
-			const excluded = excludedExtensionsFromRegistry({ bunAppsDir: resolve(import.meta.dir, "..", "..") });
-			const devCap = await captureParityFingerprint(opts.devLauncher, "dev", opts.spawn);
-			const depCap = await captureParityFingerprint(launcher.command, "deploy", opts.spawn);
-			let verdict: ProbeVerdict = "pass";
-			let note = "";
-			const lines: string[] = [];
-			if (!devCap.ok || !depCap.ok) {
-				verdict = "fail";
-				lines.push(`fingerprint capture failed — dev: ${devCap.ok ? "ok" : devCap.error} · deploy: ${depCap.ok ? "ok" : depCap.error}`);
+			const excl = deriveExcludedExtensions(resolve(import.meta.dir, "..", ".."));
+			if (!excl.ok) {
+				// Registry unreadable: structured FAIL, no captures — the excluded
+				// set is unknown, and an empty fallback would false-FAIL on every
+				// legitimately-excluded dev-only item.
+				probes.push({ id: "parity", verdict: "fail", ms: now() - t0, note: `registry unreadable: ${excl.error}` });
 			} else {
-				const d = diffFingerprints(devCap.fp, depCap.fp, excluded);
-				for (const f of d.findings) lines.push(`${f.kind}: ${f.item} — ${f.detail}`);
-				if (d.verdict === "fail") verdict = "fail";
-				// Providers parity: sorted non-empty --list-models rows.
-				const devModels = await opts.spawn(opts.devLauncher, ["--list-models"], { timeoutMs: 60_000 });
-				const depModels = await opts.spawn(launcher.command, ["--list-models"], { timeoutMs: 60_000 });
-				const devIds = devModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
-				const depIds = depModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
-				if (devIds.join("\n") !== depIds.join("\n")) {
+				const excluded = excl.excluded;
+				const devCap = await captureParityFingerprint(opts.devLauncher, "dev", opts.spawn);
+				const depCap = await captureParityFingerprint(launcher.command, "deploy", opts.spawn);
+				let verdict: ProbeVerdict = "pass";
+				let note = "";
+				const lines: string[] = [];
+				if (!devCap.ok || !depCap.ok) {
 					verdict = "fail";
-					const onlyDev = devIds.filter((x) => !depIds.includes(x));
-					const onlyDep = depIds.filter((x) => !devIds.includes(x));
-					lines.push(`providers: model id lists differ — dev-only=[${onlyDev.join(",")}] deploy-only=[${onlyDep.join(",")}]`);
+					lines.push(`fingerprint capture failed — dev: ${devCap.ok ? "ok" : devCap.error} · deploy: ${depCap.ok ? "ok" : depCap.error}`);
+				} else {
+					const d = diffFingerprints(devCap.fp, depCap.fp, excluded);
+					for (const f of d.findings) lines.push(`${f.kind}: ${f.item} — ${f.detail}`);
+					if (d.verdict === "fail") verdict = "fail";
+					// Providers parity: sorted non-empty --list-models rows.
+					const devModels = await opts.spawn(opts.devLauncher, ["--list-models"], { timeoutMs: 60_000 });
+					const depModels = await opts.spawn(launcher.command, ["--list-models"], { timeoutMs: 60_000 });
+					const devIds = devModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
+					const depIds = depModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
+					if (devIds.join("\n") !== depIds.join("\n")) {
+						verdict = "fail";
+						const onlyDev = devIds.filter((x) => !depIds.includes(x));
+						const onlyDep = depIds.filter((x) => !devIds.includes(x));
+						lines.push(`providers: model id lists differ — dev-only=[${onlyDev.join(",")}] deploy-only=[${onlyDep.join(",")}]`);
+					}
+					if (verdict === "pass") note = `surfaces identical: ${depCap.fp.toolCount} tools, ${depCap.fp.skillCount} skills, ${depIds.length} models`;
 				}
-				if (verdict === "pass") note = `surfaces identical: ${depCap.fp.toolCount} tools, ${depCap.fp.skillCount} skills, ${depIds.length} models`;
+				if (verdict === "fail") {
+					note = `parity FAIL (${lines.length} finding(s)):\n` + lines.slice(0, 20).join("\n") + (lines.length > 20 ? `\n… +${lines.length - 20} more` : "");
+				}
+				probes.push({ id: "parity", verdict, ms: now() - t0, note });
 			}
-			if (verdict === "fail") {
-				note = `parity FAIL (${lines.length} finding(s)):\n` + lines.slice(0, 20).join("\n") + (lines.length > 20 ? `\n… +${lines.length - 20} more` : "");
 			}
-			probes.push({ id: "parity", verdict, ms: now() - t0, note });
-		}
 	}
 
 	// ── tools-probe ──────────────────────────────────────────────────────────

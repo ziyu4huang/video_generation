@@ -6,8 +6,8 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { runDeployE2e } from "../src/deploy-e2e-recipe.js";
+import { join, resolve } from "node:path";
+import { runDeployE2e, deriveExcludedExtensions } from "../src/deploy-e2e-recipe.js";
 import { captureParityFingerprint, PARITY_PROBE_CAP_MS } from "../src/parity-capture.js";
 import { PARITY_PROBE_SOURCE } from "../src/parity-probe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
@@ -93,6 +93,24 @@ describe("captureParityFingerprint", () => {
 	});
 	test("probe source keys its mode off PARITY_MODE (the env contract capture relies on)", () => {
 		expect(PARITY_PROBE_SOURCE).toContain("process.env.PARITY_MODE");
+	});
+});
+
+describe("deriveExcludedExtensions", () => {
+	test("ok:true against the real repo registry (in-repo determinism)", () => {
+		const r = deriveExcludedExtensions(resolve(import.meta.dir, "..", ".."));
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(Array.isArray(r.excluded)).toBe(true);
+	});
+	test("ok:false — a bunAppsDir with no registry packages throws → structured error, never a throw", () => {
+		const empty = mkdtempSync(join(tmpdir(), "parity-no-registry-"));
+		try {
+			const r = deriveExcludedExtensions(empty);
+			expect(r.ok).toBe(false);
+			if (!r.ok) expect(r.error.length).toBeGreaterThan(0);
+		} finally {
+			rmSync(empty, { recursive: true, force: true });
+		}
 	});
 });
 
