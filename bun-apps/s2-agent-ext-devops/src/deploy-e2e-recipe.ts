@@ -585,7 +585,7 @@ async function win32LayerDiag(
 	spawn: import("./spawn.js").SpawnFn,
 	versionDir: string,
 	args: string[],
-): Promise<{ summary: string; isBunShellChildBug: boolean }> {
+): Promise<{ summary: string; isBunShellChildBug: boolean; isTrueUnknown: boolean }> {
 	const bunExe = join(versionDir, "bin", "bun.exe");
 	const core = join(versionDir, "s2-agent.js");
 	const layers: Array<[string, string, string[]]> = [
@@ -849,13 +849,15 @@ async function win32LayerDiag(
 	// cmd's or powershell's child delivers ZERO bytes — pipe, file redirect,
 	// everything — while exiting 0. No matching upstream issue exists
 	// (searched 2026-08-29 — bun#12108 is batch termination, a different
-	// bug; filing deliberately skipped, win32-launcher-stdout D5). When the
-	// diag reproduces exactly this, the launcher chain CANNOT be verified
-	// through a piped shell on this bun: callers classify the probe a SKIP
-	// (the environment cannot verify), never a silent pass.
+	// bug; filing deliberately skipped, win32-launcher-stdout D5). Since t02
+	// the shipped shims carry the stdout relay (s2-agent-relay.js), so this
+	// signature on a launcher probe is a REAL DEFECT (the relay is broken or
+	// missing) — FAIL. The ONLY remaining skip is the true unknown: even
+	// bun-direct dead means the environment cannot verify the runtime at all.
 	return {
 		summary: `win32 layer diag:\n  ${parts.join("\n  ")}`,
 		isBunShellChildBug: isBunShellChildSignature(stdoutBytes),
+		isTrueUnknown: (stdoutBytes["bun-direct"] ?? 0) === 0,
 	};
 }
 
@@ -1007,11 +1009,11 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				process.platform === "win32" ? await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"]) : null;
 			probes.push({
 				id: "ext-load",
-				verdict: diag?.isBunShellChildBug ? "skip" : "fail",
+				verdict: diag?.isTrueUnknown ? "skip" : "fail",
 				ms,
 				note:
-					diag?.isBunShellChildBug
-						? "--ext-list unverifiable through a piped shell: bun.exe as a cmd/powershell child loses all output (no matching upstream issue; runtime verified via bun-direct in the diag)"
+					diag?.isTrueUnknown
+						? "--ext-list unverifiable in THIS environment: even bun-direct (the lane the deploy gates prove) delivers no output — see layer diag"
 						: `--ext-list ${r.timedOut ? `timed out after ${EXT_LIST_CAP_MS}ms` : `exited ${r.exitCode}`}`,
 				detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
 			});
@@ -1022,10 +1024,10 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 					process.platform === "win32" ? await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"]) : null;
 				probes.push({
 					id: "ext-load",
-					verdict: diag?.isBunShellChildBug ? "skip" : "fail",
+					verdict: diag?.isTrueUnknown ? "skip" : "fail",
 					ms,
-					note: diag?.isBunShellChildBug
-						? "--ext-list stdout empty via the launcher: bun.exe as a cmd/powershell child loses all output (no matching upstream issue; runtime verified via bun-direct in the diag)"
+					note: diag?.isTrueUnknown
+						? "--ext-list stdout empty via the launcher AND via bun-direct — this environment cannot verify the runtime at all; see layer diag"
 						: p.message,
 					detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
 				});
@@ -1155,12 +1157,13 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				if (process.platform === "win32" && tpVerdict === "fail") {
 					const diag = await win32LayerDiag(opts.spawn, opts.versionDir, ["--help"]);
 					tpDetail += `\n${diag.summary}`;
-					if (diag.isBunShellChildBug) {
-						// The probe's [TOOLS] marker travels on stderr — the same
-						// bun-as-shell-child output loss eats it. Same upstream
-						// classification as ext-load.
+					if (diag.isTrueUnknown) {
+						// The probe's [TOOLS] marker travels on stderr — with even
+						// bun-direct dead, this environment cannot verify the runtime
+						// at all. Anything less is a real defect (the shipped relay
+						// should have carried it) and stays a FAIL.
 						tpVerdict = "skip";
-						tpNote = "probe output unverifiable through a piped shell (see layer diag)";
+						tpNote = "probe output unverifiable in this environment (see layer diag)";
 					}
 				}
 			} else {

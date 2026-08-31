@@ -92,16 +92,27 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		expect(ps1).toContain('[Environment]::SetEnvironmentVariable("S2-AGENT_CODING_AGENT_DIR"');
 		expect(ps1).toContain('$_bun = if ($env:S2_AGENT_BUN) { $env:S2_AGENT_BUN } else { Join-Path $dir "bin\\bun.exe" }');
 		expect(ps1).toContain('$env:PATH = (Split-Path -Parent $_bun) + ";" + $env:PATH');
-		expect(ps1).toContain('& $_bun (Join-Path $dir "s2-agent.js") @args');
-		expect(ps1).toContain("exit $LASTEXITCODE");
+		// Both Windows entries exec the STDOUT RELAY (win32-launcher-stdout
+		// t02): bun as a shell's child loses all piped stdout (measured
+		// windows-latest 2026-08-28/31); the relay spawns the core directly
+		// and bridges piped output through capture files the entries emit.
+		expect(ps1).toContain('& $_bun (Join-Path $dir "s2-agent-relay.js") @args');
+		expect(ps1).toContain("if (Test-Path $env:S2_RELAY_OUT) {");
+		expect(ps1).toContain("exit $_code");
 		const cmd = readFileSync(join(r.target, "s2-agent.cmd"), "utf8");
-		// DIRECT bun invocation (the powershell -File delegation dropped all
-		// piped child stdout while exiting 0 — measured windows-latest
-		// 2026-08-28, crossos run 33115285500 layer diag).
 		expect(cmd).not.toContain("powershell.exe");
-		expect(cmd).toContain('"%S2_BUN%" "%DIR%s2-agent.js" %*');
+		expect(cmd).toContain('"%S2_BUN%" "%DIR%s2-agent-relay.js" %*');
+		expect(cmd).toContain('if exist "%S2_RELAY_OUT%" type "%S2_RELAY_OUT%"');
+		expect(cmd).toContain('if exist "%S2_RELAY_ERR%" type "%S2_RELAY_ERR%" 1>&2');
 		expect(cmd).toContain('set "S2-AGENT_CODING_AGENT_DIR=%PI_CODING_AGENT_DIR%"');
-		expect(cmd).toContain("endlocal & exit /b %ERRORLEVEL%");
+		expect(cmd).toContain("endlocal & exit /b %RELAY_CODE%");
+		// The relay itself ships beside the entries (every tree; inert on POSIX).
+		const relay = readFileSync(join(r.target, "s2-agent-relay.js"), "utf8");
+		expect(relay).toContain('var core = dir + "\\\\s2-agent.js";');
+		expect(relay).toContain("process.stdout.isTTY");
+		// Plain JS only — bun parses .js without TypeScript syntax (diag
+		// iteration-2 receipt: non-null "!" assertions exit 1).
+		expect(relay).not.toContain("!");
 		const shippedBun = join(r.target, "bin", "bun");
 		expect(existsSync(shippedBun)).toBe(true);
 		expect(statSync(shippedBun).mode & 0o111).not.toBe(0); // executable
