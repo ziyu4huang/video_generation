@@ -344,7 +344,7 @@ const S2_AGENT_RELAY_JS = `// s2-agent-relay.js - Windows stdout relay for the s
 // Interactive (TTY) runs inherit stdio unchanged - the never-broken path.
 var dir = import.meta.dir;
 var bun = process.execPath;
-var core = dir + "\\\\${APP_NAME}.js";
+var core = dir + "/${APP_NAME}.js";
 var args = process.argv.slice(2);
 var outFile = process.env.S2_RELAY_OUT || "";
 var errFile = process.env.S2_RELAY_ERR || "";
