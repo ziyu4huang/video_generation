@@ -329,12 +329,13 @@ exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" 
  * but nothing else is — it writes the captured bytes to files ITSELF
  * (cmd-bun-relay-file: relay file 1288B `--ext-list` / 10307B `--help`),
  * which the .cmd/.ps1 entry then emits through their OWN working writes
- * (`type` / Get-Content). Interactive console use was never broken: stdio
- * is inherited unchanged when BOTH stdout and stdin are TTYs (a detached
- * spawn hands the relay an invisible NEW console whose isTTY lies —
- * measured run 33387224763). Plain JS on purpose — bun parses .js WITHOUT
- * TypeScript syntax (diag iteration-2 receipt: `!` non-null assertions
- * exit 1 "Unexpected !").
+ * (`type` / Get-Content). Branching: bun's isTTY LIES in the console-attached
+ * piped shape (stdout.isTTY=true AND stdin.isTTY=true, run 33388819180), so
+ * the CONSUMER declares piped-ness via S2_RELAY_FORCE=file (the .ps1 derives
+ * it from the handle-based [Console]::IsOutputRedirected); unset/direct
+ * inherits stdio unchanged — interactive use, never broken. Plain JS on
+ * purpose — bun parses .js WITHOUT TypeScript syntax (diag iteration-2
+ * receipt: `!` non-null assertions exit 1 "Unexpected !").
  */
 const S2_AGENT_RELAY_JS = `// s2-agent-relay.js - Windows stdout relay for the s2-agent launchers.
 // WHY: bun.exe as a cmd/powershell child loses ALL piped stdout while
@@ -350,14 +351,16 @@ var core = dir + "/${APP_NAME}.js";
 var args = process.argv.slice(2);
 var outFile = process.env.S2_RELAY_OUT || "";
 var errFile = process.env.S2_RELAY_ERR || "";
-// Interactive detection needs BOTH ends: a detached/spawned relay can carry
-// an invisible NEW console (node detached spawns on Windows hand the child
-// its own console - measured run 33387224763: stdout.isTTY TRUE yet writes
-// went to the invisible console and the probe saw 0B). stdin is "ignore" in
-// that spawn shape, so a console STDIN is what distinguishes a real human
-// console. Piped consumers (stdout non-TTY) take the file branch regardless.
-var interactive = process.stdout.isTTY && process.stdin.isTTY;
-if (interactive || outFile === "") {
+// Branching on isTTY is IMPOSSIBLE here - MEASURED run 33388819180: in the
+// console-attached piped spawn shape bun reports stdout.isTTY=true AND
+// stdin.isTTY=true (console-presence based, not handle based), so the relay
+// cannot distinguish a real human console from an invisible spawned console
+// carrying a pipe. The consumer KNOWS whether it pipes, so the consumer
+// declares: S2_RELAY_FORCE=file (piping consumers - the verify recipe sets
+// this; the .ps1 derives it from [Console]::IsOutputRedirected, which IS
+// handle-based) vs S2_RELAY_FORCE=direct / unset (interactive console use,
+// stdio inherited unchanged - the never-broken path).
+if (process.env.S2_RELAY_FORCE !== "file" || outFile === "") {
   var direct = Bun.spawn([bun, core].concat(args), {
     cwd: dir,
     stdio: ["inherit", "inherit", "inherit"],
@@ -442,9 +445,14 @@ if (-not (Test-Path $_bun)) { $_bun = Join-Path $dir "bin\\bun" } # pre-bun.exe 
 $env:PATH = (Split-Path -Parent $_bun) + ";" + $env:PATH
 
 # Stdout relay (win32-launcher-stdout t02): the relay execs the core and,
-# on piped (no-console) runs, writes its captured stdout/stderr to temp
-# files - re-emitted here through PowerShell's own working writes. TTY
-# runs inherit stdio unchanged inside the relay and never create the files.
+# on piped runs, writes its captured stdout/stderr to temp files - re-emitted
+# here through PowerShell's own working writes. Piped detection is the
+# handle-based [Console]::IsOutputRedirected (bun's isTTY is console-presence
+# based and LIES in the console-attached piped shape - measured run
+# 33388819180). TTY runs inherit stdio unchanged inside the relay.
+if (-not $env:S2_RELAY_FORCE) {
+  $env:S2_RELAY_FORCE = if ([Console]::IsOutputRedirected) { "file" } else { "direct" }
+}
 $_tmp = [System.IO.Path]::GetTempPath()
 $env:S2_RELAY_OUT = Join-Path $_tmp ("s2-agent-relay-out-" + [System.Guid]::NewGuid().ToString("N") + ".txt")
 $env:S2_RELAY_ERR = Join-Path $_tmp ("s2-agent-relay-err-" + [System.Guid]::NewGuid().ToString("N") + ".txt")
@@ -511,9 +519,12 @@ set "PATH=%DIR%bin;%PATH%"
 rem Stdout relay (win32-launcher-stdout t02): bun as cmd's child loses ALL
 rem piped stdout while exiting 0 (measured windows-latest 2026-08-28). The
 rem relay spawns the core directly - the measured-working parent lane - and
-rem on piped runs writes its capture to these temp files, typed below via
-rem cmd's own working writes. TTY runs never create them (stdio inherited
-rem unchanged inside the relay). %RANDOM% pairs keep concurrent runs apart.
+rem in file mode writes its capture to these temp files, typed below via
+rem cmd's own working writes (cmd-type 21B, run 33388819180). Piping
+rem consumers MUST set S2_RELAY_FORCE=file: bun's isTTY cannot detect the
+rem piped shape (console-presence based, measured run 33388819180), so the
+rem consumer declares it. Unset = interactive stdio passthrough. %RANDOM%
+rem pairs keep concurrent runs apart.
 set "S2_RELAY_OUT=%TEMP%\\${APP_NAME}-relay-out-%RANDOM%%RANDOM%.txt"
 set "S2_RELAY_ERR=%TEMP%\\${APP_NAME}-relay-err-%RANDOM%%RANDOM%.txt"
 "%S2_BUN%" "%DIR%${APP_NAME}-relay.js" %*

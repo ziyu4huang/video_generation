@@ -1026,6 +1026,12 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	} catch (e) {
 		return failFast(opts.versionDir, `deploy.json unreadable: ${(e as Error).message}`, startedAt, now);
 	}
+	// This recipe PIPES every launcher spawn — so it declares that to the
+	// shipped win32 stdout relay (S2_RELAY_FORCE=file; bun's isTTY cannot
+	// detect the piped shape, measured run 33388819180 — the consumer knows).
+	// POSIX launchers ignore the var.
+	const launcherEnv: Record<string, string> | undefined =
+		launcher.file === "s2-agent.cmd" ? { S2_RELAY_FORCE: "file" } : undefined;
 	if (!(await Bun.file(join(opts.versionDir, launcher.file)).exists())) {
 		return failFast(opts.versionDir, `${launcher.file} missing from the version dir`, startedAt, now);
 	}
@@ -1039,7 +1045,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	// ── boot probe ──────────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS, env: launcherEnv });
 		const ms = now() - t0;
 		probes.push(
 			r.exitCode === 0 && !r.timedOut
@@ -1060,7 +1066,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	let extLoadLoaded: string[] | null = null;
 	{
 		const t0 = now();
-		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS, env: launcherEnv });
 		const ms = now() - t0;
 		if (r.timedOut || r.exitCode !== 0) {
 			const diag =
@@ -1132,6 +1138,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			const r = await opts.spawn(foreignCommand, [...foreignPrefix, "--ext-list"], {
 				cwd: outsideDir,
 				timeoutMs: EXT_LIST_CAP_MS,
+				env: launcherEnv,
 			});
 			const ms = now() - t0;
 			const p = r.timedOut || r.exitCode !== 0 ? null : parseExtListPayload(r.stdout);
@@ -1193,10 +1200,13 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		try {
 			const probePath = join(workDir, "tools-probe.ts");
 			writeFileSync(probePath, TOOLS_ACTIVE_PROBE);
+				const tpEnv = { ...launcherEnv, ...(opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined) };
 			const r = await opts.spawn(launcher.command, [...launcher.prefix, "-e", probePath, "-p", "hi", "--no-session"], {
 				cwd: opts.versionDir,
 				timeoutMs: TOOLS_PROBE_CAP_MS,
-				env: opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined,
+				// undefined (not {}) when empty — the recording fakes and the
+				// "no spawn env anywhere" contract distinguish the two.
+				env: Object.keys(tpEnv).length ? tpEnv : undefined,
 			});
 			const ms = now() - t0;
 			const p = parseToolsProbeLine(r.stderr);
@@ -1285,12 +1295,12 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			const on = await opts.spawn(launcher.command, [...launcher.prefix, "--list-models"], {
 				cwd: opts.versionDir,
 				timeoutMs: PROVIDERS_LIST_CAP_MS,
-				env: agentEnv,
+				env: { ...agentEnv, ...launcherEnv },
 			});
 			const off = await opts.spawn(launcher.command, [...launcher.prefix, "--list-models"], {
 				cwd: opts.versionDir,
 				timeoutMs: PROVIDERS_LIST_CAP_MS,
-				env: { ...agentEnv, BUN_PI_PRE_LOAD_PROVIDERS: "0" },
+				env: { ...agentEnv, ...launcherEnv, BUN_PI_PRE_LOAD_PROVIDERS: "0" },
 			});
 			const onRows = on.exitCode === 0 && !on.timedOut ? parseListModelsRows(on.stdout) : null;
 			const offRows = off.exitCode === 0 && !off.timedOut ? parseListModelsRows(off.stdout) : null;

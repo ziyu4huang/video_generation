@@ -109,7 +109,9 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		// The relay itself ships beside the entries (every tree; inert on POSIX).
 		const relay = readFileSync(join(r.target, "s2-agent-relay.js"), "utf8");
 		expect(relay).toContain('var core = dir + "/s2-agent.js";');
-		expect(relay).toContain("var interactive = process.stdout.isTTY && process.stdin.isTTY;");
+		// Consumer-declared piped-ness — bun's isTTY lies in the
+		// console-attached piped shape (measured run 33388819180).
+		expect(relay).toContain('if (process.env.S2_RELAY_FORCE !== "file" || outFile === "") {');
 		// Plain JS only — bun parses .js without TypeScript syntax (diag
 		// iteration-2 receipt: non-null "!" assertions exit 1).
 		expect(relay).not.toContain("!");
