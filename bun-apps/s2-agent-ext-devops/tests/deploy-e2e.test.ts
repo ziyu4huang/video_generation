@@ -113,8 +113,9 @@ describeE2E("s2-agent-sh deploy e2e", () => {
 		// console-attached piped shape (measured run 33388819180).
 		expect(relay).toContain('if (process.env.S2_RELAY_FORCE !== "file" || outFile === "") {');
 		// Plain JS only — bun parses .js without TypeScript syntax (diag
-		// iteration-2 receipt: non-null "!" assertions exit 1).
-		expect(relay).not.toContain("!");
+		// iteration-2 receipt: non-null "!" assertions exit 1). Legitimate
+		// JS negations (!==) are excluded from the check.
+		expect(relay.replace(/!==?/g, "")).not.toContain("!");
 		const shippedBun = join(r.target, "bin", "bun");
 		expect(existsSync(shippedBun)).toBe(true);
 		expect(statSync(shippedBun).mode & 0o111).not.toBe(0); // executable
