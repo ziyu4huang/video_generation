@@ -840,6 +840,64 @@ async function win32LayerDiag(
 				isBunRelayWorkaround(stdoutBytes) ? "WORKS" : "BROKEN"
 			}`,
 		);
+		// ── shipped-relay isolation probes (ticket 02, iterations 4-5 follow-up) ──
+		// Runs 33387224763/33388084709: the shipped .cmd still delivers 0B
+		// although the diag relay (env-forced file mode) delivers 1288B. Three
+		// decisive measurements: (1) the SHIPPED relay file, run as cmd's child
+		// with preset S2_RELAY_OUT — isolates the relay's own branch logic from
+		// the .cmd glue; (2) bun's isTTY truth in this spawn shape, written to a
+		// FILE (its stdout is dead here) — the relay branches on
+		// stdout.isTTY && stdin.isTTY, and iteration-4's empty output suggests
+		// that check lies in the console-attached piped shape; (3) cmd's `type`
+		// of a marker file — the .cmd's re-emission glue itself.
+		const shippedRelay = join(versionDir, "s2-agent-relay.js");
+		const shippedOut = join(diagDir, "shipped-relay-out.txt");
+		const shippedErr = join(diagDir, "shipped-relay-err.txt");
+		const ttyProbeFile = join(diagDir, "tty-truth.txt");
+		try {
+			const r = await spawn("cmd", ["/c", bunExe, shippedRelay, ...args], {
+				cwd: versionDir,
+				timeoutMs: 60_000,
+				env: { DIAG_BUN: bunExe, DIAG_CORE: core, DIAG_ARGS: args.join(" "), DIAG_CWD: versionDir, S2_RELAY_OUT: shippedOut, S2_RELAY_ERR: shippedErr },
+			});
+			const outBytes = await Bun.file(shippedOut)
+				.text()
+				.catch(() => null);
+			const errBytes = await Bun.file(shippedErr)
+				.text()
+				.catch(() => null);
+			stdoutBytes["cmd-shipped-relay-file"] = outBytes?.length ?? 0;
+			parts.push(
+				`cmd-shipped-relay: exit ${r.exitCode}, pipe ${r.stdout.length}B — out file ${outBytes?.length ?? -1}B (${outBytes ? "written" : "MISSING"}), err file ${errBytes?.length ?? -1}B (${errBytes ? "written" : "MISSING"})`,
+			);
+		} catch (e) {
+			parts.push(`cmd-shipped-relay: spawn error ${(e as Error).message}`);
+		}
+		try {
+			await spawn(
+				"cmd",
+				[
+					"/c",
+					bunExe,
+					"-e",
+					`Bun.write(${JSON.stringify(ttyProbeFile)}, "stdout.isTTY=" + process.stdout.isTTY + " stdin.isTTY=" + process.stdin.isTTY)`,
+				],
+				{ cwd: versionDir, timeoutMs: 60_000 },
+			);
+			const truth = await Bun.file(ttyProbeFile).text();
+			parts.push(`bun-isTTY-truth (cmd child, file-reported): ${truth.trim()}`);
+		} catch (e) {
+			parts.push(`bun-isTTY-truth: spawn error ${(e as Error).message}`);
+		}
+		const typeMarker = join(diagDir, "type-marker.txt");
+		writeFileSync(typeMarker, "diag-cmd-type-marker\n");
+		try {
+			const r = await spawn("cmd", ["/c", "type", typeMarker], { cwd: versionDir, timeoutMs: 60_000 });
+			stdoutBytes["cmd-type"] = r.stdout.length;
+			parts.push(`cmd-type: exit ${r.exitCode}, ${r.stdout.length}B stdout — ${r.stdout.trim() || "<no output>"}`);
+		} catch (e) {
+			parts.push(`cmd-type: spawn error ${(e as Error).message}`);
+		}
 	} finally {
 		rmSync(diagDir, { recursive: true, force: true });
 	}
