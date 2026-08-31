@@ -862,7 +862,7 @@ Expected: tsc clean, full suite PASS (including the pre-existing suites — `ci-
 
 - [ ] **Step 5: Live smoke (optional but recommended, this machine only)**
 
-Run: `( cd bun-apps/s2-agent-ext-devops && bun run --cwd . check >/dev/null 2>&1; bun src/verify-deploy-e2e-cli.ts --dev-launcher ./s2-agent.sh )` from the repo root:
+Run from the repo root:
 `bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts --dev-launcher "$PWD/s2-agent.sh"`
 Expected: JSON on stdout with `probes[]` containing `{ id: "parity", verdict: "pass", note: "surfaces identical: 64 tools, N skills, 84 models" }` — the survey's measured numbers. A FAIL here against the current dist means the gate already caught real drift — investigate before merging, do not relax the gate.
 
