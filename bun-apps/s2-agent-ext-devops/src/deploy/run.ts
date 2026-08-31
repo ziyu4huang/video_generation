@@ -362,19 +362,20 @@ var errFile = process.env.S2_RELAY_ERR || "";
 // stdio inherited unchanged - the never-broken path).
 if (process.env.S2_RELAY_FORCE !== "file" || outFile === "") {
   var direct = Bun.spawn([bun, core].concat(args), {
-    cwd: dir,
     stdio: ["inherit", "inherit", "inherit"],
   });
   process.exit(await direct.exited);
 }
 var p = Bun.spawn([bun, core].concat(args), {
-  cwd: dir,
   stdin: "inherit",
   stdout: "pipe",
   stderr: "pipe",
 });
-var out = await Bun.readableStreamToText(p.stdout);
-var err = await Bun.readableStreamToText(p.stderr);
+// Concurrent drain: a sequential stdout-then-stderr read deadlocks once the
+// stderr pipe buffer fills while the core still writes stdout (review t02 #2).
+var both = await Promise.all([Bun.readableStreamToText(p.stdout), Bun.readableStreamToText(p.stderr)]);
+var out = both[0];
+var err = both[1];
 var code = await p.exited;
 await Bun.write(outFile, out);
 if (errFile) await Bun.write(errFile, err);
@@ -393,10 +394,14 @@ process.exit(code);
  * MEASURED on windows-latest (2026-08-28): run via `powershell -File`,
  * piped runs lose ALL child stdout while exiting 0 — the bun DIRECT lane
  * was restored in t02, and the stdout relay (s2-agent-relay.js, same
- * ticket) now carries the piped path: this .ps1 execs the relay, and when
- * the relay wrote its capture files (piped runs only) re-emits them
- * through PowerShell's own writes. Interactive console use inherits
- * stdio unchanged via the relay's TTY branch.
+ * ticket) carries the piped path: this .ps1 execs the relay and re-emits
+ * its capture files. CAVEAT (review t02 #4): this .ps1's own re-emission
+ * through a SPAWNED-piped parent (CI-style no-console spawns) is
+ * UNVERIFIED — powershell's own writes died in that exact shape in the
+ * iteration-1 diag (ps1-echo 0B) — so the verified lane is interactive
+ * terminals and normal pipes; the verify recipe exercises the .cmd. The
+ * `[Console]::IsOutputRedirected` detection is handle-based and reliable
+ * either way.
  */
 const S2_AGENT_PS1 = `# s2-agent.ps1 - launcher for a s2-agent-sh deploy (Windows).
 # PowerShell twin of s2-agent.sh: same contract - exec the SHIPPED bun
@@ -459,11 +464,11 @@ $env:S2_RELAY_ERR = Join-Path $_tmp ("s2-agent-relay-err-" + [System.Guid]::NewG
 & $_bun (Join-Path $dir "${APP_NAME}-relay.js") @args
 $_code = $LASTEXITCODE
 if (Test-Path $env:S2_RELAY_OUT) {
-  [Console]::Out.Write((Get-Content -Raw $env:S2_RELAY_OUT))
+  [Console]::Out.Write((Get-Content -Raw -Encoding UTF8 $env:S2_RELAY_OUT))
   Remove-Item $env:S2_RELAY_OUT -ErrorAction SilentlyContinue
 }
 if (Test-Path $env:S2_RELAY_ERR) {
-  [Console]::Error.Write((Get-Content -Raw $env:S2_RELAY_ERR))
+  [Console]::Error.Write((Get-Content -Raw -Encoding UTF8 $env:S2_RELAY_ERR))
   Remove-Item $env:S2_RELAY_ERR -ErrorAction SilentlyContinue
 }
 exit $_code

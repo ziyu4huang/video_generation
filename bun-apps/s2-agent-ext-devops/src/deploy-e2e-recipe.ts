@@ -366,6 +366,9 @@ export function parseListModelsRows(stdout: string): Map<string, Set<string>> {
  * (see providersProbeEnv for why). Catalog-true: derived from PROVIDERS, so a
  * new env-keyed lane is covered automatically. A literal-string apiKey (the
  * local-server lm-studio form) contributes nothing — it needs no env.
+ * NOTE (review t02 #14): the dummy OVERRIDES any ambient real key — inert
+ * today because --list-models never calls the network, but a future probe
+ * variant that does would need to stop seeding.
  */
 export function dummyEnvForBakedCatalog(
 	providers: Record<string, { apiKey: unknown }> = PROVIDERS,
@@ -1215,13 +1218,15 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				// resolution, so a FAST provider/auth failure is the same SKIP
 				// contract as model-call (classifyRun reused — the gates can
 				// never disagree about what that means). Timeouts still FAIL.
-				// win32 fast-fail window widened to 60s: through the launcher
-				// relay the same provider-absent exit measures 34s on runners
-				// (hermes surrealdb fallback + embedding retries; run
-				// 33389820559) vs <1s on POSIX — the reason is unchanged.
+				// win32 fast-fail window widened to 45s (measured 34.3s, run
+				// 33389820559; NOT the 60s cap — the window must stay under the
+				// probe budget so a mid-run stall + provider smell cannot be
+				// swallowed): through the launcher relay the same
+				// provider-absent exit that takes <1s on POSIX takes 34s
+				// (hermes surrealdb fallback + embedding retries).
 				const c = classifyRun(
 					{ ...r, durationMs: ms },
-					{ fastFailMs: process.platform === "win32" ? 60_000 : undefined },
+					{ fastFailMs: process.platform === "win32" ? 45_000 : undefined },
 				);
 				tpVerdict = c.verdict === "skip" ? "skip" : "fail";
 				tpNote =
@@ -1388,13 +1393,21 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			}
 		}
 		const t0 = now();
+		const mcEnv = { ...launcherEnv, ...(opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined) };
 		const r = await opts.spawn(launcher.command, [...launcher.prefix, "-p", DEPLOY_E2E_PROMPT, "--no-session"], {
 			cwd: opts.versionDir,
 			timeoutMs: MODEL_CALL_CAP_MS,
-			env: opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined,
+			// Same win32 relay declaration as every launcher spawn here (review
+			// t02 #3) — and undefined-when-empty keeps the no-env contract.
+			env: Object.keys(mcEnv).length ? mcEnv : undefined,
 		});
 		const ms = now() - t0;
-		const c = classifyRun({ ...r, durationMs: ms });
+		const c = classifyRun(
+			{ ...r, durationMs: ms },
+			// Same widened win32 provider window as tools-probe (review t02 #3):
+			// the relay lane measures 34s+ to the provider-absent exit.
+			{ fastFailMs: process.platform === "win32" ? 45_000 : undefined },
+		);
 		// ── one-shot runtime budget + hermes round-trip cap ──────────────────
 		// The one-shot's wall time IS the startup/shutdown serialization
 		// signal (a trivial prompt is ~11s on a healthy tree; the #1976 class
