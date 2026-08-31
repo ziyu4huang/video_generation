@@ -1215,7 +1215,14 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				// resolution, so a FAST provider/auth failure is the same SKIP
 				// contract as model-call (classifyRun reused — the gates can
 				// never disagree about what that means). Timeouts still FAIL.
-				const c = classifyRun({ ...r, durationMs: ms });
+				// win32 fast-fail window widened to 60s: through the launcher
+				// relay the same provider-absent exit measures 34s on runners
+				// (hermes surrealdb fallback + embedding retries; run
+				// 33389820559) vs <1s on POSIX — the reason is unchanged.
+				const c = classifyRun(
+					{ ...r, durationMs: ms },
+					{ fastFailMs: process.platform === "win32" ? 60_000 : undefined },
+				);
 				tpVerdict = c.verdict === "skip" ? "skip" : "fail";
 				tpNote =
 					c.verdict === "skip"
