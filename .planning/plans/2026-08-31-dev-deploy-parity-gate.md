@@ -875,7 +875,12 @@ git commit -m "feat(devops): verify-deploy-e2e-cli --dev-launcher flag with repo
 
 ---
 
-## Self-Review (completed during planning)
+## Errata (transcription bugs found during SDD execution — do not copy the snippets above verbatim)
+
+- **Task 3 probe block**: the snippet above never propagated `diffFingerprints`' verdict (`if (d.verdict === "fail") verdict = "fail";` was missing) — as written, hash-drift findings would silently pass. Fixed in ed9e5ec4.
+- **Task 3 fixture bugs**: the fake-spawn `??`-defaults swallowed the explicit `null` marker-missing variant and missed a `?? DEPLOY_FP` fallback; `makeTree` EEXIST'd on re-runs. Fixed in the committed tests (ed9e5ec4).
+- **Task 3 registry read**: `excludedExtensionsFromRegistry` may throw inside never-throws `runDeployE2e` — fixed via `deriveExcludedExtensions()` helper → structured FAIL (1baee2da).
+- **Task 1 parser type**: the snippet reads `o.marker` off a type lacking it; minimal fix `Partial<ParityFingerprint> & { marker?: unknown }` (59e5aab6).
 
 - **Spec coverage:** probe + parser (Task 1), pure diff with the four FAIL classes + attribution via registry (Task 2), capture + probe wiring + deploy-cli auto-run + providers parity (Task 3), CLI flag + skip semantics + default (Task 4). Spec §5 receipts = the probe result `note`/`detail` shape (existing `DeployE2eProbe`); spec "Testing" three tiers map to Tasks 1–3 unit, Task 3 integration, Task 4 Step 5 live check. Hooks parity / behavior equivalence remain non-goals per spec.
 - **Placeholders:** none — every step carries executable content.
