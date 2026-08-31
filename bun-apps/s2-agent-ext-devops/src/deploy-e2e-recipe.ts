@@ -619,6 +619,99 @@ async function win32LayerDiag(
 	} catch (e) {
 		parts.push(`cmd-echo-bunspawn: error ${(e as Error).message}`);
 	}
+	// ── no-console-spawn workaround probes (win32-launcher-stdout ticket 02) ──
+	// Ticket 01's verdict closed the bun-upgrade path; the standing hypothesis
+	// is that bun.exe, when its spawn carries a console, writes via
+	// WriteConsole and never touches the stdio handles (consistent with
+	// cmd-bun 0B and cmd-bun-file 0B — even a real `>` file handle got
+	// nothing). The workaround candidate: the .cmd/.ps1 entry spawns bun with
+	// NO console (CREATE_NO_WINDOW / DETACHED class) and RELAYS its captured
+	// handles. These probes prove or refute that BEFORE any shipped shim is
+	// rewritten: `ps1-nw-relay` is the mechanism in isolation, and
+	// `cmd-ps1-nw-relay` is the full launcher-shaped chain (cmd → powershell
+	// relay → no-console bun) the shipped .cmd would delegate to. The two
+	// `*-echo` controls prove PowerShell's OWN writes flow at each layer —
+	// the relay is only viable if its re-emitted output survives the pipe.
+	// Paths travel via env vars (no quoting inside the script — spaces in
+	// the version dir stay one argv entry end to end).
+	const diagDir = mkdtempSync(join(tmpdir(), "s2-e2e-nwdiag-"));
+	try {
+		const relayScript = join(diagDir, "diag-nw-relay.ps1");
+		writeFileSync(
+			relayScript,
+			[
+				"# diag-nw-relay.ps1 - spawn bun with CREATE_NO_WINDOW (no console), relay captured handles",
+				"$psi = New-Object System.Diagnostics.ProcessStartInfo",
+				"$psi.FileName = $env:DIAG_BUN",
+				"$psi.Arguments = '\"' + $env:DIAG_CORE + '\" ' + $env:DIAG_ARGS",
+				"$psi.WorkingDirectory = $env:DIAG_CWD",
+				"$psi.UseShellExecute = $false",
+				"$psi.CreateNoWindow = $true",
+				"$psi.RedirectStandardOutput = $true",
+				"$psi.RedirectStandardError = $true",
+				"$p = [System.Diagnostics.Process]::Start($psi)",
+				"$out = $p.StandardOutput.ReadToEnd()",
+				"$err = $p.StandardError.ReadToEnd()",
+				"$p.WaitForExit()",
+				"[Console]::Out.Write($out)",
+				"[Console]::Error.Write($err)",
+				"exit $p.ExitCode",
+				"",
+			].join("\n"),
+		);
+		// The file-handle twin of the relay: Start-Process with -RedirectStandardOutput
+		// (a REAL file created by the parent, not an inherited pipe) — parallels the
+		// cmd-bun-file measurement above and distinguishes "pipe handle" from "any
+		// redirected handle" in the no-console child.
+		const fileScript = join(diagDir, "diag-nw-file.ps1");
+		writeFileSync(
+			fileScript,
+			[
+				"# diag-nw-file.ps1 - no-console bun via Start-Process, stdout redirected to a file",
+				"$out = Join-Path $env:DIAG_TMP ('diag-nw-out-' + $PID + '.txt')",
+				"$p = Start-Process -FilePath $env:DIAG_BUN -ArgumentList @('\"' + $env:DIAG_CORE + '\"', $env:DIAG_ARGS) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -WorkingDirectory $env:DIAG_CWD",
+				"$bytes = (Get-Item $out -ErrorAction SilentlyContinue).Length",
+				"Write-Output ('nw-file: ' + $bytes + 'B, exit ' + $p.ExitCode)",
+				"exit $p.ExitCode",
+				"",
+			].join("\n"),
+		);
+		const relayEnv = {
+			DIAG_BUN: bunExe,
+			DIAG_CORE: core,
+			DIAG_ARGS: args.join(" "),
+			DIAG_CWD: versionDir,
+			DIAG_TMP: diagDir,
+		};
+		const relayLayers: Array<[string, string, string[]]> = [
+			["ps1-nw-relay", "powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", relayScript]],
+			[
+				"cmd-ps1-nw-relay",
+				"cmd",
+				["/c", "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", relayScript],
+			],
+			["ps1-nw-file", "powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fileScript]],
+			["ps1-echo", "powershell.exe", ["-NoProfile", "-Command", "Write-Output diag-ps1-echo-marker"]],
+			[
+				"cmd-ps1-echo",
+				"cmd",
+				["/c", "powershell.exe", "-NoProfile", "-Command", "Write-Output diag-ps1-echo-marker"],
+			],
+		];
+		for (const [label, cmd, argv] of relayLayers) {
+			try {
+				const r = await spawn(cmd, argv, { cwd: versionDir, timeoutMs: 60_000, env: relayEnv });
+				const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+				stdoutBytes[label] = r.stdout.length;
+				parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout — ${head || "<no output>"}`);
+			} catch (e) {
+				parts.push(`${label}: spawn error ${(e as Error).message}`);
+			}
+		}
+		parts.push(`relay-route (cmd→ps1 no-console spawn of bun): ${isNoConsoleRelayWorkaround(stdoutBytes) ? "WORKS" : "BROKEN"}`);
+	} finally {
+		rmSync(diagDir, { recursive: true, force: true });
+	}
 	// The measured upstream signature (windows-latest, bun 1.4.0 = latest as
 	// of 2026-08-28, identical under `bun-version: latest`): bun.exe delivers
 	// full output when spawned directly, cmd.exe's own echo flows, but bun as
@@ -633,6 +726,16 @@ async function win32LayerDiag(
 		summary: `win32 layer diag:\n  ${parts.join("\n  ")}`,
 		isBunShellChildBug: isBunShellChildSignature(stdoutBytes),
 	};
+}
+
+/**
+ * Pure signature check for the no-console relay workaround (ticket 02): the
+ * full launcher-shaped chain (cmd → powershell relay → CREATE_NO_WINDOW bun)
+ * delivers bun's bytes while the direct .cmd shim still loses them — i.e.
+ * rewriting the shipped shims around the relay would make the launcher speak.
+ */
+export function isNoConsoleRelayWorkaround(bytes: Record<string, number>): boolean {
+	return (bytes["cmd-ps1-nw-relay"] ?? 0) > 0 && (bytes["cmd-shim"] ?? -1) === 0;
 }
 
 /** Pure signature check for the bun-as-shell-child output loss (see win32LayerDiag). */

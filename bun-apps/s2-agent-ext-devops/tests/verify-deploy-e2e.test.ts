@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	isBunShellChildSignature,
+	isNoConsoleRelayWorkaround,
 	parseDeployJson,
 	parseExtListPayload,
 	parseListModelsRows,
@@ -1212,6 +1213,33 @@ describe("isBunShellChildSignature (win32 upstream-block classification)", () =>
 	test("the launcher suddenly delivering output does NOT classify (bug fixed → probes pass)", () => {
 		expect(
 			isBunShellChildSignature({ "bun-direct": 1299, "cmd-echo": 22, "cmd-bun": 1299, "cmd-shim": 1299 }),
+		).toBe(false);
+	});
+});
+
+describe("isNoConsoleRelayWorkaround (win32 ticket-02 relay-route signature)", () => {
+	// The route ticket 02 wants to prove on windows-latest: the full
+	// launcher-shaped chain (cmd → powershell relay → CREATE_NO_WINDOW bun)
+	// delivers bun's bytes while the direct .cmd shim still loses them.
+	test("relay delivers through cmd while the direct shim loses → WORKS", () => {
+		expect(
+			isNoConsoleRelayWorkaround({ "cmd-shim": 0, "cmd-ps1-nw-relay": 1299, "ps1-nw-relay": 1299 }),
+		).toBe(true);
+	});
+
+	test("relay losing through cmd does NOT classify (shipped-shim rewrite would be blind)", () => {
+		expect(
+			isNoConsoleRelayWorkaround({ "cmd-shim": 0, "cmd-ps1-nw-relay": 0, "ps1-nw-relay": 1299 }),
+		).toBe(false);
+	});
+
+	test("missing relay measurement does NOT classify (absent is unknown, not works)", () => {
+		expect(isNoConsoleRelayWorkaround({ "cmd-shim": 0 })).toBe(false);
+	});
+
+	test("a fixed launcher does NOT need the route (shim already speaks)", () => {
+		expect(
+			isNoConsoleRelayWorkaround({ "cmd-shim": 1299, "cmd-ps1-nw-relay": 1299 }),
 		).toBe(false);
 	});
 });
