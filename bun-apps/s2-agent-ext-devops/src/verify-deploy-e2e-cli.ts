@@ -17,6 +17,7 @@
  * Exit 0 pass or skip (provider-down is a SKIP, not a FAIL — the boot is what
  * we vouch for) · 1 fail (any probe, or no `current`) · 2 usage.
  */
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { shConfig } from "./deploy/lib/config.ts";
 import {
@@ -30,7 +31,7 @@ import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
 export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
-	"usage: verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call]",
+	"usage: verify-deploy-e2e-cli.ts [--deploy-root <path>] [--dev-launcher <path>] [--skip-model-call]",
 	"",
 	"Proves the DEPLOYED dist actually works: boots the deployed launcher (the sh launcher; cmd /c s2-agent.cmd on win32 trees),",
 	"checks every deploy.json-enabled extension",
@@ -75,11 +76,13 @@ export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"Exit 0 pass/skip · 1 fail · 2 usage error.",
 	"Options:",
 	"  --deploy-root <path>   default: the registry's outRoot",
+	"  --dev-launcher <path>  dev tree's s2-agent.sh for the parity probe (default: <repo>/s2-agent.sh when present; absent → parity skips)",
 	"  --skip-model-call      boot + ext-load only (offline / provider-less boxes)",
 ].join("\n");
 
 export interface ParsedVerifyDeployE2eArgs {
 	deployRoot?: string;
+	devLauncher?: string;
 	skipModelCall?: boolean;
 }
 
@@ -88,6 +91,7 @@ export function parseVerifyDeployE2eArgs(
 	argv: string[],
 ): { ok: true; args: ParsedVerifyDeployE2eArgs } | { ok: false; message: string } {
 	let deployRoot: string | undefined;
+	let devLauncher: string | undefined;
 	let skipModelCall: boolean | undefined;
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
@@ -95,6 +99,10 @@ export function parseVerifyDeployE2eArgs(
 			const v = argv[++i];
 			if (v === undefined) return { ok: false, message: "--deploy-root needs a value" };
 			deployRoot = v;
+		} else if (a === "--dev-launcher") {
+			const v = argv[++i];
+			if (v === undefined) return { ok: false, message: "--dev-launcher needs a value" };
+			devLauncher = v;
 		} else if (a === "--skip-model-call") {
 			skipModelCall = true;
 		} else if (a === "-h" || a === "--help") {
@@ -105,13 +113,21 @@ export function parseVerifyDeployE2eArgs(
 			return { ok: false, message: `unexpected positional argument: ${a}` };
 		}
 	}
-	return { ok: true, args: { deployRoot, skipModelCall } };
+	return { ok: true, args: { deployRoot, devLauncher, skipModelCall } };
 }
 
 /** Registry outRoot — the same default deploy-cli deploys into. */
 function defaultDeployRoot(): string {
 	const bunAppsDir = resolve(import.meta.dir, "..", "..");
 	return shConfig({ bunAppsDir }).outRoot;
+}
+
+/** Repo-root dev launcher — the parity probe's dev-tree baseline. The symlink
+ * is tracked in git, so it exists in every checkout/worktree; when it somehow
+ * doesn't (exotic exports), the default stays undefined and parity skips. */
+function defaultDevLauncher(): string | undefined {
+	const p = resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh");
+	return existsSync(p) ? p : undefined;
 }
 
 export async function runVerifyDeployE2eCli(
@@ -149,6 +165,9 @@ export async function runVerifyDeployE2eCli(
 	const outcome = await runDeployE2e({
 		versionDir,
 		spawn,
+		// Flag OR repo-root default — the same baseline deploy-cli's auto-E2E
+		// uses; absent everywhere (e.g. a dist-only box) → parity skips.
+		devLauncher: parsed.args.devLauncher ?? defaultDevLauncher(),
 		// Flag OR env — one opt-out surface shared with deploy-cli's auto-E2E
 		// (crossos t06): the GH Actions verify runners export the env var, and a
 		// local operator mirroring that shell gets the same behavior from BOTH

@@ -9,7 +9,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
 	isBunShellChildSignature,
 	parseDeployJson,
@@ -100,6 +100,23 @@ function defaultListModels(): { on: string; off: string } {
 	};
 }
 
+/** Canned parity fingerprint — identical on both sides by default so the
+ *  parity probe passes through the fake spawn (dev/deploy divergence has its
+ *  own suite in parity-e2e-probe.test.ts). */
+const PARITY_FP = {
+	marker: "PARITY_FP_v1",
+	mode: "stub",
+	sessionStartFired: true,
+	toolCount: 2,
+	tools: [
+		{ n: "read", s: "builtin", p: "<builtin:read>", dh: 1, sh: 2 },
+		{ n: "stub-ext-tool", s: "extension", p: "/stub/ext.cjs", dh: 3, sh: 4 },
+	],
+	skillCount: 1,
+	skills: [{ n: "stub-skill", p: "/stub/SKILL.md", ch: 5 }],
+};
+const parityFpLine = `\n[PARITY-FP-START]${JSON.stringify(PARITY_FP)}[PARITY-FP-END]\n`;
+
 /** Fake spawn keyed on the first non-flag argv — the probe identity. */
 function fakeSpawn(o: FakeOpts = {}): SpawnFn {
 	return async (_cmd, args, options): Promise<SpawnResult> => {
@@ -123,8 +140,13 @@ function fakeSpawn(o: FakeOpts = {}): SpawnFn {
 			};
 		}
 		// tools-probe: `-e <probe> -p hi --no-session` — must be matched BEFORE
-		// the bare `-p` fallthrough below (its argv contains both).
+		// the bare `-p` fallthrough below (its argv contains both). The parity
+		// probe uses the same `-e` shape but carries PARITY_MODE (its env
+		// contract) — answer it with the fingerprint marker instead.
 		if (args.includes("-e")) {
+			if (options?.env?.PARITY_MODE) {
+				return { stdout: "", stderr: parityFpLine, exitCode: 0 };
+			}
 			const healthy = {
 				total: 66,
 				matched: 26,
@@ -731,7 +753,10 @@ describe("model pin (VERIFY_E2E_MODEL — the D8-style lane pin)", () => {
 			const { spawn, seen } = recordingSpawn();
 			const res = await runVerifyDeployE2eCli(["--deploy-root", root], { spawn, versionDir: undefined, modelEndpoint: null });
 			expect(res.exitCode).toBe(0);
-			for (const s of seen.filter((x) => !x.args.includes("--list-models"))) expect(s.env).toBeUndefined(); // ran on the default lane
+			// ran on the default lane — no pin env anywhere. The parity probe's
+			// `-e` spawns are excluded: PARITY_MODE is their identity contract, not a lane pin.
+			for (const s of seen.filter((x) => !x.args.includes("--list-models") && x.env?.PARITY_MODE === undefined))
+				expect(s.env).toBeUndefined();
 			const payload = JSON.parse(res.stdout);
 			expect(payload.warnings.join("\n")).toContain("VERIFY_E2E_MODEL");
 			expect(payload.warnings.join("\n")).toContain("provider/model-id");
@@ -1032,6 +1057,15 @@ describe("parseVerifyDeployE2eArgs (shared CLI contract)", () => {
 	test("--deploy-root without a value is a usage error", () => {
 		expect(parseVerifyDeployE2eArgs(["--deploy-root"]).ok).toBe(false);
 	});
+	test("--dev-launcher <path> parses to devLauncher", () => {
+		const r = parseVerifyDeployE2eArgs(["--dev-launcher", "/w/s2-agent.sh", "--deploy-root", "/d"]);
+		expect(r.ok).toBe(true);
+		if (r.ok) expect(r.args.devLauncher).toBe("/w/s2-agent.sh");
+	});
+	test("--dev-launcher without a value is a usage error", () => {
+		const r = parseVerifyDeployE2eArgs(["--dev-launcher"]);
+		expect(r.ok).toBe(false);
+	});
 });
 
 describe("runVerifyDeployE2eCli", () => {
@@ -1075,6 +1109,38 @@ describe("runVerifyDeployE2eCli", () => {
 			modelEndpoint: null,
 		});
 		expect(res.exitCode).toBe(1);
+	});
+
+	test("--dev-launcher flows through: parity runs against the given launcher", async () => {
+		makeTree();
+		const seen: string[] = [];
+		const spawn: SpawnFn = async (cmd, args, options) => {
+			if (args.includes("-e") && options?.env?.PARITY_MODE) seen.push(`${options.env.PARITY_MODE}:${cmd}`);
+			return fakeSpawn()(cmd, args, options);
+		};
+		const res = await runVerifyDeployE2eCli(["--deploy-root", root, "--dev-launcher", "/w/dev-s2-agent.sh"], {
+			spawn,
+			versionDir: undefined,
+			modelEndpoint: null,
+		});
+		expect(res.exitCode).toBe(0);
+		const parity = JSON.parse(res.stdout).probes.find((p: { id: string }) => p.id === "parity");
+		expect(parity.verdict).toBe("pass");
+		expect(seen).toContain("dev:/w/dev-s2-agent.sh");
+	});
+
+	test("no --dev-launcher flag: repo-root s2-agent.sh is the default baseline", async () => {
+		makeTree();
+		const seen: string[] = [];
+		const spawn: SpawnFn = async (cmd, args, options) => {
+			if (args.includes("-e") && options?.env?.PARITY_MODE) seen.push(cmd);
+			return fakeSpawn()(cmd, args, options);
+		};
+		const res = await runVerifyDeployE2eCli(["--deploy-root", root], { spawn, versionDir: undefined, modelEndpoint: null });
+		expect(res.exitCode).toBe(0);
+		// s2-agent.sh is tracked in git → present in every checkout/worktree,
+		// so the default deterministically resolves wherever tests run.
+		expect(seen).toContain(resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"));
 	});
 });
 
