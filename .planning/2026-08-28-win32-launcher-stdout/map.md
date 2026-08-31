@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-28-win32-launcher-stdout
 created: 2026-08-28
-last: 2026-08-29 (PARKED → deploy worktree: user re-scope — "it's deploy jobs"; ownership + queue head transferred to ../video_generation__deploy via its next-goal handoff; tickets 02/03 stay open)
-status: parked (owned by the deploy worktree agent as of 2026-08-29)
+last: 2026-08-31 (ticket 02 CLOSED — bun-relay shipped, windows-latest green with honest PASS verdicts, run 33390691377; Frontier → ticket 03)
+status: active
 ---
 
 # Wayfinder map: 2026-08-28-win32-launcher-stdout
@@ -60,7 +60,7 @@ feeds 02's fix-path verdict, 02 feeds 03's record; confirmed 2026-08-28).
 | Ticket | Status | Summary |
 |---|---|---|
 | `tickets/01-measure-upstream-truth.md` | closed | Matrix measured (1.4.0 buggy; 1.3.14 install-dead; canary unacquirable); NO matching upstream issue, filing skipped (D5); #12108 notes corrected; verdict: shim workaround required |
-| `tickets/02-launcher-speaks.md` | open | Implement the selected fix (repo-wide pin bump per D2, or no-console-spawn shim); verify flips skip→PASS, windows-latest green |
+| `tickets/02-launcher-speaks.md` | closed | bun-relay shipped (`s2-agent-relay.js` + rewritten .cmd/.ps1, `S2_RELAY_FORCE` consumer-declared branching); verify skip narrowed to true-unknown; windows-latest GREEN run 33390691377 (ext-load/cwd-independence/providers-catalog honest PASS); + providers-catalog dummy-env-keys fix + classifyRun fastFailMs |
 | `tickets/03-record-and-refresh-dist.md` | open | ADR/docs record of the standing contract + local dist re-deploy with verify-deploy-e2e green |
 
 ## Decisions
@@ -82,20 +82,32 @@ feeds 02's fix-path verdict, 02 feeds 03's record; confirmed 2026-08-28).
   descriptive record only. (Searched first: no matching issue exists;
   bun#12108 is batch termination, not stdout loss. The ready-to-file
   minimal repro lives in ticket 01's close-out if this is ever revisited.)
+- D6 (2026-08-31, ticket 02 measurement): the workaround lane is BUN AS
+  PARENT — powershell.exe loses its OWN Write-Output in the piped spawn
+  shape (ps1-echo 0B, run 33385015007), so no ps1-shaped relay is viable;
+  a bun relay spawning the core directly works, and as a shell's child
+  (own stdout dead, fs alive) writes the capture to files the entry shim
+  emits. Interactive console use never broke.
+- D7 (2026-08-31, ticket 02 measurement): relay branching is
+  CONSUMER-DECLARED (`S2_RELAY_FORCE=file|direct|unset`) — bun's isTTY is
+  console-presence based and reports stdout.isTTY=true AND stdin.isTTY=true
+  in the console-attached piped spawn shape (run 33388819180), so NO
+  relay-side TTY heuristic can distinguish a human console from an
+  invisible spawned console. The .ps1 auto-derives the flag from the
+  handle-based `[Console]::IsOutputRedirected`; the .cmd documents the
+  contract for piping consumers.
 
 ## Frontier
 
-Ticket 02 (launcher speaks) — ticket 01 closed 2026-08-29: the version
-matrix is measured and the upgrade path is DEAD on all three fronts
-(1.4.0 = latest stable AND buggy; 1.3.14 = windows workspace install
-fails at bun-types@1.3.14 link ENOENT, run 33220283080; canary
-1.4.0-canary.20260828.1 = no GitHub release assets, D7 acquisition
-cannot fetch). 01's verdict routes 02 to the shim workaround: prove the
-no-console-spawn hypothesis with a diag variant FIRST (bun.exe with an
-inherited console plausibly writes via WriteConsole, bypassing stdio
-handles — consistent with cmd-bun-file 0B), then rewrite the shipped
-.cmd/.ps1 entries around whatever the proof shows, then flip the verify
-recipe's skip-classification back to honest PASS.
+Ticket 03 (record + refresh dist) — ticket 02 closed 2026-08-31 with the
+launcher chain verified green on windows-latest (run 33390691377:
+ext-load / cwd-independence / providers-catalog honest PASS through the
+real shipped `.cmd`). 03 records the durable contract (ADR: the consumer-
+declared `S2_RELAY_FORCE` skip-contract + the residual — a piping
+consumer that does NOT set the flag on a runner-shaped spawn still sees
+0B, upstream bun bug, no fix as of 1.4.0), folds in the crossos
+deploy-report `if-no-files-found: error` hardening, re-deploys the local
+dist via `deploy-cli.ts`, and verifies with `verify-deploy-e2e` green.
 
 ## Fog of war
 
@@ -103,15 +115,19 @@ recipe's skip-classification back to honest PASS.
   exists (searched); filing deliberately skipped (D5).
 - ~~Whether any current bun release fixes the layer~~ RESOLVED 2026-08-29
   (ticket 01): no measurable upgrade path — verdict is shim workaround.
-- The no-console-spawn workaround hypothesis (bun writes via WriteConsole
-  when it has a console, bypassing handles): plausible against the
-  cmd-bun-file 0B evidence but UNPROVEN — a diag variant must prove it
-  before any shipped shim rewrites (ticket 02).
+- ~~The no-console-spawn workaround hypothesis~~ REFUTED 2026-08-31
+  (ticket 02): the ps1 no-console relay route is dead (powershell loses
+  its own output); the proven route is the bun-as-parent relay (D6).
+- Why bun-as-a-shell's-child writes NOTHING even to a cmd `>` file handle
+  while exiting 0: mechanism still unidentified (WriteConsole-class
+  theory fits but unproven); irrelevant to the shipped workaround — the
+  bun-parent lane sidesteps it.
 - Could a canary ever be measured? Only by extending deploy acquisition to
   the npm channel (canaries have no GitHub release assets) — not charted;
-  revisit only if the shim route also fails.
+  revisit only if the shim route also fails. (Shim route SHIPPED — this
+  is now dormant.)
 - macOS/Linux launcher behavior is assumed unaffected (probes pass there);
-  not re-measured by this effort.
+  ubuntu re-verified green in the same matrix runs 2026-08-31.
 
 ## Cross-effort links
 
