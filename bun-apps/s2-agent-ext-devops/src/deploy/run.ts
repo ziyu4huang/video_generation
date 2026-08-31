@@ -329,10 +329,12 @@ exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" 
  * but nothing else is — it writes the captured bytes to files ITSELF
  * (cmd-bun-relay-file: relay file 1288B `--ext-list` / 10307B `--help`),
  * which the .cmd/.ps1 entry then emits through their OWN working writes
- * (`type` / Get-Content). Interactive console use was never broken: stdout
- * is inherited unchanged when a TTY is present. Plain JS on purpose — bun
- * parses .js WITHOUT TypeScript syntax (diag iteration-2 receipt: `!`
- * non-null assertions exit 1 "Unexpected !").
+ * (`type` / Get-Content). Interactive console use was never broken: stdio
+ * is inherited unchanged when BOTH stdout and stdin are TTYs (a detached
+ * spawn hands the relay an invisible NEW console whose isTTY lies —
+ * measured run 33387224763). Plain JS on purpose — bun parses .js WITHOUT
+ * TypeScript syntax (diag iteration-2 receipt: `!` non-null assertions
+ * exit 1 "Unexpected !").
  */
 const S2_AGENT_RELAY_JS = `// s2-agent-relay.js - Windows stdout relay for the s2-agent launchers.
 // WHY: bun.exe as a cmd/powershell child loses ALL piped stdout while
@@ -348,7 +350,14 @@ var core = dir + "/${APP_NAME}.js";
 var args = process.argv.slice(2);
 var outFile = process.env.S2_RELAY_OUT || "";
 var errFile = process.env.S2_RELAY_ERR || "";
-if (process.stdout.isTTY || outFile === "") {
+// Interactive detection needs BOTH ends: a detached/spawned relay can carry
+// an invisible NEW console (node detached spawns on Windows hand the child
+// its own console - measured run 33387224763: stdout.isTTY TRUE yet writes
+// went to the invisible console and the probe saw 0B). stdin is "ignore" in
+// that spawn shape, so a console STDIN is what distinguishes a real human
+// console. Piped consumers (stdout non-TTY) take the file branch regardless.
+var interactive = process.stdout.isTTY && process.stdin.isTTY;
+if (interactive || outFile === "") {
   var direct = Bun.spawn([bun, core].concat(args), {
     cwd: dir,
     stdio: ["inherit", "inherit", "inherit"],
