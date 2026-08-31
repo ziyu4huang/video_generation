@@ -14,6 +14,7 @@ import {
 	isBunShellChildSignature,
 	isBunRelayWorkaround,
 	isNoConsoleRelayWorkaround,
+	dummyEnvForBakedCatalog,
 	parseDeployJson,
 	parseExtListPayload,
 	parseListModelsRows,
@@ -1269,5 +1270,28 @@ describe("isBunRelayWorkaround (win32 ticket-02 bun-relay signature, diag iterat
 		expect(
 			isBunRelayWorkaround({ "cmd-shim": 1299, "cmd-bun-relay-file-file": 1299 }),
 		).toBe(false);
+	});
+});
+
+describe("dummyEnvForBakedCatalog (providers-catalog runner contract)", () => {
+	// The first crossos exposure (run 33385015007, 2026-08-31): env-keyed
+	// baked providers never list on keyless runners, so the probe failed
+	// 10/14 on BOTH rows. The dummy seeds must cover exactly the `$VAR`
+	// references — literal keys contribute nothing.
+	test("extracts $VAR apiKeys as dummy values", () => {
+		expect(
+			dummyEnvForBakedCatalog({
+				deepseek: { apiKey: "$DEEPSEEK_API_KEY" },
+				zai: { apiKey: "$ZAI_API_KEY" },
+			}),
+		).toEqual({ DEEPSEEK_API_KEY: "e2e-dummy-key", ZAI_API_KEY: "e2e-dummy-key" });
+	});
+
+	test("literal-string apiKeys contribute nothing", () => {
+		expect(dummyEnvForBakedCatalog({ "lm-studio": { apiKey: "lm-studio" } })).toEqual({});
+	});
+
+	test("the REAL baked catalog yields at least one env var (deepseek lane)", () => {
+		expect(Object.keys(dummyEnvForBakedCatalog()).length).toBeGreaterThan(0);
 	});
 });

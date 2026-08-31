@@ -362,6 +362,23 @@ export function parseListModelsRows(stdout: string): Map<string, Set<string>> {
 }
 
 /**
+ * Dummy env values for every `$VAR`-referenced apiKey in the baked catalog
+ * (see providersProbeEnv for why). Catalog-true: derived from PROVIDERS, so a
+ * new env-keyed lane is covered automatically. A literal-string apiKey (the
+ * local-server lm-studio form) contributes nothing — it needs no env.
+ */
+export function dummyEnvForBakedCatalog(
+	providers: Record<string, { apiKey: unknown }> = PROVIDERS,
+): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const entry of Object.values(providers)) {
+		const m = typeof entry.apiKey === "string" ? /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(entry.apiKey) : null;
+		if (m) env[m[1]] = "e2e-dummy-key";
+	}
+	return env;
+}
+
+/**
  * The per-run agent-dir env for the providers-catalog probe: a SCRATCH dir so
  * the listing cannot be satisfied by ~/.pi/agent/models.json residue. Sets the
  * DASHED derived name (upstream builds `${piConfig.name.toUpperCase()_
@@ -371,6 +388,17 @@ export function parseListModelsRows(stdout: string): Map<string, Set<string>> {
  */
 function providersProbeEnv(scratchDir: string, versionDir: string): Record<string, string> {
 	const env: Record<string, string> = { PI_CODING_AGENT_DIR: scratchDir };
+	// Seed dummy values for every `$VAR`-referenced apiKey in the baked
+	// catalog. MEASURED GAP (first crossos exposure, run 33385015007
+	// 2026-08-31): env-keyed baked providers (deepseek `$DEEPSEEK_API_KEY`,
+	// zai …) never list on runners — no stored credential → not "available" —
+	// so 10/14 baked pairs failed the probe on BOTH matrix rows while the
+	// same tree was green on this machine (keys in the ambient env). The
+	// probe's contract is the ModelRuntime.create WRAP (registration), not
+	// ambient credentials: a dummy key marks the provider configured exactly
+	// like the literal-key lm-studio entry, and --list-models never calls the
+	// network — the dummy value is inert.
+	for (const [name, value] of Object.entries(dummyEnvForBakedCatalog())) env[name] = value;
 	try {
 		const pkg = JSON.parse(readFileSync(join(versionDir, "package.json"), "utf8")) as {
 			piConfig?: { name?: string };
