@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	isBunShellChildSignature,
+	isBunRelayWorkaround,
 	isNoConsoleRelayWorkaround,
 	parseDeployJson,
 	parseExtListPayload,
@@ -1240,6 +1241,33 @@ describe("isNoConsoleRelayWorkaround (win32 ticket-02 relay-route signature)", (
 	test("a fixed launcher does NOT need the route (shim already speaks)", () => {
 		expect(
 			isNoConsoleRelayWorkaround({ "cmd-shim": 1299, "cmd-ps1-nw-relay": 1299 }),
+		).toBe(false);
+	});
+});
+
+describe("isBunRelayWorkaround (win32 ticket-02 bun-relay signature, diag iteration 2)", () => {
+	// The iteration-2 candidate: cmd → bun -e relay (stdout dead as cmd's
+	// child, alive otherwise) spawns the core directly and writes the file
+	// ITSELF — the receipt is the relay file, keyed `cmd-bun-relay-file-file`.
+	test("relay file nonzero while the direct shim loses → WORKS", () => {
+		expect(
+			isBunRelayWorkaround({ "cmd-shim": 0, "cmd-bun-relay-file": 0, "cmd-bun-relay-file-file": 1299 }),
+		).toBe(true);
+	});
+
+	test("empty relay file does NOT classify", () => {
+		expect(
+			isBunRelayWorkaround({ "cmd-shim": 0, "cmd-bun-relay-file": 0, "cmd-bun-relay-file-file": 0 }),
+		).toBe(false);
+	});
+
+	test("missing relay-file measurement does NOT classify (absent is unknown)", () => {
+		expect(isBunRelayWorkaround({ "cmd-shim": 0, "cmd-bun-relay-file": 0 })).toBe(false);
+	});
+
+	test("a fixed launcher does NOT need the route (shim already speaks)", () => {
+		expect(
+			isBunRelayWorkaround({ "cmd-shim": 1299, "cmd-bun-relay-file-file": 1299 }),
 		).toBe(false);
 	});
 });

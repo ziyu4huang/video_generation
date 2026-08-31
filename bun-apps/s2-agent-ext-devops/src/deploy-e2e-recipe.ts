@@ -709,6 +709,107 @@ async function win32LayerDiag(
 			}
 		}
 		parts.push(`relay-route (cmd→ps1 no-console spawn of bun): ${isNoConsoleRelayWorkaround(stdoutBytes) ? "WORKS" : "BROKEN"}`);
+		// ── bun-relay probes (ticket 02 diag iteration 2) ──
+		// Iteration 1 on windows-latest (run 33385015007, 2026-08-31) REFUTED
+		// the powershell relay: powershell.exe loses its OWN Write-Output under
+		// the piped spawn (ps1-echo 0B), so no ps1-shaped chain can re-emit
+		// anything. The surviving lanes: node→bun (bun-direct >0B) and cmd's
+		// OWN writes (cmd-echo, cmd-echo-bunspawn >0B). The unmeasured parent
+		// that could bridge them: BUN itself. A bun -e relay spawns the core
+		// DIRECTLY (the proven bun-direct lane, now with bun as the parent)
+		// and either re-emits via its own stdout or writes the captured bytes
+		// to a file ITSELF (its own fs write, not a cmd `>` handle — the
+		// cmd-bun-file 0B result does not apply). `cmd-bun-relay-file` is the
+		// shipped-shim candidate chain: .cmd → bun relay (stdout dead, alive
+		// otherwise) → direct core spawn captured → file → cmd `type`s it.
+		const relayJs = join(diagDir, "diag-bun-relay.js");
+		writeFileSync(
+			relayJs,
+			[
+				`// diag-bun-relay.js - spawn the core DIRECTLY (bun as parent), relay via`,
+				`// stdout (RELAY_MODE=pipe) or a self-written file (RELAY_MODE=file).`,
+				`const args = (process.env.DIAG_ARGS ?? "").split(" ").filter(Boolean);`,
+				`const p = Bun.spawn([process.env.DIAG_BUN!, process.env.DIAG_CORE!, ...args], {`,
+				`	cwd: process.env.DIAG_CWD,`,
+				`	stdout: "pipe",`,
+				`	stderr: "pipe",`,
+				`});`,
+				`const out = await Bun.readableStreamToText(p.stdout);`,
+				`const err = await Bun.readableStreamToText(p.stderr);`,
+				`const code = await p.exited;`,
+				`if (process.env.RELAY_MODE === "file") {`,
+				`	await Bun.write(process.env.DIAG_OUT!, out);`,
+				`} else {`,
+				`	process.stdout.write(out);`,
+				`	process.stderr.write(err);`,
+				`}`,
+				`process.exit(code);`,
+				``,
+			].join("\n"),
+		);
+		// cmd /c bun -e "console.log(...)" — is bun-as-cmd's-child silence about
+		// bun.exe itself, or the core bundle? One marker line, no bundle.
+		try {
+			const label = "cmd-bun-echo";
+			const r = await spawn("cmd", ["/c", bunExe, "-e", "console.log('diag-bun-echo-marker')"], {
+				cwd: versionDir,
+				timeoutMs: 60_000,
+			});
+			const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+			stdoutBytes[label] = r.stdout.length;
+			parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout — ${head || "<no output>"}`);
+		} catch (e) {
+			parts.push(`cmd-bun-echo: spawn error ${(e as Error).message}`);
+		}
+		for (const [label, cmd, argv, env, probeFile] of [
+			[
+				"bun-relay-pipe",
+				bunExe,
+				[relayJs],
+				{ RELAY_MODE: "pipe" },
+				null as string | null,
+			],
+			[
+				"cmd-bun-relay-pipe",
+				"cmd",
+				["/c", bunExe, relayJs],
+				{ RELAY_MODE: "pipe" },
+				null,
+			],
+			[
+				"cmd-bun-relay-file",
+				"cmd",
+				["/c", bunExe, relayJs],
+				{ RELAY_MODE: "file", DIAG_OUT: join(diagDir, "relay-out.txt") },
+				join(diagDir, "relay-out.txt"),
+			],
+		] as Array<[string, string, string[], Record<string, string>, string | null]>) {
+			try {
+				const r = await spawn(cmd, argv, { cwd: versionDir, timeoutMs: 60_000, env: { ...relayEnv, ...env } });
+				const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+				stdoutBytes[label] = r.stdout.length;
+				// File mode: the receipt is the file the RELAY wrote (its stdout as
+				// cmd's child is expected dead) — report its byte count + head.
+				let fileNote = "";
+				if (probeFile) {
+					try {
+						const txt = await Bun.file(probeFile).text();
+						stdoutBytes[`${label}-file`] = txt.length;
+						fileNote = `, relay file ${txt.length}B — ${txt.trim().replace(/\s+/g, " ").slice(0, 120) || "<empty file>"}`;
+					} catch {
+						fileNote = ", relay file MISSING";
+					}
+				}
+				parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout${fileNote} — ${head || "<no output>"}`);
+			} catch (e) {
+				parts.push(`${label}: spawn error ${(e as Error).message}`);
+			}
+		}
+		parts.push(
+			`bun-relay-route (cmd→bun relay→direct core spawn): ${
+				isBunRelayWorkaround(stdoutBytes) ? "WORKS" : "BROKEN"
+			}`,
+		);
 	} finally {
 		rmSync(diagDir, { recursive: true, force: true });
 	}
@@ -736,6 +837,16 @@ async function win32LayerDiag(
  */
 export function isNoConsoleRelayWorkaround(bytes: Record<string, number>): boolean {
 	return (bytes["cmd-ps1-nw-relay"] ?? 0) > 0 && (bytes["cmd-shim"] ?? -1) === 0;
+}
+
+/**
+ * Pure signature check for the bun-relay workaround (ticket 02, diag
+ * iteration 2): a bun -e relay as cmd's child spawns the core DIRECTLY (the
+ * proven bun-direct lane) and writes the captured bytes to a file itself —
+ * nonzero relay-file bytes while the direct .cmd shim still loses them.
+ */
+export function isBunRelayWorkaround(bytes: Record<string, number>): boolean {
+	return (bytes["cmd-bun-relay-file-file"] ?? 0) > 0 && (bytes["cmd-shim"] ?? -1) === 0;
 }
 
 /** Pure signature check for the bun-as-shell-child output loss (see win32LayerDiag). */
