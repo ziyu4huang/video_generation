@@ -9,7 +9,9 @@
  * applicable to the deploy set) against the version dir a deploy root's
  * `current` points at, and prints the structured
  * outcome as JSON on stdout. Read-only for the repo; the probes spawn the
- * DEPLOYED s2-agent.sh launcher only. This is the post-deploy step the devops chain was
+ * DEPLOYED s2-agent.sh launcher — and the parity probe additionally spawns
+ * the DEV-tree s2-agent.sh (via --dev-launcher, defaulting to the repo-root
+ * launcher when it exists) to diff the two trees' surfaces. This is the post-deploy step the devops chain was
  * missing: the deploy gates verify the staged tree, nothing re-verified the
  * final frozen `current` — and the deeper E2E suites are PI_AGENT_E2E-gated,
  * so they never run in CI.
