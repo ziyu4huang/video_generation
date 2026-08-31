@@ -107,6 +107,14 @@ describe("classifyRun — pure classification", () => {
 		expect(c.reason).toBe("nonzero-exit");
 	});
 
+	test("fastFailMs widens the provider window (win32 relay lane, run 33389820559)", () => {
+		// The win32 launcher relay measures 34s to the provider-absent exit
+		// that takes <1s on POSIX — same reason, different wall time.
+		const run = okRun({ exitCode: 1, stdout: "", stderr: "No API key found for zai.", durationMs: 34_292 });
+		expect(classifyRun(run).verdict).toBe("fail"); // default window: not fast
+		expect(classifyRun(run, { fastFailMs: 60_000 }).verdict).toBe("skip"); // widened: same contract as POSIX
+	});
+
 	test("non-provider crash → fail with captured tail", () => {
 		const c = classifyRun(okRun({ exitCode: 2, stdout: "ReferenceError: boom", stderr: "" }));
 		expect(c.verdict).toBe("fail");

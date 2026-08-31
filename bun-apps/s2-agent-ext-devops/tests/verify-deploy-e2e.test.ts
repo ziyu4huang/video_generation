@@ -12,6 +12,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	isBunShellChildSignature,
+	isBunRelayWorkaround,
+	isNoConsoleRelayWorkaround,
+	dummyEnvForBakedCatalog,
 	parseDeployJson,
 	parseExtListPayload,
 	parseListModelsRows,
@@ -1213,5 +1216,82 @@ describe("isBunShellChildSignature (win32 upstream-block classification)", () =>
 		expect(
 			isBunShellChildSignature({ "bun-direct": 1299, "cmd-echo": 22, "cmd-bun": 1299, "cmd-shim": 1299 }),
 		).toBe(false);
+	});
+});
+
+describe("isNoConsoleRelayWorkaround (win32 ticket-02 relay-route signature)", () => {
+	// The route ticket 02 wants to prove on windows-latest: the full
+	// launcher-shaped chain (cmd → powershell relay → CREATE_NO_WINDOW bun)
+	// delivers bun's bytes while the direct .cmd shim still loses them.
+	test("relay delivers through cmd while the direct shim loses → WORKS", () => {
+		expect(
+			isNoConsoleRelayWorkaround({ "cmd-shim": 0, "cmd-ps1-nw-relay": 1299, "ps1-nw-relay": 1299 }),
+		).toBe(true);
+	});
+
+	test("relay losing through cmd does NOT classify (shipped-shim rewrite would be blind)", () => {
+		expect(
+			isNoConsoleRelayWorkaround({ "cmd-shim": 0, "cmd-ps1-nw-relay": 0, "ps1-nw-relay": 1299 }),
+		).toBe(false);
+	});
+
+	test("missing relay measurement does NOT classify (absent is unknown, not works)", () => {
+		expect(isNoConsoleRelayWorkaround({ "cmd-shim": 0 })).toBe(false);
+	});
+
+	test("a fixed launcher does NOT need the route (shim already speaks)", () => {
+		expect(
+			isNoConsoleRelayWorkaround({ "cmd-shim": 1299, "cmd-ps1-nw-relay": 1299 }),
+		).toBe(false);
+	});
+});
+
+describe("isBunRelayWorkaround (win32 ticket-02 bun-relay signature, diag iteration 2)", () => {
+	// The iteration-2 candidate: cmd → bun -e relay (stdout dead as cmd's
+	// child, alive otherwise) spawns the core directly and writes the file
+	// ITSELF — the receipt is the relay file, keyed `cmd-bun-relay-file-file`.
+	test("relay file nonzero while the direct shim loses → WORKS", () => {
+		expect(
+			isBunRelayWorkaround({ "cmd-shim": 0, "cmd-bun-relay-file": 0, "cmd-bun-relay-file-file": 1299 }),
+		).toBe(true);
+	});
+
+	test("empty relay file does NOT classify", () => {
+		expect(
+			isBunRelayWorkaround({ "cmd-shim": 0, "cmd-bun-relay-file": 0, "cmd-bun-relay-file-file": 0 }),
+		).toBe(false);
+	});
+
+	test("missing relay-file measurement does NOT classify (absent is unknown)", () => {
+		expect(isBunRelayWorkaround({ "cmd-shim": 0, "cmd-bun-relay-file": 0 })).toBe(false);
+	});
+
+	test("a fixed launcher does NOT need the route (shim already speaks)", () => {
+		expect(
+			isBunRelayWorkaround({ "cmd-shim": 1299, "cmd-bun-relay-file-file": 1299 }),
+		).toBe(false);
+	});
+});
+
+describe("dummyEnvForBakedCatalog (providers-catalog runner contract)", () => {
+	// The first crossos exposure (run 33385015007, 2026-08-31): env-keyed
+	// baked providers never list on keyless runners, so the probe failed
+	// 10/14 on BOTH rows. The dummy seeds must cover exactly the `$VAR`
+	// references — literal keys contribute nothing.
+	test("extracts $VAR apiKeys as dummy values", () => {
+		expect(
+			dummyEnvForBakedCatalog({
+				deepseek: { apiKey: "$DEEPSEEK_API_KEY" },
+				zai: { apiKey: "$ZAI_API_KEY" },
+			}),
+		).toEqual({ DEEPSEEK_API_KEY: "e2e-dummy-key", ZAI_API_KEY: "e2e-dummy-key" });
+	});
+
+	test("literal-string apiKeys contribute nothing", () => {
+		expect(dummyEnvForBakedCatalog({ "lm-studio": { apiKey: "lm-studio" } })).toEqual({});
+	});
+
+	test("the REAL baked catalog yields at least one env var (deepseek lane)", () => {
+		expect(Object.keys(dummyEnvForBakedCatalog()).length).toBeGreaterThan(0);
 	});
 });

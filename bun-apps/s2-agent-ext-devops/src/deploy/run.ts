@@ -15,9 +15,10 @@
  *                 <outRoot>/.buns/<hash> (ticket 02) — the launcher execs it
  *   s2-agent.sh   the launcher (execs bin/bun on s2-agent.js)
  *   s2-agent.ps1  the Windows launcher twin (crossos-deploy ticket 04),
- *                 plus s2-agent.cmd — the cmd.exe/double-click entry that
- *                 invokes bin/bun DIRECTLY (the powershell delegation lost
- *                 all piped child stdout, measured 2026-08-28)
+ *                 plus s2-agent.cmd — the cmd.exe/double-click entry — and
+ *                 s2-agent-relay.js, the stdout relay BOTH exec (bun as a
+ *                 shell's child loses all piped stdout; the relay is the
+ *                 measured workaround, win32-launcher-stdout t02)
  *   deploy.json   provenance
  *   package.json  deploy version — pi reads its version from beside the core
  *   ext/<name>/   independently built extension packages
@@ -316,6 +317,72 @@ exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" 
 `;
 
 /**
+ * The Windows stdout relay, as `s2-agent-relay.js` (win32-launcher-stdout
+ * ticket 02): MEASURED on windows-latest (2026-08-28 runs 33115285500 /
+ * 33120905596, still true on bun 1.4.0 = latest 2026-08-29): bun.exe as a
+ * cmd/powershell child delivers ZERO stdout — pipe, file redirect, everything
+ * — while exiting 0, and powershell.exe loses its OWN Write-Output under a
+ * no-console spawn (ps1-echo 0B, run 33385015007) — so NO shell-side relay
+ * can re-emit anything. MEASURED 2026-08-31 (run 33386049681): bun as the
+ * PARENT is the one lane that works — a bun relay spawns the core directly
+ * (bun-relay-pipe 10307B), and as cmd's child — where its own stdout is dead
+ * but nothing else is — it writes the captured bytes to files ITSELF
+ * (cmd-bun-relay-file: relay file 1288B `--ext-list` / 10307B `--help`),
+ * which the .cmd/.ps1 entry then emits through their OWN working writes
+ * (`type` / Get-Content). Branching: bun's isTTY LIES in the console-attached
+ * piped shape (stdout.isTTY=true AND stdin.isTTY=true, run 33388819180), so
+ * the CONSUMER declares piped-ness via S2_RELAY_FORCE=file (the .ps1 derives
+ * it from the handle-based [Console]::IsOutputRedirected); unset/direct
+ * inherits stdio unchanged — interactive use, never broken. Plain JS on
+ * purpose — bun parses .js WITHOUT TypeScript syntax (diag iteration-2
+ * receipt: `!` non-null assertions exit 1 "Unexpected !").
+ */
+const S2_AGENT_RELAY_JS = `// s2-agent-relay.js - Windows stdout relay for the s2-agent launchers.
+// WHY: bun.exe as a cmd/powershell child loses ALL piped stdout while
+// exiting 0 (measured windows-latest 2026-08-28, no upstream fix as of bun
+// 1.4.0). A bun parent spawning the core DIRECTLY is the measured-working
+// lane; when THIS process has no console (piped), its own stdout writes are
+// dead too - so the captured bytes go to S2_RELAY_OUT / S2_RELAY_ERR files
+// the entry shim emits via its own writes (cmd: type; ps1: Get-Content).
+// Interactive (TTY) runs inherit stdio unchanged - the never-broken path.
+var dir = import.meta.dir;
+var bun = process.execPath;
+var core = dir + "/${APP_NAME}.js";
+var args = process.argv.slice(2);
+var outFile = process.env.S2_RELAY_OUT || "";
+var errFile = process.env.S2_RELAY_ERR || "";
+// Branching on isTTY is IMPOSSIBLE here - MEASURED run 33388819180: in the
+// console-attached piped spawn shape bun reports stdout.isTTY=true AND
+// stdin.isTTY=true (console-presence based, not handle based), so the relay
+// cannot distinguish a real human console from an invisible spawned console
+// carrying a pipe. The consumer KNOWS whether it pipes, so the consumer
+// declares: S2_RELAY_FORCE=file (piping consumers - the verify recipe sets
+// this; the .ps1 derives it from [Console]::IsOutputRedirected, which IS
+// handle-based) vs S2_RELAY_FORCE=direct / unset (interactive console use,
+// stdio inherited unchanged - the never-broken path).
+if (process.env.S2_RELAY_FORCE !== "file" || outFile === "") {
+  var direct = Bun.spawn([bun, core].concat(args), {
+    stdio: ["inherit", "inherit", "inherit"],
+  });
+  process.exit(await direct.exited);
+}
+var p = Bun.spawn([bun, core].concat(args), {
+  stdin: "inherit",
+  stdout: "pipe",
+  stderr: "pipe",
+});
+// Concurrent drain: a sequential stdout-then-stderr read deadlocks once the
+// stderr pipe buffer fills while the core still writes stdout (review t02 #2).
+var both = await Promise.all([Bun.readableStreamToText(p.stdout), Bun.readableStreamToText(p.stderr)]);
+var out = both[0];
+var err = both[1];
+var code = await p.exited;
+await Bun.write(outFile, out);
+if (errFile) await Bun.write(errFile, err);
+process.exit(code);
+`;
+
+/**
  * The Windows launcher, as `s2-agent.ps1` (crossos-deploy ticket 04): the
  * PowerShell twin of S2_AGENT_SH — SAME contract, native spellings. The
  * dashed agent-dir env var that forced `env(1)` in bash is native here
@@ -325,9 +392,16 @@ exec env "${AGENT_DIR_ENV}=\$_agent_dir" "\$_bun" "\$SCRIPT_DIR/${APP_NAME}.js" 
  * identical to the .sh: the core bundle is platform-neutral, bin/bun.exe
  * is this platform's; S2_AGENT_BUN still overrides (swap escape hatch).
  * MEASURED on windows-latest (2026-08-28): run via `powershell -File`,
- * piped runs lose ALL child stdout while exiting 0 — so the .cmd entry
- * invokes bun directly and this .ps1 serves PowerShell-native INTERACTIVE
- * use only (console output shows; the piped path does not).
+ * piped runs lose ALL child stdout while exiting 0 — the bun DIRECT lane
+ * was restored in t02, and the stdout relay (s2-agent-relay.js, same
+ * ticket) carries the piped path: this .ps1 execs the relay and re-emits
+ * its capture files. CAVEAT (review t02 #4): this .ps1's own re-emission
+ * through a SPAWNED-piped parent (CI-style no-console spawns) is
+ * UNVERIFIED — powershell's own writes died in that exact shape in the
+ * iteration-1 diag (ps1-echo 0B) — so the verified lane is interactive
+ * terminals and normal pipes; the verify recipe exercises the .cmd. The
+ * `[Console]::IsOutputRedirected` detection is handle-based and reliable
+ * either way.
  */
 const S2_AGENT_PS1 = `# s2-agent.ps1 - launcher for a s2-agent-sh deploy (Windows).
 # PowerShell twin of s2-agent.sh: same contract - exec the SHIPPED bun
@@ -375,24 +449,48 @@ $_bun = if ($env:S2_AGENT_BUN) { $env:S2_AGENT_BUN } else { Join-Path $dir "bin\
 if (-not (Test-Path $_bun)) { $_bun = Join-Path $dir "bin\\bun" } # pre-bun.exe tree shape
 $env:PATH = (Split-Path -Parent $_bun) + ";" + $env:PATH
 
-& $_bun (Join-Path $dir "${APP_NAME}.js") @args
-exit $LASTEXITCODE
+# Stdout relay (win32-launcher-stdout t02): the relay execs the core and,
+# on piped runs, writes its captured stdout/stderr to temp files - re-emitted
+# here through PowerShell's own working writes. Piped detection is the
+# handle-based [Console]::IsOutputRedirected (bun's isTTY is console-presence
+# based and LIES in the console-attached piped shape - measured run
+# 33388819180). TTY runs inherit stdio unchanged inside the relay.
+if (-not $env:S2_RELAY_FORCE) {
+  $env:S2_RELAY_FORCE = if ([Console]::IsOutputRedirected) { "file" } else { "direct" }
+}
+$_tmp = [System.IO.Path]::GetTempPath()
+$env:S2_RELAY_OUT = Join-Path $_tmp ("s2-agent-relay-out-" + [System.Guid]::NewGuid().ToString("N") + ".txt")
+$env:S2_RELAY_ERR = Join-Path $_tmp ("s2-agent-relay-err-" + [System.Guid]::NewGuid().ToString("N") + ".txt")
+& $_bun (Join-Path $dir "${APP_NAME}-relay.js") @args
+$_code = $LASTEXITCODE
+if (Test-Path $env:S2_RELAY_OUT) {
+  [Console]::Out.Write((Get-Content -Raw -Encoding UTF8 $env:S2_RELAY_OUT))
+  Remove-Item $env:S2_RELAY_OUT -ErrorAction SilentlyContinue
+}
+if (Test-Path $env:S2_RELAY_ERR) {
+  [Console]::Error.Write((Get-Content -Raw -Encoding UTF8 $env:S2_RELAY_ERR))
+  Remove-Item $env:S2_RELAY_ERR -ErrorAction SilentlyContinue
+}
+exit $_code
 `;
 
 /**
  * The cmd.exe / double-click entry shim, as `s2-agent.cmd`: invokes the
- * shipped bun DIRECTLY on the core — the full .ps1 contract (dashed
- * agent-dir env var, PATH prepend, Chrome/Edge probe, S2_AGENT_BUN escape
- * hatch) in cmd syntax. It formerly delegated to s2-agent.ps1 through
- * powershell.exe, but that layer DROPPED ALL child stdout when piped while
- * exiting 0 (measured on windows-latest 2026-08-28: bun-direct 1299B,
- * ps1-direct 0B, cmd-shim 0B — crossos run 33115285500 layer diag), which
- * no piping consumer (CI, scripts) can survive; the direct invocation is
- * the same layer the deploy's own gates already prove. s2-agent.ps1 still
- * ships for PowerShell-native users (interactive console use shows output
- * — only the piped path loses it). No execution-policy friction exists in
- * this form at all: cmd never asks. `%~dp0` is the shim's own dir (the
- * version dir), trailing backslash included. ASCII-only, like the .ps1.
+ * shipped bun on the STDOUT RELAY (s2-agent-relay.js) — the full .ps1
+ * contract (dashed agent-dir env var, PATH prepend, Chrome/Edge probe,
+ * S2_AGENT_BUN escape hatch) in cmd syntax. History: the powershell -File
+ * delegation (#2104 era) dropped all piped child stdout; the direct bun
+ * invocation (#2106) restored the bun lane but still lost ALL stdout when
+ * bun was cmd's OWN child (measured windows-latest 2026-08-28: cmd-shim 0B
+ * while bun-direct 1299B — run 33115285500 layer diag). t02's relay closes
+ * that: the relay spawns the core directly (the measured-working parent
+ * lane) and, on piped runs, writes its capture to S2_RELAY_OUT/ERR temp
+ * files that this shim `type`s through cmd's own working writes. TTY runs
+ * inherit stdio unchanged inside the relay — interactive use never sees
+ * the files. No execution-policy friction: cmd never asks. `%~dp0` is the
+ * shim's own dir (the version dir), trailing backslash included. The
+ * S2_RELAY_* vars are set OUTSIDE parenthesized blocks (cmd parsing trap).
+ * ASCII-only, like the .ps1.
  */
 const S2_AGENT_CMD = `@echo off
 rem s2-agent.cmd - entry shim for cmd.exe / double-click users; invokes
@@ -423,8 +521,24 @@ set "S2_BUN=%DIR%bin\\bun.exe"
 if not exist "%S2_BUN%" set "S2_BUN=%DIR%bin\\bun"
 if defined S2_AGENT_BUN set "S2_BUN=%S2_AGENT_BUN%"
 set "PATH=%DIR%bin;%PATH%"
-"%S2_BUN%" "%DIR%${APP_NAME}.js" %*
-endlocal & exit /b %ERRORLEVEL%
+rem Stdout relay (win32-launcher-stdout t02): bun as cmd's child loses ALL
+rem piped stdout while exiting 0 (measured windows-latest 2026-08-28). The
+rem relay spawns the core directly - the measured-working parent lane - and
+rem in file mode writes its capture to these temp files, typed below via
+rem cmd's own working writes (cmd-type 21B, run 33388819180). Piping
+rem consumers MUST set S2_RELAY_FORCE=file: bun's isTTY cannot detect the
+rem piped shape (console-presence based, measured run 33388819180), so the
+rem consumer declares it. Unset = interactive stdio passthrough. %RANDOM%
+rem pairs keep concurrent runs apart.
+set "S2_RELAY_OUT=%TEMP%\\${APP_NAME}-relay-out-%RANDOM%%RANDOM%.txt"
+set "S2_RELAY_ERR=%TEMP%\\${APP_NAME}-relay-err-%RANDOM%%RANDOM%.txt"
+"%S2_BUN%" "%DIR%${APP_NAME}-relay.js" %*
+set "RELAY_CODE=%ERRORLEVEL%"
+if exist "%S2_RELAY_OUT%" type "%S2_RELAY_OUT%"
+if exist "%S2_RELAY_OUT%" del "%S2_RELAY_OUT%" >nul 2>&1
+if exist "%S2_RELAY_ERR%" type "%S2_RELAY_ERR%" 1>&2
+if exist "%S2_RELAY_ERR%" del "%S2_RELAY_ERR%" >nul 2>&1
+endlocal & exit /b %RELAY_CODE%
 `;
 
 
@@ -802,6 +916,12 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 		// shim's -ExecutionPolicy Bypass, never by a POSIX exec.
 		writeFileSync(join(stage, `${APP_NAME}.ps1`), S2_AGENT_PS1);
 		writeFileSync(join(stage, `${APP_NAME}.cmd`), S2_AGENT_CMD);
+		// The Windows stdout relay (win32-launcher-stdout t02): exec'd by BOTH
+		// Windows entries — it spawns the core directly (the measured-working
+		// parent lane) and bridges piped runs' output through capture files the
+		// entries emit. Like the .ps1/.cmd, shipped in EVERY tree (inert weight
+		// on POSIX, keeps the run.ts swap escape hatch symmetric).
+		writeFileSync(join(stage, `${APP_NAME}-relay.js`), S2_AGENT_RELAY_JS);
 		// pi resolves its version AND branding from <packageDir>/package.json,
 		// and in compiled-binary mode packageDir = dirname(execPath) = this
 		// version dir. Without this file VERSION falls back to "0.0.0", and

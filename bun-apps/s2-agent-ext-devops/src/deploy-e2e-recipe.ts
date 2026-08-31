@@ -362,6 +362,26 @@ export function parseListModelsRows(stdout: string): Map<string, Set<string>> {
 }
 
 /**
+ * Dummy env values for every `$VAR`-referenced apiKey in the baked catalog
+ * (see providersProbeEnv for why). Catalog-true: derived from PROVIDERS, so a
+ * new env-keyed lane is covered automatically. A literal-string apiKey (the
+ * local-server lm-studio form) contributes nothing — it needs no env.
+ * NOTE (review t02 #14): the dummy OVERRIDES any ambient real key — inert
+ * today because --list-models never calls the network, but a future probe
+ * variant that does would need to stop seeding.
+ */
+export function dummyEnvForBakedCatalog(
+	providers: Record<string, { apiKey: unknown }> = PROVIDERS,
+): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const entry of Object.values(providers)) {
+		const m = typeof entry.apiKey === "string" ? /^\$([A-Za-z_][A-Za-z0-9_]*)$/.exec(entry.apiKey) : null;
+		if (m) env[m[1]] = "e2e-dummy-key";
+	}
+	return env;
+}
+
+/**
  * The per-run agent-dir env for the providers-catalog probe: a SCRATCH dir so
  * the listing cannot be satisfied by ~/.pi/agent/models.json residue. Sets the
  * DASHED derived name (upstream builds `${piConfig.name.toUpperCase()_
@@ -371,6 +391,17 @@ export function parseListModelsRows(stdout: string): Map<string, Set<string>> {
  */
 function providersProbeEnv(scratchDir: string, versionDir: string): Record<string, string> {
 	const env: Record<string, string> = { PI_CODING_AGENT_DIR: scratchDir };
+	// Seed dummy values for every `$VAR`-referenced apiKey in the baked
+	// catalog. MEASURED GAP (first crossos exposure, run 33385015007
+	// 2026-08-31): env-keyed baked providers (deepseek `$DEEPSEEK_API_KEY`,
+	// zai …) never list on runners — no stored credential → not "available" —
+	// so 10/14 baked pairs failed the probe on BOTH matrix rows while the
+	// same tree was green on this machine (keys in the ambient env). The
+	// probe's contract is the ModelRuntime.create WRAP (registration), not
+	// ambient credentials: a dummy key marks the provider configured exactly
+	// like the literal-key lm-studio entry, and --list-models never calls the
+	// network — the dummy value is inert.
+	for (const [name, value] of Object.entries(dummyEnvForBakedCatalog())) env[name] = value;
 	try {
 		const pkg = JSON.parse(readFileSync(join(versionDir, "package.json"), "utf8")) as {
 			piConfig?: { name?: string };
@@ -557,7 +588,7 @@ async function win32LayerDiag(
 	spawn: import("./spawn.js").SpawnFn,
 	versionDir: string,
 	args: string[],
-): Promise<{ summary: string; isBunShellChildBug: boolean }> {
+): Promise<{ summary: string; isBunShellChildBug: boolean; isTrueUnknown: boolean }> {
 	const bunExe = join(versionDir, "bin", "bun.exe");
 	const core = join(versionDir, "s2-agent.js");
 	const layers: Array<[string, string, string[]]> = [
@@ -619,20 +650,296 @@ async function win32LayerDiag(
 	} catch (e) {
 		parts.push(`cmd-echo-bunspawn: error ${(e as Error).message}`);
 	}
+	// ── no-console-spawn workaround probes (win32-launcher-stdout ticket 02) ──
+	// Ticket 01's verdict closed the bun-upgrade path; the standing hypothesis
+	// is that bun.exe, when its spawn carries a console, writes via
+	// WriteConsole and never touches the stdio handles (consistent with
+	// cmd-bun 0B and cmd-bun-file 0B — even a real `>` file handle got
+	// nothing). The workaround candidate: the .cmd/.ps1 entry spawns bun with
+	// NO console (CREATE_NO_WINDOW / DETACHED class) and RELAYS its captured
+	// handles. These probes prove or refute that BEFORE any shipped shim is
+	// rewritten: `ps1-nw-relay` is the mechanism in isolation, and
+	// `cmd-ps1-nw-relay` is the full launcher-shaped chain (cmd → powershell
+	// relay → no-console bun) the shipped .cmd would delegate to. The two
+	// `*-echo` controls prove PowerShell's OWN writes flow at each layer —
+	// the relay is only viable if its re-emitted output survives the pipe.
+	// Paths travel via env vars (no quoting inside the script — spaces in
+	// the version dir stay one argv entry end to end).
+	const diagDir = mkdtempSync(join(tmpdir(), "s2-e2e-nwdiag-"));
+	try {
+		const relayScript = join(diagDir, "diag-nw-relay.ps1");
+		writeFileSync(
+			relayScript,
+			[
+				"# diag-nw-relay.ps1 - spawn bun with CREATE_NO_WINDOW (no console), relay captured handles",
+				"$psi = New-Object System.Diagnostics.ProcessStartInfo",
+				"$psi.FileName = $env:DIAG_BUN",
+				"$psi.Arguments = '\"' + $env:DIAG_CORE + '\" ' + $env:DIAG_ARGS",
+				"$psi.WorkingDirectory = $env:DIAG_CWD",
+				"$psi.UseShellExecute = $false",
+				"$psi.CreateNoWindow = $true",
+				"$psi.RedirectStandardOutput = $true",
+				"$psi.RedirectStandardError = $true",
+				"$p = [System.Diagnostics.Process]::Start($psi)",
+				"$out = $p.StandardOutput.ReadToEnd()",
+				"$err = $p.StandardError.ReadToEnd()",
+				"$p.WaitForExit()",
+				"[Console]::Out.Write($out)",
+				"[Console]::Error.Write($err)",
+				"exit $p.ExitCode",
+				"",
+			].join("\n"),
+		);
+		// The file-handle twin of the relay: Start-Process with -RedirectStandardOutput
+		// (a REAL file created by the parent, not an inherited pipe) — parallels the
+		// cmd-bun-file measurement above and distinguishes "pipe handle" from "any
+		// redirected handle" in the no-console child.
+		const fileScript = join(diagDir, "diag-nw-file.ps1");
+		writeFileSync(
+			fileScript,
+			[
+				"# diag-nw-file.ps1 - no-console bun via Start-Process, stdout redirected to a file",
+				"$out = Join-Path $env:DIAG_TMP ('diag-nw-out-' + $PID + '.txt')",
+				"$p = Start-Process -FilePath $env:DIAG_BUN -ArgumentList @('\"' + $env:DIAG_CORE + '\"', $env:DIAG_ARGS) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out -WorkingDirectory $env:DIAG_CWD",
+				"$bytes = (Get-Item $out -ErrorAction SilentlyContinue).Length",
+				"Write-Output ('nw-file: ' + $bytes + 'B, exit ' + $p.ExitCode)",
+				"exit $p.ExitCode",
+				"",
+			].join("\n"),
+		);
+		const relayEnv = {
+			DIAG_BUN: bunExe,
+			DIAG_CORE: core,
+			DIAG_ARGS: args.join(" "),
+			DIAG_CWD: versionDir,
+			DIAG_TMP: diagDir,
+		};
+		const relayLayers: Array<[string, string, string[]]> = [
+			["ps1-nw-relay", "powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", relayScript]],
+			[
+				"cmd-ps1-nw-relay",
+				"cmd",
+				["/c", "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", relayScript],
+			],
+			["ps1-nw-file", "powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", fileScript]],
+			["ps1-echo", "powershell.exe", ["-NoProfile", "-Command", "Write-Output diag-ps1-echo-marker"]],
+			[
+				"cmd-ps1-echo",
+				"cmd",
+				["/c", "powershell.exe", "-NoProfile", "-Command", "Write-Output diag-ps1-echo-marker"],
+			],
+		];
+		for (const [label, cmd, argv] of relayLayers) {
+			try {
+				const r = await spawn(cmd, argv, { cwd: versionDir, timeoutMs: 60_000, env: relayEnv });
+				const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+				stdoutBytes[label] = r.stdout.length;
+				parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout — ${head || "<no output>"}`);
+			} catch (e) {
+				parts.push(`${label}: spawn error ${(e as Error).message}`);
+			}
+		}
+		parts.push(`relay-route (cmd→ps1 no-console spawn of bun): ${isNoConsoleRelayWorkaround(stdoutBytes) ? "WORKS" : "BROKEN"}`);
+		// ── bun-relay probes (ticket 02 diag iteration 2) ──
+		// Iteration 1 on windows-latest (run 33385015007, 2026-08-31) REFUTED
+		// the powershell relay: powershell.exe loses its OWN Write-Output under
+		// the piped spawn (ps1-echo 0B), so no ps1-shaped chain can re-emit
+		// anything. The surviving lanes: node→bun (bun-direct >0B) and cmd's
+		// OWN writes (cmd-echo, cmd-echo-bunspawn >0B). The unmeasured parent
+		// that could bridge them: BUN itself. A bun -e relay spawns the core
+		// DIRECTLY (the proven bun-direct lane, now with bun as the parent)
+		// and either re-emits via its own stdout or writes the captured bytes
+		// to a file ITSELF (its own fs write, not a cmd `>` handle — the
+		// cmd-bun-file 0B result does not apply). `cmd-bun-relay-file` is the
+		// shipped-shim candidate chain: .cmd → bun relay (stdout dead, alive
+		// otherwise) → direct core spawn captured → file → cmd `type`s it.
+		const relayJs = join(diagDir, "diag-bun-relay.js");
+		writeFileSync(
+			relayJs,
+			[
+				`// diag-bun-relay.js - spawn the core DIRECTLY (bun as parent), relay via`,
+				`// stdout (RELAY_MODE=pipe) or a self-written file (RELAY_MODE=file).`,
+				`// Plain JS on purpose: bun parses .js WITHOUT TypeScript syntax, so no`,
+				`// non-null "!" assertions (iteration-2 receipt: exit 1 "Unexpected !").`,
+				`const args = (process.env.DIAG_ARGS || "").split(" ").filter(Boolean);`,
+				`const p = Bun.spawn([process.env.DIAG_BUN, process.env.DIAG_CORE].concat(args), {`,
+				`	cwd: process.env.DIAG_CWD,`,
+				`	stdout: "pipe",`,
+				`	stderr: "pipe",`,
+				`});`,
+				`const out = await Bun.readableStreamToText(p.stdout);`,
+				`const err = await Bun.readableStreamToText(p.stderr);`,
+				`const code = await p.exited;`,
+				`if (process.env.RELAY_MODE === "file") {`,
+				`	await Bun.write(process.env.DIAG_OUT, out);`,
+				`} else {`,
+				`	process.stdout.write(out);`,
+				`	process.stderr.write(err);`,
+				`}`,
+				`process.exit(code);`,
+				``,
+			].join("\n"),
+		);
+		// cmd /c bun -e "console.log(...)" — is bun-as-cmd's-child silence about
+		// bun.exe itself, or the core bundle? One marker line, no bundle.
+		try {
+			const label = "cmd-bun-echo";
+			const r = await spawn("cmd", ["/c", bunExe, "-e", "console.log('diag-bun-echo-marker')"], {
+				cwd: versionDir,
+				timeoutMs: 60_000,
+			});
+			const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+			stdoutBytes[label] = r.stdout.length;
+			parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout — ${head || "<no output>"}`);
+		} catch (e) {
+			parts.push(`cmd-bun-echo: spawn error ${(e as Error).message}`);
+		}
+		for (const [label, cmd, argv, env, probeFile] of [
+			[
+				"bun-relay-pipe",
+				bunExe,
+				[relayJs],
+				{ RELAY_MODE: "pipe" },
+				null as string | null,
+			],
+			[
+				"cmd-bun-relay-pipe",
+				"cmd",
+				["/c", bunExe, relayJs],
+				{ RELAY_MODE: "pipe" },
+				null,
+			],
+			[
+				"cmd-bun-relay-file",
+				"cmd",
+				["/c", bunExe, relayJs],
+				{ RELAY_MODE: "file", DIAG_OUT: join(diagDir, "relay-out.txt") },
+				join(diagDir, "relay-out.txt"),
+			],
+		] as Array<[string, string, string[], Record<string, string>, string | null]>) {
+			try {
+				const r = await spawn(cmd, argv, { cwd: versionDir, timeoutMs: 60_000, env: { ...relayEnv, ...env } });
+				const head = `${r.stdout}${r.stderr}`.trim().replace(/\s+/g, " ").slice(0, 220);
+				stdoutBytes[label] = r.stdout.length;
+				// File mode: the receipt is the file the RELAY wrote (its stdout as
+				// cmd's child is expected dead) — report its byte count + head.
+				let fileNote = "";
+				if (probeFile) {
+					try {
+						const txt = await Bun.file(probeFile).text();
+						stdoutBytes[`${label}-file`] = txt.length;
+						fileNote = `, relay file ${txt.length}B — ${txt.trim().replace(/\s+/g, " ").slice(0, 120) || "<empty file>"}`;
+					} catch {
+						fileNote = ", relay file MISSING";
+					}
+				}
+				parts.push(`${label}: exit ${r.exitCode}${r.timedOut ? " TIMEOUT" : ""}, ${r.stdout.length}B stdout${fileNote} — ${head || "<no output>"}`);
+			} catch (e) {
+				parts.push(`${label}: spawn error ${(e as Error).message}`);
+			}
+		}
+		parts.push(
+			`bun-relay-route (cmd→bun relay→direct core spawn): ${
+				isBunRelayWorkaround(stdoutBytes) ? "WORKS" : "BROKEN"
+			}`,
+		);
+		// ── shipped-relay isolation probes (ticket 02, iterations 4-5 follow-up) ──
+		// Runs 33387224763/33388084709: the shipped .cmd still delivers 0B
+		// although the diag relay (env-forced file mode) delivers 1288B. Three
+		// decisive measurements: (1) the SHIPPED relay file, run as cmd's child
+		// with preset S2_RELAY_OUT — isolates the relay's own branch logic from
+		// the .cmd glue; (2) bun's isTTY truth in this spawn shape, written to a
+		// FILE (its stdout is dead here) — the relay branches on
+		// stdout.isTTY && stdin.isTTY, and iteration-4's empty output suggests
+		// that check lies in the console-attached piped shape; (3) cmd's `type`
+		// of a marker file — the .cmd's re-emission glue itself.
+		const shippedRelay = join(versionDir, "s2-agent-relay.js");
+		const shippedOut = join(diagDir, "shipped-relay-out.txt");
+		const shippedErr = join(diagDir, "shipped-relay-err.txt");
+		const ttyProbeFile = join(diagDir, "tty-truth.txt");
+		try {
+			const r = await spawn("cmd", ["/c", bunExe, shippedRelay, ...args], {
+				cwd: versionDir,
+				timeoutMs: 60_000,
+				env: { DIAG_BUN: bunExe, DIAG_CORE: core, DIAG_ARGS: args.join(" "), DIAG_CWD: versionDir, S2_RELAY_OUT: shippedOut, S2_RELAY_ERR: shippedErr },
+			});
+			const outBytes = await Bun.file(shippedOut)
+				.text()
+				.catch(() => null);
+			const errBytes = await Bun.file(shippedErr)
+				.text()
+				.catch(() => null);
+			stdoutBytes["cmd-shipped-relay-file"] = outBytes?.length ?? 0;
+			parts.push(
+				`cmd-shipped-relay: exit ${r.exitCode}, pipe ${r.stdout.length}B — out file ${outBytes?.length ?? -1}B (${outBytes ? "written" : "MISSING"}), err file ${errBytes?.length ?? -1}B (${errBytes ? "written" : "MISSING"})`,
+			);
+		} catch (e) {
+			parts.push(`cmd-shipped-relay: spawn error ${(e as Error).message}`);
+		}
+		try {
+			await spawn(
+				"cmd",
+				[
+					"/c",
+					bunExe,
+					"-e",
+					`Bun.write(${JSON.stringify(ttyProbeFile)}, "stdout.isTTY=" + process.stdout.isTTY + " stdin.isTTY=" + process.stdin.isTTY)`,
+				],
+				{ cwd: versionDir, timeoutMs: 60_000 },
+			);
+			const truth = await Bun.file(ttyProbeFile).text();
+			parts.push(`bun-isTTY-truth (cmd child, file-reported): ${truth.trim()}`);
+		} catch (e) {
+			parts.push(`bun-isTTY-truth: spawn error ${(e as Error).message}`);
+		}
+		const typeMarker = join(diagDir, "type-marker.txt");
+		writeFileSync(typeMarker, "diag-cmd-type-marker\n");
+		try {
+			const r = await spawn("cmd", ["/c", "type", typeMarker], { cwd: versionDir, timeoutMs: 60_000 });
+			stdoutBytes["cmd-type"] = r.stdout.length;
+			parts.push(`cmd-type: exit ${r.exitCode}, ${r.stdout.length}B stdout — ${r.stdout.trim() || "<no output>"}`);
+		} catch (e) {
+			parts.push(`cmd-type: spawn error ${(e as Error).message}`);
+		}
+	} finally {
+		rmSync(diagDir, { recursive: true, force: true });
+	}
 	// The measured upstream signature (windows-latest, bun 1.4.0 = latest as
 	// of 2026-08-28, identical under `bun-version: latest`): bun.exe delivers
 	// full output when spawned directly, cmd.exe's own echo flows, but bun as
 	// cmd's or powershell's child delivers ZERO bytes — pipe, file redirect,
 	// everything — while exiting 0. No matching upstream issue exists
 	// (searched 2026-08-29 — bun#12108 is batch termination, a different
-	// bug; filing deliberately skipped, win32-launcher-stdout D5). When the
-	// diag reproduces exactly this, the launcher chain CANNOT be verified
-	// through a piped shell on this bun: callers classify the probe a SKIP
-	// (the environment cannot verify), never a silent pass.
+	// bug; filing deliberately skipped, win32-launcher-stdout D5). Since t02
+	// the shipped shims carry the stdout relay (s2-agent-relay.js), so this
+	// signature on a launcher probe is a REAL DEFECT (the relay is broken or
+	// missing) — FAIL. The ONLY remaining skip is the true unknown: even
+	// bun-direct dead means the environment cannot verify the runtime at all.
 	return {
 		summary: `win32 layer diag:\n  ${parts.join("\n  ")}`,
 		isBunShellChildBug: isBunShellChildSignature(stdoutBytes),
+		isTrueUnknown: (stdoutBytes["bun-direct"] ?? 0) === 0,
 	};
+}
+
+/**
+ * Pure signature check for the no-console relay workaround (ticket 02): the
+ * full launcher-shaped chain (cmd → powershell relay → CREATE_NO_WINDOW bun)
+ * delivers bun's bytes while the direct .cmd shim still loses them — i.e.
+ * rewriting the shipped shims around the relay would make the launcher speak.
+ */
+export function isNoConsoleRelayWorkaround(bytes: Record<string, number>): boolean {
+	return (bytes["cmd-ps1-nw-relay"] ?? 0) > 0 && (bytes["cmd-shim"] ?? -1) === 0;
+}
+
+/**
+ * Pure signature check for the bun-relay workaround (ticket 02, diag
+ * iteration 2): a bun -e relay as cmd's child spawns the core DIRECTLY (the
+ * proven bun-direct lane) and writes the captured bytes to a file itself —
+ * nonzero relay-file bytes while the direct .cmd shim still loses them.
+ */
+export function isBunRelayWorkaround(bytes: Record<string, number>): boolean {
+	return (bytes["cmd-bun-relay-file-file"] ?? 0) > 0 && (bytes["cmd-shim"] ?? -1) === 0;
 }
 
 /** Pure signature check for the bun-as-shell-child output loss (see win32LayerDiag). */
@@ -722,6 +1029,12 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	} catch (e) {
 		return failFast(opts.versionDir, `deploy.json unreadable: ${(e as Error).message}`, startedAt, now);
 	}
+	// This recipe PIPES every launcher spawn — so it declares that to the
+	// shipped win32 stdout relay (S2_RELAY_FORCE=file; bun's isTTY cannot
+	// detect the piped shape, measured run 33388819180 — the consumer knows).
+	// POSIX launchers ignore the var.
+	const launcherEnv: Record<string, string> | undefined =
+		launcher.file === "s2-agent.cmd" ? { S2_RELAY_FORCE: "file" } : undefined;
 	if (!(await Bun.file(join(opts.versionDir, launcher.file)).exists())) {
 		return failFast(opts.versionDir, `${launcher.file} missing from the version dir`, startedAt, now);
 	}
@@ -735,7 +1048,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	// ── boot probe ──────────────────────────────────────────────────────────
 	{
 		const t0 = now();
-		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--help"], { cwd: opts.versionDir, timeoutMs: BOOT_CAP_MS, env: launcherEnv });
 		const ms = now() - t0;
 		probes.push(
 			r.exitCode === 0 && !r.timedOut
@@ -756,18 +1069,18 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 	let extLoadLoaded: string[] | null = null;
 	{
 		const t0 = now();
-		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS });
+		const r = await opts.spawn(launcher.command, [...launcher.prefix, "--ext-list"], { cwd: opts.versionDir, timeoutMs: EXT_LIST_CAP_MS, env: launcherEnv });
 		const ms = now() - t0;
 		if (r.timedOut || r.exitCode !== 0) {
 			const diag =
 				process.platform === "win32" ? await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"]) : null;
 			probes.push({
 				id: "ext-load",
-				verdict: diag?.isBunShellChildBug ? "skip" : "fail",
+				verdict: diag?.isTrueUnknown ? "skip" : "fail",
 				ms,
 				note:
-					diag?.isBunShellChildBug
-						? "--ext-list unverifiable through a piped shell: bun.exe as a cmd/powershell child loses all output (no matching upstream issue; runtime verified via bun-direct in the diag)"
+					diag?.isTrueUnknown
+						? "--ext-list unverifiable in THIS environment: even bun-direct (the lane the deploy gates prove) delivers no output — see layer diag"
 						: `--ext-list ${r.timedOut ? `timed out after ${EXT_LIST_CAP_MS}ms` : `exited ${r.exitCode}`}`,
 				detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
 			});
@@ -778,10 +1091,10 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 					process.platform === "win32" ? await win32LayerDiag(opts.spawn, opts.versionDir, ["--ext-list"]) : null;
 				probes.push({
 					id: "ext-load",
-					verdict: diag?.isBunShellChildBug ? "skip" : "fail",
+					verdict: diag?.isTrueUnknown ? "skip" : "fail",
 					ms,
-					note: diag?.isBunShellChildBug
-						? "--ext-list stdout empty via the launcher: bun.exe as a cmd/powershell child loses all output (no matching upstream issue; runtime verified via bun-direct in the diag)"
+					note: diag?.isTrueUnknown
+						? "--ext-list stdout empty via the launcher AND via bun-direct — this environment cannot verify the runtime at all; see layer diag"
 						: p.message,
 					detail: `${tail(r.stdout, r.stderr)}${diag ? `\n${diag.summary}` : ""}`,
 				});
@@ -828,6 +1141,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			const r = await opts.spawn(foreignCommand, [...foreignPrefix, "--ext-list"], {
 				cwd: outsideDir,
 				timeoutMs: EXT_LIST_CAP_MS,
+				env: launcherEnv,
 			});
 			const ms = now() - t0;
 			const p = r.timedOut || r.exitCode !== 0 ? null : parseExtListPayload(r.stdout);
@@ -889,10 +1203,13 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		try {
 			const probePath = join(workDir, "tools-probe.ts");
 			writeFileSync(probePath, TOOLS_ACTIVE_PROBE);
+				const tpEnv = { ...launcherEnv, ...(opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined) };
 			const r = await opts.spawn(launcher.command, [...launcher.prefix, "-e", probePath, "-p", "hi", "--no-session"], {
 				cwd: opts.versionDir,
 				timeoutMs: TOOLS_PROBE_CAP_MS,
-				env: opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined,
+				// undefined (not {}) when empty — the recording fakes and the
+				// "no spawn env anywhere" contract distinguish the two.
+				env: Object.keys(tpEnv).length ? tpEnv : undefined,
 			});
 			const ms = now() - t0;
 			const p = parseToolsProbeLine(r.stderr);
@@ -901,7 +1218,16 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				// resolution, so a FAST provider/auth failure is the same SKIP
 				// contract as model-call (classifyRun reused — the gates can
 				// never disagree about what that means). Timeouts still FAIL.
-				const c = classifyRun({ ...r, durationMs: ms });
+				// win32 fast-fail window widened to 45s (measured 34.3s, run
+				// 33389820559; NOT the 60s cap — the window must stay under the
+				// probe budget so a mid-run stall + provider smell cannot be
+				// swallowed): through the launcher relay the same
+				// provider-absent exit that takes <1s on POSIX takes 34s
+				// (hermes surrealdb fallback + embedding retries).
+				const c = classifyRun(
+					{ ...r, durationMs: ms },
+					{ fastFailMs: process.platform === "win32" ? 45_000 : undefined },
+				);
 				tpVerdict = c.verdict === "skip" ? "skip" : "fail";
 				tpNote =
 					c.verdict === "skip"
@@ -911,12 +1237,13 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				if (process.platform === "win32" && tpVerdict === "fail") {
 					const diag = await win32LayerDiag(opts.spawn, opts.versionDir, ["--help"]);
 					tpDetail += `\n${diag.summary}`;
-					if (diag.isBunShellChildBug) {
-						// The probe's [TOOLS] marker travels on stderr — the same
-						// bun-as-shell-child output loss eats it. Same upstream
-						// classification as ext-load.
+					if (diag.isTrueUnknown) {
+						// The probe's [TOOLS] marker travels on stderr — with even
+						// bun-direct dead, this environment cannot verify the runtime
+						// at all. Anything less is a real defect (the shipped relay
+						// should have carried it) and stays a FAIL.
 						tpVerdict = "skip";
-						tpNote = "probe output unverifiable through a piped shell (see layer diag)";
+						tpNote = "probe output unverifiable in this environment (see layer diag)";
 					}
 				}
 			} else {
@@ -980,12 +1307,12 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			const on = await opts.spawn(launcher.command, [...launcher.prefix, "--list-models"], {
 				cwd: opts.versionDir,
 				timeoutMs: PROVIDERS_LIST_CAP_MS,
-				env: agentEnv,
+				env: { ...agentEnv, ...launcherEnv },
 			});
 			const off = await opts.spawn(launcher.command, [...launcher.prefix, "--list-models"], {
 				cwd: opts.versionDir,
 				timeoutMs: PROVIDERS_LIST_CAP_MS,
-				env: { ...agentEnv, BUN_PI_PRE_LOAD_PROVIDERS: "0" },
+				env: { ...agentEnv, ...launcherEnv, BUN_PI_PRE_LOAD_PROVIDERS: "0" },
 			});
 			const onRows = on.exitCode === 0 && !on.timedOut ? parseListModelsRows(on.stdout) : null;
 			const offRows = off.exitCode === 0 && !off.timedOut ? parseListModelsRows(off.stdout) : null;
@@ -1066,13 +1393,21 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			}
 		}
 		const t0 = now();
+		const mcEnv = { ...launcherEnv, ...(opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined) };
 		const r = await opts.spawn(launcher.command, [...launcher.prefix, "-p", DEPLOY_E2E_PROMPT, "--no-session"], {
 			cwd: opts.versionDir,
 			timeoutMs: MODEL_CALL_CAP_MS,
-			env: opts.modelPin ? pinSpawnEnv(opts.modelPin) : undefined,
+			// Same win32 relay declaration as every launcher spawn here (review
+			// t02 #3) — and undefined-when-empty keeps the no-env contract.
+			env: Object.keys(mcEnv).length ? mcEnv : undefined,
 		});
 		const ms = now() - t0;
-		const c = classifyRun({ ...r, durationMs: ms });
+		const c = classifyRun(
+			{ ...r, durationMs: ms },
+			// Same widened win32 provider window as tools-probe (review t02 #3):
+			// the relay lane measures 34s+ to the provider-absent exit.
+			{ fastFailMs: process.platform === "win32" ? 45_000 : undefined },
+		);
 		// ── one-shot runtime budget + hermes round-trip cap ──────────────────
 		// The one-shot's wall time IS the startup/shutdown serialization
 		// signal (a trivial prompt is ~11s on a healthy tree; the #1976 class

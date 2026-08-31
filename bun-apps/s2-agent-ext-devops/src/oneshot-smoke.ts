@@ -160,11 +160,15 @@ export const BOOT_HANG_DIAGNOSTIC = [
  * Classify one probe outcome. Pure — no spawns, no clock, no filesystem.
  * `slowGenerationContention` carries the contention precheck's warning: when
  * set, a timeout is ambiguous (slow generation vs hang) and downgrades to
- * skip — the environment, not the tree, is the suspect.
+ * skip — the environment, not the tree, is the suspect. `fastFailMs` widens
+ * the provider-failure window (default PROVIDER_FAIL_FAST_MS): the win32
+ * launcher relay measures 34s to the same provider-absent exit that takes
+ * <1s on POSIX (hermes surrealdb fallback + embedding retries; run
+ * 33389820559) — the failure reason is unchanged, only the wall time.
  */
 export function classifyRun(
 	run: SmokeRun,
-	opts: { slowGenerationContention?: string } = {},
+	opts: { slowGenerationContention?: string; fastFailMs?: number } = {},
 ): SmokeClassification {
 	if (run.timedOut) {
 		if (opts.slowGenerationContention) {
@@ -183,7 +187,7 @@ export function classifyRun(
 		return { verdict: "fail", reason: "empty-stdout", detail: tail(run) };
 	}
 	if (
-		run.durationMs <= PROVIDER_FAIL_FAST_MS &&
+		run.durationMs <= (opts.fastFailMs ?? PROVIDER_FAIL_FAST_MS) &&
 		PROVIDER_RE.test(`${run.stdout}\n${run.stderr}`)
 	) {
 		return {
