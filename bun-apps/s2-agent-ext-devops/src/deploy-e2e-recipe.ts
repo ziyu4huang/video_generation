@@ -97,11 +97,14 @@ import { basename, join, resolve } from "node:path";
 import { hostTargetName } from "./deploy/lib/targets.js";
 import { isTargetSubrootName } from "./deploy/lib/version.js";
 import { executeExtTool } from "./deploy/lib/ext-build.js";
+import { excludedExtensionsFromRegistry } from "./deploy/lib/config.js";
 import { runToolGateFireProbe } from "./tool-gate-fire-probe.js";
 import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
 import { standaloneImportProbe } from "./deploy/lib/standalone-import-probe.ts";
 import { classifyRun } from "./oneshot-smoke.js";
 import { parseToolsProbeLine, TOOLS_ACTIVE_PROBE } from "./tools-active-probe.js";
+import { captureParityFingerprint } from "./parity-capture.js";
+import { diffFingerprints } from "./parity-diff.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
 import { PROVIDERS } from "../../s2-agent/src/pre-load-providers.ts";
 import type { SpawnFn } from "./spawn.js";
@@ -391,6 +394,7 @@ export interface DeployE2eProbe {
 		| "boot"
 		| "ext-load"
 		| "cwd-independence"
+		| "parity"
 		| "tools-probe"
 		| "providers-catalog"
 		| "model-call"
@@ -691,6 +695,13 @@ export interface DeployE2eOptions {
 	 * the one-shot rides the tree's default lane, behavior unchanged.
 	 */
 	modelPin?: E2EModelPin;
+	/**
+	 * Absolute path to the DEV tree's s2-agent.sh. Present → the parity probe
+	 * fingerprints BOTH launchers and diffs (same commit by construction —
+	 * deploy runs from the dev tree). Absent → parity probe SKIPS (dist-only
+	 * environment, e.g. CI without the workspace).
+	 */
+	devLauncher?: string;
 }
 
 /**
@@ -865,6 +876,56 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			}
 		} finally {
 			rmSync(outsideDir, { recursive: true, force: true });
+		}
+	}
+
+	// ── parity (dev↔deploy fingerprint diff) ────────────────────────────────
+	// The ONLY probe that compares the dist against the dev tree instead of
+	// checking it in isolation. FAIL classes: deploy-only items, description/
+	// schema/skill-content hash drift (incl. dirty-source-tree drift — the
+	// diff speaks, no special rule), dev-only items not attributable to
+	// registry-excluded extensions, marker-missing (silent `-e` skip class —
+	// FAIL, never skip). Providers parity: sorted --list-models ids diff.
+	{
+		const t0 = now();
+		if (!opts.devLauncher) {
+			probes.push({
+				id: "parity",
+				verdict: "skip",
+				ms: 0,
+				note: "skipped: no --dev-launcher (dist-only environment — dev-tree baseline unavailable)",
+			});
+		} else {
+			const excluded = excludedExtensionsFromRegistry({ bunAppsDir: resolve(import.meta.dir, "..", "..") });
+			const devCap = await captureParityFingerprint(opts.devLauncher, "dev", opts.spawn);
+			const depCap = await captureParityFingerprint(launcher.command, "deploy", opts.spawn);
+			let verdict: ProbeVerdict = "pass";
+			let note = "";
+			const lines: string[] = [];
+			if (!devCap.ok || !depCap.ok) {
+				verdict = "fail";
+				lines.push(`fingerprint capture failed — dev: ${devCap.ok ? "ok" : devCap.error} · deploy: ${depCap.ok ? "ok" : depCap.error}`);
+			} else {
+				const d = diffFingerprints(devCap.fp, depCap.fp, excluded);
+				for (const f of d.findings) lines.push(`${f.kind}: ${f.item} — ${f.detail}`);
+				if (d.verdict === "fail") verdict = "fail";
+				// Providers parity: sorted non-empty --list-models rows.
+				const devModels = await opts.spawn(opts.devLauncher, ["--list-models"], { timeoutMs: 60_000 });
+				const depModels = await opts.spawn(launcher.command, ["--list-models"], { timeoutMs: 60_000 });
+				const devIds = devModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
+				const depIds = depModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
+				if (devIds.join("\n") !== depIds.join("\n")) {
+					verdict = "fail";
+					const onlyDev = devIds.filter((x) => !depIds.includes(x));
+					const onlyDep = depIds.filter((x) => !devIds.includes(x));
+					lines.push(`providers: model id lists differ — dev-only=[${onlyDev.join(",")}] deploy-only=[${onlyDep.join(",")}]`);
+				}
+				if (verdict === "pass") note = `surfaces identical: ${depCap.fp.toolCount} tools, ${depCap.fp.skillCount} skills, ${depIds.length} models`;
+			}
+			if (verdict === "fail") {
+				note = `parity FAIL (${lines.length} finding(s)):\n` + lines.slice(0, 20).join("\n") + (lines.length > 20 ? `\n… +${lines.length - 20} more` : "");
+			}
+			probes.push({ id: "parity", verdict, ms: now() - t0, note });
 		}
 	}
 
@@ -1287,6 +1348,10 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				if (p.id === "file2md-ocr" && p.verdict === "skip") return false;
 				if (p.id === "tool-gate-fire" && p.verdict === "skip") return false;
 				if (p.id === "standalone-import" && p.verdict === "skip") return false;
+				// parity's ONLY skip path is devLauncher-absent (dist-only
+				// environment) — same not-applicable class: inconclusive, never a
+				// degraded overall verdict for a baseline that cannot exist there.
+				if (p.id === "parity" && p.verdict === "skip") return false;
 				return true;
 			})
 			.map((p) => p.verdict),

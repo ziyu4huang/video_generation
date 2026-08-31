@@ -216,6 +216,7 @@ describe("runDeployE2e", () => {
 			"boot",
 			"ext-load",
 			"cwd-independence",
+			"parity",
 			"tools-probe",
 			"providers-catalog",
 			"model-call",
@@ -228,9 +229,12 @@ describe("runDeployE2e", () => {
 		expect(r.probes.find((p) => p.id === "vision-call")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(r.probes.find((p) => p.id === "tool-gate-fire")?.verdict).toBe("skip"); // not in this tree's deploy set
 		expect(r.probes.find((p) => p.id === "standalone-import")?.verdict).toBe("skip"); // stub tree has no ext/ext-standalone.mjs
+		expect(r.probes.find((p) => p.id === "parity")?.verdict).toBe("skip"); // no devLauncher — dist-only baseline
 		expect(
 			r.probes
-				.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "standalone-import" && p.id !== "vision-call")
+				.filter(
+					p => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "standalone-import" && p.id !== "vision-call" && p.id !== "parity",
+				)
 				.every((p) => p.verdict === "pass"),
 		).toBe(true);
 	});
@@ -882,7 +886,11 @@ describe("vision-call probe", () => {
 		expect(vc.note).toContain(VISION_FIXTURE_NEEDLE);
 		expect(vc.note).toContain("fixture image");
 		// every probe EXCEPT the bundle-less ocr artifact passes
-		expect(r.probes.filter((p) => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "standalone-import").every((p) => p.verdict === "pass")).toBe(true);
+		expect(
+			r.probes.filter(
+				p => p.id !== "file2md-ocr" && p.id !== "tool-gate-fire" && p.id !== "standalone-import" && p.id !== "parity",
+			).every((p) => p.verdict === "pass"),
+		).toBe(true);
 	});
 
 	test("a reply WITHOUT the fixture text fails — the image was not processed", async () => {

@@ -103,6 +103,7 @@ try {
 				modelEndpoint: resolveModelEndpoint(),
 				skipModelCall,
 				modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
+				devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
 			});
 	console.log(JSON.stringify({ ok: e2e.verdict !== "fail", ...result, e2e }, null, 2));
 	if (e2e.verdict === "fail") {
@@ -123,6 +124,7 @@ try {
 					modelEndpoint: resolveModelEndpoint(),
 					skipModelCall: process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
 					modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
+					devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
 				});
 		console.log(JSON.stringify({ ok: e2e.verdict !== "fail", noop: true, version: e.version, target: e.target, message: e.message, e2e }, null, 2));
 		if (e2e.verdict === "fail") {
