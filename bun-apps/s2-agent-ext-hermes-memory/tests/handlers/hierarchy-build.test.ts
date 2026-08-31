@@ -13,13 +13,33 @@
  */
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { buildHierarchyCall } from "../../src/handlers/hierarchy-build.js";
+import { buildHierarchyCall, fireHierarchyBuildBestEffort } from "../../src/handlers/hierarchy-build.js";
 import { publishSeam, type KnowledgePipeline } from "@repo/s2-agent-core-interface";
 
 /** Publish a minimal fake seam impl (buildHierarchyCall only checks
  *  PRESENCE — `void kp` — so an empty object suffices). */
 function withSeam(): void {
   publishSeam("__piKnowledgePipeline", {} as KnowledgePipeline);
+}
+
+/** Publish a recording fake seam: buildHierarchy resolves `buildResult`,
+ *  healGraph resolves a receipt; every call is pushed onto `calls` so tests
+ *  can pin the build→heal ORDER (the 2026-08-31 MOC-staleness fix). */
+function withRecordingSeam(
+  calls: string[],
+  buildResult: { layers: number; nodes: unknown[]; llmCalls: number; resumed: boolean; skipped?: string },
+  healImpl?: () => Promise<unknown>,
+): void {
+  publishSeam("__piKnowledgePipeline", {
+    buildHierarchy: async (_opts: unknown) => {
+      calls.push("buildHierarchy");
+      return buildResult;
+    },
+    healGraph: async (opts: unknown) => {
+      calls.push(`healGraph:${JSON.stringify(opts)}`);
+      return healImpl ? await healImpl() : { mocRegenerated: true, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] };
+    },
+  } as unknown as KnowledgePipeline);
 }
 
 /** Plain fake embedFn: deterministic vectors, no network. */
@@ -95,5 +115,65 @@ describe("buildHierarchyCall — all-present (seam published)", () => {
     const withoutSum = buildHierarchyCall("/tmp/kb", { embedFn: fakeEmbedFn });
     expect(withoutSum).not.toBeNull();
     expect(withoutSum!.summarizeFn).toBeUndefined();
+  });
+});
+
+describe("fireHierarchyBuildBestEffort — post-build MOC heal (2026-08-31 fix)", () => {
+  it("a completed build is followed by healGraph with the heal target (order-pinned)", async () => {
+    const calls: string[] = [];
+    withRecordingSeam(calls, { layers: 2, nodes: [{}, {}], llmCalls: 0, resumed: false });
+    await fireHierarchyBuildBestEffort(
+      "/vault/Zettelkasten/knowledge-graph",
+      { embedFn: fakeEmbedFn },
+      { vaultPath: "/vault", folder: "Zettelkasten/knowledge-graph", mocPath: "Tags/Knowledge Graph.md" },
+    );
+    expect(calls).toEqual([
+      "buildHierarchy",
+      'healGraph:{"vaultPath":"/vault","folder":"Zettelkasten/knowledge-graph","mocPath":"Tags/Knowledge Graph.md"}',
+    ]);
+  });
+
+  it("heal target omitted (legacy call shape) → build only, no healGraph call", async () => {
+    const calls: string[] = [];
+    withRecordingSeam(calls, { layers: 1, nodes: [{}], llmCalls: 0, resumed: false });
+    await fireHierarchyBuildBestEffort("/vault/Zettelkasten/knowledge-graph", { embedFn: fakeEmbedFn });
+    expect(calls).toEqual(["buildHierarchy"]);
+  });
+
+  it("skipped build (e.g. no-entities) → NO heal — the MOC state is untouched", async () => {
+    const calls: string[] = [];
+    withRecordingSeam(calls, { layers: 0, nodes: [], llmCalls: 0, resumed: false, skipped: "no-entities" });
+    await fireHierarchyBuildBestEffort(
+      "/vault/Zettelkasten/knowledge-graph",
+      { embedFn: fakeEmbedFn },
+      { vaultPath: "/vault", folder: "Zettelkasten/knowledge-graph" },
+    );
+    expect(calls).toEqual(["buildHierarchy"]);
+  });
+
+  it("healGraph failure is isolated — the promise still resolves and the failure is NOT the build's", async () => {
+    const calls: string[] = [];
+    withRecordingSeam(
+      calls,
+      { layers: 1, nodes: [{}], llmCalls: 0, resumed: false },
+      () => Promise.reject(new Error("vault busy")),
+    );
+    // Must not reject (best-effort contract) and must not lose the build.
+    await fireHierarchyBuildBestEffort(
+      "/vault/Zettelkasten/knowledge-graph",
+      { embedFn: fakeEmbedFn },
+      { vaultPath: "/vault", folder: "Zettelkasten/knowledge-graph" },
+    );
+    expect(calls).toEqual([
+      "buildHierarchy",
+      'healGraph:{"vaultPath":"/vault","folder":"Zettelkasten/knowledge-graph"}',
+    ]);
+  });
+
+  it("skip guards still short-circuit before the seam (no kbDir → zero seam calls)", async () => {
+    const calls: string[] = [];
+    withRecordingSeam(calls, { layers: 1, nodes: [{}], llmCalls: 0, resumed: false });
+    await fireHierarchyBuildBestEffort(undefined, { embedFn: fakeEmbedFn }, { vaultPath: "/vault", folder: "f" });
+    expect(calls).toEqual([]);
   });
 });
