@@ -82,6 +82,25 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 		.map((p) => `${p.provider}    ${p.model}    200K    65.5K    yes    yes`)
 		.join("\n");
 
+	// Parity fingerprint the stub answers `-e` spawns with when PARITY_MODE is
+	// set (the probe's env contract). The healthy test pins --dev-launcher to
+	// the stub itself, so dev and deploy captures return THIS fingerprint on
+	// both sides → parity passes without booting the real repo launcher
+	// (the CLI's repo-root default resolves even here — the path is absolute —
+	// but a real dev fingerprint vs this stub would deterministically FAIL).
+	const parityFpJson = JSON.stringify({
+		marker: "PARITY_FP_v1",
+		mode: "stub",
+		sessionStartFired: true,
+		toolCount: 2,
+		tools: [
+			{ n: "read", s: "builtin", p: "<builtin:read>", dh: "1", sh: "2" },
+			{ n: "stub-tool", s: "extension", p: "/dist/ext/stub.cjs", dh: "3", sh: "4" },
+		],
+		skillCount: 1,
+		skills: [{ n: "stub-skill", p: "/dist/ext/stub/SKILL.md", ch: "5" }],
+	});
+
 	test("healthy stub tree: exit 0, verdict pass, pure JSON on stdout", () => {
 		mkdirSync(versionDir, { recursive: true });
 		writeFileSync(
@@ -95,8 +114,10 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 				// ON lists every baked pair, OFF lists only an ambient row, so the
 				// probe sees coverage AND a patch-only contribution.
 				`  --list-models) if [ "$BUN_PI_PRE_LOAD_PROVIDERS" = "0" ]; then printf 'provider     model\ndeploy-probe-stub-ambient    x\n'; else printf 'provider     model\n${lmRows}\n'; fi; exit 0;;`,
-				// tools-probe: -e <path> -p hi — healthy active set, core intact
-				"  -e) echo '[TOOLS] {\"total\":66,\"matched\":2,\"activeCount\":26,\"active\":[\"read\",\"write\",\"edit\",\"bash\",\"enable_tool\"],\"missing\":[],\"gateSeam\":null,\"getActiveTools\":true}' >&2; exit 0;;",
+				// tools-probe: -e <path> -p hi — healthy active set, core intact;
+				// parity probe: same -e shape but PARITY_MODE is set — answer with
+				// the fingerprint marker instead (capture's env contract).
+				`  -e) if [ -n "$PARITY_MODE" ]; then printf '[PARITY-FP-START]%s[PARITY-FP-END]' '${parityFpJson}' >&2; exit 0; else echo '[TOOLS] {"total":66,"matched":2,"activeCount":26,"active":["read","write","edit","bash","enable_tool"],"missing":[],"gateSeam":null,"getActiveTools":true}' >&2; exit 0; fi;;`,
 				"  -p) echo ok; exit 0;;",
 				"esac",
 				"exit 1",
@@ -114,7 +135,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 		);
 		symlinkSync(VERSION, join(root, "current"), "dir");
 
-		const r = run("bun", [join(PKG, "src/verify-deploy-e2e-cli.ts"), "--deploy-root", root], { cwd: REPO });
+		const r = run("bun", [join(PKG, "src/verify-deploy-e2e-cli.ts"), "--deploy-root", root, "--dev-launcher", join(versionDir, "s2-agent.sh")], { cwd: REPO });
 		expect(r.code).toBe(0);
 		const payload = JSON.parse(r.stdout);
 		expect(payload.verdict).toBe("pass");
@@ -122,6 +143,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 			"boot:pass",
 			"ext-load:pass",
 			"cwd-independence:pass",
+			"parity:pass",
 			"tools-probe:pass",
 			"providers-catalog:pass",
 			"model-call:pass",
@@ -143,7 +165,7 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 				config: { extensions: [{ name: "stub-a", enabled: true }, { name: "stub-c", enabled: true }] },
 			}),
 		);
-		const r = run("bun", [join(PKG, "src/verify-deploy-e2e-cli.ts"), "--deploy-root", root], { cwd: REPO });
+		const r = run("bun", [join(PKG, "src/verify-deploy-e2e-cli.ts"), "--deploy-root", root, "--dev-launcher", join(versionDir, "s2-agent.sh")], { cwd: REPO });
 		expect(r.code).toBe(1);
 		const payload = JSON.parse(r.stdout);
 		expect(payload.verdict).toBe("fail");

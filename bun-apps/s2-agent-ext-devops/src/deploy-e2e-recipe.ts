@@ -97,11 +97,14 @@ import { basename, join, resolve } from "node:path";
 import { hostTargetName } from "./deploy/lib/targets.js";
 import { isTargetSubrootName } from "./deploy/lib/version.js";
 import { executeExtTool } from "./deploy/lib/ext-build.js";
+import { excludedExtensionsFromRegistry } from "./deploy/lib/config.js";
 import { runToolGateFireProbe } from "./tool-gate-fire-probe.js";
 import { F2MD_E2E_OCR_B64 } from "./deploy/f2md-e2e-fixture.js";
 import { standaloneImportProbe } from "./deploy/lib/standalone-import-probe.ts";
 import { classifyRun } from "./oneshot-smoke.js";
 import { parseToolsProbeLine, TOOLS_ACTIVE_PROBE } from "./tools-active-probe.js";
+import { captureParityFingerprint } from "./parity-capture.js";
+import { diffFingerprints, type ParityExcludedExt } from "./parity-diff.js";
 import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
 import { PROVIDERS } from "../../s2-agent/src/pre-load-providers.ts";
 import type { SpawnFn } from "./spawn.js";
@@ -422,6 +425,7 @@ export interface DeployE2eProbe {
 		| "boot"
 		| "ext-load"
 		| "cwd-independence"
+		| "parity"
 		| "tools-probe"
 		| "providers-catalog"
 		| "model-call"
@@ -958,6 +962,25 @@ function worst(verdicts: ProbeVerdict[]): ProbeVerdict {
 	return "pass";
 }
 
+/**
+ * The parity probe's excluded-set derivation. `excludedExtensionsFromRegistry`
+ * → `loadRegistry` is the validation authority and THROWS on a broken
+ * registry (missing package dir, duplicate names, …); runDeployE2e has a
+ * never-throws contract (every failure is a structured FAIL outcome), so
+ * this wrapper is the seam where the throw becomes data. ok:false must
+ * become a parity FAIL with NO captures — an empty-excluded fallback would
+ * false-FAIL on every legitimately-excluded dev-only item instead.
+ */
+export function deriveExcludedExtensions(
+	bunAppsDir: string,
+): { ok: true; excluded: ParityExcludedExt[] } | { ok: false; error: string } {
+	try {
+		return { ok: true, excluded: excludedExtensionsFromRegistry({ bunAppsDir }) };
+	} catch (e) {
+		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+	}
+}
+
 export interface DeployE2eOptions {
 	/** The deployed version dir (NOT the deploy root — resolve `current` first). */
 	versionDir: string;
@@ -998,6 +1021,13 @@ export interface DeployE2eOptions {
 	 * the one-shot rides the tree's default lane, behavior unchanged.
 	 */
 	modelPin?: E2EModelPin;
+	/**
+	 * Absolute path to the DEV tree's s2-agent.sh. Present → the parity probe
+	 * fingerprints BOTH launchers and diffs (same commit by construction —
+	 * deploy runs from the dev tree). Absent → parity probe SKIPS (dist-only
+	 * environment, e.g. CI without the workspace).
+	 */
+	devLauncher?: string;
 }
 
 /**
@@ -1180,6 +1210,104 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		} finally {
 			rmSync(outsideDir, { recursive: true, force: true });
 		}
+	}
+
+	// ── parity (dev↔deploy fingerprint diff) ────────────────────────────────
+	// The ONLY probe that compares the dist against the dev tree instead of
+	// checking it in isolation. FAIL classes: deploy-only items, description/
+	// schema/skill-content hash drift (incl. dirty-source-tree drift — the
+	// diff speaks, no special rule), dev-only items not attributable to
+	// registry-excluded extensions, marker-missing (silent `-e` skip class —
+	// FAIL, never skip). Providers parity: sorted --list-models ids diff.
+	{
+		const t0 = now();
+		if (!opts.devLauncher) {
+			probes.push({
+				id: "parity",
+				verdict: "skip",
+				ms: 0,
+				note: "skipped: no --dev-launcher (dist-only environment — dev-tree baseline unavailable)",
+			});
+		} else {
+			const excl = deriveExcludedExtensions(resolve(import.meta.dir, "..", ".."));
+			if (!excl.ok) {
+				// Registry unreadable: structured FAIL, no captures — the excluded
+				// set is unknown, and an empty fallback would false-FAIL on every
+				// legitimately-excluded dev-only item.
+				probes.push({ id: "parity", verdict: "fail", ms: now() - t0, note: `registry unreadable: ${excl.error}` });
+			} else {
+				const excluded = excl.excluded;
+				const devCap = await captureParityFingerprint(opts.devLauncher, "dev", opts.spawn);
+				const depCap = await captureParityFingerprint(launcher.command, "deploy", opts.spawn);
+				let verdict: ProbeVerdict = "pass";
+				let note = "";
+				const lines: string[] = [];
+				if (!devCap.ok || !depCap.ok) {
+					verdict = "fail";
+					lines.push(`fingerprint capture failed — dev: ${devCap.ok ? "ok" : devCap.error} · deploy: ${depCap.ok ? "ok" : depCap.error}`);
+				} else if (
+					devCap.fp.sessionStartFired !== true ||
+					devCap.fp.tools.length < 1 ||
+					depCap.fp.sessionStartFired !== true ||
+					depCap.fp.tools.length < 1
+				) {
+					// I1 — symmetric-degradation floor (2026-08-31 review). A probe that
+					// degrades IDENTICALLY on both sides (events renamed upstream so
+					// session_start never fires, getAllTools returning empty, …) still
+					// emits a valid marker, and diffFingerprints over two EMPTY
+					// fingerprints finds nothing → vacuous "parity: pass — 0 tools".
+					// Both sides must show a live session AND ≥1 tool. Measured baseline
+					// (2026-08-31 live smoke, this repo): 64 tools / 51 skills — the >0
+					// floor is a liveness guard far below reality, not a magic number.
+					// Same shape as the registry-unreadable path: no diff, no providers
+					// comparison — skip everything downstream of the captures.
+					verdict = "fail";
+					lines.push(
+						`empty fingerprint — probe degraded symmetrically (dev: sessionStartFired=${devCap.fp.sessionStartFired} tools=${devCap.fp.tools.length} · deploy: sessionStartFired=${depCap.fp.sessionStartFired} tools=${depCap.fp.tools.length})`,
+					);
+				} else {
+					const d = diffFingerprints(devCap.fp, depCap.fp, excluded);
+					for (const f of d.findings) lines.push(`${f.kind}: ${f.item} — ${f.detail}`);
+					if (d.verdict === "fail") verdict = "fail";
+					// Providers parity: sorted --list-models ids diff.
+					const devModels = await opts.spawn(opts.devLauncher, ["--list-models"], { timeoutMs: 60_000 });
+					const depModels = await opts.spawn(launcher.command, ["--list-models"], { timeoutMs: 60_000 });
+					const devIds = devModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
+					const depIds = depModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
+					// I2 — providers vacuous-pass seal (2026-08-31 review): exitCode/
+					// timedOut were never checked, so both sides failing IDENTICALLY
+					// (creds missing, provider down, timeout with empty stdout)
+					// compared two empty lists as equal → "pass, 0 models". Healthy =
+					// exit 0, no timeout, non-empty parsed id list; anything else is a
+					// FAIL naming the side and why. Lists are compared ONLY when both
+					// sides are healthy and non-empty.
+					const provFail: string[] = [];
+					if (devModels.timedOut === true) provFail.push("providers: dev timed out");
+					else if (devModels.exitCode !== 0) provFail.push(`providers: dev list-models exit=${devModels.exitCode}`);
+					if (depModels.timedOut === true) provFail.push("providers: deploy timed out");
+					else if (depModels.exitCode !== 0) provFail.push(`providers: deploy list-models exit=${depModels.exitCode}`);
+					if (provFail.length === 0) {
+						if (devIds.length === 0 && depIds.length === 0) provFail.push("providers: both lists empty");
+						else if (devIds.length === 0) provFail.push("providers: dev list-models parsed 0 ids");
+						else if (depIds.length === 0) provFail.push("providers: deploy list-models parsed 0 ids");
+					}
+					if (provFail.length > 0) {
+						verdict = "fail";
+						lines.push(provFail.join("\n"));
+					} else if (devIds.join("\n") !== depIds.join("\n")) {
+						verdict = "fail";
+						const onlyDev = devIds.filter((x) => !depIds.includes(x));
+						const onlyDep = depIds.filter((x) => !devIds.includes(x));
+						lines.push(`providers: model id lists differ — dev-only=[${onlyDev.join(",")}] deploy-only=[${onlyDep.join(",")}]`);
+					}
+					if (verdict === "pass") note = `surfaces identical: ${depCap.fp.toolCount} tools, ${depCap.fp.skillCount} skills, ${depIds.length} models`;
+				}
+				if (verdict === "fail") {
+					note = `parity FAIL (${lines.length} finding(s)):\n` + lines.slice(0, 20).join("\n") + (lines.length > 20 ? `\n… +${lines.length - 20} more` : "");
+				}
+				probes.push({ id: "parity", verdict, ms: now() - t0, note });
+			}
+			}
 	}
 
 	// ── tools-probe ──────────────────────────────────────────────────────────
@@ -1622,6 +1750,10 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				if (p.id === "file2md-ocr" && p.verdict === "skip") return false;
 				if (p.id === "tool-gate-fire" && p.verdict === "skip") return false;
 				if (p.id === "standalone-import" && p.verdict === "skip") return false;
+				// parity's ONLY skip path is devLauncher-absent (dist-only
+				// environment) — same not-applicable class: inconclusive, never a
+				// degraded overall verdict for a baseline that cannot exist there.
+				if (p.id === "parity" && p.verdict === "skip") return false;
 				return true;
 			})
 			.map((p) => p.verdict),
