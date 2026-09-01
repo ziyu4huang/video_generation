@@ -57,7 +57,9 @@ const DEPLOY_FP = {
 const MODELS = "id\nprovider/glm-5.3\nprovider/qwen3-coder\n";
 
 /** Fake spawn: dev launcher vs deployed launcher, keyed on argv. `-e` FIRST. */
-function fakeSpawn(variants: { deployFp?: object | null; devFp?: object | null; devModels?: string } = {}): SpawnFn {
+function fakeSpawn(
+	variants: { deployFp?: object | null; devFp?: object | null; devModels?: string; providersExit?: number } = {},
+): SpawnFn {
 	return async (_cmd: string, args: string[]): Promise<SpawnResult> => {
 		const argv = args.join(" ");
 		const isDev = _cmd === devLauncher;
@@ -71,6 +73,11 @@ function fakeSpawn(variants: { deployFp?: object | null; devFp?: object | null; 
 			return { stdout: "", stderr: fpLine(fp), exitCode: 0 };
 		}
 		if (argv.includes("--list-models")) {
+			// providersExit — I2 fixture: BOTH sides' --list-models spawn fails
+			// identically (creds missing / provider down) with empty stdout.
+			if ((variants.providersExit ?? 0) !== 0) {
+				return { stdout: "", stderr: "list-models failed", exitCode: variants.providersExit! };
+			}
 			return { stdout: isDev ? (variants.devModels ?? MODELS) : MODELS, stderr: "", exitCode: 0 };
 		}
 		if (argv.includes("--ext-list")) {
@@ -143,6 +150,39 @@ describe("runDeployE2e parity probe", () => {
 		const p = r.probes.find((x) => x.id === "parity")!;
 		expect(p.verdict).toBe("fail");
 		expect(p.note).toContain("providers");
+	});
+	test("I1: both fingerprints EMPTY-but-valid (marker present) → fail citing symmetric degradation, no providers comparison", async () => {
+		makeTree();
+		// Symmetric degradation: upstream renamed the events, so session_start
+		// never fired and getAllTools never ran — yet a VALID marker ships.
+		// Pre-I1 the diff compared two empty fingerprints → vacuous pass.
+		const emptyDev = { marker: "PARITY_FP_v1", mode: "dev", sessionStartFired: false, toolCount: 0, tools: [], skillCount: 0, skills: [] };
+		const emptyDep = { marker: "PARITY_FP_v1", mode: "deploy", sessionStartFired: false, toolCount: 0, tools: [], skillCount: 0, skills: [] };
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn({ devFp: emptyDev, deployFp: emptyDep }), devLauncher });
+		const p = r.probes.find((x) => x.id === "parity")!;
+		expect(p.verdict).toBe("fail");
+		expect(p.note).toContain("symmetrically");
+		expect(p.note).toContain("tools=0");
+		expect(p.note).not.toContain("providers"); // degraded branch skips the providers spawns entirely
+	});
+	test("I2: both --list-models spawns exit 1 → fail citing providers, named per side", async () => {
+		makeTree();
+		// Both providers spawns fail identically (exit 1, empty stdout) — the
+		// pre-I2 code compared two empty lists as equal → vacuous "0 models" pass.
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn({ providersExit: 1 }), devLauncher });
+		const p = r.probes.find((x) => x.id === "parity")!;
+		expect(p.verdict).toBe("fail");
+		expect(p.note).toContain("providers: dev list-models exit=1");
+		expect(p.note).toContain("providers: deploy list-models exit=1");
+	});
+	test("T3b: deploy-side marker missing → parity fail, note names the deploy-side marker failure", async () => {
+		makeTree();
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn({ deployFp: null }), devLauncher });
+		const p = r.probes.find((x) => x.id === "parity")!;
+		expect(p.verdict).toBe("fail");
+		expect(p.note).toContain("fingerprint capture failed");
+		expect(p.note).toContain("deploy"); // the failing side is named
+		expect(p.note).toContain("marker"); // the deploy-side marker failure itself
 	});
 	test("skip (not fail) when devLauncher is absent", async () => {
 		makeTree();

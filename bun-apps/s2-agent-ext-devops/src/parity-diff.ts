@@ -74,9 +74,13 @@ export function diffFingerprints(
 ): ParityDiffResult {
 	const findings: ParityFinding[] = [];
 
-	for (const t of [...dev.tools, ...deploy.tools]) {
-		if (t.n === PROBE_ERROR) {
-			findings.push({ kind: "probe-error", item: t.n, detail: `probe read failed on a side: ${t.p}` });
+	// T2c — side labels: the fingerprint's `mode` field (set by
+	// captureParityFingerprint) says WHICH side errored; "a side" was vague.
+	for (const fp of [dev, deploy]) {
+		for (const t of fp.tools) {
+			if (t.n === PROBE_ERROR) {
+				findings.push({ kind: "probe-error", item: t.n, detail: `probe read failed on the ${fp.mode} side: ${t.p}` });
+			}
 		}
 	}
 

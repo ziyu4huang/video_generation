@@ -931,16 +931,56 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 				if (!devCap.ok || !depCap.ok) {
 					verdict = "fail";
 					lines.push(`fingerprint capture failed — dev: ${devCap.ok ? "ok" : devCap.error} · deploy: ${depCap.ok ? "ok" : depCap.error}`);
+				} else if (
+					devCap.fp.sessionStartFired !== true ||
+					devCap.fp.tools.length < 1 ||
+					depCap.fp.sessionStartFired !== true ||
+					depCap.fp.tools.length < 1
+				) {
+					// I1 — symmetric-degradation floor (2026-08-31 review). A probe that
+					// degrades IDENTICALLY on both sides (events renamed upstream so
+					// session_start never fires, getAllTools returning empty, …) still
+					// emits a valid marker, and diffFingerprints over two EMPTY
+					// fingerprints finds nothing → vacuous "parity: pass — 0 tools".
+					// Both sides must show a live session AND ≥1 tool. Measured baseline
+					// (2026-08-31 live smoke, this repo): 64 tools / 51 skills — the >0
+					// floor is a liveness guard far below reality, not a magic number.
+					// Same shape as the registry-unreadable path: no diff, no providers
+					// comparison — skip everything downstream of the captures.
+					verdict = "fail";
+					lines.push(
+						`empty fingerprint — probe degraded symmetrically (dev: sessionStartFired=${devCap.fp.sessionStartFired} tools=${devCap.fp.tools.length} · deploy: sessionStartFired=${depCap.fp.sessionStartFired} tools=${depCap.fp.tools.length})`,
+					);
 				} else {
 					const d = diffFingerprints(devCap.fp, depCap.fp, excluded);
 					for (const f of d.findings) lines.push(`${f.kind}: ${f.item} — ${f.detail}`);
 					if (d.verdict === "fail") verdict = "fail";
-					// Providers parity: sorted non-empty --list-models rows.
+					// Providers parity: sorted --list-models ids diff.
 					const devModels = await opts.spawn(opts.devLauncher, ["--list-models"], { timeoutMs: 60_000 });
 					const depModels = await opts.spawn(launcher.command, ["--list-models"], { timeoutMs: 60_000 });
 					const devIds = devModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
 					const depIds = depModels.stdout.split("\n").map((l) => l.trim()).filter(Boolean).sort();
-					if (devIds.join("\n") !== depIds.join("\n")) {
+					// I2 — providers vacuous-pass seal (2026-08-31 review): exitCode/
+					// timedOut were never checked, so both sides failing IDENTICALLY
+					// (creds missing, provider down, timeout with empty stdout)
+					// compared two empty lists as equal → "pass, 0 models". Healthy =
+					// exit 0, no timeout, non-empty parsed id list; anything else is a
+					// FAIL naming the side and why. Lists are compared ONLY when both
+					// sides are healthy and non-empty.
+					const provFail: string[] = [];
+					if (devModels.timedOut === true) provFail.push("providers: dev timed out");
+					else if (devModels.exitCode !== 0) provFail.push(`providers: dev list-models exit=${devModels.exitCode}`);
+					if (depModels.timedOut === true) provFail.push("providers: deploy timed out");
+					else if (depModels.exitCode !== 0) provFail.push(`providers: deploy list-models exit=${depModels.exitCode}`);
+					if (provFail.length === 0) {
+						if (devIds.length === 0 && depIds.length === 0) provFail.push("providers: both lists empty");
+						else if (devIds.length === 0) provFail.push("providers: dev list-models parsed 0 ids");
+						else if (depIds.length === 0) provFail.push("providers: deploy list-models parsed 0 ids");
+					}
+					if (provFail.length > 0) {
+						verdict = "fail";
+						lines.push(provFail.join("\n"));
+					} else if (devIds.join("\n") !== depIds.join("\n")) {
 						verdict = "fail";
 						const onlyDev = devIds.filter((x) => !depIds.includes(x));
 						const onlyDep = depIds.filter((x) => !devIds.includes(x));
