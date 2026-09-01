@@ -68,7 +68,9 @@ New module `src/deploy/parity-recipe.ts`:
 - a tool/skill present in deploy but missing in dev (dist-only additions);
 - a tool/skill present in both with differing `dh`/`sh`/`ch` (content drift — this is the dirty-tree/bug case);
 - a tool/skill only in dev whose source is NOT attributable to an expected-excluded extension;
-- fingerprint capture failure on either side (marker missing, boot failure).
+- fingerprint capture failure on either side (marker missing, boot failure);
+- **symmetric degradation** — a fingerprint that is well-formed but empty (`sessionStartFired` false or zero tools) on either side; both-sides-empty would otherwise diff to a vacuous pass (final-review find 2026-09-01, landed in ce5a8e02);
+- **providers health** — either `--list-models` spawn timing out, exiting non-zero, or parsing to an empty id list; both-sides-failing-identically would otherwise compare two empty lists to a vacuous pass (final-review find 2026-09-01).
 
 **Expected-only-dev derivation (no allowlist):** import `REGISTRY` from `bun-apps/s2-agent/src/registry-config.ts` (recipe runs in the dev tree); entries without a `deploy` block contribute their folder name → for each only-dev tool, attribute via `sourceInfo.path` (dev paths match `bun-apps/s2-agent-ext-<folder>/…`; deploy paths `ext/<name>/…`); for skills, `filePath` prefix against the same set. Builtin-sourced tools (`source: "builtin"`) must exist on BOTH sides — a builtin only in dev is a FAIL.
 
