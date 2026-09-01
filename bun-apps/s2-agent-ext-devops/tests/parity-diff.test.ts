@@ -99,6 +99,30 @@ describe("diffFingerprints", () => {
 		expect(r.verdict).toBe("pass");
 	});
 
+	test("inline-factory tools attribute via <inline:<name>> / <inline:<package>> paths", () => {
+		// Round-2 live smoke: extensions registering tools via inline factories
+		// report sourceInfo.path as `<inline:<package>>` (observed:
+		// <inline:s2-agent-ext-web-access>, <inline:s2-agent-ext-sv-analyzer>) —
+		// no slash-delimited dir, so slash-only attribution FAILed them as
+		// unattributed-dev-tool. Both angle-bracket forms must attribute; with
+		// the ext absent from the excluded list the finding must STAY (fail-loud).
+		const d = base({
+			tools: [
+				...base().tools,
+				{ n: "web_search", s: "inline", p: "<inline:s2-agent-ext-web-access>", dh: "7", sh: "8" },
+				{ n: "read_page", s: "inline", p: "<inline:web-access>", dh: "9", sh: "10" },
+			],
+		});
+		const withExcluded = [...EXCLUDED, { name: "web-access", package: "s2-agent-ext-web-access", reason: "inline factory ext" }];
+		const ok = diffFingerprints(d, deploy(), withExcluded);
+		expect(ok.verdict).toBe("pass");
+		expect(ok.findings).toEqual([]);
+		// excluded list WITHOUT the ext → both tools stay unattributed
+		const bad = diffFingerprints(d, deploy(), EXCLUDED);
+		expect(bad.verdict).toBe("fail");
+		expect(bad.findings.filter((f) => f.kind === "unattributed-dev-tool").map((f) => f.item).sort()).toEqual(["read_page", "web_search"]);
+	});
+
 	test("PROBE_ERROR tool on either side fails loudly", () => {
 		const d = deploy();
 		d.tools = [{ n: "__PROBE_ERROR__", s: "error", p: "boom", dh: "0", sh: "0" }];

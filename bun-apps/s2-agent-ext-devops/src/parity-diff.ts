@@ -16,9 +16,16 @@
  *   4. __PROBE_ERROR__ sentinel on either side (probe itself failed).
  *
  * Attribution (within-side only — paths are NEVER compared across sides):
- * a dev item passes iff some excluded ext matches `/<name>/` OR `/<package>/`
- * in its source path. Fail-loud is the default: an unattributable path is a
- * conscious registry/attribution fix, not a silent pass.
+ * a dev item passes iff some excluded ext matches its identity in the item's
+ * source path. Two path forms exist: slash-delimited package dirs
+ * (`/<name>/` OR `/<package>/`) and the angle-bracket inline registration
+ * form (`<inline:<name>>` OR `<inline:<package>>`) — extensions that
+ * register tools via inline factories report sourceInfo.path as
+ * `<inline:<name>>`, with no slash-delimited dir to match. The angle
+ * brackets delimit precisely: no prefix-collision risk between
+ * `s2-agent-ext-web-access` and `s2-agent-ext-web-access-old`.
+ * Fail-loud is the default: an unattributable path is a conscious
+ * registry/attribution fix, not a silent pass.
  */
 import type { ParityFingerprint } from "./parity-probe.js";
 
@@ -51,7 +58,13 @@ export interface ParityDiffResult {
 const PROBE_ERROR = "__PROBE_ERROR__";
 
 function attributed(path: string, excluded: ParityExcludedExt[]): boolean {
-	return excluded.some((e) => path.includes(`/${e.package}/`) || path.includes(`/${e.name}/`));
+	return excluded.some(
+		(e) =>
+			path.includes(`/${e.package}/`) ||
+			path.includes(`/${e.name}/`) ||
+			path.includes(`<inline:${e.package}>`) ||
+			path.includes(`<inline:${e.name}>`),
+	);
 }
 
 export function diffFingerprints(
