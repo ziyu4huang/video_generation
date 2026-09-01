@@ -31,7 +31,7 @@ export default (pi: any) => {
 		const ks = Object.keys(v).sort();
 		return "{" + ks.map((k) => JSON.stringify(k) + ":" + stable(v[k])).join(",") + "}";
 	};
-	const hash = (s: string): number => Bun.hash(s);
+	const hash = (s: string): bigint => Bun.hash(s);
 	let tools: any[] = [];
 	let sessionStartFired = false;
 	pi.on("session_start", () => {
@@ -43,12 +43,12 @@ export default (pi: any) => {
 					n: String(t.name),
 					s: String(t.sourceInfo?.source ?? ""),
 					p: String(t.sourceInfo?.path ?? ""),
-					dh: hash(String(t.description ?? "")),
-					sh: hash(stable(t.parameters ?? null)),
+					dh: String(hash(String(t.description ?? ""))),
+					sh: String(hash(stable(t.parameters ?? null))),
 				}))
 				.sort((a: any, b: any) => (a.n < b.n ? -1 : 1));
 		} catch (e: any) {
-			tools = [{ n: "__PROBE_ERROR__", s: "error", p: String(e), dh: 0, sh: 0 }];
+			tools = [{ n: "__PROBE_ERROR__", s: "error", p: String(e), dh: "0", sh: "0" }];
 		}
 	});
 	pi.on("before_agent_start", async (event: any) => {
@@ -56,9 +56,9 @@ export default (pi: any) => {
 		for (const sk of event?.systemPromptOptions?.skills ?? []) {
 			try {
 				const p = String(sk.filePath ?? sk.path ?? "");
-				skills.push({ n: String(sk.name ?? ""), p, ch: p ? hash(await Bun.file(p).text()) : 0 });
+				skills.push({ n: String(sk.name ?? ""), p, ch: p ? String(hash(await Bun.file(p).text())) : "0" });
 			} catch {
-				skills.push({ n: String(sk?.name ?? ""), p: String(sk?.filePath ?? ""), ch: 0 });
+				skills.push({ n: String(sk?.name ?? ""), p: String(sk?.filePath ?? ""), ch: "0" });
 			}
 		}
 		skills.sort((a: any, b: any) => (a.n < b.n ? -1 : 1));
@@ -81,13 +81,14 @@ export interface ParityFpTool {
 	n: string;
 	s: string;
 	p: string;
-	dh: number;
-	sh: number;
+	/** Bun.hash digest as a decimal string — Bun.hash returns BigInt, which JSON.stringify cannot serialize. */
+	dh: string;
+	sh: string;
 }
 export interface ParityFpSkill {
 	n: string;
 	p: string;
-	ch: number;
+	ch: string;
 }
 export interface ParityFingerprint {
 	mode: string;

@@ -94,11 +94,11 @@ describe.skipIf(!!process.env.CI)("claude-code runtime: verify-deploy-e2e-cli en
 		sessionStartFired: true,
 		toolCount: 2,
 		tools: [
-			{ n: "read", s: "builtin", p: "<builtin:read>", dh: 1, sh: 2 },
-			{ n: "stub-tool", s: "extension", p: "/dist/ext/stub.cjs", dh: 3, sh: 4 },
+			{ n: "read", s: "builtin", p: "<builtin:read>", dh: "1", sh: "2" },
+			{ n: "stub-tool", s: "extension", p: "/dist/ext/stub.cjs", dh: "3", sh: "4" },
 		],
 		skillCount: 1,
-		skills: [{ n: "stub-skill", p: "/dist/ext/stub/SKILL.md", ch: 5 }],
+		skills: [{ n: "stub-skill", p: "/dist/ext/stub/SKILL.md", ch: "5" }],
 	});
 
 	test("healthy stub tree: exit 0, verdict pass, pure JSON on stdout", () => {

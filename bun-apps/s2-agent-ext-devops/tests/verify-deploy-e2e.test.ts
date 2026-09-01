@@ -109,11 +109,11 @@ const PARITY_FP = {
 	sessionStartFired: true,
 	toolCount: 2,
 	tools: [
-		{ n: "read", s: "builtin", p: "<builtin:read>", dh: 1, sh: 2 },
-		{ n: "stub-ext-tool", s: "extension", p: "/stub/ext.cjs", dh: 3, sh: 4 },
+		{ n: "read", s: "builtin", p: "<builtin:read>", dh: "1", sh: "2" },
+		{ n: "stub-ext-tool", s: "extension", p: "/stub/ext.cjs", dh: "3", sh: "4" },
 	],
 	skillCount: 1,
-	skills: [{ n: "stub-skill", p: "/stub/SKILL.md", ch: 5 }],
+	skills: [{ n: "stub-skill", p: "/stub/SKILL.md", ch: "5" }],
 };
 const parityFpLine = `\n[PARITY-FP-START]${JSON.stringify(PARITY_FP)}[PARITY-FP-END]\n`;
 
