@@ -93,13 +93,18 @@ describe("narration", () => {
       slides: [{ file: "slide-2.html", text: "b" }, { file: "slide-1.html", text: "a" }],
     };
     expect(matchSlides(files, byFile).map((s) => s.text)).toEqual(["a", "b"]);
-    const byOrder: Parameters<typeof matchSlides>[1] = { slides: [{ text: "x" }, { text: "y" }] };
+    const byOrder: Parameters<typeof matchSlides>[1] = {
+      slides: [{ file: "slide-1.html", text: "x" }, { file: "slide-2.html", text: "y" }],
+    };
     expect(matchSlides(files, byOrder).map((s) => s.text)).toEqual(["x", "y"]);
   });
 
   test("matchSlides rejects count mismatch without file names", () => {
     expect(() =>
-      matchSlides(["slide-1.html", "slide-2.html"], { slides: [{ text: "only one" }] }),
-    ).toThrow(/match counts/);
+      matchSlides(
+        ["slide-1.html", "slide-2.html"],
+        { slides: [{ file: "slide-1.html", text: "only one" }] },
+      ),
+    ).toThrow(/no narration entry for/);
   });
 });

@@ -43,7 +43,10 @@ export function deriveNarration(manifest: unknown): NarrationFile {
   const slides = (manifest as { slides?: ManifestSlide[] }).slides ?? [];
   if (!slides.length) throw new Error("deriveNarration: manifest has no slides");
   return {
-    slides: slides.map((s) => ({
+    slides: slides.map((s, i) => ({
+      // Positional: matchSlides pairs derived entries with discovered files by
+      // order; the caller rewrites `file` to the real slide names.
+      file: `slide-${i + 1}.html`,
       title: s.title,
       text: slideToText(s) || (s.title ? `${s.title}.` : "Untitled slide."),
     })),
@@ -56,15 +59,15 @@ export function deriveNarration(manifest: unknown): NarrationFile {
  * Throws with both lists when counts mismatch and no files are named.
  */
 export function matchSlides(files: string[], narration: NarrationFile): NarrationSlide[] {
-  if (narration.slides.length !== files.length && !narration.slides.every((s) => s.file)) {
-    throw new Error(
-      `narration has ${narration.slides.length} entries but ${files.length} slides were found; ` +
-        "either match counts or name every entry's \"file\".",
-    );
-  }
   return files.map((file, i) => {
     const byFile = narration.slides.find((s) => s.file === file);
-    const entry = byFile ?? narration.slides[i]!;
-    return { ...entry, file: byFile ? file : file, text: entry.text };
+    const entry = byFile ?? narration.slides[i];
+    if (!entry) {
+      throw new Error(
+        `no narration entry for ${file} (narration has ${narration.slides.length} entries, ` +
+          `${files.length} slides found) — match counts or name every entry's "file".`,
+      );
+    }
+    return { ...entry, file, text: entry.text };
   });
 }

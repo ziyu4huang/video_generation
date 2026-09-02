@@ -7,6 +7,10 @@
   "type": "module",
   "main": "./src/cli.ts",
   "bin": { "zcode-generate-slide-video": "./src/cli.ts" },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^6.0.3"
+  },
   "scripts": {
     "test": "bun test",
     "typecheck": "tsc --noEmit",
