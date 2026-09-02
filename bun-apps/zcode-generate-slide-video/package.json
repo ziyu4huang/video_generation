@@ -1,0 +1,14 @@
+{
+  "name": "@repo/zcode-generate-slide-video",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Render an archify-style slide deck (HTML slides dir) into a narrated MP4: per-slide voice (macOS say), Ken Burns motion, crossfade transitions. Zero npm deps — drives Chrome, say, and ffmpeg.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/cli.ts",
+  "bin": { "zcode-generate-slide-video": "./src/cli.ts" },
+  "scripts": {
+    "test": "bun test",
+    "video": "bun src/cli.ts"
+  }
+}
