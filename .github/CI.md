@@ -42,6 +42,7 @@ gh api -X PUT repos/ziyu4huang/video_generation/branches/main/protection \
   "test · s2-agent-ext-research-tool",
   "test · s2-agent-ext-zai-mcp", "test · s2-agent-ext-wayfind", "test · s2-agent-ext-archify",
   "test · perf-harness",
+  "test · zcode-generate-slide-video",
   "test · s2-agent-ext-tool-gate", "test · s2-agent-ext-superpowers",
   "test · s2-agent-ext-subagent",
   "test · s2-agent-ext-sv-analyzer",

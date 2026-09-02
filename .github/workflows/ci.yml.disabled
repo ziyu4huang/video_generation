@@ -133,6 +133,7 @@ jobs:
           # run.test.ts (same pattern as s2-agent-ext-knowledge-card e2e below).
           - { package: s2-agent-ext-archify, test-cmd: "bun test --isolate" }
           - { package: perf-harness, test-cmd: "bun test" }
+          - { package: zcode-generate-slide-video, test-cmd: "bun run test && bun run typecheck" }
           # wayfind's own `test` script chains check(biome) → build(tsc) →
           # test:unit(bun test); `bun run test` (not plain `bun test`) so that
           # full chain runs, matching gui-movie-director's convention below.
