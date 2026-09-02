@@ -1,0 +1,9 @@
+{
+  "name": "vgpu-node-demo",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pngjs": "^7.0.0",
+    "vgpu": "^0.3.1"
+  }
+}

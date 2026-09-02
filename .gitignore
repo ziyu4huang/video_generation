@@ -128,6 +128,7 @@ output/
 # TUI/probe session scratch — model-invoked file2md outputs land here (never committed)
 vlm-out/
 
+<<<<<<< HEAD
 # Plugin pointer state — zcode plugin caches write their install roots here
 # (video2code, video-agent-kit). Machine-local, never source.
 /.v2c/
@@ -137,3 +138,7 @@ vlm-out/
 # ship decision). Gitignored so sweeps and `git add -A` cannot pick it up;
 # the CI-workflow reference guard would reject anything under bun-apps/ anyway.
 /scratch/
+
+# vgpu-labs-demo: regenerable headless-render frames (render.mjs re-emits them;
+# only the sourced shaders/apps and the 120 KB plasma.mp4 demo asset are tracked)
+vgpu-labs-demo/node-demo/frames/
