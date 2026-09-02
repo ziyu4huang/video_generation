@@ -50,7 +50,7 @@
     },
     "s2-agent": {
       "name": "@repo/s2-agent",
-      "version": "0.7.27",
+      "version": "0.9.0",
       "bin": {
         "s2-agent": "src/cli.ts",
       },
@@ -638,6 +638,13 @@
         "typebox": "*",
       },
     },
+    "zcode-generate-slide-video": {
+      "name": "@repo/zcode-generate-slide-video",
+      "version": "0.1.0",
+      "bin": {
+        "zcode-generate-slide-video": "./src/cli.ts",
+      },
+    },
   },
   "packages": {
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
@@ -1175,6 +1182,8 @@
     "@repo/s2-agent-ext-webui": ["@repo/s2-agent-ext-webui@workspace:s2-agent-ext-webui"],
 
     "@repo/s2-agent-ext-zai-mcp": ["@repo/s2-agent-ext-zai-mcp@workspace:s2-agent-ext-zai-mcp"],
+
+    "@repo/zcode-generate-slide-video": ["@repo/zcode-generate-slide-video@workspace:zcode-generate-slide-video"],
 
     "@silvia-odwyer/photon-node": ["@silvia-odwyer/photon-node@0.3.4", "", {}, "sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA=="],
 

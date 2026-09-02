@@ -41,7 +41,7 @@ describe("toConfig", () => {
   test("mlx backend defaults and validation", () => {
     const cfg = toConfig({ deck: "d", tts: "mlx" });
     expect(cfg.tts).toBe("mlx");
-    expect(cfg.voice).toBe("zf_xiaobei");
+    expect(cfg.voice).toBe("zf_xiaoxiao");
     expect(cfg.ttsModel).toBe("mlx-community/Kokoro-82M-bf16");
     expect(cfg.ttsLang).toBe("z");
     expect(() => toConfig({ deck: "d", tts: "elevenlabs" })).toThrow(/--tts must be say\|mlx/);

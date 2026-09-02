@@ -9,6 +9,7 @@
   "bin": { "zcode-generate-slide-video": "./src/cli.ts" },
   "scripts": {
     "test": "bun test",
+    "typecheck": "tsc --noEmit",
     "video": "bun src/cli.ts"
   }
 }
