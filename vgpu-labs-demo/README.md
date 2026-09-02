@@ -18,7 +18,7 @@ adapter → **Metal** on this Mac), and tests (deterministic mock adapter).
 | Raymarched fractal | `browser-demo/src/examples/raymarched-fractal/` | Canonical gallery example (Sierpiński + HDR bloom), hosted unmodified in Vite. |
 | Black hole | `browser-demo/src/examples/black-hole/` | Gravitational lensing example, same hosting. |
 
-Run: `cd browser-demo && npm run dev` → http://localhost:8177 (NOT 127.0.0.1 —
+Run: `cd browser-demo && bun install && bun run dev` → http://localhost:8177 (NOT 127.0.0.1 —
 Vite 7 binds localhost IPv6-only on this machine).
 
 ## The bug: "not show in center"
@@ -54,10 +54,15 @@ Vite HMR reloaded the page; the fractal then filled the viewport, centered.
 
 ## Other gotchas hit while building
 
-1. **npm 11 blocks postinstall scripts by default.** `esbuild` genuinely needs
-   its postinstall (platform binary): `npm install-scripts approve esbuild &&
-   npm rebuild esbuild`. `webgpu`'s postinstall is NOT needed — the Dawn
-   binary is already cached (verified by `npx vgpu doctor` → healthy).
+1. **Package managers: originally npm, converted to bun (2026-09-03).** Under
+   npm 11, postinstall scripts are blocked by default (`esbuild` genuinely
+   needs approval; `webgpu`'s is a no-op). Under bun, both dirs install from
+   the machine-global cache (`~/.bun/install/cache`) via **APFS copy-on-write
+   clones**: a fresh 95 MB `node-demo/node_modules` costs **~0.8 MB** of real
+   disk, and warm installs take <2 s. bun blocks both postinstalls too —
+   irrelevant: `esbuild` runs from its platform binary, and `vgpu` resolves
+   the Dawn binary through its own cache chain (`npx vgpu doctor` → healthy).
+   Both `bun.lock` files are committed.
 2. **Vite 7 binds localhost IPv6-only** here: `curl 127.0.0.1:8177` refuses,
    `localhost` / `[::1]` work.
 3. **`.wgsl` URLs look untransformed if curled directly** (Vite serves raw
@@ -81,15 +86,16 @@ devDependency, a bun-style tsconfig, and bumps to the `ci-local-parity` goldens
 `bun-apps/zcode-generate-slide-video`), not for a demo.
 
 Layout notes for the in-repo home:
-- `browser-demo/node_modules/` (165 MB) is covered by the global `node_modules`
-  gitignore; `node-demo/frames/` (14 MB of regenerable PNGs) is ignored
-  specifically. `browser-demo/public/plasma.mp4` (~120 KB) IS tracked so the
-  "Headless Node render" tab works out of the box.
-- The repo bans `package-lock.json` repo-wide (bun.lock is the single
-  lockfile) — the global gitignore rule covers browser-demo's npm lockfile
-  automatically. This directory is not a bun workspace member; it manages its
-  own deps with npm.
-- To run after a fresh clone: `cd vgpu-labs-demo/browser-demo && npm install`
-  (+ `npm install-scripts approve esbuild && npm rebuild esbuild` if npm gates
-  postinstalls), then `npm run dev` → http://localhost:8177. The headless demo:
-  `cd ../node-demo && npm install && node render.mjs && ffmpeg -framerate 30 -i frames/f-%04d.png -c:v libx264 -pix_fmt yuv420p -crf 20 plasma.mp4`.
+- `node_modules/` dirs are gitignored (global rule); they are bun-installed
+  from the machine-global cache via APFS clones, so their on-disk size is
+  almost entirely shared blocks (measured: a fresh 95 MB tree costs ~0.8 MB).
+  `node-demo/frames/` (14 MB of regenerable PNGs) is ignored specifically.
+  `browser-demo/public/plasma.mp4` (~120 KB) IS tracked so the "Headless Node
+  render" tab works out of the box.
+- Each demo dir has its own committed `bun.lock` (it is NOT a bun workspace
+  member, so the canonical `bun-apps/bun.lock` doesn't cover it; the repo-wide
+  `package-lock.json` ban is why no npm lockfile is tracked).
+- To run after a fresh clone: `cd vgpu-labs-demo/browser-demo && bun install
+  && bun run dev` → http://localhost:8177. The headless demo: `cd
+  ../node-demo && bun install && node render.mjs && ffmpeg -framerate 30 -i
+  frames/f-%04d.png -c:v libx264 -pix_fmt yuv420p -crf 20 plasma.mp4`.
