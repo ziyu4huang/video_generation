@@ -17,6 +17,16 @@ adapter → **Metal** on this Mac), and tests (deterministic mock adapter).
 | Headless Node render | `node-demo/render.mjs` | `vgpu/node` renders 150 frames of a WGSL plasma in pure Node via Dawn/Metal, reads pixels back (`await target.read()`), writes PNGs → `ffmpeg` → `plasma.mp4`. No browser involved. |
 | Raymarched fractal | `browser-demo/src/examples/raymarched-fractal/` | Canonical gallery example (Sierpiński + HDR bloom), hosted unmodified in Vite. |
 | Black hole | `browser-demo/src/examples/black-hole/` | Gravitational lensing example, same hosting. |
+| **Solar system** (ours) | `browser-demo/src/solar/` | Original 3D scene built on `vgpu/scene` meshes + `draw()`: one unit sphere **instanced** 9× (sun + planets, orbits computed in the vertex shader from a time uniform), **700 hash-seeded asteroid-belt instances**, Saturn's `ring()` geometry with an alpha-blended Cassini gap, thin `torus()` orbit lines, custom point-light-from-origin shading (banded gas giants, continents, polar caps, animated plasma sun), CPU orbit camera with drag + wheel zoom, and a post effect compositing starfield + screen-space sun glow + vignette. |
+
+## The 3D-object vocabulary vgpu gives you
+
+- **Procedural meshes** (`vgpu/scene`): `sphere`, `icosphere`, `box`, `capsule`, `cone`, `cylinder`, `torus`, `ring`/`disk` (annulus), `plane`, platonic solids, `fullscreenQuad` — descriptors uploaded via `geometry(gpu, …)`, or bring your own `GPUBuffer`s.
+- **Instancing**: `instances` on a draw (or per call) — one sphere mesh became 9 planets + 700 asteroids here; the docs' own demo drives a 125k-cube lattice.
+- **No-geometry spawns**: skip vertex buffers entirely and position triangles from `@builtin(vertex_index)` + `@builtin(instance_index)` — GPU particle systems in one draw call.
+- **Storage-driven vertices / compute**: WebGPU compute for displacement, particles, tensors — the class of thing WebGL simply cannot do.
+- **Raymarched SDF** (the gallery's approach): any implicit shape — the black hole and fractal tabs are pure fragment shaders.
+- **Multi-pass composition**: `frame(gpu, f => f.pass(…))` — this scene renders planets into a depth target, then a post pass composites starfield + glow onto the canvas.
 
 Run: `cd browser-demo && bun install && bun run dev` → http://localhost:8177 (NOT 127.0.0.1 —
 Vite 7 binds localhost IPv6-only on this machine).
@@ -71,6 +81,17 @@ Vite HMR reloaded the page; the fractal then filled the viewport, centered.
    `export default { version: 1, wgsl: "…" }`.
 4. **`gpu.dispose()` is mandatory** at the end of a `vgpu/node` script, or
    Dawn's polling keeps the Node process alive forever.
+5. **`frame(gpu, …)` must never nest.** `scene.render()` opens its own frame,
+   so the browser component drives it from a plain `requestAnimationFrame`
+   loop — calling it inside vgpu's `frameLoop` callback throws
+   `Nested frame(gpu) is invalid`. (Caught by the CDP probe: WebGPU init is
+   async and rAF-driven, so `--virtual-time-budget` screenshots show nothing;
+   use a real-time CDP wait instead.)
+6. **The browser canvas has no depth buffer** — 3D renders into
+   `target(gpu, { depth: true })`, then a post pass composites to the surface.
+7. **Verify headless-first**: `render-check.mjs` runs the identical scene
+   through `vgpu/node` → PNGs, so shader/geometry bugs are fixed against real
+   pixels before the browser is involved at all.
 
 ## Where this code lives (and why NOT `bun-apps/<name>`)
 
