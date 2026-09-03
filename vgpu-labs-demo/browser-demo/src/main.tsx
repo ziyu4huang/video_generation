@@ -3,13 +3,14 @@ import { createRoot } from "react-dom/client";
 import Fractal from "./examples/raymarched-fractal";
 import BlackHole from "./examples/black-hole";
 import SolarSystem from "./solar";
+import Palace from "./palace";
 
-type PageId = "fractal" | "blackhole" | "solar" | "headless";
+type PageId = "fractal" | "blackhole" | "solar" | "palace" | "headless";
 
 function App() {
   const [page, setPage] = useState<PageId>(() => {
     const h = location.hash.slice(1) as PageId;
-    return ["fractal", "blackhole", "solar", "headless"].includes(h) ? h : "fractal";
+    return ["fractal", "blackhole", "solar", "palace", "headless"].includes(h) ? h : "fractal";
   });
   const go = (p: PageId) => { setPage(p); location.hash = p; };
   return (
@@ -18,12 +19,14 @@ function App() {
         <button className={page === "fractal" ? "active" : ""} onClick={() => go("fractal")}>Raymarched fractal</button>
         <button className={page === "blackhole" ? "active" : ""} onClick={() => go("blackhole")}>Black hole</button>
         <button className={page === "solar" ? "active" : ""} onClick={() => go("solar")}>Solar system</button>
+        <button className={page === "palace" ? "active" : ""} onClick={() => go("palace")}>紫禁城 Palace</button>
         <button className={page === "headless" ? "active" : ""} onClick={() => go("headless")}>Headless Node render</button>
       </nav>
       <div className="page">
         {page === "fractal" && <Fractal />}
         {page === "blackhole" && <BlackHole />}
         {page === "solar" && <SolarSystem />}
+        {page === "palace" && <Palace />}
         {page === "headless" && (
           <div className="video-page">
             <video src="/plasma.mp4" controls autoPlay loop muted playsInline />

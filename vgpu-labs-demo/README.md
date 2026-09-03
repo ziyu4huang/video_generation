@@ -1,7 +1,7 @@
 # vgpu labs demo — what happened, and how the bug was solved
 
 Evaluation of https://github.com/vercel-labs/vgpu (vgpu.sh, Vercel Labs) on
-2026-09-02. Three working demos, one layout bug found and fixed.
+2026-09-02. Four working demos, one layout bug found and fixed.
 
 ## What vgpu is
 
@@ -10,7 +10,7 @@ A TypeScript WebGPU library with one tiny API (`init` → `Gpu`, `effect` /
 three runtimes: the browser (canvas surface), headless Node (bundled Dawn
 adapter → **Metal** on this Mac), and tests (deterministic mock adapter).
 
-## The three demos here
+## The demos here
 
 | Demo | Path | What it proves |
 |---|---|---|
@@ -18,6 +18,7 @@ adapter → **Metal** on this Mac), and tests (deterministic mock adapter).
 | Raymarched fractal | `browser-demo/src/examples/raymarched-fractal/` | Canonical gallery example (Sierpiński + HDR bloom), hosted unmodified in Vite. |
 | Black hole | `browser-demo/src/examples/black-hole/` | Gravitational lensing example, same hosting. |
 | **Solar system** (ours) | `browser-demo/src/solar/` | Original 3D scene built on `vgpu/scene` meshes + `draw()`: one unit sphere **instanced** 9× (sun + planets, orbits computed in the vertex shader from a time uniform), **700 hash-seeded asteroid-belt instances**, Saturn's `ring()` geometry with an alpha-blended Cassini gap, thin `torus()` orbit lines, custom point-light-from-origin shading (banded gas giants, continents, polar caps, animated plasma sun), CPU orbit camera with drag + wheel zoom, and a post effect compositing starfield + screen-space sun glow + vignette. |
+| **紫禁城 Palace** (ours) | `browser-demo/src/palace/` | Original axial Forbidden City: 午門 → 金水橋 → 太和門 → 太和殿 (triple marble terrace, double-eave 庑殿 roof) → 中和/保和 → 乾清宮 → 神武門, red perimeter walls with 角樓 turrets, moat, Jingshan + pavilion, ~200 instanced parts in ONE `storage()` buffer (pos/scale/color/material-mode per instance) shared by box / hip-roof / pyramid / hill draws, **custom parametric hip-roof mesh** (`geometry(gpu, {buffers, indices})` with finite-difference normals) for the upturned-eave roofs, material-mode fragment shading (glazed tiles with world-space ribs, 彩畫 beams, studded doors, water, paving), golden-hour post sky (gradient + clouds + projected sun), drag/wheel camera with idle drift. |
 
 ## The 3D-object vocabulary vgpu gives you
 
@@ -92,6 +93,25 @@ Vite HMR reloaded the page; the fractal then filled the viewport, centered.
 7. **Verify headless-first**: `render-check.mjs` runs the identical scene
    through `vgpu/node` → PNGs, so shader/geometry bugs are fixed against real
    pixels before the browser is involved at all.
+8. **Custom geometry is just a descriptor**: `geometry(gpu, { buffers:
+   [{ stride, attributes: { position: "float32x3", normal: "float32x3" },
+   data }], indices, vertexCount })` — attributes bind to the shader by NAME
+   via reflection, same layout as the kit's meshes, so one shader can draw
+   box meshes and hand-built meshes alike (the palace roofs are parametric
+   hip roofs with finite-difference normals).
+9. **One storage buffer rewritten per draw doesn't work** — `queue.writeBuffer`
+   ops enqueued before a frame all execute before its passes, so the last
+   write clobbers every earlier draw. Use one buffer per draw (the palace
+   keeps four: boxes / hip roofs / pyramids / hill).
+10. **Pattern-scale + moiré on instanced geometry**: a pattern frequency
+    defined in unit-local coords warps when instances stretch (the palace
+    roofs looked like banana leaves), and two fine line grids (tile ribs ×
+    courses) interfere into plume moiré at grazing angles. Fix: pattern in
+    WORLD space (pass instance scale as a varying; or use `worldPos`),
+    hard-switched at face boundaries (`select(…)`) instead of `mix`-blended.
+11. **The post quad's uv.y is 0 at the TOP of the screen** (screen convention,
+    matching the CPU-projected sun position) — a sky gradient written against
+    raw uv.y paints the warm horizon at the zenith; flip with `1.0 - uv.y`.
 
 ## Where this code lives (and why NOT `bun-apps/<name>`)
 
