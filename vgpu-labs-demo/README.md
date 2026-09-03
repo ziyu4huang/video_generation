@@ -1,7 +1,7 @@
 # vgpu labs demo — what happened, and how the bug was solved
 
 Evaluation of https://github.com/vercel-labs/vgpu (vgpu.sh, Vercel Labs) on
-2026-09-02. Four working demos, one layout bug found and fixed.
+2026-09-02. Five working demos, one layout bug found and fixed.
 
 ## What vgpu is
 
@@ -19,6 +19,7 @@ adapter → **Metal** on this Mac), and tests (deterministic mock adapter).
 | Black hole | `browser-demo/src/examples/black-hole/` | Gravitational lensing example, same hosting. |
 | **Solar system** (ours) | `browser-demo/src/solar/` | Original 3D scene built on `vgpu/scene` meshes + `draw()`: one unit sphere **instanced** 9× (sun + planets, orbits computed in the vertex shader from a time uniform), **700 hash-seeded asteroid-belt instances**, Saturn's `ring()` geometry with an alpha-blended Cassini gap, thin `torus()` orbit lines, custom point-light-from-origin shading (banded gas giants, continents, polar caps, animated plasma sun), CPU orbit camera with drag + wheel zoom, and a post effect compositing starfield + screen-space sun glow + vignette. |
 | **紫禁城 Palace** (ours) | `browser-demo/src/palace/` | Original axial Forbidden City: 午門 → 金水橋 → 太和門 → 太和殿 (triple marble terrace, double-eave 庑殿 roof) → 中和/保和 → 乾清宮 → 神武門, red perimeter walls with 角樓 turrets, moat, Jingshan + pavilion, ~200 instanced parts in ONE `storage()` buffer (pos/scale/color/material-mode per instance) shared by box / hip-roof / pyramid / hill draws, **custom parametric hip-roof mesh** (`geometry(gpu, {buffers, indices})` with finite-difference normals) for the upturned-eave roofs, material-mode fragment shading (glazed tiles with world-space ribs, 彩畫 beams, studded doors, water, paving), golden-hour post sky (gradient + clouds + projected sun), drag/wheel camera with idle drift. |
+| **MacBook 拆解** (ours) | `browser-demo/src/macbook/` | Exploded-view teardown: assembled it's an open MacBook (live wallpaper screen, studded keyboard, trackpad, glowing logo); an explode slider (or 自動拆解 ping-pong) slides ~130 instanced parts apart into a teardown stack with per-group stagger — bottom shell → battery → logic board + spinning fans + copper heat pipe → keyboard deck → display lid, which flattens from open to flat while lifting (per-instance rotX animated by group in the vertex shader). Hinge trick: rotate around the instance origin with a `localOffset` applied pre-rotation. Studio backdrop + fake contact shadow. |
 
 ## The 3D-object vocabulary vgpu gives you
 

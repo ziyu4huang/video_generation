@@ -4,13 +4,14 @@ import Fractal from "./examples/raymarched-fractal";
 import BlackHole from "./examples/black-hole";
 import SolarSystem from "./solar";
 import Palace from "./palace";
+import Macbook from "./macbook";
 
-type PageId = "fractal" | "blackhole" | "solar" | "palace" | "headless";
+type PageId = "fractal" | "blackhole" | "solar" | "palace" | "macbook" | "headless";
 
 function App() {
   const [page, setPage] = useState<PageId>(() => {
     const h = location.hash.slice(1) as PageId;
-    return ["fractal", "blackhole", "solar", "palace", "headless"].includes(h) ? h : "fractal";
+    return ["fractal", "blackhole", "solar", "palace", "macbook", "headless"].includes(h) ? h : "fractal";
   });
   const go = (p: PageId) => { setPage(p); location.hash = p; };
   return (
@@ -20,6 +21,7 @@ function App() {
         <button className={page === "blackhole" ? "active" : ""} onClick={() => go("blackhole")}>Black hole</button>
         <button className={page === "solar" ? "active" : ""} onClick={() => go("solar")}>Solar system</button>
         <button className={page === "palace" ? "active" : ""} onClick={() => go("palace")}>紫禁城 Palace</button>
+        <button className={page === "macbook" ? "active" : ""} onClick={() => go("macbook")}>MacBook 拆解</button>
         <button className={page === "headless" ? "active" : ""} onClick={() => go("headless")}>Headless Node render</button>
       </nav>
       <div className="page">
@@ -27,6 +29,7 @@ function App() {
         {page === "blackhole" && <BlackHole />}
         {page === "solar" && <SolarSystem />}
         {page === "palace" && <Palace />}
+        {page === "macbook" && <Macbook />}
         {page === "headless" && (
           <div className="video-page">
             <video src="/plasma.mp4" controls autoPlay loop muted playsInline />
