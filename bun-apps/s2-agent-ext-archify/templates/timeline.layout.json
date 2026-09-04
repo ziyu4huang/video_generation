@@ -20,33 +20,47 @@
   "body": [
     {
       "region": "content",
-      "box": { "inset": [0.3, 2.6, 0.3, 2.39] },
-      "content": { "kind": "rule" }
-    },
-    {
-      "region": "content",
-      "repeat": { "over": "milestones", "flow": "row", "gap": 0.3, "max": 6 },
-      "cell": [
+      "stack": { "dir": "row", "weights": [1.45, 0.11, 1.4], "gap": 0.14 },
+      "children": [
         {
-          "stack": { "dir": "row", "weights": [1, 1, 2], "gap": 0.08 },
-          "children": [
+          "repeat": { "over": "milestones", "flow": "row", "gap": 0.3, "max": 6 },
+          "cell": [
             {
               "box": "fill",
               "content": { "kind": "text", "role": "milestoneDate", "from": "{date}" },
               "align": "center",
               "valign": "bottom"
+            }
+          ]
+        },
+        {
+          "box": { "inset": [0.3, 0, 0.3, 0] },
+          "content": { "kind": "rule" }
+        },
+        {
+          "stack": { "dir": "row", "weights": [1, 1.33], "gap": 0.1 },
+          "children": [
+            {
+              "repeat": { "over": "milestones", "flow": "row", "gap": 0.3, "max": 6 },
+              "cell": [
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "milestoneLabel", "from": "{label}" },
+                  "align": "center",
+                  "valign": "top"
+                }
+              ]
             },
             {
-              "box": "fill",
-              "content": { "kind": "text", "role": "milestoneLabel", "from": "{label}" },
-              "align": "center",
-              "valign": "top"
-            },
-            {
-              "box": "fill",
-              "content": { "kind": "text", "role": "milestoneNote", "from": "{note}" },
-              "align": "center",
-              "valign": "top"
+              "repeat": { "over": "milestones", "flow": "row", "gap": 0.3, "max": 6 },
+              "cell": [
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "milestoneNote", "from": "{note}" },
+                  "align": "center",
+                  "valign": "top"
+                }
+              ]
             }
           ]
         }

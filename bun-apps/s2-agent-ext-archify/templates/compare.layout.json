@@ -18,7 +18,7 @@
   "body": [
     {
       "region": "content",
-      "repeat": { "over": "sides", "flow": "col", "gap": 0.5, "max": 2 },
+      "repeat": { "over": "sides", "flow": "row", "gap": 0.5, "max": 2 },
       "cell": [
         {
           "stack": { "dir": "row", "weights": [1, 4], "gap": 0.25 },

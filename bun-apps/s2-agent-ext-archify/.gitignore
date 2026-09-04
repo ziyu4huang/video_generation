@@ -1,3 +1,6 @@
 node_modules/
 # `archify examples` regenerates these rendered HTMLs beside the source IRs.
 /vendored/examples/*.html
+
+# Sweep/build outputs (HTML twins, renders) — regenerate via archify build, never commit.
+.output/
