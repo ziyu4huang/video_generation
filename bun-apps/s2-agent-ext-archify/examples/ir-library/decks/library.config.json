@@ -179,7 +179,7 @@
         { "title": "Where the 4.2 s goes", "note": "10 min" },
         { "title": "Cache design review", "note": "15 min" },
         { "title": "Migration plan", "note": "20 min" },
-        { "title": "Decision and next steps" }
+        { "title": "Decision and next steps", "note": "5 min" }
       ]
     },
     {

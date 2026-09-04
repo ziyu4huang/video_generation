@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-23-archify-rich-decks
 created: 2026-08-23
-last: 2026-08-24
+last: 2026-09-04
 status: active
 ---
 # archify-rich-decks — faster, richer pptx authoring through a copy-adapt IR library
@@ -64,7 +64,7 @@ Phase 3 — richer templates
 **Execution order:** 30 (single ticket, fully forced — closed 2026-08-24)
 
 Phase 4 — quality fidelity sweep
-- `tickets/40-quality-sweep.md` — task, **open** — re-run the visual-fidelity gates against the library + benchmark deck
+- `tickets/40-quality-sweep.md` — task, **closed 2026-09-04** — 4 template defects fixed + `statement-overflows` gate; receipt `archify-quality-sweep-2026-09-04.md`
 
 **Execution order:** 40 (single ticket, fully forced; design-first)
 
@@ -100,12 +100,10 @@ Phase 4 — quality fidelity sweep
 
 ## Frontier
 
-`tickets/40-quality-sweep.md` — the phase-4 quality/fidelity sweep. First because
-phases 1–3 (library, converter, ir-slot templates) are done and its subject — the library
-deck + the benchmark `aspice4-chip-v5`, incl. the harvest-tier visual review the earlier
-sessions deferred — is ready; design-first as usual: scope the
-`archify-deck-visual-fidelity` measured checks (title band wrap, takeaway placement) to
-re-run, then to-tickets → execute.
+cleared — ticket 40 closed 2026-09-04. The sweep re-ran the fidelity gates over the
+HTML/SVG twins (quicklook judged insufficient; stage-exact Bun.WebView captures) and the
+benchmark deck; four template-layer defects are fixed and one new error-severity gate
+(`statement-overflows`) folded back. Effort complete: phases 1–4 all closed.
 
 ## Fog of war
 

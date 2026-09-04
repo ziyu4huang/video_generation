@@ -19,10 +19,11 @@
  * throws — a style rule that blocks a deliverable teaches people to disable the
  * linter, and one that prints a note gets read. But a note of severity `error`
  * says the deck will come out visibly broken, and `buildDeck` refuses to write
- * one. Today exactly one rule can reach that severity: `title-overflows`, where
- * the action title is wider than its band and the accent rule strikes line two
- * through. That is not a matter of taste, so it does not get a taste-shaped
- * remedy.
+ * one. two rules can reach that severity: `title-overflows` (the action title
+ * wraps and the accent rule strikes line two through) and `statement-overflows`
+ * (a centred statement or quotation clips its slot and the rule strikes its
+ * last line — sweep t40, measured on aspice4-chip-v5 slide 13). Neither is a
+ * matter of taste, so neither gets a taste-shaped remedy.
  */
 import { TITLE_BAND, TYPE_SCALE } from "./deck-theme.ts";
 import { normalizeBullets, resolveLayout, type Slide } from "./slide-model.ts";
@@ -34,6 +35,7 @@ export interface DeckLintNote {
   code:
     | "title-is-a-label"
     | "title-overflows"
+    | "statement-overflows"
     | "too-many-bullets"
     | "bullets-too-deep"
     | "too-many-table-rows"
@@ -139,6 +141,54 @@ function titleOverflow(slide: Slide): Omit<DeckLintNote, "slide"> | undefined {
   };
 }
 
+/**
+ * Will a centred statement / quotation overflow its slot?
+ *
+ * Both the `statement` code layout (10.5 × 2.8 in at 34 pt) and the `quote`
+ * template (10.53 × 2.85 in at 28 pt) set text in a fixed slot with no
+ * autofit, with the accent rule at a fixed y just below — an over-long text
+ * clips its top edge and takes the rule through its last line, exactly the
+ * failure mode t02 fixed for titles. Line pitch = sizePt × spacing; capacity
+ * per line uses the title-calibrated extent model scaled by a measured 0.72
+ * (the aspice4-chip-v5 slide-13 statement, mixed Latin/PingFang TC, set ~16 em
+ * per rendered line where the raw model predicted 22 at 34 pt).
+ */
+function statementOverflow(slide: Slide): Omit<DeckLintNote, "slide"> | undefined {
+  // Template names ride `slide.layout` but the resolver's union only knows the
+  // six code layouts — compare as the raw string.
+  const layout = resolveLayout(slide) as string;
+  let text: string | undefined;
+  let sizePt: number, spacing: number, slotH: number;
+  if (layout === "statement") {
+    text = typeof slide.statement === "string" ? slide.statement : undefined;
+    sizePt = 34; spacing = 1.2; slotH = 2.8;
+  } else if (layout === "quote") {
+    const q = (slide as unknown as { quote?: unknown }).quote;
+    text = typeof q === "string" ? q : undefined;
+    sizePt = 28; spacing = 1.3; slotH = 2.85;
+  } else {
+    return undefined;
+  }
+  if (!text || text === "") return undefined;
+  const slotW = 10.5;
+  const lineIn = (sizePt * spacing) / 72;
+  const maxLines = Math.floor(slotH / lineIn);
+  const capacity = lineCapacityEms(slotW, sizePt) * 0.72;
+  const lines = Math.ceil(textEms(text) / capacity);
+  if (lines <= maxLines - 1) return undefined;
+  const over = lines > maxLines;
+  return {
+    code: "statement-overflows",
+    severity: over ? "error" : "warn",
+    message:
+      `statement sets about ${lines} lines against a ${maxLines}-line slot ` +
+      `(${slotW.toFixed(1)} in wide at ${sizePt} pt) — ` +
+      (over
+        ? "it will clip past the slot and the accent rule strikes the last line; shorten it"
+        : "close enough to the edge that it may clip depending on the font; consider trimming"),
+  };
+}
+
 /** Every authored string on a slide, for the inline-colour sweep. */
 function copyOf(slide: Slide): string[] {
   return [
@@ -192,6 +242,8 @@ export function lintDeck(deck: LintableDeck): DeckLintNote[] {
       const note = titleOverflow(slide);
       if (note) notes.push({ slide: n, ...note });
     }
+    const statementNote = statementOverflow(slide);
+    if (statementNote) notes.push({ slide: n, ...statementNote });
 
     const bullets = normalizeBullets(slide.bullets);
     if (bullets.length > BULLETS_MAX) {

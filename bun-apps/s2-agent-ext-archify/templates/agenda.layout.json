@@ -32,7 +32,7 @@
               "valign": "middle"
             },
             {
-              "stack": { "dir": "row", "weights": [3, 2], "gap": 0.2 },
+              "stack": { "dir": "col", "weights": [3, 2], "gap": 0.2 },
               "children": [
                 {
                   "box": "fill",
