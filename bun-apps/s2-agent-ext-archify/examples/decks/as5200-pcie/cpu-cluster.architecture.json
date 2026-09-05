@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "CPU cluster: the DSU is the real product",
+    "subtitle": "Four A78AE pairs on split L2 slices, snoop-filtered and debugged through the DSU; the GIC's MSI path is where PCIe later knocks",
+    "output": "cpu-cluster.architecture.html",
+    "viewBox": [920, 340],
+    "quality_profile": "standard",
+    "legend": "variants"
+  },
+  "components": [
+    { "id": "c0", "type": "backend", "label": "Cortex-A78AE", "sublabel": "core 0 · 1.8 GHz", "pos": [40, 40], "size": [180, 56] },
+    { "id": "c1", "type": "backend", "label": "Cortex-A78AE", "sublabel": "core 1", "pos": [260, 40], "size": [180, 56] },
+    { "id": "c2", "type": "backend", "label": "Cortex-A78AE", "sublabel": "core 2", "pos": [480, 40], "size": [180, 56] },
+    { "id": "c3", "type": "backend", "label": "Cortex-A78AE", "sublabel": "core 3", "pos": [700, 40], "size": [180, 56] },
+    { "id": "l2a", "type": "database", "label": "L2 slice 0", "sublabel": "2 MB · split", "pos": [260, 150], "size": [180, 48] },
+    { "id": "l2b", "type": "database", "label": "L2 slice 1", "sublabel": "2 MB · split", "pos": [480, 150], "size": [180, 48] },
+    { "id": "dsu", "type": "messagebus", "label": "DSU-110", "sublabel": "snoop filter · debug", "pos": [370, 240], "size": [180, 52] },
+    { "id": "gic", "type": "backend", "label": "GIC-600", "sublabel": "SPI · LPI (MSI)", "pos": [40, 240], "size": [200, 52] },
+    { "id": "nocout", "type": "external", "label": "To NoC / L3", "sublabel": "coherent exit", "pos": [620, 240], "size": [180, 52] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Cluster", "wraps": ["c0", "c1", "c2", "c3", "l2a", "l2b", "dsu"] }
+  ],
+  "connections": [
+    { "id": "k1", "from": "c0", "to": "l2a" },
+    { "id": "k2", "from": "c1", "to": "l2a" },
+    { "id": "k3", "from": "c2", "to": "l2b" },
+    { "id": "k4", "from": "c3", "to": "l2b" },
+    { "id": "k5", "from": "l2a", "to": "dsu" },
+    { "id": "k6", "from": "l2b", "to": "dsu" },
+    { "id": "k7", "from": "dsu", "to": "nocout", "variant": "emphasis", "label": "CHI" },
+    { "id": "k8", "from": "gic", "to": "dsu", "variant": "dashed", "label": "LPI doorbells" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Why split L2", "items": ["Two 2 MB slices keep snoop latency off the reset-critical path", "DSU-110 is the coherence point — RAS and debug funnel through it", "MPAM classes pin the safety guest off cores 0–1"] },
+    { "dot": "rose", "title": "RAS is the automotive delta", "items": ["A78AE adds deferred-error counters the base A78 lacks", "Uncorrected fault: DSU resets the cluster, never the car", "Lockstep R52s vote off-cluster — the island distrusts the big cores by design"] }
+  ]
+}

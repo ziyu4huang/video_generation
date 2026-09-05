@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "diagram_type": "lifecycle",
+  "meta": {
+    "title": "LTSSM: the healthy path is four states; the bug is a fifth",
+    "subtitle": "Detect → Polling → Configuration → L0 in a second; Recovery is where silicon spends its worst days",
+    "output": "ltssm.lifecycle.html",
+    "quality_profile": "standard"
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Link training"
+    },
+    {
+      "id": "waiting",
+      "label": "Recovery"
+    },
+    {
+      "id": "terminal",
+      "label": "Exits"
+    }
+  ],
+  "states": [
+    {
+      "id": "detect",
+      "type": "start",
+      "label": "Detect",
+      "sublabel": "receiver detect",
+      "lane": "main",
+      "col": 0,
+      "step": "01"
+    },
+    {
+      "id": "polling",
+      "type": "active",
+      "label": "Polling",
+      "sublabel": "TS1/TS2 @2.5 GT/s",
+      "lane": "main",
+      "col": 1,
+      "step": "02"
+    },
+    {
+      "id": "config",
+      "type": "active",
+      "label": "Configuration",
+      "sublabel": "link + lane numbers",
+      "lane": "main",
+      "col": 2,
+      "step": "03"
+    },
+    {
+      "id": "l0",
+      "type": "success",
+      "label": "L0",
+      "sublabel": "8/16 GT/s traffic",
+      "lane": "main",
+      "col": 3,
+      "step": "04"
+    },
+    {
+      "id": "recovery",
+      "type": "waiting",
+      "label": "Recovery",
+      "sublabel": "retrain on error",
+      "lane": "waiting",
+      "col": 0
+    },
+    {
+      "id": "rcvrlock",
+      "type": "failure",
+      "label": "RcvrLock loop",
+      "sublabel": "EQ never locks @125 °C",
+      "lane": "waiting",
+      "col": 2
+    },
+    {
+      "id": "gen3",
+      "type": "success",
+      "label": "Gen3 fallback",
+      "sublabel": "bounded retry, 3×",
+      "lane": "terminal",
+      "col": 0
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t1",
+      "from": "detect",
+      "to": "polling",
+      "variant": "emphasis"
+    },
+    {
+      "id": "t2",
+      "from": "polling",
+      "to": "config"
+    },
+    {
+      "id": "t3",
+      "from": "config",
+      "to": "l0",
+      "variant": "emphasis",
+      "label": "locked",
+      "labelAt": [
+        479,
+        204
+      ]
+    },
+    {
+      "id": "t4",
+      "from": "l0",
+      "to": "recovery",
+      "label": "error / ASPM exit",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "t5",
+      "from": "recovery",
+      "to": "l0",
+      "label": "relocked",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "labelAt": [
+        560,
+        244
+      ]
+    },
+    {
+      "id": "t6",
+      "from": "recovery",
+      "to": "rcvrlock",
+      "label": "EQ fails",
+      "variant": "dashed"
+    },
+    {
+      "id": "t7",
+      "from": "rcvrlock",
+      "to": "recovery",
+      "variant": "dashed",
+      "label": "retry"
+    },
+    {
+      "id": "t8",
+      "from": "rcvrlock",
+      "to": "gen3",
+      "label": "3 strikes → downgrade",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Bug 1: the RcvrLock loop",
+      "items": [
+        "At 125 °C the endpoint loses the Gen4 receiver preset — Recovery loops forever",
+        "Firmware saw link-up at 2.5 GT/s and stopped watching; the link was never trained",
+        "Fix: bounded retry, 3 strikes then force Gen3 — availability over peak bandwidth"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "What the healthy path promises",
+      "items": [
+        "Detect→L0 inside one second is a boot KPI, not a datasheet hope",
+        "Every Recovery entry is logged to the REB — silence is the bug",
+        "ASPM exit walks Recovery too: latency budgets must include it"
+      ]
+    }
+  ]
+}

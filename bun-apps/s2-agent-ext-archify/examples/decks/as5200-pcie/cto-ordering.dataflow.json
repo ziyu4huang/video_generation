@@ -1,0 +1,120 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Completion timeout: the completion was never lost, only late",
+    "subtitle": "Posted writes drain ahead of the pending read — PCIe ordering is mandatory, and the timer does not care that the data was 10 µs away",
+    "output": "cto-ordering.dataflow.html",
+    "quality_profile": "standard"
+  },
+  "stages": [
+    {
+      "label": "Endpoint"
+    },
+    {
+      "label": "Root complex"
+    },
+    {
+      "label": "Memory"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "ep",
+      "type": "backend",
+      "label": "ADAS accelerator",
+      "stage": 0,
+      "row": 0,
+      "sublabel": "EP · waits on read"
+    },
+    {
+      "id": "pc",
+      "type": "messagebus",
+      "label": "RC0 inbound queue",
+      "stage": 1,
+      "row": 0,
+      "sublabel": "posted-first drain"
+    },
+    {
+      "id": "cto",
+      "type": "backend",
+      "label": "CTO timer",
+      "stage": 1,
+      "row": 1,
+      "sublabel": "50 µs armed"
+    },
+    {
+      "id": "mem",
+      "type": "database",
+      "label": "LPDDR5",
+      "stage": 2,
+      "row": 0,
+      "sublabel": "via L3"
+    }
+  ],
+  "flows": [
+    {
+      "id": "w1",
+      "from": "ep",
+      "to": "pc",
+      "label": "MemWr · posted",
+      "variant": "emphasis",
+      "labelDy": -18
+    },
+    {
+      "id": "w2",
+      "from": "ep",
+      "to": "pc",
+      "label": "MemRd · non-posted"
+    },
+    {
+      "id": "w3",
+      "from": "pc",
+      "to": "mem",
+      "label": "write drain",
+      "variant": "emphasis"
+    },
+    {
+      "id": "w4",
+      "from": "mem",
+      "to": "pc",
+      "label": "CplD ready",
+      "variant": "dashed"
+    },
+    {
+      "id": "w5",
+      "from": "pc",
+      "to": "cto",
+      "label": "60 µs elapsed",
+      "variant": "dashed"
+    },
+    {
+      "id": "w6",
+      "from": "pc",
+      "to": "ep",
+      "label": "CplD · 10 µs late",
+      "variant": "dashed",
+      "labelDy": 30
+    }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "Bug 3: ordering, not distance",
+      "items": [
+        "Posted MemWr fills the RC queue ahead of the pending CplD — that ordering is mandated",
+        "The CTO fired at 50 µs; the completion landed at 60 µs — late, not lost",
+        "A surprise AER CTO reset the EP mid-inference: the ADAS frame dropped"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "The fix holds up",
+      "items": [
+        "Relaxed Ordering stays off on RC0 — the gateway port has no latency hero",
+        "CTO armed at 250 ms and every firing logged to the REB",
+        "ASPM L1 exit latency budgeted separately: 60 µs into every worst-case path"
+      ]
+    }
+  ]
+}

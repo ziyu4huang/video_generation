@@ -1,0 +1,311 @@
+{
+  "output": "as5200-pcie.pptx",
+  "theme": "light",
+  "tag": "AS5200 · automotive SoC bring-up review",
+  "defaults": {
+    "font": "PingFang TC"
+  },
+  "slides": [
+    {
+      "layout": "title",
+      "eyebrow": "AUTOMOTIVE SILICON · BRING-UP REVIEW",
+      "title": "The car program is won on the bus — architect the SoC around PCIe",
+      "subtitle": "AS5200: 8× Cortex-A78AE, an ASIL-D island, three Gen4 root ports — and the five bugs that taught us the difference",
+      "date": "2026-09-05"
+    },
+    {
+      "layout": "agenda",
+      "title": "From die photo to debug log in six stops",
+      "source": "Source: AS5200 bring-up review board",
+      "items": [
+        {
+          "title": "The chip on one page",
+          "note": "5 min"
+        },
+        {
+          "title": "CPU cluster and the safety island",
+          "note": "10 min"
+        },
+        {
+          "title": "The PCIe subsystem",
+          "note": "10 min"
+        },
+        {
+          "title": "Five bugs and their fixes",
+          "note": "20 min"
+        },
+        {
+          "title": "Bring-up playbook",
+          "note": "5 min"
+        }
+      ]
+    },
+    {
+      "layout": "diagram",
+      "title": "Compute spine, safety island, three PCIe roots",
+      "takeaway": "RC0 carries every chassis message — the bus is the product",
+      "source": "Source: soc-top.architecture.json",
+      "ir": "soc-top.architecture.json"
+    },
+    {
+      "layout": "kpi-row",
+      "title": "The domain sets targets before RTL starts",
+      "takeaway": "Every KPI below decided a floorplan argument",
+      "source": "Source: AS5200 product requirements, rev C",
+      "kpis": [
+        {
+          "value": "62 k",
+          "label": "DMIPS, CPU cluster",
+          "note": "8× A78AE at 1.8 GHz"
+        },
+        {
+          "value": "ASIL-D",
+          "label": "Safety island",
+          "note": "3× Cortex-R52 lockstep"
+        },
+        {
+          "value": "125 °C",
+          "label": "Grade 1 ambient",
+          "note": "AEC-Q100, no derate"
+        },
+        {
+          "value": "3× Gen4",
+          "label": "PCIe root ports",
+          "note": "x4 + x2 + x1 lanes"
+        }
+      ]
+    },
+    {
+      "layout": "split",
+      "title": "The DSU is the cluster's real product",
+      "takeaway": "Coherence, RAS and debug all funnel through one block",
+      "source": "Source: cpu-cluster.architecture.json",
+      "ir": "cpu-cluster.architecture.json",
+      "bullets": [
+        "8× A78AE on split 2 MB L2 slices — snoops stay local",
+        "DSU-110: snoop filter, cluster reset, debug's front door",
+        "MPAM pins the safety guest off cores 0–1",
+        "Deferred-error counters are the automotive delta over base A78"
+      ]
+    },
+    {
+      "layout": "diagram",
+      "title": "Boot is a chain of signatures, not a sequence",
+      "takeaway": "The island is measured before it is allowed to matter",
+      "source": "Source: safety-boot.dataflow.json",
+      "ir": "safety-boot.dataflow.json"
+    },
+    {
+      "layout": "table",
+      "title": "Safety is decomposed, not sprinkled",
+      "takeaway": "Independence between elements is the whole argument",
+      "source": "Source: ISO 26262-9 decomposition analysis, SAF-221",
+      "columns": [
+        "Function",
+        "Mechanism",
+        "ASIL",
+        "Evidence"
+      ],
+      "rows": [
+        [
+          "Braking request path",
+          "R52 ×3 lockstep + windowed WDT",
+          "D",
+          "Fault-injection report FI-114"
+        ],
+        [
+          "Camera ingest",
+          "ISP CRC + safety-guest sanity",
+          "B(D)",
+          "Work product per part 6"
+        ],
+        [
+          "PCIe link integrity",
+          "AER + ECRC, RC firmware guard",
+          "B",
+          "Fault campaign, 1.2k runs"
+        ],
+        [
+          "Display pipeline",
+          "CRC on frame-store readback",
+          "B",
+          "Lab report DISP-08"
+        ],
+        [
+          "Infotainment",
+          "QM by decomposition",
+          "QM",
+          "Safety manual, rev C"
+        ]
+      ],
+      "note": "Decomposition per ISO 26262-9 with dependent-failure analysis attached"
+    },
+    {
+      "layout": "section",
+      "eyebrow": "THE HARD PART",
+      "sectionNumber": "04",
+      "title": "PCIe: where automotive bring-up goes to die"
+    },
+    {
+      "layout": "diagram",
+      "title": "Three root ports, one PHY bank: shared fate",
+      "takeaway": "One PLL bank means one jitter event retrains the whole car",
+      "source": "Source: pcie-subsystem.architecture.json",
+      "ir": "pcie-subsystem.architecture.json"
+    },
+    {
+      "layout": "table",
+      "title": "Five bugs explain the whole debug bill",
+      "takeaway": "Four of five were invisible at room temperature",
+      "source": "Source: AS5200 bring-up defect log, BRT-042",
+      "columns": [
+        "#",
+        "Layer",
+        "Symptom",
+        "Root cause"
+      ],
+      "rows": [
+        [
+          "1",
+          "LTSSM",
+          "Link up at 2.5 GT/s, never faster",
+          "EQ never locks at 125 °C — RcvrLock loop"
+        ],
+        [
+          "2",
+          "PHY EQ",
+          "Chamber run fails, lab passes",
+          "RX eye collapses under preset 8-4 when hot"
+        ],
+        [
+          "3",
+          "Ordering",
+          "AER completion timeout on RC0",
+          "Posted writes drain ahead of the CplD"
+        ],
+        [
+          "4",
+          "MSI-X",
+          "Lost interrupts under load",
+          "Doorbell write crosses CDC; target misses it"
+        ],
+        [
+          "5",
+          "Reset",
+          "Endpoints dead after FLR",
+          "Hot reset raced FLR; config space left in D3"
+        ]
+      ],
+      "note": "Severity ranked by field exposure; bugs 1–3 get deep dives next"
+    },
+    {
+      "layout": "split",
+      "title": "Bug 1: a loop the firmware called a link",
+      "takeaway": "Availability beats bandwidth — bounded retry, then downgrade",
+      "source": "Source: ltssm.lifecycle.json",
+      "ir": "ltssm.lifecycle.json",
+      "bullets": [
+        "Firmware polled one bit: link-up — LTSSM was looping in Recovery",
+        "At 125 °C the endpoint loses the Gen4 RX preset; EQ never locks",
+        "Fix: three-strike bound, then force Gen3 and log to the REB",
+        "Lesson: a KPI is a state machine, not a register"
+      ]
+    },
+    {
+      "layout": "split",
+      "title": "Bug 2: the 25 °C lie the lab told us",
+      "takeaway": "No LTSSM sign-off without a four-point chamber sweep",
+      "source": "Source: gen4-eq.sequence.json",
+      "ir": "gen4-eq.sequence.json",
+      "bullets": [
+        "Room temperature: equalization passes on the first preset",
+        "125 °C chamber: RX eye collapses under preset 8-4 — 3/32 UI",
+        "Retry with full EQ at preset 5-4 locks the eye at 5/32 UI",
+        "Gen3 fallback ships the car while the RX EQ respin lands"
+      ]
+    },
+    {
+      "layout": "diagram",
+      "title": "Bug 3: the completion was late, not lost",
+      "takeaway": "Posted-first ordering is mandatory; arm the timer for it",
+      "source": "Source: cto-ordering.dataflow.json",
+      "ir": "cto-ordering.dataflow.json"
+    },
+    {
+      "layout": "compare",
+      "title": "The same bug costs 100× more in the field",
+      "source": "Source: program cost model, bugs 1–3, two scenarios",
+      "sides": [
+        {
+          "heading": "Caught in bring-up",
+          "bullets": [
+            "Protocol analyzer on the interposer: TS1/TS2 visible",
+            "Chamber reproduces in 40 minutes",
+            "Fix rides the respin or firmware update",
+            "Cost: two engineer-weeks"
+          ]
+        },
+        {
+          "heading": "Found in the field",
+          "bullets": [
+            "Dealer scan tool says: gateway degraded",
+            "No transaction-layer visibility — firmware logs only",
+            "Fleet-wide OTA mitigation, respin still required",
+            "Cost: recall review and a program gate"
+          ]
+        }
+      ]
+    },
+    {
+      "layout": "timeline",
+      "title": "Eight weeks from power rail to production traffic",
+      "source": "Source: AS5200 bring-up plan, executed 2026 H1",
+      "milestones": [
+        {
+          "date": "W1",
+          "label": "Power and clocks",
+          "note": "rail sequence, PLL bank"
+        },
+        {
+          "date": "W2",
+          "label": "Console and boot chain",
+          "note": "ROM → EL3 → guests"
+        },
+        {
+          "date": "W3",
+          "label": "PCIe detect and train",
+          "note": "LTSSM to L0, all ports"
+        },
+        {
+          "date": "W4",
+          "label": "Traffic and AER soak",
+          "note": "10^14 BE, zero REB entries"
+        },
+        {
+          "date": "W5",
+          "label": "Temperature corners",
+          "note": "−40 / 25 / 125 °C sweeps"
+        },
+        {
+          "date": "W6",
+          "label": "Safety campaign",
+          "note": "1.2k fault injections"
+        }
+      ]
+    },
+    {
+      "layout": "statement",
+      "title": "Make the link boring before you make it fast",
+      "statement": "Make the link boring before you make it fast",
+      "attribution": "— AS5200 bring-up retrospective",
+      "source": "Source: bugs 1–5, one page each in the defect log"
+    },
+    {
+      "layout": "end",
+      "title": "Design around the bus; the CPU is easy",
+      "headline": "Design around the bus; the CPU is easy",
+      "contact": "silicon-bringup@team.example",
+      "source": "Defect log BRT-042 and all diagram IRs ship with this deck"
+    }
+  ]
+}
