@@ -63,8 +63,22 @@ extension Flux2CLI {
         @Option(help: "Tokenizer directory (under models/tokenizer/).")
         var tokenizerDir: String = Flux2ModelRegistry.defaultTokenizer
 
+        /// LoRA name(s) under models/lora/, repeatable. Multiple are
+        /// rank-stacked into one merged adapter (Flux2LoRALoader.merge) — the
+        /// same mechanism as `scene`, so the quality stack (details-9b,
+        /// qualitya, nexblend-asian, …) applies to plain text-to-image too.
+        @Option(help: "LoRA name under models/lora/ (repeatable: --lora A --lora B stacks them).")
+        var lora: [String] = []
+        @Option(help: "Per-LoRA scale (repeatable, one per --lora; trailing ones default to 1.0).")
+        var loraScale: [Float] = []
+
         @Flag(help: "Skip writing run.json + manifest.json sidecars.")
         var noArtifacts: Bool = false
+
+        /// Self-gate the generated output with the shared ImageGate. With
+        /// --strict-gate, a FAIL (noise / blank / NaN) aborts before writing.
+        @Flag(help: "Abort (exit 1) if the output FAILs the image gate.")
+        var strictGate: Bool = false
 
         func run() throws {
             setbuf(stdout, nil)
@@ -76,9 +90,18 @@ extension Flux2CLI {
 
             // 1. Load all model components.
             print("  loading models...")
+
+            // Load + merge LoRA adapters (optional, stackable) — identical to
+            // SceneCommand so t2i shares the 12-LoRA quality-stack mechanism.
+            let (loraAdapters, loraNames, loraScales) = try Flux2LoRALoaderCLI.loadMerged(
+                names: lora, scales: loraScale, logPrefix: "  lora     : ")
+            if !loraNames.isEmpty {
+                print("               merged \(loraAdapters.adapters.count) adapters from \(loraNames.count) LoRA(s)")
+            }
+
             let tfURL = ModelPaths.transformerRoot.appendingPathComponent(transformer)
             let tfWeights = try Flux2TransformerWeights.load(dir: tfURL)
-            let transformerModel = Flux2Transformer.build(weights: tfWeights)
+            let transformerModel = Flux2Transformer.build(weights: tfWeights, lora: loraAdapters)
 
             let teURL = ModelPaths.textEncoderRoot.appendingPathComponent(encoder)
             let teWeights = try Flux2TextEncoderWeights.load(dir: teURL)
@@ -106,7 +129,10 @@ extension Flux2CLI {
                 seed: seed, height: height, width: width,
                 steps: steps, guidance: cfgScale)
 
-            // 3. Save image.
+            // 3. Self-gate the output (noise / blank / NaN) before saving.
+            try ImageGate.check(pixels, label: "t2i", strict: strictGate)
+
+            // 4. Save image.
             let paths = try OutputPathResolver.makePaths(
                 explicitOutput: output.isEmpty ? nil : output,
                 outputDir: outputDir, customName: name)
@@ -116,22 +142,26 @@ extension Flux2CLI {
             print("✅ generated \(imagePath.lastPathComponent)  (\(String(format: "%.1f", elapsed))s)")
             print("   \(imagePath.path)")
 
-            // 4. Write audit sidecars.
+            // 5. Write audit sidecars (reuse the SAME paths — re-resolving
+            // would regenerate the timestamped base name and strand the
+            // sidecars under output_...+1s whenever the save crosses a
+            // second boundary).
             if !noArtifacts {
-                try writeArtifacts(pixels: pixels, elapsed: elapsed)
+                try writeArtifacts(paths: paths, pixels: pixels, elapsed: elapsed,
+                                   loraNames: loraNames, loraScales: loraScales)
             }
         }
 
-        private func writeArtifacts(pixels: MLXArray, elapsed: Double) throws {
+        private func writeArtifacts(paths: OutputPaths, pixels: MLXArray, elapsed: Double,
+                                    loraNames: [String], loraScales: [Float]) throws {
             let startTime = Manifest.nowISO()
-            let paths = try OutputPathResolver.makePaths(
-                explicitOutput: output.isEmpty ? nil : output,
-                outputDir: outputDir, customName: name)
             let runConfig = RunConfig(
                 transformer: transformer, prompt: prompt,
                 width: width, height: height,
                 steps: steps, seed: seed, cfgScale: cfgScale,
-                loraPaths: nil, loraScale: 1.0,
+                loraPaths: loraNames.isEmpty ? nil : loraNames,
+                loraScale: loraScales.first ?? 1.0,
+                loraScales: loraScales.isEmpty ? nil : loraScales,
                 textEncoder: encoder, tokenizer: tokenizerDir, vae: vae,
                 quantBits: 8, quantGroupSize: 64,
                 command: "t2i", pipeline: "flux2"

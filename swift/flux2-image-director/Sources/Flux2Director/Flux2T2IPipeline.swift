@@ -87,8 +87,11 @@ public struct Flux2T2IPipeline {
         let sigmas = scheduler.sigmas
         MLX.eval(timesteps, sigmas)
 
-        // 4. Denoise loop.
+        // 4. Denoise loop. Per-step prints give the UI a live progress bar +
+        //    ETA (the loop is otherwise silent for the whole diffusion pass).
+        //    Format is stable for log parsing: "  step k/N  (x.xs/step)".
         var current = latents
+        let loopStart = DispatchTime.now()
         for t in 0..<steps {
             let ts = timesteps[t].asType(.bfloat16).reshaped([1])
             var noise = transformer(
@@ -102,9 +105,12 @@ public struct Flux2T2IPipeline {
             }
             current = scheduler.step(noise: noise, timestep: t, latents: current)
             MLX.eval(current)
+            let elapsedStep = Double(DispatchTime.now().uptimeNanoseconds - loopStart.uptimeNanoseconds) / 1e9
+            print("   step \(t + 1)/\(steps)  (\(String(format: "%.1f", elapsedStep / Double(t + 1)))s/step)")
         }
 
         // 5. Unpack + VAE decode.
+        print("   vae decode...")
         // packed latents (1, lh*lw, 128) → (1, 128, lh, lw) via unpack then transpose.
         let unpacked = current.reshaped([1, latentH, latentW, current.dim(2)])
             .transposed(0, 3, 1, 2)   // (1, 128, lh, lw)

@@ -1,0 +1,35 @@
+{
+  "name": "@repo/gui-flux2-director",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bun web UI for the swift/flux2-image-director CLI (flux2) — expert studio for good-quality Flux2 Klein image generation: quality presets, LoRA stack builder, live job progress (SSE), gallery from run sidecars, and 4x upscale.",
+  "license": "MIT",
+  "keywords": [
+    "flux2",
+    "image-generation",
+    "mlx",
+    "swift",
+    "webui"
+  ],
+  "scripts": {
+    "dev": "bun --hot server.ts",
+    "dev:watch": "bun run --watch server.ts",
+    "start": "bun run server.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@repo/s2-agent-ext-flux2": "workspace:*",
+    "@repo/s2-agent-ext-ltx": "workspace:*",
+    "@repo/s2-agent-ext-movie-director": "workspace:*",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.8.0"
+  }
+}
