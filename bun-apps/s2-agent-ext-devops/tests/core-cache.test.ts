@@ -52,6 +52,38 @@ describe("computeCoreHash", () => {
 		expect(computeCoreHash({ ...inputs(base), entry: "src/other.ts" })).not.toBe(h0);
 		expect(computeCoreHash({ ...inputs(base), flags: [] })).not.toBe(h0);
 	});
+
+	test("a workspace dep's source changes the hash (stale-core regression, 2026-09-06)", () => {
+		// The /agents CRUD deploy shipped a stale cached core: the bundler
+		// inlines @repo/* workspace sources past s2-agent/src, but the hash
+		// covered only s2-agent/src — a core-runtime-only change cache-HIT and
+		// the fresh ext bundles crashed calling the missing exports.
+		const base = fakePiAgent();
+		const ws = mkdtempSync(join(tmpdir(), "core-cache-ws-"));
+		mkdirSync(join(ws, "src"), { recursive: true });
+		writeFileSync(join(ws, "src", "index.ts"), "export const V = 1;");
+		const withWs = { ...inputs(base), workspaceSrcDirs: [{ name: "@repo/s2-agent-core-runtime", dir: join(ws, "src") }] };
+		const h0 = computeCoreHash(withWs);
+		expect(h0).not.toBe(computeCoreHash(inputs(base))); // listed at all → part of the key
+		writeFileSync(join(ws, "src", "index.ts"), "export const V = 2;");
+		expect(computeCoreHash(withWs)).not.toBe(h0); // a workspace-source edit invalidates
+		// order of the workspace list must not matter
+		const reordered = {
+			...inputs(base),
+			workspaceSrcDirs: [
+				{ name: "@repo/aaa", dir: join(ws, "src") },
+				{ name: "@repo/s2-agent-core-runtime", dir: join(ws, "src") },
+			],
+		};
+		const reordered2 = {
+			...inputs(base),
+			workspaceSrcDirs: [
+				{ name: "@repo/s2-agent-core-runtime", dir: join(ws, "src") },
+				{ name: "@repo/aaa", dir: join(ws, "src") },
+			],
+		};
+		expect(computeCoreHash(reordered)).toBe(computeCoreHash(reordered2));
+	});
 });
 
 describe("ensureCachedCore", () => {
