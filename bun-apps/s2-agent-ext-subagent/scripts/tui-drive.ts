@@ -420,17 +420,19 @@ async function scenarioParallel(): Promise<void> {
 }
 
 // ── scenario: viewer (loop hardening — background run + follow drill-down) ──
-// Dispatches a BACKGROUND subagent (the spawn returns immediately), then
-// operates the /subagents viewer like a human: open → enter the Running row →
-// follow view must show a live trace with ticking elapsed → abort via x/y →
-// viewer closes.
+// Dispatches a BACKGROUND subagent whose task runs LONG (sleep 120 — the
+// predecessor's short task always settled before the abort could fire, so the
+// abort check stayed best-effort), then operates the /subagents viewer like a
+// human: open → enter the Running row → follow view with a live trace →
+// abort via x/y → the run must LEAVE Running (aborted badge), closing the
+// best-effort gap.
 async function scenarioViewer(): Promise<void> {
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
 
   const prompt =
-    "Call the spawn_subagent tool NOW, exactly once, with agentType set to hard-problem and background set to true, task: read README.md and report its first line. Do not answer anything yourself and use no other tool.";
+    "Call the spawn_subagent tool NOW, exactly once, with agentType set to hard-problem and background set to true, task: run `sleep 120` in the current directory, then reply SLEPT-DONE. Do not answer anything yourself and use no other tool.";
   tty.write(prompt);
   await sleep(300);
   tty.write("\r");
@@ -468,20 +470,52 @@ async function scenarioViewer(): Promise<void> {
   }
   receipt.checks.followTrace = sawFollowTrace;
 
-  // Abort the run the way the viewer's own keymap does: back to list, x, y.
+  // Abort the run the way the viewer's own keymap does: back to list, select
+  // the RUNNING entry, x, y. Two receipted traps live here: (1) 'x' only
+  // aborts when the SELECTED entry is a running row — on any other row it
+  // falls through to the type-to-filter input (first attempt typed 'x' into
+  // the filter, 0 matches); (2) esc clears a filter before it closes the
+  // viewer. So: clear any filter, walk up to the `bg ●` live row, then x/y.
   tty.write("\x1b"); // follow → list
   await sleep(400);
+  if (/filter: "/.test(screen().join("\n"))) {
+    tty.write("\x1b"); // esc clears the filter first
+    await sleep(400);
+  }
   const list = screen().join("\n");
   snap("viewer-list", true);
   const onRunning = /Running/.test(list);
   if (onRunning) {
+    // Walk UP to the live row with the ARROW key — the viewer has no j/k
+    // aliases (receipted: plain k lands in the filter), and the live row's
+    // marker is `bg      ●` (multi-space), so match loosely.
+    for (let i = 0; i < 4; i++) {
+      const sel = screen().find((l) => l.includes("▶")) ?? "";
+      if (/▶\s*bg\b/.test(sel)) break;
+      tty.write("\x1b[A");
+      await sleep(300);
+    }
     tty.write("x");
     await sleep(400);
     snap("abort-confirm", true);
-    tty.write("y");
-    await sleep(800);
-    snap("after-abort", true);
     receipt.checks.abortFlow = /Abort this subagent\? y\/N/.test(readSnapText("abort-confirm") ?? "");
+    tty.write("y");
+    // The abort must take — judged by the DEFINITIVE observable: the abort
+    // notification landing in the transcript (`status: aborted` / "Subagent
+    // aborted by user"). UI FINDING (self-arc-4, recorded, not fixed here):
+    // the viewer's Running section keeps rendering the aborted entry 15s+
+    // after a successful kill (the elapsed freezes, the notification lands,
+    // the stale row remains) — so "live row still present" proves nothing,
+    // and neither does the bare word "aborted" (the transcript mentions it
+    // only via the notification, which IS the evidence).
+    let abortConfirmed = false;
+    for (let i = 0; i < 8 && !abortConfirmed; i++) {
+      await sleep(2500);
+      const s = screen().join("\n");
+      snap(i === 0 ? "after-abort" : `after-abort-${i + 1}`, true);
+      if (/status: aborted|Subagent aborted by user/.test(s)) abortConfirmed = true;
+    }
+    receipt.checks.abortConfirmed = abortConfirmed;
   }
   tty.write("\x1b");
   await sleep(400);
@@ -657,10 +691,14 @@ async function scenarioReload(): Promise<void> {
 }
 
 /** Read a snapshot file back (the abort-confirm check needs the confirm text
- *  AT the moment it was shown — the screen has moved on by check time). */
+ *  AT the moment it was shown — the screen has moved on by check time).
+ *  LOOP FINDING (self-arc-4): this helper built the filename WITHOUT the
+ *  `snap-` prefix, so it read NOTHING since #2190 — abortFlow was a
+ *  permanent false false, masked by a plausible "the run finished first"
+ *  diagnosis. Always re-check these helpers against real filenames. */
 function readSnapText(label: string): string | undefined {
   try {
-    const name = `${String(snapN).padStart(2, "0")}-${label.replace(/[^\w-]+/g, "_")}.txt`;
+    const name = `snap-${String(snapN).padStart(2, "0")}-${label.replace(/[^\w-]+/g, "_")}.txt`;
     return readFileSync(path.join(opts.out, name), "utf8");
   } catch {
     return undefined;
@@ -707,7 +745,15 @@ receipt.checks.modelIsGlm = opts.expectModel.test(receipt.modelLine);
 const requiredByScenario: Record<Opts["scenario"], string[]> = {
   dispatch: ["booted", "liveRow", "settledBadge", "viewerOpened", "childModelIsGlm53"],
   parallel: ["booted", "liveRow", "twoRunning", "settledBadge", "childModelIsGlm53"],
-  viewer: ["booted", "backgroundRow", "viewerOpened", "followTrace", "childModelIsGlm53"],
+  viewer: [
+    "booted",
+    "backgroundRow",
+    "viewerOpened",
+    "followTrace",
+    "childModelIsGlm53",
+    "abortFlow",
+    "abortConfirmed",
+  ],
   agents: [
     "booted",
     "dialogOpened",
