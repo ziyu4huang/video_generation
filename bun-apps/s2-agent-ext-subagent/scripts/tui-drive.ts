@@ -97,14 +97,30 @@ const opts = parseArgs();
 mkdirSync(opts.out, { recursive: true });
 
 // Scratch project when no --cwd: a couple of files so the subagent's task
-// (`ls` + read + count exports) has something real to do. The agents scenario
-// additionally seeds one project definition for the /agents manager to find.
+// (`ls` + read + count exports) has something real to do. Every scenario also
+// seeds the hard-problem agentType (model zai/glm-5.3 + the loop's operating
+// learnings) — children dispatch THROUGH it, and the receipt's
+// childModelIsGlm53 check proves the big-model binding end-to-end. The agents
+// scenario additionally seeds a plain probe definition for the manager list.
 if (!opts.cwd) {
   opts.cwd = mkdtempSync(path.join(os.tmpdir(), "s2-tui-probe-"));
   writeFileSync(path.join(opts.cwd, "sample.ts"), "export const a = 1\nexport function b() { return a + 1 }\n");
   writeFileSync(path.join(opts.cwd, "README.md"), "# tui-drive scratch\n");
+  mkdirSync(path.join(opts.cwd, ".pi", "agents"), { recursive: true });
+  writeFileSync(
+    path.join(opts.cwd, ".pi", "agents", "hard-problem.md"),
+    [
+      "---",
+      "name: hard-problem",
+      "description: Deep analysis on hard problems — bound to the big model.",
+      "model: zai/glm-5.3",
+      "---",
+      "You are the hard-problem analyst. Operating learnings: read the actual artifact",
+      "(bundle / receipt / snapshot) before theorizing; deployed \u2260 source; a version",
+      "label is not the content; a freshly-mounted dialog eats the first keypress.",
+    ].join("\n"),
+  );
   if (opts.scenario === "agents") {
-    mkdirSync(path.join(opts.cwd, ".pi", "agents"), { recursive: true });
     writeFileSync(
       path.join(opts.cwd, ".pi", "agents", "probe.md"),
       "---\nname: probe\ndescription: seeded by tui-drive\ntools: read, bash\n---\nDo the probe: read README.md and report its first line.",
@@ -208,6 +224,24 @@ function modelLine(): string {
   return m?.trim() ?? "";
 }
 
+/** The child's model, read off the subagent rows. Four render shapes carry it
+ *  (all receipted): the live call row `Task: … ▸ <model> ▸ spawn_subagent`
+ *  (dispatch, expanded trace), `Task(…)` live rows, per-child trace/settled
+ *  rows `[N] <model> ⏱ …` / `[N] ✓ done <model> · …` (parallel batch), and
+ *  viewer rows `bg ● <actor> <model> · …`. "glm-5.3" is a SUBSTRING of
+ *  "glm-5.3-flash", so flash is excluded BY NAME; the parent's own status bar
+ *  (`(zai) glm-5.3 • medium`) is excluded structurally — a child row must
+ *  START with one of the row markers. This is the receipt's proof that the
+ *  hard-problem (zai/glm-5.3) binding actually routed. */
+function childModelIsGlm53(): boolean {
+  const row = screen().find((l) => {
+    const t = l.trimStart();
+    if (!/^(Task\(|Task:|\[\d+\]|bg\b|▶)/.test(t)) return false;
+    return /glm-5\.3/.test(t) && !t.includes("flash");
+  });
+  return !!row;
+}
+
 let snapN = 0;
 let lastBody = "";
 function snap(label: string, force = false): void {
@@ -261,7 +295,7 @@ async function scenarioDispatch(): Promise<void> {
   receipt.checks.booted = screen().length > 0;
 
   const prompt =
-    "Call the spawn_subagent tool NOW, exactly once, foreground (background not set), with task: run `ls -la` in the current directory, then read sample.ts, then report the number of exported functions and the file count. Do not answer anything yourself and use no other tool.";
+    "Call the spawn_subagent tool NOW, exactly once, foreground (background not set), with agentType set to hard-problem, task: run `ls -la` in the current directory, then read sample.ts, then report the number of exported functions and the file count. Do not answer anything yourself and use no other tool.";
   tty.write(prompt);
   await sleep(300);
   tty.write("\r");
@@ -289,6 +323,7 @@ async function scenarioDispatch(): Promise<void> {
     if (running) {
       sawLive = true;
       if (/· ctrl\+o to expand/.test(s)) sawHint = true;
+      if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     }
     snap(running ? "running" : "after-run");
     if (running && !expanded && Date.now() - t0 > 8000) {
@@ -348,7 +383,7 @@ async function scenarioParallel(): Promise<void> {
   receipt.checks.booted = screen().length > 0;
 
   const prompt =
-    "Call the subagents tool (the batch tool) NOW, exactly once, with EXACTLY two tasks, both foreground: task 1: read README.md and report its first line. task 2: run `ls` and report the file count. Do not answer anything yourself and use no other tool.";
+    "Call the subagents tool (the batch tool) NOW, exactly once, with EXACTLY two tasks, both with agentType set to hard-problem, both foreground: task 1: read README.md and report its first line. task 2: run `ls` and report the file count. Do not answer anything yourself and use no other tool.";
   tty.write(prompt);
   await sleep(300);
   tty.write("\r");
@@ -369,6 +404,7 @@ async function scenarioParallel(): Promise<void> {
       const kOf2 = /(\d)\/2 running/.exec(s);
       const taskRows = new Set((s.match(/Task\([^)]*\)/g) ?? []).map((m) => m));
       if ((kOf2 && Number(kOf2[1]) >= 2) || taskRows.size >= 2) sawTwoRunning = true;
+      if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     }
     snap(running ? "running" : "after-run");
     if (!running && sawLive && Date.now() - lastByteAt > opts.quietMs) break;
@@ -394,7 +430,7 @@ async function scenarioViewer(): Promise<void> {
   receipt.checks.booted = screen().length > 0;
 
   const prompt =
-    "Call the spawn_subagent tool NOW, exactly once, with background set to true, task: read README.md and report its first line. Do not answer anything yourself and use no other tool.";
+    "Call the spawn_subagent tool NOW, exactly once, with agentType set to hard-problem and background set to true, task: read README.md and report its first line. Do not answer anything yourself and use no other tool.";
   tty.write(prompt);
   await sleep(300);
   tty.write("\r");
@@ -425,6 +461,7 @@ async function scenarioViewer(): Promise<void> {
     // follow view signature: the header line (`▸ <model> • running • <dur>`)
     // plus a trace body (→/✓ markers) and/or a ticking elapsed.
     if (/• running •/.test(s) && (/[→✓] /.test(s) || /↳ /.test(s))) sawFollowTrace = true;
+    if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     snap(sawFollowTrace ? "follow-live" : "follow");
     if (sawFollowTrace) break;
     if (Date.now() - lastByteAt > opts.quietMs && !/• running •/.test(s)) break;
@@ -473,12 +510,15 @@ async function scenarioAgents(): Promise<void> {
   receipt.checks.seededRowRendered = /probe {2}·/.test(list) && /seeded by tui-drive/.test(list);
   if (!receipt.checks.dialogOpened) return;
 
-  // The project group sorts first, and probe is its only def → already selected.
-  // A freshly-mounted dialog can eat the FIRST key (observed live: the enter
-  // landed on the composer and the list stayed) — retry, PACED with real
-  // sleeps (waitIdle returns instantly on a static dialog: no bytes = already
-  // quiet), and only enter while the list footer is showing, exactly what a
-  // human does when a keypress is swallowed.
+  // Project group sorts A→Z: hard-problem seeds before probe, so move down
+  // one row to probe before entering the detail. A freshly-mounted dialog can
+  // eat the FIRST key (observed live: the enter landed on the composer and
+  // the list stayed) — retry, PACED with real sleeps (waitIdle returns
+  // instantly on a static dialog: no bytes = already quiet), and only enter
+  // while the list footer is showing, exactly what a human does when a
+  // keypress is swallowed.
+  tty.write("j"); // hard-problem → probe
+  await sleep(400);
   const inDetail = (): boolean => /prompt:/.test(screen().join("\n"));
   for (let tries = 0; tries < 4 && !inDetail(); tries++) {
     await sleep(700);
@@ -599,9 +639,9 @@ receipt.checks.modelIsGlm = opts.expectModel.test(receipt.modelLine);
 // Required checks are per scenario — dispatch/parallel settle on badges and
 // viewer parity; viewer drills the follow/abort flow instead of a settle.
 const requiredByScenario: Record<Opts["scenario"], string[]> = {
-  dispatch: ["booted", "liveRow", "settledBadge", "viewerOpened"],
-  parallel: ["booted", "liveRow", "twoRunning", "settledBadge"],
-  viewer: ["booted", "backgroundRow", "viewerOpened", "followTrace"],
+  dispatch: ["booted", "liveRow", "settledBadge", "viewerOpened", "childModelIsGlm53"],
+  parallel: ["booted", "liveRow", "twoRunning", "settledBadge", "childModelIsGlm53"],
+  viewer: ["booted", "backgroundRow", "viewerOpened", "followTrace", "childModelIsGlm53"],
   agents: [
     "booted",
     "dialogOpened",
@@ -616,11 +656,14 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
   ],
 };
 const required = requiredByScenario[opts.scenario] ?? [];
-// expandHint + expandedTrace + modelIsGlm are PARITY checks — reported, and
-// required only when the zai key was available (lm-studio fallback runs are
-// still useful receipts, but they exercise a weaker model).
+// expandedTrace + modelIsGlm are PARITY checks — reported, and required only
+// when the zai key was available (lm-studio fallback runs are still useful
+// receipts, but they exercise a weaker model). expandHint is REPORTED ONLY
+// since the model-policy round: the hint renders only when a COLLAPSED trace
+// has ≥2 lines, and the agentType call row renders one line pre-expansion —
+// the affordance itself was receipted in the earlier rounds.
 const parity =
-  opts.scenario === "dispatch" ? (["expandHint", "expandedTrace", "modelIsGlm"] as const) : (["modelIsGlm"] as const);
+  opts.scenario === "dispatch" ? (["expandedTrace", "modelIsGlm"] as const) : (["modelIsGlm"] as const);
 const missing = required.filter((k) => !receipt.checks[k]);
 const parityMissing = zaiKey ? parity.filter((k) => !receipt.checks[k]) : [];
 receipt.pass = missing.length === 0 && parityMissing.length === 0;

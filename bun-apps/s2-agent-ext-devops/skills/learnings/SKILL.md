@@ -1,6 +1,6 @@
 ---
 name: learnings
-description: Use when an s2-agent toolchain behavior looks wrong, before hand-rolling a workaround — commitScope false-positives on stale local main, bundled-vs-discovered skill precedence, and the use-devops-tools-not-hand-rolled-git convention. Append-only dated log; add an entry when a quirk is confirmed.
+description: Use when an s2-agent toolchain behavior looks wrong, before hand-rolling a workaround — commitScope false-positives on stale local main, bundled-vs-discovered skill precedence, stale deploy core caches, pty dialog key-pacing, and the use-devops-tools-not-hand-rolled-git convention. Append-only dated log; add an entry when a quirk is confirmed.
 ---
 
 # Agent Learnings
@@ -112,3 +112,59 @@ Diagnostics that worked, in order: `inspect_agent` (loaded tool descriptions vs 
 Recovery that worked: the already-MERGED retry path (`merge-pr-after-ci-cli <pr>`) verifies + runs the branch cleanup as its designed recovery — stash the preserve-listed `.agents/memory/MEMORY.md` past its `dirty_tree` preflight first (the CLI, unlike the extension tool, does not exclude it). That run is ALSO the natural live test for any cleanup-path change — it printed the full migrated call order (detach → deleteLocal → benign already-deleted remote warning → fetchPrune).
 
 Rule: when an in-session tool's behavior contradicts the current source, compare `inspect_agent`'s loaded description against the on-disk one BEFORE blaming the deploy or the code — a host that predates a merge is running that merge's ancestor code, no matter what the tree says now. Post-merge, prefer the CLI twin (fresh process, current tree) for the recovery/cleanup pass.
+
+---
+
+## [tool-quirk] the deploy core cache froze stale cores — the hash didn't cover workspace sources
+
+**Added:** 2026-09-06
+
+Found live by the self-evolve loop (agents-manager t03): the `/agents` CRUD receipt PASSED on the source tree and CRASHED on the deployed tree — `TypeError: isValidAgentName is not a function` — while the deployed version dir's git sha (`0.10.0+g4f8bc04`) **contained** the change.
+
+Root cause chain, all three links required:
+
+1. The core bundle (`s2-agent.js`) is built from `s2-agent/src/cli-sh.ts` but the bundler INLINES the `@repo/*` workspace packages it imports (core-runtime resolves to `src/index.ts`, no dist).
+2. The ext bundles (`ext/<name>/ext.cjs`) are built separately and EXTERNALIZE `@repo/*` — at runtime those `require`s resolve against the core's inlined module registry.
+3. `computeCoreHash` hashed only `s2-agent/src` (+ pi pkg version, bun version, entry, flags). A core-runtime-only change therefore cache-HIT: `.cores/<hash>` served a stale core, hardlinked into a version dir whose LABEL (git sha) said it was current.
+
+Fix (same branch as the finding): `computeCoreHash` takes `workspaceSrcDirs` — every `@repo/*` dependency of s2-agent, resolved via `Bun.resolveSync`, hashed under its package name — and `buildCore` passes `resolveWorkspaceSrcDirs()`. Regression test in `bun-apps/s2-agent-ext-devops/tests/core-cache.test.ts`.
+
+Diagnosis pattern that worked: `grep -c <newSymbol> <versionDir>/s2-agent.js` — 0 in the stale core, 1 in the fresh `ext.cjs`. Grep PROPERTY names / string literals (minification preserves those), never local identifier names (renamed — both old and new dists grep 0 for locals; see the 2026-08-30 frozen-host entry below for the same trap).
+
+Two side-findings from the same incident:
+
+- Version-dir "noop" redeploys (`ok: true, noop: true`) trust the existing dir — they re-run gates but do NOT rebuild. After any cache-key fix, redeploy with `--force` once.
+- Dangling `bun-apps/node_modules/@repo/*` symlinks (targets with a spurious extra `bun-apps/` segment) survive `bun install` ("no changes" — bun resolves workspaces through its own mechanism, not these links) but break the deploy vendor step with `ENOENT … stat`. Repair: from `bun-apps/node_modules/@repo/`, `ln -s ../../<pkg> <pkg>` for each dangling link.
+
+---
+
+## [tool-quirk] pty-driven dialogs eat the FIRST keypress — and "wait for silence" is instant on static surfaces
+
+**Added:** 2026-09-06
+
+Found live (same receipt round, `tui-drive --scenario agents`, receipt 9/11 → FAIL): the driver sent `/agents`, then Enter to open the dialog, then Enter to enter the detail pane — and the detail never opened. The screen snapshot showed the list still rendered; the second Enter had vanished.
+
+Two mechanisms compound:
+
+1. **Fresh-dialog focus handoff:** a `ui.custom` dialog mounted over the composer does not receive keys until the host finishes the focus switch; the first keypress after mount can land on the composer instead (an empty submit — invisible).
+2. **Silence-based waits degenerate on static surfaces.** The driver's `waitIdle(quiet)` returns when no bytes arrived for `quiet` ms. A static dialog produces NO bytes, so the wait returns instantly and N retry keys fire in ~1 ms — one coalesced read the host processes before focus handoff completes. All eaten.
+
+Driver-side fix (now in `tui-drive.ts`): retry the key with REAL wall-clock sleeps (`await sleep(700)`), guarded by screen state — only send Enter while the list footer (`enter detail`) is still showing, stop as soon as the target surface (`prompt:`) appears. Exactly what a human does when a keypress is swallowed.
+
+Generalizes: any "wait for the app to be quiet" helper degenerates on surfaces that emit no output. Pace interactive retries with wall-clock sleeps + a screen-content guard, never with output-silence alone.
+
+---
+
+## [convention] hard problems dispatch to the `hard-problem` agentType (zai/glm-5.3) — not flash, not bare defaults
+
+**Added:** 2026-09-06
+
+The repo now ships a project-scope agent definition at `.pi/agents/hard-problem.md` (loaded by every s2-agent session started from the repo root): `model: zai/glm-5.3` with the loop's operating learnings baked into its prompt (stale-core triage, version-label-vs-content, pty pacing, frozen hosts, skill precedence).
+
+Dispatch convention:
+
+- **`agentType: "hard-problem"`** for genuinely hard analysis — deployed-vs-source drift, receipt forensics, cache/build staleness, cross-process debugging. The big model is the point; flash is for cheap lookups.
+- `explore` / `plan` (read-only built-ins) stay the default for cheap codebase questions.
+- The tui-drive dispatch/parallel/viewer scenarios seed this definition into their scratch projects and dispatch through it — the receipt's `childModelIsGlm53` check proves the binding end-to-end (a `Task(` row showing `glm-5.3` and not `glm-5.3-flash`), so a silent downgrade to flash fails the receipt instead of passing unnoticed.
+
+When a NEW learning is confirmed, append it here AND fold the one-line version into `.pi/agents/hard-problem.md`'s learnings list — the definition is what subagents actually load; this file is what humans and sessions read.

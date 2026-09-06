@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeCoreHash, CORES_DIR, ensureCachedCore, linkCore, ORPHAN_GRACE_MS, pruneOrphanCores } from "../src/deploy/lib/core-cache.ts";
@@ -83,6 +83,16 @@ describe("computeCoreHash", () => {
 			],
 		};
 		expect(computeCoreHash(reordered)).toBe(computeCoreHash(reordered2));
+	});
+
+	test("buildCore actually passes workspaceSrcDirs into the hash (wiring source pin)", () => {
+		// The unit tests above prove computeCoreHash HONORS workspaceSrcDirs —
+		// but the stale-core incident was a WIRING gap: nothing forced the
+		// caller to supply it. Pin the call in deploy/run.ts so dropping the
+		// argument is a test failure, not a silent return of F2.
+		const runSrc = readFileSync(join(import.meta.dir, "..", "src", "deploy", "run.ts"), "utf8");
+		expect(runSrc).toContain("workspaceSrcDirs: resolveWorkspaceSrcDirs()");
+		expect(runSrc).toContain("function resolveWorkspaceSrcDirs()");
 	});
 });
 
