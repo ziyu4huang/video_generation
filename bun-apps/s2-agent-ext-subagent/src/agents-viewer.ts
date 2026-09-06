@@ -29,11 +29,9 @@ const SOURCE_LABEL: Partial<Record<Source, string>> = {
   pack: "·  extension pack",
   builtin: "·  core built-ins (read-only)",
 };
-
-/** Sources that t02 will allow writing to. Builtin/pack rows are view-only. */
-export function isEditableSource(source: string): boolean {
-  return source === "project" || source === "user";
-}
+// (t02 note: the editable-source predicate — project/user writable,
+// builtin/pack view-only — lands WITH its CRUD consumer; shipping it ahead
+// of any caller trips the dead-export guard, which is correct.)
 
 /** One row's plain-text summary (no cursor/selection prefix — the caller owns
  *  the line assembly so the width math stays in one place). */
