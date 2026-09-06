@@ -870,7 +870,13 @@ test("renderSubagentCall is CC-shaped: Task(agent): intent head, model + tool na
   const noRole = renderSubagentCall({ task: "explore" }, T);
   assert.ok(noRole.includes("Task: explore"), "bare Task head when no agent");
   assert.ok(!noRole.includes("▸ implementer"));
-  assert.ok(noRole.includes("default")); // model defaults to "default" when undefined
+  // tui-cc-parity-2: no explicit model/capability/tier → NO slot segment at
+  // all (the literal "default" was noise; modelSeg alone carries the truth)
+  assert.doesNotMatch(noRole, /default/);
+  // …and with modelSeg present mid-run, modelSeg IS the single model segment
+  const resolved = renderSubagentCall({ task: "explore", modelSeg: "glm-5.3" }, T);
+  assert.match(resolved, /▸ glm-5\.3 ▸ spawn_subagent/);
+  assert.doesNotMatch(resolved, /default/);
 });
 
 test("renderSubagentCall shows 'tier:small' in the model slot when model is omitted", () => {
