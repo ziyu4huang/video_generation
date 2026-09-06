@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch" | "parallel" | "viewer" | "agents";
+  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload";
   sh: string;
   cwd: string;
   out: string;
@@ -591,6 +591,71 @@ async function scenarioAgents(): Promise<void> {
   snap("agents-closed", true);
 }
 
+// ── scenario: reload (definition live-reload proof) ──────────────────────────
+// The registry is re-read from disk on EVERY spawn (no session cache — pinned
+// by agent-def-reload.test.ts), so an edit to .pi/agents/*.md takes effect on
+// the NEXT dispatch without restarting the session. Prove it end-to-end:
+// spawn with the def's v1 prompt (child replies RELOAD-ONE), rewrite the def
+// to v2 on disk, spawn again — the second child must reply RELOAD-TWO. A
+// session-cached registry would replay RELOAD-ONE and fail the receipt. The
+// child's reply lands on the settled `↳ <reply>` summary line (receipted).
+async function scenarioReload(): Promise<void> {
+  // A freshly-created version dir can take a while to first render (deployed
+  // boot) — wait for a non-empty screen instead of checking once.
+  for (let i = 0; i < 12 && screen().length === 0; i++) await sleep(1000);
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const defPath = path.join(opts.cwd, ".pi", "agents", "hard-problem.md");
+  const writeDef = (marker: string): void =>
+    writeFileSync(
+      defPath,
+      [
+        "---",
+        "name: hard-problem",
+        "description: Deep analysis on hard problems — bound to the big model.",
+        "model: zai/glm-5.3",
+        "---",
+        `Reply with exactly ${marker} and nothing else.`,
+      ].join("\n"),
+    );
+
+  const spawnAndSettle = async (): Promise<void> => {
+    tty.write(
+      "Call the spawn_subagent tool NOW, exactly once, foreground (background not set), with agentType set to hard-problem, task: follow your instructions exactly. Do not answer anything yourself and use no other tool.",
+    );
+    await sleep(300);
+    tty.write("\r");
+    let sawLive = false;
+    const t0 = Date.now();
+    while (Date.now() - t0 < opts.timeoutS * 1000) {
+      await sleep(2000);
+      const s = screen().join("\n");
+      const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
+      if (running) sawLive = true;
+      snap(running ? "running" : "after-run");
+      if (!running && sawLive && Date.now() - lastByteAt > opts.quietMs) break;
+    }
+  };
+
+  // Run 1 — v1 prompt. The marker exists ONLY in the def file, so its
+  // appearance on screen (compact ↳ summary line, parent narration, or code
+  // fence — both shapes receipted) proves the child ran with the v1 prompt.
+  writeDef("RELOAD-ONE");
+  await spawnAndSettle();
+  snap("settled-one", true);
+  receipt.checks.reloadOne = /RELOAD-ONE/.test(screen().join("\n"));
+
+  // Rewrite the definition on disk — what a human editor (or the /agents
+  // manager's own write path) does — then spawn again. No restart, no cache
+  // invalidation: the tool's per-spawn load must pick up v2.
+  writeDef("RELOAD-TWO");
+  await spawnAndSettle();
+  snap("settled-two", true);
+  receipt.checks.reloadTwo = /RELOAD-TWO/.test(screen().join("\n"));
+}
+
 /** Read a snapshot file back (the abort-confirm check needs the confirm text
  *  AT the moment it was shown — the screen has moved on by check time). */
 function readSnapText(label: string): string | undefined {
@@ -607,6 +672,7 @@ try {
   else if (opts.scenario === "parallel") await scenarioParallel();
   else if (opts.scenario === "viewer") await scenarioViewer();
   else if (opts.scenario === "agents") await scenarioAgents();
+  else if (opts.scenario === "reload") await scenarioReload();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -654,6 +720,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
     "deleteConfirm",
     "deleted",
   ],
+  reload: ["booted", "reloadOne", "reloadTwo"],
 };
 const required = requiredByScenario[opts.scenario] ?? [];
 // expandedTrace + modelIsGlm are PARITY checks — reported, and required only
