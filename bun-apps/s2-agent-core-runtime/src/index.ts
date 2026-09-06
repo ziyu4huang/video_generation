@@ -80,12 +80,14 @@ export {
 } from "./agent-row-display.js";
 export {
   capTraceTail,
+  currentTerminalRows,
   formatHistoryLine,
   formatSubagentLive,
   formatSubagentProgress,
   formatSubagentTrace,
   latestMessageLine,
   STREAMING_EXPANDED_TAIL,
+  viewportTraceTail,
 } from "./agent-trace-display.js";
 export type { TurnExhaustion, TurnGuard, TurnSessionSurface } from "./agent-turns.js";
 export {

@@ -8,14 +8,15 @@ import type { BudgetWarning } from "@repo/s2-agent-core-runtime";
 import {
   capTraceTail,
   capWidth,
+  currentTerminalRows,
   ellipsizeToWidth,
   fmtCost,
   fmtDurationHuman,
   fmtTokens,
   isSddReportActionable,
   type SpawnSubagentResult,
-  STREAMING_EXPANDED_TAIL,
   shortModel,
+  viewportTraceTail,
 } from "@repo/s2-agent-core-runtime";
 import type { SubagentToolDetails } from "./subagent-tool-schema.js";
 
@@ -243,7 +244,7 @@ function settledHeaderRow(
 export function renderSubagentResultHeader(
   result: { content?: Array<{ type: string; text?: string }>; details?: SubagentToolDetails } | undefined,
   theme: Theme,
-  opts?: { modelSeg?: string; width?: number },
+  opts?: { modelSeg?: string; width?: number; rows?: number },
 ): string {
   const d = result?.details;
   // Headline derived from the SAME body text the collapsed one-liner reads, so
@@ -272,7 +273,7 @@ export function renderSubagentResult(
   result: { content?: Array<{ type: string; text?: string }>; details?: SubagentToolDetails } | undefined,
   options: { expanded?: boolean; isPartial?: boolean } | undefined,
   theme: Theme,
-  opts?: { modelSeg?: string; width?: number },
+  opts?: { modelSeg?: string; width?: number; rows?: number },
 ): string {
   // Render-layer safe: total over nullish/partial input, matching
   // renderSubagentCall / renderSubagentsCall. GuardedComponent and
@@ -282,25 +283,27 @@ export function renderSubagentResult(
   const text = subagentResultText(result);
   if (options.isPartial) {
     // Streaming progress update. The payload (formatSubagentLive) is a 2-line
-    // header + a ≤100-line activity trace. Collapsed (default) shows just the
-    // header. Expanded (ctrl+o / app.tools.expand) shows the trace so a
-    // long-running subagent's recent work is inspectable without aborting —
-    // BUT capped to a viewport-safe tail (see STREAMING_EXPANDED_TAIL): the
-    // full ≤102-row box is taller than the terminal viewport, so its first
-    // line sits above the bottom-anchored viewport top and trips the TUI's
-    // per-frame fullRender (full-screen clear+rewrite) at ~4Hz → whole-TUI
-    // flicker. Keeping the streaming-expanded box small + height-stable keeps
-    // the first changed line inside the viewport → differential render → no
-    // fullRender. The settled (non-partial) expanded report is unaffected.
+    // header + an activity trace. Collapsed (default) shows just the header —
+    // with a `ctrl+o to expand` affordance appended to the meta line
+    // (tui-cc-parity-2 ticket 02; CC renders the hint next to live agent rows).
+    // Expanded (ctrl+o / app.tools.expand) shows the trace so a long-running
+    // subagent's recent work is inspectable without aborting — capped to a
+    // viewport-safe tail so its first line stays inside the bottom-anchored
+    // viewport and the TUI's differential render never degrades to a
+    // full-screen clear+rewrite at ~4Hz (#1104 flicker). Ticket 01: the cap is
+    // now a FUNCTION of the terminal height (viewportTraceTail) instead of the
+    // fixed STREAMING_EXPANDED_TAIL, so tall terminals see more live work and
+    // short ones see less — stable between resizes, varying never per tick.
+    const rows = opts?.rows ?? currentTerminalRows();
+    const tail = viewportTraceTail(rows);
     const lines = text.split("\n");
     // Keep the first 2 (progress header) then cap the trace tail via the SHARED
     // helper so this surface and the context-box expanded trace hold the SAME
-    // viewport-safe cap (ticket 05, finding 4). Byte-identical to the prior
-    // inline ternary: capTraceTail checks `trace.length <= tail`, which is
-    // `lines.length - 2 <= tail` ⟺ `lines.length <= 2 + tail`.
-    const shown = options.expanded
-      ? [...lines.slice(0, 2), ...capTraceTail(lines.slice(2), STREAMING_EXPANDED_TAIL)]
-      : lines.slice(0, 2);
+    // viewport-safe cap (ticket 05, finding 4).
+    if (!options.expanded && lines.length >= 2 && (!opts?.width || opts.width >= 60)) {
+      lines[1] = `${lines[1]} · ctrl+o to expand`;
+    }
+    const shown = options.expanded ? [...lines.slice(0, 2), ...capTraceTail(lines.slice(2), tail)] : lines.slice(0, 2);
     return shown.map((l) => theme.fg("dim", l)).join("\n");
   }
   const d = result?.details;

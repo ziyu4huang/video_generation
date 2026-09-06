@@ -24,7 +24,13 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { renderRunRow } from "@repo/s2-agent-core-runtime";
 import type { RunView } from "@repo/s2-agent-core-runtime";
-import { capTraceTail, formatSubagentTrace, latestMessageLine, STREAMING_EXPANDED_TAIL } from "@repo/s2-agent-core-runtime";
+import {
+	capTraceTail,
+	currentTerminalRows,
+	formatSubagentTrace,
+	latestMessageLine,
+	viewportTraceTail,
+} from "@repo/s2-agent-core-runtime";
 import type { StatusSection } from "../shared/status-widget.js";
 import type { DockRenderState } from "./dock.js";
 import { SubagentNotify } from "./notify.js";
@@ -105,13 +111,15 @@ export function createSubagentsSection(deps: SubagentsSectionDeps): SubagentsSec
 					if (selected && dockState?.expanded) {
 						// Task 08: expanded — the selected run renders as ONE capped block,
 						// [row, ...trace] through capTraceTail, so a long trace keeps a
-						// viewport-safe tail (STREAMING_EXPANDED_TAIL — the #1104 flicker
-						// cap shared with the inline ctrl+o surface) and the row scrolls
-						// inside that window. The ↳ latest line is subsumed by the trace.
+						// viewport-safe tail and the row scrolls inside that window. The
+						// ↳ latest line is subsumed by the trace. tui-cc-parity-2 ticket
+						// 01: the cap is a FUNCTION of terminal height (viewportTraceTail)
+						// — the same #1104 rule (box must fit the viewport, stable between
+						// resizes) with CC's fill-the-viewport sizing on tall terminals.
 						const trace = formatSubagentTrace(v.history, v.elapsedMs, v.toolCallCount);
 						const block = capTraceTail(
 							trace === "" ? [row] : [row, ...trace.split("\n")],
-							STREAMING_EXPANDED_TAIL,
+							viewportTraceTail(currentTerminalRows()),
 						);
 						const rowVisible = block[0] === row; // uncapped: the row stays in view
 						block.forEach((l, bi) => {
