@@ -42,7 +42,7 @@ export type ValueField =
 	| "extract" | "note" | "lang"
 	| "vlmModel" | "source" | "sourceLabel"
 	| "tags" | "excludeFromKb" | "excludeIds"
-	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order"
+	| "proxy" | "outputPath" | "hermesDir" | "vaultRoot" | "order" | "date"
 	| "linkWeighting" | "probeEval"
 	| "only" | "filesCsv" | "projectsDir" | "memoryDir"
 	| "effort" | "tier" | "outcome" | "phase"
@@ -56,7 +56,7 @@ export type BoolField =
 	| "noBuiltinTools" | "dryRun" | "health" | "fix" | "json" | "noTiers"
 	| "vaultCreate"
 	| "save"
-	| "popular" | "coverage"
+	| "popular" | "coverage" | "overwrite"
 	| "wikiAware" | "healOnly" | "noProbe"
 	| "verify" | "reconverge"
 	| "details" | "schemaCost" | "all"
@@ -166,6 +166,7 @@ const RESEARCH_VALUE_FLAGS: readonly ValueFlagSpec[] = [
 	{ flag: "--hermes-dir", field: "hermesDir" }, // import-memory
 	{ flag: "--vault-root", field: "vaultRoot" }, // organize-vault
 	{ flag: "--order", field: "order" }, // collect-videos
+	{ flag: "--date", field: "date" }, // news: anchor the issue week (ISO yyyy-mm-dd)
 ];
 
 // ── memory-to-vault — discovery scope ────────────────────────────────────────
@@ -368,9 +369,10 @@ const KCARD_LOOP_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--no-probe"], field: "noProbe" },
 ];
 
-// ── research-tool (collect-videos) — popular feed ───────────────────────────
+// ── research-tool (collect-videos / news) ───────────────────────────────────
 const RESEARCH_BOOL_FLAGS: readonly BoolFlagSpec[] = [
 	{ flags: ["--popular"], field: "popular" },
+	{ flags: ["--overwrite"], field: "overwrite" }, // news: regenerate a filled issue's scaffold
 ];
 
 // ── memory-to-vault — post-build verification ───────────────────────────────

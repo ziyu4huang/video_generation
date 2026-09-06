@@ -307,20 +307,19 @@ describe("import-memory task builder", () => {
 // ── news task builder ───────────────────────────────────────────────────────
 
 describe("news task builder", () => {
-	test("no flags → names the tool + full workflow + report instruction", () => {
+	test("no flags → names the tool + scaffold-only report instruction", () => {
 		const task = newsSubcommand.task(taskInput([]));
 		expect(task).toContain("collect_news");
-		expect(task).toContain("step 1");
-		expect(task).toContain("web search");
-		expect(task).toContain("繁體中文");
-		expect(task).toContain("issue path");
+		expect(task).toContain("scaffolded file path");
 		expect(task).toContain("date range");
-		expect(task).toContain("top headlines");
+		// CLI sessions carry no web/file tools — the task must NOT ask for research/writing
+		expect(task).toContain("Do NOT attempt the research or writing half");
+		expect(task).toContain("/collect-news-llm");
 	});
 
-	test("focus positionals → mentioned in the research step", () => {
+	test("focus positionals → echoed into the report reminder", () => {
 		const task = newsSubcommand.task(taskInput(["agents", "evals"]));
-		expect(task).toContain("focus: agents, evals");
+		expect(task).toContain("focus topics: agents, evals");
 	});
 
 	test("--date iso → date=...", () => {

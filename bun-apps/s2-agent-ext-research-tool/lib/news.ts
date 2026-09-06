@@ -53,10 +53,18 @@ export function newsFilename(date = new Date()): string {
  * Render the issue skeleton: frontmatter (tags: type/weekly, domain/llm,
  * domain/news), the zh title spanning the week, a headline-quote placeholder,
  * commented fill-in guidance, and the closing quick-hits + summary tables.
+ * Title/preview formatting matches the existing corpus: the end date drops
+ * the year (and month when shared with the start), and 下期預告 uses the zh
+ * date form.
  */
 export function generateNewsScaffold(week: NewsWeek, created = week.end): string {
+	const startFull = zhDate(week.start);
+	const [y, m] = week.start.split("-").map(Number);
+	const endFull = zhDate(week.end);
+	const endShort = endFull.startsWith(`${y} 年 `) ? endFull.slice(`${y} 年 `.length) : endFull;
 	const nextPreview = new Date(`${week.end}T12:00:00`);
 	nextPreview.setDate(nextPreview.getDate() + 7);
+	const nextIso = toIso(nextPreview);
 	const lines = [
 		"---",
 		`created: ${created}`,
@@ -66,7 +74,7 @@ export function generateNewsScaffold(week: NewsWeek, created = week.end): string
 		"  - domain/news",
 		"---",
 		"",
-		`# 📰 LLM 社群每週新聞 — ${zhDate(week.start)} ～ ${zhDate(week.end)}`,
+		`# 📰 LLM 社群每週新聞 — ${startFull} ～ ${endShort}`,
 		"",
 		"> *本週重量級動態：<!-- 3–5 條一句話頭條，頓號分隔 -->。*",
 		"",
@@ -106,7 +114,7 @@ export function generateNewsScaffold(week: NewsWeek, created = week.end): string
 		"| **上升最快公司** | |",
 		"| **主導主題** | |",
 		"",
-		`*下期預告：${toIso(nextPreview)}（六）*`,
+		`*下期預告：${zhDate(nextIso)}（六）*`,
 		"",
 	];
 	return lines.join("\n");

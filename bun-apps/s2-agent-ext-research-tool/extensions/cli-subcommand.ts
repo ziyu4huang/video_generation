@@ -186,16 +186,22 @@ Examples:
 export const newsSubcommand: ExtensionSubcommandSpec = {
   name: "news",
   summary:
-    "scaffold the weekly LLM community news digest and research+write it into the vault",
+    "scaffold the weekly LLM community news digest issue in the vault",
   details: `Usage:
   s2-agent cli news [focus...] [options]
 
-Scaffold this week's LLM 社群每週新聞 digest in the vault's weekly-news/
-folder (llm-weekly-news-<saturday>.md), then research the week's LLM/AI news
-via web search and write the digest into the scaffold in 繁體中文.
+Scaffold this week's LLM 社群每週新聞 digest issue in the vault's
+weekly-news/ folder (llm-weekly-news-<saturday>.md): frontmatter, zh title
+spanning the Monday–Saturday range, and the fill-in guide.
+
+SCOPE NOTE: this subcommand scaffolds ONLY. CLI subcommand sessions carry
+just the research-tool factory (no web search, no file tools), so the
+research + write half must run in a full session — /collect-news-llm or the
+collect-news-llm skill.
 
 Positionals:
-  focus       optional focus topics (space-separated), e.g. "agents evals"
+  focus       optional focus topics for the research half (space-separated),
+              echoed into the report
 
 Options:
   --date <iso>        anchor the issue week (default: today; the issue covers
@@ -211,36 +217,36 @@ Examples:
   s2-agent cli news agents evals
   s2-agent cli news --date 2026-09-01
 
-No API key needed — the research half runs on web search.`,
+No API key needed; the scaffold itself makes no network calls.`,
   factory: extension,
   tools: ["collect_news"],
   task: (parsed) => {
     const p = parsed as Record<string, unknown>;
     const focus = parsed.positionals.filter(Boolean).join(", ");
     const parts: string[] = [
-      "Run the collect-news-llm workflow with the collect_news tool:",
-      `  step 1: call collect_news with these parameters:`,
+      "Scaffold the weekly news digest issue with the collect_news tool:",
+      `  call collect_news with these parameters:`,
     ];
 
     if (typeof p.date === "string") {
-      parts.push(`    date="${p.date}"`);
+      parts.push(`  date="${p.date}"`);
     }
     if (typeof p.outputPath === "string") {
-      parts.push(`    outputPath="${p.outputPath}"`);
+      parts.push(`  outputPath="${p.outputPath}"`);
     }
     if (p.overwrite === true) {
-      parts.push(`    overwrite=true`);
+      parts.push(`  overwrite=true`);
     }
     if (p.dryRun === true) {
-      parts.push(`    dryRun=true`);
+      parts.push(`  dryRun=true`);
     }
 
     parts.push(
-      `  step 2: research the week's LLM/AI news via web search (Hacker News, r/LocalLLaMA,` +
-        ` X, vendor blogs${focus ? `; focus: ${focus}` : ""}).`,
-      `  step 3: write the digest into the scaffolded file in 繁體中文 — keep the frontmatter,` +
-        ` cite [來源](url) links, no invention.`,
-      `\nThen report: issue path, date range covered, top headlines, and any errors.`,
+      `\nCall the tool, then report: the scaffolded file path, the covered ` +
+        `date range, and the scaffold's fill-in checklist. Do NOT attempt the ` +
+        `research or writing half — this session has no web or file tools; ` +
+        `instead remind the user to run /collect-news-llm in a full session` +
+        `${focus ? ` (focus topics: ${focus})` : ""}.`,
     );
 
     return parts.join("\n");

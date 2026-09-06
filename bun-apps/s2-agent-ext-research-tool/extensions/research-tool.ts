@@ -372,7 +372,7 @@ const collectNewsTool = defineTool({
 
 		return {
 			content: [{ type: "text" as const, text }],
-			details: { writePath, start: week.start, end: week.end, action: params.dryRun ? "dry-run" : action, dryRun: params.dryRun ?? false },
+			details: { writePath, start: week.start, end: week.end, action, dryRun: params.dryRun ?? false },
 		};
 	},
 });

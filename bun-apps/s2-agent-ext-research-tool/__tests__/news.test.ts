@@ -67,16 +67,23 @@ describe("generateNewsScaffold", () => {
 		expect(md).toContain("  - domain/news");
 	});
 
-	test("title spans the zh Monday–Saturday range", () => {
+	test("title spans the zh Monday–Saturday range, corpus short end form", () => {
 		const md = generateNewsScaffold({ start: "2026-07-13", end: "2026-07-18" });
 		expect(md).toContain(
-			"# 📰 LLM 社群每週新聞 — 2026 年 7 月 13 日 ～ 2026 年 7 月 18 日",
+			"# 📰 LLM 社群每週新聞 — 2026 年 7 月 13 日 ～ 7 月 18 日",
 		);
 	});
 
-	test("next-issue preview is the following Saturday", () => {
+	test("title end date keeps the month when it differs from the start", () => {
+		const md = generateNewsScaffold({ start: "2026-08-31", end: "2026-09-05" });
+		expect(md).toContain(
+			"# 📰 LLM 社群每週新聞 — 2026 年 8 月 31 日 ～ 9 月 5 日",
+		);
+	});
+
+	test("next-issue preview is the following Saturday in the corpus zh form", () => {
 		const md = generateNewsScaffold({ start: "2026-07-13", end: "2026-07-18" });
-		expect(md).toContain("*下期預告：2026-07-25（六）*");
+		expect(md).toContain("*下期預告：2026 年 7 月 25 日（六）*");
 	});
 
 	test("created defaults to the issue's Saturday; fill-in guide present", () => {
