@@ -93,22 +93,34 @@ export function renderSubagentCall(
   const intent = workIntentPreview(args.task ?? "", 60, width);
   const named = args.agent ? `${head}${theme.fg("accent", `(${args.agent})`)}` : head;
   const parts: string[] = [`${named}${theme.fg("dim", `: ${intent}`)}`];
-  // Requested-model slot: explicit model, else capability, else tier, else "default".
-  // shortModel() drops the provider prefix on a real model id (ticket 04, finding 5 —
-  // a full `anthropic/claude-opus-4-1` overflows the one-line glance). `tier:`/`capability:`/
-  // `default` carry no `/` so shortModel() leaves them untouched.
-  // biome-ignore lint/style/noNonNullAssertion: argument is always defined; shortModel returns defined for these inputs
-  const slot = shortModel(
-    args.model ?? (args.capability ? `capability:${args.capability}` : args.tier ? `tier:${args.tier}` : "default"),
-  )!;
-  parts.push(theme.fg("muted", slot));
-  // Concrete model resolved mid-run (onModelResolved), as projected by RunView
-  // (registry.view). Separate segment so the requested tier/model stays visible.
-  // Skipped when it matches the slot (e.g. an explicit model that resolved to
-  // itself) to avoid duplication. modelSeg is already shortened + fallback-aware
-  // (it carries its own `→` marker when the resolution fell back), so it is
-  // rendered verbatim.
-  if (args.modelSeg && args.modelSeg !== slot) {
+  // Requested-model slot: explicit model, else capability, else tier. When the
+  // parent requested NONE of those, the literal "default" slot that used to
+  // render here was noise (receipt 2026-09-06: `▸ default ▸ glm-5.3 ▸` — the
+  // resolved modelSeg already says everything the word "default" added), so
+  // the slot segment is OMITTED and modelSeg becomes the single model segment.
+  // shortModel() drops the provider prefix on a real model id (ticket 04,
+  // finding 5 — a full `anthropic/claude-opus-4-1` overflows the one-line
+  // glance). `tier:`/`capability:` carry no `/` so shortModel() leaves them
+  // untouched.
+  const slot = args.model
+    ? shortModel(args.model)
+    : args.capability
+      ? `capability:${args.capability}`
+      : args.tier
+        ? `tier:${args.tier}`
+        : undefined;
+  if (slot) {
+    parts.push(theme.fg("muted", slot));
+    // Concrete model resolved mid-run (onModelResolved), as projected by
+    // RunView (registry.view). Separate segment so the requested tier/model
+    // stays visible. Skipped when it matches the slot (e.g. an explicit model
+    // that resolved to itself) to avoid duplication. modelSeg is already
+    // shortened + fallback-aware (it carries its own `→` marker when the
+    // resolution fell back), so it is rendered verbatim.
+    if (args.modelSeg && args.modelSeg !== slot) {
+      parts.push(theme.fg("muted", args.modelSeg));
+    }
+  } else if (args.modelSeg) {
     parts.push(theme.fg("muted", args.modelSeg));
   }
   // The pi tool name trails as a dim segment: greppable in the terminal, but

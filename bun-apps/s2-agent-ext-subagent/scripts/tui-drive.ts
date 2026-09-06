@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch";
+  scenario: "dispatch" | "parallel" | "viewer";
   sh: string;
   cwd: string;
   out: string;
@@ -329,8 +329,135 @@ async function scenarioDispatch(): Promise<void> {
   snap("after-viewer-close");
 }
 
+// ── scenario: parallel (loop hardening — one prompt, TWO children) ──────────
+// Maps the `subagents` batch tool: the receipt proves the batch live feed
+// (`subagents · k/2 running` + per-child rows) renders while BOTH children
+// run, and that the settled batch header carries the CC vocabulary
+// (tui-cc-parity-2 t03) in the SAME transcript that just showed the live feed.
+async function scenarioParallel(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const prompt =
+    "Call the subagents tool (the batch tool) NOW, exactly once, with EXACTLY two tasks, both foreground: task 1: read README.md and report its first line. task 2: run `ls` and report the file count. Do not answer anything yourself and use no other tool.";
+  tty.write(prompt);
+  await sleep(300);
+  tty.write("\r");
+  await sleep(1500);
+  snap("submitted", true);
+
+  let sawLive = false;
+  let sawTwoRunning = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < opts.timeoutS * 1000) {
+    await sleep(2000);
+    const s = screen().join("\n");
+    const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
+    if (running) {
+      sawLive = true;
+      // BOTH children in flight at once: the batch header's `k/2 running`
+      // with k ≥ 2, or ≥2 distinct live Task( rows.
+      const kOf2 = /(\d)\/2 running/.exec(s);
+      const taskRows = new Set((s.match(/Task\([^)]*\)/g) ?? []).map((m) => m));
+      if ((kOf2 && Number(kOf2[1]) >= 2) || taskRows.size >= 2) sawTwoRunning = true;
+    }
+    snap(running ? "running" : "after-run");
+    if (!running && sawLive && Date.now() - lastByteAt > opts.quietMs) break;
+  }
+  snap("settled", true);
+  const settledScreen = screen().join("\n");
+  receipt.checks.liveRow = sawLive;
+  receipt.checks.twoRunning = sawTwoRunning;
+  receipt.checks.settledBadge =
+    /✓ done|✗ failed|⏱ timedout|⛔ budget|⏹ turns|⊘ aborted/.test(settledScreen) ||
+    // t03 vocabulary: human duration + separator'd tokens on the batch header
+    /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
+}
+
+// ── scenario: viewer (loop hardening — background run + follow drill-down) ──
+// Dispatches a BACKGROUND subagent (the spawn returns immediately), then
+// operates the /subagents viewer like a human: open → enter the Running row →
+// follow view must show a live trace with ticking elapsed → abort via x/y →
+// viewer closes.
+async function scenarioViewer(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const prompt =
+    "Call the spawn_subagent tool NOW, exactly once, with background set to true, task: read README.md and report its first line. Do not answer anything yourself and use no other tool.";
+  tty.write(prompt);
+  await sleep(300);
+  tty.write("\r");
+  await waitIdle(1200, 15000);
+  snap("submitted", true);
+  // background:true settles the CALL immediately with a `⌛ running` row.
+  receipt.checks.backgroundRow = /⌛ running/.test(screen().join("\n"));
+
+  tty.write("/subagents");
+  await sleep(200);
+  tty.write("\r");
+  await waitIdle(1200, 8000);
+  snap("viewer", true);
+  receipt.checks.viewerOpened = screen().join("\n").includes("Subagent runs");
+  if (!receipt.checks.viewerOpened) return;
+
+  // Move to the Running row and ENTER → follow view.
+  tty.write("\x1b[B");
+  await sleep(300);
+  tty.write("\r");
+  await waitIdle(1000, 6000);
+  snap("follow", true);
+  let sawFollowTrace = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < opts.timeoutS * 1000) {
+    await sleep(2000);
+    const s = screen().join("\n");
+    // follow view signature: the header line (`▸ <model> • running • <dur>`)
+    // plus a trace body (→/✓ markers) and/or a ticking elapsed.
+    if (/• running •/.test(s) && (/[→✓] /.test(s) || /↳ /.test(s))) sawFollowTrace = true;
+    snap(sawFollowTrace ? "follow-live" : "follow");
+    if (sawFollowTrace) break;
+    if (Date.now() - lastByteAt > opts.quietMs && !/• running •/.test(s)) break;
+  }
+  receipt.checks.followTrace = sawFollowTrace;
+
+  // Abort the run the way the viewer's own keymap does: back to list, x, y.
+  tty.write("\x1b"); // follow → list
+  await sleep(400);
+  const list = screen().join("\n");
+  snap("viewer-list", true);
+  const onRunning = /Running/.test(list);
+  if (onRunning) {
+    tty.write("x");
+    await sleep(400);
+    snap("abort-confirm", true);
+    tty.write("y");
+    await sleep(800);
+    snap("after-abort", true);
+    receipt.checks.abortFlow = /Abort this subagent\? y\/N/.test(readSnapText("abort-confirm") ?? "");
+  }
+  tty.write("\x1b");
+  await sleep(400);
+  snap("viewer-closed", true);
+}
+
+/** Read a snapshot file back (the abort-confirm check needs the confirm text
+ *  AT the moment it was shown — the screen has moved on by check time). */
+function readSnapText(label: string): string | undefined {
+  try {
+    const name = `${String(snapN).padStart(2, "0")}-${label.replace(/[^\w-]+/g, "_")}.txt`;
+    return readFileSync(path.join(opts.out, name), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 try {
   if (opts.scenario === "dispatch") await scenarioDispatch();
+  else if (opts.scenario === "parallel") await scenarioParallel();
+  else if (opts.scenario === "viewer") await scenarioViewer();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -360,11 +487,19 @@ receipt.bytesSeen = bytesSeen;
 receipt.snaps = snapN;
 receipt.modelLine = modelLine();
 receipt.checks.modelIsGlm = opts.expectModel.test(receipt.modelLine);
-const required: Array<keyof typeof receipt.checks> = ["booted", "liveRow", "settledBadge", "viewerOpened"];
+// Required checks are per scenario — dispatch/parallel settle on badges and
+// viewer parity; viewer drills the follow/abort flow instead of a settle.
+const requiredByScenario: Record<Opts["scenario"], string[]> = {
+  dispatch: ["booted", "liveRow", "settledBadge", "viewerOpened"],
+  parallel: ["booted", "liveRow", "twoRunning", "settledBadge"],
+  viewer: ["booted", "backgroundRow", "viewerOpened", "followTrace"],
+};
+const required = requiredByScenario[opts.scenario] ?? [];
 // expandHint + expandedTrace + modelIsGlm are PARITY checks — reported, and
 // required only when the zai key was available (lm-studio fallback runs are
 // still useful receipts, but they exercise a weaker model).
-const parity = ["expandHint", "expandedTrace", "modelIsGlm"] as const;
+const parity =
+  opts.scenario === "dispatch" ? (["expandHint", "expandedTrace", "modelIsGlm"] as const) : (["modelIsGlm"] as const);
 const missing = required.filter((k) => !receipt.checks[k]);
 const parityMissing = zaiKey ? parity.filter((k) => !receipt.checks[k]) : [];
 receipt.pass = missing.length === 0 && parityMissing.length === 0;
