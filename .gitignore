@@ -127,3 +127,13 @@ output/
 
 # TUI/probe session scratch — model-invoked file2md outputs land here (never committed)
 vlm-out/
+
+# Plugin pointer state — zcode plugin caches write their install roots here
+# (video2code, video-agent-kit). Machine-local, never source.
+/.v2c/
+/.video_agent/
+
+# scratch/ — deliberately PARKED untracked work (bun-web-automation awaiting a
+# ship decision). Gitignored so sweeps and `git add -A` cannot pick it up;
+# the CI-workflow reference guard would reject anything under bun-apps/ anyway.
+/scratch/

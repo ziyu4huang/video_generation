@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Boot is a chain of signatures, not a sequence",
+    "subtitle": "Every hop verifies the next before handing control; the safety guest is measured before it is allowed to matter",
+    "output": "safety-boot.dataflow.html",
+    "quality_profile": "standard"
+  },
+  "stages": [
+    {
+      "label": "ROM"
+    },
+    {
+      "label": "Secure boot"
+    },
+    {
+      "label": "Isolation"
+    },
+    {
+      "label": "Runtime"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "rom",
+      "type": "frontend",
+      "label": "Boot ROM",
+      "stage": 0,
+      "row": 0,
+      "sublabel": "mask ROM"
+    },
+    {
+      "id": "tcm",
+      "type": "backend",
+      "label": "Island TCM preload",
+      "stage": 1,
+      "row": 1,
+      "sublabel": "SHA-3 verify",
+      "tag": "ASIL-D"
+    },
+    {
+      "id": "atf",
+      "type": "backend",
+      "label": "TF-A at EL3",
+      "stage": 1,
+      "row": 0,
+      "sublabel": "sign chain root"
+    },
+    {
+      "id": "hvc",
+      "type": "backend",
+      "label": "Hypervisor",
+      "stage": 2,
+      "row": 0,
+      "sublabel": "two guests"
+    },
+    {
+      "id": "sguest",
+      "type": "frontend",
+      "label": "Safety guest",
+      "stage": 3,
+      "row": 0,
+      "sublabel": "watchdog-fed",
+      "tag": "ASIL-D"
+    },
+    {
+      "id": "qguest",
+      "type": "frontend",
+      "label": "Infotainment guest",
+      "stage": 3,
+      "row": 1,
+      "sublabel": "QM"
+    }
+  ],
+  "flows": [
+    {
+      "id": "f1",
+      "from": "rom",
+      "to": "atf",
+      "label": "verify root",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f2",
+      "from": "rom",
+      "to": "tcm",
+      "label": "verify island"
+    },
+    {
+      "id": "f3",
+      "from": "atf",
+      "to": "hvc",
+      "label": "SPSR · entry"
+    },
+    {
+      "id": "f4",
+      "from": "tcm",
+      "to": "hvc",
+      "label": "island alive",
+      "variant": "dashed"
+    },
+    {
+      "id": "f5",
+      "from": "hvc",
+      "to": "sguest",
+      "label": "CPU pinning",
+      "variant": "emphasis"
+    },
+    {
+      "id": "f6",
+      "from": "hvc",
+      "to": "qguest",
+      "label": "best effort"
+    },
+    {
+      "id": "f7",
+      "from": "sguest",
+      "to": "hvc",
+      "label": "heartbeat · 10 ms",
+      "variant": "dashed",
+      "labelDy": 30
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Trust walks downhill",
+      "items": [
+        "The ROM verifies EL3; nothing above it is trusted by birthright",
+        "The island is measured before the hypervisor may schedule around it",
+        "A missed 10 ms heartbeat decomposes the guest, not the car"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Why PCIe shows up here",
+      "items": [
+        "RC firmware images ride the same verified chain",
+        "An unverified option ROM is a QM backdoor into an ASIL-B port",
+        "ECRC and AER policy are provisioned at boot, not negotiated later"
+      ]
+    }
+  ]
+}

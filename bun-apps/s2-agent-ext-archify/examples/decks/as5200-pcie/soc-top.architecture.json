@@ -1,0 +1,482 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "AS5200 on one page: compute spine, safety island, three PCIe roots",
+    "subtitle": "CPU cluster → NoC → L3 → LPDDR5 is the latency spine; PCIe RC0/1/2 and the safety island hang off the same fabric",
+    "output": "soc-top.architecture.html",
+    "viewBox": [
+      960,
+      520
+    ],
+    "quality_profile": "standard",
+    "legend": "variants",
+    "views": [
+      {
+        "id": "all",
+        "label": "Full SoC",
+        "focus": [
+          "cpu",
+          "noc",
+          "l3",
+          "mc",
+          "ddr",
+          "gpu",
+          "npu",
+          "r52",
+          "hsm",
+          "pcie0",
+          "pcie1",
+          "pcie2",
+          "eth",
+          "can"
+        ],
+        "note": "The whole die: performance domain left and top, safety island mid-right, peripheral band at the bottom."
+      },
+      {
+        "id": "pcie",
+        "label": "PCIe domain",
+        "focus": [
+          "noc",
+          "pcie0",
+          "pcie1",
+          "pcie2",
+          "gwep",
+          "adasep",
+          "tcuep"
+        ],
+        "note": "The three root ports and what they carry. RC0 owns the zonal gateway — every chassis message crosses it."
+      },
+      {
+        "id": "safety",
+        "label": "Safety island",
+        "focus": [
+          "r52",
+          "hsm",
+          "noc",
+          "cpu"
+        ],
+        "note": "ASIL-D island: lockstep R52s plus the HSM. It watches the big cores but never trusts them."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cpu",
+      "type": "backend",
+      "label": "CPU cluster",
+      "sublabel": "8× Cortex-A78AE · DSU-110",
+      "pos": [
+        40,
+        50
+      ],
+      "size": [
+        250,
+        64
+      ]
+    },
+    {
+      "id": "noc",
+      "type": "messagebus",
+      "label": "NoC fabric",
+      "sublabel": "QoS · MPAM",
+      "pos": [
+        340,
+        50
+      ],
+      "size": [
+        220,
+        64
+      ]
+    },
+    {
+      "id": "l3",
+      "type": "database",
+      "label": "System cache",
+      "sublabel": "8 MB L3 slice",
+      "pos": [
+        610,
+        50
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "mc",
+      "type": "database",
+      "label": "LPDDR5 MC",
+      "sublabel": "4× 32-bit ch",
+      "pos": [
+        800,
+        50
+      ],
+      "size": [
+        140,
+        64
+      ]
+    },
+    {
+      "id": "ddr",
+      "type": "external",
+      "label": "LPDDR5",
+      "sublabel": "off-chip · 51 GB/s",
+      "pos": [
+        800,
+        180
+      ],
+      "size": [
+        140,
+        52
+      ]
+    },
+    {
+      "id": "gpu",
+      "type": "backend",
+      "label": "GPU",
+      "sublabel": "QM",
+      "pos": [
+        40,
+        180
+      ],
+      "size": [
+        160,
+        52
+      ]
+    },
+    {
+      "id": "npu",
+      "type": "backend",
+      "label": "NPU",
+      "sublabel": "16 TOPS · QM",
+      "pos": [
+        230,
+        180
+      ],
+      "size": [
+        160,
+        52
+      ]
+    },
+    {
+      "id": "hsm",
+      "type": "backend",
+      "label": "HSM",
+      "sublabel": "EVITA full",
+      "pos": [
+        470,
+        180
+      ],
+      "size": [
+        140,
+        56
+      ]
+    },
+    {
+      "id": "r52",
+      "type": "backend",
+      "label": "Safety core",
+      "sublabel": "3× Cortex-R52 lockstep",
+      "pos": [
+        650,
+        180
+      ],
+      "size": [
+        140,
+        56
+      ]
+    },
+    {
+      "id": "pcie0",
+      "type": "backend",
+      "label": "PCIe RC0",
+      "sublabel": "x4 Gen4",
+      "pos": [
+        40,
+        330
+      ],
+      "size": [
+        170,
+        60
+      ],
+      "tag": "root port"
+    },
+    {
+      "id": "pcie1",
+      "type": "backend",
+      "label": "PCIe RC1",
+      "sublabel": "x2 Gen4",
+      "pos": [
+        240,
+        330
+      ],
+      "size": [
+        170,
+        60
+      ],
+      "tag": "root port"
+    },
+    {
+      "id": "pcie2",
+      "type": "backend",
+      "label": "PCIe RC2",
+      "sublabel": "x1 Gen4",
+      "pos": [
+        440,
+        330
+      ],
+      "size": [
+        170,
+        60
+      ],
+      "tag": "root port"
+    },
+    {
+      "id": "eth",
+      "type": "backend",
+      "label": "TSN Ethernet",
+      "sublabel": "2× 10G",
+      "pos": [
+        640,
+        330
+      ],
+      "size": [
+        130,
+        60
+      ]
+    },
+    {
+      "id": "can",
+      "type": "backend",
+      "label": "CAN-FD ×12",
+      "sublabel": "classic + FD",
+      "pos": [
+        800,
+        330
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "gwep",
+      "type": "external",
+      "label": "Zonal gateway",
+      "sublabel": "EP below RC0",
+      "pos": [
+        40,
+        450
+      ],
+      "size": [
+        170,
+        48
+      ]
+    },
+    {
+      "id": "adasep",
+      "type": "external",
+      "label": "ADAS accelerator",
+      "sublabel": "EP below RC1",
+      "pos": [
+        240,
+        450
+      ],
+      "size": [
+        170,
+        48
+      ]
+    },
+    {
+      "id": "tcuep",
+      "type": "external",
+      "label": "TCU",
+      "sublabel": "EP below RC2",
+      "pos": [
+        440,
+        450
+      ],
+      "size": [
+        170,
+        48
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "ASIL-D safety island",
+      "wraps": [
+        "r52",
+        "hsm"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "QM compute",
+      "wraps": [
+        "cpu",
+        "gpu",
+        "npu"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "c1",
+      "from": "cpu",
+      "to": "noc",
+      "label": "coherent",
+      "variant": "emphasis"
+    },
+    {
+      "id": "c2",
+      "from": "noc",
+      "to": "l3"
+    },
+    {
+      "id": "c3",
+      "from": "l3",
+      "to": "mc"
+    },
+    {
+      "id": "c4",
+      "from": "mc",
+      "to": "ddr",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "c5",
+      "from": "gpu",
+      "to": "noc"
+    },
+    {
+      "id": "c6",
+      "from": "npu",
+      "to": "noc"
+    },
+    {
+      "id": "c7",
+      "from": "r52",
+      "to": "noc",
+      "variant": "dashed",
+      "label": "watch"
+    },
+    {
+      "id": "c8",
+      "from": "hsm",
+      "to": "r52",
+      "variant": "dashed"
+    },
+    {
+      "id": "c9",
+      "from": "noc",
+      "to": "pcie0",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          405,
+          262
+        ],
+        [
+          125,
+          262
+        ]
+      ]
+    },
+    {
+      "id": "c10",
+      "from": "noc",
+      "to": "pcie1",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          415,
+          276
+        ],
+        [
+          325,
+          276
+        ]
+      ]
+    },
+    {
+      "id": "c11",
+      "from": "noc",
+      "to": "pcie2",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "via": [
+        [
+          450,
+          300
+        ],
+        [
+          525,
+          300
+        ]
+      ]
+    },
+    {
+      "id": "c12",
+      "from": "pcie0",
+      "to": "gwep",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "label": "x4",
+      "labelAt": [
+        125,
+        412
+      ]
+    },
+    {
+      "id": "c13",
+      "from": "pcie1",
+      "to": "adasep",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "label": "x2",
+      "labelAt": [
+        325,
+        412
+      ]
+    },
+    {
+      "id": "c14",
+      "from": "pcie2",
+      "to": "tcuep",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "label": "x1",
+      "labelAt": [
+        525,
+        412
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Read the spine left to right",
+      "items": [
+        "CPU cluster → NoC → L3 → LPDDR5 is the only path that sets latency",
+        "RC0 carries the zonal gateway: every chassis message crosses it",
+        "Accelerators are coherent peers — they snoop L3, not DRAM"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Where bring-up bleeds",
+      "items": [
+        "RC0/1/2 share one SerDes PLL bank — a jitter bug hits all three",
+        "Safety island and PCIe share more clock sources than schematics admit",
+        "Bugs 1–5 in this review all live on this page"
+      ]
+    }
+  ]
+}

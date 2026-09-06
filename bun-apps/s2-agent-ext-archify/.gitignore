@@ -4,3 +4,8 @@ node_modules/
 
 # Sweep/build outputs (HTML twins, renders) — regenerate via archify build, never commit.
 .output/
+
+# `deck` build outputs beside the ir-library manifest — regenerate via
+# `bun scripts/deck.ts examples/ir-library/decks/library.config.json`, never commit.
+/examples/ir-library/decks/*.pptx
+/examples/ir-library/decks/*.slides/

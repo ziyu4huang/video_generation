@@ -1,0 +1,358 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "PCIe subsystem: three roots, one PHY bank, shared fate",
+    "subtitle": "RC0 x4 to the zonal gateway, RC1 x2 through retimers to the ADAS accelerator, RC2 x1 to the TCU — all off one SerDes PLL bank",
+    "output": "pcie-subsystem.architecture.html",
+    "viewBox": [
+      960,
+      520
+    ],
+    "quality_profile": "standard",
+    "legend": "variants",
+    "views": [
+      {
+        "id": "links",
+        "label": "Links",
+        "focus": [
+          "rc0",
+          "rc1",
+          "rc2",
+          "phy",
+          "epgw",
+          "epadas",
+          "eptcu"
+        ],
+        "note": "Lane ownership: RC0 owns the gateway, RC1 the accelerator, RC2 the TCU."
+      },
+      {
+        "id": "ctrl",
+        "label": "Per-port control",
+        "focus": [
+          "ltssm",
+          "aer",
+          "msi"
+        ],
+        "note": "LTSSM, AER and MSI-X are per-port state machines — but they share one firmware queue."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "rc0",
+      "type": "backend",
+      "label": "RC0",
+      "sublabel": "x4 Gen4 · ECRC on",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        180,
+        64
+      ],
+      "tag": "ASIL-B"
+    },
+    {
+      "id": "rc1",
+      "type": "backend",
+      "label": "RC1",
+      "sublabel": "x2 Gen4",
+      "pos": [
+        40,
+        190
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "rc2",
+      "type": "backend",
+      "label": "RC2",
+      "sublabel": "x1 Gen4",
+      "pos": [
+        40,
+        320
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "phy",
+      "type": "messagebus",
+      "label": "SerDes PHY bank",
+      "sublabel": "8 lanes · shared PLL",
+      "pos": [
+        280,
+        60
+      ],
+      "size": [
+        140,
+        324
+      ]
+    },
+    {
+      "id": "epgw",
+      "type": "external",
+      "label": "Zonal gateway",
+      "sublabel": "EP · x4",
+      "pos": [
+        480,
+        60
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "epcam",
+      "type": "external",
+      "label": "Camera aggregator",
+      "sublabel": "EP · x2 spare",
+      "pos": [
+        730,
+        60
+      ],
+      "size": [
+        180,
+        64
+      ]
+    },
+    {
+      "id": "epadas",
+      "type": "external",
+      "label": "ADAS accelerator",
+      "sublabel": "EP · 2 retimer hops",
+      "pos": [
+        480,
+        190
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "rt",
+      "type": "backend",
+      "label": "Retimer",
+      "sublabel": "2 dB · second hop",
+      "pos": [
+        730,
+        190
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "eptcu",
+      "type": "external",
+      "label": "TCU",
+      "sublabel": "EP · x1",
+      "pos": [
+        480,
+        320
+      ],
+      "size": [
+        200,
+        64
+      ]
+    },
+    {
+      "id": "ltssm",
+      "type": "backend",
+      "label": "LTSSM engines",
+      "sublabel": "one per root port",
+      "pos": [
+        280,
+        440
+      ],
+      "size": [
+        240,
+        56
+      ]
+    },
+    {
+      "id": "aer",
+      "type": "backend",
+      "label": "AER + ECRC",
+      "sublabel": "REB · DPC",
+      "pos": [
+        560,
+        440
+      ],
+      "size": [
+        200,
+        56
+      ]
+    },
+    {
+      "id": "msi",
+      "type": "backend",
+      "label": "MSI-X",
+      "sublabel": "→ GIC LPI",
+      "pos": [
+        800,
+        440
+      ],
+      "size": [
+        130,
+        56
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Root complex",
+      "wraps": [
+        "rc0",
+        "rc1",
+        "rc2"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Per-port control",
+      "wraps": [
+        "ltssm",
+        "aer",
+        "msi"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "p1",
+      "from": "rc0",
+      "to": "phy",
+      "label": "x4",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          280,
+          92
+        ]
+      ],
+      "labelAt": [
+        248,
+        84
+      ]
+    },
+    {
+      "id": "p2",
+      "from": "rc1",
+      "to": "phy",
+      "label": "x2",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "p3",
+      "from": "rc2",
+      "to": "phy",
+      "label": "x1",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [
+        [
+          280,
+          352
+        ]
+      ],
+      "labelAt": [
+        248,
+        344
+      ]
+    },
+    {
+      "id": "p4",
+      "from": "phy",
+      "to": "epgw",
+      "label": "x4",
+      "variant": "emphasis"
+    },
+    {
+      "id": "p5",
+      "from": "phy",
+      "to": "epcam",
+      "label": "x2",
+      "via": [
+        [
+          820,
+          20
+        ]
+      ],
+      "fromSide": "top",
+      "toSide": "top",
+      "labelAt": [
+        780,
+        44
+      ]
+    },
+    {
+      "id": "p6",
+      "from": "phy",
+      "to": "epadas",
+      "label": "x2 · retimers",
+      "labelAt": [
+        450,
+        400
+      ]
+    },
+    {
+      "id": "p7",
+      "from": "epadas",
+      "to": "rt",
+      "variant": "dashed",
+      "label": "hop 2"
+    },
+    {
+      "id": "p8",
+      "from": "phy",
+      "to": "eptcu",
+      "label": "x1"
+    },
+    {
+      "id": "p9",
+      "from": "aer",
+      "to": "msi",
+      "variant": "dashed",
+      "label": "doorbell",
+      "labelAt": [
+        780,
+        512
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Three roots, one PLL bank",
+      "items": [
+        "RC0 owns the zonal gateway: x4, ECRC on, ASIL-B guard band",
+        "RC1 reaches the ADAS accelerator through two retimer hops",
+        "RC2 is x1 to the TCU — the cheapest port carries the riskiest traffic"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "The bugs all live here",
+      "items": [
+        "Shared PLL: one jitter event and all three links retrain at once",
+        "LTSSM is per-port, but the firmware work queue is shared",
+        "MSI-X doorbells cross clock domains into the GIC"
+      ]
+    }
+  ]
+}
