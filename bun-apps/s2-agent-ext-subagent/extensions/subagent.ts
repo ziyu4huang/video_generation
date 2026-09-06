@@ -11,6 +11,7 @@ import {
   setTransientModelTierConfig,
 } from "@repo/s2-agent-core-runtime";
 import { registerModelsPresetCommand } from "../extensions/models-preset.js";
+import { createAgentsCommand } from "../src/agents-command.js";
 import { createParentTranscriptGetter } from "../src/fork-transcript-getter.js";
 import {
   convertToBackground,
@@ -216,6 +217,11 @@ export default function extension(pi: ExtensionAPI) {
   // /subagents — list running + past subagent runs and view their output.
   // Self-contained: reads the local in-flight registry this extension owns.
   pi.registerCommand("subagents", createSubagentsCommand({ subagentInFlight: inFlight }));
+
+  // /agents — CC-parity agentType manager entry (agents-manager effort t01:
+  // read-only list + detail; t02 adds CRUD). Namespace probe 2026-09-06: no
+  // host builtin and no ext claims "agents".
+  pi.registerCommand("agents", createAgentsCommand({ cwd }));
 
   // /models-preset — TRANSIENTLY switch this session's model config: main
   // model (pi.setModel) + subagent tier/vision routing (in-memory transient
