@@ -27,6 +27,7 @@
     "example:schema-cost": "bun examples/schema-cost-quick.mjs"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "0.84.4",
     "@earendil-works/pi-coding-agent": "0.84.4",
     "@playwright/cli": "^0.1.17",
     "@repo/s2-agent-core-interface": "workspace:*",
