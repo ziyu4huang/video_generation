@@ -67,8 +67,20 @@ const agentDirEnv: Record<string, string> = {
 	// explicit flag > PI_PROVIDER/PI_MODEL/PI_THINKING env > settings.json >
 	// BUILTIN_MODEL_DEFAULT. PI_MODEL alone is NOT enough — the env value is
 	// the model id, provider comes from PI_PROVIDER.
-	PI_PROVIDER: "deepseek",
-	PI_MODEL: "deepseek-v4-flash-vision-exp",
+	//
+	// PROVIDER SELECTION (2026-09-06): the probes' auth path is env keys ONLY
+	// (isolated piHome — auth.json is not visible), so the lane must name a
+	// provider that IS key-authenticated in this environment. CI exports
+	// DEEPSEEK_API_KEY → behavior is byte-identical to the historical hardcode.
+	// An operator machine without deepseek auth but with ZAI_API_KEY (the
+	// 2026-09-06 default here) falls back to zai/glm-5.3-flash instead of
+	// failing every probe with "No matching provider is authenticated" — a
+	// provider-account reason, exactly the class this lane exists to avoid.
+	// PI_AGENT_E2E_PROVIDER / PI_AGENT_E2E_MODEL override both for debugging.
+	PI_PROVIDER: process.env.PI_AGENT_E2E_PROVIDER ??
+		(process.env.DEEPSEEK_API_KEY ? "deepseek" : "zai"),
+	PI_MODEL: process.env.PI_AGENT_E2E_MODEL ??
+		(process.env.DEEPSEEK_API_KEY ? "deepseek-v4-flash-vision-exp" : "glm-5.3-flash"),
 	PI_THINKING: "off",
 };
 

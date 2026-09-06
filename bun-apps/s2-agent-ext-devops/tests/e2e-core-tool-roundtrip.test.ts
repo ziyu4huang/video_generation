@@ -60,14 +60,25 @@ const isolatedAgentDirEnv = (piHome: string): Record<string, string> => ({
 	[`${S2_AGENT_NAME.toUpperCase()}_CODING_AGENT_DIR`]: piHome,
 });
 
-/** The ONLY lane (2026-08-24 operator directive): deepseek flash-vision — LM
- * Studio is banished from E2E/CI entirely (multi-model contention generated at
- * 10 tok/31.7s measured 2026-08-23, and a 68-tool context under it pushed a
- * simple 3-in-1 past the 300s watchdog — the exact run-too-long class the
- * directive targets). A provider/auth failure on this lane is a SKIP
- * (classifyRun semantics), never a false FAIL. */
-const PRIMARY_MODEL = "deepseek/deepseek-v4-flash-vision-exp";
-const PRIMARY_CAP_MS = 90_000; // flash-vision completes the 3-in-1 well under 60s; 90s = slow-network headroom
+/** The ONLY lane class (2026-08-24 operator directive): ONE fast cloud vision
+ * model — LM Studio is banished from E2E/CI entirely (multi-model contention
+ * generated at 10 tok/31.7s measured 2026-08-23, and a 68-tool context under
+ * it pushed a simple 3-in-1 past the 300s watchdog — the exact run-too-long
+ * class the directive targets). A provider/auth failure on this lane is a
+ * SKIP (classifyRun semantics), never a false FAIL.
+ *
+ * PROVIDER SELECTION (2026-09-06): auth here is env keys only (isolated
+ * piHome), so the model must belong to a provider that IS key-authenticated
+ * in this environment. CI exports DEEPSEEK_API_KEY → the historical deepseek
+ * flash-vision lane, unchanged. A machine without deepseek auth but with
+ * ZAI_API_KEY runs zai/glm-5.3-flash (the same fast-cloud-vision class the
+ * directive names) instead of a guaranteed false FAIL.
+ * PI_AGENT_E2E_PROVIDER / PI_AGENT_E2E_MODEL override both for debugging. */
+const E2E_PROVIDER = process.env.PI_AGENT_E2E_PROVIDER ??
+	(process.env.DEEPSEEK_API_KEY ? "deepseek" : "zai");
+const PRIMARY_MODEL = process.env.PI_AGENT_E2E_MODEL ??
+	(E2E_PROVIDER === "deepseek" ? "deepseek/deepseek-v4-flash-vision-exp" : `${E2E_PROVIDER}/glm-5.3-flash`);
+const PRIMARY_CAP_MS = 90_000; // flash-class models complete the 3-in-1 well under 60s; 90s = slow-network headroom
 
 // Prompt shape matters (measured 2026-08-24): a bare "write its complete
 // output" occasionally made the model NARRATE the plan ("Now I'll write the
@@ -133,10 +144,18 @@ async function runOnce(model: string, capMs: number, cwd: string): Promise<RunRe
 	return { stdout, stderr, code, timedOut: code === null || code < 0, ms: Date.now() - t0 };
 }
 
-/** Fast provider/auth failure detection (mirrors oneshot-smoke's shape). */
+/** Fast provider/auth failure detection (mirrors oneshot-smoke's shape).
+ *  2026-09-06: pi's `-p` mode prints the provider/auth guidance ("…into a
+ *  provider via OAuth or API key") to stderr and exits 0 FAST when the turn
+ *  dies on auth — the old `code !== 0` gate classified that shape as a false
+ *  FAIL instead of the documented SKIP. The exit-code requirement is dropped:
+ *  the caller returns GREEN on an artifact-bearing run BEFORE consulting this
+ *  classifier, so a genuine completion can never reach it, and the fast-exit
+ *  + provider-vocabulary guards still bound the skip to turn-never-started
+ *  shapes. */
 function smellsLikeProviderFailure(r: RunResult): boolean {
 	const text = `${r.stdout}\n${r.stderr}`;
-	return r.code !== 0 && !r.timedOut && r.ms <= 10_000 && /provider|api.?key|auth|no matching/i.test(text);
+	return !r.timedOut && r.ms <= 10_000 && /provider|api.?key|auth|no matching/i.test(text);
 }
 
 function assertArtifact(cwd: string, r: RunResult, model: string): void {
