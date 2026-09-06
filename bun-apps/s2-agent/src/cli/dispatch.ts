@@ -59,7 +59,7 @@ import { runPassthrough } from "./sessions/passthrough.ts";
 import { bakedProviderConfigs } from "../pre-load-providers.ts";
 import { publishSeam } from "@repo/s2-agent-core-interface";
 
-const VERSION = "0.9.0";
+const VERSION = "0.10.0";
 
 /** A top-level agent/meta command. Exported for extensions/registry.ts. */
 export interface Command {

@@ -7,14 +7,16 @@
  *   s2-agent cli collect-videos <platform> <preset> [keywords...] [options]
  *   s2-agent cli organize-vault [options]
  *   s2-agent cli import-memory [options]
+ *   s2-agent cli news [focus...] [options]
  *
  * Each sub-command creates an agent session with the research-tool extension
  * factory loaded (so the corresponding tool is registered) and passes a
  * precise task instructing the agent which tool to call with which parameters.
  *
  * Research-tool specific CLI flags (--popular, --pages, --proxy, --recency,
- * --output-path, --hermes-dir, --vault-root, --dry-run) are parsed from the
- * CLI and translated into tool parameters by the task builder.
+ * --output-path, --hermes-dir, --vault-root, --date, --overwrite, --dry-run)
+ * are parsed from the CLI and translated into tool parameters by the task
+ * builder.
  *
  * This file is dependency-free of s2-agent on purpose: the workspace dep
  * direction is s2-agent → s2-agent-ext-research-tool, so the spec is typed
@@ -173,6 +175,78 @@ Examples:
     parts.push(
       `\nCall the tool and report the results: how many notes were updated, ` +
         `how many skipped, and how many orphans remain.`,
+    );
+
+    return parts.join("\n");
+  },
+};
+
+// ── news ────────────────────────────────────────────────────────────────────
+
+export const newsSubcommand: ExtensionSubcommandSpec = {
+  name: "news",
+  summary:
+    "scaffold the weekly LLM community news digest issue in the vault",
+  details: `Usage:
+  s2-agent cli news [focus...] [options]
+
+Scaffold this week's LLM 社群每週新聞 digest issue in the vault's
+weekly-news/ folder (llm-weekly-news-<saturday>.md): frontmatter, zh title
+spanning the Monday–Saturday range, and the fill-in guide.
+
+SCOPE NOTE: this subcommand scaffolds ONLY. CLI subcommand sessions carry
+just the research-tool factory (no web search, no file tools), so the
+research + write half must run in a full session — /collect-news-llm or the
+collect-news-llm skill.
+
+Positionals:
+  focus       optional focus topics for the research half (space-separated),
+              echoed into the report
+
+Options:
+  --date <iso>        anchor the issue week (default: today; the issue covers
+                      that week's Monday–Saturday)
+  --output-path <p>   explicit output path (default: vault weekly-news/llm-weekly-news-<date>.md)
+  --overwrite         regenerate the scaffold even if the issue file has content
+  --model <pattern>   provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
+  --provider <name>   provider name
+  --tools <csv>       override the curated tool allowlist
+
+Examples:
+  s2-agent cli news
+  s2-agent cli news agents evals
+  s2-agent cli news --date 2026-09-01
+
+No API key needed; the scaffold itself makes no network calls.`,
+  factory: extension,
+  tools: ["collect_news"],
+  task: (parsed) => {
+    const p = parsed as Record<string, unknown>;
+    const focus = parsed.positionals.filter(Boolean).join(", ");
+    const parts: string[] = [
+      "Scaffold the weekly news digest issue with the collect_news tool:",
+      `  call collect_news with these parameters:`,
+    ];
+
+    if (typeof p.date === "string") {
+      parts.push(`  date="${p.date}"`);
+    }
+    if (typeof p.outputPath === "string") {
+      parts.push(`  outputPath="${p.outputPath}"`);
+    }
+    if (p.overwrite === true) {
+      parts.push(`  overwrite=true`);
+    }
+    if (p.dryRun === true) {
+      parts.push(`  dryRun=true`);
+    }
+
+    parts.push(
+      `\nCall the tool, then report: the scaffolded file path, the covered ` +
+        `date range, and the scaffold's fill-in checklist. Do NOT attempt the ` +
+        `research or writing half — this session has no web or file tools; ` +
+        `instead remind the user to run /collect-news-llm in a full session` +
+        `${focus ? ` (focus topics: ${focus})` : ""}.`,
     );
 
     return parts.join("\n");

@@ -17,7 +17,7 @@ import { krea2Subcommand } from "@repo/s2-agent-ext-krea2/extensions/cli-subcomm
 import { ltxSubcommand } from "@repo/s2-agent-ext-ltx/extensions/cli-subcommand.ts";
 import { movieSubcommand } from "@repo/s2-agent-ext-movie-director/extensions/cli-subcommand.ts";
 import { researchSubcommand } from "@repo/s2-agent-ext-web-access/extensions/cli-subcommand.ts";
-import { collectVideosSubcommand, organizeVaultSubcommand, importMemorySubcommand } from "@repo/s2-agent-ext-research-tool/extensions/cli-subcommand.ts";
+import { collectVideosSubcommand, organizeVaultSubcommand, importMemorySubcommand, newsSubcommand } from "@repo/s2-agent-ext-research-tool/extensions/cli-subcommand.ts";
 import { powerToolSubcommand } from "@repo/s2-agent-ext-power-tool/extensions/cli-subcommand.ts";
 
 /** The extension sub-commands to expose on the CLI. */
@@ -31,6 +31,7 @@ export const EXTENSION_SPECS: ExtensionSubcommandSpec[] = [
 	collectVideosSubcommand,
 	organizeVaultSubcommand,
 	importMemorySubcommand,
+	newsSubcommand,
 	powerToolSubcommand,
 ];
 

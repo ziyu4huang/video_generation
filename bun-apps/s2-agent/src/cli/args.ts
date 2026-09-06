@@ -223,6 +223,10 @@ export interface ParsedArgs {
 	recency?: number;
 	/** collect-videos / import-memory: explicit output path override */
 	outputPath?: string;
+	/** news: ISO date anchoring the digest issue week (default: today) */
+	date?: string;
+	/** news: regenerate the scaffold even if the issue file has content */
+	overwrite?: boolean;
 	/** import-memory: override hermes-memory directory */
 	hermesDir?: string;
 	/** knowledge-pipeline: reset convergence state before run/dry-run */

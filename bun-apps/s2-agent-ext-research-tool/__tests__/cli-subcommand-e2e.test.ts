@@ -18,6 +18,7 @@ import {
 	collectVideosSubcommand,
 	organizeVaultSubcommand,
 	importMemorySubcommand,
+	newsSubcommand,
 } from "../extensions/cli-subcommand.ts";
 import extension from "../extensions/research-tool.ts";
 
@@ -33,6 +34,7 @@ describe("CLI subcommand specs — structural contract", () => {
 		{ name: "collect-videos", spec: collectVideosSubcommand },
 		{ name: "organize-vault", spec: organizeVaultSubcommand },
 		{ name: "import-memory", spec: importMemorySubcommand },
+		{ name: "news", spec: newsSubcommand },
 	];
 
 	for (const { name, spec } of specs) {
@@ -68,7 +70,7 @@ describe("CLI subcommand specs — structural contract", () => {
 
 describe("CLI subcommand specs — unique names", () => {
 	test("no two specs share a name", () => {
-		const names = [collectVideosSubcommand.name, organizeVaultSubcommand.name, importMemorySubcommand.name];
+		const names = [collectVideosSubcommand.name, organizeVaultSubcommand.name, importMemorySubcommand.name, newsSubcommand.name];
 		expect(new Set(names).size).toBe(names.length);
 	});
 });
@@ -302,12 +304,61 @@ describe("import-memory task builder", () => {
 	});
 });
 
+// ── news task builder ───────────────────────────────────────────────────────
+
+describe("news task builder", () => {
+	test("no flags → names the tool + scaffold-only report instruction", () => {
+		const task = newsSubcommand.task(taskInput([]));
+		expect(task).toContain("collect_news");
+		expect(task).toContain("scaffolded file path");
+		expect(task).toContain("date range");
+		// CLI sessions carry no web/file tools — the task must NOT ask for research/writing
+		expect(task).toContain("Do NOT attempt the research or writing half");
+		expect(task).toContain("/collect-news-llm");
+	});
+
+	test("focus positionals → echoed into the report reminder", () => {
+		const task = newsSubcommand.task(taskInput(["agents", "evals"]));
+		expect(task).toContain("focus topics: agents, evals");
+	});
+
+	test("--date iso → date=...", () => {
+		const task = newsSubcommand.task(taskInput([], { date: "2026-09-01" }));
+		expect(task).toContain('date="2026-09-01"');
+	});
+
+	test("--output-path → outputPath=...", () => {
+		const task = newsSubcommand.task(taskInput([], { outputPath: "/tmp/issue.md" }));
+		expect(task).toContain('outputPath="/tmp/issue.md"');
+	});
+
+	test("--overwrite → overwrite=true", () => {
+		const task = newsSubcommand.task(taskInput([], { overwrite: true }));
+		expect(task).toContain("overwrite=true");
+	});
+
+	test("--overwrite absent → not emitted", () => {
+		const task = newsSubcommand.task(taskInput([]));
+		expect(task).not.toContain("overwrite=");
+	});
+
+	test("--dry-run → dryRun=true", () => {
+		const task = newsSubcommand.task(taskInput([], { dryRun: true }));
+		expect(task).toContain("dryRun=true");
+	});
+
+	test("--dry-run absent → not emitted", () => {
+		const task = newsSubcommand.task(taskInput([]));
+		expect(task).not.toContain("dryRun=");
+	});
+});
+
 // ── TypeScript compile-time check (re-export consistency) ───────────────────
 
 describe("export consistency", () => {
 	test("all exports are structurally-compatible ExtensionSubcommandSpecs", () => {
 		// The type check is compile-time (tsc --noEmit passes). Runtime shape guard:
-		const all = [collectVideosSubcommand, organizeVaultSubcommand, importMemorySubcommand];
+		const all = [collectVideosSubcommand, organizeVaultSubcommand, importMemorySubcommand, newsSubcommand];
 		for (const spec of all) {
 			expect(spec).toHaveProperty("name");
 			expect(spec).toHaveProperty("summary");
