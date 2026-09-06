@@ -1,15 +1,16 @@
 /**
  * s2-agent-ext-research-tool — research collection extension.
  *
- * Six tools:
+ * Seven tools:
  *   • collect_videos         — unified Bilibili/YouTube collector (platform + preset)
  *   • organize_vault_notes   — auto-tag missing frontmatter, list orphans
  *   • import_memory_to_vault — pi-hermes-memory → vault-mind jsonl
+ *   • collect_news           — scaffold the weekly LLM news digest (agent researches + fills)
  *   • arxiv_search           — search arXiv by query/category (ported from @wienerberliner/pi-arxiv)
  *   • arxiv_paper            — exact metadata lookup by arXiv ID/URL
  *   • arxiv_fetch2md         — fetch paper body as Markdown (arxiv2md) → <vault>/papers/
  *
- * Three slash commands mapping to the collection presets.
+ * Four slash commands mapping to the collection presets + the news digest.
  *
  * Output lands in the active vault's weekly-news/ (collect_videos) or papers/
  * (arxiv_fetch2md), mirroring obsidian vault resolution, unless an explicit
@@ -27,7 +28,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { GATE_DEFS } from "@repo/s2-agent-core-interface";
-import { writeFile, mkdir } from "node:fs/promises";
+import { writeFile, mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import type { CollectionResult, KeywordGroup, Platform, Preset, VideoResult } from "../lib/types.ts";
@@ -35,6 +36,7 @@ import { resolveKeywords, filterRelevant, parseKeywords } from "../lib/filter.ts
 import { fetchBuvid3, searchVideos, fetchHotVideos, sleep } from "../lib/bilibili.ts";
 import { searchYtKeyword, publishedAfterDays } from "../lib/youtube.ts";
 import { generateMarkdown, weeklyFilename } from "../lib/format.ts";
+import { getNewsWeek, newsFilename, generateNewsScaffold, planScaffoldWrite } from "../lib/news.ts";
 import { resolveWritePath, resolveVaultRoot } from "../lib/vault.ts";
 import { organizeVault } from "../lib/organize.ts";
 import { importMemory, resolveHermesDir } from "../lib/import-memory.ts";
@@ -79,6 +81,17 @@ GATE_DEFS["arxiv"] = {
 		verbs: ["search", "find", "fetch", "read", "look up", "找", "查", "搜尋", "讀"],
 	},
 	description: "arXiv search / paper lookup / fetch-to-markdown",
+};
+GATE_DEFS["collect_news"] = {
+	id: "collect_news",
+	keywords: ["news", "weekly news", "news digest", "週報", "每週新聞"],
+	requires: {
+		// 新聞/頭條 are noun-only (deliberately NOT keywords, unlike 週報) so a
+		// keyword-free zh adversarial probe exists — unlike arxiv's 論文 collision.
+		nouns: ["news", "digest", "headlines", "新聞", "頭條"],
+		verbs: ["collect", "gather", "generate", "compile", "summarize", "write", "收集", "整理", "彙整", "寫"],
+	},
+	description: "Weekly LLM community news digest scaffolding",
 };
 
 /* ================================================================
@@ -289,6 +302,77 @@ const importMemoryTool = defineTool({
 				},
 			],
 			details: { ...res, dryRun: params.dryRun ?? false },
+		};
+	},
+});
+
+/* ================================================================
+ * collect_news
+ * ================================================================ */
+
+const collectNewsTool = defineTool({
+	name: "collect_news",
+	label: "Collect News",
+	description:
+		"Scaffold this week's LLM community news digest (繁體中文 weekly digest) in the active " +
+		"vault's weekly-news/ as llm-weekly-news-<saturday>.md — frontmatter, zh title spanning " +
+		"the issue's Monday–Saturday range, and fill-in guidance. No API key: after scaffolding, " +
+		"research the week's news via web search and write the digest into the file (see the " +
+		"collect-news-llm skill). Refuses to overwrite a non-empty existing issue unless overwrite=true.",
+	// Owner-declared gating — own family (news is neither video collection nor
+	// vault tooling); 新聞/頭條 are noun-only so keyword-free zh adversarial
+	// probes exist. See GATE_DEFS["collect_news"].
+	gating: { gate: "collect_news" },
+	parameters: Type.Object({
+		date: Type.Optional(
+			Type.String({ description: "ISO date anchoring the issue week (default: today). The issue covers that week's Monday–Saturday." }),
+		),
+		outputPath: Type.Optional(
+			Type.String({ description: "Explicit output file (absolute or cwd-relative). Default: vault weekly-news/llm-weekly-news-<saturday>.md." }),
+		),
+		overwrite: Type.Optional(
+			Type.Boolean({ description: "Regenerate the scaffold even if the issue file already has content.", default: false }),
+		),
+		dryRun: Type.Optional(Type.Boolean({ description: "Report path + plan without writing.", default: false })),
+	}),
+	async execute(_id, params, _signal, _onUpdate, ctx) {
+		let anchor = new Date();
+		if (params.date) {
+			anchor = new Date(params.date);
+			if (Number.isNaN(anchor.getTime())) {
+				return toolError(`Invalid date "${params.date}" — expected ISO yyyy-mm-dd.`);
+			}
+		}
+		const week = getNewsWeek(anchor);
+		const writePath = await resolveWritePath(ctx.cwd, newsFilename(anchor), params.outputPath);
+		const existing = await readFile(writePath, "utf-8").catch(() => null);
+		const overwrite = params.overwrite ?? false;
+		const action = planScaffoldWrite(existing, overwrite);
+
+		if (!params.dryRun && action !== "skip") {
+			await mkdir(dirname(writePath), { recursive: true });
+			await writeFile(writePath, generateNewsScaffold(week), "utf-8");
+		}
+
+		const prefix = params.dryRun ? "[dry-run] " : "";
+		const text =
+			action === "skip"
+				? `${prefix}This week's issue already has content: ${writePath}\n` +
+					"Regenerating would clobber the digest — pass overwrite=true to reset the scaffold."
+				: `${prefix}Scaffolded ${writePath}\n` +
+					`Issue covers ${week.start} (Mon) – ${week.end} (Sat).\n\n` +
+					"Next (the collect-news-llm skill's workflow):\n" +
+					"1. Research this week's LLM/AI news: Hacker News, r/LocalLLaMA, X/Twitter, " +
+					"vendor blogs (OpenAI / Anthropic / Google / Meta / Moonshot / DeepSeek …), " +
+					"arXiv (arxiv_search).\n" +
+					"2. Write the digest into the scaffold in 繁體中文 — headline quote, one section " +
+					"per story with 日期 + tables + [來源](url) links, closing quick-hits table. " +
+					"Keep the frontmatter.\n" +
+					"3. Only stories with source links — no invention.";
+
+		return {
+			content: [{ type: "text" as const, text }],
+			details: { writePath, start: week.start, end: week.end, action: params.dryRun ? "dry-run" : action, dryRun: params.dryRun ?? false },
 		};
 	},
 });
@@ -554,6 +638,7 @@ const extension: ExtensionFactory = (pi) => {
 	pi.registerTool(collectVideosTool);
 	pi.registerTool(organizeTool);
 	pi.registerTool(importMemoryTool);
+	pi.registerTool(collectNewsTool);
 	pi.registerTool(arxivSearchTool);
 	pi.registerTool(arxivPaperTool);
 	pi.registerTool(arxivFetchTool);
@@ -564,15 +649,38 @@ const extension: ExtensionFactory = (pi) => {
 		"Collect Bilibili AI media/AIGC videos → vault weekly-news/. Optional: comma keywords.");
 	registerCollectCommand(pi, "collect-youtube-llm", "youtube", "llm",
 		"Collect YouTube LLM/AI videos → vault weekly-news/. Needs YOUTUBE_API_KEY. Optional: comma keywords.");
+	pi.registerCommand("collect-news-llm", {
+		description:
+			"Generate this week's LLM 社群每週新聞 digest → vault weekly-news/. " +
+			"No API key (web research). Optional: focus topics.",
+		handler: async (args: string) => {
+			const focus = args?.trim();
+			const lines = [
+				"Generate this week's LLM community news digest (the collect-news-llm workflow):",
+				"1. Call collect_news — it scaffolds <vault>/weekly-news/llm-weekly-news-<saturday>.md.",
+				"2. Research the week's LLM/AI news via web search: Hacker News, r/LocalLLaMA, " +
+					"X/Twitter, vendor blogs (OpenAI / Anthropic / Google / Meta / Moonshot / DeepSeek …), " +
+					"arXiv via arxiv_search.",
+			];
+			if (focus) lines.push(`Focus topics: ${focus}`);
+			lines.push(
+				"3. Write the digest into the scaffolded file in 繁體中文 per the scaffold's fill-in " +
+					"guide — headline quote, one section per story with 日期 + tables + [來源](url) links, " +
+					"closing quick-hits + summary tables. Keep the frontmatter. Only linked sources.",
+			);
+			pi.sendUserMessage(lines.join("\n"));
+		},
+	});
 };
 
 // ---------------------------------------------------------------------------
 // Gate-Recall Guard probe sets (QA-DATA only — NOT part of the runtime
 // `gating` object). Consumed by s2-agent-ext-tool-gate/qa/collect-probes.ts.
-// This package registers TWO keyword-gated tool groups (collect_videos +
-// arxiv_search), so it exports TWO named probe consts. Plain objects: no
-// `satisfies` / type import, so this extension never depends on tool-gate
-// (avoids a circular dep); shape is enforced by tool-gate's drift-guard test.
+// This package registers THREE keyword-gated tool groups (collect_videos +
+// arxiv_search + collect_news), so it exports THREE named probe consts. Plain
+// objects: no `satisfies` / type import, so this extension never depends on
+// tool-gate (avoids a circular dep); shape is enforced by tool-gate's
+// drift-guard test.
 //   - controls[]  carry a current keyword → MUST fire.
 //   - adversarial[] are keyword-free "I need this tool" phrasings that fire via
 //     the noun∧verb `requires` path on the runtime gating.
@@ -582,7 +690,9 @@ const extension: ExtensionFactory = (pi) => {
 // (論文) collides with a keyword — so a clean keyword-free zh adversarial is
 // impossible (any zh probe firing via requires contains 論文). The arxiv
 // adversarial set is therefore EN-only; this zh-noun/keyword collision is a
-// separate finding worth a future keyword/requires split.
+// separate finding worth a future keyword/requires split. collect_news avoids
+// the same collision by keeping 新聞/頭條 noun-only (keywords are 週報/每週新聞),
+// so it fields keyword-free zh adversarials.
 // ---------------------------------------------------------------------------
 export const COLLECT_VIDEOS_PROBES = {
 	gate: "collect_videos",
@@ -599,6 +709,17 @@ export const ARXIV_SEARCH_PROBES = {
 		"read papers about reinforcement learning",
 	],
 	controls: ["search arxiv for transformers", "find papers on rlhf", "找論文"],
+};
+export const COLLECT_NEWS_PROBES = {
+	gate: "collect_news",
+	recallFloor: 0.9,
+	adversarial: [
+		"compile this week's AI headlines into the vault",
+		"write up a community digest for the week",
+		"把本週的頭條整理成一篇回顧",
+	],
+	controls: ["collect news for this week", "generate the llm weekly news digest", "整理本週的每週新聞"],
+	mustNotFire: ["collect videos from bilibili", "write a blog post about the release", "summarize this paper for me"],
 };
 
 export default extension;

@@ -7,14 +7,16 @@
  *   s2-agent cli collect-videos <platform> <preset> [keywords...] [options]
  *   s2-agent cli organize-vault [options]
  *   s2-agent cli import-memory [options]
+ *   s2-agent cli news [focus...] [options]
  *
  * Each sub-command creates an agent session with the research-tool extension
  * factory loaded (so the corresponding tool is registered) and passes a
  * precise task instructing the agent which tool to call with which parameters.
  *
  * Research-tool specific CLI flags (--popular, --pages, --proxy, --recency,
- * --output-path, --hermes-dir, --vault-root, --dry-run) are parsed from the
- * CLI and translated into tool parameters by the task builder.
+ * --output-path, --hermes-dir, --vault-root, --date, --overwrite, --dry-run)
+ * are parsed from the CLI and translated into tool parameters by the task
+ * builder.
  *
  * This file is dependency-free of s2-agent on purpose: the workspace dep
  * direction is s2-agent → s2-agent-ext-research-tool, so the spec is typed
@@ -173,6 +175,72 @@ Examples:
     parts.push(
       `\nCall the tool and report the results: how many notes were updated, ` +
         `how many skipped, and how many orphans remain.`,
+    );
+
+    return parts.join("\n");
+  },
+};
+
+// ── news ────────────────────────────────────────────────────────────────────
+
+export const newsSubcommand: ExtensionSubcommandSpec = {
+  name: "news",
+  summary:
+    "scaffold the weekly LLM community news digest and research+write it into the vault",
+  details: `Usage:
+  s2-agent cli news [focus...] [options]
+
+Scaffold this week's LLM 社群每週新聞 digest in the vault's weekly-news/
+folder (llm-weekly-news-<saturday>.md), then research the week's LLM/AI news
+via web search and write the digest into the scaffold in 繁體中文.
+
+Positionals:
+  focus       optional focus topics (space-separated), e.g. "agents evals"
+
+Options:
+  --date <iso>        anchor the issue week (default: today; the issue covers
+                      that week's Monday–Saturday)
+  --output-path <p>   explicit output path (default: vault weekly-news/llm-weekly-news-<date>.md)
+  --overwrite         regenerate the scaffold even if the issue file has content
+  --model <pattern>   provider/id[:thinking]  (e.g. sonnet, bonsai-27b)
+  --provider <name>   provider name
+  --tools <csv>       override the curated tool allowlist
+
+Examples:
+  s2-agent cli news
+  s2-agent cli news agents evals
+  s2-agent cli news --date 2026-09-01
+
+No API key needed — the research half runs on web search.`,
+  factory: extension,
+  tools: ["collect_news"],
+  task: (parsed) => {
+    const p = parsed as Record<string, unknown>;
+    const focus = parsed.positionals.filter(Boolean).join(", ");
+    const parts: string[] = [
+      "Run the collect-news-llm workflow with the collect_news tool:",
+      `  step 1: call collect_news with these parameters:`,
+    ];
+
+    if (typeof p.date === "string") {
+      parts.push(`    date="${p.date}"`);
+    }
+    if (typeof p.outputPath === "string") {
+      parts.push(`    outputPath="${p.outputPath}"`);
+    }
+    if (p.overwrite === true) {
+      parts.push(`    overwrite=true`);
+    }
+    if (p.dryRun === true) {
+      parts.push(`    dryRun=true`);
+    }
+
+    parts.push(
+      `  step 2: research the week's LLM/AI news via web search (Hacker News, r/LocalLLaMA,` +
+        ` X, vendor blogs${focus ? `; focus: ${focus}` : ""}).`,
+      `  step 3: write the digest into the scaffolded file in 繁體中文 — keep the frontmatter,` +
+        ` cite [來源](url) links, no invention.`,
+      `\nThen report: issue path, date range covered, top headlines, and any errors.`,
     );
 
     return parts.join("\n");

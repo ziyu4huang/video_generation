@@ -29,7 +29,7 @@ function captureTools(): Record<string, Record<string, unknown>> {
 
 test("research-tool tools are stealth-trimmed: no promptSnippet/guidelines", () => {
 	const tools = captureTools();
-	expect(Object.keys(tools).length).toBe(6);
+	expect(Object.keys(tools).length).toBe(7);
 
 	for (const [name, tool] of Object.entries(tools)) {
 		expect(typeof tool.description).toBe("string");

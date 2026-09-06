@@ -86,7 +86,7 @@ import { __GATE_PROBES__ as ltxProbes } from "@repo/s2-agent-ext-ltx/extensions/
 import { __GATE_PROBES__ as movieProbes } from "@repo/s2-agent-ext-movie-director/extensions/movie-director.ts";
 import { __GATE_PROBES__ as krea2Probes } from "@repo/s2-agent-ext-krea2/extensions/krea2.ts";
 import { __GATE_PROBES__ as file2mdProbes } from "@repo/s2-agent-ext-file2md/extensions/file2md.ts";
-import { COLLECT_VIDEOS_PROBES, ARXIV_SEARCH_PROBES } from "@repo/s2-agent-ext-research-tool/extensions/research-tool.ts";
+import { COLLECT_VIDEOS_PROBES, ARXIV_SEARCH_PROBES, COLLECT_NEWS_PROBES } from "@repo/s2-agent-ext-research-tool/extensions/research-tool.ts";
 import { __GATE_PROBES__ as zaiProbes } from "@repo/s2-agent-ext-zai-mcp/extensions/zai-mcp.ts";
 import { __GATE_PROBES__ as workflowProbes } from "@repo/s2-agent-ext-ultracode/extensions/ultracode.ts";
 import {
@@ -120,6 +120,7 @@ export const ALL_PROBE_SETS: GateProbeSet[] = [
 	file2mdProbes,
 	COLLECT_VIDEOS_PROBES,
 	ARXIV_SEARCH_PROBES,
+	COLLECT_NEWS_PROBES,
 	zaiProbes,
 	// Dispatch / utility gates — controls-only (recallFloor 0, adversarial []):
 	workflowProbes,
