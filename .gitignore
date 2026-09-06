@@ -13,6 +13,14 @@ node_modules
 # transient, machine-local, and it blocks sync-default-branch's dirty_tree
 # untracked check while untracked.
 /.pi/
+# EXCEPTION — .pi/agents/ is VERSION-CONTROLLED configuration, not runtime
+# state: committed project-scope agentType definitions (learnings-hardening,
+# 2026-09-06: .pi/agents/hard-problem.md is the subagent-loadable carrier of
+# the loop's operating learnings). The parent /.pi/ ignore above covers the
+# runtime dirs; the agents/ subdir is re-included here.
+!/.pi/
+!/.pi/agents/
+!/.pi/agents/**
 
 # runtime artifacts — reviewer review reports (all context-dir variants:
 # core-task / ext-task / task)

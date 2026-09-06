@@ -9,7 +9,9 @@
  *
  * Inputs hashed: the s2-agent/src/ tree as the bundler sees it, the resolved
  * @earendil-works/pi-coding-agent version, Bun.version, the entry relpath,
- * and the build flag set.
+ * the build flag set, and the source trees of every `@repo/*` workspace
+ * package the bundle inlines (deps of s2-agent — the bundler follows them
+ * past s2-agent/src, so they are build inputs too).
  *
  * freeze:false deploys BYPASS the cache (spec Risk 2): hardlinks share an
  * inode, so chmod-ing one copy re-modes every copy — a writable cached core
@@ -50,6 +52,18 @@ export interface CoreHashInputs {
 	entry: string;
 	/** Build flag markers, e.g. ["--target=bun", "--minify"] — output-affecting flags only. */
 	flags: string[];
+	/**
+	 * Source trees of workspace packages the core bundle INLINES (each entry:
+	 * the directory the bundler resolves the package entry into, hashed under
+	 * its package name). The bundler follows `@repo/*` workspace deps past
+	 * s2-agent/src — so a core-runtime-only change MUST change the hash, or a
+	 * frozen deploy ships a stale core while the freshly-built ext bundles
+	 * (which externalize `@repo/*` back onto the core's runtime registry) call
+	 * exports the stale core doesn't have. Found live 2026-09-06: the /agents
+	 * CRUD drill crashed `isValidAgentName is not a function` on a
+	 * cached-core deploy that looked "up to date" (same git sha).
+	 */
+	workspaceSrcDirs?: Array<{ name: string; dir: string }>;
 }
 
 export function computeCoreHash(inputs: CoreHashInputs): string {
@@ -59,6 +73,10 @@ export function computeCoreHash(inputs: CoreHashInputs): string {
 	hash.update(`entry=${inputs.entry}\0`);
 	hash.update(`flags=${[...inputs.flags].sort().join(",")}\0`);
 	hashTree(hash, join(inputs.piAgentDir, "src"), "src");
+	for (const { name, dir } of [...(inputs.workspaceSrcDirs ?? [])].sort((a, b) => (a.name < b.name ? -1 : 1))) {
+		hash.update(`workspace:${name}\0`);
+		hashTree(hash, dir, name);
+	}
 	return hash.digest("hex");
 }
 

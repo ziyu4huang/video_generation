@@ -42,9 +42,9 @@ the write path; 03 wires + receipts).
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-agents-list-dialog.md` | done (branch agents-manager-t01) | `/agents` read-only dialog: grouped list (project/user/pack/builtin), detail pane (frontmatter + prompt body preview), j/k/enter/esc, live-free (static render — no timer) |
-| `tickets/02-agents-crud.md` | open | core-runtime `writeAgentDefinition`/`deleteAgentDefinition` (scoped, name-validated, never builtin/pack) + in-dialog create/edit forms + y/N delete confirm |
-| `tickets/03-wiring-receipt.md` | open | register the command in ext-subagent, disable-guards, `tui-drive --scenario agents` receipt (dialog opens, lists the seeded agent, edit round-trips) |
+| `tickets/01-agents-list-dialog.md` | done (PR #2192, 8494a28e) | `/agents` read-only dialog: grouped list (project/user/pack/builtin), detail pane (frontmatter + prompt body preview), j/k/enter/esc, live-free (static render — no timer) |
+| `tickets/02-agents-crud.md` | done (branch agents-manager-t02) | core-runtime `writeAgentDefinition`/`deleteAgentDefinition` (canonical `<name>.md`, kebab-case validation, builtin/pack/duplicate-name refusals, comma-string round-trip) + in-dialog create form (scope row, space toggles), edit form (prompt preserved, rename moves the file), y/N delete — 19 viewer tests + 10 write-path round-trip tests |
+| `tickets/03-wiring-receipt.md` | done (branch agents-manager-t02) | wiring guard test (registerCommand source pin; host-shadow proven live by the receipt) + `tui-drive --scenario agents` — **source PASS 11/11 AND deployed PASS 11/11** (`output/tui-agents-receipt-2026-09-06/`, model zai/glm-5.3). The deployed leg caught F2 (stale core cache) + F1 (eaten first key) — both fixed on this branch, redeployed, re-driven to PASS |
 
 ## Decisions
 
@@ -69,10 +69,34 @@ the write path; 03 wires + receipts).
 
 - ~~Does pi's command registry allow `/agents`?~~ RESOLVED 2026-09-06: no
   host builtin and no ext claims it — `/agents` registered clean (probe:
-  host slash-commands list + repo-wide registerCommand scan).
+  host slash-commands list + repo-wide registerCommand scan). Re-verified
+  live by the t03 agents receipt (dialogOpened = OUR dialog, not a host one).
 - Long prompt bodies in the detail pane need scrolling — pi-tui's dialog
   primitives may already provide it (check `@earendil-works/pi-tui` before
   hand-rolling).
+
+## Loop findings (develop → deploy → drive → issue → develop)
+
+- **F1 (t03, 2026-09-06) — freshly-mounted dialog eats the FIRST keypress.**
+  Live evidence: the first `enter` after `/agents` opens nothing (list still
+  rendered); the next key lands. Driver-side fix: paced retry with real
+  sleeps — `waitIdle` returns INSTANTLY on a static dialog (no bytes =
+  already quiet), so retries must sleep wall-clock, not wait for silence.
+- **F2 (t03, 2026-09-06) — deploy core cache didn't hash workspace sources.**
+  `computeCoreHash` covered only `s2-agent/src` (+ versions/flags), but the
+  core bundle INLINES the `@repo/*` workspace packages and the ext bundles
+  externalize them back onto the core's runtime registry. A core-runtime-only
+  change therefore cache-HIT: frozen `4f8bc04` shipped a stale core while
+  `ext/subagent/ext.cjs` was fresh → the live CRUD drill crashed
+  `TypeError: ke.isValidAgentName is not a function` on a deploy whose git
+  sha HAD the change. FIX (same branch): hash every `@repo/*` dependency
+  source tree in `computeCoreHash` (`workspaceSrcDirs`, resolved via
+  `Bun.resolveSync` from s2-agent's deps) + regression test in
+  `core-cache.test.ts`. Side-findings while repairing: the workspace
+  symlinks under `bun-apps/node_modules/@repo/*` were dangling (targets had a
+  spurious `bun-apps/` segment; `bun install` calls them "no changes" since
+  bun resolves workspaces its own way) — repaired to `../../<pkg>`, the
+  deploy's vendor step stats those paths.
 
 ## Cross-effort links
 

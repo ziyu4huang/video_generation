@@ -1,7 +1,7 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,10 +9,13 @@ import {
   type AgentRegistry,
   agentDefinitionKey,
   applyToolPolicy,
+  deleteAgentDefinition,
+  isValidAgentName,
   listAgentTypes,
   loadAgentRegistry,
   parseAgentDefinition,
   resolveAgentType,
+  writeAgentDefinition,
 } from "@repo/s2-agent-core-runtime";
 import { runWorkflow } from "../src/workflow.js";
 
@@ -387,6 +390,145 @@ return r`;
       resumeJournal: new Map(journal.map((e) => [e.index, e])),
     });
     assert.equal(second.seen.length, 0, "unchanged definition → cache hit → no live run");
+  });
+});
+
+// ── write path (agents-manager ticket 02) ────────────────────────────────────
+
+describe("writeAgentDefinition / serializeAgentDefinition round-trip", () => {
+  const base = {
+    name: "round-trip-agent",
+    description: "Reviews code: carefully, even",
+    model: "zai/glm-5.3-flash",
+    tools: ["read", "grep", "glob"],
+    disallowedTools: ["bash"],
+    isolation: "worktree" as const,
+    prompt: "You are a round-trip agent.",
+  };
+
+  it("write → parseAgentDefinition preserves every field (comma-string tools form on disk)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agents-write-"));
+    try {
+      const written = writeAgentDefinition(dir, base);
+      assert.equal(written, join(dir, "round-trip-agent.md"));
+      const raw = readFileSync(written, "utf-8");
+      // The canonical on-disk shape is the CC comma-separated string…
+      assert.ok(raw.includes("tools: read, grep, glob"), raw);
+      assert.ok(raw.includes("disallowedTools: bash"), raw);
+      // …and a description containing YAML-hostile chars (`: `) is quoted.
+      assert.ok(raw.includes('"Reviews code: carefully, even"'), raw);
+      const def = parseAgentDefinition(raw, "project", "round-trip-agent.md");
+      assert.ok(def);
+      assert.equal(def.name, "round-trip-agent");
+      assert.equal(def.description, "Reviews code: carefully, even");
+      assert.equal(def.model, "zai/glm-5.3-flash");
+      assert.deepEqual(def.tools, base.tools);
+      assert.deepEqual(def.disallowedTools, base.disallowedTools);
+      assert.equal(def.isolation, "worktree");
+      assert.equal(def.prompt, base.prompt);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("a minimal def (only name + prompt) serializes to a parseable file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agents-write-"));
+    try {
+      writeAgentDefinition(dir, { name: "tiny-agent", prompt: "Do tiny things." });
+      const def = parseAgentDefinition(readFileSync(join(dir, "tiny-agent.md"), "utf-8"), "project", "tiny-agent.md");
+      assert.ok(def);
+      assert.equal(def.name, "tiny-agent");
+      assert.equal(def.prompt, "Do tiny things.");
+      assert.equal(def.tools, undefined);
+      assert.equal(def.isolation, undefined);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("overwriting the same name is the edit path (write twice → last wins)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agents-write-"));
+    try {
+      writeAgentDefinition(dir, { name: "editable", prompt: "v1" });
+      writeAgentDefinition(dir, { name: "editable", prompt: "v2" });
+      const def = parseAgentDefinition(readFileSync(join(dir, "editable.md"), "utf-8"), "project", "editable.md");
+      assert.equal(def?.prompt, "v2");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses invalid names, built-ins, pack-owned names, and duplicate same-name files", () => {
+    const root = mkdtempSync(join(tmpdir(), "agents-write-guard-"));
+    const dir = join(root, "agents");
+    const packDir = join(root, "pack");
+    try {
+      mkdirSync(dir, { recursive: true });
+      mkdirSync(packDir, { recursive: true });
+      writeFileSync(join(packDir, "packed.md"), "---\nname: packed-agent\n---\npack body");
+      assert.throws(() => writeAgentDefinition(dir, { name: "Bad Name", prompt: "" }), /kebab-case/);
+      assert.throws(() => writeAgentDefinition(dir, { name: "explore", prompt: "" }), /built-in/);
+      assert.throws(
+        () => writeAgentDefinition(dir, { name: "packed-agent", prompt: "" }, { packDirs: [packDir] }),
+        /extension pack/,
+      );
+      writeFileSync(join(dir, "weird-filename.md"), "---\nname: squatter\n---\nbody");
+      assert.throws(() => writeAgentDefinition(dir, { name: "squatter", prompt: "" }), /weird-filename\.md/);
+      // Without packDirs the pack name is writable (the dir list is the truth).
+      assert.doesNotThrow(() => writeAgentDefinition(dir, { name: "packed-agent", prompt: "" }));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("isValidAgentName draws the kebab-case line", () => {
+    assert.equal(isValidAgentName("code-reviewer"), true);
+    assert.equal(isValidAgentName("a1-b2"), true);
+    assert.equal(isValidAgentName("Bad"), false);
+    assert.equal(isValidAgentName("double--dash"), false);
+    assert.equal(isValidAgentName("-lead"), false);
+    assert.equal(isValidAgentName("trail-"), false);
+    assert.equal(isValidAgentName(""), false);
+    assert.equal(isValidAgentName("space name"), false);
+  });
+});
+
+describe("deleteAgentDefinition", () => {
+  it("deletes by PARSED name, not filename", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agents-del-"));
+    try {
+      writeFileSync(join(dir, "misnamed.md"), "---\nname: target-agent\n---\nbody", "utf-8");
+      const removed = deleteAgentDefinition(dir, "target-agent");
+      assert.equal(removed, join(dir, "misnamed.md"));
+      assert.equal(existsSync(removed), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when the name is absent or the dir is missing", () => {
+    const dir = mkdtempSync(join(tmpdir(), "agents-del-"));
+    try {
+      assert.throws(() => deleteAgentDefinition(dir, "absent"), /no agentType named/);
+      assert.throws(() => deleteAgentDefinition(join(dir, "missing"), "x"), /no agent definitions dir/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("round-trips through loadAgentRegistry: write → load → delete → load", () => {
+    const root = mkdtempSync(join(tmpdir(), "agents-del-load-"));
+    const dir = join(root, "agents");
+    try {
+      writeAgentDefinition(dir, { name: "lifecycle", description: "d", tools: ["read"], prompt: "p" });
+      const reg1 = loadAgentRegistry(root, { projectDir: dir, userDir: join(root, "none") });
+      assert.deepEqual(reg1.get("lifecycle")?.tools, ["read"]);
+      deleteAgentDefinition(dir, "lifecycle");
+      const reg2 = loadAgentRegistry(root, { projectDir: dir, userDir: join(root, "none") });
+      assert.equal(reg2.has("lifecycle"), false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

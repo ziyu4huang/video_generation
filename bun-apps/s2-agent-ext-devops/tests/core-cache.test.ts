@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { computeCoreHash, CORES_DIR, ensureCachedCore, linkCore, ORPHAN_GRACE_MS, pruneOrphanCores } from "../src/deploy/lib/core-cache.ts";
@@ -51,6 +51,48 @@ describe("computeCoreHash", () => {
 		expect(computeCoreHash({ ...inputs(base), bunVersion: "1.4.0" })).not.toBe(h0);
 		expect(computeCoreHash({ ...inputs(base), entry: "src/other.ts" })).not.toBe(h0);
 		expect(computeCoreHash({ ...inputs(base), flags: [] })).not.toBe(h0);
+	});
+
+	test("a workspace dep's source changes the hash (stale-core regression, 2026-09-06)", () => {
+		// The /agents CRUD deploy shipped a stale cached core: the bundler
+		// inlines @repo/* workspace sources past s2-agent/src, but the hash
+		// covered only s2-agent/src — a core-runtime-only change cache-HIT and
+		// the fresh ext bundles crashed calling the missing exports.
+		const base = fakePiAgent();
+		const ws = mkdtempSync(join(tmpdir(), "core-cache-ws-"));
+		mkdirSync(join(ws, "src"), { recursive: true });
+		writeFileSync(join(ws, "src", "index.ts"), "export const V = 1;");
+		const withWs = { ...inputs(base), workspaceSrcDirs: [{ name: "@repo/s2-agent-core-runtime", dir: join(ws, "src") }] };
+		const h0 = computeCoreHash(withWs);
+		expect(h0).not.toBe(computeCoreHash(inputs(base))); // listed at all → part of the key
+		writeFileSync(join(ws, "src", "index.ts"), "export const V = 2;");
+		expect(computeCoreHash(withWs)).not.toBe(h0); // a workspace-source edit invalidates
+		// order of the workspace list must not matter
+		const reordered = {
+			...inputs(base),
+			workspaceSrcDirs: [
+				{ name: "@repo/aaa", dir: join(ws, "src") },
+				{ name: "@repo/s2-agent-core-runtime", dir: join(ws, "src") },
+			],
+		};
+		const reordered2 = {
+			...inputs(base),
+			workspaceSrcDirs: [
+				{ name: "@repo/s2-agent-core-runtime", dir: join(ws, "src") },
+				{ name: "@repo/aaa", dir: join(ws, "src") },
+			],
+		};
+		expect(computeCoreHash(reordered)).toBe(computeCoreHash(reordered2));
+	});
+
+	test("buildCore actually passes workspaceSrcDirs into the hash (wiring source pin)", () => {
+		// The unit tests above prove computeCoreHash HONORS workspaceSrcDirs —
+		// but the stale-core incident was a WIRING gap: nothing forced the
+		// caller to supply it. Pin the call in deploy/run.ts so dropping the
+		// argument is a test failure, not a silent return of F2.
+		const runSrc = readFileSync(join(import.meta.dir, "..", "src", "deploy", "run.ts"), "utf8");
+		expect(runSrc).toContain("workspaceSrcDirs: resolveWorkspaceSrcDirs()");
+		expect(runSrc).toContain("function resolveWorkspaceSrcDirs()");
 	});
 });
 

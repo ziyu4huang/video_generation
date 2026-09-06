@@ -16,7 +16,7 @@
  * Wired: `isolation` ("worktree") → createWorktree() in workflow.ts.
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import { BUILTIN_AGENT_DEFS } from "./builtin-agents.js";
@@ -199,4 +199,111 @@ export function agentDefinitionKey(def: AgentDefinition | undefined): string | n
 /** List registered agent types for discoverability in the tool guideline. */
 export function listAgentTypes(registry: AgentRegistry): Array<{ name: string; description?: string }> {
   return [...registry.values()].map((d) => ({ name: d.name, description: d.description }));
+}
+
+// ── write path (agents-manager ticket 02) ────────────────────────────────────
+
+/** Kebab-case rule for agentType names: lowercase words joined by single
+ *  dashes, digits allowed but not leading/trailing a dash segment. */
+export function isValidAgentName(name: string): boolean {
+  return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name);
+}
+
+/** The writable subset of a definition. `source` is NOT writable — it is a
+ *  property of which directory the file lands in, not of the file itself. */
+export interface AgentDefinitionWrite {
+  name: string;
+  description?: string;
+  tools?: string[];
+  disallowedTools?: string[];
+  model?: string;
+  tier?: string;
+  isolation?: "worktree";
+  prompt: string;
+}
+
+/** Quote a frontmatter value unless it is safe as a YAML plain scalar. JSON
+ *  double quotes are a YAML-compatible subset, so `JSON.stringify` is the
+ *  escape hatch for anything containing `:`/`#`/leading indicators. */
+function fmValue(value: string): string {
+  return /^[A-Za-z0-9][A-Za-z0-9 ._/-]*$/.test(value) && !value.endsWith(" ") ? value : JSON.stringify(value);
+}
+
+/** Serialize a definition to the canonical markdown form. tools/disallowedTools
+ *  are written in the comma-separated string form (ticket 14 / decision 09) so
+ *  the Claude-Code convention round-trips: write → parseAgentDefinition → same
+ *  arrays. Body = prompt, trimmed, one blank line after the frontmatter. */
+export function serializeAgentDefinition(def: AgentDefinitionWrite): string {
+  const fm: string[] = [`name: ${fmValue(def.name)}`];
+  if (def.description) fm.push(`description: ${fmValue(def.description)}`);
+  if (def.model) fm.push(`model: ${fmValue(def.model)}`);
+  if (def.tier) fm.push(`tier: ${fmValue(def.tier)}`);
+  if (def.tools?.length) fm.push(`tools: ${def.tools.join(", ")}`);
+  if (def.disallowedTools?.length) fm.push(`disallowedTools: ${def.disallowedTools.join(", ")}`);
+  if (def.isolation) fm.push(`isolation: ${def.isolation}`);
+  const body = def.prompt.trim();
+  return `---\n${fm.join("\n")}\n---\n${body ? `\n${body}\n` : "\n"}`;
+}
+
+/**
+ * Write a definition to `dir` (the project `.pi/agents` or user `~/.pi/agents`
+ * — the caller picks the scope). The canonical filename is `<name>.md`. Throws
+ * (never silently coerces) on: invalid name, a core built-in name, a name owned
+ * by an extension pack (via `opts.packDirs`), or a second file in `dir` already
+ * declaring the same name under a different filename (first-wins would make
+ * that pair order-dependent). Overwriting `<name>.md` itself is the edit path.
+ * Returns the written path.
+ */
+export function writeAgentDefinition(dir: string, def: AgentDefinitionWrite, opts?: { packDirs?: string[] }): string {
+  const name = def.name.trim();
+  if (!isValidAgentName(name)) {
+    throw new Error(`invalid agentType name "${name}" — use kebab-case (a-z, 0-9, single dashes)`);
+  }
+  if (BUILTIN_AGENT_DEFS.some((b) => b.name === name)) {
+    throw new Error(`"${name}" is a core built-in agentType — built-ins are read-only`);
+  }
+  for (const packDir of opts?.packDirs ?? []) {
+    if (readDefsFromDir(packDir, "pack").some((d) => d.name === name)) {
+      throw new Error(`"${name}" is owned by an extension pack (${packDir}) — pack definitions are read-only`);
+    }
+  }
+  mkdirSync(dir, { recursive: true });
+  const canonical = `${name}.md`;
+  for (const file of readdirSync(dir)) {
+    if (!file.toLowerCase().endsWith(".md") || file === canonical) continue;
+    try {
+      const existing = parseAgentDefinition(readFileSync(join(dir, file), "utf-8"), "project", file);
+      if (existing?.name === name) {
+        throw new Error(`"${name}" is already declared by ${file} — edit or delete that file instead`);
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("is already declared by")) throw e;
+      // An unreadable neighbor can't prove a collision; skip it.
+    }
+  }
+  const target = join(dir, canonical);
+  writeFileSync(target, serializeAgentDefinition({ ...def, name }), "utf-8");
+  return target;
+}
+
+/**
+ * Delete the definition `name` from `dir`. Matches by PARSED frontmatter name
+ * (a file may legally declare a name different from its filename), not by
+ * filename. Throws when the dir is missing or no file declares the name.
+ * Returns the removed path.
+ */
+export function deleteAgentDefinition(dir: string, name: string): string {
+  if (!existsSync(dir)) throw new Error(`no agent definitions dir at ${dir}`);
+  for (const file of readdirSync(dir)) {
+    if (!file.toLowerCase().endsWith(".md")) continue;
+    const full = join(dir, file);
+    try {
+      if (parseAgentDefinition(readFileSync(full, "utf-8"), "project", file)?.name !== name) continue;
+    } catch {
+      continue;
+    }
+    unlinkSync(full);
+    return full;
+  }
+  throw new Error(`no agentType named "${name}" in ${dir}`);
 }

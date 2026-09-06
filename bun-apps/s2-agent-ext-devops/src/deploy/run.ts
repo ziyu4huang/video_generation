@@ -168,12 +168,39 @@ async function assertHostContract(cfg: ShConfig): Promise<void> {
  *
  * Frozen deploys go through the content-addressed cache: hash the build
  * inputs (the src/ tree, the resolved pi-coding-agent version, Bun.version,
- * entry, flags), reuse <outRoot>/.cores/<hash> on hit, bundle-and-cache on
- * miss, and HARDLINK the entry into the version dir. A no-freeze deploy
- * bypasses the cache entirely (hardlinks share an inode; a writable cached
- * core would re-mode every frozen version sharing it) and builds a plain
- * private copy.
+ * entry, flags, and the workspace @repo/* source trees the bundler inlines),
+ * reuse <outRoot>/.cores/<hash> on hit, bundle-and-cache on miss, and
+ * HARDLINK the entry into the version dir. A no-freeze deploy bypasses the
+ * cache entirely (hardlinks share an inode; a writable cached core would
+ * re-mode every frozen version sharing it) and builds a plain private copy.
  */
+
+/**
+ * The workspace packages whose source the core bundle inlines: every `@repo/*`
+ * dependency of s2-agent, resolved to the directory its package entry lives
+ * in. These MUST be part of the core-cache hash — the ext bundles externalize
+ * `@repo/*` and resolve them against the core's runtime registry at boot, so
+ * a core-runtime-only change with a cache hit shipped a stale core that was
+ * missing the exports the fresh ext code called (found live 2026-09-06, the
+ * /agents CRUD drill: `isValidAgentName is not a function` on a deploy whose
+ * git sha HAD the change — the core cache key didn't).
+ */
+function resolveWorkspaceSrcDirs(): Array<{ name: string; dir: string }> {
+	type Deps = { dependencies?: Record<string, string> };
+	const pkg = JSON.parse(readFileSync(join(PI_AGENT_DIR, "package.json"), "utf8")) as Deps;
+	const names = Object.keys(pkg.dependencies ?? {}).filter((n) => n.startsWith("@repo/") && n !== "@repo/s2-agent");
+	const out: Array<{ name: string; dir: string }> = [];
+	for (const name of names) {
+		try {
+			const entry = Bun.resolveSync(name, PI_AGENT_DIR);
+			const dir = dirname(entry);
+			if (existsSync(dir)) out.push({ name, dir });
+		} catch {
+			// An unresolvable optional dep contributes no source to the bundle.
+		}
+	}
+	return out;
+}
 async function buildCore(
 	outFile: string,
 	opts: { outRoot: string; freeze: boolean },
@@ -210,6 +237,7 @@ async function buildCore(
 			bunVersion: Bun.version,
 			entry: "src/cli-sh.ts",
 			flags: ["--target=bun", "--minify"],
+			workspaceSrcDirs: resolveWorkspaceSrcDirs(),
 		});
 		const core = await ensureCachedCore({
 			outRoot: opts.outRoot,
