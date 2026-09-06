@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch" | "parallel" | "viewer";
+  scenario: "dispatch" | "parallel" | "viewer" | "agents";
   sh: string;
   cwd: string;
   out: string;
@@ -97,11 +97,19 @@ const opts = parseArgs();
 mkdirSync(opts.out, { recursive: true });
 
 // Scratch project when no --cwd: a couple of files so the subagent's task
-// (`ls` + read + count exports) has something real to do.
+// (`ls` + read + count exports) has something real to do. The agents scenario
+// additionally seeds one project definition for the /agents manager to find.
 if (!opts.cwd) {
   opts.cwd = mkdtempSync(path.join(os.tmpdir(), "s2-tui-probe-"));
   writeFileSync(path.join(opts.cwd, "sample.ts"), "export const a = 1\nexport function b() { return a + 1 }\n");
   writeFileSync(path.join(opts.cwd, "README.md"), "# tui-drive scratch\n");
+  if (opts.scenario === "agents") {
+    mkdirSync(path.join(opts.cwd, ".pi", "agents"), { recursive: true });
+    writeFileSync(
+      path.join(opts.cwd, ".pi", "agents", "probe.md"),
+      "---\nname: probe\ndescription: seeded by tui-drive\ntools: read, bash\n---\nDo the probe: read README.md and report its first line.",
+    );
+  }
 }
 
 /** ZAI_API_KEY from the user's zshrc — the sandbox/login shell may not have
@@ -443,6 +451,106 @@ async function scenarioViewer(): Promise<void> {
   snap("viewer-closed", true);
 }
 
+// ── scenario: agents (agents-manager t03 — drive the /agents manager) ────────
+// Pure-local drill (no LLM round-trip): open /agents over the seeded probe
+// definition, read its detail, CREATE a second definition through the form,
+// EDIT it (ctrl+u clears the description), then DELETE it with the y/N
+// confirm. Also the live shadow check: a host builtin claiming /agents would
+// make dialogOpened render something that is NOT this dialog.
+async function scenarioAgents(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  tty.write("/agents");
+  await sleep(200);
+  tty.write("\r");
+  await sleep(1200); // real wall-clock: the dialog mounts + re-renders here
+  await waitIdle(800, 8000);
+  snap("agents-list", true);
+  const list = screen().join("\n");
+  receipt.checks.dialogOpened = /Agent types/.test(list);
+  receipt.checks.seededRowRendered = /probe {2}·/.test(list) && /seeded by tui-drive/.test(list);
+  if (!receipt.checks.dialogOpened) return;
+
+  // The project group sorts first, and probe is its only def → already selected.
+  // A freshly-mounted dialog can eat the FIRST key (observed live: the enter
+  // landed on the composer and the list stayed) — retry, PACED with real
+  // sleeps (waitIdle returns instantly on a static dialog: no bytes = already
+  // quiet), and only enter while the list footer is showing, exactly what a
+  // human does when a keypress is swallowed.
+  const inDetail = (): boolean => /prompt:/.test(screen().join("\n"));
+  for (let tries = 0; tries < 4 && !inDetail(); tries++) {
+    await sleep(700);
+    if (/enter detail/.test(screen().join("\n"))) tty.write("\r");
+  }
+  await sleep(700);
+  snap("agents-detail", true);
+  const detail = screen().join("\n");
+  receipt.checks.detailPrompt = inDetail() && /Do the probe/.test(detail);
+  tty.write("\x1b"); // detail → list
+  await sleep(600);
+  // If the retry loop exhausted with the dialog still in list view, the rest
+  // of the drill would act on the WRONG row — bail honestly instead.
+  if (!receipt.checks.detailPrompt) return;
+
+  // CREATE: c → name → tab → description → enter (saves to project scope).
+  tty.write("c");
+  await sleep(400);
+  snap("agents-form", true);
+  receipt.checks.formOpened = /New agentType/.test(screen().join("\n"));
+  if (!receipt.checks.formOpened) return;
+  tty.write("tui-made-two");
+  await sleep(200);
+  tty.write("\t");
+  await sleep(200);
+  tty.write("made by tui-drive");
+  await sleep(200);
+  tty.write("\r");
+  await waitIdle(1500, 10000);
+  snap("agents-created", true);
+  const afterCreate = screen().join("\n");
+  receipt.checks.created = /saved/.test(afterCreate) && /tui-made-two {2}·/.test(afterCreate);
+
+  // EDIT: probe < tui-made-two in the project group → one `j` from probe lands
+  // on it. ctrl+u clears the preloaded description before typing the new one.
+  tty.write("j");
+  await sleep(300);
+  tty.write("e");
+  await sleep(400);
+  snap("agents-edit-form", true);
+  const editForm = screen().join("\n");
+  receipt.checks.editPreloaded = /Edit tui-made-two/.test(editForm) && /made by tui-drive/.test(editForm);
+  tty.write("\t"); // name → description
+  await sleep(200);
+  tty.write("\x15"); // ctrl+u — clear the field
+  await sleep(200);
+  tty.write("edited by tui-drive");
+  await sleep(200);
+  tty.write("\r");
+  await waitIdle(1500, 10000);
+  snap("agents-edited", true);
+  receipt.checks.edited = /edited by tui-drive/.test(screen().join("\n"));
+
+  // DELETE: d → the y/N confirm → y. The status line legitimately keeps the
+  // name ("deleted <path>"), so the gone-check filters the status line out.
+  tty.write("d");
+  await sleep(400);
+  snap("agents-confirm", true);
+  receipt.checks.deleteConfirm = /y confirm delete/.test(screen().join("\n"));
+  tty.write("y");
+  await waitIdle(1500, 10000);
+  snap("agents-deleted", true);
+  const afterDelete = screen()
+    .filter((l) => !l.includes("deleted"))
+    .join("\n");
+  receipt.checks.deleted = !/tui-made-two/.test(afterDelete);
+
+  tty.write("\x1b"); // close the dialog
+  await sleep(400);
+  snap("agents-closed", true);
+}
+
 /** Read a snapshot file back (the abort-confirm check needs the confirm text
  *  AT the moment it was shown — the screen has moved on by check time). */
 function readSnapText(label: string): string | undefined {
@@ -458,6 +566,7 @@ try {
   if (opts.scenario === "dispatch") await scenarioDispatch();
   else if (opts.scenario === "parallel") await scenarioParallel();
   else if (opts.scenario === "viewer") await scenarioViewer();
+  else if (opts.scenario === "agents") await scenarioAgents();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -493,6 +602,18 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
   dispatch: ["booted", "liveRow", "settledBadge", "viewerOpened"],
   parallel: ["booted", "liveRow", "twoRunning", "settledBadge"],
   viewer: ["booted", "backgroundRow", "viewerOpened", "followTrace"],
+  agents: [
+    "booted",
+    "dialogOpened",
+    "seededRowRendered",
+    "detailPrompt",
+    "formOpened",
+    "created",
+    "editPreloaded",
+    "edited",
+    "deleteConfirm",
+    "deleted",
+  ],
 };
 const required = requiredByScenario[opts.scenario] ?? [];
 // expandHint + expandedTrace + modelIsGlm are PARITY checks — reported, and

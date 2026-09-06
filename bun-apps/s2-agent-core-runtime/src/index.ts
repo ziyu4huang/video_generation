@@ -51,14 +51,18 @@ export {
   sessionModelInjectionWins,
   splitSpecThinkingSuffix,
 } from "./agent-model.js";
-export type { AgentDefinition, AgentRegistry } from "./agent-registry.js";
+export type { AgentDefinition, AgentDefinitionWrite, AgentRegistry } from "./agent-registry.js";
 export {
   agentDefinitionKey,
   applyToolPolicy,
+  deleteAgentDefinition,
+  isValidAgentName,
   listAgentTypes,
   loadAgentRegistry,
   parseAgentDefinition,
   resolveAgentType,
+  serializeAgentDefinition,
+  writeAgentDefinition,
 } from "./agent-registry.js";
 export type { ActivityRow, ActivityStatus, ThemeLike } from "./agent-row-display.js";
 export {

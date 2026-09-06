@@ -42,9 +42,9 @@ the write path; 03 wires + receipts).
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-agents-list-dialog.md` | done (branch agents-manager-t01) | `/agents` read-only dialog: grouped list (project/user/pack/builtin), detail pane (frontmatter + prompt body preview), j/k/enter/esc, live-free (static render — no timer) |
-| `tickets/02-agents-crud.md` | open | core-runtime `writeAgentDefinition`/`deleteAgentDefinition` (scoped, name-validated, never builtin/pack) + in-dialog create/edit forms + y/N delete confirm |
-| `tickets/03-wiring-receipt.md` | open | register the command in ext-subagent, disable-guards, `tui-drive --scenario agents` receipt (dialog opens, lists the seeded agent, edit round-trips) |
+| `tickets/01-agents-list-dialog.md` | done (PR #2192, 8494a28e) | `/agents` read-only dialog: grouped list (project/user/pack/builtin), detail pane (frontmatter + prompt body preview), j/k/enter/esc, live-free (static render — no timer) |
+| `tickets/02-agents-crud.md` | done (branch agents-manager-t02) | core-runtime `writeAgentDefinition`/`deleteAgentDefinition` (canonical `<name>.md`, kebab-case validation, builtin/pack/duplicate-name refusals, comma-string round-trip) + in-dialog create form (scope row, space toggles), edit form (prompt preserved, rename moves the file), y/N delete — 19 viewer tests + 10 write-path round-trip tests |
+| `tickets/03-wiring-receipt.md` | in progress — source receipt PASS 11/11 | wiring guard test (registerCommand source pin) + `tui-drive --scenario agents` — source-tree receipt PASS (create/edit/delete on the live TUI); deployed-tree receipt pending this branch's deploy. Loop finding: a freshly-mounted dialog eats the FIRST keypress (lands on the composer) — the scenario retries paced with real sleeps (waitIdle is instant on a static dialog: no bytes = already quiet) |
 
 ## Decisions
 
