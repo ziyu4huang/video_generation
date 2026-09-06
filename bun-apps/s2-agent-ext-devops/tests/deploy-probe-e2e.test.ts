@@ -78,9 +78,11 @@ const agentDirEnv: Record<string, string> = {
 	// provider-account reason, exactly the class this lane exists to avoid.
 	// PI_AGENT_E2E_PROVIDER / PI_AGENT_E2E_MODEL override both for debugging.
 	PI_PROVIDER: process.env.PI_AGENT_E2E_PROVIDER ??
-		(process.env.DEEPSEEK_API_KEY ? "deepseek" : "zai"),
+		(process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.ZAI_API_KEY ? "zai" : "deepseek"),
 	PI_MODEL: process.env.PI_AGENT_E2E_MODEL ??
-		(process.env.DEEPSEEK_API_KEY ? "deepseek-v4-flash-vision-exp" : "glm-5.3-flash"),
+		(process.env.DEEPSEEK_API_KEY || !process.env.ZAI_API_KEY
+			? "deepseek-v4-flash-vision-exp"
+			: "glm-5.3-flash"),
 	PI_THINKING: "off",
 };
 

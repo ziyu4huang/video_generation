@@ -75,7 +75,7 @@ const isolatedAgentDirEnv = (piHome: string): Record<string, string> => ({
  * directive names) instead of a guaranteed false FAIL.
  * PI_AGENT_E2E_PROVIDER / PI_AGENT_E2E_MODEL override both for debugging. */
 const E2E_PROVIDER = process.env.PI_AGENT_E2E_PROVIDER ??
-	(process.env.DEEPSEEK_API_KEY ? "deepseek" : "zai");
+	(process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.ZAI_API_KEY ? "zai" : "deepseek");
 const PRIMARY_MODEL = process.env.PI_AGENT_E2E_MODEL ??
 	(E2E_PROVIDER === "deepseek" ? "deepseek/deepseek-v4-flash-vision-exp" : `${E2E_PROVIDER}/glm-5.3-flash`);
 const PRIMARY_CAP_MS = 90_000; // flash-class models complete the 3-in-1 well under 60s; 90s = slow-network headroom
