@@ -42,7 +42,7 @@ the write path; 03 wires + receipts).
 
 | Ticket | Status | Summary |
 |---|---|---|
-| `tickets/01-agents-list-dialog.md` | open | `/agents` read-only dialog: grouped list (project/user/pack/builtin), detail pane (frontmatter + prompt body preview), j/k/enter/esc, live-free (static render — no timer) |
+| `tickets/01-agents-list-dialog.md` | done (branch agents-manager-t01) | `/agents` read-only dialog: grouped list (project/user/pack/builtin), detail pane (frontmatter + prompt body preview), j/k/enter/esc, live-free (static render — no timer) |
 | `tickets/02-agents-crud.md` | open | core-runtime `writeAgentDefinition`/`deleteAgentDefinition` (scoped, name-validated, never builtin/pack) + in-dialog create/edit forms + y/N delete confirm |
 | `tickets/03-wiring-receipt.md` | open | register the command in ext-subagent, disable-guards, `tui-drive --scenario agents` receipt (dialog opens, lists the seeded agent, edit round-trips) |
 
@@ -67,9 +67,9 @@ the write path; 03 wires + receipts).
 
 ## Fog of war
 
-- Does pi's command registry allow `/agents` without colliding with a host
-  builtin? (verify at 01 — `registerCommand` warns on shadowing; if the host
-  claims it, fall back to `/agent-types` and record the constraint here.)
+- ~~Does pi's command registry allow `/agents`?~~ RESOLVED 2026-09-06: no
+  host builtin and no ext claims it — `/agents` registered clean (probe:
+  host slash-commands list + repo-wide registerCommand scan).
 - Long prompt bodies in the detail pane need scrolling — pi-tui's dialog
   primitives may already provide it (check `@earendil-works/pi-tui` before
   hand-rolling).
