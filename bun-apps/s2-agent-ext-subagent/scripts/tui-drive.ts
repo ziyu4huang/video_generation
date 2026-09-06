@@ -175,6 +175,11 @@ async function drain(): Promise<void> {
     }
   } finally {
     draining = false;
+    // Reviewer finding #5: a chunk pushed between the final empty shift() and
+    // this flag reset would sit unread until the NEXT pty data event (its
+    // early-return drain() saw draining === true), leaving the screen stale
+    // while lastByteAt already ticked. Re-arm so the burst is drained now.
+    if (pending.length > 0) void drain();
   }
 }
 
@@ -327,6 +332,17 @@ async function scenarioDispatch(): Promise<void> {
 try {
   if (opts.scenario === "dispatch") await scenarioDispatch();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
+} catch (e) {
+  // Reviewer finding #7: a crashed scenario must still leave a receipt — a
+  // silent exit discards the failure evidence the self-evolve loop reads.
+  receipt.checks.scenarioError = false;
+  receipt.snaps = snapN;
+  receipt.modelLine = modelLine();
+  writeFileSync(
+    path.join(opts.out, "receipt.json"),
+    `${JSON.stringify({ ...receipt, error: String((e as Error)?.message ?? e) }, null, 2)}\n`,
+  );
+  console.error(`[tui-drive] CRASH — ${(e as Error)?.message ?? e} (receipt still written)`);
 } finally {
   tty.write("\x03");
   await sleep(600);

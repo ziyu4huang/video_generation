@@ -94,9 +94,10 @@ first for the loop (self-evolve vehicle).
   details stay behind ctrl+o / /subagents, matching CC's information
   gradient (row → expanded → panel).
 - D5 (2026-09-06, session-scope): tickets 01–04 implemented THIS session
-  autonomously; ticket 05 (/agents manager) charted-only. Changes left
-  UNCOMMITTED on the worktree (vgpu-labs-demo branch carries unrelated
-  work; committing/branching waits for the user per harness rules).
+  autonomously; ticket 05 (/agents manager) charted-only. Initially left
+  uncommitted; the user then asked for local-CI + PR merge — the work is
+  committed on `subagent-tui-cc-parity-2` and went through the devops chain
+  (reviewer APPROVE receipt cited in the PR body).
 
 ## Fog of war
 
