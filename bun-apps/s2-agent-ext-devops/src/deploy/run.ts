@@ -72,6 +72,7 @@ import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib
 import { acquireBunBinary, parseBunAcquireChannel } from "./lib/bun-acquire.ts";
 import { bunBinaryName, hostTargetName, isHostTarget, parseTargetName, type TargetSpec } from "./lib/targets.ts";
 import { freezeTree, rmTree, urlToFsPath } from "./lib/fs.ts";
+import { repairWorkspaceLinks } from "./lib/workspace-links.ts";
 
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "s2-agent");
 const BUN_APPS_DIR = dirname(PI_AGENT_DIR);
@@ -816,6 +817,18 @@ export async function runShDeploy(opts: DeployShOptions = {}): Promise<DeployShR
 	const { shipped: enabled, dropped: platformDropped } = filterForTarget(cfg.extensions, targetSpec.platform);
 
 	ensureOutRoot(targetRoot);
+
+	// Preflight: repair the bun isolated-linker's @repo workspace symlinks
+	// before anything stats through them (the ext vendor step does). Full
+	// `bun install` runs rewrite these links with a root-layout target and
+	// leave them dangling (ENOENT mid-deploy, found live twice 2026-09-06);
+	// the repair is a no-op when everything already resolves.
+	const linkRepair = repairWorkspaceLinks(BUN_APPS_DIR);
+	if (linkRepair.repaired.length > 0) {
+		process.stderr.write(
+			`[deploy] repaired ${linkRepair.repaired.length} dangling workspace link(s): ${linkRepair.repaired.join(", ")}\n`,
+		);
+	}
 
 	// ── deploy (version dirs are immutable — the in-place ext rebuild is gone) ─
 	if (existsSync(target) && !opts.force) {
