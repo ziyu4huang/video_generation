@@ -284,6 +284,52 @@ export function formatSubagentTrace(
 export const STREAMING_EXPANDED_TAIL = 16;
 
 /**
+ * Viewport-aware replacement for the fixed {@link STREAMING_EXPANDED_TAIL} cap
+ * (tui-cc-parity-2 ticket 01): the expanded live trace may grow with the real
+ * terminal height — CC's ctrl+o fills the viewport — while still honoring the
+ * #1104 constraint that the whole box must fit, which is a FUNCTION of rows,
+ * not a constant. `rows` is the terminal's current row count; anything
+ * non-finite/absent (headless, print mode, unit tests) falls back to the fixed
+ * 16 so behavior stays deterministic without a terminal.
+ *
+ * Budget: `rows - reserved` trace lines, clamped [8, 28]. `reserved` covers the
+ * chrome that shares the viewport with the trace (2-line progress header +
+ * `…` ellipsis + hint/footer + composer + status bar ≈ 14 rows) — measured on
+ * the pi composer layout, deliberately generous so the box never pushes its
+ * first line above the viewport top (that is the fullRender flicker trigger).
+ *
+ * Height-stability rule (#1104, map D3): the cap varies only when the terminal
+ * is RESIZED — callers read rows once per render pass and the value is stable
+ * between resizes — never per tick.
+ */
+export function viewportTraceTail(
+  rows: number | undefined,
+  opts?: { min?: number; max?: number; reserved?: number },
+): number {
+  if (rows === undefined || !Number.isFinite(rows) || rows <= 0) return STREAMING_EXPANDED_TAIL;
+  const min = opts?.min ?? 8;
+  const max = opts?.max ?? 28;
+  const reserved = opts?.reserved ?? 14;
+  return Math.max(min, Math.min(max, rows - reserved));
+}
+
+/**
+ * Best-effort current terminal row count for render seams that only receive
+ * `width` (pi-tui's Component contract has no height). Returns undefined in a
+ * headless/non-TTY context (piped output, tests, print mode) so callers fall
+ * back to {@link viewportTraceTail}'s default. Never throws — render seams
+ * must not.
+ */
+export function currentTerminalRows(): number | undefined {
+  try {
+    const rows = (process.stdout as unknown as { rows?: number } | undefined)?.rows;
+    return typeof rows === "number" && rows > 0 ? rows : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Cap a trace's tail to at most `tail` lines, prefixing a `…` (ellipsis) line
  * when the trace exceeds the cap. Shared cap policy between the INLINE
  * streaming-expanded view ({@link renderSubagentResult}'s isPartial+expanded

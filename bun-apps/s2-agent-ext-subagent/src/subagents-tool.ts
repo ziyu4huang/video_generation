@@ -22,7 +22,9 @@ import {
   checkBudgetExhaustion,
   DEFAULT_BATCH_CONCURRENCY,
   deriveTaskLabel,
+  fmtDurationHuman,
   fmtElapsed,
+  fmtTokens,
   generateSubagentRunId,
   getGlobalRateLimiter,
   isTerminalStatus,
@@ -985,26 +987,42 @@ function batchStatusBadge(status: string, theme: Theme): string {
   return theme.fg(b.tone, b.text.padEnd(BATCH_BADGE_WIDTH));
 }
 
-/** Usage segment mirroring the single `subagent` card's meta: ` · $X.XXX · Ntok`
- *  when usage is present and non-zero, else `""` (defensive — degrades to empty).
- *  Load-bearing: render fixtures omit `usage`, so `""` keeps rendered lines
- *  byte-compatible (no phantom spaces/tokens). */
-export function formatUsage(u: AgentUsage | undefined): string {
-  return u && u.total > 0 ? ` · $${u.cost.toFixed(3)} · ${u.total} tok` : "";
+/** CC-vocabulary segments (tui-cc-parity-2 ticket 03) — the SAME order the
+ *  single `subagent` card's settledHeaderRow uses (tokens → duration → cost):
+ *  ` · 34,283 tokens` (separator'd, unit spelled) and ` · $X.XXX` (cost only
+ *  when non-zero — cost ≡ 0 on the local stack renders nothing). */
+function tokensSeg(u: { total?: number } | undefined): string {
+  return u && (u.total ?? 0) > 0 ? ` · ${fmtTokens(u.total ?? 0)} tokens` : "";
+}
+function costSeg(u: { cost?: number } | undefined): string {
+  return u && (u.cost ?? 0) > 0 ? ` · $${(u.cost ?? 0).toFixed(3)}` : "";
 }
 
-/** Themed `model · elapsed · usage` line for a done/timedout/aborted/budget slot.
- *  Shared by the done-collapsed per-slot line and the done-expanded meta line
- *  (DRY). The model segment is RunView-sourced (`modelSeg`) when the caller
- *  holds a view; settled slots that have no view degrade to
- *  `shortModel(slot.model) ?? "default"`. `usage` optional → degrades to
- *  `model · elapsed`. */
+/** Usage segment mirroring the single `subagent` card's meta, CC vocabulary
+ *  (ticket 03): ` · 34,283 tokens · $X.XXX` when usage is present and
+ *  non-zero, else `""` (defensive — degrades to empty). Load-bearing:
+ *  render fixtures omit `usage`, so `""` keeps rendered lines byte-compatible
+ *  (no phantom spaces/tokens). */
+export function formatUsage(u: AgentUsage | undefined): string {
+  return `${tokensSeg(u)}${costSeg(u)}`;
+}
+
+/** Themed `model · tokens · duration · cost` line for a done/timedout/aborted/
+ *  budget slot. Shared by the done-collapsed per-slot line and the
+ *  done-expanded meta line (DRY). The model segment is RunView-sourced
+ *  (`modelSeg`) when the caller holds a view; settled slots that have no view
+ *  degrade to `shortModel(slot.model) ?? "default"`. `usage` optional →
+ *  degrades to `model · 2m 13s`. Duration is HUMAN (fmtDurationHuman) since
+ *  ticket 03 folded the settled surfaces into the CC vocabulary — the LIVE
+ *  surfaces (buildLiveTable, the k/N running header) keep fmtElapsed seconds
+ *  on purpose (a ticking `12.3s` reads live; a settled `2m 13s` reads done). */
 export function formatSlotMeta(
   slot: { modelSeg?: string; model?: string; elapsedMs: number; usage?: AgentUsage },
   theme: Theme,
 ): string {
   const seg = slot.modelSeg ?? shortModel(slot.model ?? "") ?? "default";
-  return theme.fg("muted", `${seg} · ${fmtElapsed(slot.elapsedMs)}${formatUsage(slot.usage)}`);
+  const u = slot.usage;
+  return theme.fg("muted", `${seg}${tokensSeg(u)} · ${fmtDurationHuman(slot.elapsedMs)}${costSeg(u)}`);
 }
 
 /** Extract the trailing `:N` dispatch index from a batch child runId
@@ -1133,12 +1151,14 @@ export function renderSubagentsResult(
     if (s && (s as { usage?: AgentUsage }).usage) slotUsages.push((s as { usage: AgentUsage }).usage);
   }
   const agg = sumUsage(slotUsages);
-  const aggStr = agg.total > 0 ? ` · $${agg.cost.toFixed(3)} · ${agg.total} tok` : "";
+  // CC vocabulary (ticket 03): tokens → cost, cost only when non-zero —
+  // mirrors the single card's settled meta (same segments, same order).
+  const aggStr = agg.total > 0 ? `${tokensSeg(agg)}${costSeg(agg)}` : "";
   const header =
     `subagents batch (${done} ok` +
     (aborted ? ` · ${aborted} aborted` : "") +
     ` · ${failed} failed` +
-    ` · ${d.skipped} skipped) — ${fmtElapsed(d.elapsedMs)}${aggStr}`;
+    ` · ${d.skipped} skipped) — ${fmtDurationHuman(d.elapsedMs)}${aggStr}`;
 
   if (!options.expanded) {
     // Collapsed: header + one line per slot with status badge.

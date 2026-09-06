@@ -1012,7 +1012,7 @@ test("renderSubagentsResult collapsed: header + per-child one-liners with badges
   assert.match(collapsed, /1 aborted/);
   assert.match(collapsed, /1 failed/);
   assert.match(collapsed, /1 skipped/);
-  assert.match(collapsed, /12\.3s/);
+  assert.match(collapsed, /— 12s/); // tui-cc-parity-2 t03: human duration on the settled header
   // Badges
   assert.match(collapsed, /✓ done/);
   assert.match(collapsed, /⊘ aborted/);
@@ -1029,9 +1029,9 @@ test("renderSubagentsResult collapsed: header + per-child one-liners with badges
   assert.match(collapsed, /gemma/);
   assert.ok(!collapsed.includes("x/flash"), "provider prefix dropped on the collapsed batch line");
   assert.ok(!collapsed.includes("y/gemma"), "provider prefix dropped on the collapsed batch line");
-  // Elapsed times
-  assert.match(collapsed, /3\.5s/);
-  assert.match(collapsed, /30\.1s/);
+  // Elapsed times (tui-cc-parity-2 t03: human duration on settled slot meta)
+  assert.match(collapsed, /flash · 3s/);
+  assert.match(collapsed, /gemma · 30s/);
   // Null slot
   assert.match(collapsed, /child failed/);
   // Ctrl-O hint
@@ -1194,7 +1194,7 @@ test("ticket 04 / finding 2 + 5: collapsed batch renderer shows `requested → a
   // Settled slots have no RunView (endBatch evicted the registry), so the meta
   // segment degrades to shortModel(slot.model) — the fallback indicator itself
   // now lives only in RunView.modelSeg (live table) + the slot audit fields.
-  assert.match(collapsed, /glm-5\.2 · 1\.0s/);
+  assert.match(collapsed, /glm-5\.2 · 1s · "audit the display code"/); // t03 human duration
   assert.ok(!collapsed.includes("→"), "no fallback arrow on the settled collapsed line (degrade path)");
   // The full provider-prefixed ids do NOT appear (Finding 5 shortening).
   assert.ok(!collapsed.includes("anthropic/claude-opus-4-1"), "requested id is shortened on the collapsed line");
@@ -1307,21 +1307,21 @@ const U = (total: number, cost: number): AgentUsage => ({
   cost,
 });
 
-test("formatUsage: empty when no usage or zero total; else ` · $cost · Ntok` (3-decimal cost)", () => {
+test("formatUsage: empty when no usage or zero total; else CC vocab ` · N,NNN tokens · $cost` (t03)", () => {
   assert.equal(formatUsage(undefined), "");
   assert.equal(formatUsage(U(0, 0)), "");
-  assert.equal(formatUsage(U(15715, 0.0004)), " · $0.000 · 15715 tok");
-  assert.equal(formatUsage(U(1000, 0.5)), " · $0.500 · 1000 tok");
+  assert.equal(formatUsage(U(15715, 0.0004)), " · 15,715 tokens · $0.000");
+  assert.equal(formatUsage(U(1000, 0.5)), " · 1,000 tokens · $0.500");
 });
 
 test("formatSlotMeta: themed `modelSeg · elapsed · usage`; RunView-sourced segment, shortModel degrade, default fallback", () => {
   const meta = formatSlotMeta({ modelSeg: "glm-5.2", elapsedMs: 34500, usage: U(15715, 0.0004) }, THEME);
-  assert.equal(meta, "glm-5.2 · 34.5s · $0.000 · 15715 tok");
+  assert.equal(meta, "glm-5.2 · 15,715 tokens · 34s · $0.000");
   const noUsage = formatSlotMeta({ modelSeg: "glm-5.2", elapsedMs: 34500 }, THEME);
-  assert.equal(noUsage, "glm-5.2 · 34.5s");
+  assert.equal(noUsage, "glm-5.2 · 34s"); // t03: human duration
   // Settled slots that have no view degrade to shortModel(slot.model).
   const degraded = formatSlotMeta({ model: "zai/glm-5.2", elapsedMs: 34500 }, THEME);
-  assert.equal(degraded, "glm-5.2 · 34.5s");
+  assert.equal(degraded, "glm-5.2 · 34s");
   const fb = formatSlotMeta(
     {
       // RunView.modelSeg on fallback: `resolved→requested` (built by buildRunView).
@@ -1331,7 +1331,7 @@ test("formatSlotMeta: themed `modelSeg · elapsed · usage`; RunView-sourced seg
     },
     THEME,
   );
-  assert.equal(fb, "glm-5.2→claude-opus-4-1 · 1.0s · $0.001 · 10 tok");
+  assert.equal(fb, "glm-5.2→claude-opus-4-1 · 10 tokens · 1s · $0.001");
   // No model anywhere → "default".
   assert.equal(formatSlotMeta({ elapsedMs: 100 }, THEME), "default · 0.1s");
 });
@@ -1343,12 +1343,14 @@ test("sumUsage: sums total+cost across an iterable; empty → zeros", () => {
 });
 
 // ── Task 3: done header Σ + done-collapsed per-slot meta ──
-// The done-state collapsed card now (a) appends ` · $Σ · Σtok` to the header
-// when aggregate slot usage > 0, and (b) renders each per-slot line as
-// `[i] (id) badge · <formatSlotMeta> · "task"` (formatSlotMeta = model · elapsed
-// · usage; quoted task preview). Mirrors the single subagent card's meta.
+// The done-state collapsed card now (a) appends the CC-vocabulary aggregate
+// (tui-cc-parity-2 t03: ` · N,NNN tokens · $Σ`, cost only when non-zero) to
+// the header when aggregate slot usage > 0, and (b) renders each per-slot
+// line as `[i] (id) badge · <formatSlotMeta> · "task"` (formatSlotMeta =
+// model · tokens · human-duration · cost; quoted task preview). Mirrors the
+// single subagent card's settledHeaderRow order.
 
-test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", () => {
+test("done header appends the CC-vocabulary aggregate (tokens · $cost) when slots carry usage (t03)", () => {
   const details: SubagentsToolDetails = {
     results: [
       { output: "a", status: "done", index: 0, task: "t0", model: "zai/glm-5.2", elapsedMs: 1000, usage: U(1000, 0.1) },
@@ -1364,7 +1366,7 @@ test("done header appends aggregate ` · $Σ · Σtok` when slots carry usage", 
     { expanded: false },
     THEME,
   );
-  assert.match(collapsed, /— 3\.0s · \$0\.300 · 3000 tok/);
+  assert.match(collapsed, /— 3s · 3,000 tokens · \$0\.300/);
 });
 
 test("done header omits the aggregate suffix when no slot carries usage (byte-stable)", () => {
@@ -1379,11 +1381,11 @@ test("done header omits the aggregate suffix when no slot carries usage (byte-st
     { expanded: false },
     THEME,
   );
-  assert.match(collapsed, /— 1\.0s$/m); // no trailing ` · $… · … tok`
+  assert.match(collapsed, /— 1s$/m); // t03: human duration, no trailing aggregate
   assert.doesNotMatch(collapsed, /tok/);
 });
 
-test('done collapsed: per-slot line shows `badge · model · elapsed · $cost · Ntok · "task"` (with usage)', () => {
+test('done collapsed: per-slot line shows `badge · model · tokens · duration · $cost · "task"` (with usage, t03)', () => {
   const details: SubagentsToolDetails = {
     results: [
       {
@@ -1409,7 +1411,7 @@ test('done collapsed: per-slot line shows `badge · model · elapsed · $cost ·
   const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
   assert.match(slot0, /\(alpha\)/);
   assert.match(slot0, /✓ done/); // fixed-width badge kept
-  assert.match(slot0, /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/);
+  assert.match(slot0, /glm-5\.2 · 15,715 tokens · 34s · \$0\.000/);
   assert.match(slot0, /"audit the parser"/); // quoted task preview
   assert.ok(!slot0.includes("zai/glm-5.2"), "provider prefix dropped on the collapsed line");
 });
@@ -1438,7 +1440,7 @@ test("done collapsed: fallback slot meta degrades to shortModel(actual) — the 
     { expanded: false },
     THEME,
   );
-  assert.match(collapsed, /glm-5\.2 · 1\.0s · \$0\.001 · 10 tok/);
+  assert.match(collapsed, /glm-5\.2 · 10 tokens · 1s · \$0\.001/);
   assert.ok(!collapsed.includes("→"), "no fallback arrow on the settled line (degrade path)");
 });
 
@@ -1458,7 +1460,7 @@ test('done collapsed: per-slot meta degrades (no usage → `model · elapsed · 
   );
   const slot0 = collapsed.split("\n").find((l) => l.includes("[0]")) ?? "";
   assert.match(slot0, /⊘ aborted/);
-  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/);
+  assert.match(slot0, /glm-5\.2 · 0\.5s · "t-aborted"/); // fmtDurationHuman keeps sub-second precision
   assert.doesNotMatch(slot0, /tok/);
 });
 
@@ -1476,11 +1478,11 @@ test("done collapsed: null (failed) slot still renders the terse failed line (no
 });
 
 // ── Task 4: done-expanded per-child meta line ──
-// The expanded branch prepends a `model · elapsed · $cost · Ntok` meta line
-// above each child's output (done/timedout/aborted/budget). Null (failed)
-// slots are unchanged. Mirrors the single subagent card's meta placement.
+// The expanded branch prepends a formatSlotMeta meta line (t03: `model ·
+// tokens · human-duration · cost`) above each child's output
+// (done/timedout/aborted/budget). Null (failed) slots are unchanged.
 
-test("done expanded: prepends a `model · elapsed · $cost · Ntok` meta line above each child output", () => {
+test("done expanded: prepends a formatSlotMeta meta line above each child output (t03 vocab)", () => {
   const details: SubagentsToolDetails = {
     results: [
       {
@@ -1509,7 +1511,7 @@ test("done expanded: prepends a `model · elapsed · $cost · Ntok` meta line ab
   // `lines[1]` pointed at the blank line between the batch header and the body.
   assert.match(
     lines[3] ?? "",
-    /glm-5\.2 · 34\.5s · \$0\.000 · 15715 tok/,
+    /glm-5\.2 · 15,715 tokens · 34s · \$0\.000/,
     "meta line sits directly under the ### header",
   );
   assert.ok(expanded.includes("Full audit report"), "output preserved under the meta line");

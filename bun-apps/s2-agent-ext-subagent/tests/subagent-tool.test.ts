@@ -1154,6 +1154,57 @@ test("renderSubagentResult isPartial preserves a plain streamed line when collap
   assert.equal(out, "↳ reading src/foo.ts");
 });
 
+// ── tui-cc-parity-2 ticket 02: the collapsed live row carries CC's expand hint ──
+test("renderSubagentResult isPartial+collapsed appends `ctrl+o to expand` to the meta line (t02)", () => {
+  const text = formatSubagentLive(
+    [
+      { role: "assistant", kind: "toolCall", toolName: "read", text: "{}" },
+      { role: "tool", kind: "toolResult", toolName: "read", text: "x" },
+    ],
+    2000,
+  );
+  const collapsed = renderSubagentResult(
+    { content: [{ type: "text", text }] },
+    { expanded: false, isPartial: true },
+    T,
+  );
+  const lines = collapsed.split("\n");
+  assert.ok(lines.length >= 2, "hint test needs the 2-line header shape");
+  assert.match(lines[1] ?? "", /· ctrl\+o to expand$/, "hint rides the elapsed/calls meta line");
+  const expanded = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T);
+  assert.ok(!expanded.includes("ctrl+o"), "expanded view does NOT repeat the hint");
+});
+
+test("renderSubagentResult isPartial+collapsed hint suppressed below 60 cols (narrow terminals)", () => {
+  const text = formatSubagentLive([{ role: "assistant", kind: "toolCall", toolName: "read", text: "{}" }], 1000);
+  const narrow = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: false, isPartial: true }, T, {
+    width: 50,
+  });
+  assert.ok(!narrow.includes("ctrl+o"), "no hint on a 50-col terminal");
+  const wide = renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: false, isPartial: true }, T, {
+    width: 100,
+  });
+  assert.ok(wide.includes("ctrl+o"), "hint present at 100 cols");
+});
+
+// ── tui-cc-parity-2 ticket 01: the streaming-expanded tail is viewport-aware ──
+test("renderSubagentResult isPartial+expanded tail follows opts.rows (36-row terminal → 22)", () => {
+  const trace: never[] = [];
+  for (let i = 0; i < 60; i++) {
+    trace.push({ role: "assistant", kind: "toolCall", toolName: "read", text: `{"i":${i}}` } as never);
+  }
+  const text = formatSubagentLive(trace, 5000);
+  const expanded = (rows?: number) =>
+    renderSubagentResult({ content: [{ type: "text", text }] }, { expanded: true, isPartial: true }, T, { rows });
+  const on36 = expanded(36);
+  const tail36 = on36.split("\n").length; // 2 header + 1 ellipsis + 22 tail
+  assert.equal(tail36, 2 + 1 + 22, "36 rows → 22 trace lines (was 16 fixed)");
+  const on80 = expanded(80);
+  assert.equal(on80.split("\n").length, 2 + 1 + 28, "80 rows → the 28-line max");
+  const headless = expanded(undefined); // tests/non-TTY → fixed 16 fallback
+  assert.equal(headless.split("\n").length, 2 + 1 + 16, "no rows → STREAMING_EXPANDED_TAIL (deterministic)");
+});
+
 // ── effort 2026-08-08 expanded-display-flicker (ticket 01): streaming-expanded viewport-safe tail ──
 // The streaming-expanded (ctrl+o) live view is capped to a viewport-safe TAIL so
 // the box stays small + height-stable (fits the terminal viewport → no per-frame
