@@ -730,8 +730,7 @@ async function scenarioSwarm(): Promise<void> {
       // scrolled display and false-fails).
       if (!receipt.checks.allSettled) {
         const doneCount = (s.match(/✓ done/g) ?? []).length;
-        receipt.checks.allSettled =
-          doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(s);
+        receipt.checks.allSettled = doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(s);
       }
     }
     snap(running ? "running" : "after-run");
@@ -745,8 +744,7 @@ async function scenarioSwarm(): Promise<void> {
   // the batch header's human-duration form. A single badge is not enough —
   // two children could have failed silently.
   const doneCount = (settledScreen.match(/✓ done/g) ?? []).length;
-  receipt.checks.allSettled =
-    doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
+  receipt.checks.allSettled = doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
 }
 
 /** Read a snapshot file back (the abort-confirm check needs the confirm text
