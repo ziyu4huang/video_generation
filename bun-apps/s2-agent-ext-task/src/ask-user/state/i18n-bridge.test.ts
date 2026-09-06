@@ -177,9 +177,20 @@ describe("resolveActiveLocale / __setLocaleForTest", () => {
 	test("pin null clears the pin → re-reads settings on next call", () => {
 		__setLocaleForTest("zh-TW");
 		expect(resolveActiveLocale()).toBe("zh-TW");
-		__setLocaleForTest(null);
-		// No settings file in the real agent dir → defaults to "en".
-		expect(resolveActiveLocale()).toBe("en"); // pin-clear busts cache → fresh read
+		// HERMETIC: point the agent dir at an empty tmp — the read must not depend
+		// on the OPERATOR's real settings.json (an askUserLanguage there, e.g.
+		// zh-TW, would flip this assertion). Same isolation as the next test.
+		const tmp = mkdtempSync(join(tmpdir(), "pi-i18n-bridge-"));
+		const prevDir = process.env.PI_CODING_AGENT_DIR;
+		process.env.PI_CODING_AGENT_DIR = tmp;
+		try {
+			__setLocaleForTest(null);
+			expect(resolveActiveLocale()).toBe("en"); // pin-clear busts cache → fresh read
+		} finally {
+			if (prevDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+			else process.env.PI_CODING_AGENT_DIR = prevDir;
+			rmSync(tmp, { recursive: true, force: true });
+		}
 	});
 
 	test("production path reads askUserLanguage from settings.json", () => {

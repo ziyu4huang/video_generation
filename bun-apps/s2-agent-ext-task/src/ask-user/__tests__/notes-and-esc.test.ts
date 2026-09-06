@@ -14,9 +14,13 @@
  *        test that matters is that a stray Esc mid-questionnaire no longer ends
  *        the session.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildItemsForQuestion } from "../ask-user-question.js";
 import { QuestionnaireSession } from "../state/questionnaire-session.js";
+import { __setLocaleForTest } from "../state/i18n-bridge.js";
 import type { QuestionnaireResult, QuestionParams } from "../tool/types.js";
 
 // Minimal theme stub: every styling method returns its LAST string arg.
@@ -32,6 +36,22 @@ const theme = new Proxy(
 	},
 ) as never;
 
+beforeAll(() => {
+	localeDir = mkdtempSync(join(tmpdir(), "pi-ask-user-esc-"));
+	prevLocaleDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = localeDir;
+	__setLocaleForTest(null); // bust cache → fresh read from the empty tmp
+});
+
+afterAll(() => {
+	if (prevLocaleDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+	else process.env.PI_CODING_AGENT_DIR = prevLocaleDir;
+	__setLocaleForTest(null); // bust again — siblings re-read under restored env
+	rmSync(localeDir, { recursive: true, force: true });
+});
+
+let localeDir: string;
+let prevLocaleDir: string | undefined;
 const ESC = "\x1b";
 const ENTER = "\r";
 const DOWN = "\x1b[B";
