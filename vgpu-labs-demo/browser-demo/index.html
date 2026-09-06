@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>vgpu demos — fractal / black hole / headless</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; background: #09090b; color: #e4e4e7; font-family: -apple-system, "PingFang TC", sans-serif; }
+      nav { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; gap: 8px; }
+      nav button { background: #18181b; color: #e4e4e7; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px 14px; cursor: pointer; font-size: 13px; }
+      nav button.active { background: #e4e4e7; color: #09090b; }
+      .page { position: relative; height: 100%; }
+      /* The gallery examples assume Tailwind (h-full/w-full/…); replicate that
+         here so the canvas fills the viewport instead of sitting 300x150 at
+         the top-left. */
+      .page > div { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
+      .page canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+      .video-page { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+      .video-page video { max-width: 80%; border-radius: 12px; border: 1px solid #3f3f46; }
+      .video-page p { color: #a1a1aa; font-size: 13px; max-width: 640px; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
