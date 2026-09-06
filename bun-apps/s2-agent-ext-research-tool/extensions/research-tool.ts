@@ -36,7 +36,7 @@ import { resolveKeywords, filterRelevant, parseKeywords } from "../lib/filter.ts
 import { fetchBuvid3, searchVideos, fetchHotVideos, sleep } from "../lib/bilibili.ts";
 import { searchYtKeyword, publishedAfterDays } from "../lib/youtube.ts";
 import { generateMarkdown, weeklyFilename } from "../lib/format.ts";
-import { getNewsWeek, newsFilename, generateNewsScaffold, planScaffoldWrite } from "../lib/news.ts";
+import { getNewsWeek, newsFilename, generateNewsScaffold, planScaffoldWrite, parseIsoDate } from "../lib/news.ts";
 import { resolveWritePath, resolveVaultRoot } from "../lib/vault.ts";
 import { organizeVault } from "../lib/organize.ts";
 import { importMemory, resolveHermesDir } from "../lib/import-memory.ts";
@@ -338,10 +338,13 @@ const collectNewsTool = defineTool({
 	async execute(_id, params, _signal, _onUpdate, ctx) {
 		let anchor = new Date();
 		if (params.date) {
-			anchor = new Date(params.date);
-			if (Number.isNaN(anchor.getTime())) {
-				return toolError(`Invalid date "${params.date}" — expected ISO yyyy-mm-dd.`);
+			const parsed = parseIsoDate(params.date);
+			if (!parsed) {
+				return toolError(
+					`Invalid date "${params.date}" — expected a real calendar date as ISO yyyy-mm-dd (e.g. 2026-09-05).`,
+				);
 			}
+			anchor = parsed;
 		}
 		const week = getNewsWeek(anchor);
 		const writePath = await resolveWritePath(ctx.cwd, newsFilename(anchor), params.outputPath);
@@ -355,11 +358,16 @@ const collectNewsTool = defineTool({
 		}
 
 		const prefix = params.dryRun ? "[dry-run] " : "";
+		const replaced =
+			action === "overwrite"
+				? `Replaced the existing file's content (${(existing ?? "").length} chars) per overwrite=true.\n`
+				: "";
 		const text =
 			action === "skip"
 				? `${prefix}This week's issue already has content: ${writePath}\n` +
 					"Regenerating would clobber the digest — pass overwrite=true to reset the scaffold."
 				: `${prefix}Scaffolded ${writePath}\n` +
+					replaced +
 					`Issue covers ${week.start} (Mon) – ${week.end} (Sat).\n\n` +
 					"Next (the collect-news-llm skill's workflow):\n" +
 					"1. Research this week's LLM/AI news: Hacker News, r/LocalLLaMA, X/Twitter, " +

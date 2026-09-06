@@ -25,6 +25,7 @@
  * `bun-apps/s2-agent/src/cli/extensions/types.ts` for the canonical shape.
  */
 import extension from "./research-tool.ts";
+import { parseIsoDate } from "../lib/news.ts";
 
 /** Local shape of s2-agent's ExtensionSubcommandSpec (structural match). */
 interface ExtensionSubcommandSpec {
@@ -228,9 +229,19 @@ No API key needed; the scaffold itself makes no network calls.`,
       `  call collect_news with these parameters:`,
     ];
 
-    if (typeof p.date === "string") {
-      parts.push(`  date="${p.date}"`);
-    }
+		if (typeof p.date === "string") {
+			if (parseIsoDate(p.date)) {
+				parts.push(`  date="${p.date}"`);
+			} else {
+				// Fail soft at the CLI surface (the task is just a prompt): keep the
+				// session from passing the bad anchor through to collect_news.
+				parts.push(
+					`  (date="${p.date}" is NOT a valid ISO yyyy-mm-dd calendar date — ` +
+						"do NOT call collect_news with a date parameter; open your reply with " +
+						`an error naming the invalid --date flag)`,
+				);
+			}
+		}
     if (typeof p.outputPath === "string") {
       parts.push(`  outputPath="${p.outputPath}"`);
     }
