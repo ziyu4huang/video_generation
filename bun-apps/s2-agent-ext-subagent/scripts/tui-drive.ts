@@ -662,8 +662,7 @@ const required = requiredByScenario[opts.scenario] ?? [];
 // since the model-policy round: the hint renders only when a COLLAPSED trace
 // has ≥2 lines, and the agentType call row renders one line pre-expansion —
 // the affordance itself was receipted in the earlier rounds.
-const parity =
-  opts.scenario === "dispatch" ? (["expandedTrace", "modelIsGlm"] as const) : (["modelIsGlm"] as const);
+const parity = opts.scenario === "dispatch" ? (["expandedTrace", "modelIsGlm"] as const) : (["modelIsGlm"] as const);
 const missing = required.filter((k) => !receipt.checks[k]);
 const parityMissing = zaiKey ? parity.filter((k) => !receipt.checks[k]) : [];
 receipt.pass = missing.length === 0 && parityMissing.length === 0;
