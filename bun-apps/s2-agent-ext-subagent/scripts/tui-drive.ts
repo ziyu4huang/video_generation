@@ -439,6 +439,9 @@ async function scenarioViewer(): Promise<void> {
   await waitIdle(1200, 15000);
   snap("submitted", true);
   // background:true settles the CALL immediately with a `⌛ running` row.
+  // LATCH, not one-shot (allSettled lesson): the ⌛ row renders only while
+  // that transcript region is on screen, and the parent's thinking time
+  // varies a lot — check again inside every poll below.
   receipt.checks.backgroundRow = /⌛ running/.test(screen().join("\n"));
 
   tty.write("/subagents");
@@ -463,6 +466,7 @@ async function scenarioViewer(): Promise<void> {
     // follow view signature: the header line (`▸ <model> • running • <dur>`)
     // plus a trace body (→/✓ markers) and/or a ticking elapsed.
     if (/• running •/.test(s) && (/[→✓] /.test(s) || /↳ /.test(s))) sawFollowTrace = true;
+    if (!receipt.checks.backgroundRow && /⌛ running|bg ●/.test(s)) receipt.checks.backgroundRow = true;
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     snap(sawFollowTrace ? "follow-live" : "follow");
     if (sawFollowTrace) break;
@@ -476,8 +480,18 @@ async function scenarioViewer(): Promise<void> {
   // falls through to the type-to-filter input (first attempt typed 'x' into
   // the filter, 0 matches); (2) esc clears a filter before it closes the
   // viewer. So: clear any filter, walk up to the `bg ●` live row, then x/y.
-  tty.write("\x1b"); // follow → list
-  await sleep(400);
+  // Deterministic reset: leave follow (esc — one press; if it happened to
+  // close the viewer instead, reopening below fixes that too) and RE-OPEN
+  // /subagents fresh. A fresh list puts the cursor on entry 0 = the live
+  // running row (running entries render before completed ones), so the x/y
+  // gesture below never races pane-render timing (receipted: the esc-from-
+  // follow retry over-closed the viewer).
+  tty.write("\x1b");
+  await sleep(800);
+  tty.write("/subagents");
+  await sleep(200);
+  tty.write("\r");
+  await sleep(1200);
   if (/filter: "/.test(screen().join("\n"))) {
     tty.write("\x1b"); // esc clears the filter first
     await sleep(400);
@@ -516,6 +530,38 @@ async function scenarioViewer(): Promise<void> {
       if (/status: aborted|Subagent aborted by user/.test(s)) abortConfirmed = true;
     }
     receipt.checks.abortConfirmed = abortConfirmed;
+    // F-ui-2 fix check (self-arc-6): once the terminal status lands, the
+    // aborted entry must LEAVE the Running section promptly — the stale row
+    // used to linger 15s+ (six polls all showing it). The bottom log line
+    // (`bg ● …`, single space) does not count; the live row is `bg      ●`.
+    let staleRowGone = false;
+    let reopened = false;
+    for (let i = 0; i < 8 && !staleRowGone; i++) {
+      await sleep(2500);
+      let s = screen().join("\n");
+      snap(`stale-row-${i + 1}`, true);
+      if (!/bg\s{2,}●/.test(s)) staleRowGone = true;
+      // UI FINDING (self-arc-6): an open viewer is NOT invalidated when a
+      // background run terminates — the dialog keeps its last painted frame
+      // (frozen elapsed, stale row) until something forces a render. After
+      // two quiet polls, close+reopen the viewer: a fresh mount re-reads
+      // views() and re-renders. If the row is gone after the reopen, the
+      // data layer filtered it correctly and the bug is purely the missing
+      // invalidate.
+      if (!staleRowGone && i >= 1 && !reopened) {
+        reopened = true;
+        tty.write("\x1b");
+        await sleep(600);
+        tty.write("/subagents");
+        await sleep(200);
+        tty.write("\r");
+        await sleep(1200);
+        s = screen().join("\n");
+        snap("stale-row-after-reopen", true);
+        if (!/bg\s{2,}●/.test(s)) staleRowGone = true;
+      }
+    }
+    receipt.checks.staleRowGone = staleRowGone;
   }
   tty.write("\x1b");
   await sleep(400);
@@ -811,6 +857,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
     "childModelIsGlm53",
     "abortFlow",
     "abortConfirmed",
+    "staleRowGone",
   ],
   agents: [
     "booted",
