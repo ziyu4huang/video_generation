@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload";
+  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm";
   sh: string;
   cwd: string;
   out: string;
@@ -690,6 +690,65 @@ async function scenarioReload(): Promise<void> {
   receipt.checks.reloadTwo = /RELOAD-TWO/.test(screen().join("\n"));
 }
 
+// ── scenario: swarm (multi-parallel — THREE children through the batch tool) ─
+// The parallel scenario proved 2 children in flight; swarm raises it to 3 and
+// asserts REAL concurrency (the batch header's k/3 counter reaching ≥2 while
+// children still run, or ≥3 distinct live rows) plus a full settle: every one
+// of the three children ends ✓ done, each routed through agentType
+// hard-problem (glm-5.3 via childModelIsGlm53).
+async function scenarioSwarm(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const prompt =
+    "Call the subagents tool (the batch tool) NOW, exactly once, with EXACTLY three tasks, all with agentType set to hard-problem, all foreground: task 1: read README.md and report its first line. task 2: run `ls` and report the file count. task 3: read sample.ts and report the number of exported functions. Do not answer anything yourself and use no other tool.";
+  tty.write(prompt);
+  await sleep(300);
+  tty.write("\r");
+  await sleep(1500);
+  snap("submitted", true);
+
+  let sawLive = false;
+  let sawThreeConcurrent = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < opts.timeoutS * 1000) {
+    await sleep(2000);
+    const s = screen().join("\n");
+    const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
+    if (running) {
+      sawLive = true;
+      // True concurrency: the batch header's k/3 counter with k ≥ 2 while
+      // children still run, or ≥3 distinct live Task rows.
+      const kOf3 = /(\d)\/3 running/.exec(s);
+      const taskRows = new Set((s.match(/Task\([^)]*\)/g) ?? []).map((m) => m));
+      if ((kOf3 && Number(kOf3[1]) >= 2) || taskRows.size >= 3) sawThreeConcurrent = true;
+      if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
+      // Latch the settled evidence INSIDE the loop: the per-child ✓ done rows
+      // and the batch header scroll out of the viewport once the parent's
+      // reply lands (receipted — a final-screen-only check reads an already-
+      // scrolled display and false-fails).
+      if (!receipt.checks.allSettled) {
+        const doneCount = (s.match(/✓ done/g) ?? []).length;
+        receipt.checks.allSettled =
+          doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(s);
+      }
+    }
+    snap(running ? "running" : "after-run");
+    if (!running && sawLive && Date.now() - lastByteAt > opts.quietMs) break;
+  }
+  snap("settled", true);
+  const settledScreen = screen().join("\n");
+  receipt.checks.liveRow = sawLive;
+  receipt.checks.threeConcurrent = sawThreeConcurrent;
+  // Full settle: ALL THREE children done (a per-child ✓ done row each), or
+  // the batch header's human-duration form. A single badge is not enough —
+  // two children could have failed silently.
+  const doneCount = (settledScreen.match(/✓ done/g) ?? []).length;
+  receipt.checks.allSettled =
+    doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
+}
+
 /** Read a snapshot file back (the abort-confirm check needs the confirm text
  *  AT the moment it was shown — the screen has moved on by check time).
  *  LOOP FINDING (self-arc-4): this helper built the filename WITHOUT the
@@ -711,6 +770,7 @@ try {
   else if (opts.scenario === "viewer") await scenarioViewer();
   else if (opts.scenario === "agents") await scenarioAgents();
   else if (opts.scenario === "reload") await scenarioReload();
+  else if (opts.scenario === "swarm") await scenarioSwarm();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -767,6 +827,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
     "deleted",
   ],
   reload: ["booted", "reloadOne", "reloadTwo"],
+  swarm: ["booted", "liveRow", "threeConcurrent", "allSettled", "childModelIsGlm53"],
 };
 const required = requiredByScenario[opts.scenario] ?? [];
 // expandedTrace + modelIsGlm are PARITY checks — reported, and required only
