@@ -308,6 +308,12 @@ export interface SubagentToolOptions {
   spawnLive?: typeof spawnLiveAgentFirstExchange;
   /** Injectable agentType registry for tests (defaults to loadAgentRegistry(cwd) per call). */
   agentRegistry?: AgentRegistry;
+  /**
+   * Pre-built agentType catalog for the tool description (self-arc-8 CC
+   * parity). Defaults to buildAgentTypeCatalog(cwd) at tool creation;
+   * tests pin it to avoid touching the real registry.
+   */
+  agentTypeCatalog?: string;
   /** Injectable worktree creation for tests (defaults to the real createWorktree). */
   createWorktree?: typeof createWorktree;
   /** Injectable worktree teardown for tests (defaults to the real removeWorktree). */

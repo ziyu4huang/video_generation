@@ -29,6 +29,7 @@ import {
   tierDefaultToken,
   type Worktree,
 } from "@repo/s2-agent-core-runtime";
+import { buildAgentTypeCatalog, withAgentTypeCatalog } from "./agent-type-catalog.js";
 import { getBackgroundRunManager } from "./background-run-manager.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent, GuardedComponent } from "./composer-component.js";
@@ -83,16 +84,24 @@ export function createSubagentTool(
   const liveRegistry = options.liveRegistry ?? getLiveAgentRegistry();
   const spawnLive = options.spawnLive ?? spawnLiveAgentFirstExchange;
   const gitOps = options.gitOps ?? realGitOps;
+  // CC parity (self-arc-8): the routing model must SEE the agentType catalog
+  // the way Claude Code's Task description lists subagent types — computed at
+  // registration from the same registry spawn resolves against. Injectable so
+  // tests (and exotic embedders) can pin it.
+  const catalog = options.agentTypeCatalog ?? buildAgentTypeCatalog(defaultCwd);
   return defineTool({
     // Renamed 2026-08-20 (tool-name verb_object effort): legacy name `subagent`
     // — see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
     name: "spawn_subagent",
     label: "Subagent",
-    description: [
-      "Dispatch a single subagent with an ISOLATED context to do a focused task and report back.",
-      "The subagent does NOT inherit this session's history — pass a self-contained `task` prompt — unless `fork: true`, which prepends the parent transcript as context-only background context.",
-      "Returns the subagent's output, plus an exit/timed-out status in `details`.",
-    ].join(" "),
+    description: withAgentTypeCatalog(
+      [
+        "Dispatch a single subagent with an ISOLATED context to do a focused task and report back.",
+        "The subagent does NOT inherit this session's history — pass a self-contained `task` prompt — unless `fork: true`, which prepends the parent transcript as context-only background context.",
+        "Returns the subagent's output, plus an exit/timed-out status in `details`.",
+      ].join(" "),
+      catalog,
+    ),
     // Owner-declared gating — migrated from tool-gate's hardcoded GATES (was the
     // {names:["workflow","workflow_help","subagent","workflow_control"]} combined
     // gate; tickets 10 + 11 rolled out TOGETHER as one atomic unit because they
@@ -445,7 +454,15 @@ export function createSubagentTool(
               startedAt: t0,
               spawn: opts,
               entry: {
-                agent: params.agent,
+                // Actor display (self-arc-8 finding, F-actor): a TYPED dispatch
+                // must render its agentType name — the row fell back to
+                // "general-purpose" even while the def's prompt was visibly
+                // running (the `↳` quote), which made catalog-routed children
+                // indistinguishable from default ones on every surface that
+                // reads the in-flight entry's actor.
+                agent:
+                  params.agent ??
+                  (typeof params.agentType === "string" && params.agentType ? params.agentType : undefined),
                 model: displayModelBeforeResolve,
                 taskPreview: taskPreview(params.task),
                 // Work-intent strip from the RAW task so the docked context box can
