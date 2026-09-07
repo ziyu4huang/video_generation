@@ -138,22 +138,45 @@ function await0(stream: ReadableStream<Uint8Array>): Uint8Array {
 }
 
 /**
- * Replace (or add) one entry of a zip archive, re-emitting every entry STORED.
- * The archive grows (no deflate on the way out); the copies are throwaway
- * render inputs, and STORED keeps the writer small enough to audit.
+ * General zip rewrite: zero every entry's DOS date/time and/or replace entry
+ * contents, re-emitting everything STORED. `repackZipEntry` is the
+ * single-replacement convenience form; `canonicalizePptx` (pptx-canonical.ts)
+ * is the determinism consumer that zeroes dates.
  */
-export function repackZipEntry(
+export function rewriteZipEntries(
   bytes: Uint8Array,
-  name: string,
-  content: Uint8Array | string
+  opts: { zeroDosDates?: boolean; replace?: Record<string, Uint8Array | string> } = {}
 ): Uint8Array {
-  const replacement = typeof content === "string" ? new TextEncoder().encode(content) : content;
-  const entries = readZipEntries(bytes).map((e) =>
-    e.name === name ? { ...e, data: replacement } : e
-  );
-  if (!entries.some((e) => e.name === name)) entries.push({ name, data: replacement, dosTime: 0, dosDate: 0 });
-
   const encoder = new TextEncoder();
+  const entries = readZipEntries(bytes).map((e) => {
+    const replacement = opts.replace?.[e.name];
+    return {
+      ...e,
+      data:
+        replacement === undefined
+          ? e.data
+          : typeof replacement === "string"
+            ? encoder.encode(replacement)
+            : replacement,
+      dosTime: opts.zeroDosDates ? 0 : e.dosTime,
+      dosDate: opts.zeroDosDates ? 0 : e.dosDate,
+    };
+  });
+  if (opts.replace) {
+    // add-if-absent (replicating repackZipEntry's original contract): a name
+    // missing from the archive is appended with zeroed DOS fields.
+    for (const [name, replacement] of Object.entries(opts.replace)) {
+      if (!entries.some((e) => e.name === name)) {
+        entries.push({
+          name,
+          data: typeof replacement === "string" ? encoder.encode(replacement) : replacement,
+          dosTime: 0,
+          dosDate: 0,
+        });
+      }
+    }
+  }
+
   const locals: Uint8Array[] = [];
   const centrals: Uint8Array[] = [];
   let offset = 0;
@@ -214,6 +237,19 @@ export function repackZipEntry(
     o += part.length;
   }
   return out;
+}
+
+/**
+ * Replace (or add) one entry of a zip archive, re-emitting every entry STORED.
+ * The archive grows (no deflate on the way out); the copies are throwaway
+ * render inputs, and STORED keeps the writer small enough to audit.
+ */
+export function repackZipEntry(
+  bytes: Uint8Array,
+  name: string,
+  content: Uint8Array | string
+): Uint8Array {
+  return rewriteZipEntries(bytes, { replace: { [name]: content } });
 }
 
 // ---------------------------------------------------------------------------
