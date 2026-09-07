@@ -13,6 +13,7 @@ import type { AgentRegistry } from "@repo/s2-agent-core-runtime";
 import { loadAgentRegistry } from "@repo/s2-agent-core-runtime";
 import { createAgentsCommand, resolvePackDirs } from "../src/agents-command.js";
 import { AgentsViewer } from "../src/agents-viewer.js";
+import { BUILTIN_PACK_DEFS } from "../src/builtin-pack.js";
 
 const T = {
   fg: (_c: string, s: string) => s,
@@ -471,6 +472,74 @@ describe("pack definitions via S2_AGENT_PACK_DIRS (env seam)", () => {
           .join("\n") ?? "";
       expect(out).toContain("env-worker");
       expect(out).toContain("extension pack");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── self-arc-11 t04 — the builtin pack ships in-bundle (no env needed) ──
+
+describe("builtin pack (BUILTIN_PACK_DEFS via loadAgentRegistry packDefs)", () => {
+  test("pack rows render labeled `extension pack` and refuse e/d with no env at all", () => {
+    const root = mkdtempSync(join(tmpdir(), "agents-builtinpack-"));
+    try {
+      const projectDir = join(root, "project-agents");
+      const userDir = join(root, "user-agents");
+      mkdirSync(projectDir, { recursive: true });
+      mkdirSync(userDir, { recursive: true });
+      const load = () => loadAgentRegistry(root, { projectDir, userDir, packDirs: [], packDefs: BUILTIN_PACK_DEFS });
+      const v = new AgentsViewer(
+        {
+          registry: load(),
+          onClose: () => {},
+          dirs: { project: projectDir, user: userDir, packDirs: [] },
+          onReload: load,
+        },
+        T,
+      );
+      const out = v.render(W).join("\n");
+      for (const name of ["code-reviewer", "explorer", "test-writer"]) {
+        expect(out.includes(name), `builtin pack row ${name} renders`).toBe(true);
+      }
+      expect(out.includes("extension pack")).toBe(true);
+      // walk to a pack row and try to edit — view-only refusal, no writes
+      let refused = false;
+      for (let i = 0; i < 12 && !refused; i++) {
+        v.handleInput("j");
+        v.handleInput("e");
+        refused = v.render(W).join("\n").includes("view-only");
+      }
+      expect(refused, "a builtin pack row refuses edit").toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("creating a definition whose name collides with a builtin pack row is refused at the registry level", () => {
+    const root = mkdtempSync(join(tmpdir(), "agents-builtinpack-c-"));
+    try {
+      const projectDir = join(root, "project-agents");
+      const userDir = join(root, "user-agents");
+      mkdirSync(projectDir, { recursive: true });
+      mkdirSync(userDir, { recursive: true });
+      const load = () => loadAgentRegistry(root, { projectDir, userDir, packDirs: [], packDefs: BUILTIN_PACK_DEFS });
+      const v = new AgentsViewer(
+        {
+          registry: load(),
+          onClose: () => {},
+          dirs: { project: projectDir, user: userDir, packDirs: [] },
+          onReload: load,
+        },
+        T,
+      );
+      v.handleInput("c"); // create form
+      type(v, "explorer"); // collides with the builtin pack
+      // submit name → the form should flag the collision, not write
+      v.handleInput("\r");
+      const out = v.render(W).join("\n");
+      expect(/already exists|shadow|view-only/.test(out), `collision refused, got: ${out.slice(0, 400)}`).toBe(true);
+      expect(existsSync(join(projectDir, "explorer.md")), "no file written").toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

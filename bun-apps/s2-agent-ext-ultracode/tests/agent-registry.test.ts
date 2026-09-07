@@ -574,3 +574,54 @@ describe("agent-registry T3: tools comma-string + packDirs", () => {
     rmSync(root, { recursive: true, force: true });
   });
 });
+
+// ── self-arc-11 t04: in-memory packDefs join the PACK tier ──
+describe("loadAgentRegistry packDefs (builtin pack producer)", () => {
+  it("packDefs land at pack precedence: project > packDir > packDef > user > builtin", () => {
+    const root = mkdtempSync(join(tmpdir(), "s2-packdefs-"));
+    try {
+      const projectDir = join(root, "proj");
+      const userDir = join(root, "user");
+      const packDir = join(root, "packdir");
+      mkdirSync(projectDir, { recursive: true });
+      mkdirSync(userDir, { recursive: true });
+      mkdirSync(packDir, { recursive: true });
+      writeFileSync(join(packDir, "shared.md"), "---\nname: shared\ndescription: dir pack wins\n---\np", "utf-8");
+      writeFileSync(join(projectDir, "mine.md"), "---\nname: mine\ndescription: mine\n---\np", "utf-8");
+      const reg = loadAgentRegistry(root, {
+        projectDir,
+        userDir,
+        packDirs: [packDir],
+        packDefs: [
+          { name: "shared", description: "in-memory loses to dirs", prompt: "p" } as never,
+          { name: "packed", description: "from code", prompt: "p" } as never,
+        ],
+      });
+      assert.equal(reg.get("shared")?.description, "dir pack wins", "dir pack beats in-memory packDef");
+      assert.equal(reg.get("shared")?.source, "pack");
+      assert.equal(reg.get("packed")?.source, "pack", "in-memory def stamped pack");
+      assert.ok(reg.has("mine"), "project defs unaffected");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("packDef beats a same-name USER def (pack tier sits above user)", () => {
+    const root = mkdtempSync(join(tmpdir(), "s2-packdefs-u-"));
+    try {
+      const projectDir = join(root, "proj");
+      const userDir = join(root, "user");
+      mkdirSync(projectDir, { recursive: true });
+      mkdirSync(userDir, { recursive: true });
+      writeFileSync(join(userDir, "packed.md"), "---\nname: packed\ndescription: user copy\n---\np", "utf-8");
+      const reg = loadAgentRegistry(root, {
+        projectDir,
+        userDir,
+        packDefs: [{ name: "packed", description: "from code", prompt: "p" } as never],
+      });
+      assert.equal(reg.get("packed")?.description, "from code", "pack tier wins over user");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
