@@ -1,14 +1,14 @@
 {
   "tools": 84,
-  "totalTokens": 25472,
+  "totalTokens": 25792,
   "builtinCount": 4,
   "extensionCount": 80,
   "errors": [],
   "toolsRanked": [
     {
       "name": "spawn_subagent",
-      "approxTokens": 1314,
-      "descLen": 351,
+      "approxTokens": 1408,
+      "descLen": 724,
       "paramsLen": 4906,
       "source": "subagent",
       "hasExecute": true,
@@ -16,17 +16,17 @@
     },
     {
       "name": "zk_ingest",
-      "approxTokens": 999,
+      "approxTokens": 1086,
       "descLen": 713,
-      "paramsLen": 3281,
+      "paramsLen": 3631,
       "source": "knowledge-card",
       "hasExecute": true,
       "schemaValid": true
     },
     {
       "name": "list_subagents",
-      "approxTokens": 852,
-      "descLen": 103,
+      "approxTokens": 945,
+      "descLen": 476,
       "paramsLen": 3305,
       "source": "subagent",
       "hasExecute": true,
@@ -34,8 +34,8 @@
     },
     {
       "name": "ask_user_question",
-      "approxTokens": 749,
-      "descLen": 1280,
+      "approxTokens": 785,
+      "descLen": 1424,
       "paramsLen": 1716,
       "source": "task",
       "hasExecute": true,
@@ -132,29 +132,20 @@
       "schemaValid": true
     },
     {
+      "name": "sync_default_branch",
+      "approxTokens": 534,
+      "descLen": 722,
+      "paramsLen": 1413,
+      "source": "devops",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "memory",
       "approxTokens": 515,
       "descLen": 469,
       "paramsLen": 1592,
       "source": "hermes-memory",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "todo",
-      "approxTokens": 503,
-      "descLen": 392,
-      "paramsLen": 1620,
-      "source": "task",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "sync_default_branch",
-      "approxTokens": 500,
-      "descLen": 722,
-      "paramsLen": 1276,
-      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -196,9 +187,18 @@
     },
     {
       "name": "zk_fs",
-      "approxTokens": 422,
+      "approxTokens": 425,
       "descLen": 486,
-      "paramsLen": 1202,
+      "paramsLen": 1212,
+      "source": "knowledge-card",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "knowledge_query",
+      "approxTokens": 407,
+      "descLen": 313,
+      "paramsLen": 1314,
       "source": "knowledge-card",
       "hasExecute": true,
       "schemaValid": true
@@ -209,15 +209,6 @@
       "descLen": 752,
       "paramsLen": 872,
       "source": "webui",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "knowledge_query",
-      "approxTokens": 404,
-      "descLen": 313,
-      "paramsLen": 1304,
-      "source": "knowledge-card",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -235,6 +226,24 @@
       "approxTokens": 369,
       "descLen": 455,
       "paramsLen": 1021,
+      "source": "subagent",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "task_create",
+      "approxTokens": 358,
+      "descLen": 539,
+      "paramsLen": 893,
+      "source": "subagent",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "task_update",
+      "approxTokens": 357,
+      "descLen": 393,
+      "paramsLen": 1033,
       "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
@@ -267,6 +276,15 @@
       "schemaValid": true
     },
     {
+      "name": "enable_tool",
+      "approxTokens": 318,
+      "descLen": 895,
+      "paramsLen": 376,
+      "source": "tool-gate",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "sv_analyze",
       "approxTokens": 318,
       "descLen": 434,
@@ -276,29 +294,11 @@
       "schemaValid": true
     },
     {
-      "name": "enable_tool",
-      "approxTokens": 314,
-      "descLen": 881,
-      "paramsLen": 376,
-      "source": "tool-gate",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
       "name": "arxiv_fetch2md",
       "approxTokens": 311,
       "descLen": 346,
       "paramsLen": 898,
       "source": "research-tool",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "task_update",
-      "approxTokens": 311,
-      "descLen": 211,
-      "paramsLen": 1033,
-      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -317,15 +317,6 @@
       "descLen": 412,
       "paramsLen": 757,
       "source": "ultracode",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "task_create",
-      "approxTokens": 289,
-      "descLen": 263,
-      "paramsLen": 893,
-      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -384,6 +375,15 @@
       "schemaValid": true
     },
     {
+      "name": "collect_news",
+      "approxTokens": 247,
+      "descLen": 436,
+      "paramsLen": 552,
+      "source": "research-tool",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "sv_ast",
       "approxTokens": 245,
       "descLen": 377,
@@ -407,6 +407,15 @@
       "descLen": 407,
       "paramsLen": 516,
       "source": "webui",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
+      "name": "merge_pr_after_local_ci",
+      "approxTokens": 227,
+      "descLen": 545,
+      "paramsLen": 361,
+      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -438,20 +447,20 @@
       "schemaValid": true
     },
     {
+      "name": "deploy_pi_agent_sh",
+      "approxTokens": 203,
+      "descLen": 268,
+      "paramsLen": 545,
+      "source": "devops",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "browser",
       "approxTokens": 193,
       "descLen": 444,
       "paramsLen": 326,
       "source": "power-tool",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "merge_pr_after_local_ci",
-      "approxTokens": 182,
-      "descLen": 366,
-      "paramsLen": 361,
-      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -470,15 +479,6 @@
       "descLen": 292,
       "paramsLen": 363,
       "source": "power-tool",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "deploy_pi_agent_sh",
-      "approxTokens": 162,
-      "descLen": 268,
-      "paramsLen": 378,
-      "source": "devops",
       "hasExecute": true,
       "schemaValid": true
     },
@@ -618,10 +618,19 @@
       "schemaValid": true
     },
     {
+      "name": "task_list",
+      "approxTokens": 119,
+      "descLen": 169,
+      "paramsLen": 308,
+      "source": "subagent",
+      "hasExecute": true,
+      "schemaValid": true
+    },
+    {
       "name": "bash",
-      "approxTokens": 116,
+      "approxTokens": 117,
       "descLen": 248,
-      "paramsLen": 217,
+      "paramsLen": 218,
       "source": "(builtin)",
       "hasExecute": true,
       "schemaValid": true
@@ -650,15 +659,6 @@
       "descLen": 151,
       "paramsLen": 243,
       "source": "task",
-      "hasExecute": true,
-      "schemaValid": true
-    },
-    {
-      "name": "task_list",
-      "approxTokens": 99,
-      "descLen": 88,
-      "paramsLen": 308,
-      "source": "subagent",
       "hasExecute": true,
       "schemaValid": true
     },

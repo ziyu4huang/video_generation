@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm";
+  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm" | "catalog";
   sh: string;
   cwd: string;
   out: string;
@@ -569,6 +569,54 @@ async function scenarioViewer(): Promise<void> {
   snap("viewer-closed", true);
 }
 
+// ── scenario: catalog (self-arc-8 — CC parity: the parent ROUTES by the ────
+// agentType catalog surfaced in the spawn tools' descriptions) ──────────────
+// The dispatch prompt NEVER contains the type name. The parent must read the
+// "Available agentTypes" catalog from the tool description and pick the type
+// whose description offers deep analysis on tough problems using the big
+// model (the scratch seed: hard-problem, bound to zai/glm-5.3). Proof of
+// routing: a child row naming hard-problem WITH the glm-5.3 segment on ONE
+// rendered line (actor+model segments never occur in parent prose), plus the
+// standard background markers. All checks LATCHED in-loop (rows scroll out
+// when the parent replies; settle markers are transient).
+async function scenarioCatalog(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const prompt =
+    "Call the spawn_subagent tool NOW, exactly once, with background set to true. Choose the agentType STRICTLY from the 'Available agentTypes' catalog in the spawn_subagent tool description: pick the type whose description offers deep analysis on tough problems using the big model — not explore, not plan. task: run `sleep 5` in the current directory, then reply CATALOG-ROUTED. Do not answer anything yourself and use no other tool.";
+  tty.write(prompt);
+  await sleep(300);
+  tty.write("\r");
+  let backgroundRow = false;
+  let catalogRouted = false;
+  let settled = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < opts.timeoutS * 1000) {
+    await sleep(2000);
+    const s = screen().join("\n");
+    if (!backgroundRow && /⌛ running|bg\s{2,}●/.test(s)) backgroundRow = true;
+    // Routed evidence, two shapes: (1) the F-actor-fixed row — actor name and
+    // resolved model segment on ONE rendered line; (2) the child's streamed
+    // def-prompt quote (`↳ You are the hard-problem analyst…`) — that line
+    // exists ONLY when the spawn resolved the hard-problem def, so it is
+    // conclusive even before the row carries the actor name.
+    if (
+      !catalogRouted &&
+      (/hard-problem.*glm-5\.3|glm-5\.3.*hard-problem/.test(s) || /↳ You are the hard-problem analyst/.test(s))
+    )
+      catalogRouted = true;
+    if (!settled && /<task-notification>|status: (done|aborted)/.test(s)) settled = true;
+    snap(backgroundRow ? (catalogRouted ? "routed" : "running") : "submitted", true);
+    if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
+    if (settled && catalogRouted) break;
+  }
+  receipt.checks.backgroundRow = backgroundRow;
+  receipt.checks.catalogRouted = catalogRouted;
+  receipt.checks.settled = settled;
+}
+
 // ── scenario: agents (agents-manager t03 — drive the /agents manager) ────────
 // Pure-local drill (no LLM round-trip): open /agents over the seeded probe
 // definition, read its detail, CREATE a second definition through the form,
@@ -816,6 +864,7 @@ try {
   else if (opts.scenario === "agents") await scenarioAgents();
   else if (opts.scenario === "reload") await scenarioReload();
   else if (opts.scenario === "swarm") await scenarioSwarm();
+  else if (opts.scenario === "catalog") await scenarioCatalog();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -874,6 +923,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
     "deleted",
   ],
   reload: ["booted", "reloadOne", "reloadTwo"],
+  catalog: ["booted", "backgroundRow", "catalogRouted", "settled", "childModelIsGlm53"],
   swarm: ["booted", "liveRow", "threeConcurrent", "allSettled", "childModelIsGlm53"],
 };
 const required = requiredByScenario[opts.scenario] ?? [];

@@ -42,6 +42,7 @@ import {
   tierDefaultToken,
 } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
+import { buildAgentTypeCatalog, withAgentTypeCatalog } from "./agent-type-catalog.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";
 import { type GitSnapshotOps, realGitOps, realGitSnapshotOps } from "./git-scope.js";
@@ -176,6 +177,8 @@ export interface SubagentsToolOptions {
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /** Injectable agent-type registry for tests (defaults to loadAgentRegistry(cwd)). */
   agentRegistry?: AgentRegistry;
+  /** Pre-built agentType catalog for the description (self-arc-8); tests pin it. */
+  agentTypeCatalog?: string;
   inFlight?: SubagentInFlightRegistry;
   persistence?: SubagentRunPersistence;
   /** Injectable spawn-time git snapshot ops for the shared startup-context
@@ -380,8 +383,10 @@ export function createSubagentsTool(
     // — see bun-apps/s2-agent-ext-devops/skills/extension-naming/SKILL.md for the rename history.
     name: "list_subagents",
     label: "Subagents",
-    description:
+    description: withAgentTypeCatalog(
       "Dispatch N isolated read-only subagents in parallel (bounded) and return a positional array of results.",
+      options.agentTypeCatalog ?? buildAgentTypeCatalog(defaultCwd),
+    ),
     gating: { gate: "workflow" }, // reference form (ticket 01) — family declared in GATE_DEFS["workflow"] (workflow ext)
     promptSnippet:
       "Fan out read-only research/review subagents in parallel. Each child has edit/write/bash excluded. Returns one result per task in input order (null for a failed child).",
