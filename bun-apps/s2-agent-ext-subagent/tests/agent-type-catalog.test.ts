@@ -114,5 +114,7 @@ test("withAgentTypeCatalog: empty catalog leaves the description untouched", () 
 test("F-actor — typed singular dispatches render their agentType as the row actor (source pin)", () => {
   const src = readFileSync(join(import.meta.dir, "..", "src", "subagent-tool.ts"), "utf8");
   // biome wraps the assignment across lines — pin the formatting-stable core.
-  expect(src).toContain('params.agent ??\n                  (typeof params.agentType === "string" && params.agentType ? params.agentType : undefined)');
+  expect(src).toContain(
+    'params.agent ??\n                  (typeof params.agentType === "string" && params.agentType ? params.agentType : undefined)',
+  );
 });

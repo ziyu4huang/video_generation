@@ -938,7 +938,7 @@ const missing = required.filter((k) => !receipt.checks[k]);
 const parityMissing = zaiKey ? parity.filter((k) => !receipt.checks[k]) : [];
 receipt.pass = missing.length === 0 && parityMissing.length === 0;
 
-writeFileSync(path.join(opts.out, "receipt.json"), JSON.stringify(receipt, null, 2) + "\n");
+writeFileSync(path.join(opts.out, "receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
 console.log(
   `TUI_DRIVE ${JSON.stringify({ pass: receipt.pass, checks: receipt.checks, modelLine: receipt.modelLine, out: opts.out })}`,
 );
