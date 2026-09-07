@@ -9,6 +9,7 @@
 import { join, resolve } from "node:path";
 import { AGENTS_DIR, homeDir, loadAgentRegistry } from "@repo/s2-agent-core-runtime";
 import { AgentsViewer } from "./agents-viewer.js";
+import { BUILTIN_PACK_DEFS } from "./builtin-pack.js";
 
 /** Minimal slice of the pi host command context this command depends on
  *  (mirrors SubagentsCommandCtx minus the session branch — the registry is
@@ -69,7 +70,8 @@ export function createAgentsCommand(opts?: { cwd?: string; packDirs?: string[] }
       }
       const cwd = opts?.cwd ?? process.cwd();
       const packDirs = opts?.packDirs ?? resolvePackDirs(cwd);
-      const load = (): ReturnType<typeof loadAgentRegistry> => loadAgentRegistry(cwd, { packDirs });
+      const load = (): ReturnType<typeof loadAgentRegistry> =>
+        loadAgentRegistry(cwd, { packDirs, packDefs: BUILTIN_PACK_DEFS });
       const registry = load();
       await c.ui.custom<void>((tui, theme, _kb, done) => {
         const viewer = new AgentsViewer(

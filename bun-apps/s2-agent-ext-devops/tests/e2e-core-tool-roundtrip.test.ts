@@ -178,6 +178,21 @@ describeE2E("core-tool roundtrip (model → inspect_context → write)", () => {
 		const cwd = mkdtempSync(join(tmpdir(), "e2e-write-"));
 		try {
 			let r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
+			// Kill-cap retry (once, self-arc-11 t03): a run that consumed the
+			// WHOLE cap was killed by our own timer — a model-latency spike, not
+			// a tool failure (live 2026-09-07: glm-5.3-flash died at the 90s cap
+			// with exit 137, passed on immediate re-run). Keyed on the
+			// timedOut ∧ cap-elapse conjunction, NOT bare 137: a fast genuine
+			// crash (code 137 from something real) must NOT retry.
+			if (r.timedOut && r.ms >= PRIMARY_CAP_MS - 2_000) {
+				console.error(
+					`[e2e-write] primary ${PRIMARY_MODEL} killed at the ${PRIMARY_CAP_MS}ms cap (${r.ms}ms, latency) — retrying once (attempt 2/2)`,
+				);
+				r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
+				if (r.timedOut && r.ms >= PRIMARY_CAP_MS - 2_000) {
+					console.error(`[e2e-write] primary killed at cap TWICE — persistent; failing below`);
+				}
+			}
 			// Artifact-retry (once): an exit-0 run that wrote nothing is the
 			// narrate-but-don't-write flake, not a tool failure — one immediate
 			// retry is far cheaper than a false FAIL.

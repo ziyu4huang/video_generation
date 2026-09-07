@@ -129,7 +129,7 @@ function readDefsFromDir(dir: string, source: "project" | "pack" | "user"): Agen
  */
 export function loadAgentRegistry(
   cwd: string,
-  opts?: { projectDir?: string; userDir?: string; packDirs?: string[] },
+  opts?: { projectDir?: string; userDir?: string; packDirs?: string[]; packDefs?: AgentDefinition[] },
 ): AgentRegistry {
   const projectDir = opts?.projectDir ?? join(cwd, AGENTS_DIR);
   const userDir = opts?.userDir ?? join(homeDir(), AGENTS_DIR);
@@ -142,6 +142,13 @@ export function loadAgentRegistry(
     for (const def of readDefsFromDir(dir, "pack")) {
       if (def.name && !registry.has(def.name)) registry.set(def.name, def);
     }
+  }
+  // In-memory pack defs (self-arc-11 t04): same PACK tier as packDirs, but
+  // sourced from code — deploy-safe (they ride the ext bundle) where a
+  // packDir would not ship. A dir-based pack still wins over an in-memory
+  // def of the same name (dirs scan first); project/user keep their tiers.
+  for (const def of opts?.packDefs ?? []) {
+    if (def.name && !registry.has(def.name)) registry.set(def.name, { ...def, source: "pack" });
   }
   if (userDir !== projectDir && !packDirs.includes(userDir)) {
     for (const def of readDefsFromDir(userDir, "user")) {

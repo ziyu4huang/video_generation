@@ -747,6 +747,9 @@ export class WorkflowManager extends EventEmitter {
         // the persisted journal (completed agent results) is replayed by resume()
         // once the budget refills — instead of the user starting from scratch.
         managed.status = "paused";
+        // self-arc-11 t01: this path bypasses pause(), so the kept shared row
+        // must be stamped here or it would read "running" forever.
+        this.inFlight?.markLiveStatus(workflowInFlightId(managed.runId), "paused");
       } else {
         managed.status = "failed";
       }
@@ -768,12 +771,15 @@ export class WorkflowManager extends EventEmitter {
 
       throw workflowError;
     } finally {
-      // Always deregister — success, error, abort, AND usage-limit pause all end
-      // the run's live footprint. A paused run is NOT running, so removing it is
-      // correct; resume() re-registers via executeRun's head. This guarantees no
-      // entry leaks in the context box / /subagents, including the detached
-      // background completion path (the whole point of decision 03 = b2).
-      this.endInFlight(managed);
+      // Deregister on every unwind EXCEPT a user/usage-limit pause (self-arc-11
+      // t01, revising the arc-10 rule): a parked run must stay VISIBLE as
+      // `paused` on the shared surfaces (/subagents, the dock) — Claude-Code
+      // task-list logic. A paused row cannot leak: resume() re-registers via
+      // start() (same id, overwrite), stop() evicts it after stamping aborted,
+      // and rm/deleteRun evicts too. Everything else — success, error, abort,
+      // detached background completion — still ends the run's live footprint
+      // here (decision 03 = b2's no-leak guarantee).
+      if (managed.status !== "paused") this.endInFlight(managed);
     }
   }
 
@@ -970,12 +976,18 @@ export class WorkflowManager extends EventEmitter {
     const managed = this.runs.get(runId);
     if (!managed || (managed.status !== "running" && managed.status !== "paused")) return false;
 
+    const wasPaused = managed.status === "paused";
     managed.controller.abort();
     managed.status = "aborted";
     // self-arc-10 t01: stamp the shared row aborted (x-key aborts on `wf:`
     // rows land here through the t02 lever) — open surfaces repaint via the
     // registry's change channel before the unwind completes.
     this.inFlight?.markLiveStatus(workflowInFlightId(runId), "aborted");
+    // self-arc-11 t01: a stop of a KEPT paused row has no unwind behind it
+    // (the engine already unwound at pause) — evict here or the row would
+    // linger aborted forever. A stop of a RUNNING row still evicts via the
+    // unwind's endInFlight.
+    if (wasPaused) this.inFlight?.end(workflowInFlightId(runId));
     this.emit("stopped", { runId });
     this.persistRun(managed);
     this.releaseRunLease(managed);
@@ -1064,6 +1076,8 @@ export class WorkflowManager extends EventEmitter {
   deleteRun(runId: string): boolean {
     const managed = this.runs.get(runId);
     if (managed) this.releaseRunLease(managed);
+    // self-arc-11 t01: a kept paused row must not outlive its run record.
+    this.inFlight?.end(workflowInFlightId(runId));
     this.runs.delete(runId);
     const located = this.locateRun(runId);
     return located ? located.persistence.delete(runId) : this.persistence.delete(runId);

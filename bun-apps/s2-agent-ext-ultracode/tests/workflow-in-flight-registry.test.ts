@@ -269,7 +269,7 @@ test(
 );
 
 test(
-  "(d3) a paused run (usage limit) ends the registry entry; resume re-registers it",
+  "(d3, revised arc-11) a usage-limit parked run KEEPS its registry row as paused",
   withTempCwd(async (cwd) => {
     const reg = new SubagentInFlightRegistry();
     const limitActive = true;
@@ -300,8 +300,14 @@ return { a, b }`;
     const { runId, promise } = manager.startInBackground(twoAgent);
     await promise.catch(() => {});
 
-    // Whatever terminal state (failed/paused), the live entry is gone — no leak.
-    assert.equal(reg.view(workflowInFlightId(runId)), undefined, "entry ended at run termination");
+    // self-arc-11: a usage-limit PAUSE parks the run — the shared row is KEPT
+    // (visible as paused, the CC task-list logic) until resume/stop/rm. This
+    // test's classification lands on the usage-limit pause path, so the row
+    // now persists as paused (pre-arc-11 this asserted eviction).
+    await new Promise((r) => setTimeout(r, 30));
+    const kept = reg.view(workflowInFlightId(runId));
+    assert.ok(kept, "usage-limit parked run keeps its shared row");
+    assert.equal(kept?.status, "paused");
   }),
 );
 
@@ -394,6 +400,65 @@ test(
     assert.equal(v?.elapsedFrozen, false, "paused resumes → elapsed keeps counting");
 
     da.resolve("done");
+    await promise.catch(() => {});
+  }),
+);
+
+test(
+  "(t01 arc-11) a PAUSED run's shared row STAYS — visible as paused after the unwind settles; stop-from-paused evicts",
+  withTempCwd(async (cwd) => {
+    const reg = new SubagentInFlightRegistry();
+    const da = deferredAgent();
+    const manager = new WorkflowManager({ cwd, agent: da.runner, inFlight: reg });
+    manager.on("error", () => {});
+    const { runId, promise } = manager.startInBackground(oneAgentScript);
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.equal(manager.pause(runId), true);
+    // Let the pause unwind fully settle (the engine aborts asynchronously) —
+    // the pre-arc-11 code evicted the row HERE.
+    await new Promise((r) => setTimeout(r, 30));
+    const v = reg.view(workflowInFlightId(runId));
+    assert.ok(v, "the paused row is KEPT on the shared registry (CC task-list logic)");
+    assert.equal(v?.status, "paused");
+    assert.equal(v?.elapsedFrozen, false);
+
+    // stop from paused: stamped aborted, then evicted (no unwind is coming).
+    assert.equal(manager.stop(runId), true);
+    assert.equal(reg.view(workflowInFlightId(runId)), undefined, "kept row evicted on stop");
+
+    da.resolve("done");
+    await promise.catch(() => {});
+  }),
+);
+
+test(
+  "(t01 arc-11) resume re-registers the kept row as running (start() overwrite, no duplicate)",
+  withTempCwd(async (cwd) => {
+    const reg = new SubagentInFlightRegistry();
+    const da = perCallDeferredAgent();
+    const manager = new WorkflowManager({ cwd, agent: da.runner, inFlight: reg });
+    manager.on("error", () => {});
+    const script = `export const meta = { name: 'resume_demo', description: 'two agents' }
+phase('Work')
+const a = await agent('a')
+const b = await agent('b')
+return { a, b }`;
+    const { runId, promise } = manager.startInBackground(script);
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(manager.pause(runId), true);
+    await new Promise((r) => setTimeout(r, 30));
+    assert.equal(reg.view(workflowInFlightId(runId))?.status, "paused");
+
+    const resumed = await manager.resume(runId);
+    assert.equal(resumed, true);
+    await new Promise((r) => setTimeout(r, 20));
+    const rows = reg.views().filter((x) => x.id === workflowInFlightId(runId));
+    assert.equal(rows.length, 1, "no duplicate row");
+    assert.equal(rows[0]?.status, "running", "the kept paused row was overwritten by the resumed registration");
+
+    da.resolve(0, "done");
+    da.resolve(1, "done");
     await promise.catch(() => {});
   }),
 );

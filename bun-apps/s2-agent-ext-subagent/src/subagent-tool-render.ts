@@ -124,7 +124,11 @@ export function renderSubagentCall(
     // stays visible. Skipped when it matches the slot (e.g. an explicit model
     // that resolved to itself) to avoid duplication. modelSeg is already
     // shortened + fallback-aware (it carries its own `→` marker when the
-    // resolution fell back), so it is rendered verbatim.
+    // resolution fell back), so it is rendered verbatim. An UNTAGGED dispatch
+    // resolves to the parent session model via getMainModel (wired at
+    // extensions/subagent.ts session_start/model_select — self-arc-11 t02
+    // corrected the earlier "not wired" claim); the placeholder guard above
+    // remains for detached-resume hosts where session_start never fired.
     if (modelSeg && modelSeg !== slot) {
       parts.push(theme.fg("muted", modelSeg));
     }

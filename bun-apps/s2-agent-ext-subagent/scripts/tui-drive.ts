@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm" | "catalog" | "workflow";
+  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm" | "catalog" | "workflow" | "wf-pause";
   sh: string;
   cwd: string;
   out: string;
@@ -714,6 +714,121 @@ async function scenarioWorkflow(): Promise<void> {
   }
 }
 
+// ── scenario: wf-pause (self-arc-11 t01 — pause/resume on the shared row) ───
+// Drives a real background workflow, pauses it from the /workflows navigator
+// (`p` — the keymap already existed), and proves the arc-11 lifecycle on the
+// SHARED surface: the /subagents wf row reads `paused` and STAYS (the pre-t01
+// code evicted it on the pause unwind), then resume runs it to completion.
+// Every latch is gated on child evidence; the /subagents observation happens
+// on the OPEN viewer (no reopen); all sends are wall-clock paced.
+async function scenarioWfPause(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const script =
+    "export const meta = { name: 'wf_pause', description: 'pause drill', phases: [{ title: 'Work' }] }\\nphase('Work')\\nconst a = await agent('Reply with exactly WF-OK and nothing else.')\\nconst b = await agent('Run sleep 12 in the shell, then reply SLEPT-PAUSE.')\\nreturn { a, b }";
+  const prompt =
+    "Call the workflow tool NOW, exactly once, with background true (the default) and this script as the script parameter: " +
+    script +
+    " Do not answer anything yourself and use no other tool.";
+  tty.write(prompt);
+  await sleep(300);
+  tty.write("\r");
+
+  let wfRow = false;
+  let runId = "";
+  let pausedNavigator = false;
+  let pausedSharedRow = false;
+  let resumedRow = false;
+  let completed = false;
+  let phase = 0; // 0 wait-start · 1 pause gesture · 2 observe shared · 3 resume · 4 wait completion
+  const t0 = Date.now();
+  while (Date.now() - t0 < opts.timeoutS * 1000) {
+    await sleep(2000);
+    let s = screen().join("\n");
+    if (!wfRow) {
+      const m = /Run ID: ([a-z0-9-]+)/.exec(s);
+      if (m) runId = m[1] ?? "";
+      if (/\d\/2 agents|◆ wf_pause/.test(s)) {
+        wfRow = true;
+        receipt.checks.wfRow = true;
+      } else {
+        snap("submitted");
+        continue;
+      }
+    }
+    if (phase === 0) {
+      phase = 1;
+      tty.write("/workflows");
+      await sleep(200);
+      tty.write("\r");
+      await sleep(1500);
+      tty.write("p"); // navigator keymap: pause the selected run
+      await sleep(1800);
+      s = screen().join("\n");
+      snap("pause-navigator", true);
+      pausedNavigator = /⏸|paused/i.test(s);
+      receipt.checks.pausedNavigator = pausedNavigator;
+      tty.write("\x1b"); // close the navigator
+      await sleep(600);
+      tty.write("/subagents");
+      await sleep(200);
+      tty.write("\r");
+      await sleep(1500);
+      phase = 2;
+      continue;
+    }
+    if (phase === 2) {
+      s = screen().join("\n");
+      // The OPEN viewer (no reopen): the wf row must read paused — arc-11's
+      // keep-paused-row lifecycle rendered through the change channel.
+      // Structural latch: the ‖ glyph is glyphFor("paused") and renders ONLY
+      // on a paused row — parent prose naming "workflow" + "paused" cannot
+      // fake it (receipted: prose-pollution was possible in the first draft).
+      const line = screen().find((l) => /‖/.test(l) && /(workflow|wf_pause)/.test(l));
+      if (line) pausedSharedRow = true;
+      snap("paused-shared", true);
+      receipt.checks.pausedSharedRow = pausedSharedRow;
+      if (pausedSharedRow || !/Subagent runs/.test(s)) {
+        tty.write("\x1b");
+        await sleep(600);
+        if (runId) {
+          tty.write(`/workflows resume ${runId}`);
+          await sleep(200);
+          tty.write("\r");
+        }
+        phase = 3;
+      }
+      continue;
+    }
+    if (phase === 3) {
+      s = screen().join("\n");
+      // Resumed: the panel row back to live (◆ / k-of-N counter) — or the
+      // resume notification landed in the transcript.
+      if (/◆ wf_pause|\d\/2 agents|resumed/i.test(s)) {
+        resumedRow = true;
+        receipt.checks.resumedRow = true;
+        phase = 4;
+      } else {
+        snap("resuming");
+        continue;
+      }
+    }
+    if (!completed && /✓ Background workflow "wf_pause" finished|finished \(2 agents/.test(s)) {
+      completed = true;
+      receipt.checks.completed = true;
+    }
+    snap(completed ? "completed" : "running-again", true);
+    if (completed && Date.now() - lastByteAt > opts.quietMs) break;
+  }
+  receipt.checks.wfRow = wfRow;
+  receipt.checks.pausedNavigator = pausedNavigator;
+  receipt.checks.pausedSharedRow = pausedSharedRow;
+  receipt.checks.resumedRow = resumedRow;
+  receipt.checks.completed = completed;
+}
+
 // ── scenario: agents (agents-manager t03 — drive the /agents manager) ────────
 // Pure-local drill (no LLM round-trip): open /agents over the seeded probe
 // definition, read its detail, CREATE a second definition through the form,
@@ -1025,6 +1140,7 @@ try {
   else if (opts.scenario === "swarm") await scenarioSwarm();
   else if (opts.scenario === "catalog") await scenarioCatalog();
   else if (opts.scenario === "workflow") await scenarioWorkflow();
+  else if (opts.scenario === "wf-pause") await scenarioWfPause();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -1085,6 +1201,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
   reload: ["booted", "reloadOne", "reloadTwo"],
   catalog: ["booted", "backgroundRow", "catalogRouted", "settled", "childModelIsGlm53"],
   workflow: ["booted", "wfRow", "wfAbortFlow", "wfAbortConfirmed"],
+  "wf-pause": ["booted", "wfRow", "pausedNavigator", "pausedSharedRow", "resumedRow", "completed"],
   swarm: [
     "booted",
     "liveRow",
