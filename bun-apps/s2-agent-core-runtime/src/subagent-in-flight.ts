@@ -109,6 +109,30 @@ export class SubagentInFlightRegistry {
   private runs = new Map<string, InFlightSubagent>();
   /** Per-run detach watchers (Task 05) — consumed by markDetached, dropped by end(). */
   private detachWatchers = new Map<string, Set<() => void>>();
+  /** Cross-run lifecycle watchers (F-invalidate) — fired on the DISCRETE
+   *  transitions (start/end/endBatch/markCompleted/markFailed/markDetached),
+   *  never on per-chunk history streaming (update) or usage accrual, which are
+   *  far too hot; live elapsed ticking stays the renderer's own timer's job. */
+  private changeWatchers = new Set<() => void>();
+
+  /** Subscribe to DISCRETE lifecycle transitions of ANY run (F-invalidate):
+   *  start, end, endBatch, markCompleted, markFailed, markDetached. History
+   *  streaming (update) and per-tick usage accrual do NOT fire — a renderer
+   *  that wants those ticks runs its own timer (the /subagents viewer's 1s
+   *  live-elapsed interval). This is the channel that lets an OPEN viewer
+   *  repaint the moment a background run terminates, instead of freezing on
+   *  its last painted frame until a reopen. Returns an unsubscribe (safe to
+   *  call twice). */
+  onChange(cb: () => void): () => void {
+    this.changeWatchers.add(cb);
+    return () => {
+      this.changeWatchers.delete(cb);
+    };
+  }
+
+  private emitChange(): void {
+    for (const cb of this.changeWatchers) cb();
+  }
 
   start(run: Omit<InFlightSubagent, "status"> & { status?: ActivityStatus }): void {
     // foreground defaults to `false` (background/detached) when the caller omits
@@ -117,6 +141,7 @@ export class SubagentInFlightRegistry {
     // (they render inline via Surface A). See subagent-context-widget.ts.
     const status: ActivityStatus = run.status ?? "running";
     this.runs.set(run.id, { ...run, status, foreground: run.foreground ?? false });
+    this.emitChange();
   }
 
   update(id: string, history: AgentHistoryEntry[]): void {
@@ -187,6 +212,7 @@ export class SubagentInFlightRegistry {
   end(id: string): void {
     this.runs.delete(id);
     this.detachWatchers.delete(id);
+    this.emitChange();
   }
 
   /** Flip a foreground run to background (Task 05 detach). Stamps
@@ -202,6 +228,7 @@ export class SubagentInFlightRegistry {
     r.detached = true;
     if (opts?.abort) r.abort = opts.abort;
     r.invalidate?.();
+    this.emitChange();
     const watchers = this.detachWatchers.get(id);
     if (watchers) {
       this.detachWatchers.delete(id);
@@ -243,6 +270,11 @@ export class SubagentInFlightRegistry {
     if (r) {
       r.status = status;
       r.endedAt = Date.now();
+      // F-invalidate parity with updateModel/markDetached: the terminal stamp
+      // must reach the surfaces bound to this run, and the cross-run watchers
+      // (an open /subagents viewer) — not just the next 1s timer tick.
+      r.invalidate?.();
+      this.emitChange();
     }
   }
 
@@ -253,6 +285,8 @@ export class SubagentInFlightRegistry {
     if (r) {
       r.status = status;
       r.endedAt = Date.now();
+      r.invalidate?.();
+      this.emitChange();
     }
   }
 
@@ -261,6 +295,9 @@ export class SubagentInFlightRegistry {
     for (const [id, r] of this.runs) {
       if (r.batchId === batchId) this.runs.delete(id);
     }
+    // One event for the whole group, not one per child — the watchers render
+    // state, they don't count children.
+    this.emitChange();
   }
 
   /** Fire one running child's abort lever (per-child mid-flight abort). Distinct

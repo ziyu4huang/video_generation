@@ -140,3 +140,62 @@ describe("markDetached (Task 05)", () => {
     expect(fired).toBe(0);
   });
 });
+
+describe("change watchers (F-invalidate — discrete lifecycle channel)", () => {
+  test("markCompleted/markFailed fire the bound invalidate AND the change watchers", () => {
+    start("a");
+    let invalidations = 0;
+    let changes = 0;
+    registry.bindInvalidate("a", () => void invalidations++);
+    registry.onChange(() => void changes++);
+    registry.markCompleted("a");
+    expect(invalidations).toBe(1);
+    expect(changes).toBe(1);
+
+    registry.markFailed("a", "error");
+    expect(invalidations).toBe(2);
+    expect(changes).toBe(2);
+  });
+
+  test("start/end/markDetached fire the change watchers", () => {
+    let changes = 0;
+    registry.onChange(() => void changes++);
+    start("a");
+    expect(changes).toBe(1);
+    registry.markDetached("a");
+    expect(changes).toBe(2);
+    registry.end("a");
+    expect(changes).toBe(3);
+  });
+
+  test("endBatch fires ONCE for the whole group (watchers render state, they don't count children)", () => {
+    let changes = 0;
+    registry.onChange(() => void changes++);
+    start("b1", { batchId: "batch-1" });
+    start("b2", { batchId: "batch-1" });
+    const afterStarts = changes; // 2
+    registry.endBatch("batch-1");
+    expect(changes).toBe(afterStarts + 1);
+  });
+
+  test("history streaming and usage accrual do NOT fire the change channel (too hot)", () => {
+    let changes = 0;
+    registry.onChange(() => void changes++);
+    start("a");
+    registry.update("a", []);
+    registry.updateModel("a", "zai/glm-5.3");
+    registry.accrueUsage("a", { costUsd: 0.01, tokensIn: 10, tokensOut: 5 });
+    expect(changes).toBe(1, "only the start() transition fired");
+  });
+
+  test("unsubscribe stops the firing and is safe to call twice", () => {
+    let changes = 0;
+    const off = registry.onChange(() => void changes++);
+    start("a");
+    expect(changes).toBe(1);
+    off();
+    off();
+    registry.end("a");
+    expect(changes).toBe(1);
+  });
+});

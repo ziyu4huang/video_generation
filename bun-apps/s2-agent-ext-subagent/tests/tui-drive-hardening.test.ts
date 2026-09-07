@@ -65,4 +65,16 @@ describe("tui-drive loop-finding fixes (source pins)", () => {
     expect(src).toContain('!t.includes("flash")');
     expect(src).toContain("/^(Task\\(|Task:|\\[\\d+\\]|bg\\b|▶)/");
   });
+  test("F-invalidate — the viewer receipt's stale-row check polls the OPEN viewer FIRST (no reopen kick)", () => {
+    // self-arc-6 ran the reopen BEFORE ever judging the open frame, which is
+    // exactly why the missing-invalidate bug survived four receipts. The
+    // no-reopen phase must gate first; the reopen is only the fallback.
+    expect(src).toContain("staleRowGoneNoReopen");
+    expect(src).toContain("let staleRowGone = staleRowGoneNoReopen;");
+    // the no-reopen loop must not contain a reopen in its body: the
+    // "/subagents" reopen writes only appear in the phase-2 fallback and the
+    // pre-abort reset, both outside the phase-1 loop.
+    const phase1 = src.slice(src.indexOf("staleGone()"), src.indexOf("staleRowGoneNoReopen;"));
+    expect(phase1).not.toContain('tty.write("/subagents")');
+  });
 });

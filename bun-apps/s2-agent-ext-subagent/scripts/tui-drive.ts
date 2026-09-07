@@ -534,32 +534,33 @@ async function scenarioViewer(): Promise<void> {
     // aborted entry must LEAVE the Running section promptly — the stale row
     // used to linger 15s+ (six polls all showing it). The bottom log line
     // (`bg ● …`, single space) does not count; the live row is `bg      ●`.
-    let staleRowGone = false;
-    let reopened = false;
-    for (let i = 0; i < 8 && !staleRowGone; i++) {
+    //
+    // F-invalidate fix check (self-arc-7): phase 1 polls the OPEN viewer —
+    // NO reopen kick. The registry→viewer onChange channel must repaint the
+    // dialog the moment the run terminates (this used to freeze on its last
+    // painted frame until a reopen forced a fresh mount — the self-arc-6
+    // finding). A frozen frame here is a FAIL (staleRowGoneNoReopen). Phase
+    // 2 only runs when phase 1 stayed stale: the close+reopen kick (fresh
+    // mount re-reads views()) separates "render trigger missing" from "data
+    // layer wrong" and stays as the staleRowGone diagnostic fallback.
+    const staleGone = () => !/bg\s{2,}●/.test(screen().join("\n"));
+    let staleRowGoneNoReopen = false;
+    for (let i = 0; i < 8 && !staleRowGoneNoReopen; i++) {
       await sleep(2500);
-      let s = screen().join("\n");
       snap(`stale-row-${i + 1}`, true);
-      if (!/bg\s{2,}●/.test(s)) staleRowGone = true;
-      // UI FINDING (self-arc-6): an open viewer is NOT invalidated when a
-      // background run terminates — the dialog keeps its last painted frame
-      // (frozen elapsed, stale row) until something forces a render. After
-      // two quiet polls, close+reopen the viewer: a fresh mount re-reads
-      // views() and re-renders. If the row is gone after the reopen, the
-      // data layer filtered it correctly and the bug is purely the missing
-      // invalidate.
-      if (!staleRowGone && i >= 1 && !reopened) {
-        reopened = true;
-        tty.write("\x1b");
-        await sleep(600);
-        tty.write("/subagents");
-        await sleep(200);
-        tty.write("\r");
-        await sleep(1200);
-        s = screen().join("\n");
-        snap("stale-row-after-reopen", true);
-        if (!/bg\s{2,}●/.test(s)) staleRowGone = true;
-      }
+      if (staleGone()) staleRowGoneNoReopen = true;
+    }
+    receipt.checks.staleRowGoneNoReopen = staleRowGoneNoReopen;
+    let staleRowGone = staleRowGoneNoReopen;
+    if (!staleRowGone) {
+      tty.write("\x1b");
+      await sleep(600);
+      tty.write("/subagents");
+      await sleep(200);
+      tty.write("\r");
+      await sleep(1200);
+      snap("stale-row-after-reopen", true);
+      if (staleGone()) staleRowGone = true;
     }
     receipt.checks.staleRowGone = staleRowGone;
   }
@@ -857,6 +858,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
     "childModelIsGlm53",
     "abortFlow",
     "abortConfirmed",
+    "staleRowGoneNoReopen",
     "staleRowGone",
   ],
   agents: [
