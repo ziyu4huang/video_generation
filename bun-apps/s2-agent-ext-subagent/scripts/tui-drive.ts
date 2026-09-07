@@ -56,7 +56,7 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm" | "catalog";
+  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm" | "catalog" | "workflow";
   sh: string;
   cwd: string;
   out: string;
@@ -628,6 +628,92 @@ async function scenarioCatalog(): Promise<void> {
   receipt.checks.settled = settled;
 }
 
+// ── scenario: workflow (self-arc-10 t03 — the unified-surface receipt) ──────
+// Drives a REAL ultracode workflow run in the background and then aborts its
+// shared registry row through the /subagents viewer's x-key — proving the
+// bridge end-to-end: the wf: row appears with the `wf` badge and an ABORTABLE
+// lever (t02), the viewer confirm fires, and the row reads aborted (t01's
+// stop → markLiveStatus) with NO reopen. All latches gated on CHILD evidence
+// (the `wf_receipt · k/2 agents` preview only exists once the workflow engine
+// registered agents) — the parent's spinner fires long before.
+async function scenarioWorkflow(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const script =
+    "export const meta = { name: 'wf_receipt', description: 'receipt drill', phases: [{ title: 'Work' }] }\\nphase('Work')\\nconst a = await agent('Reply with exactly WF-OK and nothing else.')\\nconst b = await agent('Run sleep 8 in the shell, then reply SLEPT-WF.')\\nreturn { a, b }";
+  const prompt =
+    "Call the workflow tool NOW, exactly once, with background true (the default) and this script as the script parameter: " +
+    script +
+    " Do not answer anything yourself and use no other tool.";
+  tty.write(prompt);
+  await sleep(300);
+  tty.write("\r");
+
+  let wfRow = false;
+  let gestured = false;
+  let wfAbortFlow = false;
+  let wfAbortConfirmed = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < opts.timeoutS * 1000) {
+    await sleep(2000);
+    let s = screen().join("\n");
+    // Child evidence: the k/N counter and the ◆-prefixed panel row only
+    // render once the workflow engine registered its agents (receipted — the
+    // panel shape is `◆ wf_receipt  1/2 agents · Work`, not the preview form).
+    if (!wfRow && /\d\/2 agents|◆ wf_receipt/.test(s)) {
+      wfRow = true;
+      receipt.checks.wfRow = true;
+    }
+    if (!wfRow) {
+      snap("submitted");
+      continue;
+    }
+    // ── the abort gesture on the OPEN viewer (once, child evidence latched) ──
+    if (!gestured) {
+      gestured = true;
+      tty.write("/subagents");
+      await sleep(200);
+      tty.write("\r");
+      await sleep(1200);
+      // fresh scratch session → the wf row is the only Running entry → cursor
+      // starts on it; wait briefly for the row to render before pressing x.
+      for (let i = 0; i < 6; i++) {
+        if (/workflow/.test(screen().join("\n"))) break;
+        await sleep(500);
+      }
+      snap("wf-viewer", true);
+      tty.write("x");
+      await sleep(500);
+      snap("wf-abort-confirm", true);
+      wfAbortFlow = /Abort this subagent\? y\/N/.test(readSnapText("wf-abort-confirm") ?? "");
+      receipt.checks.wfAbortFlow = wfAbortFlow;
+      tty.write("y");
+      await sleep(500);
+      // STAY in the viewer — the registry's change channel must repaint the
+      // aborted row with no reopen (F-invalidate discipline, now on wf rows).
+      continue;
+    }
+    // ── latched post-abort observation (open viewer, then transcript) ──
+    if (!wfAbortConfirmed) {
+      const confirmGone = !/Abort this subagent/.test(s);
+      const terminal = /⊘|aborted/.test(s);
+      if (confirmGone && terminal) wfAbortConfirmed = true;
+    }
+    s = screen().join("\n");
+    snap(wfAbortConfirmed ? "wf-aborted" : "wf-aborting", true);
+    if (wfAbortConfirmed && Date.now() - lastByteAt > opts.quietMs) break;
+  }
+  receipt.checks.wfRow = wfRow;
+  receipt.checks.wfAbortFlow = wfAbortFlow;
+  receipt.checks.wfAbortConfirmed = wfAbortConfirmed;
+  if (!wfAbortConfirmed) {
+    const s = screen().join("\n");
+    receipt.checks.wfAbortConfirmed = /status: aborted|Workflow .* (aborted|stopped)|wf_receipt.*abort/i.test(s);
+  }
+}
+
 // ── scenario: agents (agents-manager t03 — drive the /agents manager) ────────
 // Pure-local drill (no LLM round-trip): open /agents over the seeded probe
 // definition, read its detail, CREATE a second definition through the form,
@@ -938,6 +1024,7 @@ try {
   else if (opts.scenario === "reload") await scenarioReload();
   else if (opts.scenario === "swarm") await scenarioSwarm();
   else if (opts.scenario === "catalog") await scenarioCatalog();
+  else if (opts.scenario === "workflow") await scenarioWorkflow();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -997,6 +1084,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
   ],
   reload: ["booted", "reloadOne", "reloadTwo"],
   catalog: ["booted", "backgroundRow", "catalogRouted", "settled", "childModelIsGlm53"],
+  workflow: ["booted", "wfRow", "wfAbortFlow", "wfAbortConfirmed"],
   swarm: [
     "booted",
     "liveRow",

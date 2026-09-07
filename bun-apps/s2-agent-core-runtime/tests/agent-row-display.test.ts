@@ -79,9 +79,12 @@ describe("renderRunRow — cost tail", () => {
     status: "running" as ActivityStatus,
   };
 
-  test("appends `· $0.04` when costUsd > 0", () => {
+  test("appends the cost when costUsd > 0 (self-arc-10: no model segment on an unmodeled run)", () => {
     const v = buildRunView({ ...base, usageAccrued: { costUsd: 0.04, tokensIn: 1, tokensOut: 1 } }, 1000);
-    expect(renderRunRow(v, NO_THEME)).toContain("· $0.04");
+    // The placeholder model segment is omitted now, so the cost tail follows
+    // the actor directly instead of trailing the (former) "default" segment.
+    expect(renderRunRow(v, NO_THEME)).toContain("$0.04");
+    expect(renderRunRow(v, NO_THEME)).not.toContain("default");
   });
 
   test("cost tail absent when costUsd is 0", () => {

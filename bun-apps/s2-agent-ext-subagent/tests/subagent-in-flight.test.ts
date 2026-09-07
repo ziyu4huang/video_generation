@@ -162,7 +162,7 @@ test("start accepts an entry with no model (a workflow run aggregates agents acr
   });
   const v = reg.view("wf:r1");
   assert.ok(v);
-  assert.equal(v.modelSeg, "default", "model is optional — a workflow run omits it, the segment falls back");
+  assert.equal(v.modelSeg, undefined, "t02 honesty: model is optional — a workflow run omits the segment entirely");
   assert.equal(v.actor, "workflow");
   assert.equal(v.foreground, false);
   // latestAction falls back to taskPreview when the run has no tool calls yet

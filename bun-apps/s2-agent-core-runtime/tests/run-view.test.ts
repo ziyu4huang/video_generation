@@ -49,9 +49,11 @@ describe("buildRunView — modelSeg", () => {
     expect(v.modelSeg).toBe("gemini-2.5-pro");
   });
 
-  test("nothing resolved: model slot, else 'default'", () => {
+  test("nothing resolved: model slot, else the segment is OMITTED (self-arc-10 honesty)", () => {
     expect(buildRunView(baseRun({ model: "opus" }), 0).modelSeg).toBe("opus");
-    expect(buildRunView(baseRun(), 0).modelSeg).toBe("default");
+    // No resolved model, no requested slot (workflow aggregates / unwired
+    // getMainModel) — the segment is omitted, never the literal "default".
+    expect(buildRunView(baseRun(), 0).modelSeg).toBeUndefined();
   });
 });
 

@@ -29,7 +29,7 @@ export interface RunView {
   /** agent ?? "general-purpose" */
   readonly actor: string;
   /** fallback-aware, plain text (no theme) */
-  readonly modelSeg: string;
+  readonly modelSeg?: string;
   /** terminal: endedAt - startedAt (frozen); live: now - startedAt */
   readonly elapsedMs: number;
   readonly elapsedFrozen: boolean;
@@ -41,6 +41,9 @@ export interface RunView {
   readonly taskPreview: string;
   readonly workIntent?: string;
   readonly badgeText?: string;
+  /** Which family owns the run — workflow rows (wf:) render the `wf` badge
+   *  and omit the model segment (they aggregate across models). */
+  readonly runKind?: "subagent" | "workflow";
   /** abort lever present */
   readonly abortable: boolean;
   readonly history: readonly AgentHistoryEntry[];
@@ -60,13 +63,19 @@ function shortModelSeg(model: string): string {
   return ellipsizeToWidth(seg, 24);
 }
 
-function modelSegFor(r: RunRecord): string {
+function modelSegFor(r: RunRecord): string | undefined {
   if (r.fellBack && r.requestedModel) {
     // Fallback marker: resolved←requested (mirrors the subagents-tool segment spirit).
     const resolved = r.resolvedModel ? shortModelSeg(r.resolvedModel) : "?";
     return `${resolved}→${shortModelSeg(r.requestedModel)}`;
   }
-  return shortModelSeg(r.resolvedModel ?? r.model ?? "default");
+  // self-arc-10 t02 honesty: a run with no resolved model and no requested
+  // slot (workflow aggregates, or a subagent dispatched untagged while
+  // getMainModel is unwired) has NOTHING to say about a model — the segment
+  // is omitted rather than rendering the literal "default" (same call the
+  // subagent call-line made in self-arc-9 t01).
+  const m = r.resolvedModel ?? r.model;
+  return m ? shortModelSeg(m) : undefined;
 }
 
 /** Best-effort one-line label for a history entry (name/title/whatever it exposes). */
@@ -88,10 +97,15 @@ function kindOf(entry: AgentHistoryEntry): unknown {
 }
 
 /** Single home of the terminal predicate for the unified ActivityStatus vocabulary. */
+/** Terminal = the run will never run again. "paused" is deliberately
+ *  NON-terminal (self-arc-10 t01): a paused workflow resumes, so its elapsed
+ *  must keep counting from startedAt (never freeze) and usage must keep
+ *  accruing — a naive "not running/queued ⇒ terminal" predicate would freeze
+ *  both the moment a workflow parks. */
 export function isTerminalStatus(status: ActivityStatus | null | undefined): boolean {
   // defensive: records constructed before the status field became required may omit it
   const s = status ?? "running";
-  return s !== "running" && s !== "queued";
+  return s !== "running" && s !== "queued" && s !== "paused";
 }
 
 /** Pure projection — takes the raw record + now; never reads the clock itself. */
@@ -128,7 +142,8 @@ export function buildRunView(r: RunRecord, now: number): RunView {
     latestAction,
     taskPreview: r.taskPreview,
     workIntent: r.workIntent,
-    badgeText: r.fellBack ? "fallback" : r.background ? "bg" : undefined,
+    badgeText: r.runKind === "workflow" ? "wf" : r.fellBack ? "fallback" : r.background ? "bg" : undefined,
+    runKind: r.runKind ?? (r.id.startsWith("wf:") ? "workflow" : undefined),
     abortable: typeof r.abort === "function",
     history,
     startedAt: r.startedAt,
