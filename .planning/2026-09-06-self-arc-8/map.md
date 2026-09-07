@@ -2,7 +2,7 @@
 effort: 2026-09-06-self-arc-8
 created: 2026-09-07
 last: 2026-09-07
-status: in-progress
+status: done
 ---
 
 # Wayfinder map: 2026-09-06-self-arc-8 — agentType catalog surfaces to the parent router
@@ -72,4 +72,15 @@ the user typed its name into the prompt).
 
 - source: `output/self-arc8-receipt-src2-20260907/` — 7/7 PASS
   (catalogRouted true at snap-04; 13 snaps, early break).
-- deployed: `output/self-arc8-receipt-20260907/` (pending, post-merge).
+- deployed `0.10.0+ge7e2443`: `output/self-arc8-receipt-deployed-20260907/`
+  — 7/7 PASS, catalogRouted true by snap-03 (7 snaps, early break); the
+  deployed bundle carries the catalog template (grep on
+  `ext/subagent/ext.cjs`).
+
+## Shipped-as
+
+PR #2199 merged CLEAN (squash `e7e24435`); main synced; redeployed;
+deployed receipt green. One merge-gate bounce (biome useTemplate warning +
+test-file format in the PR diff — fixed in the style commit); the
+esc-settle-detector `useRegexLiterals` warning seen locally is pre-existing
+on main and exits 0 (non-blocking noise from a newer biome).
