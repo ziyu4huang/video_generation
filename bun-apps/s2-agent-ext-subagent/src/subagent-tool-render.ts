@@ -109,6 +109,14 @@ export function renderSubagentCall(
       : args.tier
         ? `tier:${args.tier}`
         : undefined;
+  // self-arc-9 t01 (defect A honesty fix): `modelSeg` is
+  // `shortModel(resolvedModel ?? entryModel ?? "default")` — when nothing was
+  // requested and nothing has resolved yet, the placeholder is the literal
+  // "default" (getMainModel is not wired in production). Render nothing rather
+  // than a meaningless segment; no real provider id is "default". Post-
+  // resolution the line flips to the real model (the composer closure now
+  // re-reads the registry per tick — see subagent-tool.ts renderCall).
+  const modelSeg = args.modelSeg && args.modelSeg !== "default" ? args.modelSeg : undefined;
   if (slot) {
     parts.push(theme.fg("muted", slot));
     // Concrete model resolved mid-run (onModelResolved), as projected by
@@ -117,11 +125,11 @@ export function renderSubagentCall(
     // that resolved to itself) to avoid duplication. modelSeg is already
     // shortened + fallback-aware (it carries its own `→` marker when the
     // resolution fell back), so it is rendered verbatim.
-    if (args.modelSeg && args.modelSeg !== slot) {
-      parts.push(theme.fg("muted", args.modelSeg));
+    if (modelSeg && modelSeg !== slot) {
+      parts.push(theme.fg("muted", modelSeg));
     }
-  } else if (args.modelSeg) {
-    parts.push(theme.fg("muted", args.modelSeg));
+  } else if (modelSeg) {
+    parts.push(theme.fg("muted", modelSeg));
   }
   // The pi tool name trails as a dim segment: greppable in the terminal, but
   // no longer the head — CC's line leads with the AGENT, not the tool.

@@ -76,6 +76,7 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
               done();
             },
             onAbort: (id) => subagentInFlight.abort(id),
+            onAbortBatch: (batchId) => subagentInFlight.abortBatch(batchId),
             // Ctrl+b (Task 06): the SAME detach assembly as the global
             // shortcut (alt+s) —
             // convertToBackground over the prod deps (shared registry + real
