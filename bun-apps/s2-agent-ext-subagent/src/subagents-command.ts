@@ -64,6 +64,7 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
       const runs = reconstructSubagentRuns(branch);
       await c.ui.custom<void>((tui, theme, _kb, done) => {
         let timer: ReturnType<typeof setInterval> | undefined;
+        let unsubChange: (() => void) | undefined;
         const viewer = new SubagentViewer(
           {
             runs,
@@ -71,6 +72,7 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
             getRuns: () => reconstructSubagentRuns(branch),
             onClose: () => {
               if (timer) clearInterval(timer);
+              unsubChange?.();
               done();
             },
             onAbort: (id) => subagentInFlight.abort(id),
@@ -93,6 +95,17 @@ export function createSubagentsCommand(opts: { subagentInFlight: SubagentInFligh
           viewer.invalidate();
           tui.requestRender();
         }, LIVE_RENDER_INTERVAL_MS);
+        // F-invalidate (self-arc-6 finding): the 1s timer above goes SILENT
+        // exactly when a background run terminates — the view flips from
+        // live (running entry) to not-live, so the interval returns early and
+        // the dialog keeps its last painted frame (running row, ticking
+        // elapsed) until a reopen forced a fresh render. The registry's
+        // discrete-lifecycle channel closes that: every terminal/eviction/
+        // detach/new-run transition repaints immediately, no reopen needed.
+        unsubChange = subagentInFlight.onChange(() => {
+          viewer.invalidate();
+          tui.requestRender();
+        });
         return {
           render: (w: number) => viewer.render(w),
           invalidate: () => viewer.invalidate(),

@@ -140,3 +140,35 @@ test("command: the 1s live timer is created on open and cleared on close", async
   assert.equal(clearedTimers, 1, "timer is cleared when the viewer closes");
   await p;
 });
+
+test("command: a lifecycle transition repaints the OPEN viewer with no keypress (F-invalidate fix)", async () => {
+  const reg = new SubagentInFlightRegistry();
+  const cmd = createSubagentsCommand({ subagentInFlight: reg });
+  const h = harness([]);
+  const p = cmd.handler([], h.ctx);
+  const factory = h.getFactory();
+  const { tui, renders } = fakeTui();
+  const ret = factory(tui, T, undefined, h.done) as {
+    render: (w: number) => string[];
+    handleInput: (d: string) => void;
+  };
+  assert.ok(!ret.render(80).join("\n").includes("bg-run"), "no row before the run exists");
+  const rendersBefore = renders();
+  // The 1s timer is stubbed out in this suite — any re-render below can only
+  // come from the registry's onChange channel. A background run starts,
+  // terminates, and is evicted while the viewer stays open and untouched.
+  reg.start({ id: "bg-run", agent: "hard-problem", background: true, taskPreview: "sleep 120", startedAt: Date.now() });
+  assert.ok(renders() > rendersBefore, "start() drove a re-render");
+  reg.markCompleted("bg-run");
+  assert.ok(renders() > rendersBefore + 1, "markCompleted() drove a re-render");
+  reg.end("bg-run");
+  assert.ok(renders() > rendersBefore + 2, "end() drove a re-render");
+  assert.ok(!ret.render(80).join("\n").includes("hard-problem"), "evicted run left the rendered list");
+  ret.handleInput("\x1b"); // close
+  await p;
+  // After close the subscription must be gone: transitions neither throw nor render.
+  const rendersAtClose = renders();
+  reg.start({ id: "after-close", taskPreview: "x", startedAt: Date.now() });
+  reg.end("after-close");
+  assert.equal(renders(), rendersAtClose, "closed viewer no longer receives transitions");
+});
