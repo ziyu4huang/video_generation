@@ -786,9 +786,17 @@ export class WorkflowManager extends EventEmitter {
     this.inFlight.start({
       id: workflowInFlightId(managed.runId),
       agent: "workflow",
+      // self-arc-10 t02: bind the abort lever — without it RunView.abortable
+      // was false and the /subagents x-key was a silent no-op on every `wf:`
+      // row while stop(runId) sat unused. stop() itself now stamps the row
+      // "aborted" via markLiveStatus, so the surfaces see the transition.
+      abort: () => {
+        void this.stop(managed.runId);
+      },
       // model omitted: a workflow aggregates agents across models, so it has no
-      // single model. The context box renders a workflow-specific header;
-      // /subagents omits the model segment for entries without one.
+      // single model — /subagents omits the model segment and badges the row
+      // `wf` (RunView.runKind).
+      runKind: "workflow",
       taskPreview: workflowPreview(managed.snapshot),
       startedAt: managed.startedAt.getTime(),
       foreground: !managed.background,
@@ -890,6 +898,11 @@ export class WorkflowManager extends EventEmitter {
 
     managed.controller.abort();
     managed.status = "paused";
+    // self-arc-10 t01: the shared surfaces must not keep reading "running"
+    // while the run is parked (the pre-t01 gap — pause/resume/stop never
+    // touched the registry entry). markLiveStatus refuses to un-terminal and
+    // is a no-op when the entry already left the registry.
+    this.inFlight?.markLiveStatus(workflowInFlightId(runId), "paused");
     this.emit("paused", { runId });
     this.persistRun(managed);
     this.releaseRunLease(managed);
@@ -959,6 +972,10 @@ export class WorkflowManager extends EventEmitter {
 
     managed.controller.abort();
     managed.status = "aborted";
+    // self-arc-10 t01: stamp the shared row aborted (x-key aborts on `wf:`
+    // rows land here through the t02 lever) — open surfaces repaint via the
+    // registry's change channel before the unwind completes.
+    this.inFlight?.markLiveStatus(workflowInFlightId(runId), "aborted");
     this.emit("stopped", { runId });
     this.persistRun(managed);
     this.releaseRunLease(managed);

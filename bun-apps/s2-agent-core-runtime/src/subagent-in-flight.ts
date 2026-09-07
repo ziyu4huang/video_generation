@@ -26,9 +26,11 @@ export interface InFlightSubagent {
   id: string;
   agent?: string;
   /** The requested model/tier/capability slot. Omitted for a workflow run, which
-   *  aggregates agents across models and therefore has no single model — the
-   *  context box renders a workflow-specific header; /subagents omits the model
-   *  segment for entries without one (decision 03 = b2). */
+   *  aggregates agents across models and therefore has no single model —
+   *  /subagents omits the model segment for entries without one and badges
+   *  the row `wf` via RunView.runKind (decision 03 = b2; badge landed
+   *  self-arc-10 — the earlier "workflow-specific header" docstring promised
+   *  a header that never existed). */
   model?: string;
   /** Concrete provider/id once the child resolves its model (onModelResolved).
    * Undefined until resolution — the call line shows tier/model-request until then. */
@@ -38,6 +40,12 @@ export interface InFlightSubagent {
   requestedModel?: string;
   /** True when the model resolution fell back to a different model than requested. */
   fellBack?: boolean;
+  /** Which family owns the run (self-arc-10 t02). "workflow" = a `wf:<runId>`
+   *  row registered by ultracode's WorkflowManager — the /subagents viewer
+   *  badges it `wf` and RunView omits nothing else structurally. Undefined =
+   *  a subagent-family run. Derivable from the id prefix, stored explicitly
+   *  so the surfaces don't parse ids. */
+  runKind?: "subagent" | "workflow";
   /** The batch tool's own toolCallId, set on every child of a `subagents` batch so
    *  the /subagents viewer can group them under one header. Undefined for singular
    *  `subagent` dispatches (flat, ungrouped) and workflow agents. */
@@ -258,6 +266,20 @@ export class SubagentInFlightRegistry {
     return () => {
       set?.delete(cb);
     };
+  }
+
+  /** Stamp a LIVE-status change that is neither a model resolution nor a
+   *  terminal transition — today only "paused" (self-arc-10 t01: ultracode's
+   *  WorkflowManager.pause). Refuses to un-terminal a run (a stamped terminal
+   *  row is frozen by contract); fires the bound invalidate AND the change
+   *  watchers so open surfaces repaint immediately. No-op for unknown ids,
+   *  mirroring update()/updateModel(). */
+  markLiveStatus(id: string, status: ActivityStatus): void {
+    const r = this.runs.get(id);
+    if (!r || isTerminalStatus(r.status)) return;
+    r.status = status;
+    r.invalidate?.();
+    this.emitChange();
   }
 
   /** Mark a run terminal WITHOUT removing it (so the header can show k/N

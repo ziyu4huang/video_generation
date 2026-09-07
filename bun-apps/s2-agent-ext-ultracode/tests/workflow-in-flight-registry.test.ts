@@ -143,7 +143,13 @@ test(
     assert.equal(v.actor, "workflow");
     assert.equal(v.foreground, true, "foreground runSync → foreground:true (excluded from the box)");
     assert.equal(v.id.startsWith("wf:"), true, "id is the prefixed workflow runId");
-    assert.equal(v.modelSeg, "default", "a workflow aggregates agents → no single model");
+    assert.equal(v.runKind, "workflow", "t02: workflow rows carry runKind");
+    assert.equal(v.badgeText, "wf", "t02: workflow rows badge `wf`");
+    assert.equal(
+      v.modelSeg,
+      undefined,
+      "t02 honesty: a workflow aggregates agents → the model segment is OMITTED (was the literal 'default')",
+    );
     assert.match(v.latestAction ?? "", /tracked_demo/);
 
     da.resolve("done");
@@ -340,3 +346,54 @@ test("updateTaskPreview is the only preview mutation path", () => {
   assert.ok(v);
   assert.equal(v.latestAction, "phase 2/3 · agent b"); // no tool-call history → taskPreview wins
 });
+
+// ─── self-arc-10: the shared rows are alive — abortable + live-status stamps ────
+
+test(
+  "(t02) the registered wf: row is ABORTABLE — registry.abort fires stop(runId) and the row reads aborted",
+  withTempCwd(async (cwd) => {
+    const reg = new SubagentInFlightRegistry();
+    const da = deferredAgent();
+    const manager = new WorkflowManager({ cwd, agent: da.runner, inFlight: reg });
+    manager.on("error", () => {});
+    const { runId, promise } = manager.startInBackground(oneAgentScript);
+    await new Promise((r) => setTimeout(r, 20));
+
+    const v = reg.views().find((x) => x.id === workflowInFlightId(runId));
+    assert.ok(v, "wf row registered");
+    assert.equal(v?.abortable, true, "t02: the abort lever is bound (was a silent no-op before)");
+
+    // The /subagents viewer's x-key path: registry.abort(id) fires the lever.
+    reg.abort(workflowInFlightId(runId));
+    assert.equal(manager.getRun(runId)?.status, "aborted", "the lever is stop(runId)");
+    assert.equal(
+      reg.view(workflowInFlightId(runId))?.status,
+      "aborted",
+      "t01: stop stamped the shared row before the unwind evicts it",
+    );
+
+    da.resolve("done");
+    await promise.catch(() => {});
+    assert.equal(reg.views().length, 0, "unwind still ends the entry — no leak");
+  }),
+);
+
+test(
+  "(t01) pause stamps the shared row 'paused' (NON-terminal — elapsed not frozen)",
+  withTempCwd(async (cwd) => {
+    const reg = new SubagentInFlightRegistry();
+    const da = deferredAgent();
+    const manager = new WorkflowManager({ cwd, agent: da.runner, inFlight: reg });
+    manager.on("error", () => {});
+    const { runId, promise } = manager.startInBackground(oneAgentScript);
+    await new Promise((r) => setTimeout(r, 20));
+
+    assert.equal(manager.pause(runId), true);
+    const v = reg.view(workflowInFlightId(runId));
+    assert.equal(v?.status, "paused", "the shared surface no longer reads 'running' while parked");
+    assert.equal(v?.elapsedFrozen, false, "paused resumes → elapsed keeps counting");
+
+    da.resolve("done");
+    await promise.catch(() => {});
+  }),
+);

@@ -13,10 +13,12 @@
 import { ellipsizeToWidth } from "./render-width.js";
 import type { RunView } from "./run-view.js";
 
-/** Statuses a live agent row can show (superset of workflow's WorkflowAgentStatus). */
+/** Statuses a live agent row can show (superset of workflow's WorkflowAgentStatus —
+ *  "paused" is workflow-only today; subagents never park mid-flight). */
 export type ActivityStatus =
   | "queued"
   | "running"
+  | "paused"
   | "done"
   | "error"
   | "failed"
@@ -67,6 +69,9 @@ export function glyphFor(
         return { icon: ".", color: "dim" };
       case "running":
         return { icon: "~", color: "warning" };
+      case "paused":
+        // self-arc-10 t01: a parked workflow — live, not making progress.
+        return { icon: "~", color: "dim" };
       case "done":
         return { icon: "+", color: "success" };
       case "error":
@@ -92,6 +97,9 @@ export function glyphFor(
       return { icon: "○", color: "dim" };
     case "running":
       return { icon: "●", color: "warning" };
+    case "paused":
+      // self-arc-10 t01: a parked workflow — live, not making progress.
+      return { icon: "‖", color: "dim" };
     case "done":
       return { icon: "✓", color: "success" };
     case "error":

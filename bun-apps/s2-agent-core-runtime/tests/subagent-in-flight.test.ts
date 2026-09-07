@@ -216,3 +216,37 @@ describe("abortBatch (self-arc-9 t03)", () => {
     expect(registry.abortBatch("missing")).toBe(0);
   });
 });
+
+describe("markLiveStatus + runKind (self-arc-10)", () => {
+  test("markLiveStatus('paused') stamps the LIVE row, fires invalidate + change watchers", () => {
+    start("a");
+    let invalidations = 0;
+    let changes = 0;
+    registry.bindInvalidate("a", () => void invalidations++);
+    registry.onChange(() => void changes++);
+    registry.markLiveStatus("a", "paused");
+    expect(registry.view("a")?.status).toBe("paused");
+    expect(registry.view("a")?.elapsedFrozen).toBe(false, "paused is NON-terminal — elapsed keeps running");
+    expect(invalidations).toBe(1);
+    expect(changes).toBe(1);
+  });
+
+  test("markLiveStatus refuses to un-terminal a stamped row and no-ops on unknown ids", () => {
+    start("a");
+    registry.markCompleted("a");
+    registry.markLiveStatus("a", "running");
+    expect(registry.view("a")?.status).toBe("done", "a terminal row is frozen by contract");
+    registry.markLiveStatus("missing", "paused");
+  });
+
+  test("workflow rows badge `wf` via runKind (id-prefix derivation is the fallback)", () => {
+    start("wf:run-1", { runKind: "workflow", agent: "workflow" });
+    expect(registry.view("wf:run-1")?.badgeText).toBe("wf");
+    expect(registry.view("wf:run-1")?.runKind).toBe("workflow");
+    start("wf:run-2");
+    expect(registry.view("wf:run-2")?.runKind).toBe("workflow", "derived from the id prefix");
+    start("plain");
+    expect(registry.view("plain")?.runKind).toBeUndefined();
+    expect(registry.view("plain")?.badgeText).toBeUndefined();
+  });
+});
