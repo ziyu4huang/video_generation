@@ -1044,3 +1044,52 @@ test("ctrl+b does not conflict with the existing viewer keymap (x abort, printab
   out = viewer2.render(80).join("\n");
   assert.ok(out.toLowerCase().includes("filter"), "plain 'b' still filters");
 });
+
+// ── self-arc-9 t03 — batch-header x aborts the whole group ──────────────────
+
+test("x on a RUNNING batch header opens the batch confirm; y fires onAbortBatch with the batchId", () => {
+  const batch = [runningEntry("batchA:0", { batchId: "batchA" }), runningEntry("batchA:1", { batchId: "batchA" })];
+  let abortedBatch: string | undefined;
+  const viewer = new SubagentViewer(
+    { runs: [], getRunning: () => batch, onClose: () => {}, onAbortBatch: (b) => (abortedBatch = b) },
+    T,
+  );
+  // cursor starts on entry 0 = the batch header itself (headers precede children)
+  viewer.handleInput("x");
+  const out = viewer.render(80).join("\n");
+  assert.match(out, /Abort all 2 running children\? y\/N/);
+  viewer.handleInput("y");
+  assert.equal(abortedBatch, "batchA");
+  // and — the pre-t03 bug — the 'x' must NOT have landed in the filter
+  assert.ok(!viewer.render(80).join("\n").includes('filter: "x"'));
+});
+
+test("n and Esc cancel the batch confirm without firing onAbortBatch", () => {
+  const batch = [runningEntry("batchB:0", { batchId: "batchB" })];
+  let fired = 0;
+  const viewer = new SubagentViewer(
+    { runs: [], getRunning: () => batch, onClose: () => {}, onAbortBatch: () => fired++ },
+    T,
+  );
+  viewer.handleInput("x");
+  viewer.handleInput("n");
+  assert.equal(fired, 0);
+  viewer.handleInput("x");
+  viewer.handleInput("\x1b"); // Esc cancels the confirm, keeps the viewer open
+  assert.equal(fired, 0);
+  assert.ok(!viewer.render(80).join("\n").includes("Abort all"), "confirm gone after Esc");
+});
+
+test("x on a SETTLED batch header opens no batch confirm — it filters, per the F-ui-1 design", () => {
+  const batch = [
+    runningEntry("batchC:0", { batchId: "batchC", status: "done" }),
+    runningEntry("batchC:1", { batchId: "batchC", status: "done" }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => batch, onClose: () => {} }, T);
+  viewer.handleInput("x");
+  const out = viewer.render(80).join("\n");
+  assert.ok(!out.includes("Abort all"), "no batch confirm on an all-done header");
+  // Non-running selections fall through to the filter BY DESIGN (F-ui-1,
+  // documented in #2195): x stays available as a filter character there.
+  assert.ok(out.includes('filter: "x"'), "all-done header follows the designed fallthrough");
+});

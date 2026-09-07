@@ -199,3 +199,20 @@ describe("change watchers (F-invalidate — discrete lifecycle channel)", () => 
     expect(changes).toBe(1);
   });
 });
+
+describe("abortBatch (self-arc-9 t03)", () => {
+  test("fires every non-terminal child of the batch, skips others + terminal, returns the count", () => {
+    const killed: string[] = [];
+    start("b1", { batchId: "batch-1", abort: () => killed.push("b1") });
+    start("b2", { batchId: "batch-1", abort: () => killed.push("b2") });
+    start("b3", { batchId: "batch-1", status: "done", abort: () => killed.push("b3") });
+    start("other", { batchId: "batch-2", abort: () => killed.push("other") });
+    start("nolever", { batchId: "batch-1" });
+    expect(registry.abortBatch("batch-1")).toBe(2);
+    expect(killed.sort()).toEqual(["b1", "b2"]);
+  });
+
+  test("unknown batchId fires nothing and returns 0 (never throws)", () => {
+    expect(registry.abortBatch("missing")).toBe(0);
+  });
+});

@@ -6,7 +6,7 @@
  * successful create/edit/delete.
  */
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { AGENTS_DIR, homeDir, loadAgentRegistry } from "@repo/s2-agent-core-runtime";
 import { AgentsViewer } from "./agents-viewer.js";
 
@@ -37,7 +37,26 @@ export interface AgentsCommand {
   handler: (args: unknown, ctx: unknown) => Promise<void>;
 }
 
-export function createAgentsCommand(opts?: { cwd?: string }): AgentsCommand {
+/**
+ * Pack-dir source for agentType definitions (self-arc-9 t02). pi has no pack
+ * concept with a real directory source (checked upstream — extensions/skills
+ * only), so packs enter through an explicit env seam instead of an invented
+ * auto-discovery that would assume a source tree layout and break in deployed
+ * dist trees. Colon-separated; relative entries resolve against cwd. The
+ * viewer already renders `source: "pack"` rows read-only, so this seam only
+ * needs to feed the registry loader (and the write-collision refusal, which
+ * shares the same packDirs).
+ */
+export function resolvePackDirs(cwd: string, env = process.env.S2_AGENT_PACK_DIRS): string[] {
+  if (!env) return [];
+  return env
+    .split(":")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => resolve(cwd, p));
+}
+
+export function createAgentsCommand(opts?: { cwd?: string; packDirs?: string[] }): AgentsCommand {
   return {
     // Same vocabulary as /subagents' description ("View ..." style), now that
     // the dialog manages as well as views.
@@ -49,7 +68,7 @@ export function createAgentsCommand(opts?: { cwd?: string }): AgentsCommand {
         return;
       }
       const cwd = opts?.cwd ?? process.cwd();
-      const packDirs: string[] = [];
+      const packDirs = opts?.packDirs ?? resolvePackDirs(cwd);
       const load = (): ReturnType<typeof loadAgentRegistry> => loadAgentRegistry(cwd, { packDirs });
       const registry = load();
       await c.ui.custom<void>((tui, theme, _kb, done) => {

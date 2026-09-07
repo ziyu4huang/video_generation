@@ -149,6 +149,8 @@ interface ViewerOpts {
   /** Per-child abort lever — fires when the user confirms an x-key abort on a
    *  Running entry. Wired to registry.abort(id) in subagents-command.ts. */
   onAbort?: (id: string) => void;
+  /** Abort EVERY non-terminal child of a batch (self-arc-9 t03, batch-header x). */
+  onAbortBatch?: (batchId: string) => void;
   /** Ctrl+b detach lever (Task 06) — fires on the FOCUSED run (list: the
    *  cursor's Running row; follow: the followed run). Wired to
    *  `convertToBackground(id, makeProdDetachDeps())` in subagents-command.ts —
@@ -174,10 +176,13 @@ export class SubagentViewer {
   private onClose: () => void;
   /** Per-child abort callback (Frontier A); fires on a confirmed x-key abort. */
   private onAbort?: (id: string) => void;
+  private onAbortBatch?: (batchId: string) => void;
   /** Ctrl+b detach callback (Task 06); fires with the FOCUSED run's id. */
   private onDetach?: (id: string) => void;
   /** When set, the viewer is mid-abort-confirm on this running id; only y/n/Esc resolve. */
   private confirmAbortId?: string;
+  /** Pending WHOLE-BATCH abort (batch-header x) — resolved only via y/n/Esc. */
+  private confirmAbortBatchId?: string;
   private cachedWidth?: number;
   private cachedLines?: string[];
   private theme: Theme;
@@ -200,6 +205,7 @@ export class SubagentViewer {
     this.getRuns = opts.getRuns;
     this.onClose = opts.onClose;
     this.onAbort = opts.onAbort;
+    this.onAbortBatch = opts.onAbortBatch;
     this.onDetach = opts.onDetach;
     this.theme = theme;
   }
@@ -329,8 +335,9 @@ export class SubagentViewer {
     if (matchesKey(data, Key.escape)) {
       // A pending abort confirm is cancelled by Esc WITHOUT closing the viewer
       // (Frontier A) — the confirm is a transient sub-state (mirrors n).
-      if (this.confirmAbortId !== undefined) {
+      if (this.confirmAbortId !== undefined || this.confirmAbortBatchId !== undefined) {
         this.confirmAbortId = undefined;
+        this.confirmAbortBatchId = undefined;
         this.invalidate();
         return;
       }
@@ -361,14 +368,21 @@ export class SubagentViewer {
     // Per-child abort confirm (Frontier A): while confirming, only y/n resolve
     // (Esc is handled above); nav/enter/printable are ignored so a stray key
     // can't follow, filter, or abort mid-confirm.
-    if (this.confirmAbortId !== undefined) {
+    if (this.confirmAbortId !== undefined || this.confirmAbortBatchId !== undefined) {
       if (data === "y" || data === "Y") {
-        const id = this.confirmAbortId;
-        this.confirmAbortId = undefined;
-        this.onAbort?.(id);
+        if (this.confirmAbortId !== undefined) {
+          const id = this.confirmAbortId;
+          this.confirmAbortId = undefined;
+          this.onAbort?.(id);
+        } else {
+          const bid = this.confirmAbortBatchId;
+          this.confirmAbortBatchId = undefined;
+          this.onAbortBatch?.(bid as string);
+        }
         this.invalidate();
       } else if (data === "n" || data === "N") {
         this.confirmAbortId = undefined;
+        this.confirmAbortBatchId = undefined;
         this.invalidate();
       }
       return;
@@ -404,6 +418,15 @@ export class SubagentViewer {
       const e = entries[this.selected];
       if (e?.kind === "running") {
         this.confirmAbortId = e.ref.id;
+        this.invalidate();
+        return;
+      }
+      // self-arc-9 t03: a RUNNING batch header aborts the whole group. A
+      // header with no running children (or a completed-section header) falls
+      // through to the filter input — the same designed fallthrough F-ui-1
+      // documented for non-running ROWS (x stays a filter character there).
+      if (e?.kind === "batchHeader" && e.section === "running" && e.running > 0) {
+        this.confirmAbortBatchId = e.batchId;
         this.invalidate();
         return;
       }
@@ -587,6 +610,11 @@ export class SubagentViewer {
     lines.push("");
     if (this.confirmAbortId !== undefined) {
       lines.push(truncateToWidth(` ${th.fg("warning", th.bold("Abort this subagent? y/N"))}`, width));
+      lines.push("");
+    } else if (this.confirmAbortBatchId !== undefined) {
+      const e = this.entries().find((x) => x.kind === "batchHeader" && x.batchId === this.confirmAbortBatchId);
+      const n = e && e.kind === "batchHeader" ? e.running : 0;
+      lines.push(truncateToWidth(` ${th.fg("warning", th.bold(`Abort all ${n} running children? y/N`))}`, width));
       lines.push("");
     }
     return lines;

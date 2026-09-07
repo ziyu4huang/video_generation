@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRegistry } from "@repo/s2-agent-core-runtime";
 import { loadAgentRegistry } from "@repo/s2-agent-core-runtime";
-import { createAgentsCommand } from "../src/agents-command.js";
+import { createAgentsCommand, resolvePackDirs } from "../src/agents-command.js";
 import { AgentsViewer } from "../src/agents-viewer.js";
 
 const T = {
@@ -384,5 +384,95 @@ describe("createAgentsCommand", () => {
     const out = mounted?.render(W).join("\n") ?? "";
     expect(out).toContain("probe-agent");
     expect(out).toContain("seeded for the test");
+  });
+});
+
+// ── self-arc-9 t02 — pack definitions reach the dialog through the env seam ──
+
+describe("pack definitions via S2_AGENT_PACK_DIRS (env seam)", () => {
+  test("resolvePackDirs: colon-split, relative resolved against cwd, empty/unset → []", () => {
+    expect(resolvePackDirs("/repo")).toEqual([]);
+    expect(resolvePackDirs("/repo", "")).toEqual([]);
+    expect(resolvePackDirs("/repo", "/a:/b :/c")).toEqual(["/a", "/b", "/c"]);
+    expect(resolvePackDirs("/repo", "packs/one:packs/two")).toEqual(["/repo/packs/one", "/repo/packs/two"]);
+  });
+
+  test("end-to-end: a pack dir's definitions render labeled `extension pack` and refuse e/d", () => {
+    const root = mkdtempSync(join(tmpdir(), "agents-pack-"));
+    try {
+      const projectDir = join(root, "project-agents");
+      const userDir = join(root, "user-agents");
+      const packDir = join(root, "pack-agents");
+      mkdirSync(projectDir, { recursive: true });
+      mkdirSync(userDir, { recursive: true });
+      mkdirSync(packDir, { recursive: true });
+      writeFileSync(
+        join(packDir, "pack-worker.md"),
+        "---\nname: pack-worker\ndescription: shipped by an extension pack\n---\nPack worker prompt.",
+        "utf-8",
+      );
+      const load = () => loadAgentRegistry(root, { projectDir, userDir, packDirs: [packDir] });
+      const v = new AgentsViewer(
+        {
+          registry: load(),
+          onClose: () => {},
+          dirs: { project: projectDir, user: userDir, packDirs: [packDir] },
+          onReload: load,
+        },
+        T,
+      );
+      const out = v.render(W).join("\n");
+      expect(out).toContain("pack-worker");
+      expect(out).toContain("extension pack");
+      // Walk to the pack row and try to edit, then delete — both refuse.
+      let refused = false;
+      for (let i = 0; i < 10 && !refused; i++) {
+        v.handleInput("j");
+        v.handleInput("e");
+        refused = v.render(W).join("\n").includes("view-only");
+      }
+      expect(refused).toBe(true);
+      v.handleInput("d");
+      expect(v.render(W).join("\n")).not.toContain("Delete definition");
+      expect(existsSync(join(packDir, "pack-worker.md"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test("command-level: the handler loads pack defs when the env is set (ctx contract)", async () => {
+    const root = mkdtempSync(join(tmpdir(), "agents-pack-cmd-"));
+    try {
+      const packDir = join(root, "pack-agents");
+      mkdirSync(packDir, { recursive: true });
+      writeFileSync(
+        join(packDir, "env-worker.md"),
+        "---\nname: env-worker\ndescription: via S2_AGENT_PACK_DIRS\n---\nPrompt.",
+        "utf-8",
+      );
+      let factory:
+        | ((tui: unknown, theme: unknown, kb: unknown, done: () => void) => { render: (w: number) => string[] })
+        | undefined;
+      const ctx = {
+        mode: "tui",
+        ui: {
+          notify: () => {},
+          custom: (f: typeof factory) => {
+            factory = f;
+            return new Promise<void>(() => {});
+          },
+        },
+      } as never;
+      const cmd = createAgentsCommand({ cwd: root, packDirs: [packDir] });
+      cmd.handler([], ctx); // handler suspends on ui.custom — nothing to await
+      const out =
+        factory?.({ requestRender: () => {} }, T, undefined, () => {})
+          ?.render(W)
+          .join("\n") ?? "";
+      expect(out).toContain("env-worker");
+      expect(out).toContain("extension pack");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

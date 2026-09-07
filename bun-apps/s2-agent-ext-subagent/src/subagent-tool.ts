@@ -764,8 +764,16 @@ export function createSubagentTool(
       // (end()), so after completion this reads undefined and the segment
       // reverts — the model then lives on the result line (d.model). While
       // running, onModelResolved → updateModel keeps this fresh + re-renders.
-      const v = options.inFlight?.view(context.toolCallId);
-      options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
+      // self-arc-9 t01 (modelSeg live-slot): the view + bind used to be read
+      // ONCE here, outside the composer closure — violating RunView's
+      // "per-tick ephemeral, never cache across render ticks" contract. The
+      // frozen `v` meant onModelResolved's updateModel → invalidate → re-render
+      // loop re-ran the composer but it kept projecting the renderCall-time
+      // snapshot: the live line's model segment never flipped (stuck on
+      // "default" when no explicit model was requested). Both reads moved
+      // INSIDE the closure; bindInvalidate also rebinds each tick because
+      // renderCall can legitimately run BEFORE dispatchChild's start(), where
+      // a bind on the absent entry is a silent no-op.
       // Compose-in-render (ticket 02): the line is composed inside the
       // component's render(width) at the REAL terminal width — ticket 01's
       // width-aware helpers re-flow on resize for free. The closure swap on
@@ -773,9 +781,14 @@ export function createSubagentTool(
       // Root-cause hotfix: the host streams call args incrementally
       // (`message_update` → updateArgs) and an abort can freeze them partial,
       // so `args.task` may be undefined here — never forward a missing task.
-      component.setComposer((width) =>
-        renderSubagentCall({ ...args, task: args?.task ?? "", modelSeg: v?.modelSeg }, theme, width),
-      );
+      component.setComposer((width) => {
+        options.inFlight?.bindInvalidate(context.toolCallId, context.invalidate);
+        return renderSubagentCall(
+          { ...args, task: args?.task ?? "", modelSeg: options.inFlight?.view(context.toolCallId)?.modelSeg },
+          theme,
+          width,
+        );
+      });
       return component;
     },
     renderResult(result, renderOptions, theme, context) {
@@ -785,7 +798,10 @@ export function createSubagentTool(
       // registry still holds an entry for this run; renderSubagentResult
       // degrades to the bare actual model otherwise. `options` here is the
       // tool-level closure (same source renderCall reads), not renderOptions.
-      const v = options.inFlight?.view(context.toolCallId);
+      // self-arc-9 t01: read FRESH per render (inside each closure) — batch
+      // children linger terminal-but-present (release: "markCompleted") until
+      // endBatch, so a frozen read would keep the settled line on the
+      // renderResult-time snapshot for the whole linger.
       // Ticket 03: the SETTLED expanded report renders as STYLED markdown — a
       // Container composing the unchanged header row (badge + meta) as Text
       // above a Markdown component fed the full, uncapped report text and the
@@ -803,7 +819,10 @@ export function createSubagentTool(
       if (!renderOptions.isPartial && renderOptions.expanded) {
         return new GuardedComponent((width) => {
           const box = new Container();
-          const header = renderSubagentResultHeader(result, theme, { modelSeg: v?.modelSeg, width });
+          const header = renderSubagentResultHeader(result, theme, {
+            modelSeg: options.inFlight?.view(context.toolCallId)?.modelSeg,
+            width,
+          });
           if (header) box.addChild(new Text(header, 0, 0));
           box.addChild(new Markdown(subagentResultText(result), 0, 0, getMarkdownTheme()));
           return box;
@@ -813,7 +832,10 @@ export function createSubagentTool(
       // render-time width via opts (settled-collapsed cap becomes width-
       // derived); resize re-flow is free from the render(width) contract.
       component.setComposer((width) =>
-        renderSubagentResult(result, renderOptions, theme, { modelSeg: v?.modelSeg, width }),
+        renderSubagentResult(result, renderOptions, theme, {
+          modelSeg: options.inFlight?.view(context.toolCallId)?.modelSeg,
+          width,
+        }),
       );
       return component;
     },

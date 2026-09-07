@@ -2812,3 +2812,42 @@ test("settledHeadline strips common markdown first-line markers (t01 review nit)
     assert.ok(out.includes(`↳ ${wantHeadline}`), `${body} → ↳ ${wantHeadline}`);
   }
 });
+
+// ── self-arc-9 t01 — modelSeg live-slot (frozen-v regression + placeholder) ──
+
+test("t01: renderCall re-projects the registry view on EVERY render (frozen-v regression)", () => {
+  const reg = new SubagentInFlightRegistry();
+  const tool = createSubagentTool({ inFlight: reg });
+  // No explicit model/tier/capability → the entry's model placeholder is the
+  // literal "default" (getMainModel is not wired in production).
+  reg.start({ id: "tc-live", taskPreview: "x", startedAt: 0 });
+  const comp = tool.renderCall?.({ agent: "auditor", task: "x" }, T, {
+    toolCallId: "tc-live",
+    invalidate: () => {},
+  } as never);
+  assert.ok(comp instanceof ComposerComponent);
+  // Pre-resolution: the "default" placeholder is omitted, not rendered.
+  assert.doesNotMatch(comp.render(200).join("\n"), /default/);
+  // The model resolves mid-run — the SAME component must flip on the next
+  // render. The pre-fix code read the RunView once OUTSIDE the composer
+  // closure, so this exact sequence rendered the stale renderCall-time
+  // snapshot forever (live `▸ default ▸` while the settled row said glm-5.3).
+  reg.updateModel("tc-live", "zai/glm-5.3");
+  assert.match(comp.render(200).join("\n"), /glm-5\.3/);
+});
+
+test("t01: renderSubagentCall omits the 'default' placeholder segment in both branches", () => {
+  // No requested slot (else-if branch): "default" must vanish.
+  assert.doesNotMatch(renderSubagentCall({ agent: "auditor", task: "x", modelSeg: "default" }, T, 200), /default/);
+  // Requested slot present while unresolved: the placeholder must vanish too.
+  assert.doesNotMatch(
+    renderSubagentCall({ agent: "auditor", task: "x", model: "m/x", modelSeg: "default" }, T, 200),
+    /default/,
+  );
+  // Real segments render (incl. a fallback marker, verbatim).
+  assert.match(renderSubagentCall({ agent: "auditor", task: "x", modelSeg: "glm-5.3" }, T, 200), /glm-5\.3/);
+  assert.match(
+    renderSubagentCall({ agent: "auditor", task: "x", modelSeg: "big → glm-5.3" }, T, 200),
+    /big → glm-5\.3/,
+  );
+});

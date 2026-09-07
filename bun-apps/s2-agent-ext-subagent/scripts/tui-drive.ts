@@ -324,6 +324,17 @@ async function scenarioDispatch(): Promise<void> {
       sawLive = true;
       if (/· ctrl\+o to expand/.test(s)) sawHint = true;
       if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
+      // t01 liveModelSlot (self-arc-9; LATCHED in-loop): judge the LIVE call
+      // LINE, not the whole screen — only a line that carries the trailing
+      // spawn_subagent segment can be the call line, so transcript prose
+      // (which mentions the tool and the model in separate sentences) cannot
+      // fake it. Pre-fix, that line's model segment froze on the
+      // renderCall-time snapshot (`▸ default ▸`) and never flipped.
+      for (const line of screen()) {
+        if (!line.includes("spawn_subagent")) continue;
+        receipt.checks.sawTaskLine = true;
+        if (/glm-5\.3/.test(line) && !line.includes("flash")) receipt.checks.liveModelSlot = true;
+      }
     }
     snap(running ? "running" : "after-run");
     if (running && !expanded && Date.now() - t0 > 8000) {
@@ -796,8 +807,11 @@ async function scenarioSwarm(): Promise<void> {
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
 
+  // self-arc-9 t03: task 1 carries a sleep so the abort window is real — the
+  // two read-only tasks settle in seconds, and a batch that finishes before
+  // the gesture lands would turn the abort checks into honest fails.
   const prompt =
-    "Call the subagents tool (the batch tool) NOW, exactly once, with EXACTLY three tasks, all with agentType set to hard-problem, all foreground: task 1: read README.md and report its first line. task 2: run `ls` and report the file count. task 3: read sample.ts and report the number of exported functions. Do not answer anything yourself and use no other tool.";
+    "Call the subagents tool (the batch tool) NOW, exactly once, with EXACTLY three tasks, all with agentType set to hard-problem, all foreground: task 1: run `sleep 10` in the current directory, then reply SLEPT-1. task 2: run `ls` and report the file count. task 3: read sample.ts and report the number of exported functions. Do not answer anything yourself and use no other tool.";
   tty.write(prompt);
   await sleep(300);
   tty.write("\r");
@@ -806,40 +820,99 @@ async function scenarioSwarm(): Promise<void> {
 
   let sawLive = false;
   let sawThreeConcurrent = false;
+  let gestured = false;
+  let batchAbortConfirmed = false;
+  let allChildrenTerminal = false;
   const t0 = Date.now();
   while (Date.now() - t0 < opts.timeoutS * 1000) {
     await sleep(2000);
     const s = screen().join("\n");
     const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
-    if (running) {
-      sawLive = true;
-      // True concurrency: the batch header's k/3 counter with k ≥ 2 while
-      // children still run, or ≥3 distinct live Task rows.
-      const kOf3 = /(\d)\/3 running/.exec(s);
-      const taskRows = new Set((s.match(/Task\([^)]*\)/g) ?? []).map((m) => m));
-      if ((kOf3 && Number(kOf3[1]) >= 2) || taskRows.size >= 3) sawThreeConcurrent = true;
-      if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
-      // Latch the settled evidence INSIDE the loop: the per-child ✓ done rows
-      // and the batch header scroll out of the viewport once the parent's
-      // reply lands (receipted — a final-screen-only check reads an already-
-      // scrolled display and false-fails).
-      if (!receipt.checks.allSettled) {
-        const doneCount = (s.match(/✓ done/g) ?? []).length;
-        receipt.checks.allSettled = doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(s);
-      }
+    if (!running) {
+      snap("after-run");
+      if (sawLive && Date.now() - lastByteAt > opts.quietMs) break;
+      continue;
     }
-    snap(running ? "running" : "after-run");
-    if (!running && sawLive && Date.now() - lastByteAt > opts.quietMs) break;
+    sawLive = true;
+    // True concurrency: the batch header's k/3 counter with k ≥ 2 while
+    // children still run, or ≥3 distinct live Task rows.
+    const kOf3 = /(\d)\/3 running/.exec(s);
+    const taskRows = new Set((s.match(/Task\([^)]*\)/g) ?? []).map((m) => m));
+    if ((kOf3 && Number(kOf3[1]) >= 2) || taskRows.size >= 3) sawThreeConcurrent = true;
+    if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
+
+    // ── the abort gesture: FIRST CHILD evidence, on the OPEN viewer ──
+    // (The parent's `Working…` spinner fires long before the batch dispatches
+    // — receipted: the viewer opened on an empty registry and the gesture
+    // whiffed. Gate on the batch header counter or a live Task row: those
+    // exist only once the children are registered. L3: the freshly-mounted
+    // dialog eats the first keypress — pace every send with real sleeps; the
+    // viewer's Running section renders the batch header FIRST, so entry 0 IS
+    // the header: no arrow walk needed.)
+    if (!gestured && (kOf3 || taskRows.size >= 1)) {
+      gestured = true;
+      tty.write("/subagents");
+      await sleep(200);
+      tty.write("\r");
+      await sleep(1200);
+      // The dialog may beat the registration by a beat — wait until the
+      // batch section renders (or a bounded number of polls gives up).
+      for (let i = 0; i < 8; i++) {
+        if (/Running|batch/.test(screen().join("\n"))) break;
+        await sleep(500);
+      }
+      snap("swarm-viewer", true);
+      tty.write("x");
+      await sleep(500);
+      snap("swarm-abort-confirm", true);
+      receipt.checks.batchAbortFlow = /Abort all \d+ running children\? y\/N/.test(
+        readSnapText("swarm-abort-confirm") ?? "",
+      );
+      tty.write("y");
+      await sleep(500);
+      // STAY in the viewer: the registry's onChange channel repaints the open
+      // dialog on every terminal transition — observing it here re-proves
+      // F-invalidate under batch abort (the no-reopen discipline).
+      continue;
+    }
+
+    // ── latched post-abort observation (open viewer, NO reopen) ──
+    if (!batchAbortConfirmed) {
+      const viewerOpen = /Subagent runs/.test(s);
+      const confirmGone = !/Abort all \d+ running children/.test(s);
+      const terminalEvidence = /⊘|✗|aborted/.test(s) || /0\/3 running/.test(s);
+      if (viewerOpen && confirmGone && terminalEvidence) batchAbortConfirmed = true;
+    }
+    // All children terminal: ≥3 terminal child rows or a 0-running header in
+    // the viewer, OR (after esc) the transcript's settled batch line / abort
+    // notifications — rows scroll, so any single sample latches.
+    if (!allChildrenTerminal) {
+      const terminalRows = (s.match(/⊘|✗/g) ?? []).length;
+      if (
+        terminalRows >= 3 ||
+        /0\/3 running/.test(s) ||
+        /status: aborted|Subagent aborted by user|subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(s)
+      )
+        allChildrenTerminal = true;
+    }
+    snap(batchAbortConfirmed ? "aborted" : "aborting", true);
+    if (batchAbortConfirmed && allChildrenTerminal) break;
+    if (Date.now() - lastByteAt > opts.quietMs && !/Subagent runs/.test(s) && allChildrenTerminal) break;
   }
   snap("settled", true);
   const settledScreen = screen().join("\n");
   receipt.checks.liveRow = sawLive;
   receipt.checks.threeConcurrent = sawThreeConcurrent;
-  // Full settle: ALL THREE children done (a per-child ✓ done row each), or
-  // the batch header's human-duration form. A single badge is not enough —
-  // two children could have failed silently.
-  const doneCount = (settledScreen.match(/✓ done/g) ?? []).length;
-  receipt.checks.allSettled = doneCount >= 3 || /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
+  receipt.checks.batchAbortConfirmed = batchAbortConfirmed;
+  // Terminal evidence may have scrolled while we were still latching the
+  // confirm — the settled screen gets one more chance (LATCHED, never reset).
+  if (!allChildrenTerminal) {
+    const terminalRows = (settledScreen.match(/⊘|✗/g) ?? []).length;
+    allChildrenTerminal =
+      terminalRows >= 3 ||
+      /status: aborted|Subagent aborted by user|subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
+  }
+  receipt.checks.allChildrenTerminal = allChildrenTerminal;
 }
 
 /** Read a snapshot file back (the abort-confirm check needs the confirm text
@@ -897,7 +970,7 @@ receipt.checks.modelIsGlm = opts.expectModel.test(receipt.modelLine);
 // Required checks are per scenario — dispatch/parallel settle on badges and
 // viewer parity; viewer drills the follow/abort flow instead of a settle.
 const requiredByScenario: Record<Opts["scenario"], string[]> = {
-  dispatch: ["booted", "liveRow", "settledBadge", "viewerOpened", "childModelIsGlm53"],
+  dispatch: ["booted", "liveRow", "settledBadge", "viewerOpened", "childModelIsGlm53", "sawTaskLine", "liveModelSlot"],
   parallel: ["booted", "liveRow", "twoRunning", "settledBadge", "childModelIsGlm53"],
   viewer: [
     "booted",
@@ -924,7 +997,15 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
   ],
   reload: ["booted", "reloadOne", "reloadTwo"],
   catalog: ["booted", "backgroundRow", "catalogRouted", "settled", "childModelIsGlm53"],
-  swarm: ["booted", "liveRow", "threeConcurrent", "allSettled", "childModelIsGlm53"],
+  swarm: [
+    "booted",
+    "liveRow",
+    "threeConcurrent",
+    "batchAbortFlow",
+    "batchAbortConfirmed",
+    "allChildrenTerminal",
+    "childModelIsGlm53",
+  ],
 };
 const required = requiredByScenario[opts.scenario] ?? [];
 // expandedTrace + modelIsGlm are PARITY checks — reported, and required only

@@ -308,6 +308,23 @@ export class SubagentInFlightRegistry {
   abort(id: string): void {
     this.runs.get(id)?.abort?.();
   }
+
+  /** Fire the abort lever of EVERY non-terminal child of one batch
+   *  (self-arc-9 t03 — the /subagents viewer's batch-header x). Terminal
+   *  entries are skipped (their levers, if any, are stale); unknown batchId
+   *  fires nothing. Returns the count of levers actually fired — the caller
+   *  (and the receipt) can distinguish "aborted 3" from "nothing left
+   *  running". Levers absent (a child dispatched without one) count as not
+   *  fired, mirroring abort()'s `?.` semantics. */
+  abortBatch(batchId: string): number {
+    let fired = 0;
+    for (const r of this.runs.values()) {
+      if (r.batchId !== batchId || isTerminalStatus(r.status) || !r.abort) continue;
+      r.abort();
+      fired++;
+    }
+    return fired;
+  }
 }
 
 let _registrySingleton: SubagentInFlightRegistry | undefined;
