@@ -115,3 +115,38 @@ on the same receipt harness). t03/t04 are isolated.
   that motivated the stale comment; tui-drive scenario discipline).
 - Shares-decision-with: `2026-09-06-learnings-hardening` (deployed≠source:
   the t02 deployed-bundle grep leg is learning #1 applied).
+
+## Shipped-as (close-out)
+
+PR #2204 merged CLEAN on the FOURTH gate attempt — three real bounce lessons,
+all now encoded:
+1. `AgentDefinition` requires the `source` discriminant (builtin pack defs
+   initially omitted it).
+2. `arc-plan.ts` was missing from the devops scripts-dir-contract runnable
+   allowlist (the loop opener is a runnable entry — now registered).
+3. THE BIG ONE: the deploy e2e's kill-cap retry did not fire — bash wraps
+   SIGKILL as exit +137, so `timedOut` (code null/neg) missed it. Fixed to
+   `(timedOut || code === 137) ∧ cap-elapse`; the retry then absorbed the
+   latency spike and the gate went green. Exactly the fallback the planner's
+   D3 anticipated.
+
+## FULL pipeline qualification (deployed `0.10.0+gf2e08b9`, 2026-09-07)
+
+All NINE tui-drive scenarios PASS, three concurrent batches, zero required
+checks failed (receipts `output/qual2-*/`):
+
+| scenario | pass | snaps |
+|----------|------|-------|
+| dispatch | ✓ | 29 |
+| parallel | ✓ | 20 |
+| viewer   | ✓ | 10 |
+| agents   | ✓ | 10 |
+| reload   | ✓ | 23 |
+| catalog  | ✓ | 7  |
+| swarm    | ✓ | 12 |
+| workflow | ✓ | 14 |
+| wf-pause | ✓ | 22 |
+
+Deployed-artifact legs: `getMainModel` ×4 in the deployed ext bundle (t02 —
+wiring survives minification); builtin pack rows (`extension pack` label,
+code-reviewer / test-writer visible) in the deployed /agents (t04).
