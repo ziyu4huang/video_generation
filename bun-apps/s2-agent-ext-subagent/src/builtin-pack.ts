@@ -18,6 +18,7 @@ import type { AgentDefinition } from "@repo/s2-agent-core-runtime";
 export const BUILTIN_PACK_DEFS: AgentDefinition[] = [
   {
     name: "code-reviewer",
+    source: "pack" as const,
     description: "Review a diff for defects — every finding cites a file:line and a receipt (command output).",
     prompt:
       "You are a code reviewer. Read the actual diff/artifact before theorizing; never review from memory. " +
@@ -26,6 +27,7 @@ export const BUILTIN_PACK_DEFS: AgentDefinition[] = [
   },
   {
     name: "explorer",
+    source: "pack" as const,
     description:
       "Read-only repository reconnaissance — returns a file:line map of where a thing lives and how it works.",
     prompt:
@@ -34,6 +36,7 @@ export const BUILTIN_PACK_DEFS: AgentDefinition[] = [
   },
   {
     name: "test-writer",
+    source: "pack" as const,
     description: "Write regression tests from a failing receipt — reproduce first, then pin the exact behavior.",
     prompt:
       "You are a test writer. Reproduce the failing behavior first (run the command, read the actual output), then " +
