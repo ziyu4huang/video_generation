@@ -36,6 +36,8 @@
  * Output: `<out>/receipt.json` + numbered `snap-NN.txt` screen snapshots
  * (captured on change). Exit 0 iff every check passes; 1 otherwise.
  */
+
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -56,7 +58,17 @@ const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
 const S2 = path.join(REPO_ROOT, "s2-agent.sh");
 
 interface Opts {
-  scenario: "dispatch" | "parallel" | "viewer" | "agents" | "reload" | "swarm" | "catalog" | "workflow" | "wf-pause";
+  scenario:
+    | "dispatch"
+    | "parallel"
+    | "viewer"
+    | "agents"
+    | "reload"
+    | "swarm"
+    | "catalog"
+    | "workflow"
+    | "wf-pause"
+    | "cc-parity";
   sh: string;
   cwd: string;
   out: string;
@@ -124,6 +136,38 @@ if (!opts.cwd) {
     writeFileSync(
       path.join(opts.cwd, ".pi", "agents", "probe.md"),
       "---\nname: probe\ndescription: seeded by tui-drive\ntools: read, bash\n---\nDo the probe: read README.md and report its first line.",
+    );
+  }
+  // self-arc-12 t04 — cc-parity scenario seeds: the chain source (a token
+  // file), the reviewer target (a file with one planted off-by-one), and the
+  // read-only reviewer agentType (CC canonical example: tools exclude
+  // edit/write; bound to zai/glm-5.3 so childrenNotFlash is provable).
+  if (opts.scenario === "cc-parity") {
+    writeFileSync(path.join(opts.cwd, "secret-token.md"), "# scratch\nTOKEN: cc-parity-7f3a\n");
+    writeFileSync(
+      path.join(opts.cwd, "planted-bug.ts"),
+      [
+        "// The off-by-one in sumTo is INTENTIONAL (cc-parity reviewer target).",
+        "export function sumTo(n: number): number {",
+        "  let total = 0;",
+        "  for (let i = 0; i < n; i++) total += i; // drops the final addend",
+        "  return total;",
+        "}",
+      ].join("\n"),
+    );
+    writeFileSync(
+      path.join(opts.cwd, ".pi", "agents", "cc-code-reviewer.md"),
+      [
+        "---",
+        "name: cc-code-reviewer",
+        "description: Read-only code reviewer — reports FINDING: lines, never edits.",
+        "model: zai/glm-5.3",
+        "tools: read, grep, glob",
+        "---",
+        "You are the code reviewer for the CC-parity scenario. Examine the given",
+        "file and reply with FINDING: lines describing defects. You never modify",
+        "files and you never run shell commands.",
+      ].join("\n"),
     );
   }
 }
@@ -626,6 +670,107 @@ async function scenarioCatalog(): Promise<void> {
   receipt.checks.backgroundRow = backgroundRow;
   receipt.checks.catalogRouted = catalogRouted;
   receipt.checks.settled = settled;
+}
+
+// ── scenario: cc-parity (self-arc-12 t04 — the LIVE CC-parity receipts) ─────
+// Two phases in one drive, both against REAL glm-5.3 children:
+//   Phase 1 "Chain subagents" (CC sub-agents doc, Common patterns): the
+//   parent spawns #1 (read secret-token.md → reply TOKEN: <value>), waits for
+//   its notification, then spawns #2 with a task that EMBEDS the token; #2
+//   replies CHAIN-VERIFIED. Latches: the token line, the re-embedded task
+//   surface after settle 1, and CHAIN-VERIFIED.
+//   Phase 2 code-reviewer (the doc's canonical read-only example): the parent
+//   dispatches agentType cc-code-reviewer (seeded read-only, zai/glm-5.3) at
+//   planted-bug.ts; latches: the def-prompt quote / actor row, a FINDING:
+//   line, and the reviewed file byte-identical (sha256 before === after).
+// All checks LATCHED in-loop on rendered truth; no viewer reopen. Gesture
+// timing needs no child-evidence gating here (no abort gestures).
+async function scenarioCcParity(): Promise<void> {
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const bugPath = path.join(opts.cwd, "planted-bug.ts");
+  const sha256 = () => createHash("sha256").update(readFileSync(bugPath)).digest("hex");
+  const bugShaBefore = sha256();
+
+  // ── Phase 1: chain ──
+  const chainPrompt =
+    "Run a CHAIN of two subagents using the spawn_subagent tool. " +
+    "Step 1: call spawn_subagent once, background true, task: `Read secret-token.md in the current directory and reply with its TOKEN line verbatim.` " +
+    "Wait for step 1's task-notification. " +
+    "Step 2: call spawn_subagent once, background true, with EXACTLY this task but replacing <value> with the token from step 1's result: " +
+    "`Verify token <value> from the previous subagent's result: confirm it appears in secret-token.md and reply CHAIN-VERIFIED.` " +
+    "Do not read the file yourself; do not use any other tool.";
+  tty.write(chainPrompt);
+  await sleep(300);
+  tty.write("\r");
+  let chainChild1 = false;
+  let chainEmbedded = false;
+  let chainVerified = false;
+  let phase1Settled = false;
+  const t1 = Date.now();
+  while (Date.now() - t1 < (opts.timeoutS * 1000) / 2) {
+    await sleep(2000);
+    const s = screen();
+    const joined = s.join("\n");
+    if (!chainChild1 && /TOKEN: cc-parity-7f3a/.test(joined)) chainChild1 = true;
+    if (!phase1Settled && chainChild1 && /<task-notification>|status: done/.test(joined)) phase1Settled = true;
+    // Embedded evidence: the SUBSTITUTED phrase "Verify token cc-parity-7f3a"
+    // can only ever render from child 2's task surface (call line, live row,
+    // or its task-label trace) — child 1's output reads "TOKEN: …" and the
+    // parent's own prose quotes the template with the literal <value>. No
+    // settle-ordering gate: the call line renders before child 1's
+    // notification and scrolls out while the parent streams (rows scroll out
+    // — the F-invalidate learning), so gating on phase1Settled misses it.
+    if (!chainEmbedded && /Verify token cc-parity-7f3a/.test(joined)) chainEmbedded = true;
+    if (phase1Settled && !chainVerified && /CHAIN-VERIFIED/.test(joined)) chainVerified = true;
+    snap(
+      chainVerified ? "chain-done" : chainEmbedded ? "chain-embedded" : chainChild1 ? "chain-1" : "chain-sent",
+      true,
+    );
+    if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
+    if (chainVerified) break;
+  }
+  receipt.checks.chainChild1 = chainChild1;
+  receipt.checks.chainEmbedded = chainEmbedded;
+  receipt.checks.chainVerified = chainVerified;
+
+  // ── Phase 2: read-only code-reviewer ──
+  const reviewPrompt =
+    "Call the spawn_subagent tool NOW, exactly once, with background set to true and agentType " +
+    "cc-code-reviewer (from the 'Available agentTypes' catalog). task: `Review planted-bug.ts in the " +
+    "current directory for logic defects and reply with a FINDING: line describing any defect you find.` " +
+    "Do not review it yourself and use no other tool.";
+  tty.write(reviewPrompt);
+  await sleep(300);
+  tty.write("\r");
+  let reviewerRouted = false;
+  let findingReported = false;
+  let reviewSettled = false;
+  const t2 = Date.now();
+  while (Date.now() - t2 < (opts.timeoutS * 1000) / 2) {
+    await sleep(2000);
+    const joined = screen().join("\n");
+    // Routed evidence: actor row with the type name, or the seeded def-prompt
+    // quote (only exists when the spawn resolved cc-code-reviewer).
+    if (
+      !reviewerRouted &&
+      (/cc-code-reviewer.*glm-5\.3|glm-5\.3.*cc-code-reviewer/.test(joined) ||
+        /↳ You are the code reviewer/.test(joined))
+    )
+      reviewerRouted = true;
+    if (!findingReported && /FINDING:/.test(joined)) findingReported = true;
+    if (!reviewSettled && /<task-notification>|status: (done|aborted)/.test(joined)) reviewSettled = true;
+    snap(findingReported ? "finding" : reviewerRouted ? "reviewer-routed" : "review-sent", true);
+    if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
+    if (reviewSettled && reviewerRouted && findingReported) break;
+  }
+  receipt.checks.reviewerRouted = reviewerRouted;
+  receipt.checks.findingReported = findingReported;
+  receipt.checks.reviewSettled = reviewSettled;
+  // Read-only proof, belt and braces: the reviewed file is byte-identical.
+  receipt.checks.fileUnchanged = sha256() === bugShaBefore;
 }
 
 // ── scenario: workflow (self-arc-10 t03 — the unified-surface receipt) ──────
@@ -1141,6 +1286,7 @@ try {
   else if (opts.scenario === "catalog") await scenarioCatalog();
   else if (opts.scenario === "workflow") await scenarioWorkflow();
   else if (opts.scenario === "wf-pause") await scenarioWfPause();
+  else if (opts.scenario === "cc-parity") await scenarioCcParity();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -1209,6 +1355,16 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
     "batchAbortFlow",
     "batchAbortConfirmed",
     "allChildrenTerminal",
+    "childModelIsGlm53",
+  ],
+  "cc-parity": [
+    "booted",
+    "chainChild1",
+    "chainEmbedded",
+    "chainVerified",
+    "reviewerRouted",
+    "findingReported",
+    "fileUnchanged",
     "childModelIsGlm53",
   ],
 };
