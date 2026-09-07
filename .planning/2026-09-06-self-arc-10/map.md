@@ -2,7 +2,7 @@
 effort: 2026-09-06-self-arc-10
 created: 2026-09-07
 last: 2026-09-07
-status: planned
+status: done
 ---
 
 # Wayfinder map: 2026-09-06-self-arc-10 — unified agents surface
@@ -76,3 +76,29 @@ t01 first — it is the vocabulary every other ticket renders, and its
 ## Cross-effort links
 
 - Builds-on: `2026-09-06-self-arc-7` (onChange channel + F-invalidate), `2026-09-06-self-arc-9` (abortBatch, swarm scenario, gesture/child-evidence discipline).
+
+## Shipped-as (close-out)
+
+PR #2202 merged CLEAN on the second attempt (squash `6628775`): the first
+attempt bounced on (a) a real TS2322 downstream of the modelSeg-optional
+change (the follow header interpolated `r.modelSeg` into a `string` local —
+fixed by making the segment conditional), and (b) the deploy e2e's
+glm-5.3-flash roundtrip hitting its 90s cap (exit 137 = killed by the cap —
+environmental latency, passed on immediate re-run; discrimination per the
+runbook's environmental-red rule). Main synced; redeployed `0.10.0+g6628775`.
+
+## FULL pipeline qualification (deployed tree, 2026-09-07)
+
+All eight tui-drive scenarios PASS on `0.10.0+g6628775`, run as three
+concurrent batches (receipts under `output/qual-*/`):
+
+| scenario | pass | snaps | failed checks |
+|----------|------|-------|----------------|
+| dispatch | ✓ | 26 | none |
+| parallel | ✓ | 24 | none |
+| viewer   | ✓ | 10 | none |
+| agents   | ✓ | 10 | none |
+| reload   | ✓ | 20 | none |
+| catalog  | ✓ | 6  | none |
+| swarm    | ✓ | 10 | none |
+| workflow | ✓ | 30 | none |
