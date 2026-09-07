@@ -180,17 +180,20 @@ describeE2E("core-tool roundtrip (model → inspect_context → write)", () => {
 			let r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
 			// Kill-cap retry (once, self-arc-11 t03): a run that consumed the
 			// WHOLE cap was killed by our own timer — a model-latency spike, not
-			// a tool failure (live 2026-09-07: glm-5.3-flash died at the 90s cap
-			// with exit 137, passed on immediate re-run). Keyed on the
-			// timedOut ∧ cap-elapse conjunction, NOT bare 137: a fast genuine
-			// crash (code 137 from something real) must NOT retry.
-			if (r.timedOut && r.ms >= PRIMARY_CAP_MS - 2_000) {
+			// a tool failure (live 2026-09-07: glm-5.3-flash died at the 90s cap,
+			// passed on immediate re-run). Kill shape: `timedOut` (code null/neg)
+			// OR exit 137 — bash wraps SIGKILL as +137, so the bare timedOut flag
+			// misses it (that exact miss was caught by the arc-11 merge gate).
+			// The cap-elapse conjunction is what excludes a FAST genuine crash:
+			// only our timer kills at ~capMs, so elapsed ≈ cap ⇒ our kill.
+			const capKilled = (rr: RunResult) => rr.ms >= PRIMARY_CAP_MS - 2_000 && (rr.timedOut || rr.code === 137);
+			if (capKilled(r)) {
 				console.error(
-					`[e2e-write] primary ${PRIMARY_MODEL} killed at the ${PRIMARY_CAP_MS}ms cap (${r.ms}ms, latency) — retrying once (attempt 2/2)`,
+					`[e2e-write] primary ${PRIMARY_MODEL} killed at the ${PRIMARY_CAP_MS}ms cap (${r.ms}ms, code ${r.code}, latency) — retrying once (attempt 2/2)`,
 				);
 				r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
-				if (r.timedOut && r.ms >= PRIMARY_CAP_MS - 2_000) {
-					console.error(`[e2e-write] primary killed at cap TWICE — persistent; failing below`);
+				if (capKilled(r)) {
+					console.error(`[e2e-write] primary killed at cap TWICE (code ${r.code}) — persistent; failing below`);
 				}
 			}
 			// Artifact-retry (once): an exit-0 run that wrote nothing is the
