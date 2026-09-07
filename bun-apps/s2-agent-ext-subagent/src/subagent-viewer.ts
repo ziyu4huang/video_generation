@@ -190,7 +190,7 @@ export class SubagentViewer {
   private followedId?: string;
   private followedSnapshot?: {
     history: readonly AgentHistoryEntry[];
-    model: string;
+    model?: string;
     agent?: string;
     /** Last live elapsed (RunView.elapsedMs) — frozen once the run leaves the registry. */
     elapsedMs: number;
@@ -647,7 +647,7 @@ export class SubagentViewer {
     const r = this.followedId ? this.getRunning?.().find((x) => x.id === this.followedId) : undefined;
 
     let status: string;
-    let model: string;
+    let model: string | undefined;
     let elapsedMs: number;
     let usageStr = "";
     let agent: string | undefined;
@@ -683,7 +683,7 @@ export class SubagentViewer {
         usageStr = u && u.total > 0 ? ` · $${fmtCost(u.cost)} · ${u.total} tok` : "";
       } else {
         status = this.followEnded ? "ended" : "finalizing";
-        model = this.followedSnapshot?.model ?? "default";
+        model = this.followedSnapshot?.model;
         // Elapsed freezes at the last live RunView.elapsedMs — no local clock math.
         elapsedMs = this.followedSnapshot?.elapsedMs ?? 0;
         agent = this.followedSnapshot?.agent;
@@ -699,7 +699,11 @@ export class SubagentViewer {
         ? { icon: status === "finalizing" ? "…" : "–", color: "dim" }
         : activityGlyph(status as ActivityStatus);
     const glyph = th.fg(color as Parameters<Theme["fg"]>[0], icon);
-    const head = `${glyph} ${th.fg("accent", agentLabel)} ▸ ${th.fg("muted", model)} • ${th.fg("muted", status)} • ${fmtDurationHuman(elapsedMs)}${usageStr}`;
+    // self-arc-10: model is optional (a workflow row aggregates across models;
+    // an untagged subagent row has no slot) — the ▸ segment renders only when
+    // there IS a model to show.
+    const modelSeg = model ? ` ▸ ${th.fg("muted", model)}` : "";
+    const head = `${glyph} ${th.fg("accent", agentLabel)}${modelSeg} • ${th.fg("muted", status)} • ${fmtDurationHuman(elapsedMs)}${usageStr}`;
     lines.push(truncateToWidth(`  ${head}`, width));
     lines.push(truncateToWidth(th.fg("borderMuted", "─".repeat(Math.max(0, width))), width));
 
