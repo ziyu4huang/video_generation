@@ -686,9 +686,32 @@ async function scenarioCatalog(): Promise<void> {
 // All checks LATCHED in-loop on rendered truth; no viewer reopen. Gesture
 // timing needs no child-evidence gating here (no abort gestures).
 async function scenarioCcParity(): Promise<void> {
+  // Deployed hosts render LATE: waitIdle alone can return mid-load (2.5s of
+  // silence during a slow boot) — then the first Enter is eaten by the
+  // freshly-mounted dialog and the next prompt concatenates into the same
+  // buffer (the deployed-leg failure this gate fixes). Gate on RENDERED
+  // truth: screen non-empty, THEN quiet.
+  for (let i = 0; i < 60 && screen().length === 0; i++) await sleep(1500);
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
+
+  // Submit with verification: after Enter, the buffer must LEAVE the input —
+  // evidence is the parent spinner (submission accepted; NOT child evidence,
+  // which stays with the per-phase latches) or the phase's own latch. If
+  // neither shows within 6s, the fresh dialog ate the Enter: re-press once,
+  // latched on rendered truth (never a blind kick).
+  const sendPrompt = async (text: string, evidenceRe: RegExp): Promise<void> => {
+    tty.write(text);
+    await sleep(300);
+    tty.write("\r");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await sleep(6000);
+      const joined = screen().join("\n");
+      if (evidenceRe.test(joined) || /Working/.test(joined)) return;
+      tty.write("\r");
+    }
+  };
 
   const bugPath = path.join(opts.cwd, "planted-bug.ts");
   const sha256 = () => createHash("sha256").update(readFileSync(bugPath)).digest("hex");
@@ -702,9 +725,7 @@ async function scenarioCcParity(): Promise<void> {
     "Step 2: call spawn_subagent once, background true, with EXACTLY this task but replacing <value> with the token from step 1's result: " +
     "`Verify token <value> from the previous subagent's result: confirm it appears in secret-token.md and reply CHAIN-VERIFIED.` " +
     "Do not read the file yourself; do not use any other tool.";
-  tty.write(chainPrompt);
-  await sleep(300);
-  tty.write("\r");
+  await sendPrompt(chainPrompt, /TOKEN: cc-parity-7f3a/);
   let chainChild1 = false;
   let chainEmbedded = false;
   let chainVerified = false;
@@ -742,9 +763,7 @@ async function scenarioCcParity(): Promise<void> {
     "cc-code-reviewer (from the 'Available agentTypes' catalog). task: `Review planted-bug.ts in the " +
     "current directory for logic defects and reply with a FINDING: line describing any defect you find.` " +
     "Do not review it yourself and use no other tool.";
-  tty.write(reviewPrompt);
-  await sleep(300);
-  tty.write("\r");
+  await sendPrompt(reviewPrompt, /cc-code-reviewer/);
   let reviewerRouted = false;
   let findingReported = false;
   let reviewSettled = false;
