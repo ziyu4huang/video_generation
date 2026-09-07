@@ -235,6 +235,9 @@ export class SubagentViewer {
         // Collect ALL of this batch's children under one header, anchored at the
         // batch's first sight — so grouping is correct regardless of insertion
         // order (a batch is never split across an interleaved ungrouped run).
+        // Terminal children STAY rendered here (greyed, selectable → follow
+        // shows the frozen trace) — that is the designed batch behavior; the
+        // F-ui-2 fix below is scoped to UNGROUPED entries.
         if (seenBatches.has(bid)) continue;
         seenBatches.add(bid);
         const children = allRunning.filter((x) => x.batchId === bid);
@@ -250,6 +253,12 @@ export class SubagentViewer {
           for (const c of children) runningEntries.push({ kind: "running", ref: c });
         }
       } else {
+        // F-ui-2: an ungrouped entry whose status is already terminal is kept
+        // in the in-flight registry on purpose (the trace stays followable),
+        // but it must not render as Running — its persisted row in the
+        // completed section is the display of record. Receipted: after a
+        // successful kill the stale live row outlived the child by 15s+.
+        if (isTerminalStatus(r.status)) continue;
         runningEntries.push({ kind: "running", ref: r });
       }
     }

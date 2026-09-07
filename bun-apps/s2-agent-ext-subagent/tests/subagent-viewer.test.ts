@@ -244,6 +244,38 @@ test("viewer list shows a Running section with live elapsed when getRunning retu
   assert.match(out, /1 call/, "running section shows the live tool-call count");
 });
 
+test("F-ui-2: a TERMINAL in-flight entry (aborted) never renders as Running", () => {
+  // The registry keeps terminal entries in views() on purpose (the trace
+  // stays followable), but an UNGROUPED terminal entry must not render in
+  // the Running section — after a successful kill the stale row outlived the
+  // child by 15s+ (receipted 2026-09-06). The completed section's persisted
+  // row is the display of record. (Batch children keep the greyed,
+  // selectable frozen-trace rendering — designed behavior, tested below.)
+  const running = [
+    runningEntry("live", { actor: "ungrouped-live" }),
+    runningEntry("dead", { status: "aborted", elapsedFrozen: true, actor: "ungrouped-dead" }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => running, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.match(out, /Running/, "the live child still renders");
+  assert.ok(out.includes("ungrouped-live"), "live row present");
+  assert.ok(!out.includes("ungrouped-dead"), "aborted row dropped from the Running section");
+});
+
+test("F-ui-2: batch terminal children KEEP the greyed frozen-trace rendering (designed)", () => {
+  // Scoped-on-purpose: the F-ui-2 fix is for UNGROUPED entries. Batch
+  // children render greyed and selectable so follow shows the frozen trace —
+  // mirror the proven fixture shape (id `${batchId}:${n}`, status done, ✓).
+  const batch = [
+    runningEntry("batch-2:0", { batchId: "batch-2" }),
+    runningEntry("batch-2:1", { batchId: "batch-2", status: "done" }),
+  ];
+  const viewer = new SubagentViewer({ runs: [], getRunning: () => batch, onClose: () => {} }, T);
+  const out = viewer.render(80).join("\n");
+  assert.match(out, /Running/, "header stays while a sibling runs");
+  assert.ok(out.includes("✓"), "terminal sibling keeps the greyed rendering (✓) under the header");
+});
+
 test("viewer list omits the Running section when no in-flight runs", () => {
   const viewer = new SubagentViewer({ runs: [], getRunning: () => [], onClose: () => {} }, T);
   const out = viewer.render(80).join("\n");
