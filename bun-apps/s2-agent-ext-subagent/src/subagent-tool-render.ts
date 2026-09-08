@@ -112,7 +112,8 @@ export function renderSubagentCall(
   // self-arc-9 t01 (defect A honesty fix): `modelSeg` is
   // `shortModel(resolvedModel ?? entryModel ?? "default")` — when nothing was
   // requested and nothing has resolved yet, the placeholder is the literal
-  // "default" (getMainModel is not wired in production). Render nothing rather
+  // "default" (getMainModel's production wiring arrived after this fix —
+  // self-arc-11 t02, see the untagged-dispatch note below). Render nothing rather
   // than a meaningless segment; no real provider id is "default". Post-
   // resolution the line flips to the real model (the composer closure now
   // re-reads the registry per tick — see subagent-tool.ts renderCall).

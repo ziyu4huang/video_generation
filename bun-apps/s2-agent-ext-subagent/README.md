@@ -131,3 +131,13 @@ Recurring host/repo environment facts (macOS has no GNU `timeout`; never `git ad
 ## Upstream sync
 
 This package has **dual provenance**: the package body (33 src files) was extracted from `s2-agent-ext-ultracode` (#789), while the 2 watchdog files (`src/watchdog/lsp-diagnostics.ts`, `src/watchdog/repo-diff.ts`) are a selective port from `nicobailon/pi-subagents`. The watchdog ports are documented in [`docs/upstream/pi-subagents.pin.md`](docs/upstream/pi-subagents.pin.md) — consult it before any upstream sync so those ports aren't lost again.
+
+## Interactive verification lanes (manual, on-demand — never CI gates)
+
+Three pty/tmux lanes drive the REAL TUI like a human; they complement each other, no one lane covers all surfaces:
+
+| Lane | Tech | What it proves |
+| --- | --- | --- |
+| [`scripts/tui-drive.ts`](scripts/tui-drive.ts) | Bun.Terminal PTY + xterm-headless | the DEEP drive: 10 scenarios (dispatch, parallel, viewer, agents, reload, swarm, catalog, workflow, wf-pause, cc-parity) with machine-readable `receipt.json` — the self-evolve loop's issue-finder. `--sh <deployed>/s2-agent.sh` targets a deployed tree. |
+| [`scripts/tui-e2e-lane.ts`](scripts/tui-e2e-lane.ts) | tmux | the DEPLOYED-tree BOOT smoke: banner, [Skills]/[Extensions] blocks, one real model round-trip, /workflows + /subagents open/close. Exit 2 SKIPPED without tmux or a deployed tree. |
+| [`scripts/esc-repro-lane.ts`](scripts/esc-repro-lane.ts) | tmux | the Esc/abort/settle seam regression (#2067): dispatch → streaming partial → Esc → the settled badge must be `⊘ aborted`, not `⏱ timedout`. Run after any change to the dispatch/abort seam. Prereq: a reachable LM-Studio-style local endpoint (the preflight SKIPs otherwise — a zai-only machine needs the parent default in `~/.pi/agent/settings.json` to point at a cloud model). |

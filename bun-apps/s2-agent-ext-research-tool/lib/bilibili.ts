@@ -35,8 +35,63 @@ export function getMixinKey(raw: string): string {
 	return MIXIN_KEY_ENC_TAB.map((i) => raw[i]).join("").slice(0, 32);
 }
 
+/** md5 helper for WBI signing. */
 function md5(str: string): string {
 	return createHash("md5").update(str).digest("hex");
+}
+
+/* ================================================================
+ * Outcomes (self-arc-13 T2)
+ * ================================================================ */
+
+/**
+ * Every engine call answers with an OUTCOME, never a bare value: a 412
+ * risk-control block, a WBI-key outage, a network failure, and a genuinely
+ * empty result are four different facts, and the pre-T2 engine collapsed
+ * them all into `[]` — the tool then wrote a "successful" empty digest.
+ */
+export type EngineStatus = "ok" | "blocked-412" | "wbi-unavailable" | "network-error" | "api-error";
+
+export interface EngineOutcome<T> {
+	data: T;
+	status: EngineStatus;
+	/** Human-readable cause; present iff status !== "ok". */
+	reason?: string;
+}
+
+export type SearchOutcome = EngineOutcome<VideoResult[]>;
+/** buvid3 acquisition: data null ⇒ NO cookie (a fabricated random buvid3
+ *  fools risk-control checks into hard-blocking the session — never invent one). */
+export type Buvid3Outcome = EngineOutcome<string | null>;
+
+const BLOCKED_412_HINT = "risk-control blocked (HTTP 412): off-China IPs need proxy (e.g. proxy=http://127.0.0.1:7890)";
+
+async function fetchJson(url: string, init: RequestInit, proxy?: string): Promise<Response> {
+	return fetch(url, { ...init, ...(proxy ? { proxy } : {}) });
+}
+
+/* ================================================================
+ * WBI key cache (self-arc-13 T2)
+ * ================================================================ */
+
+// Keys rotate daily; the pre-T2 engine refetched /nav per keyword × per page,
+// multiplying the exact risk-control exposure the buvid3+proxy machinery
+// exists to avoid. Process-scoped cache; invalidated on signature rejection
+// (-403) so the next call refetches once.
+const WBI_KEY_TTL_MS = 12 * 3600_000;
+let wbiKeyCache: { imgKey: string; subKey: string; fetchedAt: number } | null = null;
+
+/** Cached WBI-key acquisition (fetch once per process/12h). */
+export async function getWbiKeys(cookieStr: string, proxy?: string): Promise<{ imgKey: string; subKey: string }> {
+	if (wbiKeyCache && Date.now() - wbiKeyCache.fetchedAt < WBI_KEY_TTL_MS) return wbiKeyCache;
+	const keys = await fetchWbiKeys(cookieStr, proxy);
+	wbiKeyCache = { ...keys, fetchedAt: Date.now() };
+	return keys;
+}
+
+/** Drop the cached WBI keys (signature rejection / tests). */
+export function resetWbiKeyCache(): void {
+	wbiKeyCache = null;
 }
 
 /**
@@ -61,19 +116,23 @@ export function signWbi(
  * Cookie + key acquisition
  * ================================================================ */
 
-/** Fetch a buvid3 cookie (Bilibili basic risk-control requirement). */
-export async function fetchBuvid3(proxy?: string): Promise<string> {
+/** Fetch a buvid3 cookie (Bilibili basic risk-control requirement). Never fabricates. */
+export async function fetchBuvid3(proxy?: string): Promise<Buvid3Outcome> {
 	try {
-		const resp = await fetch(`${API_BASE}/x/frontend/finger/spi`, {
-			headers: { "User-Agent": USER_AGENT },
-			...(proxy ? { proxy } : {}),
-		});
-		const json = (await resp.json()) as { code: number; data?: { b_3?: string } };
-		if (json.code === 0 && json.data?.b_3) return json.data.b_3;
-	} catch {
-		// fallthrough to random fallback
+		const resp = await fetchJson(
+			`${API_BASE}/x/frontend/finger/spi`,
+			{ headers: { "User-Agent": USER_AGENT } },
+			proxy,
+		);
+		if (resp.status === 412) {
+			return { data: null, status: "blocked-412", reason: BLOCKED_412_HINT };
+		}
+		const json = (await resp.json()) as { code: number; message?: string; data?: { b_3?: string } };
+		if (json.code === 0 && json.data?.b_3) return { data: json.data.b_3, status: "ok" };
+		return { data: null, status: "api-error", reason: `spi code ${json.code}${json.message ? `: ${json.message}` : ""}` };
+	} catch (err) {
+		return { data: null, status: "network-error", reason: (err as Error).message };
 	}
-	return `BUVID3_${Math.random().toString(36).substring(2, 18)}`;
 }
 
 /** Fetch the daily-rotating WBI keys (img_key, sub_key) from /x/web-interface/nav. */
@@ -112,13 +171,14 @@ export interface SearchOptions {
 }
 
 /** Type=search video search. Endpoint: /x/web-interface/wbi/search/type */
-export async function searchVideos(
-	keyword: string,
-	opts: SearchOptions = {},
-): Promise<VideoResult[]> {
+export async function searchVideos(keyword: string, opts: SearchOptions = {}): Promise<SearchOutcome> {
 	const { order = "click", duration = 0, page = 1, cookieStr = "", proxy } = opts;
-	const wbiKeys = await fetchWbiKeys(cookieStr, proxy).catch(() => null);
-	if (!wbiKeys) return [];
+	let wbiKeys: { imgKey: string; subKey: string };
+	try {
+		wbiKeys = await getWbiKeys(cookieStr, proxy);
+	} catch (err) {
+		return { data: [], status: "wbi-unavailable", reason: (err as Error).message };
+	}
 
 	const signed = signWbi(
 		{
@@ -139,14 +199,28 @@ export async function searchVideos(
 	};
 	if (cookieStr) headers["Cookie"] = cookieStr;
 
-	const resp = await fetch(url, { headers, ...(proxy ? { proxy } : {}) });
-	if (resp.status === 412) return []; // risk-control blocked
+	let resp: Response;
+	try {
+		resp = await fetchJson(url, { headers }, proxy);
+	} catch (err) {
+		return { data: [], status: "network-error", reason: (err as Error).message };
+	}
+	if (resp.status === 412) return { data: [], status: "blocked-412", reason: BLOCKED_412_HINT };
 	const json = (await resp.json()) as {
 		code: number;
+		message?: string;
 		data?: { result?: RawBiliSearchItem[] };
 	};
-	if (json.code !== 0 || !json.data?.result) return [];
-	return json.data.result.map(normalizeSearchItem);
+	if (json.code === -403) {
+		// Signature rejected — the cached keys went stale; drop them so the
+		// next call refetches once.
+		resetWbiKeyCache();
+		return { data: [], status: "wbi-unavailable", reason: "signature rejected (-403); WBI keys invalidated — retry" };
+	}
+	if (json.code !== 0 || !json.data?.result) {
+		return { data: [], status: "api-error", reason: `search code ${json.code}${json.message ? `: ${json.message}` : ""}` };
+	}
+	return { data: json.data.result.map(normalizeSearchItem), status: "ok" };
 }
 
 /** Popular/all-site feed. Endpoint: /x/web-interface/popular (no WBI needed). */
@@ -155,21 +229,29 @@ export async function fetchHotVideos(
 	pageSize = 20,
 	cookieStr = "",
 	proxy?: string,
-): Promise<VideoResult[]> {
+): Promise<SearchOutcome> {
 	const url = `${API_BASE}/x/web-interface/popular?pn=${page}&ps=${pageSize}`;
 	const headers: Record<string, string> = {
 		"User-Agent": USER_AGENT,
 		Referer: "https://www.bilibili.com/",
 	};
 	if (cookieStr) headers["Cookie"] = cookieStr;
-	const resp = await fetch(url, { headers, ...(proxy ? { proxy } : {}) });
-	if (resp.status === 412) return [];
+	let resp: Response;
+	try {
+		resp = await fetchJson(url, { headers }, proxy);
+	} catch (err) {
+		return { data: [], status: "network-error", reason: (err as Error).message };
+	}
+	if (resp.status === 412) return { data: [], status: "blocked-412", reason: BLOCKED_412_HINT };
 	const json = (await resp.json()) as {
 		code: number;
+		message?: string;
 		data?: { list?: RawBiliPopularItem[] };
 	};
-	if (json.code !== 0 || !json.data?.list) return [];
-	return json.data.list.map(normalizePopularItem);
+	if (json.code !== 0 || !json.data?.list) {
+		return { data: [], status: "api-error", reason: `popular code ${json.code}${json.message ? `: ${json.message}` : ""}` };
+	}
+	return { data: json.data.list.map(normalizePopularItem), status: "ok" };
 }
 
 /* ================================================================

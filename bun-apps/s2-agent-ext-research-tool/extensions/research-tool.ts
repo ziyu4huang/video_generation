@@ -153,23 +153,38 @@ const collectVideosTool = defineTool({
 
 		if (platform === "bilibili") {
 			const proxy = params.proxy;
-			const buvid3 = await fetchBuvid3(proxy);
-			const cookieStr = `buvid3=${buvid3};`;
+			const buvid = await fetchBuvid3(proxy);
+			let cookieStr = "";
+			if (buvid.status === "ok" && buvid.data) {
+				cookieStr = `buvid3=${buvid.data};`;
+			} else {
+				notes.push(`buvid3: ${buvid.status} (${buvid.reason ?? "no cookie"}) — proceeding without cookie`);
+			}
 			if (params.popular) {
-				const hotAll = await fetchHotVideos(1, 50, cookieStr, proxy);
-				hot = filterRelevant(hotAll, preset);
-				notes.push(`popular: ${hot.length} relevant of ${hotAll.length}`);
+				const hotOutcome = await fetchHotVideos(1, 50, cookieStr, proxy);
+				if (hotOutcome.status !== "ok") {
+					notes.push(`popular: ${hotOutcome.status} — ${hotOutcome.reason}`);
+				} else {
+					hot = filterRelevant(hotOutcome.data, preset);
+					notes.push(`popular: ${hot.length} relevant of ${hotOutcome.data.length}`);
+				}
 			}
 			for (const keyword of keywords) {
 				const all: VideoResult[] = [];
+				let failed = false;
 				for (let p = 1; p <= pages; p++) {
-					const videos = await searchVideos(keyword, { order, page: p, cookieStr, proxy });
-					if (videos.length === 0) break;
-					all.push(...videos);
+					const outcome = await searchVideos(keyword, { order, page: p, cookieStr, proxy });
+					if (outcome.status !== "ok") {
+						notes.push(`"${keyword}": ${outcome.status} — ${outcome.reason}`);
+						failed = true;
+						break;
+					}
+					if (outcome.data.length === 0) break;
+					all.push(...outcome.data);
 					if (p < pages) await sleep(1500);
 				}
 				groups.push({ keyword, videos: all });
-				notes.push(`"${keyword}": ${all.length}`);
+				if (!failed) notes.push(`"${keyword}": ${all.length}`);
 			}
 		} else {
 			// youtube
@@ -183,7 +198,7 @@ const collectVideosTool = defineTool({
 			const publishedAfter = publishedAfterDays(params.recency ?? 30);
 			for (const keyword of keywords) {
 				try {
-					const videos = await searchYtKeyword(keyword, apiKey, { order, pages, publishedAfter });
+					const videos = await searchYtKeyword(keyword, apiKey, { order, pages, publishedAfter, onNotice: (msg) => notes.push(msg) });
 					groups.push({ keyword, videos });
 					notes.push(`"${keyword}": ${videos.length}`);
 				} catch (err) {
@@ -214,7 +229,7 @@ const collectVideosTool = defineTool({
 						`${params.dryRun ? "Would write to" : "Written to"}: ${writePath}`,
 				},
 			],
-			details: { platform, preset, total, groups: groups.length, hotCount: hot?.length ?? 0, writePath, dryRun: params.dryRun ?? false },
+			details: { platform, preset, total, groups: groups.length, hotCount: hot?.length ?? 0, writePath, dryRun: params.dryRun ?? false, notes },
 		};
 	},
 });
@@ -643,6 +658,12 @@ function registerCollectCommand(
  * ================================================================ */
 
 const extension: ExtensionFactory = (pi) => {
+	// Self-gate: BUN_PI_RESEARCH_TOOL=0 disables the entire extension — it
+	// registers nothing. Every extension in the portable base set (the typed
+	// registry) shares this symmetric full-disable knob; enforced by
+	// tests/extension-isolation-contract.test.ts (self-arc-13: required the
+	// day the family actually entered the base set).
+	if (process.env.BUN_PI_RESEARCH_TOOL === "0") return;
 	pi.registerTool(collectVideosTool);
 	pi.registerTool(organizeTool);
 	pi.registerTool(importMemoryTool);

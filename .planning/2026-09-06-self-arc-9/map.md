@@ -93,3 +93,4 @@ tree and delivered the execution plan for the parity-ledger queue
 
 ## Back-links
 Back-link: self-arc-12 (cc-parity samples) reused the planner-led opener + dual receipts + child-evidence gating — see `.planning/2026-09-06-self-arc-12/map.md`.
+Back-link: self-arc-13 (research-tool reliability) reused the planner-led opener verbatim (arc-plan.ts, hard-problem, zai/glm-5.3, explicit read budget — 320s/372k tokens, economics lesson held) and extended the loop to a non-subagent family — see `.planning/2026-09-08-self-arc-13/map.md`.

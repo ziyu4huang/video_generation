@@ -101,7 +101,7 @@ Measured 2026-09-07 on this machine, read in-tree by the planner:
   (chain + code-reviewer in one drive), not a new runnable script — tui-drive.ts is
   already allowlisted, so no scripts-dir-contract delta. Children = zai/glm-5.3,
   NEVER flash — this arc's model policy overrides cc-parity-2 D2's flash floor; a
-  `childrenNotFlash` receipt check enforces it.
+  `childModelIsGlm53` receipt check enforces it (shipped check name).
 - D6 (2026-09-07): Suite B scope = B1, B2, B4, B5. B3 descoped (D3); B6
   (find-issues-until-convergence) descoped as NEW work because convergence looping
   is already receipted by `samples/kcard-converge-loop.js` — the catalog maps B6 to
@@ -158,3 +158,6 @@ PR #2209: dual-latch break condition (parent echoes CHAIN-VERIFIED before child-
 Receipts: source leg `output/self-arc12-ccparity-src-20260907-r2` PASS 8/8; deployed legs
 `output/self-arc12-ccparity-deployed-20260907-r2` + `output/sweep12-deployed-cc-parity-r2` PASS;
 FULL deployed sweep 10/10 on 0.10.0+g80419f1 (`output/sweep12-deployed-*`). Schema-cost +0 (D7 held).
+
+## Back-links
+Back-link: self-arc-13 (research-tool reliability) applied this arc's receipts discipline (source+deployed dual legs, named checks, post-merge redeploy re-run rule from t05) to the research-tool family's FIRST receipts — see `.planning/2026-09-08-self-arc-13/map.md`.

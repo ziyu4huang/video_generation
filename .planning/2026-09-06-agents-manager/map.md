@@ -1,8 +1,8 @@
 ---
 effort: 2026-09-06-agents-manager
 created: 2026-09-06
-last: 2026-09-06
-status: charted
+last: 2026-09-08
+status: done
 ---
 
 # Wayfinder map: 2026-06-agents-manager — `/agents` definition-management dialog
@@ -97,6 +97,16 @@ the write path; 03 wires + receipts).
   spurious `bun-apps/` segment; `bun install` calls them "no changes" since
   bun resolves workspaces its own way) — repaired to `../../<pkg>`, the
   deploy's vendor step stats those paths.
+
+## Shipped-as
+
+- t01 — PR #2192 (squash `8494a28e`): `/agents` read-only list dialog.
+- t02 + t03 — PR #2193 (branch `agents-manager-t02`): core-runtime
+  `writeAgentDefinition`/`deleteAgentDefinition` + in-dialog CRUD forms +
+  `tui-drive --scenario agents`; source AND deployed PASS 11/11
+  (`output/tui-agents-receipt-2026-09-06/`, model zai/glm-5.3); loop
+  findings F1 (eaten first keypress) + F2 (core-cache workspace-src hash)
+  found and fixed on the same branch.
 
 ## Cross-effort links
 
