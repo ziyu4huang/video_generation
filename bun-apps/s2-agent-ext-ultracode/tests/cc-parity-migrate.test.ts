@@ -18,9 +18,9 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join , sep } from "node:path";
+import { join, sep } from "node:path";
 import type { AgentUsage } from "@repo/s2-agent-core-runtime";
 import { WorkflowManager } from "../src/workflow-manager.js";
 import { withFakeHomeAsync } from "./helpers/fake-home.js";
@@ -133,37 +133,33 @@ function readdirSafe(dir: string): string[] {
   }
 }
 
-test(
-  "B3 hazard pinned: a NON-REPO base silently downgrades isolation to the main tree",
-  async () => {
-    // withTempCwd-style base WITHOUT git init — createWorktree returns
-    // {isolated:false, reason:"not a git repository"} and the child runs in
-    // the MAIN tree. The runtime logs `isolation ignored`; this gate pins the
-    // behavior loudly so the hazard stays a documented one, not a surprise.
-    const base = mkdtempSync(join(tmpdir(), "pi-dw-mig-nonrepo-"));
-    try {
-      const writes: (string | undefined)[] = [];
-      const manager = new WorkflowManager({
-        cwd: base,
-        agent: {
-          async run(prompt: string, options?: { cwd?: string; onUsage?: (u: AgentUsage) => void }) {
-            options?.onUsage?.({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, total: 2, cost: 0 });
-            if (prompt.startsWith("MIGRATE ")) {
-              writes.push(options?.cwd);
-              return "MIGRATED";
-            }
-            return "INTEGRATION REPORT";
-          },
+test("B3 hazard pinned: a NON-REPO base silently downgrades isolation to the main tree", async () => {
+  // withTempCwd-style base WITHOUT git init — createWorktree returns
+  // {isolated:false, reason:"not a git repository"} and the child runs in
+  // the MAIN tree. The runtime logs `isolation ignored`; this gate pins the
+  // behavior loudly so the hazard stays a documented one, not a surprise.
+  const base = mkdtempSync(join(tmpdir(), "pi-dw-mig-nonrepo-"));
+  try {
+    const writes: (string | undefined)[] = [];
+    const manager = new WorkflowManager({
+      cwd: base,
+      agent: {
+        async run(prompt: string, options?: { cwd?: string; onUsage?: (u: AgentUsage) => void }) {
+          options?.onUsage?.({ input: 1, output: 1, cacheRead: 0, cacheWrite: 0, total: 2, cost: 0 });
+          if (prompt.startsWith("MIGRATE ")) {
+            writes.push(options?.cwd);
+            return "MIGRATED";
+          }
+          return "INTEGRATION REPORT";
         },
-      });
-      const result = await manager.runSync(script("migrate-in-parallel.js"), { files: ["a.txt"] });
-      assert.equal(result.agentCount, 2);
-      // The downgrade is visible: cwd is the MAIN tree (the caller's base), so
-      // an author who asked for isolation but skipped git-init finds out HERE.
-      assert.deepEqual(writes, [undefined], "runner receives no cwd override — main tree");
-    } finally {
-      rmSync(base, { recursive: true, force: true });
-    }
-  },
-  30_000,
-);
+      },
+    });
+    const result = await manager.runSync(script("migrate-in-parallel.js"), { files: ["a.txt"] });
+    assert.equal(result.agentCount, 2);
+    // The downgrade is visible: cwd is the MAIN tree (the caller's base), so
+    // an author who asked for isolation but skipped git-init finds out HERE.
+    assert.deepEqual(writes, [undefined], "runner receives no cwd override — main tree");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+}, 30_000);

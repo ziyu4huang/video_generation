@@ -60,7 +60,13 @@ function withTempCwd(fn: (cwd: string) => Promise<void>) {
 }
 
 test("all four CC-parity sample scripts carry the documented meta block", () => {
-  for (const name of ["audit-many-files.js", "verify-fix-loop.js", "review-per-file.js", "research-fanout.js", "migrate-in-parallel.js"]) {
+  for (const name of [
+    "audit-many-files.js",
+    "verify-fix-loop.js",
+    "review-per-file.js",
+    "research-fanout.js",
+    "migrate-in-parallel.js",
+  ]) {
     const src = script(name);
     assert.match(src, /export const meta = \{/, `${name}: meta block present`);
     assert.match(src, /name: "cc-parity-/, `${name}: meta.name namespaced`);
