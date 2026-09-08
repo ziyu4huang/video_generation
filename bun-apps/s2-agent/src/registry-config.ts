@@ -534,7 +534,7 @@ export const REGISTRY: RegistryEntry[] = [
     excludeReason: "bound to this machine's swift CLIs and services",
   },
   {
-    name: "s2-agent-ext-research-tool",
+    name: "research-tool",
     package: "s2-agent-ext-research-tool",
     entry: "extensions/research-tool.ts",
     load: "dynamic",

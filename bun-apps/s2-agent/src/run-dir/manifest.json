@@ -23,7 +23,7 @@
 			"entry": "s2-agent-ext-ltx/extensions/ltx.ts"
 		},
 		{
-			"name": "s2-agent-ext-research-tool",
+			"name": "research-tool",
 			"entry": "s2-agent-ext-research-tool/extensions/research-tool.ts",
 			"version": "0.1.0"
 		},

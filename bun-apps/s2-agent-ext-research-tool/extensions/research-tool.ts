@@ -658,6 +658,12 @@ function registerCollectCommand(
  * ================================================================ */
 
 const extension: ExtensionFactory = (pi) => {
+	// Self-gate: BUN_PI_RESEARCH_TOOL=0 disables the entire extension — it
+	// registers nothing. Every extension in the portable base set (the typed
+	// registry) shares this symmetric full-disable knob; enforced by
+	// tests/extension-isolation-contract.test.ts (self-arc-13: required the
+	// day the family actually entered the base set).
+	if (process.env.BUN_PI_RESEARCH_TOOL === "0") return;
 	pi.registerTool(collectVideosTool);
 	pi.registerTool(organizeTool);
 	pi.registerTool(importMemoryTool);
