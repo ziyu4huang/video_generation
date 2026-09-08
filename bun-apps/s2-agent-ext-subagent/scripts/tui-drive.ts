@@ -141,7 +141,7 @@ if (!opts.cwd) {
   // self-arc-12 t04 — cc-parity scenario seeds: the chain source (a token
   // file), the reviewer target (a file with one planted off-by-one), and the
   // read-only reviewer agentType (CC canonical example: tools exclude
-  // edit/write; bound to zai/glm-5.3 so childrenNotFlash is provable).
+  // edit/write; bound to zai/glm-5.3 so childModelIsGlm53 is provable).
   if (opts.scenario === "cc-parity") {
     writeFileSync(path.join(opts.cwd, "secret-token.md"), "# scratch\nTOKEN: cc-parity-7f3a\n");
     writeFileSync(
@@ -185,7 +185,9 @@ function parseZaiKey(): string | undefined {
 }
 
 if (typeof Bun.Terminal !== "function") {
-  console.error("error: Bun.Terminal unavailable — Bun ≥1.3.5 required (repo pins 1.4.0; is PATH's bun stale?)");
+  console.error(
+    `error: Bun.Terminal unavailable — Bun ≥1.3.5 required (this machine runs ${Bun.version}; is PATH's bun stale?)`,
+  );
   process.exit(2);
 }
 

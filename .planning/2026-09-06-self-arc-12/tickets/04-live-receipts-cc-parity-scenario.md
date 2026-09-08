@@ -1,7 +1,7 @@
 # Ticket 04 — Live receipts: tui-drive `cc-parity` scenario (chain + code-reviewer)
 
-Status: open · Phase 2 · Package: `bun-apps/s2-agent-ext-subagent` (harness) ·
-Rides the implementation PR
+Status: done (PR #2206 d627845a; harness follow-ups #2208/#2209) · Phase 2 ·
+Package: `bun-apps/s2-agent-ext-subagent` (harness) · Rode the implementation PR
 
 ## Goal
 
@@ -31,13 +31,16 @@ duplicate the existing sweep.
      settle.
   2. **Code-reviewer**: route a read-only reviewer child over F; it returns
      findings naming the planted defect; NO file is edited.
-- Receipt checks (`receipt.json`, per-scenario required list):
-  `twoSpawnRowsSettled` (≥2 settled spawn rows, gated on child evidence),
-  `chainTokenPropagated` (latched from the second child's task/result line —
-  whichever surface carries it), `reviewerFindings` (screen shows the planted
-  defect), `fileUnchanged` (driver-side sha256 pre/post — not a screen check),
-  `modelIsGlm` + **`childrenNotFlash`** (every settled child row's model segment
-  is glm-5.3 — map D5: never flash this arc).
+- Receipt checks (`receipt.json`, per-scenario required list) — SHIPPED names
+  (the plan's predictions kept for the record at the bottom):
+  `chainChild1`/`chainEmbedded`/`chainVerified` (the chain leg; #2209 made the
+  phase-1 break require BOTH latches after the echo false-fail),
+  `reviewerRouted`/`findingReported`/`reviewSettled` (the reviewer leg),
+  `fileUnchanged` (driver-side sha256 pre/post — not a screen check),
+  `modelIsGlm` + `childModelIsGlm53` (child rows' model segment is glm-5.3,
+  flash excluded by name — map D5: never flash this arc). Plan-stage
+  predictions: `twoSpawnRowsSettled` / `chainTokenPropagated` /
+  `reviewerFindings` / `childrenNotFlash`.
 - Runs: source tree, then deployed tree (`--sh` → deployed s2-agent.sh), receipts
   under `output/self-arc12-cc-parity-{src,deployed}-<date>/` (output/ is scratch —
   never commit; cite paths in map at close-out).
