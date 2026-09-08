@@ -1355,3 +1355,73 @@ describe("merge-pr-after-ci-cli — ciLogDir on failed local CI (MC-2)", () => {
 		expect(outcome.aborted.message).toContain("full logs:");
 	});
 });
+
+// ── self-arc-15 t06 / MC-5: held-elsewhere is a STRUCTURED outcome ──────────
+describe("merge-pr-after-ci-cli — cleanup.localKept (MC-5)", () => {
+	test("a branch held by another worktree is reported structurally, not just as a note", async () => {
+		const clientParts = fakeClient({
+			worktrees: [{ worktree: "/elsewhere/worktree", branch: "feature" }],
+		});
+		const res = await runPrFinishCli(["42"], {
+			gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
+			client: clientParts.client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: async () => {},
+			verify: async () => ({
+				pr: 42,
+				state: "MERGED",
+				merged: true,
+				verdict: "CLEAN",
+				files: [],
+				fileCount: 0,
+				insertions: 0,
+				deletions: 0,
+				outOfScope: [],
+				inspected: false,
+				// The merge deleted the REMOTE branch (REST mergeNow), so cleanup
+				// runs locally — and finds the local branch held elsewhere.
+				branchSpent: true,
+				commands: [],
+				warnings: [],
+			}) as Awaited<ReturnType<typeof runVerifyMerge>>,
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.cleanup?.localKept).toEqual({ branch: "feature", worktree: "/elsewhere/worktree" });
+		// The classic note still rides the warnings (both surfaces, by design).
+		expect(
+			(outcome.warnings as string[]).some((w) => w.includes("checked out in another worktree")),
+		).toBe(true);
+	});
+
+	test("a normal (non-held) merge carries no cleanup field", async () => {
+		const res = await runPrFinishCli(["42"], {
+			gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: async () => {},
+			verify: async () => ({
+				pr: 42,
+				state: "MERGED",
+				merged: true,
+				verdict: "CLEAN",
+				files: [],
+				fileCount: 0,
+				insertions: 0,
+				deletions: 0,
+				outOfScope: [],
+				inspected: false,
+				branchSpent: false,
+				commands: [],
+				warnings: [],
+			}) as Awaited<ReturnType<typeof runVerifyMerge>>,
+		});
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.cleanup).toBeUndefined();
+		expect(res.exitCode).toBe(0);
+	});
+});

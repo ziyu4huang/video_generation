@@ -241,6 +241,10 @@ export interface PrFinishOutcome {
 	 *  detach and a restore was attempted (restored:false + conflict = the
 	 *  stash is KEPT — recover manually, see the warning). */
 	preserved?: PreserveOutcome;
+	/** MC-5 (self-arc-15 t06): the head branch was held by ANOTHER worktree —
+	 *  recorded structurally (and not only as a buried note) so the operator
+	 *  knows where the branch lives without re-running anything. */
+	cleanup?: { localKept?: { branch: string; worktree: string } };
 	aborted?: { aborted: true; reason: string; message: string };
 }
 
@@ -474,6 +478,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	// not-clean abort is far easier to act on when it says how many polls the
 	// mergeState survived.
 	let ciSkipped: PrFinishOutcome["ciSkipped"];
+	let cleanupKept: { branch: string; worktree: string } | undefined;
 	let mergeStateSettle: PrFinishOutcome["mergeStateSettle"];
 	let preserved: PreserveOutcome | undefined;
 	const abort = (
@@ -859,6 +864,9 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			if (cleanup.detached && cleanup.detachedOnto) {
 				commands.push(`git -C "${repoRoot}" checkout --detach ${cleanup.detachedOnto}`);
 			}
+			if (cleanup.heldElsewhere) {
+				cleanupKept = { branch: headRefName, worktree: cleanup.heldElsewhere };
+			}
 			warnings.push(...cleanup.notes);
 			try {
 				await client.deleteRemoteBranch(headRefName);
@@ -907,6 +915,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		...(ciSkipped ? { ciSkipped } : {}),
 		...(mergeStateSettle ? { mergeStateSettle } : {}),
 		...(preserved ? { preserved } : {}),
+		...(cleanupKept ? { cleanup: { localKept: cleanupKept } } : {}),
 	};
 	return { exitCode: 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 }
