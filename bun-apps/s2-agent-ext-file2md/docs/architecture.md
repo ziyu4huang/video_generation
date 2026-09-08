@@ -5,7 +5,7 @@ OCR, mandatory LM Studio) is gone. v2 conversion of one file:
 
 ```
 input bytes
-  ├─ detectKind()          MECHANICAL  magic bytes + zip family + ipynb/text peek  [src/core/sniff.ts]
+  ├─ detectKind()          MECHANICAL  magic bytes + zip family + svg probe + text peek [src/core/sniff.ts]
   ├─ pdf: openPdf()        pure TS pdfjs text layer, lazy per page                [src/core/pdf-text.ts]
   │        │ page text < 8 chars → scan
   │        ├─ rasterPage() pdfium wasm → BGRA → BMP/PNG (pure encoders)           [src/raster/]
@@ -15,7 +15,15 @@ input bytes
   │        │        │               ## Figure (vision); flag w/o server)         [src/core/figure.ts]
   │        │        └ profile classify (mode vlm, page 1)                        [src/vlm/classify-vlm.ts]
   ├─ image: OCR + optional vision describe; source copied as page-001.png
-  ├─ docx/xlsx/pptx/ipynb: readDocument() vendored dsh-cowork-core windows      [vendored/]
+  ├─ svg: structural extraction always (labels+census, ground truth)
+  │        └ renderSvgFileToPng() Bun.WebView two-pass raster → embed;
+  │           vlm = full vision note, smart = ## Figure (vision) append       [src/raster/svg.ts, src/core/svg-text.ts]
+  ├─ text(html w/ svg): figure pre-pass (balanced scan, local .svg refs only)
+  │        └ figures → pages/figure-NN.png anchors + smart/vlm descriptions    [src/pipeline.ts extractSvgFigures]
+  ├─ pptx: text runs (vendored) + deck-render seam rasterizes slides
+  │        └ per-slide notes w/ embeds; smart: diagram-slide heuristic;
+  │           vlm: describe all slides; no renderer → text-only + notice       [src/raster/deck.ts, runPptx]
+  ├─ docx/xlsx/ipynb: readDocument() vendored dsh-cowork-core windows           [vendored/]
   └─ text: passthrough / csv→table / html→markdown-lite, capped with notice
   ⇒ manifest.json + pages/*.md (+<slug>.md)                                       [src/vlm/manifest.ts]
 ```
@@ -23,6 +31,12 @@ input bytes
 Two rails, one seam: **extraction is deterministic pure-TS**; **OCR/vision are
 opt-in layering** behind modes `text|ocr|vlm`, every failure degrades to an
 explicit `> notice` or a per-page provenance marker — nothing silently drops.
+The render seam (effort 2026-09-08-file2md-svg-pptx-vision) extends the same
+rule to rasterization: WebView/qlmanage/soffice are probed, optional layers —
+`auto` rasterizes + embeds but never calls a VLM, `text` output is unchanged,
+and a missing renderer degrades to the text-only output plus an in-note
+notice. Vision descriptions may carry a light-validated ```mermaid fence
+(`src/vlm/mermaid.ts`); a bad fence unwraps to prose and never fails a page.
 
 **Caption-only figure pages are a real gap — closed by `smart` mode.** The OCR/vision
 trigger in `ocr`/`auto`/`vlm` is strictly `page text < 8 chars` (`OCR_TEXT_MIN_CHARS`).

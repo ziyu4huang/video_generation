@@ -1,13 +1,15 @@
 ---
 name: file2md
-description: Convert PDF, image, office, and text files to structured Markdown locally — text-first with bun-only extraction, vendored OCR for scans, optional local vision. Use when the agent must read a PDF/image/docx/xlsx/pptx/ipynb it cannot see, or a scanned document, without uploading it anywhere.
+description: Convert PDF, image, svg, office, and text files to structured Markdown locally — text-first with bun-only extraction, vendored OCR for scans, optional vision (tier-configured; local LM Studio or cloud glm-5.3-flash). Use when the agent must read a PDF/image/svg/docx/xlsx/pptx/ipynb it cannot see, or a scanned or diagram-heavy document.
 ---
 
 # file2md
 
-Local, offline document → Markdown bridge for text-only agents. Every input
-converts to editable Markdown that lands under an output dir; nothing is sent
-to a network service. Use the bundled runtime, not ad-hoc scripting:
+Local-first document → Markdown bridge for text-only agents. Every input
+converts to editable Markdown that lands under an output dir; `auto`/`ocr`/
+`text` never leave the machine, and the optional `vlm`/`smart` vision layer
+sends page IMAGES only to the configured tier model. Use the bundled runtime,
+not ad-hoc scripting:
 
 ```bash
 # dev form (repo root): the `cli` namespace token is required — a bare
@@ -31,10 +33,10 @@ Studio requirement.
 
 | mode | behavior |
 | --- | --- |
-| `text` | text layer only (never OCR/vision) |
-| `ocr` / `auto` | text layer + OCR for thin pages |
-| `vlm` | vision-LLM (local, tier-configured) describes thin pages; OCR is the degrade |
-| `smart` | adaptive ladder per page: text when usable → OCR when thin → figure pages vision-enhanced (skip notice when no vision server) |
+| `text` | text layer only (never OCR/vision; svg = structural extraction, html/pptx unchanged from the pre-render pipeline) |
+| `ocr` / `auto` | text layer + OCR for thin pages; svg/html-figures/pptx additionally rasterize + embed PNGs (no VLM) |
+| `vlm` | vision-LLM (tier-configured, e.g. zai/glm-5.3-flash) describes thin pages, svg documents, and every pptx slide; OCR/text is the degrade |
+| `smart` | adaptive ladder per page: text when usable → OCR when thin → figure pages vision-enhanced (skip notice when no vision server); svg = figure by definition, pptx diagram slides (pictures/SmartArt or label-thin text) enhanced |
 
 ## Smart mode — the adaptive ladder (`--extract smart`)
 
@@ -73,13 +75,42 @@ md/png pair) and re-run. `--pages 1,3-5` filters the ladder identically to the o
 | PDF (scanned) | pdfium wasm → tesseract OCR | printed raster text (eng/chi_sim) |
 | Image (png/jpg/jpeg/bmp) | tesseract OCR; vision describe under `vlm` | OCR text + source copy |
 | Image (webp/gif/tiff) | vision only (`vlm`) | — OCR unsupported for these |
+| SVG | structural extraction (labels + shape census) always; Bun.WebView raster + embed in render modes; `vlm`/`smart` vision-describe (may emit a mermaid reconstruction) | text labels, node/shape counts, rendered image |
 | DOCX | mammoth (pure JS) | paragraphs, lists, links, tables |
 | XLSX | exceljs (pure JS) | bounded sheets as markdown tables, cell refs |
-| PPTX | OOXML text runs | slide titles/shapes in presentation order |
+| PPTX | OOXML text runs (ground truth) + slide renders (qlmanage on darwin, soffice+pdftoppm elsewhere; probed, optional) → per-slide notes with embeds; diagram slides vision-enhanced in `smart`, all slides in `vlm` | slide text, rendered slide images |
 | IPYNB | JSON cells | markdown/code cells + text outputs |
 | TXT / MD | passthrough (capped) | source text |
 | CSV | RFC-4180 → markdown table | headers, rows, quoted cells |
-| HTML | minimal tag strip → markdown-lite | title, headings, lists, links |
+| HTML | minimal tag strip → markdown-lite; inline `<svg>` blocks + local `.svg` img refs become `pages/figure-NN.png` anchors (+ vision descriptions in `smart`/`vlm`) | title, headings, lists, links, svg figures as images |
+
+## Visual formats — svg / html figures / pptx (2026-09-08 render seam)
+
+Rasterization is a probed, optional layer with the same degrade discipline as
+vision: a missing renderer or WebView never fails a conversion.
+
+- **SVG** — the structural extraction (labels, title/desc, shape census) is
+  always in the body (it is ground truth, better than OCR on a render).
+  Render modes rasterize via `Bun.WebView` (no new deps) and embed
+  `![[page-001.png]]`; `vlm` replaces the body with a vision note, `smart`
+  appends `## Figure (vision)`.
+- **HTML with svg** — inline `<svg>` blocks (balanced scan; svg-in-svg legal)
+  and `<img src="*.svg">` pointing at LOCAL files under the input's directory
+  become `pages/figure-NN.png` anchors at their document position (max 8; no
+  network fetch). html without convertible figures is byte-identical to the
+  plain conversion. `text` mode skips the pre-pass entirely.
+- **PPTX** — text runs stay the ground-truth body; slides rasterize through
+  the deck seam (`qlmanage` on darwin / `soffice`+`pdftoppm` elsewhere,
+  probed) into a real multi-page doc: manifest pageCount = slides, per-slide
+  `pages/page-NNN.md` with embeds, `--pages` filter, resumability, 20-slide
+  cap with a truncation notice. `smart` enhances diagram slides (slide XML
+  carries `<p:pic>`/`<p:graphicFrame>`, or slide text < 120 chars) with
+  `## Slide (vision)`; `vlm` describes every slide; no renderer → today's
+  text-only output plus an in-note notice.
+- Vision descriptions of diagrams may carry a ```mermaid reconstruction
+  (light-validated: fence + known keyword; a bad fence unwraps to prose).
+  Mermaid is model-generated — treat it as an interpretation to verify
+  against the embedded image, not ground truth.
 
 ## Bounds and caps (never silent)
 
@@ -102,8 +133,15 @@ md/png pair) and re-run. `--pages 1,3-5` filters the ladder identically to the o
 ## Truth rules
 
 - Never upload files or extracted text to any endpoint; conversion is local.
+  (Exception by explicit configuration: the OPTIONAL vision layer sends page
+  IMAGES to the configured tier model — e.g. cloud zai/glm-5.3-flash — only
+  in `vlm`/`smart` modes; `auto`/`ocr`/`text` never call a model.)
 - Never claim fidelity for layout/fonts/images/formulas/comments/tracked
   changes/animations — state plainly what a format lost.
+- Slide/figure renders depend on a probed renderer (qlmanage/soffice/WebView);
+  when absent, say so — the output carries the notice.
+- Vision descriptions (including mermaid blocks) are model interpretations,
+  not ground truth; the structural/text-run body and the embedded image are.
 - OCR output needs proofreading; do not quote mission-critical scanned text
   without noting it came from OCR.
 - Never promise pixel-perfect no-loss conversion.

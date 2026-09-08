@@ -29,6 +29,7 @@ import { readFileSync } from "node:fs";
 import type { ResolvedLLM } from "../sessions.ts";
 import type { DocProfile } from "./classify.ts";
 import { imageMimeType } from "./classify.ts";
+import { sanitizeMermaidBlocks } from "./mermaid.ts";
 import { runVisionInference } from "./vision-inference.js";
 
 /** Output processing mode: how literally to transcribe vs summarize (T3). */
@@ -115,6 +116,15 @@ export const FIGURE_HINT =
  * rules deliberately do NOT apply here: they demand the page-note envelope the
  * figure variant must not emit.
  */
+/**
+ * Mermaid reconstruction hint (effort 2026-09-08-file2md-svg-pptx-vision,
+ * D15): appended to figure/diagram prompt variants so diagram descriptions
+ * can carry a structural reconstruction Obsidian renders natively. Validation
+ * stays light (fence + known keyword, src/vlm/mermaid.ts) — a bad block is
+ * unwrapped to prose, never a page failure.
+ */
+const MERMAID_HINT = `若該圖為流程圖／架構圖／狀態圖等可還原的結構圖，請在描述之後附上一個 mermaid 代碼塊（用 \`\`\`mermaid 包夾，內容以 graph/flowchart、sequenceDiagram、stateDiagram、classDiagram 等關鍵字開頭）還原節點與流向，標籤保留原文；無法可靠還原時寧可不附，也不要編造。`;
+
 function figureSystemPrompt(lang: string): string {
   return `你是一個專門描述文檔中的圖形（圖表、流程圖、架構圖、示意圖、照片）的 VLM 助理。
 
@@ -123,7 +133,8 @@ function figureSystemPrompt(lang: string): string {
 - 輸出「純 Markdown」正文：不要程式碼區塊包裹、不要任何前置說明文字。
 - 不要 YAML frontmatter、不要 ![[...]] 圖片嵌入行 —— 只輸出描述本身。
 - 忠於原圖：不捏造圖中沒有的內容；標籤、節點、座標數值盡量保留原文；模糊處標註「（模糊不可讀）」。
-- 描述重點：圖形的類型與目的、整體結構、主要標籤與節點、箭頭 / 關連方向、數據與座標要點。`;
+- 描述重點：圖形的類型與目的、整體結構、主要標籤與節點、箭頭 / 關連方向、數據與座標要點。
+- ${MERMAID_HINT}`;
 }
 
 /** Per-profile intro line. */
@@ -149,7 +160,8 @@ const PROFILE_RULES: Record<DocProfile, string> = {
   poster: `- kind 欄位固定為 poster。
 - 正文依海報區塊（如 Abstract / Introduction / Methods / Results / Conclusion）分段整理；圖表逐一說明標題與結論。`,
   diagram: `- kind 欄位固定為 diagram。
-- 正文：說明圖的類型與目的；以文字還原流程/架構（可用條列或巢狀清單）；記錄所有標籤、節點、箭頭方向與註解。若有數學式則用 LaTeX。`,
+- 正文：說明圖的類型與目的；以文字還原流程/架構（可用條列或巢狀清單）；記錄所有標籤、節點、箭頭方向與註解。若有數學式則用 LaTeX。
+- ${MERMAID_HINT}`,
   image: `- kind 欄位固定為 image。
 - page 恆為 1。
 - 正文：描述圖片內容（若有文字則忠實謄寫；若有圖表則說明類型與要點；若為照片則描述場景與細節）。`,
@@ -315,10 +327,16 @@ export async function explainPage(
 
   return ok
     ? {
-        markdown: normalizeFrontmatter(normalizeEmbeds(output), {
-          page: page.pageNo,
-          kind: profile,
-        }),
+        // Figure + diagram-profile variants carry the mermaid hint, so both
+        // get the light D15 unwrap (junk fence → prose); other page-note
+        // variants never carry mermaid blocks.
+        markdown: normalizeFrontmatter(
+          normalizeEmbeds(page.figure || profile === "diagram" ? sanitizeMermaidBlocks(output) : output),
+          {
+            page: page.pageNo,
+            kind: profile,
+          },
+        ),
         ok: true,
       }
     : { markdown: "", ok: false, error };

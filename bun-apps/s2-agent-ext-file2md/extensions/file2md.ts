@@ -135,9 +135,11 @@ export default function (pi: ExtensionAPI): void {
     gating: { gate: "file2md" },
     label: "File → Markdown",
     description:
-      "Convert a PDF / image / docx / xlsx / pptx / ipynb / text file to structured Markdown that a text-only " +
+      "Convert a PDF / image / svg / docx / xlsx / pptx / ipynb / text file to structured Markdown that a text-only " +
       "agent can read. Text-first (pure-TS text layer + bounded office extraction), vendored tesseract-wasm OCR " +
-      "for scans, optional vision (LM Studio) for images/scanned pages. Writes pages/*.md + manifest + index note.",
+      "for scans, probed svg/slide rendering (WebView/qlmanage/soffice → PNG embeds), optional vision " +
+      "(tier-configured, e.g. zai/glm-5.3-flash) for diagrams/scans/slides in vlm|smart modes. " +
+      "Writes pages/*.md + manifest + index note.",
     parameters: Type.Object({
       input: Type.String({ description: "Absolute or relative path to a PDF/image/document file" }),
       out: Type.Optional(Type.String({ description: "Output root directory (default: ./vlm-out)" })),

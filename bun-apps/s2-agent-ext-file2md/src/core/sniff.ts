@@ -69,6 +69,15 @@ function textKindByPath(path: string): TextInKind | undefined {
 export async function detectKind(data: Uint8Array, path?: string): Promise<SniffedFile> {
   if (isImageBytes(data)) return { kind: "image" };
 
+  // SVG is XML text, so it falls through every byte-signature layer — detect
+  // it by extension or by the `<svg` root element before the text family
+  // claims it as a txt passthrough (which would dump the raw XML). HTML
+  // markers win precedence over the content probe so an html document with
+  // an early inline <svg> routes to the html lane, not here (D13).
+  const htmlish = hasHtmlMarkers(data);
+  if (path !== undefined && extname(path).toLowerCase() === ".svg" && !htmlish) return { kind: "svg" };
+  if (!htmlish && looksLikeSvg(data)) return { kind: "svg", byContent: true };
+
   if (path !== undefined && path !== "") {
     const extHint = textKindByPath(path);
     if (extHint && !isPdfOrZip(data)) {
@@ -110,4 +119,16 @@ function isPdfOrZip(data: Uint8Array): boolean {
     (head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46) ||
     (head[0] === 0x50 && head[1] === 0x4b)
   );
+}
+
+/** True when the head decodes as an optional XML/DOCTYPE prolog + `<svg` root. */
+function looksLikeSvg(data: Uint8Array): boolean {
+  const head = new TextDecoder("utf-8", { fatal: false }).decode(data.subarray(0, 1024));
+  return /^\s*(<\?xml[^>]*\?>\s*|<!DOCTYPE[^>]*>\s*)*<svg[\s>]/i.test(head);
+}
+
+/** True when the head carries html document markers (routes to the html lane first). */
+function hasHtmlMarkers(data: Uint8Array): boolean {
+  const head = new TextDecoder("utf-8", { fatal: false }).decode(data.subarray(0, 1024));
+  return /<html[\s>]|<!doctype\s+html|<body[\s>]|<head[\s>]/i.test(head);
 }
