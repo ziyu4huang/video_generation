@@ -188,8 +188,9 @@ export function installResultDelivery(pi: ExtensionAPI, manager: WorkflowManager
   });
   // A provider usage/quota limit checkpoints the run as paused (not failed): tell the
   // user it is resumable once their budget refills, rather than letting it look dead.
-  // Manual pause() also emits "paused" but with no reason — guard so only the
-  // usage-limit case delivers a message.
+  // Manual pause() also emits "paused" — since self-arc-14 t03 it carries
+  // reason "paused" and gets its own honest notification below (the first
+  // background promise of a parked run must never read "✗ … failed").
   manager.on(
     "paused",
     ({
@@ -203,8 +204,15 @@ export function installResultDelivery(pi: ExtensionAPI, manager: WorkflowManager
       error?: { message?: string };
       resetHint?: string;
     }) => {
-      if (reason !== "usage_limit") return;
+      if (reason !== "usage_limit" && reason !== "paused") return;
       if (!manager.getRun(runId)?.background) return;
+      if (reason === "paused") {
+        deliver(
+          `⏸ Background workflow ${runId} paused — superseded by resume: ` +
+            `completed steps are saved; run /workflows resume ${runId} to continue.`,
+        );
+        return;
+      }
       const when = resetHint ? ` (${resetHint})` : "";
       const cause = error?.message ?? "provider usage limit reached";
       deliver(
