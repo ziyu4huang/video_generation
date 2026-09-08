@@ -1,0 +1,188 @@
+{
+  "scores": [
+    {
+      "tech": "bun-terminal",
+      "eligible": true,
+      "scores": {
+        "fidelity": 1,
+        "robustness": 1,
+        "async": 0.5,
+        "latency": 0.3962460896767466,
+        "simplicity": 1
+      },
+      "total": 0.8344369134515119
+    },
+    {
+      "tech": "bun-pty",
+      "eligible": false,
+      "ineligibleReason": "robustness 0/3",
+      "scores": {
+        "fidelity": 0,
+        "robustness": 0,
+        "async": 0,
+        "latency": 0,
+        "simplicity": 0
+      },
+      "total": 0
+    },
+    {
+      "tech": "tmux",
+      "eligible": true,
+      "scores": {
+        "fidelity": 0.8,
+        "robustness": 1,
+        "async": 0.5,
+        "latency": 0.11536126290224652,
+        "simplicity": 0.8695652173913044
+      },
+      "total": 0.7192607111744674
+    },
+    {
+      "tech": "rpc",
+      "eligible": true,
+      "scores": {
+        "fidelity": 1,
+        "robustness": 1,
+        "async": 1,
+        "latency": 0.03552979126247633,
+        "simplicity": 0.9174311926605504
+      },
+      "total": 0.8470725879554265
+    }
+  ],
+  "recommendation": {
+    "productionLane": "bun-terminal",
+    "structuredComplement": "rpc",
+    "reason": "incumbent bun-terminal leads (or ties) among eligible rendered-truth lanes"
+  },
+  "outcomes": [
+    {
+      "tech": "bun-terminal",
+      "case": "trivial-ask",
+      "pass": true,
+      "ms": 152
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "boot-to-ready",
+      "pass": true
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "tui-gesture",
+      "pass": true,
+      "ms": 152
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "state-probe",
+      "pass": true
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "robustness-3x",
+      "pass": true
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "subagent-dispatch",
+      "pass": true,
+      "ms": 151
+    },
+    {
+      "tech": "bun-pty",
+      "case": "trivial-ask",
+      "pass": null
+    },
+    {
+      "tech": "bun-pty",
+      "case": "boot-to-ready",
+      "pass": null
+    },
+    {
+      "tech": "bun-pty",
+      "case": "tui-gesture",
+      "pass": null
+    },
+    {
+      "tech": "bun-pty",
+      "case": "state-probe",
+      "pass": null
+    },
+    {
+      "tech": "bun-pty",
+      "case": "robustness-3x",
+      "pass": null
+    },
+    {
+      "tech": "bun-pty",
+      "case": "subagent-dispatch",
+      "pass": null
+    },
+    {
+      "tech": "tmux",
+      "case": "trivial-ask",
+      "pass": true,
+      "ms": 942
+    },
+    {
+      "tech": "tmux",
+      "case": "boot-to-ready",
+      "pass": true
+    },
+    {
+      "tech": "tmux",
+      "case": "tui-gesture",
+      "pass": true,
+      "ms": 1245
+    },
+    {
+      "tech": "tmux",
+      "case": "state-probe",
+      "pass": true
+    },
+    {
+      "tech": "tmux",
+      "case": "robustness-3x",
+      "pass": true
+    },
+    {
+      "tech": "tmux",
+      "case": "subagent-dispatch",
+      "pass": true,
+      "ms": 7434
+    },
+    {
+      "tech": "rpc",
+      "case": "trivial-ask",
+      "pass": true,
+      "ms": 4684
+    },
+    {
+      "tech": "rpc",
+      "case": "boot-to-ready",
+      "pass": true
+    },
+    {
+      "tech": "rpc",
+      "case": "tui-gesture",
+      "pass": null
+    },
+    {
+      "tech": "rpc",
+      "case": "state-probe",
+      "pass": true
+    },
+    {
+      "tech": "rpc",
+      "case": "robustness-3x",
+      "pass": true
+    },
+    {
+      "tech": "rpc",
+      "case": "subagent-dispatch",
+      "pass": true,
+      "ms": 12234
+    }
+  ]
+}

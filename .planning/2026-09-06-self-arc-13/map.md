@@ -66,26 +66,26 @@ discovery-heavy. Confirm-or-rechoose at kickoff (to-tickets gate).
 
 **Phase 1 — build (all land in the ONE implementation PR)**
 
-- [ ] `tickets/01-driver-cases-bun-terminal.md` — bench skeleton: driver CLI, shared case
+- [x] `tickets/01-driver-cases-bun-terminal.md` — bench skeleton: driver CLI, shared case
       registry + evidence predicates, receipt schema, comparison/scoring generator, and the
       bun-terminal control adapter (minimal ported helpers — port, never import tui-drive.ts);
       boot + trivial-ask receipts vs the deployed launcher; scripts-dir-contract allowlist line
-- [ ] `tickets/02-bun-pty-tmux-adapters.md` — bun-pty lane (`script(1)` raw pty + plain stdio
+- [x] `tickets/02-bun-pty-tmux-adapters.md` — bun-pty lane (`script(1)` raw pty + plain stdio
       pipes) and tmux lane (new-session/send-keys/capture-pane, per tui-e2e-lane precedent);
       each green on boot + trivial-ask vs deployed; quirks documented
-- [ ] `tickets/03-rpc-adapter.md` — rpc adapter: discovery pass first (capture REAL deployed
+- [x] `tickets/03-rpc-adapter.md` — rpc adapter: discovery pass first (capture REAL deployed
       JSONL shapes as committed fixtures), then boot/state/prompt-roundtrip/subagent-dispatch
       via the event stream; unreachable TUI surfaces documented with evidence
 
 **Phase 2 — evaluate**
 
-- [ ] `tickets/04-matrix-run-recommendation.md` — full 4-lane × case matrix + robustness 3×
+- [x] `tickets/04-matrix-run-recommendation.md` — full 4-lane × case matrix + robustness 3×
       against the deployed tree; `--all` generates comparison.json/md; generated artifacts
       committed under `results/`; recommendation recorded as a map Decision citing the numbers
 
 **Phase 3 — close-out (separate docs PR)**
 
-- [ ] `tickets/05-closeout.md` — Shipped-as, reciprocal cross-effort links, docs note if
+- [x] `tickets/05-closeout.md` — Shipped-as, reciprocal cross-effort links, docs note if
       warranted, validated successor next-goal (migration goal iff incumbent lost), learnings
       entries for any new confirmed quirk
 
@@ -181,3 +181,20 @@ verified submit, dual-latch; cc-parity scenario + model policy D5),
 `2026-09-06-self-arc-9` (planner-led arc shape + dual source/deployed receipts discipline).
 Shares-decision-with: `2026-09-06-learnings-hardening` D2 (flash-by-name exclusion — D5 here).
 Reciprocal back-links added to those maps at close-out (ticket 05).
+
+## Shipped-as (benchmark results, 2026-09-08)
+
+Deployed tree 0.10.0+g80419f1, nonce s20260908a (+ robustness re-run rb20260908); receipts `output/bench13-matrix-20260908/`; generated tables committed at `results/comparison.{json,md}`.
+
+- **bun-terminal 0.834** — 6/6 cases ✅ (robustness 3/3, 152/151/152ms residuals). Production lane KEEPS the seat.
+- **rpc 0.847 (highest total, role-ruled)** — structured complement: 5/6 ✅ (tui-gesture N/A by construction), true turn times 4.7–7.0s, model object `{id:"glm-5.3"}`, notification events visible. Verdict: keep as the fresh-process/structured twin (recovery passes, get_state/get_entries probes), NOT the production driver — today's loop receipts are rendered truth.
+- **tmux 0.719** — 6/6 ✅ but fidelity 0.8 (pane scrape, no byte lane), external dep, slower gestures. Clear loser to the incumbent on every criterion that differs.
+- **bun-pty N/A** — D1 arbitration FIRED: macOS script(1) hard-fails `tcgetattr` on non-tty stdin (exit 1, zero bytes, evidence in receipts). Lane recorded unusable, no reinterpretation.
+
+Decision D11 (recommendation, pre-registered rules held): production lane stays **Bun.Terminal**; adopt **rpc as a structured complement** in future arcs (successor candidate); no migration.
+
+## Honest notes (recorded, not hidden)
+
+- Latency bias: screen-lane trivial ms are post-verified-submit RESIDUALS (submit blocks 6–12s on its verification waits); rpc ms are true turn times. Cross-class latency comparison is biased toward screen lanes; contained by the 0.15 weight and the role rule; raw ms published in receipts.
+- robustness-3x was redesigned mid-arc (defect fix): identical literal repeats made GLM-5.3 drop the exact sentinel on rep 3 on EVERY lane (model compliance, not lane fragility). Reps now carry distinct framing; per-rep lastText/screen evidence added; per-lane re-run overwrote the case receipts. Spec §8 scoring unchanged.
+- `--compare` regeneration mode added so per-case re-runs can refresh the tables without a full re-matrix.
