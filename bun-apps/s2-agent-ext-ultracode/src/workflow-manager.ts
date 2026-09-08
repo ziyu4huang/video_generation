@@ -761,6 +761,12 @@ export class WorkflowManager extends EventEmitter {
           error: workflowError,
           resetHint: workflowError.resetHint,
         });
+      } else if (intentionalAbort && managed.status === "paused") {
+        // self-arc-14 t03: the unwind of a MANUAL pause (pause() aborted the
+        // controller and set status before this catch ran). pause() already
+        // emitted "paused" with its reason — emitting "error" here made the
+        // first background promise deliver "✗ … failed" for a run that is
+        // parked and resumable (the arc-11 UX lie). Parked ≠ dead.
       } else {
         this.emit("error", { runId: managed.runId, error: workflowError });
       }
@@ -909,7 +915,9 @@ export class WorkflowManager extends EventEmitter {
     // touched the registry entry). markLiveStatus refuses to un-terminal and
     // is a no-op when the entry already left the registry.
     this.inFlight?.markLiveStatus(workflowInFlightId(runId), "paused");
-    this.emit("paused", { runId });
+    // self-arc-14 t03: carry a reason so the delivery layer can tell a MANUAL
+    // pause (resumable; must not read as failed) from the usage-limit flavor.
+    this.emit("paused", { runId, reason: "paused" });
     this.persistRun(managed);
     this.releaseRunLease(managed);
     return true;
