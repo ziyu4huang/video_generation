@@ -182,6 +182,8 @@ verified submit, dual-latch; cc-parity scenario + model policy D5),
 Shares-decision-with: `2026-09-06-learnings-hardening` D2 (flash-by-name exclusion — D5 here).
 Reciprocal back-links added to those maps at close-out (ticket 05).
 
+Back-links: this effort extends the tui-drive harness decision lineage (arc-8/9/10/11/12 maps) and answers the base-tech question those maps assumed — see their maps for the harness history that made bun-terminal the incumbent.
+
 ## Shipped-as (benchmark results, 2026-09-08)
 
 Deployed tree 0.10.0+g80419f1, nonce s20260908a (+ robustness re-run rb20260908); receipts `output/bench13-matrix-20260908/`; generated tables committed at `results/comparison.{json,md}`.
