@@ -84,6 +84,10 @@ export interface DocLayout {
   pngAbs: (page: number) => string;
   /** Absolute md path for a page. */
   mdAbs: (page: number) => string;
+  /** Relative asset png path for an extracted figure (HTML svg lane). */
+  figureRel: (n: number) => string;
+  /** Absolute asset png path for an extracted figure (HTML svg lane). */
+  figureAbs: (n: number) => string;
 }
 
 export function layoutFor(outRoot: string, slug: string, pageCount: number): DocLayout {
@@ -91,6 +95,7 @@ export function layoutFor(outRoot: string, slug: string, pageCount: number): Doc
   const pagesDir = join(dir, "pages");
   const pngRel = (p: number) => `pages/page-${pageLabel(p, pageCount)}.png`;
   const mdRel = (p: number) => `pages/page-${pageLabel(p, pageCount)}.md`;
+  const figureRel = (n: number) => `pages/figure-${String(n).padStart(2, "0")}.png`;
   return {
     dir,
     pagesDir,
@@ -100,6 +105,8 @@ export function layoutFor(outRoot: string, slug: string, pageCount: number): Doc
     mdRel,
     pngAbs: (p: number) => join(dir, pngRel(p)),
     mdAbs: (p: number) => join(dir, mdRel(p)),
+    figureRel,
+    figureAbs: (n: number) => join(dir, figureRel(n)),
   };
 }
 

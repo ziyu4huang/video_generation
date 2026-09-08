@@ -57,6 +57,34 @@ by your local LM Studio on `:1234`.
 > "lm-studio/qwen/qwen3.8-27b" unavailable; no tier given; using session
 > default` + `figure vision output rejected … — skip notice`.
 
+### Cloud alternative: `zai/glm-5.3-flash` (configured 2026-09-08)
+
+The vision tier can point at the cloud GLM flash model instead of a local
+server — verified end-to-end from the CLI path (effort
+2026-09-08-file2md-svg-pptx-vision, receipts):
+`~/.pi/workflows/model-tiers.json`:
+
+```json
+{
+  "tiers": { "small": "zai/glm-5.3-flash", "medium": "zai/glm-5.3", "big": "zai/glm-5.3" },
+  "capabilities": {
+    "vision": "zai/glm-5.3-flash",
+    "vision-large": "zai/glm-5.3-flash",
+    "vision-medium": "zai/glm-5.3-flash",
+    "vision-small": "zai/glm-5.3-flash"
+  }
+}
+```
+
+Unlike the lm-studio case above, `zai` is a provider pi-ai's own baked
+catalog already knows (see `bun-apps/s2-agent/src/pre-load-providers.ts`),
+and its auth comes from `ZAI_API_KEY` in the environment — so the CLI path
+resolves it WITHOUT a `~/.pi/agent/models.json` entry (measured 2026-09-08:
+`s2-agent cli file2md … --extract vlm` prints `model: zai/glm-5.3-flash` and
+returns `provenance: vision` pages). The TUI's `/models-preset glm` applies
+the same shape session-only. Remember the honesty rule: this lane sends page
+IMAGES to the cloud — only `vlm`/`smart` modes ever call it.
+
 ## 2. The `api` field is the adapter selector
 
 The provider's `api` value decides **which pi-ai adapter** serializes messages —

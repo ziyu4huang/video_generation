@@ -14,13 +14,15 @@
  * unchanged in spirit from v1: per-page md under output/<slug>/pages/ +
  * manifest.json (resumability) + <slug>.md index note.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, relative, resolve } from "node:path";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { readDocument } from "../vendored/dsh-cowork-core@0.1.0/src/read/index.ts";
 import { renderMarkdown } from "../vendored/dsh-cowork-core@0.1.0/src/render/markdown.ts";
 import { FIGURE_SKIP_NOTICE, type FigureRecord, isScanFigure, isTextFigure } from "./core/figure.ts";
 import { openPdf, type PdfHandle } from "./core/pdf-text.ts";
 import { detectKind } from "./core/sniff.ts";
+import { svgToMarkdown } from "./core/svg-text.ts";
 import {
   DEFAULT_CAPS,
   type File2mdCaps,
@@ -31,8 +33,10 @@ import {
 } from "./core/types.ts";
 import { askImageDescribe } from "./image/extract-image.ts";
 import { OcrSession, ocrImageFile } from "./ocr/ocr.ts";
+import { pickRenderer, readZipText } from "./raster/deck.ts";
 import { rasterPage } from "./raster/pdf.ts";
 import { bgraToPng } from "./raster/png.ts";
+import { renderSvgFileToPng, renderSvgTextToPng } from "./raster/svg.ts";
 import { type ResolvedLLM, resolveVisionLLM } from "./sessions.ts";
 import { type ExplainMode, explainPage } from "./vlm/agents.ts";
 import { ALL_PROFILES, type DocProfile } from "./vlm/classify.ts";
@@ -229,7 +233,14 @@ async function runDocument(args: RunDocumentArgs): Promise<void> {
 
   if (sniffed.kind === "pdf") return runPdf(args, layout, slug);
   if (sniffed.kind === "image") return runImage(args, layout, slug);
-  if (sniffed.kind === "text") return runTextPassthrough(args, layout, slug);
+  if (sniffed.kind === "svg") return runSvg(args, layout, slug);
+  if (sniffed.kind === "text") {
+    // html with svg figures gets a raster lane; plain html stays on the
+    // byte-identical passthrough (runHtml falls through when no figure matches)
+    if (sniffed.textKind === "html") return runHtml(args, layout, slug);
+    return runTextPassthrough(args, layout, slug);
+  }
+  if (sniffed.kind === "pptx") return runPptx(args, layout, slug);
   return runOffice(args, layout, slug, sniffed.kind);
 }
 
@@ -590,6 +601,623 @@ async function runImage(args: RunDocumentArgs, layout: DocLayout, slug: string):
 }
 
 // ---------------------------------------------------------------------------
+// svg
+// ---------------------------------------------------------------------------
+
+/**
+ * Standalone .svg input (effort 2026-09-08-file2md-svg-pptx-vision, ticket 02).
+ *
+ * The base body is ALWAYS the structural extraction (svgToMarkdown — the XML
+ * labels are ground truth, strictly better than OCR on a render). Modes layer
+ * on top exactly like the pdf/image lanes:
+ *   text            → structural only, no raster, provenance text.
+ *   auto/ocr        → + rendered PNG embed (no VLM call — auto stays offline).
+ *   vlm             → full vision page note (diagram profile), structural degrade.
+ *   smart           → structural + `## Figure (vision)` appended enhancement;
+ *                     raster/LLM unavailable → skip notice, figure {detected,
+ *                     enhanced:false} (D4 — never fails because enhancement did not).
+ */
+async function runSvg(args: RunDocumentArgs, layout: DocLayout, slug: string): Promise<void> {
+  const { inputAbs, inputName, bytes, mode, note } = args;
+  const svgText = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  const profile: DocProfile = args.forcedType ?? "diagram";
+  const manifest = createManifest({
+    input: inputAbs,
+    inputName,
+    kind: "svg",
+    profile,
+    slug,
+    pageCount: 1,
+    layout,
+  });
+
+  let record: PageRecord = { page: 1, body: svgToMarkdown(inputName, svgText), provenance: "text" };
+  let figure: FigureRecord | undefined;
+
+  if (mode !== "text") {
+    const maxEdge = Math.max(800, Math.min(3200, Math.round(800 * args.scale)));
+    const raster = await renderSvgFileToPng(inputAbs, { maxEdge }).catch(() => null);
+    if (raster) {
+      writeFileSync(layout.pngAbs(1), raster.png);
+      record.png = raster.png;
+      record.pngW = raster.width;
+      record.pngH = raster.height;
+      if (mode === "smart" && !args.llm) {
+        // No vision server → the pdf lane's ticket-01 shape: flag + notice
+        // with the embed still stored (D4 — a doc never fails on enhancement).
+        record = { ...record, body: `${record.body}\n\n${FIGURE_SKIP_NOTICE}\n` };
+        figure = { detected: true, enhanced: false };
+      } else if ((mode === "vlm" || mode === "smart") && args.llm) {
+        const tmp = joinTempPng(1);
+        writeFileSync(tmp, raster.png);
+        try {
+          if (mode === "vlm") {
+            const explained = await withRetry(
+              () =>
+                explainPage(
+                  args.llm!,
+                  profile,
+                  {
+                    imageAbs: tmp,
+                    mimeType: "image/png",
+                    pngLinkName: `${pageLabel(1, 1)}.png`,
+                    docSlug: slug,
+                    pageNo: 1,
+                    pageCount: 1,
+                    lang: args.lang,
+                    mode: note as ExplainMode,
+                  },
+                  args.signal,
+                ),
+              { signal: args.signal },
+            );
+            const validated = validatePageMarkdown(explained.markdown, { page: 1, kind: "page" });
+            if (explained.ok && validated.ok) {
+              record = { ...record, body: explained.markdown, provenance: "vision" };
+            } else {
+              console.error(
+                `  [svg] vision output rejected (${explained.error ?? "validation failed"}) — structural degrade`,
+              );
+            }
+          } else {
+            // smart: ONE figure-describe call, appended after the structural body
+            const explained = await withRetry(
+              () =>
+                explainPage(
+                  args.llm!,
+                  profile,
+                  {
+                    imageAbs: tmp,
+                    mimeType: "image/png",
+                    pngLinkName: `${pageLabel(1, 1)}.png`,
+                    docSlug: slug,
+                    pageNo: 1,
+                    pageCount: 1,
+                    lang: args.lang,
+                    mode: note as ExplainMode,
+                    figure: true,
+                  },
+                  args.signal,
+                ),
+              { signal: args.signal },
+            );
+            const description = explained.markdown.trim();
+            if (explained.ok && description !== "") {
+              record = {
+                ...record,
+                body: `${record.body}\n## Figure (vision)\n\n${description}\n`,
+                enhanced: "vision",
+              };
+              figure = { detected: true, enhanced: true };
+            } else {
+              console.error(
+                `  [svg] figure vision output rejected (${explained.error ?? "validation failed"}) — skip notice`,
+              );
+              record = { ...record, body: `${record.body}\n\n${FIGURE_SKIP_NOTICE}\n` };
+              figure = { detected: true, enhanced: false };
+            }
+          }
+        } catch (e) {
+          console.error(`  [svg] vision failed (${e instanceof Error ? e.message : e}) — degrade`);
+          if (mode === "smart") {
+            record = { ...record, body: `${record.body}\n\n${FIGURE_SKIP_NOTICE}\n` };
+            figure = { detected: true, enhanced: false };
+          }
+        } finally {
+          await safeUnlink(tmp);
+        }
+      }
+    } else {
+      console.error("  [svg] rasterization unavailable — structural extraction only");
+      record.body += "\n> SVG rasterization unavailable on this machine — structural extraction only.\n";
+      if (mode === "smart") {
+        record.body += `\n${FIGURE_SKIP_NOTICE}\n`;
+        figure = { detected: true, enhanced: false };
+      }
+    }
+  }
+
+  const md = pageNoteMd(inputName, 1, 1, profile, record);
+  writeFileSync(layout.mdAbs(1), md, "utf8");
+  manifest.pages[0]!.png = record.png ? layout.pngRel(1) : null;
+  manifest.pages[0]!.status = "done" as PageStatus;
+  if (figure) manifest.pages[0]!.figure = figure;
+  writeManifest(layout, manifest);
+  writeIndexNote(layout, manifest, profile, process.cwd());
+  console.error(`\n  ✓ ${slug}: svg → ${args.displayPath(layout.dir)}`);
+  args.emit?.({ type: "doc_done", slug, profile, pages: 1 });
+}
+
+// ---------------------------------------------------------------------------
+// html with svg figures
+// ---------------------------------------------------------------------------
+
+/** Bound on extracted figures per html document (raster cost control). */
+export const SVG_FIGURE_MAX = 8;
+
+interface SvgFigure {
+  kind: "inline" | "file";
+  /** inline: the raw <svg>…</svg> block; file: absolute path to the referenced .svg */
+  source: string;
+  /** <img alt> for file figures (kept as anchor caption). */
+  alt?: string;
+}
+
+/**
+ * Rewrite svg-bearing html so every convertible figure becomes a
+ * `![[figure-NN.png]]` anchor at its document position (D14): inline <svg>
+ * blocks (balanced scan — svg-in-svg is legal, so no bare non-greedy regex)
+ * and <img src="*.svg"> pointing at a LOCAL file under the input's directory
+ * convert (no network fetch, truth rules); everything else is left for the
+ * plain html conversion exactly as before. Matches inside <script>/<style>
+ * spans are skipped (an svg literal in JS is code, not a figure).
+ */
+export function extractSvgFigures(html: string, inputDir: string): { html: string; figures: SvgFigure[] } {
+  // Off-limits spans: script/style contents and comments never hold figures.
+  const offLimits: Array<[number, number]> = [];
+  for (const m of html.matchAll(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>|<!--[\s\S]*?-->/gi)) {
+    offLimits.push([m.index!, m.index! + m[0].length]);
+  }
+  const blocked = (i: number) => offLimits.some(([a, b]) => i >= a && i < b);
+
+  const figures: SvgFigure[] = [];
+  const out: string[] = [];
+  let cursor = 0;
+  // Iterative scan (a recursive skip over a large JS icon bundle would
+  // overflow the stack and take the whole document down with it).
+  const findNext = (from: number): { start: number; kind: "svg" | "img"; end: number } | null => {
+    let at = from;
+    for (;;) {
+      const svgAt = html.indexOf("<svg", at);
+      const imgAt = html.indexOf("<img", at);
+      let idx = -1;
+      let kind: "svg" | "img" = "svg";
+      if (svgAt !== -1 && (imgAt === -1 || svgAt < imgAt)) {
+        idx = svgAt;
+        kind = "svg";
+      } else if (imgAt !== -1) {
+        idx = imgAt;
+        kind = "img";
+      } else return null;
+      if (!blocked(idx)) {
+        if (kind === "img") {
+          const close = html.indexOf(">", idx);
+          if (close !== -1) return { start: idx, kind, end: close + 1 };
+        } else if (/<svg[\s>]/.test(html.slice(idx, idx + 5))) {
+          // Balanced walk: nested <svg> opens extend the block past the first </svg>.
+          let depth = 0;
+          const token = /<svg\b|<\/svg\s*>/gi;
+          token.lastIndex = idx;
+          let end = -1;
+          for (let m = token.exec(html); m !== null; m = token.exec(html)) {
+            depth += m[0][1] === "/" ? -1 : 1;
+            if (depth === 0) {
+              end = m.index + m[0].length;
+              break;
+            }
+          }
+          if (end !== -1) return { start: idx, kind, end }; // unbalanced — skip
+        }
+      }
+      at = idx + 1;
+    }
+  };
+
+  let next = findNext(0);
+  while (next !== null) {
+    const tag = html.slice(next.start, next.end);
+    let anchor: string | null = null;
+    if (next.kind === "svg") {
+      if (figures.length < SVG_FIGURE_MAX) {
+        figures.push({ kind: "inline", source: tag });
+        anchor = `\n![[figure-${String(figures.length).padStart(2, "0")}.png]]\n`;
+      }
+    } else {
+      const srcMatch = /\ssrc\s*=\s*["']([^"']*)["']/i.exec(tag);
+      const src = srcMatch?.[1] ? srcMatch[1].replace(/&amp;/g, "&") : "";
+      const convertible =
+        /\.svg(\?.*)?(#.*)?$/i.test(src) &&
+        figures.length < SVG_FIGURE_MAX &&
+        !/^[a-z][a-z0-9+.-]*:/i.test(src) &&
+        !src.startsWith("//");
+      if (convertible) {
+        const abs = resolve(inputDir, src.replace(/^\.?\//, ""));
+        const inside = abs === inputDir || abs.startsWith(inputDir + "/"); // stay under the input dir
+        if (inside && existsSync(abs)) {
+          const altMatch = /\salt\s*=\s*["']([^"']*)["']/i.exec(tag);
+          figures.push({ kind: "file", source: abs, alt: altMatch?.[1] || undefined });
+          const caption = altMatch?.[1] ? ` — *${altMatch[1]}*` : "";
+          anchor = `\n![[figure-${String(figures.length).padStart(2, "0")}.png]]${caption}\n`;
+        }
+      }
+    }
+    out.push(html.slice(cursor, next.start));
+    out.push(anchor ?? tag);
+    cursor = next.end;
+    next = findNext(cursor);
+  }
+  out.push(html.slice(cursor));
+  return { html: out.join(""), figures };
+}
+
+/**
+ * html lane (ticket 03): svg-bearing html gets each figure rasterized to
+ * pages/figure-NN.png with an in-place wikilink anchor; smart/vlm append a
+ * per-figure vision description under `## Figure (vision) — NN`. html with
+ * NO convertible figure falls through to runTextPassthrough — byte-identical
+ * to the pre-lane behavior (pinned by test).
+ */
+async function runHtml(args: RunDocumentArgs, layout: DocLayout, slug: string): Promise<void> {
+  const { inputAbs, inputName, bytes, mode } = args;
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  if (mode === "text") return runTextPassthrough(args, layout, slug);
+  const { html: rewritten, figures } = extractSvgFigures(text, dirname(inputAbs));
+  if (figures.length === 0) return runTextPassthrough(args, layout, slug);
+
+  const maxEdge = Math.max(800, Math.min(3200, Math.round(800 * args.scale)));
+  const rendered: { n: number; abs: string }[] = [];
+  const failedNs: number[] = [];
+  for (let i = 0; i < figures.length; i++) {
+    const fig = figures[i]!;
+    const raster =
+      fig.kind === "inline"
+        ? await renderSvgTextToPng(fig.source, { maxEdge }).catch(() => null)
+        : await renderSvgFileToPng(fig.source, { maxEdge }).catch(() => null);
+    if (raster) {
+      const n = i + 1;
+      writeFileSync(layout.figureAbs(n), raster.png);
+      rendered.push({ n, abs: layout.figureAbs(n) });
+    } else {
+      failedNs.push(i + 1);
+      console.error(`  [html] figure ${i + 1} rasterization failed — anchor degrades to a notice`);
+    }
+  }
+  // A raster failure must not leave a broken ![[figure-NN.png]] embed behind.
+  let html = rewritten;
+  for (const n of failedNs) {
+    html = html.replaceAll(
+      `![[figure-${String(n).padStart(2, "0")}.png]]`,
+      `*(svg figure ${n} could not be rendered on this machine)*`,
+    );
+  }
+
+  let body = htmlToMarkdown(html);
+  if (rendered.length < figures.length) {
+    body += `\n> ${figures.length - rendered.length} of ${figures.length} svg figure(s) could not be rasterized on this machine.\n`;
+  }
+
+  if ((mode === "vlm" || mode === "smart") && args.llm && rendered.length > 0) {
+    for (const { n, abs } of rendered) {
+      try {
+        const explained = await withRetry(
+          () =>
+            explainPage(
+              args.llm!,
+              "diagram",
+              {
+                imageAbs: abs,
+                mimeType: "image/png",
+                pngLinkName: `figure-${String(n).padStart(2, "0")}.png`,
+                docSlug: slug,
+                pageNo: n,
+                pageCount: rendered.length,
+                lang: args.lang,
+                mode: args.note as ExplainMode,
+                figure: true,
+              },
+              args.signal,
+            ),
+          { signal: args.signal },
+        );
+        const description = explained.markdown.trim();
+        if (explained.ok && description !== "") {
+          body += `\n## Figure (vision) — ${String(n).padStart(2, "0")}\n\n${description}\n`;
+        } else {
+          body += `\n> Figure ${n} vision enhancement skipped (vision output rejected).\n`;
+        }
+      } catch (e) {
+        console.error(`  [html] figure ${n} vision failed (${e instanceof Error ? e.message : e}) — skipped`);
+        body += `\n> Figure ${n} vision enhancement skipped (vision call failed).\n`;
+      }
+    }
+  } else if ((mode === "vlm" || mode === "smart") && rendered.length > 0) {
+    body += `\n${FIGURE_SKIP_NOTICE}\n`;
+  }
+
+  const cap = args.caps.maxBytes;
+  if (body.length > cap) body = `${body.slice(0, cap)}\n> Truncated: output capped at ${cap} bytes.\n`;
+  const full = ["---", `title: ${inputName}`, `kind: text`, `format: html`, "---", "", body, ""].join("\n");
+  writeFileSync(layout.indexNotePath, full, "utf8");
+  const manifest = createManifest({
+    input: inputAbs,
+    inputName,
+    kind: "text",
+    profile: "diagram",
+    slug,
+    pageCount: 1,
+    layout,
+  });
+  manifest.pages[0]!.png = null; // figures are body assets, not page notes
+  manifest.pages[0]!.md = null;
+  manifest.pages[0]!.status = "done" as PageStatus;
+  writeManifest(layout, manifest);
+  console.error(
+    `\n  ✓ ${slug}: html (${rendered.length}/${figures.length} svg figures) → ${args.displayPath(layout.indexNotePath)}`,
+  );
+  args.emit?.({ type: "doc_done", slug, profile: "diagram", pages: 1 });
+}
+
+// ---------------------------------------------------------------------------
+// pptx (rendered slide lane)
+// ---------------------------------------------------------------------------
+
+/** Slide text below this many chars looks label-only → diagram candidate (smart). */
+export const SLIDE_DIAGRAM_TEXT_MAX_CHARS = 120;
+
+/** A diagram-heavy slide: carries pictures/SmartArt/charts, or has label-thin text. */
+export function isDiagramSlide(slideXml: string, shapesText: string): boolean {
+  if (/<p:pic[\s>]/.test(slideXml) || /<p:graphicFrame[\s>]/.test(slideXml)) return true;
+  return shapesText.replace(/\s+/g, "").length < SLIDE_DIAGRAM_TEXT_MAX_CHARS;
+}
+
+/** Per-slide ground-truth body, same shape the vendored markdown renderer emits. */
+function slideBody(shapes: Array<{ shapeId: string; text: string }>, slideNo: number, total: number): string {
+  const lines = [`## Slide ${slideNo}/${total}`, ""];
+  for (const shape of shapes) lines.push(`- [${shape.shapeId}] ${shape.text}`);
+  return lines.join("\n");
+}
+
+/**
+ * pptx lane (ticket 05): the vendored text-run extraction stays the
+ * ground-truth body; a probed renderer (qlmanage/soffice, src/raster/deck.ts)
+ * rasterizes slides into per-page notes with `![[page-NNN.png]]` embeds —
+ * a real multi-page doc like the pdf lane (manifest pageCount = slides,
+ * `--pages` filter, resumability). text mode / no renderer → exactly the
+ * runOffice output (plus a notice when renders were wanted but unavailable).
+ */
+async function runPptx(args: RunDocumentArgs, layout: DocLayout, slug: string): Promise<void> {
+  const { inputAbs, inputName, bytes, mode } = args;
+  const result = await readDocument({ data: bytes, path: inputName });
+  const slides = result.pptx?.slides ?? [];
+  const total = result.pptx?.totalSlides ?? slides.length;
+  const slideCount = slides.length;
+  if (slideCount === 0 || mode === "text") return runOffice(args, layout, slug, "pptx");
+
+  const renderer = pickRenderer();
+  if (!renderer) {
+    // Today's runOffice output shape + an honest notice in the note itself
+    // (truth rules: state plainly what the format lost on this machine).
+    console.error(
+      "  [pptx] no slide renderer on this machine (looked for qlmanage, soffice+pdftoppm) — text-only output",
+    );
+    const md = renderMarkdown(result, args.caps.maxBytes);
+    const notice =
+      "\n> Slide renders unavailable on this machine (looked for qlmanage, soffice+pdftoppm) — text runs only; diagrams and images are lost.\n";
+    const full = ["---", `title: ${inputName}`, `kind: pptx`, `profile: paper`, "---", "", md + notice, ""].join("\n");
+    writeFileSync(layout.indexNotePath, full, "utf8");
+    const manifest = createManifest({
+      input: inputAbs,
+      inputName,
+      kind: "pptx",
+      profile: "paper",
+      slug,
+      pageCount: 1,
+      layout,
+    });
+    manifest.pages[0]!.png = null;
+    manifest.pages[0]!.md = null;
+    manifest.pages[0]!.status = "done" as PageStatus;
+    writeManifest(layout, manifest);
+    console.error(`\n  ✓ ${slug}: pptx (text-only, no renderer) → ${args.displayPath(layout.indexNotePath)}`);
+    args.emit?.({ type: "doc_done", slug, profile: "paper", pages: 1 });
+    return;
+  }
+
+  // Slide XML flags for the smart diagram heuristic (pic/graphicFrame never
+  // survive the text-run reader, so re-read the raw parts here).
+  let slideXmls: string[] = [];
+  try {
+    const parts = readZipText(bytes);
+    slideXmls = slides.map((s) => parts[`ppt/slides/slide${s.slide + 1}.xml`] ?? "");
+  } catch {
+    slideXmls = slides.map(() => "");
+  }
+
+  const realLayout = layoutFor(args.outRoot, slug, slideCount);
+  ensureLayout(realLayout);
+  const only = args.pages ? parsePageSpec(args.pages, slideCount) : null;
+  if (args.pages && only && only.size === 0) {
+    throw new Error(
+      `--pages "${args.pages}" matched no slides (deck has ${slideCount} slide(s)). Use 1-indexed ranges like "1,3-5".`,
+    );
+  }
+  const profile: DocProfile = args.forcedType ?? "slides";
+  const existing = loadManifest(realLayout);
+  const manifest =
+    existing && existing.pageCount === slideCount
+      ? existing
+      : createManifest({
+          input: inputAbs,
+          inputName,
+          kind: "pptx",
+          profile,
+          slug,
+          pageCount: slideCount,
+          layout: realLayout,
+        });
+
+  // Render once into the pages dir (resumable: a full render is skipped only
+  // when every selected page is already done — the renderer has no page set).
+  const needRender = manifest.pages.some(
+    (mp, i) => (!only || only.has(i + 1)) && !(mp.status === "done" && existsSync(realLayout.mdAbs(i + 1))),
+  );
+  if (needRender) {
+    const work = mkdtempSync(join(tmpdir(), "file2md-pptx-"));
+    try {
+      const written = await renderer.renderSlides(inputAbs, work, {
+        limit: Math.min(slideCount, args.caps.maxSlides),
+        size: Math.max(800, Math.min(3200, Math.round(800 * args.scale))),
+      });
+      for (const path of written) {
+        const n = Number(/slide-(\d+)\.png$/.exec(path)?.[1] ?? 0);
+        if (n >= 1 && n <= slideCount) writeFileSync(realLayout.pngAbs(n), new Uint8Array(readFileSync(path)));
+      }
+    } catch (e) {
+      console.error(`  [pptx] slide render failed (${e instanceof Error ? e.message : e}) — text-only pages`);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }
+
+  const truncatedNotice =
+    total > slideCount ? `\n> Truncated: rendering first ${slideCount} of ${total} slides (window cap).\n` : "";
+
+  const processSlide = async (slideNo: number) => {
+    const mp = manifest.pages[slideNo - 1]!;
+    if (only && !only.has(slideNo)) return;
+    if (mp.status === "done" && existsSync(realLayout.mdAbs(slideNo))) return;
+
+    const slide = slides[slideNo - 1]!;
+    let record: PageRecord = {
+      page: slideNo,
+      body: `${slideBody(slide.shapes, slideNo, slideCount)}${truncatedNotice}`,
+      provenance: "text",
+    };
+    const pngPath = realLayout.pngAbs(slideNo);
+    const hasPng = existsSync(pngPath);
+    if (hasPng) {
+      record.png = new Uint8Array(readFileSync(pngPath));
+    }
+
+    if (
+      hasPng &&
+      args.llm &&
+      (mode === "vlm" ||
+        (mode === "smart" && isDiagramSlide(slideXmls[slideNo - 1] ?? "", slide.shapes.map((s) => s.text).join(" "))))
+    ) {
+      const pngLinkName = `${pageLabel(slideNo, slideCount)}.png`;
+      try {
+        if (mode === "vlm") {
+          const explained = await withRetry(
+            () =>
+              explainPage(
+                args.llm!,
+                profile,
+                {
+                  imageAbs: pngPath,
+                  mimeType: "image/png",
+                  pngLinkName,
+                  docSlug: slug,
+                  pageNo: slideNo,
+                  pageCount: slideCount,
+                  lang: args.lang,
+                  mode: args.note as ExplainMode,
+                },
+                args.signal,
+              ),
+            { signal: args.signal },
+          );
+          const validated = validatePageMarkdown(explained.markdown, { page: slideNo, kind: "page" });
+          if (explained.ok && validated.ok) {
+            record = { ...record, body: explained.markdown, provenance: "vision" };
+          } else {
+            console.error(
+              `  [slide ${slideNo}] vision output rejected (${explained.error ?? "validation failed"}) — text-run body`,
+            );
+          }
+        } else {
+          const explained = await withRetry(
+            () =>
+              explainPage(
+                args.llm!,
+                profile,
+                {
+                  imageAbs: pngPath,
+                  mimeType: "image/png",
+                  pngLinkName,
+                  docSlug: slug,
+                  pageNo: slideNo,
+                  pageCount: slideCount,
+                  lang: args.lang,
+                  mode: args.note as ExplainMode,
+                  figure: true,
+                },
+                args.signal,
+              ),
+            { signal: args.signal },
+          );
+          const description = explained.markdown.trim();
+          if (explained.ok && description !== "") {
+            record = {
+              ...record,
+              body: `${record.body}\n## Slide (vision)\n\n${description}\n`,
+              enhanced: "vision",
+            };
+            mp.figure = { detected: true, enhanced: true };
+          } else {
+            console.error(`  [slide ${slideNo}] vision output rejected — skip notice`);
+            record = { ...record, body: `${record.body}\n\n${FIGURE_SKIP_NOTICE}\n` };
+            mp.figure = { detected: true, enhanced: false };
+          }
+        }
+      } catch (e) {
+        console.error(`  [slide ${slideNo}] vision failed (${e instanceof Error ? e.message : e}) — degrade`);
+        if (mode === "smart") {
+          record = { ...record, body: `${record.body}\n\n${FIGURE_SKIP_NOTICE}\n` };
+          mp.figure = { detected: true, enhanced: false };
+        }
+      }
+    }
+
+    writeFileSync(realLayout.mdAbs(slideNo), pageNoteMd(inputName, slideNo, slideCount, profile, record), "utf8");
+    mp.png = hasPng ? realLayout.pngRel(slideNo) : null;
+    mp.status = "done" as PageStatus;
+    delete mp.error;
+    writeManifest(realLayout, manifest);
+    args.emit?.({
+      type: "page",
+      slug,
+      page: slideNo,
+      status: "done",
+      chars: record.body.length,
+      provenance: record.provenance,
+    });
+  };
+
+  const concurrency = mode === "vlm" || (mode === "smart" && args.llm) ? Math.max(1, args.concurrency) : 1;
+  await runPool(
+    Array.from({ length: slideCount }, (_, i) => i + 1),
+    concurrency,
+    processSlide,
+  );
+  writeIndexNote(realLayout, manifest, profile, process.cwd());
+  console.error(
+    `\n  ✓ ${slug}: pptx (${slideCount} slides, renderer ${renderer.id}) → ${args.displayPath(realLayout.dir)}`,
+  );
+  args.emit?.({ type: "doc_done", slug, profile, pages: slideCount });
+}
+
+// ---------------------------------------------------------------------------
 // office (docx/xlsx/pptx/ipynb) + text passthrough
 // ---------------------------------------------------------------------------
 
@@ -719,13 +1347,17 @@ export function htmlToMarkdown(html: string): string {
   body = body
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ")
-    .replace(/<\/?(h1|h2|h3|h4|h5|h6)[^>]*>/gi, (_cap, tag) => `\n${"#".repeat(+(tag[1] ?? "1"))} `)
+    // opening heading tag prefixes the marker; the CLOSING tag must not emit a
+    // second one (a lone stray `#` line) — and `<(b|strong)` needs a word
+    // boundary or `<body>` opens a `**` (seen live in the html-figure receipt)
+    .replace(/<h([1-6])\b[^>]*>/gi, (_cap, level) => `\n${"#".repeat(+level)} `)
+    .replace(/<\/h[1-6]>/gi, "\n")
     .replace(/<\/(li)>/gi, "\n")
     .replace(/<li[^>]*>/gi, "- ")
     .replace(/<(p|div|tr|td)\b[^>]*>/gi, "\n")
     .replace(/<\/?table>/gi, "\n")
     .replace(/<\/?pre>/gi, "\n")
-    .replace(/<(b|strong)[^>]*>/gi, "**")
+    .replace(/<(b|strong)\b[^>]*>/gi, "**")
     .replace(/<\/(b|strong)>/gi, "**")
     .replace(/<(i|em)[^>]*>/gi, "*")
     .replace(/<\/(i|em)>/gi, "*")

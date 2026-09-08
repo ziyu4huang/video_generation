@@ -8,7 +8,7 @@
  */
 
 /** Mechanical file kind — the sniff result. */
-export type FileKind = "pdf" | "image" | "docx" | "xlsx" | "pptx" | "ipynb" | "text";
+export type FileKind = "pdf" | "image" | "svg" | "docx" | "xlsx" | "pptx" | "ipynb" | "text";
 
 /** Which extraction levels the pipeline runs (replaces v1's extract strategies). */
 export type File2mdMode = "auto" | "text" | "ocr" | "vlm" | "smart";
