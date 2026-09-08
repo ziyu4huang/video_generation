@@ -13,6 +13,7 @@
  * See src/cli-common.ts for the shared contract.
  */
 import { runLocalCi } from "./ci-recipe.js";
+import { createCiLogWriter } from "./ci-log-writer.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { resolveRemoteName } from "./remote.js";
 import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, toStderr, usageError } from "./cli-common.js";
@@ -125,6 +126,9 @@ export async function runLocalCiCli(
 			// Resolved once (DEVOPS_REMOTE > git config devops.remote > origin —
 			// src/remote.ts); only drives the DEFAULT base ref.
 			remoteName: deps.remoteName ?? (await resolveRemoteName(spawn)),
+			// MC-2 (self-arc-15 t04): failed steps' full output persists under
+			// output/ci-logs/local-<...>/ — same contract the merge chain uses.
+			failureLogWriter: (await createCiLogWriter(repoRoot, "local")).write,
 			// Imported, not spawned: without this the schema-cost banner corrupts
 			// the JSON on stdout.
 			log: toStderr,

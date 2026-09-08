@@ -194,6 +194,11 @@ export interface CiOutcome {
 	/** Top (≤5) packages by typecheck+test wall-clock, slowest first. */
 	slowest: Array<{ name: string; durationMs: number }>;
 	/**
+	 * MC-2: persisted full-output log files for FAILED steps, when the caller
+	 * injected a `failureLogWriter`. Key-absent on green runs.
+	 */
+	logFiles?: Array<{ step: string; path: string }>;
+	/**
 	 * Set when change detection FAILED — `computeChangedPackages` threw (a genuine
 	 * I/O failure; its fail-open cases return all-true instead of throwing). Then
 	 * `overall` is "fail", `packages`/`gates` are empty, and the per-package loop
@@ -275,6 +280,14 @@ export interface CiOptions {
 	 * those pass a stderr sink here.
 	 */
 	log?: (line: string) => void;
+	/**
+	 * MC-2 (self-arc-15 t04): when set, EVERY failed step's FULL stdout+stderr
+	 * is handed to this writer (the live CLI persists it under
+	 * `output/ci-logs/<label>-<ts>/`). The inline JSON `detail` stays the
+	 * 40-line tail — this seam is the full-text complement, not a replacement.
+	 * Green runs call it zero times; write errors are swallowed (advisory).
+	 */
+	failureLogWriter?: (step: string, content: string) => Promise<string>;
 	/** Baseline JSON path forwarded to the schema-cost check (tests pin a fixture). */
 	schemaCostBaseline?: string;
 	/**
@@ -525,6 +538,36 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 	const baseRef = opts.baseRef ?? `${opts.remoteName ?? "origin"}/main`;
 	const headRef = opts.headRef ?? "HEAD";
 	const spawn = opts.spawn;
+
+	// MC-2 (self-arc-15 t04): wrap the injected spawn so every FAILED step's
+	// full output is handed to the optional failureLogWriter. The inline
+	// `detail` (40-line tail) is untouched — this is the full-text complement.
+	// Jobs are collected and awaited just before the outcome is assembled, so
+	// parallel phases all land in logFiles.
+	const logJobs: Promise<void>[] = [];
+	const logFiles: Array<{ step: string; path: string }> = [];
+	const captureFailure = (step: string, r: { exitCode: number; stdout: string; stderr: string }) => {
+		if (!opts.failureLogWriter || r.exitCode === 0) return;
+		const content = `--- command exit ${r.exitCode} ---\n--- stdout ---\n${r.stdout}\n--- stderr ---\n${r.stderr}\n`;
+		logJobs.push(
+			opts
+				.failureLogWriter(step, content)
+				.then((path) => {
+				logFiles.push({ step, path });
+			})
+				.catch(() => {}),
+		);
+	};
+	const spawnStep = (
+		step: string,
+		cmd: string,
+		args: string[],
+		o?: { cwd?: string; timeoutMs?: number },
+	) =>
+		spawn(cmd, args, o).then((r: { exitCode: number; stdout: string; stderr: string }) => {
+			captureFailure(step, r);
+			return r;
+		});
 	const readPkg = opts.readPkg ?? readPackageJson;
 
 	// 1. Verify the base ref exists LOCALLY (no network). A missing origin/main
@@ -617,7 +660,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 				if (!EXCLUSIVE_GATE.test(spec.run)) continue;
 				const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
 				const t0 = now();
-				const r = await spawn("bash", ["-c", spec.run], { cwd });
+				const r = await spawnStep(`gate:${spec.name}`, "bash", ["-c", spec.run], { cwd });
 				gateResults[i] = { name: spec.name, exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 			}
 		}
@@ -708,10 +751,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			} else if (gateCoversTypecheck) {
 				result.typecheck = { exitCode: -1, skipped: true, note: "covered by the typecheck:ext gate" };
 			} else if (typeof scripts.typecheck === "string") {
-				const r = await spawn("bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
+				const r = await spawnStep(`typecheck:${name}`, "bun", ["run", "typecheck"], { cwd: pkgDir, timeoutMs });
 				result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 			} else if (typeof scripts.check === "string" && /tsc/.test(scripts.check)) {
-				const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
+				const r = await spawnStep(`check:${name}`, "bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
 				result.typecheck = { exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 			} else {
 				result.typecheck = { exitCode: -1, skipped: true, note: "no tsc key" };
@@ -723,10 +766,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			// resolving to `lint` would produce a green gate over a red `check`.
 			const tLint = now();
 			if (typeof scripts.check === "string" && /biome/.test(scripts.check)) {
-				const r = await spawn("bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
+				const r = await spawnStep(`check:${name}`, "bun", ["run", "check"], { cwd: pkgDir, timeoutMs });
 				result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
 			} else if (typeof scripts.lint === "string" && /biome/.test(scripts.lint)) {
-				const r = await spawn("bun", ["run", "lint"], { cwd: pkgDir, timeoutMs });
+				const r = await spawnStep(`lint:${name}`, "bun", ["run", "lint"], { cwd: pkgDir, timeoutMs });
 				result.lint = { exitCode: r.exitCode, durationMs: now() - tLint, ...detailOf(r) };
 			} else {
 				result.lint = { exitCode: -1, skipped: true, note: "no biome key" };
@@ -767,7 +810,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 				const t0 = now();
 				const timedOutNote = `HUNG — killed after ${timeoutMs}ms (exit ${SPAWN_TIMEOUT_EXIT_CODE}); this is a hang, not a test failure`;
 				if (typeof matrixCmd === "string") {
-					const r = await spawn("bash", ["-c", matrixCmd], { cwd: pkgDir, timeoutMs });
+					const r = await spawnStep(`test:${name}`, "bash", ["-c", matrixCmd], { cwd: pkgDir, timeoutMs });
 					result.test = {
 						exitCode: r.exitCode,
 						source: "matrix",
@@ -777,7 +820,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 						...detailOf(r),
 					};
 				} else if (typeof scripts.test === "string") {
-					const r = await spawn("bun", ["run", "test"], { cwd: pkgDir, timeoutMs });
+					const r = await spawnStep(`test:${name}`, "bun", ["run", "test"], { cwd: pkgDir, timeoutMs });
 					result.test = {
 						exitCode: r.exitCode,
 						source: "package-script",
@@ -822,7 +865,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 			if (opts.signal?.aborted) return null;
 			const cwd = spec.cwd === "." ? opts.repoRoot : `${opts.repoRoot}/${spec.cwd}`;
 			const t0 = now();
-			const r = await spawn("bash", ["-c", spec.run], { cwd });
+			const r = await spawnStep(`gate:${spec.name}`, "bash", ["-c", spec.run], { cwd });
 			gateResults[i] = { name: spec.name, exitCode: r.exitCode, durationMs: now() - t0, ...detailOf(r) };
 			return null;
 		});
@@ -905,7 +948,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 						.map((l) => l.trim())
 						.filter(Boolean);
 					if (shouldRunDeployE2e(files)) {
-						const r = await spawn("bash", ["-c", DEPLOY_E2E_COMMAND], {
+						const r = await spawnStep("deploy-e2e", "bash", ["-c", DEPLOY_E2E_COMMAND], {
 							cwd: `${opts.repoRoot}/bun-apps/s2-agent`,
 							// Bundle build + suite ≈ 20-40s; 240s only kills a HANG.
 							timeoutMs: 240_000,
@@ -957,6 +1000,10 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		.sort((a, b) => b.durationMs - a.durationMs)
 		.slice(0, 5);
 
+	// MC-2: wait for the failure-log writes (best-effort; errors swallowed in
+	// the capture) so the outcome carries the complete file list.
+	await Promise.allSettled(logJobs);
+
 	return {
 		overall,
 		baseRef,
@@ -969,6 +1016,7 @@ export async function runLocalCi(opts: CiOptions): Promise<CiOutcome> {
 		overBudget: elapsedMs > budgetMs,
 		slowest,
 		...(gateError ? { gateError } : {}),
+		...(logFiles.length > 0 ? { logFiles } : {}),
 	};
 }
 

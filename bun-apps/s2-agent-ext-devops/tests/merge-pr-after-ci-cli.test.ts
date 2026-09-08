@@ -1332,3 +1332,26 @@ describe("merge-pr-after-ci-cli — e2e credential preflight (MC-1)", () => {
 		expect(res.exitCode).toBe(0);
 	});
 });
+
+// ── self-arc-15 t04 / MC-2: ciLogDir on the local_ci_failed abort ───────────
+describe("merge-pr-after-ci-cli — ciLogDir on failed local CI (MC-2)", () => {
+	test("a failing outcome with logFiles surfaces ciLogDir + logFiles in the abort", async () => {
+		const logFiles = [{ step: "typecheck:pkg-a", path: "/repo/output/ci-logs/pr-42-x/typecheck-pkg-a.log" }];
+		const res = await runPrFinishCli(["42"], {
+			gh: fakeGh([OPEN_CLEAN]).gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ({
+				...ciFail(),
+				logFiles,
+			}),
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted.reason).toBe("local_ci_failed");
+		expect(outcome.aborted.ciLogDir).toContain(join("output", "ci-logs"));
+		expect(outcome.aborted.logFiles).toEqual(logFiles);
+		expect(outcome.aborted.message).toContain("full logs:");
+	});
+});

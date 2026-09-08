@@ -1428,3 +1428,54 @@ describe("runLocalCi — base-ref default follows remoteName", () => {
 		expect(detect.calls[0].baseRef).toBe("upstream/main");
 	});
 });
+
+// ── self-arc-15 t04 / MC-2: failed steps' full output reaches the writer ────
+describe("runLocalCi — failureLogWriter (MC-2)", () => {
+	test("a failed typecheck's FULL stdout+stderr is written; detail stays the 40-line tail", async () => {
+		// 60 lines of stdout — far past the 40-line inline tail — plus stderr.
+		const longStdout = Array.from({ length: 60 }, (_, i) => `stdout line ${i + 1}`).join("\n");
+		const longStderr = Array.from({ length: 50 }, (_, i) => `stderr line ${i + 1}`).join("\n");
+		const writes: Array<{ step: string; content: string; path: string }> = [];
+		const spawnFns = mkSpawn([
+			verifyOk(),
+			{
+				match: (cmd, args) => cmd === "bun" && args[0] === "run" && args[1] === "typecheck",
+				result: { stdout: longStdout, stderr: longStderr, exitCode: 2 },
+			},
+		]);
+		const detect = mkDetect({ "s2-agent-ext-task": true, "s2-agent-ext-research-tool": false });
+		const out = await runLocalCi({
+			repoRoot: REPO,
+			spawn: spawnFns.fn,
+			detectChangedPackages: detect.fn,
+			readPkg: mkReadPkg({
+				"s2-agent-ext-task": { typecheck: "tsc --noEmit", test: "bun test" },
+				"s2-agent-ext-research-tool": { typecheck: "tsc --noEmit", test: "bun test" },
+			}),
+			includeGates: false,
+			failureLogWriter: async (step, content) => {
+				const path = `/fake/${writes.length}-${step.replace(/[^a-z0-9.-]/gi, "-")}.log`;
+				writes.push({ step, content, path });
+				return path;
+			},
+		});
+		expect(out.overall).toBe("fail");
+
+		// Exactly the failed steps were written (typecheck + test for the one
+		// failing package — the failing typecheck makes the test phase run too).
+		expect(writes.length).toBeGreaterThanOrEqual(1);
+		const typecheck = writes.find((w) => w.step.startsWith("typecheck:"));
+		expect(typecheck).toBeDefined();
+		expect(typecheck!.content.includes("stdout line 60")).toBe(true);
+		expect(typecheck!.content.includes("stderr line 50")).toBe(true);
+		expect(typecheck!.content).toContain("--- stdout ---");
+
+		// The inline JSON detail stays the compact tail — the payload contract
+		// is unchanged; the writer is the full-text complement.
+		const pkg = out.packages.find((p) => p.name === "s2-agent-ext-task")!;
+		expect(pkg.typecheck?.detail).toBeDefined();
+		expect(pkg.typecheck!.detail!.length).toBeLessThan(3000);
+		expect(out.logFiles!.length).toBe(writes.length);
+		expect(out.logFiles![0]!.path).toBe(writes[0]!.path);
+	});
+});
