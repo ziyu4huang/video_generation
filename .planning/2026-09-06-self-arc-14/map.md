@@ -1,7 +1,7 @@
 ---
 effort: 2026-09-06-self-arc-14
 created: 2026-09-08
-last: 2026-09-08
+last: 2026-09-09
 status: active
 ---
 
@@ -140,3 +140,38 @@ Builds-on: `2026-09-06-self-arc-12` (tui-drive harness + 10/10 sweep receipts; m
 verified-submit/boot-gate receipt discipline).
 Shares-decision-with: `2026-09-06-self-arc-13` D10 (scripts-dir shape: one runnable entry +
 libs under `scripts/lib/` — qualify.ts is that shape again).
+
+## Shipped-as (2026-09-09)
+
+PR #2223 (merged CLEAN, squash lineage on 0.10.2+g4190dd5): qualify.ts + scripts/lib/qualify/
+(6 unit gates), --rpc-pair (first real wiring of arc-13's structured-complement verdict —
+import path won, no port needed), pause-abort honesty (5 unit gates). t04 receipt — the
+FIRST non-ad-hoc deployed sweep, driven entirely by qualify.ts with --rpc-pair:
+
+```
+# qualify — tui-drive deployed sweep
+
+Scenarios: 10 · green: 10 · red: 0
+
+| scenario | verdict | wall | rpc |
+|---|---|---|---|
+| dispatch | ✅ | 56.9s | model-ok+settled (1s boot) |
+| parallel | ✅ | 58.6s | — |
+| viewer | ✅ | 45.0s | — |
+| agents | ✅ | 17.1s | — |
+| reload | ✅ | 63.4s | — |
+| swarm | ✅ | 24.8s | — |
+| catalog | ✅ | 18.8s | — |
+| workflow | ✅ | 37.5s | model-ok+settled (1s boot) |
+| wf-pause | ✅ | 63.6s | model-ok+settled (1s boot) |
+| cc-parity | ✅ | 83.6s | — |
+
+
+```
+
+The wf-pause scenario's deployed snaps show the corrected line where the arc-11 snaps
+showed the lie: `⏸ Background workflow … paused — superseded by resume … /workflows
+resume …` — never `✗ … failed` for a parked, resumable run. Receipts:
+`output/qualify14-full-deployed/` (scratch). Fog resolutions: rpc adapter imported
+cleanly (no port); probe cost cheap (1s boot) but pairing stays on the 3 async-lifecycle
+scenarios by design.
