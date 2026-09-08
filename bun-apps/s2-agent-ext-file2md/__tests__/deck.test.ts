@@ -134,6 +134,16 @@ test("promoteSlideFirst refuses a slide that does not exist, by name", () => {
   expect(() => promoteSlideFirst(PRESENTATION, RELS, 7)).toThrow(PptxRenderError);
 });
 
+test("non-contiguous parts (slide1+slide3, no slide2) refuse at the missing relationship", () => {
+  // The hardening arc's non-contiguous deck shape: promotion of slide 2 must
+  // throw (there is no slides/slide2.xml relationship) — this is the exact
+  // throw the pipeline-level degrade test in pptx-lane.test.ts simulates.
+  const gappyRels = RELS.replace(/<Relationship Id="rId3"[^>]*\/>/, "");
+  expect(() => promoteSlideFirst(PRESENTATION, gappyRels, 2)).toThrow(PptxRenderError);
+  // ...while the parts that DO exist still promote.
+  expect(() => promoteSlideFirst(PRESENTATION, gappyRels, 3)).not.toThrow();
+});
+
 test("countSlides counts ppt/slides/slideN.xml parts", () => {
   expect(countSlides({ "ppt/slides/slide1.xml": "a", "ppt/slides/slide2.xml": "b" })).toBe(2);
   expect(countSlides({ "ppt/slides/_rels/slide1.xml.rels": "r" })).toBe(0);

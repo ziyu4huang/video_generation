@@ -15,7 +15,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import JSZip from "jszip";
 
-const rendererState = { available: true, renderCalls: 0, lastOpts: null as null | { limit?: number; size?: number } };
+const rendererState = {
+  available: true,
+  renderCalls: 0,
+  lastOpts: null as null | { limit?: number; size?: number },
+  /** When set, renderSlides writes this many pngs then throws (mid-run failure). */
+  failAfter: null as null | number,
+  /** When set, renderSlides SUCCEEDS but returns only this many pngs (silent shortfall). */
+  shortfallAfter: null as null | number,
+  /** Message used when failAfter fires (promote-shaped for the non-contiguous case). */
+  failMessage: "pptx render: slide 2 not referenced in ppt/_rels/presentation.xml.rels",
+};
 const slideXmlParts: Record<string, string> = {};
 const visionState = { available: false };
 const visionCalls = { calls: 0, perPage: [] as number[], figureVariant: [] as boolean[] };
@@ -32,11 +42,18 @@ mock.module("../src/raster/deck.ts", () => ({
           renderSlides: async (_pptx: string, outDir: string, opts?: { limit?: number; size?: number }) => {
             rendererState.renderCalls++;
             rendererState.lastOpts = opts ?? null;
+            const limit = opts?.limit ?? 20;
+            const stop = rendererState.failAfter === null ? limit : Math.min(rendererState.failAfter, limit);
+            const shortfall =
+              rendererState.shortfallAfter === null ? limit : Math.min(rendererState.shortfallAfter, limit);
             const written: string[] = [];
-            for (let n = 1; n <= (opts?.limit ?? 20); n++) {
+            for (let n = 1; n <= Math.min(stop, shortfall); n++) {
               const p = join(outDir, `slide-${n}.png`);
               await writeFile(p, TINY_PNG);
               written.push(p);
+            }
+            if (rendererState.failAfter !== null && rendererState.failAfter < limit) {
+              throw new Error(rendererState.failMessage);
             }
             return written;
           },
@@ -123,6 +140,8 @@ beforeEach(async () => {
   tmp = await mkdtemp(join(tmpdir(), "file2md-pptx-test-"));
   out = join(tmp, "out");
   rendererState.available = true;
+  rendererState.failAfter = null;
+  rendererState.shortfallAfter = null;
   rendererState.renderCalls = 0;
   rendererState.lastOpts = null;
   for (const k of Object.keys(slideXmlParts)) delete slideXmlParts[k];
@@ -252,5 +271,85 @@ describe("runPptx — mode matrix", () => {
     expect(rendererState.lastOpts?.limit).toBe(20);
     expect(manifestJson("big").pageCount).toBe(20);
     expect(pageMd(1, "big")).toContain("Truncated: rendering first 20 of 25 slides");
+  });
+
+  // --- hardening (2026-09-09-file2md-render-hardening, ticket 03) -----------
+
+  test("mid-run renderer failure: honest in-note notice on png-less pages, no throw", async () => {
+    rendererState.failAfter = 1;
+    const deck = await buildDeck();
+    await runFile2mdPipeline({ inputs: [deck], outRoot: out, mode: "auto" });
+    // The real seam discards its work dir on a mid-loop throw, so NO page has
+    // a png — every note carries the notice; nothing throws out of runPptx.
+    for (const n of [1, 2]) {
+      const md = pageMd(n);
+      expect(md).toContain("Slide renders incomplete (renderer failed: pptx render: slide 2 not referenced");
+      expect(md).not.toContain(`![[page-00${n}.png]]`);
+      expect(md).toContain("- ["); // text-run body kept
+    }
+    const m = manifestJson();
+    expect(m.pages[0]!.status).toBe("done");
+    expect(m.pages[1]!.status).toBe("done");
+    expect(m.pages[0]!.png).toBeNull();
+    expect(m.pages[1]!.png).toBeNull();
+  });
+
+  test("re-run with a healed renderer re-attempts render and embeds the missing pngs", async () => {
+    rendererState.failAfter = 1;
+    const deck = await buildDeck();
+    await runFile2mdPipeline({ inputs: [deck], outRoot: out, mode: "auto" });
+    expect(pageMd(1)).toContain("Slide renders incomplete");
+    rendererState.failAfter = null; // the transient failure heals
+    await runFile2mdPipeline({ inputs: [deck], outRoot: out, mode: "auto" });
+    expect(rendererState.renderCalls).toBe(2); // re-attempted, not permanently degraded
+    for (const n of [1, 2]) {
+      const md = pageMd(n);
+      expect(md).toContain(`![[page-00${n}.png]]`);
+      expect(md).not.toContain("Slide renders incomplete");
+      expect(manifestJson().pages[n - 1]!.png).toBe(`pages/page-00${n}.png`);
+    }
+  });
+
+  test("non-contiguous slide parts degrade to noticed text-only notes, not a throw", async () => {
+    // Deck with slide1 + slide3 parts and no slide2: the real quicklook seam's
+    // promoteSlideFirst throws at the missing relationship — the fake renderer
+    // reproduces exactly that (failAfter 0, promote-shaped message).
+    rendererState.failAfter = 0;
+    const zip = new JSZip();
+    zip.file("[Content_Types].xml", `<Types><Override PartName="/ppt/slides/slide1.xml"/></Types>`);
+    zip.file(
+      "ppt/presentation.xml",
+      `<p:presentation xmlns:p="p" xmlns:r="r"><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst></p:presentation>`,
+    );
+    zip.file(
+      "ppt/_rels/presentation.xml.rels",
+      `<Relationships><Relationship Id="rId2" Target="slides/slide1.xml"/></Relationships>`,
+    );
+    const s1 = `<p:sld><p:cSld><p:spTree><p:sp><p:cNvPr id="2"/><p:txBody><a:p><a:r><a:t>Alpha</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`;
+    const s3 = `<p:sld><p:cSld><p:spTree><p:sp><p:cNvPr id="4"/><p:txBody><a:p><a:r><a:t>Gamma</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>`;
+    zip.file("ppt/slides/slide1.xml", s1);
+    zip.file("ppt/slides/slide3.xml", s3);
+    slideXmlParts["ppt/slides/slide1.xml"] = s1;
+    slideXmlParts["ppt/slides/slide3.xml"] = s3;
+    const p = join(tmp, "gappy.pptx");
+    await writeFile(p, new Uint8Array(await zip.generateAsync({ type: "uint8array" })));
+
+    await runFile2mdPipeline({ inputs: [p], outRoot: out, mode: "auto" });
+    const md1 = pageMd(1, "gappy");
+    expect(md1).toContain("- [2] Alpha");
+    expect(md1).toContain("Slide renders incomplete (renderer failed: pptx render: slide 2 not referenced");
+    expect(pageMd(2, "gappy")).toContain("- [4] Gamma");
+    expect(existsSync(join(out, "gappy", "pages", "page-001.png"))).toBe(false);
+  });
+
+  test("silent shortfall (renderer succeeds, fewer pngs): png-less note carries the milder notice", async () => {
+    rendererState.shortfallAfter = 1;
+    const deck = await buildDeck();
+    await runFile2mdPipeline({ inputs: [deck], outRoot: out, mode: "auto" });
+    expect(pageMd(1)).toContain("![[page-001.png]]");
+    const md2 = pageMd(2);
+    expect(md2).toContain("Slide render missing for this slide (renderer returned no image)");
+    expect(md2).not.toContain("renderer failed"); // the throw-wording must NOT appear
+    expect(manifestJson().pages[1]!.png).toBeNull();
   });
 });

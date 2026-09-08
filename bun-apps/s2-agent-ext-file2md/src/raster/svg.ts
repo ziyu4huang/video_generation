@@ -21,6 +21,16 @@ import { join } from "node:path";
 /** Longest captured edge cap (callers pass the pipeline's scale-derived edge). */
 export interface SvgRasterOptions {
   maxEdge?: number;
+  /**
+   * Liveness budget for one WebView pass (navigate → ready → measure/shot).
+   * The in-page readiness signal only gates tick scheduling — a
+   * never-composited window can stall an evaluate forever — so every pass is
+   * raced against this fuse and the race loser degrades to `null`.
+   * Default 10 000 ms; tests inject a small value + a stalled fake view.
+   */
+  livenessMs?: number;
+  /** DI seam for tests: construct the view (production always Bun.WebView). */
+  createView?: (width: number, height: number) => Bun.WebView;
 }
 
 export interface SvgRasterResult {
@@ -29,9 +39,41 @@ export interface SvgRasterResult {
   height: number;
 }
 
+/** Default per-pass liveness budget (see SvgRasterOptions.livenessMs). */
+export const SVG_LIVENESS_MS = 10_000;
+
 const PROBE_VIEWPORT = { width: 1024, height: 768 } as const;
 /** Never trust a page that claims to be wider/taller than this (runaway layout). */
 const ABSURD_EDGE = 16384;
+
+/**
+ * Reject when `p` outlives `ms` — the caller's catch converts the rejection
+ * into the degrade path. The timer is always cleared so a won race never
+ * holds the event loop, and a promise that loses the race gets a swallowed
+ * catch: a wedged view may reject LATER, and that must never surface as an
+ * unhandled rejection.
+ */
+async function raceLiveness<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const fuse = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`webview pass exceeded the ${ms}ms liveness budget`)), ms);
+  });
+  p.catch(() => {}); // a loser's late rejection is not an error
+  try {
+    return await Promise.race([p, fuse]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Best-effort close: a rejecting (or slow) close must not fail the degrade. */
+async function closeQuietly(view: Bun.WebView | undefined, livenessMs: number): Promise<void> {
+  if (!view?.close) return;
+  await raceLiveness(
+    Promise.resolve(view.close()).catch(() => {}),
+    livenessMs,
+  ).catch(() => {});
+}
 
 function wrapperHtml(inner: string): string {
   return [
@@ -94,53 +136,74 @@ async function measureContent(view: Bun.WebView): Promise<{ w: number; h: number
  * crop. Bun.WebView's width/height are constructor-set (not live-resizable
  * in the type surface), hence the second load of the same local file:// URL.
  */
-async function captureWrapper(htmlPath: string, maxEdge: number): Promise<SvgRasterResult | null> {
-  if (!webViewAvailable()) return null;
-  // --- probe pass: load + measure ---
-  let size: { w: number; h: number } | null = null;
+/** Production view factory (DI seam — tests inject a stalled fake). */
+const defaultCreateView = (width: number, height: number): Bun.WebView => new Bun.WebView({ width, height });
+
+async function captureWrapper(
+  htmlPath: string,
+  maxEdge: number,
+  livenessMs: number,
+  createView: (width: number, height: number) => Bun.WebView,
+): Promise<SvgRasterResult | null> {
+  if (!webViewAvailable() && createView === defaultCreateView) return null;
+  // --- probe pass: load + measure (liveness-fused end to end) ---
+  let measured: { w: number; h: number } | null = null;
   let probe: Bun.WebView | undefined;
   try {
-    probe = new Bun.WebView({ width: PROBE_VIEWPORT.width, height: PROBE_VIEWPORT.height });
-    await probe.navigate(`file://${htmlPath}`);
-    await waitReady(probe);
-    size = await measureContent(probe);
+    probe = createView(PROBE_VIEWPORT.width, PROBE_VIEWPORT.height);
+    measured = await raceLiveness(
+      (async () => {
+        await probe!.navigate(`file://${htmlPath}`);
+        await waitReady(probe!);
+        return await measureContent(probe!);
+      })(),
+      livenessMs,
+    );
   } catch {
     return null;
   } finally {
-    await probe?.close?.();
+    await closeQuietly(probe, livenessMs);
   }
-  if (!size) return null;
-  const scale = Math.min(1, maxEdge / Math.max(size.w, size.h));
+  if (!measured) return null;
+  const scale = Math.min(1, maxEdge / Math.max(measured.w, measured.h));
   const target = {
-    w: Math.max(1, Math.ceil(size.w * scale)),
-    h: Math.max(1, Math.ceil(size.h * scale)),
+    w: Math.max(1, Math.ceil(measured.w * scale)),
+    h: Math.max(1, Math.ceil(measured.h * scale)),
   };
-  // --- capture pass at the measured size ---
+  // --- capture pass at the measured size (same fuse; the IIFE returns the
+  // result through raceLiveness) ---
   let view: Bun.WebView | undefined;
   try {
-    view = new Bun.WebView({ width: target.w, height: target.h });
-    await view.navigate(`file://${htmlPath}`);
-    await waitReady(view);
-    const shot = await view.screenshot();
-    const png = new Uint8Array(await shot.arrayBuffer());
-    if (png.byteLength === 0) return null;
-    return { png, width: target.w, height: target.h };
+    view = createView(target.w, target.h);
+    return await raceLiveness(
+      (async () => {
+        await view!.navigate(`file://${htmlPath}`);
+        await waitReady(view!);
+        const shot = await view!.screenshot();
+        const png = new Uint8Array(await shot.arrayBuffer());
+        if (png.byteLength === 0) throw new Error("empty screenshot");
+        return { png, width: target.w, height: target.h } satisfies SvgRasterResult;
+      })(),
+      livenessMs,
+    );
   } catch {
     return null;
   } finally {
-    await view?.close?.();
+    await closeQuietly(view, livenessMs);
   }
 }
 
 /** Render a standalone .svg file to PNG bytes. */
 export async function renderSvgFileToPng(svgAbs: string, opts: SvgRasterOptions = {}): Promise<SvgRasterResult | null> {
   const maxEdge = opts.maxEdge ?? 1600;
+  const livenessMs = opts.livenessMs ?? SVG_LIVENESS_MS;
+  const createView = opts.createView ?? defaultCreateView;
   const work = mkdtempSync(join(tmpdir(), "file2md-svg-"));
   try {
     const htmlPath = join(work, "wrap.html");
     const esc = svgAbs.replace(/"/g, "&quot;");
     writeFileSync(htmlPath, wrapperHtml(`<img src="${esc}">`), "utf8");
-    return await captureWrapper(htmlPath, maxEdge);
+    return await captureWrapper(htmlPath, maxEdge, livenessMs, createView);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
@@ -152,6 +215,8 @@ export async function renderSvgTextToPng(
   opts: SvgRasterOptions = {},
 ): Promise<SvgRasterResult | null> {
   const maxEdge = opts.maxEdge ?? 1600;
+  const livenessMs = opts.livenessMs ?? SVG_LIVENESS_MS;
+  const createView = opts.createView ?? defaultCreateView;
   const work = mkdtempSync(join(tmpdir(), "file2md-svgfrag-"));
   try {
     const htmlPath = join(work, "wrap.html");
@@ -160,7 +225,7 @@ export async function renderSvgTextToPng(
     // form used for whole files is sandboxed by the image loader instead).
     const safe = svgText.replace(/<script[\s\S]*?<\/script\s*>/gi, "");
     writeFileSync(htmlPath, wrapperHtml(safe), "utf8");
-    return await captureWrapper(htmlPath, maxEdge);
+    return await captureWrapper(htmlPath, maxEdge, livenessMs, createView);
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
