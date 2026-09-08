@@ -1,6 +1,6 @@
 # Ticket 05 — gates, PR, close-out
 
-Status: pending (after 02-04)
+Status: done (after 02-04)
 
 ## Goal
 
@@ -31,3 +31,11 @@ verify, review, merge, close the map, write the successor next-goal.
 
 - Scope creep: any new wart found mid-arc goes to the successor file, not
   into this PR (hardening arc, keep it tight).
+
+## Resolution
+
+closed: 2026-09-09 — package gates green (320/320, typecheck, biome);
+`local-ci-cli` change-scoped overall PASS; reviewer APPROVE (6 nits: 3 fixed,
+3 accepted — recorded on the map); PR #2228 squash-merged CLEAN;
+verify-merge CLEAN; successor next-goal written + validated per the
+hands-off gate.
