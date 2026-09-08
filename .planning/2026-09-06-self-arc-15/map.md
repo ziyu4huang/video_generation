@@ -2,7 +2,8 @@
 effort: 2026-09-06-self-arc-15
 created: 2026-09-09
 last: 2026-09-09
-status: active
+status: done
+# (reconciled 2026-09-09 by self-arc-17 close-out: shipped as PR #2232 — complex benchmark variants, matrix 8/8)
 ---
 
 # Wayfinder map: 2026-09-06-self-arc-15 — complex benchmark variants: bun-terminal vs rpc, second generation

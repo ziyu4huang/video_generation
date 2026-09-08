@@ -3,7 +3,6 @@ effort: 2026-09-09-self-arc-15
 created: 2026-09-09
 last: 2026-09-09
 status: done
-# (reconciled 2026-09-09 by self-arc-17 close-out: shipped as PR #2232 (complex benchmark variants, matrix 8/8))
 ---
 
 # Wayfinder map: 2026-09-09-self-arc-15 — merge-chain UX hardening (devops variant of the self-develop arc)
@@ -42,21 +41,48 @@ ticket-by-ticket with the same contract net.
   (read-in-session docs; structural gates unaffected); three tests pin
   zero-map, mixed, and fail-open shapes. #2185's 8-minute docs-only tax is gone.
 
+## Shipped
+
+- **t01 = MC-7 (#2224)**: `PR_FINISH_ABORT_REASONS` exported (now 11 reasons with
+  `e2e-credentials-missing`); bidirectional drift guard + exit-code edges pinned.
+- **t02 = MC-4 (#2224)**: `.agents/` joins MATRIX_IRRELEVANT_PREFIXES — docs-only
+  chores compute an empty package matrix; fail-open preserved and tested.
+- **t03 = MC-1 (#2230)**: `src/e2e-preflight.ts` — rc parity with
+  check-deploy-e2e.sh (ambient env > LAST export across the four rc files,
+  quotes stripped), one-of-two-keys requirement, VERIFY_E2E_MODEL pin
+  validation, advisory notes; the CLI aborts `e2e-credentials-missing` BEFORE
+  local CI (<1s) with copy-pasteable export lines; `--assume-ci-green` skips it.
+- **t04 = MC-2 (#2231)**: `failureLogWriter` seam in runLocalCi; `src/ci-log-writer.ts`
+  (lazy dir under `output/ci-logs/<label>-<ts>/`, sanitized+deduped files);
+  `local_ci_failed` abort carries `aborted.ciLogDir` (+ logFiles) and names the
+  dir — the truncated-excerpt incident class is closed.
+- **t05 = MC-3 (#2233)**: `src/via-temp-branch.ts` + `--via-temp-branch --pr <n>`:
+  guarded detached-copy rebase for branches held by another worktree (holder
+  never touched; conflicts keep the temp worktree with the half-resolved state;
+  dryRun spawns nothing; local-only commits = loud warning).
+- **t06 = MC-5/MC-6 (#2234)**: `outcome.cleanup.localKept {branch, worktree}`
+  for held-elsewhere merges; `worktree-doctor-cli` reports (and `--prune` fixes)
+  prunable worktree registrations; registered in the bin map.
+
+All tickets closed with gates green at merge time (devops suite 1189/0, tsc 0).
+Dogfood receipts: #2231's first chain run failed not-clean (my own concurrent
+edits) and its abort JSON demonstrated MC-2 in the wild — ciLogDir + logFiles
+pointed straight at the dead-export gate's full log.
 ## Tickets
 
 - [x] `tickets/01-mc7-exit-code-contract.md`
 - [x] `tickets/02-mc4-docs-only-fast-path.md`
-- [ ] `tickets/03-mc1-e2e-credential-preflight.md` — abort BEFORE local CI when
+- [x] `tickets/03-mc1-e2e-credential-preflight.md` — abort BEFORE local CI when
   neither DEEPSEEK_API_KEY nor ZAI_API_KEY resolves (env + rc grep mirroring
   check-deploy-e2e.sh), actionable message naming the export lines; new reason
   `e2e-credentials-missing` rides the MC-7 table
-- [ ] `tickets/04-mc2-failure-logs-to-disk.md` — full failing-gate output →
+- [x] `tickets/04-mc2-failure-logs-to-disk.md` — full failing-gate output →
   `<repoRoot>/output/ci-logs/<label>-<ts>/`, path in the abort JSON
   (`ciLogDir`); inline 40-line detail shape UNCHANGED
-- [ ] `tickets/05-mc3-via-temp-branch.md` — `prepare-feature-branch
+- [x] `tickets/05-mc3-via-temp-branch.md` — `prepare-feature-branch
   --via-temp-branch --pr <n>`: guarded detached-copy rebase for branches held
   by another worktree (the 2026-09-07 vgpu-labs-demo workaround, first-class)
-- [ ] `tickets/06-mc5-mc6-visibility.md` — post-merge held-elsewhere structured
+- [x] `tickets/06-mc5-mc6-visibility.md` — post-merge held-elsewhere structured
   outcome + worktree-doctor prune CLI
 
 ## Fog of war
