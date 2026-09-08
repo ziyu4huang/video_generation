@@ -45,3 +45,6 @@ pacing that lands there).
   carry RunView.modelSeg once onModelResolved fires (shortModel drops the
   provider prefix) — confirmed by the receipt snaps, adjust pins if the
   render changes.
+
+## Back-links
+Back-link: self-arc-13 (research-tool reliability) hardened its findings per this effort's rule — the base-set enrollment invariants surfaced by local CI are recorded as map Findings + regression gates (dep-guard, isolation contract), and the receipts pin the behavior — see `.planning/2026-09-08-self-arc-13/map.md`.
