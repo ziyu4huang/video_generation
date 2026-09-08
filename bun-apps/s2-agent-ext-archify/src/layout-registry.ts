@@ -212,3 +212,44 @@ export function loadRegistry(opts: LoadRegistryOpts = {}): LayoutRegistry {
     },
   };
 }
+
+/**
+ * Fields-vs-slots validation. A missing slot renders SILENTLY EMPTY today —
+ * `resolveString` fills "" and an empty repeat draws nothing — which is exactly
+ * why the renderless check must catch what the renderer forgives. The template's
+ * own description rides along: it is the author's sentence about what the
+ * layout is FOR, which is what turns "add `kpis`" into a fixable instruction.
+ */
+export function slotProblems(
+  slide: Record<string, unknown>,
+  index: number,
+  entry: CatalogEntry
+): string[] {
+  const out: string[] = [];
+  if (entry.requiresIr && (typeof slide.ir !== "string" || slide.ir === "")) {
+    out.push(
+      `slide ${index + 1}: layout "${entry.name}" (${entry.description}) needs an \`ir\` — this layout draws the slide's IR`
+    );
+  }
+  for (const [name, spec] of Object.entries(entry.slots)) {
+    const where = `slide ${index + 1}: layout "${entry.name}" (${entry.description})`;
+    const value = slide[name];
+    const absent = value === undefined || value === null || (Array.isArray(value) && value.length === 0);
+    if (absent) {
+      if (spec.required !== false) out.push(`${where}: missing slot \`${name}\` (${spec.kind})`);
+      continue;
+    }
+    if (spec.kind !== "array" || !Array.isArray(value)) continue;
+    if (spec.min !== undefined && value.length < spec.min) {
+      out.push(
+        `${where}: slot \`${name}\` has ${value.length} item(s), wants at least ${spec.min}`
+      );
+    }
+    if (spec.max !== undefined && value.length > spec.max) {
+      out.push(
+        `${where}: slot \`${name}\` has ${value.length} item(s), the layout draws at most ${spec.max}`
+      );
+    }
+  }
+  return out;
+}

@@ -35,7 +35,7 @@ import { PALETTES, type Palette, type Theme } from "./deck-theme.ts";
 import { combineDeckHtml } from "./deck-combine.ts";
 import { emitHtmlSlide, type DiagramEmbed } from "./emit-html.ts";
 import { emitPptxSlide, type SlideLike } from "./emit-pptx.ts";
-import { loadRegistry } from "./layout-registry.ts";
+import { loadRegistry, slotProblems } from "./layout-registry.ts";
 import { loadIrMeta } from "./load-ir.ts";
 import { formatShapeIR, toShapeIR, type ShapeIR } from "./shape-ir.ts";
 import {
@@ -427,6 +427,20 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
       `deck would render broken:\n` +
         blocking.map((n) => `  slide ${n.slide}: [${n.code}] ${n.message}`).join("\n")
     );
+  }
+
+  // Slots are enforced at build time, not just in the advisory lint tool: a
+  // missing slot renders SILENTLY EMPTY (resolveString fills "", an empty
+  // repeat draws nothing) — the renderer forgives exactly what a broken deck
+  // should refuse. Same fail-loud discipline as the lint errors above.
+  const entries = new Map(registry.catalog().map((c) => [c.name, c]));
+  const slotProblemsList = slides.flatMap((slide, i) => {
+    const entry = entries.get(resolveLayout(slide));
+    if (!entry) return [];
+    return slotProblems(slide as unknown as Record<string, unknown>, i, entry);
+  });
+  if (slotProblemsList.length > 0) {
+    throw new DeckError(`deck would render broken:\n${slotProblemsList.map((m) => `  ${m}`).join("\n")}`);
   }
 
   // A persisted slidesDir doubles as the webui-servable copy of the deck; a
