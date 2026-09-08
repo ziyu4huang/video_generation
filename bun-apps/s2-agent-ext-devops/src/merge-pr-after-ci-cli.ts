@@ -54,6 +54,7 @@ import { runLocalCi, summarizeCiFailures, type CiOutcome } from "./ci-recipe.js"
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { preflightE2eLane, type E2ePreflightResult } from "./e2e-preflight.js";
+import { createCiLogWriter } from "./ci-log-writer.js";
 import { runLocalBranchCleanup } from "./branch-cleanup.js";
 import { createBranchClient } from "./gh.js";
 import { selectForgeClientCached } from "./forge/select.js";
@@ -475,7 +476,12 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	let ciSkipped: PrFinishOutcome["ciSkipped"];
 	let mergeStateSettle: PrFinishOutcome["mergeStateSettle"];
 	let preserved: PreserveOutcome | undefined;
-	const abort = (reason: string, message: string): PrFinishCliResult => {
+	const abort = (
+		reason: string,
+		message: string,
+		/** MC-2 (self-arc-15 t04): extra fields merged INTO `aborted` (e.g. ciLogDir). */
+		extra?: Record<string, unknown>,
+	): PrFinishCliResult => {
 		const outcome: PrFinishOutcome = {
 			pr,
 			merged: false,
@@ -486,7 +492,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			...(dryRun ? { dryRun: true } : {}),
 			...(ciSkipped ? { ciSkipped } : {}),
 			...(mergeStateSettle ? { mergeStateSettle } : {}),
-			aborted: { aborted: true, reason, message },
+			aborted: { aborted: true, reason, message, ...(extra ?? {}) },
 		};
 		return { exitCode: 1, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 	};
@@ -559,6 +565,10 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 				`This invocation did not run the gate.`,
 		);
 	} else {
+		// MC-2 (self-arc-15 t04): failed steps' full output persists under
+		// output/ci-logs/ (gitignored). LAZY — the dir is created only when a
+		// failure actually writes, so green runs leave nothing behind.
+		const logWriter = await createCiLogWriter(repoRoot, `pr-${pr}`);
 		try {
 			// Base the run_local_ci diff at the PR base's REMOTE-TRACKING ref, not the
 			// local base branch. In this repo's multi-worktree layout `main` is
@@ -570,6 +580,10 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 			const originBase = `${remoteName}/${status.baseRefName}`;
 			const probe = await spawn("git", ["rev-parse", "--verify", "-q", originBase], { cwd: repoRoot });
 			const ciBase = probe.exitCode === 0 ? originBase : status.baseRefName;
+			// MC-2 (self-arc-15 t04): failed steps' full output persists under
+			// output/ci-logs/ (gitignored). LAZY — created only when a failure
+			// actually writes, so green runs leave nothing behind.
+			const logWriter = await createCiLogWriter(repoRoot, `pr-${pr}`);
 			// `log` MUST be forwarded, for the same reason `cwd` must (see the note on
 			// the spawn seam below): runSchemaCostCheck is IMPORTED, so without a sink
 			// its human-readable banner goes to this process's stdout via console.log —
@@ -582,6 +596,7 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 				headRef: status.headRefName,
 				...(parsed.args.concurrency !== undefined ? { concurrency: parsed.args.concurrency } : {}),
 				spawn,
+				failureLogWriter: logWriter.write,
 				log: (line: string) => process.stderr.write(`${line}\n`),
 			});
 		} catch (err) {
@@ -590,7 +605,9 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 		if (ci.overall !== "pass") {
 			return abort(
 				"local_ci_failed",
-				`local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — failing: ${summarizeCiFailures(ci)} — fix before merging`,
+				`local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — failing: ${summarizeCiFailures(ci)} — fix before merging` +
+					(ci.logFiles?.length ? ` — full logs: ${logWriter.dir}` : ""),
+				{ ciLogDir: logWriter.dir, ...(ci.logFiles?.length ? { logFiles: ci.logFiles } : {}) },
 			);
 		}
 		// ≤5-minute budget (house rule): advisory, never blocks the merge — but it
