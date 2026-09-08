@@ -17,9 +17,21 @@ closed per the hands-off gate.
 
 ## Done when
 
-- [ ] docs updated and consistent with the tests
-- [ ] PR via devops CLIs (branch prepared, local_ci green, squash-merge,
+- [x] docs updated and consistent with the tests
+- [x] PR via devops CLIs (branch prepared, local_ci green, squash-merge,
       merge scope verified)
-- [ ] map closed: Shipped-as filled, tickets resolved
-- [ ] successor `output/next-goal-<ts>.md` written + validated +
+- [x] map closed: Shipped-as filled, tickets resolved
+- [x] successor `output/next-goal-<ts>.md` written + validated +
       LATEST re-pointed BEFORE reporting done (self-reflect-next-goal v2)
+
+## Resolution
+
+closed: 2026-09-08 — SKILL.md (mode/format tables, visual-formats section,
+truth rules incl. the cloud-vision exception), docs/architecture.md (pipeline
+diagram + render-seam paragraph), docs/configuring-vision-models.md (glm-5.3
+-flash cloud section), extension tool description. Independent reviewer
+APPROVE (12 nits, 6 fixed in-branch — recorded in map Shipped-as). local_ci
+change-scoped PASS (ADR-citation + skill-frontmatter failures fixed en
+route: qualified ADR citations, YAML colon in frontmatter). PR #2220
+squash-merged CLEAN; verify-merge CLEAN. Close-out docs PR follows; successor
+next-goal written + validated per the hands-off gate.

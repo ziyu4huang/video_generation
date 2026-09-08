@@ -7,8 +7,6 @@
 
 export type TechId = "bun-terminal" | "bun-pty" | "tmux" | "rpc";
 
-export const TECH_IDS: readonly TechId[] = ["bun-terminal", "bun-pty", "tmux", "rpc"];
-
 export interface LaunchCtx {
   sh: string;
   cwd: string;

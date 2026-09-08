@@ -64,13 +64,3 @@ export function screenText(term: InstanceType<typeof XTerm>): string {
   for (let i = 0; i < buf.length; i++) lines.push(buf.getLine(i)?.translateToString(true) ?? "");
   return lines.join("\n");
 }
-
-/** Paced keystroke submit: small sleeps around the payload and the Enter. */
-export async function pacedWrite(write: (s: string) => void, text: string, sleep: (ms: number) => Promise<void>) {
-  write(text);
-  await sleep(250);
-  write("\r");
-}
-
-/** The rendered-truth boot gate regex: deployed status bar line. */
-export const BOOT_MODEL_RE = /\(zai\)\s*glm-5\.3/;
