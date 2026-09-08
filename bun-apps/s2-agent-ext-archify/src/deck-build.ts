@@ -32,6 +32,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { lintDeck } from "./deck-lint.ts";
 import { PALETTES, type Palette, type Theme } from "./deck-theme.ts";
+import { combineDeckHtml } from "./deck-combine.ts";
 import { emitHtmlSlide, type DiagramEmbed } from "./emit-html.ts";
 import { emitPptxSlide, type SlideLike } from "./emit-pptx.ts";
 import { loadRegistry } from "./layout-registry.ts";
@@ -129,6 +130,12 @@ export interface BuildDeckParams {
    * and is best-effort — a failure just means that slide shows its title.
    */
   thumbnails?: boolean;
+  /**
+   * Also emit `<slidesDir>/deck.html` — one self-contained file embedding every
+   * persisted slide (sandboxed srcdoc iframes, keyboard paging, `#n`
+   * deep-links, overview grid). Needs persisted slides. See `deck-combine.ts`.
+   */
+  combine?: boolean;
 }
 
 export interface BuiltSlide {
@@ -160,6 +167,8 @@ export interface DeckResult {
   slides: BuiltSlide[];
   /** Directory holding the rendered slide HTML, when it was persisted. */
   slidesDir?: string;
+  /** The combined single-file deck (`deck.html`), when `combine` was set. */
+  deckHtmlPath?: string;
 }
 
 /** The slice of the registry manifest validation needs. */
@@ -517,6 +526,7 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
     // One manifest, two surfaces: the same ordered slide set that just became a
     // .pptx is announced to any webui as a browsable deck. Webui-optional — no
     // bus, or slides that were never persisted, makes this a silent no-op.
+    let deckHtmlPath: string | undefined;
     if (persist) {
       // Best-effort thumbnails; `null` entries simply carry no `thumb`.
       const thumbs = params.thumbnails
@@ -533,6 +543,22 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
         })),
         params.deckTitle
       );
+
+      if (params.combine) {
+        const combineSlides = [];
+        for (const b of built) {
+          combineSlides.push({ title: b.title, html: await Bun.file(b.htmlPath).text() });
+        }
+        deckHtmlPath = join(work, "deck.html");
+        await Bun.write(
+          deckHtmlPath,
+          combineDeckHtml(combineSlides, {
+            deckTitle: params.deckTitle ?? basename(params.outputPath),
+            theme,
+          })
+        );
+        progress(`combined deck — ${combineSlides.length} slides in one self-contained file`);
+      }
     }
 
     return {
@@ -541,6 +567,7 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
       bytes: data.length,
       slides: built,
       ...(persist ? { slidesDir: work } : {}),
+      ...(deckHtmlPath !== undefined ? { deckHtmlPath } : {}),
     };
   } finally {
     if (!persist) rmSync(work, { recursive: true, force: true });

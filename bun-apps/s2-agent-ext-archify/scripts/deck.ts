@@ -3,7 +3,7 @@
 // archify deck — IR[] / Markdown outline → PPTX slide deck of NATIVE, EDITABLE shapes.
 //
 //   bun run deck [manifest] [--outline <file>] [--theme light|dark] [--output out.pptx]
-//                [--slides-dir <dir> | --no-slides] [--thumbnails]
+//                [--slides-dir <dir> | --no-slides] [--thumbnails] [--combine]
 //                [--emit-shape-ir <dir>] [--lint]
 //   bun run deck render <manifest> [--out <dir>] [--size <px>]
 //                [--theme light|dark] [--output out.pptx]
@@ -82,6 +82,8 @@ export interface DeckArgs {
   slidesDir?: string | null;
   /** Render a thumbnail per slide (costs a page load each). */
   thumbnails?: boolean;
+  /** Also write `<slidesDir>/deck.html` (single self-contained deck file). */
+  combine?: boolean;
   /** Print storyline + advisory content notes + OOXML diagnostics. */
   lint?: boolean;
 }
@@ -94,6 +96,7 @@ export function parseArgs(argv: string[]): DeckArgs {
   let emitShapeIr: string | undefined;
   let slidesDir: string | null | undefined;
   let thumbnails = false;
+  let combine = false;
   let lint = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -126,6 +129,10 @@ export function parseArgs(argv: string[]): DeckArgs {
       thumbnails = true;
       continue;
     }
+    if (a === "--combine") {
+      combine = true;
+      continue;
+    }
     if (a === "--lint") {
       lint = true;
       continue;
@@ -144,6 +151,7 @@ export function parseArgs(argv: string[]): DeckArgs {
     ...(emitShapeIr ? { emitShapeIr } : {}),
     ...(slidesDir !== undefined ? { slidesDir } : {}),
     ...(thumbnails ? { thumbnails } : {}),
+    ...(combine ? { combine } : {}),
     ...(lint ? { lint } : {}),
   };
 }
@@ -260,8 +268,11 @@ async function main(): Promise<void> {
           ? resolve(cwd, args.slidesDir)
           : defaultSlidesDir(outputPath),
     ...(args.thumbnails ? { thumbnails: true } : {}),
+    ...(args.combine ? { combine: true } : {}),
     onProgress: (m) => console.log(m),
   });
+
+  if (result.deckHtmlPath) console.log(`deck     ${result.deckHtmlPath}`);
 
   const shapes = result.slides.reduce((a, s) => a + s.shapes + s.texts, 0);
   console.log(
