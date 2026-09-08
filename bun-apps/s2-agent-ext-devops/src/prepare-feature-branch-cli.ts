@@ -14,6 +14,9 @@
  * See src/cli-common.ts for the shared contract.
  */
 import { runPrepare, type PrepareClient } from "./prepare-recipe.js";
+import { runViaTempBranch } from "./via-temp-branch.js";
+import type { GhClient } from "./recipe.js";
+import { selectForgeClientCached } from "./forge/select.js";
 import { createBranchClient } from "./gh.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { resolveRemoteName } from "./remote.js";
@@ -22,6 +25,7 @@ import { type CliResult, defaultRepoRoot, emit, helpRequested, jsonResult, usage
 export const PREPARE_CLI_USAGE = [
 	"usage: prepare-feature-branch-cli.ts [--branch <name>] [--base <ref>] [--create] [--rebase]",
 	"                      [--force-push] [--dry-run] [--repo-root <path>]",
+	"                      [--via-temp-branch --pr <n>]",
 	"",
 	"Creates / rebases / force-pushes a branch and prints the structured outcome as",
 	"JSON on stdout. This is what clears a BEHIND pull-request: --rebase, then",
@@ -38,6 +42,11 @@ export const PREPARE_CLI_USAGE = [
 	"                      remote = DEVOPS_REMOTE > git config devops.remote > origin)",
 	"  --create            create the branch off base (`git checkout -b`)",
 	"  --rebase            rebase the branch onto base",
+	"  --via-temp-branch --pr <n>",
+	"                      MC-3: rebase a branch CHECKED OUT IN ANOTHER WORKTREE by" ,
+	"                      rebasing a detached temp copy and force-pushing the PR" ,
+	"                      head — the holder worktree is never touched. Guards:" ,
+	"                      PR OPEN, remote head == PR head, branch actually held.",
 	"  --force-push        push with --force-with-lease (opt-in; default false)",
 	"  --dry-run           record the git commands, mutate nothing",
 	"  --repo-root <path>  default: the repo this file lives in",
@@ -51,6 +60,10 @@ export interface ParsedPrepareArgs {
 	forcePush: boolean;
 	dryRun: boolean;
 	repoRoot?: string;
+	/** MC-3: the guarded temp-copy rebase mode (requires --pr). */
+	viaTempBranch?: boolean;
+	/** PR number for --via-temp-branch (guards + reporting). */
+	pr?: number;
 }
 
 /** Pure argv → flags (or a usage-error message). Exported for tests. */
@@ -66,6 +79,13 @@ export function parsePrepareArgs(
 			args.rebase = true;
 		} else if (a === "--force-push") {
 			args.forcePush = true;
+		} else if (a === "--via-temp-branch") {
+			args.viaTempBranch = true;
+		} else if (a === "--pr") {
+			const v = argv[++i];
+			const n = v === undefined ? NaN : Number(v);
+			if (!Number.isInteger(n) || n <= 0) return { ok: false, message: "--pr needs a positive integer" };
+			args.pr = n;
 		} else if (a === "--dry-run") {
 			args.dryRun = true;
 		} else if (a === "--branch" || a === "--base" || a === "--repo-root") {
@@ -82,7 +102,7 @@ export function parsePrepareArgs(
 			return { ok: false, message: `unexpected positional argument: ${a}` };
 		}
 	}
-	if (!args.create && !args.rebase && !args.forcePush) {
+	if (!args.create && !args.rebase && !args.forcePush && !args.viaTempBranch) {
 		// Every field optional would make a bare invocation a silent no-op that
 		// still exits 0 — indistinguishable from "prepared successfully".
 		return { ok: false, message: "nothing to do: pass at least one of --create / --rebase / --force-push" };
@@ -92,7 +112,13 @@ export function parsePrepareArgs(
 
 export async function runPrepareCli(
 	argv: string[],
-	deps: { client?: PrepareClient; spawn?: SpawnFn; repoRoot?: string; remoteName?: string } = {},
+	deps: {
+		client?: PrepareClient;
+		spawn?: SpawnFn;
+		repoRoot?: string;
+		remoteName?: string;
+		gh?: GhClient;
+	} = {},
 ): Promise<CliResult> {
 	const parsed = parsePrepareArgs(argv);
 	if (!parsed.ok) {
@@ -106,6 +132,33 @@ export async function runPrepareCli(
 	// origin — src/remote.ts); the recipe never resolves it itself.
 	const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));
 	const client = deps.client ?? createBranchClient(spawn, remoteName);
+
+	// MC-3 (self-arc-15 t05): the guarded temp-copy rebase for a branch held by
+	// another worktree. The PR probe comes from the forge client (state +
+	// headRefOid drive the guards).
+	if (a.viaTempBranch) {
+		if (a.pr === undefined) {
+			return usageError("--via-temp-branch requires --pr <n>", PREPARE_CLI_USAGE);
+		}
+		if (!a.branch) {
+			return usageError("--via-temp-branch requires --branch <name>", PREPARE_CLI_USAGE);
+		}
+		const gh = deps.gh ?? (await selectForgeClientCached({ spawn, repoRoot })).client;
+		const prStatus = await gh.prStatus(a.pr);
+		const outcome = await runViaTempBranch({
+			client,
+			spawn,
+			repoRoot,
+			branch: a.branch,
+			base: a.base ?? `${remoteName}/${prStatus.baseRefName ?? "main"}`,
+			remote: remoteName,
+			pr: a.pr,
+			prHeadSha: prStatus.headRefOid ?? "",
+			prState: prStatus.state,
+			dryRun: a.dryRun,
+		});
+		return jsonResult(outcome.aborted ? 1 : 0, outcome);
+	}
 
 	const outcome = await runPrepare({
 		client,
