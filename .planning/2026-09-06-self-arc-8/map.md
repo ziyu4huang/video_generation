@@ -77,6 +77,8 @@ the user typed its name into the prompt).
   deployed bundle carries the catalog template (grep on
   `ext/subagent/ext.cjs`).
 
+Back-link: self-arc-12 (cc-parity samples) extends the catalog scenario into a full samples suite — see `.planning/2026-09-06-self-arc-12/map.md`.
+
 ## Shipped-as
 
 PR #2199 merged CLEAN (squash `e7e24435`); main synced; redeployed;

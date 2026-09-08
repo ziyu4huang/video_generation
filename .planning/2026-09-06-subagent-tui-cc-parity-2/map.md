@@ -129,3 +129,6 @@ Builds-on: `2026-08-25-subagent-tui-cc-parity` (vocabulary + no-go keys),
 `archive/2026-08-15-cc-subagent-tui` (surfaces). Shares-decision-with:
 ADR-subagent-0004 (key claims — untouched here), #1104 flicker rule
 (respected by ticket 01).
+
+## Back-links
+Back-link: self-arc-12 (cc-parity samples) applied D1 pty learnings; its D5 narrows this effort's D2 model policy to glm-5.3-only children — see `.planning/2026-09-06-self-arc-12/map.md`.

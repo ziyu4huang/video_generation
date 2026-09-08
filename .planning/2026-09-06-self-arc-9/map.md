@@ -90,3 +90,6 @@ tree and delivered the execution plan for the parity-ledger queue
   `output/self-arc9-swarm-deployed-20260907/` (8 checks incl.
   batchAbortFlow/Confirmed + allChildrenTerminal). PR #2200 merged CLEAN
   (squash `436896a5`); main synced; redeployed.
+
+## Back-links
+Back-link: self-arc-12 (cc-parity samples) reused the planner-led opener + dual receipts + child-evidence gating — see `.planning/2026-09-06-self-arc-12/map.md`.
