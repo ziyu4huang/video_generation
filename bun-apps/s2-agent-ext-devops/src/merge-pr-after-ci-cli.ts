@@ -198,6 +198,25 @@ export function parsePrFinishArgs(argv: string[]): { ok: true; args: ParsedPrFin
 }
 
 /** The structured outcome serialized on stdout. */
+/**
+ * Every abort reason runPrFinishCli can emit — the PrFinishOutcome.aborted.reason
+ * vocabulary, kept in sync with the abort call sites below (self-arc-15 MC-7).
+ * The exit-code contract test enumerates this tuple: every reason → exit 1,
+ * every new reason must be added here AND get a table row.
+ */
+export const PR_FINISH_ABORT_REASONS = [
+	"pr-status-failed",
+	"not-open",
+	"behind",
+	"not-clean",
+	"dirty_tree",
+	"local_ci_failed",
+	"ci-assumption-unverifiable",
+	"ci-assumption-stale",
+	"missing-workflow-scope",
+	"merge-failed",
+] as const;
+
 export interface PrFinishOutcome {
 	pr: number;
 	merged: boolean;
