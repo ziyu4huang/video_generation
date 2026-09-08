@@ -2,7 +2,7 @@
 effort: 2026-09-08-file2md-svg-pptx-vision
 created: 2026-09-08
 last: 2026-09-08
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-08-file2md-svg-pptx-vision — SVG / HTML+SVG + PPTX diagram readability via vision
@@ -123,17 +123,7 @@ Executor deviations from the planner text (recorded, deliberate):
 
 ## Frontier
 
-t07: PR + close-out (reviewer gate PASSED — independent read-only reviewer,
-APPROVE with 12 nits 2026-09-08; six fixed in-branch: comment spans
-off-limits, dangling anchors on raster failure → inline notice, mermaid
-sanitize extended to diagram-profile page notes, &amp; double-decode, strict
-` src=`/` alt=` attribute matching, iterative scanner (stack-overflow risk),
-`<script>` stripped from inline svg fragments before the WebView. Accepted
-follow-ups: waitReady liveness bound (nit 7), mid-run renderer-failure
-in-note trace + needRender re-attempt (nit 8), non-contiguous slide-part
-degrade (nit 9), manifest reuse keyed on input identity (nit 12 — pre-existing
-runPdf parity), and the disclosed htmlToMarkdown text-mode byte change (nit 1
-— intentional readability fix; lane-equivalence pinned, pre-commit bytes not).
+Closed — all seven tickets resolved (see tickets/ and Shipped-as).
 
 ## Fog of war
 
@@ -156,4 +146,28 @@ Shares-decision-with: archify deck-render D1–D3 (renderer sees, never gates).
 
 ## Shipped-as
 
-(landing — filled at close-out)
+PR #2220 (squash-merged 2026-09-08, mergeState CLEAN, verify-merge CLEAN):
+- svg lane: `src/core/sniff.ts` (kind svg, D13 precedence) + `src/core/svg-text.ts`
+  + `src/raster/svg.ts` (two-pass WebView, D21) + `runSvg` in `src/pipeline.ts`
+- html figure lane: `extractSvgFigures` (balanced scanner, D14) + `runHtml` +
+  `figureAbs/figureRel` in `src/vlm/manifest.ts` + two pre-existing
+  htmlToMarkdown wart fixes (`<body>`→`**`, stray closing-heading markers)
+- pptx lane: `src/raster/deck.ts` (vendored slim seam) + `runPptx` +
+  `isDiagramSlide` (SLIDE_DIAGRAM_TEXT_MAX_CHARS=120)
+- vision: `src/vlm/mermaid.ts` + MERMAID_HINT in `src/vlm/agents.ts` (figure +
+  diagram variants, sanitize on both); machine model-tiers
+  `capabilities.vision = zai/glm-5.3-flash`
+- tests: 38 new (`deck 11, svg-lane 8, html-figures 11, pptx-lane 8, mermaid
+  8` — 309 total green); docs: SKILL.md, docs/architecture.md,
+  docs/configuring-vision-models.md, extension tool description
+- receipts: `receipts/live-vision-2026-09-08.md` (SVG + html fixtures + real
+  INCOSE deck 5/5 slides enhanced, quicklook renderer, zero degrades)
+- reviewer gate: independent read-only reviewer APPROVE (12 nits; 6 fixed
+  in-branch — comment spans, dangling anchors → inline notice, mermaid
+  sanitize asymmetry, &amp; double-decode, strict src/alt matching, iterative
+  scanner + script-strip for inline fragments; follow-ups: waitReady liveness
+  bound, mid-run renderer-failure in-note trace + needRender re-attempt,
+  non-contiguous slide parts, manifest input-identity, htmlToMarkdown
+  text-mode byte change disclosed)
+- submodule pointer `vaults_root/s2-agent-vault` deliberately NOT bumped
+  (un-staged a foreign local advance; recorded pointer preserved)
