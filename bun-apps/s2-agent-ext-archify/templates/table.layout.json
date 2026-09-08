@@ -15,17 +15,32 @@
     },
     "note": {
       "kind": "text",
-      "description": "optional footnote under the table (data period, sampling, caveat)"
+      "description": "optional footnote under the table (data period, sampling, caveat)",
+      "required": false
     }
   },
   "roles": {
-    "tableHead": { "sizePt": 14, "bold": true, "color": "title" },
-    "tableNote": { "sizePt": 12, "color": "muted" }
+    "tableHead": {
+      "sizePt": 14,
+      "bold": true,
+      "color": "title"
+    },
+    "tableNote": {
+      "sizePt": 12,
+      "color": "muted"
+    }
   },
   "body": [
     {
       "region": "content",
-      "stack": { "dir": "row", "weights": [11, 1], "gap": 0.15 },
+      "stack": {
+        "dir": "row",
+        "weights": [
+          11,
+          1
+        ],
+        "gap": 0.15
+      },
       "children": [
         {
           "box": "fill",
@@ -39,7 +54,11 @@
         },
         {
           "box": "fill",
-          "content": { "kind": "text", "role": "tableNote", "from": "{slide.note}" },
+          "content": {
+            "kind": "text",
+            "role": "tableNote",
+            "from": "{slide.note}"
+          },
           "align": "right",
           "valign": "bottom"
         }
