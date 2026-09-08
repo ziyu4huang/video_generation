@@ -150,3 +150,4 @@ vlm-out/
 # vgpu-labs-demo: regenerable headless-render frames (render.mjs re-emits them;
 # only the sourced shaders/apps and the 120 KB plasma.mp4 demo asset are tracked)
 vgpu-labs-demo/node-demo/frames/
+.distill-state.json.tmp
