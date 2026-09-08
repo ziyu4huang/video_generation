@@ -93,7 +93,7 @@ Measured 2026-09-07 on this machine, read in-tree by the planner:
   harness: A2/A4 and B-sample `agent()` steps are read-only tasks. This is also why
   B3 (migrate-many-files, isolated WRITABLE copies) is descoped — it requires
   write-capable fan-out children, which s2-agent's batch tool deliberately forbids;
-  forcing it would test a deviation, not parity.
+  forcing it would test a deviation, not parity. **[Successor, self-arc-14 2026-09-09]** B3 later landed at the WORKFLOW layer — per-agent `isolation: "worktree"` is the designed mechanism there; see `.planning/2026-09-08-self-arc-14/`.
 - D4 (2026-09-07): the catalog doc lives at `bun-apps/s2-agent/docs/cc-parity-samples.md`
   (umbrella package users launch; its docs/ exists) with one-line cross-links from
   both ext READMEs. One doc, not two — the deliverable is a single map of parity.
