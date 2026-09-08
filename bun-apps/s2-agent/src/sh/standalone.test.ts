@@ -212,3 +212,59 @@ describe("loadExt", () => {
 		expect(ext.tool("echo").name).toBe("echo");
 	});
 });
+
+describe("commands surface + allowEmptySurface (self-arc-16 t03)", () => {
+	test("commands() returns registered command names in order", () => {
+		const dist = makeDist();
+		writeExt(dist, "cmd-ext", {
+			body: `module.exports.default = function factory(api) {
+	api.registerCommand("grill", {});
+	api.registerTool({ name: "t1", execute: () => ({}) });
+	api.registerCommand("wayfind", {});
+};`,
+		});
+		const ext = loadExt("cmd-ext", { distRoot: dist });
+		expect(ext.commands()).toEqual(["grill", "wayfind"]);
+		expect(ext.tools().map((t) => t.name)).toEqual(["t1"]);
+	});
+
+	test("malformed registerCommand throws (no silent drop)", () => {
+		const dist = makeDist();
+		writeExt(dist, "bad-cmd", {
+			body: `module.exports.default = function factory(api) {
+	api.registerCommand("", {});
+};`,
+		});
+		expect(() => loadExt("bad-cmd", { distRoot: dist, allowEmptySurface: true })).toThrow(/malformed command/);
+	});
+
+	test("zero-tool factory still throws by default (fail-loud preserved)", () => {
+		const dist = makeDist();
+		writeExt(dist, "event-only", {
+			body: `module.exports.default = function factory(api) {
+	api.registerCommand("bootstrap", {});
+};`,
+		});
+		expect(() => loadExt("event-only", { distRoot: dist })).toThrow(/no tools at call time/);
+	});
+
+	test("allowEmptySurface opts in: loads with empty tools + captured commands", () => {
+		const dist = makeDist();
+		writeExt(dist, "event-only", {
+			body: `module.exports.default = function factory(api) {
+	api.registerCommand("bootstrap", {});
+};`,
+		});
+		const ext = loadExt("event-only", { distRoot: dist, allowEmptySurface: true });
+		expect(ext.tools()).toEqual([]);
+		expect(ext.commands()).toEqual(["bootstrap"]);
+	});
+
+	test("zero-tool zero-command factory with allowEmptySurface loads empty (honest surface)", () => {
+		const dist = makeDist();
+		writeExt(dist, "inert", { body: `module.exports.default = function factory(api) {};` });
+		const ext = loadExt("inert", { distRoot: dist, allowEmptySurface: true });
+		expect(ext.tools()).toEqual([]);
+		expect(ext.commands()).toEqual([]);
+	});
+});

@@ -79,6 +79,7 @@ const { loadExt, listExts } = require("<platform>/current/ext/ext-standalone.mjs
 listExts();                       // [{ name, manifest }] — every shipped extension
 const ext = loadExt("devops");    // evaluates ext/devops/ext.cjs, registers tools
 ext.tools();                      // [{ name, execute }] — registered tools
+ext.commands();                   // command NAMES registered (verify-only; driving needs a session)
 ext.manifest;                     // the ext.json (hostModules, skills, …)
 const result = await ext.tool("sync_default_branch")
     .execute("my-script-id", { mode: "full", dryRun: true });
@@ -89,6 +90,9 @@ result.content;                   // human-readable text render
 - Tool parameters match the tool's schema (the same one the agent's LLM sees);
   \`execute(sessionId, params)\` returns the tool's real outcome.
 - Errors throw with the extension/tool name and reason — scripts fail loud.
+- Command/event-driven extensions (no factory-time tools) throw by default;
+  load them with \`loadExt(name, { allowEmptySurface: true })\` when verifying
+  their bytes (empty tools() + captured commands() is the honest surface).
 - \`loadExt(name, { distRoot })\` targets a specific version dir instead of
   \`current\`.
 
