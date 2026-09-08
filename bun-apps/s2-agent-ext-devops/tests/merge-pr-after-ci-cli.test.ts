@@ -1200,17 +1200,17 @@ describe("merge-pr-after-ci-cli — exit-code contract (PR_FINISH_ABORT_REASONS)
 	);
 
 	test("the exported tuple is well-formed and covers every abort() call site bidirectionally", () => {
-		expect(PR_FINISH_ABORT_REASONS.length).toBe(10);
+		expect(PR_FINISH_ABORT_REASONS.length).toBe(11);
 		expect(new Set(PR_FINISH_ABORT_REASONS).size).toBe(PR_FINISH_ABORT_REASONS.length);
 		for (const reason of PR_FINISH_ABORT_REASONS) {
 			// snake_case dirty_tree is historical (the one non-hyphenated member).
-			expect(reason).toMatch(/^[a-z_-]+$/);
+			expect(reason).toMatch(/^[a-z0-9_-]+$/);
 		}
 		// Drift guard, BOTH directions: the set of abort reason literals in the
 		// source equals the tuple exactly — a new reason without a table row
 		// fails, and a retired reason lingering in the tuple fails too (the
 		// PREPARE_ABORT_REASONS guard this mirrors, strengthened to set equality).
-		const literals = [...source.matchAll(/\babort\(\s*"([a-z_-]+)"/g)].map((m) => m[1]!);
+		const literals = [...source.matchAll(/\babort\(\s*"([a-z0-9_-]+)"/g)].map((m) => m[1]!);
 		const distinct = [...new Set(literals)].sort();
 		expect(distinct, "source abort literals").toEqual([...PR_FINISH_ABORT_REASONS].sort());
 	});
@@ -1253,5 +1253,82 @@ describe("merge-pr-after-ci-cli — exit-code contract (PR_FINISH_ABORT_REASONS)
 		const dry = await runPrFinishCli(["42", "--dry-run"], g.deps);
 		expect(dry.exitCode).toBe(0);
 		expect(JSON.parse(dry.stdout).dryRun).toBe(true);
+	});
+});
+
+// ── self-arc-15 t03 / MC-1: the e2e credential preflight ────────────────────
+describe("merge-pr-after-ci-cli — e2e credential preflight (MC-1)", () => {
+	test("failing preflight aborts e2e-credentials-missing with exit 1 BEFORE local CI", async () => {
+		let ciRan = false;
+		const res = await runPrFinishCli(["42"], {
+			gh: fakeGh([OPEN_CLEAN]).gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => {
+				ciRan = true;
+				return ciPass();
+			},
+			e2ePreflight: () => ({
+				ok: false,
+				message: "e2e preflight: no deploy-e2e provider key is resolvable — export DEEPSEEK_API_KEY=<key>",
+			}),
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.aborted.reason).toBe("e2e-credentials-missing");
+		expect(outcome.aborted.message).toContain("export DEEPSEEK_API_KEY=<key>");
+		// the whole point: local CI never runs
+		expect(ciRan).toBe(false);
+	});
+
+	test("passing preflight proceeds to local CI; its notes ride the warnings", async () => {
+		const res = await runPrFinishCli(["42"], {
+			gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+			sleep: async () => {},
+			e2ePreflight: () => ({
+				ok: true,
+				notes: ["e2e preflight: VERIFY_E2E_MODEL is unset — recommend a pin"],
+			}),
+		});
+		expect(res.exitCode).toBe(0);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(true);
+		expect(
+			(outcome.warnings as string[]).some((w) => w.includes("VERIFY_E2E_MODEL is unset")),
+		).toBe(true);
+	});
+
+	test("--assume-ci-green skips the preflight entirely (the documented escape hatch)", async () => {
+		const OID = "b".repeat(40);
+		let preflightRan = false;
+		let ciRuns = 0;
+		const noSleep = async () => {};
+		const ghParts = fakeGh([
+			{ ...OPEN_CLEAN, headRefOid: OID },
+			{ ...OPEN_CLEAN, headRefOid: OID },
+		]);
+		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => {
+				ciRuns++;
+				return ciPass();
+			},
+			sleep: noSleep,
+			e2ePreflight: () => {
+				preflightRan = true;
+				return { ok: false, message: "should not run" };
+			},
+		});
+		expect(preflightRan).toBe(false);
+		expect(ciRuns).toBe(0);
+		expect(res.exitCode).toBe(0);
 	});
 });
