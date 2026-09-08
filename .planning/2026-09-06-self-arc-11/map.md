@@ -116,6 +116,8 @@ on the same receipt harness). t03/t04 are isolated.
 - Shares-decision-with: `2026-09-06-learnings-hardening` (deployed≠source:
   the t02 deployed-bundle grep leg is learning #1 applied).
 
+Back-link: self-arc-12 (cc-parity samples) reused the wf-pause-era tui-drive harness and builtin-pack precedent — see `.planning/2026-09-06-self-arc-12/map.md`.
+
 ## Shipped-as (close-out)
 
 PR #2204 merged CLEAN on the FOURTH gate attempt — three real bounce lessons,

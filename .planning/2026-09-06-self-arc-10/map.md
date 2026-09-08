@@ -77,6 +77,8 @@ t01 first — it is the vocabulary every other ticket renders, and its
 
 - Builds-on: `2026-09-06-self-arc-7` (onChange channel + F-invalidate), `2026-09-06-self-arc-9` (abortBatch, swarm scenario, gesture/child-evidence discipline).
 
+Back-link: self-arc-12 (cc-parity samples) reused the workflow receipt harness (B-suite drives real WorkflowManager) — see `.planning/2026-09-06-self-arc-12/map.md`.
+
 ## Shipped-as (close-out)
 
 PR #2202 merged CLEAN on the second attempt (squash `6628775`): the first

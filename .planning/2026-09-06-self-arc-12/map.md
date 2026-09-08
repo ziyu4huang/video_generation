@@ -1,8 +1,8 @@
 ---
 effort: 2026-09-06-self-arc-12
 created: 2026-09-07
-last: 2026-09-07
-status: planned
+last: 2026-09-08
+status: done
 ---
 
 # Wayfinder map: 2026-09-06-self-arc-12 — CC-parity test samples: subagent + ultracode common use cases
@@ -55,26 +55,26 @@ Measured 2026-09-07 on this machine, read in-tree by the planner:
 
 **Phase 1 — sample suites (the PR's core; both land in the implementation PR)**
 
-- [ ] `tickets/01-suite-a-subagent-samples.md` — Suite A: A1 context-isolation,
+- [x] `tickets/01-suite-a-subagent-samples.md` — Suite A: A1 context-isolation,
       A2 parallel-research batch fan-out, A3 chaining, A4 code-reviewer (read-only,
       byte-unchanged) — `cc-parity-*.test.ts` in ext-subagent via `fakeSpawn` +
       seeded `tests/fixtures/cc-parity/`
-- [ ] `tickets/02-suite-b-ultracode-samples.md` — Suite B: B1 audit-many-files,
+- [x] `tickets/02-suite-b-ultracode-samples.md` — Suite B: B1 audit-many-files,
       B2 bounded verify/fix loop, B4 review-per-file + synthesizer, B5 research
       fan-out w/ null-for-stopped — real scripts in `samples/cc-parity/` executed
       by real WorkflowManager with `fakeAgent`
 
 **Phase 2 — catalog + live receipts (same implementation PR)**
 
-- [ ] `tickets/03-samples-catalog-doc.md` — one catalog md mapping every sample →
+- [x] `tickets/03-samples-catalog-doc.md` — one catalog md mapping every sample →
       CC doc section/URL, run command, and the receipt that proves parity
-- [ ] `tickets/04-live-receipts-cc-parity-scenario.md` — ONE new tui-drive
+- [x] `tickets/04-live-receipts-cc-parity-scenario.md` — ONE new tui-drive
       scenario `cc-parity` (chain + code-reviewer, real glm-5.3 children), source
       + deployed receipts
 
 **Phase 3 — close-out (separate docs PR)**
 
-- [ ] `tickets/05-map-closeout.md` — map done + Shipped-as, reciprocal
+- [x] `tickets/05-map-closeout.md` — map done + Shipped-as, reciprocal
       cross-effort links, successor next-goal
 
 ## Decisions
@@ -145,3 +145,16 @@ same tui-drive harness this arc extends), `2026-09-06-subagent-tui-cc-parity-2`
 Shares-decision-with: `2026-09-06-subagent-tui-cc-parity-2` D2 (model policy) —
 D5 here narrows it to glm-5.3-only for this arc's children.
 Reciprocal back-links are added to those maps at close-out (ticket 05).
+
+## Shipped-as
+
+PR #2206 (merged 2026-09-08): Suite A `bun-apps/s2-agent-ext-subagent/tests/cc-parity-subagent.test.ts`
+(4/4) + fixtures `tests/fixtures/cc-parity/`; Suite B `bun-apps/s2-agent-ext-ultracode/samples/cc-parity/`
+(B1 audit-many-files / B2 verify-fix-loop / B4 review-per-file / B5 research-fanout) +
+`tests/cc-parity-workflows.test.ts` (5/5, real WorkflowManager + content-keyed runner);
+catalog `bun-apps/s2-agent/docs/cc-parity-samples.md`; tui-drive `--scenario cc-parity`.
+PR #2208: rendered-truth boot gate + verified submit (deployed-host first-Enter-eating fix).
+PR #2209: dual-latch break condition (parent echoes CHAIN-VERIFIED before child-2 row renders).
+Receipts: source leg `output/self-arc12-ccparity-src-20260907-r2` PASS 8/8; deployed legs
+`output/self-arc12-ccparity-deployed-20260907-r2` + `output/sweep12-deployed-cc-parity-r2` PASS;
+FULL deployed sweep 10/10 on 0.10.0+g80419f1 (`output/sweep12-deployed-*`). Schema-cost +0 (D7 held).
