@@ -76,6 +76,7 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-subagent/scripts/esc-repro-lane.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/runs-stats.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/arc-plan.ts",
+	"bun-apps/s2-agent-ext-subagent/scripts/bench-base-tech.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/tui-drive.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/tui-e2e-lane.ts",
 	"bun-apps/s2-agent-ext-superpowers/scripts/update-superpowers.ts",

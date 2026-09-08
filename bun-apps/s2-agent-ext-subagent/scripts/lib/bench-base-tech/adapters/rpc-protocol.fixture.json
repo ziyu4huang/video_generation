@@ -1,0 +1,47 @@
+{
+  "$comment": "Deployed JSONL shapes observed 2026-09-08 against /Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/current/s2-agent.sh --mode rpc (0.10.0+g80419f1). Sanitized: ids truncated, long model object elided. These pin the rpc adapter's parser (self-arc-13 t03 discovery-first).",
+  "boot": [
+    {
+      "type": "extension_ui_request",
+      "id": "<uuid>",
+      "method": "notify",
+      "message": "🧠 hermes-memory backend: …",
+      "notifyType": "info"
+    },
+    { "type": "extension_ui_request", "id": "<uuid>", "method": "setWidget", "widgetKey": "btw" }
+  ],
+  "commands": {
+    "get_state": {
+      "request": { "type": "get_state", "id": "probe-1" },
+      "response": {
+        "id": "probe-1",
+        "type": "response",
+        "command": "get_state",
+        "success": true,
+        "data": {
+          "model": { "id": "glm-5.3", "name": "GLM-5.3", "reasoning": true, "contextWindow": 1000000 },
+          "isStreaming": false,
+          "messageCount": 0
+        }
+      },
+      "$note": "data.model is an OBJECT (id/name/…), not a string — stateProbe extracts .id"
+    },
+    "get_last_assistant_text": {
+      "request": { "type": "get_last_assistant_text", "id": "probe-2" },
+      "response": {
+        "id": "probe-2",
+        "type": "response",
+        "command": "get_last_assistant_text",
+        "success": true,
+        "data": {}
+      },
+      "$note": "empty session → data:{}; adapter returns '' for object data without text/content"
+    },
+    "prompt": {
+      "request": { "type": "prompt", "id": "p1", "message": "Reply with exactly BENCHPONG-n1" },
+      "response": { "id": "p1", "type": "response", "command": "prompt", "success": true },
+      "$note": "response is preflight-gated (emitted once prompt preflight succeeds); turn completion = streamed {\"type\":\"agent_settled\"}"
+    }
+  },
+  "turnCompletion": { "type": "agent_settled" }
+}
