@@ -2,7 +2,8 @@
 effort: 2026-09-06-self-arc-11
 created: 2026-09-07
 last: 2026-09-07
-status: active
+status: done
+# (reconciled 2026-09-09 by self-arc-17 close-out: shipped as PRs #2204/#2205 (keep-paused lifecycle, builtin packDefs, e2e retry-137))
 ---
 
 # Wayfinder map: 2026-09-06-self-arc-11 — pause levers, live model inheritance, honest gates
