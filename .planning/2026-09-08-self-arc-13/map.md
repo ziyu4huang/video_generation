@@ -50,19 +50,31 @@ Planner: GLM-5.3 via `arc-plan.ts` (PASS, 320s, 372k tokens —
 `output/arc-plan-self-arc13/plan-receipt.json`; plan promoted to
 `plans/arc-plan.md`). Findings F1–F9 cited per ticket.
 
-- [ ] t01 `tickets/01-ship-family-deploy-verify.md` — T1 BLOCKER: pin deploy
-      gap, deploy, verify BYTES (`bundleHasResearchToolSymbols`,
-      `extDirResearchPresent`, `versionLabelMatchesBytes`)
-- [ ] t02 `tickets/02-bilibili-outcome-surfacing.md` — T2: outcome objects
-      (412/WBI/network no longer masquerade as "0 videos") + WBI key cache +
-      `__tests__/bilibili-engine.test.ts`
-- [ ] t03 `tickets/03-youtube-chunking-tests.md` — T3: `fetchYtStats` ≤50-id
-      chunking fix (silent all-zeros past page 1) + first
-      `__tests__/youtube.test.ts`
-- [ ] t04 `tickets/04-arxiv-skill-live-receipts.md` — T4: `arxiv-research`
-      skill + the family's FIRST live receipts (arXiv keyless; src + deployed)
-- [ ] t05 `tickets/05-localvault-receipts.md` — T5: local-vault trio receipts
-      (src + deployed, temp vault, incl. overwrite guard + missing-key path)
+- [x] t01 `tickets/01-ship-family-deploy-verify.md` — T1 BLOCKER: root cause
+      PINNED (not stale deploy: the registry entry carried ltx's copy-pasted
+      machine-bound excludeReason from #1962 ⇒ deploy-excluded from every
+      target). Flipped to `deploy: { order: 170 }`; deployed; verified BY
+      BYTES — final receipt `output/self-arc13-deploy-verify-20260908/`
+      PASS 11/11 against `0.10.0+gd938960` (ext.cjs symbols ×5 per tool,
+      ext.json enabled/order/skills, standalone listExts+loadExt register all
+      7 tools)
+- [x] t02 `tickets/02-bilibili-outcome-surfacing.md` — T2: outcome objects +
+      WBI cache (12h TTL, -403 invalidation) + no buvid3 fabrication;
+      `__tests__/bilibili-engine.test.ts` 11 tests green
+- [x] t03 `tickets/03-youtube-chunking-tests.md` — T3: ≤50-id chunking +
+      onNotice surfacing; `__tests__/youtube.test.ts` 9 tests green; chunking
+      test PROVEN failing on pre-fix code (stash run)
+- [x] t04 `tickets/04-arxiv-skill-live-receipts.md` — T4: `arxiv-research`
+      skill + the family's first LIVE receipts:
+      src `output/self-arc13-arxiv-src-20260908/` PASS 3/3, deployed
+      `output/self-arc13-arxiv-deployed-20260908/` PASS 3/3 (real arXiv: 3
+      papers on "video diffusion", 1706.03762 → "Attention Is All You Need",
+      fetch2md 32,549 bytes into temp vault)
+- [x] t05 `tickets/05-localvault-receipts.md` — T5: local-vault trio receipts:
+      src `output/self-arc13-localvault-src-20260908/` PASS 5/5, deployed
+      `output/self-arc13-localvault-deployed-20260908/` PASS 5/5 (scaffold +
+      Saturday anchor 2026-09-12, overwrite guard, zettel tagging + orphan,
+      import dry-run dedup, youtube missing-key hint)
 
 **Execution order** (planner's, recorded per the confirm-gate; T1 is a
 no-choice blocker — every deployed receipt leg imports bytes that do not exist
@@ -96,6 +108,8 @@ re-run t01 byte checks  →  t04 ∥ t05 (receipts, both legs)
   params, JSON schemas, GATE_DEFS, or probe exports change.
 
 ## Frontier
+
+Queue drained — close-out (docs PR + successor next-goal) is the frontier.
 
 t01 first (blocker): pin the F1 root cause — `git log -S research-tool --`
 the registry entry vs the 2026-09-06 14:55 deploy mtime, and the entry's

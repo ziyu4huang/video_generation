@@ -1,6 +1,6 @@
 # Ticket 05 — Local-vault trio receipts on both legs (T5)
 
-Status: open · after t02/t03 (receipts must capture hardened behavior)
+Status: done · after t02/t03 (receipts must capture hardened behavior)
 
 ## Problem
 

@@ -1,6 +1,6 @@
 # Ticket 03 — YouTube engine: stats chunking fix + first test file (T3)
 
-Status: open · parallel with t02 · before the final redeploy
+Status: done · parallel with t02 · before the final redeploy
 
 ## Problem
 

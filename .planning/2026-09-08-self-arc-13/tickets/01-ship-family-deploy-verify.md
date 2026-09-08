@@ -1,6 +1,6 @@
 # Ticket 01 — Ship the family: pin deploy gap, deploy, verify bytes (T1)
 
-Status: open · BLOCKER for t04/t05 deployed legs · no-choice first
+Status: done · BLOCKER for t04/t05 deployed legs · no-choice first
 
 ## Problem
 

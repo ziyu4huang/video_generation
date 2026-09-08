@@ -1,6 +1,6 @@
 # Ticket 02 — Bilibili outcome surfacing + WBI key cache (T2)
 
-Status: open · parallel with t03 · before the final redeploy
+Status: done · parallel with t03 · before the final redeploy
 
 ## Problem
 

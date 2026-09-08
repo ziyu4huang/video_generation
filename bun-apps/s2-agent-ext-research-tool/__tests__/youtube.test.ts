@@ -150,7 +150,7 @@ describe("searchYtKeyword", () => {
 			{ needle: "/search?", make: () => new Response(JSON.stringify({ error: { code: 403, message: "quotaExceeded" } })) },
 		]);
 		try {
-			expect(searchYtKeyword("kw", "KEY")).rejects.toThrow("YouTube API error 403");
+			await expect(searchYtKeyword("kw", "KEY")).rejects.toThrow("YouTube API error 403");
 		} finally {
 			m.restore();
 		}

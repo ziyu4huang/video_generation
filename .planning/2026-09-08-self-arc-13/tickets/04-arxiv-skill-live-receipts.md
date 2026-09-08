@@ -1,6 +1,6 @@
 # Ticket 04 — arXiv skill + the family's first LIVE receipts (T4)
 
-Status: open · after the final redeploy (deployed leg imports shipped bytes)
+Status: done · after the final redeploy (deployed leg imports shipped bytes)
 
 ## Problem
 
