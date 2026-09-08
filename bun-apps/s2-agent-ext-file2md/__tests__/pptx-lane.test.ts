@@ -352,4 +352,15 @@ describe("runPptx — mode matrix", () => {
     expect(md2).not.toContain("renderer failed"); // the throw-wording must NOT appear
     expect(manifestJson().pages[1]!.png).toBeNull();
   });
+
+  test("healthy double-run: the second run neither re-renders nor reprocesses (resumability pin)", async () => {
+    const deck = await buildDeck();
+    await runFile2mdPipeline({ inputs: [deck], outRoot: out, mode: "auto" });
+    expect(rendererState.renderCalls).toBe(1);
+    await runFile2mdPipeline({ inputs: [deck], outRoot: out, mode: "auto" });
+    expect(rendererState.renderCalls).toBe(1); // no re-render — everything done + pngs on disk
+    expect(visionCalls.calls).toBe(0);
+    expect(pageMd(1)).toContain("![[page-001.png]]");
+    expect(pageMd(2)).not.toContain("Slide render");
+  });
 });

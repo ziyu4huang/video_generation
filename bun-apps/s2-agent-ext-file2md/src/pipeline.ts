@@ -1122,7 +1122,10 @@ async function runPptx(args: RunDocumentArgs, layout: DocLayout, slug: string): 
     } else if (renderError !== undefined) {
       // Honest in-note trace (truth rules): the note must say what this
       // machine lost, not just stderr.
-      record.body += `\n> Slide renders incomplete (renderer failed: ${renderError}) — text runs only.\n`;
+      // renderError may embed multi-line stderr — collapse it so the
+      // blockquote stays a blockquote (nit 3, hardening review).
+      const oneLine = renderError.replace(/\s+/g, " ");
+      record.body += `\n> Slide renders incomplete (renderer failed: ${oneLine}) — text runs only.\n`;
     } else {
       // Silent shortfall: the renderer reported success but produced no image
       // for this slide (e.g. a partial soffice→pdf conversion that exited 0).

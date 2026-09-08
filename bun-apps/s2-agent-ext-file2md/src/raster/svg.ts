@@ -128,17 +128,18 @@ async function measureContent(view: Bun.WebView): Promise<{ w: number; h: number
   return { w: m.w!, h: m.h! };
 }
 
-/**
- * Screenshot a wrapper HTML file at its natural content size, scaled to
- * maxEdge. Two passes: a PROBE view loads the page and measures the content
- * (scrollWidth/Height); a CAPTURE view is then constructed at the measured
- * size so the screenshot holds the whole diagram rather than the probe's
- * crop. Bun.WebView's width/height are constructor-set (not live-resizable
- * in the type surface), hence the second load of the same local file:// URL.
- */
 /** Production view factory (DI seam — tests inject a stalled fake). */
 const defaultCreateView = (width: number, height: number): Bun.WebView => new Bun.WebView({ width, height });
 
+/**
+ * Screenshot a wrapper HTML file at its natural content size, scaled to
+ * maxEdge. Two passes: a PROBE view loads the page and measures the content
+ * (element bounding rect); a CAPTURE view is then constructed at the
+ * measured size so the screenshot holds the whole diagram rather than the
+ * probe's crop. Bun.WebView's width/height are constructor-set (not
+ * live-resizable in the type surface), hence the second load of the same
+ * local file:// URL. Each pass is raced against the liveness budget.
+ */
 async function captureWrapper(
   htmlPath: string,
   maxEdge: number,

@@ -1,7 +1,7 @@
 ---
 effort: 2026-09-08-file2md-svg-pptx-vision
 created: 2026-09-08
-last: 2026-09-08
+last: 2026-09-09
 status: done
 ---
 
@@ -143,6 +143,9 @@ append + D4 degrade semantics reused verbatim),
 `2026-08-23-file2md-vision-extraction` (the runVisionInference seam),
 archify `deck-render`/thumbnails efforts (the render seams vendored/adapted).
 Shares-decision-with: archify deck-render D1–D3 (renderer sees, never gates).
+Absorbed-by: `2026-09-09-file2md-render-hardening` (its ticket set is this
+map's 6 accepted reviewer follow-ups; nit 12 manifest input-identity stays
+deferred there as D9).
 
 ## Shipped-as
 
