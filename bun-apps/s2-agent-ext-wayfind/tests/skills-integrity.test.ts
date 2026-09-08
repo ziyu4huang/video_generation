@@ -1,5 +1,5 @@
 /**
- * skills-integrity.test.ts — self-arc-15 t01: the FULL 16-skill inventory guard.
+ * skills-integrity.test.ts — self-arc-16 t01: the FULL 16-skill inventory guard.
  *
  * skills.test.ts guards loading rules over whatever it DISCOVERS, and its
  * expected-list covers only 6 of the 16 skill dirs (one-directional toContain)
@@ -55,7 +55,7 @@ function frontmatterField(content: string, key: string): string | undefined {
   return undefined;
 }
 
-describe("skills-integrity (self-arc-15 t01)", () => {
+describe("skills-integrity (self-arc-16 t01)", () => {
   test("golden 16-name set matches skills/ exactly (both directions)", () => {
     expect(skillDirs()).toEqual([...GOLDEN]);
   });

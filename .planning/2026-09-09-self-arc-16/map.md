@@ -1,11 +1,11 @@
 ---
-effort: 2026-09-09-self-arc-15
+effort: 2026-09-09-self-arc-16
 created: 2026-09-09
 last: 2026-09-09
 status: open
 ---
 
-# Wayfinder map: 2026-09-09-self-arc-15 — verify arc: wayfind + superpowers families
+# Wayfinder map: 2026-09-09-self-arc-16 — verify arc: wayfind + superpowers families
 
 ## Destination
 
@@ -59,7 +59,7 @@ Planner: GLM-5.3 via `arc-plan.ts` (PASS, 259s/164k tokens —
 
 - [ ] t01 `tickets/01-matrix-source-legs.md` — T1: committed skills-integrity
       (wayfind) + skills-inventory (superpowers) tests + source-leg receipts
-      (`output/self-arc15-{wayfind,superpowers}-src-<date>/`)
+      (`output/self-arc16-{wayfind,superpowers}-src-<date>/`)
 - [ ] t02 `tickets/02-deployed-legs-prefix.md` — T2: deployed-leg receipts
       PRE-fix: ext dirs, sha256 skills parity, wayfind loadExt + read-only
       execute, superpowers `loadExt-expected-throw` as EVIDENCE;
@@ -80,7 +80,7 @@ re-receipt per arc-13 t01) → t03 (only deploy-needing ticket) → t04
 
 ## Decisions
 
-- D1 (2026-09-09): this round is self-arc-15 (renumbered from 14 on 2026-09-09: a parallel session merged its own self-arc-14 as #2217 — collision found by the planner, F7); the loop's numbering continues
+- D1 (2026-09-09): this round is self-arc-16 (renumbered TWICE on 2026-09-09: parallel sessions claimed arc-14 [#2217] and arc-15 [#2224, "merge-chain UX hardening"] while this round planned/executed — this effort is arc-16); the loop's numbering continues
   (arc-13 opened research-tool; 14 opens the two methodology families).
 - D2 (2026-09-09): planner-led open per the standing directive (arc-9): GLM-5.3
   via `arc-plan.ts`, `hard-problem`, explicit read budget.
@@ -125,3 +125,4 @@ Collision-note: `2026-09-08-self-arc-14` (merged as #2217 by a parallel
 session) claimed the arc-14 number first; this effort renumbered to 15 on
 2026-09-09 (planner F7). No content overlap — theirs was the B3 workflow
 pattern, ours is the verify arc.
+Second-collision note: `.planning/2026-09-09-self-arc-15/` ("merge-chain UX hardening", #2224) claimed arc-15 while this round executed — same day, same shape as the arc-14 collision. Loop lesson: round numbers are claimed at MERGE time by whichever parallel session lands first; an executing arc must expect renumbering at rebase.

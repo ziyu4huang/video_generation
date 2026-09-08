@@ -1,5 +1,5 @@
 /**
- * skills-inventory.test.ts — self-arc-15 t01: name==dir + full-set agreement.
+ * skills-inventory.test.ts — self-arc-16 t01: name==dir + full-set agreement.
  *
  * skills.test.ts asserts loading rules + the EXPECTED_SKILLS count over the
  * discovered set, and skills-fidelity byte-pins the UPSTREAM-ported skills —
@@ -55,7 +55,7 @@ function frontmatterField(content: string, key: string): string | undefined {
 
 const repoOwned = [...GOLDEN].filter((s) => !PORTED_SKILLS.includes(s));
 
-describe("skills-inventory (self-arc-15 t01)", () => {
+describe("skills-inventory (self-arc-16 t01)", () => {
   test("golden 16-name set == skills/ dirs == EXPECTED_SKILLS (three-way)", () => {
     const dirs = listSkillDirs(skillsDir)
       .map((s) => s.name)

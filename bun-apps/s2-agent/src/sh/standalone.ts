@@ -53,7 +53,7 @@ export interface StandaloneExt {
 	/** One tool by name. Throws (with the registered names) if absent. */
 	tool(name: string): StandaloneTool;
 	/**
-	 * Command NAMES the factory registered (self-arc-15 t03). Standalone
+	 * Command NAMES the factory registered (self-arc-16 t03). Standalone
 	 * consumers cannot DRIVE a slash command — it needs a live session — but
 	 * verifying the shipped bytes register the expected commands (by name,
 	 * minification-preserved string literals) is exactly what receipt legs
@@ -78,7 +78,7 @@ export interface LoadExtOptions {
 	 */
 	distRoot?: string;
 	/**
-	 * Permit a factory that registers ZERO tools (self-arc-15 t03). Off by
+	 * Permit a factory that registers ZERO tools (self-arc-16 t03). Off by
 	 * default: a tool-less load usually means the factory failed silently, and
 	 * a script consumer needs that failure. Opt in for legitimately
 	 * event/command-driven extensions (superpowers-style): the load then

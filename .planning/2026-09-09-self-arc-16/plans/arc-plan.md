@@ -1,6 +1,6 @@
-# Plan: self-arc-15 — the verify arc (wayfind + superpowers)
+# Plan: self-arc-16 — the verify arc (wayfind + superpowers) [planned as arc-15; renumbered at rebase]
 
-Planner: hard-problem analyst, dispatched 2026-09-09 (task `task-plan-self-arc-15-the-verify-arc-wayfind`).
+Planner: hard-problem analyst, dispatched 2026-09-09 (task `task-plan-self-arc-15 (pre-renumber)-the-verify-arc-wayfind`).
 Read budget ~14 — held. Baseline `bun run test` run FIRST per the task (see F1).
 
 Directive (2026-09-09): focus on VERIFY `s2-agent-ext-wayfind` + `s2-agent-ext-superpowers`,
@@ -55,14 +55,14 @@ Directive (2026-09-09): focus on VERIFY `s2-agent-ext-wayfind` + `s2-agent-ext-s
    the plan avoids them entirely (committed package tests + scratch output/ drivers).
 7. **Arc-14 numbering collision** (artifact hygiene): `.planning/2026-09-08-self-arc-15/`
    (status `active`, "B3 migrate-in-parallel", 4 tickets) and
-   `.planning/2026-09-09-self-arc-15/` (this arc, status `open`) BOTH claim arc-14.
+   `.planning/2026-09-09-self-arc-16/` (this arc, status `open`) BOTH claim arc-14.
    Recorded here; resolution (renumber / cross-link / absorb) is the main agent's
    call at close-out — this plan does not move either dir.
 
 **Committed vs ad-hoc recommendation** (task asks): skills-integrity / inventory
 checks = COMMITTED unit tests in each package (cheap, run in every CI, house style
 proven by artifact-leak + skills-fidelity); receipt legs that execute against a
-deployed tree = ad-hoc plain-bun drivers under `output/self-arc15-*/` (unit CI must
+deployed tree = ad-hoc plain-bun drivers under `output/self-arc16-*/` (unit CI must
 not require a deployed tree to exist — deploy-e2e precedent). The matrix itself =
 this plan + each receipt.json's named-check manifest.
 
@@ -98,8 +98,8 @@ this plan + each receipt.json's named-check manifest.
   superpowers: `loadExt-expected-throw` — a named check that PASSES by confirming
   the documented standalone limitation (captures the message; evidence, not a fake
   pass); `commands-surface` = RECORDED-GAP pre-T3.
-- **Done-when**: `output/self-arc15-wayfind-deployed-<date>/receipt.json` and
-  `output/self-arc15-superpowers-deployed-<date>/receipt.json` PASS with every check
+- **Done-when**: `output/self-arc16-wayfind-deployed-<date>/receipt.json` and
+  `output/self-arc16-superpowers-deployed-<date>/receipt.json` PASS with every check
   named; gaps recorded as gap entries with reasons. A failing receipt is never
   deleted — fix forward, re-run, keep both (evidence trail).
 - **Schema-cost**: +0.
@@ -142,7 +142,7 @@ at all.
 
 - **Problem**: this effort's `map.md` Tickets section is unfilled; the arc-14
   numbering collision (F7) is unrecorded on either map; loop close-out ritual pending.
-- **Change**: fill `.planning/2026-09-09-self-arc-15/map.md` (Tickets from this plan;
+- **Change**: fill `.planning/2026-09-09-self-arc-16/map.md` (Tickets from this plan;
   Decisions: committed-vs-ad-hoc split, standalone extension, receipts-before-fix
   ordering; Frontier = the live-agent gaps; cross-effort links INCLUDING the
   `2026-09-08-self-arc-15` collision note); successor next-goal per
@@ -167,17 +167,17 @@ T1/T2/T3 receipts; may interleave wherever a red lands)  →  T5 (close-out)
 
 ## 4. RECEIPTS PLAN
 
-- `output/self-arc15-wayfind-src-<date>/` — proves the source registration surface
+- `output/self-arc16-wayfind-src-<date>/` — proves the source registration surface
   BY NAME (probe), suite green, 16-skill integrity, zero-citation sweep. No gaps.
-- `output/self-arc15-superpowers-src-<date>/` — proves suite green (incl. the
+- `output/self-arc16-superpowers-src-<date>/` — proves suite green (incl. the
   fidelity pins + artifact-leak via the suite), 16-skill inventory. No gaps.
-- `output/self-arc15-wayfind-deployed-<date>/` — proves the shipped bytes register
+- `output/self-arc16-wayfind-deployed-<date>/` — proves the shipped bytes register
   the same surface (tool + post-T3 commands), skills parity by sha256, and a real
   read-only `wayfind_effort` execute against a temp `.planning` fixture. Re-run
   after T3's redeploy. RECORDED-GAP: slash-command INTERACTION (grill/wayfind
   command bodies drive a live session) and session-event behavior (turn_end etc.) —
   live-agent-only.
-- `output/self-arc15-superpowers-deployed-<date>/` — proves skills parity by sha256,
+- `output/self-arc16-superpowers-deployed-<date>/` — proves skills parity by sha256,
   manifest presence, and pins the standalone limitation itself as evidence
   (`loadExt-expected-throw` pre-T3; `loadExt-allow-empty` post-T3). RECORDED-GAP:
   session_start/session_compact bootstrap injection, using-superpowers context

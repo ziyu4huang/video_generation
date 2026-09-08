@@ -11,7 +11,7 @@ superpowers: `loadExt-expected-throw` PASSES by confirming the documented
 limitation (message captured as evidence); `commands-surface` = RECORDED-GAP.
 
 ## Done when
-`output/self-arc15-wayfind-deployed-<date>/receipt.json` and
-`output/self-arc15-superpowers-deployed-<date>/receipt.json` PASS with every
+`output/self-arc16-wayfind-deployed-<date>/receipt.json` and
+`output/self-arc16-superpowers-deployed-<date>/receipt.json` PASS with every
 check named; gaps recorded as gap entries with reasons. Failing receipts are
 kept (fix forward, never delete).

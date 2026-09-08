@@ -13,8 +13,8 @@ Status: open · no blockers · first
    run each package's `bun run test`, record named checks.
 
 ## Done when
-`output/self-arc15-wayfind-src-<date>/receipt.json` and
-`output/self-arc15-superpowers-src-<date>/receipt.json` PASS:
+`output/self-arc16-wayfind-src-<date>/receipt.json` and
+`output/self-arc16-superpowers-src-<date>/receipt.json` PASS:
 `unit-suite-green` (0 fail; record pass counts, no exact-count assert),
 `probe-ext-surface` + `gate-zero-registrations` (wayfind),
 `skills-integrity` (16), `skills-inventory` (16), `zero-citation-sweep`

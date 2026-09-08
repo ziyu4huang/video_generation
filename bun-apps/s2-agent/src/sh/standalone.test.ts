@@ -213,7 +213,7 @@ describe("loadExt", () => {
 	});
 });
 
-describe("commands surface + allowEmptySurface (self-arc-15 t03)", () => {
+describe("commands surface + allowEmptySurface (self-arc-16 t03)", () => {
 	test("commands() returns registered command names in order", () => {
 		const dist = makeDist();
 		writeExt(dist, "cmd-ext", {
