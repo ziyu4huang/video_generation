@@ -65,7 +65,6 @@ function isComplete(location: EffortLocation, status: EffortStatus | null): bool
 
 /** Classify one `.planning/<slug>` (or `.planning/done/<slug>`) effort dir. */
 function classifyEffort(cwd: string, slug: string, location: EffortLocation): EffortSweepRecord | null {
-  const dir = location === "done" ? join(cwd, ".planning", "done", slug) : join(cwd, ".planning", slug);
   const mapPathRel = join(location === "done" ? join(".planning", "done", slug) : join(".planning", slug), "map.md");
   const absMap = join(cwd, mapPathRel);
   if (!existsSync(absMap)) return null;

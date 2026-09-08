@@ -43,7 +43,7 @@ export interface StandaloneTool {
 	execute: (...args: unknown[]) => unknown;
 }
 
-/** One loaded extension: its manifest and its registered tools. */
+/** One loaded extension: its manifest and its registered surfaces. */
 export interface StandaloneExt {
 	name: string;
 	/** The parsed ext.json manifest of the deployed extension. */
@@ -52,6 +52,14 @@ export interface StandaloneExt {
 	tools(): StandaloneTool[];
 	/** One tool by name. Throws (with the registered names) if absent. */
 	tool(name: string): StandaloneTool;
+	/**
+	 * Command NAMES the factory registered (self-arc-15 t03). Standalone
+	 * consumers cannot DRIVE a slash command — it needs a live session — but
+	 * verifying the shipped bytes register the expected commands (by name,
+	 * minification-preserved string literals) is exactly what receipt legs
+	 * need. Command-only extensions load with `allowEmptySurface`.
+	 */
+	commands(): string[];
 }
 
 /** Manifest-level summary returned by listExts(). */
@@ -69,6 +77,16 @@ export interface LoadExtOptions {
 	 * version dir).
 	 */
 	distRoot?: string;
+	/**
+	 * Permit a factory that registers ZERO tools (self-arc-15 t03). Off by
+	 * default: a tool-less load usually means the factory failed silently, and
+	 * a script consumer needs that failure. Opt in for legitimately
+	 * event/command-driven extensions (superpowers-style): the load then
+	 * succeeds with an empty tools() and whatever commands() captured —
+	 * verifying the bytes register, without pretending a standalone script
+	 * can drive a session-bound surface.
+	 */
+	allowEmptySurface?: boolean;
 }
 
 /** The `ext/` dir every ext is resolved from. */
@@ -86,7 +104,7 @@ function extRootFor(opts?: LoadExtOptions): string {
  * methods are NOT swallowed (no Proxy): a factory calling something exotic
  * fails loudly here rather than silently registering nothing.
  */
-function registrarCollector(tools: StandaloneTool[]) {
+function registrarCollector(tools: StandaloneTool[], commands: string[]) {
 	return {
 		on: () => undefined,
 		registerTool: (tool: { name?: unknown; execute?: unknown }) => {
@@ -95,7 +113,12 @@ function registrarCollector(tools: StandaloneTool[]) {
 			}
 			tools.push({ name: tool.name, execute: tool.execute as StandaloneTool["execute"] });
 		},
-		registerCommand: () => undefined,
+		registerCommand: (name: unknown) => {
+			if (typeof name !== "string" || !name) {
+				throw new Error(`extension registered a malformed command: ${JSON.stringify(name)}`);
+			}
+			commands.push(name);
+		},
 		registerSkill: () => undefined,
 	};
 }
@@ -139,10 +162,11 @@ export function loadExt(name: string, opts?: LoadExtOptions): StandaloneExt {
 		throw new Error(`standalone loadExt(${JSON.stringify(name)}): bundle has no callable default export`);
 	}
 	const collected: StandaloneTool[] = [];
-	(factory as (api: unknown) => void)(registrarCollector(collected));
-	if (collected.length === 0) {
+	const commands: string[] = [];
+	(factory as (api: unknown) => void)(registrarCollector(collected, commands));
+	if (collected.length === 0 && !opts?.allowEmptySurface) {
 		throw new Error(
-			`standalone loadExt(${JSON.stringify(name)}): factory registered no tools at call time (lazy/event-driven registration is not supported standalone — the deploy-e2e probe layer has the same contract)`,
+			`standalone loadExt(${JSON.stringify(name)}): factory registered no tools at call time (lazy/event-driven registration is not supported standalone — the deploy-e2e probe layer has the same contract; loadExt(name, { allowEmptySurface: true }) opts in for command/event-driven extensions)`,
 		);
 	}
 	return {
@@ -158,6 +182,7 @@ export function loadExt(name: string, opts?: LoadExtOptions): StandaloneExt {
 			}
 			return tool;
 		},
+		commands: () => [...commands],
 	};
 }
 
