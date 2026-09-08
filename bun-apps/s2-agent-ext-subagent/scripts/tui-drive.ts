@@ -751,7 +751,11 @@ async function scenarioCcParity(): Promise<void> {
       true,
     );
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
-    if (chainVerified) break;
+    // Break only when BOTH latches hold: the parent ECHOES "CHAIN-VERIFIED"
+    // (it dictated the reply) seconds before child 2's row renders the
+    // embedded task — breaking on chainVerified alone quits the loop while
+    // the embedding evidence is still a few renders away.
+    if (chainVerified && chainEmbedded) break;
   }
   receipt.checks.chainChild1 = chainChild1;
   receipt.checks.chainEmbedded = chainEmbedded;
