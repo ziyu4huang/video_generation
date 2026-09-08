@@ -2,7 +2,7 @@
 effort: 2026-09-09-self-arc-16
 created: 2026-09-09
 last: 2026-09-09
-status: open
+status: done
 ---
 
 # Wayfinder map: 2026-09-09-self-arc-16 — verify arc: wayfind + superpowers families
@@ -57,20 +57,20 @@ Planner: GLM-5.3 via `arc-plan.ts` (PASS, 259s/164k tokens —
 `output/arc-plan-self-arc14/plan-receipt.json`; plan promoted to
 `plans/arc-plan.md`, findings F1–F7 cited per ticket).
 
-- [ ] t01 `tickets/01-matrix-source-legs.md` — T1: committed skills-integrity
+- [x] t01 `tickets/01-matrix-source-legs.md` — T1: committed skills-integrity
       (wayfind) + skills-inventory (superpowers) tests + source-leg receipts
       (`output/self-arc16-{wayfind,superpowers}-src-<date>/`)
-- [ ] t02 `tickets/02-deployed-legs-prefix.md` — T2: deployed-leg receipts
+- [x] t02 `tickets/02-deployed-legs-prefix.md` — T2: deployed-leg receipts
       PRE-fix: ext dirs, sha256 skills parity, wayfind loadExt + read-only
       execute, superpowers `loadExt-expected-throw` as EVIDENCE;
       commands-surface recorded-gap
-- [ ] t03 `tickets/03-standalone-blindness-fix.md` — T3 (fires on F2 evidence):
+- [x] t03 `tickets/03-standalone-blindness-fix.md` — T3 (fires on F2 evidence):
       standalone.ts records commands + `commands()` + `allowEmptySurface`
       opt-in (default stays fail-loud); redeploy; re-run deployed legs →
       commands-surface flips gap→PASS
-- [ ] t04 `tickets/04-contingent-fix.md` — T4: contingent on red receipts;
+- [x] t04 `tickets/04-contingent-fix.md` — T4: contingent on red receipts;
       closes NO-OP with evidence if clean
-- [ ] t05 `tickets/05-closeout.md` — T5: map done + Shipped-as, arc-13
+- [x] t05 `tickets/05-closeout.md` — T5: map done + Shipped-as, arc-13
       back-link, collision cross-link with `2026-09-08-self-arc-14`, successor
       next-goal
 
@@ -91,7 +91,9 @@ re-receipt per arc-13 t01) → t03 (only deploy-needing ticket) → t04
 
 ## Frontier
 
-t01 first (no blockers): the two committed integrity tests, then the source-leg
+Queue drained — close-out (this docs PR + successor next-goal) is the last work.
+
+(execution history: t01 first (no blockers): the two committed integrity tests, then the source-leg
 receipt drivers. t02 must complete BEFORE t03 lands so the superpowers
 expected-throw and the invisible commands surface are receipted as the PRE-fix
 contract.
@@ -126,3 +128,25 @@ session) claimed the arc-14 number first; this effort renumbered to 15 on
 2026-09-09 (planner F7). No content overlap — theirs was the B3 workflow
 pattern, ours is the verify arc.
 Second-collision note: `.planning/2026-09-09-self-arc-15/` ("merge-chain UX hardening", #2224) claimed arc-15 while this round executed — same day, same shape as the arc-14 collision. Loop lesson: round numbers are claimed at MERGE time by whichever parallel session lands first; an executing arc must expect renumbering at rebase.
+
+
+## Shipped-as
+
+PR #2226 (merged 2026-09-09, squash `8921d19d`; renumbered 14→16 after two
+same-day collisions — #2217 took 14, #2224 took 15): committed guards
+`bun-apps/s2-agent-ext-wayfind/tests/skills-integrity.test.ts` (17) +
+`bun-apps/s2-agent-ext-superpowers/tests/skills-inventory.test.ts` (3);
+dead-line fix `wayfind/src/sweep-zero-citation.ts` (t04, receipt-caught,
+latent since #1908); standalone surface `s2-agent/src/sh/standalone.ts`
+(commands() + allowEmptySurface, 5 contract tests, 17/17 file) +
+agents-md API guide; s2-agent 0.10.2 → 0.10.3. Reviewer APPROVE (zero
+change requests; re-ran tests independently — `output/reviewer-self-arc15/plan.md`,
+scratch). Receipts (scratch, cited): src legs `output/self-arc15-wayfind-src-20260909/`
+PASS 5/5 (500 tests incl. probe) + `output/self-arc15-superpowers-src-20260909/`
+PASS 2/2 (172); deployed legs `output/self-arc15-wayfind-deployed-20260909/`
+PRE-fix PASS 9/9 + 4 gaps @ 0.10.2+g4190dd5 (`receipt-prefix.json` preserved),
+POST-fix PASS 11/11 + 3 live-agent gaps @ 0.10.3+g8921d19 (post-merge tree —
+arc-12 t05 rule held): commands-surface [grill,wayfind] flipped gap→PASS,
+superpowers allow-empty load, sha256 skills parity 16/16 both families,
+real read-only wayfind_effort list execute. t04 fired once (lint) and
+closed green; the contingent's other candidates never redded.

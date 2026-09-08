@@ -65,3 +65,6 @@ ticket-by-ticket with the same contract net.
 - MC-2 log retention (forever vs last-N).
 - MC-3 conflict residue: keep the temp worktree on conflict for manual
   resolution (recommended).
+
+## Back-links
+Collision-note + back-link: this effort's arc number (15) collided same-day with the verify arc (wayfind + superpowers), which renumbered to 16 at rebase and merged as #2226 — see `.planning/2026-09-09-self-arc-16/map.md`. No content overlap (merge-chain UX vs skills verification).

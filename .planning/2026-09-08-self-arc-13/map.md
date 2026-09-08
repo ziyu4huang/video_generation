@@ -183,3 +183,4 @@ cited as evidence): deploy-verify `output/self-arc13-deploy-verify-20260908/`
 PASS 11/11; arxiv src/deployed PASS 3/3 each; localvault src/deployed PASS 5/5
 each — deployed legs re-run against the post-merge deployment
 `0.10.1+g9cef1fa` (arc-12 t05 rule held). Local CI overall PASS; schema-cost +0.
+Back-link: self-arc-16 (verify arc: wayfind + superpowers) reused arc-13's receipts discipline end-to-end (source+deployed legs, receipt→fix→re-receipt, pre-fix evidence preserved) and generalized its stub-ctx driver shape to a no-tool family via the new standalone commands()/allowEmptySurface surface — see `.planning/2026-09-09-self-arc-16/map.md`.
