@@ -34,6 +34,11 @@ export interface YtSearchOptions {
 	pages?: number;
 	/** RFC 3339 — only videos published after this. */
 	publishedAfter?: string;
+	/**
+	 * Non-fatal notices (stats batch failures, etc.) — results stay usable,
+	 * but the caller can surface WHY counts are zero. self-arc-13 T3.
+	 */
+	onNotice?: (msg: string) => void;
 }
 
 /* ================================================================
@@ -74,34 +79,52 @@ async function searchYtVideos(
 	return { items: json.items ?? [], nextPageToken: json.nextPageToken };
 }
 
+/**
+ * Stats for id batches — CHUNKED at 50 (the videos.list endpoint cap).
+ * Pre-T3 this sent ALL ids in one call: pages ≥ 2 (>50 ids) failed the
+ * request and the error was swallowed into an empty Map — every video then
+ * reported 0 views/likes/duration, silently. Chunk errors are collected, not
+ * swallowed; the map carries whatever succeeded.
+ */
 async function fetchYtStats(
 	videoIds: string[],
 	apiKey: string,
-): Promise<
-	Map<string, { viewCount: number; likeCount: number; commentCount: number; duration: string }>
-> {
-	if (videoIds.length === 0) return new Map();
-	const url = `${YT_API_BASE}/videos?${new URLSearchParams({
-		part: "statistics,contentDetails",
-		id: videoIds.join(","),
-		key: apiKey,
-	})}`;
-	const resp = await fetch(url);
-	const json = (await resp.json()) as {
-		error?: { message: string };
-		items?: { id: string; statistics?: Record<string, string>; contentDetails?: { duration?: string } }[];
-	};
-	if (json.error) return new Map();
-	const map = new Map<string, { viewCount: number; likeCount: number; commentCount: number; duration: string }>();
-	for (const item of json.items ?? []) {
-		map.set(item.id, {
-			viewCount: parseInt(item.statistics?.viewCount ?? "0", 10),
-			likeCount: parseInt(item.statistics?.likeCount ?? "0", 10),
-			commentCount: parseInt(item.statistics?.commentCount ?? "0", 10),
-			duration: item.contentDetails?.duration ?? "PT0S",
-		});
+): Promise<{ stats: Map<string, { viewCount: number; likeCount: number; commentCount: number; duration: string }>; errors: string[] }> {
+	const stats = new Map<string, { viewCount: number; likeCount: number; commentCount: number; duration: string }>();
+	const errors: string[] = [];
+	if (videoIds.length === 0) return { stats, errors };
+	for (let i = 0; i < videoIds.length; i += 50) {
+		const chunk = videoIds.slice(i, i + 50);
+		const url = `${YT_API_BASE}/videos?${new URLSearchParams({
+			part: "statistics,contentDetails",
+			id: chunk.join(","),
+			key: apiKey,
+		})}`;
+		let json: {
+			error?: { code?: number; message: string };
+			items?: { id: string; statistics?: Record<string, string>; contentDetails?: { duration?: string } }[];
+		};
+		try {
+			const resp = await fetch(url);
+			json = (await resp.json()) as typeof json;
+		} catch (err) {
+			errors.push(`stats batch ${Math.floor(i / 50) + 1}: ${(err as Error).message}`);
+			continue;
+		}
+		if (json.error) {
+			errors.push(`stats batch ${Math.floor(i / 50) + 1}: YouTube API error ${json.error.code ?? ""} ${json.error.message}`.trim());
+			continue;
+		}
+		for (const item of json.items ?? []) {
+			stats.set(item.id, {
+				viewCount: parseInt(item.statistics?.viewCount ?? "0", 10),
+				likeCount: parseInt(item.statistics?.likeCount ?? "0", 10),
+				commentCount: parseInt(item.statistics?.commentCount ?? "0", 10),
+				duration: item.contentDetails?.duration ?? "PT0S",
+			});
+		}
 	}
-	return map;
+	return { stats, errors };
 }
 
 /* ================================================================
@@ -131,13 +154,13 @@ function sleep(ms: number): Promise<void> {
  * Core search
  * ================================================================ */
 
-/** Search one keyword across N pages, batch-fetch stats, normalize. */
+/** Search one keyword across N pages, batch-fetch stats (50-id chunks), normalize. */
 export async function searchYtKeyword(
 	keyword: string,
 	apiKey: string,
 	opts: YtSearchOptions = {},
 ): Promise<VideoResult[]> {
-	const { order = "relevance", pages = 1, publishedAfter } = opts;
+	const { order = "relevance", pages = 1, publishedAfter, onNotice } = opts;
 	const allItems: YtSearchItem[] = [];
 	let pageToken: string | undefined;
 
@@ -151,7 +174,8 @@ export async function searchYtKeyword(
 	if (allItems.length === 0) return [];
 
 	const videoIds = allItems.map((i) => i.id.videoId);
-	const stats = await fetchYtStats(videoIds, apiKey);
+	const { stats, errors } = await fetchYtStats(videoIds, apiKey);
+	for (const e of errors) onNotice?.(`"${keyword}": stats unavailable — ${e}`);
 
 	return allItems.map((item) => {
 		const s = stats.get(item.id.videoId);

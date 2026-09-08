@@ -126,10 +126,12 @@ export interface RegistryEntry {
    * target. An entry whose list excludes the deploy target is dropped from
    * that tree at deploy time (run.ts filterForTarget) and therefore from the
    * tree's deploy.json expected set. Measured 2026-08-27: every
-   * darwin-by-nature ext (flux2/krea2/ltx/research-tool/zai-mcp/
-   * movie-director — swift CLIs + MPS) is ALREADY deploy-excluded via
-   * excludeReason, so no shipped entry carries the field today; this is the
-   * seam for the first genuinely platform-bound SHIPPING ext.
+   * darwin-by-nature ext (flux2/krea2/ltx/zai-mcp/movie-director —
+   * swift CLIs + MPS) is ALREADY deploy-excluded via excludeReason, so no
+   * shipped entry carries the field today; this is the seam for the first
+   * genuinely platform-bound SHIPPING ext. (research-tool was listed here
+   * until self-arc-13: it is pure TS — the exclusion was a copy-paste from
+   * ltx's entry, and the family had never shipped; F1, pinned 2026-09-08.)
    */
   platforms?: Array<"darwin" | "linux" | "win32">;
 }
@@ -539,7 +541,8 @@ export const REGISTRY: RegistryEntry[] = [
     skills: true,
     version: "0.1.0",
     enabled: true,
-    excludeReason: "bound to this machine's swift CLIs and services",
+    deploy: { order: 170 },
+    notes: "Pure TS (network + FS): bilibili/youtube/arxiv engines + vault writes; no swift/MPS deps. SHIPS as of self-arc-13 (F1): the entry carried ltx's copy-pasted machine-bound excludeReason from #1962, so the family had never deployed — a user on the deployed tree could not use it at all.",
   },
   {
     name: "s2-agent-ext-zai-mcp",

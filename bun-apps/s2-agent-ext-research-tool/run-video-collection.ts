@@ -48,28 +48,38 @@ async function collectBilibili(
   opts: { pages: number; popular: boolean; proxy?: string },
 ): Promise<CollectionResult> {
   const keywords = resolveKeywords(preset, undefined, "bilibili");
-  const buvid3 = await fetchBuvid3(opts.proxy);
-  const cookieStr = `buvid3=${buvid3};`;
+  const buvid = await fetchBuvid3(opts.proxy);
+  let cookieStr = "";
+  if (buvid.status === "ok" && buvid.data) cookieStr = `buvid3=${buvid.data};`;
+  else console.log(`  buvid3: ${buvid.status} (${buvid.reason ?? "no cookie"}) — proceeding without cookie`);
 
   let hot: VideoResult[] | undefined;
   if (opts.popular) {
-    const hotAll = await fetchHotVideos(1, 50, cookieStr, opts.proxy);
-    hot = filterRelevant(hotAll, preset);
-    console.log(`  popular: ${hot.length} relevant of ${hotAll.length}`);
+    const hotOutcome = await fetchHotVideos(1, 50, cookieStr, opts.proxy);
+    if (hotOutcome.status !== "ok") {
+      console.log(`  popular: ${hotOutcome.status} — ${hotOutcome.reason}`);
+    } else {
+      hot = filterRelevant(hotOutcome.data, preset);
+      console.log(`  popular: ${hot.length} relevant of ${hotOutcome.data.length}`);
+    }
   }
 
   const groups: KeywordGroup[] = [];
   for (const keyword of keywords) {
     const all: VideoResult[] = [];
     for (let p = 1; p <= opts.pages; p++) {
-      const videos = await searchVideos(keyword, {
+      const outcome = await searchVideos(keyword, {
         order: "click",
         page: p,
         cookieStr,
         proxy: opts.proxy,
       });
-      if (videos.length === 0) break;
-      all.push(...videos);
+      if (outcome.status !== "ok") {
+        console.log(`  "${keyword}": ${outcome.status} — ${outcome.reason}`);
+        break;
+      }
+      if (outcome.data.length === 0) break;
+      all.push(...outcome.data);
       if (p < opts.pages) await sleep(1500);
     }
     groups.push({ keyword, videos: all });
