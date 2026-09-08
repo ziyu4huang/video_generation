@@ -54,10 +54,18 @@ export const tmuxAdapter: BenchAdapter = {
         tmux(["send-keys", "-t", name, "-l", text]);
         await sleep(250);
         tmux(["send-keys", "-t", name, "Enter"]);
-        // Verified submit on the capture lane: spinner visible, else re-Enter.
+        // Verified submit (#2208-class, hardened self-arc-15): quiet is NOT
+        // proof — the eaten Enter leaves the text in the composer (bottom
+        // rows). Spinner OR text-left-composer decides; one guarded re-Enter.
+        const composerHolds = (): boolean =>
+          capture()
+            .split("\n")
+            .slice(-6)
+            .some((l) => l.includes(text.slice(0, 40)));
         for (let attempt = 0; attempt < 2; attempt++) {
           await sleep(6000);
           if (/Working/.test(capture())) return;
+          if (!composerHolds()) return;
           tmux(["send-keys", "-t", name, "Enter"]);
         }
       },
@@ -82,7 +90,8 @@ export const tmuxAdapter: BenchAdapter = {
         }
         return { settled: false, ms: Date.now() - t0, lastView: view };
       },
-      screenText: () => lastCapture,
+      // LIVE view (self-arc-15) — same frozen-cache fix as the pty adapters.
+      screenText: () => capture(),
       async writeRaw(bytes: string) {
         // Gesture lane: literal keys + a real Enter.
         const literal = bytes.replace(/\r$/, "");

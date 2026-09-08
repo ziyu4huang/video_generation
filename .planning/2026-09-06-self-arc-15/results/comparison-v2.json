@@ -1,0 +1,52 @@
+{
+  "receipts": [
+    {
+      "tech": "bun-terminal",
+      "case": "cx-multi-turn",
+      "pass": true,
+      "notes": []
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "cx-midturn-abort",
+      "pass": true,
+      "notes": []
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "cx-long-output",
+      "pass": true,
+      "notes": []
+    },
+    {
+      "tech": "bun-terminal",
+      "case": "cx-error-path",
+      "pass": true,
+      "notes": []
+    },
+    {
+      "tech": "rpc",
+      "case": "cx-multi-turn",
+      "pass": true,
+      "notes": []
+    },
+    {
+      "tech": "rpc",
+      "case": "cx-midturn-abort",
+      "pass": true,
+      "notes": []
+    },
+    {
+      "tech": "rpc",
+      "case": "cx-long-output",
+      "pass": true,
+      "notes": []
+    },
+    {
+      "tech": "rpc",
+      "case": "cx-error-path",
+      "pass": true,
+      "notes": []
+    }
+  ]
+}

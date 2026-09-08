@@ -81,14 +81,25 @@ export const bunPtyAdapter: BenchAdapter = {
 
     const session: Session = {
       async submit(text: string) {
+        // Rendered-truth boot gate (#2208): never send before first render.
         for (let i = 0; i < 60 && term.buffer.active.length === 0; i++) await sleep(1500);
         stdinWrite(text);
         await sleep(250);
         stdinWrite("\r");
+        // Verified submit (#2208-class, hardened self-arc-15): a QUIET screen
+        // is NOT proof of submission — a freshly-booted TUI is quiet while the
+        // eaten Enter leaves the prompt sitting in the COMPOSER. Evidence of
+        // submission: spinner/Working appears, OR the text left the composer
+        // region (bottom rows). One guarded re-Enter otherwise.
+        const composerHolds = (): boolean => {
+          const lines = readScreen().split("\n");
+          return lines.slice(-6).some((l) => l.includes(text.slice(0, 40)));
+        };
         for (let attempt = 0; attempt < 2; attempt++) {
           await sleep(6000);
           const s = readScreen();
-          if (/Working/.test(s) || !/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s)) return;
+          if (/Working/.test(s)) return;
+          if (!composerHolds()) return;
           stdinWrite("\r");
         }
       },
@@ -102,7 +113,10 @@ export const bunPtyAdapter: BenchAdapter = {
         }
         return { settled: false, ms: Date.now() - t0, lastView: view };
       },
-      screenText: () => lastScreen,
+      // LIVE view (self-arc-15): returning the cached lastScreen froze the
+      // complex executor's direct polls — a poller that never calls
+      // awaitSettled/submit saw the boot-time frame forever. Refresh on read.
+      screenText: () => readScreen(),
       async writeRaw(bytes: string) {
         stdinWrite(bytes);
         await sleep(300);
