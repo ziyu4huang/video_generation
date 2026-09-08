@@ -51,6 +51,9 @@
  *   settles instead of being treated as a verdict.
  */
 import { runLocalCi, summarizeCiFailures, type CiOutcome } from "./ci-recipe.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { preflightE2eLane, type E2ePreflightResult } from "./e2e-preflight.js";
 import { runLocalBranchCleanup } from "./branch-cleanup.js";
 import { createBranchClient } from "./gh.js";
 import { selectForgeClientCached } from "./forge/select.js";
@@ -215,6 +218,7 @@ export const PR_FINISH_ABORT_REASONS = [
 	"ci-assumption-stale",
 	"missing-workflow-scope",
 	"merge-failed",
+	"e2e-credentials-missing",
 ] as const;
 
 export interface PrFinishOutcome {
@@ -353,6 +357,14 @@ export interface PrFinishDeps {
 	 *  post-merge detach fallback (default: the forge selection's resolution,
 	 *  else `origin`). */
 	remoteName?: string;
+	/**
+	 * MC-1 (self-arc-15 t03): run BEFORE local CI so missing deploy-e2e
+	 * credentials abort in <1s with an actionable fix instead of a ~2-minute
+	 * ambiguous-model failure. Injectable so tests stay hermetic (the
+	 * production entry wires `preflightE2eLane(process.env, realRcReader)`).
+	 * Not run when `--assume-ci-green` skips the gate.
+	 */
+	e2ePreflight?: () => E2ePreflightResult;
 }
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -512,6 +524,16 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 	}
 	if (real.length > 0) {
 		return abort("dirty_tree", `working tree not clean at ${repoRoot} (dirty: ${real.join(", ")}) — commit or stash first`);
+	}
+
+	// MC-1 (self-arc-15 t03): fail fast on missing deploy-e2e credentials —
+	// BEFORE paying for the ~2-minute local CI that would die inside the
+	// deploy-e2e gate with the opaque "model ambiguous across providers" error.
+	// --assume-ci-green skips the gate, so it skips this preflight too.
+	if (deps.e2ePreflight && !assumeCiGreen) {
+		const preflight = deps.e2ePreflight();
+		if (!preflight.ok) return abort("e2e-credentials-missing", preflight.message);
+		warnings.push(...preflight.notes);
 	}
 
 	// This snapshot supplies the REF NAMES the CI gate needs to scope its diff.
@@ -873,7 +895,17 @@ export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): P
 }
 
 if (import.meta.main) {
-	const res = await runPrFinishCli(Bun.argv.slice(2));
+	const home = process.env.HOME ?? "";
+	const readRcLines = (file: string): string[] | undefined => {
+		try {
+			return readFileSync(join(home, file), "utf8").split("\n");
+		} catch {
+			return undefined;
+		}
+	};
+	const res = await runPrFinishCli(Bun.argv.slice(2), {
+		e2ePreflight: () => preflightE2eLane(process.env, readRcLines),
+	});
 	if (res.stderr) process.stderr.write(`${res.stderr}\n`);
 	if (res.stdout) process.stdout.write(`${res.stdout}\n`);
 	process.exit(res.exitCode);
