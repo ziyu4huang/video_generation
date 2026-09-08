@@ -79,6 +79,35 @@ export interface CaseReceipt {
   notes: string[];
 }
 
+// ── self-arc-15: step-scripted COMPLEX cases (--suite complex) ───────────────
+
+/** Data-only helper handed to complex-step predicates (stays pure). */
+export interface StepHelper {
+  /** Latest get_entries snapshot (rpc); null on screen lanes. */
+  entries: unknown;
+  /** Driver-recorded per-run facts (e.g. abortResponseOk). */
+  stepFlags: Record<string, boolean>;
+  /** Latest get_last_assistant_text (rpc) / final screen (screen lanes). */
+  lastText: string;
+  /** Cumulative union of pattern matches seen across poll frames (screen). */
+  cumulative: Set<string>;
+}
+
+export type CaseStep =
+  | { kind: "submit"; text: (nonce: string) => string; pred?: StepPred; capMs?: number }
+  | { kind: "abort" }
+  | { kind: "wait"; ms: number }
+  | { kind: "poll"; pred: StepPred; capMs?: number; cumulativeRe?: string };
+
+export type StepPred = (v: SettleView, nonce: string, h: StepHelper) => boolean;
+
+export interface ComplexCaseDef {
+  id: string;
+  capMs: number;
+  metric: string;
+  steps: CaseStep[];
+}
+
 /** Map D1 arbitration: the lane's pty mechanism is unusable on this platform
  *  (e.g. macOS script(1) hard-fails tcgetattr on non-tty stdin). The driver
  *  records every case N/A with this evidence — never a mid-arc reinterpretation. */

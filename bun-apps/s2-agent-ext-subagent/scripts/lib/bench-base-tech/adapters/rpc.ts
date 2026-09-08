@@ -142,6 +142,16 @@ export const rpcAdapter: BenchAdapter = {
       async lastAssistantText() {
         return lastAssistantText();
       },
+      /** self-arc-15 cx-midturn-abort: the protocol's own abort lever. */
+      async abortTurn() {
+        const r = await command({ type: "abort" });
+        return r.success !== false;
+      },
+      /** self-arc-15: latest get_entries snapshot (structured transcript view). */
+      async entriesSnapshot() {
+        const r = await command({ type: "get_entries" });
+        return r.success === false ? null : (r.data ?? null);
+      },
       async close() {
         try {
           proc.stdin.end();
