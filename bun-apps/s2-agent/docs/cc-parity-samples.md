@@ -42,7 +42,7 @@ would test a deviation, not parity.
 
 `tui-drive --scenario cc-parity` (in `s2-agent-ext-subagent/scripts/`) drives the
 real TUI through chain + code-reviewer with real `zai/glm-5.3` children
-(never flash; a `childrenNotFlash` receipt check enforces it) — source tree and
+(never flash; the `childModelIsGlm53` receipt check enforces it) — source tree and
 deployed tree both. This is where the *model-driven* halves of A3/A4 and the
 workflows doc's "one request → several workflows" behavior are proven.
 

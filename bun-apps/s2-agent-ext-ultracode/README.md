@@ -237,6 +237,10 @@ npm test     # biome + tsc + unit tests
 
 Every feature is also verified end-to-end against a real Pi subagent session before release.
 
+## Interactive pty lane (manual, on-demand — never a CI gate)
+
+[`scripts/ultracode-pty-lane.ts`](scripts/ultracode-pty-lane.ts) drives the REAL TUI inside a tmux pty under a sandbox `$HOME` and asserts the whole ultracode keyword-arming chain: the rainbow keyword render, the forced `[workflows mode is ON for this message]` transform, and a real `run_workflow` settling with agent results — the arming chain the receipt-driven harness (`s2-agent-ext-subagent/scripts/tui-drive.ts`, scenarios `workflow`/`wf-pause`) deliberately does not cover. Default `--models` pins a local LM Studio endpoint so tier routing cannot leak to a contended cloud model; pass `--models <spec>` to retarget. Exit 2 SKIPPED without tmux or the local endpoint.
+
 ## Credits
 
 The "code mode for subagents" idea comes from Michael Livs' original [s2-agent-ext-ultracode](https://github.com/Michaelliv/s2-agent-ext-ultracode) and Anthropic's [dynamic workflows in Claude Code](https://claude.com/blog/introducing-dynamic-workflows-in-claude-code). This project builds on it with real model routing, journaled resume, git-worktree isolation, cost accounting, an interactive TUI, and deep research.

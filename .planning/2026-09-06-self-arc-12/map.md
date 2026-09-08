@@ -101,7 +101,7 @@ Measured 2026-09-07 on this machine, read in-tree by the planner:
   (chain + code-reviewer in one drive), not a new runnable script — tui-drive.ts is
   already allowlisted, so no scripts-dir-contract delta. Children = zai/glm-5.3,
   NEVER flash — this arc's model policy overrides cc-parity-2 D2's flash floor; a
-  `childrenNotFlash` receipt check enforces it.
+  `childModelIsGlm53` receipt check enforces it (shipped check name).
 - D6 (2026-09-07): Suite B scope = B1, B2, B4, B5. B3 descoped (D3); B6
   (find-issues-until-convergence) descoped as NEW work because convergence looping
   is already receipted by `samples/kcard-converge-loop.js` — the catalog maps B6 to
