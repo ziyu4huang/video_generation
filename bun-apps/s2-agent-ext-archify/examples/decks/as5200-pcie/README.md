@@ -18,6 +18,7 @@ Generated artifacts:
 | --- | --- |
 | `as5200-pcie.pptx` | native vector shapes (803), fully editable — no screenshots |
 | `as5200-pcie.slides/slide-N.html` | per-slide HTML; diagram slides are interactive viewers |
+| `as5200-pcie.slides/deck.html` | combined single-file player (`--combine`): ← → pages, g grid, #n deep-link |
 | `as5200-pcie-deck.html` | ONE self-contained file: all 17 slides inlined (srcdoc), offline |
 | `shots/` | stage-exact review captures (`capture.ts`) |
 
