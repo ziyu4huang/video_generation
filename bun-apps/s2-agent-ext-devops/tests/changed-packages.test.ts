@@ -396,3 +396,47 @@ describe("computeChangedPackages — wiring with defaults", () => {
 		expect(diffCall?.args).toEqual(["diff", "--name-only", "origin/main...HEAD"]);
 	});
 });
+
+describe("computeChangedPackages — .agents/ is matrix-irrelevant (self-arc-15 MC-4)", () => {
+	// Mirror of the earlier describe's graph (scoped there, redeclared here).
+	const PKGS = ["a", "b", "c", "d", "e"];
+	const GRAPH = { a: [], b: ["a"], c: ["b"], d: ["a"], e: [] };
+	test("a .agents/-only diff maps to ZERO packages (skipped, never fail-open)", async () => {
+		const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\n.agents/skills/x/SKILL.md\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom(GRAPH),
+		});
+		// #2185's shape: a markdown-only chore PR computes an empty package set —
+		// structural gates still run, the 29-package matrix does not.
+		expect(map).toEqual({ a: false, b: false, c: false, d: false, e: false });
+	});
+
+	test("mixed .agents/ + one package file → exactly that package + dependents", async () => {
+		const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\nbun-apps/a/src/index.ts\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom(GRAPH),
+		});
+		expect(map).toEqual({ a: true, b: true, c: true, d: true, e: false });
+	});
+
+	test("an unmapped top-level path STILL fails open (the .agents/ carve-out is not a hole)", async () => {
+		const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\nscripts/something.sh\n" });
+		const map = await computeChangedPackages({
+			repoRoot: REPO,
+			baseRef: "main",
+			spawn: fn,
+			discoverPackages: discover(PKGS),
+			readDeps: readDepsFrom(GRAPH),
+		});
+		// scripts/ can affect every package → rule-4 fail-open wins.
+		expect(map).toEqual({ a: true, b: true, c: true, d: true, e: true });
+	});
+});

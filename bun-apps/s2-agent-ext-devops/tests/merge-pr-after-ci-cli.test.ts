@@ -19,8 +19,10 @@
  * `BranchClient` fakes + a recording SpawnFn + a stubbed `runCi` seam. No real
  * git / gh / network.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test, expect, describe } from "bun:test";
-import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE, versionNudge } from "../src/merge-pr-after-ci-cli.js";
+import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE, PR_FINISH_ABORT_REASONS, versionNudge } from "../src/merge-pr-after-ci-cli.js";
 import type { runVerifyMerge } from "../src/verify-merge-recipe.js";
 import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
@@ -890,7 +892,7 @@ describe("merge-pr-after-ci-cli — an already-MERGED PR is a settled outcome, n
 			spawn: fakeSpawn().fn,
 			repoRoot: REPO,
 			runCi: async () => ciPass(),
-			sleep: noSleep,
+			sleep: async () => {},
 			verify: async () => ({
 				pr: 42,
 				state: "OPEN",
@@ -1187,5 +1189,69 @@ describe("merge-pr-after-ci-cli — preserve-listed hot files (dirty MEMORY.md n
 		// cleanup the outcome promises.
 		expect(g.clientCalls).toContain(`detach:${MERGED.mergeSha}`);
 		expect(outcome.preserved).toBeUndefined();
+	});
+});
+
+// ── self-arc-15 MC-7: the exit-code contract, pinned ────────────────────────
+describe("merge-pr-after-ci-cli — exit-code contract (PR_FINISH_ABORT_REASONS)", () => {
+	const source = readFileSync(
+		join(import.meta.dir, "..", "src", "merge-pr-after-ci-cli.ts"),
+		"utf8",
+	);
+
+	test("the exported tuple is well-formed and covers every abort() call site bidirectionally", () => {
+		expect(PR_FINISH_ABORT_REASONS.length).toBe(10);
+		expect(new Set(PR_FINISH_ABORT_REASONS).size).toBe(PR_FINISH_ABORT_REASONS.length);
+		for (const reason of PR_FINISH_ABORT_REASONS) {
+			// snake_case dirty_tree is historical (the one non-hyphenated member).
+			expect(reason).toMatch(/^[a-z_-]+$/);
+		}
+		// Drift guard, BOTH directions: the set of abort reason literals in the
+		// source equals the tuple exactly — a new reason without a table row
+		// fails, and a retired reason lingering in the tuple fails too (the
+		// PREPARE_ABORT_REASONS guard this mirrors, strengthened to set equality).
+		const literals = [...source.matchAll(/\babort\(\s*"([a-z_-]+)"/g)].map((m) => m[1]!);
+		const distinct = [...new Set(literals)].sort();
+		expect(distinct, "source abort literals").toEqual([...PR_FINISH_ABORT_REASONS].sort());
+	});
+
+	test("pr-status-failed: the gh prStatus read failing is an abort with exit 1", async () => {
+		const ghParts = {
+			gh: {
+				prStatus: async () => {
+					throw new Error("network blip");
+				},
+				mergeNow: async () => {},
+			} as unknown as GhClient,
+		};
+		const res = await runPrFinishCli(["42"], {
+			gh: ghParts.gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+		});
+		expect(res.exitCode).toBe(1);
+		const outcome = JSON.parse(res.stdout);
+		expect(outcome.merged).toBe(false);
+		expect(outcome.aborted.reason).toBe("pr-status-failed");
+	});
+
+	test("usage error → exit 2 (contract edge)", async () => {
+		const usage = await runPrFinishCli(["not-a-number"], {
+			gh: fakeGh([OPEN_CLEAN]).gh,
+			client: fakeClient().client,
+			spawn: fakeSpawn().fn,
+			repoRoot: REPO,
+			runCi: async () => ciPass(),
+		});
+		expect(usage.exitCode).toBe(2);
+	});
+
+	test("--dry-run → exit 0 (contract edge; mirrors the read-only dry-run test above)", async () => {
+		const g = greenDeps();
+		const dry = await runPrFinishCli(["42", "--dry-run"], g.deps);
+		expect(dry.exitCode).toBe(0);
+		expect(JSON.parse(dry.stdout).dryRun).toBe(true);
 	});
 });

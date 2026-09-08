@@ -2,7 +2,7 @@
 effort: 2026-09-08-self-arc-14
 created: 2026-09-08
 last: 2026-09-08
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-08-self-arc-14 — B3 migrate-in-parallel: the descoped CC pattern, done at the workflow layer
@@ -75,12 +75,26 @@ glm-5.3 receipt proves a real two-file migrate.
       (documented hazard); call-site isolation precedence over agentDef
       (:337-342 — and the no-sentinel opt-out gotcha); deterministic worktree
       naming → two sequential runs reuse stable keys.
-- [ ] `tickets/03-catalog-and-live-receipt.md` — catalog doc: B3 row un-descoped
+- [x] `tickets/03-catalog-and-live-receipt.md` — catalog doc: B3 row un-descoped
       → this sample (batch limitation stays documented); ONE live receipt
       (real glm-5.3 ×2 children, tiny two-file migrate, headless run.ts) with
       source + deployed receipts per the self-arc-9 specimen.
-- [ ] `tickets/04-map-closeout.md` — map done + Shipped-as + reciprocal links
+- [x] `tickets/04-map-closeout.md` — map done + Shipped-as + reciprocal links
       (arc-12's B3 descope note updated to point here).
+
+## Shipped
+
+- **t01/t02 (#2217, merged 2026-09-08)**: `samples/cc-parity/migrate-in-parallel.js`
+  + `tests/cc-parity-migrate.test.ts` (isolation, parent integrity, teardown,
+  non-repo hazard) + catalog B3 un-descope.
+- **t03 (2026-09-09)**: live receipt — real zai/glm-5.3 ×3 children (2 migrators
+  + integrator), 2/2 files migrated in isolated worktrees, parent tree
+  untouched, worktrees torn down; 54.7 s, 200,537 tokens. Artifacts:
+  `output/self-arc-14-src-2026-09-09/{receipt.json,receipt-run.json,run-stderr.log}`
+  + fixture repo `output/self-arc-14-live-base/`. Deployed receipt recorded N/A
+  (library-level path bypasses the binary — honest note, see receipt.json).
+- **t04 (this commit)**: map done; arc-12 map D6 note gains the reciprocal
+  pointer.
 
 ## Fog of war
 

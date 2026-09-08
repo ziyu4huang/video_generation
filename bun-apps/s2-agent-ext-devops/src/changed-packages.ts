@@ -112,6 +112,12 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
  *   bun-apps/tests/ — workspace-root gate tests; they execute in the
  *                      regression-gates job (bun run test:dist / test:seam),
  *                      which local_ci runs REGARDLESS of package scoping.
+ *   .agents/        — read-in-session docs (skills SKILL.md, hermes memory/):
+ *                      nothing compiles, and its structural gates (skill
+ *                      frontmatter, cross-skill reference) run in
+ *                      regression-gates regardless of package scoping. A
+ *                      future COMPILED artifact under .agents/ must re-review
+ *                      this list — it is the review surface (self-arc-15 MC-4).
  * Anything else outside bun-apps/<pkg>/ still fails open (shared config,
  * scripts/, .github/, submodules — any of those CAN affect every package).
  *
@@ -121,7 +127,7 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
  * aliased to `bun-apps/s2-agent-ext-sv-analyzer/` below — a first-class
  * directlyTouched edge (with its reverse-dependents), never a fail-open.
  */
-const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/"];
+const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/", ".agents/"];
 
 /**
  * Changed-file aliases: a top-level tree that maps onto a bun-apps package.
