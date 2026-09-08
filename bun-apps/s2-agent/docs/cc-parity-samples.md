@@ -32,11 +32,12 @@ with a deterministic content-keyed runner — no LLM in unit gates.
 | B4 | Review every changed file and write one summary | `parallel()` reviewer per file; the one synthesizer's prompt carries every per-file finding; the run's final result is the synthesis. | `samples/cc-parity/review-per-file.js` + test |
 | B5 | Research a topic across many sources | A stopped reader (empty output → runtime's recoverable-null slot) is dropped by the doc's `.filter(Boolean)` idiom; the synthesizer still runs on the survivors. | `samples/cc-parity/research-fanout.js` + test |
 | B6 | Find issues until the list stops growing | Already receipted by the convergence loop: `samples/kcard-converge-loop.js` (`loopUntilDry`) — mapped, not duplicated. | `samples/kcard-converge-loop.js` |
+| B3 | Migrate many files in parallel | `parallel()` writers with per-child `isolation: "worktree"` (`workflow-runtime.ts`): each child writes in its own `<repoRoot>/.pi/worktrees/` copy, the parent tree is untouched, teardown is per-call. NOTE: the batch `subagents` tool stays read-only by design (`READ_ONLY_EXCLUDED` — concurrent children share ONE tree); isolated WRITES are a workflow-layer capability. | `samples/cc-parity/migrate-in-parallel.js` + `tests/cc-parity-migrate.test.ts` (self-arc-13) |
 
-Deliberately NOT sampled: **B3 migrate many files in parallel** — it requires
-WRITABLE fan-out children, which s2-agent's batch tool forbids by design
-(read-only enforcement is the feature; see `READ_ONLY_EXCLUDED`). Forcing it
-would test a deviation, not parity.
+Formerly descoped: B3 was "deliberately NOT sampled" in self-arc-12 because the
+batch tool forbids writable fan-out. Self-arc-13 completed it at the workflow
+layer, where per-child worktree isolation is the designed mechanism — the
+batch tool's read-only rule is unchanged and remains the feature it was.
 
 ## Live receipts (real children, real TUI)
 

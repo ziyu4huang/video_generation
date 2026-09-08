@@ -16,9 +16,11 @@
  * (self-arc-12 t04) and the kcard convergence sample covers the doc's
  * "find issues until the list stops growing" (loopUntilDry).
  *
- * (B3 migrate-in-parallel is deliberately NOT sampled: it needs WRITABLE
- * fan-out children, which s2-agent's batch tool forbids by design — see map
- * D3/D6.)
+ * B3 migrate-in-parallel.js — "Migrate many files in parallel" — lives in its
+ * own gate (tests/cc-parity-migrate.test.ts): it needs WRITABLE fan-out
+ * children, which the batch tool forbids by design (shared tree); the workflow
+ * layer provides per-child worktree isolation, which is the pattern's actual
+ * requirement. (Self-arc-13 completed this former descope.)
  */
 import { test } from "bun:test";
 import assert from "node:assert/strict";
@@ -58,7 +60,7 @@ function withTempCwd(fn: (cwd: string) => Promise<void>) {
 }
 
 test("all four CC-parity sample scripts carry the documented meta block", () => {
-  for (const name of ["audit-many-files.js", "verify-fix-loop.js", "review-per-file.js", "research-fanout.js"]) {
+  for (const name of ["audit-many-files.js", "verify-fix-loop.js", "review-per-file.js", "research-fanout.js", "migrate-in-parallel.js"]) {
     const src = script(name);
     assert.match(src, /export const meta = \{/, `${name}: meta block present`);
     assert.match(src, /name: "cc-parity-/, `${name}: meta.name namespaced`);
