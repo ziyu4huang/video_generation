@@ -1066,11 +1066,15 @@ async function runPptx(args: RunDocumentArgs, layout: DocLayout, slug: string): 
           layout: realLayout,
         });
 
-  // Render once into the pages dir (resumable: a full render is skipped only
-  // when every selected page is already done — the renderer has no page set).
+  // Render once into the pages dir. Re-attempt when a selected page was done
+  // but its png never landed: a previous run's transient renderer failure
+  // must not permanently degrade the output dir (hardening ticket 03).
   const needRender = manifest.pages.some(
-    (mp, i) => (!only || only.has(i + 1)) && !(mp.status === "done" && existsSync(realLayout.mdAbs(i + 1))),
+    (mp, i) =>
+      (!only || only.has(i + 1)) &&
+      !(mp.status === "done" && existsSync(realLayout.mdAbs(i + 1)) && existsSync(realLayout.pngAbs(i + 1))),
   );
+  let renderError: string | undefined;
   if (needRender) {
     const work = mkdtempSync(join(tmpdir(), "file2md-pptx-"));
     try {
@@ -1083,7 +1087,8 @@ async function runPptx(args: RunDocumentArgs, layout: DocLayout, slug: string): 
         if (n >= 1 && n <= slideCount) writeFileSync(realLayout.pngAbs(n), new Uint8Array(readFileSync(path)));
       }
     } catch (e) {
-      console.error(`  [pptx] slide render failed (${e instanceof Error ? e.message : e}) — text-only pages`);
+      renderError = e instanceof Error ? e.message : String(e);
+      console.error(`  [pptx] slide render failed (${renderError}) — text-only pages`);
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
@@ -1095,7 +1100,14 @@ async function runPptx(args: RunDocumentArgs, layout: DocLayout, slug: string): 
   const processSlide = async (slideNo: number) => {
     const mp = manifest.pages[slideNo - 1]!;
     if (only && !only.has(slideNo)) return;
-    if (mp.status === "done" && existsSync(realLayout.mdAbs(slideNo))) return;
+    // Resumable skip — BUT a done page whose note doesn't match the disk
+    // state is re-processed: a recovered render must embed the png a prior
+    // failure-era note lacks (and vice versa). A note matching disk is only
+    // skippable when this run's render also failed (its notice is current).
+    const noteDone = mp.status === "done" && existsSync(realLayout.mdAbs(slideNo));
+    const pngOnDisk = existsSync(realLayout.pngAbs(slideNo));
+    const noteMatchesDisk = pngOnDisk === (mp.png !== null);
+    if (noteDone && noteMatchesDisk && (pngOnDisk || renderError !== undefined)) return;
 
     const slide = slides[slideNo - 1]!;
     let record: PageRecord = {
@@ -1107,6 +1119,17 @@ async function runPptx(args: RunDocumentArgs, layout: DocLayout, slug: string): 
     const hasPng = existsSync(pngPath);
     if (hasPng) {
       record.png = new Uint8Array(readFileSync(pngPath));
+    } else if (renderError !== undefined) {
+      // Honest in-note trace (truth rules): the note must say what this
+      // machine lost, not just stderr.
+      // renderError may embed multi-line stderr — collapse it so the
+      // blockquote stays a blockquote (nit 3, hardening review).
+      const oneLine = renderError.replace(/\s+/g, " ");
+      record.body += `\n> Slide renders incomplete (renderer failed: ${oneLine}) — text runs only.\n`;
+    } else {
+      // Silent shortfall: the renderer reported success but produced no image
+      // for this slide (e.g. a partial soffice→pdf conversion that exited 0).
+      record.body += "\n> Slide render missing for this slide (renderer returned no image) — text runs only.\n";
     }
 
     if (

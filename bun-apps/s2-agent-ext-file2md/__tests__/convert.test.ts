@@ -3,6 +3,8 @@
  * of the v2 pipeline (no wasm, no workers).
  */
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { csvToMarkdown, htmlToMarkdown, parseMode, parsePageSpec } from "../src/pipeline.ts";
 
 describe("csvToMarkdown", () => {
@@ -36,6 +38,17 @@ describe("htmlToMarkdown", () => {
     const md = htmlToMarkdown("<html><body><script>alert(1)</script><style>x{}</style>hello</body></html>");
     expect(md).toContain("hello");
     expect(md).not.toContain("alert");
+  });
+
+  // Golden pin (hardening ticket 04, D7): #2220 fixed two htmlToMarkdown
+  // warts (<body> opening a **, closing </hN> emitting a stray #), which
+  // changed text-mode output bytes. expected.md pins CURRENT output so the
+  // next change is a visible, deliberate diff — regenerate it from
+  // input.html with htmlToMarkdown, never hand-edit it.
+  test("golden: html-golden/input.html converts byte-equal to expected.md", () => {
+    const html = readFileSync(join(import.meta.dir, "fixtures", "html-golden", "input.html"), "utf8");
+    const expected = readFileSync(join(import.meta.dir, "fixtures", "html-golden", "expected.md"), "utf8");
+    expect(htmlToMarkdown(html)).toBe(expected);
   });
 });
 
