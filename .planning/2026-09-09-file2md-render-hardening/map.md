@@ -2,7 +2,7 @@
 effort: 2026-09-09-file2md-render-hardening
 created: 2026-09-09
 last: 2026-09-09
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-09-file2md-render-hardening — liveness bound + pptx mid-run honesty + golden pins
@@ -80,7 +80,7 @@ them verbatim). Measured by the planner 2026-09-09 (6 file reads):
 
 **Phase 2 — close-out**
 
-- [ ] `tickets/05-gates-pr-closeout.md` — package gates + `local-ci-cli` +
+- [x] `tickets/05-gates-pr-closeout.md` — package gates + `local-ci-cli` +
       reviewer + squash-merge + map close + successor next-goal
 
 ## Decisions
@@ -147,10 +147,7 @@ npm deps; renderer-free unit tests; mock.module E2E pattern; slide cap 20.
 
 ## Frontier
 
-`tickets/02-svg-liveness.md` — smallest, zero dependency on the others, and
-it ships the pattern (injectable seam + bounded race) that ticket 03's tests
-lean on conceptually. Then 03 → 04 (04's pipeline-level assertion targets
-03's notice) → 05.
+Closed — all five tickets resolved (see tickets/ and Shipped-as).
 
 ## Fog of war
 
