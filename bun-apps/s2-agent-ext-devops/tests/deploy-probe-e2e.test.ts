@@ -126,7 +126,67 @@ interface Run {
  * Spawn the deployed binary with a hard timeout. A probe that never fires must
  * fail the assertion, not hang the suite — the timeout is the difference
  * between a red test and a wedged CI run.
+ *
+ * self-arc-19 finding (2026-09-10): THREE consecutive L1-gate runs each wedged
+ * ONE different test to bun's 900s cap while 21-22/23 passed — the child was
+ * kill(9)'d at 60s but SOMETHING kept the stdout/stderr pipes open, so
+ * `new Response(...).text()` never saw EOF and the run promise never settled.
+ * The fix is threefold, all inside this helper so every probe inherits it:
+ *   1. the reads race a hard deadline — the suite can never wedge again;
+ *   2. kill takes out the descendant chain (a shim/binary that spawned a
+ *      self-heal `bun install` grandchild would otherwise hold the pipes);
+ *   3. partial output captured before the deadline is RETURNED, so the next
+ *      run of this suite tells us WHAT the wedged child actually printed.
  */
+const RUN_DEADLINE_MS = 65_000;
+
+async function readWithDeadline(
+	stream: ReadableStream<Uint8Array>,
+	deadlineMs: number,
+): Promise<{ text: string; eof: boolean }> {
+	const decoder = new TextDecoder();
+	let text = "";
+	const reader = stream.getReader();
+	const timer = setTimeout(() => reader.cancel().catch(() => {}), deadlineMs);
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) return { text, eof: true };
+			text += decoder.decode(value, { stream: true });
+		}
+	} catch {
+		// cancelled by the deadline (or the process died mid-chunk) — keep what
+		// we captured; EOF is a lie if we never saw done, hence the flag.
+		return { text, eof: false };
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+function killWithDescendants(pid: number): void {
+	try {
+		proc9(pid);
+	} catch {
+		/* already exited */
+	}
+	// Two reap rounds covers the shim → binary → self-heal depth; pkill on a
+	// pid with no children is a no-op.
+	for (const _ of [0, 1]) {
+		try {
+			Bun.spawnSync(["pkill", "-9", "-P", String(pid)]);
+		} catch {
+			/* best-effort */
+		}
+	}
+	function proc9(p: number): void {
+		try {
+			process.kill(p, "SIGKILL");
+		} catch {
+			/* already exited */
+		}
+	}
+}
+
 async function run(argv: string[], opts: { cwd?: string; env?: Record<string, string> } = {}): Promise<Run> {
 	const proc = Bun.spawn([process.execPath, binary, ...argv], {
 		cwd: opts.cwd ?? target,
@@ -134,19 +194,38 @@ async function run(argv: string[], opts: { cwd?: string; env?: Record<string, st
 		stdout: "pipe",
 		stderr: "pipe",
 	});
-	const timer = setTimeout(() => {
-		try {
-			proc.kill(9);
-		} catch {
-			/* already exited */
-		}
-	}, 60_000);
+	let deadlineFired = false;
+	const deadline = (): void => {
+		deadlineFired = true;
+		killWithDescendants(proc.pid);
+	};
+	const timer = setTimeout(deadline, 60_000);
 	try {
-		const [stdout, stderr] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
+		const [out, err] = await Promise.all([
+			readWithDeadline(proc.stdout as ReadableStream<Uint8Array>, RUN_DEADLINE_MS),
+			readWithDeadline(proc.stderr as ReadableStream<Uint8Array>, RUN_DEADLINE_MS),
 		]);
-		return { stdout, stderr, code: await proc.exited };
+		let code: number | null;
+		if (out.eof && err.eof) {
+			// Pipes closed — the exit code is one short wait away, but do not
+			// trust it forever: a lingering handle here is the same wedged class.
+			code = await Promise.race([
+				proc.exited,
+				new Promise<null>((r) => setTimeout(() => r(null), 5_000)),
+			]);
+			if (code === null) {
+				deadline();
+				code = 124;
+			}
+		} else {
+			deadline();
+			code = 124;
+		}
+		const stderr =
+			deadlineFired && code === 124
+				? `${err.text}\n[deploy-probe-e2e] run() deadline fired — child killed(9), descendants reaped; partial output above (if any).`
+				: err.text;
+		return { stdout: out.text, stderr, code };
 	} finally {
 		clearTimeout(timer);
 	}
