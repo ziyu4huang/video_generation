@@ -37,10 +37,30 @@ describe("audit-ext-packages workflow script (static contract)", () => {
     expect(src).toMatch(/Math\.min\(8, Number\(A\.concurrency\) \|\| 7\)/);
   });
 
-  test("auditor gate commands cover check/tsc/test with exit capture", () => {
-    expect(src).toMatch(/bun run check/);
-    expect(src).toMatch(/bun x tsc --noEmit/);
-    expect(src).toMatch(/bun test/);
-    expect(src).toMatch(/GATE_TEST_EXIT/);
+  test("gates are derived from each package's own scripts — no bare gate commands", () => {
+    expect(src).toMatch(/cat bun-apps\/\$\{pkg\}\/package\.json/);
+    expect(src).toMatch(/bun run <gate>/);
+    expect(src).toMatch(/NEVER run bare "bun test" or bare "bun x tsc" as a substitute/);
+    // The arc-17 runnable bare forms are gone; the only remaining "bun test"
+    // occurrences are the never-do-this rule and verbatim package.json
+    // script examples in prose.
+    expect(src).not.toMatch(/bun test > \/tmp/);
+    expect(src).not.toMatch(/bun x tsc --noEmit/);
+  });
+
+  test("per-gate provenance, absent-gate and env-drift verdicts are in the schema", () => {
+    expect(src).toMatch(/commands\.check \/ commands\.typecheck \/ commands\.test/);
+    expect(src).toMatch(/absentGates/);
+    expect(src).toMatch(/envDrift/);
+    expect(src).toContain('"absent"');
+  });
+
+  test("install preflight runs before any package is measured", () => {
+    expect(src).toMatch(/title: "Preflight"/);
+    expect(src).toMatch(/schema: PREFLIGHT_SCHEMA/);
+    expect(src).toMatch(/bun install --frozen-lockfile/);
+    expect(src).toMatch(/DANGLING:/);
+    expect(src).toMatch(/phase\("Preflight"\)/);
+    expect(src.indexOf("preflight:install")).toBeLessThan(src.indexOf("const batch ="));
   });
 });
