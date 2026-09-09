@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "deck-manifest.schema.json",
+  "title": "Archify deck manifest (deck.config.json)",
+  "type": "object",
+  "required": ["slides"],
+  "properties": {
+    "output": { "type": "string" },
+    "theme": { "enum": ["light", "dark"] },
+    "tag": { "type": "string" },
+    "manifestVersion": { "const": 1 },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "font": { "type": "string" },
+        "scale": { "type": "number" }
+      }
+    },
+    "slides": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["title"],
+        "properties": {
+          "layout": { "type": "string" },
+          "title": { "type": "string", "minLength": 1 },
+          "subtitle": { "type": "string" },
+          "takeaway": { "type": "string" },
+          "source": { "type": "string" },
+          "ir": { "type": "string", "minLength": 1 },
+          "statement": { "type": "string" },
+          "eyebrow": { "type": "string" },
+          "attribution": { "type": "string" },
+          "date": { "type": "string" },
+          "sectionNumber": { "type": "string" },
+          "ratio": { "type": "number" },
+          "views": { "const": "expand" },
+          "notes": { "type": "string" },
+          "bullets": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                { "type": "string" },
+                {
+                  "type": "object",
+                  "required": ["text"],
+                  "properties": {
+                    "text": { "type": "string" },
+                    "level": { "type": "integer", "minimum": 0 }
+                  },
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "columns": { "type": "array", "items": { "type": "string" } },
+          "rows": {
+            "type": "array",
+            "items": { "type": "array", "items": { "type": "string" } }
+          },
+          "note": { "type": "string" },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["title"],
+              "properties": {
+                "title": { "type": "string" },
+                "note": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "sides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["heading", "bullets"],
+              "properties": {
+                "heading": { "type": "string" },
+                "bullets": { "type": "array", "items": { "type": "string" } }
+              },
+              "additionalProperties": false
+            }
+          },
+          "call": { "type": "string" },
+          "why": { "type": "string" },
+          "headline": { "type": "string" },
+          "contact": { "type": "string" },
+          "caption": { "type": "string" },
+          "kpis": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["value", "label"],
+              "properties": {
+                "value": { "type": "string" },
+                "label": { "type": "string" },
+                "note": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "quote": { "type": "string" },
+          "role": { "type": "string" },
+          "milestones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["date", "label"],
+              "properties": {
+                "date": { "type": "string" },
+                "label": { "type": "string" },
+                "note": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": true,
+        "$comment": "Open surface on purpose: user-defined *.layout.json templates bind their own slot fields; registry-aware validation (layout names, slot filling) lives in parseManifest + slotProblems at build time."
+      }
+    }
+  }
+}

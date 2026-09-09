@@ -112,7 +112,9 @@ _Avoid_: webui integration, notification (it is a fire-and-forget announce on a 
 
 **Deck manifest**:
 `deck.config.json` — `output` / `theme` / `tag` / `defaults` / `slides[]`. `ir` and `output`
-resolve relative to the manifest dir, so a manifest is portable.
+resolve relative to the manifest dir, so a manifest is portable. `manifestVersion` (optional)
+pins the format version — absent ⇒ 1; named for the manifest, never `version`, which is the
+pack envelope's own header field (`src/deck-pack.ts`).
 _Avoid_: config, deck file (it is the authored slide list, and it is portable by design)
 
 **Action title**:
