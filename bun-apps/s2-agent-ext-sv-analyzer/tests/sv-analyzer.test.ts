@@ -113,7 +113,18 @@ describe("factory contract", () => {
 
 // The wasm is gitignored/regenerated (see header) — both layers below need it,
 // so they skip on a fresh clone until dsh-plugin/sv-analyzer/build.sh has run.
-describe.skipIf(!existsSync(WASM))("#pi/ext-dir resolution", () => {
+// The skip is LOUD (self-arc-19 t05, hermes localDescribe pattern copied
+// locally): a silent skip made the wasm layers invisible at the gate.
+const WASM_UP = existsSync(WASM);
+const announcedSkips = new Set<string>();
+function wasmGatedDescribe(name: string, body: () => void): ReturnType<typeof describe> {
+	if (!WASM_UP && !announcedSkips.has(name)) {
+		announcedSkips.add(name);
+		console.warn(`[env-gated] SKIP (sv-analyzer wasm absent — run dsh-plugin/sv-analyzer/build.sh): ${name}`);
+	}
+	return (WASM_UP ? describe : (describe.skip as typeof describe))(name, body);
+}
+wasmGatedDescribe("#pi/ext-dir resolution", () => {
 	it("shExtDir() resolves to the package root with the wasm beside it", () => {
 		const dir = shExtDir();
 		expect(dir).toBeString();
@@ -122,7 +133,7 @@ describe.skipIf(!existsSync(WASM))("#pi/ext-dir resolution", () => {
 	});
 });
 
-describe.skipIf(!existsSync(WASM))("wasm end-to-end (node:wasi, same binary as the DSH plugin)", () => {
+wasmGatedDescribe("wasm end-to-end (node:wasi, same binary as the DSH plugin)", () => {
 	it("ships a wasm that answers version", async () => {
 		expect(existsSync(WASM)).toBe(true);
 		const service = createAnalyzerService({ wasmPath: WASM });
