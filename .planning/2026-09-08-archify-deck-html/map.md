@@ -53,9 +53,14 @@ not slide-level.
 - [ ] t02 — deck manifest schema + version story (`deck.config.json` gets a
   draft-2020-12 schema and a validated `manifestVersion`; template slot fields
   join the type surface) — track2 §3-1/3
-- [ ] t03 — `deck pack` / `deck unpack`: byte-stable JSONL interchange
+- [x] t03 — `deck pack` / `deck unpack`: byte-stable JSONL interchange
   envelope (header line + one slide per line; round-trip identity on the four
-  example manifests) — track2 §4
+  example manifests) — track2 §4 · SHIPPED 2026-09-09: `src/deck-pack.ts`
+  (deep-sorted-key canonical JSONL; version gate naming both versions;
+  slideCount integrity), CLI `pack`/`unpack` subcommands,
+  `tests/deck-pack.test.ts` (byte-stable round-trip incl. CJK, determinism,
+  version/mismatch refusals, unpacked-manifest build). IR bodies stay
+  external (paths as authored) — `--inline-ir` is the follow-up ticket.
 - [ ] t04 — speaker notes reach the HTML deck shell (presenter view in
   deck.html; notes stay out of per-slide pages) — track1 §3-4
 - [ ] t05 — print/PDF path: composed-slide `@media print` + deck-level
