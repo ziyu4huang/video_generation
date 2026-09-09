@@ -1,8 +1,8 @@
 ---
 effort: 2026-09-09-self-arc-18
 created: 2026-09-09
-last: 2026-09-09
-status: active
+last: 2026-09-10
+status: done
 ---
 
 # Wayfinder map: 2026-09-09-self-arc-18 — MAINTENANCE arc 1: hermes-memory "all items work fine"
