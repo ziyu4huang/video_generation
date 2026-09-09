@@ -1,8 +1,8 @@
 ---
 effort: 2026-09-09-self-arc-19-subagent
 created: 2026-09-09
-last: 2026-09-09
-status: active
+last: 2026-09-10
+status: done
 ---
 
 # Wayfinder map: 2026-09-09-self-arc-19-subagent — harness truth-chain + steer surface + depth cap
@@ -93,27 +93,27 @@ arc). OUT: any change to send_message's named-agent steer path; any pi-tui chang
 
 **Phase 1 — implementation (ONE PR: t01+t02+t03, devops chain)**
 
-- [ ] `tickets/01-harness-truth-chain.md` — t01: wrap-tolerant liveModelSlot, launcher
+- [x] `tickets/01-harness-truth-chain.md` — t01: wrap-tolerant liveModelSlot, launcher
       provenance in Receipt, exported boot gate before every submit, exported UI_VOCAB
       table replacing all scattered literals, unit test pinning the table (tui-drive.ts
       + one test file; schema-cost +0 by construction)
-- [ ] `tickets/02-steer-verb.md` — t02: `list_subagent_runs` action `steer {id, message}`
+- [x] `tickets/02-steer-verb.md` — t02: `list_subagent_runs` action `steer {id, message}`
       → live run lookup → deliverAs wake seam; tests with a fake background run;
       schema-cost delta generated and cited
-- [ ] `tickets/03-depth-cap.md` — t03: spawn-context depth counter (default max 2) +
+- [x] `tickets/03-depth-cap.md` — t03: spawn-context depth counter (default max 2) +
       agentType def frontmatter `maxDepth` override + clean rejection + tests; fork-guard
       interplay documented
 
 **Phase 2 — deployed verification (after the implementation PR merges)**
 
-- [ ] `tickets/04-deployed-receipts.md` — t04: redeploy via deploy-cli (D5), then
+- [x] `tickets/04-deployed-receipts.md` — t04: redeploy via deploy-cli (D5), then
       `tui-drive --sh <dist>/current/s2-agent.sh` dispatch (liveModelSlot LATCHING is
       the wrap-fix proof) + steer evidence + depth-cap evidence; provenance stamped in
       every receipt
 
 **Phase 3 — close-out (separate docs PR)**
 
-- [ ] `tickets/05-closeout.md` — t05: flip `2026-09-06-self-arc-13/14` statuses,
+- [x] `tickets/05-closeout.md` — t05: flip `2026-09-06-self-arc-13/14` statuses,
       reciprocal back-links, map done + Shipped-as, successor next-goal (strict v2)
 
 ## Decisions
@@ -185,6 +185,52 @@ eventual receipts, so they follow in the same PR.
   — charted, NOT taken; `feat/self-arc-13-b3-migrate` branch exists for a successor arc.
 - Deploy timing: whether the next routine deploy lands before t04 — D5 makes this
   irrelevant by deploying explicitly.
+
+## Shipped-as
+
+- t01+t02+t03 — PR #2244 (squash `88406114`, branch `self-arc-19-subagent`):
+  scripts/lib/tui-drive-lib.ts (UI_VOCAB + wrap-tolerant judge + boot gate),
+  launcher provenance in receipt.json, boot gate in all 10 scenarios,
+  `steer` verb on list_subagent_runs (InFlightSubagent.steer lever, named
+  dispatches), nested-spawn depth cap (core-runtime spawn-depth.ts, default
+  2, per-def `maxDepth` frontmatter, round-tripped by the /agents writer).
+  schema-cost: list_subagent_runs 369→488 approx tokens (total 25792→25942).
+- t04 receipts (this worktree `output/`, all glm-5.3 children):
+  - `self-arc19-deployed-dispatch-20260910/` — **PASS**, `liveModelSlot`
+    LATCHED on the deployed tree (the wrap-fix proof; baseline false-FAIL:
+    `output/self-arc14-deployed-dispatch-20260908/`), receipt.launcher =
+    {tree:"deployed", deployedVersion:"0.10.3+g8840611", shRealpath resolved}.
+  - `self-arc19-deployed-agents-20260910/` — **PASS 11/11** (vocab-table
+    migration: zero check-name drift).
+  - `self-arc19-deployed-steer-depth-20260910-r2/` — depth cap **PROVEN
+    live**: level-3 spawn rejected verbatim "depth 3 would exceed maxDepth 2";
+    steer verb executes end-to-end (schema+lever+delivery) — see F-steer-1.
+- t05 — this docs PR; arc-13/14 map statuses flipped (done).
+
+## Loop findings (develop → deploy → drive → issue → develop)
+
+- **F-harness-wrap (t01, fixed)** — single-line liveModelSlot judge
+  false-FAILED the wrapped call row; receipted 09-08, fixed by the joined
+  neighbor-pair judge (map D2), proven by the 09-10 deployed dispatch receipt.
+- **F-deploy-1 (t04, CHARTED — deploy pipeline)** — a fresh `deploy-cli` run
+  at the new sha served STALE bundles: ext/subagent/ext.cjs lacked the steer
+  strings entirely and the core bundle lacked t03 (content-cache entries
+  reused across source changes; "same git sha means same content" no-op logic
+  also assumes sha⇒content). Workaround proven: `--no-freeze --force` rebuilds
+  fresh (verified by artifact-string grep BEFORE driving — learning #1
+  applied). Follow-up: key the bundle caches on source content hashes and
+  grep-assert new symbols post-deploy in verify-deploy-e2e.
+- **F-steer-1 (t04, CHARTED — steer semantics)** — steering a background run
+  during its TOOL-EXECUTION window (not mid-model-exchange) reports
+  "ran as a fresh turn" but the guidance never reached the child's output
+  (r2 drill: sleep-90 child completed without the steered instruction).
+  PersistentAgent mid-flight detection covers model exchanges only. Follow-up:
+  surface queued-turn semantics to the caller (or deliver tool-window steers
+  after the current tool completes) + a steer drill scenario.
+- **F-gate-wedge (infra, FIXED in #2245)** — the L1 deploy-e2e run() helper
+  wedged to bun's 900s cap when a killed child's descendant held the stdout
+  pipes; run() now deadline-races reads, reaps descendants, and returns
+  partial output (the fix that unblocked this arc's own merge).
 
 ## Cross-effort links
 
