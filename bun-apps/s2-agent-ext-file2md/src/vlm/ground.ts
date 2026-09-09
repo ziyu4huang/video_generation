@@ -82,9 +82,13 @@ export function extractCheckableTokens(claim: string): string[] {
 }
 
 /**
- * Ground one claim against the page text. Numbers are hard-checked
- * (case-exact, verbatim); named runs are checked only when the page text
- * carries their script.
+ * Ground one claim against the page text. Numbers are hard-checked with
+ * BOUNDARY-AWARE verbatim matching — a bare "234" must not ground via
+ * "1,234", nor "7B" via "17B" (digit-subsumption is exactly the
+ * hallucination shape this module exists to flag; full-review finding 1).
+ * Named runs are checked only when the page text carries their script,
+ * with word-boundary lookarounds so "RAG Flow" cannot ground via
+ * "a drag flow".
  */
 export function groundClaim(claim: string, pageText: string): GroundResult {
   const haystack = pageText.toLowerCase();
@@ -93,17 +97,26 @@ export function groundClaim(claim: string, pageText: string): GroundResult {
   const missing: string[] = [];
   for (const token of extractCheckableTokens(claim)) {
     if (/^\d/.test(token)) {
-      // number: hard, verbatim (case-insensitive is a no-op for digits)
-      if (!haystack.includes(token.toLowerCase())) missing.push(token);
+      // number: hard, boundary-aware verbatim — digits/percent/letters
+      // glued to the token disqualify a match (234 ⊄ 1,234; 7B ⊄ 17B).
+      const re = new RegExp(`(?<![\\d.,])${escapeRe(token)}(?![\\d.,%A-Za-z])`, "i");
+      if (!re.test(haystack)) missing.push(token);
       continue;
     }
     if (/[\u4e00-\u9fff]/.test(token)) {
       if (pageHasCjk && !haystack.includes(token)) missing.push(token);
       continue;
     }
-    if (pageHasLatin && !haystack.includes(token.toLowerCase())) missing.push(token);
+    if (pageHasLatin) {
+      const re = new RegExp(`(?<![A-Za-z0-9])${escapeRe(token)}(?![A-Za-z0-9])`, "i");
+      if (!re.test(haystack)) missing.push(token);
+    }
   }
   return { claim, grounded: missing.length === 0, missing };
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Ground a whole vision description (split into lines/bullets first). */

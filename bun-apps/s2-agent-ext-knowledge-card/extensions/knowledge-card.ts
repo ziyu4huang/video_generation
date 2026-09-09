@@ -1235,6 +1235,11 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				} else {
 					const parsed = parseKnowledgeJsonl(content);
 					records.push(...parsed.records);
+					// keep recordLabels aligned with records (default lane — the
+					// `?? defaultLabel` backfill only tolerates a missing TAIL; a
+					// future mixed-label lane would silently shift indices without
+					// this symmetric push).
+					recordLabels.push(...parsed.records.map(() => null));
 					parseErrors.push(...parsed.parseErrors);
 				}
 			}
@@ -1278,6 +1283,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					summary.semanticSkipped += s.semanticSkipped;
 					summary.dedupDecisions.push(...s.dedupDecisions);
 					summary.parseErrors.push(...s.parseErrors);
+					summary.cards.push(...s.cards);
 					summary.mocUpdated = summary.mocUpdated || s.mocUpdated;
 					if (labelGroups.size > 1) summary.sourceLabel = `${summary.source}:(per-file labels)`;
 				}

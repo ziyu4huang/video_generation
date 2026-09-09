@@ -32,6 +32,23 @@ describe("groundClaim", () => {
     expect(r.missing).toContain("87%");
   });
 
+  test("digit-subsumption: bare 234 does NOT ground via 1,234 (full-review finding 1)", () => {
+    const r = groundClaim("- claim: 234 samples evaluated.", "we evaluated 1,234 samples in total.");
+    expect(r.grounded).toBe(false);
+    expect(r.missing).toContain("234");
+  });
+
+  test("digit-subsumption: 7B does NOT ground via 17B", () => {
+    const r = groundClaim("- a 7B model was used.", "the 17B baseline was compared.");
+    expect(r.grounded).toBe(false);
+    expect(r.missing).toContain("7B");
+  });
+
+  test("boundary-aware match still grounds exact numbers glued to units", () => {
+    const r = groundClaim("- 7B model, 92% accuracy.", "the 7B model reached 92% accuracy.");
+    expect(r.grounded).toBe(true);
+  });
+
   test("grounded named entity: multi-word capitalized run found verbatim", () => {
     const r = groundClaim("- 檢索候選為 Proximal Policy Optimization Algorithms。", RECITE_PAGE);
     expect(r.grounded).toBe(true);

@@ -453,7 +453,8 @@ const CAUTION_CALLOUTS = new Set([
  *                  IDF cross-linking meaningful)
  *    title       = first `# H1`, else filename sans extension (cleaned, ≤120 chars)
  *    detail      = body after frontmatter, `[[wiki-link]]` brackets normalized
- *    tags        = frontmatter `tags` ∪ body `#hashtags` ∪ `[[wikilinks]]` ∪ distinctive H1 tokens
+ *    tags        = frontmatter `tags` ∪ body `#hashtags` ∪ distinctive H1 tokens
+ *                  ([[wikilinks]] NOT harvested — D4: house-card links are structural)
  *    dimension   = frontmatter `type`/`category`/`dimension` (first present), else null
  *    confidence  = 0.7 (machine-adapted, unreviewed — below human-curated sources)
  *    summary     = explicit deterministic L0 abstract from the boilerplate-stripped
@@ -505,9 +506,9 @@ export function adaptGenericMarkdown(
 
 	// 4. Tags: frontmatter tags ∪ body #hashtags ∪ distinctive H1 tokens.
 	//    [[wikilink]] targets are DELIBERATELY NOT harvested for the generic
-	//    family (unlike hermes/auto-memory): house-card links are STRUCTURAL
-	//    (`## 連結` sections linking sibling cards by title), so slugifying
-	//    them stamped every sibling's full title into tags AND let a
+	//    family (unlike hermes/auto-memory — D4, 2026-09-09): house-card links
+	//    are STRUCTURAL (`## 連結` sections linking sibling cards by title), so
+	//    slugifying them stamped every sibling's full title into tags AND let a
 	//    different card's title reach the note's `sources` label via
 	//    tag-derived provenance (measured corruption, 2026-09-09). Real
 	//    cross-linking runs on shared topical tags.

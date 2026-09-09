@@ -1,0 +1,18 @@
+{
+  "startedAt": "2026-09-09T21:47:32.578Z",
+  "finishedAt": "2026-09-09T21:52:00.416Z",
+  "elapsedMs": 267838,
+  "requestedModel": "zai/glm-5.3",
+  "usage": {
+    "input": 42501,
+    "output": 16042,
+    "cacheRead": 868160,
+    "cacheWrite": 0,
+    "total": 926703,
+    "cost": 0.3558078
+  },
+  "turns": {
+    "turnsUsed": 33,
+    "maxTurns": 40
+  }
+}
