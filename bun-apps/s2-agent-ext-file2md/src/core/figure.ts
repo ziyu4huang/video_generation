@@ -23,6 +23,25 @@ export const FIGURE_SKIP_NOTICE = "> Figure detected — vision enhancement skip
 /** `Figure N-x.` caption shape (digit sub-index; hyphen or en dash). */
 export const FIGURE_CAPTION_RE = /\bfigure\s+\d+\s*[-–]\s*\d+\s*\./i;
 
+/**
+ * Modern caption shape `Figure N:` (colon REQUIRED — prose references say
+ * "Figure 1" or "Figure 1." at sentence end; only real captions use the
+ * colon). Measured on the 2026-09-09 kcard-scale corpus (10 modern arXiv
+ * papers, 221 pages): 53 caption-bearing pages, NONE matched the legacy
+ * `Figure N-x.` shape, and the shortest caption page body was 1452 chars —
+ * the legacy 1300 band fired ZERO times on the entire corpus.
+ */
+export const FIGURE_CAPTION_RE_MODERN = /\bfigure\s+\d+\s*:/i;
+
+/**
+ * Modern caption-page band. Above the legacy 1300 because a modern two-column
+ * figure page carries its caption PLUS surrounding text (measured caption-page
+ * bodies: min 1452, median 3792, max 6286). 3000 catches the thinnest ~20% of
+ * caption pages; the caption requirement (not the band) is the discriminator —
+ * prose pages never carry `Figure N:` and never fire regardless of length.
+ */
+export const FIGURE_CAPTION_PAGE_MAX_CHARS = 3000;
+
 /** Manifest figure record for smart-mode pages (additive; schema stays v1). */
 export interface FigureRecord {
   detected: boolean;
@@ -32,6 +51,16 @@ export interface FigureRecord {
 /** Text-page detector: caption present AND body within the band. */
 export function isTextFigure(body: string): boolean {
   return body.length <= FIGURE_MAX_BODY_CHARS && FIGURE_CAPTION_RE.test(body);
+}
+
+/**
+ * Modern text-page detector (kcard-scale corpus, 2026-09-09): `Figure N:`
+ * caption within the modern band. The legacy spec shape (`Figure N-x.`,
+ * caption-ONLY pages ≤ 1300) stays its own detector — different measured
+ * semantics, both feed the same smart-lane enhancement.
+ */
+export function isCaptionFigure(body: string): boolean {
+  return body.length <= FIGURE_CAPTION_PAGE_MAX_CHARS && FIGURE_CAPTION_RE_MODERN.test(body);
 }
 
 /** Scan-page detector: OCR output within the labels-only band. */

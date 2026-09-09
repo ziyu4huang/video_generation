@@ -1,6 +1,6 @@
 # obsidian_search baseline (real submodule vault — drifts on content growth)
-Generated: 2026-09-09T13:46
-Vault note count: 2659
+Generated: 2026-09-09T21:33
+Vault note count: 2679
 
 Real-vault snapshot (NOT the contract). This legitimately drifts whenever
 notes are added/removed; baseline.test.mjs is skip-gated on submodule
@@ -189,7 +189,7 @@ Tags/Index.md:54: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:76: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
 Tags/Index.md:245: - [[Design/pi-Obsidian Package]]
 Tags/Index.md:254: - [[Zettelkasten/Agent Knowledge - Obsidian Integration]]
-Tags/Knowledge Graph.md:2338: - [[Obsidian Tools Testing Gap]]
+Tags/Knowledge Graph.md:2348: - [[Obsidian Tools Testing Gap]]
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:8: # Agent Knowledge — Obsidian Integration
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:11: - 把 agent skill 與 Obsidian 透過 `pi-obsidian` extension 結合：用 `obsidian_append` 記錄決策、`obsidian_create` 產生 Zettelkasten 筆記、`sync-mcp.sh` 同步遠近端 vault，是整個知識庫的上層概念卡。
 Zettelkasten/Agent Knowledge - Obsidian Integration.md:14: This note explores how to integrate Agent skills with Obsidian via the `pi-obsidian` extension.
@@ -258,9 +258,19 @@ Zettelkasten/Implementation Pattern - VLM as Image Orientation Oracle.md:5: sour
 Zettelkasten/Implementation Pattern - pi Footer Stats Data Driven.md:5: sources: []
 Zettelkasten/Implementation Pattern - pose_dsg Atomic Pose Validator.md:5: sources: [arXiv:2407.06937, arXiv:2509.21227, tifa-benchmark.github.io]
 Zettelkasten/Implementation Pattern - vlm-describe Pipeline.md:5: sources: []
+Zettelkasten/Paper - Amari 貝葉斯對偶的推廣.md:5: sources: ["arXiv:2609.09126"]
+Zettelkasten/Paper - Canonical Color 作為視覺編碼器概念可解碼性的透鏡.md:5: sources: ["arXiv:2609.09124"]
+Zettelkasten/Paper - Co-Evolving Harnesses and Models 在模仿失效處用在線修正補足.md:5: sources: ["arXiv:2609.09134"]
+Zettelkasten/Paper - ExecCritic 學會測試 以測試促進修復.md:5: sources: ["arXiv:2609.09133"]
+Zettelkasten/Paper - GMSBench GPU 記憶體安全標準化評測.md:5: sources: ["arXiv:2609.08871"]
+Zettelkasten/Paper - Image Tokenizers 作為統一多模態模型的視覺語言.md:5: sources: ["arXiv:2609.09143"]
+Zettelkasten/Paper - PrivEscalate 量化 LLM 自動化 Linux 提權的威脅.md:5: sources: ["arXiv:2609.09087"]
 Zettelkasten/Paper - Procedural Graphs 程序知識的圖結構與自演化.md:5: sources: ["arXiv:2609.09153"]
 Zettelkasten/Paper - ReCite 以主張層級主動推理修復引用歸屬.md:5: sources: ["arXiv:2609.09156"]
 Zettelkasten/Paper - SPINE 持續多輪壓力下的 LLM 諂媚測量.md:5: sources: ["arXiv:2609.09090"]
+Zettelkasten/Paper - SyncWorld 視覺校準讓世界模型成為零樣本模擬器.md:5: sources: ["arXiv:2609.09155"]
+Zettelkasten/Paper - Transformers as In-Context Samplers 從閉式擴散到免估計採樣.md:5: sources: ["arXiv:2609.08981"]
+Zettelkasten/Paper - 軟體供應鏈演進安全的測量研究議程.md:5: sources: ["arXiv:2609.08810"]
 Zettelkasten/Pattern - bun-pi-agent-cli Vault Submodule Remount.md:5: sources: []
 Zettelkasten/Pi Packages.md:5: sources: []
 Zettelkasten/Skill Verification Process.md:5: sources: []
@@ -275,16 +285,6 @@ Zettelkasten/Workflow Pattern - Style-Aware Judge Branching.md:5: sources: []
 Zettelkasten/distill/Command-logic-refactoring.md:5: sources: ["pr-255.md"]
 Zettelkasten/distill/ControlLoRA對風格轉換調色盤效應的抑制.md:5: sources: ["../../.claude/workflows/history/knowledge-distill/pr-249.md"]
 Zettelkasten/distill/Empirical-verification-strategy.md:5: sources: ["pr-255.md"]
-Zettelkasten/distill/Krea2Engine.controlStyle單次前向傳播的合成.md:5: sources: ["../../.claude/workflows/history/knowledge-distill/pr-249.md"]
-Zettelkasten/distill/Krea2組合式引擎驗證結果.md:5: sources: ["../../.claude/workflows/history/knowledge-distill/pr-249.md"]
-Zettelkasten/distill/LoRA幾何干擾風格轉換K/V注入.md:5: sources: ["../../.claude/workflows/history/knowledge-distill/pr-249.md"]
-Zettelkasten/distill/Native-relay-scope-completeness.md:5: sources: ["pr-255.md"]
-Zettelkasten/distill/Native-relay-variant-implementation.md:5: sources: ["pr-255.md"]
-Zettelkasten/distill/Variant-loop-error-isolation.md:5: sources: ["pr-255.md"]
-Zettelkasten/distill/Variant-output-organization.md:5: sources: ["pr-255.md"]
-Zettelkasten/distill/memory-snapshot/00-index.md:5: sources: ["CLAUDE.md", "MEMORY.md"]
-Zettelkasten/distill/memory-snapshot/01-north-stars-and-project-stack.md:5: sources: ["auto-memory:no-cloud-gai-local-mlx-pi-agent-brain", "auto-memory:always-self-reflect-and-write-next-goal", "auto-memory:superpowers-owns-methodology-skills", "CLAUDE.md"]
-Zettelkasten/distill/memory-snapshot/02-runpy-cli-and-mlx-pipeline.md:5: sources: ["auto-memory:mlx-movie-director-python-path", "auto-memory:mlx-movie-director-regression-suite", "auto-memory:runpy-cli-schema-source-of-truth", "auto-memory:argparse-sentinel-for-user-override", "auto-memory:argv-injection-positional-paths", "auto-memory:argparse-lora-scale-override-bug", "auto-memory:count-without-seed-start-identical-images", "auto-memory:pyflakes-real-bug-hunting", "auto-memory:pytest-stale-pycache-false-failures"]
 
 ### no-match term [SUBSTRING-DEFAULT]
 query="zzznomatchzzz"

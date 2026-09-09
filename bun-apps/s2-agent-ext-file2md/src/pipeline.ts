@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { readDocument } from "../vendored/dsh-cowork-core@0.1.0/src/read/index.ts";
 import { renderMarkdown } from "../vendored/dsh-cowork-core@0.1.0/src/render/markdown.ts";
-import { FIGURE_SKIP_NOTICE, type FigureRecord, isScanFigure, isTextFigure } from "./core/figure.ts";
+import { FIGURE_SKIP_NOTICE, type FigureRecord, isCaptionFigure, isScanFigure, isTextFigure } from "./core/figure.ts";
 import { openPdf, type PdfHandle } from "./core/pdf-text.ts";
 import { detectKind } from "./core/sniff.ts";
 import { svgToMarkdown } from "./core/svg-text.ts";
@@ -383,10 +383,10 @@ async function extractPdfPage(
 ): Promise<PageRecord> {
   const text = (await pdf.getText(pageNo)).trim();
   if (text.length >= OCR_TEXT_MIN_CHARS || mode === "text") {
-    // smart: a usable text page is checked for the caption-only-figure shape
-    // before stopping (D2) — prose pages never fit the band, and a figure
-    // page with no enhancement (ticket 01) just flags + notices.
-    if (mode === "smart" && isTextFigure(text)) {
+    // smart: a usable text page is checked for BOTH figure shapes before
+    // stopping (D2) — the legacy caption-only spec shape and the modern
+    // `Figure N:` caption-page shape (kcard-scale corpus, 2026-09-09).
+    if (mode === "smart" && (isTextFigure(text) || isCaptionFigure(text))) {
       // No vision server → ticket-01 flag+notice with zero rasterization.
       // With a server the enhancement is attempted (ticket 02): rasterize
       // ONCE — the vision call needs the image — then degrade on failure.
