@@ -38,9 +38,11 @@ describe("isCaptionFigure — modern `Figure N:` shape (kcard-scale corpus)", ()
 
   test("prose references never fire — no colon, no caption", () => {
     // "Figure 1." at a sentence end and "Figure 1 shows" are references.
-    for (const p of ["as shown in Figure 1. The rest of the sentence continues here.",
-                     "Figure 1 shows the architecture of the proposed system.",
-                     "see Figures 1 and 3 for details."]) {
+    for (const p of [
+      "as shown in Figure 1. The rest of the sentence continues here.",
+      "Figure 1 shows the architecture of the proposed system.",
+      "see Figures 1 and 3 for details.",
+    ]) {
       expect(FIGURE_CAPTION_RE_MODERN.test(p)).toBe(false);
       expect(isCaptionFigure(p)).toBe(false);
     }

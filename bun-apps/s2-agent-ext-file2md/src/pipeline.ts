@@ -19,13 +19,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { readDocument } from "../vendored/dsh-cowork-core@0.1.0/src/read/index.ts";
 import { renderMarkdown } from "../vendored/dsh-cowork-core@0.1.0/src/render/markdown.ts";
-import {
-  FIGURE_SKIP_NOTICE,
-  type FigureRecord,
-  isCaptionFigure,
-  isScanFigure,
-  isTextFigure,
-} from "./core/figure.ts";
+import { FIGURE_SKIP_NOTICE, type FigureRecord, isCaptionFigure, isScanFigure, isTextFigure } from "./core/figure.ts";
 import { openPdf, type PdfHandle } from "./core/pdf-text.ts";
 import { detectKind } from "./core/sniff.ts";
 import { svgToMarkdown } from "./core/svg-text.ts";

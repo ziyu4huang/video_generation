@@ -25,43 +25,60 @@
 
 /** Result for one vision bullet. */
 export interface GroundResult {
-	claim: string;
-	/** false ONLY when a number in the claim is absent from the page text. */
-	grounded: boolean;
-	/** Tokens not found in the page text (numbers = hard suspects; same-script named runs = soft suspects). */
-	missing: string[];
+  claim: string;
+  /** false ONLY when a number in the claim is absent from the page text. */
+  grounded: boolean;
+  /** Tokens not found in the page text (numbers = hard suspects; same-script named runs = soft suspects). */
+  missing: string[];
 }
 
 /** Sentence-initial words trimmed from a named run before checking. */
 const RUN_START_STOP = new Set([
-	"the", "a", "an", "this", "that", "these", "those", "it", "in", "on",
-	"as", "at", "we", "they", "if", "when", "figure", "fig", "table",
+  "the",
+  "a",
+  "an",
+  "this",
+  "that",
+  "these",
+  "those",
+  "it",
+  "in",
+  "on",
+  "as",
+  "at",
+  "we",
+  "they",
+  "if",
+  "when",
+  "figure",
+  "fig",
+  "table",
 ]);
 
 /** Extract the CHECKABLE tokens from a claim: numbers + named runs. */
 export function extractCheckableTokens(claim: string): string[] {
-	const tokens = new Set<string>();
-	// Numbers: 92%, 3.8x, 1,234, 7B, 0.75 — the highest-value hallucination
-	// signal; unit/model suffixes (%, x, B) are part of the verbatim token.
-	for (const m of claim.matchAll(/\d+(?:[.,]\d+)*(?:%|[A-Za-z]{1,2})?/g)) {
-		tokens.add(m[0]);
-	}
-	// Latin named runs: 2+ consecutive capitalized words. A sentence-initial
-	// stopword leading the run is trimmed ("The GMSBench" → "GMSBench").
-	for (const m of claim.matchAll(/\b(?:[A-Z][\w.-]*\s+){1,}[A-Z][\w.-]*/g)) {
-		let run = m[0].replace(/\s+$/, "");
-		const words = run.split(/\s+/);
-		while (words.length > 1 && RUN_START_STOP.has(words[0]!.toLowerCase())) {
-			words.shift();
-		}
-		run = words.join(" ");
-		if (words.length >= 2 && run.length >= 4) tokens.add(run);
-	}
-	// CJK named runs: 2+ consecutive CJK chars (labels like 壞散文).
-	for (const m of claim.matchAll(/[\u4e00-\u9fff]{2,}/g)) {
-		tokens.add(m[0]);
-	}
-	return [...tokens];
+  const tokens = new Set<string>();
+  // Numbers: 92%, 3.8x, 1,234, 7B, 0.75 — the highest-value hallucination
+  // signal; unit/model suffixes (%, x, B) are part of the verbatim token.
+  for (const m of claim.matchAll(/\d+(?:[.,]\d+)*(?:%|[A-Za-z]{1,2})?/g)) {
+    tokens.add(m[0]);
+  }
+  // Latin named runs: 2+ consecutive capitalized words. A sentence-initial
+  // stopword leading the run is trimmed ("The GMSBench" → "GMSBench").
+  for (const m of claim.matchAll(/\b(?:[A-Z][\w.-]*\s+){1,}[A-Z][\w.-]*/g)) {
+    let run = m[0].replace(/\s+$/, "");
+    const words = run.split(/\s+/);
+    while (words.length > 1 && RUN_START_STOP.has(words[0]!.toLowerCase())) {
+      words.shift();
+    }
+    run = words.join(" ");
+    if (words.length >= 2 && run.length >= 4) tokens.add(run);
+  }
+  // CJK named runs: 2+ consecutive CJK chars (labels like 壞散文).
+  for (const m of claim.matchAll(/[\u4e00-\u9fff]{2,}/g)) {
+    tokens.add(m[0]);
+  }
+  return [...tokens];
 }
 
 /**
@@ -70,30 +87,30 @@ export function extractCheckableTokens(claim: string): string[] {
  * carries their script.
  */
 export function groundClaim(claim: string, pageText: string): GroundResult {
-	const haystack = pageText.toLowerCase();
-	const pageHasLatin = /[a-z]/i.test(pageText);
-	const pageHasCjk = /[\u4e00-\u9fff]/.test(pageText);
-	const missing: string[] = [];
-	for (const token of extractCheckableTokens(claim)) {
-		if (/^\d/.test(token)) {
-			// number: hard, verbatim (case-insensitive is a no-op for digits)
-			if (!haystack.includes(token.toLowerCase())) missing.push(token);
-			continue;
-		}
-		if (/[\u4e00-\u9fff]/.test(token)) {
-			if (pageHasCjk && !haystack.includes(token)) missing.push(token);
-			continue;
-		}
-		if (pageHasLatin && !haystack.includes(token.toLowerCase())) missing.push(token);
-	}
-	return { claim, grounded: missing.length === 0, missing };
+  const haystack = pageText.toLowerCase();
+  const pageHasLatin = /[a-z]/i.test(pageText);
+  const pageHasCjk = /[\u4e00-\u9fff]/.test(pageText);
+  const missing: string[] = [];
+  for (const token of extractCheckableTokens(claim)) {
+    if (/^\d/.test(token)) {
+      // number: hard, verbatim (case-insensitive is a no-op for digits)
+      if (!haystack.includes(token.toLowerCase())) missing.push(token);
+      continue;
+    }
+    if (/[\u4e00-\u9fff]/.test(token)) {
+      if (pageHasCjk && !haystack.includes(token)) missing.push(token);
+      continue;
+    }
+    if (pageHasLatin && !haystack.includes(token.toLowerCase())) missing.push(token);
+  }
+  return { claim, grounded: missing.length === 0, missing };
 }
 
 /** Ground a whole vision description (split into lines/bullets first). */
 export function groundClaims(visionDescription: string, pageText: string): GroundResult[] {
-	return visionDescription
-		.split(/\r?\n/)
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0 && !/^(#|\*\*[^*]+\*\*$)/.test(line))
-		.map((line) => groundClaim(line, pageText));
+  return visionDescription
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^(#|\*\*[^*]+\*\*$)/.test(line))
+    .map((line) => groundClaim(line, pageText));
 }
