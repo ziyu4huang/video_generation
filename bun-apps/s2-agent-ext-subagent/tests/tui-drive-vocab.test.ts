@@ -13,10 +13,16 @@
  *     (receipted: output/self-arc14-deployed-dispatch-20260908 snap-10, where
  *     the single-line judge false-FAILED) and still excludes flash by name.
  */
+
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
-import { UI_VOCAB as V, awaitBootRendered, callLineModelIsGlm53, lineHasGlm53NonFlash } from "../scripts/lib/tui-drive-lib.ts";
+import {
+  awaitBootRendered,
+  callLineModelIsGlm53,
+  lineHasGlm53NonFlash,
+  UI_VOCAB as V,
+} from "../scripts/lib/tui-drive-lib.ts";
 
 const SCRIPTS = join(import.meta.dir, "..", "scripts");
 

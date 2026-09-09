@@ -16,6 +16,7 @@ import type { SpawnSubagentOptions } from "@repo/s2-agent-core-runtime";
 import {
   type AgentDefinition,
   createWorktree,
+  currentSpawnScope,
   getLiveAgentRegistry,
   isForkChild,
   listAgentTypes,
@@ -24,7 +25,6 @@ import {
   resolveAgentType,
   roleAwareDefaults,
   runAsForkChild,
-  currentSpawnScope,
   runWithSpawnDepth,
   spawnLiveAgentFirstExchange,
   spawnSubagent,
@@ -453,7 +453,8 @@ export function createSubagentTool(
                 // (this same closure) observes isForkChild() and rejects any
                 // nested fork. Depth-inherited: a grandchild spawned from the
                 // fork child is inside the scope too.
-                (o: SpawnSubagentOptions) => runWithSpawnDepth(() => runAsForkChild(() => spawn(o)), { maxDepth: childCap })
+                (o: SpawnSubagentOptions) =>
+                  runWithSpawnDepth(() => runAsForkChild(() => spawn(o)), { maxDepth: childCap })
               : (o: SpawnSubagentOptions) => runWithSpawnDepth(() => spawn(o), { maxDepth: childCap });
           // Nested-spawn depth cap (self-arc-19 t03): the child runs at
           // depth+1 under the ACTIVE subtree cap; this def's own `maxDepth`

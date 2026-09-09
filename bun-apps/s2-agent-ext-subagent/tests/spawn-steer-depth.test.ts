@@ -12,12 +12,12 @@
 import { test } from "bun:test";
 import assert from "node:assert/strict";
 import {
-  type SubagentRunPersistence,
-  type SubagentRunRecord,
-  SubagentInFlightRegistry,
   currentSpawnScope,
   parseAgentDefinition,
   runWithSpawnDepth,
+  SubagentInFlightRegistry,
+  type SubagentRunPersistence,
+  type SubagentRunRecord,
   serializeAgentDefinition,
   spawnDepthExceeded,
 } from "@repo/s2-agent-core-runtime";
@@ -54,7 +54,13 @@ test("steer delivers into a live steerable run (steered:true)", async () => {
     },
   });
   const tool = createSubagentRunsTool({ persistence: fakePersistence(), inFlight: registry });
-  const res = await tool.execute("tc", { action: "steer", id: "bg1", message: "focus on the rate-limit doc" }, NO_SIGNAL, undefined, undefined);
+  const res = await tool.execute(
+    "tc",
+    { action: "steer", id: "bg1", message: "focus on the rate-limit doc" },
+    NO_SIGNAL,
+    undefined,
+    undefined,
+  );
   assert.equal(seen.length, 1);
   assert.equal(seen[0], "focus on the rate-limit doc");
   assert.match(textOf(res), /steered into run bg1/);
@@ -69,7 +75,13 @@ test("steer on a just-idle run runs a fresh turn and returns the reply", async (
     steer: () => Promise.resolve({ steered: false, output: "OK, pivoted to the auth flow." }),
   });
   const tool = createSubagentRunsTool({ persistence: fakePersistence(), inFlight: registry });
-  const res = await tool.execute("tc", { action: "steer", id: "bg2", message: "pivot" }, NO_SIGNAL, undefined, undefined);
+  const res = await tool.execute(
+    "tc",
+    { action: "steer", id: "bg2", message: "pivot" },
+    NO_SIGNAL,
+    undefined,
+    undefined,
+  );
   assert.match(textOf(res), /fresh turn/);
   assert.match(textOf(res), /pivoted to the auth flow/);
 });
@@ -103,7 +115,9 @@ test("steer requires a non-empty message", async () => {
   const registry = new SubagentInFlightRegistry();
   const tool = createSubagentRunsTool({ persistence: fakePersistence(), inFlight: registry });
   await assert.rejects(() => tool.execute("tc", { action: "steer", id: "x" }, NO_SIGNAL, undefined, undefined));
-  await assert.rejects(() => tool.execute("tc", { action: "steer", id: "x", message: "   " }, NO_SIGNAL, undefined, undefined));
+  await assert.rejects(() =>
+    tool.execute("tc", { action: "steer", id: "x", message: "   " }, NO_SIGNAL, undefined, undefined),
+  );
 });
 
 // ── t03: spawn-depth scope ───────────────────────────────────────────────────

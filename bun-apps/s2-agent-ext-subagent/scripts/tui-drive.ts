@@ -41,7 +41,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { UI_VOCAB as V, awaitBootRendered, callLineModelIsGlm53, lineHasGlm53NonFlash } from "./lib/tui-drive-lib.ts";
+import { awaitBootRendered, callLineModelIsGlm53, lineHasGlm53NonFlash, UI_VOCAB as V } from "./lib/tui-drive-lib.ts";
 
 // ── xterm-headless (browser-flavored UMD — shim globals for load, then strip) ──
 const g = globalThis as Record<string, unknown>;
@@ -577,7 +577,8 @@ async function scenarioViewer(): Promise<void> {
     // follow view signature: the header line (`▸ <model> • running • <dur>`)
     // plus a trace body (→/✓ markers) and/or a ticking elapsed.
     if (/• running •/.test(s) && (/[→✓] /.test(s) || /↳ /.test(s))) sawFollowTrace = true;
-    if (!receipt.checks.backgroundRow && (V.backgroundRow.test(s) || V.bgLooseRow.test(s))) receipt.checks.backgroundRow = true;
+    if (!receipt.checks.backgroundRow && (V.backgroundRow.test(s) || V.bgLooseRow.test(s)))
+      receipt.checks.backgroundRow = true;
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     snap(sawFollowTrace ? "follow-live" : "follow");
     if (sawFollowTrace) break;
@@ -1293,9 +1294,7 @@ async function scenarioSwarm(): Promise<void> {
       tty.write("x");
       await sleep(500);
       snap("swarm-abort-confirm", true);
-      receipt.checks.batchAbortFlow = V.abortAllConfirm.test(
-        readSnapText("swarm-abort-confirm") ?? "",
-      );
+      receipt.checks.batchAbortFlow = V.abortAllConfirm.test(readSnapText("swarm-abort-confirm") ?? "");
       tty.write("y");
       await sleep(500);
       // STAY in the viewer: the registry's onChange channel repaints the open
@@ -1316,11 +1315,7 @@ async function scenarioSwarm(): Promise<void> {
     // notifications — rows scroll, so any single sample latches.
     if (!allChildrenTerminal) {
       const terminalRows = (s.match(/⊘|✗/g) ?? []).length;
-      if (
-        terminalRows >= 3 ||
-        /0\/3 running/.test(s) ||
-        (V.abortConfirmedText.test(s) || V.batchSettled.test(s))
-      )
+      if (terminalRows >= 3 || /0\/3 running/.test(s) || V.abortConfirmedText.test(s) || V.batchSettled.test(s))
         allChildrenTerminal = true;
     }
     snap(batchAbortConfirmed ? "aborted" : "aborting", true);
@@ -1337,8 +1332,7 @@ async function scenarioSwarm(): Promise<void> {
   if (!allChildrenTerminal) {
     const terminalRows = (settledScreen.match(/⊘|✗/g) ?? []).length;
     allChildrenTerminal =
-      terminalRows >= 3 ||
-      (V.abortConfirmedText.test(settledScreen) || V.batchSettled.test(settledScreen));
+      terminalRows >= 3 || V.abortConfirmedText.test(settledScreen) || V.batchSettled.test(settledScreen);
   }
   receipt.checks.allChildrenTerminal = allChildrenTerminal;
 }

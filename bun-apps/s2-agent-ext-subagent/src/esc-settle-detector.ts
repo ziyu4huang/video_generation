@@ -44,7 +44,8 @@ export interface SettledRow {
 
 /** ANSI SGR sequence matcher, built from a string so the ESC control char
  *  never appears in a regex literal (biome noControlCharactersInRegex). */
-const ANSI_SGR = new RegExp("\u001b\\[[0-9;?]*[A-Za-z]", "g");
+// biome-ignore lint/suspicious/noControlCharactersInRegex: \u001b IS the readable escaped form of the ANSI CSI introducer; a raw control char would be worse.
+const ANSI_SGR = /\u001b\[[0-9;?]*[A-Za-z]/g;
 
 /** Strip ANSI escape sequences (SGR colors etc.) so a themed row scans the
  *  same as a plain one. tmux capture-pane emits plain text by default, but

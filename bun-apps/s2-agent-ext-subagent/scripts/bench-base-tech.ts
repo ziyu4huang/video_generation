@@ -216,7 +216,6 @@ async function runTech(o: Opts, tech: TechId, nonce: string): Promise<RunResult>
       let pass = false;
       let evidence: Record<string, unknown> = {};
       if (tech === "rpc") {
-        const t0 = Date.now();
         for (let i = 0; i < 80; i++) {
           const st = await session.stateProbe?.();
           if (st && typeof st.model === "string" && st.model.length > 0) {
