@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-16-webui-view-notifications
 created: 2026-08-16
-last: 2026-08-16
-status: specified
+last: 2026-09-09
+status: done
 ---
 # webui-view-notifications — notify the browser shell when an extension opens a view
 
@@ -132,3 +132,7 @@ TUI-WebUI co-work model (zk-spawn lineage, separate effort); multi-client toast 
   `subagents-section.ts:62-90` (P2).
 - **2026-08-16**: decisions grilled and closed (B / A-hybrid / B / C); `spec.md` written
   (status: specified); ticket 05 stub expanded into build tickets 06–08.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged on origin/main)
+
+Build tickets 06–08 (view_opened frame + url-view registry, shell toast + views panel, docs/E2E) shipped as #1476 — the Frontier already recorded them closed (reviewed: approve); the ticket-table rows and the `specified` status were never flipped. PRs: #1476.

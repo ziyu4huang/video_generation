@@ -192,8 +192,8 @@ Phase P0 — infra unification & hermes triage
 - `tickets/04-recall-audit-script.md` — task, **closed 2026-08-22** — committed audit harness + post-fold baseline (kcard 17/20 hit@5, journal 0/20)
 
 Phase P1 — card schema v2 + tiered retrieval
-- `tickets/05-card-schema-v2.md` — task, **closed 2026-08-22** — summary L0 + experience kind + merge-op table shipped; real-vault backfill 1925/1925 active cards (vault PR #20), recall-audit unchanged (hit@5 17/20, MRR 0.688)
-- `tickets/06-agg-node-abstracts.md` — task, **closed 2026-08-23** — agg `summary:` L1 (frontmatter, ≤256) + deterministic top-entity composition (wikilinks unwrapped) + checkpoint v2 + filename child links; FIRST real build: 326 agg nodes / 4 layers / 10 LLM calls over 1921 cards (vault PR pi-agent-vault#21); recall-audit unchanged (hit@5 17/20, MRR 0.688), graphHealth deadLinks 34 == baseline
+- `tickets/05-card-schema-v2.md` — task, **closed 2026-08-22** — summary L0 + experience kind + merge-op table shipped; real-vault backfill 1925/1925 active cards (vault-repo pull 20 — external to this repo, not citable here), recall-audit unchanged (hit@5 17/20, MRR 0.688)
+- `tickets/06-agg-node-abstracts.md` — task, **closed 2026-08-23** — agg `summary:` L1 (frontmatter, ≤256) + deterministic top-entity composition (wikilinks unwrapped) + checkpoint v2 + filename child links; FIRST real build: 326 agg nodes / 4 layers / 10 LLM calls over 1921 cards (vault-repo pull pi-agent-vault 21 — external, not citable here); recall-audit unchanged (hit@5 17/20, MRR 0.688), graphHealth deadLinks 34 == baseline
 - `tickets/07-tier-ladder-retrieval.md` — task, **closed 2026-08-23** — `RetrievedCard.tier`+`tiers` (L0/L1/L2 pre-rendered, `src/tier-ladder.ts`), demote-not-truncate everywhere (digest, knowledge_query, zk.retrieve, buildRagTask Step 4); tokens/card ↓63.3% (65 vs 178 tok, receipt `output/tier-ladder/`); D3 re-confirmed bge-m3 (see Context); recall-audit unchanged (hit@5 17/20, MRR 0.688)
 
 Phase P2 — injection loop + ledger

@@ -1,7 +1,7 @@
-# .planning/ effort audit — 2026-09-09T12:35:28.236Z
+# .planning/ effort audit — 2026-09-09T13:10:48.969Z
 
 - root: `/Users/huangziyu/proj/video_generation__superpowers` · scanned: 76 · stale-days: 14 · **red: 0**
-- census: active=11, complete=22, done=33, executing=1, in-progress=1, partial=1, paused=6, specified=1
+- census: active=8, complete=22, done=36, executing=1, in-progress=1, paused=8
 
 ## Duplicate self-arc rounds (info — by-design parallel sessions)
 
@@ -14,10 +14,10 @@
 | effort | status | last | findings |
 |---|---|---|---|
 | 2026-07-31-let-s-continue-to-improve-base-on-known-upstream | done | 2026-09-09 | green |
-| 2026-08-08-knowledge-pipeline | active | 2026-08-16 | green |
-| 2026-08-10-hermes-architecture-deepening | active | 2026-08-16 | green |
+| 2026-08-08-knowledge-pipeline | paused | 2026-09-09 | green |
+| 2026-08-10-hermes-architecture-deepening | done | 2026-09-09 | green |
 | 2026-08-15-archify-webui-html | active | 2026-09-09 | green |
-| 2026-08-15-subagent-dynamic-budgets | active | 2026-08-25 | green |
+| 2026-08-15-subagent-dynamic-budgets | paused | 2026-09-09 | green |
 | 2026-08-15-tool-gate-complete-redesign | active | 2026-09-09 | green |
 | 2026-08-15-zk-spawn-interactive-ui | paused | 2026-09-09 | green |
 | 2026-08-16-power-browser-tool | done | 2026-09-09 | green |
@@ -28,7 +28,7 @@
 | 2026-08-16-webui-tab-views | done | 2026-09-09 | green |
 | 2026-08-16-webui-tui-parity | done | 2026-09-09 | green |
 | 2026-08-16-webui-v2-cards-first | done | 2026-09-09 | green |
-| 2026-08-16-webui-view-notifications | specified | 2026-08-16 | green |
+| 2026-08-16-webui-view-notifications | done | 2026-09-09 | green |
 | 2026-08-17-knowledge-pipeline-polish | complete | · | green |
 | 2026-08-18-webui-btw-branch | done | 2026-09-09 | green |
 | 2026-08-18-webui-readability | done | 2026-09-09 | green |
@@ -36,7 +36,7 @@
 | 2026-08-19-core-runtime-width | complete | 2026-09-09 | green |
 | 2026-08-19-pi-agent-sh-full-profile | complete | 2026-09-09 | green |
 | 2026-08-19-set-goal-to-find-how-to-async-make-pi-agent-sh | paused | 2026-09-09 | green |
-| 2026-08-20-devops-hardening | partial | 2026-08-23 | green |
+| 2026-08-20-devops-hardening | done | 2026-09-09 | green |
 | 2026-08-22-context-lifecycle | complete | 2026-08-30 | green |
 | 2026-08-22-ultracode-rename | done | 2026-09-09 | green |
 | 2026-08-23-archify-rich-decks | active | 2026-09-04 | green |

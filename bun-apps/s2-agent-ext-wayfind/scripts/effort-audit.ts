@@ -66,14 +66,17 @@ function arg(argv: string[]): Opts {
   return opts;
 }
 
-/** git-backed citation check: `git log --grep "#N"` (offline; squash commits
- *  carry "(#N)" in the title). Any commit message naming the PR counts. */
+/** git-backed citation check (offline; squash commits carry "(#N)" in the
+ *  title). Two anti-false-green rules from the reviewer round (2026-09-09):
+ *  the pattern is ANCHORED so #20 cannot substring-match #2077, and the
+ *  search runs against origin/main — never HEAD — so a branch's own unpushed
+ *  commit messages cannot self-verify its citations. */
 function gitVerifyPr(root: string): (pr: number) => boolean {
   return (pr: number) => {
-    const r = Bun.spawnSync(["git", "-C", root, "log", "--grep", `#${pr}`, "--oneline", "-1"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const r = Bun.spawnSync(
+      ["git", "-C", root, "log", "origin/main", "--grep", `#${pr}($|[^0-9])`, "-E", "--oneline", "-1"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
     return r.exitCode === 0 && r.stdout.toString().trim().length > 0;
   };
 }

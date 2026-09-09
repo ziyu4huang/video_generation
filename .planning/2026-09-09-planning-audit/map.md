@@ -57,7 +57,7 @@ and a validated successor next-goal.
 
 - [x] t01 open effort: map + tickets + planner plan committed (this commit)
 - [x] t02 audit tool: `src/effort-audit.ts` (pure, injected `verifyPr`) +
-      `scripts/effort-audit.ts` CLI (`--json/--md/--stale-days`, exit 1 on red) +
+      `scripts/effort-audit.ts` CLI (`--root/--out/--stale-days/--no-verify/--exempt`, exit 1 on red) +
       `tests/effort-audit.test.ts`; wayfind gates green
 - [x] t03 baseline receipt: run on untouched tree, commit
       `results/baseline/audit.{json,md}`; exit 1 expected and recorded
@@ -147,3 +147,16 @@ and a validated successor next-goal.
   present) — both caught by the tool re-run before commit, fixed, re-audited.
 - prepare-feature-branch-cli reported create-failed on a nonexistent branch
   name; the equivalent checkout ran manually, later phases stay CLI-owned.
+
+## Reviewer round (2026-09-09, independent GLM-5.3 pass)
+
+Verdict REQUEST-CHANGES with 2 blocking findings, both in gitVerifyPr —
+fixed in the same session: (1) unanchored `#20` substring-matched `#2077`
+(live false-green on an EXTERNAL vault-repo citation in context-lifecycle,
+reworded); the grep is now `-E "#N($|[^0-9])"`. (2) verification ran against
+HEAD — a branch's own unpushed commits could self-verify citations; now
+anchored to origin/main. Non-blocking finding 3 (summary misstated 5 green
+rows as "fresh" when they passed via park-note prose) corrected by
+dispositioning all 5 explicitly (3 done flips, 2 paused-with-note). Finding 5
+(flag-name drift in t02 line) fixed. Re-audited after fixes: exit 0, gates
+517 green. Receipt: output/reviewer-planning-audit/plan.md.

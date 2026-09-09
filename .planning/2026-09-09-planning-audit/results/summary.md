@@ -50,11 +50,27 @@ both rows were FRESH-dated (last: 2026-09-09/09-08), so they were never
 stale-reds; the flips are still the correct reconciliation, and red-count is
 unchanged by t04 specifically.
 
-## Still open (honest, non-red)
+## Still open (honest, non-red) — corrected after the reviewer round
 
-Fresh non-terminal efforts inside the 14d window are recorded in the
-reconciled table as their live statuses (knowledge-pipeline, hermes,
-subagent-dynamic-budgets, archify-rich-decks, cc-parity-task-powertool,
-win32-launcher-stdout, archify-deck-html, learnings-hardening,
-subagent-tui-cc-parity-2, webui-view-notifications). Live-session dirs
-self-arc-17/18: untouched (verified `git diff --stat origin/main` empty).
+Five rows the first draft of this section mislabeled "inside the 14d window"
+(the reviewer caught it: they were green via the park-note heuristic matching
+unrelated prose). Now dispositioned explicitly like every other row:
+
+- 2026-08-10-hermes-architecture-deepening → done (#1185/#1194/#1494; ledger shows all 13 tickets closed).
+- 2026-08-16-webui-view-notifications → done (#1476; tickets 06–08 shipped, rows never flipped).
+- 2026-08-20-devops-hardening → done (#1748; phases 2–4 superseded/mooted, no live ticket).
+- 2026-08-08-knowledge-pipeline → paused with dated note (spine + polish shipped; kp17 non-blocking residue).
+- 2026-08-15-subagent-dynamic-budgets → paused with dated note (core closed; 6 not-yet-specified items parked).
+
+Remaining genuinely-fresh non-terminal efforts (inside the window, no rows):
+archify-rich-decks, cc-parity-task-powertool, win32-launcher-stdout,
+archify-deck-html, learnings-hardening, subagent-tui-cc-parity-2. Live-session
+dirs self-arc-17/18: untouched by this branch's commits (verified empty diff
+at reconciliation time; the reviewer's later fetch moved the local origin/main
+ref under us — the map's Fog records the rebase that followed).
+
+Known heuristic blind spot (recorded, non-blocking): `hasDatedParkNote` matches
+parked/superseded/deferred words near ANY date — it cannot distinguish "this
+effort is parked" from "a line near a date mentions deferral". The dated notes
+added by this reconciliation say the true thing; future tightening is a named
+successor candidate.
