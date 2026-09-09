@@ -38,9 +38,10 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { awaitBootRendered, callLineModelIsGlm53, lineHasGlm53NonFlash, UI_VOCAB as V } from "./lib/tui-drive-lib.ts";
 
 // ── xterm-headless (browser-flavored UMD — shim globals for load, then strip) ──
 const g = globalThis as Record<string, unknown>;
@@ -274,7 +275,7 @@ function modelLine(): string {
  *  (all receipted): the live call row `Task: … ▸ <model> ▸ spawn_subagent`
  *  (dispatch, expanded trace), `Task(…)` live rows, per-child trace/settled
  *  rows `[N] <model> ⏱ …` / `[N] ✓ done <model> · …` (parallel batch), and
- *  viewer rows `bg ● <actor> <model> · …`. "glm-5.3" is a SUBSTRING of
+ *  viewer rows (bg marker, dot, `<actor> <model> · …`). "glm-5.3" is a SUBSTRING of
  *  "glm-5.3-flash", so flash is excluded BY NAME; the parent's own status bar
  *  (`(zai) glm-5.3 • medium`) is excluded structurally — a child row must
  *  START with one of the row markers. This is the receipt's proof that the
@@ -283,7 +284,7 @@ function childModelIsGlm53(): boolean {
   const row = screen().find((l) => {
     const t = l.trimStart();
     if (!/^(Task\(|Task:|\[\d+\]|bg\b|▶)/.test(t)) return false;
-    return /glm-5\.3/.test(t) && !t.includes("flash");
+    return lineHasGlm53NonFlash(t);
   });
   return !!row;
 }
@@ -313,6 +314,49 @@ async function waitIdle(quiet = 1500, cap = 45000): Promise<void> {
 }
 
 // ── scenario: dispatch ───────────────────────────────────────────────────────
+
+// ── launcher provenance (self-arc-19 t01, map D3) ────────────────────────────
+interface LauncherProvenance {
+  sh: string;
+  shRealpath?: string;
+  deployedVersion?: string | null;
+  gitSha: string;
+  tree: "source" | "deployed";
+}
+/** Best-effort — never fails the drive. `deployedVersion` parses the dist
+ *  version-dir label off the realpath (`current` → `0.10.0+g<sha>`); the
+ *  `<sh> --version` fallback is bounded (5s) for future launchers that grow
+ *  the flag. `gitSha` is the SOURCE tree's HEAD (cwd), the loop's develop-side
+ *  truth — the deployed tree's own sha is `deployedVersion`'s g<sha> when
+ *  present, which is exactly the deployed≠source comparison the loop needs. */
+function probeLauncher(): LauncherProvenance {
+  let shRealpath: string | undefined;
+  try {
+    shRealpath = realpathSync(opts.sh);
+  } catch {
+    /* vanished between argv and probe — keep the argv form */
+  }
+  const isDeployed = /[/\\]dist[/\\]s2-agent-sh[/\\]/.test(shRealpath ?? opts.sh);
+  const versionDir = isDeployed && shRealpath ? /(\d+\.\d+\.\d+\+g[0-9a-f]+)/.exec(shRealpath)?.[1] : undefined;
+  let deployedVersion: string | null = versionDir ?? null;
+  if (isDeployed && !deployedVersion) {
+    try {
+      const p = Bun.spawnSync([opts.sh, "--version"], { cwd: opts.cwd, timeout: 5000, stdout: "pipe", stderr: "pipe" });
+      const out = new TextDecoder().decode(p.stdout).trim();
+      if (out) deployedVersion = out.split("\n")[0];
+    } catch {
+      /* best-effort only */
+    }
+  }
+  let gitSha = "";
+  try {
+    gitSha = new TextDecoder().decode(Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: opts.cwd }).stdout).trim();
+  } catch {
+    /* not a git tree (deployed scratch cwd) — sha stays empty */
+  }
+  return { sh: opts.sh, shRealpath, deployedVersion, gitSha, tree: isDeployed ? "deployed" : "source" };
+}
+
 interface Receipt {
   scenario: string;
   cwd: string;
@@ -323,6 +367,7 @@ interface Receipt {
   modelLine: string;
   checks: Record<string, boolean>;
   pass: boolean;
+  launcher: LauncherProvenance;
 }
 const receipt: Receipt = {
   scenario: opts.scenario,
@@ -333,9 +378,11 @@ const receipt: Receipt = {
   modelLine: "",
   checks: {},
   pass: false,
+  launcher: probeLauncher(),
 };
 
 async function scenarioDispatch(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -365,10 +412,10 @@ async function scenarioDispatch(): Promise<void> {
     // hint only. Transcript STAYS visible after the run settles, so matching
     // on `Task(`/tool names here would never go false and the loop would ride
     // its timeout cap (found by the first real receipt run).
-    const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
+    const running = V.liveMarker.test(s);
     if (running) {
       sawLive = true;
-      if (/· ctrl\+o to expand/.test(s)) sawHint = true;
+      if (V.expandHint.test(s)) sawHint = true;
       if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
       // t01 liveModelSlot (self-arc-9; LATCHED in-loop): judge the LIVE call
       // LINE, not the whole screen — only a line that carries the trailing
@@ -379,7 +426,14 @@ async function scenarioDispatch(): Promise<void> {
       for (const line of screen()) {
         if (!line.includes("spawn_subagent")) continue;
         receipt.checks.sawTaskLine = true;
-        if (/glm-5\.3/.test(line) && !line.includes("flash")) receipt.checks.liveModelSlot = true;
+      }
+      // self-arc-19 t01 (map D2): the live call row WRAPS at COLS=100 — the
+      // model segment (`▸ glm-5.3 ▸`) and the trailing spawn_subagent segment
+      // land on ADJACENT lines (receipted: output/self-arc14-deployed-
+      // dispatch-20260908 snap-10, and that run's receipt never latched
+      // liveModelSlot) — so judge the joined neighbor pairs, not the line.
+      if (!receipt.checks.liveModelSlot && callLineModelIsGlm53(screen())) {
+        receipt.checks.liveModelSlot = true;
       }
     }
     snap(running ? "running" : "after-run");
@@ -407,16 +461,14 @@ async function scenarioDispatch(): Promise<void> {
   receipt.checks.liveRow = sawLive;
   receipt.checks.expandHint = sawHint;
   receipt.checks.expandedTrace = sawTraceGrowth;
-  receipt.checks.settledBadge =
-    /✓ done|✗ failed|⏱ timedout|⛔ budget|⏹ turns|⊘ aborted/.test(settledScreen) ||
-    /↳ .* · [0-9,]+ tokens · /.test(settledScreen);
+  receipt.checks.settledBadge = V.settledBadge.test(settledScreen) || V.badgeSummary.test(settledScreen);
 
   tty.write("/subagents");
   await sleep(200);
   tty.write("\r");
   await waitIdle(1200, 8000);
   snap("viewer", true);
-  receipt.checks.viewerOpened = screen().join("\n").includes("Subagent runs");
+  receipt.checks.viewerOpened = V.viewerHeader.test(screen().join("\n"));
   tty.write("\x1b[B");
   await sleep(300);
   tty.write("\r");
@@ -435,6 +487,7 @@ async function scenarioDispatch(): Promise<void> {
 // run, and that the settled batch header carries the CC vocabulary
 // (tui-cc-parity-2 t03) in the SAME transcript that just showed the live feed.
 async function scenarioParallel(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -453,7 +506,7 @@ async function scenarioParallel(): Promise<void> {
   while (Date.now() - t0 < opts.timeoutS * 1000) {
     await sleep(2000);
     const s = screen().join("\n");
-    const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
+    const running = V.liveMarker.test(s);
     if (running) {
       sawLive = true;
       // BOTH children in flight at once: the batch header's `k/2 running`
@@ -471,9 +524,9 @@ async function scenarioParallel(): Promise<void> {
   receipt.checks.liveRow = sawLive;
   receipt.checks.twoRunning = sawTwoRunning;
   receipt.checks.settledBadge =
-    /✓ done|✗ failed|⏱ timedout|⛔ budget|⏹ turns|⊘ aborted/.test(settledScreen) ||
+    V.settledBadge.test(settledScreen) ||
     // t03 vocabulary: human duration + separator'd tokens on the batch header
-    /subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
+    V.batchSettled.test(settledScreen);
 }
 
 // ── scenario: viewer (loop hardening — background run + follow drill-down) ──
@@ -484,6 +537,7 @@ async function scenarioParallel(): Promise<void> {
 // abort via x/y → the run must LEAVE Running (aborted badge), closing the
 // best-effort gap.
 async function scenarioViewer(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -495,18 +549,18 @@ async function scenarioViewer(): Promise<void> {
   tty.write("\r");
   await waitIdle(1200, 15000);
   snap("submitted", true);
-  // background:true settles the CALL immediately with a `⌛ running` row.
+  // background:true settles the CALL immediately with the backgroundRow glyph.
   // LATCH, not one-shot (allSettled lesson): the ⌛ row renders only while
   // that transcript region is on screen, and the parent's thinking time
   // varies a lot — check again inside every poll below.
-  receipt.checks.backgroundRow = /⌛ running/.test(screen().join("\n"));
+  receipt.checks.backgroundRow = V.backgroundRow.test(screen().join("\n"));
 
   tty.write("/subagents");
   await sleep(200);
   tty.write("\r");
   await waitIdle(1200, 8000);
   snap("viewer", true);
-  receipt.checks.viewerOpened = screen().join("\n").includes("Subagent runs");
+  receipt.checks.viewerOpened = V.viewerHeader.test(screen().join("\n"));
   if (!receipt.checks.viewerOpened) return;
 
   // Move to the Running row and ENTER → follow view.
@@ -523,7 +577,8 @@ async function scenarioViewer(): Promise<void> {
     // follow view signature: the header line (`▸ <model> • running • <dur>`)
     // plus a trace body (→/✓ markers) and/or a ticking elapsed.
     if (/• running •/.test(s) && (/[→✓] /.test(s) || /↳ /.test(s))) sawFollowTrace = true;
-    if (!receipt.checks.backgroundRow && /⌛ running|bg ●/.test(s)) receipt.checks.backgroundRow = true;
+    if (!receipt.checks.backgroundRow && (V.backgroundRow.test(s) || V.bgLooseRow.test(s)))
+      receipt.checks.backgroundRow = true;
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     snap(sawFollowTrace ? "follow-live" : "follow");
     if (sawFollowTrace) break;
@@ -536,7 +591,7 @@ async function scenarioViewer(): Promise<void> {
   // aborts when the SELECTED entry is a running row — on any other row it
   // falls through to the type-to-filter input (first attempt typed 'x' into
   // the filter, 0 matches); (2) esc clears a filter before it closes the
-  // viewer. So: clear any filter, walk up to the `bg ●` live row, then x/y.
+  // viewer. So: clear any filter, walk up to the bg-marker live row, then x/y.
   // Deterministic reset: leave follow (esc — one press; if it happened to
   // close the viewer instead, reopening below fixes that too) and RE-OPEN
   // /subagents fresh. A fresh list puts the cursor on entry 0 = the live
@@ -569,7 +624,7 @@ async function scenarioViewer(): Promise<void> {
     tty.write("x");
     await sleep(400);
     snap("abort-confirm", true);
-    receipt.checks.abortFlow = /Abort this subagent\? y\/N/.test(readSnapText("abort-confirm") ?? "");
+    receipt.checks.abortFlow = V.abortConfirm.test(readSnapText("abort-confirm") ?? "");
     tty.write("y");
     // The abort must take — judged by the DEFINITIVE observable: the abort
     // notification landing in the transcript (`status: aborted` / "Subagent
@@ -584,13 +639,13 @@ async function scenarioViewer(): Promise<void> {
       await sleep(2500);
       const s = screen().join("\n");
       snap(i === 0 ? "after-abort" : `after-abort-${i + 1}`, true);
-      if (/status: aborted|Subagent aborted by user/.test(s)) abortConfirmed = true;
+      if (V.abortConfirmedText.test(s)) abortConfirmed = true;
     }
     receipt.checks.abortConfirmed = abortConfirmed;
     // F-ui-2 fix check (self-arc-6): once the terminal status lands, the
     // aborted entry must LEAVE the Running section promptly — the stale row
     // used to linger 15s+ (six polls all showing it). The bottom log line
-    // (`bg ● …`, single space) does not count; the live row is `bg      ●`.
+    // (single space before the dot) does not count; the live row has 2+ spaces.
     //
     // F-invalidate fix check (self-arc-7): phase 1 polls the OPEN viewer —
     // NO reopen kick. The registry→viewer onChange channel must repaint the
@@ -600,7 +655,7 @@ async function scenarioViewer(): Promise<void> {
     // 2 only runs when phase 1 stayed stale: the close+reopen kick (fresh
     // mount re-reads views()) separates "render trigger missing" from "data
     // layer wrong" and stays as the staleRowGone diagnostic fallback.
-    const staleGone = () => !/bg\s{2,}●/.test(screen().join("\n"));
+    const staleGone = () => !V.bgLiveRow.test(screen().join("\n"));
     let staleRowGoneNoReopen = false;
     for (let i = 0; i < 8 && !staleRowGoneNoReopen; i++) {
       await sleep(2500);
@@ -637,6 +692,7 @@ async function scenarioViewer(): Promise<void> {
 // standard background markers. All checks LATCHED in-loop (rows scroll out
 // when the parent replies; settle markers are transient).
 async function scenarioCatalog(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -653,7 +709,7 @@ async function scenarioCatalog(): Promise<void> {
   while (Date.now() - t0 < opts.timeoutS * 1000) {
     await sleep(2000);
     const s = screen().join("\n");
-    if (!backgroundRow && /⌛ running|bg\s{2,}●/.test(s)) backgroundRow = true;
+    if (!backgroundRow && (V.backgroundRow.test(s) || V.bgLiveRow.test(s))) backgroundRow = true;
     // Routed evidence, two shapes: (1) the F-actor-fixed row — actor name and
     // resolved model segment on ONE rendered line; (2) the child's streamed
     // def-prompt quote (`↳ You are the hard-problem analyst…`) — that line
@@ -664,7 +720,7 @@ async function scenarioCatalog(): Promise<void> {
       (/hard-problem.*glm-5\.3|glm-5\.3.*hard-problem/.test(s) || /↳ You are the hard-problem analyst/.test(s))
     )
       catalogRouted = true;
-    if (!settled && /<task-notification>|status: (done|aborted)/.test(s)) settled = true;
+    if (!settled && V.taskSettled.test(s)) settled = true;
     snap(backgroundRow ? (catalogRouted ? "routed" : "running") : "submitted", true);
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     if (settled && catalogRouted) break;
@@ -688,12 +744,8 @@ async function scenarioCatalog(): Promise<void> {
 // All checks LATCHED in-loop on rendered truth; no viewer reopen. Gesture
 // timing needs no child-evidence gating here (no abort gestures).
 async function scenarioCcParity(): Promise<void> {
-  // Deployed hosts render LATE: waitIdle alone can return mid-load (2.5s of
-  // silence during a slow boot) — then the first Enter is eaten by the
-  // freshly-mounted dialog and the next prompt concatenates into the same
-  // buffer (the deployed-leg failure this gate fixes). Gate on RENDERED
-  // truth: screen non-empty, THEN quiet.
-  for (let i = 0; i < 60 && screen().length === 0; i++) await sleep(1500);
+  // Deployed hosts render LATE — the shared boot gate (awaitBootRendered)
+  // generalizes this scenario's original inline poll (self-arc-19 t01).
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -786,7 +838,7 @@ async function scenarioCcParity(): Promise<void> {
     )
       reviewerRouted = true;
     if (!findingReported && /FINDING:/.test(joined)) findingReported = true;
-    if (!reviewSettled && /<task-notification>|status: (done|aborted)/.test(joined)) reviewSettled = true;
+    if (!reviewSettled && V.taskSettled.test(joined)) reviewSettled = true;
     snap(findingReported ? "finding" : reviewerRouted ? "reviewer-routed" : "review-sent", true);
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     if (reviewSettled && reviewerRouted && findingReported) break;
@@ -807,6 +859,7 @@ async function scenarioCcParity(): Promise<void> {
 // (the `wf_receipt · k/2 agents` preview only exists once the workflow engine
 // registered agents) — the parent's spinner fires long before.
 async function scenarioWorkflow(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -829,10 +882,11 @@ async function scenarioWorkflow(): Promise<void> {
   while (Date.now() - t0 < opts.timeoutS * 1000) {
     await sleep(2000);
     let s = screen().join("\n");
-    // Child evidence: the k/N counter and the ◆-prefixed panel row only
+    // Child evidence: the k/N counter and the panel-glyph-prefixed row only
     // render once the workflow engine registered its agents (receipted — the
-    // panel shape is `◆ wf_receipt  1/2 agents · Work`, not the preview form).
-    if (!wfRow && /\d\/2 agents|◆ wf_receipt/.test(s)) {
+    // panel shape is `wf_receipt · k/2 agents · Work` with the panel row
+    // glyph (see UI_VOCAB.wfGlyph/wfAgentsCounter), not the preview form).
+    if (!wfRow && (V.wfAgentsCounter.test(s) || (V.wfGlyph.test(s) && s.includes("wf_receipt")))) {
       wfRow = true;
       receipt.checks.wfRow = true;
     }
@@ -857,7 +911,7 @@ async function scenarioWorkflow(): Promise<void> {
       tty.write("x");
       await sleep(500);
       snap("wf-abort-confirm", true);
-      wfAbortFlow = /Abort this subagent\? y\/N/.test(readSnapText("wf-abort-confirm") ?? "");
+      wfAbortFlow = V.abortConfirm.test(readSnapText("wf-abort-confirm") ?? "");
       receipt.checks.wfAbortFlow = wfAbortFlow;
       tty.write("y");
       await sleep(500);
@@ -867,7 +921,7 @@ async function scenarioWorkflow(): Promise<void> {
     }
     // ── latched post-abort observation (open viewer, then transcript) ──
     if (!wfAbortConfirmed) {
-      const confirmGone = !/Abort this subagent/.test(s);
+      const confirmGone = !V.abortConfirm.test(s);
       const terminal = /⊘|aborted/.test(s);
       if (confirmGone && terminal) wfAbortConfirmed = true;
     }
@@ -892,6 +946,7 @@ async function scenarioWorkflow(): Promise<void> {
 // Every latch is gated on child evidence; the /subagents observation happens
 // on the OPEN viewer (no reopen); all sends are wall-clock paced.
 async function scenarioWfPause(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -920,7 +975,7 @@ async function scenarioWfPause(): Promise<void> {
     if (!wfRow) {
       const m = /Run ID: ([a-z0-9-]+)/.exec(s);
       if (m) runId = m[1] ?? "";
-      if (/\d\/2 agents|◆ wf_pause/.test(s)) {
+      if (V.wfAgentsCounter.test(s) || (V.wfGlyph.test(s) && s.includes("wf_pause"))) {
         wfRow = true;
         receipt.checks.wfRow = true;
       } else {
@@ -953,14 +1008,15 @@ async function scenarioWfPause(): Promise<void> {
       s = screen().join("\n");
       // The OPEN viewer (no reopen): the wf row must read paused — arc-11's
       // keep-paused-row lifecycle rendered through the change channel.
-      // Structural latch: the ‖ glyph is glyphFor("paused") and renders ONLY
+      // Structural latch: the paused glyph (glyphFor("paused"), UI_VOCAB
+      // .pausedGlyph) renders ONLY
       // on a paused row — parent prose naming "workflow" + "paused" cannot
       // fake it (receipted: prose-pollution was possible in the first draft).
-      const line = screen().find((l) => /‖/.test(l) && /(workflow|wf_pause)/.test(l));
+      const line = screen().find((l) => V.pausedGlyph.test(l) && /(workflow|wf_pause)/.test(l));
       if (line) pausedSharedRow = true;
       snap("paused-shared", true);
       receipt.checks.pausedSharedRow = pausedSharedRow;
-      if (pausedSharedRow || !/Subagent runs/.test(s)) {
+      if (pausedSharedRow || !V.viewerHeader.test(s)) {
         tty.write("\x1b");
         await sleep(600);
         if (runId) {
@@ -974,9 +1030,9 @@ async function scenarioWfPause(): Promise<void> {
     }
     if (phase === 3) {
       s = screen().join("\n");
-      // Resumed: the panel row back to live (◆ / k-of-N counter) — or the
+      // Resumed: the panel row back to live (glyph / k-of-N counter) — or the
       // resume notification landed in the transcript.
-      if (/◆ wf_pause|\d\/2 agents|resumed/i.test(s)) {
+      if ((V.wfGlyph.test(s) && s.includes("wf_pause")) || V.wfAgentsCounter.test(s) || /resumed/i.test(s)) {
         resumedRow = true;
         receipt.checks.resumedRow = true;
         phase = 4;
@@ -1006,6 +1062,7 @@ async function scenarioWfPause(): Promise<void> {
 // confirm. Also the live shadow check: a host builtin claiming /agents would
 // make dialogOpened render something that is NOT this dialog.
 async function scenarioAgents(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -1017,7 +1074,7 @@ async function scenarioAgents(): Promise<void> {
   await waitIdle(800, 8000);
   snap("agents-list", true);
   const list = screen().join("\n");
-  receipt.checks.dialogOpened = /Agent types/.test(list);
+  receipt.checks.dialogOpened = V.agentsDialogHeader.test(list);
   receipt.checks.seededRowRendered = /probe {2}·/.test(list) && /seeded by tui-drive/.test(list);
   if (!receipt.checks.dialogOpened) return;
 
@@ -1088,7 +1145,7 @@ async function scenarioAgents(): Promise<void> {
   tty.write("d");
   await sleep(400);
   snap("agents-confirm", true);
-  receipt.checks.deleteConfirm = /y confirm delete/.test(screen().join("\n"));
+  receipt.checks.deleteConfirm = V.deleteConfirm.test(screen().join("\n"));
   tty.write("y");
   await waitIdle(1500, 10000);
   snap("agents-deleted", true);
@@ -1112,8 +1169,8 @@ async function scenarioAgents(): Promise<void> {
 // child's reply lands on the settled `↳ <reply>` summary line (receipted).
 async function scenarioReload(): Promise<void> {
   // A freshly-created version dir can take a while to first render (deployed
-  // boot) — wait for a non-empty screen instead of checking once.
-  for (let i = 0; i < 12 && screen().length === 0; i++) await sleep(1000);
+  // boot) — the shared boot gate (awaitBootRendered) generalizes this
+  // scenario's original inline poll (self-arc-19 t01).
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -1143,7 +1200,7 @@ async function scenarioReload(): Promise<void> {
     while (Date.now() - t0 < opts.timeoutS * 1000) {
       await sleep(2000);
       const s = screen().join("\n");
-      const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
+      const running = V.liveMarker.test(s);
       if (running) sawLive = true;
       snap(running ? "running" : "after-run");
       if (!running && sawLive && Date.now() - lastByteAt > opts.quietMs) break;
@@ -1174,6 +1231,7 @@ async function scenarioReload(): Promise<void> {
 // of the three children ends ✓ done, each routed through agentType
 // hard-problem (glm-5.3 via childModelIsGlm53).
 async function scenarioSwarm(): Promise<void> {
+  await awaitBootRendered(screen, 90_000); // self-arc-19 t01 (map D4) — all scenarios
   await waitIdle(2500, 45000);
   snap("boot", true);
   receipt.checks.booted = screen().length > 0;
@@ -1198,7 +1256,7 @@ async function scenarioSwarm(): Promise<void> {
   while (Date.now() - t0 < opts.timeoutS * 1000) {
     await sleep(2000);
     const s = screen().join("\n");
-    const running = /Working\.\.\.|esc to interrupt|[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/.test(s);
+    const running = V.liveMarker.test(s);
     if (!running) {
       snap("after-run");
       if (sawLive && Date.now() - lastByteAt > opts.quietMs) break;
@@ -1236,9 +1294,7 @@ async function scenarioSwarm(): Promise<void> {
       tty.write("x");
       await sleep(500);
       snap("swarm-abort-confirm", true);
-      receipt.checks.batchAbortFlow = /Abort all \d+ running children\? y\/N/.test(
-        readSnapText("swarm-abort-confirm") ?? "",
-      );
+      receipt.checks.batchAbortFlow = V.abortAllConfirm.test(readSnapText("swarm-abort-confirm") ?? "");
       tty.write("y");
       await sleep(500);
       // STAY in the viewer: the registry's onChange channel repaints the open
@@ -1249,8 +1305,8 @@ async function scenarioSwarm(): Promise<void> {
 
     // ── latched post-abort observation (open viewer, NO reopen) ──
     if (!batchAbortConfirmed) {
-      const viewerOpen = /Subagent runs/.test(s);
-      const confirmGone = !/Abort all \d+ running children/.test(s);
+      const viewerOpen = V.viewerHeader.test(s);
+      const confirmGone = !V.abortAllConfirm.test(s);
       const terminalEvidence = /⊘|✗|aborted/.test(s) || /0\/3 running/.test(s);
       if (viewerOpen && confirmGone && terminalEvidence) batchAbortConfirmed = true;
     }
@@ -1259,16 +1315,12 @@ async function scenarioSwarm(): Promise<void> {
     // notifications — rows scroll, so any single sample latches.
     if (!allChildrenTerminal) {
       const terminalRows = (s.match(/⊘|✗/g) ?? []).length;
-      if (
-        terminalRows >= 3 ||
-        /0\/3 running/.test(s) ||
-        /status: aborted|Subagent aborted by user|subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(s)
-      )
+      if (terminalRows >= 3 || /0\/3 running/.test(s) || V.abortConfirmedText.test(s) || V.batchSettled.test(s))
         allChildrenTerminal = true;
     }
     snap(batchAbortConfirmed ? "aborted" : "aborting", true);
     if (batchAbortConfirmed && allChildrenTerminal) break;
-    if (Date.now() - lastByteAt > opts.quietMs && !/Subagent runs/.test(s) && allChildrenTerminal) break;
+    if (Date.now() - lastByteAt > opts.quietMs && !V.viewerHeader.test(s) && allChildrenTerminal) break;
   }
   snap("settled", true);
   const settledScreen = screen().join("\n");
@@ -1280,8 +1332,7 @@ async function scenarioSwarm(): Promise<void> {
   if (!allChildrenTerminal) {
     const terminalRows = (settledScreen.match(/⊘|✗/g) ?? []).length;
     allChildrenTerminal =
-      terminalRows >= 3 ||
-      /status: aborted|Subagent aborted by user|subagents batch \([^)]*\) — [0-9]+s(?! elapsed)/.test(settledScreen);
+      terminalRows >= 3 || V.abortConfirmedText.test(settledScreen) || V.batchSettled.test(settledScreen);
   }
   receipt.checks.allChildrenTerminal = allChildrenTerminal;
 }

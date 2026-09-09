@@ -195,6 +195,12 @@ export type { RunView } from "./run-view.js";
 export { buildRunView, isTerminalStatus } from "./run-view.js";
 export type { SddReport, SddReportStatus } from "./sdd-report.js";
 export { isSddReportActionable, parseSddReport, SDD_REPORT_STATUSES } from "./sdd-report.js";
+export {
+  currentSpawnScope,
+  DEFAULT_MAX_SPAWN_DEPTH,
+  runWithSpawnDepth,
+  spawnDepthExceeded,
+} from "./spawn-depth.js";
 export type { SpawnSubagentOptions, SpawnSubagentResult, SubagentFailure } from "./spawn-subagent.js";
 export { deriveTaskLabel, resolveSessionOverride, spawnSubagent } from "./spawn-subagent.js";
 // Isolated-PROCESS dispatch (moved from s2-agent-ext-subagent as the

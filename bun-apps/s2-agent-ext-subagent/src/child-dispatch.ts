@@ -79,6 +79,11 @@ export interface ChildDispatchRequest {
 export interface ChildDispatchDeps {
   spawn: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   inFlight?: SubagentInFlightRegistry;
+  /** Per-run steer lever (self-arc-19 t02): set only when the child session
+   *  exposes a mid-flight steering handle (named live agents today). Passed
+   *  through to the registry entry so list_subagent_runs `steer` can reach
+   *  it; omitted = the run is honestly not steerable. */
+  steer?: (text: string) => Promise<{ steered: boolean; output?: string }>;
   /** Defaults to realGitOps. Only consulted when `request.scope` is set. */
   gitOps?: GitScopeOps;
   /** Wraps the provider dispatch — the batch tool passes the shared per-provider rate limiter. */
@@ -182,6 +187,7 @@ export async function dispatchChild(
     startedAt,
     batchId: entry.batchId,
     abort: () => childAc.abort(),
+    steer: deps.steer,
     // Rendered inline by the owning tool's own call/result line, so the
     // above-editor context box excludes it (no duplication). A background
     // dispatch is NEVER inline — the dock owns its surface.

@@ -13,7 +13,7 @@ describe("registerPreviewContextCommand", () => {
     memoryPolicyStyle?: "full" | "compact" | "custom" | "none";
     memoryPolicyCustomText?: string;
   }) {
-    const commands: { name: string; handler: Function }[] = [];
+    const commands: { name: string; handler: (args: unknown, ctx: unknown) => Promise<void> | void }[] = [];
     const notifyCalls: { message: string; severity: string }[] = [];
 
     const mockPi = {

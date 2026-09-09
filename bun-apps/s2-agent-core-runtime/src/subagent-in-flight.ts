@@ -105,6 +105,14 @@ export interface InFlightSubagent {
    *  viewer (x-key) can abort ONE running child without aborting the whole turn.
    *  Set by the tool at dispatch; fired by the registry's abort(id). */
   abort?: () => void;
+  /** Per-run steer lever (self-arc-19 t02) — delivers text INTO the child's
+   *  current exchange (the PersistentAgent mid-flight path ⇒ `{steered:true}`
+   *  immediately; if the exchange had just gone idle the text runs as a fresh
+   *  turn and `output` carries its reply). Optional exactly like `abort`: only
+   *  dispatches whose child session exposes a steering handle (named live
+   *  agents today) set it; unnamed in-process runs and detached subprocesses
+   *  stay un-steerable and the caller says so. */
+  steer?: (text: string) => Promise<{ steered: boolean; output?: string }>;
 }
 
 /**
@@ -329,6 +337,18 @@ export class SubagentInFlightRegistry {
    *  must never throw. */
   abort(id: string): void {
     this.runs.get(id)?.abort?.();
+  }
+
+  /** Deliver text into ONE live child's current exchange (self-arc-19 t02,
+   *  list_subagent_runs `steer`). Returns undefined when the id is unknown,
+   *  already terminal, or the entry carries no steer lever (unnamed
+   *  in-process run / detached subprocess) — the CALLER turns every one of
+   *  those into an actionable non-error message, mirroring abort()'s `?.`
+   *  semantics: a steer racing with natural completion must never throw. */
+  steer(id: string, text: string): Promise<{ steered: boolean; output?: string }> | undefined {
+    const r = this.runs.get(id);
+    if (!r || isTerminalStatus(r.status) || !r.steer) return undefined;
+    return r.steer(text);
   }
 
   /** Fire the abort lever of EVERY non-terminal child of one batch

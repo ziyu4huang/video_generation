@@ -73,11 +73,6 @@ function parseArgs(): Opts {
   return o;
 }
 
-interface SpawnResult {
-  exitCode: number | null;
-  wallMs: number;
-}
-
 /** One tui-drive scenario as an independent process (the sweep's unit of work). */
 async function runScenario(scenario: ScenarioId, o: Opts): Promise<ScenarioOutcome> {
   const outDir = path.join(o.out, scenario);
