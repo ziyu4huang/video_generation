@@ -82,11 +82,16 @@ export function registerCommands(pi: ExtensionAPI, state: RuntimeState, overlay:
       const isExplicitChart = trimmed.startsWith("--") || WAYFIND_KEYWORDS.has(firstToken);
       const activeEffort = state.activeEffortBySession.get(sessionId);
       if (trimmed && activeEffort && !isExplicitChart) {
+        // Render the status FIRST, the guard note LAST: the notify pane shows
+        // the accumulated lines and a notify emitted before another handler's
+        // own notifies never becomes visible (live-drive finding, 2026-09-09 —
+        // the guard text was displaced by the status renders every time).
+        await wayfind.status("", ctx);
         ctx.ui.notify(
           `🧭 ${activeEffort} (active) — showing its status. Use \`/wayfind -- <destination>\` to start a NEW effort.`,
           "info",
         );
-        return wayfind.status("", ctx);
+        return;
       }
       const bannerEffort = resolveWayfindEffortId(trimmed, () => state.activeEffortBySession.get(sessionId));
       // The `statusbar`/`help`/`usage` subcommands take no effort id — never
