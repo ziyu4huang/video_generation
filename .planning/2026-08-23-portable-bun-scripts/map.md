@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-23-portable-bun-scripts
 created: 2026-08-23
-last: 2026-08-23
-status: designing
+last: 2026-09-09
+status: done
 ---
 # portable-bun-scripts — bash → portable Bun for skill-facing scripts
 
@@ -104,3 +104,7 @@ Also open (deferred Minor, triaged): dedup.ts SQL-error-path divergence (uncatch
 - **Supersedes**: nothing (bash scripts stay until each wave's PR lands — no effort claims
   them today).
 - **Absorbed-by**: nothing yet.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+All 3 waves merged (20 scripts converted, golden-parity guard sealed) + the find-polluter upstream fix port. PRs: #1857, #1858, #1861, #1862.

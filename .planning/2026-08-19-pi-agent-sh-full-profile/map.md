@@ -1,6 +1,7 @@
+---
 effort: 2026-08-19-pi-agent-sh-full-profile
 created: 2026-08-19
-last: 2026-08-20
+last: 2026-09-09
 status: complete
 ---
 
@@ -54,3 +55,7 @@ matrix.
   (imports obsidian's entry — cascade), file2md (mupdf + LM Studio localhost),
   the director/MCP wrappers (machine-bound swift CLIs), devops/tool-gate
   (repo-internal). All remain available in legacy source/run-dir modes.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+sh base set 3 → 12 extensions — portable full-featured profile. PRs: #1726.

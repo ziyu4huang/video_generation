@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-15-tool-gate-complete-redesign
 created: 2026-08-15
-last: 2026-08-23
+last: 2026-09-09
 status: active
 ---
 
@@ -118,3 +118,9 @@ wayfind_effort 557 · power_browser 518 · zk_ask 445 · run_local_ci 383 — en
 - **The gated tools themselves** — flux2/ltx/krea2/movie/research/etc. are owned by their extensions; this effort only controls their visibility.
 - **Fixing pre-existing typecheck errors in sibling packages** (the contract-collapse spike recorded 19 in movie-director alone) — unrelated to gating; not this effort.
 - **`pi-agent` upstreaming of `gating` into `ToolDefinition`** (the "FOLLOWUPS #5" true owner-declaration path) — this effort works within the extension-layer contract; upstreaming is a separate cross-repo effort.
+
+## Shipped-so-far (assessed 2026-09-09 by 2026-09-09-planning-audit)
+
+Decisions 00–02 closed 2026-08-15 (mechanism kept + hardened); the measured reversal — tool-gate ships in the dist (registry deploy row, BUN_PI_TOOL_GATE guard, fire-probe e2e) — landed as #1911.
+
+Deferred 2026-09-09: tickets 03–06 remain open/blocked (live L2 on dist, deploy-side corpus port); reopen when tool-gate QA work resumes.

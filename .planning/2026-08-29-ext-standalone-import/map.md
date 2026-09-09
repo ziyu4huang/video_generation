@@ -140,3 +140,7 @@ confirmed execution order.
 - Builds-on: `2026-08-28-win32-launcher-stdout` ticket 03's "refresh local
   dist" habit — t05's fresh deploy doubles as the crossos effort's
   standing dist refresh if still pending.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+All 5 tickets shipped (ext-standalone.mjs import surface); terminal-dump sweep. PRs: #2131, #2132.

@@ -1,3 +1,10 @@
+---
+effort: 2026-08-18-webui-readability
+created: 2026-08-18
+last: 2026-09-09
+status: done
+---
+
 # webui-readability — 2026-08-18
 
 ## Destination
@@ -17,3 +24,7 @@ Follow-ups:
 3. G4 — transcript search/filter (#1693: substring + all/text/cards chips,
    MutationObserver-driven)
 G3 stays DEFERRED (multi-session index — architecture decision pending).
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Approved order G1>G2>G4 complete — markdown chat feed, mobile responsive, transcript search/filter; G3 deferred at spec time (never in approved scope). PRs: #1691, #1692, #1693.

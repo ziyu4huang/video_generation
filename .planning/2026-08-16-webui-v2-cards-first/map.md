@@ -1,3 +1,10 @@
+---
+effort: 2026-08-16-webui-v2-cards-first
+created: 2026-08-16
+last: 2026-09-09
+status: done
+---
+
 # webui-v2-cards-first
 
 ## Destination
@@ -15,3 +22,7 @@ Finish the de-chat philosophy: webui = Transcript (clean read-only log) + Cards 
   | 01 | de-btw + de-clutter (sidebar, views list panel, TURN, meta) | closed | — |
   | 02 | verify + polish: replay/UX checks post-removal, README v2 section | closed | all replay coverage intact; README "Cards-first v2" (e1fa83c9); 458/0, innerHTML 8 |
 - Done (2026-08-16): t01 de-btw/de-clutter landed via PRs #1532/#1533 (16 files, +30/-1689); t02 verified replay coverage intact and shipped the README cards-first v2 section (e1fa83c9). Effort complete — webui is Transcript + Cards + present-only #content, gates 458/0, innerHTML 8.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+De-btw/de-clutter landed (16 files, +30/−1689); README cards-first v2 section; gates 458/0. PRs: #1532, #1533.

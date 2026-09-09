@@ -65,3 +65,7 @@ None — queue drained 2026-08-25. All six tickets merged (PRs #1992, #1994, #19
 
 - `Builds-on: 2026-08-21-s2-agent-rename` lineage (pi-agent → s2-agent): the pi-legacy leftovers census came from its naming decision; PI_*/BUN_PI_* env names and ~/.pi/agent state dir stay unchanged by design (cited, not re-decided).
 - `Shares-decision-with: 2026-08-22-context-lifecycle` — D3 embed canonical (LM Studio bge-m3) is untouched by this effort; 02's paths leaf must not drift SEMANTIC_EMBED resolution (embedding-leaf.ts owns it).
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Simplify t01–t06 (dead surface, paths leaf, transcript consolidation, flag-spec, dedup, patches boilerplate) + SDK-contract guard. PRs: #1992, #1994, #1997, #1999, #2000, #2001, #2032.

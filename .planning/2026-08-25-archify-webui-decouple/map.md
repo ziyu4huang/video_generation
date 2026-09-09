@@ -107,3 +107,7 @@ advisory) — fold the bump into the next s2-agent PR (round-2 simplify).
 - **Shares-decision-with**: `.planning/2026-08-15-archify-webui-html` (archived) —
   that effort BUILT the `webui:open` `/files` contract this effort freezes and
   documents; no code it shipped changes here.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Archify-webui decouple complete. PRs: #2007.

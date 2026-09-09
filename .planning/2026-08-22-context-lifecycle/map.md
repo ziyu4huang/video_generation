@@ -346,3 +346,7 @@ charted in Fog of war. New work opens a NEW effort folder, citing this map's Dec
   (ticket 01, 2026-08-23) adds seam→env→default precedence to D3's `embedding-leaf.ts`
   resolution point — model choice (bge-m3) unchanged; values centralized in
   `s2-agent/src/pre-load-providers.ts`.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Startup-context block + hermes capture-only journal fold, later kcard fold-backs. PRs: #1817, #1818, #2160, #2163.

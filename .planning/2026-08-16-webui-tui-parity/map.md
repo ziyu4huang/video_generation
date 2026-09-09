@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-16-webui-tui-parity
 created: 2026-08-16
-last: 2026-08-16
-status: active
+last: 2026-09-09
+status: done
 ---
 # webui-tui-parity — ghost-dialog fix + TUI status in the shell
 
@@ -25,3 +25,7 @@ the user cannot tell WHICH session/worktree a browser tab is co-driving.
 
 ## Frontier
 Next: 01 then 02, then docs line in webui README + review + merge.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Ask-user tombstone + session-info status line — both tickets closed, work landed. PRs: #1495.

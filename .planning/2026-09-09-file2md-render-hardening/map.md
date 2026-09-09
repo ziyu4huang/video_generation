@@ -207,3 +207,7 @@ hardened; its reviewer's 6 accepted follow-up nits are this arc's source).
 Shares-decision-with: parent D1/D6 (probed optional layers, no new deps) and
 the smart-enhance D4 degrade semantics (notice, never throw) — both applied
 here to liveness, not just failure.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Render hardening implementation; close-out flipped status but the section itself never landed — added here. PRs: #2220, #2228.

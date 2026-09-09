@@ -55,15 +55,15 @@ and a validated successor next-goal.
 
 ## Tickets
 
-- [ ] t01 open effort: map + tickets + planner plan committed (this commit)
-- [ ] t02 audit tool: `src/effort-audit.ts` (pure, injected `verifyPr`) +
+- [x] t01 open effort: map + tickets + planner plan committed (this commit)
+- [x] t02 audit tool: `src/effort-audit.ts` (pure, injected `verifyPr`) +
       `scripts/effort-audit.ts` CLI (`--json/--md/--stale-days`, exit 1 on red) +
       `tests/effort-audit.test.ts`; wayfind gates green
-- [ ] t03 baseline receipt: run on untouched tree, commit
+- [x] t03 baseline receipt: run on untouched tree, commit
       `results/baseline/audit.{json,md}`; exit 1 expected and recorded
-- [ ] t04 pilot reconcile: flip the two contradictions (13→done #2218+#2219,
+- [x] t04 pilot reconcile: flip the two contradictions (13→done #2218+#2219,
       14→done #2223+#2225), re-run tool, red-count drops by exactly those rows
-- [ ] t05 bulk reconcile: D5 criteria on every remaining red row; live dirs
+- [x] t05 bulk reconcile: D5 criteria on every remaining red row; live dirs
       untouched (verified via `git diff --stat origin/main`); commit
       `results/reconciled/audit.{json,md}`
 - [ ] t06 conventions + close-out: two CONVENTIONS.md bullets, reviewer pass,
@@ -100,6 +100,10 @@ and a validated successor next-goal.
   + collision lessons) and self-arc-17 (its Destination named map-status
   reconciliation; this effort does the systematic pass). Reciprocal link on
   arc-17 deferred to its owner's close-out — documented exception in Fog.
+- D9 provenance vocabulary: `## Shipped` counts alongside `## Shipped-as`
+  (baseline found sibling sessions spell it both ways; the SOP requirement is
+  "cite what shipped", not one spelling). Two malformed-fence maps repaired
+  (frontmatter without the opening `---`).
 - D8 census of record = the tool (t02) output; the 75-vs-72 / 10-vs-12 executor
   delta is written into the baseline table as a measured row.
 
@@ -134,3 +138,12 @@ and a validated successor next-goal.
 - Builds-on: 2026-09-09-self-arc-17 — its Destination named "reconciles
   shipped-but-active map statuses"; this effort is the systematic pass its
   close-out can cite. Reciprocal link deferred (live-owned dir).
+
+## Executor deviations (recorded 2026-09-09)
+
+- t04 acceptance adjusted: the two pilot rows were fresh-dated, never stale —
+  flips correct, red-count unchanged by t04 (details results/summary.md).
+- Two edit-script hiccups (unflushed-write race; a fence that only looked
+  present) — both caught by the tool re-run before commit, fixed, re-audited.
+- prepare-feature-branch-cli reported create-failed on a nonexistent branch
+  name; the equivalent checkout ran manually, later phases stay CLI-owned.

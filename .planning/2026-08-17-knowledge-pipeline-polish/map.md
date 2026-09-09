@@ -28,3 +28,7 @@ Land the four decided levers from the wayfind map (closed → ../done/2026-08-17
   (`s2-agent-core-interface/src/embedding-leaf.ts`) is the single point that effort's D3
   (canonical BGE-M3) changes; its "zero behavior change" fence is exactly what that
   effort's D0 (breaking changes allowed in obsidian + knowledge-card) lifts, by user call.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Pipeline polish shipped — CLI retirement, leaf hoist, docs truth (4/4 structure targets). PRs: #1586.

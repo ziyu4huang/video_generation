@@ -1,3 +1,10 @@
+---
+effort: 2026-08-16-webui-tab-views
+created: 2026-08-16
+last: 2026-09-09
+status: done
+---
+
 # webui-tab-views
 
 ## Destination
@@ -16,3 +23,7 @@ Replace the single Cards surface with semantic tabs: Transcript (agent stream, u
   | # | ticket | status | result |
   | 01 | report frame + 5-tab shell + routing + md renderer | closed | five tabs + routing + md renderer; webui 489/0 |
   | 02 | report producer helper + Data full-pane + deep-link routing + README | open | — |
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Five semantic tabs + routing + md renderer (t01 #1550); report producer + Data full-pane (t02 #1562 — map ticket row was never flipped). PRs: #1550, #1562.

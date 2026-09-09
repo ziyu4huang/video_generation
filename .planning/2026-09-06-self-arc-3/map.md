@@ -34,3 +34,7 @@ childModelIsGlm53 ✓), reload source ✓, reload deployed ✓.
 - D2: reload proof via settled-screen marker (unique string exists only in
   the def file → child reply → transcript), not a file artifact — the child
   may skip side-effect steps; the reply is the direct observable.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Deploy self-heal + agent-def live-reload guarantee with e2e receipts; P3 hygiene. PRs: #2193, #2194.

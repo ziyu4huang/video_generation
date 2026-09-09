@@ -1,3 +1,10 @@
+---
+effort: 2026-08-16-webui-cards-ux2
+created: 2026-08-16
+last: 2026-09-09
+status: paused
+---
+
 # webui-cards-ux2
 
 ## Destination
@@ -18,3 +25,9 @@ Close two user-reported card UX gaps + one correctness bug: (1) answered questio
   | 02 | non-blocking draft cards (blocking flag, card_send, sendUserMessage injection) + tests/docs | closed | draft cards one-shot send -> card_send -> JSONL + card_done freeze + sendMessage injection; webui 481 pass / 0 fail, innerHTML 8; 02a e0eb9dd1 + 02b 0db6695e |
   | 03 | persist draft-card input across refresh/replay | open | — |
   | 04 | answered-card detail persistence for replay | closed | cap-exempt cards + answers-bearing card_done; replay review renders; webui 482/0 |
+
+## Shipped-so-far (assessed 2026-09-09 by 2026-09-09-planning-audit)
+
+t01 answer round-trip fix + reviewable answered cards (#1539; plus commits e0eb9dd1/0db6695e for t02). PRs: #1539.
+
+Parked 2026-09-09 by stall: ticket 03 (persist draft-card input across refresh/replay) unstarted since 2026-08-16. Reopen by shipping ticket 03.

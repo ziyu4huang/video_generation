@@ -55,3 +55,7 @@ None — effort closed the same day. Next workable follow-ons (unowned): (1) a f
 
 - Builds-on: `.planning/2026-08-23-deploy-platform-neutral-core` (bun-bundle core shape the exclusion is measured against), `.planning/2026-08-21-archify-view-pptx-bun` (the vendored-snapshot precedent).
 - Shares-decision-with: `.planning/2026-08-20-develop-pipeline-v2` / `2026-08-20-pi-agent-optimization` — no; the consumer contract discussed here (pdf-to-vault stage 1) is owned by `.planning/2026-07-31-let-s-continue-to-improve-base-on-known-upstream` lineage.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+file2md v2 bun-only redesign + Input-not-found fix. PRs: #1901.

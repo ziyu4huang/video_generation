@@ -143,3 +143,7 @@ Shares-decision-with: 2026-08-28-win32-launcher-stdout — that effort's
 launcher 真修 continues this effort's follow-through (the skip-classified
 green of run 33121706417 is provisional); D7 single-runtime is inherited
 verbatim by its D2.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Platform-neutral core, bundled-bun PATH, Windows launcher twins, cross-OS target topology, Actions verify matrix. PRs: #1860, #1863, #1866, #1867, #1868, #2086, #2092, #2096, #2097.

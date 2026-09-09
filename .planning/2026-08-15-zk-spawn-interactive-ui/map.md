@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-15-zk-spawn-interactive-ui
 created: 2026-08-15
-last: 2026-08-16
+last: 2026-09-09
 status: paused
 ---
 # zk spawn interactive result UI
@@ -17,3 +17,5 @@ Interactive result UI for zk spawn — research + implementation (round 1/2 inte
 - `interactive-result-ui-research.md` — research notes (210 lines)
 - `STATE-round1.md` — round-1 ground-truth state
 - `STATE-round2.md` — round-2 state, token-budget interruption mid-implementation; resume here
+
+Park note (dated 2026-09-09 by planning-audit): paused since 2026-08-16 (token-budget interruption). Research lineage absorbed by webui-event-cards (#1505+); resume from STATE-round2.md if zk spawn UI becomes active again.

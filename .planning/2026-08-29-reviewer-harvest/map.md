@@ -90,3 +90,7 @@ Shares-decision-with: 2026-08-28-win32-launcher-stdout — sibling outcome of
 the same user re-scope 2026-08-29 (that effort parked to the deploy
 worktree; this one is what this worktree does instead). Its D4 named this
 reviewer fix as "the next effort" — this effort IS that promise kept.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Reviewer-harvest CLI + durable receipts, workflow docs wiring; win32 park note rides along. PRs: #2112, #2122, #2128.

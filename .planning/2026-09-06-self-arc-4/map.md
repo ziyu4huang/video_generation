@@ -48,3 +48,7 @@ incl. abortFlow + abortConfirmed) AND deployed `0.10.0+g7cb10de` PASS. The
   ALREADY SHIPPED: the CLI JSON carries `coreCached` and the HTML report
   renders `(cached hardlink) | (fresh bundle)` next to the core row. No code
   needed — recorded here so the queue item closes.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+/subagents viewer abort flow pinned end-to-end + harness fix. PRs: #2190.

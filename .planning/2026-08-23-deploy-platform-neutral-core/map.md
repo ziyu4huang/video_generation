@@ -156,3 +156,7 @@ next touch (they document still-true constraints).
 - **Shares-decision-with**: `.planning/specs/2026-08-19-pi-agent-sh-deploy-design.md` —
   its execPath/packageDir conventions (`package.json` branding beside the artifact,
   dashed `S2-AGENT_CODING_AGENT_DIR` via `env`) carry over verbatim into `s2-agent.sh`.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+sh core as a bun-run ESM bundle (self-anchoring); deploy-E2E probe survives LM-Studio contention. PRs: #1850, #1860.

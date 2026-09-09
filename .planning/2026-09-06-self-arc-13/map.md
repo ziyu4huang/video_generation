@@ -1,8 +1,8 @@
 ---
 effort: 2026-09-06-self-arc-13
 created: 2026-09-08
-last: 2026-09-08
-status: planning
+last: 2026-09-09
+status: done
 ---
 
 # Wayfinder map: 2026-09-06-self-arc-13 — base-tech benchmark: which driver tech drives the self-develop arc
