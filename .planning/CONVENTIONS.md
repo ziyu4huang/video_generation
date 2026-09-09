@@ -63,3 +63,15 @@ When starting a new effort, skim existing efforts' `## Decisions so far` + `## C
   delete history. (Supersedes the "duplicate round numbers are info, not errors"
   stance above for SERIES numbers; content-slug guidance for non-series efforts
   stands.)
+
+## Evidence permanence tier (adopted 2026-09-10, self-arc-19 t04/D6)
+
+- `.planning/<effort>/evidence/` is the COMMITTED home for load-bearing receipts
+  that maps cite. Caps: ≤256KB per file, ≤1MB per effort dir, text/JSON only (no
+  binaries, no base64 blobs). The executor checks `du`/file types before commit;
+  a CI size guard is a queued thought, not built yet.
+- Citation rule: committed maps cite the committed evidence path
+  (`.planning/<effort>/evidence/<file>`), NEVER `output/` — output/ is
+  per-worktree gitignored scratch and its receipts die with the tree.
+- Retro-migration is NOT a sweep: each effort's scratch migrates when its owning
+  map is next touched.

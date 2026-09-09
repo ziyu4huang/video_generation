@@ -200,7 +200,7 @@ bounded parallel batches 7-wide, 26 schema'd read-only auditors → 1 synthesize
 static-contract unit test `tests/audit-ext-packages.test.ts` 4/4) RUN FOR REAL via
 `samples/run.ts` with `PI_MODEL=zai/glm-5.3`: 26/26 packages audited by the arc's
 own runtime and children (workflow journal `~/.pi/workflows/.../run-mtt8lpiv.log`;
-result `output/self-arc17-audit-result.json`, scratch).
+result committed at `evidence/self-arc17-audit-result.json` (migrated from output/ scratch by self-arc-19 t04; byte-identical).
 
 **Findings — every red deterministically re-verified by the executor (D3):**
 - `s2-agent-ext-file2md` test gate RED: exit 1, 250 pass / 30 fail / 3 errors
