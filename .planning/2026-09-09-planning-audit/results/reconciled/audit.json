@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-09-09T13:10:48.969Z",
+  "generatedAt": "2026-09-09T13:13:23.486Z",
   "root": "/Users/huangziyu/proj/video_generation__superpowers",
   "staleDays": 14,
-  "scanned": 76,
+  "scanned": 77,
   "census": {
-    "done": 36,
+    "done": 37,
     "paused": 8,
     "active": 8,
     "complete": 22,
@@ -1272,9 +1272,9 @@
     {
       "effort": "2026-09-09-self-arc-17",
       "mapPath": ".planning/2026-09-09-self-arc-17/map.md",
-      "statusToken": "active",
+      "statusToken": "done",
       "last": "2026-09-09",
-      "terminal": false,
+      "terminal": true,
       "recognized": true,
       "liveExempt": true,
       "hasProvenance": true,
@@ -1284,6 +1284,19 @@
         2220,
         2232
       ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-09-self-arc-18",
+      "mapPath": ".planning/2026-09-09-self-arc-18/map.md",
+      "statusToken": "active",
+      "last": "2026-09-09",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": true,
+      "hasProvenance": true,
+      "citedPrs": [],
       "unverifiedPrs": [],
       "findings": []
     }

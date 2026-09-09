@@ -1,7 +1,7 @@
-# .planning/ effort audit — 2026-09-09T13:10:48.969Z
+# .planning/ effort audit — 2026-09-09T13:13:23.486Z
 
-- root: `/Users/huangziyu/proj/video_generation__superpowers` · scanned: 76 · stale-days: 14 · **red: 0**
-- census: active=8, complete=22, done=36, executing=1, in-progress=1, paused=8
+- root: `/Users/huangziyu/proj/video_generation__superpowers` · scanned: 77 · stale-days: 14 · **red: 0**
+- census: active=8, complete=22, done=37, executing=1, in-progress=1, paused=8
 
 ## Duplicate self-arc rounds (info — by-design parallel sessions)
 
@@ -88,4 +88,5 @@
 | 2026-09-09-planning-audit | active | 2026-09-09 | green |
 | 2026-09-09-self-arc-15 | done | 2026-09-09 | info:duplicate-arc-round |
 | 2026-09-09-self-arc-16 | done | 2026-09-09 | green |
-| 2026-09-09-self-arc-17 | active | 2026-09-09 | green |
+| 2026-09-09-self-arc-17 | done | 2026-09-09 | green |
+| 2026-09-09-self-arc-18 | active | 2026-09-09 | green |
