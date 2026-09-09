@@ -184,6 +184,7 @@ Skill frontmatter guard (blocks)	bun-apps	bun run test:skill-frontmatter
 Dead-export guard (blocks)	bun-apps	bun run test:dead-export
 Cross-extension seam-contract guard (status widget, blocks)	bun-apps	bun run test:seam
 Cross-extension routing-contract guard (bootstrap ↔ wayfind, blocks)	bun-apps	bun run test:routing
+Tool-naming contract gate (extension-naming convention, blocks)	bun-apps	bun run test:tool-naming
 Cross-extension isolation-contract guard (portable base set, blocks)	bun-apps	bun run test:isolation
 Config-field parity guard (hermes loadConfig, blocks)	bun-apps	bun run test:config-parity
 Test-portability audit regression test	bun-apps	bun run test:portability-audit
@@ -199,11 +200,10 @@ Test-portability audit (--strict, blocks)	.	bash scripts/test-portability-audit.
 Test-determinism audit (D2 --strict, blocks)	.	bash scripts/test-determinism-audit.sh --strict
 PR-finish decision tests (devops-merge-pr-after-ci)	bun-apps/s2-agent-ext-devops	bun test tests/merge-pr-after-ci-cli.test.ts
 Schema-cost regression (warns >5%, not a block)	.	bun scripts/check-schema-cost.ts
-Declared-imports audit (warn-only v1)	.	node scripts/check-declared-imports.mjs
-`;
+Declared-imports audit (blocks)	.	node scripts/check-declared-imports.mjs`;
 
 const GATES_LIST_GOLDEN = `ci-local --list (parsed from .github/workflows/ci.yml.disabled · regression-gates job)
-27 entries; each runs in its directory with CI=true
+28 entries; each runs in its directory with CI=true
 
 #   DIR  GATE                             COMMAND
 --- ---- -------------------------------- --------
@@ -218,22 +218,23 @@ const GATES_LIST_GOLDEN = `ci-local --list (parsed from .github/workflows/ci.yml
 9   ok   Dead-export guard (blocks)       bun run test:dead-export
 10  ok   Cross-extension seam-contract gu bun run test:seam
 11  ok   Cross-extension routing-contract bun run test:routing
-12  ok   Cross-extension isolation-contra bun run test:isolation
-13  ok   Config-field parity guard (herme bun run test:config-parity
-14  ok   Test-portability audit regressio bun run test:portability-audit
-15  ok   CI-workflow reference guard (mat bun run test:ci-workflow
-16  ok   No-bash-skills guard (deleted la bun run test:no-bash-skills
-17  ok   Package-script runnability guard bun run test:scripts
-18  ok   Workspace dist-freshness guard ( bun run test:dist
-19  ok   Deploy-sh L1 e2e (deployed binar bash scripts/check-deploy-e2e.sh
-20  ok   Extension-entry typecheck covera bun run test:ext-entry
-21  ok   Extension-entry typecheck (execu bun run typecheck:ext
-22  ok   Lint-executor coverage (blocks)  bun run test:lint-coverage
-23  ok   Test-portability audit (--strict bash scripts/test-portability-audit.sh --strict
-24  ok   Test-determinism audit (D2 --str bash scripts/test-determinism-audit.sh --strict
-25  ok   PR-finish decision tests (devops bun test tests/merge-pr-after-ci-cli.test.ts
-26  ok   Schema-cost regression (warns >5 bun scripts/check-schema-cost.ts
-27  ok   Declared-imports audit (warn-onl node scripts/check-declared-imports.mjs
+12  ok   Tool-naming contract gate (exten bun run test:tool-naming
+13  ok   Cross-extension isolation-contra bun run test:isolation
+14  ok   Config-field parity guard (herme bun run test:config-parity
+15  ok   Test-portability audit regressio bun run test:portability-audit
+16  ok   CI-workflow reference guard (mat bun run test:ci-workflow
+17  ok   No-bash-skills guard (deleted la bun run test:no-bash-skills
+18  ok   Package-script runnability guard bun run test:scripts
+19  ok   Workspace dist-freshness guard ( bun run test:dist
+20  ok   Deploy-sh L1 e2e (deployed binar bash scripts/check-deploy-e2e.sh
+21  ok   Extension-entry typecheck covera bun run test:ext-entry
+22  ok   Extension-entry typecheck (execu bun run typecheck:ext
+23  ok   Lint-executor coverage (blocks)  bun run test:lint-coverage
+24  ok   Test-portability audit (--strict bash scripts/test-portability-audit.sh --strict
+25  ok   Test-determinism audit (D2 --str bash scripts/test-determinism-audit.sh --strict
+26  ok   PR-finish decision tests (devops bun test tests/merge-pr-after-ci-cli.test.ts
+27  ok   Schema-cost regression (warns >5 bun scripts/check-schema-cost.ts
+28  ok   Declared-imports audit (blocks)  node scripts/check-declared-imports.mjs
 
 This is the regression-gates job. Run the tests matrix with no --gates flag.`;
 
