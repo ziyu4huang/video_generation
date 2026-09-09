@@ -250,6 +250,14 @@ export function makeWayfindHandlers(pi: ExtensionAPI, state: RuntimeState, overl
         const adopted = adoptMostRecentActiveEffort(ctx.cwd);
         if (adopted) {
           effort = adopted.effort;
+          // Bind the session NOW, not only after a successful claim: the
+          // ambiguous-phrase guard (commands.ts) reads this map, and an
+          // adoption that leaves it unset lets the next `/wayfind <phrase>`
+          // chart a junk effort despite the "adopting" promise (live-drive
+          // finding F-C6b, 2026-09-09 — claimed-up tickets made the claim
+          // path return early, skipping the .set below).
+          state.activeEffortBySession.set(sessionId, effort);
+          overlay.setActiveEffort(effort, ctx.cwd);
           ctx.ui.notify(
             `🧭 No active effort in this session — adopting ${effort} (most recent of ${adopted.activeCount} active on disk). Use /wayfind -- <destination> to chart a different one.`,
             "info",

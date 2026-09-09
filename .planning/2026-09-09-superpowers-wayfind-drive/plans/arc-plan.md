@@ -1,0 +1,68 @@
+偵察完成（~24 檔，低於預算）。關鍵突破：**被動偵測器已實證存在** — session JSONL 同時保存 bootstrap 注入與 skill 讀取，所以大多數 case 不需要自問代理（self-report proxy）。以下為計畫全文（英文，executor 照抄落地）。
+
+---
+
+# Plan: `2026-09-09-superpowers-wayfind-drive`
+
+## Destination
+
+One merged implementation PR where **every live experiment case has a PAIRED receipt**: pre-fix observation (what actually happened when the LIVE agent faced the prompt — red or green) + post-fix re-run of the SAME case (the delta), plus the minimal fixes the observations justified. Green/null observations are recorded as such with no fix (honest nulls welcome). The two families' routing surfaces (skill `description:` frontmatter, bootstrap advertisement, keywords/guard tables) end up driven-by-receipt rather than asserted-by-test. Close-out per CONVENTIONS (status flip in the same PR, successor next-goal).
+
+## Context (verified in-session, cite file:line)
+
+- **Passive detector EXISTS — session JSONL persists both observables.** Sessions live at `~/.pi/agent/sessions/<dashed-cwd>/<ts>_<uuid>.jsonl` (`bun-apps/s2-agent/src/cli/sessions/discover.ts:35-45`). Measured in this worktree's dir (`--Users-huangziyu-proj-video_generation__superpowers--`, 150 files): **28 sessions contain the bootstrap marker** `superpowers:using-superpowers bootstrap for pi` (the `context`-event injection at `bun-apps/s2-agent-ext-superpowers/src/superpowers.ts:246` IS persisted); **34 sessions contain `read` toolCalls, 71 mention `SKILL.md`** — a skill load is a toolCall `read {path: …/skills/<name>/SKILL.md}` in the JSONL (real example: `read bun-apps/s2-agent-ext-devops/skills/devops-workflow/SKILL.md`). Assistant reply text is also persisted. This closes arc-16's recorded gap #4 (no end-to-end routing receipt) with a passive mechanism.
+- **Session isolation lever**: pi core honors `PI_CODING_AGENT_SESSION_DIR` (dist/config.js `ENV_SESSION_DIR = ${APP_NAME.toUpperCase()}_CODING_AGENT_SESSION_DIR`, APP_NAME=pi) — moves ONLY the sessions dir, keeping `~/.pi/agent` auth/settings. Unverified on the deployed bundle → t01 verifies empirically; fallback chain below.
+- **`-p` print mode** (`bun-apps/s2-agent/src/cli/flag-spec.ts:319`) persists sessions (verified: an oneshot-smoke run's "Reply with exactly: ok" is in a JSONL). Fast path `-ne -ns` (`oneshot-smoke.ts:1-40`) is the WRONG invocation for us — it suppresses extensions/skills; experiment legs must boot BARE (`-p` only), canary-style ≤180s, with the model-contention precheck rule from `oneshot-smoke.ts:20-31`.
+- **The pty vehicle already exists**: `bun-apps/s2-agent-ext-subagent/scripts/tui-drive.ts:1-40` — Bun.Terminal PTY + xterm-headless, `--sh <deployed>/s2-agent.sh --out <dir>` for deployed legs, receipt.json + numbered snapshots, and the three load-bearing emulation lessons (64B chunks, TERM=xterm-256color, DA-query answer) already encoded. Slash-command bodies are TUI-only (`registerCommand` at `wayfind/src/commands.ts:42,63` fires from the composer) → these cases are a thin variant of tui-drive.
+- **Routing surfaces under test**: superpowers bootstrap = `skills/using-superpowers/SKILL.md` body + `piToolMapping()` + `piBoundaryOverrides()` (`superpowers.ts:296-320`) — the live "which family owns this phase" advertisement; exclude knob `PI_SUPERPOWERS_SKILL_EXCLUDE` + `DEFAULT_SKILL_EXCLUDE` (`superpowers.ts:46,131-152`) with the documented `-ns` caveat (`superpowers.ts:203-215`: exclude is authoritative only when the ext is the SOLE skill source); wayfind dispatcher = keywords + ambiguous-phrase guard (`wayfind/src/commands.ts:84-96`, `commands/keywords.ts`).
+- **Default live model** = `zai / glm-5.3` (`~/.pi/agent/settings.json`: defaultProvider zai, defaultModel glm-5.3) — same model as planner/reviewer; ZAI_API_KEY must be eval'd from ~/.zshrc by the executor, never printed.
+- **Deployed tree** `~/proj/dist/s2-agent-sh/darwin-arm64/current` → `0.10.3+g8921d19`, `s2-agent.sh` present, `ext/{superpowers,wayfind}/{ext.cjs,skills}` present. Source at `acdac0b2` (detached HEAD, clean; one live sibling worktree `.pi/worktrees/run-mt3ymbn9-0-a` — untouchable). No existing `.planning/2026-09-09-superpowers-*` dir (no collision).
+- **Arc-16 frontier gaps this arc closes** (`.planning/2026-09-09-self-arc-16/map.md` Fog of war): slash-command bodies, bootstrap injection live, resources_discover + exclude-env, end-to-end routing — all four were "recorded-gap, unreachable without a live session"; the detector above makes them reachable.
+
+## Decisions
+
+- **D1 — Effort name** `2026-09-09-superpowers-wayfind-drive` (content slug per CONVENTIONS "Finished means terminal-with-provenance"; `self-arc-N` retired by #2236).
+- **D2 — Detector hierarchy (per case)**: (1) passive JSONL grep — marker / toolCall-read path / toolCall ORDER; (2) screen-snapshot grep for pty cases; (3) LAST resort: ask the agent to name its active skill in the reply (recorded as self-report proxy, never presented as passive). A case's receipt names which tier detected the observable.
+- **D3 — Session isolation**: prefer `PI_CODING_AGENT_SESSION_DIR=<output>/spwf-drive/cases/<case>/sessions`; fallback = per-case scratch cwd (`output/spwf-drive/cwd/<case>/`) + pin the newest JSONL by mtime at spawn time + embed a per-case nonce in the prompt and require it in the file. t01 proves which tier works and the receipts record it.
+- **D4 — Improvement levers, ranked by evidence**: ① skill `description:` frontmatter (the LLM trigger surface); ② bootstrap advertisement content (`piBoundaryOverrides`/`piToolMapping`); ③ `keywords.ts` tables + ambiguous guard; ④ `wayfind_effort` tool description; ⑤ exclude-env ergonomics (docs only unless a red lands). Fixes minimal + test-backed; NEVER rewrite skill bodies wholesale (upstream-fidelity tests guard them — arc-16 t01).
+- **D5 — Every batch ticket is self-contained**: run cases → findings → fixes → package gates → redeploy via `deploy-cli.ts` (auto verify-deploy-e2e) → **re-run the SAME case list** → paired receipts. Deployed-leg twins for `-p` cases (source `bun bun-apps/s2-agent/src/cli.ts -p` vs `s2-agent.sh -p`) only where a fix shipped; pre-fix legs run on BOTH to establish parity (learning #1: verify the artifact, not the label).
+- **D6 — Budget honesty**: ≤3 iterations per case, ≤2 model legs per iteration; a case still red after its fix lands as a recorded gap with the failure receipt preserved (never delete a failing receipt — evidence trail). Contention precheck before every model leg (LM Studio >1 large chat model resident → skip-and-reschedule, per oneshot-smoke's measured 31.7s/10-token lesson). Never probe interactive subcommands; print mode + pty driver only.
+- **D7 — Scratch stays scratch**: driver + receipts under `output/spwf-drive*/` (never committed); only the effort dir, fixes, tests, and the case-table doc get committed.
+
+## Case table (the experiment spine)
+
+| # | Case (family) | Exact prompt / action | Expected observable | Detector |
+|---|---|---|---|---|
+| C1 | bootstrap inject (superpowers) | `-p "Reply with exactly: ok"` — bare boot, source AND deployed | marker `superpowers:using-superpowers bootstrap for pi` present EXACTLY once among user-role messages; reply still "ok" (bootstrap doesn't derail) | JSONL grep (tier 1) |
+| C2 | routing→brainstorming (superpowers) | `-p "I want to add a --spwf-demo flag to scripts/hello.ts that echoes its value. Start by naming the skill you are using, then proceed."` | toolCall read of `…/superpowers/skills/brainstorming/SKILL.md` BEFORE any edit toolCall; assistant text announces the skill | JSONL toolCall path + order (tier 1); reply text as tier-3 cross-check |
+| C3 | skill-shaping→TDD (superpowers) | `-p "Implement is_leap_year(year) as a new scratch module under output/spwf-drive/scratch/ with tests."` | read of `…/test-driven-development/SKILL.md`; test file written BEFORE impl file (toolCall order) | JSONL toolCall order (tier 1) |
+| C4 | exclude-env authority (superpowers) | C2's prompt, run with `PI_SUPERPOWERS_SKILL_EXCLUDE=!,brainstorming` + `-ns` (knob authority caveat, superpowers.ts:203-215) | brainstorming NOT read (it cannot be advertised); model visibly falls back to another skill or plain work; bootstrap still injected | JSONL: absence of brainstorming read + presence of marker (tier 1) |
+| C5 | routing→ask-matt (wayfind) | `-p "I'm mid-effort under .planning/ and can't remember whether my settled grill output should go through to-spec or to-tickets — which wayfind flow fits, and what do I read?"` | toolCall read of `…/wayfind/skills/ask-matt/SKILL.md` (the family router) | JSONL toolCall path (tier 1) |
+| C6 | keywords/guard correctness (wayfind) | pty: send `/wayfind help`; `/wayfind status <a DONE effort>`; then with an active-effort session, a bare non-keyword phrase | help renders the subcommand table; status shows frontier without writing; guard message `🧭 … (active) — showing its status. Use /wayfind -- <destination>` appears | snapshot grep (tier 2) |
+| C7 | /grill flow body (wayfind) | pty: `/grill me spwf-drive-probe` → one exchange → `/grill done` | notify `[s2-agent-ext-wayfind] grill-me started`, overlay line `grilling: spwf-drive-probe`, agent asks ONE question; `/grill done` clears overlay + writes nothing outside output/ | snapshot grep + post-run tree diff (tier 2) |
+| C8 | bootstrap→routing cross-family (superpowers lever ②) | `-p "The grill settled and spec exists but no plan — what's the next artifact and which skill owns it?"` | reply cites `writing-plans` (superpowers) NOT `to-spec` (wayfind) — proving `piBoundaryOverrides()` phase routing lands; ideally a read of `writing-plans/SKILL.md` | JSONL read path + reply text (tier 1+3) |
+
+## Tickets
+
+- **t01 — harness + census + baseline** (`tickets/01-harness-census.md`): write `output/spwf-drive/drive-case.ts` (thin `-p` spawner with contention precheck, session-dir isolation per D3, JSONL detector greps emitting `receipt.json` per case: {case, argv, env, cwd, sessionsDir, detected:{marker,reads[],order}, verdict, nonce}); pty variant parameterizing `tui-drive.ts` to send C6/C7 keystroke scripts. Verify isolation tier (D3) empirically. **Census leg**: one `-p` run asking the agent to list its skills, plus the offline `probe-extension-introspection` skill read — record WHICH skills a repo-root bare boot actually advertises (both families? run-dir splice scope). Baseline receipts for ALL 8 cases, pre-fix, both `-p` legs (source+deployed) for C1 only (cost control). Acceptance: 8 baseline receipts on disk; detector tiers proven; census recorded in map Context.
+- **t02 — superpowers `-p` batch** (C1–C4 + C8): findings → minimal fixes per D4 rank (likely: description tightening on `brainstorming`/`test-driven-development`, `piBoundaryOverrides` phase wording) → `bun run check && bun run typecheck && bun test` in `s2-agent-ext-superpowers` → redeploy (src/ changed → verify-deploy-e2e auto) → re-run SAME cases on deployed leg → paired receipts. Acceptance: every case GREEN or a recorded gap with preserved red receipt; upstream-fidelity + skills-inventory tests still green.
+- **t03 — wayfind `-p` batch** (C5 + any unit gaps surfaced): fixes likely in `ask-matt` description or cross-family pointer text; gates `bun run check && bun run typecheck && bun test` (517 baseline); redeploy; paired re-run. Acceptance same shape as t02.
+- **t04 — pty command-body batch** (C6–C7): findings → fixes (likely keywords table / guard copy / overlay text); wayfind gates; redeploy; re-run via `--sh <deployed>/s2-agent.sh`; snapshots diffed pre/post. Cap: ≤3 iterations per pty case (learnings #3/#4: first-keypress eat → paced REAL wall-clock retries; never judge settle on transcript text — live markers only).
+- **t05 — close-out**: map Context/Decisions/Frontier finalized, `## Shipped-as`, status→done, cross-links (`Builds-on: 2026-09-09-self-arc-16` — closes its four recorded live-agent gaps; `Shares-decision-with: 2026-09-08-self-arc-13` receipts discipline), PR via devops chain (`prepare-feature-branch` → `local-ci` → `merge-pr-after-ci`), version-bump if package.json changed, successor `output/next-goal-<ts>.md` strict-v2 + validator.
+
+## Frontier / fog of war
+
+- `PI_CODING_AGENT_SESSION_DIR` honored by the DEPLOYED bundle — unverified (t01; fallback chain D3).
+- Run-dir skill-advertisement scope at repo root (which families a bare boot offers) — census in t01 decides C2/C5 phrasing.
+- `session_compact` re-injection — needs a long multi-compact session; OUT of budget → stays recorded gap.
+- glm-5.3 routing fidelity is the variable under test — reds here are FINDINGS, not harness bugs; do not "fix" by prompt-engineering the case.
+- Sibling worktree may land a redeploy mid-arc (arc-16 lesson) — receipts must resolve `current` symlink and record the label at run time.
+
+## Immediate executor sequence
+
+1. `mkdir -p .planning/2026-09-09-superpowers-wayfind-drive/tickets` + `map.md` skeleton (house shape, status `in_progress`, this plan's Destination/Context/Decisions/Case table pasted in English).
+2. Write the five ticket files verbatim from the list above.
+3. t01: driver + isolation proof + census + 8 baseline receipts under `output/spwf-drive/baseline/` (eval ZAI_API_KEY from ~/.zshrc first; contention precheck before each leg).
+4. t02 → t03 → t04 in order (each: devops chain for branch/PR at FINISH; receipts cited in PR body), t05 close-out last.
+
+無適用既有 hard-problem learning（本輪是計畫開立；唯一的承接是 arc-16 的四個 recorded-gap 清單與 receipts 紀律）。
