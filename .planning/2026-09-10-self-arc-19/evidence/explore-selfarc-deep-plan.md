@@ -1,0 +1,13 @@
+Exploration report written to `output/exploration-deep-dive-the-self-d/plan.md` (13 reads used, then write). Spine of findings:
+
+**A. Failure classes** — 7 recurring classes; the gate-bounce family (name-resolved gates, typecheck-only-at-gate, whole-package lint, cross-package contract guards) cost the most cumulative arc-time (#2196, #2199, #2202, #2204×3-lessons/4-attempts, #2218). The queued test-hygiene arc fixes the lying-`check` root, but **no one has proposed automatic pre-push change-scoped local_ci** — every bounce is local_ci discovering at merge time what commit time would have caught.
+
+**B. Receipts blind spots** — plus one **live find, verified during the dig**: `output/LATEST-next-goal.md` still targets `next-goal-20260907-190000.md`, but that file's content IS the 2026-09-10 goal (frontmatter says so; byte-identical duplicate of `next-goal-20260910-010000.md`). The queue's own memory violates learning #2 (label ≠ content) — one goal under two filenames, pointer naming the wrong one. Next blind spots by extrapolation: self-graded `receipt.pass` (qualify.ts:96-103 trusts the harness's own grade), parent-echo terminal evidence surviving in cc-parity (tui-drive.ts:746-756), mid-sweep `current` symlink drift mixing deployed versions in one summary.
+
+**C. Planner hit rate** — earning its cost: premise corrections (arc-9 stacked defects, arc-11 ledger-STALE rescoping a ticket, arc-16 F2) outweigh the misses (arc-13 F1 both-hypotheses-wrong; arc-12's capability mis-scan that cost a descope + un-descope arc). Pattern: deep scan of the obvious package, shallow scan of neighbors.
+
+**D/E. Un-mined room & self-sustainability** — the loop is ~90% reproducible from repo+memory (arc-plan.ts, qualify.ts, audit entry, closeout skill all committed), but five stages live in the head/scratch: planner-prompt composition (specimens gitignored), LATEST repointing (drifted), arc-number claiming (4 collisions, no machine check), environmental-red adjudication (prose), and knowing which scratch is load-bearing (audit JSON is the next arc's input and is gitignored).
+
+**Ranked top structural fixes**: ① machine-checked arc ledger, ② queue-pointer write-time validation, ③ receipt-permanence tier, ④ independent receipt validator, ⑤ wire qualify.ts to a trigger, ⑥ shared exit-137/cap-elapse retry helper.
+
+Learning applied: **#2 (the version label is not the content)** — not just honored, extended: it's now biting the loop's own queue memory, which is the strongest argument that pointer integrity needs tooling, not discipline.

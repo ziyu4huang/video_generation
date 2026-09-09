@@ -1,0 +1,487 @@
+{
+  "ok": true,
+  "name": "audit-ext-packages",
+  "result": {
+    "packages": 26,
+    "audited": 26,
+    "redPackages": [
+      "s2-agent-ext-file2md",
+      "s2-agent-ext-hyperframes"
+    ],
+    "verdicts": [
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "E2E suites (registration contract, dispatch integration, cross-diagram-type matrix, abort semantics) never run in the default `bun test` gate — consider a periodic or CI-optional lane invoking PI_AGENT_E2E=1 so tool-wrapper behavior is validated routinely, not only on demand.",
+          "Add a `check` script (biome) to match sibling s2-agent-ext-* convention (wayfind gates = check + typecheck + test); local_ci resolves gates by script name, so its absence silently skips lint for this package.",
+          "tests/mermaid-convert.test.ts:322 uses describe.skipIf(!!process.env.CI) — the inverse of usual CI gating; document why CI is excluded or run it in CI if hermetic, since CI currently exercises less than a local run."
+        ],
+        "package": "s2-agent-ext-archify",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "No `check` script in package.json — biome lint/format gate not defined for this package (bun run check exits 'Script not found'); marked pass per audit rules.",
+          "21 tests skipped: e2e layers 1–3 + real-result structural fidelity are opt-in behind PI_AGENT_E2E=1 (tests/e2e.test.ts:7, tests/real-result.test.ts:9, tests/ext-architecture-roundtrip.test.ts:12).",
+          "tests/mermaid-convert.test.ts:322 describe.skipIf(!!process.env.CI) — mermaid:convert CLI contract tests run locally but skip in CI.",
+          "Full run: 719 pass / 21 skip / 0 fail, 5847 expect() calls, 740 tests across 60 files, 11.68s."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` (biome) script and no biome.json anywhere in bun-apps/ — lint/format is not a local gate for this package (unlike s2-agent-ext-wayfind); add one if family-wide gate consistency is desired",
+          "`@types/bun` devDependency pinned to `latest` — unpinned drift risk for reproducibility of the typecheck gate; pin a version like the exact peerDeps (0.84.4) are",
+          "Test suite is fast and pure (191ms, no timers/ports/network) with direct entry coverage — no flaky patterns or missing-entry tests observed; nothing actionable in test health"
+        ],
+        "package": "s2-agent-ext-btw",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` fails with 'Script not found' — package.json defines only `test` and `typecheck`; per audit rules this gate is marked pass=true with a note (no biome lint/format gate is defined for this package)",
+          "tsc log empty — no type warnings; test log shows 0 skips, 0 warnings, 0 failures"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` script exists (no biome/lint/format gate) — unlike siblings like s2-agent-ext-wayfind where check=biome; consider wiring one for consistency, since local_ci resolves gates by script name and will silently skip lint here.",
+          "Test layout is inconsistent: extensions/compact.test.ts sits at the top of extensions/ while the other extension tests live in extensions/__tests__/ — colocating would match the package's own convention.",
+          "scripts/ab.ts has no direct test; only scripts/lib (ab-metrics) is covered — the AB harness's session-loading/I-O glue is untested."
+        ],
+        "package": "s2-agent-ext-compact",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` exited 1 with `error: Script not found \"check\"` — the command does not exist in this package (scripts: test, typecheck, ab); marked pass per audit rules.",
+          "tsc log was empty (zero diagnostics) — clean run, no informational output."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "This package's `check` script is `tsc --noEmit`, not biome — unlike s2-agent-ext-wayfind there is no lint/format gate, so lint drift could go unnoticed; gates 1 and 2 of this audit are redundant for this package.",
+          "27 skip-by-default tests cover the highest-risk surface (deploy e2e, cross-target win32 deploy, frozen-tree/network-denied L1 suites, real-model roundtrip); the default `bun test` gate never exercises them, so a documented opt-in tier command would make that gap visible.",
+          "Test stdout carries informational lines (e.g. 'standalone shim: allowlisted baked cache path(s)'); harmless now, but routing them through a debug flag would keep gate output clean."
+        ],
+        "package": "s2-agent-ext-devops",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "27 tests skipped by default: deploy e2e (win32 cross-target, cache reuse, legacy layout), s2-agent-sh L1 deployed-binary suites, run-test live quick tier, and the deepseek model roundtrip — these do not run under the default bun test gate",
+          "Test log prints informational lines twice: 'standalone shim: allowlisted baked cache path(s) (inert, same class as the core bundle): 1'"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [
+          "GATE_TEST_EXIT=1 — 250 pass / 30 fail / 3 errors across 36 files; root cause: mock.module() leakage across test files in one shared bun test process",
+          "resolve-vision-llm.test.ts (7 fails): resolveVisionLLM returns {provider:'zai', modelId:'glm-5.3-flash'} from another file's sessions.ts mock instead of saved config/PI_MODEL/tier",
+          "3x SyntaxError 'Export named X not found': countSlides (src/raster/deck.ts), collapseCjkSpaces (src/ocr/ocr.ts), resolveLLM (src/sessions.ts) — partial mock.module factories from pptx-lane/html-figures/etc omit them",
+          "raster.test.ts: bgraToBmp/bgraToPng dims round-trip expected 6x4, received 8x8 — leaked stub imageDims:()=>({width:8,height:8}) (html-figures.test.ts:40, pipeline-v2:54, pptx-lane:75, smart-mode:52, svg-lane:44)",
+          "svg-liveness.test.ts (3 fails): liveness fuse never fires; renderSvg*ToPng returned leaked TINY_PNG 64x48 fake ignoring livenessMs/createView (html-figures.test.ts:25-31)",
+          "vision-inference-guard.test.ts (8 fails): emptyIsError/empty-flag and cancel-lever (externalSignal) contract broken — leaked runVisionInference mock from ask-io/classify-vlm/etc lacks those semantics",
+          "ocr.test.ts: imageDims PNG/JPEG/BMP round-trips (4) + normalizeOcrLang (1) fail against the leaked 8x8 imageDims stub"
+        ],
+        "improvementNotes": [
+          "mock.module() in bun test persists in the shared module registry across test FILES: 9 test files (ask-io, classify-vlm, explain-page, html-figures, mermaid, pipeline-v2, pptx-lane, smart-mode, svg-lane) mock src modules and pollute later-loaded suites — mocks should spread the real module (e.g. () => ({...real, fn: fake})) or suites need mock.restore()/afterAll cleanup",
+          "Per-file runs pass but the whole-suite `bun test` fails — test file headers even suggest `bun test __tests__/sessions.test.ts`; consider splitting mocked I/O suites into separate test invocations (or a runner script) so the package gate matches reality",
+          "biome noUnusedImports warning in __tests__/deck.test.ts:9 (unused describe/expect/test import) is trivially fixable with `bunx biome check --write` when an edit pass is allowed"
+        ],
+        "package": "s2-agent-ext-file2md",
+        "testPass": false,
+        "typecheckPass": true,
+        "warnings": [
+          "biome (non-blocking, exit 0): __tests__/deck.test.ts:9:10 lint/correctness/noUnusedImports — unused bun:test imports, FIXABLE",
+          "Failures are deterministic mock-ordering artifacts, not flake: every 'received' value matches a stub defined in another test file (verified by grep, e.g. zai/glm-5.3-flash at html-figures.test.ts:46, mermaid.test.ts:63, pptx-lane.test.ts:81)",
+          "Bun counts the 3 module-link SyntaxErrors as 'Unhandled error between tests', separate from the 30 test failures"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No canonical `check` script: this package defines `check:flags` but not `check`, and repo local_ci resolves gates by script NAME — a missing `check` is silently skipped, so consider adding an explicit `check` script (biome or alias) to make the gate resolvable.",
+          "No lint/format tooling: no biome config in the package and no biome dependency, unlike sibling ext packages (e.g. s2-agent-ext-wayfind) — aligning on a lint gate would make ext packages uniform.",
+          "`run-test.ts` sits at the package root but is not referenced by any package.json script — verify whether it is dead scratch code; tests are otherwise well organized under extensions/__tests__ and scripts/."
+        ],
+        "package": "s2-agent-ext-flux2",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` exits 1 with `error: Script not found \"check\"` — no check script in package.json (has check:flags/typecheck/test/build:bundle); marked pass per audit rule for nonexistent commands.",
+          "No biome.json/.biomeignore found in the package or bun-apps root — lint/format is not an enforced gate for this package (unlike e.g. s2-agent-ext-wayfind).",
+          "Test log is clean: 138 pass / 0 fail / 0 skip, 517 expect() calls across 10 files in ~472ms; no warnings or todo markers."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No lint/format gate exists: `check` is a duplicate of `tsc --noEmit`; adding a biome script would match the s2-agent-ext-wayfind gate convention (check + typecheck + test)",
+          "SurrealDB-gated suites make effective coverage environment-dependent (live server vs offline stubs) with no explicit signal of how many gated tests actually exercised the live backend in a run",
+          "`test` runs plain `bun test` with no coverage report, so untested code paths in this 137-file suite are not visible from the gate output"
+        ],
+        "package": "s2-agent-ext-hermes-memory",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`check` script runs `tsc --noEmit`, not biome — this package has no biome lint/format gate (task note expected one)",
+          "Multiple SurrealDB-gated test suites ran against a live server this run (~100-300ms timings, all pass); some tests are designed to self-skip when the server is down, so backend-path coverage is environment-dependent",
+          "Test summary shows 1564 pass / 0 fail / 0 skip across 137 files in ~20s; no console warnings or deprecations surfaced in the log"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [
+          "test gate: 34/359 failed (325 pass, 50 files) — largest cluster (~20) is HOME-sandbox leakage: code under test reads REAL ~/.media + ~/.hyperframes",
+          "stats.mjs 'buildStats returns a zeroed report when nothing exists': 17 !== 0 — real ~/.media/manifest.jsonl leaked into sandbox",
+          "prefs-store 'one project never promotes': expected undefined, got source:'user', confirmed_in:['my-launch','proj-a'] from real home data",
+          "telemetry 'adopts a legacy ~/.media/anon-id': got fresh UUID 15793876-… instead of 'legacy-media-id' — real home read, sandbox HOME ignored",
+          "candidates 'zero-overlap intent still lists candidates' / 'caps per scope': 4 !== 1 — real global cache leaked into sandboxed listing",
+          "package-loader 'resolvable in-repo version pins it' (x2): '@hyperframes/producer@latest' !~ /^@hyperframes\\/producer@\\d+\\.\\d+\\.\\d+/",
+          "animation-map/contrast-report bundle tests: 'error: index.html not found in project directory' at @hyperframes/core htmlBundler.js:715 via package-loader.mjs:62",
+          "transient-init retry tests (4): expected /retrying with a fresh browser session/ never matched — same upstream bundling failure; also 'every resolver preset exists in colorGrading.ts' fails vs core 0.8.4"
+        ],
+        "improvementNotes": [
+          "Fix HOME sandbox isolation in skills/media-use/scripts/lib tests (stats/telemetry/prefs-store/candidates): tests set process.env.HOME but home resolution in the code (os.homedir() or import-time constant) ignores it, so ~20 of 34 failures are real-user-state leakage — inject a base dir or resolve home lazily per call",
+          "package-loader.mjs version pinning walks up from skills/*/scripts and fails under bun-apps' isolated Bun linker layout, falling back to @latest (2 test fails + stderr warnings) — resolve the pin from the package's own manifest via createRequire/import.meta instead of a directory walk",
+          "The 7 animation-map/contrast-report tests depend on @hyperframes/core bundling temp fixtures and fail with 'index.html not found in project directory' (htmlBundler entryFile default) — fixtures should write the entry file explicitly or the scripts should pass an explicit entryFile to bundleToSingleHtml"
+        ],
+        "package": "s2-agent-ext-hyperframes",
+        "testPass": false,
+        "typecheckPass": true,
+        "warnings": [
+          "No 'check' script in package.json (scripts: test, typecheck only) — biome gate not defined for this package; checkPass=true per audit rule for absent commands",
+          "stderr during tests: 'hyperframes: could not determine the bundled version for @hyperframes/producer/@hyperframes/core; using @latest. Set HYPERFRAMES_SKILL_PKG_VERSION=<version> to pin it.' — tests may execute against @latest",
+          "Test suite reads (and potentially writes) real user state: ~/.media/misses.jsonl modified today and ~/.hyperframes exist; failures and pass-counts are machine-dependent and bun test may mutate real home data",
+          "tsc --noEmit produced an empty log — clean typecheck"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` script in package.json — local_ci resolves gates by script NAME, so the biome lint/format gate is silently skipped for this package (e.g. s2-agent-ext-wayfind defines `check` = biome; this one does not).",
+          "Canonical `bun run test` is scoped to `bun test __tests__/` only, which excludes extensions/__tests__ (self-gate, stealth-trim, schema-cost regression, hermes-autoconverge, e2e-supersede) — 20+ tests would be missed by the package's own script vs bare `bun test`.",
+          "Schema-cost regression headroom: 2805 tok vs 2982 tok ceiling (~6% margin left of the +10% allowance) — fine now, but a single tool schema change could re-trip it; consider explicit per-tool budgets in schema-cost.regression.test.ts."
+        ],
+        "package": "s2-agent-ext-knowledge-card",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` fails with 'error: Script not found \"check\"' — no biome/lint gate defined for this package; per audit rule marked pass=true with this note.",
+          "Audit gate ran bare `bun test` (66 files, 801 tests) while the package script is `bun test __tests__/` — the narrower canonical script covers only a subset."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No lint/format gate at all: package defines 'typecheck' and 'check:flags' but no biome 'check' script or biome config, unlike sibling ext packages (e.g. s2-agent-ext-wayfind) — local_ci resolves gates by script NAME, so the missing script is silently skipped rather than failing loudly.",
+          "binary.ts (CLI binary resolution + metallib staging) and invoke.ts (spawn/progress streaming/abort) have no dedicated unit tests; they are only exercised by scripts/e2e-smoke.ts, which is manual and not part of `bun test` — the spawn/abort/parse paths are effectively untested in CI.",
+          "run-test.ts (tiered test launcher with 'quick'/'full' tiers incl. a standalone extension-contract re-assertion) is kept byte-parity-tested by a repo-level test but not referenced from package.json scripts, so the canonical entry points never run its 'full' tier."
+        ],
+        "package": "s2-agent-ext-krea2",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "Gate 1 note: 'bun run check' exits 1 with 'Script not found \"check\"' — no biome check script defined in this package (only 'typecheck' and 'check:flags'); counted as pass per audit rules for absent commands.",
+          "tsc --noEmit log is empty — zero diagnostics, no warnings emitted."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` (biome lint/format) script exists, unlike sibling s2-agent-ext-* packages (e.g. wayfind) — local_ci resolves gates by script NAME, so lint coverage is silently absent for this package",
+          "1 skipped test (`runLtx — pre-spawn validation > bare variant name, e.g. 'baseline'`) — either implement it or remove it with a documented reason; skipped tests rot silently",
+          "`check:flags` script (scripts/check-flags.ts) is defined but not part of any observed gate — verify it is wired into local_ci or it is dead weight"
+        ],
+        "package": "s2-agent-ext-ltx",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` exited 1 with `error: Script not found \"check\"` — package defines only check:flags / test / typecheck / build:bundle; marked pass per audit rule for nonexistent commands",
+          "1 test skipped: runLtx — pre-spawn validation > does NOT throw PathSafetyError for a bare variant name with no embedded path (e.g. 'baseline')"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` (biome) script or biome config exists in this package, unlike sibling ext packages (e.g. s2-agent-ext-wayfind) that gate on it; since local_ci resolves gates by script NAME, the absence is silently skipped rather than flagged — adding one would close a real lint/format coverage gap.",
+          "Real-silicon coverage (bridge smoke via MLX_SMOKE=1: krea2 PNG generation; e2e stack via MLX_E2E=1: t2i, subtitle_gen, compose-motion MP4, zero-cloud registry assertion) is entirely opt-in and never surfaces in default runs; a periodic scheduled run or a visible skip-count summary would make drift in those paths detectable.",
+          "Test suite is healthy and fast (909 tests / 65 files / 1.75s, 2490 expect() calls) with good failure-mode coverage (spawn injection, retry bounds, manifest field enforcement); no flaky patterns observed in this run."
+        ],
+        "package": "s2-agent-ext-movie-director",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` exited 1 with: error: Script not found \"check\" — package defines no lint/format gate (no biome config at package root); marked pass per audit rules for missing commands.",
+          "5 tests skipped by env gates: 1 bridge real-silicon smoke (MLX_SMOKE=1) + 4 e2e local-only stack tests (MLX_E2E=1) — default `bun test` never exercises real MLX generation, subtitle_gen, or ffmpeg composition paths (by design, zero-cloud)."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` script in package.json — package has no lint/format gate; local_ci resolves gates by script NAME and silently skips missing ones, so this package silently gets zero lint coverage. Consider adding a biome check script or an alias (e.g. hermes-memory style `check` = tsc).",
+          "Canonical `bun run test` scopes to `extensions/__tests__/` while the audit ran bare `bun test`; equivalent here (all 48 test files live under extensions/__tests__/), but any future stray test file outside that path would only run under bare bun test — keep the scope in sync if tests are added elsewhere.",
+          "Dead-weight risk in `package.json` scripts is low (regen:contract / regen:baseline back frozen baselines), and coverage looks strong for an ext package (write-path index invalidation, config precedence, migration, perf, schema-cost); no test gaps observed."
+        ],
+        "package": "s2-agent-ext-obsidian",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` failed with `error: Script not found \"check\"` — package.json has no check script; treated as pass=true per audit rules (command does not exist).",
+          "tsc --noEmit produced a completely empty log (0 lines) — no warnings or diagnostics of any kind.",
+          "Test suite includes schema-cost regression with live baseline: obsidian 161 tok + obsidian_help 66 tok = 227 total vs 234 baseline, budget <=280 (+19.7% headroom).",
+          "Dispatch perf gate healthy: validateActionArgs p50=0.010ms p95=0.016ms against 5ms limit."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` script in package.json — unlike s2-agent-ext-wayfind (biome), this package has no lint/format gate at all; adopting the sibling `check` pattern would close that gap.",
+          "4 L2 e2e tests (inspect_context/agent/extensions/pathology) are skipped by default and only run with PI_RUN_L2=1 — the default gate never exercises the L2 layer; consider a periodic or opt-in scheduled L2 run.",
+          "`test:coverage` script exists but the default `bun test` gate enforces no coverage threshold — coverage can regress silently."
+        ],
+        "package": "s2-agent-ext-power-tool",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`check` script does not exist in this package (`error: Script not found \"check\"`) — biome lint/format gate is not defined here; pass=true per audit rules for non-existent commands.",
+          "4 tests skipped by default: L2 e2e suite (inspect_context, inspect_agent, inspect_extensions, inspect_pathology) gated behind PI_RUN_L2=1 and not exercised in this run."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No lint/format gate exists: package.json defines only `test` and `typecheck` scripts, so biome never runs here — unlike siblings (e.g. s2-agent-ext-wayfind with a `check` gate); local_ci resolves gates by script name and silently skips lint for this package.",
+          "sanitizePathSegment (src/history-store.ts:34) is exported but has no direct unit test — it is only exercised indirectly via projectKey happy-path tests; edge cases (empty string, weird unicode) are uncovered.",
+          "extensions/prompt-history.test.ts covers only subscribe/disabled paths (2 tests) — no test asserts an interactive input actually round-trips through the extension into the per-cwd history file."
+        ],
+        "package": "s2-agent-ext-prompt-history",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` does not exist in this package (exit 1, 'Script not found \"check\"') — marked pass=true per audit rule; package has no biome/lint/format gate at all (scripts: test, typecheck only).",
+          "Bun's isolated workspace linker resolved @types/bun + typescript from workspace; tsc ran clean with zero output."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` (biome) script in package.json — unlike siblings such as s2-agent-ext-wayfind (check = biome), this package has no lint/format gate; local_ci resolves gates by script name so the gap is silently skipped today.",
+          "run-video-collection.ts is an untested operational network runner (YouTube API key, Bilibili 412/proxy handling) importing from ./lib/* — import-memory has a dry-run test but this runner has none; a dry-run/--limit smoke test would cover it.",
+          "Gate scripts use bare `bun test`/`tsc --noEmit` while run-test.ts documents the canonical `bun run test` as source of truth for per-package quirks — worth aligning the two so CI and the tiered launcher can't drift."
+        ],
+        "package": "s2-agent-ext-research-tool",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` exits 1 with 'Script not found \"check\"' — no biome/lint script defined in package.json (only `test`, `typecheck`); marked pass per audit rules for absent commands, but the package has no lint/format gate at all.",
+          "Test suite ran fast and fully deterministic (159 tests / 14 files in ~1s); no flaky sleep/network-dependent patterns observed in the run."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "Dead code in scripts: unused interface SpawnResult (scripts/qualify.ts:76) plus unused variable/import in bench-base-tech scripts — auto-fixable with biome --write but currently left standing",
+          "The only skipped test, 'memory curve: K=0..DEFAULT_MAX_LIVE real live sessions + LRU eviction delta', is opt-in (live sessions); LRU eviction behavior has no always-on coverage — a cheaper bounded variant would protect it in default CI",
+          "src/esc-settle-detector.ts:47 useRegexLiterals warning is a deliberate documented workaround for noControlCharactersInRegex; a biome-ignore directive (or the literal form if the rule accepts \\u001b escapes) would silence the standing warning instead of leaving it in every check run"
+        ],
+        "package": "s2-agent-ext-subagent",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "biome (check): 4 warnings, none blocking — scripts/bench-base-tech.ts:219 noUnusedVariables; scripts/lib/bench-base-tech/adapters/bun-terminal.ts:8 noUnusedImports; scripts/qualify.ts:76 noUnusedVariables (unused interface SpawnResult); src/esc-settle-detector.ts:47 useRegexLiterals",
+          "src/esc-settle-detector.ts:47 warning is intentional — regex built via RegExp constructor specifically so the ESC control char avoids biome noControlCharactersInRegex (documented in adjacent comment)",
+          "bun test: 1 test skipped — 'memory curve: K=0..DEFAULT_MAX_LIVE real live sessions + LRU eviction delta' (live-session/memory-curve test is opt-in)"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "Canonical 'bun run test' chain is 'check && bun test' — it never exercises tsc; appending 'typecheck' to the chain would make the single canonical gate cover the full trio (biome/tsc/tests) like s2-agent-ext-wayfind's gate set.",
+          "hitl-loop.template.ts is guarded only by structural/regex goldens ('copy source, never executed'); a bun-run smoke test of the copied template in a temp dir would catch runtime breakage the string-level tests cannot.",
+          "update-superpowers.ts tests cover cache sync/selection/error paths well, but there is no test pinning the 'no args + empty cache' help/diagnostics output shape — a cheap golden for the user-facing error text would prevent silent copy drift."
+        ],
+        "package": "s2-agent-ext-superpowers",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": []
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` script in package.json — lint/format (biome) is entirely un-gated for this package, unlike siblings like s2-agent-ext-wayfind; adding one would close the gap.",
+          "The package's core value (wasm-based Verilog/SystemVerilog parsing) has zero executed tests on fresh clones/CI — only the TypeScript guards around it run; consider a build-wasm-then-test CI step or a tiny committed wasm fixture.",
+          "5 of 16 tests skip silently on a missing artifact and `bun test` still exits 0; consider failing (or loudly warning) when WASM-dependent tests are skipped in release/CI contexts to avoid false confidence."
+        ],
+        "package": "s2-agent-ext-sv-analyzer",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` exits 1 with 'Script not found \"check\"' — package has no check/biome script at all (marked pass per audit rules for missing commands).",
+          "5 of 16 tests skipped: wasm end-to-end (version/analyze/ast/parse_ok) and #pi/ext-dir resolution tests skip via describe.skipIf(!existsSync(WASM)) — the wasm/ artifact is gitignored and only built by dsh-plugin/sv-analyzer/build.sh, which has not run here.",
+          "No `wasm/` directory exists locally even though `wasm` is listed in package.json `files` — publishing without running build.sh first would ship without the core artifact."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` script: unlike s2-agent-ext-wayfind (biome check gate), this package has only test+typecheck — no lint/format gate protects it.",
+          "All 819 tests are schema/unit-level; no test exercises the ext-task.ts entry wiring (widget/tool registration) that the package description highlights.",
+          "devDependencies pin `@types/bun: \"latest\"` (floating) — type surfaces can drift between installs without any lockfile-visible change."
+        ],
+        "package": "s2-agent-ext-task",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` fails with 'Script not found \"check\"' — package.json defines only `test` and `typecheck` scripts; no biome lint/format gate exists in this package (marked pass per audit rule for missing commands).",
+          "tsc log was empty (zero diagnostics) — clean compile, no informational warnings emitted."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "Add a biome `check` script (and biome.json) to match repo gate conventions (e.g. wayfind gates on check && typecheck && test); tool-gate currently only gates test + typecheck",
+          "qa/coverage.test.ts contains a live integration test 'measureCoverage (integration — real repo)' (217ms) that depends on sibling s2-agent-ext-* workspace packages and repo layout — will break if the package is extracted or deps are pruned",
+          "qa scripts (savings, miss-rate, gate-recall, run) are manual entry points outside `bun test`; consider a CI-facing aggregate or documenting that qa/run.ts is the canonical battery"
+        ],
+        "package": "s2-agent-ext-tool-gate",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` exits 1 with 'Script not found \"check\"' — package.json defines no check script (scripts: test, qa:*, typecheck); marked pass=true per audit rule for absent commands",
+          "No biome.json found in the package dir or bun-apps/ root — biome lint/format gate is not configured for this package at all",
+          "tsc --noEmit log is 0 bytes — zero diagnostics, fully clean; tests: 451 pass / 0 fail across 16 files (1031 expect calls, 891ms)"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "3 RCA todo tests are acknowledged-but-unimplemented regression targets for real design flaws in workflow.ts (schema-noncompliant reviewer/judge/validator handling) — converting them to passing tests would close known correctness gaps.",
+          "6 lint/correctness/noUnusedVariables warnings likely point to dead code or stale imports worth a cleanup pass (all biome warnings are auto-fixable via --write for the FIXABLE subset).",
+          "Test suite is healthy (1238 pass / 72 files / 9.85s) with no flaky patterns observed in a single run; no gaps noted for core manifest/logger/workflow paths."
+        ],
+        "package": "s2-agent-ext-ultracode",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "biome check exits 0 but reports 77 warnings + 1 info; diagnostics limit hides 58 (\"Diagnostics not shown: 58\")",
+          "Visible warning mix: 13x lint/style/noNonNullAssertion, 6x lint/correctness/noUnusedVariables, 1x lint/style/useTemplate; 15 FIXABLE",
+          "3 todo tests: RCA design-level regression targets not yet fixed (workflow.ts ~702-709 verify() schema-noncompliant reviewer, ~745 judgePanel scores noncompliant judge as 0, ~858-860 gate() null validator verdict -> ok:false)",
+          "tsc --noEmit log is empty (clean), bun test: 1238 pass / 3 todo / 0 fail in 9.85s across 72 files"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "Tests cover breadth well (500 tests, 27 files vs 25 src files, ~9.9k LOC total) with strong invariant tests (fs-free purity, read-only .planning, throw-free paths); no gaps identified from gate output.",
+          "tsc gate is invoked as `bun x tsc --noEmit` by convention rather than a package script — consider adding a `typecheck` script so the gate is self-describing in package.json.",
+          "Whole suite runs in ~705ms — cheap enough to run per-file on save; no flaky timing patterns observed."
+        ],
+        "package": "s2-agent-ext-wayfind",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": []
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No `check` script and no biome.json in the package — unlike sibling ext packages (e.g. s2-agent-ext-wayfind) it has no lint/format gate at all; adding `check` would align with repo gate conventions.",
+          "One env-dependent skip: `brave adapter availability (env-driven) > isBraveAvailable() is false when no key is configured` is skipped when BRAVE key is set — stubbing env in the test would make it hermetic and always-run.",
+          "SSRF coverage is solid (literal-IP + DNS-rebinding + allowRanges) but the brave-skip means the only adapter-availability branch runs conditionally on the local environment."
+        ],
+        "package": "s2-agent-ext-web-access",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` does not exist in this package (scripts: test, typecheck only; no biome.json) — marked pass per audit rules, but no lint/format gate is enforced here.",
+          "1 test skipped: `brave adapter availability (env-driven) > isBraveAvailable() is false when no key is configured` — skip is env-driven, not a failure."
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No lint/format gate: package.json defines only typecheck/test scripts — unlike siblings (e.g. s2-agent-ext-wayfind where check = biome), so local_ci gate resolution by script name silently skips linting here",
+          "wiring-live-smoke.test.ts runs live WS servers bound to real loopback ports (13+ cases incl. origin-guard and mutex interplay); this is the most likely flake source (port collisions under parallel runs) though all passed here",
+          "Audit had to invoke 'bun x tsc --noEmit' ad hoc; the package's canonical gate is 'bun run typecheck' (same tsc --noEmit) — a check script alias would make gate discovery unambiguous"
+        ],
+        "package": "s2-agent-ext-webui",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "'bun run check' does not exist in this package (package.json scripts: typecheck, test:unit, test) — exit 1 is 'Script not found', NOT a lint failure; per audit rules marked pass=true",
+          "Typecheck log (/tmp/audit-s2-agent-ext-webui-tsc.log) is empty — zero diagnostics, clean run"
+        ]
+      },
+      {
+        "checkPass": true,
+        "failures": [],
+        "improvementNotes": [
+          "No biome `check` script in package.json (only `typecheck`) — unlike sibling ext packages (e.g. s2-agent-ext-wayfind), lint/format is never gated here, and local_ci resolves gates by script NAME so lint is silently skipped for this package.",
+          "Test coverage is thin: 6 tests / 2 files cover only the startup banner and stealth-trim; the 536-line extensions/zai-mcp.ts MCP client wiring (spawn/connect failure, tool-call passthrough, reconnect) has no tests.",
+          "No tests for config resolution / missing-API-key behavior (ZAI_* env vars): the no-tools warning path is only tested at banner level, not for what happens when credentials are absent."
+        ],
+        "package": "s2-agent-ext-zai-mcp",
+        "testPass": true,
+        "typecheckPass": true,
+        "warnings": [
+          "`bun run check` failed with: error: Script not found \"check\" — package.json defines only a `typecheck` script; biome lint/format gate does not exist in this package (marked pass=true per audit rules).",
+          "No lint/format tooling evidenced for this package anywhere (no biome config usage in its scripts), so formatting drift in extensions/zai-mcp.ts would go undetected by gates."
+        ]
+      }
+    ],
+    "synthesis": {
+      "improvementRoom": [
+        "Standardize the lint gate repo-wide: ~19/26 packages define no `check` script and local_ci resolves gates by script NAME, so lint is silently skipped (only wayfind gates biome; hermes-memory/devops alias check=tsc). Add a biome check script (or explicit tsc alias) to every s2-agent-ext-* package so the gap fails loudly.",
+        "file2md: fix mock.module() cross-file leakage — 9 test files (ask-io, classify-vlm, explain-page, html-figures, mermaid, pipeline-v2, pptx-lane, smart-mode, svg-lane) register partial factories that pollute later-loaded suites; spread the real module (() => ({...real, fn: fake})) or use mock.restore()/afterAll cleanup so whole-suite `bun test` matches per-file reality.",
+        "hyperframes: make HOME sandboxing real — inject a base dir or resolve os.homedir() lazily per call instead of at import time; ~20 of 34 failures are real-user-state leakage, and the suite reads/writes actual ~/.media (misses.jsonl modified today) and ~/.hyperframes, making results machine-dependent and mutating real user data.",
+        "hyperframes: fix the two non-HOME clusters — resolve @hyperframes/* version pins from the package's own manifest via createRequire/import.meta (the directory walk breaks under bun-apps' isolated Bun linker, silently falling back to @latest), and make animation-map/contrast-report fixtures write the bundle entry explicitly (htmlBundler.js:715 'index.html not found in project directory').",
+        "Add a documented periodic opt-in lane (scheduled CI) for env-gated highest-risk suites — PI_AGENT_E2E=1 (archify e2e layers), devops deploy/L1 e2e, MLX_E2E/MLX_SMOKE=1 (movie-director real-silicon), PI_RUN_L2=1 (power-tool) — so opt-in-only paths cannot drift silently; also fix archify's inverted mermaid-convert.test.ts:322 skipIf(!!process.env.CI).",
+        "sv-analyzer: 5/16 tests skip silently when the gitignored wasm/ artifact is missing and `bun test` still exits 0 — fail loudly (or warn) on wasm-dependent skips in CI, commit a tiny wasm fixture, and gate publishing on build.sh having run (wasm/ is in `files` yet absent locally, so npm publish would ship without the core artifact).",
+        "Align canonical scripts with actual coverage: knowledge-card's `bun run test` scopes to __tests__/ only, excluding extensions/__tests__ (self-gate, stealth-trim, schema-cost regression — 20+ tests the audit's bare `bun test` caught but the package script misses); superpowers' chain is 'check && bun test' with no typecheck; krea2's run-test.ts 'full' tier and research-tool's run-test.ts are unreferenced by any package.json script.",
+        "Reproducibility and hygiene: pin `@types/bun` to an exact version (btw and task float 'latest', so type surfaces can drift between installs with no lockfile-visible change); clear the auto-fixable biome warnings (file2md deck.test.ts:9 noUnusedImports, subagent's 4, ultracode's 15 FIXABLE of 77); close ultracode's 3 RCA todo tests (workflow.ts schema-noncompliant reviewer/judge/validator handling ~702-860)."
+      ],
+      "likelyNoise": [
+        "'Script not found \"check\"' across ~19 packages (archify, btw, compact, flux2, hermes-memory, hyperframes, knowledge-card, krea2, ltx, movie-director, obsidian, power-tool, prompt-history, research-tool, task, tool-gate, web-access, webui, zai-mcp) — pre-existing script absence marked pass per audit rules; not a regression in this sweep (the systemic gap itself is the top improvement item).",
+        "Env-gated opt-in skips, by design and green: archify 21 skips (PI_AGENT_E2E=1 e2e layers 1–3), devops 27 (deploy e2e, win32 cross-target, L1 frozen-tree, live quick tier, deepseek roundtrip), movie-director 5 (MLX_SMOKE/MLX_E2E), power-tool 4 (PI_RUN_L2=1), subagent 1 (live-session memory curve), ltx 1 (bare-variant PathSafety), web-access 1 (BRAVE key set in env).",
+        "Non-blocking biome warnings (exit 0), pre-existing: file2md __tests__/deck.test.ts:9 noUnusedImports (FIXABLE); subagent 4 warnings incl. the deliberate src/esc-settle-detector.ts:47 RegExp-constructor workaround; ultracode 77 warnings (13x noNonNullAssertion, 6x noUnusedVariables, 1x useTemplate) + 3 acknowledged RCA todo tests.",
+        "sv-analyzer 5/16 tests skip because the gitignored wasm/ artifact isn't built on this machine (describe.skipIf(!existsSync(WASM))) — environment-shape, suite exits 0; the publish-ships-without-wasm risk is tracked under improvements.",
+        "Cosmetic/environment-dependent green output: devops prints the informational 'standalone shim: allowlisted baked cache path(s)' line twice; hermes-memory's SurrealDB-gated suites ran against a live server and all passed (1564 pass / 137 files); webui's 13+ live loopback-port WS smoke cases (port-collision flake candidate) all passed this run; archify mermaid-convert.test.ts:322 skipIf(!!process.env.CI) runs locally and skips in CI — intentional-looking inverse gating, not a failure.",
+        "hermes-memory stderr-free clean run; flux2/krea2/ltx/obsidian/task/tool-gate/prompt-history/btw/research-tool typecheck logs completely empty — clean gates, nothing actionable."
+      ],
+      "realIssues": [
+        "s2-agent-ext-file2md — test gate (`bun test`) FAIL: 250 pass / 30 fail / 3 errors across 36 files (GATE_TEST_EXIT=1). Deterministic mock.module() cross-file leakage in the shared bun test process, NOT flake — every 'received' value matches a stub defined in another test file. Exact hits: resolve-vision-llm.test.ts 7 fails (resolveVisionLLM returns {provider:'zai', modelId:'glm-5.3-flash'} from another file's sessions.ts mock, ignoring saved config/PI_MODEL/tier); 3x SyntaxError 'Export named X not found' (countSlides src/raster/deck.ts, collapseCjkSpaces src/ocr/ocr.ts, resolveLLM src/sessions.ts) from partial mock factories in pptx-lane/html-figures/etc; vision-inference-guard.test.ts 8 fails (emptyIsError/empty-flag and cancel-lever externalSignal contract broken by a leaked runVisionInference mock); raster.test.ts bgraToBmp/bgraToPng and ocr.test.ts dims round-trips expect 6x4, receive 8x8 from the leaked stub imageDims:()=>({width:8,height:8}) (html-figures.test.ts:40, pipeline-v2:54, pptx-lane:75, smart-mode:52, svg-lane:44); svg-liveness.test.ts 3 fails (renderSvg*ToPng returns leaked TINY_PNG 64x48 ignoring livenessMs). Whole-suite gate is red; per-file runs pass — a test-isolation defect rather than a production regression, but the canonical gate genuinely fails.",
+        "s2-agent-ext-hyperframes — test gate FAIL: 34/359 failed (325 pass, 50 files). Mixed root causes, all reproducible on this machine: (a) HOME-sandbox leakage — code under test reads REAL ~/.media + ~/.hyperframes and ignores the tests' process.env.HOME: stats.mjs 'buildStats returns a zeroed report when nothing exists' 17 !== 0 (real ~/.media/manifest.jsonl leaked in); telemetry 'adopts a legacy ~/.media/anon-id' got fresh UUID 15793876-… instead of 'legacy-media-id'; prefs-store 'one project never promotes' expected undefined, got source:'user' confirmed_in:['my-launch','proj-a'] from real home data; candidates 'zero-overlap intent still lists candidates'/'caps per scope' 4 !== 1 (real global cache); (b) package-loader.mjs version-pin directory-walk fails under bun-apps' isolated Bun linker → '@hyperframes/producer@latest' !~ /^@hyperframes\\/producer@\\d+\\.\\d+\\.\\d+/ (2 test fails + stderr @latest fallback warning); (c) 7 animation-map/contrast-report + 4 transient-init retry tests fail with 'error: index.html not found in project directory' at @hyperframes/core htmlBundler.js:715 via package-loader.mjs:62 (fixtures don't write the bundler entry file). Safety-relevant: the suite reads AND may write real user state (~/.media/misses.jsonl modified today). Environment-dependent but deterministic test-isolation/fixture defects; typecheck clean."
+      ],
+      "summary": "26-package sweep: 24 green on test+typecheck; 2 red test gates — file2md (30 fail/3 err, deterministic mock.module() cross-file leakage, per-file runs pass) and hyperframes (34 fail: HOME-sandbox leakage reading real ~/.media, linker-broken version pins, bundler fixture misses). Systemic: ~19 packages lack a `check` script so local_ci silently skips lint; many high-risk suites are opt-in-only."
+    }
+  },
+  "phases": [
+    "Audit",
+    "Synthesize"
+  ],
+  "agents": 27,
+  "durationMs": 482045,
+  "tokens": 1527174
+}

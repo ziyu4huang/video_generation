@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "adopted": "2026-09-01",
+  "claimProcedure": "synthetic fixture — two non-grandfathered entries claiming self-arc #7; the guard must REJECT this tree forever (see tests/arc-ledger.test.ts).",
+  "entries": [
+    { "series": "self-arc", "number": 7, "path": ".planning/2026-09-01-self-arc-7", "status": "done", "claimedAt": "2026-09-01", "note": "fixture claim A" },
+    { "series": "self-arc", "number": 7, "path": ".planning/2026-09-02-self-arc-7", "status": "active", "claimedAt": "2026-09-02", "note": "fixture claim B — the duplicate" }
+  ]
+}

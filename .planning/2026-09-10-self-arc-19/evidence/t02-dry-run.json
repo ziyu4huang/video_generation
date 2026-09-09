@@ -1,0 +1,109 @@
+# t02 dry-run receipt — first run of repoint-next-goal.ts against the REAL queue
+# captured: 2026-09-10 06:11:54 | branch: self-arc-19-loop-integrity
+# command: bun bun-apps/s2-agent-ext-devops/scripts/repoint-next-goal.ts output/next-goal-20260910-040000.md --check
+#
+# THE TOOL BIT ON THE FIRST BITE — two live violations found:
+# 1. the queue head next-goal-20260910-040000.md FAILED strict validation
+#    (missing '## Verified this session' + '## Honest gaps') — the writing
+#    session's 'validated, exit=0' receipt was FALSE;
+# 2. next-goal-20260907-190000.md was STILL in the queue byte-identical to the
+#    head despite the previous session's 'removed' claim (deletions: 1).
+# Remediation: head repaired (sections restored verbatim-faithful + repair note),
+# stale twin removed as scratch (repair dissolved the byte-identity), then the
+# REAL repoint ran ok (symlink form) and the doctor went green after pruning the
+# 4 oldest files per the retention cap (14 -> 10).
+#
+# === the failing --check JSON (exit 1), verbatim: ===
+{
+  "outputDir": "/Users/huangziyu/proj/video_generation__memory/output",
+  "requestedTarget": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+  "resolvedTarget": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+  "retargeted": false,
+  "validation": {
+    "ok": false,
+    "file": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+    "checks": [
+      {
+        "name": "sections-present",
+        "ok": false,
+        "detail": "missing section heading(s): ## Verified this session | ## Honest gaps"
+      }
+    ]
+  },
+  "supersedesOrder": {
+    "ok": true
+  },
+  "deletions": [
+    {
+      "file": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260907-190000.md",
+      "newerTwin": "next-goal-20260910-040000.md"
+    }
+  ],
+  "ok": false,
+  "checkOnly": true,
+  "deleted": [],
+  "repointed": false,
+  "latestForm": "untouched",
+  "problems": [
+    "target fails strict validation: sections-present (missing section heading(s): ## Verified this session | ## Honest gaps)"
+  ]
+}
+# === the subsequent REAL repoint JSON (exit 0): ===
+{
+  "outputDir": "/Users/huangziyu/proj/video_generation__memory/output",
+  "requestedTarget": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+  "resolvedTarget": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+  "retargeted": false,
+  "validation": {
+    "ok": true,
+    "file": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+    "checks": []
+  },
+  "supersedesOrder": {
+    "ok": true
+  },
+  "deletions": [],
+  "ok": true,
+  "checkOnly": false,
+  "deleted": [],
+  "repointed": true,
+  "latestForm": "symlink",
+  "doctor": {
+    "ok": false,
+    "outputDir": "/Users/huangziyu/proj/video_generation__memory/output",
+    "files": [
+      "next-goal-20260831-212211.md",
+      "next-goal-20260906-110000.md",
+      "next-goal-20260906-170000.md",
+      "next-goal-20260907-074625.md",
+      "next-goal-20260907-090500.md",
+      "next-goal-20260907-140000.md",
+      "next-goal-20260907-160000.md",
+      "next-goal-20260908-090000.md",
+      "next-goal-20260908-200000.md",
+      "next-goal-20260909-110000.md",
+      "next-goal-20260909-190000.md",
+      "next-goal-20260909-230000.md",
+      "next-goal-20260910-010000.md",
+      "next-goal-20260910-040000.md"
+    ],
+    "latest": {
+      "symlink": "/Users/huangziyu/proj/video_generation__memory/output/LATEST-next-goal.md",
+      "target": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+      "dangling": false
+    },
+    "retention": {
+      "count": 14,
+      "overBy": 4
+    },
+    "validation": {
+      "ok": true,
+      "file": "/Users/huangziyu/proj/video_generation__memory/output/next-goal-20260910-040000.md",
+      "checks": []
+    },
+    "problems": [
+      "retention over cap: 14 files (max 10) — delete the oldest 4 by filename timestamp"
+    ]
+  },
+  "problems": []
+}

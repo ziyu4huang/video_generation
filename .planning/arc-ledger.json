@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "adopted": "2026-09-10",
+  "claimProcedure": "Claiming a series arc number = append ONE entry here at branch time (series, number, path, status, claimedAt, branch; mergedPr filled at merge). The guard (bun-apps/s2-agent-ext-wayfind/src/arc-ledger.ts, run by tests/arc-ledger.test.ts) fails CI on any duplicate (series, number) among non-grandfathered entries, on dirs without entries, and on any active number claimed at a different path on origin/main. Renumber = edit the entry and add renumberedTo/note — never delete history. grandfathered:true is legal ONLY for entries with claimedAt <= adopted (pre-ledger claims); new claims can never opt out.",
+  "entries": [
+    { "series": "self-arc", "number": 3, "path": ".planning/2026-09-06-self-arc-3", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 4, "path": ".planning/2026-09-06-self-arc-4", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 5, "path": ".planning/2026-09-06-self-arc-5", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 6, "path": ".planning/2026-09-06-self-arc-6", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 7, "path": ".planning/2026-09-06-self-arc-7", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 8, "path": ".planning/2026-09-06-self-arc-8", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 9, "path": ".planning/2026-09-06-self-arc-9", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 10, "path": ".planning/2026-09-06-self-arc-10", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 11, "path": ".planning/2026-09-06-self-arc-11", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 12, "path": ".planning/2026-09-06-self-arc-12", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 13, "path": ".planning/2026-09-06-self-arc-13", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger claim; number shared with .planning/2026-09-08-self-arc-13 (collision residue, both shipped)" },
+    { "series": "self-arc", "number": 13, "path": ".planning/2026-09-08-self-arc-13", "status": "done", "claimedAt": "2026-09-08", "grandfathered": true, "note": "pre-ledger claim; number shared with .planning/2026-09-06-self-arc-13 (collision residue, both shipped)" },
+    { "series": "self-arc", "number": 14, "path": ".planning/2026-09-06-self-arc-14", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger claim; number shared with .planning/2026-09-08-self-arc-14 (collision residue, both shipped)" },
+    { "series": "self-arc", "number": 14, "path": ".planning/2026-09-08-self-arc-14", "status": "done", "claimedAt": "2026-09-08", "grandfathered": true, "note": "pre-ledger claim; number shared with .planning/2026-09-06-self-arc-14 (collision residue, both shipped)" },
+    { "series": "self-arc", "number": 15, "path": ".planning/2026-09-06-self-arc-15", "status": "done", "claimedAt": "2026-09-06", "grandfathered": true, "note": "pre-ledger claim; number shared with .planning/2026-09-09-self-arc-15 (collision residue, both shipped)" },
+    { "series": "self-arc", "number": 15, "path": ".planning/2026-09-09-self-arc-15", "status": "done", "claimedAt": "2026-09-09", "grandfathered": true, "note": "pre-ledger claim; number shared with .planning/2026-09-06-self-arc-15 (collision residue, both shipped)" },
+    { "series": "self-arc", "number": 16, "path": ".planning/2026-09-09-self-arc-16", "status": "done", "claimedAt": "2026-09-09", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 17, "path": ".planning/2026-09-09-self-arc-17", "status": "done", "claimedAt": "2026-09-09", "grandfathered": true, "note": "pre-ledger historical claim (bootstrap 2026-09-10)" },
+    { "series": "self-arc", "number": 18, "path": ".planning/2026-09-09-self-arc-18", "status": "done", "claimedAt": "2026-09-09", "grandfathered": true, "mergedPr": 2238, "note": "pre-ledger claim; dual-arc-18 collision (4th of the series) was the incident that forced this ledger" },
+    { "series": "self-arc", "number": 19, "path": ".planning/2026-09-10-self-arc-19", "status": "active", "claimedAt": "2026-09-10", "branch": "self-arc-19-loop-integrity", "mergedPr": null, "note": "first machine-checked claim — loop-integrity arc (the ledger itself is its t01)" }
+  ]
+}

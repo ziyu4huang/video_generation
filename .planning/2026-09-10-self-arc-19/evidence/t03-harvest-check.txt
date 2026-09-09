@@ -1,0 +1,27 @@
+# t03 harvest-verify — reviewer-harvest fallback vs arc-review.ts dispatch
+# command: bun bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts --name arc-reviewer --timeout 0
+# EXPECTED per the ticket: a MISS — core spawnSubagent has no name field and
+# writes no ~/.pi/subagents/runs record, so the fallback cannot match this
+# dispatch. The receipt (t03-review-receipt.json) IS the harvest. Gap filed
+# for a successor (named-live-agent dispatch or harvest support).
+
+  "name": "arc-reviewer",
+  "harnessRoot": "/Users/huangziyu/.claude-glm",
+  "sendMessages": [],
+  "attempts": 1
+}
+harvest-exit=
+
+# ACTUAL RESULT (2026-09-10):
+# {"status":"absent","name":"arc-reviewer","attempts":1} — exit 1.
+# Confirms the seam: PRIMARY (claude-glm transcripts) and FALLBACK (pi runs
+# archive) both find nothing for a core-spawnSubagent dispatch. Follow-up:
+# harvest support or named-live-agent dispatch for arc-review.ts — successor
+# material, per t03 out-of-scope.
+{
+  "status": "absent",
+  "name": "arc-reviewer",
+  "harnessRoot": "/Users/huangziyu/.claude-glm",
+  "sendMessages": [],
+  "attempts": 1
+}
