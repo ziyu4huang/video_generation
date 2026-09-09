@@ -1,0 +1,16 @@
+2609.09155 p2: 6 suspect bullet(s)
+  MISSING ["3"] :: - **图形类型**：论文首页概览图，左右流程式布局，共 3 行场景条带 + 中央枢纽节点。
+  MISSING ["Initial Position"] :: - **左侧模块 — Visual Calibration for each DoF**：三行机械臂影像条带（三种不同相机视角/ embodiment 的环境）；列标签依次为 `I
+  MISSING ["7Do"] :: - **中央模块**：地球（globe）图标，标注 **`SyncWorld`**，为世界模型枢纽；其上方有绿色输入卡片，标注 **`7DoF Action Chunk`** 与 
+  MISSING ["Zero-Shot Rollout Imagination"] :: - **右侧模块 — Zero-Shot Rollout Imagination**：三行预测的未来 rollout 帧，与左侧三行场景一一对应（不同相机角度/embodiment
+  MISSING ["7Do"] :: - **流程与箭头方向**：左侧校准帧 →（向右汇聚）→ 中央 SyncWorld 地球；顶部 `7DoF Action Chunk` 卡片 ↓ 汇入地球；地球 →（向右）→ 右侧
+  MISSING ["7Do","Initial Position","Zero-Shot Rollout Imagination"] :: - **关键标签（原文）**：`Visual Calibration for each DoF`、`Initial Position`、`Δx`、`Δyaw`、`Δy`、`Δpit
+2609.09143 p7: 1 suspect bullet(s)
+  MISSING ["6.51"] :: - Y 軸：`Validation Loss`（log 尺度），各子圖刻度不同（如 Text 約 2.51–2.88；LAION 面板約 6.51–7.94）。
+2609.09124 p4: 2 suspect bullet(s)
+  MISSING ["75%"] :: - 曲线："RGB"（橙色实线+点，高且平缓，约 75%）、"Grayscale"（蓝色点线，较低）、"Majority Baseline"（黑色虚线，底部）
+  MISSING ["55%"] :: - 曲线："Actual On Counterfactual"（蓝色实线，贴近基线）、"Canonical On Counterfactual"（橙色实线+点，随层上升至约 55%
+2609.09134 p3: 0 suspect bullet(s)
+2609.09133 p1: 0 suspect bullet(s)
+2609.08981 p2: 0 suspect bullet(s)
+2609.09087 p5: 0 suspect bullet(s)
