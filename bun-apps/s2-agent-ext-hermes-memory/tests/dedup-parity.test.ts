@@ -29,12 +29,12 @@
 // sqlite3 CLI) — the fixture schema (memories + trigger-mirrored memory_fts) is
 // designed so the script's FTS integrity check passes after a commit.
 
-import { test, beforeAll, afterAll } from "bun:test";
-import { assertParity } from "../../tests/helpers/bash-parity"; // bun-apps/tests/helpers (two levels up: pkg/tests -> bun-apps)
 import { Database } from "bun:sqlite";
+import { afterAll, beforeAll, test } from "bun:test";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertParity } from "../../tests/helpers/bash-parity"; // bun-apps/tests/helpers (two levels up: pkg/tests -> bun-apps)
 
 // The dedup.ts path is package-relative (spawned via `bun skills/.../dedup.ts`
 // from the package root — the contract in the plan). Resolve the package root
@@ -61,7 +61,8 @@ function stubEnv(): { PATH: string } {
 // ── fixture content (same as the capture seed; 7 failure rows + 2 cross-target) ─
 const C3 =
   "[failure] lesson: never run git rev-parse --is-inside-work-tree inside a detached head hook because it returns true and misleads the exit code logic";
-const C4 = C3.slice(0, 80) +
+const C4 =
+  C3.slice(0, 80) +
   " - VARIANT: with a shallow clone the same trick stops publishing tags and the guard was added later in the runbook";
 const C6 =
   "[failure] lesson: after a rebase, bundle exec nuke leaves stale tags and the next push fails with 403 until you recreate the remote ref via git push origin --tags --force";
@@ -88,9 +89,7 @@ INSERT INTO memories (id, target, content) VALUES
 `;
 
 function mdEntries(contents: string[], dates: string[]): string {
-  return contents
-    .map((c, i) => `${c} <!-- created=${dates[i]}, last=${dates[i]} -->`)
-    .join("\n§\n") + "\n";
+  return `${contents.map((c, i) => `${c} <!-- created=${dates[i]}, last=${dates[i]} -->`).join("\n§\n")}\n`;
 }
 
 function ensureFixture(dir: string): void {
@@ -100,9 +99,18 @@ function ensureFixture(dir: string): void {
   db.exec(SEED_SQL);
   db.close();
   // 7 failure entries (ids 1-7), metadata comments appended like the real .md.
-  const md = mdEntries(["[failure] [bash error] sqlite3: command not found", "[REMOVED] obsolete entry", C3, C4,
-    "[failure] lesson: memory add rejects a target once its in-process capacity counter is full even though the db row count is low; the counter lags until the harness reloads from disk", C6, C6],
-    ["2026-08-18", "2026-08-18", "2026-08-19", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-21"]);
+  const md = mdEntries(
+    [
+      "[failure] [bash error] sqlite3: command not found",
+      "[REMOVED] obsolete entry",
+      C3,
+      C4,
+      "[failure] lesson: memory add rejects a target once its in-process capacity counter is full even though the db row count is low; the counter lags until the harness reloads from disk",
+      C6,
+      C6,
+    ],
+    ["2026-08-18", "2026-08-18", "2026-08-19", "2026-08-19", "2026-08-20", "2026-08-21", "2026-08-21"],
+  );
   writeFileSync(join(dir, "failures.md"), md);
 }
 
@@ -157,7 +165,7 @@ const HELP_GOLDEN = `# dedup.sh — deterministic bulk-dedup of one pi-memory ta
 # store paths from its own location. Every store artifact (sessions.db, the
 # per-target .md sources, timestamped backups, the cross-process .md.lock, and
 # the .tsv manifest) resolves under the agent-root memory dir:
-#   \${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}/pi-hermes-memory/`;
+#   \${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-hermes-memory/`;
 
 const DRYRUN_GOLDEN = `▸ s2-agent processes: 0  (race risk if another session writes the DB mid-run)
 ▸ store dir: /tmp/dedup-fixture
@@ -263,7 +271,10 @@ test("dedup.ts dry-run BEFORE→AFTER", () => {
     {
       name: "dry-run",
       args: ["--target", "failure", "--db", DB_PATH],
-      cwd: PKG_DIR, env: stubEnv(), expectCode: 0, out: DRYRUN_GOLDEN,
+      cwd: PKG_DIR,
+      env: stubEnv(),
+      expectCode: 0,
+      out: DRYRUN_GOLDEN,
     },
   ]);
 });
@@ -273,7 +284,10 @@ test("dedup.ts dry-run --prune-stubs (projection extends to stubs)", () => {
     {
       name: "dry-run-prune-stubs",
       args: ["--target", "failure", "--db", DB_PATH, "--prune-stubs"],
-      cwd: PKG_DIR, env: stubEnv(), expectCode: 0, out: DRYRUN_PRUNE_GOLDEN,
+      cwd: PKG_DIR,
+      env: stubEnv(),
+      expectCode: 0,
+      out: DRYRUN_PRUNE_GOLDEN,
     },
   ]);
 });
@@ -283,7 +297,10 @@ test("dedup.ts dry-run --prefix-len 40 (near-dup key resized)", () => {
     {
       name: "dry-run-prefix-len-40",
       args: ["--target", "failure", "--db", DB_PATH, "--prefix-len", "40"],
-      cwd: PKG_DIR, env: stubEnv(), expectCode: 0, out: DRYRUN_PREFIX40_GOLDEN,
+      cwd: PKG_DIR,
+      env: stubEnv(),
+      expectCode: 0,
+      out: DRYRUN_PREFIX40_GOLDEN,
     },
   ]);
 });
@@ -294,7 +311,10 @@ test("dedup.ts commit on a copy", () => {
     {
       name: "commit",
       args: ["--target", "failure", "--db", DB_PATH_COMMIT, "--commit", "--keep-backups", "1"],
-      cwd: PKG_DIR, env: stubEnv(), expectCode: 0, out: COMMIT_GOLDEN,
+      cwd: PKG_DIR,
+      env: stubEnv(),
+      expectCode: 0,
+      out: COMMIT_GOLDEN,
     },
   ]);
 });
@@ -304,7 +324,9 @@ test("dedup.ts bogus target exits 2 (usage error)", () => {
     {
       name: "usage-error",
       args: ["--target", "bogus-name", "--db", DB_PATH],
-      cwd: PKG_DIR, env: stubEnv(), expectCode: 2,
+      cwd: PKG_DIR,
+      env: stubEnv(),
+      expectCode: 2,
       errIncludes: ["invalid --target 'bogus-name' (memory|user|failure)"],
     },
   ]);
@@ -315,7 +337,9 @@ test("dedup.ts unknown flag exits 2 (--dry-run is NOT a flag)", () => {
     {
       name: "unknown-arg",
       args: ["--dry-run"],
-      cwd: PKG_DIR, env: stubEnv(), expectCode: 2,
+      cwd: PKG_DIR,
+      env: stubEnv(),
+      expectCode: 2,
       errIncludes: ["unknown arg: --dry-run (try --help)"],
     },
   ]);

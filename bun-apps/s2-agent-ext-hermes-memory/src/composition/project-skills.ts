@@ -17,45 +17,45 @@
  * must typecheck standalone; it is not imported yet.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { SkillStore } from "../store/skill-store.js";
 import { detectProjectSkills } from "../project.js";
+import type { SkillStore } from "../store/skill-store.js";
 
 export function resolveProjectSkillDiscovery(
-	skillStore: SkillStore,
-	projectsMemoryDir: string | undefined,
-	cwd?: string,
+  skillStore: SkillStore,
+  projectsMemoryDir: string | undefined,
+  cwd?: string,
 ): { skillPaths: string[] } {
-	const detected = detectProjectSkills(projectsMemoryDir, cwd);
-	skillStore.setProjectContext(detected.name, detected.skillsDir);
+  const detected = detectProjectSkills(projectsMemoryDir, cwd);
+  skillStore.setProjectContext(detected.name, detected.skillsDir);
 
-	const skillPaths = [skillStore.getGlobalSkillsDir()];
-	if (detected.skillsDir) skillPaths.push(detected.skillsDir);
+  const skillPaths = [skillStore.getGlobalSkillsDir()];
+  if (detected.skillsDir) skillPaths.push(detected.skillsDir);
 
-	return { skillPaths };
+  return { skillPaths };
 }
 
 export function registerProjectSkillDiscoveryHandler(
-	pi: Pick<ExtensionAPI, "on">,
-	skillStore: SkillStore,
-	projectsMemoryDir: string | undefined,
+  pi: Pick<ExtensionAPI, "on">,
+  skillStore: SkillStore,
+  projectsMemoryDir: string | undefined,
 ): void {
-	pi.on("resources_discover", async (event, _ctx) => {
-		return resolveProjectSkillDiscovery(skillStore, projectsMemoryDir, (event as { cwd?: string }).cwd);
-	});
+  pi.on("resources_discover", async (event, _ctx) => {
+    return resolveProjectSkillDiscovery(skillStore, projectsMemoryDir, (event as { cwd?: string }).cwd);
+  });
 }
 
 /** ← L268-275: the private refresh closure (session_start / cwd-change skill
  *  project-context refresh). De-closured: captured skillStore + config.projectsMemoryDir
  *  become explicit parameters; body verbatim. */
 export function refreshSkillProjectContext(
-	skillStore: SkillStore,
-	projectsMemoryDir: string | undefined,
-	cwd?: string,
+  skillStore: SkillStore,
+  projectsMemoryDir: string | undefined,
+  cwd?: string,
 ) {
-	const resource = resolveProjectSkillDiscovery(skillStore, projectsMemoryDir, cwd);
-	return {
-		name: skillStore.getProjectName(),
-		skillsDir: skillStore.getProjectSkillsDir(),
-		resource,
-	};
+  const resource = resolveProjectSkillDiscovery(skillStore, projectsMemoryDir, cwd);
+  return {
+    name: skillStore.getProjectName(),
+    skillsDir: skillStore.getProjectSkillsDir(),
+    resource,
+  };
 }

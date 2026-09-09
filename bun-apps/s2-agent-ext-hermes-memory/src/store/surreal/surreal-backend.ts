@@ -1,9 +1,9 @@
-import type { Backend } from "../repository.js";
-import type { SurrealConnection } from "../../types.js";
-import { SurrealClient, SURREAL_DEFAULTS } from "@repo/s2-agent-core-interface";
+import { SURREAL_DEFAULTS, SurrealClient } from "@repo/s2-agent-core-interface";
 import { bumpRoundTrips } from "../../perf.js";
+import type { SurrealConnection } from "../../types.js";
+import type { Backend } from "../repository.js";
+import { DEFAULT_SURREAL_DATABASE, derivePerUserNamespace } from "./per-user-db.js";
 import { SURREAL_BOOTSTRAP_SQL } from "./schema.js";
-import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./per-user-db.js";
 
 // Client + endpoint/credential defaults live in core-interface (kcard-parity
 // D4/D5); the per-user namespace + database name are hermes-owned.

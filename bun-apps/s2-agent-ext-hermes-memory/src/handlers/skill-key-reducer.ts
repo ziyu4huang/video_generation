@@ -21,12 +21,8 @@
  */
 
 import { Key, matchesKey } from "@earendil-works/pi-tui";
-import {
-  MEMORY_SKILLS_KEYMAP,
-  nextSortMode,
-  type SkillSortMode,
-} from "./skill-rows.js";
 import type { SkillScope } from "../types.js";
+import { MEMORY_SKILLS_KEYMAP, nextSortMode, type SkillSortMode } from "./skill-rows.js";
 
 export interface SkillModalState {
   /** Which sub-panel currently owns key routing: the filter panel, search box, or the list. */

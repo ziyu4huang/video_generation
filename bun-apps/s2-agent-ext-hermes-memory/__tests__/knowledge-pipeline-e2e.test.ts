@@ -17,30 +17,30 @@
  * plan's option (a).
  */
 
-import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
 import {
-  mkdtempSync,
-  mkdirSync,
-  rmSync,
-  writeFileSync,
   existsSync,
+  mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
-  publishSeam,
   type KnowledgePipeline,
-  type RetrieveResult,
+  publishSeam,
   type RetrievedCard,
+  type RetrieveResult,
 } from "@repo/s2-agent-core-interface";
-import { walkAndIngest } from "../src/walk-and-ingest.js";
 import { createCardStore } from "../src/store/card-store.js";
 import { registerKnowledgeSearchTool } from "../src/tools/knowledge-search-tool.js";
+import { walkAndIngest } from "../src/walk-and-ingest.js";
 
 const KEY = "__piKnowledgePipeline";
 const FOLDER = "Zettelkasten/knowledge-graph";
@@ -50,9 +50,15 @@ const MOC = "Tags/Knowledge Graph.md";
  *  KnowledgeSerializer). Idempotent at the file level — a card that already
  *  exists is left untouched (models zk's no-op for unchanged records), so an
  *  external edit persists across re-ingest. */
-function emitZettel(vaultPath: string, r: {
-  id: string; title: string; detail: string; tags: string[];
-}): { path: string; created: boolean } {
+function emitZettel(
+  vaultPath: string,
+  r: {
+    id: string;
+    title: string;
+    detail: string;
+    tags: string[];
+  },
+): { path: string; created: boolean } {
   const dir = join(vaultPath, FOLDER);
   mkdirSync(dir, { recursive: true });
   const slug = r.id.replace(/[^A-Za-z0-9._-]+/g, "-").toLowerCase();
@@ -73,7 +79,7 @@ function emitZettel(vaultPath: string, r: {
     "## 連結",
     "",
   ].join("\n");
-  writeFileSync(fp, body + "\n");
+  writeFileSync(fp, `${body}\n`);
   return { path: `${FOLDER}/${slug}.md`, created: true };
 }
 
@@ -96,9 +102,20 @@ function makeRealisticPipeline(): KnowledgePipeline {
         return { id: r.id, path: out.path, status: out.created ? "created" : "unchanged", links: 0 };
       });
       return {
-        source: opts.source, sourceLabel: opts.sourceLabel, total: records.length,
-        created, updated: 0, unchanged: records.length - created, skipped: 0, linked: 0, wikiMerged: 0,
-        mocUpdated: false, vaultPath: opts.vaultPath, folder: opts.folder ?? "", cards, parseErrors: [],
+        source: opts.source,
+        sourceLabel: opts.sourceLabel,
+        total: records.length,
+        created,
+        updated: 0,
+        unchanged: records.length - created,
+        skipped: 0,
+        linked: 0,
+        wikiMerged: 0,
+        mocUpdated: false,
+        vaultPath: opts.vaultPath,
+        folder: opts.folder ?? "",
+        cards,
+        parseErrors: [],
       };
     },
     healGraph: async (opts) => {
@@ -114,17 +131,16 @@ function makeRealisticPipeline(): KnowledgePipeline {
       // Regenerate the MOC from on-disk cards (mirrors zk's writeMoc).
       const mocAbs = join(opts.vaultPath, opts.mocPath ?? MOC);
       mkdirSync(dirname(mocAbs), { recursive: true });
-      writeFileSync(
-        mocAbs,
-        `# Knowledge Graph\n\n${cards.map((c) => `- [[${c.replace(/\.md$/, "")}]]`).join("\n")}\n`,
-      );
+      writeFileSync(mocAbs, `# Knowledge Graph\n\n${cards.map((c) => `- [[${c.replace(/\.md$/, "")}]]`).join("\n")}\n`);
       return { mocRegenerated: true, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: cards };
     },
     retrieveRecords: async (opts) => {
       const dir = join(opts.vaultPath, opts.folder ?? FOLDER);
       let files: string[] = [];
       try {
-        files = readdirSync(dir).filter((n) => n.endsWith(".md")).sort();
+        files = readdirSync(dir)
+          .filter((n) => n.endsWith(".md"))
+          .sort();
       } catch {
         files = [];
       }
@@ -142,18 +158,21 @@ function makeRealisticPipeline(): KnowledgePipeline {
           continue;
         }
         const fm = bytes.match(/^---\n([\s\S]*?)\n---/);
-        const fmText = fm ? fm[1]! : "";
+        const fmText = fm?.[1] ?? "";
         const idMatch = fmText.match(/^id:\s*(.+)/m);
-        const id = idMatch ? idMatch[1]!.trim() : name.replace(/\.md$/, "");
+        const id = idMatch ? idMatch[1]?.trim() : name.replace(/\.md$/, "");
         if (exclude.has(id)) continue;
         const tagLine = fmText.match(/^tags:\s*\[(.*)\]/m);
         const tags = tagLine
-          ? tagLine[1]!.split(",").map((s) => s.trim()).filter(Boolean)
+          ? tagLine[1]
+              ?.split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
           : [];
         const titleMatch = bytes.match(/^# (.+)$/m);
-        const title = titleMatch ? titleMatch[1]!.trim() : id;
+        const title = titleMatch ? titleMatch[1]?.trim() : id;
         const detailMatch = bytes.match(/## 核心想法\n([\s\S]*?)(?:\n## |\n?$)/);
-        const detail = detailMatch ? detailMatch[1]!.trim() : "";
+        const detail = detailMatch ? detailMatch[1]?.trim() : "";
         const shared = tags.filter((t) => want.has(t.toLowerCase())).length;
         const bodyHit = opts.bodyMatch && qText.length > 0 && bytes.toLowerCase().includes(qText);
         if (shared > 0 || bodyHit) {
@@ -251,8 +270,8 @@ describe("knowledge-pipeline 06b end-to-end (walk → ingest → heal → mirror
 
     // (2) healGraph receipt non-empty (MOC regenerated; cards touched).
     assert.ok(r1.heal, "heal receipt present");
-    assert.equal(r1.heal!.mocRegenerated, true);
-    assert.ok((r1.heal!.cardsTouched?.length ?? 0) >= 3, "heal touched ≥3 cards");
+    assert.equal(r1.heal?.mocRegenerated, true);
+    assert.ok((r1.heal?.cardsTouched?.length ?? 0) >= 3, "heal touched ≥3 cards");
     assert.ok(existsSync(join(vault, MOC)), "MOC note written");
 
     // (3) DB mirror holds the cards (ids == the ingested record ids).
@@ -271,10 +290,22 @@ describe("knowledge-pipeline 06b end-to-end (walk → ingest → heal → mirror
     }
 
     // (5) junk is in skipped; (6) .agents/memory untouched + deferred.
-    assert.ok(r1.skipped.dirs.some((d) => d.endsWith(".git")), ".git skipped");
-    assert.ok(r1.skipped.binaries.some((b) => b.endsWith("blob.zip")), "blob.zip skipped");
-    assert.ok(r1.skipped.binaries.some((b) => b.endsWith("pic.png")), "pic.png skipped (image default off)");
-    assert.ok(r1.skipped.symlinks.some((s) => s.endsWith("link.knowledge.jsonl")), "symlink skipped");
+    assert.ok(
+      r1.skipped.dirs.some((d) => d.endsWith(".git")),
+      ".git skipped",
+    );
+    assert.ok(
+      r1.skipped.binaries.some((b) => b.endsWith("blob.zip")),
+      "blob.zip skipped",
+    );
+    assert.ok(
+      r1.skipped.binaries.some((b) => b.endsWith("pic.png")),
+      "pic.png skipped (image default off)",
+    );
+    assert.ok(
+      r1.skipped.symlinks.some((s) => s.endsWith("link.knowledge.jsonl")),
+      "symlink skipped",
+    );
     assert.ok(
       r1.skipped.deferredFamily.some((f) => f.endsWith("MEMORY.md")),
       ".agents/memory/MEMORY.md in deferredFamily",
@@ -287,14 +318,14 @@ describe("knowledge-pipeline 06b end-to-end (walk → ingest → heal → mirror
     registerKnowledgeSearchTool(pi, () => vault);
     const searchDef = pi.def();
     assert.ok(searchDef, "knowledge_search registered");
-    const out = await searchDef!.execute("e2e-1", { query: "cfg" }, undefined, undefined, {});
+    const out = await searchDef?.execute("e2e-1", { query: "cfg" }, undefined, undefined, {});
     const details = out.details as RetrieveResult;
     assert.ok(details.count >= 1, `knowledge_search matched ≥1 card (got ${details.count})`);
     assert.ok(
       textOf(out).includes("CFG Scale Tuning"),
       `search text surfaces the cfg card title (got: ${textOf(out)})`,
     );
-    assert.equal(details.cards[0]!.id, "r-cfg", "top match is the cfg card");
+    assert.equal(details.cards[0]?.id, "r-cfg", "top match is the cfg card");
 
     // ── 3. Re-running walkAndIngest is idempotent (no dup rows; stable mirror) ──
     const r2 = await walkAndIngest(inputDir, { memoryDir: memDir, previousHashes: r1.driftStub.currentHashes });
@@ -309,7 +340,7 @@ describe("knowledge-pipeline 06b end-to-end (walk → ingest → heal → mirror
     }
 
     // knowledge_search still works after re-run (seam intact, vault-md unchanged).
-    const out2 = await searchDef!.execute("e2e-2", { query: "sampler" }, undefined, undefined, {});
+    const out2 = await searchDef?.execute("e2e-2", { query: "sampler" }, undefined, undefined, {});
     const details2 = out2.details as RetrieveResult;
     assert.ok(details2.count >= 1);
     assert.ok(textOf(out2).includes("Sampler Euler A Gotcha"));
@@ -324,7 +355,7 @@ describe("knowledge-pipeline 06b end-to-end (walk → ingest → heal → mirror
 
     const pi = captureRegistrar();
     registerKnowledgeSearchTool(pi, () => vault);
-    const out = await pi.def()!.execute("e2e-3", { query: "x" }, undefined, undefined, {});
+    const out = await pi.def()?.execute("e2e-3", { query: "x" }, undefined, undefined, {});
     assert.match(textOf(out), /zk.*not present|seam not present/i);
   });
 });

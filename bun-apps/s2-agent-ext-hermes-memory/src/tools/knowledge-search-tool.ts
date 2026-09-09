@@ -20,9 +20,9 @@
  */
 
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { RetrieveResult } from "@repo/s2-agent-core-interface";
 import { GATE_DEFS } from "@repo/s2-agent-core-interface";
 import { Type } from "typebox";
-import type { RetrieveResult } from "@repo/s2-agent-core-interface";
 import { getKnowledgePipeline } from "../knowledge-pipeline-seam.js";
 import { KNOWLEDGE_FOLDER_DEFAULT } from "../knowledge-vault-path.js";
 
@@ -33,9 +33,18 @@ export interface ToolRegistrar {
   registerTool(def: ToolDefinition): void;
 }
 
-GATE_DEFS["knowledge_search"] = {
+GATE_DEFS.knowledge_search = {
   id: "knowledge_search",
-  keywords: ["knowledge search", "knowledge graph", "recall a decision", "prior lesson", "patterns for", "gotcha", "知識搜尋", "過往經驗"],
+  keywords: [
+    "knowledge search",
+    "knowledge graph",
+    "recall a decision",
+    "prior lesson",
+    "patterns for",
+    "gotcha",
+    "知識搜尋",
+    "過往經驗",
+  ],
   requires: {
     nouns: ["knowledge", "lesson", "pattern", "gotcha", "card", "經驗", "教訓"],
     verbs: ["search", "recall", "find", "look up", "搜尋", "查詢", "回憶"],
@@ -60,9 +69,7 @@ function formatKnowledgeSearchText(query: string, result: RetrieveResult): strin
   if (result.count === 0) {
     return `No knowledge cards matched "${query}" (scanned ${result.scanned}, excluded ${result.excluded}).`;
   }
-  const lines: string[] = [
-    `Found ${result.count} knowledge card${result.count === 1 ? "" : "s"} matching "${query}":`,
-  ];
+  const lines: string[] = [`Found ${result.count} knowledge card${result.count === 1 ? "" : "s"} matching "${query}":`];
   for (const card of result.cards) {
     const tagStr = card.tags.length > 0 ? ` [${card.tags.join(", ")}]` : "";
     lines.push(`- ${card.title}${tagStr}`);
@@ -83,10 +90,7 @@ interface KnowledgeSearchToolResult {
 /** Register the `knowledge_search` tool. `vaultResolver` resolves the vault
  *  path (env-only); it MAY throw (e.g. env unset) — the tool surfaces a clear
  *  message at call time and never crashes session init. */
-export function registerKnowledgeSearchTool(
-  pi: ToolRegistrar,
-  vaultResolver: () => string,
-): ToolDefinition {
+export function registerKnowledgeSearchTool(pi: ToolRegistrar, vaultResolver: () => string): ToolDefinition {
   const definition = defineTool({
     name: "knowledge_search",
     label: "Knowledge search",
@@ -154,7 +158,6 @@ export function registerKnowledgeSearchTool(
   return definition;
 }
 
-
 /**
  * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
  * Consumed by s2-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
@@ -166,5 +169,10 @@ export const __GATE_PROBES__ = {
   gate: "knowledge_search",
   recallFloor: 0,
   adversarial: [],
-  controls: ['search the knowledge graph for the sampler gotcha', 'recall the lesson on cfg-scale tuning', 'search the knowledge cards for the lora gotcha', 'look up prior lessons on attention'],
+  controls: [
+    "search the knowledge graph for the sampler gotcha",
+    "recall the lesson on cfg-scale tuning",
+    "search the knowledge cards for the lora gotcha",
+    "look up prior lessons on attention",
+  ],
 };

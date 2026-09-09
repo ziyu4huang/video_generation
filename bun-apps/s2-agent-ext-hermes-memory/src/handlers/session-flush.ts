@@ -6,15 +6,15 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { roleAwareDirectCall, spawnSubagent } from "@repo/s2-agent-core-runtime";
-import { MemoryStore } from "../store/memory-store.js";
 import { FLUSH_PROMPT } from "../constants.js";
+import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryConfig } from "../types.js";
 import { collectMessageParts } from "./message-parts.js";
 
 export function setupSessionFlush(
   pi: ExtensionAPI,
-  store: MemoryStore,
-  projectStore: MemoryStore | null,
+  _store: MemoryStore,
+  _projectStore: MemoryStore | null,
   config: MemoryConfig,
   memoryToolDef?: ToolDefinition,
   spawn: typeof spawnSubagent = spawnSubagent,
@@ -30,7 +30,7 @@ export function setupSessionFlush(
   async function flush(ctx: any, signal?: AbortSignal, timeoutMs = 30000): Promise<void> {
     if (userTurnCount < config.flushMinTurns) return;
 
-    let entries;
+    let entries: ReturnType<typeof ctx.sessionManager.getBranch>;
     try {
       entries = ctx.sessionManager.getBranch();
     } catch {
@@ -38,12 +38,7 @@ export function setupSessionFlush(
     }
 
     const parts = collectMessageParts(entries, config.flushRecentMessages);
-    const flushMessage = [
-      FLUSH_PROMPT,
-      "",
-      "--- Conversation ---",
-      parts.join("\n\n"),
-    ].join("\n");
+    const flushMessage = [FLUSH_PROMPT, "", "--- Conversation ---", parts.join("\n\n")].join("\n");
 
     try {
       if (!memoryToolDef) return;
@@ -85,7 +80,7 @@ export function setupSessionFlush(
   });
 
   // Flush before session shutdown (must be fast, non-blocking)
-  pi.on("session_shutdown", async (event, ctx) => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     if (!config.flushOnShutdown) return;
     // Fire-and-forget with a short timeout so we don't block Pi's shutdown.
     // We intentionally do NOT await — Pi should not wait for the child process.

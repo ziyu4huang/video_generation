@@ -14,11 +14,11 @@
 import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { roleAwareDirectCall, spawnSubagent } from "@repo/s2-agent-core-runtime";
 import { COMBINED_REVIEW_PROMPT } from "../constants.js";
-import { MemoryStore } from "../store/memory-store.js";
 import type { CardStore } from "../store/card-store.js";
+import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryConfig } from "../types.js";
 import { applyRecentMessageLimit, collectMessageParts, collectSubagentOutputs } from "./message-parts.js";
-import { runDirectBackgroundReview, type DirectReviewResult } from "./review-memory-ops.js";
+import { type DirectReviewResult, runDirectBackgroundReview } from "./review-memory-ops.js";
 
 export interface BackgroundReviewOptions {
   /** kp13 Wave B: the memory-kind mirror target — the bundle CardStore
@@ -54,18 +54,10 @@ export function buildDirectReviewUserPrompt(input: ReviewPromptInput): string {
   ];
 
   if (input.currentProject !== null) {
-    sections.push(
-      "",
-      "--- Current Project Memory ---",
-      input.currentProject || "(empty)",
-    );
+    sections.push("", "--- Current Project Memory ---", input.currentProject || "(empty)");
   }
 
-  sections.push(
-    "",
-    "--- Conversation to Review ---",
-    input.parts.join("\n\n"),
-  );
+  sections.push("", "--- Conversation to Review ---", input.parts.join("\n\n"));
 
   return sections.join("\n");
 }

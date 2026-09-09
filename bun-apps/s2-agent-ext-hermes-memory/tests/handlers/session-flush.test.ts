@@ -7,12 +7,12 @@
  * tests pass a fake that records call opts and returns a synthesized result.
  */
 
-import { describe, it, beforeEach } from "bun:test";
+import { beforeEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/s2-agent-core-runtime";
-import { setupSessionFlush } from "../../src/handlers/session-flush.js";
 import { FLUSH_PROMPT } from "../../src/constants.js";
+import { setupSessionFlush } from "../../src/handlers/session-flush.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 // ─── Mock infrastructure ────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ function defaultConfig(overrides: Partial<MemoryConfig> = {}): MemoryConfig {
 
 /** Emit message_end N times (simulates user turns) */
 async function emitUserTurns(handlers: Record<string, Function[]>, count: number) {
-  const hs = handlers["message_end"] || [];
+  const hs = handlers.message_end || [];
   for (let i = 0; i < count; i++) {
     for (const h of hs) {
       await h({ message: { role: "user" } }, {});
@@ -105,12 +105,7 @@ async function emitUserTurns(handlers: Record<string, Function[]>, count: number
 }
 
 /** Emit a single event with optional ctx */
-async function emit(
-  handlers: Record<string, Function[]>,
-  event: string,
-  eventObj: any = {},
-  ctx: any = {},
-) {
+async function emit(handlers: Record<string, Function[]>, event: string, eventObj: any = {}, ctx: any = {}) {
   const hs = handlers[event] || [];
   for (const h of hs) {
     await h(eventObj, ctx);
@@ -284,7 +279,7 @@ describe("setupSessionFlush", () => {
     await new Promise((r) => setTimeout(r, 10));
 
     assert.equal(fake.calls.length, 1);
-    assert.strictEqual(fake.calls[0]!.timeoutMs, 10000, "shutdown flush should cap at 10s");
+    assert.strictEqual(fake.calls[0]?.timeoutMs, 10000, "shutdown flush should cap at 10s");
   });
 
   it("caps the flush writer with the writer envelope (escape hatch honored)", async () => {
@@ -338,7 +333,7 @@ describe("setupSessionFlush", () => {
     const ctx = { sessionManager: { getBranch: () => mockBranch(8) } };
     await emit(mockPi.handlers, "session_before_compact", { signal: undefined }, ctx);
 
-    const task = fake.calls[0]!.task ?? "";
+    const task = fake.calls[0]?.task ?? "";
     assert.ok(task.includes("msg 0"), "default should include older messages");
     assert.ok(task.includes("msg 7"), "default should include latest messages");
   });
@@ -352,7 +347,7 @@ describe("setupSessionFlush", () => {
     const ctx = { sessionManager: { getBranch: () => mockBranch(8) } };
     await emit(mockPi.handlers, "session_before_compact", { signal: undefined }, ctx);
 
-    const task = fake.calls[0]!.task ?? "";
+    const task = fake.calls[0]?.task ?? "";
     assert.ok(!task.includes("msg 4"), "window should exclude older messages");
     assert.ok(task.includes("msg 5"));
     assert.ok(task.includes("msg 6"));
@@ -368,7 +363,7 @@ describe("setupSessionFlush", () => {
     const ctx = { sessionManager: { getBranch: () => mockBranch(8) } };
     await emit(mockPi.handlers, "session_before_compact", { signal: undefined }, ctx);
 
-    const task = fake.calls[0]!.task ?? "";
+    const task = fake.calls[0]?.task ?? "";
     assert.ok(task.includes("msg 0"), "review limit must not affect flush");
   });
 
@@ -417,7 +412,7 @@ describe("setupSessionFlush", () => {
     // spawn is still called (flush task just has no conversation lines)
     assert.equal(fake.calls.length, 1);
 
-    const task = fake.calls[0]!.task ?? "";
+    const task = fake.calls[0]?.task ?? "";
     assert.ok(task.includes(FLUSH_PROMPT));
     // No [USER]/[ASSISTANT] prefixes in empty conversation
     assert.ok(!task.includes("[USER]"), "empty branch should have no [USER]");
@@ -454,10 +449,6 @@ describe("setupSessionFlush", () => {
     await emit(mockPi.handlers, "session_before_compact", { signal }, ctx);
 
     assert.equal(fake.calls.length, 1);
-    assert.strictEqual(
-      fake.calls[0]!.externalSignal,
-      signal,
-      "compact signal should be forwarded as externalSignal",
-    );
+    assert.strictEqual(fake.calls[0]?.externalSignal, signal, "compact signal should be forwarded as externalSignal");
   });
 });

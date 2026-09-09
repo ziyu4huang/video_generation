@@ -7,19 +7,20 @@
 // ingestRecords call. config>env is exercised structurally: the composition
 // site seeds config.kgLlmModel into the tool opts (composition/tools.ts), so
 // a walk-opt carrying the config value beats env once it reaches zk.
-import { describe, it } from "node:test";
+
 import * as assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { describe, it } from "node:test";
 import {
-  publishSeam,
   type IngestOptions,
   type IngestSummary,
   type KnowledgePipeline,
+  publishSeam,
 } from "@repo/s2-agent-core-interface";
-import { __setAgentRootForTest } from "./paths.js";
 import { loadConfig } from "./config.js";
+import { __setAgentRootForTest } from "./paths.js";
 import { walkAndIngest } from "./walk-and-ingest.js";
 
 /** Minimal fake KnowledgePipeline: ingestRecords CAPTURES the opts it is
@@ -82,7 +83,10 @@ describe("kgLlmModel config plumbing (ticket 04)", () => {
     mkdirSync(vault, { recursive: true });
     // One parseable workflow-jsonl record so the walk hands ingestRecords a
     // non-empty batch (parser requires non-empty id + title only).
-    writeFileSync(join(vault, "probe.knowledge.jsonl"), `${JSON.stringify({ id: "kg-1", title: "Funnel probe", detail: "d" })}\n`);
+    writeFileSync(
+      join(vault, "probe.knowledge.jsonl"),
+      `${JSON.stringify({ id: "kg-1", title: "Funnel probe", detail: "d" })}\n`,
+    );
     const captured: IngestOptions[] = [];
     // Defensive: clear any seam leaked by an earlier test file, then publish.
     delete (globalThis as Record<string, unknown>).__piKnowledgePipeline;

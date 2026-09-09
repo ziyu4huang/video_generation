@@ -14,19 +14,16 @@
  * real usage AFTER the instrumentation ships. The synthetic sample here must
  * never be mistaken for real contention telemetry.
  */
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
-import * as assert from "node:assert/strict";
-import { describe, it, beforeAll, afterAll, afterEach } from "bun:test";
 
-import { MemoryStore } from "../../src/store/memory-store.js";
-import {
-  DEFAULT_MEMORY_CHAR_LIMIT,
-  DEFAULT_USER_CHAR_LIMIT,
-} from "../../src/constants.js";
-import type { MemoryConfig } from "../../src/types.js";
+import { afterAll, afterEach, beforeAll, describe, it } from "bun:test";
+import * as assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT } from "../../src/constants.js";
 import { createPerfRecorder, type PerfRecord } from "../../src/perf.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
+import type { MemoryConfig } from "../../src/types.js";
 
 const TEST_MARKER = "[CHARACTERIZATION-TEST]";
 let MEMORY_DIR = "";
@@ -59,7 +56,12 @@ function tmpLog(): string {
 
 function readLog(p: string): PerfRecord[] {
   if (!fs.existsSync(p)) return [];
-  return fs.readFileSync(p, "utf-8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as PerfRecord);
+  return fs
+    .readFileSync(p, "utf-8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as PerfRecord);
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -69,7 +71,11 @@ describe("MemoryStore controlled characterization sample (T4)", { concurrency: 1
     MEMORY_DIR = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-characterization-test-"));
   });
   afterAll(async () => {
-    try { await fs.promises.rm(MEMORY_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await fs.promises.rm(MEMORY_DIR, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
   afterEach(() => {
     delete process.env.PI_HERMES_PERF_LOCK_MS;
@@ -85,7 +91,10 @@ describe("MemoryStore controlled characterization sample (T4)", { concurrency: 1
     const store = new MemoryStore(makeConfig({ failureCharLimit: 50, autoConsolidate: true }));
     await store.loadFromDisk();
     // Slow mock consolidator simulates the local-LLM hold (the #853 signal).
-    store.setConsolidator(async (snapshot) => { await sleep(50); return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; });
+    store.setConsolidator(async (snapshot) => {
+      await sleep(50);
+      return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+    });
     store.setPerfTimed(perf.timed);
     store.setPerfAlways(perf.timedAlways);
     await store.addFailure(`${TEST_MARKER} ${"z".repeat(80)}`, { category: "failure" });
@@ -100,8 +109,10 @@ describe("MemoryStore controlled characterization sample (T4)", { concurrency: 1
     // event, NOT on a fileLock.hold breach (the lock is released during step 2).
     assert.ok(cons[0].ms >= 40, `consolidation ms should capture the LLM hold; got ${cons[0].ms}`);
     const maxHoldMs = holds.length ? Math.max(...holds.map((r) => r.ms)) : 0;
-    assert.ok(maxHoldMs < cons[0].ms,
-      `the file lock must NOT be held for the LLM duration (max hold ${maxHoldMs}ms vs consolidation ${cons[0].ms}ms); no lock-hold breach during step 2`);
+    assert.ok(
+      maxHoldMs < cons[0].ms,
+      `the file lock must NOT be held for the LLM duration (max hold ${maxHoldMs}ms vs consolidation ${cons[0].ms}ms); no lock-hold breach during step 2`,
+    );
   });
 
   it("a terminating slow consolidation stamps timedOut:true on the consolidation record", async () => {
@@ -110,7 +121,10 @@ describe("MemoryStore controlled characterization sample (T4)", { concurrency: 1
     const perf = createPerfRecorder({ logPath: log, getBackend: () => "test" });
     const store = new MemoryStore(makeConfig({ failureCharLimit: 50, autoConsolidate: true }));
     await store.loadFromDisk();
-    store.setConsolidator(async () => { await sleep(50); return { error: "terminated", terminated: true }; });
+    store.setConsolidator(async () => {
+      await sleep(50);
+      return { error: "terminated", terminated: true };
+    });
     store.setPerfTimed(perf.timed);
     store.setPerfAlways(perf.timedAlways);
     await store.addFailure(`${TEST_MARKER} ${"w".repeat(80)}`, { category: "failure" });

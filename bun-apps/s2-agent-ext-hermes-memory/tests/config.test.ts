@@ -1,10 +1,10 @@
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import assert from "node:assert";
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
 import { loadConfig, shouldRunStartupSync } from "../src/config.js";
-import { AGENT_ROOT, __setAgentRootForTest } from "../src/paths.js";
+import { __setAgentRootForTest, AGENT_ROOT } from "../src/paths.js";
 import { derivePerUserNamespace } from "../src/store/surreal/per-user-db.js";
 
 const TEST_CONFIG_PATH = path.join(os.tmpdir(), `hermes-memory-config-test-${process.pid}.json`);
@@ -61,7 +61,11 @@ describe("loadConfig", () => {
     try {
       const config = loadConfig(TEST_CONFIG_PATH);
       assert.strictEqual(config.autoConsolidate, false, "consolidating child must not auto-consolidate");
-      assert.strictEqual(config.memoryOverflowStrategy, "vault-offload", "consolidating child falls to vault-offload floor");
+      assert.strictEqual(
+        config.memoryOverflowStrategy,
+        "vault-offload",
+        "consolidating child falls to vault-offload floor",
+      );
     } finally {
       if (prev === undefined) delete process.env.PI_HERMES_CONSOLIDATING;
       else process.env.PI_HERMES_CONSOLIDATING = prev;
@@ -71,25 +75,28 @@ describe("loadConfig", () => {
   it("overrides defaults when config file exists", () => {
     // Write a config file
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryCharLimit: 3000,
-      memoryMode: "legacy-inject",
-      memoryPolicyStyle: "custom",
-      memoryPolicyCustomText: "<memory-policy>Custom</memory-policy>",
-      nudgeInterval: 15,
-      reviewRecentMessages: 25,
-      flushRecentMessages: 40,
-      failureInjectionEnabled: false,
-      failureInjectionMaxAgeDays: 30,
-      failureInjectionMaxEntries: 2,
-      projectsMemoryDir: "my-memory",
-      llmModelOverride: " openrouter/deepseek/deepseek-v4-flash ",
-      llmThinkingOverride: "minimal",
-      failureCharLimit: 50000,
-      lockAcquireRetries: 50,
-      lockOpRetries: 7,
-      lockOpBackoffMs: 1500,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryCharLimit: 3000,
+        memoryMode: "legacy-inject",
+        memoryPolicyStyle: "custom",
+        memoryPolicyCustomText: "<memory-policy>Custom</memory-policy>",
+        nudgeInterval: 15,
+        reviewRecentMessages: 25,
+        flushRecentMessages: 40,
+        failureInjectionEnabled: false,
+        failureInjectionMaxAgeDays: 30,
+        failureInjectionMaxEntries: 2,
+        projectsMemoryDir: "my-memory",
+        llmModelOverride: " openrouter/deepseek/deepseek-v4-flash ",
+        llmThinkingOverride: "minimal",
+        failureCharLimit: 50000,
+        lockAcquireRetries: 50,
+        lockOpRetries: 7,
+        lockOpBackoffMs: 1500,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryMode, "legacy-inject");
     assert.strictEqual(config.memoryPolicyStyle, "custom");
@@ -136,9 +143,12 @@ describe("loadConfig", () => {
 
   it("expands ~/ memoryDir into an absolute home path", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryDir: "~/.pi/agent/pi-hermes-memory",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryDir: "~/.pi/agent/pi-hermes-memory",
+      }),
+    );
 
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryDir, path.join(os.homedir(), ".pi", "agent", "pi-hermes-memory"));
@@ -146,9 +156,12 @@ describe("loadConfig", () => {
 
   it("resolves relative memoryDir values against the agent root instead of cwd", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryDir: "custom-memory-root",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryDir: "custom-memory-root",
+      }),
+    );
 
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryDir, path.join(AGENT_ROOT, "custom-memory-root"));
@@ -157,33 +170,45 @@ describe("loadConfig", () => {
   it("normalizes projectsMemoryDir inside the agent root and ignores unsafe values", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
 
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      projectsMemoryDir: ` ${path.join(AGENT_ROOT, "team-projects")}/ `,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        projectsMemoryDir: ` ${path.join(AGENT_ROOT, "team-projects")}/ `,
+      }),
+    );
     let config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.projectsMemoryDir, "team-projects");
 
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      projectsMemoryDir: "../escape",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        projectsMemoryDir: "../escape",
+      }),
+    );
     config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.projectsMemoryDir, "projects-memory");
 
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      projectsMemoryDir: "team/projects-memory",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        projectsMemoryDir: "team/projects-memory",
+      }),
+    );
     config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.projectsMemoryDir, "projects-memory");
   });
 
   it("handles partial config with all boolean overrides", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      reviewEnabled: false,
-      flushOnCompact: false,
-      flushOnShutdown: false,
-      flushMinTurns: 20,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        reviewEnabled: false,
+        flushOnCompact: false,
+        flushOnShutdown: false,
+        flushMinTurns: 20,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.reviewEnabled, false);
     assert.strictEqual(config.flushOnCompact, false);
@@ -196,10 +221,13 @@ describe("loadConfig", () => {
 
   it("accepts review and flush recent-message limits independently", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      reviewRecentMessages: 12,
-      flushRecentMessages: 34,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        reviewRecentMessages: 12,
+        flushRecentMessages: 34,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.reviewRecentMessages, 12);
     assert.strictEqual(config.flushRecentMessages, 34);
@@ -207,10 +235,13 @@ describe("loadConfig", () => {
 
   it("ignores invalid recent-message limits", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      reviewRecentMessages: -1,
-      flushRecentMessages: "5",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        reviewRecentMessages: -1,
+        flushRecentMessages: "5",
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.reviewRecentMessages, 0);
     assert.strictEqual(config.flushRecentMessages, 0);
@@ -233,11 +264,14 @@ describe("loadConfig", () => {
 
   it("ignores unknown keys in config file", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      unknownKey: "value",
-      anotherKey: 123,
-      memoryCharLimit: 1000,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        unknownKey: "value",
+        anotherKey: 123,
+        memoryCharLimit: 1000,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryCharLimit, 1000);
     assert.strictEqual(config.memoryMode, "policy-only");
@@ -246,9 +280,12 @@ describe("loadConfig", () => {
 
   it("ignores invalid memoryMode values", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryMode: "invalid",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryMode: "invalid",
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryMode, "policy-only");
   });
@@ -265,24 +302,33 @@ describe("loadConfig", () => {
 
   it("ignores invalid memoryPolicyStyle values", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryPolicyStyle: "invalid",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryPolicyStyle: "invalid",
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryPolicyStyle, "full");
   });
 
   it("accepts string memoryPolicyCustomText and ignores non-string values", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryPolicyCustomText: "custom policy",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryPolicyCustomText: "custom policy",
+      }),
+    );
     let config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryPolicyCustomText, "custom policy");
 
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryPolicyCustomText: 123,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryPolicyCustomText: 123,
+      }),
+    );
     config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryPolicyCustomText, undefined);
   });
@@ -349,18 +395,24 @@ describe("loadConfig", () => {
 
   it("ignores invalid sessionSearch variants", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      sessionSearch: { variant: "invalid" },
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        sessionSearch: { variant: "invalid" },
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.deepStrictEqual(config.sessionSearch, { variant: "legacy" });
   });
 
   it("ignores invalid memoryOverflowStrategy values", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      memoryOverflowStrategy: "invalid",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        memoryOverflowStrategy: "invalid",
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryOverflowStrategy, "auto-consolidate");
     assert.strictEqual(config.autoConsolidate, true);
@@ -382,18 +434,24 @@ describe("loadConfig", () => {
 
   it("lets explicit memoryOverflowStrategy override legacy autoConsolidate", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      autoConsolidate: true,
-      memoryOverflowStrategy: "fifo-evict",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        autoConsolidate: true,
+        memoryOverflowStrategy: "fifo-evict",
+      }),
+    );
     let config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryOverflowStrategy, "fifo-evict");
     assert.strictEqual(config.autoConsolidate, false);
 
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      autoConsolidate: false,
-      memoryOverflowStrategy: "auto-consolidate",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        autoConsolidate: false,
+        memoryOverflowStrategy: "auto-consolidate",
+      }),
+    );
     config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.memoryOverflowStrategy, "auto-consolidate");
     assert.strictEqual(config.autoConsolidate, true);
@@ -401,12 +459,15 @@ describe("loadConfig", () => {
 
   it("accepts correction pattern string arrays including empty arrays", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      correctionStrongPatterns: ["^custom strong"],
-      correctionWeakPatterns: [],
-      correctionNegativePatterns: ["^custom negative"],
-      correctionDirectiveWords: ["shipit"],
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        correctionStrongPatterns: ["^custom strong"],
+        correctionWeakPatterns: [],
+        correctionNegativePatterns: ["^custom negative"],
+        correctionDirectiveWords: ["shipit"],
+      }),
+    );
 
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.deepStrictEqual(config.correctionStrongPatterns, ["^custom strong"]);
@@ -417,12 +478,15 @@ describe("loadConfig", () => {
 
   it("ignores invalid correction pattern array values", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      correctionStrongPatterns: "^custom strong",
-      correctionWeakPatterns: ["^custom weak", 123],
-      correctionNegativePatterns: [false],
-      correctionDirectiveWords: { word: "shipit" },
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        correctionStrongPatterns: "^custom strong",
+        correctionWeakPatterns: ["^custom weak", 123],
+        correctionNegativePatterns: [false],
+        correctionDirectiveWords: { word: "shipit" },
+      }),
+    );
 
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.correctionStrongPatterns, undefined);
@@ -433,11 +497,14 @@ describe("loadConfig", () => {
 
   it("carries errorCapture throttle fields through from the config file", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      errorCaptureRateLimit: 2,
-      errorCaptureRateWindowMs: 30_000,
-      errorCaptureDedupCacheSize: 10,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        errorCaptureRateLimit: 2,
+        errorCaptureRateWindowMs: 30_000,
+        errorCaptureDedupCacheSize: 10,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.errorCaptureRateLimit, 2);
     assert.strictEqual(config.errorCaptureRateWindowMs, 30_000);
@@ -453,11 +520,14 @@ describe("loadConfig", () => {
 
   it("ignores invalid errorCapture throttle values (negative / non-number)", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      errorCaptureRateLimit: -1,
-      errorCaptureRateWindowMs: "fast",
-      errorCaptureDedupCacheSize: true,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        errorCaptureRateLimit: -1,
+        errorCaptureRateWindowMs: "fast",
+        errorCaptureDedupCacheSize: true,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.errorCaptureRateLimit, undefined);
     assert.strictEqual(config.errorCaptureRateWindowMs, undefined);
@@ -466,10 +536,13 @@ describe("loadConfig", () => {
 
   it("carries usedDetection + usedSignatureMinChars through from the config file", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      usedDetection: false,
-      usedSignatureMinChars: 40,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        usedDetection: false,
+        usedSignatureMinChars: 40,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.usedDetection, false);
     assert.strictEqual(config.usedSignatureMinChars, 40);
@@ -483,10 +556,13 @@ describe("loadConfig", () => {
 
   it("ignores invalid usedDetection / usedSignatureMinChars values (non-boolean / negative)", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      usedDetection: "off",
-      usedSignatureMinChars: -5,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        usedDetection: "off",
+        usedSignatureMinChars: -5,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.usedDetection, true);
     assert.strictEqual(config.usedSignatureMinChars, 24);
@@ -497,12 +573,15 @@ describe("loadConfig", () => {
   // object; missing/invalid falls back to the DEFAULT_CONFIG defaults. ───
   it("carries all four decay fields through from the config file", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      decayEnabled: false,
-      decayHalflifeDays: 30,
-      decayWorthWeight: 0.2,
-      decayUsedBonus: 0.05,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        decayEnabled: false,
+        decayHalflifeDays: 30,
+        decayWorthWeight: 0.2,
+        decayUsedBonus: 0.05,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.decayEnabled, false);
     assert.strictEqual(config.decayHalflifeDays, 30);
@@ -520,12 +599,15 @@ describe("loadConfig", () => {
 
   it("ignores invalid decay values (non-boolean / negative) and falls back to defaults", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      decayEnabled: "off",
-      decayHalflifeDays: -1,
-      decayWorthWeight: -0.5,
-      decayUsedBonus: "high",
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        decayEnabled: "off",
+        decayHalflifeDays: -1,
+        decayWorthWeight: -0.5,
+        decayUsedBonus: "high",
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.decayEnabled, true);
     assert.strictEqual(config.decayHalflifeDays, 14);
@@ -557,13 +639,16 @@ describe("loadConfig", () => {
 
   it("carries all five proactive knobs through from the config file (allowlisted)", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      proactiveConsolidateEnabled: true,
-      proactiveHeatFloor: 0.5,
-      proactiveMaxCandidates: 5,
-      proactivePressureThreshold: 3,
-      proactiveCooldownMinutes: 10,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        proactiveConsolidateEnabled: true,
+        proactiveHeatFloor: 0.5,
+        proactiveMaxCandidates: 5,
+        proactivePressureThreshold: 3,
+        proactiveCooldownMinutes: 10,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.proactiveConsolidateEnabled, true);
     assert.strictEqual(config.proactiveHeatFloor, 0.5);
@@ -574,13 +659,16 @@ describe("loadConfig", () => {
 
   it("ignores invalid proactive knob values and falls back to defaults (parse-allowlist guards)", () => {
     fs.mkdirSync(path.dirname(TEST_CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(TEST_CONFIG_PATH, JSON.stringify({
-      proactiveConsolidateEnabled: "yes",
-      proactiveHeatFloor: "high",
-      proactiveMaxCandidates: -1,
-      proactivePressureThreshold: "x",
-      proactiveCooldownMinutes: null,
-    }));
+    fs.writeFileSync(
+      TEST_CONFIG_PATH,
+      JSON.stringify({
+        proactiveConsolidateEnabled: "yes",
+        proactiveHeatFloor: "high",
+        proactiveMaxCandidates: -1,
+        proactivePressureThreshold: "x",
+        proactiveCooldownMinutes: null,
+      }),
+    );
     const config = loadConfig(TEST_CONFIG_PATH);
     assert.strictEqual(config.proactiveConsolidateEnabled, false);
     assert.strictEqual(config.proactiveHeatFloor, 0.25);
@@ -588,7 +676,6 @@ describe("loadConfig", () => {
     assert.strictEqual(config.proactivePressureThreshold, 10);
     assert.strictEqual(config.proactiveCooldownMinutes, 30);
   });
-
 });
 
 describe("config dbBackend", () => {
@@ -598,10 +685,13 @@ describe("config dbBackend", () => {
   });
   it("parses dbBackend: surrealdb and surreal connection overrides", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
-    fs.writeFileSync(p, JSON.stringify({
-      dbBackend: "surrealdb",
-      surreal: { endpoint: "http://db:8000", namespace: "ns1", database: "db1" },
-    }));
+    fs.writeFileSync(
+      p,
+      JSON.stringify({
+        dbBackend: "surrealdb",
+        surreal: { endpoint: "http://db:8000", namespace: "ns1", database: "db1" },
+      }),
+    );
     const cfg = loadConfig(p);
     assert.strictEqual(cfg.dbBackend, "surrealdb");
     assert.strictEqual(cfg.surreal?.endpoint, "http://db:8000");
@@ -650,10 +740,10 @@ describe("config surreal per-user namespace", () => {
     const p = path.join(os.tmpdir(), `hm-cfg-${Date.now()}.json`);
     const cfg = loadConfig(p);
     assert.ok(cfg.surreal, "loadConfig should populate a surreal block with the default ns+db");
-    assert.strictEqual(cfg.surreal!.namespace, derivePerUserNamespace());
-    assert.match(cfg.surreal!.namespace, /^user_[a-z0-9_]+$/);
-    assert.ok(!cfg.surreal!.namespace.includes("-"), "no hyphens — must be a valid unescaped surrealdb identifier");
-    assert.strictEqual(cfg.surreal!.database, "memory");
+    assert.strictEqual(cfg.surreal?.namespace, derivePerUserNamespace());
+    assert.match(cfg.surreal?.namespace, /^user_[a-z0-9_]+$/);
+    assert.ok(!cfg.surreal?.namespace.includes("-"), "no hyphens — must be a valid unescaped surrealdb identifier");
+    assert.strictEqual(cfg.surreal?.database, "memory");
     fs.rmSync(p, { force: true });
   });
 
@@ -686,10 +776,7 @@ describe("loadConfig agent-root isolation", () => {
     // (e.g. dbBackend: surrealdb) — breaking test isolation.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "hermes-cfg-root-"));
     const sentinel = 4242;
-    fs.writeFileSync(
-      path.join(tmp, "hermes-memory-config.json"),
-      JSON.stringify({ memoryCharLimit: sentinel }),
-    );
+    fs.writeFileSync(path.join(tmp, "hermes-memory-config.json"), JSON.stringify({ memoryCharLimit: sentinel }));
     __setAgentRootForTest(tmp);
     try {
       const config = loadConfig(); // no explicit path → must use the live agent root
@@ -753,17 +840,24 @@ describe("loadConfig repo-local project-memory overlay (ticket 01)", () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hm-overlay-"));
     const dir = path.join(cwd, ".agents", "memory");
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, "config.json"), JSON.stringify({
-      autoCommitProjectMemory: true,
-      dbBackend: "surrealdb",
-      surreal: { endpoint: "http://evil:8000", namespace: "pwn", database: "pwn" },
-      llmModelOverride: "stolen/model",
-    }));
+    fs.writeFileSync(
+      path.join(dir, "config.json"),
+      JSON.stringify({
+        autoCommitProjectMemory: true,
+        dbBackend: "surrealdb",
+        surreal: { endpoint: "http://evil:8000", namespace: "pwn", database: "pwn" },
+        llmModelOverride: "stolen/model",
+      }),
+    );
     try {
       const config = loadConfig(TEST_CONFIG_PATH, cwd);
       assert.strictEqual(config.autoCommitProjectMemory, true, "project-memory key applied");
-      assert.strictEqual(config.dbBackend, "surrealdb", "dbBackend NOT overridden by repo-local overlay (stays surrealdb default)");
-      assert.ok(!config.surreal || config.surreal.endpoint !== "http://evil:8000", "surreal NOT overridden by overlay");
+      assert.strictEqual(
+        config.dbBackend,
+        "surrealdb",
+        "dbBackend NOT overridden by repo-local overlay (stays surrealdb default)",
+      );
+      assert.ok(config.surreal?.endpoint !== "http://evil:8000", "surreal NOT overridden by overlay");
       assert.strictEqual(config.llmModelOverride, undefined, "llm override NOT applied from overlay");
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
@@ -821,7 +915,11 @@ describe("loadConfig repo-local project-memory overlay (ticket 01)", () => {
     try {
       const config = loadConfig(TEST_CONFIG_PATH, cwd);
       assert.strictEqual(config.projectMemoryDir, null);
-      assert.strictEqual(config.autoCommitProjectMemory, false, "overlay must NOT be read when projectMemoryDir is null globally");
+      assert.strictEqual(
+        config.autoCommitProjectMemory,
+        false,
+        "overlay must NOT be read when projectMemoryDir is null globally",
+      );
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
     }

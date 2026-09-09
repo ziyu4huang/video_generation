@@ -272,10 +272,10 @@ export const CORRECTION_STRONG_PATTERNS: RegExp[] = [
 
 /** Weak patterns — only trigger if followed by a directive (verb or "the/that/this") */
 export const CORRECTION_WEAK_PATTERNS: RegExp[] = [
-  /^no[,\.\s!]/i,
-  /^wrong[,\.\s!]/i,
-  /^actually[,\.\s]/i,
-  /^stop[,\.\s!]/i,
+  /^no[,.\s!]/i,
+  /^wrong[,.\s!]/i,
+  /^actually[,.\s]/i,
+  /^stop[,.\s!]/i,
 ];
 
 /** Negative patterns — suppress trigger even if a positive pattern matches */
@@ -359,7 +359,8 @@ export const ERROR_NOISE_PATTERNS: RegExp[] = [
 
 // ─── Skill tool description ───
 /** Terse routing description (~80 tok). Heavy per-action semantics → skill_manage_help. */
-export const SKILL_TOOL_DESCRIPTION = "Manage reusable procedures and patterns as Pi-native skills that survive across sessions. Skills are procedural memory — they capture HOW to do something.\n\nActions: create (new skill), view (list or inspect), patch (section update by skill_id), update (full rewrite), delete. Scope required on create: 'global' (portable) or 'project' (repo-specific). Prefer structured fields (when_to_use, procedure_steps, pitfalls, verification_steps). Never use for temporary task state. Per-action details → skill_manage_help.";
+export const SKILL_TOOL_DESCRIPTION =
+  "Manage reusable procedures and patterns as Pi-native skills that survive across sessions. Skills are procedural memory — they capture HOW to do something.\n\nActions: create (new skill), view (list or inspect), patch (section update by skill_id), update (full rewrite), delete. Scope required on create: 'global' (portable) or 'project' (repo-specific). Prefer structured fields (when_to_use, procedure_steps, pitfalls, verification_steps). Never use for temporary task state. Per-action details → skill_manage_help.";
 
 /** Full per-action reference text (the prose the old description embedded).
  *  Returned verbatim by skill_manage_help — single-sourced, no drift. */

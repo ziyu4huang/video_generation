@@ -35,24 +35,22 @@
  *    `frontmatter` (sqlite) / a free column (surreal).
  */
 
-import { runWithTransientRetry } from "./sqlite/sqlite-backend.js";
 import { createSqliteBackend } from "./backend-factory.js";
-import type { SqliteBackend } from "./sqlite/sqlite-backend.js";
-import type { SurrealMemoryRepository, SurrealCardRow } from "./surreal/surreal-memory-repo.js";
-import type { MemoryTarget } from "./repository.js";
-import type { Card, CardKind, CardGraph } from "./card.js";
+import type { Card, CardGraph, CardKind } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import type { DedupStrategy } from "./dedup-strategy.js";
-import { MemorySerializer } from "./memory-serializer.js";
-import { KnowledgeSerializer } from "./knowledge-serializer.js";
 import { ImageSerializer } from "./image-serializer.js";
-import { PlanningEffortSerializer } from "./planning-serializer.js";
-import { PlanningTicketSerializer } from "./planning-serializer.js";
-import { MemoryDedupStrategy } from "./memory-dedup.js";
 import { KnowledgeDedupStrategy } from "./knowledge-dedup.js";
-import { PlanningEffortDedupStrategy } from "./planning-dedup.js";
-import { PlanningTicketDedupStrategy } from "./planning-dedup.js";
+import { KnowledgeSerializer } from "./knowledge-serializer.js";
+import { MemoryDedupStrategy } from "./memory-dedup.js";
 import { today } from "./memory-format.js";
+import { MemorySerializer } from "./memory-serializer.js";
+import { PlanningEffortDedupStrategy, PlanningTicketDedupStrategy } from "./planning-dedup.js";
+import { PlanningEffortSerializer, PlanningTicketSerializer } from "./planning-serializer.js";
+import type { MemoryTarget } from "./repository.js";
+import type { SqliteBackend } from "./sqlite/sqlite-backend.js";
+import { runWithTransientRetry } from "./sqlite/sqlite-backend.js";
+import type { SurrealCardRow, SurrealMemoryRepository } from "./surreal/surreal-memory-repo.js";
 
 export interface CardStore {
   /** Idempotent upsert of one Card through the per-kind dedup strategy.
@@ -189,9 +187,7 @@ function rowToCard(row: CardRow): Card {
     try {
       const parsed = JSON.parse(row.frontmatter);
       frontmatter =
-        parsed !== null && typeof parsed === "object"
-          ? (parsed as Record<string, unknown>)
-          : { id: row.md_id };
+        parsed !== null && typeof parsed === "object" ? (parsed as Record<string, unknown>) : { id: row.md_id };
     } catch {
       frontmatter = { id: row.md_id };
     }
@@ -202,16 +198,13 @@ function rowToCard(row: CardRow): Card {
   if (row.graph) {
     try {
       const parsed = JSON.parse(row.graph);
-      graph =
-        parsed !== null && typeof parsed === "object"
-          ? (parsed as CardGraph)
-          : undefined;
+      graph = parsed !== null && typeof parsed === "object" ? (parsed as CardGraph) : undefined;
     } catch {
       graph = undefined;
     }
   }
   return {
-    id: row.md_id!,
+    id: row.md_id ?? "",
     kind: row.target as CardKind,
     content: row.content,
     frontmatter,
@@ -263,9 +256,7 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
     return runWithTransientRetry(() =>
       backend.withCorruptionRecovery(() => {
         const rows = getDb()
-          .prepare(
-            `SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE target = ? AND md_id IS NOT NULL ORDER BY id`,
-          )
+          .prepare(`SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE target = ? AND md_id IS NOT NULL ORDER BY id`)
           .all(target) as CardRow[];
         return rows.map(rowToCard);
       }),
@@ -350,9 +341,9 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
     getCard(id: string): Promise<Card | null> {
       return runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() => {
-          const row = getDb()
-            .prepare(`SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE md_id = ? LIMIT 1`)
-            .get(id) as CardRow | undefined;
+          const row = getDb().prepare(`SELECT ${CARD_SELECT_COLUMNS} FROM memories WHERE md_id = ? LIMIT 1`).get(id) as
+            | CardRow
+            | undefined;
           return row && row.md_id !== null ? rowToCard(row) : null;
         }),
       );
@@ -402,9 +393,10 @@ function createSqliteCardPersistence(backend: SqliteBackend): CardPersistence {
       return runWithTransientRetry(() =>
         backend.withCorruptionRecovery(() =>
           (
-            getDb()
-              .prepare("SELECT card_id, content_hash FROM card_md_hash WHERE kind = ?")
-              .all(kind) as Array<{ card_id: string; content_hash: string }>
+            getDb().prepare("SELECT card_id, content_hash FROM card_md_hash WHERE kind = ?").all(kind) as Array<{
+              card_id: string;
+              content_hash: string;
+            }>
           ).map((row) => ({ cardId: row.card_id, hash: row.content_hash })),
         ),
       );

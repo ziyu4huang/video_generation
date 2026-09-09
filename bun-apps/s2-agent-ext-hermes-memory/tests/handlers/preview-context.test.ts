@@ -1,7 +1,7 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { registerPreviewContextCommand } from "../../src/handlers/preview-context.js";
 import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "../../src/constants.js";
+import { registerPreviewContextCommand } from "../../src/handlers/preview-context.js";
 
 describe("registerPreviewContextCommand", () => {
   function setup(opts: {
@@ -26,21 +26,13 @@ describe("registerPreviewContextCommand", () => {
       formatForSystemPrompt: () => opts.memoryBlock ?? "",
     } as any;
 
-    const projectStore = opts.withProjectStore
-      ? ({ formatProjectBlock: () => opts.projectBlock ?? "" } as any)
-      : null;
+    const projectStore = opts.withProjectStore ? ({ formatProjectBlock: () => opts.projectBlock ?? "" } as any) : null;
 
-    registerPreviewContextCommand(
-      mockPi,
-      store,
-      projectStore,
-      opts.projectName ?? "demo-project",
-      {
-        memoryMode: opts.memoryMode ?? "policy-only",
-        memoryPolicyStyle: opts.memoryPolicyStyle,
-        memoryPolicyCustomText: opts.memoryPolicyCustomText,
-      },
-    );
+    registerPreviewContextCommand(mockPi, store, projectStore, opts.projectName ?? "demo-project", {
+      memoryMode: opts.memoryMode ?? "policy-only",
+      memoryPolicyStyle: opts.memoryPolicyStyle,
+      memoryPolicyCustomText: opts.memoryPolicyCustomText,
+    });
 
     return {
       handler: commands[0].handler,

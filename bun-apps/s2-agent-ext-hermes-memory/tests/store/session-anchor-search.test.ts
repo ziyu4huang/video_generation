@@ -1,4 +1,4 @@
-import { describe, it, afterEach } from "bun:test";
+import { afterEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -15,7 +15,7 @@ function makeSessionsDir(): string {
 function writeJsonl(relativePath: string, events: unknown[]): string {
   const filePath = path.join(ROOT_DIR, relativePath);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, events.map((event) => JSON.stringify(event)).join("\n") + "\n");
+  fs.writeFileSync(filePath, `${events.map((event) => JSON.stringify(event)).join("\n")}\n`);
   return filePath;
 }
 
@@ -38,11 +38,11 @@ afterEach(() => {
 describe("searchSessionAnchors", () => {
   it("accepts a minimal time window and caps limit", () => {
     const sessionsDir = makeSessionsDir();
-    const events = Array.from({ length: 210 }, (_, index) => (
+    const events = Array.from({ length: 210 }, (_, index) =>
       index % 2 === 0
         ? message(`2026-05-15T12:${String(index % 60).padStart(2, "0")}:00.000Z`, `event ${index}`)
-        : message(`2026-05-14T12:${String(index % 60).padStart(2, "0")}:00.000Z`, `outside ${index}`)
-    ));
+        : message(`2026-05-14T12:${String(index % 60).padStart(2, "0")}:00.000Z`, `outside ${index}`),
+    );
     writeJsonl("session.jsonl", events);
 
     const result = searchSessionAnchors("from: 2026-05-15\nto: 2026-05-15\nlimit: 200", { sessionsDir });
@@ -58,7 +58,10 @@ describe("searchSessionAnchors", () => {
 
     assert.match(searchSessionAnchors("", { sessionsDir }).message ?? "", /markdown is required/);
     assert.match(searchSessionAnchors("since: 2026-05-15", { sessionsDir }).message ?? "", /Invalid field 'since'/);
-    assert.match(searchSessionAnchors("from: 2026-05-15\nfrom: 2026-05-16", { sessionsDir }).message ?? "", /Duplicate field 'from'/);
+    assert.match(
+      searchSessionAnchors("from: 2026-05-15\nfrom: 2026-05-16", { sessionsDir }).message ?? "",
+      /Duplicate field 'from'/,
+    );
     assert.match(searchSessionAnchors("limit: 0", { sessionsDir }).message ?? "", /Invalid limit/);
     assert.match(searchSessionAnchors("all:\n- ", { sessionsDir }).message ?? "", /Invalid markdown line|Empty term/);
     assert.match(searchSessionAnchors("limit: 10", { sessionsDir }).message ?? "", /needs at least one constraint/);
@@ -66,10 +69,7 @@ describe("searchSessionAnchors", () => {
 
   it("measures broadness with scan caps instead of rejecting request shape", () => {
     const sessionsDir = makeSessionsDir();
-    writeJsonl("one.jsonl", [
-      message("2026-05-15T10:00:00.000Z", "a"),
-      message("2026-05-15T11:00:00.000Z", "b"),
-    ]);
+    writeJsonl("one.jsonl", [message("2026-05-15T10:00:00.000Z", "a"), message("2026-05-15T11:00:00.000Z", "b")]);
     writeJsonl("two.jsonl", [message("2026-05-15T12:00:00.000Z", "a")]);
 
     const shortTerm = searchSessionAnchors("any:\n- a", { sessionsDir });
@@ -104,7 +104,13 @@ describe("searchSessionAnchors", () => {
     const sessionsDir = makeSessionsDir();
     writeJsonl("session.jsonl", [
       { type: "session", version: 1, id: "session-real", timestamp: "2026-05-15T09:00:00.000Z", cwd: "/work/project" },
-      { type: "message", id: "message-1", parentId: "session-real", timestamp: "2026-05-15T10:00:00.000Z", message: { role: "user", content: "needle" } },
+      {
+        type: "message",
+        id: "message-1",
+        parentId: "session-real",
+        timestamp: "2026-05-15T10:00:00.000Z",
+        message: { role: "user", content: "needle" },
+      },
     ]);
 
     const result = searchSessionAnchors("any:\n- needle", { sessionsDir });
@@ -117,9 +123,7 @@ describe("searchSessionAnchors", () => {
 
   it("does not match metadata fields as text", () => {
     const sessionsDir = makeSessionsDir();
-    writeJsonl("session.jsonl", [
-      message("2026-05-15T10:00:00.000Z", "actual content"),
-    ]);
+    writeJsonl("session.jsonl", [message("2026-05-15T10:00:00.000Z", "actual content")]);
 
     const result = searchSessionAnchors("any:\n- /work/project", { sessionsDir });
 
@@ -139,9 +143,10 @@ describe("searchSessionAnchors", () => {
     const result = searchSessionAnchors("from: 2026-05-15\nto: 2026-05-15", { sessionsDir });
 
     assert.strictEqual(result.success, true);
-    assert.deepStrictEqual(result.ranges.map((range) => ({ path: range.path, startLine: range.startLine, endLine: range.endLine })), [
-      { path: filePath, startLine: 2, endLine: 3 },
-    ]);
+    assert.deepStrictEqual(
+      result.ranges.map((range) => ({ path: range.path, startLine: range.startLine, endLine: range.endLine })),
+      [{ path: filePath, startLine: 2, endLine: 3 }],
+    );
     assert.strictEqual(result.ranges[0].startTime, "2026-05-15T10:00:00.000Z");
     assert.strictEqual(result.ranges[0].endTime, "2026-05-15T11:00:00.000Z");
   });

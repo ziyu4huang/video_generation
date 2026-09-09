@@ -13,16 +13,24 @@
  * for a stored NULL, so it MUST NOT be used here.
  */
 
-import type { SurrealBackend } from "./surreal-backend.js";
-import type {
-  MemoryRepository, MemoryEntry, MemorySyncInput, MemorySyncResult,
-  MemoryUpdateResult, MemoryRemoveResult, MemoryRemoveOptions,
-  MemorySearchOptions, MemoryListOptions, MemoryStats, MemoryTarget,
-} from "../repository.js";
-import type { MemoryCategory, FailureState } from "../../types.js";
-import { today, normalizeNullable, normalizeCategory } from "../memory-format.js";
-import { normalizeMemoryLookupText } from "../memory-lookup.js";
+import type { FailureState, MemoryCategory } from "../../types.js";
 import { rankMemoryEntries } from "../graph-ranker.js";
+import { normalizeCategory, normalizeNullable, today } from "../memory-format.js";
+import { normalizeMemoryLookupText } from "../memory-lookup.js";
+import type {
+  MemoryEntry,
+  MemoryListOptions,
+  MemoryRemoveOptions,
+  MemoryRemoveResult,
+  MemoryRepository,
+  MemorySearchOptions,
+  MemoryStats,
+  MemorySyncInput,
+  MemorySyncResult,
+  MemoryTarget,
+  MemoryUpdateResult,
+} from "../repository.js";
+import type { SurrealBackend } from "./surreal-backend.js";
 
 /** Max graph neighbors fetched to augment a lexical search (before ranking). */
 const GRAPH_NEIGHBOR_CAP = 20;
@@ -39,7 +47,7 @@ function maxDate(a: string, b: string): string {
 
 /** Escape a string into a SurrealDB double-quoted string literal. */
 function sqlStr(s: string): string {
-  return '"' + s.replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+  return `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 /**
@@ -49,15 +57,25 @@ function sqlStr(s: string): string {
  * the record-id literal.
  */
 function tagRecordLiteral(key: string): string {
-  return "`" + key.replace(/`/g, "") + "`";
+  return `\`${key.replace(/`/g, "")}\``;
 }
 
 type Row = Partial<{
-  seq: number; project: string | null; target: string; category: string | null;
-  content: string; failureReason: string | null; toolState: string | null;
-  correctedTo: string | null; created: string; lastReferenced: string;
-  mwSuccess?: number; mwFail?: number;
-  status?: string; supersedes?: number | null; supersededBy?: number | null;
+  seq: number;
+  project: string | null;
+  target: string;
+  category: string | null;
+  content: string;
+  failureReason: string | null;
+  toolState: string | null;
+  correctedTo: string | null;
+  created: string;
+  lastReferenced: string;
+  mwSuccess?: number;
+  mwFail?: number;
+  status?: string;
+  supersedes?: number | null;
+  supersededBy?: number | null;
   parentIds?: unknown;
   mdId?: string | null;
   state?: string | null;
@@ -79,7 +97,7 @@ function mapRow(r: Row): MemoryEntry {
     lastReferenced: r.lastReferenced ?? r.created ?? today(),
     mwSuccess: r.mwSuccess ?? 0,
     mwFail: r.mwFail ?? 0,
-    status: ((r.status as "active" | "superseded") ?? "active"),
+    status: (r.status as "active" | "superseded") ?? "active",
     supersedes: r.supersedes ?? null,
     supersededBy: r.supersededBy ?? null,
     parentIds: Array.isArray(r.parentIds) ? (r.parentIds as unknown[]).map(Number) : [],
@@ -92,7 +110,8 @@ function mapRow(r: Row): MemoryEntry {
   };
 }
 
-const FIELDS = "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId, state, severity, pin";
+const FIELDS =
+  "seq, project, target, category, content, failureReason, toolState, correctedTo, created, lastReferenced, mwSuccess, mwFail, status, supersedes, supersededBy, parentIds, mdId, state, severity, pin";
 
 /** Card-lens projection of a `memories` row (kp13 Wave A card seam).
  *  frontmatter/graph are SCHEMALESS free columns (JSON strings) — NULL when
@@ -213,15 +232,20 @@ interface MergeValues {
 /** The implicit-tag set whose graph edges a memory owns (project/category/
  *  target). For existing rows the caller derives this from the refreshed row
  *  (single path re-fetches); for new rows from the input. */
-interface TagScope { project: string | null; category: MemoryCategory | null; target: MemoryTarget; }
+interface TagScope {
+  project: string | null;
+  category: MemoryCategory | null;
+  target: MemoryTarget;
+}
 
 /** Build the ONE-statement pre-fetch SELECT (big OR over every rep's dedup
  *  scope) + its params. NULL-aware per rep (IS NULL vs = $x). Returns all
  *  matches ORDER BY seq ASC so the caller can pick the lowest-seq row per key
  *  (mirrors the single path's LIMIT 1 ORDER BY seq ASC). */
-function buildPrefetchSelect(
-  reps: Array<{ i: number; n: NormalizedSyncInput }>,
-): { sql: string; params: Record<string, unknown> } {
+function buildPrefetchSelect(reps: Array<{ i: number; n: NormalizedSyncInput }>): {
+  sql: string;
+  params: Record<string, unknown>;
+} {
   const params: Record<string, unknown> = {};
   const disjuncts = reps.map(({ n }, idx) => {
     const p = `p${idx}`;
@@ -229,9 +253,15 @@ function buildPrefetchSelect(
     params[`tg_${p}`] = n.target;
     params[`ct_${p}`] = n.content;
     if (n.project === null) conds.push("project IS NULL");
-    else { conds.push(`project = $pj_${p}`); params[`pj_${p}`] = n.project; }
+    else {
+      conds.push(`project = $pj_${p}`);
+      params[`pj_${p}`] = n.project;
+    }
     if (n.category === null) conds.push("category IS NULL");
-    else { conds.push(`category = $ca_${p}`); params[`ca_${p}`] = n.category; }
+    else {
+      conds.push(`category = $ca_${p}`);
+      params[`ca_${p}`] = n.category;
+    }
     return `(${conds.join(" AND ")})`;
   });
   return {
@@ -243,12 +273,7 @@ function buildPrefetchSelect(
 /** Append the UPDATE-merge statements for one existing representative to
  *  `stmts`/`params`. Binds `$seq_<p>` so the trailing SELECT + graph edges can
  *  reference the same seq. */
-function buildMergeStatements(
-  p: string,
-  seq: number,
-  merge: MergeValues,
-  params: Record<string, unknown>,
-): string[] {
+function buildMergeStatements(p: string, seq: number, merge: MergeValues, params: Record<string, unknown>): string[] {
   params[`seq_${p}`] = seq;
   params[`ca_${p}`] = merge.category;
   params[`fr_${p}`] = merge.failureReason;
@@ -261,9 +286,11 @@ function buildMergeStatements(
   params[`pn_${p}`] = merge.pin;
   // Task 7 / F1: stamp the birth id when the caller carried one (orphan-readd);
   // omit the clause entirely when absent so the existing mdId is preserved.
-  const mdIdClause = merge.mdId
-    ? (params[`mdi_${p}`] = merge.mdId, `, mdId = $mdi_${p}`)
-    : "";
+  let mdIdClause = "";
+  if (merge.mdId) {
+    params[`mdi_${p}`] = merge.mdId;
+    mdIdClause = `, mdId = $mdi_${p}`;
+  }
   return [
     `UPDATE memories SET category = $ca_${p}, failureReason = $fr_${p}, toolState = $ts_${p}, correctedTo = $cto_${p}, created = $cr_${p}, lastReferenced = $lr_${p}, state = $st_${p}, severity = $sv_${p}, pin = $pn_${p}${mdIdClause} WHERE seq = $seq_${p};`,
   ];
@@ -272,11 +299,7 @@ function buildMergeStatements(
 /** Append the CREATE-insert statements for one new representative. Allocates
  *  a distinct seq inside the tx (`LET $n_<p>`) and binds every column. The
  *  `$n_<p>` var is reused by the graph edges + the trailing SELECT. */
-function buildInsertStatements(
-  p: string,
-  n: NormalizedSyncInput,
-  params: Record<string, unknown>,
-): string[] {
+function buildInsertStatements(p: string, n: NormalizedSyncInput, params: Record<string, unknown>): string[] {
   params[`pj_${p}`] = n.project;
   params[`tg_${p}`] = n.target;
   params[`ca_${p}`] = n.category;
@@ -312,8 +335,10 @@ function buildGraphEdgeStatements(
   seqRef: string,
 ): string[] {
   const tags: Array<{ key: string; kind: string; value: string }> = [];
-  if (tagScope.project != null) tags.push({ key: `project:${tagScope.project}`, kind: "project", value: tagScope.project });
-  if (tagScope.category != null) tags.push({ key: `category:${tagScope.category}`, kind: "category", value: tagScope.category });
+  if (tagScope.project != null)
+    tags.push({ key: `project:${tagScope.project}`, kind: "project", value: tagScope.project });
+  if (tagScope.category != null)
+    tags.push({ key: `category:${tagScope.category}`, kind: "category", value: tagScope.category });
   if (tagScope.target != null) tags.push({ key: `target:${tagScope.target}`, kind: "target", value: tagScope.target });
   const stmts: string[] = [
     `LET $m_${p} = type::record("memories", ${seqRef});`,
@@ -335,7 +360,9 @@ function buildGraphEdgeStatements(
 
 /** Build SurrealQL WHERE fragments + a params object for scope conditions. */
 function buildScope(
-  target?: MemoryTarget, project?: string | null, category?: MemoryCategory | null,
+  target?: MemoryTarget,
+  project?: string | null,
+  category?: MemoryCategory | null,
   includeSuperseded = true,
 ): { where: string; params: Record<string, unknown> } {
   const conds: string[] = [];
@@ -349,16 +376,29 @@ function buildScope(
   // mirroring mapRow's `r.status ?? "active"` coalescing. SQLite's table has
   // a DEFAULT 'active' so it can use the strict `= 'active'` equality; the
   // SCHEMALESS store cannot.
-  if (!includeSuperseded) { conds.push("status != 'superseded'"); }
-  if (target) { conds.push("target = $target"); params.target = target; }
+  if (!includeSuperseded) {
+    conds.push("status != 'superseded'");
+  }
+  if (target) {
+    conds.push("target = $target");
+    params.target = target;
+  }
   if (project !== undefined) {
     // v3.2.3 matches stored NULL via `IS NULL` (NOT `IS NONE`).
-    if (project === null) { conds.push("project IS NULL"); }
-    else { conds.push("project = $project"); params.project = project; }
+    if (project === null) {
+      conds.push("project IS NULL");
+    } else {
+      conds.push("project = $project");
+      params.project = project;
+    }
   }
   if (category !== undefined) {
-    if (category === null) { conds.push("category IS NULL"); }
-    else { conds.push("category = $category"); params.category = category; }
+    if (category === null) {
+      conds.push("category IS NULL");
+    } else {
+      conds.push("category = $category");
+      params.category = category;
+    }
   }
   return { where: conds.length ? `WHERE ${conds.join(" AND ")}` : "", params };
 }
@@ -366,30 +406,36 @@ function buildScope(
 export class SurrealMemoryRepository implements MemoryRepository {
   constructor(private readonly backend: SurrealBackend) {}
 
-  private get c() { return this.backend.client; }
+  private get c() {
+    return this.backend.client;
+  }
 
   async addMemory(input: {
-    content: string; target?: MemoryTarget; project?: string | null;
-    category?: MemoryCategory | null; failureReason?: string | null;
-    toolState?: string | null; correctedTo?: string | null;
-    created?: string; lastReferenced?: string;
+    content: string;
+    target?: MemoryTarget;
+    project?: string | null;
+    category?: MemoryCategory | null;
+    failureReason?: string | null;
+    toolState?: string | null;
+    correctedTo?: string | null;
+    created?: string;
+    lastReferenced?: string;
     mdId?: string | null;
-    state?: FailureState; severity?: number | null;
+    state?: FailureState;
+    severity?: number | null;
     pin?: boolean;
   }): Promise<MemoryEntry> {
     // C6: exact-dup dedup is part of the MemoryRepository contract — mirror
     // the sync path's identity (target + project + category + content, exact
     // equality, NULL-aware) before CREATE. Hit → return the EXISTING row; no
     // duplicate is written (the existing row's graph edges stay untouched).
-    const dedupScope = buildScope(
-      input.target ?? "memory",
-      input.project ?? null,
-      input.category ?? null,
-    );
-    const dup = (await this.c.query<Row[]>(
-      `SELECT ${FIELDS} FROM memories ${dedupScope.where}${dedupScope.where ? " AND" : " WHERE"} content = $content ORDER BY seq ASC LIMIT 1;`,
-      { ...dedupScope.params, content: input.content },
-    ))[0];
+    const dedupScope = buildScope(input.target ?? "memory", input.project ?? null, input.category ?? null);
+    const dup = (
+      await this.c.query<Row[]>(
+        `SELECT ${FIELDS} FROM memories ${dedupScope.where}${dedupScope.where ? " AND" : " WHERE"} content = $content ORDER BY seq ASC LIMIT 1;`,
+        { ...dedupScope.params, content: input.content },
+      )
+    )[0];
     if (dup) return mapRow(dup);
 
     const created = input.created ?? today();
@@ -512,8 +558,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
         const n = reps.find(({ n }) => rowMatchesInput(r, n));
         if (!n) continue;
         const key = dedupKey(n.n);
-        const repIdx = keyToRepIdx.get(key)!;
-        if (!existingByRep.has(repIdx)) existingByRep.set(repIdx, r);
+        const repIdx = keyToRepIdx.get(key);
+        if (repIdx !== undefined && !existingByRep.has(repIdx)) existingByRep.set(repIdx, r);
       }
     }
 
@@ -597,7 +643,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
         // Should not happen: the trailing SELECT covers every seq we touched.
         throw new Error("syncMemoryEntriesBatch: trailing SELECT missed a synced entry");
       }
-      return { action: plan.kind === "existing" ? "existing" as const : "inserted" as const, entry: mapRow(row) };
+      return { action: plan.kind === "existing" ? ("existing" as const) : ("inserted" as const), entry: mapRow(row) };
     });
 
     // Map representatives back to input order; aliases inherit their rep's
@@ -606,21 +652,28 @@ export class SurrealMemoryRepository implements MemoryRepository {
     for (let origIdx = 0; origIdx < inputs.length; origIdx++) {
       const repIdx = aliasToRepIdx[origIdx];
       const repRes = repResults[repIdx];
-      results[origIdx] = (origIdx === reps[repIdx].i)
-        ? repRes
-        : { action: "existing", entry: repRes.entry };
+      results[origIdx] = origIdx === reps[repIdx].i ? repRes : { action: "existing", entry: repRes.entry };
     }
     return results;
   }
 
-  async replaceSyncedMemories(oldText: string, updates: {
-    content: string; target: MemoryTarget; project?: string | null;
-    category?: MemoryCategory | null; failureReason?: string | null;
-    toolState?: string | null; correctedTo?: string | null; lastReferenced?: string | null;
-    mdId?: string | null;
-    state?: FailureState | null; severity?: number | null;
-    pin?: boolean;
-  }): Promise<MemoryUpdateResult> {
+  async replaceSyncedMemories(
+    oldText: string,
+    updates: {
+      content: string;
+      target: MemoryTarget;
+      project?: string | null;
+      category?: MemoryCategory | null;
+      failureReason?: string | null;
+      toolState?: string | null;
+      correctedTo?: string | null;
+      lastReferenced?: string | null;
+      mdId?: string | null;
+      state?: FailureState | null;
+      severity?: number | null;
+      pin?: boolean;
+    },
+  ): Promise<MemoryUpdateResult> {
     const normalizedOldText = normalizeMemoryLookupText(oldText);
     if (!normalizedOldText) return { matched: 0, updated: 0, entries: [] };
     const scope = buildScope(updates.target, updates.project ?? undefined);
@@ -643,7 +696,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
           seq,
           content: updates.content.trim(),
           category: updates.category === undefined ? r.category : normalizeNullable(updates.category),
-          failureReason: updates.failureReason === undefined ? r.failureReason : normalizeNullable(updates.failureReason),
+          failureReason:
+            updates.failureReason === undefined ? r.failureReason : normalizeNullable(updates.failureReason),
           toolState: updates.toolState === undefined ? r.toolState : normalizeNullable(updates.toolState),
           correctedTo: updates.correctedTo === undefined ? r.correctedTo : normalizeNullable(updates.correctedTo),
           lastReferenced: nextLastReferenced,
@@ -654,7 +708,7 @@ export class SurrealMemoryRepository implements MemoryRepository {
           severity: updates.severity === undefined ? (r.severity ?? null) : (updates.severity ?? null),
           // Pin (ticket 02): inherit the row's prior pin when `updates.pin` is
           // undefined (coalesce SCHEMALESS-absent → false); else stamp strictly.
-          pin: updates.pin === undefined ? (r.pin === true) : (updates.pin === true),
+          pin: updates.pin === undefined ? r.pin === true : updates.pin === true,
           ...(birthMdId !== null ? { mdId: birthMdId } : {}),
         },
       );
@@ -663,7 +717,12 @@ export class SurrealMemoryRepository implements MemoryRepository {
       const refreshed = (await this.c.query<Row[]>(`SELECT ${FIELDS} FROM memories WHERE seq = $seq;`, { seq }))[0];
       if (refreshed) {
         entries.push(mapRow(refreshed));
-        await this.syncGraphEdges(seq, refreshed.project ?? null, (refreshed.category ?? null) as MemoryCategory | null, (refreshed.target ?? "memory") as MemoryTarget);
+        await this.syncGraphEdges(
+          seq,
+          refreshed.project ?? null,
+          (refreshed.category ?? null) as MemoryCategory | null,
+          (refreshed.target ?? "memory") as MemoryTarget,
+        );
       }
     }
     return { matched: rows.length, updated: rows.length, entries };
@@ -678,7 +737,10 @@ export class SurrealMemoryRepository implements MemoryRepository {
       { ...scope.params, old: normalizedOldText },
     );
     if (matched.length === 0) return { matched: 0, removed: 0 };
-    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`, { ...scope.params, old: normalizedOldText });
+    await this.c.query(
+      `DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} string::contains(content, $old);`,
+      { ...scope.params, old: normalizedOldText },
+    );
     return { matched: matched.length, removed: matched.length };
   }
 
@@ -690,7 +752,10 @@ export class SurrealMemoryRepository implements MemoryRepository {
       { ...scope.params, content: content.trim() },
     );
     if (matched.length === 0) return { matched: 0, removed: 0 };
-    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} content = $content;`, { ...scope.params, content: content.trim() });
+    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} content = $content;`, {
+      ...scope.params,
+      content: content.trim(),
+    });
     return { matched: matched.length, removed: matched.length };
   }
 
@@ -701,7 +766,10 @@ export class SurrealMemoryRepository implements MemoryRepository {
       { ...scope.params, mdId },
     );
     if (matched.length === 0) return { matched: 0, removed: 0 };
-    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} mdId = $mdId;`, { ...scope.params, mdId });
+    await this.c.query(`DELETE FROM memories ${scope.where ? `${scope.where} AND` : "WHERE"} mdId = $mdId;`, {
+      ...scope.params,
+      mdId,
+    });
     return { matched: matched.length, removed: matched.length };
   }
 
@@ -738,11 +806,13 @@ export class SurrealMemoryRepository implements MemoryRepository {
     // Lexical match: FTS @@ with a string::contains fallback.
     let lexicalRows: Row[] = [];
     try {
-      lexicalRows = await this.c.query<Row[]>(
-        `SELECT ${FIELDS} FROM memories WHERE ${where} content @@ $q ${tail}`,
-        { ...scope.params, q: query },
-      );
-    } catch { /* fall through to contains fallback */ }
+      lexicalRows = await this.c.query<Row[]>(`SELECT ${FIELDS} FROM memories WHERE ${where} content @@ $q ${tail}`, {
+        ...scope.params,
+        q: query,
+      });
+    } catch {
+      /* fall through to contains fallback */
+    }
     if (lexicalRows.length === 0) {
       lexicalRows = await this.c.query<Row[]>(
         `SELECT ${FIELDS} FROM memories WHERE ${where} string::contains(content, $q) ${tail}`,
@@ -999,8 +1069,12 @@ export class SurrealMemoryRepository implements MemoryRepository {
 
   async getMemoryStats(): Promise<MemoryStats> {
     const total = await this.c.query<Array<{ count: number }>>(`SELECT count() AS count FROM memories GROUP ALL;`);
-    const byProject = await this.c.query<Array<{ project: string | null; count: number }>>(`SELECT project, count() AS count FROM memories GROUP BY project;`);
-    const byTarget = await this.c.query<Array<{ target: string; count: number }>>(`SELECT target, count() AS count FROM memories GROUP BY target;`);
+    const byProject = await this.c.query<Array<{ project: string | null; count: number }>>(
+      `SELECT project, count() AS count FROM memories GROUP BY project;`,
+    );
+    const byTarget = await this.c.query<Array<{ target: string; count: number }>>(
+      `SELECT target, count() AS count FROM memories GROUP BY target;`,
+    );
     return {
       total: total[0]?.count ?? 0,
       byProject: byProject.map((r) => ({ project: r.project ?? null, count: r.count })),
@@ -1037,7 +1111,8 @@ export class SurrealMemoryRepository implements MemoryRepository {
    * `parentIds` is stored as a native array. Id stable across the supersession.
    */
   async supersedeMemory(priorId: number, newId: number): Promise<void> {
-    const p = Number(priorId), n = Number(newId);
+    const p = Number(priorId),
+      n = Number(newId);
     await this.c.query(
       `BEGIN TRANSACTION;
        UPDATE memories SET status = 'superseded', supersededBy = $n WHERE seq = $p;
@@ -1103,10 +1178,11 @@ export class SurrealMemoryRepository implements MemoryRepository {
    *  addMemory'd row by seq. addMemory does not know card columns, so the
    *  surreal card backend calls this right after the C6-dedup'd insert. */
   async setCardEnvelopeBySeq(seq: number, frontmatter: string, graph: string | null): Promise<void> {
-    await this.c.query(
-      `UPDATE memories SET frontmatter = $frontmatter, graph = $graph WHERE seq = $seq;`,
-      { seq, frontmatter, graph },
-    );
+    await this.c.query(`UPDATE memories SET frontmatter = $frontmatter, graph = $graph WHERE seq = $seq;`, {
+      seq,
+      frontmatter,
+      graph,
+    });
   }
 
   /** Batched updateCardByMdId: N drifted cards in ONE HTTP round-trip (the

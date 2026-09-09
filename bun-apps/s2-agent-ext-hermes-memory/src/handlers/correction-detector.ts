@@ -10,20 +10,20 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { roleAwareDirectCall, spawnSubagent } from "@repo/s2-agent-core-runtime";
-import { MemoryStore } from "../store/memory-store.js";
-import { readGrillActive } from "../grill-seam.js";
-import { formatFailureMemoryContent } from "../store/memory-format.js";
-import type { MemoryRepository } from "../store/repository.js";
-import type { CardStore } from "../store/card-store.js";
-import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import {
+  CORRECTION_DIRECTIVE_WORDS,
+  CORRECTION_NEGATIVE_PATTERNS,
   CORRECTION_SAVE_PROMPT,
   CORRECTION_STRONG_PATTERNS,
   CORRECTION_WEAK_PATTERNS,
-  CORRECTION_NEGATIVE_PATTERNS,
-  CORRECTION_DIRECTIVE_WORDS,
   ENTRY_DELIMITER,
 } from "../constants.js";
+import { readGrillActive } from "../grill-seam.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
+import { formatFailureMemoryContent } from "../store/memory-format.js";
+import { MemoryStore } from "../store/memory-store.js";
+import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryConfig } from "../types.js";
 import { getMessageText } from "../types.js";
 import { runContradictionJudge } from "./contradiction-judge.js";
@@ -35,16 +35,13 @@ import { runContradictionJudge } from "./contradiction-judge.js";
 function extractCorrectionDirective(text: string): string {
   // Remove common correction starters
   const cleaned = text
-    .replace(/^(no|wrong|actually|stop|don'?t|that'?s not|I said|I told you)[,\.\s!]+/i, '')
-    .replace(/^(please\s+)?/i, '')
+    .replace(/^(no|wrong|actually|stop|don'?t|that'?s not|I said|I told you)[,.\s!]+/i, "")
+    .replace(/^(please\s+)?/i, "")
     .trim();
   return cleaned || text;
 }
 
-function compileCorrectionPatterns(
-  configured: string[] | undefined,
-  defaults: RegExp[],
-): RegExp[] {
+function compileCorrectionPatterns(configured: string[] | undefined, defaults: RegExp[]): RegExp[] {
   if (configured === undefined) return defaults;
 
   const patterns: RegExp[] = [];
@@ -72,26 +69,15 @@ function hasDirectiveWord(remainder: string, words: string[]): boolean {
  * Check if a user message is a correction using the two-pass filter.
  * Returns true if the message should trigger an immediate save.
  */
-type CorrectionPatternConfig = Pick<MemoryConfig,
-  "correctionStrongPatterns" |
-  "correctionWeakPatterns" |
-  "correctionNegativePatterns" |
-  "correctionDirectiveWords"
+type CorrectionPatternConfig = Pick<
+  MemoryConfig,
+  "correctionStrongPatterns" | "correctionWeakPatterns" | "correctionNegativePatterns" | "correctionDirectiveWords"
 >;
 
 export function isCorrection(text: string, config?: CorrectionPatternConfig): boolean {
-  const negativePatterns = compileCorrectionPatterns(
-    config?.correctionNegativePatterns,
-    CORRECTION_NEGATIVE_PATTERNS,
-  );
-  const strongPatterns = compileCorrectionPatterns(
-    config?.correctionStrongPatterns,
-    CORRECTION_STRONG_PATTERNS,
-  );
-  const weakPatterns = compileCorrectionPatterns(
-    config?.correctionWeakPatterns,
-    CORRECTION_WEAK_PATTERNS,
-  );
+  const negativePatterns = compileCorrectionPatterns(config?.correctionNegativePatterns, CORRECTION_NEGATIVE_PATTERNS);
+  const strongPatterns = compileCorrectionPatterns(config?.correctionStrongPatterns, CORRECTION_STRONG_PATTERNS);
+  const weakPatterns = compileCorrectionPatterns(config?.correctionWeakPatterns, CORRECTION_WEAK_PATTERNS);
   const directiveWords = config?.correctionDirectiveWords ?? CORRECTION_DIRECTIVE_WORDS;
 
   // Check negative patterns first — suppress even if positive matches
@@ -157,7 +143,7 @@ export function setupCorrectionDetector(
   });
 
   // Trigger on turn_end (we need full context: user correction + what agent said)
-  pi.on("turn_end", async (event, ctx) => {
+  pi.on("turn_end", async (_event, ctx) => {
     // Yield to grill_decision during an active grill: the grill tool is the
     // sole writer for grill-time corrections (richer context, gated writes),
     // so the generic detector must not double-capture. Drop the pending flag so
@@ -216,18 +202,10 @@ export function setupCorrectionDetector(
       ];
 
       if (currentProject !== null) {
-        prompt.push(
-          "",
-          "--- Current Project Memory ---",
-          currentProject || "(empty)",
-        );
+        prompt.push("", "--- Current Project Memory ---", currentProject || "(empty)");
       }
 
-      prompt.push(
-        "",
-        "--- Recent Conversation ---",
-        recentParts.join("\n\n"),
-      );
+      prompt.push("", "--- Recent Conversation ---", recentParts.join("\n\n"));
 
       if (!memoryToolDef) return;
       // llmThinkingOverride has no spawnSubagent equivalent — inert under the migration.
@@ -261,7 +239,7 @@ export function setupCorrectionDetector(
 
       // Also save as a failure memory for learning
       try {
-        const lastUserMsg = recentParts.find(p => p.startsWith("[USER]"));
+        const lastUserMsg = recentParts.find((p) => p.startsWith("[USER]"));
         const correctionText = lastUserMsg ? lastUserMsg.replace(/^\[USER\]:\s*/, "") : "";
         if (correctionText) {
           const directive = extractCorrectionDirective(correctionText);
@@ -299,9 +277,7 @@ export function setupCorrectionDetector(
                   target: "failure",
                   project: scopedProjectName ?? null,
                 });
-                const row = addResult.added_md_id
-                  ? rows.find((m) => m.mdId === addResult.added_md_id)
-                  : undefined;
+                const row = addResult.added_md_id ? rows.find((m) => m.mdId === addResult.added_md_id) : undefined;
                 correctionEntryId = row?.id ?? rows.find((m) => m.content === correctionContent)?.id;
               }
 
@@ -318,15 +294,20 @@ export function setupCorrectionDetector(
               // content makes it match FTS5).
               if (config.autoSupersede === true && correctionEntryId !== undefined && memoryRepo) {
                 try {
-                  const candidates = (await memoryRepo.searchMemories(directive, {
-                    project: scopedProjectName ?? undefined,
-                    limit: 6,
-                  })).filter((c) => c.id !== correctionEntryId);
+                  const candidates = (
+                    await memoryRepo.searchMemories(directive, {
+                      project: scopedProjectName ?? undefined,
+                      limit: 6,
+                    })
+                  ).filter((c) => c.id !== correctionEntryId);
                   if (candidates.length > 0) {
-                    const verdict = await runJudge(
-                      ctx as unknown as Parameters<typeof runContradictionJudge>[0],
-                      { correctionText: directive, candidates, config, signal: ctx.signal, timeoutMs: 30000 },
-                    );
+                    const verdict = await runJudge(ctx as unknown as Parameters<typeof runContradictionJudge>[0], {
+                      correctionText: directive,
+                      candidates,
+                      config,
+                      signal: ctx.signal,
+                      timeoutMs: 30000,
+                    });
                     if (verdict.contradictedId != null && candidates.some((c) => c.id === verdict.contradictedId)) {
                       await memoryRepo.supersedeMemory(verdict.contradictedId, correctionEntryId);
                       try {

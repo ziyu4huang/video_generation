@@ -1,27 +1,27 @@
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { createHash } from "node:crypto";
-import type { IngestSummary, HealReceipt, LinkWeighting } from "@repo/s2-agent-core-interface";
-import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
-import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
-import { walkKnowledgeSources, type WalkOptions } from "./knowledge-walk.js";
-import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
-import { hasMergeConflictMarkers } from "./git-ops.js";
-import { AGENT_ROOT } from "./paths.js";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import type { HealReceipt, IngestSummary, LinkWeighting } from "@repo/s2-agent-core-interface";
 import { MEMORY_FILE, USER_FILE } from "./constants.js";
-import { splitMemoryEntries } from "./merge-union.js";
-import { parseMarkdownMemoryEntry } from "./store/memory-format.js";
-import { mirrorMemoryEntry, type MemoryCardKind } from "./store/memory-card-mirror.js";
-import { createCardStore, type CardStore } from "./store/card-store.js";
-import type { Card } from "./store/card.js";
+import { hasMergeConflictMarkers } from "./git-ops.js";
 import { fireHierarchyBuildBestEffort, type HierarchyDeps } from "./handlers/hierarchy-build.js";
+import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
+import { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
+import { KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT, resolveKnowledgeVaultPath } from "./knowledge-vault-path.js";
+import { type WalkOptions, walkKnowledgeSources } from "./knowledge-walk.js";
+import { splitMemoryEntries } from "./merge-union.js";
+import { AGENT_ROOT } from "./paths.js";
+import type { Card } from "./store/card.js";
+import { createCardStore } from "./store/card-store.js";
+import { type MemoryCardKind, mirrorMemoryEntry } from "./store/memory-card-mirror.js";
+import { parseMarkdownMemoryEntry } from "./store/memory-format.js";
 import {
-  planningCardKindFromPath,
   parsePlanningPath,
+  planningCardKindFromPath,
   planningEffortId,
   planningTicketId,
 } from "./store/planning-id.js";
-import { planningContentHash, getStoredHash, upsertHash, deleteHash } from "./store/planning-sync-state.js";
+import { deleteHash, getStoredHash, planningContentHash, upsertHash } from "./store/planning-sync-state.js";
 
 /** Options for walkAndIngest. Extends the walk policy opts with ingest/heal scope. */
 export interface WalkAndIngestOptions extends WalkOptions {
@@ -389,10 +389,19 @@ async function mirrorVaultMdToStore(
     const folderDir = join(vaultPath, folder);
     let mdFiles: string[] = [];
     try {
-      mdFiles = readdirSync(folderDir).filter((n) => n.endsWith(".md")).sort();
+      mdFiles = readdirSync(folderDir)
+        .filter((n) => n.endsWith(".md"))
+        .sort();
     } catch {
       // Folder absent (no cards written) → mirror + drift stub are no-ops.
-      return { mirrored: 0, currentHashes, changed: 0, unchanged: 0, removed: 0, dbAuthoritative: { merged: 0, writtenBack: 0 } };
+      return {
+        mirrored: 0,
+        currentHashes,
+        changed: 0,
+        unchanged: 0,
+        removed: 0,
+        dbAuthoritative: { merged: 0, writtenBack: 0 },
+      };
     }
     // Pass 1 — read + hash + deserialize everything BEFORE any card write, so
     // the capability probe below uses a real first-card id and no partial state
@@ -521,7 +530,14 @@ async function mirrorVaultMdToStore(
         removed++;
       }
     }
-    return { mirrored, currentHashes, changed, unchanged, removed, dbAuthoritative: { merged: dbMerged, writtenBack: dbWrittenBack } };
+    return {
+      mirrored,
+      currentHashes,
+      changed,
+      unchanged,
+      removed,
+      dbAuthoritative: { merged: dbMerged, writtenBack: dbWrittenBack },
+    };
   } finally {
     await store.close();
   }
@@ -687,7 +703,9 @@ async function reconcilePlanningDeletions(
     const info = parsePlanningPath(abs);
     if (!info) continue;
     presentIds.add(
-      info.kind === "planning-effort" ? planningEffortId(info.effort) : planningTicketId(info.effort, info.ticketNo!),
+      info.kind === "planning-effort"
+        ? planningEffortId(info.effort)
+        : planningTicketId(info.effort, info.ticketNo ?? ""),
     );
   }
   const dir = memoryDir ?? join(AGENT_ROOT, "pi-hermes-memory");
@@ -739,7 +757,7 @@ function spliceFrontmatterField(raw: string, field: string, value: unknown): str
   if (closeIdx === -1) return null;
   const rendered = `${field}: ${renderYamlScalar(value)}`;
   for (let i = 1; i < closeIdx; i++) {
-    if (lines[i]!.startsWith(`${field}:`)) {
+    if (lines[i]?.startsWith(`${field}:`)) {
       lines[i] = rendered;
       return lines.join("\n");
     }

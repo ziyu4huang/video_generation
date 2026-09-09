@@ -2,37 +2,40 @@
  * Index sessions command — /memory-index-sessions imports past sessions into SQLite.
  */
 
-import path from 'node:path';
-import fs from 'node:fs';
+import fs from "node:fs";
+import path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { createBackendBundle } from '../store/backend-factory.js';
-import type { MemoryConfig } from '../types.js';
-import { AGENT_ROOT } from '../paths.js';
+import { AGENT_ROOT } from "../paths.js";
+import { createBackendBundle } from "../store/backend-factory.js";
+import type { MemoryConfig } from "../types.js";
 
-const SESSIONS_DIR = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(AGENT_ROOT, 'sessions');
+const SESSIONS_DIR = process.env.PI_CODING_AGENT_SESSION_DIR || path.join(AGENT_ROOT, "sessions");
 
 export function registerIndexSessionsCommand(pi: ExtensionAPI, memoryDir: string, config: MemoryConfig): void {
   pi.registerCommand("memory-index-sessions", {
     description: "Import past Pi sessions into the search database",
     handler: async (_args, ctx: ExtensionCommandContext) => {
       // Show initial progress
-      ctx.ui.notify('🔍 Scanning session directories...', 'info');
+      ctx.ui.notify("🔍 Scanning session directories...", "info");
 
       try {
         // Count sessions first for progress display
         let totalFiles = 0;
         let projectDirs: string[] = [];
         if (fs.existsSync(SESSIONS_DIR)) {
-          projectDirs = fs.readdirSync(SESSIONS_DIR)
-            .filter(d => fs.statSync(path.join(SESSIONS_DIR, d)).isDirectory());
+          projectDirs = fs
+            .readdirSync(SESSIONS_DIR)
+            .filter((d) => fs.statSync(path.join(SESSIONS_DIR, d)).isDirectory());
           for (const dir of projectDirs) {
-            const files = fs.readdirSync(path.join(SESSIONS_DIR, dir))
-              .filter(f => f.endsWith('.jsonl'));
+            const files = fs.readdirSync(path.join(SESSIONS_DIR, dir)).filter((f) => f.endsWith(".jsonl"));
             totalFiles += files.length;
           }
         }
 
-        ctx.ui.notify(`📁 Found ${totalFiles} session files across ${projectDirs.length} projects\n⏳ Indexing...`, 'info');
+        ctx.ui.notify(
+          `📁 Found ${totalFiles} session files across ${projectDirs.length} projects\n⏳ Indexing...`,
+          "info",
+        );
 
         const { backend, sessionRepo } = await createBackendBundle(config, memoryDir);
 
@@ -72,12 +75,12 @@ export function registerIndexSessionsCommand(pi: ExtensionAPI, memoryDir: string
 
           output += `\n💡 Use the session_search tool to search across indexed sessions.`;
 
-          ctx.ui.notify(output, 'info');
+          ctx.ui.notify(output, "info");
         } finally {
           await backend.close();
         }
       } catch (err) {
-        ctx.ui.notify(`❌ Session indexing failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+        ctx.ui.notify(`❌ Session indexing failed: ${err instanceof Error ? err.message : String(err)}`, "error");
       }
     },
   });

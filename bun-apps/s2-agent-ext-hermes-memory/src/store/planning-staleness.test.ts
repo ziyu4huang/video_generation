@@ -1,10 +1,10 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { computeStaleness, getStaleCards } from "./planning-staleness.js";
+import { dirname, join } from "node:path";
+import { describe, it } from "node:test";
 import { createCardStore } from "./card-store.js";
+import { computeStaleness, getStaleCards } from "./planning-staleness.js";
 
 // Path B (decision η): deps are re-parsed from the git-canonical source .md,
 // NOT from store.getCard().graph.relations — the 06a store does NOT persist
@@ -110,7 +110,7 @@ describe("computeStaleness (10-impl T4 — Path B, deps from source .md)", () =>
     }
   });
 
-  it("a depends_on dep file MISSING -> {stale:true, missing:[\"src/b.ts\"]}", async () => {
+  it('a depends_on dep file MISSING -> {stale:true, missing:["src/b.ts"]}', async () => {
     const root = mkdtempSync(join(tmpdir(), "stale-miss-"));
     const mem = mkdtempSync(join(tmpdir(), "stale-miss-mem-"));
     try {
@@ -164,16 +164,16 @@ describe("getStaleCards (10-impl T4 — Path B)", () => {
         writeFileSync(join(root, "src", "stale-a.ts"), "v2-EDITED");
         const all = await getStaleCards(store, undefined, root);
         assert.equal(all.length, 1, "only the stale-eff card is stale");
-        assert.equal(all[0]!.cardId, staleId);
-        assert.equal(all[0]!.effort, "stale-eff");
-        assert.equal(all[0]!.missingDeps, undefined, "an edit (not a vanishing) -> no missingDeps");
+        assert.equal(all[0]?.cardId, staleId);
+        assert.equal(all[0]?.effort, "stale-eff");
+        assert.equal(all[0]?.missingDeps, undefined, "an edit (not a vanishing) -> no missingDeps");
         // effort filter scopes: clean-eff still empty.
         assert.deepEqual(await getStaleCards(store, "clean-eff", root), []);
         // now make a dep VANISH -> missingDeps populated.
         rmSync(join(root, "src", "stale-b.ts"));
         const withMissing = await getStaleCards(store, "stale-eff", root);
         assert.equal(withMissing.length, 1);
-        assert.deepEqual(withMissing[0]!.missingDeps, ["src/stale-b.ts"]);
+        assert.deepEqual(withMissing[0]?.missingDeps, ["src/stale-b.ts"]);
       } finally {
         await store.close();
       }

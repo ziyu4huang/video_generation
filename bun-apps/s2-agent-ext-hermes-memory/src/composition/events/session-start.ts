@@ -29,13 +29,13 @@
  * must typecheck standalone; it is not imported yet.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { HermesCtx } from "../stores.js";
 import { migrateExtensionRoot } from "../../extension-root-migration.js";
-import { refreshSkillProjectContext } from "../project-skills.js";
-import { scheduleSessionBackfill } from "../../handlers/session-backfill.js";
 import { schedulePlanningBackfill } from "../../handlers/planning-backfill.js";
 import { captureAssembly } from "../../handlers/session-assembly.js";
+import { scheduleSessionBackfill } from "../../handlers/session-backfill.js";
 import { buildPromptAssembly } from "../../prompt-context.js";
+import { refreshSkillProjectContext } from "../project-skills.js";
+import type { HermesCtx } from "../stores.js";
 
 /** ← L355-463: the session_start handler, de-closured onto HermesCtx. */
 export function registerSessionStart(pi: ExtensionAPI, ctx: HermesCtx): void {
@@ -47,7 +47,10 @@ export function registerSessionStart(pi: ExtensionAPI, ctx: HermesCtx): void {
       const ui = (evt as { ui?: { notify?: (message: string, level?: string) => void } }).ui;
       ui?.notify?.(`🧠 hermes-memory backend: ${ctx.backend.get().label}`, "info");
       if (ctx.backend.fellBack) {
-        ui?.notify?.(`⚠️ SurrealDB was unreachable — hermes-memory fell back to sqlite for this session. Start SurrealDB then /memory-switch-backend surrealdb to restore.`, "warn");
+        ui?.notify?.(
+          `⚠️ SurrealDB was unreachable — hermes-memory fell back to sqlite for this session. Start SurrealDB then /memory-switch-backend surrealdb to restore.`,
+          "warn",
+        );
       }
     }
     if (ctx.shouldMigrateExtensionRoot && !ctx.migrationDone()) {
@@ -134,14 +137,14 @@ export function registerSessionStart(pi: ExtensionAPI, ctx: HermesCtx): void {
     // populate is gated on `usedDetection !== false` (default on, INDEPENDENT of
     // worthScoring): disabled ⇒ onReceipt is undefined ⇒ the set stays empty ⇒
     // matchAndForget always returns [] ⇒ markUsed never fires.
-    ctx.activeSession.set((evt as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.());
+    ctx.activeSession.set(
+      (evt as { sessionManager?: { getSessionId?: () => string } }).sessionManager?.getSessionId?.(),
+    );
     await captureAssembly({
       getSessionId: () => ctx.activeSession.get(),
       build: () => buildPromptAssembly(ctx.config, ctx.store, ctx.projectStore, ctx.projectName),
       record: (sid, mdIds, hash) => ctx.sessionRepo.recordAssembly(sid, mdIds, hash),
-      onReceipt: ctx.config.usedDetection !== false
-        ? (r) => ctx.surfacedSignatures.populate(r.signatures)
-        : undefined,
+      onReceipt: ctx.config.usedDetection !== false ? (r) => ctx.surfacedSignatures.populate(r.signatures) : undefined,
     });
   });
 }

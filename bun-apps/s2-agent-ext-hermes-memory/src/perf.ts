@@ -29,8 +29,8 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 
 export interface PerfRecord {
   ts: string;
@@ -58,7 +58,11 @@ interface PerfCtx {
 /** Wrap an async operation for perf timing + round-trip attribution. Handlers
  *  accept this as an optional injectable (default pass-through) so the
  *  production recorder from index.ts can instrument them without coupling. */
-export type TimedFn = <T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] }) => Promise<T>;
+export type TimedFn = <T>(
+  op: string,
+  fn: () => Promise<T>,
+  opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] },
+) => Promise<T>;
 
 /** Always-persist counterpart of TimedFn: times + notifies on EVERY call (not
  *  threshold-gated). `kind` stamps the discriminator; `timedOutFrom` derives the
@@ -91,9 +95,7 @@ export interface PerfRecorderOptions {
 
 const als = new AsyncLocalStorage<PerfCtx>();
 
-const DEFAULT_LOG_PATH = path.join(
-  os.homedir(), ".pi", "agent", "pi-hermes-memory", "perf.jsonl",
-);
+const DEFAULT_LOG_PATH = path.join(os.homedir(), ".pi", "agent", "pi-hermes-memory", "perf.jsonl");
 
 /**
  * Increment the active operation's HTTP round-trip counter. Safe to call from
@@ -108,7 +110,11 @@ export function bumpRoundTrips(n = 1): void {
 export interface PerfRecorder {
   /** Wrap an async operation: time it, attribute round-trips, and on threshold
    *  breach (or when fullTrace is on) persist + notify. Returns fn's result. */
-  timed: <T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] }) => Promise<T>;
+  timed: <T>(
+    op: string,
+    fn: () => Promise<T>,
+    opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] },
+  ) => Promise<T>;
   /** Always-persist variant: times + notifies on EVERY call, not threshold-gated.
    *  The ONE intentional exception to breach-only — reserved for rare,
    *  high-signal events under active study (e.g. consolidation). `kind` stamps
@@ -128,9 +134,7 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
   const getBackend = opts.getBackend ?? (() => "unknown");
 
   let notifier: (record: PerfRecord) => void = (r) => {
-    const why = r.reason === "roundTrips"
-      ? `${r.roundTrips} HTTP round-trips`
-      : `${r.ms}ms`;
+    const why = r.reason === "roundTrips" ? `${r.roundTrips} HTTP round-trips` : `${r.ms}ms`;
     const label = r.breach ? "slow" : "event";
     const line = `[hermes-memory] ${label} ${r.op}: ${why} (backend=${r.backend}). See perf.jsonl.`;
     // Consolidation is an expected, always-logged event — info, not an alarming warn.
@@ -142,14 +146,18 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
     if (!logPath) return;
     try {
       fs.mkdirSync(path.dirname(logPath), { recursive: true });
-      fs.appendFileSync(logPath, JSON.stringify(record) + "\n", "utf-8");
+      fs.appendFileSync(logPath, `${JSON.stringify(record)}\n`, "utf-8");
     } catch {
       // perf tracking must never throw into the instrumented path
     }
   }
 
-  async function timed<T>(op: string, fn: () => Promise<T>, opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] }): Promise<T> {
-    const ctx: PerfCtx = { roundTrips:0 };
+  async function timed<T>(
+    op: string,
+    fn: () => Promise<T>,
+    opts?: { thresholdMs?: number; kind?: PerfRecord["kind"] },
+  ): Promise<T> {
+    const ctx: PerfCtx = { roundTrips: 0 };
     const start = Date.now();
     try {
       return await als.run(ctx, fn);
@@ -173,7 +181,11 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
         };
         appendLog(record);
         if (breach) {
-          try { notifier(record); } catch { /* never throw */ }
+          try {
+            notifier(record);
+          } catch {
+            /* never throw */
+          }
         }
       }
     }
@@ -205,10 +217,18 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
       // Derive timedOut / extra only when fn succeeded — no result to read on throw.
       if (succeeded) {
         if (opts?.timedOutFrom) {
-          try { timedOut = !!opts.timedOutFrom(result as T); } catch { /* never throw */ }
+          try {
+            timedOut = !!opts.timedOutFrom(result as T);
+          } catch {
+            /* never throw */
+          }
         }
         if (opts?.extraFrom) {
-          try { extra = opts.extraFrom(result as T); } catch { /* never throw */ }
+          try {
+            extra = opts.extraFrom(result as T);
+          } catch {
+            /* never throw */
+          }
         }
       }
       const record: PerfRecord = {
@@ -223,13 +243,19 @@ export function createPerfRecorder(opts: PerfRecorderOptions = {}): PerfRecorder
         extra,
       };
       appendLog(record);
-      try { notifier(record); } catch { /* never throw into the instrumented path */ }
+      try {
+        notifier(record);
+      } catch {
+        /* never throw into the instrumented path */
+      }
     }
   }
 
   return {
     timed,
     timedAlways,
-    setNotifier: (fn) => { notifier = fn; },
+    setNotifier: (fn) => {
+      notifier = fn;
+    },
   };
 }

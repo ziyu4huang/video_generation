@@ -1,16 +1,16 @@
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import assert from "node:assert";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { MemoryStore } from "../../src/store/memory-store.js";
-import { createCardStore } from "../../src/store/card-store.js";
 import type { Api, Model } from "@earendil-works/pi-ai";
 import {
   applyReviewOperations,
   buildDirectReviewCompletionOptions,
   parseReviewOperations,
 } from "../../src/handlers/review-memory-ops.js";
+import { createCardStore } from "../../src/store/card-store.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
 
 function mockModel(reasoning: boolean): Model<Api> {
   return {
@@ -44,18 +44,8 @@ describe("buildDirectReviewCompletionOptions", () => {
 
   it("omits reasoning when thinking is off or model does not support it", () => {
     const signal = new AbortController().signal;
-    const off = buildDirectReviewCompletionOptions(
-      mockModel(true),
-      { apiKey: "sk-test" },
-      "off",
-      signal,
-    );
-    const nonReasoning = buildDirectReviewCompletionOptions(
-      mockModel(false),
-      { apiKey: "sk-test" },
-      "high",
-      signal,
-    );
+    const off = buildDirectReviewCompletionOptions(mockModel(true), { apiKey: "sk-test" }, "off", signal);
+    const nonReasoning = buildDirectReviewCompletionOptions(mockModel(false), { apiKey: "sk-test" }, "high", signal);
 
     assert.strictEqual(off.reasoning, undefined);
     assert.strictEqual(nonReasoning.reasoning, undefined);
@@ -64,15 +54,13 @@ describe("buildDirectReviewCompletionOptions", () => {
 
 describe("parseReviewOperations", () => {
   it("parses valid JSON operations", () => {
-    const parsed = parseReviewOperations(JSON.stringify({
-      operations: [
-        { action: "add", target: "memory", content: "uses pnpm" },
-      ],
-    }));
+    const parsed = parseReviewOperations(
+      JSON.stringify({
+        operations: [{ action: "add", target: "memory", content: "uses pnpm" }],
+      }),
+    );
 
-    assert.deepStrictEqual(parsed, [
-      { action: "add", target: "memory", content: "uses pnpm" },
-    ]);
+    assert.deepStrictEqual(parsed, [{ action: "add", target: "memory", content: "uses pnpm" }]);
   });
 
   it("returns empty array for nothing-to-save text", () => {
@@ -84,21 +72,19 @@ describe("parseReviewOperations", () => {
   });
 
   it("extracts JSON from fenced blocks", () => {
-    const parsed = parseReviewOperations("```json\n{\"operations\":[{\"action\":\"add\",\"target\":\"user\",\"content\":\"prefers dark mode\"}]}\n```");
-    assert.deepStrictEqual(parsed, [
-      { action: "add", target: "user", content: "prefers dark mode" },
-    ]);
+    const parsed = parseReviewOperations(
+      '```json\n{"operations":[{"action":"add","target":"user","content":"prefers dark mode"}]}\n```',
+    );
+    assert.deepStrictEqual(parsed, [{ action: "add", target: "user", content: "prefers dark mode" }]);
   });
 
   it("parses failure state on a review operation", () => {
-    const parsed = parseReviewOperations(JSON.stringify({
-      operations: [
-        { action: "add", target: "failure", content: "boom", state: "resolved" },
-      ],
-    }));
-    assert.deepStrictEqual(parsed, [
-      { action: "add", target: "failure", content: "boom", state: "resolved" },
-    ]);
+    const parsed = parseReviewOperations(
+      JSON.stringify({
+        operations: [{ action: "add", target: "failure", content: "boom", state: "resolved" }],
+      }),
+    );
+    assert.deepStrictEqual(parsed, [{ action: "add", target: "failure", content: "boom", state: "resolved" }]);
   });
 });
 

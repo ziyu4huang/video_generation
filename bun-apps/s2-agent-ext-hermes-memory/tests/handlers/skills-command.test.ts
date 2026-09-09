@@ -1,17 +1,17 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import {
-  buildSkillRows,
-  buildUnifiedSkillRows,
-  collectLoadedSkillsFromCommands,
-  filterSkillRows,
-} from "../../src/handlers/skill-rows.js";
-import {
   confirmDeleteSelectedSkills,
   deleteSelectedSkills,
   moveSelectedSkills,
   type SkillBatchActionResult,
 } from "../../src/handlers/skill-batch-ops.js";
+import {
+  buildSkillRows,
+  buildUnifiedSkillRows,
+  collectLoadedSkillsFromCommands,
+  filterSkillRows,
+} from "../../src/handlers/skill-rows.js";
 import { registerSkillsCommand, SkillsManagerModal } from "../../src/handlers/skills-command.js";
 import type { SkillIndex, SkillResult } from "../../src/types.js";
 
@@ -169,7 +169,7 @@ describe("skills command helpers", () => {
     const store = {
       getProjectName: () => null,
       loadIndex: async () => SAMPLE_SKILLS,
-      move: async () => ({ success: true } as SkillResult),
+      move: async () => ({ success: true }) as SkillResult,
     };
 
     const result = await moveSelectedSkills(store as any, ["global:debug-typescript-errors"], "project");
@@ -233,15 +233,13 @@ describe("skills command helpers", () => {
   it("deleteSelectedSkills reports blocked deletes and refreshes skills", async () => {
     const store = {
       loadIndex: async () => [SAMPLE_SKILLS[1]],
-      delete: async (skillId: string) => skillId === SAMPLE_SKILLS[0].skillId
-        ? { success: true, skillId, scope: "global" as const }
-        : { success: false, error: "Skill missing." },
+      delete: async (skillId: string) =>
+        skillId === SAMPLE_SKILLS[0].skillId
+          ? { success: true, skillId, scope: "global" as const }
+          : { success: false, error: "Skill missing." },
     };
 
-    const result = await deleteSelectedSkills(
-      store as any,
-      [SAMPLE_SKILLS[0].skillId, SAMPLE_SKILLS[1].skillId],
-    );
+    const result = await deleteSelectedSkills(store as any, [SAMPLE_SKILLS[0].skillId, SAMPLE_SKILLS[1].skillId]);
 
     assert.ok(result.summaryLines[0].includes("Deleted 1 skill"));
     assert.ok(result.summaryLines.some((line) => line.includes("Blocked 1 skill")));
@@ -260,7 +258,11 @@ describe("skills command helpers", () => {
       },
     };
 
-    const result = await moveSelectedSkills(store as any, [SAMPLE_SKILLS[0].skillId, SAMPLE_SKILLS[1].skillId], "global");
+    const result = await moveSelectedSkills(
+      store as any,
+      [SAMPLE_SKILLS[0].skillId, SAMPLE_SKILLS[1].skillId],
+      "global",
+    );
 
     assert.ok(result.summaryLines.some((line) => line.includes("Blocked 1 skill")));
     assert.ok(result.summaryLines.some((line) => line.includes("permission denied")));
@@ -334,20 +336,15 @@ describe("SkillsManagerModal", () => {
     const harness = createModalHarness();
     const captured: Array<{ scope: string; skillIds: string[] }> = [];
 
-    const modal = new SkillsManagerModal(
-      harness.tui as any,
-      harness.theme as any,
-      buildSkillRows(SAMPLE_SKILLS),
-      {
-        moveSelected: async (scope, skillIds) => {
-          captured.push({ scope, skillIds });
-          return { skills: SAMPLE_SKILLS, summaryLines: ["done"] };
-        },
-        deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        close: () => undefined,
-        projectName: "demo-project",
+    const modal = new SkillsManagerModal(harness.tui as any, harness.theme as any, buildSkillRows(SAMPLE_SKILLS), {
+      moveSelected: async (scope, skillIds) => {
+        captured.push({ scope, skillIds });
+        return { skills: SAMPLE_SKILLS, summaryLines: ["done"] };
       },
-    );
+      deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      close: () => undefined,
+      projectName: "demo-project",
+    });
 
     modal.handleInput(" ");
     modal.handleInput("g");
@@ -360,17 +357,12 @@ describe("SkillsManagerModal", () => {
 
   it("supports slash search and typed filtering", () => {
     const harness = createModalHarness();
-    const modal = new SkillsManagerModal(
-      harness.tui as any,
-      harness.theme as any,
-      buildSkillRows(SAMPLE_SKILLS),
-      {
-        moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        close: () => undefined,
-        projectName: "demo-project",
-      },
-    );
+    const modal = new SkillsManagerModal(harness.tui as any, harness.theme as any, buildSkillRows(SAMPLE_SKILLS), {
+      moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      close: () => undefined,
+      projectName: "demo-project",
+    });
 
     modal.handleInput("/");
     modal.handleInput("z");
@@ -382,17 +374,12 @@ describe("SkillsManagerModal", () => {
 
   it("redirects printable keys to search from list focus", () => {
     const harness = createModalHarness();
-    const modal = new SkillsManagerModal(
-      harness.tui as any,
-      harness.theme as any,
-      buildSkillRows(SAMPLE_SKILLS),
-      {
-        moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        close: () => undefined,
-        projectName: "demo-project",
-      },
-    );
+    const modal = new SkillsManagerModal(harness.tui as any, harness.theme as any, buildSkillRows(SAMPLE_SKILLS), {
+      moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      close: () => undefined,
+      projectName: "demo-project",
+    });
 
     modal.handleInput("z");
     const output = modal.render(100).join("\n");
@@ -403,20 +390,15 @@ describe("SkillsManagerModal", () => {
     const harness = createModalHarness();
     let deleteCalls = 0;
 
-    const modal = new SkillsManagerModal(
-      harness.tui as any,
-      harness.theme as any,
-      buildSkillRows(SAMPLE_SKILLS),
-      {
-        moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        deleteSelected: async () => {
-          deleteCalls++;
-          return { skills: SAMPLE_SKILLS, summaryLines: ["deleted"] };
-        },
-        close: () => undefined,
-        projectName: "demo-project",
+    const modal = new SkillsManagerModal(harness.tui as any, harness.theme as any, buildSkillRows(SAMPLE_SKILLS), {
+      moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      deleteSelected: async () => {
+        deleteCalls++;
+        return { skills: SAMPLE_SKILLS, summaryLines: ["deleted"] };
       },
-    );
+      close: () => undefined,
+      projectName: "demo-project",
+    });
 
     modal.handleInput(" ");
     modal.handleInput("d");
@@ -433,20 +415,15 @@ describe("SkillsManagerModal", () => {
     const harness = createModalHarness();
     const capturedDeletes: string[][] = [];
 
-    const modal = new SkillsManagerModal(
-      harness.tui as any,
-      harness.theme as any,
-      buildSkillRows(SAMPLE_SKILLS),
-      {
-        moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        deleteSelected: async (skillIds) => {
-          capturedDeletes.push(skillIds);
-          return { skills: [SAMPLE_SKILLS[1]], summaryLines: ["deleted"] };
-        },
-        close: () => undefined,
-        projectName: "demo-project",
+    const modal = new SkillsManagerModal(harness.tui as any, harness.theme as any, buildSkillRows(SAMPLE_SKILLS), {
+      moveSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      deleteSelected: async (skillIds) => {
+        capturedDeletes.push(skillIds);
+        return { skills: [SAMPLE_SKILLS[1]], summaryLines: ["deleted"] };
       },
-    );
+      close: () => undefined,
+      projectName: "demo-project",
+    });
 
     modal.handleInput(" ");
     modal.handleInput("d");
@@ -462,23 +439,18 @@ describe("SkillsManagerModal", () => {
     let resolveMove: ((result: SkillBatchActionResult) => void) | null = null;
     let closeCount = 0;
 
-    const modal = new SkillsManagerModal(
-      harness.tui as any,
-      harness.theme as any,
-      buildSkillRows(SAMPLE_SKILLS),
-      {
-        moveSelected: async () => {
-          return await new Promise<SkillBatchActionResult>((resolve) => {
-            resolveMove = resolve;
-          });
-        },
-        deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
-        close: () => {
-          closeCount++;
-        },
-        projectName: "demo-project",
+    const modal = new SkillsManagerModal(harness.tui as any, harness.theme as any, buildSkillRows(SAMPLE_SKILLS), {
+      moveSelected: async () => {
+        return await new Promise<SkillBatchActionResult>((resolve) => {
+          resolveMove = resolve;
+        });
       },
-    );
+      deleteSelected: async () => ({ skills: SAMPLE_SKILLS, summaryLines: ["done"] }),
+      close: () => {
+        closeCount++;
+      },
+      projectName: "demo-project",
+    });
 
     modal.handleInput("g");
     modal.handleInput("\u001b");
@@ -608,12 +580,15 @@ describe("registerSkillsCommand", () => {
     registerSkillsCommand(pi as any, store as any);
     assert.strictEqual(commands.length, 1);
 
-    await commands[0].handler({}, {
-      hasUI: false,
-      ui: {
-        notify: (message: string, severity: string) => notifications.push({ message, severity }),
+    await commands[0].handler(
+      {},
+      {
+        hasUI: false,
+        ui: {
+          notify: (message: string, severity: string) => notifications.push({ message, severity }),
+        },
       },
-    });
+    );
 
     assert.strictEqual(notifications.length, 1);
     assert.strictEqual(notifications[0].severity, "info");
@@ -636,12 +611,15 @@ describe("registerSkillsCommand", () => {
 
     registerSkillsCommand(pi as any, store as any);
 
-    await commands[0].handler({}, {
-      hasUI: false,
-      ui: {
-        notify: (message: string, severity: string) => notifications.push({ message, severity }),
+    await commands[0].handler(
+      {},
+      {
+        hasUI: false,
+        ui: {
+          notify: (message: string, severity: string) => notifications.push({ message, severity }),
+        },
       },
-    });
+    );
 
     assert.strictEqual(notifications.length, 1);
     assert.strictEqual(notifications[0].severity, "info");
@@ -665,15 +643,18 @@ describe("registerSkillsCommand", () => {
     registerSkillsCommand(pi as any, store as any);
     assert.strictEqual(commands.length, 1);
 
-    await commands[0].handler({}, {
-      hasUI: false,
-      getCommands: () => {
-        throw new Error("command registry unavailable");
+    await commands[0].handler(
+      {},
+      {
+        hasUI: false,
+        getCommands: () => {
+          throw new Error("command registry unavailable");
+        },
+        ui: {
+          notify: (message: string, severity: string) => notifications.push({ message, severity }),
+        },
       },
-      ui: {
-        notify: (message: string, severity: string) => notifications.push({ message, severity }),
-      },
-    });
+    );
 
     assert.strictEqual(notifications.length, 1);
     assert.strictEqual(notifications[0].severity, "info");
@@ -691,28 +672,28 @@ describe("registerSkillsCommand", () => {
     const store = {
       loadIndex: async () => SAMPLE_SKILLS,
       getProjectName: () => "demo-project",
-      move: async () => ({ success: true } as SkillResult),
-      delete: async () => ({ success: true } as SkillResult),
+      move: async () => ({ success: true }) as SkillResult,
+      delete: async () => ({ success: true }) as SkillResult,
     };
 
     registerSkillsCommand(pi as any, store as any);
 
-    await commands[0].handler({}, {
-      hasUI: true,
-      ui: {
-        custom: async (
-          factory: Function,
-          options: { overlay?: boolean },
-        ) => {
-          customInvoked = true;
-          assert.strictEqual(options.overlay, true);
-          // factory invocation is unnecessary for this contract-level test
-          return undefined;
+    await commands[0].handler(
+      {},
+      {
+        hasUI: true,
+        ui: {
+          custom: async (_factory: Function, options: { overlay?: boolean }) => {
+            customInvoked = true;
+            assert.strictEqual(options.overlay, true);
+            // factory invocation is unnecessary for this contract-level test
+            return undefined;
+          },
+          confirm: async () => true,
+          notify: () => undefined,
         },
-        confirm: async () => true,
-        notify: () => undefined,
       },
-    });
+    );
 
     assert.strictEqual(customInvoked, true);
   });
@@ -728,27 +709,30 @@ describe("registerSkillsCommand", () => {
     const store = {
       loadIndex: async () => SAMPLE_SKILLS,
       getProjectName: () => "demo-project",
-      move: async () => ({ success: true } as SkillResult),
-      delete: async () => ({ success: true } as SkillResult),
+      move: async () => ({ success: true }) as SkillResult,
+      delete: async () => ({ success: true }) as SkillResult,
     };
 
     registerSkillsCommand(pi as any, store as any);
 
-    await commands[0].handler({}, {
-      hasUI: true,
-      getCommands: () => {
-        throw new Error("command registry unavailable");
-      },
-      ui: {
-        custom: async (factory: Function, options: { overlay?: boolean }) => {
-          customInvoked = true;
-          assert.strictEqual(options.overlay, true);
-          return undefined;
+    await commands[0].handler(
+      {},
+      {
+        hasUI: true,
+        getCommands: () => {
+          throw new Error("command registry unavailable");
         },
-        confirm: async () => true,
-        notify: () => undefined,
+        ui: {
+          custom: async (_factory: Function, options: { overlay?: boolean }) => {
+            customInvoked = true;
+            assert.strictEqual(options.overlay, true);
+            return undefined;
+          },
+          confirm: async () => true,
+          notify: () => undefined,
+        },
       },
-    });
+    );
 
     assert.strictEqual(customInvoked, true);
   });
@@ -764,22 +748,25 @@ describe("registerSkillsCommand", () => {
     const store = {
       loadIndex: async () => SAMPLE_SKILLS,
       getProjectName: () => "demo-project",
-      move: async () => ({ success: true } as SkillResult),
-      delete: async () => ({ success: true } as SkillResult),
+      move: async () => ({ success: true }) as SkillResult,
+      delete: async () => ({ success: true }) as SkillResult,
     };
 
     registerSkillsCommand(pi as any, store as any);
 
-    await commands[0].handler({}, {
-      hasUI: true,
-      ui: {
-        custom: async () => {
-          throw new Error("UI backend unavailable");
+    await commands[0].handler(
+      {},
+      {
+        hasUI: true,
+        ui: {
+          custom: async () => {
+            throw new Error("UI backend unavailable");
+          },
+          confirm: async () => true,
+          notify: (message: string, severity: string) => notifications.push({ message, severity }),
         },
-        confirm: async () => true,
-        notify: (message: string, severity: string) => notifications.push({ message, severity }),
       },
-    });
+    );
 
     assert.strictEqual(notifications.length, 2);
     assert.strictEqual(notifications[0].severity, "warning");
@@ -799,25 +786,28 @@ describe("registerSkillsCommand", () => {
     const store = {
       loadIndex: async () => SAMPLE_SKILLS,
       getProjectName: () => "demo-project",
-      move: async () => ({ success: true } as SkillResult),
-      delete: async () => ({ success: true } as SkillResult),
+      move: async () => ({ success: true }) as SkillResult,
+      delete: async () => ({ success: true }) as SkillResult,
     };
 
     registerSkillsCommand(pi as any, store as any);
 
-    await commands[0].handler({}, {
-      hasUI: true,
-      getCommands: () => {
-        throw new Error("command registry unavailable");
-      },
-      ui: {
-        custom: async () => {
-          throw new Error("UI backend unavailable");
+    await commands[0].handler(
+      {},
+      {
+        hasUI: true,
+        getCommands: () => {
+          throw new Error("command registry unavailable");
         },
-        confirm: async () => true,
-        notify: (message: string, severity: string) => notifications.push({ message, severity }),
+        ui: {
+          custom: async () => {
+            throw new Error("UI backend unavailable");
+          },
+          confirm: async () => true,
+          notify: (message: string, severity: string) => notifications.push({ message, severity }),
+        },
       },
-    });
+    );
 
     assert.strictEqual(notifications.length, 2);
     assert.strictEqual(notifications[0].severity, "warning");

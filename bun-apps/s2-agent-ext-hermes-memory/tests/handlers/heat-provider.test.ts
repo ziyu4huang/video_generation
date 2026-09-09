@@ -97,7 +97,10 @@ describe("makeHeatProvider", () => {
       null,
     );
     const heats = await provider("memory", [hot, cold]);
-    assert.ok(heats.get("hot")! > heats.get("cold")!, `hot (${heats.get("hot")}) should outrank cold (${heats.get("cold")})`);
+    assert.ok(
+      heats.get("hot")! > heats.get("cold")!,
+      `hot (${heats.get("hot")}) should outrank cold (${heats.get("cold")})`,
+    );
     // Sanity: hot is high (recent + worth + used), cold is low (stale + low-worth + unused).
     assert.ok(heats.get("hot")! > 0.5, `hot should be > 0.5, got ${heats.get("hot")}`);
     assert.ok(heats.get("cold")! < 0.5, `cold should be < 0.5, got ${heats.get("cold")}`);
@@ -109,11 +112,7 @@ describe("makeHeatProvider", () => {
     const withRow = entry("db", 5);
     const noRow = entry("legacy", 5);
     const memoryRepo = stubMemoryRepo([row("db", 0, 0)]); // "legacy" absent
-    const provider = makeHeatProvider(
-      {},
-      { memoryRepo, sessionRepo: stubSessionRepo(new Set()) },
-      null,
-    );
+    const provider = makeHeatProvider({}, { memoryRepo, sessionRepo: stubSessionRepo(new Set()) }, null);
     const heats = await provider("memory", [withRow, noRow]);
     assert.ok(
       Math.abs(heats.get("db")! - heats.get("legacy")!) < 1e-9,
@@ -123,7 +122,10 @@ describe("makeHeatProvider", () => {
     const recent = entry("r", 1);
     const stale = entry("s", 60);
     const heats2 = await provider("memory", [recent, stale]);
-    assert.ok(heats2.get("r")! > heats2.get("s")!, `recent no-row (${heats2.get("r")}) should beat stale no-row (${heats2.get("s")})`);
+    assert.ok(
+      heats2.get("r")! > heats2.get("s")!,
+      `recent no-row (${heats2.get("r")}) should beat stale no-row (${heats2.get("s")})`,
+    );
   });
 
   it("calls sessionRepo.getUsedMdIds with the right mdIds + project", async () => {
@@ -132,12 +134,12 @@ describe("makeHeatProvider", () => {
     const provider = makeHeatProvider({}, { memoryRepo, sessionRepo }, "proj-x");
     await provider("memory", [entry("a", 1), entry("b", 2), entry("c", 3)]);
     assert.equal(sessionRepo.calls.length, 1);
-    assert.deepEqual(sessionRepo.calls[0]!.mdIds.sort(), ["a", "b", "c"]);
-    assert.equal(sessionRepo.calls[0]!.project, "proj-x");
+    assert.deepEqual(sessionRepo.calls[0]?.mdIds.sort(), ["a", "b", "c"]);
+    assert.equal(sessionRepo.calls[0]?.project, "proj-x");
     // memoryRepo scoped to the same target + project.
     assert.equal(memoryRepo.calls.length, 1);
-    assert.equal(memoryRepo.calls[0]!.target, "memory");
-    assert.equal(memoryRepo.calls[0]!.project, "proj-x");
+    assert.equal(memoryRepo.calls[0]?.target, "memory");
+    assert.equal(memoryRepo.calls[0]?.project, "proj-x");
   });
 
   it("a throwing memoryRepo → empty Map (no throw escapes)", async () => {

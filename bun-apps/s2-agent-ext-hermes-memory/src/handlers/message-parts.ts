@@ -68,7 +68,7 @@ export function collectSubagentOutputs(entries: unknown[]): string[] {
     if (typeof entry !== "object" || entry === null) continue;
     if ((entry as { type?: unknown }).type !== "message") continue;
     const message = (entry as { message?: { role?: unknown; content?: unknown } }).message;
-    if (!message || message.role !== "assistant") continue;
+    if (message?.role !== "assistant") continue;
     if (!Array.isArray(message.content)) continue;
     for (const block of message.content) {
       if (typeof block !== "object" || block === null) continue;
@@ -84,7 +84,7 @@ export function collectSubagentOutputs(entries: unknown[]): string[] {
     if (typeof entry !== "object" || entry === null) continue;
     if ((entry as { type?: unknown }).type !== "message") continue;
     const message = (entry as { message?: { role?: unknown; content?: unknown } }).message;
-    if (!message || message.role !== "user") continue;
+    if (message?.role !== "user") continue;
     if (!Array.isArray(message.content)) continue;
     for (const block of message.content) {
       if (typeof block !== "object" || block === null) continue;

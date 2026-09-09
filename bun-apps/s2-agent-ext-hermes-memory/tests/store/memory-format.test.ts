@@ -1,14 +1,14 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
-  parseMetadataComment,
-  serializeMetadataComment,
-  parseMarkdownMemoryEntry,
-  serializeMetadataFrontmatter,
-  parseMetadataFrontmatter,
-  normalizeFailureState,
   defaultStateForCategory,
+  normalizeFailureState,
   normalizePin,
+  parseMarkdownMemoryEntry,
+  parseMetadataComment,
+  parseMetadataFrontmatter,
+  serializeMetadataComment,
+  serializeMetadataFrontmatter,
 } from "../../src/store/memory-format.js";
 
 describe("parseMetadataComment — optional meta segment", () => {
@@ -22,7 +22,8 @@ describe("parseMetadataComment — optional meta segment", () => {
   });
 
   it("parses a trailing meta comment with provenance + sources", () => {
-    const raw = 'use pnpm <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{"provenance":"verified","sources":[{"kind":"quote","locator":"s12","capture":"use pnpm"}]} -->';
+    const raw =
+      'use pnpm <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{"provenance":"verified","sources":[{"kind":"quote","locator":"s12","capture":"use pnpm"}]} -->';
     const r = parseMetadataComment(raw);
     assert.strictEqual(r.text, "use pnpm");
     assert.strictEqual(r.provenance, "verified");
@@ -36,7 +37,7 @@ describe("parseMetadataComment — optional meta segment", () => {
   });
 
   it("ignores a malformed meta comment (keeps created/last)", () => {
-    const raw = 'x <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{not json} -->';
+    const raw = "x <!-- created=2026-05-09, last=2026-05-10 --> <!-- meta:{not json} -->";
     const r = parseMetadataComment(raw);
     assert.strictEqual(r.text, "x");
     assert.strictEqual(r.provenance, undefined);
@@ -161,16 +162,34 @@ describe("serialize/parse frontmatter — pin field (ticket 02)", () => {
 
 describe("serializeMetadataComment — worth counters", () => {
   it("omits counters when zero (no meta bloat for new entries)", () => {
-    const out = serializeMetadataComment({ text: "x", created: "2026-05-09", lastReferenced: "2026-05-10", mwSuccess: 0, mwFail: 0 });
+    const out = serializeMetadataComment({
+      text: "x",
+      created: "2026-05-09",
+      lastReferenced: "2026-05-10",
+      mwSuccess: 0,
+      mwFail: 0,
+    });
     assert.strictEqual(out, "x <!-- created=2026-05-09, last=2026-05-10 -->");
   });
   it("emits non-zero counters in the meta comment", () => {
-    const out = serializeMetadataComment({ text: "x", created: "2026-05-09", lastReferenced: "2026-05-10", mwSuccess: 5, mwFail: 1 });
+    const out = serializeMetadataComment({
+      text: "x",
+      created: "2026-05-09",
+      lastReferenced: "2026-05-10",
+      mwSuccess: 5,
+      mwFail: 1,
+    });
     assert.ok(out.includes('"mwSuccess":5'));
     assert.ok(out.includes('"mwFail":1'));
   });
   it("round-trips non-zero counters through parseMetadataComment", () => {
-    const encoded = serializeMetadataComment({ text: "fact", created: "2026-05-09", lastReferenced: "2026-05-10", mwSuccess: 7, mwFail: 2 });
+    const encoded = serializeMetadataComment({
+      text: "fact",
+      created: "2026-05-09",
+      lastReferenced: "2026-05-10",
+      mwSuccess: 7,
+      mwFail: 2,
+    });
     const decoded = parseMetadataComment(encoded);
     assert.strictEqual(decoded.mwSuccess, 7);
     assert.strictEqual(decoded.mwFail, 2);

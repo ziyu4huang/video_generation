@@ -267,6 +267,7 @@
         "yaml": "^2.9.0",
       },
       "devDependencies": {
+        "@biomejs/biome": "2.4.16",
         "@earendil-works/pi-ai": "0.84.4",
         "@earendil-works/pi-coding-agent": "0.84.4",
         "@repo/perf-harness": "workspace:*",

@@ -1,12 +1,12 @@
-import { describe, it, before, after } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readdirSync, readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import type { Card } from "../src/store/card.js";
 import { createCardStore } from "../src/store/card-store.js";
 import { KnowledgeSerializer } from "../src/store/knowledge-serializer.js";
-import type { Card } from "../src/store/card.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Named "corpus" (not "vault") to avoid the repo-wide `.gitignore` `vault/`
@@ -58,7 +58,10 @@ describe("knowledge corpus round-trip (acceptance — 06a task 6)", () => {
     assert.ok(cards.length >= 3, `expected ≥3 valid cards, got ${cards.length}`);
     assert.equal(cards.length, 4, "the 4 zettel fixtures parse; the non-zettel is skipped");
     for (const id of expectedIds) {
-      assert.ok(cards.some((c) => c.id === id), `expected canonical id missing from corpus: ${id}`);
+      assert.ok(
+        cards.some((c) => c.id === id),
+        `expected canonical id missing from corpus: ${id}`,
+      );
     }
 
     for (const card of cards) {
@@ -84,9 +87,10 @@ describe("knowledge corpus round-trip (acceptance — 06a task 6)", () => {
     for (const original of cards) {
       const back = await store.getCard(original.id);
       assert.ok(back, `getCard missed id ${original.id}`);
-      assert.equal(back!.content, original.content, `content drifted for ${original.id}`);
-      assert.equal(back!.frontmatter.record_type, original.frontmatter.record_type);
-      assert.equal(back!.frontmatter.confidence, original.frontmatter.confidence);
+      const card = back;
+      assert.equal(card.content, original.content, `content drifted for ${original.id}`);
+      assert.equal(card.frontmatter.record_type, original.frontmatter.record_type);
+      assert.equal(card.frontmatter.confidence, original.frontmatter.confidence);
     }
   });
 

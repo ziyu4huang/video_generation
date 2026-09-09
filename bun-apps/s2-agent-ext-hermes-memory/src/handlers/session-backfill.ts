@@ -1,10 +1,10 @@
-import type { SessionRepository, BulkIndexResult } from '../store/repository.js';
-import type { TimedFn } from '../perf.js';
+import type { TimedFn } from "../perf.js";
+import type { BulkIndexResult, SessionRepository } from "../store/repository.js";
 
 export const SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS = 5000;
 export const SESSION_BACKFILL_MAX_FILES = 50;
 
-type NotifyLevel = 'info' | 'warning' | 'error';
+type NotifyLevel = "info" | "warning" | "error";
 type NotifyFn = (message: string, level: NotifyLevel) => void;
 
 type SetTimeoutFn = (callback: () => void, ms: number) => unknown;
@@ -29,8 +29,9 @@ export interface ScheduleSessionBackfillOptions {
 }
 
 function formatBackfillResult(result: BulkIndexResult): string {
-  const errorSuffix = result.errors.length > 0 ? ` (${result.errors.length} file error${result.errors.length === 1 ? '' : 's'})` : '';
-  const limitSuffix = result.reachedLimit ? ' (startup limit reached)' : '';
+  const errorSuffix =
+    result.errors.length > 0 ? ` (${result.errors.length} file error${result.errors.length === 1 ? "" : "s"})` : "";
+  const limitSuffix = result.reachedLimit ? " (startup limit reached)" : "";
   return `🧠 Session backfill complete: ${result.sessionsIndexed} indexed, ${result.sessionsSkipped} skipped, ${result.messagesIndexed} messages${errorSuffix}${limitSuffix}.`;
 }
 
@@ -79,14 +80,20 @@ export function scheduleSessionBackfill(
         if (!shouldRun) {
           return;
         }
-        const result = await timed("backfill.indexChangedSessions", () => sessionRepo.indexChangedSessions(sessionsDir, { maxFilesToIndex }));
+        const result = await timed("backfill.indexChangedSessions", () =>
+          sessionRepo.indexChangedSessions(sessionsDir, { maxFilesToIndex }),
+        );
         if (!result.reachedLimit) await sessionRepo.touchBackfillTimestamp();
-        notifyBestEffort(options.notify, formatBackfillResult(result), result.errors.length > 0 || result.reachedLimit ? 'warning' : 'info');
+        notifyBestEffort(
+          options.notify,
+          formatBackfillResult(result),
+          result.errors.length > 0 || result.reachedLimit ? "warning" : "info",
+        );
       } catch (err) {
         notifyBestEffort(
           options.notify,
           `⚠️ Session backfill failed: ${err instanceof Error ? err.message : String(err)}`,
-          'warning',
+          "warning",
         );
       } finally {
         state.inProgress = false;

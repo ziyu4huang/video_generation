@@ -1,4 +1,5 @@
-import { readdirSync, lstatSync } from "node:fs";
+import type { Dirent, Stats } from "node:fs";
+import { lstatSync, readdirSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { planningCardKindFromPath } from "./store/planning-id.js";
 
@@ -45,9 +46,20 @@ const SKIP_DIR_PATH = ".planning/sdd";
 
 /** Binary denylist by extension — archives, executables, media (pdf = ticket 02). */
 const BINARY_EXT = new Set<string>([
-  ".zip", ".gz", ".tar", ".7z", ".rar", // archives
-  ".exe", ".dll", ".so", ".dylib", ".bin", // executables
-  ".mp4", ".mov", ".mp3", ".pdf", // media
+  ".zip",
+  ".gz",
+  ".tar",
+  ".7z",
+  ".rar", // archives
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".bin", // executables
+  ".mp4",
+  ".mov",
+  ".mp3",
+  ".pdf", // media
 ]);
 
 /** Image extensions — OPT-IN (default OFF). */
@@ -119,7 +131,7 @@ function classify(abs: string, root: string, result: WalkResult, opts: WalkOptio
 }
 
 function walkDir(abs: string, root: string, opts: WalkOptions, result: WalkResult): void {
-  let entries;
+  let entries: Dirent[];
   try {
     entries = readdirSync(abs, { withFileTypes: true });
   } catch {
@@ -127,7 +139,7 @@ function walkDir(abs: string, root: string, opts: WalkOptions, result: WalkResul
   }
   for (const entry of entries) {
     const child = join(abs, entry.name);
-    let st;
+    let st: Stats;
     try {
       st = lstatSync(child);
     } catch {
@@ -175,7 +187,7 @@ export function walkKnowledgeSources(input: string | string[], opts: WalkOptions
   for (const raw of inputs) {
     // resolve() honors absolute inputs as-is and resolves relative ones against cwd.
     const abs = resolve(cwd, raw);
-    let st;
+    let st: Stats;
     try {
       st = lstatSync(abs);
     } catch {

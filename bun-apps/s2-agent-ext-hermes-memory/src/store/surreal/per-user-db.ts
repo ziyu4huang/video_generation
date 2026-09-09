@@ -7,9 +7,9 @@
  * canonical implementations so hermes's public surface is unchanged.
  */
 export {
-	sanitizeUsername,
-	currentUsername,
-	derivePerUserNamespace,
+  currentUsername,
+  derivePerUserNamespace,
+  sanitizeUsername,
 } from "@repo/s2-agent-core-interface";
 
 /**

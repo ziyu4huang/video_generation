@@ -38,16 +38,15 @@ const WRITER_FILES = [
 /** A live call site: `repo.syncMemoryEntry(`, `.replaceSyncedMemories(`, … —
  *  comment/doc mentions are allowed (they document the retirement). Wave C
  *  adds `removeByMdId` (the retired eviction seam). */
-const LIVE_CALL = /\.(syncMemoryEntry|replaceSyncedMemories|removeSyncedMemories|syncMemoryEntriesBatch|removeByMdId)\s*\(/;
+const LIVE_CALL =
+  /\.(syncMemoryEntry|replaceSyncedMemories|removeSyncedMemories|syncMemoryEntriesBatch|removeByMdId)\s*\(/;
 
 describe("memory-mirror sole-source gate (kp13 Wave B + Wave C)", () => {
   for (const rel of WRITER_FILES) {
     it(`${rel}: no live legacy sync* mirror calls`, () => {
       const src = readFileSync(join(pkgRoot, rel), "utf-8");
       // Strip block + line comments so doc mentions don't trip the gate.
-      const codeOnly = src
-        .replace(/\/\*[\s\S]*?\*\//g, "")
-        .replace(/^\s*\/\/.*$/gm, "");
+      const codeOnly = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
       const hits = codeOnly.split("\n").filter((l) => LIVE_CALL.test(l));
       assert.deepEqual(
         hits,

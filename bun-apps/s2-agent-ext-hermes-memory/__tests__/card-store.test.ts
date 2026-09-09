@@ -1,11 +1,11 @@
-import { describe, it, before, after } from "node:test";
+import { Database } from "bun:sqlite";
 import * as assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Database } from "bun:sqlite";
-import { createCardStore } from "../src/store/card-store.js";
+import { join } from "node:path";
+import { after, before, describe, it } from "node:test";
 import type { Card } from "../src/store/card.js";
+import { createCardStore } from "../src/store/card-store.js";
 
 const dir = mkdtempSync(join(tmpdir(), "card-store-"));
 
@@ -35,11 +35,11 @@ describe("card-agnostic store (SQLite round-trip)", () => {
     await store.upsertCard(card);
     const back = await store.getCard(card.id);
     assert.ok(back);
-    assert.equal(back!.kind, "knowledge");
-    assert.equal(back!.id, card.id);
-    assert.equal(back!.content, card.content);
-    assert.equal(back!.frontmatter.record_type, "lever");
-    assert.equal(back!.frontmatter.confidence, 0.93);
+    assert.equal(back?.kind, "knowledge");
+    assert.equal(back?.id, card.id);
+    assert.equal(back?.content, card.content);
+    assert.equal(back?.frontmatter.record_type, "lever");
+    assert.equal(back?.frontmatter.confidence, 0.93);
   });
 
   it("re-ingesting the same knowledge id is idempotent (no dup row)", async () => {
@@ -65,9 +65,9 @@ describe("card-agnostic store (SQLite round-trip)", () => {
     await store.upsertCard(card);
     const back = await store.getCard(card.id);
     assert.ok(back);
-    assert.equal(back!.kind, "planning-ticket");
-    assert.equal(back!.id, card.id);
-    assert.equal(back!.frontmatter.slug, "planning-card-model");
+    assert.equal(back?.kind, "planning-ticket");
+    assert.equal(back?.id, card.id);
+    assert.equal(back?.frontmatter.slug, "planning-card-model");
   });
 
   it("re-ingesting a planning-effort id is idempotent", async () => {
@@ -111,7 +111,7 @@ describe("card-agnostic store (SQLite round-trip)", () => {
       });
       const back = await migrated.getCard("planning-ticket:e:01");
       assert.ok(back);
-      assert.equal(back!.kind, "planning-ticket");
+      assert.equal(back?.kind, "planning-ticket");
       await migrated.close();
     } finally {
       rmSync(legacyDir, { recursive: true, force: true });
@@ -126,9 +126,9 @@ describe("card-agnostic store (SQLite round-trip)", () => {
           // Re-open a raw handle to the SAME db file to inspect sqlite_master.
           const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
           const raw = new RawDatabase(join(dir, "sessions.db"));
-          const row = raw
-            .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
-            .get() as { name?: string } | undefined;
+          const row = raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'").get() as
+            | { name?: string }
+            | undefined;
           raw.close();
           return row?.name;
         })()
@@ -155,9 +155,9 @@ describe("card-agnostic store (SQLite round-trip)", () => {
       const migrated = await createCardStore({ memoryDir: legacyDir, dbBackend: "sqlite" });
       await migrated.close();
       const after = new RawDatabase(join(legacyDir, "sessions.db"));
-      const row = after
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'")
-        .get() as { name?: string } | undefined;
+      const row = after.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_md_hash'").get() as
+        | { name?: string }
+        | undefined;
       after.close();
       assert.equal(row?.name, "card_md_hash");
     } finally {
@@ -168,9 +168,9 @@ describe("card-agnostic store (SQLite round-trip)", () => {
   it("creates card_dep_hash on a fresh store open (10-impl T2)", async () => {
     const { RawDatabase } = await import("../src/store/sqlite/sqlite-backend.js");
     const raw = new RawDatabase(join(dir, "sessions.db"));
-    const row = raw
-      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_dep_hash'")
-      .get() as { name?: string } | undefined;
+    const row = raw.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_dep_hash'").get() as
+      | { name?: string }
+      | undefined;
     raw.close();
     assert.equal(row?.name, "card_dep_hash");
   });
@@ -198,9 +198,9 @@ describe("card-agnostic store (SQLite round-trip)", () => {
       const migrated = await createCardStore({ memoryDir: legacyDir, dbBackend: "sqlite" });
       await migrated.close();
       const after = new RawDatabase(join(legacyDir, "sessions.db"));
-      const row = after
-        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_dep_hash'")
-        .get() as { name?: string } | undefined;
+      const row = after.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='card_dep_hash'").get() as
+        | { name?: string }
+        | undefined;
       after.close();
       assert.equal(row?.name, "card_dep_hash");
     } finally {

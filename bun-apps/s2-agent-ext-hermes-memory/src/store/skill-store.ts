@@ -7,6 +7,8 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { AGENT_ROOT } from "../paths.js";
+import type { SkillDocument, SkillIndex, SkillResult, SkillScope } from "../types.js";
 import { scanContent } from "./content-scanner.js";
 import {
   buildSkillId,
@@ -19,8 +21,6 @@ import {
   today,
   tokenizeForSimilarity,
 } from "./skill-utils.js";
-import type { SkillDocument, SkillIndex, SkillResult, SkillScope } from "../types.js";
-import { AGENT_ROOT } from "../paths.js";
 
 interface SkillStoreOptions {
   globalSkillsDir?: string;
@@ -61,8 +61,9 @@ export class SkillStore {
     this.projectName = options.projectName ?? null;
     this.legacySkillsDir = options.legacySkillsDir ?? path.join(agentRoot, "memory", "skills");
     this.legacyPiGlobalSkillsDir = options.legacyPiGlobalSkillsDir ?? path.join(agentRoot, "skills");
-    this.migrationSentinelPath = options.migrationSentinelPath
-      ?? path.join(agentRoot, "pi-hermes-memory", ".skills-migrated-to-extension-storage");
+    this.migrationSentinelPath =
+      options.migrationSentinelPath ??
+      path.join(agentRoot, "pi-hermes-memory", ".skills-migrated-to-extension-storage");
   }
 
   getGlobalSkillsDir(): string {
@@ -113,11 +114,9 @@ export class SkillStore {
   }
 
   private async migrateLegacyMarkdownSkills(result: LegacySkillMigrationResult): Promise<void> {
-    if (!await exists(this.legacySkillsDir)) return;
+    if (!(await exists(this.legacySkillsDir))) return;
 
-    const files = (await fs.readdir(this.legacySkillsDir))
-      .filter((file) => file.endsWith(".md"))
-      .sort();
+    const files = (await fs.readdir(this.legacySkillsDir)).filter((file) => file.endsWith(".md")).sort();
 
     for (const file of files) {
       const legacyPath = path.join(this.legacySkillsDir, file);
@@ -157,7 +156,7 @@ export class SkillStore {
   }
 
   private async migrateFlatMarkdownInGlobalSkillsDir(result: LegacySkillMigrationResult): Promise<void> {
-    if (!await exists(this.globalSkillsDir)) return;
+    if (!(await exists(this.globalSkillsDir))) return;
 
     const files = (await fs.readdir(this.globalSkillsDir))
       .filter((file) => file.endsWith(".md") && file !== "SKILL.md")
@@ -204,7 +203,7 @@ export class SkillStore {
 
   private async migrateLegacyPiGlobalSkillDirs(result: LegacySkillMigrationResult): Promise<void> {
     if (path.resolve(this.legacyPiGlobalSkillsDir) === path.resolve(this.globalSkillsDir)) return;
-    if (!await exists(this.legacyPiGlobalSkillsDir)) return;
+    if (!(await exists(this.legacyPiGlobalSkillsDir))) return;
 
     const entries = await fs.readdir(this.legacyPiGlobalSkillsDir, { withFileTypes: true });
     for (const entry of entries) {
@@ -212,7 +211,7 @@ export class SkillStore {
 
       const sourceDir = path.join(this.legacyPiGlobalSkillsDir, entry.name);
       const sourceSkill = path.join(sourceDir, "SKILL.md");
-      if (!await exists(sourceSkill)) continue;
+      if (!(await exists(sourceSkill))) continue;
 
       const targetDir = path.join(this.globalSkillsDir, entry.name);
       const targetSkill = path.join(targetDir, "SKILL.md");
@@ -224,10 +223,11 @@ export class SkillStore {
       try {
         const raw = await fs.readFile(sourceSkill, "utf-8");
         const parsed = parseFrontmatter(raw);
-        const hasExtensionManagedMeta = Boolean(parsed.meta.display_name)
-          && Boolean(parsed.meta.created)
-          && Boolean(parsed.meta.updated)
-          && /^\d+$/.test(parsed.meta.version ?? "");
+        const hasExtensionManagedMeta =
+          Boolean(parsed.meta.display_name) &&
+          Boolean(parsed.meta.created) &&
+          Boolean(parsed.meta.updated) &&
+          /^\d+$/.test(parsed.meta.version ?? "");
 
         if (!hasExtensionManagedMeta) {
           result.skipped++;
@@ -331,15 +331,18 @@ export class SkillStore {
     const displayName = name;
     const storedName = slug;
     const stamp = today();
-    await this.atomicWrite(filePath, formatFrontmatter({
-      name: storedName,
-      displayName,
-      description,
-      version: 1,
-      created: stamp,
-      updated: stamp,
-      body,
-    }));
+    await this.atomicWrite(
+      filePath,
+      formatFrontmatter({
+        name: storedName,
+        displayName,
+        description,
+        version: 1,
+        created: stamp,
+        updated: stamp,
+        body,
+      }),
+    );
 
     return {
       success: true,
@@ -381,15 +384,18 @@ export class SkillStore {
 
     if (!found) result.push("", sectionHeader, newContent);
 
-    await this.atomicWrite(doc.path, formatFrontmatter({
-      name: doc.name,
-      displayName: doc.displayName,
-      description: doc.description,
-      version: doc.version + 1,
-      created: doc.created,
-      updated: today(),
-      body: result.join("\n").trim(),
-    }));
+    await this.atomicWrite(
+      doc.path,
+      formatFrontmatter({
+        name: doc.name,
+        displayName: doc.displayName,
+        description: doc.description,
+        version: doc.version + 1,
+        created: doc.created,
+        updated: today(),
+        body: result.join("\n").trim(),
+      }),
+    );
 
     return {
       success: true,
@@ -417,15 +423,18 @@ export class SkillStore {
     const scanError = scanContent(`${newDescription} ${newBody}`);
     if (scanError) return { success: false, error: scanError };
 
-    await this.atomicWrite(doc.path, formatFrontmatter({
-      name: doc.name,
-      displayName: doc.displayName,
-      description: newDescription,
-      version: doc.version + 1,
-      created: doc.created,
-      updated: today(),
-      body: newBody,
-    }));
+    await this.atomicWrite(
+      doc.path,
+      formatFrontmatter({
+        name: doc.name,
+        displayName: doc.displayName,
+        description: newDescription,
+        version: doc.version + 1,
+        created: doc.created,
+        updated: today(),
+        body: newBody,
+      }),
+    );
 
     return {
       success: true,
@@ -528,15 +537,18 @@ export class SkillStore {
     }
 
     // Cross-device fallback: copy then remove source.
-    await this.atomicWrite(targetPath, formatFrontmatter({
-      name: parsed.slug,
-      displayName: doc.displayName,
-      description: doc.description,
-      version: doc.version,
-      created: doc.created,
-      updated: doc.updated,
-      body: doc.body,
-    }));
+    await this.atomicWrite(
+      targetPath,
+      formatFrontmatter({
+        name: parsed.slug,
+        displayName: doc.displayName,
+        description: doc.description,
+        version: doc.version,
+        created: doc.created,
+        updated: doc.updated,
+        body: doc.body,
+      }),
+    );
 
     try {
       await fs.unlink(doc.path);
@@ -603,8 +615,12 @@ export class SkillStore {
     const strongSignals = [
       haystack.includes(projectLower),
       /\bthis repo\b|\bthis repository\b|\bthis project\b|\bour codebase\b|\bour app\b/.test(haystack),
-      /\bpackage\.json\b|\bpnpm-lock\.yaml\b|\byarn\.lock\b|\btsconfig\.json\b|\bdocker-compose(\.ya?ml)?\b|\b\.env(\.[a-z0-9._-]+)?\b/.test(haystack),
-      /(^|\s)(src|app|apps|packages|services|scripts|tests|docs|infra|migrations|db|api|web|frontend|backend)\/[a-z0-9._/-]+/m.test(haystack),
+      /\bpackage\.json\b|\bpnpm-lock\.yaml\b|\byarn\.lock\b|\btsconfig\.json\b|\bdocker-compose(\.ya?ml)?\b|\b\.env(\.[a-z0-9._-]+)?\b/.test(
+        haystack,
+      ),
+      /(^|\s)(src|app|apps|packages|services|scripts|tests|docs|infra|migrations|db|api|web|frontend|backend)\/[a-z0-9._/-]+/m.test(
+        haystack,
+      ),
       /\b(npm|pnpm|yarn|bun)\s+(run|test|build|dev|lint|deploy)\b/.test(haystack),
     ].filter(Boolean).length;
 
@@ -627,20 +643,29 @@ export class SkillStore {
     const scored = await this.scoreGlobalSimilarity(candidateSlug, candidateDescription);
 
     return scored
-      .filter((entry) => entry.nameSimilarity > NAME_SIMILARITY_THRESHOLD
-        && entry.descriptionSimilarity > DESCRIPTION_SIMILARITY_THRESHOLD)
+      .filter(
+        (entry) =>
+          entry.nameSimilarity > NAME_SIMILARITY_THRESHOLD &&
+          entry.descriptionSimilarity > DESCRIPTION_SIMILARITY_THRESHOLD,
+      )
       .map((entry) => entry.skillId);
   }
 
-  private async findNameCollisionGlobalSkillIds(candidateSlug: string, candidateDescription: string): Promise<string[]> {
+  private async findNameCollisionGlobalSkillIds(
+    candidateSlug: string,
+    candidateDescription: string,
+  ): Promise<string[]> {
     const NAME_SIMILARITY_THRESHOLD = 0.7;
     const DESCRIPTION_SIMILARITY_THRESHOLD = 0.75;
 
     const scored = await this.scoreGlobalSimilarity(candidateSlug, candidateDescription);
 
     return scored
-      .filter((entry) => entry.nameSimilarity > NAME_SIMILARITY_THRESHOLD
-        && entry.descriptionSimilarity <= DESCRIPTION_SIMILARITY_THRESHOLD)
+      .filter(
+        (entry) =>
+          entry.nameSimilarity > NAME_SIMILARITY_THRESHOLD &&
+          entry.descriptionSimilarity <= DESCRIPTION_SIMILARITY_THRESHOLD,
+      )
       .map((entry) => entry.skillId);
   }
 
@@ -703,7 +728,7 @@ export class SkillStore {
     allowRootMarkdown: boolean,
     projectName?: string,
   ): Promise<SkillLocation[]> {
-    if (!await exists(root)) return [];
+    if (!(await exists(root))) return [];
     const results: SkillLocation[] = [];
 
     const walk = async (dir: string, isRoot: boolean): Promise<void> => {

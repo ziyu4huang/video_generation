@@ -14,40 +14,47 @@
  * a spy client), because the pathological slowness cannot be reproduced at the
  * small data volume of an integration test. The query shape IS the bug.
  */
-import { describe, it, expect } from "bun:test";
-import { SurrealMemoryRepository } from "../../../src/store/surreal/surreal-memory-repo.js";
+import { describe, expect, it } from "bun:test";
 import type { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
+import { SurrealMemoryRepository } from "../../../src/store/surreal/surreal-memory-repo.js";
 
 /** A lexical seed row the FTS step returns, so search proceeds to graph fetch. */
 const SEED_ROW = {
-	seq: 1, project: "p1", target: "memory", category: null, content: "seed needle",
-	failureReason: null, toolState: null, correctedTo: null,
-	created: "2026-07-30", lastReferenced: "2026-07-30",
+  seq: 1,
+  project: "p1",
+  target: "memory",
+  category: null,
+  content: "seed needle",
+  failureReason: null,
+  toolState: null,
+  correctedTo: null,
+  created: "2026-07-30",
+  lastReferenced: "2026-07-30",
 };
 
 describe("SurrealMemoryRepository graph query shape", () => {
-	it("fetchGraphNeighbors uses native graph traversal, not a nested IN-subquery over tagged", async () => {
-		const queries: string[] = [];
-		const fakeBackend = {
-			client: {
-				query: async (sql: string) => {
-					queries.push(sql);
-					// Drive searchMemories through to the graph step: the lexical
-					// (FTS/contains) step returns a seed; everything else → empty.
-					return /content @@|string::contains/.test(sql) ? [SEED_ROW] : [];
-				},
-			},
-		} as unknown as SurrealBackend;
-		const repo = new SurrealMemoryRepository(fakeBackend);
+  it("fetchGraphNeighbors uses native graph traversal, not a nested IN-subquery over tagged", async () => {
+    const queries: string[] = [];
+    const fakeBackend = {
+      client: {
+        query: async (sql: string) => {
+          queries.push(sql);
+          // Drive searchMemories through to the graph step: the lexical
+          // (FTS/contains) step returns a seed; everything else → empty.
+          return /content @@|string::contains/.test(sql) ? [SEED_ROW] : [];
+        },
+      },
+    } as unknown as SurrealBackend;
+    const repo = new SurrealMemoryRepository(fakeBackend);
 
-		await repo.searchMemories("needle", { target: "memory", project: "p1" });
+    await repo.searchMemories("needle", { target: "memory", project: "p1" });
 
-		const graphQuery = queries.find((q) => q.includes("tagged"));
-		expect(graphQuery, "a graph-neighbor query was issued").toBeDefined();
-		// Native graph traversal (what SurrealDB optimizes):
-		expect(graphQuery).toMatch(/->tagged->tag/);
-		// NOT the pathologically-slow nested subquery shape:
-		expect(graphQuery).not.toMatch(/SELECT VALUE in FROM tagged WHERE out IN/);
-		expect(graphQuery).not.toMatch(/IN \(SELECT VALUE id FROM tag/);
-	});
+    const graphQuery = queries.find((q) => q.includes("tagged"));
+    expect(graphQuery, "a graph-neighbor query was issued").toBeDefined();
+    // Native graph traversal (what SurrealDB optimizes):
+    expect(graphQuery).toMatch(/->tagged->tag/);
+    // NOT the pathologically-slow nested subquery shape:
+    expect(graphQuery).not.toMatch(/SELECT VALUE in FROM tagged WHERE out IN/);
+    expect(graphQuery).not.toMatch(/IN \(SELECT VALUE id FROM tag/);
+  });
 });

@@ -189,7 +189,7 @@ export interface MemoryConfig {
   // ─── LM Studio (hierarchy-build embedder) ──
   /** LM Studio base URL serving the hierarchy-build embedder.
    *  Default: http://127.0.0.1:1234. (The card_vectors HNSW vector knobs were
-  *  retired 2026-08-22 with the vector path — context-lifecycle ticket 03.) */
+   *  retired 2026-08-22 with the vector path — context-lifecycle ticket 03.) */
   lmStudioBaseUrl?: string;
 }
 
@@ -198,18 +198,12 @@ export type Provenance = "verified" | "unverified" | "none";
 
 /** A grounding source attached to a memory entry (quote, doc ref, etc.). */
 export interface MemorySource {
-  kind: string;     // e.g. "quote", "doc", "url"
-  locator: string;  // stable ref into the source (session id, url, line)
-  capture: string;  // the verbatim text/anchor
+  kind: string; // e.g. "quote", "doc", "url"
+  locator: string; // stable ref into the source (session id, url, line)
+  capture: string; // the verbatim text/anchor
 }
 
-export type MemoryCategory =
-  | "failure"
-  | "correction"
-  | "insight"
-  | "preference"
-  | "convention"
-  | "tool-quirk";
+export type MemoryCategory = "failure" | "correction" | "insight" | "preference" | "convention" | "tool-quirk";
 
 /** Lifecycle state for failure-target entries. Default/invalid → `active`. */
 export type FailureState = "active" | "resolved" | "acquired";

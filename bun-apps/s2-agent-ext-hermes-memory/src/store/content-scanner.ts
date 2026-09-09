@@ -10,7 +10,10 @@ const MEMORY_THREAT_PATTERNS: Array<{ pattern: RegExp; id: string }> = [
   { pattern: /do\s+not\s+tell\s+the\s+user/i, id: "deception_hide" },
   { pattern: /system\s+prompt\s+override/i, id: "sys_prompt_override" },
   { pattern: /disregard\s+(your|all|any)\s+(instructions|rules|guidelines)/i, id: "disregard_rules" },
-  { pattern: /act\s+as\s+(if|though)\s+you\s+(have\s+no|don'?t\s+have)\s+(restrictions|limits|rules)/i, id: "bypass_restrictions" },
+  {
+    pattern: /act\s+as\s+(if|though)\s+you\s+(have\s+no|don'?t\s+have)\s+(restrictions|limits|rules)/i,
+    id: "bypass_restrictions",
+  },
   { pattern: /curl\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)/i, id: "exfil_curl" },
   { pattern: /wget\s+[^\n]*\$\{?\w*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|API)/i, id: "exfil_wget" },
   { pattern: /cat\s+[^\n]*(\.env|credentials|\.netrc|\.pgpass|\.npmrc|\.pypirc)/i, id: "read_secrets" },
@@ -52,8 +55,16 @@ const SECRET_PATTERNS: Array<{ pattern: RegExp; id: string; severity: "high" | "
 ];
 
 const INVISIBLE_CHARS = new Set([
-  '\u200b', '\u200c', '\u200d', '\u2060', '\ufeff',
-  '\u202a', '\u202b', '\u202c', '\u202d', '\u202e',
+  "\u200b",
+  "\u200c",
+  "\u200d",
+  "\u2060",
+  "\ufeff",
+  "\u202a",
+  "\u202b",
+  "\u202c",
+  "\u202d",
+  "\u202e",
 ]);
 
 /**
@@ -64,7 +75,7 @@ export function scanContent(content: string): string | null {
   // Check invisible unicode
   for (const char of content) {
     if (INVISIBLE_CHARS.has(char)) {
-      return `Blocked: content contains invisible unicode character U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')} (possible injection).`;
+      return `Blocked: content contains invisible unicode character U+${char.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")} (possible injection).`;
     }
   }
 

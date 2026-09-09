@@ -1,8 +1,9 @@
 // Focused test for the pure conflict-marker scan added in 09-impl T5.
 // `hasMergeConflictMarkers` is a FILE-CONTENT signal (per-file), deliberately
 // distinct from `GitOps.isMidMerge` (REPO-STATE — sentinel files in `.git/`).
-import { describe, it } from "node:test";
+
 import * as assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { hasMergeConflictMarkers } from "./git-ops.js";
 
 describe("hasMergeConflictMarkers", () => {

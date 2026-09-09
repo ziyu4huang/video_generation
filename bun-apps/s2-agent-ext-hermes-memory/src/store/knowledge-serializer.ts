@@ -26,10 +26,10 @@
  * frontmatter key).
  */
 
+import { splitFencedYaml } from "@repo/s2-agent-core-interface";
 import { stringify as stringifyYaml } from "yaml";
 import type { Card, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
-import { splitFencedYaml } from "@repo/s2-agent-core-interface";
 import { normalizeRelation } from "./relation-schema.js";
 
 const FENCE = "---";
@@ -51,7 +51,7 @@ function isValidZettel(data: Record<string, unknown>): boolean {
  *  `#`. */
 function extractTitle(body: string): string | undefined {
   const m = body.match(/^# (.+)$/m);
-  return m ? m[1]!.trim() : undefined;
+  return m ? m[1]?.trim() : undefined;
 }
 
 /** The body text under a `## <header>` section, up to the next `## ` section
@@ -60,7 +60,7 @@ function extractSection(body: string, header: string): string | null {
   const lines = body.split("\n");
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.trim() === header) {
+    if (lines[i]?.trim() === header) {
       start = i + 1;
       break;
     }
@@ -68,8 +68,9 @@ function extractSection(body: string, header: string): string | null {
   if (start === -1) return null;
   const out: string[] = [];
   for (let i = start; i < lines.length; i++) {
-    if (/^##\s/.test(lines[i]!)) break; // next section header
-    out.push(lines[i]!);
+    const line = lines[i] ?? "";
+    if (/^##\s/.test(line)) break; // next section header
+    out.push(line);
   }
   return out.join("\n").trim();
 }
@@ -79,7 +80,7 @@ function parseWikiLinks(section: string | null): string[] {
   if (!section) return [];
   const links: string[] = [];
   for (const line of section.split("\n")) {
-    for (const m of line.matchAll(WIKI_LINK_RE)) links.push(m[1]!.trim());
+    for (const m of line.matchAll(WIKI_LINK_RE)) links.push(m[1]?.trim());
   }
   return links;
 }

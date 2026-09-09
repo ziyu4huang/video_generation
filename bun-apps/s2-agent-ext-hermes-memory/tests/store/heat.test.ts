@@ -1,16 +1,11 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert";
 import {
-  computeHeat,
-  resolveDecayConfig,
-  type HeatInput,
-  type DecayConfig,
-} from "../../src/store/heat.js";
-import {
   DEFAULT_DECAY_HALFLIFE_DAYS,
-  DEFAULT_DECAY_WORTH_WEIGHT,
   DEFAULT_DECAY_USED_BONUS,
+  DEFAULT_DECAY_WORTH_WEIGHT,
 } from "../../src/constants.js";
+import { computeHeat, type DecayConfig, type HeatInput, resolveDecayConfig } from "../../src/store/heat.js";
 
 // Fixed "now" anchor for all date math — deterministic, TZ-stable (full ISO
 // timestamps avoid date-only UTC/local ambiguity). 2024-06-15T12:00:00Z.
@@ -152,8 +147,10 @@ describe("computeHeat — used bonus", () => {
     const lastReferenced = new Date(NOW.getTime() - age * 86_400_000).toISOString();
     const unused = computeHeat(neutralInput({ lastReferenced, usedExists: false }), DEFAULT_CFG);
     const used = computeHeat(neutralInput({ lastReferenced, usedExists: true }), DEFAULT_CFG);
-    assert.ok(Math.abs(used - unused - DEFAULT_DECAY_USED_BONUS) < EPS,
-      `used bonus should be exactly ${DEFAULT_DECAY_USED_BONUS}, got ${used - unused}`);
+    assert.ok(
+      Math.abs(used - unused - DEFAULT_DECAY_USED_BONUS) < EPS,
+      `used bonus should be exactly ${DEFAULT_DECAY_USED_BONUS}, got ${used - unused}`,
+    );
   });
 
   it("usedExists: false adds exactly 0 (heat equals recencySpine*worthMult)", () => {
@@ -167,10 +164,7 @@ describe("computeHeat — used bonus", () => {
 describe("computeHeat — clamp [0, 1]", () => {
   it("cap: age 0, laplace 1, used true → raw > 1 → clamped to exactly 1", () => {
     // raw = recencySpine(1) * worthMult(1+0.15*0.5=1.075) + usedBonus(0.1) = 1.175 → clamp 1
-    const heat = computeHeat(
-      neutralInput({ mwSuccess: 1_000_000, mwFail: 0, usedExists: true }),
-      DEFAULT_CFG,
-    );
+    const heat = computeHeat(neutralInput({ mwSuccess: 1_000_000, mwFail: 0, usedExists: true }), DEFAULT_CFG);
     assert.strictEqual(heat, 1, `capped heat should be exactly 1, got ${heat}`);
   });
 
@@ -193,7 +187,10 @@ describe("computeHeat — clamp [0, 1]", () => {
               neutralInput({ mwSuccess, mwFail, usedExists: used, lastReferenced }),
               DEFAULT_CFG,
             );
-            assert.ok(heat >= 0 && heat <= 1, `heat out of [0,1]: ${heat} (s/${mwSuccess} f/${mwFail} u/${used} a/${ageDays})`);
+            assert.ok(
+              heat >= 0 && heat <= 1,
+              `heat out of [0,1]: ${heat} (s/${mwSuccess} f/${mwFail} u/${used} a/${ageDays})`,
+            );
           }
         }
       }
@@ -206,7 +203,7 @@ describe("computeHeat — missing-dates fallback chain (last → created → epo
     const heatLastRecent = computeHeat(
       neutralInput({
         lastReferenced: "2024-06-15T12:00:00Z", // today → age 0 → heat 1
-        created: "2000-01-01T00:00:00Z",          // ancient, must be ignored
+        created: "2000-01-01T00:00:00Z", // ancient, must be ignored
       }),
       DEFAULT_CFG,
     );
@@ -215,10 +212,7 @@ describe("computeHeat — missing-dates fallback chain (last → created → epo
 
   it("lastReferenced absent, created present → created is used", () => {
     // created today → age 0 → heat 1
-    const heat = computeHeat(
-      neutralInput({ lastReferenced: undefined, created: "2024-06-15T12:00:00Z" }),
-      DEFAULT_CFG,
-    );
+    const heat = computeHeat(neutralInput({ lastReferenced: undefined, created: "2024-06-15T12:00:00Z" }), DEFAULT_CFG);
     assert.ok(Math.abs(heat - 1) < EPS, `created fallback should give age-0 heat 1, got ${heat}`);
     // created ancient → heat ≈ 0
     const heatOld = computeHeat(
@@ -229,35 +223,23 @@ describe("computeHeat — missing-dates fallback chain (last → created → epo
   });
 
   it("both absent → epoch (1970) → age huge → heat ≈ 0", () => {
-    const heat = computeHeat(
-      neutralInput({ lastReferenced: undefined, created: undefined }),
-      DEFAULT_CFG,
-    );
+    const heat = computeHeat(neutralInput({ lastReferenced: undefined, created: undefined }), DEFAULT_CFG);
     assert.ok(heat < 1e-50, `both-absent (epoch) → heat ≈ 0, got ${heat}`);
   });
 
   it("tolerates both date-only (YYYY-MM-DD) and full ISO strings", () => {
     // date-only: must parse (no throw). Use created = today date-only.
     const todayDateOnly = NOW.toISOString().slice(0, 10); // "2024-06-15"
-    const heatDateOnly = computeHeat(
-      neutralInput({ lastReferenced: undefined, created: todayDateOnly }),
-      DEFAULT_CFG,
-    );
+    const heatDateOnly = computeHeat(neutralInput({ lastReferenced: undefined, created: todayDateOnly }), DEFAULT_CFG);
     // date-only parses as UTC midnight; now is 12:00Z same day → age 0.5 day → spine ≈ exp(-0.5/14) ≈ 0.965
     assert.ok(heatDateOnly > 0.95 && heatDateOnly <= 1, `date-only parsed heat in range, got ${heatDateOnly}`);
     // full ISO still works (covered elsewhere) — assert no NaN
-    const heatIso = computeHeat(
-      neutralInput({ lastReferenced: "2024-06-15T12:00:00Z" }),
-      DEFAULT_CFG,
-    );
+    const heatIso = computeHeat(neutralInput({ lastReferenced: "2024-06-15T12:00:00Z" }), DEFAULT_CFG);
     assert.ok(!Number.isNaN(heatIso), "ISO parse must not yield NaN");
   });
 
   it("invalid date string → treated as epoch → heat ≈ 0", () => {
-    const heat = computeHeat(
-      neutralInput({ lastReferenced: "not-a-date", created: undefined }),
-      DEFAULT_CFG,
-    );
+    const heat = computeHeat(neutralInput({ lastReferenced: "not-a-date", created: undefined }), DEFAULT_CFG);
     assert.ok(heat < 1e-50, `invalid lastReferenced → epoch → heat ≈ 0, got ${heat}`);
   });
 });
@@ -266,8 +248,16 @@ describe("computeHeat — config knobs honored", () => {
   it("larger halflife → slower decay → higher heat at the same age", () => {
     const ageDays = 14;
     const lastReferenced = new Date(NOW.getTime() - ageDays * 86_400_000).toISOString();
-    const shortHl = computeHeat(neutralInput({ lastReferenced }), { halflifeDays: 14, worthWeight: 0.15, usedBonus: 0.1 });
-    const longHl = computeHeat(neutralInput({ lastReferenced }), { halflifeDays: 28, worthWeight: 0.15, usedBonus: 0.1 });
+    const shortHl = computeHeat(neutralInput({ lastReferenced }), {
+      halflifeDays: 14,
+      worthWeight: 0.15,
+      usedBonus: 0.1,
+    });
+    const longHl = computeHeat(neutralInput({ lastReferenced }), {
+      halflifeDays: 28,
+      worthWeight: 0.15,
+      usedBonus: 0.1,
+    });
     assert.ok(longHl > shortHl, `longer halflife should decay slower (${longHl} > ${shortHl})`);
     // at age 14: halflife 14 → exp(-1); halflife 28 → exp(-0.5)
     assert.ok(Math.abs(shortHl - Math.exp(-1)) < EPS);
@@ -279,10 +269,12 @@ describe("computeHeat — config knobs honored", () => {
     const lastReferenced = new Date(NOW.getTime() - ageDays * 86_400_000).toISOString();
     const lowCfg = { halflifeDays: 14, worthWeight: 0.05, usedBonus: 0.1 };
     const highCfg = { halflifeDays: 14, worthWeight: 0.5, usedBonus: 0.1 };
-    const spreadLow = computeHeat(neutralInput({ lastReferenced, mwSuccess: 100, mwFail: 0 }), lowCfg)
-      - computeHeat(neutralInput({ lastReferenced, mwSuccess: 0, mwFail: 100 }), lowCfg);
-    const spreadHigh = computeHeat(neutralInput({ lastReferenced, mwSuccess: 100, mwFail: 0 }), highCfg)
-      - computeHeat(neutralInput({ lastReferenced, mwSuccess: 0, mwFail: 100 }), highCfg);
+    const spreadLow =
+      computeHeat(neutralInput({ lastReferenced, mwSuccess: 100, mwFail: 0 }), lowCfg) -
+      computeHeat(neutralInput({ lastReferenced, mwSuccess: 0, mwFail: 100 }), lowCfg);
+    const spreadHigh =
+      computeHeat(neutralInput({ lastReferenced, mwSuccess: 100, mwFail: 0 }), highCfg) -
+      computeHeat(neutralInput({ lastReferenced, mwSuccess: 0, mwFail: 100 }), highCfg);
     assert.ok(spreadHigh > spreadLow, `larger worthWeight → wider spread (${spreadHigh} > ${spreadLow})`);
   });
 
@@ -291,10 +283,12 @@ describe("computeHeat — config knobs honored", () => {
     const lastReferenced = new Date(NOW.getTime() - ageDays * 86_400_000).toISOString();
     const smallBonus = { halflifeDays: 14, worthWeight: 0.15, usedBonus: 0.02 };
     const bigBonus = { halflifeDays: 14, worthWeight: 0.15, usedBonus: 0.3 };
-    const gapSmall = computeHeat(neutralInput({ lastReferenced, usedExists: true }), smallBonus)
-      - computeHeat(neutralInput({ lastReferenced, usedExists: false }), smallBonus);
-    const gapBig = computeHeat(neutralInput({ lastReferenced, usedExists: true }), bigBonus)
-      - computeHeat(neutralInput({ lastReferenced, usedExists: false }), bigBonus);
+    const gapSmall =
+      computeHeat(neutralInput({ lastReferenced, usedExists: true }), smallBonus) -
+      computeHeat(neutralInput({ lastReferenced, usedExists: false }), smallBonus);
+    const gapBig =
+      computeHeat(neutralInput({ lastReferenced, usedExists: true }), bigBonus) -
+      computeHeat(neutralInput({ lastReferenced, usedExists: false }), bigBonus);
     assert.ok(gapBig > gapSmall, `larger usedBonus → bigger gap (${gapBig} > ${gapSmall})`);
     assert.ok(Math.abs(gapSmall - 0.02) < EPS);
     assert.ok(Math.abs(gapBig - 0.3) < EPS);

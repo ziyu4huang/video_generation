@@ -10,13 +10,13 @@
  *
  * Uses the live local SurrealDB server with a query spy. CI-skipped when down.
  */
-import { describe, it, expect } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { isSurrealUp, uniqueNs } from "./_helpers.js";
+import { join } from "node:path";
 import { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
 import { SurrealSessionRepository } from "../../../src/store/surreal/surreal-session-repo.js";
+import { isSurrealUp, localDescribe, uniqueNs } from "./_helpers.js";
 
 const up = await isSurrealUp();
 /** The per-file SELECT meta-scan N+1 that must NEVER return once batching
@@ -33,7 +33,10 @@ function writeSession(dir: string, id: string, text: string): string {
   const lines = [
     JSON.stringify({ type: "session", id, timestamp: "2026-07-27T00:00:00Z", cwd: dir }),
     JSON.stringify({
-      type: "message", id: `${id}-m1`, parentId: null, timestamp: "2026-07-27T00:00:01Z",
+      type: "message",
+      id: `${id}-m1`,
+      parentId: null,
+      timestamp: "2026-07-27T00:00:01Z",
       message: { role: "user", content: [{ type: "text", text }], timestamp: Date.now() },
     }),
   ];
@@ -43,7 +46,9 @@ function writeSession(dir: string, id: string, text: string): string {
 
 function spyQueries(backend: SurrealBackend): string[] {
   const seen: string[] = [];
-  const client = backend.client as SurrealBackend["client"] & { query: (sql: string, p?: Record<string, unknown>) => Promise<unknown> };
+  const client = backend.client as SurrealBackend["client"] & {
+    query: (sql: string, p?: Record<string, unknown>) => Promise<unknown>;
+  };
   const orig = client.query.bind(client);
   client.query = (sql: string, params?: Record<string, unknown>) => {
     seen.push(sql);
@@ -52,7 +57,7 @@ function spyQueries(backend: SurrealBackend): string[] {
   return seen;
 }
 
-describe.skipIf(!up)("SurrealSessionRepository batched backfill meta", () => {
+localDescribe("SurrealSessionRepository batched backfill meta", up, () => {
   it("needsBackfill does not query per-file (bounded round-trips)", async () => {
     const ns = uniqueNs();
     const backend = new SurrealBackend({ namespace: ns, database: ns });
@@ -82,7 +87,9 @@ describe.skipIf(!up)("SurrealSessionRepository batched backfill meta", () => {
       // proportional to file count. Old code would issue 6+ here.
       expect(seen.length).toBeLessThanOrEqual(5);
     } finally {
-      try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+      try {
+        await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      } catch {}
       await backend.close();
       rmSync(root, { recursive: true, force: true });
     }
@@ -104,11 +111,30 @@ describe.skipIf(!up)("SurrealSessionRepository batched backfill meta", () => {
 
       // Change exactly ONE file by APPENDING a new message (real delta, so
       // the incremental indexOne reports messagesIndexed > 0).
-      writeFileSync(join(projDir, "ic-3.jsonl"), [
-        JSON.stringify({ type: "session", id: "ic-3", timestamp: "2026-07-27T00:00:00Z", cwd: projDir }),
-        JSON.stringify({ type: "message", id: "ic-3-m1", parentId: null, timestamp: "2026-07-27T00:00:01Z", message: { role: "user", content: [{ type: "text", text: "content 3" }], timestamp: Date.now() } }),
-        JSON.stringify({ type: "message", id: "ic-3-m2", parentId: null, timestamp: "2026-07-27T00:00:02Z", message: { role: "assistant", content: [{ type: "text", text: "appended new message" }], timestamp: Date.now() } }),
-      ].join("\n"));
+      writeFileSync(
+        join(projDir, "ic-3.jsonl"),
+        [
+          JSON.stringify({ type: "session", id: "ic-3", timestamp: "2026-07-27T00:00:00Z", cwd: projDir }),
+          JSON.stringify({
+            type: "message",
+            id: "ic-3-m1",
+            parentId: null,
+            timestamp: "2026-07-27T00:00:01Z",
+            message: { role: "user", content: [{ type: "text", text: "content 3" }], timestamp: Date.now() },
+          }),
+          JSON.stringify({
+            type: "message",
+            id: "ic-3-m2",
+            parentId: null,
+            timestamp: "2026-07-27T00:00:02Z",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "appended new message" }],
+              timestamp: Date.now(),
+            },
+          }),
+        ].join("\n"),
+      );
 
       seen.length = 0;
       const result = await repo.indexChangedSessions(sessionsDir, { maxFilesToIndex: 50 });
@@ -118,7 +144,9 @@ describe.skipIf(!up)("SurrealSessionRepository batched backfill meta", () => {
       // The per-file WHERE-path pattern must never appear in the meta-scan.
       expect(countMatches(seen, PER_FILE_META)).toBe(0);
     } finally {
-      try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+      try {
+        await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      } catch {}
       await backend.close();
       rmSync(root, { recursive: true, force: true });
     }

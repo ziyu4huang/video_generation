@@ -36,7 +36,7 @@ export async function runStaleQuery(
   fsRoot: string,
 ): Promise<{ ok: boolean; stale: StaleCard[]; error?: string }> {
   const { effort } = parseStaleQuery(query);
-  let store;
+  let store: Awaited<ReturnType<typeof createCardStore>>;
   try {
     store = await createCardStore({ memoryDir });
   } catch (err) {
@@ -69,7 +69,7 @@ export async function revalidateCard(
   cardId: string,
   fsRoot: string,
 ): Promise<{ ok: boolean; stale: boolean; missing: string[]; error?: string }> {
-  let store;
+  let store: Awaited<ReturnType<typeof createCardStore>>;
   try {
     store = await createCardStore({ memoryDir });
   } catch (err) {
@@ -78,7 +78,12 @@ export async function revalidateCard(
   try {
     const card = await readSourceCard(store, cardId, fsRoot);
     if (!card) {
-      return { ok: false, stale: false, missing: [], error: `unknown cardId '${cardId}' (no planning source md resolved)` };
+      return {
+        ok: false,
+        stale: false,
+        missing: [],
+        error: `unknown cardId '${cardId}' (no planning source md resolved)`,
+      };
     }
     const wasStale = await refreshStaleness(store, cardId, fsRoot);
     return { ok: true, stale: wasStale, missing: [] };
@@ -126,10 +131,7 @@ export interface PlanningStaleParams {
  *  is the hermes memory DB dir (the SAME `globalDir` createCardStore / the
  *  planning mirror use) — passed per call, mirroring the registrar's captured
  *  `opts.memoryDir`. The repo root (`fsRoot`) is the process cwd at call time. */
-export async function executePlanningStale(
-  opts: { memoryDir: string },
-  params: PlanningStaleParams,
-): Promise<string> {
+export async function executePlanningStale(opts: { memoryDir: string }, params: PlanningStaleParams): Promise<string> {
   const cwd = process.cwd();
   if (params.action === "revalidate") {
     if (!params.cardId) {

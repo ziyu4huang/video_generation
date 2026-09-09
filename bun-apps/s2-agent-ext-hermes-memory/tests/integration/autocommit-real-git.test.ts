@@ -16,14 +16,13 @@
  * Manual smoke (human step, not automated here): opt-in a throwaway repo,
  * eyeball a real `git log` commit + a real `git merge` union.
  */
-import { describe, it, afterEach } from "bun:test";
+import { afterEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as path from "node:path";
-
-import { setupCommitProjectMemory } from "../../src/handlers/commit-project-memory.js";
-import { realGitOps } from "../../src/git-ops.js";
 import { AUTOCOMMIT_COMMIT_MESSAGE, ENTRY_DELIMITER } from "../../src/constants.js";
+import { realGitOps } from "../../src/git-ops.js";
+import { setupCommitProjectMemory } from "../../src/handlers/commit-project-memory.js";
 import type { MemoryConfig } from "../../src/types.js";
 import { createRealGitRepo, type RealGitRepo } from "../helpers/real-git.js";
 
@@ -52,7 +51,7 @@ function createMockPi(): MockPi {
 }
 
 function emitMessageEnd(handlers: MockPi["handlers"]): void {
-  for (const h of handlers["message_end"] ?? []) h({}, {});
+  for (const h of handlers.message_end ?? []) h({}, {});
 }
 
 /** The hook reads only `autoCommitProjectMemory` + `projectMemoryDir !== null`. */
@@ -93,7 +92,7 @@ async function settle(ms = 250): Promise<void> {
 // ─── tmpdir lifecycle: every repo cleaned up after its test ─────────────────
 const repos: RealGitRepo[] = [];
 afterEach(() => {
-  while (repos.length) repos.pop()!.cleanup();
+  while (repos.length) repos.pop()?.cleanup();
 });
 const track = <R extends RealGitRepo>(r: R): R => {
   repos.push(r);
@@ -200,7 +199,10 @@ describe("autocommit real-git: 4) §-union merge driver (git-level)", () => {
     repo.run(["merge", "--no-edit", "feature/alpha"]);
 
     const merged = repo.readMemory();
-    const entries = merged.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+    const entries = merged
+      .split(ENTRY_DELIMITER)
+      .map((e) => e.trim())
+      .filter(Boolean);
 
     assert.ok(entries.includes("Base entry alpha"), "common base alpha survives the merge");
     assert.ok(entries.includes("Base entry bravo"), "common base bravo survives the merge");

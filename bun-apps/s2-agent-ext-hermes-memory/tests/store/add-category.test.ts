@@ -3,11 +3,12 @@
  * Backs the grill_decision write-target fix: grill captures are user-traits
  * carrying a topical category label, not failure/lesson entries.
  */
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
-import { describe, it, beforeEach, afterEach } from "bun:test";
+
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { MemoryStore } from "../../src/store/memory-store.js";
 
 describe("MemoryStore.add — optional category label", () => {

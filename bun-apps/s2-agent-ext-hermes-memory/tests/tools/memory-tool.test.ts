@@ -1,21 +1,19 @@
 /**
  * Unit tests for memory tool registration and execute function.
  */
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registerMemoryTool, writeTransferArchive } from "../../src/tools/memory-tool.js";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { CardStore } from "../../src/store/card-store.js";
+import { createCardStore } from "../../src/store/card-store.js";
+import { MemorySerializer } from "../../src/store/memory-serializer.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
-import { createCardStore } from "../../src/store/card-store.js";
-import { MemorySerializer } from "../../src/store/memory-serializer.js";
-import type { CardStore } from "../../src/store/card-store.js";
-import type { MemoryRepository } from "../../src/store/repository.js";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { registerMemoryTool, writeTransferArchive } from "../../src/tools/memory-tool.js";
 
 describe("registerMemoryTool", () => {
   let tmpDir: string;
@@ -40,7 +38,9 @@ describe("registerMemoryTool", () => {
   function failingCardStore(message = "sqlite unavailable"): CardStore {
     return {
       serializerFor: (kind: any) => new MemorySerializer(kind),
-      upsertCard: async () => { throw new Error(message); },
+      upsertCard: async () => {
+        throw new Error(message);
+      },
       getCardsByKind: async () => [],
     } as unknown as CardStore;
   }
@@ -123,7 +123,13 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "Entry one" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     assert.strictEqual(result.content[0].type, "text", "content should be text type");
     const parsed = result.details;
@@ -135,16 +141,30 @@ describe("registerMemoryTool", () => {
 
   it("execute add renders a human-readable one-line summary (not raw JSON)", async () => {
     let capturedResult: any;
-    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockPi = {
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
+    } as unknown as ExtensionAPI;
     const mockStore = {
       add: () => ({
-        success: true, target: "memory", entries: ["Entry one"],
-        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+        success: true,
+        target: "memory",
+        entries: ["Entry one"],
+        usage: "5% — 110/5000 chars",
+        entry_count: 1,
+        message: "Entry added.",
       }),
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "Entry one" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const text = result.content[0].text;
     assert.throws(() => JSON.parse(text), "text must no longer be raw JSON");
@@ -155,13 +175,23 @@ describe("registerMemoryTool", () => {
 
   it("execute add failure renders a human-readable error line (not raw JSON)", async () => {
     let capturedResult: any;
-    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockPi = {
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
+    } as unknown as ExtensionAPI;
     const mockStore = {
       add: () => ({ success: false, error: "Memory at 5000/5000 chars. Adding would exceed the limit." }),
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "x" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "x" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const text = result.content[0].text;
     assert.throws(() => JSON.parse(text), "failure text must no longer be raw JSON");
@@ -196,7 +226,13 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "New entry" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "New entry" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const text = result.content[0].text;
     assert.throws(() => JSON.parse(text));
@@ -231,16 +267,22 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
-    await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "Entry one" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const cards = await cardStore.getCardsByKind("memory");
     assert.strictEqual(cards.length, 1, "add mirrors one card");
     assert.strictEqual(cards[0].content, "Entry one");
     assert.strictEqual(cards[0].id, ADDED_MD_ID, "card id == the .md frontmatter id");
     // The card row lands in the SAME memories table → still searchable.
-    const results = await memoryRepo.getMemories({ target: 'memory', project: null });
+    const results = await memoryRepo.getMemories({ target: "memory", project: null });
     assert.strictEqual(results.length, 1);
-    assert.strictEqual(results[0].content, 'Entry one');
+    assert.strictEqual(results[0].content, "Entry one");
     assert.strictEqual(results[0].mdId, ADDED_MD_ID);
   });
 
@@ -284,14 +326,26 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "New entry" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "New entry" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     assert.match(result.content[0].text, /Rotated active memory entries:/);
     const rows = await memoryRepo.getMemories({ target: "memory", project: null });
-    assert.deepStrictEqual(rows.map((row) => row.content).sort(), ["New entry", "Older entry with extra detail"].sort());
+    assert.deepStrictEqual(
+      rows.map((row) => row.content).sort(),
+      ["New entry", "Older entry with extra detail"].sort(),
+    );
     // The new entry arrives via the card-store mirror (md_id-keyed).
     const cards = await cardStore.getCardsByKind("memory");
-    assert.deepStrictEqual(cards.map((c) => c.id), [NEW_MD_ID]);
+    assert.deepStrictEqual(
+      cards.map((c) => c.id),
+      [NEW_MD_ID],
+    );
   });
 
   it("uses project scope when removing FIFO-evicted SQLite entries", async () => {
@@ -335,18 +389,37 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, "project-a", await makeCardStore());
-    await capturedResult.execute("tc-1", { action: "add", target: "project", content: "Project replacement" }, undefined as any, undefined as any, undefined as any);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "project", content: "Project replacement" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const globalRows = await memoryRepo.getMemories({ target: "memory", project: null });
     const projectRows = await memoryRepo.getMemories({ target: "memory", project: "project-a" });
     // The mirrored card row is project-agnostic (project NULL), so the global
     // scope sees it alongside the untouched identically-worded global seed.
-    assert.deepStrictEqual(globalRows.map((row) => row.content).sort(), ["Project replacement", "Shared wording"].sort());
-    assert.deepStrictEqual(projectRows.map((row) => row.content), [], "evicted project row removed (removeByMdId path)");
+    assert.deepStrictEqual(
+      globalRows.map((row) => row.content).sort(),
+      ["Project replacement", "Shared wording"].sort(),
+    );
+    assert.deepStrictEqual(
+      projectRows.map((row) => row.content),
+      [],
+      "evicted project row removed (removeByMdId path)",
+    );
     // The project replacement mirrors as a kind:"memory" card (project-agnostic envelope).
     const cards = await cardStore.getCardsByKind("memory");
-    assert.deepStrictEqual(cards.map((c) => c.content), ["Project replacement"]);
-    assert.deepStrictEqual(cards.map((c) => c.id), [PROJECT_NEW_MD_ID]);
+    assert.deepStrictEqual(
+      cards.map((c) => c.content),
+      ["Project replacement"],
+    );
+    assert.deepStrictEqual(
+      cards.map((c) => c.id),
+      [PROJECT_NEW_MD_ID],
+    );
   });
 
   it("maps project target to SQLite project scope", async () => {
@@ -373,18 +446,24 @@ describe("registerMemoryTool", () => {
       },
     } as unknown as MemoryStore;
 
-    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, 'project-a', await makeCardStore());
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "project", content: "Project entry" }, undefined as any, undefined as any, undefined as any);
+    registerMemoryTool(mockPi, {} as MemoryStore, mockProjectStore, "project-a", await makeCardStore());
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "project", content: "Project entry" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const parsed = result.details;
-    assert.strictEqual(parsed.target, 'project');
-    assert.strictEqual(result.details.target, 'project');
-    assert.deepStrictEqual(addTargets, ['memory']);
+    assert.strictEqual(parsed.target, "project");
+    assert.strictEqual(result.details.target, "project");
+    assert.deepStrictEqual(addTargets, ["memory"]);
 
     // The project add mirrors as a kind:"memory" card (project-agnostic envelope).
     const cards = await cardStore.getCardsByKind("memory");
     assert.strictEqual(cards.length, 1);
-    assert.strictEqual(cards[0].content, 'Project entry');
+    assert.strictEqual(cards[0].content, "Project entry");
   });
 
   it("returns a warning instead of failing when the card-store mirror errors", async () => {
@@ -408,7 +487,13 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null, null, failingCardStore());
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "Entry one" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
@@ -419,18 +504,30 @@ describe("registerMemoryTool", () => {
   it("does not warn when repo sync succeeds (retry is now internal to the repo)", async () => {
     let capturedResult: any;
     const mockPi = {
-      registerTool: (def: any) => { capturedResult = def; },
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
     } as unknown as ExtensionAPI;
     const mockStore = {
       add: () => ({
-        success: true, target: "memory", entries: ["Entry one"],
-        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+        success: true,
+        target: "memory",
+        entries: ["Entry one"],
+        usage: "5% — 110/5000 chars",
+        entry_count: 1,
+        message: "Entry added.",
         added_md_id: "md-nowarn-5555",
       }),
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null, null, await makeCardStore());
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry one" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "Entry one" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
     const parsed = result.details;
 
     assert.strictEqual(parsed.success, true);
@@ -442,12 +539,18 @@ describe("registerMemoryTool", () => {
   it("still warns when a transient SQLite error persists across retries", async () => {
     let capturedResult: any;
     const mockPi = {
-      registerTool: (def: any) => { capturedResult = def; },
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
     } as unknown as ExtensionAPI;
     const mockStore = {
       add: () => ({
-        success: true, target: "memory", entries: ["Entry two"],
-        usage: "5% — 110/5000 chars", entry_count: 1, message: "Entry added.",
+        success: true,
+        target: "memory",
+        entries: ["Entry two"],
+        usage: "5% — 110/5000 chars",
+        entry_count: 1,
+        message: "Entry added.",
         added_md_id: "md-flaky-6666",
       }),
     } as unknown as MemoryStore;
@@ -455,7 +558,13 @@ describe("registerMemoryTool", () => {
     const persistentFlaky = failingCardStore("disk I/O error");
 
     registerMemoryTool(mockPi, mockStore, null, null, persistentFlaky);
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory", content: "Entry two" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory", content: "Entry two" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
     const parsed = result.details;
 
     assert.strictEqual(parsed.success, true);
@@ -506,7 +615,13 @@ describe("registerMemoryTool", () => {
     const mockStore = {} as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    const result = await capturedResult.execute("tc-1", { action: "add", target: "memory" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "add", target: "memory" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, false, "should fail without content");
@@ -525,7 +640,13 @@ describe("registerMemoryTool", () => {
     const mockStore = {} as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    const result = await capturedResult.execute("tc-1", { action: "replace", target: "memory", content: "new" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "replace", target: "memory", content: "new" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, false, "should fail without old_text");
@@ -544,7 +665,13 @@ describe("registerMemoryTool", () => {
     const mockStore = {} as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    const result = await capturedResult.execute("tc-1", { action: "remove", target: "memory" }, undefined as any, undefined as any, undefined as any);
+    const result = await capturedResult.execute(
+      "tc-1",
+      { action: "remove", target: "memory" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, false, "should fail without old_text");
@@ -569,9 +696,19 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    await capturedResult.execute("tc-1", { action: "replace", target: "memory", content: "new", old_text: "old" }, undefined as any, undefined as any, undefined as any);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "replace", target: "memory", content: "new", old_text: "old" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
-    assert.deepStrictEqual(replaceArgs, ["memory", "old", "new"], "should pass target, old_text, content to store.replace");
+    assert.deepStrictEqual(
+      replaceArgs,
+      ["memory", "old", "new"],
+      "should pass target, old_text, content to store.replace",
+    );
   });
 
   it("execute delegates remove to store.remove", async () => {
@@ -592,7 +729,13 @@ describe("registerMemoryTool", () => {
     } as unknown as MemoryStore;
 
     registerMemoryTool(mockPi, mockStore, null);
-    await capturedResult.execute("tc-1", { action: "remove", target: "memory", old_text: "old entry" }, undefined as any, undefined as any, undefined as any);
+    await capturedResult.execute(
+      "tc-1",
+      { action: "remove", target: "memory", old_text: "old entry" },
+      undefined as any,
+      undefined as any,
+      undefined as any,
+    );
 
     assert.deepStrictEqual(removeArgs, ["memory", "old entry"], "should pass target, old_text to store.remove");
   });
@@ -600,11 +743,19 @@ describe("registerMemoryTool", () => {
   // ── Task 7: failure lifecycle state/severity on add + edit ──────────────
   it("threads failure state + severity into the card envelope on add", async () => {
     let capturedResult: any;
-    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockPi = {
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
+    } as unknown as ExtensionAPI;
     const mockStore = {
       addFailure: () => ({
-        success: true, target: "failure", entries: ["[failure] boom"],
-        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-add-1",
+        success: true,
+        target: "failure",
+        entries: ["[failure] boom"],
+        usage: "1% — 10/5000 chars",
+        entry_count: 1,
+        added_md_id: "md-add-1",
       }),
     } as unknown as MemoryStore;
 
@@ -612,7 +763,9 @@ describe("registerMemoryTool", () => {
     await capturedResult.execute(
       "tc-1",
       { action: "add", target: "failure", content: "boom", state: "resolved", severity: 2 },
-      undefined as any, undefined as any, undefined as any,
+      undefined as any,
+      undefined as any,
+      undefined as any,
     );
 
     const cards = await cardStore.getCardsByKind("failure");
@@ -625,11 +778,19 @@ describe("registerMemoryTool", () => {
 
   it("omits state/severity from the card envelope when add omits them (default applies downstream)", async () => {
     let capturedResult: any;
-    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockPi = {
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
+    } as unknown as ExtensionAPI;
     const mockStore = {
       addFailure: () => ({
-        success: true, target: "failure", entries: ["[failure] boom"],
-        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-add-2",
+        success: true,
+        target: "failure",
+        entries: ["[failure] boom"],
+        usage: "1% — 10/5000 chars",
+        entry_count: 1,
+        added_md_id: "md-add-2",
       }),
     } as unknown as MemoryStore;
 
@@ -637,7 +798,9 @@ describe("registerMemoryTool", () => {
     await capturedResult.execute(
       "tc-1",
       { action: "add", target: "failure", content: "boom" },
-      undefined as any, undefined as any, undefined as any,
+      undefined as any,
+      undefined as any,
+      undefined as any,
     );
 
     const cards = await cardStore.getCardsByKind("failure");
@@ -648,11 +811,19 @@ describe("registerMemoryTool", () => {
 
   it("drops severity outside 1–3 on add", async () => {
     let capturedResult: any;
-    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockPi = {
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
+    } as unknown as ExtensionAPI;
     const mockStore = {
       addFailure: () => ({
-        success: true, target: "failure", entries: ["[failure] boom"],
-        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-add-3",
+        success: true,
+        target: "failure",
+        entries: ["[failure] boom"],
+        usage: "1% — 10/5000 chars",
+        entry_count: 1,
+        added_md_id: "md-add-3",
       }),
     } as unknown as MemoryStore;
 
@@ -660,7 +831,9 @@ describe("registerMemoryTool", () => {
     await capturedResult.execute(
       "tc-1",
       { action: "add", target: "failure", content: "boom", severity: 9 },
-      undefined as any, undefined as any, undefined as any,
+      undefined as any,
+      undefined as any,
+      undefined as any,
     );
 
     const cards = await cardStore.getCardsByKind("failure");
@@ -669,37 +842,46 @@ describe("registerMemoryTool", () => {
 
   it("threads failure state into the replacement card envelope on edit", async () => {
     let capturedResult: any;
-    const mockPi = { registerTool: (def: any) => { capturedResult = def; } } as unknown as ExtensionAPI;
+    const mockPi = {
+      registerTool: (def: any) => {
+        capturedResult = def;
+      },
+    } as unknown as ExtensionAPI;
     const mockStore = {
       replace: () => ({
-        success: true, target: "failure", entries: ["[failure] fixed"],
-        usage: "1% — 10/5000 chars", entry_count: 1, added_md_id: "md-replace-1",
+        success: true,
+        target: "failure",
+        entries: ["[failure] fixed"],
+        usage: "1% — 10/5000 chars",
+        entry_count: 1,
+        added_md_id: "md-replace-1",
       }),
     } as unknown as MemoryStore;
 
     // Seed the old card row so the replace mirror finds + retires it.
     const store = await makeCardStore();
     const serializer = store.serializerFor("failure")!;
-    const [prior] = serializer.deserialize([
-      "---",
-      'id: "md-prior-1"',
-      'created: "2026-08-15"',
-      'last: "2026-08-15"',
-      "---",
-      "[failure] boom",
-    ].join("\n"));
+    const [prior] = serializer.deserialize(
+      ["---", 'id: "md-prior-1"', 'created: "2026-08-15"', 'last: "2026-08-15"', "---", "[failure] boom"].join("\n"),
+    );
     await store.upsertCard(prior);
 
     registerMemoryTool(mockPi, mockStore, null, null, store);
     const result = await capturedResult.execute(
       "tc-1",
       { action: "replace", target: "failure", old_text: "boom", content: "fixed", state: "acquired" },
-      undefined as any, undefined as any, undefined as any,
+      undefined as any,
+      undefined as any,
+      undefined as any,
     );
 
     // The old row is gone; exactly one card remains — the replacement, carrying state.
     const cards = await cardStore.getCardsByKind("failure");
-    assert.deepStrictEqual(cards.map((c) => c.id), ["md-replace-1"], "old card deleted, replacement mirrored");
+    assert.deepStrictEqual(
+      cards.map((c) => c.id),
+      ["md-replace-1"],
+      "old card deleted, replacement mirrored",
+    );
     assert.strictEqual(cards[0].frontmatter.state, "acquired");
     assert.strictEqual(result.details.warning, undefined, "matched old row → no stale-mirror warning");
   });
@@ -719,17 +901,11 @@ describe("registerMemoryTool", () => {
     }
   });
 
-  it('memory-tool user-facing strings contain no hardcoded backend token', () => {
-    const src = fs.readFileSync(
-      path.join(import.meta.dir, '..', '..', 'src', 'tools', 'memory-tool.ts'),
-      'utf-8',
-    );
+  it("memory-tool user-facing strings contain no hardcoded backend token", () => {
+    const src = fs.readFileSync(path.join(import.meta.dir, "..", "..", "src", "tools", "memory-tool.ts"), "utf-8");
     // Matches sqlite/surrealdb only INSIDE string literals (quoted), ignoring
     // identifiers (e.g. syncAddToSqlite) and comments.
     const backendInLiteral = /['"`][^'"`\n]*(sqlite|surrealdb)[^'"`\n]*['"`]/i;
-    assert.ok(
-      !backendInLiteral.test(src),
-      'memory-tool.ts must not hardcode a backend name inside any string literal',
-    );
+    assert.ok(!backendInLiteral.test(src), "memory-tool.ts must not hardcode a backend name inside any string literal");
   });
 });

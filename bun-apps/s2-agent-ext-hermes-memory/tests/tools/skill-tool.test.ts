@@ -4,11 +4,11 @@
 
 import { describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
-import { registerSkillTool, SKILL_MANAGE_TOOL_NAME } from "../../src/tools/skill-tool.js";
-import { SkillStore } from "../../src/store/skill-store.js";
-import * as path from "node:path";
-import * as os from "node:os";
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { SkillStore } from "../../src/store/skill-store.js";
+import { registerSkillTool, SKILL_MANAGE_TOOL_NAME } from "../../src/tools/skill-tool.js";
 
 let ROOT_DIR = "";
 let GLOBAL_SKILLS_DIR = "";
@@ -42,7 +42,9 @@ describe("registerSkillTool", () => {
   it("registers tool with name 'skill_manage'", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
@@ -61,29 +63,55 @@ describe("registerSkillTool", () => {
   it("create requires name, description, a body or structured fields, and scope", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     registerSkillTool(mockPi, store);
 
-    let result = await captured.execute("tc-1", { action: "create", description: "desc", content: "body" }, undefined, undefined, undefined);
+    let result = await captured.execute(
+      "tc-1",
+      { action: "create", description: "desc", content: "body" },
+      undefined,
+      undefined,
+      undefined,
+    );
     assert.strictEqual(result.details.success, false);
 
-    result = await captured.execute("tc-1", { action: "create", name: "test", content: "body" }, undefined, undefined, undefined);
+    result = await captured.execute(
+      "tc-1",
+      { action: "create", name: "test", content: "body" },
+      undefined,
+      undefined,
+      undefined,
+    );
     assert.strictEqual(result.details.success, false);
 
-    result = await captured.execute("tc-1", { action: "create", name: "test", description: "desc" }, undefined, undefined, undefined);
+    result = await captured.execute(
+      "tc-1",
+      { action: "create", name: "test", description: "desc" },
+      undefined,
+      undefined,
+      undefined,
+    );
     const missingBody = result.details;
     assert.strictEqual(missingBody.success, false);
     assert.match(missingBody.error, /Either content or structured fields are required/i);
 
-    result = await captured.execute("tc-1", {
-      action: "create",
-      name: "test",
-      description: "desc",
-      content: "body",
-    }, undefined, undefined, undefined);
+    result = await captured.execute(
+      "tc-1",
+      {
+        action: "create",
+        name: "test",
+        description: "desc",
+        content: "body",
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
     const missingScope = result.details;
     assert.strictEqual(missingScope.success, false);
     assert.match(missingScope.error, /scope is required/i);
@@ -94,19 +122,27 @@ describe("registerSkillTool", () => {
   it("create succeeds with raw markdown content and returns skill_id", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", {
-      action: "create",
-      name: "test-skill",
-      description: "A test skill",
-      scope: "global",
-      content: "## Procedure\n1. Do it",
-    }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      {
+        action: "create",
+        name: "test-skill",
+        description: "A test skill",
+        scope: "global",
+        content: "## Procedure\n1. Do it",
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
@@ -119,29 +155,33 @@ describe("registerSkillTool", () => {
   it("create builds a valid skill body from structured fields", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", {
-      action: "create",
-      name: "debug-typescript-errors",
-      description: "Debug TypeScript build failures in this repo",
-      scope: "project",
-      when_to_use: "Use when the repo's TypeScript build fails locally or in CI.",
-      procedure_steps: [
-        "Run pnpm tsc --noEmit to get the full error list.",
-        "Fix dependency and config errors before leaf-module errors.",
-      ],
-      pitfalls: [
-        "Do not rely on editor-only diagnostics.",
-      ],
-      verification_steps: [
-        "pnpm tsc --noEmit exits successfully.",
-      ],
-    }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      {
+        action: "create",
+        name: "debug-typescript-errors",
+        description: "Debug TypeScript build failures in this repo",
+        scope: "project",
+        when_to_use: "Use when the repo's TypeScript build fails locally or in CI.",
+        procedure_steps: [
+          "Run pnpm tsc --noEmit to get the full error list.",
+          "Fix dependency and config errors before leaf-module errors.",
+        ],
+        pitfalls: ["Do not rely on editor-only diagnostics."],
+        verification_steps: ["pnpm tsc --noEmit exits successfully."],
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
@@ -159,19 +199,27 @@ describe("registerSkillTool", () => {
   it("create supports explicit project scope", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", {
-      action: "create",
-      name: "release-app",
-      description: "Release this app",
-      scope: "project",
-      content: "## Procedure\n1. Run pnpm build",
-    }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      {
+        action: "create",
+        name: "release-app",
+        description: "Release this app",
+        scope: "project",
+        content: "## Procedure\n1. Run pnpm build",
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
@@ -184,7 +232,9 @@ describe("registerSkillTool", () => {
   it("view without skill_id lists all skills", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
@@ -203,14 +253,22 @@ describe("registerSkillTool", () => {
   it("view with skill_id returns full document", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     const created = await store.create("my-skill", "A skill", "## Body content here");
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", { action: "view", skill_id: created.skillId }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      { action: "view", skill_id: created.skillId },
+      undefined,
+      undefined,
+      undefined,
+    );
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
     assert.strictEqual(parsed.name, "my-skill");
@@ -222,13 +280,21 @@ describe("registerSkillTool", () => {
   it("view with invalid skill_id returns error", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", { action: "view", skill_id: "global:missing" }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      { action: "view", skill_id: "global:missing" },
+      undefined,
+      undefined,
+      undefined,
+    );
     const parsed = result.details;
     assert.strictEqual(parsed.success, false);
     assert.ok(parsed.error.includes("not found"));
@@ -239,19 +305,39 @@ describe("registerSkillTool", () => {
   it("patch requires skill_id, section, content", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     registerSkillTool(mockPi, store);
 
-    let result = await captured.execute("tc-1", { action: "patch", section: "Procedure", content: "new" }, undefined, undefined, undefined);
+    let result = await captured.execute(
+      "tc-1",
+      { action: "patch", section: "Procedure", content: "new" },
+      undefined,
+      undefined,
+      undefined,
+    );
     assert.strictEqual(result.details.success, false);
 
-    result = await captured.execute("tc-1", { action: "patch", skill_id: "global:test", content: "new" }, undefined, undefined, undefined);
+    result = await captured.execute(
+      "tc-1",
+      { action: "patch", skill_id: "global:test", content: "new" },
+      undefined,
+      undefined,
+      undefined,
+    );
     assert.strictEqual(result.details.success, false);
 
-    result = await captured.execute("tc-1", { action: "patch", skill_id: "global:test", section: "Procedure" }, undefined, undefined, undefined);
+    result = await captured.execute(
+      "tc-1",
+      { action: "patch", skill_id: "global:test", section: "Procedure" },
+      undefined,
+      undefined,
+      undefined,
+    );
     assert.strictEqual(result.details.success, false);
 
     await cleanup();
@@ -260,13 +346,21 @@ describe("registerSkillTool", () => {
   it("update requires skill_id", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", { action: "update", description: "new desc" }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      { action: "update", description: "new desc" },
+      undefined,
+      undefined,
+      undefined,
+    );
     const parsed = result.details;
     assert.strictEqual(parsed.success, false);
     assert.ok(parsed.error.includes("skill_id"));
@@ -277,24 +371,33 @@ describe("registerSkillTool", () => {
   it("update aliases to full skill rewrite", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     const created = await store.create("my-skill", "Old desc", "## Old body", "global");
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", {
-      action: "update",
-      skill_id: created.skillId,
-      description: "New desc",
-      content: "## New body",
-    }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      {
+        action: "update",
+        skill_id: created.skillId,
+        description: "New desc",
+        content: "## New body",
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
 
-    const updated = await store.loadSkill(created.skillId!);
+    assert.ok(created.skillId, "create returned a skillId");
+    const updated = await store.loadSkill(created.skillId);
     assert.strictEqual(updated?.description, "New desc");
     assert.match(updated?.body || "", /New body/);
 
@@ -304,26 +407,35 @@ describe("registerSkillTool", () => {
   it("update can rebuild the body from structured fields", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     const created = await store.create("my-skill", "Old desc", "## Old body", "global");
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", {
-      action: "update",
-      skill_id: created.skillId,
-      description: "New desc",
-      when_to_use: "Use when validating the new rewrite path.",
-      procedure_steps: ["Perform the new sequence."],
-      verification_steps: ["Confirm the new sequence works."],
-    }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      {
+        action: "update",
+        skill_id: created.skillId,
+        description: "New desc",
+        when_to_use: "Use when validating the new rewrite path.",
+        procedure_steps: ["Perform the new sequence."],
+        verification_steps: ["Confirm the new sequence works."],
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
 
-    const updated = await store.loadSkill(created.skillId!);
+    assert.ok(created.skillId, "create returned a skillId");
+    const updated = await store.loadSkill(created.skillId);
     assert.match(updated?.body || "", /## When to Use/);
     assert.match(updated?.body || "", /Perform the new sequence/);
     assert.match(updated?.body || "", /No notable pitfalls recorded yet/);
@@ -334,24 +446,33 @@ describe("registerSkillTool", () => {
   it("legacy edit alias still rewrites the skill", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
     const created = await store.create("legacy-skill", "Old desc", "## Old body", "global");
     registerSkillTool(mockPi, store);
 
-    const result = await captured.execute("tc-1", {
-      action: "edit",
-      skill_id: created.skillId,
-      description: "Legacy desc",
-      content: "## Legacy body",
-    }, undefined, undefined, undefined);
+    const result = await captured.execute(
+      "tc-1",
+      {
+        action: "edit",
+        skill_id: created.skillId,
+        description: "Legacy desc",
+        content: "## Legacy body",
+      },
+      undefined,
+      undefined,
+      undefined,
+    );
 
     const parsed = result.details;
     assert.strictEqual(parsed.success, true);
 
-    const updated = await store.loadSkill(created.skillId!);
+    assert.ok(created.skillId, "create returned a skillId");
+    const updated = await store.loadSkill(created.skillId);
     assert.strictEqual(updated?.description, "Legacy desc");
     assert.match(updated?.body || "", /Legacy body/);
 
@@ -361,7 +482,9 @@ describe("registerSkillTool", () => {
   it("delete requires skill_id", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();
@@ -378,7 +501,9 @@ describe("registerSkillTool", () => {
   it("unknown action returns error", async () => {
     let captured: any;
     const mockPi = {
-      registerTool: (def: any) => { if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def; },
+      registerTool: (def: any) => {
+        if (def.name === SKILL_MANAGE_TOOL_NAME) captured = def;
+      },
     } as any;
 
     const store = await makeStore();

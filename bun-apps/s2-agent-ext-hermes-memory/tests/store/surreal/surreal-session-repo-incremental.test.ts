@@ -11,22 +11,22 @@
  * SQL body sent, so we can assert precisely which statements ran. Skipped
  * wholesale when the server is absent (CI-safe).
  */
-import { describe, it, expect } from "bun:test";
-import { isSurrealUp, uniqueNs } from "./_helpers.js";
+import { describe, expect, it } from "bun:test";
 import { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
 import { SurrealSessionRepository } from "../../../src/store/surreal/surreal-session-repo.js";
+import { isSurrealUp, localDescribe, uniqueNs } from "./_helpers.js";
 
 const up = await isSurrealUp();
 
 /** Matches a message UPSERT statement (NOT the session UPSERT). */
-const MSG_UPSERT = /UPSERT type::record\("messages"/;
+const _MSG_UPSERT = /UPSERT type::record\("messages"/;
 /** Count message-UPSERT statements across all recorded SQL bodies. A batch
  *  body concatenates many UPSERTs, so body-count is meaningless — only the
  *  statement count reveals whether the delta alone was written. */
 const countMsgUpserts = (bodies: string[]): number =>
   bodies.reduce((n, s) => n + (s.match(/UPSERT type::record\("messages"/g) ?? []).length, 0);
 
-describe.skipIf(!up)("SurrealSessionRepository incremental indexSession", () => {
+localDescribe("SurrealSessionRepository incremental indexSession", up, () => {
   it("does not re-UPSERT any message on a caught-up re-index", async () => {
     const ns = uniqueNs();
     const backend = new SurrealBackend({ namespace: ns, database: ns });
@@ -70,7 +70,9 @@ describe.skipIf(!up)("SurrealSessionRepository incremental indexSession", () => 
       // Zero message-UPSERT statements may run on a caught-up re-index.
       expect(countMsgUpserts(seen)).toBe(0);
     } finally {
-      try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+      try {
+        await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      } catch {}
       await backend.close();
     }
   });
@@ -124,7 +126,9 @@ describe.skipIf(!up)("SurrealSessionRepository incremental indexSession", () => 
       // (Old behavior re-UPSERTed all 3 → count would be 3.)
       expect(countMsgUpserts(seen)).toBe(1);
     } finally {
-      try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+      try {
+        await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+      } catch {}
       await backend.close();
     }
   });

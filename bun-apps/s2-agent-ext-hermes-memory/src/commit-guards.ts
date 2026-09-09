@@ -65,11 +65,7 @@ export interface GuardDecision {
  * feature worktree or committed manually). Exact-match only — a feature
  * branch is never suppressed. Keep this set SMALL and defensible.
  */
-export const PROTECTED_BRANCHES: ReadonlySet<string> = new Set([
-  "main",
-  "master",
-  "develop",
-]);
+export const PROTECTED_BRANCHES: ReadonlySet<string> = new Set(["main", "master", "develop"]);
 
 /** Exact-match protected-branch check. */
 export function isProtectedBranch(branch: string): boolean {

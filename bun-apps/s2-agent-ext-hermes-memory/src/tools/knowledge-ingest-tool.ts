@@ -13,10 +13,10 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { GATE_DEFS } from "@repo/s2-agent-core-interface";
 import { Type } from "typebox";
-import { walkAndIngest, type WalkAndIngestReceipt, type WalkAndIngestOptions } from "../walk-and-ingest.js";
+import { type WalkAndIngestOptions, type WalkAndIngestReceipt, walkAndIngest } from "../walk-and-ingest.js";
 import type { ToolRegistrar } from "./knowledge-search-tool.js";
 
-GATE_DEFS["knowledge_ingest"] = {
+GATE_DEFS.knowledge_ingest = {
   id: "knowledge_ingest",
   keywords: ["knowledge ingest", "ingest knowledge", "ingest records", "walk and ingest", "知識收錄", "匯入知識"],
   requires: {
@@ -34,7 +34,9 @@ function formatKnowledgeIngestText(receipt: WalkAndIngestReceipt): string {
     return `✗ knowledge ingest skipped: ${receipt.reason ?? "unknown reason"}`;
   }
   const ingest = receipt.ingest;
-  const parts: string[] = [`✓ ingested ${ingest ? `${ingest.created} created · ${ingest.updated} updated · ${ingest.unchanged} unchanged` : "?"} knowledge cards`];
+  const parts: string[] = [
+    `✓ ingested ${ingest ? `${ingest.created} created · ${ingest.updated} updated · ${ingest.unchanged} unchanged` : "?"} knowledge cards`,
+  ];
   parts.push(`healed graph (MOC ${receipt.heal?.mocRegenerated ? "regenerated" : "unchanged"})`);
   parts.push(`mirrored ${receipt.mirrored} card${receipt.mirrored === 1 ? "" : "s"} into the store`);
   const sk = receipt.skipped;
@@ -72,7 +74,6 @@ export function registerKnowledgeIngestTool(pi: ToolRegistrar, opts: WalkAndInge
   return definition;
 }
 
-
 /**
  * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
  * Consumed by s2-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
@@ -84,5 +85,10 @@ export const __GATE_PROBES__ = {
   gate: "knowledge_ingest",
   recallFloor: 0,
   adversarial: [],
-  controls: ["ingest the workflow's .knowledge.jsonl records", 'walk and ingest the knowledge directory', 'import the distilled knowledge cards', 'ingest the knowledge records from the workflow export'],
+  controls: [
+    "ingest the workflow's .knowledge.jsonl records",
+    "walk and ingest the knowledge directory",
+    "import the distilled knowledge cards",
+    "ingest the knowledge records from the workflow export",
+  ],
 };

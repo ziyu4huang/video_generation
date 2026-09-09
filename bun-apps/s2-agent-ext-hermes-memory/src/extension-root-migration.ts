@@ -1,5 +1,5 @@
-import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
+import fs from "node:fs/promises";
 import path from "node:path";
 
 export interface ExtensionRootMigrationResult {
@@ -33,7 +33,11 @@ async function moveFileSafe(source: string, target: string): Promise<void> {
   await fs.unlink(source);
 }
 
-async function moveDirContents(sourceDir: string, targetDir: string, result: ExtensionRootMigrationResult): Promise<void> {
+async function moveDirContents(
+  sourceDir: string,
+  targetDir: string,
+  result: ExtensionRootMigrationResult,
+): Promise<void> {
   await fs.mkdir(targetDir, { recursive: true });
 
   const entries = await fs.readdir(sourceDir, { withFileTypes: true });
@@ -41,7 +45,7 @@ async function moveDirContents(sourceDir: string, targetDir: string, result: Ext
     const sourcePath = path.join(sourceDir, entry.name);
     const targetPath = path.join(targetDir, entry.name);
 
-    if (!await pathExists(targetPath)) {
+    if (!(await pathExists(targetPath))) {
       try {
         await moveFileSafe(sourcePath, targetPath);
         result.moved++;

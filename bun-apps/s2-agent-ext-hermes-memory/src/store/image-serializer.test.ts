@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { ImageSerializer } from "./image-serializer.js";
 import { KnowledgeSerializer } from "./knowledge-serializer.js";
 
@@ -51,7 +51,8 @@ describe("ImageSerializer (kind=image)", () => {
   it("deserialize parses an image card (merged content + image fields + provenance)", () => {
     const cards = ser.deserialize(IMAGE_MD);
     assert.equal(cards.length, 1);
-    const c = cards[0]!;
+    const c = cards[0];
+    assert.ok(c, "one card deserialized");
     assert.equal(c.kind, "image");
     assert.equal(c.id, "img-deadbeef");
     assert.match(c.content, /HELLO 123/); // merged OCR …
@@ -69,8 +70,13 @@ describe("ImageSerializer (kind=image)", () => {
   });
 
   it("serialize→deserialize round-trips an image card", () => {
-    const [c] = ser.deserialize(IMAGE_MD)!;
-    const [c2] = ser.deserialize(ser.serialize(c!))!;
+    const cards = ser.deserialize(IMAGE_MD);
+    assert.ok(cards, "deserialized");
+    const [c] = cards;
+    assert.ok(c, "first card present");
+    const roundCards = ser.deserialize(ser.serialize(c));
+    assert.ok(roundCards, "round-trip deserialized");
+    const [c2] = roundCards;
     assert.deepEqual(c2, c);
   });
 

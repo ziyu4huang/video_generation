@@ -11,8 +11,8 @@
 
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { unionMemoryEntries } from "../src/merge-union.js";
 import { ENTRY_DELIMITER } from "../src/constants.js";
+import { unionMemoryEntries } from "../src/merge-union.js";
 
 const D = ENTRY_DELIMITER; // "\n§\n"
 
@@ -76,14 +76,11 @@ describe("unionMemoryEntries (pure §-union merge, ticket 05)", () => {
     const ours = ["base1", "base2", "ours1", "ours2"].join(D);
     const theirs = ["base1", "base2", "theirs1"].join(D);
     const merged = unionMemoryEntries(base, ours, theirs);
-    assert.strictEqual(
-      merged,
-      ["base1", "base2", "ours1", "ours2", "theirs1"].join(D),
-    );
+    assert.strictEqual(merged, ["base1", "base2", "ours1", "ours2", "theirs1"].join(D));
   });
 
   it("skips blank entries produced by a trailing delimiter", () => {
-    const base = "a" + D + D; // trailing empty entry after delimiter
+    const base = `a${D}${D}`; // trailing empty entry after delimiter
     const ours = "a";
     const theirs = "a";
     const merged = unionMemoryEntries(base, ours, theirs);
@@ -102,9 +99,9 @@ describe("unionMemoryEntries (pure §-union merge, ticket 05)", () => {
 
   it("honors a custom delimiter", () => {
     const delim = "\n---\n";
-    const base = "a" + delim + "b";
-    const ours = "a" + delim + "b" + delim + "c";
-    const theirs = "a" + delim + "b";
+    const base = `a${delim}b`;
+    const ours = `a${delim}b${delim}c`;
+    const theirs = `a${delim}b`;
     const merged = unionMemoryEntries(base, ours, theirs, { delimiter: delim });
     assert.strictEqual(merged, ["a", "b", "c"].join(delim));
   });

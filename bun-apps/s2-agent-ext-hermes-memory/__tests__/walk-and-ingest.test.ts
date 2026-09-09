@@ -1,11 +1,20 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { publishSeam, type KnowledgePipeline } from "@repo/s2-agent-core-interface";
-import { walkAndIngest } from "../src/walk-and-ingest.js";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { type KnowledgePipeline, publishSeam } from "@repo/s2-agent-core-interface";
 import { createCardStore } from "../src/store/card-store.js";
+import { walkAndIngest } from "../src/walk-and-ingest.js";
 
 const KEY = "__piKnowledgePipeline";
 const FOLDER = "Zettelkasten/knowledge-graph";
@@ -43,15 +52,26 @@ function makeStubPipeline(): KnowledgePipeline {
             r.detail || r.title,
             "",
           ].join("\n");
-          writeFileSync(fp, body + "\n");
+          writeFileSync(fp, `${body}\n`);
           created++;
         }
         return { id: r.id, path: `${opts.folder}/${slug}.md`, status: existed ? "unchanged" : "created", links: 0 };
       });
       return {
-        source: opts.source, sourceLabel: opts.sourceLabel, total: records.length,
-        created, updated: 0, unchanged: records.length - created, skipped: 0, linked: 0, wikiMerged: 0,
-        mocUpdated: false, vaultPath: opts.vaultPath, folder: opts.folder, cards, parseErrors: [],
+        source: opts.source,
+        sourceLabel: opts.sourceLabel,
+        total: records.length,
+        created,
+        updated: 0,
+        unchanged: records.length - created,
+        skipped: 0,
+        linked: 0,
+        wikiMerged: 0,
+        mocUpdated: false,
+        vaultPath: opts.vaultPath,
+        folder: opts.folder,
+        cards,
+        parseErrors: [],
       };
     },
     retrieveRecords: async () => ({ count: 0, cards: [], digest: "", folder: "", scanned: 0, excluded: 0 }),
@@ -105,17 +125,23 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
       assert.equal(receipt.vaultPath, vault);
       assert.equal(receipt.folder, FOLDER);
       assert.ok(receipt.ingest, "ingest summary present");
-      assert.ok((receipt.ingest!.created + receipt.ingest!.updated) >= 3, "≥3 records ingested");
+      assert.ok(receipt.ingest?.created + receipt.ingest?.updated >= 3, "≥3 records ingested");
       assert.ok(receipt.heal, "heal receipt present");
-      assert.equal(receipt.heal!.mocRegenerated, true, "MOC regenerated");
+      assert.equal(receipt.heal?.mocRegenerated, true, "MOC regenerated");
       // vault-md written under <vault>/<folder>/
       const dir = join(vault, FOLDER);
       assert.ok(existsSync(dir), "convergence folder created");
       const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
       assert.ok(mds.length >= 3, `≥3 vault-md files written (got ${mds.length})`);
       // junk skipped
-      assert.ok(receipt.skipped.dirs.some((d) => d.endsWith(".git")), ".git skipped");
-      assert.ok(receipt.skipped.binaries.some((b) => b.endsWith("blob.zip")), "blob.zip skipped");
+      assert.ok(
+        receipt.skipped.dirs.some((d) => d.endsWith(".git")),
+        ".git skipped",
+      );
+      assert.ok(
+        receipt.skipped.binaries.some((b) => b.endsWith("blob.zip")),
+        "blob.zip skipped",
+      );
     } finally {
       rmSync(memDir, { recursive: true, force: true });
     }
@@ -198,7 +224,8 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
       assert.ok(r1.driftStub.filesHashed >= 1, `filesHashed ≥1 (got ${r1.driftStub.filesHashed})`);
       const h1 = r1.driftStub.currentHashes;
       assert.ok(h1 && Object.keys(h1).length >= 1, "currentHashes populated");
-      const firstHash = Object.values(h1)[0]!;
+      const firstHash = Object.values(h1)[0];
+      assert.ok(firstHash, "at least one hash present");
       assert.match(firstHash, /^[0-9a-f]{64}$/, "hash is sha256 (64 hex chars)");
 
       // Run 2 on the SAME input (unchanged vault-md) → identical hashes (stable).
@@ -210,16 +237,14 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
       const dir = join(vault, FOLDER);
       const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
       assert.ok(mds.length >= 1, "≥1 vault-md file to mutate");
-      const target = join(dir, mds[0]!);
-      writeFileSync(target, readFileSync(target, "utf8") + "\n## mutated externally\n");
+      const firstName = mds[0];
+      assert.ok(firstName, "first vault-md name present");
+      const target = join(dir, firstName);
+      writeFileSync(target, `${readFileSync(target, "utf8")}\n## mutated externally\n`);
       const r3 = await walkAndIngest(inputDir, { memoryDir: memDir, previousHashes: h1 });
-      const relKey = Object.keys(h1).find((k) => k.endsWith(mds[0]!));
+      const relKey = Object.keys(h1).find((k) => k.endsWith(firstName ?? "\u0000"));
       assert.ok(relKey, "relPath key found in currentHashes");
-      assert.notEqual(
-        r3.driftStub.currentHashes[relKey],
-        h1[relKey],
-        "mutated card hash changed (drift detected)",
-      );
+      assert.notEqual(r3.driftStub.currentHashes[relKey], h1[relKey], "mutated card hash changed (drift detected)");
       assert.deepEqual(r3.driftStub.previousHashes, h1, "previousHashes still echoed on run 3");
     } finally {
       rmSync(memDir, { recursive: true, force: true });
@@ -259,7 +284,8 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
       const dir = join(vault, FOLDER);
       const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
       assert.equal(mds.length, 1, "exactly one vault-md fixture file");
-      const target = join(dir, mds[0]!);
+      assert.ok(mds[0], "fixture name present");
+      const target = join(dir, mds[0]);
       const before = readFileSync(target, "utf8");
       assert.ok(before.includes("## 核心想法\nbase\n"), "fixture carries the 核心想法 body");
       writeFileSync(target, before.replace("## 核心想法\nbase\n", "## 核心想法\nkp21 tier-1 externally edited\n"));
@@ -314,7 +340,8 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
       const dir = join(vault, FOLDER);
       const mds = readdirSync(dir).filter((n) => n.endsWith(".md"));
       assert.equal(mds.length, 1, "exactly one vault-md fixture file");
-      return join(dir, mds[0]!);
+      assert.ok(mds[0], "fixture name present");
+      return join(dir, mds[0]);
     };
 
     /** External md edit: insert a top-level `used_at:` line as the first
@@ -343,11 +370,7 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
         });
         // Prove the divergence actually persisted (DB row must hold `value`).
         const verify = await store.getCard("u1");
-        assert.equal(
-          verify?.frontmatter?.used_at,
-          value,
-          `seed round-tripped: DB row used_at=${value}`,
-        );
+        assert.equal(verify?.frontmatter?.used_at, value, `seed round-tripped: DB row used_at=${value}`);
       } finally {
         await store.close();
       }
@@ -408,11 +431,7 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
         const store3 = await createCardStore({ memoryDir: memDir });
         try {
           const card3 = await store3.getCard("u1");
-          assert.equal(
-            card3?.frontmatter?.used_at,
-            "T2",
-            "store card still holds the DB value after run 3",
-          );
+          assert.equal(card3?.frontmatter?.used_at, "T2", "store card still holds the DB value after run 3");
         } finally {
           await store3.close();
         }
@@ -530,7 +549,7 @@ describe("walkAndIngest (orchestrator: walk → adapt → ingest → heal)", () 
       const receipt = await walkAndIngest(inputDir, { memoryDir: memDir });
       assert.equal(receipt.ok, true);
       // generic .md is NOT in the ingest count (only the 1 jsonl record ingested).
-      assert.equal(receipt.ingest!.created, 1);
+      assert.equal(receipt.ingest?.created, 1);
     } finally {
       rmSync(memDir, { recursive: true, force: true });
     }
@@ -576,8 +595,10 @@ describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
     try {
       const effort = "drift-ins";
       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
-      writeFileSync(join(root, ".planning", effort, "tickets", "01-x.md"),
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n");
+      writeFileSync(
+        join(root, ".planning", effort, "tickets", "01-x.md"),
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nFirst.\n",
+      );
       const r = await walkAndIngest(root, { memoryDir: mem });
       assert.ok(r.planningMirrored >= 1);
       const store = await createCardStore({ memoryDir: mem });
@@ -597,13 +618,11 @@ describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
       const effort = "drift-upd";
       const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
-      writeFileSync(ticketPath,
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nOriginal.\n");
-      await walkAndIngest(root, { memoryDir: mem });            // mirror once (INSERT + hash)
+      writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nOriginal.\n");
+      await walkAndIngest(root, { memoryDir: mem }); // mirror once (INSERT + hash)
       // Edit the ticket content (git-canonical md changed).
-      writeFileSync(ticketPath,
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nEDITED body.\n");
-      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror → UPDATE
+      writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nEDITED body.\n");
+      const r2 = await walkAndIngest(root, { memoryDir: mem }); // re-mirror → UPDATE
       assert.ok(r2.planningMirrored >= 1, "edited ticket must be re-mirrored (UPDATE), not skipped");
       const store = await createCardStore({ memoryDir: mem });
       const c = await store.getCard(`planning-ticket:${effort}:01`);
@@ -625,8 +644,8 @@ describe("walkAndIngest — planning mirror drift (09-impl T3)", () => {
       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
       const body = "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nStable.\n";
       writeFileSync(ticketPath, body);
-      await walkAndIngest(root, { memoryDir: mem });             // mirror once
-      const r2 = await walkAndIngest(root, { memoryDir: mem });  // re-mirror unchanged
+      await walkAndIngest(root, { memoryDir: mem }); // mirror once
+      const r2 = await walkAndIngest(root, { memoryDir: mem }); // re-mirror unchanged
       assert.equal(r2.planningMirrored, 0, "unchanged ticket must be skipped (hash match)");
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -646,10 +665,10 @@ describe("walkAndIngest — planning delete reconciliation (09-impl T4)", () => 
       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
       writeFileSync(t01, "---\ntype: task\nstatus: closed\n---\n# 01 — keep\n\n## Resolution\nKeep.\n");
       writeFileSync(t02, "---\ntype: task\nstatus: closed\n---\n# 02 — gone\n\n## Resolution\nGone.\n");
-      await walkAndIngest(root, { memoryDir: mem });             // mirror both tickets
+      await walkAndIngest(root, { memoryDir: mem }); // mirror both tickets
       // Source md for ticket 02 is removed (git rm / file deleted).
       unlinkSync(t02);
-      await walkAndIngest(root, { memoryDir: mem });             // re-walk → sweep deletes 02
+      await walkAndIngest(root, { memoryDir: mem }); // re-walk → sweep deletes 02
       const store = await createCardStore({ memoryDir: mem });
       const tickets = await store.getCardsByKind("planning-ticket");
       await store.close();
@@ -673,7 +692,11 @@ describe("walkAndIngest — partial walk must NOT reconcile (09-impl final revie
       const t02 = join(root, ".planning", effort, "tickets", "02-b.md");
       const t03 = join(root, ".planning", effort, "tickets", "03-c.md");
       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
-      for (const [p, n] of [[t01, "01 — a"], [t02, "02 — b"], [t03, "03 — c"]] as const) {
+      for (const [p, n] of [
+        [t01, "01 — a"],
+        [t02, "02 — b"],
+        [t03, "03 — c"],
+      ] as const) {
         writeFileSync(p, `---\ntype: task\nstatus: closed\n---\n# ${n}\n\n## Resolution\nbody.\n`);
       }
       // COMPLETE walk over the repo root → all three mirrored (hashes written).
@@ -692,11 +715,7 @@ describe("walkAndIngest — partial walk must NOT reconcile (09-impl final revie
       const ids = tickets.map((c) => c.id).sort();
       assert.deepEqual(
         ids,
-        [
-          `planning-ticket:${effort}:01`,
-          `planning-ticket:${effort}:02`,
-          `planning-ticket:${effort}:03`,
-        ],
+        [`planning-ticket:${effort}:01`, `planning-ticket:${effort}:02`, `planning-ticket:${effort}:03`],
         "partial walk must NOT hard-delete out-of-window planning cards",
       );
     } finally {
@@ -730,10 +749,7 @@ describe("walkAndIngest — 08→09 migration cohort unfreeze (09-impl final rev
       await store0.close();
 
       // Source md has DRIFTED to new (current) content relative to the DB row.
-      writeFileSync(
-        ticketPath,
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n",
-      );
+      writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n");
       const r = await walkAndIngest(root, { memoryDir: mem });
       assert.ok(r.planningMirrored >= 1, "migration-cohort card must be re-mirrored (UPDATE), not skipped");
 
@@ -759,8 +775,10 @@ describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
       const effort = "conflict-effort";
       const ticketPath = join(root, ".planning", effort, "tickets", "01-x.md");
       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
-      writeFileSync(ticketPath,
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\n");
+      writeFileSync(
+        ticketPath,
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> b\n",
+      );
       const r = await walkAndIngest(root, { memoryDir: mem });
       assert.ok(r.conflictMarkerEfforts.includes(effort), "effort must be flagged for human review");
       // The mirror STILL runs — conflict markers do NOT block the mirror (advisory flag).
@@ -772,8 +790,7 @@ describe("walkAndIngest — conflict-marker flag (09-impl T5)", () => {
       assert.match(mirrored?.content ?? "", /ours/, "conflicted ticket body mirrored around the markers");
 
       // Clean the markers and re-mirror → the effort is NOT re-flagged.
-      writeFileSync(ticketPath,
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nClean now.\n");
+      writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nClean now.\n");
       const r2 = await walkAndIngest(root, { memoryDir: mem });
       assert.ok(!r2.conflictMarkerEfforts.includes(effort), "clean md must not be flagged");
     } finally {

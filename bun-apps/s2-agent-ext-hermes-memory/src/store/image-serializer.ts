@@ -9,10 +9,11 @@
 // `Card.graph` stays undefined for image cards in this ticket (file2md emits
 // no `## 連結` section); entities/relations ride the envelope and round-trip
 // through `{ ...data }` untouched.
+
+import { splitFencedYaml } from "@repo/s2-agent-core-interface";
 import { stringify as stringifyYaml } from "yaml";
 import type { Card } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
-import { splitFencedYaml } from "@repo/s2-agent-core-interface";
 
 const CORE_IDEA_HEADER = "## 核心想法";
 
@@ -45,14 +46,14 @@ function isImageCard(data: Record<string, unknown>): boolean {
 
 function extractTitle(body: string): string | undefined {
   const m = body.match(/^# (.+)$/m);
-  return m ? m[1]!.trim() : undefined;
+  return m ? m[1]?.trim() : undefined;
 }
 
 function extractSection(body: string, header: string): string | null {
   const lines = body.split("\n");
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i]!.trim() === header) {
+    if (lines[i]?.trim() === header) {
       start = i + 1;
       break;
     }
@@ -60,8 +61,9 @@ function extractSection(body: string, header: string): string | null {
   if (start === -1) return null;
   const out: string[] = [];
   for (let i = start; i < lines.length; i++) {
-    if (/^##\s/.test(lines[i]!)) break; // next section header
-    out.push(lines[i]!);
+    const line = lines[i] ?? "";
+    if (/^##\s/.test(line)) break; // next section header
+    out.push(line);
   }
   return out.join("\n").trim();
 }

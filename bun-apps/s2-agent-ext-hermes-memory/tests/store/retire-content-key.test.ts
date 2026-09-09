@@ -8,12 +8,12 @@
  * consumer — destructive). `purgeSupersededFromMarkdown` now matches by
  * frontmatter `id`, not stripped content.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { MemoryStore } from "../../src/store/memory-store.js";
 import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 const TODAY = "2026-08-01";
@@ -31,7 +31,11 @@ function freshDir(): string {
 afterEach(() => {
   while (DIRS.length) {
     const d = DIRS.pop()!;
-    try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 });
 
@@ -48,10 +52,7 @@ describe("retire content-key bridge", () => {
     const store = new MemoryStore({ memoryDir: dir, memoryCharLimit: 10000, userCharLimit: 10000 } as MemoryConfig);
     const TARGET_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const SUPER_ID = "ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee";
-    internals(store).memoryEntries = [
-      frontmatter(TARGET_ID, "keep me"),
-      frontmatter(SUPER_ID, "evict me"),
-    ];
+    internals(store).memoryEntries = [frontmatter(TARGET_ID, "keep me"), frontmatter(SUPER_ID, "evict me")];
     const purged = await internals(store).purgeSupersededFromMarkdown("memory", [SUPER_ID]);
     expect(purged).toEqual([SUPER_ID]);
     expect(internals(store).memoryEntries.length).toBe(1);
@@ -61,9 +62,7 @@ describe("retire content-key bridge", () => {
   test("purgeSupersededFromMarkdown skips comment entries (no frontmatter id)", async () => {
     const dir = freshDir();
     const store = new MemoryStore({ memoryDir: dir, memoryCharLimit: 10000, userCharLimit: 10000 } as MemoryConfig);
-    internals(store).memoryEntries = [
-      "comment entry no id <!-- created=2026-08-01, last=2026-08-01 -->",
-    ];
+    internals(store).memoryEntries = ["comment entry no id <!-- created=2026-08-01, last=2026-08-01 -->"];
     const purged = await internals(store).purgeSupersededFromMarkdown("memory", ["some-md-id"]);
     expect(purged).toEqual([]);
     expect(internals(store).memoryEntries.length).toBe(1);
@@ -82,7 +81,9 @@ describe("retire content-key bridge", () => {
     // _addInner reloads from disk — write frontmatter entries to the file.
     fs.writeFileSync(
       path.join(dir, MEMORY_FILE),
-      [frontmatter(EVICT_ID, "old entry retireprobe offload"), frontmatter(KEEP_ID, "keep retireprobe")].join(ENTRY_DELIMITER),
+      [frontmatter(EVICT_ID, "old entry retireprobe offload"), frontmatter(KEEP_ID, "keep retireprobe")].join(
+        ENTRY_DELIMITER,
+      ),
       "utf-8",
     );
     // No consolidator wired → auto-consolidate falls straight to the vault floor.

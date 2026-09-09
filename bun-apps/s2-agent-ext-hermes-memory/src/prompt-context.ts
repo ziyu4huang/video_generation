@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "./constants.js";
-import type { MemoryConfig } from "./types.js";
-import type { MemoryStore } from "./store/memory-store.js";
 import type { AssemblyReceipt } from "./handlers/session-assembly.js";
+import type { MemoryStore } from "./store/memory-store.js";
+import type { MemoryConfig } from "./types.js";
 
 type MemoryPolicyConfig = Pick<MemoryConfig, "memoryPolicyStyle" | "memoryPolicyCustomText">;
 
@@ -18,7 +18,6 @@ export function resolveMemoryPolicyPrompt(config: MemoryPolicyConfig): string {
         : MEMORY_POLICY_PROMPT_COMPACT;
     case "none":
       return "";
-    case "full":
     default:
       return MEMORY_POLICY_PROMPT;
   }

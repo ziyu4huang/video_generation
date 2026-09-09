@@ -11,21 +11,22 @@
 // the md has no frontmatter. serialize round-trips for symmetry (the store does
 // NOT call it for planning in 08 — .planning md is git-canonical; writes stay
 // wayfind-owned).
+
+import { splitFencedYaml } from "@repo/s2-agent-core-interface";
 import type { Card, CardGraph } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
 import { parsePlanningPath, planningEffortId, planningTicketId } from "./planning-id.js";
-import { splitFencedYaml } from "@repo/s2-agent-core-interface";
 import {
-  extractTitle,
-  extractResolutionGist,
-  parseBlockedBy,
   extractCitedPaths,
+  extractResolutionGist,
+  extractTitle,
+  parseBlockedBy,
   parseDependsOn,
 } from "./planning-parse.js";
 
 function effortCard(mapBytes: string, filePath: string): Card | null {
   const info = parsePlanningPath(filePath);
-  if (!info || info.kind !== "planning-effort") return null;
+  if (info?.kind !== "planning-effort") return null;
   const split = splitFencedYaml(mapBytes);
   if (!split) return null;
   const { data, body } = split;
@@ -33,8 +34,8 @@ function effortCard(mapBytes: string, filePath: string): Card | null {
   const links: string[] = [];
   const seen = new Set<string>();
   for (const m of body.matchAll(/tickets\/(\d+)-[^)\s]+\.md/g)) {
-    const no = m[1]!;
-    if (!seen.has(no)) {
+    const no = m[1];
+    if (no !== undefined && !seen.has(no)) {
       seen.add(no);
       links.push(no);
     }
@@ -56,13 +57,13 @@ function effortCard(mapBytes: string, filePath: string): Card | null {
 
 function ticketCard(ticketBytes: string, filePath: string): Card | null {
   const info = parsePlanningPath(filePath);
-  if (!info || info.kind !== "planning-ticket" || !info.ticketNo) return null;
+  if (info?.kind !== "planning-ticket" || !info.ticketNo) return null;
   const split = splitFencedYaml(ticketBytes);
   if (!split) return null;
   const { data, body } = split;
   const title = extractTitle(body);
   const blockedBy = parseBlockedBy(data["blocked by"]);
-  const dependsOn = parseDependsOn(data["depends_on"]);
+  const dependsOn = parseDependsOn(data.depends_on);
   const resolutionGist = extractResolutionGist(body);
   const citedPaths = extractCitedPaths(body);
   const selfId = planningTicketId(info.effort, info.ticketNo);

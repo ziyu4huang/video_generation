@@ -10,22 +10,22 @@
  *    no-op when the repo hasn't opted in.
  */
 
-import { describe, it, beforeEach } from "bun:test";
+import { beforeEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import {
-  setupCommitProjectMemory,
-  runCommitCycle,
-  type CommitCycleDeps,
-} from "../../src/handlers/commit-project-memory.js";
-import type { GitOps, MemoryFileStatus } from "../../src/git-ops.js";
+import type { CommitDecision } from "../../src/commit-guards.js";
 import {
   AUTOCOMMIT_COMMIT_MESSAGE,
   DEFAULT_AUTOCOMMIT_DEBOUNCE_MS,
   MEMORY_MERGE_DRIVER_NAME,
 } from "../../src/constants.js";
+import type { GitOps, MemoryFileStatus } from "../../src/git-ops.js";
 import { buildMergeDriverCommand } from "../../src/git-ops.js";
+import {
+  type CommitCycleDeps,
+  runCommitCycle,
+  setupCommitProjectMemory,
+} from "../../src/handlers/commit-project-memory.js";
 import type { MemoryConfig } from "../../src/types.js";
-import type { CommitDecision } from "../../src/commit-guards.js";
 
 // ─── Mock GitOps ────────────────────────────────────────────────────────────
 
@@ -53,7 +53,12 @@ interface MockGitOps {
 }
 
 function createMockGitOps(o: MockGitOverrides = {}): MockGitOps {
-  const calls = { stage: [] as Array<[string, string]>, commit: [] as Array<[string, string, string]>, getConfig: [] as string[], setConfig: [] as Array<[string, string]> };
+  const calls = {
+    stage: [] as Array<[string, string]>,
+    commit: [] as Array<[string, string, string]>,
+    getConfig: [] as string[],
+    setConfig: [] as Array<[string, string]>,
+  };
   const status: MemoryFileStatus = {
     tracked: true,
     untracked: false,
@@ -63,15 +68,38 @@ function createMockGitOps(o: MockGitOverrides = {}): MockGitOps {
     ...o.status,
   };
   const ops: GitOps = {
-    async resolveGitDir() { if (o.throwOnResolve) throw new Error("git boom"); return o.gitDir ?? "/fake/repo/.git"; },
-    async currentBranch() { return o.branch === undefined ? "feature/durable-memory" : o.branch; },
-    async isMidMerge() { return o.midMerge ?? false; },
-    async isIndexLocked() { return o.indexLocked ?? false; },
-    async collectMemoryStatus() { return { ...status }; },
-    async stage(cwd, rel) { calls.stage.push([cwd, rel]); return o.stageResult ?? true; },
-    async commit(cwd, msg, rel) { calls.commit.push([cwd, msg, rel]); return o.commitResult ?? true; },
-    async getConfig(_cwd, key) { calls.getConfig.push(key); return o.configValues?.[key]; },
-    async setConfig(_cwd, key, val) { calls.setConfig.push([key, val]); return true; },
+    async resolveGitDir() {
+      if (o.throwOnResolve) throw new Error("git boom");
+      return o.gitDir ?? "/fake/repo/.git";
+    },
+    async currentBranch() {
+      return o.branch === undefined ? "feature/durable-memory" : o.branch;
+    },
+    async isMidMerge() {
+      return o.midMerge ?? false;
+    },
+    async isIndexLocked() {
+      return o.indexLocked ?? false;
+    },
+    async collectMemoryStatus() {
+      return { ...status };
+    },
+    async stage(cwd, rel) {
+      calls.stage.push([cwd, rel]);
+      return o.stageResult ?? true;
+    },
+    async commit(cwd, msg, rel) {
+      calls.commit.push([cwd, msg, rel]);
+      return o.commitResult ?? true;
+    },
+    async getConfig(_cwd, key) {
+      calls.getConfig.push(key);
+      return o.configValues?.[key];
+    },
+    async setConfig(_cwd, key, val) {
+      calls.setConfig.push([key, val]);
+      return true;
+    },
   };
   return { ops, calls };
 }
@@ -95,7 +123,9 @@ function baseDeps(overrides: Partial<CommitCycleDeps> = {}, git: MockGitOps = cr
 function createMockPi() {
   const handlers: Record<string, Function[]> = {};
   const pi = {
-    on(event: string, handler: Function) { (handlers[event] ??= []).push(handler); },
+    on(event: string, handler: Function) {
+      (handlers[event] ??= []).push(handler);
+    },
   };
   return { pi: pi as any, handlers };
 }
@@ -112,24 +142,45 @@ function createFakeTimers(): FakeTimers {
   let cb: (() => void) | null = null;
   let delay = -1;
   return {
-    schedule: (fn, ms) => { cb = fn; delay = ms; return 1; },
-    clear: () => { cb = null; },
-    flush: () => { const f = cb; cb = null; if (f) f(); },
+    schedule: (fn, ms) => {
+      cb = fn;
+      delay = ms;
+      return 1;
+    },
+    clear: () => {
+      cb = null;
+    },
+    flush: () => {
+      const f = cb;
+      cb = null;
+      if (f) f();
+    },
     pendingCount: () => (cb ? 1 : 0),
     lastDelay: () => delay,
   };
 }
 
 async function emit(handlers: Record<string, Function[]>, event: string, evt: any = {}, ctx: any = {}): Promise<void> {
-  for (const h of (handlers[event] ?? [])) await h(evt, ctx);
+  for (const h of handlers[event] ?? []) await h(evt, ctx);
 }
 
 function autocommitConfig(overrides: Partial<MemoryConfig> = {}): MemoryConfig {
   return {
-    memoryMode: "policy-only", memoryCharLimit: 5000, userCharLimit: 5000, projectCharLimit: 5000,
-    nudgeInterval: 10, reviewEnabled: true, flushOnCompact: true, flushOnShutdown: true, flushMinTurns: 6,
-    autoConsolidate: true, correctionDetection: true, failureInjectionEnabled: true,
-    failureInjectionMaxAgeDays: 7, failureInjectionMaxEntries: 5, nudgeToolCalls: 15,
+    memoryMode: "policy-only",
+    memoryCharLimit: 5000,
+    userCharLimit: 5000,
+    projectCharLimit: 5000,
+    nudgeInterval: 10,
+    reviewEnabled: true,
+    flushOnCompact: true,
+    flushOnShutdown: true,
+    flushMinTurns: 6,
+    autoConsolidate: true,
+    correctionDetection: true,
+    failureInjectionEnabled: true,
+    failureInjectionMaxAgeDays: 7,
+    failureInjectionMaxEntries: 5,
+    nudgeToolCalls: 15,
     autoCommitProjectMemory: true,
     ...overrides,
   } as MemoryConfig;
@@ -142,8 +193,16 @@ describe("runCommitCycle (commit path, ticket 03/04)", () => {
     const git = createMockGitOps();
     const decision = await runCommitCycle(baseDeps({}, git));
     assert.strictEqual(decision, "commit");
-    assert.deepStrictEqual(git.calls.stage, [["/fake/repo", ".agents/memory/MEMORY.md"]], "stages the explicit MEMORY.md path only");
-    assert.deepStrictEqual(git.calls.commit, [["/fake/repo", AUTOCOMMIT_COMMIT_MESSAGE, ".agents/memory/MEMORY.md"]], "commits with the fixed message + pathspec");
+    assert.deepStrictEqual(
+      git.calls.stage,
+      [["/fake/repo", ".agents/memory/MEMORY.md"]],
+      "stages the explicit MEMORY.md path only",
+    );
+    assert.deepStrictEqual(
+      git.calls.commit,
+      [["/fake/repo", AUTOCOMMIT_COMMIT_MESSAGE, ".agents/memory/MEMORY.md"]],
+      "commits with the fixed message + pathspec",
+    );
   });
 
   it("does NOT stage or commit when not opted in", async () => {
@@ -197,7 +256,9 @@ describe("runCommitCycle (commit path, ticket 03/04)", () => {
   });
 
   it("auto-tracks an untracked MEMORY.md (stage + commit)", async () => {
-    const git = createMockGitOps({ status: { tracked: false, untracked: true, ignored: false, changedSinceHead: false } });
+    const git = createMockGitOps({
+      status: { tracked: false, untracked: true, ignored: false, changedSinceHead: false },
+    });
     const decision = await runCommitCycle(baseDeps({}, git));
     assert.strictEqual(decision, "commit", "untracked → auto-track → commit");
     assert.strictEqual(git.calls.stage.length, 1);
@@ -241,7 +302,10 @@ describe("runCommitCycle (commit path, ticket 03/04)", () => {
     assert.ok(keys.includes(`merge.${MEMORY_MERGE_DRIVER_NAME}.driver`), "sets the driver command");
     const driverCmd = fresh.calls.setConfig.find(([k]) => k === `merge.${MEMORY_MERGE_DRIVER_NAME}.driver`)?.[1] ?? "";
     assert.match(driverCmd, /pi-memory-merge/, "driver command points at the merge script");
-    assert.ok(driverCmd.includes("%O") && driverCmd.includes("%A") && driverCmd.includes("%B"), "passes git's %O %A %B placeholders");
+    assert.ok(
+      driverCmd.includes("%O") && driverCmd.includes("%A") && driverCmd.includes("%B"),
+      "passes git's %O %A %B placeholders",
+    );
   });
 });
 
@@ -260,7 +324,7 @@ describe("setupCommitProjectMemory (debounce, ticket 02)", () => {
       memoryFilePath: "/fake/repo/.agents/memory/MEMORY.md",
     });
     // No message_end handler → the feature is invisible to non-opted-in repos.
-    assert.strictEqual((mockPi.handlers["message_end"] ?? []).length, 0);
+    assert.strictEqual((mockPi.handlers.message_end ?? []).length, 0);
   });
 
   it("is a no-op when projectMemoryDir===null (memory is global; nothing to commit)", () => {
@@ -268,7 +332,7 @@ describe("setupCommitProjectMemory (debounce, ticket 02)", () => {
       cwd: "/fake/repo",
       memoryFilePath: "/fake/repo/.agents/memory/MEMORY.md",
     });
-    assert.strictEqual((mockPi.handlers["message_end"] ?? []).length, 0);
+    assert.strictEqual((mockPi.handlers.message_end ?? []).length, 0);
   });
 
   it("coalesces a burst of message_end into ONE commit (~20s trailing debounce)", async () => {
@@ -279,7 +343,10 @@ describe("setupCommitProjectMemory (debounce, ticket 02)", () => {
       memoryFilePath: "/fake/repo/.agents/memory/MEMORY.md",
       scheduleTimer: timers.schedule,
       clearTimer: timers.clear,
-      runCycle: async () => { cycleCalls++; return "commit"; },
+      runCycle: async () => {
+        cycleCalls++;
+        return "commit";
+      },
     });
 
     // A burst of 5 message_ends re-arms the same timer; only one is pending.
@@ -313,7 +380,10 @@ describe("setupCommitProjectMemory (debounce, ticket 02)", () => {
       memoryFilePath: "/fake/repo/.agents/memory/MEMORY.md",
       scheduleTimer: timers.schedule,
       clearTimer: timers.clear,
-      runCycle: async () => { cycleCalls++; return "commit"; },
+      runCycle: async () => {
+        cycleCalls++;
+        return "commit";
+      },
     });
 
     await emit(mockPi.handlers, "message_end", { message: { role: "assistant" } });
@@ -329,7 +399,10 @@ describe("setupCommitProjectMemory (debounce, ticket 02)", () => {
   it("re-arming clears the previous pending timer (debounce, not accumulator)", async () => {
     const timers = createFakeTimers();
     let clears = 0;
-    const wrappedClear = (h: unknown) => { clears++; timers.clear(h); };
+    const wrappedClear = (h: unknown) => {
+      clears++;
+      timers.clear(h);
+    };
     setupCommitProjectMemory(mockPi.pi, autocommitConfig(), {
       cwd: "/fake/repo",
       memoryFilePath: "/fake/repo/.agents/memory/MEMORY.md",

@@ -19,8 +19,8 @@
  * must typecheck standalone; it is not imported yet.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { HermesCtx } from "../stores.js";
 import { buildPromptContext } from "../../prompt-context.js";
+import type { HermesCtx } from "../stores.js";
 
 /** ← L464-473: the before_agent_start handler, de-closured onto HermesCtx. */
 export function registerBeforeAgentStart(pi: ExtensionAPI, ctx: HermesCtx): void {
@@ -29,7 +29,7 @@ export function registerBeforeAgentStart(pi: ExtensionAPI, ctx: HermesCtx): void
 
     if (promptContext) {
       return {
-        systemPrompt: event.systemPrompt + "\n\n" + promptContext,
+        systemPrompt: `${event.systemPrompt}\n\n${promptContext}`,
       };
     }
   });

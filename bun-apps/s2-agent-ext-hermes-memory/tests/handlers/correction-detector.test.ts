@@ -7,19 +7,19 @@
  * setupCorrectionDetector; tests pass a fake spawn that records call opts.
  */
 
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/s2-agent-core-runtime";
+import { isCorrection, setupCorrectionDetector } from "../../src/handlers/correction-detector.js";
+import type { CardStore } from "../../src/store/card-store.js";
+import { createCardStore } from "../../src/store/card-store.js";
+import type { MemoryRepository } from "../../src/store/repository.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
-import { createCardStore } from "../../src/store/card-store.js";
-import type { CardStore } from "../../src/store/card-store.js";
-import type { MemoryRepository } from "../../src/store/repository.js";
-import { isCorrection, setupCorrectionDetector } from "../../src/handlers/correction-detector.js";
 
 // ─── Pattern matching tests ───
 
@@ -51,7 +51,7 @@ describe("isCorrection", () => {
       assert.strictEqual(isCorrection("please don't commit yet"), true);
     });
 
-    it("matches \"that's not what I asked for\"", () => {
+    it('matches "that\'s not what I asked for"', () => {
       assert.strictEqual(isCorrection("that's not what I asked for"), true);
     });
   });
@@ -195,32 +195,17 @@ describe("isCorrection", () => {
     });
 
     it("uses custom directive words for weak patterns", () => {
-      assert.strictEqual(
-        isCorrection("no, shipit now", { correctionDirectiveWords: ["shipit"] }),
-        true,
-      );
-      assert.strictEqual(
-        isCorrection("no, use yarn", { correctionDirectiveWords: ["shipit"] }),
-        false,
-      );
+      assert.strictEqual(isCorrection("no, shipit now", { correctionDirectiveWords: ["shipit"] }), true);
+      assert.strictEqual(isCorrection("no, use yarn", { correctionDirectiveWords: ["shipit"] }), false);
     });
 
     it("ignores invalid custom regex entries and keeps valid entries", () => {
-      assert.strictEqual(
-        isCorrection("custom correction", { correctionStrongPatterns: ["bad(", "^custom"] }),
-        true,
-      );
+      assert.strictEqual(isCorrection("custom correction", { correctionStrongPatterns: ["bad(", "^custom"] }), true);
     });
 
     it("treats explicit empty or all-invalid pattern arrays as empty", () => {
-      assert.strictEqual(
-        isCorrection("don't do that", { correctionStrongPatterns: [] }),
-        false,
-      );
-      assert.strictEqual(
-        isCorrection("don't do that", { correctionStrongPatterns: ["bad("] }),
-        false,
-      );
+      assert.strictEqual(isCorrection("don't do that", { correctionStrongPatterns: [] }), false);
+      assert.strictEqual(isCorrection("don't do that", { correctionStrongPatterns: ["bad("] }), false);
     });
   });
 });
@@ -302,7 +287,7 @@ describe("setupCorrectionDetector handler", () => {
   }
 
   function fireMessageEnd(role: string, text: string) {
-    const h = handlers["message_end"];
+    const h = handlers.message_end;
     if (!h) throw new Error("No message_end handler registered");
     for (const fn of h) {
       fn({ message: { role, content: [{ type: "text", text }] } }, makeCtx());
@@ -310,7 +295,7 @@ describe("setupCorrectionDetector handler", () => {
   }
 
   function fireTurnEnd(branch: any[] = []) {
-    const h = handlers["turn_end"];
+    const h = handlers.turn_end;
     if (!h) throw new Error("No turn_end handler registered");
     const ctx = makeCtx(branch);
     for (const fn of h) {
@@ -527,10 +512,27 @@ describe("setupCorrectionDetector handler", () => {
     const pi = createMockPi();
     const correctionStore = {
       ...mockStore,
-      addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction', added_md_id: 'md-correction-1' }),
+      addFailure: async () => ({
+        success: true,
+        target: "failure",
+        entry_count: 1,
+        message: "Failure memory saved: correction",
+        added_md_id: "md-correction-1",
+      }),
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, null, config, memoryRepo, undefined, memoryToolDef, makeSpawn(), undefined, await makeCardStore());
+    setupCorrectionDetector(
+      pi,
+      correctionStore,
+      null,
+      config,
+      memoryRepo,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+      undefined,
+      await makeCardStore(),
+    );
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm instead" }] } },
@@ -547,20 +549,37 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(cards.length, 1);
     assert.match(cards[0].content, /use pnpm instead/);
     assert.match(cards[0].content, /\[correction\]/);
-    assert.strictEqual(cards[0].id, 'md-correction-1');
+    assert.strictEqual(cards[0].id, "md-correction-1");
   });
 
   it("mirrors project correction saves into the card store (project rides the content)", async () => {
     const pi = createMockPi();
     const correctionStore = {
       ...mockStore,
-      addFailure: async () => ({ success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction', added_md_id: 'md-correction-2' }),
+      addFailure: async () => ({
+        success: true,
+        target: "failure",
+        entry_count: 1,
+        message: "Failure memory saved: correction",
+        added_md_id: "md-correction-2",
+      }),
     } as any;
     const projectStore = {
       getMemoryEntries: () => [],
     } as any;
 
-    setupCorrectionDetector(pi, correctionStore, projectStore, config, memoryRepo, 'project-a', memoryToolDef, makeSpawn(), undefined, await makeCardStore());
+    setupCorrectionDetector(
+      pi,
+      correctionStore,
+      projectStore,
+      config,
+      memoryRepo,
+      "project-a",
+      memoryToolDef,
+      makeSpawn(),
+      undefined,
+      await makeCardStore(),
+    );
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use pnpm in this repo" }] } },
@@ -577,7 +596,7 @@ describe("setupCorrectionDetector handler", () => {
     assert.strictEqual(cards.length, 1);
     assert.match(cards[0].content, /use pnpm in this repo/);
     assert.match(cards[0].content, /Project: project-a/);
-    assert.strictEqual(cards[0].id, 'md-correction-2');
+    assert.strictEqual(cards[0].id, "md-correction-2");
   });
 
   it("does not break correction handling when SQLite sync fails", async () => {
@@ -587,15 +606,26 @@ describe("setupCorrectionDetector handler", () => {
       ...mockStore,
       addFailure: async () => {
         addFailureCalls++;
-        return { success: true, target: 'failure', entry_count: 1, message: 'Failure memory saved: correction' };
+        return { success: true, target: "failure", entry_count: 1, message: "Failure memory saved: correction" };
       },
     } as any;
 
     const failingMemoryRepo = {
-      syncMemoryEntry: async () => { throw new Error('sqlite unavailable'); },
+      syncMemoryEntry: async () => {
+        throw new Error("sqlite unavailable");
+      },
     } as unknown as MemoryRepository;
 
-    setupCorrectionDetector(pi, correctionStore, null, config, failingMemoryRepo, undefined, memoryToolDef, makeSpawn());
+    setupCorrectionDetector(
+      pi,
+      correctionStore,
+      null,
+      config,
+      failingMemoryRepo,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+    );
 
     const branch = [
       { type: "message", message: { role: "user", content: [{ type: "text", text: "no, use yarn instead" }] } },
@@ -606,8 +636,8 @@ describe("setupCorrectionDetector handler", () => {
     fireTurnEnd(branch);
     await settle();
 
-    assert.ok(spawnCalls.length >= 1, 'correction review should still run');
-    assert.strictEqual(addFailureCalls, 1, 'Markdown correction save should still happen');
+    assert.ok(spawnCalls.length >= 1, "correction review should still run");
+    assert.strictEqual(addFailureCalls, 1, "Markdown correction save should still happen");
   });
 
   it("does not register handlers when correctionDetection is false", () => {
@@ -637,7 +667,13 @@ describe("setupCorrectionDetector handler", () => {
   function makeCorrectionStore(addedMdId = "md-correction-auto") {
     return {
       ...mockStore,
-      addFailure: async () => ({ success: true, target: "failure", entry_count: 1, message: "Failure memory saved: correction", added_md_id: addedMdId }),
+      addFailure: async () => ({
+        success: true,
+        target: "failure",
+        entry_count: 1,
+        message: "Failure memory saved: correction",
+        added_md_id: addedMdId,
+      }),
     } as any;
   }
 
@@ -650,8 +686,16 @@ describe("setupCorrectionDetector handler", () => {
     // Fake judge that says the prior is the contradicted candidate.
     const fakeJudge = async () => ({ contradictedId: prior.id });
     setupCorrectionDetector(
-      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
-      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any, await makeCardStore(),
+      pi,
+      makeCorrectionStore(),
+      null,
+      { ...config, autoSupersede: true } as any,
+      memoryRepo,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+      fakeJudge as any,
+      await makeCardStore(),
     );
 
     const branch = [
@@ -675,8 +719,15 @@ describe("setupCorrectionDetector handler", () => {
     const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
     const fakeJudge = async () => ({ contradictedId: null });
     setupCorrectionDetector(
-      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
-      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+      pi,
+      makeCorrectionStore(),
+      null,
+      { ...config, autoSupersede: true } as any,
+      memoryRepo,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+      fakeJudge as any,
     );
 
     const branch = [
@@ -695,11 +746,21 @@ describe("setupCorrectionDetector handler", () => {
   it("autoSupersede off (default): no judge call, no supersede", async () => {
     const pi = createMockPi();
     let judgeCalled = false;
-    const fakeJudge = async () => { judgeCalled = true; return { contradictedId: null }; };
+    const fakeJudge = async () => {
+      judgeCalled = true;
+      return { contradictedId: null };
+    };
     const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
     setupCorrectionDetector(
-      pi, makeCorrectionStore(), null, { ...config /* autoSupersede unset → false */ } as any,
-      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+      pi,
+      makeCorrectionStore(),
+      null,
+      { ...config /* autoSupersede unset → false */ } as any,
+      memoryRepo,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+      fakeJudge as any,
     );
 
     fireMessageEnd("user", "no, delete that file");
@@ -714,10 +775,19 @@ describe("setupCorrectionDetector handler", () => {
   it("auto-supersede: judge throws → no supersede (best-effort)", async () => {
     const pi = createMockPi();
     const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
-    const fakeJudge = async () => { throw new Error("boom"); };
+    const fakeJudge = async () => {
+      throw new Error("boom");
+    };
     setupCorrectionDetector(
-      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
-      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+      pi,
+      makeCorrectionStore(),
+      null,
+      { ...config, autoSupersede: true } as any,
+      memoryRepo,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+      fakeJudge as any,
     );
 
     fireMessageEnd("user", "no, delete that file");
@@ -734,11 +804,18 @@ describe("setupCorrectionDetector handler", () => {
     // we cannot directly return the correction entry's id (it's not in the pool).
     // This test verifies the structural guarantee: even with a candidate pool
     // and judge execution, no row self-supersedes (supersededBy === id).
-    const prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
+    const _prior = await memoryRepo.addMemory({ content: "keep that file, never delete", target: "memory" });
     const fakeJudge = async (_ctx: any, opts: any) => ({ contradictedId: opts.candidates[0]?.id ?? null });
     setupCorrectionDetector(
-      pi, makeCorrectionStore(), null, { ...config, autoSupersede: true } as any,
-      memoryRepo, undefined, memoryToolDef, makeSpawn(), fakeJudge as any,
+      pi,
+      makeCorrectionStore(),
+      null,
+      { ...config, autoSupersede: true } as any,
+      memoryRepo,
+      undefined,
+      memoryToolDef,
+      makeSpawn(),
+      fakeJudge as any,
     );
 
     const branch = [

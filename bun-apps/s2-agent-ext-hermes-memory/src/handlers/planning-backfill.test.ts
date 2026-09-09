@@ -2,16 +2,17 @@
 // Mirrors the session-backfill test discipline: an injected inline `setTimeout`
 // drives the deferred task synchronously so the test can await the (already
 // resolved) state.promise without real timers.
-import { describe, it } from "node:test";
+
 import * as assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { schedulePlanningBackfill, planningBackfillState, PLANNING_BACKFILL_MAX_FILES } from "./planning-backfill.js";
+import { join } from "node:path";
+import { describe, it } from "node:test";
 // NOTE: brief authored the import as "../src/store/card-store.js" but this file
 // lives at src/handlers/, so the correct relative path is ../store/...
 import { createCardStore } from "../store/card-store.js";
 import { getStaleCards } from "../store/planning-staleness.js"; // 10-impl T5 — sweep flags-stale probe
+import { PLANNING_BACKFILL_MAX_FILES, planningBackfillState, schedulePlanningBackfill } from "./planning-backfill.js";
 
 function flushedState() {
   return { inProgress: false, promise: null as Promise<void> | null };
@@ -23,12 +24,17 @@ describe("schedulePlanningBackfill", () => {
     const mem = mkdtempSync(join(tmpdir(), "pbf-mem-"));
     const state = flushedState();
     let fired = false;
-    const flush = (cb: () => void) => { fired = true; cb(); }; // run inline
+    const flush = (cb: () => void) => {
+      fired = true;
+      cb();
+    }; // run inline
     try {
       const effort = "backfill-eff";
       mkdirSync(join(root, ".planning", effort, "tickets"), { recursive: true });
-      writeFileSync(join(root, ".planning", effort, "tickets", "01-x.md"),
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nBackfilled.\n");
+      writeFileSync(
+        join(root, ".planning", effort, "tickets", "01-x.md"),
+        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nBackfilled.\n",
+      );
       schedulePlanningBackfill(root, mem, { state, setTimeoutFn: flush as never });
       // The injected setTimeout ran inline; await the (already-resolved) promise.
       await state.promise;
@@ -48,7 +54,9 @@ describe("schedulePlanningBackfill", () => {
     let called = false;
     const scheduled = schedulePlanningBackfill("/nonexistent", "/nonexistent", {
       state,
-      setTimeoutFn: (() => { called = true; }) as never,
+      setTimeoutFn: (() => {
+        called = true;
+      }) as never,
     });
     assert.equal(scheduled, false);
     assert.equal(called, false);

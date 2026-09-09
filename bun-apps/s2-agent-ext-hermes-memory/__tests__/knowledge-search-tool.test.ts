@@ -1,10 +1,10 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { publishSeam, type KnowledgePipeline, type RetrieveResult } from "@repo/s2-agent-core-interface";
+import { type KnowledgePipeline, publishSeam, type RetrieveResult } from "@repo/s2-agent-core-interface";
 import { registerKnowledgeSearchTool } from "../src/tools/knowledge-search-tool.js";
 
 const KEY = "__piKnowledgePipeline";
@@ -14,9 +14,20 @@ function makeStubPipeline(result: RetrieveResult): KnowledgePipeline {
   return {
     collectInputFiles: () => ({ files: [], skipped: [] }),
     ingestRecords: async (_records, opts) => ({
-      source: opts.source, sourceLabel: opts.sourceLabel, total: 0, created: 0, updated: 0,
-      unchanged: 0, skipped: 0, linked: 0, wikiMerged: 0, mocUpdated: false,
-      vaultPath: opts.vaultPath, folder: opts.folder ?? "", cards: [], parseErrors: [],
+      source: opts.source,
+      sourceLabel: opts.sourceLabel,
+      total: 0,
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      skipped: 0,
+      linked: 0,
+      wikiMerged: 0,
+      mocUpdated: false,
+      vaultPath: opts.vaultPath,
+      folder: opts.folder ?? "",
+      cards: [],
+      parseErrors: [],
     }),
     retrieveRecords: async () => result,
     healGraph: async () => ({ mocRegenerated: true, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] }),
@@ -77,13 +88,14 @@ describe("knowledge_search tool", () => {
     registerKnowledgeSearchTool(pi, () => vault);
     const def = pi.def();
     assert.ok(def, "knowledge_search tool registered");
-    assert.equal(def!.name, "knowledge_search");
-    assert.deepEqual(def!.gating, { gate: "knowledge_search" }); // demoted from core (ticket 02)
+    const tool = def;
+    assert.equal(tool.name, "knowledge_search");
+    assert.deepEqual(tool.gating, { gate: "knowledge_search" }); // demoted from core (ticket 02)
 
-    const out = await def!.execute("call-1", { query: "cfg-scale" }, undefined, undefined, { });
+    const out = await tool.execute("call-1", { query: "cfg-scale" }, undefined, undefined, {});
     assert.match(textOf(out), /CFG Scale Lever/, "text contains the card title");
     assert.equal((out.details as RetrieveResult).count, 1);
-    assert.equal((out.details as RetrieveResult).cards[0]!.id, "cfg-scale");
+    assert.equal((out.details as RetrieveResult).cards[0]?.id, "cfg-scale");
   });
 
   it("returns a graceful 'zk not present' result when the seam is absent", async () => {
@@ -92,14 +104,19 @@ describe("knowledge_search tool", () => {
     registerKnowledgeSearchTool(pi, () => vault);
     const def = pi.def();
     assert.ok(def);
-    const out = await def!.execute("call-1", { query: "anything" }, undefined, undefined, { });
-    assert.match(textOf(out), /zk.*not present|seam not present/i);
-    assert.equal((out.details as { ok: boolean }).ok, false);
+    const out2 = await def.execute("call-1", { query: "anything" }, undefined, undefined, {});
+    assert.match(textOf(out2), /zk.*not present|seam not present/i);
+    assert.equal((out2.details as { ok: boolean }).ok, false);
   });
 
   it("surfaces a clear message when the vault env is unset (resolver throws)", async () => {
     const fixed: RetrieveResult = {
-      count: 0, cards: [], digest: "", folder: "Zettelkasten/knowledge-graph", scanned: 0, excluded: 0,
+      count: 0,
+      cards: [],
+      digest: "",
+      folder: "Zettelkasten/knowledge-graph",
+      scanned: 0,
+      excluded: 0,
     };
     publishSeam(KEY, makeStubPipeline(fixed));
     const pi = captureRegistrar();
@@ -109,8 +126,8 @@ describe("knowledge_search tool", () => {
     });
     const def = pi.def();
     assert.ok(def);
-    const out = await def!.execute("call-1", { query: "x" }, undefined, undefined, { });
-    assert.match(textOf(out), /vault not configured/i);
+    const out3 = await def.execute("call-1", { query: "x" }, undefined, undefined, {});
+    assert.match(textOf(out3), /vault not configured/i);
   });
 });
 

@@ -3,17 +3,27 @@
  * Complements the `memory` tool (declarative knowledge) with procedural knowledge.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { GATE_DEFS } from "@repo/s2-agent-core-interface";
+import { Type } from "typebox";
+import { SKILL_REFERENCE_TEXT, SKILL_TOOL_DESCRIPTION } from "../constants.js";
 import { SkillStore } from "../store/skill-store.js";
-import { SKILL_TOOL_DESCRIPTION, SKILL_REFERENCE_TEXT } from "../constants.js";
 
 // ─── Gate family (wayfinder ticket 02 — demoted from core) ──────────────────
-GATE_DEFS["skill_manage"] = {
+GATE_DEFS.skill_manage = {
   id: "skill_manage",
-  keywords: ["skill manage", "skill manager", "create skill", "list skills", "patch skill", "edit skill", "delete skill", "skill 管理", "技能"],
+  keywords: [
+    "skill manage",
+    "skill manager",
+    "create skill",
+    "list skills",
+    "patch skill",
+    "edit skill",
+    "delete skill",
+    "skill 管理",
+    "技能",
+  ],
   requires: {
     nouns: ["skill", "skills", "技能", "skill_id"],
     verbs: ["create", "view", "list", "patch", "update", "edit", "delete", "manage", "建立", "管理", "修改"],
@@ -62,7 +72,10 @@ function formatSkillResultLine(result: SkillResultLike): string {
 
 /** Build a skill tool response carrying a human-readable `text` for the TUI and
  * the structured `details` for programmatic/test consumers. Use for errors. */
-function skillErrorResponse(error: string): { content: Array<{ type: "text"; text: string }>; details: { success: false; error: string } } {
+function skillErrorResponse(error: string): {
+  content: Array<{ type: "text"; text: string }>;
+  details: { success: false; error: string };
+} {
   const result = { success: false as const, error };
   return { content: [{ type: "text", text: formatSkillResultLine(result) }], details: result };
 }
@@ -99,42 +112,68 @@ function buildStructuredSkillBody(
 }
 
 const SKILL_ID_PARAM = Type.String({
-  description: "Stable skill id for view/patch/update/delete. e.g., 'global:debug-typescript-errors' or 'project:my-repo:release-app'. Legacy alias 'edit' also accepts this field.",
+  description:
+    "Stable skill id for view/patch/update/delete. e.g., 'global:debug-typescript-errors' or 'project:my-repo:release-app'. Legacy alias 'edit' also accepts this field.",
 });
 
-const SKILL_TOOL_PARAMETERS = Type.Object({
-  action: StringEnum(["create", "view", "patch", "update", "edit", "delete"] as const, {
-    description: "The skill action to perform.",
-  }),
-  name: Type.Optional(Type.String({
-    description: "Skill name for create. e.g., 'debug-typescript-errors'.",
-  })),
-  skill_id: Type.Optional(SKILL_ID_PARAM),
-  description: Type.Optional(Type.String({
-    description: "One-line description of when to use this skill. Required for create; optional for update/edit.",
-  })),
-  scope: Type.Optional(StringEnum(["global", "project"] as const, {
-    description: "Required for create. Use 'global' for portable procedures and 'project' for repo-specific workflows.",
-  })),
-  section: Type.Optional(Type.String({
-    description: "Required for patch. Section header to patch. e.g., 'Procedure', 'Pitfalls'.",
-  })),
-  content: Type.Optional(Type.String({
-    description: "Raw markdown body for create/update/edit, or new section content for patch. For create/update/edit you can provide this or the structured fields below.",
-  })),
-  when_to_use: Type.Optional(Type.String({
-    description: "Structured create/update/edit field. Explain when this skill should be used and where its boundaries are.",
-  })),
-  procedure_steps: Type.Optional(Type.Array(Type.String(), {
-    description: "Structured create/update/edit field. Ordered concrete steps for the workflow.",
-  })),
-  pitfalls: Type.Optional(Type.Array(Type.String(), {
-    description: "Structured create/update/edit field. Optional common mistakes, caveats, or failure modes to avoid.",
-  })),
-  verification_steps: Type.Optional(Type.Array(Type.String(), {
-    description: "Structured create/update/edit field. Concrete checks that confirm the workflow succeeded.",
-  })),
-}, { additionalProperties: false });
+const SKILL_TOOL_PARAMETERS = Type.Object(
+  {
+    action: StringEnum(["create", "view", "patch", "update", "edit", "delete"] as const, {
+      description: "The skill action to perform.",
+    }),
+    name: Type.Optional(
+      Type.String({
+        description: "Skill name for create. e.g., 'debug-typescript-errors'.",
+      }),
+    ),
+    skill_id: Type.Optional(SKILL_ID_PARAM),
+    description: Type.Optional(
+      Type.String({
+        description: "One-line description of when to use this skill. Required for create; optional for update/edit.",
+      }),
+    ),
+    scope: Type.Optional(
+      StringEnum(["global", "project"] as const, {
+        description:
+          "Required for create. Use 'global' for portable procedures and 'project' for repo-specific workflows.",
+      }),
+    ),
+    section: Type.Optional(
+      Type.String({
+        description: "Required for patch. Section header to patch. e.g., 'Procedure', 'Pitfalls'.",
+      }),
+    ),
+    content: Type.Optional(
+      Type.String({
+        description:
+          "Raw markdown body for create/update/edit, or new section content for patch. For create/update/edit you can provide this or the structured fields below.",
+      }),
+    ),
+    when_to_use: Type.Optional(
+      Type.String({
+        description:
+          "Structured create/update/edit field. Explain when this skill should be used and where its boundaries are.",
+      }),
+    ),
+    procedure_steps: Type.Optional(
+      Type.Array(Type.String(), {
+        description: "Structured create/update/edit field. Ordered concrete steps for the workflow.",
+      }),
+    ),
+    pitfalls: Type.Optional(
+      Type.Array(Type.String(), {
+        description:
+          "Structured create/update/edit field. Optional common mistakes, caveats, or failure modes to avoid.",
+      }),
+    ),
+    verification_steps: Type.Optional(
+      Type.Array(Type.String(), {
+        description: "Structured create/update/edit field. Concrete checks that confirm the workflow succeeded.",
+      }),
+    ),
+  },
+  { additionalProperties: false },
+);
 
 export const SKILL_MANAGE_TOOL_NAME = "skill_manage";
 
@@ -145,7 +184,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
     gating: { gate: "skill_manage" }, // demoted from core (ticket 02)
     description: SKILL_TOOL_DESCRIPTION,
     parameters: SKILL_TOOL_PARAMETERS,
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
+    async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
       const skillParams = params as {
         action: "create" | "view" | "patch" | "update" | "edit" | "delete";
         name?: string;
@@ -177,13 +216,15 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
       const procedureSteps = normalizeTextList(procedure_steps);
       const pitfallItems = normalizeTextList(pitfalls);
       const verificationSteps = normalizeTextList(verification_steps);
-      const hasStructuredBody = Boolean(whenToUse) || procedureSteps.length > 0 || pitfallItems.length > 0 || verificationSteps.length > 0;
+      const hasStructuredBody =
+        Boolean(whenToUse) || procedureSteps.length > 0 || pitfallItems.length > 0 || verificationSteps.length > 0;
 
       const buildBodyOrError = () => {
         if (content?.trim()) return { body: content.trim() };
         if (!hasStructuredBody) {
           return {
-            error: "Either content or structured fields are required. Prefer when_to_use, procedure_steps, pitfalls, and verification_steps for create/update.",
+            error:
+              "Either content or structured fields are required. Prefer when_to_use, procedure_steps, pitfalls, and verification_steps for create/update.",
           };
         }
         if (!whenToUse) {
@@ -200,9 +241,11 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
         };
       };
 
-      let result;
+      // The switch below assigns one of the store's op results; the union is
+      // derived from the repo's own skill-store surface (create/update/remove/…).
+      let result: Awaited<ReturnType<typeof store.create>>;
       switch (action) {
-        case "create":
+        case "create": {
           if (!name) {
             return skillErrorResponse("name is required for 'create' action.");
           }
@@ -218,14 +261,13 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
           }
           result = await store.create(name, description, createBodyResult.body, scope);
           break;
+        }
 
-        case "view":
+        case "view": {
           if (!skill_id) {
             const index = await store.loadIndex();
             const ids = index.map((s) => s.displayName ?? s.skillId);
-            const text = ids.length > 0
-              ? `Skills (${ids.length}):\n${formatOrderedList(ids)}`
-              : "No skills found.";
+            const text = ids.length > 0 ? `Skills (${ids.length}):\n${formatOrderedList(ids)}` : "No skills found.";
             return {
               content: [{ type: "text", text }],
               details: { success: true, skills: index },
@@ -239,6 +281,7 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
             content: [{ type: "text", text: formatSkillDoc(doc) }],
             details: { success: true, ...doc },
           };
+        }
 
         case "patch":
           if (!skill_id) {
@@ -313,7 +356,6 @@ export function registerSkillTool(pi: ExtensionAPI, store: SkillStore): void {
   });
 }
 
-
 /**
  * Gate-Recall Guard probe set (QA-DATA only — NOT part of runtime gating).
  * Consumed by s2-agent-ext-tool-gate/qa/collect-probes.ts. Controls-only
@@ -325,5 +367,10 @@ export const __GATE_PROBES__ = {
   gate: "skill_manage",
   recallFloor: 0,
   adversarial: [],
-  controls: ['create a new skill for running tests', 'list the skills I have', "patch the skill's when_to_use", 'delete the stale skill'],
+  controls: [
+    "create a new skill for running tests",
+    "list the skills I have",
+    "patch the skill's when_to_use",
+    "delete the stale skill",
+  ],
 };

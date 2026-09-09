@@ -22,8 +22,8 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Glob } from "bun";
 
 const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");

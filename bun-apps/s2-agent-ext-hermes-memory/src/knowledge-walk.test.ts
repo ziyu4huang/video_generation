@@ -1,13 +1,26 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { walkKnowledgeSources } from "./knowledge-walk.js";
 
 /** Builds the plan's Task-3 fixture tree in a temp dir. Returns absolute paths
  *  for the entries the assertions reference. */
-function buildFixture(): { root: string; runA: string; deep: string; readme: string; symlink: string; blob: string; pic: string; gitDir: string; nmDir: string; archiveDir: string; planningSddDir: string; agentsMemoryCard: string } {
+function buildFixture(): {
+  root: string;
+  runA: string;
+  deep: string;
+  readme: string;
+  symlink: string;
+  blob: string;
+  pic: string;
+  gitDir: string;
+  nmDir: string;
+  archiveDir: string;
+  planningSddDir: string;
+  agentsMemoryCard: string;
+} {
   const root = mkdtempSync(join(tmpdir(), "kwalk-"));
   const workflows = join(root, "workflows");
   const notes = join(root, "notes");
@@ -34,12 +47,21 @@ function buildFixture(): { root: string; runA: string; deep: string; readme: str
   const blob = join(root, "blob.zip");
   const pic = join(root, "pic.png");
   const agentsMemoryCard = join(agentsMemory, "card.md");
-  writeFileSync(runA, '{"id":"a1","type":"lever","title":"A","detail":"","tags":[],"dimension":null,"confidence":1,"status":"active","superseded_by":null}\n');
-  writeFileSync(deep, '{"id":"d1","type":"gotcha","title":"Deep","detail":"","tags":[],"dimension":null,"confidence":1,"status":"active","superseded_by":null}\n');
+  writeFileSync(
+    runA,
+    '{"id":"a1","type":"lever","title":"A","detail":"","tags":[],"dimension":null,"confidence":1,"status":"active","superseded_by":null}\n',
+  );
+  writeFileSync(
+    deep,
+    '{"id":"d1","type":"gotcha","title":"Deep","detail":"","tags":[],"dimension":null,"confidence":1,"status":"active","superseded_by":null}\n',
+  );
   writeFileSync(readme, "# readme\n");
   writeFileSync(gitConfig, "[core]\n");
   writeFileSync(nmIndex, "module.exports = {};\n");
-  writeFileSync(oldJsonl, '{"id":"old","type":"lever","title":"Old","detail":"","tags":[],"dimension":null,"confidence":1,"status":"active","superseded_by":null}\n');
+  writeFileSync(
+    oldJsonl,
+    '{"id":"old","type":"lever","title":"Old","detail":"","tags":[],"dimension":null,"confidence":1,"status":"active","superseded_by":null}\n',
+  );
   writeFileSync(sddX, "# sdd\n");
   writeFileSync(blob, "PK\x03\x04");
   writeFileSync(pic, "\x89PNG\r\n\x1a\n");
@@ -52,8 +74,12 @@ function buildFixture(): { root: string; runA: string; deep: string; readme: str
 describe("walkKnowledgeSources (policy walk + source-family detection)", () => {
   let fx: ReturnType<typeof buildFixture>;
 
-  beforeEach(() => { fx = buildFixture(); });
-  afterEach(() => { rmSync(fx.root, { recursive: true, force: true }); });
+  beforeEach(() => {
+    fx = buildFixture();
+  });
+  afterEach(() => {
+    rmSync(fx.root, { recursive: true, force: true });
+  });
 
   it("collects workflow-jsonl files (unlimited depth) and excludes symlinks", () => {
     const r = walkKnowledgeSources(fx.root);
@@ -98,10 +124,7 @@ describe("walkKnowledgeSources (policy walk + source-family detection)", () => {
 
   it("defers .agents/memory family (memory cards, out of scope)", () => {
     const r = walkKnowledgeSources(fx.root);
-    assert.ok(
-      r.skipped.deferredFamily.includes(fx.agentsMemoryCard),
-      ".agents/memory card in skipped.deferredFamily",
-    );
+    assert.ok(r.skipped.deferredFamily.includes(fx.agentsMemoryCard), ".agents/memory card in skipped.deferredFamily");
     assert.ok(!r.files.generic.includes(fx.agentsMemoryCard), "deferred card not in generic");
   });
 

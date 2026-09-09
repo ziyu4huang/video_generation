@@ -50,26 +50,25 @@
  * membership, call count). No vacuous test.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
-import assert from "node:assert/strict";
 import { describe, it } from "bun:test";
-
-import { MemoryStore } from "../../src/store/memory-store.js";
-import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
-import type { ConsolidationSnapshot, MergePlan } from "../../src/store/merge-plan.js";
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
-  ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
-  DEFAULT_USER_CHAR_LIMIT,
+  DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
   DEFAULT_PROACTIVE_ENABLED,
   DEFAULT_PROACTIVE_HEAT_FLOOR,
   DEFAULT_PROACTIVE_MAX_CANDIDATES,
   DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
-  DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
+  DEFAULT_USER_CHAR_LIMIT,
+  ENTRY_DELIMITER,
   MEMORY_FILE,
 } from "../../src/constants.js";
+import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
+import type { ConsolidationSnapshot, MergePlan } from "../../src/store/merge-plan.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 // ─── Date / encoding helpers (factored from decay-eviction.test.ts #1b) ───
@@ -79,11 +78,7 @@ const TODAY = new Date().toISOString().split("T")[0];
 
 /** Frontmatter entry with a stable id + dates (mirrors the store's on-disk
  *  shape). `pin:true` only when explicitly requested. */
-function fm(
-  id: string,
-  text: string,
-  opts: { created?: string; last?: string; pin?: boolean } = {},
-): string {
+function fm(id: string, text: string, opts: { created?: string; last?: string; pin?: boolean } = {}): string {
   const created = opts.created ?? TODAY;
   return serializeMetadataFrontmatter({
     id,
@@ -239,7 +234,10 @@ const HOT_SPECS: HotSpec[] = [
 
 /** Assert at least one live entry contains `marker`. */
 function assertPresent(entries: string[], marker: string, msg?: string): void {
-  assert.ok(entries.some((e) => e.includes(marker)), `expected entry present: ${marker}${msg ? ` — ${msg}` : ""}`);
+  assert.ok(
+    entries.some((e) => e.includes(marker)),
+    `expected entry present: ${marker}${msg ? ` — ${msg}` : ""}`,
+  );
 }
 /** Assert NO live entry contains `marker`. */
 function assertAbsent(entries: string[], marker: string, msg?: string): void {
@@ -293,8 +291,8 @@ describe("proactive consolidation — end-to-end + lowest-heat ordering + pin pr
 
       // The snapshot was the bottom-K (5) below-floor entries, heat-sorted.
       assert.ok(seen, "consolidator received a snapshot");
-      assert.equal(seen!.entries.length, 5, "K cap: bottom-5 below-floor candidates");
-      const [mergedA, mergedB] = [seen!.entries[0].content, seen!.entries[1].content];
+      assert.equal(seen?.entries.length, 5, "K cap: bottom-5 below-floor candidates");
+      const [mergedA, mergedB] = [seen?.entries[0].content, seen?.entries[1].content];
 
       // End-to-end observable: the two CONSUMED entries are GONE and the merged
       // entry IS present in the live store (the reconcile-write dropped them +
@@ -352,8 +350,8 @@ describe("proactive consolidation — end-to-end + lowest-heat ordering + pin pr
       const expectedLowest5 = byHeatAsc.slice(0, 5); // 0.01,0.03,0.05,0.07,0.09
       const expectedHigher7 = byHeatAsc.slice(5); // 0.11 … 0.23
 
-      const seenIds = seen!.entries.map((e) => e.mdId);
-      assert.equal(seen!.entries.length, 5, "exactly K=5 candidates");
+      const seenIds = seen?.entries.map((e) => e.mdId);
+      assert.equal(seen?.entries.length, 5, "exactly K=5 candidates");
       // EXACT set: the 5 candidates are the 5 LOWEST-heat cold entries.
       assert.deepEqual(
         [...seenIds].sort(),
@@ -379,8 +377,12 @@ describe("proactive consolidation — end-to-end + lowest-heat ordering + pin pr
       const higherSet = new Set(expectedHigher7.map((c) => c.id));
       assert.equal([...lowestSet].filter((id) => higherSet.has(id)).length, 0, "lowest-5 / higher-7 disjoint");
       // And the seen heats are strictly ascending (proves ordering, not just set).
-      const seenHeats = seen!.entries.map((e) => idToHeat.get(e.mdId as string));
-      assert.deepEqual(seenHeats, [...seenHeats].sort((a, b) => (a as number) - (b as number)), "seen heats strictly ascending");
+      const seenHeats = seen?.entries.map((e) => idToHeat.get(e.mdId as string));
+      assert.deepEqual(
+        seenHeats,
+        [...seenHeats].sort((a, b) => (a as number) - (b as number)),
+        "seen heats strictly ascending",
+      );
     });
   });
 
@@ -420,7 +422,7 @@ describe("proactive consolidation — end-to-end + lowest-heat ordering + pin pr
       assert.equal(calls, 1);
 
       // (1) Pin-exclusion: the pinned mdId is NOT in the candidate snapshot.
-      const seenIds = seen!.entries.map((e) => e.mdId);
+      const seenIds = seen?.entries.map((e) => e.mdId);
       assert.ok(!seenIds.includes(pinned.id), "pinned entry is NOT a proactive candidate (excluded from snapshot)");
 
       // (2) Pin-survives-reconcile: after dropping every candidate, the pinned

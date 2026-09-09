@@ -15,8 +15,8 @@
  * `sessionRepo`, and `getSessionId` are stubs.
  */
 
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { SurfacedSignatureSet, setupUsedDetection } from "../../src/handlers/used-detection.js";
 import { computeSignature, normalizeForSignature } from "../../src/store/signature.js";
 
@@ -38,26 +38,29 @@ interface Harness {
 /** Build a stub `pi` + `sessionRepo` + `getSessionId`, wire setupUsedDetection,
  *  return the handler registry, the real SurfacedSignatureSet, and a recorder
  *  of markUsed calls. */
-function makeHarness(opts: {
-  config?: any;
-  sid?: string | null;
-  getSessionId?: () => string | null;
-  markUsedImpl?: (sid: string, mdIds: readonly string[], usedAt: string) => Promise<void> | void;
-} = {}): Harness {
+function makeHarness(
+  opts: {
+    config?: any;
+    sid?: string | null;
+    getSessionId?: () => string | null;
+    markUsedImpl?: (sid: string, mdIds: readonly string[], usedAt: string) => Promise<void> | void;
+  } = {},
+): Harness {
   const handlers: Record<string, Array<(e: any, ctx?: any) => Promise<void> | void>> = {};
   const pi: any = {
-    on: (ev: string, h: any) => { (handlers[ev] ??= []).push(h); },
-    registerTool() {}, registerCommand() {},
+    on: (ev: string, h: any) => {
+      (handlers[ev] ??= []).push(h);
+    },
+    registerTool() {},
+    registerCommand() {},
   };
   const surfaced = new SurfacedSignatureSet();
   const calls: MarkUsedCall[] = [];
   const getSessionId = opts.getSessionId ?? (() => (opts.sid !== undefined ? opts.sid : "sess-1"));
   const repo: any = {
     markUsed: opts.markUsedImpl
-      ? (async (sid: string, mdIds: readonly string[], usedAt: string) =>
-          opts.markUsedImpl!(sid, mdIds, usedAt))
-      : (async (sid: string, mdIds: readonly string[], usedAt: string) =>
-          calls.push({ sid, mdIds: [...mdIds], usedAt })),
+      ? async (sid: string, mdIds: readonly string[], usedAt: string) => opts.markUsedImpl?.(sid, mdIds, usedAt)
+      : async (sid: string, mdIds: readonly string[], usedAt: string) => calls.push({ sid, mdIds: [...mdIds], usedAt }),
   };
   setupUsedDetection(pi, repo, surfaced, opts.config ?? {}, getSessionId);
   const fire = async (ev: string, e: any, ctx?: any) => {
@@ -76,14 +79,8 @@ describe("SurfacedSignatureSet", () => {
     assert.strictEqual(set.matchAndForget(normalizeForSignature(BODY_A)).length, 1);
     set.populate([{ mdId: "c", signature: "gamma signature three" }]);
     // alpha/beta are gone after the second populate; only c remains.
-    assert.deepEqual(
-      set.matchAndForget(normalizeForSignature(`${BODY_A} ${BODY_B}`)).sort(),
-      [],
-    );
-    assert.deepEqual(
-      set.matchAndForget(normalizeForSignature("...gamma signature three...")),
-      ["c"],
-    );
+    assert.deepEqual(set.matchAndForget(normalizeForSignature(`${BODY_A} ${BODY_B}`)).sort(), []);
+    assert.deepEqual(set.matchAndForget(normalizeForSignature("...gamma signature three...")), ["c"]);
   });
 
   it("matchAndForget returns matched mdIds and removes them; unmatched stay", () => {
@@ -104,9 +101,7 @@ describe("SurfacedSignatureSet", () => {
       { mdId: "a", signature: SIG_A },
       { mdId: "b", signature: SIG_B },
     ]);
-    const matched = set
-      .matchAndForget(normalizeForSignature(`So ${BODY_A} and also ${BODY_B}.`))
-      .sort();
+    const matched = set.matchAndForget(normalizeForSignature(`So ${BODY_A} and also ${BODY_B}.`)).sort();
     assert.deepEqual(matched, ["a", "b"]);
   });
 
@@ -193,7 +188,9 @@ describe("setupUsedDetection", () => {
 
   it("best-effort: a throwing markUsed is swallowed (no throw escapes turn_end)", async () => {
     const h = makeHarness({
-      markUsedImpl: () => { throw new Error("boom"); },
+      markUsedImpl: () => {
+        throw new Error("boom");
+      },
     });
     h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
     await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
@@ -202,7 +199,11 @@ describe("setupUsedDetection", () => {
   });
 
   it("best-effort: a throwing getSessionId is swallowed", async () => {
-    const h = makeHarness({ getSessionId: () => { throw new Error("no sid"); } });
+    const h = makeHarness({
+      getSessionId: () => {
+        throw new Error("no sid");
+      },
+    });
     h.surfaced.populate([{ mdId: "md-a", signature: SIG_A }]);
     await h.fire("message_end", { message: { role: "assistant", content: BODY_A } });
     await assert.doesNotReject(() => h.fire("turn_end", {}, {}));
@@ -216,7 +217,9 @@ describe("setupUsedDetection", () => {
     // message_end handler's try/catch must swallow it (no escape, no match).
     const boom: any = { role: "assistant" };
     Object.defineProperty(boom, "content", {
-      get() { throw new Error("content exploded"); },
+      get() {
+        throw new Error("content exploded");
+      },
       enumerable: true,
     });
     await assert.doesNotReject(() => h.fire("message_end", { message: boom }));

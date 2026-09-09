@@ -43,12 +43,7 @@ export function splitMemoryEntries(content: string, delimiter: string = ENTRY_DE
  * entries both sides added identically appear once. Rejoining uses the
  * delimiter with NO trailing newline (the driver script adds one on write).
  */
-export function unionMemoryEntries(
-  base: string,
-  ours: string,
-  theirs: string,
-  options: UnionOptions = {},
-): string {
+export function unionMemoryEntries(base: string, ours: string, theirs: string, options: UnionOptions = {}): string {
   const delimiter = options.delimiter ?? ENTRY_DELIMITER;
   const baseEntries = splitMemoryEntries(base, delimiter);
   const oursEntries = splitMemoryEntries(ours, delimiter);

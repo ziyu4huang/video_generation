@@ -1,9 +1,9 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { parseFrontmatter, formatFrontmatter } from "./skill-utils.js";
+import { formatFrontmatter, parseFrontmatter } from "./skill-utils.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -36,14 +36,14 @@ describe("parseFrontmatter (delegates to splitFencedYaml — behavior change gua
     assert.equal(parsed.meta.created, "2026-06-28");
     // Inline array survives (old regex parser left these as the raw "[a, b, c]"
     // substring on the same line; multi-line block arrays were dropped entirely).
-    assert.ok(parsed.meta.tags!.includes("preference"));
-    assert.ok(parsed.meta.tags!.includes("insight"));
+    assert.ok(parsed.meta.tags?.includes("preference"));
+    assert.ok(parsed.meta.tags?.includes("insight"));
     // Block array survives — the regex parser SILENTLY DROPPED these two lines.
-    assert.ok(parsed.meta.triggers!.includes("memory_search"));
-    assert.ok(parsed.meta.triggers!.includes("grill_decision"));
+    assert.ok(parsed.meta.triggers?.includes("memory_search"));
+    assert.ok(parsed.meta.triggers?.includes("grill_decision"));
     // Nested map survives as a JSON round-trip string (fields not lost).
-    assert.ok(parsed.meta.memworth!.includes("success"));
-    assert.ok(parsed.meta.memworth!.includes("4"));
+    assert.ok(parsed.meta.memworth?.includes("success"));
+    assert.ok(parsed.meta.memworth?.includes("4"));
     // Body is everything after the closing fence, trimmed.
     assert.equal(parsed.body, "# grill-memory\n\nCompanion to `grilling`. Two protocols per decision.");
   });
@@ -52,7 +52,7 @@ describe("parseFrontmatter (delegates to splitFencedYaml — behavior change gua
     const raw = readFileSync(join(here, "../../skills/grill-memory/SKILL.md"), "utf8");
     const parsed = parseFrontmatter(raw);
     assert.equal(parsed.meta.name, "grill-memory");
-    assert.match(parsed.meta.description!, /grill-me session/);
+    assert.match(parsed.meta.description ?? "", /grill-me session/);
     assert.ok(parsed.body.startsWith("# grill-memory"));
   });
 
@@ -60,7 +60,7 @@ describe("parseFrontmatter (delegates to splitFencedYaml — behavior change gua
     const raw = readFileSync(join(here, "../../skills/memory-bulk-dedup/SKILL.md"), "utf8");
     const parsed = parseFrontmatter(raw);
     assert.equal(parsed.meta.name, "memory-bulk-dedup");
-    assert.match(parsed.meta.description!, /Bulk-dedup/);
+    assert.match(parsed.meta.description ?? "", /Bulk-dedup/);
     assert.equal(parsed.meta.version, "4"); // unquoted scalar `4` → number → "4"
     assert.equal(parsed.meta.created, "2026-06-28");
     assert.equal(parsed.meta.updated, "2026-08-29");

@@ -12,7 +12,7 @@
 // freshness is provided by exactly two mechanisms, NEVER an every-read-rehash:
 //   1. the T6 background backfill on session_start (best-effort, non-blocking), and
 //   2. the T7 on-demand refreshPlanningCard/refreshIfStale below (explicit, per-card).
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Card } from "./card.js";
 import type { CardStore } from "./card-store.js";
@@ -61,12 +61,7 @@ export async function getStoredHash(
 }
 
 /** UPSERT the mirror hash for a card (default kind='mirror'; 10 uses 'validated'). */
-export async function upsertHash(
-  store: CardStore,
-  cardId: string,
-  hash: string,
-  kind = "mirror",
-): Promise<void> {
+export async function upsertHash(store: CardStore, cardId: string, hash: string, kind = "mirror"): Promise<void> {
   await store.upsertCardMdHash(cardId, hash, kind);
 }
 
@@ -118,11 +113,7 @@ export function sourcePathForId(cardId: string, fsRoot: string): string | null {
  *  reader. Returns null when the source is unresolvable / unreadable / the id is
  *  not present in the file (no deletion — callers decide). Async to match the
  *  CardStore async envelope + future async-fs evolution. */
-export async function readSourceCard(
-  store: CardStore,
-  cardId: string,
-  fsRoot: string,
-): Promise<Card | null> {
+export async function readSourceCard(store: CardStore, cardId: string, fsRoot: string): Promise<Card | null> {
   const src = sourcePathForId(cardId, fsRoot);
   if (!src) return null;
   let bytes: string;
@@ -189,11 +180,7 @@ export async function refreshPlanningCard(
 
 /** True iff a refresh actually re-mirrored (drift detected → inserted|updated).
  *  Thin wrapper over refreshPlanningCard. */
-export async function refreshIfStale(
-  store: CardStore,
-  cardId: string,
-  fsRoot: string,
-): Promise<boolean> {
+export async function refreshIfStale(store: CardStore, cardId: string, fsRoot: string): Promise<boolean> {
   const r = await refreshPlanningCard(store, cardId, fsRoot);
   return r.action === "inserted" || r.action === "updated";
 }
@@ -229,10 +216,7 @@ export function citedDeps(card: Card): string[] {
  *  dep SET regardless of relation order. A card with NO deps hashes the empty
  *  string (stable → never stale by dep-change, which is correct: nothing to
  *  depend on). */
-export async function depAggregateHash(
-  card: Card,
-  fsRoot: string,
-): Promise<{ hash: string; missing: string[] }> {
+export async function depAggregateHash(card: Card, fsRoot: string): Promise<{ hash: string; missing: string[] }> {
   const deps = citedDeps(card);
   const missing: string[] = [];
   const entries = deps.map((path) => {
@@ -283,11 +267,7 @@ export async function writeValidatedBaseline(
  *  iff re-validation cleared a stale state: the card HAD a stored baseline whose
  *  dep hash differs from the current aggregate, OR a dep is currently missing
  *  (a vanishing dep is itself a stale signal that survives re-baselining). */
-export async function refreshStaleness(
-  store: CardStore,
-  cardId: string,
-  fsRoot: string,
-): Promise<boolean> {
+export async function refreshStaleness(store: CardStore, cardId: string, fsRoot: string): Promise<boolean> {
   const card = await readSourceCard(store, cardId, fsRoot);
   if (!card) return false;
   const { hash: current, missing } = await depAggregateHash(card, fsRoot);

@@ -1,8 +1,8 @@
-import * as path from 'node:path';
-import type { SessionRepository } from '../store/repository.js';
-import { searchSessionAnchors } from '../store/session-anchor-search.js';
-import type { SessionAnchorRange, SessionAnchorSearchResult } from '../store/session-anchor-search.js';
-import { AGENT_ROOT } from '../paths.js';
+import * as path from "node:path";
+import { AGENT_ROOT } from "../paths.js";
+import type { SessionRepository } from "../store/repository.js";
+import type { SessionAnchorRange, SessionAnchorSearchResult } from "../store/session-anchor-search.js";
+import { searchSessionAnchors } from "../store/session-anchor-search.js";
 
 export interface SearchResult {
   success: boolean;
@@ -16,7 +16,7 @@ export interface SessionSearchToolOptions {
   sessionsDir?: string;
 }
 
-export const DEFAULT_SESSIONS_DIR = path.join(AGENT_ROOT, 'sessions');
+export const DEFAULT_SESSIONS_DIR = path.join(AGENT_ROOT, "sessions");
 
 export interface LegacySessionSearchArgs {
   query: string;
@@ -38,14 +38,17 @@ export function createLegacySessionSearchExecute(sessionRepo: SessionRepository)
     const limit = Math.min(args.limit || 10, 20);
 
     if (!query || query.trim().length === 0) {
-      const result: SearchResult = { success: false, message: 'query is required' };
-      return { content: [{ type: 'text' as const, text: result.message! }], details: result };
+      const result: SearchResult = { success: false, message: "query is required" };
+      return { content: [{ type: "text" as const, text: result.message ?? "" }], details: result };
     }
 
     const totalMessages = await sessionRepo.getIndexedMessageCount();
     if (totalMessages === 0) {
-      const result: SearchResult = { success: false, message: 'No sessions indexed yet. Run /memory-index-sessions to import past sessions.' };
-      return { content: [{ type: 'text' as const, text: result.message! }], details: result };
+      const result: SearchResult = {
+        success: false,
+        message: "No sessions indexed yet. Run /memory-index-sessions to import past sessions.",
+      };
+      return { content: [{ type: "text" as const, text: result.message ?? "" }], details: result };
     }
 
     const results = await sessionRepo.searchSessions(query, {
@@ -55,26 +58,30 @@ export function createLegacySessionSearchExecute(sessionRepo: SessionRepository)
     });
 
     if (results.length === 0) {
-      const result: SearchResult = { success: true, count: 0, message: `No results found for "${query}". Try a different search term or broader query.` };
-      return { content: [{ type: 'text' as const, text: result.message! }], details: result };
+      const result: SearchResult = {
+        success: true,
+        count: 0,
+        message: `No results found for "${query}". Try a different search term or broader query.`,
+      };
+      return { content: [{ type: "text" as const, text: result.message ?? "" }], details: result };
     }
 
     let output = `Found ${results.length} results for "${query}":\n\n`;
 
     for (const r of results) {
-      const date = new Date(r.timestamp).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
+      const date = new Date(r.timestamp).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
       });
 
       output += `---\n`;
-      output += `📅 ${date} | 📁 ${r.project} | ${r.role === 'user' ? '👤 User' : '🤖 Assistant'}\n`;
+      output += `📅 ${date} | 📁 ${r.project} | ${r.role === "user" ? "👤 User" : "🤖 Assistant"}\n`;
       output += `${r.content}\n\n`;
     }
 
     const finalResult: SearchResult = { success: true, count: results.length, output: output.trim() };
-    return { content: [{ type: 'text' as const, text: output.trim() }], details: finalResult };
+    return { content: [{ type: "text" as const, text: output.trim() }], details: finalResult };
   };
 }
 
@@ -92,14 +99,14 @@ export function createAnchorSessionSearchExecute(sessionsDir: string) {
     const markdown = args.markdown;
 
     if (!markdown || markdown.trim().length === 0) {
-      const result: SearchResult = { success: false, message: 'markdown is required' };
-      return { content: [{ type: 'text' as const, text: result.message! }], details: result };
+      const result: SearchResult = { success: false, message: "markdown is required" };
+      return { content: [{ type: "text" as const, text: result.message ?? "" }], details: result };
     }
 
     const searchResult = searchSessionAnchors(markdown, { sessionsDir });
     if (!searchResult.success) {
-      const result: SearchResult = { success: false, message: searchResult.message ?? 'Anchor session search failed.' };
-      return { content: [{ type: 'text' as const, text: result.message! }], details: result };
+      const result: SearchResult = { success: false, message: searchResult.message ?? "Anchor session search failed." };
+      return { content: [{ type: "text" as const, text: result.message ?? "" }], details: result };
     }
 
     const output = formatAnchorSearchOutput(searchResult);
@@ -110,7 +117,7 @@ export function createAnchorSessionSearchExecute(sessionsDir: string) {
       output,
       ranges: searchResult.ranges,
     };
-    return { content: [{ type: 'text' as const, text: output }], details: result };
+    return { content: [{ type: "text" as const, text: output }], details: result };
   };
 }
 

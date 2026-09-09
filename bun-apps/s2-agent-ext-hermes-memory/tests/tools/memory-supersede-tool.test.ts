@@ -14,18 +14,19 @@
  * lineage can be flipped onto the real new row id — surfaced to tests only
  * via the `Superseded memory #<prior> with #<new>.` text.
  */
-import { describe, it, beforeEach, afterEach } from "node:test";
+
 import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { registerMemoryTool } from "../../src/tools/memory-tool.js";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { CardStore } from "../../src/store/card-store.js";
+import { createCardStore } from "../../src/store/card-store.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
-import { createCardStore } from "../../src/store/card-store.js";
-import type { CardStore } from "../../src/store/card-store.js";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerMemoryTool } from "../../src/tools/memory-tool.js";
 
 describe("memory tool supersede action", () => {
   let tmpDir: string;
@@ -163,7 +164,10 @@ describe("memory tool supersede action", () => {
     //    matches too, but the status filter hides it — so priorAbsent is the
     //    filter working, not lexical luck.
     const hits = await memoryRepo.searchMemories("deploy strategy review");
-    assert.ok(hits.some((h) => h.id === newId), "replacement is searchable");
+    assert.ok(
+      hits.some((h) => h.id === newId),
+      "replacement is searchable",
+    );
     assert.ok(!hits.some((h) => h.id === prior.id), "prior is hidden by status filter");
 
     // 8. kp13 Wave B: the replacement mirrored as an md_id-keyed card.
@@ -302,7 +306,15 @@ describe("memory tool supersede action", () => {
     const spyStore = {
       add: (_target: string, _content: string, options?: { sources?: unknown }) => {
         capturedOptions = options;
-        return { success: true, target: "memory", entries: ["replacement"], usage: "1%", entry_count: 1, message: "Entry added.", added_md_id: "md-src-1" };
+        return {
+          success: true,
+          target: "memory",
+          entries: ["replacement"],
+          usage: "1%",
+          entry_count: 1,
+          message: "Entry added.",
+          added_md_id: "md-src-1",
+        };
       },
     } as unknown as MemoryStore;
 
@@ -323,13 +335,15 @@ describe("memory tool supersede action", () => {
         target: "memory",
         sources,
       },
-      undefined as any, undefined as any, undefined as any,
+      undefined as any,
+      undefined as any,
+      undefined as any,
     );
 
     assert.strictEqual((result as any).details.success, true);
     assert.match(result.content[0].text, /Superseded memory #\d+ with #\d+\./, "lineage linked");
     assert.ok(capturedOptions, "store.add was called");
-    assert.deepStrictEqual(capturedOptions!.sources, sources, "sources[] passed through to store.add verbatim");
+    assert.deepStrictEqual(capturedOptions?.sources, sources, "sources[] passed through to store.add verbatim");
   });
 
   it("omitting sources still works (store.add called without sources)", async () => {
@@ -338,7 +352,15 @@ describe("memory tool supersede action", () => {
     const spyStore = {
       add: (_t: string, _c: string, options?: { sources?: unknown }) => {
         capturedOptions = options;
-        return { success: true, target: "memory", entries: ["r"], usage: "1%", entry_count: 1, message: "ok", added_md_id: "md-nosrc-1" };
+        return {
+          success: true,
+          target: "memory",
+          entries: ["r"],
+          usage: "1%",
+          entry_count: 1,
+          message: "ok",
+          added_md_id: "md-nosrc-1",
+        };
       },
     } as unknown as MemoryStore;
 
@@ -353,12 +375,16 @@ describe("memory tool supersede action", () => {
         replacement: "no sources replacement content",
         target: "memory",
       },
-      undefined as any, undefined as any, undefined as any,
+      undefined as any,
+      undefined as any,
+      undefined as any,
     );
 
     assert.strictEqual((result as any).details.success, true);
     assert.match(result.content[0].text, /Superseded memory #\d+ with #\d+\./, "lineage linked");
-    assert.ok((capturedOptions === undefined) || (capturedOptions && capturedOptions.sources === undefined),
-      "no sources param → store.add gets no sources");
+    assert.ok(
+      capturedOptions === undefined || (capturedOptions && capturedOptions.sources === undefined),
+      "no sources param → store.add gets no sources",
+    );
   });
 });

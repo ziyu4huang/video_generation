@@ -12,9 +12,9 @@
  * Plain fakes only — no mock framework, no store, no LLM.
  */
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { type KnowledgePipeline, publishSeam } from "@repo/s2-agent-core-interface";
 import { buildHierarchyCall, fireHierarchyBuildBestEffort } from "../../src/handlers/hierarchy-build.js";
-import { publishSeam, type KnowledgePipeline } from "@repo/s2-agent-core-interface";
 
 /** Publish a minimal fake seam impl (buildHierarchyCall only checks
  *  PRESENCE — `void kp` — so an empty object suffices). */
@@ -37,7 +37,9 @@ function withRecordingSeam(
     },
     healGraph: async (opts: unknown) => {
       calls.push(`healGraph:${JSON.stringify(opts)}`);
-      return healImpl ? await healImpl() : { mocRegenerated: true, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] };
+      return healImpl
+        ? await healImpl()
+        : { mocRegenerated: true, deadLinksPruned: 0, linksDeduped: 0, cardsTouched: [] };
     },
   } as unknown as KnowledgePipeline);
 }
@@ -46,8 +48,7 @@ function withRecordingSeam(
 const fakeEmbedFn = async (texts: string[]): Promise<number[][]> => texts.map(() => [0, 1]);
 
 /** Plain fake summarizeFn: deterministic truncation, no LLM. */
-const fakeSummarizeFn = async (clusterText: string, budget: number): Promise<string> =>
-  clusterText.slice(0, budget);
+const fakeSummarizeFn = async (clusterText: string, budget: number): Promise<string> => clusterText.slice(0, budget);
 
 // Defensive both ways: clear the slot before AND after each test so neither
 // an earlier file's leak nor our own setup survives this file.
@@ -80,9 +81,9 @@ describe("buildHierarchyCall — all-present (seam published)", () => {
     // and the injected embedFn is passed through as the live callable.
     const bare = buildHierarchyCall("/tmp/kb", { embedFn: fakeEmbedFn });
     expect(bare).not.toBeNull();
-    expect(bare!.kbDir).toBe("/tmp/kb");
-    expect(bare!.embedFn).toBe(fakeEmbedFn);
-    expect(await bare!.embedFn(["x"])).toEqual([[0, 1]]); // it IS our fake
+    expect(bare?.kbDir).toBe("/tmp/kb");
+    expect(bare?.embedFn).toBe(fakeEmbedFn);
+    expect(await bare?.embedFn(["x"])).toEqual([[0, 1]]); // it IS our fake
     expect("threshold" in bare!).toBe(false);
     expect("maxDepth" in bare!).toBe(false);
     expect("tokenBudget" in bare!).toBe(false);
@@ -95,10 +96,10 @@ describe("buildHierarchyCall — all-present (seam published)", () => {
       tokenBudget: 512,
     });
     expect(full).not.toBeNull();
-    expect(full!.kbDir).toBe("/tmp/kb");
-    expect(full!.threshold).toBe(0.72);
-    expect(full!.maxDepth).toBe(5);
-    expect(full!.tokenBudget).toBe(512);
+    expect(full?.kbDir).toBe("/tmp/kb");
+    expect(full?.threshold).toBe(0.72);
+    expect(full?.maxDepth).toBe(5);
+    expect(full?.tokenBudget).toBe(512);
   });
 
   it("summarizeFn pass-through: present when given, key undefined when omitted", async () => {
@@ -107,14 +108,14 @@ describe("buildHierarchyCall — all-present (seam published)", () => {
     // Given → the exact injected callable.
     const withSum = buildHierarchyCall("/tmp/kb", { embedFn: fakeEmbedFn, summarizeFn: fakeSummarizeFn });
     expect(withSum).not.toBeNull();
-    expect(withSum!.summarizeFn).toBe(fakeSummarizeFn);
-    expect(await withSum!.summarizeFn!("abcdef", 3)).toBe("abc"); // it IS our fake
+    expect(withSum?.summarizeFn).toBe(fakeSummarizeFn);
+    expect(await withSum?.summarizeFn?.("abcdef", 3)).toBe("abc"); // it IS our fake
 
     // Omitted → key exists but is undefined (zk falls back to its own
     // deterministic default summarizer).
     const withoutSum = buildHierarchyCall("/tmp/kb", { embedFn: fakeEmbedFn });
     expect(withoutSum).not.toBeNull();
-    expect(withoutSum!.summarizeFn).toBeUndefined();
+    expect(withoutSum?.summarizeFn).toBeUndefined();
   });
 });
 
@@ -153,10 +154,8 @@ describe("fireHierarchyBuildBestEffort — post-build MOC heal (2026-08-31 fix)"
 
   it("healGraph failure is isolated — the promise still resolves and the failure is NOT the build's", async () => {
     const calls: string[] = [];
-    withRecordingSeam(
-      calls,
-      { layers: 1, nodes: [{}], llmCalls: 0, resumed: false },
-      () => Promise.reject(new Error("vault busy")),
+    withRecordingSeam(calls, { layers: 1, nodes: [{}], llmCalls: 0, resumed: false }, () =>
+      Promise.reject(new Error("vault busy")),
     );
     // Must not reject (best-effort contract) and must not lose the build.
     await fireHierarchyBuildBestEffort(

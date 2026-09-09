@@ -7,13 +7,18 @@
  *      is suppressed.
  *   2. DEDUP — a repeated error does not spawn N duplicate rows.
  */
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  errorDedupKey,
+  errorSignature,
+  isLessonWorthy,
+  setupErrorDetector,
+} from "../../src/handlers/error-detector.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
-import { isLessonWorthy, errorSignature, errorDedupKey, setupErrorDetector } from "../../src/handlers/error-detector.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 let tmpDir: string;
@@ -27,8 +32,11 @@ afterEach(() => {
 
 describe("isLessonWorthy — severity gate", () => {
   it("captures stack traces", () => {
-    assert.equal(isLessonWorthy("Traceback (most recent call last):\n  File \"app.py\", line 10"), true);
-    assert.equal(isLessonWorthy("TypeError: Cannot read properties of undefined\n    at Object.<anonymous> (file.ts:42:5)"), true);
+    assert.equal(isLessonWorthy('Traceback (most recent call last):\n  File "app.py", line 10'), true);
+    assert.equal(
+      isLessonWorthy("TypeError: Cannot read properties of undefined\n    at Object.<anonymous> (file.ts:42:5)"),
+      true,
+    );
   });
 
   it("captures definitive system/module errors", () => {
@@ -113,7 +121,9 @@ describe("setupErrorDetector — dedup against the store (criterion 2)", () => {
 
 function createMockPi(handlers: Record<string, Function[]>) {
   return {
-    on: (event: string, handler: Function) => { (handlers[event] ||= []).push(handler); },
+    on: (event: string, handler: Function) => {
+      (handlers[event] ||= []).push(handler);
+    },
     registerTool: () => {},
     registerCommand: () => {},
   } as any;
@@ -128,8 +138,12 @@ const LESSON_WORTHY_EADDR = "Error: listen EADDRINUSE: address already in use";
 
 describe("setupErrorDetector — per-session throttle (#854)", () => {
   let tmpDir: string;
-  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "errcap-throttle-")); });
-  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "errcap-throttle-"));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 
   /** Wire a fresh detector + store; return a fire() helper and a row counter. */
   function wire(configOverrides: Partial<MemoryConfig> = {}, seededStore?: MemoryStore) {
@@ -139,7 +153,7 @@ describe("setupErrorDetector — per-session throttle (#854)", () => {
     const config = { errorCapture: true, ...configOverrides } as MemoryConfig;
     setupErrorDetector(pi, store, null, config, null, undefined);
     const fire = async (text: string, isError = true) => {
-      for (const fn of handlers["tool_result"] ?? []) {
+      for (const fn of handlers.tool_result ?? []) {
         await fn(makeToolResultEvent("bash", text, isError), { ui: { notify() {} } });
       }
     };
@@ -147,7 +161,11 @@ describe("setupErrorDetector — per-session throttle (#854)", () => {
   }
 
   it("rate-caps repeated DISTINCT errors at errorCaptureRateLimit", async () => {
-    const { fire, store } = wire({ errorCaptureRateLimit: 2, errorCaptureRateWindowMs: 600_000, errorCaptureDedupCacheSize: 64 });
+    const { fire, store } = wire({
+      errorCaptureRateLimit: 2,
+      errorCaptureRateWindowMs: 600_000,
+      errorCaptureDedupCacheSize: 64,
+    });
     await fire(LESSON_WORTHY_ENOENT);
     await fire(LESSON_WORTHY_EADDR);
     await fire("ModuleNotFoundError: No module named 'pkg-three'");

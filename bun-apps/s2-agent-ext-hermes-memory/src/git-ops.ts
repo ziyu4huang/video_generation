@@ -14,10 +14,10 @@
  */
 
 import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { MEMORY_MERGE_DRIVER_NAME } from "./constants.js";
 
 const exec = promisify(execFile);

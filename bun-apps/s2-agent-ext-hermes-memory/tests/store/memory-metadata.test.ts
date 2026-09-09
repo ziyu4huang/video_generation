@@ -1,14 +1,16 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
 import assert from "node:assert/strict";
-import { describe, it, before, after, beforeEach } from "node:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { after, beforeEach, describe, it } from "node:test";
+import { DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT } from "../../src/constants.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
-import { ENTRY_DELIMITER, DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT } from "../../src/constants.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 const MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "hm-meta-"));
-after(() => { fs.rmSync(MEMORY_DIR, { recursive: true, force: true }); });
+after(() => {
+  fs.rmSync(MEMORY_DIR, { recursive: true, force: true });
+});
 
 beforeEach(() => {
   // Clean up memory files before each test to ensure isolation

@@ -14,25 +14,25 @@
  * getLabel dependency.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from "node:fs";
+import path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { MemoryRepository } from '../store/repository.js';
-import type { CardStore } from '../store/card-store.js';
-import type { Card } from '../store/card.js';
-import { mirrorMemoryEntries, mirrorMemoryEntry } from '../store/memory-card-mirror.js';
-import type { FailureState } from '../types.js';
+import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from "../constants.js";
+import { splitMemoryEntries } from "../merge-union.js";
+import { AGENT_ROOT } from "../paths.js";
+import type { Card } from "../store/card.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryEntries, mirrorMemoryEntry } from "../store/memory-card-mirror.js";
 import {
+  defaultStateForCategory,
+  detectEntryShape,
   parseMarkdownMemoryEntry,
   parseMetadataFrontmatter,
   serializeMetadataFrontmatter,
-  detectEntryShape,
-  defaultStateForCategory,
-} from '../store/memory-format.js';
-import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from '../constants.js';
-import { splitMemoryEntries } from '../merge-union.js';
-import { AGENT_ROOT } from '../paths.js';
-import { findDanglingLineageReferences, formatDanglingWarning } from './integrity-sweep.js';
+} from "../store/memory-format.js";
+import type { MemoryRepository } from "../store/repository.js";
+import type { FailureState } from "../types.js";
+import { findDanglingLineageReferences, formatDanglingWarning } from "./integrity-sweep.js";
 
 export interface BackfillCounters {
   filesScanned: number;
@@ -56,7 +56,7 @@ export interface BackfillCounters {
 
 function readEntries(filePath: string): string[] {
   if (!fs.existsSync(filePath)) return [];
-  const raw = fs.readFileSync(filePath, 'utf-8').trim();
+  const raw = fs.readFileSync(filePath, "utf-8").trim();
   if (!raw) return [];
   return splitMemoryEntries(raw);
 }
@@ -76,7 +76,7 @@ async function importEntries(
   cardStore: CardStore | null,
   counters: BackfillCounters,
   entries: string[],
-  target: 'memory' | 'user' | 'failure',
+  target: "memory" | "user" | "failure",
   project: string | null = null,
   byId?: Map<string, Card>,
 ): Promise<void> {
@@ -91,31 +91,31 @@ async function importEntries(
         created: parsed.created ?? null,
         last: parsed.lastReferenced ?? null,
         ...(parsed.state ? { state: parsed.state } : {}),
-        ...(typeof parsed.severity === 'number' ? { severity: parsed.severity } : {}),
+        ...(typeof parsed.severity === "number" ? { severity: parsed.severity } : {}),
         ...(parsed.pin === true ? { pin: true } : {}),
       });
     } catch (err) {
       counters.warnings.push(
-        `${path.basename(project ?? 'global')}/${target}: ${err instanceof Error ? err.message : String(err)}`,
+        `${path.basename(project ?? "global")}/${target}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }
   const count = (outcome: string): void => {
-    if (outcome === 'inserted' || outcome === 'updated') counters.imported++;
+    if (outcome === "inserted" || outcome === "updated") counters.imported++;
     else counters.skipped++;
   };
   try {
     for (const outcome of await mirrorMemoryEntries(cardStore, target, inputs, byId)) count(outcome);
   } catch (err) {
     counters.warnings.push(
-      `${path.basename(project ?? 'global')}/${target}: batch mirror failed (${err instanceof Error ? err.message : String(err)}) — retrying per entry`,
+      `${path.basename(project ?? "global")}/${target}: batch mirror failed (${err instanceof Error ? err.message : String(err)}) — retrying per entry`,
     );
     for (const input of inputs) {
       try {
         count(await mirrorMemoryEntry(cardStore, target, input));
       } catch (err2) {
         counters.warnings.push(
-          `${path.basename(project ?? 'global')}/${target}: ${err2 instanceof Error ? err2.message : String(err2)}`,
+          `${path.basename(project ?? "global")}/${target}: ${err2 instanceof Error ? err2.message : String(err2)}`,
         );
       }
     }
@@ -164,11 +164,11 @@ async function backfillFailureState(
   for (const raw of entries) {
     // Only frontmatter entries can carry `state`; comment-shape entries are
     // upgraded to frontmatter by the stable-id backfill first.
-    if (detectEntryShape(raw) !== 'frontmatter') {
+    if (detectEntryShape(raw) !== "frontmatter") {
       rebuilt.push(raw);
       continue;
     }
-    const parsed = parseMarkdownMemoryEntry(raw, 'failure', null);
+    const parsed = parseMarkdownMemoryEntry(raw, "failure", null);
     if (parsed.state !== undefined) {
       // Idempotent / never-overwrite: an explicit state is left untouched.
       counters.failureState.unchanged++;
@@ -199,7 +199,7 @@ async function backfillFailureState(
     // Dry-run audit (Task 8): count resulting states; flag entries that stop
     // injecting (stateless tool-quirk/convention → acquired: they injected as
     // missing→active before, and won't after this backfill).
-    if (state === 'acquired') {
+    if (state === "acquired") {
       counters.failureState.acquired++;
       counters.failureState.stoppedInjecting.push(parsed.content.slice(0, 60));
     } else {
@@ -209,7 +209,7 @@ async function backfillFailureState(
   }
 
   if (changed) {
-    fs.writeFileSync(filePath, rebuilt.join(ENTRY_DELIMITER), 'utf-8');
+    fs.writeFileSync(filePath, rebuilt.join(ENTRY_DELIMITER), "utf-8");
   }
 
   // Mirror `state` onto the matching card row, md_id-keyed (kp13 Wave B). The
@@ -219,13 +219,13 @@ async function backfillFailureState(
   // the call INSERTs one with the right state (lazy re-migration parity).
   for (const { parsed, state } of mirrors) {
     try {
-      await mirrorMemoryEntry(cardStore, 'failure', {
+      await mirrorMemoryEntry(cardStore, "failure", {
         mdId: parsed.mdId,
         content: parsed.content,
         created: parsed.created ?? null,
         last: parsed.lastReferenced ?? null,
         state,
-        ...(typeof parsed.severity === 'number' ? { severity: parsed.severity } : {}),
+        ...(typeof parsed.severity === "number" ? { severity: parsed.severity } : {}),
       });
     } catch (err) {
       counters.warnings.push(
@@ -235,7 +235,11 @@ async function backfillFailureState(
   }
 }
 
-function scanProjectDirs(agentRoot: string, globalDir: string, projectsMemoryDir = "projects-memory"): Array<{ name: string; memoryFile: string }> {
+function scanProjectDirs(
+  agentRoot: string,
+  globalDir: string,
+  projectsMemoryDir = "projects-memory",
+): Array<{ name: string; memoryFile: string }> {
   const projectsRoot = path.join(agentRoot, projectsMemoryDir);
   const projects = new Map<string, string>();
 
@@ -251,12 +255,16 @@ function scanProjectDirs(agentRoot: string, globalDir: string, projectsMemoryDir
 
   const resolvedAgentRoot = path.resolve(agentRoot);
   const resolvedGlobalDir = path.resolve(globalDir);
-  const globalDirName = path.dirname(resolvedGlobalDir) === resolvedAgentRoot
-    ? path.basename(resolvedGlobalDir)
-    : null;
+  const globalDirName = path.dirname(resolvedGlobalDir) === resolvedAgentRoot ? path.basename(resolvedGlobalDir) : null;
   if (fs.existsSync(agentRoot)) {
     for (const name of fs.readdirSync(agentRoot)) {
-      if ((globalDirName && name === globalDirName) || name === projectsMemoryDir || name === 'skills' || name.startsWith('.')) continue;
+      if (
+        (globalDirName && name === globalDirName) ||
+        name === projectsMemoryDir ||
+        name === "skills" ||
+        name.startsWith(".")
+      )
+        continue;
       if (projects.has(name)) continue;
       const dir = path.join(agentRoot, name);
       const memoryFile = path.join(dir, MEMORY_FILE);
@@ -291,7 +299,7 @@ export async function syncMarkdownMemories(
 
   const globalMemoryFile = path.join(globalDir, MEMORY_FILE);
   const globalUserFile = path.join(globalDir, USER_FILE);
-  const globalFailureFile = path.join(globalDir, 'failures.md');
+  const globalFailureFile = path.join(globalDir, "failures.md");
 
   // kp13 Wave B: the mirror target is the cardStore (md_id-keyed lazy
   // re-migration, idempotent — see importEntries). The memoryRepo content-keyed
@@ -306,8 +314,8 @@ export async function syncMarkdownMemories(
   // through to the failure map — harmless today (no failure-kind import runs
   // after it; the next run re-fetches), re-check if a failure file is ever
   // imported after the backfill.
-  const kindIndex = new Map<'memory' | 'user' | 'failure', Map<string, Card>>();
-  const indexFor = async (kind: 'memory' | 'user' | 'failure'): Promise<Map<string, Card>> => {
+  const kindIndex = new Map<"memory" | "user" | "failure", Map<string, Card>>();
+  const indexFor = async (kind: "memory" | "user" | "failure"): Promise<Map<string, Card>> => {
     let byId = kindIndex.get(kind);
     if (!byId) {
       const cards = cardStore ? await cardStore.getCardsByKind(kind) : [];
@@ -316,20 +324,16 @@ export async function syncMarkdownMemories(
     }
     return byId;
   };
-  const importFile = async (
-    filePath: string,
-    target: 'memory' | 'user' | 'failure',
-    project: string | null = null,
-  ) => {
+  const importFile = async (filePath: string, target: "memory" | "user" | "failure", project: string | null = null) => {
     if (!fs.existsSync(filePath)) return;
     counters.filesScanned++;
     const entries = readEntries(filePath);
     await importEntries(cardStore, counters, entries, target, project, await indexFor(target));
   };
 
-  await importFile(globalMemoryFile, 'memory');
-  await importFile(globalUserFile, 'user');
-  await importFile(globalFailureFile, 'failure');
+  await importFile(globalMemoryFile, "memory");
+  await importFile(globalUserFile, "user");
+  await importFile(globalFailureFile, "failure");
 
   // Task 6: idempotent failure-state backfill. Runs AFTER the failure import so
   // the DB rows exist; it rewrites stateless `.md` frontmatter entries to carry
@@ -339,7 +343,7 @@ export async function syncMarkdownMemories(
 
   const projects = scanProjectDirs(agentRoot, globalDir, projectsMemoryDir);
   for (const project of projects) {
-    await importFile(project.memoryFile, 'memory', project.name);
+    await importFile(project.memoryFile, "memory", project.name);
   }
 
   // In-repo project memory (ticket 04, decision 01/02): the project store's
@@ -348,7 +352,7 @@ export async function syncMarkdownMemories(
   // global + legacy project entries. Dedup absorbs any overlap with a legacy
   // scanProjectDirs hit.
   if (inRepoProjectFile) {
-    await importFile(inRepoProjectFile, 'memory', inRepoProjectName ?? null);
+    await importFile(inRepoProjectFile, "memory", inRepoProjectName ?? null);
   }
 
   // Integrity sweep (UPSP §4 / DO ticket 03): flag lineage pointers to rows
@@ -386,13 +390,21 @@ export function registerSyncMarkdownMemoriesCommand(
   inRepoProjectName?: string | null,
   cardStore: CardStore | null = null,
 ): void {
-  pi.registerCommand('memory-sync-markdown', {
-    description: 'Backfill Markdown memories into the active search store',
+  pi.registerCommand("memory-sync-markdown", {
+    description: "Backfill Markdown memories into the active search store",
     handler: async (_args, ctx: ExtensionCommandContext) => {
-      ctx.ui.notify('🔄 Scanning Markdown memory files for backfill into the active store…', 'info');
+      ctx.ui.notify("🔄 Scanning Markdown memory files for backfill into the active store…", "info");
 
       try {
-        const counters = await syncMarkdownMemories(memoryRepo, globalDir, projectsMemoryDir, agentRoot, inRepoProjectFile, inRepoProjectName, cardStore);
+        const counters = await syncMarkdownMemories(
+          memoryRepo,
+          globalDir,
+          projectsMemoryDir,
+          agentRoot,
+          inRepoProjectFile,
+          inRepoProjectName,
+          cardStore,
+        );
         const label = getLabel();
 
         let output = `\n✅ Markdown → memory store sync complete! (backend: ${label})\n\n`;
@@ -434,9 +446,9 @@ export function registerSyncMarkdownMemoriesCommand(
         }
 
         output += `\n💡 Re-running this command is safe — existing rows are de-duplicated.`;
-        ctx.ui.notify(output, 'info');
+        ctx.ui.notify(output, "info");
       } catch (err) {
-        ctx.ui.notify(`❌ Markdown sync failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+        ctx.ui.notify(`❌ Markdown sync failed: ${err instanceof Error ? err.message : String(err)}`, "error");
       }
     },
   });

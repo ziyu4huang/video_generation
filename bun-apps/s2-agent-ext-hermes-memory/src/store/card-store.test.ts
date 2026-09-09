@@ -5,21 +5,19 @@
 // in card-store.ts which only touch `frontmatter`). Mirrors the frontmatter
 // pattern: a nullable `graph TEXT` JSON column read/written next to frontmatter.
 
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import type { Card, CardGraph } from "./card.js";
 import { createCardStore } from "./card-store.js";
 import { SqliteBackend } from "./sqlite/sqlite-backend.js";
-import type { Card, CardGraph } from "./card.js";
 
 describe("CardStore graph round-trip (ticket 03 T1)", () => {
   // A memoryDir per test; clean up after. `createCardStore` constructs a real
   // SqliteBackend on this dir (the same init path the GUI uses).
-  function withStore(
-    fn: (store: Awaited<ReturnType<typeof createCardStore>>) => Promise<void>,
-  ): Promise<void> {
+  function withStore(fn: (store: Awaited<ReturnType<typeof createCardStore>>) => Promise<void>): Promise<void> {
     const mem = mkdtempSync(join(tmpdir(), "card-store-graph-"));
     return (async () => {
       const store = await createCardStore({ memoryDir: mem });

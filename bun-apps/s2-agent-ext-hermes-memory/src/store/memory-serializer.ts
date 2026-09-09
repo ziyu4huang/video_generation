@@ -17,16 +17,11 @@
  */
 
 import { randomUUID } from "node:crypto";
+import { ENTRY_DELIMITER } from "../constants.js";
+import type { MemorySource, Provenance } from "../types.js";
 import type { Card } from "./card.js";
 import type { CardSerializer } from "./card-serializer.js";
-import type { MemorySource, Provenance } from "../types.js";
-import {
-  normalizeFailureState,
-  serializeMetadataFrontmatter,
-  today,
-  decodeMemoryEntry,
-} from "./memory-format.js";
-import { ENTRY_DELIMITER } from "../constants.js";
+import { decodeMemoryEntry, normalizeFailureState, serializeMetadataFrontmatter, today } from "./memory-format.js";
 
 type MemoryKind = "memory" | "user" | "failure";
 

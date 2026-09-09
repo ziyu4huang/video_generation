@@ -6,11 +6,7 @@
 
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import {
-  reduceSkillKey,
-  type SkillKeyEffect,
-  type SkillModalState,
-} from "../../src/handlers/skill-key-reducer.js";
+import { reduceSkillKey, type SkillKeyEffect, type SkillModalState } from "../../src/handlers/skill-key-reducer.js";
 
 /** A baseline list-focus state used by most list-keymap tests. */
 function listState(overrides: Partial<SkillModalState> = {}): SkillModalState {
@@ -37,7 +33,10 @@ function esc(): string {
   return "\u001b";
 }
 
-function assertNoChange(result: { state: SkillModalState; effects: SkillKeyEffect[] }, original: SkillModalState): void {
+function assertNoChange(
+  result: { state: SkillModalState; effects: SkillKeyEffect[] },
+  original: SkillModalState,
+): void {
   assert.strictEqual(result.effects.length, 0, "expected no effects");
   assert.strictEqual(result.state, original, "expected state object identity preserved (no change)");
 }
@@ -70,9 +69,7 @@ describe("reduceSkillKey — pendingDeleteConfirm guard", () => {
     for (const key of ["y", "Y"]) {
       const result = reduceSkillKey(pending, key);
       assert.strictEqual(result.state.pendingDeleteConfirm, null);
-      assert.deepStrictEqual(result.effects, [
-        { effect: "deleteRun", ids: ["global:alpha", "project:beta"] },
-      ]);
+      assert.deepStrictEqual(result.effects, [{ effect: "deleteRun", ids: ["global:alpha", "project:beta"] }]);
     }
   });
 
@@ -161,7 +158,13 @@ describe("reduceSkillKey — list keymap (movement)", () => {
   });
 
   it("up / down are no-ops (no state change, no render) when rowCount is 0", () => {
-    const empty = listState({ rowCount: 0, selectedIndex: 0, currentSkillId: null, currentDisplayName: null, filteredSkillIds: [] });
+    const empty = listState({
+      rowCount: 0,
+      selectedIndex: 0,
+      currentSkillId: null,
+      currentDisplayName: null,
+      filteredSkillIds: [],
+    });
     assertNoChange(reduceSkillKey(empty, "\u001b[A"), empty);
     assertNoChange(reduceSkillKey(empty, "\u001b[B"), empty);
   });

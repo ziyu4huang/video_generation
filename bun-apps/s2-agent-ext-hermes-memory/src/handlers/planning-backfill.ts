@@ -15,9 +15,9 @@
 // full-repo re-walk on every startup).
 import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { walkAndIngest } from "../walk-and-ingest.js";
 import { createCardStore } from "../store/card-store.js"; // 10-impl T5 — sweep's short-lived store
 import { computeStaleness } from "../store/planning-staleness.js"; // 10-impl T5 — compare-only sweep
+import { walkAndIngest } from "../walk-and-ingest.js";
 
 export const PLANNING_BACKFILL_MAX_FILES = 50;
 
@@ -62,7 +62,7 @@ function collectPlanningMdFiles(repoRoot: string, maxFiles: number): string[] {
     for (const name of entries) {
       if (out.length >= maxFiles) return;
       const abs = join(dir, name);
-      let st;
+      let st: import("node:fs").Stats;
       try {
         st = statSync(abs);
       } catch {
@@ -144,7 +144,11 @@ export function schedulePlanningBackfill(
         } catch {
           /* staleness sweep is best-effort */
         }
-        notifyBestEffort(options.notify, `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`, "info");
+        notifyBestEffort(
+          options.notify,
+          `🧠 Planning backfill complete: scanned ${files.length} .planning file(s).`,
+          "info",
+        );
       } catch (err) {
         notifyBestEffort(
           options.notify,

@@ -34,10 +34,16 @@ describe("collectSubagentOutputs", () => {
       msg("assistant", [{ type: "toolCall", id: "s", name: "subagent", arguments: {} }]),
       msg("user", [{ type: "tool_result", tool_use_id: "s", content: "plain string content" }]),
       msg("assistant", [{ type: "toolCall", id: "a", name: "subagent", arguments: {} }]),
-      msg("user", [{
-        type: "tool_result", tool_use_id: "a",
-        content: [{ type: "text", text: "first" }, { type: "text", text: "second" }],
-      }]),
+      msg("user", [
+        {
+          type: "tool_result",
+          tool_use_id: "a",
+          content: [
+            { type: "text", text: "first" },
+            { type: "text", text: "second" },
+          ],
+        },
+      ]),
     ];
     assert.deepStrictEqual(collectSubagentOutputs(entries), [
       "[SUBAGENT]: plain string content",
@@ -97,6 +103,9 @@ describe("collectMessageParts (shared path — regression guard)", () => {
     ];
     const parts = collectMessageParts(entries);
     assert.ok(!parts.some((p) => p.includes("must NOT appear")), "shared path must exclude tool_result");
-    assert.ok(parts.some((p) => p.includes("actual user text")), "shared path keeps text blocks");
+    assert.ok(
+      parts.some((p) => p.includes("actual user text")),
+      "shared path keeps text blocks",
+    );
   });
 });

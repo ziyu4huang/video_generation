@@ -1,5 +1,5 @@
 // tests/grill-memory-skill.test.ts
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 

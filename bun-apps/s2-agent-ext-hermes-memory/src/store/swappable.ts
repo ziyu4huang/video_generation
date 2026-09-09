@@ -14,11 +14,11 @@
  *   repos are never compared that way.
  */
 export function asSwappable<T extends object>(getTarget: () => T): T {
-	return new Proxy({} as T, {
-		get(_target, prop) {
-			const target = getTarget();
-			const value = Reflect.get(target as object, prop);
-			return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
-		},
-	}) as T;
+  return new Proxy({} as T, {
+    get(_target, prop) {
+      const target = getTarget();
+      const value = Reflect.get(target as object, prop);
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as T;
 }

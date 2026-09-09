@@ -31,9 +31,9 @@
  * content overlap must not drop a row here).
  */
 
+import type { FailureState } from "../types.js";
 import type { Card, CardKind } from "./card.js";
 import type { CardStore } from "./card-store.js";
-import type { FailureState } from "../types.js";
 import { serializeMetadataFrontmatter, today } from "./memory-format.js";
 import { normalizeMemoryLookupText } from "./memory-lookup.js";
 
@@ -60,11 +60,7 @@ export interface MemoryCardInput {
  *  object. Returns null when the entry carries no stable id (comment-shape
  *  legacy entries: not yet upgraded by the 5d backfill) or the kind has no
  *  registered serializer (cannot happen for memory/user/failure). */
-export function buildMemoryCard(
-  cardStore: CardStore,
-  kind: MemoryCardKind,
-  input: MemoryCardInput,
-): Card | null {
+export function buildMemoryCard(cardStore: CardStore, kind: MemoryCardKind, input: MemoryCardInput): Card | null {
   if (!input.mdId) return null;
   const serializer = cardStore.serializerFor(kind);
   if (!serializer) return null;
@@ -89,11 +85,7 @@ export function buildMemoryCard(
 /** Delete the card rows of `kind` whose content matches `oldText` (the legacy
  *  content-LIKE scope of replaceSyncedMemories/removeSyncedMemories, keyed on
  *  the normalized lookup text). Returns the number of matched rows. */
-async function deleteCardsByContent(
-  cardStore: CardStore,
-  kind: MemoryCardKind,
-  oldText: string,
-): Promise<number> {
+async function deleteCardsByContent(cardStore: CardStore, kind: MemoryCardKind, oldText: string): Promise<number> {
   const needle = normalizeMemoryLookupText(oldText);
   if (!needle) return 0;
   const cards = await cardStore.getCardsByKind(kind);
@@ -164,10 +156,7 @@ export async function mirrorMemoryRemove(
  *  legacy loop). Returns the number of delete calls that did not throw
  *  (deleteCard is void; ids come from the store's own retire result, so a
  *  no-row id is a benign zero-change DELETE). Null cardStore → 0. */
-export async function mirrorMemoryEvictions(
-  cardStore: CardStore | null,
-  mdIds: string[] | undefined,
-): Promise<number> {
+export async function mirrorMemoryEvictions(cardStore: CardStore | null, mdIds: string[] | undefined): Promise<number> {
   if (!cardStore || !mdIds || mdIds.length === 0) return 0;
   let deleted = 0;
   for (const mdId of mdIds) {
@@ -207,10 +196,7 @@ export async function mirrorMemoryEntry(
     await cardStore.upsertCard(card);
     return "inserted";
   }
-  if (
-    existing.content !== card.content ||
-    JSON.stringify(existing.frontmatter) !== JSON.stringify(card.frontmatter)
-  ) {
+  if (existing.content !== card.content || JSON.stringify(existing.frontmatter) !== JSON.stringify(card.frontmatter)) {
     await cardStore.updateCard(card);
     return "updated";
   }

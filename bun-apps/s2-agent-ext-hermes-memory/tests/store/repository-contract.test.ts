@@ -16,19 +16,16 @@
  *   - Stemming/FTS cases are written loosely: a stemmer-based backend passes
  *     because a morphological variant of the indexed word is recalled.
  */
-import { describe, it, expect } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { describe, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
-import type {
-  MemoryRepository,
-  SessionRepository,
-} from "../../src/store/repository.js";
-import { syncMarkdownMemories } from "../../src/handlers/sync-markdown-memories.js";
+import { dirname, join } from "node:path";
 import { ENTRY_DELIMITER } from "../../src/constants.js";
-import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
-import { createCardStore, type CardStore } from "../../src/store/card-store.js";
+import { syncMarkdownMemories } from "../../src/handlers/sync-markdown-memories.js";
 import { createPerfRecorder, type PerfRecord } from "../../src/perf.js";
+import { type CardStore, createCardStore } from "../../src/store/card-store.js";
+import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
+import type { MemoryRepository, SessionRepository } from "../../src/store/repository.js";
 
 // ---------------------------------------------------------------------------
 // MemoryRepository contract
@@ -102,8 +99,9 @@ export function runMemoryRepositoryContract(
         expect(second.content).toBe(first.content);
 
         // Exactly one row with that identity — no silent double-persist.
-        const rows = (await repo.getMemories({ project: "c6-dedup-proj", target: "memory" }))
-          .filter((m) => m.content === "c6 exact-dup nonce zxqwbu");
+        const rows = (await repo.getMemories({ project: "c6-dedup-proj", target: "memory" })).filter(
+          (m) => m.content === "c6 exact-dup nonce zxqwbu",
+        );
         expect(rows.length).toBe(1);
 
         // Dedup is exact, not scope-wide: a differing-content sibling in the
@@ -182,18 +180,32 @@ export function runMemoryRepositoryContract(
       const { repo, close } = await make();
       try {
         const nonce = "zxqwbu-worth-anchor";
-        const high = await repo.addMemory({ content: `high-worth note ${nonce}`, target: "memory", project: "worth-proj" });
-        const low = await repo.addMemory({ content: `low-worth note ${nonce}`, target: "memory", project: "worth-proj" });
-        const neighbor = await repo.addMemory({ content: "shared project neighbor unrelated wording", target: "memory", project: "worth-proj" });
-        await repo.bumpMemoryWorth(high.id, 8, 0);  // boost high
-        await repo.bumpMemoryWorth(low.id, 0, 8);   // sink low
+        const high = await repo.addMemory({
+          content: `high-worth note ${nonce}`,
+          target: "memory",
+          project: "worth-proj",
+        });
+        const low = await repo.addMemory({
+          content: `low-worth note ${nonce}`,
+          target: "memory",
+          project: "worth-proj",
+        });
+        const _neighbor = await repo.addMemory({
+          content: "shared project neighbor unrelated wording",
+          target: "memory",
+          project: "worth-proj",
+        });
+        await repo.bumpMemoryWorth(high.id, 8, 0); // boost high
+        await repo.bumpMemoryWorth(low.id, 0, 8); // sink low
         const hits = await repo.searchMemories(nonce);
         const highIdx = hits.findIndex((h) => h.id === high.id);
         const lowIdx = hits.findIndex((h) => h.id === low.id);
         expect(highIdx).toBeGreaterThanOrEqual(0);
         expect(lowIdx).toBeGreaterThanOrEqual(0);
-        expect(highIdx).toBeLessThan(lowIdx);  // high-worth ranks above low-worth
-      } finally { await close(); }
+        expect(highIdx).toBeLessThan(lowIdx); // high-worth ranks above low-worth
+      } finally {
+        await close();
+      }
     });
 
     it("worth: addMemory seeds 0; bumpMemoryWorth increments; fields surface on getMemories", async () => {
@@ -207,7 +219,9 @@ export function runMemoryRepositoryContract(
         const found = got.find((m) => m.id === e.id)!;
         expect(found.mwSuccess).toBe(2);
         expect(found.mwFail).toBe(1);
-      } finally { await close(); }
+      } finally {
+        await close();
+      }
     });
 
     // Pin field (ticket 02): pin mirrors onto the DB row on add AND round-trips
@@ -228,7 +242,9 @@ export function runMemoryRepositoryContract(
         const foundPlain = got.find((m) => m.id === plain.id)!;
         expect(foundPinned.pin).toBe(true);
         expect(foundPlain.pin).toBeUndefined();
-      } finally { await close(); }
+      } finally {
+        await close();
+      }
     });
 
     it("supersession: searchMemories excludes superseded entries by default", async () => {
@@ -332,12 +348,24 @@ export function runMemoryRepositoryContract(
       try {
         const nonce = "zxqwbu-graphleak-anchor";
         // A: lexical match for the nonce, project-scoped.
-        await repo.addMemory({ content: `${nonce} lexical match wording`, target: "memory", project: "graphleak-proj" });
+        await repo.addMemory({
+          content: `${nonce} lexical match wording`,
+          target: "memory",
+          project: "graphleak-proj",
+        });
         // B: shares the project `graphleak-proj` (graph edge via column matching, NOT an FTS content token) but shares NO FTS token
         //    with the nonce `{zxqwbu, graphleak, anchor}` — reachable ONLY via graph expansion (fetchGraphNeighbors), never via FTS.
-        const neighbor = await repo.addMemory({ content: "totally different wording neighbor unrelated zztoberecalled", target: "memory", project: "graphleak-proj" });
+        const neighbor = await repo.addMemory({
+          content: "totally different wording neighbor unrelated zztoberecalled",
+          target: "memory",
+          project: "graphleak-proj",
+        });
         // C: the replacement that supersedes B; also shares NO nonce FTS token.
-        const replacement = await repo.addMemory({ content: "replacement wording neighbor unrelated zztoberecalled fixed", target: "memory", project: "graphleak-proj" });
+        const replacement = await repo.addMemory({
+          content: "replacement wording neighbor unrelated zztoberecalled fixed",
+          target: "memory",
+          project: "graphleak-proj",
+        });
 
         // Baseline: B IS recalled as a graph neighbor before supersession.
         const before = await repo.searchMemories(nonce, { project: "graphleak-proj" });
@@ -362,40 +390,40 @@ export function runMemoryRepositoryContract(
     it("getMemories filters by status when the status option is set", async () => {
       const { repo, close } = await make();
       try {
-      // Seed two active memories in the same project/target.
-      const a = await repo.addMemory({
-        target: "memory",
-        project: "status-filter-proj",
-        content: "status filter active one zqxklt",
-        category: "insight",
-        failureReason: null,
-        toolState: null,
-        correctedTo: null,
-      });
-      const b = await repo.addMemory({
-        target: "memory",
-        project: "status-filter-proj",
-        content: "status filter active two zqxklt",
-        category: "insight",
-        failureReason: null,
-        toolState: null,
-        correctedTo: null,
-      });
-      // Supersede b with a (b becomes superseded).
-      await repo.supersedeMemory(b.id, a.id);
+        // Seed two active memories in the same project/target.
+        const a = await repo.addMemory({
+          target: "memory",
+          project: "status-filter-proj",
+          content: "status filter active one zqxklt",
+          category: "insight",
+          failureReason: null,
+          toolState: null,
+          correctedTo: null,
+        });
+        const b = await repo.addMemory({
+          target: "memory",
+          project: "status-filter-proj",
+          content: "status filter active two zqxklt",
+          category: "insight",
+          failureReason: null,
+          toolState: null,
+          correctedTo: null,
+        });
+        // Supersede b with a (b becomes superseded).
+        await repo.supersedeMemory(b.id, a.id);
 
-      const active = await repo.getMemories({ project: "status-filter-proj", status: "active" });
-      const superseded = await repo.getMemories({ project: "status-filter-proj", status: "superseded" });
-      const all = await repo.getMemories({ project: "status-filter-proj" });
+        const active = await repo.getMemories({ project: "status-filter-proj", status: "active" });
+        const superseded = await repo.getMemories({ project: "status-filter-proj", status: "superseded" });
+        const all = await repo.getMemories({ project: "status-filter-proj" });
 
-      // active filter returns only the non-superseded entry.
-      expect(active.some((m) => m.id === a.id)).toBe(true);
-      expect(active.some((m) => m.id === b.id)).toBe(false);
-      // superseded filter returns only the superseded entry.
-      expect(superseded.some((m) => m.id === b.id)).toBe(true);
-      expect(superseded.some((m) => m.id === a.id)).toBe(false);
-      // no status filter returns both (back-compat: existing callers unaffected).
-      expect(all.length).toBeGreaterThanOrEqual(2);
+        // active filter returns only the non-superseded entry.
+        expect(active.some((m) => m.id === a.id)).toBe(true);
+        expect(active.some((m) => m.id === b.id)).toBe(false);
+        // superseded filter returns only the superseded entry.
+        expect(superseded.some((m) => m.id === b.id)).toBe(true);
+        expect(superseded.some((m) => m.id === a.id)).toBe(false);
+        // no status filter returns both (back-compat: existing callers unaffected).
+        expect(all.length).toBeGreaterThanOrEqual(2);
       } finally {
         await close();
       }
@@ -414,8 +442,7 @@ export function runMemoryRepositoryContract(
           // Vary project/category so every entry exercises graph-edge UPSERTs
           // (the multi-round-trip cost the batch must collapse).
           project: i % 2 === 0 ? "batch-proj-even" : "batch-proj-odd",
-          category: (i % 3 === 0 ? "insight" : i % 3 === 1 ? "convention" : null) as
-            | "insight" | "convention" | null,
+          category: (i % 3 === 0 ? "insight" : i % 3 === 1 ? "convention" : null) as "insight" | "convention" | null,
           created: "2026-05-01",
           lastReferenced: "2026-05-02",
         }));
@@ -455,13 +482,16 @@ export function runMemoryRepositoryContract(
         // round-trips (1 pre-fetch SELECT + 1 batched transaction). SQLite has
         // no HTTP round-trip metric, so the assertion is skipped there.
         if (backendKind === "surreal") {
-          const recs = readFileSync(log, "utf-8").trim().split("\n").filter(Boolean)
+          const recs = readFileSync(log, "utf-8")
+            .trim()
+            .split("\n")
+            .filter(Boolean)
             .map((l) => JSON.parse(l) as PerfRecord);
           const batchRec = recs.find((r) => r.op === "test.batch");
           expect(batchRec).toBeDefined();
-          expect(batchRec!.roundTrips).toBeLessThanOrEqual(2);
+          expect(batchRec?.roundTrips).toBeLessThanOrEqual(2);
           // sanity: it actually did real work (not zero — the batch sent ≥1 tx)
-          expect(batchRec!.roundTrips).toBeGreaterThanOrEqual(1);
+          expect(batchRec?.roundTrips).toBeGreaterThanOrEqual(1);
         }
       } finally {
         await close();
@@ -568,13 +598,22 @@ export function runSessionRepositoryContract(
           const filePath = join(projDir, "s1.jsonl");
           mkdirSync(dirname(filePath), { recursive: true });
           const lines = [
-            JSON.stringify({ type: "session", id: "smoke-1", timestamp: "2026-07-22T00:00:00Z", cwd: "/tmp/contract-project" }),
+            JSON.stringify({
+              type: "session",
+              id: "smoke-1",
+              timestamp: "2026-07-22T00:00:00Z",
+              cwd: "/tmp/contract-project",
+            }),
             JSON.stringify({
               type: "message",
               id: "smoke-msg-1",
               parentId: null,
               timestamp: "2026-07-22T00:00:01Z",
-              message: { role: "user", content: [{ type: "text", text: "smoke-test distinctive content" }], timestamp: Date.now() },
+              message: {
+                role: "user",
+                content: [{ type: "text", text: "smoke-test distinctive content" }],
+                timestamp: Date.now(),
+              },
             }),
           ];
           writeFileSync(filePath, lines.join("\n"));
@@ -645,13 +684,31 @@ export function runMarkdownSyncContract(
             // kp13 Wave B: the lazy re-migration mirrors md_id-keyed (frontmatter)
             // entries; comment-shape entries are skipped until the 5d backfill
             // upgrades them (pinned by the idempotence test below).
-            serializeMetadataFrontmatter({ id: "md-contract-1", text: "contract memory one", created: "2026-05-08", last: "2026-05-08" }),
-            serializeMetadataFrontmatter({ id: "md-contract-2", text: "contract memory two", created: "2026-05-08", last: "2026-05-09" }),
+            serializeMetadataFrontmatter({
+              id: "md-contract-1",
+              text: "contract memory one",
+              created: "2026-05-08",
+              last: "2026-05-08",
+            }),
+            serializeMetadataFrontmatter({
+              id: "md-contract-2",
+              text: "contract memory two",
+              created: "2026-05-08",
+              last: "2026-05-09",
+            }),
           ].join(ENTRY_DELIMITER),
           "utf-8",
         );
 
-        const first = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
+        const first = await syncMarkdownMemories(
+          repo,
+          globalDir,
+          undefined,
+          agentRoot,
+          undefined,
+          undefined,
+          cardStore,
+        );
         expect(first.imported).toBe(2);
 
         const hits = await repo.searchMemories("contract memory one", { target: "memory" });
@@ -679,7 +736,15 @@ export function runMarkdownSyncContract(
         );
 
         await syncMarkdownMemories(repo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
-        const second = await syncMarkdownMemories(repo, globalDir, undefined, agentRoot, undefined, undefined, cardStore);
+        const second = await syncMarkdownMemories(
+          repo,
+          globalDir,
+          undefined,
+          agentRoot,
+          undefined,
+          undefined,
+          cardStore,
+        );
 
         expect(second.imported).toBe(0);
         expect(second.skipped).toBe(1);

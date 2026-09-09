@@ -1,4 +1,4 @@
-import { describe, it, expect } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { rankMemoryEntries } from "../../src/store/graph-ranker.js";
 import type { MemoryEntry } from "../../src/store/repository.js";
 
@@ -21,8 +21,7 @@ function mk(partial: Partial<MemoryEntry> & Pick<MemoryEntry, "id">): MemoryEntr
 }
 
 const NOW = new Date("2026-07-28T00:00:00.000Z");
-const daysAgo = (n: number): string =>
-  new Date(NOW.getTime() - n * 86_400_000).toISOString();
+const daysAgo = (n: number): string => new Date(NOW.getTime() - n * 86_400_000).toISOString();
 
 describe("rankMemoryEntries", () => {
   it("ranks a lexical match above a graph neighbor even when the neighbor is more recent", () => {
@@ -90,15 +89,15 @@ describe("rankMemoryEntries", () => {
   });
 
   it("worth multiplier ranks a high-success entry above a low-success one at equal lexical/graph/recency", () => {
-    const low = mk({ id: 1, mwSuccess: 0, mwFail: 8 });   // p_success ≈ 0.1 → mult ≈ 0.2 (sinks)
-    const high = mk({ id: 2, mwSuccess: 8, mwFail: 0 });  // p_success ≈ 0.9 → mult ≈ 1.8 (boosts)
+    const low = mk({ id: 1, mwSuccess: 0, mwFail: 8 }); // p_success ≈ 0.1 → mult ≈ 0.2 (sinks)
+    const high = mk({ id: 2, mwSuccess: 8, mwFail: 0 }); // p_success ≈ 0.9 → mult ≈ 1.8 (boosts)
     const out = rankMemoryEntries({ candidates: [low, high], lexicalMatchIds: new Set([1, 2]), limit: 2 });
-    expect(out[0].id).toBe(2);  // high-worth first
+    expect(out[0].id).toBe(2); // high-worth first
     expect(out[1].id).toBe(1);
   });
 
   it("uninstrumented (0/0) entries get multiplier 1.0 — no ranking bias", () => {
-    const a = mk({ id: 1 });  // mwSuccess/mwFail undefined → ?? 0 → mult 1.0
+    const a = mk({ id: 1 }); // mwSuccess/mwFail undefined → ?? 0 → mult 1.0
     const b = mk({ id: 2 });
     const out = rankMemoryEntries({ candidates: [a, b], lexicalMatchIds: new Set([1, 2]), limit: 2 });
     // tie → deterministic id-ascending tiebreak

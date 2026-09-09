@@ -3,9 +3,9 @@
  * represents a project and resolves its name.
  */
 
-import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
+import * as path from "node:path";
 import { resolveProjectsRoot } from "./paths.js";
 
 export interface ProjectInfo {
@@ -27,7 +27,11 @@ export interface ProjectSkillInfo extends ProjectInfo {
  * The project name is the directory's basename.
  * Project-scoped memory is stored at ~/.pi/agent/<projectsMemoryDir>/<projectName>/.
  */
-export function detectProject(projectsMemoryDir = "projects-memory", cwd?: string, projectNameOverride?: string): ProjectInfo {
+export function detectProject(
+  projectsMemoryDir = "projects-memory",
+  cwd?: string,
+  projectNameOverride?: string,
+): ProjectInfo {
   const dir = cwd ?? process.cwd();
   const homeDir = os.homedir();
 
@@ -35,7 +39,7 @@ export function detectProject(projectsMemoryDir = "projects-memory", cwd?: strin
   const resolved = path.resolve(dir);
   const resolvedHome = path.resolve(homeDir);
 
-  if (resolved === resolvedHome || resolved === "/" || !resolved || resolved === resolvedHome + "/") {
+  if (resolved === resolvedHome || resolved === "/" || !resolved || resolved === `${resolvedHome}/`) {
     return { name: null, memoryDir: null };
   }
 

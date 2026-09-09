@@ -12,10 +12,10 @@
  * file and were moved out to keep the seam clean (DRY: single source of truth).
  */
 
-import { stringify as stringifyYaml } from "yaml";
-import type { FailureState, MemoryCategory, Provenance, MemorySource } from "../types.js";
-import type { MemoryTarget } from "./repository.js";
 import { splitFencedYaml } from "@repo/s2-agent-core-interface";
+import { stringify as stringifyYaml } from "yaml";
+import type { FailureState, MemoryCategory, MemorySource, Provenance } from "../types.js";
+import type { MemoryTarget } from "./repository.js";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (copied verbatim from the former sqlite-memory-store.ts).
@@ -89,7 +89,12 @@ export function parseMetadataComment(raw: string): {
   const metaMatch = rest.match(/<!--\s*meta:(\{.*\})\s*-->\s*$/);
   if (metaMatch && metaMatch.index !== undefined) {
     try {
-      const parsed = JSON.parse(metaMatch[1]) as { provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number };
+      const parsed = JSON.parse(metaMatch[1]) as {
+        provenance?: Provenance;
+        sources?: MemorySource[];
+        mwSuccess?: number;
+        mwFail?: number;
+      };
       provenance = parsed.provenance;
       sources = Array.isArray(parsed.sources) ? parsed.sources : undefined;
       mwSuccess = typeof parsed.mwSuccess === "number" ? parsed.mwSuccess : undefined;
@@ -316,7 +321,7 @@ export function upgradeEntryToFrontmatter(
 export const FRONTMATTER_FENCE = "---";
 
 export function detectEntryShape(raw: string): "frontmatter" | "comment" {
-  return raw.startsWith(FRONTMATTER_FENCE + "\n") ? "frontmatter" : "comment";
+  return raw.startsWith(`${FRONTMATTER_FENCE}\n`) ? "frontmatter" : "comment";
 }
 
 export function serializeMetadataFrontmatter(input: {

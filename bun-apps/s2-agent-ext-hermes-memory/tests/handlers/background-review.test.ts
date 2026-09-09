@@ -1,11 +1,8 @@
-import { describe, it, beforeEach } from "bun:test";
+import { beforeEach, describe, it } from "bun:test";
 import assert from "node:assert";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/s2-agent-core-runtime";
-import {
-  buildDirectReviewUserPrompt,
-  setupBackgroundReview,
-} from "../../src/handlers/background-review.js";
+import { buildDirectReviewUserPrompt, setupBackgroundReview } from "../../src/handlers/background-review.js";
 import type { DirectReviewResult } from "../../src/handlers/review-memory-ops.js";
 
 // ─── Mock infrastructure ───
@@ -105,7 +102,7 @@ const mockStore = {
 } as any;
 
 function fireMessageEnd(role: string) {
-  const h = handlers["message_end"];
+  const h = handlers.message_end;
   if (!h) throw new Error("No message_end handler registered");
   for (const fn of h) {
     fn({ message: { role, content: [{ type: "text", text: "hi" }] } }, makeCtx());
@@ -113,12 +110,12 @@ function fireMessageEnd(role: string) {
 }
 
 function fireTurnEnd(branch: any[] = makeBranch(10), ctxOverrides: Record<string, any> = {}) {
-  const h = handlers["turn_end"];
+  const h = handlers.turn_end;
   if (!h) throw new Error("No turn_end handler registered");
   const ctx = makeCtx(branch, ctxOverrides);
   // Extract the last assistant message from the branch to pass as event.message
   // (the handler reads tool calls from event.message, not from the branch)
-  let assistantMessage = undefined;
+  let assistantMessage;
   for (let i = branch.length - 1; i >= 0; i--) {
     if (branch[i]?.message?.role === "assistant") {
       assistantMessage = branch[i].message;
@@ -139,7 +136,7 @@ async function settle(ms = 10) {
 
 /** The spawn task for the review at the given call index. */
 function reviewTask(index = spawnCalls.length - 1): string {
-  return spawnCalls[index]!.task ?? "";
+  return spawnCalls[index]?.task ?? "";
 }
 
 // ─── Tests ───
@@ -377,7 +374,9 @@ describe("setupBackgroundReview", () => {
     let resolveSpawn: () => void;
     const slowSpawn = async (opts: SpawnSubagentOptions): Promise<SpawnSubagentResult> => {
       spawnCalls.push(opts);
-      await new Promise<void>((r) => { resolveSpawn = r; });
+      await new Promise<void>((r) => {
+        resolveSpawn = r;
+      });
       return { output: "Saved" };
     };
 
@@ -407,7 +406,7 @@ describe("setupBackgroundReview", () => {
     assert.strictEqual(spawnCalls.length, 1, "spawn should still only be called once — reviewInProgress guard");
 
     // Resolve the pending spawn to clean up
-    resolveSpawn!();
+    resolveSpawn?.();
     await settle();
   });
 
@@ -462,8 +461,17 @@ describe("setupBackgroundReview", () => {
     // A real-ish branch: threshold filler + a subagent dispatch and its tool_result.
     const branch = [
       ...makeBranch(6),
-      { type: "message", message: { role: "assistant", content: [{ type: "toolCall", id: "sa1", name: "subagent", arguments: {} }] } },
-      { type: "message", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "sa1", content: "The subagent surfaced a reusable pattern" }] } },
+      {
+        type: "message",
+        message: { role: "assistant", content: [{ type: "toolCall", id: "sa1", name: "subagent", arguments: {} }] },
+      },
+      {
+        type: "message",
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: "sa1", content: "The subagent surfaced a reusable pattern" }],
+        },
+      },
     ];
 
     for (let i = 0; i < 10; i++) {
@@ -472,7 +480,10 @@ describe("setupBackgroundReview", () => {
     await settle();
 
     const task = reviewTask();
-    assert.ok(task.includes("The subagent surfaced a reusable pattern"), "review prompt must include the subagent output");
+    assert.ok(
+      task.includes("The subagent surfaced a reusable pattern"),
+      "review prompt must include the subagent output",
+    );
     assert.ok(task.includes("[SUBAGENT]"), "subagent output is labelled with its prefix");
   });
 
@@ -786,9 +797,7 @@ describe("setupBackgroundReview", () => {
     fireMessageEnd("user");
 
     // Branch with text-only messages (no toolCall blocks)
-    const branchWithTextOnly = [
-      ...makeBranch(10),
-    ];
+    const branchWithTextOnly = [...makeBranch(10)];
 
     // Fire enough turns but no tool calls
     for (let i = 0; i < 5; i++) {
@@ -884,12 +893,16 @@ describe("setupBackgroundReview", () => {
 
     // getBranch throws — should not crash
     const crashCtx = {
-      sessionManager: { getBranch: () => { throw new Error("session expired"); } },
+      sessionManager: {
+        getBranch: () => {
+          throw new Error("session expired");
+        },
+      },
       signal: undefined as any,
       ui: { notify: () => {} },
     };
 
-    const h = handlers["turn_end"];
+    const h = handlers.turn_end;
     // Fire 10 turns with crashing getBranch
     for (let i = 0; i < 10; i++) {
       for (const fn of h) {

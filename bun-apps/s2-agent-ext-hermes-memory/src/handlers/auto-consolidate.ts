@@ -13,13 +13,13 @@
  */
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { roleAwareDirectCall, spawnSubagent } from "@repo/s2-agent-core-runtime";
 import type { SpawnSubagentResult } from "@repo/s2-agent-core-runtime";
+import { roleAwareDirectCall, spawnSubagent } from "@repo/s2-agent-core-runtime";
 import type { TSchema } from "typebox";
-import { MemoryStore } from "../store/memory-store.js";
-import { mergePlanSchema, mergePlanValidate } from "../store/merge-plan.js";
-import type { ConsolidationSnapshot, MergePlan } from "../store/merge-plan.js";
 import { CONSOLIDATION_PROMPT, ENTRY_DELIMITER } from "../constants.js";
+import { MemoryStore } from "../store/memory-store.js";
+import type { ConsolidationSnapshot, MergePlan } from "../store/merge-plan.js";
+import { mergePlanSchema, mergePlanValidate } from "../store/merge-plan.js";
 import type { ConsolidationResult, MemoryConfig } from "../types.js";
 
 type MemoryTarget = "memory" | "user" | "failure";
@@ -141,7 +141,8 @@ export async function triggerConsolidation(
       tools: ["memory"],
       extensionTools: [memoryToolDef],
       tokenBudget: d.tokenBudget,
-      maxTurns: d.maxTurns,      timeoutMs,
+      maxTurns: d.maxTurns,
+      timeoutMs,
       externalSignal: signal,
       // Consolidation runs WHILE the parent holds the cross-process fileLock on
       // the target (so the in-process child, which bypasses the lock, is the
@@ -189,11 +190,11 @@ export async function triggerConsolidation(
 function buildMergePlanPrompt(snapshot: ConsolidationSnapshot): string {
   const preamble = [
     "You are a memory consolidator. Produce a JSON merge plan that rewrites this memory back under its char budget.",
-    "- Use a \"drop\" op to remove an entry, or a \"merge\" op to combine several entries into one new entry.",
+    '- Use a "drop" op to remove an entry, or a "merge" op to combine several entries into one new entry.',
     "- Reference entries ONLY by their KEY.",
     "- Entries you do NOT reference in any op are kept as-is.",
-    "- When entries overlap, prefer \"merge\" over \"drop\".",
-    `- The plan's \"snapshotBaseHash\" MUST be exactly: ${snapshot.snapshotBaseHash}`,
+    '- When entries overlap, prefer "merge" over "drop".',
+    `- The plan's "snapshotBaseHash" MUST be exactly: ${snapshot.snapshotBaseHash}`,
   ].join("\n");
   const header = `Target store: ${snapshot.target}. Current ${snapshot.totalChars} chars / limit ${snapshot.charLimit}.`;
   const entries = snapshot.entries
@@ -329,10 +330,7 @@ export function registerConsolidateCommand(
         const progressLabel = `${item.label} (${idx + 1}/${targets.length}) · ${noteCount} · ${modelLabel}`;
 
         try {
-          ctx.ui.notify(
-            `⏳ Consolidating ${progressLabel}...`,
-            "info",
-          );
+          ctx.ui.notify(`⏳ Consolidating ${progressLabel}...`, "info");
         } catch {
           // Best-effort progress feedback only.
         }
@@ -340,7 +338,10 @@ export function registerConsolidateCommand(
         const t0 = Date.now();
         const beat = setInterval(() => {
           try {
-            ctx.ui.notify(`⏳ Consolidating ${progressLabel}… ${Math.round((Date.now() - t0) / 1000)}s elapsed`, "info");
+            ctx.ui.notify(
+              `⏳ Consolidating ${progressLabel}… ${Math.round((Date.now() - t0) / 1000)}s elapsed`,
+              "info",
+            );
           } catch {
             // Stale ctx (session reload mid-consolidation) — best-effort only.
           }

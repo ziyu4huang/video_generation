@@ -1,12 +1,12 @@
-import type { BackendBundle } from "./repository.js";
 import type { MemoryConfig } from "../types.js";
+import { createCardStore } from "./card-store.js";
+import type { BackendBundle } from "./repository.js";
 import { SqliteBackend } from "./sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "./sqlite/sqlite-memory-repo.js";
 import { SqliteSessionRepository } from "./sqlite/sqlite-session-repo.js";
 import { SurrealBackend } from "./surreal/surreal-backend.js";
 import { SurrealMemoryRepository } from "./surreal/surreal-memory-repo.js";
 import { SurrealSessionRepository } from "./surreal/surreal-session-repo.js";
-import { createCardStore } from "./card-store.js";
 
 /**
  * C5-lite backend seam: construct an initialized CONCRETE `SqliteBackend` —
@@ -35,10 +35,7 @@ export async function createSqliteBackend(memoryDir: string): Promise<SqliteBack
  * sharing this bundle's backend handle; surrealdb: over this bundle's
  * SurrealMemoryRepository).
  */
-export async function createBackendBundle(
-  config: MemoryConfig,
-  memoryDir: string,
-): Promise<BackendBundle> {
+export async function createBackendBundle(config: MemoryConfig, memoryDir: string): Promise<BackendBundle> {
   switch (config.dbBackend ?? "surrealdb") {
     case "sqlite": {
       const backend = await createSqliteBackend(memoryDir);

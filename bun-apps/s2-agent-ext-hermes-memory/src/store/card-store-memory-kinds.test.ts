@@ -14,14 +14,14 @@
 // switched — MemoryStore remains the memory write path until kp ticket 13.
 // These tests pin the substrate 13 will switch onto.
 
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, it } from "node:test";
+import type { Card, CardKind } from "./card.js";
 import { createCardStore } from "./card-store.js";
 import { MemorySerializer } from "./memory-serializer.js";
-import type { Card, CardKind } from "./card.js";
 
 /** Representative section-md fixtures per memory kind (frontmatter shape; the
  *  failure kind carries the state/severity keys its decode path normalizes). */
@@ -56,9 +56,7 @@ const FIXTURES: Record<"memory" | "user" | "failure", string> = {
   ].join("\n"),
 };
 
-function withStore(
-  fn: (store: Awaited<ReturnType<typeof createCardStore>>) => Promise<void>,
-): Promise<void> {
+function withStore(fn: (store: Awaited<ReturnType<typeof createCardStore>>) => Promise<void>): Promise<void> {
   const mem = mkdtempSync(join(tmpdir(), "card-store-memory-kinds-"));
   return (async () => {
     const store = await createCardStore({ memoryDir: mem });

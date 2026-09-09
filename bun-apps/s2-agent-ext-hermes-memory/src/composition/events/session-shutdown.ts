@@ -24,12 +24,12 @@
  * must typecheck standalone; it is not imported yet.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { HermesCtx } from "../stores.js";
-import { waitForSessionBackfill, SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS } from "../../handlers/session-backfill.js";
 import { waitForPlanningBackfill } from "../../handlers/planning-backfill.js";
-import { waitForLiveSessionIndex, SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS } from "../../handlers/session-live-index.js";
-import { parseSessionFile } from "../../store/session-parser.js";
+import { SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS, waitForSessionBackfill } from "../../handlers/session-backfill.js";
+import { SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS, waitForLiveSessionIndex } from "../../handlers/session-live-index.js";
 import { unpublishStaleCheck } from "../../stale-seam.js";
+import { parseSessionFile } from "../../store/session-parser.js";
+import type { HermesCtx } from "../stores.js";
 
 /** ← L672-732: the session_shutdown handler, de-closured onto HermesCtx. */
 export function registerSessionShutdown(pi: ExtensionAPI, ctx: HermesCtx): void {
@@ -67,7 +67,9 @@ export function registerSessionShutdown(pi: ExtensionAPI, ctx: HermesCtx): void 
         //  consistency with session backfill, prevents orphaned timers).
         waitForPlanningBackfill(SESSION_BACKFILL_SHUTDOWN_TIMEOUT_MS),
       ]);
-    } catch { /* best-effort drain — never block shutdown */ }
+    } catch {
+      /* best-effort drain — never block shutdown */
+    }
 
     try {
       const sessionFile = evt.sessionManager.getSessionFile();
@@ -84,11 +86,14 @@ export function registerSessionShutdown(pi: ExtensionAPI, ctx: HermesCtx): void 
           await ctx.sessionRepo.upsertSessionFileMeta(sessionFile, sessionData.id);
         }
       }
-    } catch { /* Silent fail — don't block shutdown */ }
-    finally {
+    } catch {
+      /* Silent fail — don't block shutdown */
+    } finally {
       try {
         await ctx.bundle.get().backend.close();
-      } catch { /* best effort — never block shutdown */ }
+      } catch {
+        /* best effort — never block shutdown */
+      }
     }
   });
 }

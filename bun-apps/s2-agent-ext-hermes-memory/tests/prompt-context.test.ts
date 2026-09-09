@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { buildPromptAssembly, buildPromptContext } from "../src/prompt-context.js";
 import type { MemoryStore } from "../src/store/memory-store.js";
@@ -37,20 +37,13 @@ describe("buildPromptAssembly", () => {
 
   test("policy-only mode → null", () => {
     const store = stubStore({ block: "M", mdIds: ["a"] });
-    const got = buildPromptAssembly(
-      { memoryMode: "policy-only" } as any,
-      store,
-      null,
-      "p",
-    );
+    const got = buildPromptAssembly({ memoryMode: "policy-only" } as any, store, null, "p");
     expect(got).toBeNull();
   });
 
   test("empty store (no block) → null", () => {
     const store = stubStore({ block: "", mdIds: [] });
-    expect(
-      buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
-    ).toBeNull();
+    expect(buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p")).toBeNull();
   });
 
   test("null projectStore → still hashes main block", () => {
@@ -67,9 +60,7 @@ describe("buildPromptAssembly", () => {
       { mdId: "a", signature: "alpha fragment" },
       { mdId: "b", signature: "bravo fragment" },
     ];
-    const sigP: Signature[] = [
-      { mdId: "c", signature: "charlie fragment" },
-    ];
+    const sigP: Signature[] = [{ mdId: "c", signature: "charlie fragment" }];
     const store = stubStore({ block: "M", mdIds: ["a", "b"], signatures: sigM });
     const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["c"], signatures: sigP });
 
@@ -114,10 +105,7 @@ describe("buildPromptAssembly", () => {
     // empty / all entries below the signature min-length). Union just takes what exists.
     const sigM: Signature[] = [{ mdId: "a", signature: "alpha fragment" }];
     const store = stubStore({ block: "M", mdIds: ["a"], signatures: sigM });
-    const projectStore = stubStore(
-      { block: "ignored" },
-      { block: "P", mdIds: ["c"], signatures: [] },
-    );
+    const projectStore = stubStore({ block: "ignored" }, { block: "P", mdIds: ["c"], signatures: [] });
 
     const got = buildPromptAssembly({ memoryMode: "default" } as any, store, projectStore, "p")!;
 

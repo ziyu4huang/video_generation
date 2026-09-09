@@ -6,15 +6,15 @@ import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
 import { completeSimple, type Message, type SimpleStreamOptions } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { DIRECT_REVIEW_SYSTEM_PROMPT } from "../constants.js";
-import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
 import type { CardStore } from "../store/card-store.js";
 import {
   mirrorMemoryAdd,
-  mirrorMemoryReplace,
-  mirrorMemoryRemove,
   mirrorMemoryEvictions,
+  mirrorMemoryRemove,
+  mirrorMemoryReplace,
 } from "../store/memory-card-mirror.js";
+import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
+import { MemoryStore } from "../store/memory-store.js";
 import type { FailureState, MemoryCategory, MemoryConfig, MemoryResult, ThinkingLevel } from "../types.js";
 
 export interface ReviewMemoryOperation {
@@ -68,8 +68,8 @@ function findExactModelReferenceMatch(modelReference: string, availableModels: M
     const modelId = trimmedReference.substring(slashIndex + 1).trim();
     if (provider && modelId) {
       const providerMatches = availableModels.filter(
-        (model) => model.provider.toLowerCase() === provider.toLowerCase()
-          && model.id.toLowerCase() === modelId.toLowerCase(),
+        (model) =>
+          model.provider.toLowerCase() === provider.toLowerCase() && model.id.toLowerCase() === modelId.toLowerCase(),
       );
       if (providerMatches.length === 1) return providerMatches[0];
     }
@@ -158,12 +158,14 @@ export function extractJsonPayload(text: string): unknown {
 }
 
 function isMemoryCategory(value: unknown): value is MemoryCategory {
-  return value === "failure"
-    || value === "correction"
-    || value === "insight"
-    || value === "preference"
-    || value === "convention"
-    || value === "tool-quirk";
+  return (
+    value === "failure" ||
+    value === "correction" ||
+    value === "insight" ||
+    value === "preference" ||
+    value === "convention" ||
+    value === "tool-quirk"
+  );
 }
 
 function isReviewTarget(value: unknown): value is ReviewMemoryOperation["target"] {
@@ -281,7 +283,7 @@ export async function applyReviewOperations(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   operations: ReviewMemoryOperation[],
-  projectName?: string | null,
+  _projectName?: string | null,
   cardStore: CardStore | null = null,
 ): Promise<ApplyReviewOperationsResult> {
   let appliedCount = 0;
@@ -295,7 +297,11 @@ export async function applyReviewOperations(
 
     const rawTarget = op.target;
     const memoryTarget = rawTarget === "project" ? "memory" : rawTarget === "failure" ? "failure" : rawTarget;
-    const activeStore = rawTarget === "project" ? projectStore! : store;
+    let activeStore: MemoryStore = store;
+    if (rawTarget === "project") {
+      if (!projectStore) throw new Error("review: project store unavailable for a project target");
+      activeStore = projectStore;
+    }
 
     let result: MemoryResult;
     switch (op.action) {
@@ -372,9 +378,10 @@ export async function applyReviewOperations(
 export function responseText(content: unknown): string {
   if (!Array.isArray(content)) return "";
   return content
-    .filter((block): block is { type: "text"; text: string } => (
-      !!block && typeof block === "object" && (block as { type?: string }).type === "text"
-    ))
+    .filter(
+      (block): block is { type: "text"; text: string } =>
+        !!block && typeof block === "object" && (block as { type?: string }).type === "text",
+    )
     .map((block) => block.text)
     .join("\n");
 }
@@ -441,13 +448,7 @@ export async function runDirectBackgroundReview(
       return { ok: true, appliedCount: 0, fallbackReason: "empty" };
     }
 
-    const { appliedCount } = await applyReviewOperations(
-      store,
-      projectStore,
-      operations,
-      projectName,
-      cardStore,
-    );
+    const { appliedCount } = await applyReviewOperations(store, projectStore, operations, projectName, cardStore);
     return { ok: true, appliedCount };
   } catch (err) {
     if (controller.signal.aborted) {
