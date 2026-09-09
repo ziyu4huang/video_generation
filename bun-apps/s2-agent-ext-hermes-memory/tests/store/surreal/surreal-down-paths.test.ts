@@ -1,7 +1,7 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { SurrealClient } from "@repo/s2-agent-core-interface";
 import { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
-import { SurrealClient, type SurrealFetch } from "@repo/s2-agent-core-interface";
 import { SurrealMemoryRepository } from "../../../src/store/surreal/surreal-memory-repo.js";
 import { SurrealSessionRepository } from "../../../src/store/surreal/surreal-session-repo.js";
 import { isSurrealUp } from "./_helpers.js";
@@ -10,15 +10,18 @@ import { isSurrealUp } from "./_helpers.js";
 // offline stubs — no live SurrealDB, no localDescribe. Every seam below gets
 // a fetch that always rejects; maxAttempts:1 + backoffMs:1 keep it instant.
 
-const deadFetch = (): Promise<Response> =>
-  Promise.reject(new Error("connection refused downstream"));
+const deadFetch = (): Promise<Response> => Promise.reject(new Error("connection refused downstream"));
 
 function deadClient(): SurrealClient {
   return new SurrealClient({
-    endpoint: "http://127.0.0.1:8000", namespace: "test", database: "test",
-    username: "root", password: "root",
+    endpoint: "http://127.0.0.1:8000",
+    namespace: "test",
+    database: "test",
+    username: "root",
+    password: "root",
     fetch: deadFetch as unknown as typeof fetch,
-    maxAttempts: 1, backoffMs: 1,
+    maxAttempts: 1,
+    backoffMs: 1,
   });
 }
 
@@ -45,10 +48,7 @@ describe("SurrealDB down-path contracts (hermes-arch 09, offline stubs)", () => 
 
   it("T2 memory-repo write rejects with the retry-then-throw marker", async () => {
     const repo = new SurrealMemoryRepository(deadBackend());
-    await assert.rejects(
-      repo.addMemory({ content: "down-path probe" }),
-      /SurrealDB request failed/,
-    );
+    await assert.rejects(repo.addMemory({ content: "down-path probe" }), /SurrealDB request failed/);
   });
 
   it("T2b session-repo write rejects with the retry-then-throw marker", async () => {

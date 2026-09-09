@@ -40,20 +40,19 @@
  * production loop) so the .md→DB death contract is exercised end-to-end on the
  * real repo. Scenario 1 (consolidation) deliberately does NOT — see its comment.
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-
-import { MemoryStore } from "../../src/store/memory-store.js";
-import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
-import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 import { createCardStore } from "../../src/store/card-store.js";
 import { mirrorMemoryEvictions } from "../../src/store/memory-card-mirror.js";
-import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
+import type { MemoryTarget } from "../../src/store/repository.js";
+import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
+import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import type { MemoryConfig } from "../../src/types.js";
-import type { MemoryTarget, MemoryRepository } from "../../src/store/repository.js";
 
 const TODAY = "2026-08-01";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -70,10 +69,18 @@ function freshDir(): string {
 
 afterEach(() => {
   while (BACKENDS.length) {
-    try { BACKENDS.pop()!.close(); } catch { /* ignore */ }
+    try {
+      BACKENDS.pop()?.close();
+    } catch {
+      /* ignore */
+    }
   }
   while (DIRS.length) {
-    try { fs.rmSync(DIRS.pop()!, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(DIRS.pop()!, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 });
 
@@ -100,7 +107,10 @@ function frontmatterId(entry: string): string | null {
 function readEntries(dir: string, file: string = MEMORY_FILE): string[] {
   const raw = fs.readFileSync(path.join(dir, file), "utf-8");
   if (!raw.trim()) return [];
-  return raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  return raw
+    .split(ENTRY_DELIMITER)
+    .map((e) => e.trim())
+    .filter(Boolean);
 }
 
 /** Seed the memory file with N entries (joined by the canonical delimiter). */
@@ -120,11 +130,7 @@ function seedMemoryFile(dir: string, entries: string[]): void {
  * md_ids — kept in the test so the full .md→DB traceless-death contract runs
  * against the real store.
  */
-async function syncEvictions(
-  backend: SqliteBackend,
-  dir: string,
-  mdIds: string[],
-): Promise<void> {
+async function syncEvictions(backend: SqliteBackend, dir: string, mdIds: string[]): Promise<void> {
   const cardStore = await createCardStore({ memoryDir: dir, sqliteBackend: backend });
   await mirrorMemoryEvictions(cardStore, mdIds);
 }
@@ -144,7 +150,13 @@ async function seedDbRow(
   if (opts.status === "superseded") {
     // A superseded row implies a replacement exists — mint one and flip via the
     // real repo path. md_id on the prior is untouched by supersedeMemory.
-    const replacement = await repo.addMemory({ content: content + " §REPL§", target, project: null, created: TODAY, lastReferenced: TODAY });
+    const replacement = await repo.addMemory({
+      content: `${content} §REPL§`,
+      target,
+      project: null,
+      created: TODAY,
+      lastReferenced: TODAY,
+    });
     await repo.supersedeMemory(entry.id, replacement.id);
   }
   return entry.id;
@@ -227,7 +239,7 @@ describe("id-lifecycle contract (ticket 03)", () => {
     // of the child's tool-call sequence (and issues no memory-tool ops itself).
     const MERGED_ID = globalThis.crypto.randomUUID();
     let consolidatorRan = false;
-    store.setConsolidator(async (target) => {
+    store.setConsolidator(async (_target) => {
       consolidatorRan = true;
       // Rewrite the .md to a single merged frontmatter entry (fresh id).
       fs.writeFileSync(path.join(dir, MEMORY_FILE), fmEntry(MERGED_ID, MERGED_BODY), "utf-8");

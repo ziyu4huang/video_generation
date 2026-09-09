@@ -2,11 +2,11 @@
  * Unit tests for SkillStore — scoped CRUD, migration, and Pi-native file layout.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
-import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import { SkillStore } from "../../src/store/skill-store.js";
 
 let ROOT_DIR = "";
@@ -137,7 +137,7 @@ describe("SkillStore", { concurrency: 1 }, () => {
       const store = await makeStore();
       const result = await store.create("", "desc", "body");
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("name is required"));
+      assert.ok(result.error?.includes("name is required"));
     });
 
     it("returns error for duplicate slug in same scope", async () => {
@@ -146,7 +146,7 @@ describe("SkillStore", { concurrency: 1 }, () => {
 
       const result = await store.create("my skill", "new desc", "new body");
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("already exists"));
+      assert.ok(result.error?.includes("already exists"));
       assert.strictEqual(result.conflictType, "duplicate");
       assert.deepStrictEqual(result.similarSkillIds, ["global:my-skill"]);
       assert.strictEqual(result.suggestedAction, "patch");
@@ -225,7 +225,7 @@ describe("SkillStore", { concurrency: 1 }, () => {
       const store = await makeStore(false);
       const result = await store.create("repo-only", "desc", "body", "project");
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("active project"));
+      assert.ok(result.error?.includes("active project"));
     });
   });
 
@@ -245,13 +245,11 @@ describe("SkillStore", { concurrency: 1 }, () => {
       const store = await makeStore();
       const customDir = path.join(GLOBAL_SKILLS_DIR, "manual-skill");
       await fs.mkdir(customDir, { recursive: true });
-      await fs.writeFile(path.join(customDir, "SKILL.md"), [
-        "---",
-        "name: manual-skill",
-        "description: A manually created Pi skill",
-        "---",
-        "# Manual Skill",
-      ].join("\n"), "utf-8");
+      await fs.writeFile(
+        path.join(customDir, "SKILL.md"),
+        ["---", "name: manual-skill", "description: A manually created Pi skill", "---", "# Manual Skill"].join("\n"),
+        "utf-8",
+      );
 
       const index = await store.loadIndex();
       assert.strictEqual(index.length, 1);
@@ -271,33 +269,41 @@ describe("SkillStore", { concurrency: 1 }, () => {
       const newerDir = path.join(GLOBAL_SKILLS_DIR, "newer-skill");
       await fs.mkdir(olderDir, { recursive: true });
       await fs.mkdir(newerDir, { recursive: true });
-      await fs.writeFile(path.join(olderDir, "SKILL.md"), [
-        "---",
-        'name: "older-skill"',
-        'description: "Older skill"',
-        "version: 2",
-        'created: "2026-05-18"',
-        'updated: "2026-05-20"',
-        "---",
-        "## Procedure",
-        "1. Old",
-      ].join("\n"), "utf-8");
-      await fs.writeFile(path.join(newerDir, "SKILL.md"), [
-        "---",
-        'name: "newer-skill"',
-        'description: "Newer skill"',
-        "version: 1",
-        'created: "2026-05-19"',
-        'updated: "2026-05-21"',
-        "---",
-        "## Procedure",
-        "1. New",
-      ].join("\n"), "utf-8");
+      await fs.writeFile(
+        path.join(olderDir, "SKILL.md"),
+        [
+          "---",
+          'name: "older-skill"',
+          'description: "Older skill"',
+          "version: 2",
+          'created: "2026-05-18"',
+          'updated: "2026-05-20"',
+          "---",
+          "## Procedure",
+          "1. Old",
+        ].join("\n"),
+        "utf-8",
+      );
+      await fs.writeFile(
+        path.join(newerDir, "SKILL.md"),
+        [
+          "---",
+          'name: "newer-skill"',
+          'description: "Newer skill"',
+          "version: 1",
+          'created: "2026-05-19"',
+          'updated: "2026-05-21"',
+          "---",
+          "## Procedure",
+          "1. New",
+        ].join("\n"),
+        "utf-8",
+      );
 
       const index = await store.loadIndex("global");
       assert.strictEqual(index[0]?.skillId, "global:newer-skill");
       assert.strictEqual(index[1]?.skillId, "global:older-skill");
-      assert.ok(index[0]!.updated >= index[1]!.updated);
+      assert.ok(index[0]?.updated >= index[1]?.updated);
     });
   });
 
@@ -309,13 +315,13 @@ describe("SkillStore", { concurrency: 1 }, () => {
       const doc = await store.loadSkill(created.skillId!);
 
       assert.ok(doc);
-      assert.strictEqual(doc!.skillId, "global:my-skill");
-      assert.strictEqual(doc!.scope, "global");
-      assert.strictEqual(doc!.name, "my-skill");
-      assert.strictEqual(doc!.displayName, "My Skill");
-      assert.strictEqual(doc!.description, "A test skill");
-      assert.strictEqual(doc!.version, 1);
-      assert.ok(doc!.body.includes("## Procedure"));
+      assert.strictEqual(doc?.skillId, "global:my-skill");
+      assert.strictEqual(doc?.scope, "global");
+      assert.strictEqual(doc?.name, "my-skill");
+      assert.strictEqual(doc?.displayName, "My Skill");
+      assert.strictEqual(doc?.description, "A test skill");
+      assert.strictEqual(doc?.version, 1);
+      assert.ok(doc?.body.includes("## Procedure"));
     });
 
     it("returns null for missing skill id", async () => {
@@ -334,9 +340,9 @@ describe("SkillStore", { concurrency: 1 }, () => {
       assert.ok(result.success, `patch failed: ${result.error}`);
 
       const doc = await store.loadSkill(created.skillId!);
-      assert.ok(doc!.body.includes("1. New way"));
-      assert.ok(!doc!.body.includes("1. Old way"));
-      assert.ok(doc!.body.includes("## Pitfalls"));
+      assert.ok(doc?.body.includes("1. New way"));
+      assert.ok(!doc?.body.includes("1. Old way"));
+      assert.ok(doc?.body.includes("## Pitfalls"));
     });
 
     it("appends a missing section", async () => {
@@ -347,9 +353,9 @@ describe("SkillStore", { concurrency: 1 }, () => {
       assert.ok(result.success, `patch failed: ${result.error}`);
 
       const doc = await store.loadSkill(created.skillId!);
-      assert.ok(doc!.body.includes("## Verification"));
-      assert.ok(doc!.body.includes("Run the tests"));
-      assert.strictEqual(doc!.version, 2);
+      assert.ok(doc?.body.includes("## Verification"));
+      assert.ok(doc?.body.includes("Run the tests"));
+      assert.strictEqual(doc?.version, 2);
     });
   });
 
@@ -362,10 +368,10 @@ describe("SkillStore", { concurrency: 1 }, () => {
       assert.ok(result.success, `edit failed: ${result.error}`);
 
       const doc = await store.loadSkill(created.skillId!);
-      assert.strictEqual(doc!.description, "new desc");
-      assert.ok(doc!.body.includes("## New Body"));
-      assert.ok(!doc!.body.includes("## Old Body"));
-      assert.strictEqual(doc!.version, 2);
+      assert.strictEqual(doc?.description, "new desc");
+      assert.ok(doc?.body.includes("## New Body"));
+      assert.ok(!doc?.body.includes("## Old Body"));
+      assert.strictEqual(doc?.version, 2);
     });
   });
 
@@ -447,17 +453,21 @@ describe("SkillStore", { concurrency: 1 }, () => {
   describe("migration", () => {
     it("migrates legacy memory/skills/*.md files into global Pi skills", async () => {
       const legacyFile = path.join(LEGACY_SKILLS_DIR, "legacy-skill.md");
-      await fs.writeFile(legacyFile, [
-        "---",
-        "name: Legacy Skill",
-        "description: Legacy migrated skill",
-        "version: 2",
-        "created: 2026-01-01",
-        "updated: 2026-01-02",
-        "---",
-        "## Procedure",
-        "1. Do the legacy thing",
-      ].join("\n"), "utf-8");
+      await fs.writeFile(
+        legacyFile,
+        [
+          "---",
+          "name: Legacy Skill",
+          "description: Legacy migrated skill",
+          "version: 2",
+          "created: 2026-01-01",
+          "updated: 2026-01-02",
+          "---",
+          "## Procedure",
+          "1. Do the legacy thing",
+        ].join("\n"),
+        "utf-8",
+      );
 
       const store = await makeStore();
       const result = await store.migrateLegacySkills();
@@ -473,13 +483,11 @@ describe("SkillStore", { concurrency: 1 }, () => {
 
     it("does not rerun after the sentinel is created", async () => {
       const legacyFile = path.join(LEGACY_SKILLS_DIR, "legacy-skill.md");
-      await fs.writeFile(legacyFile, [
-        "---",
-        "name: legacy-skill",
-        "description: Legacy migrated skill",
-        "---",
-        "body",
-      ].join("\n"), "utf-8");
+      await fs.writeFile(
+        legacyFile,
+        ["---", "name: legacy-skill", "description: Legacy migrated skill", "---", "body"].join("\n"),
+        "utf-8",
+      );
 
       const store = await makeStore();
       const first = await store.migrateLegacySkills();
@@ -492,20 +500,16 @@ describe("SkillStore", { concurrency: 1 }, () => {
     it("does not overwrite an existing global skill unexpectedly", async () => {
       const existingDir = path.join(GLOBAL_SKILLS_DIR, "legacy-skill");
       await fs.mkdir(existingDir, { recursive: true });
-      await fs.writeFile(path.join(existingDir, "SKILL.md"), [
-        "---",
-        "name: legacy-skill",
-        "description: Existing global skill",
-        "---",
-        "# Existing",
-      ].join("\n"), "utf-8");
-      await fs.writeFile(path.join(LEGACY_SKILLS_DIR, "legacy-skill.md"), [
-        "---",
-        "name: legacy-skill",
-        "description: Legacy version",
-        "---",
-        "# Legacy",
-      ].join("\n"), "utf-8");
+      await fs.writeFile(
+        path.join(existingDir, "SKILL.md"),
+        ["---", "name: legacy-skill", "description: Existing global skill", "---", "# Existing"].join("\n"),
+        "utf-8",
+      );
+      await fs.writeFile(
+        path.join(LEGACY_SKILLS_DIR, "legacy-skill.md"),
+        ["---", "name: legacy-skill", "description: Legacy version", "---", "# Legacy"].join("\n"),
+        "utf-8",
+      );
 
       const store = await makeStore();
       const result = await store.migrateLegacySkills();
@@ -519,13 +523,11 @@ describe("SkillStore", { concurrency: 1 }, () => {
     });
 
     it("migrates flat markdown files under global skills root into SKILL.md folders", async () => {
-      await fs.writeFile(path.join(GLOBAL_SKILLS_DIR, "flat-legacy.md"), [
-        "---",
-        "name: flat-legacy",
-        "description: Flat legacy skill",
-        "---",
-        "# Flat Body",
-      ].join("\n"), "utf-8");
+      await fs.writeFile(
+        path.join(GLOBAL_SKILLS_DIR, "flat-legacy.md"),
+        ["---", "name: flat-legacy", "description: Flat legacy skill", "---", "# Flat Body"].join("\n"),
+        "utf-8",
+      );
 
       const store = await makeStore();
       const result = await store.migrateLegacySkills();
@@ -539,13 +541,11 @@ describe("SkillStore", { concurrency: 1 }, () => {
     it("does not write the sentinel when warnings occur, so migration can retry", async () => {
       await fs.mkdir(path.join(LEGACY_SKILLS_DIR, "broken.md"), { recursive: true });
       const legacyFile = path.join(LEGACY_SKILLS_DIR, "legacy-skill.md");
-      await fs.writeFile(legacyFile, [
-        "---",
-        "name: legacy-skill",
-        "description: Legacy migrated skill",
-        "---",
-        "body",
-      ].join("\n"), "utf-8");
+      await fs.writeFile(
+        legacyFile,
+        ["---", "name: legacy-skill", "description: Legacy migrated skill", "---", "body"].join("\n"),
+        "utf-8",
+      );
 
       const store = await makeStore();
       const first = await store.migrateLegacySkills();

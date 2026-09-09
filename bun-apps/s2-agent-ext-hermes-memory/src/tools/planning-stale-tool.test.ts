@@ -9,14 +9,15 @@
 // idiom — NOT the plan's verbatim "upsertCard(card with graph.relations)" seed,
 // which would read null from readSourceCard and never flag stale (see the T6
 // brief's pre-implementation adjustment #1).
-import { describe, it } from "node:test";
+
 import * as assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { executePlanningStale, parseStaleQuery, runStaleQuery, revalidateCard } from "./planning-stale-tool.js";
+import { dirname, join } from "node:path";
+import { describe, it } from "node:test";
 import { createCardStore } from "../store/card-store.js";
 import { computeStaleness } from "../store/planning-staleness.js";
+import { executePlanningStale, parseStaleQuery, revalidateCard, runStaleQuery } from "./planning-stale-tool.js";
 
 /** Write a dep file under root (creating its parent dir). Mirrors T4's writeDep. */
 function writeDep(root: string, relPath: string, content: string): void {
@@ -70,8 +71,7 @@ async function seedTicket(
 
 describe("parseStaleQuery", () => {
   it("'stale' -> unscoped", () => assert.deepEqual(parseStaleQuery("stale"), {}));
-  it("'stale:<effort>' -> scoped", () =>
-    assert.deepEqual(parseStaleQuery("stale:my-effort"), { effort: "my-effort" }));
+  it("'stale:<effort>' -> scoped", () => assert.deepEqual(parseStaleQuery("stale:my-effort"), { effort: "my-effort" }));
   it("unknown prefix -> lenient unscoped", () => assert.deepEqual(parseStaleQuery("anything"), {}));
   it("empty -> unscoped", () => assert.deepEqual(parseStaleQuery(""), {}));
   it("nullish -> unscoped (lenient)", () => assert.deepEqual(parseStaleQuery(undefined as unknown as string), {}));
@@ -89,7 +89,10 @@ describe("runStaleQuery (10-impl T6)", () => {
 
       const all = await runStaleQuery(mem, "stale", root);
       assert.equal(all.ok, true);
-      assert.ok(all.stale.some((s) => s.cardId === staleId), "stale card surfaced");
+      assert.ok(
+        all.stale.some((s) => s.cardId === staleId),
+        "stale card surfaced",
+      );
       assert.ok(!all.stale.some((s) => s.cardId === cleanId), "clean card excluded");
 
       // scoped to an effort with no tickets -> []
@@ -115,12 +118,12 @@ describe("runStaleQuery (10-impl T6)", () => {
       const scoped = await runStaleQuery(mem, "stale:eff-one", root);
       assert.equal(scoped.ok, true);
       assert.equal(scoped.stale.length, 1, "only eff-one's stale card");
-      assert.equal(scoped.stale[0]!.cardId, effOne);
-      assert.equal(scoped.stale[0]!.effort, "eff-one");
+      assert.equal(scoped.stale[0]?.cardId, effOne);
+      assert.equal(scoped.stale[0]?.effort, "eff-one");
 
       const scopedTwo = await runStaleQuery(mem, "stale:eff-two", root);
       assert.equal(scopedTwo.stale.length, 1);
-      assert.equal(scopedTwo.stale[0]!.cardId, effTwo);
+      assert.equal(scopedTwo.stale[0]?.cardId, effTwo);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(mem, { recursive: true, force: true });
@@ -137,8 +140,8 @@ describe("runStaleQuery (10-impl T6)", () => {
       const r = await runStaleQuery(mem, "stale:miss-eff", root);
       assert.equal(r.ok, true);
       assert.equal(r.stale.length, 1);
-      assert.equal(r.stale[0]!.cardId, id);
-      assert.deepEqual(r.stale[0]!.missingDeps, ["src/gone-b.ts"]);
+      assert.equal(r.stale[0]?.cardId, id);
+      assert.deepEqual(r.stale[0]?.missingDeps, ["src/gone-b.ts"]);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(mem, { recursive: true, force: true });

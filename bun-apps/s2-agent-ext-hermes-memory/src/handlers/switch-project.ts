@@ -7,11 +7,11 @@
  * for a project they're not currently in.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { MemoryConfig } from "../types.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveProjectsRoot } from "../paths.js";
+import type { MemoryConfig } from "../types.js";
 
 export function registerSwitchProjectCommand(pi: ExtensionAPI, config?: MemoryConfig): void {
   const projectsMemoryDir = config?.projectsMemoryDir ?? "projects-memory";
@@ -22,7 +22,7 @@ export function registerSwitchProjectCommand(pi: ExtensionAPI, config?: MemoryCo
       const projectsDir = resolveProjectsRoot(projectsMemoryDir);
 
       // Discover all project directories (subdirectories of projects-memory/ that have MEMORY.md)
-      let projects: string[] = [];
+      const projects: string[] = [];
       try {
         const entries = await fs.readdir(projectsDir, { withFileTypes: true });
         for (const entry of entries) {
@@ -30,7 +30,9 @@ export function registerSwitchProjectCommand(pi: ExtensionAPI, config?: MemoryCo
           try {
             await fs.access(path.join(projectsDir, entry.name, "MEMORY.md"));
             projects.push(entry.name);
-          } catch { /* no MEMORY.md — skip */ }
+          } catch {
+            /* no MEMORY.md — skip */
+          }
         }
       } catch {
         // Directory doesn't exist — no projects
@@ -59,7 +61,9 @@ export function registerSwitchProjectCommand(pi: ExtensionAPI, config?: MemoryCo
         try {
           const raw = await fs.readFile(path.join(projectsDir, proj, "MEMORY.md"), "utf-8");
           entryCount = raw.split("\n§\n").filter(Boolean).length;
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
 
         lines.push(`  📁 ${proj} (${entryCount} ${entryCount === 1 ? "entry" : "entries"})`);
       }

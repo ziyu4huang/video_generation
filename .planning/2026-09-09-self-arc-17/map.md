@@ -2,7 +2,7 @@
 effort: 2026-09-09-self-arc-17
 created: 2026-09-09
 last: 2026-09-09
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-09-self-arc-17 — FINISH the self-develop arc: ultracode-driven full re-run of all s2-agent-ext-*
@@ -188,6 +188,10 @@ becomes the auditor.
 - Collision-note: task label claimed "self-arc-16"; `2026-09-09-self-arc-16`
   (verify arc, #2226) owns that number — see D1. Same shape as the 14/15
   collisions recorded on both arc-15 maps.
+- Absorbed-by: `2026-09-09-self-arc-18` (the hermes-memory slice of the
+  test-hygiene successor — its lying `check`=tsc gate, silent SurrealDB
+  skips, and missing coverage signal — pulled forward by user directive;
+  the REMAINING test-hygiene scope stays successor material).
 
 ## Shipped-as (2026-09-09) — the arc audits itself; the series closes
 

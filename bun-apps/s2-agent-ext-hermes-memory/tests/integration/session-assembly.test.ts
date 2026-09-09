@@ -18,7 +18,7 @@
  *   • NEVER-ABORT  — a throwing record() is swallowed; captureAssembly resolves
  *                    (the session_start handler never throws).
  */
-import { describe, test, expect, mock } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import { captureAssembly } from "../../src/handlers/session-assembly.js";
 
@@ -101,7 +101,9 @@ describe("session_start assembly capture (captureAssembly)", () => {
 
     const landed = await captureAssembly({
       getSessionId: () => "sess-x",
-      build: () => { throw new Error("build boom"); },
+      build: () => {
+        throw new Error("build boom");
+      },
       record: recordAssembly,
     });
 

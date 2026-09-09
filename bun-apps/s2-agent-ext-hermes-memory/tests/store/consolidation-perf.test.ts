@@ -10,19 +10,16 @@
  * (the controlled characterization sample); this file stays focused on the
  * consolidation event itself.
  */
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as os from "node:os";
-import * as assert from "node:assert/strict";
-import { describe, it, beforeAll, afterAll } from "bun:test";
 
-import { MemoryStore } from "../../src/store/memory-store.js";
-import {
-  DEFAULT_MEMORY_CHAR_LIMIT,
-  DEFAULT_USER_CHAR_LIMIT,
-} from "../../src/constants.js";
-import type { MemoryConfig } from "../../src/types.js";
+import { afterAll, beforeAll, describe, it } from "bun:test";
+import * as assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT } from "../../src/constants.js";
 import { createPerfRecorder, type PerfRecord } from "../../src/perf.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
+import type { MemoryConfig } from "../../src/types.js";
 
 const TEST_MARKER = "[CONSOLIDATION-PERF-TEST]";
 let MEMORY_DIR = "";
@@ -55,7 +52,12 @@ function tmpLog(): string {
 
 function readLog(p: string): PerfRecord[] {
   if (!fs.existsSync(p)) return [];
-  return fs.readFileSync(p, "utf-8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as PerfRecord);
+  return fs
+    .readFileSync(p, "utf-8")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as PerfRecord);
 }
 
 describe("MemoryStore consolidation perf (T3)", { concurrency: 1 }, () => {
@@ -63,7 +65,11 @@ describe("MemoryStore consolidation perf (T3)", { concurrency: 1 }, () => {
     MEMORY_DIR = await fs.promises.mkdtemp(path.join(os.tmpdir(), "pi-cons-perf-test-"));
   });
   afterAll(async () => {
-    try { await fs.promises.rm(MEMORY_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await fs.promises.rm(MEMORY_DIR, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("logs every consolidation as consolidation.<target> (always-logged, kind, breach:false)", async () => {
@@ -83,8 +89,11 @@ describe("MemoryStore consolidation perf (T3)", { concurrency: 1 }, () => {
     assert.equal(cons[0].timedOut, false); // mock did not terminate
     // 2-phase payload: the plan's applied/skipped op counts are stamped on the
     // record under `extra` (a no-op plan applies nothing here).
-    assert.deepEqual(cons[0].extra, { applied: 0, skipped: 0 },
-      "extra payload stamps the plan's applied/skipped op counts");
+    assert.deepEqual(
+      cons[0].extra,
+      { applied: 0, skipped: 0 },
+      "extra payload stamps the plan's applied/skipped op counts",
+    );
   });
 
   it("stamps timedOut:true when the consolidator child was terminated", async () => {

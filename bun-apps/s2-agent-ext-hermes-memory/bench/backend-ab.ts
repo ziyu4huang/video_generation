@@ -24,8 +24,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { createBackendBundle } from "../src/store/backend-factory.ts";
-import type { MemoryConfig } from "../src/types.ts";
 import { SurrealBackend } from "../src/store/surreal/surreal-backend.ts";
+import type { MemoryConfig } from "../src/types.ts";
 import { generateCorpus, randomQuery } from "./corpus.ts";
 
 // ---------------------------------------------------------------------------
@@ -46,8 +46,7 @@ function pct(latenciesMsSortedAsc: number[], p: number): number {
 /** Format a latency/value to 3 decimals. */
 const fmt = (x: number): string => (Number.isFinite(x) ? x.toFixed(3) : "—");
 /** Format a throughput (entries/s or ops/s): integers when large. */
-const thr = (x: number): string =>
-  Number.isFinite(x) ? (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1)) : "—";
+const thr = (x: number): string => (Number.isFinite(x) ? (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1)) : "—");
 
 interface Row {
   backend: string;
@@ -89,10 +88,7 @@ fs.mkdirSync(RESULTS_DIR, { recursive: true });
 // Bundle config + cleanup per backend
 // ---------------------------------------------------------------------------
 
-function makeConfig(
-  backend: BackendName,
-  scale: number,
-): { cfg: MemoryConfig; memoryDir: string; nsName: string } {
+function makeConfig(backend: BackendName, scale: number): { cfg: MemoryConfig; memoryDir: string; nsName: string } {
   const nsName = `bench_${process.pid}_${scale}_${Date.now().toString(36)}`;
   if (backend === "sqlite") {
     const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), "hb-sqlite-"));
@@ -124,9 +120,7 @@ async function cleanup(
     // Remove the isolated namespace before close (surreal close is a no-op,
     // HTTP stateless, so the client is still usable here).
     try {
-      await (bundle.backend as unknown as SurrealBackend).client.query(
-        `REMOVE NAMESPACE IF EXISTS ${nsName};`,
-      );
+      await (bundle.backend as unknown as SurrealBackend).client.query(`REMOVE NAMESPACE IF EXISTS ${nsName};`);
     } catch {
       /* best-effort; unique ns name means a leftover is harmless */
     }
@@ -149,11 +143,7 @@ async function cleanup(
 // One backend×scale run
 // ---------------------------------------------------------------------------
 
-async function runScale(
-  backend: BackendName,
-  scale: number,
-  coldMs: number,
-): Promise<Row> {
+async function runScale(backend: BackendName, scale: number, coldMs: number): Promise<Row> {
   const { cfg, memoryDir, nsName } = makeConfig(backend, scale);
   const row: Row = {
     backend,
@@ -214,7 +204,7 @@ async function runScale(
       const t = ns();
       try {
         await bundle.memoryRepo.replaceSyncedMemories(old, {
-          content: old + " [updated]",
+          content: `${old} [updated]`,
           target: "memory",
         });
       } catch {
@@ -291,9 +281,7 @@ function buildMarkdown(): string {
   lines.push(
     `| backend | scale | insert_thr (entries/s) | search p50 (ms) | search p95 (ms) | search p99 (ms) | add p95 (ms) | replace p95 (ms) | remove p95 (ms) | warm_thr (search ops/s) | cold_start (ms) |`,
   );
-  lines.push(
-    `|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|`,
-  );
+  lines.push(`|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|`);
   for (const r of rows) {
     lines.push(
       `| ${r.backend} | ${r.scale.toLocaleString()} | ${r.error ? "—" : thr(r.insertThr)} | ${r.error ? "—" : fmt(r.searchP50)} | ${r.error ? "ERR" : fmt(r.searchP95)} | ${r.error ? "—" : fmt(r.searchP99)} | ${r.error ? "—" : fmt(r.addP95)} | ${r.error ? "—" : fmt(r.replaceP95)} | ${r.error ? "—" : fmt(r.removeP95)} | ${r.error ? "—" : thr(r.warmThr)} | ${fmt(r.coldMs)} |`,
@@ -325,7 +313,9 @@ function buildMarkdown(): string {
     const s = rows.find((r) => r.backend === "sqlite" && r.scale === scale && !r.error);
     const u = rows.find((r) => r.backend === "surrealdb" && r.scale === scale && !r.error);
     if (!s || !u || !Number.isFinite(s.searchP95) || !Number.isFinite(u.searchP95)) {
-      lines.push(`| ${scale.toLocaleString()} | ${s ? fmt(s.searchP95) : "pending"} | ${u ? fmt(u.searchP95) : "pending"} | — | (insufficient data) |`);
+      lines.push(
+        `| ${scale.toLocaleString()} | ${s ? fmt(s.searchP95) : "pending"} | ${u ? fmt(u.searchP95) : "pending"} | — | (insufficient data) |`,
+      );
       continue;
     }
     const ratio = u.searchP95 / s.searchP95;
@@ -362,7 +352,9 @@ function buildMarkdown(): string {
       !rows.find((r) => r.backend === "sqlite" && r.scale === sc && !r.error),
   );
   if (pending.length) {
-    lines.push(`- ⚠️ Pending/incomplete scales: ${pending.map((s) => s.toLocaleString()).join(", ")} (see status above).`);
+    lines.push(
+      `- ⚠️ Pending/incomplete scales: ${pending.map((s) => s.toLocaleString()).join(", ")} (see status above).`,
+    );
   }
   lines.push("");
 
@@ -422,7 +414,9 @@ async function main(): Promise<void> {
       rows.push(row);
       printRow(row);
       flushResults(); // rewrite results file after every completed row (partial-data safety)
-      console.log(`[elapsed] ${backend}@${scale.toLocaleString()} took ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+      console.log(
+        `[elapsed] ${backend}@${scale.toLocaleString()} took ${((Date.now() - startedAt) / 1000).toFixed(1)}s`,
+      );
       console.log("");
     }
   }

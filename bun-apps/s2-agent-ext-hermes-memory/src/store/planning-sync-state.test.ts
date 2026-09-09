@@ -1,23 +1,23 @@
-import { after, describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import {
-  planningContentHash,
-  getStoredHash,
-  upsertHash,
-  deleteHash,
-  refreshPlanningCard,
-  refreshIfStale,
-  refreshStaleness, // 10-impl T5 — sole re-validate (re-baseline) primitive
-  citedDeps, // 10-impl T3
-  depAggregateHash, // 10-impl T3
-  writeValidatedBaseline, // 10-impl T3
-} from "./planning-sync-state.js";
+import { join } from "node:path";
+import { after, describe, it } from "node:test";
+import type { Card } from "./card.js";
 import { createCardStore } from "./card-store.js";
 import { computeStaleness } from "./planning-staleness.js"; // 10-impl T4 — seed + post-revalidate cleanliness probe
-import type { Card } from "./card.js";
+import {
+  citedDeps, // 10-impl T3
+  deleteHash,
+  depAggregateHash, // 10-impl T3
+  getStoredHash,
+  planningContentHash,
+  refreshIfStale,
+  refreshPlanningCard,
+  refreshStaleness, // 10-impl T5 — sole re-validate (re-baseline) primitive
+  upsertHash,
+  writeValidatedBaseline, // 10-impl T3
+} from "./planning-sync-state.js";
 
 const card = (overrides: Partial<Card> = {}): Card => ({
   id: "planning-ticket:e:01",
@@ -118,10 +118,7 @@ describe("refreshPlanningCard — 08→09 migration cohort (09-impl final review
       });
       await store0.close();
       // Source md has DRIFTED to new (current) content relative to the DB row.
-      writeFileSync(
-        ticketPath,
-        "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n",
-      );
+      writeFileSync(ticketPath, "---\ntype: task\nstatus: closed\n---\n# 01 — x\n\n## Resolution\nNEW 09-era body.\n");
       const store = await createCardStore({ memoryDir: mem });
       try {
         const r = await refreshPlanningCard(store, id, root);

@@ -1,11 +1,15 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { MemoryDedupStrategy } from "./memory-dedup.js";
-import { KnowledgeDedupStrategy } from "./knowledge-dedup.js";
+import { describe, it } from "node:test";
 import type { Card } from "./card.js";
+import { KnowledgeDedupStrategy } from "./knowledge-dedup.js";
+import { MemoryDedupStrategy } from "./memory-dedup.js";
 
-const mk = (id: string, content: string, kind: Card["kind"] = "memory"): Card =>
-  ({ id, kind, content, frontmatter: { id } });
+const mk = (id: string, content: string, kind: Card["kind"] = "memory"): Card => ({
+  id,
+  kind,
+  content,
+  frontmatter: { id },
+});
 
 describe("DedupStrategy", () => {
   describe("MemoryDedupStrategy", () => {

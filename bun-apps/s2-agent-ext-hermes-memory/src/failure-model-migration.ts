@@ -42,9 +42,8 @@ function compressToFact(raw: string): string {
   const parsed = parseMarkdownMemoryEntry(raw, "failure");
   const body = parsed.content.replace(/^\s*\[[^\]]*\]\s*/, "").trim();
   const firstSentence = body.split(/[.—]/)[0]?.trim() ?? body;
-  const capped = firstSentence.length > COMPRESS_MAX_CHARS
-    ? firstSentence.slice(0, COMPRESS_MAX_CHARS - 1) + "…"
-    : firstSentence;
+  const capped =
+    firstSentence.length > COMPRESS_MAX_CHARS ? `${firstSentence.slice(0, COMPRESS_MAX_CHARS - 1)}…` : firstSentence;
   return serializeMetadataComment({
     text: `[${parsed.category ?? "failure"}] ${capped} (resolved/compressed)`,
     created: parsed.created ?? today(),
@@ -59,7 +58,11 @@ export function canonicalizeFailureBacklog(opts: {
 }): FailureModelMigrationResult {
   const result: FailureModelMigrationResult = {
     scanned: 0,
-    compressed: 0, dropped: 0, finalChars: 0, warnings: [], diff: "",
+    compressed: 0,
+    dropped: 0,
+    finalChars: 0,
+    warnings: [],
+    diff: "",
   };
 
   const original = readEntries(opts.failuresPath);
@@ -89,7 +92,7 @@ export function canonicalizeFailureBacklog(opts: {
     after;
 
   if (!opts.dryRun) {
-    if (opts.backup) fs.writeFileSync(opts.failuresPath + ".bak", before, "utf-8");
+    if (opts.backup) fs.writeFileSync(`${opts.failuresPath}.bak`, before, "utf-8");
     try {
       fs.writeFileSync(opts.failuresPath, after, "utf-8");
     } catch (err) {

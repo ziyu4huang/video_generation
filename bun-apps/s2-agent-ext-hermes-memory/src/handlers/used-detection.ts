@@ -30,8 +30,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SessionRepository } from "../store/repository.js";
-import type { MemoryConfig } from "../types.js";
 import { normalizeForSignature } from "../store/signature.js";
+import type { MemoryConfig } from "../types.js";
 import { getMessageText } from "../types.js";
 
 /**

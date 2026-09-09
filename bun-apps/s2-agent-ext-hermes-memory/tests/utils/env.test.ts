@@ -1,10 +1,12 @@
-import { describe, it, afterEach } from "bun:test";
+import { afterEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import { envInt } from "../../src/utils/env.js";
 
 describe("envInt", () => {
   const NAME = "HERMES_TEST_ENV_INT";
-  afterEach(() => { delete process.env[NAME]; });
+  afterEach(() => {
+    delete process.env[NAME];
+  });
 
   it("returns the fallback when the var is unset", () => {
     assert.strictEqual(envInt(NAME, 42), 42);

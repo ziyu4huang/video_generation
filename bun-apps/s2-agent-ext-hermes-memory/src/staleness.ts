@@ -21,7 +21,7 @@ export function daysSinceEdited(dateStr: string): number {
 /** Collapse whitespace and truncate to a one-line preview. */
 export function previewOneline(text: string, n = 64): string {
   const oneline = text.replace(/\s+/g, " ").trim();
-  return oneline.length > n ? oneline.slice(0, n - 1) + "…" : oneline;
+  return oneline.length > n ? `${oneline.slice(0, n - 1)}…` : oneline;
 }
 
 /** Minimal store shape the audit needs — accepts MemoryStore or a test mock. */
@@ -30,20 +30,14 @@ export interface StalenessReadable {
 }
 
 /** Build the human-readable staleness report across memory / user / failure. */
-export function formatStalenessAudit(
-  store: StalenessReadable,
-  threshold: number,
-  projectName: string | null,
-): string {
+export function formatStalenessAudit(store: StalenessReadable, threshold: number, projectName: string | null): string {
   const targets: Array<"memory" | "user" | "failure"> = ["memory", "user", "failure"];
   const icon = (t: string) => (t === "user" ? "👤" : t === "failure" ? "⚠️" : "🧠");
   const today = new Date().toISOString().split("T")[0];
   const scope = projectName ? `project: ${projectName}` : "global";
 
   const perTarget = targets.map((t) => {
-    const entries = store
-      .entriesWithMeta(t)
-      .map((e) => ({ ...e, age: daysSinceEdited(e.lastReferenced) }));
+    const entries = store.entriesWithMeta(t).map((e) => ({ ...e, age: daysSinceEdited(e.lastReferenced) }));
     const stale = entries.filter((e) => e.age > threshold).sort((a, b) => b.age - a.age);
     return { target: t, entries, stale };
   });
@@ -57,7 +51,9 @@ export function formatStalenessAudit(
   lines.push("");
   lines.push("Summary (entries / stale):");
   for (const t of perTarget) {
-    lines.push(`   ${icon(t.target)} ${t.target.padEnd(8)} ${String(t.entries.length).padStart(3)} / ${t.stale.length} stale`);
+    lines.push(
+      `   ${icon(t.target)} ${t.target.padEnd(8)} ${String(t.entries.length).padStart(3)} / ${t.stale.length} stale`,
+    );
   }
   lines.push(`   ${"total".padEnd(8)} ${String(totalEntries).padStart(3)} / ${totalStale} stale`);
   lines.push("");

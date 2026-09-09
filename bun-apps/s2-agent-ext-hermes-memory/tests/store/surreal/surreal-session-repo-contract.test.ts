@@ -20,7 +20,9 @@ if (up) {
     return {
       repo: new SurrealSessionRepository(backend),
       close: async () => {
-        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        try {
+          await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+        } catch {}
         await backend.close();
       },
     };
@@ -39,28 +41,39 @@ if (up) {
       try {
         const repo = new SurrealSessionRepository(backend);
         const sid = "sess-surr-1";
-        await repo.indexSession({ id: sid, project: "p", cwd: "/p", startedAt: new Date().toISOString(), messages: [] } as never);
+        await repo.indexSession({
+          id: sid,
+          project: "p",
+          cwd: "/p",
+          startedAt: new Date().toISOString(),
+          messages: [],
+        } as never);
 
         await repo.recordAssembly(sid, ["m1", "m2", "m1"], "h1");
 
         const rows = await backend.client.query<Array<{ mdId: string }>>(
-          `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`, { sid },
+          `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`,
+          { sid },
         );
         expect(rows.map((r) => r.mdId).sort()).toEqual(["m1", "m2"]);
 
         const meta = await backend.client.query<Array<{ hash: string }>>(
-          `SELECT hash FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
+          `SELECT hash FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`,
+          { sid },
         );
         expect(meta[0]?.hash).toBe("h1");
 
         // idempotent replace: prior rows cleared, hash overwritten
         await repo.recordAssembly(sid, ["m3"], "h2");
         const after = await backend.client.query<Array<{ mdId: string }>>(
-          `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`, { sid },
+          `SELECT mdId FROM session_assembly WHERE sessionId = $sid;`,
+          { sid },
         );
         expect(after.map((r) => r.mdId)).toEqual(["m3"]);
       } finally {
-        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        try {
+          await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+        } catch {}
         await backend.close();
       }
     });
@@ -81,14 +94,17 @@ if (up) {
       try {
         await fn(new SurrealSessionRepository(backend), backend);
       } finally {
-        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        try {
+          await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+        } catch {}
         await backend.close();
       }
     }
 
     const selUsedAt = async (backend: SurrealBackend, sid: string): Promise<Record<string, string | null>> => {
       const rows = await backend.client.query<Array<{ mdId: string; usedAt: string | null }>>(
-        `SELECT mdId, usedAt FROM session_assembly WHERE sessionId = $sid;`, { sid },
+        `SELECT mdId, usedAt FROM session_assembly WHERE sessionId = $sid;`,
+        { sid },
       );
       return Object.fromEntries(rows.map((r) => [r.mdId, r.usedAt]));
     };
@@ -101,10 +117,10 @@ if (up) {
         await repo.markUsed(sid, ["a", "c"], now);
 
         const byId = await selUsedAt(backend, sid);
-        expect(byId["a"]).toBe(now);
-        expect(byId["c"]).toBe(now);
+        expect(byId.a).toBe(now);
+        expect(byId.c).toBe(now);
         // SCHEMALESS: the non-matched row never got usedAt written → field absent ≈ null.
-        expect(byId["b"]).toBeNull();
+        expect(byId.b).toBeNull();
       });
     });
 
@@ -120,9 +136,9 @@ if (up) {
         // re-mark with a newer value → overwrites (monotonic stamp, allowed):
         await repo.markUsed(sid, ["a"], t2);
         const byId = await selUsedAt(backend, sid);
-        expect(byId["a"]).toBe(t2);
+        expect(byId.a).toBe(t2);
         // the never-marked row stays null across all calls:
-        expect(byId["b"]).toBeNull();
+        expect(byId.b).toBeNull();
       });
     });
 
@@ -132,16 +148,14 @@ if (up) {
         await repo.recordAssembly(sid, ["a", "b"], "hash-1");
         await repo.markUsed(sid, [], "2026-08-02T12:00:00.000Z");
         const byId = await selUsedAt(backend, sid);
-        expect(byId["a"]).toBeNull();
-        expect(byId["b"]).toBeNull();
+        expect(byId.a).toBeNull();
+        expect(byId.b).toBeNull();
       });
     });
 
     test("is a no-op for a session that has no assembly rows (no error)", async () => {
       await withRepo(async (repo) => {
-        await expect(
-          repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
-        ).resolves.toBeUndefined();
+        await expect(repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z")).resolves.toBeUndefined();
       });
     });
 
@@ -155,8 +169,8 @@ if (up) {
         await repo.markUsed(s1, ["shared"], now);
         const a = await selUsedAt(backend, s1);
         const b = await selUsedAt(backend, s2);
-        expect(a["shared"]).toBe(now);
-        expect(b["shared"]).toBeNull();
+        expect(a.shared).toBe(now);
+        expect(b.shared).toBeNull();
       });
     });
 
@@ -165,11 +179,13 @@ if (up) {
         const sid = "sess-surr-used-5";
         await repo.recordAssembly(sid, ["a", "b"], "hash-1");
         const metaBefore = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
-          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
+          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`,
+          { sid },
         );
         await repo.markUsed(sid, ["a"], "2026-08-02T12:00:00.000Z");
         const metaAfter = await backend.client.query<Array<{ hash: string; capturedAt: string }>>(
-          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`, { sid },
+          `SELECT hash, capturedAt FROM session_assembly_meta WHERE sessionId = $sid LIMIT 1;`,
+          { sid },
         );
         expect(metaAfter[0]?.hash).toBe(metaBefore[0]?.hash);
         expect(metaAfter[0]?.capturedAt).toBe(metaBefore[0]?.capturedAt);
@@ -191,7 +207,9 @@ if (up) {
       try {
         await fn(new SurrealSessionRepository(backend), backend);
       } finally {
-        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        try {
+          await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+        } catch {}
         await backend.close();
       }
     }

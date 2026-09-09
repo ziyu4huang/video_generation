@@ -1,7 +1,6 @@
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
 import { parseKnowledgeJsonl } from "./knowledge-jsonl.js";
-import type { KnowledgeRecord } from "@repo/s2-agent-core-interface";
 
 describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
   it("parses a valid record, skips blank/comment, records a missing-id error", () => {
@@ -13,7 +12,8 @@ describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
     ].join("\n");
     const { records, parseErrors } = parseKnowledgeJsonl(content);
     assert.equal(records.length, 1);
-    const r: KnowledgeRecord = records[0]!;
+    const r = records[0];
+    assert.ok(r, "one record parsed");
     assert.equal(r.id, "a1");
     assert.equal(r.title, "A");
     assert.equal(r.type, "lever");
@@ -25,14 +25,15 @@ describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
     assert.equal(r.superseded_by, null);
     // blank (line 2) + comment (line 3) skipped; missing-id at line 4 → 1 error.
     assert.equal(parseErrors.length, 1);
-    assert.equal(parseErrors[0]!.line, 4);
-    assert.match(parseErrors[0]!.reason, /id/i);
+    assert.equal(parseErrors[0]?.line, 4);
+    assert.match(parseErrors[0]?.reason, /id/i);
   });
 
   it("coerces missing optional fields to defaults", () => {
     const { records, parseErrors } = parseKnowledgeJsonl('{"id":"b1","title":"B"}');
     assert.equal(parseErrors.length, 0);
-    const r = records[0]!;
+    const r = records[0];
+    assert.ok(r, "one record parsed");
     assert.equal(r.type, "pattern"); // default
     assert.equal(r.detail, "");
     assert.deepEqual(r.tags, []);
@@ -51,7 +52,8 @@ describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
       '{"id":"e1","title":"E","evidence":{"occurrences":3,"first_seen":"2026-06-20","last_seen":"2026-07-01","run_ids":["r1"]},"schema_version":2,"extracted_at":"2026-07-02T10:00:00Z"}',
     );
     assert.equal(parseErrors.length, 0);
-    const r = records[0]!;
+    const r = records[0];
+    assert.ok(r, "one record parsed");
     assert.deepEqual(r.evidence, {
       occurrences: 3,
       first_seen: "2026-06-20",
@@ -63,11 +65,9 @@ describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
   });
 
   it("drops a malformed (non-object) evidence field instead of crashing", () => {
-    const { records, parseErrors } = parseKnowledgeJsonl(
-      '{"id":"e2","title":"E2","evidence":"not-an-object"}',
-    );
+    const { records, parseErrors } = parseKnowledgeJsonl('{"id":"e2","title":"E2","evidence":"not-an-object"}');
     assert.equal(parseErrors.length, 0);
-    assert.equal(records[0]!.evidence, undefined);
+    assert.equal(records[0]?.evidence, undefined);
   });
 
   it("drops an array-shaped evidence field (arrays are not evidence blocks)", () => {
@@ -75,21 +75,21 @@ describe("parseKnowledgeJsonl (hermes-side adapter, Option A)", () => {
       '{"id":"e3","title":"E3","evidence":[{"first_seen":"2026-01-01"}]}',
     );
     assert.equal(parseErrors.length, 0);
-    assert.equal(records[0]!.evidence, undefined);
+    assert.equal(records[0]?.evidence, undefined);
   });
 
   it("records a JSON parse error (malformed line)", () => {
     const { records, parseErrors } = parseKnowledgeJsonl("{not valid json");
     assert.equal(records.length, 0);
     assert.equal(parseErrors.length, 1);
-    assert.match(parseErrors[0]!.reason, /JSON/i);
+    assert.match(parseErrors[0]?.reason, /JSON/i);
   });
 
   it("records a missing-title error (with id in reason)", () => {
     const { records, parseErrors } = parseKnowledgeJsonl('{"id":"c1"}');
     assert.equal(records.length, 0);
     assert.equal(parseErrors.length, 1);
-    assert.match(parseErrors[0]!.reason, /title/i);
-    assert.match(parseErrors[0]!.reason, /c1/);
+    assert.match(parseErrors[0]?.reason, /title/i);
+    assert.match(parseErrors[0]?.reason, /c1/);
   });
 });

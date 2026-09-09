@@ -25,14 +25,14 @@
  * single-build invariant must hold on the real code paths).
  */
 
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import { captureAssembly } from "../../src/handlers/session-assembly.js";
 import { SurfacedSignatureSet, setupUsedDetection } from "../../src/handlers/used-detection.js";
 import { buildPromptAssembly } from "../../src/prompt-context.js";
-import { computeSignature, normalizeForSignature } from "../../src/store/signature.js";
 import type { MemoryStore } from "../../src/store/memory-store.js";
+import { computeSignature, normalizeForSignature } from "../../src/store/signature.js";
 
 /** A body whose longest fragment comfortably exceeds the default min (24). */
 const BODY_A = "Always pin the MLX dtype to bfloat16 for native Apple Silicon support.";
@@ -63,8 +63,11 @@ function stubStore(
 function stubPi(): { pi: any; fire: (ev: string, e: any, ctx?: any) => Promise<void> } {
   const handlers: Record<string, Array<(e: any, ctx?: any) => Promise<void> | void>> = {};
   const pi: any = {
-    on: (ev: string, h: any) => { (handlers[ev] ??= []).push(h); },
-    registerTool() {}, registerCommand() {},
+    on: (ev: string, h: any) => {
+      (handlers[ev] ??= []).push(h);
+    },
+    registerTool() {},
+    registerCommand() {},
   };
   const fire = async (ev: string, e: any, ctx?: any) => {
     for (const h of handlers[ev] ?? []) await h(e, ctx);
@@ -79,7 +82,10 @@ describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)
     const store = stubStore({
       block: "M",
       mdIds: [MD_A, MD_B],
-      signatures: [{ mdId: MD_A, signature: SIG_A }, { mdId: MD_B, signature: SIG_B }],
+      signatures: [
+        { mdId: MD_A, signature: SIG_A },
+        { mdId: MD_B, signature: SIG_B },
+      ],
     });
     const records: RecordCall[] = [];
     let populated: Signature[] | null = null;
@@ -88,9 +94,15 @@ describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)
     await captureAssembly({
       getSessionId: () => "sess-join",
       build: () => buildPromptAssembly({ memoryMode: "default" } as any, store, null, "p"),
-      record: (sid, mdIds, hash) => { records.push({ sid, mdIds: [...mdIds], hash }); return Promise.resolve(); },
+      record: (sid, mdIds, hash) => {
+        records.push({ sid, mdIds: [...mdIds], hash });
+        return Promise.resolve();
+      },
       // Problem A: onReceipt populates the surfaced set from the SAME receipt.
-      onReceipt: (r) => { populated = r.signatures; surfaced.populate(r.signatures); },
+      onReceipt: (r) => {
+        populated = r.signatures;
+        surfaced.populate(r.signatures);
+      },
     });
 
     assert.strictEqual(records.length, 1);
@@ -101,10 +113,7 @@ describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)
     const surfacedMdIds = populated.map((s) => s.mdId).sort();
     assert.deepEqual(surfacedMdIds, recordedMdIds);
     // And the REAL set, when probed, returns exactly those mdIds (populate wired).
-    assert.deepEqual(
-      surfaced.matchAndForget(normalizeForSignature(`${BODY_A} ${BODY_B}`)).sort(),
-      recordedMdIds,
-    );
+    assert.deepEqual(surfaced.matchAndForget(normalizeForSignature(`${BODY_A} ${BODY_B}`)).sort(), recordedMdIds);
   });
 
   it("onReceipt fires exactly once, AFTER record landed (no double build)", async () => {
@@ -118,8 +127,14 @@ describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)
         buildCount++;
         return { mdIds: [MD_A], hash: "h".repeat(8), signatures: [{ mdId: MD_A, signature: SIG_A }] };
       },
-      record: () => { order.push("record"); return Promise.resolve(); },
-      onReceipt: () => { onReceiptCount++; order.push("onReceipt"); },
+      record: () => {
+        order.push("record");
+        return Promise.resolve();
+      },
+      onReceipt: () => {
+        onReceiptCount++;
+        order.push("onReceipt");
+      },
     });
 
     assert.strictEqual(buildCount, 1, "build called exactly once (no double-render)");
@@ -135,8 +150,12 @@ describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)
     const landed = await captureAssembly({
       getSessionId: () => "sess-null",
       build: () => null, // policy-only / empty store
-      record: () => { throw new Error("record must not be called"); },
-      onReceipt: () => { onReceiptCount++; },
+      record: () => {
+        throw new Error("record must not be called");
+      },
+      onReceipt: () => {
+        onReceiptCount++;
+      },
     });
     assert.strictEqual(landed, false);
     assert.strictEqual(onReceiptCount, 0);
@@ -147,9 +166,14 @@ describe("Task 6 — §5↔§9 join invariant (captureAssembly → surfaced set)
     let onReceiptCount = 0;
     const landed = await captureAssembly({
       getSessionId: () => undefined,
-      build: () => { buildCount++; return { mdIds: [MD_A], hash: "h", signatures: [] }; },
+      build: () => {
+        buildCount++;
+        return { mdIds: [MD_A], hash: "h", signatures: [] };
+      },
       record: () => Promise.resolve(),
-      onReceipt: () => { onReceiptCount++; },
+      onReceipt: () => {
+        onReceiptCount++;
+      },
     });
     assert.strictEqual(landed, false);
     assert.strictEqual(buildCount, 0);
@@ -190,7 +214,10 @@ describe("Task 6 — disable path (usedDetection === false)", () => {
     const store = stubStore({
       block: "M",
       mdIds: [MD_A, MD_B],
-      signatures: [{ mdId: MD_A, signature: SIG_A }, { mdId: MD_B, signature: SIG_B }],
+      signatures: [
+        { mdId: MD_A, signature: SIG_A },
+        { mdId: MD_B, signature: SIG_B },
+      ],
     });
 
     await captureAssembly({
@@ -201,9 +228,7 @@ describe("Task 6 — disable path (usedDetection === false)", () => {
     });
 
     // Both signatures are live → both match.
-    const matched = surfaced
-      .matchAndForget(normalizeForSignature(`${BODY_A} ... ${BODY_B}`))
-      .sort();
+    const matched = surfaced.matchAndForget(normalizeForSignature(`${BODY_A} ... ${BODY_B}`)).sort();
     assert.deepEqual(matched, [MD_A, MD_B]);
   });
 });
@@ -254,7 +279,7 @@ describe("Task 6 — end-to-end smoke (capture → message_end → turn_end → 
       markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
         calls.push({ sid, mdIds: [...mdIds], usedAt }),
     };
-    let activeSessionId: string | undefined = "sess-e2e-nomatch";
+    const activeSessionId: string | undefined = "sess-e2e-nomatch";
     setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
     surfaced.populate([{ mdId: MD_A, signature: SIG_A }]);
 
@@ -274,7 +299,7 @@ describe("Task 6 — end-to-end smoke (capture → message_end → turn_end → 
       markUsed: async (sid: string, mdIds: readonly string[], usedAt: string) =>
         calls.push({ sid, mdIds: [...mdIds], usedAt }),
     };
-    let activeSessionId: string | undefined = "sess-mono";
+    const activeSessionId: string | undefined = "sess-mono";
     setupUsedDetection(pi, sessionRepo, surfaced, {} as any, () => activeSessionId ?? null);
     surfaced.populate([{ mdId: MD_A, signature: SIG_A }]);
 

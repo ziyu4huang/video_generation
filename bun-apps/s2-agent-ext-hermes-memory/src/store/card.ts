@@ -38,7 +38,7 @@ export interface Card {
   kind: CardKind;
   content: string;
   frontmatter: Record<string, unknown>;
-  graph?: CardGraph;        // 03 — persisted (nullable `graph` JSON col); not indexed
+  graph?: CardGraph; // 03 — persisted (nullable `graph` JSON col); not indexed
 }
 
 /** Graph fields a card MAY carry. Populated by KnowledgeSerializer from vault-md

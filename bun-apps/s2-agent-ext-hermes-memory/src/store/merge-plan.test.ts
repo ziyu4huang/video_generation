@@ -1,20 +1,20 @@
-import { test, expect } from "bun:test";
-import {
-  hashEntry,
-  snapshotBaseHash,
-  mergePlanValidate,
-  buildSnapshot,
-  applyMergePlan,
-  parseEntry,
-  NEUTRAL_HEAT,
-  type MergePlan,
-} from "./merge-plan.js";
+import { expect, test } from "bun:test";
 import { serializeMetadataFrontmatter } from "./memory-format.js";
+import {
+  applyMergePlan,
+  buildSnapshot,
+  hashEntry,
+  type MergePlan,
+  mergePlanValidate,
+  NEUTRAL_HEAT,
+  parseEntry,
+  snapshotBaseHash,
+} from "./merge-plan.js";
 
 test("hashEntry is deterministic and content-sensitive", () => {
   const a = "some memory\n<!-- created=2026-08-01, last=2026-08-01 -->";
   expect(hashEntry(a)).toBe(hashEntry(a));
-  expect(hashEntry(a)).not.toBe(hashEntry(a + " "));
+  expect(hashEntry(a)).not.toBe(hashEntry(`${a} `));
   expect(hashEntry(a)).toMatch(/^[0-9a-f]{16}$/);
 });
 
@@ -39,8 +39,7 @@ test("mergePlanValidate accepts a well-formed plan and rejects malformed", () =>
   expect(() => mergePlanValidate(bad)).toThrow();
 });
 
-const E = (c: string, created = "2026-08-01", last = "2026-08-01") =>
-  `${c}\n<!-- created=${created}, last=${last} -->`;
+const E = (c: string, created = "2026-08-01", last = "2026-08-01") => `${c}\n<!-- created=${created}, last=${last} -->`;
 
 test("buildSnapshot hashes each entry, strips content, totals chars", () => {
   const enc = [E("alpha"), E("beta")];
@@ -133,7 +132,11 @@ test("parseEntry surfaces mdId from frontmatter and undefined for comment-shape"
 
 test("buildSnapshot: with heats, entries are ordered lowest-heat-first", () => {
   const enc = [FM("m-hot", "HOT body"), FM("m-cold", "COLD body"), FM("m-warm", "WARM body")];
-  const heats = new Map([["m-hot", 0.9], ["m-cold", 0.1], ["m-warm", 0.5]]);
+  const heats = new Map([
+    ["m-hot", 0.9],
+    ["m-cold", 0.1],
+    ["m-warm", 0.5],
+  ]);
   const snap = buildSnapshot("memory", enc, 40_000, heats);
   expect(snap.entries.map((e) => e.content)).toEqual(["COLD body", "WARM body", "HOT body"]);
 });
@@ -150,7 +153,11 @@ test("buildSnapshot: WITHOUT heats, entry order is unchanged (disable-path parit
 
 test("buildSnapshot: equal-heat entries keep their parse order (stable tiebreak)", () => {
   const enc = [FM("m-a", "A body"), FM("m-b", "B body"), FM("m-c", "C body")];
-  const heats = new Map([["m-a", 0.5], ["m-b", 0.5], ["m-c", 0.5]]); // all equal
+  const heats = new Map([
+    ["m-a", 0.5],
+    ["m-b", 0.5],
+    ["m-c", 0.5],
+  ]); // all equal
   const snap = buildSnapshot("memory", enc, 40_000, heats);
   expect(snap.entries.map((e) => e.content)).toEqual(["A body", "B body", "C body"]);
 });
@@ -161,7 +168,10 @@ test("buildSnapshot: entries with missing/absent mdId place at NEUTRAL heat betw
   // lower-heat (cold 0.1) and higher-heat (hot 0.9) entries, keeping parse
   // order among themselves.
   const enc = [E("LEGACY no id"), FM("m-cold", "COLD body"), FM("m-absent", "ABSENT body"), FM("m-hot", "HOT body")];
-  const heats = new Map([["m-cold", 0.1], ["m-hot", 0.9]]); // legacy + m-absent absent
+  const heats = new Map([
+    ["m-cold", 0.1],
+    ["m-hot", 0.9],
+  ]); // legacy + m-absent absent
   const snap = buildSnapshot("memory", enc, 40_000, heats);
   // ascending: cold(0.1) → [legacy(0.5), absent(0.5) stable] → hot(0.9)
   expect(snap.entries.map((e) => e.content)).toEqual(["COLD body", "LEGACY no id", "ABSENT body", "HOT body"]);
@@ -169,9 +179,16 @@ test("buildSnapshot: entries with missing/absent mdId place at NEUTRAL heat betw
 
 test("snapshotBaseHash is IDENTICAL regardless of heat-sort (the critical reconcile safety property)", () => {
   const enc = [FM("m-hot", "HOT body"), FM("m-cold", "COLD body"), FM("m-warm", "WARM body")];
-  const heatsAsc = new Map([[
-    "m-hot", 0.9], ["m-cold", 0.1], ["m-warm", 0.5]]);
-  const heatsDesc = new Map([["m-hot", 0.1], ["m-cold", 0.9], ["m-warm", 0.5]]); // reverses the sort
+  const heatsAsc = new Map([
+    ["m-hot", 0.9],
+    ["m-cold", 0.1],
+    ["m-warm", 0.5],
+  ]);
+  const heatsDesc = new Map([
+    ["m-hot", 0.1],
+    ["m-cold", 0.9],
+    ["m-warm", 0.5],
+  ]); // reverses the sort
   const noHeats = buildSnapshot("memory", enc, 40_000);
   const withHeats = buildSnapshot("memory", enc, 40_000, heatsAsc);
   const withReversedHeats = buildSnapshot("memory", enc, 40_000, heatsDesc);

@@ -121,7 +121,9 @@ export function searchSessionAnchors(
   };
 }
 
-function parseMarkdownRequest(markdown: string): { success: true; request: ParsedAnchorRequest } | { success: false; message: string } {
+function parseMarkdownRequest(
+  markdown: string,
+): { success: true; request: ParsedAnchorRequest } | { success: false; message: string } {
   if (!markdown || markdown.trim().length === 0) {
     return { success: false, message: "markdown is required" };
   }
@@ -154,7 +156,10 @@ function parseMarkdownRequest(markdown: string): { success: true; request: Parse
 
       if (LIST_FIELDS.has(field)) {
         if (value.trim().length > 0) {
-          return { success: false, message: `Invalid list section '${field}'. Use '${field}:' followed by '- item' lines.` };
+          return {
+            success: false,
+            message: `Invalid list section '${field}'. Use '${field}:' followed by '- item' lines.`,
+          };
         }
         currentList = field as "all" | "any" | "exclude";
       } else {
@@ -233,9 +238,10 @@ function parseDateTime(value: string, boundary: "from" | "to"): Date | null {
     const year = Number(dateOnly[1]);
     const month = Number(dateOnly[2]);
     const day = Number(dateOnly[3]);
-    const date = boundary === "from"
-      ? new Date(year, month - 1, day, 0, 0, 0, 0)
-      : new Date(year, month - 1, day, 23, 59, 59, 999);
+    const date =
+      boundary === "from"
+        ? new Date(year, month - 1, day, 0, 0, 0, 0)
+        : new Date(year, month - 1, day, 23, 59, 59, 999);
     if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
       return null;
     }
@@ -343,7 +349,7 @@ function mergeAdjacentHits(hits: LineHit[]): PendingRange[] {
     if (last && last.path === hit.path && last.endLine + 1 === hit.lineNumber && last.reason === hit.reason) {
       last.endLine = hit.lineNumber;
       last.score += hit.score;
-      last.text += "\n" + hit.text;
+      last.text += `\n${hit.text}`;
       last.sessionId ??= hit.sessionId;
       last.cwd ??= hit.cwd;
       if (!last.startTime && hit.timestamp) last.startTime = hit.timestamp;

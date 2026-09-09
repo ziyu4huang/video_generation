@@ -27,23 +27,17 @@
  */
 
 import fs from "node:fs";
-import { SqliteBackend, type DatabaseLike } from "./sqlite-backend.js";
-import { runWithTransientRetry } from "./sqlite-backend.js";
 import type {
+  BulkIndexResult,
+  IncrementalIndexOptions,
+  IndexResult,
   SessionRepository,
   SessionSearchResult,
   SessionStats,
-  IndexResult,
-  BulkIndexResult,
-  IncrementalIndexOptions,
 } from "../repository.js";
-import { parseSessionFile, getSessionFiles } from "../session-parser.js";
-import {
-  buildFallbackFts5Query,
-  hasExplicitFts5Operator,
-  isFts5QueryError,
-  normalizeFts5Query,
-} from "./fts-query.js";
+import { getSessionFiles, parseSessionFile } from "../session-parser.js";
+import { buildFallbackFts5Query, hasExplicitFts5Operator, isFts5QueryError, normalizeFts5Query } from "./fts-query.js";
+import { type DatabaseLike, runWithTransientRetry, SqliteBackend } from "./sqlite-backend.js";
 
 // ---------------------------------------------------------------------------
 // Constants (copied verbatim from session-indexer.ts).
@@ -155,14 +149,7 @@ export class SqliteSessionRepository implements SessionRepository {
 
     const messages = session.messages ?? [];
 
-    insertSession.run(
-      session.id,
-      session.project,
-      session.cwd,
-      session.startedAt,
-      session.endedAt,
-      messages.length,
-    );
+    insertSession.run(session.id, session.project, session.cwd, session.startedAt, session.endedAt, messages.length);
 
     for (const msg of messages) {
       insertMsg.run(
@@ -193,9 +180,7 @@ export class SqliteSessionRepository implements SessionRepository {
     const session: SessionInput = {
       ...sessionRaw,
       cwd: sessionRaw.cwd ?? "/unknown",
-      project:
-        sessionRaw.project ??
-        (sessionRaw.cwd ? sessionRaw.cwd.split("/").pop() || sessionRaw.cwd : "unknown"),
+      project: sessionRaw.project ?? (sessionRaw.cwd ? sessionRaw.cwd.split("/").pop() || sessionRaw.cwd : "unknown"),
       startedAt: sessionRaw.startedAt ?? messages[0]?.timestamp ?? new Date().toISOString(),
       endedAt: sessionRaw.endedAt ?? null,
     };
@@ -250,9 +235,7 @@ export class SqliteSessionRepository implements SessionRepository {
     return { path: filePath, size: stat.size, mtimeMs: Math.trunc(stat.mtimeMs) };
   }
 
-  private getStoredSessionFileMetadata(
-    filePath: string,
-  ): { size: number; mtime_ms: number } | undefined {
+  private getStoredSessionFileMetadata(filePath: string): { size: number; mtime_ms: number } | undefined {
     return this.db.prepare("SELECT size, mtime_ms FROM session_files WHERE path = ?").get(filePath) as
       | { size: number; mtime_ms: number }
       | undefined;
@@ -270,7 +253,8 @@ export class SqliteSessionRepository implements SessionRepository {
     metadata: SessionFileMetadata = this.getSessionFileMetadata(filePath),
     indexedAt: Date = new Date(),
   ): void {
-    this.db.prepare(`
+    this.db
+      .prepare(`
       INSERT INTO session_files (path, session_id, size, mtime_ms, indexed_at)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(path) DO UPDATE SET
@@ -278,7 +262,8 @@ export class SqliteSessionRepository implements SessionRepository {
         size = excluded.size,
         mtime_ms = excluded.mtime_ms,
         indexed_at = excluded.indexed_at
-    `).run(metadata.path, sessionId, metadata.size, metadata.mtimeMs, indexedAt.toISOString());
+    `)
+      .run(metadata.path, sessionId, metadata.size, metadata.mtimeMs, indexedAt.toISOString());
   }
 
   private emptyBulkIndexResult(): BulkIndexResult {
@@ -303,10 +288,10 @@ export class SqliteSessionRepository implements SessionRepository {
 
     // Mirrors indexSessionOnce but returns IndexResult-equivalent accounting.
     const db = this.backend.getDb();
-    const existing = db.prepare("SELECT id FROM sessions WHERE id = ?").get(session.id) as
-      | { id: string }
-      | undefined;
-    const before = (db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }).count;
+    const existing = db.prepare("SELECT id FROM sessions WHERE id = ?").get(session.id) as { id: string } | undefined;
+    const before = (
+      db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }
+    ).count;
     const write = () => this.writeSessionToDb(db, session);
     if (db.transaction) {
       db.transaction(write)();
@@ -314,7 +299,9 @@ export class SqliteSessionRepository implements SessionRepository {
       write();
     }
     this.upsertSessionFileMetaInternal(file, session.id);
-    const after = (db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }).count;
+    const after = (
+      db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }
+    ).count;
     const messagesIndexed = after - before;
     const skipped = Boolean(existing) && messagesIndexed === 0;
 
@@ -349,13 +336,15 @@ export class SqliteSessionRepository implements SessionRepository {
       throw new Error("indexSessionFileInTx requires transaction support");
     }
     const doSession = db.transaction((): { existed: boolean; messagesIndexed: number } => {
-      const existing = db.prepare("SELECT id FROM sessions WHERE id = ?").get(session.id) as
-        | { id: string }
-        | undefined;
-      const before = (db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }).count;
+      const existing = db.prepare("SELECT id FROM sessions WHERE id = ?").get(session.id) as { id: string } | undefined;
+      const before = (
+        db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }
+      ).count;
       this.writeSessionToDb(db, session);
       this.upsertSessionFileMetaInternal(file, session.id);
-      const after = (db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }).count;
+      const after = (
+        db.prepare("SELECT COUNT(*) as count FROM messages WHERE session_id = ?").get(session.id) as { count: number }
+      ).count;
       return { existed: Boolean(existing), messagesIndexed: after - before };
     });
 
@@ -405,10 +394,7 @@ export class SqliteSessionRepository implements SessionRepository {
   // indexAllSessions — from indexAllSessions.
   // -------------------------------------------------------------------------
 
-  async indexAllSessions(
-    sessionsDir: string,
-    projectDir?: string,
-  ): Promise<BulkIndexResult> {
+  async indexAllSessions(sessionsDir: string, projectDir?: string): Promise<BulkIndexResult> {
     return runWithTransientRetry(() =>
       this.backend.withCorruptionRecovery(() => {
         const files = getSessionFiles(sessionsDir, projectDir);
@@ -429,10 +415,7 @@ export class SqliteSessionRepository implements SessionRepository {
   // indexChangedSessions — from indexChangedSessions.
   // -------------------------------------------------------------------------
 
-  async indexChangedSessions(
-    sessionsDir: string,
-    options: IncrementalIndexOptions = {},
-  ): Promise<BulkIndexResult> {
+  async indexChangedSessions(sessionsDir: string, options: IncrementalIndexOptions = {}): Promise<BulkIndexResult> {
     return runWithTransientRetry(() =>
       this.backend.withCorruptionRecovery(() => {
         const files = getSessionFiles(sessionsDir, options.projectDir);
@@ -502,9 +485,9 @@ export class SqliteSessionRepository implements SessionRepository {
   // -------------------------------------------------------------------------
 
   private getLastBackfillTimestamp(): string | null {
-    const row = this.db.prepare("SELECT value FROM extension_metadata WHERE key = ?").get(
-      LAST_SESSION_BACKFILL_KEY,
-    ) as { value: string } | undefined;
+    const row = this.db.prepare("SELECT value FROM extension_metadata WHERE key = ?").get(LAST_SESSION_BACKFILL_KEY) as
+      | { value: string }
+      | undefined;
     return row?.value ?? null;
   }
 
@@ -549,11 +532,13 @@ export class SqliteSessionRepository implements SessionRepository {
     return runWithTransientRetry(() =>
       this.backend.withCorruptionRecovery(() => {
         const ts = timestamp ? new Date(timestamp) : new Date();
-        this.db.prepare(`
+        this.db
+          .prepare(`
           INSERT INTO extension_metadata (key, value)
           VALUES (?, ?)
           ON CONFLICT(key) DO UPDATE SET value = excluded.value
-        `).run(LAST_SESSION_BACKFILL_KEY, ts.toISOString());
+        `)
+          .run(LAST_SESSION_BACKFILL_KEY, ts.toISOString());
       }),
     );
   }
@@ -575,9 +560,7 @@ export class SqliteSessionRepository implements SessionRepository {
         const db = this.backend.getDb();
         const { limit = 10, project, role } = options;
 
-        type SearchMatch =
-          | { type: "fts"; query: string }
-          | { type: "like"; terms: string[] };
+        type SearchMatch = { type: "fts"; query: string } | { type: "like"; terms: string[] };
 
         const executeSearch = (match: SearchMatch): SessionSearchResult[] => {
           const conditions: string[] = [];
@@ -710,29 +693,18 @@ export class SqliteSessionRepository implements SessionRepository {
    * sessions row is created later by deferred backfill, so `session_id` is a
    * plain join key here, not a foreign key.
    */
-  private writeAssemblyToDb(
-    db: DatabaseLike,
-    sessionId: string,
-    mdIds: readonly string[],
-    hash: string,
-  ): void {
+  private writeAssemblyToDb(db: DatabaseLike, sessionId: string, mdIds: readonly string[], hash: string): void {
     const now = new Date().toISOString();
     db.prepare(
       "INSERT INTO session_assembly_meta (session_id, hash, captured_at) VALUES (?, ?, ?) " +
         "ON CONFLICT(session_id) DO UPDATE SET hash = excluded.hash, captured_at = excluded.captured_at",
     ).run(sessionId, hash, now);
     db.prepare("DELETE FROM session_assembly WHERE session_id = ?").run(sessionId);
-    const ins = db.prepare(
-      "INSERT OR IGNORE INTO session_assembly (session_id, md_id) VALUES (?, ?)",
-    );
+    const ins = db.prepare("INSERT OR IGNORE INTO session_assembly (session_id, md_id) VALUES (?, ?)");
     for (const id of mdIds) ins.run(sessionId, id);
   }
 
-  async recordAssembly(
-    sessionId: string,
-    mdIds: readonly string[],
-    hash: string,
-  ): Promise<void> {
+  async recordAssembly(sessionId: string, mdIds: readonly string[], hash: string): Promise<void> {
     await runWithTransientRetry(() =>
       this.backend.withCorruptionRecovery(() => {
         const db = this.backend.getDb();
@@ -761,11 +733,7 @@ export class SqliteSessionRepository implements SessionRepository {
    * `session_assembly_meta` or any other table. Mirrors `recordAssembly`'s
    * transient-retry + corruption-recovery safety envelope.
    */
-  async markUsed(
-    sessionId: string,
-    mdIds: readonly string[],
-    usedAt: string,
-  ): Promise<void> {
+  async markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void> {
     await runWithTransientRetry(() =>
       this.backend.withCorruptionRecovery(() => {
         if (mdIds.length === 0) return;
@@ -796,10 +764,7 @@ export class SqliteSessionRepository implements SessionRepository {
    * corruption-recovery envelope. NEVER touches `session_assembly_meta` or any
    * other table.
    */
-  async getUsedMdIds(
-    mdIds: string[],
-    _opts: { project: string | null },
-  ): Promise<Set<string>> {
+  async getUsedMdIds(mdIds: string[], _opts: { project: string | null }): Promise<Set<string>> {
     return runWithTransientRetry(() =>
       this.backend.withCorruptionRecovery(() => {
         if (mdIds.length === 0) return new Set<string>();
@@ -822,13 +787,16 @@ export class SqliteSessionRepository implements SessionRepository {
   async getSessionStats(): Promise<SessionStats> {
     return runWithTransientRetry(() =>
       this.backend.withCorruptionRecovery(() => {
-        const totals = this.db.prepare(`
+        const totals = this.db
+          .prepare(`
           SELECT
             (SELECT COUNT(*) FROM sessions) as sessions,
             (SELECT COUNT(*) FROM messages) as messages
-        `).get() as { sessions: number; messages: number };
+        `)
+          .get() as { sessions: number; messages: number };
 
-        const projects = this.db.prepare(`
+        const projects = this.db
+          .prepare(`
           SELECT
             s.project,
             COUNT(DISTINCT s.id) as sessions,
@@ -837,7 +805,8 @@ export class SqliteSessionRepository implements SessionRepository {
           LEFT JOIN messages m ON m.session_id = s.id
           GROUP BY s.project
           ORDER BY sessions DESC
-        `).all() as { project: string | null; sessions: number; messages: number }[];
+        `)
+          .all() as { project: string | null; sessions: number; messages: number }[];
 
         return {
           totalSessions: totals.sessions,

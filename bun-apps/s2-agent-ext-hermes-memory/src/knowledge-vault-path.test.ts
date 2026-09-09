@@ -1,9 +1,9 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveKnowledgeVaultPath, KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT } from "./knowledge-vault-path.js";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { KNOWLEDGE_FOLDER_DEFAULT, KNOWLEDGE_MOC_DEFAULT, resolveKnowledgeVaultPath } from "./knowledge-vault-path.js";
 
 describe("resolveKnowledgeVaultPath (env-only)", () => {
   let vaultA: string;

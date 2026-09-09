@@ -11,38 +11,46 @@
  * - Content scanning before any write
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { AsyncLocalStorage } from "node:async_hooks";
 import * as lockfile from "proper-lockfile";
 import {
-  serializeMetadataFrontmatter,
-  detectEntryShape,
-  upgradeEntryToFrontmatter,
-  defaultStateForCategory,
-  decodeMemoryEntry,
-} from "./memory-format.js";
-import { scanContent } from "./content-scanner.js";
-import { normalizeMemoryLookupText } from "./memory-lookup.js";
-import { buildSnapshot, applyMergePlan } from "./merge-plan.js";
-import type { ConsolidationSnapshot, MergePlan } from "./merge-plan.js";
-import {
-  ENTRY_DELIMITER,
-  DEFAULT_MEMORY_CHAR_LIMIT,
-  DEFAULT_USER_CHAR_LIMIT,
   DEFAULT_FAILURE_CHAR_LIMIT,
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
   DEFAULT_USED_SIGNATURE_MIN_CHARS,
+  ENTRY_DELIMITER,
   MEMORY_FILE,
   USER_FILE,
 } from "../constants.js";
 import { splitMemoryEntries } from "../merge-union.js";
-import type { MemoryConfig, MemoryResult, MemorySnapshot, ConsolidationResult, MemoryCategory, MemoryOverflowStrategy, Provenance, MemorySource, FailureState } from "../types.js";
 import { AGENT_ROOT } from "../paths.js";
+import type { TimedAlwaysFn, TimedFn } from "../perf.js";
+import type {
+  ConsolidationResult,
+  FailureState,
+  MemoryCategory,
+  MemoryConfig,
+  MemoryOverflowStrategy,
+  MemoryResult,
+  MemorySnapshot,
+  MemorySource,
+  Provenance,
+} from "../types.js";
 import { envInt } from "../utils/env.js";
+import { scanContent } from "./content-scanner.js";
+import {
+  decodeMemoryEntry,
+  defaultStateForCategory,
+  detectEntryShape,
+  serializeMetadataFrontmatter,
+  upgradeEntryToFrontmatter,
+} from "./memory-format.js";
+import { normalizeMemoryLookupText } from "./memory-lookup.js";
+import type { ConsolidationSnapshot, MergePlan } from "./merge-plan.js";
+import { applyMergePlan, buildSnapshot } from "./merge-plan.js";
 import { computeSignature } from "./signature.js";
-import type { TimedFn, TimedAlwaysFn } from "../perf.js";
 
 /**
  * proper-lockfile throws a code `ELOCKED` error (message "Lock file is already
@@ -77,8 +85,17 @@ type TwoPhaseResult = ConsolidationResult & {
  * Keeps `MemoryStore` free of a direct `MemoryRepository` reference.
  */
 export interface StableIdBackfillProvider {
-  getMdIdByContent(target: "memory" | "user" | "failure", content: string, project: string | null): Promise<string | null>;
-  setMdIdByContent(target: "memory" | "user" | "failure", content: string, mdId: string, project: string | null): Promise<number>;
+  getMdIdByContent(
+    target: "memory" | "user" | "failure",
+    content: string,
+    project: string | null,
+  ): Promise<string | null>;
+  setMdIdByContent(
+    target: "memory" | "user" | "failure",
+    content: string,
+    mdId: string,
+    project: string | null,
+  ): Promise<number>;
 }
 
 /**
@@ -125,7 +142,10 @@ export class MemoryStore {
    *  LLM (step 2) runs with the cross-process file lock RELEASED, so concurrent
    *  sibling-session writers are no longer blocked for up to ~60s. */
   private consolidator:
-    | ((snapshot: ConsolidationSnapshot, signal?: AbortSignal) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>)
+    | ((
+        snapshot: ConsolidationSnapshot,
+        signal?: AbortSignal,
+      ) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>)
     | null = null;
   /** Human-readable label of the consolidator's model (for progress reporting). */
   private consolidatorModelLabel?: string;
@@ -150,7 +170,10 @@ export class MemoryStore {
    * reconcile-write (step 3) in {@link consolidateTwoPhase}.
    */
   setConsolidator(
-    fn: (snapshot: ConsolidationSnapshot, signal?: AbortSignal) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>,
+    fn: (
+      snapshot: ConsolidationSnapshot,
+      signal?: AbortSignal,
+    ) => Promise<{ plan: MergePlan } | { error: string; terminated?: boolean }>,
     modelLabel?: string,
   ): void {
     this.consolidator = fn;
@@ -245,10 +268,7 @@ export class MemoryStore {
    * full candidate pool is cheaper and deterministic (evicted entries simply
    * drop out of the candidate array as the loop splices them).
    */
-  private heatInputsFor(
-    _target: "memory" | "user" | "failure",
-    entries: string[],
-  ): HeatEntryInput[] {
+  private heatInputsFor(_target: "memory" | "user" | "failure", entries: string[]): HeatEntryInput[] {
     const inputs: HeatEntryInput[] = [];
     for (const entry of entries) {
       if (this.isPinned(entry)) continue; // pin never scored (spared regardless)
@@ -292,10 +312,7 @@ export class MemoryStore {
    * FIFO/file-order (byte-identical eviction). Pin is ALWAYS spared in both
    * modes (unchanged from ticket 02).
    */
-  private pickVictimIndex(
-    candidates: string[],
-    heats: Map<string, number> | null,
-  ): number {
+  private pickVictimIndex(candidates: string[], heats: Map<string, number> | null): number {
     let victimIdx = -1;
     let victimHeat = Number.POSITIVE_INFINITY;
     for (let i = 0; i < candidates.length; i++) {
@@ -390,10 +407,7 @@ export class MemoryStore {
   // is lock-free and step 3 acquires the lock normally — so in production this
   // branch is not taken; it remains for ad-hoc/test bypass of the cross-process
   // lock.
-  private async withFileLock<T>(
-    target: "memory" | "user" | "failure",
-    fn: () => Promise<T>,
-  ): Promise<T> {
+  private async withFileLock<T>(target: "memory" | "user" | "failure", fn: () => Promise<T>): Promise<T> {
     if (process.env.PI_MEMORY_FILE_LOCK === "bypass") return fn();
     const lockPath = this.pathFor(target);
     if (this._heldFileLocks.has(lockPath)) return fn(); // re-entrant same-instance call
@@ -426,7 +440,10 @@ export class MemoryStore {
         });
         this._heldFileLocks.add(lockPath);
         try {
-          return await this.perfTimed(`fileLock.hold.${target}`, fn, { thresholdMs: lockThresholdMs, kind: "fileLock" });
+          return await this.perfTimed(`fileLock.hold.${target}`, fn, {
+            thresholdMs: lockThresholdMs,
+            kind: "fileLock",
+          });
         } finally {
           this._heldFileLocks.delete(lockPath);
           await release().catch(() => {});
@@ -489,7 +506,8 @@ export class MemoryStore {
     // (the load-bearing backward-compat invariant). `pinnedEntries` is still
     // computed above so `effectiveLimit` reserves room for pinned survivors in
     // BOTH paths; pin-exclusion of the snapshot happens via `candidates`/filter.
-    const consolidatable = candidates ?? (pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries);
+    const consolidatable =
+      candidates ?? (pinnedEntries.length ? allEntries.filter((e) => !this.isPinned(e)) : allEntries);
     const effectiveLimit = Math.max(0, this.charLimit(target) - pinnedEntries.join(ENTRY_DELIMITER).length);
     // Heat-sort (UPSP §1, ticket #1b, Task 5): when a heat provider is wired
     // (decay enabled), fetch heats for the consolidatable entries and pass them
@@ -513,15 +531,17 @@ export class MemoryStore {
     // in original order); only entries still referenced by the plan are dropped.
     let applied = 0;
     let skipped = 0;
-    await this.runExclusive(() => this.withFileLock(target, async () => {
-      await this.loadFromDisk();
-      const live = this.entriesFor(target);
-      const r = applyMergePlan(live, res.plan);
-      this.setEntries(target, r.entries);
-      await this.saveToDisk(target);
-      applied = r.applied.length;
-      skipped = r.skipped.length;
-    }));
+    await this.runExclusive(() =>
+      this.withFileLock(target, async () => {
+        await this.loadFromDisk();
+        const live = this.entriesFor(target);
+        const r = applyMergePlan(live, res.plan);
+        this.setEntries(target, r.entries);
+        await this.saveToDisk(target);
+        applied = r.applied.length;
+        skipped = r.skipped.length;
+      }),
+    );
     return { consolidated: applied > 0, applied, skipped };
   }
 
@@ -624,7 +644,7 @@ export class MemoryStore {
     const K = cfg.proactiveMaxCandidates;
     const candidates = below
       .map((e, i) => ({ e, i, h: this.heatOf(e, heats) }))
-      .sort((a, b) => (a.h - b.h) || (a.i - b.i))
+      .sort((a, b) => a.h - b.h || a.i - b.i)
       .slice(0, K)
       .map((x) => x.e);
     this.lastProactiveRun.set(target, now);
@@ -734,8 +754,12 @@ export class MemoryStore {
         let reused = false;
         try {
           const existing = provider ? await provider.getMdIdByContent(target, stripped, null) : null;
-          if (existing) { id = existing; reused = true; }
-          else { id = globalThis.crypto.randomUUID(); }
+          if (existing) {
+            id = existing;
+            reused = true;
+          } else {
+            id = globalThis.crypto.randomUUID();
+          }
         } catch {
           /* best-effort: fall through to minting a fresh id */
           id = globalThis.crypto.randomUUID();
@@ -746,8 +770,10 @@ export class MemoryStore {
         // Only mirror when we minted a fresh id; a reused id is already on the DB row.
         if (!reused && provider) {
           try {
-            if (await provider.setMdIdByContent(target, stripped, id, null) > 0) mdIdsMirrored++;
-          } catch { /* best-effort: next startup re-matches by content + completes */ }
+            if ((await provider.setMdIdByContent(target, stripped, id, null)) > 0) mdIdsMirrored++;
+          } catch {
+            /* best-effort: next startup re-matches by content + completes */
+          }
         }
       }
       if (changed) await this.saveToDisk(target);
@@ -770,9 +796,10 @@ export class MemoryStore {
   ): Promise<MemoryResult> {
     const signal = options?.signal;
     const onProgress = options?.onProgress;
-    const meta = options?.provenance || options?.sources
-      ? { provenance: options?.provenance, sources: options?.sources }
-      : undefined;
+    const meta =
+      options?.provenance || options?.sources
+        ? { provenance: options?.provenance, sources: options?.sources }
+        : undefined;
     if (options?.category) {
       // Tag the entry with its category label (decoupled from the storage home,
       // per the memory model: any home may carry category labels for retrieval).
@@ -782,18 +809,21 @@ export class MemoryStore {
     return this._add(target, content, signal, undefined, undefined, onProgress, meta);
   }
 
-  async addFailure(content: string, options: {
-    category: MemoryCategory;
-    failureReason?: string;
-    toolState?: string;
-    correctedTo?: string;
-    project?: string;
-    onProgress?: (message: string) => void;
-    provenance?: Provenance;
-    sources?: MemorySource[];
-    state?: FailureState;
-    severity?: number;
-  }): Promise<MemoryResult> {
+  async addFailure(
+    content: string,
+    options: {
+      category: MemoryCategory;
+      failureReason?: string;
+      toolState?: string;
+      correctedTo?: string;
+      project?: string;
+      onProgress?: (message: string) => void;
+      provenance?: Provenance;
+      sources?: MemorySource[];
+      state?: FailureState;
+      severity?: number;
+    },
+  ): Promise<MemoryResult> {
     const failureText = this.buildFailureMemoryText(content, options);
     // Failure-lifecycle default: every birth gets a `state` (active by default,
     // `acquired` for permanent facts like tool-quirk/convention). An explicit
@@ -806,7 +836,15 @@ export class MemoryStore {
       state,
       ...(typeof options.severity === "number" ? { severity: options.severity } : {}),
     };
-    return this._add("failure", failureText, undefined, 1, "Failure memory saved: " + options.category, options.onProgress, meta);
+    return this._add(
+      "failure",
+      failureText,
+      undefined,
+      1,
+      `Failure memory saved: ${options.category}`,
+      options.onProgress,
+      meta,
+    );
   }
 
   /**
@@ -819,17 +857,11 @@ export class MemoryStore {
    * @param query - Substring to match against stripped entry text. Omit to transfer all.
    * @returns Result with transferred_entries array + freed char count.
    */
-  async transferEntries(
-    target: "memory" | "user" | "failure",
-    query?: string,
-  ): Promise<MemoryResult> {
+  async transferEntries(target: "memory" | "user" | "failure", query?: string): Promise<MemoryResult> {
     return this.runExclusive(() => this.withFileLock(target, () => this._transferEntriesInner(target, query)));
   }
 
-  private async _transferEntriesInner(
-    target: "memory" | "user" | "failure",
-    query?: string,
-  ): Promise<MemoryResult> {
+  private async _transferEntriesInner(target: "memory" | "user" | "failure", query?: string): Promise<MemoryResult> {
     // Reload from disk so the transfer reflects the current on-disk state
     // (external mutations / cross-session edits), not the startup snapshot.
     await this.loadFromDisk();
@@ -837,7 +869,7 @@ export class MemoryStore {
     const entries = this.entriesFor(target);
 
     let transfer: string[];
-    if (query && query.trim()) {
+    if (query?.trim()) {
       const q = query.trim();
       transfer = entries.filter((e) => this.stripMetadata(e).includes(q));
     } else {
@@ -847,9 +879,7 @@ export class MemoryStore {
     if (transfer.length === 0) {
       return {
         success: false,
-        error: query
-          ? `No entries matched '${query}'.`
-          : "No entries to transfer (target is empty).",
+        error: query ? `No entries matched '${query}'.` : "No entries to transfer (target is empty).",
       };
     }
 
@@ -929,7 +959,13 @@ export class MemoryStore {
     _retriesLeft = 1,
     addedMessage = "Entry added.",
     onProgress?: (message: string) => void,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null; pin?: boolean | null },
+    meta?: {
+      provenance?: Provenance | null;
+      sources?: MemorySource[] | null;
+      state?: FailureState | null;
+      severity?: number | null;
+      pin?: boolean | null;
+    },
   ): Promise<MemoryResult> {
     // 2-PHASE RESTRUCTURE: consolidation runs OUTSIDE the held cross-process
     // file lock. `_addInner`'s overflow branch no longer consolidates in-lock;
@@ -980,11 +1016,17 @@ export class MemoryStore {
   private async _addInner(
     target: "memory" | "user" | "failure",
     content: string,
-    signal?: AbortSignal,
+    _signal?: AbortSignal,
     _retriesLeft = 1,
     addedMessage = "Entry added.",
-    onProgress?: (message: string) => void,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; state?: FailureState | null; severity?: number | null; pin?: boolean | null },
+    _onProgress?: (message: string) => void,
+    meta?: {
+      provenance?: Provenance | null;
+      sources?: MemorySource[] | null;
+      state?: FailureState | null;
+      severity?: number | null;
+      pin?: boolean | null;
+    },
     // Accumulator (D4 fix): superseded contents already purged from `.md` in a
     // PARENT frame of the consolidation-success recursion. Threaded down so a
     // child frame's floor/reject can surface the full set, and merged back up so
@@ -1054,7 +1096,10 @@ export class MemoryStore {
           this.setEntries(target, afterPurge);
           await this.saveToDisk(target);
           return {
-            ...this.successResponse(target, `Memory updated. Offloaded ${offloadedSuperseded.length} superseded ${offloadedSuperseded.length === 1 ? "entry" : "entries"} to stay within the limit.`),
+            ...this.successResponse(
+              target,
+              `Memory updated. Offloaded ${offloadedSuperseded.length} superseded ${offloadedSuperseded.length === 1 ? "entry" : "entries"} to stay within the limit.`,
+            ),
             offloaded_superseded: offloadedSuperseded,
             added_md_id: id,
           };
@@ -1253,7 +1298,10 @@ export class MemoryStore {
     const present = new Set<number>(entries.map((_, i) => i));
     const evictedDecoded: Array<{ text: string; created: string; lastReferenced: string; id?: string }> = [];
     const liveJoin = () =>
-      [...present].sort((a, b) => a - b).map((j) => (j === protectedIdx ? encoded : entries[j])).join(ENTRY_DELIMITER);
+      [...present]
+        .sort((a, b) => a - b)
+        .map((j) => (j === protectedIdx ? encoded : entries[j]))
+        .join(ENTRY_DELIMITER);
 
     while (liveJoin().length > limit) {
       // Eligible victims: present, non-protected, in FILE ORDER so ties resolve
@@ -1330,52 +1378,8 @@ export class MemoryStore {
       return JSON.stringify(record);
     });
 
-    await fs.writeFile(jsonlPath, lines.join("\n") + "\n", "utf-8");
+    await fs.writeFile(jsonlPath, `${lines.join("\n")}\n`, "utf-8");
     return jsonlPath;
-  }
-
-  /**
-   * @deprecated Retained for direct unit-test use only. Do NOT re-route
-   * `_addInner` overflow here — it `shift()`s active entries and would
-   * reintroduce the D3 lineage-break hazard. The `_addInner` consolidation path
-   * (runConsolidator + vaultOffloadAndAdd floor) supersedes it for all production
-   * overflow; only `vaultOffloadAndAdd` (preservationist) is used as the floor.
-   */
-  private async fifoEvictAndAdd(
-    target: "memory" | "user" | "failure",
-    entries: string[],
-    encoded: string,
-    contentLength: number,
-    limit: number,
-  ): Promise<MemoryResult> {
-    if (encoded.length > limit) {
-      return this.memoryFullError(target, contentLength);
-    }
-
-    const remaining = [...entries];
-    const evictedEntries: string[] = [];
-    const evictedMdIds: string[] = [];
-
-    while ([...remaining, encoded].join(ENTRY_DELIMITER).length > limit && remaining.length > 0) {
-      const evicted = remaining.shift()!;
-      evictedEntries.push(this.stripMetadata(evicted));
-      const id = this.mdIdOf(evicted);
-      if (id) evictedMdIds.push(id);
-    }
-
-    remaining.push(encoded);
-    this.setEntries(target, remaining);
-    await this.saveToDisk(target);
-
-    return {
-      ...this.successResponse(
-        target,
-        `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.`,
-      ),
-      evicted_entries: evictedEntries,
-      evicted_md_ids: evictedMdIds,
-      evicted_count: evictedEntries.length,
-    };
   }
 
   private memoryFullError(target: "memory" | "user" | "failure", contentLength: number): MemoryResult {
@@ -1391,7 +1395,11 @@ export class MemoryStore {
     return this.runExclusive(() => this.withFileLock(target, () => this._replaceInner(target, oldText, newContent)));
   }
 
-  private async _replaceInner(target: "memory" | "user" | "failure", oldText: string, newContent: string): Promise<MemoryResult> {
+  private async _replaceInner(
+    target: "memory" | "user" | "failure",
+    oldText: string,
+    newContent: string,
+  ): Promise<MemoryResult> {
     oldText = normalizeMemoryLookupText(oldText);
     newContent = newContent.trim();
     if (!oldText) return { success: false, error: "old_text cannot be empty." };
@@ -1486,7 +1494,9 @@ export class MemoryStore {
       return {
         success: false,
         error: `Multiple entries matched '${oldText}'. Be more specific.`,
-        matches: matches.map((e) => this.stripMetadata(e).slice(0, 80) + (this.stripMetadata(e).length > 80 ? "..." : "")),
+        matches: matches.map(
+          (e) => this.stripMetadata(e).slice(0, 80) + (this.stripMetadata(e).length > 80 ? "..." : ""),
+        ),
       };
     }
 
@@ -1603,7 +1613,11 @@ export class MemoryStore {
    * PLUS the md_id set of the project-memory entries it renders. Mirrors formatProjectBlock's
    * selection (memoryEntries of the project store instance).
    */
-  getProjectAssemblyManifest(projectName: string): { block: string; mdIds: string[]; signatures: { mdId: string; signature: string }[] } {
+  getProjectAssemblyManifest(projectName: string): {
+    block: string;
+    mdIds: string[];
+    signatures: { mdId: string; signature: string }[];
+  } {
     const block = this.formatProjectBlock(projectName);
     const ids: string[] = [];
     // Signatures (UPSP §9 / ticket #06): same harvest as getAssemblyManifest,
@@ -1647,7 +1661,17 @@ export class MemoryStore {
    * `lastReferenced` here is "last edited" (add/replace), the durable signal.
    * (SQLite's `last_referenced` separately tracks "last surfaced by search".)
    */
-  entriesWithMeta(target: "memory" | "user" | "failure"): { text: string; created: string; lastReferenced: string; provenance?: Provenance; sources?: MemorySource[]; mwSuccess?: number; mwFail?: number; state?: FailureState; severity?: number | null }[] {
+  entriesWithMeta(target: "memory" | "user" | "failure"): {
+    text: string;
+    created: string;
+    lastReferenced: string;
+    provenance?: Provenance;
+    sources?: MemorySource[];
+    mwSuccess?: number;
+    mwFail?: number;
+    state?: FailureState;
+    severity?: number | null;
+  }[] {
     return this.entriesFor(target).map((e) => this.decodeEntry(e));
   }
 
@@ -1675,7 +1699,15 @@ export class MemoryStore {
     created: string,
     lastReferenced: string,
     id: string,
-    meta?: { provenance?: Provenance | null; sources?: MemorySource[] | null; mwSuccess?: number | null; mwFail?: number | null; state?: FailureState | null; severity?: number | null; pin?: boolean | null },
+    meta?: {
+      provenance?: Provenance | null;
+      sources?: MemorySource[] | null;
+      mwSuccess?: number | null;
+      mwFail?: number | null;
+      state?: FailureState | null;
+      severity?: number | null;
+      pin?: boolean | null;
+    },
   ): string {
     return serializeMetadataFrontmatter({
       id,
@@ -1792,20 +1824,23 @@ export class MemoryStore {
     return [...seen.values()];
   }
 
-  private buildFailureMemoryText(content: string, options: {
-    category: MemoryCategory;
-    failureReason?: string;
-    toolState?: string;
-    correctedTo?: string;
-    project?: string;
-  }): string {
+  private buildFailureMemoryText(
+    content: string,
+    options: {
+      category: MemoryCategory;
+      failureReason?: string;
+      toolState?: string;
+      correctedTo?: string;
+      project?: string;
+    },
+  ): string {
     const trimmedContent = content.trim();
-    const categoryTag = "[" + options.category + "]";
-    const parts = [categoryTag + " " + trimmedContent];
-    if (options.failureReason) parts.push("Failed: " + options.failureReason);
-    if (options.toolState) parts.push("Tool state: " + options.toolState);
-    if (options.correctedTo) parts.push("Corrected to: " + options.correctedTo);
-    if (options.project) parts.push("Project: " + options.project);
+    const categoryTag = `[${options.category}]`;
+    const parts = [`${categoryTag} ${trimmedContent}`];
+    if (options.failureReason) parts.push(`Failed: ${options.failureReason}`);
+    if (options.toolState) parts.push(`Tool state: ${options.toolState}`);
+    if (options.correctedTo) parts.push(`Corrected to: ${options.correctedTo}`);
+    if (options.project) parts.push(`Project: ${options.project}`);
     return parts.join(" — ");
   }
 
@@ -1832,9 +1867,10 @@ export class MemoryStore {
     const current = content.length;
     const pct = limit > 0 ? Math.min(100, Math.floor((current / limit) * 100)) : 0;
 
-    const header = target === "user"
-      ? `USER PROFILE (who the user is) [${pct}% — ${current}/${limit} chars]`
-      : `MEMORY (your personal notes) [${pct}% — ${current}/${limit} chars]`;
+    const header =
+      target === "user"
+        ? `USER PROFILE (who the user is) [${pct}% — ${current}/${limit} chars]`
+        : `MEMORY (your personal notes) [${pct}% — ${current}/${limit} chars]`;
 
     const separator = "═".repeat(46);
     return `${separator}\n${header}\n${separator}\n${content}`;
@@ -1874,7 +1910,7 @@ export class MemoryStore {
   private renderFailureBlock(entries: string[]): string {
     if (!entries.length) return "";
     const header = "RECENT FAILURES & LESSONS (learn from these):";
-    const bulletList = entries.map((e) => "• " + e).join("\n");
+    const bulletList = entries.map((e) => `• ${e}`).join("\n");
     return `${header}\n${bulletList}`;
   }
 
@@ -1907,10 +1943,18 @@ export class MemoryStore {
       await fs.writeFile(tmpPath, content, "utf-8");
       await fs.rename(tmpPath, filePath);
     } catch (err) {
-      try { await fs.unlink(tmpPath); } catch { /* ignore */ }
+      try {
+        await fs.unlink(tmpPath);
+      } catch {
+        /* ignore */
+      }
       throw err;
     } finally {
-      try { await fs.rm(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+      try {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
     }
   }
 }

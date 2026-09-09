@@ -1,7 +1,7 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, dirname, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 // C5-lite sole-source gate: `backend-factory.ts` is the ONLY non-test src file

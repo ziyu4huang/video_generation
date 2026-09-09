@@ -26,18 +26,17 @@
  * `offloaded_superseded`, defeating the DB-sync assertion entirely.)
  */
 
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
-import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
-import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
-import { MemoryStore } from "../../src/store/memory-store.js";
+import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 import { applyReviewOperations } from "../../src/handlers/review-memory-ops.js";
 import { createCardStore } from "../../src/store/card-store.js";
-import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
+import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
+import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 
 const PROJECT = "sync-proj";
 const ACTIVE_CONTENT = "active keeper syncprobe yyy";
@@ -74,7 +73,7 @@ const GUARD_SUPERSEDED = `stale ${GUARD_NONCE}`;
 // entry, [A1,A2]+NEW still overflows the limit → the consolidator MUST run
 // (frontmatter seeds are ~114 chars each, so a small NEW would let the purge
 // early-return fire and skip consolidation entirely).
-const GUARD_NEW = "new overflow nu nxn payload segment " + "z".repeat(56);
+const GUARD_NEW = `new overflow nu nxn payload segment ${"z".repeat(56)}`;
 // Stable md_ids for the guard fixtures (mirrored on `.md` frontmatter + DB).
 const GUARD_A1_MD_ID = "a1aaaaaa-aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 const GUARD_A2_MD_ID = "a2aaaaaa-aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -115,9 +114,7 @@ function installMergingConsolidator(store: MemoryStore): void {
     return {
       plan: {
         snapshotBaseHash: snapshot.snapshotBaseHash,
-        ops: keys.length
-          ? [{ op: "merge" as const, fromKeys: keys, content: merged }]
-          : [],
+        ops: keys.length ? [{ op: "merge" as const, fromKeys: keys, content: merged }] : [],
       },
     };
   }, "merge-stub");
@@ -222,10 +219,7 @@ describe("overflow add → offload superseded → sync DB (D2 + D4 destructive)"
       mdEntries.some((e) => e.includes(ACTIVE_CONTENT)),
       "active keeper should survive in .md",
     );
-    assert.ok(
-      !mdEntries.some((e) => e.includes(PRIOR_CONTENT)),
-      "superseded entry should be purged from .md",
-    );
+    assert.ok(!mdEntries.some((e) => e.includes(PRIOR_CONTENT)), "superseded entry should be purged from .md");
   });
 });
 
@@ -276,9 +270,33 @@ describe("resurrect-stale guard: superseded never consolidated into recall", () 
       fm(GUARD_SUP_MD_ID, GUARD_SUPERSEDED),
     ]);
 
-    const a1 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_ONE, category: "insight", failureReason: null, toolState: null, correctedTo: null });
-    const a2 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_TWO, category: "insight", failureReason: null, toolState: null, correctedTo: null });
-    const sup = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_SUPERSEDED, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    const a1 = await repo.addMemory({
+      target: "memory",
+      project: PROJECT,
+      content: GUARD_ACTIVE_ONE,
+      category: "insight",
+      failureReason: null,
+      toolState: null,
+      correctedTo: null,
+    });
+    const a2 = await repo.addMemory({
+      target: "memory",
+      project: PROJECT,
+      content: GUARD_ACTIVE_TWO,
+      category: "insight",
+      failureReason: null,
+      toolState: null,
+      correctedTo: null,
+    });
+    const sup = await repo.addMemory({
+      target: "memory",
+      project: PROJECT,
+      content: GUARD_SUPERSEDED,
+      category: "insight",
+      failureReason: null,
+      toolState: null,
+      correctedTo: null,
+    });
     await repo.setMdIdByContent(GUARD_ACTIVE_ONE, GUARD_A1_MD_ID, { target: "memory", project: PROJECT });
     await repo.setMdIdByContent(GUARD_ACTIVE_TWO, GUARD_A2_MD_ID, { target: "memory", project: PROJECT });
     await repo.setMdIdByContent(GUARD_SUPERSEDED, GUARD_SUP_MD_ID, { target: "memory", project: PROJECT });
@@ -384,9 +402,33 @@ describe("overflow floor: superseded DB row is not orphaned after vault-offload"
       fm(GUARD_SUP_MD_ID, GUARD_SUPERSEDED),
     ]);
 
-    const a1 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_ONE, category: "insight", failureReason: null, toolState: null, correctedTo: null });
-    const a2 = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_ACTIVE_TWO, category: "insight", failureReason: null, toolState: null, correctedTo: null });
-    const sup = await repo.addMemory({ target: "memory", project: PROJECT, content: GUARD_SUPERSEDED, category: "insight", failureReason: null, toolState: null, correctedTo: null });
+    const a1 = await repo.addMemory({
+      target: "memory",
+      project: PROJECT,
+      content: GUARD_ACTIVE_ONE,
+      category: "insight",
+      failureReason: null,
+      toolState: null,
+      correctedTo: null,
+    });
+    const a2 = await repo.addMemory({
+      target: "memory",
+      project: PROJECT,
+      content: GUARD_ACTIVE_TWO,
+      category: "insight",
+      failureReason: null,
+      toolState: null,
+      correctedTo: null,
+    });
+    const sup = await repo.addMemory({
+      target: "memory",
+      project: PROJECT,
+      content: GUARD_SUPERSEDED,
+      category: "insight",
+      failureReason: null,
+      toolState: null,
+      correctedTo: null,
+    });
     await repo.setMdIdByContent(GUARD_ACTIVE_ONE, GUARD_A1_MD_ID, { target: "memory", project: PROJECT });
     await repo.setMdIdByContent(GUARD_ACTIVE_TWO, GUARD_A2_MD_ID, { target: "memory", project: PROJECT });
     await repo.setMdIdByContent(GUARD_SUPERSEDED, GUARD_SUP_MD_ID, { target: "memory", project: PROJECT });
@@ -425,9 +467,6 @@ describe("overflow floor: superseded DB row is not orphaned after vault-offload"
 
     // The superseded entry is also gone from `.md` (the provider purge ran).
     const mdEntries = store.getMemoryEntries();
-    assert.ok(
-      !mdEntries.some((e) => e.includes(GUARD_NONCE)),
-      "superseded entry must be purged from .md",
-    );
+    assert.ok(!mdEntries.some((e) => e.includes(GUARD_NONCE)), "superseded entry must be purged from .md");
   });
 });

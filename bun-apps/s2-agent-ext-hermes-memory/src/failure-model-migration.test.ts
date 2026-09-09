@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -19,7 +19,13 @@ test("dry-run compresses resolved and keeps unique lessons", () => {
     fm("a", "[tool-quirk] `await_pr_merge` blocks merge until CI green — pre #1030 hazard", "2026-08-02", "2026-08-02"),
     fm("b", "[tool-quirk] `await_pr_merge` blocks merge until CI green — pre #1030 hazard", "2026-08-02", "2026-08-02"),
     fm("c", "[tool-quirk] `await_pr_merge` cross-worktree #1028 incident details here", "2026-08-03", "2026-08-03"),
-    fm("d", "[tool-quirk] `await_pr_merge` now merges directly once CI green (post #1030) — resolved", "2026-08-04", "2026-08-04", "resolved"),
+    fm(
+      "d",
+      "[tool-quirk] `await_pr_merge` now merges directly once CI green (post #1030) — resolved",
+      "2026-08-04",
+      "2026-08-04",
+      "resolved",
+    ),
     fm("e", "[insight] unrelated unique lesson about mlx bfloat16 dtype handling", "2026-08-01", "2026-08-01"),
   ];
   fs.writeFileSync(failuresPath, entries.join(ENTRY_DELIMITER), "utf-8");
@@ -56,8 +62,8 @@ test("apply writes a smaller file and produces a backup", () => {
   const after = fs.readFileSync(failuresPath, "utf-8");
   expect(result.compressed).toBe(1);
   expect(after.length).toBeLessThan(original.length);
-  expect(fs.existsSync(failuresPath + ".bak")).toBe(true);
-  expect(fs.readFileSync(failuresPath + ".bak", "utf-8")).toBe(original);
+  expect(fs.existsSync(`${failuresPath}.bak`)).toBe(true);
+  expect(fs.readFileSync(`${failuresPath}.bak`, "utf-8")).toBe(original);
 });
 
 test("active unique entries with different subjects are never trimmed", () => {

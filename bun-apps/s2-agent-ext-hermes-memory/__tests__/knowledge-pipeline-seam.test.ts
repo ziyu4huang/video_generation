@@ -1,13 +1,17 @@
-import { describe, it, beforeEach, afterEach } from "node:test";
 import * as assert from "node:assert/strict";
-import { publishSeam, type KnowledgePipeline } from "@repo/s2-agent-core-interface";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { type KnowledgePipeline, publishSeam } from "@repo/s2-agent-core-interface";
 import { getKnowledgePipeline } from "../src/knowledge-pipeline-seam.js";
 
 const KEY = "__piKnowledgePipeline";
 
 describe("hermes reads KnowledgePipeline defensively", () => {
-  beforeEach(() => { delete (globalThis as Record<string, unknown>)[KEY]; });
-  afterEach(() => { delete (globalThis as Record<string, unknown>)[KEY]; });
+  beforeEach(() => {
+    delete (globalThis as Record<string, unknown>)[KEY];
+  });
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>)[KEY];
+  });
 
   it("returns undefined when zk is absent", () => {
     assert.equal(getKnowledgePipeline(), undefined);

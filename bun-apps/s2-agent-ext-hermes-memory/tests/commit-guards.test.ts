@@ -9,8 +9,8 @@ import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import {
   classifyCommitGuard,
-  PROTECTED_BRANCHES,
   isProtectedBranch,
+  PROTECTED_BRANCHES,
   type RepoStateSnapshot,
 } from "../src/commit-guards.js";
 

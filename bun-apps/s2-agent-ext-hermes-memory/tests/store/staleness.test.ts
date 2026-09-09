@@ -5,20 +5,19 @@
  * never the real ~/.pi/agent/memory/. Pure-logic tests use a mock store.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
+import { afterAll, beforeAll, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
-import { describe, it, beforeAll, afterAll } from "bun:test";
-
-import { MemoryStore } from "../../src/store/memory-store.js";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
-  ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
   DEFAULT_USER_CHAR_LIMIT,
+  ENTRY_DELIMITER,
   MEMORY_FILE,
 } from "../../src/constants.js";
-import { formatStalenessAudit, daysSinceEdited } from "../../src/staleness.js";
+import { daysSinceEdited, formatStalenessAudit } from "../../src/staleness.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 const TEST_MARKER = "[STALENESS-TEST]";
@@ -145,7 +144,9 @@ describe("staleness: stamping & decoding (MemoryStore)", { concurrency: 1 }, () 
   afterAll(async () => {
     try {
       await fs.rm(MEMORY_DIR, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it("add() stamps the ground-truth .md with YAML frontmatter (id/created/last)", async () => {
@@ -170,7 +171,7 @@ describe("staleness: stamping & decoding (MemoryStore)", { concurrency: 1 }, () 
     const legacy = `${TEST_MARKER} legacy entry without metadata`;
     const stampedDate = "2024-06-15";
     const stamped = `${TEST_MARKER} stamped entry <!-- created=${stampedDate}, last=${stampedDate} -->`;
-    await writeRaw(memoryPath, [legacy, stamped].join(ENTRY_DELIMITER) + "\n");
+    await writeRaw(memoryPath, `${[legacy, stamped].join(ENTRY_DELIMITER)}\n`);
 
     const store = new MemoryStore(makeConfig());
     await store.loadFromDisk();
@@ -181,13 +182,13 @@ describe("staleness: stamping & decoding (MemoryStore)", { concurrency: 1 }, () 
     const legacyEntry = meta.find((e) => e.text.includes("legacy entry"));
     assert.ok(legacyEntry, "legacy entry decoded");
     // Legacy entries fall back to today for both fields
-    assert.equal(legacyEntry!.created, today());
-    assert.equal(legacyEntry!.lastReferenced, today());
+    assert.equal(legacyEntry?.created, today());
+    assert.equal(legacyEntry?.lastReferenced, today());
 
     const stampedEntry = meta.find((e) => e.text.includes("stamped entry"));
     assert.ok(stampedEntry, "stamped entry decoded");
-    assert.equal(stampedEntry!.created, stampedDate);
-    assert.equal(stampedEntry!.lastReferenced, stampedDate);
-    assert.ok(!stampedEntry!.text.includes("<!--"), "metadata stripped from text");
+    assert.equal(stampedEntry?.created, stampedDate);
+    assert.equal(stampedEntry?.lastReferenced, stampedDate);
+    assert.ok(!stampedEntry?.text.includes("<!--"), "metadata stripped from text");
   });
 });

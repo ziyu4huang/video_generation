@@ -3,12 +3,7 @@ import assert from "node:assert/strict";
 import { CaptureThrottle } from "../../src/handlers/capture-throttle.js";
 
 /** Throttle with a controllable fake clock; returns helpers to advance time. */
-function makeThrottle(opts: {
-  rateLimit?: number;
-  rateWindowMs?: number;
-  dedupCacheSize?: number;
-  t0?: number;
-} = {}) {
+function makeThrottle(opts: { rateLimit?: number; rateWindowMs?: number; dedupCacheSize?: number; t0?: number } = {}) {
   let t = opts.t0 ?? 1_000_000;
   const throttle = new CaptureThrottle({
     rateLimit: opts.rateLimit ?? 3,
@@ -16,7 +11,12 @@ function makeThrottle(opts: {
     dedupCacheSize: opts.dedupCacheSize ?? 64,
     now: () => t,
   });
-  return { throttle, advance: (ms: number) => { t += ms; } };
+  return {
+    throttle,
+    advance: (ms: number) => {
+      t += ms;
+    },
+  };
 }
 
 describe("CaptureThrottle — rate limit", () => {
@@ -28,13 +28,17 @@ describe("CaptureThrottle — rate limit", () => {
 
   it("denies a distinct key once the cap is reached", () => {
     const { throttle } = makeThrottle({ rateLimit: 2 });
-    for (const k of ["a", "b"]) { assert.equal(throttle.allow(k), true); throttle.recordCapture(k); }
+    for (const k of ["a", "b"]) {
+      assert.equal(throttle.allow(k), true);
+      throttle.recordCapture(k);
+    }
     assert.equal(throttle.allow("c"), false); // ③ rate-capped
   });
 
   it("allows again after the window expires (fake clock)", () => {
     const { throttle, advance } = makeThrottle({ rateLimit: 2, rateWindowMs: 10_000 });
-    throttle.recordCapture("a"); throttle.recordCapture("b"); // fill window
+    throttle.recordCapture("a");
+    throttle.recordCapture("b"); // fill window
     assert.equal(throttle.allow("c"), false); // capped
     advance(10_001); // past window
     assert.equal(throttle.allow("c"), true); // window reset
@@ -70,7 +74,7 @@ describe("CaptureThrottle — this-session dedup cache", () => {
     throttle.recordCapture("a");
     throttle.recordCapture("b");
     throttle.recordCapture("c"); // evicts "a" (oldest)
-    assert.equal(throttle.allow("a"), true);  // "a" evicted → allowed
+    assert.equal(throttle.allow("a"), true); // "a" evicted → allowed
     assert.equal(throttle.allow("b"), false); // "b" still cached
   });
 
@@ -84,8 +88,12 @@ describe("CaptureThrottle — this-session dedup cache", () => {
 describe("CaptureThrottle — fail-open", () => {
   it("returns true (does not throw) when the injected clock throws", () => {
     const throttle = new CaptureThrottle({
-      rateLimit: 1, rateWindowMs: 1000, dedupCacheSize: 1,
-      now: () => { throw new Error("clock broke"); },
+      rateLimit: 1,
+      rateWindowMs: 1000,
+      dedupCacheSize: 1,
+      now: () => {
+        throw new Error("clock broke");
+      },
     });
     // Fresh key → reaches rate check → pruneWindow() → now() throws → fail-open.
     assert.equal(throttle.allow("k"), true);

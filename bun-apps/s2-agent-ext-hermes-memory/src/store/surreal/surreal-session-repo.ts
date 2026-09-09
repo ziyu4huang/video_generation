@@ -13,20 +13,33 @@
  */
 
 import fs from "node:fs";
-import type { SurrealBackend } from "./surreal-backend.js";
 import type {
-  SessionRepository, SessionSearchResult, SessionStats,
-  IndexResult, BulkIndexResult, IncrementalIndexOptions,
+  BulkIndexResult,
+  IncrementalIndexOptions,
+  IndexResult,
+  SessionRepository,
+  SessionSearchResult,
+  SessionStats,
 } from "../repository.js";
-import { parseSessionFile, getSessionFiles } from "../session-parser.js";
+import { getSessionFiles, parseSessionFile } from "../session-parser.js";
+import type { SurrealBackend } from "./surreal-backend.js";
 
 const LAST_SESSION_BACKFILL_KEY = "last_session_backfill";
 const SESSION_BACKFILL_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 type SessionInput = {
-  id: string; project?: string; cwd?: string; startedAt?: string;
+  id: string;
+  project?: string;
+  cwd?: string;
+  startedAt?: string;
   endedAt?: string | null;
-  messages?: Array<{ id: string; role: "user" | "assistant" | "system"; content: string; timestamp: string; toolCalls?: string[] }>;
+  messages?: Array<{
+    id: string;
+    role: "user" | "assistant" | "system";
+    content: string;
+    timestamp: string;
+    toolCalls?: string[];
+  }>;
 };
 
 function emptyBulk(): BulkIndexResult {
@@ -39,7 +52,9 @@ const MESSAGE_BATCH_SIZE = 200;
 
 export class SurrealSessionRepository implements SessionRepository {
   constructor(private readonly backend: SurrealBackend) {}
-  private get c() { return this.backend.client; }
+  private get c() {
+    return this.backend.client;
+  }
 
   /** Fetch ALL session_files meta in ONE round-trip and return a path →
    *  {size, mtimeMs} map for in-TS diffing. Replaces the per-file
@@ -57,8 +72,8 @@ export class SurrealSessionRepository implements SessionRepository {
   private async indexOne(sessionRaw: SessionInput): Promise<IndexResult> {
     const messages = sessionRaw.messages ?? [];
     const cwd = sessionRaw.cwd ?? "/unknown";
-    const project = sessionRaw.project ??
-      (sessionRaw.cwd ? (sessionRaw.cwd.split("/").pop() || sessionRaw.cwd) : "unknown");
+    const project =
+      sessionRaw.project ?? (sessionRaw.cwd ? sessionRaw.cwd.split("/").pop() || sessionRaw.cwd : "unknown");
     const startedAt = sessionRaw.startedAt ?? messages[0]?.timestamp ?? new Date().toISOString();
     const endedAt = sessionRaw.endedAt ?? null;
 
@@ -71,7 +86,8 @@ export class SurrealSessionRepository implements SessionRepository {
     // `type::record("messages", $mid)` at insert time), directly comparable to
     // `m.id` with no record-id escaping to reverse.
     const existing = await this.c.query<Array<{ mid: string }>>(
-      `SELECT record::id(id) AS mid FROM messages WHERE sessionId = $sid;`, { sid: sessionRaw.id },
+      `SELECT record::id(id) AS mid FROM messages WHERE sessionId = $sid;`,
+      { sid: sessionRaw.id },
     );
     const existingIds = new Set(existing.map((r) => String(r.mid)));
     const before = existing.length;
@@ -117,8 +133,12 @@ export class SurrealSessionRepository implements SessionRepository {
   }
 
   async indexSession(session: {
-    id: string; project?: string; cwd?: string; startedAt?: string;
-    endedAt?: string | null; messages?: unknown[];
+    id: string;
+    project?: string;
+    cwd?: string;
+    startedAt?: string;
+    endedAt?: string | null;
+    messages?: unknown[];
   }): Promise<IndexResult> {
     return this.indexOne(session as SessionInput);
   }
@@ -126,20 +146,31 @@ export class SurrealSessionRepository implements SessionRepository {
   private async indexFile(file: string, result: BulkIndexResult): Promise<void> {
     result.sessionsProcessed++;
     const session = parseSessionFile(file);
-    if (!session) { result.errors.push(`Failed to parse: ${file}`); return; }
-    const existing = await this.c.query<unknown[]>(`SELECT sid FROM sessions WHERE sid = $sid LIMIT 1;`, { sid: session.id });
+    if (!session) {
+      result.errors.push(`Failed to parse: ${file}`);
+      return;
+    }
+    const existing = await this.c.query<unknown[]>(`SELECT sid FROM sessions WHERE sid = $sid LIMIT 1;`, {
+      sid: session.id,
+    });
     const r = await this.indexOne(session);
     await this.upsertSessionFileMeta(file, session.id);
-    if ((existing.length > 0) && r.messagesIndexed === 0) result.sessionsSkipped++;
-    else { result.sessionsIndexed++; result.messagesIndexed += r.messagesIndexed; }
+    if (existing.length > 0 && r.messagesIndexed === 0) result.sessionsSkipped++;
+    else {
+      result.sessionsIndexed++;
+      result.messagesIndexed += r.messagesIndexed;
+    }
   }
 
   async indexAllSessions(sessionsDir: string, projectDir?: string): Promise<BulkIndexResult> {
     const files = getSessionFiles(sessionsDir, projectDir);
     const result = emptyBulk();
     for (const file of files) {
-      try { await this.indexFile(file, result); }
-      catch (err) { result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`); }
+      try {
+        await this.indexFile(file, result);
+      } catch (err) {
+        result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     return result;
   }
@@ -164,25 +195,41 @@ export class SurrealSessionRepository implements SessionRepository {
           continue;
         }
         changed.push(meta);
-      } catch (err) { result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`); }
+      } catch (err) {
+        result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     changed.sort((a, b) => b.mtimeMs - a.mtimeMs);
     const toIndex: string[] = [];
     for (const m of changed) {
-      if (toIndex.length >= maxFilesToIndex) { result.reachedLimit = true; break; }
+      if (toIndex.length >= maxFilesToIndex) {
+        result.reachedLimit = true;
+        break;
+      }
       toIndex.push(m.path);
     }
     for (const file of toIndex) {
-      try { await this.indexFile(file, result); }
-      catch (err) { result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`); }
+      try {
+        await this.indexFile(file, result);
+      } catch (err) {
+        result.errors.push(`Error indexing ${file}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
     return result;
   }
 
-  async upsertSessionFileMeta(filePath: string, sessionId: string, options?: { size?: number; mtimeMs?: number }): Promise<void> {
-    const stat = options && (options.size !== undefined || options.mtimeMs !== undefined)
-      ? { size: options.size ?? fs.statSync(filePath).size, mtimeMs: options.mtimeMs ?? Math.trunc(fs.statSync(filePath).mtimeMs) }
-      : { size: fs.statSync(filePath).size, mtimeMs: Math.trunc(fs.statSync(filePath).mtimeMs) };
+  async upsertSessionFileMeta(
+    filePath: string,
+    sessionId: string,
+    options?: { size?: number; mtimeMs?: number },
+  ): Promise<void> {
+    const stat =
+      options && (options.size !== undefined || options.mtimeMs !== undefined)
+        ? {
+            size: options.size ?? fs.statSync(filePath).size,
+            mtimeMs: options.mtimeMs ?? Math.trunc(fs.statSync(filePath).mtimeMs),
+          }
+        : { size: fs.statSync(filePath).size, mtimeMs: Math.trunc(fs.statSync(filePath).mtimeMs) };
     await this.c.query(
       `DELETE FROM session_files WHERE path = $path; CREATE session_files SET path = $path, sessionId = $sid, size = $size, mtimeMs = $mtimeMs, indexedAt = $idx;`,
       { path: filePath, sid: sessionId, size: stat.size, mtimeMs: stat.mtimeMs, idx: new Date().toISOString() },
@@ -203,13 +250,18 @@ export class SurrealSessionRepository implements SessionRepository {
         const stat = fs.statSync(file);
         const stored = metaByPath.get(file);
         if (!(stored && stored.size === stat.size && stored.mtimeMs === Math.trunc(stat.mtimeMs))) return true;
-      } catch { return true; }
+      } catch {
+        return true;
+      }
     }
     // Backfill timestamp stored on a dedicated seq:<key> record. v3.2.3:
     // `value` is reserved and `type::record(...)` is not allowed in SELECT's
     // FROM position, so we filter the whole seq table by record id and read
     // `.value` from the row in TS.
-    const row = await this.c.query<Array<{ value: string }>>(`SELECT * FROM seq WHERE id = type::record("seq", $k) LIMIT 1;`, { k: LAST_SESSION_BACKFILL_KEY });
+    const row = await this.c.query<Array<{ value: string }>>(
+      `SELECT * FROM seq WHERE id = type::record("seq", $k) LIMIT 1;`,
+      { k: LAST_SESSION_BACKFILL_KEY },
+    );
     const value = row[0]?.value ?? null;
     if (!value) return true;
     const parsed = Date.parse(value);
@@ -223,20 +275,44 @@ export class SurrealSessionRepository implements SessionRepository {
     await this.c.query(`UPSERT type::record("seq", $k) SET value = $v;`, { k: LAST_SESSION_BACKFILL_KEY, v: ts });
   }
 
-  async searchSessions(query: string, options: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number } = {}): Promise<SessionSearchResult[]> {
+  async searchSessions(
+    query: string,
+    options: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number } = {},
+  ): Promise<SessionSearchResult[]> {
     if (query.trim().length === 0) return [];
     const { limit = 10, project, role } = options;
     const conds = ["content @@ $q"];
     const params: Record<string, unknown> = { q: query };
-    if (project !== undefined && project !== null) { conds.push("project = $project"); params.project = project; }
-    if (role) { conds.push("role = $role"); params.role = role; }
-    const rows = await this.c.query<Array<{ id: string; sessionId: string; project: string; cwd: string; role: string; content: string; timestamp: string }>>(
+    if (project !== undefined && project !== null) {
+      conds.push("project = $project");
+      params.project = project;
+    }
+    if (role) {
+      conds.push("role = $role");
+      params.role = role;
+    }
+    const rows = await this.c.query<
+      Array<{
+        id: string;
+        sessionId: string;
+        project: string;
+        cwd: string;
+        role: string;
+        content: string;
+        timestamp: string;
+      }>
+    >(
       `SELECT id, sessionId, project, cwd, role, content, timestamp FROM messages WHERE ${conds.join(" AND ")} ORDER BY timestamp DESC LIMIT ${Number(limit)};`,
       params,
     );
     return rows.map((r) => ({
-      sessionId: r.sessionId, messageId: r.id, role: r.role as "user" | "assistant" | "system",
-      content: r.content, timestamp: r.timestamp, project: r.project, cwd: r.cwd,
+      sessionId: r.sessionId,
+      messageId: r.id,
+      role: r.role as "user" | "assistant" | "system",
+      content: r.content,
+      timestamp: r.timestamp,
+      project: r.project,
+      cwd: r.cwd,
     }));
   }
 
@@ -282,10 +358,11 @@ export class SurrealSessionRepository implements SessionRepository {
    */
   async markUsed(sessionId: string, mdIds: readonly string[], usedAt: string): Promise<void> {
     if (mdIds.length === 0) return;
-    await this.c.query(
-      `UPDATE session_assembly SET usedAt = $now WHERE sessionId = $sid AND mdId IN $ids;`,
-      { sid: sessionId, ids: mdIds, now: usedAt },
-    );
+    await this.c.query(`UPDATE session_assembly SET usedAt = $now WHERE sessionId = $sid AND mdId IN $ids;`, {
+      sid: sessionId,
+      ids: mdIds,
+      now: usedAt,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -303,10 +380,7 @@ export class SurrealSessionRepository implements SessionRepository {
    * note below). The SurrealClient owns transient retry, so like `markUsed` there
    * is no extra envelope. NEVER touches `session_assembly_meta` or any other table.
    */
-  async getUsedMdIds(
-    mdIds: string[],
-    _opts: { project: string | null },
-  ): Promise<Set<string>> {
+  async getUsedMdIds(mdIds: string[], _opts: { project: string | null }): Promise<Set<string>> {
     if (mdIds.length === 0) return new Set<string>();
     // NOTE: SurrealDB v3.2.3 does NOT support `SELECT DISTINCT` (parse error:
     // "Unexpected token, expected FROM"), so we project raw rows and dedupe into

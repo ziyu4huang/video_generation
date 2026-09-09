@@ -52,10 +52,7 @@ export function normalizeForSignature(text: string): string {
       return stripLeadingMarkers(line);
     })
     .join("\n");
-  return stripped
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
+  return stripped.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 /**

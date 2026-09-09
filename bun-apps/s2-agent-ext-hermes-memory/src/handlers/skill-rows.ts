@@ -10,8 +10,8 @@
 import { createHash } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { SkillIndex, SkillScope } from "../types.js";
 import { fuzzyFilter } from "@earendil-works/pi-tui";
+import type { SkillIndex, SkillScope } from "../types.js";
 
 export const MEMORY_SKILLS_KEYMAP = {
   moveGlobal: "g",
@@ -134,10 +134,11 @@ function categoryForScope(scope: SkillScope): SkillRowCategory {
 }
 
 function createExternalSkillId(name: string, filePath: string): string {
-  const safeName = (name || "skill")
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "skill";
+  const safeName =
+    (name || "skill")
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "skill";
   const hash = createHash("sha1").update(`${name}|${filePath}`).digest("hex").slice(0, 10);
   return `external:${safeName}:${hash}`;
 }
@@ -192,8 +193,8 @@ export function compareSkillRows(a: SkillModalRow, b: SkillModalRow, sortMode: S
     return categoryOrder(a.category) - categoryOrder(b.category);
   }
 
-  const primaryA = sortMode === "updated" ? recencyValue(a) : (a.created || "");
-  const primaryB = sortMode === "updated" ? recencyValue(b) : (b.created || "");
+  const primaryA = sortMode === "updated" ? recencyValue(a) : a.created || "";
+  const primaryB = sortMode === "updated" ? recencyValue(b) : b.created || "";
   if (primaryA || primaryB) {
     if (!primaryA) return 1;
     if (!primaryB) return -1;
@@ -238,9 +239,7 @@ export function collectLoadedSkillsFromCommands(commands: SkillCommandInfo[]): L
     const sourcePath = sourceInfo ? getStringField(sourceInfo.path)?.trim() : undefined;
     if (!sourcePath) continue;
 
-    const rawName = commandName.startsWith("skill:")
-      ? commandName.slice("skill:".length)
-      : commandName;
+    const rawName = commandName.startsWith("skill:") ? commandName.slice("skill:".length) : commandName;
     const displayName = rawName || commandName;
     const filePath = path.resolve(sourcePath);
 
@@ -368,7 +367,8 @@ export function buildUnifiedSkillRows(
       path: loaded.path,
       displayPath: loaded.displayPath,
       selected: selectedSkillIds.has(externalSkillId),
-      searchText: `${loaded.displayName} ${loaded.name} ${loaded.description || ""} ${loaded.path} ${loaded.displayPath}`.trim(),
+      searchText:
+        `${loaded.displayName} ${loaded.name} ${loaded.description || ""} ${loaded.path} ${loaded.displayPath}`.trim(),
     });
   }
 

@@ -1,9 +1,9 @@
-import { describe, test, expect, beforeAll } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import * as os from "node:os";
-import { MemoryStore } from "../../src/store/memory-store";
+import * as path from "node:path";
 import type { StableIdBackfillProvider } from "../../src/store/memory-store";
+import { MemoryStore } from "../../src/store/memory-store";
 import type { MemoryConfig } from "../../src/types";
 
 let MEMORY_DIR = "";
@@ -31,7 +31,10 @@ describe("backfillStableIds", () => {
     const seen = new Map<string, string>(); // content -> mdId assigned
     const provider: StableIdBackfillProvider = {
       getMdIdByContent: async (_t, content) => seen.get(content) ?? null,
-      setMdIdByContent: async (_t, content, mdId) => { seen.set(content, mdId); return 1; },
+      setMdIdByContent: async (_t, content, mdId) => {
+        seen.set(content, mdId);
+        return 1;
+      },
     };
     store.setStableIdBackfillProvider(provider);
 
@@ -41,7 +44,7 @@ describe("backfillStableIds", () => {
     // both entries now frontmatter with distinct uuids
     const entries = (store as any).memoryEntries as string[];
     expect(entries.every((e) => e.startsWith("---\n"))).toBe(true);
-    const ids = entries.map((e) => e.match(/^id: (.+)$/m)![1]);
+    const ids = entries.map((e) => e.match(/^id: (.+)$/m)?.[1]);
     expect(new Set(ids).size).toBe(2);
 
     const r2 = await store.backfillStableIds(); // re-run: everything already frontmatter+has-id
@@ -67,28 +70,24 @@ describe("backfillStableIds", () => {
 
   test("resume-safe across the .md<->DB seam: reuses an existing DB md_id instead of double-assigning", async () => {
     const store = makeStore();
-    (store as any).memoryEntries = [
-      "orphan note <!-- created=2026-08-01, last=2026-08-01 -->",
-    ];
+    (store as any).memoryEntries = ["orphan note <!-- created=2026-08-01, last=2026-08-01 -->"];
     const existing = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
     const provider: StableIdBackfillProvider = {
       getMdIdByContent: async () => existing, // DB row already has an md_id
-      setMdIdByContent: async () => 0,        // should NOT be called to overwrite
+      setMdIdByContent: async () => 0, // should NOT be called to overwrite
     };
     store.setStableIdBackfillProvider(provider);
 
     const r = await store.backfillStableIds();
     expect(r.upgraded).toBe(1);
     expect(r.mdIdsMirrored).toBe(0); // reused existing id -> no new mirror write
-    const id = ((store as any).memoryEntries[0] as string).match(/^id: (.+)$/m)![1];
+    const id = ((store as any).memoryEntries[0] as string).match(/^id: (.+)$/m)?.[1];
     expect(id).toBe(existing); // reused, not minted
   });
 
   test("no provider injected -> best-effort no-op (never throws)", async () => {
     const store = makeStore();
-    (store as any).memoryEntries = [
-      "note <!-- created=2026-08-01, last=2026-08-01 -->",
-    ];
+    (store as any).memoryEntries = ["note <!-- created=2026-08-01, last=2026-08-01 -->"];
     // No setStableIdBackfillProvider call — should not throw; upgrades still happen.
     const r = await store.backfillStableIds();
     expect(r.upgraded).toBe(1);
@@ -97,17 +96,17 @@ describe("backfillStableIds", () => {
 
   test("provider.setMdIdByContent throwing is swallowed (best-effort, never throws)", async () => {
     const store = makeStore();
-    (store as any).memoryEntries = [
-      "note <!-- created=2026-08-01, last=2026-08-01 -->",
-    ];
+    (store as any).memoryEntries = ["note <!-- created=2026-08-01, last=2026-08-01 -->"];
     const provider: StableIdBackfillProvider = {
       getMdIdByContent: async () => null,
-      setMdIdByContent: async () => { throw new Error("db down"); },
+      setMdIdByContent: async () => {
+        throw new Error("db down");
+      },
     };
     store.setStableIdBackfillProvider(provider);
 
     const r = await store.backfillStableIds();
-    expect(r.upgraded).toBe(1);     // .md still upgraded
+    expect(r.upgraded).toBe(1); // .md still upgraded
     expect(r.mdIdsMirrored).toBe(0); // mirror failed (swallowed)
   });
 });

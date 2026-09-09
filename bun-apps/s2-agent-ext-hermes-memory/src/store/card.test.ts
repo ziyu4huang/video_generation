@@ -1,6 +1,6 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import type { Card, CardKind, CardGraph } from "./card.js";
+import { describe, it } from "node:test";
+import type { Card, CardKind } from "./card.js";
 
 describe("Card model", () => {
   it("CardKind includes the 3 memory targets + knowledge", () => {

@@ -1,5 +1,5 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { splitFencedYaml } from "@repo/s2-agent-core-interface";
 
 describe("splitFencedYaml (fence-split leaf)", () => {
@@ -7,12 +7,12 @@ describe("splitFencedYaml (fence-split leaf)", () => {
     const raw = "---\nid: ltx:cfg-scale-7\ntags: [zettel, lever]\nconfidence: 0.93\n---\n# heading\n\nbody line";
     const out = splitFencedYaml(raw);
     assert.notEqual(out, null);
-    assert.deepEqual(out!.data, {
+    assert.deepEqual(out?.data, {
       id: "ltx:cfg-scale-7",
       tags: ["zettel", "lever"],
       confidence: 0.93,
     });
-    assert.equal(out!.body, "# heading\n\nbody line");
+    assert.equal(out?.body, "# heading\n\nbody line");
   });
 
   it("returns null when there is no opening fence", () => {
@@ -38,7 +38,9 @@ describe("splitFencedYaml (fence-split leaf)", () => {
       assert.doesNotThrow(() => {
         result = splitFencedYaml(raw);
       });
-      assert.ok(result === null || (typeof result === "object" && "data" in result! && "body" in result!));
+      assert.ok(
+        result === null || (typeof result === "object" && result !== null && "data" in result && "body" in result),
+      );
     }
   });
 
@@ -46,7 +48,7 @@ describe("splitFencedYaml (fence-split leaf)", () => {
     // A bare scalar between fences parses to a non-object → leaf coerces to {}.
     const out = splitFencedYaml("---\njust-a-scalar\n---\nbody");
     assert.notEqual(out, null);
-    assert.deepEqual(out!.data, {});
-    assert.equal(out!.body, "body");
+    assert.deepEqual(out?.data, {});
+    assert.equal(out?.body, "body");
   });
 });

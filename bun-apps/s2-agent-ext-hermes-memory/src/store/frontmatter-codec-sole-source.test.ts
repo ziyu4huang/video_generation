@@ -1,7 +1,7 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, dirname, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 // C1 sole-source gate (architecture-deepening close-out), L2 leaf-hoist form:
@@ -33,8 +33,7 @@ function walkTs(dir: string, acc: string[] = []): string[] {
 
 // The leaf imports `{ parse as parseYaml } from "yaml"` — any other file doing
 // a parse-shaped import from "yaml" is a candidate hand-rolled fence split.
-const YAML_PARSE_IMPORT_RE =
-  /import\s*\{[^}]*\bparse(?:Yaml)?\b[^}]*\}\s*from\s*["']yaml["']/;
+const YAML_PARSE_IMPORT_RE = /import\s*\{[^}]*\bparse(?:Yaml)?\b[^}]*\}\s*from\s*["']yaml["']/;
 
 describe("frontmatter-codec sole-source gate (C1)", () => {
   it("no non-test src file hand-rolls a yaml-parse-based fence split (must delegate to core-interface splitFencedYaml)", () => {

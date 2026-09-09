@@ -5,14 +5,15 @@
 // against a REAL ephemeral CardStore + a REAL source .md (Path B, decision η):
 // the seam fn must surface a card whose dep drifted, clear on unpublish, and
 // degrade to { stale: [] } (never throw) when the store dir is missing.
-import { afterEach, describe, it } from "node:test";
+
 import * as assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { afterEach, describe, it } from "node:test";
+import { HERMES_STALE_CHECK_KEY, publishStaleCheck, unpublishStaleCheck } from "./stale-seam.js";
 import { createCardStore } from "./store/card-store.js";
 import { computeStaleness } from "./store/planning-staleness.js";
-import { HERMES_STALE_CHECK_KEY, publishStaleCheck, unpublishStaleCheck } from "./stale-seam.js";
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[HERMES_STALE_CHECK_KEY];
@@ -61,7 +62,10 @@ describe("publishStaleCheck (10-impl T7 — hermes side)", () => {
       const fn = (globalThis as Record<string, unknown>)[HERMES_STALE_CHECK_KEY];
       assert.equal(typeof fn, "function");
       const r = await (fn as (e: string, cwd: string) => Promise<{ stale: { cardId: string }[] }>)("seam", root);
-      assert.ok(r.stale.some((s) => s.cardId === id), "the drifted card surfaces via the seam");
+      assert.ok(
+        r.stale.some((s) => s.cardId === id),
+        "the drifted card surfaces via the seam",
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(mem, { recursive: true, force: true });

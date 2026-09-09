@@ -1,7 +1,7 @@
 import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
-import { buildPromptContext } from "../../src/prompt-context.js";
 import { MEMORY_POLICY_PROMPT, MEMORY_POLICY_PROMPT_COMPACT } from "../../src/constants.js";
+import { buildPromptContext } from "../../src/prompt-context.js";
 
 describe("buildPromptContext", () => {
   const store = {
@@ -13,19 +13,17 @@ describe("buildPromptContext", () => {
   } as any;
 
   it("returns policy only in policy-only mode", async () => {
-    const result = await buildPromptContext(
-      { memoryMode: "policy-only" },
-      store,
-      projectStore,
-      "demo",
-    );
+    const result = await buildPromptContext({ memoryMode: "policy-only" }, store, projectStore, "demo");
 
     assert.strictEqual(result, MEMORY_POLICY_PROMPT);
     assert.match(result, /search \(mode=memory\)/);
     assert.match(result, /Accepted memory categories/);
     assert.match(result, /category filters categorized failure\/lesson memories only/);
     assert.match(result, /Use category only for categorized failure\/lesson searches/);
-    assert.match(result, /search: search durable user, global, project-scoped, and failure memories \(mode=memory\), or indexed past conversation messages \(mode=session\)\./);
+    assert.match(
+      result,
+      /search: search durable user, global, project-scoped, and failure memories \(mode=memory\), or indexed past conversation messages \(mode=session\)\./,
+    );
     assert.match(result, /skill_manage: list, view, create, patch, update, and delete procedural skills/);
     assert.match(result, /Always pass scope explicitly on create/);
     assert.match(result, /Do not create skills for one-off task state/);

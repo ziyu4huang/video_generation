@@ -9,7 +9,7 @@
  * initialize, fall back to sqlite (local file, no server) so a missing
  * external service never blocks the agent from starting.
  */
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -19,8 +19,12 @@ import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 
 describe("createBackendBundleWithFallback", () => {
   let tmpDir: string;
-  beforeEach(() => { tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "backend-fallback-")); });
-  afterEach(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "backend-fallback-"));
+  });
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
 
   it("falls back to sqlite when the configured surrealdb backend is unreachable", async () => {
     // Port 1 has no listener → immediate ECONNREFUSED; init() throws fast

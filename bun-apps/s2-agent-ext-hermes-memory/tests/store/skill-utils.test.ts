@@ -15,7 +15,9 @@ describe("formatFrontmatter", () => {
     });
 
     assert.ok(raw.includes('name: "audit-agents-md"'));
-    assert.ok(raw.includes('description: "Audit and restructure AGENTS.md files: remove cross-references between sections"'));
+    assert.ok(
+      raw.includes('description: "Audit and restructure AGENTS.md files: remove cross-references between sections"'),
+    );
     assert.ok(raw.includes('display_name: "Audit AGENTS.md"'));
   });
 });

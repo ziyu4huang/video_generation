@@ -7,13 +7,13 @@
  * tool schemas the LLM sees; the unified search tool is registered once with
  * its default (legacy) session variant, matching production.
  */
-import { test, expect, describe } from "bun:test";
-import { createCapturePi, estimateTotalSchemaTokens, assertWithinBudget } from "@repo/perf-harness";
-import { registerSearchTool } from "../../src/tools/search-tool.ts";
-import { registerSkillTool } from "../../src/tools/skill-tool.ts";
-import { registerMemoryTool } from "../../src/tools/memory-tool.ts";
+import { describe, expect, test } from "bun:test";
+import { assertWithinBudget, createCapturePi, estimateTotalSchemaTokens } from "@repo/perf-harness";
 import { registerKnowledgeIngestTool } from "../../src/tools/knowledge-ingest-tool.ts";
 import { registerKnowledgeSearchTool } from "../../src/tools/knowledge-search-tool.ts";
+import { registerMemoryTool } from "../../src/tools/memory-tool.ts";
+import { registerSearchTool } from "../../src/tools/search-tool.ts";
+import { registerSkillTool } from "../../src/tools/skill-tool.ts";
 
 // Ticket 10 final pin — measured at 4ddd1a21 (6-tool surface, post-trim):
 const SIX_TOOL_BASELINE = 2033; // measured 2033 tok after knowledge-tool trims

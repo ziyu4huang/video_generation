@@ -19,15 +19,21 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryConfig } from "../types.js";
-import { isCorrection } from "./correction-detector.js";
-import { isLessonWorthy, extractResultText } from "./error-detector.js";
 import { getMessageText } from "../types.js";
+import { isCorrection } from "./correction-detector.js";
+import { extractResultText, isLessonWorthy } from "./error-detector.js";
 
 /** Per-turn set of memory ids recalled via memory_search (the touchMemory path). */
 export class RecallSet {
   private readonly ids = new Set<number>();
-  record(id: number): void { this.ids.add(id); }
-  drain(): number[] { const out = [...this.ids]; this.ids.clear(); return out; }
+  record(id: number): void {
+    this.ids.add(id);
+  }
+  drain(): number[] {
+    const out = [...this.ids];
+    this.ids.clear();
+    return out;
+  }
 }
 
 /**
@@ -72,14 +78,22 @@ export function setupWorthScoring(
   pi.on("turn_end", async () => {
     try {
       const ids = recallSet.drain(); // always drain (bounds the set even when disabled)
-      if (!enabled || !memoryRepo || ids.length === 0) { hadCorrection = false; hadError = false; return; }
+      if (!enabled || !memoryRepo || ids.length === 0) {
+        hadCorrection = false;
+        hadError = false;
+        return;
+      }
       const failed = hadCorrection || hadError;
       const successDelta = failed ? 0 : 1;
       const failDelta = failed ? 1 : 0;
       hadCorrection = false;
       hadError = false;
       for (const id of ids) {
-        try { await memoryRepo.bumpMemoryWorth(id, successDelta, failDelta); } catch { /* best-effort per-id */ }
+        try {
+          await memoryRepo.bumpMemoryWorth(id, successDelta, failDelta);
+        } catch {
+          /* best-effort per-id */
+        }
       }
     } catch {
       // never block the session

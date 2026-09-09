@@ -4,9 +4,9 @@
  * is reachable — this keeps CI green when the server is absent while still
  * exercising the full backend-agnostic contract on developer machines.
  */
-import { describe, it, expect } from "bun:test";
-import { isSurrealUp, uniqueNs } from "./_helpers.js";
+import { describe, expect, it } from "bun:test";
 import type { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
+import { isSurrealUp, uniqueNs } from "./_helpers.js";
 
 const up = await isSurrealUp();
 
@@ -24,7 +24,9 @@ if (up) {
       repo: new SurrealMemoryRepository(backend),
       backendKind: "surreal" as const,
       close: async () => {
-        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        try {
+          await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+        } catch {}
         await backend.close();
       },
     };
@@ -42,7 +44,9 @@ if (up) {
       // stateless on this branch).
       cardStore: await createCardStore({ memoryDir: ns, dbBackend: "surrealdb", surrealRepo: repo }),
       close: async () => {
-        try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch {}
+        try {
+          await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+        } catch {}
         await backend.close();
       },
     };
@@ -181,9 +185,24 @@ if (up) {
       await backend.init();
       repo = new SurrealMemoryRepository(backend);
 
-      await repo.addMemory({ content: "[failure] active one", target: "failure", category: "failure", state: "active" });
-      await repo.addMemory({ content: "[failure] fixed one", target: "failure", category: "failure", state: "resolved" });
-      await repo.addMemory({ content: "[tool-quirk] known quirk", target: "failure", category: "tool-quirk", state: "acquired" });
+      await repo.addMemory({
+        content: "[failure] active one",
+        target: "failure",
+        category: "failure",
+        state: "active",
+      });
+      await repo.addMemory({
+        content: "[failure] fixed one",
+        target: "failure",
+        category: "failure",
+        state: "resolved",
+      });
+      await repo.addMemory({
+        content: "[tool-quirk] known quirk",
+        target: "failure",
+        category: "tool-quirk",
+        state: "acquired",
+      });
       const recent = await repo.getRecentFailures(7);
       const contents = recent.map((m) => m.content);
       expect(contents.some((c) => c === "[failure] active one")).toBe(true);
@@ -256,9 +275,24 @@ if (up) {
       }
 
       await repo.updateCardsByMdIdBatch([
-        { mdId: "md-batch-1", content: "batch card 1 v2", frontmatter: JSON.stringify({ last: "2026-05-20" }), graph: null },
-        { mdId: "md-batch-2", content: "batch card 2 v2", frontmatter: JSON.stringify({ last: "2026-05-20" }), graph: null },
-        { mdId: "md-batch-3", content: "batch card 3 v2", frontmatter: JSON.stringify({ last: "2026-05-20" }), graph: null },
+        {
+          mdId: "md-batch-1",
+          content: "batch card 1 v2",
+          frontmatter: JSON.stringify({ last: "2026-05-20" }),
+          graph: null,
+        },
+        {
+          mdId: "md-batch-2",
+          content: "batch card 2 v2",
+          frontmatter: JSON.stringify({ last: "2026-05-20" }),
+          graph: null,
+        },
+        {
+          mdId: "md-batch-3",
+          content: "batch card 3 v2",
+          frontmatter: JSON.stringify({ last: "2026-05-20" }),
+          graph: null,
+        },
       ]);
 
       const cards = await repo.listCardsByTarget("memory");

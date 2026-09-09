@@ -9,7 +9,7 @@
  */
 import { describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
-import { normalizeForSignature, computeSignature } from "../../src/store/signature.js";
+import { computeSignature, normalizeForSignature } from "../../src/store/signature.js";
 
 describe("signature: normalizeForSignature", () => {
   it("lowercases text", () => {
@@ -17,10 +17,7 @@ describe("signature: normalizeForSignature", () => {
   });
 
   it("collapses runs of whitespace (spaces, tabs, newlines) to a single space", () => {
-    assert.equal(
-      normalizeForSignature("foo    bar\n\n\n\tbaz  qux"),
-      "foo bar baz qux",
-    );
+    assert.equal(normalizeForSignature("foo    bar\n\n\n\tbaz  qux"), "foo bar baz qux");
     assert.equal(normalizeForSignature("a\tb  c\n d"), "a b c d");
   });
 
@@ -30,15 +27,9 @@ describe("signature: normalizeForSignature", () => {
   });
 
   it("strips markdown code-fence delimiter lines", () => {
-    assert.equal(
-      normalizeForSignature("```\ncode here\n```"),
-      "code here",
-    );
+    assert.equal(normalizeForSignature("```\ncode here\n```"), "code here");
     // Fence with info string (```ts / ```yaml) is also a delimiter line.
-    assert.equal(
-      normalizeForSignature("```ts\nconst x = 1\n```"),
-      "const x = 1",
-    );
+    assert.equal(normalizeForSignature("```ts\nconst x = 1\n```"), "const x = 1");
   });
 
   it("strips ATX header markers (#..######)", () => {
@@ -81,10 +72,7 @@ describe("signature: normalizeForSignature", () => {
       "-  Use   PNPM  here",
       "> Remember this rule",
     ].join("\n");
-    assert.equal(
-      normalizeForSignature(body),
-      "project notes key: value use pnpm here remember this rule",
-    );
+    assert.equal(normalizeForSignature(body), "project notes key: value use pnpm here remember this rule");
   });
 
   it("returns empty string for empty / whitespace-only / marker-only input", () => {
@@ -99,10 +87,7 @@ describe("signature: computeSignature", () => {
     const body = "This entry is long enough to qualify as a signature.";
     // normalize keeps the trailing '.' (it is not a markdown marker); the
     // sentence-split drops it, so the signature is the period-less fragment.
-    assert.equal(
-      computeSignature(body, 24),
-      "this entry is long enough to qualify as a signature",
-    );
+    assert.equal(computeSignature(body, 24), "this entry is long enough to qualify as a signature");
   });
 
   it("picks the LONGEST qualifying fragment among several sentences", () => {
@@ -110,10 +95,7 @@ describe("signature: computeSignature", () => {
     //   "short"        -> len 5
     //   "this is the longest fragment in the body" -> qualifies & longest
     const body = "Short. This is the longest fragment in the body.";
-    assert.equal(
-      computeSignature(body, 24),
-      "this is the longest fragment in the body",
-    );
+    assert.equal(computeSignature(body, 24), "this is the longest fragment in the body");
   });
 
   it("returns null when no fragment reaches minChars", () => {
@@ -123,10 +105,7 @@ describe("signature: computeSignature", () => {
 
   it("skips under-min fragments but still returns a qualifying longer one", () => {
     const body = "tiny. a small lead in. here is a qualifying fragment for sure.";
-    assert.equal(
-      computeSignature(body, 24),
-      "here is a qualifying fragment for sure",
-    );
+    assert.equal(computeSignature(body, 24), "here is a qualifying fragment for sure");
   });
 
   it("returns null for an empty body", () => {
@@ -153,10 +132,7 @@ describe("signature: computeSignature", () => {
 
   it("strips markdown before fragmenting, so the signature is marker-free", () => {
     const body = "# Heading line that is plenty long on its own.";
-    assert.equal(
-      computeSignature(body, 24),
-      "heading line that is plenty long on its own",
-    );
+    assert.equal(computeSignature(body, 24), "heading line that is plenty long on its own");
   });
 
   it("signature fragment is a substring of the same body fully normalized (match contract)", () => {
@@ -164,9 +140,6 @@ describe("signature: computeSignature", () => {
     const sig = computeSignature(body, 24);
     assert.ok(sig !== null);
     const normalized = normalizeForSignature(body);
-    assert.ok(
-      normalized.includes(sig!),
-      `signature "${sig}" must be a substring of normalized body "${normalized}"`,
-    );
+    assert.ok(normalized.includes(sig!), `signature "${sig}" must be a substring of normalized body "${normalized}"`);
   });
 });

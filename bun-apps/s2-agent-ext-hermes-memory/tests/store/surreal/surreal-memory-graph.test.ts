@@ -6,12 +6,12 @@
  * Runs only when the local SurrealDB service is up (localDescribe). Each test
  * gets a throwaway namespace so concurrent runs never collide.
  */
-import { describe, it, expect } from "bun:test";
-import { isSurrealUp, localDescribe, uniqueNs } from "./_helpers.js";
+import { describe, expect, it } from "bun:test";
+import { createBackendBundle } from "../../../src/store/backend-factory.js";
 import { SurrealBackend } from "../../../src/store/surreal/surreal-backend.js";
 import { SurrealMemoryRepository } from "../../../src/store/surreal/surreal-memory-repo.js";
-import { createBackendBundle } from "../../../src/store/backend-factory.js";
 import type { MemoryConfig } from "../../../src/types.js";
+import { isSurrealUp, localDescribe, uniqueNs } from "./_helpers.js";
 
 const up = await isSurrealUp();
 
@@ -27,7 +27,11 @@ localDescribe("SurrealMemoryRepository graph edges", up, () => {
     repo = new SurrealMemoryRepository(backend);
   }
   async function cleanup(): Promise<void> {
-    try { await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch { /* best-effort */ }
+    try {
+      await backend.client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+    } catch {
+      /* best-effort */
+    }
     await backend.close();
   }
 
@@ -135,8 +139,10 @@ localDescribe("SurrealMemoryRepository graph edges", up, () => {
       // probe, cited in the task report.)
       await freshRepo();
       try {
-        const withEdgesA = (await repo.syncMemoryEntry({ content: "alpha story", project: "p1", target: "memory" })).entry;
-        const withEdgesB = (await repo.syncMemoryEntry({ content: "beta story", project: "p1", target: "memory" })).entry;
+        const withEdgesA = (await repo.syncMemoryEntry({ content: "alpha story", project: "p1", target: "memory" }))
+          .entry;
+        const withEdgesB = (await repo.syncMemoryEntry({ content: "beta story", project: "p1", target: "memory" }))
+          .entry;
         const orphanC = (await repo.syncMemoryEntry({ content: "gamma story", project: "p2", target: "memory" })).entry;
         const orphanD = (await repo.syncMemoryEntry({ content: "delta story", project: "p2", target: "memory" })).entry;
 
@@ -203,13 +209,13 @@ localDescribe("SurrealMemoryRepository graph edges", up, () => {
         expect(migrated).toBe(1);
 
         // The row now lives at memories:55 (seq-based); fields preserved.
-        const rows = await backend.client.query<Array<{ id: string; seq: number; content: string; project: string | null }>>(
-          `SELECT id, seq, content, project FROM memories WHERE seq = 55;`,
-        );
+        const rows = await backend.client.query<
+          Array<{ id: string; seq: number; content: string; project: string | null }>
+        >(`SELECT id, seq, content, project FROM memories WHERE seq = 55;`);
         expect(rows.length).toBe(1);
-        expect(rows[0]!.id).toBe("memories:55");
-        expect(rows[0]!.content).toBe("legacy body");
-        expect(rows[0]!.project).toBe("demo");
+        expect(rows[0]?.id).toBe("memories:55");
+        expect(rows[0]?.content).toBe("legacy body");
+        expect(rows[0]?.project).toBe("demo");
 
         // Idempotent: a second run migrates nothing.
         expect(await repo.normalizeLegacyMemoryIds()).toBe(0);
@@ -301,7 +307,11 @@ localDescribe("SurrealMemoryRepository graph edges", up, () => {
         const results = await bundle.memoryRepo.searchMemories("alpha", { target: "memory" });
         expect(results.some((m) => m.content === "beta story")).toBe(true);
       } finally {
-        try { await (bundle.backend as SurrealBackend).client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`); } catch { /* best-effort */ }
+        try {
+          await (bundle.backend as SurrealBackend).client.query(`REMOVE NAMESPACE IF EXISTS ${ns};`);
+        } catch {
+          /* best-effort */
+        }
         await bundle.backend.close();
       }
     });

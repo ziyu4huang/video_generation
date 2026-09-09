@@ -105,9 +105,7 @@ export async function moveSelectedSkills(
   }
 
   const refreshedSkills = await store.loadIndex();
-  const focusSkillId = blocked[0]?.skillId
-    ?? successes[0]?.skillId
-    ?? unchanged[0]?.skillId;
+  const focusSkillId = blocked[0]?.skillId ?? successes[0]?.skillId ?? unchanged[0]?.skillId;
 
   return {
     skills: refreshedSkills,

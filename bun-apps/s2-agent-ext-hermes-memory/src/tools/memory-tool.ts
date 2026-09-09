@@ -4,27 +4,27 @@
  * See PLAN.md → "Hermes Source File Reference Map" for source lines.
  */
 
-import { defineTool } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
-import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
-import type { CardStore } from "../store/card-store.js";
-import {
-  mirrorMemoryAdd,
-  mirrorMemoryReplace,
-  mirrorMemoryRemove,
-  mirrorMemoryEvictions,
-} from "../store/memory-card-mirror.js";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join as pathJoin } from "node:path";
-import { MEMORY_TOOL_DESCRIPTION, DEFAULT_STALENESS_THRESHOLD_DAYS } from "../constants.js";
-import type { FailureState, MemoryCategory, MemoryResult } from "../types.js";
-import { fireProactiveIfReady } from "../handlers/auto-consolidate.js";
+import { StringEnum } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import { isConsolidatingChild, loadConfig } from "../config.js";
+import { DEFAULT_STALENESS_THRESHOLD_DAYS, MEMORY_TOOL_DESCRIPTION } from "../constants.js";
+import { fireProactiveIfReady } from "../handlers/auto-consolidate.js";
+import type { CardStore } from "../store/card-store.js";
+import {
+  mirrorMemoryAdd,
+  mirrorMemoryEvictions,
+  mirrorMemoryRemove,
+  mirrorMemoryReplace,
+} from "../store/memory-card-mirror.js";
+import { formatFailureMemoryContent, normalizeFailureState } from "../store/memory-format.js";
+import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryRepository } from "../store/repository.js";
+import type { FailureState, MemoryCategory, MemoryResult } from "../types.js";
 import { executeMemorySupersede } from "./memory-supersede-tool.js";
 
 function appendSyncWarning(result: MemoryResult, warning: string): MemoryResult {
@@ -68,14 +68,11 @@ export function writeTransferArchive(
     return JSON.stringify(record);
   });
 
-  writeFileSync(jsonlPath, lines.join("\n") + "\n", "utf-8");
+  writeFileSync(jsonlPath, `${lines.join("\n")}\n`, "utf-8");
   return jsonlPath;
 }
 
-function formatTransferResult(
-  result: MemoryResult,
-  archivePath: string | undefined,
-): string {
+function formatTransferResult(result: MemoryResult, archivePath: string | undefined): string {
   const lines: string[] = [];
   lines.push(result.message ?? "Transfer complete.");
   lines.push("");
@@ -111,7 +108,8 @@ function formatMemoryToolText(result: MemoryResult): string {
 
   if (result.success && evictedEntries.length > 0) {
     const lines = [
-      result.message ?? `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.`,
+      result.message ??
+        `Memory updated. Rotated ${evictedEntries.length} older ${evictedEntries.length === 1 ? "entry" : "entries"} to stay within the limit.`,
       "",
     ];
 
@@ -314,53 +312,47 @@ export function registerMemoryTool(
     parameters: Type.Object({
       action: StringEnum(["add", "replace", "remove", "transfer", "audit", "supersede"] as const),
       target: StringEnum(["memory", "user", "project", "failure"] as const),
-      content: Type.Optional(
-        Type.String({ description: "Entry content for add/replace" })
-      ),
+      content: Type.Optional(Type.String({ description: "Entry content for add/replace" })),
       old_text: Type.Optional(
         Type.String({
-          description:
-            "Substring identifying entry for replace/remove",
-        })
+          description: "Substring identifying entry for replace/remove",
+        }),
       ),
       query: Type.Optional(
         Type.String({
-          description:
-            "Substring to match entries for transfer. Omit for all.",
-        })
+          description: "Substring to match entries for transfer. Omit for all.",
+        }),
       ),
       category: Type.Optional(
         StringEnum(["failure", "correction", "insight", "preference", "convention", "tool-quirk"] as const, {
           description: "Category for failure memories",
-        })
+        }),
       ),
-      failure_reason: Type.Optional(
-        Type.String({ description: "Why it failed (for failure category)" })
-      ),
+      failure_reason: Type.Optional(Type.String({ description: "Why it failed (for failure category)" })),
       state: Type.Optional(
         StringEnum(["active", "resolved", "acquired"] as const, {
-          description: "Failure-entry lifecycle. Default: active."
-        })
+          description: "Failure-entry lifecycle. Default: active.",
+        }),
       ),
       severity: Type.Optional(
         Type.Number({
           description: "Advisory severity (1–3) for failure entries. Dropped when outside 1–3.",
-        })
+        }),
       ),
       older_than: Type.Optional(
         Type.Number({
           description: `Audit only: flag entries older than this many days (default ${DEFAULT_STALENESS_THRESHOLD_DAYS}).`,
-        })
+        }),
       ),
       prior_id: Type.Optional(
         Type.Integer({
           description: "ID of memory to supersede",
-        })
+        }),
       ),
       replacement: Type.Optional(
         Type.String({
           description: "Replacement content",
-        })
+        }),
       ),
       sources: Type.Optional(
         Type.Array(
@@ -370,16 +362,27 @@ export function registerMemoryTool(
             capture: Type.String({ description: "Verbatim grounding text" }),
           }),
           { description: "Supersede only: grounding sources (.md-resident only)" },
-        )
+        ),
       ),
     }),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const { action, target: rawTarget, content, old_text, query, category, failure_reason, state: rawState, severity: rawSeverity } = params;
+    async execute(_toolCallId, params, _signal, onUpdate, _ctx) {
+      const {
+        action,
+        target: rawTarget,
+        content,
+        old_text,
+        query,
+        category,
+        failure_reason,
+        state: rawState,
+        severity: rawSeverity,
+      } = params;
       // Task 7: validate failure lifecycle state/severity at the tool boundary.
       // `state` is normalized via normalizeFailureState (invalid → active);
       // `severity` outside 1–3 is dropped (undefined → downstream default).
       const state = typeof rawState === "string" ? normalizeFailureState(rawState) : undefined;
-      const severity = typeof rawSeverity === "number" && rawSeverity >= 1 && rawSeverity <= 3 ? rawSeverity : undefined;
+      const severity =
+        typeof rawSeverity === "number" && rawSeverity >= 1 && rawSeverity <= 3 ? rawSeverity : undefined;
       // Surface consolidation progress (e.g. the consolidator's model-id) to the
       // TUI as a partial result. Consolidation runs a local LLM and can hold the
       // file lock for up to ~60s; without this the memory tool call is a silent
@@ -389,15 +392,15 @@ export function registerMemoryTool(
         : undefined;
 
       // Route 'project' to projectStore using the normal MEMORY.md target.
-      const target = rawTarget === "project" ? "memory" : rawTarget as "memory" | "user" | "failure";
+      const target = rawTarget === "project" ? "memory" : (rawTarget as "memory" | "user" | "failure");
       const activeStore = rawTarget === "project" ? projectStore : store;
 
       if (rawTarget === "project" && !projectStore) {
         return memoryErrorResponse("Project memory is not available (no project detected).");
       }
 
-      // After the guard above, activeStore is guaranteed non-null when rawTarget === 'project'
-      const store_ = activeStore!;
+      if (activeStore === null) throw new Error("memory: project store unavailable");
+      const store_ = activeStore;
 
       let result: MemoryResult;
       let syncWarning: string | null = null;
@@ -417,7 +420,16 @@ export function registerMemoryTool(
               onProgress,
             });
             if (result.success) {
-              syncWarning = await syncAddToCardStore(rawTarget, content, memoryCategory, failure_reason, cardStore, result.added_md_id, state, severity);
+              syncWarning = await syncAddToCardStore(
+                rawTarget,
+                content,
+                memoryCategory,
+                failure_reason,
+                cardStore,
+                result.added_md_id,
+                state,
+                severity,
+              );
             }
           } else {
             result = await store_.add(target, content, { onProgress });
@@ -438,7 +450,14 @@ export function registerMemoryTool(
               await mirrorMemoryEvictions(cardStore, result.offloaded_superseded);
               // Task 7 / F1: thread the birth id so the card row's id == the
               // `.md` frontmatter id (live-in-session bridge, not just restart).
-              syncWarning = await syncAddToCardStore(rawTarget, content, undefined, undefined, cardStore, result.added_md_id);
+              syncWarning = await syncAddToCardStore(
+                rawTarget,
+                content,
+                undefined,
+                undefined,
+                cardStore,
+                result.added_md_id,
+              );
             }
           }
           break;
@@ -452,7 +471,15 @@ export function registerMemoryTool(
           }
           result = await store_.replace(target, old_text, content);
           if (result.success) {
-            syncWarning = await syncReplaceToCardStore(rawTarget, old_text, content, cardStore, result.added_md_id, state, severity);
+            syncWarning = await syncReplaceToCardStore(
+              rawTarget,
+              old_text,
+              content,
+              cardStore,
+              result.added_md_id,
+              state,
+              severity,
+            );
           }
           break;
 
@@ -468,7 +495,9 @@ export function registerMemoryTool(
 
         case "transfer":
           if (rawTarget === "project") {
-            return memoryErrorResponse("Transfer is not supported for project target. Use 'memory', 'user', or 'failure'.");
+            return memoryErrorResponse(
+              "Transfer is not supported for project target. Use 'memory', 'user', or 'failure'.",
+            );
           }
           result = await store_.transferEntries(target, query);
           if (result.success && result.transferred_entries && result.transferred_entries.length > 0) {
@@ -509,7 +538,9 @@ export function registerMemoryTool(
 
         case "supersede": {
           if (rawTarget !== "memory" && rawTarget !== "user" && rawTarget !== "failure") {
-            return memoryErrorResponse("Supersede is not supported for project target. Use 'memory', 'user', or 'failure'.");
+            return memoryErrorResponse(
+              "Supersede is not supported for project target. Use 'memory', 'user', or 'failure'.",
+            );
           }
           if (typeof params.prior_id !== "number" || typeof params.replacement !== "string" || !params.replacement) {
             return memoryErrorResponse("prior_id and replacement are required for 'supersede' action.");

@@ -1,4 +1,4 @@
-import { describe, it, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -42,16 +42,8 @@ describe("migrateLegacyProjectMemoryDirs", () => {
     fs.mkdirSync(legacyDir, { recursive: true });
     fs.mkdirSync(migratedDir, { recursive: true });
 
-    fs.writeFileSync(
-      path.join(legacyDir, "MEMORY.md"),
-      ["shared", "legacy only"].join(ENTRY_DELIMITER),
-      "utf-8",
-    );
-    fs.writeFileSync(
-      path.join(migratedDir, "MEMORY.md"),
-      ["shared", "new only"].join(ENTRY_DELIMITER),
-      "utf-8",
-    );
+    fs.writeFileSync(path.join(legacyDir, "MEMORY.md"), ["shared", "legacy only"].join(ENTRY_DELIMITER), "utf-8");
+    fs.writeFileSync(path.join(migratedDir, "MEMORY.md"), ["shared", "new only"].join(ENTRY_DELIMITER), "utf-8");
 
     const result = migrateLegacyProjectMemoryDirs(agentRoot);
     const merged = fs.readFileSync(path.join(migratedDir, "MEMORY.md"), "utf-8");

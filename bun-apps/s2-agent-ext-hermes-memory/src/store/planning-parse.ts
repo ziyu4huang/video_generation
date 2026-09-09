@@ -9,7 +9,7 @@ export { splitFencedYaml as splitPlanningFrontmatter } from "@repo/s2-agent-core
 /** First H1 line (`# title`), or undefined. */
 export function extractTitle(body: string): string | undefined {
   const m = body.match(/^# (.+)$/m);
-  return m ? m[1]!.trim() : undefined;
+  return m ? m[1]?.trim() : undefined;
 }
 
 /** One-line gist of a ticket's `## Resolution` section: the first non-empty
@@ -20,7 +20,7 @@ export function extractResolutionGist(body: string): string | undefined {
   const lines = body.split("\n");
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+Resolution\b/.test(lines[i]!)) {
+    if (/^##\s+Resolution\b/.test(lines[i] ?? "")) {
       start = i + 1;
       break;
     }
@@ -28,8 +28,9 @@ export function extractResolutionGist(body: string): string | undefined {
   if (start === -1) return undefined;
   const out: string[] = [];
   for (let i = start; i < lines.length; i++) {
-    if (/^##\s/.test(lines[i]!)) break;
-    out.push(lines[i]!);
+    const line = lines[i] ?? "";
+    if (/^##\s/.test(line)) break;
+    out.push(line);
   }
   const section = out.join("\n").trim();
   if (!section) return undefined;
@@ -38,7 +39,7 @@ export function extractResolutionGist(body: string): string | undefined {
     .map((l) => l.trim())
     .find((l) => l.length > 0);
   if (!firstLine) return undefined;
-  return firstLine.length > 200 ? firstLine.slice(0, 197) + "..." : firstLine;
+  return firstLine.length > 200 ? `${firstLine.slice(0, 197)}...` : firstLine;
 }
 
 /** Normalise a frontmatter `blocked by` value (string | string[] | number) → string[].
@@ -96,7 +97,7 @@ export function extractCitedPaths(body: string): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const m of body.matchAll(CITED_PATH_RE)) {
-    const path = m[1]!.trim();
+    const path = m[1]?.trim();
     if (!seen.has(path)) {
       seen.add(path);
       out.push(path);

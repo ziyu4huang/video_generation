@@ -17,7 +17,7 @@ export function parseKnowledgeJsonl(content: string): KnowledgeJsonlResult {
   const parseErrors: { line: number; reason: string }[] = [];
   const lines = content.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i]!.trim();
+    const raw = lines[i]?.trim();
     if (raw === "" || raw.startsWith("#")) continue;
     let obj: unknown;
     try {
@@ -53,9 +53,7 @@ export function parseKnowledgeJsonl(content: string): KnowledgeJsonlResult {
       // which sent every walkAndIngest card down the 1970-01-01 fallback. Only a
       // non-null plain object passes; strings/arrays/null are dropped (undefined).
       evidence:
-        rec.evidence && typeof rec.evidence === "object" && !Array.isArray(rec.evidence)
-          ? rec.evidence
-          : undefined,
+        rec.evidence && typeof rec.evidence === "object" && !Array.isArray(rec.evidence) ? rec.evidence : undefined,
       schema_version: typeof rec.schema_version === "number" ? rec.schema_version : undefined,
       extracted_at: typeof rec.extracted_at === "string" ? rec.extracted_at : undefined,
     });

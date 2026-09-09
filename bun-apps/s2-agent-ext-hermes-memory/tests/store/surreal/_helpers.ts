@@ -18,11 +18,12 @@ export async function isSurrealUp(endpoint = "http://127.0.0.1:8000"): Promise<b
  * Idiomatic describe(name, body) shape — when `up` is false, the whole
  * block (including inner `it`s) is skipped.
  */
-export function localDescribe(
-  name: string,
-  up: boolean,
-  body: () => void,
-): ReturnType<typeof describe> {
+const announcedSkips = new Set<string>();
+export function localDescribe(name: string, up: boolean, body: () => void): ReturnType<typeof describe> {
+  if (!up && !announcedSkips.has(name)) {
+    announcedSkips.add(name);
+    console.warn(`[env-gated] SKIP (SurrealDB down): ${name}`);
+  }
   return (up ? describe : (describe.skip as typeof describe))(name, body);
 }
 

@@ -11,7 +11,7 @@
 import { createHash } from "node:crypto";
 
 import { ENTRY_DELIMITER } from "../constants.js";
-import { serializeMetadataComment, today, decodeMemoryEntry } from "./memory-format.js";
+import { decodeMemoryEntry, serializeMetadataComment, today } from "./memory-format.js";
 
 /** 16-hex-char sha256 digest of an encoded entry. */
 export type EntryHash = string;
@@ -321,10 +321,7 @@ export function applyMergePlan(liveEncoded: string[], plan: MergePlan): ApplyRes
     }
   }
 
-  const entries = [
-    ...liveEncoded.filter((encoded) => !removedKeys.has(hashEntry(encoded))),
-    ...mergedEncodes,
-  ];
+  const entries = [...liveEncoded.filter((encoded) => !removedKeys.has(hashEntry(encoded))), ...mergedEncodes];
 
   return {
     entries,

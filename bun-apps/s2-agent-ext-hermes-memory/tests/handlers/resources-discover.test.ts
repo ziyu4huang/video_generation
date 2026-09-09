@@ -2,7 +2,7 @@ import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import * as os from "node:os";
 import * as path from "node:path";
-import { resolveProjectSkillDiscovery, registerProjectSkillDiscoveryHandler } from "../../src/index.js";
+import { registerProjectSkillDiscoveryHandler, resolveProjectSkillDiscovery } from "../../src/index.js";
 import { AGENT_ROOT } from "../../src/paths.js";
 import { SkillStore } from "../../src/store/skill-store.js";
 

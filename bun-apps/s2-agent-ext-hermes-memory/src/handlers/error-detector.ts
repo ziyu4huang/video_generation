@@ -22,21 +22,21 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MemoryStore } from "../store/memory-store.js";
-import { formatFailureMemoryContent } from "../store/memory-format.js";
-import type { MemoryRepository } from "../store/repository.js";
-import type { CardStore } from "../store/card-store.js";
-import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
-import { CaptureThrottle } from "./capture-throttle.js";
-import { envInt } from "../utils/env.js";
 import {
-  LESSON_WORTHY_PATTERNS,
-  ERROR_NOISE_PATTERNS,
+  DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE,
   DEFAULT_ERROR_CAPTURE_RATE_LIMIT,
   DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS,
-  DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE,
+  ERROR_NOISE_PATTERNS,
+  LESSON_WORTHY_PATTERNS,
 } from "../constants.js";
+import type { CardStore } from "../store/card-store.js";
+import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
+import { formatFailureMemoryContent } from "../store/memory-format.js";
+import { MemoryStore } from "../store/memory-store.js";
+import type { MemoryRepository } from "../store/repository.js";
 import type { MemoryConfig } from "../types.js";
+import { envInt } from "../utils/env.js";
+import { CaptureThrottle } from "./capture-throttle.js";
 
 /** A single text/image content block from a tool_result event. */
 interface ContentBlock {
@@ -62,7 +62,7 @@ export function extractResultText(content: unknown): string {
  * pattern and NOT a NOISE pattern.
  */
 export function isLessonWorthy(text: string): boolean {
-  if (!text || !text.trim()) return false;
+  if (!text?.trim()) return false;
   for (const re of ERROR_NOISE_PATTERNS) {
     if (re.test(text)) return false;
   }
@@ -129,7 +129,7 @@ export function setupErrorDetector(
   store: MemoryStore,
   _projectStore: MemoryStore | null,
   config: MemoryConfig,
-  memoryRepo: MemoryRepository | null = null,
+  _memoryRepo: MemoryRepository | null = null,
   projectName?: string | null,
   // kp13 Wave B: the failure-mirror target — the bundle CardStore
   // (md_id-keyed upsert; dedup rides the registered MemoryDedupStrategy).
@@ -140,9 +140,14 @@ export function setupErrorDetector(
 ): void {
   if (config.errorCapture === false) return;
 
-  const rateLimit = config.errorCaptureRateLimit ?? envInt("PI_MEMORY_ERROR_CAPTURE_RATE_LIMIT", DEFAULT_ERROR_CAPTURE_RATE_LIMIT);
-  const rateWindowMs = config.errorCaptureRateWindowMs ?? envInt("PI_MEMORY_ERROR_CAPTURE_RATE_WINDOW_MS", DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS);
-  const dedupCacheSize = config.errorCaptureDedupCacheSize ?? envInt("PI_MEMORY_ERROR_CAPTURE_DEDUP_CACHE_SIZE", DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE);
+  const rateLimit =
+    config.errorCaptureRateLimit ?? envInt("PI_MEMORY_ERROR_CAPTURE_RATE_LIMIT", DEFAULT_ERROR_CAPTURE_RATE_LIMIT);
+  const rateWindowMs =
+    config.errorCaptureRateWindowMs ??
+    envInt("PI_MEMORY_ERROR_CAPTURE_RATE_WINDOW_MS", DEFAULT_ERROR_CAPTURE_RATE_WINDOW_MS);
+  const dedupCacheSize =
+    config.errorCaptureDedupCacheSize ??
+    envInt("PI_MEMORY_ERROR_CAPTURE_DEDUP_CACHE_SIZE", DEFAULT_ERROR_CAPTURE_DEDUP_CACHE_SIZE);
   const throttle = new CaptureThrottle({ rateLimit, rateWindowMs, dedupCacheSize });
 
   pi.on("tool_result", async (event, ctx) => {

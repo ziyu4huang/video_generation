@@ -28,19 +28,18 @@
  * production `memory-tool.ts` add-handler (kp13 Wave C: card-store mirror,
  * `added_md_id`-keyed).
  */
-import { describe, test, expect, afterEach } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-
-import { MemoryStore } from "../../src/store/memory-store.js";
-import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
-import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
+import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
 import { createCardStore } from "../../src/store/card-store.js";
 import { mirrorMemoryAdd, mirrorMemoryEvictions } from "../../src/store/memory-card-mirror.js";
-import { ENTRY_DELIMITER, MEMORY_FILE } from "../../src/constants.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
+import type { MemoryTarget } from "../../src/store/repository.js";
+import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
+import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import type { MemoryConfig } from "../../src/types.js";
-import type { MemoryTarget, MemoryRepository } from "../../src/store/repository.js";
 
 const TODAY = "2026-08-01";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -57,10 +56,18 @@ function freshDir(): string {
 
 afterEach(() => {
   while (BACKENDS.length) {
-    try { BACKENDS.pop()!.close(); } catch { /* ignore */ }
+    try {
+      BACKENDS.pop()?.close();
+    } catch {
+      /* ignore */
+    }
   }
   while (DIRS.length) {
-    try { fs.rmSync(DIRS.pop()!, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      fs.rmSync(DIRS.pop()!, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   }
 });
 
@@ -77,7 +84,10 @@ function frontmatterId(entry: string): string | null {
 function readEntries(dir: string): string[] {
   const raw = fs.readFileSync(path.join(dir, MEMORY_FILE), "utf-8");
   if (!raw.trim()) return [];
-  return raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  return raw
+    .split(ENTRY_DELIMITER)
+    .map((e) => e.trim())
+    .filter(Boolean);
 }
 
 interface Harness {
@@ -150,7 +160,7 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
     const entries = readEntries(dir);
     const born = entries.find((e) => e.includes(BODY));
     expect(born, "born entry must be present in .md").toBeDefined();
-    expect(born!.startsWith("---\n"), "born entry must be frontmatter").toBe(true);
+    expect(born?.startsWith("---\n"), "born entry must be frontmatter").toBe(true);
     expect(frontmatterId(born!)).toBe(result.added_md_id);
 
     // DB row's md_id is the SAME uuid (the live-in-session bridge).
@@ -223,7 +233,7 @@ describe("write-path birth md_id (ticket 7 / F1 fix)", () => {
     // prior memory_supersede), so the provider returns its md_id.
     const superRow = (await repo.getMemories({ target: "memory" })).find((r) => r.content === BODY_SUPER)!;
     const replacement = await repo.addMemory({
-      content: BODY_SUPER + " §REPL§",
+      content: `${BODY_SUPER} §REPL§`,
       target: "memory",
       project: null,
       created: TODAY,

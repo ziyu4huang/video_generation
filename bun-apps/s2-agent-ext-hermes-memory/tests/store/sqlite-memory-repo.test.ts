@@ -1,13 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { formatFailureMemoryContent, parseMarkdownMemoryEntry } from "../../src/store/memory-format.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
-import {
-  formatFailureMemoryContent,
-  parseMarkdownMemoryEntry,
-} from "../../src/store/memory-format.js";
 
 describe("SqliteMemoryRepository", () => {
   let dir: string;
@@ -37,8 +34,10 @@ describe("SqliteMemoryRepository", () => {
    * inflated number.
    */
   describe("row counts are real row counts (not bun:sqlite .changes)", () => {
-    const count = () => (backend as unknown as { db: { prepare(q: string): { get(): { n: number } } } }).db
-      .prepare("SELECT COUNT(*) AS n FROM memories").get().n;
+    const count = () =>
+      (backend as unknown as { db: { prepare(q: string): { get(): { n: number } } } }).db
+        .prepare("SELECT COUNT(*) AS n FROM memories")
+        .get().n;
 
     it("removeSyncedMemories: removed === the real table delta", async () => {
       for (const c of ["alpha one", "alpha two", "beta"]) await repo.addMemory({ content: c, target: "memory" });
@@ -542,9 +541,24 @@ describe("SqliteMemoryRepository", () => {
 
   describe("getRecentFailures — failure state filter (Task 3)", () => {
     it("excludes resolved/acquired; keeps active; round-trips state", async () => {
-      await repo.addMemory({ content: "[failure] active one", target: "failure", category: "failure", state: "active" });
-      await repo.addMemory({ content: "[failure] fixed one", target: "failure", category: "failure", state: "resolved" });
-      await repo.addMemory({ content: "[tool-quirk] known quirk", target: "failure", category: "tool-quirk", state: "acquired" });
+      await repo.addMemory({
+        content: "[failure] active one",
+        target: "failure",
+        category: "failure",
+        state: "active",
+      });
+      await repo.addMemory({
+        content: "[failure] fixed one",
+        target: "failure",
+        category: "failure",
+        state: "resolved",
+      });
+      await repo.addMemory({
+        content: "[tool-quirk] known quirk",
+        target: "failure",
+        category: "tool-quirk",
+        state: "acquired",
+      });
       const recent = await repo.getRecentFailures(7);
       const contents = recent.map((m) => m.content);
       expect(contents.some((c) => c === "[failure] active one")).toBe(true);
@@ -599,9 +613,24 @@ describe("SqliteMemoryRepository", () => {
 
   describe("bumpMemoryWorth — memworth.fail freeze off-active (§3.6)", () => {
     it("increments mwFail for active; freezes for resolved/acquired", async () => {
-      const active = await repo.addMemory({ content: "[failure] active", target: "failure", category: "failure", state: "active" });
-      const resolved = await repo.addMemory({ content: "[failure] resolved", target: "failure", category: "failure", state: "resolved" });
-      const acquired = await repo.addMemory({ content: "[tool-quirk] acquired", target: "failure", category: "tool-quirk", state: "acquired" });
+      const active = await repo.addMemory({
+        content: "[failure] active",
+        target: "failure",
+        category: "failure",
+        state: "active",
+      });
+      const resolved = await repo.addMemory({
+        content: "[failure] resolved",
+        target: "failure",
+        category: "failure",
+        state: "resolved",
+      });
+      const acquired = await repo.addMemory({
+        content: "[tool-quirk] acquired",
+        target: "failure",
+        category: "tool-quirk",
+        state: "acquired",
+      });
       await repo.bumpMemoryWorth(active.id, 0, 1);
       await repo.bumpMemoryWorth(resolved.id, 0, 1);
       await repo.bumpMemoryWorth(acquired.id, 0, 1);
@@ -613,7 +642,12 @@ describe("SqliteMemoryRepository", () => {
     });
 
     it("success still increments off-active (freeze is fail-only)", async () => {
-      const resolved = await repo.addMemory({ content: "[failure] res-succ", target: "failure", category: "failure", state: "resolved" });
+      const resolved = await repo.addMemory({
+        content: "[failure] res-succ",
+        target: "failure",
+        category: "failure",
+        state: "resolved",
+      });
       await repo.bumpMemoryWorth(resolved.id, 1, 0);
       const row = (await repo.getMemories({ target: "failure" })).find((r) => r.content === "[failure] res-succ")!;
       expect(row.mwSuccess).toBe(1);
@@ -716,9 +750,7 @@ describe("SqliteMemoryRepository.supersedeMemory atomicity", () => {
       db.exec = origExec;
     }
 
-    expect(execSqls.some((s) => s.toUpperCase().includes("BEGIN IMMEDIATE")))
-      .toBe(true);
-    expect(execSqls.some((s) => s.toUpperCase() === "COMMIT"))
-      .toBe(true);
+    expect(execSqls.some((s) => s.toUpperCase().includes("BEGIN IMMEDIATE"))).toBe(true);
+    expect(execSqls.some((s) => s.toUpperCase() === "COMMIT")).toBe(true);
   });
 });

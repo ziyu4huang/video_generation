@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test";
-import { upgradeEntryToFrontmatter, parseMarkdownMemoryEntry, detectEntryShape } from "../../src/store/memory-format";
+import { describe, expect, test } from "bun:test";
+import { detectEntryShape, parseMarkdownMemoryEntry, upgradeEntryToFrontmatter } from "../../src/store/memory-format";
 
 describe("dual-shape transition", () => {
   const id = "11111111-2222-3333-4444-555555555555";
@@ -10,7 +10,7 @@ describe("dual-shape transition", () => {
     expect(detectEntryShape(out)).toBe("frontmatter");
     expect(out).toContain(`id: ${id}`);
     expect(out).toContain("created: 2026-07-30");
-    expect(out).toContain("last: 2026-07-31");   // renamed
+    expect(out).toContain("last: 2026-07-31"); // renamed
     // body intact — failure parsing still works on the upgraded entry
     const reparsed = parseMarkdownMemoryEntry(out, "failure", null);
     expect(reparsed.category).toBe("failure");

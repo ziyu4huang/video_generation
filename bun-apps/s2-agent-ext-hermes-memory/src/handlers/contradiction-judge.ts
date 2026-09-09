@@ -9,7 +9,6 @@
  * integration-level and exercised via the fake judge in Task 2.
  */
 
-import type { Api, Model } from "@earendil-works/pi-ai";
 import { completeSimple, type Message } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { MemoryEntry } from "../store/repository.js";
@@ -72,9 +71,7 @@ export async function runContradictionJudge(
     }
 
     const thinking = effectiveThinkingOverride(input.config);
-    const candidateBlock = input.candidates
-      .map((candidate) => `- id=${candidate.id}: ${candidate.content}`)
-      .join("\n");
+    const candidateBlock = input.candidates.map((candidate) => `- id=${candidate.id}: ${candidate.content}`).join("\n");
     const userMessage: Message = {
       role: "user",
       content: [

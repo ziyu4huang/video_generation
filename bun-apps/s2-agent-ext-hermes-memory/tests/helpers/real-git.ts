@@ -66,7 +66,10 @@ export interface RealGitRepo {
 }
 
 function splitEntries(content: string): string[] {
-  return content.split(ENTRY_DELIMITER).map((e) => e.trim()).filter((e) => e.length > 0);
+  return content
+    .split(ENTRY_DELIMITER)
+    .map((e) => e.trim())
+    .filter((e) => e.length > 0);
 }
 
 /**
@@ -86,7 +89,7 @@ export function createRealGitRepo(opts: CreateRepoOpts = {}): RealGitRepo {
   const gitDir = path.join(cwd, ".git");
 
   fs.mkdirSync(memoryDir, { recursive: true });
-  fs.writeFileSync(memoryFilePath, initialEntries.join(ENTRY_DELIMITER) + "\n");
+  fs.writeFileSync(memoryFilePath, `${initialEntries.join(ENTRY_DELIMITER)}\n`);
   fs.writeFileSync(path.join(cwd, configRelPath), JSON.stringify({ autoCommitProjectMemory: true }));
 
   const initialFiles = [memoryRelPath, configRelPath];
@@ -130,11 +133,11 @@ export function createRealGitRepo(opts: CreateRepoOpts = {}): RealGitRepo {
       }
     },
     writeMemoryEntries: (...entries) => {
-      fs.writeFileSync(memoryFilePath, entries.join(ENTRY_DELIMITER) + "\n");
+      fs.writeFileSync(memoryFilePath, `${entries.join(ENTRY_DELIMITER)}\n`);
     },
     appendMemoryEntries: (...entries) => {
       const all = [...splitEntries(fs.readFileSync(memoryFilePath, "utf-8")), ...entries];
-      fs.writeFileSync(memoryFilePath, all.join(ENTRY_DELIMITER) + "\n");
+      fs.writeFileSync(memoryFilePath, `${all.join(ENTRY_DELIMITER)}\n`);
     },
     branch: () => exec(["symbolic-ref", "--quiet", "--short", "HEAD"]).trim(),
     head: () => exec(["rev-parse", "HEAD"]).trim(),

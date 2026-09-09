@@ -26,23 +26,15 @@
 
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { MemoryConfig } from "../types.js";
 import {
-  AUTOCOMMIT_COMMIT_MESSAGE,
-  DEFAULT_AUTOCOMMIT_DEBOUNCE_MS,
-} from "../constants.js";
-import {
+  type CommitDecision,
   classifyCommitGuard,
   isProtectedBranch,
-  type CommitDecision,
   type RepoStateSnapshot,
 } from "../commit-guards.js";
-import {
-  realGitOps,
-  buildMergeDriverCommand,
-  mergeDriverConfigKey,
-  type GitOps,
-} from "../git-ops.js";
+import { AUTOCOMMIT_COMMIT_MESSAGE, DEFAULT_AUTOCOMMIT_DEBOUNCE_MS } from "../constants.js";
+import { buildMergeDriverCommand, type GitOps, mergeDriverConfigKey, realGitOps } from "../git-ops.js";
+import type { MemoryConfig } from "../types.js";
 
 type Logger = (message: string, level?: "debug" | "info" | "warn") => void;
 const noopLogger: Logger = () => {};
@@ -62,9 +54,7 @@ export interface CommitCycleDeps {
 }
 
 /** Build the repo-state snapshot from GitOps + injected signals, then classify. */
-async function classifyFromRepo(
-  deps: CommitCycleDeps,
-): Promise<{ decision: CommitDecision; reason: string }> {
+async function classifyFromRepo(deps: CommitCycleDeps): Promise<{ decision: CommitDecision; reason: string }> {
   const gitDir = await deps.gitOps.resolveGitDir(deps.cwd);
   const isRepo = gitDir !== undefined;
   const branch = isRepo ? await deps.gitOps.currentBranch(deps.cwd) : null;

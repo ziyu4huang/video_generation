@@ -57,15 +57,10 @@ function sharedTagCount(entry: MemoryEntry, seedTags: Set<string>): number {
 function worthMultiplier(entry: MemoryEntry): number {
   const s = entry.mwSuccess ?? 0;
   const f = entry.mwFail ?? 0;
-  return ((s + 1) / (s + f + 2)) / 0.5; // Laplace-smoothed; 0/0 → (1/2)/0.5 = 1.0
+  return (s + 1) / (s + f + 2) / 0.5; // Laplace-smoothed; 0/0 → (1/2)/0.5 = 1.0
 }
 
-export function rankMemoryEntries({
-  candidates,
-  lexicalMatchIds,
-  limit,
-  now = new Date(),
-}: RankInput): MemoryEntry[] {
+export function rankMemoryEntries({ candidates, lexicalMatchIds, limit, now = new Date() }: RankInput): MemoryEntry[] {
   const seedTags = collectSeedTags(candidates, lexicalMatchIds);
   const nowMs = now.getTime();
 

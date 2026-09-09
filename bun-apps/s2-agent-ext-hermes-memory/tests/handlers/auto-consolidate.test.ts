@@ -7,11 +7,11 @@
  * that records the call opts and returns a synthesized `SpawnSubagentResult`.
  */
 
-import { describe, it, test, expect, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, test } from "bun:test";
 import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
-import * as path from "node:path";
 import * as os from "node:os";
+import * as path from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { SpawnSubagentOptions, SpawnSubagentResult } from "@repo/s2-agent-core-runtime";
 import {
@@ -111,7 +111,11 @@ describe("triggerConsolidation", () => {
     assert.deepStrictEqual(opts.tools, ["memory"], "should allowlist only the memory tool");
     assert.deepStrictEqual(opts.extensionTools, [memoryToolDef], "should bridge the parent memory tool def");
     assert.strictEqual(opts.timeoutMs, 60000);
-    assert.strictEqual(opts.retryOnTransient, false, "consolidation holds the cross-process fileLock — must NOT retry on transient/timeout");
+    assert.strictEqual(
+      opts.retryOnTransient,
+      false,
+      "consolidation holds the cross-process fileLock — must NOT retry on transient/timeout",
+    );
     assert.ok(opts.task?.includes("old entry 1"), "task should include current memory entries");
     assert.ok(opts.task?.includes("Target: 'memory'"), "task should tell the child which target to use");
     assert.match(opts.instructions ?? "", /memory consolidator/i, "instructions should frame the consolidator role");
@@ -166,7 +170,7 @@ describe("triggerConsolidation", () => {
 
     assert.strictEqual(calls.length, 1);
     assert.strictEqual(
-      calls[0]!.retryOnTransient,
+      calls[0]?.retryOnTransient,
       false,
       "consolidation must not retry on transient/timeout: it holds the cross-process fileLock for the full run",
     );
@@ -177,13 +181,22 @@ describe("triggerConsolidation", () => {
     const ac = new AbortController();
     await triggerConsolidation(mockStore, "memory", memoryToolDef, ac.signal, 12345, "memory", {}, spawn);
 
-    assert.strictEqual(calls[0]!.timeoutMs, 12345);
-    assert.strictEqual(calls[0]!.externalSignal, ac.signal);
+    assert.strictEqual(calls[0]?.timeoutMs, 12345);
+    assert.strictEqual(calls[0]?.externalSignal, ac.signal);
   });
 
   it("returns { consolidated: true } when the spawn reports no failure", async () => {
     const { spawn } = createFakeSpawn({ output: "Done" });
-    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+    const result = await triggerConsolidation(
+      mockStore,
+      "memory",
+      memoryToolDef,
+      undefined,
+      60000,
+      "memory",
+      {},
+      spawn,
+    );
 
     assert.strictEqual(result.consolidated, true);
     assert.strictEqual(result.error, undefined);
@@ -206,24 +219,51 @@ describe("triggerConsolidation", () => {
 
   it("returns { consolidated: false } when the spawn reports a failure", async () => {
     const { spawn } = createFakeSpawn({ failure: { kind: "failed", message: "some error" } });
-    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+    const result = await triggerConsolidation(
+      mockStore,
+      "memory",
+      memoryToolDef,
+      undefined,
+      60000,
+      "memory",
+      {},
+      spawn,
+    );
 
     assert.strictEqual(result.consolidated, false);
     assert.ok(result.error, "should have an error message");
-    assert.ok(result.error!.includes("some error"), "error should carry the failure message");
+    assert.ok(result.error?.includes("some error"), "error should carry the failure message");
   });
 
   it("surfaces the runner failure message on failure", async () => {
     const { spawn } = createFakeSpawn({ failure: { kind: "failed", message: "model not found" } });
-    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+    const result = await triggerConsolidation(
+      mockStore,
+      "memory",
+      memoryToolDef,
+      undefined,
+      60000,
+      "memory",
+      {},
+      spawn,
+    );
 
     assert.strictEqual(result.consolidated, false);
-    assert.ok(result.error!.includes("model not found"), "should surface the failure message verbatim");
+    assert.ok(result.error?.includes("model not found"), "should surface the failure message verbatim");
   });
 
   it("surfaces timeout when the spawn failure is a timeout", async () => {
     const { spawn } = createFakeSpawn({ failure: { kind: "timedout", message: "timed out" } });
-    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+    const result = await triggerConsolidation(
+      mockStore,
+      "memory",
+      memoryToolDef,
+      undefined,
+      60000,
+      "memory",
+      {},
+      spawn,
+    );
 
     assert.strictEqual(result.consolidated, false);
     assert.match(result.error!, /terminated/i);
@@ -232,37 +272,46 @@ describe("triggerConsolidation", () => {
 
   it("returns { consolidated: false } when spawn throws", async () => {
     const { spawn } = createFakeSpawn({ throwErr: "network failure" });
-    const result = await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
+    const result = await triggerConsolidation(
+      mockStore,
+      "memory",
+      memoryToolDef,
+      undefined,
+      60000,
+      "memory",
+      {},
+      spawn,
+    );
 
     assert.strictEqual(result.consolidated, false);
-    assert.ok(result.error!.includes("Consolidation failed"), "should mention failure");
-    assert.ok(result.error!.includes("network failure"), "should include original error");
+    assert.ok(result.error?.includes("Consolidation failed"), "should mention failure");
+    assert.ok(result.error?.includes("network failure"), "should include original error");
   });
 
   it("includes user profile entries when target is 'user'", async () => {
     const { spawn, calls } = createFakeSpawn();
     await triggerConsolidation(mockStore, "user", memoryToolDef, undefined, 60000, "user", {}, spawn);
 
-    assert.ok(calls[0]!.task.includes("user fact 1"), "task should include user entries");
-    assert.ok(calls[0]!.task.includes("User Profile"), "task should reference user profile");
+    assert.ok(calls[0]?.task.includes("user fact 1"), "task should include user entries");
+    assert.ok(calls[0]?.task.includes("User Profile"), "task should reference user profile");
   });
 
   it("includes failure entries when target is 'failure'", async () => {
     const { spawn, calls } = createFakeSpawn();
     await triggerConsolidation(mockStore, "failure", memoryToolDef, undefined, 60000, "failure", {}, spawn);
 
-    assert.ok(calls[0]!.task.includes("failure lesson 1"), "task should include failure entries");
-    assert.ok(calls[0]!.task.includes("Failure Memory"), "task should reference failure memory");
-    assert.ok(calls[0]!.task.includes("Target: 'failure'"), "task should tell the child to use target='failure'");
+    assert.ok(calls[0]?.task.includes("failure lesson 1"), "task should include failure entries");
+    assert.ok(calls[0]?.task.includes("Failure Memory"), "task should reference failure memory");
+    assert.ok(calls[0]?.task.includes("Target: 'failure'"), "task should tell the child to use target='failure'");
   });
 
   it("can consolidate project memory using the project tool target", async () => {
     const { spawn, calls } = createFakeSpawn();
     await triggerConsolidation(mockStore, "memory", memoryToolDef, undefined, 60000, "project", {}, spawn);
 
-    assert.ok(calls[0]!.task.includes("old entry 1"), "task should include project memory entries");
-    assert.ok(calls[0]!.task.includes("Project Memory"), "task should label project memory");
-    assert.ok(calls[0]!.task.includes("Target: 'project'"), "task should tell the child to use target='project'");
+    assert.ok(calls[0]?.task.includes("old entry 1"), "task should include project memory entries");
+    assert.ok(calls[0]?.task.includes("Project Memory"), "task should label project memory");
+    assert.ok(calls[0]?.task.includes("Target: 'project'"), "task should tell the child to use target='project'");
   });
 
   it("handles empty entries gracefully", async () => {
@@ -276,7 +325,7 @@ describe("triggerConsolidation", () => {
 
     await triggerConsolidation(emptyStore, "memory", memoryToolDef, undefined, 60000, "memory", {}, spawn);
 
-    assert.ok(calls[0]!.task.includes("(empty)"), "task should show (empty) for empty entries");
+    assert.ok(calls[0]?.task.includes("(empty)"), "task should show (empty) for empty entries");
   });
 });
 
@@ -306,26 +355,41 @@ describe("registerConsolidateCommand", () => {
     } as never;
 
     registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, projectStore, "demo-project", {}, 15000, spawn);
-    await handler!({}, {
-      signal: undefined,
-      ui: { notify: (message: string) => notifications.push(message) },
-    });
+    await handler?.(
+      {},
+      {
+        signal: undefined,
+        ui: { notify: (message: string) => notifications.push(message) },
+      },
+    );
 
     assert.strictEqual(calls.length, 4, "should consolidate memory, user, failure, and project stores");
-    const failureTask = calls[2]!.task;
+    const failureTask = calls[2]?.task;
     assert.ok(failureTask.includes("Failure Memory"), "failure task should be labeled");
     assert.ok(failureTask.includes("failure lesson 1"), "failure task should include failure entries");
     assert.ok(failureTask.includes("Target: 'failure'"), "failure task should use target='failure'");
-    const projectTask = calls[3]!.task;
+    const projectTask = calls[3]?.task;
     assert.ok(projectTask.includes("Project Memory"), "project task should be labeled");
     assert.ok(projectTask.includes("project fact"), "project task should include project entries");
     assert.ok(projectTask.includes("Target: 'project'"), "project task should use target='project'");
     assert.ok(projectReloaded, "project store should reload after consolidation");
-    assert.ok(notifications.some((m) => m.includes("Starting memory consolidation")), "should show an initial progress notification");
-    assert.ok(notifications.some((m) => m.includes("⏳ Consolidating memory")), "should show per-target progress");
+    assert.ok(
+      notifications.some((m) => m.includes("Starting memory consolidation")),
+      "should show an initial progress notification",
+    );
+    assert.ok(
+      notifications.some((m) => m.includes("⏳ Consolidating memory")),
+      "should show per-target progress",
+    );
     const finalNotification = notifications[notifications.length - 1] ?? "";
-    assert.ok(finalNotification.includes("failure: ✅ consolidated"), "final notification should include failure result");
-    assert.ok(finalNotification.includes("project:demo-project: ✅ consolidated"), "final notification should include project result");
+    assert.ok(
+      finalNotification.includes("failure: ✅ consolidated"),
+      "final notification should include failure result",
+    );
+    assert.ok(
+      finalNotification.includes("project:demo-project: ✅ consolidated"),
+      "final notification should include project result",
+    );
   });
 
   it("uses a longer timeout floor for the manual consolidate command", async () => {
@@ -342,7 +406,7 @@ describe("registerConsolidateCommand", () => {
     } as never;
 
     registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, null, undefined, {}, 15000, spawn);
-    await handler!({}, { signal: undefined, ui: { notify: () => {} } });
+    await handler?.({}, { signal: undefined, ui: { notify: () => {} } });
 
     for (const call of calls) {
       assert.strictEqual(call.timeoutMs, 180000, "manual consolidate should floor the timeout at 180s");
@@ -363,21 +427,33 @@ describe("registerConsolidateCommand", () => {
     } as never;
 
     registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, null, undefined, {}, 15, spawn); // heartbeatMs=15
-    await handler!({}, {
-      signal: undefined,
-      ui: { notify: (m: string) => notifications.push(m) },
-    });
+    await handler?.(
+      {},
+      {
+        signal: undefined,
+        ui: { notify: (m: string) => notifications.push(m) },
+      },
+    );
 
     const beats = notifications.filter((m) => /elapsed/.test(m));
-    assert.ok(beats.length >= 1, `expected ≥1 elapsed heartbeat; got ${beats.length} among ${notifications.length} notifies`);
+    assert.ok(
+      beats.length >= 1,
+      `expected ≥1 elapsed heartbeat; got ${beats.length} among ${notifications.length} notifies`,
+    );
     assert.match(beats[beats.length - 1]!, /\d+s elapsed/);
 
     // Progress format: target ratio (processed/total) + entry-count magnitude,
     // not just elapsed time. Per-note streaming is infeasible (single opaque
     // subagent run per target), so the feasible signal is which target we're on
     // plus how many notes it holds. mockStore → memory(2), user(1), failure(2).
-    assert.ok(beats.some((m) => /\(\d+\/\d+\)/.test(m)), "heartbeat should include target progress ratio");
-    assert.ok(beats.some((m) => /notes?\b/.test(m)), "heartbeat should include entry count");
+    assert.ok(
+      beats.some((m) => /\(\d+\/\d+\)/.test(m)),
+      "heartbeat should include target progress ratio",
+    );
+    assert.ok(
+      beats.some((m) => /notes?\b/.test(m)),
+      "heartbeat should include entry count",
+    );
     assert.ok(
       beats.some((m) => /\(1\/3\) · 2 notes/.test(m)),
       "first-target heartbeat should read '(1/3) · 2 notes'",
@@ -404,14 +480,17 @@ describe("registerConsolidateCommand", () => {
     registerConsolidateCommand(pi, mockStore, memoryToolDef, 60000, null, undefined, {}, 15000, spawn);
 
     await assert.doesNotReject(async () => {
-      await handler!({}, {
-        signal: undefined,
-        ui: {
-          notify: () => {
-            throw new Error("This extension ctx is stale after session replacement or reload.");
+      await handler?.(
+        {},
+        {
+          signal: undefined,
+          ui: {
+            notify: () => {
+              throw new Error("This extension ctx is stale after session replacement or reload.");
+            },
           },
         },
-      });
+      );
     });
   });
 });
@@ -433,10 +512,7 @@ describe("resolveConsolidatorModelLabel", () => {
       "anthropic/claude-opus-4",
     );
     // surrounding whitespace is trimmed
-    assert.strictEqual(
-      resolveConsolidatorModelLabel({ llmModelOverride: "  glm-5.2  " }),
-      "glm-5.2",
-    );
+    assert.strictEqual(resolveConsolidatorModelLabel({ llmModelOverride: "  glm-5.2  " }), "glm-5.2");
   });
 
   it("falls back to PI_PROVIDER/PI_MODEL env when no override is set", () => {
@@ -466,7 +542,11 @@ describe("MemoryStore auto-consolidation integration", () => {
   });
 
   afterAll(async () => {
-    try { await fs.rm(MEMORY_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await fs.rm(MEMORY_DIR, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("add() triggers consolidation when over limit with consolidator", async () => {
@@ -544,7 +624,7 @@ describe("MemoryStore auto-consolidation integration", () => {
     const result = await store.add("memory", "x".repeat(60));
     assert.ok(!consolidatorCalled, "consolidator should NOT be called when autoConsolidate is false");
     assert.ok(!result.success, "should return error");
-    assert.ok(result.error!.includes("exceed"), "should mention exceeding limit");
+    assert.ok(result.error?.includes("exceed"), "should mention exceeding limit");
   });
 
   it("add() skips consolidation when no consolidator set", async () => {
@@ -569,7 +649,7 @@ describe("MemoryStore auto-consolidation integration", () => {
 
     const result = await store.add("memory", "x".repeat(60));
     assert.ok(!result.success, "should return error");
-    assert.ok(result.error!.includes("exceed"), "should mention exceeding limit");
+    assert.ok(result.error?.includes("exceed"), "should mention exceeding limit");
   });
 });
 
@@ -591,7 +671,12 @@ describe("fireProactiveIfReady", () => {
 
   test("fires fire-and-forget when enabled + not in-flight", async () => {
     let called = 0;
-    const store = { maybeProactiveConsolidate: async () => { called++; return null; } };
+    const store = {
+      maybeProactiveConsolidate: async () => {
+        called++;
+        return null;
+      },
+    };
     fireProactiveIfReady(store as any, "memory", { enabled: true, inFlight: () => false });
     await microtick(); // settle the fire-and-forget microtask
     expect(called).toBe(1);
@@ -599,7 +684,12 @@ describe("fireProactiveIfReady", () => {
 
   test("is a no-op when disabled or in-flight", async () => {
     let called = 0;
-    const store = { maybeProactiveConsolidate: async () => { called++; return null; } };
+    const store = {
+      maybeProactiveConsolidate: async () => {
+        called++;
+        return null;
+      },
+    };
     fireProactiveIfReady(store as any, "memory", { enabled: false, inFlight: () => false });
     fireProactiveIfReady(store as any, "memory", { enabled: true, inFlight: () => true });
     await microtick();
@@ -607,7 +697,11 @@ describe("fireProactiveIfReady", () => {
   });
 
   test("swallows a rejecting maybeProactiveConsolidate (write path never breaks)", async () => {
-    const store = { maybeProactiveConsolidate: async () => { throw new Error("boom"); } };
+    const store = {
+      maybeProactiveConsolidate: async () => {
+        throw new Error("boom");
+      },
+    };
     expect(() => fireProactiveIfReady(store as any, "memory", { enabled: true, inFlight: () => false })).not.toThrow();
     await microtick(); // the rejected promise is swallowed, no unhandled rejection
   });

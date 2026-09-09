@@ -31,10 +31,11 @@
  * retry reuses the same row). We report `linked:false` + a retry hint and
  * never fail the whole tool.
  */
-import type { MemoryRepository, MemoryTarget } from "../store/repository.js";
+
 import type { CardStore } from "../store/card-store.js";
 import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
 import type { MemoryStore } from "../store/memory-store.js";
+import type { MemoryRepository, MemoryTarget } from "../store/repository.js";
 import type { MemorySource } from "../types.js";
 
 /** Parameters for executeMemorySupersede (was the memory_supersede tool schema). */
@@ -95,9 +96,7 @@ export async function executeMemorySupersede(
     // fallback for the dedup-skipped case (an identical row already
     // existed and kept its own id).
     const rows = await memoryRepo.getMemories({ target: sqliteTarget, project: sqliteProject });
-    const mdIdHit = addRes.added_md_id
-      ? rows.find((m) => m.mdId === addRes.added_md_id)
-      : undefined;
+    const mdIdHit = addRes.added_md_id ? rows.find((m) => m.mdId === addRes.added_md_id) : undefined;
     const row = mdIdHit ?? rows.find((m) => m.content === replacement);
     if (!row) {
       throw new Error("replacement row not resolvable in the search store after the card-store mirror");
@@ -115,11 +114,7 @@ export async function executeMemorySupersede(
     // probe throws; degrade to probe:undefined.
     let probe: { replacementPresent: boolean; priorAbsent: boolean } | undefined;
     try {
-      const handle = replacement
-        .split(/\s+/)
-        .slice(0, 3)
-        .join(" ")
-        .trim();
+      const handle = replacement.split(/\s+/).slice(0, 3).join(" ").trim();
       const hits =
         handle.length > 0
           ? await memoryRepo.searchMemories(handle, {

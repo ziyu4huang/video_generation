@@ -17,7 +17,7 @@ export let AGENT_ROOT = resolveAgentRoot();
 // mid-test corrupts real memory). Null = restore the real resolved root.
 /** @internal test-only override of the agent root (pass null to restore). */
 export function __setAgentRootForTest(root: string | null): void {
-	AGENT_ROOT = root ?? resolveAgentRoot();
+  AGENT_ROOT = root ?? resolveAgentRoot();
 }
 
 export function resolveAgentRoot(env: Record<string, string | undefined> = process.env): string {
@@ -57,11 +57,7 @@ export function normalizeProjectsMemoryDir(input: string): string | undefined {
   if (path.isAbsolute(expanded)) {
     const resolved = path.resolve(expanded);
     const relativeToAgentRoot = path.relative(AGENT_ROOT, resolved);
-    if (
-      relativeToAgentRoot === ""
-      || relativeToAgentRoot.startsWith("..")
-      || path.isAbsolute(relativeToAgentRoot)
-    ) {
+    if (relativeToAgentRoot === "" || relativeToAgentRoot.startsWith("..") || path.isAbsolute(relativeToAgentRoot)) {
       return undefined;
     }
     relative = relativeToAgentRoot;

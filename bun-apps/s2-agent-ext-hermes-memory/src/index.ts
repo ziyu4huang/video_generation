@@ -20,14 +20,13 @@
  * See docs/ROADMAP.md for full roadmap and Hermes competitive analysis.
  */
 
+// Back-compat re-exports: tests + downstream importers reach these via the
+// package root (the implementations live in the composition slices).
+export { registerProjectSkillDiscoveryHandler, resolveProjectSkillDiscovery } from "./composition/project-skills.js";
 // Cross-extension seam: re-export zk's KnowledgePipeline defensive reader
 // so ticket 06's spine orchestration can consume it (graceful undefined when
 // zk is absent).
 export { getKnowledgePipeline } from "./knowledge-pipeline-seam.js";
-
-// Back-compat re-exports: tests + downstream importers reach these via the
-// package root (the implementations live in the composition slices).
-export { resolveProjectSkillDiscovery, registerProjectSkillDiscoveryHandler } from "./composition/project-skills.js";
 
 // The extension body itself now lives in composition/compose.ts (slice 08b5);
 // this file is the thin registration shim Pi loads.
@@ -35,13 +34,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { composeHermesMemory } from "./composition/compose.js";
 
 export default async function hermesMemoryExtension(pi: ExtensionAPI): Promise<void> {
-	// Self-gate: BUN_PI_HERMES_MEMORY=0 disables the entire extension — it registers
-	// nothing and publishes no seam. Mirrors prompt-history's
-	// BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
-	// (the typed registry) shares one symmetric full-disable knob; enforced by
-	// tests/extension-isolation-contract.test.ts. Safe: every cross-extension
-	// consumer reads its seam defensively, so disabling degrades features,
-	// never crashes.
-	if (process.env.BUN_PI_HERMES_MEMORY === "0") return;
-	await composeHermesMemory(pi);
+  // Self-gate: BUN_PI_HERMES_MEMORY=0 disables the entire extension — it registers
+  // nothing and publishes no seam. Mirrors prompt-history's
+  // BUN_PI_PROMPT_HISTORY=0 so every extension in the portable base set
+  // (the typed registry) shares one symmetric full-disable knob; enforced by
+  // tests/extension-isolation-contract.test.ts. Safe: every cross-extension
+  // consumer reads its seam defensively, so disabling degrades features,
+  // never crashes.
+  if (process.env.BUN_PI_HERMES_MEMORY === "0") return;
+  await composeHermesMemory(pi);
 }

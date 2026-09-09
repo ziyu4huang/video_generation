@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { canHoldProjectStore, detectProject, detectProjectSkills, resolveProjectStoreDir } from "../src/project.js";
 import { AGENT_ROOT } from "../src/paths.js";
 import type { ProjectInfo } from "../src/project.js";
+import { canHoldProjectStore, detectProject, detectProjectSkills, resolveProjectStoreDir } from "../src/project.js";
 
 describe("project detection", () => {
   it("detectProject returns null outside a project", () => {
@@ -18,10 +18,7 @@ describe("project detection", () => {
     const result = detectProject("projects-memory", cwd);
 
     assert.strictEqual(result.name, "demo-repo");
-    assert.strictEqual(
-      result.memoryDir,
-      path.join(AGENT_ROOT, "projects-memory", "demo-repo"),
-    );
+    assert.strictEqual(result.memoryDir, path.join(AGENT_ROOT, "projects-memory", "demo-repo"));
   });
 
   it("detectProjectSkills appends the skills directory for dynamic discovery", () => {
@@ -29,10 +26,7 @@ describe("project detection", () => {
     const result = detectProjectSkills("projects-memory", cwd);
 
     assert.strictEqual(result.name, "demo-repo");
-    assert.strictEqual(
-      result.skillsDir,
-      path.join(AGENT_ROOT, "projects-memory", "demo-repo", "skills"),
-    );
+    assert.strictEqual(result.skillsDir, path.join(AGENT_ROOT, "projects-memory", "demo-repo", "skills"));
   });
 
   it("detectProject uses the projectName override when given (ticket 09 — cross-worktree coherence)", () => {
@@ -61,10 +55,7 @@ describe("resolveProjectStoreDir (ticket 04 — project memory location)", () =>
   const cwd = "/tmp/demo-repo";
 
   it("default (undefined) + project detected → <cwd>/.agents/memory/ (in-repo)", () => {
-    assert.strictEqual(
-      resolveProjectStoreDir(undefined, detected, cwd),
-      path.join(cwd, ".agents", "memory"),
-    );
+    assert.strictEqual(resolveProjectStoreDir(undefined, detected, cwd), path.join(cwd, ".agents", "memory"));
   });
 
   it("default (undefined) + no project → null (don't create ~/.planning/ from home)", () => {
@@ -82,10 +73,7 @@ describe("resolveProjectStoreDir (ticket 04 — project memory location)", () =>
   });
 
   it("explicit relative path → resolved cwd-relative", () => {
-    assert.strictEqual(
-      resolveProjectStoreDir("./custom-mem", detected, cwd),
-      path.resolve(cwd, "custom-mem"),
-    );
+    assert.strictEqual(resolveProjectStoreDir("./custom-mem", detected, cwd), path.resolve(cwd, "custom-mem"));
   });
 });
 

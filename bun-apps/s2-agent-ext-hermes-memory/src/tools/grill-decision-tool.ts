@@ -1,7 +1,8 @@
 // src/tools/grill-decision-tool.ts
-import type { MemoryStore } from "../store/memory-store.js";
+
 import type { CardStore } from "../store/card-store.js";
 import { mirrorMemoryAdd } from "../store/memory-card-mirror.js";
+import type { MemoryStore } from "../store/memory-store.js";
 import type { MemoryCategory } from "../types.js";
 
 export type GrillSignal = "reject" | "refine" | "confirm" | "preference" | "insight";
@@ -34,7 +35,10 @@ const SIGNAL_TO_CATEGORY: Record<GrillSignal, MemoryCategory | null> = {
 };
 
 export function tokenize(s: string): string[] {
-  return s.toLowerCase().split(/[^a-z0-9]+/i).filter(Boolean);
+  return s
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .filter(Boolean);
 }
 
 /** Word-level Jaccard overlap on normalized tokens. Metadata prefixes contribute
@@ -61,7 +65,7 @@ export function composeMemoryContent(fields: {
   userAnswer: string;
   notes?: string;
 }): string {
-  if (fields.notes && fields.notes.trim()) return fields.notes.trim();
+  if (fields.notes?.trim()) return fields.notes.trim();
   return `${fields.userAnswer.trim()} (decision: ${fields.decision.trim()}; rejected: ${fields.recommendation.trim()})`;
 }
 
@@ -126,7 +130,7 @@ export async function executeGrillDecision(
     return JSON.stringify({ written: false, reason: gate.reason });
   }
 
-  const category = gate.category!; // "preference" for every fired grill signal
+  const category = gate.category ?? "preference"; // set for every fired grill signal
   try {
     // Grill captures are user-traits: write to the `user` home carrying the
     // topical category label (per the memory model — not the failure/lesson target).
@@ -144,6 +148,9 @@ export async function executeGrillDecision(
     return JSON.stringify({ written: result.success, category, reason: gate.reason });
   } catch (err) {
     // A memory write must never block the interview.
-    return JSON.stringify({ written: false, reason: `write failed: ${err instanceof Error ? err.message : String(err)}` });
+    return JSON.stringify({
+      written: false,
+      reason: `write failed: ${err instanceof Error ? err.message : String(err)}`,
+    });
   }
 }

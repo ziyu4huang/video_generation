@@ -21,10 +21,10 @@
  */
 
 import {
-  MS_PER_DAY,
   DEFAULT_DECAY_HALFLIFE_DAYS,
-  DEFAULT_DECAY_WORTH_WEIGHT,
   DEFAULT_DECAY_USED_BONUS,
+  DEFAULT_DECAY_WORTH_WEIGHT,
+  MS_PER_DAY,
 } from "../constants.js";
 
 /** Inputs to `computeHeat`. Dates are flexible strings (ISO or date-only). */

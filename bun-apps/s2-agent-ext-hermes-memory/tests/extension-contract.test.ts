@@ -16,7 +16,7 @@
  * See paths.ts __setAgentRootForTest: "Every hermes test that touches host
  * state must resolve it to a tmpdir, never the real ~/.pi/agent."
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -24,81 +24,86 @@ import extensionFactory from "../src/index.ts";
 import { __setAgentRootForTest } from "../src/paths.ts";
 
 interface ToolLike {
-	name?: string;
-	label?: string;
-	description?: string;
-	[key: string]: unknown;
+  name?: string;
+  label?: string;
+  description?: string;
+  [key: string]: unknown;
 }
 interface CommandLike {
-	name?: string;
-	handler?: unknown;
+  name?: string;
+  handler?: unknown;
 }
 
 function makeMockPi() {
-	const tools: ToolLike[] = [];
-	const commands: CommandLike[] = [];
-	const pi = {
-		registerTool: (t: ToolLike) => { tools.push(t); return t; },
-		registerCommand: (name: string, opts: CommandLike) => { commands.push({ name, handler: opts.handler }); },
-		registerMessageRenderer: () => {},
-		registerShortcut: () => {},
-		registerFlag: () => {},
-		sendMessage: () => {},
-		appendEntry: () => {},
-		setSessionName: () => {},
-		getSessionName: () => undefined,
-		setActiveTools: () => {},
-		getActiveTools: () => [] as string[],
-		getFlag: () => undefined,
-		setModel: async () => true,
-		on: () => {},
-		events: { on: () => () => {}, emit: () => {} },
-		getAllTools: () => tools,
-		exec: async () => "",
-		sendUserMessage: () => {},
-	};
-	return { pi, tools, commands };
+  const tools: ToolLike[] = [];
+  const commands: CommandLike[] = [];
+  const pi = {
+    registerTool: (t: ToolLike) => {
+      tools.push(t);
+      return t;
+    },
+    registerCommand: (name: string, opts: CommandLike) => {
+      commands.push({ name, handler: opts.handler });
+    },
+    registerMessageRenderer: () => {},
+    registerShortcut: () => {},
+    registerFlag: () => {},
+    sendMessage: () => {},
+    appendEntry: () => {},
+    setSessionName: () => {},
+    getSessionName: () => undefined,
+    setActiveTools: () => {},
+    getActiveTools: () => [] as string[],
+    getFlag: () => undefined,
+    setModel: async () => true,
+    on: () => {},
+    events: { on: () => () => {}, emit: () => {} },
+    getAllTools: () => tools,
+    exec: async () => "",
+    sendUserMessage: () => {},
+  };
+  return { pi, tools, commands };
 }
 
 describe("s2-agent-ext-hermes-memory extension contract", () => {
-	const tools: ToolLike[] = [];
-	const commands: CommandLike[] = [];
-	let tmpRoot = "";
+  const tools: ToolLike[] = [];
+  const commands: CommandLike[] = [];
+  let tmpRoot = "";
 
-	beforeAll(async () => {
-		tmpRoot = mkdtempSync(path.join(tmpdir(), "hermes-contract-"));
-		__setAgentRootForTest(tmpRoot);
-		const mock = makeMockPi();
-		const maybe = extensionFactory(mock.pi as never);
-		// The factory is async — await it (mirrors the canonical
-		// s2-agent/src/__tests__/extension-contract.test.ts loadExtension).
-		if (maybe && typeof (maybe as Promise<void>).then === "function") {
-			await maybe;
-		}
-		tools.push(...mock.tools);
-		commands.push(...mock.commands);
-	}, 15000);
+  beforeAll(async () => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), "hermes-contract-"));
+    __setAgentRootForTest(tmpRoot);
+    const mock = makeMockPi();
+    const maybe = extensionFactory(mock.pi as never);
+    // The factory is async — await it (mirrors the canonical
+    // s2-agent/src/__tests__/extension-contract.test.ts loadExtension).
+    if (maybe && typeof (maybe as Promise<void>).then === "function") {
+      await maybe;
+    }
+    tools.push(...mock.tools);
+    commands.push(...mock.commands);
+  }, 15000);
 
-	afterAll(() => {
-		__setAgentRootForTest(null);
-		if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
-	});
+  afterAll(() => {
+    __setAgentRootForTest(null);
+    if (tmpRoot) rmSync(tmpRoot, { recursive: true, force: true });
+  });
 
-	test("factory loads without throwing and registers at least one tool/command", () => {
-		expect(tools.length + commands.length).toBeGreaterThan(0);
-	});
+  test("factory loads without throwing and registers at least one tool/command", () => {
+    expect(tools.length + commands.length).toBeGreaterThan(0);
+  });
 
-	test("every registered tool has a non-empty name/label/description", () => {
-		for (const t of tools) {
-			expect(t.name, `tool missing name: ${JSON.stringify(t)}`).toBeTruthy();
-			expect(t.label, `tool "${t.name}" missing label`).toBeTruthy();
-			expect(t.description, `tool "${t.name}" missing description`).toBeTruthy();
-		}
-	});
+  test("every registered tool has a non-empty name/label/description", () => {
+    for (const t of tools) {
+      expect(t.name, `tool missing name: ${JSON.stringify(t)}`).toBeTruthy();
+      expect(t.label, `tool "${t.name}" missing label`).toBeTruthy();
+      expect(t.description, `tool "${t.name}" missing description`).toBeTruthy();
+    }
+  });
 
-	test("every registered command has a handler function", () => {
-		for (const c of commands) {
-			expect(typeof c.handler, `command "${c.name}" missing handler`).toBe("function");
-		}
-	});
+  test("every registered command has a handler function", () => {
+    for (const c of commands) {
+      expect(typeof c.handler, `command "${c.name}" missing handler`).toBe("function");
+    }
+  });
 });

@@ -6,15 +6,16 @@
  * session-search-tool.ts), so per-mode behavior, validation messages, and
  * formatting stay byte-identical to the retired tools.
  */
+
+import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { StringEnum } from "@earendil-works/pi-ai";
 import type { MemoryRepository, SessionRepository } from "../store/repository.js";
 import type { SessionSearchConfig } from "../types.js";
 import { createMemorySearchExecute } from "./memory-search-tool.js";
 import {
-  createLegacySessionSearchExecute,
   createAnchorSessionSearchExecute,
+  createLegacySessionSearchExecute,
   DEFAULT_SESSIONS_DIR,
 } from "./session-search-tool.js";
 
@@ -81,7 +82,9 @@ exclude:
         default: "memory",
       }),
       query: Type.Optional(
-        Type.String({ description: "Search query (natural language or terms). Required for memory and legacy session modes." }),
+        Type.String({
+          description: "Search query (natural language or terms). Required for memory and legacy session modes.",
+        }),
       ),
       project: Type.Optional(
         Type.Union([Type.String(), Type.Null()], {
@@ -99,7 +102,9 @@ exclude:
         }),
       ),
       role: Type.Optional(
-        StringEnum(["user", "assistant"] as const, { description: "Filter by message role (legacy session mode only)." }),
+        StringEnum(["user", "assistant"] as const, {
+          description: "Filter by message role (legacy session mode only).",
+        }),
       ),
       limit: Type.Optional(Type.Number({ description: "Max results (default 10, max 20)." })),
       markdown: Type.Optional(

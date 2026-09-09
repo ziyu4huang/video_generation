@@ -1,36 +1,48 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { MemoryConfig, MemoryOverflowStrategy, ReviewTransport, SessionSearchVariant, ThinkingLevel, DbBackend } from "./types.js";
 import {
-  DEFAULT_MEMORY_CHAR_LIMIT,
-  DEFAULT_USER_CHAR_LIMIT,
-  DEFAULT_PROJECT_CHAR_LIMIT,
-  DEFAULT_PROJECTS_MEMORY_DIR,
-  DEFAULT_NUDGE_INTERVAL,
-  DEFAULT_FLUSH_MIN_TURNS,
-  DEFAULT_NUDGE_TOOL_CALLS,
-  DEFAULT_REVIEW_RECENT_MESSAGES,
-  DEFAULT_FLUSH_RECENT_MESSAGES,
   DEFAULT_CONSOLIDATION_TIMEOUT_MS,
+  DEFAULT_DECAY_HALFLIFE_DAYS,
+  DEFAULT_DECAY_USED_BONUS,
+  DEFAULT_DECAY_WORTH_WEIGHT,
   DEFAULT_FAILURE_INJECTION_MAX_AGE_DAYS,
   DEFAULT_FAILURE_INJECTION_MAX_ENTRIES,
-  DEFAULT_USED_SIGNATURE_MIN_CHARS,
-  DEFAULT_DECAY_HALFLIFE_DAYS,
-  DEFAULT_DECAY_WORTH_WEIGHT,
-  DEFAULT_DECAY_USED_BONUS,
+  DEFAULT_FAILURE_MODEL,
+  DEFAULT_FLUSH_MIN_TURNS,
+  DEFAULT_FLUSH_RECENT_MESSAGES,
+  DEFAULT_LMSTUDIO_BASE_URL,
+  DEFAULT_MEMORY_CHAR_LIMIT,
+  DEFAULT_NUDGE_INTERVAL,
+  DEFAULT_NUDGE_TOOL_CALLS,
+  DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
   DEFAULT_PROACTIVE_ENABLED,
   DEFAULT_PROACTIVE_HEAT_FLOOR,
   DEFAULT_PROACTIVE_MAX_CANDIDATES,
   DEFAULT_PROACTIVE_PRESSURE_THRESHOLD,
-  DEFAULT_PROACTIVE_COOLDOWN_MINUTES,
-  DEFAULT_FAILURE_MODEL,
-  DEFAULT_LMSTUDIO_BASE_URL,
+  DEFAULT_PROJECT_CHAR_LIMIT,
+  DEFAULT_PROJECTS_MEMORY_DIR,
+  DEFAULT_REVIEW_RECENT_MESSAGES,
+  DEFAULT_USED_SIGNATURE_MIN_CHARS,
+  DEFAULT_USER_CHAR_LIMIT,
 } from "./constants.js";
 import { AGENT_ROOT, normalizeConfiguredMemoryDir, normalizeProjectsMemoryDir } from "./paths.js";
-import { derivePerUserNamespace, DEFAULT_SURREAL_DATABASE } from "./store/surreal/per-user-db.js";
 import { detectProject, resolveProjectStoreDir } from "./project.js";
+import { DEFAULT_SURREAL_DATABASE, derivePerUserNamespace } from "./store/surreal/per-user-db.js";
+import type {
+  DbBackend,
+  MemoryConfig,
+  MemoryOverflowStrategy,
+  ReviewTransport,
+  SessionSearchVariant,
+  ThinkingLevel,
+} from "./types.js";
 
-const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = ["auto-consolidate", "reject", "fifo-evict", "vault-offload"];
+const MEMORY_OVERFLOW_STRATEGIES: readonly MemoryOverflowStrategy[] = [
+  "auto-consolidate",
+  "reject",
+  "fifo-evict",
+  "vault-offload",
+];
 const SESSION_SEARCH_VARIANTS: readonly SessionSearchVariant[] = ["legacy", "anchors"];
 // "subprocess" removed in the spawnSubagent migration — the fallback is now spawnSubagent, not a pi -p subprocess.
 const REVIEW_TRANSPORTS: readonly ReviewTransport[] = ["direct"];
@@ -109,10 +121,7 @@ const DEFAULT_CONFIG: MemoryConfig = {
   lmStudioBaseUrl: DEFAULT_LMSTUDIO_BASE_URL,
 };
 
-export const DEFAULT_CONFIG_PATH = path.join(
-  AGENT_ROOT,
-  "hermes-memory-config.json",
-);
+export const DEFAULT_CONFIG_PATH = path.join(AGENT_ROOT, "hermes-memory-config.json");
 
 /**
  * Populate the per-user default SurrealDB `namespace` and `database` when the
@@ -238,23 +247,24 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       const parsed = JSON.parse(raw);
       // Merge: override defaults with user config
       config = { ...DEFAULT_CONFIG };
-      const isNonNegativeNumber = (value: unknown): value is number => (
-        typeof value === "number" && Number.isFinite(value) && value >= 0
-      );
-      const isStringArray = (value: unknown): value is string[] => (
-        Array.isArray(value) && value.every((item) => typeof item === "string")
-      );
+      const isNonNegativeNumber = (value: unknown): value is number =>
+        typeof value === "number" && Number.isFinite(value) && value >= 0;
+      const isStringArray = (value: unknown): value is string[] =>
+        Array.isArray(value) && value.every((item) => typeof item === "string");
       let hasLegacyAutoConsolidate = false;
       let hasMemoryOverflowStrategy = false;
-      if (parsed.memoryMode === "policy-only" || parsed.memoryMode === "legacy-inject") config.memoryMode = parsed.memoryMode;
+      if (parsed.memoryMode === "policy-only" || parsed.memoryMode === "legacy-inject")
+        config.memoryMode = parsed.memoryMode;
       if (parsed.failureModel === "legacy" || parsed.failureModel === "v1") config.failureModel = parsed.failureModel;
       if (
         parsed.memoryPolicyStyle === "full" ||
         parsed.memoryPolicyStyle === "compact" ||
         parsed.memoryPolicyStyle === "custom" ||
         parsed.memoryPolicyStyle === "none"
-      ) config.memoryPolicyStyle = parsed.memoryPolicyStyle;
-      if (typeof parsed.memoryPolicyCustomText === "string") config.memoryPolicyCustomText = parsed.memoryPolicyCustomText;
+      )
+        config.memoryPolicyStyle = parsed.memoryPolicyStyle;
+      if (typeof parsed.memoryPolicyCustomText === "string")
+        config.memoryPolicyCustomText = parsed.memoryPolicyCustomText;
       if (typeof parsed.memoryCharLimit === "number") config.memoryCharLimit = parsed.memoryCharLimit;
       if (typeof parsed.userCharLimit === "number") config.userCharLimit = parsed.userCharLimit;
       if (typeof parsed.nudgeInterval === "number") config.nudgeInterval = parsed.nudgeInterval;
@@ -277,7 +287,8 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       if (typeof parsed.errorCapture === "boolean") config.errorCapture = parsed.errorCapture;
       if (typeof parsed.worthScoring === "boolean") config.worthScoring = parsed.worthScoring;
       if (typeof parsed.usedDetection === "boolean") config.usedDetection = parsed.usedDetection;
-      if (isNonNegativeNumber(parsed.usedSignatureMinChars)) config.usedSignatureMinChars = parsed.usedSignatureMinChars;
+      if (isNonNegativeNumber(parsed.usedSignatureMinChars))
+        config.usedSignatureMinChars = parsed.usedSignatureMinChars;
       // Decay (ticket #1b / UPSP §1): the #06 config-gap lesson — every
       // consumer-facing config key is registered here so a config-file value
       // reaches the consumer object (decayEnabled boolean guard; the three
@@ -287,30 +298,59 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
       if (typeof parsed.hierarchyEnabled === "boolean") config.hierarchyEnabled = parsed.hierarchyEnabled;
       // halflife must be > 0: halflife 0 ⇒ exp(-age/0) = NaN ⇒ clamp(NaN) = NaN,
       // corrupting heat ordering (D5 determinism). Reject 0 → default.
-      if (typeof parsed.decayHalflifeDays === "number" && Number.isFinite(parsed.decayHalflifeDays) && parsed.decayHalflifeDays > 0) config.decayHalflifeDays = parsed.decayHalflifeDays;
+      if (
+        typeof parsed.decayHalflifeDays === "number" &&
+        Number.isFinite(parsed.decayHalflifeDays) &&
+        parsed.decayHalflifeDays > 0
+      )
+        config.decayHalflifeDays = parsed.decayHalflifeDays;
       if (isNonNegativeNumber(parsed.decayWorthWeight)) config.decayWorthWeight = parsed.decayWorthWeight;
       if (isNonNegativeNumber(parsed.decayUsedBonus)) config.decayUsedBonus = parsed.decayUsedBonus;
       // Proactive consolidation (UPSP §1 / Task 1): the #06 config-gap lesson —
       // every knob is allowlisted here so a config-file value reaches the
       // consumer object. Type-safe guards: boolean → finite-in-range [0,1] →
       // positive int → non-negative; invalid input silently keeps the default.
-      if (typeof parsed.proactiveConsolidateEnabled === "boolean") config.proactiveConsolidateEnabled = parsed.proactiveConsolidateEnabled;
-      if (typeof parsed.proactiveHeatFloor === "number" && Number.isFinite(parsed.proactiveHeatFloor) && parsed.proactiveHeatFloor >= 0 && parsed.proactiveHeatFloor <= 1) config.proactiveHeatFloor = parsed.proactiveHeatFloor;
-      if (Number.isInteger(parsed.proactiveMaxCandidates) && (parsed.proactiveMaxCandidates as number) > 0) config.proactiveMaxCandidates = parsed.proactiveMaxCandidates;
-      if (typeof parsed.proactivePressureThreshold === "number" && Number.isFinite(parsed.proactivePressureThreshold) && parsed.proactivePressureThreshold >= 0) config.proactivePressureThreshold = parsed.proactivePressureThreshold;
-      if (isNonNegativeNumber(parsed.proactiveCooldownMinutes)) config.proactiveCooldownMinutes = parsed.proactiveCooldownMinutes;
+      if (typeof parsed.proactiveConsolidateEnabled === "boolean")
+        config.proactiveConsolidateEnabled = parsed.proactiveConsolidateEnabled;
+      if (
+        typeof parsed.proactiveHeatFloor === "number" &&
+        Number.isFinite(parsed.proactiveHeatFloor) &&
+        parsed.proactiveHeatFloor >= 0 &&
+        parsed.proactiveHeatFloor <= 1
+      )
+        config.proactiveHeatFloor = parsed.proactiveHeatFloor;
+      if (Number.isInteger(parsed.proactiveMaxCandidates) && (parsed.proactiveMaxCandidates as number) > 0)
+        config.proactiveMaxCandidates = parsed.proactiveMaxCandidates;
+      if (
+        typeof parsed.proactivePressureThreshold === "number" &&
+        Number.isFinite(parsed.proactivePressureThreshold) &&
+        parsed.proactivePressureThreshold >= 0
+      )
+        config.proactivePressureThreshold = parsed.proactivePressureThreshold;
+      if (isNonNegativeNumber(parsed.proactiveCooldownMinutes))
+        config.proactiveCooldownMinutes = parsed.proactiveCooldownMinutes;
       if (typeof parsed.autoSupersede === "boolean") config.autoSupersede = parsed.autoSupersede;
-      if (isNonNegativeNumber(parsed.errorCaptureRateLimit)) config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
-      if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs)) config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;
-      if (isNonNegativeNumber(parsed.errorCaptureDedupCacheSize)) config.errorCaptureDedupCacheSize = parsed.errorCaptureDedupCacheSize;
-      if (isStringArray(parsed.correctionStrongPatterns)) config.correctionStrongPatterns = parsed.correctionStrongPatterns;
+      if (isNonNegativeNumber(parsed.errorCaptureRateLimit))
+        config.errorCaptureRateLimit = parsed.errorCaptureRateLimit;
+      if (isNonNegativeNumber(parsed.errorCaptureRateWindowMs))
+        config.errorCaptureRateWindowMs = parsed.errorCaptureRateWindowMs;
+      if (isNonNegativeNumber(parsed.errorCaptureDedupCacheSize))
+        config.errorCaptureDedupCacheSize = parsed.errorCaptureDedupCacheSize;
+      if (isStringArray(parsed.correctionStrongPatterns))
+        config.correctionStrongPatterns = parsed.correctionStrongPatterns;
       if (isStringArray(parsed.correctionWeakPatterns)) config.correctionWeakPatterns = parsed.correctionWeakPatterns;
-      if (isStringArray(parsed.correctionNegativePatterns)) config.correctionNegativePatterns = parsed.correctionNegativePatterns;
-      if (isStringArray(parsed.correctionDirectiveWords)) config.correctionDirectiveWords = parsed.correctionDirectiveWords;
-      if (typeof parsed.consolidationTimeoutMs === "number") config.consolidationTimeoutMs = parsed.consolidationTimeoutMs;
-      if (typeof parsed.failureInjectionEnabled === "boolean") config.failureInjectionEnabled = parsed.failureInjectionEnabled;
-      if (typeof parsed.failureInjectionMaxAgeDays === "number") config.failureInjectionMaxAgeDays = parsed.failureInjectionMaxAgeDays;
-      if (typeof parsed.failureInjectionMaxEntries === "number") config.failureInjectionMaxEntries = parsed.failureInjectionMaxEntries;
+      if (isStringArray(parsed.correctionNegativePatterns))
+        config.correctionNegativePatterns = parsed.correctionNegativePatterns;
+      if (isStringArray(parsed.correctionDirectiveWords))
+        config.correctionDirectiveWords = parsed.correctionDirectiveWords;
+      if (typeof parsed.consolidationTimeoutMs === "number")
+        config.consolidationTimeoutMs = parsed.consolidationTimeoutMs;
+      if (typeof parsed.failureInjectionEnabled === "boolean")
+        config.failureInjectionEnabled = parsed.failureInjectionEnabled;
+      if (typeof parsed.failureInjectionMaxAgeDays === "number")
+        config.failureInjectionMaxAgeDays = parsed.failureInjectionMaxAgeDays;
+      if (typeof parsed.failureInjectionMaxEntries === "number")
+        config.failureInjectionMaxEntries = parsed.failureInjectionMaxEntries;
       if (typeof parsed.nudgeToolCalls === "number") config.nudgeToolCalls = parsed.nudgeToolCalls;
       if (typeof parsed.projectCharLimit === "number") config.projectCharLimit = parsed.projectCharLimit;
       if (typeof parsed.failureCharLimit === "number") config.failureCharLimit = parsed.failureCharLimit;
@@ -360,7 +400,8 @@ export function loadConfig(configPath?: string, cwd: string = process.cwd()): Me
         const trimmed = parsed.kgLlmModel.trim();
         if (trimmed.length > 0) config.kgLlmModel = trimmed;
       }
-      if (typeof parsed.lmStudioBaseUrl === "string" && parsed.lmStudioBaseUrl.trim()) config.lmStudioBaseUrl = parsed.lmStudioBaseUrl.trim();
+      if (typeof parsed.lmStudioBaseUrl === "string" && parsed.lmStudioBaseUrl.trim())
+        config.lmStudioBaseUrl = parsed.lmStudioBaseUrl.trim();
       if (hasMemoryOverflowStrategy) {
         config.autoConsolidate = config.memoryOverflowStrategy === "auto-consolidate";
       } else if (hasLegacyAutoConsolidate) {

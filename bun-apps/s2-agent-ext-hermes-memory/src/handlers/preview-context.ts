@@ -4,8 +4,8 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MemoryStore } from "../store/memory-store.js";
 import { resolveMemoryPolicyPrompt } from "../prompt-context.js";
+import { MemoryStore } from "../store/memory-store.js";
 import type { MemoryConfig } from "../types.js";
 
 export function registerPreviewContextCommand(
@@ -13,7 +13,9 @@ export function registerPreviewContextCommand(
   store: MemoryStore,
   projectStore: MemoryStore | null,
   projectName: string,
-  config: Pick<MemoryConfig, "memoryMode" | "memoryPolicyStyle" | "memoryPolicyCustomText"> = { memoryMode: "policy-only" },
+  config: Pick<MemoryConfig, "memoryMode" | "memoryPolicyStyle" | "memoryPolicyCustomText"> = {
+    memoryMode: "policy-only",
+  },
 ): void {
   pi.registerCommand("memory-preview-context", {
     description: "Preview the memory policy or legacy memory context blocks",

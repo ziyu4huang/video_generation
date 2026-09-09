@@ -1,18 +1,21 @@
-import { describe, it, afterEach } from "bun:test";
+import { afterEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { RecallSet } from "../../src/handlers/worth-scoring.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import { registerSearchTool } from "../../src/tools/search-tool.js";
-import { RecallSet } from "../../src/handlers/worth-scoring.js";
 
 let ROOT_DIR = "";
 let backend: SqliteBackend | null = null;
 
 afterEach(async () => {
-  if (backend) { await backend.close(); backend = null; }
+  if (backend) {
+    await backend.close();
+    backend = null;
+  }
   if (ROOT_DIR) fs.rmSync(ROOT_DIR, { recursive: true, force: true });
   ROOT_DIR = "";
 });
@@ -26,7 +29,9 @@ function makeMemoryRepo(): SqliteMemoryRepository {
 function capturePi(): { pi: any; captured: () => any } {
   let captured: any;
   const pi = {
-    registerTool: (def: any) => { captured = def; },
+    registerTool: (def: any) => {
+      captured = def;
+    },
   } as any;
   return { pi, captured: () => captured };
 }
@@ -60,11 +65,18 @@ describe("registerSearchTool (memory mode)", () => {
     const { pi, captured } = capturePi();
     registerSearchTool(pi, memoryRepo, {} as any);
 
-    const result = await captured().execute("tc-touch", { mode: "memory", query: "name identity Naruto", target: "user" });
+    const result = await captured().execute("tc-touch", {
+      mode: "memory",
+      query: "name identity Naruto",
+      target: "user",
+    });
     assert.strictEqual(result.details.success, true);
 
     // After search, last_referenced must be bumped to today (the live 'last surfaced' signal)
-    const row = backend!.getDb().prepare("SELECT created, last_referenced FROM memories WHERE id = ?").get(added.id) as { created: string; last_referenced: string };
+    const row = backend
+      ?.getDb()
+      .prepare("SELECT created, last_referenced FROM memories WHERE id = ?")
+      .get(added.id) as { created: string; last_referenced: string };
     const todayStr = new Date().toISOString().split("T")[0];
     assert.strictEqual(row.last_referenced, todayStr, "search bumped last_referenced to today");
     assert.strictEqual(row.created, old, "created is preserved (not mutated by touch)");
@@ -112,13 +124,16 @@ describe("registerSearchTool (session mode, anchors variant)", () => {
     const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-session-search-tool-test-"));
     ROOT_DIR = sessionsDir;
     const filePath = path.join(sessionsDir, "session.jsonl");
-    fs.writeFileSync(filePath, `${JSON.stringify({
-      type: "message",
-      timestamp: "2026-05-15T10:00:00.000Z",
-      sessionId: "session-1",
-      cwd: "/work/project",
-      message: { role: "user", content: "needle" },
-    })}\n`);
+    fs.writeFileSync(
+      filePath,
+      `${JSON.stringify({
+        type: "message",
+        timestamp: "2026-05-15T10:00:00.000Z",
+        sessionId: "session-1",
+        cwd: "/work/project",
+        message: { role: "user", content: "needle" },
+      })}\n`,
+    );
 
     // Anchor mode does not use the repos — any objects are fine.
     registerSearchTool(pi, {} as any, {} as any, { variant: "anchors" }, undefined, { sessionsDir });
@@ -140,15 +155,21 @@ describe("registerSearchTool (session mode, anchors variant)", () => {
     const result = await captured().execute("tc-2", { mode: "session", markdown: "any:\n- needle" });
     assert.strictEqual(result.details.success, true);
     assert.strictEqual(result.details.count, 1);
-    assert.deepStrictEqual(result.details.ranges.map((range: any) => ({
-      path: range.path,
-      startLine: range.startLine,
-      endLine: range.endLine,
-      reason: range.reason,
-    })), [{ path: filePath, startLine: 1, endLine: 1, reason: "matched any: needle" }]);
+    assert.deepStrictEqual(
+      result.details.ranges.map((range: any) => ({
+        path: range.path,
+        startLine: range.startLine,
+        endLine: range.endLine,
+        reason: range.reason,
+      })),
+      [{ path: filePath, startLine: 1, endLine: 1, reason: "matched any: needle" }],
+    );
     assert.strictEqual(result.details.output, result.content[0].text);
     assert.match(result.content[0].text, /^count: 1\nanchors:\n-/);
-    assert.match(result.content[0].text, new RegExp(`${filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:1-1 — matched any: needle`));
+    assert.match(
+      result.content[0].text,
+      new RegExp(`${filePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:1-1 — matched any: needle`),
+    );
     assert.doesNotMatch(result.content[0].text, /"ranges"/);
     assert.doesNotMatch(result.content[0].text, /"startLine"/);
     assert.doesNotMatch(result.content[0].text, /"sessionId"/);

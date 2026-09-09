@@ -87,12 +87,7 @@ export function findDanglingLineageReferences(
     }
   }
 
-  out.sort(
-    (a, b) =>
-      a.entryId - b.entryId ||
-      FIELD_RANK[a.field] - FIELD_RANK[b.field] ||
-      a.missingId - b.missingId,
-  );
+  out.sort((a, b) => a.entryId - b.entryId || FIELD_RANK[a.field] - FIELD_RANK[b.field] || a.missingId - b.missingId);
   return out;
 }
 

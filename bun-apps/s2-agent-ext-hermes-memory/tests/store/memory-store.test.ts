@@ -7,25 +7,23 @@
  * it; before/afterEach clean the slate and the whole dir is removed in after.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
-import { describe, it, beforeAll, afterAll, beforeEach, afterEach } from "bun:test";
-
-
-import { MemoryStore } from "../../src/store/memory-store.js";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as lockfile from "proper-lockfile";
 import {
-  ENTRY_DELIMITER,
   DEFAULT_MEMORY_CHAR_LIMIT,
   DEFAULT_USER_CHAR_LIMIT,
+  ENTRY_DELIMITER,
   MEMORY_FILE,
   USER_FILE,
 } from "../../src/constants.js";
 import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
 import { computeSignature } from "../../src/store/signature.js";
 import type { FailureState, MemoryConfig } from "../../src/types.js";
-import * as lockfile from "proper-lockfile";
 
 // ─── Helpers (module-level) ───
 
@@ -71,7 +69,11 @@ async function writeRaw(filePath: string, content: string): Promise<void> {
 
 /** Delete a file, ignoring errors. */
 async function removeFile(filePath: string): Promise<void> {
-  try { await fs.unlink(filePath); } catch { /* ignore */ }
+  try {
+    await fs.unlink(filePath);
+  } catch {
+    /* ignore */
+  }
 }
 
 // ─── 2-phase consolidation race helpers (Task 5 update-safety gate) ───
@@ -97,7 +99,10 @@ async function appendEntryToDisk(filePath: string, encoded: string): Promise<voi
 /** Rewrite a .md file without its first entry (simulate a concurrent remove). */
 async function removeFirstEntryFromDisk(filePath: string): Promise<void> {
   const raw = await readRaw(filePath);
-  const parts = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  const parts = raw
+    .split(ENTRY_DELIMITER)
+    .map((e) => e.trim())
+    .filter(Boolean);
   parts.shift();
   await writeRaw(filePath, parts.join(ENTRY_DELIMITER));
 }
@@ -106,7 +111,10 @@ async function removeFirstEntryFromDisk(filePath: string): Promise<void> {
  *  ENTRY_DELIMITER), reading straight from disk. Mirrors MemoryStore.charCount. */
 async function totalCharsOnDisk(filePath: string): Promise<number> {
   const raw = await readRaw(filePath);
-  const parts = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+  const parts = raw
+    .split(ENTRY_DELIMITER)
+    .map((e) => e.trim())
+    .filter(Boolean);
   return parts.length ? parts.join(ENTRY_DELIMITER).length : 0;
 }
 
@@ -154,7 +162,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     // Clean up temp directory
     try {
       await fs.rm(MEMORY_DIR, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   /** Remove both memory files. No sleep is needed: every test awaits its
@@ -172,7 +182,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     // .md; a stale lock would ELOCKED the next test's cross-process acquisition
     // and cascade (the add errors out before the lock-hold wrap fires). Best-effort.
     for (const p of [memoryPath, userPath, failurePath]) {
-      try { await fs.rm(`${p}.lock`, { recursive: true, force: true }); } catch { /* ignore */ }
+      try {
+        await fs.rm(`${p}.lock`, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
     }
   }
 
@@ -196,7 +210,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(result.success);
       assert.equal(result.target, "memory");
       assert.ok(result.usage);
-      assert.ok(result.usage!.includes("chars"));
+      assert.ok(result.usage?.includes("chars"));
       assert.equal(result.entry_count, 1);
       assert.equal(result.message, "Entry added.");
       assert.equal(result.entries, undefined);
@@ -233,17 +247,19 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.ok(!result.success);
       assert.ok(result.error);
-      assert.ok(result.error!.includes("exceed the limit"));
-      assert.ok(result.error!.includes("chars"));
+      assert.ok(result.error?.includes("exceed the limit"));
+      assert.ok(result.error?.includes("chars"));
     });
 
     it("rejects without consolidation when memoryOverflowStrategy is reject", async () => {
       let consolidatorCalled = false;
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 50,
-        memoryOverflowStrategy: "reject",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 50,
+          memoryOverflowStrategy: "reject",
+          autoConsolidate: true,
+        }),
+      );
       store.setConsolidator(async (snapshot) => {
         consolidatorCalled = true;
         return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
@@ -254,7 +270,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.ok(!result.success);
       assert.equal(consolidatorCalled, false);
-      assert.ok(result.error!.includes("exceed the limit"));
+      assert.ok(result.error?.includes("exceed the limit"));
     });
 
     // D3 behavioral change (Task 2): under the OLD code, fifo-evict dispatch
@@ -267,11 +283,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     // and the message/archive_path — differ. See task-2-report.md.
     it("fifo-evict consolidates before evicting (D3: never shift()s active directly)", async () => {
       let consolidatorCalled = false;
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 250,
-        memoryOverflowStrategy: "fifo-evict",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 250,
+          memoryOverflowStrategy: "fifo-evict",
+          autoConsolidate: true,
+        }),
+      );
       store.setConsolidator(async (snapshot) => {
         consolidatorCalled = true;
         return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
@@ -291,7 +309,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // D3: consolidator IS now invoked (was false under the old fifo-shift dispatch).
       assert.equal(consolidatorCalled, true);
       // The stub frees nothing, so the retried add hits the vault-offload floor.
-      assert.equal(result.message, "Memory updated. Offloaded 1 older entry to vault archive to stay within the limit.");
+      assert.equal(
+        result.message,
+        "Memory updated. Offloaded 1 older entry to vault archive to stay within the limit.",
+      );
       assert.deepEqual(result.evicted_entries, [first]);
       assert.equal(result.evicted_count, 1);
       assert.equal(result.entry_count, 2);
@@ -305,10 +326,12 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("does not evict when the new entry cannot fit an empty memory", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 150,
-        memoryOverflowStrategy: "fifo-evict",
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 150,
+          memoryOverflowStrategy: "fifo-evict",
+        }),
+      );
       await store.loadFromDisk();
 
       const existing = `${TEST_MARKER} keep me`;
@@ -317,17 +340,19 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const result = await store.add("memory", `${TEST_MARKER} ${"x".repeat(120)}`);
 
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("exceed the limit"));
+      assert.ok(result.error?.includes("exceed the limit"));
       const raw = await readRaw(memoryPath);
       assert.ok(raw.includes(existing));
     });
 
     it("auto-consolidate floor: when consolidation frees nothing, vault-offloads oldest instead of hard-rejecting", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 260,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 260,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }));
       await store.loadFromDisk();
 
@@ -351,11 +376,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("auto-consolidate floor: fires with no consolidator wired (never hard-rejects)", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 260,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 260,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       // no setConsolidator — consolidator unavailable
       await store.loadFromDisk();
 
@@ -376,18 +403,20 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("auto-consolidate floor: a single entry larger than the whole budget still rejects", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 50,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 50,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }));
       await store.loadFromDisk();
 
       const result = await store.add("memory", `${TEST_MARKER} ${"x".repeat(60)}`);
 
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("exceed the limit"));
+      assert.ok(result.error?.includes("exceed the limit"));
     });
 
     // D2: superseded entries are offloaded (purged from .md) BEFORE any
@@ -414,7 +443,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const p = await import("node:path");
       await fs.writeFile(
         p.join(MEMORY_DIR, MEMORY_FILE),
-        [fm(KEEP_ID, "keep me active overflowprobe aaa"), fm(SUPER_ID, "superseded one overflowprobe bbb")].join(ENTRY_DELIMITER),
+        [fm(KEEP_ID, "keep me active overflowprobe aaa"), fm(SUPER_ID, "superseded one overflowprobe bbb")].join(
+          ENTRY_DELIMITER,
+        ),
         "utf-8",
       );
       // Provider returns the MD_ID of the entry that is superseded in the DB.
@@ -470,9 +501,15 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       const entries = store.getMemoryEntries();
       // The pinned superseded entry SURVIVES (pin protects deletion).
-      assert.ok(entries.some((e) => e.includes("pinned survivor supersededprobe aaa")), "pinned superseded entry must survive purge");
+      assert.ok(
+        entries.some((e) => e.includes("pinned survivor supersededprobe aaa")),
+        "pinned superseded entry must survive purge",
+      );
       // The non-pinned superseded entry is gone.
-      assert.ok(!entries.some((e) => e.includes("plain superseded supersededprobe bbb")), "non-pinned superseded entry must be purged");
+      assert.ok(
+        !entries.some((e) => e.includes("plain superseded supersededprobe bbb")),
+        "non-pinned superseded entry must be purged",
+      );
       // The new entry lands.
       assert.ok(entries.some((e) => e.includes("new entry supersededprobe ccc")));
     });
@@ -483,10 +520,12 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     // peers. Uses vault-offload strategy with NO consolidator so it falls
     // straight to the never-fail floor.
     it("pin: a pinned entry survives vaultOffloadAndAdd that evicts older non-pinned peers", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 250,
-        memoryOverflowStrategy: "vault-offload",
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 250,
+          memoryOverflowStrategy: "vault-offload",
+        }),
+      );
       // No consolidator wired → overflow falls straight to vaultOffloadAndAdd.
 
       const PIN_ID = "eeee0e0e-0e0e-0e0e-0e0e-0e0e0e0e0e0e";
@@ -499,10 +538,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // OLDEST (first on disk) is the pinned one; the plain one is newer.
       await fs.writeFile(
         p.join(MEMORY_DIR, MEMORY_FILE),
-        [
-          fm(PIN_ID, "pinned oldest survivor vaultprobe aaa", true),
-          fm(PLAIN_ID, "plain newer vaultprobe bbb"),
-        ].join(ENTRY_DELIMITER),
+        [fm(PIN_ID, "pinned oldest survivor vaultprobe aaa", true), fm(PLAIN_ID, "plain newer vaultprobe bbb")].join(
+          ENTRY_DELIMITER,
+        ),
         "utf-8",
       );
 
@@ -512,13 +550,19 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // The FIFO loop would normally shift the OLDEST (the pinned one) first;
       // pin protection must evict the non-pinned peer instead.
       assert.equal(result.evicted_count, 1, "exactly one non-pinned entry evicted");
-      assert.deepEqual(result.evicted_entries, ["plain newer vaultprobe bbb"],
-        "must evict the non-pinned peer, NOT the pinned oldest");
+      assert.deepEqual(
+        result.evicted_entries,
+        ["plain newer vaultprobe bbb"],
+        "must evict the non-pinned peer, NOT the pinned oldest",
+      );
       // evicted_md_ids mirrors the same single non-pinned id.
       assert.deepEqual(result.evicted_md_ids, [PLAIN_ID]);
 
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("pinned oldest survivor vaultprobe aaa")), "pinned entry must survive vault-offload");
+      assert.ok(
+        entries.some((e) => e.includes("pinned oldest survivor vaultprobe aaa")),
+        "pinned entry must survive vault-offload",
+      );
       assert.ok(!entries.some((e) => e.includes("plain newer vaultprobe bbb")), "non-pinned peer must be evicted");
       assert.ok(entries.some((e) => e.includes("new entry vaultprobe cc")));
     });
@@ -530,11 +574,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     // them). This stub tries to drop EVERY entry it is handed — the pinned one
     // survives purely because it never reaches the snapshot.
     it("pin: a pinned entry survives 2-phase consolidation that drops every snapshot entry", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 260,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 260,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       const PIN_ID = "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1";
       const PLAIN_ID = "b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2";
       const TODAY = new Date().toISOString().split("T")[0];
@@ -555,7 +601,12 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       store.setConsolidator(async (snapshot) => {
         // The consolidator tries to drop EVERY entry it is handed.
         snapshotSize = snapshot.entries.length;
-        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })) } };
+        return {
+          plan: {
+            snapshotBaseHash: snapshot.snapshotBaseHash,
+            ops: snapshot.entries.map((e) => ({ op: "drop" as const, key: e.key })),
+          },
+        };
       });
 
       const result = await store.add("memory", "new entry consolidationprobe ccc");
@@ -566,8 +617,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // drop the pinned entry because it was never a consolidation candidate.
       assert.equal(snapshotSize, 1, "pinned entry must be excluded from the consolidation snapshot");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("pinned survivor consolidationprobe aaa")), "pinned entry must survive consolidation");
-      assert.ok(!entries.some((e) => e.includes("plain droppable consolidationprobe bbb")), "non-pinned entry must be dropped by the consolidator");
+      assert.ok(
+        entries.some((e) => e.includes("pinned survivor consolidationprobe aaa")),
+        "pinned entry must survive consolidation",
+      );
+      assert.ok(
+        !entries.some((e) => e.includes("plain droppable consolidationprobe bbb")),
+        "non-pinned entry must be dropped by the consolidator",
+      );
       assert.ok(entries.some((e) => e.includes("new entry consolidationprobe ccc")));
     });
 
@@ -612,11 +669,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     //    reconcile (step 3). This test asserts the lock is FREE while the
     //    consolidator runs, and the store stays consistent afterward.
     it("2-phase consolidation: the file lock is FREE during the LLM (step 2) and the store stays consistent", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 200,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       // Assume the worst; the consolidator must prove the lock is free.
       let lockHeldDuringStep2 = true;
       // Plan that drops every seeded entry → consolidates to empty so the
@@ -643,13 +702,19 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // retried locked write fits.
       const result = await store.add("memory", `${TEST_MARKER} 2phase third incoming`);
 
-      assert.equal(lockHeldDuringStep2, false,
-        "the cross-process file lock must NOT be held during the LLM plan (step 2)");
+      assert.equal(
+        lockHeldDuringStep2,
+        false,
+        "the cross-process file lock must NOT be held during the LLM plan (step 2)",
+      );
       assert.ok(result.success, `retried add should fit after consolidation; got: ${result.error}`);
       const entries = store.getMemoryEntries();
       assert.ok(!entries.some((e) => e.includes("2phase first seeded")), "dropped by the merge plan");
       assert.ok(!entries.some((e) => e.includes("2phase second seeded")), "dropped by the merge plan");
-      assert.ok(entries.some((e) => e.includes("2phase third incoming")), "the retried add lands");
+      assert.ok(
+        entries.some((e) => e.includes("2phase third incoming")),
+        "the retried add lands",
+      );
     });
 
     it("returns error for empty content", async () => {
@@ -752,7 +817,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.ok(!result.success);
       assert.ok(result.error);
-      assert.ok(result.error!.includes("exceed the limit"));
+      assert.ok(result.error?.includes("exceed the limit"));
     });
 
     it("default failure limit is generous (40000) — a large write lands without overflow", async () => {
@@ -826,7 +891,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const result = await store.replace("memory", "nonexistent substring", "new content");
 
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("No entry matched"));
+      assert.ok(result.error?.includes("No entry matched"));
     });
 
     it("returns error for multiple matches", async () => {
@@ -839,9 +904,9 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const result = await store.replace("memory", "config:", `${TEST_MARKER} unified config`);
 
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("Multiple entries matched"));
+      assert.ok(result.error?.includes("Multiple entries matched"));
       assert.ok(result.matches);
-      assert.equal(result.matches!.length, 2);
+      assert.equal(result.matches?.length, 2);
     });
 
     it("returns error for empty old_text", async () => {
@@ -865,11 +930,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("replace() overflow with non-reject strategy vault-offloads oldest OTHER entries (never hard-rejects)", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 380,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 380,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       await store.loadFromDisk();
 
       const oldest = `${TEST_MARKER} repl oldest evicted`;
@@ -896,11 +963,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("replace() overflow with reject strategy preserves the hard error", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 250,
-        memoryOverflowStrategy: "reject",
-        autoConsolidate: false,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 250,
+          memoryOverflowStrategy: "reject",
+          autoConsolidate: false,
+        }),
+      );
       await store.loadFromDisk();
 
       const keep = `${TEST_MARKER} rj keep`;
@@ -911,22 +980,24 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const result = await store.replace("memory", target, `${TEST_MARKER} ${"y".repeat(200)}`);
 
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("would put memory at"));
+      assert.ok(result.error?.includes("would put memory at"));
     });
 
     it("replace() a single replacement larger than the whole budget still rejects", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 130,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 130,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       await store.loadFromDisk();
       assert.ok((await store.add("memory", `${TEST_MARKER} tiny`)).success);
 
       const result = await store.replace("memory", "tiny", `${TEST_MARKER} ${"w".repeat(60)}`);
 
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("exceed the limit"));
+      assert.ok(result.error?.includes("exceed the limit"));
     });
   });
 
@@ -981,7 +1052,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.equal(result.evicted_count, 1, "exactly the single coldest entry is evicted");
       assert.deepEqual(result.evicted_md_ids, [COLD_ID], "coldest md_id evicted first");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("HOT survivor")), "hottest entry survives");
+      assert.ok(
+        entries.some((e) => e.includes("HOT survivor")),
+        "hottest entry survives",
+      );
       assert.ok(!entries.some((e) => e.includes("COLD evictee")), "coldest entry evicted");
     });
 
@@ -1013,8 +1087,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.equal(result.evicted_count, 2, "two coldest entries evicted");
       assert.deepEqual(result.evicted_md_ids, [COLD_ID, WARM_ID], "eviction order is heat-ascending");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("HOT survivor")), "hottest entry survives");
-      assert.ok(!entries.some((e) => e.includes("COLD evictee")) && !entries.some((e) => e.includes("WARM middle")), "two coldest evicted");
+      assert.ok(
+        entries.some((e) => e.includes("HOT survivor")),
+        "hottest entry survives",
+      );
+      assert.ok(
+        !entries.some((e) => e.includes("COLD evictee")) && !entries.some((e) => e.includes("WARM middle")),
+        "two coldest evicted",
+      );
     });
 
     it("add floor: at equal recency a USED entry outranks an UNUSED one (the usedBonus is consumed as heat)", async () => {
@@ -1044,7 +1124,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.deepEqual(result.evicted_md_ids, [UNUSED_ID], "unused entry evicted; used entry spared");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("USED survivor")), "used entry survives");
+      assert.ok(
+        entries.some((e) => e.includes("USED survivor")),
+        "used entry survives",
+      );
       assert.ok(!entries.some((e) => e.includes("UNUSED evictee")), "unused entry evicted");
     });
 
@@ -1075,7 +1158,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.equal(result.evicted_count, 1);
       assert.deepEqual(result.evicted_md_ids, [PLAIN_ID], "higher-heat non-pinned evicted, NOT the pinned lowest-heat");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("PIN lowest heat survivor")), "pinned entry survives despite heat 0");
+      assert.ok(
+        entries.some((e) => e.includes("PIN lowest heat survivor")),
+        "pinned entry survives despite heat 0",
+      );
       assert.ok(!entries.some((e) => e.includes("PLAIN higher heat")), "non-pinned peer evicted");
     });
 
@@ -1106,9 +1192,15 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       // Both SCORED entries evicted (ascending); the unscored legacy survives.
       assert.deepEqual(result.evicted_md_ids, [LOW_ID, HIGH_ID], "scored entries evicted ascending before the legacy");
-      assert.ok(!result.evicted_md_ids.includes(undefined as never), "legacy (no mdId) never appears in evicted_md_ids");
+      assert.ok(
+        !result.evicted_md_ids.includes(undefined as never),
+        "legacy (no mdId) never appears in evicted_md_ids",
+      );
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("LEGACY unscored survivor")), "legacy unscoreable entry survives until all scored are evicted");
+      assert.ok(
+        entries.some((e) => e.includes("LEGACY unscored survivor")),
+        "legacy unscoreable entry survives until all scored are evicted",
+      );
     });
 
     it("add floor: NO provider → EXACT FIFO/file-order (disable-path parity)", async () => {
@@ -1132,7 +1224,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // FIFO: oldest (A) then B; C (newest) survives.
       assert.deepEqual(result.evicted_md_ids, [A_ID, B_ID], "file-order: oldest first (disable-path FIFO parity)");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("C newest")), "newest survives");
+      assert.ok(
+        entries.some((e) => e.includes("C newest")),
+        "newest survives",
+      );
     });
 
     it("add floor: a THROWING provider → FIFO (best-effort, never crashes)", async () => {
@@ -1203,8 +1298,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.deepEqual(result.evicted_md_ids, [C_ID], "coldest OTHER (C) evicted, NOT the file-order-oldest other (B)");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("GROWN to overflow")), "grown replacement landed");
-      assert.ok(entries.some((e) => e.includes("B hotter oldestother")), "hotter other (B) survives");
+      assert.ok(
+        entries.some((e) => e.includes("GROWN to overflow")),
+        "grown replacement landed",
+      );
+      assert.ok(
+        entries.some((e) => e.includes("B hotter oldestother")),
+        "hotter other (B) survives",
+      );
       assert.ok(!entries.some((e) => e.includes("C coldest newestother")), "coldest other (C) evicted");
     });
 
@@ -1227,7 +1328,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       assert.deepEqual(result.evicted_md_ids, [B_ID], "file-order: oldest OTHER (B) evicted (disable-path parity)");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("C newestother")), "newest other (C) survives");
+      assert.ok(
+        entries.some((e) => e.includes("C newestother")),
+        "newest other (C) survives",
+      );
     });
   });
 
@@ -1260,11 +1364,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // file order: HOT, COLD, WARM (deliberately NOT heat order).
       await seed([HOT, COLD, WARM]);
 
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 380,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 380,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       store.setHeatForEntriesProvider(async (_t, entries) => {
         const m = new Map<string, number>();
         for (const e of entries) {
@@ -1287,7 +1393,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // Heat-ascending: COLD (0.1) → WARM (0.5) → HOT (0.9).
       assert.deepEqual(
         captured,
-        ["COLD evictee snapsortprobe bbb low heat drop me now", "WARM middle snapsortprobe ccc medium heat ground", "HOT survivor snapsortprobe aaa high heat value stays"],
+        [
+          "COLD evictee snapsortprobe bbb low heat drop me now",
+          "WARM middle snapsortprobe ccc medium heat ground",
+          "HOT survivor snapsortprobe aaa high heat value stays",
+        ],
         `snapshot entries must be heat-sorted ascending when a provider is wired; got ${JSON.stringify(captured)}`,
       );
     });
@@ -1301,11 +1411,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const WARM = fm(WARM_ID, "WARM middle snapsortfifo ccc medium heat ground");
       await seed([HOT, COLD, WARM]);
 
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 380,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 380,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       // NOTE: no provider wired — this is the decay-disable path.
       let captured: string[] = [];
       store.setConsolidator(async (snapshot) => {
@@ -1317,7 +1429,11 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // File/parse order preserved (no sort): HOT, COLD, WARM.
       assert.deepEqual(
         captured,
-        ["HOT survivor snapsortfifo aaa high heat value stays", "COLD evictee snapsortfifo bbb low heat drop me now", "WARM middle snapsortfifo ccc medium heat ground"],
+        [
+          "HOT survivor snapsortfifo aaa high heat value stays",
+          "COLD evictee snapsortfifo bbb low heat drop me now",
+          "WARM middle snapsortfifo ccc medium heat ground",
+        ],
         `snapshot entries must keep file order when no provider is wired (disable-path parity); got ${JSON.stringify(captured)}`,
       );
     });
@@ -1345,10 +1461,12 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const D = fm("44444444-4444-4444-8444-444444444444", "D candprobe delta on-snapshot");
       await seed([A, B, C, D]);
 
-      const store = new MemoryStore(makeConfig({
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       let seen: string[] = [];
       store.setConsolidator(async (snapshot) => {
         seen = snapshot.entries.map((e) => e.content);
@@ -1373,10 +1491,12 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const B = fm("22222222-2222-4222-8222-222222222222", "B absentprobe bravo full-snapshot");
       await seed([A, B]);
 
-      const store = new MemoryStore(makeConfig({
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       let seen: string[] = [];
       store.setConsolidator(async (snapshot) => {
         seen = snapshot.entries.map((e) => e.content);
@@ -1424,7 +1544,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
       await store.add("memory", `${TEST_MARKER} prefers pnpm over npm`);
 
-      const result = await store.remove("memory", `🧠 [global] ${TEST_MARKER} prefers pnpm over npm\n   Created: 2026-05-27 | Last used: 2026-05-27`);
+      const result = await store.remove(
+        "memory",
+        `🧠 [global] ${TEST_MARKER} prefers pnpm over npm\n   Created: 2026-05-27 | Last used: 2026-05-27`,
+      );
 
       assert.ok(result.success);
       const raw = await readRaw(memoryPath);
@@ -1459,7 +1582,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const result = await store.remove("memory", "nonexistent");
 
       assert.ok(!result.success);
-      assert.ok(result.error!.includes("No entry matched"));
+      assert.ok(result.error?.includes("No entry matched"));
     });
 
     it("returns error for empty old_text", async () => {
@@ -1545,14 +1668,17 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("injects recent failure memories by default", async () => {
-      await writeRaw(failurePath, [
-        failureEntry(`${TEST_MARKER} failure 1`),
-        failureEntry(`${TEST_MARKER} failure 2`),
-        failureEntry(`${TEST_MARKER} failure 3`),
-        failureEntry(`${TEST_MARKER} failure 4`),
-        failureEntry(`${TEST_MARKER} failure 5`),
-        failureEntry(`${TEST_MARKER} failure 6`),
-      ].join(ENTRY_DELIMITER));
+      await writeRaw(
+        failurePath,
+        [
+          failureEntry(`${TEST_MARKER} failure 1`),
+          failureEntry(`${TEST_MARKER} failure 2`),
+          failureEntry(`${TEST_MARKER} failure 3`),
+          failureEntry(`${TEST_MARKER} failure 4`),
+          failureEntry(`${TEST_MARKER} failure 5`),
+          failureEntry(`${TEST_MARKER} failure 6`),
+        ].join(ENTRY_DELIMITER),
+      );
 
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
@@ -1561,7 +1687,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(result.includes("RECENT FAILURES & LESSONS"));
       assert.ok(result.includes(`${TEST_MARKER} failure 1`));
       assert.ok(result.includes(`${TEST_MARKER} failure 5`));
-      assert.ok(!result.includes(`${TEST_MARKER} failure 6`), "default should preserve existing first-5 slice behavior");
+      assert.ok(
+        !result.includes(`${TEST_MARKER} failure 6`),
+        "default should preserve existing first-5 slice behavior",
+      );
     });
 
     it("does not inject failure memories when disabled", async () => {
@@ -1578,11 +1707,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("respects configured failure injection max entries", async () => {
-      await writeRaw(failurePath, [
-        failureEntry(`${TEST_MARKER} max entry 1`),
-        failureEntry(`${TEST_MARKER} max entry 2`),
-        failureEntry(`${TEST_MARKER} max entry 3`),
-      ].join(ENTRY_DELIMITER));
+      await writeRaw(
+        failurePath,
+        [
+          failureEntry(`${TEST_MARKER} max entry 1`),
+          failureEntry(`${TEST_MARKER} max entry 2`),
+          failureEntry(`${TEST_MARKER} max entry 3`),
+        ].join(ENTRY_DELIMITER),
+      );
 
       const store = new MemoryStore(makeConfig({ failureInjectionMaxEntries: 2 }));
       await store.loadFromDisk();
@@ -1594,10 +1726,12 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("respects configured failure injection max age days", async () => {
-      await writeRaw(failurePath, [
-        failureEntry(`${TEST_MARKER} recent failure`, 1),
-        failureEntry(`${TEST_MARKER} old failure`, 3),
-      ].join(ENTRY_DELIMITER));
+      await writeRaw(
+        failurePath,
+        [failureEntry(`${TEST_MARKER} recent failure`, 1), failureEntry(`${TEST_MARKER} old failure`, 3)].join(
+          ENTRY_DELIMITER,
+        ),
+      );
 
       const store = new MemoryStore(makeConfig({ failureInjectionMaxAgeDays: 2 }));
       await store.loadFromDisk();
@@ -1635,17 +1769,16 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
 
-      const entries = [
-        `${TEST_MARKER} first atomic entry`,
-        `${TEST_MARKER} second atomic entry`,
-      ];
+      const entries = [`${TEST_MARKER} first atomic entry`, `${TEST_MARKER} second atomic entry`];
 
       await store.add("memory", entries[0]);
       await store.add("memory", entries[1]);
 
-
       const raw = await readRaw(memoryPath);
-      const parsed = raw.split(ENTRY_DELIMITER).map((e) => e.trim()).filter(Boolean);
+      const parsed = raw
+        .split(ENTRY_DELIMITER)
+        .map((e) => e.trim())
+        .filter(Boolean);
 
       // Strip frontmatter metadata for comparison (Task 7: births emit YAML
       // frontmatter id/created/last + body — the legacy trailing HTML comment
@@ -1791,7 +1924,12 @@ describe("MemoryStore", { concurrency: 1 }, () => {
   describe("cross-process file lock (withFileLock)", () => {
     /** True iff a lock directory exists for the given source file. */
     async function lockExists(srcPath: string): Promise<boolean> {
-      try { await fs.stat(`${srcPath}.lock`); return true; } catch { return false; }
+      try {
+        await fs.stat(`${srcPath}.lock`);
+        return true;
+      } catch {
+        return false;
+      }
     }
 
     it("acquires the lock during a write, then releases it (no leftover .lock dir)", async () => {
@@ -1853,11 +1991,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const releaseBlocker = await lockfile.lock(blockerPath, { stale: 60_000, realpath: false });
       const releaseTimer = setTimeout(() => void releaseBlocker().catch(() => {}), 300);
       try {
-        const store = new MemoryStore(makeConfig({
-          lockAcquireRetries: 0, // fail-fast on the held lock → ELOCKED immediately
-          lockOpRetries: 12,
-          lockOpBackoffMs: 40,
-        }));
+        const store = new MemoryStore(
+          makeConfig({
+            lockAcquireRetries: 0, // fail-fast on the held lock → ELOCKED immediately
+            lockOpRetries: 12,
+            lockOpBackoffMs: 40,
+          }),
+        );
         await store.loadFromDisk();
         const res = await store.add("memory", `${TEST_MARKER} op-retry-wins`);
         assert.ok(res.success, `expected success after op-retry, got: ${res.error}`);
@@ -1878,11 +2018,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const blockerPath = path.join(MEMORY_DIR, MEMORY_FILE);
       const releaseBlocker = await lockfile.lock(blockerPath, { stale: 60_000, realpath: false });
       try {
-        const store = new MemoryStore(makeConfig({
-          lockAcquireRetries: 0,
-          lockOpRetries: 2,
-          lockOpBackoffMs: 20,
-        }));
+        const store = new MemoryStore(
+          makeConfig({
+            lockAcquireRetries: 0,
+            lockOpRetries: 2,
+            lockOpBackoffMs: 20,
+          }),
+        );
         await store.loadFromDisk();
         await assert.rejects(
           () => store.add("memory", `${TEST_MARKER} op-retry-exhausted`),
@@ -1894,11 +2036,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("runConsolidator leaves PI_MEMORY_FILE_LOCK UNSET (2-phase drops the bypass toggle), then the store still saves via the floor", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 200,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       let envDuringConsolidation: string | undefined = "<not called>";
       store.setConsolidator(async (snapshot) => {
         // 2-phase no longer sets PI_MEMORY_FILE_LOCK=bypass: step 2 is lock-free
@@ -1914,18 +2058,23 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // third overflows → auto-consolidate → runConsolidator wraps the plan step
       const result = await store.add("memory", `${TEST_MARKER} consolidate env 3`);
 
-      assert.equal(envDuringConsolidation, prev,
-        `PI_MEMORY_FILE_LOCK must NOT be set to bypass during consolidation; got ${envDuringConsolidation}`);
+      assert.equal(
+        envDuringConsolidation,
+        prev,
+        `PI_MEMORY_FILE_LOCK must NOT be set to bypass during consolidation; got ${envDuringConsolidation}`,
+      );
       assert.equal(process.env.PI_MEMORY_FILE_LOCK, prev, "env unchanged after consolidation");
       assert.ok(result.success, `floor should still save (never-reject): ${result.error}`);
     });
 
     it("runConsolidator sets PI_HERMES_CONSOLIDATING=1 for the child (prevents nested consolidation), then restores it", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 200,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       let envDuringConsolidation: string | undefined = "<not called>";
       store.setConsolidator(async (snapshot) => {
         envDuringConsolidation = process.env.PI_HERMES_CONSOLIDATING;
@@ -1938,20 +2087,28 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.add("memory", `${TEST_MARKER} consol-flag 2`);
       await store.add("memory", `${TEST_MARKER} consol-flag 3`); // overflow → runConsolidator
 
-      assert.equal(envDuringConsolidation, "1",
-        `consolidator child must inherit PI_HERMES_CONSOLIDATING=1; got ${envDuringConsolidation}`);
+      assert.equal(
+        envDuringConsolidation,
+        "1",
+        `consolidator child must inherit PI_HERMES_CONSOLIDATING=1; got ${envDuringConsolidation}`,
+      );
       assert.equal(process.env.PI_HERMES_CONSOLIDATING, prev, "env restored after consolidation");
     });
 
     it("fires onProgress with the consolidator model label when consolidation runs", async () => {
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: 200,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: 200,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       const progress: string[] = [];
       // Stub consolidator + a model label (as index.ts injects in production).
-      store.setConsolidator(async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }), "bonsai-27b");
+      store.setConsolidator(
+        async (snapshot) => ({ plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }),
+        "bonsai-27b",
+      );
       await store.loadFromDisk();
 
       await store.add("memory", `${TEST_MARKER} progress 1`);
@@ -1991,18 +2148,20 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
     it("RACE: an entry appended during step 2 (lock-free) is preserved after reconcile", async () => {
       const limit = 350;
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: limit,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: limit,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       await store.loadFromDisk();
 
       // Seed two entries. `first` is large so that adding `incoming` overflows;
       // the plan drops `first` (snapshot.entries[0]) so `second` survives.
-      const first = `${TEST_MARKER} ${"A".repeat(70)}`;            // fm 170 (body 84 + 86)
-      const second = `${TEST_MARKER} keep second seeded`;          // fm 118
-      const incoming = `${TEST_MARKER} incoming third probe`;      // fm 120
+      const first = `${TEST_MARKER} ${"A".repeat(70)}`; // fm 170 (body 84 + 86)
+      const second = `${TEST_MARKER} keep second seeded`; // fm 118
+      const incoming = `${TEST_MARKER} incoming third probe`; // fm 120
       // Overflow check:  170 + 3 + 118 + 3 + 120 = 414 > 350  ✓
       // After reconcile: [second(118), APPEND(61), incoming(120)] = 305 ≤ 350 ✓
       assert.ok((await store.add("memory", first)).success);
@@ -2036,29 +2195,39 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // THE invariant: the concurrently-appended entry was NOT clobbered by the
       // reconcile rewrite (step 3 re-read disk + applyMergePlan keeps live
       // entries that no applied op removes).
-      assert.ok(contents.includes("CONCURRENT-APPEND"),
-        `concurrently-appended entry must survive reconcile; got: ${JSON.stringify(contents)}`);
+      assert.ok(
+        contents.includes("CONCURRENT-APPEND"),
+        `concurrently-appended entry must survive reconcile; got: ${JSON.stringify(contents)}`,
+      );
       // Sanity: the plan did drop `first`, kept `second`, and the retried add
       // landed `incoming`.
       assert.ok(!contents.some((c) => c.includes("AAAA")), "first was dropped by the merge plan");
-      assert.ok(contents.some((c) => c.includes("keep second seeded")), "second preserved");
-      assert.ok(contents.some((c) => c.includes("incoming third probe")), "incoming landed");
+      assert.ok(
+        contents.some((c) => c.includes("keep second seeded")),
+        "second preserved",
+      );
+      assert.ok(
+        contents.some((c) => c.includes("incoming third probe")),
+        "incoming landed",
+      );
     });
 
     it("RACE: a plan op referencing a removed entry is skipped; consolidation completes without corrupting", async () => {
       const limit = 300;
-      const store = new MemoryStore(makeConfig({
-        memoryCharLimit: limit,
-        memoryOverflowStrategy: "auto-consolidate",
-        autoConsolidate: true,
-      }));
+      const store = new MemoryStore(
+        makeConfig({
+          memoryCharLimit: limit,
+          memoryOverflowStrategy: "auto-consolidate",
+          autoConsolidate: true,
+        }),
+      );
       await store.loadFromDisk();
 
       // `first` is large (overflows when `incoming` is added); `second` is small
       // and stays under the limit once `first` is gone.
-      const first = `${TEST_MARKER} ${"A".repeat(60)}`;            // fm 160 (body 74 + 86)
-      const second = `${TEST_MARKER} keep`;                       // fm 104
-      const incoming = `${TEST_MARKER} incoming probe`;           // fm 114
+      const first = `${TEST_MARKER} ${"A".repeat(60)}`; // fm 160 (body 74 + 86)
+      const second = `${TEST_MARKER} keep`; // fm 104
+      const incoming = `${TEST_MARKER} incoming probe`; // fm 114
       // Overflow check:  160 + 3 + 104 + 3 + 114 = 384 > 300  ✓
       // After concurrent remove of `first` + retried add: [second(104), incoming(114)] = 221 ≤ 300 ✓
       assert.ok((await store.add("memory", first)).success);
@@ -2086,8 +2255,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await store.loadFromDisk();
       const contents = store.getMemoryEntries();
       assert.ok(!contents.some((c) => c.includes("AAAA")), "concurrently-removed first stays gone");
-      assert.ok(contents.some((c) => c.includes("keep")), "second preserved");
-      assert.ok(contents.some((c) => c.includes("incoming probe")), "incoming landed");
+      assert.ok(
+        contents.some((c) => c.includes("keep")),
+        "second preserved",
+      );
+      assert.ok(
+        contents.some((c) => c.includes("incoming probe")),
+        "incoming landed",
+      );
     });
   });
 
@@ -2095,11 +2270,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
 
   describe("failure lifecycle injection filter", () => {
     it("formatForSystemPrompt injects ONLY active failures (excludes resolved/acquired)", async () => {
-      await writeRaw(failurePath, [
-        frontmatterFailureEntry(`${TEST_MARKER} live failure`, { state: "active" }),
-        frontmatterFailureEntry(`${TEST_MARKER} fixed failure`, { state: "resolved" }),
-        frontmatterFailureEntry(`${TEST_MARKER} known quirk`, { state: "acquired" }),
-      ].join(ENTRY_DELIMITER));
+      await writeRaw(
+        failurePath,
+        [
+          frontmatterFailureEntry(`${TEST_MARKER} live failure`, { state: "active" }),
+          frontmatterFailureEntry(`${TEST_MARKER} fixed failure`, { state: "resolved" }),
+          frontmatterFailureEntry(`${TEST_MARKER} known quirk`, { state: "acquired" }),
+        ].join(ENTRY_DELIMITER),
+      );
 
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
@@ -2111,11 +2289,14 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     });
 
     it("getActiveFailureEntries surfaces active only; getFailureEntries stays age-only (dedup sees resolved/acquired)", async () => {
-      await writeRaw(failurePath, [
-        frontmatterFailureEntry(`${TEST_MARKER} active`, { state: "active" }),
-        frontmatterFailureEntry(`${TEST_MARKER} resolved`, { state: "resolved" }),
-        frontmatterFailureEntry(`${TEST_MARKER} acquired`, { state: "acquired" }),
-      ].join(ENTRY_DELIMITER));
+      await writeRaw(
+        failurePath,
+        [
+          frontmatterFailureEntry(`${TEST_MARKER} active`, { state: "active" }),
+          frontmatterFailureEntry(`${TEST_MARKER} resolved`, { state: "resolved" }),
+          frontmatterFailureEntry(`${TEST_MARKER} acquired`, { state: "acquired" }),
+        ].join(ENTRY_DELIMITER),
+      );
 
       const store = new MemoryStore(makeConfig());
       await store.loadFromDisk();
@@ -2157,7 +2338,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const meta = store.entriesWithMeta("failure");
       const hit = meta.find((m) => m.text.includes(`${TEST_MARKER} quirk`));
       assert.ok(hit, "tool-quirk entry should be present");
-      assert.equal(hit!.state, "acquired");
+      assert.equal(hit?.state, "acquired");
 
       // … and it is actually persisted in the on-disk frontmatter.
       const raw = await readRaw(failurePath);
@@ -2173,7 +2354,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const meta = store.entriesWithMeta("failure");
       const hit = meta.find((m) => m.text.includes(`${TEST_MARKER} boom`));
       assert.ok(hit);
-      assert.equal(hit!.state, "active");
+      assert.equal(hit?.state, "active");
 
       const raw = await readRaw(failurePath);
       assert.ok(/state: active/.test(raw), `frontmatter should carry state: active; got: ${raw}`);
@@ -2188,7 +2369,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       const meta = store.entriesWithMeta("memory");
       const hit = meta.find((m) => m.text.includes(`${TEST_MARKER} plain note`));
       assert.ok(hit);
-      assert.equal(hit!.state, undefined);
+      assert.equal(hit?.state, undefined);
       const raw = await readRaw(memoryPath);
       assert.ok(!/state:/.test(raw), "memory frontmatter must NOT carry a state field");
     });
@@ -2214,8 +2395,18 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await writeRaw(
         memoryPath,
         [
-          serializeMetadataFrontmatter({ id: MEM_A, text: `${TEST_MARKER} asm memory one`, created: today, last: today }),
-          serializeMetadataFrontmatter({ id: MEM_B, text: `${TEST_MARKER} asm memory two`, created: today, last: today }),
+          serializeMetadataFrontmatter({
+            id: MEM_A,
+            text: `${TEST_MARKER} asm memory one`,
+            created: today,
+            last: today,
+          }),
+          serializeMetadataFrontmatter({
+            id: MEM_B,
+            text: `${TEST_MARKER} asm memory two`,
+            created: today,
+            last: today,
+          }),
         ].join(ENTRY_DELIMITER),
       );
       await writeRaw(
@@ -2225,7 +2416,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       // 1 ACTIVE failure inside the max-age window → injected → its id is harvested.
       await writeRaw(
         failurePath,
-        serializeMetadataFrontmatter({ id: FAIL_D, text: `${TEST_MARKER} asm failure boom`, created: today, last: today, state: "active" }),
+        serializeMetadataFrontmatter({
+          id: FAIL_D,
+          text: `${TEST_MARKER} asm failure boom`,
+          created: today,
+          last: today,
+          state: "active",
+        }),
       );
 
       const store = new MemoryStore(makeConfig());
@@ -2249,7 +2446,13 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       );
       await writeRaw(
         failurePath,
-        serializeMetadataFrontmatter({ id: FAIL_D, text: `${TEST_MARKER} asm nofail`, created: today, last: today, state: "active" }),
+        serializeMetadataFrontmatter({
+          id: FAIL_D,
+          text: `${TEST_MARKER} asm nofail`,
+          created: today,
+          last: today,
+          state: "active",
+        }),
       );
 
       const store = new MemoryStore(makeConfig({ failureInjectionEnabled: false }));
@@ -2270,11 +2473,29 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await writeRaw(
         failurePath,
         [
-          serializeMetadataFrontmatter({ id: ACTIVE, text: `${TEST_MARKER} asm active`, created: today, last: today, state: "active" }),
+          serializeMetadataFrontmatter({
+            id: ACTIVE,
+            text: `${TEST_MARKER} asm active`,
+            created: today,
+            last: today,
+            state: "active",
+          }),
           // resolved → excluded from injection → excluded from manifest.
-          serializeMetadataFrontmatter({ id: RESOLVED, text: `${TEST_MARKER} asm resolved`, created: today, last: today, state: "resolved" }),
+          serializeMetadataFrontmatter({
+            id: RESOLVED,
+            text: `${TEST_MARKER} asm resolved`,
+            created: today,
+            last: today,
+            state: "resolved",
+          }),
           // active but older than the 1-day window → excluded.
-          serializeMetadataFrontmatter({ id: OLD, text: `${TEST_MARKER} asm old`, created: dateDaysAgo(5), last: dateDaysAgo(5), state: "active" }),
+          serializeMetadataFrontmatter({
+            id: OLD,
+            text: `${TEST_MARKER} asm old`,
+            created: dateDaysAgo(5),
+            last: dateDaysAgo(5),
+            state: "active",
+          }),
         ].join(ENTRY_DELIMITER),
       );
 
@@ -2298,7 +2519,15 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await writeRaw(
         failurePath,
         ids
-          .map((id) => serializeMetadataFrontmatter({ id, text: `${TEST_MARKER} asm max ${id.slice(0, 2)}`, created: today, last: today, state: "active" }))
+          .map((id) =>
+            serializeMetadataFrontmatter({
+              id,
+              text: `${TEST_MARKER} asm max ${id.slice(0, 2)}`,
+              created: today,
+              last: today,
+              state: "active",
+            }),
+          )
           .join(ENTRY_DELIMITER),
       );
 
@@ -2318,8 +2547,18 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       await writeRaw(
         memoryPath,
         [
-          serializeMetadataFrontmatter({ id: PROJ_A, text: `${TEST_MARKER} asm project one`, created: today, last: today }),
-          serializeMetadataFrontmatter({ id: PROJ_B, text: `${TEST_MARKER} asm project two`, created: today, last: today }),
+          serializeMetadataFrontmatter({
+            id: PROJ_A,
+            text: `${TEST_MARKER} asm project one`,
+            created: today,
+            last: today,
+          }),
+          serializeMetadataFrontmatter({
+            id: PROJ_B,
+            text: `${TEST_MARKER} asm project two`,
+            created: today,
+            last: today,
+          }),
         ].join(ENTRY_DELIMITER),
       );
 
@@ -2355,10 +2594,7 @@ describe("MemoryStore", { concurrency: 1 }, () => {
           serializeMetadataFrontmatter({ id: MEM_B, text: bodyB, created: today, last: today }),
         ].join(ENTRY_DELIMITER),
       );
-      await writeRaw(
-        userPath,
-        serializeMetadataFrontmatter({ id: USR_C, text: bodyC, created: today, last: today }),
-      );
+      await writeRaw(userPath, serializeMetadataFrontmatter({ id: USR_C, text: bodyC, created: today, last: today }));
       await writeRaw(
         failurePath,
         serializeMetadataFrontmatter({ id: FAIL_D, text: bodyD, created: today, last: today, state: "active" }),
@@ -2407,7 +2643,10 @@ describe("MemoryStore", { concurrency: 1 }, () => {
       assert.ok(sigIds.includes(LONG));
       assert.ok(!sigIds.includes(SHORT));
       // The omitted entry never produces a signature object.
-      assert.equal(manifest.signatures.find((s) => s.mdId === SHORT), undefined);
+      assert.equal(
+        manifest.signatures.find((s) => s.mdId === SHORT),
+        undefined,
+      );
     });
 
     it("getAssemblyManifest: usedSignatureMinChars config is honored (lower threshold -> more signatures)", async () => {
@@ -2512,10 +2751,19 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     it("is a no-op when disabled", async () => {
       const store = await makeStoreWithHeat(
         Array.from({ length: 12 }, (_, i) => ({ text: `cold${i}`, heat: 0.05 })),
-        { proactiveConsolidateEnabled: false, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+        {
+          proactiveConsolidateEnabled: false,
+          proactiveHeatFloor: 0.25,
+          proactivePressureThreshold: 10,
+          proactiveMaxCandidates: 5,
+          proactiveCooldownMinutes: 30,
+        },
       );
       let called = 0;
-      store.setConsolidator(async (snapshot) => { called++; return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      store.setConsolidator(async (snapshot) => {
+        called++;
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
       assert.equal(await store.maybeProactiveConsolidate("memory"), null);
       assert.equal(called, 0);
     });
@@ -2523,28 +2771,52 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     it("fires when decay-pressure >= threshold, over the bottom-K below-floor entries", async () => {
       const store = await makeStoreWithHeat(
         [
-          { text: "hot1", heat: 0.9 }, { text: "hot2", heat: 0.8 },
+          { text: "hot1", heat: 0.9 },
+          { text: "hot2", heat: 0.8 },
           ...Array.from({ length: 12 }, (_, i) => ({ text: `cold${i}`, heat: 0.05 })), // 12 below floor 0.25
         ],
-        { proactiveConsolidateEnabled: true, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+        {
+          proactiveConsolidateEnabled: true,
+          proactiveHeatFloor: 0.25,
+          proactivePressureThreshold: 10,
+          proactiveMaxCandidates: 5,
+          proactiveCooldownMinutes: 30,
+        },
       );
       let seen: string[] = [];
-      store.setConsolidator(async (snapshot) => { seen = snapshot.entries.map((e) => e.content); return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      store.setConsolidator(async (snapshot) => {
+        seen = snapshot.entries.map((e) => e.content);
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
       const r = await store.maybeProactiveConsolidate("memory");
       assert.notEqual(r, null);
       assert.equal(seen.length, 5, `K cap; got ${seen.length}`); // K cap
-      assert.ok(seen.every((s) => s.startsWith("cold")), `only below-floor cold entries; got ${JSON.stringify(seen)}`); // only below-floor
+      assert.ok(
+        seen.every((s) => s.startsWith("cold")),
+        `only below-floor cold entries; got ${JSON.stringify(seen)}`,
+      ); // only below-floor
     });
 
     it("does NOT fire when below-floor count < threshold", async () => {
       const store = await makeStoreWithHeat(
         [
-          { text: "hot", heat: 0.9 }, { text: "c1", heat: 0.05 }, { text: "c2", heat: 0.05 },
+          { text: "hot", heat: 0.9 },
+          { text: "c1", heat: 0.05 },
+          { text: "c2", heat: 0.05 },
         ],
-        { proactiveConsolidateEnabled: true, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+        {
+          proactiveConsolidateEnabled: true,
+          proactiveHeatFloor: 0.25,
+          proactivePressureThreshold: 10,
+          proactiveMaxCandidates: 5,
+          proactiveCooldownMinutes: 30,
+        },
       );
       let called = 0;
-      store.setConsolidator(async (snapshot) => { called++; return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      store.setConsolidator(async (snapshot) => {
+        called++;
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
       assert.equal(await store.maybeProactiveConsolidate("memory"), null); // only 2 below floor < 10
       assert.equal(called, 0);
     });
@@ -2552,10 +2824,19 @@ describe("MemoryStore", { concurrency: 1 }, () => {
     it("cooldown suppresses a second immediate pass", async () => {
       const store = await makeStoreWithHeat(
         Array.from({ length: 12 }, (_, i) => ({ text: `cold${i}`, heat: 0.05 })),
-        { proactiveConsolidateEnabled: true, proactiveHeatFloor: 0.25, proactivePressureThreshold: 10, proactiveMaxCandidates: 5, proactiveCooldownMinutes: 30 },
+        {
+          proactiveConsolidateEnabled: true,
+          proactiveHeatFloor: 0.25,
+          proactivePressureThreshold: 10,
+          proactiveMaxCandidates: 5,
+          proactiveCooldownMinutes: 30,
+        },
       );
       let called = 0;
-      store.setConsolidator(async (snapshot) => { called++; return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } }; }, "test");
+      store.setConsolidator(async (snapshot) => {
+        called++;
+        return { plan: { snapshotBaseHash: snapshot.snapshotBaseHash, ops: [] } };
+      }, "test");
       await store.maybeProactiveConsolidate("memory"); // fires
       assert.equal(await store.maybeProactiveConsolidate("memory"), null); // cooldown
       assert.equal(called, 1);
@@ -2574,7 +2855,11 @@ describe("numeric isolation — assembled prompt never leaks memworth (UPSP §7 
     fp = path.join(dir, "failures.md");
   });
   afterAll(async () => {
-    try { await fs.rm(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await fs.rm(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
   beforeEach(async () => {
     await removeFile(mp);
@@ -2619,12 +2904,19 @@ describe("numeric isolation — assembled prompt never leaks memworth (UPSP §7 
     // in-window at test time — never ages out again.
     const recentIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const mem = serializeMetadataFrontmatter({
-      id: "iso-mem-1", text: "numeric-iso global memory body",
-      created: recentIso, last: recentIso, mwFail: 7,
+      id: "iso-mem-1",
+      text: "numeric-iso global memory body",
+      created: recentIso,
+      last: recentIso,
+      mwFail: 7,
     });
     const fail = serializeMetadataFrontmatter({
-      id: "iso-fail-1", text: "[failure] numeric-iso lesson — Failed: x",
-      created: recentIso, last: recentIso, state: "active", mwSuccess: 2,
+      id: "iso-fail-1",
+      text: "[failure] numeric-iso lesson — Failed: x",
+      created: recentIso,
+      last: recentIso,
+      state: "active",
+      mwSuccess: 2,
     });
     await writeRaw(mp, mem);
     await writeRaw(fp, fail);

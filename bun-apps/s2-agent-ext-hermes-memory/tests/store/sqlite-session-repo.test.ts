@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, appendFileSync, utimesSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname, join } from "node:path";
+import { type ParsedSession, parseSessionFile, parseSessionManagerSnapshot } from "../../src/store/session-parser.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteSessionRepository } from "../../src/store/sqlite/sqlite-session-repo.js";
-import { parseSessionFile, parseSessionManagerSnapshot, getSessionFiles, type ParsedSession } from "../../src/store/session-parser.js";
 
 // ---------------------------------------------------------------------------
 // Shared test-session factory (ported from session-indexer.test.ts).
@@ -20,13 +20,24 @@ function createTestSession(overrides: Partial<ParsedSession> = {}): ParsedSessio
     endedAt: null,
     messages: [
       { id: `${id}-msg-1`, role: "user", content: "Hello", timestamp: "2026-05-03T00:01:00Z" },
-      { id: `${id}-msg-2`, role: "assistant", content: "Hi there!", timestamp: "2026-05-03T00:01:30Z", toolCalls: ["read"] },
+      {
+        id: `${id}-msg-2`,
+        role: "assistant",
+        content: "Hi there!",
+        timestamp: "2026-05-03T00:01:30Z",
+        toolCalls: ["read"],
+      },
     ],
     ...overrides,
   };
 }
 
-function writeJsonlSession(filePath: string, sessionId: string, messageIds: string[] = [`${sessionId}-m1`], cwd = `/test/${sessionId}`): void {
+function writeJsonlSession(
+  filePath: string,
+  sessionId: string,
+  messageIds: string[] = [`${sessionId}-m1`],
+  cwd = `/test/${sessionId}`,
+): void {
   mkdirSync(dirname(filePath), { recursive: true });
   const lines = [
     JSON.stringify({ type: "session", id: sessionId, timestamp: "2026-05-03T00:00:00Z", cwd }),
@@ -77,7 +88,9 @@ describe("SqliteSessionRepository", () => {
     expect(dbSession.project).toBe("test-project");
     expect(dbSession.message_count).toBe(2);
 
-    const messages = db.prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp").all("session-1") as Record<string, unknown>[];
+    const messages = db
+      .prepare("SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp")
+      .all("session-1") as Record<string, unknown>[];
     expect(messages.length).toBe(2);
     expect(messages[0].role).toBe("user");
     expect(messages[1].role).toBe("assistant");
@@ -87,7 +100,9 @@ describe("SqliteSessionRepository", () => {
     await repo.indexSession(createTestSession());
 
     const db = backend.getDb();
-    const msg = db.prepare("SELECT tool_calls FROM messages WHERE id = ?").get("session-1-msg-2") as { tool_calls: string | null };
+    const msg = db.prepare("SELECT tool_calls FROM messages WHERE id = ?").get("session-1-msg-2") as {
+      tool_calls: string | null;
+    };
     expect(msg.tool_calls).toBeTruthy();
     expect(JSON.parse(msg.tool_calls!)).toEqual(["read"]);
   });
@@ -119,7 +134,9 @@ describe("SqliteSessionRepository", () => {
     expect(backend.getStats().sessions).toBe(1);
     expect(backend.getStats().messages).toBe(3);
 
-    const dbSession = backend.getDb().prepare("SELECT message_count FROM sessions WHERE id = ?").get("session-1") as { message_count: number };
+    const dbSession = backend.getDb().prepare("SELECT message_count FROM sessions WHERE id = ?").get("session-1") as {
+      message_count: number;
+    };
     expect(dbSession.message_count).toBe(3);
   });
 
@@ -140,9 +157,7 @@ describe("SqliteSessionRepository", () => {
       project: "demo",
       cwd: "/tmp/demo",
       startedAt: "2026-07-22T00:00:00Z",
-      messages: [
-        { id: "m1", role: "user", content: "deploy with bun", timestamp: "2026-07-22T00:00:01Z" },
-      ] as any,
+      messages: [{ id: "m1", role: "user", content: "deploy with bun", timestamp: "2026-07-22T00:00:01Z" }] as any,
     });
     expect(result).toEqual({ sessionId: "sess-1", messagesIndexed: 1, skipped: false });
     const hits = await repo.searchSessions("bun");
@@ -162,7 +177,13 @@ describe("SqliteSessionRepository", () => {
 
     const lines = [
       JSON.stringify({ type: "session", id: "s1", timestamp: "2026-05-03T00:00:00Z", cwd: "/test" }),
-      JSON.stringify({ type: "message", id: "m1", parentId: null, timestamp: "2026-05-03T00:01:00Z", message: { role: "user", content: [{ type: "text", text: "Hello" }], timestamp: Date.now() } }),
+      JSON.stringify({
+        type: "message",
+        id: "m1",
+        parentId: null,
+        timestamp: "2026-05-03T00:01:00Z",
+        message: { role: "user", content: [{ type: "text", text: "Hello" }], timestamp: Date.now() },
+      }),
     ];
     writeFileSync(join(projDir, "session1.jsonl"), lines.join("\n"));
 
@@ -180,7 +201,13 @@ describe("SqliteSessionRepository", () => {
 
     const lines = [
       JSON.stringify({ type: "session", id: "s1", timestamp: "2026-05-03T00:00:00Z", cwd: "/test" }),
-      JSON.stringify({ type: "message", id: "m1", parentId: null, timestamp: "2026-05-03T00:01:00Z", message: { role: "user", content: [{ type: "text", text: "Hello" }], timestamp: Date.now() } }),
+      JSON.stringify({
+        type: "message",
+        id: "m1",
+        parentId: null,
+        timestamp: "2026-05-03T00:01:00Z",
+        message: { role: "user", content: [{ type: "text", text: "Hello" }], timestamp: Date.now() },
+      }),
     ];
     writeFileSync(join(projDir, "session1.jsonl"), lines.join("\n"));
 
@@ -211,7 +238,13 @@ describe("SqliteSessionRepository", () => {
     const writeValid = (name: string, sid: string) => {
       const lines = [
         JSON.stringify({ type: "session", id: sid, timestamp: "2026-05-03T00:00:00Z", cwd: "/test" }),
-        JSON.stringify({ type: "message", id: `${sid}-m1`, parentId: null, timestamp: "2026-05-03T00:01:00Z", message: { role: "user", content: [{ type: "text", text: "Hi" }], timestamp: Date.now() } }),
+        JSON.stringify({
+          type: "message",
+          id: `${sid}-m1`,
+          parentId: null,
+          timestamp: "2026-05-03T00:01:00Z",
+          message: { role: "user", content: [{ type: "text", text: "Hi" }], timestamp: Date.now() },
+        }),
       ];
       writeFileSync(join(projDir, name), lines.join("\n"));
     };
@@ -276,7 +309,12 @@ describe("SqliteSessionRepository", () => {
   it("parses existing sessions without file metadata and appends missed messages", async () => {
     const sessionsDir = join(dir, "sessions");
     const filePath = join(sessionsDir, "project-a", "s1.jsonl");
-    await repo.indexSession(createTestSession({ id: "s1", messages: [{ id: "s1-m1", role: "user", content: "Hello s1-m1", timestamp: "2026-05-03T00:01:00Z" }] }));
+    await repo.indexSession(
+      createTestSession({
+        id: "s1",
+        messages: [{ id: "s1-m1", role: "user", content: "Hello s1-m1", timestamp: "2026-05-03T00:01:00Z" }],
+      }),
+    );
     writeJsonlSession(filePath, "s1", ["s1-m1", "s1-m2"]);
 
     const result = await repo.indexChangedSessions(sessionsDir);
@@ -335,18 +373,39 @@ describe("SqliteSessionRepository", () => {
     const snapshot = {
       getHeader: () => ({ id: "live-session-1", timestamp: "2026-05-03T00:00:00Z", cwd: "/work/live-project" }),
       getEntries: () => [
-        { type: "message", id: "entry-1", timestamp: "2026-05-03T00:01:00Z", message: { role: "user", content: "Hello live session" } },
-        { type: "message", id: "entry-2", timestamp: "2026-05-03T00:02:00Z", message: { role: "assistant", content: [{ type: "text", text: "Hi" }, { type: "toolCall", name: "read" }] } },
-        { type: "message", id: "entry-3", timestamp: "2026-05-03T00:03:00Z", message: { role: "toolResult", content: [{ type: "text", text: "tool output is not indexed" }] } },
+        {
+          type: "message",
+          id: "entry-1",
+          timestamp: "2026-05-03T00:01:00Z",
+          message: { role: "user", content: "Hello live session" },
+        },
+        {
+          type: "message",
+          id: "entry-2",
+          timestamp: "2026-05-03T00:02:00Z",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "text", text: "Hi" },
+              { type: "toolCall", name: "read" },
+            ],
+          },
+        },
+        {
+          type: "message",
+          id: "entry-3",
+          timestamp: "2026-05-03T00:03:00Z",
+          message: { role: "toolResult", content: [{ type: "text", text: "tool output is not indexed" }] },
+        },
       ],
     };
 
     const parsed = parseSessionManagerSnapshot(snapshot);
     expect(parsed).not.toBeNull();
-    expect(parsed!.id).toBe("live-session-1");
-    expect(parsed!.project).toBe("live-project");
-    expect(parsed!.messages.length).toBe(2);
-    expect(parsed!.messages[1].toolCalls).toEqual(["read"]);
+    expect(parsed?.id).toBe("live-session-1");
+    expect(parsed?.project).toBe("live-project");
+    expect(parsed?.messages.length).toBe(2);
+    expect(parsed?.messages[1].toolCalls).toEqual(["read"]);
   });
 
   // -------------------------------------------------------------------------
@@ -355,7 +414,12 @@ describe("SqliteSessionRepository", () => {
 
   it("indexes live messages via parseSessionManagerSnapshot + repo.indexSession idempotently", async () => {
     const entries: unknown[] = [
-      { type: "message", id: "entry-1", timestamp: "2026-05-03T00:01:00Z", message: { role: "user", content: "Hello live session" } },
+      {
+        type: "message",
+        id: "entry-1",
+        timestamp: "2026-05-03T00:01:00Z",
+        message: { role: "user", content: "Hello live session" },
+      },
     ];
     const snapshot = {
       getHeader: () => ({ id: "live-session-1", timestamp: "2026-05-03T00:00:00Z", cwd: "/work/live-project" }),
@@ -368,7 +432,12 @@ describe("SqliteSessionRepository", () => {
     expect(backend.getStats().sessions).toBe(1);
     expect(backend.getStats().messages).toBe(1);
 
-    entries.push({ type: "message", id: "entry-2", timestamp: "2026-05-03T00:02:00Z", message: { role: "assistant", content: [{ type: "text", text: "Hi again" }] } });
+    entries.push({
+      type: "message",
+      id: "entry-2",
+      timestamp: "2026-05-03T00:02:00Z",
+      message: { role: "assistant", content: [{ type: "text", text: "Hi again" }] },
+    });
     const session2 = parseSessionManagerSnapshot(snapshot)!;
     const result2 = await repo.indexSession(session2);
     expect(result2.messagesIndexed).toBe(1);
@@ -405,7 +474,17 @@ describe("SqliteSessionRepository", () => {
     await repo.indexAllSessions(sessionsDir);
     await repo.touchBackfillTimestamp(new Date("2026-05-03T00:30:00Z").toISOString());
 
-    appendFileSync(join(sessionsDir, "project-a", "s1.jsonl"), "\n" + JSON.stringify({ type: "message", id: "s1-m2", parentId: null, timestamp: "2026-05-03T00:02:00Z", message: { role: "user", content: [{ type: "text", text: "Hello again" }], timestamp: Date.now() } }));
+    appendFileSync(
+      join(sessionsDir, "project-a", "s1.jsonl"),
+      "\n" +
+        JSON.stringify({
+          type: "message",
+          id: "s1-m2",
+          parentId: null,
+          timestamp: "2026-05-03T00:02:00Z",
+          message: { role: "user", content: [{ type: "text", text: "Hello again" }], timestamp: Date.now() },
+        }),
+    );
     expect(await repo.needsBackfill(sessionsDir, new Date("2026-05-03T01:00:00Z").getTime())).toBe(true);
   });
 
@@ -431,7 +510,10 @@ describe("SqliteSessionRepository", () => {
     await repo.touchBackfillTimestamp(new Date("2026-05-03T00:00:00Z").toISOString());
     await repo.touchBackfillTimestamp(new Date("2026-05-03T01:00:00Z").toISOString());
 
-    const row = backend.getDb().prepare("SELECT value FROM extension_metadata WHERE key = ?").get("last_session_backfill") as { value: string };
+    const row = backend
+      .getDb()
+      .prepare("SELECT value FROM extension_metadata WHERE key = ?")
+      .get("last_session_backfill") as { value: string };
     expect(row.value).toBe("2026-05-03T01:00:00.000Z");
   });
 
@@ -441,7 +523,17 @@ describe("SqliteSessionRepository", () => {
     const filePath = join(sessionsDir, "project-a", "s1.jsonl");
 
     await repo.indexAllSessions(sessionsDir);
-    appendFileSync(filePath, "\n" + JSON.stringify({ type: "message", id: "s1-m2", parentId: null, timestamp: "2026-05-03T00:02:00Z", message: { role: "user", content: [{ type: "text", text: "Hello again" }], timestamp: Date.now() } }));
+    appendFileSync(
+      filePath,
+      "\n" +
+        JSON.stringify({
+          type: "message",
+          id: "s1-m2",
+          parentId: null,
+          timestamp: "2026-05-03T00:02:00Z",
+          message: { role: "user", content: [{ type: "text", text: "Hello again" }], timestamp: Date.now() },
+        }),
+    );
     const session = parseSessionFile(filePath)!;
     await repo.indexSession(session);
     await repo.upsertSessionFileMeta(filePath, session.id);
@@ -520,12 +612,43 @@ describe("SqliteSessionRepository", () => {
       startedAt: "2026-05-03T00:00:00Z",
       endedAt: null,
       messages: [
-        { id: `${id}-msg-1`, role: "user", content: "How do I set up Prisma with PostgreSQL?", timestamp: "2026-05-03T00:01:00Z" },
-        { id: `${id}-msg-2`, role: "assistant", content: "To set up Prisma, install the package and run prisma init. Then configure your DATABASE_URL in .env", timestamp: "2026-05-03T00:01:30Z" },
-        { id: `${id}-msg-3`, role: "user", content: "What about database migrations?", timestamp: "2026-05-03T00:02:00Z" },
-        { id: `${id}-msg-4`, role: "assistant", content: "Use prisma migrate dev to create migrations. This generates SQL files and applies them.", timestamp: "2026-05-03T00:02:30Z" },
-        { id: `${id}-msg-5`, role: "user", content: "What about gpu timeout issue debugging?", timestamp: "2026-05-03T00:03:00Z" },
-        { id: `${id}-msg-6`, role: "assistant", content: "This exact phrase memory search example helps verify phrase queries.", timestamp: "2026-05-03T00:03:30Z" },
+        {
+          id: `${id}-msg-1`,
+          role: "user",
+          content: "How do I set up Prisma with PostgreSQL?",
+          timestamp: "2026-05-03T00:01:00Z",
+        },
+        {
+          id: `${id}-msg-2`,
+          role: "assistant",
+          content:
+            "To set up Prisma, install the package and run prisma init. Then configure your DATABASE_URL in .env",
+          timestamp: "2026-05-03T00:01:30Z",
+        },
+        {
+          id: `${id}-msg-3`,
+          role: "user",
+          content: "What about database migrations?",
+          timestamp: "2026-05-03T00:02:00Z",
+        },
+        {
+          id: `${id}-msg-4`,
+          role: "assistant",
+          content: "Use prisma migrate dev to create migrations. This generates SQL files and applies them.",
+          timestamp: "2026-05-03T00:02:30Z",
+        },
+        {
+          id: `${id}-msg-5`,
+          role: "user",
+          content: "What about gpu timeout issue debugging?",
+          timestamp: "2026-05-03T00:03:00Z",
+        },
+        {
+          id: `${id}-msg-6`,
+          role: "assistant",
+          content: "This exact phrase memory search example helps verify phrase queries.",
+          timestamp: "2026-05-03T00:03:30Z",
+        },
       ],
       ...overrides,
     };
@@ -572,7 +695,15 @@ describe("SqliteSessionRepository", () => {
 
   it("searchSessions filters by project", async () => {
     await repo.indexSession(createSearchSession({ id: "s1", project: "project-a" }));
-    await repo.indexSession(createSearchSession({ id: "s2", project: "project-b", messages: [{ id: "s2-m1", role: "user", content: "Different topic entirely", timestamp: "2026-05-03T00:01:00Z" }] }));
+    await repo.indexSession(
+      createSearchSession({
+        id: "s2",
+        project: "project-b",
+        messages: [
+          { id: "s2-m1", role: "user", content: "Different topic entirely", timestamp: "2026-05-03T00:01:00Z" },
+        ],
+      }),
+    );
 
     const results = await repo.searchSessions("Prisma", { project: "project-a" });
     expect(results.length).toBeGreaterThan(0);
@@ -620,34 +751,97 @@ describe("SqliteSessionRepository", () => {
   });
 
   it("searchSessions falls back to broader natural-language FTS matching when strict term matching misses", async () => {
-    await repo.indexSession(createSearchSession({ id: "fallback-session", messages: [{ id: "fallback-session-msg-1", role: "assistant", content: "The user's name is Naruto", timestamp: "2026-05-03T00:01:00Z" }] }));
+    await repo.indexSession(
+      createSearchSession({
+        id: "fallback-session",
+        messages: [
+          {
+            id: "fallback-session-msg-1",
+            role: "assistant",
+            content: "The user's name is Naruto",
+            timestamp: "2026-05-03T00:01:00Z",
+          },
+        ],
+      }),
+    );
     const results = await repo.searchSessions("name identity Naruto");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.content.includes("Naruto"))).toBe(true);
   });
 
   it("searchSessions finds mixed Chinese/English queries via fallback", async () => {
-    await repo.indexSession(createSearchSession({ id: "mixed-cjk-session", messages: [{ id: "mixed-cjk-session-msg-1", role: "assistant", content: "codex 已经开始执行探索任务了", timestamp: "2026-05-03T00:01:00Z" }] }));
+    await repo.indexSession(
+      createSearchSession({
+        id: "mixed-cjk-session",
+        messages: [
+          {
+            id: "mixed-cjk-session-msg-1",
+            role: "assistant",
+            content: "codex 已经开始执行探索任务了",
+            timestamp: "2026-05-03T00:01:00Z",
+          },
+        ],
+      }),
+    );
     const results = await repo.searchSessions("codex 执行 任务");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.content.includes("codex 已经开始执行探索任务了"))).toBe(true);
   });
 
   it("searchSessions finds Chinese-only substrings via LIKE fallback", async () => {
-    await repo.indexSession(createSearchSession({ id: "cjk-only-session", messages: [{ id: "cjk-only-session-msg-1", role: "assistant", content: "已经开始执行探索任务了", timestamp: "2026-05-03T00:01:00Z" }] }));
+    await repo.indexSession(
+      createSearchSession({
+        id: "cjk-only-session",
+        messages: [
+          {
+            id: "cjk-only-session-msg-1",
+            role: "assistant",
+            content: "已经开始执行探索任务了",
+            timestamp: "2026-05-03T00:01:00Z",
+          },
+        ],
+      }),
+    );
     const results = await repo.searchSessions("执行");
     expect(results.length).toBeGreaterThan(0);
     expect(results.some((r) => r.content.includes("已经开始执行探索任务了"))).toBe(true);
   });
 
   it("searchSessions preserves filters, ordering, and limit during LIKE fallback", async () => {
-    await repo.indexSession(createSearchSession({ id: "cjk-filter-a", project: "project-a", messages: [
-      { id: "cjk-filter-a-msg-1", role: "user", content: "早期已经开始执行探索任务了", timestamp: "2026-05-03T00:01:00Z" },
-      { id: "cjk-filter-a-msg-2", role: "user", content: "后续继续执行更多任务", timestamp: "2026-05-03T00:03:00Z" },
-    ] }));
-    await repo.indexSession(createSearchSession({ id: "cjk-filter-b", project: "project-b", messages: [
-      { id: "cjk-filter-b-msg-1", role: "assistant", content: "另一个项目也执行任务", timestamp: "2026-05-03T00:04:00Z" },
-    ] }));
+    await repo.indexSession(
+      createSearchSession({
+        id: "cjk-filter-a",
+        project: "project-a",
+        messages: [
+          {
+            id: "cjk-filter-a-msg-1",
+            role: "user",
+            content: "早期已经开始执行探索任务了",
+            timestamp: "2026-05-03T00:01:00Z",
+          },
+          {
+            id: "cjk-filter-a-msg-2",
+            role: "user",
+            content: "后续继续执行更多任务",
+            timestamp: "2026-05-03T00:03:00Z",
+          },
+        ],
+      }),
+    );
+    await repo.indexSession(
+      createSearchSession({
+        id: "cjk-filter-b",
+        project: "project-b",
+        messages: [
+          {
+            id: "cjk-filter-b-msg-1",
+            role: "assistant",
+            content: "另一个项目也执行任务",
+            timestamp: "2026-05-03T00:04:00Z",
+          },
+        ],
+      }),
+    );
 
     // NOTE: The original test used `since` for date filtering. The repo DTO
     // does not expose `since` in its options; the closest equivalent
@@ -656,14 +850,31 @@ describe("SqliteSessionRepository", () => {
     expect(results.length).toBe(1);
     expect(results[0].project).toBe("project-a");
     expect(results[0].role).toBe("user");
-    expect(results[0].content.includes("后续继续执行更多任务") || results[0].content.includes("早期已经开始执行探索任务了")).toBe(true);
+    expect(
+      results[0].content.includes("后续继续执行更多任务") || results[0].content.includes("早期已经开始执行探索任务了"),
+    ).toBe(true);
   });
 
   it("searchSessions escapes LIKE wildcard characters during fallback", async () => {
-    await repo.indexSession(createSearchSession({ id: "like-escape-session", messages: [
-      { id: "like-escape-session-msg-1", role: "user", content: "Progress reached 100% today", timestamp: "2026-05-03T00:01:00Z" },
-      { id: "like-escape-session-msg-2", role: "user", content: "A plain message without the wildcard character", timestamp: "2026-05-03T00:02:00Z" },
-    ] }));
+    await repo.indexSession(
+      createSearchSession({
+        id: "like-escape-session",
+        messages: [
+          {
+            id: "like-escape-session-msg-1",
+            role: "user",
+            content: "Progress reached 100% today",
+            timestamp: "2026-05-03T00:01:00Z",
+          },
+          {
+            id: "like-escape-session-msg-2",
+            role: "user",
+            content: "A plain message without the wildcard character",
+            timestamp: "2026-05-03T00:02:00Z",
+          },
+        ],
+      }),
+    );
     const results = await repo.searchSessions("%");
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((r) => r.content.includes("%"))).toBe(true);
@@ -722,7 +933,8 @@ describe("session_assembly schema", () => {
 
     // FK-free by design: the sessions row is created later by deferred backfill, so
     // session_id is a plain join key, NOT REFERENCES sessions(id).
-    const ddl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='session_assembly'").get() as { sql: string }).sql;
+    const ddl = (db.prepare("SELECT sql FROM sqlite_master WHERE name='session_assembly'").get() as { sql: string })
+      .sql;
     expect(ddl).not.toContain("REFERENCES");
   });
 });
@@ -756,7 +968,9 @@ describe("SqliteSessionRepository.recordAssembly", () => {
     const meta = db.prepare("SELECT hash FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
     expect(meta.hash).toBe("deadbeef");
 
-    const rows = db.prepare("SELECT md_id FROM session_assembly WHERE session_id = ? ORDER BY md_id").all("sess-1") as any[];
+    const rows = db
+      .prepare("SELECT md_id FROM session_assembly WHERE session_id = ? ORDER BY md_id")
+      .all("sess-1") as any[];
     expect(rows.map((r) => r.md_id)).toEqual(["m1", "m2"]); // deduped by PK
 
     // headline query: md_id → sessions (LEFT JOIN sessions for project/cwd when indexed)
@@ -803,9 +1017,9 @@ describe("SqliteSessionRepository.markUsed", () => {
       .prepare("SELECT md_id, used_at FROM session_assembly WHERE session_id = ? ORDER BY md_id")
       .all("sess-1") as Array<{ md_id: string; used_at: string | null }>;
     const byId = Object.fromEntries(rows.map((r) => [r.md_id, r.used_at]));
-    expect(byId["a"]).toBe(now);
-    expect(byId["c"]).toBe(now);
-    expect(byId["b"]).toBeNull();
+    expect(byId.a).toBe(now);
+    expect(byId.c).toBe(now);
+    expect(byId.b).toBeNull();
   });
 
   it("is idempotent: a re-mark does not error and re-sets used_at", async () => {
@@ -841,9 +1055,7 @@ describe("SqliteSessionRepository.markUsed", () => {
   });
 
   it("is a no-op for a session that has no assembly rows (no error)", async () => {
-    await expect(
-      repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z"),
-    ).resolves.toBeUndefined();
+    await expect(repo.markUsed("no-such-session", ["a"], "2026-08-02T12:00:00.000Z")).resolves.toBeUndefined();
   });
 
   it("marks only rows for the given session (a same-md_id row in another session is untouched)", async () => {
@@ -851,10 +1063,12 @@ describe("SqliteSessionRepository.markUsed", () => {
     await repo.recordAssembly("sess-2", ["shared"], "hash-2");
     await repo.markUsed("sess-1", ["shared"], "2026-08-02T12:00:00.000Z");
     const get = (sid: string) =>
-      (backend
-        .getDb()
-        .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
-        .get(sid, "shared") as { used_at: string | null }).used_at;
+      (
+        backend
+          .getDb()
+          .prepare("SELECT used_at FROM session_assembly WHERE session_id = ? AND md_id = ?")
+          .get(sid, "shared") as { used_at: string | null }
+      ).used_at;
     expect(get("sess-1")).toBe("2026-08-02T12:00:00.000Z");
     expect(get("sess-2")).toBeNull();
   });
@@ -863,12 +1077,16 @@ describe("SqliteSessionRepository.markUsed", () => {
     const db = backend.getDb();
     // Seed an unrelated memories row + the assembly meta so we can assert they survive untouched.
     await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
-    const metaBefore = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    const metaBefore = db
+      .prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?")
+      .get("sess-1") as any;
     const memCountBefore = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
 
     await repo.markUsed("sess-1", ["a"], "2026-08-02T12:00:00.000Z");
 
-    const metaAfter = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    const metaAfter = db
+      .prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?")
+      .get("sess-1") as any;
     expect(metaAfter.hash).toBe(metaBefore.hash);
     expect(metaAfter.captured_at).toBe(metaBefore.captured_at);
     const memCountAfter = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
@@ -876,13 +1094,13 @@ describe("SqliteSessionRepository.markUsed", () => {
   });
 
   it("fresh install: session_assembly has a used_at TEXT column after init", () => {
-    const cols = backend
-      .getDb()
-      .prepare("PRAGMA table_info(session_assembly)")
-      .all() as Array<{ name: string; type: string }>;
+    const cols = backend.getDb().prepare("PRAGMA table_info(session_assembly)").all() as Array<{
+      name: string;
+      type: string;
+    }>;
     const col = cols.find((c) => c.name === "used_at");
     expect(col).toBeDefined();
-    expect(col!.type).toBe("TEXT");
+    expect(col?.type).toBe("TEXT");
   });
 
   it("migration: adds used_at to a legacy session_assembly table on reopen; existing rows survive", async () => {
@@ -998,12 +1216,16 @@ describe("SqliteSessionRepository.getUsedMdIds", () => {
     const db = backend.getDb();
     await repo.recordAssembly("sess-1", ["a", "b"], "hash-1");
     await repo.markUsed("sess-1", ["a"], "2026-08-02T12:00:00.000Z");
-    const metaBefore = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    const metaBefore = db
+      .prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?")
+      .get("sess-1") as any;
     const memCountBefore = (db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n;
 
     await repo.getUsedMdIds(["a", "b"], { project: null });
 
-    const metaAfter = db.prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?").get("sess-1") as any;
+    const metaAfter = db
+      .prepare("SELECT hash, captured_at FROM session_assembly_meta WHERE session_id = ?")
+      .get("sess-1") as any;
     expect(metaAfter.hash).toBe(metaBefore.hash);
     expect(metaAfter.captured_at).toBe(metaBefore.captured_at);
     expect((db.prepare("SELECT COUNT(*) AS n FROM memories").get() as { n: number }).n).toBe(memCountBefore);

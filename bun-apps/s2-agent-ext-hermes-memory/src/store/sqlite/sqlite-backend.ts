@@ -1,10 +1,16 @@
-import path from 'node:path';
-import fs from 'node:fs';
-import { createRequire } from 'node:module';
-import { SCHEMA_SQL } from './schema.js';
-import type { Backend } from '../repository.js';
-import { recoverDatabaseFile, assertIntegrityOk, safeClose, rebuildFtsTables, MEMORIES_COLUMNS, getColumnNames } from './corruption-recovery.js';
-import type { DatabaseRecoveryResult } from './corruption-recovery.js';
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import type { Backend } from "../repository.js";
+import type { DatabaseRecoveryResult } from "./corruption-recovery.js";
+import {
+  assertIntegrityOk,
+  getColumnNames,
+  MEMORIES_COLUMNS,
+  recoverDatabaseFile,
+  safeClose,
+} from "./corruption-recovery.js";
+import { SCHEMA_SQL } from "./schema.js";
 
 type StatementLike = {
   run: (...args: any[]) => any;
@@ -29,8 +35,6 @@ type BunDatabaseInstance = {
   transaction?: (fn: any) => any;
 };
 
-type DatabaseFileSuffix = '' | '-wal' | '-shm';
-
 export const SQLITE_WAL_AUTOCHECKPOINT_PAGES = 1000;
 
 export const TRANSIENT_DB_RETRY_MAX_ATTEMPTS = 3;
@@ -44,14 +48,16 @@ export const TRANSIENT_DB_RETRY_BACKOFF_MS = 50;
  */
 export function isTransientDbError(err: unknown): boolean {
   if (!err) return false;
-  const code = typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
-  if (code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || code === 'SQLITE_IOERR') return true;
+  const code = typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : "";
+  if (code === "SQLITE_BUSY" || code === "SQLITE_LOCKED" || code === "SQLITE_IOERR") return true;
   const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
-  return message.includes('disk i/o error')
-    || message.includes('database is locked')
-    || message.includes('sqlite_busy')
-    || message.includes('sqlite_locked')
-    || message.includes('sqlite_ioerr');
+  return (
+    message.includes("disk i/o error") ||
+    message.includes("database is locked") ||
+    message.includes("sqlite_busy") ||
+    message.includes("sqlite_locked") ||
+    message.includes("sqlite_ioerr")
+  );
 }
 
 /**
@@ -89,7 +95,7 @@ export function quoteIdentifier(identifier: string): string {
 }
 
 function createBunCompatDatabaseCtor(require: NodeRequire): DatabaseCtor {
-  const bunSqlite = require('bun:sqlite') as { Database: new (dbPath: string) => BunDatabaseInstance };
+  const bunSqlite = require("bun:sqlite") as { Database: new (dbPath: string) => BunDatabaseInstance };
 
   return class BunCompatDatabase implements DatabaseLike {
     private readonly db: BunDatabaseInstance;
@@ -147,7 +153,7 @@ export class SqliteBackend implements Backend {
   private lastRecovery: DatabaseRecoveryResult | null = null;
 
   constructor(memoryDir: string) {
-    this.dbPath = path.join(memoryDir, 'sessions.db');
+    this.dbPath = path.join(memoryDir, "sessions.db");
   }
 
   /**
@@ -157,17 +163,19 @@ export class SqliteBackend implements Backend {
   static isCorruptionError(err: unknown): boolean {
     if (!err) return false;
 
-    const code = typeof err === 'object' && 'code' in err ? String((err as { code?: unknown }).code) : '';
-    if (code === 'SQLITE_CORRUPT' || code === 'SQLITE_NOTADB') return true;
+    const code = typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : "";
+    if (code === "SQLITE_CORRUPT" || code === "SQLITE_NOTADB") return true;
 
     const message = SqliteBackend.errorMessage(err).toLowerCase();
-    return message.includes('database disk image is malformed')
-      || message.includes('file is not a database')
-      || message.includes('database schema is corrupt')
-      || message.includes('malformed database schema')
-      || message.includes('btreeinitpage')
-      || message.includes('sqlite_corrupt')
-      || message.includes('sqlite_notadb');
+    return (
+      message.includes("database disk image is malformed") ||
+      message.includes("file is not a database") ||
+      message.includes("database schema is corrupt") ||
+      message.includes("malformed database schema") ||
+      message.includes("btreeinitpage") ||
+      message.includes("sqlite_corrupt") ||
+      message.includes("sqlite_notadb")
+    );
   }
 
   private static errorMessage(err: unknown): string {
@@ -255,12 +263,12 @@ export class SqliteBackend implements Backend {
 
     try {
       if (existed) {
-        assertIntegrityOk(db, 'quick_check', 'before schema initialization');
+        assertIntegrityOk(db, "quick_check", "before schema initialization");
       }
 
       this.configureConnection(db);
       this.initializeSchema(db);
-      assertIntegrityOk(db, 'quick_check', 'after schema initialization');
+      assertIntegrityOk(db, "quick_check", "after schema initialization");
       ok = true;
       return db;
     } finally {
@@ -274,17 +282,17 @@ export class SqliteBackend implements Backend {
     // Enable WAL mode + FK enforcement for each connection. Keep SQLite's
     // default WAL autocheckpoint size; a very aggressive checkpoint cadence
     // increases the chance that abrupt VM/host shutdown catches a checkpoint.
-    db.exec('PRAGMA journal_mode = WAL');
+    db.exec("PRAGMA journal_mode = WAL");
     db.exec(`PRAGMA wal_autocheckpoint = ${SQLITE_WAL_AUTOCHECKPOINT_PAGES}`);
-    db.exec('PRAGMA journal_size_limit = 5242880');
-    db.exec('PRAGMA foreign_keys = ON');
+    db.exec("PRAGMA journal_size_limit = 5242880");
+    db.exec("PRAGMA foreign_keys = ON");
     // Multiple connections open the same DB file (the extension singleton plus
     // short-lived child `pi -p` processes that reload this extension, and the
     // /memory-index-sessions command). Under WAL only one writer is allowed at
     // a time; without a busy timeout the second writer receives SQLITE_BUSY
     // immediately instead of waiting. 5s is well above any normal write and
     // cheap because it only elapses on actual contention.
-    db.exec('PRAGMA busy_timeout = 5000');
+    db.exec("PRAGMA busy_timeout = 5000");
   }
 
   private initializeSchema(db: DatabaseLike): void {
@@ -344,12 +352,14 @@ export class SqliteBackend implements Backend {
   private isLegacySchemaError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
     const msg = err.message.toLowerCase();
-    return msg.includes('no such column: category')
-      || msg.includes('memories(category)')
-      || msg.includes('no such column: project')
-      || msg.includes('sessions(project)')
-      || msg.includes('memories(project)')
-      || msg.includes('no such column: md_id');
+    return (
+      msg.includes("no such column: category") ||
+      msg.includes("memories(category)") ||
+      msg.includes("no such column: project") ||
+      msg.includes("sessions(project)") ||
+      msg.includes("memories(project)") ||
+      msg.includes("no such column: md_id")
+    );
   }
 
   private ensureLegacySchemaColumns(db: DatabaseLike): void {
@@ -359,12 +369,14 @@ export class SqliteBackend implements Backend {
   }
 
   private ensureMemoriesColumns(db: DatabaseLike): void {
-    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as { name: string } | undefined;
+    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories'").get() as
+      | { name: string }
+      | undefined;
     if (!tableExists) return;
 
-    const names = getColumnNames(db, 'memories');
+    const names = getColumnNames(db, "memories");
 
-        // hermes-arch-06: the ADD COLUMN list is derived from MEMORIES_COLUMNS
+    // hermes-arch-06: the ADD COLUMN list is derived from MEMORIES_COLUMNS
     // (single source in corruption-recovery.ts, shared with the corruption
     // rebuild copy) so these idempotent guards can never drift from the
     // rebuild again. id/target/content/created/last_referenced predate every
@@ -376,26 +388,26 @@ export class SqliteBackend implements Backend {
     // 03 (two-layer knowledge graph): idempotent nullable `graph` column add
     // for Card.graph (links/entities/relations). Mirrors frontmatter exactly.
     const DDL: Readonly<Record<string, string>> = {
-      project: 'ALTER TABLE memories ADD COLUMN project TEXT',
-      category: 'ALTER TABLE memories ADD COLUMN category TEXT',
-      failure_reason: 'ALTER TABLE memories ADD COLUMN failure_reason TEXT',
-      tool_state: 'ALTER TABLE memories ADD COLUMN tool_state TEXT',
-      corrected_to: 'ALTER TABLE memories ADD COLUMN corrected_to TEXT',
-      mw_success: 'ALTER TABLE memories ADD COLUMN mw_success INTEGER NOT NULL DEFAULT 0',
-      mw_fail: 'ALTER TABLE memories ADD COLUMN mw_fail INTEGER NOT NULL DEFAULT 0',
+      project: "ALTER TABLE memories ADD COLUMN project TEXT",
+      category: "ALTER TABLE memories ADD COLUMN category TEXT",
+      failure_reason: "ALTER TABLE memories ADD COLUMN failure_reason TEXT",
+      tool_state: "ALTER TABLE memories ADD COLUMN tool_state TEXT",
+      corrected_to: "ALTER TABLE memories ADD COLUMN corrected_to TEXT",
+      mw_success: "ALTER TABLE memories ADD COLUMN mw_success INTEGER NOT NULL DEFAULT 0",
+      mw_fail: "ALTER TABLE memories ADD COLUMN mw_fail INTEGER NOT NULL DEFAULT 0",
       status: "ALTER TABLE memories ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
-      supersedes: 'ALTER TABLE memories ADD COLUMN supersedes INTEGER',
-      superseded_by: 'ALTER TABLE memories ADD COLUMN superseded_by INTEGER',
-      parent_ids: 'ALTER TABLE memories ADD COLUMN parent_ids TEXT',
-      md_id: 'ALTER TABLE memories ADD COLUMN md_id TEXT',
+      supersedes: "ALTER TABLE memories ADD COLUMN supersedes INTEGER",
+      superseded_by: "ALTER TABLE memories ADD COLUMN superseded_by INTEGER",
+      parent_ids: "ALTER TABLE memories ADD COLUMN parent_ids TEXT",
+      md_id: "ALTER TABLE memories ADD COLUMN md_id TEXT",
       state: "ALTER TABLE memories ADD COLUMN state TEXT NOT NULL DEFAULT 'active'",
-      severity: 'ALTER TABLE memories ADD COLUMN severity INTEGER',
-      pin: 'ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0',
-      frontmatter: 'ALTER TABLE memories ADD COLUMN frontmatter TEXT',
-      graph: 'ALTER TABLE memories ADD COLUMN graph TEXT',
+      severity: "ALTER TABLE memories ADD COLUMN severity INTEGER",
+      pin: "ALTER TABLE memories ADD COLUMN pin INTEGER NOT NULL DEFAULT 0",
+      frontmatter: "ALTER TABLE memories ADD COLUMN frontmatter TEXT",
+      graph: "ALTER TABLE memories ADD COLUMN graph TEXT",
     };
     for (const column of MEMORIES_COLUMNS) {
-      if (column !== 'id' && !names.has(column) && DDL[column]) db.exec(DDL[column]);
+      if (column !== "id" && !names.has(column) && DDL[column]) db.exec(DDL[column]);
     }
   }
 
@@ -437,59 +449,62 @@ export class SqliteBackend implements Backend {
    *  `ensureMemoriesColumns`). */
   private ensureSessionAssemblyColumns(db: DatabaseLike): void {
     if (!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='session_assembly'").get()) return;
-    const names = getColumnNames(db, 'session_assembly');
-    if (!names.has('used_at')) {
-      db.exec('ALTER TABLE session_assembly ADD COLUMN used_at TEXT');
+    const names = getColumnNames(db, "session_assembly");
+    if (!names.has("used_at")) {
+      db.exec("ALTER TABLE session_assembly ADD COLUMN used_at TEXT");
     }
   }
 
   private ensureSessionsColumns(db: DatabaseLike): void {
-    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").get() as { name: string } | undefined;
+    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'").get() as
+      | { name: string }
+      | undefined;
     if (!tableExists) return;
 
-    const names = getColumnNames(db, 'sessions');
-    if (!names.has('project')) {
-      db.exec('ALTER TABLE sessions ADD COLUMN project TEXT');
+    const names = getColumnNames(db, "sessions");
+    if (!names.has("project")) {
+      db.exec("ALTER TABLE sessions ADD COLUMN project TEXT");
     }
 
     this.backfillSessionsProject(db);
   }
 
   private backfillSessionsProject(db: DatabaseLike): void {
-    const names = getColumnNames(db, 'sessions');
-    if (!names.has('project') || !names.has('cwd') || !names.has('id')) return;
+    const names = getColumnNames(db, "sessions");
+    if (!names.has("project") || !names.has("cwd") || !names.has("id")) return;
 
-    const rows = db.prepare('SELECT id, cwd, project FROM sessions').all() as Array<{
+    const rows = db.prepare("SELECT id, cwd, project FROM sessions").all() as Array<{
       id?: unknown;
       cwd?: unknown;
       project?: unknown;
     }>;
-    const update = db.prepare('UPDATE sessions SET project = ? WHERE id = ?');
+    const update = db.prepare("UPDATE sessions SET project = ? WHERE id = ?");
 
     for (const row of rows) {
-      if (typeof row.id !== 'string') continue;
-      if (typeof row.project === 'string' && row.project.trim()) continue;
+      if (typeof row.id !== "string") continue;
+      if (typeof row.project === "string" && row.project.trim()) continue;
 
-      const project = typeof row.cwd === 'string' && row.cwd.trim()
-        ? (path.basename(row.cwd) || 'unknown')
-        : 'unknown';
+      const project = typeof row.cwd === "string" && row.cwd.trim() ? path.basename(row.cwd) || "unknown" : "unknown";
       update.run(project, row.id);
     }
   }
 
   private migrateLegacyMemoriesTargetConstraint(db: DatabaseLike): void {
-    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as { sql?: string } | undefined;
-    const tableSql = tableSqlRow?.sql ?? '';
+    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as
+      | { sql?: string }
+      | undefined;
+    const tableSql = tableSqlRow?.sql ?? "";
     if (!tableSql) return;
 
     // Legacy schema allowed only memory/user. New schema must allow failure too.
-    const hasLegacyTargetCheck = /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*\)\s*\)/i.test(tableSql);
+    const hasLegacyTargetCheck =
+      /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*\)\s*\)/i.test(tableSql);
     if (!hasLegacyTargetCheck) return;
 
     if (!db.transaction) {
-      db.exec('PRAGMA foreign_keys = OFF');
+      db.exec("PRAGMA foreign_keys = OFF");
       try {
-        db.exec('BEGIN IMMEDIATE');
+        db.exec("BEGIN IMMEDIATE");
         db.exec(`
           CREATE TABLE memories_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -517,14 +532,14 @@ export class SqliteBackend implements Backend {
           FROM memories;
         `);
 
-        db.exec('DROP TABLE memories');
-        db.exec('ALTER TABLE memories_new RENAME TO memories');
-        db.exec('COMMIT');
+        db.exec("DROP TABLE memories");
+        db.exec("ALTER TABLE memories_new RENAME TO memories");
+        db.exec("COMMIT");
       } catch (err) {
-        db.exec('ROLLBACK');
+        db.exec("ROLLBACK");
         throw err;
       } finally {
-        db.exec('PRAGMA foreign_keys = ON');
+        db.exec("PRAGMA foreign_keys = ON");
       }
       return;
     }
@@ -557,15 +572,15 @@ export class SqliteBackend implements Backend {
           FROM memories;
         `);
 
-      db.exec('DROP TABLE memories');
-      db.exec('ALTER TABLE memories_new RENAME TO memories');
+      db.exec("DROP TABLE memories");
+      db.exec("ALTER TABLE memories_new RENAME TO memories");
     });
 
-    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec("PRAGMA foreign_keys = OFF");
     try {
       tx();
     } finally {
-      db.exec('PRAGMA foreign_keys = ON');
+      db.exec("PRAGMA foreign_keys = ON");
     }
   }
 
@@ -592,8 +607,10 @@ export class SqliteBackend implements Backend {
    *  memory_fts stays in sync; `rebuildMemoryFts` (called next) repopulates the
    *  index. Memory rows are carried through verbatim — byte-for-byte unchanged. */
   private migrateMemoriesTargetCheckAddKnowledge(db: DatabaseLike): void {
-    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as { sql?: string } | undefined;
-    const tableSql = tableSqlRow?.sql ?? '';
+    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as
+      | { sql?: string }
+      | undefined;
+    const tableSql = tableSqlRow?.sql ?? "";
     if (!tableSql) return;
 
     // Fresh installs + already-migrated DBs already mention 'knowledge'.
@@ -601,20 +618,40 @@ export class SqliteBackend implements Backend {
 
     // Only rewrite the exact current 3-value CHECK (memory/user/failure).
     // Older 2-value shapes are first normalized by migrateLegacyMemoriesTargetConstraint.
-    const isThreeValueCheck = /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*\)\s*\)/i.test(tableSql);
+    const isThreeValueCheck =
+      /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*\)\s*\)/i.test(
+        tableSql,
+      );
     if (!isThreeValueCheck) return;
 
     // The FULL current column set + the new nullable frontmatter. Declared once
     // and reused for CREATE + INSERT…SELECT so the two can never drift (a drift
     // here is exactly the silent-column-drop the guard exists to prevent).
     const fullColumns = [
-      'id', 'project', 'target', 'category', 'content',
-      'failure_reason', 'tool_state', 'corrected_to',
-      'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
-      'supersedes', 'superseded_by', 'parent_ids',
-      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
+      "id",
+      "project",
+      "target",
+      "category",
+      "content",
+      "failure_reason",
+      "tool_state",
+      "corrected_to",
+      "created",
+      "last_referenced",
+      "mw_success",
+      "mw_fail",
+      "status",
+      "supersedes",
+      "superseded_by",
+      "parent_ids",
+      "md_id",
+      "state",
+      "severity",
+      "pin",
+      "frontmatter",
+      "graph",
     ];
-    const colList = fullColumns.join(', ');
+    const colList = fullColumns.join(", ");
 
     const doRewrite = (): void => {
       // The legacy target migration (when it ran for a 2-value table) rebuilt
@@ -663,8 +700,8 @@ export class SqliteBackend implements Backend {
       // DROP TABLE also drops the memories_ai/ad/au triggers + idx_memories_*
       // indexes attached to it; recreate them after the rename so memory_fts
       // keeps syncing (all IF NOT EXISTS).
-      db.exec('DROP TABLE memories');
-      db.exec('ALTER TABLE memories_new RENAME TO memories');
+      db.exec("DROP TABLE memories");
+      db.exec("ALTER TABLE memories_new RENAME TO memories");
       db.exec(`
         CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
           INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
@@ -684,26 +721,26 @@ export class SqliteBackend implements Backend {
     };
 
     if (!db.transaction) {
-      db.exec('PRAGMA foreign_keys = OFF');
+      db.exec("PRAGMA foreign_keys = OFF");
       try {
-        db.exec('BEGIN IMMEDIATE');
+        db.exec("BEGIN IMMEDIATE");
         doRewrite();
-        db.exec('COMMIT');
+        db.exec("COMMIT");
       } catch (err) {
-        db.exec('ROLLBACK');
+        db.exec("ROLLBACK");
         throw err;
       } finally {
-        db.exec('PRAGMA foreign_keys = ON');
+        db.exec("PRAGMA foreign_keys = ON");
       }
       return;
     }
 
     const tx = db.transaction(() => doRewrite());
-    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec("PRAGMA foreign_keys = OFF");
     try {
       tx();
     } finally {
-      db.exec('PRAGMA foreign_keys = ON');
+      db.exec("PRAGMA foreign_keys = ON");
     }
   }
 
@@ -728,8 +765,10 @@ export class SqliteBackend implements Backend {
    *  repopulates the index. Memory/knowledge rows are carried through
    *  verbatim — byte-for-byte unchanged. */
   private migrateMemoriesTargetCheckAddPlanning(db: DatabaseLike): void {
-    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as { sql?: string } | undefined;
-    const tableSql = tableSqlRow?.sql ?? '';
+    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as
+      | { sql?: string }
+      | undefined;
+    const tableSql = tableSqlRow?.sql ?? "";
     if (!tableSql) return;
 
     // Fresh installs (widened SCHEMA_SQL) + already-migrated DBs mention 'planning-ticket'.
@@ -737,7 +776,10 @@ export class SqliteBackend implements Backend {
 
     // Only rewrite the exact current 4-value CHECK (memory/user/failure/knowledge).
     // Older 3-value shapes are first widened by migrateMemoriesTargetCheckAddKnowledge.
-    const isFourValueCheck = /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*,\s*'knowledge'\s*\)\s*\)/i.test(tableSql);
+    const isFourValueCheck =
+      /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*,\s*'knowledge'\s*\)\s*\)/i.test(
+        tableSql,
+      );
     if (!isFourValueCheck) return;
 
     // The FULL current column set. Declared once and reused for CREATE +
@@ -745,13 +787,30 @@ export class SqliteBackend implements Backend {
     // knowledge migration — a drift here is exactly the silent-column-drop the
     // guard exists to prevent).
     const fullColumns = [
-      'id', 'project', 'target', 'category', 'content',
-      'failure_reason', 'tool_state', 'corrected_to',
-      'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
-      'supersedes', 'superseded_by', 'parent_ids',
-      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
+      "id",
+      "project",
+      "target",
+      "category",
+      "content",
+      "failure_reason",
+      "tool_state",
+      "corrected_to",
+      "created",
+      "last_referenced",
+      "mw_success",
+      "mw_fail",
+      "status",
+      "supersedes",
+      "superseded_by",
+      "parent_ids",
+      "md_id",
+      "state",
+      "severity",
+      "pin",
+      "frontmatter",
+      "graph",
     ];
-    const colList = fullColumns.join(', ');
+    const colList = fullColumns.join(", ");
 
     const doRewrite = (): void => {
       // ensureMemoriesColumns is idempotent: for a 4-value DB it is a no-op
@@ -796,8 +855,8 @@ export class SqliteBackend implements Backend {
       // DROP TABLE also drops the memories_ai/ad/au triggers + idx_memories_*
       // indexes attached to it; recreate them after the rename so memory_fts
       // keeps syncing (all IF NOT EXISTS).
-      db.exec('DROP TABLE memories');
-      db.exec('ALTER TABLE memories_new RENAME TO memories');
+      db.exec("DROP TABLE memories");
+      db.exec("ALTER TABLE memories_new RENAME TO memories");
       db.exec(`
         CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
           INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
@@ -817,26 +876,26 @@ export class SqliteBackend implements Backend {
     };
 
     if (!db.transaction) {
-      db.exec('PRAGMA foreign_keys = OFF');
+      db.exec("PRAGMA foreign_keys = OFF");
       try {
-        db.exec('BEGIN IMMEDIATE');
+        db.exec("BEGIN IMMEDIATE");
         doRewrite();
-        db.exec('COMMIT');
+        db.exec("COMMIT");
       } catch (err) {
-        db.exec('ROLLBACK');
+        db.exec("ROLLBACK");
         throw err;
       } finally {
-        db.exec('PRAGMA foreign_keys = ON');
+        db.exec("PRAGMA foreign_keys = ON");
       }
       return;
     }
 
     const tx = db.transaction(() => doRewrite());
-    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec("PRAGMA foreign_keys = OFF");
     try {
       tx();
     } finally {
-      db.exec('PRAGMA foreign_keys = ON');
+      db.exec("PRAGMA foreign_keys = ON");
     }
   }
 
@@ -857,8 +916,10 @@ export class SqliteBackend implements Backend {
    *  recreated (DROP TABLE drops them); `rebuildMemoryFts` (called next)
    *  repopulates the index. All rows are carried through verbatim. */
   private migrateMemoriesTargetCheckAddImage(db: DatabaseLike): void {
-    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as { sql?: string } | undefined;
-    const tableSql = tableSqlRow?.sql ?? '';
+    const tableSqlRow = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'").get() as
+      | { sql?: string }
+      | undefined;
+    const tableSql = tableSqlRow?.sql ?? "";
     if (!tableSql) return;
 
     // Fresh installs (widened SCHEMA_SQL) + already-migrated DBs mention 'image'.
@@ -866,7 +927,10 @@ export class SqliteBackend implements Backend {
 
     // Only rewrite the exact current 6-value CHECK. Older shapes are first
     // widened by migrateMemoriesTargetCheckAddKnowledge / ...AddPlanning.
-    const isSixValueCheck = /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*,\s*'knowledge'\s*,\s*'planning-effort'\s*,\s*'planning-ticket'\s*\)\s*\)/i.test(tableSql);
+    const isSixValueCheck =
+      /target\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*target\s+IN\s*\(\s*'memory'\s*,\s*'user'\s*,\s*'failure'\s*,\s*'knowledge'\s*,\s*'planning-effort'\s*,\s*'planning-ticket'\s*\)\s*\)/i.test(
+        tableSql,
+      );
     if (!isSixValueCheck) return;
 
     // The FULL current column set. Declared once and reused for CREATE +
@@ -874,13 +938,30 @@ export class SqliteBackend implements Backend {
     // knowledge/planning migrations — a drift here is exactly the
     // silent-column-drop the guard exists to prevent).
     const fullColumns = [
-      'id', 'project', 'target', 'category', 'content',
-      'failure_reason', 'tool_state', 'corrected_to',
-      'created', 'last_referenced', 'mw_success', 'mw_fail', 'status',
-      'supersedes', 'superseded_by', 'parent_ids',
-      'md_id', 'state', 'severity', 'pin', 'frontmatter', 'graph',
+      "id",
+      "project",
+      "target",
+      "category",
+      "content",
+      "failure_reason",
+      "tool_state",
+      "corrected_to",
+      "created",
+      "last_referenced",
+      "mw_success",
+      "mw_fail",
+      "status",
+      "supersedes",
+      "superseded_by",
+      "parent_ids",
+      "md_id",
+      "state",
+      "severity",
+      "pin",
+      "frontmatter",
+      "graph",
     ];
-    const colList = fullColumns.join(', ');
+    const colList = fullColumns.join(", ");
 
     const doRewrite = (): void => {
       this.ensureMemoriesColumns(db);
@@ -921,8 +1002,8 @@ export class SqliteBackend implements Backend {
       // DROP TABLE also drops the memories_ai/ad/au triggers + idx_memories_*
       // indexes attached to it; recreate them after the rename so memory_fts
       // keeps syncing (all IF NOT EXISTS).
-      db.exec('DROP TABLE memories');
-      db.exec('ALTER TABLE memories_new RENAME TO memories');
+      db.exec("DROP TABLE memories");
+      db.exec("ALTER TABLE memories_new RENAME TO memories");
       db.exec(`
         CREATE TRIGGER IF NOT EXISTS memories_ai AFTER INSERT ON memories BEGIN
           INSERT INTO memory_fts(rowid, content) VALUES (new.id, new.content);
@@ -942,31 +1023,33 @@ export class SqliteBackend implements Backend {
     };
 
     if (!db.transaction) {
-      db.exec('PRAGMA foreign_keys = OFF');
+      db.exec("PRAGMA foreign_keys = OFF");
       try {
-        db.exec('BEGIN IMMEDIATE');
+        db.exec("BEGIN IMMEDIATE");
         doRewrite();
-        db.exec('COMMIT');
+        db.exec("COMMIT");
       } catch (err) {
-        db.exec('ROLLBACK');
+        db.exec("ROLLBACK");
         throw err;
       } finally {
-        db.exec('PRAGMA foreign_keys = ON');
+        db.exec("PRAGMA foreign_keys = ON");
       }
       return;
     }
 
     const tx = db.transaction(() => doRewrite());
-    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec("PRAGMA foreign_keys = OFF");
     try {
       tx();
     } finally {
-      db.exec('PRAGMA foreign_keys = ON');
+      db.exec("PRAGMA foreign_keys = ON");
     }
   }
 
   private rebuildMemoryFts(db: DatabaseLike): void {
-    const ftsTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_fts'").get() as { name?: string } | undefined;
+    const ftsTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_fts'").get() as
+      | { name?: string }
+      | undefined;
     if (!ftsTable) return;
 
     // Keep FTS index consistent after table rebuild/migrations.
@@ -987,10 +1070,10 @@ export class SqliteBackend implements Backend {
    */
   async healthCheck(): Promise<void> {
     const db = this.getDb();
-    const rows = db.prepare('PRAGMA quick_check').all() as Record<string, unknown>[];
-    const ok = rows.length > 0 && String(Object.values(rows[0])[0] ?? '').toLowerCase() === 'ok';
+    const rows = db.prepare("PRAGMA quick_check").all() as Record<string, unknown>[];
+    const ok = rows.length > 0 && String(Object.values(rows[0])[0] ?? "").toLowerCase() === "ok";
     if (!ok) {
-      throw new Error('SQLite quick_check failed');
+      throw new Error("SQLite quick_check failed");
     }
   }
 
@@ -1005,8 +1088,16 @@ export class SqliteBackend implements Backend {
    */
   async close(): Promise<void> {
     if (this.db) {
-      try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* best effort */ }
-      try { this.db.close(); } catch { /* best effort — close may throw on a corrupt handle */ }
+      try {
+        this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch {
+        /* best effort */
+      }
+      try {
+        this.db.close();
+      } catch {
+        /* best effort — close may throw on a corrupt handle */
+      }
       this.db = null;
     }
   }
@@ -1030,9 +1121,9 @@ export class SqliteBackend implements Backend {
    */
   getStats(): { sessions: number; messages: number; memories: number } {
     const db = this.getDb();
-    const sessions = db.prepare('SELECT COUNT(*) as count FROM sessions').get() as { count: number };
-    const messages = db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number };
-    const memories = db.prepare('SELECT COUNT(*) as count FROM memories').get() as { count: number };
+    const sessions = db.prepare("SELECT COUNT(*) as count FROM sessions").get() as { count: number };
+    const messages = db.prepare("SELECT COUNT(*) as count FROM messages").get() as { count: number };
+    const memories = db.prepare("SELECT COUNT(*) as count FROM memories").get() as { count: number };
     return {
       sessions: sessions.count,
       messages: messages.count,
@@ -1058,7 +1149,7 @@ export class SqliteBackend implements Backend {
     const dir = path.dirname(this.dbPath);
     const base = path.basename(this.dbPath);
 
-    let entries: { name: string; mtimeMs: number }[] = [];
+    const entries: { name: string; mtimeMs: number }[] = [];
     try {
       for (const name of fs.readdirSync(dir)) {
         if (name === base || name === `${base}-wal` || name === `${base}-shm`) continue;
@@ -1090,7 +1181,28 @@ export class SqliteBackend implements Backend {
   }
 }
 
+export type { DatabaseRecoveryResult, MovedDatabaseFile } from "./corruption-recovery.js";
 // hermes-arch-06: recovery symbols now live in corruption-recovery.ts;
 // re-exported here for backward compatibility with existing importers.
-export { recoverDatabaseFile, assertIntegrityOk, assertForeignKeysOk, safeClose, removeDatabaseFileSet, rebuildFtsTables, moveDatabaseFilesToBackup, restoreMovedDatabaseFiles, corruptBackupBase, rebuildTempPath, swapRebuiltDatabase, databaseFileSetExists, copyRecoverableRows, readTableRows, getColumnNames, nullableString, nullableInteger, integerOr, MEMORIES_COLUMNS, DatabaseCorruptionError } from './corruption-recovery.js';
-export type { DatabaseRecoveryResult, MovedDatabaseFile } from './corruption-recovery.js';
+export {
+  assertForeignKeysOk,
+  assertIntegrityOk,
+  copyRecoverableRows,
+  corruptBackupBase,
+  DatabaseCorruptionError,
+  databaseFileSetExists,
+  getColumnNames,
+  integerOr,
+  MEMORIES_COLUMNS,
+  moveDatabaseFilesToBackup,
+  nullableInteger,
+  nullableString,
+  readTableRows,
+  rebuildFtsTables,
+  rebuildTempPath,
+  recoverDatabaseFile,
+  removeDatabaseFileSet,
+  restoreMovedDatabaseFiles,
+  safeClose,
+  swapRebuiltDatabase,
+} from "./corruption-recovery.js";

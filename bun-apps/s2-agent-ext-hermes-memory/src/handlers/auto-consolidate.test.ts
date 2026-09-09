@@ -14,9 +14,7 @@ describe("produceMergePlan", () => {
     const snapshot = buildSnapshot("failure", [ENCODED_ENTRY], 40_000);
     const validPlan = {
       snapshotBaseHash: snapshot.snapshotBaseHash,
-      ops: [
-        { op: "merge", fromKeys: snapshot.entries.map((e) => e.key), content: "merged alpha" },
-      ],
+      ops: [{ op: "merge", fromKeys: snapshot.entries.map((e) => e.key), content: "merged alpha" }],
     };
 
     let captured: SpawnSubagentOptions | undefined;
@@ -54,7 +52,10 @@ describe("produceMergePlan", () => {
 
   test("returns { error, terminated: true } on a timed-out spawn", async () => {
     const snapshot = buildSnapshot("failure", [ENCODED_ENTRY], 40_000);
-    const spawnStub = async (): Promise<SpawnSubagentResult> => ({ output: "", failure: { kind: "timedout", message: "Subagent was aborted" } });
+    const spawnStub = async (): Promise<SpawnSubagentResult> => ({
+      output: "",
+      failure: { kind: "timedout", message: "Subagent was aborted" },
+    });
 
     const res = await produceMergePlan(snapshot, { timeoutMs: 30_000, spawn: spawnStub });
 

@@ -1,12 +1,12 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import {
   decodeMemoryEntry,
-  mdIdOf,
   isPinned,
+  mdIdOf,
   parseMarkdownMemoryEntry,
-  serializeMetadataFrontmatter,
   serializeMetadataComment,
+  serializeMetadataFrontmatter,
 } from "../../src/store/memory-format.js";
 import { parseEntry } from "../../src/store/merge-plan.js";
 
@@ -115,7 +115,11 @@ describe("decodeMemoryEntry — frontmatter shape (all fields)", () => {
 
 describe("decodeMemoryEntry — comment shape", () => {
   it("projects text / created / lastReferenced and shape=comment; no fm-only fields", () => {
-    const raw = serializeMetadataComment({ text: "use pnpm not npm", created: "2026-05-09", lastReferenced: "2026-05-10" });
+    const raw = serializeMetadataComment({
+      text: "use pnpm not npm",
+      created: "2026-05-09",
+      lastReferenced: "2026-05-10",
+    });
     const d = decodeMemoryEntry(raw);
     assert.strictEqual(d.shape, "comment");
     assert.strictEqual(d.text, "use pnpm not npm");
@@ -165,12 +169,12 @@ describe("decodeMemoryEntry — LENIENT malformed handling (baked-in fix (a))", 
     });
     assert.ok(d);
     // Falls back to comment-shape minimal entry.
-    assert.strictEqual(d!.shape, "comment");
-    assert.strictEqual(d!.text, malformed.trim());
-    assert.match(d!.created, /^\d{4}-\d{2}-\d{2}$/);
-    assert.strictEqual(d!.id, undefined);
-    assert.strictEqual(d!.pin, undefined);
-    assert.strictEqual(d!.state, undefined);
+    assert.strictEqual(d?.shape, "comment");
+    assert.strictEqual(d?.text, malformed.trim());
+    assert.match(d?.created, /^\d{4}-\d{2}-\d{2}$/);
+    assert.strictEqual(d?.id, undefined);
+    assert.strictEqual(d?.pin, undefined);
+    assert.strictEqual(d?.state, undefined);
   });
 
   it("never throws on malformed YAML between fences", () => {
@@ -189,7 +193,7 @@ describe("decodeMemoryEntry — LENIENT malformed handling (baked-in fix (a))", 
 });
 
 describe("decodeMemoryEntry — proper id read (baked-in fix (b))", () => {
-  it("id-less frontmatter → id === undefined (NOT the literal \"undefined\")", () => {
+  it('id-less frontmatter → id === undefined (NOT the literal "undefined")', () => {
     // Hand-craft a frontmatter envelope with no `id` key (serializeMetadataFront-
     // matter requires id, so build the raw string directly).
     const raw = "---\ncreated: 2026-08-02\nlast: 2026-08-02\n---\nbody text";
@@ -209,7 +213,7 @@ describe("decodeMemoryEntry — proper id read (baked-in fix (b))", () => {
   });
 
   it("string id survives the typeof gate", () => {
-    const raw = "---\nid: \"abc-123\"\ncreated: 2026-08-02\nlast: 2026-08-02\n---\nbody";
+    const raw = '---\nid: "abc-123"\ncreated: 2026-08-02\nlast: 2026-08-02\n---\nbody';
     const d = decodeMemoryEntry(raw);
     assert.strictEqual(d.id, "abc-123");
   });
@@ -229,20 +233,27 @@ describe("decodeMemoryEntry — purity", () => {
     const b = decodeMemoryEntry(raw);
     assert.deepStrictEqual(a, b);
     // Input string is untouched (no in-place mutation).
-    assert.strictEqual(raw, serializeMetadataFrontmatter({
-      id: "pure-1",
-      text: "deterministic body",
-      created: "2026-08-02",
-      last: "2026-08-02",
-      provenance: "verified",
-      pin: true,
-    }));
+    assert.strictEqual(
+      raw,
+      serializeMetadataFrontmatter({
+        id: "pure-1",
+        text: "deterministic body",
+        created: "2026-08-02",
+        last: "2026-08-02",
+        provenance: "verified",
+        pin: true,
+      }),
+    );
   });
 
   it("has no fs / side effects — derives everything from the input string", () => {
     // A pure decode of two unrelated inputs is independent.
-    const d1 = decodeMemoryEntry(serializeMetadataComment({ text: "a", created: "2026-01-01", lastReferenced: "2026-01-02" }));
-    const d2 = decodeMemoryEntry(serializeMetadataFrontmatter({ id: "b", text: "b", created: "2026-03-03", last: "2026-03-04" }));
+    const d1 = decodeMemoryEntry(
+      serializeMetadataComment({ text: "a", created: "2026-01-01", lastReferenced: "2026-01-02" }),
+    );
+    const d2 = decodeMemoryEntry(
+      serializeMetadataFrontmatter({ id: "b", text: "b", created: "2026-03-03", last: "2026-03-04" }),
+    );
     assert.strictEqual(d1.text, "a");
     assert.strictEqual(d2.id, "b");
     assert.strictEqual(d1.shape, "comment");
@@ -266,7 +277,7 @@ describe("mdIdOf — 1-liner over decodeMemoryEntry", () => {
     assert.strictEqual(mdIdOf(malformed), null);
   });
 
-  it("returns null for an id-less frontmatter (NOT the literal \"undefined\")", () => {
+  it('returns null for an id-less frontmatter (NOT the literal "undefined")', () => {
     const raw = "---\ncreated: 2026-08-02\nlast: 2026-08-02\n---\nbody";
     assert.strictEqual(mdIdOf(raw), null);
     assert.notStrictEqual(mdIdOf(raw), "undefined");
@@ -275,7 +286,13 @@ describe("mdIdOf — 1-liner over decodeMemoryEntry", () => {
 
 describe("isPinned — 1-liner over decodeMemoryEntry", () => {
   it("returns true only for a pinned frontmatter entry", () => {
-    const raw = serializeMetadataFrontmatter({ id: "pin-1", text: "locked", created: "2026-08-02", last: "2026-08-02", pin: true });
+    const raw = serializeMetadataFrontmatter({
+      id: "pin-1",
+      text: "locked",
+      created: "2026-08-02",
+      last: "2026-08-02",
+      pin: true,
+    });
     assert.strictEqual(isPinned(raw), true);
   });
 
@@ -311,8 +328,8 @@ describe("Part 2 wiring — leniency + id read flow through the wired sites", ()
       e = parseMarkdownMemoryEntry(malformedFm, "memory", null);
     });
     assert.ok(e);
-    assert.strictEqual(e!.target, "memory");
-    assert.strictEqual(e!.mdId, undefined); // lenient fallback carries no id
+    assert.strictEqual(e?.target, "memory");
+    assert.strictEqual(e?.mdId, undefined); // lenient fallback carries no id
   });
 
   it("parseMarkdownMemoryEntry surfaces NO mdId for an id-less frontmatter (typeof-id read)", () => {
@@ -328,8 +345,8 @@ describe("Part 2 wiring — leniency + id read flow through the wired sites", ()
       e = parseEntry(malformedFm);
     });
     assert.ok(e);
-    assert.match(e!.content, /no closing fence/);
-    assert.strictEqual(e!.mdId, undefined); // lenient fallback carries no id
+    assert.match(e?.content, /no closing fence/);
+    assert.strictEqual(e?.mdId, undefined); // lenient fallback carries no id
   });
 
   it("parseEntry surfaces NO mdId for an id-less frontmatter (typeof-id read)", () => {

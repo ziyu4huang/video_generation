@@ -1,7 +1,7 @@
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
-import { PlanningEffortDedupStrategy, PlanningTicketDedupStrategy } from "./planning-dedup.js";
+import { describe, it } from "node:test";
 import type { Card } from "./card.js";
+import { PlanningEffortDedupStrategy, PlanningTicketDedupStrategy } from "./planning-dedup.js";
 
 const ticket = (id: string): Card => ({ id, kind: "planning-ticket", content: "x", frontmatter: {} });
 

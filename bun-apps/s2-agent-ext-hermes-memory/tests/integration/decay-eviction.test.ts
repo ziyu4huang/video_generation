@@ -37,24 +37,23 @@
  *    without manual char tuning — robust to frontmatter overhead changes.
  */
 
-import * as fs from "node:fs/promises";
-import * as path from "node:path";
-import * as os from "node:os";
-import assert from "node:assert/strict";
 import { describe, it } from "bun:test";
-
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import {
+  DEFAULT_MEMORY_CHAR_LIMIT,
+  DEFAULT_USER_CHAR_LIMIT,
+  ENTRY_DELIMITER,
+  MEMORY_FILE,
+} from "../../src/constants.js";
+import { makeHeatProvider, shouldWireHeat } from "../../src/handlers/heat-provider.js";
+import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
 import { MemoryStore } from "../../src/store/memory-store.js";
 import { SqliteBackend } from "../../src/store/sqlite/sqlite-backend.js";
 import { SqliteMemoryRepository } from "../../src/store/sqlite/sqlite-memory-repo.js";
 import { SqliteSessionRepository } from "../../src/store/sqlite/sqlite-session-repo.js";
-import { serializeMetadataFrontmatter } from "../../src/store/memory-format.js";
-import { makeHeatProvider, shouldWireHeat } from "../../src/handlers/heat-provider.js";
-import {
-  ENTRY_DELIMITER,
-  DEFAULT_MEMORY_CHAR_LIMIT,
-  DEFAULT_USER_CHAR_LIMIT,
-  MEMORY_FILE,
-} from "../../src/constants.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 // ─── Date / id / encoding helpers ───
@@ -84,11 +83,7 @@ function encodeTemplate(body: string, created = TODAY, last = TODAY): string {
 
 /** Frontmatter entry with a stable id + dates (mirrors the store's on-disk
  *  shape). `pin:true` only when explicitly requested. */
-function fm(
-  id: string,
-  body: string,
-  opts: { created?: string; last?: string; pin?: boolean } = {},
-): string {
+function fm(id: string, body: string, opts: { created?: string; last?: string; pin?: boolean } = {}): string {
   const created = opts.created ?? TODAY;
   return serializeMetadataFrontmatter({
     id,
@@ -107,7 +102,7 @@ function fm(
  *  per-entry label keeps cross-entry similarity low (no false overlap). */
 function body(label: string, targetLen = 60): string {
   let out = label;
-  while (out.length < targetLen) out += " " + label;
+  while (out.length < targetLen) out += ` ${label}`;
   return out.slice(0, targetLen);
 }
 
@@ -121,11 +116,7 @@ function joinLen(xs: string[]): number {
  *  seeded set. limit == joined length AFTER those k land (self-tuning from real
  *  entry sizes via a length-identical incoming template); removing one fewer
  *  entry still overflows, so exactly k are evicted. */
-function addLimitForEvictions(
-  seeded: string[],
-  evictOrder: string[],
-  incomingBody: string,
-): number {
+function addLimitForEvictions(seeded: string[], evictOrder: string[], incomingBody: string): number {
   const evict = new Set(evictOrder);
   const survivors = seeded.filter((e) => !evict.has(e));
   return joinLen([...survivors, encodeTemplate(incomingBody)]);
@@ -234,9 +225,30 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
       await seedMemory(fx.memoryDir, [HOT, MID, COLD]);
 
       // Real worth rows (memoryRepo) keyed by the same mdIds.
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${HOT_ID}`, target: "memory", project: null, mdId: HOT_ID, mwSuccess: 20, mwFail: 0 });
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${MID_ID}`, target: "memory", project: null, mdId: MID_ID, mwSuccess: 5, mwFail: 5 });
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${COLD_ID}`, target: "memory", project: null, mdId: COLD_ID, mwSuccess: 0, mwFail: 20 });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${HOT_ID}`,
+        target: "memory",
+        project: null,
+        mdId: HOT_ID,
+        mwSuccess: 20,
+        mwFail: 0,
+      });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${MID_ID}`,
+        target: "memory",
+        project: null,
+        mdId: MID_ID,
+        mwSuccess: 5,
+        mwFail: 5,
+      });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${COLD_ID}`,
+        target: "memory",
+        project: null,
+        mdId: COLD_ID,
+        mwSuccess: 0,
+        mwFail: 20,
+      });
 
       // Real used_at signal (sessionRepo): HOT was content-matched → usedBonus.
       await fx.sessionRepo.recordAssembly("sess-1", [HOT_ID, MID_ID, COLD_ID], "hash-1");
@@ -247,7 +259,9 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
       const limit = addLimitForEvictions([HOT, MID, COLD], [COLD, MID], incoming);
 
       const store = makeStore(fx.memoryDir, { memoryCharLimit: limit, memoryOverflowStrategy: "vault-offload" });
-      store.setHeatForEntriesProvider(makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null));
+      store.setHeatForEntriesProvider(
+        makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null),
+      );
       await store.loadFromDisk();
 
       const result = await store.add("memory", incoming);
@@ -256,7 +270,10 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
       assert.equal(result.evicted_count, 2, "exactly the two coldest entries are evicted");
       assert.deepEqual(result.evicted_md_ids, [COLD_ID, MID_ID], "eviction order is heat-ASCENDING (coldest→warmest)");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("HOT-recent-highworth-used")), "high-worth+used+recent entry SURVIVES");
+      assert.ok(
+        entries.some((e) => e.includes("HOT-recent-highworth-used")),
+        "high-worth+used+recent entry SURVIVES",
+      );
       assert.ok(!entries.some((e) => e.includes("COLD-stale-lowworth")), "low-worth+unused+stale entry evicted first");
       assert.ok(!entries.some((e) => e.includes("MID-medium-neutral")), "medium entry evicted second");
     } finally {
@@ -285,7 +302,9 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
       const limit = addLimitForEvictions([USED, UNUSED], [UNUSED], incoming);
 
       const store = makeStore(fx.memoryDir, { memoryCharLimit: limit, memoryOverflowStrategy: "vault-offload" });
-      store.setHeatForEntriesProvider(makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null));
+      store.setHeatForEntriesProvider(
+        makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null),
+      );
       await store.loadFromDisk();
 
       const result = await store.add("memory", incoming);
@@ -293,7 +312,10 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
 
       assert.deepEqual(result.evicted_md_ids, [UNUSED_ID], "UNUSED evicted; USED spared at equal recency");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("USED-survivor")), "used entry survives");
+      assert.ok(
+        entries.some((e) => e.includes("USED-survivor")),
+        "used entry survives",
+      );
       assert.ok(!entries.some((e) => e.includes("UNUSED-evictee")), "unused entry evicted");
     } finally {
       await fx.cleanup();
@@ -309,14 +331,30 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
       const LOW = fm(LOW_ID, body("LOW-worth-evictee-equal-recency"), { last: rec });
       await seedMemory(fx.memoryDir, [HIGH, LOW]);
 
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${HIGH_ID}`, target: "memory", project: null, mdId: HIGH_ID, mwSuccess: 100, mwFail: 0 });
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${LOW_ID}`, target: "memory", project: null, mdId: LOW_ID, mwSuccess: 0, mwFail: 100 });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${HIGH_ID}`,
+        target: "memory",
+        project: null,
+        mdId: HIGH_ID,
+        mwSuccess: 100,
+        mwFail: 0,
+      });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${LOW_ID}`,
+        target: "memory",
+        project: null,
+        mdId: LOW_ID,
+        mwSuccess: 0,
+        mwFail: 100,
+      });
 
       const incoming = body("NEW-incoming-worth-only-probe");
       const limit = addLimitForEvictions([HIGH, LOW], [LOW], incoming);
 
       const store = makeStore(fx.memoryDir, { memoryCharLimit: limit, memoryOverflowStrategy: "vault-offload" });
-      store.setHeatForEntriesProvider(makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null));
+      store.setHeatForEntriesProvider(
+        makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null),
+      );
       await store.loadFromDisk();
 
       const result = await store.add("memory", incoming);
@@ -324,7 +362,10 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
 
       assert.deepEqual(result.evicted_md_ids, [LOW_ID], "low-worth evicted; high-worth spared at equal recency");
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("HIGH-worth-survivor")), "high-worth entry survives");
+      assert.ok(
+        entries.some((e) => e.includes("HIGH-worth-survivor")),
+        "high-worth entry survives",
+      );
       assert.ok(!entries.some((e) => e.includes("LOW-worth-evictee")), "low-worth entry evicted");
     } finally {
       await fx.cleanup();
@@ -342,9 +383,30 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
       const C = fm(C_ID, body("C-low-worth-other-evictee"), { last: rec });
       await seedMemory(fx.memoryDir, [A, B, C]);
 
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${A_ID}`, target: "memory", project: null, mdId: A_ID, mwSuccess: 0, mwFail: 0 });
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${B_ID}`, target: "memory", project: null, mdId: B_ID, mwSuccess: 100, mwFail: 0 });
-      await fx.memoryRepo.syncMemoryEntry({ content: `db-${C_ID}`, target: "memory", project: null, mdId: C_ID, mwSuccess: 0, mwFail: 100 });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${A_ID}`,
+        target: "memory",
+        project: null,
+        mdId: A_ID,
+        mwSuccess: 0,
+        mwFail: 0,
+      });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${B_ID}`,
+        target: "memory",
+        project: null,
+        mdId: B_ID,
+        mwSuccess: 100,
+        mwFail: 0,
+      });
+      await fx.memoryRepo.syncMemoryEntry({
+        content: `db-${C_ID}`,
+        target: "memory",
+        project: null,
+        mdId: C_ID,
+        mwSuccess: 0,
+        mwFail: 100,
+      });
 
       // Grow A so the replacement overflows by exactly one OTHER entry.
       const grown = body("A-protected-replace-floor-GROWN-to-overflow-now-zzzzz");
@@ -352,16 +414,28 @@ describe("decay eviction — real pipeline (makeHeatProvider + sqlite repos)", (
       const limit = replaceLimitForEvictions([A, B, C], 0, grown, [C], rec);
 
       const store = makeStore(fx.memoryDir, { memoryCharLimit: limit, memoryOverflowStrategy: "auto-consolidate" });
-      store.setHeatForEntriesProvider(makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null));
+      store.setHeatForEntriesProvider(
+        makeHeatProvider({ decayEnabled: true }, { memoryRepo: fx.memoryRepo, sessionRepo: fx.sessionRepo }, null),
+      );
       await store.loadFromDisk();
 
       const result = await store.replace("memory", "A-protected-replace-floor-probe", grown);
       assert.ok(result.success, result.error);
 
-      assert.deepEqual(result.evicted_md_ids, [C_ID], "lowest-heat OTHER (C) evicted, NOT the file-order-oldest other (B)");
+      assert.deepEqual(
+        result.evicted_md_ids,
+        [C_ID],
+        "lowest-heat OTHER (C) evicted, NOT the file-order-oldest other (B)",
+      );
       const entries = store.getMemoryEntries();
-      assert.ok(entries.some((e) => e.includes("GROWN-to-overflow")), "grown replacement landed");
-      assert.ok(entries.some((e) => e.includes("B-high-worth-other")), "higher-worth OTHER (B) survives");
+      assert.ok(
+        entries.some((e) => e.includes("GROWN-to-overflow")),
+        "grown replacement landed",
+      );
+      assert.ok(
+        entries.some((e) => e.includes("B-high-worth-other")),
+        "higher-worth OTHER (B) survives",
+      );
       assert.ok(!entries.some((e) => e.includes("C-low-worth-other")), "lowest-worth OTHER (C) evicted");
     } finally {
       await fx.cleanup();
@@ -403,7 +477,11 @@ describe("decay eviction — stub-heat deterministic (fixed Map → exact sequen
       assert.ok(result.success, result.error);
 
       assert.equal(result.evicted_count, 2);
-      assert.deepEqual(result.evicted_md_ids, [COLD_ID, MID_ID], "exact sequence is heat-ascending (0.1 → 0.5); hottest (0.9) survives");
+      assert.deepEqual(
+        result.evicted_md_ids,
+        [COLD_ID, MID_ID],
+        "exact sequence is heat-ascending (0.1 → 0.5); hottest (0.9) survives",
+      );
     } finally {
       await fx.cleanup();
     }
@@ -437,7 +515,11 @@ describe("decay eviction — stub-heat deterministic (fixed Map → exact sequen
       const result = await store.replace("memory", "A-stub-protected-replace-probe", grown);
       assert.ok(result.success, result.error);
 
-      assert.deepEqual(result.evicted_md_ids, [C_ID], "lowest-heat OTHER (C) evicted; hotter OTHER (B) + protected (A) survive");
+      assert.deepEqual(
+        result.evicted_md_ids,
+        [C_ID],
+        "lowest-heat OTHER (C) evicted; hotter OTHER (B) + protected (A) survive",
+      );
     } finally {
       await fx.cleanup();
     }
@@ -450,9 +532,9 @@ describe("decay eviction — stub-heat deterministic (fixed Map → exact sequen
 
 describe("decay eviction — disable-path parity (decayEnabled === false → FIFO)", () => {
   /** File order A, B, C with a heat Map that REORDERS (C coldest → heat evicts
-    * C first; FIFO evicts A first). Same seed + same limit for every store so
-    * the comparison is byte-fair. Uniform-length bodies so ONE limit forces the
-    * same eviction COUNT whether FIFO or heat picks the victims. */
+   * C first; FIFO evicts A first). Same seed + same limit for every store so
+   * the comparison is byte-fair. Uniform-length bodies so ONE limit forces the
+   * same eviction COUNT whether FIFO or heat picks the victims. */
   async function seedTriplet(memoryDir: string): Promise<{ A: string; B: string; C: string }> {
     const A = fm(A_ID, body("A-oldest-disable-parity-probe-file-order-first"));
     const B = fm(B_ID, body("B-midfile-disable-parity-probe-second-on-disk"));
@@ -462,7 +544,7 @@ describe("decay eviction — disable-path parity (decayEnabled === false → FIF
   }
 
   /** A fixed reordering heat Map (C coldest, A hottest) — wired ONLY when decay
-    * is enabled, mirroring index.ts's `shouldWireHeat` gate. */
+   * is enabled, mirroring index.ts's `shouldWireHeat` gate. */
   function reorderingProvider(_t: string, entries: { mdId: string }[]): Promise<Map<string, number>> {
     const m = new Map<string, number>();
     for (const e of entries) {
@@ -478,7 +560,7 @@ describe("decay eviction — disable-path parity (decayEnabled === false → FIF
     const fxRef = await makeFixture();
     try {
       const seed1 = await seedTriplet(fxDisabled.memoryDir);
-      const seed2 = await seedTriplet(fxRef.memoryDir);
+      const _seed2 = await seedTriplet(fxRef.memoryDir);
       const incoming = body("NEW-disable-parity-incoming-probe-overflow");
       // Uniform bodies → one limit forces exactly TWO evictions under either
       // mode (FIFO or heat). Survivors are one entry + incoming.
@@ -486,7 +568,10 @@ describe("decay eviction — disable-path parity (decayEnabled === false → FIF
 
       // DISABLED store: mirrors index.ts — shouldWireHeat(false) === false → the
       // provider is simply NOT attached (the first-class disable invariant).
-      const disabled = makeStore(fxDisabled.memoryDir, { memoryCharLimit: limit, memoryOverflowStrategy: "vault-offload" });
+      const disabled = makeStore(fxDisabled.memoryDir, {
+        memoryCharLimit: limit,
+        memoryOverflowStrategy: "vault-offload",
+      });
       assert.equal(shouldWireHeat({ decayEnabled: false }), false, "gate: decayEnabled:false → provider NOT wired");
       // (no setHeatForEntriesProvider call — exactly what index.ts does)
       await disabled.loadFromDisk();
@@ -501,8 +586,16 @@ describe("decay eviction — disable-path parity (decayEnabled === false → FIF
 
       // Byte-identical: disabled-path eviction == no-provider reference == FIFO
       // (oldest file-position first: A then B; C — the file-newest — survives).
-      assert.deepEqual(rDisabled.evicted_md_ids, rRef.evicted_md_ids, "disable path == no-provider reference (byte-identical)");
-      assert.deepEqual(rDisabled.evicted_md_ids, [A_ID, B_ID], "FIFO fixture: oldest file-position first, newest survives");
+      assert.deepEqual(
+        rDisabled.evicted_md_ids,
+        rRef.evicted_md_ids,
+        "disable path == no-provider reference (byte-identical)",
+      );
+      assert.deepEqual(
+        rDisabled.evicted_md_ids,
+        [A_ID, B_ID],
+        "FIFO fixture: oldest file-position first, newest survives",
+      );
     } finally {
       await fxDisabled.cleanup();
       await fxRef.cleanup();
@@ -519,11 +612,17 @@ describe("decay eviction — disable-path parity (decayEnabled === false → FIF
       const limit = joinLen([seed1.C, encodeTemplate(incoming)]);
 
       // DISABLED: no provider (gate off) → FIFO.
-      const disabled = makeStore(fxDisabled.memoryDir, { memoryCharLimit: limit, memoryOverflowStrategy: "vault-offload" });
+      const disabled = makeStore(fxDisabled.memoryDir, {
+        memoryCharLimit: limit,
+        memoryOverflowStrategy: "vault-offload",
+      });
       await disabled.loadFromDisk();
 
       // ENABLED: gate on → reordering provider attached → heat order.
-      const enabled = makeStore(fxEnabled.memoryDir, { memoryCharLimit: limit, memoryOverflowStrategy: "vault-offload" });
+      const enabled = makeStore(fxEnabled.memoryDir, {
+        memoryCharLimit: limit,
+        memoryOverflowStrategy: "vault-offload",
+      });
       assert.equal(shouldWireHeat({ decayEnabled: true }), true, "gate: decayEnabled:true (or unset) → provider wired");
       enabled.setHeatForEntriesProvider(reorderingProvider);
       await enabled.loadFromDisk();
@@ -538,7 +637,11 @@ describe("decay eviction — disable-path parity (decayEnabled === false → FIF
       // one (both modes would be identical if the provider did nothing).
       assert.deepEqual(rDisabled.evicted_md_ids, [A_ID, B_ID], "disabled → FIFO (oldest first)");
       assert.deepEqual(rEnabled.evicted_md_ids, [C_ID, B_ID], "enabled → heat-ascending (coldest first)");
-      assert.notDeepEqual(rDisabled.evicted_md_ids, rEnabled.evicted_md_ids, "enable vs disable produce DIFFERENT orders");
+      assert.notDeepEqual(
+        rDisabled.evicted_md_ids,
+        rEnabled.evicted_md_ids,
+        "enable vs disable produce DIFFERENT orders",
+      );
     } finally {
       await fxDisabled.cleanup();
       await fxEnabled.cleanup();

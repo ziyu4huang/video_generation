@@ -9,15 +9,19 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
     description: "Learn how to use the pi-hermes-memory extension effectively",
     handler: async (_args, ctx: ExtensionCommandContext) => {
       // Show main menu first
-      const section = await ctx.ui.select("Pi Hermes Memory Guide", [
-        "📦 What Gets Saved",
-        "🔧 Tools Available",
-        "📋 Commands",
-        "✅ Best Practices",
-        "🔄 How Memory Flows",
-        "🏗️ Architecture",
-        "❓ Troubleshooting",
-      ], {});
+      const section = await ctx.ui.select(
+        "Pi Hermes Memory Guide",
+        [
+          "📦 What Gets Saved",
+          "🔧 Tools Available",
+          "📋 Commands",
+          "✅ Best Practices",
+          "🔄 How Memory Flows",
+          "🏗️ Architecture",
+          "❓ Troubleshooting",
+        ],
+        {},
+      );
 
       if (!section) return;
 
@@ -96,16 +100,16 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("  ╚══════════════════════════════════════════════╝");
         lines.push("");
         lines.push("  ✅ DO save:");
-        lines.push("     • User preferences (\"prefers pnpm\", \"uses vim\")");
-        lines.push("     • Environment facts (\"macOS M1\", \"Node 20\")");
-        lines.push("     • Corrections (\"don't use npm — use pnpm\")");
-        lines.push("     • Project conventions (\"monorepo with turborepo\")");
-        lines.push("     • Failures (\"tried localStorage — XSS vulnerability\")");
+        lines.push('     • User preferences ("prefers pnpm", "uses vim")');
+        lines.push('     • Environment facts ("macOS M1", "Node 20")');
+        lines.push('     • Corrections ("don\'t use npm — use pnpm")');
+        lines.push('     • Project conventions ("monorepo with turborepo")');
+        lines.push('     • Failures ("tried localStorage — XSS vulnerability")');
         lines.push("");
         lines.push("  ❌ DON'T save:");
-        lines.push("     • Task progress (\"finished implementing auth\")");
-        lines.push("     • Session outcomes (\"PR #42 was merged\")");
-        lines.push("     • Temporary state (\"currently debugging X\")");
+        lines.push('     • Task progress ("finished implementing auth")');
+        lines.push('     • Session outcomes ("PR #42 was merged")');
+        lines.push('     • Temporary state ("currently debugging X")');
       }
 
       if (section.startsWith("🔄")) {
@@ -123,7 +127,7 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("  7. When full          → Auto-consolidation merges");
         lines.push("  8. Session ends       → Final flush");
         lines.push("");
-        lines.push("  Legacy mode: set memoryMode=\"legacy-inject\" to restore full");
+        lines.push('  Legacy mode: set memoryMode="legacy-inject" to restore full');
         lines.push("  MEMORY.md, USER.md, project memory, and failure prompt blocks.");
       }
 
@@ -145,14 +149,14 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("  ┌─────────────────────────────────────┐");
         lines.push("  │ MEMORY.md / USER.md / failures.md   │");
         lines.push("  │ projects-memory/<project>/MEMORY.md │");
-        lines.push("  │ session_search(\"auth flow\")         │");
-        lines.push("  │ memory_search(\"testing patterns\")   │");
+        lines.push('  │ session_search("auth flow")         │');
+        lines.push('  │ memory_search("testing patterns")   │');
         lines.push("  │ /memory-sync-markdown (backfill old md)│");
-        lines.push("  │ memory_search(\"auth\", cat:\"failure\")│");
+        lines.push('  │ memory_search("auth", cat:"failure")│');
         lines.push("  └─────────────────────────────────────┘");
         lines.push("");
         lines.push("  Legacy mode can still inject full memory blocks for users");
-        lines.push("  who explicitly opt into memoryMode=\"legacy-inject\".");
+        lines.push('  who explicitly opt into memoryMode="legacy-inject".');
       }
 
       if (section.startsWith("❓")) {
@@ -161,18 +165,18 @@ export function registerLearnMemoryCommand(pi: ExtensionAPI): void {
         lines.push("  ║          ❓ Troubleshooting                  ║");
         lines.push("  ╚══════════════════════════════════════════════╝");
         lines.push("");
-        lines.push("  \"Memory is full\"");
+        lines.push('  "Memory is full"');
         lines.push("    → /memory-consolidate to merge entries");
         lines.push("    → If it still fails, the save does NOT silently become SQLite-only");
         lines.push("");
-        lines.push("  \"Can't find something\"");
+        lines.push('  "Can\'t find something"');
         lines.push("    → memory_search to search the SQLite mirror/store");
         lines.push("    → /memory-sync-markdown to import older Markdown entries");
         lines.push("");
-        lines.push("  \"Agent forgot something\"");
-        lines.push("    → Run memory_search, tell agent \"remember X\"");
+        lines.push('  "Agent forgot something"');
+        lines.push('    → Run memory_search, tell agent "remember X"');
         lines.push("");
-        lines.push("  \"Want to edit manually\"");
+        lines.push('  "Want to edit manually"');
         lines.push("    → Files at ~/.pi/agent/memory/ (plain markdown)");
       }
 

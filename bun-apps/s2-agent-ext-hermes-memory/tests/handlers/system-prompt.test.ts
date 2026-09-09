@@ -5,13 +5,14 @@
  * returns the state captured at loadFromDisk() time, not current in-memory state.
  * Also validates the block format (separator, header, usage percentage).
  */
+
+import { afterAll, beforeAll, describe, it } from "bun:test";
+import assert from "node:assert/strict";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, it, beforeAll, afterAll } from "bun:test";
-import assert from "node:assert/strict";
-import { MemoryStore } from "../../src/store/memory-store.js";
 import { ENTRY_DELIMITER } from "../../src/constants.js";
+import { MemoryStore } from "../../src/store/memory-store.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 // ─── Test config ───
@@ -48,8 +49,16 @@ async function writeUser(content: string): Promise<void> {
 }
 
 async function clearFiles(): Promise<void> {
-  try { await fs.unlink(path.join(TEST_MEMORY_DIR, "MEMORY.md")); } catch { /* ignore */ }
-  try { await fs.unlink(path.join(TEST_MEMORY_DIR, "USER.md")); } catch { /* ignore */ }
+  try {
+    await fs.unlink(path.join(TEST_MEMORY_DIR, "MEMORY.md"));
+  } catch {
+    /* ignore */
+  }
+  try {
+    await fs.unlink(path.join(TEST_MEMORY_DIR, "USER.md"));
+  } catch {
+    /* ignore */
+  }
 }
 
 const SEPARATOR = "═".repeat(46);
@@ -65,11 +74,13 @@ describe("system prompt injection", () => {
   afterAll(async () => {
     try {
       await fs.rm(TEST_MEMORY_DIR, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
 
   it("before_agent_start appends memory block when memory has entries", async () => {
-    await writeMemory("Project uses Bun runtime" + ENTRY_DELIMITER + "Prefers tabs over spaces");
+    await writeMemory(`Project uses Bun runtime${ENTRY_DELIMITER}Prefers tabs over spaces`);
     await writeUser("");
 
     const store = new MemoryStore(testConfig());
@@ -191,7 +202,7 @@ describe("system prompt injection", () => {
     // Then user block: separator\nheader\nseparator\ncontent
     const separator = SEPARATOR;
     // After the content of memory block, there should be \n\n before the user separator
-    assert.ok(prompt.includes("\n\n" + separator), "blocks should be separated by double newline");
+    assert.ok(prompt.includes(`\n\n${separator}`), "blocks should be separated by double newline");
 
     await clearFiles();
   });

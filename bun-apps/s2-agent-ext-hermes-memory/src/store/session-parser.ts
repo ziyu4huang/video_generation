@@ -1,5 +1,5 @@
-import fs from 'node:fs';
-import path from 'node:path';
+import fs from "node:fs";
+import path from "node:path";
 
 /**
  * Parsed session data from a JSONL file.
@@ -18,7 +18,7 @@ export interface ParsedSession {
  */
 export interface ParsedMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: "user" | "assistant" | "system";
   content: string;
   timestamp: string;
   toolCalls?: string[];
@@ -46,31 +46,31 @@ interface JsonlEntry {
  * Extract text content from a message's content array.
  */
 function extractTextContent(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
 
   const parts: string[] = [];
   for (const block of content) {
-    if (!block || typeof block !== 'object') continue;
+    if (!block || typeof block !== "object") continue;
     const b = block as Record<string, unknown>;
 
     switch (b.type) {
-      case 'text':
-        if (typeof b.text === 'string') parts.push(b.text);
+      case "text":
+        if (typeof b.text === "string") parts.push(b.text);
         break;
-      case 'thinking':
+      case "thinking":
         // Skip thinking blocks — they're internal reasoning
         break;
-      case 'tool_use':
+      case "tool_use":
         // Skip tool_use blocks — we track tool calls separately
         break;
-      case 'tool_result':
+      case "tool_result":
         // Include tool result text if present
-        if (typeof b.content === 'string') {
+        if (typeof b.content === "string") {
           parts.push(b.content);
         } else if (Array.isArray(b.content)) {
           for (const item of b.content) {
-            if (item && typeof item === 'object' && (item as Record<string, unknown>).type === 'text') {
+            if (item && typeof item === "object" && (item as Record<string, unknown>).type === "text") {
               parts.push((item as Record<string, unknown>).text as string);
             }
           }
@@ -78,7 +78,7 @@ function extractTextContent(content: unknown): string {
         break;
     }
   }
-  return parts.join('\n').trim();
+  return parts.join("\n").trim();
 }
 
 /**
@@ -89,9 +89,9 @@ function extractToolCalls(content: unknown): string[] | undefined {
 
   const toolNames: string[] = [];
   for (const block of content) {
-    if (!block || typeof block !== 'object') continue;
+    if (!block || typeof block !== "object") continue;
     const b = block as Record<string, unknown>;
-    if ((b.type === 'tool_use' || b.type === 'toolCall') && typeof b.name === 'string') {
+    if ((b.type === "tool_use" || b.type === "toolCall") && typeof b.name === "string") {
       toolNames.push(b.name);
     }
   }
@@ -105,8 +105,8 @@ function extractToolCalls(content: unknown): string[] | undefined {
  * @returns Parsed session data, or null if the file is invalid
  */
 export function parseSessionFile(filePath: string): ParsedSession | null {
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const lines = content.split('\n').filter(line => line.trim());
+  const content = fs.readFileSync(filePath, "utf-8");
+  const lines = content.split("\n").filter((line) => line.trim());
 
   if (lines.length === 0) return null;
 
@@ -124,22 +124,22 @@ export function parseSessionFile(filePath: string): ParsedSession | null {
     }
 
     switch (entry.type) {
-      case 'session':
+      case "session":
         sessionId = entry.id ?? null;
         sessionCwd = entry.cwd ?? null;
         sessionTimestamp = entry.timestamp ?? null;
         break;
 
-      case 'message': {
+      case "message": {
         if (!entry.message || !entry.id || !entry.timestamp) break;
 
         const role = entry.message.role;
-        if (role !== 'user' && role !== 'assistant' && role !== 'system') break;
+        if (role !== "user" && role !== "assistant" && role !== "system") break;
 
         const textContent = extractTextContent(entry.message.content);
         if (!textContent) break; // Skip empty messages
 
-        const toolCalls = role === 'assistant' ? extractToolCalls(entry.message.content) : undefined;
+        const toolCalls = role === "assistant" ? extractToolCalls(entry.message.content) : undefined;
 
         messages.push({
           id: entry.id,
@@ -159,7 +159,7 @@ export function parseSessionFile(filePath: string): ParsedSession | null {
   // Decode project name from cwd-encoded directory name
   // The directory is named like "--Users-chandrateja-Documents-pi-hermes-memory--"
   // We extract the last segment as the project name
-  const project = sessionCwd.split('/').pop() ?? sessionCwd;
+  const project = sessionCwd.split("/").pop() ?? sessionCwd;
 
   return {
     id: sessionId,
@@ -182,9 +182,10 @@ export function getSessionFiles(sessionsDir: string, projectDir?: string): strin
   if (projectDir) {
     const dir = path.join(sessionsDir, projectDir);
     if (!fs.existsSync(dir)) return [];
-    return fs.readdirSync(dir)
-      .filter(f => f.endsWith('.jsonl'))
-      .map(f => path.join(dir, f));
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => path.join(dir, f));
   }
 
   // All projects
@@ -196,11 +197,11 @@ export function getSessionFiles(sessionsDir: string, projectDir?: string): strin
     if (stat.isDirectory()) {
       // Scan .jsonl files inside project subdirectories
       for (const f of fs.readdirSync(entryPath)) {
-        if (f.endsWith('.jsonl')) {
+        if (f.endsWith(".jsonl")) {
           files.push(path.join(entryPath, f));
         }
       }
-    } else if (stat.isFile() && entry.endsWith('.jsonl')) {
+    } else if (stat.isFile() && entry.endsWith(".jsonl")) {
       // Also pick up root-level .jsonl files
       files.push(entryPath);
     }
@@ -214,9 +215,9 @@ export function getSessionFiles(sessionsDir: string, projectDir?: string): strin
  */
 export function decodeProjectDir(dirName: string): string {
   // Remove leading/trailing dashes
-  const cleaned = dirName.replace(/^-+|-+$/g, '');
+  const cleaned = dirName.replace(/^-+|-+$/g, "");
   // Split by dash and take the last segment (project name)
-  const segments = cleaned.split('-');
+  const segments = cleaned.split("-");
   return segments[segments.length - 1] ?? cleaned;
 }
 
@@ -247,12 +248,12 @@ type SessionMessageEntryLike = {
 };
 
 function parseMessageEntry(entry: unknown): ParsedMessage | null {
-  if (!entry || typeof entry !== 'object') return null;
+  if (!entry || typeof entry !== "object") return null;
   const e = entry as SessionMessageEntryLike;
-  if (e.type !== 'message' || typeof e.id !== 'string' || typeof e.timestamp !== 'string' || !e.message) return null;
+  if (e.type !== "message" || typeof e.id !== "string" || typeof e.timestamp !== "string" || !e.message) return null;
 
   const role = e.message.role;
-  if (role !== 'user' && role !== 'assistant' && role !== 'system') return null;
+  if (role !== "user" && role !== "assistant" && role !== "system") return null;
 
   const content = extractTextContent(e.message.content);
   if (!content) return null;
@@ -262,7 +263,7 @@ function parseMessageEntry(entry: unknown): ParsedMessage | null {
     role,
     content,
     timestamp: e.timestamp,
-    toolCalls: role === 'assistant' ? extractToolCalls(e.message.content) : undefined,
+    toolCalls: role === "assistant" ? extractToolCalls(e.message.content) : undefined,
   };
 }
 
@@ -277,13 +278,14 @@ export function parseSessionManagerSnapshot(sessionManager: SessionManagerSnapsh
   const header = sessionManager.getHeader();
   if (!header?.id || !header.cwd || !header.timestamp) return null;
 
-  const messages = sessionManager.getEntries()
+  const messages = sessionManager
+    .getEntries()
     .map(parseMessageEntry)
     .filter((msg): msg is ParsedMessage => msg !== null);
 
   return {
     id: header.id,
-    project: header.cwd.split('/').pop() ?? header.cwd,
+    project: header.cwd.split("/").pop() ?? header.cwd,
     cwd: header.cwd,
     startedAt: header.timestamp,
     endedAt: null,

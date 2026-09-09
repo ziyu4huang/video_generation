@@ -7,15 +7,14 @@
 /** Discriminate a planning source file from repo-relative path segments.
  *  08 scope: `<effort>/map.md` → effort; `<effort>/tickets/NN-slug.md` → ticket.
  *  Everything else under .planning/ (specs/, plans/, flat files) is NOT a card. */
-export function planningCardKindFromSegs(
-  relSegs: string[],
-): "planning-effort" | "planning-ticket" | null {
+export function planningCardKindFromSegs(relSegs: string[]): "planning-effort" | "planning-ticket" | null {
   const i = relSegs.indexOf(".planning");
   if (i < 0) return null;
   const after = relSegs.slice(i + 1);
   const n = after.length;
   if (n === 0) return null;
-  const file = after[n - 1]!;
+  const file = after[n - 1];
+  if (file === undefined) return null;
   // <effort>/tickets/NN-slug.md  (n >= 3: .planning / effort / tickets / file)
   if (n >= 3 && after[n - 2] === "tickets" && /^\d+-[^/]+\.md$/.test(file)) {
     return "planning-ticket";
@@ -26,9 +25,7 @@ export function planningCardKindFromSegs(
 }
 
 /** Convenience: classify an absolute or relative md path (any separator). */
-export function planningCardKindFromPath(
-  filePath: string,
-): "planning-effort" | "planning-ticket" | null {
+export function planningCardKindFromPath(filePath: string): "planning-effort" | "planning-ticket" | null {
   return planningCardKindFromSegs(filePath.split(/[\\/]/));
 }
 
@@ -46,11 +43,14 @@ export function parsePlanningPath(filePath: string): PlanningPathInfo | null {
   const segs = filePath.split(/[\\/]/);
   const i = segs.indexOf(".planning");
   const after = segs.slice(i + 1);
-  const effort = after[0]!;
+  const effort = after[0];
+  if (effort === undefined) return null;
   if (kind === "planning-effort") return { kind, effort };
-  const file = after[after.length - 1]!;
+  const file = after[after.length - 1];
+  if (file === undefined) return null;
   const m = /^(\d+)-(.+)\.md$/.exec(file);
-  return { kind, effort, ticketNo: m![1]!, slug: m![2]! };
+  if (!m) return null;
+  return { kind, effort, ticketNo: m[1], slug: m[2] };
 }
 
 /** Canonical, globally-unique Card.id for a planning-effort card. */

@@ -1,7 +1,7 @@
-import type { SessionRepository } from '../store/repository.js';
-import type { TimedFn } from '../perf.js';
-import type { SessionManagerSnapshot } from '../store/session-parser.js';
-import { parseSessionManagerSnapshot } from '../store/session-parser.js';
+import type { TimedFn } from "../perf.js";
+import type { SessionRepository } from "../store/repository.js";
+import type { SessionManagerSnapshot } from "../store/session-parser.js";
+import { parseSessionManagerSnapshot } from "../store/session-parser.js";
 
 export const SESSION_LIVE_INDEX_DELAY_MS = 50;
 export const SESSION_LIVE_INDEX_SHUTDOWN_TIMEOUT_MS = 5000;
@@ -63,7 +63,11 @@ export function scheduleLiveSessionIndex(
           }
         });
       } catch (err) {
-        try { options.onError?.(err); } catch { /* best effort */ }
+        try {
+          options.onError?.(err);
+        } catch {
+          /* best effort */
+        }
       } finally {
         state.inProgress = false;
         state.promise = null;

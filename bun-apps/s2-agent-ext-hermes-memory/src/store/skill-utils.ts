@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
-import type { SkillDocument, SkillScope } from "../types.js";
 import { splitFencedYaml } from "@repo/s2-agent-core-interface";
+import type { SkillDocument, SkillScope } from "../types.js";
+
 // `today` has ONE home (memory-format.ts); re-exported here so skill-store's
 // existing `import { today } from "./skill-utils.js"` keeps working without a
 // caller change (architecture-deepening C1 dedupe).
@@ -40,7 +41,9 @@ function yamlDoubleQuoted(value: string): string {
   return JSON.stringify(value);
 }
 
-export function formatFrontmatter(doc: Pick<SkillDocument, "name" | "displayName" | "description" | "version" | "created" | "updated" | "body">): string {
+export function formatFrontmatter(
+  doc: Pick<SkillDocument, "name" | "displayName" | "description" | "version" | "created" | "updated" | "body">,
+): string {
   const lines = [
     "---",
     `name: ${yamlDoubleQuoted(doc.name)}`,
@@ -50,7 +53,7 @@ export function formatFrontmatter(doc: Pick<SkillDocument, "name" | "displayName
     `updated: ${yamlDoubleQuoted(doc.updated)}`,
   ];
 
-  if (doc.displayName && doc.displayName.trim() && doc.displayName.trim() !== doc.name) {
+  if (doc.displayName?.trim() && doc.displayName.trim() !== doc.name) {
     lines.push(`display_name: ${yamlDoubleQuoted(doc.displayName.trim())}`);
   }
 
@@ -68,9 +71,40 @@ export function slugify(name: string): string {
 }
 
 const SKILL_SIMILARITY_STOP_WORDS = new Set([
-  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "into", "is", "it",
-  "of", "on", "or", "that", "the", "this", "to", "use", "using", "with", "workflow", "procedure", "step",
-  "steps", "guide", "skill", "skills", "repo", "project",
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "how",
+  "in",
+  "into",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "that",
+  "the",
+  "this",
+  "to",
+  "use",
+  "using",
+  "with",
+  "workflow",
+  "procedure",
+  "step",
+  "steps",
+  "guide",
+  "skill",
+  "skills",
+  "repo",
+  "project",
 ]);
 
 export function tokenizeForSimilarity(input: string): string[] {

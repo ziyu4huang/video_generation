@@ -86,9 +86,10 @@ let overall = 0;
 let logFd: number | null = null;
 
 function runBun(args: string[]): number {
+  if (logFd === null) throw new Error("run-test: log file was never opened");
   const r = spawnSync("bun", ["run", "--silent", ...args], {
     cwd: SCRIPT_DIR,
-    stdio: ["ignore", logFd!, logFd!],
+    stdio: ["ignore", logFd, logFd],
   });
   return r.status ?? 1;
 }
@@ -103,9 +104,10 @@ function runContract(): number {
   // scope-baked canonicals (knowledge-card, obsidian) bun unions the
   // positionals and re-runs the whole package suite as the "contract" step.
   // The canonical-`bun run test` mandate covers the quick/full BASE runner.
+  if (logFd === null) throw new Error("run-test: log file was never opened");
   const r = spawnSync("bun", ["test", CONTRACT_TEST], {
     cwd: SCRIPT_DIR,
-    stdio: ["ignore", logFd!, logFd!],
+    stdio: ["ignore", logFd, logFd],
   });
   return r.status ?? 1;
 }
@@ -131,7 +133,10 @@ function step(name: string, fn: () => number): void {
     if (log.length > 0) {
       const endsNL = log.endsWith("\n");
       const body = endsNL ? log.slice(0, -1) : log;
-      const lines = body.split("\n").slice(-25).map((l) => `      ${l}`);
+      const lines = body
+        .split("\n")
+        .slice(-25)
+        .map((l) => `      ${l}`);
       process.stderr.write(`${lines.join("\n")}${endsNL ? "\n" : ""}`);
     }
   }

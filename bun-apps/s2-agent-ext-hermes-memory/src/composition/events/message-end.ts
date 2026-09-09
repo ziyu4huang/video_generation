@@ -17,15 +17,16 @@
  * must typecheck standalone; it is not imported yet.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { HermesCtx } from "../stores.js";
 import { scheduleLiveSessionIndex } from "../../handlers/session-live-index.js";
+import type { HermesCtx } from "../stores.js";
 
 /** ← L658-664: the message_end handler, de-closured onto HermesCtx. */
 export function registerMessageEnd(pi: ExtensionAPI, ctx: HermesCtx): void {
   pi.on("message_end", async (_event, evt) => {
     scheduleLiveSessionIndex(ctx.sessionRepo, evt.sessionManager, {
       timed: ctx.perf.timed,
-      onError: (err) => console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
+      onError: (err) =>
+        console.warn(`⚠️ Live session indexing failed: ${err instanceof Error ? err.message : String(err)}`),
     });
   });
 }

@@ -33,22 +33,22 @@
  * globalThis — same pattern as tests/walk-and-ingest-kgllm.test.ts).
  */
 
-import { describe, it, beforeAll, beforeEach, afterEach } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, it } from "bun:test";
 import * as assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { walkAndIngest } from "../src/walk-and-ingest.js";
-import { createCardStore } from "../src/store/card-store.js";
-import { createBackendBundle } from "../src/store/backend-factory.js";
-import { SurrealBackend } from "../src/store/surreal/surreal-backend.js";
-import { loadConfig } from "../src/config.js";
-import { serializeMetadataFrontmatter } from "../src/store/memory-format.js";
-import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from "../src/constants.js";
-import { publishSeam } from "@repo/s2-agent-core-interface";
 import type { IngestOptions, IngestSummary } from "@repo/s2-agent-core-interface";
-import type { CardStore } from "../src/store/card-store.js";
+import { publishSeam } from "@repo/s2-agent-core-interface";
+import { loadConfig } from "../src/config.js";
+import { ENTRY_DELIMITER, MEMORY_FILE, USER_FILE } from "../src/constants.js";
+import { createBackendBundle } from "../src/store/backend-factory.js";
 import type { Card } from "../src/store/card.js";
+import type { CardStore } from "../src/store/card-store.js";
+import { createCardStore } from "../src/store/card-store.js";
+import { serializeMetadataFrontmatter } from "../src/store/memory-format.js";
+import { SurrealBackend } from "../src/store/surreal/surreal-backend.js";
+import { walkAndIngest } from "../src/walk-and-ingest.js";
 
 // ── shared tmp lifecycle ────────────────────────────────────────────────────
 
@@ -106,11 +106,7 @@ function publishNoopSeam(): void {
 // ── fixtures ────────────────────────────────────────────────────────────────
 
 /** Frontmatter §-entry with a stable id (the 5d shape the mirror keys on). */
-function fm(
-  id: string,
-  text: string,
-  extra: { state?: string; severity?: number; pin?: boolean } = {},
-): string {
+function fm(id: string, text: string, extra: { state?: string; severity?: number; pin?: boolean } = {}): string {
   return serializeMetadataFrontmatter({
     id,
     text,
@@ -143,11 +139,7 @@ function seedMemoryFiles(memoryDir: string): void {
     ].join(ENTRY_DELIMITER),
     "utf8",
   );
-  fs.writeFileSync(
-    path.join(memoryDir, USER_FILE),
-    fm(USER_ID, "kp13 acceptance: user profile probe"),
-    "utf8",
-  );
+  fs.writeFileSync(path.join(memoryDir, USER_FILE), fm(USER_ID, "kp13 acceptance: user profile probe"), "utf8");
   fs.writeFileSync(
     path.join(memoryDir, "failures.md"),
     [
@@ -238,27 +230,27 @@ describe("kp13 acceptance — ticket 13 (memory-card graduation, Wave C)", () =>
     // kind memory — both entries, exact content + envelope.
     const memoryCards = (await store.getCardsByKind("memory")).sort((a, b) => a.id.localeCompare(b.id));
     assert.equal(memoryCards.length, 2);
-    assert.equal(memoryCards[0]!.id, MEM_ID_1, "card id == the §-entry frontmatter id (md_id key)");
-    assert.equal(memoryCards[0]!.content, "kp13 acceptance: global memory probe one");
-    assert.equal(memoryCards[1]!.id, MEM_ID_2);
-    assert.equal(memoryCards[1]!.content, "kp13 acceptance: global memory probe two (pinned)");
-    assert.equal(memoryCards[1]!.frontmatter.pin, true, "pin survives the round-trip on the envelope");
-    assert.equal(memoryCards[0]!.frontmatter.created, "2026-08-15", "created survives");
-    assert.equal(memoryCards[0]!.frontmatter.last, "2026-08-15", "last survives");
+    assert.equal(memoryCards[0]?.id, MEM_ID_1, "card id == the §-entry frontmatter id (md_id key)");
+    assert.equal(memoryCards[0]?.content, "kp13 acceptance: global memory probe one");
+    assert.equal(memoryCards[1]?.id, MEM_ID_2);
+    assert.equal(memoryCards[1]?.content, "kp13 acceptance: global memory probe two (pinned)");
+    assert.equal(memoryCards[1]?.frontmatter.pin, true, "pin survives the round-trip on the envelope");
+    assert.equal(memoryCards[0]?.frontmatter.created, "2026-08-15", "created survives");
+    assert.equal(memoryCards[0]?.frontmatter.last, "2026-08-15", "last survives");
     // kind user.
     const userCards = await store.getCardsByKind("user");
     assert.equal(userCards.length, 1);
-    assert.equal(userCards[0]!.id, USER_ID);
-    assert.equal(userCards[0]!.content, "kp13 acceptance: user profile probe");
+    assert.equal(userCards[0]?.id, USER_ID);
+    assert.equal(userCards[0]?.content, "kp13 acceptance: user profile probe");
     // kind failure — state + severity survive per entry.
     const failureCards = (await store.getCardsByKind("failure")).sort((a, b) => a.id.localeCompare(b.id));
     assert.equal(failureCards.length, 2);
-    assert.equal(failureCards[0]!.id, FAIL_ID_1);
-    assert.match(failureCards[0]!.content, /active failure probe/);
-    assert.equal(failureCards[0]!.frontmatter.state, "active");
-    assert.equal(failureCards[0]!.frontmatter.severity, 2);
-    assert.equal(failureCards[1]!.frontmatter.state, "resolved");
-    assert.equal(failureCards[1]!.frontmatter.severity, 1);
+    assert.equal(failureCards[0]?.id, FAIL_ID_1);
+    assert.match(failureCards[0]?.content, /active failure probe/);
+    assert.equal(failureCards[0]?.frontmatter.state, "active");
+    assert.equal(failureCards[0]?.frontmatter.severity, 2);
+    assert.equal(failureCards[1]?.frontmatter.state, "resolved");
+    assert.equal(failureCards[1]?.frontmatter.severity, 1);
 
     // Idempotence (lazy re-migration contract): re-walk → zero writes, same rows.
     const second = await walkAndIngest([walkInput], { memoryDir });
@@ -274,11 +266,7 @@ describe("kp13 acceptance — ticket 13 (memory-card graduation, Wave C)", () =>
     fs.mkdirSync(zettelDir, { recursive: true });
     fs.writeFileSync(path.join(zettelDir, "kp13-acceptance.md"), zettel("original knowledge body"), "utf8");
     // Memory side: a MEMORY.md entry.
-    fs.writeFileSync(
-      path.join(memoryDir, MEMORY_FILE),
-      fm(MEM_ID_1, "original memory body"),
-      "utf8",
-    );
+    fs.writeFileSync(path.join(memoryDir, MEMORY_FILE), fm(MEM_ID_1, "original memory body"), "utf8");
 
     // ONE walk mirrors BOTH kinds into the SAME store.
     const first = await walkAndIngest([walkInput], { memoryDir });
@@ -288,19 +276,15 @@ describe("kp13 acceptance — ticket 13 (memory-card graduation, Wave C)", () =>
     const store = await openStore(memoryDir);
     const knowledge = await store.getCard("t:kp13-acceptance");
     assert.ok(knowledge, "knowledge card mirrored into the unified store");
-    assert.equal(knowledge!.kind, "knowledge");
-    assert.equal(knowledge!.content, "original knowledge body");
+    assert.equal(knowledge?.kind, "knowledge");
+    assert.equal(knowledge?.content, "original knowledge body");
     const memoryCard = await store.getCard(MEM_ID_1);
     assert.ok(memoryCard, "memory card mirrored into the same unified store");
-    assert.equal(memoryCard!.content, "original memory body");
+    assert.equal(memoryCard?.content, "original memory body");
 
     // EDIT both md sources, then re-run the same walk (the Tier-1 re-index).
     fs.writeFileSync(path.join(zettelDir, "kp13-acceptance.md"), zettel("edited knowledge body"), "utf8");
-    fs.writeFileSync(
-      path.join(memoryDir, MEMORY_FILE),
-      fm(MEM_ID_1, "edited memory body"),
-      "utf8",
-    );
+    fs.writeFileSync(path.join(memoryDir, MEMORY_FILE), fm(MEM_ID_1, "edited memory body"), "utf8");
     const second = await walkAndIngest([walkInput], { memoryDir });
 
     // Memory leg: md WINS — the row UPDATEs in place (id stable). This is the
@@ -308,8 +292,8 @@ describe("kp13 acceptance — ticket 13 (memory-card graduation, Wave C)", () =>
     assert.equal(second.memoryMirrored, 1, "the drifted memory entry re-indexes (UPDATE, not skip)");
     const editedMemory = await store.getCard(MEM_ID_1);
     assert.ok(editedMemory);
-    assert.equal(editedMemory!.content, "edited memory body", "md edit propagates into the store (md wins)");
-    assert.equal(editedMemory!.id, MEM_ID_1, "id stays stable across the md-wins update");
+    assert.equal(editedMemory?.content, "edited memory body", "md edit propagates into the store (md wins)");
+    assert.equal(editedMemory?.id, MEM_ID_1, "id stays stable across the md-wins update");
 
     // Knowledge leg: the edited md re-flows through the SAME mirror step
     // idempotently — exactly one row for the id, never duplicated (per-card
@@ -340,11 +324,11 @@ describe("kp13 acceptance — unified-store parity on both backends (thin)", () 
     assert.equal(listed.length, 1, "dedup: re-upserting the identical memory card adds no row");
     const got = await store.getCard(id);
     assert.ok(got, "getCard returns the row");
-    assert.equal(got!.content, card.content);
-    assert.deepEqual(got!.frontmatter, card.frontmatter, "envelope round-trips identically");
+    assert.equal(got?.content, card.content);
+    assert.deepEqual(got?.frontmatter, card.frontmatter, "envelope round-trips identically");
     await store.updateCard({ ...card, content: `kp13 Wave C parity probe (${tag}) — updated` });
     const updated = await store.getCard(id);
-    assert.equal(updated!.content, `kp13 Wave C parity probe (${tag}) — updated`, "updateCard refreshes in place");
+    assert.equal(updated?.content, `kp13 Wave C parity probe (${tag}) — updated`, "updateCard refreshes in place");
     await store.deleteCard(id);
     assert.equal(await store.getCard(id), null, "deleteCard removes the row");
   }
@@ -358,7 +342,11 @@ describe("kp13 acceptance — unified-store parity on both backends (thin)", () 
   it("surrealdb backend: memory-kind write/read/query/dedup/update/delete against the unified store (skips when server is down)", async () => {
     if (!(await probeSurreal())) return; // graceful skip — status logged above
     const bundle = await createBackendBundle(
-      { ...loadConfig(path.join(os.tmpdir(), "kp13c-nonexistent-config.json")), dbBackend: "surrealdb", surreal: TEST_SURREAL },
+      {
+        ...loadConfig(path.join(os.tmpdir(), "kp13c-nonexistent-config.json")),
+        dbBackend: "surrealdb",
+        surreal: TEST_SURREAL,
+      },
       "unused-memory-dir",
     );
     try {
@@ -374,7 +362,7 @@ describe("kp13 acceptance — unified-store parity on both backends (thin)", () 
 afterEach(async () => {
   while (STORES.length) {
     try {
-      await STORES.pop()!.close();
+      await STORES.pop()?.close();
     } catch {
       /* ignore */
     }

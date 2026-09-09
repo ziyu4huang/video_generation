@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { MemoryEntry } from "../store/repository.js";
-import {
-  findDanglingLineageReferences,
-  formatDanglingWarning,
-} from "./integrity-sweep.js";
+import { findDanglingLineageReferences, formatDanglingWarning } from "./integrity-sweep.js";
 
 /** Build a minimal MemoryEntry with sensible defaults + per-test overrides. */
 function mk(over: Partial<MemoryEntry> & { id: number }): MemoryEntry {
@@ -68,10 +65,7 @@ describe("findDanglingLineageReferences", () => {
   test("freshIds entries are skipped (fresh-successor exclusion)", () => {
     // id 5 is fresh (created this round) and points at an absent id → excluded.
     // id 6 points at the same absent id but is not fresh → flagged.
-    const entries = [
-      mk({ id: 5, supersedes: 4242 }),
-      mk({ id: 6, supersedes: 4242 }),
-    ];
+    const entries = [mk({ id: 5, supersedes: 4242 }), mk({ id: 6, supersedes: 4242 })];
     expect(findDanglingLineageReferences(entries, new Set([5]))).toEqual([
       { entryId: 6, target: "memory", field: "supersedes", missingId: 4242 },
     ]);
@@ -94,8 +88,8 @@ describe("findDanglingLineageReferences", () => {
   });
 
   test("formatDanglingWarning renders a stable line", () => {
-    expect(
-      formatDanglingWarning({ entryId: 7, target: "failure", field: "supersedes", missingId: 99 }),
-    ).toBe("dangling supersedes: failure#7 → missing id 99");
+    expect(formatDanglingWarning({ entryId: 7, target: "failure", field: "supersedes", missingId: 99 })).toBe(
+      "dangling supersedes: failure#7 → missing id 99",
+    );
   });
 });

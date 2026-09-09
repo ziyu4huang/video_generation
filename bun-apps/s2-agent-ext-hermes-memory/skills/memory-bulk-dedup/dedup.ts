@@ -42,8 +42,8 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmdirSync,
   rmSync,
   statSync,
@@ -96,24 +96,41 @@ const HELP = `# dedup.sh — deterministic bulk-dedup of one pi-memory target.
 # store paths from its own location. Every store artifact (sessions.db, the
 # per-target .md sources, timestamped backups, the cross-process .md.lock, and
 # the .tsv manifest) resolves under the agent-root memory dir:
-#   \${PI_CODING_AGENT_DIR:-\$HOME/.pi/agent}/pi-hermes-memory/`;
+#   \${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/pi-hermes-memory/`;
 
 // ── arg parsing (identical flag set + error messages to dedup.sh) ────────────
 const argv = process.argv.slice(2);
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   switch (a) {
-    case "--target": TARGET = argv[++i] ?? ""; break;
-    case "--db": DB = argv[++i] ?? ""; break;
-    case "--prefix-len": PREFIX_LEN = argv[++i] ?? ""; break;
-    case "--stub-maxlen": STUB_MAXLEN = argv[++i] ?? ""; break;
-    case "--keep-backups": KEEP_BACKUPS = argv[++i] ?? ""; break; // (string; used in arithmetic like bash)
-    case "--commit": COMMIT = 1; break;
-    case "--prune-stubs": PRUNE_STUBS = 1; break;
+    case "--target":
+      TARGET = argv[++i] ?? "";
+      break;
+    case "--db":
+      DB = argv[++i] ?? "";
+      break;
+    case "--prefix-len":
+      PREFIX_LEN = argv[++i] ?? "";
+      break;
+    case "--stub-maxlen":
+      STUB_MAXLEN = argv[++i] ?? "";
+      break;
+    case "--keep-backups":
+      KEEP_BACKUPS = argv[++i] ?? "";
+      break; // (string; used in arithmetic like bash)
+    case "--commit":
+      COMMIT = 1;
+      break;
+    case "--prune-stubs":
+      PRUNE_STUBS = 1;
+      break;
     case "-h":
     case "--help":
-      process.stdout.write(`${HELP}\n`);
-      process.exit(0);
+      if (a === "-h" || a === "--help") {
+        process.stdout.write(`${HELP}\n`);
+        process.exit(0);
+      }
+      break;
     default:
       console.error(`unknown arg: ${a} (try --help)`);
       process.exit(2);
@@ -158,23 +175,30 @@ let piCount = 0;
   }
   piCount = out
     .split("\n")
-    .filter((l) => l !== "" &&
-      (l.toLowerCase().includes("pi-coding-agent") || l.toLowerCase().includes("s2-agent/src/cli")) &&
-      !l.includes("grep") && !l.includes("dedup.sh"))
-    .length;
+    .filter(
+      (l) =>
+        l !== "" &&
+        (l.toLowerCase().includes("pi-coding-agent") || l.toLowerCase().includes("s2-agent/src/cli")) &&
+        !l.includes("grep") &&
+        !l.includes("dedup.sh"),
+    ).length;
 }
 
 console.log(`▸ s2-agent processes: ${piCount}  (race risk if another session writes the DB mid-run)`);
 console.log(`▸ store dir: ${MEM_DIR}`);
 if (COMMIT === 1 && piCount > 1) {
-  console.error("  ℹ multiple s2-agent processes detected — the .md-trim below is now cross-process-locked (Workstream B), so a live session's write can't clobber it. DB hydration / a session's in-memory cache may still lag until it reloads.");
+  console.error(
+    "  ℹ multiple s2-agent processes detected — the .md-trim below is now cross-process-locked (Workstream B), so a live session's write can't clobber it. DB hydration / a session's in-memory cache may still lag until it reloads.",
+  );
 }
 
 const q = (sql: string) => db.query(sql).all();
 const q1 = (sql: string) => db.query(sql).get();
 
 const BEFORE = Number((q1(`SELECT COUNT(*) AS n FROM memories WHERE target='${TARGET}';`) as { n: number }).n);
-const BEFORE_CHARS = Number((q1(`SELECT COALESCE(sum(length(content)),0) AS n FROM memories WHERE target='${TARGET}';`) as { n: number }).n);
+const BEFORE_CHARS = Number(
+  (q1(`SELECT COALESCE(sum(length(content)),0) AS n FROM memories WHERE target='${TARGET}';`) as { n: number }).n,
+);
 console.log(`▸ target='${TARGET}'  rows=${BEFORE}  chars=${BEFORE_CHARS}`);
 console.log(`▸ mode=${COMMIT === 1 ? "COMMIT" : "DRY-RUN"}  prune-stubs=${PRUNE_STUBS}`);
 console.log();
@@ -207,7 +231,7 @@ if (hardRows.length > 0) {
 } else {
   console.log("  (none)");
 }
-const HARD_N = hardRows.length;
+const _HARD_N = hardRows.length;
 console.log();
 
 // ── 2. STUB candidates: [bash error] prefix or very short (report-only) ─────
@@ -264,7 +288,9 @@ if (PRUNE_STUBS === 0 && STUB_N > 0) {
 // ── dry-run stops here ──────────────────────────────────────────────────────
 if (COMMIT === 0) {
   console.log();
-  console.log(`▸ DRY-RUN — nothing deleted. Re-run with --commit to apply hard-deletes${PRUNE_STUBS === 1 ? " + stubs" : ""}.`);
+  console.log(
+    `▸ DRY-RUN — nothing deleted. Re-run with --commit to apply hard-deletes${PRUNE_STUBS === 1 ? " + stubs" : ""}.`,
+  );
   process.exit(0);
 }
 
@@ -295,9 +321,7 @@ writeFileSync(MANIFEST, "id\tcategory\tlength\tpreview\n");
 // The §-filter below is ported verbatim from dedup.sh's embedded python — same
 // split/prefix/trailing-separator semantics, do not redesign.
 const MDFILE =
-  TARGET === "failure" ? `${MEM_DIR}/failures.md` :
-  TARGET === "memory" ? `${MEM_DIR}/MEMORY.md` :
-  `${MEM_DIR}/USER.md`;
+  TARGET === "failure" ? `${MEM_DIR}/failures.md` : TARGET === "memory" ? `${MEM_DIR}/MEMORY.md` : `${MEM_DIR}/USER.md`;
 if (existsSync(MDFILE)) {
   // ── cross-process .md lock (Workstream B) ────────────────────────────────
   // MemoryStore wraps loadFromDisk→saveToDisk in a proper-lockfile advisory
@@ -317,7 +341,9 @@ if (existsSync(MDFILE)) {
       _tries++;
       if (_tries > 200) {
         console.error("  ⚠ .md lock held >20s by another process — aborting trim to avoid a lost-update race.");
-        console.error(`    DB rows NOT deleted. Re-run dedup when no session is mid-write (or after restart). Backup: ${BAK}`);
+        console.error(
+          `    DB rows NOT deleted. Re-run dedup when no session is mid-write (or after restart). Backup: ${BAK}`,
+        );
         process.exit(1);
       }
       if (existsSync(LOCK)) {
@@ -345,10 +371,15 @@ if (existsSync(MDFILE)) {
     // verbatim of dedup.sh's embedded python:
     //   rows = SELECT content FROM memories WHERE target=?
     //   md_cand / prefixes / parts / removed / kept / trailing-"§" fix
-    const contents = (db.query(`SELECT content FROM memories WHERE target='${TARGET}';`).all() as { content: string }[]).map((r) => r.content);
+    const contents = (
+      db.query(`SELECT content FROM memories WHERE target='${TARGET}';`).all() as { content: string }[]
+    ).map((r) => r.content);
     const mdCand = (c: string): boolean =>
-      c.startsWith("[REMOVED") || c.startsWith("[MERGED-PLACEHOLDER") || c.startsWith("REMOVED —") ||
-      (PRUNE_STUBS === 1 && (c.startsWith("[bash error]") || c.startsWith("[failure] [bash error]") || c.length < Number(STUB_MAXLEN)));
+      c.startsWith("[REMOVED") ||
+      c.startsWith("[MERGED-PLACEHOLDER") ||
+      c.startsWith("REMOVED —") ||
+      (PRUNE_STUBS === 1 &&
+        (c.startsWith("[bash error]") || c.startsWith("[failure] [bash error]") || c.length < Number(STUB_MAXLEN)));
     const prefixes = new Set<string>();
     for (const c of contents) if (mdCand(c)) prefixes.add(c.slice(0, 60));
 
@@ -359,7 +390,7 @@ if (existsSync(MDFILE)) {
     const startsWithPrefix = (e: string): boolean => {
       const le = e.replace(/^\s+/, "");
       return [...prefixes].some((x) => le.startsWith(x));
-    }
+    };
     const removed = parts.filter(startsWithPrefix);
     const kept = parts.filter((e) => !startsWithPrefix(e));
     let newText = kept.join("\n§\n");
@@ -371,7 +402,9 @@ if (existsSync(MDFILE)) {
     for (const e of removed) {
       writeFileSync(MANIFEST, `MD-entry\t${e.replace(/\n/g, " ").slice(0, 120)}\n`, { flag: "a" });
     }
-    console.log(`▸ .md source trim: ${parts.length} -> ${kept.length} §-entries (removed ${removed.length}) [${basename(p)}]`);
+    console.log(
+      `▸ .md source trim: ${parts.length} -> ${kept.length} §-entries (removed ${removed.length}) [${basename(p)}]`,
+    );
   } finally {
     try {
       rmdirSync(`${MDFILE}.lock`);
@@ -382,24 +415,29 @@ if (existsSync(MDFILE)) {
 } else {
   // Kept byte-identical to dedup.sh's warning (stderr, unpinned by goldens):
   // the .ts twin needs no python3, but wording parity is the safer contract.
-  console.error(`  ⚠ python3 or ${MDFILE} missing — .md NOT trimmed; DB deletes WILL re-hydrate. Trim ${MDFILE} manually.`);
+  console.error(
+    `  ⚠ python3 or ${MDFILE} missing — .md NOT trimmed; DB deletes WILL re-hydrate. Trim ${MDFILE} manually.`,
+  );
 }
 
 // append DB rows being deleted to the manifest (same order as old `sort -n | sort -u`)
 for (const rid of delIds) {
-  const row = db.query(
-    `SELECT id, COALESCE(category,'') AS cat, length(content) AS L,
+  const row = db
+    .query(
+      `SELECT id, COALESCE(category,'') AS cat, length(content) AS L,
        substr(replace(replace(content,char(10),' '),char(13),' '),1,90) AS preview
      FROM memories WHERE id=${rid};`,
-  ).get() as { id: number; cat: string; L: number; preview: string };
+    )
+    .get() as { id: number; cat: string; L: number; preview: string };
   writeFileSync(MANIFEST, `${row.id}\t${row.cat}\t${row.L}\t${row.preview}\n`, { flag: "a" });
 }
 console.log(`▸ manifest: ${MANIFEST}`);
 
 // DELETE via WITH-clause (re-derives the sets transactionally).
-const PRUNE_CLAUSE = PRUNE_STUBS === 1
-  ? `, stubs AS (SELECT id FROM memories WHERE target='${TARGET}' AND (content LIKE '[bash error]%' OR content LIKE '[failure] [bash error]%' OR length(content) < ${STUB_MAXLEN}))`
-  : "";
+const PRUNE_CLAUSE =
+  PRUNE_STUBS === 1
+    ? `, stubs AS (SELECT id FROM memories WHERE target='${TARGET}' AND (content LIKE '[bash error]%' OR content LIKE '[failure] [bash error]%' OR length(content) < ${STUB_MAXLEN}))`
+    : "";
 db.exec(`BEGIN;
 WITH tombstones AS (
   SELECT id FROM memories WHERE target='${TARGET}'
@@ -415,11 +453,21 @@ COMMIT;`);
 
 // ── verify FTS integrity ────────────────────────────────────────────────────
 const AFTER_N = Number((q1(`SELECT COUNT(*) AS n FROM memories WHERE target='${TARGET}';`) as { n: number }).n);
-const AFTER_CHARS = Number((q1(`SELECT COALESCE(sum(length(content)),0) AS n FROM memories WHERE target='${TARGET}';`) as { n: number }).n);
-const orphans = Number((q1("SELECT COUNT(*) AS n FROM memory_fts f LEFT JOIN memories m ON m.id=f.rowid WHERE m.id IS NULL;") as { n: number }).n);
+const AFTER_CHARS = Number(
+  (q1(`SELECT COALESCE(sum(length(content)),0) AS n FROM memories WHERE target='${TARGET}';`) as { n: number }).n,
+);
+const orphans = Number(
+  (
+    q1("SELECT COUNT(*) AS n FROM memory_fts f LEFT JOIN memories m ON m.id=f.rowid WHERE m.id IS NULL;") as {
+      n: number;
+    }
+  ).n,
+);
 const ftsTotal = Number((q1("SELECT COUNT(*) AS n FROM memory_fts;") as { n: number }).n);
 const memTotal = Number((q1("SELECT COUNT(*) AS n FROM memories;") as { n: number }).n);
-console.log(`▸ AFTER: rows=${AFTER_N}  chars=${AFTER_CHARS}  (removed ${BEFORE - AFTER_N} rows, ${BEFORE_CHARS - AFTER_CHARS} chars)`);
+console.log(
+  `▸ AFTER: rows=${AFTER_N}  chars=${AFTER_CHARS}  (removed ${BEFORE - AFTER_N} rows, ${BEFORE_CHARS - AFTER_CHARS} chars)`,
+);
 console.log(`▸ FTS: orphans=${orphans}  (must be 0)   memory_fts=${ftsTotal}  memories=${memTotal}  (must match)`);
 if (orphans !== 0 || ftsTotal !== memTotal) {
   console.error(`  ⚠ FTS INTEGRITY CHECK FAILED — restore from ${BAK}`);
@@ -439,4 +487,6 @@ if (pruned.length > 0) {
   for (const p of pruned) rmSync(resolve(MEM_DIR, p.name), { force: true });
   console.log(`▸ pruned ${pruned.length} old backup(s) (kept newest ${KEEP_BACKUPS})`);
 }
-console.log("▸ done. (note: a running agent's in-memory capacity counter may stay stale until restart — the on-disk DB is clean.)");
+console.log(
+  "▸ done. (note: a running agent's in-memory capacity counter may stay stale until restart — the on-disk DB is clean.)",
+);

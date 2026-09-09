@@ -29,7 +29,7 @@ export function publishStaleCheck(memoryDir: string): void {
     effort: string | undefined,
     cwd: string,
   ): Promise<{ stale: Array<{ cardId: string; effort: string; missingDeps?: string[] }> }> => {
-    let store;
+    let store: Awaited<ReturnType<typeof createCardStore>>;
     try {
       store = await createCardStore({ memoryDir });
     } catch {

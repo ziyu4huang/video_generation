@@ -11,13 +11,13 @@
  * injected provider (set via the inherited `setHeatForEntriesProvider`).
  */
 
+import { afterAll, beforeAll, describe, it } from "bun:test";
+import assert from "node:assert/strict";
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import * as fs from "node:fs/promises";
-import { describe, it, beforeAll, afterAll } from "bun:test";
-import assert from "node:assert/strict";
-import { MemoryStore, type HeatEntryInput } from "../../src/store/memory-store.js";
 import { DEFAULT_MEMORY_CHAR_LIMIT, DEFAULT_USER_CHAR_LIMIT } from "../../src/constants.js";
+import { type HeatEntryInput, MemoryStore } from "../../src/store/memory-store.js";
 import type { MemoryConfig } from "../../src/types.js";
 
 let MEMORY_DIR = "";
@@ -51,7 +51,11 @@ describe("MemoryStore heat-provider seam (setHeatForEntriesProvider + computeHea
     MEMORY_DIR = await fs.mkdtemp(path.join(os.tmpdir(), "pi-heat-seam-"));
   });
   afterAll(async () => {
-    try { await fs.rm(MEMORY_DIR, { recursive: true, force: true }); } catch { /* ignore */ }
+    try {
+      await fs.rm(MEMORY_DIR, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
   });
 
   it("computeHeats returns null when no provider is attached", async () => {
@@ -62,12 +66,15 @@ describe("MemoryStore heat-provider seam (setHeatForEntriesProvider + computeHea
 
   it("computeHeats returns the provider's Map when set + non-empty", async () => {
     const store = makeStore();
-    const fixed = new Map([["a", 0.9], ["b", 0.1]]);
+    const fixed = new Map([
+      ["a", 0.9],
+      ["b", 0.1],
+    ]);
     store.setHeatForEntriesProvider(async () => fixed);
     const result = await store.computeHeatsExposed("memory", [entry("a"), entry("b")]);
     assert.notEqual(result, null);
-    assert.equal(result!.get("a"), 0.9);
-    assert.equal(result!.get("b"), 0.1);
+    assert.equal(result?.get("a"), 0.9);
+    assert.equal(result?.get("b"), 0.1);
   });
 
   it("computeHeats passes the target through to the provider", async () => {

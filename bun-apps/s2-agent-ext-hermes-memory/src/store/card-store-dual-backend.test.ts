@@ -13,18 +13,18 @@
 // SurrealBackend.init's idempotent bootstrap), never the agent's live data,
 // and skip gracefully when no local SurrealDB server is reachable.
 
-import { describe, it } from "node:test";
 import * as assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createCardStore, type CardStore } from "./card-store.js";
-import { createBackendBundle, createBackendBundleWithFallback } from "./backend-factory.js";
+import { join } from "node:path";
+import { describe, it } from "node:test";
 import { loadConfig } from "../config.js";
+import { createBackendBundle, createBackendBundleWithFallback } from "./backend-factory.js";
+import type { Card } from "./card.js";
+import { type CardStore, createCardStore } from "./card-store.js";
 import type { MemoryTarget } from "./repository.js";
 import { SurrealBackend } from "./surreal/surreal-backend.js";
 import type { SurrealMemoryRepository } from "./surreal/surreal-memory-repo.js";
-import type { Card } from "./card.js";
 
 // ── Surreal reachability probe (isolated ns/db; skip when the server is down) ──
 
@@ -49,14 +49,9 @@ function baseConfig(overrides: Record<string, unknown>) {
 }
 
 /** Reachability-gated surreal bundle. `undefined` when the server is down. */
-async function surrealBundle(): Promise<
-  Awaited<ReturnType<typeof createBackendBundle>> | undefined
-> {
+async function surrealBundle(): Promise<Awaited<ReturnType<typeof createBackendBundle>> | undefined> {
   if (!SURREAL_UP) return undefined;
-  return createBackendBundle(
-    baseConfig({ dbBackend: "surrealdb", surreal: TEST_SURREAL }),
-    "unused-memory-dir",
-  );
+  return createBackendBundle(baseConfig({ dbBackend: "surrealdb", surreal: TEST_SURREAL }), "unused-memory-dir");
 }
 
 /** The SAME contract body run against both backends (contract-style test). */
@@ -142,7 +137,9 @@ describe("card-store dual-backend contract (kp13 Wave A)", () => {
     }
   });
 
-  it("surreal: C6 exact-dup dedup rides on the insert path (same content twice → one row)", { skip: !SURREAL_UP }, async () => {
+  it("surreal: C6 exact-dup dedup rides on the insert path (same content twice → one row)", {
+    skip: !SURREAL_UP,
+  }, async () => {
     const bundle = await surrealBundle();
     assert.ok(bundle, "bundle");
     const repo = bundle.memoryRepo as SurrealMemoryRepository;

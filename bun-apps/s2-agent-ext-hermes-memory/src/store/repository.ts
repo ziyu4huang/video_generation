@@ -5,10 +5,11 @@
  */
 
 export type MemoryTarget = "memory" | "user" | "failure";
+
 import type { FailureState } from "../types.js";
 import type { CardStore } from "./card-store.js";
 
-export type { MemoryCategory, FailureState } from "../types.js";
+export type { FailureState, MemoryCategory } from "../types.js";
 
 export interface MemoryEntry {
   id: number;
@@ -70,13 +71,41 @@ export interface MemorySyncInput {
   pin?: boolean;
 }
 
-export interface MemorySyncResult { action: "inserted" | "existing"; entry: MemoryEntry; }
-export interface MemoryUpdateResult { matched: number; updated: number; entries: MemoryEntry[]; }
-export interface MemoryRemoveResult { matched: number; removed: number; }
-export interface MemoryRemoveOptions { target: MemoryTarget; project?: string | null; }
-export interface MemorySearchOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; limit?: number; includeSuperseded?: boolean; }
-export interface MemoryListOptions { project?: string | null; target?: MemoryTarget; category?: import("../types.js").MemoryCategory; /** When set, filter by the supersession status column. Omit = return all. */ status?: "active" | "superseded"; }
-export interface MemoryStats { total: number; byProject: { project: string | null; count: number }[]; byTarget: { target: string; count: number }[]; }
+export interface MemorySyncResult {
+  action: "inserted" | "existing";
+  entry: MemoryEntry;
+}
+export interface MemoryUpdateResult {
+  matched: number;
+  updated: number;
+  entries: MemoryEntry[];
+}
+export interface MemoryRemoveResult {
+  matched: number;
+  removed: number;
+}
+export interface MemoryRemoveOptions {
+  target: MemoryTarget;
+  project?: string | null;
+}
+export interface MemorySearchOptions {
+  project?: string | null;
+  target?: MemoryTarget;
+  category?: import("../types.js").MemoryCategory;
+  limit?: number;
+  includeSuperseded?: boolean;
+}
+export interface MemoryListOptions {
+  project?: string | null;
+  target?: MemoryTarget;
+  category?: import("../types.js").MemoryCategory /** When set, filter by the supersession status column. Omit = return all. */;
+  status?: "active" | "superseded";
+}
+export interface MemoryStats {
+  total: number;
+  byProject: { project: string | null; count: number }[];
+  byTarget: { target: string; count: number }[];
+}
 
 export interface MemoryRepository {
   /** C6: exact-dup dedup is part of THIS contract. Dedup identity mirrors
@@ -88,10 +117,15 @@ export interface MemoryRepository {
    *  Near-dup / topic-level dedup (similarity, semantic keys) stays a
    *  MemoryStore-layer concern — NOT part of this repository contract. */
   addMemory(input: {
-    content: string; target?: MemoryTarget; project?: string | null;
+    content: string;
+    target?: MemoryTarget;
+    project?: string | null;
     category?: import("../types.js").MemoryCategory | null;
-    failureReason?: string | null; toolState?: string | null; correctedTo?: string | null;
-    created?: string; lastReferenced?: string;
+    failureReason?: string | null;
+    toolState?: string | null;
+    correctedTo?: string | null;
+    created?: string;
+    lastReferenced?: string;
     /** Stable markdown-side id to stamp on the new row's md_id (Task 7). */
     mdId?: string | null;
     /** Failure lifecycle state to stamp on the new row (Task 2). */
@@ -108,23 +142,30 @@ export interface MemoryRepository {
    *  Behavior is identical to N sequential `syncMemoryEntry` calls; only the
    *  transport is collapsed. Keeps `syncMemoryEntry` for non-batch callers. */
   syncMemoryEntriesBatch(inputs: MemorySyncInput[]): Promise<MemorySyncResult[]>;
-  replaceSyncedMemories(oldText: string, updates: {
-    content: string; target: MemoryTarget; project?: string | null;
-    category?: import("../types.js").MemoryCategory | null;
-    failureReason?: string | null; toolState?: string | null; correctedTo?: string | null;
-    lastReferenced?: string | null;
-    /** Stable markdown-side id to stamp onto the updated row's md_id (Task 7):
-     *  a replace births a NEW entry, so the row's md_id tracks the replacement's
-     *  fresh uuid, not the superseded entry's id. Absent → md_id untouched. */
-    mdId?: string | null;
-    /** Failure lifecycle state to stamp onto the updated row (Task 2).
-     *  Absent → state untouched. */
-    state?: FailureState;
-    /** Advisory failure severity to stamp onto the updated row (Task 2). */
-    severity?: number | null;
-    /** Pin lock to stamp onto the updated row (ticket 02). Absent → pin untouched. */
-    pin?: boolean;
-  }): Promise<MemoryUpdateResult>;
+  replaceSyncedMemories(
+    oldText: string,
+    updates: {
+      content: string;
+      target: MemoryTarget;
+      project?: string | null;
+      category?: import("../types.js").MemoryCategory | null;
+      failureReason?: string | null;
+      toolState?: string | null;
+      correctedTo?: string | null;
+      lastReferenced?: string | null;
+      /** Stable markdown-side id to stamp onto the updated row's md_id (Task 7):
+       *  a replace births a NEW entry, so the row's md_id tracks the replacement's
+       *  fresh uuid, not the superseded entry's id. Absent → md_id untouched. */
+      mdId?: string | null;
+      /** Failure lifecycle state to stamp onto the updated row (Task 2).
+       *  Absent → state untouched. */
+      state?: FailureState;
+      /** Advisory failure severity to stamp onto the updated row (Task 2). */
+      severity?: number | null;
+      /** Pin lock to stamp onto the updated row (ticket 02). Absent → pin untouched. */
+      pin?: boolean;
+    },
+  ): Promise<MemoryUpdateResult>;
   removeSyncedMemories(oldText: string, options: MemoryRemoveOptions): Promise<MemoryRemoveResult>;
   /** @deprecated backfill-only — use {@link removeByMdId} in steady state.
    *  Retained for the Task 4 content-key backfill + the surreal graph-edge
@@ -154,13 +195,45 @@ export interface MemoryRepository {
   supersedeMemory(priorId: number, newId: number): Promise<void>;
 }
 
-export interface SessionRecord { id: string; project: string; cwd: string; startedAt: string; endedAt: string | null; messageCount: number; }
-export interface MessageRecord { id: string; sessionId: string; role: "user" | "assistant" | "system"; content: string; timestamp: string; toolCalls: string | null; }
-export interface SessionFileMeta { path: string; sessionId: string; size: number; mtimeMs: number; indexedAt: string; }
-export interface SessionSearchResult { sessionId: string; messageId: string; role: "user" | "assistant" | "system"; content: string; timestamp: string; project: string; cwd: string; }
+export interface SessionRecord {
+  id: string;
+  project: string;
+  cwd: string;
+  startedAt: string;
+  endedAt: string | null;
+  messageCount: number;
+}
+export interface MessageRecord {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: string;
+  toolCalls: string | null;
+}
+export interface SessionFileMeta {
+  path: string;
+  sessionId: string;
+  size: number;
+  mtimeMs: number;
+  indexedAt: string;
+}
+export interface SessionSearchResult {
+  sessionId: string;
+  messageId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: string;
+  project: string;
+  cwd: string;
+}
 
 /** Result of indexing a single session (mirrors the original IndexResult). */
-export interface IndexResult { sessionId: string; messagesIndexed: number; skipped: boolean; }
+export interface IndexResult {
+  sessionId: string;
+  messagesIndexed: number;
+  skipped: boolean;
+}
 
 /** Result of a bulk index run (mirrors the original BulkIndexResult). Callers consume every field. */
 export interface BulkIndexResult {
@@ -172,7 +245,10 @@ export interface BulkIndexResult {
   reachedLimit?: boolean;
 }
 
-export interface IncrementalIndexOptions { projectDir?: string; maxFilesToIndex?: number; }
+export interface IncrementalIndexOptions {
+  projectDir?: string;
+  maxFilesToIndex?: number;
+}
 
 export interface SessionStats {
   totalSessions: number;
@@ -181,13 +257,27 @@ export interface SessionStats {
 }
 
 export interface SessionRepository {
-  indexSession(session: { id: string; project?: string; cwd?: string; startedAt?: string; endedAt?: string | null; messages?: unknown[] }): Promise<IndexResult>;
+  indexSession(session: {
+    id: string;
+    project?: string;
+    cwd?: string;
+    startedAt?: string;
+    endedAt?: string | null;
+    messages?: unknown[];
+  }): Promise<IndexResult>;
   indexAllSessions(sessionsDir: string, projectDir?: string): Promise<BulkIndexResult>;
   indexChangedSessions(sessionsDir: string, options?: IncrementalIndexOptions): Promise<BulkIndexResult>;
-  upsertSessionFileMeta(filePath: string, sessionId: string, options?: { size?: number; mtimeMs?: number }): Promise<void>;
+  upsertSessionFileMeta(
+    filePath: string,
+    sessionId: string,
+    options?: { size?: number; mtimeMs?: number },
+  ): Promise<void>;
   needsBackfill(sessionsDir: string, now?: number): Promise<boolean>;
   touchBackfillTimestamp(timestamp?: string): Promise<void>;
-  searchSessions(query: string, options?: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number }): Promise<SessionSearchResult[]>;
+  searchSessions(
+    query: string,
+    options?: { project?: string | null; role?: "user" | "assistant" | "system"; limit?: number },
+  ): Promise<SessionSearchResult[]>;
   getIndexedMessageCount(): Promise<number>;
   getSessionStats(): Promise<SessionStats>;
   /** Per-session prompt-provenance (UPSP §5): record the assembled md_id set + block hash.

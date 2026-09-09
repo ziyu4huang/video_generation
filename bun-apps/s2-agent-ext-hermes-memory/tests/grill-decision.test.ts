@@ -1,9 +1,14 @@
 // tests/grill-decision.test.ts — direct `executeGrillDecision(store, cardStore, params)`
 // calls (kp14: registerGrillDecisionTool retired; the handler is the internal
 // execute export returning a plain JSON string). Pure gate helpers stay covered as-is.
-import { test, expect } from "bun:test";
-import { evaluateGrillSignal, lexicalOverlap, composeMemoryContent, executeGrillDecision } from "../src/tools/grill-decision-tool.js";
+import { expect, test } from "bun:test";
 import type { MemoryStore } from "../src/store/memory-store.js";
+import {
+  composeMemoryContent,
+  evaluateGrillSignal,
+  executeGrillDecision,
+  lexicalOverlap,
+} from "../src/tools/grill-decision-tool.js";
 
 test("reject → FIRE as preference", () => {
   const r = evaluateGrillSignal({ signal: "reject", content: "prefers httpOnly cookies", existingEntries: [] });
@@ -12,13 +17,21 @@ test("reject → FIRE as preference", () => {
 });
 
 test("preference → FIRE as preference", () => {
-  const r = evaluateGrillSignal({ signal: "preference", content: "always avoid localStorage tokens", existingEntries: [] });
+  const r = evaluateGrillSignal({
+    signal: "preference",
+    content: "always avoid localStorage tokens",
+    existingEntries: [],
+  });
   expect(r.fire).toBe(true);
   expect(r.category).toBe("preference");
 });
 
 test("insight → FIRE as preference", () => {
-  const r = evaluateGrillSignal({ signal: "insight", content: "values simplicity over configurability", existingEntries: [] });
+  const r = evaluateGrillSignal({
+    signal: "insight",
+    content: "values simplicity over configurability",
+    existingEntries: [],
+  });
   expect(r.fire).toBe(true);
   expect(r.category).toBe("preference");
 });
@@ -35,19 +48,32 @@ test("refine → SUPPRESS", () => {
 
 test("duplicate (overlap >= 0.8) → SUPPRESS", () => {
   const existing = ["Prefers httpOnly cookies; rejected JWT-in-localStorage during auth decision."];
-  const r = evaluateGrillSignal({ signal: "reject", content: "Prefers httpOnly cookies; rejected JWT-in-localStorage during auth decision.", existingEntries: existing });
+  const r = evaluateGrillSignal({
+    signal: "reject",
+    content: "Prefers httpOnly cookies; rejected JWT-in-localStorage during auth decision.",
+    existingEntries: existing,
+  });
   expect(r.fire).toBe(false);
   expect(r.reason).toContain("duplicate");
 });
 
 test("distinct content → still FIRE", () => {
   const existing = ["Prefers httpOnly cookies over browser tokens."];
-  const r = evaluateGrillSignal({ signal: "preference", content: "always uses Bun over npm in this monorepo", existingEntries: existing });
+  const r = evaluateGrillSignal({
+    signal: "preference",
+    content: "always uses Bun over npm in this monorepo",
+    existingEntries: existing,
+  });
   expect(r.fire).toBe(true);
 });
 
 test("project-scoped notes → SUPPRESS (belongs in CONTEXT.md)", () => {
-  const r = evaluateGrillSignal({ signal: "preference", content: "this project uses tabs", notes: "project-scoped repo convention", existingEntries: [] });
+  const r = evaluateGrillSignal({
+    signal: "preference",
+    content: "this project uses tabs",
+    notes: "project-scoped repo convention",
+    existingEntries: [],
+  });
   expect(r.fire).toBe(false);
   expect(r.reason).toContain("project-scoped");
 });
@@ -87,8 +113,11 @@ function makeStubStore(userEntries: string[]) {
 test("executeGrillDecision: FIRE writes to user target as preference (JSON string)", async () => {
   const { store, writes } = makeStubStore([]);
   const out = await executeGrillDecision(store, null, {
-    decision: "auth storage", recommendation: "JWT in localStorage",
-    userAnswer: "no", signal: "reject", notes: "prefers httpOnly cookies",
+    decision: "auth storage",
+    recommendation: "JWT in localStorage",
+    userAnswer: "no",
+    signal: "reject",
+    notes: "prefers httpOnly cookies",
   });
   expect(typeof out).toBe("string");
   const parsed = JSON.parse(out);
@@ -102,7 +131,10 @@ test("executeGrillDecision: FIRE writes to user target as preference (JSON strin
 test("executeGrillDecision: SUPPRESS (confirm) writes nothing", async () => {
   const { store, writes } = makeStubStore([]);
   const out = await executeGrillDecision(store, null, {
-    decision: "x", recommendation: "y", userAnswer: "ok", signal: "confirm",
+    decision: "x",
+    recommendation: "y",
+    userAnswer: "ok",
+    signal: "confirm",
   });
   const parsed = JSON.parse(out);
   expect(writes).toHaveLength(0);
