@@ -1,0 +1,78 @@
+# t01 RED-BAR receipt — arc-ledger guard, commit A (uniqueness rule NOT yet implemented)
+# captured: 2026-09-10 05:58:24 | branch: self-arc-19-loop-integrity | head: faacd1a7
+# command: cd bun-apps/s2-agent-ext-wayfind && bun test tests/arc-ledger.test.ts
+# expected: exactly the four not-yet-implemented-feature tests RED; the red run happens BEFORE the uniqueness rule is trusted green.
+
+bun test v1.4.2 (744846f84)
+
+tests/arc-ledger.test.ts:
+62 | });
+63 | 
+64 | describe("the canary: duplicate-claim fixture is REJECTED (permanent)", () => {
+65 | 	it("rejects two non-grandfathered entries claiming the same (series, number)", () => {
+66 | 		const v = validateLedger(FIXTURE, { mainLedger: null });
+67 | 		expect(v.ok).toBe(false);
+                    ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-wayfind/tests/arc-ledger.test.ts:67:16)
+(fail) the canary: duplicate-claim fixture is REJECTED (permanent) > rejects two non-grandfathered entries claiming the same (series, number) [1.10ms]
+(pass) the canary: duplicate-claim fixture is REJECTED (permanent) > accepts the same pair when the OLD claim is grandfathered (grandfathering, not erasure) [1.58ms]
+(pass) the real tree validates clean > bootstrap ledger covers every series dir; grandfathered pairs pass [1.08ms]
+(pass) schema / completeness / agreement > rejects a ledger dir with no entry (untracked claim) [1.14ms]
+(pass) schema / completeness / agreement > rejects an entry whose dir is missing [0.51ms]
+(pass) schema / completeness / agreement > rejects a path/number mismatch [0.82ms]
+(pass) schema / completeness / agreement > rejects frontmatter disagreement (effort or raw status) [0.68ms]
+(pass) schema / completeness / agreement > rejects a malformed ledger (bad version / not JSON / missing file) [0.65ms]
+(pass) schema / completeness / agreement > loadLedger round-trips entries [0.10ms]
+154 | 	it("rejects grandfathered:true on a NEW claim (claimedAt > adopted)", () => {
+155 | 		const root = makeRoot();
+156 | 		seedEffort(root, "2026-09-05-self-arc-7", "active");
+157 | 		seedLedger(root, [entry(7, "2026-09-05-self-arc-7", { grandfathered: true })], "2026-09-01");
+158 | 		const v = validateLedger(root, { mainLedger: null });
+159 | 		expect(v.ok).toBe(false);
+                     ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-wayfind/tests/arc-ledger.test.ts:159:16)
+(fail) grandfather constraints > rejects grandfathered:true on a NEW claim (claimedAt > adopted) [1.08ms]
+170 | 			version: 1,
+171 | 			adopted: "2026-09-01",
+172 | 			entries: [entry(9, "2026-09-03-self-arc-9", { status: "active" })],
+173 | 		});
+174 | 		const v = validateLedger(root, { mainLedger });
+175 | 		expect(v.ok).toBe(false);
+                     ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-wayfind/tests/arc-ledger.test.ts:175:16)
+(fail) origin/main cross-check (the parallel-session class) > fails when a number ACTIVE on main is claimed at a different path here [0.76ms]
+(pass) origin/main cross-check (the parallel-session class) > passes when the tree claim IS main's path (same effort continuing) [0.59ms]
+199 | 			expect(v.ok).toBe(true);
+200 | 			expect(v.crossCheckSkipped).toBe(true);
+201 | 		} finally {
+202 | 			const notes = errSpy.mock.calls.map((c) => c.join(" ")).join("\n");
+203 | 			errSpy.mockRestore();
+204 | 			expect(notes).toContain("arc-ledger cross-check skipped");
+                       ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "arc-ledger cross-check skipped"
+Received: ""
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-wayfind/tests/arc-ledger.test.ts:204:18)
+(fail) origin/main cross-check (the parallel-session class) > skips LOUDLY when origin/main's ledger is unreachable (default probe, no git repo) [0.99ms]
+
+ 9 pass
+ 4 fail
+ 25 expect() calls
+Ran 13 tests across 1 file. [19.00ms]
