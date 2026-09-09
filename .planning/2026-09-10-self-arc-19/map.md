@@ -2,7 +2,7 @@
 effort: 2026-09-10-self-arc-19
 created: 2026-09-10
 last: 2026-09-10
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-10-self-arc-19 — LOOP-INTEGRITY: the loop's own metadata moves from discipline to tooling
@@ -220,3 +220,35 @@ module, one test, one fixture, zero behavior risk to any shipped package.
   remainder (19-package check-script question + skip loudness) → t05, per the
   queue head's premise revision.
 - Absorbed-by: none.
+
+## Shipped-as (2026-09-10, #2250 + close-out)
+
+All six tickets shipped in ONE implementation PR (#2250, squash 9feaa180,
+verify-merge CLEAN, branch spent; review gate ran through the arc's own
+t03 tooling — GLM-5.3 reviewer, VERDICT: APPROVE, zero blockers/should-fix,
+three recorded nits). Deviations and live catches, faithfully:
+
+- **t02's first dry-run caught two false receipts in the handoff that
+  chartered this arc**: the queue head shipped missing two mandatory
+  strict-v2 sections despite a "validated, exit=0" claim, and the "removed"
+  byte-duplicate was still in the queue. Queue repaired in place; receipts in
+  `evidence/t02-dry-run.json`. (Learning #2 twice, against our own output.)
+- **t03's harvest seam is receipted, not fixed**: reviewer-harvest --name
+  arc-reviewer returns absent (exit 1) for a core-spawnSubagent dispatch —
+  the receipt IS the harvest; support filed as successor work
+  (`evidence/t03-harvest-check.txt`).
+- **The ledger met its first live incident the day it shipped**: parallel
+  branches (#2248-era) landed `2026-09-09-self-arc-19-subagent` and
+  `2026-09-09-self-arc-20-dev-pipeline` on main before the ledger did, and
+  the docs-only PR window (#2251) skips package gates, so completeness went
+  red only here. Fixed in close-out: both encoded as grandfathered entries —
+  and the fifth same-number collision (dual arc-19) is recorded, not erased.
+- **Redeploy receipt**: 0.10.3+g9feaa18 — runtime bytes identical (cached);
+  the ext standalone shim DID change (6,062,167 → 6,061,511 bytes,
+  dead-code elimination around the new test-only modules), so the full
+  deployed qualify sweep ran per the iff-src-changed rule: 10/10 green with
+  rpc-pair (`evidence/t06-sweep-summary.md`).
+- Schema-cost +0 asserted by local_ci's tools-metrics check in the merge run.
+
+Successor: strict-v2 handoff written and repointed VIA the arc's own
+repoint-next-goal.ts (the tool's first real write on its author's close-out).

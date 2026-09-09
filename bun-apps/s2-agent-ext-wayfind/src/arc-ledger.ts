@@ -30,8 +30,10 @@ import { parseMapFrontmatter } from "./model.js";
 /** Repo-relative home of the ledger (committed). */
 export const LEDGER_REL_PATH = ".planning/arc-ledger.json";
 
-/** Series folders this bootstrap scopes: `.planning/YYYY-MM-DD-self-arc-<N>/`. */
-export const SELF_ARC_DIR_RE = /^\d{4}-\d{2}-\d{2}-self-arc-(\d+)$/;
+/** Series folders this bootstrap scopes: `.planning/YYYY-MM-DD-self-arc-<N>[<-slug>]/` —
+ *  the optional content slug follows CONVENTIONS' naming guidance (e.g.
+ *  `self-arc-19-subagent`); the number stays the parse target. */
+export const SELF_ARC_DIR_RE = /^\d{4}-\d{2}-\d{2}-self-arc-(\d+)(?:-[a-z0-9-]+)?$/;
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

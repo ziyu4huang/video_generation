@@ -1,0 +1,96 @@
+{
+  "allGreen": true,
+  "redCount": 0,
+  "rows": [
+    {
+      "scenario": "dispatch",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 54861,
+      "receiptPath": "output/qualify19-full/dispatch/receipt.json",
+      "rpcCrossCheck": "model-ok+settled (1s boot)"
+    },
+    {
+      "scenario": "parallel",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 66479,
+      "receiptPath": "output/qualify19-full/parallel/receipt.json",
+      "rpcCrossCheck": null
+    },
+    {
+      "scenario": "viewer",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 45090,
+      "receiptPath": "output/qualify19-full/viewer/receipt.json",
+      "rpcCrossCheck": null
+    },
+    {
+      "scenario": "agents",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 17088,
+      "receiptPath": "output/qualify19-full/agents/receipt.json",
+      "rpcCrossCheck": null
+    },
+    {
+      "scenario": "reload",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 49309,
+      "receiptPath": "output/qualify19-full/reload/receipt.json",
+      "rpcCrossCheck": null
+    },
+    {
+      "scenario": "swarm",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 20964,
+      "receiptPath": "output/qualify19-full/swarm/receipt.json",
+      "rpcCrossCheck": null
+    },
+    {
+      "scenario": "catalog",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 12901,
+      "receiptPath": "output/qualify19-full/catalog/receipt.json",
+      "rpcCrossCheck": null
+    },
+    {
+      "scenario": "workflow",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 41620,
+      "receiptPath": "output/qualify19-full/workflow/receipt.json",
+      "rpcCrossCheck": "model-ok+settled (1s boot)"
+    },
+    {
+      "scenario": "wf-pause",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 53718,
+      "receiptPath": "output/qualify19-full/wf-pause/receipt.json",
+      "rpcCrossCheck": "model-ok+settled (1s boot)"
+    },
+    {
+      "scenario": "cc-parity",
+      "pass": true,
+      "receiptPass": true,
+      "exitCode": 0,
+      "wallMs": 81635,
+      "receiptPath": "output/qualify19-full/cc-parity/receipt.json",
+      "rpcCrossCheck": null
+    }
+  ]
+}

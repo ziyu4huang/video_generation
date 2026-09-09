@@ -2,7 +2,7 @@
 effort: 2026-09-09-self-arc-20-dev-pipeline
 created: 2026-09-09
 last: 2026-09-10
-status: active
+status: done
 ---
 
 # self-arc-20 — develop-pipeline sweep: seam purity + naming contract + deploy-e2e hardening
@@ -116,3 +116,13 @@ contract (runFlux2/runKrea2/WorkflowManager).
 - Shares-decision-with: 2026-08-23-deploy-platform-neutral-core (deploy tree
   shape untouched; only e2e budget semantics extended).
 - Supersedes: nothing; closes no prior effort.
+
+## Shipped-as (2026-09-10, side repair by self-arc-19's ledger)
+
+The effort's implementation MERGED as #2248 ("self-arc-20 — seam purity +
+naming gate + enforcing import audit + deploy-e2e budget") but its map was
+never closed — frontmatter stayed `active` with no Shipped-as section, found
+live by the arc-ledger's frontmatter-agreement check on its first day. Status
+flipped to done on the strength of the merged PR; the detailed Shipped-as
+prose this convention expects was NOT reconstructed (I did not author that
+effort) — recorded as an honest gap rather than invented.

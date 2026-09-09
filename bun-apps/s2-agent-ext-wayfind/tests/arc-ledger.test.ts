@@ -157,9 +157,18 @@ describe("schema / completeness / agreement", () => {
     const loaded = loadLedger(REPO_ROOT);
     expect(loaded.ok).toBe(true);
     if (loaded.ok) {
-      const n19 = loaded.ledger.entries.find((e) => e.number === 19);
-      expect(n19?.status).toBe("active");
+      // The loop-integrity claim (first machine-checked), as SHIPPED: done
+      // with its merge filled. Its dual (self-arc-19-subagent) is the
+      // grandfathered parallel entry — both must resolve, disambiguated by
+      // path, never by number alone.
+      const n19 = loaded.ledger.entries.find((e) => e.number === 19 && e.path.endsWith("self-arc-19"));
+      expect(n19?.status).toBe("done");
       expect(n19?.branch).toBe("self-arc-19-loop-integrity");
+      expect(n19?.mergedPr).toBe(2250);
+      const dual = loaded.ledger.entries.find((e) => e.number === 19 && e.path.includes("19-subagent"));
+      expect(dual?.grandfathered).toBe(true);
+      const n20 = loaded.ledger.entries.find((e) => e.number === 20);
+      expect(n20?.grandfathered).toBe(true);
     }
   });
 });
