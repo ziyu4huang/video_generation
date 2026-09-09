@@ -227,6 +227,15 @@ li::before{content:"";position:absolute;left:0;top:0.55em;width:calc(var(--pt) *
 .tbl{width:100%;border-collapse:collapse}
 .tbl th,.tbl td{border:1px solid #${p.panelBorder};padding:calc(var(--pt) * 4);text-align:left;vertical-align:middle}
 .tbl th{background:#${p.panelBg}}
+/* Print: the composed plate prints full-bleed landscape at its own 16:9;
+   the diagram artifacts embedded by the split layout carry their OWN
+   @media print inside the iframe. */
+@media print{
+@page{size:landscape;margin:0}
+html,body{width:100%}
+.wrap{max-width:none}
+.stage{width:100%;aspect-ratio:16/9;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
 </style>
 <div class="wrap"><div class="stage">
 ${body.join("\n")}

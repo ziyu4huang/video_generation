@@ -197,3 +197,22 @@ describe("combineDeckHtml — presenter pane (t04)", () => {
     expect(out).toContain('n notes');
   });
 });
+
+// ── t05: print/PDF path ──────────────────────────────────────────────────────
+describe("combineDeckHtml — print (t05)", () => {
+  test("one slide per page; shell chrome and notes pane hidden; no trailing blank", () => {
+    const out = combineDeckHtml(
+      [
+        { title: "a", html: "<html><body>a</body></html>" },
+        { title: "b", html: "<html><body>b</body></html>" },
+      ],
+      { deckTitle: "Deck", theme: "light" },
+    );
+    expect(out).toContain("@media print");
+    expect(out).toContain("size:landscape");
+    expect(out).toContain(".slide:not(:last-of-type){break-after:page");
+    // Chrome + presenter notes never leak into a handout.
+    expect(out).toMatch(/header,footer,\.grid-nav,\.notes,\.snotes\{display:none/);
+  });
+});
+
