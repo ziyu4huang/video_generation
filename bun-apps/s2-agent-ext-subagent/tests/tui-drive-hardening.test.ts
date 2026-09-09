@@ -35,7 +35,12 @@ describe("tui-drive pty gotchas (source pins)", () => {
   });
 
   test("坑4 — settle heuristic is live markers only (transcript text never disappears)", () => {
-    expect(src).toContain("/Working\\.\\.\\.|esc to interrupt|");
+    // self-arc-19 t01: the pattern itself is table-homed in scripts/lib/
+    // tui-drive-lib.ts (UI_VOCAB.liveMarker — sample-line-pinned there); this
+    // pin keeps the driver judging liveness THROUGH the table.
+    expect(src).toContain("V.liveMarker.test(s)");
+    const lib = readFileSync(join(import.meta.dir, "..", "scripts", "lib", "tui-drive-lib.ts"), "utf8");
+    expect(lib).toContain("/Working\\.\\.\\.|esc to interrupt|");
   });
 });
 
@@ -62,8 +67,12 @@ describe("tui-drive loop-finding fixes (source pins)", () => {
     // The check must exclude flash by name: "glm-5.3" is a substring of
     // "glm-5.3-flash", so a bare includes() would pass on a flash child. The
     // parent's status bar is excluded structurally (row-marker prefix).
-    expect(src).toContain('!t.includes("flash")');
+    // self-arc-19 t01: the name-exclusion itself lives in the lib helper
+    // (lineHasGlm53NonFlash, shared with the wrap-tolerant call-line judge).
+    expect(src).toContain("lineHasGlm53NonFlash(t)");
     expect(src).toContain("/^(Task\\(|Task:|\\[\\d+\\]|bg\\b|▶)/");
+    const lib = readFileSync(join(import.meta.dir, "..", "scripts", "lib", "tui-drive-lib.ts"), "utf8");
+    expect(lib).toContain('!line.includes("flash")');
   });
   test("F-invalidate — the viewer receipt's stale-row check polls the OPEN viewer FIRST (no reopen kick)", () => {
     // self-arc-6 ran the reopen BEFORE ever judging the open frame, which is

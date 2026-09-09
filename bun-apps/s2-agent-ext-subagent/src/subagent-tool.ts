@@ -24,6 +24,8 @@ import {
   resolveAgentType,
   roleAwareDefaults,
   runAsForkChild,
+  currentSpawnScope,
+  runWithSpawnDepth,
   spawnLiveAgentFirstExchange,
   spawnSubagent,
   tierDefaultToken,
@@ -431,14 +433,19 @@ export function createSubagentTool(
           // A named dispatch (`name`) routes through the live-agent runner: the
           // first exchange runs on a session that is REGISTERED, not disposed,
           // when it completes — same dispatch machinery, different spawn fn.
+          const childCap = agentDef?.maxDepth;
           const dispatchSpawn = params.name
             ? (o: SpawnSubagentOptions) =>
-                spawnLive(o, {
-                  name: params.name as string,
-                  agentId: toolCallId,
-                  agentType: params.agentType,
-                  registry: liveRegistry,
-                }).then((r) => r.result)
+                runWithSpawnDepth(
+                  () =>
+                    spawnLive(o, {
+                      name: params.name as string,
+                      agentId: toolCallId,
+                      agentType: params.agentType,
+                      registry: liveRegistry,
+                    }).then((r) => r.result),
+                  { maxDepth: childCap },
+                )
             : params.fork
               ? // No-fork-recursion (ticket 02): the fork child's ENTIRE lifetime
                 // runs inside the ambient fork-child scope, so the spawn_subagent
@@ -446,8 +453,42 @@ export function createSubagentTool(
                 // (this same closure) observes isForkChild() and rejects any
                 // nested fork. Depth-inherited: a grandchild spawned from the
                 // fork child is inside the scope too.
-                (o: SpawnSubagentOptions) => runAsForkChild(() => spawn(o))
-              : spawn;
+                (o: SpawnSubagentOptions) => runWithSpawnDepth(() => runAsForkChild(() => spawn(o)), { maxDepth: childCap })
+              : (o: SpawnSubagentOptions) => runWithSpawnDepth(() => spawn(o), { maxDepth: childCap });
+          // Nested-spawn depth cap (self-arc-19 t03): the child runs at
+          // depth+1 under the ACTIVE subtree cap; this def's own `maxDepth`
+          // frontmatter (if any) becomes the cap for ITS subtree. Rejection
+          // happens here, before any resource allocation, with the knob named.
+          const spawnScope = currentSpawnScope();
+          if (spawnScope.depth + 1 > spawnScope.maxDepth) {
+            return failEarly(
+              `nested spawn rejected: depth ${spawnScope.depth + 1} would exceed maxDepth ${spawnScope.maxDepth}` +
+                (agentDef?.maxDepth !== undefined
+                  ? ` (this subtree's cap comes from agentType "${agentDef.name}" frontmatter).`
+                  : " (override: agentType frontmatter `maxDepth`)") +
+                " Dispatch a self-contained task instead of chaining.",
+            );
+          }
+          // Steer lever (self-arc-19 t02): only NAMED dispatches have a
+          // steering handle today — the live-agent PersistentAgent's send
+          // returns steered:true immediately when the child is mid-flight; if
+          // the exchange had just gone idle the text runs as a fresh turn
+          // (bounded by a short timeout so a steer never blocks the parent's
+          // tool call long) and the reply rides back in `output`. Unnamed
+          // in-process runs and detached subprocesses get NO lever — the
+          // steer verb reports them as honestly not steerable (map D6:
+          // named-agent exchanges stay with send_message).
+          const steerFor =
+            params.name !== undefined
+              ? (text: string): Promise<{ steered: boolean; output?: string }> => {
+                  const entry = liveRegistry.get(params.name as string);
+                  if (!entry) return Promise.resolve({ steered: false });
+                  return entry.agent
+                    .send(text, { timeoutMs: 10_000, label: "steer" })
+                    .then((r) => ({ steered: Boolean(r.steered), output: r.output }))
+                    .catch(() => ({ steered: false }));
+                }
+              : undefined;
           const outcome = await dispatchChild(
             {
               id: toolCallId,
@@ -482,6 +523,7 @@ export function createSubagentTool(
             {
               spawn: dispatchSpawn,
               inFlight: options.inFlight,
+              steer: steerFor,
               gitOps,
               // The transcript is only needed when it will be persisted.
               captureHistory: Boolean(options.persistence),

@@ -135,6 +135,12 @@ export {
   projectTranscriptTurns,
   runAsForkChild,
 } from "./fork-transcript.js";
+export {
+  currentSpawnScope,
+  DEFAULT_MAX_SPAWN_DEPTH,
+  runWithSpawnDepth,
+  spawnDepthExceeded,
+} from "./spawn-depth.js";
 export { homeDir } from "./home.js";
 // Named persistent agents (agent-teams parity, ticket 01): the live-agent
 // registry (naming/roster/LRU/disposal) and the persistent-agent runner

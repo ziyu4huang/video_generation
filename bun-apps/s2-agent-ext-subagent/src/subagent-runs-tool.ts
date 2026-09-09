@@ -22,9 +22,9 @@ import { Type } from "typebox";
 import type { BackgroundRunManager } from "./background-run-manager.js";
 import { formatRelativeTime } from "./time-format.js";
 
-const subagentRunsActionEnum = StringEnum(["list", "get", "wait", "stop"] as const, {
+const subagentRunsActionEnum = StringEnum(["list", "get", "wait", "stop", "steer"] as const, {
   description:
-    "Discriminator: 'list' recent runs, 'get' one by id, 'wait' block on a live run, 'stop' abort a live run or stop a named live agent (by name or agentId).",
+    "Discriminator: 'list' recent runs, 'get' one by id, 'wait' block on a live run, 'stop' abort a live run or stop a named live agent (by name or agentId), 'steer' deliver text into a steerable live run's current exchange (self-arc-19 t02; requires id + message).",
 });
 
 const statusFilterEnum = StringEnum(["done", "failed", "timedout", "budget"] as const, {
@@ -48,6 +48,12 @@ const subagentRunsSchema = Type.Object({
   timeoutMs: Type.Optional(
     Type.Number({
       description: "wait: max ms to block (default 30000, cap 300000). Timeout returns current status, never an error.",
+    }),
+  ),
+  message: Type.Optional(
+    Type.String({
+      description:
+        "steer: the mid-run guidance text (required for steer, 1..4000 chars). Delivered into the run's CURRENT exchange; if it had just gone idle the text runs as a fresh turn.",
     }),
   ),
 });
@@ -246,9 +252,9 @@ export function createSubagentRunsTool(
     name: "list_subagent_runs",
     label: "SubagentRuns",
     description:
-      "Read back subagent-tool runs (cross-session archive at ~/.pi/subagents/runs + this session's live registry). 'list': recent runs (newest-first; status/cwd filter, limit) plus the LIVE team roster (named agents addressable via send_message). 'get': one run's full output + metadata by id (includeHistory for the compact transcript). 'wait': block on a LIVE run until terminal or timeoutMs (timeout returns status, never an error). 'stop': abort a live run.",
+      "Read back subagent-tool runs (cross-session archive at ~/.pi/subagents/runs + this session's live registry). 'list': recent runs (newest-first; status/cwd filter, limit) plus the LIVE team roster (named agents addressable via send_message). 'get': one run's full output + metadata by id (includeHistory for the compact transcript). 'wait': block on a LIVE run until terminal or timeoutMs (timeout returns status, never an error). 'stop': abort a live run. 'steer': deliver mid-run guidance into a steerable live run (named dispatches; by id — named teammates conversationally go through send_message).",
     promptSnippet:
-      "Recall past subagent runs: list_subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, list_subagent_runs({ action: 'get', id }) for one run's output; for a live/background run, list_subagent_runs({ action: 'wait', id [, timeoutMs] }) blocks until it finishes and list_subagent_runs({ action: 'stop', id }) aborts it.",
+      "Recall past subagent runs: list_subagent_runs({ action: 'list' [, status, cwd, limit] }) for recent runs, list_subagent_runs({ action: 'get', id }) for one run's output; for a live/background run, list_subagent_runs({ action: 'wait', id [, timeoutMs] }) blocks until it finishes, list_subagent_runs({ action: 'stop', id }) aborts it, and list_subagent_runs({ action: 'steer', id, message }) delivers mid-run guidance to a steerable (named) run.",
     parameters: subagentRunsSchema,
     async execute(_toolCallId, params, signal, _onUpdate, _ctx) {
       switch (params.action) {
@@ -339,6 +345,38 @@ export function createSubagentRunsTool(
           return textResult(
             `stop requested for run ${params.id} — it ends with status "aborted"; a <task-notification> follow-up (background runs only) or the run record confirms it.`,
           );
+        }
+        case "steer": {
+          // Self-arc-19 t02 — mid-run steering BY RUN ID (map D6 boundary:
+          // NAMED conversational exchanges stay with send_message; this verb
+          // is the model-facing surface for "correct a running child").
+          if (!params.id) throw new Error("list_subagent_runs: action 'steer' requires id");
+          const message = params.message?.trim();
+          if (!message) throw new Error("list_subagent_runs: action 'steer' requires a non-empty message");
+          if (message.length > 4000) throw new Error("list_subagent_runs: steer message exceeds 4000 chars");
+          if (!options.inFlight) return textResult("steer unavailable: no live-run registry in this host.");
+          const v = options.inFlight.view(params.id);
+          if (!v)
+            return textResult(
+              `unknown run "${params.id}" — not live in this session. Completed runs: action 'list'; live roster: the 'list' action's live section.`,
+            );
+          if (isTerminalStatus(v.status))
+            return textResult(`run ${params.id} already finished (${v.status}); nothing to steer.`);
+          const delivered = options.inFlight.steer(params.id, message);
+          if (!delivered)
+            return textResult(
+              `run ${params.id} is not steerable (unnamed in-process run or detached subprocess). Only NAMED dispatches accept steering — spawn with \`name\` and steer via send_message, or stop+redispatch this one.`,
+            );
+          const r = await delivered;
+          return r.steered
+            ? textResult(
+                `steered into run ${params.id}'s current exchange — the child sees your guidance on its next model turn.`,
+              )
+            : textResult(
+                `run ${params.id} had just gone idle; your message ran as a fresh turn.${
+                  r.output ? ` Reply: ${r.output.slice(0, 400)}` : ""
+                }`,
+              );
         }
         default:
           throw new Error(`list_subagent_runs: action "${params.action}" not implemented`);

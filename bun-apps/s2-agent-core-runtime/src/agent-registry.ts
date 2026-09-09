@@ -38,6 +38,11 @@ export interface AgentDefinition {
   tier?: string;
   /** Isolation mode. When "worktree", agents using this type run in a git worktree. */
   isolation?: "worktree";
+  /** Max spawn depth permitted WITHIN this def's subtree, counting the def's
+   *  own level (self-arc-19 t03). Undefined = inherit the parent's cap; the
+   *  root session caps at 2 (children + grandchildren). 0 = this def may not
+   *  spawn children at all. */
+  maxDepth?: number;
   /** Markdown body, prepended to the subagent's task as role guidance. */
   prompt: string;
   /** Where the definition was loaded from. Precedence: project > pack > user > builtin. */
@@ -94,6 +99,8 @@ export function parseAgentDefinition(
     tier: typeof fm.tier === "string" ? fm.tier.trim() || undefined : undefined,
     isolation:
       typeof fm.isolation === "string" && fm.isolation.toLowerCase().trim() === "worktree" ? "worktree" : undefined,
+    maxDepth:
+      typeof fm.maxDepth === "number" && Number.isInteger(fm.maxDepth) && fm.maxDepth >= 0 ? fm.maxDepth : undefined,
     prompt,
     source,
   };
@@ -226,6 +233,8 @@ export interface AgentDefinitionWrite {
   model?: string;
   tier?: string;
   isolation?: "worktree";
+  /** Round-tripped so the /agents manager's rewrite never drops a depth cap. */
+  maxDepth?: number;
   prompt: string;
 }
 
@@ -248,6 +257,7 @@ export function serializeAgentDefinition(def: AgentDefinitionWrite): string {
   if (def.tools?.length) fm.push(`tools: ${def.tools.join(", ")}`);
   if (def.disallowedTools?.length) fm.push(`disallowedTools: ${def.disallowedTools.join(", ")}`);
   if (def.isolation) fm.push(`isolation: ${def.isolation}`);
+  if (typeof def.maxDepth === "number") fm.push(`maxDepth: ${def.maxDepth}`);
   const body = def.prompt.trim();
   return `---\n${fm.join("\n")}\n---\n${body ? `\n${body}\n` : "\n"}`;
 }
