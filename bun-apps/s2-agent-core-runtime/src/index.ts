@@ -183,6 +183,15 @@ export {
   setRateLimitCapResolver,
 } from "./rate-limiter.js";
 export { capWidth, ellipsizeMidToWidth, ellipsizeToWidth } from "./render-width.js";
+// Shared repo-root / MLX-runpy resolution (self-arc-20 ticket 02) — the
+// parameterized walker the media extensions (ltx today; flux2/krea2 frontier)
+// delegate their resolveRepoRoot to, plus the generic run.py path resolver.
+export type { RepoRootByMarkerOptions } from "./repo-paths.js";
+export {
+  resolveRepoRootByMarker,
+  resolveRunPyPaths,
+  walkUpToMarker,
+} from "./repo-paths.js";
 export type { DispatchBudgetCohort } from "./role-dispatch.js";
 export {
   abortSafetyFooter,
@@ -275,19 +284,8 @@ export {
   isTeamTaskError,
   TeamTaskStore,
 } from "./team-task-store.js";
-
 export type { ToolActionContext } from "./tool-action-label.js";
 export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
-
-// Shared repo-root / MLX-runpy resolution (self-arc-20 ticket 02) — the
-// parameterized walker the media extensions (ltx today; flux2/krea2 frontier)
-// delegate their resolveRepoRoot to, plus the generic run.py path resolver.
-export type { RepoRootByMarkerOptions } from "./repo-paths.js";
-export {
-  resolveRepoRootByMarker,
-  resolveRunPyPaths,
-  walkUpToMarker,
-} from "./repo-paths.js";
 
 export type { Worktree } from "./worktree.js";
 export { createWorktree, removeWorktree } from "./worktree.js";

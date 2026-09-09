@@ -9,8 +9,8 @@
  * keeps ITS domain identity (message, env names) while the walk + resolution
  * logic lives in exactly one place.
  */
-import { dirname, join, resolve as pResolve } from "node:path";
 import { existsSync } from "node:fs";
+import { dirname, join, resolve as pResolve } from "node:path";
 
 /** Walk up from `start` until a dir contains `markerSegments` (default 12 levels, matching the original per-package walkers). */
 export function walkUpToMarker(start: string, markerSegments: string[], maxLevels = 12): string | null {
