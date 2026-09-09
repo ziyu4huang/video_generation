@@ -2,7 +2,7 @@
 effort: 2026-09-09-planning-audit
 created: 2026-09-09
 last: 2026-09-09
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-09-planning-audit — verify all planning finished (SOP audit of .planning/)
@@ -66,7 +66,7 @@ and a validated successor next-goal.
 - [x] t05 bulk reconcile: D5 criteria on every remaining red row; live dirs
       untouched (verified via `git diff --stat origin/main`); commit
       `results/reconciled/audit.{json,md}`
-- [ ] t06 conventions + close-out: two CONVENTIONS.md bullets, reviewer pass,
+- [x] t06 conventions + close-out: two CONVENTIONS.md bullets, reviewer pass,
       close-out PR merged, successor next-goal validated
 
 ## Decisions so far
@@ -160,3 +160,25 @@ rows as "fresh" when they passed via park-note prose) corrected by
 dispositioning all 5 explicitly (3 done flips, 2 paused-with-note). Finding 5
 (flag-name drift in t02 line) fixed. Re-audited after fixes: exit 0, gates
 517 green. Receipt: output/reviewer-planning-audit/plan.md.
+
+## Shipped-as (2026-09-09)
+
+- **PR #2239** (squash on main): the effort-audit tool (src + CLI + 18 tests,
+  MAP_FM_RE exported), baseline + reconciled receipts, the 48-row
+  reconciliation (36 flips with git-verified Shipped-as backfills, 7 honest
+  park/deferral notes, 2 fence repairs, 5 reviewer-found residuals), the
+  CONVENTIONS.md standing rules, and the reviewer-round hardening (anchored
+  origin/main PR verification). Post-rebase audit: 77 scanned, 0 red, exit 0.
+- This close-out PR flips the map done per the new CONVENTIONS rule it ships.
+- Receipts (scratch, uncommitted): output/planning-audit-plan-20260909/
+  (planner), output/reviewer-planning-audit/ (reviewer verdict),
+  output/self-audit-* receipts inline in results/.
+
+## Fog of war resolutions
+
+- The reviewer's verification fetch moved the local origin/main mid-arc (the
+  sibling session landed arc-18's hermes gate-honesty PR #2238 underneath us)
+  — resolved by the CLI rebase (clean; audit re-run green at 77 scanned).
+- LIVE_EXEMPT still lists self-arc-17/18; arc-17 flipped done by its owner's
+  #2236 lineage and arc-18 landed active-with-Shipped-as (its own close-out
+  is its owner's business). Prune the list when 18 closes.
