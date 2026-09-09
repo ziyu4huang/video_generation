@@ -25,7 +25,8 @@
  * this is the one movie-director provider that is not fully local-silicon.
  */
 import { existsSync, statSync } from "node:fs";
-import { resolveRepoRoot, resolveRunPyPaths } from "@repo/s2-agent-ext-ltx";
+import { resolveRepoRoot } from "@repo/s2-agent-ext-ltx";
+import { resolveRunPyPaths } from "@repo/s2-agent-core-runtime";
 
 export interface RunPyTtsOptions {
   /** Narration text (required). */

@@ -29,7 +29,8 @@ import { enforcePreCompose } from "./precompose-gate.ts";
 import type { RenderReport, CaptionsOptions } from "./compose.ts";
 import type { Adapter, Artifact, GenerateRequest, ToolResult } from "./bridge.ts";
 import { tariffFor } from "./bridge.ts";
-import { resolveRepoRoot, defaultBinaryPath, resolveRunPyPaths } from "@repo/s2-agent-ext-ltx";
+import { resolveRepoRoot, defaultBinaryPath } from "@repo/s2-agent-ext-ltx";
+import { resolveRunPyPaths } from "@repo/s2-agent-core-runtime";
 
 // ─── Availability probe ──────────────────────────────────────────────────────
 

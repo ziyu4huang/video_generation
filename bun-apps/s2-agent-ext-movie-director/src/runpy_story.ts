@@ -24,7 +24,8 @@
  */
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { resolveRepoRoot, resolveRunPyPaths } from "@repo/s2-agent-ext-ltx";
+import { resolveRepoRoot } from "@repo/s2-agent-ext-ltx";
+import { resolveRunPyPaths } from "@repo/s2-agent-core-runtime";
 
 /** The run.py story sub-actions this adapter reaches (story.py:run dispatch). */
 export type StorySubAction = "angles" | "propose" | "shots";

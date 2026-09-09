@@ -14,7 +14,8 @@
  * the only HTTP it induces is to the local LM Studio (localhost:1234).
  */
 import { existsSync, readFileSync } from "node:fs";
-import { resolveRepoRoot, resolveRunPyPaths } from "@repo/s2-agent-ext-ltx";
+import { resolveRepoRoot } from "@repo/s2-agent-ext-ltx";
+import { resolveRunPyPaths } from "@repo/s2-agent-core-runtime";
 
 /** Options passed through to the caption path (camelCase). The input `image` may
  * be an image OR a video file (video is detected by extension → keyframe path). */
