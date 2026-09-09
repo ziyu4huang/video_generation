@@ -358,7 +358,7 @@ guessing at launch flags. When they are absent:
   bun bun-apps/s2-agent-ext-devops/src/prepare-feature-branch-cli.ts --rebase [--force-push]
   bun bun-apps/s2-agent-ext-devops/src/verify-merge-cli.ts <pr> [--scope a,b]
   bun bun-apps/s2-agent-ext-devops/src/deploy-cli.ts [--list]
-  bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call]
+  bun bun-apps/s2-agent-ext-devops/src/verify-deploy-e2e-cli.ts [--deploy-root <path>] [--skip-model-call] [--model-call-budget-ms <ms>]
   bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-agent [--patch|--minor|--major] [--dry-run]
   ```
 

@@ -520,6 +520,16 @@ jobs:
         working-directory: bun-apps
         run: bun run test:routing
 
+      # Tool-naming contract gate (self-arc-20 ticket 03). Enforces the
+      # extension-naming SKILL.md convention statically: literal-registered
+      # tool names must be snake_case verb_object/ns_verb (documented
+      # pre-convention outliers only), every <x>_help companion has its base,
+      # and every ext skills/ dir is kebab-case. Factory/external dynamic
+      # names are out of static reach — see the gate header for the scope.
+      - name: Tool-naming contract gate (extension-naming convention, blocks)
+        working-directory: bun-apps
+        run: bun run test:tool-naming
+
       # Cross-extension isolation-contract guard (portable base set). The base
       # set's "tight yet swappable" invariant: no cross-imports among shipped
       # extensions (one sanctioned lib-face edge: knowledge-card → obsidian,
@@ -693,7 +703,11 @@ jobs:
       - name: Schema-cost regression (warns >5%, not a block)
         run: bun scripts/check-schema-cost.ts
 
-      - name: Declared-imports audit (warn-only v1)
+      # ENFORCING since self-arc-20 t04 (2026-09-09; was warn-only v1) — the
+      # baseline was cleaned in the same change, so the gate was born green:
+      # exit 0 clean / 1 undeclared bare import. Line-comment lines and the
+      # documented STRING_FIXTURE_ALLOWANCES map are the only escapes.
+      - name: Declared-imports audit (blocks)
         run: node scripts/check-declared-imports.mjs
 
   # ──────────────────────────────────────────────────────────────────────

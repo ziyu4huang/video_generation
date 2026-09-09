@@ -1,9 +1,11 @@
 import { dirname } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { GATE_DEFS } from "@repo/s2-agent-core-interface";
+import { GATE_DEFS, publishSeam } from "@repo/s2-agent-core-interface";
 import { findWorkspaceRoot, missingExtDeps } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
+import { resolveVisionLLM } from "../src/sessions.ts";
+import { askImage } from "../src/vlm/ask.ts";
 
 // ─── Gate family (wayfinder ticket 01 — reference form) ─────────────────────
 // Declared ONCE by id; file2md + vision_ask both reference it via
@@ -117,6 +119,17 @@ export default function (pi: ExtensionAPI): void {
   // Self-gate: BUN_PI_FILE2MD=0 disables the entire extension — the portable
   // base-set contract (every registered extension honors its disable env).
   if (process.env.BUN_PI_FILE2MD === "0") return;
+  // Publish the vision-LLM seam (self-arc-20 ticket 01): consumers (flux2's
+  // scene-pipeline VLM verify, today) read `__piVisionLLM` instead of
+  // importing this package — the same no-ext→ext-import rule as
+  // __piHermesStaleCheck. The literal is duplicated verbatim there and
+  // registered in core-interface SEAM_KEYS (crossPackage:true). Static import
+  // is free here: the host process has already loaded pi-coding-agent, so the
+  // sessions/vlm module graph adds no marginal boot cost.
+  publishSeam("__piVisionLLM", {
+    resolveVisionLLM,
+    askImage,
+  });
   pi.on("session_start", async (_event, ctx) => {
     const missing = missingExtDeps(["@earendil-works/pi-coding-agent"], _EXT_DIR);
     if (missing.length > 0) {

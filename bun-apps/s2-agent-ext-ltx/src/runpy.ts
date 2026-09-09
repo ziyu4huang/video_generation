@@ -26,6 +26,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { resolveRepoRoot } from "./binary.ts";
+import { resolveRunPyPaths } from "@repo/s2-agent-core-runtime";
 import { invokeLtx, type InvokeResult, type ProgressFn } from "./invoke.ts";
 import {
   assertPathAllowed,
@@ -131,12 +132,13 @@ const EXTRA_ARG_ALLOW_RUNPY = new Set<string>([
   "review-runs", "review-dir", "rescore", "dev-audio", "vlm-api-url",
 ]);
 
-/** Resolve the MLX venv python + run.py from the repo root (env-overridable). */
-export function resolveRunPyPaths(repoRoot: string): { python: string; runPy: string } {
-  const python = process.env.MLX_VENV_PYTHON ?? join(repoRoot, "python", "venv", "bin", "python");
-  const runPy = process.env.RUN_PY ?? join(repoRoot, "python", "mlx-movie-director", "run.py");
-  return { python, runPy };
-}
+/**
+ * Resolve the MLX venv python + run.py from the repo root (env-overridable).
+ * Moved verbatim to @repo/s2-agent-core-runtime (self-arc-20 ticket 02 — the
+ * resolver is generic MLX-repo knowledge, not LTX-specific); re-exported here
+ * so this package's public surface is unchanged.
+ */
+export { resolveRunPyPaths };
 
 /**
  * Validate path + free-form string fields before they reach argv. Mirrors

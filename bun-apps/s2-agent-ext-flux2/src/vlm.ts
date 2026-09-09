@@ -1,12 +1,15 @@
 /**
- * vlm.ts — thin adapter over pi-file2md's shared VLM subagent, used only by the
+ * vlm.ts — thin adapter over the shared VLM primitive, used only by the
  * scene-pipeline's `verifyPrompt` step (scenePipeline.ts).
  *
- * This is deliberately NOT a new LM Studio client: `askImage`/`resolveLLM`
- * already live in pi-file2md (bun-apps/s2-agent-ext-file2md/src/vlm/ask.ts + sessions.ts) and
- * are exported specifically for reuse by other tools (see its README). This
- * module just adapts pi-file2md's shapes to scenePipeline.ts's injectable
- * `AskAboutImage` signature.
+ * This is deliberately NOT a new LM Studio client: the shared
+ * `askImage`/`resolveVisionLLM` implementation lives in pi-file2md
+ * (bun-apps/s2-agent-ext-file2md/src/vlm/ask.ts + sessions.ts) and reaches this
+ * package through the `__piVisionLLM` seam (contract: `VisionLLMSeam` in
+ * s2-agent-core-interface/src/vision-llm-leaf.ts) — file2md publishes it at
+ * extension load, this module reads it (self-arc-20 ticket 01: no ext→ext
+ * import). This module just adapts the seam's shapes to scenePipeline.ts's
+ * injectable `AskAboutImage` signature.
  *
  * Model resolution is FILE-INDEPENDENT: the lm-studio provider config is
  * built directly in code (lmStudioRegistry() below) and passed as an
@@ -18,12 +21,28 @@
  * [[pi-vlm-agentdir-global-vs-project]].
  *
  * Imported lazily (dynamic `import()`) from index.ts so the base flux2 tool
- * (t2i/scene/upscale/... without a pipeline) never pays for pi-file2md's session
- * machinery.
+ * (t2i/scene/upscale/... without a pipeline) never pays for the seam-read
+ * module graph.
  */
 import { ModelRegistry, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
-import { askImage, resolveVisionLLM, type ResolvedLLM } from "@repo/s2-agent-ext-file2md";
+import { readSeam, type ResolvedLLM, type VisionLLMSeam } from "@repo/s2-agent-core-interface";
+
+/**
+ * The published vision-LLM seam. Throws (never returns undefined) when
+ * file2md is not loaded — including when it self-disabled via
+ * BUN_PI_FILE2MD=0, which skips the publish. The message names the fix.
+ */
+function visionSeam(): VisionLLMSeam {
+  const seam = readSeam("__piVisionLLM");
+  if (!seam) {
+    throw new Error(
+      "[flux2] vision seam __piVisionLLM is not published — the s2-agent-ext-file2md extension is not loaded " +
+        "(or disabled via BUN_PI_FILE2MD=0). Enable file2md, or inject scenePipeline's askAboutImage directly.",
+    );
+  }
+  return seam;
+}
 
 let _lmStudioRegistry: Promise<ModelRegistry> | null = null;
 
@@ -57,10 +76,10 @@ async function lmStudioRegistry(): Promise<ModelRegistry> {
 }
 
 /** Central vision slot: capabilities.vision from ~/.pi/workflows/model-tiers.json
- *  (via file2md's resolveVisionLLM — explicit override > tier config > deprecated
- *  PI_MODEL env > actionable throw). */
+ *  (via the __piVisionLLM seam's resolver — explicit override > tier config >
+ *  deprecated PI_MODEL env > actionable throw). */
 export function resolveVlmLLM(modelOverride?: string): ResolvedLLM {
-  return resolveVisionLLM(modelOverride ? { model: modelOverride } : {});
+  return visionSeam().resolveVisionLLM(modelOverride ? { model: modelOverride } : {});
 }
 
 export async function askAboutImage(
@@ -69,13 +88,13 @@ export async function askAboutImage(
   llm: ResolvedLLM,
 ): Promise<{ reply: string; ok: boolean }> {
   try {
-    // Defensive: pi-file2md's askImage only wraps session.prompt() in try/catch —
+    // Defensive: file2md's askImage only wraps session.prompt() in try/catch —
     // readFileSync(imagePath) and createSharedSession() run outside that try
     // block, so a not-yet-flushed image or an LM Studio connection failure
     // throws instead of resolving {ok:false} as this function's own return
     // type promises its callers. Never let that escape as an uncaught throw.
     await lmStudioRegistry(); // ensure LM Studio registry initialized
-    const result = await askImage(imagePath, question, { llm });
+    const result = await visionSeam().askImage(imagePath, question, { llm });
     return { reply: result.reply, ok: result.ok };
   } catch {
     return { reply: "", ok: false };

@@ -24,6 +24,7 @@ import {
 	modelContentionWarning,
 	parseHermesStartupRoundTrips,
 	resolveE2eModelPin,
+	resolveOneShotBudgetMs,
 	ONESHOT_RUNTIME_BUDGET_MS,
 	HERMES_STARTUP_ROUNDTRIP_CAP,
 	normalizeVisionReply,
@@ -609,6 +610,79 @@ describe("model-call regression budgets", () => {
 		const mc = r.probes.find((p) => p.id === "model-call")!;
 		expect(mc.verdict).toBe("fail");
 		expect(mc.note).toContain("240 HTTP round-trips");
+	});
+});
+
+describe("one-shot budget knob (self-arc-20 t05)", () => {
+	test("resolveOneShotBudgetMs: unset → default; valid widen passes through (string form too)", () => {
+		expect(resolveOneShotBudgetMs(undefined)).toEqual({ ok: true, ms: undefined });
+		expect(resolveOneShotBudgetMs(60_000)).toEqual({ ok: true, ms: 60_000 });
+		expect(resolveOneShotBudgetMs("60000")).toEqual({ ok: true, ms: 60_000 });
+	});
+
+	test("resolveOneShotBudgetMs: only-widens — at/below the default floor is a usage error", () => {
+		expect(resolveOneShotBudgetMs(ONESHOT_RUNTIME_BUDGET_MS).ok).toBe(false);
+		expect(resolveOneShotBudgetMs(ONESHOT_RUNTIME_BUDGET_MS - 1).ok).toBe(false);
+		expect(resolveOneShotBudgetMs(0).ok).toBe(false);
+		expect(resolveOneShotBudgetMs(-5_000).ok).toBe(false);
+		expect(resolveOneShotBudgetMs(3.5).ok).toBe(false);
+		expect(resolveOneShotBudgetMs("abc").ok).toBe(false);
+		const r = resolveOneShotBudgetMs(0);
+		if (!r.ok) expect(r.message).toContain("positive integer");
+		const w = resolveOneShotBudgetMs(10_000);
+		if (!w.ok) expect(w.message).toContain("only WIDENS");
+	});
+
+	test("a breach that the knob widens past PASSES (the contention case made conclusive)", async () => {
+		makeTree();
+		// 40s wall: a breach against the 35s default, inside a widened 45s budget.
+		const { now } = steppingClock(40_000);
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn(), now, oneShotBudgetMs: 45_000 });
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("pass");
+		expect(mc.note).toContain("budget 45s");
+		expect(mc.skipReceipt).toBeUndefined();
+	});
+
+	test("the same breach at the DEFAULT budget under contention SKIPs WITH a receipt", async () => {
+		makeTree();
+		const { now } = steppingClock(40_000);
+		const r = await runDeployE2e({
+			versionDir,
+			spawn: fakeSpawn(),
+			now,
+			modelEndpoint: "http://127.0.0.1:1234",
+			fetchImpl: fakeModelsFetch(["qwen3.8-27b", "bonsai-27b"]),
+		});
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("skip");
+		expect(mc.skipReceipt).toBeDefined();
+		expect(mc.skipReceipt!.budgetMs).toBe(ONESHOT_RUNTIME_BUDGET_MS);
+		expect(mc.skipReceipt!.observedMs).toBe(40_000);
+		expect(mc.skipReceipt!.hint).toContain("unload");
+	});
+
+	test("a caller-requested skip carries no receipt (nothing was measured)", async () => {
+		makeTree();
+		const r = await runDeployE2e({ versionDir, spawn: fakeSpawn(), skipModelCall: true });
+		const mc = r.probes.find((p) => p.id === "model-call")!;
+		expect(mc.verdict).toBe("skip");
+		expect(mc.skipReceipt).toBeUndefined();
+	});
+
+	test("CLI: --model-call-budget-ms parses; invalid values are usage errors", () => {
+		expect(parseVerifyDeployE2eArgs(["--model-call-budget-ms", "60000"])).toEqual({
+			ok: true,
+			args: { oneShotBudgetMs: 60_000 },
+		});
+		const narrow = parseVerifyDeployE2eArgs(["--model-call-budget-ms", "10"]);
+		expect(narrow.ok).toBe(false);
+		if (!narrow.ok) expect(narrow.message).toContain("only WIDENS");
+		const missing = parseVerifyDeployE2eArgs(["--model-call-budget-ms"]);
+		expect(missing.ok).toBe(false);
+		if (!missing.ok) expect(missing.message).toContain("needs a value");
+		const junk = parseVerifyDeployE2eArgs(["--model-call-budget-ms", "soon"]);
+		expect(junk.ok).toBe(false);
 	});
 });
 

@@ -27,13 +27,14 @@ import {
 	resolveCurrentVersionDir,
 	resolveModelEndpoint,
 	resolveE2eModelPin,
+	resolveOneShotBudgetMs,
 	isNonHostTree,
 } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 import { type CliResult, emit, helpRequested, jsonResult, usageError } from "./cli-common.js";
 
 export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
-	"usage: verify-deploy-e2e-cli.ts [--deploy-root <path>] [--dev-launcher <path>] [--skip-model-call]",
+	"usage: verify-deploy-e2e-cli.ts [--deploy-root <path>] [--dev-launcher <path>] [--skip-model-call] [--model-call-budget-ms <ms>]",
 	"",
 	"Proves the DEPLOYED dist actually works: boots the deployed launcher (the sh launcher; cmd /c s2-agent.cmd on win32 trees),",
 	"checks every deploy.json-enabled extension",
@@ -80,12 +81,20 @@ export const VERIFY_DEPLOY_E2E_CLI_USAGE = [
 	"  --deploy-root <path>   default: the registry's outRoot",
 	"  --dev-launcher <path>  dev tree's s2-agent.sh for the parity probe (default: <repo>/s2-agent.sh when present; absent → parity skips)",
 	"  --skip-model-call      boot + ext-load only (offline / provider-less boxes)",
+	"  --model-call-budget-ms <ms>  widen the one-shot wall budget above its 35s",
+	"                         default when LM Studio contention legitimately slows",
+	"                         generation (self-arc-20 t05); only-widens — values",
+	"                         ≤35000 or non-integers are a usage error. A budget",
+	"                         breach that the contention precheck downgrades to",
+	"                         SKIP carries a `skipReceipt` {budgetMs, observedMs,",
+	"                         hint} in the probe JSON.",
 ].join("\n");
 
 export interface ParsedVerifyDeployE2eArgs {
 	deployRoot?: string;
 	devLauncher?: string;
 	skipModelCall?: boolean;
+	oneShotBudgetMs?: number;
 }
 
 /** Pure argv → flags (or a usage-error message). Exported for tests. */
@@ -95,6 +104,7 @@ export function parseVerifyDeployE2eArgs(
 	let deployRoot: string | undefined;
 	let devLauncher: string | undefined;
 	let skipModelCall: boolean | undefined;
+	let oneShotBudgetRaw: string | undefined;
 	for (let i = 0; i < argv.length; i++) {
 		const a = argv[i];
 		if (a === "--deploy-root") {
@@ -107,6 +117,10 @@ export function parseVerifyDeployE2eArgs(
 			devLauncher = v;
 		} else if (a === "--skip-model-call") {
 			skipModelCall = true;
+		} else if (a === "--model-call-budget-ms") {
+			const v = argv[++i];
+			if (v === undefined) return { ok: false, message: "--model-call-budget-ms needs a value" };
+			oneShotBudgetRaw = v;
 		} else if (a === "-h" || a === "--help") {
 			return { ok: false, message: "" };
 		} else if (a.startsWith("-")) {
@@ -115,7 +129,13 @@ export function parseVerifyDeployE2eArgs(
 			return { ok: false, message: `unexpected positional argument: ${a}` };
 		}
 	}
-	return { ok: true, args: { deployRoot, devLauncher, skipModelCall } };
+	let oneShotBudgetMs: number | undefined;
+	if (oneShotBudgetRaw !== undefined) {
+		const b = resolveOneShotBudgetMs(oneShotBudgetRaw);
+		if (!b.ok) return { ok: false, message: b.message };
+		oneShotBudgetMs = b.ms;
+	}
+	return { ok: true, args: { deployRoot, devLauncher, skipModelCall, oneShotBudgetMs } };
 }
 
 /** Registry outRoot — the same default deploy-cli deploys into. */
@@ -164,6 +184,9 @@ export async function runVerifyDeployE2eCli(
 	// Lane pin (shared surface with deploy-cli): VERIFY_E2E_MODEL from the
 	// environment. A malformed value warns and runs unpinned — never silent.
 	const pin = resolveE2eModelPin();
+	// One-shot budget widen (self-arc-20 t05): flag > env > default. An
+	// invalid env value warns and runs at the default — never silent.
+	const budgetEnv = resolveOneShotBudgetMs(process.env.VERIFY_E2E_ONESHOT_BUDGET_MS);
 	const outcome = await runDeployE2e({
 		versionDir,
 		spawn,
@@ -175,11 +198,13 @@ export async function runVerifyDeployE2eCli(
 		// local operator mirroring that shell gets the same behavior from BOTH
 		// CLIs instead of two divergent answers.
 		skipModelCall: parsed.args.skipModelCall || process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
+		oneShotBudgetMs: parsed.args.oneShotBudgetMs ?? (budgetEnv.ok ? budgetEnv.ms : undefined),
 		// deps.modelEndpoint === null keeps unit tests hermetic (no fetch).
 		modelEndpoint: deps.modelEndpoint === undefined ? resolveModelEndpoint() : deps.modelEndpoint,
 		modelPin: pin?.ok ? pin.pin : undefined,
 	});
 	if (pin && !pin.ok) outcome.warnings.push(pin.message);
+	if (!budgetEnv.ok) outcome.warnings.push(budgetEnv.message);
 	return jsonResult(outcome.verdict === "fail" ? 1 : 0, { deployRoot, ...outcome });
 }
 

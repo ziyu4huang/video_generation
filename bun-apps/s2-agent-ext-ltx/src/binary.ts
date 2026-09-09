@@ -19,6 +19,7 @@ import { dirname, join, resolve as pResolve } from "node:path";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { isFile } from "./paths.ts";
+import { resolveRepoRootByMarker } from "@repo/s2-agent-core-runtime";
 
 export interface ProgressFn {
   (update: { kind: "progress"; text: string }): void;
@@ -44,32 +45,23 @@ function safeProgress(onProgress: ProgressFn | undefined): ProgressFn {
 
 let _cachedBin: string | null = null;
 
-/** Walk up from a starting dir until it contains `swift/ltx-video-director`. */
-function findRepoRoot(start: string): string | null {
-  let dir = start;
-  for (let i = 0; i < 12; i++) {
-    if (existsSync(join(dir, "swift", "ltx-video-director", "Package.swift"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
-}
-
-/** Resolve the repo root (explicit env wins; bundle mode must set the env). */
+/**
+ * Resolve the repo root (explicit env wins; bundle mode must set the env).
+ * Delegates to the shared core-runtime walker (self-arc-20 ticket 02) with
+ * this package's env var + marker + historical error text — the message is
+ * byte-identical to the pre-delegation local implementation.
+ */
 export function resolveRepoRoot(): string {
-  if (process.env.LTX_VIDEO_REPO_ROOT) return pResolve(process.env.LTX_VIDEO_REPO_ROOT);
-  // import.meta.dir is Bun-specific; fall back to cwd.
-  const here: string =
-    (import.meta as any).dir ?? (typeof __dirname === "string" ? __dirname : process.cwd());
-  const found = findRepoRoot(here);
-  if (!found) {
-    throw new Error(
-      "s2-agent-ext-ltx: cannot locate repo root (swift/ltx-video-director not found).\n" +
-        "Set LTX_VIDEO_REPO_ROOT to the repo root, or LTX_VIDEO_BIN to the ltx-video binary.",
-    );
-  }
-  return found;
+  return resolveRepoRootByMarker({
+    envVar: "LTX_VIDEO_REPO_ROOT",
+    markerSegments: ["swift", "ltx-video-director", "Package.swift"],
+    label: "s2-agent-ext-ltx",
+    hint: "LTX_VIDEO_BIN to the ltx-video binary",
+    // Walk up from THIS module (the pre-delegation local implementation walked
+    // from its own file) — repo-paths.ts must stay import.meta-free so nothing
+    // bundling core-runtime bakes a build-machine path (ADR-file2md-0001).
+    from: (import.meta as any).dir ?? (typeof __dirname === "string" ? __dirname : process.cwd()),
+  });
 }
 
 /** The expected binary path. */

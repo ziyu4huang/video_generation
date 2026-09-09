@@ -38,8 +38,7 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.4",
-    "@repo/s2-agent-core-interface": "workspace:*",
-    "@repo/s2-agent-ext-file2md": "workspace:*"
+    "@repo/s2-agent-core-interface": "workspace:*"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.4",

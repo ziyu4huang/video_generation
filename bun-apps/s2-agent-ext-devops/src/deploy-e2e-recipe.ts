@@ -143,6 +143,30 @@ export const MODEL_CALL_CAP_MS = 300_000;
 export const ONESHOT_RUNTIME_BUDGET_MS = 35_000;
 
 /**
+ * Validate a caller-supplied one-shot budget override (self-arc-20 t05). The
+ * knob only WIDENS: anything at or below the 35s default floor, zero,
+ * negative, or non-integral is a usage error naming the rule. `undefined`
+ * (unset) is the default budget. Pure — shared by both CLIs and re-asserted
+ * in the recipe so a programmatic caller cannot bypass it.
+ */
+export function resolveOneShotBudgetMs(
+	raw: number | string | undefined,
+): { ok: true; ms: number | undefined } | { ok: false; message: string } {
+	if (raw === undefined) return { ok: true, ms: undefined };
+	const n = typeof raw === "number" ? raw : Number(raw);
+	if (!Number.isInteger(n) || n <= 0) {
+		return { ok: false, message: `--model-call-budget-ms must be a positive integer (milliseconds), got ${JSON.stringify(raw)}` };
+	}
+	if (n <= ONESHOT_RUNTIME_BUDGET_MS) {
+		return {
+			ok: false,
+			message: `--model-call-budget-ms only WIDENS the budget: minimum is the default ${ONESHOT_RUNTIME_BUDGET_MS}ms, got ${n}`,
+		};
+	}
+	return { ok: true, ms: n };
+}
+
+/**
  * hermes-memory STARTUP ROUND-TRIP CAP. Measured 2026-08-24 on this machine
  * (deployed 0.7.1+gd6f3c0c, perf.jsonl): syncMarkdownMemories does 26
  * round-trips with a clean vault (610ms, below the extension's own 50-RT
@@ -438,6 +462,13 @@ export interface DeployE2eProbe {
 	note: string;
 	/** Multi-line diagnostics on FAIL (captured tail). */
 	detail?: string;
+	/**
+	 * Machine-readable receipt on a budget-driven SKIP (self-arc-20 t05): a
+	 * skip must be recordable as environment-limited, never silently green.
+	 * Present ONLY on the contention/budget skip paths — a caller-requested
+	 * skip (ms 0) carries no receipt.
+	 */
+	skipReceipt?: { budgetMs: number; observedMs: number; hint: string };
 }
 
 export interface DeployE2eOutcome {
@@ -1022,6 +1053,15 @@ export interface DeployE2eOptions {
 	 */
 	modelPin?: E2EModelPin;
 	/**
+	 * Widen the one-shot runtime budget (self-arc-20 t05): the 35s default is
+	 * the healthy-tree baseline headroom; under LM Studio contention with
+	 * large models resident the wall can legitimately exceed it, flipping the
+	 * probe to SKIP. The knob only WIDENS — `resolveOneShotBudgetMs` rejects
+	 * values at or below the default floor and non-integers. Unset: today's
+	 * behavior, byte-identical.
+	 */
+	oneShotBudgetMs?: number;
+	/**
 	 * Absolute path to the DEV tree's s2-agent.sh. Present → the parity probe
 	 * fingerprints BOTH launchers and diffs (same commit by construction —
 	 * deploy runs from the dev tree). Absent → parity probe SKIPS (dist-only
@@ -1548,7 +1588,12 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 		// when the provider itself was down.
 		const hermesRt = parseHermesStartupRoundTrips(`${r.stdout}\n${r.stderr}`);
 		let verdict = c.verdict;
-		const budgetS = Math.round(ONESHOT_RUNTIME_BUDGET_MS / 1000);
+		// The knob (self-arc-20 t05) only ever widens — resolveOneShotBudgetMs
+		// rejected narrower values at the CLI boundary; re-assert here so a
+		// programmatic caller cannot bypass the floor.
+		const budget = resolveOneShotBudgetMs(opts.oneShotBudgetMs);
+		const budgetMs = budget.ok ? (budget.ms ?? ONESHOT_RUNTIME_BUDGET_MS) : ONESHOT_RUNTIME_BUDGET_MS;
+		const budgetS = Math.round(budgetMs / 1000);
 		// When a lane pin is active there is exactly one explanation for a
 		// breach on a light lane — the #1976 serialization class — so the note
 		// names the lane (receipt: the reader sees WHICH lane was measured).
@@ -1557,13 +1602,22 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			c.reason === "timeout"
 				? `timeout after ${Math.round(MODEL_CALL_CAP_MS / 1000)}s — SLOW generation under model-endpoint contention is as likely as a hang; if a direct curl to the endpoint answers, unload the extra models and rerun`
 				: `${c.reason}${c.detail ? ` — ${firstLine(c.detail)}` : ""}`;
+		let skipReceipt: DeployE2eProbe["skipReceipt"];
 		if (c.verdict === "pass" || c.verdict === "skip") {
 			note += ` — wall ${(ms / 1000).toFixed(1)}s (budget ${budgetS}s)`;
 		}
-		if (c.verdict === "pass" && ms > ONESHOT_RUNTIME_BUDGET_MS) {
+		if (c.verdict === "pass" && ms > budgetMs) {
 			if (warnings.length > 0) {
 				verdict = "skip";
 				note = `one-shot wall ${(ms / 1000).toFixed(1)}s exceeds the ${budgetS}s budget under model contention — inconclusive, not a tree regression`;
+				// Machine-readable receipt (self-arc-20 t05): the skip is recorded
+				// as environment-limited, with the exact budget/observed pair and
+				// the retry that would make it conclusive.
+				skipReceipt = {
+					budgetMs,
+					observedMs: ms,
+					hint: "unload the extra resident models on the endpoint (or raise --model-call-budget-ms) and rerun",
+				};
 			} else {
 				verdict = "fail";
 				note = `one-shot wall ${(ms / 1000).toFixed(1)}s exceeds the ${budgetS}s budget (baseline p95 10.99s measured 2026-08-24 on 0.7.1+gd6f3c0c) — startup/shutdown serialization regression (the #1976 class)`;
@@ -1581,6 +1635,7 @@ export async function runDeployE2e(opts: DeployE2eOptions): Promise<DeployE2eOut
 			verdict,
 			ms,
 			note,
+			skipReceipt,
 			detail:
 				verdict === "fail"
 					? [c.detail, ...warnings.map((w) => `Precheck: ${w}`)].filter(Boolean).join("\n")

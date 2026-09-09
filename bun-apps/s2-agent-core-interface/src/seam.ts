@@ -1,5 +1,6 @@
 import type { SeamKey } from "./seam-keys.js";
 import type { KnowledgePipeline } from "./interfaces/knowledge-pipeline.js";
+import type { VisionLLMSeam } from "./vision-llm-leaf.js";
 
 /**
  * Live tool-gate state (wayfinder ticket 06) — what the power-tool
@@ -72,6 +73,10 @@ export interface SeamImplMap {
    *  host startup; cli runCli before dispatch) run before any spawn; a new
    *  publisher must preserve that order. */
   __piBakedProviders: Record<string, Record<string, unknown>>;
+  /** Vision-LLM seam (self-arc-20 ticket 01) — file2md publishes its
+   *  resolveVisionLLM + askImage at extension load; flux2's scene-pipeline
+   *  VLM verify reads it (no ext→ext import). Contract: VisionLLMSeam. */
+  __piVisionLLM: VisionLLMSeam;
 }
 
 declare global {
