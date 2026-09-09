@@ -1,7 +1,7 @@
 ---
-type: grilling
-claimed: 01a08832-18ff-7a4f-ad2c-f615b8a6995e
-status: open
+type: task
+status: closed
+resolved: 2026-09-09
 ---
 
 # t01 — harness + census + baseline
@@ -24,3 +24,8 @@ status: open
 
 Acceptance: 8 receipts on disk; detector tiers proven; census recorded in
 map Context.
+
+
+## Resolution
+
+Harness shipped (drive-case.ts, drive-pty.ts, probe-bootstrap.ts - scratch). Detector corrections F0a (bootstrap injection not persisted) + F0b (PI_SESSIONS_DIR reader-only - nonce pinning). Census: bare boot advertises both families + repo skills; default model resolved google/gemma-4-12b (local). 7 baseline legs run; 2 stalls preserved as environment evidence.

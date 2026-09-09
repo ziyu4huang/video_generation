@@ -913,3 +913,77 @@ describe("/wayfind done — clears the overlay active effort on success", () => 
     expect(spyCalls.some((c) => c.effort === undefined && c.cwd === undefined)).toBe(true);
   });
 });
+
+// ─── F-C6b regression lock (spwf-drive, 2026-09-09) ──────────────────────────
+// Adoption must BIND the session (activeEffortBySession) even when nothing is
+// claimable — the ambiguous-phrase guard reads this map, and the pre-fix code
+// only wrote it after a successful claimNextTicket, so a fully-claimed effort
+// left the guard void and the next `/wayfind <phrase>` charted a junk effort.
+/** Local copies: the originals are scoped inside the claim-path describe. */
+function seedActiveEffortWithTicketLocal(cwd: string, effort: string): void {
+  const created = createEffort(cwd, { effort, destination: `${effort} destination` });
+  if (!created.ok) throw new Error(`createEffort failed for ${effort}`);
+  writeTicket(cwd, effort, {
+    id: "01",
+    slug: "first-question",
+    title: "First question",
+    question: "What is the first takeable step?",
+    type: "task",
+    blocking: [],
+    status: "open",
+  });
+}
+const ticketPathLocal = (cwd: string, effort: string) =>
+  join(cwd, ".planning", effort, "tickets", "01-first-question.md");
+
+describe("/wayfind bare — adoption binds the session even with nothing claimable", () => {
+  it("adoption with all tickets claimed: session binding lands, no steer, no re-claim", async () => {
+    const { pi, state } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    seedActiveEffortWithTicketLocal(cwd, "2026-08-16-effort-claimed");
+    // The one ticket is already claimed by a DEAD session — nothing claimable.
+    const tp = ticketPathLocal(cwd, "2026-08-16-effort-claimed");
+    writeFileSync(
+      tp,
+      readFileSync(tp, "utf-8").replace("status: open", "status: open\nclaimed: dead-session"),
+      "utf-8",
+    );
+
+    await run(pi, "wayfind", "", ctx);
+
+    // Adoption notify still names the effort:
+    expect(notifications.some((n) => n.includes("2026-08-16-effort-claimed") && n.includes("1 active"))).toBe(true);
+    // THE FIX: the session binding lands at adoption time, not only on claim:
+    expect(state.activeEffortBySession.get("test-session")).toBe("2026-08-16-effort-claimed");
+    // No steer sent (nothing was claimable) and the dead claim is untouched:
+    expect(pi.sent.length).toBe(0);
+    expect(readFileSync(tp, "utf-8")).toContain("claimed: dead-session");
+  });
+});
+
+// ─── F-C6a regression lock (spwf-drive, 2026-09-09) ──────────────────────────
+// The ambiguous-phrase guard renders the status FIRST and its own note LAST:
+// the notify pane shows accumulated lines, so a guard note emitted before the
+// status handler's notifies never painted (found live via the pty harness).
+describe("/wayfind ambiguous-phrase guard — note renders last", () => {
+  it("with an active effort + non-keyword phrase: guard note is the LAST notification, nothing charts", async () => {
+    const { pi, state } = setup();
+    const cwd = makeCwd();
+    const { ctx, notifications } = ctxCapturing(cwd);
+    seedActiveEffortWithTicketLocal(cwd, "2026-08-16-effort-guard");
+    state.activeEffortBySession.set("test-session", "2026-08-16-effort-guard");
+
+    await run(pi, "wayfind", "what should I look at next around here?", ctx);
+
+    const guardIdx = notifications.findIndex((n) => n.includes("showing its status"));
+    expect(guardIdx).toBeGreaterThanOrEqual(0);
+    // The status render happened BEFORE the guard note (guard note is last):
+    const statusIdx = notifications.findIndex((n) => n.includes("2026-08-16-effort-guard") || n.includes("Resume:"));
+    expect(statusIdx).toBeGreaterThanOrEqual(0);
+    expect(guardIdx).toBeGreaterThan(statusIdx);
+    expect(guardIdx).toBe(notifications.length - 1);
+    // No charting steer:
+    expect(pi.sent.every((s) => !s.includes("Charting"))).toBe(true);
+  });
+});
