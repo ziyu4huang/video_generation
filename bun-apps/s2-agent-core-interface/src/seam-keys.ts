@@ -63,6 +63,14 @@ export const SEAM_KEYS = {
   // s2-agent-ext-ultracode (extensions/ultracode.ts). Consumer:
   // s2-agent-ext-task (src/loop/overlay.ts, display-only).
   __piWakeupLoops:          { crossPackage: true },
+  // __piVisionLLM: the vision-LLM seam (self-arc-20 ticket 01) — file2md
+  // publishes BOTH resolveVisionLLM + askImage (contract: VisionLLMSeam in
+  // vision-llm-leaf.ts) at extension load; flux2's scene-pipeline VLM verify
+  // reads it instead of importing the file2md package (the direct
+  // flux2→file2md edge this seam removes). The literal is duplicated verbatim
+  // across the two packages (ADR-wayfind-0004 style) — exactly the drift
+  // surface this registry pins → crossPackage:true.
+  __piVisionLLM:            { crossPackage: true },
 } as const;
 
 export type SeamKey = keyof typeof SEAM_KEYS;

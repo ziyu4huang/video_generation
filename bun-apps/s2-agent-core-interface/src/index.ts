@@ -36,3 +36,9 @@ export {
   defaultEmbedder, lmStudioAvailable, type EmbedQueryOptions, embedQuery,
   cosine, splitFencedYaml,
 } from "./embedding-leaf.js";
+// Vision-LLM contract (self-arc-20 ticket 01): the shared shape of the
+// `__piVisionLLM` seam — file2md publishes its resolver + asker; consumers
+// (flux2) read the seam instead of importing the package.
+export type {
+  ResolvedLLM, VisionImageAskOptions, VisionImageAskResult, VisionLLMSeam,
+} from "./vision-llm-leaf.js";
