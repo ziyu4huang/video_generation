@@ -7,10 +7,13 @@
  */
 import { describe, expect, test } from "bun:test";
 import {
+  FIGURE_CAPTION_PAGE_MAX_CHARS,
   FIGURE_CAPTION_RE,
+  FIGURE_CAPTION_RE_MODERN,
   FIGURE_MAX_BODY_CHARS,
   FIGURE_OCR_MAX_CHARS,
   FIGURE_SKIP_NOTICE,
+  isCaptionFigure,
   isScanFigure,
   isTextFigure,
 } from "./figure.ts";
@@ -20,6 +23,46 @@ function bodyWithCaption(len: number): string {
   const cap = "Figure 3-4. The quick brown fox jumps over the lazy dog.";
   return cap + "x".repeat(Math.max(0, len - cap.length));
 }
+
+/** A modern-shape body of exactly `len` chars with a `Figure N:` caption. */
+function bodyWithModernCaption(len: number): string {
+  const cap = "Figure 2: The quick brown fox jumps over the lazy dog.";
+  return cap + "x".repeat(Math.max(0, len - cap.length));
+}
+
+describe("isCaptionFigure — modern `Figure N:` shape (kcard-scale corpus)", () => {
+  test("colon captions fire within the modern band", () => {
+    expect(FIGURE_CAPTION_RE_MODERN.test("Figure 2: Architecture overview")).toBe(true);
+    expect(isCaptionFigure(bodyWithModernCaption(2000))).toBe(true);
+  });
+
+  test("prose references never fire — no colon, no caption", () => {
+    // "Figure 1." at a sentence end and "Figure 1 shows" are references.
+    for (const p of ["as shown in Figure 1. The rest of the sentence continues here.",
+                     "Figure 1 shows the architecture of the proposed system.",
+                     "see Figures 1 and 3 for details."]) {
+      expect(FIGURE_CAPTION_RE_MODERN.test(p)).toBe(false);
+      expect(isCaptionFigure(p)).toBe(false);
+    }
+  });
+
+  test("band boundary: 3000 fires, 3001 does not", () => {
+    expect(isCaptionFigure(bodyWithModernCaption(FIGURE_CAPTION_PAGE_MAX_CHARS))).toBe(true);
+    expect(isCaptionFigure(bodyWithModernCaption(FIGURE_CAPTION_PAGE_MAX_CHARS + 1))).toBe(false);
+  });
+
+  test("caption-less bodies never flag, whatever their length (prose pages, measured min 840)", () => {
+    expect(isCaptionFigure("x".repeat(FIGURE_CAPTION_PAGE_MAX_CHARS))).toBe(false);
+    expect(isCaptionFigure("x".repeat(10))).toBe(false);
+  });
+
+  test("legacy shape stays on its own detector — the two do not cross-fire", () => {
+    // The legacy `Figure 3-4.` caption must NOT satisfy the modern colon rule…
+    expect(FIGURE_CAPTION_RE_MODERN.test("Figure 3-4. caption")).toBe(false);
+    // …and a modern caption does not satisfy the legacy sub-index rule.
+    expect(FIGURE_CAPTION_RE.test("Figure 2: caption")).toBe(false);
+  });
+});
 
 describe("isTextFigure — caption regex variants", () => {
   test("accepts the canonical `Figure N-x.` caption shapes", () => {

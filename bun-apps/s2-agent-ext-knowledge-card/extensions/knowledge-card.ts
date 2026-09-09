@@ -115,7 +115,7 @@ GATE_DEFS["zk_fs"] = {
   },
   description: "Deterministic FS-style browse over the knowledge vault (ls/tree/find/grep/stat)",
 };
-import type { KnowledgeRecord, SourceFamily } from "../src/types.ts";
+import type { IngestSummary, KnowledgeRecord, SourceFamily } from "../src/types.ts";
 import {
 	retrieveRecords,
 	type RetrieveOptions,
@@ -1167,9 +1167,6 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 					details: { code: "no_input_files", skipped },
 				};
 			}
-			const sourceLabel =
-				params.source_label ??
-				`${source}:${files[0]!.split("/").pop()!.replace(/\.(knowledge\.jsonl|md)$/, "")}`;
 			let vaultPath: string;
 			try {
 				vaultPath = params.vault ?? (await resolveVault(cwd)).path;
@@ -1187,6 +1184,12 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 			}
 
 			const records: KnowledgeRecord[] = [];
+			// Per-record source label (null = the invocation default). Generic .md
+			// files are one-card-per-file INDEPENDENT sources: without a per-file
+			// label, a multi-file ingest stamped EVERY card's graph note with
+			// files[0]'s title as its provenance `source` (measured 2026-09-09 —
+			// three paper cards all carrying the first file's title).
+			const recordLabels: (string | null)[] = [];
 			const parseErrors: { line: number; reason: string }[] = [];
 			for (const abs of files) {
 				let content: string;
@@ -1208,6 +1211,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						continue;
 					}
 					records.push(...recs);
+					recordLabels.push(...recs.map(() => null));
 				} else if (source === "auto-memory") {
 					const rec = adaptAutoMemoryMarkdown(content);
 					if (!rec) {
@@ -1215,6 +1219,7 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						continue;
 					}
 					records.push(rec);
+					recordLabels.push(null);
 				} else if (source === "generic") {
 					// generic inputs are ANY .md files (no frontmatter/H1/tag
 					// assumptions) — one record per file via the universal adapter.
@@ -1224,6 +1229,9 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 						continue;
 					}
 					records.push(rec);
+					recordLabels.push(
+						params.source_label ?? `generic:${abs.split("/").pop()!.replace(/\.(knowledge\.jsonl|md)$/i, "")}`,
+					);
 				} else {
 					const parsed = parseKnowledgeJsonl(content);
 					records.push(...parsed.records);
@@ -1231,15 +1239,57 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				}
 			}
 
-			const summary = await ingestRecords(records, {
-				vaultPath,
-				source,
-				sourceLabel,
-				folder: params.folder,
-				dryRun: params.dry_run === true,
-				// ticket 08 fold-back (ticket 10 reconciliation): post-write index rebuild.
-				indexRebuild: true,
+			const runIngest = (recs: KnowledgeRecord[], label: string) =>
+				ingestRecords(recs, {
+					vaultPath,
+					source,
+					sourceLabel: label,
+					folder: params.folder,
+					dryRun: params.dry_run === true,
+					// ticket 08 fold-back (ticket 10 reconciliation): post-write index rebuild.
+					indexRebuild: true,
+				});
+			// Group by per-record label (explicit source_label collapses everything
+			// into one group — the legacy single-label behavior).
+			const labelGroups = new Map<string, KnowledgeRecord[]>();
+			const defaultLabel = params.source_label ?? `${source}:${files[0]!.split("/").pop()!.replace(/\.(knowledge\.jsonl|md)$/, "")}`;
+			records.forEach((rec, i) => {
+				const label = recordLabels[i] ?? defaultLabel;
+				const group = labelGroups.get(label);
+				if (group) group.push(rec);
+				else labelGroups.set(label, [rec]);
 			});
+			let summary: IngestSummary | undefined;
+			for (const [label, recs] of labelGroups) {
+				const s = await runIngest(recs, label);
+				if (!summary) {
+					summary = s;
+				} else {
+					// Merge: sum counters, concat arrays; the first group's identity
+					// labels the summary (the caller sees one summary either way).
+					summary.total += s.total;
+					summary.created += s.created;
+					summary.updated += s.updated;
+					summary.unchanged += s.unchanged;
+					summary.skipped += s.skipped;
+					summary.linked += s.linked;
+					summary.wikiMerged += s.wikiMerged;
+					summary.semanticMerged += s.semanticMerged;
+					summary.semanticSkipped += s.semanticSkipped;
+					summary.dedupDecisions.push(...s.dedupDecisions);
+					summary.parseErrors.push(...s.parseErrors);
+					summary.mocUpdated = summary.mocUpdated || s.mocUpdated;
+					if (labelGroups.size > 1) summary.sourceLabel = `${summary.source}:(per-file labels)`;
+				}
+			}
+			if (!summary) {
+				// Every input file failed to parse — nothing reached ingest.
+				return {
+					content: [{ type: "text", text: "zk_ingest: no records parsed from the input files." }],
+					isError: true,
+					details: { code: "no_records", parseErrors },
+				};
+			}
 			summary.parseErrors.push(...parseErrors);
 			const skippedNote = skipped.length
 				? `\nSkipped: ${skipped.map((s) => `${s.path} (${s.reason})`).join(", ")}`

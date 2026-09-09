@@ -496,10 +496,21 @@ export function adaptGenericMarkdown(
 	// 3. Detail = body with [[wiki-link]] brackets normalized to plain text
 	//    (same rationale as the other adapters: namespaced slugs diverge from
 	//    raw targets, so raw links would be dead; shared-TAG edges drive the graph).
-	const detail = body ? stripWikiLinkBrackets(body) : body;
+	//    A leading H1 is STRIPPED when the title came from that same H1 —
+	//    renderCard re-emits `# <title>`, so keeping it double-rendered the
+	//    header block (measured on generic-paper-recite, 2026-09-09).
+	const detail = body
+		? stripWikiLinkBrackets(h1 && h1.index !== undefined ? body.replace(/^#\s+.+?\s*$/m, "").trim() : body)
+		: body;
 
-	// 4. Tags: frontmatter tags ∪ body #hashtags ∪ [[wikilinks]] ∪ distinctive
-	//    H1 tokens (mirrors the hermes/auto-memory harvest).
+	// 4. Tags: frontmatter tags ∪ body #hashtags ∪ distinctive H1 tokens.
+	//    [[wikilink]] targets are DELIBERATELY NOT harvested for the generic
+	//    family (unlike hermes/auto-memory): house-card links are STRUCTURAL
+	//    (`## 連結` sections linking sibling cards by title), so slugifying
+	//    them stamped every sibling's full title into tags AND let a
+	//    different card's title reach the note's `sources` label via
+	//    tag-derived provenance (measured corruption, 2026-09-09). Real
+	//    cross-linking runs on shared topical tags.
 	const tagSet = new Set<string>();
 	tagSet.add("generic");
 	const fmTags = data.tags;
@@ -514,15 +525,9 @@ export function adaptGenericMarkdown(
 			if (n) tagSet.add(n);
 		}
 	}
-	const linkRe = /\[\[([^\]]+)\]\]/g;
 	const hashRe = /(^|[^\w/])#([a-z0-9][\w-]*)/gi;
 	let m: RegExpExecArray | null;
 	for (const line of content.split("\n")) {
-		linkRe.lastIndex = 0;
-		while ((m = linkRe.exec(line)) !== null) {
-			const t = normTag(m[1]!.split(/[#|]/)[0]!);
-			if (t) tagSet.add(t);
-		}
 		hashRe.lastIndex = 0;
 		while ((m = hashRe.exec(line)) !== null) {
 			const t = normTag(m[2]!);

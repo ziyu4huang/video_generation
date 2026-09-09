@@ -70,9 +70,48 @@ describe("adaptGenericMarkdown", () => {
 		expect(r.tags).toContain("react"); // frontmatter tag
 		expect(r.tags).toContain("hooks");
 		expect(r.tags).toContain("frontend"); // #hashtag
-		expect(r.tags).toContain("use-effect-deps"); // [[wikilink]]
+		// [[wikilink]] targets are NOT tags for the generic family (D4, 2026-09-09):
+		// house-card links are structural (`## 連結` sections), and harvesting them
+		// stamped sibling card TITLES into tags (measured corruption on
+		// generic-paper-recite).
+		expect(r.tags).not.toContain("use-effect-deps");
 		expect(r.evidence?.first_seen).toBe("2026-07-01");
 		expect(r.detail).toContain("Body about");
+	});
+
+	test("D4 regression: sibling card titles never reach tags via 連結 wiki-links", () => {
+		const md = [
+			"---",
+			"id: 202609090545",
+			"tags: [zettel, llm, citation]",
+			"---",
+			"",
+			"# Paper - ReCite",
+			"",
+			"## 核心想法",
+			"- 主動推理取代相似度檢索。",
+			"",
+			"## 連結",
+			"- 相關：[[Paper - Procedural Graphs 程序知識的圖結構與自演化]]",
+			"- 上層概念：[[Tags/Index]]",
+		].join("\n");
+		const r = adaptGenericMarkdown(md, "Zettelkasten/Paper - ReCite.md")!;
+		for (const t of r.tags) {
+			expect(t).not.toContain("procedural-graphs");
+			expect(t).not.toBe("tags/index");
+		}
+		// "paper" itself MAY appear (distinctive H1-token harvest) — what must
+		// never appear is a SIBLING CARD's title slug from the 連結 links.
+		expect(r.tags).toContain("llm"); // frontmatter tags intact
+	});
+
+	test("leading H1 stripped from detail when the title came from it (no double render)", () => {
+		const md = "# Pipeline Diagram\n\n## 核心想法\n- Three-stage flow.";
+		const r = adaptGenericMarkdown(md, "notes/diagram.md")!;
+		expect(r.title).toBe("Pipeline Diagram");
+		// detail must not repeat the H1 renderCard will already emit
+		expect(r.detail.startsWith("# Pipeline Diagram")).toBe(false);
+		expect(r.detail).toContain("## 核心想法");
 	});
 
 	test("frontmatter-less md: filename-derived title/id, never crashes", () => {
@@ -114,15 +153,18 @@ describe("adaptGenericMarkdown", () => {
 		expect(adaptGenericMarkdown(plain, "x/c.md")!.type).toBe("reference");
 	});
 
-	test("harvests body #hashtags AND [[wikilinks]] as cross-link tags", () => {
+	test("harvests body #hashtags as cross-link tags; [[wikilinks]] stay structural (D4)", () => {
 		const md = [
 			"# Doc",
 			"",
 			"See [[some-note]] and [[other-note|alias]] plus #flux2 #argparse.",
 		].join("\n");
 		const r = adaptGenericMarkdown(md, "x/doc.md")!;
-		expect(r.tags).toContain("some-note");
-		expect(r.tags).toContain("other-note");
+		// D4 (2026-09-09): generic-family wiki-link targets no longer become
+		// tags — they are structural links, and harvesting them stamped
+		// sibling card titles into tags. Hashtags still harvest.
+		expect(r.tags).not.toContain("some-note");
+		expect(r.tags).not.toContain("other-note");
 		expect(r.tags).toContain("flux2");
 		expect(r.tags).toContain("argparse");
 	});
