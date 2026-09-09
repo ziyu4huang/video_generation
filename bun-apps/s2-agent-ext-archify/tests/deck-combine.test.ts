@@ -5,8 +5,10 @@
  * fs). Self-containment: the combined file must have ZERO external references
  * — the per-slide font `<link>`s are stripped at embed time, mirroring the
  * emit-html test's no-network bar. Isolation: every slide is a sandboxed
- * srcdoc iframe; speaker notes must never reach the file (they are a PPTX
- * surface).
+ * srcdoc iframe. Speaker notes reach ONLY the combined shell's presenter pane
+ * (t04) — as escaped text nodes inside the slide wrapper, never in a srcdoc
+ * attribute and never in a per-slide page; the pptx `addNotes` surface is
+ * unchanged.
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -103,7 +105,7 @@ describe("buildDeck combine — end to end", () => {
     ],
   };
 
-  test("combine flag writes deck.html beside the slides; notes never leak", async () => {
+  test("combine flag writes deck.html beside the slides; notes live ONLY in the presenter pane", async () => {
     const work = mkdtempSync(join(tmpdir(), "deck-combine-"));
     try {
       const outputPath = join(work, "combined.pptx");
@@ -123,8 +125,24 @@ describe("buildDeck combine — end to end", () => {
       const frames = html.match(/<iframe sandbox="allow-scripts"/g) ?? [];
       expect(frames).toHaveLength(manifest.slides.length);
       expect(html).toContain("Combined deck POC");
-      expect(html).not.toContain(NOTES_SENTINEL);
       expect(html).not.toMatch(/https?:\/\//);
+
+      // CONTRACT (t04, tightened from #2211's "notes never reach the file"):
+      // notes exist ONLY in the shell presenter pane. They must appear there —
+      // and nowhere else:
+      //   (a) in NO iframe srcdoc attribute value (unescape before checking —
+      //       the escaped form could otherwise hide a leak),
+      //   (b) in NO persisted per-slide page.
+      const srcdocs = [...html.matchAll(/srcdoc="([^"]*)"/g)].map((m) =>
+        m[1]!.replaceAll("&quot;", '"').replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&"),
+      );
+      expect(srcdocs).toHaveLength(manifest.slides.length);
+      for (const sd of srcdocs) expect(sd).not.toContain(NOTES_SENTINEL);
+      const slide2 = await Bun.file(join(slidesDir, "slide-2.html")).text();
+      expect(slide2).not.toContain(NOTES_SENTINEL);
+      expect(html).toContain(NOTES_SENTINEL); // the pane carries them
+      expect(html).toContain('class="snotes" hidden');
+      expect(html).toContain('id="notes"');
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
@@ -148,4 +166,34 @@ describe("buildDeck combine — end to end", () => {
       rmSync(work, { recursive: true, force: true });
     }
   }, 60_000);
+});
+
+// ── t04: speaker notes in the presenter pane ────────────────────────────────
+describe("combineDeckHtml — presenter pane (t04)", () => {
+  test("notes travel as an escaped TEXT NODE in the slide wrapper (never a JS literal)", () => {
+    const notes = `Esc <hi> & "quote" \\ backslash`;
+    const out = combineDeckHtml([{ title: "s", html: "<html><body>x</body></html>", notes }], {
+      deckTitle: "Deck",
+      theme: "light",
+    });
+    // escapeText covers & < >; the quote survives as a raw quote inside the
+    // div's TEXT content (only srcdoc attributes need &quot;).
+    expect(out).toContain(`&lt;hi&gt; &amp; "quote" \\ backslash`);
+    // pane reads via textContent — no JSON.stringify / template interpolation
+    // of notes anywhere in the emitted script.
+    const script = out.slice(out.indexOf("<script>"));
+    expect(script).not.toContain("Esc");
+    expect(out).toContain('class="snotes" hidden');
+  });
+
+  test("slides WITHOUT notes carry no .snotes wrapper; shell chrome still present", () => {
+    const out = combineDeckHtml(
+      [{ title: "plain", html: "<html><body>x</body></html>" }],
+      { deckTitle: "Deck", theme: "light" },
+    );
+    expect(out).not.toContain('<div class="snotes"'); // no notes wrapper node
+    expect(out).toContain('id="notes"'); // the pane element itself exists
+    expect(out).toContain('body.notes-on .notes');
+    expect(out).toContain('n notes');
+  });
 });
