@@ -33,6 +33,9 @@ export interface CombineSlide {
   title: string;
   /** The slide's own HTML (slide-N.html as persisted). */
   html: string;
+  /** Speaker notes — reach the combined shell's presenter pane ONLY
+   *  (per-slide pages and iframe srcdocs never carry them). */
+  notes?: string;
 }
 
 export interface CombineOptions {
@@ -62,12 +65,16 @@ function stripExternalFontLinks(html: string): string {
     .replace(/<link[^>]+rel="preconnect"[^>]*>/g, "");
 }
 
-function frame(srcdoc: string, index: number, palette: Palette): string {
+function frame(srcdoc: string, index: number, palette: Palette, notes?: string): string {
   const bg = `#${palette.slideBg}`;
+  // Speaker notes travel as an ESCAPED TEXT NODE inside this slide's wrapper —
+  // never as a JS string literal and never inside the srcdoc attribute — so the
+  // presenter pane can read them via textContent with zero escape-class risk.
+  const pane = notes !== undefined ? `<div class="snotes" hidden>${escapeText(notes)}</div>` : "";
   return (
     `<div class="slide" id="s${index}" data-index="${index}">` +
     `<iframe sandbox="allow-scripts" loading="lazy" title="slide ${index + 1}" ` +
-    `srcdoc="${escapeSrcdoc(srcdoc)}" style="background:${bg}"></iframe></div>`
+    `srcdoc="${escapeSrcdoc(srcdoc)}" style="background:${bg}"></iframe>${pane}</div>`
   );
 }
 
@@ -77,7 +84,7 @@ function frame(srcdoc: string, index: number, palette: Palette): string {
 export function combineDeckHtml(slides: CombineSlide[], opts: CombineOptions): string {
   const palette = PALETTES[opts.theme];
   const frames = slides
-    .map((s, i) => frame(stripExternalFontLinks(s.html), i, palette))
+    .map((s, i) => frame(stripExternalFontLinks(s.html), i, palette, s.notes))
     .join("\n");
   const items = slides.map((s, i) => `<a href="#s${i}">${i + 1} · ${escapeText(s.title)}</a>`).join("");
   const shell = {
@@ -113,6 +120,11 @@ export function combineDeckHtml(slides: CombineSlide[], opts: CombineOptions): s
   .slide iframe { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid ${shell.border};
                   border-radius: 8px; background: #fff; }
   body.grid .stage { visibility: hidden; }
+  .notes { display: none; position: fixed; inset: auto 0 0 0; max-height: 26vh; overflow: auto;
+           padding: 10px 18px 46px; background: color-mix(in srgb, ${shell.pageBg} 96%, transparent);
+           border-top: 1px solid ${shell.accent}; font-size: 13px; line-height: 1.55; z-index: 6; }
+  body.notes-on .notes { display: block; }
+  .snotes { display: none; }
   footer { position: fixed; inset: auto 0 0 0; display: flex; justify-content: center; gap: 14px;
            padding: 8px; font: 12px ui-monospace, monospace; color: ${shell.muted};
            border-top: 1px solid ${shell.border};
@@ -131,17 +143,24 @@ export function combineDeckHtml(slides: CombineSlide[], opts: CombineOptions): s
 <div class="stage">
 ${frames}
 </div>
-<footer><span>← → pages · g grid · #n deep-link</span><a href="#" id="top">top</a></footer>
+<footer><span>← → pages · g grid · n notes · #n deep-link</span><a href="#" id="top">top</a></footer>
+<aside class="notes" id="notes" aria-label="speaker notes"></aside>
 <script>
   var slides = Array.prototype.slice.call(document.querySelectorAll(".slide"));
   var cur = 0;
   function clamp(n) { return Math.max(0, Math.min(slides.length - 1, n)); }
+  var pane = document.getElementById("notes");
+  function syncNotes() {
+    var src = slides[cur] && slides[cur].querySelector(".snotes");
+    pane.textContent = src ? src.textContent : "";
+  }
   function show(n, push) {
     cur = clamp(n);
     slides.forEach(function (s, i) { s.classList.toggle("active", i === cur); });
     document.getElementById("cur").textContent = String(cur + 1);
     if (push) history.replaceState(null, "", "#" + (cur + 1));
     window.scrollTo(0, 0);
+    syncNotes();
   }
   function fromHash() {
     var m = /^#(\\d+)$/.exec(location.hash);
@@ -153,6 +172,7 @@ ${frames}
     else if (e.key === "Home") { show(0, true); }
     else if (e.key === "End") { show(slides.length - 1, true); }
     else if (e.key === "g" || e.key === "G") { document.body.classList.toggle("grid"); }
+    else if (e.key === "n" || e.key === "N") { document.body.classList.toggle("notes-on"); }
   });
   window.addEventListener("hashchange", fromHash);
   document.getElementById("top").addEventListener("click", function (e) { e.preventDefault(); show(0, true); });

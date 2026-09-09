@@ -141,6 +141,9 @@ export interface BuildDeckParams {
 export interface BuiltSlide {
   title: string;
   subtitle?: string;
+  /** Speaker notes for the combined shell's presenter pane; the pptx gets
+   *  them via addNotes, the per-slide pages never do. */
+  notes?: string;
   /** The slide page: an archify artifact for `diagram`, else a composed page. */
   htmlPath: string;
   /** The code layout or the resolved template name (`*.layout.json`). */
@@ -520,6 +523,7 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
       built.push({
         title: slide.title,
         ...(slide.subtitle !== undefined ? { subtitle: slide.subtitle } : {}),
+        ...(slide.notes !== undefined ? { notes: slide.notes } : {}),
         htmlPath,
         layout,
         ...(slide.ir ? { irPath: slide.ir } : {}),
@@ -561,7 +565,11 @@ export async function buildDeck(params: BuildDeckParams): Promise<DeckResult> {
       if (params.combine) {
         const combineSlides = [];
         for (const b of built) {
-          combineSlides.push({ title: b.title, html: await Bun.file(b.htmlPath).text() });
+          combineSlides.push({
+            title: b.title,
+            html: await Bun.file(b.htmlPath).text(),
+            ...(b.notes !== undefined ? { notes: b.notes } : {}),
+          });
         }
         deckHtmlPath = join(work, "deck.html");
         await Bun.write(
