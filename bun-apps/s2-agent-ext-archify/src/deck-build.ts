@@ -68,6 +68,13 @@ export interface DeckManifest {
   output?: string;
   theme?: Theme;
   tag?: string;
+  /**
+   * Manifest format version. Absent ⇒ 1 (the only supported version); a
+   * different value refuses the build naming both versions. Named
+   * `manifestVersion`, NOT `version`, so it can never collide with the deck
+   * pack envelope's own `version` header field (see src/deck-pack.ts).
+   */
+  manifestVersion?: number;
   defaults?: {
     font?: string;
     /**
@@ -196,6 +203,15 @@ export function parseManifest(raw: string, source: string, registry?: LayoutName
   const m = parsed as DeckManifest;
   if (!Array.isArray(m.slides) || m.slides.length === 0) {
     throw new DeckError(`manifest missing non-empty \`slides\` (${source})`);
+  }
+  // Version story: absent ⇒ 1 (every pre-version manifest keeps working —
+  // the backward-compat discipline that already governs layout inference).
+  // A newer version REFUSES with both versions named, mirroring deck-pack.
+  const SUPPORTED_MANIFEST_VERSION = 1;
+  if (m.manifestVersion !== undefined && m.manifestVersion !== SUPPORTED_MANIFEST_VERSION) {
+    throw new DeckError(
+      `deck manifest: manifestVersion ${JSON.stringify(m.manifestVersion)} is newer than the supported version ${SUPPORTED_MANIFEST_VERSION} — upgrade archify to read this deck (${source})`
+    );
   }
   const available: readonly string[] = registry ? registry.names() : SLIDE_LAYOUTS;
   m.slides.forEach((s, i) => {

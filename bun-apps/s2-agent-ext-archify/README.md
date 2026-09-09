@@ -95,6 +95,21 @@ and no `layout` IS a diagram slide, and that layout reproduces the pre-compositi
 the coordinate — verified by rebuilding `examples/deck/` and comparing the slide XML **byte
 for byte** against a pre-refactor capture (all five identical; see `receipts/`).
 
+### Manifest format — schemas/deck-manifest.schema.json
+
+The manifest's declarative contract: a draft-2020-12 schema covering the
+manifest fields (`output`/`theme`/`tag`/`defaults`/`slides[]`, `manifestVersion`)
+and every shipped-template slot field. It is a **parity contract, not a runtime
+gate** — `parseManifest` remains the single runtime authority (source/slide
+context in errors, registry-aware layout + slot checks via `slotProblems`), and
+a contract test (`tests/deck-manifest-schema.test.ts`) proves both accept and
+reject the same fixture matrix. `src/` imports no ajv.
+
+**`manifestVersion`** (optional): absent ⇒ `1`, the only supported version; any
+other value refuses the build naming both versions. Named `manifestVersion` —
+not `version` — so it can never collide with the `deck pack` envelope's own
+`version` header field.
+
 Field names follow consulting practice on purpose. `title` is an **action title** — the
 takeaway as a complete claim, not a topic label — because stacked action titles are what let
 a deck be read from the titles alone. `bun run deck --lint` prints exactly that stack, plus
