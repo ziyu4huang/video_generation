@@ -1,3 +1,13 @@
+---
+type: grilling
+claimed: 01a08832-18ff-7a4f-ad2c-f615b8a6995e
+status: open
+---
+
+# t01 — harness + census + baseline
+
+## Question
+
 # t01 — harness + census + baseline
 
 - `output/spwf-drive/drive-case.ts`: thin `-p` spawner — contention precheck
