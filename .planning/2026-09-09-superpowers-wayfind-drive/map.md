@@ -144,9 +144,10 @@ Case results (receipts under output/spwf-drive/{baseline,postfix}/, scratch):
 - C1 bootstrap inject: GREEN both legs (g2e95efa / pinned dirs). No fix.
 - C2 routing→brainstorming: GREEN behaviorally (C2b: brainstorming+TDD read,
   skills named, work done red→green in 119s). Two earlier legs stalled 13-19
-  min on provider-side saturation (4 LM Studio models resident recorded; the
-  default boot model is REMOTE zai so local residency is informational) —
-  receipts preserved, driver now caps legs at 300s with a manual kill.
+  min on provider-side saturation (4 LM Studio models resident recorded;
+  the boot's default model was actually the LOCAL google/gemma-4-12b, so
+  local residency was NOT the cause — stall attributed to provider/session
+  saturation; receipts preserved, driver caps legs at 300s with manual kill).
 - C3 TDD shaping: PASS (tdd SKILL.md read; test-first order weakly checked).
 - C4 exclude-env: PASS — PI_SUPERPOWERS_SKILL_EXCLUDE=!,brainstorming + -ns:
   brainstorming never read, TDD fallback, 72s. Knob authoritative (arc-16
@@ -198,3 +199,16 @@ Environment findings (recorded, not fixed here):
   machinery verified working live — no fix justified by evidence).
 - Arc-16's four recorded live-agent gaps: all four now receipted (C1/C8 =
   bootstrap; C2/C3/C5 = routing; C7 = slash-command body; C4 = exclude-env).
+
+## Reviewer round (2026-09-09, independent GLM-5.3 pass)
+
+REQUEST-CHANGES, 2 blockers — both fixed in-PR: (1) regression tests for both
+fixes (F-C6b adoption-binding + F-C6a guard-order lock; 517 → 519 tests);
+(2) ticket hygiene (the stale dead-session claim on t01 + duplicated title —
+all five tickets now closed with honest resolutions). Non-blocking: the C2
+model-attribution parenthetical reconciled (above); a detectorCorrection field
+at receipt time recommended for the next drive effort; case prompts to stay
+neutral (the routing cases' "name the skill" phrasing is disclosed — the
+detector was the read-path, not self-report, so no false green resulted).
+Verdict on substance: "the science holds — both defects real, both fixes
+correct and provably shipped." Receipt: output/reviewer-spwf-drive/plan.md.
