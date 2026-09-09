@@ -136,6 +136,18 @@ export function combineDeckHtml(slides: CombineSlide[], opts: CombineOptions): s
   .grid-nav a { display: block; margin: 6px 0; color: ${shell.ink}; text-decoration: none;
                 font-size: 13px; border-bottom: 1px solid ${shell.border}; padding: 6px 2px; }
   body.grid .stage { visibility: hidden; }
+  /* Print: one slide per page, shell chrome and the presenter notes pane
+     hidden. Caveat: diagram artifacts print inside their 16:9 frame — a
+     scrollable document taller than the frame clips; print that slide's own
+     slide-N.html for full fidelity. */
+  @media print{
+  @page{size:landscape;margin:0}
+  header,footer,.grid-nav,.notes,.snotes{display:none!important}
+  .stage{padding-top:0;visibility:visible!important}
+  .slide{display:block!important;width:100%;margin:0}
+  .slide:not(:last-of-type){break-after:page;page-break-after:always}
+  .slide iframe{width:100%;aspect-ratio:16/9;border:0;border-radius:0}
+  }
 </style></head><body class="paged">
 <header><h1>${escapeText(opts.deckTitle)}</h1>
 <span class="count"><span id="cur">1</span> / ${total}</span></header>

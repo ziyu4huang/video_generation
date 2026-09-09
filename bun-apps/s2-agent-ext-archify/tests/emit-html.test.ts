@@ -58,6 +58,20 @@ describe("self-contained", () => {
   });
 });
 
+describe("print path (t05)", () => {
+  test.each(COMPOSED)("%s carries print CSS and stays self-contained", (name) => {
+    const out = emitHtmlSlide(layoutFor(name)(SLIDE, CTX), htmlCtx());
+    expect(out).toContain("@media print");
+    expect(out).toContain("size:landscape");
+    expect(out).toContain("print-color-adjust:exact");
+    // Self-containment is not weakened by the print block.
+    expect(out).not.toMatch(/https?:\/\//);
+    expect(out.match(/<style>/g) ?? []).toHaveLength(1);
+    expect(out).not.toContain("<script");
+    expect(out).not.toContain("<link");
+  });
+});
+
 describe("cross-emitter consistency", () => {
   test.each(COMPOSED)("%s says the same words in HTML as in PPTX", (name) => {
     // A block dropped by one emitter only is the failure this catches — the two
