@@ -42,3 +42,24 @@ When starting a new effort, skim existing efforts' `## Decisions so far` + `## C
   from live maps (e.g. `2026-08-16-power-tool-rearch`) — do not sweep them into done/.
 - **`knowledge/`** is the skill-candidate staging area per its README — candidates are
   consumed on promotion; finished reports/durable references do NOT belong there.
+
+## Series arc-number ledger (adopted 2026-09-10, self-arc-19 t01)
+
+- `.planning/arc-ledger.json` is the single registry of claimed SERIES arc numbers
+  (self-arc first; schema supports more). Claiming a number = append ONE entry at
+  branch time (series, number, path, status, claimedAt, branch; fill mergedPr at
+  merge). The old "max folder is N, so N+1 is free" eyeball check RETIRES — the
+  guard is the check now.
+- Guard: `bun-apps/s2-agent-ext-wayfind/src/arc-ledger.ts`, run by
+  `bun-apps/s2-agent-ext-wayfind/tests/arc-ledger.test.ts`. Duplicate
+  (series, number) among non-exempt entries, series dirs without entries, and any
+  number ACTIVE on origin/main claimed at a different path all fail CI. The
+  synthetic duplicate fixture (`tests/fixtures/arc-ledger-duplicate/`) is a
+  permanent canary — weakening the rule re-reddens it.
+- Pre-ledger duplicate numbers (13/14/15 ×2 and the dual-arc-18 incident) are
+  `grandfathered: true` entries with notes naming their collision partners —
+  encoded, never erased. New claims can NEVER set grandfathered (enforced:
+  claimedAt ≤ adopted). Renumber = edit the entry + add renumberedTo/note; never
+  delete history. (Supersedes the "duplicate round numbers are info, not errors"
+  stance above for SERIES numbers; content-slug guidance for non-series efforts
+  stands.)
