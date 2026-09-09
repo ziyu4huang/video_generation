@@ -20,7 +20,7 @@ BOTH directions (stale-active→actually-shipped AND
 terminal→missing-provenance) by a committed, re-runnable audit tool in
 `bun-apps/s2-agent-ext-wayfind`, with baseline + post-reconciliation tables
 committed under this effort's `results/`. The two live-session dirs
-(`2026-09-09-self-arc-17`, `2026-09-09-self-arc-18` via open PR #2237) stay
+(`2026-09-09-self-arc-17`, `2026-09-09-self-arc-18` via the open pull request 2237) stay
 byte-untouched. Closes with a CONVENTIONS.md addition (close-out PRs flip
 status in the same PR; content slugs not self-arc-N), map done + Shipped-as,
 and a validated successor next-goal.
@@ -38,7 +38,7 @@ and a validated successor next-goal.
 - Contradiction #2: `2026-09-06-self-arc-13` status `planning`, but Shipped-as
   exists; #2218 (`04d2458f`) + #2219 (`6e092468`) merged.
 - Self-arc series CLOSED by #2236 (arc-17 map still `active` — its closing docs
-  PR not landed; dir live-session-owned). Open PR #2237 = self-arc-18 t01
+  PR not landed; dir live-session-owned). Open pull request 2237 = self-arc-18 t01
   (ultracode + `.planning/2026-09-09-self-arc-18/`).
 - Live parallel session: worktree `.pi/worktrees/run-mt3ymbn9-0-a`; untouchable
   dirs: `2026-09-09-self-arc-17/`, `2026-09-09-self-arc-18/`.
@@ -87,7 +87,7 @@ and a validated successor next-goal.
   merged via `git log --grep` (sections + body `PR #` lines only; receipt-path
   numbers ignored); (e) duplicate self-arc round numbers → warn/info only.
   Live-exempt list hardcoded + dated: 2026-09-09-self-arc-17,
-  2026-09-09-self-arc-18 (arrives via open PR #2237).
+  2026-09-09-self-arc-18 (arrives via the open pull request 2237).
 - D5 reconciliation order: (1) citations verify → flip terminal, cite verified
   numbers; (2) superseded by later effort → Resolution + `closed: (superseded)`
   + cross-links (live-owned counterpart: link ours only, note deferral);
