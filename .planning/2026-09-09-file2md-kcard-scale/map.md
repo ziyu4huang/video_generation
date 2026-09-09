@@ -107,6 +107,23 @@ D4/D16 — the ground.ts gate enforces them). Shares-decision-with: the
 bench-kcards design (review §3) — ground.ts IS bench lane 1b's
 deterministic pre-check.
 
+## Post-merge full review (2026-09-10)
+
+The card audit ran pre-merge; the arc's CODE changes got their own full
+glm-5.3 review post-merge (spawnSubagent, hard-problem, double-pinned
+non-flash, 268 s — receipt `receipts/full-code-review-2026-09-10.md`).
+Verdict **APPROVE-with-fixes**: the reviewer empirically probed the regexes
+and merge logic. Findings 1 (ground.ts number gate was substring-based —
+bare `234` grounded via `1,234`, `7B` via `17B`: the exact hallucination
+class the module guards) and 2 (IngestSummary merge omitted `cards`, a
+tool-result contract) landed as fixes with regression tests; nits 4
+(recordLabels symmetric push) and 6 (stale adapter docblock) also landed.
+Nits 3/5/7/8 recorded as accepted (colon-prose cost-only; soft-suspect
+substring; explicit no-records improvement; per-group index rebuild).
+Two PRE-EXISTING file2md full-run failures (resolve-vision-llm machine-tier
+env leak; deck countSlides drift) reproduce at the parent commit — hygiene
+ticket filed in the successor.
+
 ## Shipped-as
 
 - pi-agent-vault#26 (squash 3cfba3a): 10 kcards + 13 graph notes + MOC +
