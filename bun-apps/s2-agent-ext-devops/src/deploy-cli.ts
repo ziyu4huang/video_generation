@@ -13,7 +13,7 @@ import { parseDeployShArgv } from "./deploy-sh-argv.ts";
 import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
 import { shConfig } from "./deploy/lib/config.ts";
 import { listTargetLayout } from "./deploy/lib/version.ts";
-import { runDeployE2e, resolveModelEndpoint, resolveE2eModelPin, isNonHostTree } from "./deploy-e2e-recipe.js";
+import { runDeployE2e, resolveModelEndpoint, resolveE2eModelPin, resolveOneShotBudgetMs, isNonHostTree } from "./deploy-e2e-recipe.js";
 import { createLiveSpawn } from "./spawn.js";
 
 const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
@@ -69,6 +69,12 @@ if (parsed.action.kind === "help") {
 // the E2E) sees the same pin.
 const e2ePin = resolveE2eModelPin();
 if (e2ePin && !e2ePin.ok) console.error(`⚠ ${e2ePin.message}`);
+// One-shot budget widen (self-arc-20 t05) — same env surface as the verify
+// CLI so both entry points answer identically. Resolved OUTSIDE the try so
+// the DeployVersionExistsError catch path (which also runs the E2E) sees it;
+// invalid env warns + runs at the default (never silent, never a blocker).
+const e2eBudget = resolveOneShotBudgetMs(process.env.VERIFY_E2E_ONESHOT_BUDGET_MS);
+if (!e2eBudget.ok) console.error(`⚠ ${e2eBudget.message} — running at the default budget`);
 
 try {
 	if (parsed.action.kind === "list") {
@@ -102,6 +108,7 @@ try {
 				spawn: createLiveSpawn(result.target),
 				modelEndpoint: resolveModelEndpoint(),
 				skipModelCall,
+				oneShotBudgetMs: e2eBudget.ok ? e2eBudget.ms : undefined,
 				modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
 				devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
 			});
@@ -123,6 +130,7 @@ try {
 					spawn: createLiveSpawn(e.target),
 					modelEndpoint: resolveModelEndpoint(),
 					skipModelCall: process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
+					oneShotBudgetMs: e2eBudget.ok ? e2eBudget.ms : undefined,
 					modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
 					devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
 				});
