@@ -168,3 +168,7 @@ and the α=0.3/0.7 cells reproduce exactly across both. Lesson for parallel
 dispatches: never run the live eval while another session's
 resource-ingest is still writing sidecars into the same tree — the index
 row count is a race surface (1431 vs 1433).
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Multi-dir generalization + family battery, eval reproduction, heading-swallow fix. PRs: #2063, #2090, #2098.

@@ -21,6 +21,11 @@ When starting a new effort, skim existing efforts' `## Decisions so far` + `## C
 
 `.planning/` artifacts (effort folders, specs/, plans/) are durable shared planning — MUST be committed & pushed to `origin/main`; never leave a new `.planning/<effort>/` dir untracked (`??`). When you write/update anything under `.planning/`, `git add` it into the branch's commits/PR. See `CLAUDE.md` § Planning artifacts for the full rule. Carve-outs (stay local): `task_plan.md` / `progress.md` / `findings.md`, and the flat `.planning/sdd/` fallback.
 
+## Finished means terminal-with-provenance (registered 2026-09-09, planning-audit)
+
+- A close-out PR MUST flip the effort's front-matter `status:` to `done`/`complete` in the SAME PR that lands its Shipped-as section — #2225 and #2219 both landed Shipped-as prose but left the status stale, and the effort-audit baseline counted 48 such reds across the tree. Run `bun-apps/s2-agent-ext-wayfind/scripts/effort-audit.ts` to verify (exit 0 = every effort is terminal-with-provenance or parked-with-a-dated-reason).
+- New effort dirs use content slugs (`YYYY-MM-DD-<what-it-is>`). `self-arc-N` names belong to the closed self-develop series (#2236) and were claimed at merge time by parallel sessions (two same-day collisions, see the self-arc-16 map) — do not name new efforts after them; duplicate round numbers across date prefixes are recorded as info, not errors.
+
 ## Directory shape (purified 2026-08-23)
 
 - **Effort folders** are date-prefixed: `.planning/YYYY-MM-DD-<effort>/` with a `map.md` in

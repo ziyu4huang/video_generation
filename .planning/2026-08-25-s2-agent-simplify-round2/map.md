@@ -128,3 +128,7 @@ DRAINED — tickets 01–11 all complete (01–04 via #2014/#2015/#2018/#2019; 0
 - `Shares-decision-with: 2026-08-25-archify-webui-decouple` — the `load:"dynamic"` demote mechanic (its D1) is option C's implementation path; webui's frozen-contract discipline applies to any ultracode surface trim that touches `/workflows resume` interop.
 - `Absorbs: s2-agent version bump carry` (Honest-gaps item from next-goal-20260825-022920) — 0.7.10→0.7.11 rides ticket 01.
 - `Complements: 2026-08-25-ultracode-cc-parity` — the engine-side effort D4's "future engine-side effort" clause named; it upgrades ext-ultracode's armed guidance to claude-code ultracode behavior while our ticket 02 trims s2-agent's OWN cli surface (orthogonal files, no seam overlap).
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Round-2 chart + dead-surface purge, seam clip unification, test dedup, SDK-contract guard, launcher slim, close-out. PRs: #2014, #2015, #2018, #2029, #2031, #2033, #2037.

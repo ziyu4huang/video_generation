@@ -285,3 +285,7 @@ gate family.
 Absorbed-by: 2026-08-23-headless-dispatch-hang — its post-close-out live-smoke
 batch (spec §9) surfaced B1/B2/B3 (pre-send hang, interactive-only arming +
 directive, post-settle linger); all three live there as tickets + fog.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Live validation + memory harness, explore/plan agent types, startup-context, binding budgets, /loop self-pacing. PRs: #1865, #1873, #1876, #1880, #1883.

@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-16-tool-gate-qa-harness-generalization
 created: 2026-08-16
-last: 2026-08-16
-status: active
+last: 2026-09-09
+status: paused
 ---
 
 # Map — tool-gate QA harness generalization
@@ -57,3 +57,7 @@ One line: **end the "one import line + one array entry per gate" bookkeeping tha
 - **The gated tools themselves** — flux2/ltx/krea2/… are owned by their extensions; this effort only moves how their *probes* are collected.
 - **runtime gating behavior** (`extensions/tool-gate.ts`, per-session state, `__piToolGateStatus`) — the redesign (tickets 05/06) already landed it; the harness is QA-only.
 - **`enable_tool` overhead reduction** and **upstreaming `gating` into pi-coding-agent** — separate fog items, not this effort.
+
+## Park note
+
+Parked 2026-09-09 by stall: opened via #1519 on 2026-08-16; tickets 01–04 never started. Reopen by deciding the probe-contract location (ticket 01's frontier decision).

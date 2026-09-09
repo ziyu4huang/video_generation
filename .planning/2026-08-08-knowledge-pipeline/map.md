@@ -1,6 +1,6 @@
 ---
-status: active
-last: 2026-08-16
+status: paused
+last: 2026-09-09
 ---
 # Knowledge pipeline — memory/files -> cards -> graph -> DB-CRUD -> obsidian
 
@@ -90,3 +90,9 @@ A single card-agnostic knowledge pipeline: any input (memory OR files: md/txt/pd
 - Re-deciding 01/02 (closed) — those stand.
 13's convergence prerequisites all landed 2026-08-15: C1 (#1196 + #1343), C5-lite (#1346), C6 (#1349) — ticket 13 (memory-card migration) UNBLOCKED, now a pure path-switch (persistableKinds enabled, no write-path switch yet).
 - 13 SHIPPED 2026-08-15: memory-card graduation complete via 3 waves (A #1363 dual-backend card-store + bundle; B #1372 writer re-point + lazy re-migration; C #1378 Tier-1 mirror + retirement). Open set {21}.
+
+## Shipped-so-far (assessed 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged on origin/main)
+
+Spine COMPLETE (milestone 2026-08-09, #1131/#1141 marked by squash 61ed98b8's lineage); ticket 19 LeanRAG port #1282; the successor polish effort 2026-08-17-knowledge-pipeline-polish closed the structure targets (#1586).
+
+Parked 2026-09-09: residual items (kp17 open-but-explicitly-non-blocking, deferrals recorded toward 17/18/20) remain in-map as deferred; reopen if knowledge-pipeline work resumes.

@@ -1,5 +1,8 @@
 ---
-last: 2026-08-16
+effort: 2026-07-31-let-s-continue-to-improve-base-on-known-upstream
+created: 2026-07-31
+last: 2026-09-09
+status: done
 ---
 
 # Wayfinder map: 2026-07-31-let-s-continue-to-improve-base-on-known-upstream
@@ -78,3 +81,7 @@ The route — one do/defer/skip per ticket, HITL:
 - **Non-improvement maintenance** — version bumps, dep hygiene, CI-only fixes.
 - **Re-litigating closed dispositions** — `2026-07-26-known-issues-disposition` and
   the 02 "already closed elsewhere" list stay closed.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Planning backlog decided (14/14 tickets closed); StringEnum swap implemented. Fog trio 12/13/14 closed as fog — re-open clause recorded in tickets. PRs: #1467.

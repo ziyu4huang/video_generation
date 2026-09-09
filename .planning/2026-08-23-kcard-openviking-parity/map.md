@@ -85,3 +85,7 @@ Measured 2026-08-23 in this worktree unless noted.
 - `Builds-on: 2026-08-22-context-lifecycle` — D0 breaking scope, D3 embed canonical, D5/D6 deterministic retrieval, D8 bounded feedback; its ticket 08 auto-recall consumes our retrieval surface.
 - `Builds-on: 2026-08-08-knowledge-pipeline` — D04 chose SurrealDB as the vector store; D05 tier classification is what D2 here instantiates for kcard.
 - `Shares-decision-with: 2026-08-16-hermes-leanrag-simplify` — D1 SurrealDB-vs-sqlite default tension resolved here: this effort's D7 (ticket 01, 2026-08-23) executes the flip leanrag D1 specified; sqlite stays its backup.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Card schema v2, agg-node L1, tier ladder L0/L1/L2, index rebuild + retrieve echo. PRs: #1839, #1848, #1854, #1945.

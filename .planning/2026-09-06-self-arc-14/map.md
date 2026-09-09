@@ -2,7 +2,7 @@
 effort: 2026-09-06-self-arc-14
 created: 2026-09-08
 last: 2026-09-09
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-06-self-arc-14 — qualify.ts: the 10-scenario deployed sweep becomes one command (with optional rpc pairing)

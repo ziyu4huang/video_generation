@@ -1,0 +1,1506 @@
+{
+  "generatedAt": "2026-09-09T12:25:08.140Z",
+  "root": "/Users/huangziyu/proj/video_generation__superpowers",
+  "staleDays": 14,
+  "scanned": 76,
+  "census": {
+    "missing": 12,
+    "active": 16,
+    "paused": 1,
+    "specified": 1,
+    "complete": 20,
+    "partial": 1,
+    "done": 21,
+    "designing": 1,
+    "executing": 1,
+    "planning": 1,
+    "in-progress": 1
+  },
+  "records": [
+    {
+      "effort": "2026-07-31-let-s-continue-to-improve-base-on-known-upstream",
+      "mapPath": ".planning/2026-07-31-let-s-continue-to-improve-base-on-known-upstream/map.md",
+      "statusToken": null,
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1467
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-08-knowledge-pipeline",
+      "mapPath": ".planning/2026-08-08-knowledge-pipeline/map.md",
+      "statusToken": "active",
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1131,
+        1137,
+        1141,
+        1143,
+        1146,
+        1208
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-10-hermes-architecture-deepening",
+      "mapPath": ".planning/2026-08-10-hermes-architecture-deepening/map.md",
+      "statusToken": "active",
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-15-archify-webui-html",
+      "mapPath": ".planning/2026-08-15-archify-webui-html/map.md",
+      "statusToken": "active",
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "stale-non-terminal",
+          "severity": "red",
+          "message": "non-terminal for 24d (> 14d) with no dated park note"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-15-subagent-dynamic-budgets",
+      "mapPath": ".planning/2026-08-15-subagent-dynamic-budgets/map.md",
+      "statusToken": "active",
+      "last": "2026-08-25",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1652
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-15-tool-gate-complete-redesign",
+      "mapPath": ".planning/2026-08-15-tool-gate-complete-redesign/map.md",
+      "statusToken": "active",
+      "last": "2026-08-23",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "stale-non-terminal",
+          "severity": "red",
+          "message": "non-terminal for 17d (> 14d) with no dated park note"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-15-zk-spawn-interactive-ui",
+      "mapPath": ".planning/2026-08-15-zk-spawn-interactive-ui/map.md",
+      "statusToken": "paused",
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "paused-without-note",
+          "severity": "red",
+          "message": "paused without a dated park note"
+        },
+        {
+          "code": "stale-non-terminal",
+          "severity": "red",
+          "message": "non-terminal for 24d (> 14d) with no dated park note"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-power-browser-tool",
+      "mapPath": ".planning/2026-08-16-power-browser-tool/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-power-tool-rearch",
+      "mapPath": ".planning/2026-08-16-power-tool-rearch/map.md",
+      "statusToken": "active",
+      "last": null,
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1464
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "no-date",
+          "severity": "red",
+          "message": "non-terminal without a parseable last:/created: date"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-tool-gate-qa-harness-generalization",
+      "mapPath": ".planning/2026-08-16-tool-gate-qa-harness-generalization/map.md",
+      "statusToken": "active",
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "stale-non-terminal",
+          "severity": "red",
+          "message": "non-terminal for 24d (> 14d) with no dated park note"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-webui-cards-ux2",
+      "mapPath": ".planning/2026-08-16-webui-cards-ux2/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1539
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-webui-event-cards",
+      "mapPath": ".planning/2026-08-16-webui-event-cards/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-webui-tab-views",
+      "mapPath": ".planning/2026-08-16-webui-tab-views/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-webui-tui-parity",
+      "mapPath": ".planning/2026-08-16-webui-tui-parity/map.md",
+      "statusToken": "active",
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "stale-non-terminal",
+          "severity": "red",
+          "message": "non-terminal for 24d (> 14d) with no dated park note"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-webui-v2-cards-first",
+      "mapPath": ".planning/2026-08-16-webui-v2-cards-first/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-16-webui-view-notifications",
+      "mapPath": ".planning/2026-08-16-webui-view-notifications/map.md",
+      "statusToken": "specified",
+      "last": "2026-08-16",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1458
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-17-knowledge-pipeline-polish",
+      "mapPath": ".planning/2026-08-17-knowledge-pipeline-polish/map.md",
+      "statusToken": "complete",
+      "last": null,
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-18-webui-btw-branch",
+      "mapPath": ".planning/2026-08-18-webui-btw-branch/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-18-webui-readability",
+      "mapPath": ".planning/2026-08-18-webui-readability/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-18-webui-simplify",
+      "mapPath": ".planning/2026-08-18-webui-simplify/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-19-core-runtime-width",
+      "mapPath": ".planning/2026-08-19-core-runtime-width/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-19-pi-agent-sh-full-profile",
+      "mapPath": ".planning/2026-08-19-pi-agent-sh-full-profile/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-19-set-goal-to-find-how-to-async-make-pi-agent-sh",
+      "mapPath": ".planning/2026-08-19-set-goal-to-find-how-to-async-make-pi-agent-sh/map.md",
+      "statusToken": "active",
+      "last": "2026-08-19",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "stale-non-terminal",
+          "severity": "red",
+          "message": "non-terminal for 21d (> 14d) with no dated park note"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-20-devops-hardening",
+      "mapPath": ".planning/2026-08-20-devops-hardening/map.md",
+      "statusToken": "partial",
+      "last": "2026-08-23",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-22-context-lifecycle",
+      "mapPath": ".planning/2026-08-22-context-lifecycle/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-30",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        20,
+        2148,
+        2160,
+        2163
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-22-ultracode-rename",
+      "mapPath": ".planning/2026-08-22-ultracode-rename/map.md",
+      "statusToken": null,
+      "last": null,
+      "terminal": false,
+      "recognized": false,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "missing-status",
+          "severity": "red",
+          "message": "map has no front-matter `status:` line"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-archify-rich-decks",
+      "mapPath": ".planning/2026-08-23-archify-rich-decks/map.md",
+      "statusToken": "active",
+      "last": "2026-09-04",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1943,
+        1950
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-23-deploy-platform-neutral-core",
+      "mapPath": ".planning/2026-08-23-deploy-platform-neutral-core/map.md",
+      "statusToken": "done",
+      "last": "2026-08-23",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-file2md-bun-only-redesign",
+      "mapPath": ".planning/2026-08-23-file2md-bun-only-redesign/map.md",
+      "statusToken": "done",
+      "last": "2026-08-23",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-file2md-smart-enhance",
+      "mapPath": ".planning/2026-08-23-file2md-smart-enhance/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-24",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1920,
+        1922,
+        1923,
+        1928,
+        1931,
+        1935,
+        1938
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-file2md-vision-extraction",
+      "mapPath": ".planning/2026-08-23-file2md-vision-extraction/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-23",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1913
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-headless-dispatch-hang",
+      "mapPath": ".planning/2026-08-23-headless-dispatch-hang/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-23",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-kcard-openviking-parity",
+      "mapPath": ".planning/2026-08-23-kcard-openviking-parity/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-24",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1848,
+        1854,
+        1924,
+        1945,
+        1976
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-portable-bun-scripts",
+      "mapPath": ".planning/2026-08-23-portable-bun-scripts/map.md",
+      "statusToken": "designing",
+      "last": "2026-08-23",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "stale-non-terminal",
+          "severity": "red",
+          "message": "non-terminal for 17d (> 14d) with no dated park note"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-23-subagent-cc-parity-2",
+      "mapPath": ".planning/2026-08-23-subagent-cc-parity-2/map.md",
+      "statusToken": "done",
+      "last": "2026-08-25",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-24-kcard-production-hardening",
+      "mapPath": ".planning/2026-08-24-kcard-production-hardening/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-24",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1974,
+        1976,
+        1983,
+        1986,
+        1996
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-24-registry-code-as-config",
+      "mapPath": ".planning/2026-08-24-registry-code-as-config/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-24",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        1958,
+        1962,
+        1965,
+        1967,
+        1970
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-24-s2-agent-simplify",
+      "mapPath": ".planning/2026-08-24-s2-agent-simplify/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-25",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2032
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-25-archify-webui-decouple",
+      "mapPath": ".planning/2026-08-25-archify-webui-decouple/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-25",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2007
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-25-cc-parity-task-powertool",
+      "mapPath": ".planning/2026-08-25-cc-parity-task-powertool/map.md",
+      "statusToken": "active",
+      "last": "2026-08-28",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2030,
+        2075,
+        2108,
+        2113
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-25-doc-hygiene-engine-sweep",
+      "mapPath": ".planning/2026-08-25-doc-hygiene-engine-sweep/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-25",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2043,
+        2045
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-25-kcard-resource-tier",
+      "mapPath": ".planning/2026-08-25-kcard-resource-tier/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-25",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-25-s2-agent-simplify-round2",
+      "mapPath": ".planning/2026-08-25-s2-agent-simplify-round2/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-25",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2014,
+        2015,
+        2018,
+        2019,
+        2029,
+        2031,
+        2032,
+        2033,
+        2034,
+        2037,
+        2040
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-25-subagent-tui-cc-parity",
+      "mapPath": ".planning/2026-08-25-subagent-tui-cc-parity/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-26",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2025,
+        2027,
+        2073
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-25-ultracode-cc-parity",
+      "mapPath": ".planning/2026-08-25-ultracode-cc-parity/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-25",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2016,
+        2017,
+        2020
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-26-kcard-multidir-rejudge",
+      "mapPath": ".planning/2026-08-26-kcard-multidir-rejudge/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-28",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2066
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-26-s2agent-crossos-deploy",
+      "mapPath": ".planning/2026-08-26-s2agent-crossos-deploy/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-27",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-28-win32-launcher-stdout",
+      "mapPath": ".planning/2026-08-28-win32-launcher-stdout/map.md",
+      "statusToken": "active",
+      "last": "2026-08-31",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2109,
+        2110
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-08-29-ext-standalone-import",
+      "mapPath": ".planning/2026-08-29-ext-standalone-import/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-29",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2131
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-29-reviewer-harvest",
+      "mapPath": ".planning/2026-08-29-reviewer-harvest/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-29",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2112,
+        2128
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-08-29-slash-surface-consistency",
+      "mapPath": ".planning/2026-08-29-slash-surface-consistency/map.md",
+      "statusToken": "complete",
+      "last": "2026-08-30",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-06-agents-manager",
+      "mapPath": ".planning/2026-09-06-agents-manager/map.md",
+      "statusToken": "done",
+      "last": "2026-09-08",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2192,
+        2193
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-learnings-hardening",
+      "mapPath": ".planning/2026-09-06-learnings-hardening/map.md",
+      "statusToken": "executing",
+      "last": "2026-09-06",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2193
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-10",
+      "mapPath": ".planning/2026-09-06-self-arc-10/map.md",
+      "statusToken": "done",
+      "last": "2026-09-07",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2202
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-11",
+      "mapPath": ".planning/2026-09-06-self-arc-11/map.md",
+      "statusToken": "done",
+      "last": "2026-09-07",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2204
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-12",
+      "mapPath": ".planning/2026-09-06-self-arc-12/map.md",
+      "statusToken": "done",
+      "last": "2026-09-08",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2206,
+        2208,
+        2209
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-13",
+      "mapPath": ".planning/2026-09-06-self-arc-13/map.md",
+      "statusToken": "planning",
+      "last": "2026-09-08",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "duplicate-arc-round",
+          "severity": "info",
+          "message": "self-arc round 13 also exists as 2026-09-08-self-arc-13"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-06-self-arc-14",
+      "mapPath": ".planning/2026-09-06-self-arc-14/map.md",
+      "statusToken": "active",
+      "last": "2026-09-09",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2223
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "duplicate-arc-round",
+          "severity": "info",
+          "message": "self-arc round 14 also exists as 2026-09-08-self-arc-14"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-06-self-arc-15",
+      "mapPath": ".planning/2026-09-06-self-arc-15/map.md",
+      "statusToken": "done",
+      "last": "2026-09-09",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2223
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "duplicate-arc-round",
+          "severity": "info",
+          "message": "self-arc round 15 also exists as 2026-09-09-self-arc-15"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-06-self-arc-3",
+      "mapPath": ".planning/2026-09-06-self-arc-3/map.md",
+      "statusToken": "done",
+      "last": "2026-09-06",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-06-self-arc-4",
+      "mapPath": ".planning/2026-09-06-self-arc-4/map.md",
+      "statusToken": "done",
+      "last": "2026-09-06",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-06-self-arc-5",
+      "mapPath": ".planning/2026-09-06-self-arc-5/map.md",
+      "statusToken": "done",
+      "last": "2026-09-06",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-6",
+      "mapPath": ".planning/2026-09-06-self-arc-6/map.md",
+      "statusToken": "done",
+      "last": "2026-09-06",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-7",
+      "mapPath": ".planning/2026-09-06-self-arc-7/map.md",
+      "statusToken": "done",
+      "last": "2026-09-06",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2198
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-8",
+      "mapPath": ".planning/2026-09-06-self-arc-8/map.md",
+      "statusToken": "done",
+      "last": "2026-09-07",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2199
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-self-arc-9",
+      "mapPath": ".planning/2026-09-06-self-arc-9/map.md",
+      "statusToken": "done",
+      "last": "2026-09-07",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2200
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-06-subagent-tui-cc-parity-2",
+      "mapPath": ".planning/2026-09-06-subagent-tui-cc-parity-2/map.md",
+      "statusToken": "in-progress",
+      "last": "2026-09-06",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-08-archify-deck-html",
+      "mapPath": ".planning/2026-09-08-archify-deck-html/map.md",
+      "statusToken": "active",
+      "last": "2026-09-08",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2207,
+        2211
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-08-file2md-svg-pptx-vision",
+      "mapPath": ".planning/2026-09-08-file2md-svg-pptx-vision/map.md",
+      "statusToken": "done",
+      "last": "2026-09-09",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2220
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-08-self-arc-13",
+      "mapPath": ".planning/2026-09-08-self-arc-13/map.md",
+      "statusToken": "done",
+      "last": "2026-09-08",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2213
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "duplicate-arc-round",
+          "severity": "info",
+          "message": "self-arc round 13 also exists as 2026-09-06-self-arc-13"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-08-self-arc-14",
+      "mapPath": ".planning/2026-09-08-self-arc-14/map.md",
+      "statusToken": "done",
+      "last": "2026-09-08",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2217
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "duplicate-arc-round",
+          "severity": "info",
+          "message": "self-arc round 14 also exists as 2026-09-06-self-arc-14"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-09-file2md-render-hardening",
+      "mapPath": ".planning/2026-09-09-file2md-render-hardening/map.md",
+      "statusToken": "done",
+      "last": "2026-09-09",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2220
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "terminal-no-provenance",
+          "severity": "red",
+          "message": "terminal status without a Shipped-as/Resolution section"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-09-planning-audit",
+      "mapPath": ".planning/2026-09-09-planning-audit/map.md",
+      "statusToken": "active",
+      "last": "2026-09-09",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": false,
+      "citedPrs": [
+        2237
+      ],
+      "unverifiedPrs": [
+        2237
+      ],
+      "findings": [
+        {
+          "code": "unmerged-citation",
+          "severity": "red",
+          "message": "cited PR(s) not resolvable as merged: #2237"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-09-self-arc-15",
+      "mapPath": ".planning/2026-09-09-self-arc-15/map.md",
+      "statusToken": "done",
+      "last": "2026-09-09",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        2224,
+        2230,
+        2231,
+        2233,
+        2234
+      ],
+      "unverifiedPrs": [],
+      "findings": [
+        {
+          "code": "duplicate-arc-round",
+          "severity": "info",
+          "message": "self-arc round 15 also exists as 2026-09-06-self-arc-15"
+        }
+      ]
+    },
+    {
+      "effort": "2026-09-09-self-arc-16",
+      "mapPath": ".planning/2026-09-09-self-arc-16/map.md",
+      "statusToken": "done",
+      "last": "2026-09-09",
+      "terminal": true,
+      "recognized": true,
+      "liveExempt": false,
+      "hasProvenance": true,
+      "citedPrs": [
+        1908,
+        2217,
+        2224,
+        2226
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    },
+    {
+      "effort": "2026-09-09-self-arc-17",
+      "mapPath": ".planning/2026-09-09-self-arc-17/map.md",
+      "statusToken": "active",
+      "last": "2026-09-09",
+      "terminal": false,
+      "recognized": true,
+      "liveExempt": true,
+      "hasProvenance": true,
+      "citedPrs": [
+        2204,
+        2205,
+        2220,
+        2232
+      ],
+      "unverifiedPrs": [],
+      "findings": []
+    }
+  ],
+  "duplicateArcRounds": [
+    {
+      "round": 13,
+      "efforts": [
+        "2026-09-06-self-arc-13",
+        "2026-09-08-self-arc-13"
+      ]
+    },
+    {
+      "round": 14,
+      "efforts": [
+        "2026-09-06-self-arc-14",
+        "2026-09-08-self-arc-14"
+      ]
+    },
+    {
+      "round": 15,
+      "efforts": [
+        "2026-09-06-self-arc-15",
+        "2026-09-09-self-arc-15"
+      ]
+    }
+  ],
+  "errors": [],
+  "redCount": 48
+}

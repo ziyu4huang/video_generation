@@ -70,3 +70,7 @@ None — queue drained. All three tickets merged (#2016, #2017, #2020); ultracod
 
 - `Builds-on: 2026-08-22-ultracode-rename` — package identity + registry wiring this effort edits inside.
 - `Complements: 2026-08-25-s2-agent-simplify-round2` — its D4 kept the engine alive for exactly this "future engine-side effort"; its ticket 02 trims s2-agent's OWN cli surface (orthogonal files, no seam overlap).
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Ultracode CC-parity COMPLETE — t03 close-out + map status. PRs: #2016, #2017.

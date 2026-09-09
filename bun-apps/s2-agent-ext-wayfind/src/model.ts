@@ -89,7 +89,11 @@ export interface CompleteEffortResult {
 
 // ─── pure parsers ───────────────────────────────────────────────────────────
 
-const MAP_FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
+/** Front-matter fence shape — exported for audits that need the RAW status
+ *  token (this file's EffortStatus is a closed 3-token vocabulary; the tree
+ *  carries more tokens, and effort-audit.ts classifies them per its own
+ *  vocabulary instead of silently dropping them like parseMapFrontmatter). */
+export const MAP_FM_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
 const EFFORT_STATUSES = new Set<EffortStatus>(["active", "complete", "paused"]);
 
 /**

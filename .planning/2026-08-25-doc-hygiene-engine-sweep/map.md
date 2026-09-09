@@ -88,3 +88,7 @@ at a nonexistent file.
   this effort's Context; close them in that map when the tickets land.
 - `Shares-decision-with: 2026-08-25-s2-agent-simplify-round2 ticket 09` — the
   exact ADR Index replacement line and no-bump precedent come from #2034.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+cli workflow namespace removed; 35 stale ADR Index pointers → CONTEXT-MAP.md; both tickets closed COMPLETE. PRs: #2015, #2034, #2043.

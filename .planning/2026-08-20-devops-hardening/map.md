@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-20-devops-hardening
 created: 2026-08-20
-last: 2026-08-23
-status: partial
+last: 2026-09-09
+status: done
 ---
 # devops-hardening — trustworthy verify_merge verdicts first
 
@@ -65,3 +65,7 @@ premise; reopen only if a new verify/sync incident recurs.
 - **Followed-by**: `.planning/2026-08-23-deploy-platform-neutral-core` — cites this effort
   under Builds-on: the single pipeline, six-gate structure, `.cores` cache and Gate 6
   relocation smoke it modifies are theirs. (Reciprocal link added 2026-08-23.)
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged on origin/main)
+
+Phase 1 (verify_merge scope semantics + sync preserve hardening) shipped as #1748; phases 2–4 were superseded by other work (#1844 detached-HEAD recovery, #1864 local_ci rework) or mooted (#1755 rename) — dispositions recorded in the Tickets section, Frontier states no live ticket. PRs: #1748.

@@ -137,3 +137,7 @@ committed and pushed as a separate PR (`file2md-version-bump` branch).
 - **Shares-decision-with**: `.planning/2026-08-22-context-lifecycle` — the "one leaf per
   concern, no extension hardcodes" rule; a non-reasoning vision id must be a catalog entry,
   never a file2md hardcode.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Smart mode vision enhancement on figure pages. PRs: #1935.

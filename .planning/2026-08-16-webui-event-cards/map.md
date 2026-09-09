@@ -1,3 +1,10 @@
+---
+effort: 2026-08-16-webui-event-cards
+created: 2026-08-16
+last: 2026-09-09
+status: done
+---
+
 # webui-event-cards — Effort Map
 
 ## Destination
@@ -29,3 +36,7 @@ stops duplicating the TUI chat composer.
 Absorbed: webui-tui-parity ticket 03 (bus console) → tickets 01/05 here.
 
 Effort complete 2026-08-16: de-chat + card primitive + interactive loop + bell/deep-link + sandbox viewer + pilots. PRs #1505 #1511 #1516 #1521 #1523 + this.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+De-chat + card primitive + interactive answer loop + bell/deep-link + sandbox viewer + pilots (6/6 tickets). PRs: #1505, #1511, #1516, #1521, #1523.

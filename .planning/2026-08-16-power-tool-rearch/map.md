@@ -1,5 +1,6 @@
 ---
-status: active
+status: paused
+last: 2026-09-09
 ---
 # power-tool re-architecture + ask-user TUI side-car review
 
@@ -53,3 +54,9 @@ findings are blocked on a decision — see [HANDOFF.md](HANDOFF.md) before resum
 - `pathology/` and `schema-cost/` internals — both already have a clean shape.
 - The open `2026-08-09-inspect-hooks-phase2-firing-counts` effort (firing counts
   shipped; that folder still needs closing out separately).
+
+## Shipped-so-far (assessed 2026-09-09 by 2026-09-09-planning-audit)
+
+Ticket 01 (re-architecture) shipped as #1464. Ticket 02 findings A1/A3/A4/A5 fixed; A2/A6–A9 open awaiting decisions — see HANDOFF.md.
+
+Park note: parked 2026-09-09 — ticket 02 blocked on the open findings; resume from HANDOFF.md (written 2026-08-16).

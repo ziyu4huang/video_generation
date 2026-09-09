@@ -1,3 +1,10 @@
+---
+effort: 2026-08-18-webui-simplify
+created: 2026-08-18
+last: 2026-09-09
+status: paused
+---
+
 # webui-simplify — 2026-08-18
 
 ## Destination
@@ -21,3 +28,9 @@ browser composer; protocol/transport/seams all survived).
 5. Research: webui+tui mix-pattern catalog -> .planning/knowledge/webui-tui-mix-patterns.md
    (live web/ZAI unavailable in harness; synthesized from pi local docs + model
    knowledge; gap candidates G1-G4 listed there, user-decision-gated)
+
+## Shipped-so-far (assessed 2026-09-09 by 2026-09-09-planning-audit)
+
+PR1 chat restore, PR2 tab consolidation More, PR3 SSE→WS transport merge. PRs: #1683, #1684, #1685.
+
+Parked 2026-09-09 by stall: PR4 (JSONL store merge via shared jsonl-mirror.ts) was explicitly [next] and never landed. Reopen by shipping PR4; mix-pattern research already in .planning/knowledge/.

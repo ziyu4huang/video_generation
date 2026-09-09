@@ -150,3 +150,7 @@ map before touching keys). Shares-decision-with:
 `2026-08-15-subagent-dynamic-budgets` (the settled-line budget tags this
 effort must keep rendering — its D1 cache-aware accounting shows up in the
 `⛔ budget kind:actual/limit` segment this effort re-orders but keeps).
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Subagents dock mode, effort COMPLETE close, Esc-repro regression lane, real-pty receipt. PRs: #1410, #1441, #2025, #2067, #2073.

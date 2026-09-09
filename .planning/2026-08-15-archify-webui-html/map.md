@@ -1,7 +1,7 @@
 ---
 effort: 2026-08-15-archify-webui-html
 created: 2026-08-15
-last: 2026-08-16
+last: 2026-09-09
 status: active
 ---
 # archify-webui-html — visualize archify HTML diagrams over the web protocol
@@ -84,3 +84,9 @@ lineage, separate effort); deck/PPTX surfaces; delta-compare UI; image-export HI
   fail closed (closed 2026-08-16).
 - **04 view identity = IR output basename sans extension**; delta → `compare-<basename>`;
   title = `ir.meta.title ?? diagramType` (closed 2026-08-16).
+
+## Shipped-so-far (assessed 2026-09-09 by 2026-09-09-planning-audit)
+
+Core build shipped as #1458 (full-fidelity /files HTML route + webui:open announce); 7/8 tickets closed.
+
+Deferred 2026-09-09: ticket 05 (interactive result-loop fog — shell-hosted Approve/Regenerate/Tweak) stays open deliberately; reopen when that interaction is wanted.

@@ -1,3 +1,10 @@
+---
+effort: 2026-08-22-ultracode-rename
+created: 2026-08-22
+last: 2026-09-09
+status: done
+---
+
 # Map — 2026-08-22 ultracode rename
 
 ## Scope
@@ -51,3 +58,7 @@ Three-part effort on branch `feat/ultracode-rename`:
 2. Parameter defaults inferred from `as const` tuple members keep literal
    types → explicit `: string` annotations required.
 3. bun 1.4.0 local (CI pins 1.3.14) — lock verified via no-diff after install.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+workflow → ultracode rename + ultracode trigger, repo .pi/ removed; YAML registry retired by the follow-up. PRs: #1791, #1970.

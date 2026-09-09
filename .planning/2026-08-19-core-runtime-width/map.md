@@ -1,6 +1,7 @@
+---
 effort: 2026-08-19-core-runtime-width
 created: 2026-08-19
-last: 2026-08-19
+last: 2026-09-09
 status: complete
 ---
 
@@ -62,3 +63,7 @@ CJK command previously rendered 100 columns and wrapped the row).
   adoption tests); `tsc --noEmit` green; biome clean on touched files.
 - subagent: canonical `bun run test` (biome + build + 663 tests) green.
 - workflow (downstream consumer of shorten/preview): 1083 tests green.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Width-aware truncation adopted into core-runtime (render-width moves home from subagent). PRs: #1718.

@@ -190,3 +190,7 @@ The slash-surface loop ENDS here; no new tickets.
   (ADR-wayfind-0007 methodology consolidation) — 03's prefix convention
   must not contradict the "one methodology home" split.
 - Builds-on: #2144 `/autocompact` (power-tool command face precedent).
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+t01–t06: /compact false-premise pin, pi-residue rename, family-prefix convention + lint, help-banner doc-only, doctor routing table, ext list --skills; COMPLETE. PRs: #2153, #2154, #2157, #2159, #2161, #2162.

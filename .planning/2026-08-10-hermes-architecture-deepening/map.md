@@ -1,6 +1,6 @@
 ---
-status: active
-last: 2026-08-16
+status: done
+last: 2026-09-09
 ---
 # Hermes-memory architecture deepening
 
@@ -50,3 +50,7 @@ Rationale: sequencing C1/C5/C6 before 13 keeps the memory-card migration mechani
 - 2026-08-16: ticket 10 closed — kp18 T5b shipped (user decision): card-vectors JSON mirror + hermes-cosine memory cold path, guarded by embedModel (embedding endpoint id, not lineage MODEL_VERSION).
 - 2026-08-16: hermes-architecture-deepening effort COMPLETE — all 13 tickets closed (04/11 status normalized post-ship; 10 closed via #1524).
 
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged on origin/main)
+
+All 13 tickets closed per the Decisions ledger (2026-08-16): C2 skills-command split (#1185, #1194), zk audit + dedup + megafile splits, corruption recovery, kp21 Tier-1 drift mirror (#1494), threshold tune, down-path suites. Optional K2b explicitly deferred to a future effort. PRs: #1185, #1194, #1494.

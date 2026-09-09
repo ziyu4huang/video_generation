@@ -1,3 +1,10 @@
+---
+effort: 2026-08-18-webui-btw-branch
+created: 2026-08-18
+last: 2026-09-09
+status: done
+---
+
 # webui-btw-branch — BTW tab + Data telemetry demo (+ full-bleed scrollbar fix)
 
 ## Destination
@@ -126,3 +133,7 @@ card broadcasts but no bell, open registers+broadcasts but no toast; 1 client
 -> open rings the direction-1 PAIR (toast + archify card bell). FakeWebServer
 gained a controllable clientCount; the async "webui ready" banner is filtered
 from counts (it lands after sync resets). webui 535/0.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Full-bleed scrollbar fix + report-tab cleanup; the follow-up chain verified in body (webui 523→535/0). PRs: #1624, #1641.

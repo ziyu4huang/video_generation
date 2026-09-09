@@ -1,8 +1,8 @@
 ---
 effort: 2026-08-15-subagent-dynamic-budgets
 created: 2026-08-15
-last: 2026-08-25
-status: active
+last: 2026-09-09
+status: paused
 ---
 
 # Wayfinder map: 2026-08-15-subagent-dynamic-budgets
@@ -76,3 +76,9 @@ Shares-decision-with: 2026-08-16-optimize-planning-pipeline-aka-extension — it
 2026-08-18 — final gap closed: knowledge-card's in-process zk_card/zk_ask dispatches now carry the role-aware envelope (zkRoleBounds → roleAwareDefaults writer/recon at the zk seam; SUBAGENT_TOKEN_BUDGET_DISABLE stays the global escape hatch), pinned by one bounds test on the seam double. Companion to #1652/#1653.
 
 2026-08-18 (session close-out) — the second half landed and the effort's core question is answered end-to-end: PRs #1655/#1656 (hermes background-review + session-flush/auto-consolidate/correction-detector role caps), #1658 (roleAwareDirectCall — caps + abort-safety footer travel together on every direct spawnSubagent site), #1660/#1661 (watchdog L2 + file2md vision — repo-wide zero uncapped callers, final grep audit clean), #1663 (post-rebalance measurement: 124 done/64 turns/12 budget/0 timedout of 200; re-measure gate ≥100 post-merge runs before touching bounds), #1664 (workflow-family dispositioned no-gap by design), #1665 (candidate promoted to a real skill: bun-apps/pi-agent-ext-superpowers/skills/dispatch-budget-rebalance/SKILL.md). Full evidence chain: .planning/knowledge/dispatch-budget-rebalance.md. Status stays `paused` — the 6 fog items (cacheRead policy, role granularity beyond recon/writer, envelope mixing, SUBAGENT_TIME_BUDGET_* envs, grace ceiling ratio, batch soft-gate) remain parked and unpicked; resume from the skill's procedure, not from scratch.
+
+## Shipped-so-far (assessed 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged on origin/main)
+
+Tickets 01–02 resolved 2026-08-25 (cache-aware budget accounting; role-aware time envelope, env surface, frozen numeric bounds); final gap closed 2026-08-18 — zk_card/zk_ask dispatches carry the role-aware envelope, pinned by a bounds test. Companions #1652/#1653.
+
+Parked 2026-09-09: the 6 remaining Not-yet-specified items stay here per the cross-link agreement (revivable as its own effort). Reopen by specifying any of them.

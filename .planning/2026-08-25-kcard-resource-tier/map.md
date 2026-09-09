@@ -73,3 +73,7 @@ recursive lane then wins.
 - **Builds-on:** `2026-08-24-kcard-production-hardening` (fingerprint freshness gate + shadow-rebuild automation this effort reuses). Back-link added there (at close-out — same drift, landed with ticket 05).
 - **Shares-decision-with:** `2026-08-22-context-lifecycle` (embedding model D3 bge-m3 via the `__piEmbeddingConfig` seam; unchanged here).
 - Evidence source: 2026-08-25 morning file2md→kcard pipeline verification (output/next-goal-20260825-111500.md) — the USB4 corpus, its generic-card baseline, and the measured gaps are this effort's seed evidence.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Document-tree L2 ingest + flat KNN; directory L1 overview + L0 abstract generation. PRs: #2022, #2026.

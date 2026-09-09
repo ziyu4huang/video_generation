@@ -209,3 +209,7 @@ corpus-validated.
 - **Shares-decision-with**: `.planning/2026-08-21-vision-tier-centralization` — exactly one
   vision resolution leaf (`resolveVisionLLM`); smart wraps it softly instead of adding a
   second leaf.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Smart-mode plumbing, figure-page vision enhance, file2md shipped in deploy + OCR e2e, E2E hardening. PRs: #1920, #1928, #1931, #1935, #1938.

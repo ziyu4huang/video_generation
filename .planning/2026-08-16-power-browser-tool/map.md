@@ -1,3 +1,10 @@
+---
+effort: 2026-08-16-power-browser-tool
+created: 2026-08-16
+last: 2026-09-09
+status: done
+---
+
 # power-browser-tool — effort map
 
 ## Destination
@@ -63,3 +70,7 @@ pruneMode ported, D6 audit run-dirs, power_browser-gated; 191 pass / 0 fail + ci
   nested copy does NOT resolve through the isolated linker — verified).
 - Effort closed from interrupted-run `STATE.md` residue (folded as D6–D8, v2 ideas,
   and the ticket Result above); STATE.md deleted at closeout.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Headless-Chrome browser tool shipped — code-first, snapshot-compressed, audit run-dirs, power_browser-gated. PRs: #1544.

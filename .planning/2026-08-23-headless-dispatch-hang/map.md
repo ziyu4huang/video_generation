@@ -165,3 +165,7 @@ chase).
 
 - **Builds-on:** `.planning/2026-08-23-subagent-cc-parity-2/` — its live-smoke
   queue head surfaced all three findings; spec §9 carries the evidence rows.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+Headless print-mode arming parity pinned; colliding-command-dispatch patched. PRs: #1918, #1933.

@@ -225,3 +225,7 @@ extension).
 Builds-on: PR #1958 (2026-08-24, merged) — its hyperframes comment-out is the
 second live instance of the comment-out failure mode (D2's forcing argument);
 sv-analyzer's new excludeReason entry migrates as data.
+
+## Shipped-as (backfilled 2026-09-09 by 2026-09-09-planning-audit; every PR git-log-verified merged)
+
+YAML twin + deploy-set prune, typed REGISTRY consumers, YAML registry retired + invariant suite. PRs: #1958, #1965, #1970.
