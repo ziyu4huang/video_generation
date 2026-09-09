@@ -6,6 +6,8 @@
 //                [--slides-dir <dir> | --no-slides] [--thumbnails] [--combine]
 //                [--emit-shape-ir <dir>] [--lint]
 //   bun run deck render <manifest> [--out <dir>] [--size <px>]
+//   bun run deck pack <manifest> [--out <file>]     — JSONL interchange envelope
+//   bun run deck unpack <deckl> [--out <dir>]       — envelope → deck.config.json
 //                [--theme light|dark] [--output out.pptx]
 //
 // `render` builds the deck and pictures every slide as slide-N.png through the
@@ -53,7 +55,7 @@
 // screenshots. `tests/pptx-shapes.test.ts` asserts zero `<a:blip>` in the
 // slide XML, which is the property a regression to images cannot fake.
 //
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildDeck,
@@ -63,6 +65,7 @@ import {
   resolveDeckOutput,
   type Theme,
 } from "../src/deck-build.ts";
+import { packDeck, unpackDeck } from "../src/deck-pack.ts";
 import { defaultRendersDir, pickRenderer, rendererStatus } from "../src/deck-render.ts";
 import { formatLintNotes, lintDeck, storyline } from "../src/deck-lint.ts";
 import { formatDiagnostics, lintPptx } from "../src/ooxml-lint.ts";
@@ -156,6 +159,53 @@ export function parseArgs(argv: string[]): DeckArgs {
   };
 }
 
+/** MC-t03: JSONL interchange — pack a manifest, or unpack an envelope back to
+ *  a deck.config.json. Pure format-level: IR files are NOT inlined (paths stay
+ *  as authored), so unpack into a tree where those paths resolve. */
+async function runPackUnpack(mode: "pack" | "unpack", argv: string[]): Promise<void> {
+  const positional: string[] = [];
+  let out: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a: string = argv[i]!;
+    if (a === "--out") {
+      out = argv[++i];
+      continue;
+    }
+    if (a === "-h" || a === "--help") {
+      console.error(`usage: deck ${mode} <${mode === "pack" ? "manifest" : "envelope"}> [--out <path>]`);
+      process.exit(0);
+    }
+    if (a.startsWith("-")) fail(`unknown flag: ${a}`);
+    positional.push(a);
+  }
+  const input = positional[0];
+  if (!input) fail(`expected exactly one ${mode === "pack" ? "manifest" : "envelope"} path`);
+  const inputPath = resolve(process.cwd(), input);
+  const outPath = out !== undefined ? resolve(process.cwd(), out) : undefined;
+
+  if (mode === "pack") {
+    const text = await Bun.file(inputPath).text();
+    let manifest: Record<string, unknown>;
+    try {
+      manifest = JSON.parse(text) as Record<string, unknown>;
+    } catch (err) {
+      fail(`manifest is not readable JSON: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    const envelope = packDeck(manifest);
+    const dest = outPath ?? `${inputPath}.deckl`;
+    await Bun.write(dest, envelope);
+    const slides = Array.isArray(manifest.slides) ? manifest.slides.length : 0;
+    console.log(`packed ${dest} (${slides} slides, ${envelope.length} bytes)`);
+    return;
+  }
+
+  const envelope = await Bun.file(inputPath).text();
+  const { manifest } = unpackDeck(envelope);
+  const dest = outPath ?? `${inputPath}.dir`;
+  await Bun.write(join(dest, "deck.config.json"), JSON.stringify(manifest, null, 2) + "\n");
+  console.log(`unpacked ${join(dest, "deck.config.json")}`);
+}
+
 function fail(msg: string): never {
   console.error(`deck: ${msg}`);
   process.exit(1);
@@ -240,6 +290,9 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] === "render") {
     return runRender(parseRenderArgs(argv.slice(1)));
+  }
+  if (argv[0] === "pack" || argv[0] === "unpack") {
+    return runPackUnpack(argv[0], argv.slice(1));
   }
   const args = parseArgs(argv);
   const cwd = process.cwd();
