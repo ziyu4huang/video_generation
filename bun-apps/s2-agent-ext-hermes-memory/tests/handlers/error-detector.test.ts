@@ -119,10 +119,14 @@ describe("setupErrorDetector — dedup against the store (criterion 2)", () => {
   });
 });
 
-function createMockPi(handlers: Record<string, Function[]>) {
+type Handler = () => void;
+
+function createMockPi(handlers: Record<string, Handler[]>) {
   return {
-    on: (event: string, handler: Function) => {
-      (handlers[event] ||= []).push(handler);
+    on: (event: string, handler: Handler) => {
+      const list = handlers[event] ?? [];
+      list.push(handler);
+      handlers[event] = list;
     },
     registerTool: () => {},
     registerCommand: () => {},
@@ -147,7 +151,7 @@ describe("setupErrorDetector — per-session throttle (#854)", () => {
 
   /** Wire a fresh detector + store; return a fire() helper and a row counter. */
   function wire(configOverrides: Partial<MemoryConfig> = {}, seededStore?: MemoryStore) {
-    const handlers: Record<string, Function[]> = {};
+    const handlers: Record<string, Handler[]> = {};
     const pi = createMockPi(handlers);
     const store = seededStore ?? new MemoryStore({ memoryDir: tmpDir });
     const config = { errorCapture: true, ...configOverrides } as MemoryConfig;
