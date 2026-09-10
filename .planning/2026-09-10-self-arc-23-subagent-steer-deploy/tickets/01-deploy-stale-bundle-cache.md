@@ -1,6 +1,6 @@
 # t01 — Deploy stale-bundle class: content-keyed caches + artifact attestation
 
-Effort: 2026-09-10-self-arc-22-subagent-steer-deploy · map D1/D2/D3
+Effort: 2026-09-10-self-arc-23-subagent-steer-deploy · map D1/D2/D3
 Package: `bun-apps/s2-agent-ext-devops` (gates: `bun run check` = tsc, `bun test`)
 Status: open
 

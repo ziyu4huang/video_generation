@@ -1,6 +1,6 @@
 # t03 — Deployed verification: grep-asserted redeploy + steer drill + dispatch smoke
 
-Effort: 2026-09-10-self-arc-22-subagent-steer-deploy · map D1/D5/D6
+Effort: 2026-09-10-self-arc-23-subagent-steer-deploy · map D1/D5/D6
 Runs AFTER the implementation PR merges. Receipts-only — no PR (map D5).
 Status: open
 

@@ -1,11 +1,11 @@
 ---
-effort: 2026-09-10-self-arc-22-subagent-steer-deploy
+effort: 2026-09-10-self-arc-23-subagent-steer-deploy
 created: 2026-09-10
 last: 2026-09-10
 status: active
 ---
 
-# Wayfinder map: 2026-09-10-self-arc-22-subagent-steer-deploy — stale-bundle deploy truth + tool-window steering
+# Wayfinder map: 2026-09-10-self-arc-23-subagent-steer-deploy — stale-bundle deploy truth + tool-window steering
 
 Planned 2026-09-10 in THIS worktree (`video_generation__subagent`, branch `self-arc-22`
 at `61688652`, verified cut). Ledger number 22 claimed in `.planning/arc-ledger.json`

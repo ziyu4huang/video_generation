@@ -1,11 +1,11 @@
 # t04 — Close-out: docs PR, ledger merge, successor next-goal
 
-Effort: 2026-09-10-self-arc-22-subagent-steer-deploy · map D5/D8
+Effort: 2026-09-10-self-arc-23-subagent-steer-deploy · map D5/D8
 ONE docs close-out PR via the devops chain. Status: open
 
 ## Work
 
-1. Map close-out in `.planning/2026-09-10-self-arc-22-subagent-steer-deploy/map.md`:
+1. Map close-out in `.planning/2026-09-10-self-arc-23-subagent-steer-deploy/map.md`:
    - `status: done`; frontmatter `last` updated.
    - **Shipped-as** section: implementation PR number + squash sha; t03 receipt
      folders with their PASS lines and the pre-drive grep counts; schema-cost
@@ -16,7 +16,7 @@ ONE docs close-out PR via the devops chain. Status: open
 2. Ledger: fill `mergedPr` (and keep `status: "done"`) on entry 22 in
    `.planning/arc-ledger.json` — the wayfind guard (`tests/arc-ledger.test.ts`)
    must stay green.
-3. Reciprocal back-links: add `Builds-on: 2026-09-10-self-arc-22-subagent-steer-deploy`
+3. Reciprocal back-links: add `Builds-on: 2026-09-10-self-arc-23-subagent-steer-deploy`
    one-liners to the linked maps' Cross-effort sections (arc-19-subagent at minimum).
 4. Ticket checkboxes flipped; effort dir fully tracked (`.planning/` is durable —
    committed and pushed, per repo rules).

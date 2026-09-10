@@ -1,6 +1,6 @@
 # t02 — Steer in the tool-execution window: honest state, guaranteed delivery
 
-Effort: 2026-09-10-self-arc-22-subagent-steer-deploy · map D4/D6/D7
+Effort: 2026-09-10-self-arc-23-subagent-steer-deploy · map D4/D6/D7
 Packages: `bun-apps/s2-agent-core-runtime` + `bun-apps/s2-agent-ext-subagent`
 Status: open
 

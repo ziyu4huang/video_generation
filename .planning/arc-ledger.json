@@ -217,20 +217,18 @@
     {
       "series": "self-arc",
       "number": 22,
-<<<<<<< HEAD
       "path": ".planning/2026-09-10-self-arc-22-review-harvest",
       "status": "done",
       "claimedAt": "2026-09-10",
       "branch": "self-arc-22-review-harvest",
       "mergedPr": 2261,
-      "note": "review-harvest — make arc-review verdicts harvestable by name (reviewer-harvest returns absent for core-spawn dispatches, receipted twice)"
-=======
+      "note": "review-harvest — make arc-review verdicts harvestable by name (reviewer-harvest returns absent for core-spawn dispatches, receipted twice)",
       "path": ".planning/2026-09-10-self-arc-22-subagent-steer-deploy",
       "status": "active",
       "claimedAt": "2026-09-10",
       "branch": "self-arc-22",
       "note": "stale-bundle deploy truth (content-keyed caches + post-deploy marker attestation) + tool-window steering (third live-agent state, guaranteed queued drain, honest 3-way reply); queue head = arc-19's F-deploy-1 + F-steer-1"
->>>>>>> a7c3f6ae (plan(self-arc-22): F-deploy-1 stale-bundle two-layer fix + F-steer-1 tool-window steering — GLM-5.3 planner map; ledger 22 claimed)
+
     }
   ]
 }
