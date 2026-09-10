@@ -92,15 +92,15 @@ describe("writeArcReviewRunRecord", () => {
 });
 
 describe("D3 empty-output guard (reviewer should-fix, self-arc-22)", () => {
-	it("a blank-output 'success' saves as failed with the guard error — never still-running", () => {
-		const home = tmpHome();
-		try {
-			const runId = writeArcReviewRunRecord(outcome({ output: "   " }), home);
-			const record = JSON.parse(readFileSync(join(subagentRunsDir(home), `${runId}.json`), "utf8"));
-			expect(record.status).toBe("failed"); // in PI_TERMINAL_FAILURES → harvests as errored
-			expect(record.error).toContain("empty reviewer output");
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
+  it("a blank-output 'success' saves as failed with the guard error — never still-running", () => {
+    const home = tmpHome();
+    try {
+      const runId = writeArcReviewRunRecord(outcome({ output: "   " }), home);
+      const record = JSON.parse(readFileSync(join(subagentRunsDir(home), `${runId}.json`), "utf8"));
+      expect(record.status).toBe("failed"); // in PI_TERMINAL_FAILURES → harvests as errored
+      expect(record.error).toContain("empty reviewer output");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
