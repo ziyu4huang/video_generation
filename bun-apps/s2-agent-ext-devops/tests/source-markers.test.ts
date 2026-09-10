@@ -66,7 +66,7 @@ describe("assertMarkersInArtifact", () => {
 				["alpha-literal-with-more-than-sixteen-characters", "never-present-anywhere-at-all"],
 				"unit",
 			),
-		).toThrow(/1\/2 source markers missing/);
+		).toThrow(/only 1\/2 source markers found/);
 	});
 
 	test("missing marker → throws naming the artifact and the missing literal", () => {
