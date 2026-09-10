@@ -192,13 +192,37 @@ function resolveWorkspaceSrcDirs(): Array<{ name: string; dir: string }> {
 	const names = Object.keys(pkg.dependencies ?? {}).filter((n) => n.startsWith("@repo/") && n !== "@repo/s2-agent");
 	const out: Array<{ name: string; dir: string }> = [];
 	for (const name of names) {
+		let entry: string;
 		try {
-			const entry = Bun.resolveSync(name, PI_AGENT_DIR);
-			const dir = dirname(entry);
-			if (existsSync(dir)) out.push({ name, dir });
+			entry = Bun.resolveSync(name, PI_AGENT_DIR);
 		} catch {
-			// An unresolvable optional dep contributes no source to the bundle.
+			// Self-heal FIRST: parallel/interleaved `bun install` runs rewrite the
+			// @repo/* links into the dangling root-layout form mid-deploy
+			// (receipted live 2026-09-10, twice). Repair the farm and re-resolve.
+			repairWorkspaceLinks(BUN_APPS_DIR);
+			try {
+				entry = Bun.resolveSync(name, PI_AGENT_DIR);
+			} catch {
+				// Benign skip (warned): a dep whose package exists but has no
+				// resolvable entry (e.g. archify ships no src/index.ts its own
+				// main points at) contributes no source to the bundle. The
+				// staleness backstop is NOT this hash — it is
+				// assertCoreArtifactMarkers, which fails the build on stale bytes
+				// regardless of what the hash covered (F-deploy-1).
+				process.stderr.write(
+					`[deploy] warning: workspace dep ${name} has no resolvable entry from ${PI_AGENT_DIR} — excluded from the core source hash
+`,
+				);
+				continue;
+			}
 		}
+		const dir = dirname(entry);
+		if (existsSync(dir)) out.push({ name, dir });
+		else
+			process.stderr.write(
+				`[deploy] warning: workspace dep ${name} resolved to a missing dir (${dir}) — excluded from the core source hash
+`,
+			);
 	}
 	return out;
 }
@@ -253,6 +277,8 @@ async function buildCore(
 	const bytes = await bundle(outFile);
 	return { bytes, cached: false };
 }
+
+
 
 /**
  * Copy pi's shipped asset dirs into the version dir at their NODE layout

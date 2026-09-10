@@ -31,6 +31,7 @@
  * [] (deps are baked in), so this exits 0 immediately.
  */
 import { dirname, join } from "node:path";
+import { readdirSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 // Straight from deps-probe.ts, which DEFINES it, not through resolve.ts's
 // facade: this runs as a pre-flight before pi boots, and going via the facade
@@ -52,6 +53,42 @@ if (repoRoot === undefined) process.exit(0);
 const bunAppsDir = join(repoRoot, "bun-apps");
 
 const missing = missingExtensionPackages(bunAppsDir);
+
+// Self-arc-22 t01 (F-deploy-1's sibling) — repair the @repo/* workspace links
+// UNCONDITIONALLY, every run: `bun install` (and its root-layout rewrite of
+// these links) can fire in ANY process at ANY time, leaving the farm dangling
+// while zero deps are "missing" — the exact state that made deploys ship stale
+// bundles and typechecks ENOENT (receipted 2026-09-10, twice). The repair is a
+// deterministic no-op when everything is healthy. Inlined on purpose (canonical
+// copy: core-runtime workspace-links.ts) — a static import of anything under
+// @repo/* here would die on the very links being repaired.
+let repaired = 0;
+try {
+  const repoLinkDir = join(bunAppsDir, "node_modules", "@repo");
+  for (const name of readdirSync(repoLinkDir)) {
+    const link = join(repoLinkDir, name);
+    let ok = false;
+    try {
+      ok = statSync(link).isDirectory();
+    } catch {
+      ok = false;
+    }
+    if (ok) continue;
+    try {
+      unlinkSync(link);
+      symlinkSync(join("..", "..", name), link);
+      repaired += 1;
+    } catch {
+      /* unrepairable — the next resolution error will name it */
+    }
+  }
+} catch {
+  /* no @repo dir yet — nothing to repair */
+}
+if (repaired > 0) {
+  console.error(`[check-deps] repaired ${repaired} dangling @repo/* workspace link(s) (bun install's root-layout rewrite)`);
+}
+
 if (missing.length === 0) process.exit(0);
 
 // Classify each missing package as a workspace member (resolves to local source

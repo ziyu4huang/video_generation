@@ -223,6 +223,15 @@
       "branch": "self-arc-22-review-harvest",
       "mergedPr": 2261,
       "note": "review-harvest — make arc-review verdicts harvestable by name (reviewer-harvest returns absent for core-spawn dispatches, receipted twice)"
+    },
+    {
+      "series": "self-arc",
+      "number": 23,
+      "path": ".planning/2026-09-10-self-arc-23-subagent-steer-deploy",
+      "status": "active",
+      "claimedAt": "2026-09-10",
+      "branch": "self-arc-22",
+      "note": "stale-bundle deploy truth (hash completeness + link self-heal) + tool-window steering (honest 3-way, guaranteed queued delivery); queue head = arc-19's F-deploy-1 + F-steer-1. Branch name self-arc-22 predates the ledger (the loop's review-harvest claimed 22 first, #2261)"
     }
   ]
 }

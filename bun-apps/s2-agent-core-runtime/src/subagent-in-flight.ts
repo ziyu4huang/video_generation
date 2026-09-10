@@ -108,11 +108,14 @@ export interface InFlightSubagent {
   /** Per-run steer lever (self-arc-19 t02) — delivers text INTO the child's
    *  current exchange (the PersistentAgent mid-flight path ⇒ `{steered:true}`
    *  immediately; if the exchange had just gone idle the text runs as a fresh
-   *  turn and `output` carries its reply). Optional exactly like `abort`: only
-   *  dispatches whose child session exposes a steering handle (named live
-   *  agents today) set it; unnamed in-process runs and detached subprocesses
-   *  stay un-steerable and the caller says so. */
-  steer?: (text: string) => Promise<{ steered: boolean; output?: string }>;
+   *  turn and `output` carries its reply). `mode` (self-arc-22 t02) tells the
+   *  caller WHICH busy shape landed: "exchange" = injected into the streaming
+   *  model turn; "queued" = child was mid-TOOL-execution, text runs after the
+   *  current tool completes. Optional exactly like `abort`: only dispatches
+   *  whose child session exposes a steering handle (named live agents today)
+   *  set it; unnamed in-process runs and detached subprocesses stay
+   *  un-steerable and the caller says so. */
+  steer?: (text: string) => Promise<{ steered: boolean; mode?: "exchange" | "queued"; output?: string }>;
 }
 
 /**
@@ -345,7 +348,10 @@ export class SubagentInFlightRegistry {
    *  in-process run / detached subprocess) — the CALLER turns every one of
    *  those into an actionable non-error message, mirroring abort()'s `?.`
    *  semantics: a steer racing with natural completion must never throw. */
-  steer(id: string, text: string): Promise<{ steered: boolean; output?: string }> | undefined {
+  steer(
+    id: string,
+    text: string,
+  ): Promise<{ steered: boolean; mode?: "exchange" | "queued"; output?: string }> | undefined {
     const r = this.runs.get(id);
     if (!r || isTerminalStatus(r.status) || !r.steer) return undefined;
     return r.steer(text);

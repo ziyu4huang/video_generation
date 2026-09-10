@@ -69,7 +69,8 @@ interface Opts {
     | "catalog"
     | "workflow"
     | "wf-pause"
-    | "cc-parity";
+    | "cc-parity"
+    | "steer";
   sh: string;
   cwd: string;
   out: string;
@@ -1055,6 +1056,48 @@ async function scenarioWfPause(): Promise<void> {
   receipt.checks.completed = completed;
 }
 
+// ── scenario: steer (self-arc-22 t02 — F-steer-1 fix proof) ──────────────────
+// Background NAMED child with a LONG tool call (sleep 120 → a wide tool-
+// execution window); the parent steers it via list_subagent_runs action=steer
+// while the tool is still running. The receipt proves the honest reply lands
+// AND the steered marker reaches the child's final output — the exact window
+// where arc-19's r2 drill lost the guidance.
+async function scenarioSteer(): Promise<void> {
+  await awaitBootRendered(screen, 90_000);
+  await waitIdle(2500, 45000);
+  snap("boot", true);
+  receipt.checks.booted = screen().length > 0;
+
+  const prompt =
+    "Do EXACTLY this, in order. 1) Call spawn_subagent ONCE with: name='steer-drill', background=true, " +
+    "task='Run sleep 120 in the shell. When it finishes, check whether a message containing STEER-ARC22-OK arrived for you; " +
+    "if it did, reply with exactly STEER-ARC22-OK. Otherwise reply SLEPT-NO-STEER.' Note the run id. " +
+    "2) IMMEDIATELY call list_subagent_runs with action='steer', the run id from step 1, and message='Do not run sleep. " +
+    "Reply with exactly STEER-ARC22-OK'. Report the tool result verbatim. " +
+    "3) Call list_subagent_runs with action='wait', the run id, timeoutMs=180000, and report the child's final output verbatim.";
+  tty.write(prompt);
+  await sleep(300);
+  tty.write("\r");
+
+  let sawSteerReply = false;
+  let sawMarker = false;
+  const t0 = Date.now();
+  while (Date.now() - t0 < opts.timeoutS * 1000) {
+    await sleep(2000);
+    const s = screen().join("\n");
+    // The steer verb's honest reply (self-arc-22 t02): queued-after-tool OR
+    // steered-into-exchange — either proves the verb executed; the marker
+    // latch proves the guidance actually landed in the child's output.
+    if (/queued and will be delivered right after the current tool|steered into run /.test(s)) sawSteerReply = true;
+    if (/STEER-ARC22-OK/.test(s)) sawMarker = true;
+    if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
+    snap(sawMarker ? "marker" : sawSteerReply ? "steered" : "running", true);
+    if (sawSteerReply && sawMarker && Date.now() - lastByteAt > opts.quietMs) break;
+  }
+  receipt.checks.steerReply = sawSteerReply;
+  receipt.checks.markerInOutput = sawMarker;
+}
+
 // ── scenario: agents (agents-manager t03 — drive the /agents manager) ────────
 // Pure-local drill (no LLM round-trip): open /agents over the seeded probe
 // definition, read its detail, CREATE a second definition through the form,
@@ -1363,6 +1406,7 @@ try {
   else if (opts.scenario === "workflow") await scenarioWorkflow();
   else if (opts.scenario === "wf-pause") await scenarioWfPause();
   else if (opts.scenario === "cc-parity") await scenarioCcParity();
+  else if (opts.scenario === "steer") await scenarioSteer();
   else throw new Error(`unknown scenario: ${opts.scenario}`);
 } catch (e) {
   // Reviewer finding #7: a crashed scenario must still leave a receipt — a
@@ -1424,6 +1468,7 @@ const requiredByScenario: Record<Opts["scenario"], string[]> = {
   catalog: ["booted", "backgroundRow", "catalogRouted", "settled", "childModelIsGlm53"],
   workflow: ["booted", "wfRow", "wfAbortFlow", "wfAbortConfirmed"],
   "wf-pause": ["booted", "wfRow", "pausedNavigator", "pausedSharedRow", "resumedRow", "completed"],
+  steer: ["booted", "steerReply", "markerInOutput", "childModelIsGlm53"],
   swarm: [
     "booted",
     "liveRow",

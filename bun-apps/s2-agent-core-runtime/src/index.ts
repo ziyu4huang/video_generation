@@ -286,6 +286,10 @@ export {
 } from "./team-task-store.js";
 export type { ToolActionContext } from "./tool-action-label.js";
 export { formatToolAction, matchedCallArgsFor } from "./tool-action-label.js";
-
+// Workspace link repair (self-arc-22 t01): the canonical copy — check-deps.ts
+// inlines its own (dep-direction constraint); devops' deploy preflight keeps
+// its local one until a cleanup pass dedupes onto this export.
+export type { LinkRepair } from "./workspace-links.js";
+export { repairWorkspaceLinks } from "./workspace-links.js";
 export type { Worktree } from "./worktree.js";
 export { createWorktree, removeWorktree } from "./worktree.js";

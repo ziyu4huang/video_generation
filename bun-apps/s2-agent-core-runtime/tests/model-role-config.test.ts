@@ -30,8 +30,9 @@ test("loadModelTierConfig loads tiers + capabilities", () => {
 test("loadModelTierConfig accepts legacy tiers-only file (backward compat)", () => {
   const p = tmpConfig({ tiers: { small: "openai/x", medium: "openai/y" } });
   const cfg = loadModelTierConfig(p);
+  expect(cfg, "tier config loads").toBeTruthy();
   expect(cfg?.capabilities).toBeUndefined();
-  expect(resolveTierModel("medium", cfg!)).toBe("openai/y");
+  expect(resolveTierModel("medium", cfg)).toBe("openai/y");
 });
 
 test("loadModelTierConfig rejects non-string capability values", () => {

@@ -5,7 +5,7 @@
  * benchmark's CONTROL: if this lane goes red, the abstraction is wrong, not
  * the tech.
  */
-import { chunkBytes, LIVE_MARKER_RE, makeQueryResponder, screenText, XTerm } from "../screen.js";
+import { chunkBytes, makeQueryResponder, screenText, XTerm } from "../screen.js";
 import type { BenchAdapter, LaunchCtx, Session, SettleResult, SettleView } from "../types.js";
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
