@@ -25,26 +25,26 @@
 import path from "node:path";
 
 export interface CliResult {
-	exitCode: number;
-	/** Exactly what belongs on stdout (empty on a usage error / --help). */
-	stdout: string;
-	/** Diagnostics / usage — never mixed into stdout. */
-	stderr: string;
+  exitCode: number;
+  /** Exactly what belongs on stdout (empty on a usage error / --help). */
+  stdout: string;
+  /** Diagnostics / usage — never mixed into stdout. */
+  stderr: string;
 }
 
 /** Repo root inferred from this file's location (`<root>/bun-apps/<pkg>/src/`). */
 export function defaultRepoRoot(): string {
-	return path.resolve(import.meta.dir, "..", "..", "..");
+  return path.resolve(import.meta.dir, "..", "..", "..");
 }
 
 /** A usage error: exit 2, message + usage on stderr. */
 export function usageError(message: string, usage: string): CliResult {
-	return { exitCode: 2, stdout: "", stderr: `${message}\n${usage}` };
+  return { exitCode: 2, stdout: "", stderr: `${message}\n${usage}` };
 }
 
 /** `--help`/`-h`: usage on stderr, exit 0 (matches changed-packages-cli). */
 export function helpRequested(argv: string[]): boolean {
-	return argv.includes("-h") || argv.includes("--help");
+  return argv.includes("-h") || argv.includes("--help");
 }
 
 /**
@@ -56,12 +56,12 @@ export function helpRequested(argv: string[]): boolean {
  * because a fake never reaches that code path. Diagnostics belong on stderr.
  */
 export function toStderr(line: string): void {
-	process.stderr.write(`${line}\n`);
+  process.stderr.write(`${line}\n`);
 }
 
 /** Serialize an outcome as the JSON stdout payload. */
 export function jsonResult(exitCode: number, outcome: unknown): CliResult {
-	return { exitCode, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
+  return { exitCode, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 }
 
 /**
@@ -70,7 +70,7 @@ export function jsonResult(exitCode: number, outcome: unknown): CliResult {
  * break a caller that pipes the JSON.
  */
 export function emit(res: CliResult): never {
-	if (res.stderr) process.stderr.write(`${res.stderr}\n`);
-	if (res.stdout) process.stdout.write(`${res.stdout}\n`);
-	process.exit(res.exitCode);
+  if (res.stderr) process.stderr.write(`${res.stderr}\n`);
+  if (res.stdout) process.stdout.write(`${res.stdout}\n`);
+  process.exit(res.exitCode);
 }

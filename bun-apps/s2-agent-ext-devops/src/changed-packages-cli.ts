@@ -40,24 +40,25 @@ import { computeChangedPackages } from "./changed-packages.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 
 export interface ChangedPackagesCliResult {
-	exitCode: number;
-	/** Exactly what belongs on stdout (empty on a usage error). */
-	stdout: string;
-	/** Diagnostics / usage errors — never mixed into stdout. */
-	stderr: string;
+  exitCode: number;
+  /** Exactly what belongs on stdout (empty on a usage error). */
+  stdout: string;
+  /** Diagnostics / usage errors — never mixed into stdout. */
+  stderr: string;
 }
 
 export const CHANGED_PACKAGES_CLI_USAGE = [
-	"usage: changed-packages-cli.ts --all",
-	"       changed-packages-cli.ts <baseRef> <headRef>",
-	"",
-	"Prints one line of compact JSON: {\"<bun-apps package>\": true|false, …}.",
-	"Options: --repo-root <path>  (default: the repo this file lives in)",
+  "usage: changed-packages-cli.ts --all",
+  "       changed-packages-cli.ts <baseRef> <headRef>",
+  "",
+  'Prints one line of compact JSON: {"<bun-apps package>": true|false, …}.',
+  "Options: --repo-root <path>  (default: the repo this file lives in)",
 ].join("\n");
 
 // defaultRepoRoot is shared plumbing — single definition in src/cli-common.ts,
 // re-exported here for import stability.
 import { defaultRepoRoot } from "./cli-common.js";
+
 export { defaultRepoRoot };
 
 /**
@@ -65,52 +66,52 @@ export { defaultRepoRoot };
  * the live entry point below supplies `createLiveSpawn`.
  */
 export async function runChangedPackagesCli(
-	argv: string[],
-	deps: { spawn?: SpawnFn; repoRoot?: string } = {},
+  argv: string[],
+  deps: { spawn?: SpawnFn; repoRoot?: string } = {},
 ): Promise<ChangedPackagesCliResult> {
-	const args: string[] = [];
-	let repoRoot = deps.repoRoot ?? defaultRepoRoot();
-	let all = false;
+  const args: string[] = [];
+  let repoRoot = deps.repoRoot ?? defaultRepoRoot();
+  let all = false;
 
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (a === "--all") {
-			all = true;
-		} else if (a === "--repo-root") {
-			const v = argv[++i];
-			if (v === undefined) {
-				return { exitCode: 2, stdout: "", stderr: `--repo-root needs a value\n${CHANGED_PACKAGES_CLI_USAGE}` };
-			}
-			repoRoot = v;
-		} else if (a === "-h" || a === "--help") {
-			return { exitCode: 0, stdout: "", stderr: CHANGED_PACKAGES_CLI_USAGE };
-		} else if (a.startsWith("-")) {
-			return { exitCode: 2, stdout: "", stderr: `unknown flag: ${a}\n${CHANGED_PACKAGES_CLI_USAGE}` };
-		} else {
-			args.push(a);
-		}
-	}
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--all") {
+      all = true;
+    } else if (a === "--repo-root") {
+      const v = argv[++i];
+      if (v === undefined) {
+        return { exitCode: 2, stdout: "", stderr: `--repo-root needs a value\n${CHANGED_PACKAGES_CLI_USAGE}` };
+      }
+      repoRoot = v;
+    } else if (a === "-h" || a === "--help") {
+      return { exitCode: 0, stdout: "", stderr: CHANGED_PACKAGES_CLI_USAGE };
+    } else if (a.startsWith("-")) {
+      return { exitCode: 2, stdout: "", stderr: `unknown flag: ${a}\n${CHANGED_PACKAGES_CLI_USAGE}` };
+    } else {
+      args.push(a);
+    }
+  }
 
-	if (!all && args.length !== 2) {
-		return {
-			exitCode: 2,
-			stdout: "",
-			stderr: `expected --all, or exactly 2 refs (got ${args.length})\n${CHANGED_PACKAGES_CLI_USAGE}`,
-		};
-	}
+  if (!all && args.length !== 2) {
+    return {
+      exitCode: 2,
+      stdout: "",
+      stderr: `expected --all, or exactly 2 refs (got ${args.length})\n${CHANGED_PACKAGES_CLI_USAGE}`,
+    };
+  }
 
-	const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
-	const map = all
-		? await computeChangedPackages({ repoRoot, all: true, spawn })
-		: await computeChangedPackages({ repoRoot, baseRef: args[0], headRef: args[1], spawn });
+  const spawn = deps.spawn ?? createLiveSpawn(repoRoot);
+  const map = all
+    ? await computeChangedPackages({ repoRoot, all: true, spawn })
+    : await computeChangedPackages({ repoRoot, baseRef: args[0], headRef: args[1], spawn });
 
-	// Compact single-line JSON — a GITHUB_OUTPUT value cannot span lines.
-	return { exitCode: 0, stdout: JSON.stringify(map), stderr: "" };
+  // Compact single-line JSON — a GITHUB_OUTPUT value cannot span lines.
+  return { exitCode: 0, stdout: JSON.stringify(map), stderr: "" };
 }
 
 if (import.meta.main) {
-	const res = await runChangedPackagesCli(Bun.argv.slice(2));
-	if (res.stderr) process.stderr.write(`${res.stderr}\n`);
-	if (res.stdout) process.stdout.write(`${res.stdout}\n`);
-	process.exit(res.exitCode);
+  const res = await runChangedPackagesCli(Bun.argv.slice(2));
+  if (res.stderr) process.stderr.write(`${res.stderr}\n`);
+  if (res.stdout) process.stdout.write(`${res.stdout}\n`);
+  process.exit(res.exitCode);
 }

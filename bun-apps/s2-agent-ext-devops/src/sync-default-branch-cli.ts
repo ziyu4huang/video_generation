@@ -1,4 +1,9 @@
 #!/usr/bin/env bun
+import type { BranchClient } from "./branch-recipe.js";
+import { type CliResult, defaultRepoRoot, emit } from "./cli-common.js";
+import { createBranchClient } from "./gh.js";
+import { resolveRemoteName } from "./remote.js";
+import { createLiveSpawn, type SpawnFn, withDefaultTimeout } from "./spawn.js";
 /**
  * sync-default-branch-cli — the bash-callable entry point for `runSync` (the sync_default_branch recipe).
  *
@@ -39,50 +44,43 @@
  *   - exit 0 on success (incl. dry-run); exit 1 when the run aborted
  *     (dirty_tree / divergent / …); exit 2 on a usage error.
  */
-import { runSync, type SyncMode, DEFAULT_PRESERVE_PATHS, SYNC_DEFAULT_TIMEOUT_MS } from "./sync-recipe.js";
-import { createBranchClient } from "./gh.js";
-import type { BranchClient } from "./branch-recipe.js";
-import { createLiveSpawn, withDefaultTimeout, type SpawnFn } from "./spawn.js";
-import { resolveRemoteName } from "./remote.js";
-import { type CliResult, defaultRepoRoot, emit } from "./cli-common.js";
+import { DEFAULT_PRESERVE_PATHS, runSync, SYNC_DEFAULT_TIMEOUT_MS, type SyncMode } from "./sync-recipe.js";
 
 // Re-exported for API stability (tests / importers reach the cap through the
 // CLI seam). Defined in sync-recipe.ts — see its doc comment for why it must
 // NOT live in this module (the ext bundle imports it, and this file's
 // `import.meta.main` top-level-await tail breaks the CJS ext build).
-export { SYNC_DEFAULT_TIMEOUT_MS };
-
 // This CLI predates src/cli-common.ts and used to carry its own copies of
 // defaultRepoRoot / the CliResult shape / the import.meta.main emit tail.
 // All three now come from cli-common (the shared contract home); re-exported
 // here so existing imports (tests, docs) stay stable.
-export { defaultRepoRoot };
+export { defaultRepoRoot, SYNC_DEFAULT_TIMEOUT_MS };
 export type SyncCliResult = CliResult;
 
 export const SYNC_CLI_USAGE = [
-	"usage: sync-default-branch-cli.ts [--mode full|rebase|pull|hands-on] [--dry-run] [--force]",
-	"                    [--branch <name|auto>] [--preserve <path>]... [--preserve-strict]",
-	"                    [--timeout-ms <ms>] [--repo-root <path>]",
-	"",
-	"Runs the sync_default_branch recipe (fetch → advance default branch / rebase / pull,",
-	"worktree-aware, submodule sync in full mode) and prints the structured",
-	"outcome as JSON on stdout. Exit 0 on success, 1 on abort (dirty_tree /",
-	"divergent / ...), 2 on usage error.",
-	"Options:",
-	"  --mode <m>          full (default) | rebase | pull | hands-on (the SOP",
-	"                      one-shot prelude: advance <D> AND bring the calling worktree",
-	"                      to the tip; the outcome carries handsOn.callerAtTip)",
-	"  --dry-run           emit the planned git commands, mutate nothing",
-	"  --branch <name>     rebase/pull/hands-on + detached HEAD only: create/attach this",
-	"                      branch at the current HEAD instead of aborting",
-	"                      ('auto' derives it from the worktree folder suffix)",
-	"  --force             full/hands-on (phase A) only: reset --hard (discards divergent commits)",
-	"  --preserve <path>   repeatable; preserve-listed dirty path (default:",
-	"                      " + DEFAULT_PRESERVE_PATHS.join(", ") + ")",
-	"  --preserve-strict   disable preserve entirely (preserve: [])",
-	"  --timeout-ms <ms>   per-command cap for every git call (default 300000;",
-	"                      a hung fetch is killed, not waited on)",
-	"  --repo-root <path>  default: the repo this file lives in",
+  "usage: sync-default-branch-cli.ts [--mode full|rebase|pull|hands-on] [--dry-run] [--force]",
+  "                    [--branch <name|auto>] [--preserve <path>]... [--preserve-strict]",
+  "                    [--timeout-ms <ms>] [--repo-root <path>]",
+  "",
+  "Runs the sync_default_branch recipe (fetch → advance default branch / rebase / pull,",
+  "worktree-aware, submodule sync in full mode) and prints the structured",
+  "outcome as JSON on stdout. Exit 0 on success, 1 on abort (dirty_tree /",
+  "divergent / ...), 2 on usage error.",
+  "Options:",
+  "  --mode <m>          full (default) | rebase | pull | hands-on (the SOP",
+  "                      one-shot prelude: advance <D> AND bring the calling worktree",
+  "                      to the tip; the outcome carries handsOn.callerAtTip)",
+  "  --dry-run           emit the planned git commands, mutate nothing",
+  "  --branch <name>     rebase/pull/hands-on + detached HEAD only: create/attach this",
+  "                      branch at the current HEAD instead of aborting",
+  "                      ('auto' derives it from the worktree folder suffix)",
+  "  --force             full/hands-on (phase A) only: reset --hard (discards divergent commits)",
+  "  --preserve <path>   repeatable; preserve-listed dirty path (default:",
+  "                      " + DEFAULT_PRESERVE_PATHS.join(", ") + ")",
+  "  --preserve-strict   disable preserve entirely (preserve: [])",
+  "  --timeout-ms <ms>   per-command cap for every git call (default 300000;",
+  "                      a hung fetch is killed, not waited on)",
+  "  --repo-root <path>  default: the repo this file lives in",
 ].join("\n");
 
 /**
@@ -90,78 +88,82 @@ export const SYNC_CLI_USAGE = [
  * default seed, `[]` ⇒ disabled (--preserve-strict).
  */
 export interface ParsedSyncArgs {
-	mode: SyncMode;
-	dryRun: boolean;
-	force: boolean;
-	branch?: string;
-	preserve: string[] | undefined;
-	repoRoot?: string;
-	/** Per-command spawn cap; undefined ⇒ SYNC_DEFAULT_TIMEOUT_MS at use site. */
-	timeoutMs?: number;
+  mode: SyncMode;
+  dryRun: boolean;
+  force: boolean;
+  branch?: string;
+  preserve: string[] | undefined;
+  repoRoot?: string;
+  /** Per-command spawn cap; undefined ⇒ SYNC_DEFAULT_TIMEOUT_MS at use site. */
+  timeoutMs?: number;
 }
 
 /** Pure argv → flags (or a usage-error message). Exported for tests. */
 export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs } | { ok: false; message: string } {
-	let mode: SyncMode = "full";
-	let dryRun = false;
-	let force = false;
-	let branch: string | undefined;
-	let preserve: string[] | undefined = undefined;
-	let strict = false;
-	let repoRoot: string | undefined;
-	let timeoutMs: number | undefined;
+  let mode: SyncMode = "full";
+  let dryRun = false;
+  let force = false;
+  let branch: string | undefined;
+  let preserve: string[] | undefined;
+  let strict = false;
+  let repoRoot: string | undefined;
+  let timeoutMs: number | undefined;
 
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (a === "--dry-run") {
-			dryRun = true;
-		} else if (a === "--force") {
-			force = true;
-		} else if (a === "--branch") {
-			const v = argv[++i];
-			if (v === undefined || v === "") {
-				return { ok: false, message: "--branch needs a name value (or 'auto')" };
-			}
-			branch = v;
-		} else if (a === "--timeout-ms") {
-			const v = argv[++i];
-			const n = Number(v);
-			if (v === undefined || !Number.isInteger(n) || n <= 0) {
-				return { ok: false, message: `--timeout-ms needs a positive integer (got ${JSON.stringify(v ?? "missing")})` };
-			}
-			timeoutMs = n;
-		} else if (a === "--preserve-strict") {
-			strict = true;
-		} else if (a === "--mode") {
-			const v = argv[++i];
-			if (v !== "full" && v !== "rebase" && v !== "pull" && v !== "hands-on") {
-				return { ok: false, message: `--mode must be full|rebase|pull|hands-on (got ${JSON.stringify(v ?? "missing")})` };
-			}
-			mode = v;
-		} else if (a === "--preserve") {
-			const v = argv[++i];
-			if (v === undefined || v === "") {
-				return { ok: false, message: "--preserve needs a path value" };
-			}
-			(preserve ??= []).push(v);
-		} else if (a === "--repo-root") {
-			const v = argv[++i];
-			if (v === undefined) {
-				return { ok: false, message: "--repo-root needs a value" };
-			}
-			repoRoot = v;
-		} else if (a === "-h" || a === "--help") {
-			return { ok: false, message: "" }; // handled by caller via exitCode 0
-		} else if (a.startsWith("-")) {
-			return { ok: false, message: `unknown flag: ${a}` };
-		} else {
-			return { ok: false, message: `unexpected positional argument: ${a}` };
-		}
-	}
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--dry-run") {
+      dryRun = true;
+    } else if (a === "--force") {
+      force = true;
+    } else if (a === "--branch") {
+      const v = argv[++i];
+      if (v === undefined || v === "") {
+        return { ok: false, message: "--branch needs a name value (or 'auto')" };
+      }
+      branch = v;
+    } else if (a === "--timeout-ms") {
+      const v = argv[++i];
+      const n = Number(v);
+      if (v === undefined || !Number.isInteger(n) || n <= 0) {
+        return { ok: false, message: `--timeout-ms needs a positive integer (got ${JSON.stringify(v ?? "missing")})` };
+      }
+      timeoutMs = n;
+    } else if (a === "--preserve-strict") {
+      strict = true;
+    } else if (a === "--mode") {
+      const v = argv[++i];
+      if (v !== "full" && v !== "rebase" && v !== "pull" && v !== "hands-on") {
+        return {
+          ok: false,
+          message: `--mode must be full|rebase|pull|hands-on (got ${JSON.stringify(v ?? "missing")})`,
+        };
+      }
+      mode = v;
+    } else if (a === "--preserve") {
+      const v = argv[++i];
+      if (v === undefined || v === "") {
+        return { ok: false, message: "--preserve needs a path value" };
+      }
+      if (preserve === undefined) preserve = [];
+      preserve.push(v);
+    } else if (a === "--repo-root") {
+      const v = argv[++i];
+      if (v === undefined) {
+        return { ok: false, message: "--repo-root needs a value" };
+      }
+      repoRoot = v;
+    } else if (a === "-h" || a === "--help") {
+      return { ok: false, message: "" }; // handled by caller via exitCode 0
+    } else if (a.startsWith("-")) {
+      return { ok: false, message: `unknown flag: ${a}` };
+    } else {
+      return { ok: false, message: `unexpected positional argument: ${a}` };
+    }
+  }
 
-	// --preserve-strict overrides any explicit --preserve (explicit [] semantics).
-	if (strict) preserve = [];
-	return { ok: true, args: { mode, dryRun, force, branch, preserve, repoRoot, timeoutMs } };
+  // --preserve-strict overrides any explicit --preserve (explicit [] semantics).
+  if (strict) preserve = [];
+  return { ok: true, args: { mode, dryRun, force, branch, preserve, repoRoot, timeoutMs } };
 }
 
 /**
@@ -170,33 +172,36 @@ export function parseSyncArgs(argv: string[]): { ok: true; args: ParsedSyncArgs 
  * wiring extensions/devops.ts uses for the sync_default_branch tool).
  */
 export async function runSyncCli(
-	argv: string[],
-	deps: { client?: BranchClient; spawn?: SpawnFn; repoRoot?: string; remoteName?: string } = {},
+  argv: string[],
+  deps: { client?: BranchClient; spawn?: SpawnFn; repoRoot?: string; remoteName?: string } = {},
 ): Promise<SyncCliResult> {
-	const parsed = parseSyncArgs(argv);
-	if (!parsed.ok) {
-		// --help: usage on stderr with exit 0 (matches changed-packages-cli).
-		if (argv.includes("-h") || argv.includes("--help")) {
-			return { exitCode: 0, stdout: "", stderr: SYNC_CLI_USAGE };
-		}
-		return { exitCode: 2, stdout: "", stderr: `${parsed.message}\n${SYNC_CLI_USAGE}` };
-	}
-	const { mode, dryRun, force, branch, preserve } = parsed.args;
-	const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
+  const parsed = parseSyncArgs(argv);
+  if (!parsed.ok) {
+    // --help: usage on stderr with exit 0 (matches changed-packages-cli).
+    if (argv.includes("-h") || argv.includes("--help")) {
+      return { exitCode: 0, stdout: "", stderr: SYNC_CLI_USAGE };
+    }
+    return { exitCode: 2, stdout: "", stderr: `${parsed.message}\n${SYNC_CLI_USAGE}` };
+  }
+  const { mode, dryRun, force, branch, preserve } = parsed.args;
+  const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 
-	// Every git call — the recipe's own AND the branch client's fetch/queries —
-	// goes through this one seam, so capping HERE bounds the whole CLI (a hung
-	// `git fetch` over a stalled SSH transport is killed, not waited on).
-	const spawn = withDefaultTimeout(deps.spawn ?? createLiveSpawn(repoRoot), parsed.args.timeoutMs ?? SYNC_DEFAULT_TIMEOUT_MS);
-	// Remote name resolved ONCE here (DEVOPS_REMOTE > git config devops.remote >
-	// origin — src/remote.ts); recipes never resolve it themselves.
-	const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));
-	const client = deps.client ?? createBranchClient(spawn, remoteName);
+  // Every git call — the recipe's own AND the branch client's fetch/queries —
+  // goes through this one seam, so capping HERE bounds the whole CLI (a hung
+  // `git fetch` over a stalled SSH transport is killed, not waited on).
+  const spawn = withDefaultTimeout(
+    deps.spawn ?? createLiveSpawn(repoRoot),
+    parsed.args.timeoutMs ?? SYNC_DEFAULT_TIMEOUT_MS,
+  );
+  // Remote name resolved ONCE here (DEVOPS_REMOTE > git config devops.remote >
+  // origin — src/remote.ts); recipes never resolve it themselves.
+  const remoteName = deps.remoteName ?? (await resolveRemoteName(spawn));
+  const client = deps.client ?? createBranchClient(spawn, remoteName);
 
-	const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun, force, branch, preserve, remoteName });
-	return { exitCode: outcome.aborted ? 1 : 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
+  const outcome = await runSync({ client, spawn, repoRoot, mode, dryRun, force, branch, preserve, remoteName });
+  return { exitCode: outcome.aborted ? 1 : 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 }
 
 if (import.meta.main) {
-	emit(await runSyncCli(Bun.argv.slice(2)));
+  emit(await runSyncCli(Bun.argv.slice(2)));
 }

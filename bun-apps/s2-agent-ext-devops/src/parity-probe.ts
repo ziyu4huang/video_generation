@@ -78,60 +78,58 @@ export default (pi: any) => {
 `;
 
 export interface ParityFpTool {
-	n: string;
-	s: string;
-	p: string;
-	/** Bun.hash digest as a decimal string — Bun.hash returns BigInt, which JSON.stringify cannot serialize. */
-	dh: string;
-	sh: string;
+  n: string;
+  s: string;
+  p: string;
+  /** Bun.hash digest as a decimal string — Bun.hash returns BigInt, which JSON.stringify cannot serialize. */
+  dh: string;
+  sh: string;
 }
 export interface ParityFpSkill {
-	n: string;
-	p: string;
-	ch: string;
+  n: string;
+  p: string;
+  ch: string;
 }
 export interface ParityFingerprint {
-	mode: string;
-	sessionStartFired: boolean;
-	toolCount: number;
-	tools: ParityFpTool[];
-	skillCount: number;
-	skills: ParityFpSkill[];
+  mode: string;
+  sessionStartFired: boolean;
+  toolCount: number;
+  tools: ParityFpTool[];
+  skillCount: number;
+  skills: ParityFpSkill[];
 }
 
 const FP_MARKER = "PARITY_FP_v1";
 
-export type ParseParityFp =
-	| { ok: true; fp: ParityFingerprint }
-	| { ok: false; error: string };
+export type ParseParityFp = { ok: true; fp: ParityFingerprint } | { ok: false; error: string };
 
 /** Extract the fingerprint JSON from launcher stderr (tolerates surrounding noise). */
 export function parseParityFpLine(stderr: string): ParseParityFp {
-	const i = stderr.indexOf("[PARITY-FP-START]");
-	if (i < 0) return { ok: false, error: "PARITY-FP-START marker absent from probe stderr" };
-	const j = stderr.indexOf("[PARITY-FP-END]", i);
-	if (j < 0) return { ok: false, error: "PARITY-FP-END marker absent (truncated probe output?)" };
-	let raw: unknown;
-	try {
-		raw = JSON.parse(stderr.slice(i + "[PARITY-FP-START]".length, j));
-	} catch (e) {
-		return { ok: false, error: `fingerprint JSON unparseable: ${(e as Error).message}` };
-	}
-	// `marker` is a wire detail — validated here, never exported on ParityFingerprint.
-	const o = raw as Partial<ParityFingerprint> & { marker?: unknown };
-	if (o.marker !== FP_MARKER) return { ok: false, error: `marker version mismatch: ${String(o.marker)}` };
-	if (!Array.isArray(o.tools) || !Array.isArray(o.skills)) {
-		return { ok: false, error: "fingerprint missing tools/skills arrays" };
-	}
-	return {
-		ok: true,
-		fp: {
-			mode: String(o.mode ?? "unknown"),
-			sessionStartFired: o.sessionStartFired === true,
-			toolCount: Number(o.toolCount ?? o.tools.length),
-			tools: o.tools as ParityFpTool[],
-			skillCount: Number(o.skillCount ?? o.skills.length),
-			skills: o.skills as ParityFpSkill[],
-		},
-	};
+  const i = stderr.indexOf("[PARITY-FP-START]");
+  if (i < 0) return { ok: false, error: "PARITY-FP-START marker absent from probe stderr" };
+  const j = stderr.indexOf("[PARITY-FP-END]", i);
+  if (j < 0) return { ok: false, error: "PARITY-FP-END marker absent (truncated probe output?)" };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(stderr.slice(i + "[PARITY-FP-START]".length, j));
+  } catch (e) {
+    return { ok: false, error: `fingerprint JSON unparseable: ${(e as Error).message}` };
+  }
+  // `marker` is a wire detail — validated here, never exported on ParityFingerprint.
+  const o = raw as Partial<ParityFingerprint> & { marker?: unknown };
+  if (o.marker !== FP_MARKER) return { ok: false, error: `marker version mismatch: ${String(o.marker)}` };
+  if (!Array.isArray(o.tools) || !Array.isArray(o.skills)) {
+    return { ok: false, error: "fingerprint missing tools/skills arrays" };
+  }
+  return {
+    ok: true,
+    fp: {
+      mode: String(o.mode ?? "unknown"),
+      sessionStartFired: o.sessionStartFired === true,
+      toolCount: Number(o.toolCount ?? o.tools.length),
+      tools: o.tools as ParityFpTool[],
+      skillCount: Number(o.skillCount ?? o.skills.length),
+      skills: o.skills as ParityFpSkill[],
+    },
+  };
 }

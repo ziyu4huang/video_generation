@@ -19,38 +19,47 @@
  * `BranchClient` fakes + a recording SpawnFn + a stubbed `runCi` seam. No real
  * git / gh / network.
  */
+
+import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { test, expect, describe } from "bun:test";
-import { runPrFinishCli, parsePrFinishArgs, settlePrStatus, isMissingWorkflowScope, MERGE_STATE_POLLS, PR_FINISH_CLI_USAGE, PR_FINISH_ABORT_REASONS, versionNudge } from "../src/merge-pr-after-ci-cli.js";
-import type { runVerifyMerge } from "../src/verify-merge-recipe.js";
-import type { GhClient } from "../src/recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
-import type { runLocalCi } from "../src/ci-recipe.js";
+import type { CiOutcome, runLocalCi } from "../src/ci-recipe.js";
+import {
+  isMissingWorkflowScope,
+  MERGE_STATE_POLLS,
+  PR_FINISH_ABORT_REASONS,
+  PR_FINISH_CLI_USAGE,
+  parsePrFinishArgs,
+  runPrFinishCli,
+  settlePrStatus,
+  versionNudge,
+} from "../src/merge-pr-after-ci-cli.js";
+import type { GhClient } from "../src/recipe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
-import type { CiOutcome } from "../src/ci-recipe.js";
+import type { runVerifyMerge } from "../src/verify-merge-recipe.js";
 
 const REPO = "/repo";
 
 /** Quiet-success recording SpawnFn (feeds verify_merge_landed's read-only git). */
 function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[] }[] } {
-	const calls: { cmd: string; args: string[] }[] = [];
-	const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
-		calls.push({ cmd, args });
-		return { stdout: "", stderr: "", exitCode: 0 };
-	};
-	return { fn, calls };
+  const calls: { cmd: string; args: string[] }[] = [];
+  const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
+    calls.push({ cmd, args });
+    return { stdout: "", stderr: "", exitCode: 0 };
+  };
+  return { fn, calls };
 }
 
 /** Recording SpawnFn with canned results (sync-recipe test style) — needed
  *  for the preserve park/restore probes, which read real stash-list output. */
 function cannedSpawn(canned: Array<{ match: (args: string[]) => boolean; result: SpawnResult }>) {
-	const calls: { cmd: string; args: string[] }[] = [];
-	const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
-		calls.push({ cmd, args });
-		return canned.find((c) => c.match(args))?.result ?? { stdout: "", stderr: "", exitCode: 0 };
-	};
-	return { fn, calls };
+  const calls: { cmd: string; args: string[] }[] = [];
+  const fn: SpawnFn = async (cmd, args): Promise<SpawnResult> => {
+    calls.push({ cmd, args });
+    return canned.find((c) => c.match(args))?.result ?? { stdout: "", stderr: "", exitCode: 0 };
+  };
+  return { fn, calls };
 }
 
 /** Drop the leading `-C <dir>` so matchers read the real git subcommand. */
@@ -66,19 +75,19 @@ type PrStatus = Awaited<ReturnType<GhClient["prStatus"]>>;
  *  three times: preflight (for the ref names), the post-CI refresh the merge
  *  gates read, and verify_merge_landed's own post-merge read. */
 function fakeGh(statuses: PrStatus[], mergeCalls: number[] = []) {
-	return {
-		gh: {
-			prStatus: async () => {
-				const s = statuses.shift();
-				if (!s) throw new Error("fake gh: no more prStatus snapshots");
-				return s;
-			},
-			mergeNow: async (n: number) => {
-				mergeCalls.push(n);
-			},
-		} as unknown as GhClient,
-		mergeCalls,
-	};
+  return {
+    gh: {
+      prStatus: async () => {
+        const s = statuses.shift();
+        if (!s) throw new Error("fake gh: no more prStatus snapshots");
+        return s;
+      },
+      mergeNow: async (n: number) => {
+        mergeCalls.push(n);
+      },
+    } as unknown as GhClient,
+    mergeCalls,
+  };
 }
 
 /** BranchClient fake: clean tree, records every mutating call.
@@ -86,334 +95,344 @@ function fakeGh(statuses: PrStatus[], mergeCalls: number[] = []) {
  *  branch, which is the normal post-merge state and the one that used to make
  *  `git branch -D` fail. `worktreeList` lets a test place the branch in a
  *  DIFFERENT worktree instead. */
-function fakeClient(opts: {
-	clean?: boolean;
-	/** Explicit dirty tracked paths (wins over `clean`); drives the preserve split. */
-	dirty?: string[];
-	current?: string;
-	worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
-	failDeleteLocal?: boolean;
-} = {}) {
-	const calls: string[] = [];
-	let current = opts.current ?? "feature";
-	const client = {
-		currentBranch: async () => current,
-		defaultBranch: async () => "main",
-		isClean: async () => (opts.dirty ? false : (opts.clean ?? true)),
-		dirtyPaths: async () => opts.dirty ?? (opts.clean ?? true ? [] : ["src/x.ts"]),
-		detachHead: async (ref: string) => {
-			calls.push(`detach:${ref}`);
-			current = "";
-		},
-		deleteLocalBranch: async (name: string) => {
-			if (opts.failDeleteLocal || current === name) {
-				throw new Error(`cannot delete branch '${name}' used by worktree`);
-			}
-			calls.push(`deleteLocal:${name}`);
-		},
-		deleteRemoteBranch: async (name: string) => {
-			calls.push(`deleteRemote:${name}`);
-		},
-		fetchPrune: async () => {
-			calls.push("fetchPrune");
-		},
-		revParse: async (rev: string) => (rev === "feature" ? "c".repeat(40) : undefined),
-		containedBranches: async () => new Set(["feature"]),
-		worktreeList: async () => opts.worktrees ?? [],
-	};
-	return { client: client as unknown as BranchClient, calls };
+function fakeClient(
+  opts: {
+    clean?: boolean;
+    /** Explicit dirty tracked paths (wins over `clean`); drives the preserve split. */
+    dirty?: string[];
+    current?: string;
+    worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
+    failDeleteLocal?: boolean;
+  } = {},
+) {
+  const calls: string[] = [];
+  let current = opts.current ?? "feature";
+  const client = {
+    currentBranch: async () => current,
+    defaultBranch: async () => "main",
+    isClean: async () => (opts.dirty ? false : (opts.clean ?? true)),
+    dirtyPaths: async () => opts.dirty ?? ((opts.clean ?? true) ? [] : ["src/x.ts"]),
+    detachHead: async (ref: string) => {
+      calls.push(`detach:${ref}`);
+      current = "";
+    },
+    deleteLocalBranch: async (name: string) => {
+      if (opts.failDeleteLocal || current === name) {
+        throw new Error(`cannot delete branch '${name}' used by worktree`);
+      }
+      calls.push(`deleteLocal:${name}`);
+    },
+    deleteRemoteBranch: async (name: string) => {
+      calls.push(`deleteRemote:${name}`);
+    },
+    fetchPrune: async () => {
+      calls.push("fetchPrune");
+    },
+    revParse: async (rev: string) => (rev === "feature" ? "c".repeat(40) : undefined),
+    containedBranches: async () => new Set(["feature"]),
+    worktreeList: async () => opts.worktrees ?? [],
+  };
+  return { client: client as unknown as BranchClient, calls };
 }
 
 const OPEN_CLEAN: PrStatus = {
-	state: "OPEN",
-	mergeState: "CLEAN",
-	baseRefName: "main",
-	headRefName: "feature",
-	checks: { pass: 0, fail: 0, pending: 0 },
+  state: "OPEN",
+  mergeState: "CLEAN",
+  baseRefName: "main",
+  headRefName: "feature",
+  checks: { pass: 0, fail: 0, pending: 0 },
 };
 
 const MERGED: PrStatus = {
-	state: "MERGED",
-	mergeState: "CLEAN",
-	baseRefName: "main",
-	headRefName: "feature",
-	checks: { pass: 0, fail: 0, pending: 0 },
-	mergeSha: "a".repeat(40),
+  state: "MERGED",
+  mergeState: "CLEAN",
+  baseRefName: "main",
+  headRefName: "feature",
+  checks: { pass: 0, fail: 0, pending: 0 },
+  mergeSha: "a".repeat(40),
 };
 
 function ciPass(): CiOutcome {
-	return {
-		overall: "pass",
-		baseRef: "main",
-		headRef: "feature",
-		packages: [],
-		gates: [],
-		elapsedMs: 1,
-		budgetMs: 300_000,
-		overBudget: false,
-		slowest: [],
-	};
+  return {
+    overall: "pass",
+    baseRef: "main",
+    headRef: "feature",
+    packages: [],
+    gates: [],
+    elapsedMs: 1,
+    budgetMs: 300_000,
+    overBudget: false,
+    slowest: [],
+  };
 }
 
 function ciFail(): CiOutcome {
-	return {
-		...ciPass(),
-		overall: "fail",
-		gates: [
-			{
-				name: "oneshot-smoke",
-				exitCode: 1,
-				note: "fail (fast probe: nonzero-exit)",
-				detail:
-					"344 | if (!BUILTIN_THEMES) {\nENOENT: no such file or directory, open '.../theme/dark.json'\n    at getBuiltinThemes",
-			},
-		],
-		packages: [
-			{
-				name: "s2-agent",
-				test: {
-					exitCode: 1,
-					source: "matrix",
-					command: "bun test && bun run typecheck",
-					detail: "(fail) resolveLLMFromArgs > settings.json defaults\nExpected: \"openai\" Received: \"zai\"",
-				},
-			},
-		],
-	};
+  return {
+    ...ciPass(),
+    overall: "fail",
+    gates: [
+      {
+        name: "oneshot-smoke",
+        exitCode: 1,
+        note: "fail (fast probe: nonzero-exit)",
+        detail:
+          "344 | if (!BUILTIN_THEMES) {\nENOENT: no such file or directory, open '.../theme/dark.json'\n    at getBuiltinThemes",
+      },
+    ],
+    packages: [
+      {
+        name: "s2-agent",
+        test: {
+          exitCode: 1,
+          source: "matrix",
+          command: "bun test && bun run typecheck",
+          detail: '(fail) resolveLLMFromArgs > settings.json defaults\nExpected: "openai" Received: "zai"',
+        },
+      },
+    ],
+  };
 }
 
 /** Standard green deps: OPEN+CLEAN pre-merge, MERGED post-merge, CI pass.
  *  `client` forwards to fakeClient so a test can vary the worktree situation. */
 function greenDeps(client: Parameters<typeof fakeClient>[0] = {}) {
-	const ghParts = fakeGh([OPEN_CLEAN, OPEN_CLEAN, MERGED]);
-	const clientParts = fakeClient(client);
-	const ciOpts: Array<Parameters<typeof runLocalCi>[0]> = [];
-	return {
-		deps: {
-			gh: ghParts.gh,
-			client: clientParts.client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async (opts: Parameters<typeof runLocalCi>[0]) => {
-				ciOpts.push(opts);
-				return ciPass();
-			},
-		},
-		mergeCalls: ghParts.mergeCalls,
-		clientCalls: clientParts.calls,
-		ciOpts,
-	};
+  const ghParts = fakeGh([OPEN_CLEAN, OPEN_CLEAN, MERGED]);
+  const clientParts = fakeClient(client);
+  const ciOpts: Array<Parameters<typeof runLocalCi>[0]> = [];
+  return {
+    deps: {
+      gh: ghParts.gh,
+      client: clientParts.client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async (opts: Parameters<typeof runLocalCi>[0]) => {
+        ciOpts.push(opts);
+        return ciPass();
+      },
+    },
+    mergeCalls: ghParts.mergeCalls,
+    clientCalls: clientParts.calls,
+    ciOpts,
+  };
 }
 
 describe("parsePrFinishArgs — argv contract", () => {
-	test("positional and --pr forms both parse; flags round-trip", () => {
-		for (const argv of [["42"], ["--pr", "42"]]) {
-			const r = parsePrFinishArgs(argv);
-			expect(r.ok).toBe(true);
-			if (r.ok) expect(r.args.pr).toBe(42);
-		}
-		const r = parsePrFinishArgs(["42", "--dry-run", "--keep-branch", "--expected-scope", "src/", "--expected-scope", "docs/"]);
-		expect(r.ok).toBe(true);
-		if (r.ok) {
-			expect(r.args.dryRun).toBe(true);
-			expect(r.args.keepBranch).toBe(true);
-			expect(r.args.expectedScope).toEqual(["src/", "docs/"]);
-		}
-	});
+  test("positional and --pr forms both parse; flags round-trip", () => {
+    for (const argv of [["42"], ["--pr", "42"]]) {
+      const r = parsePrFinishArgs(argv);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.args.pr).toBe(42);
+    }
+    const r = parsePrFinishArgs([
+      "42",
+      "--dry-run",
+      "--keep-branch",
+      "--expected-scope",
+      "src/",
+      "--expected-scope",
+      "docs/",
+    ]);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.args.dryRun).toBe(true);
+      expect(r.args.keepBranch).toBe(true);
+      expect(r.args.expectedScope).toEqual(["src/", "docs/"]);
+    }
+  });
 
-	test("missing / invalid pr is a usage error", () => {
-		expect(parsePrFinishArgs([]).ok).toBe(false);
-		expect(parsePrFinishArgs(["--dry-run"]).ok).toBe(false);
-		expect(parsePrFinishArgs(["abc"]).ok).toBe(false);
-		expect(parsePrFinishArgs(["--pr"]).ok).toBe(false);
-		expect(parsePrFinishArgs(["--nope"]).ok).toBe(false);
-		expect(parsePrFinishArgs(["--expected-scope"]).ok).toBe(false);
-	});
+  test("missing / invalid pr is a usage error", () => {
+    expect(parsePrFinishArgs([]).ok).toBe(false);
+    expect(parsePrFinishArgs(["--dry-run"]).ok).toBe(false);
+    expect(parsePrFinishArgs(["abc"]).ok).toBe(false);
+    expect(parsePrFinishArgs(["--pr"]).ok).toBe(false);
+    expect(parsePrFinishArgs(["--nope"]).ok).toBe(false);
+    expect(parsePrFinishArgs(["--expected-scope"]).ok).toBe(false);
+  });
 });
 
 describe("merge-pr-after-ci-cli — wrapper contract", () => {
-	test("happy path: OPEN+CLEAN+ci pass → merged, branches deleted, exit 0", async () => {
-		const g = greenDeps();
-		const res = await runPrFinishCli(["42"], g.deps);
-		expect(res.exitCode).toBe(0);
-		expect(res.stderr).toBe("");
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.pr).toBe(42);
-		expect(outcome.merged).toBe(true);
-		expect(outcome.verdict).toBe("CLEAN");
-		expect(outcome.branchSpent).toBe(true); // fake containedBranches lists "feature"
-		expect(outcome.aborted).toBeUndefined();
-		expect(g.mergeCalls).toEqual([42]);
-		// The detach step is new. The worktree that runs pr_finish is still on the
-		// head branch, and git refuses `branch -D` on a checked-out branch — so
-		// deleteLocal used to fail on essentially every real run and the caller had
-		// to detach and sweep by hand. The fake now models that refusal, which is
-		// why this sequence changed rather than merely gaining a step. The target is
-		// the MERGE SHA, not `origin/main`: the remote-tracking ref is still at the
-		// pre-merge tip until the `fetchPrune` two lines below.
-		expect(g.clientCalls).toEqual([
-			`detach:${MERGED.mergeSha}`,
-			"deleteLocal:feature",
-			"deleteRemote:feature",
-			"fetchPrune",
-		]);
-		// The run_local_ci diff must be based at the PR base's REMOTE-TRACKING ref,
-		// not the local base branch: in this repo's multi-worktree layout `main`
-		// is checked out in another worktree and can never be fast-forwarded
-		// here, so a stale local `main` over-scopes the diff (observed 318 s vs
-		// 69 s for the same branch).
-		expect(g.ciOpts[0]?.baseRef).toBe("origin/main");
-		expect(g.ciOpts[0]?.headRef).toBe("feature");
-	});
+  test("happy path: OPEN+CLEAN+ci pass → merged, branches deleted, exit 0", async () => {
+    const g = greenDeps();
+    const res = await runPrFinishCli(["42"], g.deps);
+    expect(res.exitCode).toBe(0);
+    expect(res.stderr).toBe("");
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.pr).toBe(42);
+    expect(outcome.merged).toBe(true);
+    expect(outcome.verdict).toBe("CLEAN");
+    expect(outcome.branchSpent).toBe(true); // fake containedBranches lists "feature"
+    expect(outcome.aborted).toBeUndefined();
+    expect(g.mergeCalls).toEqual([42]);
+    // The detach step is new. The worktree that runs pr_finish is still on the
+    // head branch, and git refuses `branch -D` on a checked-out branch — so
+    // deleteLocal used to fail on essentially every real run and the caller had
+    // to detach and sweep by hand. The fake now models that refusal, which is
+    // why this sequence changed rather than merely gaining a step. The target is
+    // the MERGE SHA, not `origin/main`: the remote-tracking ref is still at the
+    // pre-merge tip until the `fetchPrune` two lines below.
+    expect(g.clientCalls).toEqual([
+      `detach:${MERGED.mergeSha}`,
+      "deleteLocal:feature",
+      "deleteRemote:feature",
+      "fetchPrune",
+    ]);
+    // The run_local_ci diff must be based at the PR base's REMOTE-TRACKING ref,
+    // not the local base branch: in this repo's multi-worktree layout `main`
+    // is checked out in another worktree and can never be fast-forwarded
+    // here, so a stale local `main` over-scopes the diff (observed 318 s vs
+    // 69 s for the same branch).
+    expect(g.ciOpts[0]?.baseRef).toBe("origin/main");
+    expect(g.ciOpts[0]?.headRef).toBe("feature");
+  });
 
-	test("ci fail → abort local_ci_failed, exit 1, mergeNow never called", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN]);
-		const clientParts = fakeClient();
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: clientParts.client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciFail(),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted?.aborted).toBe(true);
-		expect(outcome.aborted.reason).toBe("local_ci_failed");
-		// Diagnosability contract: the abort must carry WHICH steps failed —
-		// naming only refs+elapsed forced callers to re-run the full local CI
-		// (and hand-parse its JSON) just to find the failing step (observed:
-		// a 2-minute re-run + three ad-hoc parsers to reach "oneshot-smoke").
-		expect(outcome.aborted.message).toContain("oneshot-smoke");
-		expect(outcome.aborted.message).toContain("s2-agent/test");
-		expect(outcome.aborted.message).toContain("ENOENT");
-		expect(ghParts.mergeCalls).toEqual([]);
-		expect(clientParts.calls).toEqual([]);
-	});
+  test("ci fail → abort local_ci_failed, exit 1, mergeNow never called", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN]);
+    const clientParts = fakeClient();
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: clientParts.client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciFail(),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted?.aborted).toBe(true);
+    expect(outcome.aborted.reason).toBe("local_ci_failed");
+    // Diagnosability contract: the abort must carry WHICH steps failed —
+    // naming only refs+elapsed forced callers to re-run the full local CI
+    // (and hand-parse its JSON) just to find the failing step (observed:
+    // a 2-minute re-run + three ad-hoc parsers to reach "oneshot-smoke").
+    expect(outcome.aborted.message).toContain("oneshot-smoke");
+    expect(outcome.aborted.message).toContain("s2-agent/test");
+    expect(outcome.aborted.message).toContain("ENOENT");
+    expect(ghParts.mergeCalls).toEqual([]);
+    expect(clientParts.calls).toEqual([]);
+  });
 
-	test("BEHIND → abort behind, exit 1 (points at prepare_feature_branch)", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BEHIND" }]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("behind");
-		expect(outcome.aborted.message.includes("prepare_feature_branch")).toBe(true);
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("BEHIND → abort behind, exit 1 (points at prepare_feature_branch)", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BEHIND" }]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("behind");
+    expect(outcome.aborted.message.includes("prepare_feature_branch")).toBe(true);
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("BLOCKED (non-CLEAN) → abort not-clean", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BLOCKED" }]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("not-clean");
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("BLOCKED (non-CLEAN) → abort not-clean", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BLOCKED" }]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("not-clean");
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("dirty tree → abort dirty_tree, exit 1 (before any gh call)", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient({ clean: false }).client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("dirty_tree");
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("dirty tree → abort dirty_tree, exit 1 (before any gh call)", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient({ clean: false }).client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("dirty_tree");
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("--keep-branch → merge + verify, but no delete/prune calls", async () => {
-		const g = greenDeps();
-		const res = await runPrFinishCli(["42", "--keep-branch"], g.deps);
-		expect(res.exitCode).toBe(0);
-		expect(JSON.parse(res.stdout).merged).toBe(true);
-		expect(g.mergeCalls).toEqual([42]);
-		expect(g.clientCalls).toEqual([]);
-	});
+  test("--keep-branch → merge + verify, but no delete/prune calls", async () => {
+    const g = greenDeps();
+    const res = await runPrFinishCli(["42", "--keep-branch"], g.deps);
+    expect(res.exitCode).toBe(0);
+    expect(JSON.parse(res.stdout).merged).toBe(true);
+    expect(g.mergeCalls).toEqual([42]);
+    expect(g.clientCalls).toEqual([]);
+  });
 
-	test("--dry-run → read-only gates pass, planned commands emitted, zero mutations, exit 0", async () => {
-		const g = greenDeps();
-		const spawnParts = fakeSpawn();
-		const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, spawn: spawnParts.fn });
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.dryRun).toBe(true);
-		expect(outcome.merged).toBe(false);
-		expect(outcome.aborted).toBeUndefined();
-		// planned commands present…
-		expect(outcome.commands.some((c: string) => c === "gh pr merge 42 --squash")).toBe(true);
-		expect(outcome.commands.some((c: string) => c === "git branch -D feature")).toBe(true);
-		expect(outcome.commands.some((c: string) => c === "git push --no-verify origin --delete feature")).toBe(true);
-		expect(outcome.commands.some((c: string) => c === "git fetch --prune")).toBe(true);
-		// …but nothing mutated: no merge, no deletes, no prune, no mutating spawn.
-		expect(g.mergeCalls).toEqual([]);
-		expect(g.clientCalls).toEqual([]);
-		const mutating = spawnParts.calls.filter((c) => /^(push|branch\s+-D)/.test(c.args.join(" ")));
-		expect(mutating).toEqual([]);
-	});
+  test("--dry-run → read-only gates pass, planned commands emitted, zero mutations, exit 0", async () => {
+    const g = greenDeps();
+    const spawnParts = fakeSpawn();
+    const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, spawn: spawnParts.fn });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.dryRun).toBe(true);
+    expect(outcome.merged).toBe(false);
+    expect(outcome.aborted).toBeUndefined();
+    // planned commands present…
+    expect(outcome.commands.some((c: string) => c === "gh pr merge 42 --squash")).toBe(true);
+    expect(outcome.commands.some((c: string) => c === "git branch -D feature")).toBe(true);
+    expect(outcome.commands.some((c: string) => c === "git push --no-verify origin --delete feature")).toBe(true);
+    expect(outcome.commands.some((c: string) => c === "git fetch --prune")).toBe(true);
+    // …but nothing mutated: no merge, no deletes, no prune, no mutating spawn.
+    expect(g.mergeCalls).toEqual([]);
+    expect(g.clientCalls).toEqual([]);
+    const mutating = spawnParts.calls.filter((c) => /^(push|branch\s+-D)/.test(c.args.join(" ")));
+    expect(mutating).toEqual([]);
+  });
 
-	test("--dry-run abort paths still exit 1 (dirty tree)", async () => {
-		const res = await runPrFinishCli(["42", "--dry-run"], {
-			gh: fakeGh([OPEN_CLEAN]).gh,
-			client: fakeClient({ clean: false }).client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-		});
-		expect(res.exitCode).toBe(1);
-		expect(JSON.parse(res.stdout).aborted.reason).toBe("dirty_tree");
-	});
+  test("--dry-run abort paths still exit 1 (dirty tree)", async () => {
+    const res = await runPrFinishCli(["42", "--dry-run"], {
+      gh: fakeGh([OPEN_CLEAN]).gh,
+      client: fakeClient({ clean: false }).client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+    });
+    expect(res.exitCode).toBe(1);
+    expect(JSON.parse(res.stdout).aborted.reason).toBe("dirty_tree");
+  });
 
-	test("recordingSpawn forwards spawn options (cwd) — a dropped opts made every run_local_ci gate run at the repo root", async () => {
-		// Regression (2026-08-15): recordingSpawn dropped the third SpawnFn
-		// argument, so every spawn run_local_ci makes on pr-finish's behalf lost its
-		// cwd and ran at the baked-in default — package tests and gate commands
-		// (`bun run test:seam` at bun-apps/) executed at the repo root and failed,
-		// while the same run_local_ci passed standalone. Drive the passthrough via the
-		// default-runCi path's spawn seam and assert the fake receives options.
-		const seen: Array<{ args: string[]; cwd?: string }> = [];
-		const g = greenDeps();
-		const res = await runPrFinishCli(["42"], {
-			...g.deps,
-			spawn: (async (cmd: string, args: string[], options?: { cwd?: string }) => {
-				if (cmd === "echo") seen.push({ args, cwd: options?.cwd });
-				return { stdout: "", stderr: "", exitCode: 0 };
-			}) as unknown as typeof g.deps.spawn,
-			runCi: async (opts) => {
-				await opts.spawn("echo", ["probe"], { cwd: "/tmp/probe-cwd" });
-				return ciPass();
-			},
-		});
-		expect(res.exitCode).toBe(0);
-		expect(seen.some((s) => s.args[0] === "probe" && s.cwd === "/tmp/probe-cwd")).toBe(true);
-	});
+  test("recordingSpawn forwards spawn options (cwd) — a dropped opts made every run_local_ci gate run at the repo root", async () => {
+    // Regression (2026-08-15): recordingSpawn dropped the third SpawnFn
+    // argument, so every spawn run_local_ci makes on pr-finish's behalf lost its
+    // cwd and ran at the baked-in default — package tests and gate commands
+    // (`bun run test:seam` at bun-apps/) executed at the repo root and failed,
+    // while the same run_local_ci passed standalone. Drive the passthrough via the
+    // default-runCi path's spawn seam and assert the fake receives options.
+    const seen: Array<{ args: string[]; cwd?: string }> = [];
+    const g = greenDeps();
+    const res = await runPrFinishCli(["42"], {
+      ...g.deps,
+      spawn: (async (cmd: string, args: string[], options?: { cwd?: string }) => {
+        if (cmd === "echo") seen.push({ args, cwd: options?.cwd });
+        return { stdout: "", stderr: "", exitCode: 0 };
+      }) as unknown as typeof g.deps.spawn,
+      runCi: async (opts) => {
+        await opts.spawn("echo", ["probe"], { cwd: "/tmp/probe-cwd" });
+        return ciPass();
+      },
+    });
+    expect(res.exitCode).toBe(0);
+    expect(seen.some((s) => s.args[0] === "probe" && s.cwd === "/tmp/probe-cwd")).toBe(true);
+  });
 
-	test("usage: missing pr → exit 2 with usage on stderr; --help exits 0", async () => {
-		const g = greenDeps();
-		const bad = await runPrFinishCli(["--dry-run"], g.deps);
-		expect(bad.exitCode).toBe(2);
-		expect(bad.stdout).toBe("");
-		expect(bad.stderr.includes(PR_FINISH_CLI_USAGE)).toBe(true);
-		const help = await runPrFinishCli(["--help"], g.deps);
-		expect(help.exitCode).toBe(0);
-		expect(help.stdout).toBe("");
-		expect(help.stderr).toBe(PR_FINISH_CLI_USAGE);
-	});
+  test("usage: missing pr → exit 2 with usage on stderr; --help exits 0", async () => {
+    const g = greenDeps();
+    const bad = await runPrFinishCli(["--dry-run"], g.deps);
+    expect(bad.exitCode).toBe(2);
+    expect(bad.stdout).toBe("");
+    expect(bad.stderr.includes(PR_FINISH_CLI_USAGE)).toBe(true);
+    const help = await runPrFinishCli(["--help"], g.deps);
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toBe("");
+    expect(help.stderr).toBe(PR_FINISH_CLI_USAGE);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -424,103 +443,103 @@ describe("merge-pr-after-ci-cli — wrapper contract", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("merge-pr-after-ci-cli — spent-branch deletion", () => {
-	test("detaches onto the MERGE COMMIT, not the stale origin/<base> ref", async () => {
-		// `fetchPrune()` runs after this block, so `origin/main` still points at the
-		// PRE-merge tip — detaching onto it left the worktree one commit behind the
-		// merge it had just made. verify already fetched + read the merge sha, so
-		// that is the ref to land on.
-		const g = greenDeps({ current: "feature" });
-		const withNumstat: SpawnFn = async (_cmd, args) =>
-			args.includes("show")
-				? { stdout: "1\t0\tbun-apps/x.ts\n", stderr: "", exitCode: 0 }
-				: { stdout: "", stderr: "", exitCode: 0 };
-		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: withNumstat });
-		expect(res.exitCode).toBe(0);
-		expect(JSON.parse(res.stdout).verdict).toBe("CLEAN");
-		expect(g.clientCalls).toContain(`detach:${MERGED.mergeSha}`);
-		expect(g.clientCalls).not.toContain("detach:origin/main");
-	});
+  test("detaches onto the MERGE COMMIT, not the stale origin/<base> ref", async () => {
+    // `fetchPrune()` runs after this block, so `origin/main` still points at the
+    // PRE-merge tip — detaching onto it left the worktree one commit behind the
+    // merge it had just made. verify already fetched + read the merge sha, so
+    // that is the ref to land on.
+    const g = greenDeps({ current: "feature" });
+    const withNumstat: SpawnFn = async (_cmd, args) =>
+      args.includes("show")
+        ? { stdout: "1\t0\tbun-apps/x.ts\n", stderr: "", exitCode: 0 }
+        : { stdout: "", stderr: "", exitCode: 0 };
+    const res = await runPrFinishCli(["42"], { ...g.deps, spawn: withNumstat });
+    expect(res.exitCode).toBe(0);
+    expect(JSON.parse(res.stdout).verdict).toBe("CLEAN");
+    expect(g.clientCalls).toContain(`detach:${MERGED.mergeSha}`);
+    expect(g.clientCalls).not.toContain("detach:origin/main");
+  });
 
-	test("falls back to origin/<base> when the merge could not be inspected", async () => {
-		// No usable merge sha locally → the sha may not resolve, so the base ref is
-		// the only safe target. Still detaches, so the delete still succeeds.
-		const g = greenDeps({ current: "feature" });
-		const badShow: SpawnFn = async (_cmd, args) =>
-			args.includes("show") || args.includes("fetch")
-				? { stdout: "", stderr: "fatal: bad object", exitCode: 128 }
-				: { stdout: "", stderr: "", exitCode: 0 };
-		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: badShow });
-		expect(JSON.parse(res.stdout).verdict).toBe("UNVERIFIED");
-		expect(g.clientCalls).toContain("detach:origin/main");
-		expect(g.clientCalls).toContain("deleteLocal:feature");
-	});
+  test("falls back to origin/<base> when the merge could not be inspected", async () => {
+    // No usable merge sha locally → the sha may not resolve, so the base ref is
+    // the only safe target. Still detaches, so the delete still succeeds.
+    const g = greenDeps({ current: "feature" });
+    const badShow: SpawnFn = async (_cmd, args) =>
+      args.includes("show") || args.includes("fetch")
+        ? { stdout: "", stderr: "fatal: bad object", exitCode: 128 }
+        : { stdout: "", stderr: "", exitCode: 0 };
+    const res = await runPrFinishCli(["42"], { ...g.deps, spawn: badShow });
+    expect(JSON.parse(res.stdout).verdict).toBe("UNVERIFIED");
+    expect(g.clientCalls).toContain("detach:origin/main");
+    expect(g.clientCalls).toContain("deleteLocal:feature");
+  });
 
-	test("detaches THIS worktree off the head branch before deleting it", async () => {
-		const g = greenDeps({ current: "feature" });
-		const res = await runPrFinishCli(["42"], g.deps);
-		expect(res.exitCode).toBe(0);
-		// Target-agnostic on purpose — WHICH ref we land on is pinned by the two
-		// tests above; what matters here is that a detach happens at all, because
-		// without it the delete cannot succeed.
-		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(true);
-		expect(g.clientCalls).toContain("deleteLocal:feature");
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.warnings.some((w: string) => /deleteLocalBranch.*failed/.test(w))).toBe(false);
-	});
+  test("detaches THIS worktree off the head branch before deleting it", async () => {
+    const g = greenDeps({ current: "feature" });
+    const res = await runPrFinishCli(["42"], g.deps);
+    expect(res.exitCode).toBe(0);
+    // Target-agnostic on purpose — WHICH ref we land on is pinned by the two
+    // tests above; what matters here is that a detach happens at all, because
+    // without it the delete cannot succeed.
+    expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(true);
+    expect(g.clientCalls).toContain("deleteLocal:feature");
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.warnings.some((w: string) => /deleteLocalBranch.*failed/.test(w))).toBe(false);
+  });
 
-	test("does NOT detach when the worktree is already elsewhere", async () => {
-		const g = greenDeps({ current: "some-other-branch" });
-		await runPrFinishCli(["42"], g.deps);
-		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
-		expect(g.clientCalls).toContain("deleteLocal:feature");
-	});
+  test("does NOT detach when the worktree is already elsewhere", async () => {
+    const g = greenDeps({ current: "some-other-branch" });
+    await runPrFinishCli(["42"], g.deps);
+    expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
+    expect(g.clientCalls).toContain("deleteLocal:feature");
+  });
 
-	test("leaves a branch held by ANOTHER worktree alone, and says so", async () => {
-		const g = greenDeps({
-			current: "some-other-branch",
-			worktrees: [
-				{ worktree: "/repo", branch: "some-other-branch" },
-				{ worktree: "/elsewhere", branch: "feature" },
-			],
-		});
-		const res = await runPrFinishCli(["42"], g.deps);
-		expect(res.exitCode).toBe(0);
-		// Never touched locally...
-		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
-		expect(g.clientCalls).not.toContain("deleteLocal:feature");
-		// ...but the REMOTE branch is still spent and still deleted.
-		expect(g.clientCalls).toContain("deleteRemote:feature");
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.warnings.some((w: string) => /checked out in another worktree \(\/elsewhere\)/.test(w))).toBe(true);
-	});
+  test("leaves a branch held by ANOTHER worktree alone, and says so", async () => {
+    const g = greenDeps({
+      current: "some-other-branch",
+      worktrees: [
+        { worktree: "/repo", branch: "some-other-branch" },
+        { worktree: "/elsewhere", branch: "feature" },
+      ],
+    });
+    const res = await runPrFinishCli(["42"], g.deps);
+    expect(res.exitCode).toBe(0);
+    // Never touched locally...
+    expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
+    expect(g.clientCalls).not.toContain("deleteLocal:feature");
+    // ...but the REMOTE branch is still spent and still deleted.
+    expect(g.clientCalls).toContain("deleteRemote:feature");
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.warnings.some((w: string) => /checked out in another worktree \(\/elsewhere\)/.test(w))).toBe(true);
+  });
 
-	test("a deleteLocal failure is a warning, never a lost remote delete or a non-zero exit", async () => {
-		const g = greenDeps({ current: "some-other-branch", failDeleteLocal: true });
-		const res = await runPrFinishCli(["42"], g.deps);
-		expect(res.exitCode).toBe(0);
-		expect(g.clientCalls).toContain("deleteRemote:feature");
-		expect(g.clientCalls).toContain("fetchPrune");
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.warnings.some((w: string) => /deleteLocalBranch\(feature\) failed/.test(w))).toBe(true);
-	});
+  test("a deleteLocal failure is a warning, never a lost remote delete or a non-zero exit", async () => {
+    const g = greenDeps({ current: "some-other-branch", failDeleteLocal: true });
+    const res = await runPrFinishCli(["42"], g.deps);
+    expect(res.exitCode).toBe(0);
+    expect(g.clientCalls).toContain("deleteRemote:feature");
+    expect(g.clientCalls).toContain("fetchPrune");
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.warnings.some((w: string) => /deleteLocalBranch\(feature\) failed/.test(w))).toBe(true);
+  });
 
-	test("a detached-HEAD caller needs no detach — the local delete proceeds straight through", async () => {
-		// The folded-in gap from the 20260830-072021 handoff: a worktree already
-		// detached at HEAD (the exact state every PRIOR merge's cleanup leaves
-		// behind) reaches cleanup with currentBranch() === "HEAD", which is not
-		// the head ref — no detach may fire, and the delete must proceed through
-		// the shared core's existence check without a spurious not-found warning
-		// (the deliberate behavior change this migration carries: existence is
-		// CHECKED before the delete instead of attempted unconditionally).
-		const g = greenDeps({ current: "HEAD", worktrees: [{ worktree: "/repo", detached: true }] });
-		const res = await runPrFinishCli(["42"], g.deps);
-		expect(res.exitCode).toBe(0);
-		expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
-		expect(g.clientCalls).toContain("deleteLocal:feature");
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.warnings.some((w: string) => /no local 'feature' branch/.test(w))).toBe(false);
-		expect(outcome.warnings.some((w: string) => /deleteLocalBranch\(feature\) failed/.test(w))).toBe(false);
-	});
+  test("a detached-HEAD caller needs no detach — the local delete proceeds straight through", async () => {
+    // The folded-in gap from the 20260830-072021 handoff: a worktree already
+    // detached at HEAD (the exact state every PRIOR merge's cleanup leaves
+    // behind) reaches cleanup with currentBranch() === "HEAD", which is not
+    // the head ref — no detach may fire, and the delete must proceed through
+    // the shared core's existence check without a spurious not-found warning
+    // (the deliberate behavior change this migration carries: existence is
+    // CHECKED before the delete instead of attempted unconditionally).
+    const g = greenDeps({ current: "HEAD", worktrees: [{ worktree: "/repo", detached: true }] });
+    const res = await runPrFinishCli(["42"], g.deps);
+    expect(res.exitCode).toBe(0);
+    expect(g.clientCalls.some((c) => c.startsWith("detach:"))).toBe(false);
+    expect(g.clientCalls).toContain("deleteLocal:feature");
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.warnings.some((w: string) => /no local 'feature' branch/.test(w))).toBe(false);
+    expect(outcome.warnings.some((w: string) => /deleteLocalBranch\(feature\) failed/.test(w))).toBe(false);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -531,55 +550,55 @@ describe("merge-pr-after-ci-cli — spent-branch deletion", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("merge-pr-after-ci-cli — verification failures are not passes", () => {
-	test("an unreadable merge sha does NOT report CLEAN", async () => {
-		// The reachable form of issue #1439 at this layer: the merge lands, but
-		// `git show` cannot read it. pr_finish used to print verdict CLEAN having
-		// inspected zero files.
-		const g = greenDeps();
-		const failingShow: SpawnFn = async (cmd, args) => {
-			if (args.includes("show")) return { stdout: "", stderr: "fatal: bad object", exitCode: 128 };
-			if (args.includes("fetch")) return { stdout: "", stderr: "fatal: could not fetch", exitCode: 128 };
-			return { stdout: "", stderr: "", exitCode: 0 };
-		};
-		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: failingShow });
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(true);
-		expect(outcome.verdict).toBe("UNVERIFIED");
-		expect(outcome.warnings.some((w: string) => /UNVERIFIED merge/.test(w))).toBe(true);
-	});
+  test("an unreadable merge sha does NOT report CLEAN", async () => {
+    // The reachable form of issue #1439 at this layer: the merge lands, but
+    // `git show` cannot read it. pr_finish used to print verdict CLEAN having
+    // inspected zero files.
+    const g = greenDeps();
+    const failingShow: SpawnFn = async (cmd, args) => {
+      if (args.includes("show")) return { stdout: "", stderr: "fatal: bad object", exitCode: 128 };
+      if (args.includes("fetch")) return { stdout: "", stderr: "fatal: could not fetch", exitCode: 128 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const res = await runPrFinishCli(["42"], { ...g.deps, spawn: failingShow });
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(true);
+    expect(outcome.verdict).toBe("UNVERIFIED");
+    expect(outcome.warnings.some((w: string) => /UNVERIFIED merge/.test(w))).toBe(true);
+  });
 
-	test("pr_finish passes allowFetch — it just merged, so the sha is remote-only", async () => {
-		// Without allowFetch the case above could never recover; with it, the one
-		// targeted object fetch is attempted before giving up. Asserting the
-		// attempt (not its success) is what pins the flag being passed through.
-		const g = greenDeps();
-		const calls: string[][] = [];
-		const failingShow: SpawnFn = async (_cmd, args) => {
-			calls.push(args);
-			if (args.includes("show")) return { stdout: "", stderr: "fatal: bad object", exitCode: 128 };
-			return { stdout: "", stderr: "", exitCode: 0 };
-		};
-		await runPrFinishCli(["42"], { ...g.deps, spawn: failingShow });
-		expect(calls.some((a) => a.includes("fetch") && a.includes("origin"))).toBe(true);
-	});
+  test("pr_finish passes allowFetch — it just merged, so the sha is remote-only", async () => {
+    // Without allowFetch the case above could never recover; with it, the one
+    // targeted object fetch is attempted before giving up. Asserting the
+    // attempt (not its success) is what pins the flag being passed through.
+    const g = greenDeps();
+    const calls: string[][] = [];
+    const failingShow: SpawnFn = async (_cmd, args) => {
+      calls.push(args);
+      if (args.includes("show")) return { stdout: "", stderr: "fatal: bad object", exitCode: 128 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    await runPrFinishCli(["42"], { ...g.deps, spawn: failingShow });
+    expect(calls.some((a) => a.includes("fetch") && a.includes("origin"))).toBe(true);
+  });
 
-	test("a verify step that THROWS falls back to UNVERIFIED, never CLEAN", async () => {
-		// runVerifyMerge is throw-free today, so this catch is purely defensive —
-		// which is exactly why its fabricated `verdict: "CLEAN"` sat there
-		// unnoticed. The `verify` seam exists so the defensive path is reachable
-		// from a test instead of being trusted by inspection.
-		const g = greenDeps();
-		const res = await runPrFinishCli(["42"], {
-			...g.deps,
-			verify: async () => {
-				throw new Error("verify exploded");
-			},
-		});
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(true);
-		expect(outcome.verdict).toBe("UNVERIFIED");
-		expect(outcome.warnings.some((w: string) => /runVerifyMerge threw: verify exploded/.test(w))).toBe(true);
-	});
+  test("a verify step that THROWS falls back to UNVERIFIED, never CLEAN", async () => {
+    // runVerifyMerge is throw-free today, so this catch is purely defensive —
+    // which is exactly why its fabricated `verdict: "CLEAN"` sat there
+    // unnoticed. The `verify` seam exists so the defensive path is reachable
+    // from a test instead of being trusted by inspection.
+    const g = greenDeps();
+    const res = await runPrFinishCli(["42"], {
+      ...g.deps,
+      verify: async () => {
+        throw new Error("verify exploded");
+      },
+    });
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(true);
+    expect(outcome.verdict).toBe("UNVERIFIED");
+    expect(outcome.warnings.some((w: string) => /runVerifyMerge threw: verify exploded/.test(w))).toBe(true);
+  });
 });
 
 /**
@@ -592,166 +611,164 @@ describe("merge-pr-after-ci-cli — verification failures are not passes", () =>
  * re-run per manual retry.
  */
 describe("merge-pr-after-ci-cli — the merge gates read a fresh, settled status", () => {
-	const OID = "b".repeat(40);
-	const noSleep = async () => {};
+  const OID = "b".repeat(40);
+  const noSleep = async () => {};
 
-	test("UNKNOWN settles to CLEAN across polls → merges, and says so", async () => {
-		const ghParts = fakeGh([
-			OPEN_CLEAN,
-			{ ...OPEN_CLEAN, mergeState: "UNKNOWN" },
-			{ ...OPEN_CLEAN, mergeState: "UNKNOWN" },
-			OPEN_CLEAN,
-			MERGED,
-		]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(ghParts.mergeCalls).toEqual([42]);
-		expect(outcome.mergeStateSettle).toEqual({ mergeState: "CLEAN", polls: 3 });
-		expect(outcome.warnings.some((w: string) => /mergeState was UNKNOWN and settled to CLEAN after 3 reads/.test(w))).toBe(true);
-	});
+  test("UNKNOWN settles to CLEAN across polls → merges, and says so", async () => {
+    const ghParts = fakeGh([
+      OPEN_CLEAN,
+      { ...OPEN_CLEAN, mergeState: "UNKNOWN" },
+      { ...OPEN_CLEAN, mergeState: "UNKNOWN" },
+      OPEN_CLEAN,
+      MERGED,
+    ]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(ghParts.mergeCalls).toEqual([42]);
+    expect(outcome.mergeStateSettle).toEqual({ mergeState: "CLEAN", polls: 3 });
+    expect(
+      outcome.warnings.some((w: string) => /mergeState was UNKNOWN and settled to CLEAN after 3 reads/.test(w)),
+    ).toBe(true);
+  });
 
-	test("a mergeState that never settles is bounded, and aborts not-clean", async () => {
-		// The poll must not become an unbounded wait: an UNKNOWN that is really
-		// stuck has to surface as a normal abort the caller can act on.
-		const unknown = { ...OPEN_CLEAN, mergeState: "UNKNOWN" as const };
-		const ghParts = fakeGh([OPEN_CLEAN, unknown, unknown, unknown, unknown]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("not-clean");
-		expect(outcome.mergeStateSettle).toEqual({ mergeState: "UNKNOWN", polls: MERGE_STATE_POLLS });
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("a mergeState that never settles is bounded, and aborts not-clean", async () => {
+    // The poll must not become an unbounded wait: an UNKNOWN that is really
+    // stuck has to surface as a normal abort the caller can act on.
+    const unknown = { ...OPEN_CLEAN, mergeState: "UNKNOWN" as const };
+    const ghParts = fakeGh([OPEN_CLEAN, unknown, unknown, unknown, unknown]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("not-clean");
+    expect(outcome.mergeStateSettle).toEqual({ mergeState: "UNKNOWN", polls: MERGE_STATE_POLLS });
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("a CLEAN preflight snapshot does NOT authorize the merge — the refresh does", async () => {
-		// Kills the pre-fix code directly: it gated on the preflight snapshot, so
-		// a base that moved during the CI run merged on stale evidence.
-		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BEHIND" }]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(1);
-		expect(JSON.parse(res.stdout).aborted.reason).toBe("behind");
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("a CLEAN preflight snapshot does NOT authorize the merge — the refresh does", async () => {
+    // Kills the pre-fix code directly: it gated on the preflight snapshot, so
+    // a base that moved during the CI run merged on stale evidence.
+    const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, mergeState: "BEHIND" }]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(1);
+    expect(JSON.parse(res.stdout).aborted.reason).toBe("behind");
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("the common path costs exactly one extra read (no polling when the answer is real)", async () => {
-		const g = greenDeps();
-		const res = await runPrFinishCli(["42"], { ...g.deps, sleep: noSleep });
-		expect(res.exitCode).toBe(0);
-		expect(JSON.parse(res.stdout).mergeStateSettle).toEqual({ mergeState: "CLEAN", polls: 1 });
-	});
+  test("the common path costs exactly one extra read (no polling when the answer is real)", async () => {
+    const g = greenDeps();
+    const res = await runPrFinishCli(["42"], { ...g.deps, sleep: noSleep });
+    expect(res.exitCode).toBe(0);
+    expect(JSON.parse(res.stdout).mergeStateSettle).toEqual({ mergeState: "CLEAN", polls: 1 });
+  });
 
-	test("settlePrStatus returns a non-UNKNOWN answer immediately", async () => {
-		let reads = 0;
-		const gh = {
-			prStatus: async () => {
-				reads++;
-				return { ...OPEN_CLEAN, mergeState: "DIRTY" as const };
-			},
-		} as unknown as GhClient;
-		const settled = await settlePrStatus(gh, 42, noSleep);
-		expect(settled.polls).toBe(1);
-		expect(reads).toBe(1);
-		expect(settled.status.mergeState).toBe("DIRTY");
-	});
+  test("settlePrStatus returns a non-UNKNOWN answer immediately", async () => {
+    let reads = 0;
+    const gh = {
+      prStatus: async () => {
+        reads++;
+        return { ...OPEN_CLEAN, mergeState: "DIRTY" as const };
+      },
+    } as unknown as GhClient;
+    const settled = await settlePrStatus(gh, 42, noSleep);
+    expect(settled.polls).toBe(1);
+    expect(reads).toBe(1);
+    expect(settled.status.mergeState).toBe("DIRTY");
+  });
 
-	test("--assume-ci-green matching the CURRENT head skips local CI and merges", async () => {
-		let ciRuns = 0;
-		const ghParts = fakeGh([
-			{ ...OPEN_CLEAN, headRefOid: OID },
-			{ ...OPEN_CLEAN, headRefOid: OID },
-			MERGED,
-		]);
-		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => {
-				ciRuns++;
-				return ciPass();
-			},
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(0);
-		expect(ciRuns).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.ciSkipped).toEqual({ assumedSha: OID });
-		expect(outcome.warnings.some((w: string) => /run_local_ci SKIPPED/.test(w))).toBe(true);
-		expect(ghParts.mergeCalls).toEqual([42]);
-	});
+  test("--assume-ci-green matching the CURRENT head skips local CI and merges", async () => {
+    let ciRuns = 0;
+    const ghParts = fakeGh([{ ...OPEN_CLEAN, headRefOid: OID }, { ...OPEN_CLEAN, headRefOid: OID }, MERGED]);
+    const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => {
+        ciRuns++;
+        return ciPass();
+      },
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(0);
+    expect(ciRuns).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.ciSkipped).toEqual({ assumedSha: OID });
+    expect(outcome.warnings.some((w: string) => /run_local_ci SKIPPED/.test(w))).toBe(true);
+    expect(ghParts.mergeCalls).toEqual([42]);
+  });
 
-	test("--assume-ci-green against a head that moved aborts instead of merging", async () => {
-		// The whole safety of the shortcut is this comparison: without it the
-		// flag would merge a commit no gate has ever seen.
-		const ghParts = fakeGh([
-			{ ...OPEN_CLEAN, headRefOid: "c".repeat(40) },
-			{ ...OPEN_CLEAN, headRefOid: "c".repeat(40) },
-		]);
-		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(1);
-		expect(JSON.parse(res.stdout).aborted.reason).toBe("ci-assumption-stale");
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("--assume-ci-green against a head that moved aborts instead of merging", async () => {
+    // The whole safety of the shortcut is this comparison: without it the
+    // flag would merge a commit no gate has ever seen.
+    const ghParts = fakeGh([
+      { ...OPEN_CLEAN, headRefOid: "c".repeat(40) },
+      { ...OPEN_CLEAN, headRefOid: "c".repeat(40) },
+    ]);
+    const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(1);
+    expect(JSON.parse(res.stdout).aborted.reason).toBe("ci-assumption-stale");
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("--assume-ci-green with no headRefOid to compare against is refused, not trusted", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN, OPEN_CLEAN]);
-		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(1);
-		expect(JSON.parse(res.stdout).aborted.reason).toBe("ci-assumption-unverifiable");
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("--assume-ci-green with no headRefOid to compare against is refused, not trusted", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN, OPEN_CLEAN]);
+    const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(1);
+    expect(JSON.parse(res.stdout).aborted.reason).toBe("ci-assumption-unverifiable");
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("a normal run carries NO ciSkipped key — its absence is the proof CI ran", async () => {
-		const g = greenDeps();
-		const res = await runPrFinishCli(["42"], { ...g.deps, sleep: noSleep });
-		expect("ciSkipped" in JSON.parse(res.stdout)).toBe(false);
-	});
+  test("a normal run carries NO ciSkipped key — its absence is the proof CI ran", async () => {
+    const g = greenDeps();
+    const res = await runPrFinishCli(["42"], { ...g.deps, sleep: noSleep });
+    expect("ciSkipped" in JSON.parse(res.stdout)).toBe(false);
+  });
 
-	test("--assume-ci-green rejects an abbreviated sha at argv parse time (exit 2)", async () => {
-		const short = parsePrFinishArgs(["42", "--assume-ci-green", "b".repeat(7)]);
-		expect(short.ok).toBe(false);
-		const missing = parsePrFinishArgs(["42", "--assume-ci-green"]);
-		expect(missing.ok).toBe(false);
-		const good = parsePrFinishArgs(["42", "--assume-ci-green", OID.toUpperCase()]);
-		expect(good.ok).toBe(true);
-		if (good.ok) expect(good.args.assumeCiGreen).toBe(OID);
-	});
+  test("--assume-ci-green rejects an abbreviated sha at argv parse time (exit 2)", async () => {
+    const short = parsePrFinishArgs(["42", "--assume-ci-green", "b".repeat(7)]);
+    expect(short.ok).toBe(false);
+    const missing = parsePrFinishArgs(["42", "--assume-ci-green"]);
+    expect(missing.ok).toBe(false);
+    const good = parsePrFinishArgs(["42", "--assume-ci-green", OID.toUpperCase()]);
+    expect(good.ok).toBe(true);
+    if (good.ok) expect(good.args.assumeCiGreen).toBe(OID);
+  });
 });
 
 /**
@@ -766,172 +783,180 @@ describe("merge-pr-after-ci-cli — the merge gates read a fresh, settled status
  * state MERGED as merged:true (already merged); the CLI must too.
  */
 describe("merge-pr-after-ci-cli — an already-MERGED PR is a settled outcome, not an abort (#2077)", () => {
-	const noSleep = async () => {};
-	/** A merged PR as GitHub actually serves it: mergeable null → UNKNOWN.
-	 *  (forge/github-rest.ts maps `mergeable === null` to UNKNOWN.) */
-	const MERGED_UNKNOWN: PrStatus = { ...MERGED, mergeState: "UNKNOWN" as const };
+  const noSleep = async () => {};
+  /** A merged PR as GitHub actually serves it: mergeable null → UNKNOWN.
+   *  (forge/github-rest.ts maps `mergeable === null` to UNKNOWN.) */
+  const MERGED_UNKNOWN: PrStatus = { ...MERGED, mergeState: "UNKNOWN" as const };
 
-	test("settlePrStatus does NOT poll a terminal-state PR — UNKNOWN on MERGED is a real answer", async () => {
-		let reads = 0;
-		const gh = {
-			prStatus: async () => {
-				reads++;
-				return MERGED_UNKNOWN;
-			},
-		} as unknown as GhClient;
-		const settled = await settlePrStatus(gh, 42, noSleep);
-		expect(settled.polls).toBe(1);
-		expect(reads).toBe(1);
-		expect(settled.status.state).toBe("MERGED");
-	});
+  test("settlePrStatus does NOT poll a terminal-state PR — UNKNOWN on MERGED is a real answer", async () => {
+    let reads = 0;
+    const gh = {
+      prStatus: async () => {
+        reads++;
+        return MERGED_UNKNOWN;
+      },
+    } as unknown as GhClient;
+    const settled = await settlePrStatus(gh, 42, noSleep);
+    expect(settled.polls).toBe(1);
+    expect(reads).toBe(1);
+    expect(settled.status.state).toBe("MERGED");
+  });
 
-	test("an already-MERGED retry verifies + cleans up instead of aborting NOT-MERGED", async () => {
-		// The #2027 receipt, replayed: preflight read, then the fresh gate
-		// read finds MERGED — the merge landed in a prior invocation. The
-		// fixed CLI reports merged:true via verify_merge_landed, never calls
-		// mergeNow, and runs the branch cleanup the sessions did by hand.
-		// (The third read's CLEAN mergeState is deliberately unrealistic —
-		// the real adapter serves UNKNOWN on a merged PR — but verify keys
-		// off state/mergeSha, never mergeState.)
-		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN, MERGED]);
-		const clientParts = fakeClient({ current: "feature" });
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: clientParts.client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(true);
-		expect(outcome.verdict).toBe("CLEAN");
-		expect(outcome.aborted).toBeUndefined();
-		expect(outcome.mergeStateSettle).toEqual({ mergeState: "UNKNOWN", polls: 1 }); // terminal ⇒ no polling, wrapper-level
-		expect(ghParts.mergeCalls).toEqual([]); // never re-merge
-		expect(outcome.warnings.some((w: string) => /already MERGED/.test(w))).toBe(true);
-		// The behind-default nudge applies on this path too — the prior
-		// invocation advanced the base just as much as a fresh merge would.
-		expect(outcome.warnings.some((w: string) => /may now be behind .*run sync_default_branch/.test(w))).toBe(true);
-		// The cleanup the receipt had to do by hand:
-		expect(clientParts.calls).toEqual([`detach:${MERGED.mergeSha}`, "deleteLocal:feature", "deleteRemote:feature", "fetchPrune"]);
-	});
+  test("an already-MERGED retry verifies + cleans up instead of aborting NOT-MERGED", async () => {
+    // The #2027 receipt, replayed: preflight read, then the fresh gate
+    // read finds MERGED — the merge landed in a prior invocation. The
+    // fixed CLI reports merged:true via verify_merge_landed, never calls
+    // mergeNow, and runs the branch cleanup the sessions did by hand.
+    // (The third read's CLEAN mergeState is deliberately unrealistic —
+    // the real adapter serves UNKNOWN on a merged PR — but verify keys
+    // off state/mergeSha, never mergeState.)
+    const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN, MERGED]);
+    const clientParts = fakeClient({ current: "feature" });
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: clientParts.client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(true);
+    expect(outcome.verdict).toBe("CLEAN");
+    expect(outcome.aborted).toBeUndefined();
+    expect(outcome.mergeStateSettle).toEqual({ mergeState: "UNKNOWN", polls: 1 }); // terminal ⇒ no polling, wrapper-level
+    expect(ghParts.mergeCalls).toEqual([]); // never re-merge
+    expect(outcome.warnings.some((w: string) => /already MERGED/.test(w))).toBe(true);
+    // The behind-default nudge applies on this path too — the prior
+    // invocation advanced the base just as much as a fresh merge would.
+    expect(outcome.warnings.some((w: string) => /may now be behind .*run sync_default_branch/.test(w))).toBe(true);
+    // The cleanup the receipt had to do by hand:
+    expect(clientParts.calls).toEqual([
+      `detach:${MERGED.mergeSha}`,
+      "deleteLocal:feature",
+      "deleteRemote:feature",
+      "fetchPrune",
+    ]);
+  });
 
-	test("already-MERGED × --assume-ci-green: the head-sha check runs BEFORE the already-merged fall-through", async () => {
-		// The ordering is load-bearing: the shortcut must never skip its
-		// staleness assertion just because the PR turned out to be merged.
-		const ghParts = fakeGh([
-			{ ...OPEN_CLEAN, headRefOid: "b".repeat(40) },
-			{ ...MERGED_UNKNOWN, headRefOid: "b".repeat(40) },
-			{ ...MERGED, headRefOid: "b".repeat(40) },
-		]);
-		let ciRuns = 0;
-		const res = await runPrFinishCli(["42", "--assume-ci-green", "b".repeat(40)], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => {
-				ciRuns++;
-				return ciPass();
-			},
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(ciRuns).toBe(0);
-		expect(outcome.ciSkipped).toEqual({ assumedSha: "b".repeat(40) });
-		expect(outcome.merged).toBe(true);
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("already-MERGED × --assume-ci-green: the head-sha check runs BEFORE the already-merged fall-through", async () => {
+    // The ordering is load-bearing: the shortcut must never skip its
+    // staleness assertion just because the PR turned out to be merged.
+    const ghParts = fakeGh([
+      { ...OPEN_CLEAN, headRefOid: "b".repeat(40) },
+      { ...MERGED_UNKNOWN, headRefOid: "b".repeat(40) },
+      { ...MERGED, headRefOid: "b".repeat(40) },
+    ]);
+    let ciRuns = 0;
+    const res = await runPrFinishCli(["42", "--assume-ci-green", "b".repeat(40)], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => {
+        ciRuns++;
+        return ciPass();
+      },
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(ciRuns).toBe(0);
+    expect(outcome.ciSkipped).toEqual({ assumedSha: "b".repeat(40) });
+    expect(outcome.merged).toBe(true);
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 
-	test("already-MERGED × --dry-run: plans cleanup only, never a merge", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN]);
-		const res = await runPrFinishCli(["42", "--dry-run"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.dryRun).toBe(true);
-		expect(outcome.commands.some((c: string) => c.startsWith("gh pr merge"))).toBe(false);
-		expect(outcome.commands.some((c: string) => c.startsWith("git branch -D feature"))).toBe(true);
-		expect(outcome.warnings.some((w: string) => /already MERGED/.test(w))).toBe(true);
-	});
+  test("already-MERGED × --dry-run: plans cleanup only, never a merge", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN]);
+    const res = await runPrFinishCli(["42", "--dry-run"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.dryRun).toBe(true);
+    expect(outcome.commands.some((c: string) => c.startsWith("gh pr merge"))).toBe(false);
+    expect(outcome.commands.some((c: string) => c.startsWith("git branch -D feature"))).toBe(true);
+    expect(outcome.warnings.some((w: string) => /already MERGED/.test(w))).toBe(true);
+  });
 
-	test("already-MERGED × --keep-branch: verify still runs, cleanup skipped", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN, MERGED]);
-		const clientParts = fakeClient();
-		const res = await runPrFinishCli(["42", "--keep-branch"], {
-			gh: ghParts.gh,
-			client: clientParts.client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(0);
-		expect(JSON.parse(res.stdout).merged).toBe(true);
-		expect(clientParts.calls).toEqual([]);
-	});
+  test("already-MERGED × --keep-branch: verify still runs, cleanup skipped", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN, MERGED]);
+    const clientParts = fakeClient();
+    const res = await runPrFinishCli(["42", "--keep-branch"], {
+      gh: ghParts.gh,
+      client: clientParts.client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(0);
+    expect(JSON.parse(res.stdout).merged).toBe(true);
+    expect(clientParts.calls).toEqual([]);
+  });
 
-	test("verify failing to confirm an already-MERGED PR reports UNVERIFIED, never NOT-MERGED", async () => {
-		// The #2077 misreport's residual seam one layer down: verify's own
-		// prStatus read fails, runVerifyMerge returns merged:false/NOT-MERGED
-		// — the gate-stage read already established MERGED, so the outcome is
-		// clamped to UNVERIFIED (branch deletion stays gated on branchSpent).
-		const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: async () => {},
-			verify: async () => ({
-				pr: 42,
-				state: "OPEN",
-				merged: false,
-				verdict: "NOT-MERGED",
-				files: [],
-				fileCount: 0,
-				insertions: 0,
-				deletions: 0,
-				outOfScope: [],
-				inspected: false,
-				branchSpent: false,
-				commands: [],
-				warnings: [],
-				aborted: { aborted: true, reason: "pr-status-failed", message: "network blip" },
-			}) as Awaited<ReturnType<typeof runVerifyMerge>>,
-		});
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(true);
-		expect(outcome.verdict).toBe("UNVERIFIED");
-		expect(outcome.warnings.some((w: string) => /could not confirm .*reporting UNVERIFIED, not NOT-MERGED/.test(w))).toBe(true);
-	});
+  test("verify failing to confirm an already-MERGED PR reports UNVERIFIED, never NOT-MERGED", async () => {
+    // The #2077 misreport's residual seam one layer down: verify's own
+    // prStatus read fails, runVerifyMerge returns merged:false/NOT-MERGED
+    // — the gate-stage read already established MERGED, so the outcome is
+    // clamped to UNVERIFIED (branch deletion stays gated on branchSpent).
+    const ghParts = fakeGh([OPEN_CLEAN, MERGED_UNKNOWN]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: async () => {},
+      verify: async () =>
+        ({
+          pr: 42,
+          state: "OPEN",
+          merged: false,
+          verdict: "NOT-MERGED",
+          files: [],
+          fileCount: 0,
+          insertions: 0,
+          deletions: 0,
+          outOfScope: [],
+          inspected: false,
+          branchSpent: false,
+          commands: [],
+          warnings: [],
+          aborted: { aborted: true, reason: "pr-status-failed", message: "network blip" },
+        }) as Awaited<ReturnType<typeof runVerifyMerge>>,
+    });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(true);
+    expect(outcome.verdict).toBe("UNVERIFIED");
+    expect(
+      outcome.warnings.some((w: string) => /could not confirm .*reporting UNVERIFIED, not NOT-MERGED/.test(w)),
+    ).toBe(true);
+  });
 
-	test("a CLOSED PR still aborts not-open (terminal ≠ merged)", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, state: "CLOSED" as const }]);
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: noSleep,
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("not-open");
-		expect(ghParts.mergeCalls).toEqual([]);
-	});
+  test("a CLOSED PR still aborts not-open (terminal ≠ merged)", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN, { ...OPEN_CLEAN, state: "CLOSED" as const }]);
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: noSleep,
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("not-open");
+    expect(ghParts.mergeCalls).toEqual([]);
+  });
 });
 
 /**
@@ -940,117 +965,119 @@ describe("merge-pr-after-ci-cli — an already-MERGED PR is a settled outcome, n
  * arrived as a raw GraphQL passthrough that named no remedy.
  */
 describe("merge-pr-after-ci-cli — the missing-workflow-scope refusal is its own class", () => {
-	const GRAPHQL_REFUSAL =
-		"gh pr merge 42 (direct) failed (exit 1): GraphQL: refusing to allow an OAuth App to create or " +
-		"update workflow `.github/workflows/ci.yml.disabled` without `workflow` scope (mergePullRequest)";
+  const GRAPHQL_REFUSAL =
+    "gh pr merge 42 (direct) failed (exit 1): GraphQL: refusing to allow an OAuth App to create or " +
+    "update workflow `.github/workflows/ci.yml.disabled` without `workflow` scope (mergePullRequest)";
 
-	function ghThatRefuses(message: string) {
-		const statuses: PrStatus[] = [OPEN_CLEAN, OPEN_CLEAN];
-		return {
-			prStatus: async () => {
-				const s = statuses.shift();
-				if (!s) throw new Error("fake gh: no more prStatus snapshots");
-				return s;
-			},
-			mergeNow: async () => {
-				throw new Error(message);
-			},
-		} as unknown as GhClient;
-	}
+  function ghThatRefuses(message: string) {
+    const statuses: PrStatus[] = [OPEN_CLEAN, OPEN_CLEAN];
+    return {
+      prStatus: async () => {
+        const s = statuses.shift();
+        if (!s) throw new Error("fake gh: no more prStatus snapshots");
+        return s;
+      },
+      mergeNow: async () => {
+        throw new Error(message);
+      },
+    } as unknown as GhClient;
+  }
 
-	test("the GraphQL refusal aborts as missing-workflow-scope and carries the fix command", async () => {
-		const res = await runPrFinishCli(["42"], {
-			gh: ghThatRefuses(GRAPHQL_REFUSAL),
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: async () => {},
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("missing-workflow-scope");
-		expect(outcome.aborted.message).toContain("gh auth refresh -h github.com -s workflow");
-		// The retry shortcut is named too — without it the caller re-pays for CI.
-		expect(outcome.aborted.message).toContain("--assume-ci-green");
-		// The original text is preserved, not swallowed by the friendlier message.
-		expect(outcome.aborted.message).toContain("mergePullRequest");
-		expect(outcome.merged).toBe(false);
-	});
+  test("the GraphQL refusal aborts as missing-workflow-scope and carries the fix command", async () => {
+    const res = await runPrFinishCli(["42"], {
+      gh: ghThatRefuses(GRAPHQL_REFUSAL),
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: async () => {},
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("missing-workflow-scope");
+    expect(outcome.aborted.message).toContain("gh auth refresh -h github.com -s workflow");
+    // The retry shortcut is named too — without it the caller re-pays for CI.
+    expect(outcome.aborted.message).toContain("--assume-ci-green");
+    // The original text is preserved, not swallowed by the friendlier message.
+    expect(outcome.aborted.message).toContain("mergePullRequest");
+    expect(outcome.merged).toBe(false);
+  });
 
-	test("an unrelated merge failure still aborts as merge-failed (the class is not a catch-all)", async () => {
-		const res = await runPrFinishCli(["42"], {
-			gh: ghThatRefuses("gh pr merge 42 (direct) failed (exit 1): Base branch was modified"),
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: async () => {},
-		});
-		expect(JSON.parse(res.stdout).aborted.reason).toBe("merge-failed");
-	});
+  test("an unrelated merge failure still aborts as merge-failed (the class is not a catch-all)", async () => {
+    const res = await runPrFinishCli(["42"], {
+      gh: ghThatRefuses("gh pr merge 42 (direct) failed (exit 1): Base branch was modified"),
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: async () => {},
+    });
+    expect(JSON.parse(res.stdout).aborted.reason).toBe("merge-failed");
+  });
 
-	test("isMissingWorkflowScope matches the real wordings and nothing else", () => {
-		expect(isMissingWorkflowScope(GRAPHQL_REFUSAL)).toBe(true);
-		// GitHub has used both an OAuth-App and a GitHub-App phrasing.
-		expect(
-			isMissingWorkflowScope("refusing to allow a GitHub App to update workflow `.github/workflows/ci.yml` without `workflow` scope"),
-		).toBe(true);
-		expect(isMissingWorkflowScope("Base branch was modified. Review and try the merge again.")).toBe(false);
-		expect(isMissingWorkflowScope("Resource not accessible by integration")).toBe(false);
-	});
+  test("isMissingWorkflowScope matches the real wordings and nothing else", () => {
+    expect(isMissingWorkflowScope(GRAPHQL_REFUSAL)).toBe(true);
+    // GitHub has used both an OAuth-App and a GitHub-App phrasing.
+    expect(
+      isMissingWorkflowScope(
+        "refusing to allow a GitHub App to update workflow `.github/workflows/ci.yml` without `workflow` scope",
+      ),
+    ).toBe(true);
+    expect(isMissingWorkflowScope("Base branch was modified. Review and try the merge again.")).toBe(false);
+    expect(isMissingWorkflowScope("Resource not accessible by integration")).toBe(false);
+  });
 });
 
 describe("merge-pr-after-ci-cli — non-origin remote (remoteName threading)", () => {
-	test("remoteName threads into the CI base probe + planned delete", async () => {
-		const g = greenDeps();
-		// fakeSpawn answers every probe exit 0 → the <remote>/<base> tracking
-		// ref "resolves" and becomes the run_local_ci base.
-		const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, remoteName: "upstream" });
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.commands.some((c: string) => c === "git push --no-verify upstream --delete feature")).toBe(true);
-		expect(g.ciOpts[0]?.baseRef).toBe("upstream/main");
-	});
+  test("remoteName threads into the CI base probe + planned delete", async () => {
+    const g = greenDeps();
+    // fakeSpawn answers every probe exit 0 → the <remote>/<base> tracking
+    // ref "resolves" and becomes the run_local_ci base.
+    const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, remoteName: "upstream" });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.commands.some((c: string) => c === "git push --no-verify upstream --delete feature")).toBe(true);
+    expect(g.ciOpts[0]?.baseRef).toBe("upstream/main");
+  });
 });
 
 describe("versionNudge — s2-agent version-bump advisory (pure)", () => {
-	const PKG = (v: string) => `{"name":"@repo/s2-agent","version":"${v}"}`;
-	const FILES = [{ path: "bun-apps/s2-agent/src/cli.ts" }];
+  const PKG = (v: string) => `{"name":"@repo/s2-agent","version":"${v}"}`;
+  const FILES = [{ path: "bun-apps/s2-agent/src/cli.ts" }];
 
-	test("s2-agent touched + version identical base→head → the nudge with the fix command", () => {
-		const w = versionNudge(FILES, PKG("0.1.0"), PKG("0.1.0"));
-		expect(w).toContain("version was not bumped");
-		expect(w).toContain("version-bump-cli.ts --package s2-agent");
-		expect(w).toContain("advisory");
-	});
+  test("s2-agent touched + version identical base→head → the nudge with the fix command", () => {
+    const w = versionNudge(FILES, PKG("0.1.0"), PKG("0.1.0"));
+    expect(w).toContain("version was not bumped");
+    expect(w).toContain("version-bump-cli.ts --package s2-agent");
+    expect(w).toContain("advisory");
+  });
 
-	test("version WAS bumped → no nudge (the happy path of the policy)", () => {
-		expect(versionNudge(FILES, PKG("0.1.1"), PKG("0.1.0"))).toBeNull();
-	});
+  test("version WAS bumped → no nudge (the happy path of the policy)", () => {
+    expect(versionNudge(FILES, PKG("0.1.1"), PKG("0.1.0"))).toBeNull();
+  });
 
-	test("no s2-agent file in the merge → no nudge", () => {
-		expect(versionNudge([{ path: "bun-apps/s2-agent-ext-devops/src/x.ts" }], PKG("0.1.0"), PKG("0.1.0"))).toBeNull();
-	});
+  test("no s2-agent file in the merge → no nudge", () => {
+    expect(versionNudge([{ path: "bun-apps/s2-agent-ext-devops/src/x.ts" }], PKG("0.1.0"), PKG("0.1.0"))).toBeNull();
+  });
 
-	test("unreadable inputs stay silent (advisory never manufactures noise)", () => {
-		expect(versionNudge(FILES, null, PKG("0.1.0"))).toBeNull();
-		expect(versionNudge(FILES, PKG("0.1.0"), null)).toBeNull();
-		expect(versionNudge(FILES, "not json", PKG("0.1.0"))).toBeNull();
-	});
+  test("unreadable inputs stay silent (advisory never manufactures noise)", () => {
+    expect(versionNudge(FILES, null, PKG("0.1.0"))).toBeNull();
+    expect(versionNudge(FILES, PKG("0.1.0"), null)).toBeNull();
+    expect(versionNudge(FILES, "not json", PKG("0.1.0"))).toBeNull();
+  });
 });
 
 describe("parsePrFinishArgs — --expected-scope comma syntax (PR #1808 lesson)", () => {
-	test("a comma list splits into entries, matching verify-merge-cli's --scope", () => {
-		const r = parsePrFinishArgs(["42", "--expected-scope", "a/b,c, d/e"]);
-		expect(r.ok).toBe(true);
-		if (r.ok) expect(r.args.expectedScope).toEqual(["a/b", "c", "d/e"]);
-	});
-	test("repeatable flags still accumulate", () => {
-		const r = parsePrFinishArgs(["42", "--expected-scope", "a", "--expected-scope", "b,c"]);
-		expect(r.ok).toBe(true);
-		if (r.ok) expect(r.args.expectedScope).toEqual(["a", "b", "c"]);
-	});
+  test("a comma list splits into entries, matching verify-merge-cli's --scope", () => {
+    const r = parsePrFinishArgs(["42", "--expected-scope", "a/b,c, d/e"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.args.expectedScope).toEqual(["a/b", "c", "d/e"]);
+  });
+  test("repeatable flags still accumulate", () => {
+    const r = parsePrFinishArgs(["42", "--expected-scope", "a", "--expected-scope", "b,c"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.args.expectedScope).toEqual(["a", "b", "c"]);
+  });
 });
 
 // --- preserve-listed hot files (sync_default_branch parity, 2026-08-30) -----
@@ -1062,366 +1089,366 @@ describe("parsePrFinishArgs — --expected-scope comma syntax (PR #1808 lesson)"
 // tree mutation (the branch-cleanup detach onto the merge commit) and restores
 // it after. All OTHER dirt still aborts dirty_tree (fail-closed).
 describe("merge-pr-after-ci-cli — preserve-listed hot files (dirty MEMORY.md no longer blocks)", () => {
-	const MEM = ".agents/memory/MEMORY.md";
-	const SHA5 = "5".repeat(40);
-	const SHA_F = "f".repeat(40);
-	const STASH_PUSH = `git -C ${REPO} stash push -m sync_default_branch preserve -- ${MEM}`;
-	const STASH_APPLY = `git -C ${REPO} stash apply ${SHA5}`;
-	const STASH_DROP = `git -C ${REPO} stash drop stash@{0}`;
-	const DETACH = `git -C "${REPO}" checkout --detach ${MERGED.mergeSha}`;
+  const MEM = ".agents/memory/MEMORY.md";
+  const SHA5 = "5".repeat(40);
+  const SHA_F = "f".repeat(40);
+  const STASH_PUSH = `git -C ${REPO} stash push -m sync_default_branch preserve -- ${MEM}`;
+  const STASH_APPLY = `git -C ${REPO} stash apply ${SHA5}`;
+  const STASH_DROP = `git -C ${REPO} stash drop stash@{0}`;
+  const DETACH = `git -C "${REPO}" checkout --detach ${MERGED.mergeSha}`;
 
-	/** Stash-aware spawn: the park/restore pairing probes read real stash-list
-	 *  output (a tagged top entry for the park proof; a list for the drop's
-	 *  content-matched index). Everything else stays quiet-success. */
-	function stashSpawn(extra: Array<{ match: (args: string[]) => boolean; result: SpawnResult }> = []) {
-		return cannedSpawn([
-			{
-				match: (a) => realArgs(a).join(" ") === "stash list --format=%H %gs -n 1",
-				result: { stdout: `${SHA5} On main: sync_default_branch preserve\n`, stderr: "", exitCode: 0 },
-			},
-			{
-				match: (a) => realArgs(a).join(" ") === "stash list --format=%H",
-				result: { stdout: `${SHA5}\n${SHA_F}\n`, stderr: "", exitCode: 0 },
-			},
-			...extra,
-		]);
-	}
+  /** Stash-aware spawn: the park/restore pairing probes read real stash-list
+   *  output (a tagged top entry for the park proof; a list for the drop's
+   *  content-matched index). Everything else stays quiet-success. */
+  function stashSpawn(extra: Array<{ match: (args: string[]) => boolean; result: SpawnResult }> = []) {
+    return cannedSpawn([
+      {
+        match: (a) => realArgs(a).join(" ") === "stash list --format=%H %gs -n 1",
+        result: { stdout: `${SHA5} On main: sync_default_branch preserve\n`, stderr: "", exitCode: 0 },
+      },
+      {
+        match: (a) => realArgs(a).join(" ") === "stash list --format=%H",
+        result: { stdout: `${SHA5}\n${SHA_F}\n`, stderr: "", exitCode: 0 },
+      },
+      ...extra,
+    ]);
+  }
 
-	test("(a) MEMORY.md-only dirty → preflight passes, run proceeds, parked + restored around the detach", async () => {
-		const g = greenDeps({ dirty: [MEM] });
-		const spawnParts = stashSpawn();
-		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
-		expect(res.exitCode).toBe(0);
-		expect(res.stderr).toBe("");
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted).toBeUndefined();
-		expect(outcome.merged).toBe(true);
-		// The gate passed despite the dirty MEMORY.md, and the full cleanup
-		// window still ran (detach → deleteLocal → deleteRemote → prune).
-		expect(g.clientCalls).toEqual([`detach:${MERGED.mergeSha}`, "deleteLocal:feature", "deleteRemote:feature", "fetchPrune"]);
-		// Park/restore actually spawned + recorded: tagged push, SHA-paired
-		// apply, content-matched drop.
-		expect(outcome.commands).toContain(STASH_PUSH);
-		expect(outcome.commands).toContain(STASH_APPLY);
-		expect(outcome.commands).toContain(STASH_DROP);
-		// The park BRACKETS the tree mutation: push before the detach, apply after it.
-		const at = (s: string) => outcome.commands.indexOf(s);
-		expect(at(STASH_PUSH)).toBeLessThan(at(DETACH));
-		expect(at(DETACH)).toBeLessThan(at(STASH_APPLY));
-		expect(outcome.preserved).toEqual({ paths: [MEM], restored: true });
-	});
+  test("(a) MEMORY.md-only dirty → preflight passes, run proceeds, parked + restored around the detach", async () => {
+    const g = greenDeps({ dirty: [MEM] });
+    const spawnParts = stashSpawn();
+    const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
+    expect(res.exitCode).toBe(0);
+    expect(res.stderr).toBe("");
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted).toBeUndefined();
+    expect(outcome.merged).toBe(true);
+    // The gate passed despite the dirty MEMORY.md, and the full cleanup
+    // window still ran (detach → deleteLocal → deleteRemote → prune).
+    expect(g.clientCalls).toEqual([
+      `detach:${MERGED.mergeSha}`,
+      "deleteLocal:feature",
+      "deleteRemote:feature",
+      "fetchPrune",
+    ]);
+    // Park/restore actually spawned + recorded: tagged push, SHA-paired
+    // apply, content-matched drop.
+    expect(outcome.commands).toContain(STASH_PUSH);
+    expect(outcome.commands).toContain(STASH_APPLY);
+    expect(outcome.commands).toContain(STASH_DROP);
+    // The park BRACKETS the tree mutation: push before the detach, apply after it.
+    const at = (s: string) => outcome.commands.indexOf(s);
+    expect(at(STASH_PUSH)).toBeLessThan(at(DETACH));
+    expect(at(DETACH)).toBeLessThan(at(STASH_APPLY));
+    expect(outcome.preserved).toEqual({ paths: [MEM], restored: true });
+  });
 
-	test("(b) preserve dirt PLUS real dirt (src/x.ts) → still aborts dirty_tree, nothing stashed", async () => {
-		const ghParts = fakeGh([OPEN_CLEAN]);
-		const spawnParts = stashSpawn();
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient({ dirty: [MEM, "src/x.ts"] }).client,
-			spawn: spawnParts.fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("dirty_tree");
-		expect(outcome.aborted.message).toContain("src/x.ts");
-		expect(ghParts.mergeCalls).toEqual([]);
-		// Fail-closed preserved: no park, no restore, no stash spawn at all.
-		expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash"))).toBe(false);
-	});
+  test("(b) preserve dirt PLUS real dirt (src/x.ts) → still aborts dirty_tree, nothing stashed", async () => {
+    const ghParts = fakeGh([OPEN_CLEAN]);
+    const spawnParts = stashSpawn();
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient({ dirty: [MEM, "src/x.ts"] }).client,
+      spawn: spawnParts.fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("dirty_tree");
+    expect(outcome.aborted.message).toContain("src/x.ts");
+    expect(ghParts.mergeCalls).toEqual([]);
+    // Fail-closed preserved: no park, no restore, no stash spawn at all.
+    expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash"))).toBe(false);
+  });
 
-	test("(c) stash-restore apply conflict → warning + stash KEPT (never a lost file); merge still reported honestly", async () => {
-		const g = greenDeps({ dirty: [MEM] });
-		const spawnParts = stashSpawn([
-			{
-				match: (a) => realArgs(a).join(" ").startsWith("stash apply"),
-				result: { stdout: "", stderr: "CONFLICT (content): Merge conflict in .agents/memory/MEMORY.md", exitCode: 1 },
-			},
-		]);
-		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
-		// The merge LANDED; a restore failure is surfaced, never fatal — and
-		// never an abort that would misreport a merged PR (#2077's class).
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(true);
-		expect(outcome.preserved).toMatchObject({ paths: [MEM], restored: false });
-		expect(outcome.preserved.conflict).toMatch(/CONFLICT/);
-		const w = outcome.warnings.filter((x: string) => x.includes("stash apply CONFLICTED"));
-		expect(w.length).toBe(1);
-		// The kept stash is identified by its push message + recovery guidance.
-		expect(w[0]).toContain("stash list | grep 'sync_default_branch preserve'");
-		expect(w[0]).toContain("stash drop");
-		// Explicit subset pin: the aftermath names the PARSED conflicted path
-		// (stderr above uses git's REAL casing — capital "Merge conflict in").
-		expect(w[0]).toContain("conflict markers in: .agents/memory/MEMORY.md");
-		// The stash is KEPT — no drop spawned on the conflict path.
-		expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash drop"))).toBe(false);
-	});
+  test("(c) stash-restore apply conflict → warning + stash KEPT (never a lost file); merge still reported honestly", async () => {
+    const g = greenDeps({ dirty: [MEM] });
+    const spawnParts = stashSpawn([
+      {
+        match: (a) => realArgs(a).join(" ").startsWith("stash apply"),
+        result: { stdout: "", stderr: "CONFLICT (content): Merge conflict in .agents/memory/MEMORY.md", exitCode: 1 },
+      },
+    ]);
+    const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
+    // The merge LANDED; a restore failure is surfaced, never fatal — and
+    // never an abort that would misreport a merged PR (#2077's class).
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(true);
+    expect(outcome.preserved).toMatchObject({ paths: [MEM], restored: false });
+    expect(outcome.preserved.conflict).toMatch(/CONFLICT/);
+    const w = outcome.warnings.filter((x: string) => x.includes("stash apply CONFLICTED"));
+    expect(w.length).toBe(1);
+    // The kept stash is identified by its push message + recovery guidance.
+    expect(w[0]).toContain("stash list | grep 'sync_default_branch preserve'");
+    expect(w[0]).toContain("stash drop");
+    // Explicit subset pin: the aftermath names the PARSED conflicted path
+    // (stderr above uses git's REAL casing — capital "Merge conflict in").
+    expect(w[0]).toContain("conflict markers in: .agents/memory/MEMORY.md");
+    // The stash is KEPT — no drop spawned on the conflict path.
+    expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash drop"))).toBe(false);
+  });
 
-	test("(d) --dry-run with MEMORY.md dirt → gate passes, nothing parked (zero stash spawns)", async () => {
-		const g = greenDeps({ dirty: [MEM] });
-		const spawnParts = stashSpawn();
-		const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, spawn: spawnParts.fn });
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.dryRun).toBe(true);
-		expect(outcome.aborted).toBeUndefined();
-		expect(outcome.preserved).toBeUndefined();
-		// dry-run mutates nothing — in particular, no stash.
-		expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash"))).toBe(false);
-	});
+  test("(d) --dry-run with MEMORY.md dirt → gate passes, nothing parked (zero stash spawns)", async () => {
+    const g = greenDeps({ dirty: [MEM] });
+    const spawnParts = stashSpawn();
+    const res = await runPrFinishCli(["42", "--dry-run"], { ...g.deps, spawn: spawnParts.fn });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.dryRun).toBe(true);
+    expect(outcome.aborted).toBeUndefined();
+    expect(outcome.preserved).toBeUndefined();
+    // dry-run mutates nothing — in particular, no stash.
+    expect(spawnParts.calls.some((c) => realArgs(c.args).join(" ").startsWith("stash"))).toBe(false);
+  });
 
-	test("(e) park push failure AFTER the merge landed → loud warning, cleanup proceeds (an abort would misreport a merged PR)", async () => {
-		const g = greenDeps({ dirty: [MEM] });
-		const spawnParts = stashSpawn([
-			{
-				match: (a) => realArgs(a).join(" ").startsWith("stash push"),
-				result: { stdout: "", stderr: "fatal: could not write index", exitCode: 128 },
-			},
-		]);
-		const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(true);
-		expect(outcome.aborted).toBeUndefined();
-		expect(outcome.warnings.some((w: string) => w.includes("stash push of preserve paths failed"))).toBe(true);
-		// The detach still ran (un-parked): the park failure did not strand the
-		// cleanup the outcome promises.
-		expect(g.clientCalls).toContain(`detach:${MERGED.mergeSha}`);
-		expect(outcome.preserved).toBeUndefined();
-	});
+  test("(e) park push failure AFTER the merge landed → loud warning, cleanup proceeds (an abort would misreport a merged PR)", async () => {
+    const g = greenDeps({ dirty: [MEM] });
+    const spawnParts = stashSpawn([
+      {
+        match: (a) => realArgs(a).join(" ").startsWith("stash push"),
+        result: { stdout: "", stderr: "fatal: could not write index", exitCode: 128 },
+      },
+    ]);
+    const res = await runPrFinishCli(["42"], { ...g.deps, spawn: spawnParts.fn });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(true);
+    expect(outcome.aborted).toBeUndefined();
+    expect(outcome.warnings.some((w: string) => w.includes("stash push of preserve paths failed"))).toBe(true);
+    // The detach still ran (un-parked): the park failure did not strand the
+    // cleanup the outcome promises.
+    expect(g.clientCalls).toContain(`detach:${MERGED.mergeSha}`);
+    expect(outcome.preserved).toBeUndefined();
+  });
 });
 
 // ── self-arc-15 MC-7: the exit-code contract, pinned ────────────────────────
 describe("merge-pr-after-ci-cli — exit-code contract (PR_FINISH_ABORT_REASONS)", () => {
-	const source = readFileSync(
-		join(import.meta.dir, "..", "src", "merge-pr-after-ci-cli.ts"),
-		"utf8",
-	);
+  const source = readFileSync(join(import.meta.dir, "..", "src", "merge-pr-after-ci-cli.ts"), "utf8");
 
-	test("the exported tuple is well-formed and covers every abort() call site bidirectionally", () => {
-		expect(PR_FINISH_ABORT_REASONS.length).toBe(11);
-		expect(new Set(PR_FINISH_ABORT_REASONS).size).toBe(PR_FINISH_ABORT_REASONS.length);
-		for (const reason of PR_FINISH_ABORT_REASONS) {
-			// snake_case dirty_tree is historical (the one non-hyphenated member).
-			expect(reason).toMatch(/^[a-z0-9_-]+$/);
-		}
-		// Drift guard, BOTH directions: the set of abort reason literals in the
-		// source equals the tuple exactly — a new reason without a table row
-		// fails, and a retired reason lingering in the tuple fails too (the
-		// PREPARE_ABORT_REASONS guard this mirrors, strengthened to set equality).
-		const literals = [...source.matchAll(/\babort\(\s*"([a-z0-9_-]+)"/g)].map((m) => m[1]!);
-		const distinct = [...new Set(literals)].sort();
-		expect(distinct, "source abort literals").toEqual([...PR_FINISH_ABORT_REASONS].sort());
-	});
+  test("the exported tuple is well-formed and covers every abort() call site bidirectionally", () => {
+    expect(PR_FINISH_ABORT_REASONS.length).toBe(11);
+    expect(new Set(PR_FINISH_ABORT_REASONS).size).toBe(PR_FINISH_ABORT_REASONS.length);
+    for (const reason of PR_FINISH_ABORT_REASONS) {
+      // snake_case dirty_tree is historical (the one non-hyphenated member).
+      expect(reason).toMatch(/^[a-z0-9_-]+$/);
+    }
+    // Drift guard, BOTH directions: the set of abort reason literals in the
+    // source equals the tuple exactly — a new reason without a table row
+    // fails, and a retired reason lingering in the tuple fails too (the
+    // PREPARE_ABORT_REASONS guard this mirrors, strengthened to set equality).
+    const literals = [...source.matchAll(/\babort\(\s*"([a-z0-9_-]+)"/g)].map((m) => m[1]!);
+    const distinct = [...new Set(literals)].sort();
+    expect(distinct, "source abort literals").toEqual([...PR_FINISH_ABORT_REASONS].sort());
+  });
 
-	test("pr-status-failed: the gh prStatus read failing is an abort with exit 1", async () => {
-		const ghParts = {
-			gh: {
-				prStatus: async () => {
-					throw new Error("network blip");
-				},
-				mergeNow: async () => {},
-			} as unknown as GhClient,
-		};
-		const res = await runPrFinishCli(["42"], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(false);
-		expect(outcome.aborted.reason).toBe("pr-status-failed");
-	});
+  test("pr-status-failed: the gh prStatus read failing is an abort with exit 1", async () => {
+    const ghParts = {
+      gh: {
+        prStatus: async () => {
+          throw new Error("network blip");
+        },
+        mergeNow: async () => {},
+      } as unknown as GhClient,
+    };
+    const res = await runPrFinishCli(["42"], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(false);
+    expect(outcome.aborted.reason).toBe("pr-status-failed");
+  });
 
-	test("usage error → exit 2 (contract edge)", async () => {
-		const usage = await runPrFinishCli(["not-a-number"], {
-			gh: fakeGh([OPEN_CLEAN]).gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-		});
-		expect(usage.exitCode).toBe(2);
-	});
+  test("usage error → exit 2 (contract edge)", async () => {
+    const usage = await runPrFinishCli(["not-a-number"], {
+      gh: fakeGh([OPEN_CLEAN]).gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+    });
+    expect(usage.exitCode).toBe(2);
+  });
 
-	test("--dry-run → exit 0 (contract edge; mirrors the read-only dry-run test above)", async () => {
-		const g = greenDeps();
-		const dry = await runPrFinishCli(["42", "--dry-run"], g.deps);
-		expect(dry.exitCode).toBe(0);
-		expect(JSON.parse(dry.stdout).dryRun).toBe(true);
-	});
+  test("--dry-run → exit 0 (contract edge; mirrors the read-only dry-run test above)", async () => {
+    const g = greenDeps();
+    const dry = await runPrFinishCli(["42", "--dry-run"], g.deps);
+    expect(dry.exitCode).toBe(0);
+    expect(JSON.parse(dry.stdout).dryRun).toBe(true);
+  });
 });
 
 // ── self-arc-15 t03 / MC-1: the e2e credential preflight ────────────────────
 describe("merge-pr-after-ci-cli — e2e credential preflight (MC-1)", () => {
-	test("failing preflight aborts e2e-credentials-missing with exit 1 BEFORE local CI", async () => {
-		let ciRan = false;
-		const res = await runPrFinishCli(["42"], {
-			gh: fakeGh([OPEN_CLEAN]).gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => {
-				ciRan = true;
-				return ciPass();
-			},
-			e2ePreflight: () => ({
-				ok: false,
-				message: "e2e preflight: no deploy-e2e provider key is resolvable — export DEEPSEEK_API_KEY=<key>",
-			}),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("e2e-credentials-missing");
-		expect(outcome.aborted.message).toContain("export DEEPSEEK_API_KEY=<key>");
-		// the whole point: local CI never runs
-		expect(ciRan).toBe(false);
-	});
+  test("failing preflight aborts e2e-credentials-missing with exit 1 BEFORE local CI", async () => {
+    let ciRan = false;
+    const res = await runPrFinishCli(["42"], {
+      gh: fakeGh([OPEN_CLEAN]).gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => {
+        ciRan = true;
+        return ciPass();
+      },
+      e2ePreflight: () => ({
+        ok: false,
+        message: "e2e preflight: no deploy-e2e provider key is resolvable — export DEEPSEEK_API_KEY=<key>",
+      }),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("e2e-credentials-missing");
+    expect(outcome.aborted.message).toContain("export DEEPSEEK_API_KEY=<key>");
+    // the whole point: local CI never runs
+    expect(ciRan).toBe(false);
+  });
 
-	test("passing preflight proceeds to local CI; its notes ride the warnings", async () => {
-		const res = await runPrFinishCli(["42"], {
-			gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: async () => {},
-			e2ePreflight: () => ({
-				ok: true,
-				notes: ["e2e preflight: VERIFY_E2E_MODEL is unset — recommend a pin"],
-			}),
-		});
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.merged).toBe(true);
-		expect(
-			(outcome.warnings as string[]).some((w) => w.includes("VERIFY_E2E_MODEL is unset")),
-		).toBe(true);
-	});
+  test("passing preflight proceeds to local CI; its notes ride the warnings", async () => {
+    const res = await runPrFinishCli(["42"], {
+      gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: async () => {},
+      e2ePreflight: () => ({
+        ok: true,
+        notes: ["e2e preflight: VERIFY_E2E_MODEL is unset — recommend a pin"],
+      }),
+    });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.merged).toBe(true);
+    expect((outcome.warnings as string[]).some((w) => w.includes("VERIFY_E2E_MODEL is unset"))).toBe(true);
+  });
 
-	test("--assume-ci-green skips the preflight entirely (the documented escape hatch)", async () => {
-		const OID = "b".repeat(40);
-		let preflightRan = false;
-		let ciRuns = 0;
-		const noSleep = async () => {};
-		const ghParts = fakeGh([
-			{ ...OPEN_CLEAN, headRefOid: OID },
-			{ ...OPEN_CLEAN, headRefOid: OID },
-		]);
-		const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
-			gh: ghParts.gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => {
-				ciRuns++;
-				return ciPass();
-			},
-			sleep: noSleep,
-			e2ePreflight: () => {
-				preflightRan = true;
-				return { ok: false, message: "should not run" };
-			},
-		});
-		expect(preflightRan).toBe(false);
-		expect(ciRuns).toBe(0);
-		expect(res.exitCode).toBe(0);
-	});
+  test("--assume-ci-green skips the preflight entirely (the documented escape hatch)", async () => {
+    const OID = "b".repeat(40);
+    let preflightRan = false;
+    let ciRuns = 0;
+    const noSleep = async () => {};
+    const ghParts = fakeGh([
+      { ...OPEN_CLEAN, headRefOid: OID },
+      { ...OPEN_CLEAN, headRefOid: OID },
+    ]);
+    const res = await runPrFinishCli(["42", "--assume-ci-green", OID], {
+      gh: ghParts.gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => {
+        ciRuns++;
+        return ciPass();
+      },
+      sleep: noSleep,
+      e2ePreflight: () => {
+        preflightRan = true;
+        return { ok: false, message: "should not run" };
+      },
+    });
+    expect(preflightRan).toBe(false);
+    expect(ciRuns).toBe(0);
+    expect(res.exitCode).toBe(0);
+  });
 });
 
 // ── self-arc-15 t04 / MC-2: ciLogDir on the local_ci_failed abort ───────────
 describe("merge-pr-after-ci-cli — ciLogDir on failed local CI (MC-2)", () => {
-	test("a failing outcome with logFiles surfaces ciLogDir + logFiles in the abort", async () => {
-		const logFiles = [{ step: "typecheck:pkg-a", path: "/repo/output/ci-logs/pr-42-x/typecheck-pkg-a.log" }];
-		const res = await runPrFinishCli(["42"], {
-			gh: fakeGh([OPEN_CLEAN]).gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ({
-				...ciFail(),
-				logFiles,
-			}),
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("local_ci_failed");
-		expect(outcome.aborted.ciLogDir).toContain(join("output", "ci-logs"));
-		expect(outcome.aborted.logFiles).toEqual(logFiles);
-		expect(outcome.aborted.message).toContain("full logs:");
-	});
+  test("a failing outcome with logFiles surfaces ciLogDir + logFiles in the abort", async () => {
+    const logFiles = [{ step: "typecheck:pkg-a", path: "/repo/output/ci-logs/pr-42-x/typecheck-pkg-a.log" }];
+    const res = await runPrFinishCli(["42"], {
+      gh: fakeGh([OPEN_CLEAN]).gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ({
+        ...ciFail(),
+        logFiles,
+      }),
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("local_ci_failed");
+    expect(outcome.aborted.ciLogDir).toContain(join("output", "ci-logs"));
+    expect(outcome.aborted.logFiles).toEqual(logFiles);
+    expect(outcome.aborted.message).toContain("full logs:");
+  });
 });
 
 // ── self-arc-15 t06 / MC-5: held-elsewhere is a STRUCTURED outcome ──────────
 describe("merge-pr-after-ci-cli — cleanup.localKept (MC-5)", () => {
-	test("a branch held by another worktree is reported structurally, not just as a note", async () => {
-		const clientParts = fakeClient({
-			worktrees: [{ worktree: "/elsewhere/worktree", branch: "feature" }],
-		});
-		const res = await runPrFinishCli(["42"], {
-			gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
-			client: clientParts.client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: async () => {},
-			verify: async () => ({
-				pr: 42,
-				state: "MERGED",
-				merged: true,
-				verdict: "CLEAN",
-				files: [],
-				fileCount: 0,
-				insertions: 0,
-				deletions: 0,
-				outOfScope: [],
-				inspected: false,
-				// The merge deleted the REMOTE branch (REST mergeNow), so cleanup
-				// runs locally — and finds the local branch held elsewhere.
-				branchSpent: true,
-				commands: [],
-				warnings: [],
-			}) as Awaited<ReturnType<typeof runVerifyMerge>>,
-		});
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.cleanup?.localKept).toEqual({ branch: "feature", worktree: "/elsewhere/worktree" });
-		// The classic note still rides the warnings (both surfaces, by design).
-		expect(
-			(outcome.warnings as string[]).some((w) => w.includes("checked out in another worktree")),
-		).toBe(true);
-	});
+  test("a branch held by another worktree is reported structurally, not just as a note", async () => {
+    const clientParts = fakeClient({
+      worktrees: [{ worktree: "/elsewhere/worktree", branch: "feature" }],
+    });
+    const res = await runPrFinishCli(["42"], {
+      gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
+      client: clientParts.client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: async () => {},
+      verify: async () =>
+        ({
+          pr: 42,
+          state: "MERGED",
+          merged: true,
+          verdict: "CLEAN",
+          files: [],
+          fileCount: 0,
+          insertions: 0,
+          deletions: 0,
+          outOfScope: [],
+          inspected: false,
+          // The merge deleted the REMOTE branch (REST mergeNow), so cleanup
+          // runs locally — and finds the local branch held elsewhere.
+          branchSpent: true,
+          commands: [],
+          warnings: [],
+        }) as Awaited<ReturnType<typeof runVerifyMerge>>,
+    });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.cleanup?.localKept).toEqual({ branch: "feature", worktree: "/elsewhere/worktree" });
+    // The classic note still rides the warnings (both surfaces, by design).
+    expect((outcome.warnings as string[]).some((w) => w.includes("checked out in another worktree"))).toBe(true);
+  });
 
-	test("a normal (non-held) merge carries no cleanup field", async () => {
-		const res = await runPrFinishCli(["42"], {
-			gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
-			client: fakeClient().client,
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-			runCi: async () => ciPass(),
-			sleep: async () => {},
-			verify: async () => ({
-				pr: 42,
-				state: "MERGED",
-				merged: true,
-				verdict: "CLEAN",
-				files: [],
-				fileCount: 0,
-				insertions: 0,
-				deletions: 0,
-				outOfScope: [],
-				inspected: false,
-				branchSpent: false,
-				commands: [],
-				warnings: [],
-			}) as Awaited<ReturnType<typeof runVerifyMerge>>,
-		});
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.cleanup).toBeUndefined();
-		expect(res.exitCode).toBe(0);
-	});
+  test("a normal (non-held) merge carries no cleanup field", async () => {
+    const res = await runPrFinishCli(["42"], {
+      gh: fakeGh([OPEN_CLEAN, MERGED]).gh,
+      client: fakeClient().client,
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+      runCi: async () => ciPass(),
+      sleep: async () => {},
+      verify: async () =>
+        ({
+          pr: 42,
+          state: "MERGED",
+          merged: true,
+          verdict: "CLEAN",
+          files: [],
+          fileCount: 0,
+          insertions: 0,
+          deletions: 0,
+          outOfScope: [],
+          inspected: false,
+          branchSpent: false,
+          commands: [],
+          warnings: [],
+        }) as Awaited<ReturnType<typeof runVerifyMerge>>,
+    });
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.cleanup).toBeUndefined();
+    expect(res.exitCode).toBe(0);
+  });
 });

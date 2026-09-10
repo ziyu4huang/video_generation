@@ -26,27 +26,25 @@
  * gated assertions only exercise the loader/patch/entry chain listed here.
  */
 export const DEPLOY_SENSITIVE_PATTERNS: readonly string[] = [
-	"bun-apps/s2-agent-ext-devops/scripts/",
-	"bun-apps/s2-agent-ext-devops/src/deploy/",
-	"bun-apps/s2-agent/run.sh",
-	"s2-agent.sh", // repo-root symlink to bun-apps/s2-agent/run.sh
-	"bun-apps/s2-agent/package.json", // update-pi.sh + deploy are declared here
-	"bun-apps/s2-agent/src/cli.ts", // the source entry the launcher spawns
-	"bun-apps/s2-agent/src/patches/",
-	"bun-apps/s2-agent/src/static-extensions.ts",
-	"bun-apps/s2-agent/src/run-dir/manifest.json",
-	"bun-apps/s2-agent/scripts/",
+  "bun-apps/s2-agent-ext-devops/scripts/",
+  "bun-apps/s2-agent-ext-devops/src/deploy/",
+  "bun-apps/s2-agent/run.sh",
+  "s2-agent.sh", // repo-root symlink to bun-apps/s2-agent/run.sh
+  "bun-apps/s2-agent/package.json", // update-pi.sh + deploy are declared here
+  "bun-apps/s2-agent/src/cli.ts", // the source entry the launcher spawns
+  "bun-apps/s2-agent/src/patches/",
+  "bun-apps/s2-agent/src/static-extensions.ts",
+  "bun-apps/s2-agent/src/run-dir/manifest.json",
+  "bun-apps/s2-agent/scripts/",
 ];
 
 /** What the gate runs, from bun-apps/s2-agent. */
-export const DEPLOY_E2E_COMMAND =
-	"PI_AGENT_E2E=1 bun test src/__tests__/e2e-launcher.test.ts";
+export const DEPLOY_E2E_COMMAND = "PI_AGENT_E2E=1 bun test src/__tests__/e2e-launcher.test.ts";
 
 /** The gate's display name in the CiOutcome.gates list (consumed by ci-recipe). */
-export const DEPLOY_E2E_GATE_NAME =
-	"Launcher e2e — PI_AGENT_E2E gated assertions (change-triggered)";
+export const DEPLOY_E2E_GATE_NAME = "Launcher e2e — PI_AGENT_E2E gated assertions (change-triggered)";
 
 /** True when any changed file is deploy-sensitive. */
 export function shouldRunDeployE2e(changedFiles: string[]): boolean {
-	return changedFiles.some((f) => !f.endsWith(".md") && DEPLOY_SENSITIVE_PATTERNS.some((p) => f.includes(p)));
+  return changedFiles.some((f) => !f.endsWith(".md") && DEPLOY_SENSITIVE_PATTERNS.some((p) => f.includes(p)));
 }

@@ -32,36 +32,36 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { scanForeignPaths } from "./ext-build.ts";
-import { matchesExclusion } from "./vendor-closure.ts";
 // The builtin list is the CORE's (same no-second-copy rule as ext-build.ts).
 import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
+import { scanForeignPaths } from "./ext-build.ts";
+import { matchesExclusion } from "./vendor-closure.ts";
 
 /** Depth-first walk, never following symlinks (a link could escape the tree). */
 function walkLstat(dir: string, fn: (p: string) => void): void {
-	let entries: string[];
-	try {
-		entries = readdirSync(dir);
-	} catch {
-		return;
-	}
-	for (const name of entries) {
-		const p = join(dir, name);
-		let st;
-		try {
-			st = lstatSync(p);
-		} catch {
-			continue;
-		}
-		if (st.isSymbolicLink()) {
-			fn(p); // report the LINK itself, never recurse through it
-		} else if (st.isDirectory()) {
-			walkLstat(p, fn);
-			fn(p);
-		} else {
-			fn(p);
-		}
-	}
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    const p = join(dir, name);
+    let st: ReturnType<typeof lstatSync>;
+    try {
+      st = lstatSync(p);
+    } catch {
+      continue;
+    }
+    if (st.isSymbolicLink()) {
+      fn(p); // report the LINK itself, never recurse through it
+    } else if (st.isDirectory()) {
+      walkLstat(p, fn);
+      fn(p);
+    } else {
+      fn(p);
+    }
+  }
 }
 
 /**
@@ -70,23 +70,23 @@ function walkLstat(dir: string, fn: (p: string) => void): void {
  * caught too — a dangling link into ~/.bun is still a broken deploy.
  */
 export function scanSymlinkEscapes(root: string): string[] {
-	const rootAbs = resolve(root);
-	const escapes: string[] = [];
-	walkLstat(rootAbs, (p) => {
-		if (!lstatSync(p).isSymbolicLink()) return;
-		const target = readlinkSync(p);
-		const resolved = resolve(dirname(p), target);
-		if (resolved !== rootAbs && !resolved.startsWith(`${rootAbs}/`)) {
-			escapes.push(`${p} -> ${resolved}`);
-		}
-	});
-	return escapes;
+  const rootAbs = resolve(root);
+  const escapes: string[] = [];
+  walkLstat(rootAbs, (p) => {
+    if (!lstatSync(p).isSymbolicLink()) return;
+    const target = readlinkSync(p);
+    const resolved = resolve(dirname(p), target);
+    if (resolved !== rootAbs && !resolved.startsWith(`${rootAbs}/`)) {
+      escapes.push(`${p} -> ${resolved}`);
+    }
+  });
+  return escapes;
 }
 
 interface AllowlistEntry {
-	prefix: string;
-	maxHits: number;
-	reason: string;
+  prefix: string;
+  maxHits: number;
+  reason: string;
 }
 
 /**
@@ -102,74 +102,74 @@ interface AllowlistEntry {
  * match twice).
  */
 const BINARY_PATH_ALLOWLIST: AllowlistEntry[] = [
-	{
-		prefix: "~/.bun/install/cache/",
-		maxHits: 3,
-		reason: "bun's release binary embeds its own build-time toolchain cache paths; inert strings, not resolutions",
-	},
+  {
+    prefix: "~/.bun/install/cache/",
+    maxHits: 3,
+    reason: "bun's release binary embeds its own build-time toolchain cache paths; inert strings, not resolutions",
+  },
 ];
 
 export interface BinaryForeignPathsResult {
-	/** Home/repo paths that must fail the deploy. */
-	foreign: string[];
-	/** Allowlisted artifacts, printed as a build warning. */
-	allowed: string[];
+  /** Home/repo paths that must fail the deploy. */
+  foreign: string[];
+  /** Allowlisted artifacts, printed as a build warning. */
+  allowed: string[];
 }
 
 /** 5b. Foreign build-machine paths inside a scanned artifact (core bundle or shipped bun). */
 export function scanBinaryForeignPaths(
-	binaryPath: string,
-	finalTarget: string,
-	roots: { home?: string; repo?: string } = {},
+  binaryPath: string,
+  finalTarget: string,
+  roots: { home?: string; repo?: string } = {},
 ): BinaryForeignPathsResult {
-	// Invalid bytes decode to U+FFFD — harmless for a path-prefix scan.
-	const content = readFileSync(binaryPath, "utf8");
-	const foreign = scanForeignPaths(content, finalTarget, roots);
-	const home = roots.home ?? homedir();
+  // Invalid bytes decode to U+FFFD — harmless for a path-prefix scan.
+  const content = readFileSync(binaryPath, "utf8");
+  const foreign = scanForeignPaths(content, finalTarget, roots);
+  const home = roots.home ?? homedir();
 
-	const allowed: string[] = [];
-	const trulyForeign: string[] = [];
-	for (const entry of BINARY_PATH_ALLOWLIST) {
-		const prefix = entry.prefix.replace(/^~/, home);
-		const hits = foreign.filter((p) => p.startsWith(prefix));
-		allowed.push(...hits.slice(0, entry.maxHits));
-		trulyForeign.push(...hits.slice(entry.maxHits));
-	}
-	const matched = new Set(BINARY_PATH_ALLOWLIST.flatMap((e) =>
-		foreign.filter((p) => p.startsWith(e.prefix.replace(/^~/, home))),
-	));
-	trulyForeign.push(...foreign.filter((p) => !matched.has(p)));
+  const allowed: string[] = [];
+  const trulyForeign: string[] = [];
+  for (const entry of BINARY_PATH_ALLOWLIST) {
+    const prefix = entry.prefix.replace(/^~/, home);
+    const hits = foreign.filter((p) => p.startsWith(prefix));
+    allowed.push(...hits.slice(0, entry.maxHits));
+    trulyForeign.push(...hits.slice(entry.maxHits));
+  }
+  const matched = new Set(
+    BINARY_PATH_ALLOWLIST.flatMap((e) => foreign.filter((p) => p.startsWith(e.prefix.replace(/^~/, home)))),
+  );
+  trulyForeign.push(...foreign.filter((p) => !matched.has(p)));
 
-	return { foreign: trulyForeign, allowed };
+  return { foreign: trulyForeign, allowed };
 }
 
 interface ExtManifest {
-	vendored?: string[];
-	assets?: string[];
+  vendored?: string[];
+  assets?: string[];
 }
 
 /** 5c. Declared-but-unshipped vendor roots: [{ext, pkg}]. */
 export function verifyVendoredCompleteness(root: string): Array<{ ext: string; pkg: string }> {
-	const missing: Array<{ ext: string; pkg: string }> = [];
-	const extRoot = join(root, "ext");
-	if (!existsSync(extRoot)) return missing;
-	for (const name of readdirSync(extRoot)) {
-		const extDir = join(extRoot, name);
-		const manifestPath = join(extDir, "ext.json");
-		if (!existsSync(manifestPath)) continue;
-		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ExtManifest;
-		for (const pkg of manifest.vendored ?? []) {
-			if (!existsSync(join(extDir, "node_modules", pkg, "package.json"))) {
-				missing.push({ ext: name, pkg });
-			}
-		}
-	}
-	return missing;
+  const missing: Array<{ ext: string; pkg: string }> = [];
+  const extRoot = join(root, "ext");
+  if (!existsSync(extRoot)) return missing;
+  for (const name of readdirSync(extRoot)) {
+    const extDir = join(extRoot, name);
+    const manifestPath = join(extDir, "ext.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ExtManifest;
+    for (const pkg of manifest.vendored ?? []) {
+      if (!existsSync(join(extDir, "node_modules", pkg, "package.json"))) {
+        missing.push({ ext: name, pkg });
+      }
+    }
+  }
+  return missing;
 }
 
 interface PkgManifest {
-	name?: string;
-	dependencies?: Record<string, string>;
+  name?: string;
+  dependencies?: Record<string, string>;
 }
 
 /**
@@ -181,20 +181,20 @@ interface PkgManifest {
  * missing SOURCE; this checks the SHIPPED tree.
  */
 export function verifyAssetCompleteness(root: string): Array<{ ext: string; to: string }> {
-	const missing: Array<{ ext: string; to: string }> = [];
-	const extRoot = join(root, "ext");
-	if (!existsSync(extRoot)) return missing;
-	for (const name of readdirSync(extRoot)) {
-		const manifestPath = join(extRoot, name, "ext.json");
-		if (!existsSync(manifestPath)) continue;
-		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ExtManifest;
-		for (const to of manifest.assets ?? []) {
-			if (!existsSync(join(extRoot, name, to))) {
-				missing.push({ ext: name, to });
-			}
-		}
-	}
-	return missing;
+  const missing: Array<{ ext: string; to: string }> = [];
+  const extRoot = join(root, "ext");
+  if (!existsSync(extRoot)) return missing;
+  for (const name of readdirSync(extRoot)) {
+    const manifestPath = join(extRoot, name, "ext.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ExtManifest;
+    for (const to of manifest.assets ?? []) {
+      if (!existsSync(join(extRoot, name, to))) {
+        missing.push({ ext: name, to });
+      }
+    }
+  }
+  return missing;
 }
 
 /**
@@ -202,14 +202,14 @@ export function verifyAssetCompleteness(root: string): Array<{ ext: string; to: 
  * up to `root` (the same ancestor walk Node performs at runtime)?
  */
 function depResolves(root: string, pkgDir: string, dep: string): boolean {
-	for (let dir = pkgDir; ; dir = dirname(dir)) {
-		if (basename(dirname(dir)) === "node_modules" || basename(dir) === "node_modules") {
-			if (existsSync(join(dir, "..", "node_modules", dep, "package.json"))) return true;
-		}
-		if (existsSync(join(dir, "node_modules", dep, "package.json"))) return true;
-		if (dir === root || dirname(dir) === dir) break;
-	}
-	return false;
+  for (let dir = pkgDir; ; dir = dirname(dir)) {
+    if (basename(dirname(dir)) === "node_modules" || basename(dir) === "node_modules") {
+      if (existsSync(join(dir, "..", "node_modules", dep, "package.json"))) return true;
+    }
+    if (existsSync(join(dir, "node_modules", dep, "package.json"))) return true;
+    if (dir === root || dirname(dir) === dir) break;
+  }
+  return false;
 }
 
 /**
@@ -219,63 +219,59 @@ function depResolves(root: string, pkgDir: string, dep: string): boolean {
  * builder cannot disagree about what "excluded" means.
  */
 function collectExclusions(root: string): Array<{ dir: string; patterns: string[] }> {
-	const out: Array<{ dir: string; patterns: string[] }> = [];
-	const extRoot = join(root, "ext");
-	if (!existsSync(extRoot)) return out;
-	for (const name of readdirSync(extRoot)) {
-		const manifestPath = join(extRoot, name, "ext.json");
-		if (!existsSync(manifestPath)) continue;
-		const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
-			vendoredClosure?: { excluded?: string[] };
-		};
-		const patterns = manifest.vendoredClosure?.excluded ?? [];
-		if (patterns.length > 0) out.push({ dir: join(extRoot, name), patterns });
-	}
-	return out;
+  const out: Array<{ dir: string; patterns: string[] }> = [];
+  const extRoot = join(root, "ext");
+  if (!existsSync(extRoot)) return out;
+  for (const name of readdirSync(extRoot)) {
+    const manifestPath = join(extRoot, name, "ext.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+      vendoredClosure?: { excluded?: string[] };
+    };
+    const patterns = manifest.vendoredClosure?.excluded ?? [];
+    if (patterns.length > 0) out.push({ dir: join(extRoot, name), patterns });
+  }
+  return out;
 }
 
 /** 5d. Vendored packages whose HARD deps dangle: [{pkg, missing[]}]. */
 export function verifyVendoredClosure(root: string): Array<{ pkg: string; missing: string[] }> {
-	const rootAbs = resolve(root);
-	const violations = new Map<string, string[]>();
-	const exclusions = collectExclusions(rootAbs);
+  const rootAbs = resolve(root);
+  const violations = new Map<string, string[]>();
+  const exclusions = collectExclusions(rootAbs);
 
-	// Every dir named node_modules in the tree, top-level and nested.
-	const nodeModulesDirs: string[] = [];
-	walkLstat(rootAbs, (p) => {
-		if (lstatSync(p).isDirectory() && basename(p) === "node_modules") nodeModulesDirs.push(p);
-	});
+  // Every dir named node_modules in the tree, top-level and nested.
+  const nodeModulesDirs: string[] = [];
+  walkLstat(rootAbs, (p) => {
+    if (lstatSync(p).isDirectory() && basename(p) === "node_modules") nodeModulesDirs.push(p);
+  });
 
-	for (const nmDir of nodeModulesDirs) {
-		for (const entry of readdirSync(nmDir)) {
-			if (entry.startsWith(".")) continue;
-			const pkgDir = join(nmDir, entry);
-			if (!lstatSync(pkgDir).isDirectory()) continue;
-			// A scope dir contains packages; audit those.
-			const candidates = entry.startsWith("@")
-				? readdirSync(pkgDir).map((sub) => join(pkgDir, sub))
-				: [pkgDir];
-			for (const candidate of candidates) {
-				if (!existsSync(join(candidate, "package.json"))) continue;
-				const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as PkgManifest;
-				// An exclusion is honoured only for packages under the extension
-				// that declared it — one ext's vendorExclude must not mask
-				// another ext's genuinely dangling dep.
-				const ownerExclusions = exclusions
-					.filter((e) => candidate.startsWith(`${e.dir}/`))
-					.flatMap((e) => e.patterns);
-				const missing = Object.keys(manifest.dependencies ?? {}).filter(
-					(dep) =>
-						!isBuiltinSpecifier(dep) &&
-						!depResolves(rootAbs, candidate, dep) &&
-						!matchesExclusion(dep, ownerExclusions),
-				);
-				if (missing.length > 0) {
-					const key = manifest.name ?? candidate;
-					violations.set(key, [...(violations.get(key) ?? []), ...missing]);
-				}
-			}
-		}
-	}
-	return [...violations.entries()].map(([pkg, missing]) => ({ pkg, missing }));
+  for (const nmDir of nodeModulesDirs) {
+    for (const entry of readdirSync(nmDir)) {
+      if (entry.startsWith(".")) continue;
+      const pkgDir = join(nmDir, entry);
+      if (!lstatSync(pkgDir).isDirectory()) continue;
+      // A scope dir contains packages; audit those.
+      const candidates = entry.startsWith("@") ? readdirSync(pkgDir).map((sub) => join(pkgDir, sub)) : [pkgDir];
+      for (const candidate of candidates) {
+        if (!existsSync(join(candidate, "package.json"))) continue;
+        const manifest = JSON.parse(readFileSync(join(candidate, "package.json"), "utf8")) as PkgManifest;
+        // An exclusion is honoured only for packages under the extension
+        // that declared it — one ext's vendorExclude must not mask
+        // another ext's genuinely dangling dep.
+        const ownerExclusions = exclusions.filter((e) => candidate.startsWith(`${e.dir}/`)).flatMap((e) => e.patterns);
+        const missing = Object.keys(manifest.dependencies ?? {}).filter(
+          (dep) =>
+            !isBuiltinSpecifier(dep) &&
+            !depResolves(rootAbs, candidate, dep) &&
+            !matchesExclusion(dep, ownerExclusions),
+        );
+        if (missing.length > 0) {
+          const key = manifest.name ?? candidate;
+          violations.set(key, [...(violations.get(key) ?? []), ...missing]);
+        }
+      }
+    }
+  }
+  return [...violations.entries()].map(([pkg, missing]) => ({ pkg, missing }));
 }

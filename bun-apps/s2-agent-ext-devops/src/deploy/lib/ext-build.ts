@@ -25,16 +25,16 @@
  * escapes, binary paths, vendored closure) lives in offline-gate.ts.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
-import { evaluateExtModule, EXT_DIR_SPEC, extRequire } from "../../../../s2-agent/src/sh/ext-loader.ts";
+import { EXT_DIR_SPEC, evaluateExtModule, extRequire } from "../../../../s2-agent/src/sh/ext-loader.ts";
 // The builtin list is the CORE's — a second copy here would drift, and the gate
 // would then disagree with the runtime it is supposed to be simulating.
 import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
-import { isRuntimeDeadFile, vendorClosure } from "./vendor-closure.ts";
-import { walk } from "./fs.ts";
 import type { ShExtConfig } from "./config.ts";
+import { walk } from "./fs.ts";
+import { isRuntimeDeadFile, vendorClosure } from "./vendor-closure.ts";
 
 /**
  * Host modules are resolved from s2-agent's own package, not from the bundle's
@@ -45,50 +45,50 @@ import type { ShExtConfig } from "./config.ts";
 const PI_AGENT_DIR = resolve(import.meta.dir, "..", "..", "..", "..", "s2-agent");
 
 export interface BuildExtOptions {
-	ext: ShExtConfig;
-	/**
-	 * Root of the deploy tree being written (the staging dir during a full
-	 * deploy). Gate 4 treats paths under it as legitimate; without it the gate
-	 * would flag the extension's own output.
-	 */
-	deployRoot: string;
-	/** Absolute path to bun-apps/. */
-	bunAppsDir: string;
-	/** Absolute path to the extension's output dir (…/ext/<name>). */
-	outDir: string;
-	hostApi: number;
-	hostModules: readonly string[];
-	sourceSha: string;
-	builtAt: string;
-	/**
-	 * Per-gate timing callback, fired after each of Gates 1/1b/2/4 passes —
-	 * the deploy report's gate matrix. Only called on pass: a failed gate
-	 * throws and the deploy aborts before any report is written, so there is
-	 * no "fail" observation to report.
-	 */
-	onGate?: (id: string, ms: number) => void;
-	/**
-	 * Cross-OS vendoring (crossos-deploy t05): the TARGET platform the
-	 * vendored closure is filtered for (os/cpu/libc match). Absent → the
-	 * build host, the pre-t05 behavior.
-	 */
-	vendorPlatform?: NodeJS.Platform;
-	vendorArch?: string;
-	vendorLibc?: "glibc" | "musl" | null;
+  ext: ShExtConfig;
+  /**
+   * Root of the deploy tree being written (the staging dir during a full
+   * deploy). Gate 4 treats paths under it as legitimate; without it the gate
+   * would flag the extension's own output.
+   */
+  deployRoot: string;
+  /** Absolute path to bun-apps/. */
+  bunAppsDir: string;
+  /** Absolute path to the extension's output dir (…/ext/<name>). */
+  outDir: string;
+  hostApi: number;
+  hostModules: readonly string[];
+  sourceSha: string;
+  builtAt: string;
+  /**
+   * Per-gate timing callback, fired after each of Gates 1/1b/2/4 passes —
+   * the deploy report's gate matrix. Only called on pass: a failed gate
+   * throws and the deploy aborts before any report is written, so there is
+   * no "fail" observation to report.
+   */
+  onGate?: (id: string, ms: number) => void;
+  /**
+   * Cross-OS vendoring (crossos-deploy t05): the TARGET platform the
+   * vendored closure is filtered for (os/cpu/libc match). Absent → the
+   * build host, the pre-t05 behavior.
+   */
+  vendorPlatform?: NodeJS.Platform;
+  vendorArch?: string;
+  vendorLibc?: "glibc" | "musl" | null;
 }
 
 /** Time one gate body; report the duration to opts.onGate on pass. */
 function timedGate(opts: BuildExtOptions, id: string, run: () => void): void {
-	const t0 = performance.now();
-	run();
-	opts.onGate?.(id, performance.now() - t0);
+  const t0 = performance.now();
+  run();
+  opts.onGate?.(id, performance.now() - t0);
 }
 
 export interface BuildExtResult {
-	name: string;
-	bytes: number;
-	hostModules: string[];
-	vendored: string[];
+  name: string;
+  bytes: number;
+  hostModules: string[];
+  vendored: string[];
 }
 
 /**
@@ -97,9 +97,9 @@ export interface BuildExtResult {
  * brackets) before a caller ever sees them.
  */
 function isValidModuleSpec(s: string): boolean {
-	if (s.length < 2) return false;
-	if (/[\s(){}=;<>+]/.test(s)) return false;
-	return true;
+  if (s.length < 2) return false;
+  if (/[\s(){}=;<>+]/.test(s)) return false;
+  return true;
 }
 
 // The `from` / `import(` alternation matches ESM import + re-export forms.
@@ -112,8 +112,7 @@ function isValidModuleSpec(s: string): boolean {
 // word char or `-` (minified `export{a}from"x"` → preceded by `}`;
 // `import a from"x"` → preceded by a space), so the lookbehind rejects only the
 // false positives. `import(` needs no anchor (the `(` disambiguates).
-const BARE_SPEC_RE =
-	/(?:((?<![\w$-])from|import\()\s*)(["'])([^"'#.][^"'']*?)\2/g;
+const BARE_SPEC_RE = /(?:((?<![\w$-])from|import\()\s*)(["'])([^"'#.][^"'']*?)\2/g;
 
 /**
  * Scan bundled code for ESM bare specifiers (`from "x"`, `import("x")`,
@@ -126,14 +125,14 @@ const BARE_SPEC_RE =
  * consumer this was: Gate 1 below.
  */
 export function extractBareSpecifiers(code: string): string[] {
-	const bare = new Set<string>();
-	for (const m of code.matchAll(BARE_SPEC_RE)) {
-		const spec = m[3];
-		if (spec.includes("${") || spec.includes(" + ")) continue;
-		if (!isValidModuleSpec(spec)) continue;
-		bare.add(spec);
-	}
-	return [...bare];
+  const bare = new Set<string>();
+  for (const m of code.matchAll(BARE_SPEC_RE)) {
+    const spec = m[3];
+    if (spec.includes("${") || spec.includes(" + ")) continue;
+    if (!isValidModuleSpec(spec)) continue;
+    bare.add(spec);
+  }
+  return [...bare];
 }
 
 /**
@@ -144,22 +143,22 @@ export function extractBareSpecifiers(code: string): string[] {
  * `chromium-bidi/lib/cjs/bidiMapper/BidiMapper`.
  */
 export function matchesAllowed(spec: string, allowed: readonly string[]): boolean {
-	for (const entry of allowed) {
-		if (entry === spec) return true;
-		if (entry.endsWith("/*") && spec.startsWith(entry.slice(0, -1))) return true;
-	}
-	return false;
+  for (const entry of allowed) {
+    if (entry === spec) return true;
+    if (entry.endsWith("/*") && spec.startsWith(entry.slice(0, -1))) return true;
+  }
+  return false;
 }
 
 /** Bare specifiers left in the bundle that neither the host nor the config allows. */
 export function scanForeignSpecifiers(code: string, allowed: readonly string[]): string[] {
-	const foreign = new Set<string>();
-	for (const spec of extractBareSpecifiers(code)) {
-		if (isBuiltinSpecifier(spec)) continue;
-		if (matchesAllowed(spec, allowed)) continue;
-		foreign.add(spec);
-	}
-	return [...foreign];
+  const foreign = new Set<string>();
+  for (const spec of extractBareSpecifiers(code)) {
+    if (isBuiltinSpecifier(spec)) continue;
+    if (matchesAllowed(spec, allowed)) continue;
+    foreign.add(spec);
+  }
+  return [...foreign];
 }
 
 /**
@@ -173,46 +172,46 @@ export function scanForeignSpecifiers(code: string, allowed: readonly string[]):
  * what made an earlier version of this probe pass while proving nothing.
  */
 export function loadProbe(
-	cjsPath: string,
-	hostModules: readonly string[],
-	resolveFrom = PI_AGENT_DIR,
-	hostModuleIds: readonly string[] = hostModules,
+  cjsPath: string,
+  hostModules: readonly string[],
+  resolveFrom = PI_AGENT_DIR,
+  hostModuleIds: readonly string[] = hostModules,
 ): void {
-	const code = readFileSync(cjsPath, "utf8");
-	const nodeRequire = createRequire(join(resolveFrom, "package.json"));
-	const probeRequire = (spec: string): unknown => {
-		// Node/Bun builtins are resolved for real: a minified bundle calls
-		// require("module")/require("node:fs") for its own interop shims, and those
-		// are not host modules — rejecting them would fail every real bundle.
-		if (isBuiltinSpecifier(spec)) return nodeRequire(spec);
-		if (!matchesAllowed(spec, hostModules)) throw new Error(`bundle required non-host module "${spec}"`);
-		try {
-			// Bun.resolveSync honors the workspace's isolated linker (packages live
-			// in the global store, reachable only through that resolution), which a
-			// bare createRequire from the package dir cannot follow.
-			return nodeRequire(Bun.resolveSync(spec, resolveFrom));
-		} catch (e) {
-			// A declared runtime external is allowed to be unresolvable here: that is
-			// precisely why it was left out of the bundle. Only a HOST module failing
-			// to resolve means the build machine is broken.
-			if (!hostModuleIds.includes(spec)) return new Proxy({}, { get: () => () => undefined });
-			throw new Error(
-				`host module "${spec}" could not be resolved from ${resolveFrom}: ${e instanceof Error ? e.message : String(e)}. ` +
-					`The core embeds it, so the build machine must be able to resolve it too — run \`bun install\` in bun-apps/.`,
-			);
-		}
-	};
-	const exports = evaluateExtModule(code, cjsPath, join(cjsPath, ".."), probeRequire);
-	if (typeof exports.default !== "function") {
-		throw new Error(`${cjsPath}: bundle has no callable default export`);
-	}
+  const code = readFileSync(cjsPath, "utf8");
+  const nodeRequire = createRequire(join(resolveFrom, "package.json"));
+  const probeRequire = (spec: string): unknown => {
+    // Node/Bun builtins are resolved for real: a minified bundle calls
+    // require("module")/require("node:fs") for its own interop shims, and those
+    // are not host modules — rejecting them would fail every real bundle.
+    if (isBuiltinSpecifier(spec)) return nodeRequire(spec);
+    if (!matchesAllowed(spec, hostModules)) throw new Error(`bundle required non-host module "${spec}"`);
+    try {
+      // Bun.resolveSync honors the workspace's isolated linker (packages live
+      // in the global store, reachable only through that resolution), which a
+      // bare createRequire from the package dir cannot follow.
+      return nodeRequire(Bun.resolveSync(spec, resolveFrom));
+    } catch (e) {
+      // A declared runtime external is allowed to be unresolvable here: that is
+      // precisely why it was left out of the bundle. Only a HOST module failing
+      // to resolve means the build machine is broken.
+      if (!hostModuleIds.includes(spec)) return new Proxy({}, { get: () => () => undefined });
+      throw new Error(
+        `host module "${spec}" could not be resolved from ${resolveFrom}: ${e instanceof Error ? e.message : String(e)}. ` +
+          `The core embeds it, so the build machine must be able to resolve it too — run \`bun install\` in bun-apps/.`,
+      );
+    }
+  };
+  const exports = evaluateExtModule(code, cjsPath, join(cjsPath, ".."), probeRequire);
+  if (typeof exports.default !== "function") {
+    throw new Error(`${cjsPath}: bundle has no callable default export`);
+  }
 }
 
 export interface ExtBundle {
-	/** The module exports object evaluated with the runtime loader contract. */
-	exports: Record<string, unknown>;
-	/** The deployed ext dir the bundle was evaluated against (#pi/ext-dir). */
-	extDir: string;
+  /** The module exports object evaluated with the runtime loader contract. */
+  exports: Record<string, unknown>;
+  /** The deployed ext dir the bundle was evaluated against (#pi/ext-dir). */
+  extDir: string;
 }
 
 /**
@@ -226,39 +225,39 @@ export interface ExtBundle {
  * silently degrade to a stub and the probe would stop proving anything).
  */
 export async function evaluateExtBundle(
-	cjsPath: string,
-	hostModules: readonly string[],
-	opts: { resolveFrom?: string } = {},
+  cjsPath: string,
+  hostModules: readonly string[],
+  opts: { resolveFrom?: string } = {},
 ): Promise<ExtBundle> {
-	const code = readFileSync(cjsPath, "utf8");
-	const extDir = join(cjsPath, "..");
-	const resolveFrom = opts.resolveFrom ?? PI_AGENT_DIR;
-	const nodeRequire = createRequire(join(resolveFrom, "package.json"));
-	const allowed = (spec: string): boolean =>
-		matchesAllowed(spec, hostModules) || hostModules.some((e) => e !== "" && spec.startsWith(`${e}/`));
-	// Same contract as the runtime: host modules served by the host require
-	// first, then the ext dir's own require for vendored packages (the deployed
-	// vendored copy at <extDir>/node_modules, loaded for real — bun's require
-	// interops ESM vendored packages).
-	const hostRequireForProbe = (spec: string): unknown => {
-		if (isBuiltinSpecifier(spec)) return nodeRequire(spec);
-		if (!allowed(spec)) throw new EvalError(`bundle required non-host module "${spec}"`);
-		return nodeRequire(Bun.resolveSync(spec, resolveFrom));
-	};
-	const probeRequire = extRequire(extDir, hostRequireForProbe) as unknown as {
-		(spec: string): unknown;
-		resolve?: (spec: string) => string;
-	};
-	// require.resolve returns the PATH (matching require.resolve semantics —
-	// the bundle takes dirname() of it), resolved against the DEPLOYED ext dir
-	// so the probe reads the deployed vendored copy, not the build machine's.
-	probeRequire.resolve = (spec: string): string =>
-		isBuiltinSpecifier(spec) ? nodeRequire.resolve(spec) : Bun.resolveSync(spec, join(extDir, "__probe__.ts"));
-	const exports = evaluateExtModule(code, cjsPath, extDir, probeRequire);
-	if (typeof exports.default !== "function") {
-		throw new Error(`${cjsPath}: bundle has no callable default export`);
-	}
-	return { exports: exports as Record<string, unknown>, extDir };
+  const code = readFileSync(cjsPath, "utf8");
+  const extDir = join(cjsPath, "..");
+  const resolveFrom = opts.resolveFrom ?? PI_AGENT_DIR;
+  const nodeRequire = createRequire(join(resolveFrom, "package.json"));
+  const allowed = (spec: string): boolean =>
+    matchesAllowed(spec, hostModules) || hostModules.some((e) => e !== "" && spec.startsWith(`${e}/`));
+  // Same contract as the runtime: host modules served by the host require
+  // first, then the ext dir's own require for vendored packages (the deployed
+  // vendored copy at <extDir>/node_modules, loaded for real — bun's require
+  // interops ESM vendored packages).
+  const hostRequireForProbe = (spec: string): unknown => {
+    if (isBuiltinSpecifier(spec)) return nodeRequire(spec);
+    if (!allowed(spec)) throw new EvalError(`bundle required non-host module "${spec}"`);
+    return nodeRequire(Bun.resolveSync(spec, resolveFrom));
+  };
+  const probeRequire = extRequire(extDir, hostRequireForProbe) as unknown as {
+    (spec: string): unknown;
+    resolve?: (spec: string) => string;
+  };
+  // require.resolve returns the PATH (matching require.resolve semantics —
+  // the bundle takes dirname() of it), resolved against the DEPLOYED ext dir
+  // so the probe reads the deployed vendored copy, not the build machine's.
+  probeRequire.resolve = (spec: string): string =>
+    isBuiltinSpecifier(spec) ? nodeRequire.resolve(spec) : Bun.resolveSync(spec, join(extDir, "__probe__.ts"));
+  const exports = evaluateExtModule(code, cjsPath, extDir, probeRequire);
+  if (typeof exports.default !== "function") {
+    throw new Error(`${cjsPath}: bundle has no callable default export`);
+  }
+  return { exports: exports as Record<string, unknown>, extDir };
 }
 
 /**
@@ -270,23 +269,25 @@ export async function evaluateExtBundle(
  * machine.
  */
 export async function executeExtTool(
-	cjsPath: string,
-	toolName: string,
-	params: Record<string, unknown>,
-	hostModules: readonly string[],
-	opts: { resolveFrom?: string } = {},
+  cjsPath: string,
+  toolName: string,
+  params: Record<string, unknown>,
+  hostModules: readonly string[],
+  opts: { resolveFrom?: string } = {},
 ): Promise<unknown> {
-	const { exports } = await evaluateExtBundle(cjsPath, hostModules, opts);
-	const tools: Array<{ name: string; execute: (...a: unknown[]) => unknown }> = [];
-	(exports.default as (api: unknown) => void)({
-		on: () => undefined,
-		registerTool: (tool: { name: string; execute: (...a: unknown[]) => unknown }) => tools.push(tool),
-	});
-	const tool = tools.find((t) => t.name === toolName);
-	if (!tool) {
-		throw new Error(`${cjsPath}: tool "${toolName}" not registered (registered: ${tools.map((t) => t.name).join(", ")})`);
-	}
-	return await tool.execute("e2e-probe", params, undefined, undefined, undefined);
+  const { exports } = await evaluateExtBundle(cjsPath, hostModules, opts);
+  const tools: Array<{ name: string; execute: (...a: unknown[]) => unknown }> = [];
+  (exports.default as (api: unknown) => void)({
+    on: () => undefined,
+    registerTool: (tool: { name: string; execute: (...a: unknown[]) => unknown }) => tools.push(tool),
+  });
+  const tool = tools.find((t) => t.name === toolName);
+  if (!tool) {
+    throw new Error(
+      `${cjsPath}: tool "${toolName}" not registered (registered: ${tools.map((t) => t.name).join(", ")})`,
+    );
+  }
+  return await tool.execute("e2e-probe", params, undefined, undefined, undefined);
 }
 
 /**
@@ -307,34 +308,34 @@ export async function executeExtTool(
  * The prefix is stripped before matching.
  */
 export function scanForeignPaths(
-	code: string,
-	deployRoot: string,
-	roots: { home?: string; repo?: string } = {},
+  code: string,
+  deployRoot: string,
+  roots: { home?: string; repo?: string } = {},
 ): string[] {
-	// Separator-normalize both sides: a WINDOWS build host (crossos t06 makes
-	// windows-latest one) bakes `C:\Users\…` paths, and the allow-list prefixes
-	// must compare against them with one spelling.
-	const norm = (s: string) => s.replace(/\\/g, "/");
-	// Windows filesystems are case-insensitive: a baked "c:/users/…" vs
-	// homedir()'s "C:/Users/…" is the same allow-listed path, not a foreign
-	// one (crossos t06 review). Case-fold only when a WINDOWS-shaped path is
-	// in play, so POSIX matching stays exact.
-	const eqFold = (s: string) => (/^[A-Za-z]:[\/\\]/.test(s) ? norm(s).toLowerCase() : norm(s));
-	const home = eqFold(roots.home ?? homedir());
-	const repo = eqFold(roots.repo ?? resolve(PI_AGENT_DIR, "..", ".."));
-	const root = eqFold(deployRoot);
-	const piState = `${home}/.pi`;
-	const found = new Set<string>();
-	// Drive-letter absolute paths (`C:\…` / `C:/…`) alongside POSIX `/…` —
-	// the win32 build-host spelling a leading-`/`-only anchor would miss.
-	for (const m of code.matchAll(/["'`]((?:file:\/\/)?(?:[A-Za-z]:[\/\\]|\/)[^"'`\n]{4,}?)["'`]/g)) {
-		const raw = norm(m[1]!.replace(/^file:\/\//, ""));
-		const p = eqFold(raw); // case-folded copy for COMPARISON only
-		if (p.startsWith(root)) continue;
-		if (p === piState || p.startsWith(`${piState}/`)) continue;
-		if (p.startsWith(`${home}/`) || p.startsWith(`${repo}/`)) found.add(raw);
-	}
-	return [...found];
+  // Separator-normalize both sides: a WINDOWS build host (crossos t06 makes
+  // windows-latest one) bakes `C:\Users\…` paths, and the allow-list prefixes
+  // must compare against them with one spelling.
+  const norm = (s: string) => s.replace(/\\/g, "/");
+  // Windows filesystems are case-insensitive: a baked "c:/users/…" vs
+  // homedir()'s "C:/Users/…" is the same allow-listed path, not a foreign
+  // one (crossos t06 review). Case-fold only when a WINDOWS-shaped path is
+  // in play, so POSIX matching stays exact.
+  const eqFold = (s: string) => (/^[A-Za-z]:[/\\]/.test(s) ? norm(s).toLowerCase() : norm(s));
+  const home = eqFold(roots.home ?? homedir());
+  const repo = eqFold(roots.repo ?? resolve(PI_AGENT_DIR, "..", ".."));
+  const root = eqFold(deployRoot);
+  const piState = `${home}/.pi`;
+  const found = new Set<string>();
+  // Drive-letter absolute paths (`C:\…` / `C:/…`) alongside POSIX `/…` —
+  // the win32 build-host spelling a leading-`/`-only anchor would miss.
+  for (const m of code.matchAll(/["'`]((?:file:\/\/)?(?:[A-Za-z]:[/\\]|\/)[^"'`\n]{4,}?)["'`]/g)) {
+    const raw = norm(m[1]!.replace(/^file:\/\//, ""));
+    const p = eqFold(raw); // case-folded copy for COMPARISON only
+    if (p.startsWith(root)) continue;
+    if (p === piState || p.startsWith(`${piState}/`)) continue;
+    if (p.startsWith(`${home}/`) || p.startsWith(`${repo}/`)) found.add(raw);
+  }
+  return [...found];
 }
 
 /**
@@ -357,26 +358,26 @@ export function scanForeignPaths(
  * family exists to prevent.
  */
 export function rewriteVendoredDynamicImports(code: string, vendor: readonly string[]): string {
-	let out = code;
-	for (const spec of vendor) {
-		const q = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		out = out.replace(new RegExp(`import\\(\\s*(["'\`])${q}\\1\\s*\\)`, "g"), `Promise.resolve(require("${spec}"))`);
-		if (new RegExp(`import\\(\\s*["'\`]${q}["'\`]`).test(out)) {
-			throw new Error(`rewriteVendoredDynamicImports: "${spec}" still dynamically imported after rewrite`);
-		}
-	}
-	return out;
+  let out = code;
+  for (const spec of vendor) {
+    const q = spec.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(`import\\(\\s*(["'\`])${q}\\1\\s*\\)`, "g"), `Promise.resolve(require("${spec}"))`);
+    if (new RegExp(`import\\(\\s*["'\`]${q}["'\`]`).test(out)) {
+      throw new Error(`rewriteVendoredDynamicImports: "${spec}" still dynamically imported after rewrite`);
+    }
+  }
+  return out;
 }
 
 /** All literal dynamic-import specifiers in `code` (template concat skipped). */
 function dynamicImportSpecs(code: string): string[] {
-	const specs = new Set<string>();
-	for (const m of code.matchAll(/import\(\s*(["'`])([^"'`]+)\1\s*\)/g)) {
-		const spec = m[2]!;
-		if (spec.includes("${")) continue;
-		specs.add(spec);
-	}
-	return [...specs];
+  const specs = new Set<string>();
+  for (const m of code.matchAll(/import\(\s*(["'`])([^"'`]+)\1\s*\)/g)) {
+    const spec = m[2]!;
+    if (spec.includes("${")) continue;
+    specs.add(spec);
+  }
+  return [...specs];
 }
 
 /**
@@ -398,19 +399,19 @@ function dynamicImportSpecs(code: string): string[] {
  * which rejects them outright.
  */
 export function rewriteAllowedDynamicImports(code: string, allowed: readonly string[]): string {
-	let out = code;
-	for (const spec of dynamicImportSpecs(code)) {
-		if (isBuiltinSpecifier(spec)) continue;
-		if (!matchesAllowed(spec, allowed)) continue;
-		const q = escapeRegExp(spec);
-		out = out.replace(new RegExp(`import\\(\\s*(["'\`])${q}\\1\\s*\\)`, "g"), `Promise.resolve(require("${spec}"))`);
-	}
-	return out;
+  let out = code;
+  for (const spec of dynamicImportSpecs(code)) {
+    if (isBuiltinSpecifier(spec)) continue;
+    if (!matchesAllowed(spec, allowed)) continue;
+    const q = escapeRegExp(spec);
+    out = out.replace(new RegExp(`import\\(\\s*(["'\`])${q}\\1\\s*\\)`, "g"), `Promise.resolve(require("${spec}"))`);
+  }
+  return out;
 }
 
 /** Escape a literal for embedding in a RegExp. Shared — a drifted copy silently mis-matches. */
 function escapeRegExp(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
@@ -420,13 +421,9 @@ function escapeRegExp(s: string): string {
  * relative/absolute paths, and the `#pi/…` channel are exempt.
  */
 export function scanUnroutableDynamicImports(code: string): string[] {
-	return dynamicImportSpecs(code).filter(
-		(spec) =>
-			!isBuiltinSpecifier(spec) &&
-			!spec.startsWith(".") &&
-			!spec.startsWith("/") &&
-			!spec.startsWith("#"),
-	);
+  return dynamicImportSpecs(code).filter(
+    (spec) => !isBuiltinSpecifier(spec) && !spec.startsWith(".") && !spec.startsWith("/") && !spec.startsWith("#"),
+  );
 }
 
 /**
@@ -450,36 +447,34 @@ export function scanUnroutableDynamicImports(code: string): string[] {
  * rewrite cannot see (or the package stopped folding), and a silent no-op is
  * the failure mode the gate family exists to prevent.
  */
-export function rewriteAssetImportMetaFolds(
-	code: string,
-	pkgs: readonly string[],
-	resolveFrom: string,
-): string {
-	let out = code;
-	let total = 0;
-	for (const pkg of pkgs) {
-		const dir = resolve(Bun.resolveSync(`${pkg}/package.json`, resolveFrom), "..");
-		const re = assetFoldRegex(dir);
-		// match/replace on a g-flagged regex are stateless (both reset
-		// lastIndex) — one compiled RegExp serves both passes.
-		total += code.match(re)?.length ?? 0;
-		out = out.replace(re, `file:///__s2-inlined-assets/${pkg}/`);
-	}
-	if (pkgs.length > 0 && total === 0) {
-		// Self-diagnosing assert: the next host may fold in yet another
-		// spelling. Embedding what IS baked in the bundle turns a remote CI
-		// failure into the measurement needed for the fix (crossos windows
-		// row has no interactive access to the staged tree).
-		const fileUrlish = code.match(/file:\/\/[^"'\s]{4,160}/g) ?? [];
-		const driveish = code.match(/[A-Za-z]:[\\/][^"'\s]{4,160}/g) ?? [];
-		const baked = [...new Set([...fileUrlish, ...driveish])].slice(0, 5);
-		throw new Error(
-			`rewriteAssetImportMetaFolds: expected import.meta.url fold(s) from asset package(s) [${pkgs.join(", ")}] — none found. ` +
-				`Either the packages stopped folding import.meta.url (relax this assert) or the fold shape moved (update this rewrite). ` +
-				(baked.length > 0 ? `Baked machine-path strings in the bundle: ${JSON.stringify(baked)}` : "No file:// or drive-letter strings found in the bundle at all."),
-		);
-	}
-	return out;
+export function rewriteAssetImportMetaFolds(code: string, pkgs: readonly string[], resolveFrom: string): string {
+  let out = code;
+  let total = 0;
+  for (const pkg of pkgs) {
+    const dir = resolve(Bun.resolveSync(`${pkg}/package.json`, resolveFrom), "..");
+    const re = assetFoldRegex(dir);
+    // match/replace on a g-flagged regex are stateless (both reset
+    // lastIndex) — one compiled RegExp serves both passes.
+    total += code.match(re)?.length ?? 0;
+    out = out.replace(re, `file:///__s2-inlined-assets/${pkg}/`);
+  }
+  if (pkgs.length > 0 && total === 0) {
+    // Self-diagnosing assert: the next host may fold in yet another
+    // spelling. Embedding what IS baked in the bundle turns a remote CI
+    // failure into the measurement needed for the fix (crossos windows
+    // row has no interactive access to the staged tree).
+    const fileUrlish = code.match(/file:\/\/[^"'\s]{4,160}/g) ?? [];
+    const driveish = code.match(/[A-Za-z]:[\\/][^"'\s]{4,160}/g) ?? [];
+    const baked = [...new Set([...fileUrlish, ...driveish])].slice(0, 5);
+    throw new Error(
+      `rewriteAssetImportMetaFolds: expected import.meta.url fold(s) from asset package(s) [${pkgs.join(", ")}] — none found. ` +
+        `Either the packages stopped folding import.meta.url (relax this assert) or the fold shape moved (update this rewrite). ` +
+        (baked.length > 0
+          ? `Baked machine-path strings in the bundle: ${JSON.stringify(baked)}`
+          : "No file:// or drive-letter strings found in the bundle at all."),
+    );
+  }
+  return out;
 }
 
 /**
@@ -496,12 +491,12 @@ export function rewriteAssetImportMetaFolds(
  * fold is still this package's dir.
  */
 export function assetFoldRegex(dir: string): RegExp {
-	const fwd = dir.replaceAll("\\", "/");
-	// Encode exactly the characters a URL path must encode (anything outside
-	// RFC 3986 pchar + "/"); ":" stays raw so drive letters survive.
-	const encoded = fwd.replace(/[^\w\-._~!$&'()*+,;=:@/]/g, (c) => encodeURIComponent(c));
-	const alt = encoded === fwd ? escapeRegExp(fwd) : `${escapeRegExp(fwd)}|${escapeRegExp(encoded)}`;
-	return new RegExp(`file:///?(${alt})/`, "gi");
+  const fwd = dir.replaceAll("\\", "/");
+  // Encode exactly the characters a URL path must encode (anything outside
+  // RFC 3986 pchar + "/"); ":" stays raw so drive letters survive.
+  const encoded = fwd.replace(/[^\w\-._~!$&'()*+,;=:@/]/g, (c) => encodeURIComponent(c));
+  const alt = encoded === fwd ? escapeRegExp(fwd) : `${escapeRegExp(fwd)}|${escapeRegExp(encoded)}`;
+  return new RegExp(`file:///?(${alt})/`, "gi");
 }
 
 /**
@@ -518,26 +513,26 @@ export function assetFoldRegex(dir: string): RegExp {
  * silently shipping a bundle whose assets were dropped ships a broken ext.
  */
 export function copyDeployAssets(
-	assets: ReadonlyArray<{ pkg: string; from: string; to: string }>,
-	outDir: string,
-	resolveFrom: string,
+  assets: ReadonlyArray<{ pkg: string; from: string; to: string }>,
+  outDir: string,
+  resolveFrom: string,
 ): string[] {
-	const copied: string[] = [];
-	for (const a of assets) {
-		const pkgJson = Bun.resolveSync(`${a.pkg}/package.json`, resolveFrom);
-		const src = resolve(pkgJson, "..", a.from);
-		if (!existsSync(src)) {
-			throw new Error(
-				`asset "${a.pkg}/${a.from}" not found at ${src} — payloads come verbatim from npm; ` +
-					`run \`bun install\` in bun-apps/ (via the configured npm registry/mirror), then deploy again`,
-			);
-		}
-		const dest = join(outDir, a.to);
-		mkdirSync(resolve(dest, ".."), { recursive: true });
-		cpSync(src, dest, { recursive: true, dereference: true });
-		copied.push(a.to);
-	}
-	return copied;
+  const copied: string[] = [];
+  for (const a of assets) {
+    const pkgJson = Bun.resolveSync(`${a.pkg}/package.json`, resolveFrom);
+    const src = resolve(pkgJson, "..", a.from);
+    if (!existsSync(src)) {
+      throw new Error(
+        `asset "${a.pkg}/${a.from}" not found at ${src} — payloads come verbatim from npm; ` +
+          `run \`bun install\` in bun-apps/ (via the configured npm registry/mirror), then deploy again`,
+      );
+    }
+    const dest = join(outDir, a.to);
+    mkdirSync(resolve(dest, ".."), { recursive: true });
+    cpSync(src, dest, { recursive: true, dereference: true });
+    copied.push(a.to);
+  }
+  return copied;
 }
 
 /**
@@ -552,12 +547,12 @@ export function copyDeployAssets(
  * the same tree (see isRuntimeDeadFile).
  */
 export function vendorPackage(spec: string, outDir: string, resolveFrom: string): string {
-	const pkgJson = Bun.resolveSync(`${spec}/package.json`, resolveFrom);
-	const srcDir = resolve(pkgJson, "..");
-	const destDir = join(outDir, "node_modules", spec);
-	mkdirSync(resolve(destDir, ".."), { recursive: true });
-	cpSync(srcDir, destDir, { recursive: true, dereference: true, filter: (src) => !isRuntimeDeadFile(src) });
-	return destDir;
+  const pkgJson = Bun.resolveSync(`${spec}/package.json`, resolveFrom);
+  const srcDir = resolve(pkgJson, "..");
+  const destDir = join(outDir, "node_modules", spec);
+  mkdirSync(resolve(destDir, ".."), { recursive: true });
+  cpSync(srcDir, destDir, { recursive: true, dereference: true, filter: (src) => !isRuntimeDeadFile(src) });
+  return destDir;
 }
 
 /**
@@ -574,246 +569,239 @@ export function vendorPackage(spec: string, outDir: string, resolveFrom: string)
  * nothing is the failure mode this gate family exists to prevent.
  */
 export function patchOfflinePackageLoader(code: string): string {
-	const CONFIRM = "await confirmBootstrap(npmPackages);";
-	const INSTALL = "bootstrapWithNpmInstall(npmPackages);";
-	if (!code.includes(CONFIRM) || !code.includes(INSTALL)) {
-		throw new Error("package-loader.mjs shape drifted — update patchOfflinePackageLoader (ext-build.ts)");
-	}
-	return code
-		.replace(CONFIRM, 'throw new Error("package not vendored in the offline s2-agent-sh dist: " + missing.join(", "));')
-		.replace(INSTALL, "");
+  const CONFIRM = "await confirmBootstrap(npmPackages);";
+  const INSTALL = "bootstrapWithNpmInstall(npmPackages);";
+  if (!code.includes(CONFIRM) || !code.includes(INSTALL)) {
+    throw new Error("package-loader.mjs shape drifted — update patchOfflinePackageLoader (ext-build.ts)");
+  }
+  return code
+    .replace(CONFIRM, 'throw new Error("package not vendored in the offline s2-agent-sh dist: " + missing.join(", "));')
+    .replace(INSTALL, "");
 }
 
 /** Apply patchOfflinePackageLoader to every matching file under `dir`. */
 export function patchOfflinePackageLoadersUnder(dir: string): number {
-	let patched = 0;
-	walk(dir, (p, isDir) => {
-		if (isDir || basename(p) !== "package-loader.mjs") return;
-		const code = readFileSync(p, "utf8");
-		// Content sniff, not a path assumption: an unrelated package's
-		// same-named file is left untouched.
-		if (!code.includes("HYPERFRAMES_SKILL_BOOTSTRAP_DEPS")) return;
-		writeFileSync(p, patchOfflinePackageLoader(code));
-		patched++;
-	});
-	return patched;
+  let patched = 0;
+  walk(dir, (p, isDir) => {
+    if (isDir || basename(p) !== "package-loader.mjs") return;
+    const code = readFileSync(p, "utf8");
+    // Content sniff, not a path assumption: an unrelated package's
+    // same-named file is left untouched.
+    if (!code.includes("HYPERFRAMES_SKILL_BOOTSTRAP_DEPS")) return;
+    writeFileSync(p, patchOfflinePackageLoader(code));
+    patched++;
+  });
+  return patched;
 }
 
 /** "@scope/name/sub" → "@scope/name"; "pkg/sub" → "pkg". */
 function packageRoot(spec: string): string {
-	const parts = spec.split("/");
-	return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+  const parts = spec.split("/");
+  return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
 }
 
 export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtResult> {
-	const pkgDir = resolve(opts.bunAppsDir, opts.ext.package);
-	const entryAbs = resolve(pkgDir, opts.ext.entry);
-	if (!existsSync(entryAbs)) throw new Error(`entry not found: ${entryAbs}`);
+  const pkgDir = resolve(opts.bunAppsDir, opts.ext.package);
+  const entryAbs = resolve(pkgDir, opts.ext.entry);
+  if (!existsSync(entryAbs)) throw new Error(`entry not found: ${entryAbs}`);
 
-	if (existsSync(opts.outDir)) rmSync(opts.outDir, { recursive: true, force: true });
-	mkdirSync(opts.outDir, { recursive: true });
+  if (existsSync(opts.outDir)) rmSync(opts.outDir, { recursive: true, force: true });
+  mkdirSync(opts.outDir, { recursive: true });
 
-	const cjsPath = join(opts.outDir, "ext.cjs");
-	// Host modules + the extension's own declared runtime externals. The two are
-	// different promises: a host module IS provided by the core, a runtime
-	// external is merely not bundled.
-	// Vendored packages are external to the bundle as well — they ship as real
-	// directories and are resolved at runtime from the extension's own dir.
-	const allExternals = [...opts.hostModules, ...opts.ext.externals, ...opts.ext.vendor];
-	// #pi/ext-dir is served by the loader's injected require (the extension's own
-	// deployed dir), never by the bundler — bun would otherwise try and fail to
-	// resolve the # subpath import at build time.
-	allExternals.push(EXT_DIR_SPEC);
-	const externalFlags = allExternals.flatMap((m) => ["--external", m]);
-	// Subpath imports need their own external pattern: "typebox" does not cover
-	// "typebox/value" as a bundler external in every bun version.
-	const wildcardFlags = [...new Set(allExternals.map((m) => `${packageRoot(m)}/*`))].flatMap((p) => [
-		"--external",
-		p,
-	]);
+  const cjsPath = join(opts.outDir, "ext.cjs");
+  // Host modules + the extension's own declared runtime externals. The two are
+  // different promises: a host module IS provided by the core, a runtime
+  // external is merely not bundled.
+  // Vendored packages are external to the bundle as well — they ship as real
+  // directories and are resolved at runtime from the extension's own dir.
+  const allExternals = [...opts.hostModules, ...opts.ext.externals, ...opts.ext.vendor];
+  // #pi/ext-dir is served by the loader's injected require (the extension's own
+  // deployed dir), never by the bundler — bun would otherwise try and fail to
+  // resolve the # subpath import at build time.
+  allExternals.push(EXT_DIR_SPEC);
+  const externalFlags = allExternals.flatMap((m) => ["--external", m]);
+  // Subpath imports need their own external pattern: "typebox" does not cover
+  // "typebox/value" as a bundler external in every bun version.
+  const wildcardFlags = [...new Set(allExternals.map((m) => `${packageRoot(m)}/*`))].flatMap((p) => ["--external", p]);
 
-	const proc = Bun.spawn(
-		[
-			"bun",
-			"build",
-			entryAbs,
-			"--target=bun",
-			"--format=cjs",
-			`--outfile=${cjsPath}`,
-			"--minify",
-			...externalFlags,
-			...wildcardFlags,
-		],
-		{ stdout: "pipe", stderr: "pipe", cwd: pkgDir },
-	);
-	const code = await proc.exited;
-	if (code !== 0) {
-		// Surface bun's own diagnostic: "bun build failed (exit 1)" alone gives the
-		// operator nothing to act on, and the usual cause (an undeclared dep) is
-		// named only in bun's stderr.
-		const stderr = (await new Response(proc.stderr).text()).trim();
-		throw new Error(`bun build failed for ${opts.ext.name} (exit ${code})${stderr ? `:\n${stderr}` : ""}`);
-	}
+  const proc = Bun.spawn(
+    [
+      "bun",
+      "build",
+      entryAbs,
+      "--target=bun",
+      "--format=cjs",
+      `--outfile=${cjsPath}`,
+      "--minify",
+      ...externalFlags,
+      ...wildcardFlags,
+    ],
+    { stdout: "pipe", stderr: "pipe", cwd: pkgDir },
+  );
+  const code = await proc.exited;
+  if (code !== 0) {
+    // Surface bun's own diagnostic: "bun build failed (exit 1)" alone gives the
+    // operator nothing to act on, and the usual cause (an undeclared dep) is
+    // named only in bun's stderr.
+    const stderr = (await new Response(proc.stderr).text()).trim();
+    throw new Error(`bun build failed for ${opts.ext.name} (exit ${code})${stderr ? `:\n${stderr}` : ""}`);
+  }
 
-	// ── Vendored dynamic imports → require ───────────────────────────────────
-	// Before any gate reads the bundle, so the gates see what actually ships.
-	let built = readFileSync(cjsPath, "utf8");
-	if (opts.ext.vendor.length > 0) {
-		built = rewriteVendoredDynamicImports(built, opts.ext.vendor);
-	}
-	// ── Allowed dynamic imports → require ────────────────────────────────────
-	// Host modules / runtime externals too, not just vendored ones: a native
-	// dynamic import cannot reach them inside a compiled binary (see the
-	// rewriteAllowedDynamicImports header — the /websearch defect).
-	built = rewriteAllowedDynamicImports(built, allExternals);
-	// ── Asset-package import.meta.url folds → dead placeholders ────────────
-	// An assets: package's JS is inlined (not vendored), and bun folds its
-	// import.meta.url to the build-machine cache path. The runtime resolves
-	// payloads EXPLICITLY, so the folded default is dead — but Gate 4 rejects
-	// any baked path. Must run before the gates read the bundle.
-	if (opts.ext.assets.length > 0) {
-		built = rewriteAssetImportMetaFolds(
-			built,
-			[...new Set(opts.ext.assets.map((a) => a.pkg))],
-			pkgDir,
-		);
-	}
-	writeFileSync(cjsPath, built);
+  // ── Vendored dynamic imports → require ───────────────────────────────────
+  // Before any gate reads the bundle, so the gates see what actually ships.
+  let built = readFileSync(cjsPath, "utf8");
+  if (opts.ext.vendor.length > 0) {
+    built = rewriteVendoredDynamicImports(built, opts.ext.vendor);
+  }
+  // ── Allowed dynamic imports → require ────────────────────────────────────
+  // Host modules / runtime externals too, not just vendored ones: a native
+  // dynamic import cannot reach them inside a compiled binary (see the
+  // rewriteAllowedDynamicImports header — the /websearch defect).
+  built = rewriteAllowedDynamicImports(built, allExternals);
+  // ── Asset-package import.meta.url folds → dead placeholders ────────────
+  // An assets: package's JS is inlined (not vendored), and bun folds its
+  // import.meta.url to the build-machine cache path. The runtime resolves
+  // payloads EXPLICITLY, so the folded default is dead — but Gate 4 rejects
+  // any baked path. Must run before the gates read the bundle.
+  if (opts.ext.assets.length > 0) {
+    built = rewriteAssetImportMetaFolds(built, [...new Set(opts.ext.assets.map((a) => a.pkg))], pkgDir);
+  }
+  writeFileSync(cjsPath, built);
 
-	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
-	timedGate(opts, "1", () => {
-		const foreign = scanForeignSpecifiers(built, allExternals);
-		if (foreign.length > 0) {
-			throw new Error(
-				`${opts.ext.name}: bundle references specifier(s) the host does not provide: ${foreign.join(", ")}. ` +
-					`Either add them to hostModules (and to src/sh/host-modules.ts) or make the bundler inline them.`,
-			);
-		}
-	});
+  // ── Gate 1: nothing foreign may remain unresolved ────────────────────────
+  timedGate(opts, "1", () => {
+    const foreign = scanForeignSpecifiers(built, allExternals);
+    if (foreign.length > 0) {
+      throw new Error(
+        `${opts.ext.name}: bundle references specifier(s) the host does not provide: ${foreign.join(", ")}. ` +
+          `Either add them to hostModules (and to src/sh/host-modules.ts) or make the bundler inline them.`,
+      );
+    }
+  });
 
-	// ── Gate 1b: no bare dynamic import may remain ───────────────────────────
-	// The rewrites above turn every ALLOWED dynamic import into a require; Gate 1
-	// has already rejected every non-allowed bare specifier. Anything left as a
-	// native `import("<bare>")` therefore cannot resolve at runtime inside a
-	// compiled binary — this is exactly how /websearch shipped broken while all
-	// existing gates stayed green.
-	timedGate(opts, "1b", () => {
-		const unroutable = scanUnroutableDynamicImports(built);
-		if (unroutable.length > 0) {
-			throw new Error(
-				`${opts.ext.name}: bundle keeps native dynamic import(s) that cannot resolve inside the compiled binary: ${unroutable.join(", ")}. ` +
-					`Import the module statically (the cjs wrapper routes static imports through the injected require), or declare it as an external so the build rewrites it to require().`,
-			);
-		}
-	});
+  // ── Gate 1b: no bare dynamic import may remain ───────────────────────────
+  // The rewrites above turn every ALLOWED dynamic import into a require; Gate 1
+  // has already rejected every non-allowed bare specifier. Anything left as a
+  // native `import("<bare>")` therefore cannot resolve at runtime inside a
+  // compiled binary — this is exactly how /websearch shipped broken while all
+  // existing gates stayed green.
+  timedGate(opts, "1b", () => {
+    const unroutable = scanUnroutableDynamicImports(built);
+    if (unroutable.length > 0) {
+      throw new Error(
+        `${opts.ext.name}: bundle keeps native dynamic import(s) that cannot resolve inside the compiled binary: ${unroutable.join(", ")}. ` +
+          `Import the module statically (the cjs wrapper routes static imports through the injected require), or declare it as an external so the build rewrites it to require().`,
+      );
+    }
+  });
 
-	// ── Gate 2: it loads the way the runtime loads it ─────────────────────────
-	timedGate(opts, "2", () => loadProbe(cjsPath, allExternals, PI_AGENT_DIR, opts.hostModules));
+  // ── Gate 2: it loads the way the runtime loads it ─────────────────────────
+  timedGate(opts, "2", () => loadProbe(cjsPath, allExternals, PI_AGENT_DIR, opts.hostModules));
 
-	// ── Vendored packages ────────────────────────────────────────────────────
-	// Resolved from the EXTENSION's package dir, not s2-agent's: a vendored dep
-	// is declared by the extension that uses it, and s2-agent has no edge to it.
-	// The CLOSURE ships, not just the root — a half-shipped dependency tree
-	// dangles at runtime with no offline remediation (see vendor-closure.ts).
-	// `vendorExclude` drops closure deps the runtime never resolves; those land
-	// in the manifest below so Gate 5d honours the absence as deliberate.
-	const vendoredClosure =
-		opts.ext.vendor.length > 0
-			? vendorClosure({
-					roots: opts.ext.vendor,
-					resolveFrom: pkgDir,
-					outDir: opts.outDir,
-					exclude: opts.ext.vendorExclude,
-					// Cross-OS (t05): filter native packages for the TARGET, not
-					// the build host. Explicitly null libc disables filtering.
-					platform: opts.vendorPlatform,
-					arch: opts.vendorArch,
-					libc: opts.vendorLibc,
-				})
-			: [];
+  // ── Vendored packages ────────────────────────────────────────────────────
+  // Resolved from the EXTENSION's package dir, not s2-agent's: a vendored dep
+  // is declared by the extension that uses it, and s2-agent has no edge to it.
+  // The CLOSURE ships, not just the root — a half-shipped dependency tree
+  // dangles at runtime with no offline remediation (see vendor-closure.ts).
+  // `vendorExclude` drops closure deps the runtime never resolves; those land
+  // in the manifest below so Gate 5d honours the absence as deliberate.
+  const vendoredClosure =
+    opts.ext.vendor.length > 0
+      ? vendorClosure({
+          roots: opts.ext.vendor,
+          resolveFrom: pkgDir,
+          outDir: opts.outDir,
+          exclude: opts.ext.vendorExclude,
+          // Cross-OS (t05): filter native packages for the TARGET, not
+          // the build host. Explicitly null libc disables filtering.
+          platform: opts.vendorPlatform,
+          arch: opts.vendorArch,
+          libc: opts.vendorLibc,
+        })
+      : [];
 
-	// ── Asset payloads (npm files/dirs → <outDir>/<to>, code is bundled) ─────
-	// The vendor: alternative — no node_modules tree; payloads only. Runs
-	// before Gate 4 so the deploy-tree exemption covers what we just wrote.
-	const assetsCopied = copyDeployAssets(opts.ext.assets ?? [], opts.outDir, pkgDir);
+  // ── Asset payloads (npm files/dirs → <outDir>/<to>, code is bundled) ─────
+  // The vendor: alternative — no node_modules tree; payloads only. Runs
+  // before Gate 4 so the deploy-tree exemption covers what we just wrote.
+  const assetsCopied = copyDeployAssets(opts.ext.assets ?? [], opts.outDir, pkgDir);
 
-	// ── Gate 4: no build-machine path may survive in the bundle ──────────────
-	// Runs after vendoring so the deploy-tree exemption covers what we just
-	// wrote.
-	timedGate(opts, "4", () => {
-		const foreignPaths = scanForeignPaths(built, opts.deployRoot);
-		if (foreignPaths.length > 0) {
-			throw new Error(
-				`${opts.ext.name}: bundle bakes in build-machine path(s): ${foreignPaths.slice(0, 5).join(", ")}` +
-					`${foreignPaths.length > 5 ? ` (+${foreignPaths.length - 5} more)` : ""}. ` +
-					`The deploy tree must be relocatable — vendor the package (vendor:) instead of bundling it, ` +
-					`or reach the dependency by bare specifier so the host can serve it.`,
-			);
-		}
-	});
+  // ── Gate 4: no build-machine path may survive in the bundle ──────────────
+  // Runs after vendoring so the deploy-tree exemption covers what we just
+  // wrote.
+  timedGate(opts, "4", () => {
+    const foreignPaths = scanForeignPaths(built, opts.deployRoot);
+    if (foreignPaths.length > 0) {
+      throw new Error(
+        `${opts.ext.name}: bundle bakes in build-machine path(s): ${foreignPaths.slice(0, 5).join(", ")}` +
+          `${foreignPaths.length > 5 ? ` (+${foreignPaths.length - 5} more)` : ""}. ` +
+          `The deploy tree must be relocatable — vendor the package (vendor:) instead of bundling it, ` +
+          `or reach the dependency by bare specifier so the host can serve it.`,
+      );
+    }
+  });
 
-	// ── Skills ───────────────────────────────────────────────────────────────
-	for (const rel of opts.ext.skills) {
-		cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
-		patchOfflinePackageLoadersUnder(join(opts.outDir, rel));
-	}
+  // ── Skills ───────────────────────────────────────────────────────────────
+  for (const rel of opts.ext.skills) {
+    cpSync(resolve(pkgDir, rel), join(opts.outDir, rel), { recursive: true, dereference: true });
+    patchOfflinePackageLoadersUnder(join(opts.outDir, rel));
+  }
 
-	// ── Copied data dirs ─────────────────────────────────────────────────────
-	// Same verbatim copy as skills, but NOT forwarded as --skill by the loader —
-	// runtime data the extension reads relative to its own directory. Copy dirs
-	// may be REGENERATED build artifacts (gitignored, e.g. sv-analyzer's wasm/)
-	// that a fresh clone must mirror first — a missing dir must fail the deploy
-	// loudly (silently shipping a bundle without a declared copy dir ships a
-	// broken extension), but with a message that names the fix, not a raw ENOENT.
-	for (const rel of opts.ext.copy) {
-		const src = resolve(pkgDir, rel);
-		if (!existsSync(src)) {
-			throw new Error(
-				`${opts.ext.name}: copy dir '${rel}' not found at ${src} — mirror the built artifact first ` +
-					`(e.g. run dsh-plugin/sv-analyzer/build.sh to mirror wasm/sv-analyzer.wasm), then deploy again`,
-			);
-		}
-		cpSync(src, join(opts.outDir, rel), { recursive: true, dereference: true });
-		patchOfflinePackageLoadersUnder(join(opts.outDir, rel));
-	}
+  // ── Copied data dirs ─────────────────────────────────────────────────────
+  // Same verbatim copy as skills, but NOT forwarded as --skill by the loader —
+  // runtime data the extension reads relative to its own directory. Copy dirs
+  // may be REGENERATED build artifacts (gitignored, e.g. sv-analyzer's wasm/)
+  // that a fresh clone must mirror first — a missing dir must fail the deploy
+  // loudly (silently shipping a bundle without a declared copy dir ships a
+  // broken extension), but with a message that names the fix, not a raw ENOENT.
+  for (const rel of opts.ext.copy) {
+    const src = resolve(pkgDir, rel);
+    if (!existsSync(src)) {
+      throw new Error(
+        `${opts.ext.name}: copy dir '${rel}' not found at ${src} — mirror the built artifact first ` +
+          `(e.g. run dsh-plugin/sv-analyzer/build.sh to mirror wasm/sv-analyzer.wasm), then deploy again`,
+      );
+    }
+    cpSync(src, join(opts.outDir, rel), { recursive: true, dereference: true });
+    patchOfflinePackageLoadersUnder(join(opts.outDir, rel));
+  }
 
-	// ── Manifest ─────────────────────────────────────────────────────────────
-	const usedHostModules = opts.hostModules.filter((m) => built.includes(`"${m}"`));
-	const pkgJson = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
-		name?: string;
-		version?: string;
-	};
-	const manifest = {
-		name: opts.ext.name,
-		package: pkgJson.name ?? opts.ext.package,
-		version: pkgJson.version ?? "0.0.0",
-		hostApi: opts.hostApi,
-		entry: "ext.cjs",
-		order: opts.ext.order,
-		enabled: true,
-		skills: opts.ext.skills,
-		copy: opts.ext.copy,
-		hostModules: usedHostModules,
-		runtimeExternals: opts.ext.externals,
-		vendored: opts.ext.vendor,
-		assets: assetsCopied,
-		vendoredClosure: {
-			count: vendoredClosure.length,
-			// Deps intentionally not shipped: not installed or wrong platform.
-			pruned: [...new Set(vendoredClosure.flatMap((n) => n.pruned))],
-			// Deps intentionally not shipped: registry vendorExclude — Gate 5d
-			// reads this list and treats each absence as deliberate.
-			excluded: [...new Set(vendoredClosure.flatMap((n) => n.excluded))],
-		},
-		builtAt: opts.builtAt,
-		sourceSha: opts.sourceSha,
-	};
-	writeFileSync(join(opts.outDir, "ext.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  // ── Manifest ─────────────────────────────────────────────────────────────
+  const usedHostModules = opts.hostModules.filter((m) => built.includes(`"${m}"`));
+  const pkgJson = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8")) as {
+    name?: string;
+    version?: string;
+  };
+  const manifest = {
+    name: opts.ext.name,
+    package: pkgJson.name ?? opts.ext.package,
+    version: pkgJson.version ?? "0.0.0",
+    hostApi: opts.hostApi,
+    entry: "ext.cjs",
+    order: opts.ext.order,
+    enabled: true,
+    skills: opts.ext.skills,
+    copy: opts.ext.copy,
+    hostModules: usedHostModules,
+    runtimeExternals: opts.ext.externals,
+    vendored: opts.ext.vendor,
+    assets: assetsCopied,
+    vendoredClosure: {
+      count: vendoredClosure.length,
+      // Deps intentionally not shipped: not installed or wrong platform.
+      pruned: [...new Set(vendoredClosure.flatMap((n) => n.pruned))],
+      // Deps intentionally not shipped: registry vendorExclude — Gate 5d
+      // reads this list and treats each absence as deliberate.
+      excluded: [...new Set(vendoredClosure.flatMap((n) => n.excluded))],
+    },
+    builtAt: opts.builtAt,
+    sourceSha: opts.sourceSha,
+  };
+  writeFileSync(join(opts.outDir, "ext.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
-	return {
-		name: opts.ext.name,
-		bytes: statSync(cjsPath).size,
-		hostModules: usedHostModules,
-		vendored: opts.ext.vendor,
-	};
+  return {
+    name: opts.ext.name,
+    bytes: statSync(cjsPath).size,
+    hostModules: usedHostModules,
+    vendored: opts.ext.vendor,
+  };
 }

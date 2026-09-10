@@ -49,16 +49,17 @@
  *   (same as github-rest); 10-page hard cap bounds the tail.
  * - fork PRs may have a null head `ref` — rows without one are skipped.
  */
-import type { PrSnapshot, ForgeClient, MergeStrategy, PrListRow } from "./types.js";
-import type { PrState, MergeState, CheckTally } from "../pr-logic.js";
-import { createRestTransport, ForgeHttpError, type FetchFn, type RestTransport } from "./rest.js";
+
+import type { CheckTally, MergeState, PrState } from "../pr-logic.js";
+import { createRestTransport, type FetchFn, ForgeHttpError, type RestTransport } from "./rest.js";
+import type { ForgeClient, MergeStrategy, PrListRow, PrSnapshot } from "./types.js";
 
 /** Gitea's merge-style enum (a superset of GitHub's). */
 export type GiteaMergeStyle = "merge" | "rebase" | "rebase-merge" | "squash" | "fast-forward-only";
 
 /** Pure: our MergeStrategy (gh-CLI spelling) → Gitea's `Do` parameter. */
 export function toGiteaMergeStyle(s: MergeStrategy): GiteaMergeStyle {
-	return s === "rebase" ? "rebase-merge" : s;
+  return s === "rebase" ? "rebase-merge" : s;
 }
 
 /** How long to wait before the one mergeable-recompute re-GET (Gitea computes
@@ -71,7 +72,7 @@ const PAGE_SIZE = 50;
 /** Default API base for a Gitea host (https — TLS-first; SSH remote URLs
  *  carry no scheme, and http instances override via GITEA_API_BASE). */
 export function giteaDefaultApiBase(host: string): string {
-	return `https://${host}/api/v1`;
+  return `https://${host}/api/v1`;
 }
 
 /** Pure: map a `GET /repos/{o}/{r}/pulls/{n}` payload onto the PrSnapshot
@@ -79,23 +80,31 @@ export function giteaDefaultApiBase(host: string): string {
  *  OPEN/UNKNOWN + empty refs, never throws. `mergeable` is injected for
  *  testability of the null-retry decision. */
 export function mapGiteaPullRequest(raw: unknown): {
-	state: PrState;
-	mergeState: MergeState;
-	baseRefName: string;
-	headRefName: string;
-	headRefOid?: string;
+  state: PrState;
+  mergeState: MergeState;
+  baseRefName: string;
+  headRefName: string;
+  headRefOid?: string;
 } {
-	const r = (raw ?? {}) as Record<string, unknown>;
-	const base = (r.base ?? {}) as { ref?: unknown };
-	const head = (r.head ?? {}) as { ref?: unknown; sha?: unknown };
-	const baseRefName = typeof base.ref === "string" ? base.ref : "";
-	const headRefName = typeof head.ref === "string" ? head.ref : "";
-	const headRefOid = typeof head.sha === "string" && head.sha ? head.sha : undefined;
-	const state: PrState = r.state === "open" ? "OPEN" : r.state === "closed" && r.merged === true ? "MERGED" : r.state === "closed" ? "CLOSED" : "OPEN";
-	// No ladder on Gitea: boolean mergeable. null ⇒ still computing ⇒ UNKNOWN;
-	// false conflates conflicts and repo-blocked ⇒ BLOCKED (errs safe).
-	const mergeState: MergeState = r.mergeable === null ? "UNKNOWN" : r.mergeable === true ? "CLEAN" : r.mergeable === false ? "BLOCKED" : "UNKNOWN";
-	return { state, mergeState, baseRefName, headRefName, headRefOid };
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const base = (r.base ?? {}) as { ref?: unknown };
+  const head = (r.head ?? {}) as { ref?: unknown; sha?: unknown };
+  const baseRefName = typeof base.ref === "string" ? base.ref : "";
+  const headRefName = typeof head.ref === "string" ? head.ref : "";
+  const headRefOid = typeof head.sha === "string" && head.sha ? head.sha : undefined;
+  const state: PrState =
+    r.state === "open"
+      ? "OPEN"
+      : r.state === "closed" && r.merged === true
+        ? "MERGED"
+        : r.state === "closed"
+          ? "CLOSED"
+          : "OPEN";
+  // No ladder on Gitea: boolean mergeable. null ⇒ still computing ⇒ UNKNOWN;
+  // false conflates conflicts and repo-blocked ⇒ BLOCKED (errs safe).
+  const mergeState: MergeState =
+    r.mergeable === null ? "UNKNOWN" : r.mergeable === true ? "CLEAN" : r.mergeable === false ? "BLOCKED" : "UNKNOWN";
+  return { state, mergeState, baseRefName, headRefName, headRefOid };
 }
 
 /** Commit-status state buckets (Gitea statuses use GitHub's status strings). */
@@ -106,118 +115,125 @@ const GITEA_STATUS_PASS = new Set(["success"]);
  *  array; `{statuses:[…]}` accepted defensively) into one tally. Anything not
  *  positively pass/fail counts pending — never claim success. */
 export function mapGiteaStatuses(raw: unknown): CheckTally {
-	let pass = 0;
-	let fail = 0;
-	let pending = 0;
-	const list = Array.isArray(raw) ? raw : (raw as { statuses?: unknown } | null)?.statuses;
-	if (Array.isArray(list)) {
-		for (const s of list as Array<Record<string, unknown>>) {
-			const st = typeof s.status === "string" ? s.status.toLowerCase() : typeof s.state === "string" ? s.state.toLowerCase() : "";
-			if (GITEA_STATUS_FAIL.has(st)) fail++;
-			else if (GITEA_STATUS_PASS.has(st)) pass++;
-			else pending++; // "pending" + anything unknown
-		}
-	}
-	return { pass, fail, pending };
+  let pass = 0;
+  let fail = 0;
+  let pending = 0;
+  const list = Array.isArray(raw) ? raw : (raw as { statuses?: unknown } | null)?.statuses;
+  if (Array.isArray(list)) {
+    for (const s of list as Array<Record<string, unknown>>) {
+      const st =
+        typeof s.status === "string"
+          ? s.status.toLowerCase()
+          : typeof s.state === "string"
+            ? s.state.toLowerCase()
+            : "";
+      if (GITEA_STATUS_FAIL.has(st)) fail++;
+      else if (GITEA_STATUS_PASS.has(st)) pass++;
+      else pending++; // "pending" + anything unknown
+    }
+  }
+  return { pass, fail, pending };
 }
 
 export interface GiteaRestOptions {
-	host: string;
-	owner: string;
-	repo: string;
-	token: string;
-	/** Provenance label for diagnostics (see rest.ts token discipline). */
-	tokenKind: string;
-	/** Default `https://<host>/api/v1` (giteaDefaultApiBase). */
-	apiBase?: string;
-	fetchFn?: FetchFn;
-	/** Injectable sleep for the mergeable re-GET (tests pass 0-ms fakes). */
-	sleep?: (ms: number) => Promise<void>;
+  host: string;
+  owner: string;
+  repo: string;
+  token: string;
+  /** Provenance label for diagnostics (see rest.ts token discipline). */
+  tokenKind: string;
+  /** Default `https://<host>/api/v1` (giteaDefaultApiBase). */
+  apiBase?: string;
+  fetchFn?: FetchFn;
+  /** Injectable sleep for the mergeable re-GET (tests pass 0-ms fakes). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Build a ForgeClient backed by a Gitea/Forgejo instance. */
 export function createGiteaClient(opts: GiteaRestOptions): ForgeClient {
-	const api = opts.apiBase ?? giteaDefaultApiBase(opts.host);
-	// headers merge LAST in rest.ts — the `token` scheme fully replaces the
-	// Bearer default; the GitHub version headers are absent for cleanliness.
-	const rest: RestTransport = createRestTransport({
-		baseUrl: api,
-		token: opts.token,
-		tokenKind: opts.tokenKind,
-		fetchFn: opts.fetchFn,
-		headers: { Authorization: `token ${opts.token}`, Accept: "application/json" },
-	});
-	const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-	const root = `/repos/${opts.owner}/${opts.repo}`;
+  const api = opts.apiBase ?? giteaDefaultApiBase(opts.host);
+  // headers merge LAST in rest.ts — the `token` scheme fully replaces the
+  // Bearer default; the GitHub version headers are absent for cleanliness.
+  const rest: RestTransport = createRestTransport({
+    baseUrl: api,
+    token: opts.token,
+    tokenKind: opts.tokenKind,
+    fetchFn: opts.fetchFn,
+    headers: { Authorization: `token ${opts.token}`, Accept: "application/json" },
+  });
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const root = `/repos/${opts.owner}/${opts.repo}`;
 
-	async function getPull(n: number): Promise<Record<string, unknown>> {
-		return (await rest.request("GET", `${root}/pulls/${n}`)) as Record<string, unknown>;
-	}
+  async function getPull(n: number): Promise<Record<string, unknown>> {
+    return (await rest.request("GET", `${root}/pulls/${n}`)) as Record<string, unknown>;
+  }
 
-	return {
-		async prStatus(n: number): Promise<PrSnapshot> {
-			let data = await getPull(n);
-			// mergeable:null ⇒ still computing. One short re-GET — but only for
-			// an OPEN PR: a closed/merged one is terminal, its mergeability
-			// never matters, and the re-GET (retry wait + round-trip) is pure
-			// latency an already-merged retry pays on every read (the #2087
-			// github-rest fix's twin — reviewer symmetry note). Still null (or
-			// terminal) ⇒ UNKNOWN (settlePrStatus owns further polling;
-			// terminal states settle on `state`, not mergeState).
-			if (data.mergeable === null && data.state === "open") {
-				await sleep(MERGEABLE_RETRY_MS);
-				data = await getPull(n);
-			}
-			const core = mapGiteaPullRequest(data);
-			let checks: CheckTally = { pass: 0, fail: 0, pending: 0 };
-			if (core.headRefOid) {
-				// Statuses are the ONLY check surface on Gitea (no check-runs API).
-				const statuses = await rest.request("GET", `${root}/commits/${core.headRefOid}/statuses`).catch(() => null);
-				checks = mapGiteaStatuses(statuses);
-			}
-			return { ...core, checks };
-		},
+  return {
+    async prStatus(n: number): Promise<PrSnapshot> {
+      let data = await getPull(n);
+      // mergeable:null ⇒ still computing. One short re-GET — but only for
+      // an OPEN PR: a closed/merged one is terminal, its mergeability
+      // never matters, and the re-GET (retry wait + round-trip) is pure
+      // latency an already-merged retry pays on every read (the #2087
+      // github-rest fix's twin — reviewer symmetry note). Still null (or
+      // terminal) ⇒ UNKNOWN (settlePrStatus owns further polling;
+      // terminal states settle on `state`, not mergeState).
+      if (data.mergeable === null && data.state === "open") {
+        await sleep(MERGEABLE_RETRY_MS);
+        data = await getPull(n);
+      }
+      const core = mapGiteaPullRequest(data);
+      let checks: CheckTally = { pass: 0, fail: 0, pending: 0 };
+      if (core.headRefOid) {
+        // Statuses are the ONLY check surface on Gitea (no check-runs API).
+        const statuses = await rest.request("GET", `${root}/commits/${core.headRefOid}/statuses`).catch(() => null);
+        checks = mapGiteaStatuses(statuses);
+      }
+      return { ...core, checks };
+    },
 
-		async mergeNow(n: number, strategy: MergeStrategy, deleteBranch: boolean): Promise<void> {
-			await rest.request("POST", `${root}/pulls/${n}/merge`, { Do: toGiteaMergeStyle(strategy) });
-			if (deleteBranch) {
-				// DELETE /branches/{name} (not GitHub's /git/refs/heads/{name}).
-				// 404/422 = already gone (auto-delete ran) — tolerate, not an error.
-				try {
-					const head = await getPull(n);
-					const headRef = typeof head.head === "object" && head.head !== null ? (head.head as { ref?: unknown }).ref : undefined;
-					if (typeof headRef === "string" && headRef) {
-						await rest.request("DELETE", `${root}/branches/${headRef}`);
-					}
-				} catch (err) {
-					if (err instanceof ForgeHttpError && (err.status === 404 || err.status === 422)) return;
-					throw err;
-				}
-			}
-		},
+    async mergeNow(n: number, strategy: MergeStrategy, deleteBranch: boolean): Promise<void> {
+      await rest.request("POST", `${root}/pulls/${n}/merge`, { Do: toGiteaMergeStyle(strategy) });
+      if (deleteBranch) {
+        // DELETE /branches/{name} (not GitHub's /git/refs/heads/{name}).
+        // 404/422 = already gone (auto-delete ran) — tolerate, not an error.
+        try {
+          const head = await getPull(n);
+          const headRef =
+            typeof head.head === "object" && head.head !== null ? (head.head as { ref?: unknown }).ref : undefined;
+          if (typeof headRef === "string" && headRef) {
+            await rest.request("DELETE", `${root}/branches/${headRef}`);
+          }
+        } catch (err) {
+          if (err instanceof ForgeHttpError && (err.status === 404 || err.status === 422)) return;
+          throw err;
+        }
+      }
+    },
 
-		async prList(state: "open" | "merged", limit = 200): Promise<PrListRow[]> {
-			// Same client-side merged filter as github-rest: list closed PRs,
-			// keep merged_at rows. 50/page (Gitea's cap) until `limit` rows or a
-			// short page, hard cap of 10 pages.
-			const rows: PrListRow[] = [];
-			const pageState = state === "open" ? "open" : "closed";
-			for (let page = 1; page <= 10 && rows.length < limit; page++) {
-				const batch = (await rest.request("GET", `${root}/pulls?state=${pageState}&limit=${PAGE_SIZE}&page=${page}`)) as Array<
-					Record<string, unknown>
-				>;
-				if (!Array.isArray(batch) || batch.length === 0) break;
-				for (const p of batch) {
-					const mergedAt = typeof p.merged_at === "string" ? p.merged_at : undefined;
-					if (state === "merged" && !mergedAt) continue; // closed-but-unmerged
-					const head = (p.head ?? {}) as { ref?: unknown };
-					const num = typeof p.number === "number" ? p.number : undefined;
-					const ref = typeof head.ref === "string" ? head.ref : "";
-					if (num !== undefined && ref) rows.push({ number: num, headRefName: ref, mergedAt });
-				}
-				if (rows.length >= limit || batch.length < PAGE_SIZE) break;
-			}
-			return rows.slice(0, limit);
-		},
-	};
+    async prList(state: "open" | "merged", limit = 200): Promise<PrListRow[]> {
+      // Same client-side merged filter as github-rest: list closed PRs,
+      // keep merged_at rows. 50/page (Gitea's cap) until `limit` rows or a
+      // short page, hard cap of 10 pages.
+      const rows: PrListRow[] = [];
+      const pageState = state === "open" ? "open" : "closed";
+      for (let page = 1; page <= 10 && rows.length < limit; page++) {
+        const batch = (await rest.request(
+          "GET",
+          `${root}/pulls?state=${pageState}&limit=${PAGE_SIZE}&page=${page}`,
+        )) as Array<Record<string, unknown>>;
+        if (!Array.isArray(batch) || batch.length === 0) break;
+        for (const p of batch) {
+          const mergedAt = typeof p.merged_at === "string" ? p.merged_at : undefined;
+          if (state === "merged" && !mergedAt) continue; // closed-but-unmerged
+          const head = (p.head ?? {}) as { ref?: unknown };
+          const num = typeof p.number === "number" ? p.number : undefined;
+          const ref = typeof head.ref === "string" ? head.ref : "";
+          if (num !== undefined && ref) rows.push({ number: num, headRefName: ref, mergedAt });
+        }
+        if (rows.length >= limit || batch.length < PAGE_SIZE) break;
+      }
+      return rows.slice(0, limit);
+    },
+  };
 }

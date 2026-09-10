@@ -117,18 +117,18 @@ result.content;                   // human-readable text render
 `;
 
 export interface WriteAgentsMdResult {
-	/** True when the file was (re)written; false when identical content existed. */
-	written: boolean;
-	bytes: number;
+  /** True when the file was (re)written; false when identical content existed. */
+  written: boolean;
+  bytes: number;
 }
 
 /** Idempotently place AGENTS.md at the outRoot. */
 export function writeAgentsMd(outRoot: string): WriteAgentsMdResult {
-	const path = join(outRoot, "AGENTS.md");
-	const content = `${AGENTS_MD}`;
-	if (existsSync(path) && readFileSync(path, "utf8") === content) {
-		return { written: false, bytes: content.length };
-	}
-	writeFileSync(path, content);
-	return { written: true, bytes: content.length };
+  const path = join(outRoot, "AGENTS.md");
+  const content = `${AGENTS_MD}`;
+  if (existsSync(path) && readFileSync(path, "utf8") === content) {
+    return { written: false, bytes: content.length };
+  }
+  writeFileSync(path, content);
+  return { written: true, bytes: content.length };
 }

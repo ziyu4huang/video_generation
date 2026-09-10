@@ -34,18 +34,18 @@ import { CI_WORKFLOW_PATH } from "./ci-matrix.js";
 
 /** One `run:` step of the regression-gates job. */
 export interface CiGate {
-	/** The step's `name:` (falls back to the command when unnamed). */
-	name: string;
-	/** `working-directory:` relative to the repo root; "." when unset. */
-	cwd: string;
-	/** The `run:` body as a single shell command (newlines collapsed). */
-	run: string;
+  /** The step's `name:` (falls back to the command when unnamed). */
+  name: string;
+  /** `working-directory:` relative to the repo root; "." when unset. */
+  cwd: string;
+  /** The `run:` body as a single shell command (newlines collapsed). */
+  run: string;
 }
 
 export interface CiGatesResult {
-	gates: CiGate[];
-	/** Set when the job could not be parsed. `gates` is then empty and the caller MUST fail. */
-	error?: string;
+  gates: CiGate[];
+  /** Set when the job could not be parsed. `gates` is then empty and the caller MUST fail. */
+  error?: string;
 }
 
 /**
@@ -61,49 +61,49 @@ const fail = (message: string): CiGatesResult => ({ gates: [], error: message })
 
 /** Pull the `regression-gates` job's `run:` steps out of a workflow's YAML source. */
 export function parseCiGates(yamlSource: string): CiGatesResult {
-	let doc: unknown;
-	try {
-		doc = Bun.YAML.parse(yamlSource);
-	} catch (e) {
-		return fail(`could not parse ${CI_WORKFLOW_PATH} as YAML: ${(e as Error).message}`);
-	}
-	const job = (doc as { jobs?: Record<string, unknown> } | null)?.jobs?.["regression-gates"] as
-		| { steps?: unknown }
-		| undefined;
-	if (!job) return fail(`no \`regression-gates\` job in ${CI_WORKFLOW_PATH} — the workflow was restructured`);
-	const steps = job.steps;
-	if (!Array.isArray(steps)) return fail(`\`regression-gates\` has no steps list in ${CI_WORKFLOW_PATH}`);
+  let doc: unknown;
+  try {
+    doc = Bun.YAML.parse(yamlSource);
+  } catch (e) {
+    return fail(`could not parse ${CI_WORKFLOW_PATH} as YAML: ${(e as Error).message}`);
+  }
+  const job = (doc as { jobs?: Record<string, unknown> } | null)?.jobs?.["regression-gates"] as
+    | { steps?: unknown }
+    | undefined;
+  if (!job) return fail(`no \`regression-gates\` job in ${CI_WORKFLOW_PATH} — the workflow was restructured`);
+  const steps = job.steps;
+  if (!Array.isArray(steps)) return fail(`\`regression-gates\` has no steps list in ${CI_WORKFLOW_PATH}`);
 
-	const gates: CiGate[] = [];
-	for (const raw of steps) {
-		const step = raw as { run?: unknown; name?: unknown; "working-directory"?: unknown; if?: unknown };
-		// `uses:` steps set up a runner; a dev machine already is one.
-		if (typeof step?.run !== "string") continue;
-		if (step.if !== undefined) {
-			// Guessing a GitHub expression's truth value would silently run or skip
-			// the wrong gate set. Refuse rather than subset.
-			return fail(
-				`gate step ${JSON.stringify(String(step.name ?? "<unnamed>"))} has an \`if:\` this reader cannot evaluate`,
-			);
-		}
-		const run = step.run.trim().split("\n").join(" ");
-		gates.push({
-			name: typeof step.name === "string" ? step.name : run,
-			cwd: typeof step["working-directory"] === "string" ? step["working-directory"] : ".",
-			run,
-		});
-	}
-	if (gates.length === 0) return fail(`parsed ZERO gate steps from \`regression-gates\` in ${CI_WORKFLOW_PATH}`);
-	return { gates };
+  const gates: CiGate[] = [];
+  for (const raw of steps) {
+    const step = raw as { run?: unknown; name?: unknown; "working-directory"?: unknown; if?: unknown };
+    // `uses:` steps set up a runner; a dev machine already is one.
+    if (typeof step?.run !== "string") continue;
+    if (step.if !== undefined) {
+      // Guessing a GitHub expression's truth value would silently run or skip
+      // the wrong gate set. Refuse rather than subset.
+      return fail(
+        `gate step ${JSON.stringify(String(step.name ?? "<unnamed>"))} has an \`if:\` this reader cannot evaluate`,
+      );
+    }
+    const run = step.run.trim().split("\n").join(" ");
+    gates.push({
+      name: typeof step.name === "string" ? step.name : run,
+      cwd: typeof step["working-directory"] === "string" ? step["working-directory"] : ".",
+      run,
+    });
+  }
+  if (gates.length === 0) return fail(`parsed ZERO gate steps from \`regression-gates\` in ${CI_WORKFLOW_PATH}`);
+  return { gates };
 }
 
 /** Read + parse the workflow at `<repoRoot>/.github/workflows/ci.yml.disabled`. */
 export async function readCiGates(repoRoot: string): Promise<CiGatesResult> {
-	let text: string;
-	try {
-		text = await Bun.file(`${repoRoot}/${CI_WORKFLOW_PATH}`).text();
-	} catch (e) {
-		return fail(`could not read ${repoRoot}/${CI_WORKFLOW_PATH}: ${(e as Error).message}`);
-	}
-	return parseCiGates(text);
+  let text: string;
+  try {
+    text = await Bun.file(`${repoRoot}/${CI_WORKFLOW_PATH}`).text();
+  } catch (e) {
+    return fail(`could not read ${repoRoot}/${CI_WORKFLOW_PATH}: ${(e as Error).message}`);
+  }
+  return parseCiGates(text);
 }

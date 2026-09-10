@@ -14,391 +14,407 @@
  * Mirrors the dual-seam style of tests/sync-recipe.test.ts: a minimal
  * SyncClient fake + a recording SpawnFn. No real git / filesystem mutation.
  */
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { runSyncCli, parseSyncArgs, SYNC_CLI_USAGE, SYNC_DEFAULT_TIMEOUT_MS, defaultRepoRoot } from "../src/sync-default-branch-cli.js";
-import { DEFAULT_PRESERVE_PATHS } from "../src/sync-recipe.js";
-import type { SyncClient } from "../src/sync-recipe.js";
 import type { BranchClient } from "../src/branch-recipe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
+import {
+  defaultRepoRoot,
+  parseSyncArgs,
+  runSyncCli,
+  SYNC_CLI_USAGE,
+  SYNC_DEFAULT_TIMEOUT_MS,
+} from "../src/sync-default-branch-cli.js";
+import type { SyncClient } from "../src/sync-recipe.js";
+import { DEFAULT_PRESERVE_PATHS } from "../src/sync-recipe.js";
 
 const REPO = "/repo";
 const sha = (c: string) => c.repeat(40);
 
 /** Minimal SyncClient fake (same shape as tests/sync-recipe.test.ts). */
 function fakeClient(s: {
-	defaultBranch?: string;
-	current?: string;
-	worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
-	dirty?: Record<string, string[]>;
-	revs?: Record<string, string>;
+  defaultBranch?: string;
+  current?: string;
+  worktrees?: { worktree: string; branch?: string; detached?: boolean }[];
+  dirty?: Record<string, string[]>;
+  revs?: Record<string, string>;
 }): BranchClient {
-	const base: SyncClient = {
-		defaultBranch: async () => s.defaultBranch,
-		currentBranch: async () => s.current ?? "",
-		worktreeList: async () => s.worktrees ?? [],
-		dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
-		unmergedPaths: async () => [],
-		revParse: async (rev: string) => s.revs?.[rev],
-		aheadBehind: async () => ({ ahead: 0, behind: 0 }),
-		logSubjects: async () => [],
-	};
-	// BranchClient adds isClean beyond the SyncClient Pick; the CLI never calls it.
-	return base as unknown as BranchClient;
+  const base: SyncClient = {
+    defaultBranch: async () => s.defaultBranch,
+    currentBranch: async () => s.current ?? "",
+    worktreeList: async () => s.worktrees ?? [],
+    dirtyPaths: async (dir: string) => s.dirty?.[dir] ?? [],
+    unmergedPaths: async () => [],
+    revParse: async (rev: string) => s.revs?.[rev],
+    aheadBehind: async () => ({ ahead: 0, behind: 0 }),
+    logSubjects: async () => [],
+  };
+  // BranchClient adds isClean beyond the SyncClient Pick; the CLI never calls it.
+  return base as unknown as BranchClient;
 }
 
 /** Quiet-success recording SpawnFn (sync-default-branch-cli only supplies it to runSync). */
 function fakeSpawn(): { fn: SpawnFn; calls: { cmd: string; args: string[]; opts?: { timeoutMs?: number } }[] } {
-	const calls: { cmd: string; args: string[]; opts?: { timeoutMs?: number } }[] = [];
-	const fn: SpawnFn = async (cmd, args, opts): Promise<SpawnResult> => {
-		calls.push({ cmd, args, opts: opts as { timeoutMs?: number } | undefined });
-		return { stdout: "", stderr: "", exitCode: 0 };
-	};
-	return { fn, calls };
+  const calls: { cmd: string; args: string[]; opts?: { timeoutMs?: number } }[] = [];
+  const fn: SpawnFn = async (cmd, args, opts): Promise<SpawnResult> => {
+    calls.push({ cmd, args, opts: opts as { timeoutMs?: number } | undefined });
+    return { stdout: "", stderr: "", exitCode: 0 };
+  };
+  return { fn, calls };
 }
 
 /** A clean full-mode-ready fake: main in this worktree, origin/main resolvable. */
 function cleanDeps() {
-	return {
-		client: fakeClient({
-			defaultBranch: "main",
-			current: "main",
-			worktrees: [{ worktree: REPO, branch: "main" }],
-			revs: { "origin/main": sha("b"), main: sha("a") },
-		}),
-		spawn: fakeSpawn().fn,
-		repoRoot: REPO,
-	};
+  return {
+    client: fakeClient({
+      defaultBranch: "main",
+      current: "main",
+      worktrees: [{ worktree: REPO, branch: "main" }],
+      revs: { "origin/main": sha("b"), main: sha("a") },
+    }),
+    spawn: fakeSpawn().fn,
+    repoRoot: REPO,
+  };
 }
 
 describe("parseSyncArgs — argv contract", () => {
-	test("defaults: full mode, no dry-run, no force, default preserve", () => {
-		const r = parseSyncArgs([]);
-		expect(r.ok).toBe(true);
-		if (r.ok) {
-			expect(r.args.mode).toBe("full");
-			expect(r.args.dryRun).toBe(false);
-			expect(r.args.force).toBe(false);
-			expect(r.args.preserve).toBeUndefined(); // ⇒ DEFAULT_PRESERVE_PATHS downstream
-		}
-	});
+  test("defaults: full mode, no dry-run, no force, default preserve", () => {
+    const r = parseSyncArgs([]);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.args.mode).toBe("full");
+      expect(r.args.dryRun).toBe(false);
+      expect(r.args.force).toBe(false);
+      expect(r.args.preserve).toBeUndefined(); // ⇒ DEFAULT_PRESERVE_PATHS downstream
+    }
+  });
 
-	test("--mode accepts exactly full|rebase|pull|hands-on", () => {
-		for (const m of ["full", "rebase", "pull", "hands-on"] as const) {
-			const r = parseSyncArgs(["--mode", m]);
-			expect(r.ok).toBe(true);
-			if (r.ok) expect(r.args.mode).toBe(m);
-		}
-		for (const bad of ["ff-only", "missing"]) {
-			const r = parseSyncArgs(["--mode", bad]);
-			expect(r.ok).toBe(false);
-		}
-		expect(parseSyncArgs(["--mode"]).ok).toBe(false); // missing value
-	});
+  test("--mode accepts exactly full|rebase|pull|hands-on", () => {
+    for (const m of ["full", "rebase", "pull", "hands-on"] as const) {
+      const r = parseSyncArgs(["--mode", m]);
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.args.mode).toBe(m);
+    }
+    for (const bad of ["ff-only", "missing"]) {
+      const r = parseSyncArgs(["--mode", bad]);
+      expect(r.ok).toBe(false);
+    }
+    expect(parseSyncArgs(["--mode"]).ok).toBe(false); // missing value
+  });
 
-	test("--preserve is repeatable and accumulates in order", () => {
-		const r = parseSyncArgs(["--preserve", "a.md", "--preserve", "dir/"]);
-		expect(r.ok).toBe(true);
-		if (r.ok) expect(r.args.preserve).toEqual(["a.md", "dir/"]);
-		expect(parseSyncArgs(["--preserve"]).ok).toBe(false); // missing value
-	});
+  test("--preserve is repeatable and accumulates in order", () => {
+    const r = parseSyncArgs(["--preserve", "a.md", "--preserve", "dir/"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.args.preserve).toEqual(["a.md", "dir/"]);
+    expect(parseSyncArgs(["--preserve"]).ok).toBe(false); // missing value
+  });
 
-	test("--preserve-strict forces preserve: [] (overrides explicit --preserve)", () => {
-		const r = parseSyncArgs(["--preserve", "a.md", "--preserve-strict"]);
-		expect(r.ok).toBe(true);
-		if (r.ok) expect(r.args.preserve).toEqual([]);
-	});
+  test("--preserve-strict forces preserve: [] (overrides explicit --preserve)", () => {
+    const r = parseSyncArgs(["--preserve", "a.md", "--preserve-strict"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.args.preserve).toEqual([]);
+  });
 
-	test("--branch accepts a name or 'auto'; missing value is a usage error", () => {
-		const named = parseSyncArgs(["--mode", "rebase", "--branch", "feat/wf"]);
-		expect(named.ok).toBe(true);
-		if (named.ok) expect(named.args.branch).toBe("feat/wf");
+  test("--branch accepts a name or 'auto'; missing value is a usage error", () => {
+    const named = parseSyncArgs(["--mode", "rebase", "--branch", "feat/wf"]);
+    expect(named.ok).toBe(true);
+    if (named.ok) expect(named.args.branch).toBe("feat/wf");
 
-		const auto = parseSyncArgs(["--mode", "rebase", "--branch", "auto"]);
-		expect(auto.ok).toBe(true);
-		if (auto.ok) expect(auto.args.branch).toBe("auto");
+    const auto = parseSyncArgs(["--mode", "rebase", "--branch", "auto"]);
+    expect(auto.ok).toBe(true);
+    if (auto.ok) expect(auto.args.branch).toBe("auto");
 
-		expect(parseSyncArgs([]).ok && (parseSyncArgs([]) as { ok: true; args: { branch?: string } }).args.branch).toBeUndefined();
-		expect(parseSyncArgs(["--branch"]).ok).toBe(false); // missing value
-	});
+    expect(
+      parseSyncArgs([]).ok && (parseSyncArgs([]) as { ok: true; args: { branch?: string } }).args.branch,
+    ).toBeUndefined();
+    expect(parseSyncArgs(["--branch"]).ok).toBe(false); // missing value
+  });
 
-	test("--timeout-ms accepts a positive integer; junk is a usage error", () => {
-		const r = parseSyncArgs(["--timeout-ms", "15000"]);
-		expect(r.ok).toBe(true);
-		if (r.ok) expect(r.args.timeoutMs).toBe(15000);
-		expect(parseSyncArgs([]).ok && (parseSyncArgs([]) as { ok: true; args: { timeoutMs?: number } }).args.timeoutMs).toBeUndefined();
+  test("--timeout-ms accepts a positive integer; junk is a usage error", () => {
+    const r = parseSyncArgs(["--timeout-ms", "15000"]);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.args.timeoutMs).toBe(15000);
+    expect(
+      parseSyncArgs([]).ok && (parseSyncArgs([]) as { ok: true; args: { timeoutMs?: number } }).args.timeoutMs,
+    ).toBeUndefined();
 
-		for (const bad of [["--timeout-ms"], ["--timeout-ms", "0"], ["--timeout-ms", "-5"], ["--timeout-ms", "abc"], ["--timeout-ms", "1.5"]]) {
-			expect(parseSyncArgs(bad).ok).toBe(false);
-		}
-	});
+    for (const bad of [
+      ["--timeout-ms"],
+      ["--timeout-ms", "0"],
+      ["--timeout-ms", "-5"],
+      ["--timeout-ms", "abc"],
+      ["--timeout-ms", "1.5"],
+    ]) {
+      expect(parseSyncArgs(bad).ok).toBe(false);
+    }
+  });
 
-	test("unknown flags and positionals are usage errors", () => {
-		expect(parseSyncArgs(["--nope"]).ok).toBe(false);
-		expect(parseSyncArgs(["main"]).ok).toBe(false);
-		expect(parseSyncArgs(["--repo-root"]).ok).toBe(false);
-	});
+  test("unknown flags and positionals are usage errors", () => {
+    expect(parseSyncArgs(["--nope"]).ok).toBe(false);
+    expect(parseSyncArgs(["main"]).ok).toBe(false);
+    expect(parseSyncArgs(["--repo-root"]).ok).toBe(false);
+  });
 });
 
 describe("sync-default-branch-cli — wrapper contract", () => {
-	test("every git call carries the default timeout cap (withDefaultTimeout seam)", async () => {
-		// The 2026-08-24 incident: an unbounded `git fetch` over a stalled SSH
-		// transport hung the whole CLI for 11+ minutes. The wrapper now bounds
-		// EVERY spawn — the recipe's git() calls AND the client's — via one
-		// withDefaultTimeout wrap, so each recorded call must carry a cap.
-		const rec = fakeSpawn();
-		const res = await runSyncCli([], { ...cleanDeps(), spawn: rec.fn, remoteName: "origin" });
-		expect(res.exitCode).toBe(0);
-		expect(rec.calls.length).toBeGreaterThan(0);
-		for (const c of rec.calls) expect(c.opts?.timeoutMs).toBe(SYNC_DEFAULT_TIMEOUT_MS);
-	});
+  test("every git call carries the default timeout cap (withDefaultTimeout seam)", async () => {
+    // The 2026-08-24 incident: an unbounded `git fetch` over a stalled SSH
+    // transport hung the whole CLI for 11+ minutes. The wrapper now bounds
+    // EVERY spawn — the recipe's git() calls AND the client's — via one
+    // withDefaultTimeout wrap, so each recorded call must carry a cap.
+    const rec = fakeSpawn();
+    const res = await runSyncCli([], { ...cleanDeps(), spawn: rec.fn, remoteName: "origin" });
+    expect(res.exitCode).toBe(0);
+    expect(rec.calls.length).toBeGreaterThan(0);
+    for (const c of rec.calls) expect(c.opts?.timeoutMs).toBe(SYNC_DEFAULT_TIMEOUT_MS);
+  });
 
-	test("--timeout-ms threads a caller-chosen cap onto every git call", async () => {
-		const rec = fakeSpawn();
-		const res = await runSyncCli(["--timeout-ms", "1234"], { ...cleanDeps(), spawn: rec.fn, remoteName: "origin" });
-		expect(res.exitCode).toBe(0);
-		expect(rec.calls.length).toBeGreaterThan(0);
-		for (const c of rec.calls) expect(c.opts?.timeoutMs).toBe(1234);
-	});
+  test("--timeout-ms threads a caller-chosen cap onto every git call", async () => {
+    const rec = fakeSpawn();
+    const res = await runSyncCli(["--timeout-ms", "1234"], { ...cleanDeps(), spawn: rec.fn, remoteName: "origin" });
+    expect(res.exitCode).toBe(0);
+    expect(rec.calls.length).toBeGreaterThan(0);
+    for (const c of rec.calls) expect(c.opts?.timeoutMs).toBe(1234);
+  });
 
-	test("clean run exits 0 with the structured SyncOutcome as JSON on stdout", async () => {
-		const res = await runSyncCli([], cleanDeps());
-		expect(res.exitCode).toBe(0);
-		expect(res.stderr).toBe("");
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.mode).toBe("full");
-		expect(outcome.dryRun).toBe(false);
-		expect(outcome.defaultBranch).toBe("main");
-		expect(outcome.aborted).toBeUndefined();
-		expect(outcome.advanced.length).toBe(1);
-	});
+  test("clean run exits 0 with the structured SyncOutcome as JSON on stdout", async () => {
+    const res = await runSyncCli([], cleanDeps());
+    expect(res.exitCode).toBe(0);
+    expect(res.stderr).toBe("");
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.mode).toBe("full");
+    expect(outcome.dryRun).toBe(false);
+    expect(outcome.defaultBranch).toBe("main");
+    expect(outcome.aborted).toBeUndefined();
+    expect(outcome.advanced.length).toBe(1);
+  });
 
-	test("--mode rebase round-trips into the outcome", async () => {
-		const deps = cleanDeps();
-		const res = await runSyncCli(["--mode", "rebase"], deps);
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.mode).toBe("rebase");
-	});
+  test("--mode rebase round-trips into the outcome", async () => {
+    const deps = cleanDeps();
+    const res = await runSyncCli(["--mode", "rebase"], deps);
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.mode).toBe("rebase");
+  });
 
-	test("--mode hands-on round-trips: mode + handsOn verdict (caller holds <D>)", async () => {
-		const res = await runSyncCli(["--mode", "hands-on"], cleanDeps());
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.mode).toBe("hands-on");
-		expect(outcome.handsOn).toEqual({ callerAction: "advanced-default-here", callerAtTip: true });
-		expect(outcome.aborted).toBeUndefined();
-	});
+  test("--mode hands-on round-trips: mode + handsOn verdict (caller holds <D>)", async () => {
+    const res = await runSyncCli(["--mode", "hands-on"], cleanDeps());
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.mode).toBe("hands-on");
+    expect(outcome.handsOn).toEqual({ callerAction: "advanced-default-here", callerAtTip: true });
+    expect(outcome.aborted).toBeUndefined();
+  });
 
-	test("usage text documents the hands-on mode", () => {
-		expect(SYNC_CLI_USAGE).toContain("hands-on");
-		expect(SYNC_CLI_USAGE).toContain("callerAtTip");
-	});
+  test("usage text documents the hands-on mode", () => {
+    expect(SYNC_CLI_USAGE).toContain("hands-on");
+    expect(SYNC_CLI_USAGE).toContain("callerAtTip");
+  });
 
-	test("--mode rebase --branch <name> on a DETACHED worktree creates the branch and syncs", async () => {
-		const deps = {
-			client: fakeClient({
-				defaultBranch: "main",
-				current: "HEAD", // detached
-				revs: { "origin/main": sha("r"), HEAD: sha("h") },
-			}),
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-		};
-		const res = await runSyncCli(["--mode", "rebase", "--branch", "feat/wf"], deps);
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted).toBeUndefined();
-		expect(outcome.commands).toContain(`git -C "${REPO}" checkout -b feat/wf`);
-		expect(outcome.advanced[0].branch).toBe("feat/wf");
-	});
+  test("--mode rebase --branch <name> on a DETACHED worktree creates the branch and syncs", async () => {
+    const deps = {
+      client: fakeClient({
+        defaultBranch: "main",
+        current: "HEAD", // detached
+        revs: { "origin/main": sha("r"), HEAD: sha("h") },
+      }),
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+    };
+    const res = await runSyncCli(["--mode", "rebase", "--branch", "feat/wf"], deps);
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted).toBeUndefined();
+    expect(outcome.commands).toContain(`git -C "${REPO}" checkout -b feat/wf`);
+    expect(outcome.advanced[0].branch).toBe("feat/wf");
+  });
 
-	test("--dry-run exits 0, plans commands, never mutates (still exit 0 even dirty)", async () => {
-		const deps = {
-			client: fakeClient({
-				defaultBranch: "main",
-				current: "main",
-				worktrees: [{ worktree: REPO, branch: "main" }],
-				dirty: { [REPO]: ["src/x.ts"] }, // REAL dirty — would abort if mutating
-				revs: { "origin/main": sha("b"), main: sha("a") },
-			}),
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-		};
-		const res = await runSyncCli(["--dry-run"], deps);
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.dryRun).toBe(true);
-		expect(outcome.aborted).toBeUndefined();
-		expect(outcome.commands.some((c: string) => c.includes("fetch"))).toBe(true);
-	});
+  test("--dry-run exits 0, plans commands, never mutates (still exit 0 even dirty)", async () => {
+    const deps = {
+      client: fakeClient({
+        defaultBranch: "main",
+        current: "main",
+        worktrees: [{ worktree: REPO, branch: "main" }],
+        dirty: { [REPO]: ["src/x.ts"] }, // REAL dirty — would abort if mutating
+        revs: { "origin/main": sha("b"), main: sha("a") },
+      }),
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+    };
+    const res = await runSyncCli(["--dry-run"], deps);
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.dryRun).toBe(true);
+    expect(outcome.aborted).toBeUndefined();
+    expect(outcome.commands.some((c: string) => c.includes("fetch"))).toBe(true);
+  });
 
-	test("abort (dirty_tree) maps to exit 1 with the structured reason", async () => {
-		const deps = {
-			client: fakeClient({
-				defaultBranch: "main",
-				current: "main",
-				worktrees: [{ worktree: REPO, branch: "main" }],
-				dirty: { [REPO]: ["src/x.ts"] },
-				revs: { "origin/main": sha("b"), main: sha("a") },
-			}),
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-		};
-		const res = await runSyncCli([], deps);
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted?.aborted).toBe(true);
-		expect(outcome.aborted.reason).toBe("dirty_tree");
-	});
+  test("abort (dirty_tree) maps to exit 1 with the structured reason", async () => {
+    const deps = {
+      client: fakeClient({
+        defaultBranch: "main",
+        current: "main",
+        worktrees: [{ worktree: REPO, branch: "main" }],
+        dirty: { [REPO]: ["src/x.ts"] },
+        revs: { "origin/main": sha("b"), main: sha("a") },
+      }),
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+    };
+    const res = await runSyncCli([], deps);
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted?.aborted).toBe(true);
+    expect(outcome.aborted.reason).toBe("dirty_tree");
+  });
 
-	test("abort (divergent) maps to exit 1 — the ff-only refusal surfaces", async () => {
-		// merge --ff-only fails → runSync records a canned divergent abort.
-		const calls: { cmd: string; args: string[] }[] = [];
-		const fn: SpawnFn = async (cmd, args) => {
-			calls.push({ cmd, args });
-			if (args.includes("merge")) return { stdout: "", stderr: "not possible to fast-forward", exitCode: 1 };
-			return { stdout: "", stderr: "", exitCode: 0 };
-		};
-		const res = await runSyncCli([], {
-			client: fakeClient({
-				defaultBranch: "main",
-				current: "main",
-				worktrees: [{ worktree: REPO, branch: "main" }],
-				revs: { "origin/main": sha("b"), main: sha("a") },
-			}),
-			spawn: fn,
-			repoRoot: REPO,
-		});
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted?.aborted).toBe(true);
-		expect(outcome.aborted.reason).toBe("divergent");
-		expect(calls.some((c) => c.args.includes("reset"))).toBe(false); // force NOT set
-	});
+  test("abort (divergent) maps to exit 1 — the ff-only refusal surfaces", async () => {
+    // merge --ff-only fails → runSync records a canned divergent abort.
+    const calls: { cmd: string; args: string[] }[] = [];
+    const fn: SpawnFn = async (cmd, args) => {
+      calls.push({ cmd, args });
+      if (args.includes("merge")) return { stdout: "", stderr: "not possible to fast-forward", exitCode: 1 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const res = await runSyncCli([], {
+      client: fakeClient({
+        defaultBranch: "main",
+        current: "main",
+        worktrees: [{ worktree: REPO, branch: "main" }],
+        revs: { "origin/main": sha("b"), main: sha("a") },
+      }),
+      spawn: fn,
+      repoRoot: REPO,
+    });
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted?.aborted).toBe(true);
+    expect(outcome.aborted.reason).toBe("divergent");
+    expect(calls.some((c) => c.args.includes("reset"))).toBe(false); // force NOT set
+  });
 
-	test("--preserve overrides the default (a preserve-listed dirty path no longer aborts)", async () => {
-		const deps = {
-			client: fakeClient({
-				defaultBranch: "main",
-				current: "main",
-				worktrees: [{ worktree: REPO, branch: "main" }],
-				dirty: { [REPO]: ["hot/file.md"] },
-				revs: { "origin/main": sha("b"), main: sha("a") },
-			}),
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-		};
-		// default preserve list does NOT cover hot/file.md → aborts.
-		const aborting = await runSyncCli([], deps);
-		expect(aborting.exitCode).toBe(1);
-		// explicit --preserve covers it → stashed across the advance, exit 0.
-		// The spawn fn feeds the park's pairing probe a TAGGED top stash entry
-		// so the restore pop runs (entry proven ours; popped by that SHA).
-		const ok = await runSyncCli(["--preserve", "hot/"], {
-			...deps,
-			spawn: (async (_cmd: string, args: string[]) =>
-				args.includes("stash") && args.includes("list")
-					? { stdout: `${sha("5")} On main: sync_default_branch preserve\n`, stderr: "", exitCode: 0 }
-					: { stdout: "", stderr: "", exitCode: 0 }) as SpawnFn,
-		});
-		expect(ok.exitCode).toBe(0);
-		const outcome = JSON.parse(ok.stdout);
-		expect(outcome.preserved).toEqual({ paths: ["hot/file.md"], restored: true });
-		expect(outcome.commands).toContain(`git -C "${REPO}" stash apply ${sha("5")}`);
-	});
+  test("--preserve overrides the default (a preserve-listed dirty path no longer aborts)", async () => {
+    const deps = {
+      client: fakeClient({
+        defaultBranch: "main",
+        current: "main",
+        worktrees: [{ worktree: REPO, branch: "main" }],
+        dirty: { [REPO]: ["hot/file.md"] },
+        revs: { "origin/main": sha("b"), main: sha("a") },
+      }),
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+    };
+    // default preserve list does NOT cover hot/file.md → aborts.
+    const aborting = await runSyncCli([], deps);
+    expect(aborting.exitCode).toBe(1);
+    // explicit --preserve covers it → stashed across the advance, exit 0.
+    // The spawn fn feeds the park's pairing probe a TAGGED top stash entry
+    // so the restore pop runs (entry proven ours; popped by that SHA).
+    const ok = await runSyncCli(["--preserve", "hot/"], {
+      ...deps,
+      spawn: (async (_cmd: string, args: string[]) =>
+        args.includes("stash") && args.includes("list")
+          ? { stdout: `${sha("5")} On main: sync_default_branch preserve\n`, stderr: "", exitCode: 0 }
+          : { stdout: "", stderr: "", exitCode: 0 }) as SpawnFn,
+    });
+    expect(ok.exitCode).toBe(0);
+    const outcome = JSON.parse(ok.stdout);
+    expect(outcome.preserved).toEqual({ paths: ["hot/file.md"], restored: true });
+    expect(outcome.commands).toContain(`git -C "${REPO}" stash apply ${sha("5")}`);
+  });
 
-	test("--preserve-strict makes even the DEFAULT hot file abort", async () => {
-		const deps = {
-			client: fakeClient({
-				defaultBranch: "main",
-				current: "main",
-				worktrees: [{ worktree: REPO, branch: "main" }],
-				dirty: { [REPO]: DEFAULT_PRESERVE_PATHS },
-				revs: { "origin/main": sha("b"), main: sha("a") },
-			}),
-			spawn: fakeSpawn().fn,
-			repoRoot: REPO,
-		};
-		const res = await runSyncCli(["--preserve-strict"], deps);
-		expect(res.exitCode).toBe(1);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.aborted.reason).toBe("dirty_tree");
-	});
+  test("--preserve-strict makes even the DEFAULT hot file abort", async () => {
+    const deps = {
+      client: fakeClient({
+        defaultBranch: "main",
+        current: "main",
+        worktrees: [{ worktree: REPO, branch: "main" }],
+        dirty: { [REPO]: DEFAULT_PRESERVE_PATHS },
+        revs: { "origin/main": sha("b"), main: sha("a") },
+      }),
+      spawn: fakeSpawn().fn,
+      repoRoot: REPO,
+    };
+    const res = await runSyncCli(["--preserve-strict"], deps);
+    expect(res.exitCode).toBe(1);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.aborted.reason).toBe("dirty_tree");
+  });
 
-	test("usage errors exit 2 with empty stdout; --help exits 0 with usage on stderr", async () => {
-		for (const argv of [["--mode", "bad"], ["--nope"], ["--preserve"]]) {
-			const res = await runSyncCli(argv, cleanDeps());
-			expect(res.exitCode).toBe(2);
-			expect(res.stdout).toBe("");
-			expect(res.stderr.includes(SYNC_CLI_USAGE)).toBe(true);
-		}
-		const help = await runSyncCli(["--help"], cleanDeps());
-		expect(help.exitCode).toBe(0);
-		expect(help.stdout).toBe("");
-		expect(help.stderr).toBe(SYNC_CLI_USAGE);
-	});
+  test("usage errors exit 2 with empty stdout; --help exits 0 with usage on stderr", async () => {
+    for (const argv of [["--mode", "bad"], ["--nope"], ["--preserve"]]) {
+      const res = await runSyncCli(argv, cleanDeps());
+      expect(res.exitCode).toBe(2);
+      expect(res.stdout).toBe("");
+      expect(res.stderr.includes(SYNC_CLI_USAGE)).toBe(true);
+    }
+    const help = await runSyncCli(["--help"], cleanDeps());
+    expect(help.exitCode).toBe(0);
+    expect(help.stdout).toBe("");
+    expect(help.stderr).toBe(SYNC_CLI_USAGE);
+  });
 });
 
 describe("sync-default-branch-cli — live entry point", () => {
-	// PORTABILITY-GUARDED: spawns `process.execPath` (the runtime already
-	// executing this test) on a committed file in this repo — no machine-coupled
-	// host binary. `--dry-run` is read-only: zero mutating git ops.
-	test("`bun src/sync-default-branch-cli.ts --help` exits 0 with usage", () => {
-		const cli = join(import.meta.dir, "..", "src", "sync-default-branch-cli.ts");
-		const r = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
-		expect(r.status).toBe(0);
-		expect(r.stderr.includes("usage:")).toBe(true);
-	});
+  // PORTABILITY-GUARDED: spawns `process.execPath` (the runtime already
+  // executing this test) on a committed file in this repo — no machine-coupled
+  // host binary. `--dry-run` is read-only: zero mutating git ops.
+  test("`bun src/sync-default-branch-cli.ts --help` exits 0 with usage", () => {
+    const cli = join(import.meta.dir, "..", "src", "sync-default-branch-cli.ts");
+    const r = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
+    expect(r.status).toBe(0);
+    expect(r.stderr.includes("usage:")).toBe(true);
+  });
 
-	test("`bun src/sync-default-branch-cli.ts --dry-run` exits 0 with parseable JSON (zero mutations)", () => {
-		const cli = join(import.meta.dir, "..", "src", "sync-default-branch-cli.ts");
-		const r = spawnSync(process.execPath, [cli, "--dry-run", "--repo-root", defaultRepoRoot()], {
-			encoding: "utf8",
-		});
-		expect(r.status).toBe(0);
-		const outcome = JSON.parse(r.stdout);
-		expect(outcome.dryRun).toBe(true);
-		expect(Array.isArray(outcome.commands)).toBe(true);
-		expect(outcome.commands.some((c: string) => c.includes("fetch"))).toBe(true);
-	});
+  test("`bun src/sync-default-branch-cli.ts --dry-run` exits 0 with parseable JSON (zero mutations)", () => {
+    const cli = join(import.meta.dir, "..", "src", "sync-default-branch-cli.ts");
+    const r = spawnSync(process.execPath, [cli, "--dry-run", "--repo-root", defaultRepoRoot()], {
+      encoding: "utf8",
+    });
+    expect(r.status).toBe(0);
+    const outcome = JSON.parse(r.stdout);
+    expect(outcome.dryRun).toBe(true);
+    expect(Array.isArray(outcome.commands)).toBe(true);
+    expect(outcome.commands.some((c: string) => c.includes("fetch"))).toBe(true);
+  });
 });
 
 describe("runSyncCli — remote resolution (remoteName threading)", () => {
-	test("deps.remoteName threads into client + runSync (fetch <remote>, <remote>/<D> refs)", async () => {
-		const client = fakeClient({
-			defaultBranch: "main",
-			current: "main",
-			worktrees: [{ worktree: REPO, branch: "main" }],
-			revs: { "upstream/main": sha("b"), main: sha("a") },
-		});
-		const { fn } = fakeSpawn();
-		const res = await runSyncCli(["--dry-run"], { client, spawn: fn, repoRoot: REPO, remoteName: "upstream" });
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" fetch upstream`)).toBe(true);
-		expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" merge --ff-only upstream/main`)).toBe(true);
-	});
+  test("deps.remoteName threads into client + runSync (fetch <remote>, <remote>/<D> refs)", async () => {
+    const client = fakeClient({
+      defaultBranch: "main",
+      current: "main",
+      worktrees: [{ worktree: REPO, branch: "main" }],
+      revs: { "upstream/main": sha("b"), main: sha("a") },
+    });
+    const { fn } = fakeSpawn();
+    const res = await runSyncCli(["--dry-run"], { client, spawn: fn, repoRoot: REPO, remoteName: "upstream" });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" fetch upstream`)).toBe(true);
+    expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" merge --ff-only upstream/main`)).toBe(true);
+  });
 
-	test("git config devops.remote resolves through the spawn seam", async () => {
-		const client = fakeClient({
-			defaultBranch: "main",
-			current: "main",
-			worktrees: [{ worktree: REPO, branch: "main" }],
-			revs: { "forgejo/main": sha("b"), main: sha("a") },
-		});
-		const calls: { cmd: string; args: string[] }[] = [];
-		const fn: SpawnFn = async (cmd, args) => {
-			calls.push({ cmd, args });
-			if (args.join(" ") === "config --get devops.remote") {
-				return { stdout: "forgejo\n", stderr: "", exitCode: 0 };
-			}
-			return { stdout: "", stderr: "", exitCode: 0 };
-		};
-		const res = await runSyncCli(["--dry-run"], { client, spawn: fn, repoRoot: REPO });
-		expect(res.exitCode).toBe(0);
-		const outcome = JSON.parse(res.stdout);
-		expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" fetch forgejo`)).toBe(true);
-	});
+  test("git config devops.remote resolves through the spawn seam", async () => {
+    const client = fakeClient({
+      defaultBranch: "main",
+      current: "main",
+      worktrees: [{ worktree: REPO, branch: "main" }],
+      revs: { "forgejo/main": sha("b"), main: sha("a") },
+    });
+    const calls: { cmd: string; args: string[] }[] = [];
+    const fn: SpawnFn = async (cmd, args) => {
+      calls.push({ cmd, args });
+      if (args.join(" ") === "config --get devops.remote") {
+        return { stdout: "forgejo\n", stderr: "", exitCode: 0 };
+      }
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const res = await runSyncCli(["--dry-run"], { client, spawn: fn, repoRoot: REPO });
+    expect(res.exitCode).toBe(0);
+    const outcome = JSON.parse(res.stdout);
+    expect(outcome.commands.some((c: string) => c === `git -C "${REPO}" fetch forgejo`)).toBe(true);
+  });
 });

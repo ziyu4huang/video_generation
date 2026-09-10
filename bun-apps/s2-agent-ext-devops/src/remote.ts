@@ -20,12 +20,12 @@ import type { SpawnFn } from "./spawn.js";
 
 /** The remote name the devops tools should use (see module doc for order). */
 export async function resolveRemoteName(
-	spawn: SpawnFn,
-	env: Record<string, string | undefined> = process.env,
+  spawn: SpawnFn,
+  env: Record<string, string | undefined> = process.env,
 ): Promise<string> {
-	const fromEnv = env.DEVOPS_REMOTE;
-	if (fromEnv && fromEnv.trim()) return fromEnv.trim();
-	const cfg = await spawn("git", ["config", "--get", "devops.remote"]);
-	if (cfg.exitCode === 0 && cfg.stdout.trim()) return cfg.stdout.trim();
-	return "origin";
+  const fromEnv = env.DEVOPS_REMOTE;
+  if (fromEnv && fromEnv.trim()) return fromEnv.trim();
+  const cfg = await spawn("git", ["config", "--get", "devops.remote"]);
+  if (cfg.exitCode === 0 && cfg.stdout.trim()) return cfg.stdout.trim();
+  return "origin";
 }

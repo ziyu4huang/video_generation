@@ -21,20 +21,21 @@
  * client is memoized per repoRoot (extension tool handlers re-run per call;
  * probing + token resolution should not repeat).
  */
-import type { ForgeClient } from "./types.js";
-import { createGithubRestClient } from "./github-rest.js";
-import { createGhClient } from "./gh-cli.js";
-import { createGiteaClient, giteaDefaultApiBase } from "./gitea.js";
-import type { FetchFn } from "./rest.js";
+
+import { resolveRemoteName } from "../remote.js";
 import type { SpawnFn } from "../spawn.js";
 import { createLiveSpawn } from "../spawn.js";
-import { resolveRemoteName } from "../remote.js";
+import { createGhClient } from "./gh-cli.js";
+import { createGiteaClient, giteaDefaultApiBase } from "./gitea.js";
+import { createGithubRestClient } from "./github-rest.js";
+import type { FetchFn } from "./rest.js";
+import type { ForgeClient } from "./types.js";
 
 /** A git remote URL split into its forge coordinates. */
 export interface ForgeCoords {
-	host: string;
-	owner: string;
-	repo: string;
+  host: string;
+  owner: string;
+  repo: string;
 }
 
 /**
@@ -44,54 +45,54 @@ export interface ForgeCoords {
  * and bare `host:owner/repo` forms. Returns null when not parseable.
  */
 export function parseRemoteUrl(url: string): ForgeCoords | null {
-	const trimmed = (url ?? "").trim();
-	if (!trimmed) return null;
+  const trimmed = (url ?? "").trim();
+  if (!trimmed) return null;
 
-	// https://[user@]host/owner/repo(.git)
-	let m = trimmed.match(/^https?:\/\/(?:[^@/\s]+@)?([^/\s]+)\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[/?#].*)?$/);
-	if (m) return { host: m[1].toLowerCase(), owner: m[2], repo: m[3] };
-	// git@host:owner/repo(.git) — SCP-style SSH, colon separator
-	m = trimmed.match(/^(?:[^@\s]+@)([^:\s/]+):([^/\s]+)\/([^/\s#?]+?)(?:\.git)?$/);
-	if (m) return { host: m[1].toLowerCase(), owner: m[2], repo: m[3] };
-	// ssh://git@host[:port]/owner/repo(.git)
-	m = trimmed.match(/^ssh:\/\/(?:[^@\s/]+@)?([^/\s:]+)(?::\d+)?\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?$/);
-	if (m) return { host: m[1].toLowerCase(), owner: m[2], repo: m[3] };
-	return null;
+  // https://[user@]host/owner/repo(.git)
+  let m = trimmed.match(/^https?:\/\/(?:[^@/\s]+@)?([^/\s]+)\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[/?#].*)?$/);
+  if (m) return { host: m[1].toLowerCase(), owner: m[2], repo: m[3] };
+  // git@host:owner/repo(.git) — SCP-style SSH, colon separator
+  m = trimmed.match(/^(?:[^@\s]+@)([^:\s/]+):([^/\s]+)\/([^/\s#?]+?)(?:\.git)?$/);
+  if (m) return { host: m[1].toLowerCase(), owner: m[2], repo: m[3] };
+  // ssh://git@host[:port]/owner/repo(.git)
+  m = trimmed.match(/^ssh:\/\/(?:[^@\s/]+@)?([^/\s:]+)(?::\d+)?\/([^/\s]+)\/([^/\s#?]+?)(?:\.git)?$/);
+  if (m) return { host: m[1].toLowerCase(), owner: m[2], repo: m[3] };
+  return null;
 }
 
 /** Is this host a GitHub endpoint? github.com or a GHES install (any host —
  *  GHES is self-hosted, so we accept and derive the API base from the host). */
 function isGithubHost(host: string): boolean {
-	return host === "github.com" || host.endsWith(".ghe.com");
+  return host === "github.com" || host.endsWith(".ghe.com");
 }
 
 /** Gitea/Forgejo hosts we recognize by common naming. Hosts that don't match
  *  can still opt in via DEVOPS_FORGE=gitea; anything else gets refused. */
 function looksLikeGitea(host: string): boolean {
-	return host.includes("gitea") || host.includes("forgejo") || host.endsWith(".codeberg.org");
+  return host.includes("gitea") || host.includes("forgejo") || host.endsWith(".codeberg.org");
 }
 
 export interface SelectForgeDeps {
-	spawn?: SpawnFn;
-	/** Default process.env (tests inject). */
-	env?: Record<string, string | undefined>;
-	/** Injectable fetch for the REST adapter (tests). */
-	fetchFn?: FetchFn;
-	/** cwd for the git remote query (defaults to process.cwd()). */
-	repoRoot?: string;
+  spawn?: SpawnFn;
+  /** Default process.env (tests inject). */
+  env?: Record<string, string | undefined>;
+  /** Injectable fetch for the REST adapter (tests). */
+  fetchFn?: FetchFn;
+  /** cwd for the git remote query (defaults to process.cwd()). */
+  repoRoot?: string;
 }
 
 export interface SelectedForge {
-	client: ForgeClient;
-	/** Which backend won — surfaces in diagnostics. */
-	backend: "github-rest" | "gh-cli" | "gitea";
-	coords: ForgeCoords;
-	/** Where the token came from (diagnostics ONLY — never the token itself). */
-	tokenKind?: string;
-	/** The resolved remote name (DEVOPS_REMOTE > git config devops.remote >
-	 *  origin) — callers building git refs (fetch/push/<remote>/<branch>) reuse
-	 *  this instead of re-resolving. */
-	remoteName: string;
+  client: ForgeClient;
+  /** Which backend won — surfaces in diagnostics. */
+  backend: "github-rest" | "gh-cli" | "gitea";
+  coords: ForgeCoords;
+  /** Where the token came from (diagnostics ONLY — never the token itself). */
+  tokenKind?: string;
+  /** The resolved remote name (DEVOPS_REMOTE > git config devops.remote >
+   *  origin) — callers building git refs (fetch/push/<remote>/<branch>) reuse
+   *  this instead of re-resolving. */
+  remoteName: string;
 }
 
 /**
@@ -100,95 +101,105 @@ export interface SelectedForge {
  * supported yet, or no backend is available.
  */
 export async function selectForgeClient(deps: SelectForgeDeps = {}): Promise<SelectedForge> {
-	const spawn = deps.spawn ?? createLiveSpawn(deps.repoRoot ?? process.cwd());
-	const env = deps.env ?? process.env;
+  const spawn = deps.spawn ?? createLiveSpawn(deps.repoRoot ?? process.cwd());
+  const env = deps.env ?? process.env;
 
-	// The remote name is configurable (DEVOPS_REMOTE > git config devops.remote
-	// > origin — see src/remote.ts); everything else keys off its URL.
-	const remoteName = await resolveRemoteName(spawn, env);
-	const remote = await spawn("git", ["remote", "get-url", remoteName]);
-	if (remote.exitCode !== 0 || !remote.stdout.trim()) {
-		throw new Error(
-			`forge selection: could not read the ${remoteName} remote URL (git remote get-url ${remoteName}, exit ${remote.exitCode}). Set one, or point the tool at a git checkout.`,
-		);
-	}
-	const coords = parseRemoteUrl(remote.stdout);
-	if (!coords) {
-		throw new Error(`forge selection: unparseable ${remoteName} remote URL: ${remote.stdout.trim()}`);
-	}
-	if (!isGithubHost(coords.host)) {
-		// Gitea/Forgejo: recognized by common host naming, or forced via
-		// DEVOPS_FORGE=gitea (self-hosted names like git.acme.internal or
-		// localhost:3200 don't match any heuristic).
-		if (looksLikeGitea(coords.host) || env.DEVOPS_FORGE === "gitea") {
-			const token = env.GITEA_TOKEN?.trim();
-			if (!token) {
-				throw new Error(
-					`forge selection: Gitea/Forgejo host "${coords.host}" needs a PAT — create one in Settings → Applications (repository read/write) and export GITEA_TOKEN. ` +
-						`There is no gh-equivalent CLI to harvest a token from.`,
-				);
-			}
-			// https by default (SSH remotes carry no scheme); GITEA_API_BASE
-			// overrides for http instances / non-standard prefixes.
-			const apiBase = env.GITEA_API_BASE?.trim() || giteaDefaultApiBase(coords.host);
-			return {
-				client: createGiteaClient({
-					host: coords.host,
-					owner: coords.owner,
-					repo: coords.repo,
-					token,
-					tokenKind: "GITEA_TOKEN env",
-					apiBase,
-					fetchFn: deps.fetchFn,
-				}),
-				backend: "gitea",
-				coords,
-				tokenKind: "GITEA_TOKEN env",
-				remoteName,
-			};
-		}
-		throw new Error(
-			`forge selection: unsupported forge. Host "${coords.host}" is not a known GitHub or Gitea endpoint. ` +
-				`Set DEVOPS_FORGE=gitea to force the Gitea adapter if it is one.`,
-		);
-	}
+  // The remote name is configurable (DEVOPS_REMOTE > git config devops.remote
+  // > origin — see src/remote.ts); everything else keys off its URL.
+  const remoteName = await resolveRemoteName(spawn, env);
+  const remote = await spawn("git", ["remote", "get-url", remoteName]);
+  if (remote.exitCode !== 0 || !remote.stdout.trim()) {
+    throw new Error(
+      `forge selection: could not read the ${remoteName} remote URL (git remote get-url ${remoteName}, exit ${remote.exitCode}). Set one, or point the tool at a git checkout.`,
+    );
+  }
+  const coords = parseRemoteUrl(remote.stdout);
+  if (!coords) {
+    throw new Error(`forge selection: unparseable ${remoteName} remote URL: ${remote.stdout.trim()}`);
+  }
+  if (!isGithubHost(coords.host)) {
+    // Gitea/Forgejo: recognized by common host naming, or forced via
+    // DEVOPS_FORGE=gitea (self-hosted names like git.acme.internal or
+    // localhost:3200 don't match any heuristic).
+    if (looksLikeGitea(coords.host) || env.DEVOPS_FORGE === "gitea") {
+      const token = env.GITEA_TOKEN?.trim();
+      if (!token) {
+        throw new Error(
+          `forge selection: Gitea/Forgejo host "${coords.host}" needs a PAT — create one in Settings → Applications (repository read/write) and export GITEA_TOKEN. ` +
+            `There is no gh-equivalent CLI to harvest a token from.`,
+        );
+      }
+      // https by default (SSH remotes carry no scheme); GITEA_API_BASE
+      // overrides for http instances / non-standard prefixes.
+      const apiBase = env.GITEA_API_BASE?.trim() || giteaDefaultApiBase(coords.host);
+      return {
+        client: createGiteaClient({
+          host: coords.host,
+          owner: coords.owner,
+          repo: coords.repo,
+          token,
+          tokenKind: "GITEA_TOKEN env",
+          apiBase,
+          fetchFn: deps.fetchFn,
+        }),
+        backend: "gitea",
+        coords,
+        tokenKind: "GITEA_TOKEN env",
+        remoteName,
+      };
+    }
+    throw new Error(
+      `forge selection: unsupported forge. Host "${coords.host}" is not a known GitHub or Gitea endpoint. ` +
+        `Set DEVOPS_FORGE=gitea to force the Gitea adapter if it is one.`,
+    );
+  }
 
-	// 1) env tokens → REST
-	const envToken = env.GITHUB_TOKEN || env.GH_TOKEN;
-	if (envToken) {
-		return {
-			client: createGithubRestClient({ ...coords, token: envToken, tokenKind: "GITHUB_TOKEN env", fetchFn: deps.fetchFn }),
-			backend: "github-rest",
-			coords,
-			tokenKind: "GITHUB_TOKEN env",
-			remoteName,
-		};
-	}
+  // 1) env tokens → REST
+  const envToken = env.GITHUB_TOKEN || env.GH_TOKEN;
+  if (envToken) {
+    return {
+      client: createGithubRestClient({
+        ...coords,
+        token: envToken,
+        tokenKind: "GITHUB_TOKEN env",
+        fetchFn: deps.fetchFn,
+      }),
+      backend: "github-rest",
+      coords,
+      tokenKind: "GITHUB_TOKEN env",
+      remoteName,
+    };
+  }
 
-	// 2) gh auth token → REST (token value NEVER leaves this function except
-	//    into the Authorization header)
-	const ghToken = await spawn("gh", ["auth", "token"]);
-	if (ghToken.exitCode === 0 && ghToken.stdout.trim()) {
-		return {
-			client: createGithubRestClient({ ...coords, token: ghToken.stdout.trim(), tokenKind: "gh auth token", fetchFn: deps.fetchFn }),
-			backend: "github-rest",
-			coords,
-			tokenKind: "gh auth token",
-			remoteName,
-		};
-	}
+  // 2) gh auth token → REST (token value NEVER leaves this function except
+  //    into the Authorization header)
+  const ghToken = await spawn("gh", ["auth", "token"]);
+  if (ghToken.exitCode === 0 && ghToken.stdout.trim()) {
+    return {
+      client: createGithubRestClient({
+        ...coords,
+        token: ghToken.stdout.trim(),
+        tokenKind: "gh auth token",
+        fetchFn: deps.fetchFn,
+      }),
+      backend: "github-rest",
+      coords,
+      tokenKind: "gh auth token",
+      remoteName,
+    };
+  }
 
-	// 3) gh on PATH → gh-CLI client (its own auth surface; may still be logged out —
-	//    its calls will fail with gh's own actionable errors)
-	const probe = await spawn("gh", ["--version"]);
-	if (probe.exitCode === 0) {
-		return { client: createGhClient(spawn), backend: "gh-cli", coords, remoteName };
-	}
+  // 3) gh on PATH → gh-CLI client (its own auth surface; may still be logged out —
+  //    its calls will fail with gh's own actionable errors)
+  const probe = await spawn("gh", ["--version"]);
+  if (probe.exitCode === 0) {
+    return { client: createGhClient(spawn), backend: "gh-cli", coords, remoteName };
+  }
 
-	throw new Error(
-		`forge selection: no backend for github.com repo ${coords.owner}/${coords.repo}. ` +
-			`Set GITHUB_TOKEN, or authenticate the gh CLI (\`gh auth login\`, or \`gh auth token\` failing above), or install gh.`,
-	);
+  throw new Error(
+    `forge selection: no backend for github.com repo ${coords.owner}/${coords.repo}. ` +
+      `Set GITHUB_TOKEN, or authenticate the gh CLI (\`gh auth login\`, or \`gh auth token\` failing above), or install gh.`,
+  );
 }
 
 // Module-level memo: probe once per repoRoot per process (extension tool
@@ -198,14 +209,14 @@ const memo = new Map<string, Promise<SelectedForge>>();
 /** Memoized selectForgeClient keyed by repoRoot/cwd. Tests that inject
  *  spawn/env/fetchFn should call selectForgeClient directly (no memo). */
 export function selectForgeClientCached(deps: SelectForgeDeps = {}): Promise<SelectedForge> {
-	const key = deps.repoRoot ?? process.cwd();
-	let hit = memo.get(key);
-	if (!hit) {
-		hit = selectForgeClient(deps);
-		memo.set(key, hit);
-		// A failed selection should not poison the cache (e.g. gh was installed
-		// mid-session) — drop it so the next call re-probes.
-		hit.catch(() => memo.delete(key));
-	}
-	return hit;
+  const key = deps.repoRoot ?? process.cwd();
+  let hit = memo.get(key);
+  if (!hit) {
+    hit = selectForgeClient(deps);
+    memo.set(key, hit);
+    // A failed selection should not poison the cache (e.g. gh was installed
+    // mid-session) — drop it so the next call re-probes.
+    hit.catch(() => memo.delete(key));
+  }
+  return hit;
 }

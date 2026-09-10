@@ -20,7 +20,7 @@ export const DEFAULT_MODEL_ENDPOINT = "http://127.0.0.1:1234";
 
 /** Resolve the precheck endpoint: env override first (baseUrl alias included). */
 export function resolveModelEndpoint(env: Record<string, string | undefined> = process.env): string {
-	return env.LMSTUDIO_BASE_URL ?? DEFAULT_MODEL_ENDPOINT;
+  return env.LMSTUDIO_BASE_URL ?? DEFAULT_MODEL_ENDPOINT;
 }
 
 /** Model ids that are embedding servers, not chat models — never contention. */
@@ -36,15 +36,15 @@ const LARGE_MODEL_MIN_B = 7;
  * 300s model-call cap can be exceeded. Returns null when quiet.
  */
 export function modelContentionWarning(modelIds: string[], capMs: number = 300_000): string | null {
-	const large = modelIds.filter((id) => {
-		if (EMBEDDING_ID_RE.test(id)) return false;
-		const m = id.match(PARAMS_B_RE);
-		return m !== null && Number.parseFloat(m[1]) >= LARGE_MODEL_MIN_B;
-	});
-	if (large.length > 1) {
-		return `model endpoint lists ${large.length} large chat models resident (${large.join(", ")}) — generation may be slow enough to exceed even the ${Math.round(capMs / 1000)}s model-call cap; consider unloading the extras in LM Studio before deploying/probing`;
-	}
-	return null;
+  const large = modelIds.filter((id) => {
+    if (EMBEDDING_ID_RE.test(id)) return false;
+    const m = id.match(PARAMS_B_RE);
+    return m !== null && Number.parseFloat(m[1]) >= LARGE_MODEL_MIN_B;
+  });
+  if (large.length > 1) {
+    return `model endpoint lists ${large.length} large chat models resident (${large.join(", ")}) — generation may be slow enough to exceed even the ${Math.round(capMs / 1000)}s model-call cap; consider unloading the extras in LM Studio before deploying/probing`;
+  }
+  return null;
 }
 
 /** Fetch seam for the contention precheck — narrow so tests inject a plain fn. */

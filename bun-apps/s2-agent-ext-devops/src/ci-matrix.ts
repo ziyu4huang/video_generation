@@ -36,31 +36,31 @@ export const CI_WORKFLOW_PATH = ".github/workflows/ci.yml.disabled";
  * then falls back to generic per-package derivation.
  */
 export function parseCiMatrix(yamlSource: string): CiMatrix {
-	let doc: unknown;
-	try {
-		doc = Bun.YAML.parse(yamlSource);
-	} catch {
-		return {};
-	}
-	const include = (doc as { jobs?: { tests?: { strategy?: { matrix?: { include?: unknown } } } } })?.jobs?.tests
-		?.strategy?.matrix?.include;
-	if (!Array.isArray(include)) return {};
-	const out: CiMatrix = {};
-	for (const entry of include) {
-		const row = entry as { package?: unknown; "test-cmd"?: unknown };
-		if (typeof row?.package === "string" && typeof row?.["test-cmd"] === "string") {
-			out[row.package] = row["test-cmd"];
-		}
-	}
-	return out;
+  let doc: unknown;
+  try {
+    doc = Bun.YAML.parse(yamlSource);
+  } catch {
+    return {};
+  }
+  const include = (doc as { jobs?: { tests?: { strategy?: { matrix?: { include?: unknown } } } } })?.jobs?.tests
+    ?.strategy?.matrix?.include;
+  if (!Array.isArray(include)) return {};
+  const out: CiMatrix = {};
+  for (const entry of include) {
+    const row = entry as { package?: unknown; "test-cmd"?: unknown };
+    if (typeof row?.package === "string" && typeof row?.["test-cmd"] === "string") {
+      out[row.package] = row["test-cmd"];
+    }
+  }
+  return out;
 }
 
 /** Read + parse the workflow at `<repoRoot>/.github/workflows/ci.yml.disabled`. */
 export async function readCiMatrix(repoRoot: string): Promise<CiMatrix> {
-	try {
-		return parseCiMatrix(await Bun.file(`${repoRoot}/${CI_WORKFLOW_PATH}`).text());
-	} catch {
-		// No workflow file (or unreadable) → generic derivation everywhere.
-		return {};
-	}
+  try {
+    return parseCiMatrix(await Bun.file(`${repoRoot}/${CI_WORKFLOW_PATH}`).text());
+  } catch {
+    // No workflow file (or unreadable) → generic derivation everywhere.
+    return {};
+  }
 }

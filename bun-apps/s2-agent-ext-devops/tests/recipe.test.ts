@@ -14,63 +14,65 @@
  * and assert the recipe's gating CONSEQUENCES (green→merge, detection-error→
  * block), not detection internals.
  */
-import { test, expect, describe } from "bun:test";
-import { runMergeRecipe, type GhClient } from "../src/recipe.js";
+import { describe, expect, test } from "bun:test";
+import type { ChangedPackagesMap, ComputeChangedPackagesOptions } from "../src/changed-packages.js";
+import { type GhClient, runMergeRecipe } from "../src/recipe.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
-import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "../src/changed-packages.js";
 
 const REPO = "/repo";
 
 /** A scripted GhClient: prStatus returns statuses[min(i++, len-1)]; mergeNow
  *  records its args (and optionally throws). */
 function fakeGh(
-	statuses: Array<{
-		state: "OPEN" | "MERGED" | "CLOSED";
-		mergeState: string;
-		baseRefName: string;
-		headRefName: string;
-		mergeSha?: string;
-	}>,
-	opts: { mergeNowThrows?: boolean } = {},
+  statuses: Array<{
+    state: "OPEN" | "MERGED" | "CLOSED";
+    mergeState: string;
+    baseRefName: string;
+    headRefName: string;
+    mergeSha?: string;
+  }>,
+  opts: { mergeNowThrows?: boolean } = {},
 ) {
-	let i = 0;
-	const calls = {
-		prStatus: [] as number[],
-		mergeNow: [] as Array<{ n: number; strategy: string; deleteBranch: boolean }>,
-	};
-	const client: GhClient = {
-		async prStatus(n) {
-			calls.prStatus.push(n);
-			return statuses[Math.min(i++, statuses.length - 1)] as never;
-		},
-		async mergeNow(n, strategy, deleteBranch) {
-			calls.mergeNow.push({ n, strategy, deleteBranch });
-			if (opts.mergeNowThrows) throw new Error("merge method not allowed on this repo");
-		},
-		async prList() {
-			return []; // the merge recipe never lists PRs
-		},
-	};
-	return { client, calls };
+  let i = 0;
+  const calls = {
+    prStatus: [] as number[],
+    mergeNow: [] as Array<{ n: number; strategy: string; deleteBranch: boolean }>,
+  };
+  const client: GhClient = {
+    async prStatus(n) {
+      calls.prStatus.push(n);
+      return statuses[Math.min(i++, statuses.length - 1)] as never;
+    },
+    async mergeNow(n, strategy, deleteBranch) {
+      calls.mergeNow.push({ n, strategy, deleteBranch });
+      if (opts.mergeNowThrows) throw new Error("merge method not allowed on this repo");
+    },
+    async prList() {
+      return []; // the merge recipe never lists PRs
+    },
+  };
+  return { client, calls };
 }
 
 interface Rec {
-	cmd: string;
-	args: string[];
-	cwd: string;
+  cmd: string;
+  args: string[];
+  cwd: string;
 }
 
 /** Recording spawn: records {cmd,args,cwd} + returns canned results by match.
  *  Unmatched calls default to {exitCode:0} — so a green run_local_ci (verify ok,
  *  gates pass, schema-cost ok) needs NO explicit responses. */
-function mkSpawn(responses: Array<{ match: (cmd: string, args: string[], cwd: string) => boolean; result: SpawnResult }>) {
-	const calls: Rec[] = [];
-	const fn: SpawnFn = async (cmd, args, options) => {
-		const cwd = options?.cwd ?? "";
-		calls.push({ cmd, args, cwd });
-		return responses.find((r) => r.match(cmd, args, cwd))?.result ?? { stdout: "", stderr: "", exitCode: 0 };
-	};
-	return { fn, calls };
+function mkSpawn(
+  responses: Array<{ match: (cmd: string, args: string[], cwd: string) => boolean; result: SpawnResult }>,
+) {
+  const calls: Rec[] = [];
+  const fn: SpawnFn = async (cmd, args, options) => {
+    const cwd = options?.cwd ?? "";
+    calls.push({ cmd, args, cwd });
+    return responses.find((r) => r.match(cmd, args, cwd))?.result ?? { stdout: "", stderr: "", exitCode: 0 };
+  };
+  return { fn, calls };
 }
 
 /**
@@ -79,13 +81,13 @@ function mkSpawn(responses: Array<{ match: (cmd: string, args: string[], cwd: st
  * I/O failure (→ detectionError → overall fail → block).
  */
 function mkDetect(map: ChangedPackagesMap = {}, throws = false) {
-	const calls: ComputeChangedPackagesOptions[] = [];
-	const fn = async (opts: ComputeChangedPackagesOptions): Promise<ChangedPackagesMap> => {
-		calls.push(opts);
-		if (throws) throw new Error("detection I/O failure");
-		return { ...map };
-	};
-	return { fn, calls };
+  const calls: ComputeChangedPackagesOptions[] = [];
+  const fn = async (opts: ComputeChangedPackagesOptions): Promise<ChangedPackagesMap> => {
+    calls.push(opts);
+    if (throws) throw new Error("detection I/O failure");
+    return { ...map };
+  };
+  return { fn, calls };
 }
 
 /**
@@ -98,209 +100,231 @@ const fakeGates = async () => ({ gates: [{ name: "File-size guard (2 MB, blocks)
 
 /** a gate that FAILS → overall fail (no packages needed). */
 const gateFail = () => ({
-	match: (c: string, a: string[]) => c === "bash" && a[0] === "-c" && a[1] === GATE_RUN,
-	result: { stdout: "", stderr: "fail", exitCode: 1 },
+  match: (c: string, a: string[]) => c === "bash" && a[0] === "-c" && a[1] === GATE_RUN,
+  result: { stdout: "", stderr: "fail", exitCode: 1 },
 });
 /** `git fetch` that FAILS (offline) — recipe must ignore the exit code. */
 const fetchFail = () => ({
-	match: (c: string, a: string[]) => c === "git" && a[0] === "fetch",
-	result: { stdout: "", stderr: "offline", exitCode: 1 },
+  match: (c: string, a: string[]) => c === "git" && a[0] === "fetch",
+  result: { stdout: "", stderr: "offline", exitCode: 1 },
 });
 
-function baseOpts(gh: GhClient, fn: SpawnFn, detect?: { fn: (o: ComputeChangedPackagesOptions) => Promise<ChangedPackagesMap> }) {
-	return {
-		prNumber: 42,
-		strategy: "squash" as const,
-		deleteBranch: true,
-		gh,
-		spawn: fn,
-		repoRoot: REPO,
-		readGates: fakeGates,
-		...(detect ? { detectChangedPackages: detect.fn } : {}),
-	};
+function baseOpts(
+  gh: GhClient,
+  fn: SpawnFn,
+  detect?: { fn: (o: ComputeChangedPackagesOptions) => Promise<ChangedPackagesMap> },
+) {
+  return {
+    prNumber: 42,
+    strategy: "squash" as const,
+    deleteBranch: true,
+    gh,
+    spawn: fn,
+    repoRoot: REPO,
+    readGates: fakeGates,
+    ...(detect ? { detectChangedPackages: detect.fn } : {}),
+  };
 }
 
 /** Did the recipe attempt the best-effort fetch? */
 const ranFetch = (calls: Rec[]) => calls.some((c) => c.cmd === "git" && c.args[0] === "fetch");
 
 describe("runMergeRecipe — the 8 gates", () => {
-	test("1. GREEN (CLEAN + ci pass) → mergeNow called once (--squash), merged:true, localCi attached", async () => {
-		const { client, calls } = fakeGh([
-			{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
-			{ state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "abc123def" },
-		]);
-		const detect = mkDetect({}); // {} → no packages → gates pass → green
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true);
-		expect(r.finalState).toBe("MERGED");
-		expect(r.mergeSha).toBe("abc123def"); // follow-up prStatus populated it
-		expect(r.localCi?.overall).toBe("pass");
-		expect(calls.mergeNow).toHaveLength(1);
-		expect(calls.mergeNow[0]).toMatchObject({ n: 42, strategy: "squash", deleteBranch: true });
-	});
+  test("1. GREEN (CLEAN + ci pass) → mergeNow called once (--squash), merged:true, localCi attached", async () => {
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+      { state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "abc123def" },
+    ]);
+    const detect = mkDetect({}); // {} → no packages → gates pass → green
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true);
+    expect(r.finalState).toBe("MERGED");
+    expect(r.mergeSha).toBe("abc123def"); // follow-up prStatus populated it
+    expect(r.localCi?.overall).toBe("pass");
+    expect(calls.mergeNow).toHaveLength(1);
+    expect(calls.mergeNow[0]).toMatchObject({ n: 42, strategy: "squash", deleteBranch: true });
+  });
 
-	test("2. RED (CLEAN + ci.overall=fail) → NO merge, merged:false, error, localCi attached", async () => {
-		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({});
-		const { fn } = mkSpawn([gateFail()]); // a gate fails
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(false);
-		expect(r.error).toMatch(/run_local_ci failed/);
-		expect(r.localCi?.overall).toBe("fail");
-		expect(calls.mergeNow).toHaveLength(0);
-	});
+  test("2. RED (CLEAN + ci.overall=fail) → NO merge, merged:false, error, localCi attached", async () => {
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+    ]);
+    const detect = mkDetect({});
+    const { fn } = mkSpawn([gateFail()]); // a gate fails
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(false);
+    expect(r.error).toMatch(/run_local_ci failed/);
+    expect(r.localCi?.overall).toBe("fail");
+    expect(calls.mergeNow).toHaveLength(0);
+  });
 
-	test("3. DETECTION-ERROR (ci.overall=fail + detectionError) → NO merge, error mentions detection", async () => {
-		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({}, true); // detection THROWS → detectionError
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(false);
-		expect(r.localCi?.detectionError).toMatch(/detection failed/);
-		expect(r.error).toMatch(/changed-packages/); // detectionError surfaces verbatim
-		expect(calls.mergeNow).toHaveLength(0);
-	});
+  test("3. DETECTION-ERROR (ci.overall=fail + detectionError) → NO merge, error mentions detection", async () => {
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+    ]);
+    const detect = mkDetect({}, true); // detection THROWS → detectionError
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(false);
+    expect(r.localCi?.detectionError).toMatch(/detection failed/);
+    expect(r.error).toMatch(/changed-packages/); // detectionError surfaces verbatim
+    expect(calls.mergeNow).toHaveLength(0);
+  });
 
-	test("4. BEHIND (ci green but mergeState=BEHIND) → NO merge, behind error", async () => {
-		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "BEHIND", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({}); // ci green
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(false);
-		expect(r.error).toMatch(/behind base/i);
-		expect(r.localCi?.overall).toBe("pass"); // gate ran + passed; the block is purely BEHIND
-		expect(calls.mergeNow).toHaveLength(0);
-	});
+  test("4. BEHIND (ci green but mergeState=BEHIND) → NO merge, behind error", async () => {
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "BEHIND", baseRefName: "main", headRefName: "feat-x" },
+    ]);
+    const detect = mkDetect({}); // ci green
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(false);
+    expect(r.error).toMatch(/behind base/i);
+    expect(r.localCi?.overall).toBe("pass"); // gate ran + passed; the block is purely BEHIND
+    expect(calls.mergeNow).toHaveLength(0);
+  });
 
-	test("5. NON-CLEAN (ci green, mergeState=DIRTY) → NO merge, block cites mergeState", async () => {
-		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "DIRTY", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({}); // ci green
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(false);
-		expect(r.error).toMatch(/mergeState=DIRTY/);
-		expect(calls.mergeNow).toHaveLength(0);
-	});
+  test("5. NON-CLEAN (ci green, mergeState=DIRTY) → NO merge, block cites mergeState", async () => {
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "DIRTY", baseRefName: "main", headRefName: "feat-x" },
+    ]);
+    const detect = mkDetect({}); // ci green
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(false);
+    expect(r.error).toMatch(/mergeState=DIRTY/);
+    expect(calls.mergeNow).toHaveLength(0);
+  });
 
-	test("6. ALREADY-MERGED (state=MERGED) → merged:true, NO ci run, NO merge call", async () => {
-		const { client, calls } = fakeGh([{ state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "deadbeef" }]);
-		const detect = mkDetect({});
-		const { fn, calls: spawnCalls } = mkSpawn([]); // nothing should be spawned
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true);
-		expect(r.finalState).toBe("MERGED");
-		expect(r.mergeSha).toBe("deadbeef");
-		expect(r.localCi).toBeUndefined(); // no gate run
-		expect(calls.mergeNow).toHaveLength(0);
-		expect(detect.calls.length).toBe(0); // short-circuited before any run_local_ci work
-		expect(ranFetch(spawnCalls)).toBe(false);
-	});
+  test("6. ALREADY-MERGED (state=MERGED) → merged:true, NO ci run, NO merge call", async () => {
+    const { client, calls } = fakeGh([
+      { state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "deadbeef" },
+    ]);
+    const detect = mkDetect({});
+    const { fn, calls: spawnCalls } = mkSpawn([]); // nothing should be spawned
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true);
+    expect(r.finalState).toBe("MERGED");
+    expect(r.mergeSha).toBe("deadbeef");
+    expect(r.localCi).toBeUndefined(); // no gate run
+    expect(calls.mergeNow).toHaveLength(0);
+    expect(detect.calls.length).toBe(0); // short-circuited before any run_local_ci work
+    expect(ranFetch(spawnCalls)).toBe(false);
+  });
 
-	test("7. CLOSED (state=CLOSED) → merged:false, error", async () => {
-		const { client, calls } = fakeGh([{ state: "CLOSED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({});
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(false);
-		expect(r.finalState).toBe("CLOSED");
-		expect(r.error).toMatch(/CLOSED/);
-		expect(calls.mergeNow).toHaveLength(0);
-		expect(detect.calls.length).toBe(0);
-	});
+  test("7. CLOSED (state=CLOSED) → merged:false, error", async () => {
+    const { client, calls } = fakeGh([
+      { state: "CLOSED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+    ]);
+    const detect = mkDetect({});
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(false);
+    expect(r.finalState).toBe("CLOSED");
+    expect(r.error).toMatch(/CLOSED/);
+    expect(calls.mergeNow).toHaveLength(0);
+    expect(detect.calls.length).toBe(0);
+  });
 
-	test("8. FETCH-FAIL → block (fail-closed): fetch exits non-zero, detect errors → detectionError", async () => {
-		// Models offline: fetch fails (ignored), run_local_ci still runs (fail-closed).
-		// Detection THROWS (simulating an unrecoverable I/O failure during the
-		// base..head diff) → detectionError → overall fail → block. The recipe must
-		// NOT hard-fail on the fetch itself.
-		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({}, true); // detection throws
-		const { fn, calls: spawnCalls } = mkSpawn([fetchFail()]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(false);
-		expect(r.localCi?.detectionError).toBeDefined();
-		expect(r.error).toMatch(/changed-packages/);
-		expect(calls.mergeNow).toHaveLength(0);
-		expect(ranFetch(spawnCalls)).toBe(true); // the fetch WAS attempted …
-		expect(detect.calls.length).toBe(1); // … and run_local_ci still ran (fail-closed), not crashed
-	});
+  test("8. FETCH-FAIL → block (fail-closed): fetch exits non-zero, detect errors → detectionError", async () => {
+    // Models offline: fetch fails (ignored), run_local_ci still runs (fail-closed).
+    // Detection THROWS (simulating an unrecoverable I/O failure during the
+    // base..head diff) → detectionError → overall fail → block. The recipe must
+    // NOT hard-fail on the fetch itself.
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+    ]);
+    const detect = mkDetect({}, true); // detection throws
+    const { fn, calls: spawnCalls } = mkSpawn([fetchFail()]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(false);
+    expect(r.localCi?.detectionError).toBeDefined();
+    expect(r.error).toMatch(/changed-packages/);
+    expect(calls.mergeNow).toHaveLength(0);
+    expect(ranFetch(spawnCalls)).toBe(true); // the fetch WAS attempted …
+    expect(detect.calls.length).toBe(1); // … and run_local_ci still ran (fail-closed), not crashed
+  });
 });
 
 describe("runMergeRecipe — robustness", () => {
-	test("mergeNow THROWS (e.g. merge-queue rejection) → block outcome, not a crash", async () => {
-		const { client, calls } = fakeGh(
-			[{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }],
-			{ mergeNowThrows: true },
-		);
-		const detect = mkDetect({});
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(false);
-		expect(r.error).toMatch(/gh pr merge failed/);
-		expect(calls.mergeNow).toHaveLength(1); // attempted, then surfaced as a block
-	});
+  test("mergeNow THROWS (e.g. merge-queue rejection) → block outcome, not a crash", async () => {
+    const { client, calls } = fakeGh(
+      [{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }],
+      { mergeNowThrows: true },
+    );
+    const detect = mkDetect({});
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(false);
+    expect(r.error).toMatch(/gh pr merge failed/);
+    expect(calls.mergeNow).toHaveLength(1); // attempted, then surfaced as a block
+  });
 
-	test("respects deleteBranch=false (passed through to mergeNow)", async () => {
-		const { client, calls } = fakeGh([
-			{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
-			{ state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "z" },
-		]);
-		const detect = mkDetect({});
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), deleteBranch: false });
-		expect(r.merged).toBe(true);
-		expect(calls.mergeNow[0]).toMatchObject({ deleteBranch: false });
-	});
+  test("respects deleteBranch=false (passed through to mergeNow)", async () => {
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+      { state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "z" },
+    ]);
+    const detect = mkDetect({});
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), deleteBranch: false });
+    expect(r.merged).toBe(true);
+    expect(calls.mergeNow[0]).toMatchObject({ deleteBranch: false });
+  });
 
-	test("passes baseRef=origin/<base> + headRef=origin/<head> into run_local_ci detection", async () => {
-		// PR's base/head names (from gh) become origin/<base> / origin/<head> in
-		// the run_local_ci diff — pins the fetch-then-diff contract.
-		const { client } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({});
-		const { fn } = mkSpawn([]);
-		await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(detect.calls[0].baseRef).toBe("origin/main");
-		expect(detect.calls[0].headRef).toBe("origin/feat-x");
-	});
+  test("passes baseRef=origin/<base> + headRef=origin/<head> into run_local_ci detection", async () => {
+    // PR's base/head names (from gh) become origin/<base> / origin/<head> in
+    // the run_local_ci diff — pins the fetch-then-diff contract.
+    const { client } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
+    const detect = mkDetect({});
+    const { fn } = mkSpawn([]);
+    await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(detect.calls[0].baseRef).toBe("origin/main");
+    expect(detect.calls[0].headRef).toBe("origin/feat-x");
+  });
 
-	test("outcome always carries elapsedMs", async () => {
-		const { client } = fakeGh([{ state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "x" }]);
-		const detect = mkDetect({});
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(typeof r.elapsedMs).toBe("number");
-		expect(r.elapsedMs).toBeGreaterThanOrEqual(0);
-	});
+  test("outcome always carries elapsedMs", async () => {
+    const { client } = fakeGh([
+      { state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "x" },
+    ]);
+    const detect = mkDetect({});
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(typeof r.elapsedMs).toBe("number");
+    expect(r.elapsedMs).toBeGreaterThanOrEqual(0);
+  });
 
-	test("already-aborted signal → block before any gh call", async () => {
-		const ac = new AbortController();
-		ac.abort();
-		const { client, calls } = fakeGh([{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" }]);
-		const detect = mkDetect({});
-		const { fn } = mkSpawn([]);
-		const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), signal: ac.signal });
-		expect(r.merged).toBe(false);
-		expect(r.error).toMatch(/aborted/);
-		expect(calls.prStatus).toHaveLength(0); // short-circuited before the first gh call
-	});
+  test("already-aborted signal → block before any gh call", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const { client, calls } = fakeGh([
+      { state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+    ]);
+    const detect = mkDetect({});
+    const { fn } = mkSpawn([]);
+    const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), signal: ac.signal });
+    expect(r.merged).toBe(false);
+    expect(r.error).toMatch(/aborted/);
+    expect(calls.prStatus).toHaveLength(0); // short-circuited before the first gh call
+  });
 });
 
 describe("runMergeRecipe — non-origin remote (remoteName threading)", () => {
-	test("fetch targets + run_local_ci refs follow the configured remote", async () => {
-		const { client } = fakeGh([
-			{ state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
-			{ state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "abc123def" },
-		]);
-		const detect = mkDetect({});
-		const { fn, calls: spawnCalls } = mkSpawn([]);
-		const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), remoteName: "upstream" });
-		expect(r.merged).toBe(true);
-		const fetchCall = spawnCalls.find((c) => c.cmd === "git" && c.args[0] === "fetch");
-		expect(fetchCall?.args).toEqual(["fetch", "upstream", "main", "feat-x"]);
-		expect(detect.calls[0].baseRef).toBe("upstream/main");
-		expect(detect.calls[0].headRef).toBe("upstream/feat-x");
-	});
+  test("fetch targets + run_local_ci refs follow the configured remote", async () => {
+    const { client } = fakeGh([
+      { state: "OPEN", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+      { state: "MERGED", mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: "abc123def" },
+    ]);
+    const detect = mkDetect({});
+    const { fn, calls: spawnCalls } = mkSpawn([]);
+    const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), remoteName: "upstream" });
+    expect(r.merged).toBe(true);
+    const fetchCall = spawnCalls.find((c) => c.cmd === "git" && c.args[0] === "fetch");
+    expect(fetchCall?.args).toEqual(["fetch", "upstream", "main", "feat-x"]);
+    expect(detect.calls[0].baseRef).toBe("upstream/main");
+    expect(detect.calls[0].headRef).toBe("upstream/feat-x");
+  });
 });
 
 /**
@@ -314,158 +338,181 @@ describe("runMergeRecipe — non-origin remote (remoteName threading)", () => {
  * non-touch (mirroring the merge-pr-after-ci-cli cleanup tests).
  */
 describe("runMergeRecipe — local branch cleanup after merge", () => {
-	const MERGED_SHA = "abc123def4567890";
-	/** two prStatus rows: OPEN/CLEAN pre-merge, MERGED post-merge (mergeSha). */
-	const openThenMerged = () => [
-		{ state: "OPEN" as const, mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
-		{ state: "MERGED" as const, mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: MERGED_SHA },
-	];
-	/** canned git state: the merging worktree (/repo, ours) sits ON feat-x. */
-	const onHeadBranch = () => [
-		{
-			match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--abbrev-ref",
-			result: { stdout: "feat-x\n", stderr: "", exitCode: 0 },
-		},
-		{
-			match: (c: string, a: string[]) => c === "git" && a[0] === "worktree" && a[1] === "list",
-			result: { stdout: "worktree /repo\nbranch refs/heads/feat-x\n\nworktree /other\nbranch refs/heads/other-branch\n\n", stderr: "", exitCode: 0 },
-		},
-	];
-	// scoped to the BRANCH NAME (last arg) so runLocalCi's `rev-parse
-	// --verify -q origin/<ref>` resolution is untouched (it must stay green).
-	const hasLocalBranch = () => [{
-		match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--verify" && a[a.length - 1] === "feat-x",
-		result: { stdout: "1111111111111111111111111111111111111111\n", stderr: "", exitCode: 0 },
-	}];
-	const gitCalls = (calls: Rec[], ...args: string[]) => calls.filter((c) => c.cmd === "git" && args.every((x, i) => c.args[i] === x));
+  const MERGED_SHA = "abc123def4567890";
+  /** two prStatus rows: OPEN/CLEAN pre-merge, MERGED post-merge (mergeSha). */
+  const openThenMerged = () => [
+    { state: "OPEN" as const, mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x" },
+    { state: "MERGED" as const, mergeState: "CLEAN", baseRefName: "main", headRefName: "feat-x", mergeSha: MERGED_SHA },
+  ];
+  /** canned git state: the merging worktree (/repo, ours) sits ON feat-x. */
+  const onHeadBranch = () => [
+    {
+      match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--abbrev-ref",
+      result: { stdout: "feat-x\n", stderr: "", exitCode: 0 },
+    },
+    {
+      match: (c: string, a: string[]) => c === "git" && a[0] === "worktree" && a[1] === "list",
+      result: {
+        stdout: "worktree /repo\nbranch refs/heads/feat-x\n\nworktree /other\nbranch refs/heads/other-branch\n\n",
+        stderr: "",
+        exitCode: 0,
+      },
+    },
+  ];
+  // scoped to the BRANCH NAME (last arg) so runLocalCi's `rev-parse
+  // --verify -q origin/<ref>` resolution is untouched (it must stay green).
+  const hasLocalBranch = () => [
+    {
+      match: (c: string, a: string[]) =>
+        c === "git" && a[0] === "rev-parse" && a[1] === "--verify" && a[a.length - 1] === "feat-x",
+      result: { stdout: "1111111111111111111111111111111111111111\n", stderr: "", exitCode: 0 },
+    },
+  ];
+  const gitCalls = (calls: Rec[], ...args: string[]) =>
+    calls.filter((c) => c.cmd === "git" && args.every((x, i) => c.args[i] === x));
 
-	test("merging worktree ON the head branch → detaches onto the MERGE SHA, then deletes the local branch (that order)", async () => {
-		const { client } = fakeGh(openThenMerged());
-		const detect = mkDetect({});
-		const { fn, calls } = mkSpawn([...onHeadBranch(), ...hasLocalBranch()]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true);
-		// the merge sha is fetched into the local store first (REST merges happen remotely)
-		expect(gitCalls(calls, "fetch", "origin", MERGED_SHA)).toHaveLength(1);
-		// detach onto the MERGE COMMIT — never the stale pre-merge origin/<base> ref
-		const detach = gitCalls(calls, "checkout", "--detach");
-		expect(detach).toHaveLength(1);
-		expect(detach[0].args).toContain(MERGED_SHA);
-		expect(gitCalls(calls, "checkout", "--detach").some((c) => c.args.includes("origin/main"))).toBe(false);
-		// delete AFTER the detach — `branch -D` on a checked-out branch is refused
-		const del = gitCalls(calls, "branch", "-D");
-		expect(del).toHaveLength(1);
-		expect(del[0].args).toEqual(["branch", "-D", "feat-x"]);
-		expect(calls.indexOf(detach[0])).toBeLessThan(calls.indexOf(del[0]));
-		expect(r.cleanup).toMatchObject({ headBranch: "feat-x", detached: true, detachedOnto: MERGED_SHA, localDeleted: true });
-	});
+  test("merging worktree ON the head branch → detaches onto the MERGE SHA, then deletes the local branch (that order)", async () => {
+    const { client } = fakeGh(openThenMerged());
+    const detect = mkDetect({});
+    const { fn, calls } = mkSpawn([...onHeadBranch(), ...hasLocalBranch()]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true);
+    // the merge sha is fetched into the local store first (REST merges happen remotely)
+    expect(gitCalls(calls, "fetch", "origin", MERGED_SHA)).toHaveLength(1);
+    // detach onto the MERGE COMMIT — never the stale pre-merge origin/<base> ref
+    const detach = gitCalls(calls, "checkout", "--detach");
+    expect(detach).toHaveLength(1);
+    expect(detach[0].args).toContain(MERGED_SHA);
+    expect(gitCalls(calls, "checkout", "--detach").some((c) => c.args.includes("origin/main"))).toBe(false);
+    // delete AFTER the detach — `branch -D` on a checked-out branch is refused
+    const del = gitCalls(calls, "branch", "-D");
+    expect(del).toHaveLength(1);
+    expect(del[0].args).toEqual(["branch", "-D", "feat-x"]);
+    expect(calls.indexOf(detach[0])).toBeLessThan(calls.indexOf(del[0]));
+    expect(r.cleanup).toMatchObject({
+      headBranch: "feat-x",
+      detached: true,
+      detachedOnto: MERGED_SHA,
+      localDeleted: true,
+    });
+  });
 
-	test("held by ANOTHER worktree → NO detach, NO local delete, heldElsewhere recorded", async () => {
-		const { client } = fakeGh(openThenMerged());
-		const detect = mkDetect({});
-		const { fn, calls } = mkSpawn([
-			{
-				match: (c: string, a: string[]) => c === "git" && a[0] === "worktree" && a[1] === "list",
-				result: { stdout: "worktree /repo\nbranch refs/heads/feat-x\n\nworktree /elsewhere\nbranch refs/heads/feat-x\n\n", stderr: "", exitCode: 0 },
-			},
-		]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true);
-		expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
-		expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
-		expect(r.cleanup?.heldElsewhere).toBe("/elsewhere");
-		expect(r.cleanup?.notes.join(" ")).toMatch(/checked out in another worktree \(\/elsewhere\)/);
-	});
+  test("held by ANOTHER worktree → NO detach, NO local delete, heldElsewhere recorded", async () => {
+    const { client } = fakeGh(openThenMerged());
+    const detect = mkDetect({});
+    const { fn, calls } = mkSpawn([
+      {
+        match: (c: string, a: string[]) => c === "git" && a[0] === "worktree" && a[1] === "list",
+        result: {
+          stdout: "worktree /repo\nbranch refs/heads/feat-x\n\nworktree /elsewhere\nbranch refs/heads/feat-x\n\n",
+          stderr: "",
+          exitCode: 0,
+        },
+      },
+    ]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true);
+    expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
+    expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
+    expect(r.cleanup?.heldElsewhere).toBe("/elsewhere");
+    expect(r.cleanup?.notes.join(" ")).toMatch(/checked out in another worktree \(\/elsewhere\)/);
+  });
 
-	test("deleteLocalBranch FAILS → warning surface, merge outcome stays merged:true", async () => {
-		const { client } = fakeGh(openThenMerged());
-		const detect = mkDetect({});
-		const { fn, calls } = mkSpawn([
-			...onHeadBranch(),
-			...hasLocalBranch(),
-			{
-				match: (c: string, a: string[]) => c === "git" && a[0] === "branch" && a[1] === "-D",
-				result: { stdout: "", stderr: "error: branch 'feat-x' not found.", exitCode: 1 },
-			},
-		]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true); // cleanup must never fail a done merge
-		expect(r.cleanup?.localDeleted).toBe(false);
-		expect(r.cleanup?.notes.join(" ")).toMatch(/deleteLocalBranch\(feat-x\) failed/);
-	});
+  test("deleteLocalBranch FAILS → warning surface, merge outcome stays merged:true", async () => {
+    const { client } = fakeGh(openThenMerged());
+    const detect = mkDetect({});
+    const { fn, calls } = mkSpawn([
+      ...onHeadBranch(),
+      ...hasLocalBranch(),
+      {
+        match: (c: string, a: string[]) => c === "git" && a[0] === "branch" && a[1] === "-D",
+        result: { stdout: "", stderr: "error: branch 'feat-x' not found.", exitCode: 1 },
+      },
+    ]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true); // cleanup must never fail a done merge
+    expect(r.cleanup?.localDeleted).toBe(false);
+    expect(r.cleanup?.notes.join(" ")).toMatch(/deleteLocalBranch\(feat-x\) failed/);
+  });
 
-	test("worktree NOT on the head branch → no detach, local branch still deleted", async () => {
-		const { client } = fakeGh(openThenMerged());
-		const detect = mkDetect({});
-		const { fn, calls } = mkSpawn([
-			{
-				match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--abbrev-ref",
-				result: { stdout: "main\n", stderr: "", exitCode: 0 },
-			},
-			...hasLocalBranch(),
-		]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true);
-		expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
-		expect(gitCalls(calls, "branch", "-D", "feat-x")).toHaveLength(1);
-		expect(r.cleanup).toMatchObject({ detached: false, localDeleted: true });
-	});
+  test("worktree NOT on the head branch → no detach, local branch still deleted", async () => {
+    const { client } = fakeGh(openThenMerged());
+    const detect = mkDetect({});
+    const { fn, calls } = mkSpawn([
+      {
+        match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--abbrev-ref",
+        result: { stdout: "main\n", stderr: "", exitCode: 0 },
+      },
+      ...hasLocalBranch(),
+    ]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true);
+    expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
+    expect(gitCalls(calls, "branch", "-D", "feat-x")).toHaveLength(1);
+    expect(r.cleanup).toMatchObject({ detached: false, localDeleted: true });
+  });
 
-	test("no local branch in this clone → nothing attempted, benign note", async () => {
-		const { client } = fakeGh(openThenMerged());
-		const detect = mkDetect({});
-		const { fn, calls } = mkSpawn([
-			{
-				// scoped to the BRANCH NAME so runLocalCi's own ref resolution stays green
-				match: (c: string, a: string[]) => c === "git" && a[0] === "rev-parse" && a[1] === "--verify" && a[a.length - 1] === "feat-x",
-				result: { stdout: "", stderr: "", exitCode: 1 },
-			},
-		]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true);
-		expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
-		expect(r.cleanup?.noLocalBranch).toBe(true);
-	});
+  test("no local branch in this clone → nothing attempted, benign note", async () => {
+    const { client } = fakeGh(openThenMerged());
+    const detect = mkDetect({});
+    const { fn, calls } = mkSpawn([
+      {
+        // scoped to the BRANCH NAME so runLocalCi's own ref resolution stays green
+        match: (c: string, a: string[]) =>
+          c === "git" && a[0] === "rev-parse" && a[1] === "--verify" && a[a.length - 1] === "feat-x",
+        result: { stdout: "", stderr: "", exitCode: 1 },
+      },
+    ]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true);
+    expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
+    expect(r.cleanup?.noLocalBranch).toBe(true);
+  });
 
-	test("deleteBranch=false → NO cleanup at all", async () => {
-		const { client } = fakeGh(openThenMerged());
-		const detect = mkDetect({});
-		const { fn, calls } = mkSpawn([...onHeadBranch(), ...hasLocalBranch()]);
-		const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), deleteBranch: false });
-		expect(r.merged).toBe(true);
-		expect(r.cleanup).toBeUndefined();
-		expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
-		expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
-	});
+  test("deleteBranch=false → NO cleanup at all", async () => {
+    const { client } = fakeGh(openThenMerged());
+    const detect = mkDetect({});
+    const { fn, calls } = mkSpawn([...onHeadBranch(), ...hasLocalBranch()]);
+    const r = await runMergeRecipe({ ...baseOpts(client, fn, detect), deleteBranch: false });
+    expect(r.merged).toBe(true);
+    expect(r.cleanup).toBeUndefined();
+    expect(gitCalls(calls, "checkout", "--detach")).toHaveLength(0);
+    expect(gitCalls(calls, "branch", "-D")).toHaveLength(0);
+  });
 
-	test("merge sha UNFETCHABLE (exit≠0) → refreshed origin/<base> fallback, still detaches + deletes + prunes", async () => {
-		const { client } = fakeGh(openThenMerged());
-		const detect = mkDetect({});
-		const { fn, calls } = mkSpawn([
-			...onHeadBranch(),
-			...hasLocalBranch(),
-			{
-				// the sha-scoped fetch FAILS (sha-scoped so the pre-CI base+head
-				// fetch and the fallback base fetch stay green)
-				match: (c: string, a: string[]) => c === "git" && a[0] === "fetch" && a[2] === MERGED_SHA,
-				result: { stdout: "", stderr: "offline", exitCode: 1 },
-			},
-		]);
-		const r = await runMergeRecipe(baseOpts(client, fn, detect));
-		expect(r.merged).toBe(true);
-		// fallback: the base was re-fetched post-merge (EXACT arg list — the
-		// pre-CI `fetch origin main feat-x` must not be mistaken for it) …
-		const baseFetches = calls.filter(
-			(c) => c.cmd === "git" && c.args.length === 3 && c.args[0] === "fetch" && c.args[1] === "origin" && c.args[2] === "main",
-		);
-		expect(baseFetches).toHaveLength(1);
-		// … and the detach landed on origin/<base>, never the unfetchable sha
-		const detach = gitCalls(calls, "checkout", "--detach");
-		expect(detach).toHaveLength(1);
-		expect(detach[0].args).toEqual(["checkout", "--detach", "origin/main"]);
-		expect(gitCalls(calls, "branch", "-D", "feat-x")).toHaveLength(1);
-		expect(r.cleanup).toMatchObject({ detached: true, detachedOnto: "origin/main", localDeleted: true });
-		// step 4 of the documented semantics: remote-tracking refs refreshed
-		expect(gitCalls(calls, "fetch", "--prune")).toHaveLength(1);
-	});
+  test("merge sha UNFETCHABLE (exit≠0) → refreshed origin/<base> fallback, still detaches + deletes + prunes", async () => {
+    const { client } = fakeGh(openThenMerged());
+    const detect = mkDetect({});
+    const { fn, calls } = mkSpawn([
+      ...onHeadBranch(),
+      ...hasLocalBranch(),
+      {
+        // the sha-scoped fetch FAILS (sha-scoped so the pre-CI base+head
+        // fetch and the fallback base fetch stay green)
+        match: (c: string, a: string[]) => c === "git" && a[0] === "fetch" && a[2] === MERGED_SHA,
+        result: { stdout: "", stderr: "offline", exitCode: 1 },
+      },
+    ]);
+    const r = await runMergeRecipe(baseOpts(client, fn, detect));
+    expect(r.merged).toBe(true);
+    // fallback: the base was re-fetched post-merge (EXACT arg list — the
+    // pre-CI `fetch origin main feat-x` must not be mistaken for it) …
+    const baseFetches = calls.filter(
+      (c) =>
+        c.cmd === "git" &&
+        c.args.length === 3 &&
+        c.args[0] === "fetch" &&
+        c.args[1] === "origin" &&
+        c.args[2] === "main",
+    );
+    expect(baseFetches).toHaveLength(1);
+    // … and the detach landed on origin/<base>, never the unfetchable sha
+    const detach = gitCalls(calls, "checkout", "--detach");
+    expect(detach).toHaveLength(1);
+    expect(detach[0].args).toEqual(["checkout", "--detach", "origin/main"]);
+    expect(gitCalls(calls, "branch", "-D", "feat-x")).toHaveLength(1);
+    expect(r.cleanup).toMatchObject({ detached: true, detachedOnto: "origin/main", localDeleted: true });
+    // step 4 of the documented semantics: remote-tracking refs refreshed
+    expect(gitCalls(calls, "fetch", "--prune")).toHaveLength(1);
+  });
 });

@@ -9,11 +9,17 @@
  *   bun src/deploy-cli.ts --list              # deployed versions + current
  */
 import { join, resolve } from "node:path";
-import { parseDeployShArgv } from "./deploy-sh-argv.ts";
-import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
 import { shConfig } from "./deploy/lib/config.ts";
 import { listTargetLayout } from "./deploy/lib/version.ts";
-import { runDeployE2e, resolveModelEndpoint, resolveE2eModelPin, resolveOneShotBudgetMs, isNonHostTree } from "./deploy-e2e-recipe.js";
+import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
+import {
+  isNonHostTree,
+  resolveE2eModelPin,
+  resolveModelEndpoint,
+  resolveOneShotBudgetMs,
+  runDeployE2e,
+} from "./deploy-e2e-recipe.js";
+import { parseDeployShArgv } from "./deploy-sh-argv.ts";
 import { createLiveSpawn } from "./spawn.js";
 
 const BUN_APPS_DIR = resolve(import.meta.dir, "..", "..");
@@ -52,14 +58,14 @@ OUTPUT
 
 const parsed = parseDeployShArgv(process.argv.slice(2));
 if (!parsed.ok) {
-	console.error(parsed.error);
-	console.error(HELP);
-	process.exit(2);
+  console.error(parsed.error);
+  console.error(HELP);
+  process.exit(2);
 }
 
 if (parsed.action.kind === "help") {
-	console.error(HELP);
-	process.exit(0);
+  console.error(HELP);
+  process.exit(0);
 }
 
 // VERIFY_E2E_MODEL (shared surface with verify-deploy-e2e-cli): pin the
@@ -77,72 +83,78 @@ const e2eBudget = resolveOneShotBudgetMs(process.env.VERIFY_E2E_ONESHOT_BUDGET_M
 if (!e2eBudget.ok) console.error(`⚠ ${e2eBudget.message} — running at the default budget`);
 
 try {
-	if (parsed.action.kind === "list") {
-		const outRoot = parsed.action.outRoot
-			? resolve(parsed.action.outRoot)
-			: shConfig({ bunAppsDir: BUN_APPS_DIR }).outRoot;
-		console.log(JSON.stringify({ ok: true, outRoot, ...listTargetLayout(outRoot) }, null, 2));
-		process.exit(0);
-	}
+  if (parsed.action.kind === "list") {
+    const outRoot = parsed.action.outRoot
+      ? resolve(parsed.action.outRoot)
+      : shConfig({ bunAppsDir: BUN_APPS_DIR }).outRoot;
+    console.log(JSON.stringify({ ok: true, outRoot, ...listTargetLayout(outRoot) }, null, 2));
+    process.exit(0);
+  }
 
-	const result = await runShDeploy(parsed.action.options);
-	// Post-deploy E2E (2026-08-22): the six build gates verify the STAGED
-	// tree; this re-boots the FINAL (frozen, swapped) tree and places a real
-	// model call through the deployed launcher. Provider-down (incl.
-	// connection-refused — the GH Actions verify runners) is a SKIP, not a
-	// failure — but
-	// a boot/ext-load/model-call fail means the deploy is broken: exit 1.
-	// crossos t05: a non-host target's tree cannot boot on this build host
-	// (its bin/bun(.exe) is a foreign binary) — skip with a note, t06 owns
-	// the cross-OS verification channel. result.runtime already carries the
-	// TARGET's facts (not the host's) — no disk re-read needed here.
-	const nonHost = result.runtime.platform !== process.platform || result.runtime.arch !== process.arch;
-	// S2_AGENT_E2E_SKIP_MODEL_CALL=1 (crossos t06): provider-less runners in the
-	// GH Actions verify channel skip the model-call probe EXPLICITLY instead of
-	// relying on the fast-failure heuristic (connect-refused → skip).
-	const skipModelCall = process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1";
-	const e2e = nonHost
-		? { verdict: "skip", note: `crossos t05: non-host target ${result.targetName} — post-deploy E2E deferred to t06` }
-		: await runDeployE2e({
-				versionDir: result.target,
-				spawn: createLiveSpawn(result.target),
-				modelEndpoint: resolveModelEndpoint(),
-				skipModelCall,
-				oneShotBudgetMs: e2eBudget.ok ? e2eBudget.ms : undefined,
-				modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
-				devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
-			});
-	console.log(JSON.stringify({ ok: e2e.verdict !== "fail", ...result, e2e }, null, 2));
-	if (e2e.verdict === "fail") {
-		console.error(`✗ post-deploy E2E failed: ${e2e.note}`);
-		process.exit(1);
-	}
-	process.exit(0);
+  const result = await runShDeploy(parsed.action.options);
+  // Post-deploy E2E (2026-08-22): the six build gates verify the STAGED
+  // tree; this re-boots the FINAL (frozen, swapped) tree and places a real
+  // model call through the deployed launcher. Provider-down (incl.
+  // connection-refused — the GH Actions verify runners) is a SKIP, not a
+  // failure — but
+  // a boot/ext-load/model-call fail means the deploy is broken: exit 1.
+  // crossos t05: a non-host target's tree cannot boot on this build host
+  // (its bin/bun(.exe) is a foreign binary) — skip with a note, t06 owns
+  // the cross-OS verification channel. result.runtime already carries the
+  // TARGET's facts (not the host's) — no disk re-read needed here.
+  const nonHost = result.runtime.platform !== process.platform || result.runtime.arch !== process.arch;
+  // S2_AGENT_E2E_SKIP_MODEL_CALL=1 (crossos t06): provider-less runners in the
+  // GH Actions verify channel skip the model-call probe EXPLICITLY instead of
+  // relying on the fast-failure heuristic (connect-refused → skip).
+  const skipModelCall = process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1";
+  const e2e = nonHost
+    ? { verdict: "skip", note: `crossos t05: non-host target ${result.targetName} — post-deploy E2E deferred to t06` }
+    : await runDeployE2e({
+        versionDir: result.target,
+        spawn: createLiveSpawn(result.target),
+        modelEndpoint: resolveModelEndpoint(),
+        skipModelCall,
+        oneShotBudgetMs: e2eBudget.ok ? e2eBudget.ms : undefined,
+        modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
+        devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
+      });
+  console.log(JSON.stringify({ ok: e2e.verdict !== "fail", ...result, e2e }, null, 2));
+  if (e2e.verdict === "fail") {
+    console.error(`✗ post-deploy E2E failed: ${e2e.note}`);
+    process.exit(1);
+  }
+  process.exit(0);
 } catch (e) {
-	// Same classification as deploy-tool.ts: an existing version dir is a
-	// no-op success (content-addressed by git sha), so scripts can distinguish
-	// "nothing to do" from a real failure without string-matching error text.
-	if (e instanceof DeployVersionExistsError) {
-		const e2e = isNonHostTree(e.target)
-			? { verdict: "skip", note: `crossos t05: non-host target — post-deploy E2E deferred to t06` }
-			: await runDeployE2e({
-					versionDir: e.target,
-					spawn: createLiveSpawn(e.target),
-					modelEndpoint: resolveModelEndpoint(),
-					skipModelCall: process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
-					oneShotBudgetMs: e2eBudget.ok ? e2eBudget.ms : undefined,
-					modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
-					devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
-				});
-		console.log(JSON.stringify({ ok: e2e.verdict !== "fail", noop: true, version: e.version, target: e.target, message: e.message, e2e }, null, 2));
-		if (e2e.verdict === "fail") {
-			console.error(`✗ post-deploy E2E failed: ${e2e.note}`);
-			process.exit(1);
-		}
-		process.exit(0);
-	}
-	const message = e instanceof Error ? e.message : String(e);
-	console.log(JSON.stringify({ ok: false, error: message }, null, 2));
-	console.error(`✗ ${message}`);
-	process.exit(1);
+  // Same classification as deploy-tool.ts: an existing version dir is a
+  // no-op success (content-addressed by git sha), so scripts can distinguish
+  // "nothing to do" from a real failure without string-matching error text.
+  if (e instanceof DeployVersionExistsError) {
+    const e2e = isNonHostTree(e.target)
+      ? { verdict: "skip", note: `crossos t05: non-host target — post-deploy E2E deferred to t06` }
+      : await runDeployE2e({
+          versionDir: e.target,
+          spawn: createLiveSpawn(e.target),
+          modelEndpoint: resolveModelEndpoint(),
+          skipModelCall: process.env.S2_AGENT_E2E_SKIP_MODEL_CALL === "1",
+          oneShotBudgetMs: e2eBudget.ok ? e2eBudget.ms : undefined,
+          modelPin: e2ePin?.ok ? e2ePin.pin : undefined,
+          devLauncher: resolve(import.meta.dir, "..", "..", "..", "s2-agent.sh"),
+        });
+    console.log(
+      JSON.stringify(
+        { ok: e2e.verdict !== "fail", noop: true, version: e.version, target: e.target, message: e.message, e2e },
+        null,
+        2,
+      ),
+    );
+    if (e2e.verdict === "fail") {
+      console.error(`✗ post-deploy E2E failed: ${e2e.note}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+  const message = e instanceof Error ? e.message : String(e);
+  console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+  console.error(`✗ ${message}`);
+  process.exit(1);
 }

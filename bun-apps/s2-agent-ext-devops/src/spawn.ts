@@ -21,61 +21,61 @@
 import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 
 export interface SpawnResult {
-	stdout: string;
-	stderr: string;
-	exitCode: number;
-	/**
-	 * True when the call hit its `timeoutMs` cap and was SIGKILLed (exitCode is
-	 * then `SPAWN_TIMEOUT_EXIT_CODE`). Needed by callers that branch on the
-	 * timeout reason rather than the exit code alone (oneshot-smoke gate).
-	 */
-	timedOut?: boolean;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  /**
+   * True when the call hit its `timeoutMs` cap and was SIGKILLed (exitCode is
+   * then `SPAWN_TIMEOUT_EXIT_CODE`). Needed by callers that branch on the
+   * timeout reason rather than the exit code alone (oneshot-smoke gate).
+   */
+  timedOut?: boolean;
 }
 
 /** Exit code reported for a command killed by `timeoutMs`. Matches GNU `timeout`. */
 export const SPAWN_TIMEOUT_EXIT_CODE = 124;
 
 export interface SpawnOptions {
-	/** Working directory for this single call. Falls back to the baked-in default. */
-	cwd?: string;
-	/**
-	 * EXTRA environment variables for this single call, MERGED OVER the
-	 * inherited process environment by the live implementation (so callers
-	 * never have to restate PATH & friends — a raw replacement env would
-	 * break every spawned binary that resolves through PATH). The injectable
-	 * fakes in tests record `options.env` verbatim; `undefined` (the default)
-	 * means "inherit untouched" — unchanged behavior for every existing
-	 * caller. Adoption seam: deploy-e2e's VERIFY_E2E_MODEL pin (D8 form —
-	 * PI_PROVIDER/PI_MODEL/PI_THINKING over the one-shot spawns).
-	 */
-	env?: Record<string, string>;
-	/**
-	 * Hard wall-clock cap in ms. On expiry the child's WHOLE PROCESS GROUP is
-	 * SIGKILLed and the call resolves with `SPAWN_TIMEOUT_EXIT_CODE` (124).
-	 * Omitted (the default) means no cap — unchanged behaviour for the git/gh
-	 * clients, which never pass options.
-	 *
-	 * The group, not the child, is the unit that must die. A matrix row is run as
-	 * `bash -c "bun test --isolate"`, so killing only the direct child reaps
-	 * `bash` and leaves `bun test` running — verified: a grandchild survives
-	 * Bun.spawn's own `timeout` option. That is exactly how this repo accumulated
-	 * a `bun test --isolate` orphan that spun at 100% CPU for six hours and made
-	 * every later run in the same worktree hang.
-	 *
-	 * Group-kill portability (macOS + Linux + Windows): the timeout path spawns
-	 * via node:child_process with `detached: true`, which on both POSIX
-	 * platforms puts the child in its OWN process group as leader — `kill(-pid)`
-	 * then reaches the whole tree without any external helper. The former
-	 * `/usr/bin/perl -e 'setpgrp(0,0); exec …'` wrapper assumed macOS's base-system
-	 * perl; verified empirically under Bun (detached + group-kill + grandchild
-	 * death, 2026-08-22). On Windows `kill(-pid)` THROWS (no POSIX process
-	 * groups) and the child-only fallback would orphan grandchildren holding
-	 * the stdio pipes — so the win32 timeout path uses `taskkill /T /F`
-	 * (tree kill), the only native whole-tree kill (crossos t06 review,
-	 * 2026-08-27: the E2E win32 launcher chain cmd→powershell→bun is the
-	 * first driver that makes this reachable).
-	 */
-	timeoutMs?: number;
+  /** Working directory for this single call. Falls back to the baked-in default. */
+  cwd?: string;
+  /**
+   * EXTRA environment variables for this single call, MERGED OVER the
+   * inherited process environment by the live implementation (so callers
+   * never have to restate PATH & friends — a raw replacement env would
+   * break every spawned binary that resolves through PATH). The injectable
+   * fakes in tests record `options.env` verbatim; `undefined` (the default)
+   * means "inherit untouched" — unchanged behavior for every existing
+   * caller. Adoption seam: deploy-e2e's VERIFY_E2E_MODEL pin (D8 form —
+   * PI_PROVIDER/PI_MODEL/PI_THINKING over the one-shot spawns).
+   */
+  env?: Record<string, string>;
+  /**
+   * Hard wall-clock cap in ms. On expiry the child's WHOLE PROCESS GROUP is
+   * SIGKILLed and the call resolves with `SPAWN_TIMEOUT_EXIT_CODE` (124).
+   * Omitted (the default) means no cap — unchanged behaviour for the git/gh
+   * clients, which never pass options.
+   *
+   * The group, not the child, is the unit that must die. A matrix row is run as
+   * `bash -c "bun test --isolate"`, so killing only the direct child reaps
+   * `bash` and leaves `bun test` running — verified: a grandchild survives
+   * Bun.spawn's own `timeout` option. That is exactly how this repo accumulated
+   * a `bun test --isolate` orphan that spun at 100% CPU for six hours and made
+   * every later run in the same worktree hang.
+   *
+   * Group-kill portability (macOS + Linux + Windows): the timeout path spawns
+   * via node:child_process with `detached: true`, which on both POSIX
+   * platforms puts the child in its OWN process group as leader — `kill(-pid)`
+   * then reaches the whole tree without any external helper. The former
+   * `/usr/bin/perl -e 'setpgrp(0,0); exec …'` wrapper assumed macOS's base-system
+   * perl; verified empirically under Bun (detached + group-kill + grandchild
+   * death, 2026-08-22). On Windows `kill(-pid)` THROWS (no POSIX process
+   * groups) and the child-only fallback would orphan grandchildren holding
+   * the stdio pipes — so the win32 timeout path uses `taskkill /T /F`
+   * (tree kill), the only native whole-tree kill (crossos t06 review,
+   * 2026-08-27: the E2E win32 launcher chain cmd→powershell→bun is the
+   * first driver that makes this reachable).
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -93,69 +93,69 @@ export type SpawnFn = (cmd: string, args: string[], options?: SpawnOptions) => P
  * `detached` option, and only calls WITH a cap need group semantics.
  */
 function spawnDetached(
-	cmd: string,
-	args: string[],
-	cwd: string,
-	timeoutMs: number,
-	env?: Record<string, string>,
+  cmd: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  env?: Record<string, string>,
 ): Promise<SpawnResult & { timedOut: boolean }> {
-	return new Promise((resolveP) => {
-		const proc = nodeSpawn(cmd, args, {
-			cwd,
-			detached: true,
-			stdio: ["ignore", "pipe", "pipe"],
-			env: env ? { ...process.env, ...env } : process.env,
-		});
-		let stdout = "";
-		let stderr = "";
-		let timedOut = false;
-		proc.stdout?.setEncoding("utf8");
-		proc.stderr?.setEncoding("utf8");
-		proc.stdout?.on("data", (d: string) => (stdout += d));
-		proc.stderr?.on("data", (d: string) => (stderr += d));
-		const timer = setTimeout(() => {
-			timedOut = true;
-			if (process.platform === "win32") {
-				// No POSIX process groups here — kill(-pid) throws and a
-				// child-only kill orphans the grandchildren (see SpawnOptions
-				// docs). taskkill /T kills the whole tree, synchronously; the
-				// child-only kill after it is the same belt-and-braces fallback
-				// the POSIX branch has (t06 review: never leave NOTHING dead).
-				if (proc.pid !== undefined) spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"]);
-				try {
-					proc.kill("SIGKILL");
-				} catch {
-					// already gone — the 'close' event resolves the promise
-				}
-				return;
-			}
-			try {
-				process.kill(-proc.pid!, "SIGKILL");
-			} catch {
-				proc.kill("SIGKILL"); // group gone or never formed — fall back to the child
-			}
-		}, timeoutMs);
-		const finish = (exitCode: number) => {
-			clearTimeout(timer);
-			resolveP(
-				timedOut
-					? {
-							stdout,
-							stderr: `${stderr}\n[spawn] KILLED after ${timeoutMs}ms — command exceeded its timeout`,
-							exitCode: SPAWN_TIMEOUT_EXIT_CODE,
-							// Flag the timeout reason for callers (oneshot-smoke) that branch
-							// on it rather than on the exit code alone.
-							timedOut: true,
-						}
-					: { stdout, stderr, exitCode, timedOut: false },
-			);
-		};
-		proc.on("error", (err) => {
-			stderr += `\n[spawn] ${String(err)}`;
-			finish(-1);
-		});
-		proc.on("close", (code) => finish(code ?? -1));
-	});
+  return new Promise((resolveP) => {
+    const proc = nodeSpawn(cmd, args, {
+      cwd,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: env ? { ...process.env, ...env } : process.env,
+    });
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    proc.stdout?.setEncoding("utf8");
+    proc.stderr?.setEncoding("utf8");
+    proc.stdout?.on("data", (d: string) => (stdout += d));
+    proc.stderr?.on("data", (d: string) => (stderr += d));
+    const timer = setTimeout(() => {
+      timedOut = true;
+      if (process.platform === "win32") {
+        // No POSIX process groups here — kill(-pid) throws and a
+        // child-only kill orphans the grandchildren (see SpawnOptions
+        // docs). taskkill /T kills the whole tree, synchronously; the
+        // child-only kill after it is the same belt-and-braces fallback
+        // the POSIX branch has (t06 review: never leave NOTHING dead).
+        if (proc.pid !== undefined) spawnSync("taskkill", ["/pid", String(proc.pid), "/T", "/F"]);
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // already gone — the 'close' event resolves the promise
+        }
+        return;
+      }
+      try {
+        process.kill(-proc.pid!, "SIGKILL");
+      } catch {
+        proc.kill("SIGKILL"); // group gone or never formed — fall back to the child
+      }
+    }, timeoutMs);
+    const finish = (exitCode: number) => {
+      clearTimeout(timer);
+      resolveP(
+        timedOut
+          ? {
+              stdout,
+              stderr: `${stderr}\n[spawn] KILLED after ${timeoutMs}ms — command exceeded its timeout`,
+              exitCode: SPAWN_TIMEOUT_EXIT_CODE,
+              // Flag the timeout reason for callers (oneshot-smoke) that branch
+              // on it rather than on the exit code alone.
+              timedOut: true,
+            }
+          : { stdout, stderr, exitCode, timedOut: false },
+      );
+    };
+    proc.on("error", (err) => {
+      stderr += `\n[spawn] ${String(err)}`;
+      finish(-1);
+    });
+    proc.on("close", (code) => finish(code ?? -1));
+  });
 }
 
 /**
@@ -164,30 +164,30 @@ function spawnDetached(
  * the third `options.cwd` argument.
  */
 export function createLiveSpawn(cwd: string): SpawnFn {
-	return async (cmd, args, options) => {
-		// With a cap, take the detached/group-kill path (see spawnDetached).
-		// Without one, spawn exactly as before — one fewer moving part on the
-		// path every gh/git call takes.
-		if (options?.timeoutMs !== undefined) {
-			return spawnDetached(cmd, args, options.cwd ?? cwd, options.timeoutMs, options.env);
-		}
-		const proc = Bun.spawn([cmd, ...args], {
-			cwd: options?.cwd ?? cwd,
-			// Bun.spawn REPLACES the environment when `env` is given — merge over
-			// the inherited one so an extra-var caller never nukes PATH.
-			env: options?.env ? { ...process.env, ...options.env } : undefined,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		// Reading to EOF is what makes a hung child hang the CALLER: these two
-		// awaits never resolve while any descendant holds the pipe open.
-		const [stdout, stderr] = await Promise.all([
-			Bun.readableStreamToText(proc.stdout),
-			Bun.readableStreamToText(proc.stderr),
-		]);
-		const exitCode = await proc.exited;
-		return { stdout, stderr, exitCode };
-	};
+  return async (cmd, args, options) => {
+    // With a cap, take the detached/group-kill path (see spawnDetached).
+    // Without one, spawn exactly as before — one fewer moving part on the
+    // path every gh/git call takes.
+    if (options?.timeoutMs !== undefined) {
+      return spawnDetached(cmd, args, options.cwd ?? cwd, options.timeoutMs, options.env);
+    }
+    const proc = Bun.spawn([cmd, ...args], {
+      cwd: options?.cwd ?? cwd,
+      // Bun.spawn REPLACES the environment when `env` is given — merge over
+      // the inherited one so an extra-var caller never nukes PATH.
+      env: options?.env ? { ...process.env, ...options.env } : undefined,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    // Reading to EOF is what makes a hung child hang the CALLER: these two
+    // awaits never resolve while any descendant holds the pipe open.
+    const [stdout, stderr] = await Promise.all([
+      Bun.readableStreamToText(proc.stdout),
+      Bun.readableStreamToText(proc.stderr),
+    ]);
+    const exitCode = await proc.exited;
+    return { stdout, stderr, exitCode };
+  };
 }
 
 /**
@@ -206,6 +206,6 @@ export function createLiveSpawn(cwd: string): SpawnFn {
  * `spawn(cmd, args)` calls, so one wrap covers the entire tool surface.
  */
 export function withDefaultTimeout(spawn: SpawnFn, defaultMs: number): SpawnFn {
-	return (cmd, args, options) =>
-		spawn(cmd, args, options?.timeoutMs === undefined ? { ...options, timeoutMs: defaultMs } : options);
+  return (cmd, args, options) =>
+    spawn(cmd, args, options?.timeoutMs === undefined ? { ...options, timeoutMs: defaultMs } : options);
 }

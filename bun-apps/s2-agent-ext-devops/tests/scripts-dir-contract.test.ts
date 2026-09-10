@@ -13,9 +13,10 @@
  * scripts/ fails with no allowlist escape — put it in src/ or scripts/lib/.
  * *.test.* anywhere under scripts/ and the scripts/lib/ subtree are exempt.
  */
+
+import { describe, expect, test } from "bun:test";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
 
 const BUN_APPS_DIR = join(import.meta.dir, "..", "..");
 
@@ -25,17 +26,21 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-archify/scripts/mermaid-convert.ts",
 	"bun-apps/s2-agent-ext-archify/scripts/vendor-mermaid.ts",
 	"bun-apps/s2-agent-ext-compact/scripts/ab.ts",
+	"bun-apps/s2-agent-ext-devops/scripts/ci-local.ts",
+	"bun-apps/s2-agent-ext-devops/scripts/repoint-next-goal.ts",
+	"bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts",
+	"bun-apps/s2-agent-ext-devops/scripts/run-test.ts",
+	"bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts",
+	"bun-apps/s2-agent-ext-devops/scripts/validate-qualify-receipts.ts",
 	"bun-apps/s2-agent-ext-file2md/scripts/build-bundle.ts",
 	"bun-apps/s2-agent-ext-flux2/scripts/build-bundle.ts",
 	"bun-apps/s2-agent-ext-flux2/scripts/check-flags.ts",
 	"bun-apps/s2-agent-ext-flux2/scripts/self-improve-loop.driver.ts",
-	"bun-apps/s2-agent-ext-hermes-memory/scripts/pi-memory-merge.mjs",
 	"bun-apps/s2-agent-ext-hermes-memory/scripts/db-transfer.ts",
+	"bun-apps/s2-agent-ext-hermes-memory/scripts/pi-memory-merge.mjs",
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/backfill-summaries.mjs",
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/cache-probe-inject.mjs",
-	"bun-apps/s2-agent-ext-knowledge-card/scripts/injection-endtask.mjs", // #2138 t16 end-task eval (allowlist line missed in that PR — added 2026-08-29)
 	"bun-apps/s2-agent-ext-knowledge-card/scripts/kcard-coverage-measure.mjs",
-	"bun-apps/s2-agent-ext-knowledge-card/scripts/retrieval-eval.mjs", // context-lifecycle t15 one-command eval harness
 	"bun-apps/s2-agent-ext-krea2/scripts/build-bundle.ts",
 	"bun-apps/s2-agent-ext-krea2/scripts/check-flags.ts",
 	"bun-apps/s2-agent-ext-krea2/scripts/e2e-smoke.ts",
@@ -69,73 +74,63 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-obsidian/scripts/bench-trigram-search.mjs",
 	"bun-apps/s2-agent-ext-obsidian/scripts/measure-schema-tokens.mjs",
 	"bun-apps/s2-agent-ext-obsidian/scripts/validate-real-vault.mjs",
-	"bun-apps/s2-agent-ext-devops/scripts/ci-local.ts",
-	"bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts",
-	"bun-apps/s2-agent-ext-devops/scripts/run-test.ts",
-	"bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts",
-	"bun-apps/s2-agent-ext-devops/scripts/repoint-next-goal.ts",
-	"bun-apps/s2-agent-ext-devops/scripts/validate-qualify-receipts.ts",
-	"bun-apps/s2-agent-ext-subagent/scripts/esc-repro-lane.ts",
-	"bun-apps/s2-agent-ext-subagent/scripts/runs-stats.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/arc-plan.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/arc-review.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/bench-base-tech.ts",
+	"bun-apps/s2-agent-ext-subagent/scripts/esc-repro-lane.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/qualify.ts",
+	"bun-apps/s2-agent-ext-subagent/scripts/runs-stats.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/tui-drive.ts",
 	"bun-apps/s2-agent-ext-subagent/scripts/tui-e2e-lane.ts",
-	"bun-apps/s2-agent-ext-superpowers/scripts/update-superpowers.ts",
 	"bun-apps/s2-agent-ext-superpowers/scripts/rebaseline-upstream-skills.ts",
 	"bun-apps/s2-agent-ext-superpowers/scripts/update-superpowers.ts",
 	"bun-apps/s2-agent-ext-ultracode/scripts/ultracode-pty-lane.ts",
+	"bun-apps/s2-agent-ext-wayfind/scripts/effort-audit.ts",
 	"bun-apps/s2-agent-ext-wayfind/scripts/probe-ext.ts",
 	"bun-apps/s2-agent-ext-wayfind/scripts/sweep-zero-citation.ts",
-	"bun-apps/s2-agent-ext-wayfind/scripts/drive-case.ts", // spwf-ab-closing t07: live-drive A/B case leg (model-pinned, passive detectors)
-	"bun-apps/s2-agent-ext-wayfind/scripts/effort-audit.ts",
 	"bun-apps/s2-agent/scripts/regen-manifest.ts",
 	"bun-apps/s2-agent/scripts/regen-static-extensions.ts",
 	"bun-apps/s2-agent/scripts/scrub-session-env.preload.ts",
 ]);
 
 function topLevelScriptEntries(): string[] {
-	const out: string[] = [];
-	for (const pkg of readdirSync(BUN_APPS_DIR)) {
-		if (!pkg.startsWith("s2-agent")) continue;
-		const scriptsDir = join(BUN_APPS_DIR, pkg, "scripts");
-		let entries: string[];
-		try {
-			entries = readdirSync(scriptsDir);
-		} catch {
-			continue; // package has no scripts/ dir
-		}
-		for (const name of entries) {
-			// Top level only — scripts/lib/** and *.test.* are exempt by contract.
-			// .sh needs no guard: a shell file with no shebang still errors loudly.
-			if (!(name.endsWith(".ts") || name.endsWith(".mjs")) || name.includes(".test.")) continue;
-			out.push(`bun-apps/${pkg}/scripts/${name}`);
-		}
-	}
-	return out.sort();
+  const out: string[] = [];
+  for (const pkg of readdirSync(BUN_APPS_DIR)) {
+    if (!pkg.startsWith("s2-agent")) continue;
+    const scriptsDir = join(BUN_APPS_DIR, pkg, "scripts");
+    let entries: string[];
+    try {
+      entries = readdirSync(scriptsDir);
+    } catch {
+      continue; // package has no scripts/ dir
+    }
+    for (const name of entries) {
+      // Top level only — scripts/lib/** and *.test.* are exempt by contract.
+      // .sh needs no guard: a shell file with no shebang still errors loudly.
+      if (!(name.endsWith(".ts") || name.endsWith(".mjs")) || name.includes(".test.")) continue;
+      out.push(`bun-apps/${pkg}/scripts/${name}`);
+    }
+  }
+  return out.sort();
 }
 
 describe("scripts/ holds only runnable entries", () => {
-	test("every top-level scripts/*.ts is on the runnable allowlist", () => {
-		const found = topLevelScriptEntries();
-		const undeclared = found.filter((p) => !ALLOWED_RUNNABLE_ENTRIES.has(p));
-		const stale = [...ALLOWED_RUNNABLE_ENTRIES].filter((p) => !found.includes(p));
-		if (undeclared.length > 0 || stale.length > 0) {
-			throw new Error(
-				[
-					undeclared.length > 0
-						? `Undeclared scripts/*.ts (if it is a RUNNABLE entry, add it to ALLOWED_RUNNABLE_ENTRIES in this test; if it is a LIBRARY, move it to src/ or scripts/lib/ — a library in scripts/ exits 0 silently when run):\n  ${undeclared.join("\n  ")}`
-						: "",
-					stale.length > 0
-						? `Allowlist entries that no longer exist (delete them):\n  ${stale.join("\n  ")}`
-						: "",
-				]
-					.filter(Boolean)
-					.join("\n"),
-			);
-		}
-		expect(found.length).toBe(ALLOWED_RUNNABLE_ENTRIES.size);
-	});
+  test("every top-level scripts/*.ts is on the runnable allowlist", () => {
+    const found = topLevelScriptEntries();
+    const undeclared = found.filter((p) => !ALLOWED_RUNNABLE_ENTRIES.has(p));
+    const stale = [...ALLOWED_RUNNABLE_ENTRIES].filter((p) => !found.includes(p));
+    if (undeclared.length > 0 || stale.length > 0) {
+      throw new Error(
+        [
+          undeclared.length > 0
+            ? `Undeclared scripts/*.ts (if it is a RUNNABLE entry, add it to ALLOWED_RUNNABLE_ENTRIES in this test; if it is a LIBRARY, move it to src/ or scripts/lib/ — a library in scripts/ exits 0 silently when run):\n  ${undeclared.join("\n  ")}`
+            : "",
+          stale.length > 0 ? `Allowlist entries that no longer exist (delete them):\n  ${stale.join("\n  ")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      );
+    }
+    expect(found.length).toBe(ALLOWED_RUNNABLE_ENTRIES.size);
+  });
 });

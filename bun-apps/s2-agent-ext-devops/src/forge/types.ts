@@ -15,21 +15,21 @@
  * values map onto MergeState; Gitea maps its boolean `mergeable` + commit
  * statuses instead).
  */
-import type { PrState, MergeState, CheckTally } from "../pr-logic.js";
+import type { CheckTally, MergeState, PrState } from "../pr-logic.js";
 
 /** One PR snapshot — the union of what prStatus consumers (merge recipe,
  *  show_pr_status, verify_merge_landed) read. */
 export interface PrSnapshot {
-	state: PrState;
-	mergeState: MergeState;
-	baseRefName: string;
-	headRefName: string;
-	/** Check tally (used by the show_pr_status tool; the merge recipe ignores it). */
-	checks: CheckTally;
-	mergeSha?: string;
-	/** The head ref's SHA — what was merged. Lets verify_merge_landed tell a spent
-	 *  branch from one with commits pushed after the merge. */
-	headRefOid?: string;
+  state: PrState;
+  mergeState: MergeState;
+  baseRefName: string;
+  headRefName: string;
+  /** Check tally (used by the show_pr_status tool; the merge recipe ignores it). */
+  checks: CheckTally;
+  mergeSha?: string;
+  /** The head ref's SHA — what was merged. Lets verify_merge_landed tell a spent
+   *  branch from one with commits pushed after the merge. */
+  headRefOid?: string;
 }
 
 /** Merge strategies, in gh-CLI spelling (the historical contract). GitHub REST
@@ -52,27 +52,27 @@ export type MergeStrategy = "rebase" | "merge" | "squash";
  */
 /** One row of a PR listing — the shape sweep_merged_branches consumes. */
 export interface PrListRow {
-	number: number;
-	headRefName: string;
-	/** ISO merge timestamp — present iff the PR is merged. */
-	mergedAt?: string;
+  number: number;
+  headRefName: string;
+  /** ISO merge timestamp — present iff the PR is merged. */
+  mergedAt?: string;
 }
 
 export interface ForgeClient {
-	prStatus(n: number): Promise<PrSnapshot>;
-	/**
-	 * Direct (synchronous) merge — NO auto-enable polling. Used once the
-	 * run_local_ci gate is green + mergeState is CLEAN: the merge completes
-	 * here, so success IS the confirmation (no remote CI to wait on). Throws
-	 * on failure with the forge response text embedded.
-	 */
-	mergeNow(n: number, strategy: MergeStrategy, deleteBranch: boolean): Promise<void>;
-	/**
-	 * List PRs by coarse state. `merged` returns ONLY merged PRs (rows carry
-	 * mergedAt); `open` returns open PRs. Capped at `limit` (default 200 —
-	 * sweep's historical gh --limit). Formerly BranchClient.mergedPrRefs /
-	 * .openPrRefs; moved here because a PR listing is a FORGE query, not a git
-	 * operation (the Renovate Platform/PlatformScm split this module follows).
-	 */
-	prList(state: "open" | "merged", limit?: number): Promise<PrListRow[]>;
+  prStatus(n: number): Promise<PrSnapshot>;
+  /**
+   * Direct (synchronous) merge — NO auto-enable polling. Used once the
+   * run_local_ci gate is green + mergeState is CLEAN: the merge completes
+   * here, so success IS the confirmation (no remote CI to wait on). Throws
+   * on failure with the forge response text embedded.
+   */
+  mergeNow(n: number, strategy: MergeStrategy, deleteBranch: boolean): Promise<void>;
+  /**
+   * List PRs by coarse state. `merged` returns ONLY merged PRs (rows carry
+   * mergedAt); `open` returns open PRs. Capped at `limit` (default 200 —
+   * sweep's historical gh --limit). Formerly BranchClient.mergedPrRefs /
+   * .openPrRefs; moved here because a PR listing is a FORGE query, not a git
+   * operation (the Renovate Platform/PlatformScm split this module follows).
+   */
+  prList(state: "open" | "merged", limit?: number): Promise<PrListRow[]>;
 }

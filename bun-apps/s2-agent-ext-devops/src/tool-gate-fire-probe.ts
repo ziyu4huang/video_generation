@@ -31,9 +31,9 @@ import { evaluateExtBundle } from "./deploy/lib/ext-build.js";
 /** Fixture family id — registered into GATE_DEFS for the run only. */
 const FIXTURE_GATE_ID = "e2e-tool-gate-fire";
 const FIXTURE_GATE: Gate = {
-	id: FIXTURE_GATE_ID,
-	keywords: ["pixelize"],
-	description: "deploy e2e fixture gate — removed after the run",
+  id: FIXTURE_GATE_ID,
+  keywords: ["pixelize"],
+  description: "deploy e2e fixture gate — removed after the run",
 };
 
 /**
@@ -44,15 +44,15 @@ const FIXTURE_GATE: Gate = {
  * of silently passing.
  */
 const FIXTURE_DEFS: Array<{
-	name: string;
-	description?: string;
-	parameters?: unknown;
-	gating?: { core?: boolean; gate?: string };
+  name: string;
+  description?: string;
+  parameters?: unknown;
+  gating?: { core?: boolean; gate?: string };
 }> = [
-	{ name: "read", description: "Read a file" },
-	{ name: "bash", description: "Execute a shell command" },
-	{ name: "e2e_fire_core", description: "fixture always-active tool", gating: { core: true } },
-	{ name: "e2e_fire_gated", description: "fixture gated tool", gating: { gate: FIXTURE_GATE_ID } },
+  { name: "read", description: "Read a file" },
+  { name: "bash", description: "Execute a shell command" },
+  { name: "e2e_fire_core", description: "fixture always-active tool", gating: { core: true } },
+  { name: "e2e_fire_gated", description: "fixture gated tool", gating: { gate: FIXTURE_GATE_ID } },
 ];
 
 const FIRING_PROMPT = "please pixelize the render before exporting";
@@ -60,39 +60,39 @@ const FIRING_PROMPT = "please pixelize the render before exporting";
 const START_CORE = ["read", "bash", "e2e_fire_core"];
 
 export interface ToolGateFireResult {
-	ok: boolean;
-	note: string;
-	detail?: string;
+  ok: boolean;
+  note: string;
+  detail?: string;
 }
 
 interface MockApi {
-	handlers: Map<string, (event: unknown, ctx: unknown) => void | Promise<void>>;
-	activeSets: string[][];
-	registered: string[];
-	getAllToolDefinitions: () => unknown[];
-	on: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void;
-	setActiveTools: (names: string[]) => void;
-	registerTool: (tool: { name: string }) => void;
+  handlers: Map<string, (event: unknown, ctx: unknown) => void | Promise<void>>;
+  activeSets: string[][];
+  registered: string[];
+  getAllToolDefinitions: () => unknown[];
+  on: (event: string, handler: (event: unknown, ctx: unknown) => void | Promise<void>) => void;
+  setActiveTools: (names: string[]) => void;
+  registerTool: (tool: { name: string }) => void;
 }
 
 /** The minimal pi surface tool-gate touches. */
 function makeMockApi(): MockApi {
-	const api: MockApi = {
-		handlers: new Map(),
-		activeSets: [],
-		registered: [],
-		getAllToolDefinitions: () => FIXTURE_DEFS.map((d) => ({ ...d })),
-		on: (event, handler) => api.handlers.set(event, handler),
-		setActiveTools: (names) => api.activeSets.push(names),
-		registerTool: (tool) => api.registered.push(tool.name),
-	};
-	return api;
+  const api: MockApi = {
+    handlers: new Map(),
+    activeSets: [],
+    registered: [],
+    getAllToolDefinitions: () => FIXTURE_DEFS.map((d) => ({ ...d })),
+    on: (event, handler) => api.handlers.set(event, handler),
+    setActiveTools: (names) => api.activeSets.push(names),
+    registerTool: (tool) => api.registered.push(tool.name),
+  };
+  return api;
 }
 
 /** Default ctx shape the entry needs to be harmless: banner + session id. */
 const CTX = {
-	ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => undefined },
-	sessionManager: { getSessionId: () => "e2e-fire" },
+  ui: { theme: { fg: (_k: string, s: string) => s }, setWidget: () => undefined },
+  sessionManager: { getSessionId: () => "e2e-fire" },
 };
 
 /**
@@ -101,98 +101,95 @@ const CTX = {
  * is a fail with the eval error in `note`.
  */
 export async function runToolGateFireProbe(
-	extCjsPath: string,
-	hostModules: readonly string[],
+  extCjsPath: string,
+  hostModules: readonly string[],
 ): Promise<ToolGateFireResult> {
-	try {
-		return await probeOnBundle(extCjsPath, hostModules);
-	} catch (e) {
-		return { ok: false, note: `execution failed: ${e instanceof Error ? e.message : String(e)}` };
-	}
+  try {
+    return await probeOnBundle(extCjsPath, hostModules);
+  } catch (e) {
+    return { ok: false, note: `execution failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
 
 /** The actual probe; every throw here becomes the structured fail above. */
-async function probeOnBundle(
-	extCjsPath: string,
-	hostModules: readonly string[],
-): Promise<ToolGateFireResult> {
-	// Fixture registration and the GATE_DEFS identity: buildEffectiveGates
-	// resolves `gating: { gate }` through the SERVED core-interface instance —
-	// this import must be the same module the bundle's host require returns,
-	// or the fixture gate fail-opens and the session_start assertion fails.
-	GATE_DEFS[FIXTURE_GATE_ID] = FIXTURE_GATE;
-	try {
-		// ── Disable-env contract: BUN_PI_TOOL_GATE=0 registers nothing ────────
-		const prevEnv = process.env.BUN_PI_TOOL_GATE;
-		try {
-			process.env.BUN_PI_TOOL_GATE = "0";
-			const { exports: disabledExports } = await evaluateExtBundle(extCjsPath, hostModules);
-			const disabledApi = makeMockApi();
-			(disabledExports.default as (api: unknown) => void)(disabledApi);
-			if (disabledApi.handlers.size !== 0 || disabledApi.registered.length !== 0) {
-				return {
-					ok: false,
-					note: "BUN_PI_TOOL_GATE=0 guard missing in the shipped bundle — the entry registered handlers",
-					detail: `handlers: ${[...disabledApi.handlers.keys()].join(", ")}; tools: ${disabledApi.registered.join(", ")}`,
-				};
-			}
-		} finally {
-			if (prevEnv === undefined) delete process.env.BUN_PI_TOOL_GATE;
-			else process.env.BUN_PI_TOOL_GATE = prevEnv;
-		}
+async function probeOnBundle(extCjsPath: string, hostModules: readonly string[]): Promise<ToolGateFireResult> {
+  // Fixture registration and the GATE_DEFS identity: buildEffectiveGates
+  // resolves `gating: { gate }` through the SERVED core-interface instance —
+  // this import must be the same module the bundle's host require returns,
+  // or the fixture gate fail-opens and the session_start assertion fails.
+  GATE_DEFS[FIXTURE_GATE_ID] = FIXTURE_GATE;
+  try {
+    // ── Disable-env contract: BUN_PI_TOOL_GATE=0 registers nothing ────────
+    const prevEnv = process.env.BUN_PI_TOOL_GATE;
+    try {
+      process.env.BUN_PI_TOOL_GATE = "0";
+      const { exports: disabledExports } = await evaluateExtBundle(extCjsPath, hostModules);
+      const disabledApi = makeMockApi();
+      (disabledExports.default as (api: unknown) => void)(disabledApi);
+      if (disabledApi.handlers.size !== 0 || disabledApi.registered.length !== 0) {
+        return {
+          ok: false,
+          note: "BUN_PI_TOOL_GATE=0 guard missing in the shipped bundle — the entry registered handlers",
+          detail: `handlers: ${[...disabledApi.handlers.keys()].join(", ")}; tools: ${disabledApi.registered.join(", ")}`,
+        };
+      }
+    } finally {
+      if (prevEnv === undefined) delete process.env.BUN_PI_TOOL_GATE;
+      else process.env.BUN_PI_TOOL_GATE = prevEnv;
+    }
 
-		// ── Real run: session start, then a per-turn keyword prompt ───────────
-		const { exports } = await evaluateExtBundle(extCjsPath, hostModules);
-		const api = makeMockApi();
-		(exports.default as (api: unknown) => void)(api);
+    // ── Real run: session start, then a per-turn keyword prompt ───────────
+    const { exports } = await evaluateExtBundle(extCjsPath, hostModules);
+    const api = makeMockApi();
+    (exports.default as (api: unknown) => void)(api);
 
-		const sessionStart = api.handlers.get("session_start");
-		if (!sessionStart) {
-			return { ok: false, note: "no session_start handler registered by the shipped bundle" };
-		}
-		await sessionStart(undefined, CTX);
+    const sessionStart = api.handlers.get("session_start");
+    if (!sessionStart) {
+      return { ok: false, note: "no session_start handler registered by the shipped bundle" };
+    }
+    await sessionStart(undefined, CTX);
 
-		const startActive = api.activeSets[0] ?? [];
-		const startMissing = START_CORE.filter((n) => !startActive.includes(n));
-		if (startActive.includes("e2e_fire_gated")) {
-			return {
-				ok: false,
-				note: "the gated fixture tool was ACTIVE at session start — the shipped matcher is not gating (fixture id unregistered or build broken)",
-				detail: `active: ${startActive.join(", ")}`,
-			};
-		}
-		if (startMissing.length > 0) {
-			return {
-				ok: false,
-				note: "core fixture tools missing from the session-start active set",
-				detail: `missing: ${startMissing.join(", ")}; active: ${startActive.join(", ")}`,
-			};
-		}
+    const startActive = api.activeSets[0] ?? [];
+    const startMissing = START_CORE.filter((n) => !startActive.includes(n));
+    if (startActive.includes("e2e_fire_gated")) {
+      return {
+        ok: false,
+        note: "the gated fixture tool was ACTIVE at session start — the shipped matcher is not gating (fixture id unregistered or build broken)",
+        detail: `active: ${startActive.join(", ")}`,
+      };
+    }
+    if (startMissing.length > 0) {
+      return {
+        ok: false,
+        note: "core fixture tools missing from the session-start active set",
+        detail: `missing: ${startMissing.join(", ")}; active: ${startActive.join(", ")}`,
+      };
+    }
 
-		const perTurn = api.handlers.get("before_agent_start");
-		if (!perTurn) {
-			return { ok: false, note: "no before_agent_start handler registered by the shipped bundle" };
-		}
-		await perTurn({ prompt: FIRING_PROMPT }, CTX);
+    const perTurn = api.handlers.get("before_agent_start");
+    if (!perTurn) {
+      return { ok: false, note: "no before_agent_start handler registered by the shipped bundle" };
+    }
+    await perTurn({ prompt: FIRING_PROMPT }, CTX);
 
-		const turnActive = api.activeSets[api.activeSets.length - 1] ?? [];
-		if (!turnActive.includes("e2e_fire_gated")) {
-			return {
-				ok: false,
-				note: "the keyword prompt did NOT reactivate the gated fixture tool — the shipped matcher does not match",
-				detail: `prompt: ${JSON.stringify(FIRING_PROMPT)}; active: ${turnActive.join(", ")}; active-sets: ${api.activeSets.map((s) => `[${s.join(", ")}]`).join(" → ")}`,
-			};
-		}
+    const turnActive = api.activeSets[api.activeSets.length - 1] ?? [];
+    if (!turnActive.includes("e2e_fire_gated")) {
+      return {
+        ok: false,
+        note: "the keyword prompt did NOT reactivate the gated fixture tool — the shipped matcher does not match",
+        detail: `prompt: ${JSON.stringify(FIRING_PROMPT)}; active: ${turnActive.join(", ")}; active-sets: ${api.activeSets.map((s) => `[${s.join(", ")}]`).join(" → ")}`,
+      };
+    }
 
-		if (!api.registered.includes("enable_tool")) {
-			return { ok: false, note: "enable_tool escape hatch not registered by the shipped bundle" };
-		}
+    if (!api.registered.includes("enable_tool")) {
+      return { ok: false, note: "enable_tool escape hatch not registered by the shipped bundle" };
+    }
 
-		return {
-			ok: true,
-			note: `deployed bundle gated at session start (${startActive.join(", ")}) and fired on keyword (${FIRING_PROMPT})`,
-		};
-	} finally {
-		delete GATE_DEFS[FIXTURE_GATE_ID];
-	}
+    return {
+      ok: true,
+      note: `deployed bundle gated at session start (${startActive.join(", ")}) and fired on keyword (${FIRING_PROMPT})`,
+    };
+  } finally {
+    delete GATE_DEFS[FIXTURE_GATE_ID];
+  }
 }

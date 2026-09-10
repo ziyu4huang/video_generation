@@ -10,47 +10,45 @@ import { describe, expect, test } from "bun:test";
 import { scanForeignPaths } from "../src/deploy/lib/ext-build.js";
 
 describe("scanForeignPaths — windows build host (crossos t06)", () => {
-	const ROOTS = { home: "C:\\Users\\runneradmin", repo: "C:\\Users\\runneradmin\\proj\\repo" };
+  const ROOTS = { home: "C:\\Users\\runneradmin", repo: "C:\\Users\\runneradmin\\proj\\repo" };
 
-	test("flags a baked backslash drive-letter install-cache path (normalized)", () => {
-		const code = 'var __dirname="C:\\Users\\runneradmin\\.bun\\install\\cache\\links\\playwright-core@1\\lib";';
-		expect(scanForeignPaths(code, "D:\\a\\crossos-verify\\0.7.21", ROOTS)).toEqual([
-			"C:/Users/runneradmin/.bun/install/cache/links/playwright-core@1/lib",
-		]);
-	});
+  test("flags a baked backslash drive-letter install-cache path (normalized)", () => {
+    const code = 'var __dirname="C:\\Users\\runneradmin\\.bun\\install\\cache\\links\\playwright-core@1\\lib";';
+    expect(scanForeignPaths(code, "D:\\a\\crossos-verify\\0.7.21", ROOTS)).toEqual([
+      "C:/Users/runneradmin/.bun/install/cache/links/playwright-core@1/lib",
+    ]);
+  });
 
-	test("flags the forward-slash drive-letter spelling too", () => {
-		const code = 'const p = "C:/Users/runneradmin/proj/repo/bun-apps/x/src/sdk.ts";';
-		expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toHaveLength(1);
-	});
+  test("flags the forward-slash drive-letter spelling too", () => {
+    const code = 'const p = "C:/Users/runneradmin/proj/repo/bun-apps/x/src/sdk.ts";';
+    expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toHaveLength(1);
+  });
 
-	test("accepts a windows path inside the deploy tree", () => {
-		const code = 'var d="D:\\a\\crossos\\ext\\x\\ext.cjs";';
-		expect(scanForeignPaths(code, "D:\\a\\crossos", ROOTS)).toEqual([]);
-	});
+  test("accepts a windows path inside the deploy tree", () => {
+    const code = 'var d="D:\\a\\crossos\\ext\\x\\ext.cjs";';
+    expect(scanForeignPaths(code, "D:\\a\\crossos", ROOTS)).toEqual([]);
+  });
 
-	test("relative paths and URL paths still never match", () => {
-		const code = 'const a="./rel"; const b="/v1/chat/completions"; const c="/dev/null";';
-		expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toEqual([]);
-	});
+  test("relative paths and URL paths still never match", () => {
+    const code = 'const a="./rel"; const b="/v1/chat/completions"; const c="/dev/null";';
+    expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toEqual([]);
+  });
 });
 
 describe("scanForeignPaths — windows case-insensitivity (t06 review)", () => {
-	const ROOTS = { home: "C:\\Users\\runneradmin", repo: "C:\\Users\\runneradmin\\proj\\repo" };
+  const ROOTS = { home: "C:\\Users\\runneradmin", repo: "C:\\Users\\runneradmin\\proj\\repo" };
 
-	test("a lowercase-drive baked path still MATCHES the mixed-case home prefix (case-insensitive FS)", () => {
-		// home-prefixed paths are FOREIGN (build-machine layout) — the case
-		// fold is what makes c:/users/… match C:/Users/… at all.
-		const code = 'const p = "c:/users/runneradmin/.bun/install/cache/x/lib.js";';
-		expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toEqual([
-			"c:/users/runneradmin/.bun/install/cache/x/lib.js",
-		]);
-	});
+  test("a lowercase-drive baked path still MATCHES the mixed-case home prefix (case-insensitive FS)", () => {
+    // home-prefixed paths are FOREIGN (build-machine layout) — the case
+    // fold is what makes c:/users/… match C:/Users/… at all.
+    const code = 'const p = "c:/users/runneradmin/.bun/install/cache/x/lib.js";';
+    expect(scanForeignPaths(code, "D:/a/crossos", ROOTS)).toEqual(["c:/users/runneradmin/.bun/install/cache/x/lib.js"]);
+  });
 
-	test("mixed-case user dir still matches the home prefix and is flagged (original casing reported)", () => {
-		const code = 'var __dirname="C:\\users\\RUNNERADMIN\\proj\\repo\\bun-apps\\x\\src\\sdk.ts";';
-		const found = scanForeignPaths(code, "D:\\a\\crossos", ROOTS);
-		expect(found).toHaveLength(1);
-		expect(found[0]).toBe("C:/users/RUNNERADMIN/proj/repo/bun-apps/x/src/sdk.ts");
-	});
+  test("mixed-case user dir still matches the home prefix and is flagged (original casing reported)", () => {
+    const code = 'var __dirname="C:\\users\\RUNNERADMIN\\proj\\repo\\bun-apps\\x\\src\\sdk.ts";';
+    const found = scanForeignPaths(code, "D:\\a\\crossos", ROOTS);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toBe("C:/users/RUNNERADMIN/proj/repo/bun-apps/x/src/sdk.ts");
+  });
 });

@@ -18,30 +18,30 @@ import { fileURLToPath } from "node:url";
  * source rewrites (e.g. patchOfflinePackageLoadersUnder).
  */
 export function walk(dir: string, fn: (p: string, isDir: boolean) => void): void {
-	let entries: string[];
-	try {
-		entries = readdirSync(dir);
-	} catch {
-		return;
-	}
-	for (const name of entries) {
-		const p = join(dir, name);
-		// Never follow symlinks — chmod through a link would escape the tree.
-		const st = lstatSync(p);
-		if (st.isSymbolicLink()) continue;
-		if (st.isDirectory()) {
-			walk(p, fn);
-			fn(p, true);
-		} else {
-			fn(p, false);
-		}
-	}
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return;
+  }
+  for (const name of entries) {
+    const p = join(dir, name);
+    // Never follow symlinks — chmod through a link would escape the tree.
+    const st = lstatSync(p);
+    if (st.isSymbolicLink()) continue;
+    if (st.isDirectory()) {
+      walk(p, fn);
+      fn(p, true);
+    } else {
+      fn(p, false);
+    }
+  }
 }
 
 /** Clear every write bit in the tree (files first, then dirs, then the root). */
 export function freezeTree(root: string): void {
-	walk(root, (p) => chmodSync(p, statSync(p).mode & ~0o222));
-	chmodSync(root, statSync(root).mode & ~0o222);
+  walk(root, (p) => chmodSync(p, statSync(p).mode & ~0o222));
+  chmodSync(root, statSync(root).mode & ~0o222);
 }
 
 /**
@@ -51,20 +51,20 @@ export function freezeTree(root: string): void {
  * never be chmod-ed through one of its links.
  */
 export function unfreezeTree(root: string): void {
-	try {
-		chmodSync(root, statSync(root).mode | 0o200);
-	} catch {
-		return;
-	}
-	walk(root, (p, isDir) => {
-		if (isDir) chmodSync(p, statSync(p).mode | 0o200);
-	});
+  try {
+    chmodSync(root, statSync(root).mode | 0o200);
+  } catch {
+    return;
+  }
+  walk(root, (p, isDir) => {
+    if (isDir) chmodSync(p, statSync(p).mode | 0o200);
+  });
 }
 
 /** Remove a tree, unfreezing first so a frozen deploy can be replaced. */
 export function rmTree(root: string): void {
-	unfreezeTree(root);
-	rmSync(root, { recursive: true, force: true });
+  unfreezeTree(root);
+  rmSync(root, { recursive: true, force: true });
 }
 
 /**
@@ -80,13 +80,13 @@ export function rmTree(root: string): void {
  * the bare TypeError names neither.
  */
 export function urlToFsPath(u: string): string {
-	if (!u.startsWith("file://")) return u;
-	try {
-		return fileURLToPath(u);
-	} catch (e) {
-		throw new Error(
-			`invalid file:// path ${JSON.stringify(u)}: ${e instanceof Error ? e.message : String(e)} ` +
-				`(valid forms: file:///abs/path on posix, file:///C:/path on windows)`,
-		);
-	}
+  if (!u.startsWith("file://")) return u;
+  try {
+    return fileURLToPath(u);
+  } catch (e) {
+    throw new Error(
+      `invalid file:// path ${JSON.stringify(u)}: ${e instanceof Error ? e.message : String(e)} ` +
+        `(valid forms: file:///abs/path on posix, file:///C:/path on windows)`,
+    );
+  }
 }

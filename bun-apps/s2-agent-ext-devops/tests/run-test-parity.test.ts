@@ -57,9 +57,7 @@ test("run-test.ts --list / -l (ANSI-exact tier table, exit 0)", () => {
 });
 
 test("run-test.ts --list-siblings (one bare name per line, exit 0)", () => {
-  assertParity(RUN_TEST, [
-    { name: "list-siblings", args: ["--list-siblings"], expectCode: 0, out: SIBLINGS_GOLDEN },
-  ]);
+  assertParity(RUN_TEST, [{ name: "list-siblings", args: ["--list-siblings"], expectCode: 0, out: SIBLINGS_GOLDEN }]);
 });
 
 test("run-test.ts unknown effort (--effort= form: exit 2 + stderr, stdout empty)", () => {
@@ -71,25 +69,19 @@ test("run-test.ts unknown effort (--effort= form: exit 2 + stderr, stdout empty)
       out: "",
       // raw (unnormalized) stderr — ANSI stays; the matched substrings are
       // the ESC-free spans:
-      errIncludes: [
-        "unknown effort 'bogus' (want: quick|medium|smoke|full)",
-        "try: ./run-test.sh --list",
-      ],
+      errIncludes: ["unknown effort 'bogus' (want: quick|medium|smoke|full)", "try: ./run-test.sh --list"],
     },
   ]);
 });
 
-test.skipIf(process.env.RUN_TEST_LIVE_QUICK !== "1")(
-  "run-test.ts live quick tier (normalized output, exit 0)",
-  () => {
-    assertParity(RUN_TEST, [
-      {
-        name: "quick-live",
-        args: ["quick"],
-        expectCode: 0,
-        outIs: "normalized",
-        out: "▶ s2-agent run-test.sh — effort=quick\n✓ unit (quick)  (Ns)\n\n✓ effort=quick passed\n",
-      },
-    ]);
-  },
-);
+test.skipIf(process.env.RUN_TEST_LIVE_QUICK !== "1")("run-test.ts live quick tier (normalized output, exit 0)", () => {
+  assertParity(RUN_TEST, [
+    {
+      name: "quick-live",
+      args: ["quick"],
+      expectCode: 0,
+      outIs: "normalized",
+      out: "▶ s2-agent run-test.sh — effort=quick\n✓ unit (quick)  (Ns)\n\n✓ effort=quick passed\n",
+    },
+  ]);
+});

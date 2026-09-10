@@ -12,13 +12,13 @@
 export type VerifyTier = "quick" | "medium" | "full";
 
 export interface VerifyParams {
-	tier?: VerifyTier;
-	bail?: boolean;
+  tier?: VerifyTier;
+  bail?: boolean;
 }
 
 /** Build the argv tail for `run-test.ts` (NOT including the script path). */
 export function buildVerifyArgv(params: VerifyParams = {}): string[] {
-	const argv: string[] = [params.tier ?? "medium"];
-	if (params.bail) argv.push("--bail");
-	return argv;
+  const argv: string[] = [params.tier ?? "medium"];
+  if (params.bail) argv.push("--bail");
+  return argv;
 }
