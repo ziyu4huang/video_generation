@@ -1,11 +1,11 @@
 ---
-effort: 2026-09-10-self-arc-23-devops-check-split
+effort: 2026-09-10-self-arc-24-devops-check-split
 created: 2026-09-10
 last: 2026-09-10
 status: active
 ---
 
-# Wayfinder map: 2026-09-10-self-arc-23-devops-check-split — the LAST lying lint gate: devops `check` becomes real
+# Wayfinder map: 2026-09-10-self-arc-24-devops-check-split — the LAST lying lint gate: devops `check` becomes real
 
 ## Destination
 
@@ -113,7 +113,7 @@ scope is being read off t01's diff; t04 bundles everything as ONE PR).
 ## Decisions
 
 - D1 (2026-09-10): arc number 23 claimed VIA `.planning/arc-ledger.json` at
-  branch time (commit 113fb633); 23 verified free (max live 22).
+  branch time (commit 113fb633); RENUMBERED 23→24 (2026-09-10): the parallel session's 2026-09-10-self-arc-23-subagent-steer-deploy landed its ledger claim on main first — the sixth same-number collision, and the FIRST the ledger era caught (my branch's own guard went red on the rebase).
 - D2 (2026-09-10, measured): `bunx biome` (BARE package name) resolves to an
   npm squat `biome@0.3.3` that downloads, prints two lines, and exits 0 —
   silently NOT running Biome at all. Never invoke the bare name (recon or
