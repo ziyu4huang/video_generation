@@ -2,7 +2,7 @@
 effort: 2026-09-10-self-arc-21-receipt-validator
 created: 2026-09-10
 last: 2026-09-10
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-10-self-arc-21-receipt-validator — INDEPENDENT RECEIPT VALIDATOR: stop trusting the harness's own grades
@@ -161,3 +161,29 @@ run lands after t02 green, before merge).
   its evidence dir holds the sweep specimen; the deep-exploration report's
   fix #4 is this arc's charter).
 - Absorbed-by: none.
+
+## Shipped-as (2026-09-10, #2257)
+
+All four tickets shipped in ONE implementation PR (#2257, squash ab102c0a,
+verify-merge CLEAN; review gate ran through arc-review.ts — GLM-5.3,
+VERDICT: APPROVE, zero blockers/should-fix, both nits closed in-arc:
+LIVE_MARKER_RE drift-guard test + red-bar receipt header annotation).
+Deviations and live finds, faithfully:
+
+- **The grader's first REAL run produced real knowledge**
+  (evidence/t03-real-input.md): the v1 settle rule (screen-global live-marker
+  absence) misfired on the FIVE persistent-background scenarios — catalog,
+  cc-parity, swarm, viewer, wf-pause — whose background/child rows keep
+  spinning after the tested task settles. Calibrated per-scenario:
+  settledLike null there (their forced route/badge labels are the settle
+  evidence), strict marker-absence kept for dispatch/parallel/agents/
+  reload/workflow.
+- **The red-bar ritual was again the proof**: commit A's toothless verdict
+  (echo) let all four wrong-self-grade canary variants through (receipted);
+  commit B's one-line flip (derive from evidence) is the entire difference
+  between a grader and a rubber stamp.
+- Final run on the REAL 2026-09-10 sweep: 10/10 re-derived green, allAgree
+  true, exit 0 (evidence/t03-real-sweep-validated.json). Suite 11/0.
+- Reviewer harvest remains unharvestable (receipted absent — successor item).
+- Deploy assertion: pure validator + tests only; deploy receipt check at the
+  sync step (ext shim drift → iff-src-changed sweep if bytes move).
