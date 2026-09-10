@@ -406,18 +406,6 @@ function coveredByExtTypecheckGate(pkgDir: string, scripts: Record<string, strin
   return Object.values(scripts).some((cmd) => tscCmd.test(cmd));
 }
 
-/** A gate's invocation: how to spawn it + whether its failure fails `overall`. */
-interface GateSpec {
-  /** Bare filename under scripts/ (e.g. "ci-file-size-guard.sh"). */
-  file: string;
-  /** Runner chosen by extension so the gate actually executes (see dispatchGate). */
-  cmd: string;
-  args: string[];
-  blocking: boolean;
-}
-
-/** Always-on (v1) blocking gates. */
-const BLOCKING_GATES_V1 = ["ci-file-size-guard.sh", "check-lockfile-duplicate-versions.sh"];
 /**
  * A gate whose command MUTATES shared workspace state and so must run ALONE,
  * before anything else spawns bun against the tree. Today that is exactly
@@ -434,14 +422,6 @@ const EXCLUSIVE_GATE = /check-lockfile-freshness\.sh/;
  * this machine (6 performance cores; heavier only starved suites into flakes).
  */
 const GATE_POOL = 2;
-/** Extra audit gates added only under `strict`. */
-const STRICT_AUDIT_GATES = [
-  "test-determinism-audit.sh",
-  "test-portability-audit.sh",
-  "check-workflow-patterns.mjs",
-  "verify-skills.ts",
-];
-
 /**
  * Pick the runner for a LOCAL_ONLY audit by extension. `.sh` → bash; `.ts` →
  * bun (shebang `#!/usr/bin/env bun`); `.mjs` → node (shebang

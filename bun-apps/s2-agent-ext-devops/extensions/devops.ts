@@ -50,27 +50,27 @@ import { runVerify } from "../src/verify-tool.js";
 // The FIRST keyword of each family is its legacy pre-rename id (e.g.
 // "await_pr_merge") — kept so wayfinder keeps matching historical transcripts
 // that reference the old tool names.
-GATE_DEFS["merge_pr_after_local_ci"] = {
+GATE_DEFS.merge_pr_after_local_ci = {
   id: "merge_pr_after_local_ci",
   keywords: ["await_pr_merge", "pr", "pull-request", "merge", "merged", "ship", "gate", "local ci", "devops"],
   description: "Merge a PR gated on local CI",
 };
-GATE_DEFS["sweep_merged_branches"] = {
+GATE_DEFS.sweep_merged_branches = {
   id: "sweep_merged_branches",
   keywords: ["sweep_branches", "sweep", "branch", "branches", "cleanup", "prune", "delete-branch", "devops"],
   description: "Sweep/cleanup spent local branches",
 };
-GATE_DEFS["run_local_ci"] = {
+GATE_DEFS.run_local_ci = {
   id: "run_local_ci",
   keywords: ["local_ci", "ci", "test", "typecheck", "verify", "gate", "green", "merge", "local ci"],
   description: "Run offline local CI scoped to changed packages",
 };
-GATE_DEFS["check_main_health"] = {
+GATE_DEFS.check_main_health = {
   id: "check_main_health",
   keywords: ["main_health", "main", "health", "green", "red", "default branch", "broken", "status", "ci", "devops"],
   description: "Check whether the default branch is green",
 };
-GATE_DEFS["sync_default_branch"] = {
+GATE_DEFS.sync_default_branch = {
   id: "sync_default_branch",
   keywords: [
     "sync_repo",
@@ -101,22 +101,22 @@ GATE_DEFS["sync_default_branch"] = {
   },
   description: "Sync this repo to the latest default branch",
 };
-GATE_DEFS["run_devops_retrospect"] = {
+GATE_DEFS.run_devops_retrospect = {
   id: "run_devops_retrospect",
   keywords: ["devops_retrospect", "retrospect", "review", "reflect", "post-run", "anomaly"],
   description: "Post-run devops retrospect / anomaly review",
 };
-GATE_DEFS["prepare_feature_branch"] = {
+GATE_DEFS.prepare_feature_branch = {
   id: "prepare_feature_branch",
   keywords: ["prepare_branch", "prepare", "rebase", "force-push", "branch", "behind"],
   description: "Prepare a branch against the default branch",
 };
-GATE_DEFS["verify_merge_landed"] = {
+GATE_DEFS.verify_merge_landed = {
   id: "verify_merge_landed",
   keywords: ["verify_merge", "verify", "merge", "scope", "contaminated", "spent"],
   description: "Verify a PR merge landed cleanly",
 };
-GATE_DEFS["deploy_pi_agent_sh"] = {
+GATE_DEFS.deploy_pi_agent_sh = {
   id: "deploy_pi_agent_sh",
   keywords: ["pi_deploy", "pi_verify", "build bundle", "bundle s2-agent", "s2-agent bundle", "run-test"],
   requires: {
@@ -616,7 +616,7 @@ export default function (pi: ExtensionAPI): void {
         packages: params.packages as string[] | undefined,
         all: params.all === true,
         strict: params.strict === true,
-        includeGates: params.includeGates === false ? false : true,
+        includeGates: params.includeGates !== false,
         spawn,
         // Only drives the DEFAULT base ref (DEVOPS_REMOTE > git config
         // devops.remote > origin — src/remote.ts).

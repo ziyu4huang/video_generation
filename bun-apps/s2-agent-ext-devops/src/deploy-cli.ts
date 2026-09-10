@@ -8,7 +8,7 @@
  *   bun src/deploy-cli.ts                     # deploy (version dirs are immutable)
  *   bun src/deploy-cli.ts --list              # deployed versions + current
  */
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { shConfig } from "./deploy/lib/config.ts";
 import { listTargetLayout } from "./deploy/lib/version.ts";
 import { DeployVersionExistsError, runShDeploy } from "./deploy/run.ts";
