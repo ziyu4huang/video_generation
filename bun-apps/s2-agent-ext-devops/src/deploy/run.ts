@@ -286,10 +286,11 @@ async function buildCore(
  *  in the built bytes — a .cores cache entry built from stale sources fails
  *  HERE instead of shipping under the new version label. */
 function assertCoreArtifactMarkers(outFile: string): void {
-	const markers = deriveSourceMarkers(join(PI_AGENT_DIR, "src")).markers;
-	for (const ws of resolveWorkspaceSrcDirs()) {
-		markers.push(...deriveSourceMarkers(ws.dir, 1).markers);
-	}
+	// Core markers come from the pi src tree ONLY: the @repo/* packages ship as
+	// separate ext/<name>/ext.cjs bundles (each attesting its own sources in
+	// buildExtPackage) — they are NOT inlined into s2-agent.js, so their
+	// literals legitimately never appear there.
+	const markers = deriveSourceMarkers(join(PI_AGENT_DIR, "src"), 8).markers;
 	assertMarkersInArtifact(readFileSync(outFile, "utf8"), markers, "s2-agent.js (core)");
 }
 
