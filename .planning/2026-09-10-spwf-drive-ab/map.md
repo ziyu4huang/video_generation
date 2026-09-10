@@ -119,7 +119,7 @@ under neutral prompts regardless.
 | C1 bootstrap self-report | **UNSTABLE** — NO this run, YES prior run (same prompt+pin) | YES (round 2; round 1 infra-death) | YES |
 | C2 brainstorming routing | pre-fix RED (0 reads, work done anyway) → post-fix **PARTIAL** (brainstorming read ✓, batched same-turn as write) | **UNTESTED-infrastructure** (Model unloaded churn) | behavioral GREEN (nudged) |
 | C3 TDD + order | TDD read ✓; **order RED** — impl written first (leg1 rate-limited, leg2 honest) | **UNTESTED-infrastructure** | PASS weak (nudged) |
-| C4 exclude-env | **PASS** | **PASS** (both rounds) | PASS |
+| C4 exclude-env | **PASS** | **UNTESTED-infrastructure** (round-2 receipt PASS was vacuous — session died on "Model unloaded." before behaving; round 1 was SKIP) | PASS |
 | C5 wayfind flow | **RED by expectation, answer correct** — read `using-s2-agent-skills` (repo router) not the leaf skills | **UNTESTED-infrastructure** | GREEN* (mis-set expectation) |
 | C8 cross-family | **PASS** (writing-plans cited) | **UNTESTED-infrastructure** (300s cap) | GREEN 21s |
 
@@ -170,3 +170,16 @@ under neutral prompts regardless.
   material.
 - C2 compliance (read completing before write) needs a same-turn-batching-
   aware detector — named successor item.
+
+## Reviewer round (2026-09-10, independent GLM-5.3 pass)
+
+REQUEST-CHANGES, 1 blocker (map accuracy): gemma C4's PASS was vacuous — the
+session died on "Model unloaded." before behaving (empty JSONL, no writes;
+hello.ts on disk carried the postfix glm leg's nonce) and round 1 was SKIP,
+so "PASS both rounds" was doubly wrong. Fixed: matrix + F5/F6 relabeled
+(UNTESTED-infrastructure; F6 scoped to glm-5.3 + prior arc). Non-blocking
+adopted: the paired C2 runs spanned deploys g88611db→gc172fd3 (153 files of
+sibling drift) — caveat recorded: the superpowers delta between them is
+exactly the one paragraph, and the C2 surface doesn't touch wayfind/archify,
+but the nearest residual confound is the wayfind guard-visibility change in
+the same redeploy. Receipt: output/reviewer-spwf-ab/plan.md.
