@@ -1092,7 +1092,10 @@ async function scenarioSteer(): Promise<void> {
     // (receipted: the first steer-drill run latched the echo while the child
     // reported it never received anything).
     if (/queued and will be delivered right after the current tool|steered into run /.test(s)) sawSteerReply = true;
-    if (/↳[^\n]*STEER-ARC22-OK/.test(s)) sawMarker = true;
+    // Marker latch: a line whose trimmed content IS the marker — the steered
+    // child's reply renders as a bare line (r2 receipted). The prompt echo
+    // embeds the marker inside longer sentences and cannot match this.
+    if (screen().some((l) => l.replace(/^[│|]\s?/, "").trim() === "STEER-ARC22-OK")) sawMarker = true;
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     snap(sawMarker ? "marker" : sawSteerReply ? "steered" : "running", true);
     if (sawSteerReply && sawMarker && Date.now() - lastByteAt > opts.quietMs) break;
