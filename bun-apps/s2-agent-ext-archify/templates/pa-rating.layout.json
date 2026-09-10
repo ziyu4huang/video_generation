@@ -1,0 +1,60 @@
+{
+  "name": "pa-rating",
+  "description": "ASPICE capability rating strip for one process attribute: an attribute band (e.g. \"PA 1.1 · Process Performance — SWE.1\") beside a horizontal tile per generic practice, each showing the GP id over its N/P/L/F rating. Author `ratings[]` (2–6 tiles); the capability conclusion belongs in the slide `takeaway`. Pairs with `aspice-bp` (that one covers base practices, this one covers generic practices).",
+  "chrome": true,
+  "slots": {
+    "attribute": {
+      "kind": "text",
+      "required": true,
+      "description": "the process attribute being rated, e.g. \"PA 1.1 · Process Performance — SWE.1\""
+    },
+    "ratings": {
+      "kind": "array",
+      "of": ["gp", "rating"],
+      "min": 2,
+      "max": 6,
+      "required": true,
+      "description": "one tile per generic practice; `gp` is the GP id (e.g. GP 1.1.1), `rating` is N / P / L / F. The capability conclusion goes in the slide `takeaway` (the chrome band already renders it)."
+    }
+  },
+  "roles": {
+    "paAttribute": { "sizePt": 16, "bold": true, "color": "title" },
+    "paGp": { "sizePt": 12, "color": "muted" },
+    "paRating": { "sizePt": 28, "bold": true, "color": "accent" }
+  },
+  "body": [
+    {
+      "region": "content",
+      "stack": { "dir": "row", "weights": [1, 7], "gap": 0.2 },
+      "children": [
+        {
+          "box": "fill",
+          "content": { "kind": "text", "role": "paAttribute", "from": "{slide.attribute}" },
+          "valign": "middle"
+        },
+        {
+          "repeat": { "over": "ratings", "flow": "row", "gap": 0.25 },
+          "cell": [
+            {
+              "stack": { "dir": "row", "weights": [5, 4], "gap": 0.06 },
+              "children": [
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "paGp", "from": "{gp}" },
+                  "align": "center",
+                  "valign": "bottom"
+                },
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "paRating", "from": "{rating}" },
+                  "align": "center",
+                  "valign": "top"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

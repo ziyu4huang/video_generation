@@ -137,3 +137,96 @@ import { tmpdir } from "node:os";
 function mkdtemp(): string {
   return mkdtempSync(join(tmpdir(), "deck-slot-gate-"));
 }
+
+// ── aspice-bp / pa-rating (2026-09-10-aspice-alm t-A) ───────────────────────
+describe("buildDeck slot gate — aspice templates", () => {
+  test("aspice-bp without `bps` throws, naming slot and layout", async () => {
+    const work = mkdtemp();
+    try {
+      const manifest = {
+        output: "broken.pptx",
+        theme: "light" as const,
+        slides: [
+          {
+            layout: "aspice-bp",
+            title: "SWE.1 coverage",
+            process: "SWE.1 · Software Requirements Analysis",
+          },
+        ],
+      } as unknown as DeckManifest;
+      const error = await buildDeck({
+        manifest,
+        manifestDir: EXAMPLES,
+        outputPath: join(work, "broken.pptx"),
+        cwd: PKG_ROOT,
+        slidesDir: null,
+      }).catch((e: unknown) => e as DeckError);
+      expect(error).toBeInstanceOf(DeckError);
+      expect((error as DeckError).message).toContain("missing slot `bps`");
+      expect((error as DeckError).message).toContain('layout "aspice-bp"');
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("aspice-bp with 9 bps (over max 8) refuses", async () => {
+    const work = mkdtemp();
+    try {
+      const manifest = {
+        output: "broken.pptx",
+        theme: "light" as const,
+        slides: [
+          {
+            layout: "aspice-bp",
+            title: "SWE.1 coverage",
+            process: "SWE.1",
+            bps: Array.from({ length: 9 }, (_, i) => ({
+              id: `BP${i + 1}`,
+              practice: `practice ${i + 1}`,
+              verdict: "SAT",
+            })),
+          },
+        ],
+      } as unknown as DeckManifest;
+      const error = await buildDeck({
+        manifest,
+        manifestDir: EXAMPLES,
+        outputPath: join(work, "broken.pptx"),
+        cwd: PKG_ROOT,
+        slidesDir: null,
+      }).catch((e: unknown) => e as DeckError);
+      expect(error).toBeInstanceOf(DeckError);
+      expect((error as DeckError).message).toContain("the layout draws at most 8");
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  test("pa-rating without `ratings` refuses", async () => {
+    const work = mkdtemp();
+    try {
+      const manifest = {
+        output: "broken.pptx",
+        theme: "light" as const,
+        slides: [
+          {
+            layout: "pa-rating",
+            title: "PA 1.1 rating",
+            attribute: "PA 1.1 · Process Performance — SWE.1",
+          },
+        ],
+      } as unknown as DeckManifest;
+      const error = await buildDeck({
+        manifest,
+        manifestDir: EXAMPLES,
+        outputPath: join(work, "broken.pptx"),
+        cwd: PKG_ROOT,
+        slidesDir: null,
+      }).catch((e: unknown) => e as DeckError);
+      expect(error).toBeInstanceOf(DeckError);
+      expect((error as DeckError).message).toContain("missing slot `ratings`");
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  }, 30_000);
+});

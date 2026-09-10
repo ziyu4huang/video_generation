@@ -131,6 +131,8 @@ measuring a glyph or opening a renderer (buckets calibrated against rendered ink
 
 ### Layout templates — a layout dropped in, not coded in
 
+The **ASPICE 4.0 / ALM vertical** (`aspice-bp`, `pa-rating`) ships as templates too — see the worked assessment deck at `examples/aspice4-alm/`.
+
 The six above are code. More layouts arrive as **data** — a `*.layout.json` on the search path
 (whose precedence is code → `$ARCHIFY_TEMPLATES` → `<manifestDir>/templates/` → packaged tier)
 adds a layout with zero `.ts` change. The discovery surface is `archify_deck_lint` with **no
@@ -147,7 +149,7 @@ a catalog of **validated, render-ready IRs** (12 generic archetypes across all f
 plus 3 harvest-tier real chip IRs), each with a typed index entry (`library.catalog.json`:
 `diagram_type`, `title`, `description`, `archetype`, suggested `pairing`, `tier`) and a
 **flagship deck** (`examples/ir-library/decks/library.config.json`, 21 slides) that weaves the
-IRs with the 10 rich template results into one coherent argument. Copies are edits, not
+IRs with the 12 rich template results into one coherent argument. Copies are edits, not
 re-authors — swap the values, keep the shapes. `tests/ir-library.test.ts` pins every cataloged
 IR to validate + render and the flagship deck to 0 fatal lint / 0 blips.
 

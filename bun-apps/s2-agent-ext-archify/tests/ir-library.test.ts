@@ -30,7 +30,9 @@ const catalog = (await Bun.file(join(LIBRARY, "library.catalog.json")).json()) a
 
 const EXPECTED = ["architecture", "workflow", "sequence", "dataflow", "lifecycle"] as const;
 const VALID_TIER = ["generic", "flagship-domain"];
-const SHIPPED_TEMPLATES = ["agenda", "compare", "end", "kpi-row", "quote", "table", "timeline"];
+// The GENERAL-PURPOSE rich templates. The ASPICE 4.0 / ALM domain vertical
+// (aspice-bp, pa-rating) is exercised by examples/aspice4-alm/ — not here.
+const GENERAL_RICH_TEMPLATES = ["agenda", "compare", "end", "kpi-row", "quote", "table", "timeline"];
 
 const work = mkdtempSync(join(tmpdir(), "archify-ir-library-"));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
@@ -130,7 +132,7 @@ describe("t10 — the IR library stays validated, cataloged and buildable", () =
       registry,
     );
     const used = new Set(manifest.slides.map((s) => s.layout as string));
-    for (const t of SHIPPED_TEMPLATES) {
+    for (const t of GENERAL_RICH_TEMPLATES) {
       expect(used.has(t), `template ${t} not used by the flagship deck`).toBe(true);
     }
   });

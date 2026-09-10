@@ -44,6 +44,8 @@ export const SHIPPED = [
   "decision",
   "timeline-with-diagram",
   "figure",
+  "aspice-bp",
+  "pa-rating",
 ] as const;
 
 /**
@@ -51,6 +53,34 @@ export const SHIPPED = [
  * puts on these slides. Never lorem.
  */
 const PAYLOADS: Record<(typeof SHIPPED)[number], { slide: Slide; assert: string[] }> = {
+  "aspice-bp": {
+    slide: {
+      title: "SWE.1 八條基礎實踐中六條完全滿足，證據鏈可回溯",
+      takeaway: "BP3 與 BP7 的部分滿足是本輪補強重點",
+      process: "SWE.1 · 軟體需求分析 · ASPICE 4.0",
+      bps: [
+        { id: "BP1", practice: "識別並記錄軟體需求（示意改寫）", verdict: "SAT", evidence: "req-baseline.jsonl:12" },
+        { id: "BP2", practice: "分析介面與約束（示意改寫）", verdict: "SAT", evidence: "interface-matrix.jsonl:3" },
+        { id: "BP3", practice: "驗證需求可測性（示意改寫）", verdict: "PART", evidence: "verify-log.jsonl:41" },
+        { id: "BP4", practice: "建立雙向追溯（示意改寫）", verdict: "SAT", evidence: "trace/req-test-chain.json" },
+      ],
+    } as unknown as Slide,
+    assert: ["SWE.1", "BP3", "PART", "verify-log.jsonl:41", "req-test-chain.json"],
+  },
+  "pa-rating": {
+    slide: {
+      title: "PA 1.1 完全達成，能力等級一成立",
+      takeaway: "示意評級：GP 1.1.1–1.1.4 逐項 N/P/L/F",
+      attribute: "PA 1.1 · 流程績效 — SWE.1",
+      ratings: [
+        { gp: "GP 1.1.1", rating: "F" },
+        { gp: "GP 1.1.2", rating: "F" },
+        { gp: "GP 1.1.3", rating: "L" },
+        { gp: "GP 1.1.4", rating: "F" },
+      ],
+    } as unknown as Slide,
+    assert: ["PA 1.1", "GP 1.1.3", "L", "F"],
+  },
   "kpi-row": {
     slide: {
       title: "快取讓冷啟動延遲減半，使用者才回得來",
@@ -197,7 +227,7 @@ describe("the seven ship as data and nothing else", () => {
 
   test("no shipped name shadows a code layout, and every file parses", () => {
     // A throw anywhere above IS this test failing; here we pin the count.
-    expect(reg.catalog().filter((c) => c.source.startsWith(TPL_DIR))).toHaveLength(10);
+    expect(reg.catalog().filter((c) => c.source.startsWith(TPL_DIR))).toHaveLength(12);
   });
 });
 

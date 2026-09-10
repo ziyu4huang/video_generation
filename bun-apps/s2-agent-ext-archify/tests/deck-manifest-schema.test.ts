@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020";
 import { join } from "node:path";
 import { DeckError, parseManifest } from "../src/deck-build.ts";
+import { loadRegistry } from "../src/layout-registry.js";
 
 const PKG_ROOT = join(import.meta.dir, "..");
 const schema = JSON.parse(
@@ -28,6 +29,8 @@ const EXAMPLE_MANIFESTS = [
 	join(PKG_ROOT, "examples", "deck-composed", "deck.config.json"),
 	join(PKG_ROOT, "examples", "deck-general", "deck.config.json"),
 	join(PKG_ROOT, "examples", "ir-library", "decks", "library.config.json"),
+	// The ASPICE 4.0 / ALM vertical exercises the aspice slot fields.
+	join(PKG_ROOT, "examples", "aspice4-alm", "deck.config.json"),
 ];
 
 /** A registry-less parseManifest wrapper: throws DeckError on any structural rejection. */
@@ -98,6 +101,44 @@ describe("deck-manifest schema — negative matrix, both gates agree", () => {
 			}
 		});
 	}
+});
+
+describe("deck-manifest schema — aspice-bp / pa-rating slot shapes (2026-09-10-aspice-alm t-C)", () => {
+	// Template layouts need the registry (packaged tier) for parseManifest to
+	// resolve their names — the schema, being name-agnostic, needs no registry.
+	const withRegistry = (raw: string) => parseManifest(raw, "test", loadRegistry());
+
+	test("bps item missing verdict → rejected; bps with evidence → accepted (dual gate)", () => {
+		const noVerdict = `{"slides":[{"title":"t","layout":"aspice-bp","process":"SWE.1","bps":[{"id":"BP1","practice":"p"}]}]}`;
+		expect(validate(JSON.parse(noVerdict)) as boolean).toBe(false);
+		const parse = (() => {
+			try {
+				withRegistry(noVerdict);
+				return { ok: true } as const;
+			} catch (err) {
+				return { ok: false, message: err instanceof Error ? err.message : String(err) } as const;
+			}
+		})();
+		// parseManifest is schema-blind to slot ITEM shapes (slotProblems checks
+		// presence/counts at build time) — the schema is the stricter twin HERE.
+		expect(parse.ok).toBe(true);
+		const withEvidence = `{"slides":[{"title":"t","layout":"aspice-bp","process":"SWE.1","bps":[{"id":"BP1","practice":"p","verdict":"SAT","evidence":"evidence.jsonl:L1"},{"id":"BP2","practice":"q","verdict":"PART"}]}]}`;
+		expect(validate(JSON.parse(withEvidence)) as boolean).toBe(true);
+	});
+
+	test("ratings item missing rating → rejected; well-formed ratings → accepted", () => {
+		const noRating = `{"slides":[{"title":"t","layout":"pa-rating","attribute":"PA 1.1","ratings":[{"gp":"GP 1.1.1"}]}]}`;
+		expect(validate(JSON.parse(noRating)) as boolean).toBe(false);
+		const ok = `{"slides":[{"title":"t","layout":"pa-rating","attribute":"PA 1.1","ratings":[{"gp":"GP 1.1.1","rating":"L"},{"gp":"GP 1.1.2","rating":"F"}]}]}`;
+		expect(validate(JSON.parse(ok)) as boolean).toBe(true);
+	});
+
+	test("bps over the slot max (9 > 8) → schema rejects (mirrors slotProblems)", () => {
+		const items = Array.from({ length: 9 }, (_, i) => ({ id: `BP${i}`, practice: "p", verdict: "SAT" }));
+		expect(
+			validate({ slides: [{ title: "t", layout: "aspice-bp", process: "SWE.1", bps: items }] }) as boolean,
+		).toBe(false);
+	});
 });
 
 describe("deck-manifest schema — the authority split, pinned as a canary", () => {
