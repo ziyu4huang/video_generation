@@ -1,0 +1,21 @@
+{
+  "startedAt": "2026-09-10T13:57:37.287Z",
+  "finishedAt": "2026-09-10T14:03:03.902Z",
+  "elapsedMs": 326615,
+  "cwd": "/Users/huangziyu/proj/video_generation__selfarc23",
+  "agentType": "hard-problem",
+  "defResolved": true,
+  "requestedModel": "zai/glm-5.3",
+  "usage": {
+    "input": 23325,
+    "output": 10534,
+    "cacheRead": 149952,
+    "cacheWrite": 0,
+    "total": 183811,
+    "cost": 0.11799212
+  },
+  "turns": {
+    "turnsUsed": 11,
+    "maxTurns": 40
+  }
+}

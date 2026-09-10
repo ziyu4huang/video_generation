@@ -1,0 +1,23 @@
+{
+  "startedAt": "2026-09-10T15:19:46.480Z",
+  "finishedAt": "2026-09-10T15:25:02.368Z",
+  "elapsedMs": 315888,
+  "cwd": "/Users/huangziyu/proj/video_generation__selfarc23",
+  "agentTypeResolved": "code-reviewer (builtin pack def; no model pin — model pinned by the explicit spec)",
+  "nameSupported": true,
+  "name": "arc-reviewer-pr2268",
+  "runId": "mtvoi1ve-q39rya",
+  "requestedModel": "zai/glm-5.3",
+  "usage": {
+    "input": 21167,
+    "output": 5155,
+    "cacheRead": 62592,
+    "cacheWrite": 0,
+    "total": 88914,
+    "cost": 0.06858971999999999
+  },
+  "turns": {
+    "turnsUsed": 8,
+    "maxTurns": 40
+  }
+}
