@@ -53,6 +53,42 @@ if (repoRoot === undefined) process.exit(0);
 const bunAppsDir = join(repoRoot, "bun-apps");
 
 const missing = missingExtensionPackages(bunAppsDir);
+
+// Self-arc-22 t01 (F-deploy-1's sibling) — repair the @repo/* workspace links
+// UNCONDITIONALLY, every run: `bun install` (and its root-layout rewrite of
+// these links) can fire in ANY process at ANY time, leaving the farm dangling
+// while zero deps are "missing" — the exact state that made deploys ship stale
+// bundles and typechecks ENOENT (receipted 2026-09-10, twice). The repair is a
+// deterministic no-op when everything is healthy. Inlined on purpose (canonical
+// copy: core-runtime workspace-links.ts) — a static import of anything under
+// @repo/* here would die on the very links being repaired.
+let repaired = 0;
+try {
+  const repoLinkDir = join(bunAppsDir, "node_modules", "@repo");
+  for (const name of readdirSync(repoLinkDir)) {
+    const link = join(repoLinkDir, name);
+    let ok = false;
+    try {
+      ok = statSync(link).isDirectory();
+    } catch {
+      ok = false;
+    }
+    if (ok) continue;
+    try {
+      unlinkSync(link);
+      symlinkSync(join("..", "..", name), link);
+      repaired += 1;
+    } catch {
+      /* unrepairable — the next resolution error will name it */
+    }
+  }
+} catch {
+  /* no @repo dir yet — nothing to repair */
+}
+if (repaired > 0) {
+  console.error(`[check-deps] repaired ${repaired} dangling @repo/* workspace link(s) (bun install's root-layout rewrite)`);
+}
+
 if (missing.length === 0) process.exit(0);
 
 // Classify each missing package as a workspace member (resolves to local source
@@ -82,40 +118,6 @@ if (opt === "0" || opt === "false") {
 log(`running \`bun install\` at ${bunAppsDir} (workspace root) …`);
 const res = runBunInstall(bunAppsDir);
 if (res.status === 0) {
-  // Self-arc-22 t01 (F-deploy-1's sibling): `bun install` is exactly what
-  // rewrites the @repo/* workspace links into the dangling root-layout form
-  // (found live twice 2026-09-06, again 2026-09-10) — repair them NOW, in the
-  // same self-heal breath, or every post-install step in this boot (and any
-  // local-ci gate that follows) ENOENTs through the farm.
-  // Inlined on purpose (canonical copy: core-runtime workspace-links.ts) — a
-  // static import of anything under @repo/* here would die on the very links
-  // being repaired.
-  let repaired = 0;
-  try {
-    const repoLinkDir = join(bunAppsDir, "node_modules", "@repo");
-    for (const name of readdirSync(repoLinkDir)) {
-      const link = join(repoLinkDir, name);
-      let ok = false;
-      try {
-        ok = statSync(link).isDirectory();
-      } catch {
-        ok = false;
-      }
-      if (ok) continue;
-      try {
-        unlinkSync(link);
-        symlinkSync(join("..", "..", name), link);
-        repaired += 1;
-      } catch {
-        /* unrepairable — the next resolution error will name it */
-      }
-    }
-  } catch {
-    /* no @repo dir yet — nothing to repair */
-  }
-  if (repaired > 0) {
-    log(`repaired ${repaired} dangling @repo/* workspace link(s) (bun install's root-layout rewrite)`);
-  }
   // The NEXT bun process (run.sh's `exec bun`) re-probes and will see the deps;
   // we don't claim a same-process re-resolve here either.
   log("install completed — won't recur next launch; continuing to launch");
