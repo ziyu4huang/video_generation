@@ -104,6 +104,24 @@
     },
     {
       "series": "self-arc",
+      "number": 14,
+      "path": ".planning/2026-09-06-self-arc-14",
+      "status": "done",
+      "claimedAt": "2026-09-06",
+      "grandfathered": true,
+      "note": "pre-ledger claim; number shared with .planning/2026-09-08-self-arc-14 (collision residue, both shipped)"
+    },
+    {
+      "series": "self-arc",
+      "number": 15,
+      "path": ".planning/2026-09-06-self-arc-15",
+      "status": "done",
+      "claimedAt": "2026-09-06",
+      "grandfathered": true,
+      "note": "pre-ledger claim; number shared with .planning/2026-09-09-self-arc-15 (collision residue, both shipped)"
+    },
+    {
+      "series": "self-arc",
       "number": 13,
       "path": ".planning/2026-09-08-self-arc-13",
       "status": "done",
@@ -114,29 +132,11 @@
     {
       "series": "self-arc",
       "number": 14,
-      "path": ".planning/2026-09-06-self-arc-14",
-      "status": "done",
-      "claimedAt": "2026-09-06",
-      "grandfathered": true,
-      "note": "pre-ledger claim; number shared with .planning/2026-09-08-self-arc-14 (collision residue, both shipped)"
-    },
-    {
-      "series": "self-arc",
-      "number": 14,
       "path": ".planning/2026-09-08-self-arc-14",
       "status": "done",
       "claimedAt": "2026-09-08",
       "grandfathered": true,
       "note": "pre-ledger claim; number shared with .planning/2026-09-06-self-arc-14 (collision residue, both shipped)"
-    },
-    {
-      "series": "self-arc",
-      "number": 15,
-      "path": ".planning/2026-09-06-self-arc-15",
-      "status": "done",
-      "claimedAt": "2026-09-06",
-      "grandfathered": true,
-      "note": "pre-ledger claim; number shared with .planning/2026-09-09-self-arc-15 (collision residue, both shipped)"
     },
     {
       "series": "self-arc",
@@ -178,16 +178,6 @@
     {
       "series": "self-arc",
       "number": 19,
-      "path": ".planning/2026-09-10-self-arc-19",
-      "status": "done",
-      "claimedAt": "2026-09-10",
-      "branch": "self-arc-19-loop-integrity",
-      "mergedPr": 2250,
-      "note": "first machine-checked claim — loop-integrity arc (the ledger itself is its t01); dual arc-19 with 2026-09-09-self-arc-19-subagent (their claim predates the ledger's merge — grandfathered, not a violation; FIFTH same-number collision of the series)"
-    },
-    {
-      "series": "self-arc",
-      "number": 19,
       "path": ".planning/2026-09-09-self-arc-19-subagent",
       "status": "done",
       "claimedAt": "2026-09-09",
@@ -203,6 +193,26 @@
       "grandfathered": true,
       "mergedPr": 2248,
       "note": "pre-ledger parallel claim (merged #2248 before the ledger landed); first live-completeness catch: docs-only PRs skip package gates, so the guard went red only here"
+    },
+    {
+      "series": "self-arc",
+      "number": 19,
+      "path": ".planning/2026-09-10-self-arc-19",
+      "status": "done",
+      "claimedAt": "2026-09-10",
+      "branch": "self-arc-19-loop-integrity",
+      "mergedPr": 2250,
+      "note": "first machine-checked claim — loop-integrity arc (the ledger itself is its t01); dual arc-19 with 2026-09-09-self-arc-19-subagent (their claim predates the ledger's merge — grandfathered, not a violation; FIFTH same-number collision of the series)"
+    },
+    {
+      "series": "self-arc",
+      "number": 21,
+      "path": ".planning/2026-09-10-self-arc-21-receipt-validator",
+      "status": "active",
+      "claimedAt": "2026-09-10",
+      "branch": "self-arc-21-receipt-validator",
+      "mergedPr": null,
+      "note": "independent receipt validator — re-grades qualify receipts from primary evidence; first arc claimed VIA the ledger (the new standing procedure)"
     }
   ]
 }
