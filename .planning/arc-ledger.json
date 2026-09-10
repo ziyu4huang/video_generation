@@ -213,6 +213,16 @@
       "branch": "self-arc-21-receipt-validator",
       "mergedPr": 2257,
       "note": "independent receipt validator — re-grades qualify receipts from primary evidence; first arc claimed VIA the ledger (the new standing procedure)"
+    },
+    {
+      "series": "self-arc",
+      "number": 22,
+      "path": ".planning/2026-09-10-self-arc-22-review-harvest",
+      "status": "active",
+      "claimedAt": "2026-09-10",
+      "branch": "self-arc-22-review-harvest",
+      "mergedPr": null,
+      "note": "review-harvest — make arc-review verdicts harvestable by name (reviewer-harvest returns absent for core-spawn dispatches, receipted twice)"
     }
   ]
 }
