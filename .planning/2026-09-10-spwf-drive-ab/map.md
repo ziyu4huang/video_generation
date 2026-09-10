@@ -61,14 +61,14 @@ under neutral prompts regardless.
 
 ## Tickets
 
-- [ ] t01 adjudication + effort open + pin-proof smokes:
+- [x] t01 adjudication + effort open + pin-proof smokes:
       prior-attribution.json from prior receipts' sessionFiles; 2 smoke legs
       (zai/glm-5.3 + lm-studio/gemma) with recorded model == pin
-- [ ] t02 harness upgrades: --dist flag; per-leg model field + pin:match;
+- [x] t02 harness upgrades: --dist flag; per-leg model field + pin:match;
       C3 write-order detector; C5 check redefined (read to-spec ∨ to-tickets)
-- [ ] t03 A/B battery: 12 cells (6 cases × 2 models), neutral prompts frozen
+- [x] t03 A/B battery: 12 cells (6 cases × 2 models), neutral prompts frozen
       in tickets/03, deployed pinned; glm column first, then gemma
-- [ ] t04 verdict matrix + findings: committed table; deltas = findings;
+- [x] t04 verdict matrix + findings: committed table; deltas = findings;
       RED → minimal fix → gates → redeploy → same-case re-run (paired)
 - [ ] t05 close-out: promotion decision (D7 conditional), reviewer, PR chain,
       successor next-goal
@@ -111,3 +111,62 @@ under neutral prompts regardless.
   case battery, and receipt discipline; corrects its model attribution.
 - Shares-decision-with: 2026-09-09-self-arc-16 — receipts discipline
   (LLM-free verification where possible; model-visible checks labeled).
+
+## Verdict matrix (final, 2026-09-10; receipts under output/spwf-ab/, scratch)
+
+| Case | glm-5.3 (neutral) | gemma-4-12b | Prior (re-attributed: glm-5.3, nudged) |
+|---|---|---|---|
+| C1 bootstrap self-report | **UNSTABLE** — NO this run, YES prior run (same prompt+pin) | YES (round 2; round 1 infra-death) | YES |
+| C2 brainstorming routing | pre-fix RED (0 reads, work done anyway) → post-fix **PARTIAL** (brainstorming read ✓, batched same-turn as write) | **UNTESTED-infrastructure** (Model unloaded churn) | behavioral GREEN (nudged) |
+| C3 TDD + order | TDD read ✓; **order RED** — impl written first (leg1 rate-limited, leg2 honest) | **UNTESTED-infrastructure** | PASS weak (nudged) |
+| C4 exclude-env | **PASS** | **PASS** (both rounds) | PASS |
+| C5 wayfind flow | **RED by expectation, answer correct** — read `using-s2-agent-skills` (repo router) not the leaf skills | **UNTESTED-infrastructure** | GREEN* (mis-set expectation) |
+| C8 cross-family | **PASS** (writing-plans cited) | **UNTESTED-infrastructure** (300s cap) | GREEN 21s |
+
+## Findings
+
+- **F1 — bootstrap salience is unstable on glm-5.3**: the C1 self-report
+  flip-flops (YES prior arc, NO this run, identical prompt+pin). The
+  "You MUST invoke skills" mandate does not reliably register.
+- **F2 — nudge dependence CONFIRMED, and a fix that moves the needle**:
+  with neutral prompts glm-5.3 skipped brainstorming entirely (0 reads, work
+  done anyway; description already says "MUST use before any creative work"
+  — lever ① exhausted). Minimal lever-② fix (c172fd30): one concrete
+  behavioral line in the bootstrap. Paired re-run: 0 reads → brainstorming
+  READ ✓ (consultation achieved), but the read batched same-turn with the
+  write — compliance (skill shaping the work) not established. PARTIAL.
+- **F3 — repo-gate interception is the dominant wayfind route under neutral
+  prompts**: C5 on glm-5.3 loaded `using-s2-agent-skills` (the repo-root
+  gate) instead of wayfind leaf skills — a route the nudged runs never took.
+  Answers remain correct (to-spec chain explained). The repo's own router is
+  now the primary model-side entry to wayfind.
+- **F4 — TDD order**: glm-5.3 read TDD but wrote impl-first (stub) on the
+  neutral prompt; full cycle completed after. Order compliance is model-
+  discipline, not guaranteed by the read.
+- **F5 — gemma infrastructure**: LM Studio churned models mid-session
+  ("Model unloaded." deaths, one 300s stall) under sibling load — the gemma
+  column is mostly UNTESTED-infrastructure except C1/C4. Retry round kept as
+  evidence (output/spwf-ab/skip-round/, first-round receipts preserved).
+- **F6 — exclude-env is the most robust surface**: PASS on both models,
+  every round.
+- **F0-correction upheld**: prior-attribution.json proves all prior `-p`
+  behavioral legs ran glm-5.3; the prior map's confound narrative was wrong
+  and is corrected in §0.
+
+## Shipped-as (2026-09-10)
+
+- PR <impl>: the F2 bootstrap directive (c172fd30) + prior-attribution
+  adjudication + harness upgrades (driver model field/pin:match/--dist,
+  C3 order detector, C5 any-of) + this matrix. Wayfind untouched this arc;
+  superpowers gates 172/0 at the fix; deploy 0.10.3+gc172fd3 (e2e: all pass,
+  model-call skip under contention — recorded).
+- Receipts (scratch): output/spwf-ab/{smoke,glm,gemma,postfix,skip-round}/,
+  prior-attribution.json.
+
+## Fog of war resolutions
+
+- gemma cells left UNTESTED-infrastructure rather than burned further —
+  LM Studio state is sibling-owned; a quiet-window re-run is successor
+  material.
+- C2 compliance (read completing before write) needs a same-turn-batching-
+  aware detector — named successor item.
