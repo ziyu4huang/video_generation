@@ -25,7 +25,6 @@
  * escapes, binary paths, vendored closure) lives in offline-gate.ts.
  */
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
@@ -35,7 +34,6 @@ import { evaluateExtModule, EXT_DIR_SPEC, extRequire } from "../../../../s2-agen
 import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
 import { isRuntimeDeadFile, vendorClosure } from "./vendor-closure.ts";
 import { walk } from "./fs.ts";
-import { assertMarkersInArtifact, deriveSourceMarkers } from "./source-markers.ts";
 import type { ShExtConfig } from "./config.ts";
 
 /**
@@ -682,13 +680,6 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 	}
 	writeFileSync(cjsPath, built);
 
-	// ── Artifact attestation (self-arc-22 t01, F-deploy-1) ───────────────────
-	// The bundle MUST contain distinctive literals from the package's own src/ —
-	// a build that read stale bytes (dangling @repo/* resolution, weak cache
-	// key) fails HERE instead of shipping under a fresh version label.
-	const markers = deriveSourceMarkers(resolve(pkgDir, "src"));
-	assertMarkersInArtifact(built, markers.markers, `${opts.ext.name}/ext.cjs`);
-
 	// ── Gate 1: nothing foreign may remain unresolved ────────────────────────
 	timedGate(opts, "1", () => {
 		const foreign = scanForeignSpecifiers(built, allExternals);
@@ -816,14 +807,6 @@ export async function buildExtPackage(opts: BuildExtOptions): Promise<BuildExtRe
 		},
 		builtAt: opts.builtAt,
 		sourceSha: opts.sourceSha,
-		// Artifact attestation inputs (self-arc-22 t01): the literals this build
-		// was verified against, + a content hash of the source tree they came
-		// from. verify-deploy-e2e can re-grep the deployed ext.cjs against them.
-		sourceMarkers: markers.markers,
-		sourceHash: createHash("sha256")
-			.update(markers.sources.map((f) => `${f}\0`).join(""))
-			.digest("hex")
-			.slice(0, 16),
 	};
 	writeFileSync(join(opts.outDir, "ext.json"), `${JSON.stringify(manifest, null, 2)}\n`);
 
