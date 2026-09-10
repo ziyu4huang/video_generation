@@ -2,7 +2,7 @@
 effort: 2026-09-10-self-arc-22-review-harvest
 created: 2026-09-10
 last: 2026-09-10
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-10-self-arc-22-review-harvest — make the GLM-5.3 review gate's verdict HARVESTABLE by name
@@ -189,3 +189,27 @@ neither core src nor the harvester, and unblocks t02/t04 in one sitting.
   fallback) and `2026-09-10-self-arc-21` (the second miss receipt + the
   ledger/repoint procedures this arc consumes).
 - Absorbed-by: none.
+
+## Shipped-as (2026-09-10, #2261)
+
+All six tickets shipped in ONE implementation PR (#2261, squash 4ade235c,
+verify-merge CLEAN). Deviations and the live proof, faithfully:
+
+- **Design ③ landed smaller than planned**: zero core-src edits, zero
+  harvester edits — arc-review.ts now persists a standard pi-runs record via
+  core-runtime's own public persistence API, so the EXISTING
+  `reviewer-harvest --name` FALLBACK finds it. No deployed-core change →
+  no redeploy, no sweep (deploy receipt at close-out confirms).
+- **The review gate BIT — and was harvested by name**: v1's verdict
+  (REQUEST_CHANGES, harvested via `reviewer-harvest --name
+  arc-reviewer-pr2261`, exit 0) flagged the missing D3 empty-output guard —
+  a blank-output success would harvest as still-running forever. Fix landed
+  (+test); v2 harvested APPROVE. Both verdicts, both JSONs, and both review
+  bodies are in `evidence/` (t05-review-v1/v2). The harvest path this arc
+  ships was used to gate the very PR that ships it.
+- Local-CI caught a real format drift on the appended test (heredoc 2-space
+  vs file tabs) before merge — fixed, gates green.
+- Round-trip proof (t04): real dispatch → `reviewer-harvest --name
+  arc-reviewer` exit 0/completed/pi-runs + idempotent re-run.
+- Tickets t06 = this close-out: successor written and repointed VIA
+  repoint-next-goal.ts in the memory worktree (the standing scratch home).

@@ -218,10 +218,10 @@
       "series": "self-arc",
       "number": 22,
       "path": ".planning/2026-09-10-self-arc-22-review-harvest",
-      "status": "active",
+      "status": "done",
       "claimedAt": "2026-09-10",
       "branch": "self-arc-22-review-harvest",
-      "mergedPr": null,
+      "mergedPr": 2261,
       "note": "review-harvest — make arc-review verdicts harvestable by name (reviewer-harvest returns absent for core-spawn dispatches, receipted twice)"
     }
   ]
