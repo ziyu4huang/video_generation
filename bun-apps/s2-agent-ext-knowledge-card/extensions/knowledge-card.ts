@@ -52,7 +52,7 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { GATE_DEFS, readAllToolDefinitions } from "@repo/s2-agent-core-interface";
-import { zkRetrieve, zkIngest, zkHealth, zkHeal } from "../src/host-fns.ts";
+import { zkRetrieve, zkIngest, zkHealth, zkHeal, inferQueryTags } from "../src/host-fns.ts";
 import { resolveVault, registerDeterministicHealthCheck } from "@repo/s2-agent-ext-obsidian";
 import { ingestRecords, formatSummary } from "../src/ingest.ts";
 import {
@@ -1384,16 +1384,10 @@ export default function piKnowledgeCardExtension(pi: ExtensionAPI) {
 				};
 			}
 
-			// If no tags but a query is provided, split the query into word tokens as tags.
-			const effectiveTags = tags.length > 0 ? tags : (
-				query
-					.toLowerCase()
-					.replace(/[^a-z0-9-]+/g, " ")
-					.trim()
-					.split(/\s+/)
-					.filter((t) => t.length >= 3 && t.length <= 30)
-					.slice(0, 10)
-			);
+			// If no tags but a query is provided, infer them from the query via
+			// the SHARED production tokenizer (kcard-blend-lift T1 — the bench
+			// imports this exact symbol; do not inline a copy).
+			const effectiveTags = tags.length > 0 ? tags : inferQueryTags(query);
 
 			const opts: RetrieveOptions = {
 				vaultPath,

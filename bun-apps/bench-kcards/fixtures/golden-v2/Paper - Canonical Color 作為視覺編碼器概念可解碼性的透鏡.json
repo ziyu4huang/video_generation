@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09124",
+  "title": "Paper - Canonical Color 作為視覺編碼器概念可解碼性的透鏡",
+  "cardFile": "Paper - Canonical Color 作為視覺編碼器概念可解碼性的透鏡.md",
+  "questions": [
+    {
+      "question": "Figure 1 中「Canonical On Counterfactual」曲線隨層上升至約多少百分比？",
+      "answer": "隨層上升至約 55%",
+      "answerable": true
+    },
+    {
+      "question": "典型色解碼結果的 Figure 1 位於論文第幾頁？",
+      "answer": "Figure 1，p.4",
+      "answerable": true
+    },
+    {
+      "question": "Figure 1 驗證集結果折線圖中各條曲線的相對位置如何？",
+      "answer": "\"RGB\" 曲線高且平緩、\"Grayscale\" 較低、\"Majority Baseline\" 在底部",
+      "answerable": true
+    },
+    {
+      "question": "實驗中如何把顏色從輸入影像移除？",
+      "answer": "當顏色從輸入影像移除（灰階化）",
+      "answerable": true
+    },
+    {
+      "question": "這篇論文用什麼探測方法同時探測顏色與物件身份？",
+      "answer": "用線性探針同時探測顏色與物件身份（灰階與彩色輸入對照）",
+      "answerable": true
+    },
+    {
+      "question": "這張卡的「相關」連結指向哪張同為視覺表徵研究的卡片？",
+      "answer": "Paper - Image Tokenizers 作為統一多模態模型的視覺語言",
+      "answerable": true
+    },
+    {
+      "question": "論文比較了哪些視覺編碼器架構（如 ViT、CLIP、DINO）在典型色解碼上的差異？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

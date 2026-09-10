@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09134",
+  "title": "Paper - Co-Evolving Harnesses and Models 在模仿失效處用在線修正補足",
+  "cardFile": "Paper - Co-Evolving Harnesses and Models 在模仿失效處用在線修正補足.md",
+  "questions": [
+    {
+      "question": "這篇論文的主要發現基於幾個企業 agentic benchmark？",
+      "answer": "七個企業 agentic benchmark",
+      "answerable": true
+    },
+    {
+      "question": "論文表格中 h0 與 h∗ 分別代表什麼？",
+      "answer": "h0 = 基線 harness，h∗ = 演化 harness",
+      "answerable": true
+    },
+    {
+      "question": "微調後的模型在 rollout 中對演化後 harness 的行為如何（反直覺發現）？",
+      "answer": "微調後的模型在 rollout 中幾乎觸發每一處 harness 編輯，還提高了 domain-computation 組件的使用",
+      "answerable": true
+    },
+    {
+      "question": "這篇論文所說的 agent harness 包含哪些組成部分？",
+      "answer": "系統提示、工具集、執行 hook、上下文管理腳手架",
+      "answerable": true
+    },
+    {
+      "question": "在線修正與模型微調這兩個槓桿之間是什麼關係？",
+      "answer": "在線修正（on-policy correction）在模仿失效之處補足較弱模型——兩槓桿互補而非替代",
+      "answerable": true
+    },
+    {
+      "question": "這張卡的「相關」連結指向哪張同為 agent 能力提升結構化方法的卡片？",
+      "answer": "Paper - ExecCritic 學會測試 以測試促進修復",
+      "answerable": true
+    },
+    {
+      "question": "LoRA 微調使用的 rank、學習率等超參數設定為何？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

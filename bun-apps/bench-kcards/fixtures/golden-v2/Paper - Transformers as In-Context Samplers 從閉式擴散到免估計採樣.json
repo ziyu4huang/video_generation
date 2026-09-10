@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.08981",
+  "title": "Paper - Transformers as In-Context Samplers 從閉式擴散到免估計採樣",
+  "cardFile": "Paper - Transformers as In-Context Samplers 從閉式擴散到免估計採樣.md",
+  "questions": [
+    {
+      "question": "Figure 1 位於論文第幾頁、包含幾個子圖？",
+      "answer": "Figure 1（p.2）：多面板二維散點圖（point-cloud 視覺化，4 個子圖 a–d）",
+      "answerable": true
+    },
+    {
+      "question": "語義主題採樣實例中，prompt 由哪些語義類別的詞構成？",
+      "answer": "prompt 由同一語義類別（動物、食物、城市）的詞構成",
+      "answerable": true
+    },
+    {
+      "question": "既有的 in-context learning 理論已覆蓋哪類學習問題？",
+      "answer": "In-context learning 的理論已覆蓋監督學習（線性回歸）",
+      "answerable": true
+    },
+    {
+      "question": "論文的兩步構造是什麼、「免估計」指什麼？",
+      "answer": "先證明 transformer 可實現閉式與平滑化閉式擴散採樣器；構造全程免估計（estimation-free）——不需要從資料估計得分函數",
+      "answerable": true
+    },
+    {
+      "question": "Figure 1 的散點圖展示了什麼行為？",
+      "answer": "展示 transformer 在訓練分佈上 in-context 採樣的行為",
+      "answerable": true
+    },
+    {
+      "question": "這張卡與哪張卡片互為「理論側同伴」的相關連結？",
+      "answer": "Paper - Amari 貝葉斯對偶的推廣（理論側同伴）",
+      "answerable": true
+    },
+    {
+      "question": "實現閉式擴散採樣器所需的 transformer 最小深度（層數）是多少？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

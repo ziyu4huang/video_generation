@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09087",
+  "title": "Paper - PrivEscalate 量化 LLM 自動化 Linux 提權的威脅",
+  "cardFile": "Paper - PrivEscalate 量化 LLM 自動化 Linux 提權的威脅.md",
+  "questions": [
+    {
+      "question": "PrivEscalate 包含多少個 Docker 容器化可執行環境？",
+      "answer": "531 個 Docker 容器化可執行環境",
+      "answerable": true
+    },
+    {
+      "question": "建構管線 Sankey 漏斗（Figure 3，p.5）各階段的數字是多少？",
+      "answer": "1,067 個候選 → Scaffolder 962 → Build 745 → Exploit 531 → Verified 512",
+      "answerable": true
+    },
+    {
+      "question": "場景品質審計抽查了多少場景、涵蓋哪些來源、誤差界多少？",
+      "answer": "82 個場景取自自動化管線與種子集產出的 525 個場景（512 pipeline 產出 + 13 條 hackingBuddyGPT 種子），95% 信賴水準下 ±10% 誤差界",
+      "answerable": true
+    },
+    {
+      "question": "PrivEscalate 的威脅模型是什麼？",
+      "answer": "把受限的 user-context 落點轉成 root 級控制——並測量 LLM 代理自動化這一過程的能力",
+      "answerable": true
+    },
+    {
+      "question": "先前 LLM 提權評測生態的缺口是什麼、PrivEscalate 如何補上？",
+      "answer": "先前評測生態的缺口是不可復現的線上 playground 與單一離線 benchmark hack-ingBuddyGPT（僅 13 個人工構建場景）——PrivEscalate 以自動化管線補上這個規模缺口",
+      "answerable": true
+    },
+    {
+      "question": "這張卡與哪張 GPU 記憶體安全評測卡片互為「安全側基準」的相關連結？",
+      "answer": "Paper - GMSBench GPU 記憶體安全標準化評測（同為安全側基準：本地提權 vs GPU 記憶體安全）",
+      "answerable": true
+    },
+    {
+      "question": "哪個 LLM 在 PrivEscalate 上達到最高的提權成功率？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

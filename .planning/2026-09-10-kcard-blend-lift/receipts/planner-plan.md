@@ -1,0 +1,66 @@
+All five reads spent, plus two targeted greps to pin line numbers for the decisions. No deploy-tree learnings apply here (nothing shipped/bundled in this problem) — but the underlying method rule did: **I read the actual artifacts instead of trusting the framing's description of the production path**, and that description turned out to be wrong in an important way (§5).
+
+---
+
+# Plan: kcard-blend-lift — measure retrieval through the PRODUCTION ranker
+
+## 1. Execution order (5 tickets)
+
+**T1 → T2 → T3 → T4 → T5.** T1 establishes the production-faithful baseline (and will confirm or refute the structural-cap theory in D4 with numbers); T2 is the structural ranker fix the cap demands; T3 removes the CJK blind spot that can invalidate both measurement and lift; T4 lifts content quality through both lanes; T5 judges against the design gates or records the amendment.
+
+## 2. Tickets
+
+### T1 — production-path MRR lane + tokenizer extraction
+- **Goal**: bench 2d measures `retrieveRecords(buildRetrieveOptions({ query, tags: inferQueryTags(query) }))` — the exact opts the `knowledge_query` / `zk.retrieve` boundary serves — instead of the hand-rolled raw-cosine ranker (`query-gates.ts` `mrrAgainstIndex` loads the index JSON and cosine-ranks directly). Extract the inline query→tags tokenizer (currently buried in the `knowledge_query` tool execute, extensions/knowledge-card.ts ~:1388–1400, "If no tags but a query is provided, split the query into word tokens as tags") into an exported lib fn; tool and bench import the SAME symbol. Re-route 2c `tagRecall` through `buildRetrieveOptions` too (it currently measures the tag-only-count lane production never serves — D5). Keep the raw-cosine lane as a diagnostic column.
+- **Files**: `bun-apps/bench-kcards/src/lanes/query-gates.ts`; `bun-apps/s2-agent-ext-knowledge-card/src/host-fns.ts` (+`inferQueryTags` export); `extensions/knowledge-card.ts` (consume the export); parity test in knowledge-card tests; bench wiring.
+- **Done-when**: (i) offline tier green in plain `bun test`: tokenizer unit tests + a parity test asserting the bench calls the same opts-factory + tokenizer as the tool (zero drift possible); (ii) a deterministic offline lane runs the production path with `semantic:false` (a served option per `buildRetrieveOptions`); (iii) gated tier reports production-path MRR/hit@3 + the lexical-only and raw-cosine columns side by side; (iv) lane pins `KCARD_HIER_DEFAULT=0` and `KCARD_USAGE_LOG=0` (see risks); (v) numbers + receipts recorded in the map.
+- **Risks**: golden questions in Chinese → whitespace tokenizer yields ~1 useless tag, production lane ≈ pure cosine (the measurement "works" but measures nothing new — probe language FIRST, T3 becomes blocking); `usageLog:true` in `buildRetrieveOptions` means a down Surreal taxes every call with up to 2 s (`recordUsageBatch` short-fuse) and writes ledger rows into the sandbox — `KCARD_USAGE_LOG=0` is mandatory hygiene, it's the documented hermetic-suite gate; hier lane unmeasurable without Surreal (fog).
+
+### T2 — flat-blend additive lexical term (the structural cap)
+- **Goal**: in `trySemanticBlend` (retrieve.ts, past line 1123 — read it before coding), the final score `α·lexRankNorm + (1−α)·cosNorm` with α=0.18 caps a lexical-only target at 0.18 while ANY union member with cosNorm > 0.22 outranks it — so a deep question whose target ranks ~200 by cosine is bounded behind the semantic top-12 (≈ rank 13) **no matter how strong the lexical signal** (D4). The hier lane already solved this with the absolute stem term `β·min(ov,3)/3` (hierarchical-retrieval.ts:166–167, ticket 09 D23 — "flat's slugDom rank-1 maker"). Mirror an absolute slug/body term into the flat blend.
+- **Files**: `src/retrieve.ts` (`trySemanticBlend`), `src/semantic.ts` (`blendScore` additive term or a sibling), red test (new, `_testEmbedder`-injected, fully offline/deterministic).
+- **Done-when**: red test first proves the cap on a synthetic pool (lexical-#1 target with low cosine ranks behind semantic-strong zero-lexical competitors at α=0.18 — fails on current code); fix lands; test greens; α-band receipts [0.12, 0.18, 0.22, fix-on] from the gated tier with per-variant receipts; drift-guard tests still green (byte-identical when `semantic:false`).
+- **Risks**: changing the served ranking regresses the 25-query eval / probeB — rerun both; going outside the measured α band is a separate decision needing its own receipt (don't bundle).
+
+### T3 — CJK-aware lexical tokenization
+- **Goal**: the entire lexical family is ASCII-deaf: `bodyTokenOverlap` strips all non-ASCII from bodies (`replace(/[^a-z0-9-]+/g, " ")`, retrieve.ts), the query tokenizer whitespace-splits, the hier FTS is snowball/AND-only. CJK questions and CJK note prose have ZERO lexical signal — only cosine serves them. Add CJK bigram tokenization shared by the query tokenizer and body tokenizer (slug stays ASCII by construction).
+- **Files**: `src/host-fns.ts` (`inferQueryTags`), `src/retrieve.ts` (`bodyTokenOverlap`), possibly `hierarchical-retrieval.ts` FTS query construction; unit tests offline.
+- **Done-when**: red tests (a zh question yields bigram tags; a zh body yields bigram tokens that match); gated-tier before/after MRR delta receipt; no regression on the English eval set (tags-only baseline byte-identical when no CJK present — pin with a test).
+- **Risks**: bigram flooding recall (mirrors the slug `<3` flood lesson — the ≥3 threshold exists for a reason); tag-recall lane may dip before blend rescues it.
+
+### T4 — summary/tag quality through the production lanes
+- **Goal**: land the previous arc's un-landed T2 (structured 核心想法-bullet abstract for the generic family) so L0/`summary` carries a real lexical+embed surface, plus tag distinctiveness (measure `linkWeighting:"idf"` opt-in vs count on the production lane before proposing a default flip — the option exists precisely unflipped, retrieve.ts).
+- **Files**: `src/adapters.ts`, `src/ingest.ts`/`card-render.ts` as needed, bench embed refresh.
+- **Done-when**: adapter red tests (abstract structure present, dedup vs renderCard's own `## 核心想法` — remember ticket 02's doubled-header lesson); per-change gated receipts (embed tier is minutes — one variant per run, never bundled); idf on/off receipt.
+- **Risks**: regenerating sandbox vectors per variant is slow — sequence variants, don't parallelize embed refreshes against one vault.
+
+### T5 — gates-or-amend through the production path
+- **Goal**: judge tag recall ≥ 0.90 / MRR ≥ 0.70 on the T1 lane (and the hier sub-lane if Surreal stood up). If a structural ceiling remains, record the amendment with per-variant receipts + the ceiling decision, per the constraint.
+- **Files**: bench gates, `.planning/<effort>/map.md` update.
+- **Done-when**: scorecard states gate vs floor per lane with receipts; amendment (if any) cites the failing variant receipts by path; bite check re-derived for the blend lane (vector removal should degrade to the lexical lane's score, not necessarily <0.20 — pick a mutation that can fail the gate, e.g. scrambled query tokens).
+- **Risks**: none new — this is judgment bookkeeping.
+
+## 3. Decisions
+
+- **D1 — Core question: candidate (a), realized through the production boundary, not the literal framing.** The production-faithful measurement is `retrieveRecords(buildRetrieveOptions({query,…}))` + the tool's own query→tags tokenization. Evidence: `buildRetrieveOptions` (host-fns.ts:63–87) is the exported production opts factory — "Defaults mirror the knowledge_query tool (bodyMatch + slugDom + semantic), which measured 1.00 hit-rate@4"; the tokenizer is inline in `knowledge_query`'s execute (extensions/knowledge-card.ts, sed-window lines 72–86 ≈ file :1388–1400).
+- **D2 — (b) zk_ask REJECTED as the MRR lane.** zk_ask is an LLM subagent pipeline (`zkSpawn` + `buildRagTask`, extensions/knowledge-card.ts zk_ask execute) whose Step-3 score is **0.7×search + 0.3×links — not blendScore**; the split is pinned BY DESIGN by the calloutBoost comment in retrieve.ts ("zk_ask's score is computed by the agent from obsidian_search results… The split is pinned by the drift-guard test"). Measuring through it measures prompt-following + a model, is non-deterministic, and answers a different question.
+- **D3 — (c) blend-sim lane REJECTED.** A hand-mirrored blend without the tag filter is a drift-prone reimplementation; the real non-tag-filter blend already exists as the hier seed lane (hierarchical-retrieval.ts:165–182: `α·lexRankNorm + (1−α)·cosNorm + β·min(ov,3)/3` over per-token FTS of title/summary, :14–16) and is the production DEFAULT for query-bearing calls (D27 switch, retrieve.ts `hierOn`). Measure the real hier lane as a gated sub-lane when Surreal + fresh index exist; never simulate it.
+- **D4 — The flat blend has a structural cap on deep questions; test it red-first (T2).** α=0.18 is the LEXICAL weight (semantic.ts:31, :222–223 `α·lexRankNorm + (1−α)·cosNorm`); rank-normalized lexical signal maxes at 0.18, so any union member with cosNorm > 0.22 wins — the semantic top-12 all do — bounding a cosine-rank-200 target behind ~12 cards regardless of lexical strength. The hier lane's absolute term exists precisely because "stem signal into lexRankNorm does NOTHING — that normalization is [rank-based]" (hierarchical-retrieval.ts:159, :166–167).
+- **D5 — The measured 0.692 tag recall is also a non-production number.** `tagRecall` calls `retrieveRecords({vaultPath, tags, topK: 5})` (query-gates.ts) — bodyMatch/slugDom/semantic all default false, hier off: the tag-only-count lane. Production serves bodyMatch+slugDom+semantic(+hier). Re-route before judging the 0.90 gate.
+- **D6 — The bench must import production symbols, not copy them** (tokenizer + opts factory), with a parity test — the same anti-drift pattern host-fns.ts already establishes by exporting `buildRetrieveOptions` "so a parity test can call retrieveRecords with the EXACT opts the adapter uses (DRY + honest)".
+- **D7 — Bench env pins**: `KCARD_HIER_DEFAULT=0` (deterministic flat lane; retrieve.ts D27 escape hatch) + `KCARD_USAGE_LOG=0` (buildRetrieveOptions sets `usageLog:true`; a down Surreal costs ≤2 s/call and writes ledger rows into the sandbox). Hier is measured separately, never mixed into the deterministic number.
+
+## 4. Fog of war to probe at execution
+
+1. **Language of the golden questions** (en/zh) — decides whether T3 blocks T1's measurement entirely (zh → whitespace tokenization ≈ dead lexical lane).
+2. **`trySemanticBlend` body, retrieve.ts:1124–1347** — my cap analysis rests on the documented union/top-12 shape and the hier-lane mirror comment; the executor must read the implementation before writing the T2 red test (exact cosNorm domain, pool cuts, tie-breaks).
+3. **SurrealDB availability for the sandbox** — without it the hier lane (the production DEFAULT for queries) stays unmeasured and every "production path" number is flat-lane-only; the scorecard must say so explicitly.
+4. The **exact split regex** in knowledge_query's tokenizer (grep window cut it off) — read it during extraction; don't guess.
+5. **Hier freshness gate on the sandbox** — fingerprint match after each vector refresh (T4 re-embeds); a stale index silently flips the default to flat.
+6. **probeB vs golden set difficulty** — probeB 1.00 at α∈[0.12,0.22] is evidence about easy queries, not about the structural ceiling; do not extrapolate it past T1's measured numbers.
+
+## 5. What is WRONG in the framing (with evidence)
+
+1. **"production retrieval (zk_ask) ranks with a lexical-FTS + semantic BLEND (blendScore…)" — attribution error.** zk_ask's ranker is 0.7×search+0.3×links executed by an LLM subagent from `obsidian_search` results (zk_ask tool description + `buildRagTask`, extensions/knowledge-card.ts; the BY-DESIGN calloutBoost comment in retrieve.ts pins the two-rankers split with a drift-guard test). The `blendScore(α=0.18)` ranker belongs to the `retrieveRecords` flat-semantic lane (semantic.ts:222) and the hier seed lane (hierarchical-retrieval.ts:165–182). Building the arc "through zk_ask" would misroute every ticket into `buildRagTask` prompt-land; the deterministic `zk.retrieve`/`knowledge_query` boundary is the measurable production path.
+2. **The α-band probe is being over-read.** "α∈[0.12,0.22] all give probeB 1.00" cannot lift deep questions: α reweights rank-normalized signals inside a ≤24-card union pool; it cannot pull a cosine-rank-200 target past the semantic top-12 (D4). The probe measured blend robustness, not ceiling removal.
+3. **Candidate (a) as literally written measures a third non-production lane.** `retrieveRecords({tags, semantic:true})` omits `bodyMatch:true, slugDom:true, queryText, usageLog` and the hier-first default that `buildRetrieveOptions` (host-fns.ts:63–87) actually sets. And symmetrically, the framing's own "tag recall@5 = 0.692" baseline was measured on a fourth lane (tag-only defaults, D5) — both baseline numbers in the task brief describe lanes production never serves, which is exactly why T1 must come first.

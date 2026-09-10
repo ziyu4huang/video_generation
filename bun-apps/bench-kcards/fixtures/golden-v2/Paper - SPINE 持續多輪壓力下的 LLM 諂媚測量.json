@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09090",
+  "title": "Paper - SPINE 持續多輪壓力下的 LLM 諂媚測量",
+  "cardFile": "Paper - SPINE 持續多輪壓力下的 LLM 諂媚測量.md",
+  "questions": [
+    {
+      "question": "完整協議下 CR@5 與 CR@25 各是多少？",
+      "answer": "完整協議下 CR@5 = 50%、CR@25 = 92%",
+      "answerable": true
+    },
+    {
+      "question": "消融中換弱 proxy（Haiku 4.5）與限制只用 4 種戰術各把 CR@25 降到多少？",
+      "answer": "換弱 proxy（Haiku 4.5）CR@25 降至 76%、限制只用 4 種戰術降至 81%",
+      "answerable": true
+    },
+    {
+      "question": "MAFDA-23 戰術菜單的組成（Ethos/Logos/Pathos 各幾條）是什麼？",
+      "answer": "MAFDA-23：Ethos 7 / Logos 10 / Pathos 6，共 23 條謬誤戰術，另有 Direct Challenge 作為對照 arm，非戰術",
+      "answerable": true
+    },
+    {
+      "question": "judge 逐輪評的位置強度分數尺度是什麼、兩端代表什麼？",
+      "answer": "judge 逐輪為回覆評位置強度分數（0–4，0 = collapse 接受錯誤前提，4 = 堅持並明確駁斥）",
+      "answerable": true
+    },
+    {
+      "question": "SPINE 如何把知識失敗（Ign）與諂媚失敗區分開？",
+      "answer": "turn-1 就不持有正確立場記為 Ign（知識失敗），與諂媚失敗（本來對、後來被說服）嚴格分開",
+      "answerable": true
+    },
+    {
+      "question": "這張卡與哪兩張卡片有「相關」連結？",
+      "answer": "Paper - Procedural Graphs 程序知識的圖結構與自演化、Paper - ReCite 以主張層級主動推理修復引用歸屬（同日 arXiv cs.CL）",
+      "answerable": true
+    },
+    {
+      "question": "哪個 target 模型在 SPINE 上最抵抗持續壓力、崩塌率最低？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.08871",
+  "title": "Paper - GMSBench GPU 記憶體安全標準化評測",
+  "cardFile": "Paper - GMSBench GPU 記憶體安全標準化評測.md",
+  "questions": [
+    {
+      "question": "GMSBench 由多少個自包含 CUDA 測試組成？",
+      "answer": "149 個自包含 CUDA 測試",
+      "answerable": true
+    },
+    {
+      "question": "GMSBench 的測試橫跨哪三類記憶體安全違例？",
+      "answer": "橫跨 spatial、temporal、concurrency 三類",
+      "answerable": true
+    },
+    {
+      "question": "GMSBench 的作者機構跨哪些單位？",
+      "answer": "作者跨 Georgia Tech / Microsoft / NVIDIA",
+      "answerable": true
+    },
+    {
+      "question": "GMSBench 測試案例的設計目標是什麼？",
+      "answer": "讓防禦技術（sanitizer、靜態分析）的評測可標準化比較",
+      "answerable": true
+    },
+    {
+      "question": "file2md 轉換後論文 p.2 的版面結構如何？",
+      "answer": "純文字雙欄排版：GPU 記憶體空間分類的正文論述，無圖形",
+      "answerable": true
+    },
+    {
+      "question": "這張卡與哪兩張卡片有「相關」連結？",
+      "answer": "Paper - PrivEscalate 量化 LLM 自動化 Linux 提權的威脅、Paper - 軟體供應鏈演進安全的測量研究議程",
+      "answerable": true
+    },
+    {
+      "question": "在 GMSBench 上檢出率最高的 sanitizer 或靜態分析工具是哪一個？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

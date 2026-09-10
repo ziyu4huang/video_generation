@@ -69,6 +69,23 @@ export interface ZkRetrieveArgs {
  * Defaults mirror the `knowledge_query` tool (bodyMatch + slugDom + semantic),
  * which measured 1.00 hit-rate@4 on the 25-query eval.
  */
+/**
+ * Infer query tags from a natural-language query — the EXACT tokenization
+ * the `knowledge_query` tool execute applies when tags[] is omitted
+ * (lowercase, strip non-[a-z0-9-], split, keep 3–30 char tokens, max 10).
+ * Extracted (kcard-blend-lift T1) so the bench measures the SAME
+ * query→tags path production serves — hand-rolled tokenizers drift.
+ */
+export function inferQueryTags(query: string): string[] {
+	return query
+		.toLowerCase()
+		.replace(/[^a-z0-9-]+/g, " ")
+		.trim()
+		.split(/\s+/)
+		.filter((t) => t.length >= 3 && t.length <= 30)
+		.slice(0, 10);
+}
+
 export function buildRetrieveOptions(args: ZkRetrieveArgs, vaultPath: string): RetrieveOptions {
   return {
     vaultPath,
