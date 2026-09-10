@@ -481,12 +481,12 @@ export function createSubagentTool(
           // named-agent exchanges stay with send_message).
           const steerFor =
             params.name !== undefined
-              ? (text: string): Promise<{ steered: boolean; output?: string }> => {
+              ? (text: string): Promise<{ steered: boolean; mode?: "exchange" | "queued"; output?: string }> => {
                   const entry = liveRegistry.get(params.name as string);
                   if (!entry) return Promise.resolve({ steered: false });
                   return entry.agent
                     .send(text, { timeoutMs: 10_000, label: "steer" })
-                    .then((r) => ({ steered: Boolean(r.steered), output: r.output }))
+                    .then((r) => ({ steered: Boolean(r.steered), mode: r.mode, output: r.output }))
                     .catch(() => ({ steered: false }));
                 }
               : undefined;

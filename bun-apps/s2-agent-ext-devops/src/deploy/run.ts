@@ -66,6 +66,7 @@ import {
 	swapCurrent,
 } from "./lib/version.ts";
 import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
+import { assertMarkersInArtifact, deriveSourceMarkers } from "./lib/source-markers.ts";
 import { buildStandaloneShim, STANDALONE_SHIM_FILENAME } from "./lib/standalone-shim.ts";
 import { writeAgentsMd } from "./lib/agents-md.ts";
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
@@ -196,8 +197,18 @@ function resolveWorkspaceSrcDirs(): Array<{ name: string; dir: string }> {
 			const entry = Bun.resolveSync(name, PI_AGENT_DIR);
 			const dir = dirname(entry);
 			if (existsSync(dir)) out.push({ name, dir });
-		} catch {
-			// An unresolvable optional dep contributes no source to the bundle.
+			else throw new Error(`resolved entry dir missing: ${dir}`);
+		} catch (err) {
+			// Self-arc-22 t01 (F-deploy-1): an unresolvable @repo/* dep AFTER the
+			// link repair must ABORT, not silently shrink this hash — a shrunken
+			// hash can match a previously-cached core built from different bytes
+			// (the stale-core mechanism receipted on 2026-09-10).
+			const short = name.split("/")[1];
+			throw new Error(
+				`workspace dep ${name} unresolvable from ${PI_AGENT_DIR} — the @repo/* link farm is broken and ` +
+					`hashing it anyway would risk a stale core. Repair: ln -sns ../../${short} ` +
+					`bun-apps/node_modules/@repo/${short} (or run bun install at bun-apps/). Original: ${(err as Error).message}`,
+			);
 		}
 	}
 	return out;
@@ -248,10 +259,24 @@ async function buildCore(
 			},
 		});
 		linkCore(core.cacheFile, outFile);
+		assertCoreArtifactMarkers(outFile);
 		return { bytes: core.bytes, cached: core.cached };
 	}
 	const bytes = await bundle(outFile);
+	assertCoreArtifactMarkers(outFile);
 	return { bytes, cached: false };
+}
+
+/** Artifact attestation for the CORE bundle (self-arc-22 t01, F-deploy-1):
+ *  distinctive literals from pi src + every hashed workspace tree must appear
+ *  in the built bytes — a .cores cache entry built from stale sources fails
+ *  HERE instead of shipping under the new version label. */
+function assertCoreArtifactMarkers(outFile: string): void {
+	const markers = deriveSourceMarkers(join(PI_AGENT_DIR, "src")).markers;
+	for (const ws of resolveWorkspaceSrcDirs()) {
+		markers.push(...deriveSourceMarkers(ws.dir, 1).markers);
+	}
+	assertMarkersInArtifact(readFileSync(outFile, "utf8"), markers, "s2-agent.js (core)");
 }
 
 /**

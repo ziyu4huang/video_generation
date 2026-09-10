@@ -368,15 +368,21 @@ export function createSubagentRunsTool(
               `run ${params.id} is not steerable (unnamed in-process run or detached subprocess). Only NAMED dispatches accept steering — spawn with \`name\` and steer via send_message, or stop+redispatch this one.`,
             );
           const r = await delivered;
-          return r.steered
-            ? textResult(
-                `steered into run ${params.id}'s current exchange — the child sees your guidance on its next model turn.`,
-              )
-            : textResult(
-                `run ${params.id} had just gone idle; your message ran as a fresh turn.${
-                  r.output ? ` Reply: ${r.output.slice(0, 400)}` : ""
-                }`,
-              );
+          if (r.steered) {
+            // Self-arc-22 t02 — the honest 3-way: the child sees the guidance
+            // on its next model turn (mid-exchange) or after the current tool
+            // completes (queued; the arc-19 r2 drill's silent-loss window).
+            return textResult(
+              r.mode === "queued"
+                ? `run ${params.id} is mid-TOOL-execution — your guidance is queued and will be delivered right after the current tool completes.`
+                : `steered into run ${params.id}'s current exchange — the child sees your guidance on its next model turn.`,
+            );
+          }
+          return textResult(
+            `run ${params.id} had just gone idle; your message ran as a fresh turn.${
+              r.output ? ` Reply: ${r.output.slice(0, 400)}` : ""
+            }`,
+          );
         }
         default:
           throw new Error(`list_subagent_runs: action "${params.action}" not implemented`);

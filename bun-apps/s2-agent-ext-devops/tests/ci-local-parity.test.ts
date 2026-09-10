@@ -20,8 +20,8 @@
  * Provenance — goldens captured 2026-08-23 from the LIVE old script
  * (bun-apps/s2-agent-ext-devops/scripts/ci-local.sh, still alive at 91bcb38e,
  * the base of this task):
- *   bash <abs>/scripts/ci-local.sh --list        → rc 0 (32 rows, dirs all ok)
- *   bash <abs>/scripts/ci-local.sh --tsv         → rc 0 (32 tab-separated rows)
+ *   bash <abs>/scripts/ci-local.sh --list        → rc 0 (33 rows, dirs all ok)
+ *   bash <abs>/scripts/ci-local.sh --tsv         → rc 0 (33 tab-separated rows)
  *   bash <abs>/scripts/ci-local.sh --gates --tsv → rc 0 (25 three-field rows)
  *   bash <abs>/scripts/ci-local.sh --gates --list→ rc 0 (gates table)
  *   bash <abs>/scripts/ci-local.sh -h            → rc 0 (the 58-line header)
@@ -171,7 +171,7 @@ Not covered by this script: extension-contract, deploy-verify, compile-verify,
 clean-launch-self-heal, determinism-spotcheck. Run regression-gates with --gates.`;
 
 // `--gates --tsv`: the three-field form (name / working-directory / run).
-// Rows re-captured 2026-08-23 — the no-bash-skills guard became gate #15.
+// Rows re-captured 2026-09-10 (bench-kcards added a 33rd row, #2259; previous capture 2026-08-23).
 // This is a workflow fact, not a .sh output change: the .sh is gone (D3) and
 // the rows track the workflow's live regression-gates job.
 const GATES_TSV_GOLDEN = `File-size guard (2 MB, blocks)	.	bash scripts/ci-file-size-guard.sh
@@ -258,7 +258,7 @@ test("ci-local.ts --tsv (two-field matrix, exit 0, decoration-free)", () => {
   assertParity(CI_LOCAL, [{ name: "tsv", args: ["--tsv"], expectCode: 0, out: MATRIX_TSV_GOLDEN }]);
 });
 
-test("ci-local.ts --list (32-row table, exit 0)", () => {
+test("ci-local.ts --list (33-row table, exit 0)", () => {
   assertParity(CI_LOCAL, [{ name: "list", args: ["--list"], expectCode: 0, out: MATRIX_LIST_GOLDEN }]);
 });
 

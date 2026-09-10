@@ -133,6 +133,37 @@ describe("LiveAgent.send — routing", () => {
     expect(fs.state.prompts).toHaveLength(0);
   });
 
+  test("tool-window busy (running, NOT streaming) → steer with mode 'queued', no concurrent prompt (F-steer-1)", async () => {
+    const fs = fakeSession();
+    const agent = liveAgent(fs);
+    // Hold the first exchange open WITHOUT streaming — the tool-execution
+    // phase (session.isStreaming is false while tools run inside an exchange;
+    // the arc-19 r2 drill's exact shape, where the old code fell through to a
+    // concurrent prompt and the guidance was silently lost).
+    const opened = new Promise<void>((r) => fs.session.armMidPrompt(() => r()));
+    const first = agent.send("long task with tools");
+    await opened;
+    const r2 = await agent.send("STEER-RECEIVED-OK nudge");
+    expect(r2.steered).toBe(true);
+    expect(r2.mode).toBe("queued");
+    expect(fs.state.steers).toEqual(["STEER-RECEIVED-OK nudge"]);
+    // The decisive assertion: NO concurrent prompt was started — the old code
+    // started one here and the child never saw the guidance.
+    expect(fs.state.prompts).toHaveLength(1);
+    expect(fs.state.prompts[0]).toContain("long task with tools");
+    fs.state.aborted++; // unblock the held exchange via its abort poll
+    const r1 = await first;
+    expect(r1.steered).toBeUndefined(); // the held exchange itself was not a steer
+  });
+
+  test("streaming steer reports mode 'exchange' (distinct from the tool window)", async () => {
+    const fs = fakeSession();
+    const agent = liveAgent(fs);
+    fs.state.streaming = true;
+    const r = await agent.send("mid-flight nudge");
+    expect(r.mode).toBe("exchange");
+  });
+
   test("timeout aborts the exchange; the session stays reusable for the next one", async () => {
     const fs = fakeSession();
     const agent = liveAgent(fs);

@@ -84,6 +84,12 @@ export interface LiveAgentExchange {
   turns?: TurnExhaustion;
   /** True when the text was steered into a mid-flight exchange instead of starting a new one. */
   steered?: boolean;
+  /** HOW the steering landed (self-arc-22 t02 — the honest 3-way):
+   *  "exchange" = steered into the streaming model exchange (child sees it on
+   *  its next model turn); "queued" = the child was mid-TOOL-execution (not
+   *  streaming), so the text was queued and runs after the current tool
+   *  completes; absent = not a steer (fresh exchange / failure). */
+  mode?: "exchange" | "queued";
 }
 
 export type LiveAgentStatus = "running" | "idle";
@@ -221,9 +227,20 @@ export class LiveAgent {
     if (this.terminalFailure) {
       return { output: "", failure: this.terminalFailure };
     }
+    // Busy routing (self-arc-22 t02, F-steer-1): streaming = mid-MODEL-exchange
+    // → pi's steer injects on the next model turn. _status "running" WITHOUT
+    // streaming = the exchange is in its TOOL-EXECUTION phase — isStreaming is
+    // false there, but a concurrent session.prompt here DROPS the guidance
+    // (receipted: arc-19's r2 drill, the sleep-90 child never saw it). pi's
+    // steer queues after the current turn's tool calls in that window too, so
+    // BOTH busy shapes route to steer(); the mode tells the caller which.
     if (this.session.isStreaming) {
       await this.session.steer(text);
-      return { output: "", steered: true };
+      return { output: "", steered: true, mode: "exchange" };
+    }
+    if (this._status === "running") {
+      await this.session.steer(text);
+      return { output: "", steered: true, mode: "queued" };
     }
 
     let removeSignalListener: (() => void) | undefined;
