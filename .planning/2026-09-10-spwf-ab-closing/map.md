@@ -56,13 +56,13 @@ blamed for what the ruler mis-measured. t02 fixes the ruler; t03 re-measures.
 
 ## Tickets
 
-- [ ] t01 open effort + pin re-verify + smoke (this commit + smoke receipt)
-- [ ] t02 same-turn-batch-aware detector (scratch) + 4 zero-token validations
-- [ ] t03 C2 settle: leg-2 bytes re-adjudicated + fresh leg 3 (D3 rule)
-- [ ] t04 C1 salience 5-probe (D4 pre-committed branches)
-- [ ] t05 gemma quiet-window column (D5 precondition-gated, defer fallback)
-- [ ] t06 F3 repo-gate ruling + C5 expectation re-set (D8, read-only)
-- [ ] t07 harness promotion → wayfind/scripts/ + allowlist line + regression test
+- [x] t01 open effort + pin re-verify + smoke (this commit + smoke receipt)
+- [x] t02 same-turn-batch-aware detector (scratch) + 4 zero-token validations
+- [x] t03 C2 settle: leg-2 bytes re-adjudicated + fresh leg 3 (D3 rule)
+- [x] t04 C1 salience 5-probe (D4 pre-committed branches)
+- [x] t05 gemma quiet-window column (D5 precondition-gated, defer fallback)
+- [x] t06 F3 repo-gate ruling + C5 expectation re-set (D8, read-only)
+- [x] t07 harness promotion → wayfind/scripts/ + allowlist line + regression test
 - [ ] t08 close-out: matrix deltas, Completed-by link on the A/B map,
       reviewer GLM-5.3, PR chain, status flip in landing PR, successor
 
@@ -119,3 +119,34 @@ blamed for what the ruler mis-measured. t02 fixes the ruler; t03 re-measures.
   detector limitation; will carry `Completed-by:` this effort.
 - Shares-decision-with: 2026-09-09-superpowers-wayfind-drive — detector
   lineage (F0a/F0b → batch-aware indexing).
+
+## Verdict deltas + findings (2026-09-10, evidence under evidence/)
+
+- **C2-glm: CLOSED-PASS (D3)**. Leg-2 bytes re-adjudicated under the fixed
+  detector: COMPLIANT (read msg5:0, write msg8 — read-only bash recon is not
+  a mutation). Fresh leg 3 (evidence/c2-leg3-*): read ✓ order ✓ pin ✓. The
+  F2 bootstrap directive works AND the model complies; the A/B map's PARTIAL
+  was the detector, not the model.
+- **C5: re-verdicted PASS (D8, F3 ruling INTENDED)** — the repo gate's own
+  text declares it the trigger layer and routes "via ask-matt when unsure;
+  to-spec then to-tickets" — exactly what the C5-glm session did. Expectation
+  re-set to read-any {using-s2-agent-skills,to-spec,to-tickets,ask-matt};
+  existing receipt re-adjudicated PASS; one clarifying line added to the
+  gate doc.
+- **C1: 5/5 YES** (D4 ≥4/5 branch) — bootstrap salience is sufficient; F1's
+  earlier NO was self-report noise. No fix. Self-report remains a weak
+  instrument; the matrix keeps behavioral detectors primary.
+- **gemma: DEFERRED with dated reason (D5)** — precondition failed 3/3 polls
+  (22:06–22:08: gemma resident but 4 large models total vs ≤1 required;
+  sibling-owned LM Studio churn). Window 2 not attempted after t07; the
+  cells stay UNTESTED-infrastructure in the A/B matrix.
+- Harness PROMOTED (D6): wayfind/scripts/drive-case.ts (exports
+  detectFromLines; import.meta.main-guarded) + spwf-battery.sh + one
+  allowlist line; tests/drive-case-detector.test.ts locks the four
+  semantics. Wayfind gates 536/0; devops contract test green; zero
+  package.json edits.
+
+## Shipped-as (2026-09-10)
+
+- PR <impl>: the closing deliverables above.
+- This PR flips the map done per CONVENTIONS.
