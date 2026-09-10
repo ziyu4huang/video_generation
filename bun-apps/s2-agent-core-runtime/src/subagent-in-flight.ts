@@ -348,7 +348,10 @@ export class SubagentInFlightRegistry {
    *  in-process run / detached subprocess) — the CALLER turns every one of
    *  those into an actionable non-error message, mirroring abort()'s `?.`
    *  semantics: a steer racing with natural completion must never throw. */
-  steer(id: string, text: string): Promise<{ steered: boolean; mode?: "exchange" | "queued"; output?: string }> | undefined {
+  steer(
+    id: string,
+    text: string,
+  ): Promise<{ steered: boolean; mode?: "exchange" | "queued"; output?: string }> | undefined {
     const r = this.runs.get(id);
     if (!r || isTerminalStatus(r.status) || !r.steer) return undefined;
     return r.steer(text);

@@ -31,6 +31,7 @@
  * [] (deps are baked in), so this exits 0 immediately.
  */
 import { dirname, join } from "node:path";
+import { readdirSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 // Straight from deps-probe.ts, which DEFINES it, not through resolve.ts's
 // facade: this runs as a pre-flight before pi boots, and going via the facade
@@ -81,6 +82,40 @@ if (opt === "0" || opt === "false") {
 log(`running \`bun install\` at ${bunAppsDir} (workspace root) …`);
 const res = runBunInstall(bunAppsDir);
 if (res.status === 0) {
+  // Self-arc-22 t01 (F-deploy-1's sibling): `bun install` is exactly what
+  // rewrites the @repo/* workspace links into the dangling root-layout form
+  // (found live twice 2026-09-06, again 2026-09-10) — repair them NOW, in the
+  // same self-heal breath, or every post-install step in this boot (and any
+  // local-ci gate that follows) ENOENTs through the farm.
+  // Inlined on purpose (canonical copy: core-runtime workspace-links.ts) — a
+  // static import of anything under @repo/* here would die on the very links
+  // being repaired.
+  let repaired = 0;
+  try {
+    const repoLinkDir = join(bunAppsDir, "node_modules", "@repo");
+    for (const name of readdirSync(repoLinkDir)) {
+      const link = join(repoLinkDir, name);
+      let ok = false;
+      try {
+        ok = statSync(link).isDirectory();
+      } catch {
+        ok = false;
+      }
+      if (ok) continue;
+      try {
+        unlinkSync(link);
+        symlinkSync(join("..", "..", name), link);
+        repaired += 1;
+      } catch {
+        /* unrepairable — the next resolution error will name it */
+      }
+    }
+  } catch {
+    /* no @repo dir yet — nothing to repair */
+  }
+  if (repaired > 0) {
+    log(`repaired ${repaired} dangling @repo/* workspace link(s) (bun install's root-layout rewrite)`);
+  }
   // The NEXT bun process (run.sh's `exec bun`) re-probes and will see the deps;
   // we don't claim a same-process re-resolve here either.
   log("install completed — won't recur next launch; continuing to launch");

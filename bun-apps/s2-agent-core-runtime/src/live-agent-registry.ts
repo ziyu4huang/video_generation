@@ -30,6 +30,10 @@ export interface LiveAgentSendResult {
   output: string;
   /** True when the text was steered into a mid-flight exchange (no reply yet). */
   steered?: boolean;
+  /** HOW the steer landed (self-arc-22 t02): "exchange" = injected into the
+   *  streaming model turn; "queued" = the child was mid-TOOL-execution, the
+   *  text runs after the current tool completes. */
+  mode?: "exchange" | "queued";
   /** Present when the exchange did not produce a reply (terminal kinds: budget/turns refuse further sends). */
   failure?: { kind: string; message: string };
 }
