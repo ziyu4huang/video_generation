@@ -29,18 +29,19 @@
  * - deleteBranch: one flag on gh, TWO calls on REST (merge, then DELETE the
  *   head ref). Only runMergeRecipe's opt ever passes true.
  */
-import type { PrSnapshot, ForgeClient, MergeStrategy, PrListRow } from "./types.js";
-import type { PrState, MergeState, CheckTally } from "../pr-logic.js";
+
+import type { CheckTally, MergeState, PrState } from "../pr-logic.js";
 import { createRestTransport, type FetchFn, type RestTransport } from "./rest.js";
+import type { ForgeClient, MergeStrategy, PrListRow, PrSnapshot } from "./types.js";
 
 const MERGE_STATE_BY_RAW: Record<string, MergeState> = {
-	clean: "CLEAN",
-	unstable: "UNSTABLE",
-	blocked: "BLOCKED",
-	behind: "BEHIND",
-	dirty: "DIRTY",
-	has_hooks: "HAS_HOOKS",
-	unknown: "UNKNOWN",
+  clean: "CLEAN",
+  unstable: "UNSTABLE",
+  blocked: "BLOCKED",
+  behind: "BEHIND",
+  dirty: "DIRTY",
+  has_hooks: "HAS_HOOKS",
+  unknown: "UNKNOWN",
 };
 
 const VALID_STATES = new Set<PrState>(["OPEN", "MERGED", "CLOSED"]);
@@ -54,34 +55,42 @@ const MERGEABLE_RETRY_MS = 1500;
  *  OPEN/UNKNOWN + empty refs, never throws. `mergeable` is injected for
  *  testability of the null-retry decision (null ⇒ UNKNOWN pending recompute). */
 export function mapPullRequest(raw: unknown): {
-	state: PrState;
-	mergeState: MergeState;
-	mergeSha?: string;
-	baseRefName: string;
-	headRefName: string;
-	headRefOid?: string;
+  state: PrState;
+  mergeState: MergeState;
+  mergeSha?: string;
+  baseRefName: string;
+  headRefName: string;
+  headRefOid?: string;
 } {
-	const r = (raw ?? {}) as Record<string, unknown>;
-	const baseRefName = typeof r.base === "object" && r.base !== null && typeof (r.base as { ref?: unknown }).ref === "string"
-		? (r.base as { ref: string }).ref
-		: "";
-	const head = (r.head ?? {}) as { ref?: unknown; sha?: unknown };
-	const headRefName = typeof head.ref === "string" ? head.ref : "";
-	const headRefOid = typeof head.sha === "string" && head.sha ? head.sha : undefined;
-	const state: PrState =
-		r.state === "open" ? "OPEN" : r.state === "closed" && r.merged_at ? "MERGED" : r.state === "closed" ? "CLOSED" : "OPEN";
-	const mergeableState = typeof r.mergeable_state === "string" ? (MERGE_STATE_BY_RAW[r.mergeable_state] ?? "UNKNOWN") : "UNKNOWN";
-	// mergeable === null ⇒ GitHub still computing ⇒ UNKNOWN (never guess CLEAN).
-	const mergeState = r.mergeable === null ? "UNKNOWN" : mergeableState;
-	const mergeSha = typeof r.merge_commit_sha === "string" && r.merge_commit_sha ? r.merge_commit_sha : undefined;
-	return {
-		state: VALID_STATES.has(state) ? state : "OPEN",
-		mergeState,
-		mergeSha,
-		baseRefName,
-		headRefName,
-		headRefOid,
-	};
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const baseRefName =
+    typeof r.base === "object" && r.base !== null && typeof (r.base as { ref?: unknown }).ref === "string"
+      ? (r.base as { ref: string }).ref
+      : "";
+  const head = (r.head ?? {}) as { ref?: unknown; sha?: unknown };
+  const headRefName = typeof head.ref === "string" ? head.ref : "";
+  const headRefOid = typeof head.sha === "string" && head.sha ? head.sha : undefined;
+  const state: PrState =
+    r.state === "open"
+      ? "OPEN"
+      : r.state === "closed" && r.merged_at
+        ? "MERGED"
+        : r.state === "closed"
+          ? "CLOSED"
+          : "OPEN";
+  const mergeableState =
+    typeof r.mergeable_state === "string" ? (MERGE_STATE_BY_RAW[r.mergeable_state] ?? "UNKNOWN") : "UNKNOWN";
+  // mergeable === null ⇒ GitHub still computing ⇒ UNKNOWN (never guess CLEAN).
+  const mergeState = r.mergeable === null ? "UNKNOWN" : mergeableState;
+  const mergeSha = typeof r.merge_commit_sha === "string" && r.merge_commit_sha ? r.merge_commit_sha : undefined;
+  return {
+    state: VALID_STATES.has(state) ? state : "OPEN",
+    mergeState,
+    mergeSha,
+    baseRefName,
+    headRefName,
+    headRefOid,
+  };
 }
 
 /** Check-run conclusion buckets (REST check-runs API). */
@@ -96,128 +105,140 @@ const STATUS_PASS = new Set(["success"]);
  *  Pending is decided by the check-run STATUS field, never by timestamps —
  *  a re-triggered check has no conclusion yet while its old run did. */
 export function mapChecksRollup(checkRunsRaw: unknown, statusesRaw: unknown): CheckTally {
-	let pass = 0;
-	let fail = 0;
-	let pending = 0;
+  let pass = 0;
+  let fail = 0;
+  let pending = 0;
 
-	const runs = (checkRunsRaw as { check_runs?: unknown } | null)?.check_runs;
-	if (Array.isArray(runs)) {
-		for (const run of runs as Array<Record<string, unknown>>) {
-			const status = typeof run.status === "string" ? run.status.toLowerCase() : "";
-			const conclusion = typeof run.conclusion === "string" ? run.conclusion.toUpperCase() : "";
-			if (status === "queued" || status === "in_progress" || status === "waiting" || status === "requested" || (status === "completed" && !conclusion)) {
-				pending++;
-			} else if (status === "completed" && CHECK_RUN_FAIL.has(conclusion)) fail++;
-			else if (status === "completed" && CHECK_RUN_PASS.has(conclusion)) pass++;
-			else pending++; // unknown shape — never claim success
-		}
-	}
-	const statuses = (statusesRaw as { statuses?: unknown } | null)?.statuses;
-	if (Array.isArray(statuses)) {
-		for (const s of statuses as Array<Record<string, unknown>>) {
-			const st = typeof s.state === "string" ? s.state.toLowerCase() : "";
-			if (STATUS_FAIL.has(st)) fail++;
-			else if (STATUS_PASS.has(st)) pass++;
-			else pending++; // "pending" + anything unknown
-		}
-	}
-	return { pass, fail, pending };
+  const runs = (checkRunsRaw as { check_runs?: unknown } | null)?.check_runs;
+  if (Array.isArray(runs)) {
+    for (const run of runs as Array<Record<string, unknown>>) {
+      const status = typeof run.status === "string" ? run.status.toLowerCase() : "";
+      const conclusion = typeof run.conclusion === "string" ? run.conclusion.toUpperCase() : "";
+      if (
+        status === "queued" ||
+        status === "in_progress" ||
+        status === "waiting" ||
+        status === "requested" ||
+        (status === "completed" && !conclusion)
+      ) {
+        pending++;
+      } else if (status === "completed" && CHECK_RUN_FAIL.has(conclusion)) fail++;
+      else if (status === "completed" && CHECK_RUN_PASS.has(conclusion)) pass++;
+      else pending++; // unknown shape — never claim success
+    }
+  }
+  const statuses = (statusesRaw as { statuses?: unknown } | null)?.statuses;
+  if (Array.isArray(statuses)) {
+    for (const s of statuses as Array<Record<string, unknown>>) {
+      const st = typeof s.state === "string" ? s.state.toLowerCase() : "";
+      if (STATUS_FAIL.has(st)) fail++;
+      else if (STATUS_PASS.has(st)) pass++;
+      else pending++; // "pending" + anything unknown
+    }
+  }
+  return { pass, fail, pending };
 }
 
 export interface GithubRestOptions {
-	owner: string;
-	repo: string;
-	token: string;
-	/** Provenance label for diagnostics (see rest.ts token discipline). */
-	tokenKind: string;
-	/** Default `https://api.github.com`; GHES installs pass their `…/api/v3`. */
-	apiBase?: string;
-	fetchFn?: FetchFn;
-	/** Injectable sleep for the mergeable re-GET (tests pass 0-ms fakes). */
-	sleep?: (ms: number) => Promise<void>;
+  owner: string;
+  repo: string;
+  token: string;
+  /** Provenance label for diagnostics (see rest.ts token discipline). */
+  tokenKind: string;
+  /** Default `https://api.github.com`; GHES installs pass their `…/api/v3`. */
+  apiBase?: string;
+  fetchFn?: FetchFn;
+  /** Injectable sleep for the mergeable re-GET (tests pass 0-ms fakes). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /** Build a ForgeClient backed by the GitHub REST API. */
 export function createGithubRestClient(opts: GithubRestOptions): ForgeClient {
-	const api = opts.apiBase ?? "https://api.github.com";
-	const rest: RestTransport = createRestTransport({ baseUrl: api, token: opts.token, tokenKind: opts.tokenKind, fetchFn: opts.fetchFn });
-	const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
-	const root = `/repos/${opts.owner}/${opts.repo}`;
+  const api = opts.apiBase ?? "https://api.github.com";
+  const rest: RestTransport = createRestTransport({
+    baseUrl: api,
+    token: opts.token,
+    tokenKind: opts.tokenKind,
+    fetchFn: opts.fetchFn,
+  });
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const root = `/repos/${opts.owner}/${opts.repo}`;
 
-	async function getPull(n: number): Promise<Record<string, unknown>> {
-		return (await rest.request("GET", `${root}/pulls/${n}`)) as Record<string, unknown>;
-	}
+  async function getPull(n: number): Promise<Record<string, unknown>> {
+    return (await rest.request("GET", `${root}/pulls/${n}`)) as Record<string, unknown>;
+  }
 
-	return {
-		async prStatus(n: number): Promise<PrSnapshot> {
-			let data = await getPull(n);
-			// mergeable:null ⇒ still computing. One short re-GET — but only for
-			// an OPEN PR: a closed/merged one is terminal, its mergeability
-			// never matters, and the re-GET (retry wait + round-trip) is pure
-			// latency an already-merged retry pays on every read (#2077 nit 4).
-			// Still null (or terminal) ⇒ UNKNOWN (settlePrStatus owns further
-			// polling; terminal states settle on `state`, not mergeState).
-			if (data.mergeable === null && data.state === "open") {
-				await sleep(MERGEABLE_RETRY_MS);
-				data = await getPull(n);
-			}
-			const core = mapPullRequest(data);
-			let checks: CheckTally = { pass: 0, fail: 0, pending: 0 };
-			if (core.headRefOid) {
-				// Union BOTH surfaces — check-runs (Actions) and commit statuses.
-				const [runs, statuses] = await Promise.all([
-					rest.request("GET", `${root}/commits/${core.headRefOid}/check-runs`).catch(() => null),
-					rest.request("GET", `${root}/commits/${core.headRefOid}/status`).catch(() => null),
-				]);
-				checks = mapChecksRollup(runs, statuses);
-			}
-			return { ...core, checks };
-		},
+  return {
+    async prStatus(n: number): Promise<PrSnapshot> {
+      let data = await getPull(n);
+      // mergeable:null ⇒ still computing. One short re-GET — but only for
+      // an OPEN PR: a closed/merged one is terminal, its mergeability
+      // never matters, and the re-GET (retry wait + round-trip) is pure
+      // latency an already-merged retry pays on every read (#2077 nit 4).
+      // Still null (or terminal) ⇒ UNKNOWN (settlePrStatus owns further
+      // polling; terminal states settle on `state`, not mergeState).
+      if (data.mergeable === null && data.state === "open") {
+        await sleep(MERGEABLE_RETRY_MS);
+        data = await getPull(n);
+      }
+      const core = mapPullRequest(data);
+      let checks: CheckTally = { pass: 0, fail: 0, pending: 0 };
+      if (core.headRefOid) {
+        // Union BOTH surfaces — check-runs (Actions) and commit statuses.
+        const [runs, statuses] = await Promise.all([
+          rest.request("GET", `${root}/commits/${core.headRefOid}/check-runs`).catch(() => null),
+          rest.request("GET", `${root}/commits/${core.headRefOid}/status`).catch(() => null),
+        ]);
+        checks = mapChecksRollup(runs, statuses);
+      }
+      return { ...core, checks };
+    },
 
-		async mergeNow(n: number, strategy: MergeStrategy, deleteBranch: boolean): Promise<void> {
-			await rest.request("PUT", `${root}/pulls/${n}/merge`, { merge_method: strategy });
-			if (deleteBranch) {
-				// gh's --delete-branch is one op; REST needs the explicit ref delete.
-				// 422 = already gone (e.g. auto-delete ran) — tolerate, not an error.
-				try {
-					const head = await getPull(n);
-					const headRef = typeof head.head === "object" && head.head !== null ? (head.head as { ref?: unknown }).ref : undefined;
-					if (typeof headRef === "string" && headRef) {
-						await rest.request("DELETE", `${root}/git/refs/heads/${headRef}`);
-					}
-				} catch (err) {
-					if (!(err instanceof Error && /HTTP 422/.test(err.message))) throw err;
-				}
-			}
-		},
+    async mergeNow(n: number, strategy: MergeStrategy, deleteBranch: boolean): Promise<void> {
+      await rest.request("PUT", `${root}/pulls/${n}/merge`, { merge_method: strategy });
+      if (deleteBranch) {
+        // gh's --delete-branch is one op; REST needs the explicit ref delete.
+        // 422 = already gone (e.g. auto-delete ran) — tolerate, not an error.
+        try {
+          const head = await getPull(n);
+          const headRef =
+            typeof head.head === "object" && head.head !== null ? (head.head as { ref?: unknown }).ref : undefined;
+          if (typeof headRef === "string" && headRef) {
+            await rest.request("DELETE", `${root}/git/refs/heads/${headRef}`);
+          }
+        } catch (err) {
+          if (!(err instanceof Error && /HTTP 422/.test(err.message))) throw err;
+        }
+      }
+    },
 
-		async prList(state: "open" | "merged", limit = 200): Promise<PrListRow[]> {
-			// REST has no "merged" filter — list closed PRs and keep merged_at
-			// rows. Paginate at 100/page (GitHub's max) until `limit` rows or a
-			// short page. Sorted newest-first by the API; the cap keeps the
-			// tail bounded exactly like gh's --limit.
-			const rows: PrListRow[] = [];
-			const pageState = state === "open" ? "open" : "closed";
-			// Page until `limit` matching rows, a short page, or the hard cap of
-			// 10 pages (a repo with almost no merged PRs among 1000 closed ones
-			// must not page forever).
-			for (let page = 1; page <= 10 && rows.length < limit; page++) {
-				const batch = (await rest.request(
-					"GET",
-					`${root}/pulls?state=${pageState}&sort=updated&direction=desc&per_page=100&page=${page}`,
-				)) as Array<Record<string, unknown>>;
-				if (!Array.isArray(batch) || batch.length === 0) break;
-				for (const p of batch) {
-					const mergedAt = typeof p.merged_at === "string" ? p.merged_at : undefined;
-					if (state === "merged" && !mergedAt) continue; // closed-but-unmerged
-					const head = (p.head ?? {}) as { ref?: unknown };
-					const num = typeof p.number === "number" ? p.number : undefined;
-					const ref = typeof head.ref === "string" ? head.ref : "";
-					if (num !== undefined && ref) rows.push({ number: num, headRefName: ref, mergedAt });
-				}
-				if (rows.length >= limit || batch.length < 100) break;
-			}
-			return rows.slice(0, limit);
-		},
-	};
+    async prList(state: "open" | "merged", limit = 200): Promise<PrListRow[]> {
+      // REST has no "merged" filter — list closed PRs and keep merged_at
+      // rows. Paginate at 100/page (GitHub's max) until `limit` rows or a
+      // short page. Sorted newest-first by the API; the cap keeps the
+      // tail bounded exactly like gh's --limit.
+      const rows: PrListRow[] = [];
+      const pageState = state === "open" ? "open" : "closed";
+      // Page until `limit` matching rows, a short page, or the hard cap of
+      // 10 pages (a repo with almost no merged PRs among 1000 closed ones
+      // must not page forever).
+      for (let page = 1; page <= 10 && rows.length < limit; page++) {
+        const batch = (await rest.request(
+          "GET",
+          `${root}/pulls?state=${pageState}&sort=updated&direction=desc&per_page=100&page=${page}`,
+        )) as Array<Record<string, unknown>>;
+        if (!Array.isArray(batch) || batch.length === 0) break;
+        for (const p of batch) {
+          const mergedAt = typeof p.merged_at === "string" ? p.merged_at : undefined;
+          if (state === "merged" && !mergedAt) continue; // closed-but-unmerged
+          const head = (p.head ?? {}) as { ref?: unknown };
+          const num = typeof p.number === "number" ? p.number : undefined;
+          const ref = typeof head.ref === "string" ? head.ref : "";
+          if (num !== undefined && ref) rows.push({ number: num, headRefName: ref, mergedAt });
+        }
+        if (rows.length >= limit || batch.length < 100) break;
+      }
+      return rows.slice(0, limit);
+    },
+  };
 }

@@ -2,7 +2,7 @@
   "name": "@repo/s2-agent-ext-devops",
   "private": true,
   "version": "0.1.0",
-  "description": "DevOps tools \u2014 the tool-based devops chain (sync_default_branch / prepare_feature_branch / run_local_ci / merge_pr_after_local_ci / verify_merge_landed / sweep_merged_branches / check_main_health / retrospect / next-goal): local-CI-gated squash merges with structured JSON outcomes, no agent-side bash polling loops.",
+  "description": "DevOps tools — the tool-based devops chain (sync_default_branch / prepare_feature_branch / run_local_ci / merge_pr_after_local_ci / verify_merge_landed / sweep_merged_branches / check_main_health / retrospect / next-goal): local-CI-gated squash merges with structured JSON outcomes, no agent-side bash polling loops.",
   "license": "MIT",
   "keywords": [
     "pi-package",
@@ -42,13 +42,15 @@
   },
   "scripts": {
     "test": "bun test",
-    "check": "tsc --noEmit"
+    "check": "biome check .",
+    "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "0.84.4",
     "typebox": "*"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.4.16",
     "@types/bun": "latest",
     "fast-xml-parser": "^5.2.0",
     "typescript": "^6.0.3"

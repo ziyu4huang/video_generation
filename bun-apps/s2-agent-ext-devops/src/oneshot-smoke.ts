@@ -57,7 +57,7 @@
  *     flag, so the env var is the wired-in override.
  */
 import { mkdir } from "node:fs/promises";
-import { modelContentionWarning, resolveModelEndpoint, type ModelsFetch } from "./model-endpoint.js";
+import { type ModelsFetch, modelContentionWarning, resolveModelEndpoint } from "./model-endpoint.js";
 import type { SpawnFn } from "./spawn.js";
 
 export const ONESHOT_SMOKE_GATE_NAME = "oneshot-smoke";
@@ -106,33 +106,33 @@ const PROVIDER_RE = /provider|api.?key|model|auth|econnrefused|connection refuse
 
 /** Persisted TTL cache. Times are epoch ms. */
 export interface OneshotSmokeState {
-	version: number;
-	inputHash: string;
-	lastPassTs: number;
-	lastCanaryTs: number;
-	lastDurationMs: number;
+  version: number;
+  inputHash: string;
+  lastPassTs: number;
+  lastCanaryTs: number;
+  lastDurationMs: number;
 }
 
 export type SmokeVerdict = "pass" | "skip" | "fail";
 
 /** One probe outcome, already normalized from SpawnFn + a clock. */
 export interface SmokeRun {
-	exitCode: number;
-	timedOut?: boolean;
-	stdout: string;
-	stderr: string;
-	durationMs: number;
+  exitCode: number;
+  timedOut?: boolean;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
 }
 
 export interface SmokeClassification {
-	verdict: SmokeVerdict;
-	/**
-	 * Stable machine reason: ok | provider-unavailable | timeout | nonzero-exit |
-	 * empty-stdout | slow-generation-contention.
-	 */
-	reason: string;
-	/** Human-readable detail; on FAIL carries the diagnostic/tail. */
-	detail?: string;
+  verdict: SmokeVerdict;
+  /**
+   * Stable machine reason: ok | provider-unavailable | timeout | nonzero-exit |
+   * empty-stdout | slow-generation-contention.
+   */
+  reason: string;
+  /** Human-readable detail; on FAIL carries the diagnostic/tail. */
+  detail?: string;
 }
 
 /**
@@ -141,19 +141,19 @@ export interface SmokeClassification {
  * gate output so the next session reads the fix instead of rediscovering it.
  */
 export const BOOT_HANG_DIAGNOSTIC = [
-	"BOOT HANG: the probe hit its wall-clock cap and was SIGKILLed.",
-	"Known root cause #1 (2026-08-15 incident): static extension hermes-memory runs startup",
-	"syncMarkdownMemories (70 HTTP round-trips into a wedged surrealdb backend) BEFORE any",
-	"model call, so the log freezes with CPU idle.",
-	"Known root cause #2 (2026-08-23, deploy-E2E probe): the model call is SLOW, not hung —",
-	"LM Studio with several large models resident (qwen 27b ×2 + gemma 12b + embedders)",
-	"took 31.7s for 10 tokens; the same one-shot completed in ~3–4 min uncapped. If the",
-	"endpoint answers a direct curl, unload the extra models in LM Studio and rerun",
-	"before hunting a wedge.",
-	"Mitigation for one-shot runs: add `-ne -ns -e <ext>` — suppress run-dir extensions/skills",
-	"AND static factories, then re-enable only the extension you need, e.g.",
-	"  bun bun-apps/s2-agent/src/cli.ts -p '<prompt>' -ne -ns -e bun-apps/s2-agent-ext-<X>/extensions/<X>.ts",
-	"Full incident + recipe: bun-apps/s2-agent-ext-devops/skills/learnings/SKILL.md (s2-agent one-shot boot hang).",
+  "BOOT HANG: the probe hit its wall-clock cap and was SIGKILLed.",
+  "Known root cause #1 (2026-08-15 incident): static extension hermes-memory runs startup",
+  "syncMarkdownMemories (70 HTTP round-trips into a wedged surrealdb backend) BEFORE any",
+  "model call, so the log freezes with CPU idle.",
+  "Known root cause #2 (2026-08-23, deploy-E2E probe): the model call is SLOW, not hung —",
+  "LM Studio with several large models resident (qwen 27b ×2 + gemma 12b + embedders)",
+  "took 31.7s for 10 tokens; the same one-shot completed in ~3–4 min uncapped. If the",
+  "endpoint answers a direct curl, unload the extra models in LM Studio and rerun",
+  "before hunting a wedge.",
+  "Mitigation for one-shot runs: add `-ne -ns -e <ext>` — suppress run-dir extensions/skills",
+  "AND static factories, then re-enable only the extension you need, e.g.",
+  "  bun bun-apps/s2-agent/src/cli.ts -p '<prompt>' -ne -ns -e bun-apps/s2-agent-ext-<X>/extensions/<X>.ts",
+  "Full incident + recipe: bun-apps/s2-agent-ext-devops/skills/learnings/SKILL.md (s2-agent one-shot boot hang).",
 ].join("\n");
 
 /**
@@ -167,48 +167,48 @@ export const BOOT_HANG_DIAGNOSTIC = [
  * 33389820559) — the failure reason is unchanged, only the wall time.
  */
 export function classifyRun(
-	run: SmokeRun,
-	opts: { slowGenerationContention?: string; fastFailMs?: number } = {},
+  run: SmokeRun,
+  opts: { slowGenerationContention?: string; fastFailMs?: number } = {},
 ): SmokeClassification {
-	if (run.timedOut) {
-		if (opts.slowGenerationContention) {
-			return {
-				verdict: "skip",
-				reason: "slow-generation-contention",
-				detail: `${opts.slowGenerationContention}\n${BOOT_HANG_DIAGNOSTIC}`,
-			};
-		}
-		return { verdict: "fail", reason: "timeout", detail: BOOT_HANG_DIAGNOSTIC };
-	}
-	if (run.exitCode === 0) {
-		if (run.stdout.trim().length > 0) return { verdict: "pass", reason: "ok" };
-		// Exit 0 with zero stdout is not a boot we can vouch for — fail loud
-		// rather than trust silence.
-		return { verdict: "fail", reason: "empty-stdout", detail: tail(run) };
-	}
-	if (
-		run.durationMs <= (opts.fastFailMs ?? PROVIDER_FAIL_FAST_MS) &&
-		PROVIDER_RE.test(`${run.stdout}\n${run.stderr}`)
-	) {
-		return {
-			verdict: "skip",
-			reason: "provider-unavailable",
-			detail: "fast provider/auth failure — boot itself completed (hang detector must not fail on missing credentials)",
-		};
-	}
-	return { verdict: "fail", reason: "nonzero-exit", detail: tail(run) };
+  if (run.timedOut) {
+    if (opts.slowGenerationContention) {
+      return {
+        verdict: "skip",
+        reason: "slow-generation-contention",
+        detail: `${opts.slowGenerationContention}\n${BOOT_HANG_DIAGNOSTIC}`,
+      };
+    }
+    return { verdict: "fail", reason: "timeout", detail: BOOT_HANG_DIAGNOSTIC };
+  }
+  if (run.exitCode === 0) {
+    if (run.stdout.trim().length > 0) return { verdict: "pass", reason: "ok" };
+    // Exit 0 with zero stdout is not a boot we can vouch for — fail loud
+    // rather than trust silence.
+    return { verdict: "fail", reason: "empty-stdout", detail: tail(run) };
+  }
+  if (
+    run.durationMs <= (opts.fastFailMs ?? PROVIDER_FAIL_FAST_MS) &&
+    PROVIDER_RE.test(`${run.stdout}\n${run.stderr}`)
+  ) {
+    return {
+      verdict: "skip",
+      reason: "provider-unavailable",
+      detail: "fast provider/auth failure — boot itself completed (hang detector must not fail on missing credentials)",
+    };
+  }
+  return { verdict: "fail", reason: "nonzero-exit", detail: tail(run) };
 }
 
 function tail(run: SmokeRun): string {
-	const out = `${run.stdout}\n${run.stderr}`.trim();
-	return out.length > 2000 ? `…${out.slice(-2000)}` : out;
+  const out = `${run.stdout}\n${run.stderr}`.trim();
+  return out.length > 2000 ? `…${out.slice(-2000)}` : out;
 }
 
 export type SmokeMode = "skip-cached" | "fast-only" | "fast+canary";
 
 export interface ShouldRunResult {
-	mode: SmokeMode;
-	reason: string;
+  mode: SmokeMode;
+  reason: string;
 }
 
 /**
@@ -223,101 +223,101 @@ export interface ShouldRunResult {
  * never silence a stale canary — the hermes wedge lived exactly there.
  */
 export function shouldRun(
-	state: OneshotSmokeState | null,
-	currentHash: string,
-	now: number,
-	opts: { force?: boolean } = {},
+  state: OneshotSmokeState | null,
+  currentHash: string,
+  now: number,
+  opts: { force?: boolean } = {},
 ): ShouldRunResult {
-	if (opts.force) return { mode: "fast+canary", reason: "forced" };
-	if (!state) return { mode: "fast+canary", reason: "no prior state" };
-	if (state.version !== STATE_VERSION) return { mode: "fast+canary", reason: "state version mismatch" };
-	if (state.inputHash !== currentHash) return { mode: "fast+canary", reason: "boot inputs changed since last pass" };
-	if (now - state.lastCanaryTs > CANARY_TTL_MS) {
-		return { mode: "fast+canary", reason: `canary stale (>${Math.round(CANARY_TTL_MS / 3_600_000)}h old)` };
-	}
-	if (now - state.lastPassTs <= PASS_TTL_MS) {
-		const h = ((now - state.lastPassTs) / 3_600_000).toFixed(1);
-		return { mode: "skip-cached", reason: `cached-pass ${h}h ago, ${state.lastDurationMs}ms` };
-	}
-	return { mode: "fast-only", reason: "pass-cache expired, canary fresh" };
+  if (opts.force) return { mode: "fast+canary", reason: "forced" };
+  if (!state) return { mode: "fast+canary", reason: "no prior state" };
+  if (state.version !== STATE_VERSION) return { mode: "fast+canary", reason: "state version mismatch" };
+  if (state.inputHash !== currentHash) return { mode: "fast+canary", reason: "boot inputs changed since last pass" };
+  if (now - state.lastCanaryTs > CANARY_TTL_MS) {
+    return { mode: "fast+canary", reason: `canary stale (>${Math.round(CANARY_TTL_MS / 3_600_000)}h old)` };
+  }
+  if (now - state.lastPassTs <= PASS_TTL_MS) {
+    const h = ((now - state.lastPassTs) / 3_600_000).toFixed(1);
+    return { mode: "skip-cached", reason: `cached-pass ${h}h ago, ${state.lastDurationMs}ms` };
+  }
+  return { mode: "fast-only", reason: "pass-cache expired, canary fresh" };
 }
 
 export interface OneshotSmokeResult {
-	/** 0 for pass/skip, 1 for fail — the run_local_ci gates-table contract. */
-	exitCode: number;
-	verdict: SmokeVerdict;
-	mode: SmokeMode | "env-skip" | "not-applicable";
-	/** One-liner for the gates table (e.g. `skip (cached-pass 2.1h ago, 4103ms)`). */
-	note: string;
-	/** Multi-line diagnostics on FAIL (timeout recipe / captured tail). */
-	detail?: string;
-	durationMs: number;
+  /** 0 for pass/skip, 1 for fail — the run_local_ci gates-table contract. */
+  exitCode: number;
+  verdict: SmokeVerdict;
+  mode: SmokeMode | "env-skip" | "not-applicable";
+  /** One-liner for the gates table (e.g. `skip (cached-pass 2.1h ago, 4103ms)`). */
+  note: string;
+  /** Multi-line diagnostics on FAIL (timeout recipe / captured tail). */
+  detail?: string;
+  durationMs: number;
 }
 
 export interface OneshotSmokeOptions {
-	repoRoot: string;
-	spawn: SpawnFn;
-	/** Injectable clock (default Date.now). */
-	now?: () => number;
-	/** State-file path (default `<repoRoot>/bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json`). */
-	statePath?: string;
-	/** Env to read DEVOPS_ONESHOT_SMOKE from (default process.env). */
-	env?: Record<string, string | undefined>;
-	force?: boolean;
-	/**
-	 * Contention-precheck fetch (GET `<model endpoint>/v1/models`). Omitted/null
-	 * = precheck off — the default so unit tests and standalone runs stay
-	 * network-free; ci-recipe passes the real fetch. Precheck failures (fetch
-	 * throw / non-OK) are silent: no evidence → no excuse, timeouts still FAIL.
-	 */
-	modelsFetch?: ModelsFetch | null;
+  repoRoot: string;
+  spawn: SpawnFn;
+  /** Injectable clock (default Date.now). */
+  now?: () => number;
+  /** State-file path (default `<repoRoot>/bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json`). */
+  statePath?: string;
+  /** Env to read DEVOPS_ONESHOT_SMOKE from (default process.env). */
+  env?: Record<string, string | undefined>;
+  force?: boolean;
+  /**
+   * Contention-precheck fetch (GET `<model endpoint>/v1/models`). Omitted/null
+   * = precheck off — the default so unit tests and standalone runs stay
+   * network-free; ci-recipe passes the real fetch. Precheck failures (fetch
+   * throw / non-OK) are silent: no evidence → no excuse, timeouts still FAIL.
+   */
+  modelsFetch?: ModelsFetch | null;
 }
 
 class InputError extends Error {}
 
 /** sha256 over `path\0content` of every existing input (deterministic order). */
 export async function computeInputHash(repoRoot: string): Promise<string> {
-	const paths = [PI_AGENT_CLI, PI_AGENT_ARGV, PI_AGENT_STATIC, ...resolveHermesInputs(), SELF];
-	const hasher = new Bun.CryptoHasher("sha256");
-	for (const rel of paths) {
-		const file = Bun.file(`${repoRoot}/${rel}`);
-		if (!(await file.exists())) throw new InputError(`oneshot-smoke input missing: ${rel}`);
-		hasher.update(rel);
-		hasher.update("\0");
-		hasher.update(await file.text());
-		hasher.update("\0");
-	}
-	return hasher.digest("hex");
+  const paths = [PI_AGENT_CLI, PI_AGENT_ARGV, PI_AGENT_STATIC, ...resolveHermesInputs(), SELF];
+  const hasher = new Bun.CryptoHasher("sha256");
+  for (const rel of paths) {
+    const file = Bun.file(`${repoRoot}/${rel}`);
+    if (!(await file.exists())) throw new InputError(`oneshot-smoke input missing: ${rel}`);
+    hasher.update(rel);
+    hasher.update("\0");
+    hasher.update(await file.text());
+    hasher.update("\0");
+  }
+  return hasher.digest("hex");
 }
 
 function resolveHermesInputs(): string[] {
-	// Both are hashed when both exist (shim content never moves; impl does).
-	return [HERMES_SHIM, HERMES_IMPL];
+  // Both are hashed when both exist (shim content never moves; impl does).
+  return [HERMES_SHIM, HERMES_IMPL];
 }
 
 export async function readState(path: string): Promise<OneshotSmokeState | null> {
-	try {
-		const raw = JSON.parse(await Bun.file(path).text()) as Partial<OneshotSmokeState>;
-		if (
-			typeof raw.version !== "number" ||
-			typeof raw.inputHash !== "string" ||
-			typeof raw.lastPassTs !== "number" ||
-			typeof raw.lastCanaryTs !== "number" ||
-			typeof raw.lastDurationMs !== "number"
-		) {
-			return null;
-		}
-		return raw as OneshotSmokeState;
-	} catch {
-		// Missing or garbage state = no state: rerun the probes.
-		return null;
-	}
+  try {
+    const raw = JSON.parse(await Bun.file(path).text()) as Partial<OneshotSmokeState>;
+    if (
+      typeof raw.version !== "number" ||
+      typeof raw.inputHash !== "string" ||
+      typeof raw.lastPassTs !== "number" ||
+      typeof raw.lastCanaryTs !== "number" ||
+      typeof raw.lastDurationMs !== "number"
+    ) {
+      return null;
+    }
+    return raw as OneshotSmokeState;
+  } catch {
+    // Missing or garbage state = no state: rerun the probes.
+    return null;
+  }
 }
 
 export async function writeState(path: string, state: OneshotSmokeState): Promise<void> {
-	const dir = path.slice(0, path.lastIndexOf("/"));
-	await mkdir(dir, { recursive: true });
-	await Bun.write(path, `${JSON.stringify(state, null, "\t")}\n`);
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  await mkdir(dir, { recursive: true });
+  await Bun.write(path, `${JSON.stringify(state, null, "\t")}\n`);
 }
 
 /**
@@ -327,157 +327,167 @@ export async function writeState(path: string, state: OneshotSmokeState): Promis
  * throws: every failure is a structured FAIL result.
  */
 export async function runOneshotSmoke(opts: OneshotSmokeOptions): Promise<OneshotSmokeResult | null> {
-	const now = opts.now ?? Date.now;
-	const startedAt = now();
+  const now = opts.now ?? Date.now;
+  const startedAt = now();
 
-	// Not this monorepo → not applicable (no boot target to guard).
-	if (!(await Bun.file(`${opts.repoRoot}/${DEVOPS_PKG}`).exists())) return null;
+  // Not this monorepo → not applicable (no boot target to guard).
+  if (!(await Bun.file(`${opts.repoRoot}/${DEVOPS_PKG}`).exists())) return null;
 
-	const env = opts.env ?? process.env;
-	const envFlag = env.DEVOPS_ONESHOT_SMOKE;
-	if (envFlag === "skip") {
-		return { exitCode: 0, verdict: "skip", mode: "env-skip", note: "skip (DEVOPS_ONESHOT_SMOKE=skip)", durationMs: now() - startedAt };
-	}
+  const env = opts.env ?? process.env;
+  const envFlag = env.DEVOPS_ONESHOT_SMOKE;
+  if (envFlag === "skip") {
+    return {
+      exitCode: 0,
+      verdict: "skip",
+      mode: "env-skip",
+      note: "skip (DEVOPS_ONESHOT_SMOKE=skip)",
+      durationMs: now() - startedAt,
+    };
+  }
 
-	const statePath =
-		opts.statePath ?? `${opts.repoRoot}/bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json`;
+  const statePath = opts.statePath ?? `${opts.repoRoot}/bun-apps/s2-agent-ext-devops/.cache/oneshot-smoke.state.json`;
 
-	try {
-		const tHash = now();
-		const inputHash = await computeInputHash(opts.repoRoot);
-		const state = await readState(statePath);
-		const plan = shouldRun(state, inputHash, now(), { force: opts.force || envFlag === "force" });
+  try {
+    const tHash = now();
+    const inputHash = await computeInputHash(opts.repoRoot);
+    const state = await readState(statePath);
+    const plan = shouldRun(state, inputHash, now(), { force: opts.force || envFlag === "force" });
 
-		if (plan.mode === "skip-cached") {
-			return {
-				exitCode: 0,
-				verdict: "skip",
-				mode: plan.mode,
-				note: `skip (${plan.reason})`,
-				durationMs: now() - startedAt,
-			};
-		}
+    if (plan.mode === "skip-cached") {
+      return {
+        exitCode: 0,
+        verdict: "skip",
+        mode: plan.mode,
+        note: `skip (${plan.reason})`,
+        durationMs: now() - startedAt,
+      };
+    }
 
-		// Contention precheck (see header): decides whether a later timeout is
-		// SLOW GENERATION (skip, environment) or a HANG (fail, tree).
-		let contention: string | null = null;
-		if (opts.modelsFetch) {
-			try {
-				const res = await opts.modelsFetch(`${resolveModelEndpoint(env)}/v1/models`);
-				if (res.ok) {
-					const body = (await res.json()) as { data?: Array<{ id?: string }> };
-					contention = modelContentionWarning(
-						(body.data ?? []).map((m) => m.id ?? ""),
-						FAST_CAP_MS,
-					);
-				}
-			} catch {
-				// Precheck endpoint down = no contention evidence; timeouts FAIL.
-			}
-		}
-		const contentionCtx = contention ? { slowGenerationContention: contention } : {};
+    // Contention precheck (see header): decides whether a later timeout is
+    // SLOW GENERATION (skip, environment) or a HANG (fail, tree).
+    let contention: string | null = null;
+    if (opts.modelsFetch) {
+      try {
+        const res = await opts.modelsFetch(`${resolveModelEndpoint(env)}/v1/models`);
+        if (res.ok) {
+          const body = (await res.json()) as { data?: Array<{ id?: string }> };
+          contention = modelContentionWarning(
+            (body.data ?? []).map((m) => m.id ?? ""),
+            FAST_CAP_MS,
+          );
+        }
+      } catch {
+        // Precheck endpoint down = no contention evidence; timeouts FAIL.
+      }
+    }
+    const contentionCtx = contention ? { slowGenerationContention: contention } : {};
 
-		const cli = `${opts.repoRoot}/${PI_AGENT_CLI}`;
-		const parts: string[] = [];
-		let next = state ? { ...state } : null;
+    const cli = `${opts.repoRoot}/${PI_AGENT_CLI}`;
+    const parts: string[] = [];
+    let next = state ? { ...state } : null;
 
-		// FAST probe — the `-ne -ns` known-good one-shot invocation.
-		{
-			const t0 = now();
-			const r = await opts.spawn("bun", [cli, "-p", SMOKE_PROMPT, "-ne", "-ns"], {
-				cwd: opts.repoRoot,
-				timeoutMs: FAST_CAP_MS,
-			});
-			const fastMs = now() - t0;
-			const c = classifyRun({ ...r, durationMs: fastMs }, contentionCtx);
-			if (c.verdict === "fail") {
-				return failResult("fast", c, plan, now() - startedAt);
-			}
-			if (c.reason === "slow-generation-contention") {
-				// A contention-timeout proves nothing about the boot (no reply, no
-				// error was seen) — run no canary under the same load, write no
-				// state, and let the next run re-probe once the extras unload.
-				return {
-					exitCode: 0,
-					verdict: "skip",
-					mode: plan.mode,
-					note: `skip (fast ${c.reason} ${fmtMs(fastMs)}; canary not run under contention)`,
-					detail: c.detail,
-					durationMs: now() - startedAt,
-				};
-			}
-			parts.push(c.verdict === "pass" ? `fast ${fmtMs(fastMs)}` : `fast ${c.reason} ${fmtMs(fastMs)}`);
-			// A fast pass OR a fast provider-skip both prove the boot completed.
-			next = {
-				version: STATE_VERSION,
-				inputHash,
-				lastPassTs: now(),
-				lastCanaryTs: state?.lastCanaryTs ?? 0,
-				lastDurationMs: fastMs,
-			};
-		}
+    // FAST probe — the `-ne -ns` known-good one-shot invocation.
+    {
+      const t0 = now();
+      const r = await opts.spawn("bun", [cli, "-p", SMOKE_PROMPT, "-ne", "-ns"], {
+        cwd: opts.repoRoot,
+        timeoutMs: FAST_CAP_MS,
+      });
+      const fastMs = now() - t0;
+      const c = classifyRun({ ...r, durationMs: fastMs }, contentionCtx);
+      if (c.verdict === "fail") {
+        return failResult("fast", c, plan, now() - startedAt);
+      }
+      if (c.reason === "slow-generation-contention") {
+        // A contention-timeout proves nothing about the boot (no reply, no
+        // error was seen) — run no canary under the same load, write no
+        // state, and let the next run re-probe once the extras unload.
+        return {
+          exitCode: 0,
+          verdict: "skip",
+          mode: plan.mode,
+          note: `skip (fast ${c.reason} ${fmtMs(fastMs)}; canary not run under contention)`,
+          detail: c.detail,
+          durationMs: now() - startedAt,
+        };
+      }
+      parts.push(c.verdict === "pass" ? `fast ${fmtMs(fastMs)}` : `fast ${c.reason} ${fmtMs(fastMs)}`);
+      // A fast pass OR a fast provider-skip both prove the boot completed.
+      next = {
+        version: STATE_VERSION,
+        inputHash,
+        lastPassTs: now(),
+        lastCanaryTs: state?.lastCanaryTs ?? 0,
+        lastDurationMs: fastMs,
+      };
+    }
 
-		// CANARY probe — bare boot (NO `-ne`): static factories load for real.
-		// `-ns` stays: run-dir skills are session config, not boot code under test.
-		if (plan.mode === "fast+canary") {
-			const t0 = now();
-			const r = await opts.spawn("bun", [cli, "-p", SMOKE_PROMPT, "-ns"], {
-				cwd: opts.repoRoot,
-				timeoutMs: CANARY_CAP_MS,
-			});
-			const canaryMs = now() - t0;
-			const c = classifyRun({ ...r, durationMs: canaryMs }, contentionCtx);
-			if (c.verdict === "fail") {
-				return failResult("canary", c, plan, now() - startedAt);
-			}
-			parts.push(c.verdict === "pass" ? `canary ${fmtMs(canaryMs)}` : `canary ${c.reason} ${fmtMs(canaryMs)}`);
-			// Only a CLEAN canary pass refreshes lastCanaryTs — a provider-skip
-			// leaves it stale so the next run retries the bare boot (bounded by
-			// CANARY_CAP_MS; a provider-down day costs seconds per run, not truth).
-			if (c.verdict === "pass" && next) {
-				next.lastCanaryTs = now();
-			}
-		}
+    // CANARY probe — bare boot (NO `-ne`): static factories load for real.
+    // `-ns` stays: run-dir skills are session config, not boot code under test.
+    if (plan.mode === "fast+canary") {
+      const t0 = now();
+      const r = await opts.spawn("bun", [cli, "-p", SMOKE_PROMPT, "-ns"], {
+        cwd: opts.repoRoot,
+        timeoutMs: CANARY_CAP_MS,
+      });
+      const canaryMs = now() - t0;
+      const c = classifyRun({ ...r, durationMs: canaryMs }, contentionCtx);
+      if (c.verdict === "fail") {
+        return failResult("canary", c, plan, now() - startedAt);
+      }
+      parts.push(c.verdict === "pass" ? `canary ${fmtMs(canaryMs)}` : `canary ${c.reason} ${fmtMs(canaryMs)}`);
+      // Only a CLEAN canary pass refreshes lastCanaryTs — a provider-skip
+      // leaves it stale so the next run retries the bare boot (bounded by
+      // CANARY_CAP_MS; a provider-down day costs seconds per run, not truth).
+      if (c.verdict === "pass" && next) {
+        next.lastCanaryTs = now();
+      }
+    }
 
-		if (next) await writeState(statePath, next);
+    if (next) await writeState(statePath, next);
 
-		const verdict: SmokeVerdict = parts.every(
-			(p) => !p.includes("provider-unavailable") && !p.includes("slow-generation-contention"),
-		)
-			? "pass"
-			: "skip";
-		return {
-			exitCode: 0,
-			verdict,
-			mode: plan.mode,
-			note: `${verdict} (${parts.join("; ")})`,
-			durationMs: now() - startedAt,
-		};
-	} catch (e) {
-		// e.g. a hashed input disappeared (rename) — fail loud with the path so
-		// the list gets fixed instead of the gate silently going blind.
-		return {
-			exitCode: 1,
-			verdict: "fail",
-			mode: "fast+canary",
-			note: "fail (gate inputs unreadable)",
-			detail: (e as Error).message,
-			durationMs: now() - startedAt,
-		};
-	}
+    const verdict: SmokeVerdict = parts.every(
+      (p) => !p.includes("provider-unavailable") && !p.includes("slow-generation-contention"),
+    )
+      ? "pass"
+      : "skip";
+    return {
+      exitCode: 0,
+      verdict,
+      mode: plan.mode,
+      note: `${verdict} (${parts.join("; ")})`,
+      durationMs: now() - startedAt,
+    };
+  } catch (e) {
+    // e.g. a hashed input disappeared (rename) — fail loud with the path so
+    // the list gets fixed instead of the gate silently going blind.
+    return {
+      exitCode: 1,
+      verdict: "fail",
+      mode: "fast+canary",
+      note: "fail (gate inputs unreadable)",
+      detail: (e as Error).message,
+      durationMs: now() - startedAt,
+    };
+  }
 }
 
-function failResult(kind: string, c: SmokeClassification, plan: ShouldRunResult, durationMs: number): OneshotSmokeResult {
-	return {
-		exitCode: 1,
-		verdict: "fail",
-		mode: plan.mode,
-		note: `fail (${kind} probe: ${c.reason})`,
-		detail: c.detail,
-		durationMs,
-	};
+function failResult(
+  kind: string,
+  c: SmokeClassification,
+  plan: ShouldRunResult,
+  durationMs: number,
+): OneshotSmokeResult {
+  return {
+    exitCode: 1,
+    verdict: "fail",
+    mode: plan.mode,
+    note: `fail (${kind} probe: ${c.reason})`,
+    detail: c.detail,
+    durationMs,
+  };
 }
 
 function fmtMs(ms: number): string {
-	return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }

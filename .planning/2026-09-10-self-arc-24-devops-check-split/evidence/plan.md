@@ -1,0 +1,11 @@
+Map extended at `.planning/2026-09-10-self-arc-23-devops-check-split/map.md` — Tickets (t01–t05, phased), Execution order line, D2–D5, Fog of war resolved/bounded. Destination/Context untouched.
+
+**What the recon pinned down:**
+
+1. **The wiring verdict (D3):** `ci-recipe.ts`'s read-only phase keys lint on `scripts.check` iff `/biome/.test(cmd)` and tsc on `scripts.typecheck` first — the split is transparent by name-resolution, no recipe change. But there's a subtlety t02 must prove honestly: devops has `extensions/devops.ts`, so `coveredByExtTypecheckGate` will mark its phase-3a tsc `skipped` and the **`typecheck:ext` gate** runs the same tsc — a skipped-row-with-green-gate is the proof; a skipped row with no gate run would be the arc-17 silent-drop. The ticket encodes exactly that distinction.
+2. **A live trap caught mid-recon (D2, learning #2 applied — the label is not the content):** `bunx biome` (bare name) resolves to an npm squat `biome@0.3.3` that exits **0 with zero diagnostics** — it never ran Biome. The real binary is `@biomejs/biome@2.4.16`; the first "clean" recon was discarded and re-run.
+3. **Sizing fear defused (D4):** the real defaults run = **20 diagnostics / 11 files / 172 checked** — 12 lint (5 `noNonNullAssertion`, 4 `useTemplate`, 3 singles), 5 format, 3 `organizeImports`. Concentration: `tests/worktree-doctor.test.ts` (6), `scripts/run-test.ts` (5), then 1-per-file across 6 `src/` files (→ t03's iff-src-changed deploy scope), 2 scripts, `package.json`. House config is looser where it differs, but arc-18's "real run finds more" stays as t01's acceptance criterion, not an assumption.
+4. **D5:** the specimen's `run-test.ts` warn-override is root-level; devops' `scripts/run-test.ts` isn't covered — per-finding decision recorded, no blanket ignore.
+5. **No hidden direct-invocation hazard:** devops' `ci-recipe.test.ts` `run check` hits are synthetic fixtures *of* the resolution logic; `lint-executor-coverage.test.ts` discovers biome.json packages dynamically (devops becomes the 7th — green iff json + script land together); no scripts-dir-contract test exists.
+
+Read budget: 8 reads total, then write. Next executable ticket is t01 — split + config + fixes — which produces the diff t02's lane run proves.

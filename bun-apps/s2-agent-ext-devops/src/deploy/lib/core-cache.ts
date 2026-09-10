@@ -19,73 +19,83 @@
  * therefore builds a plain, private copy and never touches .cores.
  */
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
 export const CORES_DIR = ".cores";
 
 /** Update the hash with one file tree: sorted relpaths + contents. */
 function hashTree(hash: ReturnType<typeof createHash>, root: string, prefix: string): void {
-	const entries: Array<{ rel: string; abs: string; isDir: boolean }> = [];
-	for (const name of readdirSync(root)) {
-		const abs = join(root, name);
-		const st = statSync(abs);
-		entries.push({ rel: join(prefix, name), abs, isDir: st.isDirectory() });
-	}
-	entries.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
-	for (const e of entries) {
-		hash.update(e.rel);
-		hash.update("\0");
-		if (e.isDir) hashTree(hash, e.abs, e.rel);
-		else hash.update(readFileSync(e.abs));
-		hash.update("\0");
-	}
+  const entries: Array<{ rel: string; abs: string; isDir: boolean }> = [];
+  for (const name of readdirSync(root)) {
+    const abs = join(root, name);
+    const st = statSync(abs);
+    entries.push({ rel: join(prefix, name), abs, isDir: st.isDirectory() });
+  }
+  entries.sort((a, b) => (a.rel < b.rel ? -1 : a.rel > b.rel ? 1 : 0));
+  for (const e of entries) {
+    hash.update(e.rel);
+    hash.update("\0");
+    if (e.isDir) hashTree(hash, e.abs, e.rel);
+    else hash.update(readFileSync(e.abs));
+    hash.update("\0");
+  }
 }
 
 export interface CoreHashInputs {
-	/** s2-agent package dir; its src/ tree is hashed as-is. */
-	piAgentDir: string;
-	/** Resolved @earendil-works/pi-coding-agent version string. */
-	piPkgVersion: string;
-	bunVersion: string;
-	/** Entry relpath under piAgentDir, e.g. "src/cli-sh.ts". */
-	entry: string;
-	/** Build flag markers, e.g. ["--target=bun", "--minify"] — output-affecting flags only. */
-	flags: string[];
-	/**
-	 * Source trees of workspace packages the core bundle INLINES (each entry:
-	 * the directory the bundler resolves the package entry into, hashed under
-	 * its package name). The bundler follows `@repo/*` workspace deps past
-	 * s2-agent/src — so a core-runtime-only change MUST change the hash, or a
-	 * frozen deploy ships a stale core while the freshly-built ext bundles
-	 * (which externalize `@repo/*` back onto the core's runtime registry) call
-	 * exports the stale core doesn't have. Found live 2026-09-06: the /agents
-	 * CRUD drill crashed `isValidAgentName is not a function` on a
-	 * cached-core deploy that looked "up to date" (same git sha).
-	 */
-	workspaceSrcDirs?: Array<{ name: string; dir: string }>;
+  /** s2-agent package dir; its src/ tree is hashed as-is. */
+  piAgentDir: string;
+  /** Resolved @earendil-works/pi-coding-agent version string. */
+  piPkgVersion: string;
+  bunVersion: string;
+  /** Entry relpath under piAgentDir, e.g. "src/cli-sh.ts". */
+  entry: string;
+  /** Build flag markers, e.g. ["--target=bun", "--minify"] — output-affecting flags only. */
+  flags: string[];
+  /**
+   * Source trees of workspace packages the core bundle INLINES (each entry:
+   * the directory the bundler resolves the package entry into, hashed under
+   * its package name). The bundler follows `@repo/*` workspace deps past
+   * s2-agent/src — so a core-runtime-only change MUST change the hash, or a
+   * frozen deploy ships a stale core while the freshly-built ext bundles
+   * (which externalize `@repo/*` back onto the core's runtime registry) call
+   * exports the stale core doesn't have. Found live 2026-09-06: the /agents
+   * CRUD drill crashed `isValidAgentName is not a function` on a
+   * cached-core deploy that looked "up to date" (same git sha).
+   */
+  workspaceSrcDirs?: Array<{ name: string; dir: string }>;
 }
 
 export function computeCoreHash(inputs: CoreHashInputs): string {
-	const hash = createHash("sha256");
-	hash.update(`pi-coding-agent=${inputs.piPkgVersion}\0`);
-	hash.update(`bun=${inputs.bunVersion}\0`);
-	hash.update(`entry=${inputs.entry}\0`);
-	hash.update(`flags=${[...inputs.flags].sort().join(",")}\0`);
-	hashTree(hash, join(inputs.piAgentDir, "src"), "src");
-	for (const { name, dir } of [...(inputs.workspaceSrcDirs ?? [])].sort((a, b) => (a.name < b.name ? -1 : 1))) {
-		hash.update(`workspace:${name}\0`);
-		hashTree(hash, dir, name);
-	}
-	return hash.digest("hex");
+  const hash = createHash("sha256");
+  hash.update(`pi-coding-agent=${inputs.piPkgVersion}\0`);
+  hash.update(`bun=${inputs.bunVersion}\0`);
+  hash.update(`entry=${inputs.entry}\0`);
+  hash.update(`flags=${[...inputs.flags].sort().join(",")}\0`);
+  hashTree(hash, join(inputs.piAgentDir, "src"), "src");
+  for (const { name, dir } of [...(inputs.workspaceSrcDirs ?? [])].sort((a, b) => (a.name < b.name ? -1 : 1))) {
+    hash.update(`workspace:${name}\0`);
+    hashTree(hash, dir, name);
+  }
+  return hash.digest("hex");
 }
 
 export interface CachedCore {
-	/** The cache file — hardlink (never copy) from it into the version dir. */
-	cacheFile: string;
-	/** True when the core already existed (the build was skipped). */
-	cached: boolean;
-	bytes: number;
+  /** The cache file — hardlink (never copy) from it into the version dir. */
+  cacheFile: string;
+  /** True when the core already existed (the build was skipped). */
+  cached: boolean;
+  bytes: number;
 }
 
 /**
@@ -94,34 +104,34 @@ export interface CachedCore {
  * build never poisons the cache with a partial core.
  */
 export async function ensureCachedCore(opts: {
-	outRoot: string;
-	hash: string;
-	build: (outFile: string) => Promise<void>;
+  outRoot: string;
+  hash: string;
+  build: (outFile: string) => Promise<void>;
 }): Promise<CachedCore> {
-	const dir = join(opts.outRoot, CORES_DIR);
-	const cacheFile = join(dir, opts.hash);
-	if (existsSync(cacheFile)) {
-		return { cacheFile, cached: true, bytes: statSync(cacheFile).size };
-	}
-	mkdirSync(dir, { recursive: true });
-	const tmp = join(dir, `.tmp-${opts.hash.slice(0, 12)}-${process.pid}`);
-	await opts.build(tmp);
-	chmodSync(tmp, 0o755);
-	renameSync(tmp, cacheFile);
-	return { cacheFile, cached: false, bytes: statSync(cacheFile).size };
+  const dir = join(opts.outRoot, CORES_DIR);
+  const cacheFile = join(dir, opts.hash);
+  if (existsSync(cacheFile)) {
+    return { cacheFile, cached: true, bytes: statSync(cacheFile).size };
+  }
+  mkdirSync(dir, { recursive: true });
+  const tmp = join(dir, `.tmp-${opts.hash.slice(0, 12)}-${process.pid}`);
+  await opts.build(tmp);
+  chmodSync(tmp, 0o755);
+  renameSync(tmp, cacheFile);
+  return { cacheFile, cached: false, bytes: statSync(cacheFile).size };
 }
 
 /** Hardlink the cached core into a version dir (its `s2-agent.js` since the bundle switch). */
 export function linkCore(cacheFile: string, binaryPath: string): void {
-	linkSync(cacheFile, binaryPath);
+  linkSync(cacheFile, binaryPath);
 }
 
 /** A cache entry younger than this is assumed to belong to a deploy still in flight. */
 export const ORPHAN_GRACE_MS = 60 * 60 * 1000;
 
 export interface PrunedCore {
-	hash: string;
-	bytes: number;
+  hash: string;
+  bytes: number;
 }
 
 /**
@@ -146,37 +156,34 @@ export interface PrunedCore {
  * under it. Partial compiles (`.tmp-*`) and any other dotfile are skipped
  * outright — a temp file is owned by the deploy that is writing it.
  */
-export function pruneOrphanCores(
-	outRoot: string,
-	opts: { now?: number; graceMs?: number } = {},
-): PrunedCore[] {
-	const dir = join(outRoot, CORES_DIR);
-	if (!existsSync(dir)) return [];
-	const now = opts.now ?? Date.now();
-	const graceMs = opts.graceMs ?? ORPHAN_GRACE_MS;
+export function pruneOrphanCores(outRoot: string, opts: { now?: number; graceMs?: number } = {}): PrunedCore[] {
+  const dir = join(outRoot, CORES_DIR);
+  if (!existsSync(dir)) return [];
+  const now = opts.now ?? Date.now();
+  const graceMs = opts.graceMs ?? ORPHAN_GRACE_MS;
 
-	const pruned: PrunedCore[] = [];
-	for (const name of readdirSync(dir)) {
-		if (name.startsWith(".")) continue;
-		const file = join(dir, name);
-		let st: ReturnType<typeof statSync>;
-		try {
-			st = statSync(file);
-		} catch {
-			continue; // vanished under us — a concurrent deploy already collected it
-		}
-		if (!st.isFile()) continue;
-		if (st.nlink > 1) continue;
-		if (now - st.mtimeMs < graceMs) continue;
-		try {
-			// Cache entries are chmod 0755, not read-only, so no unfreeze is needed
-			// — and must not be attempted: chmod on a hardlink re-modes every copy.
-			unlinkSync(file);
-			pruned.push({ hash: name, bytes: st.size });
-		} catch {
-			// Left in place; the next deploy retries. A cache entry we cannot
-			// delete is wasted space, never a broken deploy.
-		}
-	}
-	return pruned;
+  const pruned: PrunedCore[] = [];
+  for (const name of readdirSync(dir)) {
+    if (name.startsWith(".")) continue;
+    const file = join(dir, name);
+    let st: ReturnType<typeof statSync>;
+    try {
+      st = statSync(file);
+    } catch {
+      continue; // vanished under us — a concurrent deploy already collected it
+    }
+    if (!st.isFile()) continue;
+    if (st.nlink > 1) continue;
+    if (now - st.mtimeMs < graceMs) continue;
+    try {
+      // Cache entries are chmod 0755, not read-only, so no unfreeze is needed
+      // — and must not be attempted: chmod on a hardlink re-modes every copy.
+      unlinkSync(file);
+      pruned.push({ hash: name, bytes: st.size });
+    } catch {
+      // Left in place; the next deploy retries. A cache entry we cannot
+      // delete is wasted space, never a broken deploy.
+    }
+  }
+  return pruned;
 }

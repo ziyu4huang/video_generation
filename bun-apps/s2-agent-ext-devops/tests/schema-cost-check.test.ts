@@ -8,8 +8,8 @@
  * live JSON are real temp files (the fn reads them via readFileSync, like the
  * script did).
  */
-import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSchemaCostCheck } from "../src/schema-cost-check.js";
@@ -21,9 +21,9 @@ afterAll(() => rmSync(TMP, { recursive: true, force: true }));
 
 /** Write a JSON temp file and return its absolute path. */
 function writeJson(name: string, obj: unknown): string {
-	const path = join(TMP, name);
-	writeFileSync(path, JSON.stringify(obj));
-	return path;
+  const path = join(TMP, name);
+  writeFileSync(path, JSON.stringify(obj));
+  return path;
 }
 
 /**
@@ -34,49 +34,49 @@ function writeJson(name: string, obj: unknown): string {
 const neverSpawn: SpawnFn = async () => ({ stdout: "", stderr: "", exitCode: 1 });
 
 describe("runSchemaCostCheck", () => {
-	test("within threshold → exitCode 0", async () => {
-		const baseline = writeJson("baseline-ok.json", { totalTokens: 1000, tools: 10 });
-		const live = writeJson("live-ok.json", { totalTokens: 1010, tools: 10 }); // +1%
-		const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: neverSpawn });
-		expect(r.exitCode).toBe(0);
-	});
+  test("within threshold → exitCode 0", async () => {
+    const baseline = writeJson("baseline-ok.json", { totalTokens: 1000, tools: 10 });
+    const live = writeJson("live-ok.json", { totalTokens: 1010, tools: 10 }); // +1%
+    const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: neverSpawn });
+    expect(r.exitCode).toBe(0);
+  });
 
-	test("over threshold → exitCode 0 (info-only WARNING, NEVER blocks)", async () => {
-		const baseline = writeJson("baseline-over.json", { totalTokens: 1000, tools: 10 });
-		const live = writeJson("live-over.json", { totalTokens: 1200, tools: 10 }); // +20%
-		const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: neverSpawn });
-		expect(r.exitCode).toBe(0);
-	});
+  test("over threshold → exitCode 0 (info-only WARNING, NEVER blocks)", async () => {
+    const baseline = writeJson("baseline-over.json", { totalTokens: 1000, tools: 10 });
+    const live = writeJson("live-over.json", { totalTokens: 1200, tools: 10 }); // +20%
+    const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: neverSpawn });
+    expect(r.exitCode).toBe(0);
+  });
 
-	test("decreased → exitCode 0", async () => {
-		const baseline = writeJson("baseline-down.json", { totalTokens: 1000, tools: 10 });
-		const live = writeJson("live-down.json", { totalTokens: 900, tools: 10 }); // -10%
-		const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: neverSpawn });
-		expect(r.exitCode).toBe(0);
-	});
+  test("decreased → exitCode 0", async () => {
+    const baseline = writeJson("baseline-down.json", { totalTokens: 1000, tools: 10 });
+    const live = writeJson("live-down.json", { totalTokens: 900, tools: 10 }); // -10%
+    const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: neverSpawn });
+    expect(r.exitCode).toBe(0);
+  });
 
-	test("hard collection failure (CLI exit 1) → exitCode 1, does NOT throw, needs no baseline", async () => {
-		const failSpawn: SpawnFn = async () => ({ stdout: "", stderr: "", exitCode: 1 });
-		const r = await runSchemaCostCheck({ repoRoot: TMP, threshold: 5, spawn: failSpawn });
-		expect(r.exitCode).toBe(1);
-	});
+  test("hard collection failure (CLI exit 1) → exitCode 1, does NOT throw, needs no baseline", async () => {
+    const failSpawn: SpawnFn = async () => ({ stdout: "", stderr: "", exitCode: 1 });
+    const r = await runSchemaCostCheck({ repoRoot: TMP, threshold: 5, spawn: failSpawn });
+    expect(r.exitCode).toBe(1);
+  });
 
-	test("unparseable CLI stdout → exitCode 1, does NOT throw", async () => {
-		const garbageSpawn: SpawnFn = async () => ({ stdout: "not json {{{", stderr: "", exitCode: 0 });
-		const r = await runSchemaCostCheck({ repoRoot: TMP, threshold: 5, spawn: garbageSpawn });
-		expect(r.exitCode).toBe(1);
-	});
+  test("unparseable CLI stdout → exitCode 1, does NOT throw", async () => {
+    const garbageSpawn: SpawnFn = async () => ({ stdout: "not json {{{", stderr: "", exitCode: 0 });
+    const r = await runSchemaCostCheck({ repoRoot: TMP, threshold: 5, spawn: garbageSpawn });
+    expect(r.exitCode).toBe(1);
+  });
 
-	test("--live skips collection entirely (spawn never invoked)", async () => {
-		const baseline = writeJson("baseline-noscroll.json", { totalTokens: 1000, tools: 10 });
-		const live = writeJson("live-noscroll.json", { totalTokens: 1000, tools: 10 });
-		let called = false;
-		const trackingSpawn: SpawnFn = async () => {
-			called = true;
-			return { stdout: "", stderr: "", exitCode: 0 };
-		};
-		const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: trackingSpawn });
-		expect(r.exitCode).toBe(0);
-		expect(called).toBe(false);
-	});
+  test("--live skips collection entirely (spawn never invoked)", async () => {
+    const baseline = writeJson("baseline-noscroll.json", { totalTokens: 1000, tools: 10 });
+    const live = writeJson("live-noscroll.json", { totalTokens: 1000, tools: 10 });
+    let called = false;
+    const trackingSpawn: SpawnFn = async () => {
+      called = true;
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const r = await runSchemaCostCheck({ repoRoot: TMP, baseline, live, threshold: 5, spawn: trackingSpawn });
+    expect(r.exitCode).toBe(0);
+    expect(called).toBe(false);
+  });
 });

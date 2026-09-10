@@ -208,6 +208,7 @@
         "@repo/s2-agent-core-interface": "workspace:*",
       },
       "devDependencies": {
+        "@biomejs/biome": "2.4.16",
         "@types/bun": "latest",
         "fast-xml-parser": "^5.2.0",
         "typescript": "^6.0.3",

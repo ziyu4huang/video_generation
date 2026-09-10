@@ -1,0 +1,7 @@
+# t02 wiring proof (2026-09-10): local_ci scoped to s2-agent-ext-devops, exit 0.
+# lint row EXECUTED: step check:s2-agent-ext-devops, exit 0 (biome via the split check script).
+# typecheck row: {"exitCode": -1, "skipped": true, "note": "covered by the typecheck:ext gate"}
+# — the planner's D3 prediction: devops has extensions/devops.ts, so the typecheck:ext gate
+# runs the same tsc; a skipped-with-note row BESIDE a green ext gate is the proof (the arc-17
+# silent-drop would be a skipped row with NO gate running).
+# lint-executor-coverage: devops = 7th biome.json package, green.

@@ -1,4 +1,9 @@
 #!/usr/bin/env bun
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { runLocalBranchCleanup } from "./branch-cleanup.js";
+import type { BranchClient } from "./branch-recipe.js";
+import { createCiLogWriter } from "./ci-log-writer.js";
 /**
  * merge-pr-after-ci-cli — the bash-callable entry point for finishing a PR
  * (bin `devops-merge-pr-after-ci`): preflight → local-CI gate → merge gates →
@@ -50,72 +55,74 @@
  *   snapshot taken AFTER the CI gate, and an UNKNOWN one is polled until it
  *   settles instead of being treated as a verdict.
  */
-import { runLocalCi, summarizeCiFailures, type CiOutcome } from "./ci-recipe.js";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { preflightE2eLane, type E2ePreflightResult } from "./e2e-preflight.js";
-import { createCiLogWriter } from "./ci-log-writer.js";
-import { runLocalBranchCleanup } from "./branch-cleanup.js";
-import { createBranchClient } from "./gh.js";
+import { type CiOutcome, runLocalCi, summarizeCiFailures } from "./ci-recipe.js";
+import { type E2ePreflightResult, preflightE2eLane } from "./e2e-preflight.js";
 import { selectForgeClientCached } from "./forge/select.js";
+import { createBranchClient } from "./gh.js";
+import {
+  createPreserveStash,
+  DEFAULT_PRESERVE_PATHS,
+  isPreservable,
+  type PreserveOutcome,
+  type PreservePark,
+} from "./preserve.js";
 import type { GhClient } from "./recipe.js";
-import type { BranchClient } from "./branch-recipe.js";
-import { runVerifyMerge, type VerifyMergeOutcome } from "./verify-merge-recipe.js";
 import { createLiveSpawn, type SpawnFn } from "./spawn.js";
-import { createPreserveStash, DEFAULT_PRESERVE_PATHS, isPreservable, type PreserveOutcome, type PreservePark } from "./preserve.js";
+import { runVerifyMerge, type VerifyMergeOutcome } from "./verify-merge-recipe.js";
 
 export interface PrFinishCliResult {
-	exitCode: number;
-	/** Exactly what belongs on stdout (empty on a usage error / --help). */
-	stdout: string;
-	/** Diagnostics / usage — never mixed into stdout. */
-	stderr: string;
+  exitCode: number;
+  /** Exactly what belongs on stdout (empty on a usage error / --help). */
+  stdout: string;
+  /** Diagnostics / usage — never mixed into stdout. */
+  stderr: string;
 }
 
 export const PR_FINISH_CLI_USAGE = [
-	"usage: merge-pr-after-ci-cli.ts <pr-number> [--dry-run] [--expected-scope <glob>]...",
-	"                         [--keep-branch] [--assume-ci-green <sha>]",
-	"                         [--concurrency <n>] [--repo-root <path>]",
-	"",
-	"Finishes a PR: preflight (clean tree + pr status) → local-CI gate →",
-	"merge gates (OPEN + not-BEHIND + CLEAN, read from a FRESH pr status) →",
-	"squash-merge → verify_merge_landed → branch cleanup (delete local+remote head",
-	"branch, fetch --prune). Local CI is the gate (remote CI waiting is",
-	"intentionally NOT ported). Preserve-listed hot files (hermes MEMORY.md) are",
-	"parked (tagged stash) around the cleanup detach and restored after; ALL",
-	"other uncommitted tracked dirt still aborts dirty_tree. Prints the structured",
-	"outcome as JSON on stdout. Exit 0 on success (incl. dry-run), 1 on abort,",
-	"2 on usage error.",
-	"Options:",
-	"  --pr <n>               PR number (same as the positional form)",
-	"  --dry-run              run read-only gates, emit planned commands only",
-	"  --expected-scope <g>   repeatable; scope entry: x/** any depth, x/* one segment, x/ prefix, bare x exact-or-dir",
-	"  --keep-branch          skip post-merge branch deletion + prune",
-	"  --assume-ci-green <sha>  skip local CI, asserting <sha> was already",
-	"                         verified green; aborts unless it equals the PR's",
-	"                         current head oid (a retry shortcut, never a way",
-	"                         to merge something local CI has not seen)",
-	"  --concurrency <n>   max packages tested in parallel in the local-CI gate",
-	"                      (recipe default 4; lower on load-flaky machines)",
-	"  --repo-root <path>     default: the repo this file lives in",
+  "usage: merge-pr-after-ci-cli.ts <pr-number> [--dry-run] [--expected-scope <glob>]...",
+  "                         [--keep-branch] [--assume-ci-green <sha>]",
+  "                         [--concurrency <n>] [--repo-root <path>]",
+  "",
+  "Finishes a PR: preflight (clean tree + pr status) → local-CI gate →",
+  "merge gates (OPEN + not-BEHIND + CLEAN, read from a FRESH pr status) →",
+  "squash-merge → verify_merge_landed → branch cleanup (delete local+remote head",
+  "branch, fetch --prune). Local CI is the gate (remote CI waiting is",
+  "intentionally NOT ported). Preserve-listed hot files (hermes MEMORY.md) are",
+  "parked (tagged stash) around the cleanup detach and restored after; ALL",
+  "other uncommitted tracked dirt still aborts dirty_tree. Prints the structured",
+  "outcome as JSON on stdout. Exit 0 on success (incl. dry-run), 1 on abort,",
+  "2 on usage error.",
+  "Options:",
+  "  --pr <n>               PR number (same as the positional form)",
+  "  --dry-run              run read-only gates, emit planned commands only",
+  "  --expected-scope <g>   repeatable; scope entry: x/** any depth, x/* one segment, x/ prefix, bare x exact-or-dir",
+  "  --keep-branch          skip post-merge branch deletion + prune",
+  "  --assume-ci-green <sha>  skip local CI, asserting <sha> was already",
+  "                         verified green; aborts unless it equals the PR's",
+  "                         current head oid (a retry shortcut, never a way",
+  "                         to merge something local CI has not seen)",
+  "  --concurrency <n>   max packages tested in parallel in the local-CI gate",
+  "                      (recipe default 4; lower on load-flaky machines)",
+  "  --repo-root <path>     default: the repo this file lives in",
 ].join("\n");
 
 // defaultRepoRoot is shared plumbing — single definition in src/cli-common.ts,
 // re-exported here for import stability.
 import { defaultRepoRoot } from "./cli-common.js";
+
 export { defaultRepoRoot };
 
 /** Parsed argv. */
 export interface ParsedPrFinishArgs {
-	pr: number;
-	dryRun: boolean;
-	expectedScope: string[];
-	keepBranch: boolean;
-	repoRoot?: string;
-	/** Lowercased 40-hex head oid the caller already verified green, if given. */
-	assumeCiGreen?: string;
-	/** Max packages tested in parallel in the local-CI gate (recipe default 4). */
-	concurrency?: number;
+  pr: number;
+  dryRun: boolean;
+  expectedScope: string[];
+  keepBranch: boolean;
+  repoRoot?: string;
+  /** Lowercased 40-hex head oid the caller already verified green, if given. */
+  assumeCiGreen?: string;
+  /** Max packages tested in parallel in the local-CI gate (recipe default 4). */
+  concurrency?: number;
 }
 
 /** A full 40-hex git object id (what `gh pr view --json headRefOid` returns).
@@ -124,81 +131,88 @@ export interface ParsedPrFinishArgs {
 const FULL_SHA = /^[0-9a-f]{40}$/;
 
 /** Pure argv → flags (or a usage-error message). Exported for tests. */
-export function parsePrFinishArgs(argv: string[]): { ok: true; args: ParsedPrFinishArgs } | { ok: false; message: string } {
-	let pr: number | undefined;
-	let dryRun = false;
-	let expectedScope: string[] = [];
-	let keepBranch = false;
-	let repoRoot: string | undefined;
-	let assumeCiGreen: string | undefined;
-	let concurrency: number | undefined;
+export function parsePrFinishArgs(
+  argv: string[],
+): { ok: true; args: ParsedPrFinishArgs } | { ok: false; message: string } {
+  let pr: number | undefined;
+  let dryRun = false;
+  const expectedScope: string[] = [];
+  let keepBranch = false;
+  let repoRoot: string | undefined;
+  let assumeCiGreen: string | undefined;
+  let concurrency: number | undefined;
 
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (a === "--dry-run") {
-			dryRun = true;
-		} else if (a === "--keep-branch") {
-			keepBranch = true;
-		} else if (a === "--pr") {
-			const v = argv[++i];
-			const n = Number.parseInt(v ?? "", 10);
-			if (!Number.isFinite(n) || n <= 0) {
-				return { ok: false, message: `--pr needs a positive PR number (got ${JSON.stringify(v ?? "missing")})` };
-			}
-			pr = n;
-		} else if (a === "--expected-scope") {
-			const v = argv[++i];
-			if (v === undefined || v === "") {
-				return { ok: false, message: "--expected-scope needs a value" };
-			}
-			// Comma-split to match verify-merge-cli's --scope syntax. The two
-			// flags diverged silently and a comma list passed here became ONE
-			// literal entry matching nothing — every file out-of-scope, a false
-			// CONTAMINATED on an intentional merge (PR #1808, 2026-08-22).
-			expectedScope.push(...v.split(",").map((s) => s.trim()).filter(Boolean));
-		} else if (a === "--assume-ci-green") {
-			const v = argv[++i];
-			if (v === undefined || v === "") {
-				return { ok: false, message: "--assume-ci-green needs a 40-hex head sha" };
-			}
-			const sha = v.toLowerCase();
-			if (!FULL_SHA.test(sha)) {
-				return { ok: false, message: `--assume-ci-green needs a full 40-hex sha (got ${JSON.stringify(v)})` };
-			}
-			assumeCiGreen = sha;
-		} else if (a === "--concurrency") {
-			const v = argv[++i];
-			const n = Number.parseInt(v ?? "", 10);
-			if (!Number.isFinite(n) || n < 1) {
-				return { ok: false, message: "--concurrency needs a positive integer" };
-			}
-			concurrency = n;
-		} else if (a === "--repo-root") {
-			const v = argv[++i];
-			if (v === undefined) {
-				return { ok: false, message: "--repo-root needs a value" };
-			}
-			repoRoot = v;
-		} else if (a === "-h" || a === "--help") {
-			return { ok: false, message: "" }; // handled by caller via exitCode 0
-		} else if (a.startsWith("-")) {
-			return { ok: false, message: `unknown flag: ${a}` };
-		} else {
-			const n = Number.parseInt(a, 10);
-			if (!Number.isFinite(n) || n <= 0 || String(n) !== a) {
-				return { ok: false, message: `expected a PR number, got: ${a}` };
-			}
-			if (pr !== undefined) {
-				return { ok: false, message: `PR number given twice (${pr} and ${a})` };
-			}
-			pr = n;
-		}
-	}
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--dry-run") {
+      dryRun = true;
+    } else if (a === "--keep-branch") {
+      keepBranch = true;
+    } else if (a === "--pr") {
+      const v = argv[++i];
+      const n = Number.parseInt(v ?? "", 10);
+      if (!Number.isFinite(n) || n <= 0) {
+        return { ok: false, message: `--pr needs a positive PR number (got ${JSON.stringify(v ?? "missing")})` };
+      }
+      pr = n;
+    } else if (a === "--expected-scope") {
+      const v = argv[++i];
+      if (v === undefined || v === "") {
+        return { ok: false, message: "--expected-scope needs a value" };
+      }
+      // Comma-split to match verify-merge-cli's --scope syntax. The two
+      // flags diverged silently and a comma list passed here became ONE
+      // literal entry matching nothing — every file out-of-scope, a false
+      // CONTAMINATED on an intentional merge (PR #1808, 2026-08-22).
+      expectedScope.push(
+        ...v
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
+    } else if (a === "--assume-ci-green") {
+      const v = argv[++i];
+      if (v === undefined || v === "") {
+        return { ok: false, message: "--assume-ci-green needs a 40-hex head sha" };
+      }
+      const sha = v.toLowerCase();
+      if (!FULL_SHA.test(sha)) {
+        return { ok: false, message: `--assume-ci-green needs a full 40-hex sha (got ${JSON.stringify(v)})` };
+      }
+      assumeCiGreen = sha;
+    } else if (a === "--concurrency") {
+      const v = argv[++i];
+      const n = Number.parseInt(v ?? "", 10);
+      if (!Number.isFinite(n) || n < 1) {
+        return { ok: false, message: "--concurrency needs a positive integer" };
+      }
+      concurrency = n;
+    } else if (a === "--repo-root") {
+      const v = argv[++i];
+      if (v === undefined) {
+        return { ok: false, message: "--repo-root needs a value" };
+      }
+      repoRoot = v;
+    } else if (a === "-h" || a === "--help") {
+      return { ok: false, message: "" }; // handled by caller via exitCode 0
+    } else if (a.startsWith("-")) {
+      return { ok: false, message: `unknown flag: ${a}` };
+    } else {
+      const n = Number.parseInt(a, 10);
+      if (!Number.isFinite(n) || n <= 0 || String(n) !== a) {
+        return { ok: false, message: `expected a PR number, got: ${a}` };
+      }
+      if (pr !== undefined) {
+        return { ok: false, message: `PR number given twice (${pr} and ${a})` };
+      }
+      pr = n;
+    }
+  }
 
-	if (pr === undefined) {
-		return { ok: false, message: "missing required <pr-number> (positional or --pr <n>)" };
-	}
-	return { ok: true, args: { pr, dryRun, expectedScope, keepBranch, repoRoot, assumeCiGreen, concurrency } };
+  if (pr === undefined) {
+    return { ok: false, message: "missing required <pr-number> (positional or --pr <n>)" };
+  }
+  return { ok: true, args: { pr, dryRun, expectedScope, keepBranch, repoRoot, assumeCiGreen, concurrency } };
 }
 
 /** The structured outcome serialized on stdout. */
@@ -209,43 +223,43 @@ export function parsePrFinishArgs(argv: string[]): { ok: true; args: ParsedPrFin
  * every new reason must be added here AND get a table row.
  */
 export const PR_FINISH_ABORT_REASONS = [
-	"pr-status-failed",
-	"not-open",
-	"behind",
-	"not-clean",
-	"dirty_tree",
-	"local_ci_failed",
-	"ci-assumption-unverifiable",
-	"ci-assumption-stale",
-	"missing-workflow-scope",
-	"merge-failed",
-	"e2e-credentials-missing",
+  "pr-status-failed",
+  "not-open",
+  "behind",
+  "not-clean",
+  "dirty_tree",
+  "local_ci_failed",
+  "ci-assumption-unverifiable",
+  "ci-assumption-stale",
+  "missing-workflow-scope",
+  "merge-failed",
+  "e2e-credentials-missing",
 ] as const;
 
 export interface PrFinishOutcome {
-	pr: number;
-	merged: boolean;
-	verdict: VerifyMergeOutcome["verdict"];
-	branchSpent: boolean;
-	/** Every spawned command, plus the planned ones in dry-run. */
-	commands: string[];
-	warnings: string[];
-	dryRun?: boolean;
-	/** Present ONLY when `--assume-ci-green` skipped the local-CI gate. Its
-	 *  absence is the proof that this invocation ran CI itself. */
-	ciSkipped?: { assumedSha: string };
-	/** How the pre-merge `mergeState` was reached: the settled value and how
-	 *  many `gh pr view` calls it took. `polls > 1` means it started UNKNOWN. */
-	mergeStateSettle?: { mergeState: string; polls: number };
-	/** Present iff preserve-listed hot files were parked around the cleanup
-	 *  detach and a restore was attempted (restored:false + conflict = the
-	 *  stash is KEPT — recover manually, see the warning). */
-	preserved?: PreserveOutcome;
-	/** MC-5 (self-arc-15 t06): the head branch was held by ANOTHER worktree —
-	 *  recorded structurally (and not only as a buried note) so the operator
-	 *  knows where the branch lives without re-running anything. */
-	cleanup?: { localKept?: { branch: string; worktree: string } };
-	aborted?: { aborted: true; reason: string; message: string };
+  pr: number;
+  merged: boolean;
+  verdict: VerifyMergeOutcome["verdict"];
+  branchSpent: boolean;
+  /** Every spawned command, plus the planned ones in dry-run. */
+  commands: string[];
+  warnings: string[];
+  dryRun?: boolean;
+  /** Present ONLY when `--assume-ci-green` skipped the local-CI gate. Its
+   *  absence is the proof that this invocation ran CI itself. */
+  ciSkipped?: { assumedSha: string };
+  /** How the pre-merge `mergeState` was reached: the settled value and how
+   *  many `gh pr view` calls it took. `polls > 1` means it started UNKNOWN. */
+  mergeStateSettle?: { mergeState: string; polls: number };
+  /** Present iff preserve-listed hot files were parked around the cleanup
+   *  detach and a restore was attempted (restored:false + conflict = the
+   *  stash is KEPT — recover manually, see the warning). */
+  preserved?: PreserveOutcome;
+  /** MC-5 (self-arc-15 t06): the head branch was held by ANOTHER worktree —
+   *  recorded structurally (and not only as a buried note) so the operator
+   *  knows where the branch lives without re-running anything. */
+  cleanup?: { localKept?: { branch: string; worktree: string } };
+  aborted?: { aborted: true; reason: string; message: string };
 }
 
 /** How many times a `mergeState` of UNKNOWN is re-read before it is believed. */
@@ -276,100 +290,100 @@ type PrStatusSnapshot = Awaited<ReturnType<GhClient["prStatus"]>>;
  * are missing, not manufacture noise. Exported for unit tests.
  */
 export function versionNudge(
-	files: Array<{ path: string }>,
-	headPkgRaw: string | null,
-	basePkgRaw: string | null,
+  files: Array<{ path: string }>,
+  headPkgRaw: string | null,
+  basePkgRaw: string | null,
 ): string | null {
-	if (!headPkgRaw || !basePkgRaw) return null;
-	const touched = files.filter((f) => f.path.startsWith("bun-apps/s2-agent/"));
-	if (touched.length === 0) return null;
-	let head: string | undefined;
-	let base: string | undefined;
-	try {
-		head = (JSON.parse(headPkgRaw) as { version?: string }).version;
-		base = (JSON.parse(basePkgRaw) as { version?: string }).version;
-	} catch {
-		return null;
-	}
-	if (!head || !base || head !== base) return null;
-	return (
-		`s2-agent changed (${touched.length} file(s)) but its version was not bumped (still ${head}). ` +
-		`Run \`bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-agent --patch\` ` +
-		`(or --minor / --major as judged) and include the bump in the PR — advisory, not a block. ` +
-		`Deploy version dirs render <pkgVersion>+g<sha>; an ever-frozen 0.1.0 prefix names nothing.`
-	);
+  if (!headPkgRaw || !basePkgRaw) return null;
+  const touched = files.filter((f) => f.path.startsWith("bun-apps/s2-agent/"));
+  if (touched.length === 0) return null;
+  let head: string | undefined;
+  let base: string | undefined;
+  try {
+    head = (JSON.parse(headPkgRaw) as { version?: string }).version;
+    base = (JSON.parse(basePkgRaw) as { version?: string }).version;
+  } catch {
+    return null;
+  }
+  if (!head || !base || head !== base) return null;
+  return (
+    `s2-agent changed (${touched.length} file(s)) but its version was not bumped (still ${head}). ` +
+    `Run \`bun bun-apps/s2-agent-ext-devops/src/version-bump-cli.ts --package s2-agent --patch\` ` +
+    `(or --minor / --major as judged) and include the bump in the PR — advisory, not a block. ` +
+    `Deploy version dirs render <pkgVersion>+g<sha>; an ever-frozen 0.1.0 prefix names nothing.`
+  );
 }
 
 /** Read the two package.json blobs for the nudge; null on any git failure. */
 async function computeVersionNudge(opts: {
-	spawn: (cmd: string, args: string[], o?: { cwd?: string }) => Promise<{ stdout: string; exitCode: number }>;
-	repoRoot: string;
-	files: Array<{ path: string }>;
-	mergeSha?: string;
-	baseRef: string;
+  spawn: (cmd: string, args: string[], o?: { cwd?: string }) => Promise<{ stdout: string; exitCode: number }>;
+  repoRoot: string;
+  files: Array<{ path: string }>;
+  mergeSha?: string;
+  baseRef: string;
 }): Promise<string | null> {
-	if (!opts.mergeSha) return null;
-	const showPkg = async (ref: string): Promise<string | null> => {
-		try {
-			const r = await opts.spawn("git", ["-C", opts.repoRoot, "show", `${ref}:bun-apps/s2-agent/package.json`]);
-			return r.exitCode === 0 ? r.stdout : null;
-		} catch {
-			return null;
-		}
-	};
-	const [headRaw, baseRaw] = await Promise.all([showPkg(opts.mergeSha), showPkg(opts.baseRef)]);
-	return versionNudge(opts.files, headRaw, baseRaw);
+  if (!opts.mergeSha) return null;
+  const showPkg = async (ref: string): Promise<string | null> => {
+    try {
+      const r = await opts.spawn("git", ["-C", opts.repoRoot, "show", `${ref}:bun-apps/s2-agent/package.json`]);
+      return r.exitCode === 0 ? r.stdout : null;
+    } catch {
+      return null;
+    }
+  };
+  const [headRaw, baseRaw] = await Promise.all([showPkg(opts.mergeSha), showPkg(opts.baseRef)]);
+  return versionNudge(opts.files, headRaw, baseRaw);
 }
 
 export async function settlePrStatus(
-	gh: GhClient,
-	pr: number,
-	sleep: (ms: number) => Promise<void>,
-	polls: number = MERGE_STATE_POLLS,
-	delayMs: number = MERGE_STATE_POLL_DELAY_MS,
+  gh: GhClient,
+  pr: number,
+  sleep: (ms: number) => Promise<void>,
+  polls: number = MERGE_STATE_POLLS,
+  delayMs: number = MERGE_STATE_POLL_DELAY_MS,
 ): Promise<{ status: PrStatusSnapshot; polls: number }> {
-	let status = await gh.prStatus(pr);
-	let used = 1;
-	// A terminal-state PR (MERGED/CLOSED) NEVER settles: GitHub stops
-	// computing mergeability once a PR leaves OPEN, so an UNKNOWN read on one
-	// is a real answer, not "not computed yet" (#2077 — polling it burned
-	// MERGE_STATE_POLLS reads and surfaced in the receipt as an "UNKNOWN race").
-	while (status.state === "OPEN" && status.mergeState === "UNKNOWN" && used < polls) {
-		await sleep(delayMs);
-		status = await gh.prStatus(pr);
-		used++;
-	}
-	return { status, polls: used };
+  let status = await gh.prStatus(pr);
+  let used = 1;
+  // A terminal-state PR (MERGED/CLOSED) NEVER settles: GitHub stops
+  // computing mergeability once a PR leaves OPEN, so an UNKNOWN read on one
+  // is a real answer, not "not computed yet" (#2077 — polling it burned
+  // MERGE_STATE_POLLS reads and surfaced in the receipt as an "UNKNOWN race").
+  while (status.state === "OPEN" && status.mergeState === "UNKNOWN" && used < polls) {
+    await sleep(delayMs);
+    status = await gh.prStatus(pr);
+    used++;
+  }
+  return { status, polls: used };
 }
 
 /** Injectable seams (`gh`, `client`, `spawn`, `repoRoot`, `runCi`, `verify`) for tests. */
 export interface PrFinishDeps {
-	gh?: GhClient;
-	client?: BranchClient;
-	spawn?: SpawnFn;
-	repoRoot?: string;
-	/** Defaults to the real `runLocalCi`; tests stub it (offline). */
-	runCi?: (opts: Parameters<typeof runLocalCi>[0]) => Promise<CiOutcome>;
-	/**
-	 * The verification step. Injectable ONLY so the catch around it is testable:
-	 * runVerifyMerge is throw-free today, which is exactly why that catch could
-	 * fabricate a `verdict: "CLEAN"` for years without anyone noticing.
-	 */
-	verify?: typeof runVerifyMerge;
-	/** Injectable so the UNKNOWN-poll path is testable without real waiting. */
-	sleep?: (ms: number) => Promise<void>;
-	/** Remote name for `origin/<base>` probes, the planned delete, and the
-	 *  post-merge detach fallback (default: the forge selection's resolution,
-	 *  else `origin`). */
-	remoteName?: string;
-	/**
-	 * MC-1 (self-arc-15 t03): run BEFORE local CI so missing deploy-e2e
-	 * credentials abort in <1s with an actionable fix instead of a ~2-minute
-	 * ambiguous-model failure. Injectable so tests stay hermetic (the
-	 * production entry wires `preflightE2eLane(process.env, realRcReader)`).
-	 * Not run when `--assume-ci-green` skips the gate.
-	 */
-	e2ePreflight?: () => E2ePreflightResult;
+  gh?: GhClient;
+  client?: BranchClient;
+  spawn?: SpawnFn;
+  repoRoot?: string;
+  /** Defaults to the real `runLocalCi`; tests stub it (offline). */
+  runCi?: (opts: Parameters<typeof runLocalCi>[0]) => Promise<CiOutcome>;
+  /**
+   * The verification step. Injectable ONLY so the catch around it is testable:
+   * runVerifyMerge is throw-free today, which is exactly why that catch could
+   * fabricate a `verdict: "CLEAN"` for years without anyone noticing.
+   */
+  verify?: typeof runVerifyMerge;
+  /** Injectable so the UNKNOWN-poll path is testable without real waiting. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Remote name for `origin/<base>` probes, the planned delete, and the
+   *  post-merge detach fallback (default: the forge selection's resolution,
+   *  else `origin`). */
+  remoteName?: string;
+  /**
+   * MC-1 (self-arc-15 t03): run BEFORE local CI so missing deploy-e2e
+   * credentials abort in <1s with an actionable fix instead of a ~2-minute
+   * ambiguous-model failure. Injectable so tests stay hermetic (the
+   * production entry wires `preflightE2eLane(process.env, realRcReader)`).
+   * Not run when `--assume-ci-green` skips the gate.
+   */
+  e2ePreflight?: () => E2ePreflightResult;
 }
 
 const realSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -392,7 +406,10 @@ export const WORKFLOW_SCOPE_FIX = "gh auth refresh -h github.com -s workflow";
  * with exactly one fix, so it gets its own reason and carries that fix.
  */
 export function isMissingWorkflowScope(message: string): boolean {
-	return /without\s+[`'"]?workflow[`'"]?\s+scope/i.test(message) || /refusing to allow an? .*to (?:create or update|update) workflow/i.test(message);
+  return (
+    /without\s+[`'"]?workflow[`'"]?\s+scope/i.test(message) ||
+    /refusing to allow an? .*to (?:create or update|update) workflow/i.test(message)
+  );
 }
 
 /** Wrap a SpawnFn so every invocation is recorded (rendered runnable).
@@ -407,21 +424,21 @@ export function isMissingWorkflowScope(message: string): boolean {
  * (recipes spawn `git -C <dir> …` directly) is already runnable as the plain
  *  join; non-git spawns (bun, gh, echo, …) keep the plain join too. */
 function renderRecorded(cmd: string, args: string[], cwd?: string): string {
-	if (cmd === "git" && cwd) return `git -C "${cwd}" ${args.join(" ")}`;
-	return [cmd, ...args].join(" ");
+  if (cmd === "git" && cwd) return `git -C "${cwd}" ${args.join(" ")}`;
+  return [cmd, ...args].join(" ");
 }
 
 function recordingSpawn(spawn: SpawnFn): { fn: SpawnFn; commands: string[] } {
-	const commands: string[] = [];
-	const fn: SpawnFn = async (cmd, args, options) => {
-		commands.push(renderRecorded(cmd, args, options?.cwd));
-		return spawn(cmd, args, options);
-	};
-	return { fn, commands };
+  const commands: string[] = [];
+  const fn: SpawnFn = async (cmd, args, options) => {
+    commands.push(renderRecorded(cmd, args, options?.cwd));
+    return spawn(cmd, args, options);
+  };
+  return { fn, commands };
 }
 
 function errMsg(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
+  return err instanceof Error ? err.message : String(err);
 }
 
 /**
@@ -430,509 +447,515 @@ function errMsg(err: unknown): string {
  * supplies the real set (the same wiring extensions/devops.ts uses).
  */
 export async function runPrFinishCli(argv: string[], deps: PrFinishDeps = {}): Promise<PrFinishCliResult> {
-	const parsed = parsePrFinishArgs(argv);
-	if (!parsed.ok) {
-		// --help: usage on stderr with exit 0 (matches sync-default-branch-cli).
-		if (argv.includes("-h") || argv.includes("--help")) {
-			return { exitCode: 0, stdout: "", stderr: PR_FINISH_CLI_USAGE };
-		}
-		return { exitCode: 2, stdout: "", stderr: `${parsed.message}\n${PR_FINISH_CLI_USAGE}` };
-	}
-	const { pr, dryRun, expectedScope, keepBranch, assumeCiGreen } = parsed.args;
-	const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
+  const parsed = parsePrFinishArgs(argv);
+  if (!parsed.ok) {
+    // --help: usage on stderr with exit 0 (matches sync-default-branch-cli).
+    if (argv.includes("-h") || argv.includes("--help")) {
+      return { exitCode: 0, stdout: "", stderr: PR_FINISH_CLI_USAGE };
+    }
+    return { exitCode: 2, stdout: "", stderr: `${parsed.message}\n${PR_FINISH_CLI_USAGE}` };
+  }
+  const { pr, dryRun, expectedScope, keepBranch, assumeCiGreen } = parsed.args;
+  const repoRoot = parsed.args.repoRoot ?? deps.repoRoot ?? defaultRepoRoot();
 
-	const recorded = recordingSpawn(deps.spawn ?? createLiveSpawn(repoRoot));
-	const spawn = recorded.fn;
-	// Forge selection is recorded like every other spawn (gh auth token /
-	// gh --version probes show up in `commands`); tests inject deps.gh directly
-	// and never reach the selector.
-	// The selection's resolved remote name (DEVOPS_REMOTE > git config
-	// devops.remote > origin) is reused everywhere below instead of
-	// re-resolving through the recording spawn (a second recorded probe).
-	let gh: GhClient;
-	let remoteName: string;
-	if (deps.gh) {
-		gh = deps.gh;
-		remoteName = deps.remoteName ?? "origin";
-	} else {
-		const forgeSel = await selectForgeClientCached({ spawn, repoRoot });
-		gh = forgeSel.client;
-		remoteName = deps.remoteName ?? forgeSel.remoteName;
-	}
-	const client = deps.client ?? createBranchClient(spawn, remoteName);
-	const runCi = deps.runCi ?? runLocalCi;
-	const verifyMerge = deps.verify ?? runVerifyMerge;
-	const sleep = deps.sleep ?? realSleep;
-	// Shared preserve park/restore (src/preserve.ts) — the same pairing
-	// sync_default_branch uses, so the two flows cannot drift. `git` routes
-	// through the recording spawn so the stash commands land in `commands[]`.
-	const preserveStash = createPreserveStash({
-		git: (dir, args) => spawn("git", ["-C", dir, ...args]),
-		spawn,
-		dry: dryRun,
-	});
+  const recorded = recordingSpawn(deps.spawn ?? createLiveSpawn(repoRoot));
+  const spawn = recorded.fn;
+  // Forge selection is recorded like every other spawn (gh auth token /
+  // gh --version probes show up in `commands`); tests inject deps.gh directly
+  // and never reach the selector.
+  // The selection's resolved remote name (DEVOPS_REMOTE > git config
+  // devops.remote > origin) is reused everywhere below instead of
+  // re-resolving through the recording spawn (a second recorded probe).
+  let gh: GhClient;
+  let remoteName: string;
+  if (deps.gh) {
+    gh = deps.gh;
+    remoteName = deps.remoteName ?? "origin";
+  } else {
+    const forgeSel = await selectForgeClientCached({ spawn, repoRoot });
+    gh = forgeSel.client;
+    remoteName = deps.remoteName ?? forgeSel.remoteName;
+  }
+  const client = deps.client ?? createBranchClient(spawn, remoteName);
+  const runCi = deps.runCi ?? runLocalCi;
+  const verifyMerge = deps.verify ?? runVerifyMerge;
+  const sleep = deps.sleep ?? realSleep;
+  // Shared preserve park/restore (src/preserve.ts) — the same pairing
+  // sync_default_branch uses, so the two flows cannot drift. `git` routes
+  // through the recording spawn so the stash commands land in `commands[]`.
+  const preserveStash = createPreserveStash({
+    git: (dir, args) => spawn("git", ["-C", dir, ...args]),
+    spawn,
+    dry: dryRun,
+  });
 
-	const commands = recorded.commands;
-	const warnings: string[] = [];
-	// Filled in as the run progresses so an ABORT reports them too — a
-	// not-clean abort is far easier to act on when it says how many polls the
-	// mergeState survived.
-	let ciSkipped: PrFinishOutcome["ciSkipped"];
-	let cleanupKept: { branch: string; worktree: string } | undefined;
-	let mergeStateSettle: PrFinishOutcome["mergeStateSettle"];
-	let preserved: PreserveOutcome | undefined;
-	const abort = (
-		reason: string,
-		message: string,
-		/** MC-2 (self-arc-15 t04): extra fields merged INTO `aborted` (e.g. ciLogDir). */
-		extra?: Record<string, unknown>,
-	): PrFinishCliResult => {
-		const outcome: PrFinishOutcome = {
-			pr,
-			merged: false,
-			verdict: "NOT-MERGED",
-			branchSpent: false,
-			commands,
-			warnings,
-			...(dryRun ? { dryRun: true } : {}),
-			...(ciSkipped ? { ciSkipped } : {}),
-			...(mergeStateSettle ? { mergeStateSettle } : {}),
-			aborted: { aborted: true, reason, message, ...(extra ?? {}) },
-		};
-		return { exitCode: 1, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
-	};
+  const commands = recorded.commands;
+  const warnings: string[] = [];
+  // Filled in as the run progresses so an ABORT reports them too — a
+  // not-clean abort is far easier to act on when it says how many polls the
+  // mergeState survived.
+  let ciSkipped: PrFinishOutcome["ciSkipped"];
+  let cleanupKept: { branch: string; worktree: string } | undefined;
+  let mergeStateSettle: PrFinishOutcome["mergeStateSettle"];
+  let preserved: PreserveOutcome | undefined;
+  const abort = (
+    reason: string,
+    message: string,
+    /** MC-2 (self-arc-15 t04): extra fields merged INTO `aborted` (e.g. ciLogDir). */
+    extra?: Record<string, unknown>,
+  ): PrFinishCliResult => {
+    const outcome: PrFinishOutcome = {
+      pr,
+      merged: false,
+      verdict: "NOT-MERGED",
+      branchSpent: false,
+      commands,
+      warnings,
+      ...(dryRun ? { dryRun: true } : {}),
+      ...(ciSkipped ? { ciSkipped } : {}),
+      ...(mergeStateSettle ? { mergeStateSettle } : {}),
+      aborted: { aborted: true, reason, message, ...(extra ?? {}) },
+    };
+    return { exitCode: 1, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
+  };
 
-	// --- 1. Preflight: clean tree (+ preserve-listed hot files) + PR status. --
-	// Preserve-listed auto-managed hot files (`.agents/memory/MEMORY.md`, dirty
-	// in ~every live-session worktree via hermes) no longer abort the gate: the
-	// run parks them (tagged stash) around its ONE tree mutation — the
-	// branch-cleanup detach — and restores them after (src/preserve.ts, the
-	// same pairing sync_default_branch uses). ALL OTHER uncommitted tracked
-	// dirt still aborts `dirty_tree` — fail-closed unchanged. (Measured twice
-	// in one session on 2026-08-30: every merge needed a manual `git stash
-	// push -- MEMORY.md` + pop dance to get past the old gate.)
-	let dirty: string[] = [];
-	try {
-		dirty = await client.dirtyPaths(repoRoot);
-	} catch (err) {
-		// dirtyPaths unavailable — fall back to the old isClean read rather than
-		// trusting a tree we could not inspect.
-		warnings.push(`dirtyPaths failed: ${errMsg(err)}`);
-		let clean = false;
-		try {
-			clean = await client.isClean(repoRoot);
-		} catch (err2) {
-			warnings.push(`isClean failed: ${errMsg(err2)}`);
-		}
-		if (!clean) {
-			return abort("dirty_tree", `working tree not clean at ${repoRoot} (dirty paths unavailable: ${errMsg(err)}) — commit or stash first`);
-		}
-	}
-	const preservable = dirty.filter((p) => isPreservable(p, DEFAULT_PRESERVE_PATHS));
-	const real = dirty.filter((p) => !isPreservable(p, DEFAULT_PRESERVE_PATHS));
-	if (dirty.length > 0) {
-		warnings.push(`worktree '${repoRoot}' has ${dirty.length} uncommitted tracked change(s) (${real.length} real, ${preservable.length} preserve-listed).`);
-	}
-	if (real.length > 0) {
-		return abort("dirty_tree", `working tree not clean at ${repoRoot} (dirty: ${real.join(", ")}) — commit or stash first`);
-	}
+  // --- 1. Preflight: clean tree (+ preserve-listed hot files) + PR status. --
+  // Preserve-listed auto-managed hot files (`.agents/memory/MEMORY.md`, dirty
+  // in ~every live-session worktree via hermes) no longer abort the gate: the
+  // run parks them (tagged stash) around its ONE tree mutation — the
+  // branch-cleanup detach — and restores them after (src/preserve.ts, the
+  // same pairing sync_default_branch uses). ALL OTHER uncommitted tracked
+  // dirt still aborts `dirty_tree` — fail-closed unchanged. (Measured twice
+  // in one session on 2026-08-30: every merge needed a manual `git stash
+  // push -- MEMORY.md` + pop dance to get past the old gate.)
+  let dirty: string[] = [];
+  try {
+    dirty = await client.dirtyPaths(repoRoot);
+  } catch (err) {
+    // dirtyPaths unavailable — fall back to the old isClean read rather than
+    // trusting a tree we could not inspect.
+    warnings.push(`dirtyPaths failed: ${errMsg(err)}`);
+    let clean = false;
+    try {
+      clean = await client.isClean(repoRoot);
+    } catch (err2) {
+      warnings.push(`isClean failed: ${errMsg(err2)}`);
+    }
+    if (!clean) {
+      return abort(
+        "dirty_tree",
+        `working tree not clean at ${repoRoot} (dirty paths unavailable: ${errMsg(err)}) — commit or stash first`,
+      );
+    }
+  }
+  const preservable = dirty.filter((p) => isPreservable(p, DEFAULT_PRESERVE_PATHS));
+  const real = dirty.filter((p) => !isPreservable(p, DEFAULT_PRESERVE_PATHS));
+  if (dirty.length > 0) {
+    warnings.push(
+      `worktree '${repoRoot}' has ${dirty.length} uncommitted tracked change(s) (${real.length} real, ${preservable.length} preserve-listed).`,
+    );
+  }
+  if (real.length > 0) {
+    return abort(
+      "dirty_tree",
+      `working tree not clean at ${repoRoot} (dirty: ${real.join(", ")}) — commit or stash first`,
+    );
+  }
 
-	// MC-1 (self-arc-15 t03): fail fast on missing deploy-e2e credentials —
-	// BEFORE paying for the ~2-minute local CI that would die inside the
-	// deploy-e2e gate with the opaque "model ambiguous across providers" error.
-	// --assume-ci-green skips the gate, so it skips this preflight too.
-	if (deps.e2ePreflight && !assumeCiGreen) {
-		const preflight = deps.e2ePreflight();
-		if (!preflight.ok) return abort("e2e-credentials-missing", preflight.message);
-		warnings.push(...preflight.notes);
-	}
+  // MC-1 (self-arc-15 t03): fail fast on missing deploy-e2e credentials —
+  // BEFORE paying for the ~2-minute local CI that would die inside the
+  // deploy-e2e gate with the opaque "model ambiguous across providers" error.
+  // --assume-ci-green skips the gate, so it skips this preflight too.
+  if (deps.e2ePreflight && !assumeCiGreen) {
+    const preflight = deps.e2ePreflight();
+    if (!preflight.ok) return abort("e2e-credentials-missing", preflight.message);
+    warnings.push(...preflight.notes);
+  }
 
-	// This snapshot supplies the REF NAMES the CI gate needs to scope its diff.
-	// It is deliberately NOT what the merge gates read — by the time they run,
-	// a run_local_ci pass has elapsed and this is stale (see the header note).
-	let status: PrStatusSnapshot;
-	try {
-		status = await gh.prStatus(pr);
-	} catch (err) {
-		return abort("pr-status-failed", `gh.prStatus(${pr}) failed: ${errMsg(err)}`);
-	}
+  // This snapshot supplies the REF NAMES the CI gate needs to scope its diff.
+  // It is deliberately NOT what the merge gates read — by the time they run,
+  // a run_local_ci pass has elapsed and this is stale (see the header note).
+  let status: PrStatusSnapshot;
+  try {
+    status = await gh.prStatus(pr);
+  } catch (err) {
+    return abort("pr-status-failed", `gh.prStatus(${pr}) failed: ${errMsg(err)}`);
+  }
 
-	// --- 2. Local-CI gate (remote-CI waiting intentionally NOT ported). ------
-	let ci: CiOutcome | undefined;
-	if (assumeCiGreen) {
-		// The gate is not run here; the caller asserts it already passed for a
-		// specific commit. That assertion is checked against the PR's current
-		// head below, once the fresh snapshot is in hand — asserting against
-		// THIS snapshot would let a push landing during the gap slip through.
-		ciSkipped = { assumedSha: assumeCiGreen };
-		warnings.push(
-			`run_local_ci SKIPPED — --assume-ci-green ${assumeCiGreen} asserts it already passed for that commit. ` +
-				`This invocation did not run the gate.`,
-		);
-	} else {
-		// MC-2 (self-arc-15 t04): failed steps' full output persists under
-		// output/ci-logs/ (gitignored). LAZY — the dir is created only when a
-		// failure actually writes, so green runs leave nothing behind.
-		const logWriter = await createCiLogWriter(repoRoot, `pr-${pr}`);
-		try {
-			// Base the run_local_ci diff at the PR base's REMOTE-TRACKING ref, not the
-			// local base branch. In this repo's multi-worktree layout `main` is
-			// checked out in another worktree and the local ref cannot be
-			// fast-forwarded here — a stale local `main` sweeps every commit since
-			// into the diff and over-scopes run_local_ci to the whole matrix (observed
-			// 318 s vs 69 s for the same branch). Fall back to the plain base name
-			// when the tracking ref doesn't resolve (fresh clone, no fetch yet).
-			const originBase = `${remoteName}/${status.baseRefName}`;
-			const probe = await spawn("git", ["rev-parse", "--verify", "-q", originBase], { cwd: repoRoot });
-			const ciBase = probe.exitCode === 0 ? originBase : status.baseRefName;
-			// MC-2 (self-arc-15 t04): failed steps' full output persists under
-			// output/ci-logs/ (gitignored). LAZY — created only when a failure
-			// actually writes, so green runs leave nothing behind.
-			const logWriter = await createCiLogWriter(repoRoot, `pr-${pr}`);
-			// `log` MUST be forwarded, for the same reason `cwd` must (see the note on
-			// the spawn seam below): runSchemaCostCheck is IMPORTED, so without a sink
-			// its human-readable banner goes to this process's stdout via console.log —
-			// and stdout here is the JSON payload this CLI's own contract promises is
-			// "exactly what belongs on stdout". Dropping it emitted an unparseable
-			// outcome whenever the schema-cost baseline had drifted.
-			ci = await runCi({
-				repoRoot,
-				baseRef: ciBase,
-				headRef: status.headRefName,
-				...(parsed.args.concurrency !== undefined ? { concurrency: parsed.args.concurrency } : {}),
-				spawn,
-				failureLogWriter: logWriter.write,
-				log: (line: string) => process.stderr.write(`${line}\n`),
-			});
-		} catch (err) {
-			return abort("local_ci_failed", `local CI threw: ${errMsg(err)}`);
-		}
-		if (ci.overall !== "pass") {
-			return abort(
-				"local_ci_failed",
-				`local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — failing: ${summarizeCiFailures(ci)} — fix before merging` +
-					(ci.logFiles?.length ? ` — full logs: ${logWriter.dir}` : ""),
-				{ ciLogDir: logWriter.dir, ...(ci.logFiles?.length ? { logFiles: ci.logFiles } : {}) },
-			);
-		}
-		// ≤5-minute budget (house rule): advisory, never blocks the merge — but it
-		// must be LOUD, because a slow run_local_ci stops being used as a gate.
-		if (ci.overBudget) {
-			const slowest = (ci.slowest ?? [])
-				.map((s) => `${s.name} ${(s.durationMs / 1000).toFixed(1)}s`)
-				.join(", ");
-			warnings.push(
-				`run_local_ci took ${(ci.elapsedMs / 1000).toFixed(0)}s (budget ${(ci.budgetMs / 1000).toFixed(0)}s) — ` +
-					`over-budget CI is bad CI; optimize before the next run. Slowest: ${slowest || "n/a"}`,
-			);
-		}
-	}
+  // --- 2. Local-CI gate (remote-CI waiting intentionally NOT ported). ------
+  let ci: CiOutcome | undefined;
+  if (assumeCiGreen) {
+    // The gate is not run here; the caller asserts it already passed for a
+    // specific commit. That assertion is checked against the PR's current
+    // head below, once the fresh snapshot is in hand — asserting against
+    // THIS snapshot would let a push landing during the gap slip through.
+    ciSkipped = { assumedSha: assumeCiGreen };
+    warnings.push(
+      `run_local_ci SKIPPED — --assume-ci-green ${assumeCiGreen} asserts it already passed for that commit. ` +
+        `This invocation did not run the gate.`,
+    );
+  } else {
+    // MC-2 (self-arc-15 t04): failed steps' full output persists under
+    // output/ci-logs/ (gitignored). LAZY — the dir is created only when a
+    // failure actually writes, so green runs leave nothing behind.
+    const logWriter = await createCiLogWriter(repoRoot, `pr-${pr}`);
+    try {
+      // Base the run_local_ci diff at the PR base's REMOTE-TRACKING ref, not the
+      // local base branch. In this repo's multi-worktree layout `main` is
+      // checked out in another worktree and the local ref cannot be
+      // fast-forwarded here — a stale local `main` sweeps every commit since
+      // into the diff and over-scopes run_local_ci to the whole matrix (observed
+      // 318 s vs 69 s for the same branch). Fall back to the plain base name
+      // when the tracking ref doesn't resolve (fresh clone, no fetch yet).
+      const originBase = `${remoteName}/${status.baseRefName}`;
+      const probe = await spawn("git", ["rev-parse", "--verify", "-q", originBase], { cwd: repoRoot });
+      const ciBase = probe.exitCode === 0 ? originBase : status.baseRefName;
+      // MC-2 (self-arc-15 t04): failed steps' full output persists under
+      // output/ci-logs/ (gitignored). LAZY — created only when a failure
+      // actually writes, so green runs leave nothing behind.
+      const logWriter = await createCiLogWriter(repoRoot, `pr-${pr}`);
+      // `log` MUST be forwarded, for the same reason `cwd` must (see the note on
+      // the spawn seam below): runSchemaCostCheck is IMPORTED, so without a sink
+      // its human-readable banner goes to this process's stdout via console.log —
+      // and stdout here is the JSON payload this CLI's own contract promises is
+      // "exactly what belongs on stdout". Dropping it emitted an unparseable
+      // outcome whenever the schema-cost baseline had drifted.
+      ci = await runCi({
+        repoRoot,
+        baseRef: ciBase,
+        headRef: status.headRefName,
+        ...(parsed.args.concurrency !== undefined ? { concurrency: parsed.args.concurrency } : {}),
+        spawn,
+        failureLogWriter: logWriter.write,
+        log: (line: string) => process.stderr.write(`${line}\n`),
+      });
+    } catch (err) {
+      return abort("local_ci_failed", `local CI threw: ${errMsg(err)}`);
+    }
+    if (ci.overall !== "pass") {
+      return abort(
+        "local_ci_failed",
+        `local CI ${ci.overall} for ${status.baseRefName}..${status.headRefName} (${ci.elapsedMs}ms) — failing: ${summarizeCiFailures(ci)} — fix before merging` +
+          (ci.logFiles?.length ? ` — full logs: ${logWriter.dir}` : ""),
+        { ciLogDir: logWriter.dir, ...(ci.logFiles?.length ? { logFiles: ci.logFiles } : {}) },
+      );
+    }
+    // ≤5-minute budget (house rule): advisory, never blocks the merge — but it
+    // must be LOUD, because a slow run_local_ci stops being used as a gate.
+    if (ci.overBudget) {
+      const slowest = (ci.slowest ?? []).map((s) => `${s.name} ${(s.durationMs / 1000).toFixed(1)}s`).join(", ");
+      warnings.push(
+        `run_local_ci took ${(ci.elapsedMs / 1000).toFixed(0)}s (budget ${(ci.budgetMs / 1000).toFixed(0)}s) — ` +
+          `over-budget CI is bad CI; optimize before the next run. Slowest: ${slowest || "n/a"}`,
+      );
+    }
+  }
 
-	// --- 3. Merge gates, read from a FRESH snapshot. --------------------------
-	// Re-read AFTER the CI gate: the preflight snapshot is minutes old by now,
-	// and an UNKNOWN mergeState is polled rather than believed (header note).
-	try {
-		const settled = await settlePrStatus(gh, pr, sleep);
-		status = settled.status;
-		mergeStateSettle = { mergeState: settled.status.mergeState, polls: settled.polls };
-		if (settled.polls > 1) {
-			warnings.push(
-				`mergeState was UNKNOWN and settled to ${settled.status.mergeState} after ${settled.polls} reads — ` +
-					`GitHub computes mergeability asynchronously.`,
-			);
-		}
-	} catch (err) {
-		return abort("pr-status-failed", `gh.prStatus(${pr}) re-read failed: ${errMsg(err)}`);
-	}
+  // --- 3. Merge gates, read from a FRESH snapshot. --------------------------
+  // Re-read AFTER the CI gate: the preflight snapshot is minutes old by now,
+  // and an UNKNOWN mergeState is polled rather than believed (header note).
+  try {
+    const settled = await settlePrStatus(gh, pr, sleep);
+    status = settled.status;
+    mergeStateSettle = { mergeState: settled.status.mergeState, polls: settled.polls };
+    if (settled.polls > 1) {
+      warnings.push(
+        `mergeState was UNKNOWN and settled to ${settled.status.mergeState} after ${settled.polls} reads — ` +
+          `GitHub computes mergeability asynchronously.`,
+      );
+    }
+  } catch (err) {
+    return abort("pr-status-failed", `gh.prStatus(${pr}) re-read failed: ${errMsg(err)}`);
+  }
 
-	// The CI assertion is checked against the FRESH head: if anything was
-	// pushed to the PR after the caller ran CI, the sha no longer matches and
-	// this aborts instead of merging a commit no gate has seen.
-	if (assumeCiGreen) {
-		const head = status.headRefOid?.toLowerCase();
-		if (!head) {
-			return abort(
-				"ci-assumption-unverifiable",
-				`--assume-ci-green was given but PR #${pr} reports no headRefOid — the assertion cannot be checked, so it is not accepted`,
-			);
-		}
-		if (head !== assumeCiGreen) {
-			return abort(
-				"ci-assumption-stale",
-				`--assume-ci-green ${assumeCiGreen} does not match PR #${pr}'s current head ${head} — re-run local CI against the new head`,
-			);
-		}
-	}
+  // The CI assertion is checked against the FRESH head: if anything was
+  // pushed to the PR after the caller ran CI, the sha no longer matches and
+  // this aborts instead of merging a commit no gate has seen.
+  if (assumeCiGreen) {
+    const head = status.headRefOid?.toLowerCase();
+    if (!head) {
+      return abort(
+        "ci-assumption-unverifiable",
+        `--assume-ci-green was given but PR #${pr} reports no headRefOid — the assertion cannot be checked, so it is not accepted`,
+      );
+    }
+    if (head !== assumeCiGreen) {
+      return abort(
+        "ci-assumption-stale",
+        `--assume-ci-green ${assumeCiGreen} does not match PR #${pr}'s current head ${head} — re-run local CI against the new head`,
+      );
+    }
+  }
 
-	// Already merged is the GOAL STATE, not an error (#2077): the merge landed
-	// in a prior invocation (a retry after a merge-failed whose response was
-	// lost after the server applied it, or a sibling session). Aborting here
-	// as `not-open` printed `merged:false, verdict:NOT-MERGED` on a merged PR
-	// — the NOT-MERGED-but-MERGED misreport whose cleanup was then redone by
-	// hand, twice. Skip the merge gates + mergeNow and fall through to verify
-	// + cleanup instead; runMergeRecipe (recipe.ts) models the same case as
-	// merged:true already-merged. A CLOSED PR is still an abort.
-	const alreadyMerged = status.state === "MERGED";
-	if (alreadyMerged) {
-		warnings.push(
-			`PR #${pr} is already MERGED — the merge landed in a prior invocation; this run verifies + cleans up instead of merging.`,
-		);
-		// The default-branch worktree is just as behind as after a fresh merge
-		// (the prior invocation advanced the base) — the operator needs the
-		// same catch-up nudge the post-merge path gives.
-		warnings.push(
-			`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
-		);
-	} else {
-		if (status.state !== "OPEN") {
-			return abort("not-open", `PR #${pr} state is ${status.state}, expected OPEN`);
-		}
-		if (status.mergeState === "BEHIND") {
-			return abort("behind", `PR #${pr} is BEHIND ${status.baseRefName} — run prepare_feature_branch (rebase) first`);
-		}
-		if (status.mergeState !== "CLEAN") {
-			return abort("not-clean", `PR #${pr} mergeState is ${status.mergeState}, expected CLEAN`);
-		}
-	}
+  // Already merged is the GOAL STATE, not an error (#2077): the merge landed
+  // in a prior invocation (a retry after a merge-failed whose response was
+  // lost after the server applied it, or a sibling session). Aborting here
+  // as `not-open` printed `merged:false, verdict:NOT-MERGED` on a merged PR
+  // — the NOT-MERGED-but-MERGED misreport whose cleanup was then redone by
+  // hand, twice. Skip the merge gates + mergeNow and fall through to verify
+  // + cleanup instead; runMergeRecipe (recipe.ts) models the same case as
+  // merged:true already-merged. A CLOSED PR is still an abort.
+  const alreadyMerged = status.state === "MERGED";
+  if (alreadyMerged) {
+    warnings.push(
+      `PR #${pr} is already MERGED — the merge landed in a prior invocation; this run verifies + cleans up instead of merging.`,
+    );
+    // The default-branch worktree is just as behind as after a fresh merge
+    // (the prior invocation advanced the base) — the operator needs the
+    // same catch-up nudge the post-merge path gives.
+    warnings.push(
+      `PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
+    );
+  } else {
+    if (status.state !== "OPEN") {
+      return abort("not-open", `PR #${pr} state is ${status.state}, expected OPEN`);
+    }
+    if (status.mergeState === "BEHIND") {
+      return abort("behind", `PR #${pr} is BEHIND ${status.baseRefName} — run prepare_feature_branch (rebase) first`);
+    }
+    if (status.mergeState !== "CLEAN") {
+      return abort("not-clean", `PR #${pr} mergeState is ${status.mergeState}, expected CLEAN`);
+    }
+  }
 
-	// --- dry-run stops here: emit the planned commands, mutate nothing. ------
-	if (dryRun) {
-		const planned = alreadyMerged ? [] : [`gh pr merge ${pr} --squash`];
-		if (!keepBranch && status.headRefName) {
-			planned.push(`git branch -D ${status.headRefName}`);
-			planned.push(`git push --no-verify ${remoteName} --delete ${status.headRefName}`);
-		}
-		if (!keepBranch) planned.push("git fetch --prune");
-		const outcome: PrFinishOutcome = {
-			pr,
-			merged: false,
-			verdict: "NOT-MERGED",
-			branchSpent: false,
-			commands: [...commands, ...planned],
-			warnings,
-			dryRun: true,
-			...(ciSkipped ? { ciSkipped } : {}),
-			...(mergeStateSettle ? { mergeStateSettle } : {}),
-		};
-		return { exitCode: 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
-	}
+  // --- dry-run stops here: emit the planned commands, mutate nothing. ------
+  if (dryRun) {
+    const planned = alreadyMerged ? [] : [`gh pr merge ${pr} --squash`];
+    if (!keepBranch && status.headRefName) {
+      planned.push(`git branch -D ${status.headRefName}`);
+      planned.push(`git push --no-verify ${remoteName} --delete ${status.headRefName}`);
+    }
+    if (!keepBranch) planned.push("git fetch --prune");
+    const outcome: PrFinishOutcome = {
+      pr,
+      merged: false,
+      verdict: "NOT-MERGED",
+      branchSpent: false,
+      commands: [...commands, ...planned],
+      warnings,
+      dryRun: true,
+      ...(ciSkipped ? { ciSkipped } : {}),
+      ...(mergeStateSettle ? { mergeStateSettle } : {}),
+    };
+    return { exitCode: 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
+  }
 
-	// --- 4. Merge (squash; branch deletion is our own cleanup below). --------
-	// Skipped when the PR is already MERGED (#2077): re-merging is a guaranteed
-	// refusal and verify + cleanup below are the actual recovery.
-	if (!alreadyMerged) {
-		try {
-			await gh.mergeNow(pr, "squash", false);
-		} catch (err) {
-			const message = errMsg(err);
-			if (isMissingWorkflowScope(message)) {
-				return abort(
-					"missing-workflow-scope",
-					`gh pr merge ${pr} --squash was refused: the gh token has no \`workflow\` scope, and this PR ` +
-						`touches .github/workflows/. Fix: ${WORKFLOW_SCOPE_FIX} (interactive — the token owner must run it), ` +
-						`then re-run with --assume-ci-green <head sha> to skip re-paying for local CI. ` +
-						`Original: ${message}`,
-				);
-			}
-			return abort("merge-failed", `gh pr merge ${pr} --squash failed: ${message}`);
-		}
-		// The merge advanced ${baseRefName} on origin — the worktree holding the
-		// default branch (possibly this cwd) is now behind until synced. Nudge the
-		// caller (matches sync_default_branch's own behind-default warning style).
-		warnings.push(
-			`PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
-		);
-	}
+  // --- 4. Merge (squash; branch deletion is our own cleanup below). --------
+  // Skipped when the PR is already MERGED (#2077): re-merging is a guaranteed
+  // refusal and verify + cleanup below are the actual recovery.
+  if (!alreadyMerged) {
+    try {
+      await gh.mergeNow(pr, "squash", false);
+    } catch (err) {
+      const message = errMsg(err);
+      if (isMissingWorkflowScope(message)) {
+        return abort(
+          "missing-workflow-scope",
+          `gh pr merge ${pr} --squash was refused: the gh token has no \`workflow\` scope, and this PR ` +
+            `touches .github/workflows/. Fix: ${WORKFLOW_SCOPE_FIX} (interactive — the token owner must run it), ` +
+            `then re-run with --assume-ci-green <head sha> to skip re-paying for local CI. ` +
+            `Original: ${message}`,
+        );
+      }
+      return abort("merge-failed", `gh pr merge ${pr} --squash failed: ${message}`);
+    }
+    // The merge advanced ${baseRefName} on origin — the worktree holding the
+    // default branch (possibly this cwd) is now behind until synced. Nudge the
+    // caller (matches sync_default_branch's own behind-default warning style).
+    warnings.push(
+      `PR #${pr} merged into ${status.baseRefName} — the default-branch worktree / this cwd may now be behind ${remoteName}/${status.baseRefName}; run sync_default_branch to catch up.`,
+    );
+  }
 
-	// --- 5. Verify (read-only; CONTAMINATED warns, never rolls back). -------
-	let verify: VerifyMergeOutcome;
-	try {
-		// allowFetch: we just merged, so the squash commit is on the remote and
-		// not yet in the local object store — without the fetch this verification
-		// could not read a single file. (pr_finish already mutates; the fetch
-		// touches the object store only.)
-		verify = await verifyMerge({ gh, client, spawn, repoRoot, pr, expectedScope, allowFetch: true, remoteName });
-	} catch (err) {
-		// This used to synthesize `verdict: "CLEAN"`. A total failure of the
-		// verification step reported itself as a verified-clean merge — the same
-		// launder-failure-into-success bug as issue #1439, one layer up.
-		verify = {
-			pr,
-			state: "MERGED",
-			merged: true,
-			verdict: "UNVERIFIED",
-			files: [],
-			fileCount: 0,
-			insertions: 0,
-			deletions: 0,
-			outOfScope: [],
-			inspected: false,
-			branchSpent: false,
-			commands: [],
-			warnings: [`runVerifyMerge threw: ${errMsg(err)}`],
-		};
-	}
-	warnings.push(...verify.warnings);
-	if (verify.aborted) {
-		warnings.push(`verify_merge_landed aborted (${verify.aborted.reason}): ${verify.aborted.message}`);
-	}
-	if (verify.verdict === "CONTAMINATED") {
-		warnings.push(
-			`CONTAMINATED merge: ${verify.outOfScope.length} out-of-scope file(s): ${verify.outOfScope.map((f) => f.path).join(", ")} — NOT rolled back`,
-		);
-	}
-	if (verify.verdict === "UNVERIFIED") {
-		warnings.push(
-			`UNVERIFIED merge: PR #${pr} merged but its file scope could NOT be checked — treat the scope as unknown, not as clean.`,
-		);
-	}
+  // --- 5. Verify (read-only; CONTAMINATED warns, never rolls back). -------
+  let verify: VerifyMergeOutcome;
+  try {
+    // allowFetch: we just merged, so the squash commit is on the remote and
+    // not yet in the local object store — without the fetch this verification
+    // could not read a single file. (pr_finish already mutates; the fetch
+    // touches the object store only.)
+    verify = await verifyMerge({ gh, client, spawn, repoRoot, pr, expectedScope, allowFetch: true, remoteName });
+  } catch (err) {
+    // This used to synthesize `verdict: "CLEAN"`. A total failure of the
+    // verification step reported itself as a verified-clean merge — the same
+    // launder-failure-into-success bug as issue #1439, one layer up.
+    verify = {
+      pr,
+      state: "MERGED",
+      merged: true,
+      verdict: "UNVERIFIED",
+      files: [],
+      fileCount: 0,
+      insertions: 0,
+      deletions: 0,
+      outOfScope: [],
+      inspected: false,
+      branchSpent: false,
+      commands: [],
+      warnings: [`runVerifyMerge threw: ${errMsg(err)}`],
+    };
+  }
+  warnings.push(...verify.warnings);
+  if (verify.aborted) {
+    warnings.push(`verify_merge_landed aborted (${verify.aborted.reason}): ${verify.aborted.message}`);
+  }
+  if (verify.verdict === "CONTAMINATED") {
+    warnings.push(
+      `CONTAMINATED merge: ${verify.outOfScope.length} out-of-scope file(s): ${verify.outOfScope.map((f) => f.path).join(", ")} — NOT rolled back`,
+    );
+  }
+  if (verify.verdict === "UNVERIFIED") {
+    warnings.push(
+      `UNVERIFIED merge: PR #${pr} merged but its file scope could NOT be checked — treat the scope as unknown, not as clean.`,
+    );
+  }
 
-	// --- 5b. Advisory: s2-agent changed without a version bump. -------------
-	// Version policy (2026-08-22): bumps are MANUAL at PR finish via
-	// version-bump-cli.ts. This nudge fires when the merge touched
-	// bun-apps/s2-agent/** yet package.json's version is identical base→head.
-	// Advisory only (schema-cost precedent) — never blocks, never fails.
-	{
-		const nudge = await computeVersionNudge({
-			spawn,
-			repoRoot,
-			files: verify.files,
-			mergeSha: verify.mergeSha,
-			baseRef: `${remoteName}/${status.baseRefName}`,
-		});
-		if (nudge) warnings.push(nudge);
-	}
+  // --- 5b. Advisory: s2-agent changed without a version bump. -------------
+  // Version policy (2026-08-22): bumps are MANUAL at PR finish via
+  // version-bump-cli.ts. This nudge fires when the merge touched
+  // bun-apps/s2-agent/** yet package.json's version is identical base→head.
+  // Advisory only (schema-cost precedent) — never blocks, never fails.
+  {
+    const nudge = await computeVersionNudge({
+      spawn,
+      repoRoot,
+      files: verify.files,
+      mergeSha: verify.mergeSha,
+      baseRef: `${remoteName}/${status.baseRefName}`,
+    });
+    if (nudge) warnings.push(nudge);
+  }
 
-	// --- 6. Cleanup: delete the spent head branch, prune (unless kept). ------
-	const headRefName = status.headRefName;
-	// Parked preserve-listed hot files, restored after the cleanup (below). A
-	// `PreservePark` value means the tagged stash entry is live in this tree.
-	let park: PreservePark | undefined;
-	if (!keepBranch) {
-		if (verify.branchSpent && headRefName) {
-			// The LOCAL half of the cleanup (worktree-held check → detach → delete)
-			// is delegated to the shared branch-cleanup core (`src/branch-cleanup.ts`,
-			// the same one the recipe path uses since #2150) so the two merge paths
-			// cannot drift apart again — this arc's origin was exactly a
-			// one-path-fixed-other-lacks gap. Kept HERE, outside the call: the
-			// `branchSpent` gate, the REMOTE delete, and the prune wiring (the trailing
-			// fetchPrune below also covers the !branchSpent path, so the core runs
-			// with `prune: false` — one recorded fetch, pinned call order).
-			//
-			// Detach target: prefer the MERGE COMMIT over `origin/<base>` — the local
-			// remote-tracking ref still points at the PRE-merge tip here
-			// (`fetchPrune()` runs after this block), so detaching onto it left the
-			// worktree one commit behind the merge it had just made. verify has
-			// already guaranteed the merge sha is in the local object store when it
-			// could inspect (it read the diff out of it, fetching first if needed);
-			// fall back to `origin/<base>` only when verify could not inspect — there
-			// the sha may genuinely not be local.
-			//
-			// Safe by construction: preflight gated on a clean-or-parked tree (all
-			// non-preserve dirt aborts `dirty_tree`; preserve-listed hot files are
-			// parked below before the detach), and we only reach this when verify said
-			// the branch is spent — its commits are all in the merge, so detaching onto
-			// it loses nothing. The core's notes
-			// are byte-identical to the warning strings this block used to emit
-			// (tests pin them), including the held-elsewhere skip, the detach-failure
-			// skip, and the delete failure itself; the one deliberate behavior CHANGE
-			// is the core's existence check before the delete — a clone that never
-			// checked the branch out now gets a benign "nothing to delete" note
-			// instead of a failed `git branch -D` warning.
-			const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `${remoteName}/${status.baseRefName}`;
-			// PARK preserve-listed hot files right before the detach — the run's
-			// one tree mutation. git refuses `checkout --detach` when a dirty file
-			// differs between HEADs (MEMORY.md routinely does: hermes commits land
-			// in main constantly), so the park brackets the detach and the restore
-			// below re-lands the parked edits on the NEW head. A park failure here is
-			// POST-merge: aborting would misreport a merged PR as NOT-MERGED (#2077's
-			// exact class), so it warns and the cleanup proceeds un-parked (a failing
-			// detach is only a note in the core's semantics — nothing is lost).
-			if (preservable.length > 0) {
-				const p = await preserveStash.parkPreserve(repoRoot, preservable);
-				if (p.aborted) warnings.push(p.aborted);
-				else if (p.empty) warnings.push(preserveStash.emptyParkWarning(repoRoot, preservable));
-				else park = p.park;
-			}
-			const cleanup = await runLocalBranchCleanup({
-				client,
-				headBranch: headRefName,
-				repoRoot,
-				onto,
-				prune: false,
-			});
-			if (cleanup.detached && cleanup.detachedOnto) {
-				commands.push(`git -C "${repoRoot}" checkout --detach ${cleanup.detachedOnto}`);
-			}
-			if (cleanup.heldElsewhere) {
-				cleanupKept = { branch: headRefName, worktree: cleanup.heldElsewhere };
-			}
-			warnings.push(...cleanup.notes);
-			try {
-				await client.deleteRemoteBranch(headRefName);
-			} catch (err) {
-				warnings.push(`deleteRemoteBranch(${headRefName}) failed: ${errMsg(err)}`);
-			}
-		}
-		try {
-			await client.fetchPrune();
-		} catch (err) {
-			warnings.push(`fetchPrune failed: ${errMsg(err)}`);
-		}
-	}
+  // --- 6. Cleanup: delete the spent head branch, prune (unless kept). ------
+  const headRefName = status.headRefName;
+  // Parked preserve-listed hot files, restored after the cleanup (below). A
+  // `PreservePark` value means the tagged stash entry is live in this tree.
+  let park: PreservePark | undefined;
+  if (!keepBranch) {
+    if (verify.branchSpent && headRefName) {
+      // The LOCAL half of the cleanup (worktree-held check → detach → delete)
+      // is delegated to the shared branch-cleanup core (`src/branch-cleanup.ts`,
+      // the same one the recipe path uses since #2150) so the two merge paths
+      // cannot drift apart again — this arc's origin was exactly a
+      // one-path-fixed-other-lacks gap. Kept HERE, outside the call: the
+      // `branchSpent` gate, the REMOTE delete, and the prune wiring (the trailing
+      // fetchPrune below also covers the !branchSpent path, so the core runs
+      // with `prune: false` — one recorded fetch, pinned call order).
+      //
+      // Detach target: prefer the MERGE COMMIT over `origin/<base>` — the local
+      // remote-tracking ref still points at the PRE-merge tip here
+      // (`fetchPrune()` runs after this block), so detaching onto it left the
+      // worktree one commit behind the merge it had just made. verify has
+      // already guaranteed the merge sha is in the local object store when it
+      // could inspect (it read the diff out of it, fetching first if needed);
+      // fall back to `origin/<base>` only when verify could not inspect — there
+      // the sha may genuinely not be local.
+      //
+      // Safe by construction: preflight gated on a clean-or-parked tree (all
+      // non-preserve dirt aborts `dirty_tree`; preserve-listed hot files are
+      // parked below before the detach), and we only reach this when verify said
+      // the branch is spent — its commits are all in the merge, so detaching onto
+      // it loses nothing. The core's notes
+      // are byte-identical to the warning strings this block used to emit
+      // (tests pin them), including the held-elsewhere skip, the detach-failure
+      // skip, and the delete failure itself; the one deliberate behavior CHANGE
+      // is the core's existence check before the delete — a clone that never
+      // checked the branch out now gets a benign "nothing to delete" note
+      // instead of a failed `git branch -D` warning.
+      const onto = verify.inspected && verify.mergeSha ? verify.mergeSha : `${remoteName}/${status.baseRefName}`;
+      // PARK preserve-listed hot files right before the detach — the run's
+      // one tree mutation. git refuses `checkout --detach` when a dirty file
+      // differs between HEADs (MEMORY.md routinely does: hermes commits land
+      // in main constantly), so the park brackets the detach and the restore
+      // below re-lands the parked edits on the NEW head. A park failure here is
+      // POST-merge: aborting would misreport a merged PR as NOT-MERGED (#2077's
+      // exact class), so it warns and the cleanup proceeds un-parked (a failing
+      // detach is only a note in the core's semantics — nothing is lost).
+      if (preservable.length > 0) {
+        const p = await preserveStash.parkPreserve(repoRoot, preservable);
+        if (p.aborted) warnings.push(p.aborted);
+        else if (p.empty) warnings.push(preserveStash.emptyParkWarning(repoRoot, preservable));
+        else park = p.park;
+      }
+      const cleanup = await runLocalBranchCleanup({
+        client,
+        headBranch: headRefName,
+        repoRoot,
+        onto,
+        prune: false,
+      });
+      if (cleanup.detached && cleanup.detachedOnto) {
+        commands.push(`git -C "${repoRoot}" checkout --detach ${cleanup.detachedOnto}`);
+      }
+      if (cleanup.heldElsewhere) {
+        cleanupKept = { branch: headRefName, worktree: cleanup.heldElsewhere };
+      }
+      warnings.push(...cleanup.notes);
+      try {
+        await client.deleteRemoteBranch(headRefName);
+      } catch (err) {
+        warnings.push(`deleteRemoteBranch(${headRefName}) failed: ${errMsg(err)}`);
+      }
+    }
+    try {
+      await client.fetchPrune();
+    } catch (err) {
+      warnings.push(`fetchPrune failed: ${errMsg(err)}`);
+    }
+  }
 
-	// RESTORE the parked preserve-listed hot files — the last tree-touching
-	// step (the stash now applies onto the post-merge HEAD the detach moved us
-	// to). On a conflict the stash is KEPT and the warning carries the manual
-	// recovery; `preserved` lands in the outcome either way (never a lost file).
-	if (park) {
-		const r = await preserveStash.restorePreserve(park);
-		preserved = r.outcome;
-		warnings.push(...r.warnings);
-	}
+  // RESTORE the parked preserve-listed hot files — the last tree-touching
+  // step (the stash now applies onto the post-merge HEAD the detach moved us
+  // to). On a conflict the stash is KEPT and the warning carries the manual
+  // recovery; `preserved` lands in the outcome either way (never a lost file).
+  if (park) {
+    const r = await preserveStash.restorePreserve(park);
+    preserved = r.outcome;
+    warnings.push(...r.warnings);
+  }
 
-	// #2077 residual seam, one layer down: verify's OWN prStatus read can fail
-	// (network), and runVerifyMerge then returns merged:false / NOT-MERGED —
-	// the very misreport this fix kills. The gate-stage read already
-	// established MERGED, so on that path report UNVERIFIED instead.
-	// Branch deletion stays safe: it is gated on verify.branchSpent, which is
-	// false in the aborted outcome.
-	const mergedFinal = alreadyMerged && !verify.merged;
-	const verdictFinal: VerifyMergeOutcome["verdict"] = mergedFinal ? "UNVERIFIED" : verify.verdict;
-	if (mergedFinal) {
-		warnings.push(
-			`PR #${pr} read MERGED at the gate stage but verify_merge_landed could not confirm (${verify.verdict}${verify.aborted ? `, ${verify.aborted.reason}` : ""}) — reporting UNVERIFIED, not NOT-MERGED.`,
-		);
-	}
+  // #2077 residual seam, one layer down: verify's OWN prStatus read can fail
+  // (network), and runVerifyMerge then returns merged:false / NOT-MERGED —
+  // the very misreport this fix kills. The gate-stage read already
+  // established MERGED, so on that path report UNVERIFIED instead.
+  // Branch deletion stays safe: it is gated on verify.branchSpent, which is
+  // false in the aborted outcome.
+  const mergedFinal = alreadyMerged && !verify.merged;
+  const verdictFinal: VerifyMergeOutcome["verdict"] = mergedFinal ? "UNVERIFIED" : verify.verdict;
+  if (mergedFinal) {
+    warnings.push(
+      `PR #${pr} read MERGED at the gate stage but verify_merge_landed could not confirm (${verify.verdict}${verify.aborted ? `, ${verify.aborted.reason}` : ""}) — reporting UNVERIFIED, not NOT-MERGED.`,
+    );
+  }
 
-	const outcome: PrFinishOutcome = {
-		pr,
-		merged: mergedFinal || verify.merged,
-		verdict: verdictFinal,
-		branchSpent: verify.branchSpent,
-		commands,
-		warnings,
-		...(ciSkipped ? { ciSkipped } : {}),
-		...(mergeStateSettle ? { mergeStateSettle } : {}),
-		...(preserved ? { preserved } : {}),
-		...(cleanupKept ? { cleanup: { localKept: cleanupKept } } : {}),
-	};
-	return { exitCode: 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
+  const outcome: PrFinishOutcome = {
+    pr,
+    merged: mergedFinal || verify.merged,
+    verdict: verdictFinal,
+    branchSpent: verify.branchSpent,
+    commands,
+    warnings,
+    ...(ciSkipped ? { ciSkipped } : {}),
+    ...(mergeStateSettle ? { mergeStateSettle } : {}),
+    ...(preserved ? { preserved } : {}),
+    ...(cleanupKept ? { cleanup: { localKept: cleanupKept } } : {}),
+  };
+  return { exitCode: 0, stdout: JSON.stringify(outcome, null, 2), stderr: "" };
 }
 
 if (import.meta.main) {
-	const home = process.env.HOME ?? "";
-	const readRcLines = (file: string): string[] | undefined => {
-		try {
-			return readFileSync(join(home, file), "utf8").split("\n");
-		} catch {
-			return undefined;
-		}
-	};
-	const res = await runPrFinishCli(Bun.argv.slice(2), {
-		e2ePreflight: () => preflightE2eLane(process.env, readRcLines),
-	});
-	if (res.stderr) process.stderr.write(`${res.stderr}\n`);
-	if (res.stdout) process.stdout.write(`${res.stdout}\n`);
-	process.exit(res.exitCode);
+  const home = process.env.HOME ?? "";
+  const readRcLines = (file: string): string[] | undefined => {
+    try {
+      return readFileSync(join(home, file), "utf8").split("\n");
+    } catch {
+      return undefined;
+    }
+  };
+  const res = await runPrFinishCli(Bun.argv.slice(2), {
+    e2ePreflight: () => preflightE2eLane(process.env, readRcLines),
+  });
+  if (res.stderr) process.stderr.write(`${res.stderr}\n`);
+  if (res.stdout) process.stdout.write(`${res.stdout}\n`);
+  process.exit(res.exitCode);
 }

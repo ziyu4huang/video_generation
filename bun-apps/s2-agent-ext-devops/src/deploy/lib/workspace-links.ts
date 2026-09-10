@@ -18,39 +18,39 @@ import { readdirSync, statSync, symlinkSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
 export interface LinkRepair {
-	/** Link names rewritten (were dangling). */
-	repaired: string[];
-	/** Link names that already resolved — untouched. */
-	healthy: number;
+  /** Link names rewritten (were dangling). */
+  repaired: string[];
+  /** Link names that already resolved — untouched. */
+  healthy: number;
 }
 
 /** Scan `<dir>/@repo/*` and re-point every dangling link at `../../<name>`. */
 export function repairWorkspaceLinks(bunAppsDir: string, scope = "@repo"): LinkRepair {
-	const dir = join(bunAppsDir, "node_modules", scope);
-	const out: LinkRepair = { repaired: [], healthy: 0 };
-	let names: string[];
-	try {
-		names = readdirSync(dir);
-	} catch {
-		return out; // no link dir yet — nothing to repair
-	}
-	for (const name of names) {
-		const link = join(dir, name);
-		let stat: import("node:fs").Stats;
-		try {
-			stat = statSync(link); // FOLLOWS the link — ENOENT here means dangling
-		} catch {
-			try {
-				unlinkSync(link);
-				symlinkSync(join("..", "..", name), link);
-				out.repaired.push(name);
-			} catch {
-				// Unrepairable (permissions?) — leave it; the caller's own error
-				// will name the path if it matters downstream.
-			}
-			continue;
-		}
-		if (stat.isDirectory() || stat.isFile()) out.healthy += 1;
-	}
-	return out;
+  const dir = join(bunAppsDir, "node_modules", scope);
+  const out: LinkRepair = { repaired: [], healthy: 0 };
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return out; // no link dir yet — nothing to repair
+  }
+  for (const name of names) {
+    const link = join(dir, name);
+    let stat: import("node:fs").Stats;
+    try {
+      stat = statSync(link); // FOLLOWS the link — ENOENT here means dangling
+    } catch {
+      try {
+        unlinkSync(link);
+        symlinkSync(join("..", "..", name), link);
+        out.repaired.push(name);
+      } catch {
+        // Unrepairable (permissions?) — leave it; the caller's own error
+        // will name the path if it matters downstream.
+      }
+      continue;
+    }
+    if (stat.isDirectory() || stat.isFile()) out.healthy += 1;
+  }
+  return out;
 }

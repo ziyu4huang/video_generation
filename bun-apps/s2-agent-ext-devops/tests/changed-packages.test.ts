@@ -12,35 +12,38 @@
  *  - `discoverPackages`: a fixed, sorted package list.
  *  - `readDeps`        : a fixed @repo/* dependency table (the reverse-BFS graph).
  */
-import { test, expect, describe } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import {
-	computeChangedPackages,
-	extractRepoDeps,
-	type ComputeChangedPackagesOptions,
+  type ComputeChangedPackagesOptions,
+  computeChangedPackages,
+  extractRepoDeps,
 } from "../src/changed-packages.js";
 import type { SpawnFn, SpawnResult } from "../src/spawn.js";
 
 const REPO = "/repo";
 
 /** Fake `SpawnFn`: answers `git diff` / `git rev-parse` from a canned map. */
-function mkSpawn(opts: {
-	diffStdout?: string;
-	diffExit?: number;
-	baseResolvable?: boolean;
-}): { fn: SpawnFn; calls: { cmd: string; args: string[] }[] } {
-	const calls: { cmd: string; args: string[] }[] = [];
-	const fn: SpawnFn = async (cmd, args) => {
-		calls.push({ cmd, args });
-		if (cmd === "git" && args[0] === "diff" && args[1] === "--name-only") {
-			return { stdout: opts.diffStdout ?? "", stderr: "", exitCode: opts.diffExit ?? 0 } satisfies SpawnResult;
-		}
-		if (cmd === "git" && args[0] === "rev-parse") {
-			const ok = opts.baseResolvable ?? true;
-			return { stdout: ok ? "deadbeef\n" : "", stderr: ok ? "" : "unknown", exitCode: ok ? 0 : 128 } satisfies SpawnResult;
-		}
-		return { stdout: "", stderr: "", exitCode: 0 } satisfies SpawnResult;
-	};
-	return { fn, calls };
+function mkSpawn(opts: { diffStdout?: string; diffExit?: number; baseResolvable?: boolean }): {
+  fn: SpawnFn;
+  calls: { cmd: string; args: string[] }[];
+} {
+  const calls: { cmd: string; args: string[] }[] = [];
+  const fn: SpawnFn = async (cmd, args) => {
+    calls.push({ cmd, args });
+    if (cmd === "git" && args[0] === "diff" && args[1] === "--name-only") {
+      return { stdout: opts.diffStdout ?? "", stderr: "", exitCode: opts.diffExit ?? 0 } satisfies SpawnResult;
+    }
+    if (cmd === "git" && args[0] === "rev-parse") {
+      const ok = opts.baseResolvable ?? true;
+      return {
+        stdout: ok ? "deadbeef\n" : "",
+        stderr: ok ? "" : "unknown",
+        exitCode: ok ? 0 : 128,
+      } satisfies SpawnResult;
+    }
+    return { stdout: "", stderr: "", exitCode: 0 } satisfies SpawnResult;
+  };
+  return { fn, calls };
 }
 
 /** Injectable discoverPackages: return the given list as-is (already sorted). */
@@ -50,393 +53,393 @@ const discover = (pkgs: string[]) => () => [...pkgs];
 const readDepsFrom = (graph: Record<string, string[]>) => (pkg: string) => [...(graph[pkg] ?? [])];
 
 describe("computeChangedPackages — extractRepoDeps (bash grep parity)", () => {
-	test("textual scan strips quotes + @repo/ prefix, dedupes, sorts, drops self", () => {
-		const text = JSON.stringify({
-			name: "@repo/pkg-a",
-			devDependencies: { "@repo/pkg-a": "*", "@repo/pkg-z": "*", "@repo/pkg-b": "*" },
-			dependencies: { "@repo/pkg-b": "*" },
-		});
-		// bash: grep -oE '"@repo/[a-zA-Z0-9_-]+"' | tr -d '"' | sed 's#^@repo/##' | sort -u
-		// → pkg-b, pkg-z (pkg-a is self, stripped). Sorted.
-		expect(extractRepoDeps(text, "pkg-a")).toEqual(["pkg-b", "pkg-z"]);
-	});
+  test("textual scan strips quotes + @repo/ prefix, dedupes, sorts, drops self", () => {
+    const text = JSON.stringify({
+      name: "@repo/pkg-a",
+      devDependencies: { "@repo/pkg-a": "*", "@repo/pkg-z": "*", "@repo/pkg-b": "*" },
+      dependencies: { "@repo/pkg-b": "*" },
+    });
+    // bash: grep -oE '"@repo/[a-zA-Z0-9_-]+"' | tr -d '"' | sed 's#^@repo/##' | sort -u
+    // → pkg-b, pkg-z (pkg-a is self, stripped). Sorted.
+    expect(extractRepoDeps(text, "pkg-a")).toEqual(["pkg-b", "pkg-z"]);
+  });
 
-	test("char class [a-zA-Z0-9_-] matches underscore + digits + hyphen names", () => {
-		const text = `"@repo/pkg_1-a" "@repo/pkg2"`;
-		expect(extractRepoDeps(text, "self")).toEqual(["pkg2", "pkg_1-a"]);
-	});
+  test("char class [a-zA-Z0-9_-] matches underscore + digits + hyphen names", () => {
+    const text = `"@repo/pkg_1-a" "@repo/pkg2"`;
+    expect(extractRepoDeps(text, "self")).toEqual(["pkg2", "pkg_1-a"]);
+  });
 
-	test("no @repo deps → empty array (does not throw)", () => {
-		expect(extractRepoDeps('{"name":"x","dependencies":{"react":"*"}}', "x")).toEqual([]);
-	});
+  test("no @repo deps → empty array (does not throw)", () => {
+    expect(extractRepoDeps('{"name":"x","dependencies":{"react":"*"}}', "x")).toEqual([]);
+  });
 });
 
 describe("computeChangedPackages — --all + diff modes", () => {
-	// Graph: who depends on whom.
-	//   a ← b ← c        (c deps on b; b deps on a)
-	//   a ← d            (d deps on a)
-	//   e                (isolated)
-	// reverse-deps: dependents(a)={b,d}, dependents(b)={c}, dependents(c)={}, dependents(d)={}, dependents(e)={}
-	const PKGS = ["a", "b", "c", "d", "e"];
-	const GRAPH = { a: [], b: ["a"], c: ["b"], d: ["a"], e: [] };
+  // Graph: who depends on whom.
+  //   a ← b ← c        (c deps on b; b deps on a)
+  //   a ← d            (d deps on a)
+  //   e                (isolated)
+  // reverse-deps: dependents(a)={b,d}, dependents(b)={c}, dependents(c)={}, dependents(d)={}, dependents(e)={}
+  const PKGS = ["a", "b", "c", "d", "e"];
+  const GRAPH = { a: [], b: ["a"], c: ["b"], d: ["a"], e: [] };
 
-	test("--all → every package true (no git diff spawned)", async () => {
-		const { fn, calls } = mkSpawn({});
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			all: true,
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom(GRAPH),
-		});
-		expect(map).toEqual({ a: true, b: true, c: true, d: true, e: true });
-		// --all short-circuits before any git spawn.
-		expect(calls.some((c) => c.cmd === "git")).toBe(false);
-	});
+  test("--all → every package true (no git diff spawned)", async () => {
+    const { fn, calls } = mkSpawn({});
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      all: true,
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom(GRAPH),
+    });
+    expect(map).toEqual({ a: true, b: true, c: true, d: true, e: true });
+    // --all short-circuits before any git spawn.
+    expect(calls.some((c) => c.cmd === "git")).toBe(false);
+  });
 
-	test("direct change to a → marks a + direct + transitive reverse-deps (b,c,d); e untouched", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/a/src/index.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			headRef: "HEAD",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom(GRAPH),
-		});
-		// a (direct) + b,d (direct dependents of a) + c (transitive: depends on b).
-		expect(map).toEqual({ a: true, b: true, c: true, d: true, e: false });
-	});
+  test("direct change to a → marks a + direct + transitive reverse-deps (b,c,d); e untouched", async () => {
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/a/src/index.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      headRef: "HEAD",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom(GRAPH),
+    });
+    // a (direct) + b,d (direct dependents of a) + c (transitive: depends on b).
+    expect(map).toEqual({ a: true, b: true, c: true, d: true, e: false });
+  });
 
-	test("direct change to a leaf (c, nothing depends on it) → only c true", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/c/src/x.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom(GRAPH),
-		});
-		expect(map).toEqual({ a: false, b: false, c: true, d: false, e: false });
-	});
+  test("direct change to a leaf (c, nothing depends on it) → only c true", async () => {
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/c/src/x.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom(GRAPH),
+    });
+    expect(map).toEqual({ a: false, b: false, c: true, d: false, e: false });
+  });
 
-	test("direct change to b → marks b + its dependent c (transitive stops at c)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/b/y.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom(GRAPH),
-		});
-		expect(map).toEqual({ a: false, b: true, c: true, d: false, e: false });
-	});
+  test("direct change to b → marks b + its dependent c (transitive stops at c)", async () => {
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/b/y.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom(GRAPH),
+    });
+    expect(map).toEqual({ a: false, b: true, c: true, d: false, e: false });
+  });
 });
 
 describe("computeChangedPackages — fail-open semantics", () => {
-	const PKGS = ["a", "b"];
+  const PKGS = ["a", "b"];
 
-	test("non-package change (e.g. scripts/foo.sh) → ALL true (fail-open)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "scripts/ci-file-size-guard.sh\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: true, b: true });
-	});
+  test("non-package change (e.g. scripts/foo.sh) → ALL true (fail-open)", async () => {
+    const { fn } = mkSpawn({ diffStdout: "scripts/ci-file-size-guard.sh\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: true, b: true });
+  });
 
-	test("mixed: a package file + a non-package file → ALL true (non-pkg file dominates)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\nbun-apps/UNKNOWN/pkg.json\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(["a", "b"]),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		// UNKNOWN is not a known package → its file fails open → everything true.
-		expect(map).toEqual({ a: true, b: true });
-	});
+  test("mixed: a package file + a non-package file → ALL true (non-pkg file dominates)", async () => {
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\nbun-apps/UNKNOWN/pkg.json\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(["a", "b"]),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    // UNKNOWN is not a known package → its file fails open → everything true.
+    expect(map).toEqual({ a: true, b: true });
+  });
 
-	test("empty diff + base RESOLVABLE → all false (nothing changed, nothing to run)", async () => {
-		const { fn, calls } = mkSpawn({ diffStdout: "", baseResolvable: true });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(["a", "b"]),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: false, b: false });
-		// rev-parse was consulted (the empty-diff fail-open probe).
-		expect(calls.some((c) => c.cmd === "git" && c.args[0] === "rev-parse")).toBe(true);
-	});
+  test("empty diff + base RESOLVABLE → all false (nothing changed, nothing to run)", async () => {
+    const { fn, calls } = mkSpawn({ diffStdout: "", baseResolvable: true });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(["a", "b"]),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: false, b: false });
+    // rev-parse was consulted (the empty-diff fail-open probe).
+    expect(calls.some((c) => c.cmd === "git" && c.args[0] === "rev-parse")).toBe(true);
+  });
 
-	test("empty diff + base UNRESOLVABLE (shallow clone) → ALL true (fail-open)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "", baseResolvable: false });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(["a", "b"]),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: true, b: true });
-	});
+  test("empty diff + base UNRESOLVABLE (shallow clone) → ALL true (fail-open)", async () => {
+    const { fn } = mkSpawn({ diffStdout: "", baseResolvable: false });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(["a", "b"]),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: true, b: true });
+  });
 
-	test("git diff exits non-zero but emits files → still processes the files (|| true parity)", async () => {
-		// bash: `git diff ... 2>/dev/null || true` — a non-zero exit with stdout is
-		// treated as if it succeeded; the stdout is still the changed-file list.
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\n", diffExit: 1, baseResolvable: true });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(["a", "b"]),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: true, b: true });
-	});
+  test("git diff exits non-zero but emits files → still processes the files (|| true parity)", async () => {
+    // bash: `git diff ... 2>/dev/null || true` — a non-zero exit with stdout is
+    // treated as if it succeeded; the stdout is still the changed-file list.
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\n", diffExit: 1, baseResolvable: true });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(["a", "b"]),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: true, b: true });
+  });
 });
 
 describe("computeChangedPackages — matrix-irrelevant paths (scoped, NOT fail-open)", () => {
-	// The ≤5-minute run_local_ci budget depends on scoping. Two path classes are
-	// provably package-matrix-irrelevant and must NOT trip the rule-4 fail-open:
-	//   .planning/**     — docs-only artifacts the standing rule REQUIRES
-	//                      committing with every branch/PR; before this guard,
-	//                      every PR that obeyed the rule ran the FULL matrix.
-	//   bun-apps/tests/**— workspace-root gate tests; they run in the
-	//                      regression-gates job (bun run test:dist), which
-	//                      local_ci executes regardless of package scoping.
-	// `dsh-plugin/sv-analyzer/**` is NOT irrelevant anymore: it is the Rust core
-	// of the s2-agent-ext-sv-analyzer extension (build.sh mirrors its wasm into
-	// the package's wasm/), so it aliases to that package — scoped, not fail-open.
-	const PKGS = ["a", "b", "s2-agent-ext-sv-analyzer"];
+  // The ≤5-minute run_local_ci budget depends on scoping. Two path classes are
+  // provably package-matrix-irrelevant and must NOT trip the rule-4 fail-open:
+  //   .planning/**     — docs-only artifacts the standing rule REQUIRES
+  //                      committing with every branch/PR; before this guard,
+  //                      every PR that obeyed the rule ran the FULL matrix.
+  //   bun-apps/tests/**— workspace-root gate tests; they run in the
+  //                      regression-gates job (bun run test:dist), which
+  //                      local_ci executes regardless of package scoping.
+  // `dsh-plugin/sv-analyzer/**` is NOT irrelevant anymore: it is the Rust core
+  // of the s2-agent-ext-sv-analyzer extension (build.sh mirrors its wasm into
+  // the package's wasm/), so it aliases to that package — scoped, not fail-open.
+  const PKGS = ["a", "b", "s2-agent-ext-sv-analyzer"];
 
-	test(".planning/ docs only → all false (docs need no package matrix)", async () => {
-		const { fn } = mkSpawn({ diffStdout: ".planning/REVIEW-2026-08-15-s2-agent.md\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": false });
-	});
+  test(".planning/ docs only → all false (docs need no package matrix)", async () => {
+    const { fn } = mkSpawn({ diffStdout: ".planning/REVIEW-2026-08-15-s2-agent.md\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": false });
+  });
 
-	test("package file + .planning/ doc → scoped to the package's reverse-deps, NOT all true", async () => {
-		const { fn } = mkSpawn({ diffStdout: ".planning/spec.md\nbun-apps/a/x.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": false }); // reverse-BFS, not fail-open
-	});
+  test("package file + .planning/ doc → scoped to the package's reverse-deps, NOT all true", async () => {
+    const { fn } = mkSpawn({ diffStdout: ".planning/spec.md\nbun-apps/a/x.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": false }); // reverse-BFS, not fail-open
+  });
 
-	test("bun-apps/tests/ gate test only → all false (covered by regression-gates, not the matrix)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/tests/workspace-dist-fresh.test.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": false });
-	});
+  test("bun-apps/tests/ gate test only → all false (covered by regression-gates, not the matrix)", async () => {
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/tests/workspace-dist-fresh.test.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": false });
+  });
 
-	test("dsh-plugin/sv-analyzer/ only → scoped to s2-agent-ext-sv-analyzer (its wasm mirrors that package)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/plugin/index.js\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"], "s2-agent-ext-sv-analyzer": [] }),
-		});
-		expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": true });
-	});
+  test("dsh-plugin/sv-analyzer/ only → scoped to s2-agent-ext-sv-analyzer (its wasm mirrors that package)", async () => {
+    const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/plugin/index.js\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"], "s2-agent-ext-sv-analyzer": [] }),
+    });
+    expect(map).toEqual({ a: false, b: false, "s2-agent-ext-sv-analyzer": true });
+  });
 
-	test("package file + dsh-plugin/sv-analyzer/ file → scoped to both packages, NOT all true", async () => {
-		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/rust/src/lib.rs\nbun-apps/a/x.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"], "s2-agent-ext-sv-analyzer": [] }),
-		});
-		// a → a + b (reverse-BFS); sv-analyzer aliased → itself; NOT fail-open.
-		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": true });
-	});
+  test("package file + dsh-plugin/sv-analyzer/ file → scoped to both packages, NOT all true", async () => {
+    const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/rust/src/lib.rs\nbun-apps/a/x.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"], "s2-agent-ext-sv-analyzer": [] }),
+    });
+    // a → a + b (reverse-BFS); sv-analyzer aliased → itself; NOT fail-open.
+    expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": true });
+  });
 
-	test("dsh-plugin/sv-analyzer/ change when the alias package is ABSENT → fail open (never a silent false-green)", async () => {
-		const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/rust/src/lib.rs\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(["a", "b"]), // stale workspace without the alias package
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: true, b: true }); // fail-open preserved
-	});
+  test("dsh-plugin/sv-analyzer/ change when the alias package is ABSENT → fail open (never a silent false-green)", async () => {
+    const { fn } = mkSpawn({ diffStdout: "dsh-plugin/sv-analyzer/rust/src/lib.rs\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(["a", "b"]), // stale workspace without the alias package
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: true, b: true }); // fail-open preserved
+  });
 
-	test("package file + bun-apps/tests/ file → scoped, NOT all true", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\nbun-apps/tests/gate.test.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": false });
-	});
+  test("package file + bun-apps/tests/ file → scoped, NOT all true", async () => {
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\nbun-apps/tests/gate.test.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": false });
+  });
 
-	test("everything else outside packages STILL fails open (shared config, .github/, submodules)", async () => {
-		const { fn } = mkSpawn({
-			diffStdout: "bun-apps/package.json\n.github/workflows/ci.yml\nassets/x\ndocs/foo.md\n",
-		});
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom({ a: [], b: ["a"] }),
-		});
-		expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": true }); // fail-open preserved
-	});
+  test("everything else outside packages STILL fails open (shared config, .github/, submodules)", async () => {
+    const { fn } = mkSpawn({
+      diffStdout: "bun-apps/package.json\n.github/workflows/ci.yml\nassets/x\ndocs/foo.md\n",
+    });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom({ a: [], b: ["a"] }),
+    });
+    expect(map).toEqual({ a: true, b: true, "s2-agent-ext-sv-analyzer": true }); // fail-open preserved
+  });
 });
 
 describe("computeChangedPackages — exact JSON shape (bash parity)", () => {
-	test("output keys are sorted by package name; booleans are real booleans", async () => {
-		// Discover out of order; output MUST still be sorted (bash glob is sorted).
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/mid/x.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: () => ["zed", "alpha", "mid"], // unsorted input
-			readDeps: readDepsFrom({ alpha: [], mid: [], zed: [] }),
-		});
-		expect(Object.keys(map)).toEqual(["alpha", "mid", "zed"]);
-		expect(map).toEqual({ alpha: false, mid: true, zed: false });
-		expect(JSON.stringify(map)).toBe('{"alpha":false,"mid":true,"zed":false}');
-	});
+  test("output keys are sorted by package name; booleans are real booleans", async () => {
+    // Discover out of order; output MUST still be sorted (bash glob is sorted).
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/mid/x.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: () => ["zed", "alpha", "mid"], // unsorted input
+      readDeps: readDepsFrom({ alpha: [], mid: [], zed: [] }),
+    });
+    expect(Object.keys(map)).toEqual(["alpha", "mid", "zed"]);
+    expect(map).toEqual({ alpha: false, mid: true, zed: false });
+    expect(JSON.stringify(map)).toBe('{"alpha":false,"mid":true,"zed":false}');
+  });
 
-	test("multiple directly-touched packages all seed the reverse-BFS", async () => {
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/a/a.ts\nbun-apps/c/c.ts\n" });
-		// Graph: b→a, d→c. Touching a and c → affected {a,b,c,d}.
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(["a", "b", "c", "d"]),
-			readDeps: readDepsFrom({ a: [], b: ["a"], c: [], d: ["c"] }),
-		});
-		expect(map).toEqual({ a: true, b: true, c: true, d: true });
-	});
+  test("multiple directly-touched packages all seed the reverse-BFS", async () => {
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/a/a.ts\nbun-apps/c/c.ts\n" });
+    // Graph: b→a, d→c. Touching a and c → affected {a,b,c,d}.
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(["a", "b", "c", "d"]),
+      readDeps: readDepsFrom({ a: [], b: ["a"], c: [], d: ["c"] }),
+    });
+    expect(map).toEqual({ a: true, b: true, c: true, d: true });
+  });
 
-	test("self-reference (@repo/<self>) is stripped — no self-edge loop", async () => {
-		// a's package.json lists @repo/a (self) — must NOT create a self-loop.
-		const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(["a", "b"]),
-			readDeps: (pkg) => (pkg === "a" ? ["a", "b"] : []), // a "deps on" a (self) + b
-		});
-		// a's self-dep is ignored; a's dep on b is a real forward edge but irrelevant
-		// here (we touch a, nothing depends on a). b is NOT affected.
-		expect(map).toEqual({ a: true, b: false });
-	});
+  test("self-reference (@repo/<self>) is stripped — no self-edge loop", async () => {
+    // a's package.json lists @repo/a (self) — must NOT create a self-loop.
+    const { fn } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(["a", "b"]),
+      readDeps: (pkg) => (pkg === "a" ? ["a", "b"] : []), // a "deps on" a (self) + b
+    });
+    // a's self-dep is ignored; a's dep on b is a real forward edge but irrelevant
+    // here (we touch a, nothing depends on a). b is NOT affected.
+    expect(map).toEqual({ a: true, b: false });
+  });
 });
 
 describe("computeChangedPackages — wiring with defaults", () => {
-	test("discoverPackages/readDeps defaults exist and are callable (smoke)", async () => {
-		// Indirect: pass minimal opts, assert no throw on the --all path (defaults
-		// are only invoked for diff mode's graph build; --all skips them). The
-		// default fs/git behavior is exercised by the repo-wide `bun run check` +
-		// the live run_local_ci flow, not by these pure unit tests.
-		const { fn } = mkSpawn({});
-		const map = await computeChangedPackages({ repoRoot: REPO, all: true, spawn: fn });
-		expect(typeof map).toBe("object");
-	});
+  test("discoverPackages/readDeps defaults exist and are callable (smoke)", async () => {
+    // Indirect: pass minimal opts, assert no throw on the --all path (defaults
+    // are only invoked for diff mode's graph build; --all skips them). The
+    // default fs/git behavior is exercised by the repo-wide `bun run check` +
+    // the live run_local_ci flow, not by these pure unit tests.
+    const { fn } = mkSpawn({});
+    const map = await computeChangedPackages({ repoRoot: REPO, all: true, spawn: fn });
+    expect(typeof map).toBe("object");
+  });
 
-	test("diff mode without baseRef throws (programming error)", async () => {
-		const { fn } = mkSpawn({});
-		await expect(
-			computeChangedPackages({ repoRoot: REPO, spawn: fn, discoverPackages: () => [], readDeps: () => [] }),
-		).rejects.toThrow(/baseRef is required/);
-	});
+  test("diff mode without baseRef throws (programming error)", async () => {
+    const { fn } = mkSpawn({});
+    await expect(
+      computeChangedPackages({ repoRoot: REPO, spawn: fn, discoverPackages: () => [], readDeps: () => [] }),
+    ).rejects.toThrow(/baseRef is required/);
+  });
 
-	test("headRef defaults to HEAD when omitted", async () => {
-		const { fn, calls } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\n" });
-		await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "origin/main",
-			spawn: fn,
-			discoverPackages: () => ["a"],
-			readDeps: () => [],
-		});
-		const diffCall = calls.find((c) => c.cmd === "git" && c.args[0] === "diff");
-		// THREE-dot: scope is "what this branch changed" from the merge-base, not
-		// the symmetric difference with main's moving tip. Two-dot counted every
-		// post-branch main commit as yours and, via the rule-4 fail-open, escalated
-		// to the full matrix.
-		expect(diffCall?.args).toEqual(["diff", "--name-only", "origin/main...HEAD"]);
-	});
+  test("headRef defaults to HEAD when omitted", async () => {
+    const { fn, calls } = mkSpawn({ diffStdout: "bun-apps/a/x.ts\n" });
+    await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "origin/main",
+      spawn: fn,
+      discoverPackages: () => ["a"],
+      readDeps: () => [],
+    });
+    const diffCall = calls.find((c) => c.cmd === "git" && c.args[0] === "diff");
+    // THREE-dot: scope is "what this branch changed" from the merge-base, not
+    // the symmetric difference with main's moving tip. Two-dot counted every
+    // post-branch main commit as yours and, via the rule-4 fail-open, escalated
+    // to the full matrix.
+    expect(diffCall?.args).toEqual(["diff", "--name-only", "origin/main...HEAD"]);
+  });
 });
 
 describe("computeChangedPackages — .agents/ is matrix-irrelevant (self-arc-15 MC-4)", () => {
-	// Mirror of the earlier describe's graph (scoped there, redeclared here).
-	const PKGS = ["a", "b", "c", "d", "e"];
-	const GRAPH = { a: [], b: ["a"], c: ["b"], d: ["a"], e: [] };
-	test("a .agents/-only diff maps to ZERO packages (skipped, never fail-open)", async () => {
-		const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\n.agents/skills/x/SKILL.md\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom(GRAPH),
-		});
-		// #2185's shape: a markdown-only chore PR computes an empty package set —
-		// structural gates still run, the 29-package matrix does not.
-		expect(map).toEqual({ a: false, b: false, c: false, d: false, e: false });
-	});
+  // Mirror of the earlier describe's graph (scoped there, redeclared here).
+  const PKGS = ["a", "b", "c", "d", "e"];
+  const GRAPH = { a: [], b: ["a"], c: ["b"], d: ["a"], e: [] };
+  test("a .agents/-only diff maps to ZERO packages (skipped, never fail-open)", async () => {
+    const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\n.agents/skills/x/SKILL.md\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom(GRAPH),
+    });
+    // #2185's shape: a markdown-only chore PR computes an empty package set —
+    // structural gates still run, the 29-package matrix does not.
+    expect(map).toEqual({ a: false, b: false, c: false, d: false, e: false });
+  });
 
-	test("mixed .agents/ + one package file → exactly that package + dependents", async () => {
-		const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\nbun-apps/a/src/index.ts\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom(GRAPH),
-		});
-		expect(map).toEqual({ a: true, b: true, c: true, d: true, e: false });
-	});
+  test("mixed .agents/ + one package file → exactly that package + dependents", async () => {
+    const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\nbun-apps/a/src/index.ts\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom(GRAPH),
+    });
+    expect(map).toEqual({ a: true, b: true, c: true, d: true, e: false });
+  });
 
-	test("an unmapped top-level path STILL fails open (the .agents/ carve-out is not a hole)", async () => {
-		const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\nscripts/something.sh\n" });
-		const map = await computeChangedPackages({
-			repoRoot: REPO,
-			baseRef: "main",
-			spawn: fn,
-			discoverPackages: discover(PKGS),
-			readDeps: readDepsFrom(GRAPH),
-		});
-		// scripts/ can affect every package → rule-4 fail-open wins.
-		expect(map).toEqual({ a: true, b: true, c: true, d: true, e: true });
-	});
+  test("an unmapped top-level path STILL fails open (the .agents/ carve-out is not a hole)", async () => {
+    const { fn } = mkSpawn({ diffStdout: ".agents/memory/MEMORY.md\nscripts/something.sh\n" });
+    const map = await computeChangedPackages({
+      repoRoot: REPO,
+      baseRef: "main",
+      spawn: fn,
+      discoverPackages: discover(PKGS),
+      readDeps: readDepsFrom(GRAPH),
+    });
+    // scripts/ can affect every package → rule-4 fail-open wins.
+    expect(map).toEqual({ a: true, b: true, c: true, d: true, e: true });
+  });
 });

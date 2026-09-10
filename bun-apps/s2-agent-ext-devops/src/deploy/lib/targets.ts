@@ -12,17 +12,17 @@
 import { detectLibc } from "./vendor-closure.ts";
 
 export interface TargetSpec {
-	platform: NodeJS.Platform;
-	arch: string;
-	/** linux-only convention; glibc implied for bare `linux-x64` (D4 matrix). */
-	libc?: "glibc" | "musl";
+  platform: NodeJS.Platform;
+  arch: string;
+  /** linux-only convention; glibc implied for bare `linux-x64` (D4 matrix). */
+  libc?: "glibc" | "musl";
 }
 
 const KNOWN_ARCHS = new Set(["x64", "arm64", "ia32"]);
 
 /** The host's own target name — the `--target` default. */
 export function hostTargetName(): string {
-	return `${process.platform}-${process.arch}`;
+  return `${process.platform}-${process.arch}`;
 }
 
 /**
@@ -32,27 +32,27 @@ export function hostTargetName(): string {
  * layout depends on it.
  */
 export function parseTargetName(name: string): TargetSpec {
-	const m = /^([a-z0-9]+)-([a-z0-9]+)(?:-(musl|glibc))?$/.exec(name);
-	if (!m || m[1] === undefined || m[2] === undefined) {
-		throw new Error(
-			`invalid --target "${name}": expected <platform>-<arch>[-musl|glibc], e.g. darwin-arm64, linux-x64, win32-x64`,
-		);
-	}
-	const platform = m[1];
-	const arch = m[2];
-	const libc = m[3];
-	if (!KNOWN_ARCHS.has(arch)) {
-		throw new Error(`invalid --target "${name}": unknown arch "${arch}" (known: ${[...KNOWN_ARCHS].join(", ")})`);
-	}
-	if (libc && platform !== "linux") {
-		throw new Error(`invalid --target "${name}": a libc suffix is a linux-only convention`);
-	}
-	return {
-		platform: platform as NodeJS.Platform,
-		arch,
-		// D4: bare linux implies glibc; musl is the explicit opt-in.
-		libc: platform === "linux" ? ((libc ?? "glibc") as "glibc" | "musl") : undefined,
-	};
+  const m = /^([a-z0-9]+)-([a-z0-9]+)(?:-(musl|glibc))?$/.exec(name);
+  if (!m || m[1] === undefined || m[2] === undefined) {
+    throw new Error(
+      `invalid --target "${name}": expected <platform>-<arch>[-musl|glibc], e.g. darwin-arm64, linux-x64, win32-x64`,
+    );
+  }
+  const platform = m[1];
+  const arch = m[2];
+  const libc = m[3];
+  if (!KNOWN_ARCHS.has(arch)) {
+    throw new Error(`invalid --target "${name}": unknown arch "${arch}" (known: ${[...KNOWN_ARCHS].join(", ")})`);
+  }
+  if (libc && platform !== "linux") {
+    throw new Error(`invalid --target "${name}": a libc suffix is a linux-only convention`);
+  }
+  return {
+    platform: platform as NodeJS.Platform,
+    arch,
+    // D4: bare linux implies glibc; musl is the explicit opt-in.
+    libc: platform === "linux" ? ((libc ?? "glibc") as "glibc" | "musl") : undefined,
+  };
 }
 
 /**
@@ -63,9 +63,9 @@ export function parseTargetName(name: string): TargetSpec {
  * have no libc convention, so platform+arch decides.
  */
 export function isHostTarget(spec: TargetSpec): boolean {
-	if (spec.platform !== process.platform || spec.arch !== process.arch) return false;
-	if (spec.platform === "linux" && spec.libc && spec.libc !== detectLibc("linux")) return false;
-	return true;
+  if (spec.platform !== process.platform || spec.arch !== process.arch) return false;
+  if (spec.platform === "linux" && spec.libc && spec.libc !== detectLibc("linux")) return false;
+  return true;
 }
 
 /**
@@ -74,22 +74,22 @@ export function isHostTarget(spec: TargetSpec): boolean {
  * oven-sh's naming (arm64 → aarch64 on darwin/linux), NOT Node's.
  */
 export function githubBunArtifact(spec: TargetSpec): string {
-	const ovenArch = spec.arch === "arm64" ? "aarch64" : spec.arch;
-	switch (spec.platform) {
-		case "darwin":
-			return `bun-darwin-${ovenArch}.zip`;
-		case "linux":
-			return `bun-linux-${ovenArch}${spec.libc === "musl" ? "-musl" : ""}.zip`;
-		case "win32":
-			return `bun-windows-${ovenArch}.zip`;
-		default:
-			throw new Error(`no bun release artifact mapping for platform "${spec.platform}"`);
-	}
+  const ovenArch = spec.arch === "arm64" ? "aarch64" : spec.arch;
+  switch (spec.platform) {
+    case "darwin":
+      return `bun-darwin-${ovenArch}.zip`;
+    case "linux":
+      return `bun-linux-${ovenArch}${spec.libc === "musl" ? "-musl" : ""}.zip`;
+    case "win32":
+      return `bun-windows-${ovenArch}.zip`;
+    default:
+      throw new Error(`no bun release artifact mapping for platform "${spec.platform}"`);
+  }
 }
 
 /** The executable name bun ships as inside the artifact / the tree's bin/ (t04's .ps1 expects both spellings). */
 export function bunBinaryName(spec: TargetSpec): string {
-	return spec.platform === "win32" ? "bun.exe" : "bun";
+  return spec.platform === "win32" ? "bun.exe" : "bun";
 }
 
 /**
@@ -100,8 +100,8 @@ export function bunBinaryName(spec: TargetSpec): string {
  * registry's `dist.integrity` (sha512) is the official checksum.
  */
 export function npmBunPackage(spec: TargetSpec): string | null {
-	if (spec.platform !== "win32" || spec.arch !== "x64") return null;
-	return "@oven/bun-windows-x64";
+  if (spec.platform !== "win32" || spec.arch !== "x64") return null;
+  return "@oven/bun-windows-x64";
 }
 
 /**
@@ -115,5 +115,7 @@ export function npmBunPackage(spec: TargetSpec): string | null {
 const KNOWN_PLATFORM_PREFIXES = ["darwin-", "linux-", "win32-"];
 
 export function isKnownTargetSubrootName(name: string): boolean {
-	return KNOWN_PLATFORM_PREFIXES.some((p) => name.startsWith(p)) && /^[a-z0-9]+-[a-z0-9]+(?:-(?:musl|glibc))?$/.test(name);
+  return (
+    KNOWN_PLATFORM_PREFIXES.some((p) => name.startsWith(p)) && /^[a-z0-9]+-[a-z0-9]+(?:-(?:musl|glibc))?$/.test(name)
+  );
 }

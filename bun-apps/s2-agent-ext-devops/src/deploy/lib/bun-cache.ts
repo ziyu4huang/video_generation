@@ -24,7 +24,17 @@
  * re-modes the cache entry — same inode, exactly like a frozen core).
  */
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
 export const BUNS_DIR = ".buns";
@@ -37,18 +47,18 @@ export const BUNS_DIR = ".buns";
  * entries (which never specify one) keep their pre-existing hashes.
  */
 export function computeBunHash(opts: { bunVersion: string; platform: string; arch: string; libc?: string }): string {
-	const libcTerm = opts.libc ? `libc=${opts.libc}\0` : "";
-	return createHash("sha256")
-		.update(`bun=${opts.bunVersion}\0platform=${opts.platform}\0arch=${opts.arch}\0${libcTerm}`)
-		.digest("hex");
+  const libcTerm = opts.libc ? `libc=${opts.libc}\0` : "";
+  return createHash("sha256")
+    .update(`bun=${opts.bunVersion}\0platform=${opts.platform}\0arch=${opts.arch}\0${libcTerm}`)
+    .digest("hex");
 }
 
 export interface CachedBun {
-	/** The cache file — hardlink (never copy) from it into the version dir. */
-	cacheFile: string;
-	/** True when the runtime already existed (the 63 MB copy was skipped). */
-	cached: boolean;
-	bytes: number;
+  /** The cache file — hardlink (never copy) from it into the version dir. */
+  cacheFile: string;
+  /** True when the runtime already existed (the 63 MB copy was skipped). */
+  cached: boolean;
+  bytes: number;
 }
 
 /**
@@ -56,12 +66,12 @@ export interface CachedBun {
  * in ensureCachedBunFrom; this is the host-identity spelling of it.
  */
 export function ensureCachedBun(opts: { outRoot: string }): CachedBun {
-	return ensureCachedBunFrom(process.execPath, {
-		outRoot: opts.outRoot,
-		bunVersion: Bun.version,
-		platform: process.platform,
-		arch: process.arch,
-	});
+  return ensureCachedBunFrom(process.execPath, {
+    outRoot: opts.outRoot,
+    bunVersion: Bun.version,
+    platform: process.platform,
+    arch: process.arch,
+  });
 }
 
 /**
@@ -75,39 +85,39 @@ export function ensureCachedBun(opts: { outRoot: string }): CachedBun {
  * binary once.
  */
 export function ensureCachedBunFrom(
-	sourcePath: string,
-	opts: { outRoot: string; bunVersion: string; platform: string; arch: string; libc?: string },
+  sourcePath: string,
+  opts: { outRoot: string; bunVersion: string; platform: string; arch: string; libc?: string },
 ): CachedBun {
-	const hash = computeBunHash({
-		bunVersion: opts.bunVersion,
-		platform: opts.platform,
-		arch: opts.arch,
-		libc: opts.libc,
-	});
-	const dir = join(opts.outRoot, BUNS_DIR);
-	const cacheFile = join(dir, hash);
-	if (existsSync(cacheFile)) {
-		return { cacheFile, cached: true, bytes: statSync(cacheFile).size };
-	}
-	mkdirSync(dir, { recursive: true });
-	const tmp = join(dir, `.tmp-${hash.slice(0, 12)}-${process.pid}`);
-	copyFileSync(sourcePath, tmp);
-	chmodSync(tmp, 0o755);
-	renameSync(tmp, cacheFile);
-	return { cacheFile, cached: false, bytes: statSync(cacheFile).size };
+  const hash = computeBunHash({
+    bunVersion: opts.bunVersion,
+    platform: opts.platform,
+    arch: opts.arch,
+    libc: opts.libc,
+  });
+  const dir = join(opts.outRoot, BUNS_DIR);
+  const cacheFile = join(dir, hash);
+  if (existsSync(cacheFile)) {
+    return { cacheFile, cached: true, bytes: statSync(cacheFile).size };
+  }
+  mkdirSync(dir, { recursive: true });
+  const tmp = join(dir, `.tmp-${hash.slice(0, 12)}-${process.pid}`);
+  copyFileSync(sourcePath, tmp);
+  chmodSync(tmp, 0o755);
+  renameSync(tmp, cacheFile);
+  return { cacheFile, cached: false, bytes: statSync(cacheFile).size };
 }
 
 /** Hardlink the cached bun into a version dir as its `bin/bun`. */
 export function linkBun(cacheFile: string, target: string): void {
-	linkSync(cacheFile, target);
+  linkSync(cacheFile, target);
 }
 
 /** A cache entry younger than this is assumed to belong to a deploy still in flight. */
 export const ORPHAN_GRACE_MS = 60 * 60 * 1000;
 
 export interface PrunedBun {
-	hash: string;
-	bytes: number;
+  hash: string;
+  bytes: number;
 }
 
 /**
@@ -117,34 +127,31 @@ export interface PrunedBun {
  * covers the rename→link race of a concurrent deploy. Unlink only — never
  * chmod (a hardlink re-mode would touch every frozen version sharing it).
  */
-export function pruneOrphanBuns(
-	outRoot: string,
-	opts: { now?: number; graceMs?: number } = {},
-): PrunedBun[] {
-	const dir = join(outRoot, BUNS_DIR);
-	if (!existsSync(dir)) return [];
-	const now = opts.now ?? Date.now();
-	const graceMs = opts.graceMs ?? ORPHAN_GRACE_MS;
+export function pruneOrphanBuns(outRoot: string, opts: { now?: number; graceMs?: number } = {}): PrunedBun[] {
+  const dir = join(outRoot, BUNS_DIR);
+  if (!existsSync(dir)) return [];
+  const now = opts.now ?? Date.now();
+  const graceMs = opts.graceMs ?? ORPHAN_GRACE_MS;
 
-	const pruned: PrunedBun[] = [];
-	for (const name of readdirSync(dir)) {
-		if (name.startsWith(".")) continue;
-		const file = join(dir, name);
-		let st: ReturnType<typeof statSync>;
-		try {
-			st = statSync(file);
-		} catch {
-			continue; // vanished under us — a concurrent deploy already collected it
-		}
-		if (!st.isFile()) continue;
-		if (st.nlink > 1) continue;
-		if (now - st.mtimeMs < graceMs) continue;
-		try {
-			unlinkSync(file);
-			pruned.push({ hash: name, bytes: st.size });
-		} catch {
-			// Left in place; the next deploy retries. Best-effort by construction.
-		}
-	}
-	return pruned;
+  const pruned: PrunedBun[] = [];
+  for (const name of readdirSync(dir)) {
+    if (name.startsWith(".")) continue;
+    const file = join(dir, name);
+    let st: ReturnType<typeof statSync>;
+    try {
+      st = statSync(file);
+    } catch {
+      continue; // vanished under us — a concurrent deploy already collected it
+    }
+    if (!st.isFile()) continue;
+    if (st.nlink > 1) continue;
+    if (now - st.mtimeMs < graceMs) continue;
+    try {
+      unlinkSync(file);
+      pruned.push({ hash: name, bytes: st.size });
+    } catch {
+      // Left in place; the next deploy retries. Best-effort by construction.
+    }
+  }
+  return pruned;
 }

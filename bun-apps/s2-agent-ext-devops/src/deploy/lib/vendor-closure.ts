@@ -47,52 +47,52 @@ import { join, resolve } from "node:path";
 import { isBuiltinSpecifier } from "../../../../s2-agent/src/sh/host-modules.ts";
 
 export interface VendorClosureOptions {
-	/** Root package names (no subpaths, no version ranges). */
-	roots: string[];
-	/** Directory the ROOTS resolve from — the extension's own package dir. */
-	resolveFrom: string;
-	/** The extension's output dir (…/ext/<name>); packages land in <outDir>/node_modules/. Required only for the copying entry points. */
-	outDir?: string;
-	/** Platform filter for optional deps. Defaults to the build machine. */
-	platform?: NodeJS.Platform;
-	/** Architecture filter for optional deps. Defaults to the build machine. */
-	arch?: string;
-	/**
-	 * libc filter for optional deps on linux. Defaults to the build machine
-	 * (`detectLibc`). `null` disables the filter — every libc variant ships.
-	 */
-	libc?: "glibc" | "musl" | null;
-	/**
-	 * Deps deliberately not shipped (registry `vendorExclude:`), as exact
-	 * package names or `<scope>/*` patterns — same shape as `externals`.
-	 * A matching dep is neither copied nor traversed, and lands in the
-	 * parent node's `excluded` (NOT `pruned`): an exclusion is a decision
-	 * the operator made, a prune is one the platform made.
-	 */
-	exclude?: string[];
+  /** Root package names (no subpaths, no version ranges). */
+  roots: string[];
+  /** Directory the ROOTS resolve from — the extension's own package dir. */
+  resolveFrom: string;
+  /** The extension's output dir (…/ext/<name>); packages land in <outDir>/node_modules/. Required only for the copying entry points. */
+  outDir?: string;
+  /** Platform filter for optional deps. Defaults to the build machine. */
+  platform?: NodeJS.Platform;
+  /** Architecture filter for optional deps. Defaults to the build machine. */
+  arch?: string;
+  /**
+   * libc filter for optional deps on linux. Defaults to the build machine
+   * (`detectLibc`). `null` disables the filter — every libc variant ships.
+   */
+  libc?: "glibc" | "musl" | null;
+  /**
+   * Deps deliberately not shipped (registry `vendorExclude:`), as exact
+   * package names or `<scope>/*` patterns — same shape as `externals`.
+   * A matching dep is neither copied nor traversed, and lands in the
+   * parent node's `excluded` (NOT `pruned`): an exclusion is a decision
+   * the operator made, a prune is one the platform made.
+   */
+  exclude?: string[];
 }
 
 export interface VendoredNode {
-	/** Package name (root name, no subpath). */
-	spec: string;
-	version: string;
-	/** Real (symlink-resolved) source directory in the workspace. */
-	srcDir: string;
-	/** Optional deps skipped and why ("name" for unresolvable, "name (os/cpu)" for platform). */
-	pruned: string[];
-	/** Deps dropped by `exclude` — recorded separately so Gate 5d can tell a deliberate absence from a dangling one. */
-	excluded: string[];
+  /** Package name (root name, no subpath). */
+  spec: string;
+  version: string;
+  /** Real (symlink-resolved) source directory in the workspace. */
+  srcDir: string;
+  /** Optional deps skipped and why ("name" for unresolvable, "name (os/cpu)" for platform). */
+  pruned: string[];
+  /** Deps dropped by `exclude` — recorded separately so Gate 5d can tell a deliberate absence from a dangling one. */
+  excluded: string[];
 }
 
 interface ResolvedPkg {
-	name: string;
-	version: string;
-	srcDir: string;
-	dependencies: string[];
-	optionalDependencies: string[];
-	os?: string[];
-	cpu?: string[];
-	libc?: string[];
+  name: string;
+  version: string;
+  srcDir: string;
+  dependencies: string[];
+  optionalDependencies: string[];
+  os?: string[];
+  cpu?: string[];
+  libc?: string[];
 }
 
 /**
@@ -109,46 +109,46 @@ interface ResolvedPkg {
  * the filter stands down.
  */
 export function detectLibc(platform: NodeJS.Platform = process.platform): "glibc" | "musl" | null {
-	if (platform !== "linux") return null;
-	try {
-		const report = process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined;
-		return report?.header?.glibcVersionRuntime ? "glibc" : "musl";
-	} catch {
-		// No report available: filtering on a guess could drop the ONE artifact
-		// the host can load, so ship everything and stay correct-but-fat.
-		return null;
-	}
+  if (platform !== "linux") return null;
+  try {
+    const report = process.report?.getReport?.() as { header?: { glibcVersionRuntime?: string } } | undefined;
+    return report?.header?.glibcVersionRuntime ? "glibc" : "musl";
+  } catch {
+    // No report available: filtering on a guess could drop the ONE artifact
+    // the host can load, so ship everything and stay correct-but-fat.
+    return null;
+  }
 }
 
 function readPkg(spec: string, parentDir: string): ResolvedPkg | null {
-	// `${spec}/package.json` is the same resolution vendorPackage uses; the
-	// package.json subpath is never blocked by `exports`.
-	let pkgJsonPath: string;
-	try {
-		pkgJsonPath = Bun.resolveSync(`${spec}/package.json`, parentDir);
-	} catch {
-		return null;
-	}
-	const srcDir = resolve(pkgJsonPath, "..");
-	const manifest = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
-		name?: string;
-		version?: string;
-		dependencies?: Record<string, string>;
-		optionalDependencies?: Record<string, string>;
-		os?: string[];
-		cpu?: string[];
-		libc?: string[];
-	};
-	return {
-		name: manifest.name ?? spec,
-		version: manifest.version ?? "0.0.0",
-		srcDir,
-		dependencies: Object.keys(manifest.dependencies ?? {}),
-		optionalDependencies: Object.keys(manifest.optionalDependencies ?? {}),
-		os: manifest.os,
-		cpu: manifest.cpu,
-		libc: manifest.libc,
-	};
+  // `${spec}/package.json` is the same resolution vendorPackage uses; the
+  // package.json subpath is never blocked by `exports`.
+  let pkgJsonPath: string;
+  try {
+    pkgJsonPath = Bun.resolveSync(`${spec}/package.json`, parentDir);
+  } catch {
+    return null;
+  }
+  const srcDir = resolve(pkgJsonPath, "..");
+  const manifest = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as {
+    name?: string;
+    version?: string;
+    dependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+    os?: string[];
+    cpu?: string[];
+    libc?: string[];
+  };
+  return {
+    name: manifest.name ?? spec,
+    version: manifest.version ?? "0.0.0",
+    srcDir,
+    dependencies: Object.keys(manifest.dependencies ?? {}),
+    optionalDependencies: Object.keys(manifest.optionalDependencies ?? {}),
+    os: manifest.os,
+    cpu: manifest.cpu,
+    libc: manifest.libc,
+  };
 }
 
 /**
@@ -157,11 +157,11 @@ function readPkg(spec: string, parentDir: string): ResolvedPkg | null {
  * everything.
  */
 function platformMatches(values: string[] | undefined, actual: string): boolean {
-	if (!values || values.length === 0) return true;
-	for (const v of values) {
-		if (v.startsWith("!") && v.slice(1) === actual) return false;
-	}
-	return values.some((v) => !v.startsWith("!") && v === actual);
+  if (!values || values.length === 0) return true;
+  for (const v of values) {
+    if (v.startsWith("!") && v.slice(1) === actual) return false;
+  }
+  return values.some((v) => !v.startsWith("!") && v === actual);
 }
 
 /**
@@ -171,81 +171,82 @@ function platformMatches(values: string[] | undefined, actual: string): boolean 
  * Dep names in a package.json are always package roots, never subpaths.
  */
 export function matchesExclusion(pkg: string, exclude: readonly string[]): boolean {
-	for (const entry of exclude) {
-		if (entry === pkg) return true;
-		if (entry.endsWith("/*") && pkg.startsWith(entry.slice(0, -1))) return true;
-	}
-	return false;
+  for (const entry of exclude) {
+    if (entry === pkg) return true;
+    if (entry.endsWith("/*") && pkg.startsWith(entry.slice(0, -1))) return true;
+  }
+  return false;
 }
 
 /** Resolve the full vendoring closure without copying anything. */
 export function collectVendorClosure(opts: VendorClosureOptions): VendoredNode[] {
-	const platform = opts.platform ?? process.platform;
-	const arch = opts.arch ?? process.arch;
-	// `undefined` means "not specified" → detect; an explicit `null` disables.
-	const libc = opts.libc !== undefined ? opts.libc : detectLibc(platform);
-	const exclude = opts.exclude ?? [];
+  const platform = opts.platform ?? process.platform;
+  const arch = opts.arch ?? process.arch;
+  // `undefined` means "not specified" → detect; an explicit `null` disables.
+  const libc = opts.libc !== undefined ? opts.libc : detectLibc(platform);
+  const exclude = opts.exclude ?? [];
 
-	// Excluding a ROOT is a registry contradiction — the entry asks to ship a
-	// package and drop it at once — and unlike an excluded DEP it would be
-	// silently dropped by Gate 5c's "vendored roots must ship" check only at
-	// deploy time. Fail at the shape's authority instead.
-	for (const root of opts.roots) {
-		if (matchesExclusion(root, exclude)) {
-			throw new Error(`vendorClosure: root "${root}" is also in exclude — remove it from vendor or vendorExclude`);
-		}
-	}
+  // Excluding a ROOT is a registry contradiction — the entry asks to ship a
+  // package and drop it at once — and unlike an excluded DEP it would be
+  // silently dropped by Gate 5c's "vendored roots must ship" check only at
+  // deploy time. Fail at the shape's authority instead.
+  for (const root of opts.roots) {
+    if (matchesExclusion(root, exclude)) {
+      throw new Error(`vendorClosure: root "${root}" is also in exclude — remove it from vendor or vendorExclude`);
+    }
+  }
 
-	const nodes: VendoredNode[] = [];
-	const visited = new Set<string>();
-	// Pending [name, resolve-from-dir] pairs; roots resolve from the ext package,
-	// every other dep from its parent package's own directory.
-	const work: Array<[string, string]> = opts.roots.map((spec) => [spec, opts.resolveFrom]);
+  const nodes: VendoredNode[] = [];
+  const visited = new Set<string>();
+  // Pending [name, resolve-from-dir] pairs; roots resolve from the ext package,
+  // every other dep from its parent package's own directory.
+  const work: Array<[string, string]> = opts.roots.map((spec) => [spec, opts.resolveFrom]);
 
-	while (work.length > 0) {
-		const [spec, fromDir] = work.shift()!;
-		if (isBuiltinSpecifier(spec)) continue;
-		if (visited.has(spec)) continue;
-		visited.add(spec);
+  while (work.length > 0) {
+    const [spec, fromDir] = work.shift()!;
+    if (isBuiltinSpecifier(spec)) continue;
+    if (visited.has(spec)) continue;
+    visited.add(spec);
 
-		const pkg = readPkg(spec, fromDir);
-		if (!pkg) throw new Error(`vendorClosure: cannot resolve "${spec}" from ${fromDir} — run \`bun install\` in bun-apps/`);
+    const pkg = readPkg(spec, fromDir);
+    if (!pkg)
+      throw new Error(`vendorClosure: cannot resolve "${spec}" from ${fromDir} — run \`bun install\` in bun-apps/`);
 
-		const pruned: string[] = [];
-		const excluded: string[] = [];
-		for (const dep of pkg.dependencies) {
-			if (isBuiltinSpecifier(dep)) continue;
-			if (matchesExclusion(dep, exclude)) {
-				excluded.push(dep);
-				continue;
-			}
-			work.push([dep, pkg.srcDir]);
-		}
-		for (const dep of pkg.optionalDependencies) {
-			if (isBuiltinSpecifier(dep)) continue;
-			if (matchesExclusion(dep, exclude)) {
-				excluded.push(dep);
-				continue;
-			}
-			const depPkg = readPkg(dep, pkg.srcDir);
-			if (!depPkg) {
-				pruned.push(dep);
-				continue;
-			}
-			if (!platformMatches(depPkg.os, platform) || !platformMatches(depPkg.cpu, arch)) {
-				pruned.push(dep);
-				continue;
-			}
-			if (libc !== null && !platformMatches(depPkg.libc, libc)) {
-				pruned.push(dep);
-				continue;
-			}
-			work.push([dep, pkg.srcDir]);
-		}
+    const pruned: string[] = [];
+    const excluded: string[] = [];
+    for (const dep of pkg.dependencies) {
+      if (isBuiltinSpecifier(dep)) continue;
+      if (matchesExclusion(dep, exclude)) {
+        excluded.push(dep);
+        continue;
+      }
+      work.push([dep, pkg.srcDir]);
+    }
+    for (const dep of pkg.optionalDependencies) {
+      if (isBuiltinSpecifier(dep)) continue;
+      if (matchesExclusion(dep, exclude)) {
+        excluded.push(dep);
+        continue;
+      }
+      const depPkg = readPkg(dep, pkg.srcDir);
+      if (!depPkg) {
+        pruned.push(dep);
+        continue;
+      }
+      if (!platformMatches(depPkg.os, platform) || !platformMatches(depPkg.cpu, arch)) {
+        pruned.push(dep);
+        continue;
+      }
+      if (libc !== null && !platformMatches(depPkg.libc, libc)) {
+        pruned.push(dep);
+        continue;
+      }
+      work.push([dep, pkg.srcDir]);
+    }
 
-		nodes.push({ spec: pkg.name, version: pkg.version, srcDir: pkg.srcDir, pruned, excluded });
-	}
-	return nodes;
+    nodes.push({ spec: pkg.name, version: pkg.version, srcDir: pkg.srcDir, pruned, excluded });
+  }
+  return nodes;
 }
 
 /**
@@ -254,10 +255,10 @@ export function collectVendorClosure(opts: VendorClosureOptions): VendoredNode[]
  * so the closure walker can copy from an already-resolved srcDir.
  */
 export function copyPackageVerbatim(spec: string, srcDir: string, outDir: string): string {
-	const destDir = join(outDir, "node_modules", spec);
-	mkdirSync(resolve(destDir, ".."), { recursive: true });
-	cpSync(srcDir, destDir, { recursive: true, dereference: true, filter: (src) => !isRuntimeDeadFile(src) });
-	return destDir;
+  const destDir = join(outDir, "node_modules", spec);
+  mkdirSync(resolve(destDir, ".."), { recursive: true });
+  cpSync(srcDir, destDir, { recursive: true, dereference: true, filter: (src) => !isRuntimeDeadFile(src) });
+  return destDir;
 }
 
 /** Sourcemaps: `.js.map` and every sibling extension tsc/bundlers emit. */
@@ -284,12 +285,12 @@ const TYPINGS_RE = /\.d\.[cm]?ts$/;
  * the whole doc category is ~1MB — the wrong trade in both directions.
  */
 export function isRuntimeDeadFile(path: string): boolean {
-	return SOURCEMAP_RE.test(path) || TYPINGS_RE.test(path);
+  return SOURCEMAP_RE.test(path) || TYPINGS_RE.test(path);
 }
 
 /** Resolve the closure and copy every node into <outDir>/node_modules/. */
 export function vendorClosure(opts: VendorClosureOptions & { outDir: string }): VendoredNode[] {
-	const nodes = collectVendorClosure(opts);
-	for (const node of nodes) copyPackageVerbatim(node.spec, node.srcDir, opts.outDir);
-	return nodes;
+  const nodes = collectVendorClosure(opts);
+  for (const node of nodes) copyPackageVerbatim(node.spec, node.srcDir, opts.outDir);
+  return nodes;
 }

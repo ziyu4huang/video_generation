@@ -27,21 +27,13 @@
  * directly; scripts/repoint-next-goal.ts is the thin runnable entry.
  */
 
-import {
-  existsSync,
-  lstatSync,
-  readFileSync,
-  readdirSync,
-  renameSync,
-  symlinkSync,
-  unlinkSync,
-} from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, renameSync, symlinkSync, unlinkSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import {
+  doctorNextGoal,
+  NEXT_GOAL_FILENAME_RE,
   type NextGoalDoctor,
   type NextGoalValidation,
-  NEXT_GOAL_FILENAME_RE,
-  doctorNextGoal,
   validateNextGoalFile,
 } from "./validate-next-goal.js";
 

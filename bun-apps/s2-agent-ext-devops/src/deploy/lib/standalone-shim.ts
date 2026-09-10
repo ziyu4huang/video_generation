@@ -56,8 +56,8 @@ const STANDALONE_ENTRY = "src/sh/standalone.ts";
 const SHIM_FLAGS = ["--target=bun", "--minify"];
 
 export interface StandaloneShimResult {
-	bytes: number;
-	cached: boolean;
+  bytes: number;
+  cached: boolean;
 }
 
 /**
@@ -70,12 +70,12 @@ const BUN_NATIVE_COMPAT = ["node-fetch", "ws", "undici"];
 
 /** Gate s1b body — a bare dynamic import outside the native set cannot resolve beside the bundle. */
 function gateDynamicImports(code: string): void {
-	const unroutable = scanUnroutableDynamicImports(code).filter((spec) => !BUN_NATIVE_COMPAT.includes(spec));
-	if (unroutable.length > 0) {
-		throw new Error(
-			`standalone shim: native dynamic import(s) that cannot resolve beside the bundle: ${unroutable.join(", ")}.`,
-		);
-	}
+  const unroutable = scanUnroutableDynamicImports(code).filter((spec) => !BUN_NATIVE_COMPAT.includes(spec));
+  if (unroutable.length > 0) {
+    throw new Error(
+      `standalone shim: native dynamic import(s) that cannot resolve beside the bundle: ${unroutable.join(", ")}.`,
+    );
+  }
 }
 
 /**
@@ -88,17 +88,17 @@ function gateDynamicImports(code: string): void {
  * false-red on the same bytes the core ships.
  */
 function gateForeignPaths(shimPath: string, deployRoot: string): void {
-	const r = scanBinaryForeignPaths(shimPath, deployRoot);
-	if (r.foreign.length > 0) {
-		throw new Error(
-			`standalone shim: bundle bakes in build-machine path(s): ${r.foreign.slice(0, 5).join(", ")} — the tree must be relocatable.`,
-		);
-	}
-	if (r.allowed.length > 0) {
-		process.stderr.write(
-			`standalone shim: allowlisted baked cache path(s) (inert, same class as the core bundle): ${r.allowed.length}\n`,
-		);
-	}
+  const r = scanBinaryForeignPaths(shimPath, deployRoot);
+  if (r.foreign.length > 0) {
+    throw new Error(
+      `standalone shim: bundle bakes in build-machine path(s): ${r.foreign.slice(0, 5).join(", ")} — the tree must be relocatable.`,
+    );
+  }
+  if (r.allowed.length > 0) {
+    process.stderr.write(
+      `standalone shim: allowlisted baked cache path(s) (inert, same class as the core bundle): ${r.allowed.length}\n`,
+    );
+  }
 }
 
 /**
@@ -107,8 +107,8 @@ function gateForeignPaths(shimPath: string, deployRoot: string): void {
  * build. (Static specifiers are NOT scanned — see the s1 DROPPED note, map D8.)
  */
 export function gateStandaloneShim(shimPath: string, deployRoot: string): void {
-	gateDynamicImports(readFileSync(shimPath, "utf8"));
-	gateForeignPaths(shimPath, deployRoot);
+  gateDynamicImports(readFileSync(shimPath, "utf8"));
+  gateForeignPaths(shimPath, deployRoot);
 }
 
 /**
@@ -118,31 +118,30 @@ export function gateStandaloneShim(shimPath: string, deployRoot: string): void {
  * path-keyed import cache cannot hand us a stale probe.
  */
 export async function probeStandaloneShimImport(shimPath: string): Promise<void> {
-	// pathToFileURL, never the bare path: a win32 `C:\…` absolute path is not a
-	// valid import specifier (the same lesson as run.ts's resolvePiPkgDir).
-	const exports = (await import(pathToFileURL(shimPath).href)) as Record<string, unknown>;
-	for (const name of ["loadExt", "listExts"]) {
-		if (typeof exports[name] !== "function") {
-			throw new Error(`${shimPath}: shim does not export a callable ${name}()`);
-		}
-	}
+  // pathToFileURL, never the bare path: a win32 `C:\…` absolute path is not a
+  // valid import specifier (the same lesson as run.ts's resolvePiPkgDir).
+  const exports = (await import(pathToFileURL(shimPath).href)) as Record<string, unknown>;
+  for (const name of ["loadExt", "listExts"]) {
+    if (typeof exports[name] !== "function") {
+      throw new Error(`${shimPath}: shim does not export a callable ${name}()`);
+    }
+  }
 }
 
 async function bundleShim(target: string): Promise<void> {
-	const p = Bun.spawn(
-		["bun", "build", join(PI_AGENT_DIR, STANDALONE_ENTRY), `--outfile=${target}`, ...SHIM_FLAGS],
-		{ stdout: "pipe", stderr: "inherit", cwd: PI_AGENT_DIR },
-	);
-	// Same discipline as buildCore: bun's build report is human progress, and
-	// deploy-cli promises stdout is pure JSON — re-emit the child's report on stderr.
-	const report = new Response(p.stdout)
-		.text()
-		.then((t) => {
-			if (t) process.stderr.write(t);
-		});
-	const code = await p.exited;
-	await report;
-	if (code !== 0) throw new Error(`bun build failed for the standalone shim (exit ${code})`);
+  const p = Bun.spawn(["bun", "build", join(PI_AGENT_DIR, STANDALONE_ENTRY), `--outfile=${target}`, ...SHIM_FLAGS], {
+    stdout: "pipe",
+    stderr: "inherit",
+    cwd: PI_AGENT_DIR,
+  });
+  // Same discipline as buildCore: bun's build report is human progress, and
+  // deploy-cli promises stdout is pure JSON — re-emit the child's report on stderr.
+  const report = new Response(p.stdout).text().then((t) => {
+    if (t) process.stderr.write(t);
+  });
+  const code = await p.exited;
+  await report;
+  if (code !== 0) throw new Error(`bun build failed for the standalone shim (exit ${code})`);
 }
 
 /**
@@ -151,57 +150,57 @@ async function bundleShim(target: string): Promise<void> {
  * non-freeze builds a private copy (hardlinks share an inode with the cache).
  */
 export async function buildStandaloneShim(opts: {
-	/** Destination: <stage>/ext/ext-standalone.mjs. */
-	outFile: string;
-	/** The deploy outRoot owning the .cores cache. */
-	outRoot: string;
-	freeze: boolean;
-	/** The staging tree root — Gate s4's deploy-tree exemption base. */
-	deployRoot: string;
-	/** Per-gate timing callback (deploy report gate matrix). */
-	onGate?: (id: string, ms: number) => void;
+  /** Destination: <stage>/ext/ext-standalone.mjs. */
+  outFile: string;
+  /** The deploy outRoot owning the .cores cache. */
+  outRoot: string;
+  freeze: boolean;
+  /** The staging tree root — Gate s4's deploy-tree exemption base. */
+  deployRoot: string;
+  /** Per-gate timing callback (deploy report gate matrix). */
+  onGate?: (id: string, ms: number) => void;
 }): Promise<StandaloneShimResult> {
-	const timed = async (id: string, run: () => Promise<void> | void): Promise<void> => {
-		const t0 = performance.now();
-		await run();
-		opts.onGate?.(id, performance.now() - t0);
-	};
+  const timed = async (id: string, run: () => Promise<void> | void): Promise<void> => {
+    const t0 = performance.now();
+    await run();
+    opts.onGate?.(id, performance.now() - t0);
+  };
 
-	let cached = false;
-	// The caller names the destination; guaranteeing its parent is ours (the
-	// deploy pre-creates <stage>/ext, but the cache-hit link below must not
-	// depend on that ordering).
-	mkdirSync(resolve(opts.outFile, ".."), { recursive: true });
-	if (opts.freeze) {
-		const piPkgVersion = (
-			JSON.parse(
-				readFileSync(Bun.resolveSync("@earendil-works/pi-coding-agent/package.json", PI_AGENT_DIR), "utf8"),
-			) as { version: string }
-		).version;
-		const hash = computeCoreHash({
-			piAgentDir: PI_AGENT_DIR,
-			piPkgVersion,
-			bunVersion: Bun.version,
-			entry: STANDALONE_ENTRY,
-			flags: SHIM_FLAGS,
-		});
-		const entry = await ensureCachedCore({
-			outRoot: opts.outRoot,
-			hash,
-			build: async (target) => {
-				await bundleShim(target);
-			},
-		});
-		cached = entry.cached;
-		linkCore(entry.cacheFile, opts.outFile);
-	} else {
-		await bundleShim(opts.outFile);
-	}
+  let cached = false;
+  // The caller names the destination; guaranteeing its parent is ours (the
+  // deploy pre-creates <stage>/ext, but the cache-hit link below must not
+  // depend on that ordering).
+  mkdirSync(resolve(opts.outFile, ".."), { recursive: true });
+  if (opts.freeze) {
+    const piPkgVersion = (
+      JSON.parse(
+        readFileSync(Bun.resolveSync("@earendil-works/pi-coding-agent/package.json", PI_AGENT_DIR), "utf8"),
+      ) as { version: string }
+    ).version;
+    const hash = computeCoreHash({
+      piAgentDir: PI_AGENT_DIR,
+      piPkgVersion,
+      bunVersion: Bun.version,
+      entry: STANDALONE_ENTRY,
+      flags: SHIM_FLAGS,
+    });
+    const entry = await ensureCachedCore({
+      outRoot: opts.outRoot,
+      hash,
+      build: async (target) => {
+        await bundleShim(target);
+      },
+    });
+    cached = entry.cached;
+    linkCore(entry.cacheFile, opts.outFile);
+  } else {
+    await bundleShim(opts.outFile);
+  }
 
-	const code = readFileSync(opts.outFile, "utf8");
-	await timed("s1b", () => gateDynamicImports(code));
-	await timed("s4", () => gateForeignPaths(opts.outFile, opts.deployRoot));
-	await timed("s2", () => probeStandaloneShimImport(opts.outFile));
+  const code = readFileSync(opts.outFile, "utf8");
+  await timed("s1b", () => gateDynamicImports(code));
+  await timed("s4", () => gateForeignPaths(opts.outFile, opts.deployRoot));
+  await timed("s2", () => probeStandaloneShimImport(opts.outFile));
 
-	return { bytes: statSync(opts.outFile).size, cached };
+  return { bytes: statSync(opts.outFile).size, cached };
 }

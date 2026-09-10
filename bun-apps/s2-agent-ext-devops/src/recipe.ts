@@ -29,14 +29,15 @@
  * testable with fakes — mirroring how `runLocalCi` is tested with an injected
  * recording spawn. Elapsed is stamped with Date.now() at entry/exit.
  */
-import type { SpawnFn } from "./spawn.js";
+
+import { type BranchCleanupResult, runLocalBranchCleanup } from "./branch-cleanup.js";
+import type { ChangedPackagesMap, ComputeChangedPackagesOptions } from "./changed-packages.js";
+import type { CiGatesResult } from "./ci-gates.js";
 import type { CiOutcome } from "./ci-recipe.js";
 import { runLocalCi } from "./ci-recipe.js";
-import { createBranchClient } from "./gh.js";
-import { runLocalBranchCleanup, type BranchCleanupResult } from "./branch-cleanup.js";
-import type { ComputeChangedPackagesOptions, ChangedPackagesMap } from "./changed-packages.js";
-import type { CiGatesResult } from "./ci-gates.js";
 import type { ForgeClient } from "./forge/types.js";
+import { createBranchClient } from "./gh.js";
+import type { SpawnFn } from "./spawn.js";
 
 /**
  * Injectable forge/git operations. Historical name kept as an alias of the
@@ -47,197 +48,206 @@ import type { ForgeClient } from "./forge/types.js";
 export type GhClient = ForgeClient;
 
 export interface RecipeOptions {
-	prNumber: number;
-	strategy: "rebase" | "merge" | "squash";
-	deleteBranch: boolean;
-	gh: GhClient;
-	spawn: SpawnFn;
-	repoRoot: string;
-	signal?: AbortSignal;
-	/**
-	 * Injectable changed-package detector forwarded to runLocalCi. Default:
-	 * `computeChangedPackages` (extension-native TS port of the former
-	 * ci-changed-packages.sh). Tests inject a fake so the recipe stays fs-free.
-	 */
-	detectChangedPackages?: (opts: ComputeChangedPackagesOptions) => Promise<ChangedPackagesMap>;
-	/**
-	 * Injectable `regression-gates` reader forwarded to runLocalCi. Default:
-	 * parse the job out of the workflow. Tests inject a fake so the recipe stays
-	 * fs-free — and so a fake repoRoot doesn't fail the merge on a gate-read error.
-	 */
-	readGates?: (repoRoot: string) => Promise<CiGatesResult>;
-	/** Remote name for the best-effort fetch + `origin/<ref>` CI refs (default
-	 *  `origin`; resolve via src/remote.ts and pass down). */
-	remoteName?: string;
+  prNumber: number;
+  strategy: "rebase" | "merge" | "squash";
+  deleteBranch: boolean;
+  gh: GhClient;
+  spawn: SpawnFn;
+  repoRoot: string;
+  signal?: AbortSignal;
+  /**
+   * Injectable changed-package detector forwarded to runLocalCi. Default:
+   * `computeChangedPackages` (extension-native TS port of the former
+   * ci-changed-packages.sh). Tests inject a fake so the recipe stays fs-free.
+   */
+  detectChangedPackages?: (opts: ComputeChangedPackagesOptions) => Promise<ChangedPackagesMap>;
+  /**
+   * Injectable `regression-gates` reader forwarded to runLocalCi. Default:
+   * parse the job out of the workflow. Tests inject a fake so the recipe stays
+   * fs-free — and so a fake repoRoot doesn't fail the merge on a gate-read error.
+   */
+  readGates?: (repoRoot: string) => Promise<CiGatesResult>;
+  /** Remote name for the best-effort fetch + `origin/<ref>` CI refs (default
+   *  `origin`; resolve via src/remote.ts and pass down). */
+  remoteName?: string;
 }
 
 export interface RecipeOutcome {
-	merged: boolean;
-	finalState: string;
-	mergeSha?: string;
-	localCi?: CiOutcome;
-	/** Post-merge LOCAL branch cleanup — present when THIS invocation merged
-	 *  with deleteBranch (the spent head branch is detached-off + deleted;
-	 *  failures are notes, never errors). */
-	cleanup?: BranchCleanupResult;
-	elapsedMs: number;
-	error?: string;
+  merged: boolean;
+  finalState: string;
+  mergeSha?: string;
+  localCi?: CiOutcome;
+  /** Post-merge LOCAL branch cleanup — present when THIS invocation merged
+   *  with deleteBranch (the spent head branch is detached-off + deleted;
+   *  failures are notes, never errors). */
+  cleanup?: BranchCleanupResult;
+  elapsedMs: number;
+  error?: string;
 }
 
 export async function runMergeRecipe(opts: RecipeOptions): Promise<RecipeOutcome> {
-	const t0 = Date.now();
-	const { prNumber, strategy, deleteBranch, gh, spawn, repoRoot, signal } = opts;
-	const elapsed = () => Date.now() - t0;
+  const t0 = Date.now();
+  const { prNumber, strategy, deleteBranch, gh, spawn, repoRoot, signal } = opts;
+  const elapsed = () => Date.now() - t0;
 
-	if (signal?.aborted) {
-		return { merged: false, finalState: "OPEN", elapsedMs: elapsed(), error: "aborted before start" };
-	}
+  if (signal?.aborted) {
+    return { merged: false, finalState: "OPEN", elapsedMs: elapsed(), error: "aborted before start" };
+  }
 
-	// 1. PR snapshot.
-	let status;
-	try {
-		status = await gh.prStatus(prNumber);
-	} catch (err) {
-		return { merged: false, finalState: "OPEN", elapsedMs: elapsed(), error: `gh pr view failed: ${errMsg(err)}` };
-	}
+  // 1. PR snapshot.
+  let status: Awaited<ReturnType<typeof gh.prStatus>>;
+  try {
+    status = await gh.prStatus(prNumber);
+  } catch (err) {
+    return { merged: false, finalState: "OPEN", elapsedMs: elapsed(), error: `gh pr view failed: ${errMsg(err)}` };
+  }
 
-	// 2. Terminal states.
-	if (status.state === "MERGED") {
-		return { merged: true, finalState: "MERGED", mergeSha: status.mergeSha, elapsedMs: elapsed() };
-	}
-	if (status.state !== "OPEN") {
-		return { merged: false, finalState: status.state, elapsedMs: elapsed(), error: `PR is ${status.state} (not OPEN)` };
-	}
+  // 2. Terminal states.
+  if (status.state === "MERGED") {
+    return { merged: true, finalState: "MERGED", mergeSha: status.mergeSha, elapsedMs: elapsed() };
+  }
+  if (status.state !== "OPEN") {
+    return { merged: false, finalState: status.state, elapsedMs: elapsed(), error: `PR is ${status.state} (not OPEN)` };
+  }
 
-	// 3. Best-effort fetch of the PR's base+head refs (offline-safe). A failed
-	//    /offline fetch is fine — run_local_ci then surfaces a missing-ref error
-	//    (a thrown rev-parse on the base, or a detectionError on the diff) and
-	//    we block fail-closed. Do NOT hard-fail the tool on the fetch itself.
-	try {
-		await spawn("git", ["fetch", opts.remoteName ?? "origin", status.baseRefName, status.headRefName], { cwd: repoRoot });
-	} catch {
-		/* best-effort — a throw here is unexpected (spawn returns a result, it
-		 * doesn't throw), but guard anyway so the tool never crashes on it. */
-	}
+  // 3. Best-effort fetch of the PR's base+head refs (offline-safe). A failed
+  //    /offline fetch is fine — run_local_ci then surfaces a missing-ref error
+  //    (a thrown rev-parse on the base, or a detectionError on the diff) and
+  //    we block fail-closed. Do NOT hard-fail the tool on the fetch itself.
+  try {
+    await spawn("git", ["fetch", opts.remoteName ?? "origin", status.baseRefName, status.headRefName], {
+      cwd: repoRoot,
+    });
+  } catch {
+    /* best-effort — a throw here is unexpected (spawn returns a result, it
+     * doesn't throw), but guard anyway so the tool never crashes on it. */
+  }
 
-	// 4. Local-CI gate over the PR's fetched base..head. runLocalCi THROWS when
-	//    even the base ref can't be resolved (fully offline + never fetched) —
-	//    catch that and block fail-closed rather than crashing the tool.
-	let ci: CiOutcome;
-	try {
-		ci = await runLocalCi({
-			repoRoot,
-			baseRef: `${opts.remoteName ?? "origin"}/${status.baseRefName}`,
-			headRef: `${opts.remoteName ?? "origin"}/${status.headRefName}`,
-			strict: false,
-			includeGates: true,
-			spawn,
-			signal,
-			detectChangedPackages: opts.detectChangedPackages,
-			readGates: opts.readGates,
-		});
-	} catch (err) {
-		return {
-			merged: false,
-			finalState: status.state,
-			elapsedMs: elapsed(),
-			error: `run_local_ci could not run: ${errMsg(err)}`,
-		};
-	}
+  // 4. Local-CI gate over the PR's fetched base..head. runLocalCi THROWS when
+  //    even the base ref can't be resolved (fully offline + never fetched) —
+  //    catch that and block fail-closed rather than crashing the tool.
+  let ci: CiOutcome;
+  try {
+    ci = await runLocalCi({
+      repoRoot,
+      baseRef: `${opts.remoteName ?? "origin"}/${status.baseRefName}`,
+      headRef: `${opts.remoteName ?? "origin"}/${status.headRefName}`,
+      strict: false,
+      includeGates: true,
+      spawn,
+      signal,
+      detectChangedPackages: opts.detectChangedPackages,
+      readGates: opts.readGates,
+    });
+  } catch (err) {
+    return {
+      merged: false,
+      finalState: status.state,
+      elapsedMs: elapsed(),
+      error: `run_local_ci could not run: ${errMsg(err)}`,
+    };
+  }
 
-	// 5. Gate failed (incl. detectionError) → BLOCK (no merge).
-	if (ci.overall !== "pass") {
-		const error = ci.detectionError ?? "run_local_ci failed; see packages/gates";
-		return { merged: false, finalState: status.state, localCi: ci, elapsedMs: elapsed(), error };
-	}
+  // 5. Gate failed (incl. detectionError) → BLOCK (no merge).
+  if (ci.overall !== "pass") {
+    const error = ci.detectionError ?? "run_local_ci failed; see packages/gates";
+    return { merged: false, finalState: status.state, localCi: ci, elapsedMs: elapsed(), error };
+  }
 
-	// 6. Gate green → decide by mergeability (NO auto-rebase; NO escape hatch).
-	if (status.mergeState === "BEHIND") {
-		return {
-			merged: false,
-			finalState: status.state,
-			localCi: ci,
-			elapsedMs: elapsed(),
-			error: "PR is behind base; rebase locally + re-push, then re-run merge_pr_after_local_ci.",
-		};
-	}
-	if (status.mergeState !== "CLEAN") {
-		return {
-			merged: false,
-			finalState: status.state,
-			localCi: ci,
-			elapsedMs: elapsed(),
-			error: `merge blocked: mergeState=${status.mergeState} (expected CLEAN).`,
-		};
-	}
+  // 6. Gate green → decide by mergeability (NO auto-rebase; NO escape hatch).
+  if (status.mergeState === "BEHIND") {
+    return {
+      merged: false,
+      finalState: status.state,
+      localCi: ci,
+      elapsedMs: elapsed(),
+      error: "PR is behind base; rebase locally + re-push, then re-run merge_pr_after_local_ci.",
+    };
+  }
+  if (status.mergeState !== "CLEAN") {
+    return {
+      merged: false,
+      finalState: status.state,
+      localCi: ci,
+      elapsedMs: elapsed(),
+      error: `merge blocked: mergeState=${status.mergeState} (expected CLEAN).`,
+    };
+  }
 
-	// CLEAN + green → merge (synchronous, no --auto). Success IS the
-	// confirmation — there's no remote CI to wait on.
-	try {
-		await gh.mergeNow(prNumber, strategy, deleteBranch);
-	} catch (err) {
-		return {
-			merged: false,
-			finalState: status.state,
-			localCi: ci,
-			elapsedMs: elapsed(),
-			error: `gh pr merge failed: ${errMsg(err)}`,
-		};
-	}
+  // CLEAN + green → merge (synchronous, no --auto). Success IS the
+  // confirmation — there's no remote CI to wait on.
+  try {
+    await gh.mergeNow(prNumber, strategy, deleteBranch);
+  } catch (err) {
+    return {
+      merged: false,
+      finalState: status.state,
+      localCi: ci,
+      elapsedMs: elapsed(),
+      error: `gh pr merge failed: ${errMsg(err)}`,
+    };
+  }
 
-	// Best-effort mergeSha via a follow-up pr view (the PR should now be MERGED
-	// with a populated mergeCommit). A failure here does NOT undo the merge —
-	// the merge already succeeded; the SHA is purely informational.
-	let mergeSha = status.mergeSha;
-	try {
-		const after = await gh.prStatus(prNumber);
-		if (after.mergeSha) mergeSha = after.mergeSha;
-	} catch {
-		/* best-effort — keep the pre-merge mergeSha (likely undefined) */
-	}
+  // Best-effort mergeSha via a follow-up pr view (the PR should now be MERGED
+  // with a populated mergeCommit). A failure here does NOT undo the merge —
+  // the merge already succeeded; the SHA is purely informational.
+  let mergeSha = status.mergeSha;
+  try {
+    const after = await gh.prStatus(prNumber);
+    if (after.mergeSha) mergeSha = after.mergeSha;
+  } catch {
+    /* best-effort — keep the pre-merge mergeSha (likely undefined) */
+  }
 
-	// 7. Local branch cleanup (remote deletion was mergeNow's job). The merge
-	//    happened SERVER-side — REST merges (and gh's own squash) never put the
-	//    merge commit into the local object store — so fetch the sha before
-	//    detaching onto it; without it `checkout --detach <sha>` fails with
-	//    "reference is not a tree". Fall back to a refreshed `origin/<base>`
-	//    (the pre-CI fetch left that ref at the PRE-merge tip) when the sha is
-	//    unknown or unfetchable. Everything here is best-effort: the merge has
-	//    already landed, so cleanup failures are notes — never a failed recipe.
-	let cleanup: BranchCleanupResult | undefined;
-	if (deleteBranch) {
-		const remote = opts.remoteName ?? "origin";
-		let onto = mergeSha;
-		if (onto) {
-			// Guarded like the step-3 fetch: the merge has ALREADY landed — a
-			// spawn rejection here must never fail the recipe for a done merge.
-			try {
-				const f = await spawn("git", ["fetch", remote, onto], { cwd: repoRoot });
-				if (f.exitCode !== 0) onto = undefined; // unfetchable sha → fall back
-			} catch {
-				onto = undefined;
-			}
-		}
-		if (!onto) {
-			try {
-				await spawn("git", ["fetch", remote, status.baseRefName], { cwd: repoRoot });
-			} catch {
-				/* offline: detach onto the (possibly stale) tracking ref is still
-			 * safe for a spent branch; cleanup notes any resulting failure */
-			}
-			onto = `${remote}/${status.baseRefName}`;
-		}
-		cleanup = await runLocalBranchCleanup({
-			client: createBranchClient(spawn, remote),
-			headBranch: status.headRefName,
-			repoRoot,
-			onto,
-		});
-	}
+  // 7. Local branch cleanup (remote deletion was mergeNow's job). The merge
+  //    happened SERVER-side — REST merges (and gh's own squash) never put the
+  //    merge commit into the local object store — so fetch the sha before
+  //    detaching onto it; without it `checkout --detach <sha>` fails with
+  //    "reference is not a tree". Fall back to a refreshed `origin/<base>`
+  //    (the pre-CI fetch left that ref at the PRE-merge tip) when the sha is
+  //    unknown or unfetchable. Everything here is best-effort: the merge has
+  //    already landed, so cleanup failures are notes — never a failed recipe.
+  let cleanup: BranchCleanupResult | undefined;
+  if (deleteBranch) {
+    const remote = opts.remoteName ?? "origin";
+    let onto = mergeSha;
+    if (onto) {
+      // Guarded like the step-3 fetch: the merge has ALREADY landed — a
+      // spawn rejection here must never fail the recipe for a done merge.
+      try {
+        const f = await spawn("git", ["fetch", remote, onto], { cwd: repoRoot });
+        if (f.exitCode !== 0) onto = undefined; // unfetchable sha → fall back
+      } catch {
+        onto = undefined;
+      }
+    }
+    if (!onto) {
+      try {
+        await spawn("git", ["fetch", remote, status.baseRefName], { cwd: repoRoot });
+      } catch {
+        /* offline: detach onto the (possibly stale) tracking ref is still
+         * safe for a spent branch; cleanup notes any resulting failure */
+      }
+      onto = `${remote}/${status.baseRefName}`;
+    }
+    cleanup = await runLocalBranchCleanup({
+      client: createBranchClient(spawn, remote),
+      headBranch: status.headRefName,
+      repoRoot,
+      onto,
+    });
+  }
 
-	return { merged: true, finalState: "MERGED", mergeSha, localCi: ci, ...(cleanup ? { cleanup } : {}), elapsedMs: elapsed() };
+  return {
+    merged: true,
+    finalState: "MERGED",
+    mergeSha,
+    localCi: ci,
+    ...(cleanup ? { cleanup } : {}),
+    elapsedMs: elapsed(),
+  };
 }
 
 function errMsg(err: unknown): string {
-	return err instanceof Error ? err.message : String(err);
+  return err instanceof Error ? err.message : String(err);
 }

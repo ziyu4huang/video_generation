@@ -15,7 +15,9 @@ import { validateQualifySweep } from "../src/validate-qualify-receipts.js";
 
 function main(argv: string[]): number {
   if (argv.includes("-h") || argv.includes("--help") || argv.length === 0) {
-    console.error("usage: validate-qualify-receipts.ts <sweep-dir>   (the qualify sweep output dir: scenario subdirs + summary.json)");
+    console.error(
+      "usage: validate-qualify-receipts.ts <sweep-dir>   (the qualify sweep output dir: scenario subdirs + summary.json)",
+    );
     return 2;
   }
   const arg = argv.filter((a) => !a.startsWith("--"))[0];
@@ -29,7 +31,10 @@ function main(argv: string[]): number {
   for (const p of res.problems) console.error(`problem: ${p}`);
   for (const s of res.scenarios) {
     for (const p of s.problems) console.error(`${s.scenario}: ${p}`);
-    if (s.agree === false) console.error(`${s.scenario}: SELF-GRADE DISAGREES (receipt pass=${String(s.selfPass)}, re-derived pass=${String(s.derivedPass)})`);
+    if (s.agree === false)
+      console.error(
+        `${s.scenario}: SELF-GRADE DISAGREES (receipt pass=${String(s.selfPass)}, re-derived pass=${String(s.derivedPass)})`,
+      );
   }
   if (!res.ok) return 1;
   if (!res.allAgree) return 1;

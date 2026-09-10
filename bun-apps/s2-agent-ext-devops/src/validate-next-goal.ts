@@ -17,7 +17,7 @@
  * is the runnable entry; tests import these functions directly.
  */
 
-import { existsSync, readFileSync, readdirSync, readlinkSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
 
 /** Filename pattern — also the sort key for newest-file resolution and pruning. */
@@ -65,7 +65,7 @@ function parseFrontmatter(source: string): { keys: Record<string, string> | unde
 }
 
 function sectionBounds(body: string): number[] {
-  return REQUIRED_SECTIONS.map((h) => body.indexOf(`\n${h}\n`) !== -1 ? body.indexOf(h) : -1);
+  return REQUIRED_SECTIONS.map((h) => (body.indexOf(`\n${h}\n`) !== -1 ? body.indexOf(h) : -1));
 }
 
 /** `1. ` … `5. ` numbered entries under the ranked-goals heading. */
@@ -167,7 +167,10 @@ export function validateNextGoalFile(absFile: string): NextGoalValidation {
       // `none` only for the first file ever; otherwise an ABSOLUTE path.
       const okShape = keys.supersedes === "none" || isAbsolute(keys.supersedes);
       if (!okShape) {
-        fail("supersedes-abs-path", `supersedes: must be "none" or an ABSOLUTE predecessor path (got "${keys.supersedes}")`);
+        fail(
+          "supersedes-abs-path",
+          `supersedes: must be "none" or an ABSOLUTE predecessor path (got "${keys.supersedes}")`,
+        );
       }
       // Soft: the predecessor may legitimately have been pruned at retention.
       else if (keys.supersedes !== "none" && !existsSync(keys.supersedes)) {
@@ -199,7 +202,10 @@ export function validateNextGoalFile(absFile: string): NextGoalValidation {
   // hands-off SOP's "always explain in detail what's next" rule).
   const steps = immediateStepTexts(body);
   if (steps.length < 1) {
-    fail("immediate-steps-detail", "Immediate steps needs at least one numbered (`1. `) step — the next session's entry point");
+    fail(
+      "immediate-steps-detail",
+      "Immediate steps needs at least one numbered (`1. `) step — the next session's entry point",
+    );
   } else {
     const thin = steps.findIndex((s) => s.length < MIN_IMMEDIATE_STEP_CHARS);
     if (thin !== -1) {
@@ -251,7 +257,9 @@ export function doctorNextGoal(outputDir: string): NextGoalDoctor {
   // would read as "missing" and the dangling diagnosis would never fire.
   const rawTarget = readlinkOrNone(symlinkPath);
   if (rawTarget === undefined) {
-    problems.push("output/LATEST-next-goal.md is missing — EXECUTE reads this symlink first; re-point it at the newest file");
+    problems.push(
+      "output/LATEST-next-goal.md is missing — EXECUTE reads this symlink first; re-point it at the newest file",
+    );
   } else {
     const target = resolve(outputDir, basename(rawTarget));
     const dangling = !existsSync(target);
@@ -261,17 +269,27 @@ export function doctorNextGoal(outputDir: string): NextGoalDoctor {
     } else {
       const newest = files[files.length - 1];
       if (newest && basename(target) !== newest) {
-        problems.push(`LATEST points at ${basename(target)} but the newest file is ${newest} — re-point (ln -sf ${newest} output/LATEST-next-goal.md)`);
+        problems.push(
+          `LATEST points at ${basename(target)} but the newest file is ${newest} — re-point (ln -sf ${newest} output/LATEST-next-goal.md)`,
+        );
       }
       validation = validateNextGoalFile(target);
       if (!validation.ok) {
-        problems.push(`LATEST target fails strict validation: ${validation.checks.filter((c) => !c.ok).map((c) => c.name).join(", ")}`);
+        problems.push(
+          `LATEST target fails strict validation: ${validation.checks
+            .filter((c) => !c.ok)
+            .map((c) => c.name)
+            .join(", ")}`,
+        );
       }
     }
   }
 
   const overBy = Math.max(0, files.length - MAX_RETENTION);
-  if (overBy > 0) problems.push(`retention over cap: ${files.length} files (max ${MAX_RETENTION}) — delete the oldest ${overBy} by filename timestamp`);
+  if (overBy > 0)
+    problems.push(
+      `retention over cap: ${files.length} files (max ${MAX_RETENTION}) — delete the oldest ${overBy} by filename timestamp`,
+    );
 
   return {
     ok: problems.length === 0,

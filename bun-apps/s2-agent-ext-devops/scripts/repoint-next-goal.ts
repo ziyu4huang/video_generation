@@ -33,7 +33,8 @@ function main(argv: string[]): number {
   for (const p of result.problems) console.error(`${p}`);
   if (!result.ok) return 1;
   if (check) {
-    for (const d of result.deletions) console.error(`[check] would delete ${d.file} (byte-duplicate of ${d.newerTwin})`);
+    for (const d of result.deletions)
+      console.error(`[check] would delete ${d.file} (byte-duplicate of ${d.newerTwin})`);
   }
   return 0;
 }

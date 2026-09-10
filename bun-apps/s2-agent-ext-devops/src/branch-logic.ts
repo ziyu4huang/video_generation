@@ -25,27 +25,27 @@ export type Confidence = "high" | "medium" | "low" | "none";
 export type Bucket = "delete" | "review" | "keep";
 
 export interface BranchInput {
-	kind: BranchKind;
-	/** S1: gh shows a MERGED PR for this head ref (authoritative). */
-	mergedPr: boolean;
-	/** S2: remote-tracking ref is [gone] (remote deleted — hint, ambiguous). */
-	gone: boolean;
-	/** S3: branch fully contained in the default branch via --merged (info-only). */
-	contained: boolean;
-	/** S4: an OPEN PR reuses this head ref (CONFLICT — lowers confidence). */
-	openPr: boolean;
-	/** Absolute guard: checked out in a worktree → never deleted. */
-	inWorktree: boolean;
-	/** Guard: protected name (main/master/default). */
-	isProtected: boolean;
-	/** Guard: currently checked out (HEAD). */
-	isCurrent: boolean;
+  kind: BranchKind;
+  /** S1: gh shows a MERGED PR for this head ref (authoritative). */
+  mergedPr: boolean;
+  /** S2: remote-tracking ref is [gone] (remote deleted — hint, ambiguous). */
+  gone: boolean;
+  /** S3: branch fully contained in the default branch via --merged (info-only). */
+  contained: boolean;
+  /** S4: an OPEN PR reuses this head ref (CONFLICT — lowers confidence). */
+  openPr: boolean;
+  /** Absolute guard: checked out in a worktree → never deleted. */
+  inWorktree: boolean;
+  /** Guard: protected name (main/master/default). */
+  isProtected: boolean;
+  /** Guard: currently checked out (HEAD). */
+  isCurrent: boolean;
 }
 
 export interface BranchVerdict {
-	confidence: Confidence;
-	bucket: Bucket;
-	reason: string;
+  confidence: Confidence;
+  bucket: Bucket;
+  reason: string;
 }
 
 /**
@@ -59,19 +59,19 @@ export interface BranchVerdict {
  *   !merged + !gone  → keep           (no merge evidence)
  */
 export function classifyBranch(b: BranchInput): BranchVerdict {
-	// 1. Absolute guards (checked first, in priority order).
-	if (b.inWorktree) return { confidence: "none", bucket: "keep", reason: "worktree-locked" };
-	if (b.isProtected) return { confidence: "none", bucket: "keep", reason: "protected" };
-	if (b.isCurrent) return { confidence: "none", bucket: "keep", reason: "current" };
+  // 1. Absolute guards (checked first, in priority order).
+  if (b.inWorktree) return { confidence: "none", bucket: "keep", reason: "worktree-locked" };
+  if (b.isProtected) return { confidence: "none", bucket: "keep", reason: "protected" };
+  if (b.isCurrent) return { confidence: "none", bucket: "keep", reason: "current" };
 
-	// 2. Positive merge evidence present.
-	if (b.mergedPr) {
-		if (b.openPr) return { confidence: "medium", bucket: "review", reason: "merged but an open PR reuses the ref" };
-		return { confidence: "high", bucket: "delete", reason: "gh-confirmed merge" };
-	}
+  // 2. Positive merge evidence present.
+  if (b.mergedPr) {
+    if (b.openPr) return { confidence: "medium", bucket: "review", reason: "merged but an open PR reuses the ref" };
+    return { confidence: "high", bucket: "delete", reason: "gh-confirmed merge" };
+  }
 
-	// 3. No merge evidence: active branches stay, [gone] is a hint → review.
-	if (b.openPr) return { confidence: "none", bucket: "keep", reason: "active (open PR)" };
-	if (b.gone) return { confidence: "low", bucket: "review", reason: "remote deleted, merge unverifiable" };
-	return { confidence: "none", bucket: "keep", reason: "no merge evidence" };
+  // 3. No merge evidence: active branches stay, [gone] is a hint → review.
+  if (b.openPr) return { confidence: "none", bucket: "keep", reason: "active (open PR)" };
+  if (b.gone) return { confidence: "low", bucket: "review", reason: "remote deleted, merge unverifiable" };
+  return { confidence: "none", bucket: "keep", reason: "no merge evidence" };
 }

@@ -18,21 +18,18 @@
  */
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 
 export interface ResolveOpts {
-	PI_AGENT_DIR?: string;
+  PI_AGENT_DIR?: string;
 }
 
 /** True when <bunApps>/s2-agent-ext-devops looks like the source package:
  *  the deploy library in src/deploy/ plus the runnable scripts/ entries. */
 function hasDevopsScripts(bunAppsDir: string): boolean {
-	const pkg = join(bunAppsDir, "s2-agent-ext-devops");
-	return (
-		existsSync(join(pkg, "src", "deploy", "run.ts")) &&
-		existsSync(join(pkg, "scripts", "run-test.ts"))
-	);
+  const pkg = join(bunAppsDir, "s2-agent-ext-devops");
+  return existsSync(join(pkg, "src", "deploy", "run.ts")) && existsSync(join(pkg, "scripts", "run-test.ts"));
 }
 
 /**
@@ -47,16 +44,16 @@ function hasDevopsScripts(bunAppsDir: string): boolean {
  * module must stay out of any bundle graph; see sh-ext-dir.ts).
  */
 function extDirStart(): string | undefined {
-	try {
-		const m = require("#pi/ext-dir") as unknown;
-		if (typeof m === "string") return m; // dist loader: the deployed ext dir
-		if (typeof m === "object" && m !== null && typeof (m as { default?: unknown }).default === "string") {
-			return (m as { default: string }).default; // source mode: package root
-		}
-	} catch {
-		// No loader and no imports map — fall through to the cwd rung.
-	}
-	return undefined;
+  try {
+    const m = require("#pi/ext-dir") as unknown;
+    if (typeof m === "string") return m; // dist loader: the deployed ext dir
+    if (typeof m === "object" && m !== null && typeof (m as { default?: unknown }).default === "string") {
+      return (m as { default: string }).default; // source mode: package root
+    }
+  } catch {
+    // No loader and no imports map — fall through to the cwd rung.
+  }
+  return undefined;
 }
 
 /**
@@ -82,57 +79,57 @@ function extDirStart(): string | undefined {
  *  folds that into the build machine's path, which the deploy relocatability
  *  gate rejects, so the default is resolved at CALL time instead. */
 export function resolvePiAgentDir(
-	env: ResolveOpts = (process.env as unknown as ResolveOpts),
-	startDir?: string,
-	deps: { extDirStart?: () => string | undefined } = {},
+  env: ResolveOpts = process.env as unknown as ResolveOpts,
+  startDir?: string,
+  deps: { extDirStart?: () => string | undefined } = {},
 ): string | null {
-	const envDir = env.PI_AGENT_DIR;
-	if (envDir && hasDevopsScripts(dirname(envDir))) {
-		return envDir;
-	}
-	if (startDir) {
-		return walkUpForS2Agent(startDir);
-	}
-	const extDirRung = deps.extDirStart ? deps.extDirStart() : extDirStart();
-	if (extDirRung) {
-		const found = walkUpForS2Agent(extDirRung);
-		if (found) return found;
-	}
-	return walkUpForS2Agent(process.cwd());
+  const envDir = env.PI_AGENT_DIR;
+  if (envDir && hasDevopsScripts(dirname(envDir))) {
+    return envDir;
+  }
+  if (startDir) {
+    return walkUpForS2Agent(startDir);
+  }
+  const extDirRung = deps.extDirStart ? deps.extDirStart() : extDirStart();
+  if (extDirRung) {
+    const found = walkUpForS2Agent(extDirRung);
+    if (found) return found;
+  }
+  return walkUpForS2Agent(process.cwd());
 }
 
 /** Upward walk from `start` (≤8 rungs): each rung tries the dir itself AND
  *  its `bun-apps/` subdir as the bun-apps base whose `s2-agent` + devops
  *  scripts make a valid source repo. Returns the s2-agent dir or null. */
 function walkUpForS2Agent(start: string): string | null {
-	let dir = start;
-	for (let i = 0; i < 8; i++) {
-		for (const base of [dir, join(dir, "bun-apps")]) {
-			if (hasDevopsScripts(base) && existsSync(join(base, "s2-agent"))) {
-				return join(base, "s2-agent");
-			}
-		}
-		const parent = dirname(dir);
-		if (parent === dir) break;
-		dir = parent;
-	}
-	return null;
+  let dir = start;
+  for (let i = 0; i < 8; i++) {
+    for (const base of [dir, join(dir, "bun-apps")]) {
+      if (hasDevopsScripts(base) && existsSync(join(base, "s2-agent"))) {
+        return join(base, "s2-agent");
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }
 
 export interface RunOpts {
-	cmd: string;
-	args: string[];
-	cwd: string;
-	timeoutMs: number;
-	env?: NodeJS.ProcessEnv;
-	logName: string;
+  cmd: string;
+  args: string[];
+  cwd: string;
+  timeoutMs: number;
+  env?: NodeJS.ProcessEnv;
+  logName: string;
 }
 
 export interface RunResult {
-	exitCode: number;
-	output: string;
-	logPath: string;
-	timedOut: boolean;
+  exitCode: number;
+  output: string;
+  logPath: string;
+  timedOut: boolean;
 }
 
 /**
@@ -148,48 +145,48 @@ export interface RunResult {
  * incident SpawnOptions.timeoutMs documents.
  */
 export function runScript(opts: RunOpts): Promise<RunResult> {
-	const logDir = join(tmpdir(), "pi-deploy-ext-logs");
-	mkdirSync(logDir, { recursive: true });
-	const logPath = join(logDir, `${opts.logName}-${process.pid}-${Date.now()}.log`);
-	const writeStream = createWriteStream(logPath);
-	return new Promise((resolveP) => {
-		const chunks: Buffer[] = [];
-		let timedOut = false;
-		const proc = spawn(opts.cmd, opts.args, {
-			cwd: opts.cwd,
-			env: opts.env ?? process.env,
-			detached: true,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		const timer = setTimeout(() => {
-			timedOut = true;
-			try {
-				process.kill(-proc.pid!, "SIGKILL");
-			} catch {
-				proc.kill("SIGKILL"); // group gone or never formed — fall back to the child
-			}
-		}, opts.timeoutMs);
-		const onChunk = (b: Buffer) => {
-			chunks.push(b);
-			writeStream.write(b);
-		};
-		proc.stdout?.on("data", onChunk);
-		proc.stderr?.on("data", onChunk);
-		proc.on("error", (err) => {
-			clearTimeout(timer);
-			writeStream.end(() => resolveP({ exitCode: -1, output: String(err), logPath, timedOut }));
-		});
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			writeStream.end(() =>
-				resolveP({ exitCode: code ?? -1, output: Buffer.concat(chunks).toString("utf8"), logPath, timedOut }),
-			);
-		});
-	});
+  const logDir = join(tmpdir(), "pi-deploy-ext-logs");
+  mkdirSync(logDir, { recursive: true });
+  const logPath = join(logDir, `${opts.logName}-${process.pid}-${Date.now()}.log`);
+  const writeStream = createWriteStream(logPath);
+  return new Promise((resolveP) => {
+    const chunks: Buffer[] = [];
+    let timedOut = false;
+    const proc = spawn(opts.cmd, opts.args, {
+      cwd: opts.cwd,
+      env: opts.env ?? process.env,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        process.kill(-proc.pid!, "SIGKILL");
+      } catch {
+        proc.kill("SIGKILL"); // group gone or never formed — fall back to the child
+      }
+    }, opts.timeoutMs);
+    const onChunk = (b: Buffer) => {
+      chunks.push(b);
+      writeStream.write(b);
+    };
+    proc.stdout?.on("data", onChunk);
+    proc.stderr?.on("data", onChunk);
+    proc.on("error", (err) => {
+      clearTimeout(timer);
+      writeStream.end(() => resolveP({ exitCode: -1, output: String(err), logPath, timedOut }));
+    });
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      writeStream.end(() =>
+        resolveP({ exitCode: code ?? -1, output: Buffer.concat(chunks).toString("utf8"), logPath, timedOut }),
+      );
+    });
+  });
 }
 
 /** Last ~40 non-empty lines of output, for an errorTail summary. */
 export function tailOutput(output: string, lines = 40): string {
-	const all = output.split("\n").filter((l) => l.trim().length > 0);
-	return all.slice(-lines).join("\n");
+  const all = output.split("\n").filter((l) => l.trim().length > 0);
+  return all.slice(-lines).join("\n");
 }

@@ -13,13 +13,13 @@ export type PrState = "OPEN" | "MERGED" | "CLOSED";
 
 /** GitHub `mergeStateStatus` values (gh pr view --json mergeStateStatus). */
 export type MergeState =
-	| "CLEAN" // mergeable, no conflicts
-	| "BEHIND" // head is behind base; needs rebase
-	| "BLOCKED" // mergeable state but a required review/check blocks
-	| "UNKNOWN" // GitHub hasn't computed yet (transient)
-	| "DIRTY" // merge conflict
-	| "HAS_HOOKS" // mergeable but pre-merge hooks pending
-	| "UNSTABLE"; // failing/expected-status checks but otherwise mergeable
+  | "CLEAN" // mergeable, no conflicts
+  | "BEHIND" // head is behind base; needs rebase
+  | "BLOCKED" // mergeable state but a required review/check blocks
+  | "UNKNOWN" // GitHub hasn't computed yet (transient)
+  | "DIRTY" // merge conflict
+  | "HAS_HOOKS" // mergeable but pre-merge hooks pending
+  | "UNSTABLE"; // failing/expected-status checks but otherwise mergeable
 
 /** CI check tally (gh pr checks) — surfaced by the `show_pr_status` tool. The merge
  *  recipe itself no longer consumes this (it gates on run_local_ci instead), but

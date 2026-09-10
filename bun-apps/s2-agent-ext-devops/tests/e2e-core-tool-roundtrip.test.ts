@@ -51,13 +51,13 @@ const LAUNCHER = join(REPO_ROOT, "s2-agent.sh");
 // agent-dir env name from s2-agent's package.json — the binary reads
 // `S2-AGENT_CODING_AGENT_DIR` (DASH included) and IGNORES plain PI_*.
 const S2_AGENT_NAME = (
-	JSON.parse(readFileSync(join(REPO_ROOT, "bun-apps", "s2-agent", "package.json"), "utf8")) as {
-		piConfig: { name: string };
-	}
+  JSON.parse(readFileSync(join(REPO_ROOT, "bun-apps", "s2-agent", "package.json"), "utf8")) as {
+    piConfig: { name: string };
+  }
 ).piConfig.name;
 const isolatedAgentDirEnv = (piHome: string): Record<string, string> => ({
-	PI_CODING_AGENT_DIR: piHome,
-	[`${S2_AGENT_NAME.toUpperCase()}_CODING_AGENT_DIR`]: piHome,
+  PI_CODING_AGENT_DIR: piHome,
+  [`${S2_AGENT_NAME.toUpperCase()}_CODING_AGENT_DIR`]: piHome,
 });
 
 /** The ONLY lane class (2026-08-24 operator directive): ONE fast cloud vision
@@ -74,10 +74,12 @@ const isolatedAgentDirEnv = (piHome: string): Record<string, string> => ({
  * ZAI_API_KEY runs zai/glm-5.3-flash (the same fast-cloud-vision class the
  * directive names) instead of a guaranteed false FAIL.
  * PI_AGENT_E2E_PROVIDER / PI_AGENT_E2E_MODEL override both for debugging. */
-const E2E_PROVIDER = process.env.PI_AGENT_E2E_PROVIDER ??
-	(process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.ZAI_API_KEY ? "zai" : "deepseek");
-const PRIMARY_MODEL = process.env.PI_AGENT_E2E_MODEL ??
-	(E2E_PROVIDER === "deepseek" ? "deepseek/deepseek-v4-flash-vision-exp" : `${E2E_PROVIDER}/glm-5.3-flash`);
+const E2E_PROVIDER =
+  process.env.PI_AGENT_E2E_PROVIDER ??
+  (process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.ZAI_API_KEY ? "zai" : "deepseek");
+const PRIMARY_MODEL =
+  process.env.PI_AGENT_E2E_MODEL ??
+  (E2E_PROVIDER === "deepseek" ? "deepseek/deepseek-v4-flash-vision-exp" : `${E2E_PROVIDER}/glm-5.3-flash`);
 const PRIMARY_CAP_MS = 90_000; // flash-class models complete the 3-in-1 well under 60s; 90s = slow-network headroom
 
 // Prompt shape matters (measured 2026-08-24): a bare "write its complete
@@ -87,61 +89,58 @@ const PRIMARY_CAP_MS = 90_000; // flash-class models complete the 3-in-1 well un
 // FIRST / do not print the report in your reply" shape closes that mode, and
 // the one artifact-retry below absorbs the residual flake.
 const PROMPT =
-	"Run the inspect_context tool, then CALL the write tool to save its report to a file named inspect-context.md in the current working directory. Use the write tool in this turn — do not just describe what you will write. Do not print the whole report in your reply. Do not ask questions.";
+  "Run the inspect_context tool, then CALL the write tool to save its report to a file named inspect-context.md in the current working directory. Use the write tool in this turn — do not just describe what you will write. Do not print the whole report in your reply. Do not ask questions.";
 
 /** Stable section markers of inspect_context's report (src/tools/inspect-context.ts). */
 const CONTENT_MARKERS = ["Inspect Context", "Token budget", "System prompt text"];
 
 interface RunResult {
-	stdout: string;
-	stderr: string;
-	code: number | null;
-	timedOut: boolean;
-	ms: number;
+  stdout: string;
+  stderr: string;
+  code: number | null;
+  timedOut: boolean;
+  ms: number;
 }
 
 /** Spawn the dev launcher headless with a hard kill cap. */
 async function runOnce(model: string, capMs: number, cwd: string): Promise<RunResult> {
-	const t0 = Date.now();
-	// Isolated per-run agent dir: per-user writes (prompt-history) land in the
-	// run's tmp cwd tree, never the operator's ~/.pi (see AGENT-DIR ISOLATION
-	// above). Auth flows through env keys (DEEPSEEK_API_KEY / ZAI_API_KEY),
-	// the same contract check-deploy-e2e.sh guarantees for the probe suites.
-	const proc = Bun.spawn(["bash", LAUNCHER, "--model", model, "-p", PROMPT, "--no-session"], {
-		cwd,
-		env: {
-			...process.env,
-			...isolatedAgentDirEnv(join(cwd, "pi-home")),
-			// NEVER let a test-time launcher self-heal-install: check-deps.ts's
-			// `bun install` at the workspace root, racing the concurrent suites of
-			// this gate, is what clobbered the isolated-linker forest mid-run
-			// (2026-08-24: a dangling s2-agent/node_modules link + a 100%-CPU
-			// install spin). The forest is managed by the operator/CI, not by a
-			// test launcher.
-			BUN_PI_AUTO_INSTALL: "0",
-		},
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const timer = setTimeout(() => {
-		try {
-			proc.kill(9);
-		} catch {
-			/* already exited */
-		}
-	}, capMs);
-	let stdout = "";
-	let stderr = "";
-	try {
-		[stdout, stderr] = await Promise.all([
-			new Response(proc.stdout).text(),
-			new Response(proc.stderr).text(),
-		]);
-	} finally {
-		clearTimeout(timer);
-	}
-	const code = await proc.exited;
-	return { stdout, stderr, code, timedOut: code === null || code < 0, ms: Date.now() - t0 };
+  const t0 = Date.now();
+  // Isolated per-run agent dir: per-user writes (prompt-history) land in the
+  // run's tmp cwd tree, never the operator's ~/.pi (see AGENT-DIR ISOLATION
+  // above). Auth flows through env keys (DEEPSEEK_API_KEY / ZAI_API_KEY),
+  // the same contract check-deploy-e2e.sh guarantees for the probe suites.
+  const proc = Bun.spawn(["bash", LAUNCHER, "--model", model, "-p", PROMPT, "--no-session"], {
+    cwd,
+    env: {
+      ...process.env,
+      ...isolatedAgentDirEnv(join(cwd, "pi-home")),
+      // NEVER let a test-time launcher self-heal-install: check-deps.ts's
+      // `bun install` at the workspace root, racing the concurrent suites of
+      // this gate, is what clobbered the isolated-linker forest mid-run
+      // (2026-08-24: a dangling s2-agent/node_modules link + a 100%-CPU
+      // install spin). The forest is managed by the operator/CI, not by a
+      // test launcher.
+      BUN_PI_AUTO_INSTALL: "0",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const timer = setTimeout(() => {
+    try {
+      proc.kill(9);
+    } catch {
+      /* already exited */
+    }
+  }, capMs);
+  let stdout = "";
+  let stderr = "";
+  try {
+    [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  } finally {
+    clearTimeout(timer);
+  }
+  const code = await proc.exited;
+  return { stdout, stderr, code, timedOut: code === null || code < 0, ms: Date.now() - t0 };
 }
 
 /** Fast provider/auth failure detection (mirrors oneshot-smoke's shape).
@@ -154,68 +153,70 @@ async function runOnce(model: string, capMs: number, cwd: string): Promise<RunRe
  *  + provider-vocabulary guards still bound the skip to turn-never-started
  *  shapes. */
 function smellsLikeProviderFailure(r: RunResult): boolean {
-	const text = `${r.stdout}\n${r.stderr}`;
-	return !r.timedOut && r.ms <= 10_000 && /provider|api.?key|auth|no matching/i.test(text);
+  const text = `${r.stdout}\n${r.stderr}`;
+  return !r.timedOut && r.ms <= 10_000 && /provider|api.?key|auth|no matching/i.test(text);
 }
 
 function assertArtifact(cwd: string, r: RunResult, model: string): void {
-	const path = join(cwd, "inspect-context.md");
-	if (!existsSync(path)) {
-		throw new Error(
-			`model ${model} finished but wrote no inspect-context.md (exit=${r.code}, ${r.ms}ms).\n` +
-				`stdout tail: ${r.stdout.slice(-400)}\nstderr tail: ${r.stderr.slice(-400)}`,
-		);
-	}
-	const content = readFileSync(path, "utf8");
-	expect(content.length, "written report is suspiciously short").toBeGreaterThan(400);
-	for (const marker of CONTENT_MARKERS) {
-		expect(content, `report missing inspect_context section '${marker}'`).toContain(marker);
-	}
+  const path = join(cwd, "inspect-context.md");
+  if (!existsSync(path)) {
+    throw new Error(
+      `model ${model} finished but wrote no inspect-context.md (exit=${r.code}, ${r.ms}ms).\n` +
+        `stdout tail: ${r.stdout.slice(-400)}\nstderr tail: ${r.stderr.slice(-400)}`,
+    );
+  }
+  const content = readFileSync(path, "utf8");
+  expect(content.length, "written report is suspiciously short").toBeGreaterThan(400);
+  for (const marker of CONTENT_MARKERS) {
+    expect(content, `report missing inspect_context section '${marker}'`).toContain(marker);
+  }
 }
 
 describeE2E("core-tool roundtrip (model → inspect_context → write)", () => {
-	test("3-in-1: deepseek flash-vision executes inspect_context and writes the report", async () => {
-		const cwd = mkdtempSync(join(tmpdir(), "e2e-write-"));
-		try {
-			let r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
-			// Kill-cap retry (once, self-arc-11 t03): a run that consumed the
-			// WHOLE cap was killed by our own timer — a model-latency spike, not
-			// a tool failure (live 2026-09-07: glm-5.3-flash died at the 90s cap,
-			// passed on immediate re-run). Kill shape: `timedOut` (code null/neg)
-			// OR exit 137 — bash wraps SIGKILL as +137, so the bare timedOut flag
-			// misses it (that exact miss was caught by the arc-11 merge gate).
-			// The cap-elapse conjunction is what excludes a FAST genuine crash:
-			// only our timer kills at ~capMs, so elapsed ≈ cap ⇒ our kill.
-			const capKilled = (rr: RunResult) => rr.ms >= PRIMARY_CAP_MS - 2_000 && (rr.timedOut || rr.code === 137);
-			if (capKilled(r)) {
-				console.error(
-					`[e2e-write] primary ${PRIMARY_MODEL} killed at the ${PRIMARY_CAP_MS}ms cap (${r.ms}ms, code ${r.code}, latency) — retrying once (attempt 2/2)`,
-				);
-				r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
-				if (capKilled(r)) {
-					console.error(`[e2e-write] primary killed at cap TWICE (code ${r.code}) — persistent; failing below`);
-				}
-			}
-			// Artifact-retry (once): an exit-0 run that wrote nothing is the
-			// narrate-but-don't-write flake, not a tool failure — one immediate
-			// retry is far cheaper than a false FAIL.
-			if (!r.timedOut && r.code === 0 && !existsSync(join(cwd, "inspect-context.md"))) {
-				console.error(`[e2e-write] primary ${PRIMARY_MODEL} finished (${r.ms}ms) but wrote no artifact — retrying once`);
-				r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
-			}
-			if (!r.timedOut && r.code === 0) {
-				assertArtifact(cwd, r, PRIMARY_MODEL);
-				return; // GREEN — the fast remote lane the operator wants
-			}
-			if (smellsLikeProviderFailure(r)) {
-				console.error(`[e2e-write] SKIP: ${PRIMARY_MODEL} provider/auth failed: ${r.stderr.slice(0, 200)}`);
-				return;
-			}
-			expect(r.timedOut, `${PRIMARY_MODEL} timed out after ${PRIMARY_CAP_MS}ms`).toBe(false);
-			expect(r.code, `${PRIMARY_MODEL} exited nonzero:\n${r.stderr.slice(-400)}`).toBe(0);
-			assertArtifact(cwd, r, PRIMARY_MODEL);
-		} finally {
-			rmSync(cwd, { recursive: true, force: true });
-		}
-	}, 300_000);
+  test("3-in-1: deepseek flash-vision executes inspect_context and writes the report", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "e2e-write-"));
+    try {
+      let r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
+      // Kill-cap retry (once, self-arc-11 t03): a run that consumed the
+      // WHOLE cap was killed by our own timer — a model-latency spike, not
+      // a tool failure (live 2026-09-07: glm-5.3-flash died at the 90s cap,
+      // passed on immediate re-run). Kill shape: `timedOut` (code null/neg)
+      // OR exit 137 — bash wraps SIGKILL as +137, so the bare timedOut flag
+      // misses it (that exact miss was caught by the arc-11 merge gate).
+      // The cap-elapse conjunction is what excludes a FAST genuine crash:
+      // only our timer kills at ~capMs, so elapsed ≈ cap ⇒ our kill.
+      const capKilled = (rr: RunResult) => rr.ms >= PRIMARY_CAP_MS - 2_000 && (rr.timedOut || rr.code === 137);
+      if (capKilled(r)) {
+        console.error(
+          `[e2e-write] primary ${PRIMARY_MODEL} killed at the ${PRIMARY_CAP_MS}ms cap (${r.ms}ms, code ${r.code}, latency) — retrying once (attempt 2/2)`,
+        );
+        r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
+        if (capKilled(r)) {
+          console.error(`[e2e-write] primary killed at cap TWICE (code ${r.code}) — persistent; failing below`);
+        }
+      }
+      // Artifact-retry (once): an exit-0 run that wrote nothing is the
+      // narrate-but-don't-write flake, not a tool failure — one immediate
+      // retry is far cheaper than a false FAIL.
+      if (!r.timedOut && r.code === 0 && !existsSync(join(cwd, "inspect-context.md"))) {
+        console.error(
+          `[e2e-write] primary ${PRIMARY_MODEL} finished (${r.ms}ms) but wrote no artifact — retrying once`,
+        );
+        r = await runOnce(PRIMARY_MODEL, PRIMARY_CAP_MS, cwd);
+      }
+      if (!r.timedOut && r.code === 0) {
+        assertArtifact(cwd, r, PRIMARY_MODEL);
+        return; // GREEN — the fast remote lane the operator wants
+      }
+      if (smellsLikeProviderFailure(r)) {
+        console.error(`[e2e-write] SKIP: ${PRIMARY_MODEL} provider/auth failed: ${r.stderr.slice(0, 200)}`);
+        return;
+      }
+      expect(r.timedOut, `${PRIMARY_MODEL} timed out after ${PRIMARY_CAP_MS}ms`).toBe(false);
+      expect(r.code, `${PRIMARY_MODEL} exited nonzero:\n${r.stderr.slice(-400)}`).toBe(0);
+      assertArtifact(cwd, r, PRIMARY_MODEL);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  }, 300_000);
 });

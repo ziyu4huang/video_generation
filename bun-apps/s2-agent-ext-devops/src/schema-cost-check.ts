@@ -36,42 +36,42 @@ import { createLiveSpawn, type SpawnFn } from "./spawn.js";
 
 /** Options for {@link runSchemaCostCheck}. */
 export interface SchemaCostCheckOptions {
-	/** Absolute repo root — the instrument + baseline resolve under here. */
-	repoRoot: string;
-	/** Baseline JSON path. Default `${repoRoot}/scripts/schema-cost-baseline.json`. */
-	baseline?: string;
-	/**
-	 * Read "live" data from a JSON file instead of spawning the instrument.
-	 * Skips collection entirely (useful for offline / replay / tests).
-	 */
-	live?: string;
-	/** Inflation WARNING threshold, in percent. Default 5. */
-	threshold?: number;
-	/**
-	 * Injectable spawn for the tools-metrics instrument. Default: the live
-	 * `createLiveSpawn(repoRoot)` adapter. Tests inject a recording fake.
-	 */
-	spawn?: SpawnFn;
-	/**
-	 * Where the human-readable comparison block goes. Default `console.log`
-	 * (stdout), which is right for a terminal but WRONG for any caller whose own
-	 * stdout is a payload: this function is IMPORTED, not spawned, so its banner
-	 * lands in the caller's stdout. That made the devops CLIs emit unparseable
-	 * JSON until they started passing a stderr sink here. WARNINGs and collection
-	 * errors already go to stderr via console.warn/error and are unaffected.
-	 */
-	log?: (line: string) => void;
+  /** Absolute repo root — the instrument + baseline resolve under here. */
+  repoRoot: string;
+  /** Baseline JSON path. Default `${repoRoot}/scripts/schema-cost-baseline.json`. */
+  baseline?: string;
+  /**
+   * Read "live" data from a JSON file instead of spawning the instrument.
+   * Skips collection entirely (useful for offline / replay / tests).
+   */
+  live?: string;
+  /** Inflation WARNING threshold, in percent. Default 5. */
+  threshold?: number;
+  /**
+   * Injectable spawn for the tools-metrics instrument. Default: the live
+   * `createLiveSpawn(repoRoot)` adapter. Tests inject a recording fake.
+   */
+  spawn?: SpawnFn;
+  /**
+   * Where the human-readable comparison block goes. Default `console.log`
+   * (stdout), which is right for a terminal but WRONG for any caller whose own
+   * stdout is a payload: this function is IMPORTED, not spawned, so its banner
+   * lands in the caller's stdout. That made the devops CLIs emit unparseable
+   * JSON until they started passing a stderr sink here. WARNINGs and collection
+   * errors already go to stderr via console.warn/error and are unaffected.
+   */
+  log?: (line: string) => void;
 }
 
 /** Result of {@link runSchemaCostCheck}. */
 export interface SchemaCostCheckResult {
-	/** 0 = within threshold / collection OK; 1 = hard collection failure. */
-	exitCode: number;
+  /** 0 = within threshold / collection OK; 1 = hard collection failure. */
+  exitCode: number;
 }
 
 /** JSON.parse against a file path (throws on missing/garbage, like the script did). */
 function readJson(path: string): any {
-	return JSON.parse(readFileSync(path, "utf8"));
+  return JSON.parse(readFileSync(path, "utf8"));
 }
 
 /**
@@ -81,73 +81,73 @@ function readJson(path: string): any {
  * stderr and returned as `exitCode: 1` — it does NOT throw.
  */
 export async function runSchemaCostCheck(opts: SchemaCostCheckOptions): Promise<SchemaCostCheckResult> {
-	const root = opts.repoRoot.replace(/\/$/, "");
-	const baselinePath = opts.baseline ?? `${root}/scripts/schema-cost-baseline.json`;
-	const livePath = opts.live;
-	const threshold = opts.threshold ?? 5;
-	const log = opts.log ?? ((l: string) => console.log(l));
-	const spawn = opts.spawn ?? createLiveSpawn(root);
-	const CLI = `${root}/bun-apps/s2-agent/src/cli.ts`;
+  const root = opts.repoRoot.replace(/\/$/, "");
+  const baselinePath = opts.baseline ?? `${root}/scripts/schema-cost-baseline.json`;
+  const livePath = opts.live;
+  const threshold = opts.threshold ?? 5;
+  const log = opts.log ?? ((l: string) => console.log(l));
+  const spawn = opts.spawn ?? createLiveSpawn(root);
+  const CLI = `${root}/bun-apps/s2-agent/src/cli.ts`;
 
-	/** Spawn the instrument, surface its stderr, parse stdout. Throws on failure. */
-	async function collectLive(): Promise<any> {
-		const r = await spawn("bun", [CLI, "cli", "tools-metrics", "--schema-cost", "--json"], { cwd: root });
-		// Surface the CLI's own stderr — the original script used `stderr: "inherit"`;
-		// the SpawnFn captures it, so replay it to keep the diagnostics visible.
-		if (r.stderr) process.stderr.write(r.stderr);
-		if (r.exitCode !== 0) throw new Error(`schema-cost CLI exited ${r.exitCode}`);
-		try {
-			return JSON.parse(r.stdout);
-		} catch {
-			throw new Error(`schema-cost CLI did not emit parseable JSON (exit ${r.exitCode})`);
-		}
-	}
+  /** Spawn the instrument, surface its stderr, parse stdout. Throws on failure. */
+  async function collectLive(): Promise<any> {
+    const r = await spawn("bun", [CLI, "cli", "tools-metrics", "--schema-cost", "--json"], { cwd: root });
+    // Surface the CLI's own stderr — the original script used `stderr: "inherit"`;
+    // the SpawnFn captures it, so replay it to keep the diagnostics visible.
+    if (r.stderr) process.stderr.write(r.stderr);
+    if (r.exitCode !== 0) throw new Error(`schema-cost CLI exited ${r.exitCode}`);
+    try {
+      return JSON.parse(r.stdout);
+    } catch {
+      throw new Error(`schema-cost CLI did not emit parseable JSON (exit ${r.exitCode})`);
+    }
+  }
 
-	// Collect live first. A collection failure short-circuits to exit 1 (the
-	// baseline is irrelevant when there is nothing to compare), which also means
-	// the collection-failure path never touches the filesystem for the baseline.
-	let live: any;
-	if (livePath) {
-		live = readJson(livePath);
-	} else {
-		try {
-			live = await collectLive();
-		} catch (e) {
-			console.error(e instanceof Error ? e.message : String(e));
-			return { exitCode: 1 };
-		}
-	}
+  // Collect live first. A collection failure short-circuits to exit 1 (the
+  // baseline is irrelevant when there is nothing to compare), which also means
+  // the collection-failure path never touches the filesystem for the baseline.
+  let live: any;
+  if (livePath) {
+    live = readJson(livePath);
+  } else {
+    try {
+      live = await collectLive();
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : String(e));
+      return { exitCode: 1 };
+    }
+  }
 
-	const baseline = readJson(baselinePath);
-	const baseTotal: number = baseline.totalTokens;
-	const liveTotal: number = live.totalTokens;
-	const delta = liveTotal - baseTotal;
-	const pct = baseTotal > 0 ? (delta / baseTotal) * 100 : 0;
-	const over = pct > threshold;
+  const baseline = readJson(baselinePath);
+  const baseTotal: number = baseline.totalTokens;
+  const liveTotal: number = live.totalTokens;
+  const delta = liveTotal - baseTotal;
+  const pct = baseTotal > 0 ? (delta / baseTotal) * 100 : 0;
+  const over = pct > threshold;
 
-	// Surface any per-tool collection errors for visibility (non-fatal here).
-	if (Array.isArray(live.errors) && live.errors.length > 0) {
-		console.warn(`⚠ schema-cost collected ${live.errors.length} error(s):`);
-		for (const e of live.errors) console.warn(`    - ${e}`);
-	}
+  // Surface any per-tool collection errors for visibility (non-fatal here).
+  if (Array.isArray(live.errors) && live.errors.length > 0) {
+    console.warn(`⚠ schema-cost collected ${live.errors.length} error(s):`);
+    for (const e of live.errors) console.warn(`    - ${e}`);
+  }
 
-	log("── schema-cost regression ──────────────────────────────");
-	log(`  baseline totalTokens : ${baseTotal}  (${baseline.tools ?? "?"} tools)`);
-	log(`  live     totalTokens : ${liveTotal}  (${live.tools ?? "?"} tools)`);
-	log(`  delta                : ${delta >= 0 ? "+" : ""}${delta} tokens (${pct.toFixed(2)}%)`);
-	log(`  threshold            : +${threshold}% (WARNING only, not a block)`);
-	log("───────────────────────────────────────────────────────");
+  log("── schema-cost regression ──────────────────────────────");
+  log(`  baseline totalTokens : ${baseTotal}  (${baseline.tools ?? "?"} tools)`);
+  log(`  live     totalTokens : ${liveTotal}  (${live.tools ?? "?"} tools)`);
+  log(`  delta                : ${delta >= 0 ? "+" : ""}${delta} tokens (${pct.toFixed(2)}%)`);
+  log(`  threshold            : +${threshold}% (WARNING only, not a block)`);
+  log("───────────────────────────────────────────────────────");
 
-	if (over) {
-		console.warn(`⚠ WARNING: aggregate schema cost grew ${pct.toFixed(2)}% (> ${threshold}% threshold).`);
-		console.warn("  If intentional, refresh the baseline in this PR:");
-		console.warn("    bun bun-apps/s2-agent/src/cli.ts cli tools-metrics --schema-cost --json \\");
-		console.warn("      > scripts/schema-cost-baseline.json");
-	} else if (delta < 0) {
-		log(`✓ schema cost decreased by ${Math.abs(delta)} tokens (baseline still valid).`);
-	} else {
-		log("✓ schema cost within threshold (baseline held).");
-	}
+  if (over) {
+    console.warn(`⚠ WARNING: aggregate schema cost grew ${pct.toFixed(2)}% (> ${threshold}% threshold).`);
+    console.warn("  If intentional, refresh the baseline in this PR:");
+    console.warn("    bun bun-apps/s2-agent/src/cli.ts cli tools-metrics --schema-cost --json \\");
+    console.warn("      > scripts/schema-cost-baseline.json");
+  } else if (delta < 0) {
+    log(`✓ schema cost decreased by ${Math.abs(delta)} tokens (baseline still valid).`);
+  } else {
+    log("✓ schema cost within threshold (baseline held).");
+  }
 
-	return { exitCode: 0 };
+  return { exitCode: 0 };
 }
