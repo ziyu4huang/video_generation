@@ -1,0 +1,67 @@
+{
+  "case": "C1",
+  "leg": "probe2",
+  "at": "2026-09-10T14:05:41.690Z",
+  "elapsedMs": 16006,
+  "deployedLabel": null,
+  "dist": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+gc172fd3",
+  "pin": "zai/glm-5.3",
+  "model": {
+    "assistantModels": [
+      "glm-5.3"
+    ],
+    "modelChanges": [
+      "zai/glm-5.3"
+    ]
+  },
+  "argv": [
+    "bun",
+    "bun-apps/s2-agent/src/cli.ts",
+    "-p",
+    "Does the exact phrase 'You have superpowers' appear anywhere in your context, including any injected instruction blocks? Reply with exactly YES or NO and nothing else.",
+    "--provider",
+    "zai",
+    "--model",
+    "glm-5.3"
+  ],
+  "env": {},
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "nonce": "spwf-C1-probe2-1789049125686",
+  "sessionsDir": "/Users/huangziyu/proj/video_generation__superpowers/output/spwf-drive/sessions/C1-probe2-1789049125686",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-10T14-05-26-133Z_01a08ba3-3cf5-74da-b74d-ceb4595a6cc0.jsonl",
+  "detected": {
+    "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-10T14-05-26-133Z_01a08ba3-3cf5-74da-b74d-ceb4595a6cc0.jsonl",
+    "markerRaw": 1,
+    "markerUserRole": 0,
+    "reads": [],
+    "firstRead": null,
+    "firstMutate": null,
+    "replyTail": "YES",
+    "modelChanges": [
+      "zai/glm-5.3"
+    ],
+    "assistantModels": [
+      "glm-5.3"
+    ],
+    "mutatingPaths": [],
+    "bashCalls": []
+  },
+  "contention": "4 large models resident (prism-ml/bonsai-27b, google/gemma-4-12b-qat, qwen/qwen3.8-27b, google/gemma-4-12b)",
+  "checks": [
+    {
+      "name": "reply:\"YES\"",
+      "ok": true,
+      "detail": "tail=\"YES\""
+    },
+    {
+      "name": "pin:match",
+      "ok": true,
+      "detail": "pin=glm-5.3 recorded=[glm-5.3] changes=[zai/glm-5.3]"
+    }
+  ],
+  "verdict": "PASS",
+  "exitCode": 0,
+  "timedOut": false,
+  "stdoutTail": "YES\n",
+  "stderrTail": ""
+}

@@ -89,7 +89,7 @@ const ALLOWED_RUNNABLE_ENTRIES = new Set([
 	"bun-apps/s2-agent-ext-ultracode/scripts/ultracode-pty-lane.ts",
 	"bun-apps/s2-agent-ext-wayfind/scripts/probe-ext.ts",
 	"bun-apps/s2-agent-ext-wayfind/scripts/sweep-zero-citation.ts",
-	"bun-apps/s2-agent-ext-wayfind/scripts/drive-case.ts", // spwf-drive-ab t07: live-drive A/B battery (model-pinned case legs)
+	"bun-apps/s2-agent-ext-wayfind/scripts/drive-case.ts", // spwf-ab-closing t07: live-drive A/B case leg (model-pinned, passive detectors)
 	"bun-apps/s2-agent-ext-wayfind/scripts/effort-audit.ts",
 	"bun-apps/s2-agent/scripts/regen-manifest.ts",
 	"bun-apps/s2-agent/scripts/regen-static-extensions.ts",

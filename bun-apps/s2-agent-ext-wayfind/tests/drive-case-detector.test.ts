@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { bashIsMutating, detectFromLines, posBefore } from "../scripts/drive-case.js";
+import { bashIsMutating, c2Compliant, detectFromLines, posBefore } from "../scripts/drive-case.js";
 
 /**
  * Detector regression locks for the live-drive harness (spwf-drive-ab t07,
@@ -81,6 +81,19 @@ describe("drive-case detector (spwf-ab-closing t07)", () => {
     expect(bashIsMutating("rm -rf output/spwf-ab/scratch")).toBe(true);
     expect(bashIsMutating("mkdir -p output/spwf-ab/scratch")).toBe(true);
     expect(bashIsMutating("git commit -m x")).toBe(true);
+  });
+
+  it("c2Compliant: a same-turn read+write batch is NON-COMPLIANT on both paths", () => {
+    // the exact defect the A/B arc shipped: the live path used lexicographic
+    // posBefore (same line, lower ordinal → "compliant") while rescan used
+    // strict line comparison — one shared frozen predicate now, tested:
+    const readPos = { msgLine: 5, callOrdinal: 0 };
+    const writeSameTurn = { msgLine: 5, callOrdinal: 1 };
+    const writeNextTurn = { msgLine: 8, callOrdinal: 0 };
+    expect(c2Compliant(readPos, writeSameTurn)).toBe(false);
+    expect(c2Compliant(readPos, writeNextTurn)).toBe(true);
+    expect(c2Compliant(readPos, null)).toBe(true);
+    expect(c2Compliant(null, writeNextTurn)).toBe(false);
   });
 
   it("C3: test-write before impl-write compares (msgLine, callOrdinal)", () => {

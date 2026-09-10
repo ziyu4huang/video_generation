@@ -135,7 +135,8 @@ blamed for what the ruler mis-measured. t02 fixes the ruler; t03 re-measures.
   gate doc.
 - **C1: 5/5 YES** (D4 ≥4/5 branch) — bootstrap salience is sufficient; F1's
   earlier NO was self-report noise. No fix. Self-report remains a weak
-  instrument; the matrix keeps behavioral detectors primary.
+  instrument; the matrix keeps behavioral detectors primary. Evidence:
+  evidence/c1-probe/probe-{1..5}.json (all glm-5.3, pin:match, reply YES).
 - **gemma: DEFERRED with dated reason (D5)** — precondition failed 3/3 polls
   (22:06–22:08: gemma resident but 4 large models total vs ≤1 required;
   sibling-owned LM Studio churn). Window 2 not attempted after t07; the
