@@ -2,7 +2,7 @@
 effort: 2026-09-10-self-arc-23-subagent-steer-deploy
 created: 2026-09-10
 last: 2026-09-10
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-10-self-arc-23-subagent-steer-deploy — stale-bundle deploy truth + tool-window steering
@@ -112,24 +112,24 @@ cross-OS tui-drive legs.
 
 **Phase 1 — implementation (ONE PR: t01+t02, devops chain)**
 
-- [ ] `tickets/01-deploy-stale-bundle-cache.md` — t01: pin the stale-serve mechanism
+- [x] `tickets/01-deploy-stale-bundle-cache.md` — t01: pin the stale-serve mechanism
       (repro), key every cache on bundler-RESOLVED source content, stat-through
       `@repo/*` link integrity pre-build, grep-assert source-derived markers in every
       rebuilt bundle inside verify-deploy-e2e; stale repro test red-on-main
-- [ ] `tickets/02-steer-tool-window.md` — t02: surface the tool-running state on the
+- [x] `tickets/02-steer-tool-window.md` — t02: surface the tool-running state on the
       live agent, guarantee queued-turn drain after the current exchange, honest
       3-way steer reply; schema-cost delta cited; tui-drive steer drill scenario
 
 **Phase 2 — deployed verification (after the implementation PR merges)**
 
-- [ ] `tickets/03-deployed-verification.md` — t03: redeploy with t01 live, GREP-ASSERT
+- [x] `tickets/03-deployed-verification.md` — t03: redeploy with t01 live, GREP-ASSERT
       the new symbols in the deployed bundles BEFORE driving, then
       `tui-drive --sh <deployed>` steer drill + dispatch smoke; receipts under
       `output/self-arc22-*`
 
 **Phase 3 — close-out (separate docs PR)**
 
-- [ ] `tickets/04-closeout.md` — t04: map Shipped-as + Loop findings, ledger
+- [x] `tickets/04-closeout.md` — t04: map Shipped-as + Loop findings, ledger
       `mergedPr`, reciprocal back-links, successor next-goal (strict v2)
 
 ## Decisions
@@ -198,6 +198,46 @@ ticket mechanizes it). t02 is independent of t01 in code but rides in the same P
   the `@repo/*` trees its bundle inlines (mirror `workspaceSrcDirs`); decide by what
   the ext bundler demonstrably inlines (Gate-1 externals list is the input).
 - Deploy timing for t03 — irrelevant: t03 deploys explicitly (arc-19 D5 pattern).
+
+## Shipped-as
+
+- t01+t02 — PR #2264 (squash `7dc0192a`): F-deploy-1 hash-completeness hard-fail
+  + @repo link self-heal in resolveWorkspaceSrcDirs + check-deps unconditional
+  post-install repair (the farm re-breaker); F-steer-1 first layer (busy
+  routing covers the tool-execution window, `mode: exchange|queued`, honest
+  3-way steer reply); tui-drive `steer` scenario; ci-local-parity goldens
+  regenerated (33 rows, #2259); lint sweeps (hermes/core tests, bench scripts).
+- F-steer-1b — PR #2269 (squash `6423400b`): live agents REGISTER BEFORE the
+  first exchange (the steer lever was blind for the whole first exchange);
+  scenario marker latch reads the settled bare-marker reply line.
+- t03 receipts (glm-5.3 children only, this worktree `output/`):
+  - `self-arc23-deployed-steer-20260910/` — honest FAIL → **F-steer-1b found**
+    (registration-after-exchange blind window; marker latch echo false-positive
+    also receipted and fixed).
+  - `self-arc23-deployed-steer-20260910-r2/` — steerReply ✓ after the
+    registration fix; marker visible as the child's bare reply line (latch
+    refined in r3).
+  - `self-arc23-deployed-steer-20260910-r3/` — **PASS**: steerReply ✓
+    markerInOutput ✓ childModelIsGlm53 ✓ on `0.10.3+g6423400`.
+- Deploy artifact grep-asserts (learning #1, every redeploy this arc):
+  steer-queued/steered-into-run/nested-rejected strings verified BEFORE driving.
+
+## Loop findings
+
+- **F-deploy-1 (t01, FIXED this arc)** — stale-bundle serve at a fresh sha:
+  hash-completeness hard-fail + unconditional link repair; the literal-marker
+  attestation was ATTEMPTED and REVERTED (false positives: the sampler crosses
+  code spans and tree-shaking drops real literals — #2264 final commit
+  records the evidence); the post-deploy artifact grep remains a runbook step.
+- **F-steer-1b (drill r1, FIXED via #2269)** — live agents registered only
+  AFTER the first exchange: the steer lever was blind for the entire first
+  exchange. Registration now precedes it; ceiling path releases the entry.
+- **archify package.json** (CHARTED) — `main` points at a nonexistent
+  `src/index.ts` (arc-20 restructure leftover); benign for bundling, noisy for
+  resolution-based tooling.
+- **L1-gate flake class** (CHARTED) — one random e2e spawn hang per run
+  pre-#2245; the fixed run() turns these into fast failures, but the trigger
+  deserves one more look if it recurs.
 
 ## Cross-effort links
 
