@@ -1086,10 +1086,13 @@ async function scenarioSteer(): Promise<void> {
     await sleep(2000);
     const s = screen().join("\n");
     // The steer verb's honest reply (self-arc-22 t02): queued-after-tool OR
-    // steered-into-exchange — either proves the verb executed; the marker
-    // latch proves the guidance actually landed in the child's output.
+    // steered-into-exchange — either proves the verb executed. The marker
+    // latch is the settled summary line ONLY (↳ + marker): the PROMPT echo
+    // also contains the marker string and would false-positive forever
+    // (receipted: the first steer-drill run latched the echo while the child
+    // reported it never received anything).
     if (/queued and will be delivered right after the current tool|steered into run /.test(s)) sawSteerReply = true;
-    if (/STEER-ARC22-OK/.test(s)) sawMarker = true;
+    if (/↳[^\n]*STEER-ARC22-OK/.test(s)) sawMarker = true;
     if (childModelIsGlm53()) receipt.checks.childModelIsGlm53 = true;
     snap(sawMarker ? "marker" : sawSteerReply ? "steered" : "running", true);
     if (sawSteerReply && sawMarker && Date.now() - lastByteAt > opts.quietMs) break;
