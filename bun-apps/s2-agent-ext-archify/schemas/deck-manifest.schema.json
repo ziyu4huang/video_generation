@@ -3,18 +3,35 @@
   "$id": "deck-manifest.schema.json",
   "title": "Archify deck manifest (deck.config.json)",
   "type": "object",
-  "required": ["slides"],
+  "required": [
+    "slides"
+  ],
   "properties": {
-    "output": { "type": "string" },
-    "theme": { "enum": ["light", "dark"] },
-    "tag": { "type": "string" },
-    "manifestVersion": { "const": 1 },
+    "output": {
+      "type": "string"
+    },
+    "theme": {
+      "enum": [
+        "light",
+        "dark"
+      ]
+    },
+    "tag": {
+      "type": "string"
+    },
+    "manifestVersion": {
+      "const": 1
+    },
     "defaults": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "font": { "type": "string" },
-        "scale": { "type": "number" }
+        "font": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "number"
+        }
       }
     },
     "slides": {
@@ -22,53 +39,112 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "properties": {
-          "layout": { "type": "string" },
-          "title": { "type": "string", "minLength": 1 },
-          "subtitle": { "type": "string" },
-          "takeaway": { "type": "string" },
-          "source": { "type": "string" },
-          "ir": { "type": "string", "minLength": 1 },
-          "statement": { "type": "string" },
-          "eyebrow": { "type": "string" },
-          "attribution": { "type": "string" },
-          "date": { "type": "string" },
-          "sectionNumber": { "type": "string" },
-          "ratio": { "type": "number" },
-          "views": { "const": "expand" },
-          "notes": { "type": "string" },
+          "layout": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "subtitle": {
+            "type": "string"
+          },
+          "takeaway": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "ir": {
+            "type": "string",
+            "minLength": 1
+          },
+          "statement": {
+            "type": "string"
+          },
+          "eyebrow": {
+            "type": "string"
+          },
+          "attribution": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "sectionNumber": {
+            "type": "string"
+          },
+          "ratio": {
+            "type": "number"
+          },
+          "views": {
+            "const": "expand"
+          },
+          "notes": {
+            "type": "string"
+          },
           "bullets": {
             "type": "array",
             "items": {
               "anyOf": [
-                { "type": "string" },
+                {
+                  "type": "string"
+                },
                 {
                   "type": "object",
-                  "required": ["text"],
+                  "required": [
+                    "text"
+                  ],
                   "properties": {
-                    "text": { "type": "string" },
-                    "level": { "type": "integer", "minimum": 0 }
+                    "text": {
+                      "type": "string"
+                    },
+                    "level": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
                   },
                   "additionalProperties": false
                 }
               ]
             }
           },
-          "columns": { "type": "array", "items": { "type": "string" } },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "rows": {
             "type": "array",
-            "items": { "type": "array", "items": { "type": "string" } }
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
           },
-          "note": { "type": "string" },
+          "note": {
+            "type": "string"
+          },
           "items": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["title"],
+              "required": [
+                "title"
+              ],
               "properties": {
-                "title": { "type": "string" },
-                "note": { "type": "string" }
+                "title": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
               },
               "additionalProperties": false
             }
@@ -77,43 +153,142 @@
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["heading", "bullets"],
+              "required": [
+                "heading",
+                "bullets"
+              ],
               "properties": {
-                "heading": { "type": "string" },
-                "bullets": { "type": "array", "items": { "type": "string" } }
+                "heading": {
+                  "type": "string"
+                },
+                "bullets": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               },
               "additionalProperties": false
             }
           },
-          "call": { "type": "string" },
-          "why": { "type": "string" },
-          "headline": { "type": "string" },
-          "contact": { "type": "string" },
-          "caption": { "type": "string" },
+          "call": {
+            "type": "string"
+          },
+          "why": {
+            "type": "string"
+          },
+          "headline": {
+            "type": "string"
+          },
+          "contact": {
+            "type": "string"
+          },
+          "caption": {
+            "type": "string"
+          },
           "kpis": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["value", "label"],
+              "required": [
+                "value",
+                "label"
+              ],
               "properties": {
-                "value": { "type": "string" },
-                "label": { "type": "string" },
-                "note": { "type": "string" }
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
               },
               "additionalProperties": false
             }
           },
-          "quote": { "type": "string" },
-          "role": { "type": "string" },
+          "quote": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
           "milestones": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["date", "label"],
+              "required": [
+                "date",
+                "label"
+              ],
               "properties": {
-                "date": { "type": "string" },
-                "label": { "type": "string" },
-                "note": { "type": "string" }
+                "date": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "process": {
+            "type": "string",
+            "minLength": 1
+          },
+          "attribute": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bps": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "practice",
+                "verdict"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "practice": {
+                  "type": "string"
+                },
+                "verdict": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "ratings": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "required": [
+                "gp",
+                "rating"
+              ],
+              "properties": {
+                "gp": {
+                  "type": "string"
+                },
+                "rating": {
+                  "type": "string"
+                }
               },
               "additionalProperties": false
             }

@@ -1,0 +1,16 @@
+[0.7275 0.0373 0.2348 0.0533] left/top panel:tag
+[0.7275 0.0373 0.2348 0.0533] center/middle text:tag "archify deck"
+[0.0375 0.0213 0.675 0.0747] left/middle text:title "PA 1.1 完全達成，能力等級一成立"
+[0.0375 0.0933 0.925 0.04] left/middle text:takeaway "示意評級：GP 1.1.1–1.1.4 逐項 N/P/L/F"
+[0.0375 0.136 0.925 0.0047] left/top rule
+[0.0375 0.9333 0.855 0.0533] left/middle text:source ""
+[0.8925 0.9333 0.0705 0.0533] right/middle text:pageNumber "1 / 1"
+[0.0375 0.2 0.925 0.08] left/middle text:paAttribute "PA 1.1 · 流程績效 — SWE.1"
+[0.0375 0.3067 0.2172 0.3067] center/bottom text:paGp "GP 1.1.1"
+[0.0375 0.6213 0.2172 0.2453] center/top text:paRating "F"
+[0.2734 0.3067 0.2172 0.3067] center/bottom text:paGp "GP 1.1.2"
+[0.2734 0.6213 0.2172 0.2453] center/top text:paRating "F"
+[0.5094 0.3067 0.2172 0.3067] center/bottom text:paGp "GP 1.1.3"
+[0.5094 0.6213 0.2172 0.2453] center/top text:paRating "L"
+[0.7453 0.3067 0.2172 0.3067] center/bottom text:paGp "GP 1.1.4"
+[0.7453 0.6213 0.2172 0.2453] center/top text:paRating "F"

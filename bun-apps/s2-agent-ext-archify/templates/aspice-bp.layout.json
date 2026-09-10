@@ -1,0 +1,71 @@
+{
+  "name": "aspice-bp",
+  "description": "ASPICE 4.0 base-practice coverage board: a process identity band on top, then one row per base practice with id, paraphrased practice, verdict (SAT/PART/MISS) and an evidence reference. Author `bps[]` with 2–8 rows; pair with `pa-rating` (that one rates generic practices, this one rates base practices).",
+  "chrome": true,
+  "slots": {
+    "process": {
+      "kind": "text",
+      "required": true,
+      "description": "the process identity band, e.g. \"SWE.1 · Software Requirements Analysis · ASPICE 4.0\""
+    },
+    "bps": {
+      "kind": "array",
+      "of": ["id", "practice", "verdict", "evidence?"],
+      "min": 2,
+      "max": 8,
+      "required": true,
+      "description": "one row per base practice; `id` e.g. BP1, `practice` the paraphrased BP statement, `verdict` SAT / PART / MISS, `evidence` the traceable work-product ref (JSONL line, artifact id)"
+    }
+  },
+  "roles": {
+    "aspiceProcess": { "sizePt": 16, "bold": true, "color": "title" },
+    "bpId": { "sizePt": 12, "bold": true, "color": "muted" },
+    "bpPractice": { "sizePt": 13, "color": "body", "autofit": true },
+    "bpVerdict": { "sizePt": 13, "bold": true, "color": "accent" },
+    "bpEvidence": { "sizePt": 11, "color": "muted" }
+  },
+  "body": [
+    {
+      "region": "content",
+      "stack": { "dir": "row", "weights": [1, 9], "gap": 0.18 },
+      "children": [
+        {
+          "box": "fill",
+          "content": { "kind": "text", "role": "aspiceProcess", "from": "{slide.process}" },
+          "valign": "middle"
+        },
+        {
+          "repeat": { "over": "bps", "flow": "col", "gap": 0.14, "max": 8 },
+          "cell": [
+            {
+              "stack": { "dir": "col", "weights": [1, 5, 1.3, 2.4], "gap": 0.12 },
+              "children": [
+                {
+                  "box": { "inset": [0.08, 0.04, 0.08, 0.04] },
+                  "content": { "kind": "text", "role": "bpId", "from": "{id}" },
+                  "valign": "middle"
+                },
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "bpPractice", "from": "{practice}" },
+                  "valign": "middle"
+                },
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "bpVerdict", "from": "{verdict}" },
+                  "align": "center",
+                  "valign": "middle"
+                },
+                {
+                  "box": "fill",
+                  "content": { "kind": "text", "role": "bpEvidence", "from": "{evidence}" },
+                  "valign": "middle"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+{
+  "defaults": {
+    "font": "PingFang TC"
+  },
+  "manifestVersion": 1,
+  "output": "aspice4-alm.pptx",
+  "tag": "ASPICE 4.0 · SWE.1/HWE.2 能力評估（示意）",
+  "theme": "light",
+  "slides": [
+    {
+      "date": "2026-09-10",
+      "eyebrow": "ALM · AUTOMOTIVE SPICE 4.0",
+      "layout": "title",
+      "subtitle": "以 archify 資料驅動模板產出 ASPICE 4.0 過程評估簡報；結構對齊 VDA QMC 2023-11-29 PAM，數值皆為示意",
+      "title": "把評估證據鏈做成可追溯的簡報——SWE.1 與 HWE.2 示範"
+    },
+    {
+      "items": [
+        {
+          "note": "5 min",
+          "title": "評估範圍與證據鏈"
+        },
+        {
+          "note": "10 min",
+          "title": "SWE.1 基礎實踐覆蓋"
+        },
+        {
+          "note": "10 min",
+          "title": "HWE.2 覆蓋與缺口"
+        },
+        {
+          "note": "10 min",
+          "title": "PA 1.1 評級與結論"
+        }
+      ],
+      "layout": "agenda",
+      "source": "Source: 示意評估議程",
+      "title": "評估議程：四個過程、一次能力結論"
+    },
+    {
+      "bps": [
+        {
+          "evidence": "evidence.jsonl:L12",
+          "id": "BP1",
+          "practice": "辨識並記錄軟體需求，含功能與非功能（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L13",
+          "id": "BP2",
+          "practice": "結構化需求並分類優先序（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L14",
+          "id": "BP3",
+          "practice": "分析需求間的一致性與相互作用（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L15",
+          "id": "BP4",
+          "practice": "制定可行性與驗證準則（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L16",
+          "id": "BP5",
+          "practice": "建立雙向追溯性（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L17",
+          "id": "BP6",
+          "practice": "溝通需求並由利害關係人確認（示意）",
+          "verdict": "PART"
+        }
+      ],
+      "layout": "aspice-bp",
+      "process": "SWE.1 · Software Requirements Analysis · ASPICE 4.0",
+      "source": "Source: 示意評估——BP 語句為 ASPICE 4.0 之 paraphrase，非官方原文",
+      "takeaway": "唯一 PART 是 BP6；補證後可重評",
+      "title": "SWE.1 六條 BP 五條滿足，證據可回溯"
+    },
+    {
+      "bps": [
+        {
+          "evidence": "evidence.jsonl:L21",
+          "id": "BP1",
+          "practice": "發展 detailed design 並記錄設計決策（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L22",
+          "id": "BP2",
+          "practice": "開發產品組件並記錄版本（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L23",
+          "id": "BP3",
+          "practice": "確保設計與需求一致（示意）",
+          "verdict": "SAT"
+        },
+        {
+          "evidence": "evidence.jsonl:L24",
+          "id": "BP4",
+          "practice": "評估設計並記錄審查結論（示意）",
+          "verdict": "SAT"
+        }
+      ],
+      "layout": "aspice-bp",
+      "process": "HWE.2 · Detailed Design & Detailed Product Component Development · ASPICE 4.0",
+      "source": "Source: 示意評估——BP 語句為 ASPICE 4.0 之 paraphrase",
+      "takeaway": "硬體端證據在 PLM；軟體端在 JSONL——ALM 整合是下一弧",
+      "title": "HWE.2 四條 BP 全數 SAT，格式待統一"
+    },
+    {
+      "attribute": "PA 1.1 · Process Performance — SWE.1",
+      "layout": "pa-rating",
+      "ratings": [
+        {
+          "gp": "GP 1.1.1",
+          "rating": "F"
+        },
+        {
+          "gp": "GP 1.1.2",
+          "rating": "L"
+        },
+        {
+          "gp": "GP 1.1.3",
+          "rating": "L"
+        },
+        {
+          "gp": "GP 1.1.4",
+          "rating": "P"
+        }
+      ],
+      "source": "Source: 示意評級——GP 對應 ASPICE 4.0 CL1 generic practices",
+      "takeaway": "BP6 的溝通證據與 BP 覆蓋率報告是升 F 的兩個條件",
+      "title": "PA 1.1 兩項 GP 部分達成，能力等級一暫評 L"
+    },
+    {
+      "columns": [
+        "需求",
+        "設計",
+        "實作",
+        "測試",
+        "證據(JSONL 行)"
+      ],
+      "layout": "table",
+      "note": "示意資料；實務上由 ALM 工具匯出",
+      "rows": [
+        [
+          "REQ-101",
+          "DES-11",
+          "src/req101.c",
+          "test/req101.t",
+          "L18"
+        ],
+        [
+          "REQ-102",
+          "DES-11",
+          "src/req102.c",
+          "test/req102.t",
+          "L19"
+        ],
+        [
+          "REQ-103",
+          "DES-12",
+          "src/req103.c",
+          "test/req103.t",
+          "L20"
+        ]
+      ],
+      "source": "Source: 示意追溯資料",
+      "takeaway": "斷鏈即缺證——追溯矩陣是評估的核心工件",
+      "title": "追溯矩陣：需求到測試的每一環都有證據行"
+    },
+    {
+      "layout": "compare",
+      "sides": [
+        {
+          "bullets": [
+            "SWE.1 BP6 溝通證據僅部分",
+            "GP 1.1.4 覆蓋率報告缺席",
+            "HWE 證據格式未與 ALM 統一"
+          ],
+          "heading": "現況缺口"
+        },
+        {
+          "bullets": [
+            " Sprint 14 內補 stakeholder 會議紀錄",
+            "以 coverage 報告產出器補 GP 1.1.4",
+            "下一弧統一 HWE 證據為 JSONL"
+          ],
+          "heading": "行動方案"
+        }
+      ],
+      "source": "Source: 示意缺口分析",
+      "title": "缺口與行動方案：三週內補齊兩項 PART"
+    },
+    {
+      "attribution": "— ASPICE 4.0 評估的鐵律（示意簡報）",
+      "layout": "statement",
+      "source": "Source: 示意總結",
+      "statement": "證據鏈可追溯，等級結論才站得住",
+      "title": "證據鏈可追溯，等級結論才站得住"
+    }
+  ]
+}

@@ -16,7 +16,9 @@ const work = mkdtempSync(join(tmpdir(), "archify-skeletons-"));
 afterAll(() => rmSync(work, { recursive: true, force: true }));
 
 const SKELETONS = ["technical-review", "project-kickoff", "incident-review", "product-proposal"];
-const SHIPPED_TEMPLATES = ["agenda", "compare", "end", "kpi-row", "quote", "table", "timeline"];
+// The GENERAL-PURPOSE rich templates. The ASPICE 4.0 / ALM domain vertical
+// (aspice-bp, pa-rating) is exercised by examples/aspice4-alm/ — not here.
+const GENERAL_RICH_TEMPLATES = ["agenda", "compare", "end", "kpi-row", "quote", "table", "timeline"];
 
 describe("t09 — deck skeletons stay buildable and lint-clean", () => {
   for (const name of SKELETONS) {
@@ -47,7 +49,7 @@ describe("t09 — deck skeletons stay buildable and lint-clean", () => {
       const md = await Bun.file(join(DECKS, `${name}.outline.md`)).text();
       for (const m of md.matchAll(/^:::([\w-]+)/gm)) used.add(m[1]!);
     }
-    for (const t of SHIPPED_TEMPLATES) {
+    for (const t of GENERAL_RICH_TEMPLATES) {
       expect(used.has(t), `template ${t} not used by any skeleton`).toBe(true);
     }
   });

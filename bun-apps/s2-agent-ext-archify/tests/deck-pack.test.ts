@@ -27,9 +27,21 @@ const MANIFESTS = [
 	join(EXAMPLES, "deck-composed", "deck.config.json"),
 	join(EXAMPLES, "deck-general", "deck.config.json"),
 	join(EXAMPLES, "ir-library", "decks", "library.config.json"),
+	// The ASPICE 4.0 / ALM vertical (2026-09-10-aspice-alm).
+	join(EXAMPLES, "aspice4-alm", "deck.config.json"),
 ];
 
 describe("deck pack/unpack — the interchange envelope", () => {
+	test("the committed aspice assessment.deckl IS the canonical pack of its config (drift pin)", () => {
+		// OBS-1 (aspice-alm review pass 2): a config edit without a repack would
+		// silently drift the committed envelope. This pin makes that drift red.
+		const config = JSON.parse(
+			readFileSync(join(EXAMPLES, "aspice4-alm", "deck.config.json"), "utf8"),
+		) as Record<string, unknown>;
+		const committed = readFileSync(join(EXAMPLES, "aspice4-alm", "assessment.deckl"), "utf8");
+		expect(packDeck(config)).toBe(committed);
+	});
+
 	test("round-trip is byte-stable on every example manifest (incl. CJK)", () => {
 		for (const path of MANIFESTS) {
 			const original = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
