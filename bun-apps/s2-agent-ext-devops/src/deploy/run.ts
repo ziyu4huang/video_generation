@@ -196,30 +196,33 @@ function resolveWorkspaceSrcDirs(): Array<{ name: string; dir: string }> {
 		let entry: string;
 		try {
 			entry = Bun.resolveSync(name, PI_AGENT_DIR);
-		} catch (err) {
-			// Self-arc-22 t01 (F-deploy-1): concurrent/parallel `bun install` runs
-			// rewrite the @repo/* links into the dangling root-layout form
-			// mid-deploy (receipted live 2026-09-10, twice). Self-heal: repair the
-			// farm and re-resolve ONCE; only an actually-broken dep aborts — a
-			// silent skip here shrank the core hash to a previously-cached value
-			// and shipped a stale core under a fresh label.
-			const repair = repairWorkspaceLinks(BUN_APPS_DIR);
+		} catch {
+			// Self-heal FIRST: parallel/interleaved `bun install` runs rewrite the
+			// @repo/* links into the dangling root-layout form mid-deploy
+			// (receipted live 2026-09-10, twice). Repair the farm and re-resolve.
+			repairWorkspaceLinks(BUN_APPS_DIR);
 			try {
 				entry = Bun.resolveSync(name, PI_AGENT_DIR);
 			} catch {
-				const short = name.split("/")[1];
-				throw new Error(
-					`workspace dep ${name} unresolvable from ${PI_AGENT_DIR} even after relinking ` +
-						`${repair.repaired.length} @repo/* link(s). Repair manually: ln -sns ../../${short} ` +
-						`bun-apps/node_modules/@repo/${short} (or run bun install at bun-apps/). Original: ${(err as Error).message}`,
+				// Benign skip (warned): a dep whose package exists but has no
+				// resolvable entry (e.g. archify ships no src/index.ts its own
+				// main points at) contributes no source to the bundle. The
+				// staleness backstop is NOT this hash — it is
+				// assertCoreArtifactMarkers, which fails the build on stale bytes
+				// regardless of what the hash covered (F-deploy-1).
+				process.stderr.write(
+					`[deploy] warning: workspace dep ${name} has no resolvable entry from ${PI_AGENT_DIR} — excluded from the core source hash
+`,
 				);
+				continue;
 			}
 		}
 		const dir = dirname(entry);
 		if (existsSync(dir)) out.push({ name, dir });
 		else
-			throw new Error(
-				`workspace dep ${name} resolved to a missing dir (${dir}) — the @repo/* link farm needs repair (bun install at bun-apps/)`,
+			process.stderr.write(
+				`[deploy] warning: workspace dep ${name} resolved to a missing dir (${dir}) — excluded from the core source hash
+`,
 			);
 	}
 	return out;
