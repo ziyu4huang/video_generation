@@ -155,7 +155,7 @@ under neutral prompts regardless.
 
 ## Shipped-as (2026-09-10)
 
-- PR <impl>: the F2 bootstrap directive (c172fd30) + prior-attribution
+- PR #2260: the F2 bootstrap directive (c172fd30) + prior-attribution
   adjudication + harness upgrades (driver model field/pin:match/--dist,
   C3 order detector, C5 any-of) + this matrix. Wayfind untouched this arc;
   superpowers gates 172/0 at the fix; deploy 0.10.3+gc172fd3 (e2e: all pass,
