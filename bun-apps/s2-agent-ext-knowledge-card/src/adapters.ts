@@ -501,7 +501,14 @@ export function adaptGenericMarkdown(
 	//    renderCard re-emits `# <title>`, so keeping it double-rendered the
 	//    header block (measured on generic-paper-recite, 2026-09-09).
 	const detail = body
-		? stripWikiLinkBrackets(h1 && h1.index !== undefined ? body.replace(/^#\s+.+?\s*$/m, "").trim() : body)
+		? stripWikiLinkBrackets(
+				h1 && h1.index !== undefined
+					? // strip the H1 (renderCard re-emits # title) AND a leading
+					  // `## 核心想法` (renderCard re-emits that section header too —
+					  // measured doubled at generic-paper-gmsbench-gpu.md:16-17)
+					  body.replace(/^#\s+.+?\s*$/m, "").replace(/^##\s+核心想法\s*\n+/, "").trim()
+					: body,
+			)
 		: body;
 
 	// 4. Tags: frontmatter tags ∪ body #hashtags ∪ distinctive H1 tokens.

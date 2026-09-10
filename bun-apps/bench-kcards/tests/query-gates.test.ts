@@ -23,11 +23,23 @@ function loadGoldens() {
 		.map((f) => loadGolden(JSON.parse(readFileSync(join(GOLDEN_DIR, f), "utf8")), f));
 }
 
+function CARDS_DIR(): string {
+	return join(realVaultPath(), "Zettelkasten");
+}
+
 const embedAvailable = process.env.BENCH_EMBED === "1";
+
+/** One converged sandbox shared by both gate tests (the awaited index
+ *  rebuild embeds the whole vault — minutes; two opens would pay it twice). */
+let sandboxPromise: ReturnType<typeof openConvergedSandbox> | null = null;
+function sharedSandbox() {
+	sandboxPromise ??= openConvergedSandbox(realVaultPath(), CARDS_DIR());
+	return sandboxPromise;
+}
 
 describe("T5 — query gates on the converged sandbox", () => {
 	test("2c tag recall@5 — measured floor 0.5 (design target 0.90, recorded gap)", async () => {
-		const { vaultPath } = await openConvergedSandbox(realVaultPath(), CARDS_DIR());
+		const { vaultPath } = await sharedSandbox();
 		const noteMap = buildNoteMap(vaultPath, loadGoldens().map((g) => g.arxivId));
 		const r = await tagRecall(vaultPath, noteMap);
 		expect(r.cardsChecked).toBe(13);
@@ -36,14 +48,14 @@ describe("T5 — query gates on the converged sandbox", () => {
 		// here guards against catastrophic regressions only.
 		expect(r.recallAt5).toBeGreaterThanOrEqual(0.5);
 		console.log(`[2c] measured tag recall@5=${r.recallAt5.toFixed(3)} (design target 0.90 — shortfall is a recorded quality gap)`);
-	}, 60_000);
+	}, 120_000);
 
 	test("2d retrieval MRR measurement + bite check (embed tier)", async () => {
 		if (!embedAvailable) {
 			console.log("(skip) 2d MRR needs the embedding server — set BENCH_EMBED=1 with LM Studio on :1234");
 			return;
 		}
-		const { vaultPath } = await openConvergedSandbox(realVaultPath(), CARDS_DIR());
+		const { vaultPath } = await sharedSandbox();
 		const goldens = loadGoldens();
 		const noteMap = buildNoteMap(vaultPath, goldens.map((g) => g.arxivId));
 		const healthy = await retrievalMrr(vaultPath, goldens, noteMap);
@@ -55,9 +67,5 @@ describe("T5 — query gates on the converged sandbox", () => {
 		const bitten = await retrievalMrrAfterRemoval(vaultPath, goldens, noteMap);
 		expect(bitten.mrr).toBeLessThan(healthy.mrr);
 		console.log(`[2d] measured MRR=${healthy.mrr.toFixed(3)} hit@3=${healthy.hitAt3.toFixed(3)} (design threshold 0.70 — shortfall is a recorded quality gap)`);
-	}, 120_000);
+	}, 180_000);
 });
-
-function CARDS_DIR(): string {
-	return join(realVaultPath(), "Zettelkasten");
-}

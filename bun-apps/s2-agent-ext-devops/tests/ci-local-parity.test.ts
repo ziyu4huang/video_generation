@@ -94,42 +94,42 @@ const CI_LOCAL = join(PKG_DIR, "scripts", "ci-local.ts");
 
 // `--tsv`: the machine-readable face the ci-workflow-references guard reads
 // through this parser. Two fields only, no decoration — that IS the contract.
-const MATRIX_TSV_GOLDEN = `s2-agent\tbun test && bun run typecheck
-s2-agent-ext-flux2\tbun test
-s2-agent-ext-krea2\tbun test
-s2-agent-ext-ltx\tbun test
-s2-agent-ext-movie-director\tbun test
-s2-agent-ext-power-tool\tbun test
-s2-agent-ext-hyperframes\tbun run test
-s2-agent-ext-btw\tbun test
-s2-agent-ext-task\tbun test
-s2-agent-ext-research-tool\tbun test
-s2-agent-ext-zai-mcp\tbun test
-s2-agent-ext-tool-gate\tbun test && bun run qa
-s2-agent-ext-archify\tbun test --isolate
-perf-harness\tbun test
-zcode-generate-slide-video\tbun run test && bun run typecheck
-s2-agent-ext-wayfind\tbun run test
-s2-agent-ext-superpowers\tbun run test
-s2-agent-ext-sv-analyzer\tbun test
-s2-agent-ext-web-access\tbun test
-s2-agent-core-interface\tbun test
-s2-agent-core-runtime\tbun test
-s2-agent-ext-devops\tbun test
-s2-agent-ext-prompt-history\tbun test
-s2-agent-ext-compact\tbun test
-s2-agent-ext-file2md\tbun test --isolate
-gui-movie-director\tbun run test && bun run typecheck
-s2-agent-ext-knowledge-card\tbun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs
-s2-agent-ext-obsidian\tbun test extensions/__tests__/
-s2-agent-ext-ultracode\tbun run test
-s2-agent-ext-webui\tbun test
-s2-agent-ext-subagent\tbun run test
-s2-agent-ext-hermes-memory\tbun test
-`;
+const MATRIX_TSV_GOLDEN = `s2-agent	bun test && bun run typecheck
+s2-agent-ext-flux2	bun test
+s2-agent-ext-krea2	bun test
+s2-agent-ext-ltx	bun test
+s2-agent-ext-movie-director	bun test
+s2-agent-ext-power-tool	bun test
+s2-agent-ext-hyperframes	bun run test
+s2-agent-ext-btw	bun test
+s2-agent-ext-task	bun test
+s2-agent-ext-research-tool	bun test
+s2-agent-ext-zai-mcp	bun test
+s2-agent-ext-tool-gate	bun test && bun run qa
+s2-agent-ext-archify	bun test --isolate
+perf-harness	bun test
+bench-kcards	bun test && bun run check
+zcode-generate-slide-video	bun run test && bun run typecheck
+s2-agent-ext-wayfind	bun run test
+s2-agent-ext-superpowers	bun run test
+s2-agent-ext-sv-analyzer	bun test
+s2-agent-ext-web-access	bun test
+s2-agent-core-interface	bun test
+s2-agent-core-runtime	bun test
+s2-agent-ext-devops	bun test
+s2-agent-ext-prompt-history	bun test
+s2-agent-ext-compact	bun test
+s2-agent-ext-file2md	bun test --isolate
+gui-movie-director	bun run test && bun run typecheck
+s2-agent-ext-knowledge-card	bun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs
+s2-agent-ext-obsidian	bun test extensions/__tests__/
+s2-agent-ext-ultracode	bun run test
+s2-agent-ext-webui	bun test
+s2-agent-ext-subagent	bun run test
+s2-agent-ext-hermes-memory	bun test`;
 
 const MATRIX_LIST_GOLDEN = `ci-local --list (parsed from .github/workflows/ci.yml.disabled · tests matrix)
-32 entries; each runs in its directory with CI=true
+33 entries; each runs in its directory with CI=true
 
 #   DIR  PACKAGE                          COMMAND
 --- ---- -------------------------------- --------
@@ -147,24 +147,25 @@ const MATRIX_LIST_GOLDEN = `ci-local --list (parsed from .github/workflows/ci.ym
 12  ok   s2-agent-ext-tool-gate           bun test && bun run qa
 13  ok   s2-agent-ext-archify             bun test --isolate
 14  ok   perf-harness                     bun test
-15  ok   zcode-generate-slide-video       bun run test && bun run typecheck
-16  ok   s2-agent-ext-wayfind             bun run test
-17  ok   s2-agent-ext-superpowers         bun run test
-18  ok   s2-agent-ext-sv-analyzer         bun test
-19  ok   s2-agent-ext-web-access          bun test
-20  ok   s2-agent-core-interface          bun test
-21  ok   s2-agent-core-runtime            bun test
-22  ok   s2-agent-ext-devops              bun test
-23  ok   s2-agent-ext-prompt-history      bun test
-24  ok   s2-agent-ext-compact             bun test
-25  ok   s2-agent-ext-file2md             bun test --isolate
-26  ok   gui-movie-director               bun run test && bun run typecheck
-27  ok   s2-agent-ext-knowledge-card      bun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs
-28  ok   s2-agent-ext-obsidian            bun test extensions/__tests__/
-29  ok   s2-agent-ext-ultracode           bun run test
-30  ok   s2-agent-ext-webui               bun test
-31  ok   s2-agent-ext-subagent            bun run test
-32  ok   s2-agent-ext-hermes-memory       bun test
+15  ok   bench-kcards                     bun test && bun run check
+16  ok   zcode-generate-slide-video       bun run test && bun run typecheck
+17  ok   s2-agent-ext-wayfind             bun run test
+18  ok   s2-agent-ext-superpowers         bun run test
+19  ok   s2-agent-ext-sv-analyzer         bun test
+20  ok   s2-agent-ext-web-access          bun test
+21  ok   s2-agent-core-interface          bun test
+22  ok   s2-agent-core-runtime            bun test
+23  ok   s2-agent-ext-devops              bun test
+24  ok   s2-agent-ext-prompt-history      bun test
+25  ok   s2-agent-ext-compact             bun test
+26  ok   s2-agent-ext-file2md             bun test --isolate
+27  ok   gui-movie-director               bun run test && bun run typecheck
+28  ok   s2-agent-ext-knowledge-card      bun test __tests__/e2e-orchestration.test.ts --isolate && bun test __tests__/allowlists.test.mjs __tests__/ingest.test.ts __tests__/merge.test.ts __tests__/emit.test.ts __tests__/similarity.test.ts __tests__/retrieve.test.ts __tests__/pi-knowledge-card.test.ts __tests__/blend.test.ts && bun test __tests__/toolWiring.test.mjs
+29  ok   s2-agent-ext-obsidian            bun test extensions/__tests__/
+30  ok   s2-agent-ext-ultracode           bun run test
+31  ok   s2-agent-ext-webui               bun test
+32  ok   s2-agent-ext-subagent            bun run test
+33  ok   s2-agent-ext-hermes-memory       bun test
 
 Not covered by this script: extension-contract, deploy-verify, compile-verify,
 clean-launch-self-heal, determinism-spotcheck. Run regression-gates with --gates.`;
