@@ -14,17 +14,19 @@
  * (model actually requested, agentType resolved, usage, elapsed, failure).
  * Exit 1 on failure.
  *
- * Known seam (recorded, not fixed here): core spawnSubagent has NO `name`
- * field and does not persist to the pi-harness run archive, so
- * reviewer-harvest.ts's fallback cannot find this dispatch — the receipt
- * below IS the harvest (review.md is the verdict artifact). Filed as a
- * follow-up gap in the arc map.
+ * Harvestable by name since self-arc-22: every dispatch ALSO persists a
+ * standard pi-harness run record (`agentName` = --name, default
+ * "arc-reviewer") via scripts/lib/arc-run-record.ts, so
+ * `reviewer-harvest --name arc-reviewer` finds the verdict through the
+ * pi-runs FALLBACK — the same SOP claude-glm named reviewers use. The
+ * receipt below remains the arc-loop's own artifact.
  */
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { loadAgentRegistry, spawnSubagent } from "@repo/s2-agent-core-runtime";
 import { BUILTIN_PACK_DEFS } from "../src/builtin-pack.js";
+import { writeArcReviewRunRecord } from "./lib/arc-run-record.js";
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -36,6 +38,9 @@ if (!promptFile) {
   console.error("error: --prompt-file <file> is required");
   process.exit(1);
 }
+// The HARVEST name (self-arc-22): reviewer-harvest --name <this> finds the
+// dispatch through the pi-runs record written below.
+const harvestName = arg("--name") ?? "arc-reviewer";
 const outDir = resolve(arg("--out") ?? "output/arc-review");
 const cwd = resolve(arg("--cwd") ?? process.cwd());
 const task = await Bun.file(promptFile).text();
@@ -54,6 +59,7 @@ const agentTypeResolved = reviewerDef
   : "hard-problem (project def; no reviewer-typed def found)";
 
 const t0 = Date.now();
+let resolvedModel: string | undefined;
 const result = await spawnSubagent({
   task,
   cwd,
@@ -63,6 +69,27 @@ const result = await spawnSubagent({
   instructions,
   // A reviewer reading a real diff burns turns the same way a planner does.
   maxTurns: 40,
+  onModelResolved: (modelId) => {
+    resolvedModel = modelId;
+  },
+});
+
+// Persist the dispatch as a STANDARD pi-runs record (self-arc-22): this is
+// what makes reviewer-harvest --name <harvestName> find the verdict — the
+// record's agentName is the match key, `output` is the verdict text. Written
+// on SUCCESS AND FAILURE, before any exit — a failed review must be
+// harvestable as errored, never invisible.
+const runId = writeArcReviewRunRecord({
+  name: harvestName,
+  task,
+  model: resolvedModel ?? "zai/glm-5.3",
+  cwd,
+  startedAt: new Date(t0),
+  elapsedMs: Date.now() - t0,
+  usage: result.usage,
+  turns: result.turns,
+  failure: result.failure,
+  output: result.output,
 });
 
 await mkdir(outDir, { recursive: true });
@@ -72,7 +99,9 @@ const receipt = {
   elapsedMs: Date.now() - t0,
   cwd,
   agentTypeResolved,
-  nameSupported: false,
+  nameSupported: true,
+  name: harvestName,
+  runId,
   requestedModel: "zai/glm-5.3",
   failure: result.failure,
   usage: result.usage,
