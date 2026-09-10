@@ -127,7 +127,7 @@ export function defaultReadDeps(pkgName: string, extsDir: string): string[] {
  * aliased to `bun-apps/s2-agent-ext-sv-analyzer/` below — a first-class
  * directlyTouched edge (with its reverse-dependents), never a fail-open.
  */
-const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/", ".agents/"];
+const MATRIX_IRRELEVANT_PREFIXES = [".planning/", "bun-apps/tests/", ".agents/", ".claude/"];
 
 /**
  * Changed-file aliases: a top-level tree that maps onto a bun-apps package.
