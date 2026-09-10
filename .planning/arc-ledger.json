@@ -208,10 +208,10 @@
       "series": "self-arc",
       "number": 21,
       "path": ".planning/2026-09-10-self-arc-21-receipt-validator",
-      "status": "active",
+      "status": "done",
       "claimedAt": "2026-09-10",
       "branch": "self-arc-21-receipt-validator",
-      "mergedPr": null,
+      "mergedPr": 2257,
       "note": "independent receipt validator — re-grades qualify receipts from primary evidence; first arc claimed VIA the ledger (the new standing procedure)"
     }
   ]
