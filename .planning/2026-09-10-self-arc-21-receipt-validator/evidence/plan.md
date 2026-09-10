@@ -1,0 +1,13 @@
+Map extended and verified. Summary of the plan now committed at `.planning/2026-09-10-self-arc-21-receipt-validator/map.md`:
+
+**Tickets (Execution order: t01 → t02 → t03 → t04, one branch/PR):**
+- **t01 (frontier)** — pure core `devops/src/validate-qualify-receipts.ts` with the evidence schema frozen from the real sweep I read (not memory): modelLine `/glm-5\.3/` + no `/flash/i`, snap-count == `receipt.snaps`, required snap labels per scenario, settle corroboration **by snap content** (no live markers), structural checks, summary-vs-dir count. Self-grade fields feed only `agree` flags, never verdicts (D4).
+- **t02 (the red bar)** — permanent committed canary `tests/fixtures/qualify-wrong-self-grade/` (4 variants: flash modelLine with `pass:true`, missing `-settled` snap, snap-count mismatch, row-count drift), two-commit RED-first ritual, red run receipted.
+- **t03** — runnable shim per the validate-next-goal precedent (exit 0/1/2), the one sorted allowlist line in `scripts-dir-contract.test.ts`, then the first REAL input: run on `output/qualify19-full/` (synthetic-sweep fallback if scratch is gone).
+- **t04** — merge via devops chain, arc-review.ts review artifacts, deploy-receipt drift assertion (iff-src-changed sweep on drift), evidence finalized, successor written + repointed.
+
+**Decisions added:** D2 devops home (auditor not behind the graded package's gates), D3 purity fence, D4 no-import-of-`isRed` independence mechanics, D5 `rpcCrossCheck` is derived-only (qualify.ts:117–170 never persists raw rpc responses — enforced as string form, raw persistence out of scope), D6 permanent canary.
+
+**Fog resolved:** receipt shapes (measured — `checks` key sets differ per scenario, so the schema tolerates unknown check keys) and purity. **Fog remaining:** full 10-scenario snap-label table (only 2 specimen-read; t01 enumerates from tui-drive.ts emission points), summary.md soft check, scratch lifetime.
+
+Method note: this followed the read-the-actual-artifact discipline — every schema fact in the map cites the specimens or file:line, and operating learning #5 (live markers only, transcript is never a settle signal) is now encoded as a grading rule in t01(c) rather than a TUI-driving heuristic. No learning from the incident list fired on a live failure here; the closest class-guard is why t02 exists at all — the validator's own grades are, until the canary disagrees with a wrong self-grade, just another untrusted summary.

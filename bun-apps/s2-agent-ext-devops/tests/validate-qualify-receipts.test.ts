@@ -14,7 +14,7 @@
  * the SCENARIO_EVIDENCE table itself — a table typo fails here too.
  */
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LIVE_MARKER_RE, SCENARIO_EVIDENCE, validateQualifySweep } from "../src/validate-qualify-receipts.js";
@@ -164,5 +164,23 @@ describe("independence mechanics (D4)", () => {
 		const res = validateQualifySweep(sweep);
 		expect(res.ok).toBe(false);
 		expect(res.problems.some((p) => p.includes("missing summary.json"))).toBe(true);
+	});
+});
+
+describe("drift guard (review nit, self-arc-21)", () => {
+	it("LIVE_MARKER_RE stays byte-identical to the bench harness's class (screen.ts)", () => {
+		// Deliberate copy per D4 (no import of the graded code) — but a silent
+		// copy drifts: if screen.ts gains spinner frames, the validator would
+		// pass live screens as settled. Pin the sources equal.
+		const here = join(import.meta.dir, "..");
+		const src = readFileSync(join(here, "src", "validate-qualify-receipts.ts"), "utf8");
+		const bench = readFileSync(
+			join(here, "..", "s2-agent-ext-subagent", "scripts", "lib", "bench-base-tech", "screen.ts"),
+			"utf8",
+		);
+		const mine = /export const LIVE_MARKER_RE = (.+);/.exec(src)?.[1];
+		const theirs = /export const LIVE_MARKER_RE = (.+);/.exec(bench)?.[1];
+		expect(mine).toBeDefined();
+		expect(mine).toBe(theirs);
 	});
 });

@@ -113,3 +113,8 @@ Received: false
  7 fail
  25 expect() calls
 Ran 10 tests across 1 file. [20.00ms]
+# nit-1 note (reviewer 2026-09-10): the header's head: a4ea2e29 records the tree the red run
+# executed against — the toothless state was committed AS 435f5642 immediately after;
+# 'git show 435f5642: bun-apps/s2-agent-ext-devops/src/validate-qualify-receipts.ts' proves the
+# echoed-verdict semantics the red run exercised. Inherent to red-bar rituals: the red run
+# precedes the commit that captures its state.

@@ -1,0 +1,21 @@
+{
+  "startedAt": "2026-09-10T12:04:18.435Z",
+  "finishedAt": "2026-09-10T12:07:21.035Z",
+  "elapsedMs": 182600,
+  "cwd": "/Users/huangziyu/proj/video_generation__memory",
+  "agentTypeResolved": "code-reviewer (builtin pack def; no model pin — model pinned by the explicit spec)",
+  "nameSupported": false,
+  "requestedModel": "zai/glm-5.3",
+  "usage": {
+    "input": 16471,
+    "output": 6183,
+    "cacheRead": 163456,
+    "cacheWrite": 0,
+    "total": 186110,
+    "cost": 0.09276316
+  },
+  "turns": {
+    "turnsUsed": 14,
+    "maxTurns": 40
+  }
+}
