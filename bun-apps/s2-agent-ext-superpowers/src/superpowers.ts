@@ -280,6 +280,8 @@ You have superpowers.
 
 The using-superpowers skill content is included below and is already loaded for this Pi session. Follow it now. Do not try to load using-superpowers again.
 
+Before you act on any task — before writing code, answering a design question, or starting work — check the available skills list in your context and READ the matching skill's SKILL.md with the read tool. "Creating a feature, adding functionality, or fixing a bug" always matches brainstorming or test-driven-development: read one before acting. This check is not optional.
+
 ${body}
 
 ${piToolMapping()}
