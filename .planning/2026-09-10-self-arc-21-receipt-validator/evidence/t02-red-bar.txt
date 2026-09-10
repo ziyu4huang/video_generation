@@ -1,0 +1,120 @@
+# t02 RED-BAR receipt — receipt validator, commit A (toothless: verdict echoes self-grade)
+# captured: 2026-09-10 19:55:01 | branch: self-arc-21-receipt-validator | head: a4ea2e29
+# command: cd bun-apps/s2-agent-ext-devops && bun test tests/validate-qualify-receipts.test.ts
+# the toothless state = a two-line diff: derivedPass echoes pass, sweep problems report-only.
+# all four canary variants sail through — a wrong self-grade is invisible to it. This red run is
+# the proof the grader's disagreement is REAL when the verdict line starts deriving from evidence.
+
+bun test v1.4.2 (744846f84)
+
+tests/validate-qualify-receipts.test.ts:
+90 | 	];
+91 | 
+92 | 	for (const v of variants) {
+93 | 		it(`rejects ${v.dir} despite pass:true`, () => {
+94 | 			const res = validateQualifySweep(join(CANARY, v.dir));
+95 | 			expect(res.ok).toBe(false);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-devops/tests/validate-qualify-receipts.test.ts:95:19)
+(fail) the canary: wrong self-grades are REJECTED (permanent) > rejects flash-model-line despite pass:true [0.70ms]
+90 | 	];
+91 | 
+92 | 	for (const v of variants) {
+93 | 		it(`rejects ${v.dir} despite pass:true`, () => {
+94 | 			const res = validateQualifySweep(join(CANARY, v.dir));
+95 | 			expect(res.ok).toBe(false);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-devops/tests/validate-qualify-receipts.test.ts:95:19)
+(fail) the canary: wrong self-grades are REJECTED (permanent) > rejects missing-settled-snap despite pass:true [0.13ms]
+90 | 	];
+91 | 
+92 | 	for (const v of variants) {
+93 | 		it(`rejects ${v.dir} despite pass:true`, () => {
+94 | 			const res = validateQualifySweep(join(CANARY, v.dir));
+95 | 			expect(res.ok).toBe(false);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-devops/tests/validate-qualify-receipts.test.ts:95:19)
+(fail) the canary: wrong self-grades are REJECTED (permanent) > rejects snap-count-mismatch despite pass:true [0.12ms]
+90 | 	];
+91 | 
+92 | 	for (const v of variants) {
+93 | 		it(`rejects ${v.dir} despite pass:true`, () => {
+94 | 			const res = validateQualifySweep(join(CANARY, v.dir));
+95 | 			expect(res.ok).toBe(false);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-devops/tests/validate-qualify-receipts.test.ts:95:19)
+(fail) the canary: wrong self-grades are REJECTED (permanent) > rejects summary-row-drift despite pass:true [0.16ms]
+(pass) green control (table-derived clean sweep) > accepts a fully clean ten-scenario sweep, all agreeing [5.97ms]
+113 | 	it("content-checks settled snaps for live markers (learning #5)", () => {
+114 | 		const sweep = buildCleanSweep();
+115 | 		const settledPath = join(sweep, "dispatch", "snap-03-settled.txt");
+116 | 		writeFileSync(settledPath, "⠋ Working... still spinning", "utf8");
+117 | 		const res = validateQualifySweep(sweep);
+118 | 		expect(res.ok).toBe(false);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: false
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-devops/tests/validate-qualify-receipts.test.ts:118:18)
+(fail) green control (table-derived clean sweep) > content-checks settled snaps for live markers (learning #5) [6.01ms]
+128 | 		writeScenario(sweep, "parallel", ["boot", "submitted", "settled"], { pass: undefined as unknown as boolean });
+129 | 		writeSummary(sweep, ["parallel"]);
+130 | 		const res = validateQualifySweep(sweep);
+131 | 		expect(res.ok).toBe(true);
+132 | 		const s = res.scenarios.find((s2) => s2.scenario === "parallel");
+133 | 		expect(s?.selfPass).toBeUndefined();
+                            ^
+error: expect(received).toBeUndefined()
+
+Received: true
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-devops/tests/validate-qualify-receipts.test.ts:133:23)
+(fail) independence mechanics (D4) > an absent self-grade still grades from evidence (undefined selfPass, no crash) [0.92ms]
+139 | 		const sweep = makeSweep();
+140 | 		writeScenario(sweep, "parallel", ["boot", "submitted", "settled"], { pass: false });
+141 | 		writeSummary(sweep, ["parallel"]);
+142 | 		const res = validateQualifySweep(sweep);
+143 | 		const s = res.scenarios.find((s2) => s2.scenario === "parallel");
+144 | 		expect(s?.derivedPass).toBe(true);
+                               ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/huangziyu/proj/video_generation__memory/bun-apps/s2-agent-ext-devops/tests/validate-qualify-receipts.test.ts:144:26)
+(fail) independence mechanics (D4) > a self-graded RED with green evidence still grades GREEN (evidence wins both ways) [0.82ms]
+(pass) independence mechanics (D4) > an unknown scenario dir is rejected, not skipped [0.66ms]
+(pass) independence mechanics (D4) > unparseable receipt and missing summary are red [0.76ms]
+
+ 3 pass
+ 7 fail
+ 25 expect() calls
+Ran 10 tests across 1 file. [20.00ms]
+# nit-1 note (reviewer 2026-09-10): the header's head: a4ea2e29 records the tree the red run
+# executed against — the toothless state was committed AS 435f5642 immediately after;
+# 'git show 435f5642: bun-apps/s2-agent-ext-devops/src/validate-qualify-receipts.ts' proves the
+# echoed-verdict semantics the red run exercised. Inherent to red-bar rituals: the red run
+# precedes the commit that captures its state.

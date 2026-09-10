@@ -1,0 +1,19 @@
+{
+	"scenario": "dispatch",
+	"cwd": "/tmp/vanished-tempdir",
+	"bytesSeen": 123456,
+	"startedAt": "2026-09-10T02:00:00.000Z",
+	"finishedAt": "2026-09-10T02:01:00.000Z",
+	"snaps": 4,
+	"modelLine": "↑12k ↓447 R54k CH91.4% 3.4%/1.0M (auto) glm-5.3 • medium",
+	"checks": {
+		"booted": true,
+		"settledBadge": true
+	},
+	"pass": true,
+	"launcher": {
+		"sh": "/dist/s2-agent.sh",
+		"deployedVersion": "0.10.3+g9feaa18",
+		"tree": "deployed"
+	}
+}

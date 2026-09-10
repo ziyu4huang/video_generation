@@ -1,0 +1,10 @@
+{
+	"allGreen": true,
+	"redCount": 0,
+	"rows": [
+		{
+			"scenario": "parallel",
+			"pass": true
+		}
+	]
+}

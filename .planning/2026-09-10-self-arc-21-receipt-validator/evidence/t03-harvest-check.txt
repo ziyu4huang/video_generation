@@ -1,0 +1,8 @@
+# t03 harvest-verify (dogfood continues): reviewer-harvest --name arc-reviewer --timeout 0
+{
+  "status": "absent",
+  "name": "arc-reviewer",
+  "harnessRoot": "/Users/huangziyu/.claude-glm",
+  "sendMessages": [],
+  "attempts": 1
+# expected-miss again (core spawnSubagent writes no pi-runs): the receipt IS the harvest.
