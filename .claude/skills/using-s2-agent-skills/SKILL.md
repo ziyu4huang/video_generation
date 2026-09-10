@@ -24,7 +24,7 @@ Then READ the matching SKILL.md before acting — it encodes hard-won pitfalls.
 ## Route-first gates (the trigger layer)
 
 Ext-skill descriptions cannot auto-fire in this harness (only this skill is `skill()`-invocable
-here), so the gates below ARE the trigger layer — CLAUDE.md points here. On ANY of these
+here), so the gates below ARE the trigger layer — CLAUDE.md points here. (in s2-agent boots this gate is advertised alongside the ext skill descriptions; routing through it is the intended model-side entry — ruling 2026-09-10-spwf-ab-closing t06) On ANY of these
 situations, READ + follow the named ext SKILL.md first; never hand-roll a substitute.
 
 | Gate | Keywords / situation | Read + follow |
