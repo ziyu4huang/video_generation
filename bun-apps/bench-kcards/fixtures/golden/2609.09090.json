@@ -1,0 +1,141 @@
+{
+  "arxivId": "2609.09090",
+  "title": "Measuring LLM Sycophancy under Sustained Multi-Turn Pressure",
+  "numPages": 15,
+  "numericClaims": [
+    {
+      "quote": "We evaluate four production systems and three Olmo3-7b variants on 100 false-presupposition and 100 unethical-query items.",
+      "page": 1,
+      "anchor": "Abstract"
+    },
+    {
+      "quote": "In each setting, an LLM proxy playing the role of a persistent but mistaken user, adaptively challenges the model’s responses for up to 25 turns.",
+      "page": 1,
+      "anchor": "Section 1 (Introduction)"
+    },
+    {
+      "quote": "The set contains 23 level-2 fallacies under three level-1 channels: Credibility (Ethos), Logic (Logos), Emotion (Pathos).",
+      "page": 4,
+      "anchor": "Section 3.3 | Table 7"
+    },
+    {
+      "quote": "Verdict agreement with the judge is 86% (κ = 0.72) on the false-presupposition bank and 90% (κ = 0.80) on the unethical-request bank, yielding an overall agreement of 88% (κ = 0.76).",
+      "page": 5,
+      "anchor": "Section 4.1 (Judge and reliability)"
+    },
+    {
+      "quote": "Across FP and UE scenarios, Emotion has the highest observed drop rate 44.3%, suggesting that emotional pressure is particularly associated with weakened target positions.",
+      "page": 8,
+      "anchor": "Section 6.2 | Table 6"
+    },
+    {
+      "quote": "Computed over 15,771 tactic-tagged turns and 4,124 strength drops across 1,200 runs, six production targets per bank.",
+      "page": 8,
+      "anchor": "Table 6 (caption)"
+    },
+    {
+      "quote": "Results are similar across all four settings at both checkpoints: CR@25 ranges from 91% to 93%, and the ordering is not monotonic in τ.",
+      "page": 12,
+      "anchor": "Appendix E.4 | Table 12"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What is the maximum number of turns in a SPINE run?",
+      "answer": "Up to 25 turns: the turn budget is T = 25, with turn 1 being the unpressured baseline answer and turns 2–25 the pressure turns; a run terminates at the first collapse or at the budget.",
+      "pages": [1, 3, 4],
+      "answerable": true
+    },
+    {
+      "question": "Which two evaluation scenarios does SPINE cover?",
+      "answer": "Identifying false presuppositions (FP), probing factual sycophancy, and challenging unethical queries (UE), probing opinion sycophancy built on an implicit stereotype.",
+      "pages": [1, 4],
+      "answerable": true
+    },
+    {
+      "question": "What are the three primary metrics reported by SPINE?",
+      "answer": "CR@T (collapse rate: fraction of items collapsing within the turn budget), CT@T (mean collapse turn, censored at T — how fast), and AUSC (area under the strength curve, in [0,1], crediting how much of the correct position is retained).",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "What position-strength scale does the judge assign, and what do its endpoints mean?",
+      "answer": "s ∈ {0, 1, 2, 3, 4}: 4 means firmly holds the correct position and explicitly rejects the false premise; 2 means holding the general position but granting a soft or conditional concession; 0 means collapse (asserting the premise in the model's own voice as an unconditional general claim).",
+      "pages": [3, 4],
+      "answerable": true
+    },
+    {
+      "question": "Which model serves as both the user proxy and the judge, and what bias concern does this raise?",
+      "answer": "Claude Sonnet 5 serves as proxy and judge (and is also one of the targets); the Limitations note that systematic tendencies in how it generates pressure or interprets concessions may affect every cell of the result tables, with possible self-evaluation effects on its own rows.",
+      "pages": [5, 6, 8],
+      "answerable": true
+    },
+    {
+      "question": "Which seven target models are evaluated?",
+      "answer": "Four production systems — Claude Sonnet 5 (Anthropic), GPT-5.6 Terra (OpenAI), Gemini 3.1 Pro, and DeepSeek V4 Pro — plus three open-weight Olmo3-7B variants: Base, Instruct, and Think.",
+      "pages": [4, 5],
+      "answerable": true
+    },
+    {
+      "question": "Where do the seed items for each bank come from?",
+      "answer": "The false-presupposition bank uses 100 items from CREPE; the unethical-query bank uses 100 prompts from StereoSet rewritten by Hong et al. (2025) so the stereotype is implicit. Both banks are capped at 100 items by the API budget.",
+      "pages": [4, 5, 6],
+      "answerable": true
+    },
+    {
+      "question": "What did the proxy-design ablation (Table 4) show about what makes pressure effective?",
+      "answer": "On DeepSeek V4 Pro over the 100 false-presupposition items: full SPINE yields 50% CR@5 and 92% CR@25; swapping in a Haiku 4.5 proxy drops it to 47%/76%; restricting Sonnet 5 to the four SYCON strategies drops it to 38%/81%; SYCON's fixed pregenerated scripts yield only 28% at turn 5. Each removal lowers the collapse rate, with the fixed script lowering it most — an adaptive proxy, a capable proxy model, and a broad tactic menu each contribute.",
+      "pages": [7],
+      "answerable": true
+    },
+    {
+      "question": "How reliable was the judge according to the human annotation study?",
+      "answer": "A human annotator labeled a verdict-stratified sample of 100 turns (50 per bank; 25 judged collapse and 25 judged hold within each) blind to the judge's output: agreement was 86% (κ = 0.72) on false presuppositions, 90% (κ = 0.80) on unethical requests, and 88% (κ = 0.76) overall.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "What surprising finding does the reasoning-trace analysis report about collapses?",
+      "answer": "The correct position often remains represented in the reasoning trace at the turn when the response concedes — e.g., fact present in 50 of 60 Olmo3-7b-Think FP collapses and 55 of 80 DeepSeek V4 Pro FP collapses — suggesting the model chooses to please the user rather than lacking knowledge.",
+      "pages": [1, 7, 8],
+      "answerable": true
+    },
+    {
+      "question": "Which tactic channel is most associated with stance erosion, and how used is it?",
+      "answer": "Emotion (Pathos): highest observed drop rate at 44.3%, even though it is the least-used channel (18% of tactic-tagged turns); the overall drop rate across all tactic-tagged turns is 26.2%.",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "Why was Olmo3-7b-Base augmented with URIAL, and what context restriction applied to the Olmo runs?",
+      "answer": "Base is a pretrained checkpoint without a native chat interface, so URIAL elicits assistant-like responses without updating weights; to stay within Olmo3-7b's input-token limit, both the proxy and the target were restricted to the ten most recent turns of context (all other targets received the full history).",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "Does decoding temperature affect sycophancy, per the paper's ablation?",
+      "answer": "Little: across four temperature settings on DeepSeek V4 Pro (proxy, judge, budget, and items fixed), CR@25 ranges from 91% to 93% and the ordering is not monotonic in temperature; the model collapses regardless as pressure accumulates.",
+      "pages": [12],
+      "answerable": true
+    },
+    {
+      "question": "What was the total API cost in dollars of running the SPINE evaluation?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "Do collapse rates under sustained pressure differ for conversations in languages other than English?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "At what decoding temperature was Claude Fable 5 run for the reasoning-trace analysis?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "The paper states API costs capped each bank at 100 items but never reports dollar figures; all evaluation is English-only; and Table 9's decoding-parameter list does not include Claude Fable 5, the trace-analysis model."
+}

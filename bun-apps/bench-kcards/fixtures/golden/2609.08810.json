@@ -1,0 +1,135 @@
+{
+  "arxivId": "2609.08810",
+  "title": "Measuring the Security of the Evolving Software Supply Chain: a Research Agenda",
+  "numPages": 6,
+  "numericClaims": [
+    {
+      "quote": "Supply chain attacks have demonstrated that the compromise of a single dependency or maintainer can have widespread consequences across thousands of downstream applications.",
+      "page": 1,
+      "anchor": "Section I (Introduction)"
+    },
+    {
+      "quote": "RQ4: How have dependency patterns evolved across software ecosystems following the adoption of LLM-assisted software development compared to the pre-LLM era?",
+      "page": 1,
+      "anchor": "Section I (research questions)"
+    },
+    {
+      "quote": "The study by Zahan et al. [3] also reported several supply chain attack vectors, including install scripts, unmaintained packages, and expired domains, arising from maintainers being overloaded with a large number of packages.",
+      "page": 2,
+      "anchor": "Section II-A"
+    },
+    {
+      "quote": "Taken together, these studies converge on two key structural patterns in software ecosystems: i) popular packages have a high-impact attack surface, as several libraries depend on them, and ii) a small number of highly influential maintainers affect a large portion of the ecosystem.",
+      "page": 2,
+      "anchor": "Section II-A"
+    },
+    {
+      "quote": "Zhao et al. [1] investigated the effectiveness of SCA tools in the Java Maven ecosystem by proposing a new evaluation model that considers execution environments, dependency and vulnerability detection mechanisms, and dependency selection.",
+      "page": 3,
+      "anchor": "Section II-B"
+    },
+    {
+      "quote": "Similarly, Okafor et al. [15] introduced three key security principles combining dependency transparency, component validity, and the separation of development stages to support ecosystem-wide analysis.",
+      "page": 3,
+      "anchor": "Section II-C"
+    },
+    {
+      "quote": "To address the lack of standardization in dependency graph construction, Litzenberger et al. [18] proposed the Dependency Graph Mining Framework (DGMF) as a unified solution for building dependency graphs from different software repositories.",
+      "page": 3,
+      "anchor": "Section II-D"
+    }
+  ],
+  "questions": [
+    {
+      "question": "How many research questions does the paper formulate, and what label range do they span?",
+      "answer": "Five research questions, labeled RQ0 through RQ4: state of the art in measuring/modeling supply chain security (RQ0), a unified measurement model for dependency graphs and vulnerability exposure (RQ1), source code-level reachability analysis to reduce alert fatigue (RQ2), LLM-generated code introducing new dependencies (RQ3), and evolution of dependency patterns after LLM-assisted development vs. the pre-LLM era (RQ4).",
+      "pages": [1],
+      "answerable": true
+    },
+    {
+      "question": "Which bibliometric analysis tools were used to construct and visualize the citation graphs in the literature review?",
+      "answer": "VOSviewer and CiteNet Explorer; the graph shown in Figure 2 was generated with VOSviewer.",
+      "pages": [2],
+      "answerable": true
+    },
+    {
+      "question": "Which two dependency-security metrics did Rahman et al. introduce, and what do they mean?",
+      "answer": "MTTRdep (Mean Time To Remediate dependencies: average time required to remediate vulnerable dependencies) and MTTUdep (Mean Time To Update dependencies: average time required to update dependencies).",
+      "pages": [2],
+      "answerable": true
+    },
+    {
+      "question": "What tool did Alfadel et al. develop for the PyPI ecosystem, and which ecosystem did they compare PyPI against?",
+      "answer": "DEPHEALTH, a tool designed to detect and report vulnerabilities; the PyPI ecosystem was studied in comparison with npm.",
+      "pages": [2],
+      "answerable": true
+    },
+    {
+      "question": "Which vulnerability type was most common in the cross-ecosystem studies of PyPI/npm and RubyGems?",
+      "answer": "Cross-Site Scripting (XSS) was the most common vulnerability type, with most discovered vulnerabilities of medium or high severity.",
+      "pages": [2],
+      "answerable": true
+    },
+    {
+      "question": "What concept did Zhao et al. propose to reduce false positives and false negatives in Maven project analysis?",
+      "answer": "The Scan Scope Maven (SSM) concept, which reduces both false positives and false negatives by defining the required dependencies to include during project analysis.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "What is Ranger, introduced by Zhang et al., and what does it do?",
+      "answer": "A tool that automatically restores version ranges while preserving compatibility with existing code bases, reducing the risk of breaking changes and limiting the persistence of security flaws.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "What system did Li et al. propose for identifying relevant patch commits, and how does it work?",
+      "answer": "PatchFinder, which identifies relevant patch commits by leveraging semantic similarity and contextual code understanding, improving the reliability of the results.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "What are the three main stages of the proposed research methodology?",
+      "answer": "(1) Literature review and state of the art, (2) the design of a generalized measurement approach, and (3) the investigation of its applicability for improving software supply chain security.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "From which sources will data be collected in the data-collection and ecosystem-extraction phase?",
+      "answer": "Package managers (e.g., npm, PyPI, Maven), source code repositories such as GitHub and Bitbucket, and dependency metadata APIs; the collected data includes dependency graphs, version histories, release metadata, and vulnerability reports.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "Which static analysis engine developed by GitHub does the paper cite as an example of source-code analysis for reachability?",
+      "answer": "CodeQL, described in a footnote as a static analysis engine developed by GitHub for querying source code as a database.",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "What is the MARIN framework and what does it do?",
+      "answer": "A framework proposed by Dusing et al. that automates repetitive technical tasks in Maven ecosystem analysis while improving performance through parallel processing.",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "How many papers were included in the final filtered corpus of the systematic literature review?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "By what quantitative margin (e.g., percentage reduction in false positives) does the Scan Scope Maven (SSM) concept outperform standard SCA configuration?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "Which software ecosystem will be evaluated first when empirically validating the unified measurement model?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "This is a research-agenda paper: it contains no empirical results from the proposed framework itself, so counts of reviewed papers, quantitative tool improvements, and validation order are all unstated."
+}

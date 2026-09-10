@@ -1,0 +1,138 @@
+{
+  "arxivId": "2609.09124",
+  "title": "Canonical Color as a Lens into Concept Decodability in Vision Encoders and VLMs",
+  "numPages": 12,
+  "numericClaims": [
+    {
+      "quote": "We construct a dataset of 708 object classes, each associated with one of 10 canonical-color labels, with a target of five images per class.",
+      "page": 2,
+      "anchor": "Section 3.1"
+    },
+    {
+      "quote": "Because Pokémon were over-represented, we downsample them to 50 classes while prioritizing low-frequency colors (gray, brown, and red).",
+      "page": 3,
+      "anchor": "Section 3.1"
+    },
+    {
+      "quote": "The resulting color distribution is shown in Figure 7; white is the most frequent label with 99 classes and gray the least frequent with 48.",
+      "page": 3,
+      "anchor": "Section 3.1"
+    },
+    {
+      "quote": "We split the 708 object classes into five disjoint folds.",
+      "page": 4,
+      "anchor": "Section 4.1, Probing"
+    },
+    {
+      "quote": "DINOv2-g 1.1B 80.6 51.8 48.0",
+      "page": 5,
+      "anchor": "Table 1"
+    },
+    {
+      "quote": "Canonical color 44.5 25.6 4.1",
+      "page": 8,
+      "anchor": "Table 2"
+    },
+    {
+      "quote": "Dec. object probe 59.7 57.5 69.9",
+      "page": 8,
+      "anchor": "Table 2"
+    },
+    {
+      "quote": "The final dataset contains 69 black, 69 blue, 53 brown, 48 gray, 73 green, 81 pink, 65 purple, 61 red, 99 white, and 90 yellow concepts.",
+      "page": 11,
+      "anchor": "Appendix A.2"
+    },
+    {
+      "quote": "CLIP→Molmo Object 65.0% 26.2% −38.8 pp p < .001",
+      "page": 12,
+      "anchor": "Table 5"
+    },
+    {
+      "quote": "Statistical significance should be interpreted together with effect magnitude: the PaliGemma object difference is consistent across folds but only 1.9 percentage points.",
+      "page": 12,
+      "anchor": "Table 5 caption"
+    }
+  ],
+  "questions": [
+    {
+      "question": "How many object classes and canonical-color labels does the dataset contain, and where do the labels come from?",
+      "answer": "708 object classes, each associated with one of 10 canonical-color labels; labels are derived from structured Wikidata entries (the has-color property P462), retaining only entities with a single color value mapped to ten basic colors (black, blue, brown, gray, green, pink, purple, red, white, yellow).",
+      "pages": [2, 11],
+      "answerable": true
+    },
+    {
+      "question": "What preprocessing defines the 'grayscale' controlled setting?",
+      "answer": "Each image is converted to grayscale using a single luminance channel replicated across three channels, then per-image histogram equalization is applied to reduce brightness-based cues; 'grayscale' denotes grayscale conversion followed by histogram equalization.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "Which five vision encoders are probed, and what supervision types do they cover?",
+      "answer": "CLIP and SigLIP (language-supervised, image-text alignment), DINOv2 (self-supervised via self-distillation), ViT-MAE (self-supervised via masked patch reconstruction), and Swin-V2 (hierarchical vision transformer); all at ViT-Base scale or the corresponding hierarchical scale.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "What validation shows that the residual color signal after grayscale preprocessing reflects canonical rather than surface color?",
+      "answer": "On Visual-CounterFact (paired original and recolored images), the actual-color probe on counterfactual images stays close to its majority baseline, while the two canonical-color probes (on original and on counterfactual images) are both well above baseline and show similar layer-wise trends after the same grayscale preprocessing.",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "How does canonical-color accuracy scale within the DINOv2 family, and across which model sizes?",
+      "answer": "It increases monotonically with scale in all three input settings (Spearman's ρ = 1.00): from 46.2% to 51.8% for Gray and from 41.8% to 48.0% for Gray+HE, across DINOv2-S/B/L/g (22M to 1.1B parameters).",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "Which VLM's post-trained vision tower preserves the original encoder's decodability, unlike the two CLIP-based pairs?",
+      "answer": "PaliGemma's SigLIP vision tower closely follows the original SigLIP encoder for both canonical color (−0.4 pp) and object recognition (−1.9 pp), whereas the Molmo and mPLUG-Owl CLIP towers show clear reductions, particularly for object recognition.",
+      "pages": [7, 12],
+      "answerable": true
+    },
+    {
+      "question": "Where along mPLUG-Owl's visual path does object-recognition accuracy mainly recover?",
+      "answer": "At the Q-Former-style visual abstractor output, before visual tokens enter the LLM decoder; the first decoder layer changes the value only slightly and later layers further refine it, indicating the main increase occurs at the visual interface rather than in the language decoder alone.",
+      "pages": [7, 8],
+      "answerable": true
+    },
+    {
+      "question": "What prompt-level accuracies do the VLMs achieve for canonical color on grayscale images?",
+      "answer": "Molmo 44.5%, mPLUG-Owl 25.6%, and PaliGemma 4.1%; all models perform poorly on the Visual Color prompt (23.4, 14.9, 17.3) despite gray being the expected answer.",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "How large is the object-recognition drop in the mPLUG-Owl vision tower after VLM post-training?",
+      "answer": "Best-layer grayscale object accuracy falls from 64.4% to 7.0%, a change of −57.4 pp (paired t-test p < .001); canonical color falls from 43.0% to 30.8% (−12.3 pp, p < .05).",
+      "pages": [12],
+      "answerable": true
+    },
+    {
+      "question": "What majority-class baseline is used for the color probing task, and why?",
+      "answer": "13.98% (approximately 14%), because the dataset retains the natural imbalance across the ten canonical-color labels—white is most frequent with 99 classes and gray least frequent with 48—rather than rebalancing categories.",
+      "pages": [5, 11],
+      "answerable": true
+    },
+    {
+      "question": "What is the total number of images contained in the final dataset?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What accuracy would a nonlinear probe achieve on grayscale canonical-color decoding, compared with the linear probes?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What fine-tuning data and hyperparameters were used to post-train Molmo's CLIP vision tower?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "Only a target of five images per class is given (some classes have fewer), so the exact image count is unreported; the paper explicitly restricts claims to linear decodability and does not describe VLM post-training recipes."
+}

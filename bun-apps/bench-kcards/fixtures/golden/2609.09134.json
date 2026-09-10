@@ -1,0 +1,133 @@
+{
+  "arxivId": "2609.09134",
+  "title": "Co-Evolving Harnesses and Models: On-Policy Correction Helps Weaker Models Catch Up Where Imitation Fails",
+  "numPages": 10,
+  "numericClaims": [
+    {
+      "quote": "Consistent with prior reports, evolving the harness lifts task success: mean test success rises from 29.2% under the base harness to 78.0% under the evolved harness (Table 1, rows 1–2), a gain of 48.8 points that holds across tasks.",
+      "page": 4,
+      "anchor": "Section 3.2"
+    },
+    {
+      "quote": "We evolve this harness using only the weaker Qwen model, yet the stronger expert gemini-3.1-pro-preview operates it just as well: the expert improves from 84.4% under the base harness to 93.6% under the evolved harness (Table 1, rows 3–4, +9.2 on average).",
+      "page": 4,
+      "anchor": "Section 3.2"
+    },
+    {
+      "quote": "Surprisingly, this recipe lowers Qwen’s mean test success from 78.0% to 63.1% (Table 1, rows 2 and 5), and the regression holds across all seven tasks, ranging from −4.2 points on anomaly detection to −29.9 on payroll auditing (−14.9 on average).",
+      "page": 4,
+      "anchor": "Section 3.3"
+    },
+    {
+      "quote": "The evolved harness lifts the weak Gemma from 46.7% to 55.6% (+8.9).",
+      "page": 5,
+      "anchor": "Section 3.3.2"
+    },
+    {
+      "quote": "To the contrary, the model still exercises the harness’s task-specific components: it triggers almost every harness edit in its rollouts, and it actually raises its use of the domain-computation recipe from 30.8% to 76.1% (Table 2).",
+      "page": 6,
+      "anchor": "Section 3.3.3"
+    },
+    {
+      "quote": "What breaks instead is planning: planning failures emerge as an essentially new failure mode, rising from 1.1% to 14.6% of failures (+13.5).",
+      "page": 6,
+      "anchor": "Section 3.3.3"
+    },
+    {
+      "quote": "it raises mean test success from 78.0% to 79.7% (+1.7), gaining on five of seven tasks—website management (+5.6), stock alerting (+2.2), code refactoring (+2.2), anomaly detection (+1.7), and browser automation (+1.2)—and staying within noise on the two tasks where the harness has likely already saturated (budget approval −0.6, payroll auditing −0.4).",
+      "page": 7,
+      "anchor": "Section 3.4"
+    },
+    {
+      "quote": "We run each task under three random seeds with a budget of $20 and a 600 s per-rollout time limit, and select the best harness h∗ as the candidate with the highest validation score (ties broken by the earliest iteration).",
+      "page": 9,
+      "anchor": "Appendix A"
+    },
+    {
+      "quote": "We sample N = 3 candidate corrections per turn and keep the best one under a quality judge.",
+      "page": 10,
+      "anchor": "Appendix B"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What two levers for adapting an agent to a domain does the paper study, and which lightweight method represents the model lever?",
+      "answer": "Harness evolution (editing the system prompt, tool set, execution hooks, and context-management scaffolding) and model-weight adaptation, represented by parameter-efficient fine-tuning such as LoRA-SFT.",
+      "pages": [1, 2],
+      "answerable": true
+    },
+    {
+      "question": "What happens when the weaker Qwen model is fine-tuned on the expert's trajectories under the evolved harness versus under the baseline harness?",
+      "answer": "Under the evolved harness, imitation lowers mean test success from 78.0% to 63.1%, regressing on all seven tasks (−14.9 on average, from −4.2 on anomaly detection to −29.9 on payroll auditing); the identical recipe under the unevolved baseline harness helps, raising success from 29.2% to 35.5% (+6.3).",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "How well does the harness evolved for the weaker model transfer upward to the stronger expert?",
+      "answer": "The expert gemini-3.1-pro-preview improves from 84.4% under the base harness to 93.6% under the evolved harness (+9.2 on average), triggers nearly every evolved edit in 93.6–100% of its rollouts, and uses the domain-computation recipe in 94.2% of rollouts (vs 30.8% for the base model).",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "What is the paper's diagnosis of why expert imitation fails under the evolved harness?",
+      "answer": "Planning-strategy drift: the weaker model adopts the expert's planning strategy without the competence to execute it and no longer fits a harness evolved around its native planning style. Knowledge and scaffold usage actually increase (domain-computation recipe use rises from 30.8% to 76.1%), but planning failures rise from 1.1% to 14.6% of failures (+13.5).",
+      "pages": [2, 6],
+      "answerable": true
+    },
+    {
+      "question": "How does the on-policy expert-correction pipeline work?",
+      "answer": "A self-directed meta-level MLE agent localizes the single failing turn in each of the weaker model's own rollouts under the evolved harness; the expert model rewrites only that one turn in place (N = 3 candidate corrections sampled per turn, best kept under a quality judge); the weaker model is then LoRA-SFT'd on these minimally edited trajectories (~500 rows: ~400 in-place expert corrections plus ~50 self-pass rows), preserving its planning distribution.",
+      "pages": [6, 10],
+      "answerable": true
+    },
+    {
+      "question": "What gain does on-policy correction deliver over the evolved-harness baseline, and on which tasks?",
+      "answer": "Mean test success rises from 78.0% to 79.7% (+1.7), gaining on five of seven tasks—website management (+5.6), stock alerting (+2.2), code refactoring (+2.2), anomaly detection (+1.7), browser automation (+1.2)—and staying within noise on budget approval (−0.6) and payroll auditing (−0.4).",
+      "pages": [7],
+      "answerable": true
+    },
+    {
+      "question": "What does the Gemma replication on the Webarena task show?",
+      "answer": "The evolved harness lifts weak Gemma from 46.7% to 55.6% (+8.9) and the expert from 71.1% to 81.1% (+10.0), yet fine-tuning Gemma on the expert's trajectories regresses it to 41.1%—14.5 points below its evolved-harness baseline and 5.6 points below even its default-harness baseline—showing the regression is not specific to the Qwen–Gemini pairing.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "Which models serve as the weaker students and which as the expert/reflection models?",
+      "answer": "Students: qwen3-coder-30b-a3b-instruct (30B total / 3B active) and gemma-4-26b-a4b-it (26B/4B active); expert and GEPA-style reflection/meta-agent: gemini-3.1-pro-preview.",
+      "pages": [1, 4, 9],
+      "answerable": true
+    },
+    {
+      "question": "What LoRA fine-tuning configuration is used?",
+      "answer": "LoRA rank 16 or 64 (best scores reported), 2 epochs, learning rate 1e−4, bf16, effective batch size 8, sequence length 49,152 tokens (plus 98,304-token context if >5% of training data suffers truncation); adapters merged into a dense checkpoint served with tensor parallelism across two H200 GPUs; a single run completes in under an hour.",
+      "pages": [9],
+      "answerable": true
+    },
+    {
+      "question": "What are the seven enterprise agentic tasks in the benchmark suite?",
+      "answer": "Payroll (attendance) auditing, budget approval, stock alerting, IoT anomaly detection, browser automation (Playwright), website management, and code refactoring.",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "What was the total dollar cost or GPU-hour count of the entire experimental campaign (all harness evolutions, SFT runs, and evaluations combined)?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "Which specific harness edits were evolved for the Gemma student on each task?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "How many training trajectories were used for the expert-imitation (SFT-imit.) fine-tuning arm?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "Only the per-task $20 harness-optimization budget and the ~500-row correction set size are given; total campaign cost, Gemma-specific harness edits, and imitation-arm training-set size are not reported in the extracted text."
+}

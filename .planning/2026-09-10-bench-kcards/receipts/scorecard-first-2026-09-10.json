@@ -1,0 +1,103 @@
+{
+  "run": {
+    "startedAt": "2026-09-10T12:26:39.959Z",
+    "model": "zai/glm-5.3 (judge)",
+    "vision": "zai/glm-5.3-flash",
+    "subset": [
+      "2609.09155",
+      "2609.09156",
+      "2609.09126",
+      "2609.09090",
+      "2609.08871"
+    ]
+  },
+  "build": {
+    "cardFaith": {
+      "claims": 10,
+      "supported": 4,
+      "misattributed": 1,
+      "unsupported": 5,
+      "faithfulness": 0.4,
+      "plantedFaultCaught": true,
+      "pass": false,
+      "perClaim": [
+        {
+          "card": "Paper - SyncWorld 視覺校準讓世界模型成為零樣本模擬器",
+          "verdict": "UNSUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - SyncWorld 視覺校準讓世界模型成為零樣本模擬器",
+          "verdict": "UNSUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - ReCite 以主張層級主動推理修復引用歸屬",
+          "verdict": "SUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - ReCite 以主張層級主動推理修復引用歸屬",
+          "verdict": "UNSUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - ReCite 以主張層級主動推理修復引用歸屬",
+          "verdict": "UNSUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - ReCite 以主張層級主動推理修復引用歸屬",
+          "verdict": "MISATTRIBUTED",
+          "page": 6
+        },
+        {
+          "card": "Paper - Amari 貝葉斯對偶的推廣",
+          "verdict": "UNSUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - Amari 貝葉斯對偶的推廣",
+          "verdict": "SUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - GMSBench GPU 記憶體安全標準化評測",
+          "verdict": "SUPPORTED",
+          "page": 1
+        },
+        {
+          "card": "Paper - GMSBench GPU 記憶體安全標準化評測",
+          "verdict": "SUPPORTED",
+          "page": 2
+        }
+      ]
+    },
+    "visionGround": {
+      "claims": 9,
+      "suspects": 9,
+      "note": "suspects = raster-rendered figure labels (needs-eyes), admitted with 視覺判讀 labels; ground-receipt in arc planning folder",
+      "pass": true
+    },
+    "dedup": {
+      "plantedExact": 1,
+      "caughtExact": true,
+      "note": "1 planted exact dup; paraphrase tiers not exercised in run 1"
+    }
+  },
+  "query": {
+    "tagRecall": {
+      "recallAt5": 0.69,
+      "designTarget": 0.9,
+      "pass": false,
+      "note": "recorded quality gap — graph-note tag/summary work queued"
+    },
+    "retrievalMrr": {
+      "mrr": 0.153,
+      "designTarget": 0.7,
+      "pass": false,
+      "note": "measured 2026-09-10 (embed tier test); bite check verified collapsing behavior in tests"
+    }
+  },
+  "verdict": "FAIL (design thresholds unmet: tag recall 0.69<0.90, MRR 0.153<0.70 — first-receipt baseline, gaps queued)"
+}

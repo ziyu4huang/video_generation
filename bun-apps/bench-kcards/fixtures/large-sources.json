@@ -1,0 +1,23 @@
+{
+  "note": "fixtures over the repo 2MB file-size guard \u2014 fetched on demand into output/bench-cache/ and sha256-verified before use",
+  "items": [
+    {
+      "arxivId": "2609.09155",
+      "url": "https://arxiv.org/pdf/2609.09155",
+      "sha256": "2d5495c2a82d2c0b6174192fedb5b87c4da63e7a049691f57e155a6789de3c13",
+      "bytes": 20830083
+    },
+    {
+      "arxivId": "2609.09153",
+      "url": "https://arxiv.org/pdf/2609.09153",
+      "sha256": "90ffc33b32c009846a183edab09b521cde4d5342ccbfafa71cd00bd2186ddb9a",
+      "bytes": 5653711
+    },
+    {
+      "arxivId": "2609.09156",
+      "url": "https://arxiv.org/pdf/2609.09156",
+      "sha256": "44481bcde65f087d25f2f2e6d67719dedf6a57c7bf9e43a6563f6fc4712e6d6e",
+      "bytes": 2095298
+    }
+  ]
+}
