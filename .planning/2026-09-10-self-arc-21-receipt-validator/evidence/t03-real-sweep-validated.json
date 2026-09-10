@@ -1,0 +1,88 @@
+{
+  "ok": true,
+  "sweepDir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full",
+  "scenarios": [
+    {
+      "scenario": "agents",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/agents",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "catalog",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/catalog",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "cc-parity",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/cc-parity",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "dispatch",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/dispatch",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "parallel",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/parallel",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "reload",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/reload",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "swarm",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/swarm",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "viewer",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/viewer",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "wf-pause",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/wf-pause",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    },
+    {
+      "scenario": "workflow",
+      "dir": "/Users/huangziyu/proj/video_generation__memory/output/qualify19-full/workflow",
+      "derivedPass": true,
+      "problems": [],
+      "selfPass": true,
+      "agree": true
+    }
+  ],
+  "problems": [],
+  "allAgree": true
+}

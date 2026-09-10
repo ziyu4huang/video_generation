@@ -45,40 +45,50 @@ export const RECEIPT_FILENAME = "receipt.json";
 export const SUMMARY_FILENAME = "summary.json";
 
 /** Per-scenario primary-evidence requirements, frozen from tui-drive.ts's
- *  snap emission points (forced snaps) and confirmed against the real
- *  2026-09-10 sweep. `required` = every label must appear among the snap
- *  files; `anyOf` = each group needs at least ONE label present (conditional
- *  branch alternatives); `settledLike` = which snap labels must show a
- *  settled (live-marker-free) screen. */
+ *  snap emission points and confirmed against the real 2026-09-10 sweep.
+ *  `required` = every label must appear among the snap files; `anyOf` = each
+ *  group needs at least ONE label present (conditional branch alternatives);
+ *  `settledLike` = which snap labels must show a settled (live-marker-free)
+ *  screen — null for the persistent-background scenarios (catalog routes a
+ *  background run; cc-parity spawns chain+reviewer children; swarm runs a
+ *  batch; viewer follows a child run; wf-pause's workflow row keeps spinning):
+ *  their screens KEEP live markers after the tested task settles,
+ *  so screen-global marker absence is NOT their settle semantics (found live
+ *  by this validator's first real run — receipted in the arc evidence);
+ *  their forced route/badge labels are the settle evidence instead. */
 export const SCENARIO_EVIDENCE: Record<
 	string,
-	{ required: string[]; anyOf: string[][]; settledLike: RegExp }
+	{ required: string[]; anyOf: string[][]; settledLike: RegExp | null }
 > = {
 	dispatch: { required: ["boot", "submitted", "settled", "viewer", "viewer-detail"], anyOf: [], settledLike: /settled/ },
 	parallel: { required: ["boot", "submitted", "settled"], anyOf: [], settledLike: /settled/ },
 	viewer: {
+		// follows a CHILD background run — its row keeps spinning after the
+		// tested viewer interactions settle
 		required: ["boot", "submitted", "viewer", "follow", "viewer-list", "viewer-closed"],
 		anyOf: [],
-		settledLike: /viewer-closed/,
+		settledLike: null,
 	},
-	catalog: { required: ["boot"], anyOf: [["routed", "running", "submitted"]], settledLike: /routed/ },
+	catalog: { required: ["boot"], anyOf: [["routed", "running", "submitted"]], settledLike: null },
 	"cc-parity": {
 		required: ["boot"],
 		anyOf: [
 			["chain-done", "chain-embedded", "chain-1", "chain-sent"],
 			["finding", "reviewer-routed", "review-sent"],
 		],
-		settledLike: /(chain-done|finding)/,
+		settledLike: null,
 	},
 	workflow: {
 		required: ["boot", "wf-viewer"],
 		anyOf: [["wf-aborted", "wf-aborting"]],
-		settledLike: /(wf-aborted|wf-viewer)/,
+		// the workflow row itself keeps spinning while paused/aborted states render
+		settledLike: null,
 	},
 	"wf-pause": {
 		required: ["boot", "pause-navigator", "paused-shared"],
 		anyOf: [["completed", "running-again"]],
-		settledLike: /(paused-shared|completed)/,
+		// the workflow row itself keeps spinning while paused/resumed states render
+		settledLike: null,
 	},
 	agents: {
 		required: [
@@ -100,7 +110,7 @@ export const SCENARIO_EVIDENCE: Record<
 	swarm: {
 		required: ["boot", "swarm-viewer", "settled"],
 		anyOf: [["aborted", "aborting"]],
-		settledLike: /settled/,
+		settledLike: null,
 	},
 };
 
@@ -212,18 +222,15 @@ function regradeScenario(dir: string, scenario: string): QualifyRegrade {
 	}
 	for (const f of snapFiles) {
 		const label = snapLabel(f) as string;
-		if (evidence.settledLike.test(label) && LIVE_MARKER_RE.test(readFileSync(join(dir, f), "utf8"))) {
+		if (evidence.settledLike?.test(label) && LIVE_MARKER_RE.test(readFileSync(join(dir, f), "utf8"))) {
 			problems.push(`settled snap "${label}" still shows live markers (learning #5: the label is not evidence)`);
 		}
 	}
 
-	// COMMIT-A (toothless) STATE — the red-bar ritual, self-arc-19 shape:
-	// the rules above REPORT but the verdict ECHOES the self-grade. The
-	// canary (tests/fixtures/qualify-wrong-self-grade/) runs RED here; the
-	// next commit flips the verdict to the evidence derivation (one line)
-	// and turns it green. A grader never seen disagreeing with a wrong
-	// self-grade has never been seen working.
-	return { scenario, dir, derivedPass: selfPass ?? false, problems, selfPass, agree: selfPass === undefined ? undefined : selfPass === (selfPass ?? false) };
+	// COMMIT-B (the flip): the verdict derives from PRIMARY EVIDENCE ONLY —
+	// the self-grade is never an input (D4). This one line is what the
+	// canary's red run paid for.
+	return { scenario, dir, derivedPass: problems.length === 0, problems, selfPass, agree: selfPass === undefined ? undefined : selfPass === (problems.length === 0) };
 }
 
 /** Re-grade a whole sweep dir (one subdir per scenario + summary.json). */
@@ -268,7 +275,6 @@ export function validateQualifySweep(sweepDir: string): QualifySweepValidation {
 		problems.push(`missing ${SUMMARY_FILENAME}`);
 	}
 
-	// COMMIT-A (toothless): sweep-level problems are REPORT-ONLY too.
-	const ok = scenarios.every((s) => s.derivedPass);
+	const ok = scenarios.every((s) => s.derivedPass) && problems.length === 0;
 	return { ok, sweepDir, scenarios, problems, allAgree };
 }

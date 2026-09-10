@@ -37,26 +37,24 @@ afterEach(() => {
 const OKLINE = "↑12k ↓447 R54k CH91.4% 3.4%/1.0M (auto) glm-5.3 • medium";
 const IDLE = "idle · ready (settled screen, no live markers)";
 
-function writeScenario(sweep: string, scenario: string, snaps: string[], opts: { snapsClaim?: number; modelLine?: string; pass?: boolean } = {}): void {
+function writeScenario(sweep: string, scenario: string, snaps: string[], opts: { snapsClaim?: number; modelLine?: string; pass?: boolean; omitPass?: boolean } = {}): void {
 	const dir = join(sweep, scenario);
 	mkdirSync(dir, { recursive: true });
 	for (const label of snaps) writeFileSync(join(dir, `snap-${String(snaps.indexOf(label) + 1).padStart(2, "0")}-${label}.txt`), label.match(/settled|completed|chain-done|finding|routed|agents-deleted|viewer-closed|wf-aborted/) ? IDLE : `${label} screen`, "utf8");
-	writeFileSync(
-		join(dir, "receipt.json"),
-		JSON.stringify({
-			scenario,
-			cwd: "/tmp/vanished",
-			bytesSeen: 123456,
-			startedAt: "2026-09-10T02:00:00.000Z",
-			finishedAt: "2026-09-10T02:01:00.000Z",
-			snaps: opts.snapsClaim ?? snaps.length,
-			modelLine: opts.modelLine ?? OKLINE,
-			checks: { booted: true },
-			pass: opts.pass ?? true,
-			launcher: { sh: "/dist/s2-agent.sh", deployedVersion: "0.10.3+g-test", tree: "deployed" },
-		}, null, "\t") + "\n",
-		"utf8",
-	);
+	const receipt: Record<string, unknown> = {
+		scenario,
+		cwd: "/tmp/vanished",
+		bytesSeen: 123456,
+		startedAt: "2026-09-10T02:00:00.000Z",
+		finishedAt: "2026-09-10T02:01:00.000Z",
+		snaps: opts.snapsClaim ?? snaps.length,
+		modelLine: opts.modelLine ?? OKLINE,
+		checks: { booted: true },
+		pass: opts.pass ?? true,
+		launcher: { sh: "/dist/s2-agent.sh", deployedVersion: "0.10.3+g-test", tree: "deployed" },
+	};
+	if (opts.omitPass) delete receipt.pass; // the self-grade key itself is absent
+	writeFileSync(join(dir, "receipt.json"), JSON.stringify(receipt, null, "\t") + "\n", "utf8");
 }
 
 function writeSummary(sweep: string, scenarios: string[]): void {
@@ -82,18 +80,22 @@ function buildCleanSweep(): string {
 }
 
 describe("the canary: wrong self-grades are REJECTED (permanent)", () => {
-	const variants: Array<{ dir: string; problem: string }> = [
-		{ dir: "flash-model-line", problem: "modelLine does not prove glm-5.3-not-flash" },
-		{ dir: "missing-settled-snap", problem: 'required snap label "settled" absent' },
-		{ dir: "snap-count-mismatch", problem: "snap count mismatch: receipt claims 7, 3 on disk" },
-		{ dir: "summary-row-drift", problem: 'summary.json row "ghost-scenario" has no scenario dir' },
+	const variants: Array<{ dir: string; problem: string; scenarioLevel: boolean }> = [
+		{ dir: "flash-model-line", problem: "modelLine does not prove glm-5.3-not-flash", scenarioLevel: true },
+		{ dir: "missing-settled-snap", problem: 'required snap label "settled" absent', scenarioLevel: true },
+		{ dir: "snap-count-mismatch", problem: "snap count mismatch: receipt claims 7, 3 on disk", scenarioLevel: true },
+		// summary drift is a SWEEP-level problem — there is no touched scenario;
+		// the rejection itself is the assertion.
+		{ dir: "summary-row-drift", problem: 'summary.json row "ghost-scenario" has no scenario dir', scenarioLevel: false },
 	];
 
 	for (const v of variants) {
 		it(`rejects ${v.dir} despite pass:true`, () => {
 			const res = validateQualifySweep(join(CANARY, v.dir));
 			expect(res.ok).toBe(false);
-			expect(res.problems.some((p) => p.includes(v.problem)) || res.scenarios.some((s) => s.problems.some((p) => p.includes(v.problem)))).toBe(true);
+			const allProblems = [...res.problems, ...res.scenarios.flatMap((s) => s.problems)];
+			expect(allProblems.some((p) => p.includes(v.problem))).toBe(true);
+			if (!v.scenarioLevel) return;
 			const touched = res.scenarios.find((s) => s.problems.some((p) => p.includes(v.problem)));
 			expect(touched?.selfPass).toBe(true); // the self-grade SAID green
 			expect(touched?.agree).toBe(false); // the grader must DISAGREE
@@ -125,7 +127,7 @@ describe("green control (table-derived clean sweep)", () => {
 describe("independence mechanics (D4)", () => {
 	it("an absent self-grade still grades from evidence (undefined selfPass, no crash)", () => {
 		const sweep = makeSweep();
-		writeScenario(sweep, "parallel", ["boot", "submitted", "settled"], { pass: undefined as unknown as boolean });
+		writeScenario(sweep, "parallel", ["boot", "submitted", "settled"], { omitPass: true });
 		writeSummary(sweep, ["parallel"]);
 		const res = validateQualifySweep(sweep);
 		expect(res.ok).toBe(true);
