@@ -1,0 +1,155 @@
+{
+  "arxivId": "2609.09156",
+  "title": "ReCite: Agentic Reasoning for Faithful Citation",
+  "numPages": 14,
+  "numericClaims": [
+    {
+      "quote": "To support this task, we construct 31,118 samples (comprising 28,006 for training and 3,112 for testing)",
+      "page": 3,
+      "anchor": "Section 3.2 | Table 4 (test N = 3,112)"
+    },
+    {
+      "quote": "We isolate 7,079 high-density paragraphs (comprising 6,779 for training and 300 for testing) whose BibTeX entries contain complete titles and abstracts, and use DeepSeek-V3 in a posterior setting: with full access to the target reference’s metadata, it retroactively deduces a logical reasoning path (<reasoning>) and an optimal keyword set (<keywords>) for each citation (Listing 1).",
+      "page": 4,
+      "anchor": "Section 3.3 | Table 5 (test N = 300)"
+    },
+    {
+      "quote": "The 90.6% average accuracy (Cohen’s κ = 0.805) confirms the reliability of the synthesized data.",
+      "page": 4,
+      "anchor": "Section 3.3"
+    },
+    {
+      "quote": "We construct 2,000 trajectories in total: 500 “gold” paths and 1,500 reflection-enhanced variants.",
+      "page": 4,
+      "anchor": "Section 3.4 | Figure 3"
+    },
+    {
+      "quote": "Specifically, we randomly sample 50 paragraphs from CVPR’25, EMNLP’24, ICCV’23, and NeurIPS’25, yielding 200 paragraphs in total.",
+      "page": 4,
+      "anchor": "Section 3.4"
+    },
+    {
+      "quote": "An audit confirms that none of the 2,640 training citation decisions involved any of the 1,023 test papers.",
+      "page": 4,
+      "anchor": "Section 3.4"
+    },
+    {
+      "quote": "For each query, GRPO samples a group of G = 4 candidate outputs and updates the policy with their relative advantages, eliminating the need for a separate value network.",
+      "page": 5,
+      "anchor": "Section 4.2"
+    },
+    {
+      "quote": "For SFT, we use an 8-bit Paged AdamW optimizer (learning rate 2 × 10−5, 3 epochs, cosine decay, 5% warmup).",
+      "page": 6,
+      "anchor": "Section 5.1 (Parameters)"
+    },
+    {
+      "quote": "As shown in Table 3, ReCite-SFT(CAP-8) achieves the highest Strict F1 of 39.15%, outperforming every baseline including DeepSeek-V4-Pro and Qwen3.6-Plus, demonstrating the effectiveness of our decoupled agentic design.",
+      "page": 7,
+      "anchor": "Section 5.2 | Table 3"
+    },
+    {
+      "quote": "QueryPlanner-SFT alone reaches Token F1 of 56.12%, approaching the 58.63% of DeepSeek-V3 (671B) and clearly beating the 27B open-source baseline.",
+      "page": 7,
+      "anchor": "Section 5.3 | Table 5"
+    },
+    {
+      "quote": "Replacing CiteLocator causes a severe drop in Strict F1 to 2.75%, proving that logical breakpoint perception is the foundational prerequisite.",
+      "page": 8,
+      "anchor": "Section 5.4 | Table 7"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What base model are all three ReCite modules built on?",
+      "answer": "Qwen3-4B — specifically Qwen3-4B-Instruct serves as the base model for all three modules, trained via SFT and (for QueryPlanner) GRPO.",
+      "pages": [2, 6],
+      "answerable": true
+    },
+    {
+      "question": "What are the three core modules of the ReCite framework and what does each do?",
+      "answer": "CiteLocator (citation location perception — predicts citation boundaries and Mandatory/Optional necessity labels), QueryPlanner (intent-aware query planning — generates a reasoning chain plus retrieval keywords per citation position), and Master Brain (task orchestration with reflective re-retrieval and verification).",
+      "pages": [3, 5],
+      "answerable": true
+    },
+    {
+      "question": "Into which two distinct forms does the paper decompose citation hallucinations, and which remains open?",
+      "answer": "Fabrication (inventing non-existent papers), largely resolved by retrieval-augmented architectures, and misattribution (citing authentic papers that fail to logically support the claim), which remains open and is ReCite's target.",
+      "pages": [1, 2],
+      "answerable": true
+    },
+    {
+      "question": "How large is the raw training corpus and where does it come from?",
+      "answer": "10,893 LaTeX source packages crawled from arXiv, corresponding to papers published in 2024–2025 at top computer science venues including ACL, EMNLP, CVPR, ICCV, and NeurIPS.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "Which LLM was used to synthesize the supervision (necessity labels, posterior reasoning/keywords, and trajectory thinking)?",
+      "answer": "DeepSeek-V3 — used to annotate Mandatory/Optional necessity, to retroactively deduce reasoning paths and keyword sets in a posterior setting, and to deduce the <think> connecting observe/act pairs.",
+      "pages": [3, 4],
+      "answerable": true
+    },
+    {
+      "question": "At which three strictness levels are end-to-end workflows evaluated?",
+      "answer": "Overall-Strictly (exact target match: correct position AND exact ground-truth paper), Lenient Evaluation (accepts highly relevant substitute papers via LLM-as-a-Judge), and Position-Only (correct logical breakpoint regardless of retrieved candidate).",
+      "pages": [6, 12],
+      "answerable": true
+    },
+    {
+      "question": "What is ReCite-SFT(CAP-8)'s best Strict F1, and what Lenient F1 does it reach?",
+      "answer": "The highest Strict F1 of 39.15%, and a Lenient F1 of 55.14% — a 15.99% gain in Lenient F1 over ReCite-SFT.",
+      "pages": [7],
+      "answerable": true
+    },
+    {
+      "question": "What number of retrieved candidate papers (Top-k) is chosen as optimal, and why?",
+      "answer": "k = 8: F1 improves up to k = 8 for both ReCite and the DeepSeek-V4-Flash baseline, after which improvements are limited by context noise, and larger k inflates input length and inference cost.",
+      "pages": [8, 9],
+      "answerable": true
+    },
+    {
+      "question": "Which external API does Master Brain query to fetch candidate metadata during inference?",
+      "answer": "The Semantic Scholar API, fetching title, abstract, authors, year, and citation count.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "What three components make up the composite GRPO reward for QueryPlanner?",
+      "answer": "Format compliance (penalizes deviations from the required <reasoning>/<keywords> layout), entity recall (against the target reference), and intent alignment (against the ground-truth intent).",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "What hardware and systems were used to train and evaluate ReCite?",
+      "answer": "NVIDIA RTX 4090 D and A800 GPUs, with DeepSpeed for distributed training and vLLM (PagedAttention) for high-throughput inference.",
+      "pages": [12],
+      "answerable": true
+    },
+    {
+      "question": "How was the end-to-end test set constructed and kept disjoint from training data?",
+      "answer": "50 paragraphs were randomly sampled from each of CVPR’25, EMNLP’24, ICCV’23, and NeurIPS’25 (200 paragraphs total, 1,023 unique target test papers); an audit confirmed none of the 2,640 training citation decisions involved any of the 1,023 test papers.",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "How many GPU-hours or dollars did it cost to train and run ReCite end-to-end?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "How well does ReCite generalize to non-computer-science domains such as biomedical or humanities literature?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "How many papers are indexed in the local retrieval database that the search_db_single tool queries?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "Compute cost and database index size are never reported, and the Limitations section explicitly states cross-disciplinary generalization (humanities, biomedical) remains unexplored."
+}

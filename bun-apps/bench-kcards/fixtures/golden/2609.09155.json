@@ -1,0 +1,128 @@
+{
+  "arxivId": "2609.09155",
+  "title": "SyncWorld: Visual Calibration Enables World Models as Zero-Shot Simulators",
+  "numPages": 15,
+  "numericClaims": [
+    {
+      "quote": "The resulting 12 segments provide compact visual evidence of the Action–Visual Mapping for setup s.",
+      "page": 4,
+      "anchor": "Section 3.1"
+    },
+    {
+      "quote": "For the first two evaluation parts, we use 50 expert trajectories from ManiSkill, 50 expert trajectories from LIBERO, and 25 real-world trajectories.",
+      "page": 7,
+      "anchor": "Section 4.1"
+    },
+    {
+      "quote": "The model is conditioned on a future action chunk of 16 steps (approximately 1s), and trained end-to-end on 4 × 8 H100 GPUs with a total batch size of 64.",
+      "page": 7,
+      "anchor": "Section 4.1, Training Details"
+    },
+    {
+      "quote": "To cover diverse camera viewpoints, each trajectory is recorded with two distinct views, yielding 100, 100, and 50 evaluation videos for ManiSkill, LIBERO, and real-world settings, respectively.",
+      "page": 7,
+      "anchor": "Section 4.1"
+    },
+    {
+      "quote": "We run 50 episodes per task with GPT-5 as the VLM judge.",
+      "page": 8,
+      "anchor": "Section 4.4"
+    },
+    {
+      "quote": "SyncWorld w/ Calib 0.58 0.72 0.60",
+      "page": 8,
+      "anchor": "Table 3"
+    },
+    {
+      "quote": "Each training sample contains 60 calibration frames, 25 history interaction frames, and 16 future frames, all resized to 512 × 512.",
+      "page": 15,
+      "anchor": "Appendix B.1.1"
+    },
+    {
+      "quote": "The calibration stream is partitioned into 12 axis-specific segments, yielding 5 frames per segment.",
+      "page": 15,
+      "anchor": "Appendix B.1.1"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What does SyncWorld use as context to specify how the current embodiment maps low-level actions to visual motion?",
+      "answer": "A short visual calibration episode—paired video frames and actions collected under the current setup that demonstrates all six motion degrees of freedom—provided as an in-context prefix, enabling zero-shot generalization to new setups without additional training.",
+      "pages": [2, 4, 5],
+      "answerable": true
+    },
+    {
+      "question": "Why is gripper openness not included in the calibration segments?",
+      "answer": "Because gripper openness has a relatively direct visual meaning (its visual consequence is trivial), calibration is constructed only from the six motion dimensions (translations along x, y, z and rotations around yaw, pitch, roll), organized in a fixed canonical order.",
+      "pages": [4, 5],
+      "answerable": true
+    },
+    {
+      "question": "Which simulation suites generate most of SyncWorld's training trajectories, and which real-world dataset is added?",
+      "answer": "RLBench, RoboCasa, and RoboMimic in simulation (expert trajectories replayed under randomized camera configurations), plus real-world DROID data to improve visual realism and motion diversity.",
+      "pages": [6],
+      "answerable": true
+    },
+    {
+      "question": "Which robot arm is used in the real-world evaluation, and why is it a stronger generalization test?",
+      "answer": "An xArm, which is unseen during training; ManiSkill and LIBERO use the Franka Panda embodiment that is present in the training data, so the real-world xArm tests embodiment generalization.",
+      "pages": [6],
+      "answerable": true
+    },
+    {
+      "question": "Which metrics and which baseline methods are used in the world-model quality comparison?",
+      "answer": "PSNR, SSIM, LPIPS, and FID, computed between predicted videos and ground-truth observations; baselines are IRASim, WorldGym, and Ctrl-World, finetuned on the same downstream data and evaluated on the same held-out trajectories.",
+      "pages": [7],
+      "answerable": true
+    },
+    {
+      "question": "What metric evaluates cross-view 3D consistency, what value indicates better performance, and how close is SyncWorld to the upper bound?",
+      "answer": "Met3r, where lower scores indicate better consistency. SyncWorld w/ Calib reaches 0.538 on average (0.540 LIBERO, 0.602 ManiSkill, 0.473 Real), approaching the ground-truth oracle upper bound of 0.523 and beating all baselines (best baseline Ctrl-World at 0.565).",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "How does SyncWorld achieve zero-shot policy improvement at test time?",
+      "answer": "Via the GPC-Rank test-time scaling framework: sample K candidate action chunks from the policy, roll out predicted future videos for each candidate (front-view and side-view), score the imagined rollouts with a VLM judge (GPT-5, 50 episodes per task), and execute the highest-scoring candidate—no training required.",
+      "pages": [5, 6, 8],
+      "answerable": true
+    },
+    {
+      "question": "What two training designs are introduced to make the model use calibration effectively?",
+      "answer": "Action-coordinate augmentations (the same coordinate perturbation—sign flips, axis permutations, translation scaling—is applied to calibration, history, and future actions while video stays unchanged) and calibration distillation (a student input without calibration is jointly optimized to match a teacher input with calibration), enabling reliable history-only inference.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "What pretrained checkpoint is SyncWorld built on, and what VAE compression does it use?",
+      "answer": "The Wan-AI/Wan2.2-TI2V-5B checkpoint, following the Wan2.2 latent video diffusion formulation with the official Wan2.2 high-compression VAE applying a 4 × 16 × 16 spatio-temporal compression ratio plus patchification.",
+      "pages": [15],
+      "answerable": true
+    },
+    {
+      "question": "On the Orange Juice LIBERO diagnostic sub-task, what success rates do the baseline, SyncWorld w/ Calib, and the oracle achieve?",
+      "answer": "Baseline 0.56, SyncWorld w/ Calib 0.72, and oracle 0.80 (SyncWorld w/o Calib reaches 0.68).",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "How many total parameters does SyncWorld have, and how many parameters do the added pose-conditioning modules add to each DiT block?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What is SyncWorld's inference latency or GPU memory footprint per 16-step action-chunk rollout?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What average success rate does GPC-Rank with SyncWorld achieve across the full LIBERO task suite (all tasks, not just the oracle-positive diagnostic subset)?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "Parameter counts, inference cost, and full-suite LIBERO averages are not reported in the extracted text (first 15 pages); Table 3 covers only three oracle-positive diagnostic sub-tasks."
+}

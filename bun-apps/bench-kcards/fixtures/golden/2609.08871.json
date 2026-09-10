@@ -1,0 +1,135 @@
+{
+  "arxivId": "2609.08871",
+  "title": "Towards Standardized Evaluation of GPU Memory Safety with GMSBench",
+  "numPages": 5,
+  "numericClaims": [
+    {
+      "quote": "GMSBench comprises 149 self-contained CUDA tests covering spatial errors, temporal errors, and data races across various GPU memory spaces and object relationships, as summarized in Figure 1.",
+      "page": 2,
+      "anchor": "Section III"
+    },
+    {
+      "quote": "we evaluate the suite on three NVIDIA GPU platforms: a workstation-grade RTX A5000 (Ampere, SM_86) and a datacenter A100 (Ampere, SM_80), both with x86 hosts, and a datacenter GH200 Grace Hopper system with an AArch64 Grace CPU and Hopper GPU (SM_90).",
+      "page": 4,
+      "anchor": "Section IV"
+    },
+    {
+      "quote": "Memcheck, CompSan’s memory-error detection tool, detected only 18/144 tests across the spatial and temporal error classes.",
+      "page": 5,
+      "anchor": "Section IV (Compute Sanitizer Coverage)"
+    },
+    {
+      "quote": "initcheck detects all 4/4 uninitialized-read tests.",
+      "page": 5,
+      "anchor": "Section IV (Compute Sanitizer Coverage)"
+    },
+    {
+      "quote": "racecheck detects 2/5 race tests, correctly identifying both shared-memory races while missing all three global-memory races.",
+      "page": 5,
+      "anchor": "Section IV (Compute Sanitizer Coverage)"
+    },
+    {
+      "quote": "cuCatch [4] used a set of 56 CUDA tests covering spatial and temporal violations across global, local, and shared memory but is not publicly available and uses a relatively coarse classification.",
+      "page": 5,
+      "anchor": "Section V / Table II"
+    },
+    {
+      "quote": "CuSafe [5] provides an open-source benchmark containing 33 tests covering spatial and temporal errors, including linear and non-linear overflows and local memory violations, but remains limited in size and taxonomy.",
+      "page": 5,
+      "anchor": "Section V / Table II"
+    }
+  ],
+  "questions": [
+    {
+      "question": "How many tests does GMSBench comprise and which error classes do they span?",
+      "answer": "149 self-contained CUDA tests spanning spatial errors, temporal errors, and data races (concurrency errors) across various GPU memory spaces and object relationships.",
+      "pages": [1, 2],
+      "answerable": true
+    },
+    {
+      "question": "Which tool does GMSBench evaluate, and with which sub-tools or variants?",
+      "answer": "NVIDIA Compute Sanitizer (CompSan), using its memcheck, initcheck, and racecheck tools, plus a variant of memcheck with API errors enabled called apicheck (memcheck with --report-api-errors=explicit).",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "On which GPU platforms is the benchmark evaluated, and what cross-platform behavior is observed?",
+      "answer": "Three NVIDIA platforms: a workstation-grade RTX A5000 (Ampere, SM_86) and a datacenter A100 (Ampere, SM_80), both with x86 hosts, and a GH200 Grace Hopper system with an AArch64 Grace CPU and Hopper GPU (SM_90). Native manifestation and tool verdicts are identical across all three architectures, even for local-memory tests and data races.",
+      "pages": [4, 5],
+      "answerable": true
+    },
+    {
+      "question": "What are GMSBench's four design principles?",
+      "answer": "Systematic Coverage, Violation Isolation (each self-contained test isolates a single violation), Independent Ground Truth (baseline native execution without protection), and Mechanism-Agnostic design (tests independent of any particular detection mechanism, with a shared harness).",
+      "pages": [2],
+      "answerable": true
+    },
+    {
+      "question": "What four dimensions does the GMSBench taxonomy use to classify tests?",
+      "answer": "(1) Error class (spatial, temporal, or data race); (2) Memory window (global, local, shared, constant, including cross-space accesses); (3) Object context (allocation mechanism and object relationships, e.g., static/dynamic, intra-/inter-object, adjacency); (4) Violation type (linear over-reads/writes, targeted OOB read/write, use-after-free, invalid free, double free, uninitialized read, use-after-scope, use-after-return, lost update).",
+      "pages": [2, 3],
+      "answerable": true
+    },
+    {
+      "question": "How does GMSBench establish ground truth, and how are tests without reliable native manifestation handled?",
+      "answer": "Through baseline execution that runs each test natively on the GPU without any protection mechanism, checking for observable effects: sentinel corruption for write violations, disclosure of a planted value for OOB reads, deterministic incorrect results for data races, and the CUDA runtime's rejection of illegal deallocations for invalid/double frees. Tests without reliable native manifestation are marked as detection-only and evaluated using the mechanism's own diagnostic output.",
+      "pages": [2, 4],
+      "answerable": true
+    },
+    {
+      "question": "What fraction of tests manifest natively, and how many spatial/temporal tests does memcheck detect?",
+      "answer": "134/149 tests (90%) manifest during native CUDA execution; memcheck detects only 18/144 applicable spatial and temporal tests (12.5%).",
+      "pages": [4, 5],
+      "answerable": true
+    },
+    {
+      "question": "Which memcheck detection gaps does the evaluation reveal, and what is the device-heap exception?",
+      "answer": "Because memcheck is tripwire-based, it misses linear overflows that land directly in another live allocation (adjacent buffers or buffers separated by a live intervening object) and targeted OOB accesses that jump over the tripwire; it also misses all intra-object and cross-space violations (no sub-object bounds or pointer-provenance tracking) and delayed/aliased UAFs (no allocation-identity tracking after address reuse). The exception is device-heap memory from in-kernel malloc(), where memcheck detects all linear overflow variants, including accesses into live neighboring objects.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "How do apicheck, initcheck, and racecheck perform within their intended scopes?",
+      "answer": "apicheck detects 10/11 invalid- and double-free tests by reporting CUDA API errors but misses the device-heap double free performed through in-kernel free(); initcheck detects all 4/4 uninitialized-read tests; racecheck detects 2/5 race tests, correctly identifying both shared-memory races while missing all three global-memory races.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "How do the prior benchmarks cuCatch and CuSafe compare to GMSBench?",
+      "answer": "cuCatch used 56 CUDA tests covering spatial and temporal violations across global, local, and shared memory but is not publicly available and uses a coarse classification; CuSafe provides an open-source benchmark of 33 tests covering spatial and temporal errors but is limited in size and taxonomy. Neither systematically covers constant memory, host-pinned memory, cross-window provenance violations, uninitialized reads, aliased UAF, or data races under a single taxonomy, whereas GMSBench offers 149 open-source tests with a finer-grained taxonomy.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "Why are use-after-free, invalid free, and double free not covered for shared memory?",
+      "answer": "Because shared memory is scoped to a thread block and has no explicit object deallocation during kernel execution; additionally, a reliable ground truth could not be established for shared-memory uninitialized reads.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "Why does cudaMallocManaged() contribute no spatial tests to GMSBench?",
+      "answer": "Because its tested behavior was equivalent to cudaMalloc() (footnote 2); managed memory instead contributes a delayed UAF variant in the temporal class.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "What runtime overhead does Compute Sanitizer's memcheck incur when running the GMSBench tests?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "How many OpenCL tests are included in GMSBench?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What detection rate does cuCatch achieve on GMSBench's cross-space violation tests?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "GMSBench contains only CUDA tests (no OpenCL), runtime overheads are not measured, and cuCatch is not run on the benchmark because it is not publicly available."
+}

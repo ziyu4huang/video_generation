@@ -1,0 +1,160 @@
+{
+  "arxivId": "2609.09153",
+  "title": "Procedural Graphs: Self-Evolving Execution Structures for LLM Agents",
+  "numPages": 15,
+  "numericClaims": [
+    {
+      "quote": "PG ranks first or joint first in 21 of 24 model–benchmark settings.",
+      "page": 7,
+      "anchor": "Section 5.1 | Table 1"
+    },
+    {
+      "quote": "Compared with the strongest baseline in each setting, PG records 19 wins, two ties, and three losses (one-sided exact binomial sign test excluding ties, 𝑝 = 4.3 × 10−4).",
+      "page": 7,
+      "anchor": "Section 5.1"
+    },
+    {
+      "quote": "Its largest margins are on BFCL v3 with Gemini 3.5 Flash (67.00% vs. 58.00%, +9.00 points), GDPval with Gemini 3.1 Pro (78.78 vs. 71.37, +7.41 points), and 𝜏-bench with the same model (80.00% vs. 73.04%, +6.96 points).",
+      "page": 7,
+      "anchor": "Section 5.1 | Table 1"
+    },
+    {
+      "quote": "It raises survival from 44.0% to 58.0% for Claude Sonnet 4.6, from 6.0% to 34.0% for Gemini 3.1 Pro, and from 26.0% to 40.0% for Grok 4.1 Fast, where it also delivers the best average enterprise score ($39.62M).",
+      "page": 8,
+      "anchor": "Section 5.2 | Figure 3"
+    },
+    {
+      "quote": "It issues 18.94 tool calls per month, which the graph reduces to 12.53 while improving the average enterprise score.",
+      "page": 8,
+      "anchor": "Section 5.2"
+    },
+    {
+      "quote": "Average capital raised is $0.00M for the Flash baseline, compared with $9.39M for PG-guided Flash and $30.11M for PG-guided Grok 4.1 Fast.",
+      "page": 8,
+      "anchor": "Section 5.2"
+    },
+    {
+      "quote": "On HotpotQA, Mode 5 (Scratch + Online Evolution) achieves the highest performance across all configurations, scoring 78.79% Ans F1 and 66.30% Ans EM (gains of 7.58 F1 points and 7.50 EM points over the unguided baseline).",
+      "page": 9,
+      "anchor": "Section 5.3 | Table 2"
+    },
+    {
+      "quote": "The iterative configuration (Mode 3), which combines fresh execution feedback with validation gating, recovers to 92.86%, a gain of 33.93 points over the expert initialization.",
+      "page": 9,
+      "anchor": "Section 5.3 | Table 2"
+    },
+    {
+      "quote": "Round 1 discovers the sequential backbone that guides the agent to audit cash and forecast runway before a financing decision, producing the largest single jump (0.0% → 45.0% validation survival); Round 2 adds recall_notes to reuse the notes saved by the Round 1 graph and lifts survival to 80.0%, with tool usage falling from 17.23 to 3.08 calls per month relative to the unguided baseline.",
+      "page": 10,
+      "anchor": "Section 5.4 | Figure 4"
+    },
+    {
+      "quote": "The returned graph reaches 85.0% test survival against the baseline’s 0.0% (Fisher’s exact 𝑝 = 2.6 × 10−8), while the best single round observed during the search reached 95.0%; we report the former, since quoting the latter would amount to selecting on the test set.",
+      "page": 10,
+      "anchor": "Section 5.4"
+    },
+    {
+      "quote": "Localization reduces total tokens relative to full-graph generative guidance on all three benchmarks: by 70.9% on ALFWorld, 18.1% on GDPval, and 14.8% on MultiChallenge.",
+      "page": 10,
+      "anchor": "Section 5.5 | Table 3"
+    },
+    {
+      "quote": "Online guidance uses the ℎ=2 hop neighborhood of the localized node and a recent trajectory window of 𝑤=3.",
+      "page": 6,
+      "anchor": "Section 4 (Procedural Graph Configuration)"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What analogy does the Procedural Graph draw with knowledge graphs?",
+      "answer": "Just as a knowledge graph organizes factual knowledge into (entity, relation, entity) triplets for what-is questions, a Procedural Graph organizes procedural knowledge into (procedure, relation, procedure) triplets for what-to-do questions.",
+      "pages": [1, 2],
+      "answerable": true
+    },
+    {
+      "question": "What three textual attribute fields does each edge carry in the implementation?",
+      "answer": "condition, guidance, and pitfalls — describing when the transition applies, how to proceed, and what to avoid.",
+      "pages": [3, 4],
+      "answerable": true
+    },
+    {
+      "question": "Which seven benchmarks are used to evaluate procedural reasoning?",
+      "answer": "HotpotQA (multi-hop QA with search tools), MultiChallenge (instruction retention across multi-turn conversations), GDPval (open-ended professional tasks scored against expert rubrics), ALFWorld (embodied household tasks), 𝜏-bench (policy-compliant tool use), BFCL (multi-turn function calling), and EnterpriseArena (long-horizon financial decision-making).",
+      "pages": [6],
+      "answerable": true
+    },
+    {
+      "question": "Which four LLMs are evaluated, and what decoding is used?",
+      "answer": "Claude Sonnet 4.6, Gemini 3.1 Pro, Gemini 3.5 Flash, and Grok 4.1 Fast; all calls use greedy decoding (temperature 0) for reproducibility, and the guidance model and offline refiner share the same underlying LLM as the solver.",
+      "pages": [6],
+      "answerable": true
+    },
+    {
+      "question": "What are the four steps of the self-evolution loop?",
+      "answer": "(1) Diagnostic Rollout on a batch of training tasks, (2) Feedback-Driven Mutation producing structured Add/Delete/Update edits, (3) Validation Gating on a held-out validation set, and (4) Rejection Memory as a Safeguard, which logs rejected candidates as negative evidence for the refiner.",
+      "pages": [5, 6],
+      "answerable": true
+    },
+    {
+      "question": "What hop neighborhood and trajectory window size are used for online guidance?",
+      "answer": "The h = 2 hop neighborhood of the localized node and a recent trajectory window of w = 3 steps.",
+      "pages": [6],
+      "answerable": true
+    },
+    {
+      "question": "What is the maximum horizon of EnterpriseArena and how many scheduled crises does it include?",
+      "answer": "The agent makes monthly financial decisions over up to 132 months under strict liquidity constraints, with three scheduled crises that are not disclosed to the agent.",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "How does PG change survival for Claude Sonnet 4.6 on EnterpriseArena?",
+      "answer": "It raises survival from 44.0% to 58.0%; PG achieves the highest or joint-highest full-horizon survival and the longest average lifespan across all four LLMs.",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "Which PG construction mode performs best on HotpotQA and with what scores?",
+      "answer": "Mode 5 (Scratch + Online Evolution): 78.79% Ans F1 and 66.30% Ans EM — the highest across all configurations, gains of 7.58 F1 and 7.50 EM points over the unguided baseline.",
+      "pages": [9],
+      "answerable": true
+    },
+    {
+      "question": "What happens on MultiChallenge when using the hand-crafted expert graph, and does the evolution loop recover?",
+      "answer": "Mode 1 (hand-crafted expert) lowers success from 87.50% to 58.93%; a single offline update (Mode 2) lowers it further to 53.57%; the iterative Mode 3 (Expert + Online Evolution) recovers to 92.86%, a gain of 33.93 points over expert initialization.",
+      "pages": [9],
+      "answerable": true
+    },
+    {
+      "question": "In the efficiency ablation (Table 3), which graph configuration achieves the highest performance, and by how much does it beat the best alternative?",
+      "answer": "Subgraph + generative guidance (localized), scoring 89.31 on MultiChallenge, 63.99 on GDPval, and 81.53 on ALFWorld — exceeding the best alternative in each setting, including the no-graph baseline, by 2.0, 6.8, and 9.0 points respectively.",
+      "pages": [10],
+      "answerable": true
+    },
+    {
+      "question": "Across the main comparison, how many wins, ties, and losses does PG record against the strongest baseline per setting?",
+      "answer": "19 wins, two ties, and three losses (one-sided exact binomial sign test excluding ties, p = 4.3 × 10−4), ranking first or joint first in 21 of 24 model–benchmark settings.",
+      "pages": [7],
+      "answerable": true
+    },
+    {
+      "question": "How many GPU-hours or dollars did the self-evolution loop and evaluation consume?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "Does the Procedural Graph still help when the solver is a smaller open-weight model such as an 8B Llama?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "How does PG perform on mathematical reasoning benchmarks like GSM8K?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "Compute cost is never reported; solver transfer (e.g., to small open-weight models) is explicitly left as future work, and no math-reasoning benchmark is among the seven evaluated."
+}

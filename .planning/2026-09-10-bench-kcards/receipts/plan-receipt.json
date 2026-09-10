@@ -1,0 +1,21 @@
+{
+  "startedAt": "2026-09-10T11:40:23.000Z",
+  "finishedAt": "2026-09-10T11:45:18.090Z",
+  "elapsedMs": 295090,
+  "cwd": "/Users/huangziyu/proj/video_generation__file2md",
+  "agentType": "hard-problem",
+  "defResolved": true,
+  "requestedModel": "zai/glm-5.3",
+  "usage": {
+    "input": 17812,
+    "output": 10648,
+    "cacheRead": 24896,
+    "cacheWrite": 0,
+    "total": 53356,
+    "cost": 0.07826095999999999
+  },
+  "turns": {
+    "turnsUsed": 3,
+    "maxTurns": 40
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "arxivId": "2609.09126",
+  "title": "A Generalization of Amari's Bayesian Duality",
+  "numPages": 15,
+  "numericClaims": [
+    {
+      "quote": "He proposed recurrent neural networks that were earlier versions of what is now called Hopfield networks (Amari, 1979).",
+      "page": 1,
+      "anchor": "Section 1 (Introduction)"
+    },
+    {
+      "quote": "Here, we revisit a relatively less known work by Amari (1996) on the development of a Bayesian duality theory.",
+      "page": 1,
+      "anchor": "Section 1 (Introduction)"
+    },
+    {
+      "quote": "For example, for the posterior in Eq. 12, the sufficient statistic is a 2D vector T(θ) = (θ, θ2)⊤, (13)",
+      "page": 6,
+      "anchor": "Section 2.4 / Eq. 13"
+    },
+    {
+      "quote": "This work is supported by JST CREST Grant Number JPMJCR2112.",
+      "page": 13,
+      "anchor": "Acknowledgments"
+    },
+    {
+      "quote": "Amari, S.: Natural gradient works efficiently in learning. Neural computation 10(2), 251–276 (1998)",
+      "page": 15,
+      "anchor": "References"
+    },
+    {
+      "quote": "Amari, S.: Information geometry of the EM and em algorithms for neural networks. Neural Networks 8(9), 1379–1408 (1995)",
+      "page": 15,
+      "anchor": "References"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What mathematical framework does the paper use to generalize Amari's Bayesian duality?",
+      "answer": "Convex duality applied to a variational formulation of Bayes' rule (the Gibbs variational principle). The dual problem, an optimization over likelihood functions t(θ) in a function space P*, generalizes Amari's bijection between the posterior and likelihood manifolds.",
+      "pages": [2, 7, 8],
+      "answerable": true
+    },
+    {
+      "question": "What restriction in Amari's 1996 Bayesian duality framework prevents it from applying to most Bayesian models?",
+      "answer": "It requires the likelihood and posterior to take the same canonical exponential-family form, with the prior absorbed into the base measure of the likelihood. This fails for the majority of Bayesian cases such as conjugate models, where the posterior matches the prior rather than the likelihood.",
+      "pages": [2, 3, 4],
+      "answerable": true
+    },
+    {
+      "question": "In Example 1 (the Gaussian case), which prior makes the posterior an isotropic Gaussian with identity covariance, and what is the resulting dual-coordinate pair for the posterior?",
+      "answer": "A uniform prior; with it the marginal p(y) is also uniform and the posterior is N(θ|y, I), so the dual-coordinate pair is (λpost, μpost) = (y, y) and the posterior mean equals y.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "For the one-dimensional ridge regression example, what are the posterior mean and variance?",
+      "answer": "The posterior is N(θ|m*, σ*²) with m* = σ*² x⊤y and σ*² = 1/(x⊤x + 1) (Eq. 12).",
+      "pages": [6],
+      "answerable": true
+    },
+    {
+      "question": "What does the variational formulation of Bayes' rule in Eq. 20 optimize, and what are its optimal solution and optimal value?",
+      "answer": "It maximizes E_q[log p(y|θ)] − D_KL(q(θ)∥p(θ)) over candidate densities q. The optimum q* is the posterior p(θ|y), and the optimal value equals the log-partition function log p(y). This is Gibbs' variational principle (Gibbs, 1902).",
+      "pages": [7, 8],
+      "answerable": true
+    },
+    {
+      "question": "What does the dual problem in Eq. 24 recover, and what is the optimal t*(θ) when q is set to the posterior?",
+      "answer": "It recovers the Kullback-Leibler divergence D_KL(q(θ)∥p(θ)) as a supremum over likelihood candidates t in the space P*. When q = q*(θ) = p(θ|y), the optimal t*(θ) recovers the likelihood p(y|θ) up to a constant factor absorbed in normalization.",
+      "pages": [8, 9],
+      "answerable": true
+    },
+    {
+      "question": "Why is the generalized dual mapping generally not a bijection, unlike in Amari's original case?",
+      "answer": "Because the dual solution is not unique: there could be several ways to aggregate the information. For example, in the f-space (linear prediction) formulation, the optimality conditions only pin down x⊤a* and x⊤B*x, so multiple (a, B) pairs recover the same likelihood and there is no bijection between posterior and likelihood.",
+      "pages": [10, 11],
+      "answerable": true
+    },
+    {
+      "question": "What was Amari's original motivation for developing Bayesian duality, and how did he propose to implement it?",
+      "answer": "He aimed to explain the 'basic but primitive' mechanisms of information processing in the brain: the dynamic interaction between a lower system (sensory input y) and a higher-order 'concept machine' (θ) through iterative feedforward (p(θ|y)) and feedback (p(y|θ)) processes. He proposed to implement it through an e-m procedure.",
+      "pages": [2, 12],
+      "answerable": true
+    },
+    {
+      "question": "How could Bayesian duality be used to study a Large Language Model, according to the authors?",
+      "answer": "As the inverse mapping: given an LLM (playing the role of the posterior p(θ|y)), the dual problem's mapping t(θ) in the likelihood space can 'trace' a compact summary of the model's knowledge, i.e., find a compact set of data examples or prompts that summarize the crux of the LLM's knowledge.",
+      "pages": [12],
+      "answerable": true
+    },
+    {
+      "question": "Which grant supports this work?",
+      "answer": "JST CREST Grant Number JPMJCR2112.",
+      "pages": [13],
+      "answerable": true
+    },
+    {
+      "question": "Which earlier work by Khan et al. proposed a dual formulation for Gaussian variational inference?",
+      "answer": "Khan et al. (2013), which proposed a dual formulation for Gaussian variational inference.",
+      "pages": [13],
+      "answerable": true
+    },
+    {
+      "question": "What empirical speedup does the convex-duality formulation of Bayesian duality achieve over natural-gradient methods on large-scale benchmarks?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "How many parameters did the concept machine in Amari's 1996 brain-model implementation contain?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What test accuracy does the dual Gibbs variational formulation reach on image classification datasets?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "The paper is purely theoretical: it contains no experiments, runtimes, or dataset results, and Amari's 1996 implementation details of the concept machine are not given."
+}

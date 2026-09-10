@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "types": ["bun"],
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  // src only (perf-harness rationale): tests/ import sibling packages by
+  // specifier and tsc would typecheck the whole transitive sibling graph
+  // under THIS package's options. Tests are gated by `bun test`.
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "fixtures"]
+}

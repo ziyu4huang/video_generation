@@ -1,0 +1,133 @@
+{
+  "arxivId": "2609.09143",
+  "title": "Studying Image Tokenizers as Visual Languages in Unified Multimodal Models",
+  "numPages": 14,
+  "numericClaims": [
+    {
+      "quote": "In this work, we fix the number of image tokens to K = 16 × 16 and the input resolution to H × W = 256 × 256, and study the vocabulary size B as the main compression-related axis using the IBQ tokenizer family [46] (Section 6.4).",
+      "page": 4,
+      "anchor": "Section 3, Bitwise compression ratio"
+    },
+    {
+      "quote": "Ours (8B) 60M 0.73 10.55 0.38 60.83",
+      "page": 5,
+      "anchor": "Table 2"
+    },
+    {
+      "quote": "Our main experiments use three dense model sizes: Qwen3-0.6B, 1.7B, and 4B.",
+      "page": 5,
+      "anchor": "Section 4.1"
+    },
+    {
+      "quote": "Our largest data scale is 60M samples, comprising 6.6M pure-text samples from DataComp-LM [27] and 53.3M image-text samples from three sources: (a) LAION-Aesthetics [45], filtered by aesthetic score ≥ 5.5 and recaptioned by InternVL3-1B [75]; (b) JourneyDB [50], recaptioned by GPT-3.5; and (c) BLIP3o-Pretrain-Short-Caption [7].",
+      "page": 5,
+      "anchor": "Section 4.1, Continual pretraining stage"
+    },
+    {
+      "quote": "We use a cosine schedule with a 0.03 warmup ratio, a peak learning rate of 5e-5, and batch size 1024.",
+      "page": 5,
+      "anchor": "Section 4.1, SFT stage"
+    },
+    {
+      "quote": "We hold out 50,000 pure-text and 50,000 image-text samples, drawn from the training distribution, as the evaluation set.",
+      "page": 6,
+      "anchor": "Section 4.2, Evaluation protocol"
+    },
+    {
+      "quote": "Replacing the standard PatchGAN discriminator with a DINO-based discriminator improves GigaTok’s rFID from 0.81 to 0.51, yet this reconstruction gain does not translate into a better joint model: none of the validation losses improve significantly, GenAI is unchanged (0.720), and VQAv2 drops from 52.25 to 51.31.",
+      "page": 10,
+      "anchor": "Section 6.1"
+    },
+    {
+      "quote": "UniTok-sem† 2.23 2.873 1.655 5.848 0.690 61.28",
+      "page": 10,
+      "anchor": "Table 3"
+    },
+    {
+      "quote": "IBQ-16384 attains the best I2T loss, yet the intermediate size IBQ-8192 achieves the lowest normalized T2I and image losses among the three variants.",
+      "page": 12,
+      "anchor": "Section 6.4"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What four task-specific validation losses are tracked during multimodal continual pretraining?",
+      "answer": "Text, (unconditional) image, text-to-image (T2I), and image-to-text (I2T) losses, computed as mean negative log-likelihood over supervised tokens.",
+      "pages": [1, 6],
+      "answerable": true
+    },
+    {
+      "question": "Which language backbone is extended, and at which three dense model sizes are the main experiments run?",
+      "answer": "Pretrained Qwen3 language models, at 0.6B, 1.7B, and 4B; an 8B model with the Chameleon tokenizer is additionally trained to validate the recipe.",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "Which tokenizer achieves the lowest rFID in Table 1, and what is the value?",
+      "answer": "GigaTok-DINO with rFID 0.51 (0.6B parameters, DINO discriminator, 100% codebook usage); the worst reported rFID among studied tokenizers is UniTok-sem at 2.23.",
+      "pages": [4],
+      "answerable": true
+    },
+    {
+      "question": "Why does I2T loss provide a more consistent cross-tokenizer signal than T2I loss?",
+      "answer": "I2T loss is computed over a shared text vocabulary, giving a common basis for comparison, whereas the T2I loss–performance relationship shifts with each tokenizer's image-token space; vocabulary normalization (dividing by log2 B) reduces part of the shift within the IBQ family, and residual differences at fixed vocabulary size are associated with reconstruction fidelity.",
+      "pages": [2, 8],
+      "answerable": true
+    },
+    {
+      "question": "What effect does replacing the PatchGAN discriminator with a DINO-based discriminator have on GigaTok's unified-model results?",
+      "answer": "It improves rFID from 0.81 to 0.51, but none of the validation losses improve significantly, GenAI is unchanged at 0.720, and VQAv2 drops from 52.25 to 51.31—so the reconstruction gain does not carry over to joint modeling.",
+      "pages": [10],
+      "answerable": true
+    },
+    {
+      "question": "What effect does semantic supervision (UniTok-sem vs UniTok) have on reconstruction fidelity and downstream performance?",
+      "answer": "It worsens reconstruction (rFID 1.86 → 2.23) yet improves all three reported validation losses and both downstream metrics (GenAI 0.670 → 0.690; VQAv2 57.21 → 61.28), by strengthening object-level image-token–word associations ('better visual words') rather than simplifying local n-gram structure.",
+      "pages": [4, 10, 11],
+      "answerable": true
+    },
+    {
+      "question": "How is the vocabulary-normalized image loss defined?",
+      "answer": "L* = L/ log2 B, where B is the image vocabulary size; log2 B is the entropy of a uniform distribution over B image tokens and serves as a natural reference for the numerical scale of T2I loss.",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "What was found about the relationship between vocabulary size and multimodal learnability within the IBQ family?",
+      "answer": "It is non-monotonic: among B ∈ {1024, 8192, 16384}, IBQ-16384 attains the best I2T loss, but the intermediate IBQ-8192 achieves the lowest normalized T2I and image losses; nevertheless IBQ-16384 gives the best downstream performance, plausibly through higher reconstruction fidelity.",
+      "pages": [12],
+      "answerable": true
+    },
+    {
+      "question": "How was the training recipe validated before studying tokenizers?",
+      "answer": "By training a Qwen3-8B model with the Chameleon tokenizer on 60M samples and comparing to Liquid-7B (90M samples): similar GenAI-Bench (0.73 vs 0.72), WISE (0.38 vs 0.41), and VQA mean (60.83 vs 61.40), while trailing on MJHQ-30K (10.55 vs 5.47).",
+      "pages": [5],
+      "answerable": true
+    },
+    {
+      "question": "What does the paper find about the image token space affecting text modeling under joint training?",
+      "answer": "Changing the image token space can reduce text-image interference: UniTok-sem attains lower text loss than UniTok, and IBQ-1024 lower than IBQ-8192, under joint training. Ablating the image-generation objective (Text+I2T only) makes the text-loss gap largely disappear, attributing the effect to image token prediction rather than captioning, while the I2T gap persists.",
+      "pages": [10, 11],
+      "answerable": true
+    },
+    {
+      "question": "How many GPUs (and what total compute budget in GPU-hours) were used for the continual pretraining and SFT runs?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What is the effect of varying image resolution H × W or the number of image tokens K on tokenizer comparison?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What bitwise compression ratio or vocabulary size does the Chameleon tokenizer used for the 8B recipe-validation model have?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "Hardware/compute details are not reported; varying H×W and K is explicitly deferred to future work; Chameleon tokenizer configuration is not given in the extracted text."
+}

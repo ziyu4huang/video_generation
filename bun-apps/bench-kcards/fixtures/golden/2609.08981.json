@@ -1,0 +1,124 @@
+{
+  "arxivId": "2609.08981",
+  "title": "Transformers as In-Context Samplers: From Closed-Form Diffusion to Estimation-Free Sampling",
+  "numPages": 15,
+  "numericClaims": [
+    {
+      "quote": "We write X ∈ R(N +1)×p, with p = 3d + 2, and define its rows by",
+      "page": 5,
+      "anchor": "Section 2.2 (Embedding encoding)"
+    },
+    {
+      "quote": "We use squared maximum mean discrepancy, MMD2, as the distance metric; MMD is a standard kernel-based discrepancy between probability distributions [34].",
+      "page": 6,
+      "anchor": "Section 4 (Mechanistic Analysis)"
+    },
+    {
+      "quote": "For example, Smale’s 7th open problem aims at characterizing the solution for s → 0 [36].",
+      "page": 7,
+      "anchor": "Section 5.1"
+    },
+    {
+      "quote": "A small GPT-2-style model is trained to reproduce samples from the two-moons dataset (see Appendix D for details).",
+      "page": 7,
+      "anchor": "Figure 3 caption"
+    },
+    {
+      "quote": "We compute the energy in the logarithmic limit s → 0, which ensures the minimum energy is 0.5[37], marked with a red dashed line, and normalized the word embeddings to norm 0.78 to compute the energy.",
+      "page": 8,
+      "anchor": "Figure 5 caption"
+    },
+    {
+      "quote": "In the Qwen2.5 family [20], smaller models exhibit only a short or weak movement toward the uniform reference, whereas larger variants show a clearer two-stage profile as shown in Figure 6.",
+      "page": 9,
+      "anchor": "Section 7 (Discussion and Limitations)"
+    }
+  ],
+  "questions": [
+    {
+      "question": "What concrete generative roles do softmax attention and feedforward layers play in the transformer simulation of closed-form diffusion?",
+      "answer": "Softmax attention computes responsibility weights and weighted empirical averages (the weighted mean k_t(z), i.e., the empirical score function), while feedforward layers implement the Euler updates.",
+      "pages": [1, 4],
+      "answerable": true
+    },
+    {
+      "question": "What two-stage geometry do the normalized hidden states of pretrained transformers exhibit across layers?",
+      "answer": "They move toward a uniform spherical reference distribution in the intermediate layers, and then return to structured, topic-dependent representations near the output layers — a U-shaped profile.",
+      "pages": [1, 6],
+      "answerable": true
+    },
+    {
+      "question": "What distance metric is used to measure how close layer-wise normalized embeddings are to the uniform distribution on the sphere, and with what kernel?",
+      "answer": "Squared maximum mean discrepancy (MMD2) computed with a Gaussian (RBF) kernel; a smaller MMD2 means the embeddings are closer to the uniform spherical reference.",
+      "pages": [6, 9],
+      "answerable": true
+    },
+    {
+      "question": "Which pretrained language models are examined in the mechanistic analysis?",
+      "answer": "GPT-2, Llama-3.3-70B-Instruct, OpenLM-Llama-13B (OpenLLaMA), Cerebras-GPT-13B, Qwen2.5, Falcon-40B, OPT-66B, and BLOOM-7B1.",
+      "pages": [3],
+      "answerable": true
+    },
+    {
+      "question": "What semantic categories are used to construct i.i.d. word prompts for in-context sampling?",
+      "answer": "Words drawn from a common semantic category such as animals, foods, or cities (blue/orange/green curves in Figures 2 and 5).",
+      "pages": [1, 6],
+      "answerable": true
+    },
+    {
+      "question": "What are the two steps of Estimation-Free Sampling (EFS)?",
+      "answer": "(1) Transporting the empirical data distribution toward a uniform distribution (minimizing the interacting energy with gradient descent) and generating an additional uniform sample from the sphere/ball; (2) inverting this process (maximizing the energy via inverse gradient descent) to push the reference point back toward the target empirical distribution. The final generated sample is z(0).",
+      "pages": [3, 8],
+      "answerable": true
+    },
+    {
+      "question": "What assumption does Theorem 2 require for the transformer simulation of EFS?",
+      "answer": "That the EFS iterates remain in a compact set K; then for every ε > 0 there exist frozen transformer parameters θ*_EFS (depending on N, d, K, τ, ε, and the compact domain, but not on the realized samples) whose output approximates the EFS-generated sample within ε.",
+      "pages": [8],
+      "answerable": true
+    },
+    {
+      "question": "Why does closed-form diffusion fail to explain the U-shaped dynamics observed in pretrained models?",
+      "answer": "Closed-form diffusion does not change the empirical data distribution, so it does not reproduce the observed U-shaped dynamics; moreover, the unsmoothed empirical closed-form diffusion model targets the empirical distribution and can therefore regenerate (memorize) the in-context samples.",
+      "pages": [6],
+      "answerable": true
+    },
+    {
+      "question": "What dataset is used for natural-sentence prompts, and what is observed?",
+      "answer": "The CBT dataset (CBT-NE stories); the same U-shaped MMD2 profile — embeddings approaching the uniform distribution on the unit sphere in middle layers — appears for natural sentences as for i.i.d. category words.",
+      "pages": [6, 7, 9],
+      "answerable": true
+    },
+    {
+      "question": "What failure mode does the Qwen2.5 family exhibit, and how do the authors interpret it?",
+      "answer": "Smaller Qwen2.5 models show only a short or weak movement toward the uniform reference (a weaker, less pronounced U-shape), while larger variants show a clearer two-stage profile. This is interpreted as insufficient effective depth or capacity leaving the intermediate transport phase incomplete, consistent with the theory where transformer depth controls the number of iterative computation steps.",
+      "pages": [9, 10],
+      "answerable": true
+    },
+    {
+      "question": "In the Figure 1 experiment, what is the out-of-distribution test and what does the model do on it?",
+      "answer": "The training face distribution contains the face boundary and eyes but no smiling mouth. When mouth-shaped points are supplied as in-context samples (a component entirely absent from training), the transformer generates new samples along the same unseen curve, showing it uses in-context samples for inference rather than statistics of the training distribution.",
+      "pages": [2, 9],
+      "answerable": true
+    },
+    {
+      "question": "How many parameters does the small GPT-2-style model trained on the two-moons dataset have?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "What learning rate and batch size were used to train the controlled two-moons in-context sampler?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    },
+    {
+      "question": "By what margin does the proposed in-context sampling construction outperform Prompt Diffusion on ImageNet generation benchmarks?",
+      "answer": "",
+      "pages": [],
+      "answerable": false
+    }
+  ],
+  "unanswerableNote": "Training hyperparameters (learning rates, parameter counts) of the small trained models and quantitative comparisons against Prompt Diffusion are not reported in the extracted text (details deferred to appendices not fully present)."
+}
