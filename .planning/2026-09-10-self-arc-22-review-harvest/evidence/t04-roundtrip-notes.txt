@@ -1,0 +1,4 @@
+# t04 round-trip (2026-09-10): real arc-review dispatch (31s, glm-5.3, receipt in t04-review-receipt.json)
+# then: reviewer-harvest --name arc-reviewer --timeout 0 → exit 0, status completed, source pi-runs,
+# verdict extracted (tail: '...consistency checks pass with cited line and command evidence.')
+# idempotence re-run: same receipt, unchanged. The dispatch's own map review: VERDICT: APPROVE

@@ -1,0 +1,23 @@
+{
+  "startedAt": "2026-09-10T12:51:19.894Z",
+  "finishedAt": "2026-09-10T12:51:51.334Z",
+  "elapsedMs": 31440,
+  "cwd": "/Users/huangziyu/proj/video_generation__selfarc22",
+  "agentTypeResolved": "code-reviewer (builtin pack def; no model pin — model pinned by the explicit spec)",
+  "nameSupported": true,
+  "name": "arc-reviewer",
+  "runId": "mtvj120y-m3sena",
+  "requestedModel": "zai/glm-5.3",
+  "usage": {
+    "input": 7847,
+    "output": 1096,
+    "cacheRead": 15680,
+    "cacheWrite": 0,
+    "total": 24623,
+    "cost": 0.019885
+  },
+  "turns": {
+    "turnsUsed": 3,
+    "maxTurns": 40
+  }
+}

@@ -211,6 +211,12 @@ to the verdict, whatever the harness's child→lead injection does:
   file (or transcript path) in the PR body** — that is the
   independent-review evidence. `TaskStop` the reviewer after harvest.
 
+Harvesting an `arc-review.ts` dispatch (self-arc-22): the child ALSO persists
+a standard pi-runs record (`agentName` = the dispatch's `--name`, default
+`arc-reviewer`), so the same `--name` finds it through the FALLBACK. `TaskStop`
+does not apply — the child has already exited; `absent` only means the record
+was evicted (maxRuns 200) or the dispatch never ran.
+
 Session-start habit (the #2122 pattern): re-read the team inbox
 (`~/.claude-glm/teams/session-*/inboxes/team-lead.json`) — a delayed verdict
 may carry actionable findings against already-merged code.
