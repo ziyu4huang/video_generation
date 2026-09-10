@@ -1,0 +1,189 @@
+{
+  "overall": "pass",
+  "baseRef": "origin/main",
+  "headRef": "HEAD",
+  "packages": [
+    {
+      "name": "s2-agent-ext-devops",
+      "test": {
+        "exitCode": 0,
+        "source": "matrix",
+        "command": "bun test",
+        "durationMs": 31055
+      },
+      "typecheck": {
+        "exitCode": -1,
+        "skipped": true,
+        "note": "covered by the typecheck:ext gate"
+      },
+      "lint": {
+        "exitCode": 0,
+        "durationMs": 116
+      }
+    }
+  ],
+  "gates": [
+    {
+      "name": "File-size guard (2 MB, blocks)",
+      "exitCode": 0,
+      "durationMs": 74
+    },
+    {
+      "name": "Lockfile duplicate-version guard (blocks)",
+      "exitCode": 0,
+      "durationMs": 76
+    },
+    {
+      "name": "Lockfile freshness guard (package.json vs bun.lock, blocks)",
+      "exitCode": 0,
+      "durationMs": 1046
+    },
+    {
+      "name": "Dependency-direction guard (ADR-monorepo-0001, blocks)",
+      "exitCode": 0,
+      "durationMs": 217
+    },
+    {
+      "name": "Registry base-set scanner guard (blocks)",
+      "exitCode": 0,
+      "durationMs": 30
+    },
+    {
+      "name": "ADR identity + citation guard (blocks)",
+      "exitCode": 0,
+      "durationMs": 140
+    },
+    {
+      "name": "Cross-skill reference guard (blocks)",
+      "exitCode": 0,
+      "durationMs": 29
+    },
+    {
+      "name": "Skill frontmatter guard (blocks)",
+      "exitCode": 0,
+      "durationMs": 47
+    },
+    {
+      "name": "Dead-export guard (blocks)",
+      "exitCode": 0,
+      "durationMs": 531
+    },
+    {
+      "name": "Cross-extension seam-contract guard (status widget, blocks)",
+      "exitCode": 0,
+      "durationMs": 79
+    },
+    {
+      "name": "Cross-extension routing-contract guard (bootstrap ↔ wayfind, blocks)",
+      "exitCode": 0,
+      "durationMs": 29
+    },
+    {
+      "name": "Tool-naming contract gate (extension-naming convention, blocks)",
+      "exitCode": 0,
+      "durationMs": 71
+    },
+    {
+      "name": "Cross-extension isolation-contract guard (portable base set, blocks)",
+      "exitCode": 0,
+      "durationMs": 950
+    },
+    {
+      "name": "Config-field parity guard (hermes loadConfig, blocks)",
+      "exitCode": 0,
+      "durationMs": 30
+    },
+    {
+      "name": "Test-portability audit regression test",
+      "exitCode": 0,
+      "durationMs": 162
+    },
+    {
+      "name": "CI-workflow reference guard (matrix ↔ tree, blocks)",
+      "exitCode": 0,
+      "durationMs": 77
+    },
+    {
+      "name": "No-bash-skills guard (deleted launchers, blocks)",
+      "exitCode": 0,
+      "durationMs": 36
+    },
+    {
+      "name": "Package-script runnability guard (bare binaries, blocks)",
+      "exitCode": 0,
+      "durationMs": 48
+    },
+    {
+      "name": "Workspace dist-freshness guard (blocks)",
+      "exitCode": 0,
+      "durationMs": 26
+    },
+    {
+      "name": "Deploy-sh L1 e2e (deployed binary runs its extensions, blocks)",
+      "exitCode": 0,
+      "durationMs": 112992
+    },
+    {
+      "name": "Extension-entry typecheck coverage (blocks)",
+      "exitCode": 0,
+      "durationMs": 34
+    },
+    {
+      "name": "Extension-entry typecheck (executor, blocks)",
+      "exitCode": 0,
+      "durationMs": 43856
+    },
+    {
+      "name": "Lint-executor coverage (blocks)",
+      "exitCode": 0,
+      "durationMs": 25
+    },
+    {
+      "name": "Test-portability audit (--strict, blocks)",
+      "exitCode": 0,
+      "durationMs": 1383
+    },
+    {
+      "name": "Test-determinism audit (D2 --strict, blocks)",
+      "exitCode": 0,
+      "durationMs": 1705
+    },
+    {
+      "name": "PR-finish decision tests (devops-merge-pr-after-ci)",
+      "exitCode": 0,
+      "durationMs": 18
+    },
+    {
+      "name": "Schema-cost regression (warns >5%, not a block)",
+      "exitCode": 0,
+      "durationMs": 757
+    },
+    {
+      "name": "Declared-imports audit (blocks)",
+      "exitCode": 0,
+      "durationMs": 83
+    },
+    {
+      "name": "oneshot-smoke",
+      "exitCode": 0,
+      "note": "skip (cached-pass 1.0h ago, 8591ms)"
+    },
+    {
+      "name": "Launcher e2e — PI_AGENT_E2E gated assertions (change-triggered)",
+      "exitCode": 0
+    }
+  ],
+  "schemaCost": {
+    "exitCode": 0,
+    "note": "info-only — never affects overall"
+  },
+  "elapsedMs": 117684,
+  "budgetMs": 300000,
+  "overBudget": false,
+  "slowest": [
+    {
+      "name": "s2-agent-ext-devops",
+      "durationMs": 31171
+    }
+  ]
+}
