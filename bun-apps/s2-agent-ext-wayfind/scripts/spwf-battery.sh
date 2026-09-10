@@ -32,7 +32,7 @@ run_model () {
   rm -f output/spwf-battery/scratch/hello.ts
   bun $D --case C4 --leg deployed --dist $PIN --pin-provider $PP --pin-model $PM --cap 300 --out $OUT/C4.json --env "PI_SUPERPOWERS_SKILL_EXCLUDE=!,brainstorming" --extra-arg -ns --prompt "$C2_PROMPT" --forbid-read brainstorming
   # C5
-  bun $D --case C5 --leg deployed --dist $PIN --pin-provider $PP --pin-model $PM --cap 300 --out $OUT/C5.json --prompt "$C5_PROMPT" --expect-read-any to-spec,to-tickets
+  bun $D --case C5 --leg deployed --dist $PIN --pin-provider $PP --pin-model $PM --cap 300 --out $OUT/C5.json --prompt "$C5_PROMPT" --expect-read-any using-s2-agent-skills,to-spec,to-tickets,ask-matt
   # C8
   bun $D --case C8 --leg deployed --dist $PIN --pin-provider $PP --pin-model $PM --cap 300 --out $OUT/C8.json --prompt "$C8_PROMPT" --expect-reply writing-plans
 }

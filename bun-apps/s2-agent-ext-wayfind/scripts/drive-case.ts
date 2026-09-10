@@ -47,6 +47,14 @@ interface CallPos {
   callOrdinal: number;
 }
 
+/** Frozen D2 predicate for C2: the skill read turn must STRICTLY precede
+ *  the first mutating turn — a read batched in the same assistant message as
+ *  a mutation is NON-COMPLIANT (the model acted before the skill could shape
+ *  it). Both the live path and the rescan path MUST use this one predicate. */
+export function c2Compliant(firstRead: CallPos | null, firstMutate: CallPos | null): boolean {
+  return !!firstRead && (!firstMutate || firstRead.msgLine < firstMutate.msgLine);
+}
+
 export function posBefore(a: CallPos, b: CallPos): boolean {
   return a.msgLine < b.msgLine || (a.msgLine === b.msgLine && a.callOrdinal < b.callOrdinal);
 }
@@ -168,7 +176,7 @@ export function detectFromLines(lines: string[]): Detected {
             const cmd = String((part.arguments as any)?.command ?? "");
             const mutating = bashIsMutating(cmd);
             d.bashCalls.push({ cmd: cmd.slice(0, 200), mutating, pos });
-            if (mutating && /output\/spwf-drive|output\/spwf-ab|scripts\//.test(a)) {
+            if (mutating && /output\/spwf-|scripts\//.test(a)) {
               if (!d.firstMutate) d.firstMutate = pos;
               const pathM = a.match(/([A-Za-z0-9_./-]+\.(?:ts|js|py))/);
               const p = pathM?.[1] ?? "";
@@ -180,7 +188,7 @@ export function detectFromLines(lines: string[]): Detected {
           if (/^(write|edit|multiedit)$/.test(name)) {
             const pathM = a.match(/([A-Za-z0-9_./-]+\.(?:ts|js|py))/);
             const p = pathM?.[1] ?? "";
-            if (/output\/spwf-drive|output\/spwf-ab|scripts\//.test(a) && p) {
+            if (/output\/spwf-|scripts\//.test(a) && p) {
               if (!d.firstMutate) d.firstMutate = pos;
               d.mutatingPaths.push({ kind: /test|spec/i.test(p) ? "test" : "impl", path: p, pos });
             }
@@ -245,7 +253,7 @@ async function main(): Promise<number> {
           `tail=${JSON.stringify(det.replyTail.slice(0, 200))}`,
         );
       if (spec.case === "C2") {
-        const compliant = !!det.firstRead && (!det.firstMutate || det.firstRead.msgLine < det.firstMutate.msgLine);
+        const compliant = c2Compliant(det.firstRead, det.firstMutate);
         pass(
           "order:brainstorming-before-mutate",
           compliant,
@@ -451,7 +459,7 @@ async function main(): Promise<number> {
     // D2 semantics: COMPLIANT ⟺ skill-read exists ∧ (no mutation ∨ read TURN
     // strictly before mutate TURN). Same assistant message = same-turn batch
     // = NON-COMPLIANT (the model acted before the skill could shape it).
-    const compliant = !!det.firstRead && (!det.firstMutate || posBefore(det.firstRead, det.firstMutate));
+    const compliant = c2Compliant(det.firstRead, det.firstMutate);
     pass(
       "order:brainstorming-before-mutate",
       compliant,
