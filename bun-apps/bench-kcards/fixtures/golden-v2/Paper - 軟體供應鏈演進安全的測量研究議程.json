@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.08810",
+  "title": "Paper - 軟體供應鏈演進安全的測量研究議程",
+  "cardFile": "Paper - 軟體供應鏈演進安全的測量研究議程.md",
+  "questions": [
+    {
+      "question": "這份軟體供應鏈安全研究議程來自哪個機構？",
+      "answer": "CrySyS Lab, Budapest Univ.",
+      "answerable": true
+    },
+    {
+      "question": "這篇論文的篇幅與轉換形式如何？",
+      "answer": "6 頁短文（file2md 轉換全文字層）",
+      "answerable": true
+    },
+    {
+      "question": "為什麼軟體供應鏈安全日益關鍵？",
+      "answer": "因第三方依賴的普遍依賴與現代軟體生態的攻擊面擴張而日益關鍵",
+      "answerable": true
+    },
+    {
+      "question": "這篇 6 頁短文的結構是什麼？",
+      "answer": "結構為問題陳述 → 現有方法的缺口 → 測量議程",
+      "answerable": true
+    },
+    {
+      "question": "卡片對這篇論文的定位價值是什麼？",
+      "answer": "作為供應鏈安全量化研究的「問題清單」引用源，而非證據源",
+      "answerable": true
+    },
+    {
+      "question": "這張卡與哪張已落地的安全評測卡片形成「已落地評測 vs 待做議程」的對照相關連結？",
+      "answer": "Paper - GMSBench GPU 記憶體安全標準化評測（一個已落地的安全評測 vs 一份待做的研究議程）",
+      "answerable": true
+    },
+    {
+      "question": "這份研究議程提出了哪些具體的量化測量指標與資料收集方法？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

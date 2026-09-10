@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09155",
+  "title": "Paper - SyncWorld 視覺校準讓世界模型成為零樣本模擬器",
+  "cardFile": "Paper - SyncWorld 視覺校準讓世界模型成為零樣本模擬器.md",
+  "questions": [
+    {
+      "question": "Figure 1 概覽圖位於論文第幾頁？",
+      "answer": "Figure 1 概覽圖（第 2 頁）",
+      "answerable": true
+    },
+    {
+      "question": "Figure 1 中央 SyncWorld 地球樞紐上方的輸入卡片是什麼？",
+      "answer": "上方 `7DoF Action Chunk` 輸入卡片",
+      "answerable": true
+    },
+    {
+      "question": "SyncWorld 需要多少次視覺校準 episode、是否需要額外訓練？",
+      "answer": "一次「視覺校準 episode」讓世界模型跨未見環境成為零樣本模擬器，無需額外訓練",
+      "answerable": true
+    },
+    {
+      "question": "為什麼動作在像素空間不是通用語言？",
+      "answer": "相機視角、機器人擺放、embodiment 改變時，同一個數值動作的視覺表現完全不同，混合訓練產生衝突監督、部署泛化脆弱",
+      "answerable": true
+    },
+    {
+      "question": "Figure 1 概覽圖的左中右三欄各畫了什麼？",
+      "answer": "左側：Visual Calibration for each DoF——三行機械臂影像條帶（三種相機視角/embodiment）。中央：SyncWorld 地球樞紐。右側：Zero-Shot Rollout Imagination——三行預測的未來 rollout 幀與左側場景一一對應",
+      "answerable": true
+    },
+    {
+      "question": "這張卡的「相關」連結指向哪張同為視覺表徵研究的卡片？",
+      "answer": "Paper - Image Tokenizers 作為統一多模態模型的視覺語言（同為視覺表徵研究：世界模型的動作條件化 vs token 空間的任務級 loss）",
+      "answerable": true
+    },
+    {
+      "question": "SyncWorld 在哪些實體機器人硬體平台上做了實機部署驗證？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

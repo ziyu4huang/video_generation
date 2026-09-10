@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09133",
+  "title": "Paper - ExecCritic 學會測試 以測試促進修復",
+  "cardFile": "Paper - ExecCritic 學會測試 以測試促進修復.md",
+  "questions": [
+    {
+      "question": "ExecCritic 的 Test agent 與 Repair agent 都以哪個模型為骨幹？",
+      "answer": "兩角色均以 Qwen-3.5-35B-A3B 為骨幹",
+      "answerable": true
+    },
+    {
+      "question": "在 SWE-bench Verified 上，base Test agent 的測試把已解決率從多少拉低到多少？",
+      "answer": "把已解決率從無測試基線的 61.2% 拉低到 57.3%",
+      "answerable": true
+    },
+    {
+      "question": "ExecCritic 的結果是在哪個 benchmark 上評測的？",
+      "answer": "在 SWE-bench Verified 上",
+      "answerable": true
+    },
+    {
+      "question": "ExecCritic 的 test–verify–revise 腳手架中兩個角色如何分工？",
+      "answer": "Test agent 獨立產生倉庫原生測試 → fail-closed harness 資格審查並凍結測試 → Repair agent 只依執行反饋改源碼、不改測試",
+      "answerable": true
+    },
+    {
+      "question": "為什麼同一條軌跡既寫 patch 又寫測試會有問題？",
+      "answer": "兩者的錯誤會互相掩護、製造虛假信心（false confidence）",
+      "answerable": true
+    },
+    {
+      "question": "這張卡的「相關」連結指向哪張卡片？",
+      "answer": "Paper - Co-Evolving Harnesses and Models 在模仿失效處用在線修正補足",
+      "answerable": true
+    },
+    {
+      "question": "Test agent 的 RL 訓練使用了多少條軌跡與什麼 reward 函數設計？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

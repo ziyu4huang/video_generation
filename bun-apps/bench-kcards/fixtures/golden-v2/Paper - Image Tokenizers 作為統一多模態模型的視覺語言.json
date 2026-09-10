@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09143",
+  "title": "Paper - Image Tokenizers 作為統一多模態模型的視覺語言",
+  "cardFile": "Paper - Image Tokenizers 作為統一多模態模型的視覺語言.md",
+  "questions": [
+    {
+      "question": "這個 testbed 在哪四種預測任務上追蹤任務級驗證 loss？",
+      "answer": "在 text / image / T2I / I2T 四種預測任務上追蹤多模態持續預訓練的任務級驗證 loss",
+      "answerable": true
+    },
+    {
+      "question": "Figure 3 位於論文第幾頁、是什麼類型的圖？",
+      "answer": "Figure 3（p.7）：四聯 scaling-law 圖（散點+線性擬合），Y 軸為 log 尺度 Validation Loss",
+      "answerable": true
+    },
+    {
+      "question": "Figure 3 各子圖的軸刻度數值範圍大約是多少？",
+      "answer": "軸刻度數值（如 6.51–7.94）為圖形渲染，文字層無法驗證",
+      "answerable": true
+    },
+    {
+      "question": "為什麼 I2T loss 比跨 tokenizer 的 T2I loss 提供更一致的信號？",
+      "answer": "跨 tokenizer 時 T2I 的 loss–performance 關係隨 image-token 空間漂移，而 I2T loss（共享文字詞表上計算）提供更一致的信號",
+      "answerable": true
+    },
+    {
+      "question": "這篇論文建立的 testbed 有什麼性質、用來研究什麼？",
+      "answer": "建立受控純自迴歸 testbed，用它研究 multimodal learnability 與 tokenizer 設計",
+      "answerable": true
+    },
+    {
+      "question": "這張卡與哪兩張卡片有「相關」連結？",
+      "answer": "Paper - Canonical Color 作為視覺編碼器概念可解碼性的透鏡、Paper - SyncWorld 視覺校準讓世界模型成為零樣本模擬器",
+      "answerable": true
+    },
+    {
+      "question": "測試的各個 image tokenizer 的碼本大小與下採樣率設定為何？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09126",
+  "title": "Paper - Amari 貝葉斯對偶的推廣",
+  "cardFile": "Paper - Amari 貝葉斯對偶的推廣.md",
+  "questions": [
+    {
+      "question": "Amari 貝葉斯對偶推廣這篇論文總共幾頁、屬於什麼性質的論文？",
+      "answer": "純理論論文（17 頁）：全篇為數學推導，無實驗圖表",
+      "answerable": true
+    },
+    {
+      "question": "這篇 Amari 貝葉斯對偶推廣論文的作者是誰、隸屬哪些機構？",
+      "answer": "Mohammad Emtiyaz Khan（RIKEN AI 專案、TU Darmstadt）與 Thomas Möllenhoff（RIKEN）",
+      "answerable": true
+    },
+    {
+      "question": "卡片提到 Amari 的哪種對偶座標記號在正文以文字出現？",
+      "answer": "Amari 的 α/β 對偶座標記號在正文以文字出現",
+      "answerable": true
+    },
+    {
+      "question": "這篇論文摘要的三步結構（即論文骨架）是什麼？",
+      "answer": "連接（Bayesian duality ↔ 凸對偶）→ 推廣 → 現代 AI 相關性",
+      "answerable": true
+    },
+    {
+      "question": "file2md 轉換這篇論文時如何處理數學符號？",
+      "answer": "file2md 轉換 17 頁全文字層，數學符號以文字層保留",
+      "answerable": true
+    },
+    {
+      "question": "這張卡在「連結」區指向哪張同為理論側的相關卡片？",
+      "answer": "Paper - Transformers as In-Context Samplers 從閉式擴散到免估計採樣",
+      "answerable": true
+    },
+    {
+      "question": "論文在哪些實驗資料集上驗證了推廣後的貝葉斯對偶？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

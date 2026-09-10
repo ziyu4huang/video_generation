@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09153",
+  "title": "Paper - Procedural Graphs 程序知識的圖結構與自演化",
+  "cardFile": "Paper - Procedural Graphs 程序知識的圖結構與自演化.md",
+  "questions": [
+    {
+      "question": "Procedural Graph 以什麼形式的三元組組織「怎麼做」的程序知識？",
+      "answer": "(procedure, relation, procedure) 三元組",
+      "answerable": true
+    },
+    {
+      "question": "主要結果橫跨幾個 benchmark、對照什麼 baseline？",
+      "answer": "跨 7 個 benchmark、4 個 LLM 一致優於 memory-based baselines",
+      "answerable": true
+    },
+    {
+      "question": "卡片列出的 7 個 benchmark 是哪些？",
+      "answer": "HotpotQA、MultiChallenge、GDPval、ALFWorld、τ-bench、BFCL v3、EnterpriseArena",
+      "answerable": true
+    },
+    {
+      "question": "每個決策步如何使用程序圖產生引導？",
+      "answer": "定位 agent 當前所在的活躍節點（active node）→ 取二跳鄰域子圖 → guidance 模型把子圖翻譯成「步級情境引導」，偏置（bias）而非命令 solver 的下一個動作",
+      "answerable": true
+    },
+    {
+      "question": "程序圖的自演化機制如何避免重複犯錯？",
+      "answer": "只提交能保持或提升 held-out 驗證性能的編輯，且保留被拒絕的編輯記錄以阻止重複犯錯",
+      "answerable": true
+    },
+    {
+      "question": "這張卡與哪張卡片同屬「agentic 流程的兩種顯式化」的相關連結？",
+      "answer": "Paper - ReCite 以主張層級主動推理修復引用歸屬（agentic 流程的兩種顯式化：程序圖 vs 驗證迴圈）",
+      "answerable": true
+    },
+    {
+      "question": "Procedural Graph 方法在 HotpotQA 上的具體準確率數字是多少？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}

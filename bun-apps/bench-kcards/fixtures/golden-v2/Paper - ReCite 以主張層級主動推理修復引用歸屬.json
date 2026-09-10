@@ -1,0 +1,42 @@
+{
+  "arxivId": "arXiv:2609.09156",
+  "title": "Paper - ReCite 以主張層級主動推理修復引用歸屬",
+  "cardFile": "Paper - ReCite 以主張層級主動推理修復引用歸屬.md",
+  "questions": [
+    {
+      "question": "Strict End-to-End 評測中 ReCite-SFT(CAP-8) 的 Overall F1 是多少、對比 GPT-5.1-Chat 如何？",
+      "answer": "ReCite-SFT(CAP-8)（僅 4B）Overall F1 39.15，對比 GPT-5.1-Chat 的 10.32（約 3.8×）",
+      "answerable": true
+    },
+    {
+      "question": "ReCite 用 SFT 訓練的輕量模型參數量是多少？",
+      "answer": "僅 4B",
+      "answerable": true
+    },
+    {
+      "question": "ReCite 的 Lenient Evaluation F1 是多少？",
+      "answer": "Lenient Evaluation F1 55.14",
+      "answerable": true
+    },
+    {
+      "question": "ReCite 提出的解耦 agentic framework 包含哪三個階段？",
+      "answer": "位置感知（location perception）→ 意圖感知查詢規劃（intent-aware query planning）→ 反思驗證（reflective verification）",
+      "answerable": true
+    },
+    {
+      "question": "當檢索候選缺乏邏輯支持時，代理的自我修正迴圈如何運作？",
+      "answer": "驗證 ✗ → 改寫意圖感知查詢 → 再檢索 → 再驗證",
+      "answerable": true
+    },
+    {
+      "question": "Figure 1 例子中，改寫查詢為 [\"Group Relative Policy Optimization\", \"eliminate critic\"] 後再檢索到哪篇論文完成忠實引用？",
+      "answer": "再檢索到 DeepSeekMath → 驗證 ✓ 達成邏輯有據且意圖對齊的忠實引用",
+      "answerable": true
+    },
+    {
+      "question": "ReCite 的 SFT 訓練資料集規模與訓練所用的 GPU 資源是多少？",
+      "answer": "",
+      "answerable": false
+    }
+  ]
+}
