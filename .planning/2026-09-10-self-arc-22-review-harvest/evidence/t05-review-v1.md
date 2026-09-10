@@ -1,0 +1,23 @@
+Review complete. All evidence gathered from the actual diff and live commands.
+
+## Claim verification (all four run/checked)
+
+**1. Round-trip — VERIFIED (live).** `bun bun-apps/s2-agent-ext-devops/scripts/reviewer-harvest.ts --name arc-reviewer --timeout 0` → `EXIT=0`, `"status": "completed"`, `"source": "pi-runs"`, verdict non-empty (ends `VERDICT: APPROVE`), record `~/.pi/subagents/runs/mtvj120y-m3sena.json`, receipt written under `output/reviewer-harvest/`.
+
+**2. Independence — VERIFIED.** `bun-apps/s2-agent-ext-subagent/scripts/arc-review.ts:69-73`: spawn call carries `model: "zai/glm-5.3"` with the double-pin comment intact ("must never match loosely"); receipt still pins `requestedModel: "zai/glm-5.3"` (arc-review.ts:112).
+
+**3. Failure path — VERIFIED.** `writeArcReviewRunRecord` is called at arc-review.ts:79-95, immediately after `spawnSubagent` returns and BEFORE the `if (result.failure) { … process.exit(1) }` block (arc-review.ts:123-127). `scripts/lib/arc-run-record.ts:44` maps `failure → "failed"`, and `reviewer-harvest.ts:265` (`PI_TERMINAL_FAILURES = {"failed","timedout","turns","budget","aborted"}`) makes that `errored` — terminal, not still-running. Also confirmed `save()` is best-effort/never-throws (`s2-agent-core-runtime/src/subagent-run-persistence.ts:275-286`, catch-and-swallow), so the bare `persistence.save(record)` can't fail a successful review.
+
+**4. Unit tests — VERIFIED.** `( cd bun-apps/s2-agent-ext-subagent && bun test tests/arc-run-record.test.ts )` → `3 pass / 0 fail`.
+
+## Findings
+
+**Should-fix — the spec'd empty-output guard is missing.** Map t01 and Decision D3 both require: success with blank output → `status: "failed"` + error `"empty reviewer output"`. The implementation has only `arc-run-record.ts:44`: `const status: SubagentRunStatus = outcome.failure ? "failed" : "done";` — no guard, and no test for it (t01 spec'd "the status mapping incl. the guard"). The hazard is real per the harvester's own logic, `reviewer-harvest.ts:320-331`: `if (run.status === "done" && output)` → completed; else `PI_TERMINAL_FAILURES.has(run.status)` → errored; else → **still-running**. So a degenerate success (blank output, status `done`) harvests as still-running and a `--timeout` poll spins to its deadline — precisely the case D3 was written to prevent (the harvester's own comment at :264 shows this class is a known concern). ~3 lines in `arc-run-record.ts` + one test case.
+
+**Nit — contract test dropped, not relocated.** t01 spec'd a cross-package contract test (`findPiRuns`/`parsePiRun` over the saved record) with a documented fallback (relocate to devops `tests/reviewer-harvest.test.ts`). Neither happened; `tests/arc-run-record.test.ts` pins only the file shape via core's `subagentRunsDir`. The contract holds today (I reproduced the live round-trip; reviewer-harvest's own tests pin `parsePiRun`), but a future edit to the `done && output` branch would not be caught by this package's tests. Either add the contract test or record the deviation in the map's Decisions.
+
+**Nit — map/impl drift on the record shape.** D2/D4 describe provenance riding "the standard `agent: "arc-review"` role-label field"; no such field exists on `SubagentRunRecord` (grep of `subagent-run-persistence.ts` / `spawn-subagent-subprocess.ts` finds no `agent:` record field — the match key is `agentName`, which the helper sets). Code is right; the map wording should be corrected at close-out.
+
+Nothing else: SOP line (t03) is accurate and appropriately scoped; receipt gains `name`/`runId`/`nameSupported: true` as claimed; evidence artifacts match the live behavior I reproduced.
+
+VERDICT: REQUEST_CHANGES — one should-fix: implement the D3/t01 empty-output guard in `scripts/lib/arc-run-record.ts` (+ its test); nits optional.
