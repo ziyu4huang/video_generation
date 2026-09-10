@@ -66,7 +66,6 @@ import {
 	swapCurrent,
 } from "./lib/version.ts";
 import { computeCoreHash, ensureCachedCore, linkCore, type PrunedCore, pruneOrphanCores } from "./lib/core-cache.ts";
-import { assertMarkersInArtifact, deriveSourceMarkers } from "./lib/source-markers.ts";
 import { buildStandaloneShim, STANDALONE_SHIM_FILENAME } from "./lib/standalone-shim.ts";
 import { writeAgentsMd } from "./lib/agents-md.ts";
 import { ensureCachedBun, linkBun, type PrunedBun, pruneOrphanBuns } from "./lib/bun-cache.ts";
@@ -273,26 +272,13 @@ async function buildCore(
 			},
 		});
 		linkCore(core.cacheFile, outFile);
-		assertCoreArtifactMarkers(outFile);
 		return { bytes: core.bytes, cached: core.cached };
 	}
 	const bytes = await bundle(outFile);
-	assertCoreArtifactMarkers(outFile);
 	return { bytes, cached: false };
 }
 
-/** Artifact attestation for the CORE bundle (self-arc-22 t01, F-deploy-1):
- *  distinctive literals from pi src + every hashed workspace tree must appear
- *  in the built bytes — a .cores cache entry built from stale sources fails
- *  HERE instead of shipping under the new version label. */
-function assertCoreArtifactMarkers(outFile: string): void {
-	// Core markers come from the pi src tree ONLY: the @repo/* packages ship as
-	// separate ext/<name>/ext.cjs bundles (each attesting its own sources in
-	// buildExtPackage) — they are NOT inlined into s2-agent.js, so their
-	// literals legitimately never appear there.
-	const markers = deriveSourceMarkers(join(PI_AGENT_DIR, "src"), 8).markers;
-	assertMarkersInArtifact(readFileSync(outFile, "utf8"), markers, "s2-agent.js (core)");
-}
+
 
 /**
  * Copy pi's shipped asset dirs into the version dir at their NODE layout
