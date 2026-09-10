@@ -47,7 +47,12 @@ export interface ArcReviewRunOutcome {
 export function writeArcReviewRunRecord(outcome: ArcReviewRunOutcome, home?: string): string {
   const persistence = createSubagentRunPersistence(home ? { home } : {});
   const id = generateSubagentRunId();
-  const status: SubagentRunStatus = outcome.failure ? "failed" : "done";
+  // D3 empty-output guard (reviewer should-fix, self-arc-22): a "success"
+  // with blank output would harvest as still-running FOREVER — the harvester
+  // treats `done && output` as completed and `done` is not a terminal
+  // failure. A blank verdict is a failed review, not a pending one.
+  const blankOutput = !outcome.failure && (!outcome.output || outcome.output.trim().length === 0);
+  const status: SubagentRunStatus = outcome.failure || blankOutput ? "failed" : "done";
   const record: SubagentRunRecord = {
     id,
     toolCallId: `arc-review-${id}`,
@@ -56,7 +61,11 @@ export function writeArcReviewRunRecord(outcome: ArcReviewRunOutcome, home?: str
     model: outcome.model,
     cwd: outcome.cwd,
     status,
-    ...(outcome.failure ? { error: `${outcome.failure.kind} (arc-review dispatch failure)` } : {}),
+    ...(blankOutput
+      ? { error: "empty reviewer output (degenerate success — no verdict text)" }
+      : outcome.failure
+        ? { error: `${outcome.failure.kind} (arc-review dispatch failure)` }
+        : {}),
     startedAt: outcome.startedAt.toISOString(),
     elapsedMs: outcome.elapsedMs,
     ...(outcome.usage ? { usage: outcome.usage } : {}),
