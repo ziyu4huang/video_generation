@@ -467,6 +467,35 @@ export async function spawnLiveAgentFirstExchange(
     onHistory: opts.onHistory,
   });
 
+  // Self-arc-23 (F-steer-1b): REGISTER BEFORE the first exchange. The steer
+  // lever (list_subagent_runs action=steer via the live registry) was blind
+  // during the ENTIRE first exchange — including its tool-execution window —
+  // because registration happened only after the exchange settled (the r2
+  // drill receipted the lost guidance). The registry is the serialization
+  // point ("a send while running degrades to steer()"): an agent mid-exchange
+  // belongs on the roster, exactly like every later exchange.
+  const registered = registry.register({
+    name: open.name,
+    agentId: open.agentId,
+    sessionId: open.sessionId,
+    agent,
+    model: opts.model,
+    cwd: opts.cwd ?? process.cwd(),
+    agentType: open.agentType,
+  });
+  if ("error" in registered) {
+    // Lost a registration race (same name registered between the pre-check and
+    // now) — dispose our session and surface the collision before any exchange
+    // runs.
+    agent.dispose();
+    return {
+      result: {
+        output: "",
+        failure: { kind: "failed", message: registered.error },
+      },
+    };
+  }
+
   const exchange = await agent.send(opts.task, {
     timeoutMs: opts.timeoutMs,
     signal: opts.externalSignal,
@@ -480,32 +509,12 @@ export async function spawnLiveAgentFirstExchange(
   };
 
   // A lifetime ceiling fired on the first exchange — the session is capped
-  // forever; dispose and register nothing.
+  // forever; release the roster entry (releases dispose) and dispose.
   if (exchange.failure?.kind === "budget" || exchange.failure?.kind === "turns") {
+    registry.release(open.name, exchange.failure.kind);
     agent.dispose();
     return { result };
   }
 
-  const registered = registry.register({
-    name: open.name,
-    agentId: open.agentId,
-    sessionId: open.sessionId,
-    agent,
-    model: opts.model,
-    cwd: opts.cwd ?? process.cwd(),
-    agentType: open.agentType,
-  });
-  if ("error" in registered) {
-    // Lost a registration race (same name registered between the pre-check and
-    // now) — dispose our session and surface the collision.
-    agent.dispose();
-    return {
-      result: {
-        output: exchange.output,
-        failure: { kind: "failed", message: registered.error },
-        usage: exchange.usage,
-      },
-    };
-  }
   return { result, agent, entry: registered };
 }
