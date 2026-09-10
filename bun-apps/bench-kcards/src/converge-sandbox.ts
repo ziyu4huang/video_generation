@@ -7,7 +7,7 @@
  *    ingest) must be ABSENT from retrieval — proving the gates can see
  *    the difference instead of silently trusting the label.
  */
-import { cpSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -16,6 +16,7 @@ import {
 	type IngestSummary,
 	type KnowledgeRecord,
 } from "@repo/s2-agent-ext-knowledge-card/src/index.ts";
+import { getCardEmbeddings } from "@repo/s2-agent-ext-knowledge-card/src/semantic.ts";
 
 /** Read every `Paper - *.md` card from `cardsDir` as generic records. */
 export function loadPaperCards(cardsDir: string): { rec: KnowledgeRecord; name: string }[] {
@@ -60,9 +61,19 @@ export async function openConvergedSandbox(
 	const vaultPath = join(tmpdir(), `bench-converged-${Date.now()}-${process.pid}`);
 	mkdirSync(vaultPath, { recursive: true });
 	cpSync(realVaultPath, vaultPath, { recursive: true });
+	// Force a fresh semantic-index build: the copied cache's fingerprint
+	// (name+mtime) would otherwise reuse vectors embedded under the OLD
+	// adapter composition — the lanes would measure stale text.
+	rmSync(join(vaultPath, ".knowledge-semantic"), { recursive: true, force: true });
 	const cards = loadPaperCards(cardsDir);
 	if (cards.length === 0) throw new Error(`no Paper cards found in ${cardsDir}`);
 	const first = await converge(vaultPath, cards);
 	const idempotence = await converge(vaultPath, cards);
+	// Refresh the file-based vector cache ONLY in the embed tier: embedding
+	// all 2364 vault notes takes minutes and the offline lanes are tag-lexical
+	// (they never read vectors). The MRR lane requires BENCH_EMBED=1 anyway.
+	if (process.env.BENCH_EMBED === "1") {
+		await getCardEmbeddings(vaultPath, "Zettelkasten/knowledge-graph");
+	}
 	return { vaultPath, first, idempotence, cards };
 }

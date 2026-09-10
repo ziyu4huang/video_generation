@@ -82,9 +82,27 @@ export interface CardEmbeddings {
 
 /** Card text for embedding: title + tags + first 800 chars of body prose. Mirrors
  *  the probe that measured 1.00. Frontmatter is stripped (tags read separately). */
-function cardEmbedText(raw: string, title: string, tags: string[]): string {
-	const body = raw.replace(/^---\n[\s\S]*?\n---/, "").slice(0, 800);
-	return `${title}. ${tags.join(" ")}. ${body}`.replace(/\s+/g, " ").trim().slice(0, 1000);
+/** Embed-window constants (kcard-quality-lift T1): the index embeds
+ *  title + tags + frontmatter summary + a body window. The old 800-char
+ *  body slice hid everything past a card's opening section — measured
+ *  MRR 0.153 with paper-note ranks in the hundreds. bge-m3's 8k-token
+ *  window makes 2400/3000 safe. */
+export const EMBED_BODY_CHARS = 2400;
+export const EMBED_TOTAL_CHARS = 3000;
+
+export function cardEmbedText(raw: string, title: string, tags: string[]): string {
+	// frontmatter summary is carried INTO the embed (it used to be stripped
+	// with the frontmatter and never reached the vector)
+	const summaryM = /^---\n([\s\S]*?)\n---/.exec(raw);
+	const summary = summaryM ? /^summary:\s*(.+)\s*$/m.exec(summaryM[1])?.[1]?.trim() : undefined;
+	let body = raw.replace(/^---\n[\s\S]*?\n---/, "");
+	body = body
+		.replace(/## 連結[\s\S]*$/, "") // link-list scaffolding, not content
+		.replace(/^(type|confidence|status|superseded_by|source_id|source|provenance|first_seen|last_seen|record_type|dimension|tags):\s.*$/gm, "") // record-meta tail
+		.replace(/^#\s+.+$/m, "") // H1 duplicates the title
+		.replace(/^##\s+核心想法\s*$/gm, ""); // renderCard re-emits the section header
+	const head = `${title}. ${tags.join(" ")}.${summary ? ` ${summary}` : ""}`;
+	return `${head}\n${body}`.replace(/\s+/g, " ").trim().slice(0, EMBED_TOTAL_CHARS);
 }
 
 function readTitle(raw: string): string {
