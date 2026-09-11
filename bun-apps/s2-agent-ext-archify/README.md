@@ -105,6 +105,14 @@ context in errors, registry-aware layout + slot checks via `slotProblems`), and
 a contract test (`tests/deck-manifest-schema.test.ts`) proves both accept and
 reject the same fixture matrix. `src/` imports no ajv.
 
+**Inline IR transport**: `deck pack <manifest> --inline-ir` embeds every
+slide-referenced IR body into the envelope (`kind:"ir"` records after the
+slide lines, `irCount` in the header only when > 0). Unpacking lands them at
+their authored relative paths (which may escape the destination via `..` — the
+envelope is canonical and overwrites), so an unpacked folder builds standalone
+without the original tree. Without the flag the envelope stays path-only and
+byte-identical to before.
+
 **`manifestVersion`** (optional): absent ⇒ `1`, the only supported version; any
 other value refuses the build naming both versions. Named `manifestVersion` —
 not `version` — so it can never collide with the `deck pack` envelope's own

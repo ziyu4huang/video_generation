@@ -6,8 +6,9 @@
 //                [--slides-dir <dir> | --no-slides] [--thumbnails] [--combine]
 //                [--emit-shape-ir <dir>] [--lint]
 //   bun run deck render <manifest> [--out <dir>] [--size <px>]
-//   bun run deck pack <manifest> [--out <file>]     — JSONL interchange envelope
-//   bun run deck unpack <deckl> [--out <dir>]       — envelope → deck.config.json
+//   bun run deck pack <manifest> [--out <file>] [--inline-ir]
+//                                                     — JSONL interchange envelope
+//   bun run deck unpack <deckl> [--out <dir>]       — envelope → deck.config.json + IRs
 //                [--theme light|dark] [--output out.pptx]
 //
 // `render` builds the deck and pictures every slide as slide-N.png through the
@@ -55,6 +56,7 @@
 // screenshots. `tests/pptx-shapes.test.ts` asserts zero `<a:blip>` in the
 // slide XML, which is the property a regression to images cannot fake.
 //
+import { mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -160,19 +162,28 @@ export function parseArgs(argv: string[]): DeckArgs {
 }
 
 /** MC-t03: JSONL interchange — pack a manifest, or unpack an envelope back to
- *  a deck.config.json. Pure format-level: IR files are NOT inlined (paths stay
- *  as authored), so unpack into a tree where those paths resolve. */
+ *  a deck.config.json. By default IR files stay EXTERNAL (paths stored as
+ *  authored); `pack --inline-ir` embeds their bodies as kind:"ir" records so
+ *  an unpacked folder builds standalone, and unpack then lands those records
+ *  at their authored paths (overwriting existing files — the envelope is
+ *  canonical). */
 async function runPackUnpack(mode: "pack" | "unpack", argv: string[]): Promise<void> {
   const positional: string[] = [];
   let out: string | undefined;
+  let inlineIr = false;
   for (let i = 0; i < argv.length; i++) {
     const a: string = argv[i]!;
     if (a === "--out") {
       out = argv[++i];
       continue;
     }
+    if (mode === "pack" && a === "--inline-ir") {
+      inlineIr = true;
+      continue;
+    }
     if (a === "-h" || a === "--help") {
-      console.error(`usage: deck ${mode} <${mode === "pack" ? "manifest" : "envelope"}> [--out <path>]`);
+      const flags = mode === "pack" ? " [--out <path>] [--inline-ir]" : " [--out <path>]";
+      console.error(`usage: deck ${mode} <${mode === "pack" ? "manifest" : "envelope"}>${flags}`);
       process.exit(0);
     }
     if (a.startsWith("-")) fail(`unknown flag: ${a}`);
@@ -191,19 +202,61 @@ async function runPackUnpack(mode: "pack" | "unpack", argv: string[]): Promise<v
     } catch (err) {
       fail(`manifest is not readable JSON: ${err instanceof Error ? err.message : String(err)}`);
     }
-    const envelope = packDeck(manifest);
+    // --inline-ir: embed slide-referenced IR bodies into the envelope so an
+    // unpacked folder builds standalone. Dedupe by resolved path (same file
+    // twice → one record, first-authored path string wins); a missing file
+    // fails naming the slide and path.
+    let irRecords: Array<{ path: string; content: string }> | undefined;
+    if (inlineIr) {
+      irRecords = [];
+      const byResolved = new Map<string, string>();
+      const slides = (Array.isArray(manifest.slides) ? manifest.slides : []) as Array<{
+        ir?: unknown;
+      }>;
+      for (const [i, s] of slides.entries()) {
+        const ir = s["ir"];
+        if (typeof ir !== "string") continue;
+        const abs = resolve(dirname(inputPath), ir);
+        if (byResolved.has(abs)) continue;
+        let content: string;
+        try {
+          content = await Bun.file(abs).text();
+        } catch {
+          fail(`slide ${i + 1} references missing IR: ${ir} (${abs})`);
+        }
+        byResolved.set(abs, ir);
+        irRecords.push({ path: ir, content });
+      }
+    }
+    const envelope = packDeck(manifest, irRecords !== undefined ? { ir: irRecords } : undefined);
     const dest = outPath ?? `${inputPath}.deckl`;
     await Bun.write(dest, envelope);
-    const slides = Array.isArray(manifest.slides) ? manifest.slides.length : 0;
-    console.log(`packed ${dest} (${slides} slides, ${envelope.length} bytes)`);
+    const inlineNote = irRecords !== undefined ? `, ${irRecords.length} inline IRs` : "";
+    console.log(`packed ${dest} (${slides2Count(manifest)} slides${inlineNote}, ${envelope.length} bytes)`);
     return;
   }
 
   const envelope = await Bun.file(inputPath).text();
-  const { manifest } = unpackDeck(envelope);
+  const { manifest, irFiles } = unpackDeck(envelope);
   const dest = outPath ?? `${inputPath}.dir`;
+  // Inline IR records land at their authored relative paths BEFORE the config
+  // is written — the unpacked folder then builds standalone. NOTE: authored
+  // paths may escape dest via `..` (deck-composed's ../deck/ir/… shape) — the
+  // envelope is canonical, so existing files are overwritten by design.
+  for (const f of irFiles) {
+    const abs = resolve(dest, f.path);
+    mkdirSync(dirname(abs), { recursive: true });
+    await Bun.write(abs, f.content);
+  }
   await Bun.write(join(dest, "deck.config.json"), JSON.stringify(manifest, null, 2) + "\n");
-  console.log(`unpacked ${join(dest, "deck.config.json")}`);
+  console.log(
+    `unpacked ${join(dest, "deck.config.json")}` +
+      (irFiles.length > 0 ? ` + ${irFiles.length} IR files` : ""),
+  );
+}
+
+function slides2Count(manifest: Record<string, unknown>): number {
+  return Array.isArray(manifest.slides) ? manifest.slides.length : 0;
 }
 
 function fail(msg: string): never {
