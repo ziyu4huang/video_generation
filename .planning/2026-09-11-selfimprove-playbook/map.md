@@ -109,12 +109,16 @@ through the devops chain, validated successor.
 - Identical directive (gemma-column fill from the LATEST residuals),
   dispatched twice: with playbook (sha bc8d9b3613c5 recorded in receipt) vs
   without. Both glm-5.3, 11 turns each — controlled.
-- **Mechanical checks**: with-plan cites 16 distinct PB-nn ids (20 total
-  mentions); without-plan cites 0; playbookSha256 recorded only on the with
-  receipt. Checklist: stale-main/label-trust/devops-chain HIT on both;
-  handrolled-git flagged only in the with plan's safety notes.
+- **Mechanical checks**: with-plan cites 17 distinct PB-nn ids (22 total
+  mentions; 16/20 if the worktree status-table row is excluded — counting
+  rule now stated); without-plan cites 0; playbookSha256 recorded only on
+  the with receipt. Checklist: stale-main/label-trust HIT on both plans;
+  handrolled-git: no hits in either (earlier draft's claim corrected).
+  Disclosed confound: the with-leg was INSTRUCTED to cite PB ids
+  (arc-plan.ts prepend), so cite-count partly measures compliance — the
+  adjudication's application-level judgment carries the interpretation.
 - **Adjudication verdict: PLAYBOOK-DISADVANTAGE** (arc-review.ts +
-  reviewer-harvest, receipt in evidence/ab-arc-open/). Mechanism: the
+  reviewer-harvest, receipt committed at evidence/ab-arc-open/adjudication/). Mechanism: the
   playbook demonstrably improved open/close ceremony (PB-01/02/03/04/05/16/
   20 — dedicated worktree, status-flip discipline, effort-audit gate,
   push-before-successor, cross-links) — but the with-planner CITED PB-12 to
@@ -138,3 +142,16 @@ through the devops chain, validated successor.
   --include-playbook with receipt sha256 + SOP wiring) + the A/B experiment
   + curated delta #1 (PB-12 oracle clause).
 - This PR flips the map done per CONVENTIONS.
+
+## Reviewer round (2026-09-11, independent GLM-5.3 pass)
+
+REQUEST-CHANGES, 1 blocker: the adjudication verdict receipt existed only in
+gitignored scratch while the map cited it — fixed (committed at evidence/
+ab-arc-open/adjudication/ incl. review-receipt.json + a pre-delta playbook
+snapshot so the A/B receipt's bc8d9b36 sha is re-derivable). Should-fix
+adopted: mechanical-check numbers corrected to the reproducible rule
+(17/22 distinct/total, or 16/20 excluding the status-table row;
+handrolled-git claim withdrawn); "853 pass" → 852 pass + 1 pre-existing
+skip; cite-count instruction-confound disclosed. Verdict on substance:
+"the organ is real, tested, and the negative A/B result is honest."
+Receipt: output/reviewer- (see output/spwf-playbook/pr-review/review.md).

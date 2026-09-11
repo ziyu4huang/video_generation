@@ -1,0 +1,23 @@
+{
+  "startedAt": "2026-09-11T07:56:22.914Z",
+  "finishedAt": "2026-09-11T07:59:50.297Z",
+  "elapsedMs": 207383,
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "agentTypeResolved": "code-reviewer (builtin pack def; no model pin — model pinned by the explicit spec)",
+  "nameSupported": true,
+  "name": "arc-reviewer",
+  "runId": "mtwo1ddc-b3minb",
+  "requestedModel": "zai/glm-5.3",
+  "usage": {
+    "input": 23745,
+    "output": 12821,
+    "cacheRead": 86016,
+    "cacheWrite": 0,
+    "total": 122582,
+    "cost": 0.11201955999999999
+  },
+  "turns": {
+    "turnsUsed": 6,
+    "maxTurns": 40
+  }
+}
