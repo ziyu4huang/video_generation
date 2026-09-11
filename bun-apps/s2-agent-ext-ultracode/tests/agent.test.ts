@@ -267,7 +267,6 @@ test("buildPrompt includes both instructions when both base and per-call are set
 // ═══════════════════════════════════════════════════════════════════════════
 
 test("lastAssistantText extracts last assistant text content", () => {
-  const agent = new WorkflowAgent({ cwd: "/tmp" });
   const messages = [
     { role: "user", content: [{ type: "text", text: "hello" }] },
     { role: "assistant", content: [{ type: "text", text: "hi there" }] },
@@ -277,7 +276,6 @@ test("lastAssistantText extracts last assistant text content", () => {
 });
 
 test("lastAssistantText joins multiple text parts", () => {
-  const agent = new WorkflowAgent({ cwd: "/tmp" });
   const messages = [
     {
       role: "assistant",
@@ -292,7 +290,6 @@ test("lastAssistantText joins multiple text parts", () => {
 });
 
 test("lastAssistantText skips non-text content parts", () => {
-  const agent = new WorkflowAgent({ cwd: "/tmp" });
   const messages = [
     {
       role: "assistant",
@@ -307,20 +304,17 @@ test("lastAssistantText skips non-text content parts", () => {
 });
 
 test("lastAssistantText returns empty string when no assistant text", () => {
-  const agent = new WorkflowAgent({ cwd: "/tmp" });
   const text: string = lastAssistantText([]);
   assert.equal(text, "");
 });
 
 test("lastAssistantText returns empty for non-assistant messages", () => {
-  const agent = new WorkflowAgent({ cwd: "/tmp" });
   const messages = [{ role: "user", content: [{ type: "text", text: "hello" }] }];
   const text: string = lastAssistantText(messages);
   assert.equal(text, "");
 });
 
 test("lastAssistantText picks the last assistant message, not first", () => {
-  const agent = new WorkflowAgent({ cwd: "/tmp" });
   const messages = [
     { role: "assistant", content: [{ type: "text", text: "first" }] },
     { role: "user", content: [{ type: "text", text: "more" }] },

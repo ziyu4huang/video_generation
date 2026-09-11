@@ -31,7 +31,7 @@ test("schedule replaces the pending wakeup for the same id (max 1 per loop)", ()
   registry.schedule({ id: "loop-1", prompt: "p", mode: "dynamic", dueAt: T0 + 60_000 });
   registry.schedule({ id: "loop-1", prompt: "p", mode: "dynamic", dueAt: T0 + 300_000 });
   assert.equal(registry.list().length, 1, "one pending wakeup per id");
-  assert.equal(registry.get("loop-1")!.dueAt, T0 + 300_000, "the later schedule won");
+  assert.equal(registry.get("loop-1")?.dueAt, T0 + 300_000, "the later schedule won");
 });
 
 test("due() removes the entry and snapshots it for the dynamic re-arm", () => {
@@ -40,7 +40,7 @@ test("due() removes the entry and snapshots it for the dynamic re-arm", () => {
   const due = registry.due(new Date(T0));
   assert.equal(due.length, 1);
   assert.equal(registry.get("loop-1"), undefined, "pending is gone after the sweep");
-  assert.equal(registry.lastFired("loop-1")!.prompt, "watch CI", "last-fired snapshot keeps the prompt");
+  assert.equal(registry.lastFired("loop-1")?.prompt, "watch CI", "last-fired snapshot keeps the prompt");
 });
 
 test("tick fires a fixed loop and auto-reschedules at the constant delay from the FIRE time", () => {
@@ -51,18 +51,18 @@ test("tick fires a fixed loop and auto-reschedules at the constant delay from th
   assert.equal(r1.fired.length, 1);
   assert.equal(fired.length, 1);
   assert.equal(r1.ended.length, 0);
-  assert.match(fired[0]!.prompt, /check builds/);
-  assert.match(fired[0]!.prompt, /\[wakeup loop loop-1 — fire 1\//, "the footer cites the loop + fire count");
-  assert.match(fired[0]!.prompt, /do NOT call schedule_wakeup/, "fixed footer tells the model not to re-arm");
-  assert.equal(registry.get("loop-1")!.dueAt, T0 + 300_000, "rescheduled from the fire time");
-  assert.equal(registry.get("loop-1")!.fireCount, 1);
+  assert.match(fired[0]?.prompt, /check builds/);
+  assert.match(fired[0]?.prompt, /\[wakeup loop loop-1 — fire 1\//, "the footer cites the loop + fire count");
+  assert.match(fired[0]?.prompt, /do NOT call schedule_wakeup/, "fixed footer tells the model not to re-arm");
+  assert.equal(registry.get("loop-1")?.dueAt, T0 + 300_000, "rescheduled from the fire time");
+  assert.equal(registry.get("loop-1")?.fireCount, 1);
 
   // Not due again yet; then due once and only once per slot.
   const r2 = runWakeupTick(registry, fire, new Date(T0 + 299_000), undefined);
   assert.equal(r2.fired.length, 0);
   const r3 = runWakeupTick(registry, fire, new Date(T0 + 300_000), undefined);
   assert.equal(r3.fired.length, 1);
-  assert.equal(registry.get("loop-1")!.fireCount, 2);
+  assert.equal(registry.get("loop-1")?.fireCount, 2);
   assert.ok(notifications.length === 0);
 });
 
@@ -77,7 +77,7 @@ test("tick fires a dynamic loop WITHOUT rescheduling — the model re-arms from 
   });
   const r = runWakeupTick(registry, fire, new Date(T0), undefined);
   assert.equal(r.fired.length, 1);
-  assert.match(fired[0]!.prompt, /Last wakeup reason: initial \/loop dynamic fire/);
+  assert.match(fired[0]?.prompt, /Last wakeup reason: initial \/loop dynamic fire/);
   assert.equal(registry.get("loop-1"), undefined, "dynamic does not auto-reschedule");
   assert.equal(r.ended.length, 0, "no premature 'ended' — the tool call happens inside the fired turn");
 });
@@ -186,7 +186,7 @@ test("7-day max-age: the loop fires one last time, then ends itself (no reschedu
   assert.equal(r.fired.length, 1, "the expiry fire lands (CC auto-expiry: final prompt delivered)");
   assert.equal(fired.length, 1);
   assert.equal(r.ended.length, 1);
-  assert.match(r.ended[0]!.reason, /max age/);
+  assert.match(r.ended[0]?.reason, /max age/);
   assert.equal(registry.get("loop-1"), undefined, "no reschedule after the expiry fire");
 });
 

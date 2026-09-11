@@ -654,6 +654,7 @@ export class WorkflowManager extends EventEmitter {
             .find((a) => a.callIndex === event.callIndex && a.status === "running");
           if (agent) {
             agent.status = event.result === null ? "error" : "done";
+            agent.finishedAt = Date.now();
             agent.resultPreview = preview(event.result);
             agent.error = event.error;
             agent.errorCode = event.errorCode;

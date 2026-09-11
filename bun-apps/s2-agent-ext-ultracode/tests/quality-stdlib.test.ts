@@ -150,7 +150,7 @@ return await synthesize('count the bugs', [{ bugs: 1 }, { bugs: 2 }])`;
   assert.ok(seen, "one agent dispatched");
   assert.equal(seen?.opts.tier, "big", "fan-in defaults to the big tier");
   assert.equal(seen?.opts.label, "synthesis");
-  assert.ok(seen!.prompt.includes("count the bugs"), "task text reaches the synthesizer");
+  assert.ok(seen?.prompt.includes("count the bugs"), "task text reaches the synthesizer");
 });
 
 test("synthesize(): filters nulls and reports the failed count in the prompt", async () => {
@@ -199,5 +199,5 @@ return await synthesize('t', [1], { tier: 'small', label: 'final answer' })`;
   const script2 = `export const meta = { name: 's2', description: 'synthesize max' }
 return await synthesize('t', [args.big], { maxChars: 50 })`;
   await runWorkflow(script2, { agent: synth, persistLogs: false, args: { big: long } });
-  assert.match(seen!.prompt, /\(results truncated at 50 chars\)/, "truncation is announced, not silent");
+  assert.match(seen?.prompt, /\(results truncated at 50 chars\)/, "truncation is announced, not silent");
 });

@@ -6,6 +6,11 @@ import {
 } from "../src/effort-command.js";
 import { createWorkflowTool } from "../src/workflow-tool.js";
 
+function must<T>(value: T): NonNullable<T> {
+  if (value == null) throw new Error("unexpected nil in test");
+  return value;
+}
+
 /**
  * Self-arc-24 t02 — the pre-flight ceiling-confirm for ultra-armed unbounded
  * runs (CC permission-ASK parity). Closes the gap self-charted at
@@ -100,7 +105,7 @@ describe("pre-flight gate at the tool boundary", () => {
       uiWithSelect(() => "Cap"),
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.opts.tokenBudget).toBe(ULTRA_SUGGESTED_TOKEN_BUDGET);
+    expect(must(calls[0]).opts.tokenBudget).toBe(ULTRA_SUGGESTED_TOKEN_BUDGET);
     expect((result as any).details.runId).toBe("stub-run");
   });
 
@@ -111,7 +116,7 @@ describe("pre-flight gate at the tool boundary", () => {
       uiWithSelect(() => "Launch"),
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.opts.tokenBudget).toBeUndefined();
+    expect(must(calls[0]).opts.tokenBudget).toBeUndefined();
   });
 
   test("abort choice refuses before any run exists", async () => {
@@ -148,6 +153,6 @@ describe("pre-flight gate at the tool boundary", () => {
       uiWithSelect(() => "Abort"),
     );
     expect(budgeted.calls).toHaveLength(1);
-    expect(budgeted.calls[0]!.opts.tokenBudget).toBe(500);
+    expect(must(budgeted.calls[0]).opts.tokenBudget).toBe(500);
   });
 });

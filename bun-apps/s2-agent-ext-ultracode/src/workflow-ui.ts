@@ -412,6 +412,10 @@ export function renderNavigator(
       if (a.model) body.push(dim("Model: ") + a.model);
       if (a.status === "running" && typeof a.startedAt === "number")
         body.push(dim("Elapsed: ") + fmtDuration(Date.now() - a.startedAt));
+      // CC Ctrl+O transcript parity (self-arc-24 t03): a finished agent shows
+      // its total duration next to the per-message timestamps below.
+      if (a.status !== "running" && typeof a.startedAt === "number" && typeof a.finishedAt === "number")
+        body.push(dim("Duration: ") + fmtDuration(a.finishedAt - a.startedAt));
       if (a.error) body.push(dim("Error: ") + a.error);
       if (a.errorCode) body.push(`${dim("Error code: ")}${a.errorCode}${a.recoverable ? " (recoverable)" : ""}`);
       body.push("", dim("Prompt:"));
@@ -421,7 +425,7 @@ export function renderNavigator(
       if (a.history?.length) {
         body.push("", dim("History:"));
         for (const entry of a.history) {
-          body.push(...wrap(`${historyLabel(entry)}: ${entry.text}`, width));
+          body.push(...wrap(`${historyClock(entry)}${historyLabel(entry)}: ${entry.text}`, width));
         }
       }
       pushScrollable(body, a.status === "running");
@@ -445,6 +449,20 @@ export function renderNavigator(
   lines.push("");
   lines.push(footerHint(state, model, theme));
   return lines;
+}
+
+/**
+ * `[HH:MM:SS] ` prefix from the entry's message timestamp — CC Ctrl+O
+ * transcript parity (self-arc-24 t03). The timestamp is captured by
+ * core-runtime's compactAgentHistory from the child session's messages (pi-ai
+ * messages carry epoch-ms timestamps). Absent (legacy snapshots) renders
+ * nothing. Plain text (no theme) so it stays unit-testable without a Theme.
+ */
+function historyClock(entry: NonNullable<WorkflowAgentSnapshot["history"]>[number]): string {
+  if (typeof entry.timestamp !== "number" || !Number.isFinite(entry.timestamp)) return "";
+  const d = new Date(entry.timestamp);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}] `;
 }
 
 function historyLabel(entry: NonNullable<WorkflowAgentSnapshot["history"]>[number]): string {

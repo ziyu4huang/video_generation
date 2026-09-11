@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { type CheckpointUiSurface, createCheckpointConfirm } from "../src/checkpoint-confirm.js";
-import type { CheckpointOptions } from "../src/workflow.js";
 
 /**
  * Self-arc-24 t01 — the options-aware checkpoint UI adapter matrix. Before this
