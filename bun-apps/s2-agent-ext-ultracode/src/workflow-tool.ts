@@ -20,6 +20,7 @@ import {
   renderWorkflowText,
   type WorkflowSnapshot,
 } from "./display.js";
+import { type EffortState, preflightCeilingDecision, ULTRA_SUGGESTED_TOKEN_BUDGET } from "./effort-command.js";
 import { resolvePackRunContext } from "./pack-run-context.js";
 import type { WorkflowRunResult } from "./workflow.js";
 import { WorkflowManager } from "./workflow-manager.js";
@@ -245,6 +246,13 @@ export interface WorkflowToolOptions {
    * process singleton via getSubagentInFlightRegistry() and passes it here.
    */
   inFlight?: SubagentInFlightRegistry;
+  /**
+   * The extension's live effort state (self-arc-24 t02). When level is "ultra",
+   * interactive unbounded runs pass the pre-flight ceiling-confirm before any
+   * agent launches. Pass the SAME object registerEffortCommand mutates — the
+   * gate reads it per call and never snapshots it.
+   */
+  effort?: EffortState;
 }
 
 /**
@@ -565,6 +573,46 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       // manager falls back to its session mainModel).
       const manifestModelExec = manifestModel ? { mainModel: manifestModel } : {};
 
+      // Self-arc-24 t02 — pre-flight ceiling-confirm (CC permission-ASK parity).
+      // An ultra-armed interactive run with NO explicit token budget and a wide
+      // fan-out cannot start spending before the human answers a numbered
+      // dialog. Choice 2 amends tokenBudget and proceeds; choice 3 (or a
+      // dismissed/timeout dialog — fail-closed) aborts before any run exists.
+      // Headless and non-ultra runs skip the gate entirely (preflightCeilingDecision).
+      let effectiveTokenBudget = params.tokenBudget;
+      const ceiling = preflightCeilingDecision({
+        effortLevel: options.effort?.level ?? "off",
+        tokenBudget: params.tokenBudget,
+        maxAgents: params.maxAgents,
+        hasSelectionUi: Boolean(uiCtx?.hasUI && uiCtx.ui?.select),
+      });
+      if (ceiling.action === "confirm") {
+        const select = uiCtx?.ui?.select;
+        if (select && uiCtx?.ui) {
+          const launchLabel = `Launch unbounded (up to ${ceiling.maxAgents} agents, no token cap)`;
+          const capLabel = `Cap at ${ULTRA_SUGGESTED_TOKEN_BUDGET.toLocaleString("en-US")} tokens`;
+          const abortLabel = "Abort";
+          const picked = await select.call(uiCtx.ui, "Pre-flight ceiling confirm — armed ultra workflow", [
+            launchLabel,
+            capLabel,
+            abortLabel,
+          ]);
+          if (picked === capLabel) {
+            effectiveTokenBudget = ULTRA_SUGGESTED_TOKEN_BUDGET;
+          } else if (picked !== launchLabel) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Workflow aborted before launch: the pre-flight ceiling confirm was not approved (${picked === abortLabel ? "user chose Abort" : "dialog dismissed"}). Set an explicit tokenBudget/maxAgents, lower the effort (/effort off|high), or re-run and approve to proceed.`,
+                },
+              ],
+              details: { aborted: "ceiling-confirm", ceiling: "unbounded-ultra", modelSource, ...modelLabel },
+            };
+          }
+        }
+      }
+
       // Background execution is the default: return immediately so the turn ends
       // and the user isn't blocked. The result is delivered back into the
       // conversation when the run finishes (see installResultDelivery). Only an
@@ -575,7 +623,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           concurrency: params.concurrency,
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
-          tokenBudget: params.tokenBudget,
+          tokenBudget: effectiveTokenBudget,
           ...packExec,
           ...manifestModelExec,
         });
@@ -604,7 +652,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           concurrency: params.concurrency,
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
-          tokenBudget: params.tokenBudget,
+          tokenBudget: effectiveTokenBudget,
           ...packExec,
           ...manifestModelExec,
           confirm,

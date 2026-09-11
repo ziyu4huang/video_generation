@@ -7,9 +7,10 @@
  * Honest scope: the runtime cannot enforce "reviewer N / loop K" — those live in
  * the script the model writes — so the tiers are guidance plus the model setting
  * the real hard caps (tokenBudget/maxAgents are genuine runtime ceilings). The
- * pre-flight ceiling-confirm dialog (roadmap P1-5 #4) is a downscope point: an
- * `input` hook transforms synchronously and can't await a confirm, so it is left
- * to a follow-up; `/effort` is explicit opt-in, which is the safety valve.
+ * pre-flight ceiling-confirm for armed unbounded runs now lives at the tool
+ * boundary (see preflightCeilingDecision below + workflow-tool.ts) — an `input`
+ * hook here still transforms synchronously and cannot await a confirm;
+ * `/effort` remains explicit opt-in, which is the safety valve.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -48,6 +49,45 @@ export function effortDirective(level: EffortLevel): string | undefined {
 export function isSubstantive(text: string): boolean {
   const t = text.trim();
   return t.length >= 16 && !t.startsWith("/");
+}
+
+// ── Pre-flight ceiling-confirm (self-arc-24 t02) ─────────────────────────────
+// Resolves the gap self-charted in this file's header (old roadmap "P1-5 #4"):
+// an ultra-armed message used to launch a potentially huge fan-out with NO
+// downscope point. The gate lives at the TOOL boundary (workflow-tool.ts),
+// where tokenBudget/maxAgents are known and an await is possible — the input
+// hook here transforms synchronously and still cannot ask.
+
+/** Budget choice 2 of the pre-flight dialog injects when the caller set none. */
+export const ULTRA_SUGGESTED_TOKEN_BUDGET = 1_000_000;
+
+/** Armed ultra runs at or above this agent count are considered "wide fan-out". */
+export const ULTRA_WIDE_FANOUT_MIN_AGENTS = 8;
+
+export type CeilingDecision =
+  | { action: "confirm"; maxAgents: number }
+  | { action: "skip"; reason: "no-ui" | "not-ultra" | "budget-present" | "narrow-fanout" };
+
+/**
+ * Pure gate predicate for the pre-flight ceiling-confirm. Confirms only when a
+ * dialog can actually be shown, effort is ULTRA-armed, the caller set NO token
+ * budget, and the fan-out is wide (explicit >= ULTRA_WIDE_FANOUT_MIN_AGENTS, or
+ * unspecified — the ultra directive itself tells the model to set a high
+ * maxAgents). Everything else skips with its reason.
+ */
+export function preflightCeilingDecision(input: {
+  effortLevel: EffortLevel;
+  tokenBudget?: number;
+  maxAgents?: number;
+  hasSelectionUi: boolean;
+}): CeilingDecision {
+  if (!input.hasSelectionUi) return { action: "skip", reason: "no-ui" };
+  if (input.effortLevel !== "ultra") return { action: "skip", reason: "not-ultra" };
+  if (input.tokenBudget !== undefined) return { action: "skip", reason: "budget-present" };
+  if (input.maxAgents !== undefined && input.maxAgents < ULTRA_WIDE_FANOUT_MIN_AGENTS) {
+    return { action: "skip", reason: "narrow-fanout" };
+  }
+  return { action: "confirm", maxAgents: input.maxAgents ?? ULTRA_WIDE_FANOUT_MIN_AGENTS };
 }
 
 export function registerEffortCommand(pi: ExtensionAPI, state: EffortState): void {
