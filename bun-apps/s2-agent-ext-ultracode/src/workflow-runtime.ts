@@ -383,6 +383,15 @@ export function createRuntime(deps: RuntimeDeps): Runtime {
                   label,
                   schema: agentOptions.schema,
                   signal,
+                  // Steering seam (self-arc-24 t04): forward the live session
+                  // handle to the orchestrator-level hook, if anyone listens.
+                  ...(options.onAgentSession
+                    ? {
+                        onSession: (session: { steer(text: string): Promise<unknown> }) => {
+                          options.onAgentSession?.({ callIndex, label, phase: assignedPhase, session });
+                        },
+                      }
+                    : {}),
                   instructions: buildAgentInstructions(assignedPhase, agentOptions, agentDef, resolvedIsolation),
                   model: modelSpec,
                   tier: agentOptions.tier,

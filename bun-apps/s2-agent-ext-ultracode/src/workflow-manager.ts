@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { SubagentInFlightRegistry, WorkflowAgent } from "@repo/s2-agent-core-runtime";
+import type { SteeringCapableSession, SubagentInFlightRegistry, WorkflowAgent } from "@repo/s2-agent-core-runtime";
 import { preview, WorkflowError, WorkflowErrorCode } from "@repo/s2-agent-core-runtime";
 import type { TokenBudgetSource } from "./budget-directive.js";
 import { agentCounts, type WorkflowSnapshot } from "./display.js";
@@ -22,7 +22,7 @@ import {
   type RunPersistence,
   type RunStatus,
 } from "./run-persistence.js";
-import { type JournalEntry, runWorkflow, type WorkflowRunResult } from "./workflow.js";
+import { type CheckpointOptions, type JournalEntry, runWorkflow, type WorkflowRunResult } from "./workflow.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { parseWorkflowScript } from "./workflow-script-parser.js";
 
@@ -126,7 +126,7 @@ export interface ExecOptions {
   /** Retry attempts after recoverable agent failures for this execution. */
   agentRetries?: number;
   /** Resolve a checkpoint() question with a human reply (only for UI-bearing runs). */
-  confirm?: (promptText: string, options: unknown) => Promise<unknown>;
+  confirm?: (promptText: string, options: CheckpointOptions) => Promise<unknown>;
   /** Per-run main model (provider/id) — `manifest.model` on the pack `name` path.
    *  Overrides the manager-level session mainModel; a script's per-agent `model`
    *  still wins inside the runtime. Precedence: script > manifest > session. */
@@ -218,6 +218,13 @@ export class WorkflowManager extends EventEmitter {
   private runs = new Map<string, ManagedRun>();
   private persistence: RunPersistence;
   private persistences = new Map<string, RunPersistence>();
+  /**
+   * Live steering handles keyed runId → (callIndex → session). Registered via
+   * the runtime's onAgentSession hook (self-arc-24 t04) and evicted when the
+   * agent settles. The steering seam only — no tool/command surfaces this yet
+   * (charted in the arc-24 map).
+   */
+  private liveSessions = new Map<string, Map<number, SteeringCapableSession>>();
 
   /** Resolve the persistence for a run: a cached stateRoot store for packs, else the cwd store. */
   private persistenceFor(stateRoot?: string): RunPersistence {
@@ -654,6 +661,7 @@ export class WorkflowManager extends EventEmitter {
             .find((a) => a.callIndex === event.callIndex && a.status === "running");
           if (agent) {
             agent.status = event.result === null ? "error" : "done";
+            agent.finishedAt = Date.now();
             agent.resultPreview = preview(event.result);
             agent.error = event.error;
             agent.errorCode = event.errorCode;
@@ -661,6 +669,7 @@ export class WorkflowManager extends EventEmitter {
             agent.tokens = event.tokens;
             if (event.model) agent.model = event.model;
           }
+          this.liveSessions.get(managed.runId)?.delete(event.callIndex);
           this.emit("agentEnd", { runId: managed.runId, ...event });
           progress();
         },
@@ -673,6 +682,14 @@ export class WorkflowManager extends EventEmitter {
           }
           this.emit("agentHistory", { runId: managed.runId, ...event });
           progress();
+        },
+        onAgentSession: (event) => {
+          let byCall = this.liveSessions.get(managed.runId);
+          if (!byCall) {
+            byCall = new Map();
+            this.liveSessions.set(managed.runId, byCall);
+          }
+          byCall.set(event.callIndex, event.session);
         },
         onTokenUsage: (usage) => {
           managed.snapshot.tokenUsage = usage;
@@ -1005,6 +1022,25 @@ export class WorkflowManager extends EventEmitter {
   /**
    * Get status of a specific run.
    */
+  /**
+   * Queue guidance into a LIVE workflow agent's session (self-arc-24 t04 seam).
+   * The SDK drains the queue at the next idle boundary — after the current tool
+   * calls finish, before the next LLM call. Steering a settled/unknown agent is
+   * an honest no-op result, never a throw.
+   */
+  async steerWorkflowAgent(
+    runId: string,
+    callIndex: number,
+    text: string,
+  ): Promise<{ steered: boolean; reason?: string }> {
+    const session = this.liveSessions.get(runId)?.get(callIndex);
+    if (!session) {
+      return { steered: false, reason: "agent-not-live" };
+    }
+    await session.steer(text);
+    return { steered: true };
+  }
+
   getRun(runId: string): ManagedRun | undefined {
     return this.runs.get(runId);
   }

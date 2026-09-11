@@ -36,9 +36,9 @@ test("persist appends a snapshot under the entry type; load round-trips the last
   const entries = [entry({ id: "loop-1", delaySeconds: 300 }), entry({ id: "loop-2", mode: "dynamic" })];
   persistWakeupEntries(api, entries);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.customType, WAKEUP_STATE_ENTRY_TYPE);
+  assert.equal(calls[0]?.customType, WAKEUP_STATE_ENTRY_TYPE);
 
-  const sm = { getBranch: () => [{ type: "custom", customType: WAKEUP_STATE_ENTRY_TYPE, data: calls[0]!.data }] };
+  const sm = { getBranch: () => [{ type: "custom", customType: WAKEUP_STATE_ENTRY_TYPE, data: calls[0]?.data }] };
   const loaded = loadWakeupEntries(sm);
   assert.equal(loaded.length, 2);
   assert.deepEqual(loaded, entries);
@@ -73,21 +73,21 @@ test("reanchor: a future dueAt is honored verbatim (PR #2030 restart-cadence rul
   const future = entry({ id: "loop-1", delaySeconds: 300, dueAt: T0 + 120_000 });
   const out = reanchorWakeupEntries([future], new Date(T0));
   assert.equal(out.length, 1);
-  assert.equal(out[0]!.dueAt, T0 + 120_000);
+  assert.equal(out[0]?.dueAt, T0 + 120_000);
 });
 
 test("reanchor: a stale fixed entry re-anchors a full interval from NOW (no burst fire)", () => {
   const stale = entry({ id: "loop-1", delaySeconds: 300, dueAt: T0 - DAY });
   const out = reanchorWakeupEntries([stale], new Date(T0));
   assert.equal(out.length, 1);
-  assert.equal(out[0]!.dueAt, T0 + 300_000);
+  assert.equal(out[0]?.dueAt, T0 + 300_000);
 });
 
 test("reanchor: a stale dynamic entry re-anchors to NOW (fires on the next tick)", () => {
   const stale = entry({ id: "loop-1", mode: "dynamic", dueAt: T0 - DAY });
   const out = reanchorWakeupEntries([stale], new Date(T0));
   assert.equal(out.length, 1);
-  assert.equal(out[0]!.dueAt, T0);
+  assert.equal(out[0]?.dueAt, T0);
 });
 
 test("reanchor: expired (7d) and unreschedulable (fixed, no delaySeconds) entries are dropped", () => {

@@ -57,8 +57,8 @@ export function parseLoopArgs(args: string): LoopCommand {
   if (trimmed.toLowerCase() === "dynamic") return { kind: "usage" };
 
   const dynamicMatch = /^dynamic\s+(.+)$/is.exec(trimmed);
-  if (dynamicMatch) {
-    const prompt = dynamicMatch[1]!.trim();
+  if (dynamicMatch?.[1]) {
+    const prompt = dynamicMatch[1].trim();
     if (!prompt) return { kind: "usage" };
     return { kind: "dynamic", prompt };
   }
@@ -67,10 +67,10 @@ export function parseLoopArgs(args: string): LoopCommand {
   // is treated as prompt text ("404 is a fine status code to check" is a
   // prompt, not a 404-minute cadence).
   const intervalMatch = /^(\d+)\s*(ms|s|m|h|d)\s+(.+)$/is.exec(trimmed);
-  if (intervalMatch) {
+  if (intervalMatch?.[1] && intervalMatch[2] && intervalMatch[3]) {
     const n = Number(intervalMatch[1]);
-    const unit = intervalMatch[2]!.toLowerCase();
-    const prompt = intervalMatch[3]!.trim();
+    const unit = intervalMatch[2].toLowerCase();
+    const prompt = intervalMatch[3].trim();
     if (!prompt) return { kind: "usage" };
     const seconds = unit === "ms" ? -1 : n * (unit === "s" ? 1 : unit === "h" ? 3600 : unit === "d" ? 86_400 : 60);
     if (seconds < 1) return { kind: "usage" };

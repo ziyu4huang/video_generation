@@ -207,7 +207,7 @@ The full guide — every global, agent option, `agentType` definitions, structur
 | `phase(title, { budget? })` | Group agents in the live view; optional per-phase token sub-budget. |
 | `verify` / `judgePanel` / `loopUntilDry` / `completenessCheck` | Built-in quality patterns. |
 | `workflow(name, args)` | Run a saved workflow inline (shares the global caps). |
-| `checkpoint(prompt, opts)` | A journaled, replayable human approval gate. |
+| `checkpoint(prompt, opts)` | A journaled, replayable human approval gate — `kind: "confirm" \| "input" \| "select"` picks the widget (select renders a numbered choice list from `choices`); `timeoutMs` auto-dismisses with a live countdown and falls back to `default`. |
 | `budget` | `{ total, spent(), remaining() }` real-token tracker. |
 
 | Agent option | Description |

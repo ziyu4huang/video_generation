@@ -12,6 +12,7 @@ import {
   WorkflowErrorCode,
 } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
+import { type CheckpointUiSurface, createCheckpointConfirm } from "./checkpoint-confirm.js";
 import {
   createToolUpdateWorkflowDisplay,
   createWorkflowSnapshot,
@@ -19,6 +20,7 @@ import {
   renderWorkflowText,
   type WorkflowSnapshot,
 } from "./display.js";
+import { type EffortState, preflightCeilingDecision, ULTRA_SUGGESTED_TOKEN_BUDGET } from "./effort-command.js";
 import { resolvePackRunContext } from "./pack-run-context.js";
 import type { WorkflowRunResult } from "./workflow.js";
 import { WorkflowManager } from "./workflow-manager.js";
@@ -88,7 +90,7 @@ export function agentTypeGuideline(cwd: string = process.cwd()): string | undefi
 
 /** Quality helpers: verify / judgePanel / loopUntilDry / completenessCheck / synthesize. */
 function workflowHelpersDoc(): string {
-  return "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic; synthesize(task, results) as the fan-in that turns N subagent results into one compact {ok, verdict, summary}.";
+  return "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic; synthesize(task, results) as the fan-in that turns N subagent results into one compact {ok, verdict, summary}. For a human gate mid-run, checkpoint(prompt, {kind:'confirm'|'input'|'select', choices, default, timeoutMs}) pauses for the user — 'select' renders a numbered choice list; the reply is journaled and replayed on resume (headless/background runs take {default}).";
 }
 
 /** Spend control: tokenBudget, phase budget, retry, gate, graceful degrade. */
@@ -244,6 +246,13 @@ export interface WorkflowToolOptions {
    * process singleton via getSubagentInFlightRegistry() and passes it here.
    */
   inFlight?: SubagentInFlightRegistry;
+  /**
+   * The extension's live effort state (self-arc-24 t02). When level is "ultra",
+   * interactive unbounded runs pass the pre-flight ceiling-confirm before any
+   * agent launches. Pass the SAME object registerEffortCommand mutates — the
+   * gate reads it per call and never snapshots it.
+   */
+  effort?: EffortState;
 }
 
 /**
@@ -536,14 +545,15 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
 
       // checkpoint() reaches the human only on a UI-bearing foreground run; a
       // background run is detached, so checkpoint() falls back to its headless
-      // default. Map a checkpoint to ctx.ui.confirm (a yes/no gate) when available.
-      const uiCtx = ctx as
-        | { hasUI?: boolean; ui?: { confirm?(title: string, message: string): Promise<boolean> } }
-        | undefined;
-      const uiConfirm = uiCtx?.hasUI ? uiCtx.ui?.confirm : undefined;
-      const confirm = uiConfirm
-        ? (promptText: string) => uiConfirm.call(uiCtx?.ui, "Workflow checkpoint", promptText)
-        : undefined;
+      // default. Self-arc-24 t01 probe: the tool handler's ctx IS the full
+      // ExtensionContext (pi-coding-agent core/extensions/types.d.ts, execute
+      // signature), so the checkpoint adapter (checkpoint-confirm.ts) routes on
+      // the DECLARED kind instead of collapsing everything to a yes/no gate:
+      // select → numbered choice dialog, input → free-text dialog, confirm →
+      // yes/no. Dialogs get a live-countdown timeout + the run's abort signal;
+      // a dismissed/timeout dialog falls back to the checkpoint's default.
+      const uiCtx = ctx as { hasUI?: boolean; ui?: CheckpointUiSurface } | undefined;
+      const confirm = createCheckpointConfirm(uiCtx?.hasUI ? uiCtx.ui : undefined);
 
       // Ticket 06 — Path B model label: manifest.model (when the pack declares
       // one) governs this run and is reported as `modelSource: "manifest"`;
@@ -563,6 +573,46 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
       // manager falls back to its session mainModel).
       const manifestModelExec = manifestModel ? { mainModel: manifestModel } : {};
 
+      // Self-arc-24 t02 — pre-flight ceiling-confirm (CC permission-ASK parity).
+      // An ultra-armed interactive run with NO explicit token budget and a wide
+      // fan-out cannot start spending before the human answers a numbered
+      // dialog. Choice 2 amends tokenBudget and proceeds; choice 3 (or a
+      // dismissed/timeout dialog — fail-closed) aborts before any run exists.
+      // Headless and non-ultra runs skip the gate entirely (preflightCeilingDecision).
+      let effectiveTokenBudget = params.tokenBudget;
+      const ceiling = preflightCeilingDecision({
+        effortLevel: options.effort?.level ?? "off",
+        tokenBudget: params.tokenBudget,
+        maxAgents: params.maxAgents,
+        hasSelectionUi: Boolean(uiCtx?.hasUI && uiCtx.ui?.select),
+      });
+      if (ceiling.action === "confirm") {
+        const select = uiCtx?.ui?.select;
+        if (select && uiCtx?.ui) {
+          const launchLabel = `Launch unbounded (up to ${ceiling.maxAgents} agents, no token cap)`;
+          const capLabel = `Cap at ${ULTRA_SUGGESTED_TOKEN_BUDGET.toLocaleString("en-US")} tokens`;
+          const abortLabel = "Abort";
+          const picked = await select.call(uiCtx.ui, "Pre-flight ceiling confirm — armed ultra workflow", [
+            launchLabel,
+            capLabel,
+            abortLabel,
+          ]);
+          if (picked === capLabel) {
+            effectiveTokenBudget = ULTRA_SUGGESTED_TOKEN_BUDGET;
+          } else if (picked !== launchLabel) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: `Workflow aborted before launch: the pre-flight ceiling confirm was not approved (${picked === abortLabel ? "user chose Abort" : "dialog dismissed"}). Set an explicit tokenBudget/maxAgents, lower the effort (/effort off|high), or re-run and approve to proceed.`,
+                },
+              ],
+              details: { aborted: "ceiling-confirm", ceiling: "unbounded-ultra", modelSource, ...modelLabel },
+            };
+          }
+        }
+      }
+
       // Background execution is the default: return immediately so the turn ends
       // and the user isn't blocked. The result is delivered back into the
       // conversation when the run finishes (see installResultDelivery). Only an
@@ -573,7 +623,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           concurrency: params.concurrency,
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
-          tokenBudget: params.tokenBudget,
+          tokenBudget: effectiveTokenBudget,
           ...packExec,
           ...manifestModelExec,
         });
@@ -602,7 +652,7 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
           concurrency: params.concurrency,
           agentRetries: params.agentRetries,
           agentTimeoutMs: params.agentTimeoutMs,
-          tokenBudget: params.tokenBudget,
+          tokenBudget: effectiveTokenBudget,
           ...packExec,
           ...manifestModelExec,
           confirm,

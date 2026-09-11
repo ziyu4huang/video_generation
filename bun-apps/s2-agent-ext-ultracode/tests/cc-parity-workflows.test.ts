@@ -162,12 +162,10 @@ test(
         onPrompt: (p) => prompts.push(p),
         answer: (p) => {
           if (p.startsWith("REVIEW "))
-            return (
-              p
-                .split("\n")[0]
-                .replace(/^REVIEW the file /, `REVIEW `)
-                .replace(/\.$/, "") + ": clean"
-            );
+            return `${p
+              .split("\n")[0]
+              .replace(/^REVIEW the file /, `REVIEW `)
+              .replace(/\.$/, "")}: clean`;
           return "SUMMARY-PARAGRAPH";
         },
       }),

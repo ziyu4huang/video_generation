@@ -233,6 +233,15 @@
       "branch": "self-arc-22",
       "note": "stale-bundle deploy truth (hash completeness + link self-heal) + tool-window steering (honest 3-way, guaranteed queued delivery); queue head = arc-19's F-deploy-1 + F-steer-1. Branch name self-arc-22 predates the ledger (the loop's review-harvest claimed 22 first, #2261) F-steer-1b follow-up merged as #2269.",
       "mergedPr": 2264
+    },
+    {
+      "series": "self-arc",
+      "number": 24,
+      "path": ".planning/2026-09-11-self-arc-24-ultracode-cc-parity",
+      "status": "active",
+      "claimedAt": "2026-09-11",
+      "branch": "self-arc-24-ultracode-cc-parity",
+      "note": "ultracode -> claude-code parity: GLM-5.3 web-research children study Claude Code function+TUI through the DEPLOYED agent; planner (arc-plan.ts, zai/glm-5.3) maps gaps to tickets; verified on a redeployed tree with an isolated scratch work env."
     }
   ]
 }

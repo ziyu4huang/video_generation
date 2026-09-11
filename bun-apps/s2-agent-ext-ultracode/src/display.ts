@@ -26,6 +26,8 @@ export interface WorkflowAgentSnapshot {
   model?: string;
   /** Wall-clock ms timestamp when the agent started (for live elapsed). */
   startedAt?: number;
+  /** Wall-clock ms timestamp when the agent reached a terminal status (for the detail Duration line). */
+  finishedAt?: number;
 }
 
 export interface WorkflowSnapshot {

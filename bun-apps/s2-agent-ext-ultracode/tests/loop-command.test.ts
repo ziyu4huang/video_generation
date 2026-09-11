@@ -105,7 +105,7 @@ test("command: /loop 5m arms a fixed wakeup; /loop off clears everything", async
   const activeLoop: { id?: string } = {};
   registerLoopCommand(pi, { registry, activeLoop, now: () => new Date(T0) });
 
-  await commands.get("loop")!.handler("5m check CI");
+  await commands.get("loop")?.handler("5m check CI");
   const entry = registry.get("loop-1")!;
   assert.ok(entry);
   assert.equal(entry.mode, "fixed");
@@ -114,7 +114,7 @@ test("command: /loop 5m arms a fixed wakeup; /loop off clears everything", async
   assert.equal(activeLoop.id, "loop-1");
   assert.match(messages.at(-1)!, /loop-1.*started/);
 
-  await commands.get("loop")!.handler("off");
+  await commands.get("loop")?.handler("off");
   assert.equal(registry.list().length, 0);
   assert.equal(activeLoop.id, undefined);
   assert.match(messages.at(-1)!, /Stopped 1 loop/);
@@ -126,16 +126,16 @@ test("command: /loop dynamic arms a due-NOW wakeup (first tick fires it)", async
   const activeLoop: { id?: string } = {};
   registerLoopCommand(pi, { registry, activeLoop, now: () => new Date(T0) });
 
-  await commands.get("loop")!.handler("dynamic watch the deploy");
+  await commands.get("loop")?.handler("dynamic watch the deploy");
   const entry = registry.get("loop-1")!;
   assert.equal(entry.mode, "dynamic");
   assert.ok(entry.dueAt <= T0, "dynamic is due immediately — the next tick delivers the prompt");
   assert.match(messages.at(-1)!, /dynamic/);
 
   // A second loop gets its own id; off reports both.
-  await commands.get("loop")!.handler("dynamic watch something else");
+  await commands.get("loop")?.handler("dynamic watch something else");
   assert.ok(registry.get("loop-2"));
-  await commands.get("loop")!.handler("off");
+  await commands.get("loop")?.handler("off");
   assert.match(messages.at(-1)!, /Stopped 2 loops/);
 });
 
@@ -143,7 +143,7 @@ test("command: bare /loop prints usage and arms nothing", async () => {
   const { pi, commands, messages } = fakePi();
   const registry = new WakeupRegistry();
   registerLoopCommand(pi, { registry, activeLoop: {}, now: () => new Date(T0) });
-  await commands.get("loop")!.handler("");
+  await commands.get("loop")?.handler("");
   assert.match(messages.at(-1)!, /Usage: \/loop/);
   assert.equal(registry.list().length, 0);
 });
@@ -171,13 +171,13 @@ test("command: /loop status lists armed loops and arms nothing", async () => {
   registerLoopCommand(pi, { registry, activeLoop, now: () => new Date(T0) });
 
   // Empty state: read-only report, nothing armed.
-  await commands.get("loop")!.handler("status");
+  await commands.get("loop")?.handler("status");
   assert.match(messages.at(-1)!, /No active loops/);
   assert.equal(registry.list().length, 0);
 
   // Armed state: id, mode, next fire, fire count/cap — and read-only.
-  await commands.get("loop")!.handler("5m check CI");
-  await commands.get("loop")!.handler("status");
+  await commands.get("loop")?.handler("5m check CI");
+  await commands.get("loop")?.handler("status");
   const report = messages.at(-1)!;
   assert.match(report, /Active loops \(1\)/);
   assert.match(report, /loop-1 \[fixed\] next fire in 300s/);
@@ -186,7 +186,7 @@ test("command: /loop status lists armed loops and arms nothing", async () => {
   assert.equal(activeLoop.id, "loop-1");
 
   // /loop help is usage, not a loop named "help".
-  await commands.get("loop")!.handler("help");
+  await commands.get("loop")?.handler("help");
   assert.match(messages.at(-1)!, /Usage: \/loop/);
   assert.equal(registry.list().length, 1);
 });
@@ -199,9 +199,9 @@ test("command: /loop stop clears everything (the ext-task verb, ticket 03)", asy
   const activeLoop: { id?: string } = {};
   registerLoopCommand(pi, { registry, activeLoop, now: () => new Date(T0) });
 
-  await commands.get("loop")!.handler("5m check CI");
+  await commands.get("loop")?.handler("5m check CI");
   assert.equal(registry.list().length, 1);
-  await commands.get("loop")!.handler("stop");
+  await commands.get("loop")?.handler("stop");
   assert.equal(registry.list().length, 0);
   assert.equal(activeLoop.id, undefined);
   assert.match(messages.at(-1)!, /Stopped 1 loop/);
@@ -211,10 +211,10 @@ test("command: armed entries carry startedAt (7-day max-age anchor)", async () =
   const { pi, commands } = fakePi();
   const registry = new WakeupRegistry();
   registerLoopCommand(pi, { registry, activeLoop: {}, now: () => new Date(T0) });
-  await commands.get("loop")!.handler("5m check CI");
-  assert.equal(registry.get("loop-1")!.startedAt, T0);
-  await commands.get("loop")!.handler("dynamic watch");
-  assert.equal(registry.get("loop-2")!.startedAt, T0);
+  await commands.get("loop")?.handler("5m check CI");
+  assert.equal(registry.get("loop-1")?.startedAt, T0);
+  await commands.get("loop")?.handler("dynamic watch");
+  assert.equal(registry.get("loop-2")?.startedAt, T0);
 });
 
 test("command: a ctx-provided isIdle reaches the setIdleProbe seam", async () => {
@@ -228,7 +228,7 @@ test("command: a ctx-provided isIdle reaches the setIdleProbe seam", async () =>
     setIdleProbe: (isIdle) => probes.push(isIdle),
   });
   const idle = () => false;
-  const handler = commands.get("loop")!.handler as (args: string, ctx?: { isIdle?: () => boolean }) => Promise<void>;
+  const handler = commands.get("loop")?.handler as (args: string, ctx?: { isIdle?: () => boolean }) => Promise<void>;
   await handler("status", { isIdle: idle });
   assert.equal(probes.length, 1, "the real probe was captured");
   assert.equal(probes[0], idle);

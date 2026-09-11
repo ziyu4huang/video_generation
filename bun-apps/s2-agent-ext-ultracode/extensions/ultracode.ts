@@ -128,10 +128,14 @@ export default function extension(pi: ExtensionAPI) {
     pi.events.on(HOSTFN_REGISTER, (payload: unknown) => applyHostFnRegistration(sessionHostFns, payload));
   }
 
+  // Effort state lives BEFORE the tool creation (self-arc-24 t02): the tool's
+  // pre-flight ceiling-confirm reads this same object per call.
+  const effort = createEffortState();
   const workflowTool = createWorkflowTool({
     cwd,
     manager,
     storage,
+    effort,
     verboseWorkflowGuidelines: settings.verboseWorkflowGuidelines,
     // Process-wide singleton (decision 03 = b2): the SAME registry instance the
     // subagent/subagents tools + the unified context box + /subagents read, so
@@ -253,7 +257,6 @@ export default function extension(pi: ExtensionAPI) {
   // Standing /effort opt-in (off|high|ultra): auto-arms a workflow for substantive
   // messages, like CC's ultracode. Shared with the editor's input hook below and
   // with the explicit /workflows run <prompt> manual trigger.
-  const effort = createEffortState();
   registerWorkflowCommands(pi, manager, { storage, cwd, effort });
   registerWorkflowModelsCommand(pi);
   registerBuiltinWorkflows(pi, { cwd });

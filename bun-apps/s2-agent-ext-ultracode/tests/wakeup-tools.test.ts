@@ -41,7 +41,7 @@ test("tool: no active loop → loud no-op, nothing scheduled", async () => {
   const registry = new WakeupRegistry();
   const t = toolFor(registry, undefined);
   const r = await t.execute("t1", { delaySeconds: 300, reason: "waiting on CI" });
-  assert.match(r.content[0]!.text, /No \/loop is active/);
+  assert.match(r.content[0]?.text, /No \/loop is active/);
   assert.equal(registry.list().length, 0);
 });
 
@@ -50,7 +50,7 @@ test("tool: stop cancels the pending wakeup", async () => {
   registry.schedule({ id: "loop-1", prompt: "p", mode: "dynamic", dueAt: T0 + 60_000 });
   const t = toolFor(registry, "loop-1");
   const r = await t.execute("t1", { delaySeconds: 300, reason: "done", stop: true });
-  assert.match(r.content[0]!.text, /stopped/i);
+  assert.match(r.content[0]?.text, /stopped/i);
   assert.equal(registry.list().length, 0);
 });
 
@@ -61,8 +61,8 @@ test("tool: stop with nothing pending explains the fire-consumes-wakeup semantic
   const registry = new WakeupRegistry();
   const t = toolFor(registry, "loop-1");
   const r = await t.execute("t1", { delaySeconds: 300, reason: "done", stop: true });
-  assert.match(r.content[0]!.text, /No loop was running/);
-  assert.match(r.content[0]!.text, /fire consumes the pending wakeup/);
+  assert.match(r.content[0]?.text, /No loop was running/);
+  assert.match(r.content[0]?.text, /fire consumes the pending wakeup/);
   assert.equal(registry.list().length, 0);
 });
 
@@ -72,8 +72,8 @@ test("tool: re-arms a FIRED dynamic loop from the last-fired snapshot (prompt + 
   registry.due(new Date(T0)); // the tick swept it — pending gone, snapshot kept
   const t = toolFor(registry, "loop-1");
   const r = await t.execute("t1", { delaySeconds: 90, reason: "deploy still rolling" });
-  assert.match(r.content[0]!.text, /re-armed/i);
-  assert.match(r.content[0]!.text, /in 90s/);
+  assert.match(r.content[0]?.text, /re-armed/i);
+  assert.match(r.content[0]?.text, /in 90s/);
   const entry = registry.get("loop-1")!;
   assert.ok(entry, "re-armed as a pending wakeup");
   assert.equal(entry.prompt, "watch the deploy", "the ORIGINAL prompt survives the re-arm");
@@ -87,6 +87,6 @@ test("tool: out-of-range delay clamps with a loud message", async () => {
   registry.schedule({ id: "loop-1", prompt: "p", mode: "dynamic", dueAt: T0 + 60_000 });
   const t = toolFor(registry, "loop-1");
   const r = await t.execute("t1", { delaySeconds: 5, reason: "too eager" });
-  assert.match(r.content[0]!.text, /clamped to 60/);
-  assert.equal(registry.get("loop-1")!.dueAt, T0 + 60_000);
+  assert.match(r.content[0]?.text, /clamped to 60/);
+  assert.equal(registry.get("loop-1")?.dueAt, T0 + 60_000);
 });

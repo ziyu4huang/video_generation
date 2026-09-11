@@ -1,0 +1,10 @@
+工作流程已完成（2 個 agent，122,016 tokens）。以下是其完整結果 JSON：
+
+```json
+{
+  "editor": "a0f7023f46e839edb1b625654de99e55db5ceea6",
+  "reader": "notes.txt 的內容如下：\n\n```\nhello\n```"
+}
+```
+
+觀察：`editor` 在 worktree 隔離下完成編輯並回報 commit hash `a0f7023f…`，而後續在共享目錄執行的 `reader` 讀到的 `notes.txt` 仍只有 `hello`、沒有 `worktree-edit-was-here` —— 隔離生效，編輯只存在於該 worktree 的 commit 中，未落入共享工作樹。

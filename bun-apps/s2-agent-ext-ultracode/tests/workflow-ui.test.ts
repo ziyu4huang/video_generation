@@ -909,3 +909,68 @@ test("a finished agent's detail view never shows the live tag, even with a long 
   assert.ok(!/live/.test(text), "no live tag for a finished agent");
   assert.equal(state.scroll, 0, "starts at the top (not auto-scrolled) for a finished agent");
 });
+
+// ── self-arc-24 t03 — CC Ctrl+O transcript parity: per-entry timestamps + Duration ──
+
+/** A manager whose single DONE agent has startedAt/finishedAt and stamped + legacy history entries. */
+function finishedAgentManagerT03(): Pick<WorkflowManager, "listRuns" | "getRun"> {
+  const snapshot: WorkflowSnapshot = {
+    name: "wf",
+    phases: ["P"],
+    currentPhase: "P",
+    logs: [],
+    agents: [
+      {
+        id: 1,
+        label: "worker",
+        phase: "P",
+        prompt: "do it",
+        status: "done",
+        resultPreview: "ok",
+        startedAt: Date.parse("2026-09-11T10:00:00"),
+        finishedAt: Date.parse("2026-09-11T10:01:40"),
+        history: [
+          // stamped entry renders a [HH:MM:SS] prefix
+          { role: "user", kind: "text", text: "do it", timestamp: Date.parse("2026-09-11T10:00:05") },
+          // legacy entry without a timestamp renders without a prefix
+          { role: "assistant", kind: "text", text: "done" },
+        ],
+      },
+    ],
+    agentCount: 1,
+    runningCount: 0,
+    doneCount: 1,
+    errorCount: 0,
+  };
+  return {
+    listRuns: () =>
+      [
+        { runId: "r-done", workflowName: "wf", status: "completed", phases: ["P"], agents: snapshot.agents, logs: [] },
+      ] as unknown as PersistedRunState[],
+    getRun: (id: string) =>
+      id === "r-done" ? ({ runId: "r-done", status: "completed", snapshot } as unknown as ManagedRun) : undefined,
+  };
+}
+
+test("detail shows Duration for a finished agent (startedAt + finishedAt)", () => {
+  const model = new NavigatorModel(finishedAgentManagerT03());
+  const state = new NavigatorState();
+  state.drill(model);
+  state.drill(model);
+  state.drill(model);
+  const text = renderNavigator(state, model, 80).join("\n");
+  assert.match(text, /Duration: 1m40s/);
+  assert.ok(!text.includes("Elapsed:"), "a finished agent shows Duration, not live Elapsed");
+});
+
+test("history lines carry an [HH:MM:SS] prefix when stamped, none when legacy", () => {
+  const model = new NavigatorModel(finishedAgentManagerT03());
+  const state = new NavigatorState();
+  state.drill(model);
+  state.drill(model);
+  state.drill(model);
+  const text = renderNavigator(state, model, 200).join("\n");
+  assert.match(text, /\[\d{2}:\d{2}:\d{2}\] user: do it/);
+  assert.match(text, /(^|\n)assistant: done/);
+  assert.ok(!/assistant: done.*\[\d{2}:/.test(text), "unstamped entry must not inherit a clock prefix");
+});
