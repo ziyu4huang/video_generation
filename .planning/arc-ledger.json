@@ -238,10 +238,11 @@
       "series": "self-arc",
       "number": 24,
       "path": ".planning/2026-09-11-self-arc-24-ultracode-cc-parity",
-      "status": "active",
+      "status": "done",
       "claimedAt": "2026-09-11",
       "branch": "self-arc-24-ultracode-cc-parity",
-      "note": "ultracode -> claude-code parity: GLM-5.3 web-research children study Claude Code function+TUI through the DEPLOYED agent; planner (arc-plan.ts, zai/glm-5.3) maps gaps to tickets; verified on a redeployed tree with an isolated scratch work env."
+      "note": "ultracode -> claude-code parity: options-aware checkpoints, pre-flight ceiling-confirm, transcript timestamps+Duration, steering plumbing seam (onSession -> steerWorkflowAgent). GLM-5.3 web-research children + GLM-5.3 planner; verified on deployed 0.10.3+gbee16fd with an isolated scratch-repo worktree-isolation drive (commit a0f7023f in worktree, main worktree untouched).",
+      "mergedPr": 2275
     }
   ]
 }
