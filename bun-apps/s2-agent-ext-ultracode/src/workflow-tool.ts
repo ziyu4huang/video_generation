@@ -12,6 +12,7 @@ import {
   WorkflowErrorCode,
 } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
+import { type CheckpointUiSurface, createCheckpointConfirm } from "./checkpoint-confirm.js";
 import {
   createToolUpdateWorkflowDisplay,
   createWorkflowSnapshot,
@@ -88,7 +89,7 @@ export function agentTypeGuideline(cwd: string = process.cwd()): string | undefi
 
 /** Quality helpers: verify / judgePanel / loopUntilDry / completenessCheck / synthesize. */
 function workflowHelpersDoc(): string {
-  return "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic; synthesize(task, results) as the fan-in that turns N subagent results into one compact {ok, verdict, summary}.";
+  return "For workflow, prefer the built-in quality helpers when they fit (each is built on agent()/parallel() and returns plain data): verify(item, {reviewers, threshold, lens}) for adversarial fact-checking; judgePanel(attempts, {judges, rubric}) to score N candidates and return the best; loopUntilDry({round, key, consecutiveEmpty}) to keep finding until rounds stop yielding new items; completenessCheck(args, results) as a final 'what's missing' critic; synthesize(task, results) as the fan-in that turns N subagent results into one compact {ok, verdict, summary}. For a human gate mid-run, checkpoint(prompt, {kind:'confirm'|'input'|'select', choices, default, timeoutMs}) pauses for the user — 'select' renders a numbered choice list; the reply is journaled and replayed on resume (headless/background runs take {default}).";
 }
 
 /** Spend control: tokenBudget, phase budget, retry, gate, graceful degrade. */
@@ -536,14 +537,15 @@ export function createWorkflowTool(options: WorkflowToolOptions = {}): ToolDefin
 
       // checkpoint() reaches the human only on a UI-bearing foreground run; a
       // background run is detached, so checkpoint() falls back to its headless
-      // default. Map a checkpoint to ctx.ui.confirm (a yes/no gate) when available.
-      const uiCtx = ctx as
-        | { hasUI?: boolean; ui?: { confirm?(title: string, message: string): Promise<boolean> } }
-        | undefined;
-      const uiConfirm = uiCtx?.hasUI ? uiCtx.ui?.confirm : undefined;
-      const confirm = uiConfirm
-        ? (promptText: string) => uiConfirm.call(uiCtx?.ui, "Workflow checkpoint", promptText)
-        : undefined;
+      // default. Self-arc-24 t01 probe: the tool handler's ctx IS the full
+      // ExtensionContext (pi-coding-agent core/extensions/types.d.ts, execute
+      // signature), so the checkpoint adapter (checkpoint-confirm.ts) routes on
+      // the DECLARED kind instead of collapsing everything to a yes/no gate:
+      // select → numbered choice dialog, input → free-text dialog, confirm →
+      // yes/no. Dialogs get a live-countdown timeout + the run's abort signal;
+      // a dismissed/timeout dialog falls back to the checkpoint's default.
+      const uiCtx = ctx as { hasUI?: boolean; ui?: CheckpointUiSurface } | undefined;
+      const confirm = createCheckpointConfirm(uiCtx?.hasUI ? uiCtx.ui : undefined);
 
       // Ticket 06 — Path B model label: manifest.model (when the pack declares
       // one) governs this run and is reported as `modelSource: "manifest"`;

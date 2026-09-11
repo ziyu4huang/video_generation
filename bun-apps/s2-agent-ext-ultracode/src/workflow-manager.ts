@@ -22,7 +22,7 @@ import {
   type RunPersistence,
   type RunStatus,
 } from "./run-persistence.js";
-import { type JournalEntry, runWorkflow, type WorkflowRunResult } from "./workflow.js";
+import { type CheckpointOptions, type JournalEntry, runWorkflow, type WorkflowRunResult } from "./workflow.js";
 import type { ManifestIo } from "./workflow-pack-manifest.js";
 import { parseWorkflowScript } from "./workflow-script-parser.js";
 
@@ -126,7 +126,7 @@ export interface ExecOptions {
   /** Retry attempts after recoverable agent failures for this execution. */
   agentRetries?: number;
   /** Resolve a checkpoint() question with a human reply (only for UI-bearing runs). */
-  confirm?: (promptText: string, options: unknown) => Promise<unknown>;
+  confirm?: (promptText: string, options: CheckpointOptions) => Promise<unknown>;
   /** Per-run main model (provider/id) — `manifest.model` on the pack `name` path.
    *  Overrides the manager-level session mainModel; a script's per-agent `model`
    *  still wins inside the runtime. Precedence: script > manifest > session. */
