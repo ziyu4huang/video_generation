@@ -8,6 +8,10 @@
  * through spawnSync because fail() exits the CLI process.
  */
 import { describe, expect, test } from "bun:test";
+
+// spawnSync subprocess gates need a real bun on PATH + real fs — skip on CI
+// (mirrors the cli-runtime-spawn.test.ts describe.skipIf pattern in devops).
+const CI = !!process.env.CI;
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -53,7 +57,7 @@ async function expectStandaloneBuild(cfgRel: string, expectedSlides: number): Pr
 	}
 }
 
-describe("deck pack --inline-ir — standalone build from one envelope", () => {
+describe.skipIf(CI)("deck pack --inline-ir — standalone build from one envelope", () => {
 	test(
 		"deck-composed (escape-form authored paths): CLI unpack into an empty tree -> builds",
 		async () => {
