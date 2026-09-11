@@ -22,7 +22,7 @@ import {
   sessionModelInjectionWins,
 } from "./agent-model.js";
 import { applyToolPolicy } from "./agent-registry.js";
-import { createTurnGuard, createWrapUpNudgeQueue, turnExhaustionError } from "./agent-turns.js";
+import { createTurnGuard, createWrapUpNudgeQueue, type SteeringCapableSession, turnExhaustionError } from "./agent-turns.js";
 import { WorkflowError, WorkflowErrorCode } from "./errors.js";
 import { getEffectiveModelTierConfig, type ModelTierConfig } from "./model-tier-config.js";
 import { throwIfProviderLimit } from "./provider-limit.js";
@@ -169,6 +169,14 @@ export interface AgentRunOptions<TSchemaDef extends TSchema | undefined = undefi
   onModelResolved?: (modelId: string) => void;
   /** Called when `model`/`tier`/phase resolved to a spec that wasn't found (fell back to session default). */
   onModelFallback?: (requestedSpec: string) => void;
+  /**
+   * Called once right after the child session is assembled, with a narrowed
+   * steering-capable handle (self-arc-24 t04). Lets an orchestrator queue
+   * guidance that the SDK delivers at the idle boundary after the current
+   * tool calls — the same seam the wrap-up nudge uses. The handle dies with
+   * the run; calling steer after settle is a no-op on the SDK side.
+   */
+  onSession?: (session: SteeringCapableSession) => void;
   /** Called with a compact snapshot of this subagent's message/tool history. */
   onHistory?: (history: AgentHistoryEntry[]) => void;
   /**
@@ -487,6 +495,9 @@ export class CoreAgent {
       onModelResolved: options.onModelResolved,
       onModelFallback: options.onModelFallback,
     });
+
+    // Expose the steering-capable handle to the orchestrator (t04 seam).
+    options.onSession?.(session);
 
     let removeAbortListener: (() => void) | undefined;
     let removeHistoryListener: (() => void) | undefined;

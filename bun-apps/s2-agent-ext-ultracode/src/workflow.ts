@@ -5,6 +5,7 @@ import {
   getGlobalRateLimiter,
   loadAgentRegistry,
   providerFromModelSpec,
+  type SteeringCapableSession,
   WorkflowAgent,
   type WorkflowAgentOptions,
   type WorkflowErrorCode,
@@ -127,6 +128,20 @@ export interface WorkflowRunOptions extends WorkflowAgentOptions {
     recoverable?: boolean;
   }) => void;
   onAgentHistory?: (event: { callIndex: number; label: string; phase?: string; history: AgentHistoryEntry[] }) => void;
+  /**
+   * Live steering seam (self-arc-24 t04): emitted once per agent() right after
+   * the child session is assembled, with a narrowed steering-capable handle.
+   * The manager registers these under (runId, callIndex) so an orchestrator can
+   * deliver mid-run guidance that the SDK queues and drains at the next idle
+   * boundary. NOT wired to any tool/command yet (charted) — this is the
+   * plumbing seam only.
+   */
+  onAgentSession?: (event: {
+    callIndex: number;
+    label: string;
+    phase?: string;
+    session: SteeringCapableSession;
+  }) => void;
   onTokenUsage?: (usage: {
     input: number;
     output: number;
