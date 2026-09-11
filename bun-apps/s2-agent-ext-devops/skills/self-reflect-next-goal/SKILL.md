@@ -149,7 +149,14 @@ and the head is off-mission work. Rules:
    `bun bun-apps/s2-agent-ext-devops/scripts/validate-next-goal.ts` — must
    exit 0 (LATEST resolves to the newest file, target validates, retention
    within cap).
-7. `output/` is gitignored scratch — never commit these files. Durable plans
+7. **Reflect & Curate** (ACE loop — selfimprove-playbook): before finishing,
+   propose ITEMIZED playbook deltas — what HELPED or HURT this arc that the
+   next arc-open should know, as add/supersede/miss-bump against
+   `.planning/playbook.md` entries (PB-nn). Commit the deltas in the same
+   PR as the close-out; respect the playbook's caps and supersede-in-place
+   rule (never bulk-rewrite, never delete). Skip only when the arc was pure
+   docs with no strategy lesson.
+8. `output/` is gitignored scratch — never commit these files. Durable plans
    belong in `.planning/`; this file is the session-to-session handoff.
 
 ### Ticket-queue mode (effort ticket queues)

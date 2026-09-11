@@ -1,0 +1,23 @@
+{
+  "startedAt": "2026-09-11T07:48:19.576Z",
+  "finishedAt": "2026-09-11T07:51:04.718Z",
+  "elapsedMs": 165142,
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "agentType": "hard-problem",
+  "defResolved": true,
+  "requestedModel": "zai/glm-5.3",
+  "playbookIncluded": true,
+  "playbookSha256": "bc8d9b3613c5824c3a5d2a0beb6d49496781cfa70955b1f30ea86cdd5a26d8b2",
+  "usage": {
+    "input": 22294,
+    "output": 8740,
+    "cacheRead": 172544,
+    "cacheWrite": 0,
+    "total": 203578,
+    "cost": 0.11452904
+  },
+  "turns": {
+    "turnsUsed": 11,
+    "maxTurns": 40
+  }
+}

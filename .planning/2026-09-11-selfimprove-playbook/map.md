@@ -44,16 +44,16 @@ through the devops chain, validated successor.
 
 ## Tickets
 
-- [ ] t01 scaffold: effort dir + branch (this commit)
-- [ ] t02 schema + seeded playbook: .planning/playbook.md (ExpeL extraction
+- [x] t01 scaffold: effort dir + branch (this commit)
+- [x] t02 schema + seeded playbook: .planning/playbook.md (ExpeL extraction
       dispatch → executor curation; every Evidence link machine-verified) +
       tests/playbook-schema.test.ts (subagent pkg)
-- [ ] t03 read-at-open: arc-plan.ts --include-playbook (prepends playbook,
+- [x] t03 read-at-open: arc-plan.ts --include-playbook (prepends playbook,
       receipt gains playbookIncluded + playbookSha256) + tests
-- [ ] t04 close-out wiring: self-reflect-next-goal WRITE gains Reflect &
+- [x] t04 close-out wiring: self-reflect-next-goal WRITE gains Reflect &
       Curate step; session-closeout-sop gains the twin lines; D5 boundary
       paragraph in the playbook header
-- [ ] t05 A/B: identical directive dispatched twice (with/without playbook),
+- [x] t05 A/B: identical directive dispatched twice (with/without playbook),
       mechanical checks (PB-id cites, sha256, 5-item repeated-mistake
       checklist) + arc-review.ts/harvest verdicts → evidence/ab-arc-open/
 - [ ] t06 PR via devops chain (no package.json / local_ci src edits)
@@ -103,3 +103,38 @@ through the devops chain, validated successor.
   curated strategy store (D5 boundary).
 - Builds-on: 2026-09-10-self-arc-22-review-harvest — the A/B uses the
   harvestable reviewer.
+
+## A/B results + findings (2026-09-11, evidence under evidence/ab-arc-open/)
+
+- Identical directive (gemma-column fill from the LATEST residuals),
+  dispatched twice: with playbook (sha bc8d9b3613c5 recorded in receipt) vs
+  without. Both glm-5.3, 11 turns each — controlled.
+- **Mechanical checks**: with-plan cites 16 distinct PB-nn ids (20 total
+  mentions); without-plan cites 0; playbookSha256 recorded only on the with
+  receipt. Checklist: stale-main/label-trust/devops-chain HIT on both;
+  handrolled-git flagged only in the with plan's safety notes.
+- **Adjudication verdict: PLAYBOOK-DISADVANTAGE** (arc-review.ts +
+  reviewer-harvest, receipt in evidence/ab-arc-open/). Mechanism: the
+  playbook demonstrably improved open/close ceremony (PB-01/02/03/04/05/16/
+  20 — dedicated worktree, status-flip discipline, effort-audit gate,
+  push-before-successor, cross-links) — but the with-planner CITED PB-12 to
+  justify REUSING drive-case's `/v1/models` contention oracle while missing
+  PB-12's own second clause (suspect the ruler): the list is a catalog, not
+  residency (`lms ps` showed nothing loaded), so its precondition was
+  unsatisfiable by construction. The no-playbook planner spent the same
+  budget on the measurement and found the catalog-vs-residency flaw itself.
+- **Curated delta #1 applied**: PB-12's strategy now includes the concrete
+  oracle distinction (catalog ≠ residency; `lms ps` for residency) with the
+  adjudication as evidence — the curator loop's first real delta, and the
+  playbook improved from its own first A/B (the ACE mechanism working).
+- Recorded for the successor: reviewer verdicts are a weak instrument for
+  plan quality (the drive-case learnings said so; this A/B is the receipt);
+  a same-turn-batch-aware C2 order check keyed to the EXPECTED skill's
+  position is still open from the A/B arc.
+
+## Shipped-as (2026-09-11)
+
+- PR <impl>: the playbook organ (playbook.md + schema test + arc-plan.ts
+  --include-playbook with receipt sha256 + SOP wiring) + the A/B experiment
+  + curated delta #1 (PB-12 oracle clause).
+- This PR flips the map done per CONVENTIONS.

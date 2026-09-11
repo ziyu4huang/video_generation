@@ -60,7 +60,12 @@ loop ENDS.
    branch from `origin/main` via `prepare-feature-branch-cli` before work).
 3. Read `output/LATEST-next-goal.md` (the symlink). Its `Immediate steps` ARE
    the queue head — execute in-session through every `Done when` box.
-4. If a step is factually impossible, surface it — don't improvise a
+4. Arc-open planner dispatches run with `--include-playbook`
+   (`bun-apps/s2-agent-ext-subagent/scripts/arc-plan.ts`) so the planner sees
+   `.planning/playbook.md` — the loop's curated strategies; cite the PB-nn
+   ids the plan applies. Arc-close runs the Reflect & Curate step (see §A /
+   self-reflect-next-goal WRITE step 7) to commit playbook deltas.
+5. If a step is factually impossible, surface it — don't improvise a
    different design. If `LATEST` is absent/dangling, say so and ask; never
    invent a goal while a queue holds tickets.
 

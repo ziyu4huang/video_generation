@@ -1,0 +1,1 @@
+Plan the next arc from output/LATEST-next-goal.md: fill the gemma column of the spwf-ab matrix (the gemma cells were deferred on LM Studio churn — see the spwf-ab-closing map's D5 precondition protocol). READ BUDGET: ~20 files. Return: effort name, Destination, the precondition check you will apply, tickets, and how you would run the gemma legs. Verify the current state yourself.
