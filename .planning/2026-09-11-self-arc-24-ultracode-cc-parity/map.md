@@ -2,7 +2,7 @@
 effort: 2026-09-11-self-arc-24-ultracode-cc-parity
 created: 2026-09-11
 last: 2026-09-11
-status: active
+status: done
 ---
 
 # self-arc-24 — ultracode → Claude Code parity (function + TUI)
@@ -359,3 +359,31 @@ t01 → t02 → (t03 ∥ t04) → t05 → t06. One PR per ticket, squash-merged 
   charted select rendering — record the probe evidence either way.
 - **GLM-5.3-only discipline:** every child in receipts proves model; flash models invalidate
   the receipt.
+
+
+## Shipped-as
+
+- t01 — `477f6cb1` feat(ultracode): options-aware checkpoint dialogs (checkpoint-confirm.ts; 8-case matrix).
+- t02 — `970cbf51` feat(ultracode): pre-flight ceiling-confirm (preflightCeilingDecision + tool-boundary gate).
+- t03 — `b4e75e7f` feat(ultracode): navigator transcript parity (timestamps + Duration; hygiene rider CORRECTION below).
+- t04 — `bee16fd3` feat(ultracode,core-runtime): steering plumbing seam (onSession → onAgentSession → steerWorkflowAgent).
+- t05 — `f687a1b1` docs(planning): deployed-verification receipts (0.10.3+gbee16fd).
+- t06 — this commit (map close-out + ledger 24 done).
+
+## Verification (t05, evidence/)
+
+Byte-greps on 0.10.3+gbee16fd bundles: steerWorkflowAgent ✓, agent-not-live ✓,
+"Pre-flight ceiling confirm" ✓, "Duration: " ✓, onSession ✓ (core + ext).
+Isolated work env: scratch repo drive — worktree-isolated editor commit a0f7023f
+reachable, shared main worktree untouched (notes.txt = "hello"), parent repo clean.
+Checkpoint headless: select+default+timeout → graceful default "Beta", no hang.
+
+## Corrections to planning-phase claims (honesty log)
+
+- The t03 "hygiene rider" message misread biome severities: the ~20 noNonNullAssertion
+  diagnostics were WARNINGS (main was check-clean); the true errors at that point were
+  introduced by my own --unsafe autofix pass. All behavior changes to tests from that
+  pass were reverted or verified equivalent; final gates are green (ultracode 1262
+  tests/0 fail, check exit 0, core-runtime 508 tests/0 fail).
+- Lesson recorded: pipe-wrapped gate commands mask exit codes — run gates with
+  unpiped exit-code capture (PB-14 adjacent; this session's recurring hazard).
