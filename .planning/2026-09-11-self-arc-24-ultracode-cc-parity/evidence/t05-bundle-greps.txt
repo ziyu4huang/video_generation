@@ -1,0 +1,18 @@
+Deployed tree: ~/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+gbee16fd (sha gbee16fd = t04 commit bee16fd3)
+Deploy mode: --no-freeze --force (fresh rebuild, deploy-report verdict skip-e2e w/ boot+ext-load+parity pass)
+Byte-greps (grep -rF -l, count of matching bundles):
+  steerWorkflowAgent            => ext/ultracode/ext.cjs  ✓
+  agent-not-live                => ext/ultracode/ext.cjs  ✓
+  Pre-flight ceiling confirm    => ext/ultracode/ext.cjs  ✓
+  "Duration: "                  => ext/ultracode/ext.cjs  ✓
+  onSession                     => s2-agent.js (core) + ext/ultracode/ext.cjs  ✓
+Isolated work env drive (scratch repo /Users/huangziyu/proj/dist/arc24-verify/scratch-si4S, seeded notes.txt=hello, app.js, commit 86fbfcd):
+  editor agent (isolation:worktree) committed a0f7023f "worktree-edit" adding
+  'worktree-edit-was-here' to notes.txt INSIDE the worktree;
+  commit reachable in scratch repo objects (git show a0f7023f:notes.txt ✓);
+  shared main worktree notes.txt UNCHANGED ("hello") ✓;
+  parent repo git status clean ✓ (untracked output/ = agent session dir, no tracked changes).
+Checkpoint headless drive: probe agent OK; checkpoint(kind:"select", choices, default:"Beta",
+  timeoutMs:5000) in -p (no-UI) mode → timeout → declared default "Beta", no hang, no throw.
+  Interactive dialog path is unit-proven (checkpoint-confirm.test.ts, 8 cases); the select
+  widget itself is pi-core's native select dialog (trust-prompt-tested). DESCOPE noted in map.

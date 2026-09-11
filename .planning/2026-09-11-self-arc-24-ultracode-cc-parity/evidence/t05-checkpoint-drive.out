@@ -1,0 +1,15 @@
+Workflow 執行完成(2 個 agent,共 24,174 tokens)。完整結果 JSON 如下:
+
+```json
+{
+  "probe": "OK",
+  "reply": "Beta"
+}
+```
+
+**觀察重點:**
+
+- **第一次呼叫失敗**:引擎拒絕執行——「workflow scripts must call agent() at least once; this workflow declared phases but did not run any subagents」。加入 probe agent 呼叫後即通過,與你預判的錯誤完全一致。
+- **probe** = `"OK"` — small-tier agent 照指示回了單字 OK。
+- **reply** = `"Beta"` — `checkpoint()` 的 select 閘門在 `timeoutMs: 5000` 內無人互動(inline 執行、非背景),最終回傳了 `default: "Beta"`。也就是說 checkpoint 沒有拋錯或掛住,而是超時後落回預設選項,行為是乾淨的 graceful fallback。
+- 過程中 `log()` 有成功輸出 checkpoint reply(`"Beta"`),整個流程正常收斂、無錯誤。
