@@ -138,7 +138,7 @@ through the devops chain, validated successor.
 
 ## Shipped-as (2026-09-11)
 
-- PR <impl>: the playbook organ (playbook.md + schema test + arc-plan.ts
+- PR #2273: the playbook organ (playbook.md + schema test + arc-plan.ts
   --include-playbook with receipt sha256 + SOP wiring) + the A/B experiment
   + curated delta #1 (PB-12 oracle clause).
 - This PR flips the map done per CONVENTIONS.
