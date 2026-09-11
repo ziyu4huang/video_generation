@@ -113,3 +113,89 @@ describe("deck pack/unpack — the unpacked manifest builds", () => {
 		}
 	});
 });
+
+// ── inline IR transport (2026-09-10-archify-envelope T2) ────────────────────
+describe("deck pack/unpack — inline IR transport", () => {
+	const config = JSON.parse(
+		readFileSync(join(EXAMPLES, "aspice4-alm", "deck.config.json"), "utf8"),
+	) as Record<string, unknown>;
+	const IR_A = { path: "../shared/ir/swe1.json", content: '{\n  "diagram_type": "architecture"\n}' };
+	const IR_B = { path: "../shared/ir/hwe2.json", content: '{\n  "diagram_type": "workflow"\n}' };
+
+	test("pack without opts.ir is byte-identical to the legacy envelope", () => {
+		const committed = readFileSync(
+			join(EXAMPLES, "aspice4-alm", "assessment.deckl"),
+			"utf8",
+		);
+		// The committed envelope was packed WITHOUT inline IR (path-only form);
+		// the manifest alone must reproduce it byte for byte.
+		expect(packDeck(config)).toBe(committed);
+		expect(packDeck(config, {})).toBe(committed);
+	});
+
+	test("pack embeds ir records after slides, sorted by path; header carries irCount", () => {
+		const envelope = packDeck(config, { ir: [IR_B, IR_A] });
+		const lines = envelope.split("\n").filter((l) => l.trim() !== "");
+		expect(lines[0]).toContain('"irCount":2');
+		const irLines = lines.filter((l) => l.includes('"kind":"ir"'));
+		expect(irLines).toHaveLength(2);
+		const paths = irLines.map((l) => (JSON.parse(l) as { path: string }).path);
+		expect(paths).toEqual([IR_A.path, IR_B.path].sort());
+		// IR records ride AFTER the slide lines.
+		const lastSlideIdx = lines.reduce((acc, l, i) => (l.includes('"kind":"slide"') ? i : acc), -1);
+		const firstIrIdx = lines.findIndex((l) => l.includes('"kind":"ir"'));
+		expect(firstIrIdx).toBeGreaterThan(lastSlideIdx);
+	});
+
+	test("ir round-trip: manifest untouched, irFiles recovered, repack byte-identical", () => {
+		const envelope = packDeck(config, { ir: [IR_A, IR_B] });
+		const back = unpackDeck(envelope);
+		expect(back.manifest).toEqual(config);
+		expect(back.irFiles).toEqual([IR_A, IR_B].sort((a, b) => (a.path < b.path ? -1 : 1)));
+		expect(packDeck(back.manifest, { ir: back.irFiles })).toBe(envelope);
+	});
+
+	test("duplicate path with different content is refused at pack (naming the path)", () => {
+		expect(() =>
+			packDeck(config, {
+				ir: [
+					{ path: "ir/swe1.json", content: "one" },
+					{ path: "ir/swe1.json", content: "two" },
+				],
+			}),
+		).toThrow(/IR path "ir\/swe1.json" appears twice with different content/);
+	});
+
+	test("duplicate path inside an envelope is refused at unpack", () => {
+		// A hand-forged envelope carrying the same ir path twice: the first is
+		// recoverable, the second must trip the unpack-side duplicate refusal.
+		const good = packDeck(config, { ir: [IR_A] });
+		const irLine = (content: string) =>
+			JSON.stringify({ kind: "ir", path: IR_A.path, content });
+		const forged = good + irLine("different") + "\n";
+		expect(() => unpackDeck(forged)).toThrow(/duplicate IR path/);
+	});
+
+	test("irCount mismatch is refused (a truncated envelope is not a deck)", () => {
+		const envelope = packDeck(config, { ir: [IR_A] });
+		const tampered = envelope.replace('"irCount":1', '"irCount":9');
+		expect(() => unpackDeck(tampered)).toThrow(
+			/header declares irCount 9 but the envelope carries 1 IR records/,
+		);
+	});
+
+	test("absolute record paths are refused at pack and at unpack", () => {
+		expect(() => packDeck(config, { ir: [{ path: "/etc/passwd", content: "x" }] })).toThrow(
+			/is absolute/,
+		);
+		const forgedLine = JSON.stringify({ kind: "ir", path: "/etc/passwd", content: "x" });
+		const header = packDeck(config).split("\n")[0]!;
+		const forged = header + "\n" + forgedLine + "\n";
+		expect(() => unpackDeck(forged)).toThrow(/absolute/);
+	});
+
+	test("unknown record kinds are still refused (old-reader semantics locked)", () => {
+		const forged = packDeck(config).split("\n")[0] + "\n" + '{"kind":"foo"}' + "\n";
+		expect(() => unpackDeck(forged)).toThrow(/unexpected record kind/);
+	});
+});
