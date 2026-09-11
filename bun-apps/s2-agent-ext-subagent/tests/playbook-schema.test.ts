@@ -60,16 +60,22 @@ function parsePlaybook(md: string): { frontmatter: Record<string, string>; entri
   return { frontmatter, entries, totalLines: lines.length };
 }
 
-function evidenceResolves(evidence: string): boolean {
-  // path citations: every .planning/... or bun-apps/... path must exist
+/** Path citations (deterministic, in-repo): every path must exist. */
+function pathsResolve(evidence: string): boolean {
   const pathM = evidence.match(/(?:\.planning|bun-apps)\/[A-Za-z0-9_./-]+/g);
-  if (pathM) {
-    for (const raw of pathM) {
-      const p = raw.replace(/[.,)]+$/, "");
-      if (!existsSync(join(REPO_ROOT, p))) return false;
-    }
+  if (!pathM) return true;
+  for (const raw of pathM) {
+    const p = raw.replace(/[.,)]+$/, "");
+    if (!existsSync(join(REPO_ROOT, p))) return false;
   }
-  // PR citations: #N must resolve as a merged commit via git log --grep
+  return true;
+}
+
+/** PR citations: #N must resolve as a merged commit via git log --grep.
+ *  LIVE GIT SPAWN — portability-audit P2 class, so the test using this is
+ *  env-gated (PLAYBOOK_SCHEMA_VERIFY_PR=1); the always-on test covers path
+ *  evidence without it. */
+function prResolvesMerged(evidence: string): boolean {
   for (const prM of evidence.matchAll(/#(\d{2,6})/g)) {
     const r = spawnSync(
       "git",
@@ -109,15 +115,28 @@ describe("loop playbook schema (.planning/playbook.md)", () => {
     expect(totalLines).toBeLessThanOrEqual(LINE_CAP);
   });
 
-  it("every Evidence citation resolves on disk or as a merged PR", () => {
+  it("every Evidence PATH citation resolves on disk", () => {
     const { entries } = parsePlaybook(readFileSync(PLAYBOOK, "utf8"));
     const unresolved: string[] = [];
     for (const e of entries) {
       if (e.status.startsWith("superseded")) continue; // dead entries may cite dead paths
-      if (!evidenceResolves(e.evidence)) unresolved.push(`${e.id}: ${e.evidence.slice(0, 90)}`);
+      if (!pathsResolve(e.evidence)) unresolved.push(`${e.id}: ${e.evidence.slice(0, 90)}`);
     }
     expect(unresolved).toEqual([]);
   });
+
+  it.skipIf(!process.env.PLAYBOOK_SCHEMA_VERIFY_PR)(
+    "PR citations resolve as merged (opt-in: PLAYBOOK_SCHEMA_VERIFY_PR=1)",
+    () => {
+      const { entries } = parsePlaybook(readFileSync(PLAYBOOK, "utf8"));
+      const bad: string[] = [];
+      for (const e of entries) {
+        if (e.status.startsWith("superseded")) continue;
+        if (!prResolvesMerged(e.evidence)) bad.push(`${e.id}: ${e.evidence.slice(0, 90)}`);
+      }
+      expect(bad).toEqual([]);
+    },
+  );
 
   it("ids are unique and sequential from PB-01", () => {
     const { entries } = parsePlaybook(readFileSync(PLAYBOOK, "utf8"));
