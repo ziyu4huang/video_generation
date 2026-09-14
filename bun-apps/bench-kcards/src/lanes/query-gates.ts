@@ -42,12 +42,21 @@ export function buildNoteMap(vaultPath: string, arxivIds: string[]): Record<stri
 			.split(",")
 			.map((t) => t.trim())
 			.filter((t) => t && t !== "zettel");
-		// find the graph note whose summary/content carries this title
+		// Bind the graph note by its FRONTMATTER source, exact: converged graph
+		// notes carry `source: "generic:<origin-card-stem>"` (verified on all
+		// 13 fixture notes). The shipped rule — first note whose CONTENT
+		// contains the title — let sibling notes steal the binding via their
+		// 連結 cross-links (measured 6-7/13 mis-bound on the real vault, which
+		// corrupted the tag-recall and production-MRR baselines). Frontmatter
+		// only: body tails carry `provenance: generic:<stem>` artifacts too.
+		const stem = name.replace(/\.md$/, "");
 		let graphNote = "";
 		for (const g of readdirSafe(kg)) {
 			if (!g.endsWith(".md")) continue;
 			const gmd = readFileSync(join(kg, g), "utf8");
-			if (gmd.includes(title)) {
+			if (!gmd.startsWith("---")) continue;
+			const fm = gmd.slice(0, gmd.indexOf("\n---", 3));
+			if (fm.includes(`generic:${stem}`)) {
 				graphNote = `Zettelkasten/knowledge-graph/${g.replace(/\.md$/, "")}`;
 				break;
 			}
