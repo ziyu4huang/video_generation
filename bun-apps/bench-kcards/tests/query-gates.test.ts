@@ -43,12 +43,13 @@ describe("T5 — query gates on the converged sandbox", () => {
 		const noteMap = buildNoteMap(vaultPath, loadGoldens().map((g) => g.arxivId));
 		const r = await tagRecall(vaultPath, noteMap);
 		expect(r.cardsChecked).toBe(13);
-		// measured 2026-09-10: recall@5 = 0.69 — the design target (0.90) is a
-		// recorded quality gap for the graph-note tag/summary work; the floor
-		// here guards against catastrophic regressions only.
-		expect(r.recallAt5).toBeGreaterThanOrEqual(0.5);
+		// measured 2026-09-15 (retrieval-lift-2 T0 ruler fix): recall@5 = 1.000.
+		// The recorded 0.69 gap was a buildNoteMap ruler artifact (sibling-title
+		// steal, 6-7/13 mis-bound targets) — with exact frontmatter binding the
+		// design target 0.90 is MET, so the gate now enforces it.
+		expect(r.recallAt5).toBeGreaterThanOrEqual(0.9);
 		console.log(`[2c] measured tag recall@5=${r.recallAt5.toFixed(3)} (design target 0.90 — shortfall is a recorded quality gap)`);
-	}, 120_000);
+	}, 600_000); // embed tier: the shared sandbox open embeds all 2364 notes (cache deliberately rebuilt)
 
 	test("2d retrieval MRR measurement + bite check (embed tier)", async () => {
 		if (!embedAvailable) {
@@ -67,5 +68,5 @@ describe("T5 — query gates on the converged sandbox", () => {
 		const bitten = await retrievalMrrAfterRemoval(vaultPath, goldens, noteMap);
 		expect(bitten.mrr).toBeLessThan(healthy.mrr);
 		console.log(`[2d] measured MRR=${healthy.mrr.toFixed(3)} hit@3=${healthy.hitAt3.toFixed(3)} (design threshold 0.70 — shortfall is a recorded quality gap)`);
-	}, 180_000);
+	}, 300_000);
 });

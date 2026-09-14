@@ -30,18 +30,42 @@ export function loadPaperCards(cardsDir: string): { rec: KnowledgeRecord; name: 
 	return out;
 }
 
-/** Converge the loaded paper records into the sandbox vault (in-process). */
-export async function converge(vaultPath: string, cards: { rec: KnowledgeRecord }[]): Promise<IngestSummary> {
-	return ingestRecords(
-		cards.map((c) => c.rec),
-		{
-			vaultPath,
-			source: "generic",
-			sourceLabel: "generic:paper-cards",
-			folder: "Zettelkasten/knowledge-graph",
-			indexRebuild: true,
-		},
-	);
+/** Converge the loaded paper records into the sandbox vault (in-process),
+ *  PRODUCTION-FAITHFUL: one ingestRecords call per record with the per-record
+ *  label `generic:<card-stem>` — mirroring zk_ingest's generic multi-file
+ *  path (extensions/knowledge-card.ts). The shipped single-call form with a
+ *  uniform `sourceLabel: "generic:paper-cards"` REWROTE every converged
+ *  note's `source:` frontmatter, diverging from the real vault (where each
+ *  note carries `source: "generic:Paper - <title>"`) and breaking the
+ *  frontmatter-based target binding. Counters merge like the extension's
+ *  label-group merge. */
+export async function converge(vaultPath: string, cards: { rec: KnowledgeRecord; name?: string }[]): Promise<IngestSummary> {
+	const ingestOpts = {
+		vaultPath,
+		source: "generic" as const,
+		folder: "Zettelkasten/knowledge-graph",
+		indexRebuild: true,
+	};
+	let summary: IngestSummary | undefined;
+	for (const c of cards) {
+		const label = `generic:${(c.name ?? "paper").replace(/\.md$/, "")}`;
+		const s = await ingestRecords([c.rec], { ...ingestOpts, sourceLabel: label });
+		if (!summary) {
+			summary = s;
+			continue;
+		}
+		summary.total += s.total;
+		summary.created += s.created;
+		summary.updated += s.updated;
+		summary.unchanged += s.unchanged;
+		summary.skipped += s.skipped;
+		summary.linked += s.linked;
+		summary.wikiMerged += s.wikiMerged;
+		summary.semanticMerged += s.semanticMerged;
+		summary.cards.push(...s.cards);
+		summary.mocUpdated = summary.mocUpdated || s.mocUpdated;
+	}
+	return summary!;
 }
 
 /**
