@@ -42,6 +42,7 @@ import {
   tierDefaultToken,
 } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
+import { type AgentTrustSurface, gateProjectAgentBatch, trustSurfaceFromCtx } from "./agent-trust.js";
 import { buildAgentTypeCatalog, withAgentTypeCatalog } from "./agent-type-catalog.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";
@@ -178,6 +179,11 @@ export interface SubagentsToolOptions {
   spawn?: (opts: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /** Injectable agent-type registry for tests (defaults to loadAgentRegistry(cwd)). */
   agentRegistry?: AgentRegistry;
+  /**
+   * Trust surface for the project-agent gate (t04, self-arc-25). Defaults to
+   * trustSurfaceFromCtx(execute ctx). Injectable for tests and embedders.
+   */
+  agentTrust?: AgentTrustSurface;
   /** Pre-built agentType catalog for the description (self-arc-8); tests pin it. */
   agentTypeCatalog?: string;
   inFlight?: SubagentInFlightRegistry;
@@ -447,6 +453,17 @@ export function createSubagentsTool(
           continue;
         }
         agentDefs.set(index, def);
+      }
+      // Trust gate (t04): project-local agent definitions are repo-controlled.
+      // One confirm covers every offending slot; a decline (or no-UI) rejects
+      // the whole batch early, listing the offending indexes (map D6).
+      if (agentDefs.size > 0) {
+        const trust = options.agentTrust ?? trustSurfaceFromCtx(_ctx);
+        const rejections = await gateProjectAgentBatch(
+          [...agentDefs.entries()].map(([index, def]) => ({ index, def })),
+          trust,
+        );
+        for (const [index, error] of rejections) typeErrors.push(`[${index}] ${error}`);
       }
       if (typeErrors.length > 0) {
         const known = listAgentTypes(agentRegistry).map((t) => t.name);
