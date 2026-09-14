@@ -37,6 +37,7 @@ import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent, GuardedComponent } from "./composer-component.js";
 import { realGitOps, realGitSnapshotOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
+import { capChildOutput } from "./output-cap.js";
 import {
   consecutiveIdenticalFailures,
   DEFAULT_RETRY_CIRCUIT_BREAK,
@@ -730,7 +731,12 @@ export function createSubagentTool(
               },
             ),
           );
-          return { content: [{ type: "text" as const, text: output }], details };
+          // Parent-visible output cap (upstream PER_TASK_OUTPUT_CAP parity):
+          // the full augmented text stays in details.output; the durable
+          // record above already carries it too.
+          const capped = capChildOutput(output);
+          if (capped.capped) details.output = output;
+          return { content: [{ type: "text" as const, text: capped.text }], details };
         } finally {
           // dispatchChild owns the abort-listener cleanup and the in-flight
           // release (both in its own finally, so they run on a throw too). The

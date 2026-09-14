@@ -100,6 +100,15 @@ export interface SubagentToolDetails {
   watchdog?: WatchdogResult;
   /** Terminal-abort salvage — see {@link SubagentSalvage}. Abort paths only. */
   salvage?: SubagentSalvage;
+  /**
+   * Full child output — present ONLY when the parent-visible content was
+   * capped by {@link capChildOutput} (upstream PER_TASK_OUTPUT_CAP parity):
+   * the tool `content` shows the first CHILD_OUTPUT_CAP units plus the cap
+   * marker, and the full text is preserved here for UI expand. Absent for
+   * under-cap runs (the content IS the full text then). The durable run
+   * record always carries the full output independently.
+   */
+  output?: string;
 }
 
 /**
