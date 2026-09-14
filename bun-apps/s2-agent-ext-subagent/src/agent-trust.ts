@@ -16,6 +16,7 @@
  *    the framework we embed.
  */
 
+import { getAgentDir, ProjectTrustStore } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition } from "@repo/s2-agent-core-runtime";
 
 /** The slice of the pi tool/extension context the gate needs. */
@@ -47,6 +48,49 @@ export function trustSurfaceFromCtx(ctx: unknown): AgentTrustSurface {
   };
 }
 
+export interface AgentTrustSurfaceOptions {
+  /** The pi tool-execute ctx — supplies hasUI/confirm and the degrade fallback. */
+  ctx: unknown;
+  /** Dispatch cwd — the trust ANCHOR (matches where loadAgentRegistry reads
+   *  project defs from: `runCwd` singular, `defaultCwd` batch). */
+  cwd: string;
+  /** Agent dir holding trust.json (defaults to pi's getAgentDir()). Tests pin
+   *  a temp dir here. */
+  agentDir?: string;
+}
+
+/**
+ * Store-backed default surface (self-arc-26): the trust verdict comes from
+ * pi's real ProjectTrustStore (`<agentDir>/trust.json`) at CALL time — the
+ * store can change mid-session via the host's trust flow, and freshness is
+ * the feature. Mapping (arc-26 map D3/D4/D5):
+ *  - store `true`/`false` → that verdict (nearest-ancestor entry wins — pi's
+ *    own `findNearestTrustEntry` semantics);
+ *  - store `null` (no entry — pi's "ask") → UNTRUSTED: in this host the
+ *    no-UI branch then default-DENYs and the TUI branch confirms — the ask;
+ *  - unreadable/corrupt store → degrade to the ctx surface (fail-open) —
+ *    availability over gate-strictness for a broken LOCAL store;
+ *  - hasUI/confirm always from ctx (the parent owns the UI).
+ * This is what makes the #2280 gate non-latent: ctx.isProjectTrusted() alone
+ * never reports false here (pi's SettingsManager defaults projectTrusted=true
+ * and the host never resolves trust).
+ */
+export function createAgentTrustSurface(opts: AgentTrustSurfaceOptions): AgentTrustSurface {
+  const ctxSurface = trustSurfaceFromCtx(opts.ctx);
+  return {
+    isProjectTrusted: () => {
+      try {
+        const decision = new ProjectTrustStore(opts.agentDir ?? getAgentDir()).get(opts.cwd);
+        return decision === null ? false : decision;
+      } catch {
+        return ctxSurface.isProjectTrusted();
+      }
+    },
+    hasUI: ctxSurface.hasUI,
+    confirm: ctxSurface.confirm,
+  };
+}
+
 export interface GateVerdict {
   ok: boolean;
   /** Rejection text — names the agent, its file, and the trust fix. */
@@ -70,7 +114,7 @@ export async function gateProjectAgent(def: AgentDefinition, trust: AgentTrustSu
   const names = def.fileName ? `Agent: ${def.name}\nSource: ${def.fileName}` : `Agent: ${def.name}`;
   const approved = await trust.confirm(
     "Run project-local agents?",
-    `${names}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
+    `${names}\n\nProject agents are repo-controlled. Only continue for trusted repositories.\nTrust this project permanently via the host trust flow (~/.pi/agent/trust.json).`,
   );
   if (!approved) return { ok: false, error: `Canceled: project-local agent "${def.name}" not approved.` };
   return { ok: true };
@@ -95,7 +139,7 @@ export async function gateProjectAgentBatch(
     .join("\n");
   const approved = await trust.confirm(
     "Run project-local agents?",
-    `Agents:\n${listing}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
+    `Agents:\n${listing}\n\nProject agents are repo-controlled. Only continue for trusted repositories.\nTrust this project permanently via the host trust flow (~/.pi/agent/trust.json).`,
   );
   if (!approved) {
     for (const { index, def } of gated)

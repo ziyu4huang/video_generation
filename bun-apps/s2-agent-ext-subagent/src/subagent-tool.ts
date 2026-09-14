@@ -31,7 +31,7 @@ import {
   tierDefaultToken,
   type Worktree,
 } from "@repo/s2-agent-core-runtime";
-import { gateProjectAgent, trustSurfaceFromCtx } from "./agent-trust.js";
+import { createAgentTrustSurface, gateProjectAgent } from "./agent-trust.js";
 import { buildAgentTypeCatalog, withAgentTypeCatalog } from "./agent-type-catalog.js";
 import { getBackgroundRunManager } from "./background-run-manager.js";
 import { dispatchChild } from "./child-dispatch.js";
@@ -205,7 +205,7 @@ export function createSubagentTool(
         }
         // Trust gate (t04): project-local agent definitions are repo-controlled.
         if (agentDef.source === "project") {
-          const trust = options.agentTrust ?? trustSurfaceFromCtx(_ctx);
+          const trust = options.agentTrust ?? createAgentTrustSurface({ ctx: _ctx, cwd: runCwd });
           const verdict = await gateProjectAgent(agentDef, trust);
           if (!verdict.ok) return failEarly(verdict.error ?? "project agent not approved");
         }

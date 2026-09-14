@@ -23,6 +23,9 @@ import type {
 } from "@repo/s2-agent-core-runtime";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import { ok } from "./_spawn-result.js";
+import { installSyntheticTrustRoot } from "./_trust-fixture.js";
+
+installSyntheticTrustRoot();
 
 function mkRegistry(defs: AgentDefinition[]): AgentRegistry {
   const registry: AgentRegistry = new Map();

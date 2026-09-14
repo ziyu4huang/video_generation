@@ -18,6 +18,9 @@ import { resolveDisplayModel } from "../src/subagent-tool-run.js";
 import { subagentToolSchema } from "../src/subagent-tool-schema.js";
 import { createSubagentsTool, subagentsToolSchema } from "../src/subagents-tool.js";
 import { ok } from "./_spawn-result.js";
+import { installSyntheticTrustRoot } from "./_trust-fixture.js";
+
+installSyntheticTrustRoot();
 
 const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;

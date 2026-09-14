@@ -36,6 +36,9 @@ import {
   sumUsage,
 } from "../src/subagents-tool.js";
 import { budgetAbort, failed, ok, timedout, turnsAbort } from "./_spawn-result.js";
+import { installSyntheticTrustRoot } from "./_trust-fixture.js";
+
+installSyntheticTrustRoot();
 
 test("createSubagentsTool has name 'list_subagents' + executionMode 'sequential'", () => {
   const tool = createSubagentsTool();

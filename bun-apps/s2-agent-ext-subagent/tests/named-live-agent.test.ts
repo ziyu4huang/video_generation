@@ -21,6 +21,9 @@ import {
 } from "@repo/s2-agent-core-runtime";
 import { createSubagentTool } from "../src/subagent-tool.js";
 import { ok } from "./_spawn-result.js";
+import { installSyntheticTrustRoot } from "./_trust-fixture.js";
+
+installSyntheticTrustRoot();
 
 const NO_SIGNAL = undefined as never;
 const NO_CTX = { cwd: "/repo" } as never;
