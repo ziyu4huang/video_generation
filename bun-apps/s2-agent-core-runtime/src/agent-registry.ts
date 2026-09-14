@@ -38,6 +38,8 @@ export interface AgentDefinition {
   tier?: string;
   /** Isolation mode. When "worktree", agents using this type run in a git worktree. */
   isolation?: "worktree";
+  /** Source file the definition was parsed from (basename, project/user packs). Absent for code-defined pack agents. */
+  fileName?: string;
   /** Max spawn depth permitted WITHIN this def's subtree, counting the def's
    *  own level (self-arc-19 t03). Undefined = inherit the parent's cap; the
    *  root session caps at 2 (children + grandchildren). 0 = this def may not
@@ -103,6 +105,7 @@ export function parseAgentDefinition(
       typeof fm.maxDepth === "number" && Number.isInteger(fm.maxDepth) && fm.maxDepth >= 0 ? fm.maxDepth : undefined,
     prompt,
     source,
+    fileName,
   };
 }
 

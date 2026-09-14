@@ -21,6 +21,7 @@ import type {
 } from "@repo/s2-agent-core-runtime";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
+import type { AgentTrustSurface } from "./agent-trust.js";
 import type { BackgroundRunManager } from "./background-run-manager.js";
 import type { GitScopeOps, GitSnapshotOps, SubagentScopeCheck } from "./git-scope.js";
 import type { RosterRow } from "./startup-context.js";
@@ -315,6 +316,12 @@ export interface SubagentToolOptions {
   liveRegistry?: LiveAgentRegistry;
   /** Injectable named-agent first-exchange runner for tests (defaults to spawnLiveAgentFirstExchange). */
   spawnLive?: typeof spawnLiveAgentFirstExchange;
+  /**
+   * Trust surface for the project-agent gate (t04, self-arc-25). Defaults to
+   * trustSurfaceFromCtx(execute ctx): pi reports isProjectTrusted/hasUI/ui.
+   * Injectable for tests and for embedders that decide trust elsewhere.
+   */
+  agentTrust?: AgentTrustSurface;
   /** Injectable agentType registry for tests (defaults to loadAgentRegistry(cwd) per call). */
   agentRegistry?: AgentRegistry;
   /**
