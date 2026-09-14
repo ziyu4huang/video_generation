@@ -47,6 +47,7 @@ import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";
 import { type GitSnapshotOps, realGitOps, realGitSnapshotOps } from "./git-scope.js";
 import { missingRequiredTools } from "./impossible-tools.js";
+import { capChildOutput } from "./output-cap.js";
 import {
   buildSiblingRoster,
   buildStartupContextBlock,
@@ -929,7 +930,11 @@ export function renderBatchResult(details: SubagentsToolDetails): string {
       if (slot.status === "aborted") {
         return `### [${i}]${slot.id ? ` (${slot.id})` : ""} aborted\n_(user-aborted mid-flight)_`;
       }
-      return `### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}\n${slot.output || "_(empty output)_"}`;
+      // Parent-visible output cap (upstream PER_TASK_OUTPUT_CAP parity) — the
+      // slot in `details` keeps the full text; the durable per-slot run record
+      // carries it independently.
+      const capped = capChildOutput(slot.output || "");
+      return `### [${i}]${slot.id ? ` (${slot.id})` : ""} ${slot.status}\n${capped.text || "_(empty output)_"}`;
     })
     .join("\n\n");
   return `${header}\n\n${body}`;
