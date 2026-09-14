@@ -1,0 +1,4 @@
+PRE-fix deployed evidence (2026-09-14, current → 0.10.3+gbee16fd):
+grep -c 'NaNUse' ext/wayfind/ext.cjs = 0 (minifier splits literals)
+grep -c 'NaN"+"Use' ext/wayfind/ext.cjs = 1 (minified adjacency — the bug IS shipped)
+grep -c 'Prefer action' = 0 (the #455 steering sentence is absent from every boot)
