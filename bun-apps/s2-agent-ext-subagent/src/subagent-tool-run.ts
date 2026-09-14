@@ -512,6 +512,10 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
       t && typeof t === "object" && (t as { name?: string }).name === "send_message" ? stamped : t,
     );
   }
+  // t05 (self-arc-25): per-run live-Σ ledger — what THIS run has already
+  // accrued into the in-flight record across onHistory ticks; the completion
+  // onUsage settles only the remainder. Fresh per spawn-options build = per run.
+  let accruedLive = { costUsd: 0, tokensIn: 0, tokensOut: 0 };
   return {
     task,
     // H1: real per-task label (was a hardcoded "zk-spawn" leaking into every
@@ -554,11 +558,23 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
       // cost) into the registry record so RunView carries live costUsd/tokensIn/
       // tokensOut (frozen at terminal by accrueUsage itself). The registry
       // no-ops for unknown ids, so this is safe even when inFlight is absent.
-      deps.inFlight?.accrueUsage?.(toolCallId, {
+      // t05: onUsage is the completion-time AUTHORITY — accrue only the
+      // remainder the live per-message path (onHistory) hasn't accrued yet, so
+      // the final sum is exact regardless of which channel saw more.
+      const cumulative = {
         costUsd: u.cost ?? 0,
         tokensIn: u.input ?? 0,
         tokensOut: u.output ?? 0,
-      });
+      };
+      const delta = {
+        costUsd: Math.max(0, cumulative.costUsd - accruedLive.costUsd),
+        tokensIn: Math.max(0, cumulative.tokensIn - accruedLive.tokensIn),
+        tokensOut: Math.max(0, cumulative.tokensOut - accruedLive.tokensOut),
+      };
+      accruedLive.costUsd = cumulative.costUsd;
+      accruedLive.tokensIn = cumulative.tokensIn;
+      accruedLive.tokensOut = cumulative.tokensOut;
+      deps.inFlight?.accrueUsage?.(toolCallId, delta);
     },
     onHistory:
       deps.onUpdate || deps.inFlight || deps.persistence
@@ -567,6 +583,25 @@ export function buildSpawnOptions(ctx: SpawnCtx, progress: RunProgress, deps: Sp
             try {
               const toolCallsNow = history.filter((h) => h.kind === "toolCall").length;
               progress.maxToolCallsSeen = Math.max(progress.maxToolCallsSeen, toolCallsNow);
+              // t05 (self-arc-25): live per-message Σ — each entry carries the
+              // usage of ITS assistant message (first-entry attachment); diff
+              // against what this run already accrued so the tick is monotone
+              // and the completion onUsage settles the exact remainder.
+              const cum = { costUsd: 0, tokensIn: 0, tokensOut: 0 };
+              for (const h of history) {
+                if (h.usage) {
+                  cum.costUsd += h.usage.cost;
+                  cum.tokensIn += h.usage.input;
+                  cum.tokensOut += h.usage.output;
+                }
+              }
+              const delta = {
+                costUsd: Math.max(0, cum.costUsd - accruedLive.costUsd),
+                tokensIn: Math.max(0, cum.tokensIn - accruedLive.tokensIn),
+                tokensOut: Math.max(0, cum.tokensOut - accruedLive.tokensOut),
+              };
+              accruedLive = cum;
+              deps.inFlight?.accrueUsage?.(toolCallId, delta);
               deps.inFlight?.update?.(toolCallId, history);
               (deps.onUpdate as ((u: unknown) => void) | undefined)?.({
                 content: [
