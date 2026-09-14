@@ -17,6 +17,14 @@ export interface AgentHistoryEntry {
   toolCallId?: string;
   isError?: boolean;
   timestamp?: number;
+  /**
+   * Per-message usage (t05, self-arc-25) — projected from the raw pi-ai
+   * assistant message and attached ONLY to the first entry of each message.
+   * Absent on user/tool entries, assistant messages without usage, and legacy
+   * projections. Presentational: NEVER a billing source (the completion-time
+   * onUsage remains the authority).
+   */
+  usage?: { input: number; output: number; cost: number };
 }
 
 export interface AgentHistoryOptions {
@@ -48,11 +56,33 @@ export function compactAgentHistory(messages: unknown[], options: AgentHistoryOp
     }
 
     if (role === "assistant") {
+      // Per-message usage projection (t05, self-arc-25): pi-ai Usage is flat
+      // numbers + nested cost. Attached to the FIRST entry of each assistant
+      // message so consumers can sum unique per-message usage without
+      // double-counting multi-block turns. Live-Σ consumers diff these
+      // cumulatively; the completion-time onUsage remains the authority.
+      const rawUsage = asRecord(message.usage);
+      const rawCost = asRecord(rawUsage?.cost);
+      const usage = rawUsage
+        ? {
+            input: typeof rawUsage.input === "number" ? rawUsage.input : 0,
+            output: typeof rawUsage.output === "number" ? rawUsage.output : 0,
+            cost: typeof rawCost?.total === "number" ? rawCost.total : 0,
+          }
+        : undefined;
+      let firstEntry = true;
       for (const part of Array.isArray(message.content) ? message.content : []) {
         const block = asRecord(part);
         if (!block || typeof block.type !== "string") continue;
         if (block.type === "text" && typeof block.text === "string" && block.text.trim()) {
-          entries.push({ role: "assistant", kind: "text", text: block.text, timestamp });
+          entries.push({
+            role: "assistant",
+            kind: "text",
+            text: block.text,
+            timestamp,
+            ...(firstEntry ? { usage } : {}),
+          });
+          firstEntry = false;
         } else if (block.type === "toolCall" && typeof block.name === "string") {
           entries.push({
             role: "assistant",
@@ -61,7 +91,9 @@ export function compactAgentHistory(messages: unknown[], options: AgentHistoryOp
             toolCallId: typeof block.id === "string" ? block.id : undefined,
             text: stringifyCompact(block.arguments ?? {}),
             timestamp,
+            ...(firstEntry ? { usage } : {}),
           });
+          firstEntry = false;
         }
       }
       if (typeof message.errorMessage === "string" && message.errorMessage.trim()) {
