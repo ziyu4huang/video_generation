@@ -258,10 +258,11 @@
       "series": "self-arc",
       "number": 26,
       "path": ".planning/2026-09-15-self-arc-26-project-trust-wiring",
-      "status": "active",
+      "status": "done",
       "claimedAt": "2026-09-15",
       "branch": "self-arc-26-project-trust-wiring",
-      "note": "host project-trust wiring: make #2280's latent gate real via a subagent-scoped trust-store source (read ~/.pi/agent/trust.json for the dispatch cwd, mirror pi trust-manager semantics; ctx supplies UI only). Queue head = validated next-goal 20260914-234500. Receipt: evil.md scenario denies on a fresh pinned deploy."
+      "note": "host project-trust wiring: make #2280's latent gate real via a subagent-scoped trust-store source (read ~/.pi/agent/trust.json for the dispatch cwd, mirror pi trust-manager semantics; ctx supplies UI only). Queue head = validated next-goal 20260914-234500. Receipt: evil.md scenario denies on a fresh pinned deploy. SHIPPED: #2285 (store-backed trust surface). Deployed proof: evil.md DENIES on pinned 0.10.4+g60663ae (N1); trusted + ancestor controls run ungated (P1/P2); T1 TUI-confirm leg = recorded gap. Merge rode the deploy-e2e's documented zai fallback lane during a live DeepSeek outage. Close-out = the next PR.",
+      "mergedPr": 2285
     }
   ]
 }

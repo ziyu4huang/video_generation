@@ -1,8 +1,8 @@
 ---
 effort: 2026-09-15-self-arc-26-project-trust-wiring
 created: 2026-09-15
-last: 2026-09-15
-status: active
+last: 2026-09-15 (closed)
+status: done
 ---
 
 # Wayfinder map: self-arc-26 — host project-trust wiring (make #2280's latent gate real)
@@ -155,6 +155,54 @@ written.
   source; label ≠ content) → the t02 pre-drive greps; learning #6 (long-lived
   host runs frozen code) → every t02 leg launches a FRESH process.
 
+## Shipped-as
+
+Planner-leg disclosure: the GLM-5.3 planner hit its 40-turn cap
+(`plan-receipt.json` `kind: "turns"`, $1.35) and self-healed by committing its
+own map + an audit-fix commit (canonical map.md rename); plan.md is a 0-byte
+adjudication stub retained verbatim.
+
+- **t01** — #2285 (merge `fc293ff6`): `createAgentTrustSurface` — pi
+  ProjectTrustStore verdict at the dispatch cwd (ancestor walk, null→untrusted,
+  corrupt-store→ctx fail-open); both tools default to it; 9 new pins + 10
+  legacy policy tests untouched; synthetic-cwd files use
+  `tests/_trust-fixture.ts`.
+- **t02** — receipts only: `evidence/deployed-verification/README.md` on
+  pinned `0.10.4+g60663ae` — N1 evil DENY (names `evil.md`, no child ran),
+  P1 trusted positive control (`hard-problem` → ALIVE), P2 ancestor-walk
+  control (`evil2` → ANCESTOR-OK), T1 = recorded gap; greps green on both
+  bundles.
+- **t03** — this close-out PR.
+
+## Corrections to planning-phase claims
+
+1. **t02 ran from the BRANCH deploy, not a post-merge main deploy** (map
+   implied the latter via "t01 merged on main" precondition): the merge was
+   externally deferred by a LIVE DeepSeek outage hanging the deploy-e2e's
+   deepseek leg (curl-probed, dated defer in the receipts README). The
+   deployed label `0.10.4+g60663ae` names THIS branch's tip = the exact PR
+   #2285 diff (merge was fast-forward/squash of the same tree), so the
+   deployed-bytes custody chain holds; the e2e precondition's SUBSTANCE
+   (verifying the shipped code) is intact. PR #2285 merged later the same
+   session via the deploy-e2e's own provider-lane mechanism —
+   `E2E_PROVIDER = PI_AGENT_E2E_PROVIDER ?? (DEEPSEEK_API_KEY ? "deepseek" :
+   ZAI_API_KEY ? "zai" : "deepseek")` (e2e-core-tool-roundtrip.test.ts:76-78):
+   with the DeepSeek key absent from the merge shell's env, the lane
+   auto-selected zai/glm-5.3-flash. Retained artifacts: the merge-CLI call
+   output (`evidence/merge-call-receipt.log`: PR #2285 merged into main) and
+   the deploy verdict (`"verdict": "pass"`, `0.10.4+g60663ae` in
+   /tmp/arc26-deploy.log summary); green CI runs leave no log dir by design
+   (merge CLI LAZY note).
+2. **Batch trust-anchor nuance discovered during implementation**: the batch
+   tool's registry loads from `defaultCwd` only, so the batch gate anchors at
+   `defaultCwd` — a per-task `cwd` diverging from it is NOT separately
+   trusted-checked (pre-existing registry/dispatch mismatch, fog-of-war
+   item, unchanged by this arc).
+3. **Held claims:** the 10 legacy policy tests stayed green untouched; the
+   schema-cost gate passed in CI (no description/param edits — `agentTrust`
+   is a code option); ancestor semantics matched pi's shipped
+   `findNearestTrustEntry` exactly (P2 proved it on the deployed tree).
+
 ## Scope
 
 ### In
@@ -200,7 +248,7 @@ next-goal at every merged ticket; the queue drains at t03's close-out.
 
 ## Tickets
 
-### t01 — store-backed trust surface + pin tests [build] — status: open
+### t01 — store-backed trust surface + pin tests [build] — status: done (#2285 merged)
 
 **File surfaces** (all in `bun-apps/s2-agent-ext-subagent/`):
 
@@ -321,7 +369,7 @@ Unreachable surfaces (e.g. T1 skipped) recorded as gaps, never passes (PB-15).
 **Done when:** N1 + P1 + P2 PASS on the pinned dir with receipts committed
 (T1 optional-or-gap); map Context updated with measured results.
 
-### t03 — close-out [close] — status: open (blocked-by t02)
+### t03 — close-out [close] — status: done (this close-out PR)
 
 - **PB-03:** tree clean, everything committed on the branch and pushed BEFORE
   the successor file; PR(s) merged (merge CLI gated ONLY on the programmatic

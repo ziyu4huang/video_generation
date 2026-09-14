@@ -1,0 +1,75 @@
+── schema-cost regression ──────────────────────────────
+  baseline totalTokens : 25792  (84 tools)
+  live     totalTokens : 25997  (84 tools)
+  delta                : +205 tokens (0.79%)
+  threshold            : +5% (WARNING only, not a block)
+───────────────────────────────────────────────────────
+✓ schema cost within threshold (baseline held).
+{
+  "pr": 2285,
+  "merged": true,
+  "verdict": "CLEAN",
+  "branchSpent": false,
+  "commands": [
+    "git config --get devops.remote",
+    "git remote get-url origin",
+    "gh auth token",
+    "git -C /Users/huangziyu/proj/video_generation__subagent status --porcelain=v1",
+    "git -C \"/Users/huangziyu/proj/video_generation__subagent\" rev-parse --verify -q origin/main",
+    "git -C \"/Users/huangziyu/proj/video_generation__subagent\" rev-parse --verify origin/main",
+    "git -C \"/Users/huangziyu/proj/video_generation__subagent\" diff --name-only origin/main...self-arc-26-project-trust-wiring",
+    "bash -c bash scripts/check-lockfile-freshness.sh",
+    "bash -c bun test && bun run typecheck",
+    "bash -c bash scripts/ci-file-size-guard.sh",
+    "bash -c bash scripts/check-lockfile-duplicate-versions.sh",
+    "bun run check",
+    "bash -c bun run test:deps",
+    "bash -c bun run test:base-set",
+    "bash -c bun run test",
+    "bash -c bun test",
+    "bash -c bun test && bun run qa",
+    "bash -c bun run test:adr",
+    "bash -c bun run test:skills-ref",
+    "bash -c bun run test:skill-frontmatter",
+    "bash -c bun run test:dead-export",
+    "bash -c bun run test:seam",
+    "bash -c bun run test:routing",
+    "bash -c bun run test:tool-naming",
+    "bash -c bun run test:isolation",
+    "bash -c bun run test:config-parity",
+    "bash -c bun run test:portability-audit",
+    "bash -c bun run test:ci-workflow",
+    "bash -c bun run test:no-bash-skills",
+    "bash -c bun run test:scripts",
+    "bash -c bun run test:dist",
+    "bash -c bash scripts/check-deploy-e2e.sh",
+    "bash -c bun run test:ext-entry",
+    "bash -c bun run typecheck:ext",
+    "bash -c bun run test:lint-coverage",
+    "bash -c bash scripts/test-portability-audit.sh --strict",
+    "bash -c bash scripts/test-determinism-audit.sh --strict",
+    "bash -c bun test tests/merge-pr-after-ci-cli.test.ts",
+    "bash -c bun scripts/check-schema-cost.ts",
+    "bash -c node scripts/check-declared-imports.mjs",
+    "bun /Users/huangziyu/proj/video_generation__subagent/bun-apps/s2-agent/src/cli.ts -p Reply with exactly: ok -ne -ns",
+    "git -C \"/Users/huangziyu/proj/video_generation__subagent\" diff --name-only origin/main self-arc-26-project-trust-wiring",
+    "bun /Users/huangziyu/proj/video_generation__subagent/bun-apps/s2-agent/src/cli.ts cli tools-metrics --schema-cost --json",
+    "git -C /Users/huangziyu/proj/video_generation__subagent show --numstat --format= fc293ff6d1edfd3de0f1868e095d91f51699cf67",
+    "git -C /Users/huangziyu/proj/video_generation__subagent fetch origin fc293ff6d1edfd3de0f1868e095d91f51699cf67",
+    "git -C /Users/huangziyu/proj/video_generation__subagent show --numstat --format= fc293ff6d1edfd3de0f1868e095d91f51699cf67",
+    "git symbolic-ref refs/remotes/origin/HEAD",
+    "git branch --merged main",
+    "git rev-parse --verify -q self-arc-26-project-trust-wiring",
+    "git -C /Users/huangziyu/proj/video_generation__subagent show fc293ff6d1edfd3de0f1868e095d91f51699cf67:bun-apps/s2-agent/package.json",
+    "git -C /Users/huangziyu/proj/video_generation__subagent show origin/main:bun-apps/s2-agent/package.json",
+    "git fetch --prune"
+  ],
+  "warnings": [
+    "e2e preflight: VERIFY_E2E_MODEL is unset — recommend VERIFY_E2E_MODEL=deepseek/deepseek-v4-flash-vision-exp for the deterministic-latency lane (#2140).",
+    "PR #2285 merged into main — the default-branch worktree / this cwd may now be behind origin/main; run sync_default_branch to catch up."
+  ],
+  "mergeStateSettle": {
+    "mergeState": "CLEAN",
+    "polls": 1
+  }
+}

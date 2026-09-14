@@ -28,4 +28,11 @@ Date: 2026-09-15 · Model policy: GLM-5.3 on every LLM leg (PB-12); flash exclud
 
 ## External-event note (dated defer, PB-14)
 
-PR #2285's merge is gated by the local-CI deploy-e2e leg `core-tool roundtrip … deepseek flash-vision`, which calls the LIVE DeepSeek API. On 2026-09-15 ~03:00–03:35 CST that provider hung on POST /chat/completions (curl probe: TLS connects, HTTP 401 on bare root instantly, completions 0-bytes-timeout at 25–30s ×2) → the leg timed out at 180s twice (attempt log: `output/ci-logs/pr-2285-20260915-032150|032703`). Two attempts consumed; the blocker is external. Merge retry follows as soon as DeepSeek serves again; t02's legs (zai-only) were unaffected.
+PR #2285's merge is gated by the local-CI deploy-e2e leg `core-tool roundtrip … deepseek flash-vision`, which calls the LIVE DeepSeek API. On 2026-09-15 ~03:00–03:35 CST that provider hung on POST /chat/completions (curl probe: TLS connects, HTTP 401 on bare root instantly, completions 0-bytes-timeout at 25–30s ×2) → the leg timed out at 180s twice (attempt log: `output/ci-logs/pr-2285-20260915-032150|032703`). Two attempts consumed; the blocker is external. Merge retry: PR #2285 merged the same session via the deploy-e2e's provider-lane
+mechanism — with `DEEPSEEK_API_KEY` absent from the merge shell's env, the lane
+auto-selects zai (`E2E_PROVIDER = PI_AGENT_E2E_PROVIDER ?? (DEEPSEEK_API_KEY ?
+"deepseek" : ZAI_API_KEY ? "zai" : "deepseek")`, e2e-core-tool-roundtrip.test.ts:76-78).
+Retained artifacts: `evidence/merge-call-receipt.log` (merge-CLI output:
+"PR #2285 merged into main"); deploy verdict `"verdict": "pass"` for
+`0.10.4+g60663ae` (/tmp/arc26-deploy.log). Green CI runs leave no log dir by
+design (merge CLI LAZY note) — the retained call output is the receipt.
