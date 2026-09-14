@@ -20,6 +20,7 @@ import {
 } from "../src/feedback/hotness-feed.ts";
 import { appendUsageRows, readUsageLedgerFile, type UsageRow } from "../src/feedback/usage.ts";
 import { hotnessScore, HOTNESS_ALPHA_MAX } from "../src/hotness.ts";
+import { SEMANTIC_LEX_BETA_DEFAULT } from "../src/semantic.ts";
 
 const DAY = 86_400_000;
 
@@ -229,13 +230,19 @@ describe("retrieveRecords × used-ledger hotness — integration (ticket 12)", (
 		expect(on.trace?.hotnessLedgerUsed).toBe(true);
 		const s0 = new Map(off.trace!.cards.map((c) => [c.id, c.score]));
 		const h = hotnessScore(2, now, now);
+		// retrieval-lift-2 T2: the usage multiplier scales the α-blend MERIT;
+		// the absolute β evidence term (both cards ov=1 → β/3) re-adds
+		// unscaled — the multiplier is still applied EXACTLY ONCE.
+		const bt = SEMANTIC_LEX_BETA_DEFAULT / 3;
 		for (const c of on.trace!.cards) {
-			const expected = s0.get(c.id)! * (c.id === "t08:hot" ? hotnessMultiplier(h) : 1);
+			const base = s0.get(c.id)! - bt;
+			const expected = c.id === "t08:hot" ? hotnessMultiplier(h) * base + bt : s0.get(c.id)!;
 			expect(c.score).toBeCloseTo(expected, 6);
 		}
 		// D8 on the rank-norm pool: the lexical rank-1's 12/11 ≈ 1.091 gap is
 		// NOT displaced — m(h)=1.086 at h(2 uses, fresh) < 1.091, and even
-		// h→1 (m=1.1) only barely clears it. Feedback re-ranks, never dominates.
+		// h→1 (m=1.1) only barely clears it. Feedback re-ranks, never dominates
+		// (the boundary lives on the α-blend base, β excluded — unchanged).
 		expect(on.cards[0]!.title).toBe("cold");
 		expect(on.trace!.cards.find((c) => c.id === "t08:hot")!.score)
 			.toBeGreaterThan(off.trace!.cards.find((c) => c.id === "t08:hot")!.score);

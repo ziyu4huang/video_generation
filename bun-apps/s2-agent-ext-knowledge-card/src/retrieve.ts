@@ -41,7 +41,7 @@ import { extractFeatures } from "./card-render.ts";
 import { extractTitle } from "./graph-health.ts";
 import { buildAggTiers, buildLeafTiers, renderTier, type Tier, type TierText } from "./tier-ladder.ts";
 import type { KnowledgeRecord, CoverageReport } from "./types.ts";
-import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag } from "./card-format.ts";
+import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag, lexicalTokens, isCjkToken } from "./card-format.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/s2-agent-core-interface";
 import { blendWithHotness, hotnessScore, resolveHotnessAlpha } from "./hotness.ts";
 import type { UsageAggregate } from "./usage.ts";
@@ -57,6 +57,7 @@ import {
 	minMaxNorm,
 	resolveCardEmbedModel,
 	SEMANTIC_ALPHA_DEFAULT,
+	SEMANTIC_LEX_BETA_DEFAULT,
 	type Embedder,
 } from "./semantic.ts";
 
@@ -374,17 +375,17 @@ const BODY_STOP = new Set([
 
 /** Count how many query tags appear in the card body's prose. Frontmatter is
  *  stripped (so a card's own tags don't double-count as body hits); the body is
- *  tokenized to lowercase alphanumeric tokens; a query tag that is itself a stop
- *  word never counts. Pure + allocation-free over the query set. */
+ *  tokenized to lowercase alphanumeric tokens PLUS CJK bigrams (retrieval-lift-2
+ *  T3 — the body tokenizer was ASCII-deaf, leaving zh prose with zero lexical
+ *  signal); a query tag that is itself a stop word never counts, but CJK-bigram
+ *  tags are exempt from the ≥3-char gate (bigrams are length 2 by construction).
+ *  Pure + allocation-free over the query set. */
 function bodyTokenOverlap(content: string, queryTags: Set<string>): number {
 	const body = content.replace(/^---\n[\s\S]*?\n---/, "");
-	const tokenSet = new Set(
-		body.toLowerCase().replace(/[^a-z0-9-]+/g, " ").split(" ")
-			.filter((t) => t.length >= 3 && !BODY_STOP.has(t)),
-	);
+	const tokenSet = new Set(lexicalTokens(body).filter((t) => isCjkToken(t) || (t.length >= 3 && !BODY_STOP.has(t))));
 	let n = 0;
 	for (const t of queryTags) {
-		if (t.length < 3 || BODY_STOP.has(t)) continue;
+		if (!isCjkToken(t) && (t.length < 3 || BODY_STOP.has(t))) continue;
 		if (tokenSet.has(t)) n++;
 	}
 	return n;
@@ -549,7 +550,7 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		idfTable = computeIdf(folderTagSets);
 	}
 
-	const scored: (RetrievedCard & { _score: number; _hotness?: number })[] = [];
+	const scored: (RetrievedCard & { _score: number; _hotness?: number; _lexOv?: number })[] = [];
 	let scanned = 0;
 	let excluded = 0;
 
@@ -679,6 +680,10 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 				: bodyMatch
 					? shared * 2 + bodyOverlap + calloutBoost
 					: shared + calloutBoost,
+			// retrieval-lift-2 T2: the ABSOLUTE query-evidence triple for the
+			// blend's β·min(ov,3)/3 term (rank-normalized signals can't express
+			// raw evidence strength; trySemanticBlend consumes this).
+			_lexOv: shared + bodyOverlap + slugOverlap,
 		});
 	}
 
@@ -1125,7 +1130,7 @@ function buildRetrievedCard(
  *  aggregate query error) returns false with the ranking UNTOUCHED — hotness
  *  is a re-rank signal, never an availability dependency. */
 async function applyHotnessBlend(
-	cards: (RetrievedCard & { _score: number; _hotness?: number })[],
+	cards: (RetrievedCard & { _score: number; _hotness?: number; _blendBase?: number; _betaTerm?: number })[],
 	alpha: number,
 	client: import("@repo/s2-agent-core-interface").SurrealClient | undefined,
 ): Promise<boolean> {
@@ -1147,7 +1152,13 @@ async function applyHotnessBlend(
 			const a = agg.get(stemOf(card.path));
 			const h = a ? hotnessScore(a.activeCount, a.lastUsedAtMs) : 0;
 			card._hotness = h;
-			card._score = blendWithHotness(card._score, h, alpha);
+			// T2: on the semantic union pool the multiplier scales the α-blend
+			// MERIT; the absolute β evidence term is re-added unscaled.
+			if (card._blendBase !== undefined) {
+				card._score = blendWithHotness(card._blendBase, h, alpha) + (card._betaTerm ?? 0);
+			} else {
+				card._score = blendWithHotness(card._score, h, alpha);
+			}
 		}
 		cards.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
 		return true;
@@ -1166,14 +1177,19 @@ async function applyHotnessBlend(
  *  so the DEFAULT-OFF and empty-ledger lanes are both byte-identical to the
  *  pre-ticket ranking. */
 function applyUsedLedgerHotness(
-	cards: (RetrievedCard & { _score: number })[],
+	cards: (RetrievedCard & { _score: number; _blendBase?: number; _betaTerm?: number })[],
 	aggregates: ReadonlyMap<string, UsageAggregate>,
 	now: number,
 ): boolean {
 	if (cards.length === 0) return false;
 	const stemOf = (p: string) => p.split("/").pop() ?? p;
 	for (const card of cards) {
-		card._score *= usedLedgerMultiplier(aggregates, card.id, stemOf(card.path), now);
+		const m = usedLedgerMultiplier(aggregates, card.id, stemOf(card.path), now);
+		if (card._blendBase !== undefined) {
+			card._score = m * card._blendBase + (card._betaTerm ?? 0);
+		} else {
+			card._score *= m;
+		}
 	}
 	cards.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
 	return true;
@@ -1183,7 +1199,7 @@ function applyUsedLedgerHotness(
  *  rerank by Î±Â·lexRankNorm + (1-Î±)Â·cosNorm. Returns null on any embedding
  *  failure so the caller falls back to pure lexical. */
 async function trySemanticBlend(args: {
-	scored: (RetrievedCard & { _score: number; _hotness?: number })[];
+	scored: (RetrievedCard & { _score: number; _hotness?: number; _lexOv?: number })[];
 	vaultPath: string;
 	folder: string;
 	topK: number;
@@ -1227,7 +1243,7 @@ async function trySemanticBlend(args: {
 	lexPool.forEach((c, r) => lexRankNorm.set(c.path, (12 - r) / 12));
 
 	// Union: lexical pool + semantic top-12 (build semantic-only cards on demand).
-	const unionByPath = new Map<string, RetrievedCard & { _score: number; _hotness?: number }>();
+	const unionByPath = new Map<string, RetrievedCard & { _score: number; _hotness?: number; _lexOv?: number; _blendBase?: number; _betaTerm?: number }>();
 	for (const c of lexPool) unionByPath.set(c.path, c);
 	for (const p of semTopPaths) {
 		if (!unionByPath.has(p)) {
@@ -1252,7 +1268,15 @@ async function trySemanticBlend(args: {
 			const card = unionByPath.get(p)!;
 			const lr = lexRankNorm.get(p) ?? 0;
 			const cn = cosNorm[i] ?? 0;
-			return { ...card, _score: blendScore(lr, cn, alpha) };
+			// retrieval-lift-2 T2: the absolute overlap term rides the ov triple
+			// (semantic-only union cards carry none — they were never lexically
+			// eligible, ov 0 is their honest evidence). The α-blend base is kept
+			// separate so usage multipliers scale MERIT only — the D8 boundary
+			// (m < 12/11) lives on the rank-norm pool's multiplicative ratios,
+			// which an additive constant would compress.
+			const blendBase = blendScore(lr, cn, alpha);
+			const betaTerm = SEMANTIC_LEX_BETA_DEFAULT * (Math.min(Math.max(card._lexOv ?? 0, 0), 3) / 3);
+			return { ...card, _blendBase: blendBase, _betaTerm: betaTerm, _score: blendBase + betaTerm };
 		})
 		.sort((a, b) => b._score - a._score || a.id.localeCompare(b.id));
 	// Ticket 08: the same bounded hotness blend, on the semantic union pool
@@ -1268,7 +1292,7 @@ async function trySemanticBlend(args: {
 		hotnessLedgerUsed = applyUsedLedgerHotness(blended, args.usedAgg, args.nowMs ?? Date.now());
 	}
 	const topBlended = blended.slice(0, args.topK);
-	const top = topBlended.map(({ _score, _hotness, ...rest }) => rest);
+	const top = topBlended.map(({ _score, _hotness, _lexOv, _blendBase, _betaTerm, ...rest }) => rest);
 	// Trace source classification: a card is in the lexical pool (top-12), the
 	// semantic top-12, or both.
 	const lexPoolPaths = new Set(lexPool.map((c) => c.path));

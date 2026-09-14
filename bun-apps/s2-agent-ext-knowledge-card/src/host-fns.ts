@@ -22,6 +22,7 @@ import {
   type RetrieveResult,
 } from "./retrieve.js";
 import { ingestRecords, coverageReport } from "./ingest.js";
+import { cjkBigrams } from "./card-format.js";
 import {
   adaptAutoMemoryMarkdown,
   adaptGenericMarkdown,
@@ -75,15 +76,26 @@ export interface ZkRetrieveArgs {
  * (lowercase, strip non-[a-z0-9-], split, keep 3–30 char tokens, max 10).
  * Extracted (kcard-blend-lift T1) so the bench measures the SAME
  * query→tags path production serves — hand-rolled tokenizers drift.
+ *
+ * retrieval-lift-2 T3: CJK runs have no whitespace boundaries and were
+ * stripped entirely — pure-zh queries got zero tags and no lexical lane.
+ * ASCII tokens stay first (byte-identical for English-only input); CJK
+ * bigrams (card-format leaf) are appended deduped, overall cap 24.
  */
 export function inferQueryTags(query: string): string[] {
-	return query
+	const ascii = query
 		.toLowerCase()
 		.replace(/[^a-z0-9-]+/g, " ")
 		.trim()
 		.split(/\s+/)
 		.filter((t) => t.length >= 3 && t.length <= 30)
 		.slice(0, 10);
+	const seen = new Set(ascii);
+	for (const b of cjkBigrams(query)) {
+		if (seen.size >= 24) break;
+		if (!seen.has(b)) seen.add(b);
+	}
+	return [...seen].slice(0, 24);
 }
 
 export function buildRetrieveOptions(args: ZkRetrieveArgs, vaultPath: string): RetrieveOptions {

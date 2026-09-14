@@ -20,6 +20,7 @@ import {
 	HOTNESS_ALPHA_MAX,
 	HOTNESS_HALF_LIFE_DAYS,
 } from "../src/hotness.ts";
+import { SEMANTIC_LEX_BETA_DEFAULT } from "../src/semantic.ts";
 import { recordUsage, usageAggregates } from "../src/usage.ts";
 import type { SurrealClient } from "@repo/s2-agent-core-interface";
 
@@ -270,11 +271,13 @@ describe("retrieveRecords × hotness — flat-lane integration (D39)", () => {
 		expect(on.trace?.hotnessUsed).toBe(true);
 		const s0 = new Map(off.trace!.cards.map((c) => [c.id, c.score]));
 		const h = hotnessScore(3, now, now);
+		// retrieval-lift-2 T2: hotness scales the α-blend MERIT; the absolute
+		// β evidence term (both cards ov=1 → β/3) re-adds unscaled — hotness
+		// still applies EXACTLY ONCE over the union pool (reviewer F1).
+		const bt = SEMANTIC_LEX_BETA_DEFAULT / 3;
 		for (const c of on.trace!.cards) {
-			const expected = blendWithHotness(s0.get(c.id)!, c.id === "t08:hot" ? h : 0, HOTNESS_ALPHA_MAX);
-			expect(c.score).toBeCloseTo(expected, 6); // single application over the
-			// UNBLENDED union score — the old flat-pre-blend ordering would shift
-			// lexRankNorm and double-count hotness (reviewer F1).
+			const expected = blendWithHotness(s0.get(c.id)! - bt, c.id === "t08:hot" ? h : 0, HOTNESS_ALPHA_MAX) + bt;
+			expect(c.score).toBeCloseTo(expected, 6);
 		}
 	});
 });
