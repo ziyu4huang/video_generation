@@ -1,0 +1,67 @@
+{
+  "case": "C5",
+  "leg": "deployed",
+  "at": "2026-09-14T14:02:53.623Z",
+  "elapsedMs": 138378,
+  "deployedLabel": "0.10.3+g11e90db",
+  "dist": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+g11e90db",
+  "pin": "lm-studio/google/gemma-4-12b",
+  "model": {
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ]
+  },
+  "argv": [
+    "<dist>/s2-agent.sh",
+    "-p",
+    "I'm mid-effort under .planning/ and can't remember whether my settled grill output should go through to-spec or to-tickets — which wayfind flow fits, and what should I read?",
+    "--provider",
+    "lm-studio",
+    "--model",
+    "google/gemma-4-12b"
+  ],
+  "env": {},
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "nonce": "spwf-C5-deployed-1789394435247",
+  "sessionsDir": "/Users/huangziyu/proj/video_generation__superpowers/output/spwf-drive/sessions/C5-deployed-1789394435247",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-14T14-00-35-422Z_01a0a038-3d5e-7345-86c1-6a0d2476e2bf.jsonl",
+  "detected": {
+    "sessionFile": null,
+    "markerRaw": 0,
+    "markerUserRole": 0,
+    "reads": [],
+    "firstRead": null,
+    "firstMutate": null,
+    "skillReadPos": {},
+    "replyTail": "<|channel>call:skill_manage{action:<|\"|>view<|\"|>}<tool_call|>",
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ],
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "mutatingPaths": [],
+    "bashCalls": []
+  },
+  "contention": "4 large models resident (prism-ml/bonsai-27b, google/gemma-4-12b-qat, qwen/qwen3.8-27b, google/gemma-4-12b)",
+  "checks": [
+    {
+      "name": "read-any:using-s2-agent-skills|to-spec|to-tickets|ask-matt",
+      "ok": false,
+      "detail": "reads=[none]"
+    },
+    {
+      "name": "pin:match",
+      "ok": true,
+      "detail": "pin=google/gemma-4-12b recorded=[google/gemma-4-12b] changes=[lm-studio/google/gemma-4-12b]"
+    }
+  ],
+  "verdict": "RED",
+  "exitCode": 0,
+  "timedOut": false,
+  "stdoutTail": "<|channel>call:skill_manage{action:<|\"|>view<|\"|>}<tool_call|>\n",
+  "stderrTail": ""
+}

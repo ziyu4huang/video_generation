@@ -1,0 +1,77 @@
+{
+  "case": "C3",
+  "leg": "deployed",
+  "at": "2026-09-14T13:59:09.672Z",
+  "elapsedMs": 153103,
+  "deployedLabel": "0.10.3+g11e90db",
+  "dist": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+g11e90db",
+  "pin": "lm-studio/google/gemma-4-12b",
+  "model": {
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ]
+  },
+  "argv": [
+    "<dist>/s2-agent.sh",
+    "-p",
+    "Implement is_leap_year(year) as a new scratch module under output/spwf-improve/scratch/ with tests.",
+    "--provider",
+    "lm-studio",
+    "--model",
+    "google/gemma-4-12b"
+  ],
+  "env": {},
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "nonce": "spwf-C3-deployed-1789394196571",
+  "sessionsDir": "/Users/huangziyu/proj/video_generation__superpowers/output/spwf-drive/sessions/C3-deployed-1789394196571",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-14T13-56-36-753Z_01a0a034-9911-72c9-aaf0-ebcfde0b6c29.jsonl",
+  "detected": {
+    "sessionFile": null,
+    "markerRaw": 0,
+    "markerUserRole": 0,
+    "reads": [],
+    "firstRead": null,
+    "firstMutate": null,
+    "skillReadPos": {},
+    "replyTail": "",
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ],
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "mutatingPaths": [],
+    "bashCalls": []
+  },
+  "contention": "4 large models resident (prism-ml/bonsai-27b, google/gemma-4-12b-qat, qwen/qwen3.8-27b, google/gemma-4-12b)",
+  "checks": [
+    {
+      "name": "read:test-driven-development",
+      "ok": false,
+      "detail": "no skill reads in session"
+    },
+    {
+      "name": "read:test-driven-development",
+      "ok": false,
+      "detail": "reads=[none]"
+    },
+    {
+      "name": "order:test-before-impl",
+      "ok": false,
+      "detail": "mutating writes: []"
+    },
+    {
+      "name": "pin:match",
+      "ok": true,
+      "detail": "pin=google/gemma-4-12b recorded=[google/gemma-4-12b] changes=[lm-studio/google/gemma-4-12b]"
+    }
+  ],
+  "verdict": "RED",
+  "exitCode": 1,
+  "timedOut": false,
+  "stdoutTail": "",
+  "stderrTail": "400: {\"message\":\"Failed to load model \\\"google/gemma-4-12b\\\". Error: Operation canceled.\",\"type\":\"invalid_request_error\",\"param\":\"model\",\"code\":null}\n"
+}

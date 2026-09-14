@@ -2,7 +2,7 @@
 effort: 2026-09-10-spwf-ab-closing
 created: 2026-09-10
 last: 2026-09-10
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-10-spwf-ab-closing — settle the A/B residuals with evidence, not narrative
@@ -149,5 +149,6 @@ blamed for what the ruler mis-measured. t02 fixes the ruler; t03 re-measures.
 
 ## Shipped-as (2026-09-10)
 
-- PR <impl>: the closing deliverables above.
+- PR #2266: the closing deliverables above.
 - This PR flips the map done per CONVENTIONS.
+- Completed-by: 2026-09-14-spwf-improve — NaN description fix + detector refinements + session_compact/gemma receipts.

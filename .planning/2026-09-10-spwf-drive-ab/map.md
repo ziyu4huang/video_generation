@@ -2,7 +2,7 @@
 effort: 2026-09-10-spwf-drive-ab
 created: 2026-09-10
 last: 2026-09-10
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-10-spwf-drive-ab — model A/B on the live-drive case battery
@@ -184,3 +184,4 @@ exactly the one paragraph, and the C2 surface doesn't touch wayfind/archify,
 but the nearest residual confound is the wayfind guard-visibility change in
 the same redeploy. Receipt: output/reviewer-spwf-ab/plan.md.
 - Completed-by: 2026-09-10-spwf-ab-closing — settled the C2 verdict (detector artifact), re-verdicted C5 (F3 ruling), promoted the harness.
+- Completed-by: 2026-09-14-spwf-improve — NaN description fix + detector refinements + session_compact/gemma receipts.

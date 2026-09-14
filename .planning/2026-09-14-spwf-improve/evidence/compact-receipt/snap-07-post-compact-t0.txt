@@ -1,0 +1,47 @@
+
+ s2-agent v0.10.3+g11e90db
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+
+[Context]
+  ~/.pi/agent/AGENTS.md, CLAUDE.md
+
+[Skills]
+  archify, arxiv-research, ask-matt, brainstorming, btw, codebase-design, collect-bilibili-llm,
+collect-bilibili-media, collect-news-llm, collect-youtube-llm, debug-s2-session, deterministic-edit-dispatch,
+devops-workflow, dispatch-recovery, dispatching-parallel-agents, domain-docs, domain-modeling,
+executing-plans, extension-naming, file2md, finishing-a-development-branch, grill-me, grill-me-with-docs,
+grill-memory, grilling, handoff, improve-codebase-architecture, issue-tracker, learnings, memory-bulk-dedup,
+playwright-cli, probe-extension-introspection, receiving-code-review, requesting-code-review,
+research-pi-packages, resolving-merge-conflicts, s2-agent-model-catalog-update, self-reflect-next-goal,
+session-closeout-sop, shared-state-index, subagent-driven-development, systematic-debugging, teach,
+test-driven-development, to-questionnaire, to-spec, to-tickets, triage, using-git-worktrees,
+using-knowledge-cards, using-obsidian-vault, using-s2-agent-skills, using-superpowers,
+verify-archify-extension, wait-what, wizard, writing-plans, writing-skills
+
+[Extensions]
+  <inline:archify>, <inline:btw>, <inline:compact>, <inline:devops>, <inline:file2md>, <inline:hermes-memory>,
+<inline:knowledge-card>, <inline:obsidian>, <inline:power-tool>, <inline:prompt-history>,
+<inline:research-tool>, <inline:subagent>, <inline:superpowers>, <inline:task>, <inline:ultracode>,
+<inline:wayfind>
+
+
+ 🧠 Session backfill complete: 0 indexed, 6190 skipped, 0 messages.
+
+ Error: Compaction failed: Nothing to compact (session too small)
+
+
+ Does the exact phrase 'You have superpowers' appear anywhere in your context, including any injected
+ instruction blocks? Reply with exactly YES or NO and nothing else.
+
+
+ YES
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/proj/video_generation__superpowers (feat/spwf-improve)
+↑37k ↓6 18.7%/200k (auto)                                                          google/gemma-4-12b • medium
