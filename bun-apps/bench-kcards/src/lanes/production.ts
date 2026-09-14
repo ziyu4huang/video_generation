@@ -35,7 +35,7 @@ export async function productionMrr(
 	process.env.KCARD_HIER_DEFAULT = process.env.KCARD_HIER_DEFAULT ?? "0";
 	const recips: number[] = [];
 	const neverRanked: string[] = [];
-	const detail: { question: string; rank: number; arxivId: string }[] = [];
+	const detail: { question: string; rank: number; arxivId: string; paths: string[] }[] = [];
 	for (const paper of golden) {
 		const entry = noteMap[paper.arxivId];
 		if (!entry || !entry.graphNote) continue;
