@@ -1,0 +1,593 @@
+bun test v1.4.2 (744846f84)
+
+src/ext-deps.test.ts:
+(pass) packageBaseName > keeps both segments of a scoped name, drops any deep path [0.05ms]
+(pass) isDeployedExtDir > an ext.json declaring a numeric hostApi is the deploy's signature [0.48ms]
+(pass) isDeployedExtDir > no ext.json at all — a source checkout [0.13ms]
+(pass) isDeployedExtDir > an ext.json without hostApi is not the deploy's manifest [0.21ms]
+(pass) isDeployedExtDir > unparseable ext.json is not treated as a deploy [0.21ms]
+(pass) missingExtDeps > a deployed extension reports nothing — its deps were settled at build time [0.22ms]
+(pass) missingExtDeps > an undetermined dir reports nothing rather than guessing
+(pass) missingExtDeps > source mode still finds an installed dep by walking up [0.09ms]
+(pass) missingExtDeps > source mode still REPORTS a genuinely absent dep [0.16ms]
+(pass) missingExtDeps > a deep specifier resolves against its package root [0.02ms]
+(pass) findWorkspaceRoot > finds the bun-apps workspace root from inside this package [0.14ms]
+(pass) findWorkspaceRoot > falls back to a literal when there is no workspace above [0.22ms]
+
+src/pending-protocol.test.ts:
+(pass) PendingProtocolMap — hold + respond > approve resolves the held promise with feedback [0.16ms]
+(pass) PendingProtocolMap — hold + respond > deny resolves approved:false without timedOut (an explicit parental DENY) [0.04ms]
+(pass) PendingProtocolMap — hold + respond > respond with nothing pending returns false (no silent pass)
+(pass) PendingProtocolMap — hold + respond > a second hold under a taken key supersedes the first (released default-deny) [0.03ms]
+(pass) PendingProtocolMap — timeout (D6 default-deny) > the timeout resolves approved:false + timedOut [0.03ms]
+(pass) PendingProtocolMap — timeout (D6 default-deny) > a responded hold clears its timer (no zombie default-deny) [0.06ms]
+(pass) PendingProtocolMap — release/clear > release drops a hold default-deny [0.02ms]
+(pass) PendingProtocolMap — release/clear > clear releases every held key and reports the count [0.09ms]
+(pass) PendingProtocolMap — release/clear > pendingNames + view expose held state for diagnostics [0.03ms]
+(pass) PendingProtocolMap — singleton > getPendingProtocolMap returns one instance until the test reset [0.02ms]
+
+src/team-task-store.test.ts:
+(pass) TeamTaskStore — create/get/list > creates pending tasks with monotonic per-board ids [0.12ms]
+(pass) TeamTaskStore — create/get/list > rejects empty subject and empty-string owner
+(pass) TeamTaskStore — create/get/list > create with edges links symmetric inverse lists [0.05ms]
+(pass) TeamTaskStore — create/get/list > create with an unknown edge id unwinds the task entirely (id reused) [0.03ms]
+(pass) TeamTaskStore — create/get/list > a partially-failed create leaves NO dangling edge on survivors, and id reuse re-attaches nothing (review Major 1) [0.05ms]
+(pass) TeamTaskStore — create/get/list > get on an unknown board returns undefined; list returns []
+(pass) TeamTaskStore — dependency edges > direct self-dependency rejected [0.06ms]
+(pass) TeamTaskStore — dependency edges > two-task cycle rejected via update [0.02ms]
+(pass) TeamTaskStore — dependency edges > transitive (3-hop) cycle rejected [0.01ms]
+(pass) TeamTaskStore — dependency edges > cycle rejected through addBlocks (the symmetric side) [0.02ms]
+(pass) TeamTaskStore — dependency edges > removeBlockedBy / removeBlocks unlink BOTH sides; unknown removal is a no-op [0.02ms]
+(pass) TeamTaskStore — dependency edges > update with an unknown edge target errors and adds nothing [0.02ms]
+(pass) TeamTaskStore — dependency edges > failed edge edits are rolled back ATOMICALLY — earlier additions and all removals included (review Minor 2) [0.01ms]
+(pass) TeamTaskStore — dependency edges > a removal whose companion addition cycles rolls the removal back too (review Minor 2) [0.02ms]
+(pass) TeamTaskStore — update semantics > patch fields: subject/description/activeForm/status/metadata + null clears optionals [0.03ms]
+(pass) TeamTaskStore — update semantics > owner claim / re-claim / release(null); empty string rejected [0.04ms]
+(pass) TeamTaskStore — update semantics > emptying subject rejected; unknown task id rejected [0.01ms]
+(pass) TeamTaskStore — session scoping + lifecycle > boards are isolated per sessionId [0.01ms]
+(pass) TeamTaskStore — session scoping + lifecycle > reset empties one board (session_start) [0.02ms]
+(pass) TeamTaskStore — session scoping + lifecycle > drop removes the board; '*' drops every board (session_shutdown) [0.03ms]
+(pass) TeamTaskStore — session scoping + lifecycle > ids restart on a reset board
+(pass) effectiveBlockedBy — CC effective-blocked selector > table: completed deps clear, pending/in_progress deps bind, unknown ids stay visible [0.07ms]
+(pass) effectiveBlockedBy — CC effective-blocked selector > derives off the live store: completing a dep clears the dependent's rendered block [0.02ms]
+(pass) getTeamTaskStore — process singleton > one instance per process; reset hook re-arms it [0.01ms]
+
+tests/debug-models.test.ts:
+(pass) debugModelsEnabled > 1 and true enable; anything else does not [0.04ms]
+(pass) logModelDecision > silent unless PI_DEBUG_MODELS is set [0.04ms]
+(pass) logModelDecision > emits a [models] line with the where-tag and field=value pairs [0.03ms]
+(pass) decision-point logging > loadModelTierConfig names the config path and what it found [0.59ms]
+(pass) decision-point logging > absent config is reported as absent, not silent [0.03ms]
+(pass) decision-point logging > resolveScopedAgentModelSpec explains which branch won and clamping [0.12ms]
+
+tests/agent-registry-seam-wiring.test.ts:
+(pass) getRegistry baked-providers wiring (source pin) > getRegistry applies registerBakedProvidersFromSeam to the runtime before wrapping it in a ModelRegistry [0.01ms]
+(pass) getRegistry baked-providers wiring (source pin) > no other ModelRuntime.create registry site bypasses the seam [0.01ms]
+
+tests/spawn-subagent-subprocess.test.ts:
+(pass) buildSubagentArgs: minimal base flags with no prompt + no opts [0.02ms]
+(pass) buildSubagentArgs: all opts present [0.02ms]
+(pass) buildSubagentArgs: no --append-system-prompt when promptPath undefined
+(pass) isTransientError: an empty message is never transient [0.01ms]
+(pass) isTransientError: recognized transient signals
+(pass) isTransientError: an unrecognised message is not transient
+(pass) getPiInvocation appends the extra args + returns a command [0.03ms]
+(pass) resolvePiInvocation: real currentScript → execPath + [script, ...extra] (dev / dist bundle)
+(pass) resolvePiInvocation: missing entry → throws for ANY runtime (refuses PATH fallback) [0.04ms]
+(pass) runner: success captures the last assistant text [0.48ms]
+(pass) runner: does NOT retry on a non-transient failure [0.11ms]
+(pass) runner: retries once on a transient failure with no output [0.09ms]
+(pass) runner: does NOT retry when retryOnTransient is false [0.05ms]
+(pass) runner: timeoutMs kills the child + reports kind timedout (no retry on timeout) [50.93ms]
+(pass) runner: externalSignal abort kills the child [0.16ms]
+(pass) runner: systemPrompt → temp file + --append-system-prompt [0.68ms]
+(pass) runner: onEvent forwards every parsed NDJSON event [0.14ms]
+(pass) runner: spawn-error path surfaces as a failure without throwing [0.09ms]
+(pass) telemetry: inFlight start/end wrap the run [0.11ms]
+(pass) telemetry: persistence.save records a done run [0.10ms]
+(pass) telemetry: failed run -> status 'failed' + error recorded [0.09ms]
+(pass) telemetry: start fires before the run, end after (wrapping order) [0.08ms]
+(pass) telemetry: no registration when inFlight/persistence unset (opt-in default) [0.05ms]
+(pass) resolvePiInvocation entry prefix > no prefix by default — child argv is unchanged [0.02ms]
+(pass) resolvePiInvocation entry prefix > an entry prefix is spliced between the script and the pi flags
+(pass) resolvePiInvocation entry prefix > getPiInvocation: an EMPTY env prefix is 'no prefix', never a "" token [0.04ms]
+(pass) resolvePiInvocation entry prefix > resolvePiInvocation: an empty entryPrefix splices nothing (layer-2 guard)
+
+tests/errors.test.ts:
+(pass) classifyProviderLimit > matches the documented provider usage/quota/rate-limit wordings [0.11ms]
+(pass) classifyProviderLimit > does NOT match benign text or unrelated errors [0.01ms]
+(pass) classifyProviderLimit > extracts the verbatim reset hint when present, undefined otherwise
+(pass) wrapError provider-limit classification > classifies a thrown usage-limit Error as non-recoverable PROVIDER_USAGE_LIMIT (defense for a throwing SDK) [0.07ms]
+(pass) wrapError provider-limit classification > keeps transient overloaded/5xx errors as recoverable AGENT_EXECUTION_ERROR (not a quota pause) [0.01ms]
+(pass) wrapError provider-limit classification > passes an existing WorkflowError through unchanged
+(pass) isProviderUsageLimit > is true only for a PROVIDER_USAGE_LIMIT WorkflowError [0.02ms]
+(pass) HOST_FN_* error codes > exist as concrete string values with correct recoverability [0.03ms]
+
+tests/budget-guard.test.ts:
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > first crossing via the usage seam → wrap-up injected as followUp, NOT aborted [0.13ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > first crossing via the turn-boundary backstop also earns the wrap-up (both abort paths gated) [0.02ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > second crossing after delivered grace turn → session aborted for real with kind 'tokens' [0.03ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > real sequence: issuing turn_end does NOT abort/re-arm; abort only after followUp delivery + grace turn_end [0.04ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > no-delivery event storm after wrap-up issuance — non-turn_end checks never abort [0.04ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > no budget set → no injection, no abort, never exhausted [0.01ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > spendBudget crossed (no tokenBudget) → immediate hard abort, no wrap-up turn [0.01ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > both budgets cross at once → hard abort wins (money valve), no wrap-up [0.01ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > spend hard-abort fires mid-grace even before followUp delivery [0.02ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > wrap-up already issued, then spend crosses → hard abort [0.01ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > sendUserMessage rejection → falls back to hard abort so the budget is enforced [1.20ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > session without sendUserMessage → no grace possible, immediate hard abort (#1329 semantics) [0.03ms]
+(pass) createBudgetGuard — tokenBudget two-stage wrap-up > wrap-up message text — flush-to-disk final-turn contract
+(pass) createBudgetGuard — grace ceiling (hard cap on the #1334 grace window) > crossing during grace, total under ceiling → NO abort (wrap-up continues) [0.02ms]
+(pass) createBudgetGuard — grace ceiling (hard cap on the #1334 grace window) > crossing during grace, total over ceiling → abort fires immediately [0.01ms]
+(pass) createBudgetGuard — grace ceiling (hard cap on the #1334 grace window) > ceiling also fires on the turn backstop seam mid-grace (before delivery) [0.01ms]
+(pass) createBudgetGuard — grace ceiling (hard cap on the #1334 grace window) > spend budget exceeded mid-grace → immediate abort (regression) [0.01ms]
+(pass) createBudgetGuard — grace ceiling (hard cap on the #1334 grace window) > grace re-arm after grace turn_end → subsequent crossing aborts normally (regression) [0.02ms]
+(pass) createBudgetGuard — grace ceiling (hard cap on the #1334 grace window) > BUDGET_GRACE_CEILING_RATIO is 1.25
+
+tests/builtin-agents.test.ts:
+(pass) builtin defs: explore/plan, source builtin, read-only allowlist + explicit denylist [0.10ms]
+(pass) builtin names never collide with the request_plan_approval vocabulary [0.01ms]
+(pass) loadAgentRegistry falls through to built-ins when the scans miss [0.43ms]
+(pass) a user file shadows the builtin COMPLETELY (no field merge) [3.42ms]
+
+tests/agent-fallback.test.ts:
+(pass) fallback WITH tier (preset model available) → kind tier + the preset spec [0.08ms]
+(pass) fallback WITHOUT tier → kind sessionDefault + warning names requested → session default [0.02ms]
+(pass) fallback with a tier whose preset model is ALSO unavailable → sessionDefault [0.02ms]
+(pass) fallback with a tier set but absent from the preset → sessionDefault [0.02ms]
+(pass) fallback with a tier set but no model-tiers config at all → sessionDefault [0.02ms]
+(pass) the tier-resolved preset model wins over a different session default (preset controls) [0.02ms]
+
+tests/run-view.test.ts:
+(pass) buildRunView — elapsed > terminal + endedAt → frozen at endedAt - startedAt [0.06ms]
+(pass) buildRunView — elapsed > running → live now - startedAt, not frozen
+(pass) buildRunView — modelSeg > fallback branch: resolved→requested [0.06ms]
+(pass) buildRunView — modelSeg > no fallback: resolved wins, provider prefix dropped
+(pass) buildRunView — modelSeg > nothing resolved: model slot, else the segment is OMITTED (self-arc-10 honesty)
+(pass) buildRunView — history-derived > toolCallCount counts only kind === 'toolCall' [0.03ms]
+(pass) buildRunView — history-derived > latestAction: last toolCall wins, falls back to taskPreview [0.01ms]
+(pass) actor defaults to general-purpose; foreground defaults false; abortable from abort lever [0.01ms]
+(pass) buildRunView — accrued usage projection > projects usageAccrued costUsd/tokensIn/tokensOut [0.01ms]
+(pass) buildRunView — accrued usage projection > usage fields default to 0 when usageAccrued absent
+(pass) buildRunView — modelSeg column-aware cap > ASCII segment keeps legacy 24-char semantics byte-identical [0.03ms]
+(pass) buildRunView — modelSeg column-aware cap > CJK segment is capped by terminal columns, never overshoots 24 [0.38ms]
+
+tests/agent-turns.test.ts:
+(pass) exactly N turns allowed; abort fires on the turn_start of turn N+1, not before [0.06ms]
+(pass) a run that finishes naturally within the cap is never aborted [0.01ms]
+(pass) maxTurns: 1 allows the first turn, aborts the second turn_start
+(pass) no maxTurns configured → unlimited turns, never aborts [0.04ms]
+(pass) non-turn events are ignored for counting [0.01ms]
+(pass) idempotent: after the cap fires, later events never double-abort [0.01ms]
+(pass) turnExhaustionError: message, code, recoverable, agentLabel, details shape [0.02ms]
+(pass) turnExhaustionError: TURNS_EXHAUSTED is distinct from TOKEN_BUDGET_EXHAUSTED [0.01ms]
+(pass) turn cap fires while the budget stays under its limit [0.03ms]
+(pass) budget fires while the turn count stays under its cap [0.03ms]
+(pass) CoreAgent.run({ maxTurns: 0 }) rejects immediately with SCRIPT_VALIDATION_ERROR [0.38ms]
+(pass) CoreAgent.run({ maxTurns: 1.5 }) rejects immediately (non-integer) [0.03ms]
+(pass) CoreAgent.run({ maxTurns: -1 }) rejects immediately (below 1) [0.02ms]
+(pass) post-prompt decision: turn cap alone trips → TURNS_EXHAUSTED, never TOKEN_BUDGET_EXHAUSTED [0.03ms]
+(pass) maxTurns:3 → steer called exactly once at turn_start of turn 2, text names the cap [0.09ms]
+(pass) maxTurns:2 → queues at the FIRST turn's start (that run's second-to-last turn) [0.01ms]
+(pass) no maxTurns → nudge never queued (uncapped runs have no last turn)
+(pass) maxTurns:1 → never queued (a one-turn cap has no second-to-last turn to save)
+(pass) wrapUpNudge:false → disabled even on a capped run
+(pass) wrapUpNudge:string → the caller's text passes through verbatim
+(pass) wrapUpNudgeText interpolates the cap into the default nudge
+
+tests/rate-limiter.test.ts:
+(pass) rate-limiter: providerFromModelSpec > extracts the segment before the first '/'
+(pass) rate-limiter: providerFromModelSpec > returns the whole string when there is no '/'
+(pass) rate-limiter: providerFromModelSpec > returns undefined for empty/unset specs
+(pass) rate-limiter: cap respected + pass-through > gates to the configured maxConcurrent [3.63ms]
+(pass) rate-limiter: cap respected + pass-through > is a pass-through (no gating) when no cap is configured [1.21ms]
+(pass) rate-limiter: cap respected + pass-through > is a pass-through when the resolver returns undefined for the provider [1.21ms]
+(pass) rate-limiter: per-provider isolation > two providers get independent budgets [4.66ms]
+(pass) rate-limiter: singleton stability > returns the same instance per provider across calls [0.03ms]
+(pass) rate-limiter: singleton stability > resolver set/get is symmetric and clearable [0.01ms]
+
+tests/fork-transcript.test.ts:
+(pass) projects user/assistant text in order; tool calls, tool results, and custom entries are dropped [0.15ms]
+(pass) compaction is respected: pre-compaction turns omitted, summary + kept tail included [0.11ms]
+(pass) empty / textless conversation renders undefined (fork of an empty session) [0.01ms]
+(pass) cap truncates OLDEST-first with the marker; newest turns survive under the cap [0.03ms]
+(pass) a single over-cap turn is sliced — the cap is a hard bound, not advisory [0.01ms]
+(pass) an over-cap tail turn with older turns dropped still honors the cap exactly (marker slack reserved) [0.02ms]
+(pass) a tail turn within marker-slack of the cap is still sliced when older turns were dropped (effective limit) [0.01ms]
+(pass) runAsForkChild scopes isForkChild() across awaits; the guard is false outside [1.34ms]
+
+tests/tool-action-label.test.ts:
+(pass) read: present Reading / past Read [0.12ms]
+(pass) write: present Writing / past Wrote [0.01ms]
+(pass) edit: present Editing / past Edited [0.01ms]
+(pass) bash: present Running: / past Ran: (command shown as first line) [0.02ms]
+(pass) grep: present Searching for / past Searched for (pattern quoted) [0.01ms]
+(pass) find: present Finding / past Found (pattern quoted)
+(pass) ls: present Listing / past Listed
+(pass) web_search: present Searching web for / past Searched web (past drops target)
+(pass) fetch_content: present Fetching / past Fetched
+(pass) subagent: present Dispatching subagent / past Dispatched subagent (past drops target)
+(pass) subagents: present/past carry N (tasks.length, pluralized) [0.02ms]
+(pass) ask_user_question: present Asking / past Asked (questions.length) [0.02ms]
+(pass) per-tool key wins over generic keys
+(pass) generic-key fallback: Using/Used <value> when per-tool key absent [0.02ms]
+(pass) toolName fallback: Using/Used <tool> when no key recoverable
+(pass) unknown tool krea2 → Using krea2 / Used krea2 [0.01ms]
+(pass) empty `{}` args → toolName fallback (no throw)
+(pass) truncated JSON payload → regex-scrape recovers the key [0.06ms]
+(pass) non-JSON text → scraper finds a quoted key, else toolName fallback [0.02ms]
+(pass) matchedCallArgsFor: paired result recovers the call's args [0.03ms]
+(pass) matchedCallArgsFor: orphan result (no preceding call) → undefined → verb-only [0.01ms]
+(pass) matchedCallArgsFor: skips a different tool to find the matching call
+(pass) matchedCallArgsFor returns undefined for non-result/error entries
+(pass) matchedCallArgsFor: batched same-tool results pair by toolCallId (each resolves its OWN call) [0.01ms]
+(pass) matchedCallArgsFor: legacy (no toolCallId) still falls back to nearest-preceding-same-name
+(pass) matchedCallArgsFor: result id with no matching call id → name fallback (graceful)
+(pass) error: Failed to <verb> <target> (tool error with matched args) [0.03ms]
+(pass) error: appends `: <first line>` when detail present
+(pass) error: known tool no target → `Failed to <stem>`
+(pass) error: unknown tool → `Failed (<tool>)`
+(pass) error: whole-turn assistant error (no toolName) → `⚠ <first line>`
+(pass) text entry → first line (≤60)
+(pass) empty text entry → `…thinking`
+(pass) width: absent ctx.width keeps the legacy ~50 cap (ASCII byte-identical) [0.04ms]
+(pass) width: ctx.width narrows the target cap (end-ellipsis path, command key) [0.01ms]
+(pass) width: ctx.width only narrows — a wide width keeps the constant cap [0.01ms]
+(pass) width: CJK targets are clipped by terminal columns, not char count (default cap) [0.03ms]
+(pass) width: CJK mid-ellipsis target lands inside the column budget [0.05ms]
+
+tests/agent-model-scope.test.ts:
+(pass) session model scope covers every dispatch path > explicit opts.model (also: agentType model, phase model): resolves INTO scope [0.02ms]
+(pass) session model scope covers every dispatch path > opts.tier — small: resolves INTO scope
+(pass) session model scope covers every dispatch path > opts.tier — medium: resolves INTO scope
+(pass) session model scope covers every dispatch path > opts.tier — big: resolves INTO scope
+[workflow] unknown tier "no-such-tier" — falling back to the session default (prov/denied-main). Configured tiers: small, medium, big. Manage them via /workflows-models (or /models-preset to apply a full config).
+(pass) session model scope covers every dispatch path > unknown tier (degrades to mainModel): resolves INTO scope [0.04ms]
+(pass) session model scope covers every dispatch path > untagged (defaults to the medium tier): resolves INTO scope
+(pass) session model scope covers every dispatch path > an in-scope main model is preferred over the first scoped spec [0.01ms]
+(pass) session model scope covers every dispatch path > an OUT-of-scope main model falls back to the first scoped spec (old behavior preserved)
+[workflow] unknown tier "no-such-tier" — falling back to the session default (prov/denied-main). Configured tiers: small, medium, big. Manage them via /workflows-models (or /models-preset to apply a full config).
+[workflow] unknown tier "no-such-tier" — falling back to the session default (prov/denied-main). Configured tiers: small, medium, big. Manage them via /workflows-models (or /models-preset to apply a full config).
+(pass) session model scope covers every dispatch path > no scope configured = full catalog: nothing is clamped on any path [0.03ms]
+[workflow] unknown tier "no-such-tier" — falling back to the session default (prov/allowed-b). Configured tiers: small, medium, big. Manage them via /workflows-models (or /models-preset to apply a full config).
+(pass) session model scope covers every dispatch path > an already-in-scope spec is left alone on every path [0.03ms]
+(pass) session model scope covers every dispatch path > resolving to nothing (session default) is not a clamp
+(pass) session model scope covers every dispatch path > the clamped result reports the ORIGINAL spec, so the warning can name it [0.01ms]
+(pass) clampModelToScope contract > empty / undefined scope leaves the request unchanged [0.01ms]
+(pass) clampModelToScope contract > matching is an exact string compare — case and format matter
+
+tests/budget-defaults.test.ts:
+(pass) TIERED_TOKEN_BUDGET_DEFAULTS: p90-calibrated ceilings [0.03ms]
+(pass) tierDefaultToken: explicit tier → that tier's ceiling [0.05ms]
+(pass) tierDefaultToken: unset tier → reverse-map model→tier via config [0.03ms]
+(pass) tierDefaultToken: unknown model + unset tier → medium ceiling (safe fallback)
+(pass) tierDefaultToken: no config at all → medium ceiling (safe fallback)
+(pass) tierDefaultToken: unknown tier name → medium ceiling
+(pass) env knobs: per-tier absolute override replaces the resolved tier's ceiling [0.01ms]
+(pass) env knobs: multiplier scales the table default
+(pass) env knobs: multiplier applies AFTER the absolute override
+(pass) env knobs: multiplier floors fractional results (clamp)
+(pass) env knobs: DISABLE="1" or "true" (case-insensitive) → undefined (no budget) [0.01ms]
+(pass) env knobs: invalid per-tier values are silently ignored [0.01ms]
+(pass) env knobs: invalid multiplier values are silently ignored [0.01ms]
+(pass) env knobs: disable flag with an invalid value is ignored (still budgeted)
+(pass) ROLE_AWARE_DISPATCH_BOUNDS: recon 120k/12/5min, writer 400k/28/20min [0.01ms]
+(pass) roleAwareDefaults: all-omitted recon → full envelope + notice [0.06ms]
+(pass) roleAwareDefaults: all-omitted writer → full envelope + notice [0.02ms]
+(pass) roleAwareDefaults: ANY explicit bound (some- or all-passed) opts the whole envelope out [0.01ms]
+(pass) roleAwareDefaults: SUBAGENT_TOKEN_BUDGET_DISABLE=1 escapes entirely [0.02ms]
+(pass) roleAwareDefaults: recon ceiling is min(120k, tierCeiling); writer ignores it [0.01ms]
+(pass) roleAwareDirectCall: recon → 120k/12 caps + abort-safety footer with run log [0.10ms]
+(pass) roleAwareDirectCall: writer → 400k/28 caps + footer (maxTurns>10 gate) [0.02ms]
+(pass) roleAwareDirectCall: SUBAGENT_TOKEN_BUDGET_DISABLE=1 → plain task, no caps, no footer [0.02ms]
+(pass) roleAwareDefaults: SUBAGENT_MAX_TURNS replaces the role turn cap
+(pass) roleAwareDefaults: unset env keeps ledger-calibrated caps
+(pass) roleAwareDefaults: explicit params opt out regardless of env
+(pass) time env knobs: per-role absolute override replaces that role's wall only [0.01ms]
+(pass) time env knobs: multiplier scales the role wall (after any override) [0.01ms]
+(pass) time env knobs: multiplier floors fractional results (clamp to ≥1ms)
+(pass) time env knobs: DISABLE="1"/"true" strips ONLY the wall — token/turn caps + applied stay [0.02ms]
+(pass) time env knobs: TIME disable is NOT the whole-envelope disable (token disable still strips all)
+(pass) time env knobs: invalid values are silently ignored [0.03ms]
+(pass) time env knobs: explicit params still opt the whole envelope out regardless of env
+(pass) time env knobs: persistent dispatches stay inert (no time default by design)
+(pass) roleAwareDirectCall: the env-shaped wall travels to the direct-call seam [0.02ms]
+(pass) roleAwareDefaults persistent: tier ceiling replaces the role envelope, no turn/timeout caps [0.02ms]
+(pass) roleAwareDefaults persistent: role is irrelevant (writer too) and undefined ceiling stays unset [0.01ms]
+(pass) roleAwareDefaults persistent: explicit bounds and the disable knob still win
+
+tests/render-width.test.ts:
+(pass) capWidth keeps the constant when width is undefined or non-finite (defaulted callers stay byte-identical) [0.01ms]
+(pass) capWidth is min(constant, width): a caller width only ever NARROWS the cap
+(pass) capWidth floors fractional widths (terminal columns are integers)
+(pass) ellipsizeToWidth returns content verbatim when it already fits (empty stays empty) [0.07ms]
+(pass) ellipsizeToWidth cuts with ONE trailing `…` inside the column budget [0.05ms]
+(pass) ellipsizeToWidth degrades gracefully at degenerate widths 0-3 (never crashes, never overlong at 1-3) [0.04ms]
+(pass) ellipsizeToWidth is CJK double-width aware: CJK-only never exceeds the budget [0.17ms]
+(pass) ellipsizeToWidth handles mixed CJK + ASCII by column budget, not char count [0.03ms]
+(pass) ellipsizeMidToWidth returns content verbatim when it already fits (empty stays empty)
+(pass) ellipsizeMidToWidth keeps legacy ASCII mid semantics: ceil/floor head-tail split around one `…` [0.03ms]
+(pass) ellipsizeMidToWidth degrades gracefully at degenerate widths (never crashes, never empty, one `…`) [0.03ms]
+(pass) ellipsizeMidToWidth is CJK double-width aware: never exceeds the budget, wide chars stay whole [0.08ms]
+(pass) ellipsizeMidToWidth handles mixed CJK + ASCII by column budget [0.02ms]
+
+tests/persistent-agent.test.ts:
+(pass) LiveAgent.send — routing > idle → prompt; instructions prepend; output extracted; usage is the delta [0.28ms]
+(pass) LiveAgent.send — routing > running → steer, no prompt, steered flag set [0.03ms]
+(pass) LiveAgent.send — routing > tool-window busy (running, NOT streaming) → steer with mode 'queued', no concurrent prompt (F-steer-1) [5.74ms]
+(pass) LiveAgent.send — routing > streaming steer reports mode 'exchange' (distinct from the tool window) [0.03ms]
+(pass) LiveAgent.send — routing > timeout aborts the exchange; the session stays reusable for the next one [33.69ms]
+(pass) LiveAgent.send — routing > disposed agent refuses further sends without touching the session [0.04ms]
+(pass) LiveAgent — lifetime ceiling aggregation > a spend crossing on exchange 2 terminalizes the agent; exchange 3 refuses without prompting [0.09ms]
+(pass) openLiveAgent / spawnLiveAgentFirstExchange > first exchange registers the agent; result mirrors SpawnSubagentResult [0.28ms]
+(pass) openLiveAgent / spawnLiveAgentFirstExchange > a lifetime-terminal first exchange disposes the agent and registers nothing [5.76ms]
+(pass) openLiveAgent / spawnLiveAgentFirstExchange > name collision / reserved name fail BEFORE any session is opened [0.08ms]
+
+tests/structured-output.test.ts:
+(pass) createStructuredOutputTool creates a tool with the given name [0.06ms]
+(pass) createStructuredOutputTool defaults name to structured_output [0.02ms]
+(pass) createStructuredOutputTool tool has execute, renderCall, renderResult [0.02ms]
+(pass) createStructuredOutputTool execute captures value and marks called [0.06ms]
+(pass) createStructuredOutputTool captures complex nested objects [0.06ms]
+(pass) createStructuredOutputTool returns details with captured params [0.02ms]
+(pass) createStructuredOutputTool has promptSnippet and promptGuidelines [0.02ms]
+(pass) createStructuredOutputTool uses parameters from schema [0.01ms]
+(pass) createStructuredOutputTool requests JSON-schema constrained sampling (prefer) [0.01ms]
+
+tests/agent-budget.test.ts:
+(pass) billableTokens: breakdown present → input+output (cache excluded) [0.01ms]
+(pass) billableTokens: no breakdown → falls back to total (guard never disabled)
+(pass) checkBudgetExhaustion: cache-heavy usage under budget on the real metric → no exhaustion
+(pass) checkBudgetExhaustion: real crossing trips with actual = billable, not total
+(pass) checkBudgetExhaustion: same stats without breakdown keep the total-based semantics (fallback)
+(pass) checkBudgetWarning: rides the same real-token metric [0.02ms]
+(pass) checkBudgetExhaustion: total == limit is allowed (strict >)
+(pass) checkBudgetExhaustion: total > tokenBudget → tokens exhaustion
+(pass) checkBudgetExhaustion: cost > spendBudget → spend exhaustion
+(pass) checkBudgetExhaustion: tokens checked before spend when both exceeded
+(pass) checkBudgetExhaustion: no budgets set → undefined regardless of usage
+(pass) usage observation above tokenBudget: first crossing issues the wrap-up followUp (no abort); post-grace turn_end aborts [0.07ms]
+(pass) turn-boundary backstop crossing also earns the wrap-up turn when the usage seam never fires [0.03ms]
+(pass) spend budget aborts via the usage seam too [0.02ms]
+(pass) idempotent: first seam wins; later events never double-abort [0.03ms]
+(pass) usage exactly at the limit never aborts [0.01ms]
+(pass) no budgets configured → never aborts [0.01ms]
+(pass) stats not yet available (getSessionStats throws) is skipped, not fatal [0.06ms]
+(pass) guard: cache-heavy surface never crosses on cacheRead; real crossing earns the wrap-up [0.03ms]
+(pass) guard: grace ceiling compares REAL tokens — mid-grace cache re-billing alone never aborts [0.03ms]
+(pass) checkBudgetWarning: exactly 80% trips (>= at the ratio)
+(pass) checkBudgetWarning: 79.99% does not trip
+(pass) checkBudgetWarning: tokens checked before spend when both trip
+(pass) checkBudgetWarning: no budgets set → undefined regardless of usage
+(pass) checkBudgetWarning: below the ratio on the set budget → undefined (other budget unset)
+
+tests/subagent-run-persistence.test.ts:
+(pass) save then load round-trips the full record (incl. history transcript) [1.01ms]
+(pass) save writes one JSON file under ~/.pi/subagents/runs with no .tmp left behind (atomic) [0.61ms]
+(pass) list returns runs newest-first (by startedAt) [6.62ms]
+(pass) last-N retention evicts the oldest runs beyond the cap [2.86ms]
+(pass) delete removes a run and returns false when absent [0.61ms]
+(pass) list skips corrupt JSON files (resilient to a half-written neighbor) [0.79ms]
+(pass) save is best-effort: a fs error never throws (the run result is sacred) [0.24ms]
+(pass) getRunsDir resolves under the injected home [0.01ms]
+(pass) turns exhaustion round-trips through save/load and list (status 'turns') [0.61ms]
+(pass) a legacy record without `turns` still parses (optional field, no migration) [0.53ms]
+(pass) round-trips a record carrying a watchdog result [0.59ms]
+(pass) load() on a legacy record surfaces its stderr as `error` [0.50ms]
+(pass) list() applies the same legacy shim as load() [0.48ms]
+(pass) the shim never overwrites an `error` a current-format record already has [0.46ms]
+
+tests/agent-row-display.test.ts:
+(pass) glyphFor consistency > for every ActivityStatus, glyphFor(s).icon === activityGlyph(s).icon [0.05ms]
+(pass) glyphFor consistency > plain glyphs are non-empty plain text for every status [0.17ms]
+(pass) renderBadge / runHeader > renderBadge empty when no badgeText; fixed-width when present [0.03ms]
+(pass) renderBadge / runHeader > runHeader is plain and contains id, elapsed, action [0.04ms]
+(pass) renderRunRow — cost tail > appends the cost when costUsd > 0 (self-arc-10: no model segment on an unmodeled run) [0.07ms]
+(pass) renderRunRow — cost tail > cost tail absent when costUsd is 0
+(pass) shorten / preview — column-aware budgets > shorten: ASCII output byte-identical to legacy char-slice [0.01ms]
+(pass) shorten / preview — column-aware budgets > shorten: CJK clipped by columns, wide char never straddles the budget [0.04ms]
+(pass) shorten / preview — column-aware budgets > preview: ASCII output byte-identical; default cap 80 [0.02ms]
+(pass) shorten / preview — column-aware budgets > preview: CJSON/CJK payload clipped by columns, never overshoot [0.04ms]
+(pass) fmtDurationHuman — CC vocabulary (45s / 2m 13s / 1h 04m) > sub-second keeps one decimal
+(pass) fmtDurationHuman — CC vocabulary (45s / 2m 13s / 1h 04m) > sub-minute is whole seconds
+(pass) fmtDurationHuman — CC vocabulary (45s / 2m 13s / 1h 04m) > minutes carry zero-padded seconds
+(pass) fmtDurationHuman — CC vocabulary (45s / 2m 13s / 1h 04m) > hours carry zero-padded minutes
+(pass) fmtDurationHuman — CC vocabulary (45s / 2m 13s / 1h 04m) > degenerate inputs clamp to 0s
+(pass) fmtDurationHuman — CC vocabulary (45s / 2m 13s / 1h 04m) > fmtElapsed stays the stable-width live form (unchanged)
+(pass) fmtTokens — separator'd count (34,283) > groups thousands [0.03ms]
+(pass) fmtTokens — separator'd count (34,283) > degenerate inputs clamp to 0
+(pass) fmtDurationHuman boundaries (t01 review nit) > sub-second floors tenths; 999ms never rounds to 1.0s
+
+tests/sdd-report.test.ts:
+(pass) parseSddReport returns undefined when there is no **Status:** marker (non-SDD output) [0.07ms]
+(pass) parseSddReport extracts status reliably (the canonical SDD block) [0.06ms]
+(pass) parseSddReport distinguishes DONE vs DONE_WITH_CONCERNS (prefix trap) [0.02ms]
+(pass) parseSddReport is case-insensitive on the enum but normalizes to canonical case
+(pass) parseSddReport best-effort extracts commits (short SHAs), test summary, report file [0.03ms]
+(pass) parseSddReport omits best-effort fields that are not cleanly present
+(pass) SDD_REPORT_STATUSES lists all four canonical statuses
+(pass) isSddReportActionable flags the statuses the controller must act on [0.01ms]
+
+tests/cwd-delegation.test.ts:
+(pass) read tool constructed at A resolves a relative path against the SESSION cwd B [16.56ms]
+(pass) bash tool inherits the SESSION cwd (pwd equals B) [6.95ms]
+(pass) customTools get the factory-threaded ctx.cwd too (canary observes B) [3.13ms]
+
+tests/subagent-in-flight.test.ts:
+(pass) terminal transitions > markCompleted(id, 'failed') stamps status + endedAt [0.08ms]
+(pass) terminal transitions > markCompleted defaults to done (legacy no-arg) [0.02ms]
+(pass) terminal transitions > markFailed defaults to failed and stamps endedAt [0.02ms]
+(pass) updateTaskPreview overwrites the preview
+(pass) views({foreground:false}) filters to background runs; no opts returns all [0.05ms]
+(pass) start accepts ActivityStatus only (no legacy 'completed' literal) [0.01ms]
+(pass) start defaults omitted status to 'running'
+(pass) accrueUsage > sums deltas on a live run [0.02ms]
+(pass) accrueUsage > ignored after terminal (freeze mirrors elapsedFrozen)
+(pass) accrueUsage > no-op for unknown id (never throws)
+(pass) markDetached (Task 05) > unknown id → false (never throws) [0.01ms]
+(pass) markDetached (Task 05) > flips foreground=false, stamps detached=true, keeps the entry live [0.02ms]
+(pass) markDetached (Task 05) > rebinds abort to the detached child's kill lever [0.01ms]
+(pass) markDetached (Task 05) > onDetach fires for a subscriber registered before the flip (exactly once) [0.03ms]
+(pass) markDetached (Task 05) > onDetach fires immediately when the run is already detached [0.01ms]
+(pass) markDetached (Task 05) > onDetach for an unknown id is a no-op subscription
+(pass) change watchers (F-invalidate — discrete lifecycle channel) > markCompleted/markFailed fire the bound invalidate AND the change watchers [0.02ms]
+(pass) change watchers (F-invalidate — discrete lifecycle channel) > start/end/markDetached fire the change watchers [0.01ms]
+(pass) change watchers (F-invalidate — discrete lifecycle channel) > endBatch fires ONCE for the whole group (watchers render state, they don't count children) [0.03ms]
+(pass) change watchers (F-invalidate — discrete lifecycle channel) > history streaming and usage accrual do NOT fire the change channel (too hot) [0.02ms]
+(pass) change watchers (F-invalidate — discrete lifecycle channel) > unsubscribe stops the firing and is safe to call twice [0.01ms]
+(pass) abortBatch (self-arc-9 t03) > fires every non-terminal child of the batch, skips others + terminal, returns the count [0.05ms]
+(pass) abortBatch (self-arc-9 t03) > unknown batchId fires nothing and returns 0 (never throws)
+(pass) markLiveStatus + runKind (self-arc-10) > markLiveStatus('paused') stamps the LIVE row, fires invalidate + change watchers [0.03ms]
+(pass) markLiveStatus + runKind (self-arc-10) > markLiveStatus refuses to un-terminal a stamped row and no-ops on unknown ids [0.02ms]
+(pass) markLiveStatus + runKind (self-arc-10) > workflow rows badge `wf` via runKind (id-prefix derivation is the fallback) [0.03ms]
+
+tests/worktree.test.ts:
+(pass) createWorktree no-ops (not isolated) outside a git repo [8.51ms]
+(pass) createWorktree isolates in a git repo, then removeWorktree cleans up [89.42ms]
+(pass) createWorktree falls back when git fails (non-git directory) [6.15ms]
+(pass) removeWorktree does not throw when worktree directory is already missing [78.42ms]
+(pass) createWorktree falls back when target branch already exists [63.98ms]
+(pass) removeWorktree does not throw when git operations fail (corrupted metadata) [78.29ms]
+
+tests/agent-history.test.ts:
+(pass) compactAgentHistory captures user, assistant, tool call, and tool result entries [0.17ms]
+(pass) compactAgentHistory records assistant and tool errors [0.03ms]
+(pass) compactAgentHistory truncates text and keeps the latest entries [0.04ms]
+(pass) summarizeLatestAction returns undefined for empty or missing history [0.01ms]
+(pass) summarizeLatestAction summarizes a toolCall entry [0.02ms]
+(pass) summarizeLatestAction summarizes a successful toolResult entry
+(pass) summarizeLatestAction summarizes a failed toolResult entry
+(pass) summarizeLatestAction summarizes an error entry
+(pass) summarizeLatestAction summarizes a plain text entry as its first line
+(pass) summarizeLatestAction only looks at the LAST entry
+(pass) summarizeLatestAction falls back to a generic 'tool' label when toolName is missing
+(pass) compactAgentHistory threads toolCallId: batched calls carry their OWN id (block.id) [0.02ms]
+(pass) compactAgentHistory threads toolCallId: batched results carry their OWN id (message.toolCallId) [0.02ms]
+(pass) compactAgentHistory: toolCallId is OPTIONAL — legacy/missing ids stay undefined (no regression) [0.01ms]
+
+tests/model-tier-config.test.ts:
+(pass) model-tier-config > buildDefaultTierConfig > sets every tier to the provided current model [0.09ms]
+(pass) model-tier-config > buildDefaultTierConfig > each tier holds a single string [0.06ms]
+(pass) model-tier-config > buildDefaultTierConfig > always produces the three standard tiers [0.02ms]
+(pass) model-tier-config > resolveTierModel > returns the model for a valid tier [0.02ms]
+(pass) model-tier-config > resolveTierModel > returns undefined for unknown tier name [0.01ms]
+(pass) model-tier-config > resolveTierModel > returns empty string when tier exists but no model is assigned [0.01ms]
+(pass) model-tier-config > loadModelTierConfig / saveModelTierConfig (scoped to tmpdir) > round-trips a valid config through disk [0.29ms]
+(pass) model-tier-config > loadModelTierConfig / saveModelTierConfig (scoped to tmpdir) > returns null when file does not exist [0.05ms]
+(pass) model-tier-config > loadModelTierConfig / saveModelTierConfig (scoped to tmpdir) > returns null for corrupted JSON [0.27ms]
+(pass) model-tier-config > loadModelTierConfig / saveModelTierConfig (scoped to tmpdir) > returns null for non-object JSON [0.19ms]
+(pass) model-tier-config > loadModelTierConfig / saveModelTierConfig (scoped to tmpdir) > returns null when tiers is not an object [0.17ms]
+(pass) model-tier-config > loadModelTierConfig / saveModelTierConfig (scoped to tmpdir) > returns null when a tier value is not a string [0.18ms]
+(pass) model-tier-config > loadModelTierConfig / saveModelTierConfig (scoped to tmpdir) > accepts a config where a tier value is a valid string [0.21ms]
+(pass) model-tier-config > sortedTierNames > returns names sorted: small < medium < big [0.04ms]
+(pass) model-tier-config > sortedTierNames > places custom tier names alphabetically after the standard ones [0.02ms]
+
+tests/agent-model-spec.test.ts:
+(pass) resolveAgentModelSpec: unknown-tier warning points users to /models-preset [0.04ms]
+(pass) sessionModelInjectionWins: injection wins only when no per-call model/tier is given [0.02ms]
+(pass) splitSpecThinkingSuffix: splits a legal suffix, leaves everything else whole [0.02ms]
+(pass) resolveScopedAgentModelSpec: strips the suffix for resolution and returns thinkingLevel [0.04ms]
+
+tests/agent-trace-viewport.test.ts:
+(pass) viewportTraceTail > unknown/non-finite rows → fixed STREAMING_EXPANDED_TAIL (headless/print/tests) [0.02ms]
+(pass) viewportTraceTail > clamps to [8, 28] with a 14-row chrome reserve
+(pass) viewportTraceTail > opts override min/max/reserved
+(pass) viewportTraceTail > monotone in rows (taller terminal never shows less) [0.02ms]
+
+tests/model-role-config.test.ts:
+(pass) loadModelTierConfig loads tiers + capabilities [0.13ms]
+(pass) loadModelTierConfig accepts legacy tiers-only file (backward compat) [0.11ms]
+(pass) loadModelTierConfig rejects non-string capability values [0.12ms]
+(pass) resolveModelRole resolves a capability [0.01ms]
+(pass) resolveModelRole resolves a tier
+(pass) resolveModelRole returns undefined for unconfigured capability
+(pass) resolveModelRole returns undefined when config is null
+(pass) saveModelTierConfig round-trips capabilities [0.12ms]
+(pass) resolveModelRole: vision-large falls back to vision when tiered key absent
+(pass) resolveModelRole: exact tiered key wins over vision fallback
+(pass) resolveModelRole: vision-medium falls back when only vision-large is tiered
+(pass) resolveModelRole: vision-small falls back to vision
+(pass) resolveModelRole: unknown dashed capability still falls back once (vision-x → vision)
+(pass) transient override: resolution reads it ahead of the file; clearing restores [0.06ms]
+(pass) transient override: loadModelTierConfig stays FILE-only [0.19ms]
+
+tests/live-agent-registry.test.ts:
+(pass) LiveAgentRegistry — naming > reserved names are rejected [0.04ms]
+(pass) LiveAgentRegistry — naming > name collisions are rejected and report the live roster [0.03ms]
+(pass) LiveAgentRegistry — naming > get resolves by name then agentId [0.01ms]
+(pass) LiveAgentRegistry — LRU eviction + capacity > registering past the cap evicts the least-recently-touched IDLE agent [0.04ms]
+(pass) LiveAgentRegistry — LRU eviction + capacity > a RUNNING agent is never the eviction victim; all-running at cap = error [0.01ms]
+(pass) LiveAgentRegistry — LRU eviction + capacity > hasCapacity reflects room and idle-evictability [0.02ms]
+(pass) LiveAgentRegistry — LRU eviction + capacity > maxLive=0 disables named agents entirely
+(pass) LiveAgentRegistry — disposal scope > release disposes the agent exactly once and frees the name [0.01ms]
+(pass) LiveAgentRegistry — disposal scope > disposeFor disposes matching-session entries; '*' disposes everything [0.05ms]
+(pass) LiveAgentRegistry — env + singleton > maxLiveFromEnv parses SUBAGENT_MAX_LIVE with default fallback [0.02ms]
+(pass) LiveAgentRegistry — env + singleton > getLiveAgentRegistry is a process singleton; reset recreates it [0.01ms]
+
+tests/agent-baked-providers-seam.test.ts:
+(pass) BAKED_PROVIDERS_SEAM_KEY drift guard > the duplicated literal matches core-interface's canonical SEAM_KEYS registry
+(pass) registerBakedProvidersFromSeam > unpublished seam → 0 registered, no calls, no throw [0.04ms]
+(pass) registerBakedProvidersFromSeam > published catalog → every entry registered verbatim, count returned [0.03ms]
+(pass) registerBakedProvidersFromSeam > non-object catalog (string/number/null) → 0, no throw [0.01ms]
+[core-runtime] __piBakedProviders: entry "bad" is not an object — skipped
+[core-runtime] __piBakedProviders: registering "throws" failed: boom
+(pass) registerBakedProvidersFromSeam > malformed entry skipped with a warning; a throwing registerProvider skips that entry only [0.05ms]
+(pass) registerBakedProvidersFromSeam > default reader is globalThis (the real seam slot) [0.02ms]
+
+tests/spawn-subagent.test.ts:
+(pass) spawnSubagent > success → {output} with no failure [0.21ms]
+(pass) spawnSubagent > passes tools/excludeTools/model/cwd/instructions through to runner.run [0.04ms]
+(pass) spawnSubagent > mainModel is the default effective model when model+tier are omitted (default = current LLM) [0.03ms]
+(pass) spawnSubagent > tier set + model omitted → tier forwarded, effectiveModel NOT defaulted to mainModel [0.03ms]
+(pass) spawnSubagent > capability resolves to the configured model-spec [0.25ms]
+(pass) spawnSubagent > explicit model wins over capability [0.22ms]
+(pass) spawnSubagent > explicit model wins over mainModel [0.03ms]
+(pass) spawnSubagent > forwards tier/onModelResolved/onModelFallback to runner.run [0.04ms]
+(pass) spawnSubagent > forwards onUsage to the caller (fires once at run end) alongside the internal result.usage capture [0.04ms]
+(pass) spawnSubagent > onUsage is optional — omitting it changes nothing (result.usage still captured) [0.03ms]
+(pass) spawnSubagent > onTurns (TurnGuard count) → done run carries authoritative result.turns with turnsUsed [0.03ms]
+(pass) spawnSubagent > timeout (AGENT_TIMEOUT) → failure.kind timedout, retried once when retryOnTransient:true [0.11ms]
+(pass) spawnSubagent > retryOnTransient:false → no retry on timeout [0.03ms]
+(pass) spawnSubagent > non-transient throw → failure.kind failed with the message, no retry [0.10ms]
+(pass) spawnSubagent > transient-then-success → retried, returns the success output [0.04ms]
+(pass) spawnSubagent > schema object result is JSON-serialized, not String()'d to [object Object] [0.03ms]
+(pass) spawnSubagent > null result (recoverable exhaustion) → empty string output, not 'null' or [object Object] [0.02ms]
+(pass) spawnSubagent > externalSignal already aborted before the call → the internal signal passed to runner.run is aborted [0.05ms]
+(pass) spawnSubagent > externalSignal that aborts mid-run propagates to the internal signal (addEventListener path) [0.06ms]
+(pass) spawnSubagent > REGRESSION: an external abort must not trigger the transient-failure retry [0.04ms]
+(pass) spawnSubagent > onUsage fires → result.usage carries the reported AgentUsage [0.03ms]
+(pass) spawnSubagent > usage is undefined when the runner never calls onUsage [0.02ms]
+(pass) spawnSubagent > usage is preserved on a failure path too (onUsage fires before the throw propagates) [0.04ms]
+(pass) spawnSubagent > timeoutMs abort with a runner-shaped Error('Subagent was aborted') → kind timedout, retried [42.12ms]
+(pass) spawnSubagent > usage is summed across a transient failure + retry, not just the second attempt's [0.06ms]
+(pass) spawnSubagent > onHistory is forwarded to runner.run and fires with what the runner reports [0.04ms]
+(pass) spawnSubagent budget > TOKEN_BUDGET_EXHAUSTED → failure.kind budget, non-transient (not retried) [0.06ms]
+(pass) spawnSubagent budget > forwards tokenBudget/spendBudget to runner.run [0.03ms]
+(pass) spawnSubagent budget > budget exhaustion with retryOnTransient:true still does NOT retry [0.06ms]
+(pass) spawnSubagent budget warning (80%, informational) > final usage at exactly 80% of tokenBudget → budgetWarning attached, run still succeeds [0.05ms]
+(pass) spawnSubagent budget warning (80%, informational) > final usage above 80% but under the limit → budgetWarning attached [0.02ms]
+(pass) spawnSubagent budget warning (80%, informational) > final usage below 80% → no budgetWarning [0.02ms]
+(pass) spawnSubagent budget warning (80%, informational) > no budget set → no budgetWarning regardless of usage [0.02ms]
+(pass) spawnSubagent budget warning (80%, informational) > spend path: cost at 80% of spendBudget → spend warning [0.03ms]
+(pass) spawnSubagent budget warning (80%, informational) > warning with retryOnTransient:true still does NOT retry (informational, not transient) [0.03ms]
+(pass) spawnSubagent schema repair > SCHEMA_NONCOMPLIANCE is transient → retried once (fresh re-run fixes the intermittent zai/glm flake) [0.04ms]
+(pass) spawnSubagent schema repair > forwards schemaRepairAttempts to runner.run as maxSchemaRetries [0.02ms]
+(pass) spawnSubagent schema repair > SCHEMA_NONCOMPLIANCE NOT retried when retryOnTransient:false [0.03ms]
+(pass) spawnSubagent turns cap (maxTurns) > TURNS_EXHAUSTED → transient, failure.kind turns carrying {maxTurns, turnsUsed}, retried once [0.06ms]
+(pass) spawnSubagent turns cap (maxTurns) > TURNS_EXHAUSTED NOT retried when retryOnTransient:false [0.03ms]
+(pass) spawnSubagent turns cap (maxTurns) > forwards maxTurns to runner.run; omitted → undefined (no default) [0.03ms]
+(pass) spawnSubagent turns cap (maxTurns) > SUBAGENT_TURNS_NUDGE_DISABLE=1 threads wrapUpNudge:false; unset forwards nothing (core default = on) [0.06ms]
+(pass) resolveSessionOverride (modelRuntime merge — ticket 07) > no modelRuntime → session unchanged (passthrough) [0.01ms]
+(pass) resolveSessionOverride (modelRuntime merge — ticket 07) > modelRuntime set → merged into session
+(pass) resolveSessionOverride (modelRuntime merge — ticket 07) > top-level modelRuntime wins over session.modelRuntime
+(pass) deriveTaskLabel > leading sentence of the first non-empty line, slugified
+(pass) deriveTaskLabel > caps at 40 chars with no trailing dashes [0.02ms]
+(pass) deriveTaskLabel > skips blank leading lines
+(pass) deriveTaskLabel > falls back to "task" on empty/whitespace/slug-less input [0.02ms]
+(pass) spawnSubagent label threading (H1) > runner.run receives the derived label, not a hardcoded one [0.03ms]
+(pass) spawnSubagent label threading (H1) > an explicit label wins over derivation [0.02ms]
+
+ 511 pass
+ 0 fail
+ 720 expect() calls
+Ran 511 tests across 35 files. [749.00ms]
