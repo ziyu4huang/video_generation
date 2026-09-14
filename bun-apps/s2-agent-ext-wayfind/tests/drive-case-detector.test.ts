@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { bashIsMutating, c2Compliant, detectFromLines, posBefore } from "../scripts/drive-case.js";
+import { bashIsMutating, c2Compliant, c2CompliantAnchored, detectFromLines, posBefore } from "../scripts/drive-case.js";
 
 /**
  * Detector regression locks for the live-drive harness (spwf-drive-ab t07,
@@ -81,6 +81,36 @@ describe("drive-case detector (spwf-ab-closing t07)", () => {
     expect(bashIsMutating("rm -rf output/spwf-ab/scratch")).toBe(true);
     expect(bashIsMutating("mkdir -p output/spwf-ab/scratch")).toBe(true);
     expect(bashIsMutating("git commit -m x")).toBe(true);
+  });
+
+  it("C2 anchors to the EXPECTED skill: another skill read early does not pass it", () => {
+    const lines = [
+      line({ type: "session", version: 3, id: "s" }),
+      line(MODEL),
+      line(USER("task [case-id: n4]")),
+      // turn 4: a DIFFERENT skill read early (not brainstorming)
+      assistant([{ name: "read", args: { path: "/x/superpowers/skills/systematic-debugging/SKILL.md" } }]),
+      // turn 5: the mutation lands BEFORE brainstorming is read
+      assistant([{ name: "write", args: { path: "output/spwf-ab/scratch/hello.ts", content: "x" } }]),
+      assistant([{ name: "read", args: { path: "/x/superpowers/skills/brainstorming/SKILL.md" } }]),
+    ];
+    const d = detectFromLines(lines);
+    expect(d.reads).toContain("brainstorming");
+    // firstRead-of-any would anchor at the debugging read (before the write) —
+    // the anchored predicate must reject that:
+    expect(c2CompliantAnchored(d, "brainstorming")).toBe(false);
+    expect(c2CompliantAnchored(d, "systematic-debugging")).toBe(true); // control
+  });
+
+  it("bash: 2>/dev/null and 2>&1 recon are non-mutating; fd-redirects to files and git apply are mutating", () => {
+    expect(bashIsMutating("bun test 2>/dev/null")).toBe(false);
+    expect(bashIsMutating("ls foo 2>&1 | head")).toBe(false);
+    expect(bashIsMutating("cmd >/dev/null 2>&1")).toBe(false);
+    expect(bashIsMutating("cat x 2>/dev/null 1>&2")).toBe(false);
+    expect(bashIsMutating("curl -sL https://x -o output/spwf-ab/dl.bin")).toBe(true);
+    expect(bashIsMutating("git apply p.diff")).toBe(true);
+    expect(bashIsMutating("make install")).toBe(true);
+    expect(bashIsMutating("grep install package.json")).toBe(false); // install tightening
   });
 
   it("c2Compliant: a same-turn read+write batch is NON-COMPLIANT on both paths", () => {

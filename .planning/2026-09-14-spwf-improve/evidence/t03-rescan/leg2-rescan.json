@@ -1,0 +1,26 @@
+[rescan C2] PASS — ✓read:brainstorming ✓order:brainstorming-before-mutate
+{
+  "case": "C2",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-10T12-30-18-652Z_01a08b4c-261c-7fd6-b9fd-d12480450ff4.jsonl",
+  "model": {
+    "assistantModels": [
+      "glm-5.3"
+    ],
+    "modelChanges": [
+      "zai/glm-5.3"
+    ]
+  },
+  "checks": [
+    {
+      "name": "read:brainstorming",
+      "ok": true,
+      "detail": "reads=[brainstorming]"
+    },
+    {
+      "name": "order:brainstorming-before-mutate",
+      "ok": true,
+      "detail": "firstRead=5:0 firstMutate=8:0"
+    }
+  ],
+  "verdict": "PASS"
+}

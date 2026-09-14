@@ -12,7 +12,8 @@
  * isolates its session store (PI_SESSIONS_DIR), then passively detects
  * observables from the session JSONL:
  *   - assistant `read` toolCalls whose path hits a skills/<name>/SKILL.md
- *   - toolCall ORDER (reads vs write/edit calls)
+ *   - toolCall ORDER (reads vs write/edit calls; mutating scope = any
+ *     output/spwf-* scratch + scripts/)
  *   - the bootstrap marker (raw text — NOTE: measured 2026-09-09 across
  *     5,813 session files: the context-event injection does NOT persist to
  *     the store, so marker-in-JSONL is a weak signal; C1 uses the model-
@@ -54,6 +55,19 @@ export function c2Compliant(firstRead: CallPos | null, firstMutate: CallPos | nu
   return !!firstRead && (!firstMutate || firstRead.msgLine < firstMutate.msgLine);
 }
 
+/** The ONE C2 predicate both adjudication paths call (spwf-improve t08
+ *  reviewer blocker: the live path had drifted to lexicographic anchoring
+ *  while rescan stayed strict — the exact divergence class spwf-ab-closing
+ *  closed). Anchors to the EXPECTED skill's read position; a read batched
+ *  in the same assistant message as the mutation is NON-COMPLIANT. */
+export function c2CompliantAnchored(
+  detected: { firstRead: CallPos | null; firstMutate: CallPos | null; skillReadPos: Record<string, CallPos> },
+  expectedSkill: string | null | undefined,
+): boolean {
+  const anchored = (expectedSkill && detected.skillReadPos[expectedSkill]) || detected.firstRead;
+  return c2Compliant(anchored, detected.firstMutate);
+}
+
 export function posBefore(a: CallPos, b: CallPos): boolean {
   return a.msgLine < b.msgLine || (a.msgLine === b.msgLine && a.callOrdinal < b.callOrdinal);
 }
@@ -65,10 +79,10 @@ export function posBefore(a: CallPos, b: CallPos): boolean {
 export const BASH_WRITE_OPERATORS: RegExp[] = [
   // plain + fd-prefixed redirects (null-device exempt — 2>/dev/null is not a
   // workspace mutation; spwf-improve t03):
-  /(^|[\s;|&])>(?!\/dev\/null)/,
-  /(^|[\s;|&])>>(?!\/dev\/null)/,
-  /[0-9]>(?!\/dev\/null)/,
-  /[0-9]>>(?!\/dev\/null)/,
+  /(^|[\s;|&])>(?!\s?\/dev\/null)/,
+  /(^|[\s;|&])>>(?!\s?\/dev\/null)/,
+  /[0-9]>(?!(?:\s?\/dev\/null)|&)/,
+  /[0-9]>>(?!(?:\s?\/dev\/null)|&)/,
   /\btee\b/,
   /\bsed\s+(-[^ ]*\s+)*-i\b/,
   /\brm\b/,
@@ -91,12 +105,15 @@ export const BASH_WRITE_OPERATORS: RegExp[] = [
   /\bwget\b[^;&]*\s-O\b/,
   /\bperl\s+-[a-zA-Z]*i/,
   /\brsync\b/,
-  /\binstall\b/,
+  /\b(make|npm|pnpm|yarn)\s+install\b/,
   /\btruncate\b/,
 ];
 
 export function bashIsMutating(cmd: string): boolean {
-  return BASH_WRITE_OPERATORS.some((re) => re.test(cmd));
+  // Neutralize non-mutating redirect forms BEFORE classification:
+  // null-device sinks (/dev/null) and fd-dups (2>&1, 1>&2) write nothing.
+  const neutral = cmd.replace(/\s*[0-9]?>>?\s*\/dev\/null/g, " ").replace(/\s*[0-9]&[12](?![\w./])/g, " ");
+  return BASH_WRITE_OPERATORS.some((re) => re.test(neutral));
 }
 
 function arg(name: string): string | undefined {
@@ -182,14 +199,13 @@ export function detectFromLines(lines: string[]): Detected {
               d.reads.push(pm[1]);
               if (!d.skillReadPos[pm[1]]) d.skillReadPos[pm[1]] = pos;
               if (!d.firstRead) d.firstRead = pos;
-              if (!d.skillReadPos[pm[1]]) d.skillReadPos[pm[1]] = pos;
             }
           }
           if (name === "bash") {
             const cmd = String((part.arguments as any)?.command ?? "");
             const mutating = bashIsMutating(cmd);
             d.bashCalls.push({ cmd: cmd.slice(0, 200), mutating, pos });
-            if (mutating && /output\/spwf-drive|output\/spwf-ab|scripts\//.test(a)) {
+            if (mutating && /output\/spwf-|scripts\//.test(a)) {
               if (!d.firstMutate) d.firstMutate = pos;
               const pathM = a.match(/([A-Za-z0-9_./-]+\.(?:ts|js|py))/);
               const p = pathM?.[1] ?? "";
@@ -201,7 +217,7 @@ export function detectFromLines(lines: string[]): Detected {
           if (/^(write|edit|multiedit)$/.test(name)) {
             const pathM = a.match(/([A-Za-z0-9_./-]+\.(?:ts|js|py))/);
             const p = pathM?.[1] ?? "";
-            if (/output\/spwf-drive|output\/spwf-ab|scripts\//.test(a) && p) {
+            if (/output\/spwf-|scripts\//.test(a) && p) {
               if (!d.firstMutate) d.firstMutate = pos;
               d.mutatingPaths.push({ kind: /test|spec/i.test(p) ? "test" : "impl", path: p, pos });
             }
@@ -266,9 +282,7 @@ async function main(): Promise<number> {
           `tail=${JSON.stringify(det.replyTail.slice(0, 200))}`,
         );
       if (spec.case === "C2") {
-        const expected = spec.expectRead[0] ?? null;
-        const anchored = (expected && det.skillReadPos[expected]) || det.firstRead;
-        const compliant = !!anchored && (!det.firstMutate || anchored.msgLine < det.firstMutate.msgLine);
+        const compliant = c2CompliantAnchored(det, spec.expectRead[0]);
         pass(
           "order:brainstorming-before-mutate",
           compliant,
@@ -474,9 +488,7 @@ async function main(): Promise<number> {
     // D2 semantics: COMPLIANT ⟺ skill-read exists ∧ (no mutation ∨ read TURN
     // strictly before mutate TURN). Same assistant message = same-turn batch
     // = NON-COMPLIANT (the model acted before the skill could shape it).
-    const expected = spec.expectRead[0] ?? null;
-    const anchored = (expected && det.skillReadPos[expected]) || det.firstRead;
-    const compliant = !!anchored && (!det.firstMutate || anchored.msgLine < det.firstMutate.msgLine);
+    const compliant = c2CompliantAnchored(det, spec.expectRead[0]);
     pass(
       "order:brainstorming-before-mutate",
       compliant,

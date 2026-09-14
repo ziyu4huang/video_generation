@@ -97,6 +97,10 @@ through the devops chain with a reviewer pass.
   evidence/pre-fix/runtime-description.txt). Regression lock:
   description-integrity test in effort-tool.test.ts. E2E: all pass,
   model-call skip (contention) — recorded.
+- **C9 surprise (honest)**: NOTE — the committed c9 receipts' `detected`
+  blocks are empty (detection ran before the session file landed); the
+  routing evidence is the SESSION JSONLs named in each receipt's
+  `sessionFile` field.
 - **C9 surprise (honest)**: BOTH pre and post legs used
   `wayfind_effort action:'status'` with ZERO whole-map reads. The NaN'd
   steering sentence had no measured behavioral effect — the per-action
@@ -104,10 +108,15 @@ through the devops chain with a reviewer pass.
   still correct (mangled NaN text shipped to every boot was pure
   degradation) but no behavioral red → t07 content edits
   considered-rejected with receipts (evidence/c9-*.json).
-- **t03 detector**: C2 anchors to the EXPECTED skill (skillReadPos);
-  bash operators + fd-prefixed redirects (null-device exempt — 2>/dev/null
-  recon is not a mutation) + reviewer gap classes; settled CLOSED-PASS
-  verdicts reproduce under the anchored detector (both leg rescans PASS).
+- **t03 detector**: C2 anchors to the EXPECTED skill via the shared
+  `c2CompliantAnchored` predicate (both the live and rescan paths call the
+  ONE predicate — reviewer round 1 caught the live path drifting back to
+  lexicographic); bash operators + fd-prefixed redirects (null-device and
+  fd-dup `2>&1` exempt — neutralize-before-classify) + reviewer gap
+  classes; 8 detector fixtures lock the semantics
+  (tests/drive-case-detector.test.ts); settled CLOSED-PASS verdicts
+  reproduce under the anchored detector — rescan receipts COMMITTED at
+  evidence/t03-rescan/ (leg-2 + leg-3, both PASS).
 - **t04 session_compact: PASS** (attempt 2; attempt 1's capture window was
   too short) — /compact acknowledged, bootstrap self-report YES
   post-compaction (tier-3 behavioral, F0a-labeled). Receipt:
@@ -127,3 +136,18 @@ through the devops chain with a reviewer pass.
   status flips) + Completed-by links. Deploy 0.10.3+g11e90db (superseded by
   the sibling's newer deploys — the load-bearing bytes were grep-verified at
   deploy time per PB-09).
+
+## Reviewer round (2026-09-14, independent GLM-5.3 pass)
+
+REQUEST-CHANGES: (1) BLOCKER — the map asserted t03 fixtures + rescan
+receipts that existed only as session work (a claim/artifact mismatch in a
+repo whose ethos is receipts-not-narrative) — fixed: the anchored-C2 and
+operator fixtures are committed in tests/drive-case-detector.test.ts and
+the rescan receipts are committed at evidence/t03-rescan/; (2) should-fix —
+the shared-predicate guarantee was broken (live path drifted back to
+lexicographic) — fixed: one exported `c2CompliantAnchored` both paths call,
+fixture-locked incl. a wrong-skill-first case; (3) nits fixed: duplicate
+dead assignment removed, fd-dup (`2>&1`) + spaced `/dev/null` exemptions,
+`install` tightened to package-manager installs, scope regex widened to
+`output/spwf-*` + documented, C9 JSONL note added. Gates: wayfind 540/0.
+Receipt: output/reviewer-spwf-improve/review.md.
