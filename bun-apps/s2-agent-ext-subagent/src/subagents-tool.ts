@@ -42,7 +42,7 @@ import {
   tierDefaultToken,
 } from "@repo/s2-agent-core-runtime";
 import { Type } from "typebox";
-import { type AgentTrustSurface, gateProjectAgentBatch, trustSurfaceFromCtx } from "./agent-trust.js";
+import { type AgentTrustSurface, createAgentTrustSurface, gateProjectAgentBatch } from "./agent-trust.js";
 import { buildAgentTypeCatalog, withAgentTypeCatalog } from "./agent-type-catalog.js";
 import { dispatchChild } from "./child-dispatch.js";
 import { ComposerComponent } from "./composer-component.js";
@@ -181,7 +181,8 @@ export interface SubagentsToolOptions {
   agentRegistry?: AgentRegistry;
   /**
    * Trust surface for the project-agent gate (t04, self-arc-25). Defaults to
-   * trustSurfaceFromCtx(execute ctx). Injectable for tests and embedders.
+   * createAgentTrustSurface (pi trust store at the dispatch cwd — self-arc-26).
+   * Injectable for tests and embedders.
    */
   agentTrust?: AgentTrustSurface;
   /** Pre-built agentType catalog for the description (self-arc-8); tests pin it. */
@@ -458,7 +459,7 @@ export function createSubagentsTool(
       // One confirm covers every offending slot; a decline (or no-UI) rejects
       // the whole batch early, listing the offending indexes (map D6).
       if (agentDefs.size > 0) {
-        const trust = options.agentTrust ?? trustSurfaceFromCtx(_ctx);
+        const trust = options.agentTrust ?? createAgentTrustSurface({ ctx: _ctx, cwd: defaultCwd });
         const rejections = await gateProjectAgentBatch(
           [...agentDefs.entries()].map(([index, def]) => ({ index, def })),
           trust,

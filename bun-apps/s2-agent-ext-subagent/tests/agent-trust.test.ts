@@ -1,7 +1,17 @@
-import { test } from "bun:test";
+import { afterAll, test } from "bun:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentDefinition } from "@repo/s2-agent-core-runtime";
-import { gateProjectAgent, gateProjectAgentBatch, trustSurfaceFromCtx } from "../src/agent-trust.js";
+import {
+  createAgentTrustSurface,
+  gateProjectAgent,
+  gateProjectAgentBatch,
+  trustSurfaceFromCtx,
+} from "../src/agent-trust.js";
+import { createSubagentTool } from "../src/subagent-tool.js";
+import { ok } from "./_spawn-result.js";
 
 function def(source: AgentDefinition["source"], name = "evil"): AgentDefinition {
   return {
@@ -113,4 +123,123 @@ test("batch: trusted project → no rejections, no confirm", async () => {
   const rejections = await gateProjectAgentBatch([{ index: 0, def: def("project") }], surface);
   assert.equal(rejections.size, 0);
   assert.equal(calls.length, 0);
+});
+
+// ── self-arc-26: the store-backed default surface ──────────────────────────
+// pi's ProjectTrustStore semantics (shipped trust-manager.js): get(cwd) walks
+// cwd's ANCESTORS, the nearest true/false entry wins, `null`-valued entries
+// are skipped, no entry → null ("ask"), corrupt JSON → throws. Keys are
+// canonical paths (macOS /tmp → /private/tmp), hence realpathSync.
+
+function makeStore(entries: Record<string, boolean | null>): string {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "trust-store-")));
+  writeFileSync(join(dir, "trust.json"), JSON.stringify(entries));
+  return dir;
+}
+
+function makeProject(name = "proj"): string {
+  return realpathSync(mkdtempSync(join(tmpdir(), name)));
+}
+
+afterAll(() => {
+  // Temp dirs are left for the OS tmp cleaner; nothing process-global was set.
+});
+
+test("store true at the dispatch cwd → trusted, no gate", async () => {
+  const proj = makeProject();
+  const surface = createAgentTrustSurface({ ctx: undefined, cwd: proj, agentDir: makeStore({ [proj]: true }) });
+  assert.equal(surface.isProjectTrusted(), true);
+});
+
+test("store false → headless default-DENY naming the file", async () => {
+  const proj = makeProject();
+  const surface = createAgentTrustSurface({ ctx: undefined, cwd: proj, agentDir: makeStore({ [proj]: false }) });
+  const verdict = await gateProjectAgent(def("project", "evil.md"), surface);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error ?? "", /evil\.md/);
+});
+
+test("store has no entry (pi's ask) → UNTRUSTED — the secure flip that makes the gate real", async () => {
+  const proj = makeProject();
+  const surface = createAgentTrustSurface({
+    ctx: undefined,
+    cwd: proj,
+    agentDir: makeStore({ "/somewhere-else": true }),
+  });
+  assert.equal(surface.isProjectTrusted(), false);
+});
+
+test("ancestor walk: an entry on a parent dir decides for the deeper dispatch cwd", async () => {
+  const parent = makeProject();
+  const child = join(parent, "deep", "deeper");
+  mkdirSync(child, { recursive: true });
+  const surface = createAgentTrustSurface({ ctx: undefined, cwd: child, agentDir: makeStore({ [parent]: true }) });
+  assert.equal(surface.isProjectTrusted(), true);
+});
+
+test("null-valued entry at cwd is SKIPPED; a nearer ancestor's true wins", async () => {
+  const parent = makeProject();
+  const child = join(parent, "sub");
+  mkdirSync(child, { recursive: true });
+  const surface = createAgentTrustSurface({
+    ctx: undefined,
+    cwd: child,
+    agentDir: makeStore({ [child]: null, [parent]: true }),
+  });
+  assert.equal(surface.isProjectTrusted(), true);
+});
+
+test("corrupt store JSON degrades to the ctx surface (fail-open with no ctx, ctx verdict otherwise)", async () => {
+  const proj = makeProject();
+  const badDir = realpathSync(mkdtempSync(join(tmpdir(), "trust-bad-")));
+  writeFileSync(join(badDir, "trust.json"), "{not json");
+  assert.equal(createAgentTrustSurface({ ctx: undefined, cwd: proj, agentDir: badDir }).isProjectTrusted(), true);
+  assert.equal(
+    createAgentTrustSurface({ ctx: { isProjectTrusted: () => false }, cwd: proj, agentDir: badDir }).isProjectTrusted(),
+    false,
+  );
+});
+
+test("a readable store OVERRIDES the ctx verdict (this is what makes the gate non-latent)", async () => {
+  const proj = makeProject();
+  const trustedStore = makeStore({ [proj]: true });
+  const untrustedStore = makeStore({ [proj]: false });
+  // pi's SettingsManager would report true here (library default)…
+  const ctx = { isProjectTrusted: () => true, hasUI: false };
+  assert.equal(createAgentTrustSurface({ ctx, cwd: proj, agentDir: trustedStore }).isProjectTrusted(), true);
+  // …but the store's explicit false wins → gate fires.
+  assert.equal(createAgentTrustSurface({ ctx, cwd: proj, agentDir: untrustedStore }).isProjectTrusted(), false);
+});
+
+test("hasUI/confirm pass through from ctx untouched", async () => {
+  const proj = makeProject();
+  const confirms: string[] = [];
+  const surface = createAgentTrustSurface({
+    ctx: { hasUI: true, ui: { confirm: async (t: string, m: string) => (confirms.push(`${t}::${m}`), true) } },
+    cwd: proj,
+    agentDir: makeStore({ [proj]: false }),
+  });
+  assert.equal(surface.hasUI, true);
+  const verdict = await gateProjectAgent(def("project", "evil.md"), surface);
+  assert.equal(verdict.ok, true, "confirm-approved → dispatch allowed");
+  assert.match(confirms[0], /~\/\.pi\/agent\/trust\.json/);
+});
+
+test("tool-default integration: the REAL default path denies an untrusted project def (no injected surface)", async () => {
+  const proj = makeProject();
+  const store = makeStore({ [proj]: false });
+  const prev = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = store;
+  try {
+    const registry = new Map<string, AgentDefinition>([
+      ["evil", { name: "evil", source: "project", fileName: "evil.md" } as unknown as AgentDefinition],
+    ]);
+    const tool = createSubagentTool({ spawn: async () => ok("SHOULD NOT RUN"), agentRegistry: registry, cwd: proj });
+    const res = await tool.execute("id", { task: "t", agentType: "evil" }, undefined as never, undefined, undefined);
+    assert.match(res.content[0].text, /not approved for this project/);
+    assert.match(res.content[0].text, /evil\.md/);
+  } finally {
+    if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = prev;
+  }
 });

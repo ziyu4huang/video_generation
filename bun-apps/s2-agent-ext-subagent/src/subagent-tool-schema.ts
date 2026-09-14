@@ -317,8 +317,10 @@ export interface SubagentToolOptions {
   /** Injectable named-agent first-exchange runner for tests (defaults to spawnLiveAgentFirstExchange). */
   spawnLive?: typeof spawnLiveAgentFirstExchange;
   /**
-   * Trust surface for the project-agent gate (t04, self-arc-25). Defaults to
-   * trustSurfaceFromCtx(execute ctx): pi reports isProjectTrusted/hasUI/ui.
+   * Trust surface for the project-agent gate (t04, self-arc-25; store-backed
+   * default since self-arc-26). Defaults to createAgentTrustSurface: the
+   * verdict comes from pi's ProjectTrustStore at the dispatch cwd (null ->
+   * untrusted; unreadable store -> ctx fallback), hasUI/confirm from ctx.
    * Injectable for tests and for embedders that decide trust elsewhere.
    */
   agentTrust?: AgentTrustSurface;
