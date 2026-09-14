@@ -253,6 +253,15 @@
       "branch": "self-arc-25-pi-upgrade-subagent",
       "note": "pi upgrade 0.84.4 -> 0.85.1 (upstream 0.85.0 2026-09-04 + 0.85.1 2026-09-05) + study upstream pi extension sources (github earendil-works/pi, pi.dev) -> improve s2-agent-ext-subagent. GLM-5.3 web-research children + GLM-5.3 planner. SHIPPED: #2277 (pi 0.85.1), #2278 (output cap), #2279 (ctx.cwd simplify), #2280 (trust gate - latent in host, successor-arc head), #2282 (usage ledger); verified on deployed 0.10.3+g9eb78ef; close-out = the next PR.",
       "mergedPr": 2282
+    },
+    {
+      "series": "self-arc",
+      "number": 26,
+      "path": ".planning/2026-09-15-self-arc-26-project-trust-wiring",
+      "status": "active",
+      "claimedAt": "2026-09-15",
+      "branch": "self-arc-26-project-trust-wiring",
+      "note": "host project-trust wiring: make #2280's latent gate real via a subagent-scoped trust-store source (read ~/.pi/agent/trust.json for the dispatch cwd, mirror pi trust-manager semantics; ctx supplies UI only). Queue head = validated next-goal 20260914-234500. Receipt: evil.md scenario denies on a fresh pinned deploy."
     }
   ]
 }
