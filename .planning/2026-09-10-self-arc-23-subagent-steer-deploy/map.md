@@ -250,3 +250,7 @@ Shares-decision-with: `2026-09-06-self-arc-12` D5 (glm-5.3-only model policy —
 Sibling-not-touched: self-arc-18 in `../video_generation__memory` and the
 `../video_generation__movie` loop worktree (active, independent).
 Reciprocal back-links are added to those maps at close-out (ticket 04).
+
+## Back-links
+
+Builds-on: this arc's deploy-truth machinery is reused by `.planning/2026-09-14-self-arc-25-pi-upgrade-subagent` (t06 copies its pinned-deploy + pre-drive-grep discipline).

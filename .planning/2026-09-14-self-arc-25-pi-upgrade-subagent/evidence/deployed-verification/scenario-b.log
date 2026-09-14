@@ -1,0 +1,21 @@
+已完成派遣（恰好一個 child，model `zai/glm-5.3`，預設 cwd，無任何工具限制參數）。回報如下：
+
+**(1) 我能看到的 child 結果最後一行：**
+
+child 的報告內容（hello 行流）被截斷在半個字上，最後一行是：
+
+```
+he
+```
+
+緊接在它之後、整個結果的真正最後一行則是截斷標記：
+
+```
+[output capped at 51200 bytes for the parent context — full output preserved in tool details and list_subagent_runs]
+```
+
+**(2) 文字 `output capped at 51200 bytes` 是否出現在 child 結果中：**
+
+**是，有出現。** 完整句子為 `[output capped at 51200 bytes for the parent context — full output preserved in tool details and list_subagent_runs]`，其中包含該子字串。
+
+補充觀察：9000 行 × 每行 `hello\n`（6 bytes）= 54,000 bytes，超過 51,200 byte 的上限，因此內容在約第 8,533 行處（`he` 半行）被截斷，完整輸出保存在 tool details / `list_subagent_runs` 中。

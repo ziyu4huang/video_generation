@@ -387,3 +387,7 @@ Checkpoint headless: select+default+timeout → graceful default "Beta", no hang
   tests/0 fail, check exit 0, core-runtime 508 tests/0 fail).
 - Lesson recorded: pipe-wrapped gate commands mask exit codes — run gates with
   unpiped exit-code capture (PB-14 adjacent; this session's recurring hazard).
+
+## Back-links
+
+Builds-on: this arc's deployed-verification leg pattern (pinned deploy + scratch-repo isolation) is reused by `.planning/2026-09-14-self-arc-25-pi-upgrade-subagent` (t06).

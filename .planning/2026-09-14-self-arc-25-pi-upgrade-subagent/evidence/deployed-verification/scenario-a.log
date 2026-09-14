@@ -1,0 +1,15 @@
+子代理（model: zai/glm-5.3，cwd 設為 `child-a`）回報結果如下：
+
+**pwd 輸出（逐字）：**
+```
+/Users/huangziyu/proj/video_generation__subagent/output/arc25-verify/repo/child-a
+```
+
+**note.txt 內容（以相對路徑讀取，逐字）：**
+```
+FROM_CHILD_A
+```
+
+驗證重點：
+- cwd 正確生效 — pwd 顯示的是指定的 `child-a` 目錄，而非 session 根目錄。
+- 相對路徑 `note.txt` 解析也正確 — 讀到的是該目錄下的檔案，內容為 `FROM_CHILD_A`。

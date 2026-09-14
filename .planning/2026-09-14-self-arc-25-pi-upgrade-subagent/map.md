@@ -1,8 +1,8 @@
 ---
 effort: 2026-09-14-self-arc-25-pi-upgrade-subagent
 created: 2026-09-14
-last: 2026-09-14
-status: active
+last: 2026-09-14 (closed)
+status: done
 ---
 
 # Wayfinder map: 2026-09-14-self-arc-25-pi-upgrade-subagent — pi 0.84.4 → 0.85.1 + subagent upstream-parity
@@ -429,6 +429,25 @@ seam next moves; t06 receipts' recorded gaps; the charted-but-untouched
 upstream patterns (SessionWorker/coordinator, RPC-mode child steering) re-read
 against whatever pi ships next. Focus scope stays the subagent +
 deploy-truth axis; out-of-scope items enter only when they BLOCK in-scope work.
+
+## Shipped-as
+
+- **t01** — #2277 (squash `38809001`): pi 0.84.4 → 0.85.1 across 29 package.json files; lockfile recomputed (chord in, pi-client/pi-protocol out); all 29 packages typecheck clean; core-runtime 508/0; ext-subagent 854/0; `zai/glm-5.3` list-models + live headless smoke (Bravo851).
+- **t02** — #2278 (merge `6e88ebf3`): CHILD_OUTPUT_CAP=50KiB + OUTPUT_CAP_MARKER (output-cap.ts); singular content capped with full text in details.output; batch per-slot render cap; 8 boundary tests; 862/0.
+- **t03** — #2279 (merge `0c86ad35`; branch head 4fc1b15b + biome fix): createCodingTools(runCwd) re-bind REMOVED; tests/cwd-delegation.test.ts drives REAL loop turns with a scripted stream — session cwd threads into built-ins AND customTools (canary observes ctx.cwd === B); 511/0; ext-subagent 862/0; app 1051/0.
+- **t04** — #2280 (`c247f2d3`): agent-trust.ts gate (confirm/no-UI-deny policy per D6) at dispatch-bind in both tools; AgentDefinition.fileName (additive) in core-runtime; 10 tests; 872/0. Gate LATENT in host — see Corrections.
+- **t05** — #2282 (`9eb78efe`): LAND per D5 (zero new seams) — AgentHistoryEntry.usage projection (first-entry attachment) + monotone per-tick accrual with completion remainder settlement; 4+1 tests; core-runtime 511/0; ext-subagent 876/0.
+- **t06** — receipts only (no PR): `evidence/deployed-verification/` on pinned `0.10.3+g9eb78ef`; scenarios (a)/(b)/(d) PASS, (c) gate-latent gap recorded; pre-drive greps green.
+- **t07** — this close-out PR.
+
+## Corrections to planning-phase claims
+
+1. **t04's gate is LATENT in the host (deployed-verification finding).** The map's Context asserted the trust gate would bite ("a planted .pi/agents/evil.md agentType attempt returns the deny error — the receipt IS the policy proof"). Deployed scenario (c) disproved the ENVIRONMENT premise, not the policy: pi's library SettingsManager defaults `projectTrusted = true` and the host never runs `resolveProjectTrusted()`, so `ctx.isProjectTrusted()` never reports false. Policy unit-tests stand; the missing piece is HOST trust wiring — charted as the successor-arc head with the probe evidence (`evidence/deployed-verification/README.md` scenario (c)).
+2. **CI-gate chain ordering slip (process, not product).** PR #2280: I chained the merge CLI after a local-ci run whose FAIL verdict I read only afterwards (grep-based gating instead of exit-code gating). The merge CLI had run its own fresh CI (green) before merging; the locally failing leg (win32-x64 cross-deploy e2e) passed on immediate re-run on the merged tree — flake under concurrent load. Lesson: never chain merge behind anything but the programmatic overall verdict (adopted from #2282 onwards).
+3. **t01's done-when smoke receipt was missing at the t01 PR** (reviewer B2): the "Bravo851" smoke existed only as a PR-body line. Reparied at close-out: `evidence/t01-smoke-deployed.log` re-runs the identical one-shot against the DEPLOYED pinned tree `0.10.3+g9eb78ef` (exit 0 -> "Bravo851"), which also chains custody: deployed tree => commit 9eb78efe => bun.lock 0.85.1.
+4. **D7's version-bump promise was skipped at every merge** (reviewer B3): five PRs, zero bumps; s2-agent stayed 0.10.3 while its pins changed. Reparied at close-out: `version-bump-cli --package s2-agent --patch` (0.10.3 -> 0.10.4) lands in THIS close-out PR, so the next deploy label names new bytes. D7's "bump at t01 merge" would have been redundant mid-arc — the honest rule the loop should keep is "bump once per arc at close-out when s2-agent/** changed" (recorded for playbook curation).
+
+5. **Held claims:** REMOVED-and-USED = ∅ held (zero upgrade fallout — the compiler never saw a removed symbol); zai registry byte-identical held (zai/glm-5.3 smoke + deployed model-call leg green); t03's "both exits acceptable" resolved to SIMPLIFY with in-CI probe tests; t05 landed within the one-seam threshold.
 
 ## Cross-effort links
 

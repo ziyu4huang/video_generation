@@ -60,7 +60,7 @@
     },
     "s2-agent": {
       "name": "@repo/s2-agent",
-      "version": "0.10.3",
+      "version": "0.10.4",
       "bin": {
         "s2-agent": "src/cli.ts",
       },
