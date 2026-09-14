@@ -2,7 +2,7 @@
 effort: 2026-08-25-cc-parity-task-powertool
 created: 2026-08-25
 last: 2026-08-28 (ticket 04 closed — pathology episode note model-visible opt-in, PR #2113)
-status: active
+status: paused
 ---
 
 # Wayfinder map: 2026-08-25-cc-parity-task-powertool
@@ -199,3 +199,10 @@ browser tool.
 Shares-decision-with: `2026-08-15-subagent-dynamic-budgets` — ticket 03's
 consolidation must not disturb its budget-tag rendering on the loop-adjacent
 surfaces.
+
+## Park note (2026-09-14, planning-audit lineage — spwf-improve t08 audit pass)
+
+Paused with tickets 01–04 shipped (PRs #2075, #2079, #2108, #2113) and
+ticket 05 (`/cost`-style session accumulator) pending — unworked since
+2026-08-28. Reopen by shipping ticket 05; the parity ledger (spec.md)
+carries the remaining design.

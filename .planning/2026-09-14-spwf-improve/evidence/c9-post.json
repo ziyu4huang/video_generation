@@ -1,0 +1,62 @@
+{
+  "case": "C9post",
+  "leg": "deployed",
+  "at": "2026-09-14T14:16:54.791Z",
+  "elapsedMs": 67089,
+  "deployedLabel": "0.10.3+g11e90db",
+  "dist": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+g11e90db",
+  "pin": "zai/glm-5.3",
+  "model": {
+    "assistantModels": [
+      "glm-5.3"
+    ],
+    "modelChanges": [
+      "zai/glm-5.3"
+    ]
+  },
+  "argv": [
+    "<dist>/s2-agent.sh",
+    "-p",
+    "List the ticket inventory for the .planning/2026-09-10-spwf-ab-closing effort: every ticket id, title, and status — nothing else. Do not summarize the map or the decisions.",
+    "--provider",
+    "zai",
+    "--model",
+    "glm-5.3"
+  ],
+  "env": {},
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "nonce": "spwf-C9post-deployed-1789395347703",
+  "sessionsDir": "/Users/huangziyu/proj/video_generation__superpowers/output/spwf-drive/sessions/C9post-deployed-1789395347703",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-14T14-15-47-909Z_01a0a046-29c5-7a9e-8493-0be349aa21c6.jsonl",
+  "detected": {
+    "sessionFile": null,
+    "markerRaw": 0,
+    "markerUserRole": 0,
+    "reads": [],
+    "firstRead": null,
+    "firstMutate": null,
+    "skillReadPos": {},
+    "replyTail": "`.planning/2026-09-10-spwf-ab-closing` 票券清單：\n\n| # | 票券 ID | 標題 | 狀態 |\n|---|---------|------|------|\n| 1 | t01 | effort open + pin re-verify + smoke | open |\n| 2 | t02 | same-turn-batch-aware detector (scratch) | open |\n| 3 | t03 | C2 settle (leg 3 of 3) | open |\n| 4 | t04 | C1 salience 5-probe | open |\n| 5 | t05 | gemma quiet-window column (precondition-gated) | open |\n| 6 | t06 | F3 repo-gate adjudication + C5 re-set (read-only) | open |\n| 7 | t07 | harness promotion + regression test | open |\n| 8 | t08 | close-out | open |\n\n全部 8 張皆為 open,無已關閉票券。",
+    "modelChanges": [
+      "zai/glm-5.3"
+    ],
+    "assistantModels": [
+      "glm-5.3"
+    ],
+    "mutatingPaths": [],
+    "bashCalls": []
+  },
+  "contention": "4 large models resident (google/gemma-4-12b, prism-ml/bonsai-27b, google/gemma-4-12b-qat, qwen/qwen3.8-27b)",
+  "checks": [
+    {
+      "name": "pin:match",
+      "ok": true,
+      "detail": "pin=glm-5.3 recorded=[glm-5.3] changes=[zai/glm-5.3]"
+    }
+  ],
+  "verdict": "PASS",
+  "exitCode": 0,
+  "timedOut": false,
+  "stdoutTail": " |\n| 2 | t02 | same-turn-batch-aware detector (scratch) | open |\n| 3 | t03 | C2 settle (leg 3 of 3) | open |\n| 4 | t04 | C1 salience 5-probe | open |\n| 5 | t05 | gemma quiet-window column (precondition-gated) | open |\n| 6 | t06 | F3 repo-gate adjudication + C5 re-set (read-only) | open |\n| 7 | t07 | harness promotion + regression test | open |\n| 8 | t08 | close-out | open |\n\n全部 8 張皆為 open,無已關閉票券。\n",
+  "stderrTail": ""
+}

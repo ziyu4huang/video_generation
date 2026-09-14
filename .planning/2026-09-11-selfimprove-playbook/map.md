@@ -2,7 +2,7 @@
 effort: 2026-09-11-selfimprove-playbook
 created: 2026-09-11
 last: 2026-09-11
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-11-selfimprove-playbook — the loop grows an operational playbook organ
@@ -155,3 +155,4 @@ handrolled-git claim withdrawn); "853 pass" → 852 pass + 1 pre-existing
 skip; cite-count instruction-confound disclosed. Verdict on substance:
 "the organ is real, tested, and the negative A/B result is honest."
 Receipt: output/reviewer- (see output/spwf-playbook/pr-review/review.md).
+- Completed-by: 2026-09-14-spwf-improve — NaN description fix + detector refinements + session_compact/gemma receipts.

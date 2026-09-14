@@ -979,3 +979,22 @@ describe("makeWayfindEffortTool — webui:render bridge (zk-spawn)", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 });
+
+// ─── tool description integrity (spwf-improve t02) ──────────────────────────
+// The description carries the #455 steering sentence ("Prefer action:'status'
+// … can't blow the token budget"). A unary-plus typo (`+ +"…"`) after a
+// concatenating line spliced a literal `NaN` into the runtime string and
+// DELETED that sentence — invisible to tsc/biome and untested until a live
+// drive caught it (spwf-improve t01, evidence/pre-fix/). These locks keep
+// the description whole.
+describe("makeWayfindEffortTool — description integrity", () => {
+  it("steering sentence present, no NaN splice, no dangling-concat artifacts", () => {
+    const tool = makeWayfindEffortTool({ events: { on: () => {}, emit: () => {} } } as never);
+    const d = String(tool.description);
+    expect(d).toContain("Prefer action:'status' over reading whole map.md");
+    expect(d).toContain("failure memory #455");
+    expect(d).not.toMatch(/\bNaN\b/);
+    expect(d).not.toContain('" ++');
+    expect(d.trim().endsWith(".")).toBe(true);
+  });
+});

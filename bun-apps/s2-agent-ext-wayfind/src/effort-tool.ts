@@ -225,7 +225,7 @@ export function makeWayfindEffortTool(events?: EventBus) {
       "action:'validate' checks conformance (missing Destination, front-matter effort≠folder); " +
       "action:'status' returns a budget-bounded low-res summary — manifest + ticket counts + frontier + a per-ticket {id,title,status,blocking} inventory with NO verbatim bodies. " +
       "action:'list' enumerates every effort under .planning/ with a compact summary (status / ticket counts / frontier / fog / last); action:'search' runs a cross-effort keyword search over tickets + map decisions (term-frequency, field-weighted, ranked top-K, filterable by effort/status/type). " +
-      +"Prefer action:'status' over reading whole map.md / ticket files for inventory or audit: it returns only titles, statuses, and blocking edges, never decision bodies, so it can't blow the token budget (failure memory #455). " +
+      "Prefer action:'status' over reading whole map.md / ticket files for inventory or audit: it returns only titles, statuses, and blocking edges, never decision bodies, so it can't blow the token budget (failure memory #455). " +
       "Use this for the mechanical manifest/structure ops — the reflective charting/synthesis stays with the /wayfind commands.",
     gating: { gate: "wayfind_effort" }, // demoted from core (ticket 02)
     parameters: Type.Object({
