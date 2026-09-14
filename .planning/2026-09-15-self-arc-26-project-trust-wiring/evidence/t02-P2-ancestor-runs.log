@@ -1,0 +1,7 @@
+Dispatch 執行成功，回報如下：
+
+- **是否執行**：是 — `spawn_subagent` 以 `agentType: "evil2"` 派發成功，child 正常結束（未逾時、未失敗）。
+- **Child 回覆**：`ANCESTOR-OK`（完全符合指示，僅回覆該字串）。
+- 附帶訊息：執行時套用了預設 writer bounds（`tokenBudget` / `maxTurns` / `timeoutMs` 未指定，走預設值）——本次為簡單回聲任務，預設值足夠。
+
+ancestor-walk positive control 通過。

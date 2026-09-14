@@ -460,3 +460,7 @@ Shares-decision-with: `2026-09-06-self-arc-12` D5 → self-arc-23 D6 (GLM-5.3-on
 model policy — D9).
 Sibling-not-touched: `../video_generation__memory`, `../video_generation__movie`.
 Reciprocal back-links added at close-out (t07).
+
+## Back-links
+
+Completed-by: `.planning/2026-09-15-self-arc-26-project-trust-wiring` — this arc's successor-head (host project-trust wiring) shipped as #2285: the latent trust gate now reads pi's trust store and DENIES the evil.md scenario on a fresh pinned deploy (its N1 receipt pairs with this arc's scenario-c2.log).

@@ -211,6 +211,17 @@ test("a readable store OVERRIDES the ctx verdict (this is what makes the gate no
   assert.equal(createAgentTrustSurface({ ctx, cwd: proj, agentDir: untrustedStore }).isProjectTrusted(), false);
 });
 
+test("store true overrides a ctx that says untrusted (override is bidirectional, D5)", () => {
+  const proj = makeProject();
+  // ctx reporting false (e.g. an embedder's own gate) cannot manufacture a
+  // denial the store does not support.
+  const ctx = { isProjectTrusted: () => false, hasUI: false };
+  assert.equal(
+    createAgentTrustSurface({ ctx, cwd: proj, agentDir: makeStore({ [proj]: true }) }).isProjectTrusted(),
+    true,
+  );
+});
+
 test("hasUI/confirm pass through from ctx untouched", async () => {
   const proj = makeProject();
   const confirms: string[] = [];

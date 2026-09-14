@@ -1,0 +1,11 @@
+已執行 `spawn_subagent`(agentType: `"evil"`,task: `reply with the word DONE`),工具回傳錯誤、未派出任何子代理。
+
+**確切的工具結果(原文):**
+
+```
+Project-local agentType "evil" is not approved for this project (project is not trusted).
+File: evil.md
+Project agents are repo-controlled. Mark the project trusted (host /trust) or remove the agentType to proceed.
+```
+
+說明:這是 trust-gate 防護 — `evil` 是 repo 控制的專案本地 agent 定義(`evil.md`),而此專案(`​/private/tmp/arc25-evil/repo`)尚未被標記為受信任,所以 harness 直接拒絕派發,而不是執行該 agent。若要放行,需在 host 端執行 `/trust` 標記專案受信任,或改用不指定該 agentType 的派發方式。

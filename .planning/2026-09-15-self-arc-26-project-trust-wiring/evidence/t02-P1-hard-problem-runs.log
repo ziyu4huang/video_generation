@@ -1,0 +1,6 @@
+Dispatch 結果：
+
+- **Dispatch 有成功執行** — spawn_subagent 以 `agentType: "hard-problem"`（agent 標籤 `dispatch-probe`）啟動了一個隔離 context 的子代理，正常回傳（未逾時、未中斷）。
+- **子代理回覆**：`ALIVE` — 恰好一個詞，與指示完全一致，沒有多餘內容或工具呼叫。
+
+探測結論：hard-problem agentType 的派工管線暢通，子代理正常活著並如實回覆。
