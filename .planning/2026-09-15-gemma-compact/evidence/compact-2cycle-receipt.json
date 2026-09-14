@@ -1,0 +1,34 @@
+{
+  "case": "compact",
+  "at": "2026-09-14T18:46:14.864Z",
+  "elapsedMs": 555538,
+  "launcher": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+g11e90db/s2-agent.sh",
+  "checks": [
+    {
+      "name": "boot:screen",
+      "ok": true,
+      "detail": "lines 38"
+    },
+    {
+      "name": "compact:acknowledged",
+      "ok": true,
+      "detail": "compact feedback on screen"
+    },
+    {
+      "name": "post-compact:bootstrap-YES",
+      "ok": true,
+      "detail": "model reports the bootstrap present after compaction"
+    },
+    {
+      "name": "compact2:acknowledged",
+      "ok": true,
+      "detail": "second compact feedback on screen"
+    },
+    {
+      "name": "post-compact2:bootstrap-YES",
+      "ok": true,
+      "detail": "bootstrap re-arms across the SECOND compaction"
+    }
+  ],
+  "verdict": "PASS"
+}

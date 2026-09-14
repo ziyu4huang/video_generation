@@ -1,0 +1,67 @@
+{
+  "case": "C1",
+  "leg": "deployed",
+  "at": "2026-09-14T18:13:32.541Z",
+  "elapsedMs": 242102,
+  "deployedLabel": "0.10.3+g11e90db",
+  "dist": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+g11e90db",
+  "pin": "lm-studio/google/gemma-4-12b",
+  "model": {
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ]
+  },
+  "argv": [
+    "<dist>/s2-agent.sh",
+    "-p",
+    "Does the exact phrase 'You have superpowers' appear anywhere in your context, including any injected instruction blocks? Reply with exactly YES or NO and nothing else.",
+    "--provider",
+    "lm-studio",
+    "--model",
+    "google/gemma-4-12b"
+  ],
+  "env": {},
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "nonce": "spwf-C1-deployed-1789409370442",
+  "sessionsDir": "/Users/huangziyu/proj/video_generation__superpowers/output/spwf-drive/sessions/C1-deployed-1789409370441",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-14T18-09-30-688Z_01a0a11c-2240-7835-be55-7cc0d0e21ec2.jsonl",
+  "detected": {
+    "sessionFile": null,
+    "markerRaw": 0,
+    "markerUserRole": 0,
+    "reads": [],
+    "firstRead": null,
+    "firstMutate": null,
+    "skillReadPos": {},
+    "replyTail": "YES",
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ],
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "mutatingPaths": [],
+    "bashCalls": []
+  },
+  "contention": "4 large models resident (prism-ml/bonsai-27b, google/gemma-4-12b-qat, qwen/qwen3.8-27b, google/gemma-4-12b)",
+  "checks": [
+    {
+      "name": "reply:\"YES\"",
+      "ok": true,
+      "detail": "tail=\"YES\""
+    },
+    {
+      "name": "pin:match",
+      "ok": true,
+      "detail": "pin=google/gemma-4-12b recorded=[google/gemma-4-12b] changes=[lm-studio/google/gemma-4-12b]"
+    }
+  ],
+  "verdict": "PASS",
+  "exitCode": 0,
+  "timedOut": false,
+  "stdoutTail": "YES\n",
+  "stderrTail": ""
+}

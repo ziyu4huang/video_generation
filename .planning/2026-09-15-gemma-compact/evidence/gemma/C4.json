@@ -1,0 +1,94 @@
+{
+  "case": "C4",
+  "leg": "deployed",
+  "at": "2026-09-14T18:25:44.775Z",
+  "elapsedMs": 300318,
+  "deployedLabel": "0.10.3+g11e90db",
+  "dist": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.3+g11e90db",
+  "pin": "lm-studio/google/gemma-4-12b",
+  "model": {
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ]
+  },
+  "argv": [
+    "<dist>/s2-agent.sh",
+    "-p",
+    "I want to add a demo flag to output/spwf-improve/scratch/hello.ts (create the file if it does not exist) that echoes its value.",
+    "--provider",
+    "lm-studio",
+    "--model",
+    "google/gemma-4-12b",
+    "-ns"
+  ],
+  "env": {
+    "PI_SUPERPOWERS_SKILL_EXCLUDE": "!,brainstorming"
+  },
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "nonce": "spwf-C4-deployed-1789410044458",
+  "sessionsDir": "/Users/huangziyu/proj/video_generation__superpowers/output/spwf-drive/sessions/C4-deployed-1789410044458",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-14T18-20-44-654Z_01a0a126-6aee-782f-86cd-eb12fb891518.jsonl",
+  "detected": {
+    "sessionFile": null,
+    "markerRaw": 0,
+    "markerUserRole": 0,
+    "reads": [
+      "using-superpowers",
+      "brainstorming"
+    ],
+    "firstRead": {
+      "msgLine": 7,
+      "callOrdinal": 0
+    },
+    "firstMutate": null,
+    "skillReadPos": {
+      "using-superpowers": {
+        "msgLine": 7,
+        "callOrdinal": 0
+      },
+      "brainstorming": {
+        "msgLine": 15,
+        "callOrdinal": 0
+      }
+    },
+    "replyTail": "",
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ],
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "mutatingPaths": [],
+    "bashCalls": [
+      {
+        "cmd": "ls -R | grep -i \"brainstorming\"",
+        "mutating": false,
+        "pos": {
+          "msgLine": 11,
+          "callOrdinal": 0
+        }
+      }
+    ]
+  },
+  "contention": "4 large models resident (prism-ml/bonsai-27b, google/gemma-4-12b-qat, qwen/qwen3.8-27b, google/gemma-4-12b)",
+  "checks": [
+    {
+      "name": "forbid:brainstorming",
+      "ok": false,
+      "detail": "FORBIDDEN read happened"
+    },
+    {
+      "name": "pin:match",
+      "ok": true,
+      "detail": "pin=google/gemma-4-12b recorded=[google/gemma-4-12b] changes=[lm-studio/google/gemma-4-12b]"
+    }
+  ],
+  "verdict": "RED",
+  "exitCode": 143,
+  "timedOut": false,
+  "stdoutTail": "",
+  "stderrTail": ""
+}
