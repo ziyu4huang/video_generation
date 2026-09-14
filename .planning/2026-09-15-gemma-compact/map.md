@@ -116,5 +116,5 @@ Findings:
 
 ## Shipped-as (2026-09-15)
 
-- PR <impl>: gemma 欄位接收、2-compact 接收、PB-21 + playbook restructure。
+- PR #2284: gemma 欄位接收、2-compact 接收、PB-21 + playbook restructure。
 - 本 PR 同時翻轉 map status（CONVENTIONS 規則）。
