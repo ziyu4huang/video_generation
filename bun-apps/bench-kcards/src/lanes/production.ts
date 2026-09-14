@@ -27,6 +27,9 @@ export async function productionMrr(
 	vaultPath: string,
 	golden: { arxivId: string; questions: { question: string; answerable: boolean }[] }[],
 	noteMap: Record<string, { graphNote: string }>,
+	/** Receipt knob (retrieval-lift-2 α-band): override the semantic blend
+	 *  weight; undefined keeps the production default (SEMANTIC_ALPHA_DEFAULT). */
+	semanticAlphaOverride?: number,
 ): Promise<ProductionMrrResult> {
 	process.env.KCARD_USAGE_LOG = process.env.KCARD_USAGE_LOG ?? "0";
 	process.env.KCARD_HIER_DEFAULT = process.env.KCARD_HIER_DEFAULT ?? "0";
@@ -42,6 +45,7 @@ export async function productionMrr(
 				{ tags: inferQueryTags(q.question), query: q.question, topK: 10 },
 				vaultPath,
 			);
+			if (semanticAlphaOverride !== undefined) opts.semanticAlpha = semanticAlphaOverride;
 			const res = await retrieveRecords(opts);
 			const paths = res.cards.map((c) => (c as { path?: string }).path ?? "");
 			const rank = paths.findIndex((p) => entry.graphNote.includes(p.split("/").pop() ?? "\u0000")) + 1;
