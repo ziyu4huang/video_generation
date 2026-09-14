@@ -355,10 +355,15 @@ export class CoreAgent {
    * history listeners, and disposal belong to the caller.
    */
   async assembleSession(options: SessionAssemblyOptions): Promise<AssembledSession> {
-    // Per-call cwd (e.g. a worktree) needs coding tools bound to that directory,
-    // since tools capture their cwd at construction and can't be relocated.
+    // One tool set for every per-call cwd: since pi 0.85.0 the seven coding
+    // tools resolve per-call against `ctx.cwd`, and the session runtime
+    // threads the SESSION cwd into every tool execution — including SDK
+    // customTools — so a tool constructed at this.cwd serves a child session
+    // at options.cwd (pinned by tests/cwd-delegation.test.ts; pre-0.85 the
+    // construction cwd won and this line re-bound createCodingTools(runCwd)).
+    // Worktree isolation (spawnCwd ≠ runCwd) is process/git scope — unaffected.
     const runCwd = options.cwd ?? this.cwd;
-    const baseTools = runCwd === this.cwd ? this.baseTools : createCodingTools(runCwd);
+    const baseTools = this.baseTools;
     // Apply the agentType tool policy BEFORE adding structured_output, so a
     // restrictive allowlist never strips the schema tool.
     const customTools: ToolDefinition[] = applyToolPolicy(
