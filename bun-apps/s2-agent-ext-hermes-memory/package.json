@@ -55,13 +55,13 @@
     "url": "https://github.com/chandra447/pi-hermes-memory"
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@repo/s2-agent-core-runtime": "workspace:*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
     "@repo/perf-harness": "workspace:*",
     "@repo/s2-agent-ext-file2md": "workspace:*",
     "@types/proper-lockfile": "^4.1.4",
@@ -71,7 +71,7 @@
     "@biomejs/biome": "2.4.16"
   },
   "dependencies": {
-    "@earendil-works/pi-tui": "0.84.4",
+    "@earendil-works/pi-tui": "0.85.1",
     "@repo/s2-agent-core-interface": "workspace:*",
     "proper-lockfile": "^4.1.2",
     "yaml": "^2.9.0"
