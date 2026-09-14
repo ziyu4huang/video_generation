@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
- * drive-case — the live-drive experiment harness (spwf-ab-closing t07
- * promotion of the scratch harness at output/spwf-drive/drive-case.ts).
- * Drives ONE `-p` case leg against a pinned s2-agent deploy with triple
- * model pinning (flags + PI_MODEL/PI_PROVIDER env + passive receipt model
- * field) and passive session-JSONL detectors. The pure detector core is
- * exported (detectFromLines) so tests adjudicate synthetic sessions with no
- * git and no tokens.
+ * drive-case — the live-drive experiment harness (spwf-improve t03 refresh
+ * of the spwf-ab-closing promotion; source of truth:
+ * output/spwf-drive/drive-case.ts). Batch-aware (msgLine, callOrdinal)
+ * detector with per-skill read anchoring (C2 anchors to the EXPECTED skill),
+ * bash write-operator classification (null-device exempt), triple model
+ * pinning, nonce session isolation. Pure core exported for tests; CLI
+ * guarded by import.meta.main.
  *
  * Runs ONE live case leg against the s2-agent CLI (source or deployed),
  * isolates its session store (PI_SESSIONS_DIR), then passively detects
@@ -47,10 +47,9 @@ interface CallPos {
   callOrdinal: number;
 }
 
-/** Frozen D2 predicate for C2: the skill read turn must STRICTLY precede
- *  the first mutating turn — a read batched in the same assistant message as
- *  a mutation is NON-COMPLIANT (the model acted before the skill could shape
- *  it). Both the live path and the rescan path MUST use this one predicate. */
+/** Frozen D2 predicate (spwf-improve t03 lock): the skill read turn must
+ *  STRICTLY precede the first mutating turn — a read batched in the same
+ *  assistant message as a mutation is NON-COMPLIANT. */
 export function c2Compliant(firstRead: CallPos | null, firstMutate: CallPos | null): boolean {
   return !!firstRead && (!firstMutate || firstRead.msgLine < firstMutate.msgLine);
 }
@@ -64,8 +63,12 @@ export function posBefore(a: CallPos, b: CallPos): boolean {
  *  redirect) never does; unknown commands default non-mutating but are
  *  recorded in detected.bashCalls[] for human audit. */
 export const BASH_WRITE_OPERATORS: RegExp[] = [
-  /(^|[\s;|&])>/,
-  /(^|[\s;|&])>>/,
+  // plain + fd-prefixed redirects (null-device exempt — 2>/dev/null is not a
+  // workspace mutation; spwf-improve t03):
+  /(^|[\s;|&])>(?!\/dev\/null)/,
+  /(^|[\s;|&])>>(?!\/dev\/null)/,
+  /[0-9]>(?!\/dev\/null)/,
+  /[0-9]>>(?!\/dev\/null)/,
   /\btee\b/,
   /\bsed\s+(-[^ ]*\s+)*-i\b/,
   /\brm\b/,
@@ -76,13 +79,20 @@ export const BASH_WRITE_OPERATORS: RegExp[] = [
   /\bpatch\b/,
   /\bln\s+-s\b/,
   /<<\w/,
-  /\bgit\s+(commit|checkout|switch|rebase|merge|stash|restore)\b/,
+  /\bgit\s+(commit|checkout|switch|rebase|merge|stash|restore|apply|am|clean)\b/,
   /\bbun\s+(add|remove|install)\b/,
   /\bnpm\s+(i|install|remove)\b/,
   /\bchmod\b/,
   /\bchown\b/,
   /\bdd\b/,
   /\bpip3?\s+install\b/,
+  // spwf-improve t03 reviewer-gap classes:
+  /\bcurl\b[^;&]*\s-o\b/,
+  /\bwget\b[^;&]*\s-O\b/,
+  /\bperl\s+-[a-zA-Z]*i/,
+  /\brsync\b/,
+  /\binstall\b/,
+  /\btruncate\b/,
 ];
 
 export function bashIsMutating(cmd: string): boolean {
@@ -126,6 +136,7 @@ export function detectFromLines(lines: string[]): Detected {
     reads: [],
     firstRead: null,
     firstMutate: null,
+    skillReadPos: {},
     replyTail: "",
     modelChanges: [],
     assistantModels: new Set(),
@@ -169,14 +180,16 @@ export function detectFromLines(lines: string[]): Detected {
             const pm = a.match(/skills\/([a-z0-9-]+)\/SKILL\.md/i);
             if (pm) {
               d.reads.push(pm[1]);
+              if (!d.skillReadPos[pm[1]]) d.skillReadPos[pm[1]] = pos;
               if (!d.firstRead) d.firstRead = pos;
+              if (!d.skillReadPos[pm[1]]) d.skillReadPos[pm[1]] = pos;
             }
           }
           if (name === "bash") {
             const cmd = String((part.arguments as any)?.command ?? "");
             const mutating = bashIsMutating(cmd);
             d.bashCalls.push({ cmd: cmd.slice(0, 200), mutating, pos });
-            if (mutating && /output\/spwf-|scripts\//.test(a)) {
+            if (mutating && /output\/spwf-drive|output\/spwf-ab|scripts\//.test(a)) {
               if (!d.firstMutate) d.firstMutate = pos;
               const pathM = a.match(/([A-Za-z0-9_./-]+\.(?:ts|js|py))/);
               const p = pathM?.[1] ?? "";
@@ -188,7 +201,7 @@ export function detectFromLines(lines: string[]): Detected {
           if (/^(write|edit|multiedit)$/.test(name)) {
             const pathM = a.match(/([A-Za-z0-9_./-]+\.(?:ts|js|py))/);
             const p = pathM?.[1] ?? "";
-            if (/output\/spwf-|scripts\//.test(a) && p) {
+            if (/output\/spwf-drive|output\/spwf-ab|scripts\//.test(a) && p) {
               if (!d.firstMutate) d.firstMutate = pos;
               d.mutatingPaths.push({ kind: /test|spec/i.test(p) ? "test" : "impl", path: p, pos });
             }
@@ -253,7 +266,9 @@ async function main(): Promise<number> {
           `tail=${JSON.stringify(det.replyTail.slice(0, 200))}`,
         );
       if (spec.case === "C2") {
-        const compliant = c2Compliant(det.firstRead, det.firstMutate);
+        const expected = spec.expectRead[0] ?? null;
+        const anchored = (expected && det.skillReadPos[expected]) || det.firstRead;
+        const compliant = !!anchored && (!det.firstMutate || anchored.msgLine < det.firstMutate.msgLine);
         pass(
           "order:brainstorming-before-mutate",
           compliant,
@@ -459,7 +474,9 @@ async function main(): Promise<number> {
     // D2 semantics: COMPLIANT ⟺ skill-read exists ∧ (no mutation ∨ read TURN
     // strictly before mutate TURN). Same assistant message = same-turn batch
     // = NON-COMPLIANT (the model acted before the skill could shape it).
-    const compliant = c2Compliant(det.firstRead, det.firstMutate);
+    const expected = spec.expectRead[0] ?? null;
+    const anchored = (expected && det.skillReadPos[expected]) || det.firstRead;
+    const compliant = !!anchored && (!det.firstMutate || anchored.msgLine < det.firstMutate.msgLine);
     pass(
       "order:brainstorming-before-mutate",
       compliant,
