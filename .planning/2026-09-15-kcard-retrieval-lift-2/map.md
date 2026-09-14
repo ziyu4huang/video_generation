@@ -38,16 +38,26 @@ FRONTMATTER `source:`/`sources:` == `generic:<origin-card-stem>` (exact,
 order-independent; verified present on all 13 notes). Also fixed the
 sandbox to converge with per-record labels (the uniform
 `generic:paper-cards` label rewrote every note's `source:`, starving the
-binding in-converge — commit with 8f-prefix series, see `converge-sandbox.ts`).
+binding in-converge — commit 2e434d95, see `converge-sandbox.ts`).
 
 Corrected canonical numbers (embed tier, sandbox, golden-v2, flat lane,
 KCARD_HIER_DEFAULT=0/KCARD_USAGE_LOG=0):
 
-| surface | tag recall@5 | MRR | hit@3 |
+| surface (production lane, golden-v2, flat, embed tier) | tag recall@5 | MRR | hit@3 |
 |---|---|---|---|
 | recorded pre-arc (broken ruler) | 0.692 | 0.312 | 0.333 |
-| T0-corrected baseline | **1.000** (design target 0.90 MET — gate flipped to enforcing) | 0.360 | 0.370 |
-| post T2+T3 (f31ce6d8) | 1.000 | **0.720** | 0.769 |
+| T0-corrected baseline (2e434d95, receipted) | **1.000** (design target 0.90 MET — gate flipped to enforcing) | 0.540 | 0.551 |
+| post T2+T3 (f31ce6d8, receipted) | 1.000 | 0.720 | 0.769 |
+| **final tree** (review fixes 1+5; receipted) | 1.000 | **0.711** | 0.744 |
+
+Receipt note: an early console-reported "0.360" was the 2d raw-cosine
+GATE lane (`retrievalMrr`), not the production lane — the receipted
+production-lane baseline is 0.540. Decomposition: ruler fix +0.228
+(0.312→0.540), levers +0.171 (0.540→0.711). The finding-5 fix (semTop
+re-entrants keep `_lexOv`) moved 7/78 questions, 0.720→0.711. α-band
+(pre-review-fix tree): α=0.12→0.680, α=0.18→0.720 (two identical runs —
+deterministic), α=0.22→0.745 (monotone; beyond-band is a separate
+decision). zh/en split at default: 0.537 (27) / 0.804 (51).
 
 ## Levers landed (planner T2/T3, red-test-first)
 
@@ -56,8 +66,9 @@ KCARD_HIER_DEFAULT=0/KCARD_USAGE_LOG=0):
   the evidence triple sharedTags+bodyOv+slugOv threaded as `_lexOv` from
   the lexical scan; semantic-only union cards honestly carry ov=0. Cures
   the D1 cap (cosNorm gap > 0.2195 outranks a lexical-#1 target → below
-  the topK cut). β default 0 at the pure level — all existing call sites
-  byte-identical. **Usage multipliers (Surreal hotness + used-ledger)
+  the topK cut). β default 0 at the pure level — the sole production
+  call site (trySemanticBlend) passes 3 args pre-T2, byte-identical; no
+  other callers exist. **Usage multipliers (Surreal hotness + used-ledger)
   scale the α-blend BASE only, β re-added unscaled** — the D8 boundary
   (m(h) < 12/11) lives on multiplicative ratios an additive constant
   would compress; both hotness integration tests updated to the scoped
@@ -90,6 +101,14 @@ clean.
   directionally right (levers compound) but quantitatively void; the
   canonical bench receipts above supersede them.
 
+## Verdict
+
+- **MRR gate 0.70: MET** at the served default (0.711, receipted,
+  deterministic per-tree).
+- **hit@3: 0.744 vs gate 0.85 — SHORT.** Residual is the
+  graph-relation/page-anchor question class (below) plus thin ranks 2–10;
+  recorded as amendment material, not silently accepted.
+
 ## Residual classes (post-fix, 9 rank-0 / 78)
 
 5 are graph-RELATION questions ("這張卡與哪兩張卡片有相關連結？") whose
@@ -105,8 +124,8 @@ future 0.85+ target — hit@3 0.769 vs gate 0.85 is short for this class.
 - **T0** ruler fix — DONE (80f7bdf6 + converge label fix).
 - **T1** re-measure — DONE (corrected baseline table above).
 - **T2/T3** levers — DONE (f31ce6d8).
-- **T4** α-band + repeat receipts — IN PROGRESS (post-fix receipt
-  `receipts/production-mrr-post-fix.json`; repeat + α∈{0.12,0.22} running).
+- **T4** α-band + repeat receipts — DONE (`receipts/production-mrr-*.json`).
+- **T4.5** reviewer round — DONE (APPROVE-with-fixes; all findings landed).
 - **T5** gates / reviewer / merge / close-out.
 
 ## Receipts
@@ -116,6 +135,37 @@ future 0.85+ target — hit@3 0.769 vs gate 0.85 is short for this class.
   playbook d8915ab81340).
 - `receipts/production-mrr-post-fix.json` (+ band runs landing) —
   canonical production-lane measurements with per-question detail.
+
+## Reviewer round (arc-review.ts, hard-problem/zai/glm-5.3, 676 s)
+
+Verdict **APPROVE-with-fixes**, no blockers (`output/arc-review-
+kcard-retrieval-lift-2/review.md`). Reviewer re-verified red-firstness by
+replaying merge-base files, measured exactly 7/13 mis-binding under the
+old rule, and recomputed every receipt from its per-question detail
+(0/78 rank diffs between post-fix and repeat — determinism). Findings
+landed in the fix round:
+
+1. SHOULD-FIX — rank predicates were still substring
+   (`graphNote.includes(basename)`): the degenerate slug `generic-paper`
+   substring-hits every `generic-paper-*` name. Fixed to EXACT basename
+   equality in production.ts + query-gates tagRecall; receipts now
+   record retrieved `paths` (audit column). Reviewer's offline probe:
+   no inflation observed pre-fix (gpBeatsMeasuredRank=0).
+2. SHOULD-FIX — binding used `fm.includes("generic:<stem>")`; tightened
+   to an exact parsed `source:`-value comparison (prefix-collision-proof).
+3. SHOULD-FIX — the corrected-baseline row lacked an artifact →
+   `receipts/production-mrr-baseline-corrected.json` measured in a
+   worktree at 2e434d95 (ruler + converge fixes, levers absent).
+4. NIT — converge merge comment no longer overstates (subset merge named).
+5. NIT — semTop re-entrants now reuse their scored entry (keep `_lexOv`)
+   instead of being rebuilt with ov silently 0.
+6. NIT — map inaccuracies fixed (converge commit is 2e434d95; blendScore
+   caller claim corrected).
+7. NIT — receipts measured on submodule working tree 559cca6d while the
+   branch records 3cfba3a (SPINE-anchor card only; reviewer re-checked
+   SPINE rows robust: 1,2,1,1,1,0). `production-mrr-post-fix.json`
+   predates the final receipt shape (no alpha/langSplit keys);
+   `repeat-a18-2` supersedes it with identical numbers.
 
 ## Status log
 

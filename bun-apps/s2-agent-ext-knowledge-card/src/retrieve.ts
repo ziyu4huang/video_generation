@@ -1245,8 +1245,17 @@ async function trySemanticBlend(args: {
 	// Union: lexical pool + semantic top-12 (build semantic-only cards on demand).
 	const unionByPath = new Map<string, RetrievedCard & { _score: number; _hotness?: number; _lexOv?: number; _blendBase?: number; _betaTerm?: number }>();
 	for (const c of lexPool) unionByPath.set(c.path, c);
+	// A card that scored lexically but fell outside the top-12 pool yet re-enters
+	// via the semantic top keeps its scored entry — and its _lexOv evidence
+	// (rebuilding it here would silently drop ov to 0; reviewer finding 5).
+	const scoredByPath = new Map(args.scored.map((c) => [c.path, c]));
 	for (const p of semTopPaths) {
 		if (!unionByPath.has(p)) {
+			const scoredEntry = scoredByPath.get(p);
+			if (scoredEntry) {
+				unionByPath.set(p, scoredEntry);
+				continue;
+			}
 			const built = buildRetrievedCard(
 				args.vaultPath, args.folder, p, args.tier, args.maxDetailChars,
 				args.queryTags, args.excludeIds, args.excludeSlugs,
@@ -1269,8 +1278,8 @@ async function trySemanticBlend(args: {
 			const lr = lexRankNorm.get(p) ?? 0;
 			const cn = cosNorm[i] ?? 0;
 			// retrieval-lift-2 T2: the absolute overlap term rides the ov triple
-			// (semantic-only union cards carry none — they were never lexically
-			// eligible, ov 0 is their honest evidence). The α-blend base is kept
+			// (union cards never lexically scored carry none — ov 0 is their
+			// honest evidence). The α-blend base is kept
 			// separate so usage multipliers scale MERIT only — the D8 boundary
 			// (m < 12/11) lives on the rank-norm pool's multiplicative ratios,
 			// which an additive constant would compress.

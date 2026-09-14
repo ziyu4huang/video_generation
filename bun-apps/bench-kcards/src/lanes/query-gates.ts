@@ -56,7 +56,11 @@ export function buildNoteMap(vaultPath: string, arxivIds: string[]): Record<stri
 			const gmd = readFileSync(join(kg, g), "utf8");
 			if (!gmd.startsWith("---")) continue;
 			const fm = gmd.slice(0, gmd.indexOf("\n---", 3));
-			if (fm.includes(`generic:${stem}`)) {
+			// EXACT value comparison, not substring: a future stem that is a
+			// prefix of another (Paper - SPINE 2) must not steal (the bug
+			// class T0 fixes, at the binding level too — reviewer finding 2).
+			const srcVal = /^source:\s*"?(.+?)"?\s*$/m.exec(fm)?.[1];
+			if (srcVal === `generic:${stem}`) {
 				graphNote = `Zettelkasten/knowledge-graph/${g.replace(/\.md$/, "")}`;
 				break;
 			}
@@ -89,7 +93,8 @@ export async function tagRecall(vaultPath: string, noteMap: Record<string, Paper
 	for (const entry of entries) {
 		const res = await retrieveRecords({ vaultPath, tags: entry.tags, topK: 5 });
 		const top5 = res.cards.map((c) => (c as { path?: string; name?: string; id?: string }).path ?? (c as { name?: string }).name ?? (c as { id?: string }).id ?? "");
-		const found = top5.some((p) => p && entry.graphNote.includes(p.split("/").pop() ?? "\u0000"));
+		const targetBase = entry.graphNote.split("/").pop() ?? "\u0000";
+		const found = top5.some((p) => p && p.split("/").pop() === targetBase);
 		if (found) hits++;
 		else misses.push({ title: entry.title, top5 });
 	}

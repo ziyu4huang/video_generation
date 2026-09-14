@@ -20,7 +20,7 @@ export interface ProductionMrrResult {
 	hitAt3: number;
 	neverRanked: string[];
 	/** Per-question rank detail (diagnostic column). */
-	detail: { question: string; rank: number; arxivId: string }[];
+	detail: { question: string; rank: number; arxivId: string; /** retrieved paths (audit column — reviewer finding 1) */ paths: string[] }[];
 }
 
 export async function productionMrr(
@@ -48,10 +48,15 @@ export async function productionMrr(
 			if (semanticAlphaOverride !== undefined) opts.semanticAlpha = semanticAlphaOverride;
 			const res = await retrieveRecords(opts);
 			const paths = res.cards.map((c) => (c as { path?: string }).path ?? "");
-			const rank = paths.findIndex((p) => entry.graphNote.includes(p.split("/").pop() ?? "\u0000")) + 1;
+			// EXACT basename equality — the degenerate pure-CJK slug
+			// `generic-paper` is a substring of every `generic-paper-*` note
+			// name, so `includes` let it false-hit 12/13 targets (reviewer
+			// finding 1; latent — no measured inflation, now un-landmine-able).
+			const targetBase = entry.graphNote.split("/").pop() ?? "\u0000";
+			const rank = paths.findIndex((p) => p.split("/").pop() === targetBase) + 1;
 			recips.push(rank === 0 ? 0 : 1 / rank);
 			if (rank === 0) neverRanked.push(paper.arxivId);
-			detail.push({ question: q.question, rank, arxivId: paper.arxivId });
+			detail.push({ question: q.question, rank, arxivId: paper.arxivId, paths });
 		}
 	}
 	const mrr = recips.length === 0 ? 0 : recips.reduce((a, b) => a + b, 0) / recips.length;
