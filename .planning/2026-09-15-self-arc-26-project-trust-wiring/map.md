@@ -264,7 +264,18 @@ in prod, tests must use temp dirs.
 schema-cost delta recorded as zero (or any nonzero EXPLAINED in the PR body);
 PR merged via devops merge CLI gated ONLY on the programmatic CI verdict.
 
-### t02 — deployed verification: evil deny + trusted controls [verify] — status: open (blocked-by t01)
+### t02 — deployed verification: evil deny + trusted controls [verify] — status: done (measured 2026-09-15)
+
+**Results:** N1 PASS (evil denied on `/private/tmp/arc25-evil/repo`, deny names
+`evil.md`, no child ran — paired post-fix to arc-25's `scenario-c2.log`);
+P1 PASS (trusted root, `hard-problem` ran → "ALIVE", zero gate text); P2 PASS
+(scratch under trusted ancestor, planted `evil2` ran → "ANCESTOR-OK"); T1
+(TUI confirm stretch) SKIPPED = recorded gap (PB-15), policy unit-pinned.
+Deploy: pinned `0.10.4+g60663ae` from THIS branch (= PR #2285 diff; main merge
+deferred on a LIVE DeepSeek outage hanging the e2e's deepseek leg — dated
+defer in `evidence/deployed-verification/README.md`). Greps green on BOTH
+bundles (ext.cjs + core s2-agent.js). Receipts:
+`evidence/deployed-verification/README.md` + per-leg logs.
 
 **Preconditions:** t01 merged on main; tree synced to tip (**PB-01**,
 `sync-default-branch-cli --mode hands-on`, `handsOn.callerAtTip: true` or
