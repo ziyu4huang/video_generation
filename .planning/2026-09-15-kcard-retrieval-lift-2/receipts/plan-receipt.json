@@ -1,0 +1,23 @@
+{
+  "startedAt": "2026-09-14T19:40:08.933Z",
+  "finishedAt": "2026-09-14T19:53:22.157Z",
+  "elapsedMs": 793224,
+  "cwd": "/Users/huangziyu/proj/video_generation__file2md",
+  "agentType": "hard-problem",
+  "defResolved": true,
+  "requestedModel": "zai/glm-5.3",
+  "playbookIncluded": true,
+  "playbookSha256": "d8915ab81340ad34d6cdf7f176e0a31c8c9a7cd4a9372e6a9258e97b768b94bb",
+  "usage": {
+    "input": 144081,
+    "output": 53085,
+    "cacheRead": 3515712,
+    "cacheWrite": 0,
+    "total": 3712878,
+    "cost": 1.3493725200000002
+  },
+  "turns": {
+    "turnsUsed": 33,
+    "maxTurns": 40
+  }
+}
