@@ -243,6 +243,15 @@
       "branch": "self-arc-24-ultracode-cc-parity",
       "note": "ultracode -> claude-code parity: options-aware checkpoints, pre-flight ceiling-confirm, transcript timestamps+Duration, steering plumbing seam (onSession -> steerWorkflowAgent). GLM-5.3 web-research children + GLM-5.3 planner; verified on deployed 0.10.3+gbee16fd with an isolated scratch-repo worktree-isolation drive (commit a0f7023f in worktree, main worktree untouched).",
       "mergedPr": 2275
+    },
+    {
+      "series": "self-arc",
+      "number": 25,
+      "path": ".planning/2026-09-14-self-arc-25-pi-upgrade-subagent",
+      "status": "active",
+      "claimedAt": "2026-09-14",
+      "branch": "self-arc-25-pi-upgrade-subagent",
+      "note": "pi upgrade 0.84.4 -> 0.85.1 (upstream 0.85.0 2026-09-04 + 0.85.1 2026-09-05) + study upstream pi extension sources (github earendil-works/pi, pi.dev) -> improve s2-agent-ext-subagent. GLM-5.3 web-research children + GLM-5.3 planner."
     }
   ]
 }
