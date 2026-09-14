@@ -30,6 +30,14 @@ import { join } from "node:path";
 
 export const SEMANTIC_ALPHA_DEFAULT = 0.18;
 
+/** retrieval-lift-2 T2: weight of the ABSOLUTE overlap term
+ *  β·min(ov,3)/3 in the flat semantic blend — mirrors the hier lane's
+ *  SLUG_BETA (hierarchical-retrieval.ts), whose measured lesson is that an
+ *  absolute term is the only cure for the rank-normalized α-cap. Bounded
+ *  at +0.2 so it can reorder near-misses below the topK cut but cannot
+ *  dominate a strong cosine match. */
+export const SEMANTIC_LEX_BETA_DEFAULT = 0.2;
+
 // L2 (2026-08-17-knowledge-pipeline-polish): the embedder/cosine leaf is hoisted
 // to @repo/s2-agent-core-interface. semantic.ts re-exports the leaf for its
 // internal consumers (retrieve, graph-health, tests) and keeps only the blend
@@ -217,8 +225,21 @@ export function minMaxNorm(vals: number[]): number[] {
 
 /** The semantic-blend score: α·(lexical rank norm) + (1-α)·(cosine min-max norm).
  *  Pure — extracted so the blend math is unit-testable without the retrieveRecords
- *  integration (which is proven end-to-end by the faithful eval harness /
- *  probeB at 1.00 on the real vault). α∈[0.12,0.22] all measured 1.00; default 0.18. */
-export function blendScore(lexRankNorm: number, cosNorm: number, alpha: number = SEMANTIC_ALPHA_DEFAULT): number {
-	return alpha * lexRankNorm + (1 - alpha) * cosNorm;
+ *  integration (which is proven end-to-end by the faithful eval harness / probeB
+ *  at 1.00 on the real vault). α∈[0.12,0.22] all measured 1.00; default 0.18.
+ *
+ *  retrieval-lift-2 T2: optional ABSOLUTE overlap term β·min(ov,3)/3 (ov = the
+ *  query-evidence triple sharedTags+bodyOv+slugOv). The rank-normalized form caps
+ *  a lexical-#1 target at α — with topK=10 that pushes it below the cut no matter
+ *  the lexical evidence; the hier lane cured the identical cap with an absolute
+ *  term (SLUG_BETA, hierarchical-retrieval.ts). Default β=0: every existing call
+ *  site (graph-health, drift-guards) is byte-identical unless it opts in. */
+export function blendScore(
+	lexRankNorm: number,
+	cosNorm: number,
+	alpha: number = SEMANTIC_ALPHA_DEFAULT,
+	lexOverlap: number = 0,
+	beta: number = 0,
+): number {
+	return alpha * lexRankNorm + (1 - alpha) * cosNorm + beta * (Math.min(Math.max(lexOverlap, 0), 3) / 3);
 }

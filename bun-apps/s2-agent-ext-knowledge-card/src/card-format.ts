@@ -163,6 +163,40 @@ export function normTag(t: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// CJK-aware lexical tokenization (retrieval-lift-2 T3). Lives in this LEAF
+// module because both consumers (host-fns.inferQueryTags for the query side,
+// retrieve.bodyTokenOverlap for the body side) sit on opposite ends of an
+// import cycle. Pure.
+// ---------------------------------------------------------------------------
+
+/** CJK ideogram runs (incl. ext-A + compat forms) → overlapping bigrams; a
+ *  single-char run stays a single token. CJK has no whitespace boundaries —
+ *  bigrams are the minimal recall-safe unit (unigrams flood, trigrams starve). */
+const CJK_RUN_RE = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+/g;
+
+export function cjkBigrams(s: string): string[] {
+	const out: string[] = [];
+	for (const run of s.match(CJK_RUN_RE) ?? []) {
+		if (run.length === 1) out.push(run);
+		else for (let i = 0; i + 1 < run.length; i++) out.push(run.slice(i, i + 2));
+	}
+	return out;
+}
+
+export function isCjkToken(t: string): boolean {
+	return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(t);
+}
+
+/** Full lexical tokens: lowercase ASCII [a-z0-9-] runs, then CJK bigrams
+ *  harvested from the same string. ASCII output is byte-identical to the
+ *  pre-T3 tokenizers (bigrams only append); length/stopword filtering stays
+ *  at the consumers (their gates differ). */
+export function lexicalTokens(s: string): string[] {
+	const ascii = s.toLowerCase().replace(/[^a-z0-9-]+/g, " ").trim().split(/\s+/).filter(Boolean);
+	return [...ascii, ...cjkBigrams(s)];
+}
+
+// ---------------------------------------------------------------------------
 // Schema v2 (context-lifecycle D4 / ticket 05) — summary L0 + merge-op table
 // ---------------------------------------------------------------------------
 

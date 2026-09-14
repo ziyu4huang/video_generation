@@ -42,12 +42,25 @@ export function buildNoteMap(vaultPath: string, arxivIds: string[]): Record<stri
 			.split(",")
 			.map((t) => t.trim())
 			.filter((t) => t && t !== "zettel");
-		// find the graph note whose summary/content carries this title
+		// Bind the graph note by its FRONTMATTER source, exact: converged graph
+		// notes carry `source: "generic:<origin-card-stem>"` (verified on all
+		// 13 fixture notes). The shipped rule — first note whose CONTENT
+		// contains the title — let sibling notes steal the binding via their
+		// 連結 cross-links (measured 6-7/13 mis-bound on the real vault, which
+		// corrupted the tag-recall and production-MRR baselines). Frontmatter
+		// only: body tails carry `provenance: generic:<stem>` artifacts too.
+		const stem = name.replace(/\.md$/, "");
 		let graphNote = "";
 		for (const g of readdirSafe(kg)) {
 			if (!g.endsWith(".md")) continue;
 			const gmd = readFileSync(join(kg, g), "utf8");
-			if (gmd.includes(title)) {
+			if (!gmd.startsWith("---")) continue;
+			const fm = gmd.slice(0, gmd.indexOf("\n---", 3));
+			// EXACT value comparison, not substring: a future stem that is a
+			// prefix of another (Paper - SPINE 2) must not steal (the bug
+			// class T0 fixes, at the binding level too — reviewer finding 2).
+			const srcVal = /^source:\s*"?(.+?)"?\s*$/m.exec(fm)?.[1];
+			if (srcVal === `generic:${stem}`) {
 				graphNote = `Zettelkasten/knowledge-graph/${g.replace(/\.md$/, "")}`;
 				break;
 			}
@@ -80,7 +93,8 @@ export async function tagRecall(vaultPath: string, noteMap: Record<string, Paper
 	for (const entry of entries) {
 		const res = await retrieveRecords({ vaultPath, tags: entry.tags, topK: 5 });
 		const top5 = res.cards.map((c) => (c as { path?: string; name?: string; id?: string }).path ?? (c as { name?: string }).name ?? (c as { id?: string }).id ?? "");
-		const found = top5.some((p) => p && entry.graphNote.includes(p.split("/").pop() ?? "\u0000"));
+		const targetBase = entry.graphNote.split("/").pop() ?? "\u0000";
+		const found = top5.some((p) => p && p.split("/").pop() === targetBase);
 		if (found) hits++;
 		else misses.push({ title: entry.title, top5 });
 	}
