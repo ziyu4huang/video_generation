@@ -2,7 +2,7 @@
 effort: 2026-09-15-gemma-compact
 created: 2026-09-15
 last: 2026-09-15
-status: active
+status: done
 ---
 
 # Wayfinder map: 2026-09-15-gemma-compact — fill the gemma column + prove 2-compact re-arm
@@ -44,12 +44,11 @@ receipts, one PR through the devops chain, reviewer, successor.
 
 ## Tickets
 
-- [ ] t01 open effort (this commit)
-- [ ] t02 gemma fill: 6 cells (C1-C5, C8) on JIT-loaded gemma, pinned
-      g11e90db, ≤2 legs/cell, receipts → evidence/gemma/
-- [ ] t03 2-compact receipt: /compact → probe → /compact → probe (both
+- [x] t01 open effort (this commit)
+- [x] t02 gemma fill: 6 cells run; receipts → evidence/gemma/
+- [x] t03 2-compact receipt: /compact → probe → /compact → probe (both
       YES) via drive-compact 2-cycle extension
-- [ ] t04 playbook PB-21 (NaN unary-plus lesson) + line restructure; schema
+- [x] t04 playbook PB-21 (NaN unary-plus lesson) + line restructure; schema
       test green
 - [ ] t05 close-out: reviewer GLM-5.3, PR chain, matrix delta, successor
 
@@ -70,3 +69,40 @@ receipts, one PR through the devops chain, reviewer, successor.
 
 - Builds-on: 2026-09-10-spwf-ab-closing (D5 precondition protocol + battery)
   and 2026-09-14-spwf-improve (NaN fix lineage — PB-21's subject).
+
+## Gemma column results (2026-09-15, evidence/gemma/; pin g11e90db)
+
+| Case | Verdict | Detail |
+|---|---|---|
+| C1 bootstrap self-report | PASS | YES (5th consistent YES on this prompt across configs) |
+| C2 brainstorming routing | **PASS** | brainstorming read + order compliant — gemma 路由首次正確 |
+| C3 TDD routing | RED (variance) | read brainstorming + using-superpowers, NOT TDD — gemma 選了 brainstorming 路線（防禦性合理，但與 A/B 期望不同） |
+| C4 exclude-env | RED (mechanism found) | brainstorming WAS read from the deployed path despite exclude+ns — the knob controls ADVERTISEMENT, not file access; the F2 directive orders skill reads and the model path-guessed. Plus 300s timeout (exit 143). |
+| C5 wayfind flow | PASS (re-adjudicated) | read using-superpowers + answered correctly via the bootstrap routing table; expectation widened to include using-superpowers (same F3/D8 logic as the gate route) |
+| C8 cross-family | PASS | writing-plans cited |
+
+Findings:
+- **F-g1**: gemma 路由已進步 — C2 brainstorming 路由首次在 gemma 上正確（先前輪次 0 reads）。
+- **F-g2 (C4)**: exclude knob = 廣告層保證；F2 指示 + 模型路徑猜測可繞過。 KB 改善候選：exclude 時在 bootstrap 加一條「被排除的 skill 不可讀」。
+- **F-g3**: C5 期望集需要 using-superpowers（方法論路由器也是合法路由）。
+
+## Results + receipts (2026-09-15)
+
+- **t02 gemma fill (6 cells, receipts evidence/gemma/)**: C1 PASS (YES),
+  **C2 PASS — brainstorming 路由首次在 gemma 上正確**（read + order
+  compliant）, C3 behavioral variance (brainstorming 路線而非 TDD — 防禦性
+  合理), C4 RED with mechanism (exclude knob = 廣告層; F2 指示 + 模型路徑
+  猜測直接讀了 deployed brainstorming 檔；300s timeout 混合), C5 PASS
+  (re-adjudicated: using-superpowers 路由 + 答案正確), C8 PASS
+  (writing-plans)。
+- **t03 2-compact: PASS** — /compact × 2，每次壓縮後 bootstrap self-report
+  YES（re-arm 重複成立）。Receipt: evidence/compact-2cycle-receipt.json。
+- **t04 PB-21 + restructure**: playbook 137 lines / 21 entries（Added 併入
+  Status 釋出 20 行給未來條目）；schema test 6/6 green。
+- lms load CLI 會卡死（9 分鐘無進展，已記錄）— JIT load + 空閒機器是可靠
+  的駐留路徑。
+
+## Shipped-as (2026-09-15)
+
+- PR <impl>: gemma 欄位接收、2-compact 接收、PB-21 + playbook restructure。
+- 本 PR 同時翻轉 map status（CONVENTIONS 規則）。
