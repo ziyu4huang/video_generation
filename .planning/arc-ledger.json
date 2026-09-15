@@ -263,6 +263,15 @@
       "branch": "self-arc-26-project-trust-wiring",
       "note": "host project-trust wiring: make #2280's latent gate real via a subagent-scoped trust-store source (read ~/.pi/agent/trust.json for the dispatch cwd, mirror pi trust-manager semantics; ctx supplies UI only). Queue head = validated next-goal 20260914-234500. Receipt: evil.md scenario denies on a fresh pinned deploy. SHIPPED: #2285 (store-backed trust surface). Deployed proof: evil.md DENIES on pinned 0.10.4+g60663ae (N1); trusted + ancestor controls run ungated (P1/P2); T1 TUI-confirm leg = recorded gap. Merge rode the deploy-e2e's documented zai fallback lane during a live DeepSeek outage. Close-out = the next PR.",
       "mergedPr": 2285
+    },
+    {
+      "series": "self-arc",
+      "number": 27,
+      "path": ".planning/2026-09-15-self-arc-27-restorable-children",
+      "status": "active",
+      "claimedAt": "2026-09-15",
+      "branch": "self-arc-27-restorable-children",
+      "note": "D8 restorable child sessions: journal persistent children's FileEntry[] (SessionManager.getEntries()) and restore via inMemory(cwd,{id},entries) so a named child's transcript survives parent restart. Queue head = validated next-goal 20260915-045500 rank 1. Receipt: deployed drive shows a child transcript restored after parent restart."
     }
   ]
 }

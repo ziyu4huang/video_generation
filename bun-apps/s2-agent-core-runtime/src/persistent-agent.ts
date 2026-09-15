@@ -25,6 +25,7 @@ import type { AgentHistoryEntry } from "./agent-history.js";
 import { compactAgentHistory } from "./agent-history.js";
 import type { TurnExhaustion } from "./agent-turns.js";
 import { createTurnGuard } from "./agent-turns.js";
+import { createChildSessionJournal } from "./child-session-journal.js";
 import { getLiveAgentRegistry, type LiveAgentEntry, type LiveAgentRegistry } from "./live-agent-registry.js";
 import {
   classifyError,
@@ -68,6 +69,10 @@ export interface OpenLiveAgentOptions {
   onModelFallback?: (requestedSpec: string) => void;
   /** Live history snapshots (throttled to ≥250ms, same as CoreAgent.run). */
   onHistory?: (history: AgentHistoryEntry[]) => void;
+  /** Durable-transcript hook (self-arc-27): invoked in LiveAgent.send()'s
+   *  settle-finally with the session. Wired by spawnLiveAgentFirstExchange
+   *  to the child-session journal keyed by the agent's name. */
+  persist?: (session: AgentSession) => void;
   /** Injectable session assembly for tests (defaults to a real CoreAgent). */
   assemble?: (options: {
     agentOptions: ConstructorParameters<typeof CoreAgent>[0];
@@ -107,6 +112,10 @@ export class LiveAgent {
   private readonly budgetGuard: ReturnType<typeof createBudgetGuard>;
   private readonly turnGuard: ReturnType<typeof createTurnGuard>;
   private readonly onHistory?: (history: AgentHistoryEntry[]) => void;
+  /** Durable-transcript hook (self-arc-27 t01): called after every settled
+   *  exchange. Best-effort by contract — a throw is the hook owner's problem
+   *  (the journal swallows its own fs errors). */
+  private readonly persist?: (session: AgentSession) => void;
   /** Previous cumulative stats snapshot — per-exchange usage is the delta. */
   private prevStats: AgentUsage | undefined;
   private _status: LiveAgentStatus = "idle";
@@ -122,6 +131,7 @@ export class LiveAgent {
     budgetGuard: ReturnType<typeof createBudgetGuard>;
     turnGuard: ReturnType<typeof createTurnGuard>;
     onHistory?: (history: AgentHistoryEntry[]) => void;
+    persist?: (session: AgentSession) => void;
   }) {
     this.session = init.session;
     this.unsubscribe = init.unsubscribe;
@@ -129,6 +139,7 @@ export class LiveAgent {
     this.budgetGuard = init.budgetGuard;
     this.turnGuard = init.turnGuard;
     this.onHistory = init.onHistory;
+    this.persist = init.persist;
   }
 
   get status(): LiveAgentStatus {
@@ -304,6 +315,14 @@ export class LiveAgent {
       removeSignalListener?.();
       this._status = "idle";
       this.emitHistory();
+      // Journal the settled transcript (self-arc-27 t01): steers early-return
+      // before this point, so the settled OUTER exchange persists them — no
+      // double-write. Best-effort: the journal swallows its own fs errors.
+      try {
+        this.persist?.(this.session);
+      } catch {
+        // never fail the exchange on a journal problem
+      }
     }
   }
 
@@ -392,6 +411,7 @@ export async function openLiveAgent(options: OpenLiveAgentOptions): Promise<Live
     budgetGuard,
     turnGuard,
     onHistory: options.onHistory,
+    persist: options.persist,
   });
 }
 
@@ -446,6 +466,9 @@ export async function spawnLiveAgentFirstExchange(
   }
 
   const openAgent = open.openAgent ?? openLiveAgent;
+  // Durable transcript (self-arc-27 t01): every settled exchange of this
+  // NAMED child rewrites its journal (best-effort, raw pi session JSONL).
+  const journal = createChildSessionJournal();
   const agent = await openAgent({
     cwd: opts.cwd,
     instructions: opts.instructions,
@@ -465,6 +488,7 @@ export async function spawnLiveAgentFirstExchange(
     onModelResolved: opts.onModelResolved,
     onModelFallback: opts.onModelFallback,
     onHistory: opts.onHistory,
+    persist: (session) => journal.persist(open.name, session),
   });
 
   // Self-arc-23 (F-steer-1b): REGISTER BEFORE the first exchange. The steer

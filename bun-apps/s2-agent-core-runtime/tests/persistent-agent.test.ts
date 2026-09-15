@@ -89,7 +89,11 @@ function fakeSession(init: { tokensTotal?: number; cost?: number } = {}) {
 type FakeSession = ReturnType<typeof fakeSession>;
 
 /** A LiveAgent over the fake session with REAL guards (the aggregation seam under test). */
-function liveAgent(fs: FakeSession, budget: { tokenBudget?: number; spendBudget?: number; maxTurns?: number } = {}) {
+function liveAgent(
+  fs: FakeSession,
+  budget: { tokenBudget?: number; spendBudget?: number; maxTurns?: number } = {},
+  persist?: (session: unknown) => void,
+) {
   const budgetGuard = createBudgetGuard(fs.session, budget);
   const turnGuard = createTurnGuard(fs.session, { maxTurns: budget.maxTurns });
   const unsubscribe = fs.session.subscribe((event) => {
@@ -102,6 +106,7 @@ function liveAgent(fs: FakeSession, budget: { tokenBudget?: number; spendBudget?
     budgetGuard,
     turnGuard,
     instructions: "You are a named test agent.",
+    persist: persist as never,
   });
 }
 
@@ -261,5 +266,29 @@ describe("openLiveAgent / spawnLiveAgentFirstExchange", () => {
     const dup = await spawnLiveAgentFirstExchange(opts, { name: "dup", agentId: "c", registry, openAgent });
     expect(dup.result.failure?.kind).toBe("failed");
     expect(dup.agent).toBeUndefined();
+  });
+});
+
+describe("LiveAgent persist hook (self-arc-27 t01)", () => {
+  test("fires once per settled exchange, with the session", async () => {
+    const fs = fakeSession();
+    fs.state.tokensTotal = 10;
+    const seen: unknown[] = [];
+    const agent = liveAgent(fs, {}, (s) => seen.push(s));
+    await agent.send("first");
+    await agent.send("second");
+    expect(seen.length).toBe(2);
+    expect(seen[0]).toBe(fs.session);
+  });
+
+  test("a THROWING persist hook never fails the exchange (best-effort contract)", async () => {
+    const fs = fakeSession();
+    fs.state.tokensTotal = 10;
+    const agent = liveAgent(fs, {}, () => {
+      throw new Error("disk on fire");
+    });
+    const r = await agent.send("still fine");
+    expect(r.output).toContain("reply to:");
+    expect(r.failure).toBeUndefined();
   });
 });
