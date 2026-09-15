@@ -12,6 +12,7 @@
  * lane is measured separately when Surreal + fresh index exist).
  */
 import { buildRetrieveOptions, inferQueryTags } from "@repo/s2-agent-ext-knowledge-card/src/host-fns.ts";
+import { classifyQuestion, type QuestionClass } from "./classify.ts";
 import { retrieveRecords } from "@repo/s2-agent-ext-knowledge-card/src/index.ts";
 
 export interface ProductionMrrResult {
@@ -21,6 +22,10 @@ export interface ProductionMrrResult {
 	neverRanked: string[];
 	/** Per-question rank detail (diagnostic column). */
 	detail: { question: string; rank: number; arxivId: string; /** retrieved paths (audit column — reviewer finding 1) */ paths: string[] }[];
+	/** Per-class hit@3 / MRR (kcard-hit3-residual T1) — a lever is judged
+	 *  on the classes it claims to fix. Derived classification, goldens
+	 *  untouched. */
+	perClass: Record<QuestionClass, { n: number; hitAt3: number; mrr: number }>;
 }
 
 export async function productionMrr(
@@ -36,6 +41,12 @@ export async function productionMrr(
 	const recips: number[] = [];
 	const neverRanked: string[] = [];
 	const detail: { question: string; rank: number; arxivId: string; paths: string[] }[] = [];
+	const perClassRecips: Record<QuestionClass, number[]> = {
+		"relation-anchored": [],
+		"relation-bare": [],
+		page: [],
+		topical: [],
+	};
 	for (const paper of golden) {
 		const entry = noteMap[paper.arxivId];
 		if (!entry || !entry.graphNote) continue;
@@ -55,11 +66,22 @@ export async function productionMrr(
 			const targetBase = entry.graphNote.split("/").pop() ?? "\u0000";
 			const rank = paths.findIndex((p) => p.split("/").pop() === targetBase) + 1;
 			recips.push(rank === 0 ? 0 : 1 / rank);
+			perClassRecips[classifyQuestion(q.question)].push(rank === 0 ? 0 : 1 / rank);
 			if (rank === 0) neverRanked.push(paper.arxivId);
 			detail.push({ question: q.question, rank, arxivId: paper.arxivId, paths });
 		}
 	}
 	const mrr = recips.length === 0 ? 0 : recips.reduce((a, b) => a + b, 0) / recips.length;
 	const hitAt3 = recips.length === 0 ? 0 : recips.filter((r) => r > 0 && 1 / r <= 3).length / recips.length;
-	return { questions: recips.length, mrr, hitAt3, neverRanked: [...new Set(neverRanked)], detail };
+	const perClass = Object.fromEntries(
+		Object.entries(perClassRecips).map(([cls, rs]) => [
+			cls,
+			{
+				n: rs.length,
+				hitAt3: rs.length ? rs.filter((r) => r > 0 && 1 / r <= 3).length / rs.length : 0,
+				mrr: rs.length ? rs.reduce((a, b) => a + b, 0) / rs.length : 0,
+			},
+		]),
+	) as Record<QuestionClass, { n: number; hitAt3: number; mrr: number }>;
+	return { questions: recips.length, mrr, hitAt3, neverRanked: [...new Set(neverRanked)], detail, perClass };
 }
