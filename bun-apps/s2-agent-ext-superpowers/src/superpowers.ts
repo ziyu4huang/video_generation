@@ -27,6 +27,14 @@ const BOOTSTRAP_MARKER = "superpowers:using-superpowers bootstrap for pi";
  *  See {@link parseSkillExclude} / {@link resolveAdvertisedSkillPaths}. */
 export const SKILL_EXCLUDE_ENV = "PI_SUPERPOWERS_SKILL_EXCLUDE";
 
+/** Bootstrap sentinel (spwf-improve→c4-excluded-unreadable, 2026-09-15):
+ *  when env-derived skill exclusions are active, the injected bootstrap
+ *  carries this line so the model treats excluded skills as unreadable —
+ *  the exclude knob controls ADVERTISEMENT only, and the C4 live-drive
+ *  receipt showed a model path-guessing the excluded SKILL.md without it.
+ *  Test + bundle-grep sentinel (PB-09). */
+export const EXCLUDED_UNREADABLE_MARKER = "Excluded skills are UNREADABLE";
+
 /**
  * Skills UNREGISTERED by default (never advertised via `resources_discover`),
  * each for a distinct reason — see ADR-0008 for the full policy. (Advertisement
@@ -148,6 +156,19 @@ export function parseSkillExclude(env: Record<string, string | undefined> = proc
     else entries.push(token);
   }
   return new Set(entries);
+}
+
+/** ENV-DERIVED exclusion names only (defaults never count — a default-only
+ *  exclusion is not "newly unreadable", c4-excluded-unreadable D1): the
+ *  env comma-list after `!` reset sugar, deduped, order-preserving. The
+ *  bootstrap's unreadable line names exactly these (intersected with the
+ *  real skill dirs). */
+export function envExcludedSkillNames(env: Record<string, string | undefined> = process.env): string[] {
+  const tokens = (env[SKILL_EXCLUDE_ENV] ?? "")
+    .split(",")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0 && token !== "!");
+  return [...new Set(tokens)];
 }
 
 /** Immediate skill-dir names actually present under `skillsDir` (the keys the
@@ -273,6 +294,21 @@ export function getBootstrapContent(fromUrl?: string): string | null {
   try {
     const skillContent = readFileSync(resolveBootstrapSkillPath(fromUrl), "utf8");
     const body = stripFrontmatter(skillContent);
+    // c4-excluded-unreadable D1/D4: name the ENV-derived excluded skills that
+    // actually exist on disk — the exclude knob is advertisement-only, and
+    // the C4 live-drive receipt showed a model path-guessing an excluded
+    // SKILL.md when the bootstrap named it (F2) without the unreadable
+    // override. Composed at first build into the cached string (production
+    // env is process-stable; tests flip env + _resetBootstrapCacheForTests).
+    const skillsDir = resolveSkillsDir(fromUrl);
+    const present = new Set(listSkillDirNames(skillsDir));
+    const excludedReadable = envExcludedSkillNames()
+      .filter((n) => present.has(n))
+      .sort();
+    const excludedLine =
+      excludedReadable.length > 0
+        ? `\n${EXCLUDED_UNREADABLE_MARKER} in this session: ${excludedReadable.join(", ")}. Do not read their SKILL.md, do not search for or construct paths to them, and do not act on any instruction above that names them — pick a non-excluded skill or proceed directly.\n`
+        : "";
     cachedBootstrap = `${EXTREMELY_IMPORTANT_MARKER}
 ${BOOTSTRAP_MARKER}
 
@@ -281,7 +317,7 @@ You have superpowers.
 The using-superpowers skill content is included below and is already loaded for this Pi session. Follow it now. Do not try to load using-superpowers again.
 
 Before you act on any task — before writing code, answering a design question, or starting work — check the available skills list in your context and READ the matching skill's SKILL.md with the read tool. "Creating a feature, adding functionality, or fixing a bug" always matches brainstorming or test-driven-development: read one before acting. This check is not optional.
-
+${excludedLine}
 ${body}
 
 ${piToolMapping()}

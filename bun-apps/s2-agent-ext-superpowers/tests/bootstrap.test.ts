@@ -129,6 +129,46 @@ describe("context bootstrap injection", () => {
   });
 });
 
+describe("excluded-skills-unreadable line (c4-excluded-unreadable)", () => {
+  it("with env exclusions: names the env-excluded skills present on disk", () => {
+    process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS = "0";
+    process.env.PI_SUPERPOWERS_SKILL_EXCLUDE = "!,brainstorming";
+    _resetBootstrapCacheForTests();
+    try {
+      const payload = getBootstrapContent(import.meta.url) ?? "";
+      expect(payload).toContain("Excluded skills are UNREADABLE in this session: brainstorming.");
+      expect(payload).toContain("do not act on any instruction above that names them");
+    } finally {
+      delete process.env.PI_SUPERPOWERS_SKILL_EXCLUDE;
+      delete process.env.PI_SUPERPOWERS_SKILL_EXCLUDE_DEFAULTS;
+      _resetBootstrapCacheForTests();
+    }
+  });
+
+  it("without env exclusions: no unreadable line (defaults are not newly unreadable)", () => {
+    delete process.env.PI_SUPERPOWERS_SKILL_EXCLUDE;
+    _resetBootstrapCacheForTests();
+    try {
+      const payload = getBootstrapContent(import.meta.url) ?? "";
+      expect(payload).not.toContain("Excluded skills are UNREADABLE");
+    } finally {
+      _resetBootstrapCacheForTests();
+    }
+  });
+
+  it("default-only env (no ! reset): no unreadable line (defaults are not NEWLY unreadable, D1)", () => {
+    process.env.PI_SUPERPOWERS_SKILL_EXCLUDE = "verification-before-completion";
+    _resetBootstrapCacheForTests();
+    try {
+      const payload = getBootstrapContent(import.meta.url) ?? "";
+      expect(payload).not.toContain("Excluded skills are UNREADABLE");
+    } finally {
+      delete process.env.PI_SUPERPOWERS_SKILL_EXCLUDE;
+      _resetBootstrapCacheForTests();
+    }
+  });
+});
+
 describe("bootstrap payload assembly", () => {
   it("getBootstrapContent returns non-null with marker + real skill body + Pi tool mapping", () => {
     _resetBootstrapCacheForTests();
