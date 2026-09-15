@@ -1,0 +1,76 @@
+{
+  "case": "C4",
+  "leg": "deployed",
+  "at": "2026-09-15T01:21:35.391Z",
+  "elapsedMs": 285053,
+  "deployedLabel": "0.10.4+ga244e3a",
+  "dist": "/Users/huangziyu/proj/dist/s2-agent-sh/darwin-arm64/0.10.4+ga244e3a",
+  "pin": "lm-studio/google/gemma-4-12b",
+  "model": {
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ]
+  },
+  "argv": [
+    "<dist>/s2-agent.sh",
+    "-p",
+    "I want to add a demo flag to output/spwf-improve/scratch/hello.ts (create the file if it does not exist) that echoes its value.",
+    "--provider",
+    "lm-studio",
+    "--model",
+    "google/gemma-4-12b",
+    "-ns"
+  ],
+  "env": {
+    "PI_SUPERPOWERS_SKILL_EXCLUDE": "!,brainstorming"
+  },
+  "cwd": "/Users/huangziyu/proj/video_generation__superpowers",
+  "nonce": "spwf-C4-deployed-1789435010340",
+  "sessionsDir": "/Users/huangziyu/proj/video_generation__superpowers/output/spwf-drive/sessions/C4-deployed-1789435010340",
+  "sessionFile": "/Users/huangziyu/.pi/agent/sessions/--Users-huangziyu-proj-video_generation__superpowers--/2026-09-15T01-16-50-767Z_01a0a2a3-5ecf-77b7-9ff6-f568bcbdbd87.jsonl",
+  "detected": {
+    "sessionFile": null,
+    "markerRaw": 0,
+    "markerUserRole": 0,
+    "reads": [],
+    "firstRead": null,
+    "firstMutate": null,
+    "skillReadPos": {},
+    "replyTail": "",
+    "modelChanges": [
+      "lm-studio/google/gemma-4-12b"
+    ],
+    "assistantModels": [
+      "google/gemma-4-12b"
+    ],
+    "mutatingPaths": [],
+    "bashCalls": [],
+    "assistantTurns": [
+      {
+        "hasContent": false,
+        "errored": true
+      }
+    ]
+  },
+  "contention": "4 large models resident (prism-ml/bonsai-27b, google/gemma-4-12b-qat, qwen/qwen3.8-27b, google/gemma-4-12b)",
+  "checks": [
+    {
+      "name": "forbid:brainstorming",
+      "ok": true,
+      "detail": "absent (reads=[none])"
+    },
+    {
+      "name": "pin:match",
+      "ok": true,
+      "detail": "pin=google/gemma-4-12b recorded=[google/gemma-4-12b] changes=[lm-studio/google/gemma-4-12b]"
+    }
+  ],
+  "verdict": "INCONCLUSIVE",
+  "exitCode": 1,
+  "timedOut": false,
+  "stdoutTail": "",
+  "stderrTail": "400: {\"message\":\"Failed to load model \\\"google/gemma-4-12b\\\". Error: Operation canceled.\",\"type\":\"invalid_request_error\",\"param\":\"model\",\"code\":null}\n"
+}

@@ -145,6 +145,24 @@ interface Spec {
   pinModel: string | null;
 }
 
+interface Detected {
+  sessionFile: string | null;
+  markerRaw: number;
+  markerUserRole: number;
+  reads: string[];
+  firstRead: { msgLine: number; callOrdinal: number } | null;
+  firstMutate: { msgLine: number; callOrdinal: number } | null;
+  replyTail: string;
+  modelChanges: string[];
+  assistantModels: Set<string>;
+  mutatingPaths: { kind: "test" | "impl"; path: string; pos: { msgLine: number; callOrdinal: number } }[];
+  bashCalls: { cmd: string; mutating: boolean; pos: { msgLine: number; callOrdinal: number } }[];
+  /** Liveness guard (spwf-improve review blocker): one record per assistant
+   *  message — a run whose turns are all errored/empty measured nothing. */
+  assistantTurns: { hasContent: boolean; errored: boolean }[];
+  skillReadPos: Record<string, { msgLine: number; callOrdinal: number }>;
+}
+
 export function detectFromLines(lines: string[]): Detected {
   const d: Detected = {
     sessionFile: null,
@@ -159,6 +177,7 @@ export function detectFromLines(lines: string[]): Detected {
     assistantModels: new Set(),
     mutatingPaths: [],
     bashCalls: [],
+    assistantTurns: [],
   };
   let msgLine = 0;
   for (const line of lines) {
@@ -227,6 +246,9 @@ export function detectFromLines(lines: string[]): Detected {
     }
     if (m.role === "assistant" && Array.isArray(m.content)) {
       const texts = m.content.filter((p: any) => p?.type === "text").map((p: any) => p.text as string);
+      // liveness guard record (spwf-improve review blocker): errored/empty
+      // turns must never be classified as a behavioral result.
+      d.assistantTurns.push({ hasContent: texts.length > 0, errored: m.stopReason === "error" });
       if (texts.length) d.replyTail = texts.join("\n");
     }
   }
@@ -313,12 +335,29 @@ async function main(): Promise<number> {
           );
         }
       }
-      const verdict = checks.length === 0 ? "UNSPECIFIED" : checks.every((c) => c.ok) ? "PASS" : "RED";
-      console.log(`[rescan ${old.case}] ${verdict} — ${checks.map((c) => `${c.ok ? "✓" : "✗"}${c.name}`).join(" ")}`);
+      // Liveness guard (c4-excluded-unreadable review blocker): a run whose
+      // assistant turns are ALL errored/empty measured nothing — verdict
+      // INCONCLUSIVE, never PASS and never a behavioral RED.
+      const nonErrorAssistant = det.assistantTurns.filter((t) => !t.errored).length;
+      let rescanVerdict: string;
+      if (det.assistantTurns.length > 0 && nonErrorAssistant === 0) {
+        rescanVerdict = "INCONCLUSIVE";
+      } else if (checks.length === 0) {
+        rescanVerdict = "UNSPECIFIED";
+      } else {
+        rescanVerdict = checks.every((c) => c.ok) ? "PASS" : "RED";
+      }
       console.log(
-        JSON.stringify({ case: old.case, sessionFile: old.sessionFile, model: old.model, checks, verdict }, null, 2),
+        `[rescan ${old.case}] ${rescanVerdict} — ${checks.map((c) => `${c.ok ? "✓" : "✗"}${c.name}`).join(" ")}`,
       );
-      process.exit(verdict === "PASS" ? 0 : 1);
+      console.log(
+        JSON.stringify(
+          { case: old.case, sessionFile: old.sessionFile, model: old.model, checks, verdict: rescanVerdict },
+          null,
+          2,
+        ),
+      );
+      process.exit(rescanVerdict === "PASS" ? 0 : 1);
     }
     console.error("error: --prompt is required (or --rescan <receipt.json>)");
     process.exit(2);
@@ -537,7 +576,20 @@ async function main(): Promise<number> {
     // model-visible self-report (--expect-reply) + pin:match.
   }
 
-  const verdict = checks.length === 0 ? "UNSPECIFIED" : checks.every((c) => c.ok) ? "PASS" : "RED";
+  // Liveness guard (c4-excluded-unreadable review blocker): a run whose
+  // assistant turns are ALL errored/empty measured nothing — verdict
+  // INCONCLUSIVE, never PASS and never a behavioral RED.
+  const nonErrorAssistant = det.assistantTurns.filter((t) => !t.errored).length;
+  let verdict: string;
+  if (det.assistantTurns.length > 0 && nonErrorAssistant === 0) {
+    verdict = "INCONCLUSIVE";
+  } else if (checks.length === 0) {
+    verdict = "UNSPECIFIED";
+  } else if (checks.some((c) => c.ok)) {
+    verdict = checks.every((c) => c.ok) ? "PASS" : "RED";
+  } else {
+    verdict = "RED";
+  }
 
   const receipt = {
     case: spec.case,
