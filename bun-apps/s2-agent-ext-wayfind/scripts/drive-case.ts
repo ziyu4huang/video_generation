@@ -576,7 +576,20 @@ async function main(): Promise<number> {
     // model-visible self-report (--expect-reply) + pin:match.
   }
 
-  const verdict = checks.length === 0 ? "UNSPECIFIED" : checks.every((c) => c.ok) ? "PASS" : "RED";
+  // Liveness guard (c4-excluded-unreadable review blocker): a run whose
+  // assistant turns are ALL errored/empty measured nothing — verdict
+  // INCONCLUSIVE, never PASS and never a behavioral RED.
+  const nonErrorAssistant = det.assistantTurns.filter((t) => !t.errored).length;
+  let verdict: string;
+  if (det.assistantTurns.length > 0 && nonErrorAssistant === 0) {
+    verdict = "INCONCLUSIVE";
+  } else if (checks.length === 0) {
+    verdict = "UNSPECIFIED";
+  } else if (checks.some((c) => c.ok)) {
+    verdict = checks.every((c) => c.ok) ? "PASS" : "RED";
+  } else {
+    verdict = "RED";
+  }
 
   const receipt = {
     case: spec.case,
