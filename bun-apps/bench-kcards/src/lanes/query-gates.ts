@@ -7,7 +7,11 @@
  *    ≥ 0.90 across cards).
  *  - 2d retrieval MRR: `embedQuery` per golden question, cosine-ranked
  *    against the sandbox semantic index; the paper's graph note is the
- *    relevant item (threshold MRR ≥ 0.70, hit@3 ≥ 0.85).
+ *    relevant item. Design gates moved to DATA rows on the production
+ *    lane result (src/lanes/production.ts `gates`): enforce floors =
+ *    MRR ≥ 0.70, hit@3 ≥ 0.74, per-class regression floors; design
+ *    target hit@3 ≥ 0.85 stays REPORTED-unmet on the served blended
+ *    lane (kcard-hit3-residual amendment — see the effort map).
  *  - bite check (mutation): with the paper notes' vectors removed from the
  *    index, MRR must COLLAPSE (< 0.20) — proving the gate can fail.
  */

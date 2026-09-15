@@ -49,10 +49,15 @@ describe("production lane — card-grounded questions (embed tier)", () => {
 		const noteMap = buildNoteMap(vaultPath, loadV2().map((g) => g.arxivId));
 		const r = await productionMrr(vaultPath, loadV2(), noteMap);
 		expect(r.questions).toBeGreaterThanOrEqual(13 * 4);
-		// measured floor: 0.276 on 2026-09-10 — guards catastrophic regressions;
-		// design gate 0.70 lives in the scorecard verdict.
-		expect(r.mrr).toBeGreaterThanOrEqual(0.2);
-		expect(r.mrr).toBeGreaterThanOrEqual(0.276 - 0.05); // run-to-run embed jitter band
+		// kcard-hit3-residual T4: the gates live as DATA rows on the result.
+		// enforce rows are regression floors (asserted here); design rows are
+		// reported honestly (0.85 hit@3 stays an unmet design target on the
+		// served blended lane — amended per the effort map's D3).
+		const failed = r.gates.filter((g) => g.enforce && !g.pass);
+		for (const g of r.gates) {
+			console.log(`[gate] ${g.enforce ? "enforce" : "design "} ${g.name}: ${g.measured.toFixed(3)} vs ${g.threshold} → ${g.pass ? "PASS" : "FAIL"}`);
+		}
+		expect(failed, `enforced gate floors failed: ${failed.map((g) => g.name).join(", ")}`).toEqual([]);
 		console.log(`[production] MRR=${r.mrr.toFixed(3)} hit@3=${r.hitAt3.toFixed(3)} never-ranked=${r.neverRanked.length}`);
-	}, 180_000);
+	}, 600_000);
 });

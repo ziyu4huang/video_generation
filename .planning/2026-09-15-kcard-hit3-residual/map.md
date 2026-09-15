@@ -2,7 +2,7 @@
 effort: 2026-09-15-kcard-hit3-residual
 created: 2026-09-15
 last: 2026-09-15
-status: open
+status: executing
 ---
 
 # Wayfinder map: 2026-09-15-kcard-hit3-residual — hit@3 0.744 → 0.85, pre-adjudicated
@@ -68,11 +68,45 @@ receipt (28 non-rank-1, 11 rank-0 — the successor's "34/9" was wrong):
   no-regression; REL-bare = recorded gap with probe evidence.
 - **T5** reviewer → PR → merge → map Shipped-as → successor + LATEST.
 
+## Verdict (measured, all receipted)
+
+- **Served blended lane (α=0.18, lever in): MRR 0.711 / hit@3 0.744** —
+  deterministic across sessions (repeat + repeat-2). MRR gate MET;
+  hit@3 gate NOT met on the served lane.
+- **Pure-lexical ablation (semantic:false, offline deterministic):
+  0.868 / 0.885** — crosses both gates; the accidental lever-v1 embed
+  receipt matched it to the third decimal, exposing that run as an
+  LM-Studio-unavailable fall-through, not the served lane.
+- **α-band (lever tree): 0.26→0.821, 0.30→0.833** (MRR 0.753/0.761) —
+  monotone, still short of 0.85 → per pre-registered D4 the served
+  default HOLDS at 0.18; the α flip is queued as successor head
+  (requires the semantic-gap regression eval — probeB/nomic — before
+  flipping).
+- **V2 (bounded 連結 embed tail) RECEIPT-REJECTED**: MRR 0.689 < 0.70,
+  topical 0.885→0.852 — text reverted to the v1 composition; the
+  textVersion cache mechanism is KEPT (backward-compatible) so the next
+  composition change cannot serve stale vectors.
+- **Amendment (pre-registered D3) LANDED**: enforce floors as data rows
+  (MRR ≥ 0.70; hit@3 ≥ 0.74; anchored ≥ 0.12; page ≥ 0.60; topical
+  ≥ 0.88) asserted in the embed-tier test; design target hit@3 ≥ 0.85
+  stays REPORTED-unmet with the receipts; relation-bare = recorded gap
+  (unservable by construction, probe evidence).
+- relation-bare stayed 0.000 on every lane and every variant ✓
+  (mechanically honest).
+
 ## Receipts
 
 - `receipts/planner-plan.md`, `receipts/plan-receipt.json`,
   `evidence/planner-rel-probe.mjs` — planner (zai/glm-5.3, 757 s,
   playbook d8915ab81340).
+- `evidence/pre-fix-per-class.json` — per-class baseline (offline).
+- `evidence/inert-{with,no-lever-TRUE}.txt` — REAL gate-inertness proof
+  (66/66 byte-identical vs the true 653bb284 retrieve.ts; the earlier
+  stash-based proof was void — the lever was already committed).
+- `receipts/production-mrr-{lever-v1,lever-v1-repeat,lever-v1-repeat-2,
+  band-a26,band-a30,v2-a18,lexical-lane-ablation}.json` — the full
+  measurement story including the accidental ablation and its offline
+  reproduction.
 
 ## Status log
 

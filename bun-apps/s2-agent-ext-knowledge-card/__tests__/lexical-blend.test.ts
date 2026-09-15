@@ -30,7 +30,7 @@ const _obsReal: Record<string, unknown> = await import(_obsRealAbs);
 mock.module("@repo/s2-agent-ext-obsidian", () => ({ ..._obsReal }));
 
 import { cjkBigrams, distinctiveRelationTokens } from "../src/card-format.ts";
-import { blendScore, cardEmbedText, EMBED_TOTAL_CHARS, getCardEmbeddings, type Embedder } from "../src/semantic.ts";
+import { blendScore, cardEmbedText, EMBED_TEXT_VERSION, EMBED_TOTAL_CHARS, getCardEmbeddings, type Embedder } from "../src/semantic.ts";
 import { inferQueryTags } from "../src/host-fns.ts";
 import { retrieveRecords } from "../src/retrieve.ts";
 import { ingestRecords } from "../src/ingest.ts";
@@ -348,20 +348,18 @@ describe("T2(hit3) — gated 連結-scoped relation term (integration, offline)"
 });
 
 // ─── kcard-hit3-residual V2: 連結 tail in the embed text ─────────────────────
-describe("V2 — 連結 anchor tail in cardEmbedText (offline)", () => {
-	test("the bounded link-section anchor rides the embed; wiki brackets stripped", () => {
+describe("EMBED_TEXT_VERSION mechanism (V2 receipt-rejected; guard kept)", () => {
+	test("v1 composition: the 連結 section stays stripped from the embed text", () => {
 		const raw = [
 			"---", "summary: 測試摘要", "---", "# T", "", "## 核心想法", "- 內容主張。", "",
 			"## 連結", "- 相關：視覺表徵研究", "- 相關：[[generic-paper-amari]]", "",
 		].join("\n");
 		const t = cardEmbedText(raw, "T", ["tag"]);
-		expect(t).toContain("視覺表徵研究"); // the anchor phrase reaches the vector
-		expect(t).toContain("generic-paper-amari"); // wiki-link → plain text
-		expect(t).not.toContain("[["); // brackets never embed
+		expect(t).not.toContain("視覺表徵研究"); // receipt-rejected V2 tail is gone
 		expect(t.length).toBeLessThanOrEqual(EMBED_TOTAL_CHARS);
 	});
 
-	test("a v1 cache (no textVersion) rebuilds instead of serving stale vectors", async () => {
+	test("a cache with a STALE textVersion rebuilds; a versionless (v1-era) cache is served", async () => {
 		const vault = mkdtempSync(join(tmpdir(), "kcard-v2cache-"));
 		try {
 			await ingestRecords(
@@ -376,12 +374,20 @@ describe("V2 — 連結 anchor tail in cardEmbedText (offline)", () => {
 			await getCardEmbeddings(vault, FOLDER, undefined, counting);
 			const callsFirst = calls;
 			expect(callsFirst).toBeGreaterThan(0);
-			// Strip textVersion from the cache → a v1-era cache. Same fingerprint,
-			// same card count — ONLY the version gate can trigger the rebuild.
 			const cachePath = join(vault, ".knowledge-semantic", "text-embedding-bge-m3.json");
-			const cache = JSON.parse(readFileSync(cachePath, "utf8"));
-			delete (cache as { textVersion?: number }).textVersion;
-			writeFileSync(cachePath, JSON.stringify(cache));
+			// versionless cache == version 1 (backward compat): same fingerprint,
+			// same count → SERVED, no rebuild.
+			const served = JSON.parse(readFileSync(cachePath, "utf8"));
+			delete (served as { textVersion?: number }).textVersion;
+			writeFileSync(cachePath, JSON.stringify(served));
+			await getCardEmbeddings(vault, FOLDER, undefined, counting);
+			expect(calls).toBe(callsFirst);
+			// STALE version → rebuild even with matching fingerprint + count:
+			// the gate that keeps a text-composition change from serving
+			// silently stale vectors (PB-09 class).
+			const stale = JSON.parse(readFileSync(cachePath, "utf8"));
+			(stale as { textVersion?: number }).textVersion = EMBED_TEXT_VERSION + 1;
+			writeFileSync(cachePath, JSON.stringify(stale));
 			await getCardEmbeddings(vault, FOLDER, undefined, counting);
 			expect(calls).toBeGreaterThan(callsFirst); // rebuilt, not served stale
 		} finally {
