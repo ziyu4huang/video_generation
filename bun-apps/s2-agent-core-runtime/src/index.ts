@@ -104,7 +104,13 @@ export { listAvailableModelSpecs } from "./available-models.js";
 export type { DispatchRole } from "./budget-defaults.js";
 export { ROLE_AWARE_DISPATCH_BOUNDS, roleAwareDefaults, tierDefaultToken } from "./budget-defaults.js";
 export { BUILTIN_AGENT_DEFS } from "./builtin-agents.js";
-
+export type { ChildSessionJournal } from "./child-session-journal.js";
+export {
+  createChildSessionJournal,
+  JOURNAL_NAME_RE,
+  SUBAGENT_SESSIONS_SUBDIR,
+  subagentSessionsDir,
+} from "./child-session-journal.js";
 export { AGENTS_DIR, DEFAULT_BATCH_CONCURRENCY, MAX_BATCH_TASKS, MAX_CONCURRENCY, MODEL_TIERS_FILE } from "./config.js";
 export { debugModelsEnabled, logModelDecision } from "./debug-models.js";
 export { appendEnvHints, ENV_HINTS_MARKER } from "./env-hints.js";
