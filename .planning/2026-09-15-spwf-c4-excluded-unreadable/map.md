@@ -63,7 +63,7 @@ it — evidence/c4/pre.json, RED); POST on a new immutable deploy must show
 
 - [ ] t01 open effort (this commit)
 - [ ] t02 bootstrap line + unit tests + gates (superpowers + wayfind guard)
-- [ ] t03 deploy + sentinel grep + paired C4 POST receipt (pre-registered
+- [x] t03 deploy + sentinel grep + paired C4 POST receipt (pre-registered
       verdict tree)
 - [ ] t04 close-out: reviewer, PR chain (status flip in landing PR),
       learnings delta, successor
@@ -79,3 +79,18 @@ it — evidence/c4/pre.json, RED); POST on a new immutable deploy must show
   fallback is a recorded dated finding (no in-arc prompt-tuning).
 - Conditional-line token cost (ratchet asserts the cap).
 - `current` may move mid-arc (pin explicit dirs).
+
+## Results (2026-09-15, evidence/c4/)
+
+- **Deploy**: 0.10.4+ga244e3a（sibling 已把 s2-agent 版本推進到 0.10.4 —
+  同一 g-sha 但 0.10.3+ga244e3a 目錄被我誤拼路徑，實際存在的是 0.10.4+）。
+  Post-deploy E2E 全綠；sentinel byte-grep =1（PB-09）。
+- **C4 POST: PASS** — `forbid:brainstorming` ok、pin:match ok。與 PRE
+  (evidence/c4/pre.json — gemma 路徑猜測讀了被排除的 brainstorming) 構成
+  完整配對：UNREADABLE 行翻轉了行為。
+- 附註：驅動器的 scratch 副本已除役 — 本輪起一律使用 canonical 的
+  wayfind/scripts/drive-case.ts（本輪發現 scratch 在多輪編輯後損壞）。
+
+## Shipped-as (2026-09-15)
+
+- PR <impl>: UNREADABLE bootstrap line + tests + paired C4 receipt.
