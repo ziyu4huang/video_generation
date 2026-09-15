@@ -164,11 +164,21 @@ export function parseSkillExclude(env: Record<string, string | undefined> = proc
  *  bootstrap's unreadable line names exactly these (intersected with the
  *  real skill dirs). */
 export function envExcludedSkillNames(env: Record<string, string | undefined> = process.env): string[] {
+  const defaultsOff = /^(0|false|no|off)$/i.test(env[DEFAULTS_DISABLE_ENV] ?? "");
+  const defaults = defaultsOff ? [] : [...DEFAULT_SKILL_EXCLUDE];
   const tokens = (env[SKILL_EXCLUDE_ENV] ?? "")
     .split(",")
     .map((token) => token.trim())
     .filter((token) => token.length > 0 && token !== "!");
-  return [...new Set(tokens)];
+  let names: string[] = [];
+  for (const token of tokens) {
+    if (token === "!") names = [];
+    else names.push(token);
+  }
+  // NEWLY unreadable only: a name the defaults already exclude is not news
+  // (c4-excluded-unreadable review should-fix — env-listing a default name
+  // must not fire the UNREADABLE line).
+  return [...new Set(names)].filter((n) => !(defaults as string[]).includes(n));
 }
 
 /** Immediate skill-dir names actually present under `skillsDir` (the keys the
