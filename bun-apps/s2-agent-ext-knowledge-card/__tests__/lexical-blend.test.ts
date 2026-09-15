@@ -19,7 +19,7 @@
  * tests run retrieveRecords with an injected _testEmbedder on a tmp vault.
  */
 import { describe, expect, test, mock } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,13 +30,26 @@ const _obsReal: Record<string, unknown> = await import(_obsRealAbs);
 mock.module("@repo/s2-agent-ext-obsidian", () => ({ ..._obsReal }));
 
 import { cjkBigrams, distinctiveRelationTokens } from "../src/card-format.ts";
-import { blendScore, type Embedder } from "../src/semantic.ts";
+import { blendScore, cardEmbedText, EMBED_TOTAL_CHARS, getCardEmbeddings, type Embedder } from "../src/semantic.ts";
 import { inferQueryTags } from "../src/host-fns.ts";
 import { retrieveRecords } from "../src/retrieve.ts";
 import { ingestRecords } from "../src/ingest.ts";
 import type { KnowledgeRecord } from "../src/types.ts";
 
 const FOLDER = "Zettelkasten/knowledge-graph";
+
+const rec = (over: Partial<KnowledgeRecord> = {}): KnowledgeRecord => ({
+	id: "test:base",
+	type: "gotcha",
+	title: "Base gotcha",
+	detail: "Some detail.",
+	tags: ["argv"],
+	dimension: "correctness",
+	confidence: 0.8,
+	status: "active",
+	superseded_by: null,
+	...over,
+});
 
 describe("T3 — cjkBigrams (card-format leaf)", () => {
 	test("a CJK run yields overlapping bigrams", () => {
@@ -328,6 +341,49 @@ describe("T2(hit3) — gated 連結-scoped relation term (integration, offline)"
 			// is that NOTHING crashed and both cards surface via template
 			// bodyOv, unchanged ordering by their own ids.
 			expect(res.cards.map((c) => c.id).sort()).toEqual(["test:bare-a", "test:bare-b"]);
+		} finally {
+			rmSync(vault, { recursive: true, force: true });
+		}
+	});
+});
+
+// ─── kcard-hit3-residual V2: 連結 tail in the embed text ─────────────────────
+describe("V2 — 連結 anchor tail in cardEmbedText (offline)", () => {
+	test("the bounded link-section anchor rides the embed; wiki brackets stripped", () => {
+		const raw = [
+			"---", "summary: 測試摘要", "---", "# T", "", "## 核心想法", "- 內容主張。", "",
+			"## 連結", "- 相關：視覺表徵研究", "- 相關：[[generic-paper-amari]]", "",
+		].join("\n");
+		const t = cardEmbedText(raw, "T", ["tag"]);
+		expect(t).toContain("視覺表徵研究"); // the anchor phrase reaches the vector
+		expect(t).toContain("generic-paper-amari"); // wiki-link → plain text
+		expect(t).not.toContain("[["); // brackets never embed
+		expect(t.length).toBeLessThanOrEqual(EMBED_TOTAL_CHARS);
+	});
+
+	test("a v1 cache (no textVersion) rebuilds instead of serving stale vectors", async () => {
+		const vault = mkdtempSync(join(tmpdir(), "kcard-v2cache-"));
+		try {
+			await ingestRecords(
+				[rec({ id: "test:v2a", title: "V2 alpha", tags: ["v2tag"] })],
+				{ vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t", folder: FOLDER },
+			);
+			let calls = 0;
+			const counting = (async (texts: string[]) => {
+				calls += texts.length;
+				return texts.map(() => [1, 0, 0]);
+			}) as unknown as Embedder;
+			await getCardEmbeddings(vault, FOLDER, undefined, counting);
+			const callsFirst = calls;
+			expect(callsFirst).toBeGreaterThan(0);
+			// Strip textVersion from the cache → a v1-era cache. Same fingerprint,
+			// same card count — ONLY the version gate can trigger the rebuild.
+			const cachePath = join(vault, ".knowledge-semantic", "text-embedding-bge-m3.json");
+			const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+			delete (cache as { textVersion?: number }).textVersion;
+			writeFileSync(cachePath, JSON.stringify(cache));
+			await getCardEmbeddings(vault, FOLDER, undefined, counting);
+			expect(calls).toBeGreaterThan(callsFirst); // rebuilt, not served stale
 		} finally {
 			rmSync(vault, { recursive: true, force: true });
 		}

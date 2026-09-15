@@ -26,6 +26,9 @@ export interface ProductionMrrResult {
 	 *  on the classes it claims to fix. Derived classification, goldens
 	 *  untouched. */
 	perClass: Record<QuestionClass, { n: number; hitAt3: number; mrr: number }>;
+	/** Design gates as DATA rows (kcard-hit3-residual T4) — the gate lives
+	 *  in the scorecard, not in a comment. pass/fail computed per run. */
+	gates: { name: string; threshold: number; measured: number; pass: boolean }[];
 }
 
 export async function productionMrr(
@@ -83,5 +86,15 @@ export async function productionMrr(
 			},
 		]),
 	) as Record<QuestionClass, { n: number; hitAt3: number; mrr: number }>;
-	return { questions: recips.length, mrr, hitAt3, neverRanked: [...new Set(neverRanked)], detail, perClass };
+	const gates = [
+		{ name: "mrr", threshold: 0.7, measured: mrr, pass: mrr >= 0.7 },
+		{ name: "hitAt3", threshold: 0.85, measured: hitAt3, pass: hitAt3 >= 0.85 },
+		{ name: "hitAt3:relation-anchored", threshold: 0.75, measured: perClass["relation-anchored"].hitAt3, pass: perClass["relation-anchored"].hitAt3 >= 0.75 },
+		{ name: "hitAt3:page", threshold: 0.6, measured: perClass.page.hitAt3, pass: perClass.page.hitAt3 >= 0.6 },
+		{ name: "hitAt3:topical-no-regression", threshold: 0.885, measured: perClass.topical.hitAt3, pass: perClass.topical.hitAt3 >= 0.885 },
+		// relation-bare (4 questions, 3 byte-equal targeting 3 different
+		// cards) is structurally unservable by question-only retrieval —
+		// recorded gap with probe evidence, never gated as passable.
+	];
+	return { questions: recips.length, mrr, hitAt3, neverRanked: [...new Set(neverRanked)], detail, perClass, gates };
 }

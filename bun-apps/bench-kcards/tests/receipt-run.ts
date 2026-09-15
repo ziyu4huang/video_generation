@@ -10,8 +10,13 @@ import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 const label = process.argv[2] ?? "run";
-const alpha = process.argv[3] ? Number(process.argv[3]) : undefined;
-const outDir = process.argv[4] ?? join(import.meta.dir, "..", "..", "..", ".planning", "2026-09-15-kcard-retrieval-lift-2", "receipts");
+const flag = (name: string): string | undefined => {
+	const i = process.argv.indexOf(name);
+	return i >= 0 ? process.argv[i + 1] : undefined;
+};
+const alphaRaw = flag("--alpha");
+const alpha = alphaRaw !== undefined && alphaRaw !== "" && !Number.isNaN(Number(alphaRaw)) ? Number(alphaRaw) : undefined;
+const outDir = flag("--out") ?? join(import.meta.dir, "..", "..", "..", ".planning", "2026-09-15-kcard-hit3-residual", "receipts");
 const dir = join(import.meta.dir, "..");
 const GOLDEN_V2 = join(dir, "fixtures", "golden-v2");
 const goldens = readdirSync(GOLDEN_V2).filter((f) => f.endsWith(".json")).sort()

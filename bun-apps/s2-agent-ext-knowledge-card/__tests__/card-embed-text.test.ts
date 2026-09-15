@@ -46,9 +46,16 @@ describe("cardEmbedText — embed composition (T1)", () => {
 		expect(t).toContain("racecheck detector found 12 of the 51 reported races");
 	});
 
-	test("連結 section and record-meta lines are stripped", () => {
+	test("連結 section: V2 carries the bounded anchor tail; meta lines stay stripped", () => {
+		// kcard-hit3-residual V2 SUPERSEDES the quality-lift full strip: the
+		// relation-query anchor phrase lives in the 連結 section and must
+		// reach the vector — bounded (EMBED_LINK_SECTION_CHARS) and with the
+		// wiki brackets stripped, so the pollution is capped text, not raw
+		// link scaffolding. Record-meta lines remain stripped.
 		const t = cardEmbedText(FIXTURE_CARD, "Paper - GMSBench", ["gpu"]);
-		expect(t).not.toContain("Some Other Card");
+		expect(t).toContain("Some Other Card"); // the anchor tail is served
+		expect(t).not.toContain("[["); // wiki brackets never embed
+		expect(t.length).toBeLessThanOrEqual(EMBED_TOTAL_CHARS);
 		expect(t).not.toContain("source_id:");
 		expect(t).not.toContain("provenance:");
 	});

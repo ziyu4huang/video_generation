@@ -1,0 +1,1371 @@
+{
+ "label": "band-a30",
+ "alpha": 0.3,
+ "mrr": 0.7612179487179487,
+ "hitAt3": 0.8333333333333334,
+ "questions": 78,
+ "neverRanked": [
+  "2609.09134",
+  "2609.09133",
+  "2609.08871",
+  "2609.09143",
+  "2609.09090",
+  "2609.08981"
+ ],
+ "perClass": {
+  "relation-anchored": {
+   "n": 8,
+   "hitAt3": 0.625,
+   "mrr": 0.38958333333333334
+  },
+  "relation-bare": {
+   "n": 4,
+   "hitAt3": 0,
+   "mrr": 0
+  },
+  "page": {
+   "n": 5,
+   "hitAt3": 1,
+   "mrr": 0.6666666666666667
+  },
+  "topical": {
+   "n": 61,
+   "hitAt3": 0.9016393442622951,
+   "mrr": 0.8676229508196722
+  }
+ },
+ "langSplit": {
+  "zhMrr": 0.5895061728395061,
+  "enMrr": 0.8521241830065358,
+  "zhN": 27,
+  "enN": 51
+ },
+ "detail": [
+  {
+   "question": "Amari 貝葉斯對偶推廣這篇論文總共幾頁、屬於什麼性質的論文？",
+   "rank": 1,
+   "arxivId": "2609.09126",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/DaSiWa LTX-2.3 Model Overview",
+    "Zettelkasten/knowledge-graph/anime2real_I2I_降噪_vs_Ref_LoRA_效果對比",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/Research-Tool-Extension-Architecture",
+    "Zettelkasten/knowledge-graph/hermes-tool-gate-extension-bun-apps-pi-agent-extensions-tool-gate.ts-reduces-api",
+    "Zettelkasten/knowledge-graph/agg-L0-60"
+   ]
+  },
+  {
+   "question": "這篇 Amari 貝葉斯對偶推廣論文的作者是誰、隸屬哪些機構？",
+   "rank": 1,
+   "arxivId": "2609.09126",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/Concurrent Git Session Sweeping",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Agent Write Surface Scoping",
+    "Zettelkasten/knowledge-graph/Anime2Real_LoRA_Identity_Loss",
+    "Zettelkasten/knowledge-graph/Bun GlobalStore 的作用域與影響範圍",
+    "Zettelkasten/knowledge-graph/Dual-Runtime-Benchmark-Directories-Independent",
+    "Zettelkasten/knowledge-graph/Research-Tool-Extension-Architecture",
+    "Zettelkasten/knowledge-graph/hermes-pi-agent-ext-research-tool-created-migrates-study-news-scripts-into-self-"
+   ]
+  },
+  {
+   "question": "卡片提到 Amari 的哪種對偶座標記號在正文以文字出現？",
+   "rank": 1,
+   "arxivId": "2609.09126",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/vlm-overpraise-evaluation",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/Planning-With-Files-Status-Parser-Emoji-Update",
+    "Zettelkasten/knowledge-graph/getAliases scope limitation for @repo workspace packages",
+    "Zettelkasten/knowledge-graph/auto-memory-argparse-lora-scale-override-bug"
+   ]
+  },
+  {
+   "question": "這篇論文摘要的三步結構（即論文骨架）是什麼？",
+   "rank": 5,
+   "arxivId": "2609.09126",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/The Three Memory Layers Architecture",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/agg-L3-66",
+    "Zettelkasten/knowledge-graph/Workflow Directory Structure",
+    "Zettelkasten/knowledge-graph/A Hybrid Testing Architecture Deterministic Backbone with Judgment Layers",
+    "Zettelkasten/knowledge-graph/Immediate_Steps_and_Future_Plan_Framework",
+    "Zettelkasten/knowledge-graph/agg-L1-73"
+   ]
+  },
+  {
+   "question": "file2md 轉換這篇論文時如何處理數學符號？",
+   "rank": 1,
+   "arxivId": "2609.09126",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Flux2 Klein 9B 轉換流程",
+    "Zettelkasten/knowledge-graph/Flux2_VAE_and_Sampling_Corrections",
+    "Zettelkasten/knowledge-graph/ESRGAN-Safetensors-Conversion",
+    "Zettelkasten/knowledge-graph/Flux2 LoRA Naming Conventions",
+    "Zettelkasten/knowledge-graph/Git-Tracking Strategy for Weight Symlinks",
+    "Zettelkasten/knowledge-graph/Risk of Symlink Corruption during Model Conversion",
+    "Zettelkasten/knowledge-graph/Normalizing Knowledge Records via jq",
+    "Zettelkasten/knowledge-graph/hermes-zh-tw-claude.md-conversation-language-zh_tw-q-a-zh-tw-docs-commit"
+   ]
+  },
+  {
+   "question": "這張卡在「連結」區指向哪張同為理論側的相關卡片？",
+   "rank": 3,
+   "arxivId": "2609.09126",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/Shared Development Environments via Relative Symlinks",
+    "Zettelkasten/knowledge-graph/Shared Dependency Stores via Symlinks",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/Zk_Ingest_Mechanics"
+   ]
+  },
+  {
+   "question": "Figure 1 中「Canonical On Counterfactual」曲線隨層上升至約多少百分比？",
+   "rank": 1,
+   "arxivId": "2609.09124",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/agg-L1-18",
+    "Zettelkasten/knowledge-graph/VLM-Stage1-Seed-Profile-Classifier-Impact",
+    "Zettelkasten/knowledge-graph/agg-L0-18",
+    "Zettelkasten/knowledge-graph/agg-L1-76",
+    "Zettelkasten/knowledge-graph/agg-L0-23",
+    "Zettelkasten/knowledge-graph/agg-L3-70",
+    "Zettelkasten/knowledge-graph/agg-L1-12",
+    "Zettelkasten/knowledge-graph/contract-graph-health-drift-status"
+   ]
+  },
+  {
+   "question": "典型色解碼結果的 Figure 1 位於論文第幾頁？",
+   "rank": 1,
+   "arxivId": "2609.09124",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/VLM-Stage1-Seed-Profile-Classifier-Impact",
+    "Zettelkasten/knowledge-graph/Correlation_Measurement_in_Patchified_Space",
+    "Zettelkasten/knowledge-graph/Anime2Real_Gender_Bias",
+    "Zettelkasten/knowledge-graph/auto-memory-purify-remove-path-iteration",
+    "Zettelkasten/knowledge-graph/hermes-verify-bun-pi-agent-cli-stage1-seed-profile-matters",
+    "Zettelkasten/knowledge-graph/gui-review-hotspot-files"
+   ]
+  },
+  {
+   "question": "Figure 1 驗證集結果折線圖中各條曲線的相對位置如何？",
+   "rank": 3,
+   "arxivId": "2609.09124",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/逐階段參考傾印驗證是模型移植的關鍵偵錯護欄",
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/ltx-stage1-steps-8-avoid",
+    "Zettelkasten/knowledge-graph/資源充沛時的效能假設必須實證檢驗",
+    "Zettelkasten/knowledge-graph/Validation with real CJK content is critical for link-graph correctness",
+    "Zettelkasten/knowledge-graph/auto-memory-flux2-regional-net-negative-tested"
+   ]
+  },
+  {
+   "question": "實驗中如何把顏色從輸入影像移除？",
+   "rank": 1,
+   "arxivId": "2609.09124",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/SeedVR2_7B_Preprocessing_Requirements",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/Video Sharpening Zoompan and Lanczos Downscale",
+    "Zettelkasten/knowledge-graph/image-purify-source-dependency",
+    "Zettelkasten/knowledge-graph/Inpainting_Outline_Removal",
+    "Zettelkasten/knowledge-graph/Outline_Removal_Implementation",
+    "Zettelkasten/knowledge-graph/Mitigating_Color_Temperature_Splits_in_Composited_Images",
+    "Zettelkasten/knowledge-graph/LTX-2.3 I2V 解析度對變形度的影響",
+    "Zettelkasten/knowledge-graph/Mitigating Background Color Splits in Composited Images"
+   ]
+  },
+  {
+   "question": "這篇論文用什麼探測方法同時探測顏色與物件身份？",
+   "rank": 1,
+   "arxivId": "2609.09124",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/Identity Consistency via Attribute Decomposition",
+    "Zettelkasten/knowledge-graph/Flux2KleinEdit_透過參考圖 Token 保留角色特徵",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/I2I_Source_Fidelity_Denoise_Tradeoff",
+    "Zettelkasten/knowledge-graph/anime2real_I2I_降噪_vs_Ref_LoRA_效果對比",
+    "Zettelkasten/knowledge-graph/Mitigating_Color_Temperature_Splits_in_Composited_Images",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Trade-off between Identity and Variation in Ref_strength"
+   ]
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張同為視覺表徵研究的卡片？",
+   "rank": 4,
+   "arxivId": "2609.09124",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/Shared Development Environments via Relative Symlinks",
+    "Zettelkasten/knowledge-graph/Shared Dependency Stores via Symlinks",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/Cross-Lingual-Retrieval-Lexical-Graph-Beats-Semantic"
+   ]
+  },
+  {
+   "question": "這篇論文的主要發現基於幾個企業 agentic benchmark？",
+   "rank": 1,
+   "arxivId": "2609.09134",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/hermes-sag-..-sag-study",
+    "Zettelkasten/knowledge-graph/Agent 透過自我診斷來應對巢狀 Schema 引起的工具摩擦",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers"
+   ]
+  },
+  {
+   "question": "論文表格中 h0 與 h∗ 分別代表什麼？",
+   "rank": 0,
+   "arxivId": "2609.09134",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/JudgePanel Failure Behavior Returning 0 for Total Failure",
+    "Zettelkasten/knowledge-graph/MLX MX.where Boolean Mask Inversion",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-16jhx6q",
+    "Zettelkasten/knowledge-graph/agg-L0-64",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Honest Tally Methodology for Retrieval A-B",
+    "Zettelkasten/knowledge-graph/Tag-Path-Recall-Ceiling-Limit",
+    "Zettelkasten/knowledge-graph/hermes-multi-hop-eval-leaks-answer-vocabulary"
+   ]
+  },
+  {
+   "question": "微調後的模型在 rollout 中對演化後 harness 的行為如何（反直覺發現）？",
+   "rank": 1,
+   "arxivId": "2609.09134",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/MLX_Quantization_and_Timestep_Scaling_Misconceptions",
+    "Zettelkasten/knowledge-graph/Integrating Finetuned LTX Models into MLX Pipeline",
+    "Zettelkasten/knowledge-graph/Spatial_Binding_is_Inert_on_Distilled_Klein",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/Adversarial Verifier and Fabricated Symptoms",
+    "Zettelkasten/knowledge-graph/Ineffective-Tuning-Levers-for-Skin-Realism"
+   ]
+  },
+  {
+   "question": "這篇論文所說的 agent harness 包含哪些組成部分？",
+   "rank": 1,
+   "arxivId": "2609.09134",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/hermes-knowledge-agent-integration-must-be-built-solely-on-pi-agent-ext-workflow-2",
+    "Zettelkasten/knowledge-graph/hermes-knowledge-agent-integration-must-be-built-solely-on-pi-agent-ext-workflow",
+    "Zettelkasten/knowledge-graph/hermes-bash-error-bin-bash-line-5-agent-command-not-found-failed-bin-bash-line-5",
+    "Zettelkasten/knowledge-graph/Agent-driven Code Knowledge Appending Pattern",
+    "Zettelkasten/knowledge-graph/agent_429_failure_behavior",
+    "Zettelkasten/knowledge-graph/hermes-bun-apps-pi-agent-ext-power-tool-provides-a-diagnostics-suite-context_ana",
+    "Zettelkasten/knowledge-graph/distill-failure-workflow-agent-schema-unreliable-json-relay",
+    "Zettelkasten/knowledge-graph/hermes-architecture-decision"
+   ]
+  },
+  {
+   "question": "在線修正與模型微調這兩個槓桿之間是什麼關係？",
+   "rank": 1,
+   "arxivId": "2609.09134",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/針對性修復與整體分數之間的權衡關係",
+    "Zettelkasten/knowledge-graph/Krea2_Style_Transfer_Mechanisms",
+    "Zettelkasten/knowledge-graph/Balancing Automation and Human Review in Self-Improving Systems",
+    "Zettelkasten/knowledge-graph/區分 DBZiT9 與 Klein 系列模型",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/LM Studio 模型列表與載入性的差異",
+    "Zettelkasten/knowledge-graph/deterministic_diff_for_rollback"
+   ]
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張同為 agent 能力提升結構化方法的卡片？",
+   "rank": 2,
+   "arxivId": "2609.09134",
+   "paths": [
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/deterministic-typed-entity-extraction-idf-cross-link",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/CWD-Independent Design in Pi-agent",
+    "Zettelkasten/knowledge-graph/Pi-obsidian Enhancement Objectives"
+   ]
+  },
+  {
+   "question": "ExecCritic 的 Test agent 與 Repair agent 都以哪個模型為骨幹？",
+   "rank": 1,
+   "arxivId": "2609.09133",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/Pi-agent 掛起問題的系統診斷方法",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/逐階段參考傾印驗證是模型移植的關鍵偵錯護欄",
+    "Zettelkasten/knowledge-graph/Subagent-Spawn-Pitfall-in-Multi-Worktree-Repo",
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/Doctor 型別合約整合至 pi-agent",
+    "Zettelkasten/knowledge-graph/The Importance of Agent Thinking Level in Complex Workflows",
+    "Zettelkasten/knowledge-graph/infra-contract-package-test-baselines"
+   ]
+  },
+  {
+   "question": "在 SWE-bench Verified 上，base Test agent 的測試把已解決率從多少拉低到多少？",
+   "rank": 1,
+   "arxivId": "2609.09133",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-gotcha-verified-neq-newfindings",
+    "Zettelkasten/knowledge-graph/pattern-review-only-low-surface-real-bugs",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-lever-medium-fix-applies-real-fixes",
+    "Zettelkasten/knowledge-graph/gui-review-fix-mode-baseline-shifted",
+    "Zettelkasten/knowledge-graph/Debugging_Reverted_Tests",
+    "Zettelkasten/knowledge-graph/Deterministic_baseline_comparison_for_automated_rollback_decisions",
+    "Zettelkasten/knowledge-graph/sqlite-test-fixture-dbstat-vs-rootpage",
+    "Zettelkasten/knowledge-graph/Planning-With-Files-Test-Harness-in-Runtime-Dot-Test",
+    "Zettelkasten/knowledge-graph/Testing Scope Insufficiency"
+   ]
+  },
+  {
+   "question": "ExecCritic 的結果是在哪個 benchmark 上評測的？",
+   "rank": 1,
+   "arxivId": "2609.09133",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/Dual-Runtime-Benchmark-Directories-Independent",
+    "Zettelkasten/knowledge-graph/pattern-review-only-low-surface-real-bugs",
+    "Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-c5c6-validation-real-vault",
+    "Zettelkasten/knowledge-graph/Performance Comparison Kontext Lock vs Soft Lock"
+   ]
+  },
+  {
+   "question": "ExecCritic 的 test–verify–revise 腳手架中兩個角色如何分工？",
+   "rank": 1,
+   "arxivId": "2609.09133",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/infra-build-lane-green-stable",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/workflow-e2e-hybrid-split",
+    "Zettelkasten/knowledge-graph/auto-memory-mlx-self-improve-review-verify-before-applying",
+    "Zettelkasten/knowledge-graph/Dual-Runtime-Benchmark-Directories-Independent",
+    "Zettelkasten/knowledge-graph/hermes-ci-flake-in-video_generation__pi-test-pi-agent-ext-web-access-job-intermi",
+    "Zettelkasten/knowledge-graph/pytest_parameter_mismatch_error",
+    "Zettelkasten/knowledge-graph/Review and Schema Lanes in Self-Improvement"
+   ]
+  },
+  {
+   "question": "為什麼同一條軌跡既寫 patch 又寫測試會有問題？",
+   "rank": 1,
+   "arxivId": "2609.09133",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/持久化邏輯中的冗餘寫入機制",
+    "Zettelkasten/knowledge-graph/Planning-With-Files-Test-Harness-in-Runtime-Dot-Test",
+    "Zettelkasten/knowledge-graph/Path_Resolution_in_Test_Generation",
+    "Zettelkasten/knowledge-graph/double-persist-root-cause",
+    "Zettelkasten/knowledge-graph/Spurious_test_failures_triggering_incorrect_rollbacks",
+    "Zettelkasten/knowledge-graph/Test-Parser-Must-Match-Production-Parser",
+    "Zettelkasten/knowledge-graph/Pi-Hermes-Memory-Test-Runner-Carve-Out",
+    "Zettelkasten/knowledge-graph/pycache_cwd_stability",
+    "Zettelkasten/knowledge-graph/Stale_pycache_causes_Phantom_Pytest_Failures"
+   ]
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張卡片？",
+   "rank": 0,
+   "arxivId": "2609.09133",
+   "paths": [
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/multi-hop-eval-vocabulary-leakage",
+    "Zettelkasten/knowledge-graph/Card_Metadata_Standards",
+    "Zettelkasten/knowledge-graph/Shared Dependency Stores via Symlinks",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/Shared Development Environments via Relative Symlinks",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/Zk_Ingest_Mechanics"
+   ]
+  },
+  {
+   "question": "GMSBench 由多少個自包含 CUDA 測試組成？",
+   "rank": 1,
+   "arxivId": "2609.08871",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/Planning-With-Files-Test-Harness-in-Runtime-Dot-Test",
+    "Zettelkasten/knowledge-graph/MLX_Coverage_Self-Improvement_Workflow_Overview",
+    "Zettelkasten/knowledge-graph/Self-Testing Command Configurations",
+    "Zettelkasten/knowledge-graph/Pi-Hermes-Memory-Test-Runner-Carve-Out",
+    "Zettelkasten/knowledge-graph/SAM3_self_test_scenarios",
+    "Zettelkasten/knowledge-graph/Multi-LoRA GPU Self-Test Mechanism",
+    "Zettelkasten/knowledge-graph/agg-L1-32",
+    "Zettelkasten/knowledge-graph/pi-agent-cli 的單一檔案部署策略",
+    "Zettelkasten/knowledge-graph/GUI_Self_Learning_Mechanism"
+   ]
+  },
+  {
+   "question": "GMSBench 的測試橫跨哪三類記憶體安全違例？",
+   "rank": 1,
+   "arxivId": "2609.08871",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/Pi-Hermes-Memory-Test-Runner-Carve-Out",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/Planning-With-Files-Test-Harness-in-Runtime-Dot-Test",
+    "Zettelkasten/knowledge-graph/Testing Scope Insufficiency",
+    "Zettelkasten/knowledge-graph/ChainRef Mechanism and GPU Memory Management in Flux2-Klein",
+    "Zettelkasten/knowledge-graph/資源充沛時的效能假設必須實證檢驗",
+    "Zettelkasten/knowledge-graph/Test-Parser-Must-Match-Production-Parser",
+    "Zettelkasten/knowledge-graph/sqlite-test-fixture-dbstat-vs-rootpage"
+   ]
+  },
+  {
+   "question": "GMSBench 的作者機構跨哪些單位？",
+   "rank": 1,
+   "arxivId": "2609.08871",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/VLM-Stage1-Seed-Profile-Classifier-Impact",
+    "Zettelkasten/knowledge-graph/Bun GlobalStore 的作用域與影響範圍",
+    "Zettelkasten/knowledge-graph/Agent Write Surface Scoping",
+    "Zettelkasten/knowledge-graph/agg-L3-46",
+    "Zettelkasten/knowledge-graph/agg-L2-50",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/agg-L1-54",
+    "Zettelkasten/knowledge-graph/Concurrent Git Session Sweeping",
+    "Zettelkasten/knowledge-graph/agg-L0-62"
+   ]
+  },
+  {
+   "question": "GMSBench 測試案例的設計目標是什麼？",
+   "rank": 1,
+   "arxivId": "2609.08871",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/Testing Scope Insufficiency",
+    "Zettelkasten/knowledge-graph/SAM3_self_test_scenarios",
+    "Zettelkasten/knowledge-graph/Moving from .todo Files to Integrated Testing",
+    "Zettelkasten/knowledge-graph/Bash Shell Variables Can Cause Silent Configuration Failures",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/Planning-With-Files-Test-Harness-in-Runtime-Dot-Test",
+    "Zettelkasten/knowledge-graph/A Hybrid Testing Architecture Deterministic Backbone with Judgment Layers",
+    "Zettelkasten/knowledge-graph/Pi-Hermes-Memory-Test-Runner-Carve-Out",
+    "Zettelkasten/knowledge-graph/測試 getVault 時的最佳實踐模式"
+   ]
+  },
+  {
+   "question": "file2md 轉換後論文 p.2 的版面結構如何？",
+   "rank": 0,
+   "arxivId": "2609.08871",
+   "paths": [
+    "Zettelkasten/knowledge-graph/Flux2 Klein 9B INT8 儲存架構",
+    "Zettelkasten/knowledge-graph/Flux2 LoRA Naming Conventions",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/auto-memory-i2i-flux2klein-tembedder-shape-bug",
+    "Zettelkasten/knowledge-graph/Video_only_Last_Layer_in_SeedVR2_7B",
+    "Zettelkasten/knowledge-graph/CLI-JSON-Output-Preferred-Over-Text-Parsing"
+   ]
+  },
+  {
+   "question": "這張卡與哪兩張卡片有「相關」連結？",
+   "rank": 0,
+   "arxivId": "2609.08871",
+   "paths": [
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/multi-hop-eval-vocabulary-leakage",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/Card_Metadata_Standards",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/hermes-convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/Zk_Ingest_Mechanics",
+    "Zettelkasten/knowledge-graph/leak-free-multi-hop-eval-inverts-verdicts"
+   ]
+  },
+  {
+   "question": "這個 testbed 在哪四種預測任務上追蹤任務級驗證 loss？",
+   "rank": 1,
+   "arxivId": "2609.09143",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/逐階段參考傾印驗證是模型移植的關鍵偵錯護欄",
+    "Zettelkasten/knowledge-graph/pattern-review-only-low-surface-real-bugs",
+    "Zettelkasten/knowledge-graph/Risks of Automated Review Findings Verification",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-review-volume-jumps-on-wider-scope",
+    "Zettelkasten/knowledge-graph/kg-recall-semantic-blend-lever",
+    "Zettelkasten/knowledge-graph/verification_guidelines_for_automated_review",
+    "Zettelkasten/knowledge-graph/Adversarial Verifier and Fabricated Symptoms",
+    "Zettelkasten/knowledge-graph/Review Lane Posture"
+   ]
+  },
+  {
+   "question": "Figure 3 位於論文第幾頁、是什麼類型的圖？",
+   "rank": 3,
+   "arxivId": "2609.09143",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/agg-L3-36",
+    "Zettelkasten/knowledge-graph/auto-memory-sam3-mlx-text-segmentation",
+    "Zettelkasten/knowledge-graph/agg-L3-34",
+    "Zettelkasten/knowledge-graph/agg-L3-50",
+    "Zettelkasten/knowledge-graph/agg-L3-45",
+    "Zettelkasten/knowledge-graph/agg-L3-55"
+   ]
+  },
+  {
+   "question": "Figure 3 各子圖的軸刻度數值範圍大約是多少？",
+   "rank": 1,
+   "arxivId": "2609.09143",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/ImageGate Detection Logic",
+    "Zettelkasten/knowledge-graph/LTX-2.3 Runtime Scaling Laws",
+    "Zettelkasten/knowledge-graph/agg-L3-45",
+    "Zettelkasten/knowledge-graph/LTX-2.3 CFG Scale 對細節與一致性的影響",
+    "Zettelkasten/knowledge-graph/CFG Scale 對 FLF2V 轉場平滑度的影響",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers"
+   ]
+  },
+  {
+   "question": "為什麼 I2T loss 比跨 tokenizer 的 T2I loss 提供更一致的信號？",
+   "rank": 1,
+   "arxivId": "2609.09143",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/Command_Integration_for_Lens_MLX",
+    "Zettelkasten/knowledge-graph/Primary Quality Levers in T2I Models",
+    "Zettelkasten/knowledge-graph/anime2real_I2I_降噪混合無法保證身份一致性",
+    "Zettelkasten/knowledge-graph/Causes of Asset Staleness in Bun GUI",
+    "Zettelkasten/knowledge-graph/Krea2_Style_Transfer_Performance_Optimizations",
+    "Zettelkasten/knowledge-graph/auto-memory-lens-mlx-t2i-rope-patchify",
+    "Zettelkasten/knowledge-graph/Krea2_Style_Transfer_Zero_Drift_Validation",
+    "Zettelkasten/knowledge-graph/Anime2Real_LoRA_Mechanism",
+    "Zettelkasten/knowledge-graph/flux2-commands-strict-gate-unsupported-t2i-edit-style-angle"
+   ]
+  },
+  {
+   "question": "這篇論文建立的 testbed 有什麼性質、用來研究什麼？",
+   "rank": 1,
+   "arxivId": "2609.09143",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/Bun Mocking Isolation Requirement",
+    "Zettelkasten/knowledge-graph/Happy-Path Wiring Test Pattern",
+    "Zettelkasten/knowledge-graph/beforeEach Fixture 在 getVault 緩存下的失效問題",
+    "Zettelkasten/knowledge-graph/Workflow Stub Nodes for Version Compatibility",
+    "Zettelkasten/knowledge-graph/A Hybrid Testing Architecture Deterministic Backbone with Judgment Layers",
+    "Zettelkasten/knowledge-graph/Controlled Corpus for Algorithm Validation",
+    "Zettelkasten/knowledge-graph/agg-L1-73",
+    "Zettelkasten/knowledge-graph/Stability_Verification_Requirement",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-review-volume-jumps-on-wider-scope"
+   ]
+  },
+  {
+   "question": "這張卡與哪兩張卡片有「相關」連結？",
+   "rank": 0,
+   "arxivId": "2609.09143",
+   "paths": [
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/multi-hop-eval-vocabulary-leakage",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/Card_Metadata_Standards",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/hermes-convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/Zk_Ingest_Mechanics",
+    "Zettelkasten/knowledge-graph/leak-free-multi-hop-eval-inverts-verdicts"
+   ]
+  },
+  {
+   "question": "PrivEscalate 包含多少個 Docker 容器化可執行環境？",
+   "rank": 1,
+   "arxivId": "2609.09087",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/Type-safety and Test Integration in pi-agent (PR #622)",
+    "Zettelkasten/knowledge-graph/MLX Runtime Decoupling from ComfyUI",
+    "Zettelkasten/knowledge-graph/CivitAI Model Download Precision Control",
+    "Zettelkasten/knowledge-graph/Configuration Override Hierarchy and Runtime Synchronization",
+    "Zettelkasten/knowledge-graph/Pi-agent Deployment Modes Overview",
+    "Zettelkasten/knowledge-graph/Auditing Self-healing Paths during Workspace Relocation",
+    "Zettelkasten/knowledge-graph/Vendor Submodules for Portable Dependencies",
+    "Zettelkasten/knowledge-graph/Dynamic Provider Selection via Binary Probing",
+    "Zettelkasten/knowledge-graph/Three-Deploy-Modes-and-Readonly-Contract"
+   ]
+  },
+  {
+   "question": "建構管線 Sankey 漏斗（Figure 3，p.5）各階段的數字是多少？",
+   "rank": 2,
+   "arxivId": "2609.09087",
+   "paths": [
+    "Zettelkasten/knowledge-graph/Verify-Bun-Pi-Agent-CLI-Workflow-Structure",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/Planning-With-Files-Canonical-Status-Tokens",
+    "Zettelkasten/knowledge-graph/VLM-Stage1-Seed-Profile-Classifier-Impact",
+    "Zettelkasten/knowledge-graph/LTX-2.3 Generation Performance on Apple Silicon",
+    "Zettelkasten/knowledge-graph/auto-memory-pi-infra-self-improve-workflow",
+    "Zettelkasten/knowledge-graph/CI Stage Masking Effect",
+    "Zettelkasten/knowledge-graph/flux2-contract-baseline-tests-and-flags",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-1kwuro2",
+    "Zettelkasten/knowledge-graph/auto-memory-ltx-2-3-benchmarks"
+   ]
+  },
+  {
+   "question": "場景品質審計抽查了多少場景、涵蓋哪些來源、誤差界多少？",
+   "rank": 1,
+   "arxivId": "2609.09087",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/`Flux2 Scene` 的生成品質天花板：手部生成",
+    "Zettelkasten/knowledge-graph/Flux2 Scene --regional 的效能與品質權衡",
+    "Zettelkasten/knowledge-graph/SAM3_self_test_scenarios",
+    "Zettelkasten/knowledge-graph/SDA v1 LoRA Quality Impact",
+    "Zettelkasten/knowledge-graph/Success Metrics for Multi-Character Generation",
+    "Zettelkasten/knowledge-graph/Image Quality System Integration",
+    "Zettelkasten/knowledge-graph/Seven No-Reference Image Quality Metrics",
+    "Zettelkasten/knowledge-graph/Use filesScanned to verify review scope",
+    "Zettelkasten/knowledge-graph/image-purify-source-dependency"
+   ]
+  },
+  {
+   "question": "PrivEscalate 的威脅模型是什麼？",
+   "rank": 1,
+   "arxivId": "2609.09087",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/Subagent Model Inheritance Risks",
+    "Zettelkasten/knowledge-graph/Silent Escalation of Unknown Tiers to Main Model",
+    "Zettelkasten/knowledge-graph/LM Studio 模型列表與載入性的差異",
+    "Zettelkasten/knowledge-graph/Verifying LM Studio Model Exclusivity",
+    "Zettelkasten/knowledge-graph/Primary Driver Model for pi-agent - Gemma-4-26b-qat",
+    "Zettelkasten/knowledge-graph/MLX 模型載入的引擎需求"
+   ]
+  },
+  {
+   "question": "先前 LLM 提權評測生態的缺口是什麼、PrivEscalate 如何補上？",
+   "rank": 1,
+   "arxivId": "2609.09087",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/Deterministic_baseline_comparison_for_automated_rollback_decisions",
+    "Zettelkasten/knowledge-graph/deterministic-baseline-diff-over-llm",
+    "Zettelkasten/knowledge-graph/OpenMontage_Local_Port_Gaps",
+    "Zettelkasten/knowledge-graph/auto-memory-gui-lint-lane-catches-shadowing",
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models"
+   ]
+  },
+  {
+   "question": "這張卡與哪張 GPU 記憶體安全評測卡片互為「安全側基準」的相關連結？",
+   "rank": 3,
+   "arxivId": "2609.09087",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/ChainRef Mechanism and GPU Memory Management in Flux2-Klein",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/資源充沛時的效能假設必須實證檢驗",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/CPU Fallback Mechanism for GPU Operations",
+    "Zettelkasten/knowledge-graph/distill-failure-adr0001-strict-downward-dep-edges-tier0",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o"
+   ]
+  },
+  {
+   "question": "Procedural Graph 以什麼形式的三元組組織「怎麼做」的程序知識？",
+   "rank": 1,
+   "arxivId": "2609.09153",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/The Three Memory Layers Architecture",
+    "Zettelkasten/knowledge-graph/Workflow Operation Memory Concept",
+    "Zettelkasten/knowledge-graph/Mechanism of Operation Memory",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/MLX_Non_determinism_Across_Runs",
+    "Zettelkasten/knowledge-graph/Using Controlled Corpora for Retrieval Evaluation",
+    "Zettelkasten/knowledge-graph/Personal Memory as Graph Backbone",
+    "Zettelkasten/knowledge-graph/CJK trigram implementation via UTF-16 slicing"
+   ]
+  },
+  {
+   "question": "主要結果橫跨幾個 benchmark、對照什麼 baseline？",
+   "rank": 8,
+   "arxivId": "2609.09153",
+   "paths": [
+    "Zettelkasten/knowledge-graph/gui-selfimprove-ux-baseline-low-score-ceiling",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-latest-run-is-baseline-clean",
+    "Zettelkasten/knowledge-graph/flux2-contract-baseline-tests-and-flags",
+    "Zettelkasten/knowledge-graph/Regression Baseline Instability and Submodule Syncing",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/flux2-live-e2e-baseline-all-steps-pass",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/leak-free-multi-hop-eval-inverts-verdicts",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux"
+   ]
+  },
+  {
+   "question": "卡片列出的 7 個 benchmark 是哪些？",
+   "rank": 6,
+   "arxivId": "2609.09153",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/Seven No-Reference Image Quality Metrics",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/agg-L0-34",
+    "Zettelkasten/knowledge-graph/agg-L1-28",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/kg-retrieval-recall-ceiling-084"
+   ]
+  },
+  {
+   "question": "每個決策步如何使用程序圖產生引導？",
+   "rank": 1,
+   "arxivId": "2609.09153",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/Run-Pipeline-Driver-Spine-Deterministic-Architecture",
+    "Zettelkasten/knowledge-graph/決策紀錄是跨會話代理記憶的持久化協定",
+    "Zettelkasten/knowledge-graph/Canny_vs_Raw_Input_in_I2I_Workflows",
+    "Zettelkasten/knowledge-graph/Accumulator_Pattern_for_Unified_Reports",
+    "Zettelkasten/knowledge-graph/MLX_Non_determinism_Across_Runs",
+    "Zettelkasten/knowledge-graph/Filename Encoding for Parameterized Outputs",
+    "Zettelkasten/knowledge-graph/多步驟任務自主執行規則",
+    "Zettelkasten/knowledge-graph/Mechanism of Operation Memory",
+    "Zettelkasten/knowledge-graph/Dual-Sampler_Strategy_for_High-Step_ControlNet"
+   ]
+  },
+  {
+   "question": "程序圖的自演化機制如何避免重複犯錯？",
+   "rank": 1,
+   "arxivId": "2609.09153",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/Avoiding Argument Parser Collisions with Shared Arguments",
+    "Zettelkasten/knowledge-graph/透過無評分簽名偵測重複失敗",
+    "Zettelkasten/knowledge-graph/ChainRef Mechanism and GPU Memory Management in Flux2-Klein",
+    "Zettelkasten/knowledge-graph/Automated vs Manual Revert in Workflows",
+    "Zettelkasten/knowledge-graph/避免重複嘗試：維度修復需要多樣化的操作手段",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/Division of Labor in Self-Improvement",
+    "Zettelkasten/knowledge-graph/Agent-Non-Termination-Loop",
+    "Zettelkasten/knowledge-graph/Addressing Cross-file Duplication in Manual Review"
+   ]
+  },
+  {
+   "question": "這張卡與哪張卡片同屬「agentic 流程的兩種顯式化」的相關連結？",
+   "rank": 2,
+   "arxivId": "2609.09153",
+   "paths": [
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/Agent 透過自我診斷來應對巢狀 Schema 引起的工具摩擦",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/deterministic-typed-entity-extraction-idf-cross-link",
+    "Zettelkasten/knowledge-graph/Mechanism of Repo-Independent Deployment in Pi-agent"
+   ]
+  },
+  {
+   "question": "Strict End-to-End 評測中 ReCite-SFT(CAP-8) 的 Overall F1 是多少、對比 GPT-5.1-Chat 如何？",
+   "rank": 1,
+   "arxivId": "2609.09156",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/hermes-pi-agent-pi-flow",
+    "Zettelkasten/knowledge-graph/逐階段參考傾印驗證是模型移植的關鍵偵錯護欄",
+    "Zettelkasten/knowledge-graph/auto-memory-vlm-caption-overpraise-qa-gap",
+    "Zettelkasten/knowledge-graph/gui-review-unfixed-recurrence-is-real-not-noise",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-review-volume-jumps-on-wider-scope",
+    "Zettelkasten/knowledge-graph/auto-memory-self-fix-dimension-aware-gate",
+    "Zettelkasten/knowledge-graph/auto-memory-controlnet-ab-test-findings",
+    "Zettelkasten/knowledge-graph/image-selfimprove-runs-always-complete-no-phase-failures",
+    "Zettelkasten/knowledge-graph/agg-L1-51"
+   ]
+  },
+  {
+   "question": "ReCite 用 SFT 訓練的輕量模型參數量是多少？",
+   "rank": 1,
+   "arxivId": "2609.09156",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/Ref-count as an Identity Preservation Lever",
+    "Zettelkasten/knowledge-graph/Subagent-Token-Reduction-Envelope-Pattern",
+    "Zettelkasten/knowledge-graph/修正對缺乏快速非推理模型的錯誤認知",
+    "Zettelkasten/knowledge-graph/Optimal RefCount for Flux2Klein Identity Consistency",
+    "Zettelkasten/knowledge-graph/GELU Variant Alignment in Model Ports",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/LTX-2.3 Model Acquisition and Gating"
+   ]
+  },
+  {
+   "question": "ReCite 的 Lenient Evaluation F1 是多少？",
+   "rank": 1,
+   "arxivId": "2609.09156",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/Video Quality Evaluation of DaSiWa LTX-2.3",
+    "Zettelkasten/knowledge-graph/pattern-review-only-low-surface-real-bugs",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-review-volume-jumps-on-wider-scope",
+    "Zettelkasten/knowledge-graph/hermes-real-retrieval-validation",
+    "Zettelkasten/knowledge-graph/Optimal RefCount for Flux2Klein Identity Consistency",
+    "Zettelkasten/knowledge-graph/auto-memory-lens-reasoner-token-cap-not-quality-levers",
+    "Zettelkasten/knowledge-graph/ltx-stage1-steps-8-avoid",
+    "Zettelkasten/knowledge-graph/ltx-stage1-steps-12-lever"
+   ]
+  },
+  {
+   "question": "ReCite 提出的解耦 agentic framework 包含哪三個階段？",
+   "rank": 1,
+   "arxivId": "2609.09156",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Workflow Knowledge Architecture",
+    "Zettelkasten/knowledge-graph/Mechanism of Repo-Independent Deployment in Pi-agent",
+    "Zettelkasten/knowledge-graph/Mechanism of Operation Memory",
+    "Zettelkasten/knowledge-graph/agg-L3-47",
+    "Zettelkasten/knowledge-graph/Continuous_Goal_Driven_Workflow",
+    "Zettelkasten/knowledge-graph/agg-L1-55",
+    "Zettelkasten/knowledge-graph/agg-L3-63",
+    "Zettelkasten/knowledge-graph/agg-L2-51",
+    "Zettelkasten/knowledge-graph/agg-L3-69"
+   ]
+  },
+  {
+   "question": "當檢索候選缺乏邏輯支持時，代理的自我修正迴圈如何運作？",
+   "rank": 2,
+   "arxivId": "2609.09156",
+   "paths": [
+    "Zettelkasten/knowledge-graph/Plateau 終止機制在無評分情況下失效",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Agent-Non-Termination-Loop",
+    "Zettelkasten/knowledge-graph/AI 代理與工作流驅動的自我完善循環",
+    "Zettelkasten/knowledge-graph/judge_model_bottleneck_in_self_improvement",
+    "Zettelkasten/knowledge-graph/Auditing Self-healing Paths during Workspace Relocation",
+    "Zettelkasten/knowledge-graph/GUI_Self_Learning_Mechanism",
+    "Zettelkasten/knowledge-graph/GUI Self-Improvement Workflow Blind Spot",
+    "Zettelkasten/knowledge-graph/Addressing Retrieval Flakiness via Judge Quality",
+    "Zettelkasten/knowledge-graph/Retrieval Quality Self-Improvement Workflow"
+   ]
+  },
+  {
+   "question": "Figure 1 例子中，改寫查詢為 [\"Group Relative Policy Optimization\", \"eliminate critic\"] 後再檢索到哪篇論文完成忠實引用？",
+   "rank": 1,
+   "arxivId": "2609.09156",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Gemma Fast-Path Optimization Using reasoning_effort none for Efficient LLM Processing",
+    "Zettelkasten/knowledge-graph/De-prioritizing semantic-lexical blend for default retrieval",
+    "Zettelkasten/knowledge-graph/multi-hop-rank-vs-recall-failure-split",
+    "Zettelkasten/knowledge-graph/hermes-.planning-gitignore-policy-was-changed",
+    "Zettelkasten/knowledge-graph/batch_atomic_vqa_performance",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/Implementing lexical overlap gates for adversarial queries",
+    "Zettelkasten/knowledge-graph/Semantic-Lexical Retrieval Mode",
+    "Zettelkasten/knowledge-graph/語義融合檢索效果不佳的可能成因"
+   ]
+  },
+  {
+   "question": "完整協議下 CR@5 與 CR@25 各是多少？",
+   "rank": 1,
+   "arxivId": "2609.09090",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/ltx-modality-scale-5-lever",
+    "Zettelkasten/knowledge-graph/ltx-cfg-scale-5-stg05-avoid",
+    "Zettelkasten/knowledge-graph/ltx-stage2-steps-5-lever",
+    "Zettelkasten/knowledge-graph/ltx-cfg-scale-7-lever",
+    "Zettelkasten/knowledge-graph/kg-retrieval-recall-ceiling-084",
+    "Zettelkasten/knowledge-graph/CLIP 與 ESRGAN 填補了 Pi-Agent Movie Director 的最後分析與增強缺口",
+    "Zettelkasten/knowledge-graph/ltx-audio-volume-5-lever",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-lever-medium-fix-applies-real-fixes",
+    "Zettelkasten/knowledge-graph/auto-memory-controlnet-ab-test-findings"
+   ]
+  },
+  {
+   "question": "消融中換弱 proxy（Haiku 4.5）與限制只用 4 種戰術各把 CR@25 降到多少？",
+   "rank": 1,
+   "arxivId": "2609.09090",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/Tag-Path-Recall-Ceiling-Limit",
+    "Zettelkasten/knowledge-graph/Anime2Real_LoRA_Effectiveness",
+    "Zettelkasten/knowledge-graph/auto-memory-review-optimize-medium-runtime-cost",
+    "Zettelkasten/knowledge-graph/Anime2Real_Use_Cases",
+    "Zettelkasten/knowledge-graph/auto-memory-anime2real-ab-test-results",
+    "Zettelkasten/knowledge-graph/ltx-cfg-scale-5-stg05-avoid",
+    "Zettelkasten/knowledge-graph/auto-memory-anime2real-conclusion",
+    "Zettelkasten/knowledge-graph/ltx-low-ram-hq-distilled-conflict",
+    "Zettelkasten/knowledge-graph/agent_429_failure_behavior"
+   ]
+  },
+  {
+   "question": "MAFDA-23 戰術菜單的組成（Ethos/Logos/Pathos 各幾條）是什麼？",
+   "rank": 1,
+   "arxivId": "2609.09090",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/hermes-effort-.planning-2026-07-19-a",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-16jhx6q",
+    "Zettelkasten/knowledge-graph/auto-memory-pi-infra-self-improve-workflow",
+    "Zettelkasten/knowledge-graph/kg-retrieval-disproved-ranking-levers",
+    "Zettelkasten/knowledge-graph/auto-memory-pi-obsidian-vault-distilled",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-10r4qhu",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-1mc56nz",
+    "Zettelkasten/knowledge-graph/hermes-multi-hop-eval-leaks-answer-vocabulary"
+   ]
+  },
+  {
+   "question": "judge 逐輪評的位置強度分數尺度是什麼、兩端代表什麼？",
+   "rank": 1,
+   "arxivId": "2609.09090",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/Addressing Retrieval Flakiness via Judge Quality",
+    "Zettelkasten/knowledge-graph/Limitations of Determinism Testing via Easy Poses",
+    "Zettelkasten/knowledge-graph/JudgePanel Failure Behavior Returning 0 for Total Failure",
+    "Zettelkasten/knowledge-graph/auto-memory-pose-dsg-empty-atoms-multi-subject-judge-tier",
+    "Zettelkasten/knowledge-graph/Tuning Parameters for Regional Attention",
+    "Zettelkasten/knowledge-graph/評分失敗與結構性失敗應為不同的錯誤類別",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/ltx-seed-voice-edge-tradeoff",
+    "Zettelkasten/knowledge-graph/針對性修復與整體分數之間的權衡關係"
+   ]
+  },
+  {
+   "question": "SPINE 如何把知識失敗（Ign）與諂媚失敗區分開？",
+   "rank": 1,
+   "arxivId": "2609.09090",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/Automated_Knowledge_Extraction",
+    "Zettelkasten/knowledge-graph/Empirical_Reflection_for_Goal_Setting",
+    "Zettelkasten/knowledge-graph/Automated Proposal of Operation Lessons",
+    "Zettelkasten/knowledge-graph/Git Worktree Dependency Isolation",
+    "Zettelkasten/knowledge-graph/GUI_Self_Learning_Mechanism",
+    "Zettelkasten/knowledge-graph/評分失敗與結構性失敗應為不同的錯誤類別",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split"
+   ]
+  },
+  {
+   "question": "這張卡與哪兩張卡片有「相關」連結？",
+   "rank": 0,
+   "arxivId": "2609.09090",
+   "paths": [
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/multi-hop-eval-vocabulary-leakage",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/Card_Metadata_Standards",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/hermes-convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/Zk_Ingest_Mechanics",
+    "Zettelkasten/knowledge-graph/leak-free-multi-hop-eval-inverts-verdicts"
+   ]
+  },
+  {
+   "question": "Figure 1 概覽圖位於論文第幾頁？",
+   "rank": 2,
+   "arxivId": "2609.09155",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/VLM-Stage1-Seed-Profile-Classifier-Impact",
+    "Zettelkasten/knowledge-graph/auto-memory-flux2-regional-net-negative-tested",
+    "Zettelkasten/knowledge-graph/agg-L1-52",
+    "Zettelkasten/knowledge-graph/agg-L1-11",
+    "Zettelkasten/knowledge-graph/agg-L0-60",
+    "Zettelkasten/knowledge-graph/hermes-verify-bun-pi-agent-cli-stage1-seed-profile-matters",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs"
+   ]
+  },
+  {
+   "question": "Figure 1 中央 SyncWorld 地球樞紐上方的輸入卡片是什麼？",
+   "rank": 1,
+   "arxivId": "2609.09155",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/Agent 透過自我診斷來應對巢狀 Schema 引起的工具摩擦",
+    "Zettelkasten/knowledge-graph/auto-memory-pi-knowledge-graph-zk-ingest",
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/Zk_Ingest_Mechanics",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split"
+   ]
+  },
+  {
+   "question": "SyncWorld 需要多少次視覺校準 episode、是否需要額外訓練？",
+   "rank": 1,
+   "arxivId": "2609.09155",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-execcritic",
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/設計具備進度感知能力的監控機制",
+    "Zettelkasten/knowledge-graph/Video Quality Evaluation of DaSiWa LTX-2.3",
+    "Zettelkasten/knowledge-graph/ChainRef Mechanism and GPU Memory Management in Flux2-Klein",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/auto-memory-t2i-resolution-tier-system",
+    "Zettelkasten/knowledge-graph/auto-memory-review-optimize-medium-runtime-cost"
+   ]
+  },
+  {
+   "question": "為什麼動作在像素空間不是通用語言？",
+   "rank": 1,
+   "arxivId": "2609.09155",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/Latent Space Composition for Multi-Character Images",
+    "Zettelkasten/knowledge-graph/Latent Space Compositing for Multi-Character Scenes",
+    "Zettelkasten/knowledge-graph/Pixel_space_RoPE_in_SeedVR2_7B",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/決策紀錄是跨會話代理記憶的持久化協定",
+    "Zettelkasten/knowledge-graph/Asymmetric Architecture MLX Image Surface vs Agent Bridge",
+    "Zettelkasten/knowledge-graph/Contiguity Requirements for Regional Attention",
+    "Zettelkasten/knowledge-graph/Local_Generation_Constraint",
+    "Zettelkasten/knowledge-graph/Mitigating Background Color Splits in Composited Images"
+   ]
+  },
+  {
+   "question": "Figure 1 概覽圖的左中右三欄各畫了什麼？",
+   "rank": 2,
+   "arxivId": "2609.09155",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/auto-memory-flux2-regional-net-negative-tested",
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/agg-L3-45",
+    "Zettelkasten/knowledge-graph/agg-L1-20",
+    "Zettelkasten/knowledge-graph/ChainRef Mechanism and GPU Memory Management in Flux2-Klein",
+    "Zettelkasten/knowledge-graph/agg-L1-12",
+    "Zettelkasten/knowledge-graph/ControlNet_Outline_Interference",
+    "Zettelkasten/knowledge-graph/agg-L3-6"
+   ]
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張同為視覺表徵研究的卡片？",
+   "rank": 5,
+   "arxivId": "2609.09155",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-paper-canonical-color",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/Shared Development Environments via Relative Symlinks",
+    "Zettelkasten/knowledge-graph/Shared Dependency Stores via Symlinks",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/Cross-Lingual-Retrieval-Lexical-Graph-Beats-Semantic"
+   ]
+  },
+  {
+   "question": "Figure 1 位於論文第幾頁、包含幾個子圖？",
+   "rank": 2,
+   "arxivId": "2609.08981",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/agg-L2-4",
+    "Zettelkasten/knowledge-graph/agg-L1-12",
+    "Zettelkasten/knowledge-graph/agg-L3-45",
+    "Zettelkasten/knowledge-graph/agg-L1-58",
+    "Zettelkasten/knowledge-graph/hermes-verify-bun-pi-agent-cli-stage1-seed-profile-matters",
+    "Zettelkasten/knowledge-graph/agg-L1-11",
+    "Zettelkasten/knowledge-graph/agg-L3-34"
+   ]
+  },
+  {
+   "question": "語義主題採樣實例中，prompt 由哪些語義類別的詞構成？",
+   "rank": 1,
+   "arxivId": "2609.08981",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/De-prioritizing semantic-lexical blend for default retrieval",
+    "Zettelkasten/knowledge-graph/image-selfimprove-prompt-prefix-anatomyfix-handles-hands-pose",
+    "Zettelkasten/knowledge-graph/Mechanism of Operation Memory",
+    "Zettelkasten/knowledge-graph/基於元素計數的 Prompt Adherence 評分策略",
+    "Zettelkasten/knowledge-graph/Mocked Model-Session Pattern",
+    "Zettelkasten/knowledge-graph/Chinese Prompting for Anime-to-Realism",
+    "Zettelkasten/knowledge-graph/agg-L0-89",
+    "Zettelkasten/knowledge-graph/agg-L1-64",
+    "Zettelkasten/knowledge-graph/agg-L1-0"
+   ]
+  },
+  {
+   "question": "既有的 in-context learning 理論已覆蓋哪類學習問題？",
+   "rank": 1,
+   "arxivId": "2609.08981",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/Destructive Overwrite in Knowledge Base",
+    "Zettelkasten/knowledge-graph/Configuration Redirection via Environment Variables",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/auto-memory-gui-self-improve-self-learning-propose-inbox",
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/adversarial_verify_no_filter_pattern_match",
+    "Zettelkasten/knowledge-graph/Mflux Native Support for In-Context Generation",
+    "Zettelkasten/knowledge-graph/Futility of Hand-Seeding Knowledge"
+   ]
+  },
+  {
+   "question": "論文的兩步構造是什麼、「免估計」指什麼？",
+   "rank": 1,
+   "arxivId": "2609.08981",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/Static-Schema-Token-Accounting-Delegation-Pattern",
+    "Zettelkasten/knowledge-graph/設計漸進式輸出以確保可恢復性",
+    "Zettelkasten/knowledge-graph/generic-paper-syncworld",
+    "Zettelkasten/knowledge-graph/Dual-Runtime-Benchmark-Directories-Independent",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/Verification-Iteration-Log-Convention"
+   ]
+  },
+  {
+   "question": "Figure 1 的散點圖展示了什麼行為？",
+   "rank": 2,
+   "arxivId": "2609.08981",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-image-tokenizers",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/auto-memory-flux2-klein-seed-deterministic-across-runs",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/auto-memory-flux2-regional-net-negative-tested",
+    "Zettelkasten/knowledge-graph/auto-memory-flux2-region-attention-no-binding-distilled",
+    "Zettelkasten/knowledge-graph/agg-L2-13"
+   ]
+  },
+  {
+   "question": "這張卡與哪張卡片互為「理論側同伴」的相關連結？",
+   "rank": 0,
+   "arxivId": "2609.08981",
+   "paths": [
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/knowledge-agent-integration-workflow-only",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/Card_Metadata_Standards",
+    "Zettelkasten/knowledge-graph/hermes-convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/multi-hop-eval-vocabulary-leakage",
+    "Zettelkasten/knowledge-graph/Standard Zettelkasten Structure in Pi Agent Vault"
+   ]
+  },
+  {
+   "question": "這份軟體供應鏈安全研究議程來自哪個機構？",
+   "rank": 1,
+   "arxivId": "2609.08810",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/Pi-infra 自我改進工作流之三維度檢查機制",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-jz74o3",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/Agent Write Surface Scoping",
+    "Zettelkasten/knowledge-graph/AuthStorage Replacement in pi-coding-agent",
+    "Zettelkasten/knowledge-graph/hermes-resolution-chain",
+    "Zettelkasten/knowledge-graph/Human_in_the_loop_Safety",
+    "Zettelkasten/knowledge-graph/Argparse Handling of Value-Taking vs Free-Token Arguments"
+   ]
+  },
+  {
+   "question": "這篇論文的篇幅與轉換形式如何？",
+   "rank": 10,
+   "arxivId": "2609.08810",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper-recite",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/generic-paper-transformers-as-in-context-samplers",
+    "Zettelkasten/knowledge-graph/Flux2 LoRA Naming Conventions",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/擴充功能驗證的測試有效性",
+    "Zettelkasten/knowledge-graph/Flux2 Klein 9B 轉換流程",
+    "Zettelkasten/knowledge-graph/Flux2 Klein 9B 核心組件",
+    "Zettelkasten/knowledge-graph/gui-selfimprove-review-finds-skewed-low-severity",
+    "Zettelkasten/knowledge-graph/generic-paper"
+   ]
+  },
+  {
+   "question": "為什麼軟體供應鏈安全日益關鍵？",
+   "rank": 1,
+   "arxivId": "2609.08810",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/誠實面對錯誤的價值文化",
+    "Zettelkasten/knowledge-graph/False_Positives_in_Pattern-Based_Execution_Hooks",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-jz74o3",
+    "Zettelkasten/knowledge-graph/Resource Hygiene and Static Analysis Gating",
+    "Zettelkasten/knowledge-graph/Pi-infra 自我改進工作流之三維度檢查機制",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/Purify Remove Path Safety Mechanisms",
+    "Zettelkasten/knowledge-graph/Bun GlobalStore 在無 node_modules 修改時的安全性"
+   ]
+  },
+  {
+   "question": "這篇 6 頁短文的結構是什麼？",
+   "rank": 1,
+   "arxivId": "2609.08810",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/agg-L3-6",
+    "Zettelkasten/knowledge-graph/Agent-Non-Termination-Loop",
+    "Zettelkasten/knowledge-graph/generic-paper-co-evolving-harnesses-and-models",
+    "Zettelkasten/knowledge-graph/agg-L0-25",
+    "Zettelkasten/knowledge-graph/agg-L0-7",
+    "Zettelkasten/knowledge-graph/Accumulator_Pattern_for_Unified_Reports",
+    "Zettelkasten/knowledge-graph/mlx-review-adjust-frames-single-frame",
+    "Zettelkasten/knowledge-graph/Destructive Overwrite in Knowledge Base"
+   ]
+  },
+  {
+   "question": "卡片對這篇論文的定位價值是什麼？",
+   "rank": 1,
+   "arxivId": "2609.08810",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/generic-paper-procedural-graphs",
+    "Zettelkasten/knowledge-graph/Card_Metadata_Standards",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/agg-L0-59",
+    "Zettelkasten/knowledge-graph/generic-paper-amari",
+    "Zettelkasten/knowledge-graph/hermes-convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o"
+   ]
+  },
+  {
+   "question": "這張卡與哪張已落地的安全評測卡片形成「已落地評測 vs 待做議程」的對照相關連結？",
+   "rank": 1,
+   "arxivId": "2609.08810",
+   "paths": [
+    "Zettelkasten/knowledge-graph/generic-paper",
+    "Zettelkasten/knowledge-graph/generic-paper-gmsbench-gpu",
+    "Zettelkasten/knowledge-graph/generic-paper-privescalate-llm-linux",
+    "Zettelkasten/knowledge-graph/convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/Callout-Boost-Empirically-Neutral",
+    "Zettelkasten/knowledge-graph/generic-tag-noise-flat-shared-tag-cross-link",
+    "Zettelkasten/knowledge-graph/generic-paper-spine-llm",
+    "Zettelkasten/knowledge-graph/pi-memory-memory-nt6g8o",
+    "Zettelkasten/knowledge-graph/hermes-convergence-id-namespace-split",
+    "Zettelkasten/knowledge-graph/hermes-unified-coordination-layer-design"
+   ]
+  }
+ ]
+}

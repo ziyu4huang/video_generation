@@ -1,0 +1,419 @@
+{
+ "label": "pure-lexical ablation (semantic:false, lever on, offline deterministic)",
+ "mrr": 0.8680555555555557,
+ "hitAt3": 0.8846153846153846,
+ "perClass": {
+  "relation-anchored": {
+   "n": 8,
+   "hitAt3": 1,
+   "mrr": 0.8541666666666666
+  },
+  "relation-bare": {
+   "n": 4,
+   "hitAt3": 0,
+   "mrr": 0
+  },
+  "page": {
+   "n": 5,
+   "hitAt3": 0.8,
+   "mrr": 0.825
+  },
+  "topical": {
+   "n": 61,
+   "hitAt3": 0.9344262295081968,
+   "mrr": 0.930327868852459
+  }
+ },
+ "detail": [
+  {
+   "question": "Amari 貝葉斯對偶推廣這篇論文總共幾頁、屬於什麼性質的論文？",
+   "rank": 1,
+   "arxivId": "2609.09126"
+  },
+  {
+   "question": "這篇 Amari 貝葉斯對偶推廣論文的作者是誰、隸屬哪些機構？",
+   "rank": 1,
+   "arxivId": "2609.09126"
+  },
+  {
+   "question": "卡片提到 Amari 的哪種對偶座標記號在正文以文字出現？",
+   "rank": 1,
+   "arxivId": "2609.09126"
+  },
+  {
+   "question": "這篇論文摘要的三步結構（即論文骨架）是什麼？",
+   "rank": 1,
+   "arxivId": "2609.09126"
+  },
+  {
+   "question": "file2md 轉換這篇論文時如何處理數學符號？",
+   "rank": 1,
+   "arxivId": "2609.09126"
+  },
+  {
+   "question": "這張卡在「連結」區指向哪張同為理論側的相關卡片？",
+   "rank": 1,
+   "arxivId": "2609.09126"
+  },
+  {
+   "question": "Figure 1 中「Canonical On Counterfactual」曲線隨層上升至約多少百分比？",
+   "rank": 1,
+   "arxivId": "2609.09124"
+  },
+  {
+   "question": "典型色解碼結果的 Figure 1 位於論文第幾頁？",
+   "rank": 1,
+   "arxivId": "2609.09124"
+  },
+  {
+   "question": "Figure 1 驗證集結果折線圖中各條曲線的相對位置如何？",
+   "rank": 1,
+   "arxivId": "2609.09124"
+  },
+  {
+   "question": "實驗中如何把顏色從輸入影像移除？",
+   "rank": 1,
+   "arxivId": "2609.09124"
+  },
+  {
+   "question": "這篇論文用什麼探測方法同時探測顏色與物件身份？",
+   "rank": 1,
+   "arxivId": "2609.09124"
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張同為視覺表徵研究的卡片？",
+   "rank": 3,
+   "arxivId": "2609.09124"
+  },
+  {
+   "question": "這篇論文的主要發現基於幾個企業 agentic benchmark？",
+   "rank": 1,
+   "arxivId": "2609.09134"
+  },
+  {
+   "question": "論文表格中 h0 與 h∗ 分別代表什麼？",
+   "rank": 0,
+   "arxivId": "2609.09134"
+  },
+  {
+   "question": "微調後的模型在 rollout 中對演化後 harness 的行為如何（反直覺發現）？",
+   "rank": 1,
+   "arxivId": "2609.09134"
+  },
+  {
+   "question": "這篇論文所說的 agent harness 包含哪些組成部分？",
+   "rank": 1,
+   "arxivId": "2609.09134"
+  },
+  {
+   "question": "在線修正與模型微調這兩個槓桿之間是什麼關係？",
+   "rank": 1,
+   "arxivId": "2609.09134"
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張同為 agent 能力提升結構化方法的卡片？",
+   "rank": 1,
+   "arxivId": "2609.09134"
+  },
+  {
+   "question": "ExecCritic 的 Test agent 與 Repair agent 都以哪個模型為骨幹？",
+   "rank": 1,
+   "arxivId": "2609.09133"
+  },
+  {
+   "question": "在 SWE-bench Verified 上，base Test agent 的測試把已解決率從多少拉低到多少？",
+   "rank": 1,
+   "arxivId": "2609.09133"
+  },
+  {
+   "question": "ExecCritic 的結果是在哪個 benchmark 上評測的？",
+   "rank": 2,
+   "arxivId": "2609.09133"
+  },
+  {
+   "question": "ExecCritic 的 test–verify–revise 腳手架中兩個角色如何分工？",
+   "rank": 1,
+   "arxivId": "2609.09133"
+  },
+  {
+   "question": "為什麼同一條軌跡既寫 patch 又寫測試會有問題？",
+   "rank": 1,
+   "arxivId": "2609.09133"
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張卡片？",
+   "rank": 0,
+   "arxivId": "2609.09133"
+  },
+  {
+   "question": "GMSBench 由多少個自包含 CUDA 測試組成？",
+   "rank": 1,
+   "arxivId": "2609.08871"
+  },
+  {
+   "question": "GMSBench 的測試橫跨哪三類記憶體安全違例？",
+   "rank": 1,
+   "arxivId": "2609.08871"
+  },
+  {
+   "question": "GMSBench 的作者機構跨哪些單位？",
+   "rank": 1,
+   "arxivId": "2609.08871"
+  },
+  {
+   "question": "GMSBench 測試案例的設計目標是什麼？",
+   "rank": 1,
+   "arxivId": "2609.08871"
+  },
+  {
+   "question": "file2md 轉換後論文 p.2 的版面結構如何？",
+   "rank": 0,
+   "arxivId": "2609.08871"
+  },
+  {
+   "question": "這張卡與哪兩張卡片有「相關」連結？",
+   "rank": 0,
+   "arxivId": "2609.08871"
+  },
+  {
+   "question": "這個 testbed 在哪四種預測任務上追蹤任務級驗證 loss？",
+   "rank": 1,
+   "arxivId": "2609.09143"
+  },
+  {
+   "question": "Figure 3 位於論文第幾頁、是什麼類型的圖？",
+   "rank": 8,
+   "arxivId": "2609.09143"
+  },
+  {
+   "question": "Figure 3 各子圖的軸刻度數值範圍大約是多少？",
+   "rank": 1,
+   "arxivId": "2609.09143"
+  },
+  {
+   "question": "為什麼 I2T loss 比跨 tokenizer 的 T2I loss 提供更一致的信號？",
+   "rank": 1,
+   "arxivId": "2609.09143"
+  },
+  {
+   "question": "這篇論文建立的 testbed 有什麼性質、用來研究什麼？",
+   "rank": 1,
+   "arxivId": "2609.09143"
+  },
+  {
+   "question": "這張卡與哪兩張卡片有「相關」連結？",
+   "rank": 0,
+   "arxivId": "2609.09143"
+  },
+  {
+   "question": "PrivEscalate 包含多少個 Docker 容器化可執行環境？",
+   "rank": 1,
+   "arxivId": "2609.09087"
+  },
+  {
+   "question": "建構管線 Sankey 漏斗（Figure 3，p.5）各階段的數字是多少？",
+   "rank": 1,
+   "arxivId": "2609.09087"
+  },
+  {
+   "question": "場景品質審計抽查了多少場景、涵蓋哪些來源、誤差界多少？",
+   "rank": 1,
+   "arxivId": "2609.09087"
+  },
+  {
+   "question": "PrivEscalate 的威脅模型是什麼？",
+   "rank": 1,
+   "arxivId": "2609.09087"
+  },
+  {
+   "question": "先前 LLM 提權評測生態的缺口是什麼、PrivEscalate 如何補上？",
+   "rank": 1,
+   "arxivId": "2609.09087"
+  },
+  {
+   "question": "這張卡與哪張 GPU 記憶體安全評測卡片互為「安全側基準」的相關連結？",
+   "rank": 2,
+   "arxivId": "2609.09087"
+  },
+  {
+   "question": "Procedural Graph 以什麼形式的三元組組織「怎麼做」的程序知識？",
+   "rank": 1,
+   "arxivId": "2609.09153"
+  },
+  {
+   "question": "主要結果橫跨幾個 benchmark、對照什麼 baseline？",
+   "rank": 1,
+   "arxivId": "2609.09153"
+  },
+  {
+   "question": "卡片列出的 7 個 benchmark 是哪些？",
+   "rank": 4,
+   "arxivId": "2609.09153"
+  },
+  {
+   "question": "每個決策步如何使用程序圖產生引導？",
+   "rank": 1,
+   "arxivId": "2609.09153"
+  },
+  {
+   "question": "程序圖的自演化機制如何避免重複犯錯？",
+   "rank": 1,
+   "arxivId": "2609.09153"
+  },
+  {
+   "question": "這張卡與哪張卡片同屬「agentic 流程的兩種顯式化」的相關連結？",
+   "rank": 1,
+   "arxivId": "2609.09153"
+  },
+  {
+   "question": "Strict End-to-End 評測中 ReCite-SFT(CAP-8) 的 Overall F1 是多少、對比 GPT-5.1-Chat 如何？",
+   "rank": 1,
+   "arxivId": "2609.09156"
+  },
+  {
+   "question": "ReCite 用 SFT 訓練的輕量模型參數量是多少？",
+   "rank": 1,
+   "arxivId": "2609.09156"
+  },
+  {
+   "question": "ReCite 的 Lenient Evaluation F1 是多少？",
+   "rank": 1,
+   "arxivId": "2609.09156"
+  },
+  {
+   "question": "ReCite 提出的解耦 agentic framework 包含哪三個階段？",
+   "rank": 1,
+   "arxivId": "2609.09156"
+  },
+  {
+   "question": "當檢索候選缺乏邏輯支持時，代理的自我修正迴圈如何運作？",
+   "rank": 1,
+   "arxivId": "2609.09156"
+  },
+  {
+   "question": "Figure 1 例子中，改寫查詢為 [\"Group Relative Policy Optimization\", \"eliminate critic\"] 後再檢索到哪篇論文完成忠實引用？",
+   "rank": 1,
+   "arxivId": "2609.09156"
+  },
+  {
+   "question": "完整協議下 CR@5 與 CR@25 各是多少？",
+   "rank": 1,
+   "arxivId": "2609.09090"
+  },
+  {
+   "question": "消融中換弱 proxy（Haiku 4.5）與限制只用 4 種戰術各把 CR@25 降到多少？",
+   "rank": 1,
+   "arxivId": "2609.09090"
+  },
+  {
+   "question": "MAFDA-23 戰術菜單的組成（Ethos/Logos/Pathos 各幾條）是什麼？",
+   "rank": 1,
+   "arxivId": "2609.09090"
+  },
+  {
+   "question": "judge 逐輪評的位置強度分數尺度是什麼、兩端代表什麼？",
+   "rank": 1,
+   "arxivId": "2609.09090"
+  },
+  {
+   "question": "SPINE 如何把知識失敗（Ign）與諂媚失敗區分開？",
+   "rank": 1,
+   "arxivId": "2609.09090"
+  },
+  {
+   "question": "這張卡與哪兩張卡片有「相關」連結？",
+   "rank": 0,
+   "arxivId": "2609.09090"
+  },
+  {
+   "question": "Figure 1 概覽圖位於論文第幾頁？",
+   "rank": 1,
+   "arxivId": "2609.09155"
+  },
+  {
+   "question": "Figure 1 中央 SyncWorld 地球樞紐上方的輸入卡片是什麼？",
+   "rank": 1,
+   "arxivId": "2609.09155"
+  },
+  {
+   "question": "SyncWorld 需要多少次視覺校準 episode、是否需要額外訓練？",
+   "rank": 1,
+   "arxivId": "2609.09155"
+  },
+  {
+   "question": "為什麼動作在像素空間不是通用語言？",
+   "rank": 1,
+   "arxivId": "2609.09155"
+  },
+  {
+   "question": "Figure 1 概覽圖的左中右三欄各畫了什麼？",
+   "rank": 1,
+   "arxivId": "2609.09155"
+  },
+  {
+   "question": "這張卡的「相關」連結指向哪張同為視覺表徵研究的卡片？",
+   "rank": 1,
+   "arxivId": "2609.09155"
+  },
+  {
+   "question": "Figure 1 位於論文第幾頁、包含幾個子圖？",
+   "rank": 1,
+   "arxivId": "2609.08981"
+  },
+  {
+   "question": "語義主題採樣實例中，prompt 由哪些語義類別的詞構成？",
+   "rank": 1,
+   "arxivId": "2609.08981"
+  },
+  {
+   "question": "既有的 in-context learning 理論已覆蓋哪類學習問題？",
+   "rank": 1,
+   "arxivId": "2609.08981"
+  },
+  {
+   "question": "論文的兩步構造是什麼、「免估計」指什麼？",
+   "rank": 1,
+   "arxivId": "2609.08981"
+  },
+  {
+   "question": "Figure 1 的散點圖展示了什麼行為？",
+   "rank": 1,
+   "arxivId": "2609.08981"
+  },
+  {
+   "question": "這張卡與哪張卡片互為「理論側同伴」的相關連結？",
+   "rank": 1,
+   "arxivId": "2609.08981"
+  },
+  {
+   "question": "這份軟體供應鏈安全研究議程來自哪個機構？",
+   "rank": 1,
+   "arxivId": "2609.08810"
+  },
+  {
+   "question": "這篇論文的篇幅與轉換形式如何？",
+   "rank": 0,
+   "arxivId": "2609.08810"
+  },
+  {
+   "question": "為什麼軟體供應鏈安全日益關鍵？",
+   "rank": 1,
+   "arxivId": "2609.08810"
+  },
+  {
+   "question": "這篇 6 頁短文的結構是什麼？",
+   "rank": 1,
+   "arxivId": "2609.08810"
+  },
+  {
+   "question": "卡片對這篇論文的定位價值是什麼？",
+   "rank": 1,
+   "arxivId": "2609.08810"
+  },
+  {
+   "question": "這張卡與哪張已落地的安全評測卡片形成「已落地評測 vs 待做議程」的對照相關連結？",
+   "rank": 1,
+   "arxivId": "2609.08810"
+  }
+ ]
+}

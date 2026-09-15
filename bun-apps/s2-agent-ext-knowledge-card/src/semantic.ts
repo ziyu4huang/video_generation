@@ -98,19 +98,40 @@ export interface CardEmbeddings {
 export const EMBED_BODY_CHARS = 2400;
 export const EMBED_TOTAL_CHARS = 3000;
 
+/** kcard-hit3-residual V2: the card-embed TEXT composition version. V2
+ *  re-admits a bounded `## 連結` section tail (relation-query anchors live
+ *  THERE and nowhere else — the blend's semantic leg was blind to them).
+ *  Bump on any future embed-text change: the cache envelope carries this
+ *  version and a mismatch forces a rebuild (stale vectors otherwise serve
+ *  silently — PB-09 class). */
+export const EMBED_TEXT_VERSION = 2;
+/** Char budget for the re-admitted 連結 tail (anchor phrases are short). */
+export const EMBED_LINK_SECTION_CHARS = 400;
+
 export function cardEmbedText(raw: string, title: string, tags: string[]): string {
 	// frontmatter summary is carried INTO the embed (it used to be stripped
 	// with the frontmatter and never reached the vector)
 	const summaryM = /^---\n([\s\S]*?)\n---/.exec(raw);
 	const summary = summaryM ? /^summary:\s*(.+)\s*$/m.exec(summaryM[1])?.[1]?.trim() : undefined;
 	let body = raw.replace(/^---\n[\s\S]*?\n---/, "");
+	let linkSection = "";
+	const linkM = /## 連結([\s\S]*)$/.exec(body);
+	if (linkM) {
+		body = body.slice(0, linkM.index);
+		// V2: the section's DISPLAY lines (anchor phrases) ride at the tail,
+		// bounded — a quality-lift regression would be sibling-slug flooding,
+		// so only the section text, not raw wiki-brackets, and capped.
+		linkSection = linkM[1]!
+			.replace(/\[\[([^\]|]+)(\|[^\]]*)?\]\]/g, "$1")
+			.replace(/^\s*-\s*/gm, "")
+			.slice(0, EMBED_LINK_SECTION_CHARS);
+	}
 	body = body
-		.replace(/## 連結[\s\S]*$/, "") // link-list scaffolding, not content
 		.replace(/^(type|confidence|status|superseded_by|source_id|source|provenance|first_seen|last_seen|record_type|dimension|tags):\s.*$/gm, "") // record-meta tail
 		.replace(/^#\s+.+$/m, "") // H1 duplicates the title
 		.replace(/^##\s+核心想法\s*$/gm, ""); // renderCard re-emits the section header
 	const head = `${title}. ${tags.join(" ")}.${summary ? ` ${summary}` : ""}`;
-	return `${head}\n${body}`.replace(/\s+/g, " ").trim().slice(0, EMBED_TOTAL_CHARS);
+	return `${head}\n${body}${linkSection ? `\n${linkSection}` : ""}`.replace(/\s+/g, " ").trim().slice(0, EMBED_TOTAL_CHARS);
 }
 
 function readTitle(raw: string): string {
@@ -158,7 +179,12 @@ export async function getCardEmbeddings(
 	if (existsSync(cache)) {
 		try {
 			const cached = JSON.parse(readFileSync(cache, "utf8")) as CardEmbeddings & { fingerprint?: string };
-			if (cached.model === model && cached.fingerprint === fingerprint && cached.paths?.length === names.length) {
+			if (
+				cached.model === model &&
+				cached.fingerprint === fingerprint &&
+				cached.paths?.length === names.length &&
+				(cached as { textVersion?: number }).textVersion === EMBED_TEXT_VERSION
+			) {
 				return { model, paths: cached.paths, vectors: cached.vectors };
 			}
 		} catch {
@@ -186,7 +212,7 @@ export async function getCardEmbeddings(
 			vectors.push(...vs);
 		}
 		const paths = names.map((n) => `${folder}/${n.slice(0, -3)}`); // no .md
-		const out: CardEmbeddings & { fingerprint: string } = { model, paths, vectors, fingerprint };
+		const out: CardEmbeddings & { fingerprint: string; textVersion: number } = { model, paths, vectors, fingerprint, textVersion: EMBED_TEXT_VERSION };
 		try {
 			mkdirSync(join(vaultPath, ".knowledge-semantic"), { recursive: true });
 			writeFileSync(cache, JSON.stringify(out));
