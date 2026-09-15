@@ -70,6 +70,38 @@ receipt (28 non-rank-1, 11 rank-0 — the successor's "34/9" was wrong):
 
 ## Verdict (measured, all receipted)
 
+**T2's own pre-registered acceptance adjudication (reviewer finding 1)**:
+on the SERVED blended lane it FAILED 3/4 — anchored hit@3 0.125 (= the
+pre-fix baseline; MRR even regressed 0.151→0.147), overall MRR 0.71084
+(< 0.711 by 4e-5), overall hit@3 0.7436 (< 0.80); topical "exactly
+unchanged" held only in the offline inertness sense, not on the embed
+session. The lever's net served-lane effect is zero-to-slightly-negative
+AT THE CURRENT α; its measured real effect (anchored 0.875→1.000, 6-8
+targets to lexical #1) lives on the PURE-LEXICAL lane and at raised α.
+Commit 05a0a43c's subject line is lexical-true, served-false — recorded
+here per reviewer finding 1.
+
+## Decisions
+
+- **D-A (T3, pre-registered D4 branch)**: α HOLDS at 0.18 — no receipted
+  configuration crossed hit@3 ≥ 0.85 on the served lane (band: 0.744 →
+  0.821 @0.26 → 0.833 @0.30, monotone; MRR 0.711→0.761 throughout). The
+  α flip is queued behind the semantic-gap regression eval (probeB/
+  nomic reload) — flipping without it ships blind on the other eval.
+- **D-B (T4, amendment deviation — reviewer finding 2)**: the
+  pre-registered amendment floors said REL-anchored ≥ 0.75 and topical
+  ≥ 0.885 enforced; landed code enforces anchored ≥ 0.12 and topical
+  ≥ 0.88 (0.75 demoted to a reported design target). Deviation is
+  lax-direction and post-measurement: 0.75 enforced would permanently
+  fail against the served 0.125 — the floors are REGRESSION protection,
+  the 0.75 lexical-proven potential stays a REPORTED design target.
+  Grounded by receipts, flagged here per the planner's own
+  goalpost-moving warning.
+- **D-C (T3)**: V2 receipt-rejected (MRR 0.689 < 0.70, topical
+  0.885→0.852) → text reverted to v1 composition; the textVersion cache
+  gate kept (backward-compatible) so the next composition change cannot
+  serve stale vectors (PB-09 class).
+
 - **Served blended lane (α=0.18, lever in): MRR 0.711 / hit@3 0.744** —
   deterministic across sessions (repeat + repeat-2). MRR gate MET;
   hit@3 gate NOT met on the served lane.
@@ -111,4 +143,10 @@ receipt (28 non-rank-1, 11 rank-0 — the successor's "34/9" was wrong):
 ## Status log
 
 - 2026-09-15 — effort opened; branch `kcard-hit3-residual` off
-  origin/main 653bb284; T1 in progress.
+  origin/main 653bb284.
+- 2026-09-15 — T1 census pinned; T2 lever landed (red-first, inertness
+  proven 66/66 vs true 653bb284); T3 ablation identified + α hold + V2
+  rejected; T4 amendment landed. Reviewer: APPROVE, no blockers
+  (`output/arc-review-kcard-hit3-residual/review.md`); findings 1-3
+  folded into Verdict/Decisions, 4 (generator) committed under
+  evidence/.
