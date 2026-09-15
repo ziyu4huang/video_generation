@@ -94,3 +94,24 @@ it — evidence/c4/pre.json, RED); POST on a new immutable deploy must show
 ## Shipped-as (2026-09-15)
 
 - PR <impl>: UNREADABLE bootstrap line + tests + paired C4 receipt.
+
+## Results (2026-09-15 深夜, evidence/c4/)
+
+- **Deploy**: 0.10.4+ga244e3a（post-deploy E2E 全綠；sentinel byte-grep =1）。
+- **C4 POST (glm-5.3, 修正後)**: **PASS** — `forbid:brainstorming` ok、
+  `pin:match` ok（glm-5.3 × 7 turns 全 non-error）、工作完成（scratch/hello.ts
+  建立 + TDD 紅綠）。**UNREADABLE 行翻轉了行為**：被排除的 brainstorming
+  未被讀，模型依 override 條款改讀 TDD。
+- **過程教訓（reviewer round 1 + 執行插曲）**：
+  - C4 POST 第一次是空跑（shell 沒 eval ZAI_API_KEY + LM Studio 伺服器被
+    關）— liveness guard 正確判 INCONCLUSIVE 而非 PASS，審查要求的行為
+    已編碼進驅動器。
+  - 部署目錄是 0.10.4+（sibling 已 bump 版本）— 路徑拚錯 0.10.3+ 會 ENOENT。
+  - 驅動器 scratch 副本已損壞除役 — 本輪起一律用 canonical
+    wayfind/scripts/drive-case.ts。
+
+## Shipped-as (2026-09-15)
+
+- PR <impl>: UNREADABLE bootstrap line（條件式、env 衍生、D1 newly-
+  unreadable 語義、D4 快取語義）+ description/detector 測試 + 配對 C4
+  接收 + liveness guard。含 reviewer round 1 的 D1/driver 修正。
