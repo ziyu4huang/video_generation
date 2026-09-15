@@ -29,7 +29,7 @@ const _obsRealAbs = new URL("../../s2-agent-ext-obsidian/src/index.ts", import.m
 const _obsReal: Record<string, unknown> = await import(_obsRealAbs);
 mock.module("@repo/s2-agent-ext-obsidian", () => ({ ..._obsReal }));
 
-import { cjkBigrams } from "../src/card-format.ts";
+import { cjkBigrams, distinctiveRelationTokens } from "../src/card-format.ts";
 import { blendScore, type Embedder } from "../src/semantic.ts";
 import { inferQueryTags } from "../src/host-fns.ts";
 import { retrieveRecords } from "../src/retrieve.ts";
@@ -217,6 +217,117 @@ describe("T2 — the topK-cut rescue (integration, offline)", () => {
 			const ids = res.cards.map((c) => c.id);
 			expect(ids).toContain("test:target-alpha");
 			expect(ids.indexOf("test:target-alpha")).toBeLessThan(3);
+		} finally {
+			rmSync(vault, { recursive: true, force: true });
+		}
+	});
+});
+
+// ─── kcard-hit3-residual T2: the gated 連結-scoped relation term ─────────────
+// Relation-intent queries (連結 + 相關/互為/同屬/指向) ask about the card
+// graph; their target identity lives in the target's ## 連結 section as an
+// ANCHOR phrase, while the template vocabulary (相關/連結/卡片…) matches
+// ~1867 link-section bodies and drowns the target in bodyTokenOverlap. The
+// lever adds REL_TERM·min(relOv,3)/3 to the lexical score, where relOv =
+// |distinctive (template-stripped) query tokens ∩ the card's 連結-section
+// tokens| — and counts relOv into _lexOv so the semantic blend's β term
+// carries the same evidence. The gate NEVER fires on non-relation queries.
+
+describe("T2(hit3) — gated 連結-scoped relation term (integration, offline)", () => {
+	test("an anchored relation query ranks its target #1 over template-noise hubs", async () => {
+		const vault = mkdtempSync(join(tmpdir(), "kcard-rel-"));
+		try {
+			const mk = (over: Partial<KnowledgeRecord>): KnowledgeRecord => ({
+				id: "test:x",
+				type: "reference",
+				title: "X",
+				detail: "detail",
+				tags: ["tagx"],
+				dimension: "correctness",
+				confidence: 0.8,
+				status: "active",
+				superseded_by: null,
+				...over,
+			});
+			// The target: its 連結 section carries the anchor phrase 視覺表徵研究
+			// (5 distinctive bigrams); total query-tag bodyOv = 7.
+			const target = mk({
+				id: "test:rel-target",
+				title: "Rel target ZEDTARGETMARK",
+				detail: "本卡的核心內容。\n\n## 連結\n- 相關：視覺表徵研究\n",
+				tags: ["reltarget"],
+			});
+			// A template-noise hub: its body packs 9 distinct query-tag bigrams
+			// (這張 張卡 卡的 相關 連結 指向 向哪 哪張 卡片) — pre-fix it outranks
+			// the target (7). Its 連結 section links an unrelated paper, so its
+			// relOv = 0: post-fix the target's saturated anchor term (+6) wins.
+			const hub = mk({
+				id: "test:rel-hub",
+				title: "Rel hub",
+				detail: "這張卡的相關連結，指向哪張卡片？\n\n## 連結\n- 相關：Paper - 甲乙丙\n",
+				tags: ["relhub"],
+			});
+			const filler = mk({
+				id: "test:rel-filler",
+				title: "Rel filler",
+				detail: "完全無關的內容。",
+				tags: ["relfiller"],
+			});
+			await ingestRecords([target, hub, filler], {
+				vaultPath: vault,
+				source: "workflow-jsonl",
+				sourceLabel: "t",
+				folder: FOLDER,
+			});
+			const query = "這張卡的「相關」連結指向哪張同為視覺表徵研究的卡片？";
+			const res = await retrieveRecords({
+				vaultPath: vault,
+				folder: FOLDER,
+				tags: inferQueryTags(query),
+				queryText: query,
+				bodyMatch: true,
+				topK: 5,
+			});
+			// RED pre-fix: the hub's template bodyOv (8) beats the target's (7).
+			expect(res.cards[0]!.id).toBe("test:rel-target");
+		} finally {
+			rmSync(vault, { recursive: true, force: true });
+		}
+	});
+
+	test("a BARE relation query (zero distinctive tokens) never fires the term", async () => {
+		const vault = mkdtempSync(join(tmpdir(), "kcard-relbare-"));
+		try {
+			const mk = (over: Partial<KnowledgeRecord>): KnowledgeRecord => ({
+				id: "test:x",
+				type: "reference",
+				title: "X",
+				detail: "detail",
+				tags: ["tagx"],
+				dimension: "correctness",
+				confidence: 0.8,
+				status: "active",
+				superseded_by: null,
+				...over,
+			});
+			const a = mk({ id: "test:bare-a", title: "Bare A", detail: "內容甲。", tags: ["bara"] });
+			const b = mk({ id: "test:bare-b", title: "Bare B", detail: "內容乙。", tags: ["barb"] });
+			await ingestRecords([a, b], { vaultPath: vault, source: "workflow-jsonl", sourceLabel: "t", folder: FOLDER });
+			const query = "這張卡與哪兩張卡片有「相關」連結？";
+			expect(distinctiveRelationTokens(query)).toEqual([]); // classifier contract
+			const res = await retrieveRecords({
+				vaultPath: vault,
+				folder: FOLDER,
+				tags: inferQueryTags(query),
+				queryText: query,
+				bodyMatch: true,
+				topK: 5,
+			});
+			// No card is eligible via the relation term (relOv 0 for all); the
+			// result is whatever the untouched lexical lane serves — the assert
+			// is that NOTHING crashed and both cards surface via template
+			// bodyOv, unchanged ordering by their own ids.
+			expect(res.cards.map((c) => c.id).sort()).toEqual(["test:bare-a", "test:bare-b"]);
 		} finally {
 			rmSync(vault, { recursive: true, force: true });
 		}

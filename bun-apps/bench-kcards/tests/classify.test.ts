@@ -9,7 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { classifyQuestion, distinctiveTokens, isRelationIntent } from "../src/lanes/classify.ts";
+import { classifyQuestion, distinctiveRelationTokens as distinctiveTokens, isRelationIntent } from "../src/lanes/classify.ts";
 
 const GOLDEN_V2 = join(import.meta.dir, "..", "fixtures", "golden-v2");
 

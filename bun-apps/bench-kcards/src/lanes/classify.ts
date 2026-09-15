@@ -20,36 +20,16 @@
  *  - topical     — everything else (the content-ranker's home class).
  */
 
-/** Relation template phrases — stripped BEFORE tokenizing so that only
- *  content remains (straddle bigrams like 片有 from 卡片+有 are artifacts,
- *  not content). Function singles (與/有/的) go last so longer phrases
- *  win at each position. */
-const RELATION_TEMPLATE_RE = /這張卡|卡片|哪兩張|哪一張|哪張|相關|連結|指向|互為|同屬|形成|對照|與哪|張卡|與|有|的/g;
+// The relation vocabulary helpers (template strip, stoplist,
+// isRelationIntent, distinctiveRelationTokens) live in the knowledge-card
+// card-format LEAF — the T2 relation lever in retrieve.ts consumes the
+// SAME definitions, so classifier and lever cannot drift.
+import {
+	isRelationIntent,
+	distinctiveRelationTokens as distinctiveTokens,
+} from "@repo/s2-agent-ext-knowledge-card/src/card-format.ts";
 
-/** Relation/deixis vocabulary at the token level — shared contract: the
- *  T2 relation lever counts only tokens OUTSIDE this set (the same
- *  "distinctive token" notion), so classifier and lever cannot drift. */
-export const RELATION_STOP = new Set(
-	"這張 張卡 卡片 的卡 與哪 哪張 哪兩 兩張 互為 的相 相關 連結 指向 同屬 形成 對照 位於 論文 什麼 哪些 如何".split(" "),
-);
-
-/** Relation-intent gate: the query asks about the card graph's 連結. */
-export function isRelationIntent(q: string): boolean {
-	return /連結/.test(q) && /相關|互為|同屬|指向/.test(q);
-}
-
-/** Distinctive tokens of a relation query: the template phrases are
- *  stripped first, then ASCII words + CJK-run bigrams of the remainder,
- *  minus the token-level stoplist. Empty ⇒ the query cannot name a
- *  target (the bare class). */
-export function distinctiveTokens(q: string): string[] {
-	const stripped = q.replace(RELATION_TEMPLATE_RE, " ");
-	const tokens = new Set(stripped.toLowerCase().match(/[a-z0-9-]{3,30}/g) ?? []);
-	for (const run of stripped.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]{2,}/g) ?? []) {
-		for (let i = 0; i + 1 < run.length; i++) tokens.add(run.slice(i, i + 2));
-	}
-	return [...tokens].filter((t) => !RELATION_STOP.has(t));
-}
+export { isRelationIntent, distinctiveRelationTokens, RELATION_STOP } from "@repo/s2-agent-ext-knowledge-card/src/card-format.ts";
 
 export type QuestionClass = "relation-anchored" | "relation-bare" | "page" | "topical";
 
