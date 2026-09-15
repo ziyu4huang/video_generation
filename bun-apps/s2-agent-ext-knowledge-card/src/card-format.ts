@@ -197,6 +197,68 @@ export function lexicalTokens(s: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
+// Relation-query helpers (kcard-hit3-residual T2). Relation-intent queries
+// ("這張卡的相關連結指向哪張…") ask about the card GRAPH: the target identity
+// lives in an anchor phrase inside the target's `## 連結` section, while the
+// template vocabulary (相關/連結/卡片…) appears in ~1867 link sections and
+// drowns bodyTokenOverlap. Both the bench classifier (per-class scorecard)
+// and the retrieve.ts relation lever consume THESE definitions — one source,
+// so classifier and lever cannot drift.
+// ---------------------------------------------------------------------------
+
+/** Relation template phrases — stripped BEFORE tokenizing so that only
+ *  content remains (straddle bigrams like 片有 from 卡片+有 are artifacts,
+ *  not content). Function singles (與/有/的) go last so longer phrases
+ *  win at each position. */
+const RELATION_TEMPLATE_RE = /這張卡|卡片|哪兩張|哪一張|哪張|相關|連結|指向|互為|同屬|形成|對照|與哪|張卡|與|有|的/g;
+
+/** Relation/deixis vocabulary at the token level. */
+export const RELATION_STOP = new Set(
+	"這張 張卡 卡片 的卡 與哪 哪張 哪兩 兩張 互為 的相 相關 連結 指向 同屬 形成 對照 位於 論文 什麼 哪些 如何".split(" "),
+);
+
+/** Relation-intent gate: the query asks about the card graph's 連結. */
+export function isRelationIntent(q: string): boolean {
+	return /連結/.test(q) && /相關|互為|同屬|指向/.test(q);
+}
+
+/** Distinctive tokens of a relation query: template phrases stripped first,
+ *  then ASCII words + CJK-run bigrams of the remainder, minus the token
+ *  stoplist. Empty ⇒ the query cannot name a target (the bare class). */
+export function distinctiveRelationTokens(q: string): string[] {
+	const stripped = q.replace(RELATION_TEMPLATE_RE, " ");
+	const tokens = new Set(stripped.toLowerCase().match(/[a-z0-9-]{3,30}/g) ?? []);
+	for (const run of stripped.match(/[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]{2,}/g) ?? []) {
+		for (let i = 0; i + 1 < run.length; i++) tokens.add(run.slice(i, i + 2));
+	}
+	return [...tokens].filter((t) => !RELATION_STOP.has(t));
+}
+
+/** The markdown `## 連結` section of a card (lines until the next `## `),
+ *  or "" — the anchor-phrase surface for the relation lever. */
+export function linkSectionText(content: string): string {
+	const lines = content.split("\n");
+	const out: string[] = [];
+	let inSec = false;
+	for (const ln of lines) {
+		if (/^##\s/.test(ln)) {
+			inSec = /^##\s連結/.test(ln);
+			continue;
+		}
+		if (inSec) out.push(ln);
+	}
+	return out.join("\n");
+}
+
+/** Weight of the relation lever's bounded term `REL_TERM·min(relOv,3)/3`.
+ *  Pinned at 6: a saturated anchor (relOv ≥ 3) must dominate the plausible
+ *  TEMPLATE-NOISE bodyOv gap between a link-section hub and the true
+ *  target (hubs pack ≤6 distinct template bigrams more than a sparse
+ *  target). Bounded (never scales past +6) and gated to relation-intent
+ *  queries only — non-relation lanes are byte-identical. */
+export const RELATION_LEX_TERM = 6;
+
+// ---------------------------------------------------------------------------
 // Schema v2 (context-lifecycle D4 / ticket 05) — summary L0 + merge-op table
 // ---------------------------------------------------------------------------
 

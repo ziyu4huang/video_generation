@@ -1,0 +1,31 @@
+{
+ "label": "pre-fix per-class evidence (offline derivation from lift-2 production-mrr-final-tree.json)",
+ "source": "2026-09-15-kcard-retrieval-lift-2/receipts/production-mrr-final-tree.json",
+ "overall": {
+  "n": 78,
+  "hitAt3": 0.7435897435897436,
+  "mrr": 0.7112535612535613
+ },
+ "perClass": {
+  "relation-anchored": {
+   "n": 8,
+   "hitAt3": 0.125,
+   "mrr": 0.15104166666666666
+  },
+  "relation-bare": {
+   "n": 4,
+   "hitAt3": 0,
+   "mrr": 0
+  },
+  "page": {
+   "n": 5,
+   "hitAt3": 0.6,
+   "mrr": 0.5583333333333333
+  },
+  "topical": {
+   "n": 61,
+   "hitAt3": 0.8852459016393442,
+   "mrr": 0.8438979963570128
+  }
+ }
+}

@@ -41,7 +41,7 @@ import { extractFeatures } from "./card-render.ts";
 import { extractTitle } from "./graph-health.ts";
 import { buildAggTiers, buildLeafTiers, renderTier, type Tier, type TierText } from "./tier-ladder.ts";
 import type { KnowledgeRecord, CoverageReport } from "./types.ts";
-import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag, lexicalTokens, isCjkToken } from "./card-format.ts";
+import { buildMocContent, cardAnatomy, readCardFrontmatterFields, readCardMeta, slugify, normTag, lexicalTokens, isCjkToken, isRelationIntent, distinctiveRelationTokens, linkSectionText, RELATION_LEX_TERM } from "./card-format.ts";
 import { computeIdf, scoreOverlap, type LinkWeighting } from "@repo/s2-agent-core-interface";
 import { blendWithHotness, hotnessScore, resolveHotnessAlpha } from "./hotness.ts";
 import type { UsageAggregate } from "./usage.ts";
@@ -391,6 +391,18 @@ function bodyTokenOverlap(content: string, queryTags: Set<string>): number {
 	return n;
 }
 
+/** Count distinctive relation-query tokens present in the card's markdown
+ *  `## 連結` section (kcard-hit3-residual T2). The section is where a
+ *  target's anchor phrase lives (視覺表徵研究 / 理論側同伴 …); template
+ *  vocabulary is already stripped from the query side. Pure. */
+function relationSectionOverlap(content: string, relQueryTokens: readonly string[]): number {
+	if (relQueryTokens.length === 0) return 0;
+	const section = new Set(lexicalTokens(linkSectionText(content)));
+	let n = 0;
+	for (const t of relQueryTokens) if (section.has(t)) n++;
+	return n;
+}
+
 /** Slug-tokenization noise filter: BODY_STOP plus the type/section prefixes
  *  baked into converged-card slugs (from the record id namespace or the
  *  gotcha/lever/pattern record_type). These carry no topic signal and would
@@ -554,6 +566,15 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 	let scanned = 0;
 	let excluded = 0;
 
+	// kcard-hit3-residual T2: relation-intent queries (連結 + 相關/互為/
+	// 同屬/指向) carry their target identity as an ANCHOR phrase that lives
+	// in the target's ## 連結 section — a surface the embed lane never sees
+	// (cardEmbedText strips it) and the lexical lane drowns in template
+	// vocabulary. One gate computation per query; bare queries (zero
+	// distinctive tokens) leave the lane byte-identical.
+	const relQueryTokens = isRelationIntent(opts.queryText ?? "")
+		? distinctiveRelationTokens(opts.queryText ?? "")
+		: [];
 	for (const name of readdirSync(folderAbs)) {
 		if (!name.endsWith(".md")) continue;
 		// LeanRAG â¡ (ticket 05): derived aggregation MOCs never RANK â surfaced
@@ -588,11 +609,12 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 		// Opt-in body-match recall: a card with zero tag overlap is still eligible
 		// when query tokens appear in its body prose. Default bodyMatch=false keeps
 		// the cheap skip (no file read for no-overlap cards) + the pinned baseline.
-		if (shared <= 0 && !bodyMatch && !(slugDom && slugOverlap > 0)) continue;
+		if (shared <= 0 && !bodyMatch && !(slugDom && slugOverlap > 0) && relQueryTokens.length === 0) continue;
 		// Read the card content for title/detail/type.
 		const content = readFileSync(abs, "utf8");
 		const bodyOverlap = bodyMatch ? bodyTokenOverlap(content, queryTags) : 0;
-		if (shared <= 0 && bodyOverlap <= 0 && slugOverlap <= 0) continue; // no overlap of any kind
+		const relOv = relationSectionOverlap(content, relQueryTokens);
+		if (shared <= 0 && bodyOverlap <= 0 && slugOverlap <= 0 && relOv <= 0) continue; // no overlap of any kind
 		// Defense-in-depth: never surface retired/superseded cards as live
 		// knowledge. Archived cards already live under _archive/ (excluded by
 		// the flat readdirSync), but this guard also catches any stale card that
@@ -675,15 +697,19 @@ export async function retrieveRecords(opts: RetrieveOptions): Promise<RetrieveRe
 			// query topic but whose tags are generic). The â¥3 hard gate is essential:
 			// additive slug weight floods top-4 with weak 1â2-token matches (probed,
 			// regresses). Default (bodyMatch=false, slugDom=false): shared + calloutBoost.
-			_score: slugDom && slugOverlap >= SLUG_DOM_THRESHOLD
+			_score: (slugDom && slugOverlap >= SLUG_DOM_THRESHOLD
 				? slugOverlap * 4 + calloutBoost
 				: bodyMatch
 					? shared * 2 + bodyOverlap + calloutBoost
-					: shared + calloutBoost,
+					: shared + calloutBoost)
+				// kcard-hit3-residual T2: the gated 連結-scoped anchor term —
+				// saturated at +RELATION_LEX_TERM it must dominate the
+				// template-noise bodyOv of link-section hubs.
+				+ (relOv > 0 ? RELATION_LEX_TERM * (Math.min(relOv, 3) / 3) : 0),
 			// retrieval-lift-2 T2: the ABSOLUTE query-evidence triple for the
 			// blend's β·min(ov,3)/3 term (rank-normalized signals can't express
 			// raw evidence strength; trySemanticBlend consumes this).
-			_lexOv: shared + bodyOverlap + slugOverlap,
+			_lexOv: shared + bodyOverlap + slugOverlap + relOv,
 		});
 	}
 

@@ -98,6 +98,16 @@ export interface CardEmbeddings {
 export const EMBED_BODY_CHARS = 2400;
 export const EMBED_TOTAL_CHARS = 3000;
 
+/** Card-embed TEXT composition version (kcard-hit3-residual). The
+ *  envelope carries this and a mismatch forces a rebuild — stale vectors
+ *  otherwise serve silently on text changes (PB-09 class). History: 1 =
+ *  quality-lift composition (連結 stripped). V2 (bounded 連結 tail) was
+ *  receipt-REJECTED: MRR 0.689 < gate 0.70, topical hit@3 regressed
+ *  0.885→0.852 (receipts/production-mrr-v2-a18.json) — text reverted to
+ *  v1, mechanism kept so the next composition change can't serve stale.
+ *  Backward-compatible: a cache without the field reads as version 1. */
+export const EMBED_TEXT_VERSION = 1;
+
 export function cardEmbedText(raw: string, title: string, tags: string[]): string {
 	// frontmatter summary is carried INTO the embed (it used to be stripped
 	// with the frontmatter and never reached the vector)
@@ -105,7 +115,7 @@ export function cardEmbedText(raw: string, title: string, tags: string[]): strin
 	const summary = summaryM ? /^summary:\s*(.+)\s*$/m.exec(summaryM[1])?.[1]?.trim() : undefined;
 	let body = raw.replace(/^---\n[\s\S]*?\n---/, "");
 	body = body
-		.replace(/## 連結[\s\S]*$/, "") // link-list scaffolding, not content
+		.replace(/## 連結[\s\S]*$/, "") // link-list scaffolding, not content (V2 re-admission receipt-rejected)
 		.replace(/^(type|confidence|status|superseded_by|source_id|source|provenance|first_seen|last_seen|record_type|dimension|tags):\s.*$/gm, "") // record-meta tail
 		.replace(/^#\s+.+$/m, "") // H1 duplicates the title
 		.replace(/^##\s+核心想法\s*$/gm, ""); // renderCard re-emits the section header
@@ -158,7 +168,12 @@ export async function getCardEmbeddings(
 	if (existsSync(cache)) {
 		try {
 			const cached = JSON.parse(readFileSync(cache, "utf8")) as CardEmbeddings & { fingerprint?: string };
-			if (cached.model === model && cached.fingerprint === fingerprint && cached.paths?.length === names.length) {
+			if (
+				cached.model === model &&
+				cached.fingerprint === fingerprint &&
+				cached.paths?.length === names.length &&
+				((cached as { textVersion?: number }).textVersion ?? 1) === EMBED_TEXT_VERSION
+			) {
 				return { model, paths: cached.paths, vectors: cached.vectors };
 			}
 		} catch {
@@ -186,7 +201,7 @@ export async function getCardEmbeddings(
 			vectors.push(...vs);
 		}
 		const paths = names.map((n) => `${folder}/${n.slice(0, -3)}`); // no .md
-		const out: CardEmbeddings & { fingerprint: string } = { model, paths, vectors, fingerprint };
+		const out: CardEmbeddings & { fingerprint: string; textVersion: number } = { model, paths, vectors, fingerprint, textVersion: EMBED_TEXT_VERSION };
 		try {
 			mkdirSync(join(vaultPath, ".knowledge-semantic"), { recursive: true });
 			writeFileSync(cache, JSON.stringify(out));

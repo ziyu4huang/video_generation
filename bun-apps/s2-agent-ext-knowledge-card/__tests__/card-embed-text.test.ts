@@ -46,7 +46,10 @@ describe("cardEmbedText — embed composition (T1)", () => {
 		expect(t).toContain("racecheck detector found 12 of the 51 reported races");
 	});
 
-	test("連結 section and record-meta lines are stripped", () => {
+	test("連結 section and record-meta lines are stripped (V2 re-admission receipt-rejected)", () => {
+		// kcard-hit3-residual: the V2 bounded-連結-tail variant measured
+		// MRR 0.689 < gate 0.70 with topical regression — the quality-lift
+		// full strip is RESTORED. Record-meta lines stay stripped too.
 		const t = cardEmbedText(FIXTURE_CARD, "Paper - GMSBench", ["gpu"]);
 		expect(t).not.toContain("Some Other Card");
 		expect(t).not.toContain("source_id:");
